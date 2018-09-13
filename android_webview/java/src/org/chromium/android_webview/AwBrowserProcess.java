@@ -8,7 +8,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.os.AsyncTask;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
@@ -19,6 +18,7 @@ import org.chromium.android_webview.command_line.CommandLineUtil;
 import org.chromium.android_webview.policy.AwPolicyProvider;
 import org.chromium.android_webview.services.CrashReceiverService;
 import org.chromium.android_webview.services.ICrashReceiverService;
+import org.chromium.base.AsyncTask;
 import org.chromium.base.BuildInfo;
 import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
@@ -31,9 +31,9 @@ import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.components.minidump_uploader.CrashFileManager;
-import org.chromium.content.browser.BrowserStartupController;
-import org.chromium.content.browser.ChildProcessCreationParams;
-import org.chromium.content.browser.ChildProcessLauncherHelper;
+import org.chromium.content_public.browser.BrowserStartupController;
+import org.chromium.content_public.browser.ChildProcessCreationParams;
+import org.chromium.content_public.browser.ChildProcessLauncherHelper;
 import org.chromium.policy.CombinedPolicyProvider;
 
 import java.io.File;
@@ -92,9 +92,9 @@ public final class AwBrowserProcess {
         final boolean isExternalService = true;
         final boolean bindToCaller = true;
         final boolean ignoreVisibilityForImportance = true;
-        ChildProcessCreationParams.set(new ChildProcessCreationParams(getWebViewPackageName(),
-                isExternalService, LibraryProcessType.PROCESS_WEBVIEW_CHILD, bindToCaller,
-                ignoreVisibilityForImportance));
+        ChildProcessCreationParams.set(getWebViewPackageName(), isExternalService,
+                LibraryProcessType.PROCESS_WEBVIEW_CHILD, bindToCaller,
+                ignoreVisibilityForImportance);
     }
 
     /**

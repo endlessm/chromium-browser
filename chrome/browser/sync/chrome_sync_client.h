@@ -12,6 +12,7 @@
 #include "base/single_thread_task_runner.h"
 #include "chrome/browser/sync/glue/extensions_activity_monitor.h"
 #include "components/sync/driver/sync_client.h"
+#include "components/sync/model/model_type_store_service.h"
 
 class Profile;
 
@@ -41,13 +42,14 @@ class ChromeSyncClient : public syncer::SyncClient {
   syncer::SyncService* GetSyncService() override;
   PrefService* GetPrefService() override;
   base::FilePath GetLocalSyncBackendFolder() override;
+  syncer::ModelTypeStoreService* GetModelTypeStoreService() override;
   bookmarks::BookmarkModel* GetBookmarkModel() override;
   favicon::FaviconService* GetFaviconService() override;
   history::HistoryService* GetHistoryService() override;
   bool HasPasswordStore() override;
   base::Closure GetPasswordStateChangedCallback() override;
-  syncer::SyncApiComponentFactory::RegisterDataTypesMethod
-  GetRegisterPlatformTypesCallback() override;
+  syncer::DataTypeController::TypeVector CreateDataTypeControllers(
+      syncer::LocalDeviceInfoProvider* local_device_info_provider) override;
   autofill::PersonalDataManager* GetPersonalDataManager() override;
   invalidation::InvalidationService* GetInvalidationService() override;
   BookmarkUndoService* GetBookmarkUndoServiceIfExists() override;
@@ -72,20 +74,6 @@ class ChromeSyncClient : public syncer::SyncClient {
       std::vector<const syncer::DeviceInfoTracker*>* trackers);
 
  private:
-  // Register data types which are enabled on desktop platforms only.
-  // |disabled_types| and |enabled_types| correspond only to those types
-  // being explicitly disabled/enabled by the command line.
-  void RegisterDesktopDataTypes(syncer::SyncService* sync_service,
-                                syncer::ModelTypeSet disabled_types,
-                                syncer::ModelTypeSet enabled_types);
-
-  // Register data types which are enabled on Android platforms only.
-  // |disabled_types| and |enabled_types| correspond only to those types
-  // being explicitly disabled/enabled by the command line.
-  void RegisterAndroidDataTypes(syncer::SyncService* sync_service,
-                                syncer::ModelTypeSet disabled_types,
-                                syncer::ModelTypeSet enabled_types);
-
   Profile* const profile_;
 
   // The sync api component factory in use by this client.
@@ -103,8 +91,6 @@ class ChromeSyncClient : public syncer::SyncClient {
 
   // Generates and monitors the ExtensionsActivity object used by sync.
   ExtensionsActivityMonitor extensions_activity_monitor_;
-
-  base::WeakPtrFactory<ChromeSyncClient> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeSyncClient);
 };

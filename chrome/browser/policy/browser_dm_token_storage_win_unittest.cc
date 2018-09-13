@@ -20,11 +20,8 @@ namespace policy {
 namespace {
 
 constexpr wchar_t kClientId1[] = L"fake-client-id-1";
-constexpr wchar_t kClientId2[] = L"fake-client-id-2";
 constexpr wchar_t kEnrollmentToken1[] = L"fake-enrollment-token-1";
-constexpr wchar_t kEnrollmentToken2[] = L"fake-enrollment-token-2";
 constexpr char kDMToken1[] = "fake-dm-token-1";
-constexpr char kDMToken2[] = "fake-dm-token-2";
 
 }  // namespace
 
@@ -73,53 +70,26 @@ class BrowserDMTokenStorageWinTest : public testing::Test {
   registry_util::RegistryOverrideManager registry_override_manager_;
 };
 
-TEST_F(BrowserDMTokenStorageWinTest, RetrieveClientId) {
+TEST_F(BrowserDMTokenStorageWinTest, InitClientId) {
   ASSERT_TRUE(SetMachineGuid(kClientId1));
   BrowserDMTokenStorageWin storage;
-  EXPECT_EQ(base::WideToUTF8(kClientId1), storage.RetrieveClientId());
-
-  // The client ID value should be cached in memory and not read from the system
-  // again.
-  ASSERT_TRUE(SetMachineGuid(kClientId2));
-  EXPECT_EQ(base::WideToUTF8(kClientId1), storage.RetrieveClientId());
+  EXPECT_EQ(base::WideToUTF8(kClientId1), storage.InitClientId());
 }
 
-TEST_F(BrowserDMTokenStorageWinTest, RetrieveEnrollmentToken) {
+TEST_F(BrowserDMTokenStorageWinTest, InitEnrollmentToken) {
   ASSERT_TRUE(SetMachineGuid(kClientId1));
   ASSERT_TRUE(SetEnrollmentToken(kEnrollmentToken1));
 
   BrowserDMTokenStorageWin storage;
-  EXPECT_EQ(base::WideToUTF8(kEnrollmentToken1),
-            storage.RetrieveEnrollmentToken());
-  // The enrollment token should be cached in memory and not read from the
-  // system again.
-  ASSERT_TRUE(SetEnrollmentToken(kEnrollmentToken2));
-  EXPECT_EQ(base::WideToUTF8(kEnrollmentToken1),
-            storage.RetrieveEnrollmentToken());
+  EXPECT_EQ(base::WideToUTF8(kEnrollmentToken1), storage.InitEnrollmentToken());
 }
 
-TEST_F(BrowserDMTokenStorageWinTest, RetrieveDMToken) {
+TEST_F(BrowserDMTokenStorageWinTest, InitDMToken) {
   ASSERT_TRUE(SetMachineGuid(kClientId1));
 
-  // The DM token will not be read from the system if there is no enrollment
-  // token.
   ASSERT_TRUE(SetDMToken(kDMToken1));
   BrowserDMTokenStorageWin storage;
-  EXPECT_THAT(storage.RetrieveDMToken(), IsEmpty());
-
-  // With the enrollment token now set, an already initialized
-  // BrowserDMTokenStorageWin should still return empty DM token because it
-  // should cache the value.
-  ASSERT_TRUE(SetEnrollmentToken(kEnrollmentToken1));
-  EXPECT_THAT(storage.RetrieveDMToken(), IsEmpty());
-
-  // But if enrollment token is set when BrowserDMTokenStorageWin is first used,
-  // it should return the DM token.
-  BrowserDMTokenStorageWin storage2;
-  EXPECT_EQ(std::string(kDMToken1), storage2.RetrieveDMToken());
-
-  // The DM token should be cached in memory and not read from the system again.
-  ASSERT_TRUE(SetDMToken(kDMToken2));
-  EXPECT_EQ(std::string(kDMToken1), storage2.RetrieveDMToken());
+  EXPECT_EQ(std::string(kDMToken1), storage.InitDMToken());
 }
+
 }  // namespace policy

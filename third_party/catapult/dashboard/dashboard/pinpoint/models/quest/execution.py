@@ -66,7 +66,6 @@ class Execution(object):
     For example, the Build Execution passes the isolate hash to the Test
     Execution.
     """
-    assert self.completed
     return self._result_arguments
 
   def AsDict(self):
@@ -74,7 +73,6 @@ class Execution(object):
         'completed': self._completed,
         'exception': self._exception,
         'details': self._AsDict(),
-        'result_arguments': self._result_arguments,
     }
     return d
 

@@ -22,12 +22,6 @@
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 
-#if defined(OS_CHROMEOS)
-#include "ash/public/cpp/ash_switches.h"  // nogncheck
-#include "ash/shell.h"
-#include "chrome/browser/ui/ash/ash_util.h"
-#endif
-
 namespace {
 
 // Minimum height of the visible part of a window.
@@ -141,51 +135,14 @@ class DefaultStateProvider : public WindowSizer::StateProvider {
 
 }  // namespace
 
-WindowSizer::DefaultTargetDisplayProvider::DefaultTargetDisplayProvider() =
-    default;
-WindowSizer::DefaultTargetDisplayProvider::~DefaultTargetDisplayProvider() =
-    default;
-
-display::Display WindowSizer::DefaultTargetDisplayProvider::GetTargetDisplay(
-    const display::Screen* screen,
-    const gfx::Rect& bounds) const {
-#if defined(OS_CHROMEOS)
-  // Use the target display on ash.
-  if (ash_util::ShouldOpenAshOnStartup()) {
-    aura::Window* target = ash::Shell::GetRootWindowForNewWindows();
-    return screen->GetDisplayNearestWindow(target);
-  }
-#endif
-  // Find the size of the work area of the monitor that intersects the bounds
-  // of the anchor window.
-  return screen->GetDisplayMatching(bounds);
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 // WindowSizer, public:
 
-WindowSizer::WindowSizer(
-    std::unique_ptr<StateProvider> state_provider,
-    std::unique_ptr<TargetDisplayProvider> target_display_provider,
-    const Browser* browser)
-    : WindowSizer(std::move(state_provider),
-                  std::move(target_display_provider),
-                  display::Screen::GetScreen(),
-                  browser) {}
+WindowSizer::WindowSizer(std::unique_ptr<StateProvider> state_provider,
+                         const Browser* browser)
+    : state_provider_(std::move(state_provider)), browser_(browser) {}
 
-WindowSizer::WindowSizer(
-    std::unique_ptr<StateProvider> state_provider,
-    std::unique_ptr<TargetDisplayProvider> target_display_provider,
-    display::Screen* screen,
-    const Browser* browser)
-    : state_provider_(std::move(state_provider)),
-      target_display_provider_(std::move(target_display_provider)),
-      screen_(screen),
-      browser_(browser) {
-  DCHECK(screen_);
-}
-
-WindowSizer::~WindowSizer() {}
+WindowSizer::~WindowSizer() = default;
 
 // static
 void WindowSizer::GetBrowserWindowBoundsAndShowState(
@@ -196,10 +153,7 @@ void WindowSizer::GetBrowserWindowBoundsAndShowState(
     ui::WindowShowState* show_state) {
   std::unique_ptr<StateProvider> state_provider(
       new DefaultStateProvider(app_name, browser));
-  std::unique_ptr<TargetDisplayProvider> target_display_provider(
-      new DefaultTargetDisplayProvider);
-  const WindowSizer sizer(std::move(state_provider),
-                          std::move(target_display_provider), browser);
+  const WindowSizer sizer(std::move(state_provider), browser);
   sizer.DetermineWindowBoundsAndShowState(specified_bounds,
                                           window_bounds,
                                           show_state);
@@ -234,7 +188,7 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
 
     // No saved placement, figure out some sensible default size based on
     // the user's screen size.
-    GetDefaultWindowBounds(GetTargetDisplay(gfx::Rect()), bounds);
+    GetDefaultWindowBounds(GetDisplayForNewWindow(), bounds);
     return;
   }
 
@@ -244,7 +198,8 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
   // of the anchor window. Note: AdjustBoundsToBeVisibleOnMonitorContaining
   // does not exactly what we want: It makes only sure that "a minimal part"
   // is visible on the screen.
-  gfx::Rect work_area = screen_->GetDisplayMatching(*bounds).work_area();
+  gfx::Rect work_area =
+      display::Screen::GetScreen()->GetDisplayMatching(*bounds).work_area();
   // Resize so that it fits.
   bounds->AdjustToFit(work_area);
 }
@@ -258,9 +213,9 @@ bool WindowSizer::GetLastActiveWindowBounds(
       !state_provider_->GetLastActiveWindowState(bounds, show_state))
     return false;
   bounds->Offset(kWindowTilePixels, kWindowTilePixels);
-  AdjustBoundsToBeVisibleOnDisplay(screen_->GetDisplayMatching(*bounds),
-                                   gfx::Rect(),
-                                   bounds);
+  AdjustBoundsToBeVisibleOnDisplay(
+      display::Screen::GetScreen()->GetDisplayMatching(*bounds), gfx::Rect(),
+      bounds);
   return true;
 }
 
@@ -274,9 +229,8 @@ bool WindowSizer::GetSavedWindowBounds(gfx::Rect* bounds,
                                            &saved_work_area,
                                            show_state))
     return false;
-  AdjustBoundsToBeVisibleOnDisplay(GetTargetDisplay(*bounds),
-                                   saved_work_area,
-                                   bounds);
+  AdjustBoundsToBeVisibleOnDisplay(GetDisplayForNewWindow(*bounds),
+                                   saved_work_area, bounds);
   return true;
 }
 
@@ -298,7 +252,8 @@ void WindowSizer::GetDefaultWindowBounds(const display::Display& display,
 #if !defined(OS_MACOSX)
   // For wider aspect ratio displays at higher resolutions, we might size the
   // window narrower to allow two windows to easily be placed side-by-side.
-  gfx::Rect screen_size = screen_->GetPrimaryDisplay().bounds();
+  gfx::Rect screen_size =
+      display::Screen::GetScreen()->GetPrimaryDisplay().bounds();
   double width_to_height =
     static_cast<double>(screen_size.width()) / screen_size.height();
 
@@ -391,10 +346,6 @@ void WindowSizer::AdjustBoundsToBeVisibleOnDisplay(
 #endif  // defined(OS_MACOSX)
 }
 
-display::Display WindowSizer::GetTargetDisplay(const gfx::Rect& bounds) const {
-  return target_display_provider_->GetTargetDisplay(screen_, bounds);
-}
-
 ui::WindowShowState WindowSizer::GetWindowDefaultShowState() const {
   if (!browser_)
     return ui::SHOW_STATE_DEFAULT;
@@ -414,3 +365,11 @@ ui::WindowShowState WindowSizer::GetWindowDefaultShowState() const {
 
   return browser_->initial_show_state();
 }
+
+#if !defined(OS_CHROMEOS)
+// Chrome OS has an implementation in //chrome/browser/ui/ash.
+// static
+display::Display WindowSizer::GetDisplayForNewWindow(const gfx::Rect& bounds) {
+  return display::Screen::GetScreen()->GetDisplayMatching(bounds);
+}
+#endif  // defined(OS_CHROMEOS)

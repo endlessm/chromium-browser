@@ -23,23 +23,23 @@
 #include <unordered_set>
 #include <vector>
 
+#include "latest_version_spirv_header.h"
 #include "source/comp/markv_model.h"
 #include "source/enum_string_mapping.h"
 #include "source/opcode.h"
 #include "source/operand.h"
 #include "source/spirv_constant.h"
 #include "source/util/huffman_codec.h"
-#include "spirv/1.2/spirv.h"
-
-using libspirv::SpirvStats;
-using spvutils::HuffmanCodec;
 
 namespace {
+
+using spvtools::SpirvStats;
+using spvtools::utils::HuffmanCodec;
 
 // Signals that the value is not in the coding scheme and a fallback method
 // needs to be used.
 const uint64_t kMarkvNoneOfTheAbove =
-    spvtools::MarkvModel::GetMarkvNoneOfTheAbove();
+    spvtools::comp::MarkvModel::GetMarkvNoneOfTheAbove();
 
 inline uint32_t CombineOpcodeAndNumOperands(uint32_t opcode,
                                             uint32_t num_operands) {
@@ -380,7 +380,7 @@ std::string GetOpcodeString(uint32_t word) {
 }
 
 std::string GetCapabilityString(uint32_t word) {
-  return libspirv::CapabilityToString(static_cast<SpvCapability>(word));
+  return spvtools::CapabilityToString(static_cast<SpvCapability>(word));
 }
 
 template <class T>

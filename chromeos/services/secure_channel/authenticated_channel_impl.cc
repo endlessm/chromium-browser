@@ -46,8 +46,7 @@ AuthenticatedChannelImpl::AuthenticatedChannelImpl(
         connection_creation_details,
     std::unique_ptr<cryptauth::SecureChannel> secure_channel)
     : AuthenticatedChannel(),
-      connection_metadata_(connection_creation_details,
-                           mojom::ConnectionMetadata::kNoRssiAvailable),
+      connection_creation_details_(connection_creation_details),
       secure_channel_(std::move(secure_channel)) {
   // |secure_channel_| should be a valid and already authenticated.
   DCHECK(secure_channel_);
@@ -61,12 +60,11 @@ AuthenticatedChannelImpl::~AuthenticatedChannelImpl() {
   secure_channel_->RemoveObserver(this);
 }
 
-const mojom::ConnectionMetadata&
-AuthenticatedChannelImpl::GetConnectionMetadata() const {
-  // TODO(khorimoto): Update |connection_metadata_.rssi_rolling_average|
-  // periodically throughout the connection when applicable. For now,
-  // kNoRssiAvailable is used in all cases.
-  return connection_metadata_;
+void AuthenticatedChannelImpl::GetConnectionMetadata(
+    base::OnceCallback<void(mojom::ConnectionMetadataPtr)> callback) {
+  secure_channel_->GetConnectionRssi(
+      base::BindOnce(&AuthenticatedChannelImpl::OnRssiFetched,
+                     base::Unretained(this), std::move(callback)));
 }
 
 void AuthenticatedChannelImpl::PerformSendMessage(
@@ -135,6 +133,24 @@ void AuthenticatedChannelImpl::OnMessageSent(
 
   std::move(sequence_number_to_callback_map_[sequence_number]).Run();
   sequence_number_to_callback_map_.erase(sequence_number);
+}
+
+void AuthenticatedChannelImpl::OnRssiFetched(
+    base::OnceCallback<void(mojom::ConnectionMetadataPtr)> callback,
+    base::Optional<int32_t> current_rssi) {
+  mojom::BluetoothConnectionMetadataPtr bluetooth_connection_metadata_ptr;
+  if (current_rssi) {
+    bluetooth_connection_metadata_ptr =
+        mojom::BluetoothConnectionMetadata::New(*current_rssi);
+  }
+
+  // The SecureChannel must have channel binding data if it is authenticated.
+  DCHECK(secure_channel_->GetChannelBindingData());
+
+  std::move(callback).Run(mojom::ConnectionMetadata::New(
+      connection_creation_details_,
+      std::move(bluetooth_connection_metadata_ptr),
+      *secure_channel_->GetChannelBindingData()));
 }
 
 }  // namespace secure_channel

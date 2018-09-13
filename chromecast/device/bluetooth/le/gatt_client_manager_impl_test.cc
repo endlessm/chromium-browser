@@ -24,7 +24,6 @@ using ::testing::Return;
 namespace chromecast {
 namespace bluetooth {
 
-using MockStatusCallback = base::MockCallback<RemoteDevice::StatusCallback>;
 
 namespace {
 
@@ -88,6 +87,7 @@ std::vector<bluetooth_v2_shlib::Gatt::Service> GenerateServices() {
   characteristic.properties =
       static_cast<bluetooth_v2_shlib::Gatt::Properties>(0);
   characteristic.descriptors.clear();
+  service.characteristics.push_back(characteristic);
 
   ret.push_back(service);
 
@@ -101,7 +101,7 @@ std::vector<bluetooth_v2_shlib::Gatt::Service> GenerateServices() {
 }
 
 class GattClientManagerTest : public ::testing::Test {
- protected:
+ public:
   void SetUp() override {
     message_loop_ =
         std::make_unique<base::MessageLoop>(base::MessageLoop::TYPE_DEFAULT);
@@ -171,7 +171,7 @@ class GattClientManagerTest : public ::testing::Test {
     ASSERT_TRUE(device->IsConnected());
   }
 
-  MockStatusCallback cb_;
+  base::MockCallback<RemoteDevice::StatusCallback> cb_;
   std::unique_ptr<base::MessageLoop> message_loop_;
   std::unique_ptr<GattClientManagerImpl> gatt_client_manager_;
   std::unique_ptr<bluetooth_v2_shlib::MockGattClient> gatt_client_;
@@ -213,6 +213,12 @@ TEST_F(GattClientManagerTest, RemoteDeviceConnect) {
   delegate->OnGetServices(kTestAddr1, {});
 
   EXPECT_TRUE(device->IsConnected());
+
+  base::MockCallback<base::OnceCallback<void(size_t)>>
+      get_num_connected_callback;
+  EXPECT_CALL(get_num_connected_callback, Run(1));
+  gatt_client_manager_->GetNumConnected(get_num_connected_callback.Get());
+
   base::RunLoop().RunUntilIdle();
 
   EXPECT_CALL(*gatt_client_, Disconnect(kTestAddr1)).WillOnce(Return(true));
@@ -603,6 +609,112 @@ TEST_F(GattClientManagerTest, ConnectMultiple) {
                                false /* connected */);
     EXPECT_FALSE(device->IsConnected());
   }
+}
+
+TEST_F(GattClientManagerTest, GetServicesFailOnConnect) {
+  scoped_refptr<RemoteDevice> device = GetDevice(kTestAddr1);
+  EXPECT_CALL(*gatt_client_, Connect(kTestAddr1)).WillOnce(Return(true));
+  device->Connect(cb_.Get());
+  bluetooth_v2_shlib::Gatt::Client::Delegate* delegate =
+      gatt_client_->delegate();
+
+  EXPECT_CALL(cb_, Run(false));
+  EXPECT_CALL(*gatt_client_, GetServices(kTestAddr1)).WillOnce(Return(false));
+  delegate->OnConnectChanged(kTestAddr1, true /* status */,
+                             true /* connected */);
+  EXPECT_FALSE(device->IsConnected());
+}
+
+TEST_F(GattClientManagerTest, GetServicesSuccessAfterConnectCallback) {
+  const auto kServices = GenerateServices();
+  scoped_refptr<RemoteDevice> device = GetDevice(kTestAddr1);
+
+  // Callback that checks when Connect()'s callback returns, GetServices returns
+  // the correct services.
+  bool cb_called = false;
+  auto cb = base::BindOnce(
+      [](GattClientManagerTest* gcmt,
+         const std::vector<bluetooth_v2_shlib::Gatt::Service>*
+             expected_services,
+         bool* cb_called, bool success) {
+        EXPECT_TRUE(success);
+        *cb_called = true;
+
+        auto device = gcmt->GetDevice(kTestAddr1);
+        auto services = gcmt->GetServices(device.get());
+        EXPECT_EQ(expected_services->size(), services.size());
+      },
+      this, &kServices, &cb_called);
+  EXPECT_CALL(*gatt_client_, Connect(kTestAddr1)).WillOnce(Return(true));
+  device->Connect(std::move(cb));
+
+  bluetooth_v2_shlib::Gatt::Client::Delegate* delegate =
+      gatt_client_->delegate();
+  EXPECT_CALL(*gatt_client_, GetServices(kTestAddr1)).WillOnce(Return(true));
+  delegate->OnConnectChanged(kTestAddr1, true /* status */,
+                             true /* connected */);
+
+  // Connect's callback should not be called until service discovery is
+  // complete.
+  EXPECT_FALSE(cb_called);
+  delegate->OnGetServices(kTestAddr1, kServices);
+  EXPECT_TRUE(cb_called);
+}
+
+TEST_F(GattClientManagerTest, Queuing) {
+  const std::vector<uint8_t> kTestData1 = {0x1, 0x2, 0x3};
+  const std::vector<uint8_t> kTestData2 = {0x4, 0x5, 0x6};
+  const std::vector<uint8_t> kTestData3 = {0x7, 0x8, 0x9};
+  const auto kServices = GenerateServices();
+  const bluetooth_v2_shlib::Gatt::Client::AuthReq kAuthReq =
+      bluetooth_v2_shlib::Gatt::Client::AUTH_REQ_MITM;
+  const bluetooth_v2_shlib::Gatt::WriteType kWriteType =
+      bluetooth_v2_shlib::Gatt::WRITE_TYPE_DEFAULT;
+
+  Connect(kTestAddr1);
+  scoped_refptr<RemoteDevice> device = GetDevice(kTestAddr1);
+  bluetooth_v2_shlib::Gatt::Client::Delegate* delegate =
+      gatt_client_->delegate();
+  delegate->OnServicesAdded(kTestAddr1, kServices);
+  std::vector<scoped_refptr<RemoteService>> services =
+      GetServices(device.get());
+  ASSERT_EQ(kServices.size(), services.size());
+
+  auto service = services[0];
+  std::vector<scoped_refptr<RemoteCharacteristic>> characteristics =
+      service->GetCharacteristics();
+  ASSERT_GE(characteristics.size(), 2ul);
+  auto characteristic1 = characteristics[0];
+  auto characteristic2 = characteristics[1];
+
+  // Issue a write to one characteristic.
+  EXPECT_CALL(*gatt_client_,
+              WriteCharacteristic(kTestAddr1, characteristic1->characteristic(),
+                                  kAuthReq, kWriteType, kTestData1))
+      .WillOnce(Return(true));
+  characteristic1->WriteAuth(kAuthReq, kWriteType, kTestData1, cb_.Get());
+
+  // Issue a read to another characteristic. The shlib should not get the call
+  // until after the read's callback.
+  EXPECT_CALL(*gatt_client_,
+              ReadCharacteristic(kTestAddr1, characteristic2->characteristic(),
+                                 kAuthReq))
+      .Times(0);
+  base::MockCallback<RemoteCharacteristic::ReadCallback> read_cb;
+  characteristic2->ReadAuth(kAuthReq, read_cb.Get());
+
+  EXPECT_CALL(cb_, Run(true));
+  EXPECT_CALL(*gatt_client_,
+              ReadCharacteristic(kTestAddr1, characteristic2->characteristic(),
+                                 kAuthReq))
+      .WillOnce(Return(true));
+  delegate->OnCharacteristicWriteResponse(kTestAddr1, true,
+                                          characteristic1->handle());
+
+  EXPECT_CALL(read_cb, Run(true, kTestData2));
+  delegate->OnCharacteristicReadResponse(kTestAddr1, true,
+                                         characteristic2->handle(), kTestData2);
+  base::RunLoop().RunUntilIdle();
 }
 
 }  // namespace bluetooth

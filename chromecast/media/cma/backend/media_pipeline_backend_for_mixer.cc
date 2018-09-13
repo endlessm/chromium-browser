@@ -41,7 +41,7 @@ MediaPipelineBackendForMixer::CreateAudioDecoder() {
   if (audio_decoder_)
     return nullptr;
   audio_decoder_ = std::make_unique<AudioDecoderForMixer>(this);
-  if (video_decoder_ && !av_sync_) {
+  if (video_decoder_ && !av_sync_ && !IsIgnorePtsMode()) {
     av_sync_ = AvSync::Create(GetTaskRunner(), this);
   }
   return audio_decoder_.get();
@@ -54,7 +54,7 @@ MediaPipelineBackendForMixer::CreateVideoDecoder() {
     return nullptr;
   video_decoder_ = VideoDecoderForMixer::Create(params_);
   DCHECK(video_decoder_.get());
-  if (audio_decoder_ && !av_sync_) {
+  if (audio_decoder_ && !av_sync_ && !IsIgnorePtsMode()) {
     av_sync_ = AvSync::Create(GetTaskRunner(), this);
   }
   return video_decoder_.get();
@@ -64,29 +64,32 @@ bool MediaPipelineBackendForMixer::Initialize() {
   DCHECK_EQ(kStateUninitialized, state_);
   if (audio_decoder_)
     audio_decoder_->Initialize();
+  if (video_decoder_ && !video_decoder_->Initialize()) {
+    return false;
+  }
   state_ = kStateInitialized;
   return true;
 }
 
 bool MediaPipelineBackendForMixer::Start(int64_t start_pts) {
   DCHECK_EQ(kStateInitialized, state_);
-  int64_t start_playback_timestamp_us = INT64_MIN;
-  if (params_.sync_type == MediaPipelineDeviceParams::kModeSyncPts) {
-    start_playback_timestamp_us =
+  if (IsIgnorePtsMode()) {
+    start_playback_timestamp_us_ = INT64_MIN;
+  } else {
+    start_playback_timestamp_us_ =
         MonotonicClockNow() + kSyncedPlaybackStartDelayUs;
   }
+  start_playback_pts_us_ = start_pts;
 
-  if (audio_decoder_ && !audio_decoder_->Start(start_playback_timestamp_us))
+  if (audio_decoder_ && !audio_decoder_->Start(start_playback_timestamp_us_))
     return false;
   if (video_decoder_ && !video_decoder_->Start(start_pts, true))
     return false;
-  // TODO(almasrymina): need to also start video playback at the proper time in
-  // non-kModeSyncPts.
   if (video_decoder_ &&
-      !video_decoder_->SetPts(start_playback_timestamp_us, start_pts))
+      !video_decoder_->SetPts(start_playback_timestamp_us_, start_pts))
     return false;
   if (av_sync_) {
-    av_sync_->NotifyStart(start_playback_timestamp_us);
+    av_sync_->NotifyStart(start_playback_timestamp_us_, start_pts);
   }
 
   state_ = kStatePlaying;
@@ -136,9 +139,25 @@ bool MediaPipelineBackendForMixer::Resume() {
 }
 
 bool MediaPipelineBackendForMixer::SetPlaybackRate(float rate) {
-  if (audio_decoder_) {
-    return audio_decoder_->SetPlaybackRate(rate);
+  LOG(INFO) << __func__ << " rate=" << rate;
+
+  // If av_sync_ is available, only set the playback rate of the video master,
+  // and let av_sync_ handle syncing the audio to the video.
+  if (av_sync_) {
+    DCHECK(video_decoder_);
+    if (!video_decoder_->SetPlaybackRate(rate))
+      return false;
+    av_sync_->NotifyPlaybackRateChange(rate);
+    return true;
   }
+
+  // If there is no av_sync_, then we must manually set the playback rate of
+  // the audio decoder.
+  if (video_decoder_ && !video_decoder_->SetPlaybackRate(rate))
+    return false;
+  if (audio_decoder_ && !audio_decoder_->SetPlaybackRate(rate))
+    return false;
+
   return true;
 }
 
@@ -161,6 +180,10 @@ AudioContentType MediaPipelineBackendForMixer::ContentType() const {
   return params_.content_type;
 }
 
+AudioChannel MediaPipelineBackendForMixer::AudioChannel() const {
+  return params_.audio_channel;
+}
+
 const scoped_refptr<base::SingleThreadTaskRunner>&
 MediaPipelineBackendForMixer::GetTaskRunner() const {
   return static_cast<TaskRunnerImpl*>(params_.task_runner)->runner();
@@ -169,11 +192,11 @@ MediaPipelineBackendForMixer::GetTaskRunner() const {
 #if defined(OS_LINUX)
 int64_t MediaPipelineBackendForMixer::MonotonicClockNow() const {
   timespec now = {0, 0};
-#if BUILDFLAG(ALSA_MONOTONIC_RAW_TSTAMPS)
+#if BUILDFLAG(MEDIA_CLOCK_MONOTONIC_RAW)
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
 #else
   clock_gettime(CLOCK_MONOTONIC, &now);
-#endif
+#endif // MEDIA_CLOCK_MONOTONIC_RAW
   return static_cast<int64_t>(now.tv_sec) * 1000000 + now.tv_nsec / 1000;
 }
 #elif defined(OS_FUCHSIA)
@@ -181,6 +204,13 @@ int64_t MediaPipelineBackendForMixer::MonotonicClockNow() const {
   return zx_clock_get(ZX_CLOCK_MONOTONIC) / 1000;
 }
 #endif
+
+bool MediaPipelineBackendForMixer::IsIgnorePtsMode() const {
+  return params_.sync_type ==
+             MediaPipelineDeviceParams::MediaSyncType::kModeIgnorePts ||
+         params_.sync_type ==
+             MediaPipelineDeviceParams::MediaSyncType::kModeIgnorePtsAndVSync;
+}
 
 }  // namespace media
 }  // namespace chromecast

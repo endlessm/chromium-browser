@@ -185,5 +185,4 @@ TEST_P(DynamicPromotionPerfTest, Run)
 ANGLE_INSTANTIATE_TEST(DynamicPromotionPerfTest,
                        DynamicPromotionD3D11Params(),
                        DynamicPromotionD3D9Params());
-
 }  // anonymous namespace

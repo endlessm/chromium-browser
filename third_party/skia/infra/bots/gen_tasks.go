@@ -135,12 +135,17 @@ var (
 		},
 	}
 
+	// Versions of the following copied from
+	// https://chrome-internal.googlesource.com/infradata/config/+/master/configs/cr-buildbucket/swarming_task_template_canary.json#42
+	// to test the fix for chromium:836196.
+	// (In the future we may want to use versions from
+	// https://chrome-internal.googlesource.com/infradata/config/+/master/configs/cr-buildbucket/swarming_task_template.json#42)
 	// TODO(borenet): Roll these versions automatically!
 	CIPD_PKGS_PYTHON = []*specs.CipdPackage{
 		&specs.CipdPackage{
 			Name:    "infra/tools/luci/vpython/${platform}",
 			Path:    "cipd_bin_packages",
-			Version: "git_revision:d0130097bd6364a8d834cb9efd4554c1f6192c82",
+			Version: "git_revision:b9c4670197dcefd8762d6e509302acd3efc6e303",
 		},
 	}
 
@@ -156,12 +161,12 @@ var (
 		&specs.CipdPackage{
 			Name:    "infra/tools/luci/kitchen/${platform}",
 			Path:    ".",
-			Version: "git_revision:206b4474cb712bdad8b7b3f213880cfbf03f120c",
+			Version: "git_revision:546aae39f1fb9dce9add528e2011afa574535ecd",
 		},
 		&specs.CipdPackage{
-			Name:    "infra/tools/authutil/${platform}",
+			Name:    "infra/tools/luci-auth/${platform}",
 			Path:    "cipd_bin_packages",
-			Version: "git_revision:9c63809842a277ce10a86afd51b61c639a665d11",
+			Version: "git_revision:e1abc57be62d198b5c2f487bfb2fa2d2eb0e867c",
 		},
 	}, CIPD_PKGS_PYTHON...)
 
@@ -169,17 +174,17 @@ var (
 		&specs.CipdPackage{
 			Name:    "infra/git/${platform}",
 			Path:    "cipd_bin_packages",
-			Version: "version:2.15.0.chromium12",
+			Version: "version:2.17.1.chromium15",
 		},
 		&specs.CipdPackage{
 			Name:    "infra/tools/git/${platform}",
 			Path:    "cipd_bin_packages",
-			Version: "git_revision:fa7a52f4741f5e04bba0dfccc9b8456dc572c60b",
+			Version: "git_revision:0ae21738597e5601ba90372315145fec18582fc4",
 		},
 		&specs.CipdPackage{
 			Name:    "infra/tools/luci/git-credential-luci/${platform}",
 			Path:    "cipd_bin_packages",
-			Version: "git_revision:d0130097bd6364a8d834cb9efd4554c1f6192c82",
+			Version: "git_revision:e1abc57be62d198b5c2f487bfb2fa2d2eb0e867c",
 		},
 	}
 
@@ -339,7 +344,7 @@ func deriveCompileTaskName(jobName string, parts map[string]string) string {
 		ec := []string{}
 		if val := parts["extra_config"]; val != "" {
 			ec = strings.Split(val, "_")
-			ignore := []string{"Skpbench", "AbandonGpuContext", "PreAbandonGpuContext", "Valgrind", "ReleaseAndAbandonGpuContext", "CCPR", "FSAA", "FAAA", "FDAA", "NativeFonts", "GDI", "NoGPUThreads", "ProcDump", "DDL1", "DDL3", "T8888"}
+			ignore := []string{"Skpbench", "AbandonGpuContext", "PreAbandonGpuContext", "Valgrind", "ReleaseAndAbandonGpuContext", "CCPR", "FSAA", "FAAA", "FDAA", "NativeFonts", "GDI", "NoGPUThreads", "ProcDump", "DDL1", "DDL3", "T8888", "DDLTotal", "DDLRecord", "9x9"}
 			keep := make([]string, 0, len(ec))
 			for _, part := range ec {
 				if !util.In(part, ignore) {
@@ -373,6 +378,9 @@ func deriveCompileTaskName(jobName string, parts map[string]string) string {
 			"compiler":      parts["compiler"],
 			"target_arch":   parts["arch"],
 			"configuration": parts["configuration"],
+		}
+		if strings.Contains(jobName, "-CT_") {
+			ec = []string{"Static"}
 		}
 		if len(ec) > 0 {
 			jobNameMap["extra_config"] = strings.Join(ec, "_")
@@ -410,7 +418,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			"Ubuntu14":   DEFAULT_OS_UBUNTU,
 			"Ubuntu17":   "Ubuntu-17.04",
 			"Win":        DEFAULT_OS_WIN,
-			"Win10":      "Windows-10-16299.371",
+			"Win10":      "Windows-10-17134.165",
 			"Win2k8":     "Windows-2008ServerR2-SP1",
 			"Win2016":    DEFAULT_OS_WIN,
 			"Win7":       "Windows-7-SP1",
@@ -426,7 +434,11 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 		}
 		if d["os"] == DEFAULT_OS_WIN {
 			// TODO(dogben): Temporarily add image dimension during upgrade.
-			d["image"] = "windows-server-2016-dc-v20180410"
+			d["image"] = "windows-server-2016-dc-v20180710"
+		}
+		if d["os"] == DEFAULT_OS_MAC && (parts["model"] == "MacBook10.1" || parts["model"] == "MacBookAir7.2") {
+			// TODO(dogben): Get all Mac bots on the same version.
+			d["os"] = "Mac-10.13.6"
 		}
 	} else {
 		d["os"] = DEFAULT_OS_DEBIAN
@@ -439,9 +451,8 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				"AndroidOne":      {"sprout", "MOB30Q"},
 				"Chorizo":         {"chorizo", "1.30_109591"},
 				"GalaxyS6":        {"zerofltetmo", "NRD90M_G920TUVU5FQK1"},
-				"GalaxyS7_G930A":  {"heroqlteatt", "NRD90M_G930AUCS4BQC2"},
-				"GalaxyS7_G930FD": {"herolte", "NRD90M_G930FXXU1DQAS"},
-				"MotoG4":          {"athene", "NPJ25.93-14"},
+				"GalaxyS7_G930FD": {"herolte", "R16NW_G930FXXU2EREM"}, // This is Oreo.
+				"MotoG4":          {"athene", "NPJS25.93-14.7-8"},
 				"NVIDIA_Shield":   {"foster", "NRD90M_1915764_848"},
 				"Nexus5":          {"hammerhead", "M4B30Z_3437181"},
 				"Nexus5x":         {"bullhead", "OPR6.170623.023"},
@@ -449,7 +460,6 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				"NexusPlayer":     {"fugu", "OPR2.170623.027"},
 				"Pixel":           {"sailfish", "OPM4.171019.016.B1"},
 				"Pixel2XL":        {"taimen", "OPM4.171019.016.B1"},
-				"PixelC":          {"dragon", "OPM4.171019.016.C1"},
 			}[parts["model"]]
 			if !ok {
 				glog.Fatalf("Entry %q not found in Android mapping.", parts["model"])
@@ -623,8 +633,10 @@ func relpath(f string) string {
 
 // bundleRecipes generates the task to bundle and isolate the recipes.
 func bundleRecipes(b *specs.TasksCfgBuilder) string {
+	pkgs := append([]*specs.CipdPackage{}, CIPD_PKGS_GIT...)
+	pkgs = append(pkgs, CIPD_PKGS_PYTHON...)
 	b.MustAddTask(BUNDLE_RECIPES_NAME, &specs.TaskSpec{
-		CipdPackages: CIPD_PKGS_GIT,
+		CipdPackages: pkgs,
 		Command: []string{
 			"/bin/bash", "skia/infra/bots/bundle_recipes.sh", specs.PLACEHOLDER_ISOLATED_OUTDIR,
 		},
@@ -791,6 +803,12 @@ func compile(b *specs.TasksCfgBuilder, name string, parts map[string]string) str
 		if strings.Contains(name, "SwiftShader") {
 			task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("cmake_linux"))
 		}
+		if strings.Contains(name, "OpenCL") {
+			task.CipdPackages = append(task.CipdPackages,
+				b.MustGetCipdPackageFromAsset("opencl_headers"),
+				b.MustGetCipdPackageFromAsset("opencl_ocl_icd_linux"),
+			)
+		}
 	} else if strings.Contains(name, "Win") {
 		task.Dependencies = append(task.Dependencies, isolateCIPDAsset(b, ISOLATE_WIN_TOOLCHAIN_NAME))
 		if strings.Contains(name, "Clang") {
@@ -806,9 +824,6 @@ func compile(b *specs.TasksCfgBuilder, name string, parts map[string]string) str
 	}
 
 	task.MaxAttempts = 1
-	if strings.Contains(name, "Win") {
-		task.MaxAttempts = 2
-	}
 
 	// Add the task.
 	b.MustAddTask(name, task)
@@ -853,14 +868,15 @@ func recreateSKPs(b *specs.TasksCfgBuilder, name string) string {
 
 // ctSKPs generates a CT SKPs task. Returns the name of the last task in the
 // generated chain of tasks, which the Job should add as a dependency.
-func ctSKPs(b *specs.TasksCfgBuilder, name string) string {
+func ctSKPs(b *specs.TasksCfgBuilder, name, compileTaskName string) string {
 	dims := []string{
 		"pool:SkiaCT",
 		fmt.Sprintf("os:%s", DEFAULT_OS_LINUX_GCE),
 	}
-	task := kitchenTask(name, "ct_skps", "skia_repo.isolate", SERVICE_ACCOUNT_CT_SKPS, dims, nil, OUTPUT_NONE)
+	task := kitchenTask(name, "ct_skps", "swarm_recipe.isolate", SERVICE_ACCOUNT_CT_SKPS, dims, nil, OUTPUT_NONE)
 	usesGit(task, name)
 	task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("clang_linux"))
+	task.Dependencies = append(task.Dependencies, compileTaskName)
 	timeout(task, 24*time.Hour)
 	task.MaxAttempts = 1
 	b.MustAddTask(name, task)
@@ -975,6 +991,10 @@ func test(b *specs.TasksCfgBuilder, name string, parts map[string]string, compil
 	recipe := "test"
 	if strings.Contains(name, "SKQP") {
 		recipe = "skqp_test"
+	} else if strings.Contains(name, "OpenCL") {
+		// TODO(dogben): Longer term we may not want this to be called a "Test" task, but until we start
+		// running hs_bench or kx, it will be easier to fit into the current job name schema.
+		recipe = "compute_test"
 	}
 	extraProps := map[string]string{}
 	iid := internalHardwareLabel(parts)
@@ -1187,11 +1207,6 @@ func process(b *specs.TasksCfgBuilder, name string) {
 		deps = append(deps, recreateSKPs(b, name))
 	}
 
-	// CT bots.
-	if strings.Contains(name, "-CT_") {
-		deps = append(deps, ctSKPs(b, name))
-	}
-
 	// Infra tests.
 	if name == "Housekeeper-PerCommit-InfraTests" {
 		deps = append(deps, infra(b, name))
@@ -1235,6 +1250,11 @@ func process(b *specs.TasksCfgBuilder, name string) {
 		}
 	}
 
+	// CT bots.
+	if strings.Contains(name, "-CT_") {
+		deps = append(deps, ctSKPs(b, name, compileTaskName))
+	}
+
 	// Housekeepers.
 	if name == "Housekeeper-PerCommit" {
 		deps = append(deps, housekeeper(b, name, compileTaskName))
@@ -1274,6 +1294,12 @@ func process(b *specs.TasksCfgBuilder, name string) {
 			} else {
 				pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("linux_vulkan_intel_driver_debug"))
 			}
+		}
+		if strings.Contains(name, "OpenCL") {
+			pkgs = append(pkgs,
+				b.MustGetCipdPackageFromAsset("opencl_ocl_icd_linux"),
+				b.MustGetCipdPackageFromAsset("opencl_intel_neo_linux"),
+			)
 		}
 	}
 	if strings.Contains(name, "ProcDump") {

@@ -19,21 +19,31 @@
 namespace spvtools {
 namespace opt {
 
-bool InlineExhaustivePass::InlineExhaustive(ir::Function* func) {
+bool InlineExhaustivePass::InlineExhaustive(opt::Function* func) {
   bool modified = false;
   // Using block iterators here because of block erasures and insertions.
   for (auto bi = func->begin(); bi != func->end(); ++bi) {
     for (auto ii = bi->begin(); ii != bi->end();) {
       if (IsInlinableFunctionCall(&*ii)) {
         // Inline call.
-        std::vector<std::unique_ptr<ir::BasicBlock>> newBlocks;
-        std::vector<std::unique_ptr<ir::Instruction>> newVars;
+        std::vector<std::unique_ptr<opt::BasicBlock>> newBlocks;
+        std::vector<std::unique_ptr<opt::Instruction>> newVars;
         GenInlineCode(&newBlocks, &newVars, ii, bi);
         // If call block is replaced with more than one block, point
         // succeeding phis at new last block.
         if (newBlocks.size() > 1) UpdateSucceedingPhis(newBlocks);
         // Replace old calling block with new block(s).
+
+        // We need to kill the name and decorations for the call, which
+        // will be deleted.  Other instructions in the block will be moved to
+        // newBlocks.  We don't need to do anything with those.
+        context()->KillNamesAndDecorates(&*ii);
+
         bi = bi.Erase();
+
+        for (auto& bb : newBlocks) {
+          bb->SetParent(func);
+        }
         bi = bi.InsertBefore(&newBlocks);
         // Insert new function variables.
         if (newVars.size() > 0)
@@ -49,13 +59,13 @@ bool InlineExhaustivePass::InlineExhaustive(ir::Function* func) {
   return modified;
 }
 
-void InlineExhaustivePass::Initialize(ir::IRContext* c) {
+void InlineExhaustivePass::Initialize(opt::IRContext* c) {
   InitializeInline(c);
-};
+}
 
 Pass::Status InlineExhaustivePass::ProcessImpl() {
   // Attempt exhaustive inlining on each entry point function in module
-  ProcessFunction pfn = [this](ir::Function* fp) {
+  ProcessFunction pfn = [this](opt::Function* fp) {
     return InlineExhaustive(fp);
   };
   bool modified = ProcessEntryPointCallTree(pfn, get_module());
@@ -64,7 +74,7 @@ Pass::Status InlineExhaustivePass::ProcessImpl() {
 
 InlineExhaustivePass::InlineExhaustivePass() {}
 
-Pass::Status InlineExhaustivePass::Process(ir::IRContext* c) {
+Pass::Status InlineExhaustivePass::Process(opt::IRContext* c) {
   Initialize(c);
   return ProcessImpl();
 }

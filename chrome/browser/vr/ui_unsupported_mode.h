@@ -10,7 +10,7 @@ namespace vr {
 // Ensure that this stays in sync with VRUnsupportedMode in enums.xml
 // These values are written to logs.  New enum values can be added, but existing
 // enums must never be renumbered or deleted and reused.
-// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr_shell
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr
 enum class UiUnsupportedMode : int {
   kUnhandledCodePoint = 0,
   // kCouldNotElideURL = 1,  // Obsolete.
@@ -20,7 +20,9 @@ enum class UiUnsupportedMode : int {
   kGenericUnsupportedFeature = 5,
   kNeedsKeyboardUpdate = 6,
   kSearchEnginePromo = 7,
-  kUnhandledConnectionInfo = 8,
+  // kUnhandledConnectionInfo = 8,  // Obsolete.
+  kUnhandledCertificateInfo = 9,
+  kUnhandledConnectionSecurityInfo = 10,
   // This must be last.
   kCount,
 };

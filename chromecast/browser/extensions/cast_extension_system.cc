@@ -128,7 +128,10 @@ const Extension* CastExtensionSystem::LoadExtension(
       LOG(WARNING) << warning.message;
   }
 
-  PostLoadExtension(extension);
+  content::BrowserThread::PostTask(
+      content::BrowserThread::UI, FROM_HERE,
+      base::BindOnce(&CastExtensionSystem::PostLoadExtension,
+                     base::Unretained(this), extension));
 
   return extension.get();
 }
@@ -274,6 +277,7 @@ void CastExtensionSystem::InstallUpdate(
     const std::string& extension_id,
     const std::string& public_key,
     const base::FilePath& unpacked_dir,
+    bool install_immediately,
     InstallUpdateCallback install_update_callback) {
   NOTREACHED();
 }

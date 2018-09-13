@@ -8,7 +8,6 @@
 
 #include "ash/public/cpp/ash_pref_names.h"
 #include "base/command_line.h"
-#include "base/feature_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/json/json_writer.h"
 #include "base/memory/singleton.h"
@@ -21,7 +20,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/network/network_handler.h"
@@ -38,6 +36,7 @@
 #include "components/arc/common/backup_settings.mojom.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
 #include "components/arc/intent_helper/font_size_util.h"
+#include "components/language/core/browser/pref_names.h"
 #include "components/onc/onc_pref_names.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
@@ -146,7 +145,6 @@ class ArcSettingsServiceImpl
   void SyncBootTimeSettings() const;
   // Retrieves Chrome's state for the settings that need to be synced on each
   // Android boot after AppInstance is ready and send it to Android.
-  // TODO(crbug.com/762553): Sync settings at proper time.
   void SyncAppTimeSettings();
   // Send particular settings to Android.
   // Keep these lines ordered lexicographically.
@@ -161,7 +159,6 @@ class ArcSettingsServiceImpl
   void SyncProxySettings() const;
   void SyncReportingConsent(bool initial_sync) const;
   void SyncSelectToSpeakEnabled() const;
-  void SyncSmsConnectEnabled() const;
   void SyncSpokenFeedbackEnabled() const;
   void SyncSwitchAccessEnabled() const;
   void SyncTimeZone() const;
@@ -252,7 +249,7 @@ void ArcSettingsServiceImpl::OnPrefChanged(const std::string& pref_name) const {
     SyncSwitchAccessEnabled();
   } else if (pref_name == ash::prefs::kAccessibilityVirtualKeyboardEnabled) {
     SyncAccessibilityVirtualKeyboardEnabled();
-  } else if (pref_name == ::prefs::kApplicationLocale ||
+  } else if (pref_name == ::language::prefs::kApplicationLocale ||
              pref_name == ::prefs::kLanguagePreferredLanguages) {
     SyncLocale();
   } else if (pref_name == ::prefs::kUse24HourClock) {
@@ -263,8 +260,6 @@ void ArcSettingsServiceImpl::OnPrefChanged(const std::string& pref_name) const {
              pref_name == ::prefs::kWebKitDefaultFontSize ||
              pref_name == ::prefs::kWebKitMinimumFontSize) {
     SyncFontSize();
-  } else if (pref_name == prefs::kSmsConnectEnabled) {
-    SyncSmsConnectEnabled();
   } else if (pref_name == proxy_config::prefs::kProxy) {
     SyncProxySettings();
   } else {
@@ -301,7 +296,6 @@ void ArcSettingsServiceImpl::StartObservingSettingsChanges() {
   AddPrefToObserve(ash::prefs::kAccessibilitySpokenFeedbackEnabled);
   AddPrefToObserve(ash::prefs::kAccessibilitySwitchAccessEnabled);
   AddPrefToObserve(ash::prefs::kAccessibilityVirtualKeyboardEnabled);
-  AddPrefToObserve(prefs::kSmsConnectEnabled);
   AddPrefToObserve(::prefs::kResolveTimezoneByGeolocationMethod);
   AddPrefToObserve(::prefs::kUse24HourClock);
   AddPrefToObserve(::prefs::kWebKitDefaultFixedFontSize);
@@ -360,7 +354,6 @@ void ArcSettingsServiceImpl::SyncBootTimeSettings() const {
   SyncProxySettings();
   SyncReportingConsent(/*initial_sync=*/false);
   SyncSelectToSpeakEnabled();
-  SyncSmsConnectEnabled();
   SyncSpokenFeedbackEnabled();
   SyncSwitchAccessEnabled();
   SyncTimeZone();
@@ -369,14 +362,20 @@ void ArcSettingsServiceImpl::SyncBootTimeSettings() const {
 }
 
 void ArcSettingsServiceImpl::SyncAppTimeSettings() {
-  SyncLocale();
-
   // Applying system locales change on ARC will cause restarting other services
   // and applications on ARC and doing such change in early phase may lead to
-  // ARC OptIn failure.  So that observing preferred languages change should be
-  // deferred at least until |mojom::AppInstance| is ready. But it's not ideal
-  // (b/6773449, b/65385376).
-  AddPrefToObserve(::prefs::kApplicationLocale);
+  // ARC OptIn failure b/65385376. So that observing preferred languages change
+  // should be deferred at least until |mojom::AppInstance| is ready.
+  // Note that locale and preferred languages are passed to Android container on
+  // boot time and current sync is redundant in most cases. However there is
+  // race when preferred languages may be changed during the ARC booting.
+  // Tracking and applying this information is complex task thar requires
+  // syncronization ARC session start, ArcSettingsService and
+  // ArcSettingsServiceImpl creation/destroying. Android framework has ability
+  // to supress reduntant calls so having this little overhead simplifies common
+  // implementation.
+  SyncLocale();
+  AddPrefToObserve(::language::prefs::kApplicationLocale);
   AddPrefToObserve(::prefs::kLanguagePreferredLanguages);
 }
 
@@ -437,7 +436,7 @@ void ArcSettingsServiceImpl::SyncPageZoom() const {
 
 void ArcSettingsServiceImpl::SyncLocale() const {
   const PrefService::Preference* pref =
-      registrar_.prefs()->FindPreference(::prefs::kApplicationLocale);
+      registrar_.prefs()->FindPreference(::language::prefs::kApplicationLocale);
   DCHECK(pref);
   std::string locale;
   bool value_exists = pref->GetValue()->GetAsString(&locale);
@@ -547,22 +546,6 @@ void ArcSettingsServiceImpl::SyncSelectToSpeakEnabled() const {
   SendBoolPrefSettingsBroadcast(
       ash::prefs::kAccessibilitySelectToSpeakEnabled,
       "org.chromium.arc.intent_helper.SET_SELECT_TO_SPEAK_ENABLED");
-}
-
-void ArcSettingsServiceImpl::SyncSmsConnectEnabled() const {
-  // Only sync the preferences value if the feature flag is enabled, otherwise
-  // sync a 'false' value.
-  std::string action =
-      std::string("org.chromium.arc.intent_helper.SET_SMS_CONNECT_ENABLED");
-  if (!base::FeatureList::IsEnabled(features::kMultidevice)) {
-    const PrefService::Preference* pref =
-        registrar_.prefs()->FindPreference(prefs::kSmsConnectEnabled);
-    DCHECK(pref);
-    SendBoolValueSettingsBroadcast(false, pref->IsManaged(), action);
-    return;
-  }
-
-  SendBoolPrefSettingsBroadcast(prefs::kSmsConnectEnabled, action);
 }
 
 void ArcSettingsServiceImpl::SyncSpokenFeedbackEnabled() const {

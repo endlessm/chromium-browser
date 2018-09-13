@@ -54,11 +54,56 @@ class Tab : public gfx::AnimationDelegate,
   // The Tab's class name.
   static const char kViewClassName[];
 
-  // The combined width of the curves at the top and bottom of the endcap.
-  static constexpr float kMinimumEndcapWidth = 4;
+  // Under refresh, thickness in DIPs of the separator painted on the left and
+  // right edges of the tab.
+  static constexpr int kSeparatorThickness = 1;
+
+  // When the content's width of the tab shrinks to below this size we should
+  // hide the close button on inactive tabs. Any smaller and they're too easy
+  // to hit on accident.
+  static constexpr int kMinimumContentsWidthForCloseButtons = 68;
+  static constexpr int kTouchableMinimumContentsWidthForCloseButtons = 100;
 
   Tab(TabController* controller, gfx::AnimationContainer* container);
   ~Tab() override;
+
+  // gfx::AnimationDelegate:
+  void AnimationEnded(const gfx::Animation* animation) override;
+  void AnimationProgressed(const gfx::Animation* animation) override;
+  void AnimationCanceled(const gfx::Animation* animation) override;
+
+  // views::ButtonListener:
+  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+
+  // views::ContextMenuController:
+  void ShowContextMenuForView(views::View* source,
+                              const gfx::Point& point,
+                              ui::MenuSourceType source_type) override;
+
+  // views::MaskedTargeterDelegate:
+  bool GetHitTestMask(gfx::Path* mask) const override;
+
+  // views::View:
+  void Layout() override;
+  const char* GetClassName() const override;
+  bool OnMousePressed(const ui::MouseEvent& event) override;
+  bool OnMouseDragged(const ui::MouseEvent& event) override;
+  void OnMouseReleased(const ui::MouseEvent& event) override;
+  void OnMouseCaptureLost() override;
+  void OnMouseMoved(const ui::MouseEvent& event) override;
+  void OnMouseEntered(const ui::MouseEvent& event) override;
+  void OnMouseExited(const ui::MouseEvent& event) override;
+  void OnGestureEvent(ui::GestureEvent* event) override;
+  bool GetTooltipText(const gfx::Point& p,
+                      base::string16* tooltip) const override;
+  bool GetTooltipTextOrigin(const gfx::Point& p,
+                            gfx::Point* origin) const override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  gfx::Size CalculatePreferredSize() const override;
+  void PaintChildren(const views::PaintInfo& info) override;
+  void OnPaint(gfx::Canvas* canvas) override;
+  void AddedToWidget() override;
+  void OnThemeChanged() override;
 
   TabController* controller() const { return controller_; }
 
@@ -75,9 +120,6 @@ class Tab : public gfx::AnimationDelegate,
   void set_detached() { detached_ = true; }
   bool detached() const { return detached_; }
 
-  // Returns the radius of the outer corners of the tab shape.
-  int GetCornerRadius() const;
-
   // Returns the color used for the alert indicator icon.
   SkColor GetAlertIndicatorColor(TabAlertState state) const;
 
@@ -93,6 +135,12 @@ class Tab : public gfx::AnimationDelegate,
 
   // Called when the alert indicator has changed states.
   void AlertStateChanged();
+
+  // Called when the frame state color changes.
+  void FrameColorsChanged();
+
+  // Called when the selected state changes.
+  void SelectedStateChanged();
 
   // Returns true if the tab is selected.
   bool IsSelected() const;
@@ -113,11 +161,9 @@ class Tab : public gfx::AnimationDelegate,
   // to the user that it needs their attention.
   void SetTabNeedsAttention(bool attention);
 
-  // Set the background offset used to match the image in the inactive tab
+  // Set the background X offset used to match the image in the inactive tab
   // to the frame image.
-  void set_background_offset(const gfx::Point& offset) {
-    background_offset_ = offset;
-  }
+  void set_background_offset(int offset) { background_offset_ = offset; }
 
   // Returns true if this tab became the active tab selected in
   // response to the last ui::ET_TAP_DOWN gesture dispatched to
@@ -129,27 +175,41 @@ class Tab : public gfx::AnimationDelegate,
 
   GlowHoverController* hover_controller() { return &hover_controller_; }
 
+  bool mouse_hovered() const { return mouse_hovered_; }
+
+  // Returns the thickness of the stroke drawn around the tab.  If
+  // |should_paint_as_active| is true, the tab is treated as an active tab
+  // regardless of its true current state; this affects Refresh, which never
+  // paints strokes on inactive tabs.
+  float GetStrokeThickness(bool should_paint_as_active = false) const;
+
   // Returns the width of the largest part of the tab that is available for the
   // user to click to select/activate the tab.
   int GetWidthOfLargestSelectableRegion() const;
 
-  // Called when stacked layout changes and the close button may need to
-  // be updated.
-  void HideCloseButtonForInactiveTabsChanged() { Layout(); }
+  // Returns the insets to use for laying out tab contents.
+  gfx::Insets GetContentsInsets() const;
 
-  // Returns the minimum possible size of a single unselected Tab.
-  static gfx::Size GetMinimumInactiveSize();
+  // Returns the horizontal insets to use for laying out tab contents.
+  static gfx::Insets GetContentsHorizontalInsets();
 
-  // Returns the minimum possible size of a selected Tab. Selected tabs must
-  // always show a close button and have a larger minimum size than unselected
-  // tabs.
-  static gfx::Size GetMinimumActiveSize();
-  // Returns the preferred size of a single Tab, assuming space is
+  // Returns the minimum possible width of a single unselected Tab.
+  static int GetMinimumInactiveWidth();
+
+  // Returns the minimum possible width of a selected Tab. Selected tabs must
+  // always show a close button, and thus have a larger minimum size than
+  // unselected tabs.
+  static int GetMinimumActiveWidth();
+
+  // Returns the preferred width of a single Tab, assuming space is
   // available.
-  static gfx::Size GetStandardSize();
+  static int GetStandardWidth();
 
   // Returns the width for pinned tabs. Pinned tabs always have this width.
   static int GetPinnedWidth();
+
+  // Returns the height of the separator between tabs.
+  static int GetTabSeparatorHeight();
 
   // Returns the inverse of the slope of the diagonal portion of the tab outer
   // border.  (This is a positive value, so it's specifically for the slope of
@@ -159,6 +219,14 @@ class Tab : public gfx::AnimationDelegate,
   // values for the vertical distances between points and then compute the
   // horizontal deltas from those.
   static float GetInverseDiagonalSlope();
+
+  // Returns the radius of the outer corners of the tab shape.
+  static int GetCornerRadius();
+
+  // Returns an offset into the leading edge of the tab which delineates the
+  // "main body" of the tab from the user's perspective; dragging based on this
+  // point feels better than dragging based on the tab's actual leading edge.
+  static int GetDragInset();
 
   // Returns the overlap between adjacent tabs.
   static int GetOverlap();
@@ -171,48 +239,12 @@ class Tab : public gfx::AnimationDelegate,
   FRIEND_TEST_ALL_PREFIXES(TabStripTest,
                            TabCloseButtonVisibilityWhenNotStacked);
 
-  // gfx::AnimationDelegate:
-  void AnimationProgressed(const gfx::Animation* animation) override;
-  void AnimationCanceled(const gfx::Animation* animation) override;
-  void AnimationEnded(const gfx::Animation* animation) override;
-
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
-  // views::ContextMenuController:
-  void ShowContextMenuForView(views::View* source,
-                              const gfx::Point& point,
-                              ui::MenuSourceType source_type) override;
-
-  // views::MaskedTargeterDelegate:
-  bool GetHitTestMask(gfx::Path* mask) const override;
-
-  // views::View:
-  void ViewHierarchyChanged(
-      const ViewHierarchyChangedDetails& details) override;
-  void OnPaint(gfx::Canvas* canvas) override;
-  void PaintChildren(const views::PaintInfo& info) override;
-  void Layout() override;
-  void OnThemeChanged() override;
-  const char* GetClassName() const override;
-  bool GetTooltipText(const gfx::Point& p,
-                      base::string16* tooltip) const override;
-  bool GetTooltipTextOrigin(const gfx::Point& p,
-                            gfx::Point* origin) const override;
-  bool OnMousePressed(const ui::MouseEvent& event) override;
-  bool OnMouseDragged(const ui::MouseEvent& event) override;
-  void OnMouseReleased(const ui::MouseEvent& event) override;
-  void OnMouseCaptureLost() override;
-  void OnMouseEntered(const ui::MouseEvent& event) override;
-  void OnMouseMoved(const ui::MouseEvent& event) override;
-  void OnMouseExited(const ui::MouseEvent& event) override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-
-  // ui::EventHandler:
-  void OnGestureEvent(ui::GestureEvent* event) override;
-
-  // Forces the tab to the right of this tab to repaint.
-  void RepaintSubsequentTab();
+  // Contains values 0..1 representing the opacity of the corresponding
+  // separators.  These are physical and not logical, so "left" is the left
+  // separator in both LTR and RTL.
+  struct SeparatorOpacities {
+    float left = 0, right = 0;
+  };
 
   // Invoked from Layout to adjust the position of the favicon or alert
   // indicator for pinned tabs. The visual_width parameter is how wide the
@@ -232,7 +264,7 @@ class Tab : public gfx::AnimationDelegate,
   void PaintTabBackground(gfx::Canvas* canvas,
                           bool active,
                           int fill_id,
-                          int y_offset,
+                          int y_inset,
                           const gfx::Path* clip);
 
   // Helper methods for PaintTabBackground.
@@ -243,16 +275,16 @@ class Tab : public gfx::AnimationDelegate,
                               SkColor active_color,
                               SkColor inactive_color,
                               int fill_id,
-                              int y_offset);
+                              int y_inset);
   void PaintTabBackgroundStroke(gfx::Canvas* canvas,
                                 const gfx::Path& fill_path,
                                 const gfx::Path& stroke_path,
                                 bool active,
                                 SkColor color);
 
-  // Paints the separator line on the left edge of the tab if in material
-  // refresh mode. The painted color is derived from the inactive tab color.
-  void PaintSeparator(gfx::Canvas* canvas, SkColor inactive_color);
+  // Paints the separator lines on the left and right edge of the tab if in
+  // material refresh mode.
+  void PaintSeparators(gfx::Canvas* canvas);
 
   // Computes which icons are visible in the tab. Should be called everytime
   // before layout is performed.
@@ -262,15 +294,23 @@ class Tab : public gfx::AnimationDelegate,
   // pinned tab.
   bool ShouldRenderAsNormalTab() const;
 
-  // Gets the throb value for the tab. When a tab is not selected the
-  // active background is drawn at |GetThrobValue()|%. This is used for hover,
-  // mini tab title change and pulsing.
-  double GetThrobValue();
+  // Returns the opacities of the separators.  If |for_layout| is true, returns
+  // the "layout" opacities, which ignore the effects of surrounding tabs' hover
+  // effects and consider only the current tab's state.
+  SeparatorOpacities GetSeparatorOpacities(bool for_layout) const;
+
+  // Gets the throb value for the tab. When a tab is not selected the active
+  // background is drawn at GetThrobValue() * 100%. This is used for hover, mini
+  // tab title change and pulsing.
+  float GetThrobValue() const;
 
   // Recalculates the correct |button_color_| and resets the title, alert
   // indicator, and close button colors if necessary.  This should be called any
   // time the theme or active state may have changed.
   void OnButtonColorMaybeChanged();
+
+  // Generate and update close button and alert icon colors for proper contrast.
+  void UpdateButtonIconColors(SkColor title_color);
 
   // The controller, never NULL.
   TabController* const controller_;
@@ -307,7 +347,7 @@ class Tab : public gfx::AnimationDelegate,
   GlowHoverController hover_controller_;
 
   // The offset used to paint the inactive background image.
-  gfx::Point background_offset_;
+  int background_offset_;
 
   // For narrow tabs, we show the favicon even if it won't completely fit.
   // In this case, we need to center the favicon within the tab; it will be
@@ -326,18 +366,24 @@ class Tab : public gfx::AnimationDelegate,
   // detect when it changes and layout appropriately.
   bool showing_close_button_ = false;
 
-  // When the close button will be visible on inactive tabs, we add additional
-  // padding to the left of the favicon to balance the whitespace inside the
-  // non-hovered close button image; otherwise, the tab contents look too close
-  // to the left edge.  If the tab close button isn't visible on inactive tabs,
-  // we let the tab contents take the full width of the tab, to maximize visible
-  // content on tiny tabs.  We base the determination on the inactive tab close
-  // button state so that when a tab is activated its contents don't suddenly
-  // shift.
+  // If there's room, we add additional padding to the left of the favicon to
+  // balance the whitespace inside the non-hovered close button image;
+  // otherwise, the tab contents look too close to the left edge. Once the tabs
+  // get too small, we let the tab contents take the full width, to maximize
+  // visible area.
   bool extra_padding_before_content_ = false;
+
+  // When both the close button and alert indicator are visible, we add extra
+  // padding between them to space them out visually.
+  bool extra_alert_indicator_padding_ = false;
 
   // The current color of the alert indicator and close button icons.
   SkColor button_color_ = SK_ColorTRANSPARENT;
+
+  // Indicates whether the mouse is currently hovered over the tab. This is
+  // different from View::IsMouseHovered() which does a naive intersection with
+  // the view bounds.
+  bool mouse_hovered_ = false;
 
   class BackgroundCache {
    public:
@@ -348,22 +394,27 @@ class Tab : public gfx::AnimationDelegate,
                          const gfx::Size& size,
                          SkColor active_color,
                          SkColor inactive_color,
-                         SkColor stroke_color) {
+                         SkColor stroke_color,
+                         float stroke_thickness) {
       return scale_ == scale && size_ == size &&
              active_color_ == active_color &&
-             inactive_color_ == inactive_color && stroke_color_ == stroke_color;
+             inactive_color_ == inactive_color &&
+             stroke_color_ == stroke_color &&
+             stroke_thickness_ == stroke_thickness;
     }
 
     void SetCacheKey(float scale,
                      const gfx::Size& size,
                      SkColor active_color,
                      SkColor inactive_color,
-                     SkColor stroke_color) {
+                     SkColor stroke_color,
+                     float stroke_thickness) {
       scale_ = scale;
       size_ = size;
       active_color_ = active_color;
       inactive_color_ = inactive_color;
       stroke_color_ = stroke_color;
+      stroke_thickness_ = stroke_thickness;
     }
 
     // The PaintRecords being cached based on the input parameters.
@@ -377,6 +428,12 @@ class Tab : public gfx::AnimationDelegate,
     SkColor active_color_ = 0;
     SkColor inactive_color_ = 0;
     SkColor stroke_color_ = 0;
+
+    // The stroke thickness needs to be recorded because tabs may switch between
+    // a zero and non-zero stroke thickness depending on their state.  This
+    // changes the "stroke_thickness > 0" logic in tab.cc which changes if
+    // |stroke_record| gets recorded.
+    float stroke_thickness_ = 0.f;
   };
 
   // Cache of the paint output for tab backgrounds.

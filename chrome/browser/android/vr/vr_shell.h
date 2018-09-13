@@ -30,16 +30,13 @@
 #include "device/vr/android/gvr/cardboard_gamepad_data_provider.h"
 #include "device/vr/android/gvr/gvr_gamepad_data_provider.h"
 #include "device/vr/public/mojom/vr_service.mojom.h"
+#include "device/vr/vr_device.h"
 #include "services/device/public/mojom/geolocation_config.mojom.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr_types.h"
 
 namespace base {
 class Version;
 }  // namespace base
-
-namespace blink {
-class WebInputEvent;
-}  // namespace blink
 
 namespace content {
 class WebContents;
@@ -81,6 +78,8 @@ class VrShell : device::GvrGamepadDataProvider,
           int display_height_pixels,
           bool pause_content,
           bool low_density);
+  bool HasUiFinishedLoading(JNIEnv* env,
+                            const base::android::JavaParamRef<jobject>& obj);
   void SwapContents(JNIEnv* env,
                     const base::android::JavaParamRef<jobject>& obj,
                     const base::android::JavaParamRef<jobject>& web_contents);
@@ -145,7 +144,6 @@ class VrShell : device::GvrGamepadDataProvider,
   void CloseAllTabs();
   void CloseAllIncognitoTabs();
   void OpenFeedback();
-  void ExitCct();
   void CloseHostedDialog();
   void ToggleCardboardGamepad(bool enabled);
   void ToggleGvrGamepad(bool enabled);
@@ -185,6 +183,8 @@ class VrShell : device::GvrGamepadDataProvider,
   void GvrDelegateReady(gvr::ViewerType viewer_type);
   void SendRequestPresentReply(
       bool success,
+      device::mojom::VRSubmitFrameClientRequest,
+      device::mojom::VRPresentationProviderPtrInfo,
       device::mojom::VRDisplayFrameTransportOptionsPtr);
 
   void DialogSurfaceCreated(jobject surface, gl::SurfaceTexture* texture);
@@ -213,10 +213,9 @@ class VrShell : device::GvrGamepadDataProvider,
   bool HasAudioPermission();
 
   void ClearFocusedElement();
-  void ProcessContentGesture(std::unique_ptr<blink::WebInputEvent> event,
-                             int content_id);
+  void ProcessContentGesture(std::unique_ptr<InputEvent> event, int content_id);
 
-  void ProcessDialogGesture(std::unique_ptr<blink::WebInputEvent> event);
+  void ProcessDialogGesture(std::unique_ptr<InputEvent> event);
 
   void SetAlertDialog(JNIEnv* env,
                       const base::android::JavaParamRef<jobject>& obj,
@@ -247,10 +246,8 @@ class VrShell : device::GvrGamepadDataProvider,
                    const base::android::JavaParamRef<jobject>& obj);
 
   void ConnectPresentingService(
-      device::mojom::VRSubmitFrameClientPtr submit_client,
-      device::mojom::VRPresentationProviderRequest request,
       device::mojom::VRDisplayInfoPtr display_info,
-      device::mojom::VRRequestPresentOptionsPtr present_options);
+      device::mojom::XRDeviceRuntimeSessionOptionsPtr options);
 
   // device::GvrGamepadDataProvider implementation.
   void UpdateGamepadData(device::GvrGamepadData) override;
@@ -280,20 +277,21 @@ class VrShell : device::GvrGamepadDataProvider,
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
 
-  void PerformUiActionForTesting(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& obj,
-      jint element_name,
-      jint action_type,
-      jfloat x,
-      jfloat y);
-
   void SetUiExpectingActivityForTesting(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
       jint quiescence_timeout_ms);
 
   void ReportUiActivityResultForTesting(VrUiTestActivityResult result);
+
+  void PerformControllerActionForTesting(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jint element_name,
+      jint action_type,
+      jfloat x,
+      jfloat y);
+  gfx::AcceleratedWidget GetRenderSurface();
 
  private:
   ~VrShell() override;
@@ -373,8 +371,12 @@ class VrShell : device::GvrGamepadDataProvider,
   gl::SurfaceTexture* overlay_surface_texture_ = nullptr;
   gl::SurfaceTexture* ui_surface_texture_ = nullptr;
 
-  base::Timer waiting_for_assets_component_timer_;
+  base::OneShotTimer waiting_for_assets_component_timer_;
   bool can_load_new_assets_ = false;
+  bool ui_finished_loading_ = false;
+
+  base::WaitableEvent gl_surface_created_event_;
+  gfx::AcceleratedWidget surface_window_ = nullptr;
 
   base::WeakPtrFactory<VrShell> weak_ptr_factory_;
 

@@ -22,6 +22,7 @@
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include <vector>
 
 #include "bitutils.h"
 
@@ -32,7 +33,8 @@
   (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
 #endif
 
-namespace spvutils {
+namespace spvtools {
+namespace utils {
 
 class Float16 {
  public:
@@ -76,6 +78,14 @@ struct FloatProxyTraits<float> {
   static float max() { return std::numeric_limits<float>::max(); }
   // Returns the lowest normal value.
   static float lowest() { return std::numeric_limits<float>::lowest(); }
+  // Returns the value as the native floating point format.
+  static float getAsFloat(const uint_type& t) { return BitwiseCast<float>(t); }
+  // Returns the bits from the given floating pointer number.
+  static uint_type getBitsFromFloat(const float& t) {
+    return BitwiseCast<uint_type>(t);
+  }
+  // Returns the bitwidth.
+  static uint32_t width() { return 32u; }
 };
 
 template <>
@@ -88,6 +98,16 @@ struct FloatProxyTraits<double> {
   static double max() { return std::numeric_limits<double>::max(); }
   // Returns the lowest normal value.
   static double lowest() { return std::numeric_limits<double>::lowest(); }
+  // Returns the value as the native floating point format.
+  static double getAsFloat(const uint_type& t) {
+    return BitwiseCast<double>(t);
+  }
+  // Returns the bits from the given floating pointer number.
+  static uint_type getBitsFromFloat(const double& t) {
+    return BitwiseCast<uint_type>(t);
+  }
+  // Returns the bitwidth.
+  static uint32_t width() { return 64u; }
 };
 
 template <>
@@ -100,6 +120,12 @@ struct FloatProxyTraits<Float16> {
   static Float16 max() { return Float16::max(); }
   // Returns the lowest normal value.
   static Float16 lowest() { return Float16::lowest(); }
+  // Returns the value as the native floating point format.
+  static Float16 getAsFloat(const uint_type& t) { return Float16(t); }
+  // Returns the bits from the given floating pointer number.
+  static uint_type getBitsFromFloat(const Float16& t) { return t.get_value(); }
+  // Returns the bitwidth.
+  static uint32_t width() { return 16u; }
 };
 
 // Since copying a floating point number (especially if it is NaN)
@@ -116,7 +142,7 @@ class FloatProxy {
 
   // Intentionally non-explicit. This is a proxy type so
   // implicit conversions allow us to use it more transparently.
-  FloatProxy(T val) { data_ = BitwiseCast<uint_type>(val); }
+  FloatProxy(T val) { data_ = FloatProxyTraits<T>::getBitsFromFloat(val); }
 
   // Intentionally non-explicit. This is a proxy type so
   // implicit conversions allow us to use it more transparently.
@@ -129,10 +155,23 @@ class FloatProxy {
   }
 
   // Returns the data as a floating point value.
-  T getAsFloat() const { return BitwiseCast<T>(data_); }
+  T getAsFloat() const { return FloatProxyTraits<T>::getAsFloat(data_); }
 
   // Returns the raw data.
   uint_type data() const { return data_; }
+
+  // Returns a vector of words suitable for use in an Operand.
+  std::vector<uint32_t> GetWords() const {
+    std::vector<uint32_t> words;
+    if (FloatProxyTraits<T>::width() == 64) {
+      FloatProxyTraits<double>::uint_type d = data();
+      words.push_back(static_cast<uint32_t>(d));
+      words.push_back(static_cast<uint32_t>(d >> 32));
+    } else {
+      words.push_back(static_cast<uint32_t>(data()));
+    }
+    return words;
+  }
 
   // Returns true if the value represents any type of NaN.
   bool isNan() { return FloatProxyTraits<T>::isNan(getAsFloat()); }
@@ -279,8 +318,7 @@ class HexFloat {
   // The representation of the fraction, not the actual bits. This
   // includes the leading bit that is usually implicit.
   static const uint_type fraction_represent_mask =
-      spvutils::SetBits<uint_type, 0,
-                        num_fraction_bits + num_overflow_bits>::get;
+      SetBits<uint_type, 0, num_fraction_bits + num_overflow_bits>::get;
 
   // The topmost bit in the nibble-aligned fraction.
   static const uint_type fraction_top_bit =
@@ -294,14 +332,14 @@ class HexFloat {
   // The mask for the encoded fraction. It does not include the
   // implicit bit.
   static const uint_type fraction_encode_mask =
-      spvutils::SetBits<uint_type, 0, num_fraction_bits>::get;
+      SetBits<uint_type, 0, num_fraction_bits>::get;
 
   // The bit that is used as a sign.
   static const uint_type sign_mask = uint_type(1) << top_bit_left_shift;
 
   // The bits that represent the exponent.
   static const uint_type exponent_mask =
-      spvutils::SetBits<uint_type, num_fraction_bits, num_exponent_bits>::get;
+      SetBits<uint_type, num_fraction_bits, num_exponent_bits>::get;
 
   // How far left the exponent is shifted.
   static const uint32_t exponent_left_shift = num_fraction_bits;
@@ -317,12 +355,11 @@ class HexFloat {
   static const int_type min_exponent = -static_cast<int_type>(exponent_bias);
 
   // Returns the bits associated with the value.
-  uint_type getBits() const { return spvutils::BitwiseCast<uint_type>(value_); }
+  uint_type getBits() const { return value_.data(); }
 
   // Returns the bits associated with the value, without the leading sign bit.
   uint_type getUnsignedBits() const {
-    return static_cast<uint_type>(spvutils::BitwiseCast<uint_type>(value_) &
-                                  ~sign_mask);
+    return static_cast<uint_type>(value_.data() & ~sign_mask);
   }
 
   // Returns the bits associated with the exponent, shifted to start at the
@@ -423,7 +460,7 @@ class HexFloat {
                                       exponent_mask);
     significand = static_cast<uint_type>(significand & fraction_encode_mask);
     new_value = static_cast<uint_type>(new_value | (exponent | significand));
-    value_ = BitwiseCast<T>(new_value);
+    value_ = T(new_value);
   }
 
   // Increments the significand of this number by the given amount.
@@ -531,7 +568,7 @@ class HexFloat {
     static const uint_type throwaway_mask_bits =
         num_throwaway_bits > 0 ? num_throwaway_bits : 0;
     static const uint_type throwaway_mask =
-        spvutils::SetBits<uint_type, 0, throwaway_mask_bits>::get;
+        SetBits<uint_type, 0, throwaway_mask_bits>::get;
 
     *carry_bit = false;
     other_uint_type out_val = 0;
@@ -710,7 +747,7 @@ std::ostream& operator<<(std::ostream& os, const HexFloat<T, Traits>& value) {
   static_assert(HF::num_fraction_bits != 0,
                 "num_fractin_bits must be non-zero for a valid float");
 
-  const uint_type bits = spvutils::BitwiseCast<uint_type>(value.value());
+  const uint_type bits = value.value().data();
   const char* const sign = (bits & HF::sign_mask) ? "-" : "";
   const uint_type exponent = static_cast<uint_type>(
       (bits & HF::exponent_mask) >> HF::num_fraction_bits);
@@ -1072,7 +1109,7 @@ std::istream& operator>>(std::istream& is, HexFloat<T, Traits>& value) {
       HF::exponent_mask);
   output_bits |= shifted_exponent;
 
-  T output_float = spvutils::BitwiseCast<T>(output_bits);
+  T output_float(output_bits);
   value.set_value(output_float);
 
   return is;
@@ -1089,7 +1126,7 @@ std::ostream& operator<<(std::ostream& os, const FloatProxy<T>& value) {
     case FP_ZERO:
     case FP_NORMAL: {
       auto saved_precision = os.precision();
-      os.precision(std::numeric_limits<T>::digits10);
+      os.precision(std::numeric_limits<T>::max_digits10);
       os << float_val;
       os.precision(saved_precision);
     } break;
@@ -1106,6 +1143,8 @@ inline std::ostream& operator<<<Float16>(std::ostream& os,
   os << HexFloat<FloatProxy<Float16>>(value);
   return os;
 }
-}  // namespace spvutils
+
+}  // namespace utils
+}  // namespace spvtools
 
 #endif  // LIBSPIRV_UTIL_HEX_FLOAT_H_

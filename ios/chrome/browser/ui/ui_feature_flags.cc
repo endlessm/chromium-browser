@@ -8,10 +8,10 @@ const base::Feature kRefreshPopupPresentation{
     "UIRefreshPopupPresentation", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kUIRefreshLocationBar{"UIRefreshLocationBar",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
+                                          base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kUIRefreshPhase1{"UIRefreshPhase1",
-                                     base::FEATURE_DISABLED_BY_DEFAULT};
+                                     base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kCollectionsUIReboot{"CollectionsUIReboot",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
@@ -19,3 +19,7 @@ const base::Feature kCollectionsUIReboot{"CollectionsUIReboot",
 const base::Feature kInfobarsUIReboot{"InfobarsUIReboot",
                                       base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::Feature kFirstResponderKeyWindow{"FirstResponderKeyWindow",
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kCopyImage{"CopyImage", base::FEATURE_DISABLED_BY_DEFAULT};

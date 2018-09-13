@@ -38,8 +38,9 @@ void SymbolTable::addFile(InputFile *File) {
   if (Config->Machine == IMAGE_FILE_MACHINE_UNKNOWN) {
     Config->Machine = MT;
   } else if (MT != IMAGE_FILE_MACHINE_UNKNOWN && Config->Machine != MT) {
-    fatal(toString(File) + ": machine type " + machineToStr(MT) +
+    error(toString(File) + ": machine type " + machineToStr(MT) +
           " conflicts with " + machineToStr(Config->Machine));
+    return;
   }
 
   if (auto *F = dyn_cast<ObjFile>(File)) {
@@ -188,7 +189,7 @@ void SymbolTable::reportRemainingUndefines() {
   }
 
   for (ObjFile *File : ObjFile::Instances) {
-    size_t SymIndex = -1ull;
+    size_t SymIndex = (size_t)-1;
     for (Symbol *Sym : File->getSymbols()) {
       ++SymIndex;
       if (!Sym)
@@ -341,30 +342,29 @@ Symbol *SymbolTable::addCommon(InputFile *F, StringRef N, uint64_t Size,
   return S;
 }
 
-DefinedImportData *SymbolTable::addImportData(StringRef N, ImportFile *F) {
+Symbol *SymbolTable::addImportData(StringRef N, ImportFile *F) {
   Symbol *S;
   bool WasInserted;
   std::tie(S, WasInserted) = insert(N);
   S->IsUsedInRegularObj = true;
   if (WasInserted || isa<Undefined>(S) || isa<Lazy>(S)) {
     replaceSymbol<DefinedImportData>(S, N, F);
-    return cast<DefinedImportData>(S);
+    return S;
   }
 
   reportDuplicate(S, F);
   return nullptr;
 }
 
-DefinedImportThunk *SymbolTable::addImportThunk(StringRef Name,
-                                               DefinedImportData *ID,
-                                               uint16_t Machine) {
+Symbol *SymbolTable::addImportThunk(StringRef Name, DefinedImportData *ID,
+                                    uint16_t Machine) {
   Symbol *S;
   bool WasInserted;
   std::tie(S, WasInserted) = insert(Name);
   S->IsUsedInRegularObj = true;
   if (WasInserted || isa<Undefined>(S) || isa<Lazy>(S)) {
     replaceSymbol<DefinedImportThunk>(S, Name, ID, Machine);
-    return cast<DefinedImportThunk>(S);
+    return S;
   }
 
   reportDuplicate(S, ID->File);

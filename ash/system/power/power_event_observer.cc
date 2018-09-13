@@ -159,7 +159,7 @@ class CompositorWatcher : public ui::CompositorObserver {
           RootWindowController::ForWindow(window)
               ->wallpaper_widget_controller();
       if (wallpaper_widget_controller->IsAnimating()) {
-        wallpaper_widget_controller->AddPendingAnimationEndCallback(
+        wallpaper_widget_controller->AddAnimationEndCallback(
             base::BindOnce(&CompositorWatcher::StartObservingCompositing,
                            weak_ptr_factory_.GetWeakPtr(), compositor));
       } else {
@@ -285,7 +285,7 @@ void PowerEventObserver::SuspendDone(const base::TimeDelta& sleep_duration) {
 
   // TODO(derat): After mus exposes a method for resuming displays, call it
   // here: http://crbug.com/692193
-  if (Shell::GetAshConfig() != Config::MASH)
+  if (Shell::GetAshConfig() != Config::MASH_DEPRECATED)
     Shell::Get()->display_configurator()->ResumeDisplays();
   Shell::Get()->system_tray_model()->clock()->NotifyRefreshClock();
 
@@ -350,7 +350,7 @@ void PowerEventObserver::StopCompositingAndSuspendDisplays() {
 
   // TODO(derat): After mus exposes a method for suspending displays, call it
   // here: http://crbug.com/692193
-  if (Shell::GetAshConfig() != Config::MASH) {
+  if (Shell::GetAshConfig() != Config::MASH_DEPRECATED) {
     Shell::Get()->display_configurator()->SuspendDisplays(
         base::Bind(&OnSuspendDisplaysCompleted,
                    base::Passed(&displays_suspended_callback_)));

@@ -39,6 +39,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/sandbox_init.h"
 #include "content/public/test/browser_test.h"
+#include "gpu/config/gpu_switches.h"
 #include "net/base/escape.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/ui_base_features.h"
@@ -56,6 +57,7 @@
 #include "services/service_manager/sandbox/win/sandbox_win.h"
 #elif defined(OS_MACOSX)
 #include "base/mac/scoped_nsautorelease_pool.h"
+#include "sandbox/mac/seatbelt_exec.h"
 #endif
 
 namespace content {
@@ -576,6 +578,16 @@ std::unique_ptr<TestState> TestLauncherDelegate::PreRunTest(
   return nullptr;
 }
 
+void AppendCommandLineSwitches() {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+
+  // Always disable the unsandbox GPU process for DX12 and Vulkan Info
+  // collection to avoid interference. This GPU process is launched 15
+  // seconds after chrome starts.
+  command_line->AppendSwitch(
+      switches::kDisableGpuProcessForDX12VulkanInfoCollection);
+}
+
 int LaunchTests(TestLauncherDelegate* launcher_delegate,
                 size_t parallel_jobs,
                 int argc,
@@ -584,6 +596,7 @@ int LaunchTests(TestLauncherDelegate* launcher_delegate,
   g_launcher_delegate = launcher_delegate;
 
   base::CommandLine::Init(argc, argv);
+  AppendCommandLineSwitches();
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
 
@@ -602,6 +615,13 @@ int LaunchTests(TestLauncherDelegate* launcher_delegate,
 
   params.instance = GetModuleHandle(NULL);
   params.sandbox_info = &sandbox_info;
+#elif defined(OS_MACOSX)
+  sandbox::SeatbeltExecServer::CreateFromArgumentsResult seatbelt =
+      sandbox::SeatbeltExecServer::CreateFromArguments(
+          command_line->GetProgram().value().c_str(), argc, argv);
+  if (seatbelt.sandbox_required) {
+    CHECK(seatbelt.server->InitializeSandbox());
+  }
 #elif !defined(OS_ANDROID)
   params.argc = argc;
   params.argv = const_cast<const char**>(argv);

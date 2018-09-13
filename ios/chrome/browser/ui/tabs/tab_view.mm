@@ -17,7 +17,7 @@
 #import "ios/chrome/browser/ui/image_util/image_util.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
 #include "ios/chrome/browser/ui/ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/third_party/material_components_ios/src/components/ActivityIndicator/src/MaterialActivityIndicator.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
@@ -40,18 +40,14 @@ const CGFloat kTabCloseTopInset = -1.0;
 const CGFloat kTabCloseLeftInset = 0.0;
 const CGFloat kTabCloseBottomInset = 0.0;
 const CGFloat kTabCloseRightInset = 0.0;
-const CGFloat kTabBackgroundLeftCapInset = 40.0;
-const CGFloat kTabBackgroundLeftCapInsetLegacy = 24.0;
-const CGFloat kFaviconLeftInset = 38;
-const CGFloat kFaviconLeftInsetLegacy = 23.5;
-const CGFloat kFaviconVerticalOffset = 17.0;
-const CGFloat kFaviconVerticalOffsetLegacy = 2.0;
+const CGFloat kTabBackgroundLeftCapInset = 24.0;
+const CGFloat kFaviconLeftInset = 23.5;
+const CGFloat kFaviconVerticalOffset = 2.0;
 const CGFloat kTabStripLineMargin = 2.5;
 const CGFloat kTabStripLineHeight = 0.5;
-const CGFloat kCloseButtonHorizontalShift = 35;
+const CGFloat kCloseButtonHorizontalShift = 19;
 const CGFloat kCloseButtonHorizontalShiftLegacy = 15;
-const CGFloat kCloseButtonVerticalShift = 19.0;
-const CGFloat kCloseButtonVerticalShiftLegacy = 4.0;
+const CGFloat kCloseButtonVerticalShift = 4.0;
 const CGFloat kTitleLeftMargin = 8.0;
 const CGFloat kTitleRightMargin = 0.0;
 
@@ -360,14 +356,9 @@ const CGFloat kFaviconSize = 16.0;
   CGFloat closeButtonHorizontalShift = IsUIRefreshPhase1Enabled()
                                            ? kCloseButtonHorizontalShift
                                            : kCloseButtonHorizontalShiftLegacy;
-  CGFloat faviconLeftInset =
-      IsUIRefreshPhase1Enabled() ? kFaviconLeftInset : kFaviconLeftInsetLegacy;
-  CGFloat faviconVerticalOffset = IsUIRefreshPhase1Enabled()
-                                      ? kFaviconVerticalOffset
-                                      : kFaviconVerticalOffsetLegacy;
-  CGFloat closeButtonVerticalShift = IsUIRefreshPhase1Enabled()
-                                         ? kCloseButtonVerticalShift
-                                         : kCloseButtonVerticalShiftLegacy;
+  CGFloat faviconLeftInset = kFaviconLeftInset;
+  CGFloat faviconVerticalOffset = kFaviconVerticalOffset;
+  CGFloat closeButtonVerticalShift = kCloseButtonVerticalShift;
   NSDictionary* metrics = @{
     @"closeButtonSize" : @(kCloseButtonSize),
     @"closeButtonHorizontalShift" : @(closeButtonHorizontalShift),
@@ -386,8 +377,6 @@ const CGFloat kFaviconSize = 16.0;
 }
 
 - (void)updateLineSeparator {
-  if (IsUIRefreshPhase1Enabled())
-    return;
   UIColor* separatorColor =
       _incognitoStyle ? [UIColor colorWithWhite:36 / 255.0 alpha:1.0]
                       : [UIColor colorWithWhite:185 / 255.0 alpha:1.0];
@@ -400,9 +389,7 @@ const CGFloat kFaviconSize = 16.0;
   NSString* incognito = _incognitoStyle ? @"incognito_" : @"";
   NSString* imageName = [NSString
       stringWithFormat:@"tabstrip_%@%@_tab%@", incognito, state, refresh];
-  CGFloat leftInset = IsUIRefreshPhase1Enabled()
-                          ? kTabBackgroundLeftCapInset
-                          : kTabBackgroundLeftCapInsetLegacy;
+  CGFloat leftInset = kTabBackgroundLeftCapInset;
   UIImage* backgroundImage =
       StretchableImageFromUIImage([UIImage imageNamed:imageName], leftInset, 0);
   [_backgroundImageView setImage:backgroundImage];

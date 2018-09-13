@@ -16,6 +16,11 @@ FileChange::Change::Change(ChangeType change, FileType file_type)
     : change_(change), file_type_(file_type) {
 }
 
+FileChange::Change::Change(ChangeType change,
+                           FileType file_type,
+                           const std::string& team_drive_id)
+    : change_(change), file_type_(file_type), team_drive_id_(team_drive_id) {}
+
 std::string FileChange::Change::DebugString() const {
   const char* change_string = nullptr;
   switch (change()) {
@@ -57,6 +62,11 @@ void FileChange::ChangeList::Update(const Change& new_change) {
     return;
   }
 
+  if (last.team_drive_id() != new_change.team_drive_id()) {
+    list_.push_back(new_change);
+    return;
+  }
+
   if (last.change() == new_change.change())
     return;
 
@@ -87,10 +97,9 @@ std::string FileChange::ChangeList::DebugString() const {
   return ss.str();
 }
 
-FileChange::FileChange() {
-}
+FileChange::FileChange() = default;
 FileChange::FileChange(const FileChange& other) = default;
-FileChange::~FileChange() {}
+FileChange::~FileChange() = default;
 
 void FileChange::Update(const base::FilePath file_path,
                         const FileChange::Change& new_change) {
@@ -115,12 +124,16 @@ void FileChange::Update(const base::FilePath file_path,
 void FileChange::Update(const base::FilePath file_path,
                         const ResourceEntry& entry,
                         FileChange::ChangeType change) {
-  FileType type = !entry.has_file_info()
-                      ? FILE_TYPE_NO_INFO
-                      : entry.file_info().is_directory() ? FILE_TYPE_DIRECTORY
-                                                         : FILE_TYPE_FILE;
-
-  Update(file_path, type, change);
+  FileType type = FILE_TYPE_NO_INFO;
+  std::string team_drive_id;
+  if (entry.has_file_info()) {
+    type =
+        entry.file_info().is_directory() ? FILE_TYPE_DIRECTORY : FILE_TYPE_FILE;
+    if (entry.file_info().is_team_drive_root()) {
+      team_drive_id = entry.resource_id();
+    }
+  }
+  Update(file_path, FileChange::Change(change, type, team_drive_id));
 }
 
 void FileChange::Apply(const FileChange& new_changed_files) {

@@ -173,8 +173,8 @@ set(GENERIC_TF_SOURCES
   trunctfsf2.c)
 
 option(COMPILER_RT_EXCLUDE_ATOMIC_BUILTIN
-  "Skip the atomic builtin (this may be needed if system headers are unavailable)"
-  Off)
+  "Skip the atomic builtin (these should normally be provided by a shared library)"
+  On)
 
 if(NOT FUCHSIA AND NOT COMPILER_RT_BAREMETAL_BUILD)
   set(GENERIC_SOURCES
@@ -406,6 +406,7 @@ if(MINGW)
       arm/aeabi_ldivmod.S
       arm/aeabi_uidivmod.S
       arm/aeabi_uldivmod.S
+      arm/chkstk.S
       divmoddi4.c
       divmodsi4.c
       divdi3.c

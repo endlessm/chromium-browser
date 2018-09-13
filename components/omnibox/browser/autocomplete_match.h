@@ -84,6 +84,14 @@ struct AutocompleteMatch {
           style(style) {
     }
 
+    bool operator==(const ACMatchClassification& other) const {
+      return offset == other.offset && style == other.style;
+    }
+
+    bool operator!=(const ACMatchClassification& other) const {
+      return offset != other.offset || style != other.style;
+    }
+
     // Offset within the string that this classification starts
     size_t offset;
 
@@ -341,6 +349,16 @@ struct AutocompleteMatch {
   // Estimates dynamic memory usage.
   // See base/trace_event/memory_usage_estimator.h for more info.
   size_t EstimateMemoryUsage() const;
+
+  // Some types of matches (answers for dictionary definitions, e.g.) do not
+  // follow the common rules for reversing lines.
+  bool IsExceptedFromLineReversal() const;
+
+  // Not to be confused with |has_tab_match|, this returns true if the match
+  // has a matching tab and will use a switch-to-tab button. It returns false,
+  // for example, when the switch button is not shown because a keyword match
+  // is taking precedence.
+  bool ShouldShowTabMatch() const;
 
   // The provider of this match, used to remember which provider the user had
   // selected when the input changes. This may be NULL, in which case there is

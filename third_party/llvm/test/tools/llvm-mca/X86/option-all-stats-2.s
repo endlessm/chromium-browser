@@ -7,22 +7,23 @@
 
 add %eax, %eax
 
-# ALL:      Iterations:     100
-# ALL-NEXT: Instructions:   100
-# ALL-NEXT: Total Cycles:   103
-# ALL-NEXT: Dispatch Width: 2
-# ALL-NEXT: IPC:            0.97
+# ALL:       Iterations:        100
+# ALL-NEXT:  Instructions:      100
+# ALL-NEXT:  Total Cycles:      103
+# ALL-NEXT:  Dispatch Width:    2
+# ALL-NEXT:  IPC:               0.97
+# ALL-NEXT:  Block RThroughput: 0.5
 
-# ALL:      Instruction Info:
-# ALL-NEXT: [1]: #uOps
-# ALL-NEXT: [2]: Latency
-# ALL-NEXT: [3]: RThroughput
-# ALL-NEXT: [4]: MayLoad
-# ALL-NEXT: [5]: MayStore
-# ALL-NEXT: [6]: HasSideEffects
+# ALL:       Instruction Info:
+# ALL-NEXT:  [1]: #uOps
+# ALL-NEXT:  [2]: Latency
+# ALL-NEXT:  [3]: RThroughput
+# ALL-NEXT:  [4]: MayLoad
+# ALL-NEXT:  [5]: MayStore
+# ALL-NEXT:  [6]: HasSideEffects (U)
 
-# ALL:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
-# ALL-NEXT:  1      1     0.50                        addl	%eax, %eax
+# ALL:       [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
+# ALL-NEXT:   1      1     0.50                        addl	%eax, %eax
 
 # FULL:      Dynamic Dispatch Stall Cycles:
 # FULL-NEXT: RAT     - Register unavailable:                      0
@@ -35,8 +36,8 @@ add %eax, %eax
 # FULL:      Dispatch Logic - number of cycles where we saw N instructions dispatched:
 # FULL-NEXT: [# dispatched], [# cycles]
 # FULL-NEXT:  0,              22  (21.4%)
-# FULL-NEXT:  2,              19  (18.4%)
 # FULL-NEXT:  1,              62  (60.2%)
+# FULL-NEXT:  2,              19  (18.4%)
 
 # FULL:      Schedulers - number of cycles where we saw N instructions issued:
 # FULL-NEXT: [# issued], [# cycles]
@@ -57,12 +58,12 @@ add %eax, %eax
 # FULL-NEXT: Total number of mappings created:    200
 # FULL-NEXT: Max number of mappings used:         44
 
-# FULL:      *  Register File #1 -- FpuPRF:
+# FULL:      *  Register File #1 -- JFpuPRF:
 # FULL-NEXT:    Number of physical registers:     72
 # FULL-NEXT:    Total number of mappings created: 0
 # FULL-NEXT:    Max number of mappings used:      0
 
-# FULL:      *  Register File #2 -- IntegerPRF:
+# FULL:      *  Register File #2 -- JIntegerPRF:
 # FULL-NEXT:    Number of physical registers:     64
 # FULL-NEXT:    Total number of mappings created: 200
 # FULL-NEXT:    Max number of mappings used:      44
@@ -90,4 +91,3 @@ add %eax, %eax
 # FULL:      Resource pressure by instruction:
 # FULL-NEXT: [0]    [1]    [2]    [3]    [4]    [5]    [6]    [7]    [8]    [9]    [10]   [11]   [12]   [13]   Instructions:
 # FULL-NEXT: 0.50   0.50    -      -      -      -      -      -      -      -      -      -      -      -     addl	%eax, %eax
-

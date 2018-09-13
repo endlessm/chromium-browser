@@ -8,12 +8,11 @@
 #include <memory>
 #include <utility>
 
+#include "ash/accelerators/accelerator_controller.h"
 #include "ash/detachable_base/detachable_base_pairing_status.h"
 #include "ash/focus_cycler.h"
 #include "ash/ime/ime_controller.h"
-#include "ash/keyboard/keyboard_observer_register.h"
 #include "ash/login/login_screen_controller.h"
-#include "ash/login/ui/layout_util.h"
 #include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_auth_user_view.h"
 #include "ash/login/ui/login_big_user_view.h"
@@ -25,6 +24,7 @@
 #include "ash/login/ui/non_accessible_view.h"
 #include "ash/login/ui/note_action_launch_button.h"
 #include "ash/login/ui/scrollable_users_list_view.h"
+#include "ash/login/ui/views_utils.h"
 #include "ash/root_window_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_widget.h"
@@ -35,6 +35,7 @@
 #include "ash/system/tray/system_tray_notifier.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/user_manager/user_type.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -76,7 +77,7 @@ constexpr int kMediumDensityMarginLeftOfAuthUserPortraitDp = 0;
 constexpr int kMediumDensityDistanceBetweenAuthUserAndUsersLandscapeDp = 220;
 constexpr int kMediumDensityDistanceBetweenAuthUserAndUsersPortraitDp = 84;
 
-constexpr const char kLockContentsViewName[] = "LockContentsView";
+constexpr char kLockContentsViewName[] = "LockContentsView";
 
 // A view which stores two preferred sizes. The embedder can control which one
 // is used.
@@ -172,13 +173,11 @@ views::Label* CreateInfoLabel() {
 
 keyboard::KeyboardController* GetKeyboardControllerForWidget(
     const views::Widget* widget) {
-  keyboard::KeyboardController* keyboard_controller =
-      keyboard::KeyboardController::GetInstance();
-  if (!keyboard_controller)
+  auto* keyboard_controller = keyboard::KeyboardController::Get();
+  if (!keyboard_controller->enabled())
     return nullptr;
 
-  aura::Window* keyboard_window =
-      keyboard_controller->GetContainerWindow()->GetRootWindow();
+  aura::Window* keyboard_window = keyboard_controller->GetRootWindow();
   aura::Window* this_window = widget->GetNativeWindow()->GetRootWindow();
   return keyboard_window == this_window ? keyboard_controller : nullptr;
 }
@@ -234,27 +233,38 @@ views::View* LockContentsView::TestApi::main_view() const {
   return view_->main_view_;
 }
 
-LockContentsView::UserState::UserState(AccountId account_id)
-    : account_id(account_id) {}
+LockContentsView::UserState::UserState(const mojom::LoginUserInfoPtr& user_info)
+    : account_id(user_info->basic_user_info->account_id) {
+  fingerprint_state = user_info->allow_fingerprint_unlock
+                          ? mojom::FingerprintUnlockState::AVAILABLE
+                          : mojom::FingerprintUnlockState::UNAVAILABLE;
+  if (user_info->auth_type == proximity_auth::mojom::AuthType::ONLINE_SIGN_IN)
+    force_online_sign_in = true;
+}
 
 LockContentsView::UserState::UserState(UserState&&) = default;
 
 LockContentsView::UserState::~UserState() = default;
 
+// static
+const int LockContentsView::kLoginAttemptsBeforeGaiaDialog = 4;
+
 LockContentsView::LockContentsView(
     mojom::TrayActionState initial_note_action_state,
+    LockScreen::ScreenType screen_type,
     LoginDataDispatcher* data_dispatcher,
     std::unique_ptr<LoginDetachableBaseModel> detachable_base_model)
     : NonAccessibleView(kLockContentsViewName),
+      screen_type_(screen_type),
       data_dispatcher_(data_dispatcher),
       detachable_base_model_(std::move(detachable_base_model)),
       display_observer_(this),
-      session_observer_(this),
-      keyboard_observer_(this) {
+      session_observer_(this) {
   data_dispatcher_->AddObserver(this);
   display_observer_.Add(display::Screen::GetScreen());
   Shell::Get()->login_screen_controller()->AddObserver(this);
   Shell::Get()->system_tray_notifier()->AddSystemTrayFocusObserver(this);
+  keyboard::KeyboardController::Get()->AddObserver(this);
   auth_error_bubble_ = std::make_unique<LoginBubble>();
   detachable_base_error_bubble_ = std::make_unique<LoginBubble>();
   tooltip_bubble_ = std::make_unique<LoginBubble>();
@@ -298,12 +308,16 @@ LockContentsView::LockContentsView(
   AddChildView(expanded_view_);
 
   OnLockScreenNoteStateChanged(initial_note_action_state);
-  Shell::Get()->AddShellObserver(this);
+  chromeos::DBusThreadManager::Get()->GetPowerManagerClient()->AddObserver(
+      this);
+  RegisterAccelerators();
 }
 
 LockContentsView::~LockContentsView() {
+  Shell::Get()->accelerator_controller()->UnregisterAll(this);
   data_dispatcher_->RemoveObserver(this);
   Shell::Get()->login_screen_controller()->RemoveObserver(this);
+  keyboard::KeyboardController::Get()->RemoveObserver(this);
   Shell::Get()->system_tray_notifier()->RemoveSystemTrayFocusObserver(this);
 
   if (unlock_attempt_ > 0) {
@@ -313,8 +327,76 @@ LockContentsView::~LockContentsView() {
     Shell::Get()->metrics()->login_metrics_recorder()->RecordNumLoginAttempts(
         unlock_attempt_, false /*success*/);
   }
-  Shell::Get()->RemoveShellObserver(this);
-  keyboard_observer_.RemoveAll();
+  chromeos::DBusThreadManager::Get()->GetPowerManagerClient()->RemoveObserver(
+      this);
+}
+
+void LockContentsView::FocusNextUser() {
+  if (login_views_utils::HasFocusInAnyChildView(primary_big_view_)) {
+    if (opt_secondary_big_view_) {
+      SwapActiveAuthBetweenPrimaryAndSecondary(false /*is_primary*/);
+      opt_secondary_big_view_->RequestFocus();
+    } else if (users_list_) {
+      users_list_->user_view_at(0)->RequestFocus();
+    }
+    return;
+  }
+
+  if (opt_secondary_big_view_ &&
+      login_views_utils::HasFocusInAnyChildView(opt_secondary_big_view_)) {
+    SwapActiveAuthBetweenPrimaryAndSecondary(true /*is_primary*/);
+    primary_big_view_->RequestFocus();
+    return;
+  }
+
+  for (int i = 0; i < users_list_->user_count(); ++i) {
+    LoginUserView* user_view = users_list_->user_view_at(i);
+    if (!login_views_utils::HasFocusInAnyChildView(user_view))
+      continue;
+
+    if (i == users_list_->user_count() - 1) {
+      SwapActiveAuthBetweenPrimaryAndSecondary(true /*is_primary*/);
+      primary_big_view_->RequestFocus();
+      return;
+    }
+
+    user_view->GetNextFocusableView()->RequestFocus();
+    return;
+  }
+}
+
+void LockContentsView::FocusPreviousUser() {
+  if (login_views_utils::HasFocusInAnyChildView(primary_big_view_)) {
+    if (users_list_) {
+      users_list_->user_view_at(users_list_->user_count() - 1)->RequestFocus();
+    } else if (opt_secondary_big_view_) {
+      SwapActiveAuthBetweenPrimaryAndSecondary(false /*is_primary*/);
+      opt_secondary_big_view_->RequestFocus();
+    }
+    return;
+  }
+
+  if (opt_secondary_big_view_ &&
+      login_views_utils::HasFocusInAnyChildView(opt_secondary_big_view_)) {
+    SwapActiveAuthBetweenPrimaryAndSecondary(true /*is_primary*/);
+    primary_big_view_->RequestFocus();
+    return;
+  }
+
+  for (int i = 0; i < users_list_->user_count(); ++i) {
+    LoginUserView* user_view = users_list_->user_view_at(i);
+    if (!login_views_utils::HasFocusInAnyChildView(user_view))
+      continue;
+
+    if (i == 0) {
+      SwapActiveAuthBetweenPrimaryAndSecondary(true /*is_primary*/);
+      primary_big_view_->RequestFocus();
+      return;
+    }
+
+    user_view->GetPreviousFocusableView()->RequestFocus();
+    return;
+  }
 }
 
 void LockContentsView::Layout() {
@@ -327,14 +409,6 @@ void LockContentsView::Layout() {
 }
 
 void LockContentsView::AddedToWidget() {
-  // Register keyboard observer after view has been added to the widget. If
-  // virtual keyboard is activated before displaying lock screen we do not
-  // receive OnVirtualKeyboardStateChanged() callback and we need to register
-  // keyboard observer here.
-  keyboard::KeyboardController* keyboard_controller = GetKeyboardController();
-  if (keyboard_controller)
-    keyboard_observer_.Add(keyboard_controller);
-
   DoLayout();
 
   // Focus the primary user when showing the UI. This will focus the password.
@@ -376,6 +450,15 @@ void LockContentsView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->SetNameExplicitlyEmpty();
 }
 
+bool LockContentsView::AcceleratorPressed(const ui::Accelerator& accelerator) {
+  auto entry = accel_map_.find(accelerator);
+  if (entry == accel_map_.end())
+    return false;
+
+  PerformAction(entry->second);
+  return true;
+}
+
 void LockContentsView::OnUsersChanged(
     const std::vector<mojom::LoginUserInfoPtr>& users) {
   // The debug view will potentially call this method many times. Make sure to
@@ -386,20 +469,18 @@ void LockContentsView::OnUsersChanged(
   rotation_actions_.clear();
   users_.clear();
 
-  // If there are no users we have no UI to build.
+  // If there are no users, show gaia signin if login, otherwise crash.
   if (users.empty()) {
-    LOG(ERROR) << "Empty user list received";
+    LOG_IF(FATAL, screen_type_ != LockScreen::ScreenType::kLogin)
+        << "Empty user list received";
+    Shell::Get()->login_screen_controller()->ShowGaiaSignin(
+        false /*can_close*/, base::nullopt /*prefilled_account*/);
     return;
   }
 
   // Build user state list.
-  for (const mojom::LoginUserInfoPtr& user : users) {
-    UserState state(user->basic_user_info->account_id);
-    state.fingerprint_state = user->allow_fingerprint_unlock
-                                  ? mojom::FingerprintUnlockState::AVAILABLE
-                                  : mojom::FingerprintUnlockState::UNAVAILABLE;
-    users_.push_back(std::move(state));
-  }
+  for (const mojom::LoginUserInfoPtr& user : users)
+    users_.push_back(UserState(user));
 
   auto box_layout =
       std::make_unique<views::BoxLayout>(views::BoxLayout::kHorizontal);
@@ -642,16 +723,15 @@ void LockContentsView::OnPublicSessionKeyboardLayoutsChanged(
 
 void LockContentsView::OnDetachableBasePairingStatusChanged(
     DetachableBasePairingStatus pairing_status) {
-  const mojom::UserInfoPtr& user_info =
-      CurrentBigUserView()->GetCurrentUser()->basic_user_info;
   // If the current big user is public account user, or the base is not paired,
   // or the paired base matches the last used by the current user, the
   // detachable base error bubble should be hidden. Otherwise, the bubble should
   // be shown.
-  if (!CurrentBigUserView()->auth_user() ||
+  if (!CurrentBigUserView() || !CurrentBigUserView()->auth_user() ||
       pairing_status == DetachableBasePairingStatus::kNone ||
       (pairing_status == DetachableBasePairingStatus::kAuthenticated &&
-       detachable_base_model_->PairedBaseMatchesLastUsedByUser(*user_info))) {
+       detachable_base_model_->PairedBaseMatchesLastUsedByUser(
+           *CurrentBigUserView()->GetCurrentUser()->basic_user_info))) {
     detachable_base_error_bubble_->Close();
     return;
   }
@@ -698,7 +778,7 @@ void LockContentsView::OnFingerprintUnlockStateChanged(
 
 void LockContentsView::SetAvatarForUser(const AccountId& account_id,
                                         const mojom::UserAvatarPtr& avatar) {
-  auto replace = [&](const ash::mojom::LoginUserInfoPtr& user) {
+  auto replace = [&](const mojom::LoginUserInfoPtr& user) {
     auto changed = user->Clone();
     changed->basic_user_info->avatar = avatar->Clone();
     return changed;
@@ -760,23 +840,32 @@ void LockContentsView::OnLockStateChanged(bool locked) {
   }
 }
 
-void LockContentsView::OnVirtualKeyboardStateChanged(
-    bool activated,
-    aura::Window* root_window) {
-  const views::Widget* widget = GetWidget();
-  if (widget) {
-    UpdateKeyboardObserverFromStateChanged(
-        activated, root_window, widget->GetNativeWindow()->GetRootWindow(),
-        &keyboard_observer_);
+void LockContentsView::OnStateChanged(
+    const keyboard::KeyboardControllerState state) {
+  if (!primary_big_view_)
+    return;
+
+  if (state == keyboard::KeyboardControllerState::SHOWN ||
+      state == keyboard::KeyboardControllerState::HIDDEN) {
+    bool keyboard_will_be_shown =
+        state == keyboard::KeyboardControllerState::SHOWN;
+    // Keyboard state can go from SHOWN -> SomeStateOtherThanShownOrHidden ->
+    // SHOWN when we click on the inactive BigUser while the virtual keyboard is
+    // active. In this case, we should do nothing, since
+    // SwapActiveAuthBetweenPrimaryAndSecondary handles the re-layout.
+    if (keyboard_shown_ == keyboard_will_be_shown)
+      return;
+    keyboard_shown_ = keyboard_will_be_shown;
+    LayoutAuth(CurrentBigUserView(), nullptr /*opt_to_hide*/,
+               false /*animate*/);
   }
 }
 
-void LockContentsView::OnStateChanged(
-    const keyboard::KeyboardControllerState state) {
-  if (state == keyboard::KeyboardControllerState::SHOWN ||
-      state == keyboard::KeyboardControllerState::HIDDEN) {
-    LayoutAuth(primary_big_view_, opt_secondary_big_view_, false /*animate*/);
-  }
+void LockContentsView::SuspendImminent(
+    power_manager::SuspendImminent::Reason reason) {
+  LoginAuthUserView* auth_user = CurrentBigUserView()->auth_user();
+  if (auth_user)
+    auth_user->password_view()->Clear();
 }
 
 void LockContentsView::FocusNextWidget(bool reverse) {
@@ -861,7 +950,7 @@ void LockContentsView::CreateHighDensityLayout(
 }
 
 void LockContentsView::DoLayout() {
-  bool landscape = login_layout_util::ShouldShowLandscape(GetWidget());
+  bool landscape = login_views_utils::ShouldShowLandscape(GetWidget());
   for (auto& action : rotation_actions_)
     action.Run(landscape);
 
@@ -904,19 +993,30 @@ views::View* LockContentsView::MakeOrientationViewWithWidths(int landscape,
 }
 
 void LockContentsView::AddRotationAction(const OnRotate& on_rotate) {
-  on_rotate.Run(login_layout_util::ShouldShowLandscape(GetWidget()));
+  on_rotate.Run(login_views_utils::ShouldShowLandscape(GetWidget()));
   rotation_actions_.push_back(on_rotate);
 }
 
 void LockContentsView::SwapActiveAuthBetweenPrimaryAndSecondary(
     bool is_primary) {
-  if (is_primary && !primary_big_view_->IsAuthEnabled()) {
-    LayoutAuth(primary_big_view_, opt_secondary_big_view_, true /*animate*/);
-    OnBigUserChanged();
-  } else if (!is_primary && opt_secondary_big_view_ &&
-             !opt_secondary_big_view_->IsAuthEnabled()) {
-    LayoutAuth(opt_secondary_big_view_, primary_big_view_, true /*animate*/);
-    OnBigUserChanged();
+  // Do not allow user-swap during authentication.
+  if (Shell::Get()->login_screen_controller()->IsAuthenticating())
+    return;
+
+  if (is_primary) {
+    if (!primary_big_view_->IsAuthEnabled()) {
+      LayoutAuth(primary_big_view_, opt_secondary_big_view_, true /*animate*/);
+      OnBigUserChanged();
+    } else {
+      primary_big_view_->RequestFocus();
+    }
+  } else if (!is_primary && opt_secondary_big_view_) {
+    if (!opt_secondary_big_view_->IsAuthEnabled()) {
+      LayoutAuth(opt_secondary_big_view_, primary_big_view_, true /*animate*/);
+      OnBigUserChanged();
+    } else {
+      opt_secondary_big_view_->RequestFocus();
+    }
   }
 }
 
@@ -936,8 +1036,8 @@ void LockContentsView::OnAuthenticate(bool auth_success) {
           *CurrentBigUserView()->GetCurrentUser()->basic_user_info);
     }
   } else {
-    ShowAuthErrorMessage();
     ++unlock_attempt_;
+    ShowAuthErrorMessage();
   }
 }
 
@@ -964,6 +1064,10 @@ void LockContentsView::LayoutAuth(LoginBigUserView* to_update,
 }
 
 void LockContentsView::SwapToBigUser(int user_index) {
+  // Do not allow user-swap during authentication.
+  if (Shell::Get()->login_screen_controller()->IsAuthenticating())
+    return;
+
   DCHECK(users_list_);
   LoginUserView* view = users_list_->user_view_at(user_index);
   DCHECK(view);
@@ -982,6 +1086,11 @@ void LockContentsView::OnRemoveUserWarningShown(bool is_primary) {
 }
 
 void LockContentsView::RemoveUser(bool is_primary) {
+  // Do not allow removing a user during authentication, such as if the user
+  // tried to remove the currently authenticating user.
+  if (Shell::Get()->login_screen_controller()->IsAuthenticating())
+    return;
+
   LoginBigUserView* to_remove =
       is_primary ? primary_big_view_ : opt_secondary_big_view_;
   DCHECK(to_remove->GetCurrentUser()->can_remove);
@@ -1009,6 +1118,8 @@ void LockContentsView::OnBigUserChanged() {
   const AccountId new_big_user =
       CurrentBigUserView()->GetCurrentUser()->basic_user_info->account_id;
 
+  CurrentBigUserView()->RequestFocus();
+
   Shell::Get()->login_screen_controller()->OnFocusPod(new_big_user);
   UpdateEasyUnlockIconForUser(new_big_user);
 
@@ -1026,6 +1137,9 @@ void LockContentsView::OnBigUserChanged() {
   // sure the detachable base pairing error is updated if needed.
   OnDetachableBasePairingStatusChanged(
       detachable_base_model_->GetPairingStatus());
+
+  if (!detachable_base_error_bubble_->IsVisible())
+    CurrentBigUserView()->RequestFocus();
 }
 
 void LockContentsView::UpdateEasyUnlockIconForUser(const AccountId& user) {
@@ -1070,9 +1184,18 @@ void LockContentsView::ShowAuthErrorMessage() {
   if (!big_view->auth_user())
     return;
 
+  // Show gaia signin if this is login and the user has failed too many times.
+  if (screen_type_ == LockScreen::ScreenType::kLogin &&
+      unlock_attempt_ >= kLoginAttemptsBeforeGaiaDialog) {
+    Shell::Get()->login_screen_controller()->ShowGaiaSignin(
+        true /*can_close*/,
+        big_view->auth_user()->current_user()->basic_user_info->account_id);
+    return;
+  }
+
   base::string16 error_text = l10n_util::GetStringUTF16(
-      unlock_attempt_ ? IDS_ASH_LOGIN_ERROR_AUTHENTICATING_2ND_TIME
-                      : IDS_ASH_LOGIN_ERROR_AUTHENTICATING);
+      unlock_attempt_ > 1 ? IDS_ASH_LOGIN_ERROR_AUTHENTICATING_2ND_TIME
+                          : IDS_ASH_LOGIN_ERROR_AUTHENTICATING);
   ImeController* ime_controller = Shell::Get()->ime_controller();
   if (ime_controller->IsCapsLockEnabled()) {
     error_text += base::ASCIIToUTF16(" ") +
@@ -1144,7 +1267,10 @@ keyboard::KeyboardController* LockContentsView::GetKeyboardController() const {
   return GetWidget() ? GetKeyboardControllerForWidget(GetWidget()) : nullptr;
 }
 
-void LockContentsView::OnPublicAccountTapped() {
+void LockContentsView::OnPublicAccountTapped(bool is_primary) {
+  // Set the public account user to be the active user.
+  SwapActiveAuthBetweenPrimaryAndSecondary(is_primary);
+
   // Update expanded_view_ in case CurrentBigUserView has changed.
   // 1. It happens when the active big user is changed. For example both
   // primary and secondary big user are public account and user switches from
@@ -1176,8 +1302,9 @@ LoginBigUserView* LockContentsView::AllocateLoginBigUserView(
 
   LoginPublicAccountUserView::Callbacks public_account_callbacks;
   public_account_callbacks.on_tap = auth_user_callbacks.on_tap;
-  public_account_callbacks.on_public_account_tapped = base::BindRepeating(
-      &LockContentsView::OnPublicAccountTapped, base::Unretained(this));
+  public_account_callbacks.on_public_account_tapped =
+      base::BindRepeating(&LockContentsView::OnPublicAccountTapped,
+                          base::Unretained(this), is_primary);
   return new LoginBigUserView(user, auth_user_callbacks,
                               public_account_callbacks);
 }
@@ -1187,8 +1314,9 @@ LoginBigUserView* LockContentsView::TryToFindBigUser(const AccountId& user,
   LoginBigUserView* view = nullptr;
 
   // Find auth instance.
-  if (primary_big_view_->GetCurrentUser()->basic_user_info->account_id ==
-      user) {
+  if (primary_big_view_ &&
+      primary_big_view_->GetCurrentUser()->basic_user_info->account_id ==
+          user) {
     view = primary_big_view_;
   } else if (opt_secondary_big_view_ &&
              opt_secondary_big_view_->GetCurrentUser()
@@ -1234,6 +1362,8 @@ void LockContentsView::UpdateAuthForPublicAccount(
     opt_to_update->SetAuthEnabled(true /*enabled*/, animate);
   if (opt_to_hide)
     opt_to_hide->SetAuthEnabled(false /*enabled*/, animate);
+
+  Layout();
 }
 
 void LockContentsView::UpdateAuthForAuthUser(LoginAuthUserView* opt_to_update,
@@ -1260,9 +1390,10 @@ void LockContentsView::UpdateAuthForAuthUser(LoginAuthUserView* opt_to_update,
       to_update_auth = LoginAuthUserView::AUTH_PASSWORD;
       keyboard::KeyboardController* keyboard_controller =
           GetKeyboardController();
-      const bool keyboard_visible =
-          keyboard_controller ? keyboard_controller->keyboard_visible() : false;
-      if (state->show_pin && !keyboard_visible &&
+      const bool is_keyboard_visible =
+          keyboard_controller ? keyboard_controller->IsKeyboardVisible()
+                              : false;
+      if (state->show_pin && !is_keyboard_visible &&
           state->fingerprint_state ==
               mojom::FingerprintUnlockState::UNAVAILABLE) {
         to_update_auth |= LoginAuthUserView::AUTH_PIN;
@@ -1302,6 +1433,34 @@ void LockContentsView::SetDisplayStyle(DisplayStyle style) {
 void LockContentsView::DisableLockScreenNote() {
   disable_lock_screen_note_ = true;
   OnLockScreenNoteStateChanged(mojom::TrayActionState::kNotAvailable);
+}
+
+void LockContentsView::RegisterAccelerators() {
+  // Accelerators that apply on login and lock:
+  accel_map_[ui::Accelerator(ui::VKEY_RIGHT, 0)] =
+      AcceleratorAction::kFocusNextUser;
+  accel_map_[ui::Accelerator(ui::VKEY_LEFT, 0)] =
+      AcceleratorAction::kFocusPreviousUser;
+
+  AcceleratorController* controller = Shell::Get()->accelerator_controller();
+  for (const auto& item : accel_map_)
+    controller->Register({item.first}, this);
+}
+
+void LockContentsView::PerformAction(AcceleratorAction action) {
+  switch (action) {
+    case AcceleratorAction::kShowFeedback:
+      Shell::Get()->login_screen_controller()->ShowFeedback();
+      return;
+    case AcceleratorAction::kFocusNextUser:
+      FocusNextUser();
+      return;
+    case AcceleratorAction::kFocusPreviousUser:
+      FocusPreviousUser();
+      return;
+    default:
+      NOTREACHED();
+  }
 }
 
 }  // namespace ash

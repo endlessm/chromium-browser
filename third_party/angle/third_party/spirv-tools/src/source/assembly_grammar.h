@@ -15,12 +15,13 @@
 #ifndef LIBSPIRV_ASSEMBLY_GRAMMAR_H_
 #define LIBSPIRV_ASSEMBLY_GRAMMAR_H_
 
+#include "enum_set.h"
+#include "latest_version_spirv_header.h"
 #include "operand.h"
 #include "spirv-tools/libspirv.h"
-#include "spirv/1.2/spirv.h"
 #include "table.h"
 
-namespace libspirv {
+namespace spvtools {
 
 // Encapsulates the grammar to use for SPIR-V assembly.
 // Contains methods to query for valid instructions and operands.
@@ -37,6 +38,11 @@ class AssemblyGrammar {
 
   // Returns the SPIR-V target environment.
   spv_target_env target_env() const { return target_env_; }
+
+  // Removes capabilities not available in the current target environment and
+  // returns the rest.
+  CapabilitySet filterCapsAgainstTargetEnv(const SpvCapability* cap_array,
+                                           uint32_t count) const;
 
   // Fills in the desc parameter with the information about the opcode
   // of the given name. Returns SPV_SUCCESS if the opcode was found, and
@@ -59,6 +65,17 @@ class AssemblyGrammar {
   // SPV_ERROR_INVALID_LOOKUP otherwise.
   spv_result_t lookupOperand(spv_operand_type_t type, uint32_t operand,
                              spv_operand_desc* desc) const;
+
+  // Finds operand entry in the grammar table and returns its name.
+  // Returns "Unknown" if not found.
+  const char* lookupOperandName(spv_operand_type_t type,
+                                uint32_t operand) const {
+    spv_operand_desc desc = nullptr;
+    if (lookupOperand(type, operand, &desc) != SPV_SUCCESS || !desc) {
+      return "Unknown";
+    }
+    return desc->name;
+  }
 
   // Finds the opcode for the given OpSpecConstantOp opcode name. The name
   // should not have the "Op" prefix.  For example, "IAdd" corresponds to
@@ -115,6 +132,7 @@ class AssemblyGrammar {
   const spv_opcode_table opcodeTable_;
   const spv_ext_inst_table extInstTable_;
 };
-}  // namespace libspirv
+
+}  // namespace spvtools
 
 #endif  // LIBSPIRV_ASSEMBLY_GRAMMAR_H_

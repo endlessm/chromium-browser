@@ -9,10 +9,13 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/strings/sys_string_conversions.h"
 #include "content/public/common/content_switches.h"
 #include "content/shell/app/paths_mac.h"
+#include "content/shell/browser/shell_application_mac.h"
 #include "content/shell/common/shell_switches.h"
 
 namespace content {
@@ -48,6 +51,17 @@ void EnsureCorrectResolutionSettings() {
   argv[original_argv.size()] = NULL;
 
   CHECK(execvp(argv[0], argv));
+}
+
+void OverrideBundleID() {
+  NSBundle* bundle = base::mac::OuterBundle();
+  base::mac::SetBaseBundleID(
+      base::SysNSStringToUTF8([bundle bundleIdentifier]).c_str());
+}
+
+void RegisterShellCrApp() {
+  // Force the NSApplication subclass to be used.
+  [ShellCrApplication sharedApplication];
 }
 
 }  // namespace content

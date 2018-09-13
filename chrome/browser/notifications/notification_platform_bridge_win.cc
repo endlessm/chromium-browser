@@ -29,11 +29,11 @@
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service_impl.h"
 #include "chrome/browser/notifications/notification_handler.h"
-#include "chrome/browser/notifications/notification_image_retainer.h"
-#include "chrome/browser/notifications/notification_launch_id.h"
-#include "chrome/browser/notifications/notification_platform_bridge_win_metrics.h"
-#include "chrome/browser/notifications/notification_platform_bridge_win_util.h"
-#include "chrome/browser/notifications/notification_template_builder.h"
+#include "chrome/browser/notifications/win/notification_image_retainer.h"
+#include "chrome/browser/notifications/win/notification_launch_id.h"
+#include "chrome/browser/notifications/win/notification_metrics.h"
+#include "chrome/browser/notifications/win/notification_template_builder.h"
+#include "chrome/browser/notifications/win/notification_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
@@ -587,20 +587,24 @@ class NotificationPlatformBridgeWinImpl
     bool shortcut_installed =
         InstallUtil::IsStartMenuShortcutWithActivatorGuidInstalled();
 
-    if (!shortcut_installed) {
-      LogSetReadyCallbackStatus(
-          SetReadyCallbackStatus::SHORTCUT_MISCONFIGURATION);
-    } else if (!activator_registered) {
-      LogSetReadyCallbackStatus(
-          SetReadyCallbackStatus::COM_SERVER_MISCONFIGURATION);
-    } else if (!com_functions_initialized_) {
-      LogSetReadyCallbackStatus(SetReadyCallbackStatus::COM_NOT_INITIALIZED);
-    } else {
-      LogSetReadyCallbackStatus(SetReadyCallbackStatus::SUCCESS);
-    }
-
+    int status = static_cast<int>(SetReadyCallbackStatus::SUCCESS);
     bool enabled = com_functions_initialized_ && activator_registered &&
                    shortcut_installed;
+
+    if (!enabled) {
+      if (!shortcut_installed) {
+        status |=
+            static_cast<int>(SetReadyCallbackStatus::SHORTCUT_MISCONFIGURATION);
+      }
+      if (!activator_registered) {
+        status |= static_cast<int>(
+            SetReadyCallbackStatus::COM_SERVER_MISCONFIGURATION);
+      }
+      if (!com_functions_initialized_)
+        status |= static_cast<int>(SetReadyCallbackStatus::COM_NOT_INITIALIZED);
+    }
+
+    LogSetReadyCallbackStatus(static_cast<SetReadyCallbackStatus>(status));
 
     bool success = content::BrowserThread::PostTask(
         content::BrowserThread::UI, FROM_HERE,
@@ -687,7 +691,7 @@ class NotificationPlatformBridgeWinImpl
       DLOG(ERROR) << "Failed to get toast dismissal reason: " << std::hex << hr;
     }
 
-    HandleEvent(notification, NotificationCommon::CLOSE,
+    HandleEvent(notification, NotificationCommon::OPERATION_CLOSE,
                 /*action_index=*/base::nullopt, by_user);
     return S_OK;
   }
@@ -698,8 +702,8 @@ class NotificationPlatformBridgeWinImpl
     HRESULT hr = arguments->get_ErrorCode(&error_code);
     if (SUCCEEDED(hr)) {
       LogOnFailedStatus(OnFailedStatus::SUCCESS);
-      DLOG(WARNING) << "Failed to raise the toast notification, error code: "
-                    << std::hex << error_code;
+      DLOG(ERROR) << "Failed to raise the toast notification, error code: "
+                  << std::hex << error_code;
     } else {
       LogOnFailedStatus(OnFailedStatus::GET_ERROR_CODE_FAILED);
       DLOG(ERROR) << "Failed to raise the toast notification; failed to get "
@@ -835,14 +839,18 @@ bool NotificationPlatformBridgeWin::HandleActivation(
   if (!inline_reply.empty())
     reply = inline_reply;
 
-  NotificationCommon::Operation operation = launch_id.is_for_context_menu()
-                                                ? NotificationCommon::SETTINGS
-                                                : NotificationCommon::CLICK;
+  NotificationCommon::Operation operation =
+      launch_id.is_for_context_menu() ? NotificationCommon::OPERATION_SETTINGS
+                                      : NotificationCommon::OPERATION_CLICK;
+
+  base::Optional<int> action_index;
+  if (launch_id.button_index() != -1)
+    action_index = launch_id.button_index();
 
   ForwardNotificationOperationOnUiThread(
       operation, launch_id.notification_type(), launch_id.origin_url(),
       launch_id.notification_id(), launch_id.profile_id(),
-      launch_id.incognito(), launch_id.button_index(), reply, /*by_user=*/true);
+      launch_id.incognito(), std::move(action_index), reply, /*by_user=*/true);
 
   LogActivationStatus(ActivationStatus::SUCCESS);
   return true;

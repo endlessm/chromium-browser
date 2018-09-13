@@ -5,10 +5,10 @@
 ; RUN: llvm-as %s -o %t1.o
 ; RUN: llvm-as %p/Inputs/thinlto.ll -o %t2.o
 ; RUN: rm -f %t3
-; RUN: ld.lld -m elf_x86_64 --plugin-opt=thinlto-index-only -shared %t1.o %t2.o -o %t3
+; RUN: ld.lld --plugin-opt=thinlto-index-only -shared %t1.o %t2.o -o %t3
 ; RUN: ls %t2.o.thinlto.bc
 ; RUN: not test -e %t3
-; RUN: ld.lld -m elf_x86_64 -shared %t1.o %t2.o -o %t3
+; RUN: ld.lld -shared %t1.o %t2.o -o %t3
 ; RUN: llvm-nm %t3 | FileCheck %s --check-prefix=NM
 
 ; Basic ThinLTO tests.
@@ -18,16 +18,35 @@
 
 ; Ensure lld generates an index and not a binary if requested.
 ; RUN: rm -f %t4
-; RUN: ld.lld -m elf_x86_64 --plugin-opt=thinlto-index-only -shared %t1.o %t2.o -o %t4
+; RUN: ld.lld --plugin-opt=thinlto-index-only -shared %t1.o %t2.o -o %t4
 ; RUN: llvm-bcanalyzer -dump %t1.o.thinlto.bc | FileCheck %s --check-prefix=BACKEND1
 ; RUN: llvm-bcanalyzer -dump %t2.o.thinlto.bc | FileCheck %s --check-prefix=BACKEND2
 ; RUN: not test -e %t4
 
 ; Ensure lld generates an index even if the file is wrapped in --start-lib/--end-lib
 ; RUN: rm -f %t2.o.thinlto.bc %t4
-; RUN: ld.lld -m elf_x86_64 --plugin-opt=thinlto-index-only -shared %t1.o %t3.o --start-lib %t2.o --end-lib -o %t4
+; RUN: ld.lld --plugin-opt=thinlto-index-only -shared %t1.o %t3.o --start-lib %t2.o --end-lib -o %t4
 ; RUN: ls %t2.o.thinlto.bc
 ; RUN: not test -e %t4
+
+; Test that LLD generates an empty index even for lazy object file that is not added to link.
+; Test LLD generates empty imports file either because of thinlto-emit-imports-files option.
+; RUN: rm -f %t1.o.thinlto.bc
+; RUN: rm -f %t1.o.imports
+; RUN: ld.lld --plugin-opt=thinlto-index-only -shared %t2.o --start-lib %t1.o --end-lib \
+; RUN: --plugin-opt=thinlto-emit-imports-files -o %t3
+; RUN: ls %t1.o.thinlto.bc
+; RUN: ls %t1.o.imports
+
+; Ensure lld generates an error if unable to write an empty index file
+; for lazy object file that is not added to link.
+; RUN: rm -f %t1.o.thinlto.bc
+; RUN: touch %t1.o.thinlto.bc
+; RUN: chmod 400 %t1.o.thinlto.bc
+; RUN: not ld.lld --plugin-opt=thinlto-index-only -shared %t2.o --start-lib %t1.o --end-lib \
+; RUN:   -o %t3 2>&1 | FileCheck %s
+; CHECK: cannot open {{.*}}1.o.thinlto.bc: {{P|p}}ermission denied
+; RUN: rm -f %t1.o.thinlto.bc
 
 ; NM: T f
 

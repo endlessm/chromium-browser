@@ -93,14 +93,10 @@ class CastWebViewDefault : public CastWebView,
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
-      const content::MediaResponseCallback& callback) override;
+      content::MediaResponseCallback callback) override;
   std::unique_ptr<content::BluetoothChooser> RunBluetoothChooser(
       content::RenderFrameHost* frame,
       const content::BluetoothChooser::EventHandler& event_handler) override;
-#if defined(OS_ANDROID)
-  base::android::ScopedJavaLocalRef<jobject> GetContentVideoViewEmbedder()
-      override;
-#endif  // defined(OS_ANDROID)
 
   CastWebContentsManager* const web_contents_manager_;
   content::BrowserContext* const browser_context_;

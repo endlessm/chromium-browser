@@ -119,6 +119,14 @@ function FileManagerUI(providersModel, element, launchParam) {
       providersModel, this.element, launchParam.suggestAppsDialogState);
 
   /**
+   * Dialog for installing .deb files
+   * @type {!cr.filebrowser.InstallLinuxPackageDialog}
+   * @const
+   */
+  this.installLinuxPackageDialog =
+      new cr.filebrowser.InstallLinuxPackageDialog(this.element);
+
+  /**
    * The container element of the dialog.
    * @type {!HTMLElement}
    */
@@ -210,6 +218,14 @@ function FileManagerUI(providersModel, element, launchParam) {
    */
   this.gearButton = util.queryDecoratedElement(
       '#gear-button', cr.ui.MenuButton);
+
+  /**
+   * The button to add new service (file system providers).
+   * @type {!cr.ui.MenuButton}
+   * @const
+   */
+  this.newServiceButton =
+      util.queryDecoratedElement('#new-service-button', cr.ui.MenuButton);
 
   /**
    * Ripple effect of gear button.

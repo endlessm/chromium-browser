@@ -13,7 +13,6 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
@@ -32,10 +31,10 @@ import android.os.StatFs;
 import android.os.StrictMode;
 import android.os.UserManager;
 import android.provider.Settings;
+import android.support.annotation.NonNull;
 import android.text.Html;
 import android.text.Spanned;
 import android.view.View;
-import android.view.ViewGroup.MarginLayoutParams;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodSubtype;
@@ -67,6 +66,29 @@ public class ApiCompatibilityUtils {
      */
     public static int compareBoolean(boolean lhs, boolean rhs) {
         return lhs == rhs ? 0 : lhs ? 1 : -1;
+    }
+
+    /**
+     * Checks that the object reference is not null and throws NullPointerException if it is.
+     * See {@link Objects#requireNonNull} which is available since API level 19.
+     * @param obj The object to check
+     */
+    @NonNull
+    public static <T> T requireNonNull(T obj) {
+        if (obj == null) throw new NullPointerException();
+        return obj;
+    }
+
+    /**
+     * Checks that the object reference is not null and throws NullPointerException if it is.
+     * See {@link Objects#requireNonNull} which is available since API level 19.
+     * @param obj The object to check
+     * @param message The message to put into NullPointerException
+     */
+    @NonNull
+    public static <T> T requireNonNull(T obj, String message) {
+        if (obj == null) throw new NullPointerException(message);
+        return obj;
     }
 
     /**
@@ -163,86 +185,6 @@ public class ApiCompatibilityUtils {
             labelView.setLabelFor(id);
         } else {
             // Do nothing. #setLabelFor() isn't supported before JB MR1.
-        }
-    }
-
-    /**
-     * @see android.view.ViewGroup.MarginLayoutParams#setMarginEnd(int)
-     */
-    public static void setMarginEnd(MarginLayoutParams layoutParams, int end) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            layoutParams.setMarginEnd(end);
-        } else {
-            layoutParams.rightMargin = end;
-        }
-    }
-
-    /**
-     * @see android.view.ViewGroup.MarginLayoutParams#getMarginEnd()
-     */
-    public static int getMarginEnd(MarginLayoutParams layoutParams) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            return layoutParams.getMarginEnd();
-        } else {
-            return layoutParams.rightMargin;
-        }
-    }
-
-    /**
-     * @see android.view.ViewGroup.MarginLayoutParams#setMarginStart(int)
-     */
-    public static void setMarginStart(MarginLayoutParams layoutParams, int start) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            layoutParams.setMarginStart(start);
-        } else {
-            layoutParams.leftMargin = start;
-        }
-    }
-
-    /**
-     * @see android.view.ViewGroup.MarginLayoutParams#getMarginStart()
-     */
-    public static int getMarginStart(MarginLayoutParams layoutParams) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            return layoutParams.getMarginStart();
-        } else {
-            return layoutParams.leftMargin;
-        }
-    }
-
-    /**
-     * @see android.view.View#setPaddingRelative(int, int, int, int)
-     */
-    public static void setPaddingRelative(View view, int start, int top, int end, int bottom) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            view.setPaddingRelative(start, top, end, bottom);
-        } else {
-            // Before JB MR1, all layouts are left-to-right, so start == left, etc.
-            view.setPadding(start, top, end, bottom);
-        }
-    }
-
-    /**
-     * @see android.view.View#getPaddingStart()
-     */
-    public static int getPaddingStart(View view) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            return view.getPaddingStart();
-        } else {
-            // Before JB MR1, all layouts are left-to-right, so start == left.
-            return view.getPaddingLeft();
-        }
-    }
-
-    /**
-     * @see android.view.View#getPaddingEnd()
-     */
-    public static int getPaddingEnd(View view) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            return view.getPaddingEnd();
-        } else {
-            // Before JB MR1, all layouts are left-to-right, so end == right.
-            return view.getPaddingRight();
         }
     }
 
@@ -376,6 +318,24 @@ public class ApiCompatibilityUtils {
         return true;
     }
 
+    /**
+     *  Gets an intent to start the Android system notification settings activity for an app.
+     *
+     *  @param context Context of the app whose settings intent should be returned.
+     */
+    public static Intent getNotificationSettingsIntent(Context context) {
+        Intent intent = new Intent();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            intent.setAction(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            intent.putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName());
+        } else {
+            intent.setAction("android.settings.ACTION_APP_NOTIFICATION_SETTINGS");
+            intent.putExtra("app_package", context.getPackageName());
+            intent.putExtra("app_uid", context.getApplicationInfo().uid);
+        }
+        return intent;
+    }
+
     private static class FinishAndRemoveTaskWithRetry implements Runnable {
         private static final long RETRY_DELAY_MS = 500;
         private static final long MAX_TRY_COUNT = 3;
@@ -471,6 +431,25 @@ public class ApiCompatibilityUtils {
     }
 
     /**
+     * Sets the status bar icons to dark or light. Note that this is only valid for
+     * Android M+.
+     *
+     * @param rootView The root view used to request updates to the system UI theming.
+     * @param useDarkIcons Whether the status bar icons should be dark.
+     */
+    public static void setStatusBarIconColor(View rootView, boolean useDarkIcons) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+
+        int systemUiVisibility = rootView.getSystemUiVisibility();
+        if (useDarkIcons) {
+            systemUiVisibility |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        } else {
+            systemUiVisibility &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        }
+        rootView.setSystemUiVisibility(systemUiVisibility);
+    }
+
+    /**
      * @see android.content.res.Resources#getDrawable(int id).
      * TODO(ltian): use {@link AppCompatResources} to parse drawable to prevent fail on
      * {@link VectorDrawable}. (http://crbug.com/792129)
@@ -559,18 +538,6 @@ public class ApiCompatibilityUtils {
             return drawable.getColorFilter();
         } else {
             return null;
-        }
-    }
-
-    /**
-     * @see android.content.res.Resources#getColorStateList(int id).
-     */
-    @SuppressWarnings("deprecation")
-    public static ColorStateList getColorStateList(Resources res, int id) throws NotFoundException {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return res.getColorStateList(id, null);
-        } else {
-            return res.getColorStateList(id);
         }
     }
 

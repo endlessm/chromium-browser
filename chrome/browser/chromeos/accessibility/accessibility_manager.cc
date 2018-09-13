@@ -38,7 +38,6 @@
 #include "chrome/browser/chromeos/accessibility/select_to_speak_event_handler.h"
 #include "chrome/browser/chromeos/accessibility/switch_access_event_handler.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
-#include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/api/braille_display_private/stub_braille_controller.h"
@@ -57,6 +56,7 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
+#include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_member.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_accessibility_state.h"
@@ -81,6 +81,7 @@
 #include "ui/accessibility/ax_enum_util.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 #include "url/gurl.h"
@@ -320,7 +321,7 @@ void AccessibilityManager::UpdateAlwaysShowMenuFromPref() {
     return;
 
   // TODO(crbug.com/594887): Fix for mash by moving pref into ash.
-  if (GetAshConfig() == ash::Config::MASH)
+  if (!features::IsAshInBrowserProcess())
     return;
 
   // Update system tray menu visibility.
@@ -658,6 +659,11 @@ void AccessibilityManager::OnCursorHighlightChanged() {
   NotifyAccessibilityStatusChanged(details);
 }
 
+bool AccessibilityManager::IsDictationEnabled() const {
+  return profile_ && profile_->GetPrefs()->GetBoolean(
+                         ash::prefs::kAccessibilityDictationEnabled);
+}
+
 void AccessibilityManager::SetFocusHighlightEnabled(bool enabled) {
   if (!profile_)
     return;
@@ -860,7 +866,7 @@ void AccessibilityManager::InputMethodChanged(
     bool show_message) {
   // Sticky keys is implemented only in ash.
   // TODO(dpolukhin): support Athena, crbug.com/408733.
-  if (GetAshConfig() != ash::Config::MASH) {
+  if (features::IsAshInBrowserProcess()) {
     ash::Shell::Get()->sticky_keys_controller()->SetModifiersEnabled(
         manager->IsISOLevel5ShiftUsedByCurrentInputMethod(),
         manager->IsAltGrUsedByCurrentInputMethod());
@@ -945,7 +951,7 @@ void AccessibilityManager::SetProfile(Profile* profile) {
     local_state_pref_change_registrar_.reset(new PrefChangeRegistrar);
     local_state_pref_change_registrar_->Init(g_browser_process->local_state());
     local_state_pref_change_registrar_->Add(
-        prefs::kApplicationLocale,
+        language::prefs::kApplicationLocale,
         base::Bind(&AccessibilityManager::OnLocaleChanged,
                    base::Unretained(this)));
 
@@ -999,7 +1005,7 @@ void AccessibilityManager::NotifyAccessibilityStatusChanged(
   callback_list_.Notify(details);
 
   // TODO(crbug.com/594887): Fix for mash by moving pref into ash.
-  if (GetAshConfig() == ash::Config::MASH)
+  if (!features::IsAshInBrowserProcess())
     return;
 
   if (details.notification_type == ACCESSIBILITY_TOGGLE_DICTATION) {
@@ -1069,6 +1075,7 @@ void AccessibilityManager::UpdateChromeOSAccessibilityHistograms() {
                         IsCaretHighlightEnabled());
   UMA_HISTOGRAM_BOOLEAN("Accessibility.CrosCursorHighlight",
                         IsCursorHighlightEnabled());
+  UMA_HISTOGRAM_BOOLEAN("Accessibility.CrosDictation", IsDictationEnabled());
   UMA_HISTOGRAM_BOOLEAN("Accessibility.CrosFocusHighlight",
                         IsFocusHighlightEnabled());
   UMA_HISTOGRAM_BOOLEAN("Accessibility.CrosSelectToSpeak",
@@ -1153,10 +1160,8 @@ void AccessibilityManager::OnExtensionUnloaded(
     content::BrowserContext* browser_context,
     const extensions::Extension* extension,
     extensions::UnloadedExtensionReason reason) {
-  if (extension->id() == keyboard_listener_extension_id_) {
+  if (extension->id() == keyboard_listener_extension_id_)
     keyboard_listener_extension_id_ = std::string();
-    keyboard_listener_capture_ = false;
-  }
 }
 
 void AccessibilityManager::OnShutdown(extensions::ExtensionRegistry* registry) {
@@ -1203,7 +1208,8 @@ void AccessibilityManager::PostUnloadChromeVox() {
 
   // Clear the accessibility focus ring.
   SetFocusRing(std::vector<gfx::Rect>(),
-               ash::mojom::FocusRingBehavior::PERSIST_FOCUS_RING);
+               ash::mojom::FocusRingBehavior::PERSIST_FOCUS_RING,
+               extension_misc::kChromeVoxExtensionId);
 
   if (chromevox_panel_) {
     chromevox_panel_->Close();
@@ -1242,7 +1248,7 @@ void AccessibilityManager::PostUnloadSelectToSpeak() {
   // unloads.
 
   // Clear the accessibility focus ring and highlight.
-  HideFocusRing();
+  HideFocusRing(extension_misc::kSelectToSpeakExtensionId);
   HideHighlights();
 
   // Stop speech.
@@ -1275,25 +1281,27 @@ bool AccessibilityManager::ToggleDictation() {
   return dictation_->OnToggleDictation();
 }
 
-void AccessibilityManager::SetFocusRingColor(SkColor color) {
-  accessibility_focus_ring_controller_->SetFocusRingColor(color);
+void AccessibilityManager::SetFocusRingColor(SkColor color,
+                                             std::string caller_id) {
+  accessibility_focus_ring_controller_->SetFocusRingColor(color, caller_id);
 }
 
-void AccessibilityManager::ResetFocusRingColor() {
-  accessibility_focus_ring_controller_->ResetFocusRingColor();
+void AccessibilityManager::ResetFocusRingColor(std::string caller_id) {
+  accessibility_focus_ring_controller_->ResetFocusRingColor(caller_id);
 }
 
 void AccessibilityManager::SetFocusRing(
     const std::vector<gfx::Rect>& rects_in_screen,
-    ash::mojom::FocusRingBehavior focus_ring_behavior) {
-  accessibility_focus_ring_controller_->SetFocusRing(rects_in_screen,
-                                                     focus_ring_behavior);
+    ash::mojom::FocusRingBehavior focus_ring_behavior,
+    std::string caller_id) {
+  accessibility_focus_ring_controller_->SetFocusRing(
+      rects_in_screen, focus_ring_behavior, caller_id);
   if (focus_ring_observer_for_test_)
     focus_ring_observer_for_test_.Run();
 }
 
-void AccessibilityManager::HideFocusRing() {
-  accessibility_focus_ring_controller_->HideFocusRing();
+void AccessibilityManager::HideFocusRing(std::string caller_id) {
+  accessibility_focus_ring_controller_->HideFocusRing(caller_id);
   if (focus_ring_observer_for_test_)
     focus_ring_observer_for_test_.Run();
 }

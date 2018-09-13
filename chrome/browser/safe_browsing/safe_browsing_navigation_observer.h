@@ -68,6 +68,9 @@ struct NavigationEvent {
   // committed.
   bool has_committed;
 
+  // Whether we think this event was launched by an external application.
+  bool maybe_launched_by_external_application;
+
   const GURL& GetDestinationUrl() const {
     if (!server_redirect_urls.empty())
       return server_redirect_urls.back();
@@ -115,6 +118,8 @@ class SafeBrowsingNavigationObserver : public base::SupportsUserData::Data,
                              std::unique_ptr<NavigationEvent>>
       NavigationHandleMap;
 
+  void OnUserInteraction();
+
   // content::WebContentsObserver:
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override;
@@ -137,7 +142,7 @@ class SafeBrowsingNavigationObserver : public base::SupportsUserData::Data,
   void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
                                const ContentSettingsPattern& secondary_pattern,
                                ContentSettingsType content_type,
-                               std::string resource_identifier) override;
+                               const std::string& resource_identifier) override;
 
   // Map keyed on NavigationHandle* to keep track of all the ongoing navigation
   // events. NavigationHandle pointers are owned by RenderFrameHost. Since a

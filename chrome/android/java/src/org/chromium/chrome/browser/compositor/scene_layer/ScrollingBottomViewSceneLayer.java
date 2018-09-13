@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.compositor.scene_layer;
 
 import android.graphics.RectF;
+import android.view.View;
 
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.chrome.browser.compositor.LayerTitleCache;
@@ -32,25 +33,38 @@ public class ScrollingBottomViewSceneLayer extends SceneOverlayLayer implements 
     /** The height of the view's top shadow. */
     private int mTopShadowHeightPx;
 
-    /** The current offset of the bottom view in px. */
-    private int mCurrentOffsetPx;
+    /** The current Y offset of the bottom view in px. */
+    private int mCurrentYOffsetPx;
+
+    /** The current X offset of the bottom view in px. */
+    private int mCurrentXOffsetPx;
+
+    /** Whether the {@link SceneLayer}is visible. */
+    private boolean mIsVisible;
 
     /** The {@link ViewResourceFrameLayout} that this scene layer represents. */
     private ViewResourceFrameLayout mBottomView;
 
     /**
      * Build a composited bottom view layer.
-     * @param resourceManager A resource manager for dynamic resource creation.
      * @param bottomView The view used to generate the composited version.
      * @param topShadowHeightPx The height of the shadow on the top of the view in px if it exists.
      */
-    public ScrollingBottomViewSceneLayer(ResourceManager resourceManager,
+    public ScrollingBottomViewSceneLayer(
             ViewResourceFrameLayout bottomView, int topShadowHeightPx) {
         mBottomView = bottomView;
         mResourceId = mBottomView.getId();
         mTopShadowHeightPx = topShadowHeightPx;
-        resourceManager.getDynamicResourceLoader().registerResource(
-                mResourceId, mBottomView.getResourceAdapter());
+        mIsVisible = true;
+    }
+
+    /**
+     * Build a copy of an existing {@link ScrollingBottomViewSceneLayer}.
+     * @param sceneLayer The existing scene layer to copy. This only copies the source view,
+     *                   resource ID, and shadow height. All other state is ignored.
+     */
+    public ScrollingBottomViewSceneLayer(ScrollingBottomViewSceneLayer sceneLayer) {
+        this(sceneLayer.mBottomView, sceneLayer.mTopShadowHeightPx);
     }
 
     /**
@@ -59,7 +73,21 @@ public class ScrollingBottomViewSceneLayer extends SceneOverlayLayer implements 
      * @param offsetPx The view's offset in px.
      */
     public void setYOffset(int offsetPx) {
-        mCurrentOffsetPx = offsetPx;
+        mCurrentYOffsetPx = offsetPx;
+    }
+
+    /**
+     * @param offsetPx The view's X translation in px.
+     */
+    public void setXOffset(int offsetPx) {
+        mCurrentXOffsetPx = offsetPx;
+    }
+
+    /**
+     * @param visible Whether this {@link SceneLayer} is visible.
+     */
+    public void setIsVisible(boolean visible) {
+        mIsVisible = visible;
     }
 
     @Override
@@ -78,8 +106,12 @@ public class ScrollingBottomViewSceneLayer extends SceneOverlayLayer implements 
     @Override
     public SceneOverlayLayer getUpdatedSceneOverlayTree(RectF viewport, RectF visibleViewport,
             LayerTitleCache layerTitleCache, ResourceManager resourceManager, float yOffset) {
+        // The composited shadow should be visible if the Android toolbar's isn't.
+        boolean isShadowVisible = mBottomView.getVisibility() != View.VISIBLE;
+
         nativeUpdateScrollingBottomViewLayer(mNativePtr, resourceManager, mResourceId,
-                mTopShadowHeightPx, viewport.height() + mCurrentOffsetPx, mCurrentOffsetPx > 0);
+                mTopShadowHeightPx, mCurrentXOffsetPx, viewport.height() + mCurrentYOffsetPx,
+                isShadowVisible);
 
         return this;
     }
@@ -87,7 +119,7 @@ public class ScrollingBottomViewSceneLayer extends SceneOverlayLayer implements 
     @Override
     public boolean isSceneOverlayTreeShowing() {
         // If the offset is greater than the toolbar's height, don't draw the layer.
-        return mCurrentOffsetPx < mBottomView.getHeight() - mTopShadowHeightPx;
+        return mIsVisible && mCurrentYOffsetPx < mBottomView.getHeight() - mTopShadowHeightPx;
     }
 
     @Override
@@ -166,5 +198,6 @@ public class ScrollingBottomViewSceneLayer extends SceneOverlayLayer implements 
             long nativeScrollingBottomViewSceneLayer, SceneLayer contentTree);
     private native void nativeUpdateScrollingBottomViewLayer(
             long nativeScrollingBottomViewSceneLayer, ResourceManager resourceManager,
-            int viewResourceId, int shadowHeightPx, float yOffset, boolean showShadow);
+            int viewResourceId, int shadowHeightPx, float xOffset, float yOffset,
+            boolean showShadow);
 }

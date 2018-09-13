@@ -119,20 +119,21 @@ bool HasAvailableDevices(ContentSettingsType content_type,
 // static
 void MediaStreamDevicesController::RequestPermissions(
     const content::MediaStreamRequest& request,
-    const content::MediaResponseCallback& callback) {
+    content::MediaResponseCallback callback) {
   content::RenderFrameHost* rfh = content::RenderFrameHost::FromID(
       request.render_process_id, request.render_frame_id);
   // The RFH may have been destroyed by the time the request is processed.
   if (!rfh) {
-    callback.Run(content::MediaStreamDevices(),
-                 content::MEDIA_DEVICE_FAILED_DUE_TO_SHUTDOWN,
-                 std::unique_ptr<content::MediaStreamUI>());
+    std::move(callback).Run(content::MediaStreamDevices(),
+                            content::MEDIA_DEVICE_FAILED_DUE_TO_SHUTDOWN,
+                            std::unique_ptr<content::MediaStreamUI>());
     return;
   }
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(rfh);
   std::unique_ptr<MediaStreamDevicesController> controller(
-      new MediaStreamDevicesController(web_contents, request, callback));
+      new MediaStreamDevicesController(web_contents, request,
+                                       std::move(callback)));
 
   Profile* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
@@ -203,19 +204,28 @@ void MediaStreamDevicesController::RequestAndroidPermissionsIfNeeded(
     return;
   }
 
-  if (PermissionUpdateInfoBarDelegate::ShouldShowPermissionInfobar(
-          web_contents, content_settings_types)) {
-    PermissionUpdateInfoBarDelegate::Create(
-        web_contents, content_settings_types,
-        base::Bind(&MediaStreamDevicesController::AndroidOSPromptAnswered,
-                   base::Passed(&controller), responses));
-  } else {
-    // TODO(raymes): We can get here for 2 reasons: (1) android permission has
-    // already been granted, and (2) we can't get a handle to WindowAndroid.
-    // In case (2) this will actually result in success being reported even
-    // when the Android permission isn't present. crbug.com/775372.
-    controller->PromptAnsweredGroupedRequest(responses);
+  ShowPermissionInfoBarState show_permission_infobar_state =
+      PermissionUpdateInfoBarDelegate::ShouldShowPermissionInfoBar(
+          web_contents, content_settings_types);
+  switch (show_permission_infobar_state) {
+    case ShowPermissionInfoBarState::NO_NEED_TO_SHOW_PERMISSION_INFOBAR:
+      controller->PromptAnsweredGroupedRequest(responses);
+      return;
+    case ShowPermissionInfoBarState::SHOW_PERMISSION_INFOBAR:
+      PermissionUpdateInfoBarDelegate::Create(
+          web_contents, content_settings_types,
+          base::BindOnce(&MediaStreamDevicesController::AndroidOSPromptAnswered,
+                         base::Passed(&controller), responses));
+      return;
+    case ShowPermissionInfoBarState::CANNOT_SHOW_PERMISSION_INFOBAR: {
+      std::vector<ContentSetting> blocked_responses(responses.size(),
+                                                    CONTENT_SETTING_BLOCK);
+      controller->PromptAnsweredGroupedRequest(blocked_responses);
+      return;
+    }
   }
+
+  NOTREACHED() << "Unknown show permission infobar state.";
 #else
   controller->PromptAnsweredGroupedRequest(responses);
 #endif
@@ -252,9 +262,9 @@ void MediaStreamDevicesController::RegisterProfilePrefs(
 
 MediaStreamDevicesController::~MediaStreamDevicesController() {
   if (!callback_.is_null()) {
-    callback_.Run(content::MediaStreamDevices(),
-                  content::MEDIA_DEVICE_FAILED_DUE_TO_SHUTDOWN,
-                  std::unique_ptr<content::MediaStreamUI>());
+    std::move(callback_).Run(content::MediaStreamDevices(),
+                             content::MEDIA_DEVICE_FAILED_DUE_TO_SHUTDOWN,
+                             std::unique_ptr<content::MediaStreamUI>());
   }
 }
 
@@ -292,8 +302,10 @@ void MediaStreamDevicesController::PromptAnsweredGroupedRequest(
 MediaStreamDevicesController::MediaStreamDevicesController(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
-    const content::MediaResponseCallback& callback)
-    : web_contents_(web_contents), request_(request), callback_(callback) {
+    content::MediaResponseCallback callback)
+    : web_contents_(web_contents),
+      request_(request),
+      callback_(std::move(callback)) {
   DCHECK(content::IsOriginSecure(request_.security_origin) ||
          request_.request_type == content::MEDIA_OPEN_DEVICE_PEPPER_ONLY);
 
@@ -456,7 +468,7 @@ void MediaStreamDevicesController::RunCallback(bool blocked_by_feature_policy) {
              ->GetMediaStreamCaptureIndicator()
              ->RegisterMediaStream(web_contents_, devices);
   }
-  base::ResetAndReturn(&callback_).Run(devices, request_result, std::move(ui));
+  std::move(callback_).Run(devices, request_result, std::move(ui));
 }
 
 void MediaStreamDevicesController::UpdateTabSpecificContentSettings(

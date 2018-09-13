@@ -11,7 +11,7 @@
 #include "base/observer_list.h"
 #include "chromeos/chromeos_export.h"
 #include "chromeos/dbus/media_analytics_client.h"
-#include "chromeos/media_perception/media_perception.pb.h"
+#include "chromeos/dbus/media_perception/media_perception.pb.h"
 
 namespace chromeos {
 
@@ -29,6 +29,8 @@ class CHROMEOS_EXPORT FakeMediaAnalyticsClient : public MediaAnalyticsClient {
   void SetState(const mri::State& state,
                 DBusMethodCallback<mri::State> callback) override;
   void GetDiagnostics(DBusMethodCallback<mri::Diagnostics> callback) override;
+  void BootstrapMojoConnection(base::ScopedFD file_descriptor,
+                               VoidDBusMethodCallback callback) override;
 
   // Inherited from DBusClient.
   void Init(dbus::Bus* bus) override;

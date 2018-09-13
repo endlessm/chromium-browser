@@ -112,6 +112,10 @@ class TestBrowserWindow : public BrowserWindow {
       content::WebContents* contents,
       autofill::SaveCardBubbleController* controller,
       bool user_gesture) override;
+  autofill::LocalCardMigrationBubble* ShowLocalCardMigrationBubble(
+      content::WebContents* contents,
+      autofill::LocalCardMigrationBubbleController* controller,
+      bool user_gesture) override;
   ShowTranslateBubbleResult ShowTranslateBubble(
       content::WebContents* contents,
       translate::TranslateStep step,
@@ -131,8 +135,6 @@ class TestBrowserWindow : public BrowserWindow {
       const base::Callback<void(bool)>& callback) override {}
   void UserChangedTheme() override {}
   void CutCopyPaste(int command_id) override {}
-  WindowOpenDisposition GetDispositionForPopupBounds(
-      const gfx::Rect& bounds) override;
   FindBar* CreateFindBar() override;
   web_modal::WebContentsModalDialogHost* GetWebContentsModalDialogHost()
       override;
@@ -171,9 +173,8 @@ class TestBrowserWindow : public BrowserWindow {
     void UpdateContentSettingsIcons() override {}
     void UpdateManagePasswordsIconAndBubble() override {}
     void UpdateSaveCreditCardIcon() override {}
-    void UpdateFindBarIconVisibility() override {}
+    void UpdateLocalCardMigrationIcon() override {}
     void UpdateBookmarkStarVisibility() override {}
-    void UpdateZoomViewVisibility() override {}
     void UpdateLocationBarVisibility(bool visible, bool animate) override {}
     void SaveStateToContents(content::WebContents* contents) override {}
     void Revert() override {}

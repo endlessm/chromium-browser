@@ -17,8 +17,6 @@
 #include "headless/public/headless_devtools_client.h"
 #include "headless/public/util/compositor_controller.h"
 #include "headless/public/util/virtual_time_controller.h"
-#include "net/test/embedded_test_server/http_response.h"
-#include "net/url_request/url_request.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -198,8 +196,6 @@ class HeadlessRenderTest::AdditionalVirtualTimeBudget
 };
 
 void HeadlessRenderTest::RunDevTooledTest() {
-  http_handler_->SetHeadlessBrowserContext(browser_context_);
-
   virtual_time_controller_ =
       std::make_unique<VirtualTimeController>(devtools_client_.get());
 
@@ -313,15 +309,6 @@ bool HeadlessRenderTest::GetEnableBeginFrameControl() {
   return true;
 }
 
-ProtocolHandlerMap HeadlessRenderTest::GetProtocolHandlers() {
-  ProtocolHandlerMap protocol_handlers;
-  std::unique_ptr<TestInMemoryProtocolHandler> http_handler(
-      new TestInMemoryProtocolHandler(browser()->BrowserIOThread(), this));
-  http_handler_ = http_handler.get();
-  protocol_handlers[url::kHttpScheme] = std::move(http_handler);
-  return protocol_handlers;
-}
-
 void HeadlessRenderTest::OverrideWebPreferences(WebPreferences* preferences) {
   preferences->hide_scrollbars = true;
   preferences->javascript_enabled = true;
@@ -335,15 +322,6 @@ HeadlessRenderTest::GetScreenshotOptions() {
 
 gfx::Size HeadlessRenderTest::GetEmulatedWindowSize() {
   return gfx::Size(800, 600);
-}
-
-void HeadlessRenderTest::UrlRequestFailed(net::URLRequest* request,
-                                          int net_error,
-                                          DevToolsStatus devtools_status) {
-  if (devtools_status != DevToolsStatus::kNotCanceled)
-    return;
-  ADD_FAILURE() << "Network request failed: " << net_error << " for "
-                << request->url().spec();
 }
 
 void HeadlessRenderTest::OnLoadEventFired(const page::LoadEventFiredParams&) {
@@ -360,27 +338,12 @@ void HeadlessRenderTest::OnFrameStartedLoading(
     state_ = LOADING;
     main_frame_ = params.GetFrameId();
   }
-
-  auto it = unconfirmed_frame_redirects_.find(params.GetFrameId());
-  if (it != unconfirmed_frame_redirects_.end()) {
-    confirmed_frame_redirects_[params.GetFrameId()].push_back(it->second);
-    unconfirmed_frame_redirects_.erase(it);
-  }
 }
 
 void HeadlessRenderTest::OnFrameScheduledNavigation(
     const page::FrameScheduledNavigationParams& params) {
-  CHECK(unconfirmed_frame_redirects_.find(params.GetFrameId()) ==
-        unconfirmed_frame_redirects_.end());
-  unconfirmed_frame_redirects_[params.GetFrameId()] =
-      Redirect(params.GetUrl(), params.GetReason());
-}
-
-void HeadlessRenderTest::OnFrameClearedScheduledNavigation(
-    const page::FrameClearedScheduledNavigationParams& params) {
-  auto it = unconfirmed_frame_redirects_.find(params.GetFrameId());
-  if (it != unconfirmed_frame_redirects_.end())
-    unconfirmed_frame_redirects_.erase(it);
+  scheduled_navigations_[params.GetFrameId()].emplace_back(
+      Navigation{params.GetUrl(), params.GetReason()});
 }
 
 void HeadlessRenderTest::OnFrameNavigated(
@@ -450,11 +413,6 @@ void HeadlessRenderTest::OnExceptionThrown(
   const runtime::ExceptionDetails* details = params.GetExceptionDetails();
   js_exceptions_.push_back(details->GetText() + " " +
                            details->GetException()->GetDescription());
-}
-
-void HeadlessRenderTest::OnRequest(const GURL& url,
-                                   base::Closure complete_request) {
-  complete_request.Run();
 }
 
 void HeadlessRenderTest::VerifyDom(

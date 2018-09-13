@@ -8,8 +8,8 @@
 #include <map>
 #include <set>
 
-#include "base/synchronization/lock.h"
-#include "components/viz/common/resources/shared_bitmap_manager.h"
+#include "base/sequence_checker.h"
+#include "components/viz/service/display/shared_bitmap_manager.h"
 
 namespace base {
 class SharedMemory;
@@ -24,15 +24,18 @@ class TestSharedBitmapManager : public SharedBitmapManager {
 
   // SharedBitmapManager implementation.
   std::unique_ptr<SharedBitmap> GetSharedBitmapFromId(
-      const gfx::Size&,
-      ResourceFormat,
+      const gfx::Size& size,
+      ResourceFormat format,
+      const SharedBitmapId& id) override;
+  base::UnguessableToken GetSharedBitmapTracingGUIDFromId(
       const SharedBitmapId& id) override;
   bool ChildAllocatedSharedBitmap(mojo::ScopedSharedBufferHandle buffer,
                                   const SharedBitmapId& id) override;
   void ChildDeletedSharedBitmap(const SharedBitmapId& id) override;
 
  private:
-  base::Lock lock_;
+  SEQUENCE_CHECKER(sequence_checker_);
+
   std::map<SharedBitmapId, base::SharedMemory*> bitmap_map_;
   std::map<SharedBitmapId, std::unique_ptr<base::SharedMemory>> owned_map_;
   std::set<SharedBitmapId> notified_set_;

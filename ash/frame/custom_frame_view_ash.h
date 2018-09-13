@@ -9,13 +9,13 @@
 
 #include "ash/ash_export.h"
 #include "ash/frame/caption_buttons/caption_button_model.h"
+#include "ash/frame/header_view.h"
 #include "ash/public/interfaces/window_style.mojom.h"
 #include "ash/shell_observer.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/aura/window_observer.h"
 #include "ui/views/window/non_client_view.h"
 
 namespace views {
@@ -29,12 +29,6 @@ class HeaderView;
 class ImmersiveFullscreenController;
 class ImmersiveFullscreenControllerDelegate;
 
-enum class FrameBackButtonState {
-  kInvisible,
-  kVisibleEnabled,
-  kVisibleDisabled,
-};
-
 // A NonClientFrameView used for packaged apps, dialogs and other non-browser
 // windows. It supports immersive fullscreen. When in immersive fullscreen, the
 // client view takes up the entire widget and the window header is an overlay.
@@ -43,8 +37,7 @@ enum class FrameBackButtonState {
 // BrowserNonClientFrameViewAsh.
 class ASH_EXPORT CustomFrameViewAsh : public views::NonClientFrameView,
                                       public ShellObserver,
-                                      public SplitViewController::Observer,
-                                      public aura::WindowObserver {
+                                      public SplitViewController::Observer {
  public:
   // Internal class name.
   static const char kViewClassName[];
@@ -82,7 +75,7 @@ class ASH_EXPORT CustomFrameViewAsh : public views::NonClientFrameView,
   void SetHeaderHeight(base::Optional<int> height);
 
   // Get the view of the header.
-  views::View* GetHeaderView();
+  HeaderView* GetHeaderView();
 
   // Calculate the client bounds for given window bounds.
   gfx::Rect GetClientBoundsForWindowBounds(
@@ -108,12 +101,6 @@ class ASH_EXPORT CustomFrameViewAsh : public views::NonClientFrameView,
   gfx::Size GetMaximumSize() const override;
   void SchedulePaintInRect(const gfx::Rect& r) override;
   void SetVisible(bool visible) override;
-
-  // aura::WindowObserver:
-  void OnWindowDestroying(aura::Window* window) override;
-  void OnWindowPropertyChanged(aura::Window* window,
-                               const void* key,
-                               intptr_t old) override;
 
   // If |paint| is false, we should not paint the header. Used for overview mode
   // with OnOverviewModeStarting() and OnOverviewModeEnded() to hide/show the

@@ -33,7 +33,7 @@ import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TestTouchUtils;
 import org.chromium.content.browser.test.util.TouchCommon;
-import org.chromium.content_public.browser.ContentViewCore;
+import org.chromium.content_public.browser.ViewEventSink;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.ui.test.util.UiRestriction;
 
@@ -112,7 +112,7 @@ public class ContentViewFocusTest {
         // Start the swipe
         addFocusChangedListener(view);
         final EdgeSwipeHandler edgeSwipeHandler =
-                mActivityTestRule.getActivity().getLayoutManager().getTopSwipeHandler();
+                mActivityTestRule.getActivity().getLayoutManager().getToolbarSwipeHandler();
         ThreadUtils.runOnUiThread(() -> {
             edgeSwipeHandler.swipeStarted(ScrollDirection.RIGHT, 0, 0);
             edgeSwipeHandler.swipeUpdated(100, 0, 100, 0, 100, 0);
@@ -210,16 +210,15 @@ public class ContentViewFocusTest {
         String url = UrlUtils.getIsolatedTestFileUrl(
                 "chrome/test/data/android/content_view_focus/content_view_blur_focus.html");
         mActivityTestRule.loadUrl(url);
-        final ContentViewCore cvc =
-                mActivityTestRule.getActivity().getActivityTab().getContentViewCore();
+        ViewEventSink eventSink = ViewEventSink.from(mActivityTestRule.getWebContents());
         onTitleUpdatedHelper.waitForCallback(callCount);
         Assert.assertEquals("initial", mTitle);
         callCount = onTitleUpdatedHelper.getCallCount();
-        ThreadUtils.runOnUiThread(() -> cvc.onPause());
+        ThreadUtils.runOnUiThread(() -> eventSink.onPauseForTesting());
         onTitleUpdatedHelper.waitForCallback(callCount);
         Assert.assertEquals("blurred", mTitle);
         callCount = onTitleUpdatedHelper.getCallCount();
-        ThreadUtils.runOnUiThread(() -> cvc.onResume());
+        ThreadUtils.runOnUiThread(() -> eventSink.onResumeForTesting());
         onTitleUpdatedHelper.waitForCallback(callCount);
         Assert.assertEquals("focused", mTitle);
         mActivityTestRule.getWebContents().removeObserver(observer);

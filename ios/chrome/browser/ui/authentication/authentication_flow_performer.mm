@@ -6,9 +6,9 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/ios/block_types.h"
 #include "base/logging.h"
-#include "base/mac/bind_objc_block.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/time/time.h"
@@ -73,7 +73,7 @@ const int64_t kAuthenticationFlowTimeoutSeconds = 10;
   __weak id<AuthenticationFlowPerformerDelegate> _delegate;
   AlertCoordinator* _alertCoordinator;
   SettingsNavigationController* _navigationController;
-  std::unique_ptr<base::Timer> _watchdogTimer;
+  std::unique_ptr<base::OneShotTimer> _watchdogTimer;
 }
 
 - (id<AuthenticationFlowPerformerDelegate>)delegate {
@@ -116,11 +116,11 @@ const int64_t kAuthenticationFlowTimeoutSeconds = 10;
                                      userInfo:nil];
     [strongSelf->_delegate didFailFetchManagedStatus:error];
   };
-  _watchdogTimer.reset(new base::Timer(false, false));
+  _watchdogTimer.reset(new base::OneShotTimer());
   _watchdogTimer->Start(
       FROM_HERE,
       base::TimeDelta::FromSeconds(kAuthenticationFlowTimeoutSeconds),
-      base::BindBlockArc(onTimeout));
+      base::Bind(onTimeout));
 }
 
 - (BOOL)stopWatchdogTimer {

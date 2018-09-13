@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "ash/public/cpp/ash_switches.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/mus_property_mirror_ash.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/window_properties.h"
@@ -15,16 +15,17 @@
 #include "ash/shell.h"
 #include "base/command_line.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/ash_config.h"
+#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/night_light/night_light_client.h"
-#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/signin_error_notifier_factory_ash.h"
+#include "chrome/browser/sync/sync_error_notifier_factory_ash.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/ash/accessibility/accessibility_controller_client.h"
 #include "chrome/browser/ui/ash/ash_shell_init.h"
-#include "chrome/browser/ui/ash/auto_connect_notifier.h"
 #include "chrome/browser/ui/ash/cast_config_client_media_router.h"
 #include "chrome/browser/ui/ash/chrome_new_window_client.h"
-#include "chrome/browser/ui/ash/chrome_shell_content_state.h"
 #include "chrome/browser/ui/ash/ime_controller_client.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/login_screen_client.h"
@@ -33,6 +34,7 @@
 #include "chrome/browser/ui/ash/network/network_connect_delegate_chromeos.h"
 #include "chrome/browser/ui/ash/network/network_portal_notification_controller.h"
 #include "chrome/browser/ui/ash/session_controller_client.h"
+#include "chrome/browser/ui/ash/shell_state_client.h"
 #include "chrome/browser/ui/ash/system_tray_client.h"
 #include "chrome/browser/ui/ash/tab_scrubber.h"
 #include "chrome/browser/ui/ash/tablet_mode_client.h"
@@ -45,11 +47,13 @@
 #include "chrome/browser/ui/views/select_file_dialog_extension.h"
 #include "chrome/browser/ui/views/select_file_dialog_extension_factory.h"
 #include "chromeos/network/network_connect.h"
-#include "chromeos/network/network_handler.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/session_manager/core/session_manager_observer.h"
 #include "components/startup_metric_utils/browser/startup_metric_utils.h"
+#include "content/public/browser/notification_observer.h"
+#include "content/public/browser/notification_registrar.h"
+#include "content/public/browser/notification_service.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -58,6 +62,7 @@
 #include "ui/aura/mus/property_converter.h"
 #include "ui/aura/mus/user_activity_forwarder.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/user_activity/user_activity_detector.h"
 #include "ui/views/mus/mus_client.h"
 
@@ -128,13 +133,19 @@ class ChromeLauncherControllerInitializer
 
 }  // namespace internal
 
-ChromeBrowserMainExtraPartsAsh::ChromeBrowserMainExtraPartsAsh() {}
+ChromeBrowserMainExtraPartsAsh::ChromeBrowserMainExtraPartsAsh()
+    : notification_observer_(std::make_unique<NotificationObserver>()) {}
 
-ChromeBrowserMainExtraPartsAsh::~ChromeBrowserMainExtraPartsAsh() {}
+ChromeBrowserMainExtraPartsAsh::~ChromeBrowserMainExtraPartsAsh() {
+  // Views code observes TabletModeClient and may not be destroyed until
+  // ash::Shell is, so destroy |tablet_mode_client_| after ash::Shell.
+  // Also extensions need to remove observers after PostMainMessageLoopRun().
+  tablet_mode_client_.reset();
+}
 
 void ChromeBrowserMainExtraPartsAsh::ServiceManagerConnectionStarted(
     content::ServiceManagerConnection* connection) {
-  if (chromeos::GetAshConfig() == ash::Config::MASH) {
+  if (!features::IsAshInBrowserProcess()) {
     // ash::Shell will not be created because ash is running out-of-process.
     ash::Shell::SetIsBrowserProcessWithMash();
     DCHECK(views::MusClient::Exists());
@@ -157,7 +168,7 @@ void ChromeBrowserMainExtraPartsAsh::PreProfileInit() {
       std::make_unique<NetworkConnectDelegateChromeOS>();
   chromeos::NetworkConnect::Initialize(network_connect_delegate_.get());
 
-  if (chromeos::GetAshConfig() != ash::Config::MASH) {
+  if (features::IsAshInBrowserProcess()) {
     ash_shell_init_ = std::make_unique<AshShellInit>();
   } else {
     immersive_context_ = std::make_unique<ImmersiveContextMus>();
@@ -187,8 +198,17 @@ void ChromeBrowserMainExtraPartsAsh::PreProfileInit() {
       chromeos::input_method::InputMethodManager::Get());
   ime_controller_client_->Init();
 
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+  // Assistant has to be initialized before session_controller_client to avoid
+  // race of SessionChanged event and assistant_client initialization.
+  assistant_client_ = std::make_unique<AssistantClient>();
+#endif
+
   session_controller_client_ = std::make_unique<SessionControllerClient>();
   session_controller_client_->Init();
+
+  shell_state_client_ = std::make_unique<ShellStateClient>();
+  shell_state_client_->Init();
 
   system_tray_client_ = std::make_unique<SystemTrayClient>();
 
@@ -216,9 +236,6 @@ void ChromeBrowserMainExtraPartsAsh::PreProfileInit() {
 }
 
 void ChromeBrowserMainExtraPartsAsh::PostProfileInit() {
-  if (chromeos::GetAshConfig() == ash::Config::MASH)
-    chrome_shell_content_state_ = std::make_unique<ChromeShellContentState>();
-
   cast_config_client_media_router_ =
       std::make_unique<CastConfigClientMediaRouter>();
   login_screen_client_ = std::make_unique<LoginScreenClient>();
@@ -237,29 +254,16 @@ void ChromeBrowserMainExtraPartsAsh::PostProfileInit() {
   }
 
   // TODO(mash): Port TabScrubber.
-  if (chromeos::GetAshConfig() != ash::Config::MASH) {
+  if (features::IsAshInBrowserProcess()) {
     // Initialize TabScrubber after the Ash Shell has been initialized.
     TabScrubber::GetInstance();
   }
-
-  if (chromeos::NetworkHandler::IsInitialized() &&
-      chromeos::NetworkHandler::Get()->auto_connect_handler()) {
-    auto_connect_notifier_ = std::make_unique<AutoConnectNotifier>(
-        ProfileManager::GetActiveUserProfile(),
-        chromeos::NetworkHandler::Get()->network_connection_handler(),
-        chromeos::NetworkHandler::Get()->network_state_handler(),
-        chromeos::NetworkHandler::Get()->auto_connect_handler());
-  }
-
-#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
-  assistant_client_ = std::make_unique<AssistantClient>();
-#endif
 }
 
 void ChromeBrowserMainExtraPartsAsh::PostBrowserStart() {
   data_promo_notification_ = std::make_unique<DataPromoNotification>();
 
-  if (ash::switches::IsNightLightEnabled()) {
+  if (ash::features::IsNightLightEnabled()) {
     night_light_client_ = std::make_unique<NightLightClient>(
         g_browser_process->system_request_context());
     night_light_client_->Start();
@@ -275,9 +279,6 @@ void ChromeBrowserMainExtraPartsAsh::PostMainMessageLoopRun() {
 
   night_light_client_.reset();
   data_promo_notification_.reset();
-#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
-  assistant_client_.reset();
-#endif
   chrome_launcher_controller_initializer_.reset();
 
   wallpaper_controller_client_.reset();
@@ -285,13 +286,16 @@ void ChromeBrowserMainExtraPartsAsh::PostMainMessageLoopRun() {
   volume_controller_.reset();
 
   system_tray_client_.reset();
+  shell_state_client_.reset();
   session_controller_client_.reset();
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+  assistant_client_.reset();
+#endif
   chrome_new_window_client_.reset();
   network_portal_notification_controller_.reset();
   media_client_.reset();
   login_screen_client_.reset();
   ime_controller_client_.reset();
-  auto_connect_notifier_.reset();
   cast_config_client_media_router_.reset();
   accessibility_controller_client_.reset();
 
@@ -303,8 +307,47 @@ void ChromeBrowserMainExtraPartsAsh::PostMainMessageLoopRun() {
 
   chromeos::NetworkConnect::Shutdown();
   network_connect_delegate_.reset();
-
-  // Views code observes TabletModeClient and may not be destroyed until
-  // ash::Shell is so destroy |tablet_mode_client_| after ash::Shell.
-  tablet_mode_client_.reset();
 }
+
+class ChromeBrowserMainExtraPartsAsh::NotificationObserver
+    : public content::NotificationObserver {
+ public:
+  NotificationObserver() {
+    registrar_.Add(this, chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED,
+                   content::NotificationService::AllSources());
+  }
+  ~NotificationObserver() override = default;
+
+  // content::NotificationObserver
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override {
+    switch (type) {
+      case chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED: {
+        Profile* profile = content::Details<Profile>(details).ptr();
+        if (!chromeos::ProfileHelper::IsSigninProfile(profile) &&
+            !chromeos::ProfileHelper::IsLockScreenAppProfile(profile) &&
+            !profile->IsGuestSession() && !profile->IsSupervised()) {
+          // Start the error notifier services to show auth/sync notifications.
+          SigninErrorNotifierFactory::GetForProfile(profile);
+          SyncErrorNotifierFactory::GetForProfile(profile);
+        }
+        // Do not use chrome::NOTIFICATION_PROFILE_ADDED because the
+        // profile is not fully initialized by user_manager.  Use
+        // chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED instead.
+        if (ChromeLauncherController::instance()) {
+          ChromeLauncherController::instance()->OnUserProfileReadyToSwitch(
+              profile);
+        }
+        break;
+      }
+      default:
+        NOTREACHED() << "Unexpected notification " << type;
+    }
+  }
+
+ private:
+  content::NotificationRegistrar registrar_;
+
+  DISALLOW_COPY_AND_ASSIGN(NotificationObserver);
+};

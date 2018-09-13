@@ -11,6 +11,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/guid.h"
 #include "base/location.h"
+#include "base/path_service.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -18,6 +19,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/net/default_network_context_params.h"
 #include "chrome/browser/net/profile_network_context_service.h"
 #include "chrome/browser/net/profile_network_context_service_factory.h"
@@ -26,9 +28,12 @@
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_content_client.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
+#include "components/content_settings/core/common/pref_names.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/prefs/pref_service.h"
 #include "components/proxy_config/proxy_config_dictionary.h"
@@ -56,6 +61,7 @@
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "net/url_request/url_request.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/cpp/resource_response_info.h"
@@ -65,6 +71,7 @@
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/test/test_url_loader_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
 
 namespace {
 
@@ -230,29 +237,28 @@ class NetworkContextConfigurationBrowserTest
     return StorageType::kNone;
   }
 
-  // Sets the proxy preference on a PrefService based on the NetworkContextType,
-  // and waits for it to be applied.
-  void SetProxyPref(const net::HostPortPair& host_port_pair) {
-    // Get the correct PrefService.
-    PrefService* pref_service = nullptr;
+  // Returns the pref service with most prefs related to the NetworkContext
+  // being tested.
+  PrefService* GetPrefService() {
     switch (GetParam().network_context_type) {
       case NetworkContextType::kSystem:
       case NetworkContextType::kSafeBrowsing:
-        pref_service = g_browser_process->local_state();
-        break;
+        return g_browser_process->local_state();
       case NetworkContextType::kProfile:
-        pref_service = browser()->profile()->GetPrefs();
-        break;
+        return browser()->profile()->GetPrefs();
       case NetworkContextType::kIncognitoProfile:
-        // Incognito uses the non-incognito prefs.
-        pref_service =
-            browser()->profile()->GetOffTheRecordProfile()->GetPrefs();
-        break;
+        // Incognito actually uses the non-incognito prefs, so this should end
+        // up being the same pref store as in the KProfile case.
+        return browser()->profile()->GetOffTheRecordProfile()->GetPrefs();
     }
+  }
 
-    pref_service->Set(proxy_config::prefs::kProxy,
-                      *ProxyConfigDictionary::CreateFixedServers(
-                          host_port_pair.ToString(), std::string()));
+  // Sets the proxy preference on a PrefService based on the NetworkContextType,
+  // and waits for it to be applied.
+  void SetProxyPref(const net::HostPortPair& host_port_pair) {
+    GetPrefService()->Set(proxy_config::prefs::kProxy,
+                          *ProxyConfigDictionary::CreateFixedServers(
+                              host_port_pair.ToString(), std::string()));
 
     // Wait for the new ProxyConfig to be passed over the pipe. Needed because
     // Mojo doesn't guarantee ordering of events on different Mojo pipes, and
@@ -328,10 +334,16 @@ class NetworkContextConfigurationBrowserTest
     controllable_http_response_->WaitForRequest();
   }
 
+  // Sends a request to the test server's echoheader URL and sets
+  // |header_value_out| to the value of the specified response header. Returns
+  // false if the request fails. If non-null, uses |request| to make the
+  // request, after setting its |url| value.
   bool FetchHeaderEcho(const std::string& header_name,
-                       std::string* header_value_out) {
-    std::unique_ptr<network::ResourceRequest> request =
-        std::make_unique<network::ResourceRequest>();
+                       std::string* header_value_out,
+                       std::unique_ptr<network::ResourceRequest> request =
+                           nullptr) WARN_UNUSED_RESULT {
+    if (!request)
+      request = std::make_unique<network::ResourceRequest>();
     request->url = embedded_test_server()->GetURL(
         base::StrCat({"/echoheader?", header_name}));
     content::SimpleURLLoaderTestHelper simple_loader_helper;
@@ -346,6 +358,23 @@ class NetworkContextConfigurationBrowserTest
       return true;
     }
     return false;
+  }
+
+  void SetCookie(bool third_party) {
+    std::unique_ptr<network::ResourceRequest> request =
+        std::make_unique<network::ResourceRequest>();
+    request->url = embedded_test_server()->GetURL("/set-cookie?cookie");
+    if (third_party)
+      request->site_for_cookies = GURL("http://example.com");
+    content::SimpleURLLoaderTestHelper simple_loader_helper;
+    std::unique_ptr<network::SimpleURLLoader> simple_loader =
+        network::SimpleURLLoader::Create(std::move(request),
+                                         TRAFFIC_ANNOTATION_FOR_TESTS);
+
+    simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+        loader_factory(), simple_loader_helper.GetCallback());
+    simple_loader_helper.WaitForCallback();
+    EXPECT_EQ(net::OK, simple_loader->NetError());
   }
 
   void FlushNetworkInterface() {
@@ -372,6 +401,18 @@ class NetworkContextConfigurationBrowserTest
     }
   }
 
+  Profile* GetProfile() {
+    switch (GetParam().network_context_type) {
+      case NetworkContextType::kSystem:
+      case NetworkContextType::kSafeBrowsing:
+      case NetworkContextType::kProfile:
+        return browser()->profile();
+      case NetworkContextType::kIncognitoProfile:
+        DCHECK(incognito_);
+        return incognito_->profile();
+    }
+  }
+
  private:
   void SimulateNetworkServiceCrashIfNecessary() {
     if (GetParam().network_service_state != NetworkServiceState::kRestarted)
@@ -389,7 +430,7 @@ class NetworkContextConfigurationBrowserTest
 
     // Crash the NetworkService process. Existing interfaces should receive
     // error notifications at some point.
-    content::SimulateNetworkServiceCrash();
+    SimulateNetworkServiceCrash();
     // Flush the interface to make sure the error notification was received.
     FlushNetworkInterface();
   }
@@ -450,6 +491,11 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, DataURL) {
 }
 
 IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, FileURL) {
+  // File URLs require a FileURLFactory that is not present in the default
+  // URLLoaderFactories.
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService))
+    return;
+
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temp_dir_;
   ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
@@ -872,6 +918,235 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
   EXPECT_EQ(system ? kNoAcceptLanguage : "uk,en_US;q=0.9", accept_language3);
   ASSERT_TRUE(FetchHeaderEcho("user-agent", &user_agent3));
   EXPECT_EQ(::GetUserAgent(), user_agent3);
+}
+
+// First part of testing enable referrers. Check that referrers are enabled by
+// default at browser start, and referrers are indeed sent. Then disable
+// referrers, and make sure that they aren't set.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
+                       PRE_EnableReferrers) {
+  const GURL kReferrer("http://referrer/");
+
+  // Referrers should be enabled by default.
+  EXPECT_TRUE(GetPrefService()->GetBoolean(prefs::kEnableReferrers));
+
+  // Send a request, make sure the referrer is sent.
+  std::string referrer;
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  request->referrer = kReferrer;
+  ASSERT_TRUE(FetchHeaderEcho("referer", &referrer, std::move(request)));
+
+  // SafeBrowsing never sends the referrer when then network service is enabled,
+  // since it doesn't need to. When the network service is disabled, it matches
+  // the behavior of the system NetworkContext, since it shares internals.
+  if (GetParam().network_context_type == NetworkContextType::kSafeBrowsing &&
+      base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+    EXPECT_EQ("None", referrer);
+  } else {
+    EXPECT_EQ(kReferrer.spec(), referrer);
+  }
+
+  // Disable referrers, and flush the NetworkContext mojo interface it's set on,
+  // to avoid any races with the URLLoaderFactory pipe.
+  GetPrefService()->SetBoolean(prefs::kEnableReferrers, false);
+  FlushNetworkInterface();
+
+  // Send a request and make sure its referer is not sent.
+  std::string referrer2;
+  std::unique_ptr<network::ResourceRequest> request2 =
+      std::make_unique<network::ResourceRequest>();
+  request2->referrer = kReferrer;
+  ASSERT_TRUE(FetchHeaderEcho("referer", &referrer2, std::move(request2)));
+  EXPECT_EQ("None", referrer2);
+}
+
+// Second part of enable referrer test. Referrer should still be disabled. Make
+// sure that disable referrers option is respected after startup, as to just
+// after changing it.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
+                       EnableReferrers) {
+  const GURL kReferrer("http://referrer/");
+
+  // Referrers should still be disabled.
+  EXPECT_FALSE(GetPrefService()->GetBoolean(prefs::kEnableReferrers));
+
+  // Send a request and make sure its referer is not sent.
+  std::string referrer;
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  request->referrer = kReferrer;
+  ASSERT_TRUE(FetchHeaderEcho("referer", &referrer, std::move(request)));
+  EXPECT_EQ("None", referrer);
+}
+
+// Make sure that sending referrers that violate the referrer policy results in
+// errors.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
+                       PolicyViolatingReferrers) {
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  request->url = embedded_test_server()->GetURL("/echoheader?Referer");
+  request->referrer = GURL("http://referrer/");
+  request->referrer_policy = net::URLRequest::NO_REFERRER;
+  content::SimpleURLLoaderTestHelper simple_loader_helper;
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
+                                       TRAFFIC_ANNOTATION_FOR_TESTS);
+
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper.GetCallback());
+  simple_loader_helper.WaitForCallback();
+  if (GetParam().network_context_type == NetworkContextType::kSafeBrowsing &&
+      base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+    // Safebrowsing ignores referrers, when the network service is enabled, so
+    // the requests succeed.
+    EXPECT_EQ(net::OK, simple_loader->NetError());
+    ASSERT_TRUE(simple_loader_helper.response_body());
+    EXPECT_EQ("None", *simple_loader_helper.response_body());
+  } else {
+    // In all other cases, the invalid referrer causes the request to fail.
+    EXPECT_EQ(net::ERR_BLOCKED_BY_CLIENT, simple_loader->NetError());
+  }
+}
+
+// Makes sure cookies are enabled by default.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, CookiesEnabled) {
+  // The system and SafeBrowsing network contexts have cookies disabled.
+  bool system =
+      GetParam().network_context_type == NetworkContextType::kSystem ||
+      GetParam().network_context_type == NetworkContextType::kSafeBrowsing;
+  if (system)
+    return;
+
+  SetCookie(/*third_party=*/false);
+
+  EXPECT_FALSE(
+      content::GetCookies(GetProfile(), embedded_test_server()->base_url())
+          .empty());
+}
+
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
+                       PRE_ThirdPartyCookiesBlocked) {
+  // The system and SafeBrowsing network contexts have cookies disabled.
+  bool system =
+      GetParam().network_context_type == NetworkContextType::kSystem ||
+      GetParam().network_context_type == NetworkContextType::kSafeBrowsing;
+  if (system)
+    return;
+
+  GetPrefService()->SetBoolean(prefs::kBlockThirdPartyCookies, true);
+  SetCookie(/*third_party=*/true);
+
+  EXPECT_TRUE(
+      content::GetCookies(GetProfile(), embedded_test_server()->base_url())
+          .empty());
+}
+
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
+                       ThirdPartyCookiesBlocked) {
+  // The system and SafeBrowsing network contexts have cookies disabled.
+  bool system =
+      GetParam().network_context_type == NetworkContextType::kSystem ||
+      GetParam().network_context_type == NetworkContextType::kSafeBrowsing;
+  if (system)
+    return;
+
+  // The preference is expected to be reset in incognito mode.
+  if (GetParam().network_context_type ==
+      NetworkContextType::kIncognitoProfile) {
+    EXPECT_FALSE(GetPrefService()->GetBoolean(prefs::kBlockThirdPartyCookies));
+    return;
+  }
+
+  // The kBlockThirdPartyCookies pref should carry over to the next session.
+  EXPECT_TRUE(GetPrefService()->GetBoolean(prefs::kBlockThirdPartyCookies));
+  SetCookie(/*third_party=*/true);
+
+  EXPECT_TRUE(
+      content::GetCookies(GetProfile(), embedded_test_server()->base_url())
+          .empty());
+
+  // Set pref to false, third party cookies should be allowed now.
+  GetPrefService()->SetBoolean(prefs::kBlockThirdPartyCookies, false);
+  SetCookie(/*third_party=*/false);
+
+  EXPECT_FALSE(
+      content::GetCookies(GetProfile(), embedded_test_server()->base_url())
+          .empty());
+}
+
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
+                       PRE_CookieSettings) {
+  // The system and SafeBrowsing network contexts have cookies disabled.
+  bool system =
+      GetParam().network_context_type == NetworkContextType::kSystem ||
+      GetParam().network_context_type == NetworkContextType::kSafeBrowsing;
+  if (system)
+    return;
+
+  CookieSettingsFactory::GetForProfile(browser()->profile())
+      ->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
+  SetCookie(/*third_party=*/false);
+
+  EXPECT_TRUE(
+      content::GetCookies(GetProfile(), embedded_test_server()->base_url())
+          .empty());
+}
+
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, CookieSettings) {
+  // The system and SafeBrowsing network contexts have cookies disabled.
+  bool system =
+      GetParam().network_context_type == NetworkContextType::kSystem ||
+      GetParam().network_context_type == NetworkContextType::kSafeBrowsing;
+  if (system)
+    return;
+
+  // The content settings should carry over to the next session.
+  SetCookie(/*third_party=*/false);
+
+  EXPECT_TRUE(
+      content::GetCookies(GetProfile(), embedded_test_server()->base_url())
+          .empty());
+
+  // Set default setting to allow, cookies should be set now.
+  CookieSettingsFactory::GetForProfile(browser()->profile())
+      ->SetDefaultCookieSetting(CONTENT_SETTING_ALLOW);
+  SetCookie(/*third_party=*/false);
+
+  EXPECT_FALSE(
+      content::GetCookies(GetProfile(), embedded_test_server()->base_url())
+          .empty());
+}
+
+// Make sure file uploads work.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, UploadFile) {
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  request->method = "POST";
+  request->url = embedded_test_server()->GetURL("/echo");
+  content::SimpleURLLoaderTestHelper simple_loader_helper;
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
+                                       TRAFFIC_ANNOTATION_FOR_TESTS);
+  base::FilePath dir_test_data;
+  base::PathService::Get(chrome::DIR_TEST_DATA, &dir_test_data);
+  base::FilePath path =
+      dir_test_data.Append(base::FilePath(FILE_PATH_LITERAL("simple.html")));
+  simple_loader->AttachFileForUpload(path, "text/html");
+
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper.GetCallback());
+  simple_loader_helper.WaitForCallback();
+
+  ASSERT_TRUE(simple_loader->ResponseInfo());
+  ASSERT_TRUE(simple_loader->ResponseInfo()->headers);
+  EXPECT_EQ(200, simple_loader->ResponseInfo()->headers->response_code());
+  ASSERT_TRUE(simple_loader_helper.response_body());
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  std::string expected_response;
+  base::ReadFileToString(path, &expected_response);
+  EXPECT_EQ(expected_response.c_str(), *simple_loader_helper.response_body());
 }
 
 class NetworkContextConfigurationFixedPortBrowserTest

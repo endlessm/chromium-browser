@@ -120,6 +120,10 @@ public class AppMenuPropertiesDelegate {
                             < DeviceFormFactor.getMinimumTabletWidthPx(
                                       mActivity.getWindowAndroid().getDisplay());
 
+            boolean bottomToolbarEnabled = mActivity.getToolbarManager() != null
+                    && mActivity.getToolbarManager().getBottomToolbarCoordinator() != null;
+            shouldShowIconRow &= !bottomToolbarEnabled;
+
             // Update the icon row items (shown in narrow form factors).
             menu.findItem(R.id.icon_row_menu_id).setVisible(shouldShowIconRow);
             if (shouldShowIconRow) {
@@ -316,12 +320,12 @@ public class AppMenuPropertiesDelegate {
     }
 
     /**
-     * @return The View to use as the app menu header if there should be one. null otherwise. The
-     *         header will be displayed as the first item in the app menu. It will be scrolled off
-     *         as the menu scrolls.
+     * @return The resource ID for a layout the be used as the app menu header if there should be
+     *         one. 0 otherwise. The header will be displayed as the first item in the app menu. It
+     *         will be scrolled off as the menu scrolls.
      */
-    public View getHeaderView() {
-        return null;
+    public int getHeaderResourceId() {
+        return 0;
     }
 
     /**
@@ -412,4 +416,18 @@ public class AppMenuPropertiesDelegate {
                         ? mActivity.getString(R.string.menu_request_desktop_site_on)
                         : mActivity.getString(R.string.menu_request_desktop_site_off));
     }
+
+    /**
+     * A notification that the header view has finished inflating.
+     * @param view The view that was inflated.
+     * @param appMenu The menu the view is inside of.
+     */
+    public void onHeaderViewInflated(AppMenu appMenu, View view) {}
+
+    /**
+     * A notification that the footer view has finished inflating.
+     * @param view The view that was inflated.
+     * @param appMenu The menu the view is inside of.
+     */
+    public void onFooterViewInflated(AppMenu appMenu, View view) {}
 }

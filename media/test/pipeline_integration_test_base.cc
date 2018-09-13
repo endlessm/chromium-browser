@@ -400,7 +400,7 @@ void PipelineIntegrationTestBase::FailTest(PipelineStatus status) {
 void PipelineIntegrationTestBase::QuitAfterCurrentTimeTask(
     base::TimeDelta quit_time,
     base::OnceClosure quit_closure) {
-  if (pipeline_->GetMediaTime() >= quit_time ||
+  if (!pipeline_ || pipeline_->GetMediaTime() >= quit_time ||
       pipeline_status_ != PIPELINE_OK) {
     std::move(quit_closure).Run();
     return;
@@ -440,8 +440,9 @@ void PipelineIntegrationTestBase::CreateDemuxer(
 #if BUILDFLAG(ENABLE_FFMPEG)
   demuxer_ = std::unique_ptr<Demuxer>(new FFmpegDemuxer(
       scoped_task_environment_.GetMainThreadTaskRunner(), data_source_.get(),
-      base::Bind(&PipelineIntegrationTestBase::DemuxerEncryptedMediaInitDataCB,
-                 base::Unretained(this)),
+      base::BindRepeating(
+          &PipelineIntegrationTestBase::DemuxerEncryptedMediaInitDataCB,
+          base::Unretained(this)),
       base::Bind(&PipelineIntegrationTestBase::DemuxerMediaTracksUpdatedCB,
                  base::Unretained(this)),
       &media_log_));

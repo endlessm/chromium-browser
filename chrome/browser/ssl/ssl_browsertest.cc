@@ -11,6 +11,7 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/json/json_reader.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop_current.h"
@@ -24,7 +25,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind_test_util.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
@@ -146,8 +147,10 @@
 #include "net/ssl/client_cert_store.h"
 #include "net/ssl/ssl_info.h"
 #include "net/test/cert_test_util.h"
+#include "net/test/embedded_test_server/controllable_http_response.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
+#include "net/test/embedded_test_server/http_response.h"
 #include "net/test/embedded_test_server/request_handler_util.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "net/test/test_certificate_data.h"
@@ -479,6 +482,49 @@ void ExpectSuperfishInterstitial(content::WebContents* tab) {
 
 void ExpectBadClockInterstitial(content::WebContents* tab) {
   ExpectInterstitialHeading(tab, "Your clock is");
+}
+
+// Sends an HttpResponse for requests for "/" that result in sending an HPKP
+// report.  Ignores other paths to avoid catching the subsequent favicon
+// request.
+std::unique_ptr<net::test_server::HttpResponse> SendReportHttpResponse(
+    const GURL& report_url,
+    const net::test_server::HttpRequest& request) {
+  if (request.relative_url == "/") {
+    std::unique_ptr<net::test_server::BasicHttpResponse> response(
+        new net::test_server::BasicHttpResponse());
+    std::string header_value = base::StringPrintf(
+        "max-age=50000;"
+        "pin-sha256=\"9999999999999999999999999999999999999999999=\";"
+        "pin-sha256=\"9999999999999999999999999999999999999999998=\";"
+        "report-uri=\"%s\"",
+        report_url.spec().c_str());
+    response->AddCustomHeader("Public-Key-Pins-Report-Only", header_value);
+    return std::move(response);
+  }
+
+  return nullptr;
+}
+
+// Runs |quit_callback| on the UI thread once a URL request has been seen.
+// If |hung_response| is true, returns a request that hangs.
+std::unique_ptr<net::test_server::HttpResponse> WaitForJsonRequest(
+    const base::RepeatingClosure& quit_closure,
+    bool hung_response,
+    const net::test_server::HttpRequest& request) {
+  // Basic sanity checks on the request.
+  EXPECT_EQ("/", request.relative_url);
+  EXPECT_EQ("POST", request.method_string);
+  base::JSONReader json_reader;
+  std::unique_ptr<base::Value> value = json_reader.ReadToValue(request.content);
+  EXPECT_TRUE(value);
+
+  content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
+                                   quit_closure);
+
+  if (hung_response)
+    return std::make_unique<net::test_server::HungResponse>();
+  return nullptr;
 }
 
 }  // namespace
@@ -1604,10 +1650,7 @@ IN_PROC_BROWSER_TEST_P(SSLUITest, TestInterstitialCrossSiteNavigation) {
   GURL initial_url = https_server_.GetURL("/ssl/google.html");
   ASSERT_EQ("127.0.0.1", initial_url.host());
   ui_test_utils::NavigateToURL(browser(), initial_url);
-
   WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
-  NavigationEntry* entry = tab->GetController().GetActiveEntry();
-  ASSERT_TRUE(entry);
 
   // Navigate from 127.0.0.1 to localhost so it triggers a
   // cross-site navigation to make sure http://crbug.com/5800 is gone.
@@ -1712,9 +1755,7 @@ IN_PROC_BROWSER_TEST_P(SSLUITest, TestHTTPSExpiredCertAndGoBackViaButton) {
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("/ssl/google.html"));
   WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
-  NavigationEntry* entry = tab->GetController().GetActiveEntry();
   content::RenderFrameHost* rfh = tab->GetMainFrame();
-  ASSERT_TRUE(entry);
 
   // Now go to a bad HTTPS page that shows an interstitial.
   ui_test_utils::NavigateToURL(
@@ -1749,8 +1790,6 @@ IN_PROC_BROWSER_TEST_P(SSLUITest, TestHTTPSExpiredCertAndGoBackViaMenu) {
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("/ssl/google.html"));
   WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
-  NavigationEntry* entry = tab->GetController().GetActiveEntry();
-  ASSERT_TRUE(entry);
 
   // Now go to a bad HTTPS page that shows an interstitial.
   ui_test_utils::NavigateToURL(
@@ -1780,8 +1819,6 @@ IN_PROC_BROWSER_TEST_P(SSLUITest, TestHTTPSExpiredCertGoBackUsingCommand) {
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("/ssl/google.html"));
   WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
-  NavigationEntry* entry = tab->GetController().GetActiveEntry();
-  ASSERT_TRUE(entry);
 
   // Now go to a bad HTTPS page that shows an interstitial.
   ui_test_utils::NavigateToURL(
@@ -1816,11 +1853,11 @@ IN_PROC_BROWSER_TEST_F(SSLUITestBase, TestHTTPSExpiredCertAndGoForward) {
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("/ssl/google.html"));
   WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
-  NavigationEntry* entry1 = tab->GetController().GetActiveEntry();
+  NavigationEntry* entry1 = tab->GetController().GetLastCommittedEntry();
   ASSERT_TRUE(entry1);
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("/ssl/blank_page.html"));
-  NavigationEntry* entry2 = tab->GetController().GetActiveEntry();
+  NavigationEntry* entry2 = tab->GetController().GetLastCommittedEntry();
   ASSERT_TRUE(entry2);
 
   // Now go back so that a page is in the forward history.
@@ -1832,7 +1869,7 @@ IN_PROC_BROWSER_TEST_F(SSLUITestBase, TestHTTPSExpiredCertAndGoForward) {
     observer.Wait();
   }
   ASSERT_TRUE(tab->GetController().CanGoForward());
-  NavigationEntry* entry3 = tab->GetController().GetActiveEntry();
+  NavigationEntry* entry3 = tab->GetController().GetLastCommittedEntry();
   ASSERT_TRUE(entry1 == entry3);
 
   // Now go to a bad HTTPS page that shows an interstitial.
@@ -1854,7 +1891,7 @@ IN_PROC_BROWSER_TEST_F(SSLUITestBase, TestHTTPSExpiredCertAndGoForward) {
   EXPECT_FALSE(IsShowingInterstitial(tab));
   CheckUnauthenticatedState(tab, AuthState::NONE);
   EXPECT_FALSE(tab->GetController().CanGoForward());
-  NavigationEntry* entry4 = tab->GetController().GetActiveEntry();
+  NavigationEntry* entry4 = tab->GetController().GetLastCommittedEntry();
   EXPECT_TRUE(entry2 == entry4);
 }
 
@@ -1890,7 +1927,7 @@ IN_PROC_BROWSER_TEST_P(SSLUITest, TestHTTPSOCSPOk) {
                                         ->tab_strip_model()
                                         ->GetActiveWebContents()
                                         ->GetController()
-                                        .GetActiveEntry();
+                                        .GetVisibleEntry();
   ASSERT_TRUE(entry);
   EXPECT_TRUE(entry->GetSSL().cert_status &
               net::CERT_STATUS_REV_CHECKING_ENABLED);
@@ -1946,7 +1983,7 @@ IN_PROC_BROWSER_TEST_P(SSLUITest, TestHTTPSOCSPRevokedButNotChecked) {
                                         ->tab_strip_model()
                                         ->GetActiveWebContents()
                                         ->GetController()
-                                        .GetActiveEntry();
+                                        .GetVisibleEntry();
   ASSERT_TRUE(entry);
   EXPECT_FALSE(entry->GetSSL().cert_status &
                net::CERT_STATUS_REV_CHECKING_ENABLED);
@@ -4615,13 +4652,13 @@ IN_PROC_BROWSER_TEST_P(SSLUITest,
   WaitForInterstitial(tab);
   EXPECT_TRUE(IsShowingInterstitial(tab));
 
-  content::NavigationEntry* entry = tab->GetController().GetActiveEntry();
+  content::NavigationEntry* entry = tab->GetController().GetVisibleEntry();
   ASSERT_TRUE(entry);
   content::SSLStatus interstitial_ssl_status = entry->GetSSL();
 
   ProceedThroughInterstitial(tab);
   EXPECT_FALSE(tab->ShowingInterstitialPage());
-  entry = tab->GetController().GetActiveEntry();
+  entry = tab->GetController().GetLastCommittedEntry();
   ASSERT_TRUE(entry);
 
   content::SSLStatus after_interstitial_ssl_status = entry->GetSSL();
@@ -4651,7 +4688,7 @@ IN_PROC_BROWSER_TEST_P(SSLUITest,
   ASSERT_NO_FATAL_FAILURE(ExpectBadClockInterstitial(tab));
 
   // Grab the SSLStatus on the clock interstitial.
-  content::NavigationEntry* entry = tab->GetController().GetActiveEntry();
+  content::NavigationEntry* entry = tab->GetController().GetVisibleEntry();
   ASSERT_TRUE(entry);
   content::SSLStatus clock_interstitial_ssl_status = entry->GetSSL();
 
@@ -4667,165 +4704,11 @@ IN_PROC_BROWSER_TEST_P(SSLUITest,
 
   // Grab the SSLStatus from the page and check that it is the same as
   // on the clock interstitial.
-  entry = tab->GetController().GetActiveEntry();
+  entry = tab->GetController().GetLastCommittedEntry();
   ASSERT_TRUE(entry);
   content::SSLStatus after_interstitial_ssl_status = entry->GetSSL();
   EXPECT_TRUE(ComparePreAndPostInterstitialSSLStatuses(
       clock_interstitial_ssl_status, after_interstitial_ssl_status));
-}
-
-// A URLRequestJob that serves valid time server responses, but delays
-// them until Resume() is called. If Resume() is called before a request
-// is made, then the request will not be delayed.
-class DelayableNetworkTimeURLRequestJob : public net::URLRequestJob {
- public:
-  DelayableNetworkTimeURLRequestJob(net::URLRequest* request,
-                                    net::NetworkDelegate* network_delegate,
-                                    bool delayed)
-      : net::URLRequestJob(request, network_delegate),
-        delayed_(delayed),
-        weak_factory_(this) {}
-
-  ~DelayableNetworkTimeURLRequestJob() override {}
-
-  base::WeakPtr<DelayableNetworkTimeURLRequestJob> GetWeakPtr() {
-    return weak_factory_.GetWeakPtr();
-  }
-
-  // URLRequestJob:
-  void Start() override {
-    started_ = true;
-    if (delayed_) {
-      // Do nothing until Resume() is called.
-      return;
-    }
-    Resume();
-  }
-
-  int ReadRawData(net::IOBuffer* buf, int buf_size) override {
-    int bytes_read =
-        std::min(static_cast<size_t>(buf_size),
-                 strlen(network_time::kGoodTimeResponseBody[0]) - data_offset_);
-    memcpy(buf->data(), network_time::kGoodTimeResponseBody[0] + data_offset_,
-           bytes_read);
-    data_offset_ += bytes_read;
-    return bytes_read;
-  }
-
-  void GetResponseInfo(net::HttpResponseInfo* info) override {
-    std::string headers;
-    headers.append(
-        "HTTP/1.1 200 OK\n"
-        "Content-type: text/plain\n");
-    headers.append(base::StringPrintf(
-        "Content-Length: %1d\n",
-        static_cast<int>(strlen(network_time::kGoodTimeResponseBody[0]))));
-    info->headers =
-        new net::HttpResponseHeaders(net::HttpUtil::AssembleRawHeaders(
-            headers.c_str(), static_cast<int>(headers.length())));
-    info->headers->AddHeader(
-        "x-cup-server-proof: " +
-        std::string(network_time::kGoodTimeResponseServerProofHeader[0]));
-  }
-
-  // Resumes a previously started request that was delayed. If no
-  // request has been started yet, then when Start() is called it will
-  // not delay.
-  void Resume() {
-    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-    DCHECK(delayed_);
-    if (!started_) {
-      // If Start() hasn't been called yet, then unset |delayed_| so
-      // that when Start() is called, the request will begin
-      // immediately.
-      delayed_ = false;
-      return;
-    }
-
-    // Start reading asynchronously as would a normal network request.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(
-            &DelayableNetworkTimeURLRequestJob::NotifyHeadersComplete,
-            weak_factory_.GetWeakPtr()));
-  }
-
- private:
-  bool delayed_;
-  bool started_ = false;
-  int data_offset_ = 0;
-  base::WeakPtrFactory<DelayableNetworkTimeURLRequestJob> weak_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(DelayableNetworkTimeURLRequestJob);
-};
-
-// A URLRequestInterceptor that intercepts requests to use
-// DelayableNetworkTimeURLRequestJobs. Expects to intercept only a
-// single request in its lifetime.
-class DelayedNetworkTimeInterceptor : public net::URLRequestInterceptor {
- public:
-  DelayedNetworkTimeInterceptor() {}
-  ~DelayedNetworkTimeInterceptor() override {}
-
-  // Intercepts |request| to use a DelayableNetworkTimeURLRequestJob. If
-  // Resume() has been called before MaybeInterceptRequest(), then the
-  // request will not be delayed.
-  net::URLRequestJob* MaybeInterceptRequest(
-      net::URLRequest* request,
-      net::NetworkDelegate* network_delegate) const override {
-    // Only support one intercepted request.
-    EXPECT_FALSE(intercepted_request_);
-    intercepted_request_ = true;
-    // If the request has been resumed before this request is created,
-    // then |should_delay_requests_| will be false and the request will
-    // not delay.
-    DelayableNetworkTimeURLRequestJob* job =
-        new DelayableNetworkTimeURLRequestJob(request, network_delegate,
-                                              should_delay_requests_);
-    if (should_delay_requests_)
-      delayed_request_ = job->GetWeakPtr();
-    return job;
-  }
-
-  void Resume() {
-    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-    if (!should_delay_requests_)
-      return;
-    should_delay_requests_ = false;
-    if (delayed_request_)
-      delayed_request_->Resume();
-  }
-
- private:
-  // True if a request has been intercepted. Used to enforce that only
-  // one request is intercepted in this object's lifetime.
-  mutable bool intercepted_request_ = false;
-  // True until Resume() is called. If Resume() is called before a
-  // request is intercepted, then a request that is intercepted later
-  // will continue without a delay.
-  bool should_delay_requests_ = true;
-  // Use a WeakPtr in case the request is cancelled before Resume() is called.
-  mutable base::WeakPtr<DelayableNetworkTimeURLRequestJob> delayed_request_ =
-      nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(DelayedNetworkTimeInterceptor);
-};
-
-// IO-thread helper methods for SSLNetworkTimeBrowserTest.
-
-void ResumeDelayedNetworkTimeRequest(
-    DelayedNetworkTimeInterceptor* interceptor) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  interceptor->Resume();
-}
-
-void SetUpNetworkTimeInterceptorOnIOThread(
-    DelayedNetworkTimeInterceptor* interceptor,
-    const GURL& time_server_url) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  net::URLRequestFilter::GetInstance()->AddHostnameInterceptor(
-      time_server_url.scheme(), time_server_url.host(),
-      std::unique_ptr<DelayedNetworkTimeInterceptor>(interceptor));
 }
 
 void CleanUpOnIOThread() {
@@ -4840,7 +4723,7 @@ void CleanUpOnIOThread() {
 // request to be issued during the test.
 class SSLNetworkTimeBrowserTest : public SSLUITest {
  public:
-  SSLNetworkTimeBrowserTest() : SSLUITest(), interceptor_(nullptr) {}
+  SSLNetworkTimeBrowserTest() : SSLUITest() {}
   ~SSLNetworkTimeBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -4860,31 +4743,27 @@ class SSLNetworkTimeBrowserTest : public SSLUITest {
     parameters["FetchBehavior"] = "on-demand-only";
     scoped_feature_list_.InitAndEnableFeatureWithParameters(
         network_time::kNetworkTimeServiceQuerying, parameters);
-    SetUpNetworkTimeServer();
-  }
-
-  void TearDownOnMainThread() override {
-    content::BrowserThread::PostTask(content::BrowserThread::IO, FROM_HERE,
-                                     base::BindOnce(&CleanUpOnIOThread));
+    controllable_response_ =
+        std::make_unique<net::test_server::ControllableHttpResponse>(
+            embedded_test_server(), "/", true);
+    ASSERT_TRUE(embedded_test_server()->Start());
+    g_browser_process->network_time_tracker()->SetTimeServerURLForTesting(
+        embedded_test_server()->GetURL("/"));
   }
 
  protected:
-  void SetUpNetworkTimeServer() {
-    // Install the URL interceptor that serves delayed network time responses.
-    interceptor_ = new DelayedNetworkTimeInterceptor();
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&SetUpNetworkTimeInterceptorOnIOThread,
-                       base::Unretained(interceptor_),
-                       g_browser_process->network_time_tracker()
-                           ->GetTimeServerURLForTesting()));
-  }
-
   void TriggerTimeResponse() {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&ResumeDelayedNetworkTimeRequest,
-                       base::Unretained(interceptor_)));
+    std::string response = "HTTP/1.1 200 OK\nContent-type: text/plain\n";
+    response += base::StringPrintf(
+        "Content-Length: %1d\n",
+        static_cast<int>(strlen(network_time::kGoodTimeResponseBody[0])));
+    response +=
+        "x-cup-server-proof: " +
+        std::string(network_time::kGoodTimeResponseServerProofHeader[0]);
+    response += "\n\n";
+    response += std::string(network_time::kGoodTimeResponseBody[0]);
+    controllable_response_->WaitForRequest();
+    controllable_response_->Send(response);
   }
 
   // Asserts that the first time request to the server is currently pending.
@@ -4898,7 +4777,8 @@ class SSLNetworkTimeBrowserTest : public SSLUITest {
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-  DelayedNetworkTimeInterceptor* interceptor_;
+  std::unique_ptr<net::test_server::ControllableHttpResponse>
+      controllable_response_;
 
   DISALLOW_COPY_AND_ASSIGN(SSLNetworkTimeBrowserTest);
 };
@@ -7744,6 +7624,77 @@ IN_PROC_BROWSER_TEST_F(SSLUIDynamicInterstitialTest,
   }
 }
 
+using SSLHPKPBrowserTest = CertVerifierBrowserTest;
+
+// Test case where an HPKP report is sent.
+IN_PROC_BROWSER_TEST_F(SSLHPKPBrowserTest, SendHPKPReport) {
+  base::RunLoop wait_for_report_loop;
+  // Server that HPKP reports are sent to.
+  embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
+      &WaitForJsonRequest, wait_for_report_loop.QuitClosure(), false));
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Server that sends an HPKP report when its root document is fetched.
+  net::EmbeddedTestServer hpkp_test_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  hpkp_test_server.SetSSLConfig(
+      net::EmbeddedTestServer::CERT_COMMON_NAME_IS_DOMAIN);
+  hpkp_test_server.RegisterRequestHandler(base::BindRepeating(
+      &SendReportHttpResponse, embedded_test_server()->base_url()));
+  ASSERT_TRUE(hpkp_test_server.Start());
+
+  net::CertVerifyResult verify_result;
+  verify_result.verified_cert = hpkp_test_server.GetCertificate();
+  // This needs to be true to respect HPKP.
+  verify_result.is_issued_by_known_root = true;
+  mock_cert_verifier()->AddResultForCertAndHost(
+      hpkp_test_server.GetCertificate(), "localhost", verify_result, net::OK);
+
+  // To send a report, must use a non-numeric host name for the original
+  // request.  This must not match the host name of the server that reports are
+  // sent to.
+  ui_test_utils::NavigateToURL(browser(),
+                               hpkp_test_server.GetURL("localhost", "/"));
+  wait_for_report_loop.Run();
+
+  // Shut down the test server, to make it unlikely this will end up in the same
+  // situation as the next test, though it's still theoretically possible.
+  ASSERT_TRUE(embedded_test_server()->ShutdownAndWaitUntilComplete());
+}
+
+// Test case where an HPKP report is sent, and the server hasn't replied by the
+// time the profile is torn down.  Test will crash if the URLRequestContext is
+// torn down before the request is torn down.
+IN_PROC_BROWSER_TEST_F(SSLHPKPBrowserTest, SendHPKPReportServerHangs) {
+  base::RunLoop wait_for_report_loop;
+  // Server that HPKP reports are sent to.  Have to use a class member to make
+  // sure that the test server outlives the IO thread.
+  embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
+      &WaitForJsonRequest, wait_for_report_loop.QuitClosure(), true));
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Server that sends an  HPKP report when its root document is fetched.
+  net::EmbeddedTestServer hpkp_test_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  hpkp_test_server.SetSSLConfig(
+      net::EmbeddedTestServer::CERT_COMMON_NAME_IS_DOMAIN);
+  hpkp_test_server.RegisterRequestHandler(base::BindRepeating(
+      &SendReportHttpResponse, embedded_test_server()->base_url()));
+  ASSERT_TRUE(hpkp_test_server.Start());
+
+  net::CertVerifyResult verify_result;
+  verify_result.verified_cert = hpkp_test_server.GetCertificate();
+  // This needs to be true to respect HPKP.
+  verify_result.is_issued_by_known_root = true;
+  mock_cert_verifier()->AddResultForCertAndHost(
+      hpkp_test_server.GetCertificate(), "localhost", verify_result, net::OK);
+
+  // To send a report, must use a non-numeric host name for the original
+  // request.  This must not match the host name of the server that reports are
+  // sent to.
+  ui_test_utils::NavigateToURL(browser(),
+                               hpkp_test_server.GetURL("localhost", "/"));
+  wait_for_report_loop.Run();
+}
+
 class RecurrentInterstitialBrowserTest
     : public CertVerifierBrowserTest,
       public testing::WithParamInterface<bool> {
@@ -7828,7 +7779,7 @@ IN_PROC_BROWSER_TEST_P(RecurrentInterstitialBrowserTest,
     histograms.ExpectBucketCount(kRecurrentInterstitialHistogram, true, 1);
     histograms.ExpectUniqueSample(
         kRecurrentInterstitialActionHistogram,
-        SSLErrorControllerClient::RECURRENT_ERROR_ACTION_SHOW, 1);
+        SSLErrorControllerClient::RecurrentErrorAction::kShow, 1);
 
     // Proceed through the interstitial and observe that the histogram is
     // recorded correctly.
@@ -7847,7 +7798,7 @@ IN_PROC_BROWSER_TEST_P(RecurrentInterstitialBrowserTest,
     nav_observer.Wait();
     histograms.ExpectBucketCount(
         kRecurrentInterstitialActionHistogram,
-        SSLErrorControllerClient::RECURRENT_ERROR_ACTION_PROCEED, 1);
+        SSLErrorControllerClient::RecurrentErrorAction::kProceed, 1);
   }
 }
 

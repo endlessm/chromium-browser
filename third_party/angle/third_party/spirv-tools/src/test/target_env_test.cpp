@@ -41,7 +41,7 @@ TEST_P(TargetEnvTest, ValidDescription) {
 
 TEST_P(TargetEnvTest, ValidSpirvVersion) {
   auto spirv_version = spvVersionForTargetEnv(GetParam());
-  ASSERT_THAT(spirv_version, AnyOf(0x10000, 0x10100, 0x10200));
+  ASSERT_THAT(spirv_version, AnyOf(0x10000, 0x10100, 0x10200, 0x10300));
 }
 
 INSTANTIATE_TEST_CASE_P(AllTargetEnvs, TargetEnvTest,
@@ -49,7 +49,7 @@ INSTANTIATE_TEST_CASE_P(AllTargetEnvs, TargetEnvTest,
 
 TEST(GetContextTest, InvalidTargetEnvProducesNull) {
   // Use a value beyond the last valid enum value.
-  spv_context context = spvContextCreate(static_cast<spv_target_env>(15));
+  spv_context context = spvContextCreate(static_cast<spv_target_env>(30));
   EXPECT_EQ(context, nullptr);
 }
 
@@ -69,22 +69,36 @@ TEST_P(TargetParseTest, InvalidTargetEnvProducesNull) {
   EXPECT_THAT(env, Eq(GetParam().env));
 }
 
-INSTANTIATE_TEST_CASE_P(TargetParsing, TargetParseTest,
-                        ValuesIn(std::vector<ParseCase>{
-                            {"spv1.0", true, SPV_ENV_UNIVERSAL_1_0},
-                            {"spv1.1", true, SPV_ENV_UNIVERSAL_1_1},
-                            {"spv1.2", true, SPV_ENV_UNIVERSAL_1_2},
-                            {"vulkan1.0", true, SPV_ENV_VULKAN_1_0},
-                            {"opencl2.1", true, SPV_ENV_OPENCL_2_1},
-                            {"opencl2.2", true, SPV_ENV_OPENCL_2_2},
-                            {"opengl4.0", true, SPV_ENV_OPENGL_4_0},
-                            {"opengl4.1", true, SPV_ENV_OPENGL_4_1},
-                            {"opengl4.2", true, SPV_ENV_OPENGL_4_2},
-                            {"opengl4.3", true, SPV_ENV_OPENGL_4_3},
-                            {"opengl4.5", true, SPV_ENV_OPENGL_4_5},
-                            {nullptr, false, SPV_ENV_UNIVERSAL_1_0},
-                            {"", false, SPV_ENV_UNIVERSAL_1_0},
-                            {"abc", false, SPV_ENV_UNIVERSAL_1_0},
-                        }));
+INSTANTIATE_TEST_CASE_P(
+    TargetParsing, TargetParseTest,
+    ValuesIn(std::vector<ParseCase>{
+        {"spv1.0", true, SPV_ENV_UNIVERSAL_1_0},
+        {"spv1.1", true, SPV_ENV_UNIVERSAL_1_1},
+        {"spv1.2", true, SPV_ENV_UNIVERSAL_1_2},
+        {"spv1.3", true, SPV_ENV_UNIVERSAL_1_3},
+        {"vulkan1.0", true, SPV_ENV_VULKAN_1_0},
+        {"vulkan1.1", true, SPV_ENV_VULKAN_1_1},
+        {"opencl2.1", true, SPV_ENV_OPENCL_2_1},
+        {"opencl2.2", true, SPV_ENV_OPENCL_2_2},
+        {"opengl4.0", true, SPV_ENV_OPENGL_4_0},
+        {"opengl4.1", true, SPV_ENV_OPENGL_4_1},
+        {"opengl4.2", true, SPV_ENV_OPENGL_4_2},
+        {"opengl4.3", true, SPV_ENV_OPENGL_4_3},
+        {"opengl4.5", true, SPV_ENV_OPENGL_4_5},
+        {"opencl1.2", true, SPV_ENV_OPENCL_1_2},
+        {"opencl1.2embedded", true, SPV_ENV_OPENCL_EMBEDDED_1_2},
+        {"opencl2.0", true, SPV_ENV_OPENCL_2_0},
+        {"opencl2.0embedded", true, SPV_ENV_OPENCL_EMBEDDED_2_0},
+        {"opencl2.1embedded", true, SPV_ENV_OPENCL_EMBEDDED_2_1},
+        {"opencl2.2embedded", true, SPV_ENV_OPENCL_EMBEDDED_2_2},
+        {"webgpu0", true, SPV_ENV_WEBGPU_0},
+        {"opencl2.3", false, SPV_ENV_UNIVERSAL_1_0},
+        {"opencl3.0", false, SPV_ENV_UNIVERSAL_1_0},
+        {"vulkan1.2", false, SPV_ENV_UNIVERSAL_1_0},
+        {"vulkan2.0", false, SPV_ENV_UNIVERSAL_1_0},
+        {nullptr, false, SPV_ENV_UNIVERSAL_1_0},
+        {"", false, SPV_ENV_UNIVERSAL_1_0},
+        {"abc", false, SPV_ENV_UNIVERSAL_1_0},
+    }));
 
 }  // anonymous namespace

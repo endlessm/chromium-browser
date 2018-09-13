@@ -4,8 +4,7 @@
 
 package org.chromium.chrome.browser.init;
 
-import android.os.AsyncTask;
-
+import org.chromium.base.AsyncTask;
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
@@ -16,7 +15,7 @@ import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.chrome.browser.ChromeActivitySessionTracker;
 import org.chromium.chrome.browser.ChromeVersionInfo;
 import org.chromium.components.variations.firstrun.VariationsSeedFetcher;
-import org.chromium.content.browser.ChildProcessLauncherHelper;
+import org.chromium.content_public.browser.ChildProcessLauncherHelper;
 
 import java.util.concurrent.Executor;
 

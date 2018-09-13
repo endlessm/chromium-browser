@@ -27,6 +27,16 @@ void FakeNotificationsInstance::CloseNotificationWindow(
 void FakeNotificationsInstance::OpenNotificationSettings(
     const std::string& key) {}
 
+void FakeNotificationsInstance::OpenNotificationSnoozeSettings(
+    const std::string& key) {}
+
+void FakeNotificationsInstance::SetDoNotDisturbStatusOnAndroid(
+    mojom::ArcDoNotDisturbStatusPtr status) {
+  latest_do_not_disturb_status_ = std::move(status);
+}
+
+void FakeNotificationsInstance::CancelLongPress(const std::string& key) {}
+
 void FakeNotificationsInstance::InitDeprecated(
     mojom::NotificationsHostPtr host_ptr) {
   Init(std::move(host_ptr), base::DoNothing());
@@ -40,6 +50,11 @@ void FakeNotificationsInstance::Init(mojom::NotificationsHostPtr host_ptr,
 const std::vector<std::pair<std::string, mojom::ArcNotificationEvent>>&
 FakeNotificationsInstance::events() const {
   return events_;
+}
+
+const mojom::ArcDoNotDisturbStatusPtr&
+FakeNotificationsInstance::latest_do_not_disturb_status() const {
+  return latest_do_not_disturb_status_;
 }
 
 }  // namespace arc

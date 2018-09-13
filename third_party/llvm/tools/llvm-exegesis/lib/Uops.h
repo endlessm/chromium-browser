@@ -21,15 +21,15 @@ namespace exegesis {
 
 class UopsBenchmarkRunner : public BenchmarkRunner {
 public:
-  using BenchmarkRunner::BenchmarkRunner;
+  UopsBenchmarkRunner(const LLVMState &State)
+      : BenchmarkRunner(State, InstructionBenchmark::Uops) {}
   ~UopsBenchmarkRunner() override;
 
-private:
-  const char *getDisplayName() const override;
+  llvm::Expected<SnippetPrototype>
+  generatePrototype(unsigned Opcode) const override;
 
-  llvm::Expected<std::vector<llvm::MCInst>>
-  createSnippet(RegisterAliasingTrackerCache &RATC, unsigned Opcode,
-                llvm::raw_ostream &Info) const override;
+private:
+  llvm::Error isInfeasible(const llvm::MCInstrDesc &MCInstrDesc) const;
 
   std::vector<BenchmarkMeasure>
   runMeasurements(const ExecutableFunction &EF,

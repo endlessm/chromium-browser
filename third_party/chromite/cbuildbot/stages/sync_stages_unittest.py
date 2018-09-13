@@ -16,7 +16,6 @@ import os
 import time
 import tempfile
 
-from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import lkgm_manager
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import manifest_version_unittest
@@ -33,6 +32,7 @@ from chromite.lib import build_requests
 from chromite.lib import cidb
 from chromite.lib import clactions
 from chromite.lib import cl_messages
+from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cq_config
 from chromite.lib import cros_build_lib
@@ -779,7 +779,7 @@ class PreCQLauncherStageTest(MasterCQSyncTestCase):
 
   def testVerificationsForChangeValidConfig(self):
     change = MockPatch()
-    configs_to_test = chromeos_config.GetConfig().keys()[:5]
+    configs_to_test = config_lib.GetConfig().keys()[:5]
     return_string = ' '.join(configs_to_test)
     self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value=return_string)
@@ -1164,6 +1164,85 @@ pre-cq-configs: link-pre-cq
     self.PerformSync(pre_cq_status=None, changes=changes, patch_objects=False)
     for c in changes[1:2]:
       self.assertEqual(self._GetPreCQStatus(c), None)
+
+  def testPreCQEarlyCrashes(self):
+    self.mockLaunchTrybots(
+        configs=['apple-pre-cq', 'banana-pre-cq', 'cinnamon-pre-cq'])
+
+    mock_buildbucket_client = mock.Mock()
+    self.sync_stage.buildbucket_client = mock_buildbucket_client
+
+    send_notification = self.PatchObject(
+        validation_pool.ValidationPool, 'SendNotification')
+
+    changes = self._PrepareChangesWithPendingVerifications(
+        [['apple-pre-cq', 'banana-pre-cq'], ['cinnamon-pre-cq']])
+
+    # Turn our changes into speculatifve PreCQ candidates.
+    for change in changes:
+      change.flags.pop('COMR')
+      change.IsMergeable = lambda: False
+      change.HasReadyFlag = lambda: False
+
+    # Launch three Pre-CQs for two changes.
+    # At this point, buildbucket does not have any data.
+    mock_buildbucket_client.GetBuildRequest.return_value = None
+    self.PerformSync(pre_cq_status=None, changes=changes, runs=2)
+    self.assertAllStatuses(changes, constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED)
+
+    # Make sure buildbucket IDs are assigned as we expect.
+    action_history = self.fake_db.GetActionsForChanges(changes)
+    progress_map = clactions.GetPreCQProgressMap(changes, action_history)
+    self.assertEqual(
+        progress_map[changes[0]]['apple-pre-cq'].buildbucket_id, 'bb_id_0')
+    self.assertEqual(
+        progress_map[changes[0]]['banana-pre-cq'].buildbucket_id, 'bb_id_1')
+    self.assertEqual(
+        progress_map[changes[1]]['cinnamon-pre-cq'].buildbucket_id, 'bb_id_2')
+
+    # Set all buildbucket statuses to STARTED. Changes statuses are still
+    # LAUNCHED.
+    mock_buildbucket_client.GetBuildRequest.return_value = {
+        'build': {
+            'status': constants.BUILDBUCKET_BUILDER_STATUS_STARTED,
+        },
+    }
+    self.PerformSync(pre_cq_status=None, changes=changes, patch_objects=False)
+    self.assertAllStatuses(changes, constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED)
+
+    # Set banana-pre-cq buildbucket status to COMPLETED. Since we did not insert
+    # any CL actions for banana-pre-cq, it is considered as an early crash.
+    def FakeGetBuildRequest(buildbucket_id, dryrun):
+      del dryrun  # unused
+      status = (constants.BUILDBUCKET_BUILDER_STATUS_COMPLETED
+                if buildbucket_id == 'bb_id_1'
+                else constants.BUILDBUCKET_BUILDER_STATUS_STARTED)
+      return {'build': {'status': status}}
+
+    mock_buildbucket_client.GetBuildRequest.side_effect = FakeGetBuildRequest
+    self.PerformSync(pre_cq_status=None, changes=changes, patch_objects=False)
+
+    action_history = self.fake_db.GetActionsForChanges(changes)
+    progress_map = clactions.GetPreCQProgressMap(changes, action_history)
+    self.assertEqual(
+        progress_map[changes[0]]['apple-pre-cq'].status,
+        constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED)
+    self.assertEqual(
+        progress_map[changes[0]]['banana-pre-cq'].status,
+        constants.CL_PRECQ_CONFIG_STATUS_FAILED)
+    self.assertEqual(
+        progress_map[changes[1]]['cinnamon-pre-cq'].status,
+        constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED)
+
+    # Finally, make sure a notification message is sent as expected.
+    send_notification.assert_called_once()
+    self.assertIn(
+        'The banana-pre-cq trybot for your change crashed.',
+        send_notification.call_args[1]['details'])
+    self.assertIn(
+        'https://cros-goldeneye.corp.google.com/chromeos/healthmonitoring'
+        '/buildDetails?buildbucketId=bb_id_1',
+        send_notification.call_args[1]['details'])
 
   def testSpeculativePreCQ(self):
     changes = self._PrepareChangesWithPendingVerifications(

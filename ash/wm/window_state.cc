@@ -23,7 +23,7 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "base/auto_reset.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/layout_manager.h"
 #include "ui/aura/window.h"
@@ -193,6 +193,10 @@ bool WindowState::IsTrustedPinned() const {
   return GetStateType() == mojom::WindowStateType::TRUSTED_PINNED;
 }
 
+bool WindowState::IsPip() const {
+  return GetStateType() == mojom::WindowStateType::PIP;
+}
+
 bool WindowState::IsNormalStateType() const {
   return GetStateType() == mojom::WindowStateType::NORMAL ||
          GetStateType() == mojom::WindowStateType::DEFAULT;
@@ -211,6 +215,14 @@ bool WindowState::IsUserPositionable() const {
           window_->type() == aura::client::WINDOW_TYPE_PANEL);
 }
 
+bool WindowState::HasMaximumWidthOrHeight() const {
+  if (!window_->delegate())
+    return false;
+
+  const gfx::Size max_size = window_->delegate()->GetMaximumSize();
+  return max_size.width() || max_size.height();
+}
+
 bool WindowState::CanMaximize() const {
   // Window must allow maximization and have no maximum width or height.
   if ((window_->GetProperty(aura::client::kResizeBehaviorKey) &
@@ -218,11 +230,7 @@ bool WindowState::CanMaximize() const {
     return false;
   }
 
-  if (!window_->delegate())
-    return true;
-
-  const gfx::Size max_size = window_->delegate()->GetMaximumSize();
-  return !max_size.width() && !max_size.height();
+  return !HasMaximumWidthOrHeight();
 }
 
 bool WindowState::CanMinimize() const {
@@ -240,14 +248,16 @@ bool WindowState::CanActivate() const {
 }
 
 bool WindowState::CanSnap() const {
-  if (!CanResize() || window_->type() == aura::client::WINDOW_TYPE_PANEL ||
-      ::wm::GetTransientParent(window_)) {
+  const bool is_panel_window =
+      window_->type() == aura::client::WINDOW_TYPE_PANEL;
+
+  if (!CanResize() || is_panel_window || IsPip())
     return false;
-  }
-  // If a window cannot be maximized, assume it cannot snap either.
-  // TODO(oshima): We should probably snap if the maximum size is greater than
-  // the snapped size.
-  return CanMaximize();
+
+  // Allow windows with no maximum width or height to be snapped.
+  // TODO(oshima): We should probably snap if the maximum size is defined
+  // and greater than the snapped size.
+  return !HasMaximumWidthOrHeight();
 }
 
 bool WindowState::HasRestoreBounds() const {
@@ -495,7 +505,6 @@ WindowState::WindowState(aura::Window* window)
       unminimize_to_restore_bounds_(false),
       hide_shelf_when_fullscreen_(true),
       autohide_shelf_when_maximized_or_fullscreen_(false),
-      minimum_visibility_(false),
       cached_always_on_top_(false),
       ignore_property_change_(false),
       current_state_(new DefaultState(ToWindowStateType(GetShowState()))) {
@@ -599,7 +608,7 @@ void WindowState::SetBoundsDirect(const gfx::Rect& bounds) {
         std::max(min_size.height(), actual_new_bounds.height()));
   }
   BoundsSetter().SetBounds(window_, actual_new_bounds);
-  wm::SnapWindowToPixelBoundary(window_);
+  ::wm::SnapWindowToPixelBoundary(window_);
 }
 
 void WindowState::SetBoundsConstrained(const gfx::Rect& bounds) {

@@ -8,15 +8,14 @@
 
 #include "base/containers/adapters.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "chrome/browser/vr/elements/ui_element.h"
+#include "chrome/browser/vr/input_event.h"
 #include "chrome/browser/vr/model/controller_model.h"
 #include "chrome/browser/vr/model/reticle_model.h"
 #include "chrome/browser/vr/model/text_input_info.h"
 #include "chrome/browser/vr/ui_renderer.h"
 #include "chrome/browser/vr/ui_scene.h"
-// TODO(tiborg): Remove include once we use a generic type to pass scroll/fling
-// gestures.
-#include "third_party/blink/public/platform/web_gesture_event.h"
 
 namespace vr {
 
@@ -26,8 +25,6 @@ constexpr gfx::PointF kInvalidTargetPoint =
     gfx::PointF(std::numeric_limits<float>::max(),
                 std::numeric_limits<float>::max());
 
-constexpr float kControllerQuiescenceAngularThresholdDegrees = 3.5f;
-constexpr float kControllerQuiescenceTemporalThresholdSeconds = 1.2f;
 constexpr float kControllerFocusThresholdSeconds = 1.0f;
 
 bool IsCentroidInViewport(const gfx::Transform& view_proj_matrix,
@@ -42,19 +39,14 @@ bool IsCentroidInViewport(const gfx::Transform& view_proj_matrix,
   return o.x() > -1.0f && o.x() < 1.0f && o.y() > -1.0f && o.y() < 1.0f;
 }
 
-bool IsScrollEvent(const GestureList& list) {
+bool IsScrollOrFling(const InputEventList& list) {
   if (list.empty()) {
     return false;
   }
   // We assume that we only need to consider the first gesture in the list.
-  blink::WebInputEvent::Type type = list.front()->GetType();
-  if (type == blink::WebInputEvent::kGestureScrollBegin ||
-      type == blink::WebInputEvent::kGestureScrollEnd ||
-      type == blink::WebInputEvent::kGestureScrollUpdate ||
-      type == blink::WebInputEvent::kGestureFlingCancel) {
-    return true;
-  }
-  return false;
+  auto type = list.front()->type();
+  return InputEvent::IsScrollEventType(type) ||
+         type == InputEvent::kFlingCancel;
 }
 
 void HitTestElements(UiScene* scene,
@@ -91,77 +83,64 @@ void UiInputManager::HandleInput(base::TimeTicks current_time,
                                  const RenderInfo& render_info,
                                  const ControllerModel& controller_model,
                                  ReticleModel* reticle_model,
-                                 GestureList* gesture_list) {
-  UpdateQuiescenceState(current_time, controller_model);
+                                 InputEventList* input_event_list) {
   UpdateControllerFocusState(current_time, render_info, controller_model);
   reticle_model->target_element_id = 0;
   reticle_model->target_local_point = kInvalidTargetPoint;
-  GetVisualTargetElement(controller_model, reticle_model);
-  // TODO(vollick): support multiple dispatch. We may want to, for example,
-  // dispatch raw events to several elements we hit (imagine nested horizontal
-  // and vertical scrollers). Currently, we only dispatch to one "winner".
   UiElement* target_element =
-      scene_->GetUiElementById(reticle_model->target_element_id);
-  if (target_element) {
-    if (IsScrollEvent(*gesture_list) && !input_capture_element_id_) {
-      DCHECK(!in_scroll_ && !in_click_);
-      UiElement* ancestor = target_element;
-      while (!ancestor->scrollable() && ancestor->parent()) {
-        ancestor = ancestor->parent();
-      }
-      if (ancestor->scrollable()) {
-        target_element = ancestor;
-      }
-    }
-  }
+      GetTargetElement(controller_model, reticle_model, *input_event_list);
 
   auto element_local_point = reticle_model->target_local_point;
-  if (input_capture_element_id_) {
-    auto* captured = scene_->GetUiElementById(input_capture_element_id_);
-    if (captured && captured->IsVisible()) {
-      HitTestRequest request;
-      request.ray_target = reticle_model->target_point;
-      request.max_distance_to_plane = 2 * scene_->background_distance();
-      HitTestResult result;
-      captured->HitTest(request, &result);
-      element_local_point = result.local_hit_point;
-      if (result.type == HitTestResult::Type::kNone) {
-        element_local_point = kInvalidTargetPoint;
-      }
-    }
-  }
+  if (input_capture_element_id_)
+    element_local_point =
+        GetCapturedElementHitPoint(reticle_model->target_point);
 
-  SendFlingCancel(gesture_list, element_local_point);
-  // For simplicity, don't allow scrolling while clicking until we need to.
-  if (!in_click_) {
-    SendScrollEnd(gesture_list, element_local_point,
-                  controller_model.touchpad_button_state);
-    if (!SendScrollBegin(target_element, gesture_list, element_local_point)) {
-      SendScrollUpdate(gesture_list, element_local_point);
-    }
-  }
+  // Sending end and cancel events.
+  SendFlingCancel(input_event_list, element_local_point);
+  SendScrollEnd(input_event_list, element_local_point,
+                controller_model.touchpad_button_state);
+  SendButtonUp(element_local_point, controller_model.touchpad_button_state,
+               controller_model.last_button_timestamp);
+  SendHoverLeave(target_element, controller_model.last_orientation_timestamp);
 
-  // If we're still scrolling, don't hover (and we can't be clicking, because
-  // click ends scroll).
+  // Sending update events.
   if (in_scroll_) {
-    return;
+    SendScrollUpdate(input_event_list, element_local_point);
+  } else if (in_click_) {
+    SendTouchMove(element_local_point,
+                  controller_model.last_orientation_timestamp);
+  } else {
+    SendHoverMove(target_element, reticle_model->target_local_point,
+                  controller_model.last_orientation_timestamp);
   }
 
-  SendHoverEvents(target_element, reticle_model->target_local_point);
+  // Sending begin events.
+  SendHoverEnter(target_element, reticle_model->target_local_point,
+                 controller_model.last_orientation_timestamp);
+  SendScrollBegin(target_element, input_event_list, element_local_point);
   SendButtonDown(target_element, reticle_model->target_local_point,
-                 controller_model.touchpad_button_state);
-  SendButtonUp(element_local_point, controller_model.touchpad_button_state);
+                 controller_model.touchpad_button_state,
+                 controller_model.last_button_timestamp);
 
   previous_button_state_ = controller_model.touchpad_button_state;
 }
 
-void UiInputManager::SendFlingCancel(GestureList* gesture_list,
+void UiInputManager::OnPause() {
+  if (hover_target_id_) {
+    UiElement* prev_hovered = scene_->GetUiElementById(hover_target_id_);
+    if (prev_hovered)
+      prev_hovered->OnHoverLeave(base::TimeTicks::Now());
+    hover_target_id_ = 0;
+  }
+}
+
+void UiInputManager::SendFlingCancel(InputEventList* input_event_list,
                                      const gfx::PointF& target_point) {
   if (!fling_target_id_) {
     return;
   }
-  if (gesture_list->empty() || (gesture_list->front()->GetType() !=
-                                blink::WebInputEvent::kGestureFlingCancel)) {
+  if (input_event_list->empty() ||
+      (input_event_list->front()->type() != InputEvent::kFlingCancel)) {
     return;
   }
 
@@ -169,13 +148,13 @@ void UiInputManager::SendFlingCancel(GestureList* gesture_list,
   UiElement* element = scene_->GetUiElementById(fling_target_id_);
   if (element) {
     DCHECK(element->scrollable());
-    element->OnFlingCancel(std::move(gesture_list->front()), target_point);
+    element->OnFlingCancel(std::move(input_event_list->front()), target_point);
   }
-  gesture_list->erase(gesture_list->begin());
+  input_event_list->erase(input_event_list->begin());
   fling_target_id_ = 0;
 }
 
-void UiInputManager::SendScrollEnd(GestureList* gesture_list,
+void UiInputManager::SendScrollEnd(InputEventList* input_event_list,
                                    const gfx::PointF& target_point,
                                    ButtonState button_state) {
   if (!in_scroll_) {
@@ -186,150 +165,134 @@ void UiInputManager::SendScrollEnd(GestureList* gesture_list,
 
   if (previous_button_state_ != button_state &&
       button_state == ButtonState::DOWN) {
-    DCHECK_GT(gesture_list->size(), 0LU);
-    DCHECK_EQ(gesture_list->front()->GetType(),
-              blink::WebInputEvent::kGestureScrollEnd);
+    DCHECK_GT(input_event_list->size(), 0LU);
+    DCHECK_EQ(input_event_list->front()->type(), InputEvent::kScrollEnd);
   }
-  if (element) {
-    DCHECK(element->scrollable());
-  }
-  if (gesture_list->empty() || gesture_list->front()->GetType() !=
-                                   blink::WebInputEvent::kGestureScrollEnd) {
+  DCHECK(!element || element->scrollable());
+  if (input_event_list->empty() ||
+      input_event_list->front()->type() != InputEvent::kScrollEnd) {
     return;
   }
-  DCHECK_LE(gesture_list->size(), 1LU);
+  DCHECK_LE(input_event_list->size(), 1LU);
   fling_target_id_ = input_capture_element_id_;
-  if (element) {
-    element->OnScrollEnd(std::move(gesture_list->front()), target_point);
-  }
-  gesture_list->erase(gesture_list->begin());
+  element->OnScrollEnd(std::move(input_event_list->front()), target_point);
+  input_event_list->erase(input_event_list->begin());
   input_capture_element_id_ = 0;
   in_scroll_ = false;
 }
 
-bool UiInputManager::SendScrollBegin(UiElement* target,
-                                     GestureList* gesture_list,
+void UiInputManager::SendScrollBegin(UiElement* target,
+                                     InputEventList* input_event_list,
                                      const gfx::PointF& target_point) {
-  if (in_scroll_ || !target) {
-    return false;
-  }
-  // Scrolling currently only supported on content window.
-  if (!target->scrollable()) {
-    return false;
-  }
-  if (gesture_list->empty() || (gesture_list->front()->GetType() !=
-                                blink::WebInputEvent::kGestureScrollBegin)) {
-    return false;
+  if (in_scroll_ || !target || !target->scrollable())
+    return;
+
+  if (input_event_list->empty() ||
+      input_event_list->front()->type() != InputEvent::kScrollBegin) {
+    return;
   }
   input_capture_element_id_ = target->id();
   in_scroll_ = true;
-  target->OnScrollBegin(std::move(gesture_list->front()), target_point);
-  gesture_list->erase(gesture_list->begin());
-  return true;
+  target->OnScrollBegin(std::move(input_event_list->front()), target_point);
+  input_event_list->erase(input_event_list->begin());
 }
 
-void UiInputManager::SendScrollUpdate(GestureList* gesture_list,
+void UiInputManager::SendScrollUpdate(InputEventList* input_event_list,
                                       const gfx::PointF& target_point) {
-  if (!in_scroll_) {
-    return;
-  }
   DCHECK(input_capture_element_id_);
-  if (gesture_list->empty() || (gesture_list->front()->GetType() !=
-                                blink::WebInputEvent::kGestureScrollUpdate)) {
+  if (input_event_list->empty() ||
+      (input_event_list->front()->type() != InputEvent::kScrollUpdate)) {
     return;
   }
   // Scrolling currently only supported on content window.
   UiElement* element = scene_->GetUiElementById(input_capture_element_id_);
   if (element) {
     DCHECK(element->scrollable());
-    element->OnScrollUpdate(std::move(gesture_list->front()), target_point);
+    element->OnScrollUpdate(std::move(input_event_list->front()), target_point);
   }
-  gesture_list->erase(gesture_list->begin());
+  input_event_list->erase(input_event_list->begin());
 }
 
-void UiInputManager::SendHoverEvents(UiElement* target,
-                                     const gfx::PointF& target_point) {
-  if (target && target->id() == hover_target_id_) {
-    SendMove(target, target_point);
-    return;
-  }
-
-  UiElement* prev_hovered = scene_->GetUiElementById(hover_target_id_);
-  if (prev_hovered) {
-    prev_hovered->OnHoverLeave();
-  }
-  hover_target_id_ = 0;
-  if (target) {
-    target->OnHoverEnter(target_point);
-    hover_target_id_ = target->id();
+void UiInputManager::SendHoverLeave(UiElement* current_target,
+                                    base::TimeTicks timestamp) {
+  if (hover_target_id_ &&
+      (!current_target || current_target->id() != hover_target_id_)) {
+    UiElement* prev_hovered = scene_->GetUiElementById(hover_target_id_);
+    if (prev_hovered)
+      prev_hovered->OnHoverLeave(timestamp);
+    hover_target_id_ = 0;
   }
 }
 
-void UiInputManager::SendMove(UiElement* element,
-                              const gfx::PointF& target_point) {
-  DCHECK(element);
-  if (!element) {
+void UiInputManager::SendHoverEnter(UiElement* target,
+                                    const gfx::PointF& target_point,
+                                    base::TimeTicks timestamp) {
+  if (!target || target->id() == hover_target_id_)
+    return;
+  if ((in_click_ || in_scroll_) && target->id() != input_capture_element_id_)
+    return;
+  target->OnHoverEnter(target_point, timestamp);
+  hover_target_id_ = target->id();
+}
+
+void UiInputManager::SendHoverMove(UiElement* target,
+                                   const gfx::PointF& target_point,
+                                   base::TimeTicks timestamp) {
+  if (target && target->id() == hover_target_id_)
+    target->OnHoverMove(target_point, timestamp);
+}
+
+void UiInputManager::SendButtonUp(const gfx::PointF& target_point,
+                                  ButtonState button_state,
+                                  base::TimeTicks timestamp) {
+  if (!in_click_ || previous_button_state_ == button_state ||
+      button_state != ButtonState::UP) {
     return;
   }
-  // TODO(mthiesse, vollick): Content is currently way too sensitive to
-  // mouse moves for how noisy the controller is. It's almost impossible
-  // to click a link without unintentionally starting a drag event. For
-  // this reason we disable mouse moves, only delivering a down and up
-  // event.
-  if (element->name() == kContentQuad && in_click_) {
+  in_click_ = false;
+  if (!input_capture_element_id_)
     return;
+  UiElement* element = scene_->GetUiElementById(input_capture_element_id_);
+  if (element) {
+    element->OnButtonUp(target_point, timestamp);
+    // Clicking outside of the focused element causes it to lose focus.
+    if (element->id() != focused_element_id_ && element->focusable())
+      UnfocusFocusedElement();
   }
-  element->OnMove(target_point);
+
+  input_capture_element_id_ = 0;
 }
 
 void UiInputManager::SendButtonDown(UiElement* target,
                                     const gfx::PointF& target_point,
-                                    ButtonState button_state) {
-  if (in_click_) {
-    return;
-  }
+                                    ButtonState button_state,
+                                    base::TimeTicks timestamp) {
   if (previous_button_state_ == button_state ||
       button_state != ButtonState::DOWN) {
     return;
   }
   in_click_ = true;
   if (target) {
-    target->OnButtonDown(target_point);
+    target->OnButtonDown(target_point, timestamp);
     input_capture_element_id_ = target->id();
   } else {
     input_capture_element_id_ = 0;
   }
 }
 
-bool UiInputManager::SendButtonUp(const gfx::PointF& target_point,
-                                  ButtonState button_state) {
-  if (!in_click_) {
-    return false;
-  }
-  if (previous_button_state_ == button_state ||
-      button_state != ButtonState::UP) {
-    return false;
-  }
-  in_click_ = false;
-  if (!input_capture_element_id_) {
-    return false;
-  }
+void UiInputManager::SendTouchMove(const gfx::PointF& target_point,
+                                   base::TimeTicks timestamp) {
+  if (!input_capture_element_id_)
+    return;
   UiElement* element = scene_->GetUiElementById(input_capture_element_id_);
-  if (element) {
-    element->OnButtonUp(target_point);
-    // Clicking outside of the focused element causes it to lose focus.
-    if (element->id() != focused_element_id_ && element->focusable()) {
-      UnfocusFocusedElement();
-    }
-  }
-
-  input_capture_element_id_ = 0;
-  return true;
+  if (element)
+    element->OnTouchMove(target_point, timestamp);
 }
 
-void UiInputManager::GetVisualTargetElement(
+UiElement* UiInputManager::GetTargetElement(
     const ControllerModel& controller_model,
-    ReticleModel* reticle_model) const {
+    ReticleModel* reticle_model,
+    const InputEventList& input_event_list) const {
   // If we place the reticle based on elements intersecting the controller beam,
   // we can end up with the reticle hiding behind elements, or jumping laterally
   // in the field of view. This is physically correct, but hard to use. For
@@ -367,36 +330,23 @@ void UiInputManager::GetVisualTargetElement(
   request.ray_target = reticle_model->target_point;
   request.max_distance_to_plane = distance_limit;
   HitTestElements(scene_, reticle_model, &request);
-}
 
-void UiInputManager::UpdateQuiescenceState(
-    base::TimeTicks current_time,
-    const ControllerModel& controller_model) {
-  // Update quiescence state.
-  gfx::Point3F old_position;
-  gfx::Point3F old_forward_position(0, 0, -1);
-  last_significant_controller_transform_.TransformPoint(&old_position);
-  last_significant_controller_transform_.TransformPoint(&old_forward_position);
-  gfx::Vector3dF old_forward = old_forward_position - old_position;
-  old_forward.GetNormalized(&old_forward);
-  gfx::Point3F new_position;
-  gfx::Point3F new_forward_position(0, 0, -1);
-  controller_model.transform.TransformPoint(&new_position);
-  controller_model.transform.TransformPoint(&new_forward_position);
-  gfx::Vector3dF new_forward = new_forward_position - new_position;
-  new_forward.GetNormalized(&new_forward);
-
-  float angle = AngleBetweenVectorsInDegrees(old_forward, new_forward);
-  if (angle > kControllerQuiescenceAngularThresholdDegrees || in_click_ ||
-      in_scroll_) {
-    controller_quiescent_ = false;
-    last_significant_controller_transform_ = controller_model.transform;
-    last_significant_controller_update_time_ = current_time;
-  } else if ((current_time - last_significant_controller_update_time_)
-                 .InSecondsF() >
-             kControllerQuiescenceTemporalThresholdSeconds) {
-    controller_quiescent_ = true;
+  // TODO(vollick): support multiple dispatch. We may want to, for example,
+  // dispatch raw events to several elements we hit (imagine nested horizontal
+  // and vertical scrollers). Currently, we only dispatch to one "winner".
+  UiElement* target_element =
+      scene_->GetUiElementById(reticle_model->target_element_id);
+  if (target_element) {
+    if (IsScrollOrFling(input_event_list) && !input_capture_element_id_) {
+      DCHECK(!in_scroll_ && !in_click_);
+      UiElement* ancestor = target_element;
+      while (!ancestor->scrollable() && ancestor->parent())
+        ancestor = ancestor->parent();
+      if (ancestor->scrollable())
+        target_element = ancestor;
+    }
   }
+  return target_element;
 }
 
 void UiInputManager::UpdateControllerFocusState(
@@ -467,6 +417,22 @@ void UiInputManager::OnInputCommitted(const EditedText& info) {
 
 void UiInputManager::OnKeyboardHidden() {
   UnfocusFocusedElement();
+}
+
+gfx::PointF UiInputManager::GetCapturedElementHitPoint(
+    const gfx::Point3F& target_point) const {
+  UiElement* captured_element =
+      scene_->GetUiElementById(input_capture_element_id_);
+  if (captured_element && captured_element->IsVisible()) {
+    HitTestRequest request;
+    request.ray_target = target_point;
+    request.max_distance_to_plane = 2 * scene_->background_distance();
+    HitTestResult result;
+    captured_element->HitTest(request, &result);
+    if (result.type != HitTestResult::Type::kNone)
+      return result.local_hit_point;
+  }
+  return kInvalidTargetPoint;
 }
 
 }  // namespace vr

@@ -10,19 +10,20 @@
 
 #include <string.h>
 #include <limits.h>
-#include <stdio.h>
 
 #include "third_party/googletest/src/include/gtest/gtest.h"
 
 #include "./vpx_config.h"
 #include "./vpx_dsp_rtcd.h"
 #include "test/acm_random.h"
+#include "test/bench.h"
 #include "test/clear_system_state.h"
 #include "test/register_state_check.h"
 #include "test/util.h"
 #include "vpx/vpx_codec.h"
 #include "vpx_mem/vpx_mem.h"
 #include "vpx_ports/mem.h"
+#include "vpx_ports/msvc.h"
 #include "vpx_ports/vpx_timer.h"
 
 template <typename Function>
@@ -265,7 +266,7 @@ class SADx4Test : public SADTestBase<SadMxNx4Param> {
   }
 };
 
-class SADTest : public SADTestBase<SadMxNParam> {
+class SADTest : public AbstractBench, public SADTestBase<SadMxNParam> {
  public:
   SADTest() : SADTestBase(GetParam()) {}
 
@@ -284,6 +285,11 @@ class SADTest : public SADTestBase<SadMxNParam> {
     const unsigned int exp_sad = SAD(0);
 
     ASSERT_EQ(reference_sad, exp_sad);
+  }
+
+  void Run() {
+    params_.func(source_data_, source_stride_, reference_data_,
+                 reference_stride_);
   }
 };
 
@@ -349,6 +355,17 @@ TEST_P(SADTest, ShortSrc) {
   FillRandom(reference_data_, reference_stride_);
   CheckSAD();
   source_stride_ = tmp_stride;
+}
+
+TEST_P(SADTest, DISABLED_Speed) {
+  const int kCountSpeedTestBlock = 50000000 / (params_.width * params_.height);
+  FillRandom(source_data_, source_stride_);
+
+  RunNTimes(kCountSpeedTestBlock);
+
+  char title[16];
+  snprintf(title, sizeof(title), "%dx%d", params_.width, params_.height);
+  PrintMedian(title);
 }
 
 TEST_P(SADavgTest, MaxRef) {
@@ -1004,6 +1021,9 @@ const SadMxNParam vsx_tests[] = {
   SadMxNParam(16, 32, &vpx_sad16x32_vsx),
   SadMxNParam(16, 16, &vpx_sad16x16_vsx),
   SadMxNParam(16, 8, &vpx_sad16x8_vsx),
+  SadMxNParam(8, 16, &vpx_sad8x16_vsx),
+  SadMxNParam(8, 8, &vpx_sad8x8_vsx),
+  SadMxNParam(8, 4, &vpx_sad8x4_vsx),
 };
 INSTANTIATE_TEST_CASE_P(VSX, SADTest, ::testing::ValuesIn(vsx_tests));
 

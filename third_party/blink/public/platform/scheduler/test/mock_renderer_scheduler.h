@@ -11,13 +11,13 @@
 #include "build/build_config.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/blink/public/platform/scheduler/web_main_thread_scheduler.h"
+#include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_thread.h"
 
 namespace blink {
 namespace scheduler {
 
-class MockRendererScheduler : public WebMainThreadScheduler {
+class MockRendererScheduler : public WebThreadScheduler {
  public:
   MockRendererScheduler() = default;
   ~MockRendererScheduler() override = default;
@@ -59,14 +59,14 @@ class MockRendererScheduler : public WebMainThreadScheduler {
   MOCK_METHOD0(Shutdown, void());
   MOCK_METHOD0(VirtualTimePaused, void());
   MOCK_METHOD0(VirtualTimeResumed, void());
-  MOCK_METHOD1(SetFreezingWhenBackgroundedEnabled, void(bool));
   MOCK_METHOD1(SetTopLevelBlameContext, void(base::trace_event::BlameContext*));
-  MOCK_METHOD1(SetRAILModeObserver, void(RAILModeObserver*));
+  MOCK_METHOD1(AddRAILModeObserver, void(RAILModeObserver*));
   MOCK_METHOD1(SetRendererProcessType, void(RendererProcessType));
   MOCK_METHOD2(CreateWebScopedVirtualTimePauser,
                WebScopedVirtualTimePauser(
                    const char* name,
                    WebScopedVirtualTimePauser::VirtualTaskDuration));
+  MOCK_METHOD0(OnMainFrameRequestedForInput, void());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockRendererScheduler);

@@ -34,7 +34,7 @@ using std::pair;
 using std::tie;
 using std::vector;
 
-namespace libspirv {
+namespace spvtools {
 
 // Universal Limit of ResultID + 1
 static const uint32_t kInvalidId = 0x400000;
@@ -275,11 +275,11 @@ void Function::ComputeAugmentedCFG() {
   // the predecessors of the pseudo exit block.
   auto succ_func = [](const BasicBlock* b) { return b->successors(); };
   auto pred_func = [](const BasicBlock* b) { return b->predecessors(); };
-  spvtools::CFA<BasicBlock>::ComputeAugmentedCFG(
+  CFA<BasicBlock>::ComputeAugmentedCFG(
       ordered_blocks_, &pseudo_entry_block_, &pseudo_exit_block_,
       &augmented_successors_map_, &augmented_predecessors_map_, succ_func,
       pred_func);
-};
+}
 
 Construct& Function::AddConstruct(const Construct& new_construct) {
   cfg_constructs_.push_back(new_construct);
@@ -349,24 +349,41 @@ int Function::GetBlockDepth(BasicBlock* bb) {
   return block_depth_[bb];
 }
 
+void Function::RegisterExecutionModelLimitation(SpvExecutionModel model,
+                                                const std::string& message) {
+  execution_model_limitations_.push_back(
+      [model, message](SpvExecutionModel in_model, std::string* out_message) {
+        if (model != in_model) {
+          if (out_message) {
+            *out_message = message;
+          }
+          return false;
+        }
+        return true;
+      });
+}
+
 bool Function::IsCompatibleWithExecutionModel(SpvExecutionModel model,
                                               std::string* reason) const {
-  bool is_compatible = true;
+  bool return_value = true;
   std::stringstream ss_reason;
 
-  for (const auto& kv : execution_model_limitations_) {
-    if (kv.first != model) {
+  for (const auto& is_compatible : execution_model_limitations_) {
+    std::string message;
+    if (!is_compatible(model, &message)) {
       if (!reason) return false;
-      is_compatible = false;
-      ss_reason << kv.second << "\n";
+      return_value = false;
+      if (!message.empty()) {
+        ss_reason << message << "\n";
+      }
     }
   }
 
-  if (!is_compatible && reason) {
+  if (!return_value && reason) {
     *reason = ss_reason.str();
   }
 
-  return is_compatible;
+  return return_value;
 }
 
-}  // namespace libspirv
+}  // namespace spvtools

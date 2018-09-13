@@ -51,12 +51,6 @@ bool IsStartupCrashEnabled();
 // Whether the new Clear Browsing Data UI is enabled.
 bool IsNewClearBrowsingDataUIEnabled();
 
-// Whether a new version of FeedbackKit is the preferred feedback UI provider.
-bool IsNewFeedbackKitEnabled();
-
-// Whether SSOService is configured for new version of FeedbackKit.
-bool IsNewFeedbackKitEnabledWithSSOService();
-
 // Whether the 3rd party keyboard omnibox workaround is enabled.
 bool IsThirdPartyKeyboardWorkaroundEnabled();
 
@@ -66,8 +60,14 @@ bool IsRecentTabsUIRebootEnabled();
 // Whether the Bookmarks UI Reboot is enabled.
 bool IsBookmarksUIRebootEnabled();
 
+// Whether the Reading List UI Reboot is enabled.
+bool IsReadingListUIRebootEnabled();
+
 // Whether the Collections UI Reboot is enabled.
 bool IsCollectionsUIRebootEnabled();
+
+// Whether the Settings UI Reboot is enabled.
+bool IsSettingsUIRebootEnabled();
 
 // Whether the application group sandbox must be cleared before starting.
 // Calling this method will reset the flag to false, so the sandbox is cleared

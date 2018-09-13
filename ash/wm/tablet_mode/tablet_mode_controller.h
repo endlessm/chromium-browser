@@ -67,9 +67,9 @@ class ASH_EXPORT TabletModeController
   // clamshell/tablet regardless of hardware orientation.
   // TODO(oshima): Move this to common place.
   enum class UiMode {
-    NONE = 0,
-    CLAMSHELL,
-    TABLETMODE,
+    kNone = 0,
+    kClamshell,
+    kTabletMode,
   };
 
   // Public so it can be used by unit tests.
@@ -83,7 +83,7 @@ class ASH_EXPORT TabletModeController
   // tablet mode becomes enabled.
   bool CanEnterTabletMode();
 
-  // TODO(jonross): Merge this with EnterTabletMode. Currently these are
+  // TODO(jonross): Merge this with AttemptEnterTabletMode. Currently these are
   // separate for several reasons: there is no internal display when running
   // unittests; the event blocker prevents keyboard input when running ChromeOS
   // on linux. http://crbug.com/362881
@@ -115,6 +115,9 @@ class ASH_EXPORT TabletModeController
   // Otherwise, returns false.
   bool TriggerRecordLidAngleTimerForTesting() WARN_UNUSED_RESULT;
 
+  // Whether the events from the internal mouse/keyboard are blocked.
+  bool AreEventsBlocked() const;
+
   // ShellObserver:
   void OnShellInitialized() override;
 
@@ -141,6 +144,7 @@ class ASH_EXPORT TabletModeController
   void OnDeviceListsComplete() override;
 
  private:
+  friend class OverviewButtonTrayTest;
   friend class TabletModeControllerTest;
   friend class TabletModeWindowManagerTest;
   friend class MultiUserWindowManagerChromeOSTest;
@@ -174,13 +178,12 @@ class ASH_EXPORT TabletModeController
   // a certain range of time before using unstable angle.
   bool CanUseUnstableLidAngle() const;
 
-  // Enables TabletModeWindowManager, and determines the current state of
-  // rotation lock.
-  void EnterTabletMode();
+  // Attempts to enter tablet mode and locks the internal keyboard and touchpad.
+  void AttemptEnterTabletMode();
 
-  // Removes TabletModeWindowManager and resets the display rotation if there
-  // is no rotation lock.
-  void LeaveTabletMode(bool called_by_device_update);
+  // Attempts to exit tablet mode and unlocks the internal keyboard and touchpad
+  // if |called_by_device_update| is false.
+  void AttemptLeaveTabletMode(bool called_by_device_update);
 
   // Record UMA stats tracking TabletMode usage. If |type| is
   // TABLET_MODE_INTERVAL_INACTIVE, then record that TabletMode has been
@@ -269,7 +272,7 @@ class ASH_EXPORT TabletModeController
   mojom::TabletModeClientPtr client_;
 
   // Tracks whether a flag is used to force ui mode.
-  UiMode force_ui_mode_ = UiMode::NONE;
+  UiMode force_ui_mode_ = UiMode::kNone;
 
   // Calls RecordLidAngle() periodically.
   base::RepeatingTimer record_lid_angle_timer_;

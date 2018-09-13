@@ -27,12 +27,12 @@ namespace opt {
 class StrengthReductionPass : public Pass {
  public:
   const char* name() const override { return "strength-reduction"; }
-  Status Process(ir::IRContext*) override;
+  Status Process(opt::IRContext*) override;
 
  private:
   // Replaces multiple by power of 2 with an equivalent bit shift.
   // Returns true if something changed.
-  bool ReplaceMultiplyByPowerOf2(ir::BasicBlock::iterator*);
+  bool ReplaceMultiplyByPowerOf2(opt::BasicBlock::iterator*);
 
   // Scan the types and constants in the module looking for the the integer
   // types that we are
@@ -48,10 +48,6 @@ class StrengthReductionPass : public Pass {
   // Replaces certain instructions in function bodies with presumably cheaper
   // ones. Returns true if something changed.
   bool ScanFunctions();
-
-  // Will create the type for an unsigned 32-bit integer and return the id.
-  // This functions assumes one does not already exist.
-  uint32_t CreateUint32Type();
 
   // Type ids for the types of interest, or 0 if they do not exist.
   uint32_t int32_type_id_;

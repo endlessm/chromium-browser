@@ -9,7 +9,7 @@
 
 #include "android_webview/browser/aw_render_process_gone_delegate.h"
 #include "android_webview/common/aw_descriptors.h"
-#include "android_webview/common/crash_reporter/aw_microdump_crash_reporter.h"
+#include "android_webview/common/crash_reporter/aw_crash_reporter_client.h"
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
@@ -129,7 +129,7 @@ void AwBrowserTerminator::OnChildStart(
 }
 
 void AwBrowserTerminator::OnChildExitAsync(
-    const breakpad::CrashDumpObserver::TerminationInfo& info,
+    const ::crash_reporter::ChildExitObserver::TerminationInfo& info,
     base::FilePath crash_dump_dir,
     std::unique_ptr<base::SyncSocket> pipe) {
   if (crash_reporter::IsCrashReporterEnabled()) {
@@ -159,7 +159,7 @@ void AwBrowserTerminator::OnChildExitAsync(
 }
 
 void AwBrowserTerminator::OnChildExit(
-    const breakpad::CrashDumpObserver::TerminationInfo& info) {
+    const ::crash_reporter::ChildExitObserver::TerminationInfo& info) {
   std::unique_ptr<base::SyncSocket> pipe;
 
   {

@@ -9,16 +9,16 @@
 
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/accessibility/accessibility_delegate.h"
-#include "ash/ash_view_ids.h"
 #include "ash/magnifier/docked_magnifier_controller.h"
 #include "ash/public/cpp/ash_features.h"
+#include "ash/public/cpp/ash_view_ids.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/system/model/system_tray_model.h"
 #include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/system_tray.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/system_tray_item_detailed_view_delegate.h"
 #include "ash/system/tray/tray_detailed_view.h"
 #include "ash/system/tray/tray_item_more.h"
@@ -230,14 +230,11 @@ void AccessibilityDetailedView::AppendAccessibilityList() {
           IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SELECT_TO_SPEAK),
       select_to_speak_enabled_);
 
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kEnableExperimentalAccessibilityFeatures)) {
-    dictation_enabled_ = controller->IsDictationEnabled();
-    dictation_view_ = AddScrollListCheckableItem(
-        kDictationOffIcon,  // Need to get Chrome UI Review to comment on this
-        l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_ACCESSIBILITY_DICTATION),
-        dictation_enabled_);
-  }
+  dictation_enabled_ = controller->IsDictationEnabled();
+  dictation_view_ = AddScrollListCheckableItem(
+      kDictationMenuIcon,
+      l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_ACCESSIBILITY_DICTATION),
+      dictation_enabled_);
 
   high_contrast_enabled_ = controller->IsHighContrastEnabled();
   high_contrast_view_ = AddScrollListCheckableItem(
@@ -276,8 +273,7 @@ void AccessibilityDetailedView::AppendAccessibilityList() {
           IDS_ASH_STATUS_TRAY_ACCESSIBILITY_VIRTUAL_KEYBOARD),
       virtual_keyboard_enabled_);
 
-  scroll_content()->AddChildView(
-      TrayPopupUtils::CreateListSubHeaderSeparator());
+  scroll_content()->AddChildView(CreateListSubHeaderSeparator());
 
   AddScrollListSubHeader(IDS_ASH_STATUS_TRAY_ACCESSIBILITY_ADDITIONAL_SETTINGS);
 
@@ -438,14 +434,17 @@ void AccessibilityDetailedView::CreateExtraTitleRowButtons() {
 
 void AccessibilityDetailedView::ShowSettings() {
   if (TrayPopupUtils::CanOpenWebUISettings()) {
-    Shell::Get()->system_tray_controller()->ShowAccessibilitySettings();
+    Shell::Get()
+        ->system_tray_model()
+        ->client_ptr()
+        ->ShowAccessibilitySettings();
     CloseBubble();
   }
 }
 
 void AccessibilityDetailedView::ShowHelp() {
   if (TrayPopupUtils::CanOpenWebUISettings()) {
-    Shell::Get()->system_tray_controller()->ShowAccessibilityHelp();
+    Shell::Get()->system_tray_model()->client_ptr()->ShowAccessibilityHelp();
     CloseBubble();
   }
 }
@@ -458,7 +457,7 @@ void AccessibilityDetailedView::ShowHelp() {
 TrayAccessibility::TrayAccessibility(SystemTray* system_tray)
     : TrayImageItem(system_tray,
                     kSystemTrayAccessibilityIcon,
-                    UMA_ACCESSIBILITY),
+                    SystemTrayItemUmaType::UMA_ACCESSIBILITY),
       default_(nullptr),
       detailed_menu_(nullptr),
       tray_icon_visible_(false),

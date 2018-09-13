@@ -33,6 +33,7 @@
 #include "chrome/browser/gcm/gcm_product_util.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/common/channel_info.h"
@@ -59,6 +60,7 @@
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_CHROMEOS)
@@ -209,8 +211,11 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
             {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
     return std::make_unique<gcm::GCMProfileService>(
         profile->GetPrefs(), profile->GetPath(), profile->GetRequestContext(),
+        content::BrowserContext::GetDefaultStoragePartition(profile)
+            ->GetURLLoaderFactoryForBrowserProcess(),
         chrome::GetChannel(),
         gcm::GetProductCategoryForSubtypes(profile->GetPrefs()),
+        IdentityManagerFactory::GetForProfile(profile),
         SigninManagerFactory::GetForProfile(profile),
         ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
         base::WrapUnique(new gcm::FakeGCMClientFactory(ui_thread, io_thread)),

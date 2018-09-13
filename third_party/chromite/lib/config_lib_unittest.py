@@ -11,9 +11,7 @@ import copy
 import cPickle
 import json
 
-from chromite.lib.const import waterfall
 from chromite.lib import config_lib
-from chromite.lib import constants
 from chromite.lib import cros_test_lib
 
 # pylint: disable=protected-access
@@ -398,7 +396,7 @@ class SiteConfigTest(cros_test_lib.TestCase):
     site_config.Add(
         'tast_vm_tests',
         tast_vm_tests=[config_lib.TastVMTestConfig('tast_vm_suite',
-                                                   ['(bvt)'])])
+                                                   ['(!disabled)'])])
 
     site_config.AddGroup(
         'parent',
@@ -481,7 +479,7 @@ class SiteConfigTest(cros_test_lib.TestCase):
             '_template': None,
             'name': 'tast_vm_tests',
             'tast_vm_tests': [
-                config_lib.TastVMTestConfig('tast_vm_suite', ['(bvt)'])],
+                config_lib.TastVMTestConfig('tast_vm_suite', ['(!disabled)'])],
         },
         'parent': {
             '_template': None,
@@ -803,81 +801,6 @@ class GetConfigTests(cros_test_lib.TestCase):
     # Ensure that we get a SiteConfig, and that the result is cached.
     self.assertIsInstance(config_a, config_lib.SiteConfig)
     self.assertIs(config_a, config_b)
-
-    # Clear our cache.
-    config_lib.ClearConfigCache()
-    config_c = config_lib.GetConfig()
-    config_d = config_lib.GetConfig()
-
-    # Ensure that this gives us a new instance of the SiteConfig.
-    self.assertIsNot(config_a, config_c)
-
-    # But also that it's cached going forward.
-    self.assertIsInstance(config_c, config_lib.SiteConfig)
-    self.assertIs(config_c, config_d)
-
-
-class ConfigLibHelperTests(cros_test_lib.TestCase):
-  """Tests related to helper methods in config_lib."""
-
-  def testUseBuildbucketScheduler(self):
-    """Test UseBuildbucketScheduler."""
-    cq_master_config = config_lib.BuildConfig(
-        name=constants.CQ_MASTER,
-        active_waterfall=waterfall.WATERFALL_INTERNAL)
-    self.assertTrue(config_lib.UseBuildbucketScheduler(
-        cq_master_config))
-
-    pre_cq_config = config_lib.BuildConfig(
-        name=constants.PRE_CQ_LAUNCHER_NAME,
-        active_waterfall=waterfall.WATERFALL_INTERNAL)
-    self.assertTrue(config_lib.UseBuildbucketScheduler(
-        pre_cq_config))
-
-    pfq_master_config = config_lib.BuildConfig(
-        name=constants.PFQ_MASTER,
-        active_waterfall=waterfall.WATERFALL_INTERNAL)
-    self.assertTrue(config_lib.UseBuildbucketScheduler(
-        pfq_master_config))
-
-    toolchain_master = config_lib.BuildConfig(
-        name=constants.TOOLCHAIN_MASTTER,
-        active_waterfall=waterfall.WATERFALL_INTERNAL)
-    self.assertTrue(config_lib.UseBuildbucketScheduler(
-        toolchain_master))
-
-    pre_cq_config = config_lib.BuildConfig(
-        name=constants.BINHOST_PRE_CQ,
-        active_waterfall=waterfall.WATERFALL_SWARMING)
-    self.assertFalse(config_lib.UseBuildbucketScheduler(
-        pre_cq_config))
-
-    release_branch_config = config_lib.BuildConfig(
-        name=constants.CANARY_MASTER,
-        active_waterfall=waterfall.WATERFALL_RELEASE)
-    self.assertTrue(config_lib.UseBuildbucketScheduler(
-        release_branch_config))
-
-  def testScheduledByBuildbucket(self):
-    """Test ScheduledByBuildbucket."""
-    cq_master_config = config_lib.BuildConfig(
-        name=constants.CQ_MASTER,
-        build_type=constants.PALADIN_TYPE)
-    self.assertFalse(config_lib.ScheduledByBuildbucket(
-        cq_master_config))
-
-    cq_slave_config = config_lib.BuildConfig(
-        name='slave-paladin',
-        build_type=constants.PALADIN_TYPE)
-    self.assertTrue(config_lib.ScheduledByBuildbucket(
-        cq_slave_config))
-
-    pfq_master_config = config_lib.BuildConfig(
-        name=constants.PFQ_MASTER,
-        build_type=constants.PFQ_TYPE)
-
-    self.assertFalse(config_lib.ScheduledByBuildbucket(
-        pfq_master_config))
 
 
 class GEBuildConfigTests(cros_test_lib.TestCase):

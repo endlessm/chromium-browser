@@ -317,3 +317,16 @@ entry:
   %35 = insertvalue %S undef, [4 x i64] %34, 0
   ret %S %35
 }
+
+define i128 @addcarry1_not(i128 %n) {
+; CHECK-LABEL: addcarry1_not:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    xorl %edx, %edx
+; CHECK-NEXT:    negq %rdi
+; CHECK-NEXT:    sbbq %rsi, %rdx
+; CHECK-NEXT:    movq %rdi, %rax
+; CHECK-NEXT:    retq
+  %1 = xor i128 %n, -1
+  %2 = add i128 %1, 1
+  ret i128 %2
+}

@@ -11,7 +11,7 @@
 #include "ash/animation/animation_change_type.h"
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/app_list/model/app_list_view_state.h"
-#include "ash/keyboard/keyboard_observer_register.h"
+#include "ash/app_list/views/app_list_view.h"
 #include "ash/public/cpp/app_list/app_list_constants.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/shell_window_ids.h"
@@ -28,13 +28,13 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/wm/fullscreen_window_finder.h"
 #include "ash/wm/mru_window_tracker.h"
+#include "ash/wm/overview/window_selector_controller.h"
 #include "ash/wm/screen_pinning_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
-#include "ui/app_list/views/app_list_view.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
@@ -163,7 +163,6 @@ ShelfLayoutManager::ShelfLayoutManager(ShelfWidget* shelf_widget, Shelf* shelf)
       shelf_(shelf),
       is_background_blur_enabled_(
           app_list::features::IsBackgroundBlurEnabled()),
-      keyboard_observer_(this),
       scoped_session_observer_(this) {
   DCHECK(shelf_widget_);
   DCHECK(shelf_);
@@ -171,6 +170,7 @@ ShelfLayoutManager::ShelfLayoutManager(ShelfWidget* shelf_widget, Shelf* shelf)
   ShellPort::Get()->AddLockStateObserver(this);
   Shell::Get()->activation_client()->AddObserver(this);
   state_.session_state = Shell::Get()->session_controller()->GetSessionState();
+  keyboard::KeyboardController::Get()->AddObserver(this);
 }
 
 ShelfLayoutManager::~ShelfLayoutManager() {
@@ -179,6 +179,7 @@ ShelfLayoutManager::~ShelfLayoutManager() {
 
   for (auto& observer : observers_)
     observer.WillDeleteShelfLayoutManager();
+  keyboard::KeyboardController::Get()->RemoveObserver(this);
   Shell::Get()->RemoveShellObserver(this);
   ShellPort::Get()->RemoveLockStateObserver(this);
 }
@@ -439,14 +440,6 @@ void ShelfLayoutManager::OnPinnedStateChanged(aura::Window* pinned_window) {
   UpdateVisibilityState();
 }
 
-void ShelfLayoutManager::OnVirtualKeyboardStateChanged(
-    bool activated,
-    aura::Window* root_window) {
-  UpdateKeyboardObserverFromStateChanged(
-      activated, root_window, shelf_widget_->GetNativeWindow()->GetRootWindow(),
-      &keyboard_observer_);
-}
-
 void ShelfLayoutManager::OnAppListVisibilityChanged(bool shown,
                                                     aura::Window* root_window) {
   // Shell may be under destruction.
@@ -482,20 +475,16 @@ void ShelfLayoutManager::OnKeyboardAppearanceChanged(
   LayoutShelfAndUpdateBounds(change_work_area);
 }
 
-void ShelfLayoutManager::OnKeyboardAvailabilityChanged(
-    const bool is_available) {
+void ShelfLayoutManager::OnKeyboardVisibilityStateChanged(
+    const bool is_visible) {
   // On login screen if keyboard has been just hidden, update bounds just once
   // but ignore target_bounds.work_area_insets since shelf overlaps with login
   // window.
   if (Shell::Get()->session_controller()->IsUserSessionBlocked() &&
-      !is_available) {
+      !is_visible) {
     Shell::Get()->SetDisplayWorkAreaInsets(shelf_widget_->GetNativeWindow(),
                                            gfx::Insets());
   }
-}
-
-void ShelfLayoutManager::OnKeyboardClosed() {
-  keyboard_observer_.RemoveAll();
 }
 
 ShelfBackgroundType ShelfLayoutManager::GetShelfBackgroundType() const {
@@ -685,7 +674,9 @@ void ShelfLayoutManager::UpdateBoundsAndOpacity(
     const display::Display display =
         display::Screen::GetScreen()->GetDisplayNearestWindow(
             shelf_widget_->GetNativeWindow());
-    if (!state_.IsScreenLocked() && change_work_area &&
+    bool in_overview =
+        Shell::Get()->window_selector_controller()->IsSelecting();
+    if (!in_overview && !state_.IsScreenLocked() && change_work_area &&
         (shelf_->alignment() != SHELF_ALIGNMENT_BOTTOM_LOCKED ||
          display.work_area() == display.bounds())) {
       gfx::Insets insets;
@@ -919,8 +910,8 @@ gfx::Rect ShelfLayoutManager::GetAutoHideShowShelfRegionInScreen() const {
   else
     show_shelf_region_in_screen.set_width(kMaxAutoHideShowShelfRegionSize);
 
-  // TODO: Figure out if we need any special handling when the keyboard is
-  // visible.
+  // TODO(pkotwicz): Figure out if we need any special handling when the
+  // keyboard is visible.
   return show_shelf_region_in_screen;
 }
 

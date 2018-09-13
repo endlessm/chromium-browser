@@ -59,6 +59,10 @@
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_status.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/test/test_url_loader_factory.h"
+#include "services/network/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -81,26 +85,26 @@ namespace policy {
 
 using PolicyEnforcement = UserCloudPolicyManagerChromeOS::PolicyEnforcement;
 
-const char kAccountId[] = "user@example.com";
-const char kTestGaiaId[] = "12345";
+constexpr char kAccountId[] = "user@example.com";
+constexpr char kTestGaiaId[] = "12345";
 
-const char kChildAccountId[] = "child@example.com";
-const char kChildTestGaiaId[] = "54321";
+constexpr char kChildAccountId[] = "child@example.com";
+constexpr char kChildTestGaiaId[] = "54321";
 
-const char kOAuthCodeCookie[] = "oauth_code=1234; Secure; HttpOnly";
+constexpr char kOAuthCodeCookie[] = "oauth_code=1234; Secure; HttpOnly";
 
-const char kOAuth2TokenPairData[] =
-    "{"
-    "  \"refresh_token\": \"1234\","
-    "  \"access_token\": \"5678\","
-    "  \"expires_in\": 3600"
-    "}";
+constexpr char kOAuth2TokenPairData[] = R"(
+    {
+      "refresh_token": "1234",
+      "access_token": "5678",
+      "expires_in": 3600
+    })";
 
-const char kOAuth2AccessTokenData[] =
-    "{"
-    "  \"access_token\": \"5678\","
-    "  \"expires_in\": 3600"
-    "}";
+constexpr char kOAuth2AccessTokenData[] = R"(
+    {
+      "access_token": "5678",
+      "expires_in": 3600
+    })";
 
 class UserCloudPolicyManagerChromeOSTest : public testing::Test {
  public:
@@ -122,13 +126,19 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
 
  protected:
   UserCloudPolicyManagerChromeOSTest()
-      : store_(NULL),
-        external_data_manager_(NULL),
+      : store_(nullptr),
+        external_data_manager_(nullptr),
         task_runner_(new base::TestSimpleTaskRunner()),
-        profile_(NULL),
-        signin_profile_(NULL),
+        profile_(nullptr),
+        signin_profile_(nullptr),
         user_manager_(new chromeos::FakeChromeUserManager()),
-        user_manager_enabler_(base::WrapUnique(user_manager_)) {}
+        user_manager_enabler_(base::WrapUnique(user_manager_)),
+        test_signin_shared_loader_factory_(
+            base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+                &test_signin_url_loader_factory_)),
+        test_system_shared_loader_factory_(
+            base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+                &test_system_url_loader_factory_)) {}
 
   void AddAndSwitchToChildAccountWithProfile() {
     const AccountId child_account_id =
@@ -217,6 +227,8 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
     signin_profile_ = NULL;
     profile_ = NULL;
     profile_manager_->DeleteTestingProfile(chrome::kInitialProfile);
+    test_system_shared_loader_factory_->Detach();
+    test_signin_shared_loader_factory_->Detach();
 
     chromeos::DBusThreadManager::Shutdown();
   }
@@ -234,23 +246,6 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
     EXPECT_FALSE(manager_->core()->service()->IsInitializationComplete());
   }
 
-  // Expects a pending URLFetcher for the |expected_url|, and returns it with
-  // prepared to deliver a response to its delegate.
-  net::TestURLFetcher* PrepareOAuthFetcher(const GURL& expected_url) {
-    net::TestURLFetcher* fetcher = test_url_fetcher_factory_.GetFetcherByID(0);
-    EXPECT_TRUE(fetcher);
-    if (!fetcher)
-      return NULL;
-    EXPECT_TRUE(fetcher->delegate());
-    EXPECT_TRUE(base::StartsWith(fetcher->GetOriginalURL().spec(),
-                                 expected_url.spec(),
-                                 base::CompareCase::SENSITIVE));
-    fetcher->set_url(fetcher->GetOriginalURL());
-    fetcher->set_response_code(200);
-    fetcher->set_status(net::URLRequestStatus());
-    return fetcher;
-  }
-
   // Issues the OAuth2 tokens and returns the device management register job
   // if the flow succeeded.
   MockDeviceManagementJob* IssueOAuthToken(bool has_request_token) {
@@ -265,33 +260,37 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
 
     if (!has_request_token) {
       GaiaUrls* gaia_urls = GaiaUrls::GetInstance();
-      net::TestURLFetcher* fetcher = NULL;
+
+      network::URLLoaderCompletionStatus ok_completion_status(net::OK);
+      // Raw headers are needed on the ResourceResponseHead for cookies to be
+      // accessible.
+      network::ResourceResponseHead ok_response_with_oauth_cookie =
+          network::CreateResourceResponseHead(net::HTTP_OK,
+                                              /*report_raw_headers=*/true);
+      network::AddCookiesToResourceResponseHead({kOAuthCodeCookie},
+                                                &ok_response_with_oauth_cookie);
 
       // Issue the oauth_token cookie first.
-      fetcher = PrepareOAuthFetcher(
-          gaia_urls->deprecated_client_login_to_oauth2_url());
-      if (!fetcher)
-        return NULL;
+      if (!test_signin_url_loader_factory_.SimulateResponseForPendingRequest(
+              gaia_urls->deprecated_client_login_to_oauth2_url(),
+              ok_completion_status, ok_response_with_oauth_cookie,
+              /*content=*/"",
+              /*flags=*/network::TestURLLoaderFactory::kUrlMatchPrefix))
+        return nullptr;
 
-      scoped_refptr<net::HttpResponseHeaders> reponse_headers =
-          new net::HttpResponseHeaders("");
-      reponse_headers->AddCookie(kOAuthCodeCookie);
-      fetcher->set_response_headers(reponse_headers);
-      fetcher->delegate()->OnURLFetchComplete(fetcher);
-
+      network::ResourceResponseHead ok_response =
+          network::CreateResourceResponseHead(net::HTTP_OK);
       // Issue the refresh token.
-      fetcher = PrepareOAuthFetcher(gaia_urls->oauth2_token_url());
-      if (!fetcher)
-        return NULL;
-      fetcher->SetResponseString(kOAuth2TokenPairData);
-      fetcher->delegate()->OnURLFetchComplete(fetcher);
+      if (!test_signin_url_loader_factory_.SimulateResponseForPendingRequest(
+              gaia_urls->oauth2_token_url(), ok_completion_status, ok_response,
+              kOAuth2TokenPairData))
+        return nullptr;
 
       // Issue the access token.
-      fetcher = PrepareOAuthFetcher(gaia_urls->oauth2_token_url());
-      if (!fetcher)
-        return NULL;
-      fetcher->SetResponseString(kOAuth2AccessTokenData);
-      fetcher->delegate()->OnURLFetchComplete(fetcher);
+      EXPECT_TRUE(
+          test_system_url_loader_factory_.SimulateResponseForPendingRequest(
+              gaia_urls->oauth2_token_url(), ok_completion_status, ok_response,
+              kOAuth2AccessTokenData));
     } else {
       // Since the refresh token is available, OAuth2TokenService was used
       // to request the access token and not UserCloudPolicyTokenForwarder.
@@ -404,12 +403,18 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
             base::Unretained(this)),
         active_user->GetAccountId(), task_runner_, task_runner_));
     manager_->AddObserver(&observer_);
+    manager_->SetSignInURLLoaderFactoryForTests(
+        test_signin_shared_loader_factory_);
+    manager_->SetSystemURLLoaderFactoryForTests(
+        test_system_shared_loader_factory_);
     should_create_token_forwarder_ = fetch_timeout.is_zero();
   }
 
   void InitAndConnectManager() {
     manager_->Init(&schema_registry_);
-    manager_->Connect(&prefs_, &device_management_service_, NULL);
+    manager_->Connect(&prefs_, &device_management_service_,
+                      /*system_request_context=*/nullptr,
+                      /*system_url_loader_factory=*/nullptr);
     if (should_create_token_forwarder_) {
       // Create the UserCloudPolicyTokenForwarder, which fetches the access
       // token using the OAuth2PolicyFetcher and forwards it to the
@@ -426,12 +431,28 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
     }
   }
 
+  network::TestURLLoaderFactory* test_signin_url_loader_factory() {
+    return &test_signin_url_loader_factory_;
+  }
+
+  network::TestURLLoaderFactory* test_system_url_loader_factory() {
+    return &test_system_url_loader_factory_;
+  }
+
  private:
   // Invoked when a fatal error is encountered.
   void OnFatalErrorEncountered() { fatal_error_encountered_ = true; }
 
   bool should_create_token_forwarder_ = false;
   bool fatal_error_encountered_ = false;
+
+  network::TestURLLoaderFactory test_signin_url_loader_factory_;
+  network::TestURLLoaderFactory test_system_url_loader_factory_;
+
+  scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
+      test_signin_shared_loader_factory_;
+  scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
+      test_system_shared_loader_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(UserCloudPolicyManagerChromeOSTest);
 };
@@ -529,15 +550,17 @@ TEST_F(UserCloudPolicyManagerChromeOSTest, BlockingFetchOAuthError) {
   EXPECT_TRUE(manager_->core()->service()->IsInitializationComplete());
   EXPECT_FALSE(manager_->core()->client()->is_registered());
 
+  EXPECT_FALSE(manager_->IsInitializationComplete(POLICY_DOMAIN_CHROME));
   // The PolicyOAuth2TokenFetcher posts delayed retries on some errors. This
   // data will make it fail immediately.
-  net::TestURLFetcher* fetcher = PrepareOAuthFetcher(
-      GaiaUrls::GetInstance()->deprecated_client_login_to_oauth2_url());
-  ASSERT_TRUE(fetcher);
-  fetcher->set_response_code(400);
-  fetcher->SetResponseString("Error=BadAuthentication");
-  EXPECT_FALSE(manager_->IsInitializationComplete(POLICY_DOMAIN_CHROME));
-  fetcher->delegate()->OnURLFetchComplete(fetcher);
+  EXPECT_TRUE(
+      test_signin_url_loader_factory()->SimulateResponseForPendingRequest(
+          GaiaUrls::GetInstance()->deprecated_client_login_to_oauth2_url(),
+          network::URLLoaderCompletionStatus(net::OK),
+          network::CreateResourceResponseHead(net::HTTP_BAD_REQUEST),
+          "Error=BadAuthentication",
+          /*flags=*/network::TestURLLoaderFactory::kUrlMatchPrefix));
+
   // Server check failed, so profile should not be initialized.
   EXPECT_FALSE(manager_->IsInitializationComplete(POLICY_DOMAIN_CHROME));
   EXPECT_TRUE(PolicyBundle().Equals(manager_->policies()));
@@ -818,38 +841,6 @@ TEST_F(UserCloudPolicyManagerChromeOSTest, TestHasAppInstallEventLogUploader) {
   ASSERT_NO_FATAL_FAILURE(MakeManagerWithEmptyStore(
       base::TimeDelta(), PolicyEnforcement::kPolicyRequired));
   EXPECT_TRUE(manager_->GetAppInstallEventLogUploader());
-}
-
-class ConsumerDeviceStatusUploadingTest
-    : public UserCloudPolicyManagerChromeOSTest {
- protected:
-  ConsumerDeviceStatusUploadingTest() = default;
-
-  ~ConsumerDeviceStatusUploadingTest() override = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ConsumerDeviceStatusUploadingTest);
-};
-
-TEST_F(ConsumerDeviceStatusUploadingTest, RegularAccountShouldNotUploadStatus) {
-  ASSERT_NO_FATAL_FAILURE(MakeManagerWithPreloadedStore(base::TimeDelta()));
-
-  manager_->OnRegistrationStateChanged(manager_->core()->client());
-  base::RunLoop().RunUntilIdle();
-
-  EXPECT_TRUE(manager_->core()->client()->is_registered());
-  EXPECT_FALSE(manager_->GetStatusUploader());
-}
-
-TEST_F(ConsumerDeviceStatusUploadingTest, ChildAccountShouldUploadStatus) {
-  AddAndSwitchToChildAccountWithProfile();
-  ASSERT_NO_FATAL_FAILURE(MakeManagerWithPreloadedStore(base::TimeDelta()));
-
-  manager_->OnRegistrationStateChanged(manager_->core()->client());
-  base::RunLoop().RunUntilIdle();
-
-  EXPECT_TRUE(manager_->core()->client()->is_registered());
-  EXPECT_TRUE(manager_->GetStatusUploader());
 }
 
 }  // namespace policy

@@ -102,15 +102,18 @@ static void dumpLocation(raw_ostream &OS, DWARFFormValue &FormValue,
     const DWARFSection &LocSection = Obj.getLocSection();
     const DWARFSection &LocDWOSection = Obj.getLocDWOSection();
     uint32_t Offset = *FormValue.getAsSectionOffset();
-
     if (!LocSection.Data.empty()) {
       DWARFDebugLoc DebugLoc;
       DWARFDataExtractor Data(Obj, LocSection, Ctx.isLittleEndian(),
                               Obj.getAddressSize());
       auto LL = DebugLoc.parseOneLocationList(Data, &Offset);
-      if (LL)
-        LL->dump(OS, Ctx.isLittleEndian(), Obj.getAddressSize(), MRI, Indent);
-      else
+      if (LL) {
+        uint64_t BaseAddr = 0;
+        if (Optional<BaseAddress> BA = U->getBaseAddress())
+          BaseAddr = BA->Address;
+        LL->dump(OS, Ctx.isLittleEndian(), Obj.getAddressSize(), MRI, BaseAddr,
+                 Indent);
+      } else
         OS << "error extracting location list.";
     } else if (!LocDWOSection.Data.empty()) {
       DataExtractor Data(LocDWOSection.Data, Ctx.isLittleEndian(), 0);
@@ -267,8 +270,12 @@ static void dumpAttribute(raw_ostream &OS, const DWARFDie &Die,
         FV.setUValue(*RangeListOffset);
         FV.dump(OS, DumpOpts);
       }
-    dumpRanges(Obj, OS, Die.getAddressRanges(), U->getAddressByteSize(),
-               sizeof(BaseIndent) + Indent + 4, DumpOpts);
+    if (auto RangesOrError = Die.getAddressRanges())
+      dumpRanges(Obj, OS, RangesOrError.get(), U->getAddressByteSize(),
+                 sizeof(BaseIndent) + Indent + 4, DumpOpts);
+    else
+      WithColor::error() << "decoding address ranges: "
+                         << toString(RangesOrError.takeError()) << '\n';
   }
 
   OS << ")\n";
@@ -382,13 +389,13 @@ bool DWARFDie::getLowAndHighPC(uint64_t &LowPC, uint64_t &HighPC,
   return false;
 }
 
-DWARFAddressRangesVector DWARFDie::getAddressRanges() const {
+Expected<DWARFAddressRangesVector> DWARFDie::getAddressRanges() const {
   if (isNULL())
     return DWARFAddressRangesVector();
   // Single range specified by low/high PC.
   uint64_t LowPC, HighPC, Index;
   if (getLowAndHighPC(LowPC, HighPC, Index))
-    return {{LowPC, HighPC, Index}};
+    return DWARFAddressRangesVector{{LowPC, HighPC, Index}};
 
   Optional<DWARFFormValue> Value = find(DW_AT_ranges);
   if (Value) {
@@ -404,8 +411,11 @@ void DWARFDie::collectChildrenAddressRanges(
   if (isNULL())
     return;
   if (isSubprogramDIE()) {
-    const auto &DIERanges = getAddressRanges();
-    Ranges.insert(Ranges.end(), DIERanges.begin(), DIERanges.end());
+    if (auto DIERangesOrError = getAddressRanges())
+      Ranges.insert(Ranges.end(), DIERangesOrError.get().begin(),
+                    DIERangesOrError.get().end());
+    else
+      llvm::consumeError(DIERangesOrError.takeError());
   }
 
   for (auto Child : children())
@@ -413,10 +423,15 @@ void DWARFDie::collectChildrenAddressRanges(
 }
 
 bool DWARFDie::addressRangeContainsAddress(const uint64_t Address) const {
-  for (const auto &R : getAddressRanges()) {
+  auto RangesOrError = getAddressRanges();
+  if (!RangesOrError) {
+    llvm::consumeError(RangesOrError.takeError());
+    return false;
+  }
+
+  for (const auto &R : RangesOrError.get())
     if (R.LowPC <= Address && Address < R.HighPC)
       return true;
-  }
   return false;
 }
 
@@ -472,8 +487,10 @@ void DWARFDie::dump(raw_ostream &OS, unsigned Indent,
   const uint32_t Offset = getOffset();
   uint32_t offset = Offset;
   if (DumpOpts.ShowParents) {
-    DumpOpts.ShowParents = false;
-    Indent = dumpParentChain(getParent(), OS, Indent, DumpOpts);
+    DIDumpOptions ParentDumpOpts = DumpOpts;
+    ParentDumpOpts.ShowParents = false;
+    ParentDumpOpts.ShowChildren = false;
+    Indent = dumpParentChain(getParent(), OS, Indent, ParentDumpOpts);
   }
 
   if (debug_info_data.isValidOffset(offset)) {
@@ -507,8 +524,10 @@ void DWARFDie::dump(raw_ostream &OS, unsigned Indent,
         DWARFDie child = getFirstChild();
         if (DumpOpts.ShowChildren && DumpOpts.RecurseDepth > 0 && child) {
           DumpOpts.RecurseDepth--;
+          DIDumpOptions ChildDumpOpts = DumpOpts;
+          ChildDumpOpts.ShowParents = false;
           while (child) {
-            child.dump(OS, Indent + 2, DumpOpts);
+            child.dump(OS, Indent + 2, ChildDumpOpts);
             child = child.getSibling();
           }
         }
@@ -536,9 +555,21 @@ DWARFDie DWARFDie::getSibling() const {
   return DWARFDie();
 }
 
+DWARFDie DWARFDie::getPreviousSibling() const {
+  if (isValid())
+    return U->getPreviousSibling(Die);
+  return DWARFDie();
+}
+
 DWARFDie DWARFDie::getFirstChild() const {
   if (isValid())
     return U->getFirstChild(Die);
+  return DWARFDie();
+}
+
+DWARFDie DWARFDie::getLastChild() const {
+  if (isValid())
+    return U->getLastChild(Die);
   return DWARFDie();
 }
 

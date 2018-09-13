@@ -25,11 +25,11 @@
 #include "operand.h"
 #include "util/ilist.h"
 
+#include "latest_version_spirv_header.h"
 #include "spirv-tools/libspirv.h"
-#include "spirv/1.2/spirv.h"
 
 namespace spvtools {
-namespace ir {
+namespace opt {
 
 // This class is intended to be the container for Instructions.  This container
 // owns the instructions that are in it.  When removing an Instruction from the
@@ -101,6 +101,17 @@ class InstructionList : public utils::IntrusiveList<Instruction> {
 
   // Same as in the base class, except it will delete the data as well.
   inline void clear();
+
+  // Runs the given function |f| on the instructions in the list and optionally
+  // on the preceding debug line instructions.
+  inline void ForEachInst(const std::function<void(Instruction*)>& f,
+                          bool run_on_debug_line_insts) {
+    auto next = begin();
+    for (auto i = next; i != end(); i = next) {
+      ++next;
+      i->ForEachInst(f, run_on_debug_line_insts);
+    }
+  }
 };
 
 InstructionList::~InstructionList() { clear(); }
@@ -113,7 +124,7 @@ void InstructionList::clear() {
   }
 }
 
-}  // namespace ir
+}  // namespace opt
 }  // namespace spvtools
 
 #endif  // LIBSPIRV_OPT_INSTRUCTION_LIST_H_

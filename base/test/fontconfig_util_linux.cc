@@ -7,13 +7,13 @@
 #include <fontconfig/fontconfig.h>
 
 #include "base/base_paths.h"
+#include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 
 namespace base {
 
@@ -382,93 +382,42 @@ const char kFontsConfTemplate[] = R"(<?xml version="1.0"?>
 }  // namespace
 
 void SetUpFontconfig() {
-  FilePath dir_module;
-  PathService::Get(DIR_MODULE, &dir_module);
-  FilePath font_cache = dir_module.Append("fontconfig_caches");
-  FilePath test_fonts = dir_module.Append("test_fonts");
-  std::string fonts_conf = ReplaceStringPlaceholders(
-      kFontsConfTemplate, {font_cache.value(), test_fonts.value()}, nullptr);
+  // TODO(thomasanderson): Use FONTCONFIG_SYSROOT to avoid having to write
+  // a new fonts.conf with updated paths.
+  std::unique_ptr<Environment> env = Environment::Create();
+  if (!env->HasVar("FONTCONFIG_FILE")) {
+    // fonts.conf must be generated on-the-fly since it contains absolute paths
+    // which may be different if
+    //   1. The user moves/renames their build directory (or any parent dirs).
+    //   2. The build directory is mapped on a swarming bot at a location
+    //      different from the one the buildbot used.
+    FilePath dir_module;
+    PathService::Get(DIR_MODULE, &dir_module);
+    FilePath font_cache = dir_module.Append("fontconfig_caches");
+    FilePath test_fonts = dir_module.Append("test_fonts");
+    std::string fonts_conf = ReplaceStringPlaceholders(
+        kFontsConfTemplate, {font_cache.value(), test_fonts.value()}, nullptr);
 
-  FcConfig* config = FcConfigCreate();
-  CHECK(config);
-#if FC_VERSION >= 21205
-  CHECK(FcConfigParseAndLoadFromMemory(
-      config, reinterpret_cast<const FcChar8*>(fonts_conf.c_str()), FcTrue));
-#else
-  FilePath temp;
-  CHECK(CreateTemporaryFile(&temp));
-  CHECK(WriteFile(temp, fonts_conf.c_str(), fonts_conf.size()));
-  CHECK(FcConfigParseAndLoad(
-      config, reinterpret_cast<const FcChar8*>(temp.value().c_str()), FcTrue));
-  CHECK(DeleteFile(temp, false));
-#endif
-  CHECK(FcConfigBuildFonts(config));
-  CHECK(FcConfigSetCurrent(config));
+    // Write the data to a different file and then atomically rename it to
+    // fonts.conf.  This avoids the file being in a bad state when different
+    // parallel tests call this function at the same time.
+    FilePath fonts_conf_file_temp;
+    if(!CreateTemporaryFileInDir(dir_module, &fonts_conf_file_temp))
+      CHECK(CreateTemporaryFile(&fonts_conf_file_temp));
+    CHECK(
+        WriteFile(fonts_conf_file_temp, fonts_conf.c_str(), fonts_conf.size()));
+    FilePath fonts_conf_file = dir_module.Append("fonts.conf");
+    if (ReplaceFile(fonts_conf_file_temp, fonts_conf_file, nullptr))
+      env->SetVar("FONTCONFIG_FILE", fonts_conf_file.value());
+    else
+      env->SetVar("FONTCONFIG_FILE", fonts_conf_file_temp.value());
+  }
 
-  // Decrement the reference count for |config|.  It's now owned by fontconfig.
-  FcConfigDestroy(config);
+  CHECK(FcInit());
 }
 
 void TearDownFontconfig() {
   FcFini();
-}
-
-bool LoadConfigFileIntoFontconfig(const FilePath& path) {
-  // Unlike other FcConfig functions, FcConfigParseAndLoad() doesn't default to
-  // the current config when passed NULL. So that's cool.
-  if (!FcConfigParseAndLoad(
-          FcConfigGetCurrent(),
-          reinterpret_cast<const FcChar8*>(path.value().c_str()), FcTrue)) {
-    LOG(ERROR) << "Fontconfig failed to load " << path.value();
-    return false;
-  }
-  return true;
-}
-
-bool LoadConfigDataIntoFontconfig(const FilePath& temp_dir,
-                                  const std::string& data) {
-  FilePath path;
-  if (!CreateTemporaryFileInDir(temp_dir, &path)) {
-    PLOG(ERROR) << "Unable to create temporary file in " << temp_dir.value();
-    return false;
-  }
-  if (WriteFile(path, data.data(), data.size()) !=
-      static_cast<int>(data.size())) {
-    PLOG(ERROR) << "Unable to write config data to " << path.value();
-    return false;
-  }
-  return LoadConfigFileIntoFontconfig(path);
-}
-
-std::string CreateFontconfigEditStanza(const std::string& name,
-                                       const std::string& type,
-                                       const std::string& value) {
-  return StringPrintf(
-      "    <edit name=\"%s\" mode=\"assign\">\n"
-      "      <%s>%s</%s>\n"
-      "    </edit>\n",
-      name.c_str(), type.c_str(), value.c_str(), type.c_str());
-}
-
-std::string CreateFontconfigTestStanza(const std::string& name,
-                                       const std::string& op,
-                                       const std::string& type,
-                                       const std::string& value) {
-  return StringPrintf(
-      "    <test name=\"%s\" compare=\"%s\" qual=\"any\">\n"
-      "      <%s>%s</%s>\n"
-      "    </test>\n",
-      name.c_str(), op.c_str(), type.c_str(), value.c_str(), type.c_str());
-}
-
-std::string CreateFontconfigAliasStanza(const std::string& original_family,
-                                        const std::string& preferred_family) {
-  return StringPrintf(
-      "  <alias>\n"
-      "    <family>%s</family>\n"
-      "    <prefer><family>%s</family></prefer>\n"
-      "  </alias>\n",
-      original_family.c_str(), preferred_family.c_str());
 }
 
 }  // namespace base

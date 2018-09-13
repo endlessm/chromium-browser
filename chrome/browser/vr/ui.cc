@@ -3,14 +3,15 @@
 // found in the LICENSE file.
 
 #include <iomanip>
+#include <queue>
 #include <sstream>
 
 #include "chrome/browser/vr/ui.h"
 
+#include "base/numerics/math_constants.h"
 #include "base/strings/string16.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/vr/content_input_delegate.h"
-#include "chrome/browser/vr/cpu_surface_provider.h"
 #include "chrome/browser/vr/elements/content_element.h"
 #include "chrome/browser/vr/elements/text_input.h"
 #include "chrome/browser/vr/ganesh_surface_provider.h"
@@ -31,13 +32,19 @@
 #include "chrome/browser/vr/ui_scene_constants.h"
 #include "chrome/browser/vr/ui_scene_creator.h"
 #include "chrome/browser/vr/ui_test_input.h"
-#include "chrome/common/chrome_features.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 namespace vr {
 
-UiInitialState::UiInitialState() = default;
-UiInitialState::UiInitialState(const UiInitialState& other) = default;
+namespace {
+
+float Clamp(float value, float min, float max) {
+  return std::max(min, std::min(value, max));
+}
+
+constexpr float kMargin = 1.f * base::kPiFloat / 180;
+
+}  // namespace
 
 Ui::Ui(UiBrowserInterface* browser,
        PlatformInputHandler* content_input_forwarder,
@@ -85,14 +92,7 @@ base::WeakPtr<BrowserUiInterface> Ui::GetBrowserUiWeakPtr() {
 void Ui::SetWebVrMode(bool enabled) {
   if (enabled) {
     model_->web_vr.has_received_permissions = false;
-    if (!model_->web_vr_autopresentation_enabled()) {
-      // When auto-presenting, we transition into this state when the minimum
-      // splash-screen duration has passed.
-      model_->web_vr.state = kWebVrAwaitingFirstFrame;
-    }
-    // We have this check here so that we don't set the mode to kModeWebVr when
-    // it should be kModeWebVrAutopresented. The latter is set when the UI is
-    // initialized.
+    model_->web_vr.state = kWebVrAwaitingFirstFrame;
     if (!model_->web_vr_enabled())
       model_->push_mode(kModeWebVr);
   } else {
@@ -163,9 +163,13 @@ void Ui::ShowExitVrPrompt(UiUnsupportedMode reason) {
     case UiUnsupportedMode::kNeedsKeyboardUpdate:
       model_->active_modal_prompt_type = kModalPromptTypeUpdateKeyboard;
       break;
-    case UiUnsupportedMode::kUnhandledConnectionInfo:
+    case UiUnsupportedMode::kUnhandledCertificateInfo:
       model_->active_modal_prompt_type =
-          kModalPromptTypeExitVRForConnectionInfo;
+          kModalPromptTypeExitVRForCertificateInfo;
+      break;
+    case UiUnsupportedMode::kUnhandledConnectionSecurityInfo:
+      model_->active_modal_prompt_type =
+          kModalPromptTypeExitVRForConnectionSecurityInfo;
       break;
     // kSearchEnginePromo should DOFF directly. It should never try to change
     // the state of UI.
@@ -182,10 +186,6 @@ void Ui::ShowExitVrPrompt(UiUnsupportedMode reason) {
 
 void Ui::OnUiRequestedNavigation() {
   model_->pop_mode(kModeEditingOmnibox);
-}
-
-void Ui::SetFloorHeight(float floor_height) {
-  model_->floor_height = floor_height;
 }
 
 void Ui::SetSpeechRecognitionEnabled(bool enabled) {
@@ -275,9 +275,7 @@ void Ui::RemoveAllTabs() {
 }
 
 bool Ui::CanSendWebVrVSync() {
-  return model_->web_vr_enabled() &&
-         !model_->web_vr.awaiting_min_splash_screen_duration() &&
-         !model_->web_vr.showing_hosted_ui;
+  return model_->web_vr_enabled() && !model_->web_vr.showing_hosted_ui;
 }
 
 void Ui::SetAlertDialogEnabled(bool enabled,
@@ -341,16 +339,11 @@ void Ui::OnGlInitialized(
     UiElementRenderer::TextureLocation content_location,
     unsigned int content_overlay_texture_id,
     UiElementRenderer::TextureLocation content_overlay_location,
-    unsigned int ui_texture_id,
-    bool use_ganesh) {
+    unsigned int ui_texture_id) {
   ui_element_renderer_ = std::make_unique<UiElementRenderer>();
   ui_renderer_ =
       std::make_unique<UiRenderer>(scene_.get(), ui_element_renderer_.get());
-  if (use_ganesh) {
-    provider_ = std::make_unique<GaneshSurfaceProvider>();
-  } else {
-    provider_ = std::make_unique<CpuSurfaceProvider>();
-  }
+  provider_ = std::make_unique<GaneshSurfaceProvider>();
   scene_->OnGlInitialized(provider_.get());
   model_->content_texture_id = content_texture_id;
   model_->content_overlay_texture_id = content_overlay_texture_id;
@@ -379,10 +372,13 @@ void Ui::OnKeyboardHidden() {
   input_manager_->OnKeyboardHidden();
 }
 
+void Ui::OnPause() {
+  input_manager_->OnPause();
+}
+
 void Ui::OnAppButtonClicked() {
-  // App button clicks should be a no-op when auto-presenting WebVR or if
-  // browsing mode is disabled.
-  if (model_->web_vr_autopresentation_enabled() || model_->browsing_disabled)
+  // App button clicks should be a no-op when browsing mode is disabled.
+  if (model_->browsing_disabled)
     return;
 
   if (model_->reposition_window_enabled()) {
@@ -423,7 +419,6 @@ void Ui::OnControllerUpdated(const ControllerModel& controller_model,
                              const ReticleModel& reticle_model) {
   model_->controller = controller_model;
   model_->reticle = reticle_model;
-  model_->controller.quiescent = input_manager_->controller_quiescent();
   model_->controller.resting_in_viewport =
       input_manager_->controller_resting_in_viewport();
 }
@@ -453,10 +448,6 @@ void Ui::OnSwapContents(int new_content_id) {
 
 void Ui::OnContentBoundsChanged(int width, int height) {
   content_input_delegate_->SetSize(width, height);
-}
-
-void Ui::OnPlatformControllerInitialized(PlatformController* controller) {
-  content_input_delegate_->OnPlatformControllerInitialized(controller);
 }
 
 bool Ui::IsControllerVisible() const {
@@ -540,8 +531,6 @@ void Ui::ReinitializeForTest(const UiInitialState& ui_initial_state) {
 }
 
 void Ui::InitializeModel(const UiInitialState& ui_initial_state) {
-  model_->experimental_features_enabled =
-      base::FeatureList::IsEnabled(features::kVrBrowsingExperimentalFeatures);
   model_->speech.has_or_can_request_audio_permission =
       ui_initial_state.has_or_can_request_audio_permission;
   model_->ui_modes.clear();
@@ -549,19 +538,11 @@ void Ui::InitializeModel(const UiInitialState& ui_initial_state) {
   if (ui_initial_state.in_web_vr) {
     auto mode = kModeWebVr;
     model_->web_vr.has_received_permissions = false;
-    if (ui_initial_state.web_vr_autopresentation_expected) {
-      mode = kModeWebVrAutopresented;
-      model_->web_vr.state = kWebVrAwaitingMinSplashScreenDuration;
-    } else {
-      model_->web_vr.state = kWebVrAwaitingFirstFrame;
-    }
+    model_->web_vr.state = kWebVrAwaitingFirstFrame;
     model_->push_mode(mode);
   }
 
-  model_->in_cct = ui_initial_state.in_cct;
   model_->browsing_disabled = ui_initial_state.browsing_disabled;
-  model_->skips_redraw_when_not_dirty =
-      ui_initial_state.skips_redraw_when_not_dirty;
   model_->waiting_for_background = ui_initial_state.assets_supported;
   model_->supports_selection = ui_initial_state.supports_selection;
   model_->needs_keyboard_update = ui_initial_state.needs_keyboard_update;
@@ -573,36 +554,50 @@ void Ui::AcceptDoffPromptForTesting() {
   DCHECK(model_->active_modal_prompt_type != kModalPromptTypeNone);
   auto* prompt = scene_->GetUiElementByName(kExitPrompt);
   DCHECK(prompt);
-  auto* button = prompt->GetDescendantByType(kTypePromptSecondaryButton);
+  auto* button = prompt->GetDescendantByType(kTypePromptPrimaryButton);
   DCHECK(button);
-  button->OnHoverEnter({0.5f, 0.5f});
-  button->OnButtonDown({0.5f, 0.5f});
-  button->OnButtonUp({0.5f, 0.5f});
-  button->OnHoverLeave();
+  button->OnHoverEnter({0.5f, 0.5f}, base::TimeTicks::Now());
+  button->OnButtonDown({0.5f, 0.5f}, base::TimeTicks::Now());
+  button->OnButtonUp({0.5f, 0.5f}, base::TimeTicks::Now());
+  button->OnHoverLeave(base::TimeTicks::Now());
 }
 
-void Ui::PerformUiActionForTesting(UiTestInput test_input) {
-  auto* element = scene()->GetUiElementByName(
-      UserFriendlyElementNameToUiElementName(test_input.element_name));
-  DCHECK(element) << "Unsupported test element";
-  switch (test_input.action) {
-    case VrUiTestAction::kHoverEnter:
-      element->OnHoverEnter(test_input.position);
+void Ui::PerformControllerActionForTesting(
+    ControllerTestInput controller_input,
+    std::queue<ControllerModel>& controller_model_queue) {
+  auto* target_element = scene()->GetUiElementByName(
+      UserFriendlyElementNameToUiElementName(controller_input.element_name));
+  DCHECK(target_element) << "Unsupported test element";
+  // The position to click is provided for a unit square, so scale it to match
+  // the actual element.
+  controller_input.position.Scale(target_element->size().width(),
+                                  target_element->size().height());
+  auto target = gfx::Point3F(controller_input.position.x(),
+                             controller_input.position.y(), 0.0f);
+  target_element->ComputeTargetWorldSpaceTransform().TransformPoint(&target);
+  gfx::Point3F origin;
+  gfx::Vector3dF direction(target - origin);
+  direction.GetNormalized(&direction);
+  ControllerModel controller_model;
+  controller_model.laser_direction = direction;
+  controller_model.laser_origin = origin;
+
+  switch (controller_input.action) {
+    case VrControllerTestAction::kClick:
+      // Add in the button down action
+      controller_model.touchpad_button_state =
+          UiInputManager::ButtonState::DOWN;
+      controller_model_queue.push(controller_model);
+      // Add in the button up action
+      controller_model.touchpad_button_state = UiInputManager::ButtonState::UP;
+      controller_model_queue.push(controller_model);
       break;
-    case VrUiTestAction::kHoverLeave:
-      element->OnHoverLeave();
-      break;
-    case VrUiTestAction::kMove:
-      element->OnMove(test_input.position);
-      break;
-    case VrUiTestAction::kButtonDown:
-      element->OnButtonDown(test_input.position);
-      break;
-    case VrUiTestAction::kButtonUp:
-      element->OnButtonUp(test_input.position);
+    case VrControllerTestAction::kHover:
+      controller_model.touchpad_button_state = UiInputManager::ButtonState::UP;
+      controller_model_queue.push(controller_model);
       break;
     default:
-      NOTREACHED() << "Given unsupported action";
+      NOTREACHED() << "Given unsupported controller action";
   }
 }
 
@@ -634,6 +629,148 @@ std::vector<TabModel>::iterator Ui::FindTab(int id,
                                             std::vector<TabModel>* tabs) {
   return std::find_if(tabs->begin(), tabs->end(),
                       [id](const TabModel& tab) { return tab.id == id; });
+}
+
+bool Ui::OnBeginFrame(const base::TimeTicks& current_time,
+                      const gfx::Transform& head_pose) {
+  return scene_->OnBeginFrame(current_time, head_pose);
+}
+
+bool Ui::SceneHasDirtyTextures() const {
+  return scene_->HasDirtyTextures();
+}
+
+void Ui::UpdateSceneTextures() {
+  scene_->UpdateTextures();
+}
+
+void Ui::Draw(const vr::RenderInfo& info) {
+  ui_renderer_->Draw(info);
+}
+
+void Ui::DrawWebVr(int texture_data_handle,
+                   const float (&uv_transform)[16],
+                   float xborder,
+                   float yborder) {
+  ui_element_renderer_->DrawWebVr(texture_data_handle, uv_transform, xborder,
+                                  yborder);
+}
+
+void Ui::DrawWebVrOverlayForeground(const vr::RenderInfo& info) {
+  ui_renderer_->DrawWebVrOverlayForeground(info);
+}
+
+UiScene::Elements Ui::GetWebVrOverlayElementsToDraw() {
+  return scene_->GetWebVrOverlayElementsToDraw();
+}
+
+gfx::Rect Ui::CalculatePixelSpaceRect(const gfx::Size& texture_size,
+                                      const gfx::RectF& texture_rect) {
+  const gfx::RectF rect =
+      ScaleRect(texture_rect, static_cast<float>(texture_size.width()),
+                static_cast<float>(texture_size.height()));
+  return gfx::Rect(rect.x(), rect.y(), rect.width(), rect.height());
+}
+
+void Ui::HandleInput(base::TimeTicks current_time,
+                     const RenderInfo& render_info,
+                     const ControllerModel& controller_model,
+                     ReticleModel* reticle_model,
+                     InputEventList* input_event_list) {
+  input_manager_->HandleInput(current_time, render_info, controller_model,
+                              reticle_model, input_event_list);
+}
+
+Ui::FovRectangle Ui::GetMinimalFov(
+    const gfx::Transform& view_matrix,
+    const std::vector<const UiElement*>& elements,
+    const Ui::FovRectangle& fov_recommended,
+    float z_near) {
+  // Calculate boundary of Z near plane in view space.
+  float z_near_left =
+      -z_near * std::tan(fov_recommended.left * base::kPiFloat / 180);
+  float z_near_right =
+      z_near * std::tan(fov_recommended.right * base::kPiFloat / 180);
+  float z_near_bottom =
+      -z_near * std::tan(fov_recommended.bottom * base::kPiFloat / 180);
+  float z_near_top =
+      z_near * std::tan(fov_recommended.top * base::kPiFloat / 180);
+
+  float left = z_near_right;
+  float right = z_near_left;
+  float bottom = z_near_top;
+  float top = z_near_bottom;
+
+  bool has_visible_element = false;
+
+  for (const auto* element : elements) {
+    gfx::Point3F left_bottom{-0.5, -0.5, 0};
+    gfx::Point3F left_top{-0.5, 0.5, 0};
+    gfx::Point3F right_bottom{0.5, -0.5, 0};
+    gfx::Point3F right_top{0.5, 0.5, 0};
+
+    gfx::Transform transform = element->world_space_transform();
+    transform.ConcatTransform(view_matrix);
+
+    // Transform to view space.
+    transform.TransformPoint(&left_bottom);
+    transform.TransformPoint(&left_top);
+    transform.TransformPoint(&right_bottom);
+    transform.TransformPoint(&right_top);
+
+    // Project point to Z near plane in view space.
+    left_bottom.Scale(-z_near / left_bottom.z());
+    left_top.Scale(-z_near / left_top.z());
+    right_bottom.Scale(-z_near / right_bottom.z());
+    right_top.Scale(-z_near / right_top.z());
+
+    // Find bounding box on z near plane.
+    float bounds_left = std::min(
+        {left_bottom.x(), left_top.x(), right_bottom.x(), right_top.x()});
+    float bounds_right = std::max(
+        {left_bottom.x(), left_top.x(), right_bottom.x(), right_top.x()});
+    float bounds_bottom = std::min(
+        {left_bottom.y(), left_top.y(), right_bottom.y(), right_top.y()});
+    float bounds_top = std::max(
+        {left_bottom.y(), left_top.y(), right_bottom.y(), right_top.y()});
+
+    // Ignore non visible elements.
+    if (bounds_left >= z_near_right || bounds_right <= z_near_left ||
+        bounds_bottom >= z_near_top || bounds_top <= z_near_bottom ||
+        bounds_left == bounds_right || bounds_bottom == bounds_top) {
+      continue;
+    }
+
+    // Clamp to Z near plane's boundary.
+    bounds_left = Clamp(bounds_left, z_near_left, z_near_right);
+    bounds_right = Clamp(bounds_right, z_near_left, z_near_right);
+    bounds_bottom = Clamp(bounds_bottom, z_near_bottom, z_near_top);
+    bounds_top = Clamp(bounds_top, z_near_bottom, z_near_top);
+
+    left = std::min(bounds_left, left);
+    right = std::max(bounds_right, right);
+    bottom = std::min(bounds_bottom, bottom);
+    top = std::max(bounds_top, top);
+    has_visible_element = true;
+  }
+
+  if (!has_visible_element) {
+    return Ui::FovRectangle{0.f, 0.f, 0.f, 0.f};
+  }
+
+  // Add a small margin to fix occasional border clipping due to precision.
+  const float margin = std::tan(kMargin) * z_near;
+  left = std::max(left - margin, z_near_left);
+  right = std::min(right + margin, z_near_right);
+  bottom = std::max(bottom - margin, z_near_bottom);
+  top = std::min(top + margin, z_near_top);
+
+  float left_degrees = std::atan(-left / z_near) * 180 / base::kPiFloat;
+  float right_degrees = std::atan(right / z_near) * 180 / base::kPiFloat;
+  float bottom_degrees = std::atan(-bottom / z_near) * 180 / base::kPiFloat;
+  float top_degrees = std::atan(top / z_near) * 180 / base::kPiFloat;
+  return Ui::FovRectangle{left_degrees, right_degrees, bottom_degrees,
+                          top_degrees};
 }
 
 }  // namespace vr

@@ -29,7 +29,7 @@
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueLattice.h"
 #include "llvm/Analysis/ValueLatticeUtils.h"
 #include "llvm/IR/BasicBlock.h"
@@ -1125,8 +1125,12 @@ void SCCPSolver::visitLoadInst(LoadInst &I) {
   Constant *Ptr = PtrVal.getConstant();
 
   // load null is undefined.
-  if (isa<ConstantPointerNull>(Ptr) && I.getPointerAddressSpace() == 0)
-    return;
+  if (isa<ConstantPointerNull>(Ptr)) {
+    if (NullPointerIsDefined(I.getFunction(), I.getPointerAddressSpace()))
+      return (void)markOverdefined(IV, &I);
+    else
+      return;
+  }
 
   // Transform load (constant global) into the value loaded.
   if (auto *GV = dyn_cast<GlobalVariable>(Ptr)) {
@@ -1777,6 +1781,7 @@ PreservedAnalyses SCCPPass::run(Function &F, FunctionAnalysisManager &AM) {
 
   auto PA = PreservedAnalyses();
   PA.preserve<GlobalsAA>();
+  PA.preserveSet<CFGAnalyses>();
   return PA;
 }
 
@@ -1799,6 +1804,7 @@ public:
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<TargetLibraryInfoWrapperPass>();
     AU.addPreserved<GlobalsAAWrapperPass>();
+    AU.setPreservesCFG();
   }
 
   // runOnFunction - Run the Sparse Conditional Constant Propagation
@@ -1896,13 +1902,17 @@ bool llvm::runIPSCCP(Module &M, const DataLayout &DL,
 
   // Solve for constants.
   bool ResolvedUndefs = true;
+  Solver.Solve();
   while (ResolvedUndefs) {
-    Solver.Solve();
-
     LLVM_DEBUG(dbgs() << "RESOLVING UNDEFS\n");
     ResolvedUndefs = false;
     for (Function &F : M)
-      ResolvedUndefs |= Solver.ResolvedUndefsIn(F);
+      if (Solver.ResolvedUndefsIn(F)) {
+        // We run Solve() after we resolved an undef in a function, because
+        // we might deduce a fact that eliminates an undef in another function.
+        Solver.Solve();
+        ResolvedUndefs = true;
+      }
   }
 
   bool MadeChanges = false;
@@ -1930,10 +1940,7 @@ bool llvm::runIPSCCP(Module &M, const DataLayout &DL,
     for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB) {
       if (!Solver.isBlockExecutable(&*BB)) {
         LLVM_DEBUG(dbgs() << "  BasicBlock Dead:" << *BB);
-
         ++NumDeadBlocks;
-        NumInstRemoved +=
-            changeToUnreachable(BB->getFirstNonPHI(), /*UseLLVMTrap=*/false);
 
         MadeChanges = true;
 
@@ -1955,6 +1962,17 @@ bool llvm::runIPSCCP(Module &M, const DataLayout &DL,
         }
       }
     }
+
+    // Change dead blocks to unreachable. We do it after replacing constants in
+    // all executable blocks, because changeToUnreachable may remove PHI nodes
+    // in executable blocks we found values for. The function's entry block is
+    // not part of BlocksToErase, so we have to handle it separately.
+    for (BasicBlock *BB : BlocksToErase)
+      NumInstRemoved +=
+          changeToUnreachable(BB->getFirstNonPHI(), /*UseLLVMTrap=*/false);
+    if (!Solver.isBlockExecutable(&F.front()))
+      NumInstRemoved += changeToUnreachable(F.front().getFirstNonPHI(),
+                                            /*UseLLVMTrap=*/false);
 
     // Now that all instructions in the function are constant folded, erase dead
     // blocks, because we can now use ConstantFoldTerminator to get rid of

@@ -47,6 +47,18 @@ void inline ScopedGenericArObject<ArCamera*>::Free(ArCamera* ar_camera) {
   // Do nothing - ArCamera has no destroy method and is managed by ARCore.
 }
 
+template <>
+void inline ScopedGenericArObject<ArHitResultList*>::Free(
+    ArHitResultList* ar_hit_result_list) {
+  ArHitResultList_destroy(ar_hit_result_list);
+}
+
+template <>
+void inline ScopedGenericArObject<ArHitResult*>::Free(
+    ArHitResult* ar_hit_result) {
+  ArHitResult_destroy(ar_hit_result);
+}
+
 template <class T>
 using ScopedArCoreObject = base::ScopedGeneric<T, ScopedGenericArObject<T>>;
 
@@ -59,16 +71,27 @@ class ARCoreImpl : public ARCore {
   ~ARCoreImpl() override;
 
   bool Initialize() override;
-
   void SetDisplayGeometry(const gfx::Size& frame_size,
                           display::Display::Rotation display_rotation) override;
   void SetCameraTexture(GLuint camera_texture_id) override;
   std::vector<float> TransformDisplayUvCoords(
       const base::span<const float> uvs) override;
   gfx::Transform GetProjectionMatrix(float near, float far) override;
-  mojom::VRPosePtr Update() override;
+  mojom::VRPosePtr Update(bool* camera_updated) override;
+  void Pause() override;
+  void Resume() override;
+  bool RequestHitTest(const mojom::XRRayPtr& ray,
+                      const gfx::Size& image_size,
+                      std::vector<mojom::XRHitResultPtr>* hit_results) override;
 
  private:
+  bool TransformRayToScreenSpace(const mojom::XRRayPtr& ray,
+                                 const gfx::Size& image_size,
+                                 gfx::PointF* screen_point);
+
+  bool ArHitResultToXRHitResult(ArHitResult* ar_hit,
+                                mojom::XRHitResult* hit_result);
+
   bool IsOnGlThread();
   base::WeakPtr<ARCoreImpl> GetWeakPtr() {
     return weak_ptr_factory_.GetWeakPtr();
@@ -81,9 +104,6 @@ class ARCoreImpl : public ARCore {
   // multiple XRSessions.
   internal::ScopedArCoreObject<ArSession*> arcore_session_;
   internal::ScopedArCoreObject<ArFrame*> arcore_frame_;
-
-  // TODO(https://crbug.com/838513): replace this with more sophisticated logic.
-  bool is_tracking_ = false;
 
   // Must be last.
   base::WeakPtrFactory<ARCoreImpl> weak_ptr_factory_;

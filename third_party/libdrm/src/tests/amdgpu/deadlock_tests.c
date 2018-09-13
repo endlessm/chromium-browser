@@ -36,6 +36,7 @@
 
 #include "amdgpu_test.h"
 #include "amdgpu_drm.h"
+#include "amdgpu_internal.h"
 
 #include <pthread.h>
 
@@ -87,6 +88,24 @@ static void amdgpu_deadlock_helper(unsigned ip_type);
 static void amdgpu_deadlock_gfx(void);
 static void amdgpu_deadlock_compute(void);
 
+CU_BOOL suite_deadlock_tests_enable(void)
+{
+	if (amdgpu_device_initialize(drm_amdgpu[0], &major_version,
+					     &minor_version, &device_handle))
+		return CU_FALSE;
+
+	if (amdgpu_device_deinitialize(device_handle))
+		return CU_FALSE;
+
+
+	if (device_handle->info.family_id == AMDGPU_FAMILY_AI) {
+		printf("\n\nCurrently hangs the CP on this ASIC, deadlock suite disabled\n");
+		return CU_FALSE;
+	}
+
+	return CU_TRUE;
+}
+
 int suite_deadlock_tests_init(void)
 {
 	struct amdgpu_gpu_info gpu_info = {0};
@@ -119,13 +138,7 @@ int suite_deadlock_tests_clean(void)
 
 CU_TestInfo deadlock_tests[] = {
 	{ "gfx ring block test",  amdgpu_deadlock_gfx },
-
-	/*
-	* BUG: Compute ring stalls and never recovers when the address is
-	* written after the command already submitted
-	*/
-	/* { "compute ring block test",  amdgpu_deadlock_compute }, */
-
+	{ "compute ring block test",  amdgpu_deadlock_compute },
 	CU_TEST_INFO_NULL,
 };
 

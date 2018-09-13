@@ -24,9 +24,11 @@ class LocalSiteCharacteristicsNonRecordingDataStore
 
   // SiteCharacteristicDataStore:
   std::unique_ptr<SiteCharacteristicsDataReader> GetReaderForOrigin(
-      const std::string& origin_str) override;
+      const url::Origin& origin) override;
   std::unique_ptr<SiteCharacteristicsDataWriter> GetWriterForOrigin(
-      const std::string& origin_str) override;
+      const url::Origin& origin,
+      TabVisibility tab_visibility) override;
+  bool IsRecordingForTesting() override;
 
  private:
   // The data store to use to create the readers served by this data store. E.g.

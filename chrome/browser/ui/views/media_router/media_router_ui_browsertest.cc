@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -96,10 +97,14 @@ class MediaRouterUIBrowserTest : public InProcessBrowserTest {
     nav_observer.StopWatchingNewWebContents();
   }
 
-  MediaRouterAction* GetMediaRouterAction() {
+  // Returns the dialog controller for the active WebContents.
+  MediaRouterDialogControllerImplBase* GetDialogController() {
     return MediaRouterDialogControllerImplBase::GetOrCreateForWebContents(
-               browser()->tab_strip_model()->GetActiveWebContents())
-        ->action();
+        browser()->tab_strip_model()->GetActiveWebContents());
+  }
+
+  MediaRouterAction* GetMediaRouterAction() {
+    return GetDialogController()->action();
   }
 
   ui::SimpleMenuModel* GetActionContextMenu() {
@@ -113,6 +118,7 @@ class MediaRouterUIBrowserTest : public InProcessBrowserTest {
   }
 
   bool ActionExists() {
+    base::RunLoop().RunUntilIdle();
     return ToolbarActionsModel::Get(browser()->profile())
         ->HasComponentAction(
             ComponentToolbarActionsFactory::kMediaRouterActionId);
@@ -132,11 +138,10 @@ class MediaRouterUIBrowserTest : public InProcessBrowserTest {
 
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
-    MediaRouterDialogController* dialog_controller =
-        MediaRouterDialogController::GetOrCreateForWebContents(
-            browser()->tab_strip_model()->GetActiveWebContents());
+    MediaRouterDialogController* dialog_controller = GetDialogController();
     content::ContextMenuParams params;
-    params.page_url = web_contents->GetController().GetActiveEntry()->GetURL();
+    params.page_url =
+        web_contents->GetController().GetLastCommittedEntry()->GetURL();
     TestRenderViewContextMenu menu(web_contents->GetMainFrame(), params);
     menu.Init();
 
@@ -161,9 +166,7 @@ class MediaRouterUIBrowserTest : public InProcessBrowserTest {
         test::AppMenuTestApi::Create(browser());
     app_menu_test_api->ShowMenu();
 
-    MediaRouterDialogController* dialog_controller =
-        MediaRouterDialogController::GetOrCreateForWebContents(
-            browser()->tab_strip_model()->GetActiveWebContents());
+    MediaRouterDialogController* dialog_controller = GetDialogController();
     ASSERT_FALSE(dialog_controller->IsShowingMediaRouterDialog());
     app_menu_test_api->ExecuteCommand(IDC_ROUTE_MEDIA);
     EXPECT_TRUE(dialog_controller->IsShowingMediaRouterDialog());
@@ -177,9 +180,7 @@ class MediaRouterUIBrowserTest : public InProcessBrowserTest {
   }
 
   void TestEphemeralToolbarIconForDialog() {
-    MediaRouterDialogController* dialog_controller =
-        MediaRouterDialogController::GetOrCreateForWebContents(
-            browser()->tab_strip_model()->GetActiveWebContents());
+    MediaRouterDialogController* dialog_controller = GetDialogController();
 
     EXPECT_FALSE(ActionExists());
     dialog_controller->ShowMediaRouterDialog();
@@ -208,6 +209,31 @@ class MediaRouterUIBrowserTest : public InProcessBrowserTest {
     EXPECT_FALSE(ActionExists());
   }
 
+  void TestPinAndUnpinToolbarIcon() {
+    GetDialogController()->ShowMediaRouterDialog();
+    EXPECT_TRUE(ActionExists());
+
+    // Pin the icon via its context menu.
+    ui::SimpleMenuModel* context_menu = GetActionContextMenu();
+    const int command_index = context_menu->GetIndexOfCommandId(
+        IDC_MEDIA_ROUTER_ALWAYS_SHOW_TOOLBAR_ACTION);
+    if (IsCocoaBrowser()) {
+      // With Cocoa, OnContextMenuClosed() gets called before command execution.
+      GetMediaRouterAction()->OnContextMenuClosed();
+      context_menu->ActivatedAt(command_index);
+    } else {
+      context_menu->ActivatedAt(command_index);
+      GetMediaRouterAction()->OnContextMenuClosed();
+    }
+    GetDialogController()->HideMediaRouterDialog();
+    EXPECT_TRUE(ActionExists());
+
+    // Unpin the icon via its context menu.
+    GetActionContextMenu()->ActivatedAt(command_index);
+    GetMediaRouterAction()->OnContextMenuClosed();
+    EXPECT_FALSE(ActionExists());
+  }
+
   ToolbarActionsBar* toolbar_actions_bar_ = nullptr;
 
   Issue issue_;
@@ -222,7 +248,14 @@ IN_PROC_BROWSER_TEST_F(MediaRouterUIBrowserTest, OpenDialogFromContextMenu) {
   TestOpenDialogFromContextMenu();
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterUIBrowserTest, OpenDialogFromAppMenu) {
+// Disabled on macOS due to many timeouts. Seems fine on all other platforms.
+// crbug.com/849146
+#if defined(OS_MACOSX)
+#define MAYBE_OpenDialogFromAppMenu DISABLED_OpenDialogFromAppMenu
+#else
+#define MAYBE_OpenDialogFromAppMenu OpenDialogFromAppMenu
+#endif
+IN_PROC_BROWSER_TEST_F(MediaRouterUIBrowserTest, MAYBE_OpenDialogFromAppMenu) {
   TestOpenDialogFromAppMenu();
 }
 
@@ -272,7 +305,15 @@ IN_PROC_BROWSER_TEST_F(MediaRouterUIBrowserTest,
   SetAlwaysShowActionPref(false);
 }
 
-IN_PROC_BROWSER_TEST_F(MediaRouterUIBrowserTest, OpenDialogsInMultipleTabs) {
+#if defined(MEMORY_SANITIZER)
+// Flaky crashes. crbug.com/863945
+#define MAYBE_OpenDialogsInMultipleTabs DISABLED_OpenDialogsInMultipleTabs
+#else
+#define MAYBE_OpenDialogsInMultipleTabs OpenDialogsInMultipleTabs
+#endif
+  
+IN_PROC_BROWSER_TEST_F(MediaRouterUIBrowserTest,
+                       MAYBE_OpenDialogsInMultipleTabs) {
   // Start with two tabs.
   chrome::NewTab(browser());
   ASSERT_EQ(2, browser()->tab_strip_model()->count());
@@ -356,20 +397,27 @@ IN_PROC_BROWSER_TEST_F(MediaRouterUIBrowserTest, UpdateActionLocation) {
   // Get the index for "Hide in Chrome menu" / "Show in toolbar" menu item.
   const int command_index = GetActionContextMenu()->GetIndexOfCommandId(
       IDC_MEDIA_ROUTER_SHOW_IN_TOOLBAR);
+  GetMediaRouterAction()->OnContextMenuClosed();
 
   // Start out with the action visible on the main bar.
   EXPECT_TRUE(
       toolbar_actions_bar_->IsActionVisibleOnMainBar(GetMediaRouterAction()));
   GetActionContextMenu()->ActivatedAt(command_index);
+  GetMediaRouterAction()->OnContextMenuClosed();
 
   // The action should get hidden in the overflow menu.
   EXPECT_FALSE(
       toolbar_actions_bar_->IsActionVisibleOnMainBar(GetMediaRouterAction()));
   GetActionContextMenu()->ActivatedAt(command_index);
+  GetMediaRouterAction()->OnContextMenuClosed();
 
   // The action should be back on the main bar.
   EXPECT_TRUE(
       toolbar_actions_bar_->IsActionVisibleOnMainBar(GetMediaRouterAction()));
+}
+
+IN_PROC_BROWSER_TEST_F(MediaRouterUIBrowserTest, PinAndUnpinToolbarIcon) {
+  TestPinAndUnpinToolbarIcon();
 }
 
 // Runs dialog-related tests with the Views Cast dialog.
@@ -401,6 +449,12 @@ IN_PROC_BROWSER_TEST_F(MediaRouterViewsUIBrowserTest,
   if (IsCocoaBrowser())
     return;
   TestEphemeralToolbarIconForDialog();
+}
+
+IN_PROC_BROWSER_TEST_F(MediaRouterViewsUIBrowserTest, PinAndUnpinToolbarIcon) {
+  if (IsCocoaBrowser())
+    return;
+  TestPinAndUnpinToolbarIcon();
 }
 
 }  // namespace media_router

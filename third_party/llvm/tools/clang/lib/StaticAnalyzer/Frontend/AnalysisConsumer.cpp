@@ -164,6 +164,8 @@ class AnalysisConsumer : public AnalysisASTConsumer,
   /// Bug Reporter to use while recursively visiting Decls.
   BugReporter *RecVisitorBR;
 
+  std::vector<std::function<void(CheckerRegistry &)>> CheckerRegistrationFns;
+
 public:
   ASTContext *Ctx;
   const Preprocessor &PP;
@@ -293,8 +295,9 @@ public:
 
   void Initialize(ASTContext &Context) override {
     Ctx = &Context;
-    checkerMgr = createCheckerManager(*Opts, PP.getLangOpts(), Plugins,
-                                      PP.getDiagnostics());
+    checkerMgr =
+        createCheckerManager(*Opts, PP.getLangOpts(), Plugins,
+                             CheckerRegistrationFns, PP.getDiagnostics());
 
     Mgr = llvm::make_unique<AnalysisManager>(
         *Ctx, PP.getDiagnostics(), PP.getLangOpts(), PathConsumers,
@@ -383,6 +386,10 @@ public:
 
   void AddDiagnosticConsumer(PathDiagnosticConsumer *Consumer) override {
     PathConsumers.push_back(Consumer);
+  }
+
+  void AddCheckerRegistrationFn(std::function<void(CheckerRegistry&)> Fn) override {
+    CheckerRegistrationFns.push_back(std::move(Fn));
   }
 
 private:
@@ -883,9 +890,9 @@ UbigraphViz::~UbigraphViz() {
   std::string Ubiviz;
   if (auto Path = llvm::sys::findProgramByName("ubiviz"))
     Ubiviz = *Path;
-  const char *args[] = {Ubiviz.c_str(), Filename.c_str(), nullptr};
+  std::array<StringRef, 2> Args{{Ubiviz, Filename}};
 
-  if (llvm::sys::ExecuteAndWait(Ubiviz, &args[0], nullptr, {}, 0, 0, &ErrMsg)) {
+  if (llvm::sys::ExecuteAndWait(Ubiviz, Args, llvm::None, {}, 0, 0, &ErrMsg)) {
     llvm::errs() << "Error viewing graph: " << ErrMsg << "\n";
   }
 

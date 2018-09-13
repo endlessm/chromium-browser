@@ -301,6 +301,7 @@ void AudioDecoderAndroid::CreateDecoder() {
   // Create a decoder.
   decoder_ = CastAudioDecoder::Create(
       task_runner_, config_, kDecoderSampleFormat,
+      CastAudioDecoder::OutputChannelLayoutFromConfig(config_),
       base::Bind(&AudioDecoderAndroid::OnDecoderInitialized,
                  weak_factory_.GetWeakPtr()));
 }
@@ -405,6 +406,25 @@ void AudioDecoderAndroid::OnBufferDecoded(
     int input_frames = decoded->data_size() / (kNumChannels * sizeof(float));
 
     DCHECK(!rate_shifter_info_.empty());
+
+    // If not AudioChannel::kAll, wipe all other channels for stereo sound.
+    if (backend_->AudioChannel() != AudioChannel::kAll) {
+      // There is an assumption hardcoded for playout_channel to be left
+      // or right. Adding a check here in case this changes.
+      DCHECK(backend_->AudioChannel() == AudioChannel::kLeft ||
+             backend_->AudioChannel() == AudioChannel::kRight);
+      const int playout_channel =
+          backend_->AudioChannel() == AudioChannel::kLeft ? 0 : 1;
+      for (int c = 0; c < kNumChannels; ++c) {
+        if (c != playout_channel) {
+          const size_t channel_size = decoded->data_size() / kNumChannels;
+          std::memcpy(decoded->writable_data() + c * channel_size,
+                      decoded->writable_data() + playout_channel * channel_size,
+                      channel_size);
+        }
+      }
+    }
+
     RateShifterInfo* rate_info = &rate_shifter_info_.front();
     // Bypass rate shifter if the rate is 1.0, and there are no frames queued
     // in the rate shifter.

@@ -37,6 +37,7 @@
 
 @implementation AdaptiveToolbarCoordinator
 @synthesize dispatcher = _dispatcher;
+@synthesize longPressDelegate = _longPressDelegate;
 @synthesize mediator = _mediator;
 @synthesize started = _started;
 @synthesize toolsMenuButtonObserverBridge = _toolsMenuButtonObserverBridge;
@@ -54,6 +55,8 @@
     return;
 
   self.started = YES;
+
+  self.viewController.longPressDelegate = self.longPressDelegate;
 
   self.mediator = [[ToolbarMediator alloc] init];
   self.mediator.consumer = self.viewController;
@@ -75,6 +78,13 @@
   self.mediator = nil;
 }
 
+#pragma mark - Properties
+
+- (void)setLongPressDelegate:(id<PopupMenuLongPressDelegate>)longPressDelegate {
+  _longPressDelegate = longPressDelegate;
+  self.viewController.longPressDelegate = longPressDelegate;
+}
+
 #pragma mark - SideSwipeToolbarSnapshotProviding
 
 - (UIImage*)toolbarSideSwipeSnapshotForWebState:(web::WebState*)webState {
@@ -92,7 +102,7 @@
 #pragma mark - NewTabPageControllerDelegate
 
 - (void)setToolbarBackgroundToIncognitoNTPColorWithAlpha:(CGFloat)alpha {
-  // TODO(crbug.com/803379): Implement that.
+  // No-op, not needed in UI refresh.
 }
 
 - (void)setScrollProgressForTabletOmnibox:(CGFloat)progress {

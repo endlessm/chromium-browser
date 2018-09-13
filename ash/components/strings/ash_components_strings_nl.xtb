@@ -5,6 +5,7 @@
 <translation id="1122869341872663659">Er worden <ph name="N" /> zoekresultaten voor <ph name="QUERY" /> getoond</translation>
 <translation id="1195667586424773550">Sleep de link naar de adresbalk van het tabblad</translation>
 <translation id="1204450209689312104">Een nieuw venster openen in de incognitomodus</translation>
+<translation id="1251638888133819822">'Volledig scherm vergroten' in- of uitschakelen</translation>
 <translation id="1290373024480130896"><ph name="MODIFIER1" /><ph name="SEPARATOR1" /><ph name="MODIFIER2" /><ph name="SEPARATOR2" /><ph name="MODIFIER3" /><ph name="SEPARATOR3" /><ph name="KEY" /></translation>
 <translation id="1293699935367580298">Esc</translation>
 <translation id="1299858300159559687">De huidige pagina afdrukken</translation>
@@ -35,10 +36,11 @@
 <translation id="2397416548179033562">Chrome-menu weergeven</translation>
 <translation id="2424073332829844142">Caps Lock in- en uitschakelen</translation>
 <translation id="2441202986792279177">Snel schakelen tussen vensters</translation>
+<translation id="2454251766545114447">Display uitzoomen</translation>
 <translation id="2478303094958140141">ChromeVox (gesproken feedback) in- of uitschakelen</translation>
 <translation id="2515586267016047495">Alt</translation>
 <translation id="2530339807289914946">Omlaag bladeren op de webpagina</translation>
-<translation id="2568632782096378307">Schermresolutie resetten naar standaardinstellingen</translation>
+<translation id="2574014812750545982">Zoomniveau op de pagina resetten</translation>
 <translation id="2596078834055697711">Een screenshot van het venster maken</translation>
 <translation id="2685170433750953446"><ph name="SHIFT" /><ph name="SEPARATOR1" /><ph name="ALT" /><ph name="SEPARATOR2" /><ph name="L" />, en dan <ph name="TAB" /> of <ph name="RIGHT" /></translation>
 <translation id="2687057317448262550">Schakelen naar de taalinvoermethode van de volgende taal</translation>
@@ -48,6 +50,7 @@
 <translation id="2789868185375229787">Uitzoomen op de pagina</translation>
 <translation id="2804480015716812239">Druk op <ph name="ALT" /> en klik op een link</translation>
 <translation id="2830827904629746450">Een venster aan de rechterkant docken</translation>
+<translation id="2840766858109427815">Ga verder naar de volgende pagina</translation>
 <translation id="2872353916818027657">Primaire monitor omwisselen</translation>
 <translation id="2914313326123580426">Het deelvenster 'Hulpprogramma's voor ontwikkelaars' weergeven of verbergen</translation>
 <translation id="292495055542441795">Volledig scherm in-/uitschakelen</translation>
@@ -62,9 +65,9 @@
 <translation id="3407560819924487926">Taakbeheer weergeven</translation>
 <translation id="3422679037938588196">Naar de vorige term gaan die overeenkomt met je zoekopdracht</translation>
 <translation id="344577624355799426"><ph name="ALT" /> of <ph name="SEARCH" /><ph name="SEPARATOR" /><ph name="DOWN" /></translation>
-<translation id="346243998268439747">Zoomniveau opnieuw instellen</translation>
 <translation id="353037708190149633">Alle geopende pagina's in je huidige venster als bladwijzers opslaan in een nieuwe map</translation>
 <translation id="355103131818127604">De link openen op een nieuw tabblad op de achtergrond</translation>
+<translation id="3622741593887335780">Inzoomen (indien gedockt OF wanneer 'Volledig scherm vergroten' is ingeschakeld)</translation>
 <translation id="3649256019230929621">Venster minimaliseren</translation>
 <translation id="3655154169297074232">Tabbladen en vensters</translation>
 <translation id="3668361878347172356">De laatste actie opnieuw uitvoeren</translation>
@@ -76,6 +79,7 @@
 <translation id="379295446891231126"><ph name="CTRL" /><ph name="SEPARATOR" /> 1 tot en met 8</translation>
 <translation id="3837047332182291558">Toetsenbord helderder maken (alleen voor toetsenborden met achtergrondverlichting)</translation>
 <translation id="3976863468609830880">Klikken op het laatste pictogram op de plank</translation>
+<translation id="3994783594793697310">Displayzoomniveau resetten</translation>
 <translation id="4026843240379844265">Actief venster verplaatsen tussen schermen</translation>
 <translation id="4035482366624727273">Alles op de pagina selecteren</translation>
 <translation id="4060703249685950734">Het laatste tabblad of venster dat je hebt gesloten, opnieuw openen</translation>
@@ -86,6 +90,7 @@
 <translation id="4141203561740478845">De rij met de adresbalk markeren</translation>
 <translation id="4148761611071495477"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="G" /> of <ph name="ENTER" /></translation>
 <translation id="4240486403425279990">Overzichtsmodus</translation>
+<translation id="4382340674111381977">Ga terug naar de vorige pagina</translation>
 <translation id="4472417192667361414">Systeem- en weergave-instellingen</translation>
 <translation id="4556221320735744018">Help voor sneltoetsen openen</translation>
 <translation id="4628718545549558538">Het statusgedeelte openen (waar je accountafbeelding wordt weergegeven)</translation>
@@ -102,6 +107,7 @@
 <translation id="5236674127086649162">De huidige pagina opnieuw laden en content in het cachegeheugen negeren</translation>
 <translation id="526651782186312376">Tekst tot het begin van de regel selecteren</translation>
 <translation id="5316716239522500219">Monitoren spiegelen</translation>
+<translation id="539072479502328326">'Gedockt vergrootglas' in- of uitschakelen</translation>
 <translation id="5487187679583934283">Hiermee start of stop je met typen wat je zegt</translation>
 <translation id="5541719484267030947">Druk op <ph name="ESC" /> tijdens het slepen van het tabblad</translation>
 <translation id="5554139136362089836">Zoeken op de huidige pagina</translation>
@@ -113,7 +119,6 @@
 <translation id="587531134027443617">Het vorige woord verwijderen</translation>
 <translation id="5899919361772749550">De Developer Tools-console weergeven of verbergen</translation>
 <translation id="5921745308587794300">Venster draaien</translation>
-<translation id="5975083100439434680">Uitzoomen</translation>
 <translation id="6022924867608035986">Tekst in zoekvak wissen</translation>
 <translation id="6045998054441862242">Modus voor hoog contrast inschakelen</translation>
 <translation id="6052614013050385269">Rechtsklikken op een link</translation>
@@ -123,14 +128,15 @@
 <translation id="6185696379715117369">Page Up</translation>
 <translation id="6228457605945141550">Helderheid verlagen</translation>
 <translation id="6276708887952587684">Paginabron weergeven</translation>
-<translation id="6296325018964936845">'Volledig scherm vergroten' in- of uitschakelen</translation>
 <translation id="6321940490215594447">De pagina Geschiedenis openen</translation>
+<translation id="6340769215862220182">Display inzoomen</translation>
 <translation id="6359811074279051077"><ph name="MODIFIER" /><ph name="SEPARATOR" /><ph name="KEY" /></translation>
 <translation id="6395172954772765143">Tekst tot het einde van de regel selecteren</translation>
 <translation id="6419237577786823024"><ph name="CTRL1" /><ph name="SEPARATOR1" /><ph name="LEFT" /> of <ph name="CTRL2" /><ph name="SEPARATOR2" /><ph name="RIGHT" /></translation>
 <translation id="6425378783626925378">Klikken op pictogram 1-8 op de plank</translation>
 <translation id="6435207348963613811">Het vorige item op de plank markeren</translation>
 <translation id="6445033640292336367">Het tabblad terugzetten op zijn oorspronkelijke positie</translation>
+<translation id="6474744297082284761">Uitzoomen (indien gedockt OF wanneer 'Volledig scherm vergroten' is ingeschakeld)</translation>
 <translation id="649811797655257835">Selecteer het bestand en druk op <ph name="SPACE" /></translation>
 <translation id="6556040137485212400">Het venster openen dat het langst ongebruikt is geweest</translation>
 <translation id="666343722268997814">Het menu dat met de rechtermuisknop worden geopend, openen voor het gemarkeerde item</translation>
@@ -160,7 +166,6 @@
 <translation id="7787242579016742662">Een bestand openen in de browser</translation>
 <translation id="7917881398263220094">Het laden van de huidige pagina stoppen</translation>
 <translation id="7952165122793773711">Naar tabblad 1 tot en met 8 gaan</translation>
-<translation id="8025696740288105292"><ph name="CTRL" /><ph name="SEPARATOR1" /><ph name="SHIFT" /><ph name="SEPARATOR2" /><ph name="PLUS" /> of <ph name="MINUS" /></translation>
 <translation id="8026334261755873520">Browsegegevens wissen</translation>
 <translation id="8130528849632411619">Naar het begin van het document gaan</translation>
 <translation id="8147954207400281792"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="K" /> of <ph name="E" /></translation>
@@ -174,15 +179,12 @@
 <translation id="8537650670971624753">Zoekmodus afsluiten</translation>
 <translation id="85690795166292698">De link openen op een nieuw tabblad</translation>
 <translation id="8609384513243082612">Nieuw tabblad openen</translation>
-<translation id="8642453848560580159">'Gedockt vergrootglas' in- of uitschakelen</translation>
 <translation id="8644639153978066712">Verborgen bestanden in de app Bestanden weergeven</translation>
 <translation id="8717459106217102612">Het vorige woord of de vorige letter selecteren</translation>
 <translation id="8727232706774971183">Je meldingen bekijken</translation>
 <translation id="8855885154700222542">Toets voor volledig scherm</translation>
 <translation id="88986195241502842">Page Down</translation>
-<translation id="8903921497873541725">Inzoomen</translation>
 <translation id="8924883688469390268">Overschakelen naar de vorige gebruiker</translation>
-<translation id="8951768610999698672">Items op het scherm groter of kleiner maken</translation>
 <translation id="8977648847395357314">De inhoud in de adresbalk selecteren</translation>
 <translation id="8982190978301344584">Het menu weergeven met een lijst met beschikbare IME's</translation>
 <translation id="8990356943438003669"><ph name="ALT" /><ph name="SEPARATOR" /> 1 tot en met 8</translation>

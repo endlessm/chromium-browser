@@ -14,6 +14,7 @@
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/wallpaper_types.h"
+#include "ash/public/cpp/window_properties.h"
 #include "ash/public/cpp/window_state_type.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
@@ -30,8 +31,10 @@
 #include "ash/wm/overview/window_selector.h"
 #include "ash/wm/overview/window_selector_delegate.h"
 #include "ash/wm/overview/window_selector_item.h"
+#include "ash/wm/splitview/split_view_drag_indicators.h"
 #include "ash/wm/window_state.h"
 #include "base/i18n/string_search.h"
+#include "base/numerics/ranges.h"
 #include "base/strings/string_number_conversions.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/aura/client/aura_constants.h"
@@ -44,6 +47,7 @@
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/safe_integer_conversions.h"
 #include "ui/gfx/geometry/vector2d.h"
+#include "ui/views/background.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
@@ -97,6 +101,13 @@ constexpr SkColor kNoItemsIndicatorBackgroundColor = SK_ColorBLACK;
 constexpr SkColor kNoItemsIndicatorTextColor = SK_ColorWHITE;
 constexpr float kNoItemsIndicatorBackgroundOpacity = 0.8f;
 
+// Values for the new selector item (+) in overview.
+constexpr SkColor kNewSelectorItemColor = SK_ColorWHITE;
+constexpr float kNewSelectorItemOpacity = 0.1f;
+constexpr float kNewSelectorPlusSignLongRatio = 0.2f;
+constexpr float kNewSelectorPlusSignShortRatio = 0.03f;
+constexpr int kNewSelectorItemTransitionMilliseconds = 250;
+
 // Returns the vector for the fade in animation.
 gfx::Vector2d GetSlideVectorForFadeIn(WindowSelector::Direction direction,
                                       const gfx::Rect& bounds) {
@@ -112,6 +123,90 @@ gfx::Vector2d GetSlideVectorForFadeIn(WindowSelector::Direction direction,
       break;
   }
   return vector;
+}
+
+// The views implementaion for |new_selector_item_widget_|.
+class NewSelectorItemView : public views::View {
+ public:
+  NewSelectorItemView() {
+    background_view_ = new views::View();
+    background_view_->SetPaintToLayer(ui::LAYER_SOLID_COLOR);
+    background_view_->layer()->SetColor(kNewSelectorItemColor);
+    background_view_->layer()->SetOpacity(kNewSelectorItemOpacity);
+    AddChildView(background_view_);
+
+    vertical_line_ = new views::View();
+    vertical_line_->SetPaintToLayer();
+    vertical_line_->SetBackground(
+        views::CreateSolidBackground(kNewSelectorItemColor));
+
+    horizontal_line_ = new views::View();
+    horizontal_line_->SetPaintToLayer();
+    horizontal_line_->SetBackground(
+        views::CreateSolidBackground(kNewSelectorItemColor));
+
+    AddChildView(vertical_line_);
+    AddChildView(horizontal_line_);
+  }
+  ~NewSelectorItemView() override = default;
+
+  // views::View:
+  void Layout() override {
+    const gfx::Rect local_bounds = GetLocalBounds();
+    background_view_->SetBoundsRect(local_bounds);
+
+    gfx::Rect vertical_bounds = local_bounds;
+    vertical_bounds.ClampToCenteredSize(
+        gfx::Size(local_bounds.height() * kNewSelectorPlusSignShortRatio,
+                  local_bounds.height() * kNewSelectorPlusSignLongRatio));
+    vertical_line_->SetBoundsRect(vertical_bounds);
+
+    gfx::Rect horizontal_bounds = local_bounds;
+    horizontal_bounds.ClampToCenteredSize(
+        gfx::Size(local_bounds.height() * kNewSelectorPlusSignLongRatio,
+                  local_bounds.height() * kNewSelectorPlusSignShortRatio));
+    horizontal_line_->SetBoundsRect(horizontal_bounds);
+  }
+
+ private:
+  views::View* background_view_;
+  views::View* vertical_line_;    // The vertical line of the plus sign (+)
+  views::View* horizontal_line_;  // The horizontal line of the plus sign (+)
+
+  DISALLOW_COPY_AND_ASSIGN(NewSelectorItemView);
+};
+
+// Creates |new_selector_item_widget_|. It's created when a window (not from
+// overview) is dragged around and destroyed when the drag ends.
+std::unique_ptr<views::Widget> CreateNewSelectorItemWidget(
+    aura::Window* dragged_window) {
+  views::Widget::InitParams params;
+  params.type = views::Widget::InitParams::TYPE_WINDOW_FRAMELESS;
+  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  params.activatable = views::Widget::InitParams::Activatable::ACTIVATABLE_NO;
+  params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
+  params.accept_events = false;
+  params.parent = dragged_window->parent();
+  params.bounds = display::Screen::GetScreen()
+                      ->GetDisplayNearestWindow(dragged_window)
+                      .work_area();
+  std::unique_ptr<views::Widget> widget(new views::Widget);
+  widget->set_focus_on_creation(false);
+  widget->Init(params);
+
+  widget->SetContentsView(new NewSelectorItemView());
+  widget->Show();
+
+  widget->SetOpacity(0.f);
+  ui::ScopedLayerAnimationSettings animation_settings(
+      widget->GetNativeWindow()->layer()->GetAnimator());
+  animation_settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(
+      kNewSelectorItemTransitionMilliseconds));
+  animation_settings.SetTweenType(gfx::Tween::EASE_IN);
+  animation_settings.SetPreemptionStrategy(
+      ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
+  widget->SetOpacity(1.f);
+  return widget;
 }
 
 }  // namespace
@@ -267,120 +362,20 @@ void WindowGrid::PositionWindows(bool animate,
   if (window_list_.empty())
     return;
 
-  gfx::Rect total_bounds = bounds_;
-  // Windows occupy vertically centered area with additional vertical insets.
-  int horizontal_inset =
-      gfx::ToFlooredInt(std::min(kOverviewInsetRatio * total_bounds.width(),
-                                 kOverviewInsetRatio * total_bounds.height()));
-  int vertical_inset =
-      horizontal_inset +
-      kOverviewVerticalInset * (total_bounds.height() - 2 * horizontal_inset);
-  total_bounds.Inset(std::max(0, horizontal_inset - kWindowMargin),
-                     std::max(0, vertical_inset - kWindowMargin));
-  std::vector<gfx::Rect> rects;
+  std::vector<gfx::Rect> rects = GetWindowRects(ignored_item);
 
-  // Keep track of the lowest coordinate.
-  int max_bottom = total_bounds.y();
-
-  // Right bound of the narrowest row.
-  int min_right = total_bounds.right();
-  // Right bound of the widest row.
-  int max_right = total_bounds.x();
-
-  // Keep track of the difference between the narrowest and the widest row.
-  // Initially this is set to the worst it can ever be assuming the windows fit.
-  int width_diff = total_bounds.width();
-
-  // Initially allow the windows to occupy all available width. Shrink this
-  // available space horizontally to find the breakdown into rows that achieves
-  // the minimal |width_diff|.
-  int right_bound = total_bounds.right();
-
-  // Determine the optimal height bisecting between |low_height| and
-  // |high_height|. Once this optimal height is known, |height_fixed| is set to
-  // true and the rows are balanced by repeatedly squeezing the widest row to
-  // cause windows to overflow to the subsequent rows.
-  int low_height = 2 * kWindowMargin;
-  int high_height =
-      std::max(low_height, static_cast<int>(total_bounds.height() + 1));
-  int height = 0.5 * (low_height + high_height);
-  bool height_fixed = false;
-
-  // Repeatedly try to fit the windows |rects| within |right_bound|.
-  // If a maximum |height| is found such that all window |rects| fit, this
-  // fitting continues while shrinking the |right_bound| in order to balance the
-  // rows. If the windows fit the |right_bound| would have been decremented at
-  // least once so it needs to be incremented once before getting out of this
-  // loop and one additional pass made to actually fit the |rects|.
-  // If the |rects| cannot fit (e.g. there are too many windows) the bisection
-  // will still finish and we might increment the |right_bound| once pixel extra
-  // which is acceptable since there is an unused margin on the right.
-  bool make_last_adjustment = false;
-  while (true) {
-    gfx::Rect overview_bounds(total_bounds);
-    overview_bounds.set_width(right_bound - total_bounds.x());
-    bool windows_fit = FitWindowRectsInBounds(
-        overview_bounds, std::min(kMaxHeight + 2 * kWindowMargin, height),
-        ignored_item, &rects, &max_bottom, &min_right, &max_right);
-
-    if (height_fixed) {
-      if (!windows_fit) {
-        // Revert the previous change to |right_bound| and do one last pass.
-        right_bound++;
-        make_last_adjustment = true;
-        break;
-      }
-      // Break if all the windows are zero-width at the current scale.
-      if (max_right <= total_bounds.x())
-        break;
-    } else {
-      // Find the optimal row height bisecting between |low_height| and
-      // |high_height|.
-      if (windows_fit)
-        low_height = height;
-      else
-        high_height = height;
-      height = 0.5 * (low_height + high_height);
-      // When height can no longer be improved, start balancing the rows.
-      if (height == low_height)
-        height_fixed = true;
-    }
-
-    if (windows_fit && height_fixed) {
-      if (max_right - min_right <= width_diff) {
-        // Row alignment is getting better. Try to shrink the |right_bound| in
-        // order to squeeze the widest row.
-        right_bound = max_right - 1;
-        width_diff = max_right - min_right;
-      } else {
-        // Row alignment is getting worse.
-        // Revert the previous change to |right_bound| and do one last pass.
-        right_bound++;
-        make_last_adjustment = true;
-        break;
-      }
-    }
-  }
-  // Once the windows in |window_list_| no longer fit, the change to
-  // |right_bound| was reverted. Perform one last pass to position the |rects|.
-  if (make_last_adjustment) {
-    gfx::Rect overview_bounds(total_bounds);
-    overview_bounds.set_width(right_bound - total_bounds.x());
-    FitWindowRectsInBounds(
-        overview_bounds, std::min(kMaxHeight + 2 * kWindowMargin, height),
-        ignored_item, &rects, &max_bottom, &min_right, &max_right);
-  }
   // Position the windows centering the left-aligned rows vertically. Do not
   // position |ignored_item| if it is not nullptr and matches a item in
   // |window_list_|.
-  gfx::Vector2d offset(0, (total_bounds.bottom() - max_bottom) / 2);
   for (size_t i = 0; i < window_list_.size(); ++i) {
-    if (ignored_item != nullptr && window_list_[i].get() == ignored_item)
+    if (window_list_[i]->animating_to_close() ||
+        (ignored_item != nullptr && window_list_[i].get() == ignored_item)) {
       continue;
+    }
 
     const bool should_animate = window_list_[i]->ShouldAnimateWhenEntering();
     window_list_[i]->SetBounds(
-        rects[i] + offset,
+        rects[i],
         animate && should_animate
             ? OverviewAnimationType::OVERVIEW_ANIMATION_LAY_OUT_SELECTOR_ITEMS
             : OverviewAnimationType::OVERVIEW_ANIMATION_NONE);
@@ -467,7 +462,7 @@ WindowSelectorItem* WindowGrid::GetWindowSelectorItemContaining(
   return nullptr;
 }
 
-void WindowGrid::AddItem(aura::Window* window) {
+void WindowGrid::AddItem(aura::Window* window, bool reposition) {
   DCHECK(!GetWindowSelectorItemContaining(window));
 
   window_observer_.Add(window);
@@ -476,21 +471,30 @@ void WindowGrid::AddItem(aura::Window* window) {
       std::make_unique<WindowSelectorItem>(window, window_selector_, this));
   window_list_.back()->PrepareForOverview();
 
-  PositionWindows(/*animate=*/true);
+  if (IsNewSelectorItemWindow(window)) {
+    // If we're adding the new selector item, don't do the layout animation.
+    // We'll do opacity animation by ourselves.
+    window_list_.back()->set_should_animate_when_entering(false);
+    window_list_.back()->set_should_animate_when_exiting(false);
+  }
+
+  if (reposition)
+    PositionWindows(/*animate=*/true);
 }
 
-void WindowGrid::RemoveItem(WindowSelectorItem* selector_item) {
+void WindowGrid::RemoveItem(WindowSelectorItem* selector_item,
+                            bool reposition) {
   auto iter =
-      std::find_if(window_list_.begin(), window_list_.end(),
-                   [selector_item](std::unique_ptr<WindowSelectorItem>& item) {
-                     return (item.get() == selector_item);
-                   });
+      GetWindowSelectorItemIterContainingWindow(selector_item->GetWindow());
   if (iter != window_list_.end()) {
     window_observer_.Remove(selector_item->GetWindow());
     window_state_observer_.Remove(
         wm::GetWindowState(selector_item->GetWindow()));
     window_list_.erase(iter);
   }
+
+  if (reposition)
+    PositionWindows(/*animate=*/true);
 }
 
 void WindowGrid::FilterItems(const base::string16& pattern) {
@@ -566,14 +570,127 @@ void WindowGrid::OnSelectorItemDragEnded() {
     window_selector_item->OnSelectorItemDragEnded();
 }
 
+void WindowGrid::OnWindowDragStarted(aura::Window* dragged_window) {
+  DCHECK_EQ(dragged_window->GetRootWindow(), root_window_);
+  DCHECK(!new_selector_item_widget_);
+  new_selector_item_widget_ = CreateNewSelectorItemWidget(dragged_window);
+  window_selector_->AddItem(new_selector_item_widget_->GetNativeWindow(),
+                            /*reposition=*/true);
+
+  // Stack the newly added window item below |dragged_window|.
+  DCHECK_EQ(dragged_window->parent(),
+            new_selector_item_widget_->GetNativeWindow()->parent());
+  dragged_window->parent()->StackChildBelow(
+      new_selector_item_widget_->GetNativeWindow(), dragged_window);
+
+  // Called to set caption and title visibility during dragging.
+  OnSelectorItemDragStarted(/*item=*/nullptr);
+}
+
+void WindowGrid::OnWindowDragContinued(aura::Window* dragged_window,
+                                       const gfx::Point& location_in_screen,
+                                       IndicatorState indicator_state) {
+  DCHECK_EQ(dragged_window->GetRootWindow(), root_window_);
+  // Find the window selector item that contains |location_in_screen|.
+  auto iter = std::find_if(
+      window_list_.begin(), window_list_.end(),
+      [location_in_screen](std::unique_ptr<WindowSelectorItem>& item) {
+        return item->target_bounds().Contains(location_in_screen);
+      });
+
+  aura::Window* target_window =
+      (iter != window_list_.end()) ? (*iter)->GetWindow() : nullptr;
+
+  if (indicator_state == IndicatorState::kPreviewAreaLeft ||
+      indicator_state == IndicatorState::kPreviewAreaRight) {
+    // If the dragged window is currently dragged into preview window area,
+    // clear the selection widget.
+    if (SelectedWindow()) {
+      SelectedWindow()->set_selected(false);
+      selection_widget_.reset();
+    }
+
+    // Also clear ash::kIsDeferredTabDraggingTargetWindowKey key on the target
+    // window selector item so that it can't merge into this window selector
+    // item if the dragged window is currently in preview window area.
+    if (target_window && !IsNewSelectorItemWindow(target_window))
+      target_window->ClearProperty(ash::kIsDeferredTabDraggingTargetWindowKey);
+
+    return;
+  }
+
+  // If |location_in_screen| is contained by one of the eligible window selector
+  // item in overview, show the selection widget.
+  if (target_window && (IsNewSelectorItemWindow(target_window) ||
+                        target_window->GetProperty(
+                            ash::kIsDeferredTabDraggingTargetWindowKey))) {
+    size_t previous_selected_index = selected_index_;
+    selected_index_ = iter - window_list_.begin();
+    if (previous_selected_index == selected_index_ && selection_widget_)
+      return;
+
+    if (previous_selected_index != selected_index_)
+      selection_widget_.reset();
+
+    const WindowSelector::Direction direction =
+        (selected_index_ - previous_selected_index > 0) ? WindowSelector::RIGHT
+                                                        : WindowSelector::LEFT;
+    MoveSelectionWidget(direction,
+                        /*recreate_selection_widget=*/true,
+                        /*out_of_bounds=*/false,
+                        /*animate=*/false);
+    return;
+  }
+
+  if (SelectedWindow()) {
+    SelectedWindow()->set_selected(false);
+    selection_widget_.reset();
+  }
+}
+
+void WindowGrid::OnWindowDragEnded(aura::Window* dragged_window,
+                                   const gfx::Point& location_in_screen) {
+  DCHECK_EQ(dragged_window->GetRootWindow(), root_window_);
+  DCHECK(new_selector_item_widget_.get());
+
+  // Check to see if the dragged window needs to be added to overview. If so,
+  // add it to overview without repositioning the grid. It will be done at the
+  // end of this function.
+  if (SelectedWindow()) {
+    if (IsNewSelectorItemWindow(SelectedWindow()->GetWindow()))
+      window_selector_->AddItem(dragged_window, /*reposition=*/false);
+    SelectedWindow()->set_selected(false);
+    selection_widget_.reset();
+  }
+
+  window_selector_->RemoveWindowSelectorItem(
+      GetWindowSelectorItemContaining(
+          new_selector_item_widget_->GetNativeWindow()),
+      /*reposition=*/false);
+  new_selector_item_widget_.reset();
+
+  // Called to reset caption and title visibility after dragging.
+  OnSelectorItemDragEnded();
+
+  // Need to call PositionWindows() here as the above two functions AddItem()
+  // and RemoveWindowSelectorItem() are called without repositioning windows.
+  PositionWindows(/*animate=*/true);
+}
+
+bool WindowGrid::IsNewSelectorItemWindow(aura::Window* window) const {
+  return new_selector_item_widget_ &&
+         new_selector_item_widget_->GetNativeWindow() == window;
+}
+
 void WindowGrid::OnWindowDestroying(aura::Window* window) {
   window_observer_.Remove(window);
   window_state_observer_.Remove(wm::GetWindowState(window));
-  auto iter = std::find_if(window_list_.begin(), window_list_.end(),
-                           [window](std::unique_ptr<WindowSelectorItem>& item) {
-                             return item->GetWindow() == window;
-                           });
+  auto iter = GetWindowSelectorItemIterContainingWindow(window);
   DCHECK(iter != window_list_.end());
+
+  // Windows that are animating to a close state already call PositionWindows,
+  // no need to call it twice.
+  const bool needs_repositioning = !((*iter)->animating_to_close());
 
   size_t removed_index = iter - window_list_.begin();
   window_list_.erase(iter);
@@ -596,7 +713,8 @@ void WindowGrid::OnWindowDestroying(aura::Window* window) {
       SelectedWindow()->SendAccessibleSelectionEvent();
   }
 
-  PositionWindows(true);
+  if (needs_repositioning)
+    PositionWindows(true);
 }
 
 void WindowGrid::OnWindowBoundsChanged(aura::Window* window,
@@ -608,10 +726,7 @@ void WindowGrid::OnWindowBoundsChanged(aura::Window* window,
   if (!prepared_for_overview_)
     return;
 
-  auto iter = std::find_if(window_list_.begin(), window_list_.end(),
-                           [window](std::unique_ptr<WindowSelectorItem>& item) {
-                             return item->GetWindow() == window;
-                           });
+  auto iter = GetWindowSelectorItemIterContainingWindow(window);
   DCHECK(iter != window_list_.end());
 
   // Immediately finish any active bounds animation.
@@ -723,6 +838,162 @@ void WindowGrid::SetWindowListNotAnimatedWhenExiting() {
 void WindowGrid::ResetWindowListAnimationStates() {
   for (const auto& selector_item : window_list_)
     selector_item->ResetAnimationStates();
+}
+
+void WindowGrid::StartNudge(WindowSelectorItem* item) {
+  // When there is one window left, there is no need to nudge.
+  if (window_list_.size() <= 1) {
+    nudge_data_.clear();
+    return;
+  }
+
+  // If any of the items are being animated to close, do not nudge any windows
+  // otherwise we have to deal with potential items getting removed from
+  // |window_list_| midway through a nudge.
+  for (const auto& window_item : window_list_) {
+    if (window_item->animating_to_close()) {
+      nudge_data_.clear();
+      return;
+    }
+  }
+
+  DCHECK(item);
+
+  // Get the bounds of the windows currently, and the bounds if |item| were to
+  // be removed.
+  std::vector<gfx::Rect> src_rects;
+  for (const auto& window_item : window_list_)
+    src_rects.push_back(window_item->target_bounds());
+
+  std::vector<gfx::Rect> dst_rects = GetWindowRects(item);
+
+  // Get the index of |item|.
+  size_t index =
+      std::find_if(
+          window_list_.begin(), window_list_.end(),
+          [&item](const std::unique_ptr<WindowSelectorItem>& item_ptr) {
+            return item == item_ptr.get();
+          }) -
+      window_list_.begin();
+  DCHECK_LT(index, window_list_.size());
+
+  // Returns a vector of integers indicating which row the item is in. |index|
+  // is the index of the element which is going to be deleted and should not
+  // factor into calculations. The call site should mark |index| as -1 if it
+  // should not be used. The item at |index| is marked with a 0. The heights of
+  // items are all set to the same value so a new row is determined if the y
+  // value has changed from the previous item.
+  auto get_rows = [](const std::vector<gfx::Rect>& bounds_list, size_t index) {
+    std::vector<int> row_numbers;
+    int current_row = 1;
+    int last_y = 0;
+    for (size_t i = 0; i < bounds_list.size(); ++i) {
+      if (i == index) {
+        row_numbers.push_back(0);
+        continue;
+      }
+
+      // Update |current_row| if the y position has changed (heights are all
+      // equal in overview, so a new y position indicates a new row).
+      if (last_y != 0 && last_y != bounds_list[i].y())
+        ++current_row;
+
+      row_numbers.push_back(current_row);
+      last_y = bounds_list[i].y();
+    }
+
+    return row_numbers;
+  };
+
+  std::vector<int> src_rows = get_rows(src_rects, -1);
+  std::vector<int> dst_rows = get_rows(dst_rects, index);
+
+  // Do nothing if the number of rows change.
+  if (dst_rows.back() != 0 && src_rows.back() != dst_rows.back())
+    return;
+  size_t second_last_index = src_rows.size() - 2;
+  if (dst_rows.back() == 0 &&
+      src_rows[second_last_index] != dst_rows[second_last_index]) {
+    return;
+  }
+
+  // Do nothing if the last item from the previous row will drop onto the
+  // current row, this will cause the items in the current row to shift to the
+  // right while the previous item stays in the previous row, which looks weird.
+  if (src_rows[index] > 1) {
+    // Find the last item from the previous row.
+    size_t previous_row_last_index = index;
+    while (src_rows[previous_row_last_index] == src_rows[index]) {
+      --previous_row_last_index;
+    }
+
+    // Early return if the last item in the previous row changes rows.
+    if (src_rows[previous_row_last_index] != dst_rows[previous_row_last_index])
+      return;
+  }
+
+  // Helper to check whether the item at |item_index| will be nudged.
+  auto should_nudge = [&src_rows, &dst_rows, &index](size_t item_index) {
+    // Out of bounds.
+    if (item_index >= src_rows.size())
+      return false;
+
+    // Nudging happens when the item stays on the same row and is also on the
+    // same row as the item to be deleted was.
+    if (dst_rows[item_index] == src_rows[index] &&
+        dst_rows[item_index] == src_rows[item_index]) {
+      return true;
+    }
+
+    return false;
+  };
+
+  // Starting from |index| go up and down while the nudge condition returns
+  // true.
+  std::vector<int> affected_indexes;
+  size_t loop_index;
+
+  if (index > 0) {
+    loop_index = index - 1;
+    while (should_nudge(loop_index)) {
+      affected_indexes.push_back(loop_index);
+      --loop_index;
+    }
+  }
+
+  loop_index = index + 1;
+  while (should_nudge(loop_index)) {
+    affected_indexes.push_back(loop_index);
+    ++loop_index;
+  }
+
+  // Populate |nudge_data_| with the indexes in |affected_indexes| and their
+  // respective source and destination bounds.
+  nudge_data_.resize(affected_indexes.size());
+  for (size_t i = 0; i < affected_indexes.size(); ++i) {
+    NudgeData data;
+    data.index = affected_indexes[i];
+    data.src = src_rects[data.index];
+    data.dst = dst_rects[data.index];
+    nudge_data_[i] = data;
+  }
+}
+
+void WindowGrid::UpdateNudge(WindowSelectorItem* item, double value) {
+  for (const auto& data : nudge_data_) {
+    DCHECK_LT(data.index, window_list_.size());
+
+    WindowSelectorItem* nudged_item = window_list_[data.index].get();
+    double nudge_param = value * value / 30.0;
+    nudge_param = base::ClampToRange(nudge_param, 0.0, 1.0);
+    gfx::Rect bounds =
+        gfx::Tween::RectValueBetween(nudge_param, data.src, data.dst);
+    nudged_item->SetBounds(bounds, OVERVIEW_ANIMATION_NONE);
+  }
+}
+
+void WindowGrid::EndNudge() {
+  nudge_data_.clear();
 }
 
 void WindowGrid::InitShieldWidget() {
@@ -879,6 +1150,118 @@ void WindowGrid::MoveSelectionWidgetToTarget(bool animate) {
   }
 }
 
+std::vector<gfx::Rect> WindowGrid::GetWindowRects(
+    WindowSelectorItem* ignored_item) {
+  gfx::Rect total_bounds = bounds_;
+  // Windows occupy vertically centered area with additional vertical insets.
+  int horizontal_inset =
+      gfx::ToFlooredInt(std::min(kOverviewInsetRatio * total_bounds.width(),
+                                 kOverviewInsetRatio * total_bounds.height()));
+  int vertical_inset =
+      horizontal_inset +
+      kOverviewVerticalInset * (total_bounds.height() - 2 * horizontal_inset);
+  total_bounds.Inset(std::max(0, horizontal_inset - kWindowMargin),
+                     std::max(0, vertical_inset - kWindowMargin));
+  std::vector<gfx::Rect> rects;
+
+  // Keep track of the lowest coordinate.
+  int max_bottom = total_bounds.y();
+
+  // Right bound of the narrowest row.
+  int min_right = total_bounds.right();
+  // Right bound of the widest row.
+  int max_right = total_bounds.x();
+
+  // Keep track of the difference between the narrowest and the widest row.
+  // Initially this is set to the worst it can ever be assuming the windows fit.
+  int width_diff = total_bounds.width();
+
+  // Initially allow the windows to occupy all available width. Shrink this
+  // available space horizontally to find the breakdown into rows that achieves
+  // the minimal |width_diff|.
+  int right_bound = total_bounds.right();
+
+  // Determine the optimal height bisecting between |low_height| and
+  // |high_height|. Once this optimal height is known, |height_fixed| is set to
+  // true and the rows are balanced by repeatedly squeezing the widest row to
+  // cause windows to overflow to the subsequent rows.
+  int low_height = 2 * kWindowMargin;
+  int high_height =
+      std::max(low_height, static_cast<int>(total_bounds.height() + 1));
+  int height = 0.5 * (low_height + high_height);
+  bool height_fixed = false;
+
+  // Repeatedly try to fit the windows |rects| within |right_bound|.
+  // If a maximum |height| is found such that all window |rects| fit, this
+  // fitting continues while shrinking the |right_bound| in order to balance the
+  // rows. If the windows fit the |right_bound| would have been decremented at
+  // least once so it needs to be incremented once before getting out of this
+  // loop and one additional pass made to actually fit the |rects|.
+  // If the |rects| cannot fit (e.g. there are too many windows) the bisection
+  // will still finish and we might increment the |right_bound| once pixel extra
+  // which is acceptable since there is an unused margin on the right.
+  bool make_last_adjustment = false;
+  while (true) {
+    gfx::Rect overview_bounds(total_bounds);
+    overview_bounds.set_width(right_bound - total_bounds.x());
+    bool windows_fit = FitWindowRectsInBounds(
+        overview_bounds, std::min(kMaxHeight + 2 * kWindowMargin, height),
+        ignored_item, &rects, &max_bottom, &min_right, &max_right);
+
+    if (height_fixed) {
+      if (!windows_fit) {
+        // Revert the previous change to |right_bound| and do one last pass.
+        right_bound++;
+        make_last_adjustment = true;
+        break;
+      }
+      // Break if all the windows are zero-width at the current scale.
+      if (max_right <= total_bounds.x())
+        break;
+    } else {
+      // Find the optimal row height bisecting between |low_height| and
+      // |high_height|.
+      if (windows_fit)
+        low_height = height;
+      else
+        high_height = height;
+      height = 0.5 * (low_height + high_height);
+      // When height can no longer be improved, start balancing the rows.
+      if (height == low_height)
+        height_fixed = true;
+    }
+
+    if (windows_fit && height_fixed) {
+      if (max_right - min_right <= width_diff) {
+        // Row alignment is getting better. Try to shrink the |right_bound| in
+        // order to squeeze the widest row.
+        right_bound = max_right - 1;
+        width_diff = max_right - min_right;
+      } else {
+        // Row alignment is getting worse.
+        // Revert the previous change to |right_bound| and do one last pass.
+        right_bound++;
+        make_last_adjustment = true;
+        break;
+      }
+    }
+  }
+  // Once the windows in |window_list_| no longer fit, the change to
+  // |right_bound| was reverted. Perform one last pass to position the |rects|.
+  if (make_last_adjustment) {
+    gfx::Rect overview_bounds(total_bounds);
+    overview_bounds.set_width(right_bound - total_bounds.x());
+    FitWindowRectsInBounds(
+        overview_bounds, std::min(kMaxHeight + 2 * kWindowMargin, height),
+        ignored_item, &rects, &max_bottom, &min_right, &max_right);
+  }
+
+  gfx::Vector2d offset(0, (total_bounds.bottom() - max_bottom) / 2);
+  for (size_t i = 0; i < rects.size(); ++i)
+    rects[i] += offset;
+  return rects;
+}
+
 bool WindowGrid::FitWindowRectsInBounds(const gfx::Rect& bounds,
                                         int height,
                                         WindowSelectorItem* ignored_item,
@@ -906,7 +1289,8 @@ bool WindowGrid::FitWindowRectsInBounds(const gfx::Rect& bounds,
   const gfx::Size item_size(0, height);
   size_t i = 0;
   for (const auto& window : window_list_) {
-    if (ignored_item && ignored_item == window.get()) {
+    if (window->animating_to_close() ||
+        (ignored_item && ignored_item == window.get())) {
       // Increment the index anyways. PositionWindows will handle skipping this
       // entry.
       ++i;
@@ -946,8 +1330,10 @@ bool WindowGrid::FitWindowRectsInBounds(const gfx::Rect& bounds,
         // If the |ignored_item| is the last item, update |out_max_bottom|
         // before breaking the loop, but no need to add the height, as the last
         // item does not contribute to the grid bounds.
-        if (ignored_item && ignored_item == window_list_.back().get())
+        if (window_list_.back()->animating_to_close() ||
+            (ignored_item && ignored_item == window_list_.back().get())) {
           *out_max_bottom = top;
+        }
         break;
       }
       left = bounds.x();
@@ -998,6 +1384,14 @@ void WindowGrid::SetWindowSelectorItemAnimationState(
     }
     *has_covered_available_workspace = true;
   }
+}
+
+std::vector<std::unique_ptr<WindowSelectorItem>>::iterator
+WindowGrid::GetWindowSelectorItemIterContainingWindow(aura::Window* window) {
+  return std::find_if(window_list_.begin(), window_list_.end(),
+                      [window](std::unique_ptr<WindowSelectorItem>& item) {
+                        return item->GetWindow() == window;
+                      });
 }
 
 }  // namespace ash

@@ -121,6 +121,9 @@ base::FilePath ProfileHelper::GetProfilePathByUserIdHash(
 // static
 base::FilePath ProfileHelper::GetSigninProfileDir() {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
+  // profile_manager can be null in unit tests.
+  if (!profile_manager)
+    return base::FilePath();
   base::FilePath user_data_dir = profile_manager->user_data_dir();
   return user_data_dir.AppendASCII(chrome::kInitialProfile);
 }
@@ -238,7 +241,7 @@ bool ProfileHelper::IsEphemeralUserProfile(const Profile* profile) {
   return ChromeUserManager::Get()->AreEphemeralUsersEnabled();
 }
 
-void ProfileHelper::ProfileStartup(Profile* profile, bool process_startup) {
+void ProfileHelper::ProfileStartup(Profile* profile) {
   // Initialize Chrome OS preferences like touch pad sensitivity. For the
   // preferences to work in the guest mode, the initialization has to be
   // done after |profile| is switched to the incognito profile (which

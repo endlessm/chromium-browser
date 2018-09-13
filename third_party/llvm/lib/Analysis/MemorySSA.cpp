@@ -904,8 +904,8 @@ struct RenamePassData {
 namespace llvm {
 
 /// A MemorySSAWalker that does AA walks to disambiguate accesses. It no
-/// longer does caching on its own,
-/// but the name has been retained for the moment.
+/// longer does caching on its own, but the name has been retained for the
+/// moment.
 class MemorySSA::CachingWalker final : public MemorySSAWalker {
   ClobberWalker Walker;
 
@@ -1473,8 +1473,18 @@ void MemorySSA::moveTo(MemoryUseOrDef *What, BasicBlock *BB,
   insertIntoListsBefore(What, BB, Where);
 }
 
-void MemorySSA::moveTo(MemoryUseOrDef *What, BasicBlock *BB,
+void MemorySSA::moveTo(MemoryAccess *What, BasicBlock *BB,
                        InsertionPlace Point) {
+  if (isa<MemoryPhi>(What)) {
+    assert(Point == Beginning &&
+           "Can only move a Phi at the beginning of the block");
+    // Update lookup table entry
+    ValueToMemoryAccess.erase(What->getBlock());
+    bool Inserted = ValueToMemoryAccess.insert({BB, What}).second;
+    (void)Inserted;
+    assert(Inserted && "Cannot move a Phi to a block that already has one");
+  }
+
   removeFromLists(What, false);
   What->setBlock(BB);
   insertIntoListsForBlock(What, BB, Point);
@@ -1573,19 +1583,18 @@ void MemorySSA::removeFromLookups(MemoryAccess *MA) {
   assert(MA->use_empty() &&
          "Trying to remove memory access that still has uses");
   BlockNumbering.erase(MA);
-  if (MemoryUseOrDef *MUD = dyn_cast<MemoryUseOrDef>(MA))
+  if (auto *MUD = dyn_cast<MemoryUseOrDef>(MA))
     MUD->setDefiningAccess(nullptr);
   // Invalidate our walker's cache if necessary
   if (!isa<MemoryUse>(MA))
     Walker->invalidateInfo(MA);
-  // The call below to erase will destroy MA, so we can't change the order we
-  // are doing things here
+
   Value *MemoryInst;
-  if (MemoryUseOrDef *MUD = dyn_cast<MemoryUseOrDef>(MA)) {
+  if (const auto *MUD = dyn_cast<MemoryUseOrDef>(MA))
     MemoryInst = MUD->getMemoryInst();
-  } else {
+  else
     MemoryInst = MA->getBlock();
-  }
+
   auto VMA = ValueToMemoryAccess.find(MemoryInst);
   if (VMA->second == MA)
     ValueToMemoryAccess.erase(VMA);
@@ -1598,10 +1607,11 @@ void MemorySSA::removeFromLookups(MemoryAccess *MA) {
 /// ShouldDelete defaults to true, and will cause the memory access to also be
 /// deleted, not just removed.
 void MemorySSA::removeFromLists(MemoryAccess *MA, bool ShouldDelete) {
+  BasicBlock *BB = MA->getBlock();
   // The access list owns the reference, so we erase it from the non-owning list
   // first.
   if (!isa<MemoryUse>(MA)) {
-    auto DefsIt = PerBlockDefs.find(MA->getBlock());
+    auto DefsIt = PerBlockDefs.find(BB);
     std::unique_ptr<DefsList> &Defs = DefsIt->second;
     Defs->remove(*MA);
     if (Defs->empty())
@@ -1610,15 +1620,17 @@ void MemorySSA::removeFromLists(MemoryAccess *MA, bool ShouldDelete) {
 
   // The erase call here will delete it. If we don't want it deleted, we call
   // remove instead.
-  auto AccessIt = PerBlockAccesses.find(MA->getBlock());
+  auto AccessIt = PerBlockAccesses.find(BB);
   std::unique_ptr<AccessList> &Accesses = AccessIt->second;
   if (ShouldDelete)
     Accesses->erase(MA);
   else
     Accesses->remove(MA);
 
-  if (Accesses->empty())
+  if (Accesses->empty()) {
     PerBlockAccesses.erase(AccessIt);
+    BlockNumberingValid.erase(BB);
+  }
 }
 
 void MemorySSA::print(raw_ostream &OS) const {
@@ -1634,7 +1646,46 @@ void MemorySSA::verifyMemorySSA() const {
   verifyDefUses(F);
   verifyDomination(F);
   verifyOrdering(F);
+  verifyDominationNumbers(F);
   Walker->verify(this);
+}
+
+/// Verify that all of the blocks we believe to have valid domination numbers
+/// actually have valid domination numbers.
+void MemorySSA::verifyDominationNumbers(const Function &F) const {
+#ifndef NDEBUG
+  if (BlockNumberingValid.empty())
+    return;
+
+  SmallPtrSet<const BasicBlock *, 16> ValidBlocks = BlockNumberingValid;
+  for (const BasicBlock &BB : F) {
+    if (!ValidBlocks.count(&BB))
+      continue;
+
+    ValidBlocks.erase(&BB);
+
+    const AccessList *Accesses = getBlockAccesses(&BB);
+    // It's correct to say an empty block has valid numbering.
+    if (!Accesses)
+      continue;
+
+    // Block numbering starts at 1.
+    unsigned long LastNumber = 0;
+    for (const MemoryAccess &MA : *Accesses) {
+      auto ThisNumberIter = BlockNumbering.find(&MA);
+      assert(ThisNumberIter != BlockNumbering.end() &&
+             "MemoryAccess has no domination number in a valid block!");
+
+      unsigned long ThisNumber = ThisNumberIter->second;
+      assert(ThisNumber > LastNumber &&
+             "Domination numbers should be strictly increasing!");
+      LastNumber = ThisNumber;
+    }
+  }
+
+  assert(ValidBlocks.empty() &&
+         "All valid BasicBlocks should exist in F -- dangling pointers?");
+#endif
 }
 
 /// Verify that the order and existence of MemoryAccesses matches the
@@ -1746,8 +1797,12 @@ void MemorySSA::verifyDefUses(Function &F) const {
       assert(Phi->getNumOperands() == static_cast<unsigned>(std::distance(
                                           pred_begin(&B), pred_end(&B))) &&
              "Incomplete MemoryPhi Node");
-      for (unsigned I = 0, E = Phi->getNumIncomingValues(); I != E; ++I)
+      for (unsigned I = 0, E = Phi->getNumIncomingValues(); I != E; ++I) {
         verifyUseInDefs(Phi->getIncomingValue(I), Phi);
+        assert(find(predecessors(&B), Phi->getIncomingBlock(I)) !=
+                   pred_end(&B) &&
+               "Incoming phi block not a block predecessor");
+      }
     }
 
     for (Instruction &I : B) {
@@ -1857,12 +1912,24 @@ void MemoryAccess::print(raw_ostream &OS) const {
 void MemoryDef::print(raw_ostream &OS) const {
   MemoryAccess *UO = getDefiningAccess();
 
+  auto printID = [&OS](MemoryAccess *A) {
+    if (A && A->getID())
+      OS << A->getID();
+    else
+      OS << LiveOnEntryStr;
+  };
+
   OS << getID() << " = MemoryDef(";
-  if (UO && UO->getID())
-    OS << UO->getID();
-  else
-    OS << LiveOnEntryStr;
-  OS << ')';
+  printID(UO);
+  OS << ")";
+
+  if (isOptimized()) {
+    OS << "->";
+    printID(getOptimized());
+
+    if (Optional<AliasResult> AR = getOptimizedAccessType())
+      OS << " " << *AR;
+  }
 }
 
 void MemoryPhi::print(raw_ostream &OS) const {
@@ -1899,6 +1966,9 @@ void MemoryUse::print(raw_ostream &OS) const {
   else
     OS << LiveOnEntryStr;
   OS << ')';
+
+  if (Optional<AliasResult> AR = getOptimizedAccessType())
+    OS << " " << *AR;
 }
 
 void MemoryAccess::dump() const {

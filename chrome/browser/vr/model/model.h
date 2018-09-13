@@ -22,11 +22,12 @@
 #include "chrome/browser/vr/model/ui_mode.h"
 #include "chrome/browser/vr/model/web_vr_model.h"
 #include "chrome/browser/vr/ui_element_renderer.h"
+#include "chrome/browser/vr/vr_ui_export.h"
 #include "ui/gfx/transform.h"
 
 namespace vr {
 
-struct Model {
+struct VR_UI_EXPORT Model {
   Model();
   ~Model();
 
@@ -35,7 +36,6 @@ struct Model {
   bool loading = false;
   float load_progress = 0.0f;
   bool incognito = false;
-  bool in_cct = false;
   bool can_navigate_back = false;
   bool can_navigate_forward = false;
   ToolbarState toolbar_state;
@@ -80,7 +80,6 @@ struct Model {
   bool editing_enabled() const;
   bool fullscreen_enabled() const;
   bool web_vr_enabled() const;
-  bool web_vr_autopresentation_enabled() const;
   bool reposition_window_enabled() const;
   bool reposition_window_permitted() const;
 
@@ -98,7 +97,6 @@ struct Model {
   // State affecting both VR browsing and WebVR.
   ModalPromptType active_modal_prompt_type = kModalPromptTypeNone;
   CapturingStateModel capturing_state;
-  bool experimental_features_enabled = false;
   bool skips_redraw_when_not_dirty = false;
   bool exiting_vr = false;
   HostedPlatformUi hosted_platform_ui;

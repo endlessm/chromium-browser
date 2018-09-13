@@ -32,7 +32,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/test/test_windows.h"
@@ -1829,6 +1829,21 @@ TEST_F(TabletModeWindowManagerTest, DontChangeBoundsForMinimizedWindow) {
   // Exit overview mode will update all windows' bounds. However, if the window
   // is minimized, the bounds will not be updated.
   window_selector_controller->ToggleOverview();
+  EXPECT_EQ(window->bounds(), rect);
+}
+
+// Test that if a window is currently in tab-dragging process, its window bounds
+// should not updated.
+TEST_F(TabletModeWindowManagerTest, DontChangeBoundsForTabDraggingWindow) {
+  gfx::Rect rect(0, 0, 200, 200);
+  std::unique_ptr<aura::Window> window(
+      CreateWindow(aura::client::WINDOW_TYPE_NORMAL, rect));
+  // Now put the window in tab-dragging process.
+  window->SetProperty(ash::kIsDraggingTabsKey, true);
+
+  TabletModeWindowManager* manager = CreateTabletModeWindowManager();
+  ASSERT_TRUE(manager);
+  EXPECT_EQ(1, manager->GetNumberOfManagedWindows());
   EXPECT_EQ(window->bounds(), rect);
 }
 

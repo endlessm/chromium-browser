@@ -25,7 +25,6 @@
 #include "ios/chrome/browser/browsing_data/browsing_data_features.h"
 #include "ios/chrome/browser/chrome_switches.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/browser/ui/user_feedback_features.h"
 #include "ios/web/public/web_view_creation_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -113,14 +112,6 @@ bool IsNewClearBrowsingDataUIEnabled() {
   return base::FeatureList::IsEnabled(kNewClearBrowsingDataUI);
 }
 
-bool IsNewFeedbackKitEnabled() {
-  return base::FeatureList::IsEnabled(kFeedbackKitV2);
-}
-
-bool IsNewFeedbackKitEnabledWithSSOService() {
-  return base::FeatureList::IsEnabled(kFeedbackKitV2WithSSOService);
-}
-
 bool IsThirdPartyKeyboardWorkaroundEnabled() {
   // Check if the experimental flag is forced on or off.
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -140,11 +131,19 @@ bool IsRecentTabsUIRebootEnabled() {
 }
 
 bool IsBookmarksUIRebootEnabled() {
-  return base::FeatureList::IsEnabled(kCollectionsUIReboot);
+  return base::FeatureList::IsEnabled(kUIRefreshPhase1);
+}
+
+bool IsReadingListUIRebootEnabled() {
+  return base::FeatureList::IsEnabled(kUIRefreshPhase1);
 }
 
 bool IsCollectionsUIRebootEnabled() {
   return base::FeatureList::IsEnabled(kCollectionsUIReboot);
+}
+
+bool IsSettingsUIRebootEnabled() {
+  return base::FeatureList::IsEnabled(kUIRefreshPhase1);
 }
 
 }  // namespace experimental_flags

@@ -32,6 +32,8 @@ WARM = 'warm'
 # in the same renderer before the run.
 HOT = 'hot'
 
+ALL_CACHE_TEMPERATURES = [ANY, COLD, WARM_BROWSER, HOT_BROWSER, WARM, HOT]
+
 
 class _MarkTelemetryInternal(object):
   def __init__(self, tab, identifier):
@@ -41,9 +43,7 @@ class _MarkTelemetryInternal(object):
   def __enter__(self):
     # This marker must match the regexp in
     # ChromeProcessHelper.findTelemetryInternalRanges_().
-    marker = 'telemetry.internal.%s.start' % self.identifier
-    self.tab.ExecuteJavaScript("console.time({{ marker }});", marker=marker)
-    self.tab.ExecuteJavaScript("console.timeEnd({{ marker }});", marker=marker)
+    self.tab.AddTimelineMarker('telemetry.internal.%s.start' % self.identifier)
     return self
 
   def __exit__(self, exception_type, exception_value, traceback):
@@ -51,9 +51,7 @@ class _MarkTelemetryInternal(object):
       return True
     # This marker must match the regexp in
     # ChromeProcessHelper.findTelemetryInternalRanges_().
-    marker = 'telemetry.internal.%s.end' % self.identifier
-    self.tab.ExecuteJavaScript("console.time({{ marker }});", marker=marker)
-    self.tab.ExecuteJavaScript("console.timeEnd({{ marker }});", marker=marker)
+    self.tab.AddTimelineMarker('telemetry.internal.%s.end' % self.identifier)
     return True
 
 

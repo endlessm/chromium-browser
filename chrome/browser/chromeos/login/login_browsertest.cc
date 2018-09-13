@@ -4,9 +4,12 @@
 
 #include <string>
 
+#include "ash/public/cpp/ash_features.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
+#include "ash/system/status_area_widget.h"
 #include "ash/system/tray/system_tray.h"
+#include "ash/system/unified/unified_system_tray.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/run_loop.h"
@@ -183,9 +186,14 @@ class LoginTest : public LoginManagerTest {
 // Used to make sure that the system tray is visible and within the screen
 // bounds after login.
 void TestSystemTrayIsVisible(bool otr) {
-  ash::SystemTray* tray = ash::Shell::Get()->GetPrimarySystemTray();
   aura::Window* primary_win = ash::Shell::GetPrimaryRootWindow();
   ash::Shelf* shelf = ash::Shelf::ForWindow(primary_win);
+  ash::TrayBackgroundView* tray =
+      ash::features::IsSystemTrayUnifiedEnabled()
+          ? static_cast<ash::TrayBackgroundView*>(
+                shelf->GetStatusAreaWidget()->unified_system_tray())
+          : static_cast<ash::TrayBackgroundView*>(
+                shelf->GetStatusAreaWidget()->system_tray());
   SCOPED_TRACE(testing::Message()
                << "ShelfVisibilityState=" << shelf->GetVisibilityState()
                << " ShelfAutoHideBehavior=" << shelf->auto_hide_behavior());
@@ -222,7 +230,8 @@ IN_PROC_BROWSER_TEST_F(LoginGuestTest, GuestIsOTR) {
 }
 
 // Verifies the cursor is hidden at startup on login screen.
-IN_PROC_BROWSER_TEST_F(LoginCursorTest, CursorHidden) {
+// Flaky, see https://crbug.com/865520.
+IN_PROC_BROWSER_TEST_F(LoginCursorTest, DISABLED_CursorHidden) {
   // Login screen needs to be shown explicitly when running test.
   ShowLoginWizard(OobeScreen::SCREEN_SPECIAL_LOGIN);
 

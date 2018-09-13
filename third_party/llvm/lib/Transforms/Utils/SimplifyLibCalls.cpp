@@ -19,7 +19,7 @@
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/IR/DataLayout.h"
@@ -538,7 +538,7 @@ Value *LibCallSimplifier::optimizeStrLen(CallInst *CI, IRBuilder<> &B) {
 }
 
 Value *LibCallSimplifier::optimizeWcslen(CallInst *CI, IRBuilder<> &B) {
-  Module &M = *CI->getParent()->getParent()->getParent();
+  Module &M = *CI->getModule();
   unsigned WCharSize = TLI->getWCharSize(M) * 8;
   // We cannot perform this optimization without wchar_size metadata.
   if (WCharSize == 0)
@@ -1682,12 +1682,12 @@ Value *LibCallSimplifier::optimizeFls(CallInst *CI, IRBuilder<> &B) {
 }
 
 Value *LibCallSimplifier::optimizeAbs(CallInst *CI, IRBuilder<> &B) {
-  // abs(x) -> x >s -1 ? x : -x
-  Value *Op = CI->getArgOperand(0);
-  Value *Pos =
-      B.CreateICmpSGT(Op, Constant::getAllOnesValue(Op->getType()), "ispos");
-  Value *Neg = B.CreateNeg(Op, "neg");
-  return B.CreateSelect(Pos, Op, Neg);
+  // abs(x) -> x <s 0 ? -x : x
+  // The negation has 'nsw' because abs of INT_MIN is undefined.
+  Value *X = CI->getArgOperand(0);
+  Value *IsNeg = B.CreateICmpSLT(X, Constant::getNullValue(X->getType()));
+  Value *NegX = B.CreateNSWNeg(X, "neg");
+  return B.CreateSelect(IsNeg, NegX, X);
 }
 
 Value *LibCallSimplifier::optimizeIsDigit(CallInst *CI, IRBuilder<> &B) {
@@ -1865,9 +1865,8 @@ Value *LibCallSimplifier::optimizeSPrintFString(CallInst *CI, IRBuilder<> &B) {
   if (CI->getNumArgOperands() == 2) {
     // Make sure there's no % in the constant array.  We could try to handle
     // %% -> % in the future if we cared.
-    for (unsigned i = 0, e = FormatStr.size(); i != e; ++i)
-      if (FormatStr[i] == '%')
-        return nullptr; // we found a format specifier, bail out.
+    if (FormatStr.find('%') != StringRef::npos)
+      return nullptr; // we found a format specifier, bail out.
 
     // sprintf(str, fmt) -> llvm.memcpy(align 1 str, align 1 fmt, strlen(fmt)+1)
     B.CreateMemCpy(CI->getArgOperand(0), 1, CI->getArgOperand(1), 1,
@@ -1952,9 +1951,8 @@ Value *LibCallSimplifier::optimizeSnPrintFString(CallInst *CI, IRBuilder<> &B) {
   if (CI->getNumArgOperands() == 3) {
     // Make sure there's no % in the constant array.  We could try to handle
     // %% -> % in the future if we cared.
-    for (unsigned i = 0, e = FormatStr.size(); i != e; ++i)
-      if (FormatStr[i] == '%')
-        return nullptr; // we found a format specifier, bail out.
+    if (FormatStr.find('%') != StringRef::npos)
+      return nullptr; // we found a format specifier, bail out.
 
     if (N == 0)
       return ConstantInt::get(CI->getType(), FormatStr.size());
@@ -2039,9 +2037,9 @@ Value *LibCallSimplifier::optimizeFPrintFString(CallInst *CI, IRBuilder<> &B) {
 
   // fprintf(F, "foo") --> fwrite("foo", 3, 1, F)
   if (CI->getNumArgOperands() == 2) {
-    for (unsigned i = 0, e = FormatStr.size(); i != e; ++i)
-      if (FormatStr[i] == '%') // Could handle %% -> % if we cared.
-        return nullptr;        // We found a format specifier.
+    // Could handle %% -> % if we cared.
+    if (FormatStr.find('%') != StringRef::npos)
+      return nullptr; // We found a format specifier.
 
     return emitFWrite(
         CI->getArgOperand(1),
@@ -2128,7 +2126,7 @@ Value *LibCallSimplifier::optimizeFPuts(CallInst *CI, IRBuilder<> &B) {
 
   // Don't rewrite fputs to fwrite when optimising for size because fwrite
   // requires more arguments and thus extra MOVs are required.
-  if (CI->getParent()->getParent()->optForSize())
+  if (CI->getFunction()->optForSize())
     return nullptr;
 
   // Check if has any use

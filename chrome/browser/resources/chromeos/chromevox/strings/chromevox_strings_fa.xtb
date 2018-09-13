@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">نوشتار ویرایش گذرواژه</translation>
 <translation id="1802710350767629429">نمایش نکاتی درباره به‌روزرسانی</translation>
 <translation id="1810107444790159527">کادر فهرست</translation>
+<translation id="1812527064848182527">منظره</translation>
 <translation id="1828385960365606039">مه</translation>
 <translation id="1834891354138622109">ستون</translation>
 <translation id="1845944666972354496">برای فعال کردن دو ضربه سریع بزنید</translation>
@@ -146,6 +147,7 @@
 <translation id="2416512023405990736">کادر تأیید لغو انتخاب‌شده</translation>
 <translation id="2417569100218200841">اطلاعات محتوا</translation>
 <translation id="2417948780551741035">ته‌نویس</translation>
+<translation id="2421113964388408478">حذف</translation>
 <translation id="2422937916923936891">کادر بررسی مورد منو</translation>
 <translation id="2428534162001909979">منوهای فرمان</translation>
 <translation id="2429669115401274487">ب.ظ</translation>
@@ -253,6 +255,7 @@
 <translation id="3232388865800379423">دکمه بازشو</translation>
 <translation id="3241052487511142956">پیوند بازدید شده قبلی</translation>
 <translation id="3241638166094654466">تعداد سلول‌ها در هر خط:</translation>
+<translation id="3286372614333682499">چهره</translation>
 <translation id="3286390186030710347">اسلایدر</translation>
 <translation id="3299925995433437805">پیوند بازدید شده بعدی وجود ندارد.</translation>
 <translation id="3300348286427369683">‏پشتیبانی از نوشتار غنی. ChromeVox اکنون از فیلدهای نوشتار غنی (مثل فرمان‌های پرش، مسیریابی مکان‌نمای بریل، انتخاب و غیره) پشتیبانی می‌کند.</translation>
@@ -426,6 +429,7 @@
 <translation id="4476183483923481720">خط جدید</translation>
 <translation id="4482330759234983253">جدول قبلی</translation>
 <translation id="4491109536499578614">تصویر</translation>
+<translation id="4505167975768625962">درج</translation>
 <translation id="4517854969512651305">افزایش مقدار</translation>
 <translation id="4529987814483543472">نقشه کلید کلاسیک</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{ممیز}one{# ممیز}other{# ممیز}}</translation>
@@ -589,6 +593,7 @@
 <translation id="5712338278108304766">ستون بعدی جدول</translation>
 <translation id="571866080859340309">کاوش در گروه‌ها</translation>
 <translation id="5728409797179002635">جدولی یافت نشد.</translation>
+<translation id="5729047866208036762">برای کاوش ریاضی، کلیدهای بالا، پایین، چپ یا راست را فشار دهید.</translation>
 <translation id="5732189279857692565">‏این دومین عنوان است. ادامه دهید؛ یا Search+H یا Search+Shift+H را فشار دهید</translation>
 <translation id="5748623122140342504">عنوان قبلی سطح ۵</translation>
 <translation id="5750633686117194034">‏کلید تغییردهنده‌ای فشار داده نشده است؛ لطفاً یک یا چند کلید تغییردهنده را فشار دهید و نگهدارید؛ پس از انجام این کار انگشتان خود را بردارید تا صدای تنظیم کلیدها را بشنوید. برای خروج روی Tab بزنید.</translation>
@@ -744,6 +749,7 @@
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">انتخاب جدول بریل ۶ نقطه‌ای:</translation>
 <translation id="72393384879519786">عنوان</translation>
+<translation id="7240858705033280249">پرش به جزئیات</translation>
 <translation id="7241683698754534149">باز کردن شرح طولانی در یک برگه جدید</translation>
 <translation id="7248671827512403053">برنامه کاربردی</translation>
 <translation id="725969808843520477">دکمه رادیویی بعدی</translation>
@@ -920,6 +926,7 @@
 <translation id="9043969572162476692"><ph name="NUM" />٪</translation>
 <translation id="9061884144798498064">انتخاب جدول بریل ۸ نقطه‌ای:</translation>
 <translation id="9065283790526219006">+پنجره بازشو</translation>
+<translation id="9066023754636984703">‏برای پرش به جزئیات، «جستجو + A، ‏J» را فشار دهید.</translation>
 <translation id="9067522039955793016">جداساز صفحه</translation>
 <translation id="9077213568694924680">از قسمت انتخابی حذف شد</translation>
 <translation id="9082874451376019682">اسلایدر قبلی موجود نیست.</translation>

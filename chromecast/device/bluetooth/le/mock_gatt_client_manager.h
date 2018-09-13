@@ -5,6 +5,7 @@
 #ifndef CHROMECAST_DEVICE_BLUETOOTH_LE_MOCK_GATT_CLIENT_MANAGER_H_
 #define CHROMECAST_DEVICE_BLUETOOTH_LE_MOCK_GATT_CLIENT_MANAGER_H_
 
+#include "base/observer_list.h"
 #include "chromecast/device/bluetooth/le/gatt_client_manager.h"
 #include "chromecast/device/bluetooth/le/mock_remote_device.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -17,14 +18,8 @@ class MockGattClientManager : public GattClientManager {
   MockGattClientManager();
   ~MockGattClientManager();
 
-  void AddObserver(Observer* o) override {
-    DCHECK(o && !observer_);
-    observer_ = o;
-  }
-  void RemoveObserver(Observer* o) override {
-    DCHECK(o && o == observer_);
-    observer_ = nullptr;
-  }
+  void AddObserver(Observer* o) override { observers_.AddObserver(o); }
+  void RemoveObserver(Observer* o) override { observers_.RemoveObserver(o); }
 
   MOCK_METHOD1(
       GetDevice,
@@ -37,11 +32,12 @@ class MockGattClientManager : public GattClientManager {
   MOCK_METHOD1(
       GetDeviceSync,
       scoped_refptr<RemoteDevice>(const bluetooth_v2_shlib::Addr& addr));
-  MOCK_CONST_METHOD0(GetNumConnected, size_t());
+  MOCK_CONST_METHOD1(GetNumConnected,
+                     void(base::OnceCallback<void(size_t)> cb));
   MOCK_METHOD1(NotifyConnect, void(const bluetooth_v2_shlib::Addr& addr));
   MOCK_METHOD0(task_runner, scoped_refptr<base::SingleThreadTaskRunner>());
 
-  Observer* observer_ = nullptr;
+  base::ObserverList<Observer> observers_;
 };
 
 }  // namespace bluetooth

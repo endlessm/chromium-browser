@@ -34,14 +34,17 @@ public class RtpParameters {
     // Specific maximum bandwidth defined in RFC3890. If null, there is no
     // maximum bitrate.
     @Nullable public Integer maxBitrateBps;
+    // Not implemented.
+    @Nullable public Integer minBitrateBps;
     // SSRC to be used by this encoding.
     // Can't be changed between getParameters/setParameters.
     public Long ssrc;
 
     @CalledByNative("Encoding")
-    Encoding(boolean active, Integer maxBitrateBps, Long ssrc) {
+    Encoding(boolean active, Integer maxBitrateBps, Integer minBitrateBps, Long ssrc) {
       this.active = active;
       this.maxBitrateBps = maxBitrateBps;
+      this.minBitrateBps = minBitrateBps;
       this.ssrc = ssrc;
     }
 
@@ -54,6 +57,12 @@ public class RtpParameters {
     @CalledByNative("Encoding")
     Integer getMaxBitrateBps() {
       return maxBitrateBps;
+    }
+
+    @Nullable
+    @CalledByNative("Encoding")
+    Integer getMinBitrateBps() {
+      return minBitrateBps;
     }
 
     @CalledByNative("Encoding")
@@ -118,7 +127,65 @@ public class RtpParameters {
     }
   }
 
+  public static class Rtcp {
+    /** The Canonical Name used by RTCP */
+    private final String cname;
+    /** Whether reduced size RTCP is configured or compound RTCP */
+    private final boolean reducedSize;
+
+    @CalledByNative("Rtcp")
+    Rtcp(String cname, boolean reducedSize) {
+      this.cname = cname;
+      this.reducedSize = reducedSize;
+    }
+
+    @CalledByNative("Rtcp")
+    public String getCname() {
+      return cname;
+    }
+
+    @CalledByNative("Rtcp")
+    public boolean getReducedSize() {
+      return reducedSize;
+    }
+  }
+
+  public static class HeaderExtension {
+    /** The URI of the RTP header extension, as defined in RFC5285. */
+    private final String uri;
+    /** The value put in the RTP packet to identify the header extension. */
+    private final int id;
+    /** Whether the header extension is encrypted or not. */
+    private final boolean encrypted;
+
+    @CalledByNative("HeaderExtension")
+    HeaderExtension(String uri, int id, boolean encrypted) {
+      this.uri = uri;
+      this.id = id;
+      this.encrypted = encrypted;
+    }
+
+    @CalledByNative("HeaderExtension")
+    public String getUri() {
+      return uri;
+    }
+
+    @CalledByNative("HeaderExtension")
+    public int getId() {
+      return id;
+    }
+
+    @CalledByNative("HeaderExtension")
+    public boolean getEncrypted() {
+      return encrypted;
+    }
+  }
+
   public final String transactionId;
+
+  private final Rtcp rtcp;
+
+  private final List<HeaderExtension> headerExtensions;
 
   public final List<Encoding> encodings;
   // Codec parameters can't currently be changed between getParameters and
@@ -127,8 +194,11 @@ public class RtpParameters {
   public final List<Codec> codecs;
 
   @CalledByNative
-  RtpParameters(String transactionId, List<Encoding> encodings, List<Codec> codecs) {
+  RtpParameters(String transactionId, Rtcp rtcp, List<HeaderExtension> headerExtensions,
+      List<Encoding> encodings, List<Codec> codecs) {
     this.transactionId = transactionId;
+    this.rtcp = rtcp;
+    this.headerExtensions = headerExtensions;
     this.encodings = encodings;
     this.codecs = codecs;
   }
@@ -136,6 +206,16 @@ public class RtpParameters {
   @CalledByNative
   String getTransactionId() {
     return transactionId;
+  }
+
+  @CalledByNative
+  public Rtcp getRtcp() {
+    return rtcp;
+  }
+
+  @CalledByNative
+  public List<HeaderExtension> getHeaderExtensions() {
+    return headerExtensions;
   }
 
   @CalledByNative

@@ -7,6 +7,7 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/date/date_view.h"
+#include "ash/system/date/tray_system_info.h"
 #include "ash/system/message_center/ash_popup_alignment_delegate.h"
 #include "ash/system/model/clock_model.h"
 #include "ash/system/model/system_tray_model.h"
@@ -16,7 +17,9 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/tray/tray_container.h"
+#include "ash/system/unified/ime_mode_view.h"
 #include "ash/system/unified/notification_counter_view.h"
+#include "ash/system/unified/unified_slider_bubble_controller.h"
 #include "ash/system/unified/unified_system_tray_bubble.h"
 #include "ash/system/unified/unified_system_tray_model.h"
 #include "chromeos/network/network_handler.h"
@@ -45,6 +48,10 @@ class UnifiedSystemTray::UiDelegate : public message_center::UiDelegate {
 
   message_center::UiController* ui_controller() { return ui_controller_.get(); }
 
+  void SetTrayBubbleHeight(int height) {
+    popup_alignment_delegate_->SetTrayBubbleHeight(height);
+  }
+
  private:
   std::unique_ptr<message_center::UiController> ui_controller_;
   std::unique_ptr<AshPopupAlignmentDelegate> popup_alignment_delegate_;
@@ -59,11 +66,12 @@ class UnifiedSystemTray::UiDelegate : public message_center::UiDelegate {
 UnifiedSystemTray::UiDelegate::UiDelegate(UnifiedSystemTray* owner)
     : owner_(owner) {
   ui_controller_ = std::make_unique<message_center::UiController>(this);
+  ui_controller_->set_hide_on_last_notification(false);
   popup_alignment_delegate_ =
       std::make_unique<AshPopupAlignmentDelegate>(owner->shelf());
   message_popup_collection_ =
       std::make_unique<message_center::MessagePopupCollection>(
-          message_center::MessageCenter::Get(), ui_controller_.get(),
+          message_center::MessageCenter::Get(),
           popup_alignment_delegate_.get());
   display::Screen* screen = display::Screen::GetScreen();
   popup_alignment_delegate_->StartObserving(
@@ -86,6 +94,7 @@ bool UnifiedSystemTray::UiDelegate::ShowPopups() {
 
 void UnifiedSystemTray::UiDelegate::HidePopups() {
   message_popup_collection_->MarkAllPopupsShown();
+  popup_alignment_delegate_->SetTrayBubbleHeight(0);
 }
 
 bool UnifiedSystemTray::UiDelegate::ShowMessageCenter(bool show_by_click) {
@@ -138,8 +147,13 @@ UnifiedSystemTray::UnifiedSystemTray(Shelf* shelf)
     : TrayBackgroundView(shelf),
       ui_delegate_(std::make_unique<UiDelegate>(this)),
       model_(std::make_unique<UnifiedSystemTrayModel>()),
+      slider_bubble_controller_(
+          std::make_unique<UnifiedSliderBubbleController>(this)),
+      ime_mode_view_(new ImeModeView()),
       notification_counter_item_(new NotificationCounterView()),
-      quiet_mode_view_(new QuietModeView()) {
+      quiet_mode_view_(new QuietModeView()),
+      time_view_(new tray::TimeTrayItemView(nullptr, shelf)) {
+  tray_container()->AddChildView(ime_mode_view_);
   tray_container()->AddChildView(notification_counter_item_);
   tray_container()->AddChildView(quiet_mode_view_);
 
@@ -152,32 +166,76 @@ UnifiedSystemTray::UnifiedSystemTray(Shelf* shelf)
   }
 
   tray_container()->AddChildView(new tray::PowerTrayView(nullptr));
-
-  TrayItemView* time_item = new TrayItemView(nullptr);
-  time_item->AddChildView(
-      new tray::TimeView(tray::TimeView::ClockLayout::HORIZONTAL_CLOCK,
-                         Shell::Get()->system_tray_model()->clock()));
-  tray_container()->AddChildView(time_item);
+  tray_container()->AddChildView(time_view_);
 
   SetInkDropMode(InkDropMode::ON);
-  SetVisible(true);
+  set_separator_visibility(false);
 }
 
-UnifiedSystemTray::~UnifiedSystemTray() = default;
+UnifiedSystemTray::~UnifiedSystemTray() {
+  // Close bubble immediately when the bubble is closed on dtor.
+  if (bubble_)
+    bubble_->CloseNow();
+  bubble_.reset();
+}
 
 bool UnifiedSystemTray::IsBubbleShown() const {
   return !!bubble_;
+}
+
+bool UnifiedSystemTray::IsSliderBubbleShown() const {
+  return slider_bubble_controller_->IsBubbleShown();
+}
+
+bool UnifiedSystemTray::IsBubbleActive() const {
+  return bubble_ && bubble_->IsBubbleActive();
+}
+
+void UnifiedSystemTray::ActivateBubble() {
+  if (bubble_)
+    bubble_->ActivateBubble();
+}
+
+void UnifiedSystemTray::EnsureBubbleExpanded() {
+  if (bubble_)
+    bubble_->EnsureExpanded();
+}
+
+void UnifiedSystemTray::ShowVolumeSliderBubble() {
+  slider_bubble_controller_->ShowBubble(
+      UnifiedSliderBubbleController::SLIDER_TYPE_VOLUME);
+}
+
+void UnifiedSystemTray::SetTrayBubbleHeight(int height) {
+  ui_delegate_->SetTrayBubbleHeight(height);
 }
 
 gfx::Rect UnifiedSystemTray::GetBubbleBoundsInScreen() const {
   return bubble_ ? bubble_->GetBoundsInScreen() : gfx::Rect();
 }
 
-bool UnifiedSystemTray::PerformAction(const ui::Event& event) {
-  if (bubble_)
+void UnifiedSystemTray::UpdateAfterLoginStatusChange() {
+  SetVisible(true);
+  PreferredSizeChanged();
+}
+
+void UnifiedSystemTray::SetTrayEnabled(bool enabled) {
+  // We should close bubble at this point. If it remains opened and interactive,
+  // it can be dangerous (http://crbug.com/497080).
+  if (!enabled && bubble_)
     CloseBubble();
-  else
-    ShowBubble(true /* show_by_click */);
+
+  SetEnabled(enabled);
+}
+
+bool UnifiedSystemTray::PerformAction(const ui::Event& event) {
+  if (bubble_) {
+    CloseBubble();
+  } else {
+    ShowBubble(event.IsMouseEvent() || event.IsGestureEvent());
+    if (event.IsKeyEvent() || (event.flags() & ui::EF_TOUCH_ACCESSIBILITY))
+      ActivateBubble();
+  }
   return true;
 }
 
@@ -190,6 +248,10 @@ void UnifiedSystemTray::ShowBubble(bool show_by_click) {
 void UnifiedSystemTray::CloseBubble() {
   // HideBubbleInternal will be called from UiDelegate.
   ui_delegate_->ui_controller()->HideMessageCenterBubble();
+}
+
+base::string16 UnifiedSystemTray::GetAccessibleNameForBubble() {
+  return GetAccessibleNameForTray();
 }
 
 base::string16 UnifiedSystemTray::GetAccessibleNameForTray() {
@@ -209,7 +271,15 @@ void UnifiedSystemTray::ClickedOutsideBubble() {
   CloseBubble();
 }
 
+void UnifiedSystemTray::UpdateAfterShelfAlignmentChange() {
+  TrayBackgroundView::UpdateAfterShelfAlignmentChange();
+  time_view_->UpdateAlignmentForShelf(shelf());
+}
+
 void UnifiedSystemTray::ShowBubbleInternal(bool show_by_click) {
+  // Hide volume/brightness slider popup.
+  slider_bubble_controller_->CloseBubble();
+
   bubble_ = std::make_unique<UnifiedSystemTrayBubble>(this, show_by_click);
   SetIsActive(true);
 }

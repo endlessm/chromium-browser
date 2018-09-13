@@ -4,6 +4,7 @@
 
 #include "ash/system/unified/top_shortcuts_view.h"
 
+#include "ash/public/cpp/ash_view_ids.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
@@ -37,9 +38,94 @@ UserAvatarButton::UserAvatarButton(views::ButtonListener* listener)
     : Button(listener) {
   SetLayoutManager(std::make_unique<views::FillLayout>());
   AddChildView(CreateUserAvatarView(0 /* user_index */));
+
+  SetTooltipText(GetUserItemAccessibleString(0 /* user_index */));
+  SetFocusPainter(TrayPopupUtils::CreateFocusPainter());
+  SetFocusForPlatform();
 }
 
 }  // namespace
+
+TopShortcutButtonContainer::TopShortcutButtonContainer() = default;
+
+TopShortcutButtonContainer::~TopShortcutButtonContainer() = default;
+
+// Buttons are equally spaced by the default value, but the gap will be
+// narrowed evenly when the parent view is not large enough.
+void TopShortcutButtonContainer::Layout() {
+  gfx::Rect child_area(GetContentsBounds());
+
+  int total_horizontal_size = 0;
+  int num_visible = 0;
+  for (int i = 0; i < child_count(); i++) {
+    const views::View* child = child_at(i);
+    if (!child->visible())
+      continue;
+    int child_horizontal_size = child->GetPreferredSize().width();
+    if (child_horizontal_size == 0)
+      continue;
+    total_horizontal_size += child_horizontal_size;
+    num_visible++;
+  }
+  int spacing = std::max(kUnifiedTopShortcutButtonMinSpacing,
+                         std::min(kUnifiedTopShortcutButtonDefaultSpacing,
+                                  (child_area.width() - total_horizontal_size) /
+                                      (num_visible - 1)));
+
+  int sign_out_button_width = 0;
+  if (sign_out_button_ && sign_out_button_->visible()) {
+    // resize the sign-out button
+    int remainder = child_area.width() -
+                    (num_visible - 1) * kUnifiedTopShortcutButtonMinSpacing -
+                    total_horizontal_size +
+                    sign_out_button_->GetPreferredSize().width();
+    sign_out_button_width = std::max(
+        0, std::min(sign_out_button_->GetPreferredSize().width(), remainder));
+  }
+
+  int horizontal_position = child_area.x();
+  for (int i = 0; i < child_count(); i++) {
+    views::View* child = child_at(i);
+    if (!child->visible())
+      continue;
+    gfx::Rect bounds(child_area);
+    bounds.set_x(horizontal_position);
+    int width = (child == sign_out_button_) ? sign_out_button_width
+                                            : child->GetPreferredSize().width();
+    bounds.set_width(width);
+    child->SetBoundsRect(bounds);
+    horizontal_position += width + spacing;
+  }
+}
+
+gfx::Size TopShortcutButtonContainer::CalculatePreferredSize() const {
+  int total_horizontal_size = 0;
+  int max_height = 0;
+  int num_visible = 0;
+  for (int i = 0; i < child_count(); i++) {
+    const views::View* child = child_at(i);
+    if (!child->visible())
+      continue;
+    int child_horizontal_size = child->GetPreferredSize().width();
+    if (child_horizontal_size == 0)
+      continue;
+    total_horizontal_size += child_horizontal_size;
+    num_visible++;
+    max_height = std::max(child->GetPreferredSize().height(), max_height);
+  }
+  int width =
+      (num_visible == 0)
+          ? 0
+          : total_horizontal_size +
+                (num_visible - 1) * kUnifiedTopShortcutButtonDefaultSpacing;
+  return gfx::Size(width, max_height);
+}
+
+void TopShortcutButtonContainer::AddSignOutButton(
+    views::View* sign_out_button) {
+  AddChildView(sign_out_button);
+  sign_out_button_ = sign_out_button;
+}
 
 TopShortcutsView::TopShortcutsView(UnifiedSystemTrayController* controller)
     : controller_(controller) {
@@ -49,11 +135,13 @@ TopShortcutsView::TopShortcutsView(UnifiedSystemTrayController* controller)
       views::BoxLayout::kHorizontal, kUnifiedTopShortcutPadding,
       kUnifiedTopShortcutSpacing));
   layout->set_cross_axis_alignment(views::BoxLayout::CROSS_AXIS_ALIGNMENT_END);
+  container_ = new TopShortcutButtonContainer();
+  AddChildView(container_);
 
   if (Shell::Get()->session_controller()->login_status() !=
       LoginStatus::NOT_LOGGED_IN) {
     user_avatar_button_ = new UserAvatarButton(this);
-    AddChildView(user_avatar_button_);
+    container_->AddChildView(user_avatar_button_);
   }
 
   // Show the buttons in this row as disabled if the user is at the login
@@ -62,30 +150,29 @@ TopShortcutsView::TopShortcutsView(UnifiedSystemTrayController* controller)
   const bool can_show_web_ui = TrayPopupUtils::CanOpenWebUISettings();
 
   sign_out_button_ = new SignOutButton(this);
-  AddChildView(sign_out_button_);
+  container_->AddSignOutButton(sign_out_button_);
 
-  lock_button_ = new TopShortcutButton(this, kSystemMenuLockIcon,
+  lock_button_ = new TopShortcutButton(this, kUnifiedMenuLockIcon,
                                        IDS_ASH_STATUS_TRAY_LOCK);
   lock_button_->SetEnabled(can_show_web_ui &&
                            Shell::Get()->session_controller()->CanLockScreen());
-  AddChildView(lock_button_);
+  container_->AddChildView(lock_button_);
 
-  settings_button_ = new TopShortcutButton(this, kSystemMenuSettingsIcon,
+  settings_button_ = new TopShortcutButton(this, kUnifiedMenuSettingsIcon,
                                            IDS_ASH_STATUS_TRAY_SETTINGS);
   settings_button_->SetEnabled(can_show_web_ui);
-  AddChildView(settings_button_);
+  container_->AddChildView(settings_button_);
 
   bool reboot = Shell::Get()->shutdown_controller()->reboot_on_shutdown();
   power_button_ = new TopShortcutButton(
-      this, kSystemMenuPowerIcon,
+      this, kUnifiedMenuPowerIcon,
       reboot ? IDS_ASH_STATUS_TRAY_REBOOT : IDS_ASH_STATUS_TRAY_SHUTDOWN);
-  AddChildView(power_button_);
+  power_button_->set_id(VIEW_ID_POWER_BUTTON);
+  container_->AddChildView(power_button_);
 
-  // |collapse_button_| should be right-aligned, so we need spacing between
-  // other buttons and |collapse_button_|.
-  views::View* spacing = new views::View;
-  AddChildView(spacing);
-  layout->SetFlexForView(spacing, 1);
+  // |collapse_button_| should be right-aligned, so we make the buttons
+  // container flex occupying all remaining space.
+  layout->SetFlexForView(container_, 1);
 
   collapse_button_ = new CollapseButton(this);
   AddChildView(collapse_button_);
@@ -93,8 +180,17 @@ TopShortcutsView::TopShortcutsView(UnifiedSystemTrayController* controller)
 
 TopShortcutsView::~TopShortcutsView() = default;
 
-void TopShortcutsView::SetExpanded(bool expanded) {
-  collapse_button_->UpdateIcon(expanded);
+void TopShortcutsView::SetExpandedAmount(double expanded_amount) {
+  collapse_button_->SetExpandedAmount(expanded_amount);
+}
+
+void TopShortcutsView::RequestInitFocus() {
+  if (user_avatar_button_) {
+    user_avatar_button_->RequestFocus();
+    return;
+  }
+
+  sign_out_button_->RequestFocus();
 }
 
 void TopShortcutsView::ButtonPressed(views::Button* sender,

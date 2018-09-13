@@ -17,6 +17,7 @@
 namespace backdrop_wallpaper_handlers {
 class CollectionInfoFetcher;
 class ImageInfoFetcher;
+class SurpriseMeImageFetcher;
 }  // namespace backdrop_wallpaper_handlers
 
 // Wallpaper manager strings.
@@ -32,9 +33,10 @@ class WallpaperPrivateGetStringsFunction : public UIThreadExtensionFunction {
   ResponseAction Run() override;
 
  private:
-  // Responds with the dictionary after getting the wallpaper location.
-  void OnWallpaperLocationReturned(std::unique_ptr<base::DictionaryValue> dict,
-                                   const std::string& location);
+  // Responds with the dictionary after getting the wallpaper info.
+  void OnWallpaperInfoReturned(std::unique_ptr<base::DictionaryValue> dict,
+                               const std::string& location,
+                               ash::WallpaperLayout layout);
 };
 
 // Check if sync themes setting is enabled.
@@ -94,6 +96,9 @@ class WallpaperPrivateSetWallpaperFunction : public UIThreadExtensionFunction {
   ResponseAction Run() override;
 
  private:
+  // Responds with the |success| status.
+  void OnSetWallpaperCallback(bool success);
+
   DISALLOW_COPY_AND_ASSIGN(WallpaperPrivateSetWallpaperFunction);
 };
 
@@ -421,6 +426,33 @@ class WallpaperPrivateGetCurrentWallpaperThumbnailFunction
 
   DISALLOW_COPY_AND_ASSIGN(
       WallpaperPrivateGetCurrentWallpaperThumbnailFunction);
+};
+
+class WallpaperPrivateGetSurpriseMeImageFunction
+    : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("wallpaperPrivate.getSurpriseMeImage",
+                             WALLPAPERPRIVATE_GETSURPRISEMEIMAGE)
+  WallpaperPrivateGetSurpriseMeImageFunction();
+
+ protected:
+  ~WallpaperPrivateGetSurpriseMeImageFunction() override;
+
+  // UIThreadExtensionFunction:
+  ResponseAction Run() override;
+
+ private:
+  // Callback upon completion of fetching the surprise me image info.
+  void OnSurpriseMeImageFetched(
+      bool success,
+      const extensions::api::wallpaper_private::ImageInfo& image_info,
+      const std::string& next_resume_token);
+
+  // Fetcher for the surprise me image info.
+  std::unique_ptr<backdrop_wallpaper_handlers::SurpriseMeImageFetcher>
+      surprise_me_image_fetcher_;
+
+  DISALLOW_COPY_AND_ASSIGN(WallpaperPrivateGetSurpriseMeImageFunction);
 };
 
 #endif  // CHROME_BROWSER_CHROMEOS_EXTENSIONS_WALLPAPER_PRIVATE_API_H_

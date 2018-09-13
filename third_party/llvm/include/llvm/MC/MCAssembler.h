@@ -238,8 +238,8 @@ public:
   /// defining a separate atom.
   bool isSymbolLinkerVisible(const MCSymbol &SD) const;
 
-  /// Emit the section contents using the given object writer.
-  void writeSectionData(const MCSection *Section,
+  /// Emit the section contents to \p OS.
+  void writeSectionData(raw_ostream &OS, const MCSection *Section,
                         const MCAsmLayout &Layout) const;
 
   /// Check whether a given symbol has been flagged with .thumb_func.
@@ -418,6 +418,13 @@ public:
   const MCLOHContainer &getLOHContainer() const {
     return const_cast<MCAssembler *>(this)->getLOHContainer();
   }
+
+  struct CGProfileEntry {
+    const MCSymbolRefExpr *From;
+    const MCSymbolRefExpr *To;
+    uint64_t Count;
+  };
+  std::vector<CGProfileEntry> CGProfile;
   /// @}
   /// \name Backend Data Access
   /// @{
@@ -433,10 +440,10 @@ public:
       FileNames.push_back(FileName);
   }
 
-  /// Write the necessary bundle padding to the given object writer.
+  /// Write the necessary bundle padding to \p OS.
   /// Expects a fragment \p F containing instructions and its size \p FSize.
-  void writeFragmentPadding(const MCFragment &F, uint64_t FSize,
-                            MCObjectWriter *OW) const;
+  void writeFragmentPadding(raw_ostream &OS, const MCEncodedFragment &F,
+                            uint64_t FSize) const;
 
   /// @}
 
@@ -446,8 +453,9 @@ public:
 /// Compute the amount of padding required before the fragment \p F to
 /// obey bundling restrictions, where \p FOffset is the fragment's offset in
 /// its section and \p FSize is the fragment's size.
-uint64_t computeBundlePadding(const MCAssembler &Assembler, const MCFragment *F,
-                              uint64_t FOffset, uint64_t FSize);
+uint64_t computeBundlePadding(const MCAssembler &Assembler,
+                              const MCEncodedFragment *F, uint64_t FOffset,
+                              uint64_t FSize);
 
 } // end namespace llvm
 

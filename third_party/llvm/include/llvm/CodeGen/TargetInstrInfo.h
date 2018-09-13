@@ -25,6 +25,7 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineOperand.h"
+#include "llvm/CodeGen/MachineOutliner.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/Support/BranchProbability.h"
@@ -80,7 +81,7 @@ public:
 
   /// Given a machine instruction descriptor, returns the register
   /// class constraint for OpNum, or NULL.
-  const TargetRegisterClass *getRegClass(const MCInstrDesc &TID, unsigned OpNum,
+  const TargetRegisterClass *getRegClass(const MCInstrDesc &MCID, unsigned OpNum,
                                          const TargetRegisterInfo *TRI,
                                          const MachineFunction &MF) const;
 
@@ -845,6 +846,15 @@ public:
     llvm_unreachable("Target didn't implement TargetInstrInfo::copyPhysReg!");
   }
 
+  /// If the specific machine instruction is a instruction that moves/copies
+  /// value from one register to another register return true along with
+  /// @Source machine operand and @Destination machine operand.
+  virtual bool isCopyInstr(const MachineInstr &MI,
+                           const MachineOperand *&SourceOpNum,
+                           const MachineOperand *&Destination) const {
+    return false;
+  }
+
   /// Store the specified register of the given register class to the specified
   /// stack frame index. The store instruction is to be added to the given
   /// machine basic block before the specified machine instruction. If isKill
@@ -899,7 +909,7 @@ public:
   /// The new instruction is inserted before MI, and the client is responsible
   /// for removing the old instruction.
   MachineInstr *foldMemoryOperand(MachineInstr &MI, ArrayRef<unsigned> Ops,
-                                  int FrameIndex,
+                                  int FI,
                                   LiveIntervals *LIS = nullptr) const;
 
   /// Same as the previous version except it allows folding of any load and
@@ -951,13 +961,13 @@ public:
   /// \param InsInstrs - Vector of new instructions that implement P
   /// \param DelInstrs - Old instructions, including Root, that could be
   /// replaced by InsInstr
-  /// \param InstrIdxForVirtReg - map of virtual register to instruction in
+  /// \param InstIdxForVirtReg - map of virtual register to instruction in
   /// InsInstr that defines it
   virtual void genAlternativeCodeSequence(
       MachineInstr &Root, MachineCombinerPattern Pattern,
       SmallVectorImpl<MachineInstr *> &InsInstrs,
       SmallVectorImpl<MachineInstr *> &DelInstrs,
-      DenseMap<unsigned, unsigned> &InstrIdxForVirtReg) const;
+      DenseMap<unsigned, unsigned> &InstIdxForVirtReg) const;
 
   /// Attempt to reassociate \P Root and \P Prev according to \P Pattern to
   /// reduce critical path length.
@@ -1592,60 +1602,16 @@ public:
     return false;
   }
 
-  /// Returns true if the target implements the MachineOutliner.
-  virtual bool useMachineOutliner() const { return false; }
-
-  /// Describes the number of instructions that it will take to call and
-  /// construct a frame for a given outlining candidate.
-  struct MachineOutlinerInfo {
-    /// Represents the size of a sequence in bytes. (Some instructions vary
-    /// widely in size, so just counting the instructions isn't very useful.)
-    unsigned SequenceSize;
-
-    /// Number of instructions to call an outlined function for this candidate.
-    unsigned CallOverhead;
-
-    /// Number of instructions to construct an outlined function frame
-    /// for this candidate.
-    unsigned FrameOverhead;
-
-    /// Represents the specific instructions that must be emitted to
-    /// construct a call to this candidate.
-    unsigned CallConstructionID;
-
-    /// Represents the specific instructions that must be emitted to
-    /// construct a frame for this candidate's outlined function.
-    unsigned FrameConstructionID;
-
-    MachineOutlinerInfo() {}
-    MachineOutlinerInfo(unsigned SequenceSize, unsigned CallOverhead,
-                        unsigned FrameOverhead, unsigned CallConstructionID,
-                        unsigned FrameConstructionID)
-        : SequenceSize(SequenceSize), CallOverhead(CallOverhead),
-          FrameOverhead(FrameOverhead),
-          CallConstructionID(CallConstructionID),
-          FrameConstructionID(FrameConstructionID) {}
-  };
-
-  /// Returns a \p MachineOutlinerInfo struct containing target-specific
+  /// Returns a \p outliner::TargetCostInfo struct containing target-specific
   /// information for a set of outlining candidates.
-  virtual MachineOutlinerInfo getOutlininingCandidateInfo(
-      std::vector<
-          std::pair<MachineBasicBlock::iterator, MachineBasicBlock::iterator>>
-          &RepeatedSequenceLocs) const {
+  virtual outliner::TargetCostInfo getOutliningCandidateInfo(
+      std::vector<outliner::Candidate> &RepeatedSequenceLocs) const {
     llvm_unreachable(
         "Target didn't implement TargetInstrInfo::getOutliningCandidateInfo!");
   }
 
-  /// Represents how an instruction should be mapped by the outliner.
-  /// \p Legal instructions are those which are safe to outline.
-  /// \p Illegal instructions are those which cannot be outlined.
-  /// \p Invisible instructions are instructions which can be outlined, but
-  /// shouldn't actually impact the outlining result.
-  enum MachineOutlinerInstrType { Legal, Illegal, Invisible };
-
   /// Returns how or if \p MI should be outlined.
-  virtual MachineOutlinerInstrType
+  virtual outliner::InstrType
   getOutliningType(MachineBasicBlock::iterator &MIT, unsigned Flags) const {
     llvm_unreachable(
         "Target didn't implement TargetInstrInfo::getOutliningType!");
@@ -1657,14 +1623,12 @@ public:
     return 0x0;
   }
 
-  /// Insert a custom epilogue for outlined functions.
-  /// This may be empty, in which case no epilogue or return statement will be
-  /// emitted.
-  virtual void insertOutlinerEpilogue(MachineBasicBlock &MBB,
+  /// Insert a custom frame for outlined functions.
+  virtual void buildOutlinedFrame(MachineBasicBlock &MBB,
                                       MachineFunction &MF,
-                                      const MachineOutlinerInfo &MInfo) const {
+                                    const outliner::TargetCostInfo &TCI) const {
     llvm_unreachable(
-        "Target didn't implement TargetInstrInfo::insertOutlinerEpilogue!");
+        "Target didn't implement TargetInstrInfo::buildOutlinedFrame!");
   }
 
   /// Insert a call to an outlined function into the program.
@@ -1673,18 +1637,9 @@ public:
   virtual MachineBasicBlock::iterator
   insertOutlinedCall(Module &M, MachineBasicBlock &MBB,
                      MachineBasicBlock::iterator &It, MachineFunction &MF,
-                     const MachineOutlinerInfo &MInfo) const {
+                     const outliner::TargetCostInfo &TCI) const {
     llvm_unreachable(
         "Target didn't implement TargetInstrInfo::insertOutlinedCall!");
-  }
-
-  /// Insert a custom prologue for outlined functions.
-  /// This may be empty, in which case no prologue will be emitted.
-  virtual void insertOutlinerPrologue(MachineBasicBlock &MBB,
-                                      MachineFunction &MF,
-                                      const MachineOutlinerInfo &MInfo) const {
-    llvm_unreachable(
-        "Target didn't implement TargetInstrInfo::insertOutlinerPrologue!");
   }
 
   /// Return true if the function can safely be outlined from.
@@ -1695,6 +1650,11 @@ public:
                                            bool OutlineFromLinkOnceODRs) const {
     llvm_unreachable("Target didn't implement "
                      "TargetInstrInfo::isFunctionSafeToOutlineFrom!");
+  }
+
+  /// Return true if the function should be outlined from by default.
+  virtual bool shouldOutlineFromFunctionByDefault(MachineFunction &MF) const {
+    return false;
   }
 
 private:

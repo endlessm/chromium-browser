@@ -20,6 +20,7 @@
 #include "ash/system/system_tray_focus_observer.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/tray/system_tray_notifier.h"
+#include "ash/system/unified/unified_system_tray.h"
 #include "ash/system/virtual_keyboard/virtual_keyboard_tray.h"
 #include "ash/test/ash_test_base.h"
 #include "base/command_line.h"
@@ -50,8 +51,12 @@ TEST_F(StatusAreaWidgetTest, Basics) {
 
   // Default trays are constructed.
   EXPECT_TRUE(status->overview_button_tray());
-  EXPECT_TRUE(status->system_tray());
-  EXPECT_TRUE(status->notification_tray());
+  if (features::IsSystemTrayUnifiedEnabled()) {
+    EXPECT_TRUE(status->unified_system_tray());
+  } else {
+    EXPECT_TRUE(status->system_tray());
+    EXPECT_TRUE(status->notification_tray());
+  }
   EXPECT_TRUE(status->logout_button_tray_for_testing());
   EXPECT_TRUE(status->ime_menu_tray());
   EXPECT_TRUE(status->virtual_keyboard_tray_for_testing());
@@ -63,8 +68,12 @@ TEST_F(StatusAreaWidgetTest, Basics) {
 
   // Default trays are visible.
   EXPECT_FALSE(status->overview_button_tray()->visible());
-  EXPECT_TRUE(status->system_tray()->visible());
-  EXPECT_TRUE(status->notification_tray()->visible());
+  if (features::IsSystemTrayUnifiedEnabled()) {
+    EXPECT_TRUE(status->unified_system_tray()->visible());
+  } else {
+    EXPECT_TRUE(status->system_tray()->visible());
+    EXPECT_TRUE(status->notification_tray()->visible());
+  }
   EXPECT_FALSE(status->logout_button_tray_for_testing()->visible());
   EXPECT_FALSE(status->ime_menu_tray()->visible());
   EXPECT_FALSE(status->virtual_keyboard_tray_for_testing()->visible());
@@ -131,6 +140,10 @@ class StatusAreaWidgetFocusTest : public AshTestBase {
 // Tests that tab traversal through status area widget in non-active session
 // could properly send FocusOut event.
 TEST_F(StatusAreaWidgetFocusTest, FocusOutObserver) {
+  // This is old SystemTray version.
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   // Set session state to LOCKED.
   SessionController* session = Shell::Get()->session_controller();
   ASSERT_TRUE(session->IsActiveUserSessionStarted());
@@ -149,7 +162,7 @@ TEST_F(StatusAreaWidgetFocusTest, FocusOutObserver) {
 
   // Needed because NotificationTray updates its initial visibility
   // asynchronously.
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
 
   // Default trays are visible.
   ASSERT_FALSE(status->overview_button_tray()->visible());
@@ -181,6 +194,70 @@ TEST_F(StatusAreaWidgetFocusTest, FocusOutObserver) {
   // handling this event, focus will still be moved to notification tray.
   GenerateTabEvent(true);
   EXPECT_EQ(status->notification_tray(), focus_manager->GetFocusedView());
+  EXPECT_EQ(1, test_observer_->focus_out_count());
+  EXPECT_EQ(1, test_observer_->reverse_focus_out_count());
+}
+
+// Tests that tab traversal through status area widget in non-active session
+// could properly send FocusOut event.
+TEST_F(StatusAreaWidgetFocusTest, FocusOutObserverUnified) {
+  // This is UnifiedSystemTray version.
+  if (!features::IsSystemTrayUnifiedEnabled())
+    return;
+
+  // Set session state to LOCKED.
+  SessionController* session = Shell::Get()->session_controller();
+  ASSERT_TRUE(session->IsActiveUserSessionStarted());
+  TestSessionControllerClient* client = GetSessionControllerClient();
+  client->SetSessionState(SessionState::LOCKED);
+  ASSERT_TRUE(session->IsScreenLocked());
+
+  StatusAreaWidget* status = StatusAreaWidgetTestHelper::GetStatusAreaWidget();
+  // Default trays are constructed.
+  ASSERT_TRUE(status->overview_button_tray());
+  ASSERT_TRUE(status->unified_system_tray());
+  ASSERT_TRUE(status->logout_button_tray_for_testing());
+  ASSERT_TRUE(status->ime_menu_tray());
+  ASSERT_TRUE(status->virtual_keyboard_tray_for_testing());
+
+  // Needed because NotificationTray updates its initial visibility
+  // asynchronously.
+  base::RunLoop().RunUntilIdle();
+
+  // Default trays are visible.
+  ASSERT_FALSE(status->overview_button_tray()->visible());
+  ASSERT_TRUE(status->unified_system_tray()->visible());
+  ASSERT_FALSE(status->logout_button_tray_for_testing()->visible());
+  ASSERT_FALSE(status->ime_menu_tray()->visible());
+  ASSERT_FALSE(status->virtual_keyboard_tray_for_testing()->visible());
+
+  // In Unified, we don't have notification tray, so ImeMenuTray is used for
+  // tab testing.
+  status->ime_menu_tray()->OnIMEMenuActivationChanged(true);
+  ASSERT_TRUE(status->ime_menu_tray()->visible());
+
+  // Set focus to status area widget, which will be be system tray.
+  ASSERT_TRUE(Shell::Get()->focus_cycler()->FocusWidget(status));
+  views::FocusManager* focus_manager = status->GetFocusManager();
+  EXPECT_EQ(status->unified_system_tray(), focus_manager->GetFocusedView());
+
+  // A tab key event will move focus to notification tray.
+  GenerateTabEvent(false);
+  EXPECT_EQ(status->ime_menu_tray(), focus_manager->GetFocusedView());
+  EXPECT_EQ(0, test_observer_->focus_out_count());
+  EXPECT_EQ(0, test_observer_->reverse_focus_out_count());
+
+  // Another tab key event will send FocusOut event, since we are not handling
+  // this event, focus will still be moved to system tray.
+  GenerateTabEvent(false);
+  EXPECT_EQ(status->unified_system_tray(), focus_manager->GetFocusedView());
+  EXPECT_EQ(1, test_observer_->focus_out_count());
+  EXPECT_EQ(0, test_observer_->reverse_focus_out_count());
+
+  // A reverse tab key event will send reverse FocusOut event, since we are not
+  // handling this event, focus will still be moved to notification tray.
+  GenerateTabEvent(true);
+  EXPECT_EQ(status->ime_menu_tray(), focus_manager->GetFocusedView());
   EXPECT_EQ(1, test_observer_->focus_out_count());
   EXPECT_EQ(1, test_observer_->reverse_focus_out_count());
 }
@@ -226,7 +303,7 @@ class UnifiedStatusAreaWidgetTest : public AshTestBase {
     AshTestBase::SetUp();
     // Mash doesn't do this yet, so don't do it in tests either.
     // http://crbug.com/718072
-    if (Shell::GetAshConfig() != Config::MASH) {
+    if (Shell::GetAshConfig() != Config::MASH_DEPRECATED) {
       chromeos::NetworkHandler::Get()->InitializePrefServices(&profile_prefs_,
                                                               &local_state_);
     }
@@ -236,7 +313,7 @@ class UnifiedStatusAreaWidgetTest : public AshTestBase {
 
   void TearDown() override {
     // This roughly matches production shutdown order.
-    if (Shell::GetAshConfig() != Config::MASH) {
+    if (Shell::GetAshConfig() != Config::MASH_DEPRECATED) {
       chromeos::NetworkHandler::Get()->ShutdownPrefServices();
     }
     AshTestBase::TearDown();

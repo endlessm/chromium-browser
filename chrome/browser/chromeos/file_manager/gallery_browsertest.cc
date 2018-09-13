@@ -71,6 +71,12 @@ IN_PROC_BROWSER_TEST_F(GalleryBrowserTest, OpenMultipleImagesOnDrive) {
   StartTest();
 }
 
+IN_PROC_BROWSER_TEST_F(GalleryBrowserTest,
+                       CheckAvailabilityOfEditAndPrintButtons) {
+  set_test_case_name("checkAvailabilityOfEditAndPrintButtons");
+  StartTest();
+}
+
 IN_PROC_BROWSER_TEST_F(GalleryBrowserTest, TraverseSlideImagesOnDownloads) {
   set_test_case_name("traverseSlideImagesOnDownloads");
   StartTest();
@@ -312,6 +318,11 @@ IN_PROC_BROWSER_TEST_F(GalleryBrowserTest, StopStartSlideshowOnDownloads) {
 
 IN_PROC_BROWSER_TEST_F(GalleryBrowserTest, StopStartSlideshowOnDrive) {
   set_test_case_name("stopStartSlideshowOnDrive");
+  StartTest();
+}
+
+IN_PROC_BROWSER_TEST_F(GalleryBrowserTest, ActivateVideoFromThumbnailMode) {
+  set_test_case_name("activateVideoFromThumbnailMode");
   StartTest();
 }
 

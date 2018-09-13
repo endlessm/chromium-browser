@@ -28,6 +28,7 @@
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/web_contents_tester.h"
 #include "extensions/buildflags/buildflags.h"
+#include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -222,6 +223,13 @@ class SafeBrowsingBlockingPageTest : public ChromeRenderViewHostTestHarness {
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
 
+    system_request_context_getter_ =
+        base::MakeRefCounted<net::TestURLRequestContextGetter>(
+            content::BrowserThread::GetTaskRunnerForThread(
+                content::BrowserThread::IO));
+    TestingBrowserProcess::GetGlobal()->SetSystemRequestContext(
+        system_request_context_getter_.get());
+
     SafeBrowsingBlockingPage::RegisterFactory(&factory_);
     ResetUserResponse();
     SafeBrowsingUIManager::CreateWhitelistForTesting(web_contents());
@@ -253,6 +261,8 @@ class SafeBrowsingBlockingPageTest : public ChromeRenderViewHostTestHarness {
     TestingBrowserProcess::GetGlobal()->safe_browsing_service()->ShutDown();
     TestingBrowserProcess::GetGlobal()->SetSafeBrowsingService(nullptr);
     SafeBrowsingBlockingPage::RegisterFactory(NULL);
+    TestingBrowserProcess::GetGlobal()->SetSystemRequestContext(nullptr);
+    system_request_context_getter_ = nullptr;
     // Clean up singleton reference (crbug.com/110594).
     ThreatDetails::RegisterFactory(NULL);
     ChromeRenderViewHostTestHarness::TearDown();
@@ -322,6 +332,7 @@ class SafeBrowsingBlockingPageTest : public ChromeRenderViewHostTestHarness {
   }
 
   scoped_refptr<TestSafeBrowsingUIManager> ui_manager_;
+  scoped_refptr<net::URLRequestContextGetter> system_request_context_getter_;
 
   // Owned by TestSafeBrowsingBlockingPage.
   MockTestingProfile* mock_profile_;
@@ -471,7 +482,7 @@ TEST_F(SafeBrowsingBlockingPageTest, PageWithMalwareResourceDontProceed) {
   // We did not proceed, we should be back to the first page, the 2nd one should
   // have been removed from the navigation controller.
   ASSERT_EQ(1, controller().GetEntryCount());
-  EXPECT_EQ(kGoogleURL, controller().GetActiveEntry()->GetURL().spec());
+  EXPECT_EQ(kGoogleURL, web_contents()->GetVisibleURL().spec());
 
   // A report should have been sent.
   EXPECT_EQ(1u, ui_manager_->GetThreatDetails()->size());
@@ -508,7 +519,7 @@ TEST_F(SafeBrowsingBlockingPageTest, PageWithMalwareResourceProceed) {
 
   // We did proceed, we should be back to showing the page.
   ASSERT_EQ(1, controller().GetEntryCount());
-  EXPECT_EQ(kPageURL, controller().GetActiveEntry()->GetURL().spec());
+  EXPECT_EQ(kPageURL, web_contents()->GetVisibleURL().spec());
 
   // A report should have been sent.
   EXPECT_EQ(1u, ui_manager_->GetThreatDetails()->size());
@@ -562,7 +573,7 @@ TEST_F(SafeBrowsingBlockingPageTest,
   // We did not proceed, we should be back to the first page, the 2nd one should
   // have been removed from the navigation controller.
   ASSERT_EQ(1, controller().GetEntryCount());
-  EXPECT_EQ(kGoogleURL, controller().GetActiveEntry()->GetURL().spec());
+  EXPECT_EQ(kGoogleURL, web_contents()->GetVisibleURL().spec());
 
   // A report should have been sent.
   EXPECT_EQ(1u, ui_manager_->GetThreatDetails()->size());
@@ -630,7 +641,7 @@ TEST_F(SafeBrowsingBlockingPageTest,
   // We did not proceed, we should be back to the first page, the 2nd one should
   // have been removed from the navigation controller.
   ASSERT_EQ(1, controller().GetEntryCount());
-  EXPECT_EQ(kGoogleURL, controller().GetActiveEntry()->GetURL().spec());
+  EXPECT_EQ(kGoogleURL, web_contents()->GetVisibleURL().spec());
 
   // No report should have been sent -- we don't create a report the
   // second time.
@@ -687,7 +698,7 @@ TEST_F(SafeBrowsingBlockingPageTest, PageWithMultipleMalwareResourceProceed) {
 
   // We did proceed, we should be back to the initial page.
   ASSERT_EQ(1, controller().GetEntryCount());
-  EXPECT_EQ(kPageURL, controller().GetActiveEntry()->GetURL().spec());
+  EXPECT_EQ(kPageURL, web_contents()->GetVisibleURL().spec());
 
   // No report should have been sent -- we don't create a report the
   // second time.
@@ -729,7 +740,7 @@ TEST_F(SafeBrowsingBlockingPageTest, NavigatingBackAndForth) {
   sb_interstitial = GetSafeBrowsingBlockingPage();
   ASSERT_FALSE(sb_interstitial);
   ASSERT_EQ(2, controller().GetEntryCount());
-  EXPECT_EQ(kPageURL, controller().GetActiveEntry()->GetURL().spec());
+  EXPECT_EQ(kPageURL, web_contents()->GetVisibleURL().spec());
 
   // Navigate forward to the malware URL.
   auto forward_navigation = NavigationSimulator::CreateHistoryNavigation(
@@ -746,7 +757,7 @@ TEST_F(SafeBrowsingBlockingPageTest, NavigatingBackAndForth) {
   sb_interstitial = GetSafeBrowsingBlockingPage();
   ASSERT_FALSE(sb_interstitial);
   ASSERT_EQ(2, controller().GetEntryCount());
-  EXPECT_EQ(kBadURL, controller().GetActiveEntry()->GetURL().spec());
+  EXPECT_EQ(kBadURL, web_contents()->GetVisibleURL().spec());
 
   // Two reports should have been sent.
   EXPECT_EQ(2u, ui_manager_->GetThreatDetails()->size());
@@ -945,6 +956,13 @@ class SafeBrowsingBlockingQuietPageTest
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
 
+    system_request_context_getter_ =
+        base::MakeRefCounted<net::TestURLRequestContextGetter>(
+            content::BrowserThread::GetTaskRunnerForThread(
+                content::BrowserThread::IO));
+    TestingBrowserProcess::GetGlobal()->SetSystemRequestContext(
+        system_request_context_getter_.get());
+
     SafeBrowsingBlockingPage::RegisterFactory(&factory_);
     SafeBrowsingUIManager::CreateWhitelistForTesting(web_contents());
 
@@ -968,8 +986,11 @@ class SafeBrowsingBlockingQuietPageTest
     TestingBrowserProcess::GetGlobal()->safe_browsing_service()->ShutDown();
     TestingBrowserProcess::GetGlobal()->SetSafeBrowsingService(nullptr);
     SafeBrowsingBlockingPage::RegisterFactory(NULL);
+    TestingBrowserProcess::GetGlobal()->SetSystemRequestContext(nullptr);
+    system_request_context_getter_ = nullptr;
     // Clean up singleton reference (crbug.com/110594).
     ThreatDetails::RegisterFactory(NULL);
+
     ChromeRenderViewHostTestHarness::TearDown();
   }
 
@@ -1026,6 +1047,7 @@ class SafeBrowsingBlockingQuietPageTest
 
   UserResponse user_response_;
   TestSafeBrowsingBlockingQuietPageFactory factory_;
+  scoped_refptr<net::URLRequestContextGetter> system_request_context_getter_;
 };
 
 // Tests showing a quiet blocking page for a malware page.

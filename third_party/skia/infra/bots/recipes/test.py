@@ -7,7 +7,6 @@
 
 
 DEPS = [
-  'core',
   'env',
   'flavor',
   'recipe_engine/context',
@@ -45,7 +44,8 @@ def dm_flags(api, bot):
   blacklisted = []
 
   def blacklist(quad):
-    config, src, options, name = quad.split(' ') if type(quad) is str else quad
+    config, src, options, name = (
+        quad.split(' ') if isinstance(quad, str) else quad)
     if (config == '_' or
         config in configs or
         (config[0] == '~' and config[1:] in configs)):
@@ -78,6 +78,10 @@ def dm_flags(api, bot):
   if 'CPU' in bot and 'Nexus7' in bot:
     args.extend(['--threads', '2'])
 
+  # MotoG4 occasionally fails when multiple threads read the same image file.
+  if 'CPU' in bot and 'MotoG4' in bot:
+    args.extend(['--threads', '0'])
+
   if 'Chromecast' in bot:
     args.extend(['--threads', '0'])
 
@@ -94,7 +98,6 @@ def dm_flags(api, bot):
   # is ignored and dm will keep attempting to proceed until we actually
   # exhaust the available resources.
   if ('NexusPlayer' in bot or
-      'PixelC' in bot or
       'Chromecast' in bot):
     args.append('--ignoreSigInt')
 
@@ -116,12 +119,13 @@ def dm_flags(api, bot):
     if '-GCE-' in bot and 'x86_64' in bot:
       configs.extend(['g8'])
       configs.extend(['565'])
-      configs.extend(['f16'])
       configs.extend(['lite-8888'])              # Experimental display list.
       configs.extend(['gbr-8888'])
+      configs.extend(['f16'])
       configs.extend(['srgb'])
-      configs.extend(['srgbnl'])
       configs.extend(['esrgb'])
+      configs.extend(['narrow'])
+      configs.extend(['enarrow'])
 
       if 'SAN' in bot:
         configs.extend(['t8888'])
@@ -166,7 +170,9 @@ def dm_flags(api, bot):
     if 'NativeFonts' in bot:
       configs.append(gl_prefix)
     else:
-      configs.extend([gl_prefix, gl_prefix + 'dft', gl_prefix + 'srgb'])
+      configs.extend([gl_prefix,
+                      gl_prefix + 'dft',
+                      gl_prefix + 'srgb'])
       if sample_count is not '':
         configs.append(gl_prefix + 'msaa' + sample_count)
 
@@ -193,7 +199,10 @@ def dm_flags(api, bot):
     # Also do the Ganesh threading verification test (render with and without
     # worker threads, using only the SW path renderer, and compare the results).
     if 'Intel' in bot and api.vars.is_linux:
-      configs.extend(['gles', 'glesdft', 'glessrgb', 'gltestthreading'])
+      configs.extend(['gles',
+                      'glesdft',
+                      'glessrgb',
+                      'gltestthreading'])
       # skbug.com/6333, skbug.com/6419, skbug.com/6702
       blacklist('gltestthreading gm _ lcdblendmodes')
       blacklist('gltestthreading gm _ lcdoverlap')
@@ -208,17 +217,6 @@ def dm_flags(api, bot):
       blacklist('gltestthreading gm _ dftext_blob_persp')
       # skbug.com/7523 - Flaky on various GPUs
       blacklist('gltestthreading gm _ orientation')
-
-    # The following devices do not support glessrgb.
-    if 'glessrgb' in configs:
-      if ('IntelHD405'    in bot or
-          'IntelIris640'  in bot or
-          'IntelBayTrail' in bot or
-          'IntelHD2000'   in bot or
-          'AndroidOne'    in bot or
-          'Nexus7'        in bot or
-          'NexusPlayer'   in bot):
-        configs.remove('glessrgb')
 
     # Test SkColorSpaceXformCanvas on a few bots
     if 'GTX1070' in bot:
@@ -246,19 +244,23 @@ def dm_flags(api, bot):
 
     # Vulkan bot *only* runs the vk config.
     if 'Vulkan' in bot:
-      # skbug.com/7961
-      configs = ['vk' if not 'MoltenVK' in bot else 'vknostencils']
+      configs = ['vk']
 
-    # Test 1010102 on our Linux/NVIDIA bots
-    if 'QuadroP400' in bot and api.vars.is_linux:
+    # Test 1010102 on our Linux/NVIDIA bots and the persistent cache config
+    # on the GL bots.
+    if ('QuadroP400' in bot and 'PreAbandonGpuContext' not in bot and
+        api.vars.is_linux):
       if 'Vulkan' in bot:
         configs.append('vk1010102')
         # Decoding transparent images to 1010102 just looks bad
         blacklist('vk1010102 image _ _')
       else:
-        configs.append('gl1010102')
+        configs.extend(['gl1010102', 'gltestpersistentcache'])
         # Decoding transparent images to 1010102 just looks bad
         blacklist('gl1010102 image _ _')
+        # These tests produce slightly different pixels run to run on NV.
+        blacklist('gltestpersistentcache gm _ atlastext')
+        blacklist('gltestpersistentcache gm _ dftext')
 
     if 'ChromeOS' in bot:
       # Just run GLES for now - maybe add gles_msaa4 in the future
@@ -277,7 +279,7 @@ def dm_flags(api, bot):
       # This bot generates gl and vk comparison images for the large skps
       configs = [c for c in configs if c == 'gl' or c == 'vk']
       args.extend(['--skpViewportSize', "2048"])
-      args.extend(['--pr', '~ccpr', '~small'])
+      args.extend(['--pr', '~small'])
     if 'DDL3' in bot:
       # This bot generates the ddl-gl and ddl-vk images for the
       # large skps and the gms
@@ -593,6 +595,7 @@ def dm_flags(api, bot):
   if 'AndroidOne' in bot:
     match.append('~WritePixels')  # skia:4711
     match.append('~PremulAlphaRoundTrip_Gpu')  # skia:7501
+    match.append('~ReimportImageTextureWithMipLevels')  # skia:8090
 
   if 'Chromecast' in bot:
     if 'GPU' in bot:
@@ -620,9 +623,6 @@ def dm_flags(api, bot):
   if 'GalaxyS6' in bot:
     match.append('~SpecialImage') # skia:6338
     match.append('~skbug6653') # skia:6653
-
-  if 'GalaxyS7_G930A' in bot:
-    match.append('~WritePixels') # skia:6427
 
   if 'MSAN' in bot:
     match.extend(['~Once', '~Shared'])  # Not sure what's up with these tests.
@@ -672,6 +672,10 @@ def dm_flags(api, bot):
                   '~^SurfaceSemaphores$'])
     # skia:7837
     match.append('~BlurMaskBiggerThanDest')
+
+  if 'Vulkan' in bot and 'GalaxyS7_G930FD' in bot:
+    # skia:8064
+    match.append('~^WritePixelsNonTexture_Gpu$')
 
   if 'Vulkan' in bot and api.vars.is_linux and 'IntelIris640' in bot:
     match.extend(['~VkHeapTests']) # skia:6245
@@ -741,19 +745,18 @@ def dm_flags(api, bot):
     blacklist(['vk', 'gm', '_', 'varied_text_clipped_lcd'])
     blacklist(['vk', 'gm', '_', 'varied_text_ignorable_clip_lcd'])
 
+  if 'Vulkan' in bot and 'GTX660' in bot and 'Win' in bot:
+    # skbug.com/8047
+    match.append('~FloatingPointTextureTest$')
+
   if 'MoltenVK' in bot:
     # skbug.com/7959
     blacklist(['_', 'gm', '_', 'vertices_scaled_shader'])
     blacklist(['_', 'gm', '_', 'vertices'])
     match.append('~^InitialTextureClear$')
-    match.append('~^ProcessorCloneTest$')
     match.append('~^RGB565TextureTest$')
     match.append('~^RGBA4444TextureTest$')
     match.append('~^WritePixelsNonTextureMSAA_Gpu$')
-    # skbug.com/7961
-    match.append('~^GrDefaultPathRendererTest$')
-    match.append('~^ResourceCacheStencilBuffers$')
-    match.append('~^SurfaceCopyOnWrite_Gpu$')
 
   if (('RadeonR9M470X' in bot or 'RadeonHD7770' in bot) and 'ANGLE' in bot):
     # skia:7096
@@ -996,19 +999,21 @@ def RunSteps(api):
 TEST_BUILDERS = [
   'Test-Android-Clang-AndroidOne-GPU-Mali400MP2-arm-Release-All-Android',
   'Test-Android-Clang-GalaxyS6-GPU-MaliT760-arm64-Debug-All-Android',
-  'Test-Android-Clang-GalaxyS7_G930A-GPU-Adreno530-arm64-Debug-All-Android',
+  ('Test-Android-Clang-GalaxyS6-GPU-MaliT760-arm64-Debug-All'
+   '-Android_NoGPUThreads'),
+  ('Test-Android-Clang-GalaxyS7_G930FD-GPU-MaliT880-arm64-Release-All'
+   '-Android_Vulkan'),
+  'Test-Android-Clang-MotoG4-CPU-Snapdragon617-arm-Release-All-Android',
   'Test-Android-Clang-NVIDIA_Shield-GPU-TegraX1-arm64-Debug-All-Android_CCPR',
   'Test-Android-Clang-Nexus5-GPU-Adreno330-arm-Release-All-Android',
-  'Test-Android-Clang-Nexus5x-GPU-Adreno418-arm-Debug-All-Android_ASAN',
-  ('Test-Android-Clang-Nexus5x-GPU-Adreno418-arm64-Debug-All'
-   '-Android_NoGPUThreads'),
   'Test-Android-Clang-Nexus7-CPU-Tegra3-arm-Release-All-Android',
   'Test-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Release-All-Android_Vulkan',
   'Test-Android-Clang-Pixel-GPU-Adreno530-arm64-Debug-All-Android_Vulkan',
+  'Test-Android-Clang-Pixel-GPU-Adreno530-arm-Debug-All-Android_ASAN',
   ('Test-ChromeOS-Clang-AcerChromebookR13Convertible-GPU-PowerVRGX6250-'
    'arm-Debug-All'),
-  'Test-Chromecast-GCC-Chorizo-CPU-Cortex_A7-arm-Release-All',
-  'Test-Chromecast-GCC-Chorizo-GPU-Cortex_A7-arm-Release-All',
+  'Test-Chromecast-Clang-Chorizo-CPU-Cortex_A7-arm-Release-All',
+  'Test-Chromecast-Clang-Chorizo-GPU-Cortex_A7-arm-Release-All',
   'Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-All-ASAN',
   'Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-shard_00_10-Coverage',
   'Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-All-MSAN',
@@ -1041,6 +1046,7 @@ TEST_BUILDERS = [
   'Test-Win10-Clang-NUC6i5SYK-GPU-IntelIris540-x86_64-Debug-All-ANGLE',
   'Test-Win10-Clang-NUC6i5SYK-GPU-IntelIris540-x86_64-Debug-All-Vulkan',
   'Test-Win10-Clang-NUCD34010WYKH-GPU-IntelHD4400-x86_64-Release-All-ANGLE',
+  'Test-Win10-Clang-ShuttleA-GPU-GTX660-x86_64-Release-All-Vulkan',
   'Test-Win10-Clang-ShuttleC-GPU-GTX960-x86_64-Debug-All-ANGLE',
   'Test-Win10-Clang-ZBOX-GPU-GTX1070-x86_64-Debug-All-Vulkan',
   'Test-Win2016-Clang-GCE-CPU-AVX2-x86_64-Debug-All-FAAA',
@@ -1183,6 +1189,7 @@ def GenTests(api):
   )
 
   builder = 'Test-Android-Clang-Nexus7-GPU-Tegra3-arm-Debug-All-Android'
+  retry_step_name = 'adb pull.pull /sdcard/revenge_of_the_skiabot/dm_out'
   yield (
     api.test('failed_pull') +
     api.properties(buildername=builder,
@@ -1201,8 +1208,9 @@ def GenTests(api):
         api.path['start_dir'].join('tmp', 'uninteresting_hashes.txt')
     ) +
     api.step_data('dm', retcode=1) +
-    api.step_data('pull /sdcard/revenge_of_the_skiabot/dm_out '+
-                  '[START_DIR]/[SWARM_OUT_DIR]/dm', retcode=1)
+    api.step_data(retry_step_name, retcode=1) +
+    api.step_data(retry_step_name + ' (attempt 2)', retcode=1) +
+    api.step_data(retry_step_name + ' (attempt 3)', retcode=1)
   )
 
   yield (

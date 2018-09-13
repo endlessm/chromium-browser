@@ -25,9 +25,19 @@ class ASH_EXPORT FeaturePodsContainerView : public views::View {
   // horizontally placed.
   void SetExpandedAmount(double expanded_amount);
 
+  // Get height of the view when |expanded_amount| is set to 1.0.
+  int GetExpandedHeight() const;
+
+  // Save and restore keyboard focus of a child feature pod button. If no button
+  // has focus or no focus is saved, these methods are no-op.
+  void SaveFocus();
+  void RestoreFocus();
+
   // Overridden views::View:
   gfx::Size CalculatePreferredSize() const override;
   void ChildVisibilityChanged(View* child) override;
+  void ViewHierarchyChanged(
+      const ViewHierarchyChangedDetails& details) override;
   void Layout() override;
 
  private:
@@ -46,7 +56,12 @@ class ASH_EXPORT FeaturePodsContainerView : public views::View {
   // Horizontal side padding in dip for collapsed state.
   int collapsed_side_padding_ = 0;
 
+  // Used for preventing reentrancy issue in ChildVisibilityChanged. Should be
+  // always false if FeaturePodsContainerView is not in the call stack.
   bool changing_visibility_ = false;
+
+  // A button that had focus at the point SaveButtonFocus is called.
+  views::View* focused_button_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(FeaturePodsContainerView);
 };

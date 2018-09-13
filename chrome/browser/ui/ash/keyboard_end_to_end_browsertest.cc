@@ -15,8 +15,8 @@
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/keyboard/keyboard_resource_util.h"
 #include "ui/keyboard/keyboard_switches.h"
-#include "ui/keyboard/keyboard_test_util.h"
 #include "ui/keyboard/keyboard_util.h"
+#include "ui/keyboard/test/keyboard_test_util.h"
 
 namespace {
 
@@ -88,7 +88,7 @@ IN_PROC_BROWSER_TEST_F(KeyboardEndToEndTest, OpenIfFocusedOnClick) {
 }
 
 IN_PROC_BROWSER_TEST_F(KeyboardEndToEndTest, OpenOnlyOnSyncFocus) {
-  auto* controller = keyboard::KeyboardController::GetInstance();
+  auto* controller = keyboard::KeyboardController::Get();
   EXPECT_FALSE(IsKeyboardVisible());
 
   chromeos::TextInputTestHelper helper;
@@ -99,10 +99,7 @@ IN_PROC_BROWSER_TEST_F(KeyboardEndToEndTest, OpenOnlyOnSyncFocus) {
   ClickElementWithId(web_contents, "sync");
   helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_TEXT);
 
-  EXPECT_EQ(controller->GetStateForTest(),
-            keyboard::KeyboardControllerState::LOADING_EXTENSION);
-
-  EXPECT_TRUE(keyboard::WaitUntilShown());
+  ASSERT_TRUE(keyboard::WaitUntilShown());
 
   ClickElementWithId(web_contents, "blur");
   ASSERT_TRUE(keyboard::WaitUntilHidden());

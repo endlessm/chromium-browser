@@ -110,6 +110,7 @@ void InitializeColorSchemes() {
   normal_scheme.url_bar_button.foreground_disabled = MakeBlack(24);
   normal_scheme.url_text_emphasized = MakeBlack(80);
   normal_scheme.url_text_deemphasized = MakeBlack(30);
+  normal_scheme.menu_text = MakeBlack(87);
   normal_scheme.omnibox_background = 0xFFEEEEEE;
   normal_scheme.omnibox_text_selection.cursor = 0xFF5595FE;      // TODO
   normal_scheme.omnibox_text_selection.background = 0xFFC6DAFC;  // TODO
@@ -146,6 +147,8 @@ void InitializeColorSchemes() {
   normal_scheme.controller_label_callout = SK_ColorWHITE;
   normal_scheme.controller_button = 0xFFEFEFEF;
   normal_scheme.controller_button_down = 0xFF2979FF;
+  normal_scheme.controller_battery_full = 0xFFEFEFEF;
+  normal_scheme.controller_battery_empty = 0xCCB3B3B3;
 
   normal_scheme.reposition_label = SK_ColorWHITE;
   normal_scheme.reposition_label_background = 0xAA333333;
@@ -224,6 +227,7 @@ void InitializeColorSchemes() {
   incognito_scheme.url_bar_button.foreground_disabled = MakeWhite(24);
   incognito_scheme.url_text_emphasized = MakeWhite(80);
   incognito_scheme.url_text_deemphasized = MakeWhite(30);
+  incognito_scheme.menu_text = MakeWhite(87);
   incognito_scheme.omnibox_background = incognito_scheme.url_bar_background;
   incognito_scheme.omnibox_text_selection.foreground =
       incognito_scheme.url_bar_text;

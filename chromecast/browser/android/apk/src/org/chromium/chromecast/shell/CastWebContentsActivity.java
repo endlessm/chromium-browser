@@ -56,9 +56,6 @@ public class CastWebContentsActivity extends Activity {
     private CastWebContentsSurfaceHelper mSurfaceHelper;
 
     {
-        // Create an Observable that only supplies the Intent when not finishing.
-        Observable<Intent> hasIntentState =
-                mGotIntentState.and(Observable.not(mIsFinishingState)).map(Both::getFirst);
         Observable<Intent> gotIntentAfterFinishingState =
                 mIsFinishingState.andThen(mGotIntentState).map(Both::getSecond);
         Observable<?> createdAndNotTestingState =
@@ -89,11 +86,10 @@ public class CastWebContentsActivity extends Activity {
             setContentView(R.layout.cast_web_contents_activity);
 
             mSurfaceHelper = new CastWebContentsSurfaceHelper(this, /* hostActivity */
-                    CastWebContentsView.onLayout(getApplicationContext(),
+                    CastWebContentsView.onLayout(this,
                             (FrameLayout) findViewById(R.id.web_contents_container),
                             CastSwitches.getSwitchValueColor(
-                                    CastSwitches.CAST_APP_BACKGROUND_COLOR, Color.BLACK),
-                            mResumedState),
+                                    CastSwitches.CAST_APP_BACKGROUND_COLOR, Color.BLACK)),
                     (Uri uri) -> mIsFinishingState.set("Delayed teardown for URI: " + uri));
         }));
 
@@ -109,10 +105,14 @@ public class CastWebContentsActivity extends Activity {
                 }));
 
         // Handle each new Intent.
-        hasIntentState.map(Intent::getExtras)
+        Controller<CastWebContentsSurfaceHelper.StartParams> startParamsState = new Controller<>();
+        mGotIntentState.and(Observable.not(mIsFinishingState))
+                .map(Both::getFirst)
+                .map(Intent::getExtras)
                 .map(CastWebContentsSurfaceHelper.StartParams::fromBundle)
-                .unique((previous, current) -> previous.uri.equals(current.uri))
-                .watch(ScopeFactories.onEnter(this ::notifyNewWebContents));
+                // Use the duplicate-filtering functionality of Controller to drop duplicate params.
+                .watch(ScopeFactories.onEnter(startParamsState::set));
+        startParamsState.watch(ScopeFactories.onEnter(this ::notifyNewWebContents));
 
         mIsFinishingState.watch(ScopeFactories.onEnter((String reason) -> {
             if (DEBUG) Log.d(TAG, "Finishing activity: " + reason);

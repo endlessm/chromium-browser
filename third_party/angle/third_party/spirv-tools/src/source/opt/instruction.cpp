@@ -13,15 +13,16 @@
 // limitations under the License.
 
 #include "instruction.h"
-#include "ir_context.h"
 
 #include <initializer_list>
 
+#include "disassemble.h"
+#include "fold.h"
 #include "ir_context.h"
 #include "reflect.h"
 
 namespace spvtools {
-namespace ir {
+namespace opt {
 
 namespace {
 // Indices used to get particular operands out of instructions using InOperand.
@@ -67,8 +68,7 @@ Instruction::Instruction(IRContext* c, const spv_parsed_instruction_t& inst,
 }
 
 Instruction::Instruction(IRContext* c, SpvOp op, uint32_t ty_id,
-                         uint32_t res_id,
-                         const std::vector<Operand>& in_operands)
+                         uint32_t res_id, const OperandList& in_operands)
     : utils::IntrusiveNodeBase<Instruction>(),
       context_(c),
       opcode_(op),
@@ -138,15 +138,14 @@ void Instruction::ToBinaryWithoutAttachedDebugInsts(
     binary->insert(binary->end(), operand.words.begin(), operand.words.end());
 }
 
-void Instruction::ReplaceOperands(const std::vector<Operand>& new_operands) {
+void Instruction::ReplaceOperands(const OperandList& new_operands) {
   operands_.clear();
   operands_.insert(operands_.begin(), new_operands.begin(), new_operands.end());
-  operands_.shrink_to_fit();
 }
 
 bool Instruction::IsReadOnlyLoad() const {
   if (IsLoad()) {
-    ir::Instruction* address_def = GetBaseAddress();
+    opt::Instruction* address_def = GetBaseAddress();
     if (!address_def || address_def->opcode() != SpvOpVariable) {
       return false;
     }
@@ -156,10 +155,13 @@ bool Instruction::IsReadOnlyLoad() const {
 }
 
 Instruction* Instruction::GetBaseAddress() const {
-  assert(IsLoad() &&
-         "GetBaseAddress should only be called on load instructions.");
+  assert((IsLoad() || opcode() == SpvOpStore || opcode() == SpvOpAccessChain ||
+          opcode() == SpvOpInBoundsAccessChain || opcode() == SpvOpCopyObject ||
+          opcode() == SpvOpImageTexelPointer) &&
+         "GetBaseAddress should only be called on instructions that take a "
+         "pointer or image.");
   uint32_t base = GetSingleWordInOperand(kLoadBaseIndex);
-  ir::Instruction* base_inst = context()->get_def_use_mgr()->GetDef(base);
+  opt::Instruction* base_inst = context()->get_def_use_mgr()->GetDef(base);
   bool done = false;
   while (!done) {
     switch (base_inst->opcode()) {
@@ -179,11 +181,27 @@ Instruction* Instruction::GetBaseAddress() const {
         break;
     }
   }
+
+  switch (opcode()) {
+    case SpvOpLoad:
+    case SpvOpStore:
+    case SpvOpAccessChain:
+    case SpvOpInBoundsAccessChain:
+    case SpvOpCopyObject:
+      // A load or store through a pointer.
+      assert(base_inst->IsValidBasePointer() &&
+             "We cannot have a base pointer come from this load");
+      break;
+    default:
+      // A load or store of an image.
+      assert(base_inst->IsValidBaseImage() && "We are expecting an image.");
+      break;
+  }
   return base_inst;
 }
 
 bool Instruction::IsReadOnlyVariable() const {
-  if (context()->module()->HasCapability(SpvCapabilityShader))
+  if (context()->get_feature_mgr()->HasCapability(SpvCapabilityShader))
     return IsReadOnlyVariableShaders();
   else
     return IsReadOnlyVariableKernel();
@@ -199,7 +217,7 @@ bool Instruction::IsVulkanStorageImage() const {
     return false;
   }
 
-  ir::Instruction* base_type =
+  opt::Instruction* base_type =
       context()->get_def_use_mgr()->GetDef(GetSingleWordInOperand(1));
   if (base_type->opcode() != SpvOpTypeImage) {
     return false;
@@ -225,7 +243,7 @@ bool Instruction::IsVulkanSampledImage() const {
     return false;
   }
 
-  ir::Instruction* base_type =
+  opt::Instruction* base_type =
       context()->get_def_use_mgr()->GetDef(GetSingleWordInOperand(1));
   if (base_type->opcode() != SpvOpTypeImage) {
     return false;
@@ -251,7 +269,7 @@ bool Instruction::IsVulkanStorageTexelBuffer() const {
     return false;
   }
 
-  ir::Instruction* base_type =
+  opt::Instruction* base_type =
       context()->get_def_use_mgr()->GetDef(GetSingleWordInOperand(1));
   if (base_type->opcode() != SpvOpTypeImage) {
     return false;
@@ -273,7 +291,7 @@ bool Instruction::IsVulkanStorageBuffer() const {
     return false;
   }
 
-  ir::Instruction* base_type =
+  opt::Instruction* base_type =
       context()->get_def_use_mgr()->GetDef(GetSingleWordInOperand(1));
 
   if (base_type->opcode() != SpvOpTypeStruct) {
@@ -285,13 +303,15 @@ bool Instruction::IsVulkanStorageBuffer() const {
     bool is_buffer_block = false;
     context()->get_decoration_mgr()->ForEachDecoration(
         base_type->result_id(), SpvDecorationBufferBlock,
-        [&is_buffer_block](const ir::Instruction&) { is_buffer_block = true; });
+        [&is_buffer_block](const opt::Instruction&) {
+          is_buffer_block = true;
+        });
     return is_buffer_block;
   } else if (storage_class == SpvStorageClassStorageBuffer) {
     bool is_block = false;
     context()->get_decoration_mgr()->ForEachDecoration(
         base_type->result_id(), SpvDecorationBlock,
-        [&is_block](const ir::Instruction&) { is_block = true; });
+        [&is_block](const opt::Instruction&) { is_block = true; });
     return is_block;
   }
   return false;
@@ -307,7 +327,7 @@ bool Instruction::IsVulkanUniformBuffer() const {
     return false;
   }
 
-  ir::Instruction* base_type =
+  opt::Instruction* base_type =
       context()->get_def_use_mgr()->GetDef(GetSingleWordInOperand(1));
   if (base_type->opcode() != SpvOpTypeStruct) {
     return false;
@@ -316,7 +336,7 @@ bool Instruction::IsVulkanUniformBuffer() const {
   bool is_block = false;
   context()->get_decoration_mgr()->ForEachDecoration(
       base_type->result_id(), SpvDecorationBlock,
-      [&is_block](const ir::Instruction&) { is_block = true; });
+      [&is_block](const opt::Instruction&) { is_block = true; });
   return is_block;
 }
 
@@ -354,5 +374,356 @@ bool Instruction::IsReadOnlyVariableKernel() const {
   uint32_t storage_class = GetSingleWordInOperand(kVariableStorageClassIndex);
   return storage_class == SpvStorageClassUniformConstant;
 }
-}  // namespace ir
+
+uint32_t Instruction::GetTypeComponent(uint32_t element) const {
+  uint32_t subtype = 0;
+  switch (opcode()) {
+    case SpvOpTypeStruct:
+      subtype = GetSingleWordInOperand(element);
+      break;
+    case SpvOpTypeArray:
+    case SpvOpTypeRuntimeArray:
+    case SpvOpTypeVector:
+    case SpvOpTypeMatrix:
+      // These types all have uniform subtypes.
+      subtype = GetSingleWordInOperand(0u);
+      break;
+    default:
+      break;
+  }
+
+  return subtype;
+}
+
+Instruction* Instruction::InsertBefore(
+    std::vector<std::unique_ptr<Instruction>>&& list) {
+  Instruction* first_node = list.front().get();
+  for (auto& i : list) {
+    i.release()->InsertBefore(this);
+  }
+  list.clear();
+  return first_node;
+}
+
+Instruction* Instruction::InsertBefore(std::unique_ptr<Instruction>&& i) {
+  i.get()->InsertBefore(this);
+  return i.release();
+}
+
+bool Instruction::IsValidBasePointer() const {
+  uint32_t tid = type_id();
+  if (tid == 0) {
+    return false;
+  }
+
+  opt::Instruction* type = context()->get_def_use_mgr()->GetDef(tid);
+  if (type->opcode() != SpvOpTypePointer) {
+    return false;
+  }
+
+  if (context()->get_feature_mgr()->HasCapability(SpvCapabilityAddresses)) {
+    // TODO: The rules here could be more restrictive.
+    return true;
+  }
+
+  if (opcode() == SpvOpVariable || opcode() == SpvOpFunctionParameter) {
+    return true;
+  }
+
+  uint32_t pointee_type_id = type->GetSingleWordInOperand(1);
+  opt::Instruction* pointee_type_inst =
+      context()->get_def_use_mgr()->GetDef(pointee_type_id);
+
+  if (pointee_type_inst->IsOpaqueType()) {
+    return true;
+  }
+  return false;
+}
+
+bool Instruction::IsValidBaseImage() const {
+  uint32_t tid = type_id();
+  if (tid == 0) {
+    return false;
+  }
+
+  opt::Instruction* type = context()->get_def_use_mgr()->GetDef(tid);
+  return (type->opcode() == SpvOpTypeImage ||
+          type->opcode() == SpvOpTypeSampledImage);
+}
+
+bool Instruction::IsOpaqueType() const {
+  if (opcode() == SpvOpTypeStruct) {
+    bool is_opaque = false;
+    ForEachInOperand([&is_opaque, this](const uint32_t* op_id) {
+      opt::Instruction* type_inst =
+          context()->get_def_use_mgr()->GetDef(*op_id);
+      is_opaque |= type_inst->IsOpaqueType();
+    });
+    return is_opaque;
+  } else if (opcode() == SpvOpTypeArray) {
+    uint32_t sub_type_id = GetSingleWordInOperand(0);
+    opt::Instruction* sub_type_inst =
+        context()->get_def_use_mgr()->GetDef(sub_type_id);
+    return sub_type_inst->IsOpaqueType();
+  } else {
+    return opcode() == SpvOpTypeRuntimeArray ||
+           spvOpcodeIsBaseOpaqueType(opcode());
+  }
+}
+
+bool Instruction::IsFoldable() const {
+  return IsFoldableByFoldScalar() ||
+         context()->get_instruction_folder().HasConstFoldingRule(opcode());
+}
+
+bool Instruction::IsFoldableByFoldScalar() const {
+  const opt::InstructionFolder& folder = context()->get_instruction_folder();
+  if (!folder.IsFoldableOpcode(opcode())) {
+    return false;
+  }
+  Instruction* type = context()->get_def_use_mgr()->GetDef(type_id());
+  return folder.IsFoldableType(type);
+}
+
+bool Instruction::IsFloatingPointFoldingAllowed() const {
+  // TODO: Add the rules for kernels.  For now it will be pessimistic.
+  if (!context_->get_feature_mgr()->HasCapability(SpvCapabilityShader)) {
+    return false;
+  }
+
+  bool is_nocontract = false;
+  context_->get_decoration_mgr()->WhileEachDecoration(
+      opcode_, SpvDecorationNoContraction,
+      [&is_nocontract](const opt::Instruction&) {
+        is_nocontract = true;
+        return false;
+      });
+  return !is_nocontract;
+}
+
+std::string Instruction::PrettyPrint(uint32_t options) const {
+  // Convert the module to binary.
+  std::vector<uint32_t> module_binary;
+  context()->module()->ToBinary(&module_binary, /* skip_nop = */ false);
+
+  // Convert the instruction to binary. This is used to identify the correct
+  // stream of words to output from the module.
+  std::vector<uint32_t> inst_binary;
+  ToBinaryWithoutAttachedDebugInsts(&inst_binary);
+
+  // Do not generate a header.
+  return spvInstructionBinaryToText(
+      context()->grammar().target_env(), inst_binary.data(), inst_binary.size(),
+      module_binary.data(), module_binary.size(),
+      options | SPV_BINARY_TO_TEXT_OPTION_NO_HEADER);
+}
+
+std::ostream& operator<<(std::ostream& str, const opt::Instruction& inst) {
+  str << inst.PrettyPrint();
+  return str;
+}
+
+bool Instruction::IsOpcodeCodeMotionSafe() const {
+  switch (opcode_) {
+    case SpvOpNop:
+    case SpvOpUndef:
+    case SpvOpLoad:
+    case SpvOpAccessChain:
+    case SpvOpInBoundsAccessChain:
+    case SpvOpArrayLength:
+    case SpvOpVectorExtractDynamic:
+    case SpvOpVectorInsertDynamic:
+    case SpvOpVectorShuffle:
+    case SpvOpCompositeConstruct:
+    case SpvOpCompositeExtract:
+    case SpvOpCompositeInsert:
+    case SpvOpCopyObject:
+    case SpvOpTranspose:
+    case SpvOpConvertFToU:
+    case SpvOpConvertFToS:
+    case SpvOpConvertSToF:
+    case SpvOpConvertUToF:
+    case SpvOpUConvert:
+    case SpvOpSConvert:
+    case SpvOpFConvert:
+    case SpvOpQuantizeToF16:
+    case SpvOpBitcast:
+    case SpvOpSNegate:
+    case SpvOpFNegate:
+    case SpvOpIAdd:
+    case SpvOpFAdd:
+    case SpvOpISub:
+    case SpvOpFSub:
+    case SpvOpIMul:
+    case SpvOpFMul:
+    case SpvOpUDiv:
+    case SpvOpSDiv:
+    case SpvOpFDiv:
+    case SpvOpUMod:
+    case SpvOpSRem:
+    case SpvOpSMod:
+    case SpvOpFRem:
+    case SpvOpFMod:
+    case SpvOpVectorTimesScalar:
+    case SpvOpMatrixTimesScalar:
+    case SpvOpVectorTimesMatrix:
+    case SpvOpMatrixTimesVector:
+    case SpvOpMatrixTimesMatrix:
+    case SpvOpOuterProduct:
+    case SpvOpDot:
+    case SpvOpIAddCarry:
+    case SpvOpISubBorrow:
+    case SpvOpUMulExtended:
+    case SpvOpSMulExtended:
+    case SpvOpAny:
+    case SpvOpAll:
+    case SpvOpIsNan:
+    case SpvOpIsInf:
+    case SpvOpLogicalEqual:
+    case SpvOpLogicalNotEqual:
+    case SpvOpLogicalOr:
+    case SpvOpLogicalAnd:
+    case SpvOpLogicalNot:
+    case SpvOpSelect:
+    case SpvOpIEqual:
+    case SpvOpINotEqual:
+    case SpvOpUGreaterThan:
+    case SpvOpSGreaterThan:
+    case SpvOpUGreaterThanEqual:
+    case SpvOpSGreaterThanEqual:
+    case SpvOpULessThan:
+    case SpvOpSLessThan:
+    case SpvOpULessThanEqual:
+    case SpvOpSLessThanEqual:
+    case SpvOpFOrdEqual:
+    case SpvOpFUnordEqual:
+    case SpvOpFOrdNotEqual:
+    case SpvOpFUnordNotEqual:
+    case SpvOpFOrdLessThan:
+    case SpvOpFUnordLessThan:
+    case SpvOpFOrdGreaterThan:
+    case SpvOpFUnordGreaterThan:
+    case SpvOpFOrdLessThanEqual:
+    case SpvOpFUnordLessThanEqual:
+    case SpvOpFOrdGreaterThanEqual:
+    case SpvOpFUnordGreaterThanEqual:
+    case SpvOpShiftRightLogical:
+    case SpvOpShiftRightArithmetic:
+    case SpvOpShiftLeftLogical:
+    case SpvOpBitwiseOr:
+    case SpvOpBitwiseXor:
+    case SpvOpBitwiseAnd:
+    case SpvOpNot:
+    case SpvOpBitFieldInsert:
+    case SpvOpBitFieldSExtract:
+    case SpvOpBitFieldUExtract:
+    case SpvOpBitReverse:
+    case SpvOpBitCount:
+    case SpvOpSizeOf:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool Instruction::IsScalarizable() const {
+  if (spvOpcodeIsScalarizable(opcode())) {
+    return true;
+  }
+
+  const uint32_t kExtInstSetIdInIdx = 0;
+  const uint32_t kExtInstInstructionInIdx = 1;
+
+  if (opcode() == SpvOpExtInst) {
+    uint32_t instSetId =
+        context()->get_feature_mgr()->GetExtInstImportId_GLSLstd450();
+
+    if (GetSingleWordInOperand(kExtInstSetIdInIdx) == instSetId) {
+      switch (GetSingleWordInOperand(kExtInstInstructionInIdx)) {
+        case GLSLstd450Round:
+        case GLSLstd450RoundEven:
+        case GLSLstd450Trunc:
+        case GLSLstd450FAbs:
+        case GLSLstd450SAbs:
+        case GLSLstd450FSign:
+        case GLSLstd450SSign:
+        case GLSLstd450Floor:
+        case GLSLstd450Ceil:
+        case GLSLstd450Fract:
+        case GLSLstd450Radians:
+        case GLSLstd450Degrees:
+        case GLSLstd450Sin:
+        case GLSLstd450Cos:
+        case GLSLstd450Tan:
+        case GLSLstd450Asin:
+        case GLSLstd450Acos:
+        case GLSLstd450Atan:
+        case GLSLstd450Sinh:
+        case GLSLstd450Cosh:
+        case GLSLstd450Tanh:
+        case GLSLstd450Asinh:
+        case GLSLstd450Acosh:
+        case GLSLstd450Atanh:
+        case GLSLstd450Atan2:
+        case GLSLstd450Pow:
+        case GLSLstd450Exp:
+        case GLSLstd450Log:
+        case GLSLstd450Exp2:
+        case GLSLstd450Log2:
+        case GLSLstd450Sqrt:
+        case GLSLstd450InverseSqrt:
+        case GLSLstd450Modf:
+        case GLSLstd450FMin:
+        case GLSLstd450UMin:
+        case GLSLstd450SMin:
+        case GLSLstd450FMax:
+        case GLSLstd450UMax:
+        case GLSLstd450SMax:
+        case GLSLstd450FClamp:
+        case GLSLstd450UClamp:
+        case GLSLstd450SClamp:
+        case GLSLstd450FMix:
+        case GLSLstd450Step:
+        case GLSLstd450SmoothStep:
+        case GLSLstd450Fma:
+        case GLSLstd450Frexp:
+        case GLSLstd450Ldexp:
+        case GLSLstd450FindILsb:
+        case GLSLstd450FindSMsb:
+        case GLSLstd450FindUMsb:
+        case GLSLstd450NMin:
+        case GLSLstd450NMax:
+        case GLSLstd450NClamp:
+          return true;
+        default:
+          return false;
+      }
+    }
+  }
+  return false;
+}
+
+bool Instruction::IsOpcodeSafeToDelete() const {
+  if (context()->IsCombinatorInstruction(this)) {
+    return true;
+  }
+
+  switch (opcode()) {
+    case SpvOpDPdx:
+    case SpvOpDPdy:
+    case SpvOpFwidth:
+    case SpvOpDPdxFine:
+    case SpvOpDPdyFine:
+    case SpvOpFwidthFine:
+    case SpvOpDPdxCoarse:
+    case SpvOpDPdyCoarse:
+    case SpvOpFwidthCoarse:
+    case SpvOpImageQueryLod:
+      return true;
+    default:
+      return false;
+  }
+}
+
+}  // namespace opt
 }  // namespace spvtools

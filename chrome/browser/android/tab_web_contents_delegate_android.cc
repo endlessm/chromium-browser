@@ -58,10 +58,6 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 
-#if BUILDFLAG(ENABLE_PLUGINS)
-#include "chrome/browser/pepper_broker_infobar_delegate.h"
-#endif
-
 using base::android::AttachCurrentThread;
 using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
@@ -299,15 +295,15 @@ void TabWebContentsDelegateAndroid::AdjustPreviewsStateForNavigation(
 void TabWebContentsDelegateAndroid::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
-    const content::MediaResponseCallback& callback) {
+    content::MediaResponseCallback callback) {
   if (vr::VrTabHelper::IsUiSuppressedInVr(
           web_contents, vr::UiSuppressedElement::kMediaPermission)) {
-    callback.Run(content::MediaStreamDevices(),
-                 content::MEDIA_DEVICE_NOT_SUPPORTED, nullptr);
+    std::move(callback).Run(content::MediaStreamDevices(),
+                            content::MEDIA_DEVICE_NOT_SUPPORTED, nullptr);
     return;
   }
   MediaCaptureDevicesDispatcher::GetInstance()->ProcessMediaAccessRequest(
-      web_contents, request, callback, nullptr);
+      web_contents, request, std::move(callback), nullptr);
 }
 
 bool TabWebContentsDelegateAndroid::CheckMediaAccessPermission(
@@ -332,13 +328,7 @@ bool TabWebContentsDelegateAndroid::RequestPpapiBrokerPermission(
     const GURL& url,
     const base::FilePath& plugin_path,
     const base::Callback<void(bool)>& callback) {
-#if BUILDFLAG(ENABLE_PLUGINS)
-    PepperBrokerInfoBarDelegate::Create(
-        web_contents, url, plugin_path, callback);
-    return true;
-#else
     return false;
-#endif
 }
 
 WebContents* TabWebContentsDelegateAndroid::OpenURLFromTab(
@@ -538,7 +528,7 @@ jboolean JNI_TabWebContentsDelegateAndroid_IsCapturingScreen(
   scoped_refptr<MediaStreamCaptureIndicator> indicator =
       MediaCaptureDevicesDispatcher::GetInstance()
           ->GetMediaStreamCaptureIndicator();
-  return indicator->IsBeingMirrored(web_contents);
+  return indicator->IsCapturingDesktop(web_contents);
 }
 
 void JNI_TabWebContentsDelegateAndroid_NotifyStopped(

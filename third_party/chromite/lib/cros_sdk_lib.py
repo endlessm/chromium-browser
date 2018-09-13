@@ -15,6 +15,7 @@ from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
+from chromite.lib import timeout_util
 
 
 # Name of the LV that contains the active chroot inside the chroot.img file.
@@ -37,7 +38,10 @@ def GetChrootVersion(chroot=None, buildroot=None):
     buildroot: If |chroot| is not set, find it relative to |buildroot|.
 
   Returns:
-    The version of the chroot dir.
+    The version of the chroot dir, or None if the version is missing/invalid.
+
+  Raises:
+    ValueError if neither |chroot| nor |buildroot| is passed.
   """
   if chroot is None and buildroot is None:
     raise ValueError('need either |chroot| or |buildroot| to search')
@@ -45,11 +49,37 @@ def GetChrootVersion(chroot=None, buildroot=None):
   if chroot is None:
     chroot = os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR)
   ver_path = os.path.join(chroot, 'etc', 'cros_chroot_version')
+  chroot_version = None
   try:
-    return osutils.ReadFile(ver_path).strip()
+    chroot_version = osutils.ReadFile(ver_path).strip()
+    return int(chroot_version)
   except IOError:
-    logging.warning('could not read %s', ver_path)
+    logging.debug('could not read %s', ver_path)
     return None
+  except ValueError as e:
+    logging.warning('chroot %s contains invalid version %s: %s', chroot,
+                    chroot_version, e)
+    return None
+
+
+def IsChrootReady(chroot=None, buildroot=None):
+  """Checks if the chroot is mounted and set up.
+
+  /etc/cros_chroot_version is set to the current version of the chroot at the
+  end of the setup process.  If this file exists and contains a non-zero value,
+  the chroot is ready for use.
+
+  Args:
+    chroot: Full path to the chroot to examine.
+    buildroot: If |chroot| is not set, find it relative to |buildroot|.
+
+  Returns:
+    True iff the chroot contains a valid version.
+
+  Raises:
+    ValueError if neither |chroot| nor |buildroot| is passed.
+  """
+  return GetChrootVersion(chroot, buildroot) > 0
 
 
 def FindVolumeGroupForDevice(chroot_path, chroot_dev):
@@ -312,7 +342,9 @@ def FindChrootMountSource(chroot_path, proc_mounts='/proc/mounts'):
   return (match.group(1), match.group(2))
 
 
-def CleanupChrootMount(chroot=None, buildroot=None, delete_image=False,
+# Raise an exception if cleanup takes more than 10 minutes.
+@timeout_util.TimeoutDecorator(600)
+def CleanupChrootMount(chroot=None, buildroot=None, delete=False,
                        proc_mounts='/proc/mounts'):
   """Unmounts a chroot and cleans up attached devices.
 
@@ -326,8 +358,8 @@ def CleanupChrootMount(chroot=None, buildroot=None, delete_image=False,
         to |buildroot|.
     buildroot: Ignored if |chroot| is set.  If |chroot| is None, find the chroot
         relative to |buildroot|.
-    delete_image: Also delete the .img file after cleaning up.  If
-        |delete_image| is False, the chroot contents will still be present and
+    delete: Delete chroot contents and the .img file after cleaning up.  If
+        |delete| is False, the chroot contents will still be present and
         can be immediately re-mounted without recreating a fresh chroot.
     proc_mounts: The path to a list of mounts to read (intended for testing).
   """
@@ -375,8 +407,10 @@ def CleanupChrootMount(chroot=None, buildroot=None, delete_image=False,
   if chroot_dev:
     cmd = ['losetup', '-d', chroot_dev]
     cros_build_lib.SudoRunCommand(cmd, capture_output=True, print_cmd=False)
-  if delete_image:
+  if delete:
     osutils.SafeUnlink(chroot_img)
+    osutils.RmDir(chroot, ignore_missing=True, sudo=True)
+
   if chroot_dev:
     # Force a rescan after everything is gone to make sure lvmetad is updated.
     _RescanDeviceLvmMetadata(chroot_dev)

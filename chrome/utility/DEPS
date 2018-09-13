@@ -1,6 +1,8 @@
 include_rules = [
   "+chrome/grit",
   "+chrome/installer/util",
+  "+chrome/services/cups_ipp_validator/cups_ipp_validator_service.h",
+  "+chrome/services/cups_ipp_validator/public/mojom",
   "+chrome/services/file_util/file_util_service.h",
   "+chrome/services/file_util/public/mojom",
   "+chrome/services/media_gallery_util/media_gallery_util_service.h",
@@ -18,7 +20,6 @@ include_rules = [
   "+chrome/services/wifi_util_win/public/mojom",
   "+components/crash/core/common/crash_keys.h",
   "+components/payments/content/utility",
-  "+components/services/font/font_service_app.h",
   "+components/services/heap_profiling/heap_profiling_service.h",
   "+components/services/heap_profiling/public",
   "+components/services/patch",
@@ -31,6 +32,7 @@ include_rules = [
   "+extensions/common",
   "+extensions/buildflags",
   "+media",
+  "+services/content/simple_browser",
   "+services/network/public",
   "+services/network/url_request_context_builder_mojo.h",
   "+services/proxy_resolver",
@@ -43,6 +45,7 @@ include_rules = [
 
 specific_include_rules = {
   "mash_service_factory.cc": [
+    "+ash/ash_service.h",
     "+ash/components/autoclick/autoclick_application.h",
     "+ash/components/quick_launch/public",
     "+ash/components/quick_launch/quick_launch_application.h",
@@ -52,8 +55,6 @@ specific_include_rules = {
     "+ash/components/tap_visualizer/tap_visualizer_app.h",
     "+ash/public/interfaces",
     "+ash/window_manager_service.h",
-    "+components/services/font/font_service_app.h",
-    "+components/services/font/public/interfaces",
     "+services/ui/common/image_cursors_set.h",
     "+services/ui/public",
     "+services/ui/service.h",

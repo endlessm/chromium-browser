@@ -203,12 +203,12 @@ class ThemeService : public content::NotificationObserver, public KeyedService {
     int GetDisplayProperty(int id) const override;
     bool ShouldUseNativeFrame() const override;
     bool HasCustomImage(int id) const override;
+    bool HasCustomColor(int id) const override;
     base::RefCountedMemory* GetRawData(int id, ui::ScaleFactor scale_factor)
         const override;
 #if defined(OS_MACOSX)
     bool UsingSystemTheme() const override;
     bool InIncognitoMode() const override;
-    bool HasCustomColor(int id) const override;
     NSImage* GetNSImageNamed(int id) const override;
     NSColor* GetNSImageColorNamed(int id) const override;
     NSColor* GetNSColor(int id) const override;
@@ -247,14 +247,15 @@ class ThemeService : public content::NotificationObserver, public KeyedService {
   // These methods provide the implementation for ui::ThemeProvider (exposed
   // via BrowserThemeProvider).
   gfx::ImageSkia* GetImageSkiaNamed(int id, bool incognito) const;
-  SkColor GetColor(int id, bool incognito) const;
+  SkColor GetColor(int id,
+                   bool incognito,
+                   bool* has_custom_color = nullptr) const;
   int GetDisplayProperty(int id) const;
   base::RefCountedMemory* GetRawData(int id,
                                      ui::ScaleFactor scale_factor) const;
 #if defined(OS_MACOSX)
   NSImage* GetNSImageNamed(int id, bool incognito) const;
   NSColor* GetNSImageColorNamed(int id, bool incognito) const;
-  bool HasCustomColor(int id) const;
   NSColor* GetNSColor(int id, bool incognito) const;
   NSColor* GetNSColorTint(int id) const;
   NSGradient* GetNSGradient(int id) const;

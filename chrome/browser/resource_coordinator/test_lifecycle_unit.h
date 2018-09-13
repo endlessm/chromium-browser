@@ -10,6 +10,8 @@
 
 namespace resource_coordinator {
 
+class UsageClock;
+
 class TestLifecycleUnit : public LifecycleUnitBase {
  public:
   using LifecycleUnitBase::OnLifecycleUnitVisibilityChanged;
@@ -18,6 +20,8 @@ class TestLifecycleUnit : public LifecycleUnitBase {
   TestLifecycleUnit(base::TimeTicks last_focused_time = base::TimeTicks(),
                     base::ProcessHandle process_handle = base::ProcessHandle(),
                     bool can_discard = true);
+  TestLifecycleUnit(content::Visibility visibility, UsageClock* usage_clock);
+  explicit TestLifecycleUnit(LifecycleUnitSourceBase* source);
   ~TestLifecycleUnit() override;
 
   void SetLastFocusedTime(base::TimeTicks last_focused_time) {
@@ -31,20 +35,37 @@ class TestLifecycleUnit : public LifecycleUnitBase {
   base::ProcessHandle GetProcessHandle() const override;
   SortKey GetSortKey() const override;
   content::Visibility GetVisibility() const override;
-  bool Freeze() override;
+  LifecycleUnitLoadingState GetLoadingState() const override;
+  bool Load() override;
   int GetEstimatedMemoryFreedOnDiscardKB() const override;
   bool CanPurge() const override;
-  bool CanFreeze() const override;
-  bool CanDiscard(DiscardReason reason) const override;
+  bool CanFreeze(DecisionDetails* decision_details) const override;
+  bool CanDiscard(DiscardReason reason,
+                  DecisionDetails* decision_details) const override;
+  bool Freeze() override;
+  bool Unfreeze() override;
   bool Discard(DiscardReason discard_reason) override;
 
  private:
   base::TimeTicks last_focused_time_;
   base::ProcessHandle process_handle_;
-  bool can_discard_;
+  bool can_discard_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(TestLifecycleUnit);
 };
+
+// Helper funtions for testing CanDiscard policy.
+void ExpectCanDiscardTrue(const LifecycleUnit* lifecycle_unit,
+                          DiscardReason discard_reason);
+void ExpectCanDiscardTrueAllReasons(const LifecycleUnit* lifecycle_unit);
+void ExpectCanDiscardFalse(const LifecycleUnit* lifecycle_unit,
+                           DecisionFailureReason failure_reason,
+                           DiscardReason discard_reason);
+void ExpectCanDiscardFalseAllReasons(const LifecycleUnit* lifecycle_unit,
+                                     DecisionFailureReason failure_reason);
+void ExpectCanDiscardFalseTrivial(const LifecycleUnit* lifecycle_unit,
+                                  DiscardReason discard_reason);
+void ExpectCanDiscardFalseTrivialAllReasons(const LifecycleUnit* lu);
 
 }  // namespace resource_coordinator
 

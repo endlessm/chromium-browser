@@ -211,7 +211,7 @@ public class MediaSessionTabHelper implements MediaImageCallback {
                 Intent contentIntent = Tab.createBringTabToFrontIntent(mTab.getId());
                 if (contentIntent != null) {
                     contentIntent.putExtra(MediaNotificationUma.INTENT_EXTRA_NAME,
-                            MediaNotificationUma.SOURCE_MEDIA);
+                            MediaNotificationUma.Source.MEDIA);
                 }
 
                 if (mFallbackTitle == null) mFallbackTitle = sanitizeMediaTitle(mTab.getTitle());
@@ -313,7 +313,8 @@ public class MediaSessionTabHelper implements MediaImageCallback {
 
             String origin = mTab.getUrl();
             try {
-                origin = UrlFormatter.formatUrlForSecurityDisplay(new URI(origin), true);
+                URI uri = new URI(origin);
+                origin = UrlFormatter.formatUrlForSecurityDisplay(origin);
             } catch (URISyntaxException | UnsatisfiedLinkError e) {
                 // UnstatisfiedLinkError can only happen in tests as the natives are not initialized
                 // yet.
@@ -419,17 +420,18 @@ public class MediaSessionTabHelper implements MediaImageCallback {
      *               {@link MediaNotificationListener} interface.
      * @return the corresponding histogram value.
      */
-    public static int convertMediaActionSourceToUMA(int source) {
+    public static @MediaSessionUMA.MediaSessionActionSource int convertMediaActionSourceToUMA(
+            int source) {
         if (source == MediaNotificationListener.ACTION_SOURCE_MEDIA_NOTIFICATION) {
-            return MediaSessionUMA.MEDIA_SESSION_ACTION_SOURCE_MEDIA_NOTIFICATION;
+            return MediaSessionUMA.MediaSessionActionSource.MEDIA_NOTIFICATION;
         } else if (source == MediaNotificationListener.ACTION_SOURCE_MEDIA_SESSION) {
-            return MediaSessionUMA.MEDIA_SESSION_ACTION_SOURCE_MEDIA_SESSION;
+            return MediaSessionUMA.MediaSessionActionSource.MEDIA_SESSION;
         } else if (source == MediaNotificationListener.ACTION_SOURCE_HEADSET_UNPLUG) {
-            return MediaSessionUMA.MEDIA_SESSION_ACTION_SOURCE_HEADSET_UNPLUG;
+            return MediaSessionUMA.MediaSessionActionSource.HEADSET_UNPLUG;
         }
 
         assert false;
-        return MediaSessionUMA.MEDIA_SESSION_ACTION_SOURCE_MAX;
+        return MediaSessionUMA.MediaSessionActionSource.NUM_ENTRIES;
     }
 
     private Activity getActivityFromTab(Tab tab) {

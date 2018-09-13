@@ -7,6 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/login/login_screen_controller_observer.h"
+#include "ash/public/interfaces/kiosk_app_info.mojom.h"
 #include "ash/public/interfaces/login_screen.mojom.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
@@ -49,6 +50,9 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
   // Binds the mojom::LoginScreen interface to this object.
   void BindRequest(mojom::LoginScreenRequest request);
 
+  // Check to see if an authentication attempt is in-progress.
+  bool IsAuthenticating() const;
+
   // Hash the password and send AuthenticateUser request to LoginScreenClient.
   // LoginScreenClient (in the chrome process) will do the authentication and
   // request to show error messages in the screen if auth fails, or request to
@@ -68,7 +72,8 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
   void LoginAsGuest();
   void OnMaxIncorrectPasswordAttempted(const AccountId& account_id);
   void FocusLockScreenApps(bool reverse);
-  void ShowGaiaSignin(const base::Optional<AccountId>& account_id);
+  void ShowGaiaSignin(bool can_close,
+                      const base::Optional<AccountId>& prefilled_account);
   void OnRemoveUserWarningShown();
   void RemoveUser(const AccountId& account_id);
   void LaunchPublicSession(const AccountId& account_id,
@@ -76,6 +81,10 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
                            const std::string& input_method);
   void RequestPublicSessionKeyboardLayouts(const AccountId& account_id,
                                            const std::string& locale);
+  void ShowFeedback();
+  void LaunchKioskApp(const std::string& app_id);
+  void LaunchArcKioskApp(const AccountId& account_id);
+  void ShowResetScreen();
 
   // Add or remove an observer.
   void AddObserver(LoginScreenControllerObserver* observer);
@@ -129,6 +138,9 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
       std::vector<mojom::InputMethodItemPtr> keyboard_layouts) override;
   void SetFingerprintUnlockState(const AccountId& account_id,
                                  mojom::FingerprintUnlockState state) override;
+  void SetKioskApps(std::vector<mojom::KioskAppInfoPtr> kiosk_apps) override;
+  void NotifyOobeDialogVisibility(bool is_visible) override;
+  void SetAddUserButtonEnabled(bool enable) override;
 
   // Flushes the mojo pipes - to be used in tests.
   void FlushForTesting();

@@ -77,54 +77,16 @@ using download::DownloadItem;
 
 namespace {
 
-// All values in dp.
-const int kTextWidth = 140;
-
-// The normal height of the item which may be exceeded if text is large.
-const int kDefaultHeight = 48;
-
-// The vertical distance between the item's visual upper bound (as delineated by
-// the separator on the right) and the edge of the shelf.
-const int kTopBottomPadding = 6;
+// The vertical distance between the item's visual upper bound (as delineated
+// by the separator on the right) and the edge of the shelf.
+constexpr int kTopBottomPadding = 6;
 
 // The minimum vertical padding above and below contents of the download item.
 // This is only used when the text size is large.
-const int kMinimumVerticalPadding = 2 + kTopBottomPadding;
+constexpr int kMinimumVerticalPadding = 2 + kTopBottomPadding;
 
-// Vertical padding between filename and status text.
-const int kVerticalTextPadding = 1;
-
-const int kTooltipMaxWidth = 800;
-
-// Padding before the icon and at end of the item.
-const int kStartPadding = 12;
-const int kEndPadding = 6;
-
-// Horizontal padding between progress indicator and filename/status text.
-const int kProgressTextPadding = 8;
-
-// The space between the Save and Discard buttons when prompting for a dangerous
-// download.
-const int kButtonPadding = 5;
-
-// The touchable space around the dropdown button's icon.
-const int kDropdownBorderWidth = 10;
-
-// The space on the right side of the dangerous download label.
-const int kLabelPadding = 8;
-
-// Height/width of the warning icon, also in dp.
-const int kWarningIconSize = 24;
-
-// How long the 'download complete' animation should last for.
-const int kCompleteAnimationDurationMs = 2500;
-
-// How long the 'download interrupted' animation should last for.
-const int kInterruptedAnimationDurationMs = 2500;
-
-// How long we keep the item disabled after the user clicked it to open the
-// downloaded item.
-const int kDisabledOnOpenDuration = 3000;
+// The normal height of the item which may be exceeded if text is large.
+constexpr int kDefaultHeight = 48;
 
 // Amount of time between accessible alert events.
 constexpr base::TimeDelta kAccessibleAlertInterval =
@@ -396,7 +358,7 @@ void DownloadItemView::Layout() {
     child_origin.set_y((height() - button_size.height()) / 2);
     if (save_button_) {
       save_button_->SetBoundsRect(gfx::Rect(child_origin, button_size));
-      child_origin.Offset(button_size.width() + kButtonPadding, 0);
+      child_origin.Offset(button_size.width() + kSaveDiscardButtonPadding, 0);
     }
     discard_button_->SetBoundsRect(gfx::Rect(child_origin, button_size));
   }
@@ -428,7 +390,7 @@ gfx::Size DownloadItemView::CalculatePreferredSize() const {
             dangerous_download_label_->width() + kLabelPadding;
     gfx::Size button_size = GetButtonSize();
     if (save_button_)
-      width += button_size.width() + kButtonPadding;
+      width += button_size.width() + kSaveDiscardButtonPadding;
     width += button_size.width() + kEndPadding;
 
     // Height: make sure the button fits and the warning icon fits.

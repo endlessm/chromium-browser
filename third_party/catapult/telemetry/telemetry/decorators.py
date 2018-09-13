@@ -164,31 +164,42 @@ def Enabled(*args):
   return _Enabled
 
 
-def Owner(emails=None, component=None):
-  """Decorator for specifying the owner of a benchmark."""
+def Info(emails=None, component=None, documentation_url=None):
+  """Decorator for specifying the benchmark_info of a benchmark."""
 
-  def _Owner(func):
-    owner_attr_name = OwnerAttributeName(func)
-    assert inspect.isclass(func), '@Owner(...) can only be used on classes'
-    if not hasattr(func, owner_attr_name):
-      setattr(func, owner_attr_name, {})
-    owner_dict = getattr(func, owner_attr_name)
+  def _Info(func):
+    info_attr_name = InfoAttributeName(func)
+    assert inspect.isclass(func), '@Info(...) can only be used on classes'
+    if not hasattr(func, info_attr_name):
+      setattr(func, info_attr_name, {})
+    info_dict = getattr(func, info_attr_name)
     if emails:
-      assert 'emails' not in owner_dict, 'emails can only be set once'
-      owner_dict['emails'] = emails
+      assert 'emails' not in info_dict, 'emails can only be set once'
+      info_dict['emails'] = emails
     if component:
-      assert 'component' not in owner_dict, 'component can only be set once'
-      owner_dict['component'] = component
-    setattr(func, owner_attr_name, owner_dict)
+      assert 'component' not in info_dict, 'component can only be set once'
+      info_dict['component'] = component
+    if documentation_url:
+      assert 'documentation_url' not in info_dict, (
+          'document link can only be set once')
+      info_dict['documentation_url'] = documentation_url
+
+    setattr(func, info_attr_name, info_dict)
     return func
 
-  help_text = '@Owner(...) requires emails and/or a component'
+  help_text = '@Info(...) requires emails and/or a component'
   assert emails or component, help_text
   if emails:
     assert isinstance(emails, list), 'emails must be a list of strs'
     for e in emails:
       assert isinstance(e, str), 'emails must be a list of strs'
-  return _Owner
+  if documentation_url:
+    assert isinstance(documentation_url, str), (
+        'Documentation link must be a str')
+    assert (documentation_url.startswith('http://') or
+            documentation_url.startswith('https://')), (
+                'Documentation url is malformed')
+  return _Info
 
 
 # TODO(dpranke): Remove if we don't need this.
@@ -271,24 +282,32 @@ def EnabledAttributeName(test):
   return '_%s_%s_enabled_strings' % (test.__module__, name)
 
 
-def OwnerAttributeName(test):
+def InfoAttributeName(test):
   name = _TestName(test)
-  return '_%s_%s_owner' % (test.__module__, name)
+  return '_%s_%s_info' % (test.__module__, name)
 
 
 def GetEmails(test):
-  owner_attr_name = OwnerAttributeName(test)
-  owner = getattr(test, owner_attr_name, {})
-  if 'emails' in owner:
-    return owner['emails']
+  info_attr_name = InfoAttributeName(test)
+  benchmark_info = getattr(test, info_attr_name, {})
+  if 'emails' in benchmark_info:
+    return benchmark_info['emails']
   return None
 
 
 def GetComponent(test):
-  owner_attr_name = OwnerAttributeName(test)
-  owner = getattr(test, owner_attr_name, {})
-  if 'component' in owner:
-    return owner['component']
+  info_attr_name = InfoAttributeName(test)
+  benchmark_info = getattr(test, info_attr_name, {})
+  if 'component' in benchmark_info:
+    return benchmark_info['component']
+  return None
+
+
+def GetDocumentationLink(test):
+  info_attr_name = InfoAttributeName(test)
+  benchmark_info = getattr(test, info_attr_name, {})
+  if 'documentation_url' in benchmark_info:
+    return benchmark_info['documentation_url']
   return None
 
 

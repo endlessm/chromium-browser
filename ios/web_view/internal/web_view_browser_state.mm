@@ -12,6 +12,7 @@
 #include "base/path_service.h"
 #include "base/threading/thread_restrictions.h"
 #include "components/autofill/core/browser/autofill_manager.h"
+#include "components/gcm_driver/gcm_channel_status_syncer.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/in_memory_pref_store.h"
@@ -26,7 +27,7 @@
 #include "ios/web_view/internal/autofill/web_view_personal_data_manager_factory.h"
 #include "ios/web_view/internal/content_settings/web_view_cookie_settings_factory.h"
 #include "ios/web_view/internal/content_settings/web_view_host_content_settings_map_factory.h"
-#include "ios/web_view/internal/language/web_view_language_model_factory.h"
+#include "ios/web_view/internal/language/web_view_language_model_manager_factory.h"
 #include "ios/web_view/internal/language/web_view_url_language_histogram_factory.h"
 #include "ios/web_view/internal/pref_names.h"
 #include "ios/web_view/internal/signin/web_view_account_fetcher_service_factory.h"
@@ -37,6 +38,8 @@
 #include "ios/web_view/internal/signin/web_view_signin_client_factory.h"
 #include "ios/web_view/internal/signin/web_view_signin_error_controller_factory.h"
 #include "ios/web_view/internal/signin/web_view_signin_manager_factory.h"
+#import "ios/web_view/internal/sync/web_view_gcm_profile_service_factory.h"
+#import "ios/web_view/internal/sync/web_view_profile_invalidation_provider_factory.h"
 #include "ios/web_view/internal/translate/web_view_translate_accept_languages_factory.h"
 #include "ios/web_view/internal/translate/web_view_translate_ranker_factory.h"
 #include "ios/web_view/internal/web_view_url_request_context_getter.h"
@@ -96,9 +99,9 @@ WebViewBrowserState::WebViewBrowserState(
 
   base::ThreadRestrictions::SetIOAllowed(wasIOAllowed);
 
-#if BUILDFLAG(IOS_WEB_VIEW_ENABLE_SIGNIN)
+#if BUILDFLAG(IOS_WEB_VIEW_ENABLE_SYNC)
   ActiveStateManager::FromBrowserState(this)->SetActive(true);
-#endif  // BUILDFLAG(IOS_WEB_VIEW_ENABLE_SIGNIN)
+#endif  // BUILDFLAG(IOS_WEB_VIEW_ENABLE_SYNC)
 
   BrowserStateDependencyManager::GetInstance()->CreateBrowserStateServices(
       this);
@@ -108,9 +111,9 @@ WebViewBrowserState::~WebViewBrowserState() {
   BrowserStateDependencyManager::GetInstance()->DestroyBrowserStateServices(
       this);
 
-#if BUILDFLAG(IOS_WEB_VIEW_ENABLE_SIGNIN)
+#if BUILDFLAG(IOS_WEB_VIEW_ENABLE_SYNC)
   ActiveStateManager::FromBrowserState(this)->SetActive(false);
-#endif  // BUILDFLAG(IOS_WEB_VIEW_ENABLE_SIGNIN)
+#endif  // BUILDFLAG(IOS_WEB_VIEW_ENABLE_SYNC)
 }
 
 PrefService* WebViewBrowserState::GetPrefs() {
@@ -160,8 +163,12 @@ void WebViewBrowserState::RegisterPrefs(
   autofill::AutofillManager::RegisterProfilePrefs(pref_registry);
 #endif  // BUILDFLAG(IOS_WEB_VIEW_ENABLE_AUTOFILL)
 
+#if BUILDFLAG(IOS_WEB_VIEW_ENABLE_SYNC)
+  gcm::GCMChannelStatusSyncer::RegisterProfilePrefs(pref_registry);
+#endif  // BUILDFLAG(IOS_WEB_VIEW_ENABLE_SYNC)
+
   // Instantiate all factories to setup dependency graph for pref registration.
-  WebViewLanguageModelFactory::GetInstance();
+  WebViewLanguageModelManagerFactory::GetInstance();
   WebViewTranslateRankerFactory::GetInstance();
   WebViewUrlLanguageHistogramFactory::GetInstance();
   WebViewTranslateAcceptLanguagesFactory::GetInstance();
@@ -171,7 +178,7 @@ void WebViewBrowserState::RegisterPrefs(
   WebViewWebDataServiceWrapperFactory::GetInstance();
 #endif  // BUILDFLAG(IOS_WEB_VIEW_ENABLE_AUTOFILL)
 
-#if BUILDFLAG(IOS_WEB_VIEW_ENABLE_SIGNIN)
+#if BUILDFLAG(IOS_WEB_VIEW_ENABLE_SYNC)
   WebViewCookieSettingsFactory::GetInstance();
   WebViewHostContentSettingsMapFactory::GetInstance();
   WebViewAccountFetcherServiceFactory::GetInstance();
@@ -182,7 +189,9 @@ void WebViewBrowserState::RegisterPrefs(
   WebViewSigninErrorControllerFactory::GetInstance();
   WebViewSigninManagerFactory::GetInstance();
   WebViewIdentityManagerFactory::GetInstance();
-#endif  // BUILDFLAG(IOS_WEB_VIEW_ENABLE_SIGNIN)
+  WebViewGCMProfileServiceFactory::GetInstance();
+  WebViewProfileInvalidationProviderFactory::GetInstance();
+#endif  // BUILDFLAG(IOS_WEB_VIEW_ENABLE_SYNC)
 
   BrowserStateDependencyManager::GetInstance()
       ->RegisterBrowserStatePrefsForServices(this, pref_registry);

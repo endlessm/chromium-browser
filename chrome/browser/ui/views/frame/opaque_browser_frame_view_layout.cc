@@ -8,7 +8,6 @@
 #include "base/containers/adapters.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profiles_state.h"
-#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/profiles/profile_indicator_icon.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/signin/core/browser/profile_management_switches.h"
@@ -30,6 +29,8 @@ constexpr int kCaptionButtonSpacing = 0;
 
 }  // namespace
 
+using MD = ui::MaterialDesignController;
+
 ///////////////////////////////////////////////////////////////////////////////
 // OpaqueBrowserFrameViewLayout, public:
 
@@ -37,10 +38,6 @@ constexpr int kCaptionButtonSpacing = 0;
 
 // The content edge images have a shadow built into them.
 const int OpaqueBrowserFrameViewLayout::kContentEdgeShadowThickness = 2;
-
-// Besides the frame border, there's empty space atop the window in restored
-// mode, to use to drag the window around.
-const int OpaqueBrowserFrameViewLayout::kNonClientRestoredExtraThickness = 11;
 
 // The frame border is only visible in restored mode and is hardcoded to 4 px on
 // each side regardless of the system window border size.
@@ -129,7 +126,7 @@ gfx::Size OpaqueBrowserFrameViewLayout::GetMinimumSize(
 }
 
 int OpaqueBrowserFrameViewLayout::GetTabStripLeftInset() const {
-  return leading_button_start_ + OpaqueBrowserFrameView::GetAvatarIconPadding();
+  return leading_button_start_ + OpaqueBrowserFrameView::GetTabstripPadding();
 }
 
 gfx::Rect OpaqueBrowserFrameViewLayout::GetWindowBoundsForClientBounds(
@@ -147,39 +144,46 @@ int OpaqueBrowserFrameViewLayout::FrameBorderThickness(bool restored) const {
       0 : kFrameBorderThickness;
 }
 
+int OpaqueBrowserFrameViewLayout::FrameTopBorderThickness(bool restored) const {
+  int thickness = FrameBorderThickness(restored);
+  if (MD::IsRefreshUi() &&
+      (restored || (!IsTitleBarCondensed() && !delegate_->IsFullscreen())))
+    thickness += kRefreshNonClientExtraTopThickness;
+  return thickness;
+}
+
+bool OpaqueBrowserFrameViewLayout::HasClientEdge() const {
+  return !MD::IsRefreshUi();
+}
+
 int OpaqueBrowserFrameViewLayout::NonClientBorderThickness() const {
   const int frame = FrameBorderThickness(false);
   // When we fill the screen, we don't show a client edge.
-  return (IsTitleBarCondensed() || delegate_->IsFullscreen()) ?
-      frame : (frame + views::NonClientFrameView::kClientEdgeThickness);
+  return (!HasClientEdge() || IsTitleBarCondensed() ||
+          delegate_->IsFullscreen())
+             ? frame
+             : (frame + views::NonClientFrameView::kClientEdgeThickness);
 }
 
 int OpaqueBrowserFrameViewLayout::NonClientTopHeight(bool restored) const {
-  if (delegate_->ShouldShowWindowTitle()) {
-    // The + 2 here puts at least 1 px of space on top and bottom of the icon.
-    const int icon_height =
-        TitlebarTopThickness(restored) + delegate_->GetIconSize() + 2;
-    const int caption_button_height = DefaultCaptionButtonY(restored) +
-                                      kCaptionButtonHeight +
-                                      kCaptionButtonBottomPadding;
-    return std::max(icon_height, caption_button_height) +
-        kContentEdgeShadowThickness;
-  }
+  if (!delegate_->ShouldShowWindowTitle())
+    return FrameTopBorderThickness(restored);
 
-  int thickness = FrameBorderThickness(restored);
-  // The tab top inset is equal to the height of any shadow region above the
-  // tabs, plus a 1 px top stroke.  In maximized mode, we want to push the
-  // shadow region off the top of the screen but leave the top stroke.
-  if (!restored && delegate_->IsTabStripVisible() && IsTitleBarCondensed())
-    thickness -= GetLayoutInsets(TAB).top() - 1;
-  return thickness;
+  // The + 2 here puts at least 1 px of space on top and bottom of the icon.
+  const int icon_height =
+      TitlebarTopThickness(restored) + delegate_->GetIconSize() + 2;
+  const int caption_button_height = DefaultCaptionButtonY(restored) +
+                                    kCaptionButtonHeight +
+                                    kCaptionButtonBottomPadding;
+  return std::max(icon_height, caption_button_height) +
+         kContentEdgeShadowThickness;
 }
 
 int OpaqueBrowserFrameViewLayout::GetTabStripInsetsTop(bool restored) const {
   const int top = NonClientTopHeight(restored);
   return (!restored && (IsTitleBarCondensed() || delegate_->IsFullscreen()))
              ? top
-             : (top + kNonClientRestoredExtraThickness);
+             : (top + GetNonClientRestoredExtraThickness());
 }
 
 int OpaqueBrowserFrameViewLayout::TitlebarTopThickness(bool restored) const {
@@ -268,6 +272,23 @@ bool OpaqueBrowserFrameViewLayout::IsTitleBarCondensed() const {
   return !delegate_->ShouldShowCaptionButtons() || delegate_->IsMaximized();
 }
 
+int OpaqueBrowserFrameViewLayout::GetNonClientRestoredExtraThickness() const {
+  // Besides the frame border, there's empty space atop the window in restored
+  // mode, to use to drag the window around.
+  if (!MD::IsRefreshUi()) {
+    constexpr int kNonClientRestoredExtraThickness = 11;
+    return kNonClientRestoredExtraThickness;
+  }
+
+  constexpr int kRefreshNonClientRestoredExtraThickness = 4;
+  int thickness = kRefreshNonClientRestoredExtraThickness;
+  if (delegate_->EverHasVisibleBackgroundTabShapes()) {
+    thickness =
+        std::max(thickness, BrowserNonClientFrameView::kMinimumDragHeight);
+  }
+  return thickness;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // OpaqueBrowserFrameViewLayout, protected:
 
@@ -291,8 +312,7 @@ void OpaqueBrowserFrameViewLayout::LayoutNewStyleAvatar(views::View* host) {
   // the avatar button.
   if (!IsTitleBarCondensed()) {
     trailing_button_start_ -=
-        GetLayoutSize(NEW_TAB_BUTTON, delegate_->IsIncognito()).width() +
-        kCaptionSpacing;
+        delegate_->GetNewTabButtonPreferredSize().width() + kCaptionSpacing;
   }
 
   new_avatar_button_->SetBounds(button_x, button_y, button_width,
@@ -316,10 +336,8 @@ bool OpaqueBrowserFrameViewLayout::ShouldIncognitoIconBeOnRight() const {
 }
 
 int OpaqueBrowserFrameViewLayout::TabStripCaptionSpacing() const {
-  // For Material Refresh, the end of the tabstrip contains empty space to
-  // ensure the window remains draggable, which is sufficient padding to the
-  // other tabstrip contents.
-  using MD = ui::MaterialDesignController;
+  // In Refresh, any necessary padding after the tabstrip is contained within
+  // the tabs and/or new tab button.
   if (MD::IsRefreshUi())
     return 0;
 

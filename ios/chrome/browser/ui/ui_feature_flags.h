@@ -31,4 +31,12 @@ extern const base::Feature kCollectionsUIReboot;
 // IsRefreshInfobarEnabled().
 extern const base::Feature kInfobarsUIReboot;
 
+// Avoid the crash in https://crbug.com/816427 by getting the first responder by
+// navigating the key window, rather than using -sendAction to find the first
+// responder.
+extern const base::Feature kFirstResponderKeyWindow;
+
+// Feature to copy image to system pasteboard via context menu.
+extern const base::Feature kCopyImage;
+
 #endif  // IOS_CHROME_BROWSER_UI_UI_FEATURE_FLAGS_H_

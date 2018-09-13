@@ -4,6 +4,8 @@
 
 #include "chromecast/browser/extension_request_protocol_handler.h"
 
+#include "chromecast/common/cast_redirect_manifest_handler.h"
+#include "content/common/net/url_request_user_data.h"
 #include "extensions/browser/extension_protocols.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/info_map.h"
@@ -46,7 +48,9 @@ class CastExtensionURLRequestJob : public net::URLRequestJob,
   void GetLoadTimingInfo(net::LoadTimingInfo* load_timing_info) const override;
   bool GetRemoteEndpoint(net::IPEndPoint* endpoint) const override;
   void PopulateNetErrorDetails(net::NetErrorDetails* details) const override;
-  bool IsRedirectResponse(GURL* location, int* http_status_code) override;
+  bool IsRedirectResponse(GURL* location,
+                          int* http_status_code,
+                          bool* insecure_scheme_was_upgraded) override;
   bool CopyFragmentOnRedirect(const GURL& location) const override;
   bool IsSafeRedirect(const GURL& location) override;
   bool NeedsAuth() override;
@@ -85,7 +89,18 @@ CastExtensionURLRequestJob::CastExtensionURLRequestJob(
     : net::URLRequestJob(request, network_delegate),
       sub_request_(request->context()->CreateRequest(redirect_url,
                                                      request->priority(),
-                                                     this)) {}
+                                                     this)) {
+  // Copy necessary information from the original request.
+  // (|URLRequest| is not copyable.)
+  sub_request_->set_method(request->method());
+  content::URLRequestUserData* user_data =
+      static_cast<content::URLRequestUserData*>(
+          request->GetUserData(content::URLRequestUserData::kUserDataKey));
+  sub_request_->SetUserData(
+      content::URLRequestUserData::kUserDataKey,
+      std::make_unique<content::URLRequestUserData>(
+          user_data->render_process_id(), user_data->render_frame_id()));
+}
 
 CastExtensionURLRequestJob::~CastExtensionURLRequestJob() {}
 
@@ -93,8 +108,10 @@ void CastExtensionURLRequestJob::Start() {
   sub_request_->Start();
 }
 
-bool CastExtensionURLRequestJob::IsRedirectResponse(GURL* location,
-                                                    int* http_status_code) {
+bool CastExtensionURLRequestJob::IsRedirectResponse(
+    GURL* location,
+    int* http_status_code,
+    bool* insecure_scheme_was_upgraded) {
   return false;
 }
 
@@ -278,14 +295,25 @@ net::URLRequestJob* ExtensionRequestProtocolHandler::MaybeCreateJob(
     return nullptr;
   }
 
+  const GURL& url = request->url();
   std::string cast_url;
-  if (!extension->manifest()->GetString("cast_url", &cast_url)) {
+  // See if we are being redirected to an extension-specific URL.
+  if (!CastRedirectHandler::ParseUrl(&cast_url, extension, url)) {
     // Defer to the default handler to load from disk.
     return default_handler_->MaybeCreateJob(request, network_delegate);
   }
 
-  // Replace chrome-extension://<id> with whatever the extension wants to go to.
-  cast_url.append(request->url().path());
+  // The above only handles the scheme, host & path, any query or fragment needs
+  // to be copied separately.
+  if (url.has_query()) {
+    cast_url.push_back('?');
+    url.query_piece().AppendToString(&cast_url);
+  }
+
+  if (url.has_ref()) {
+    cast_url.push_back('#');
+    url.ref_piece().AppendToString(&cast_url);
+  }
 
   // Force a redirect to the new URL but without changing where the webpage
   // thinks it is.

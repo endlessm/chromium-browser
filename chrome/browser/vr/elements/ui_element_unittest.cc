@@ -444,9 +444,9 @@ TEST(UiElement, CoordinatedVisibilityTransitions) {
   parent->SetVisible(false);
   parent->SetTransitionedProperties({OPACITY});
   parent->AddBinding(std::make_unique<Binding<bool>>(
-      base::BindRepeating([](bool* value) { return *value; },
-                          base::Unretained(&value)),
-      base::BindRepeating(
+      VR_BIND_LAMBDA([](bool* value) { return *value; },
+                     base::Unretained(&value)),
+      VR_BIND_LAMBDA(
           [](UiElement* e, const bool& value) { e->SetVisible(value); },
           parent_ptr)));
 
@@ -455,9 +455,9 @@ TEST(UiElement, CoordinatedVisibilityTransitions) {
   child->SetVisible(false);
   child->SetTransitionedProperties({OPACITY});
   child->AddBinding(std::make_unique<Binding<bool>>(
-      base::BindRepeating([](bool* value) { return *value; },
-                          base::Unretained(&value)),
-      base::BindRepeating(
+      VR_BIND_LAMBDA([](bool* value) { return *value; },
+                     base::Unretained(&value)),
+      VR_BIND_LAMBDA(
           [](UiElement* e, const bool& value) { e->SetVisible(value); },
           child_ptr)));
 
@@ -498,21 +498,21 @@ TEST(UiElement, EventBubbling) {
   ElementEventHandlers child_handlers(child_ptr);
 
   // Events on grand_child don't bubble up the parent chain.
-  grand_child_ptr->OnHoverEnter(gfx::PointF());
-  grand_child_ptr->OnMove(gfx::PointF());
-  grand_child_ptr->OnHoverLeave();
-  grand_child_ptr->OnButtonDown(gfx::PointF());
-  grand_child_ptr->OnButtonUp(gfx::PointF());
+  grand_child_ptr->OnHoverEnter(gfx::PointF(), base::TimeTicks());
+  grand_child_ptr->OnHoverMove(gfx::PointF(), base::TimeTicks());
+  grand_child_ptr->OnHoverLeave(base::TimeTicks());
+  grand_child_ptr->OnButtonDown(gfx::PointF(), base::TimeTicks());
+  grand_child_ptr->OnButtonUp(gfx::PointF(), base::TimeTicks());
   child_handlers.ExpectCalled(false);
   element_handlers.ExpectCalled(false);
 
   // Events on grand_child bubble up the parent chain.
   grand_child_ptr->set_bubble_events(true);
-  grand_child_ptr->OnHoverEnter(gfx::PointF());
-  grand_child_ptr->OnMove(gfx::PointF());
-  grand_child_ptr->OnHoverLeave();
-  grand_child_ptr->OnButtonDown(gfx::PointF());
-  grand_child_ptr->OnButtonUp(gfx::PointF());
+  grand_child_ptr->OnHoverEnter(gfx::PointF(), base::TimeTicks());
+  grand_child_ptr->OnHoverMove(gfx::PointF(), base::TimeTicks());
+  grand_child_ptr->OnHoverLeave(base::TimeTicks());
+  grand_child_ptr->OnButtonDown(gfx::PointF(), base::TimeTicks());
+  grand_child_ptr->OnButtonUp(gfx::PointF(), base::TimeTicks());
   child_handlers.ExpectCalled(true);
   // Events don't bubble to element since it doesn't have the bubble_events bit
   // set.

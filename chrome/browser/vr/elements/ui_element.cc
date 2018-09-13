@@ -12,9 +12,9 @@
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
+#include "chrome/browser/vr/input_event.h"
 #include "chrome/browser/vr/model/camera_model.h"
 #include "chrome/browser/vr/vr_gl_util.h"
-#include "third_party/blink/public/platform/web_gesture_event.h"
 #include "third_party/skia/include/core/SkRRect.h"
 #include "third_party/skia/include/core/SkRect.h"
 #include "ui/gfx/geometry/angle_conversions.h"
@@ -153,7 +153,8 @@ void UiElement::Render(UiElementRenderer* renderer,
 
 void UiElement::Initialize(SkiaSurfaceProvider* provider) {}
 
-void UiElement::OnHoverEnter(const gfx::PointF& position) {
+void UiElement::OnHoverEnter(const gfx::PointF& position,
+                             base::TimeTicks timestamp) {
   if (GetSounds().hover_enter != kSoundNone && audio_delegate_) {
     audio_delegate_->PlaySound(GetSounds().hover_enter);
   }
@@ -161,61 +162,76 @@ void UiElement::OnHoverEnter(const gfx::PointF& position) {
   if (event_handlers_.hover_enter) {
     event_handlers_.hover_enter.Run();
   } else if (parent() && bubble_events()) {
-    parent()->OnHoverEnter(position);
+    parent()->OnHoverEnter(position, timestamp);
   }
 }
 
-void UiElement::OnHoverLeave() {
+void UiElement::OnHoverLeave(base::TimeTicks timestamp) {
   if (GetSounds().hover_leave != kSoundNone && audio_delegate_) {
     audio_delegate_->PlaySound(GetSounds().hover_leave);
   }
   if (event_handlers_.hover_leave) {
     event_handlers_.hover_leave.Run();
   } else if (parent() && bubble_events()) {
-    parent()->OnHoverLeave();
+    parent()->OnHoverLeave(timestamp);
   }
 }
 
-void UiElement::OnMove(const gfx::PointF& position) {
-  if (GetSounds().move != kSoundNone && audio_delegate_) {
-    audio_delegate_->PlaySound(GetSounds().move);
+void UiElement::OnHoverMove(const gfx::PointF& position,
+                            base::TimeTicks timestamp) {
+  if (GetSounds().hover_move != kSoundNone && audio_delegate_) {
+    audio_delegate_->PlaySound(GetSounds().hover_move);
   }
   if (event_handlers_.hover_move) {
     event_handlers_.hover_move.Run(position);
   } else if (parent() && bubble_events()) {
-    parent()->OnMove(position);
+    parent()->OnHoverMove(position, timestamp);
   }
 }
 
-void UiElement::OnButtonDown(const gfx::PointF& position) {
+void UiElement::OnButtonDown(const gfx::PointF& position,
+                             base::TimeTicks timestamp) {
   if (GetSounds().button_down != kSoundNone && audio_delegate_) {
     audio_delegate_->PlaySound(GetSounds().button_down);
   }
   if (event_handlers_.button_down) {
     event_handlers_.button_down.Run();
   } else if (parent() && bubble_events()) {
-    parent()->OnButtonDown(position);
+    parent()->OnButtonDown(position, timestamp);
   }
 }
 
-void UiElement::OnButtonUp(const gfx::PointF& position) {
+void UiElement::OnButtonUp(const gfx::PointF& position,
+                           base::TimeTicks timestamp) {
   if (GetSounds().button_up != kSoundNone && audio_delegate_) {
     audio_delegate_->PlaySound(GetSounds().button_up);
   }
   if (event_handlers_.button_up) {
     event_handlers_.button_up.Run();
   } else if (parent() && bubble_events()) {
-    parent()->OnButtonUp(position);
+    parent()->OnButtonUp(position, timestamp);
   }
 }
 
-void UiElement::OnFlingCancel(std::unique_ptr<blink::WebGestureEvent> gesture,
+void UiElement::OnTouchMove(const gfx::PointF& position,
+                            base::TimeTicks timestamp) {
+  if (GetSounds().touch_move != kSoundNone && audio_delegate_) {
+    audio_delegate_->PlaySound(GetSounds().touch_move);
+  }
+  if (event_handlers_.touch_move) {
+    event_handlers_.touch_move.Run(position);
+  } else if (parent() && bubble_events()) {
+    parent()->OnTouchMove(position, timestamp);
+  }
+}
+
+void UiElement::OnFlingCancel(std::unique_ptr<InputEvent> gesture,
                               const gfx::PointF& position) {}
-void UiElement::OnScrollBegin(std::unique_ptr<blink::WebGestureEvent> gesture,
+void UiElement::OnScrollBegin(std::unique_ptr<InputEvent> gesture,
                               const gfx::PointF& position) {}
-void UiElement::OnScrollUpdate(std::unique_ptr<blink::WebGestureEvent> gesture,
+void UiElement::OnScrollUpdate(std::unique_ptr<InputEvent> gesture,
                                const gfx::PointF& position) {}
-void UiElement::OnScrollEnd(std::unique_ptr<blink::WebGestureEvent> gesture,
+void UiElement::OnScrollEnd(std::unique_ptr<InputEvent> gesture,
                             const gfx::PointF& position) {}
 
 void UiElement::OnFocusChanged(bool focused) {
@@ -281,9 +297,11 @@ bool UiElement::PrepareToDraw() {
   return false;
 }
 
-bool UiElement::UpdateTexture() {
+bool UiElement::HasDirtyTexture() const {
   return false;
 }
+
+void UiElement::UpdateTexture() {}
 
 bool UiElement::IsHitTestable() const {
   return IsVisible() && hit_testable_;
@@ -1005,7 +1023,8 @@ bool UiElement::UpdateWorldSpaceTransform(bool parent_changed) {
     return false;
 
   bool changed = false;
-  if (ShouldUpdateWorldSpaceTransform(parent_changed)) {
+  bool should_update = ShouldUpdateWorldSpaceTransform(parent_changed);
+  if (should_update) {
     gfx::Transform transform;
     transform.Translate(local_origin_.x(), local_origin_.y());
 
@@ -1022,15 +1041,19 @@ bool UiElement::UpdateWorldSpaceTransform(bool parent_changed) {
     }
 
     transform.ConcatTransform(inheritable);
+    changed = !transform.ApproximatelyEqual(world_space_transform_) ||
+              !inheritable.ApproximatelyEqual(inheritable_transform_);
     set_world_space_transform(transform);
     set_inheritable_transform(inheritable);
-    changed = true;
   }
 
   bool child_changed = false;
   set_update_phase(kUpdatedWorldSpaceTransform);
   for (auto& child : children_) {
-    child_changed |= child->UpdateWorldSpaceTransform(changed);
+    // TODO(crbug.com/850260): it's unfortunate that we're not passing down the
+    // same dirtiness signal that we return. I.e., we'd ideally use |changed|
+    // here.
+    child_changed |= child->UpdateWorldSpaceTransform(should_update);
   }
 
   OnUpdatedWorldSpaceTransform();

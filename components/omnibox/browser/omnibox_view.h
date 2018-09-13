@@ -208,7 +208,7 @@ class OmniboxView {
   virtual bool IsImeShowingPopup() const;
 
   // Display a virtual keyboard or alternate input view if enabled.
-  virtual void ShowImeIfNeeded();
+  virtual void ShowVirtualKeyboardIfEnabled();
 
   // Hides a virtual keyboard or alternate input view if enabled.
   virtual void HideImeIfNeeded();
@@ -287,15 +287,13 @@ class OmniboxView {
                        const bool text_is_url,
                        const AutocompleteSchemeClassifier& classifier);
 
-  void OnShiftKeyChanged(bool down) { shift_key_down_ = down; }
-
  private:
   friend class OmniboxViewMacTest;
+  friend class TestOmniboxView;
 
   // |model_| can be NULL in tests.
   std::unique_ptr<OmniboxEditModel> model_;
   OmniboxEditController* controller_;
-  bool shift_key_down_;
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxView);
 };

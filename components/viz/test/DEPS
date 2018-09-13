@@ -7,10 +7,12 @@ include_rules = [
   "+gpu/command_buffer/client/gles2_interface_stub.h",
   "+gpu/command_buffer/client/raster_implementation_gles.h",
   "+gpu/command_buffer/common/capabilities.h",
+  "+gpu/command_buffer/common/skia_utils.h",
   "+gpu/command_buffer/common/sync_token.h",
   "+gpu/config/gpu_feature_info.h",
   "+gpu/GLES2",
   "+gpu/skia_bindings/grcontext_for_gles2_interface.h",
+  "+media",
   "+mojo/public/cpp/bindings",
   "+mojo/public/cpp/system",
   "+services/viz/privileged/interfaces",
@@ -32,6 +34,6 @@ specific_include_rules = {
   ],
 
   "run_all_unittests\.cc": [
-    "+mojo/edk/embedder/embedder.h",
+    "+mojo/core/embedder/embedder.h",
   ],
 }

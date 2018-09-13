@@ -7,7 +7,6 @@ package org.chromium.base;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
-import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Environment;
 import android.os.SystemClock;
@@ -221,8 +220,10 @@ public abstract class PathUtils {
     public static String[] getAllPrivateDownloadsDirectories() {
         File[] files;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            files = ContextUtils.getApplicationContext().getExternalFilesDirs(
-                    Environment.DIRECTORY_DOWNLOADS);
+            try (StrictModeContext unused = StrictModeContext.allowDiskWrites()) {
+                files = ContextUtils.getApplicationContext().getExternalFilesDirs(
+                        Environment.DIRECTORY_DOWNLOADS);
+            }
         } else {
             files = new File[] {Environment.getExternalStorageDirectory()};
         }

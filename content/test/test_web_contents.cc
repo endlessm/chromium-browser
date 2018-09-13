@@ -50,7 +50,8 @@ TestWebContents::TestWebContents(BrowserContext* browser_context)
     : WebContentsImpl(browser_context),
       delegate_view_override_(nullptr),
       expect_set_history_offset_and_length_(false),
-      expect_set_history_offset_and_length_history_length_(0) {
+      expect_set_history_offset_and_length_history_length_(0),
+      pause_subresource_loading_called_(false) {
   if (!RenderProcessHostImpl::get_render_process_host_factory_for_testing()) {
     // Most unit tests should prefer to create a generic MockRenderProcessHost
     // (instead of a real RenderProcessHostImpl).  Tests that need to use a
@@ -173,8 +174,6 @@ void TestWebContents::TestDidNavigateWithSequenceNumber(
   params.history_list_was_cleared = false;
   params.render_view_routing_id = 0;
   params.origin = url::Origin();
-  params.report_type = FrameMsg_UILoadMetricsReportType::NO_REPORT;
-  params.ui_timestamp = base::TimeTicks();
   params.insecure_request_policy = blink::kLeaveInsecureRequestsAlone;
   params.has_potentially_trustworthy_unique_origin = false;
   params.searchable_form_url = GURL();
@@ -219,12 +218,9 @@ void TestWebContents::SetMainFrameMimeType(const std::string& mime_type) {
   WebContentsImpl::SetMainFrameMimeType(mime_type);
 }
 
-void TestWebContents::SetWasRecentlyAudible(bool audible) {
-  audio_stream_monitor()->set_was_recently_audible_for_testing(audible);
-}
-
 void TestWebContents::SetIsCurrentlyAudible(bool audible) {
   audio_stream_monitor()->set_is_currently_audible_for_testing(audible);
+  OnAudioStateChanged();
 }
 
 void TestWebContents::TestDidReceiveInputEvent(
@@ -306,6 +302,7 @@ void TestWebContents::CommitPendingNavigation() {
   DCHECK(entry);
 
   TestRenderFrameHost* old_rfh = GetMainFrame();
+  NavigationRequest* request = old_rfh->frame_tree_node()->navigation_request();
 
   // PlzNavigate: the pending RenderFrameHost is not created before the
   // navigation commit, so it is necessary to simulate the IO thread response
@@ -323,11 +320,14 @@ void TestWebContents::CommitPendingNavigation() {
   TestRenderFrameHost* rfh = GetPendingMainFrame();
   if (!rfh)
     rfh = old_rfh;
-  const bool browser_side_navigation = IsBrowserSideNavigationEnabled();
-  CHECK(!browser_side_navigation || rfh->is_loading() ||
-        IsRendererDebugURL(entry->GetURL()));
-  CHECK(!browser_side_navigation ||
-        !rfh->frame_tree_node()->navigation_request());
+  CHECK(rfh->is_loading() || IsRendererDebugURL(entry->GetURL()));
+  CHECK(!rfh->frame_tree_node()->navigation_request());
+
+  if (request && !request->navigation_handle()->IsSameDocument()) {
+    rfh->SimulateCommitProcessed(
+        request->navigation_handle()->GetNavigationId(),
+        true /* was successful */);
+  }
 
   rfh->SendNavigateWithTransition(entry->GetUniqueID(),
                                   GetController().GetPendingEntryIndex() == -1,
@@ -352,8 +352,9 @@ void TestWebContents::SetOpener(WebContents* opener) {
 void TestWebContents::AddPendingContents(
     std::unique_ptr<WebContents> contents) {
   // This is normally only done in WebContentsImpl::CreateNewWindow.
-  ProcessRoutingIdPair key(contents->GetRenderViewHost()->GetProcess()->GetID(),
-                           contents->GetRenderViewHost()->GetRoutingID());
+  ProcessRoutingIdPair key(
+      contents->GetRenderViewHost()->GetProcess()->GetID(),
+      contents->GetRenderViewHost()->GetWidget()->GetRoutingID());
   WebContentsImpl* raw_contents = static_cast<WebContentsImpl*>(contents.get());
   AddDestructionObserver(raw_contents);
   pending_contents_[key] = std::move(contents);
@@ -435,6 +436,28 @@ void TestWebContents::SaveFrameWithHeaders(
     const base::string16& suggested_filename) {
   save_frame_headers_ = headers;
   suggested_filename_ = suggested_filename;
+}
+
+std::vector<blink::mojom::PauseSubresourceLoadingHandlePtr>
+TestWebContents::PauseSubresourceLoading() {
+  pause_subresource_loading_called_ = true;
+  return std::vector<blink::mojom::PauseSubresourceLoadingHandlePtr>();
+}
+
+bool TestWebContents::GetPauseSubresourceLoadingCalled() {
+  return pause_subresource_loading_called_;
+}
+
+void TestWebContents::ResetPauseSubresourceLoadingCalled() {
+  pause_subresource_loading_called_ = false;
+}
+
+void TestWebContents::SetPageImportanceSignals(PageImportanceSignals signals) {
+  page_importance_signals_ = signals;
+}
+
+void TestWebContents::SetLastActiveTime(base::TimeTicks last_active_time) {
+  last_active_time_ = last_active_time;
 }
 
 }  // namespace content

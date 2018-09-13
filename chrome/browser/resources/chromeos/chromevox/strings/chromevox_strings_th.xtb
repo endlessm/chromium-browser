@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">ข้อความแก้ไขรหัสผ่าน</translation>
 <translation id="1802710350767629429">แสดงการอัปเดตบันทึก</translation>
 <translation id="1810107444790159527">ช่องรายการ</translation>
+<translation id="1812527064848182527">แนวนอน</translation>
 <translation id="1828385960365606039">พฤษภาคม</translation>
 <translation id="1834891354138622109">คอลัมน์</translation>
 <translation id="1845944666972354496">แตะสองครั้งเพื่อเปิดใช้งาน</translation>
@@ -145,6 +146,7 @@
 <translation id="2416512023405990736">ช่องทำเครื่องหมายที่ไม่ได้ทำเครื่องหมาย</translation>
 <translation id="2417569100218200841">ข้อมูลเนื้อหา</translation>
 <translation id="2417948780551741035">อ้างอิงท้ายเรื่อง</translation>
+<translation id="2421113964388408478">การลบ</translation>
 <translation id="2422937916923936891">ช่องทำเครื่องหมายรายการเมนู</translation>
 <translation id="2428534162001909979">เมนูคำสั่ง</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -252,6 +254,7 @@
 <translation id="3232388865800379423">ปุ่มป๊อปอัป</translation>
 <translation id="3241052487511142956">ลิงก์ที่เคยเข้าชมก่อนหน้า</translation>
 <translation id="3241638166094654466">จำนวนเซลล์ในแต่ละบรรทัด:</translation>
+<translation id="3286372614333682499">แนวตั้ง</translation>
 <translation id="3286390186030710347">แถบเลื่อน</translation>
 <translation id="3299925995433437805">ไม่มีลิงก์ที่เคยเข้าชมถัดไป</translation>
 <translation id="3300348286427369683">รองรับรูปแบบ Rich Text ขณะนี้ ChromeVox สนับสนุนช่องแบบ Rich Text ซึ่งรวมถึงคำสั่งข้าม การกำหนดเส้นทางเคอร์เซอร์เบรลล์ การเลือก และอื่นๆ</translation>
@@ -425,6 +428,7 @@
 <translation id="4476183483923481720">บรรทัดใหม่</translation>
 <translation id="4482330759234983253">ตารางก่อนหน้า</translation>
 <translation id="4491109536499578614">รูปภาพ</translation>
+<translation id="4505167975768625962">การแทรก</translation>
 <translation id="4517854969512651305">เพิ่มค่า</translation>
 <translation id="4529987814483543472">รูปแบบแป้นคลาสสิก</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{เครื่องหมายทับ}other{# เครื่องหมายทับ}}</translation>
@@ -588,6 +592,7 @@
 <translation id="5712338278108304766">คอลัมน์ตารางถัดไป</translation>
 <translation id="571866080859340309">การสำรวจกลุ่ม</translation>
 <translation id="5728409797179002635">ไม่พบตาราง</translation>
+<translation id="5729047866208036762">กดขึ้น ลง ซ้าย หรือขวาเพื่อสำรวจคณิตศาสตร์</translation>
 <translation id="5732189279857692565">นี่เป็นส่วนหัวที่ 2 ดำเนินการต่อด้วยการกด Search+H หรือ Search+Shift+H</translation>
 <translation id="5748623122140342504">ส่วนหัวระดับ 5 ก่อนหน้า</translation>
 <translation id="5750633686117194034">ไม่มีการกดคีย์ตัวปรับแต่ง โปรดกดคีย์ตัวปรับแต่งอย่างน้อยหนึ่งคีย์ค้างไว้ ยกนิ้วขึ้นเมื่อเสร็จสิ้นและคุณจะได้ยินเสียงการตั้งคีย์ แตะเพื่อออก</translation>
@@ -743,6 +748,7 @@
 <translation id="7226216518520804442">รายการ</translation>
 <translation id="7229749224609077523">เลือกตารางเบรลล์แบบ 6 จุด:</translation>
 <translation id="72393384879519786">ส่วนหัว</translation>
+<translation id="7240858705033280249">ข้ามไปที่รายละเอียด</translation>
 <translation id="7241683698754534149">เปิดคำอธิบายแบบยาวในแท็บใหม่</translation>
 <translation id="7248671827512403053">แอปพลิเคชัน</translation>
 <translation id="725969808843520477">ปุ่มตัวเลือกถัดไป</translation>
@@ -919,6 +925,7 @@
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">เลือกตารางเบรลล์แบบ 8 จุด:</translation>
 <translation id="9065283790526219006">+ป๊อปอัป</translation>
+<translation id="9066023754636984703">กด Search+A, J เพื่อข้ามไปยังรายละเอียด</translation>
 <translation id="9067522039955793016">ตัวแบ่งหน้า</translation>
 <translation id="9077213568694924680">ลบออกจากการเลือกแล้ว</translation>
 <translation id="9082874451376019682">ไม่มีแถบเลื่อนก่อนหน้า</translation>

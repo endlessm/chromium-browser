@@ -13,6 +13,8 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/Object/Archive.h"
+#include "llvm/Object/ArchiveWriter.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/ELFTypes.h"
@@ -41,6 +43,7 @@
 #include <utility>
 
 using namespace llvm;
+using namespace llvm::objcopy;
 using namespace object;
 using namespace ELF;
 
@@ -55,17 +58,25 @@ enum ObjcopyID {
 #undef OPTION
 };
 
-#define PREFIX(NAME, VALUE) const char *const NAME[] = VALUE;
+#define PREFIX(NAME, VALUE) const char *const OBJCOPY_##NAME[] = VALUE;
 #include "ObjcopyOpts.inc"
 #undef PREFIX
 
 static const opt::OptTable::Info ObjcopyInfoTable[] = {
 #define OPTION(PREFIX, NAME, ID, KIND, GROUP, ALIAS, ALIASARGS, FLAGS, PARAM,  \
                HELPTEXT, METAVAR, VALUES)                                      \
-  {PREFIX,          NAME,         HELPTEXT,                                    \
-   METAVAR,         OBJCOPY_##ID, opt::Option::KIND##Class,                    \
-   PARAM,           FLAGS,        OBJCOPY_##GROUP,                             \
-   OBJCOPY_##ALIAS, ALIASARGS,    VALUES},
+  {OBJCOPY_##PREFIX,                                                           \
+   NAME,                                                                       \
+   HELPTEXT,                                                                   \
+   METAVAR,                                                                    \
+   OBJCOPY_##ID,                                                               \
+   opt::Option::KIND##Class,                                                   \
+   PARAM,                                                                      \
+   FLAGS,                                                                      \
+   OBJCOPY_##GROUP,                                                            \
+   OBJCOPY_##ALIAS,                                                            \
+   ALIASARGS,                                                                  \
+   VALUES},
 #include "ObjcopyOpts.inc"
 #undef OPTION
 };
@@ -84,13 +95,17 @@ enum StripID {
 #undef OPTION
 };
 
+#define PREFIX(NAME, VALUE) const char *const STRIP_##NAME[] = VALUE;
+#include "StripOpts.inc"
+#undef PREFIX
+
 static const opt::OptTable::Info StripInfoTable[] = {
 #define OPTION(PREFIX, NAME, ID, KIND, GROUP, ALIAS, ALIASARGS, FLAGS, PARAM,  \
                HELPTEXT, METAVAR, VALUES)                                      \
-  {PREFIX,        NAME,       HELPTEXT,                                        \
-   METAVAR,       STRIP_##ID, opt::Option::KIND##Class,                        \
-   PARAM,         FLAGS,      STRIP_##GROUP,                                   \
-   STRIP_##ALIAS, ALIASARGS,  VALUES},
+  {STRIP_##PREFIX, NAME,       HELPTEXT,                                       \
+   METAVAR,        STRIP_##ID, opt::Option::KIND##Class,                       \
+   PARAM,          FLAGS,      STRIP_##GROUP,                                  \
+   STRIP_##ALIAS,  ALIASARGS,  VALUES},
 #include "StripOpts.inc"
 #undef OPTION
 };
@@ -99,37 +114,6 @@ class StripOptTable : public opt::OptTable {
 public:
   StripOptTable() : OptTable(StripInfoTable, true) {}
 };
-
-} // namespace
-
-// The name this program was invoked as.
-static StringRef ToolName;
-
-namespace llvm {
-
-LLVM_ATTRIBUTE_NORETURN void error(Twine Message) {
-  errs() << ToolName << ": " << Message << ".\n";
-  errs().flush();
-  exit(1);
-}
-
-LLVM_ATTRIBUTE_NORETURN void reportError(StringRef File, std::error_code EC) {
-  assert(EC);
-  errs() << ToolName << ": '" << File << "': " << EC.message() << ".\n";
-  exit(1);
-}
-
-LLVM_ATTRIBUTE_NORETURN void reportError(StringRef File, Error E) {
-  assert(E);
-  std::string Buf;
-  raw_string_ostream OS(Buf);
-  logAllUnhandledErrors(std::move(E), OS, "");
-  OS.flush();
-  errs() << ToolName << ": '" << File << "': " << Buf;
-  exit(1);
-}
-
-} // end namespace llvm
 
 struct CopyConfig {
   StringRef OutputFilename;
@@ -156,18 +140,55 @@ struct CopyConfig {
   bool StripSections = false;
   bool StripNonAlloc = false;
   bool StripDWO = false;
+  bool StripUnneeded = false;
   bool ExtractDWO = false;
   bool LocalizeHidden = false;
   bool Weaken = false;
   bool DiscardAll = false;
   bool OnlyKeepDebug = false;
+  bool KeepFileSymbols = false;
 };
 
 using SectionPred = std::function<bool(const SectionBase &Sec)>;
 
-bool IsDWOSection(const SectionBase &Sec) { return Sec.Name.endswith(".dwo"); }
+} // namespace
 
-bool OnlyKeepDWOPred(const Object &Obj, const SectionBase &Sec) {
+namespace llvm {
+namespace objcopy {
+
+// The name this program was invoked as.
+StringRef ToolName;
+
+LLVM_ATTRIBUTE_NORETURN void error(Twine Message) {
+  errs() << ToolName << ": " << Message << ".\n";
+  errs().flush();
+  exit(1);
+}
+
+LLVM_ATTRIBUTE_NORETURN void reportError(StringRef File, std::error_code EC) {
+  assert(EC);
+  errs() << ToolName << ": '" << File << "': " << EC.message() << ".\n";
+  exit(1);
+}
+
+LLVM_ATTRIBUTE_NORETURN void reportError(StringRef File, Error E) {
+  assert(E);
+  std::string Buf;
+  raw_string_ostream OS(Buf);
+  logAllUnhandledErrors(std::move(E), OS, "");
+  OS.flush();
+  errs() << ToolName << ": '" << File << "': " << Buf;
+  exit(1);
+}
+
+} // end namespace objcopy
+} // end namespace llvm
+
+static bool IsDWOSection(const SectionBase &Sec) {
+  return Sec.Name.endswith(".dwo");
+}
+
+static bool OnlyKeepDWOPred(const Object &Obj, const SectionBase &Sec) {
   // We can't remove the section header string table.
   if (&Sec == Obj.SectionNames)
     return false;
@@ -176,35 +197,37 @@ bool OnlyKeepDWOPred(const Object &Obj, const SectionBase &Sec) {
   return !IsDWOSection(Sec);
 }
 
-std::unique_ptr<Writer> CreateWriter(const CopyConfig &Config, Object &Obj,
-                                     StringRef File, ElfType OutputElfType) {
+static std::unique_ptr<Writer> CreateWriter(const CopyConfig &Config,
+                                            Object &Obj, Buffer &Buf,
+                                            ElfType OutputElfType) {
   if (Config.OutputFormat == "binary") {
-    return llvm::make_unique<BinaryWriter>(File, Obj);
+    return llvm::make_unique<BinaryWriter>(Obj, Buf);
   }
   // Depending on the initial ELFT and OutputFormat we need a different Writer.
   switch (OutputElfType) {
   case ELFT_ELF32LE:
-    return llvm::make_unique<ELFWriter<ELF32LE>>(File, Obj,
+    return llvm::make_unique<ELFWriter<ELF32LE>>(Obj, Buf,
                                                  !Config.StripSections);
   case ELFT_ELF64LE:
-    return llvm::make_unique<ELFWriter<ELF64LE>>(File, Obj,
+    return llvm::make_unique<ELFWriter<ELF64LE>>(Obj, Buf,
                                                  !Config.StripSections);
   case ELFT_ELF32BE:
-    return llvm::make_unique<ELFWriter<ELF32BE>>(File, Obj,
+    return llvm::make_unique<ELFWriter<ELF32BE>>(Obj, Buf,
                                                  !Config.StripSections);
   case ELFT_ELF64BE:
-    return llvm::make_unique<ELFWriter<ELF64BE>>(File, Obj,
+    return llvm::make_unique<ELFWriter<ELF64BE>>(Obj, Buf,
                                                  !Config.StripSections);
   }
   llvm_unreachable("Invalid output format");
 }
 
-void SplitDWOToFile(const CopyConfig &Config, const Reader &Reader,
-                    StringRef File, ElfType OutputElfType) {
+static void SplitDWOToFile(const CopyConfig &Config, const Reader &Reader,
+                           StringRef File, ElfType OutputElfType) {
   auto DWOFile = Reader.create();
   DWOFile->removeSections(
       [&](const SectionBase &Sec) { return OnlyKeepDWOPred(*DWOFile, Sec); });
-  auto Writer = CreateWriter(Config, *DWOFile, File, OutputElfType);
+  FileBuffer FB(File);
+  auto Writer = CreateWriter(Config, *DWOFile, FB, OutputElfType);
   Writer->finalize();
   Writer->write();
 }
@@ -216,11 +239,75 @@ void SplitDWOToFile(const CopyConfig &Config, const Reader &Reader,
 // any previous removals. Lastly whether or not something is removed shouldn't
 // depend a) on the order the options occur in or b) on some opaque priority
 // system. The only priority is that keeps/copies overrule removes.
-void HandleArgs(const CopyConfig &Config, Object &Obj, const Reader &Reader,
-                ElfType OutputElfType) {
+static void HandleArgs(const CopyConfig &Config, Object &Obj,
+                       const Reader &Reader, ElfType OutputElfType) {
 
   if (!Config.SplitDWO.empty()) {
     SplitDWOToFile(Config, Reader, Config.SplitDWO, OutputElfType);
+  }
+
+  // TODO: update or remove symbols only if there is an option that affects
+  // them.
+  if (Obj.SymbolTable) {
+    Obj.SymbolTable->updateSymbols([&](Symbol &Sym) {
+      if ((Config.LocalizeHidden &&
+           (Sym.Visibility == STV_HIDDEN || Sym.Visibility == STV_INTERNAL)) ||
+          (!Config.SymbolsToLocalize.empty() &&
+           is_contained(Config.SymbolsToLocalize, Sym.Name)))
+        Sym.Binding = STB_LOCAL;
+
+      if (!Config.SymbolsToGlobalize.empty() &&
+          is_contained(Config.SymbolsToGlobalize, Sym.Name))
+        Sym.Binding = STB_GLOBAL;
+
+      if (!Config.SymbolsToWeaken.empty() &&
+          is_contained(Config.SymbolsToWeaken, Sym.Name) &&
+          Sym.Binding == STB_GLOBAL)
+        Sym.Binding = STB_WEAK;
+
+      if (Config.Weaken && Sym.Binding == STB_GLOBAL &&
+          Sym.getShndx() != SHN_UNDEF)
+        Sym.Binding = STB_WEAK;
+
+      const auto I = Config.SymbolsToRename.find(Sym.Name);
+      if (I != Config.SymbolsToRename.end())
+        Sym.Name = I->getValue();
+    });
+
+    // The purpose of this loop is to mark symbols referenced by sections
+    // (like GroupSection or RelocationSection). This way, we know which
+    // symbols are still 'needed' and wich are not.
+    if (Config.StripUnneeded) {
+      for (auto &Section : Obj.sections())
+        Section.markSymbols();
+    }
+
+    Obj.removeSymbols([&](const Symbol &Sym) {
+      if ((!Config.SymbolsToKeep.empty() &&
+           is_contained(Config.SymbolsToKeep, Sym.Name)) ||
+          (Config.KeepFileSymbols && Sym.Type == STT_FILE))
+        return false;
+
+      if (Config.DiscardAll && Sym.Binding == STB_LOCAL &&
+          Sym.getShndx() != SHN_UNDEF && Sym.Type != STT_FILE &&
+          Sym.Type != STT_SECTION)
+        return true;
+
+      if (Config.StripAll || Config.StripAllGNU)
+        return true;
+
+      if (!Config.SymbolsToRemove.empty() &&
+          is_contained(Config.SymbolsToRemove, Sym.Name)) {
+        return true;
+      }
+
+      if (Config.StripUnneeded && !Sym.Referenced &&
+          (Sym.Binding == STB_LOCAL || Sym.getShndx() == SHN_UNDEF) &&
+          Sym.Type != STT_FILE && Sym.Type != STT_SECTION)
+        return true;
+
+      return false;
+    });
   }
 
   SectionPred RemovePred = [](const SectionBase &) { return false; };
@@ -327,6 +414,20 @@ void HandleArgs(const CopyConfig &Config, Object &Obj, const Reader &Reader,
     };
   }
 
+  // This has to be the last predicate assignment.
+  // If the option --keep-symbol has been specified
+  // and at least one of those symbols is present
+  // (equivalently, the updated symbol table is not empty)
+  // the symbol table and the string table should not be removed.
+  if ((!Config.SymbolsToKeep.empty() || Config.KeepFileSymbols) &&
+      !Obj.SymbolTable->empty()) {
+    RemovePred = [&Obj, RemovePred](const SectionBase &Sec) {
+      if (&Sec == Obj.SymbolTable || &Sec == Obj.SymbolTable->getStrTab())
+        return false;
+      return RemovePred(Sec);
+    };
+  }
+
   Obj.removeSections(RemovePred);
 
   if (!Config.AddSection.empty()) {
@@ -347,77 +448,98 @@ void HandleArgs(const CopyConfig &Config, Object &Obj, const Reader &Reader,
 
   if (!Config.AddGnuDebugLink.empty())
     Obj.addSection<GnuDebugLinkSection>(Config.AddGnuDebugLink);
-
-  if (Obj.SymbolTable) {
-    Obj.SymbolTable->updateSymbols([&](Symbol &Sym) {
-      if ((Config.LocalizeHidden &&
-           (Sym.Visibility == STV_HIDDEN || Sym.Visibility == STV_INTERNAL)) ||
-          (!Config.SymbolsToLocalize.empty() &&
-           is_contained(Config.SymbolsToLocalize, Sym.Name)))
-        Sym.Binding = STB_LOCAL;
-
-      if (!Config.SymbolsToGlobalize.empty() &&
-          is_contained(Config.SymbolsToGlobalize, Sym.Name))
-        Sym.Binding = STB_GLOBAL;
-
-      if (!Config.SymbolsToWeaken.empty() &&
-          is_contained(Config.SymbolsToWeaken, Sym.Name) &&
-          Sym.Binding == STB_GLOBAL)
-        Sym.Binding = STB_WEAK;
-
-      if (Config.Weaken && Sym.Binding == STB_GLOBAL &&
-          Sym.getShndx() != SHN_UNDEF)
-        Sym.Binding = STB_WEAK;
-
-      const auto I = Config.SymbolsToRename.find(Sym.Name);
-      if (I != Config.SymbolsToRename.end())
-        Sym.Name = I->getValue();
-    });
-
-    Obj.removeSymbols([&](const Symbol &Sym) {
-      if (!Config.SymbolsToKeep.empty() &&
-          is_contained(Config.SymbolsToKeep, Sym.Name))
-        return false;
-
-      if (Config.DiscardAll && Sym.Binding == STB_LOCAL &&
-          Sym.getShndx() != SHN_UNDEF && Sym.Type != STT_FILE &&
-          Sym.Type != STT_SECTION)
-        return true;
-
-      if (!Config.SymbolsToRemove.empty() &&
-          is_contained(Config.SymbolsToRemove, Sym.Name)) {
-        return true;
-      }
-
-      return false;
-    });
-  }
 }
 
-std::unique_ptr<Reader> CreateReader(StringRef InputFilename,
-                                     ElfType &OutputElfType) {
-  // Right now we can only read ELF files so there's only one reader;
-  auto Out = llvm::make_unique<ELFReader>(InputFilename);
-  // We need to set the default ElfType for output.
-  OutputElfType = Out->getElfType();
-  return std::move(Out);
-}
+static void ExecuteElfObjcopyOnBinary(const CopyConfig &Config, Binary &Binary,
+                                      Buffer &Out) {
+  ELFReader Reader(&Binary);
+  std::unique_ptr<Object> Obj = Reader.create();
 
-void ExecuteElfObjcopy(const CopyConfig &Config) {
-  ElfType OutputElfType;
-  auto Reader = CreateReader(Config.InputFilename, OutputElfType);
-  auto Obj = Reader->create();
-  auto Writer =
-      CreateWriter(Config, *Obj, Config.OutputFilename, OutputElfType);
-  HandleArgs(Config, *Obj, *Reader, OutputElfType);
+  HandleArgs(Config, *Obj, Reader, Reader.getElfType());
+
+  std::unique_ptr<Writer> Writer =
+      CreateWriter(Config, *Obj, Out, Reader.getElfType());
   Writer->finalize();
   Writer->write();
+}
+
+// For regular archives this function simply calls llvm::writeArchive,
+// For thin archives it writes the archive file itself as well as its members.
+static Error deepWriteArchive(StringRef ArcName,
+                              ArrayRef<NewArchiveMember> NewMembers,
+                              bool WriteSymtab, object::Archive::Kind Kind,
+                              bool Deterministic, bool Thin) {
+  Error E =
+      writeArchive(ArcName, NewMembers, WriteSymtab, Kind, Deterministic, Thin);
+  if (!Thin || E)
+    return E;
+  for (const NewArchiveMember &Member : NewMembers) {
+    // Internally, FileBuffer will use the buffer created by
+    // FileOutputBuffer::create, for regular files (that is the case for
+    // deepWriteArchive) FileOutputBuffer::create will return OnDiskBuffer.
+    // OnDiskBuffer uses a temporary file and then renames it. So in reality
+    // there is no inefficiency / duplicated in-memory buffers in this case. For
+    // now in-memory buffers can not be completely avoided since
+    // NewArchiveMember still requires them even though writeArchive does not
+    // write them on disk.
+    FileBuffer FB(Member.MemberName);
+    FB.allocate(Member.Buf->getBufferSize());
+    std::copy(Member.Buf->getBufferStart(), Member.Buf->getBufferEnd(),
+              FB.getBufferStart());
+    if (auto E = FB.commit())
+      return E;
+  }
+  return Error::success();
+}
+
+static void ExecuteElfObjcopyOnArchive(const CopyConfig &Config, const Archive &Ar) {
+  std::vector<NewArchiveMember> NewArchiveMembers;
+  Error Err = Error::success();
+  for (const Archive::Child &Child : Ar.children(Err)) {
+    Expected<std::unique_ptr<Binary>> ChildOrErr = Child.getAsBinary();
+    if (!ChildOrErr)
+      reportError(Ar.getFileName(), ChildOrErr.takeError());
+    Expected<StringRef> ChildNameOrErr = Child.getName();
+    if (!ChildNameOrErr)
+      reportError(Ar.getFileName(), ChildNameOrErr.takeError());
+
+    MemBuffer MB(ChildNameOrErr.get());
+    ExecuteElfObjcopyOnBinary(Config, **ChildOrErr, MB);
+
+    Expected<NewArchiveMember> Member =
+        NewArchiveMember::getOldMember(Child, true);
+    if (!Member)
+      reportError(Ar.getFileName(), Member.takeError());
+    Member->Buf = MB.releaseMemoryBuffer();
+    Member->MemberName = Member->Buf->getBufferIdentifier();
+    NewArchiveMembers.push_back(std::move(*Member));
+  }
+
+  if (Err)
+    reportError(Config.InputFilename, std::move(Err));
+  if (Error E =
+          deepWriteArchive(Config.OutputFilename, NewArchiveMembers,
+                           Ar.hasSymbolTable(), Ar.kind(), true, Ar.isThin()))
+    reportError(Config.OutputFilename, std::move(E));
+}
+
+static void ExecuteElfObjcopy(const CopyConfig &Config) {
+  Expected<OwningBinary<llvm::object::Binary>> BinaryOrErr =
+      createBinary(Config.InputFilename);
+  if (!BinaryOrErr)
+    reportError(Config.InputFilename, BinaryOrErr.takeError());
+
+  if (Archive *Ar = dyn_cast<Archive>(BinaryOrErr.get().getBinary()))
+    return ExecuteElfObjcopyOnArchive(Config, *Ar);
+
+  FileBuffer FB(Config.OutputFilename);
+  ExecuteElfObjcopyOnBinary(Config, *BinaryOrErr.get().getBinary(), FB);
 }
 
 // ParseObjcopyOptions returns the config and sets the input arguments. If a
 // help flag is set then ParseObjcopyOptions will print the help messege and
 // exit.
-CopyConfig ParseObjcopyOptions(ArrayRef<const char *> ArgsArr) {
+static CopyConfig ParseObjcopyOptions(ArrayRef<const char *> ArgsArr) {
   ObjcopyOptTable T;
   unsigned MissingArgumentIndex, MissingArgumentCount;
   llvm::opt::InputArgList InputArgs =
@@ -479,11 +601,13 @@ CopyConfig ParseObjcopyOptions(ArrayRef<const char *> ArgsArr) {
   Config.StripDWO = InputArgs.hasArg(OBJCOPY_strip_dwo);
   Config.StripSections = InputArgs.hasArg(OBJCOPY_strip_sections);
   Config.StripNonAlloc = InputArgs.hasArg(OBJCOPY_strip_non_alloc);
+  Config.StripUnneeded = InputArgs.hasArg(OBJCOPY_strip_unneeded);
   Config.ExtractDWO = InputArgs.hasArg(OBJCOPY_extract_dwo);
   Config.LocalizeHidden = InputArgs.hasArg(OBJCOPY_localize_hidden);
   Config.Weaken = InputArgs.hasArg(OBJCOPY_weaken);
   Config.DiscardAll = InputArgs.hasArg(OBJCOPY_discard_all);
   Config.OnlyKeepDebug = InputArgs.hasArg(OBJCOPY_only_keep_debug);
+  Config.KeepFileSymbols = InputArgs.hasArg(OBJCOPY_keep_file_symbols);
   for (auto Arg : InputArgs.filtered(OBJCOPY_localize_symbol))
     Config.SymbolsToLocalize.push_back(Arg->getValue());
   for (auto Arg : InputArgs.filtered(OBJCOPY_globalize_symbol))
@@ -501,7 +625,7 @@ CopyConfig ParseObjcopyOptions(ArrayRef<const char *> ArgsArr) {
 // ParseStripOptions returns the config and sets the input arguments. If a
 // help flag is set then ParseStripOptions will print the help messege and
 // exit.
-CopyConfig ParseStripOptions(ArrayRef<const char *> ArgsArr) {
+static CopyConfig ParseStripOptions(ArrayRef<const char *> ArgsArr) {
   StripOptTable T;
   unsigned MissingArgumentIndex, MissingArgumentCount;
   llvm::opt::InputArgList InputArgs =
@@ -531,15 +655,23 @@ CopyConfig ParseStripOptions(ArrayRef<const char *> ArgsArr) {
 
   CopyConfig Config;
   Config.InputFilename = Positional[0];
-  Config.OutputFilename = Positional[0];
+  Config.OutputFilename =
+      InputArgs.getLastArgValue(STRIP_output, Positional[0]);
 
-  // Strip debug info only.
   Config.StripDebug = InputArgs.hasArg(STRIP_strip_debug);
-  if (!Config.StripDebug)
+
+  Config.DiscardAll = InputArgs.hasArg(STRIP_discard_all);
+  Config.StripUnneeded = InputArgs.hasArg(STRIP_strip_unneeded);
+  Config.StripAll = InputArgs.hasArg(STRIP_strip_all);
+
+  if (!Config.StripDebug && !Config.StripUnneeded && !Config.DiscardAll)
     Config.StripAll = true;
 
   for (auto Arg : InputArgs.filtered(STRIP_remove_section))
     Config.ToRemove.push_back(Arg->getValue());
+
+  for (auto Arg : InputArgs.filtered(STRIP_keep_symbol))
+    Config.SymbolsToKeep.push_back(Arg->getValue());
 
   return Config;
 }

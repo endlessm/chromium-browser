@@ -92,6 +92,7 @@ Kui olete õpetusega lõpetanud, navigeerige ChromeVoxi abil sulgemisnupuni ja k
 <translation id="1787176709638001873">Parooli muutmise tekst</translation>
 <translation id="1802710350767629429">Kuva värskenduse märkmed</translation>
 <translation id="1810107444790159527">Loendiboks</translation>
+<translation id="1812527064848182527">horisontaalpaigutus</translation>
 <translation id="1828385960365606039">Mai</translation>
 <translation id="1834891354138622109">Veerg</translation>
 <translation id="1845944666972354496">Topeltpuudutage aktiveerimiseks</translation>
@@ -146,6 +147,7 @@ Kui olete õpetusega lõpetanud, navigeerige ChromeVoxi abil sulgemisnupuni ja k
 <translation id="2416512023405990736">Märkimata ruut</translation>
 <translation id="2417569100218200841">Sisu teave</translation>
 <translation id="2417948780551741035">Järelmärkused</translation>
+<translation id="2421113964388408478">Kustutamine</translation>
 <translation id="2422937916923936891">Menüü-üksuse märkeruut</translation>
 <translation id="2428534162001909979">Käsumenüüd</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@ Kui olete õpetusega lõpetanud, navigeerige ChromeVoxi abil sulgemisnupuni ja k
 <translation id="3232388865800379423">Hüpiknupp</translation>
 <translation id="3241052487511142956">Eelmine külastatud link</translation>
 <translation id="3241638166094654466">Igal real olevad lahtrid:</translation>
+<translation id="3286372614333682499">vertikaalpaigutus</translation>
 <translation id="3286390186030710347">Liugur</translation>
 <translation id="3299925995433437805">Järgmist külastatud linki pole.</translation>
 <translation id="3300348286427369683">Rikasteksti tugi. ChromeVox toetab nüüd rikastekstivälju, sealhulgas hüppamiskäske, Braille'i kursori marsruuti, valimist ja muid funktsioone.</translation>
@@ -426,6 +429,7 @@ Kui olete õpetusega lõpetanud, navigeerige ChromeVoxi abil sulgemisnupuni ja k
 <translation id="4476183483923481720">uus rida</translation>
 <translation id="4482330759234983253">Eelmine tabel</translation>
 <translation id="4491109536499578614">Image</translation>
+<translation id="4505167975768625962">Lisamine</translation>
 <translation id="4517854969512651305">Väärtuse suurendamine</translation>
 <translation id="4529987814483543472">Klassikaline klahvitabel</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{kaldkriips}other{# kaldkriipsu}}</translation>
@@ -589,6 +593,7 @@ Kui olete õpetusega lõpetanud, navigeerige ChromeVoxi abil sulgemisnupuni ja k
 <translation id="5712338278108304766">Järgmine tabeli veerg</translation>
 <translation id="571866080859340309">Rühma uuring</translation>
 <translation id="5728409797179002635">Tabelit ei leitud.</translation>
+<translation id="5729047866208036762">Matemaatilise tehte uurimiseks vajutage üles-, alla-, vasak- või paremnoolt.</translation>
 <translation id="5732189279857692565">See on teine pealkiri. Jätkake; vajutage klahvikombinatsiooni Otsing + H või Otsing + Tõstuklahv + H</translation>
 <translation id="5748623122140342504">Eelmine 5. taseme pealkiri</translation>
 <translation id="5750633686117194034">Ei vajutatud ühtegi muuteklahvi. Vajutage ja hoidke all vähemalt ühte muuteklahvi. Kui olete lõpetanud, tõstke sõrmed ja kuulete klahvide fikseerimist. Väljumiseks puudutage.</translation>
@@ -744,6 +749,7 @@ Chrome'i brauseri menüü avamiseks vajutage klahvikombinatsiooni Alt + F.</tran
 <translation id="7226216518520804442">lnd</translation>
 <translation id="7229749224609077523">Valige 6-punktine punktkirja tabel:</translation>
 <translation id="72393384879519786">Pealkiri</translation>
+<translation id="7240858705033280249">Liigu üksikasjade juurde</translation>
 <translation id="7241683698754534149">Avab pika kirjelduse uuel vahelehel</translation>
 <translation id="7248671827512403053">Rakendus</translation>
 <translation id="725969808843520477">Järgmine raadionupp</translation>
@@ -920,6 +926,7 @@ Chrome'i brauseri menüü avamiseks vajutage klahvikombinatsiooni Alt + F.</tran
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Valige 8-punktine punktkirja tabel:</translation>
 <translation id="9065283790526219006">+hüpik</translation>
+<translation id="9066023754636984703">Üksikasjade juurde liikumiseks vajutage otsinguklahvi + klahvi A ja seejärel klahvi J.</translation>
 <translation id="9067522039955793016">Leheküljepiir</translation>
 <translation id="9077213568694924680">eemaldatakse valikust</translation>
 <translation id="9082874451376019682">Eelmist liugurit ei ole.</translation>

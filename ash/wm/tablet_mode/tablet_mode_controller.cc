@@ -105,12 +105,12 @@ TabletModeController::UiMode GetTabletMode() {
     std::string switch_value =
         command_line->GetSwitchValueASCII(switches::kAshUiMode);
     if (switch_value == switches::kAshUiModeClamshell)
-      return TabletModeController::UiMode::CLAMSHELL;
+      return TabletModeController::UiMode::kClamshell;
 
     if (switch_value == switches::kAshUiModeTablet)
-      return TabletModeController::UiMode::TABLETMODE;
+      return TabletModeController::UiMode::kTabletMode;
   }
-  return TabletModeController::UiMode::NONE;
+  return TabletModeController::UiMode::kNone;
 }
 
 std::unique_ptr<ScopedDisableInternalMouseAndKeyboard>
@@ -283,7 +283,7 @@ void TabletModeController::LidEventReceived(
   lid_is_closed_ = !open;
 
   if (!tablet_mode_switch_is_on_)
-    LeaveTabletMode(false);
+    AttemptLeaveTabletMode(false);
 }
 
 void TabletModeController::TabletModeEventReceived(
@@ -304,10 +304,10 @@ void TabletModeController::TabletModeEventReceived(
   // when |on|. However we wish to exit tablet mode at a smaller angle, so
   // when |on| is false we ignore if it is possible to calculate the lid angle.
   if (on && !IsTabletModeWindowManagerEnabled()) {
-    EnterTabletMode();
+    AttemptEnterTabletMode();
   } else if (!on && IsTabletModeWindowManagerEnabled() &&
              !can_detect_lid_angle_) {
-    LeaveTabletMode(false);
+    AttemptLeaveTabletMode(false);
   }
 }
 
@@ -391,13 +391,11 @@ void TabletModeController::HandleHingeRotation(
   }
 
   // Toggle tablet mode on or off when corresponding thresholds are passed.
-  if (IsTabletModeWindowManagerEnabled() && is_angle_stable &&
-      lid_angle_ <= kExitTabletModeAngle) {
-    LeaveTabletMode(false);
-  } else if (!IsTabletModeWindowManagerEnabled() && !lid_is_closed_ &&
-             lid_angle_ >= kEnterTabletModeAngle &&
+  if (is_angle_stable && lid_angle_ <= kExitTabletModeAngle) {
+    AttemptLeaveTabletMode(false);
+  } else if (!lid_is_closed_ && lid_angle_ >= kEnterTabletModeAngle &&
              (is_angle_stable || CanUseUnstableLidAngle())) {
-    EnterTabletMode();
+    AttemptEnterTabletMode();
   }
 
   // Start reporting the lid angle if we aren't already doing so.
@@ -409,12 +407,14 @@ void TabletModeController::HandleHingeRotation(
   }
 }
 
-void TabletModeController::EnterTabletMode() {
+void TabletModeController::AttemptEnterTabletMode() {
+  event_blocker_.reset();
+  event_blocker_ = CreateScopedDisableInternalMouseAndKeyboard();
+  for (auto& observer : tablet_mode_observers_)
+    observer.OnTabletModeEventsBlockingChanged();
+
   if (IsTabletModeWindowManagerEnabled())
     return;
-
-  DCHECK(!event_blocker_);
-  event_blocker_ = CreateScopedDisableInternalMouseAndKeyboard();
 
   should_enter_tablet_mode_ = true;
 
@@ -424,8 +424,15 @@ void TabletModeController::EnterTabletMode() {
   EnableTabletModeWindowManager(true);
 }
 
-void TabletModeController::LeaveTabletMode(bool called_by_device_update) {
-  event_blocker_.reset();
+void TabletModeController::AttemptLeaveTabletMode(
+    bool called_by_device_update) {
+  // Do not unlock internal keyboard if we enter clamshell by plugging in an
+  // external mouse.
+  if (!called_by_device_update) {
+    event_blocker_.reset();
+    for (auto& observer : tablet_mode_observers_)
+      observer.OnTabletModeEventsBlockingChanged();
+  }
 
   if (!IsTabletModeWindowManagerEnabled())
     return;
@@ -448,24 +455,28 @@ bool TabletModeController::TriggerRecordLidAngleTimerForTesting() {
   return true;
 }
 
+bool TabletModeController::AreEventsBlocked() const {
+  return !!event_blocker_.get();
+}
+
 void TabletModeController::OnShellInitialized() {
   force_ui_mode_ = GetTabletMode();
-  if (force_ui_mode_ == UiMode::TABLETMODE)
-    EnterTabletMode();
+  if (force_ui_mode_ == UiMode::kTabletMode)
+    AttemptEnterTabletMode();
 }
 
 void TabletModeController::OnDisplayConfigurationChanged() {
   if (!display::Display::HasInternalDisplay() ||
       !Shell::Get()->display_manager()->IsActiveDisplayId(
           display::Display::InternalDisplayId())) {
-    LeaveTabletMode(false);
+    AttemptLeaveTabletMode(false);
   } else if (tablet_mode_switch_is_on_ && !IsTabletModeWindowManagerEnabled()) {
     // The internal display has returned, as we are exiting docked mode.
     // The device is still in tablet mode, so trigger tablet mode, as this
     // switch leads to the ignoring of accelerometer events. When the switch is
     // not set the next stable accelerometer readings will trigger maximize
     // mode.
-    EnterTabletMode();
+    AttemptEnterTabletMode();
   }
 }
 
@@ -511,10 +522,13 @@ void TabletModeController::SetClient(mojom::TabletModeClientPtr client) {
 }
 
 bool TabletModeController::AllowEnterExitTabletMode() const {
-  return force_ui_mode_ == UiMode::NONE;
+  return force_ui_mode_ == UiMode::kNone;
 }
 
 void TabletModeController::HandleMouseAddedOrRemoved() {
+  if (!AllowEnterExitTabletMode())
+    return;
+
   bool has_external_mouse = false;
   for (const ui::InputDevice& mouse :
        ui::InputDeviceManager::GetInstance()->GetMouseDevices()) {
@@ -529,17 +543,17 @@ void TabletModeController::HandleMouseAddedOrRemoved() {
 
   has_external_mouse_ = has_external_mouse;
 
-  // Exit tablet mode if we are already in tablet mode and
+  // Try to tablet mode if we are already in tablet mode and
   // |has_external_mouse| is true.
   if (has_external_mouse) {
-    LeaveTabletMode(true);
+    AttemptLeaveTabletMode(true);
     return;
   }
 
-  // Enter tablet mode if |has_external_mouse| is false and we
+  // Try to enter tablet mode if |has_external_mouse| is false and we
   // are in an orientation that should be tablet mode.
   if (should_enter_tablet_mode_)
-    EnterTabletMode();
+    AttemptEnterTabletMode();
 }
 
 void TabletModeController::OnChromeTerminating() {

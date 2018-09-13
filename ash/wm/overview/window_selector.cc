@@ -30,7 +30,6 @@
 #include "ash/wm/panels/panel_layout_manager.h"
 #include "ash/wm/splitview/split_view_drag_indicators.h"
 #include "ash/wm/switchable_windows.h"
-#include "ash/wm/tablet_mode/tablet_mode_window_state.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "base/auto_reset.h"
@@ -527,24 +526,13 @@ WindowGrid* WindowSelector::GetGridWithRootWindow(aura::Window* root_window) {
   return nullptr;
 }
 
-void WindowSelector::AddItem(aura::Window* window) {
+void WindowSelector::AddItem(aura::Window* window, bool reposition) {
   // Early exit if a grid already contains |window|.
   WindowGrid* grid = GetGridWithRootWindow(window->GetRootWindow());
   if (!grid || grid->GetWindowSelectorItemContaining(window))
     return;
 
-  // This is meant to be called when a item in split view mode was previously
-  // snapped but should now be returned to the window grid (ie. split view
-  // divider dragged to either edge).
-  DCHECK(SplitViewController::ShouldAllowSplitView());
-  DCHECK(Shell::Get()->split_view_controller()->CanSnap(window));
-
-  // The dimensions of |window| will be very slim because of dragging the
-  // divider to the edge. Change the window dimensions to its tablet mode
-  // dimensions. Note: if split view is no longer constrained to tablet mode
-  // this will be need to updated.
-  TabletModeWindowState::UpdateWindowPosition(wm::GetWindowState(window));
-  grid->AddItem(window);
+  grid->AddItem(window, reposition);
   ++num_items_;
 
   // Transfer focus from |window| to the text widget, to match the behavior of
@@ -552,7 +540,8 @@ void WindowSelector::AddItem(aura::Window* window) {
   wm::ActivateWindow(GetTextFilterWidgetWindow());
 }
 
-void WindowSelector::RemoveWindowSelectorItem(WindowSelectorItem* item) {
+void WindowSelector::RemoveWindowSelectorItem(WindowSelectorItem* item,
+                                              bool reposition) {
   if (item->GetWindow()->HasObserver(this)) {
     item->GetWindow()->RemoveObserver(this);
     observed_windows_.erase(item->GetWindow());
@@ -563,7 +552,7 @@ void WindowSelector::RemoveWindowSelectorItem(WindowSelectorItem* item) {
   // Remove |item| from the corresponding grid.
   for (std::unique_ptr<WindowGrid>& grid : grid_list_) {
     if (grid->GetWindowSelectorItemContaining(item->GetWindow())) {
-      grid->RemoveItem(item);
+      grid->RemoveItem(item, reposition);
       --num_items_;
       break;
     }
@@ -623,6 +612,33 @@ void WindowSelector::ResetDraggedWindowGesture() {
   window_drag_controller_->ResetGesture();
 }
 
+void WindowSelector::OnWindowDragStarted(aura::Window* dragged_window) {
+  WindowGrid* target_grid =
+      GetGridWithRootWindow(dragged_window->GetRootWindow());
+  if (!target_grid)
+    return;
+  target_grid->OnWindowDragStarted(dragged_window);
+}
+
+void WindowSelector::OnWindowDragContinued(aura::Window* dragged_window,
+                                           const gfx::Point& location_in_screen,
+                                           IndicatorState indicator_state) {
+  WindowGrid* target_grid =
+      GetGridWithRootWindow(dragged_window->GetRootWindow());
+  if (!target_grid)
+    return;
+  target_grid->OnWindowDragContinued(dragged_window, location_in_screen,
+                                     indicator_state);
+}
+void WindowSelector::OnWindowDragEnded(aura::Window* dragged_window,
+                                       const gfx::Point& location_in_screen) {
+  WindowGrid* target_grid =
+      GetGridWithRootWindow(dragged_window->GetRootWindow());
+  if (!target_grid)
+    return;
+  target_grid->OnWindowDragEnded(dragged_window, location_in_screen);
+}
+
 void WindowSelector::PositionWindows(bool animate,
                                      WindowSelectorItem* ignored_item) {
   for (std::unique_ptr<WindowGrid>& grid : grid_list_)
@@ -645,13 +661,6 @@ bool WindowSelector::ShouldAnimateWallpaper(aura::Window* root_window) {
 
   if (!grid)
     return false;
-
-  // It is possible we leave overview mode to enter split view mode with both
-  // windows snapped. Do not animate the wallpaper in this case.
-  if (Shell::Get()->split_view_controller()->state() ==
-      SplitViewController::BOTH_SNAPPED) {
-    return false;
-  }
 
   // If one of the windows covers the workspace, we do not need to animate.
   for (const auto& selector_item : grid->window_list()) {

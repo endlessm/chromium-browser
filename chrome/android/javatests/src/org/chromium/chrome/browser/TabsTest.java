@@ -204,6 +204,7 @@ public class TabsTest {
     @Test
     @MediumTest
     @RetryOnFailure
+    @CommandLineFlags.Add("disable-features=TabModalJsDialog")
     public void testAlertDialogDoesNotChangeActiveModel() throws InterruptedException {
         mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
         mActivityTestRule.newIncognitoTabFromMenu();
@@ -1488,6 +1489,7 @@ public class TabsTest {
     @Feature({"Android-TabSwitcher"})
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     @RetryOnFailure
+    @DisabledTest(message = "crbug.com/863676")
     public void testToolbarSwipePrevTab() throws InterruptedException, TimeoutException {
         ChromeTabUtils.newTabFromMenu(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
@@ -1600,18 +1602,19 @@ public class TabsTest {
         runToolbarSideSwipeTestOnCurrentModel(ScrollDirection.RIGHT, 0, true);
     }
 
-    private void runToolbarSideSwipeTestOnCurrentModel(ScrollDirection direction, int finalIndex,
-            boolean expectsSelection) throws InterruptedException, TimeoutException {
+    private void runToolbarSideSwipeTestOnCurrentModel(
+            @ScrollDirection int direction, int finalIndex, boolean expectsSelection)
+            throws InterruptedException, TimeoutException {
         final CallbackHelper selectCallback = new CallbackHelper();
         final ChromeTabbedActivity activity = mActivityTestRule.getActivity();
         final int id = activity.getCurrentTabModel().getTabAt(finalIndex).getId();
-        final TabModelSelectorTabModelObserver observer = new TabModelSelectorTabModelObserver(
-                activity.getTabModelSelector()) {
-            @Override
-            public void didSelectTab(Tab tab, TabSelectionType type, int lastId) {
-                if (tab.getId() == id) selectCallback.notifyCalled();
-            }
-        };
+        final TabModelSelectorTabModelObserver observer =
+                new TabModelSelectorTabModelObserver(activity.getTabModelSelector()) {
+                    @Override
+                    public void didSelectTab(Tab tab, @TabSelectionType int type, int lastId) {
+                        if (tab.getId() == id) selectCallback.notifyCalled();
+                    }
+                };
 
         int tabSelectedCallCount = selectCallback.getCallCount();
 
@@ -1641,7 +1644,7 @@ public class TabsTest {
                 activity.getCurrentTabModel().index());
     }
 
-    private void performToolbarSideSwipe(ScrollDirection direction) {
+    private void performToolbarSideSwipe(@ScrollDirection int direction) {
         Assert.assertTrue("Unexpected direction for side swipe " + direction,
                 direction == ScrollDirection.LEFT || direction == ScrollDirection.RIGHT);
         final View toolbar = mActivityTestRule.getActivity().findViewById(R.id.toolbar);
@@ -1672,7 +1675,7 @@ public class TabsTest {
     public void testOSKIsNotShownDuringSwipe() throws InterruptedException {
         final View urlBar = mActivityTestRule.getActivity().findViewById(R.id.url_bar);
         final LayoutManagerChrome layoutManager = updateTabsViewSize();
-        final EdgeSwipeHandler edgeSwipeHandler = layoutManager.getTopSwipeHandler();
+        final EdgeSwipeHandler edgeSwipeHandler = layoutManager.getToolbarSwipeHandler();
 
         UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> urlBar.requestFocus());

@@ -54,7 +54,8 @@ class IOSChromePasswordManagerClient
   ~IOSChromePasswordManagerClient() override;
 
   // password_manager::PasswordManagerClient implementation.
-  password_manager::PasswordSyncState GetPasswordSyncState() const override;
+  password_manager::SyncState GetPasswordSyncState() const override;
+  password_manager::SyncState GetHistorySyncState() const override;
   bool PromptUserToSaveOrUpdatePassword(
       std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_save,
       bool update_password) override;
@@ -82,7 +83,6 @@ class IOSChromePasswordManagerClient
   void NotifySuccessfulLoginWithExistingPassword(
       const autofill::PasswordForm& form) override;
   void NotifyStorePasswordCalled() override;
-  void ForceSavePassword() override;
   bool IsSavingAndFillingEnabledForCurrentPage() const override;
   const GURL& GetLastCommittedEntryURL() const override;
   const password_manager::CredentialsFilter* GetStoreResultFilter()

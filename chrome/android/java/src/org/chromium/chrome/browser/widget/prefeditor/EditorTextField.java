@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.widget.prefeditor;
 
 import android.content.Context;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.content.res.AppCompatResources;
 import android.text.Editable;
 import android.text.InputFilter;
@@ -23,7 +24,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView.OnEditorActionListener;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.widget.CompatibilityTextInputLayout;
@@ -87,17 +87,15 @@ public class EditorTextField extends FrameLayout implements EditorFieldView, Vie
             public void onLayoutChange(View v, int left, int top, int right, int bottom,
                     int oldLeft, int oldTop, int oldRight, int oldBottom) {
                 // Padding at the end of mInput to preserve space for mIconsLayer.
-                ApiCompatibilityUtils.setPaddingRelative(mInput,
-                        ApiCompatibilityUtils.getPaddingStart(mInput), mInput.getPaddingTop(),
-                        mIconsLayer.getWidth(), mInput.getPaddingBottom());
+                ViewCompat.setPaddingRelative(mInput, ViewCompat.getPaddingStart(mInput),
+                        mInput.getPaddingTop(), mIconsLayer.getWidth(), mInput.getPaddingBottom());
             }
         });
 
         if (fieldModel.getActionIconAction() != null) {
             mActionIcon = (ImageView) mIconsLayer.findViewById(R.id.action_icon);
-            mActionIcon.setImageDrawable(
-                    TintedDrawable.constructTintedDrawable(context.getResources(),
-                            fieldModel.getActionIconResourceId(), R.color.light_active_color));
+            mActionIcon.setImageDrawable(TintedDrawable.constructTintedDrawable(context,
+                    fieldModel.getActionIconResourceId(), R.color.default_icon_color_blue));
             mActionIcon.setContentDescription(context.getResources().getString(
                     fieldModel.getActionIconDescriptionForAccessibility()));
             mActionIcon.setOnClickListener(this);

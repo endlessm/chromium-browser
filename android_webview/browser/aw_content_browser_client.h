@@ -53,6 +53,7 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
   void RenderProcessWillLaunch(
       content::RenderProcessHost* host,
       service_manager::mojom::ServiceRequest* service_request) override;
+  bool ShouldUseMobileFlingCurve() const override;
   bool IsHandledURL(const GURL& url) override;
   bool ForceSniffingFileUrlsForHtml() override;
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
@@ -74,8 +75,7 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
                       const net::CanonicalCookie& cookie,
                       content::ResourceContext* context,
                       int render_process_id,
-                      int render_frame_id,
-                      const net::CookieOptions& options) override;
+                      int render_frame_id) override;
   void AllowWorkerFileSystem(
       const GURL& url,
       content::ResourceContext* context,
@@ -172,8 +172,10 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
   scoped_refptr<content::LoginDelegate> CreateLoginDelegate(
       net::AuthChallengeInfo* auth_info,
       content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+      const content::GlobalRequestID& request_id,
       bool is_main_frame,
       const GURL& url,
+      scoped_refptr<net::HttpResponseHeaders> response_headers,
       bool first_auth_attempt,
       LoginAuthRequiredCallback auth_required_callback) override;
   bool HandleExternalProtocol(

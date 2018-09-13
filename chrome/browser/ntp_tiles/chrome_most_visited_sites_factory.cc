@@ -9,9 +9,11 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "build/build_config.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/favicon/large_icon_service_factory.h"
 #include "chrome/browser/history/top_sites_factory.h"
+#include "chrome/browser/ntp_tiles/chrome_custom_links_manager_factory.h"
 #include "chrome/browser/ntp_tiles/chrome_popular_sites_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/suggestions/image_decoder_impl.h"
@@ -26,6 +28,7 @@
 #include "components/ntp_tiles/icon_cacher_impl.h"
 #include "components/ntp_tiles/metrics.h"
 #include "components/ntp_tiles/most_visited_sites.h"
+#include "content/public/browser/storage_partition.h"
 
 using suggestions::SuggestionsServiceFactory;
 
@@ -121,12 +124,18 @@ ChromeMostVisitedSitesFactory::NewForProfile(Profile* profile) {
 #else
       nullptr,
 #endif
+#if !defined(OS_ANDROID)
+      ChromeCustomLinksManagerFactory::NewForProfile(profile),
+#else
+      nullptr,
+#endif
       std::make_unique<ntp_tiles::IconCacherImpl>(
           FaviconServiceFactory::GetForProfile(
               profile, ServiceAccessType::IMPLICIT_ACCESS),
           LargeIconServiceFactory::GetForBrowserContext(profile),
           std::make_unique<image_fetcher::ImageFetcherImpl>(
               std::make_unique<suggestions::ImageDecoderImpl>(),
-              profile->GetRequestContext())),
+              content::BrowserContext::GetDefaultStoragePartition(profile)
+                  ->GetURLLoaderFactoryForBrowserProcess())),
       std::make_unique<SupervisorBridge>(profile));
 }

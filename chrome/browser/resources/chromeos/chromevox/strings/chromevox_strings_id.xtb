@@ -92,6 +92,7 @@ Jika telah menyelesaikan tutorial, gunakan ChromeVox untuk mengakses tombol Tutu
 <translation id="1787176709638001873">Sandi edit teks</translation>
 <translation id="1802710350767629429">Tampilkan catatan pembaruan</translation>
 <translation id="1810107444790159527">Kotak daftar</translation>
+<translation id="1812527064848182527">lanskap</translation>
 <translation id="1828385960365606039">Mei</translation>
 <translation id="1834891354138622109">Kolom</translation>
 <translation id="1845944666972354496">Tap dua kali untuk mengaktifkan</translation>
@@ -146,6 +147,7 @@ Jika telah menyelesaikan tutorial, gunakan ChromeVox untuk mengakses tombol Tutu
 <translation id="2416512023405990736">Kotak centang yang tidak dicentang</translation>
 <translation id="2417569100218200841">Info konten</translation>
 <translation id="2417948780551741035">Catatan akhir</translation>
+<translation id="2421113964388408478">Penghapusan</translation>
 <translation id="2422937916923936891">Kotak centang item menu</translation>
 <translation id="2428534162001909979">Menu Perintah</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@ Jika telah menyelesaikan tutorial, gunakan ChromeVox untuk mengakses tombol Tutu
 <translation id="3232388865800379423">Tombol pop-up</translation>
 <translation id="3241052487511142956">Tautan yang dikunjungi sebelumnya</translation>
 <translation id="3241638166094654466">Sel di tiap baris:</translation>
+<translation id="3286372614333682499">potret</translation>
 <translation id="3286390186030710347">Penggeser</translation>
 <translation id="3299925995433437805">Tidak ada link yang dikunjungi selanjutnya.</translation>
 <translation id="3300348286427369683">Dukungan teks kaya. Kini ChromeVox mendukung kolom teks kaya, termasuk perintah lewati, perutean kursor braille, pilihan, dan masih banyak lagi.</translation>
@@ -426,6 +429,7 @@ Jika telah menyelesaikan tutorial, gunakan ChromeVox untuk mengakses tombol Tutu
 <translation id="4476183483923481720">baris baru</translation>
 <translation id="4482330759234983253">Tabel sebelumnya</translation>
 <translation id="4491109536499578614">Gambar</translation>
+<translation id="4505167975768625962">Penyisipan</translation>
 <translation id="4517854969512651305">Meningkatkan nilai</translation>
 <translation id="4529987814483543472">Peta tombol klasik</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{garis miring}other{# garis miring}}</translation>
@@ -589,6 +593,7 @@ Jika telah menyelesaikan tutorial, gunakan ChromeVox untuk mengakses tombol Tutu
 <translation id="5712338278108304766">Kolom tabel berikutnya</translation>
 <translation id="571866080859340309">Menjelajahi grup</translation>
 <translation id="5728409797179002635">Tidak ditemukan tabel.</translation>
+<translation id="5729047866208036762">Tekan ke atas, bawah, kiri, atau kanan untuk menggunakan fitur matematika.</translation>
 <translation id="5732189279857692565">Ini adalah judul kedua. Teruskan; tekan Penelusuran+H atau Penelusuran+Shift+H</translation>
 <translation id="5748623122140342504">Judul tingkat 5 sebelumnya</translation>
 <translation id="5750633686117194034">Tidak ada pengubah yang ditekan; tekan dan tahan satu atau beberapa pengubah; angkat jari Anda setelah selesai dan akan terdengar tombol disetel. Ketuk untuk keluar.</translation>
@@ -744,6 +749,7 @@ Untuk membuka menu browser Chrome, tekan Alt+F.</translation>
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">Pilih tabel braille 6 titik:</translation>
 <translation id="72393384879519786">Judul</translation>
+<translation id="7240858705033280249">Lompat ke Detail</translation>
 <translation id="7241683698754534149">Membuka deskripsi panjang di tab baru</translation>
 <translation id="7248671827512403053">Aplikasi</translation>
 <translation id="725969808843520477">Tombol radio berikutnya</translation>
@@ -920,6 +926,7 @@ Untuk membuka menu browser Chrome, tekan Alt+F.</translation>
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Pilih tabel braille 8 titik:</translation>
 <translation id="9065283790526219006">+popup</translation>
+<translation id="9066023754636984703">Tekan Search+A, J untuk membuka detail.</translation>
 <translation id="9067522039955793016">Batas halaman</translation>
 <translation id="9077213568694924680">dihapus dari pilihan</translation>
 <translation id="9082874451376019682">Tidak ada penggeser sebelumnya.</translation>

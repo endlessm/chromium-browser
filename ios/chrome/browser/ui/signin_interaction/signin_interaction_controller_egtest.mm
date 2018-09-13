@@ -11,10 +11,11 @@
 #include "components/signin/core/browser/signin_manager.h"
 #include "ios/chrome/browser/experimental_flags.h"
 #include "ios/chrome/browser/signin/signin_manager_factory.h"
+#import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/authentication/signin_earlgrey_utils.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
-#import "ios/chrome/browser/ui/commands/open_url_command.h"
+#import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_controller.h"
 #include "ios/chrome/browser/ui/ui_util.h"
@@ -25,13 +26,12 @@
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
-#import "ios/testing/wait_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-using chrome_test_util::NavigationBarDoneButton;
+using chrome_test_util::BookmarksNavigationBarDoneButton;
 using chrome_test_util::SecondarySignInButton;
 using chrome_test_util::SettingsDoneButton;
 
@@ -66,8 +66,8 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
                                                              error:&error];
     return error == nil;
   };
-  GREYAssert(testing::WaitUntilConditionOrTimeout(
-                 testing::kWaitForUIElementTimeout, condition),
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(
+                 base::test::ios::kWaitForUIElementTimeout, condition),
              @"Waiting for matcher %@ failed.", matcher);
 }
 
@@ -86,12 +86,7 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
   ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()->AddIdentity(
       identity);
 
-  [ChromeEarlGreyUI openSettingsMenu];
-  [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
-  [ChromeEarlGreyUI signInToIdentityByEmail:identity.userEmail];
-  [ChromeEarlGreyUI confirmSigninConfirmationDialog];
-  [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
-      performAction:grey_tap()];
+  [SigninEarlGreyUI signinWithIdentity:identity];
 
   // Check |identity| is signed-in.
   [SigninEarlGreyUtils assertSignedInWithIdentity:identity];
@@ -108,11 +103,8 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
   identity_service->AddIdentity(identity1);
   identity_service->AddIdentity(identity2);
 
+  [SigninEarlGreyUI signinWithIdentity:identity1];
   [ChromeEarlGreyUI openSettingsMenu];
-  [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
-  [ChromeEarlGreyUI signInToIdentityByEmail:identity1.userEmail];
-  [ChromeEarlGreyUI confirmSigninConfirmationDialog];
-  [SigninEarlGreyUtils assertSignedInWithIdentity:identity1];
 
   // Open accounts settings, then sync settings.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsAccountButton()]
@@ -146,11 +138,8 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
   identity_service->AddIdentity(identity2);
 
   // Sign in to |identity1|.
+  [SigninEarlGreyUI signinWithIdentity:identity1];
   [ChromeEarlGreyUI openSettingsMenu];
-  [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
-  [ChromeEarlGreyUI signInToIdentityByEmail:identity1.userEmail];
-  [ChromeEarlGreyUI confirmSigninConfirmationDialog];
-  [SigninEarlGreyUtils assertSignedInWithIdentity:identity1];
 
   // Open accounts settings, then sync settings.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsAccountButton()]
@@ -185,7 +174,7 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
 
   [ChromeEarlGreyUI openSettingsMenu];
   [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
-  [ChromeEarlGreyUI signInToIdentityByEmail:managed_identity.userEmail];
+  [SigninEarlGreyUI selectIdentityWithEmail:managed_identity.userEmail];
 
   // Accept warning for signing into a managed identity, with synchronization
   // off due to an infinite spinner.
@@ -195,7 +184,7 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
   TapButtonWithLabelId(IDS_IOS_MANAGED_SIGNIN_ACCEPT_BUTTON);
   SetEarlGreySynchronizationEnabled(YES);
 
-  [ChromeEarlGreyUI confirmSigninConfirmationDialog];
+  [SigninEarlGreyUI confirmSigninConfirmationDialog];
   [SigninEarlGreyUtils assertSignedInWithIdentity:managed_identity];
 
   // Switch Sync account to |identity|.
@@ -225,11 +214,8 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
       identity);
 
   // Sign in to |identity|.
+  [SigninEarlGreyUI signinWithIdentity:identity];
   [ChromeEarlGreyUI openSettingsMenu];
-  [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
-  [ChromeEarlGreyUI signInToIdentityByEmail:identity.userEmail];
-  [ChromeEarlGreyUI confirmSigninConfirmationDialog];
-  [SigninEarlGreyUtils assertSignedInWithIdentity:identity];
 
   // Go to Accounts Settings and tap the sign out button.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsAccountButton()]
@@ -261,7 +247,7 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
 
   [ChromeEarlGreyUI openSettingsMenu];
   [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
-  [ChromeEarlGreyUI signInToIdentityByEmail:identity.userEmail];
+  [SigninEarlGreyUI selectIdentityWithEmail:identity.userEmail];
 
   // Synchronization off due to an infinite spinner.
   SetEarlGreySynchronizationEnabled(NO);
@@ -270,7 +256,7 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
   TapButtonWithLabelId(IDS_IOS_MANAGED_SIGNIN_ACCEPT_BUTTON);
   SetEarlGreySynchronizationEnabled(YES);
 
-  [ChromeEarlGreyUI confirmSigninConfirmationDialog];
+  [SigninEarlGreyUI confirmSigninConfirmationDialog];
   [SigninEarlGreyUtils assertSignedInWithIdentity:identity];
 
   // Go to Accounts Settings and tap the sign out button.
@@ -304,7 +290,7 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
 
   [ChromeEarlGreyUI openSettingsMenu];
   [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
-  [ChromeEarlGreyUI signInToIdentityByEmail:identity.userEmail];
+  [SigninEarlGreyUI selectIdentityWithEmail:identity.userEmail];
 
   // Tap Settings link.
   id<GREYMatcher> settings_link_matcher = grey_allOf(
@@ -337,8 +323,8 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
   [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
 
   // Open new tab to cancel sign-in.
-  OpenUrlCommand* command =
-      [[OpenUrlCommand alloc] initWithURLFromChrome:GURL("about:blank")];
+  OpenNewTabCommand* command =
+      [OpenNewTabCommand commandWithURLFromChrome:GURL("about:blank")];
   [chrome_test_util::DispatcherForActiveViewController() openURL:command];
 
   // Re-open the sign-in screen. If it wasn't correctly dismissed previously,
@@ -378,8 +364,8 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
 
   // Open new tab to cancel sign-in.
-  OpenUrlCommand* command =
-      [[OpenUrlCommand alloc] initWithURLFromChrome:GURL("about:blank")];
+  OpenNewTabCommand* command =
+      [OpenNewTabCommand commandWithURLFromChrome:GURL("about:blank")];
   [chrome_test_util::DispatcherForActiveViewController() openURL:command];
 
   // Re-open the sign-in screen. If it wasn't correctly dismissed previously,
@@ -414,11 +400,8 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
   // Syncing" dialog is shown during the second sign-in. This dialog will
   // effectively block the authentication flow, ensuring that the authentication
   // flow is always still running when the sign-in is being cancelled.
+  [SigninEarlGreyUI signinWithIdentity:identity2];
   [ChromeEarlGreyUI openSettingsMenu];
-  [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
-  [ChromeEarlGreyUI signInToIdentityByEmail:identity2.userEmail];
-  [ChromeEarlGreyUI confirmSigninConfirmationDialog];
-  [SigninEarlGreyUtils assertSignedInWithIdentity:identity2];
 
   // Go to Accounts Settings and tap the sign out button.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsAccountButton()]
@@ -437,11 +420,11 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
   [SigninEarlGreyUtils assertSignedOut];
   [[EarlGrey selectElementWithMatcher:SecondarySignInButton()]
       performAction:grey_tap()];
-  [ChromeEarlGreyUI signInToIdentityByEmail:identity1.userEmail];
+  [SigninEarlGreyUI selectIdentityWithEmail:identity1.userEmail];
 
   // Open new tab to cancel sign-in.
-  OpenUrlCommand* command =
-      [[OpenUrlCommand alloc] initWithURLFromChrome:GURL("about:blank")];
+  OpenNewTabCommand* command =
+      [OpenNewTabCommand commandWithURLFromChrome:GURL("about:blank")];
   [chrome_test_util::DispatcherForActiveViewController() openURL:command];
 
   // Re-open the sign-in screen. If it wasn't correctly dismissed previously,
@@ -482,8 +465,8 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
       assertWithMatcher:grey_sufficientlyVisible()];
 
   // Open new tab to cancel sign-in.
-  OpenUrlCommand* command =
-      [[OpenUrlCommand alloc] initWithURLFromChrome:GURL("about:blank")];
+  OpenNewTabCommand* command =
+      [OpenNewTabCommand commandWithURLFromChrome:GURL("about:blank")];
   [chrome_test_util::DispatcherForActiveViewController() openURL:command];
 
   // Re-open the sign-in screen. If it wasn't correctly dismissed previously,
@@ -496,7 +479,7 @@ void WaitForMatcher(id<GREYMatcher> matcher) {
 
   // Close sign-in screen and Bookmarks.
   TapButtonWithLabelId(IDS_IOS_ACCOUNT_CONSISTENCY_SETUP_SKIP_BUTTON);
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:BookmarksNavigationBarDoneButton()]
       performAction:grey_tap()];
 }
 

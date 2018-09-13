@@ -9,11 +9,15 @@
 #include "ash/login/ui/login_test_base.h"
 #include "ash/login/ui/login_test_utils.h"
 #include "ash/login/ui/login_user_view.h"
+#include "ash/strings/grit/ash_strings.h"
 #include "base/bind_helpers.h"
 #include "base/run_loop.h"
+#include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/widget/widget.h"
 
@@ -95,10 +99,11 @@ TEST_F(LoginAuthUserViewUnittest, ShowingPasswordForcesOpaque) {
 TEST_F(LoginAuthUserViewUnittest, PressReturnWithTapToUnlockEnabled) {
   std::unique_ptr<MockLoginScreenClient> client = BindMockLoginScreenClient();
 
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   LoginAuthUserView::TestApi test_auth_user_view(view_);
   LoginPasswordView* password_view(test_auth_user_view.password_view());
+  LoginPasswordView::TestApi test_password_view(password_view);
   LoginUserView* user_view(test_auth_user_view.user_view());
 
   SetUserCount(1);
@@ -110,8 +115,15 @@ TEST_F(LoginAuthUserViewUnittest, PressReturnWithTapToUnlockEnabled) {
                         LoginAuthUserView::AUTH_TAP);
   password_view->Clear();
 
-  generator.PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
   base::RunLoop().RunUntilIdle();
+
+  // Verify the "Signing in" placeholder text was set.
+  base::string16 placeholder =
+      test_password_view.textfield()->GetPlaceholderText();
+  base::string16 expected_placeholder = l10n_util::GetStringUTF16(
+      IDS_ASH_LOGIN_POD_PASSWORD_SIGNING_IN_PLACEHOLDER);
+  EXPECT_EQ(expected_placeholder, placeholder);
 }
 
 TEST_F(LoginAuthUserViewUnittest, OnlineSignInMessage) {
@@ -132,8 +144,10 @@ TEST_F(LoginAuthUserViewUnittest, OnlineSignInMessage) {
 
   // Clicking the message triggers |ShowGaiaSignin|.
   EXPECT_CALL(*client,
-              ShowGaiaSignin(static_cast<base::Optional<AccountId>>(
-                  user_view->current_user()->basic_user_info->account_id)));
+              ShowGaiaSignin(
+                  true /*can_close*/,
+                  base::Optional<AccountId>(
+                      user_view->current_user()->basic_user_info->account_id)));
   const ui::MouseEvent event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
                              ui::EventTimeForNow(), 0, 0);
   view_->ButtonPressed(online_sign_in_message, event);
@@ -148,6 +162,34 @@ TEST_F(LoginAuthUserViewUnittest, OnlineSignInMessage) {
   EXPECT_FALSE(online_sign_in_message->visible());
   view_->SetAuthMethods(LoginAuthUserView::AUTH_TAP);
   EXPECT_FALSE(online_sign_in_message->visible());
+}
+
+// Verifies that password is cleared after AUTH_PASSWORD is disabled.
+TEST_F(LoginAuthUserViewUnittest,
+       PasswordClearedAfterAnimationIfPasswordDisabled) {
+  LoginPasswordView::TestApi password_test(view_->password_view());
+  auto has_password = [&]() {
+    return !password_test.textfield()->text().empty();
+  };
+
+  // Set a password.
+  view_->SetAuthMethods(LoginAuthUserView::AUTH_PASSWORD);
+  password_test.textfield()->SetText(base::ASCIIToUTF16("Hello"));
+
+  // Enable some other auth method (PIN), password is not cleared.
+  view_->CaptureStateForAnimationPreLayout();
+  view_->SetAuthMethods(LoginAuthUserView::AUTH_PASSWORD |
+                        LoginAuthUserView::AUTH_PIN);
+  EXPECT_TRUE(has_password());
+  view_->ApplyAnimationPostLayout();
+  EXPECT_TRUE(has_password());
+
+  // Disable password, password is cleared.
+  view_->CaptureStateForAnimationPreLayout();
+  view_->SetAuthMethods(LoginAuthUserView::AUTH_NONE);
+  EXPECT_TRUE(has_password());
+  view_->ApplyAnimationPostLayout();
+  EXPECT_FALSE(has_password());
 }
 
 }  // namespace ash

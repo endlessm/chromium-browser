@@ -423,6 +423,10 @@ int GetIconResourceIndex() {
   return InstallDetails::Get().mode().app_icon_resource_index;
 }
 
+const wchar_t* GetSandboxSidPrefix() {
+  return InstallDetails::Get().mode().sandbox_sid_prefix;
+}
+
 bool GetCollectStatsConsent() {
   bool enabled = true;
 
@@ -727,11 +731,16 @@ std::vector<std::wstring> TokenizeCommandLineToArray(
 
   // The first argument (the program) is delimited by whitespace or quotes based
   // on its first character.
-  int argv0_length = 0;
-  if (p[0] == L'"')
-    argv0_length = wcschr(++p, L'"') - (command_line.c_str() + 1);
-  else
+  size_t argv0_length = 0;
+  if (p[0] == L'"') {
+    const wchar_t* closing = wcschr(++p, L'"');
+    if (!closing)
+      argv0_length = command_line.size() - 1;  // Skip the opening quote.
+    else
+      argv0_length = closing - (command_line.c_str() + 1);
+  } else {
     argv0_length = wcscspn(p, kSpaceTab);
+  }
   result.emplace_back(p, argv0_length);
   if (p[argv0_length] == 0)
     return result;
@@ -744,11 +753,8 @@ std::vector<std::wstring> TokenizeCommandLineToArray(
     p += wcsspn(p, kSpaceTab);
 
     // End of arguments.
-    if (p[0] == 0) {
-      if (!token.empty())
-        result.push_back(token);
+    if (p[0] == 0)
       break;
-    }
 
     state = SpecialChars::kInterpret;
 

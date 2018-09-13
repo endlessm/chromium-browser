@@ -95,9 +95,19 @@ SSLBlockingPage* SSLBlockingPage::Create(
   if (overridable) {
     UMA_HISTOGRAM_BOOLEAN("interstitial.ssl_overridable.is_recurrent_error",
                           is_recurrent_error);
+    if (cert_error == net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED) {
+      UMA_HISTOGRAM_BOOLEAN(
+          "interstitial.ssl_overridable.is_recurrent_error.ct_error",
+          is_recurrent_error);
+    }
   } else {
     UMA_HISTOGRAM_BOOLEAN("interstitial.ssl_nonoverridable.is_recurrent_error",
                           is_recurrent_error);
+    if (cert_error == net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED) {
+      UMA_HISTOGRAM_BOOLEAN(
+          "interstitial.ssl_nonoverridable.is_recurrent_error.ct_error",
+          is_recurrent_error);
+    }
   }
 
   return new SSLBlockingPage(web_contents, cert_error, ssl_info, request_url,
@@ -214,8 +224,7 @@ void SSLBlockingPage::OverrideRendererPrefs(
       content::RendererPreferences* prefs) {
   Profile* profile = Profile::FromBrowserContext(
       web_contents()->GetBrowserContext());
-  renderer_preferences_util::UpdateFromSystemSettings(
-      prefs, profile, web_contents());
+  renderer_preferences_util::UpdateFromSystemSettings(prefs, profile);
 }
 
 void SSLBlockingPage::OnProceed() {

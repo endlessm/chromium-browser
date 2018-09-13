@@ -151,6 +151,8 @@ def m_wasm_Features_Group : OptionGroup<"<wasm features group>">,
                             Group<m_Group>, DocName<"WebAssembly">;
 def m_x86_Features_Group : OptionGroup<"<x86 features group>">,
                            Group<m_Group>, Flags<[CoreOption]>, DocName<"X86">;
+def m_riscv_Features_Group : OptionGroup<"<riscv features group>">,
+                             Group<m_Group>, DocName<"RISCV">;
 
 def m_libc_Group : OptionGroup<"<m libc group>">, Group<m_mips_Features_Group>,
                    Flags<[HelpHidden]>;
@@ -402,6 +404,8 @@ def Qy : Flag<["-"], "Qy">, Flags<[CC1Option]>,
   HelpText<"Emit metadata containing compiler name and version">;
 def Qn : Flag<["-"], "Qn">, Flags<[CC1Option]>,
   HelpText<"Do not emit metadata containing compiler name and version">;
+def : Flag<["-"], "fident">, Group<f_Group>, Alias<Qy>, Flags<[CC1Option]>;
+def : Flag<["-"], "fno-ident">, Group<f_Group>, Alias<Qn>, Flags<[CC1Option]>;
 def Qunused_arguments : Flag<["-"], "Qunused-arguments">, Flags<[DriverOption, CoreOption]>,
   HelpText<"Don't emit warning for unused driver arguments">;
 def Q : Flag<["-"], "Q">, IgnoredGCCCompat;
@@ -586,6 +590,10 @@ def fno_cuda_rdc : Flag<["-"], "fno-cuda-rdc">;
 def fcuda_short_ptr : Flag<["-"], "fcuda-short-ptr">, Flags<[CC1Option]>,
   HelpText<"Use 32-bit pointers for accessing const/local/shared address spaces.">;
 def fno_cuda_short_ptr : Flag<["-"], "fno-cuda-short-ptr">;
+def hip_device_lib_path_EQ : Joined<["--"], "hip-device-lib-path=">, Group<Link_Group>,
+  HelpText<"HIP device library path">;
+def hip_device_lib_EQ : Joined<["--"], "hip-device-lib=">, Group<Link_Group>,
+  HelpText<"HIP device library">;
 def fhip_dump_offload_linker_script : Flag<["-"], "fhip-dump-offload-linker-script">,
   Group<f_Group>, Flags<[NoArgumentUnused, HelpHidden]>;
 def dA : Flag<["-"], "dA">, Group<d_Group>;
@@ -750,6 +758,10 @@ def fno_profile_instr_use : Flag<["-"], "fno-profile-instr-use">,
 def fno_profile_use : Flag<["-"], "fno-profile-use">,
     Alias<fno_profile_instr_use>;
 
+def faddrsig : Flag<["-"], "faddrsig">, Group<f_Group>, Flags<[CoreOption, CC1Option]>,
+  HelpText<"Emit an address-significance table">;
+def fno_addrsig : Flag<["-"], "fno-addrsig">, Group<f_Group>, Flags<[CoreOption]>,
+  HelpText<"Don't emit an address-significance table">;
 def fblocks : Flag<["-"], "fblocks">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Enable the 'blocks' language feature">;
 def fbootclasspath_EQ : Joined<["-"], "fbootclasspath=">, Group<f_Group>;
@@ -776,6 +788,12 @@ def fcomment_block_commands : CommaJoined<["-"], "fcomment-block-commands=">, Gr
 def fparse_all_comments : Flag<["-"], "fparse-all-comments">, Group<f_clang_Group>, Flags<[CC1Option]>;
 def fcommon : Flag<["-"], "fcommon">, Group<f_Group>;
 def fcompile_resource_EQ : Joined<["-"], "fcompile-resource=">, Group<f_Group>;
+def fcomplete_member_pointers : Flag<["-"], "fcomplete-member-pointers">, Group<f_clang_Group>,
+   Flags<[CoreOption, CC1Option]>,
+   HelpText<"Require member pointer base types to be complete if they would be significant under the Microsoft ABI">;
+def fno_complete_member_pointers : Flag<["-"], "fno-complete-member-pointers">, Group<f_clang_Group>,
+   Flags<[CoreOption]>,
+   HelpText<"Do not require member pointer base types to be complete if they would be significant under the Microsoft ABI">;
 def fconstant_cfstrings : Flag<["-"], "fconstant-cfstrings">, Group<f_Group>;
 def fconstant_string_class_EQ : Joined<["-"], "fconstant-string-class=">, Group<f_Group>;
 def fconstexpr_depth_EQ : Joined<["-"], "fconstexpr-depth=">, Group<f_Group>;
@@ -784,6 +802,7 @@ def fconstexpr_backtrace_limit_EQ : Joined<["-"], "fconstexpr-backtrace-limit=">
                                     Group<f_Group>;
 def fno_crash_diagnostics : Flag<["-"], "fno-crash-diagnostics">, Group<f_clang_Group>, Flags<[NoArgumentUnused]>,
   HelpText<"Disable auto-generation of preprocessed source files and a script for reproduction during a clang crash">;
+def fcrash_diagnostics_dir : Joined<["-"], "fcrash-diagnostics-dir=">, Group<f_clang_Group>, Flags<[NoArgumentUnused]>;
 def fcreate_profile : Flag<["-"], "fcreate-profile">, Group<f_Group>;
 def fcxx_exceptions: Flag<["-"], "fcxx-exceptions">, Group<f_Group>,
   HelpText<"Enable C++ exceptions">, Flags<[CC1Option]>;
@@ -874,6 +893,11 @@ def fforce_enable_int128 : Flag<["-"], "fforce-enable-int128">,
 def fno_force_enable_int128 : Flag<["-"], "fno-force-enable-int128">,
   Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Disable support for int128_t type">;
+
+def ffixed_point : Flag<["-"], "ffixed-point">, Group<f_Group>,
+                   Flags<[CC1Option]>, HelpText<"Enable fixed point types">;
+def fno_fixed_point : Flag<["-"], "fno-fixed-point">, Group<f_Group>,
+                      HelpText<"Disable fixed point types">;
 
 // Begin sanitizer flags. These should all be core options exposed in all driver
 // modes.
@@ -1055,6 +1079,13 @@ def fno_rewrite_includes : Flag<["-"], "fno-rewrite-includes">, Group<f_Group>;
 def frewrite_imports : Flag<["-"], "frewrite-imports">, Group<f_Group>,
   Flags<[CC1Option]>;
 def fno_rewrite_imports : Flag<["-"], "fno-rewrite-imports">, Group<f_Group>;
+
+def fdelete_null_pointer_checks : Flag<["-"],
+  "fdelete-null-pointer-checks">, Group<f_Group>,
+  HelpText<"Treat usage of null pointers as undefined behavior.">;
+def fno_delete_null_pointer_checks : Flag<["-"],
+  "fno-delete-null-pointer-checks">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Do not treat usage of null pointers as undefined behavior.">;
 
 def frewrite_map_file : Separate<["-"], "frewrite-map-file">,
                         Group<f_Group>,
@@ -1315,6 +1346,10 @@ def fno_diagnostics_show_hotness : Flag<["-"], "fno-diagnostics-show-hotness">, 
 def fno_diagnostics_show_option : Flag<["-"], "fno-diagnostics-show-option">, Group<f_Group>;
 def fno_diagnostics_show_note_include_stack : Flag<["-"], "fno-diagnostics-show-note-include-stack">,
     Flags<[CC1Option]>, Group<f_Group>;
+def fdigraphs : Flag<["-"], "fdigraphs">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Enable alternative token representations '<:', ':>', '<%', '%>', '%:', '%:%:' (default)">;
+def fno_digraphs : Flag<["-"], "fno-digraphs">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Disallow alternative token representations '<:', ':>', '<%', '%>', '%:', '%:%:'">;
 def fno_declspec : Flag<["-"], "fno-declspec">, Group<f_clang_Group>,
   HelpText<"Disallow __declspec as a keyword">, Flags<[CC1Option]>;
 def fno_dollars_in_identifiers : Flag<["-"], "fno-dollars-in-identifiers">, Group<f_Group>,
@@ -1669,6 +1704,11 @@ def fwhole_program_vtables : Flag<["-"], "fwhole-program-vtables">, Group<f_Grou
   HelpText<"Enables whole-program vtable optimization. Requires -flto">;
 def fno_whole_program_vtables : Flag<["-"], "fno-whole-program-vtables">, Group<f_Group>,
   Flags<[CoreOption]>;
+def fforce_emit_vtables : Flag<["-"], "fforce-emit-vtables">, Group<f_Group>,
+    Flags<[CC1Option]>,
+    HelpText<"Emits more virtual tables to improve devirtualization">;
+def fno_force_emit_vtables : Flag<["-"], "fno-force-emit-vtables">, Group<f_Group>,
+  Flags<[CoreOption]>;
 def fwrapv : Flag<["-"], "fwrapv">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Treat signed integer overflow as two's complement">;
 def fwritable_strings : Flag<["-"], "fwritable-strings">, Group<f_Group>, Flags<[CC1Option]>,
@@ -1716,7 +1756,8 @@ def fsplit_dwarf_inlining: Flag <["-"], "fsplit-dwarf-inlining">, Group<f_Group>
 def fno_split_dwarf_inlining: Flag<["-"], "fno-split-dwarf-inlining">, Group<f_Group>,
   Flags<[CC1Option]>;
 def fdebug_prefix_map_EQ
-  : Joined<["-"], "fdebug-prefix-map=">, Group<f_Group>, Flags<[CC1Option]>,
+  : Joined<["-"], "fdebug-prefix-map=">, Group<f_Group>,
+    Flags<[CC1Option,CC1AsOption]>,
     HelpText<"remap file source paths in debug info">;
 def g_Flag : Flag<["-"], "g">, Group<g_Group>,
   HelpText<"Generate source-level debug information">;
@@ -1765,6 +1806,7 @@ def gcolumn_info : Flag<["-"], "gcolumn-info">, Group<g_flags_Group>, Flags<[Cor
 def gno_column_info : Flag<["-"], "gno-column-info">, Group<g_flags_Group>, Flags<[CoreOption]>;
 def gsplit_dwarf : Flag<["-"], "gsplit-dwarf">, Group<g_flags_Group>;
 def ggnu_pubnames : Flag<["-"], "ggnu-pubnames">, Group<g_flags_Group>, Flags<[CC1Option]>;
+def gno_gnu_pubnames : Flag<["-"], "gno-gnu-pubnames">, Group<g_flags_Group>, Flags<[CC1Option]>;
 def gdwarf_aranges : Flag<["-"], "gdwarf-aranges">, Group<g_flags_Group>;
 def gmodules : Flag <["-"], "gmodules">, Group<gN_Group>,
   HelpText<"Generate debug info with external references to clang modules"
@@ -1947,6 +1989,11 @@ def mno_rtd: Flag<["-"], "mno-rtd">, Group<m_Group>;
 def mno_soft_float : Flag<["-"], "mno-soft-float">, Group<m_Group>;
 def mno_stackrealign : Flag<["-"], "mno-stackrealign">, Group<m_Group>;
 
+def mrelax : Flag<["-"], "mrelax">, Group<m_riscv_Features_Group>,
+  HelpText<"Enable linker relaxation">;
+def mno_relax : Flag<["-"], "mno-relax">, Group<m_riscv_Features_Group>,
+  HelpText<"Disable linker relaxation">;
+
 def munaligned_access : Flag<["-"], "munaligned-access">, Group<m_arm_Features_Group>,
   HelpText<"Allow memory accesses to be unaligned (AArch32/AArch64 only)">;
 def mno_unaligned_access : Flag<["-"], "mno-unaligned-access">, Group<m_arm_Features_Group>,
@@ -1963,8 +2010,8 @@ def ffixed_r9 : Flag<["-"], "ffixed-r9">, Group<m_arm_Features_Group>,
   HelpText<"Reserve the r9 register (ARM only)">;
 def mno_movt : Flag<["-"], "mno-movt">, Group<m_arm_Features_Group>,
   HelpText<"Disallow use of movt/movw pairs (ARM only)">;
-def mcrc : Flag<["-"], "mcrc">, Group<m_arm_Features_Group>,
-  HelpText<"Allow use of CRC instructions (ARM only)">;
+def mcrc : Flag<["-"], "mcrc">, Group<m_Group>,
+  HelpText<"Allow use of CRC instructions (ARM/Mips only)">;
 def mnocrc : Flag<["-"], "mnocrc">, Group<m_arm_Features_Group>,
   HelpText<"Disallow use of CRC instructions (ARM only)">;
 def mno_neg_immediates: Flag<["-"], "mno-neg-immediates">, Group<m_arm_Features_Group>,
@@ -1980,6 +2027,8 @@ def mno_fix_cortex_a53_835769 : Flag<["-"], "mno-fix-cortex-a53-835769">,
   HelpText<"Don't workaround Cortex-A53 erratum 835769 (AArch64 only)">;
 def ffixed_x18 : Flag<["-"], "ffixed-x18">, Group<m_aarch64_Features_Group>,
   HelpText<"Reserve the x18 register (AArch64 only)">;
+def ffixed_x20 : Flag<["-"], "ffixed-x20">, Group<m_aarch64_Features_Group>,
+  HelpText<"Reserve the x20 register (AArch64 only)">;
 
 def msimd128 : Flag<["-"], "msimd128">, Group<m_wasm_Features_Group>;
 def mno_simd128 : Flag<["-"], "mno-simd128">, Group<m_wasm_Features_Group>;
@@ -2180,6 +2229,12 @@ def mabicalls : Flag<["-"], "mabicalls">, Group<m_mips_Features_Group>,
   HelpText<"Enable SVR4-style position-independent code (Mips only)">;
 def mno_abicalls : Flag<["-"], "mno-abicalls">, Group<m_mips_Features_Group>,
   HelpText<"Disable SVR4-style position-independent code (Mips only)">;
+def mno_crc : Flag<["-"], "mno-crc">, Group<m_mips_Features_Group>,
+  HelpText<"Disallow use of CRC instructions (Mips only)">;
+def mvirt : Flag<["-"], "mvirt">, Group<m_mips_Features_Group>;
+def mno_virt : Flag<["-"], "mno-virt">, Group<m_mips_Features_Group>;
+def mginv : Flag<["-"], "mginv">, Group<m_mips_Features_Group>;
+def mno_ginv : Flag<["-"], "mno-ginv">, Group<m_mips_Features_Group>;
 def mips1 : Flag<["-"], "mips1">,
   Alias<march_EQ>, AliasArgs<["mips1"]>, Group<m_mips_Features_Group>,
   HelpText<"Equivalent to -march=mips1">, Flags<[HelpHidden]>;
@@ -2244,7 +2299,7 @@ def multi__module : Flag<["-"], "multi_module">;
 def multiply__defined__unused : Separate<["-"], "multiply_defined_unused">;
 def multiply__defined : Separate<["-"], "multiply_defined">;
 def mwarn_nonportable_cfstrings : Flag<["-"], "mwarn-nonportable-cfstrings">, Group<m_Group>;
-def no_canonical_prefixes : Flag<["-"], "no-canonical-prefixes">, Flags<[HelpHidden]>,
+def no_canonical_prefixes : Flag<["-"], "no-canonical-prefixes">, Flags<[HelpHidden, CoreOption]>,
   HelpText<"Use relative instead of canonical paths">;
 def no_cpp_precomp : Flag<["-"], "no-cpp-precomp">, Group<clang_ignored_f_Group>;
 def no_integrated_cpp : Flag<["-", "--"], "no-integrated-cpp">, Flags<[DriverOption]>;
@@ -2685,6 +2740,8 @@ def mfsgsbase : Flag<["-"], "mfsgsbase">, Group<m_x86_Features_Group>;
 def mno_fsgsbase : Flag<["-"], "mno-fsgsbase">, Group<m_x86_Features_Group>;
 def mfxsr : Flag<["-"], "mfxsr">, Group<m_x86_Features_Group>;
 def mno_fxsr : Flag<["-"], "mno-fxsr">, Group<m_x86_Features_Group>;
+def minvpcid : Flag<["-"], "minvpcid">, Group<m_x86_Features_Group>;
+def mno_invpcid : Flag<["-"], "mno-invpcid">, Group<m_x86_Features_Group>;
 def mgfni : Flag<["-"], "mgfni">, Group<m_x86_Features_Group>;
 def mno_gfni : Flag<["-"], "mno-gfni">, Group<m_x86_Features_Group>;
 def mlwp : Flag<["-"], "mlwp">, Group<m_x86_Features_Group>;
@@ -2805,8 +2862,6 @@ defm reorder_blocks : BooleanFFlag<"reorder-blocks">, Group<clang_ignored_gcc_op
 defm eliminate_unused_debug_types : BooleanFFlag<"eliminate-unused-debug-types">, Group<clang_ignored_f_Group>;
 defm branch_count_reg : BooleanFFlag<"branch-count-reg">, Group<clang_ignored_gcc_optimization_f_Group>;
 defm default_inline : BooleanFFlag<"default-inline">, Group<clang_ignored_gcc_optimization_f_Group>;
-defm delete_null_pointer_checks : BooleanFFlag<"delete-null-pointer-checks">,
-    Group<clang_ignored_gcc_optimization_f_Group>;
 defm fat_lto_objects : BooleanFFlag<"fat-lto-objects">, Group<clang_ignored_gcc_optimization_f_Group>;
 defm float_store : BooleanFFlag<"float-store">, Group<clang_ignored_gcc_optimization_f_Group>;
 defm friend_injection : BooleanFFlag<"friend-injection">, Group<clang_ignored_f_Group>;
@@ -2816,7 +2871,6 @@ defm gcse_after_reload: BooleanFFlag<"gcse-after-reload">, Group<clang_ignored_g
 defm gcse_las: BooleanFFlag<"gcse-las">, Group<clang_ignored_gcc_optimization_f_Group>;
 defm gcse_sm: BooleanFFlag<"gcse-sm">, Group<clang_ignored_gcc_optimization_f_Group>;
 defm gnu : BooleanFFlag<"gnu">, Group<clang_ignored_f_Group>;
-defm ident : BooleanFFlag<"ident">, Group<clang_ignored_f_Group>;
 defm implicit_templates : BooleanFFlag<"implicit-templates">, Group<clang_ignored_f_Group>;
 defm implement_inlines : BooleanFFlag<"implement-inlines">, Group<clang_ignored_f_Group>;
 defm merge_constants : BooleanFFlag<"merge-constants">, Group<clang_ignored_gcc_optimization_f_Group>;

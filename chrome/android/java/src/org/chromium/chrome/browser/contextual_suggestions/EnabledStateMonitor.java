@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.contextual_suggestions;
 
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.locale.LocaleManager;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.PrefChangeRegistrar;
@@ -17,8 +18,7 @@ import org.chromium.chrome.browser.signin.SigninManager.SignInStateObserver;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.chrome.browser.sync.ProfileSyncService.SyncStateChangedListener;
 import org.chromium.chrome.browser.util.AccessibilityUtil;
-import org.chromium.components.sync.ModelType;
-import org.chromium.components.sync.UploadState;
+import org.chromium.components.signin.ChromeSigninController;
 
 /**
  * A monitor that is responsible for detecting changes to conditions required for contextual
@@ -86,27 +86,27 @@ public class EnabledStateMonitor implements SyncStateChangedListener, SignInStat
     /** @return Whether the user settings for contextual suggestions should be shown. */
     public static boolean shouldShowSettings() {
         return isDSEConditionMet() && !AccessibilityUtil.isAccessibilityEnabled()
-                && !ContextualSuggestionsBridge.isEnterprisePolicyManaged();
+                && ChromeFeatureList.isEnabled(ChromeFeatureList.CONTEXTUAL_SUGGESTIONS_OPT_OUT);
     }
 
     /** @return Whether the settings state is currently enabled. */
     public static boolean getSettingsEnabled() {
         if (sSettingsEnabledForTesting) return true;
 
-        ProfileSyncService service = ProfileSyncService.get();
-
-        boolean isUploadToGoogleActive =
-                service.getUploadToGoogleState(ModelType.HISTORY_DELETE_DIRECTIVES)
-                == UploadState.ACTIVE;
         boolean isAccessibilityEnabled = AccessibilityUtil.isAccessibilityEnabled();
-        return isUploadToGoogleActive && isDSEConditionMet() && !isAccessibilityEnabled
-                && !ContextualSuggestionsBridge.isEnterprisePolicyManaged();
+        return isDSEConditionMet() && !isAccessibilityEnabled
+                && !ContextualSuggestionsBridge.isDisabledByEnterprisePolicy()
+                && ChromeSigninController.get().isSignedIn()
+                && (ProfileSyncService.get().isUrlKeyedDataCollectionEnabled(false)
+                           || ProfileSyncService.get().isUrlKeyedDataCollectionEnabled(true));
     }
 
     /** @return Whether the state is currently enabled. */
     public static boolean getEnabledState() {
         return getSettingsEnabled()
-                && PrefServiceBridge.getInstance().getBoolean(Pref.CONTEXTUAL_SUGGESTIONS_ENABLED);
+                && (PrefServiceBridge.getInstance().getBoolean(Pref.CONTEXTUAL_SUGGESTIONS_ENABLED)
+                           || !ChromeFeatureList.isEnabled(
+                                      ChromeFeatureList.CONTEXTUAL_SUGGESTIONS_OPT_OUT));
     }
 
     public static void recordEnabled(boolean enabled) {

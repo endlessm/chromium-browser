@@ -28,7 +28,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
 
-class ExtensionService;
 class ExtensionServiceTest;
 class SkBitmap;
 struct WebApplicationInfo;
@@ -43,6 +42,7 @@ class Connector;
 
 namespace extensions {
 class CrxInstallError;
+class ExtensionService;
 class ExtensionUpdaterTest;
 class PreloadCheckGroup;
 
@@ -449,7 +449,7 @@ class CrxInstaller : public SandboxedUnpackerClient {
   extension_misc::CrxInstallCause install_cause_;
 
   // Creation flags to use for the extension.  These flags will be used
-  // when calling Extenion::Create() by the crx installer.
+  // when calling Extension::Create() by the crx installer.
   int creation_flags_;
 
   // Whether to allow off store installation.

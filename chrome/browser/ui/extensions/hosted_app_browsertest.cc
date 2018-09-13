@@ -15,7 +15,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -37,9 +37,10 @@
 #include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/app_menu_model.h"
-#include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/web_applications/extensions/web_app_extension_helpers.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/web_application_info.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/security_interstitials/core/controller_client.h"
 #include "content/public/browser/interstitial_page.h"
@@ -771,7 +772,10 @@ IN_PROC_BROWSER_TEST_P(HostedAppTest, ShouldShowLocationBarDangerous) {
   ASSERT_TRUE(https_server()->Start());
 
   const GURL app_url = https_server()->GetURL("app.com", "/simple.html");
+  ui_test_utils::UrlLoadObserver url_observer(
+      app_url, content::NotificationService::AllSources());
   SetupAppWithURL(app_url);
+  url_observer.Wait();
   cert_verifier()->set_default_result(net::ERR_CERT_DATE_INVALID);
 
   // When DesktopPWAWindowing is enabled, proceeding through an interstitial
@@ -854,7 +858,7 @@ IN_PROC_BROWSER_TEST_P(HostedAppTest, BookmarkAppThemeColor) {
     EXPECT_EQ(
         web_app::GetExtensionIdFromApplicationName(app_browser->app_name()),
         app->id());
-    EXPECT_EQ(web_app_info.theme_color,
+    EXPECT_EQ(SkColorSetA(*web_app_info.theme_color, SK_AlphaOPAQUE),
               app_browser->hosted_app_controller()->GetThemeColor().value());
   }
   {

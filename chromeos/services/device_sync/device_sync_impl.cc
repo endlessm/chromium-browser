@@ -9,8 +9,9 @@
 #include "base/optional.h"
 #include "base/time/default_clock.h"
 #include "chromeos/components/proximity_auth/logging/logging.h"
-#include "chromeos/services/device_sync/cryptauth_client_factory_impl.h"
 #include "chromeos/services/device_sync/cryptauth_enroller_factory_impl.h"
+#include "chromeos/services/device_sync/device_sync_type_converters.h"
+#include "components/cryptauth/cryptauth_client_impl.h"
 #include "components/cryptauth/cryptauth_device_manager_impl.h"
 #include "components/cryptauth/cryptauth_enrollment_manager_impl.h"
 #include "components/cryptauth/cryptauth_gcm_manager_impl.h"
@@ -45,11 +46,11 @@ DeviceSyncImpl::Factory* DeviceSyncImpl::Factory::test_factory_instance_ =
     nullptr;
 
 // static
-std::unique_ptr<DeviceSyncImpl> DeviceSyncImpl::Factory::NewInstance(
+std::unique_ptr<DeviceSyncBase> DeviceSyncImpl::Factory::NewInstance(
     identity::IdentityManager* identity_manager,
     gcm::GCMDriver* gcm_driver,
     service_manager::Connector* connector,
-    cryptauth::GcmDeviceInfoProvider* gcm_device_info_provider,
+    const cryptauth::GcmDeviceInfoProvider* gcm_device_info_provider,
     scoped_refptr<net::URLRequestContextGetter> url_request_context) {
   if (test_factory_instance_) {
     return test_factory_instance_->BuildInstance(
@@ -70,11 +71,11 @@ void DeviceSyncImpl::Factory::SetInstanceForTesting(Factory* test_factory) {
 
 DeviceSyncImpl::Factory::~Factory() = default;
 
-std::unique_ptr<DeviceSyncImpl> DeviceSyncImpl::Factory::BuildInstance(
+std::unique_ptr<DeviceSyncBase> DeviceSyncImpl::Factory::BuildInstance(
     identity::IdentityManager* identity_manager,
     gcm::GCMDriver* gcm_driver,
     service_manager::Connector* connector,
-    cryptauth::GcmDeviceInfoProvider* gcm_device_info_provider,
+    const cryptauth::GcmDeviceInfoProvider* gcm_device_info_provider,
     scoped_refptr<net::URLRequestContextGetter> url_request_context) {
   return base::WrapUnique(new DeviceSyncImpl(
       identity_manager, gcm_driver, connector, gcm_device_info_provider,
@@ -103,7 +104,7 @@ DeviceSyncImpl::DeviceSyncImpl(
     identity::IdentityManager* identity_manager,
     gcm::GCMDriver* gcm_driver,
     service_manager::Connector* connector,
-    cryptauth::GcmDeviceInfoProvider* gcm_device_info_provider,
+    const cryptauth::GcmDeviceInfoProvider* gcm_device_info_provider,
     scoped_refptr<net::URLRequestContextGetter> url_request_context,
     base::Clock* clock,
     std::unique_ptr<PrefConnectionDelegate> pref_connection_delegate)
@@ -126,16 +127,6 @@ DeviceSyncImpl::~DeviceSyncImpl() {
 
   if (remote_device_provider_)
     remote_device_provider_->RemoveObserver(this);
-}
-
-void DeviceSyncImpl::BindRequest(mojom::DeviceSyncRequest request) {
-  bindings_.AddBinding(this, std::move(request));
-}
-
-void DeviceSyncImpl::AddObserver(mojom::DeviceSyncObserverPtr observer,
-                                 AddObserverCallback callback) {
-  observers_.AddPtr(std::move(observer));
-  std::move(callback).Run();
 }
 
 void DeviceSyncImpl::ForceEnrollmentNow(ForceEnrollmentNowCallback callback) {
@@ -198,7 +189,8 @@ void DeviceSyncImpl::SetSoftwareFeatureState(
   if (status_ != Status::READY) {
     PA_LOG(WARNING) << "DeviceSyncImpl::SetSoftwareFeatureState() invoked "
                     << "before initialization was complete. Cannot set state.";
-    std::move(callback).Run(mojom::kErrorNotInitialized);
+    std::move(callback).Run(
+        mojom::NetworkRequestResult::kServiceNotYetInitialized);
     return;
   }
 
@@ -218,8 +210,9 @@ void DeviceSyncImpl::FindEligibleDevices(
   if (status_ != Status::READY) {
     PA_LOG(WARNING) << "DeviceSyncImpl::FindEligibleDevices() invoked before "
                     << "initialization was complete. Cannot find devices.";
-    std::move(callback).Run(mojom::kErrorNotInitialized,
-                            nullptr /* response */);
+    std::move(callback).Run(
+        mojom::NetworkRequestResult::kServiceNotYetInitialized,
+        nullptr /* response */);
     return;
   }
 
@@ -260,14 +253,13 @@ void DeviceSyncImpl::OnEnrollmentFinished(bool success) {
   if (status_ == Status::WAITING_FOR_ENROLLMENT)
     CompleteInitializationAfterSuccessfulEnrollment();
 
-  observers_.ForAllPtrs(
-      [](auto* observer) { observer->OnEnrollmentFinished(); });
+  NotifyOnEnrollmentFinished();
 }
 
 void DeviceSyncImpl::OnSyncDeviceListChanged() {
   PA_LOG(INFO) << "DeviceSyncImpl: Synced devices changed; notifying "
                << "observers.";
-  observers_.ForAllPtrs([](auto* observer) { observer->OnNewDevicesSynced(); });
+  NotifyOnNewDevicesSynced();
 }
 
 void DeviceSyncImpl::ProcessPrimaryAccountInfo(
@@ -335,9 +327,10 @@ void DeviceSyncImpl::InitializeCryptAuthManagementObjects() {
           gcm_driver_, pref_service_.get());
   cryptauth_gcm_manager_->StartListening();
 
-  cryptauth_client_factory_ = std::make_unique<CryptAuthClientFactoryImpl>(
-      identity_manager_, url_request_context_,
-      cryptauth::device_classifier_util::GetDeviceClassifier());
+  cryptauth_client_factory_ =
+      std::make_unique<cryptauth::CryptAuthClientFactoryImpl>(
+          identity_manager_, url_request_context_,
+          cryptauth::device_classifier_util::GetDeviceClassifier());
 
   // Initialize |crypauth_device_manager_| and start observing. Start() is not
   // called yet since the device has not completed enrollment.
@@ -403,20 +396,19 @@ DeviceSyncImpl::GetSyncedDeviceWithPublicKey(
 }
 
 void DeviceSyncImpl::OnSetSoftwareFeatureStateSuccess(
-    const base::RepeatingCallback<void(const base::Optional<std::string>&)>&
+    const base::RepeatingCallback<void(mojom::NetworkRequestResult)>&
         callback) {
-  callback.Run(base::nullopt /* error_code */);
+  callback.Run(mojom::NetworkRequestResult::kSuccess);
 }
 
 void DeviceSyncImpl::OnSetSoftwareFeatureStateError(
-    const base::RepeatingCallback<void(const base::Optional<std::string>&)>&
-        callback,
-    const std::string& error) {
-  callback.Run(error);
+    const base::RepeatingCallback<void(mojom::NetworkRequestResult)>& callback,
+    cryptauth::NetworkRequestError error) {
+  callback.Run(mojo::ConvertTo<mojom::NetworkRequestResult>(error));
 }
 
 void DeviceSyncImpl::OnFindEligibleDevicesSuccess(
-    const base::RepeatingCallback<void(const base::Optional<std::string>&,
+    const base::RepeatingCallback<void(mojom::NetworkRequestResult,
                                        mojom::FindEligibleDevicesResponsePtr)>&
         callback,
     const std::vector<cryptauth::ExternalDeviceInfo>& eligible_device_infos,
@@ -445,17 +437,18 @@ void DeviceSyncImpl::OnFindEligibleDevicesSuccess(
     }
   }
 
-  callback.Run(base::nullopt /* error_code */,
+  callback.Run(mojom::NetworkRequestResult::kSuccess,
                mojom::FindEligibleDevicesResponse::New(
                    eligible_remote_devices, ineligible_remote_devices));
 }
 
 void DeviceSyncImpl::OnFindEligibleDevicesError(
-    const base::RepeatingCallback<void(const base::Optional<std::string>&,
+    const base::RepeatingCallback<void(mojom::NetworkRequestResult,
                                        mojom::FindEligibleDevicesResponsePtr)>&
         callback,
-    const std::string& error) {
-  callback.Run(error, nullptr /* response */);
+    cryptauth::NetworkRequestError error) {
+  callback.Run(mojo::ConvertTo<mojom::NetworkRequestResult>(error),
+               nullptr /* response */);
 }
 
 void DeviceSyncImpl::SetPrefConnectionDelegateForTesting(

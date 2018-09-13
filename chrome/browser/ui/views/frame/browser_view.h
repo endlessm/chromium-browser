@@ -132,6 +132,13 @@ class BrowserView : public BrowserWindow,
                                      const gfx::Rect& bounds,
                                      bool at_bottom);
 
+  // Paints a horizontal line TABSTRIP_TOOLBAR_OVERLAP points above the bottom
+  // of |bounds|.  The thickness of the line is 1pt on refresh and 1px
+  // otherwise.
+  static void PaintToolbarTopSeparator(gfx::Canvas* canvas,
+                                       SkColor color,
+                                       const gfx::Rect& bounds);
+
   // After calling RevealTabStripIfNeeded(), there is normally a delay before
   // the tabstrip is hidden. Tests can use this function to disable that delay
   // (and hide immediately).
@@ -256,7 +263,6 @@ class BrowserView : public BrowserWindow,
 
   // Called after the widget's fullscreen state is changed without going through
   // FullscreenController. This method does any processing which was skipped.
-  // Only exiting fullscreen in this way is currently supported.
   void FullscreenStateChanged();
 
   // Sets the button provider for this BrowserView. Must be called before
@@ -266,7 +272,7 @@ class BrowserView : public BrowserWindow,
     return toolbar_button_provider_;
   }
 
-  // Overridden from BrowserWindow:
+  // BrowserWindow:
   void Show() override;
   void ShowInactive() override;
   void Hide() override;
@@ -346,6 +352,10 @@ class BrowserView : public BrowserWindow,
       content::WebContents* contents,
       autofill::SaveCardBubbleController* controller,
       bool is_user_gesture) override;
+  autofill::LocalCardMigrationBubble* ShowLocalCardMigrationBubble(
+      content::WebContents* contents,
+      autofill::LocalCardMigrationBubbleController* controller,
+      bool is_user_gesture) override;
   ShowTranslateBubbleResult ShowTranslateBubble(
       content::WebContents* contents,
       translate::TranslateStep step,
@@ -372,8 +382,6 @@ class BrowserView : public BrowserWindow,
   void HandleKeyboardEvent(
       const content::NativeWebKeyboardEvent& event) override;
   void CutCopyPaste(int command_id) override;
-  WindowOpenDisposition GetDispositionForPopupBounds(
-      const gfx::Rect& bounds) override;
   FindBar* CreateFindBar() override;
   web_modal::WebContentsModalDialogHost* GetWebContentsModalDialogHost()
       override;
@@ -396,7 +404,7 @@ class BrowserView : public BrowserWindow,
   BookmarkBarView* GetBookmarkBarView() const;
   LocationBarView* GetLocationBarView() const;
 
-  // Overridden from TabStripModelObserver:
+  // TabStripModelObserver:
   void TabInsertedAt(TabStripModel* tab_strip_model,
                      content::WebContents* contents,
                      int index,
@@ -406,14 +414,15 @@ class BrowserView : public BrowserWindow,
                      bool was_active) override;
   void TabDeactivated(content::WebContents* contents) override;
   void TabStripEmpty() override;
-  void WillCloseAllTabs() override;
-  void CloseAllTabsCanceled() override;
+  void WillCloseAllTabs(TabStripModel* tab_strip_model) override;
+  void CloseAllTabsStopped(TabStripModel* tab_strip_model,
+                           CloseAllStoppedReason reason) override;
 
-  // Overridden from ui::AcceleratorProvider:
+  // ui::AcceleratorProvider:
   bool GetAcceleratorForCommandId(int command_id,
                                   ui::Accelerator* accelerator) const override;
 
-  // Overridden from views::WidgetDelegate:
+  // views::WidgetDelegate:
   bool CanResize() const override;
   bool CanMaximize() const override;
   bool CanMinimize() const override;
@@ -441,11 +450,11 @@ class BrowserView : public BrowserWindow,
   const views::Widget* GetWidget() const override;
   void GetAccessiblePanes(std::vector<View*>* panes) override;
 
-  // Overridden from views::WidgetObserver:
+  // views::WidgetObserver:
   void OnWidgetDestroying(views::Widget* widget) override;
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
 
-  // Overridden from views::ClientView:
+  // views::ClientView:
   bool CanClose() override;
   int NonClientHitTest(const gfx::Point& point) override;
   gfx::Size GetMinimumSize() const override;
@@ -453,7 +462,7 @@ class BrowserView : public BrowserWindow,
   // infobars::InfoBarContainer::Delegate:
   void InfoBarContainerStateChanged(bool is_animating) override;
 
-  // Overridden from views::View:
+  // views::View:
   const char* GetClassName() const override;
   void Layout() override;
   void OnGestureEvent(ui::GestureEvent* event) override;
@@ -465,17 +474,18 @@ class BrowserView : public BrowserWindow,
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnThemeChanged() override;
 
-  // Overridden from ui::AcceleratorTarget:
+  // ui::AcceleratorTarget:
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
 
-  // ExclusiveAccessContext overrides
+  // ExclusiveAccessContext:
   Profile* GetProfile() override;
+  void UpdateUIForTabFullscreen(TabFullscreenState state) override;
   content::WebContents* GetActiveWebContents() override;
   void HideDownloadShelf() override;
   void UnhideDownloadShelf() override;
   ExclusiveAccessBubbleViews* GetExclusiveAccessBubble() override;
 
-  // ExclusiveAccessBubbleViewsContext overrides
+  // ExclusiveAccessBubbleViewsContext:
   ExclusiveAccessManager* GetExclusiveAccessManager() override;
   views::Widget* GetBubbleAssociatedWidget() override;
   ui::AcceleratorProvider* GetAcceleratorProvider() override;
@@ -487,7 +497,7 @@ class BrowserView : public BrowserWindow,
   void DestroyAnyExclusiveAccessBubble() override;
   bool CanTriggerOnMouse() const override;
 
-  // extension::ExtensionKeybindingRegistry::Delegate overrides
+  // extension::ExtensionKeybindingRegistry::Delegate:
   extensions::ActiveTabPermissionGranter* GetActiveTabPermissionGranter()
       override;
 

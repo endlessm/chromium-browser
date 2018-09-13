@@ -51,6 +51,8 @@ class ArcNotificationManager
   void OnNotificationUpdated(arc::mojom::ArcNotificationDataPtr data) override;
   void OnNotificationRemoved(const std::string& key) override;
   void OpenMessageCenter() override;
+  void OnDoNotDisturbStatusUpdated(
+      arc::mojom::ArcDoNotDisturbStatusPtr status) override;
 
   // Methods called from ArcNotificationItem:
   void SendNotificationRemovedFromChrome(const std::string& key);
@@ -60,8 +62,11 @@ class ArcNotificationManager
   void CreateNotificationWindow(const std::string& key);
   void CloseNotificationWindow(const std::string& key);
   void OpenNotificationSettings(const std::string& key);
+  void OpenNotificationSnoozeSettings(const std::string& key);
   bool IsOpeningSettingsSupported() const;
   void SendNotificationToggleExpansionOnChrome(const std::string& key);
+  void SetDoNotDisturbStatusOnAndroid(bool enabled);
+  void CancelLongPress(const std::string& key);
 
  private:
   // Helper class to own MojoChannel and ConnectionHolder.
@@ -76,12 +81,17 @@ class ArcNotificationManager
   std::unique_ptr<ArcNotificationManagerDelegate> delegate_;
   const AccountId main_profile_id_;
   message_center::MessageCenter* const message_center_;
+  const std::unique_ptr<message_center::MessageCenterObserver>
+      do_not_disturb_manager_;
 
   using ItemMap =
       std::unordered_map<std::string, std::unique_ptr<ArcNotificationItem>>;
   ItemMap items_;
 
   bool ready_ = false;
+
+  // If any remote input is focused, its key is stored. Otherwise, empty.
+  std::string previously_focused_notification_key_;
 
   std::unique_ptr<InstanceOwner> instance_owner_;
 

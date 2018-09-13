@@ -40,7 +40,6 @@ def RunSteps(api):
 
   patch = api.properties.get('patch', True)
   clobber = True if api.properties.get('clobber') else False
-  no_shallow = True if api.properties.get('no_shallow') else False
   with_branch_heads = api.properties.get('with_branch_heads', False)
   with_tags = api.properties.get('with_tags', False)
   refs = api.properties.get('refs', [])
@@ -69,7 +68,6 @@ def RunSteps(api):
     )
   else:
     bot_update_step = api.bot_update.ensure_checkout(
-        no_shallow=no_shallow,
         patch=patch,
         with_branch_heads=with_branch_heads,
         with_tags=with_tags,
@@ -148,9 +146,6 @@ def GenTests(api):
       rietveld='https://rietveld.example.com/',
       fail_patch='download'
   ) + api.step_data('bot_update', retcode=87)
-  yield api.test('no_shallow') + api.properties(
-      no_shallow=1
-  )
   yield api.test('clobber') + api.properties(
       clobber=1
   )
@@ -229,20 +224,6 @@ def GenTests(api):
   ) + api.step_data(
       'gerrit get_patch_destination_branch',
       api.gerrit.get_one_change_response_data(branch='refs/branch-heads/67'),
-  )
-  yield api.test('tryjob_gerrit_angle_deprecated') + api.properties.tryserver(
-      patch_project='angle/angle',
-      gerrit='https://chromium-review.googlesource.com',
-      patch_storage='gerrit',
-      repository='https://chromium.googlesource.com/angle/angle',
-      rietveld=None,
-      **{
-        'event.change.id': 'angle%2Fangle~master~Ideadbeaf',
-        'event.change.number': 338811,
-        'event.change.url':
-          'https://chromium-review.googlesource.com/#/c/338811',
-        'event.patchSet.ref': 'refs/changes/11/338811/3',
-      }
   )
   yield api.test('tryjob_gerrit_webrtc') + api.properties.tryserver(
       gerrit_project='src',

@@ -9,7 +9,6 @@ import re
 import subprocess
 import tempfile
 
-from battor import battor_wrapper
 from telemetry.core import android_platform
 from telemetry.core import exceptions
 from telemetry.core import util
@@ -98,8 +97,6 @@ class AndroidPlatformBackend(
                 self._battery),
         ], self._battery))
     self._video_recorder = None
-    self._installed_applications = None
-
     self._system_ui = None
 
     _FixPossibleAdbInstability()
@@ -375,13 +372,9 @@ class AndroidPlatformBackend(
     return bool(self._device.GetApplicationPids(application))
 
   def CanLaunchApplication(self, application):
-    if not self._installed_applications:
-      self._installed_applications = self._device.RunShellCommand(
-          ['pm', 'list', 'packages'], check_return=True)
-    return 'package:' + application in self._installed_applications
+    return bool(self._device.GetApplicationPaths(application))
 
   def InstallApplication(self, application):
-    self._installed_applications = None
     self._device.Install(application)
 
   @decorators.Cache
@@ -533,7 +526,8 @@ class AndroidPlatformBackend(
       profile_base = os.path.basename(profile_parent)
 
     saved_profile_location = '/sdcard/profile/%s' % profile_base
-    self._device.PushChangedFiles([(new_profile_dir, saved_profile_location)])
+    self._device.PushChangedFiles([(new_profile_dir, saved_profile_location)],
+                                  delete_device_stale=True)
 
     profile_dir = self.GetProfileDir(package)
     self._EfficientDeviceDirectoryCopy(
@@ -552,7 +546,8 @@ class AndroidPlatformBackend(
       rel_root = os.path.relpath(root, new_profile_dir)
       posix_rel_root = rel_root.replace(os.sep, posixpath.sep)
 
-      device_root = posixpath.join(profile_dir, posix_rel_root)
+      device_root = posixpath.normpath(posixpath.join(profile_dir,
+                                                      posix_rel_root))
 
       if rel_root == '.' and 'lib' in files:
         files.remove('lib')
@@ -565,8 +560,7 @@ class AndroidPlatformBackend(
     # loading files even though the mode/group/owner combination should allow
     # it.
     security_context = self._device.GetSecurityContextForPackage(package)
-    self._device.ChangeSecurityContext(security_context, profile_dir,
-                                       recursive=True)
+    self._device.ChangeSecurityContext(security_context, device_paths)
 
   def _EfficientDeviceDirectoryCopy(self, source, dest):
     if not self._device_copy_script:
@@ -723,13 +717,6 @@ class AndroidPlatformBackend(
     input_methods = self._device.RunShellCommand(['dumpsys', 'input_method'],
                                                  check_return=True)
     return self._IsScreenLocked(input_methods)
-
-  def HasBattOrConnected(self):
-    # Use linux instead of Android because when determining what tests to run on
-    # a bot the individual device could be down, which would make BattOr tests
-    # not run on any device. BattOrs communicate with the host and not android
-    # devices.
-    return battor_wrapper.IsBattOrConnected('linux')
 
   def Log(self, message):
     """Prints line to logcat."""

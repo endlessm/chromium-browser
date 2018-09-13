@@ -11,8 +11,8 @@
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
-#include "components/sync/base/model_type.h"
-#include "components/sync/driver/sync_service_utils.h"
+#include "components/sync/driver/sync_service.h"
+#include "components/unified_consent/url_keyed_data_collection_consent_helper.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "ios/chrome/browser/autocomplete/in_memory_url_index_factory.h"
@@ -25,17 +25,25 @@
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #include "ios/chrome/browser/signin/signin_manager_factory.h"
-#include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
+#include "ios/chrome/browser/unified_consent/feature.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 AutocompleteProviderClientImpl::AutocompleteProviderClientImpl(
     ios::ChromeBrowserState* browser_state)
-    : browser_state_(browser_state), search_terms_data_(browser_state_) {}
+    : browser_state_(browser_state),
+      search_terms_data_(browser_state_),
+      url_consent_helper_(unified_consent::UrlKeyedDataCollectionConsentHelper::
+                              NewPersonalizedDataCollectionConsentHelper(
+                                  IsUnifiedConsentEnabled(),
+                                  ProfileSyncServiceFactory::GetForBrowserState(
+                                      browser_state_))) {}
 
 AutocompleteProviderClientImpl::~AutocompleteProviderClientImpl() {}
 
-net::URLRequestContextGetter*
-AutocompleteProviderClientImpl::GetRequestContext() {
-  return browser_state_->GetRequestContext();
+scoped_refptr<network::SharedURLLoaderFactory>
+AutocompleteProviderClientImpl::GetURLLoaderFactory() {
+  return browser_state_->GetSharedURLLoaderFactory();
 }
 
 PrefService* AutocompleteProviderClientImpl::GetPrefs() {
@@ -87,6 +95,12 @@ AutocompleteProviderClientImpl::GetTemplateURLService() const {
 
 ContextualSuggestionsService*
 AutocompleteProviderClientImpl::GetContextualSuggestionsService(
+    bool create_if_necessary) const {
+  return nullptr;
+}
+
+DocumentSuggestionsService*
+AutocompleteProviderClientImpl::GetDocumentSuggestionsService(
     bool create_if_necessary) const {
   return nullptr;
 }
@@ -152,11 +166,9 @@ bool AutocompleteProviderClientImpl::SearchSuggestEnabled() const {
   return browser_state_->GetPrefs()->GetBoolean(prefs::kSearchSuggestEnabled);
 }
 
-bool AutocompleteProviderClientImpl::IsTabUploadToGoogleActive() const {
-  return syncer::GetUploadToGoogleState(
-             IOSChromeProfileSyncServiceFactory::GetForBrowserState(
-                 browser_state_),
-             syncer::ModelType::PROXY_TABS) == syncer::UploadState::ACTIVE;
+bool AutocompleteProviderClientImpl::IsPersonalizedUrlDataCollectionActive()
+    const {
+  return url_consent_helper_->IsEnabled();
 }
 
 bool AutocompleteProviderClientImpl::IsAuthenticated() const {

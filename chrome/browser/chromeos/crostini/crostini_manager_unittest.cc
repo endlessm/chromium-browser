@@ -9,6 +9,7 @@
 #include "base/test/scoped_task_environment.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/fake_cicerone_client.h"
 #include "chromeos/dbus/fake_concierge_client.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -36,6 +37,14 @@ class CrostiniManagerTest : public testing::Test {
   void DestroyDiskImageClientErrorCallback(base::OnceClosure closure,
                                            ConciergeClientResult result) {
     EXPECT_FALSE(fake_concierge_client_->destroy_disk_image_called());
+    EXPECT_EQ(result, ConciergeClientResult::CLIENT_ERROR);
+    std::move(closure).Run();
+  }
+
+  void ListVmDisksClientErrorCallback(base::OnceClosure closure,
+                                      ConciergeClientResult result,
+                                      int64_t total_size) {
+    EXPECT_FALSE(fake_concierge_client_->list_vm_disks_called());
     EXPECT_EQ(result, ConciergeClientResult::CLIENT_ERROR);
     std::move(closure).Run();
   }
@@ -74,6 +83,13 @@ class CrostiniManagerTest : public testing::Test {
     std::move(closure).Run();
   }
 
+  void ListVmDisksSuccessCallback(base::OnceClosure closure,
+                                  ConciergeClientResult result,
+                                  int64_t total_size) {
+    EXPECT_TRUE(fake_concierge_client_->list_vm_disks_called());
+    std::move(closure).Run();
+  }
+
   void StartTerminaVmSuccessCallback(base::OnceClosure closure,
                                      ConciergeClientResult result) {
     EXPECT_TRUE(fake_concierge_client_->start_termina_vm_called());
@@ -92,12 +108,25 @@ class CrostiniManagerTest : public testing::Test {
     std::move(closure).Run();
   }
 
+  void InstallLinuxPackageCallback(base::OnceClosure closure,
+                                   ConciergeClientResult expected_result,
+                                   const std::string& expected_failure_reason,
+                                   ConciergeClientResult result,
+                                   const std::string& failure_reason) {
+    EXPECT_EQ(expected_result, result);
+    EXPECT_EQ(expected_failure_reason, failure_reason);
+    std::move(closure).Run();
+  }
+
   CrostiniManagerTest()
-      : fake_concierge_client_(new chromeos::FakeConciergeClient()),
+      : fake_cicerone_client_(new chromeos::FakeCiceroneClient()),
+        fake_concierge_client_(new chromeos::FakeConciergeClient()),
         scoped_task_environment_(
             base::test::ScopedTaskEnvironment::MainThreadType::UI),
         test_browser_thread_bundle_(
             content::TestBrowserThreadBundle::REAL_IO_THREAD) {
+    chromeos::DBusThreadManager::GetSetterForTesting()->SetCiceroneClient(
+        base::WrapUnique(fake_cicerone_client_));
     chromeos::DBusThreadManager::GetSetterForTesting()->SetConciergeClient(
         base::WrapUnique(fake_concierge_client_));
     chromeos::DBusThreadManager::Initialize();
@@ -119,7 +148,10 @@ class CrostiniManagerTest : public testing::Test {
   base::RunLoop* run_loop() { return run_loop_.get(); }
   Profile* profile() { return profile_.get(); }
 
+  // Owned by chromeos::DBusThreadManager
+  chromeos::FakeCiceroneClient* fake_cicerone_client_;
   chromeos::FakeConciergeClient* fake_concierge_client_;
+
   std::unique_ptr<base::RunLoop>
       run_loop_;  // run_loop_ must be created on the UI thread.
   std::unique_ptr<TestingProfile> profile_;
@@ -134,7 +166,7 @@ TEST_F(CrostiniManagerTest, CreateDiskImageNameError) {
   const base::FilePath& disk_path = base::FilePath("");
 
   CrostiniManager::GetInstance()->CreateDiskImage(
-      "i_dont_know_what_cryptohome_id_is", disk_path,
+      "a_cryptohome_id", disk_path,
       vm_tools::concierge::STORAGE_CRYPTOHOME_ROOT,
       base::BindOnce(&CrostiniManagerTest::CreateDiskImageClientErrorCallback,
                      base::Unretained(this), run_loop()->QuitClosure()));
@@ -155,7 +187,7 @@ TEST_F(CrostiniManagerTest, CreateDiskImageStorageLocationError) {
   const base::FilePath& disk_path = base::FilePath(kVmName);
 
   CrostiniManager::GetInstance()->CreateDiskImage(
-      "i_dont_know_what_cryptohome_id_is", disk_path,
+      "a_cryptohome_id", disk_path,
       vm_tools::concierge::StorageLocation_INT_MIN_SENTINEL_DO_NOT_USE_,
       base::BindOnce(&CrostiniManagerTest::CreateDiskImageClientErrorCallback,
                      base::Unretained(this), run_loop()->QuitClosure()));
@@ -166,7 +198,7 @@ TEST_F(CrostiniManagerTest, CreateDiskImageSuccess) {
   const base::FilePath& disk_path = base::FilePath(kVmName);
 
   CrostiniManager::GetInstance()->CreateDiskImage(
-      "i_dont_know_what_cryptohome_id_is", disk_path,
+      "a_cryptohome_id", disk_path,
       vm_tools::concierge::STORAGE_CRYPTOHOME_DOWNLOADS,
       base::BindOnce(&CrostiniManagerTest::CreateDiskImageSuccessCallback,
                      base::Unretained(this), run_loop()->QuitClosure()));
@@ -177,7 +209,7 @@ TEST_F(CrostiniManagerTest, DestroyDiskImageNameError) {
   const base::FilePath& disk_path = base::FilePath("");
 
   CrostiniManager::GetInstance()->DestroyDiskImage(
-      "i_dont_know_what_cryptohome_id_is", disk_path,
+      "a_cryptohome_id", disk_path,
       vm_tools::concierge::STORAGE_CRYPTOHOME_ROOT,
       base::BindOnce(&CrostiniManagerTest::DestroyDiskImageClientErrorCallback,
                      base::Unretained(this), run_loop()->QuitClosure()));
@@ -198,7 +230,7 @@ TEST_F(CrostiniManagerTest, DestroyDiskImageStorageLocationError) {
   const base::FilePath& disk_path = base::FilePath(kVmName);
 
   CrostiniManager::GetInstance()->DestroyDiskImage(
-      "i_dont_know_what_cryptohome_id_is", disk_path,
+      "a_cryptohome_id", disk_path,
       vm_tools::concierge::StorageLocation_INT_MIN_SENTINEL_DO_NOT_USE_,
       base::BindOnce(&CrostiniManagerTest::DestroyDiskImageClientErrorCallback,
                      base::Unretained(this), run_loop()->QuitClosure()));
@@ -209,9 +241,24 @@ TEST_F(CrostiniManagerTest, DestroyDiskImageSuccess) {
   const base::FilePath& disk_path = base::FilePath(kVmName);
 
   CrostiniManager::GetInstance()->DestroyDiskImage(
-      "i_dont_know_what_cryptohome_id_is", disk_path,
+      "a_cryptohome_id", disk_path,
       vm_tools::concierge::STORAGE_CRYPTOHOME_DOWNLOADS,
       base::BindOnce(&CrostiniManagerTest::DestroyDiskImageSuccessCallback,
+                     base::Unretained(this), run_loop()->QuitClosure()));
+  run_loop()->Run();
+}
+
+TEST_F(CrostiniManagerTest, ListVmDisksCryptohomeError) {
+  CrostiniManager::GetInstance()->ListVmDisks(
+      "", base::BindOnce(&CrostiniManagerTest::ListVmDisksClientErrorCallback,
+                         base::Unretained(this), run_loop()->QuitClosure()));
+  run_loop()->Run();
+}
+
+TEST_F(CrostiniManagerTest, ListVmDisksSuccess) {
+  CrostiniManager::GetInstance()->ListVmDisks(
+      "a_cryptohome_id",
+      base::BindOnce(&CrostiniManagerTest::ListVmDisksSuccessCallback,
                      base::Unretained(this), run_loop()->QuitClosure()));
   run_loop()->Run();
 }
@@ -305,7 +352,16 @@ TEST_F(CrostiniManagerTest, StartContainerContainerCryptohomeIdError) {
 }
 
 TEST_F(CrostiniManagerTest, StartContainerSignalNotConnectedError) {
-  fake_concierge_client_->set_container_started_signal_connected(false);
+  fake_cicerone_client_->set_container_started_signal_connected(false);
+  CrostiniManager::GetInstance()->StartContainer(
+      kVmName, kContainerName, kContainerUserName, kCryptohomeId,
+      base::BindOnce(&CrostiniManagerTest::StartContainerClientErrorCallback,
+                     base::Unretained(this), run_loop()->QuitClosure()));
+  run_loop()->Run();
+}
+
+TEST_F(CrostiniManagerTest, ShutdownContainerSignalNotConnectedError) {
+  fake_cicerone_client_->set_container_shutdown_signal_connected(false);
   CrostiniManager::GetInstance()->StartContainer(
       kVmName, kContainerName, kContainerUserName, kCryptohomeId,
       base::BindOnce(&CrostiniManagerTest::StartContainerClientErrorCallback,
@@ -318,6 +374,45 @@ TEST_F(CrostiniManagerTest, StartContainerSuccess) {
       kVmName, kContainerName, kContainerUserName, kCryptohomeId,
       base::BindOnce(&CrostiniManagerTest::StartContainerSuccessCallback,
                      base::Unretained(this), run_loop()->QuitClosure()));
+  run_loop()->Run();
+}
+
+TEST_F(CrostiniManagerTest, InstallLinuxPackageSignalNotConnectedError) {
+  fake_cicerone_client_->set_install_linux_package_progress_signal_connected(
+      false);
+  CrostiniManager::GetInstance()->InstallLinuxPackage(
+      profile(), kVmName, kContainerName, "/tmp/package.deb",
+      base::BindOnce(&CrostiniManagerTest::InstallLinuxPackageCallback,
+                     base::Unretained(this), run_loop()->QuitClosure(),
+                     ConciergeClientResult::INSTALL_LINUX_PACKAGE_FAILED,
+                     std::string()));
+  run_loop()->Run();
+}
+
+TEST_F(CrostiniManagerTest, InstallLinuxPackageSignalSuccess) {
+  vm_tools::cicerone::InstallLinuxPackageResponse response;
+  response.set_status(vm_tools::cicerone::InstallLinuxPackageResponse::STARTED);
+  fake_cicerone_client_->set_install_linux_package_response(response);
+  CrostiniManager::GetInstance()->InstallLinuxPackage(
+      profile(), kVmName, kContainerName, "/tmp/package.deb",
+      base::BindOnce(&CrostiniManagerTest::InstallLinuxPackageCallback,
+                     base::Unretained(this), run_loop()->QuitClosure(),
+                     ConciergeClientResult::SUCCESS, std::string()));
+  run_loop()->Run();
+}
+
+TEST_F(CrostiniManagerTest, InstallLinuxPackageSignalFailure) {
+  vm_tools::cicerone::InstallLinuxPackageResponse response;
+  std::string failure_reason = "Unit tests can't install Linux packages!";
+  response.set_status(vm_tools::cicerone::InstallLinuxPackageResponse::FAILED);
+  response.set_failure_reason(failure_reason);
+  fake_cicerone_client_->set_install_linux_package_response(response);
+  CrostiniManager::GetInstance()->InstallLinuxPackage(
+      profile(), kVmName, kContainerName, "/tmp/package.deb",
+      base::BindOnce(&CrostiniManagerTest::InstallLinuxPackageCallback,
+                     base::Unretained(this), run_loop()->QuitClosure(),
+                     ConciergeClientResult::INSTALL_LINUX_PACKAGE_FAILED,
+                     failure_reason));
   run_loop()->Run();
 }
 

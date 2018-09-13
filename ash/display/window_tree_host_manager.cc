@@ -27,9 +27,11 @@
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/unified/unified_system_tray.h"
 #include "ash/wm/window_util.h"
+#include "ash/ws/window_service_owner.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "services/ui/ws2/window_service.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/client/screen_position_client.h"
@@ -101,7 +103,7 @@ aura::Window* GetWindow(AshWindowTreeHost* ash_host) {
 
 bool ShouldUpdateMirrorWindowController() {
   return aura::Env::GetInstance()->mode() == aura::Env::Mode::LOCAL ||
-         !base::FeatureList::IsEnabled(::features::kMash);
+         !base::FeatureList::IsEnabled(::features::kMashDeprecated);
 }
 
 }  // namespace
@@ -267,6 +269,11 @@ void WindowTreeHostManager::RemoveObserver(Observer* observer) {
 int64_t WindowTreeHostManager::GetPrimaryDisplayId() {
   CHECK_NE(display::kInvalidDisplayId, primary_display_id);
   return primary_display_id;
+}
+
+// static
+bool WindowTreeHostManager::HasValidPrimaryDisplayId() {
+  return primary_display_id != display::kInvalidDisplayId;
 }
 
 aura::Window* WindowTreeHostManager::GetPrimaryRootWindow() {
@@ -663,6 +670,15 @@ void WindowTreeHostManager::OnDisplayRemoved(const display::Display& display) {
 void WindowTreeHostManager::OnDisplayMetricsChanged(
     const display::Display& display,
     uint32_t metrics) {
+  // Shell creates |window_service_owner_| from Shell::Init(), but this
+  // function may be called before |window_service_owner_| is created. It's safe
+  // to ignore the call in this case as no clients have connected yet.
+  ui::ws2::WindowService* window_service =
+      Shell::Get()->window_service_owner()
+          ? Shell::Get()->window_service_owner()->window_service()
+          : nullptr;
+  if (window_service)
+    window_service->OnDisplayMetricsChanged(display, metrics);
   if (!(metrics & (DISPLAY_METRIC_BOUNDS | DISPLAY_METRIC_ROTATION |
                    DISPLAY_METRIC_DEVICE_SCALE_FACTOR)))
     return;

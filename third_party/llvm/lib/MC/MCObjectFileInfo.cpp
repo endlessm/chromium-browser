@@ -267,6 +267,9 @@ void MCObjectFileInfo::initMachOMCObjectFileInfo(const Triple &T) {
   DwarfRangesSection =
       Ctx->getMachOSection("__DWARF", "__debug_ranges", MachO::S_ATTR_DEBUG,
                            SectionKind::getMetadata(), "debug_range");
+  DwarfRnglistsSection =
+      Ctx->getMachOSection("__DWARF", "__debug_rnglists", MachO::S_ATTR_DEBUG,
+                           SectionKind::getMetadata(), "debug_range");
   DwarfMacinfoSection =
       Ctx->getMachOSection("__DWARF", "__debug_macinfo", MachO::S_ATTR_DEBUG,
                            SectionKind::getMetadata(), "debug_macinfo");
@@ -529,8 +532,7 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(const Triple &T, bool Large) {
   // MIPS .debug_* sections should have SHT_MIPS_DWARF section type
   // to distinguish among sections contain DWARF and ECOFF debug formats.
   // Sections with ECOFF debug format are obsoleted and marked by SHT_PROGBITS.
-  if (T.getArch() == Triple::mips || T.getArch() == Triple::mipsel ||
-      T.getArch() == Triple::mips64 || T.getArch() == Triple::mips64el)
+  if (T.isMIPS())
     DebugSecType = ELF::SHT_MIPS_DWARF;
 
   // Debug Info Sections.
@@ -579,6 +581,7 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(const Triple &T, bool Large) {
   DwarfStrOffSection =
       Ctx->getELFSection(".debug_str_offsets", DebugSecType, 0);
   DwarfAddrSection = Ctx->getELFSection(".debug_addr", DebugSecType, 0);
+  DwarfRnglistsSection = Ctx->getELFSection(".debug_rnglists", DebugSecType, 0);
 
   // Fission Sections
   DwarfInfoDWOSection =
@@ -596,6 +599,8 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(const Triple &T, bool Large) {
       Ctx->getELFSection(".debug_loc.dwo", DebugSecType, 0);
   DwarfStrOffDWOSection =
       Ctx->getELFSection(".debug_str_offsets.dwo", DebugSecType, 0);
+  DwarfRnglistsDWOSection =
+      Ctx->getELFSection(".debug_rnglists.dwo", DebugSecType, 0);
 
   // DWP Sections
   DwarfCUIndexSection =
@@ -947,4 +952,25 @@ void MCObjectFileInfo::InitMCObjectFileInfo(const Triple &TheTriple, bool PIC,
 MCSection *MCObjectFileInfo::getDwarfTypesSection(uint64_t Hash) const {
   return Ctx->getELFSection(".debug_types", ELF::SHT_PROGBITS, ELF::SHF_GROUP,
                             0, utostr(Hash));
+}
+
+MCSection *
+MCObjectFileInfo::getStackSizesSection(const MCSection &TextSec) const {
+  if (Env != IsELF)
+    return StackSizesSection;
+
+  const MCSectionELF &ElfSec = static_cast<const MCSectionELF &>(TextSec);
+  unsigned Flags = ELF::SHF_LINK_ORDER;
+  StringRef GroupName;
+  if (const MCSymbol *Group = ElfSec.getGroup()) {
+    GroupName = Group->getName();
+    Flags |= ELF::SHF_GROUP;
+  }
+
+  const MCSymbol *Link = TextSec.getBeginSymbol();
+  auto It = StackSizesUniquing.insert({Link, StackSizesUniquing.size()});
+  unsigned UniqueID = It.first->second;
+
+  return Ctx->getELFSection(".stack_sizes", ELF::SHT_PROGBITS, Flags, 0,
+                            GroupName, UniqueID, cast<MCSymbolELF>(Link));
 }

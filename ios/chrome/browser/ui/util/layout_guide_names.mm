@@ -8,13 +8,15 @@
 #error "This file requires ARC support."
 #endif
 
-GuideName* const kSecondaryToolbar = @"kSecondaryToolbar";
-GuideName* const kSecondaryToolbarNoFullscreen =
-    @"kSecondaryToolbarNoFullscreen";
+GuideName* const kContentAreaGuide = @"ContentAreaGuide";
+GuideName* const kSecondaryToolbarGuide = @"kSecondaryToolbarGuide";
+GuideName* const kSecondaryToolbarNoFullscreenGuide =
+    @"kSecondaryToolbarNoFullscreenGuide";
 GuideName* const kOmniboxGuide = @"kOmniboxGuide";
 GuideName* const kBackButtonGuide = @"kBackButtonGuide";
 GuideName* const kForwardButtonGuide = @"kForwardButtonGuide";
 GuideName* const kSearchButtonGuide = @"kSearchButtonGuide";
 GuideName* const kTabSwitcherGuide = @"kTabSwitcherGuide";
+GuideName* const kTabStripTabSwitcherGuide = @"kTabStripTabSwitcherGuide";
 GuideName* const kToolsMenuGuide = @"kToolsMenuGuide";
 GuideName* const kVoiceSearchButtonGuide = @"kVoiceSearchButtonGuide";

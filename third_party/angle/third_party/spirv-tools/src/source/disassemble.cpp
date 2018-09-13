@@ -25,6 +25,7 @@
 #include "assembly_grammar.h"
 #include "binary.h"
 #include "diagnostic.h"
+#include "disassemble.h"
 #include "ext_inst.h"
 #include "name_mapper.h"
 #include "opcode.h"
@@ -41,8 +42,8 @@ namespace {
 // representation.
 class Disassembler {
  public:
-  Disassembler(const libspirv::AssemblyGrammar& grammar, uint32_t options,
-               libspirv::NameMapper name_mapper)
+  Disassembler(const spvtools::AssemblyGrammar& grammar, uint32_t options,
+               spvtools::NameMapper name_mapper)
       : grammar_(grammar),
         print_(spvIsInBitfield(SPV_BINARY_TO_TEXT_OPTION_PRINT, options)),
         color_(spvIsInBitfield(SPV_BINARY_TO_TEXT_OPTION_COLOR, options)),
@@ -74,7 +75,7 @@ class Disassembler {
  private:
   enum { kStandardIndent = 15 };
 
-  using out_stream = libspirv::out_stream;
+  using out_stream = spvtools::out_stream;
 
   // Emits an operand for the given instruction, where the instruction
   // is at offset words from the start of the binary.
@@ -86,30 +87,30 @@ class Disassembler {
 
   // Resets the output color, if color is turned on.
   void ResetColor() {
-    if (color_) out_.get() << libspirv::clr::reset{print_};
+    if (color_) out_.get() << spvtools::clr::reset{print_};
   }
   // Sets the output to grey, if color is turned on.
   void SetGrey() {
-    if (color_) out_.get() << libspirv::clr::grey{print_};
+    if (color_) out_.get() << spvtools::clr::grey{print_};
   }
   // Sets the output to blue, if color is turned on.
   void SetBlue() {
-    if (color_) out_.get() << libspirv::clr::blue{print_};
+    if (color_) out_.get() << spvtools::clr::blue{print_};
   }
   // Sets the output to yellow, if color is turned on.
   void SetYellow() {
-    if (color_) out_.get() << libspirv::clr::yellow{print_};
+    if (color_) out_.get() << spvtools::clr::yellow{print_};
   }
   // Sets the output to red, if color is turned on.
   void SetRed() {
-    if (color_) out_.get() << libspirv::clr::red{print_};
+    if (color_) out_.get() << spvtools::clr::red{print_};
   }
   // Sets the output to green, if color is turned on.
   void SetGreen() {
-    if (color_) out_.get() << libspirv::clr::green{print_};
+    if (color_) out_.get() << spvtools::clr::green{print_};
   }
 
-  const libspirv::AssemblyGrammar& grammar_;
+  const spvtools::AssemblyGrammar& grammar_;
   const bool print_;  // Should we also print to the standard output stream?
   const bool color_;  // Should we print in colour?
   const int indent_;  // How much to indent. 0 means don't indent
@@ -120,7 +121,7 @@ class Disassembler {
   const bool header_;     // Should we output header as the leading comment?
   const bool show_byte_offset_;  // Should we print byte offset, in hex?
   size_t byte_offset_;           // The number of bytes processed so far.
-  libspirv::NameMapper name_mapper_;
+  spvtools::NameMapper name_mapper_;
 };
 
 spv_result_t Disassembler::HandleHeader(spv_endianness_t endian,
@@ -229,7 +230,7 @@ void Disassembler::EmitOperand(const spv_parsed_instruction_t& inst,
     case SPV_OPERAND_TYPE_LITERAL_INTEGER:
     case SPV_OPERAND_TYPE_TYPED_LITERAL_NUMBER: {
       SetRed();
-      libspirv::EmitNumericLiteral(&stream_, inst, operand);
+      spvtools::EmitNumericLiteral(&stream_, inst, operand);
       ResetColor();
     } break;
     case SPV_OPERAND_TYPE_LITERAL_STRING: {
@@ -265,7 +266,11 @@ void Disassembler::EmitOperand(const spv_parsed_instruction_t& inst,
     case SPV_OPERAND_TYPE_BUILT_IN:
     case SPV_OPERAND_TYPE_GROUP_OPERATION:
     case SPV_OPERAND_TYPE_KERNEL_ENQ_FLAGS:
-    case SPV_OPERAND_TYPE_KERNEL_PROFILING_INFO: {
+    case SPV_OPERAND_TYPE_KERNEL_PROFILING_INFO:
+    case SPV_OPERAND_TYPE_DEBUG_BASE_TYPE_ATTRIBUTE_ENCODING:
+    case SPV_OPERAND_TYPE_DEBUG_COMPOSITE_TYPE:
+    case SPV_OPERAND_TYPE_DEBUG_TYPE_QUALIFIER:
+    case SPV_OPERAND_TYPE_DEBUG_OPERATION: {
       spv_operand_desc entry;
       if (grammar_.lookupOperand(operand.type, word, &entry))
         assert(false && "should have caught this earlier");
@@ -277,6 +282,7 @@ void Disassembler::EmitOperand(const spv_parsed_instruction_t& inst,
     case SPV_OPERAND_TYPE_IMAGE:
     case SPV_OPERAND_TYPE_MEMORY_ACCESS:
     case SPV_OPERAND_TYPE_SELECTION_CONTROL:
+    case SPV_OPERAND_TYPE_DEBUG_INFO_FLAGS:
       EmitMaskOperand(operand.type, word);
       break;
     default:
@@ -347,7 +353,53 @@ spv_result_t DisassembleInstruction(
   return disassembler->HandleInstruction(*parsed_instruction);
 }
 
-}  // anonymous namespace
+// Simple wrapper class to provide extra data necessary for targeted
+// instruction disassembly.
+class WrappedDisassembler {
+ public:
+  WrappedDisassembler(Disassembler* dis, const uint32_t* binary, size_t wc)
+      : disassembler_(dis), inst_binary_(binary), word_count_(wc) {}
+
+  Disassembler* disassembler() { return disassembler_; }
+  const uint32_t* inst_binary() const { return inst_binary_; }
+  size_t word_count() const { return word_count_; }
+
+ private:
+  Disassembler* disassembler_;
+  const uint32_t* inst_binary_;
+  const size_t word_count_;
+};
+
+spv_result_t DisassembleTargetHeader(void* user_data, spv_endianness_t endian,
+                                     uint32_t /* magic */, uint32_t version,
+                                     uint32_t generator, uint32_t id_bound,
+                                     uint32_t schema) {
+  assert(user_data);
+  auto wrapped = static_cast<WrappedDisassembler*>(user_data);
+  return wrapped->disassembler()->HandleHeader(endian, version, generator,
+                                               id_bound, schema);
+}
+
+spv_result_t DisassembleTargetInstruction(
+    void* user_data, const spv_parsed_instruction_t* parsed_instruction) {
+  assert(user_data);
+  auto wrapped = static_cast<WrappedDisassembler*>(user_data);
+  // Check if this is the instruction we want to disassemble.
+  if (wrapped->word_count() == parsed_instruction->num_words &&
+      std::equal(wrapped->inst_binary(),
+                 wrapped->inst_binary() + wrapped->word_count(),
+                 parsed_instruction->words)) {
+    // Found the target instruction. Disassemble it and signal that we should
+    // stop searching so we don't output the same instruction again.
+    if (auto error =
+            wrapped->disassembler()->HandleInstruction(*parsed_instruction))
+      return error;
+    return SPV_REQUESTED_TERMINATION;
+  }
+  return SPV_SUCCESS;
+}
+
+}  // namespace
 
 spv_result_t spvBinaryToText(const spv_const_context context,
                              const uint32_t* code, const size_t wordCount,
@@ -356,18 +408,18 @@ spv_result_t spvBinaryToText(const spv_const_context context,
   spv_context_t hijack_context = *context;
   if (pDiagnostic) {
     *pDiagnostic = nullptr;
-    libspirv::UseDiagnosticAsMessageConsumer(&hijack_context, pDiagnostic);
+    spvtools::UseDiagnosticAsMessageConsumer(&hijack_context, pDiagnostic);
   }
 
-  const libspirv::AssemblyGrammar grammar(&hijack_context);
+  const spvtools::AssemblyGrammar grammar(&hijack_context);
   if (!grammar.isValid()) return SPV_ERROR_INVALID_TABLE;
 
   // Generate friendly names for Ids if requested.
-  std::unique_ptr<libspirv::FriendlyNameMapper> friendly_mapper;
-  libspirv::NameMapper name_mapper = libspirv::GetTrivialNameMapper();
+  std::unique_ptr<spvtools::FriendlyNameMapper> friendly_mapper;
+  spvtools::NameMapper name_mapper = spvtools::GetTrivialNameMapper();
   if (options & SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES) {
     friendly_mapper.reset(
-        new libspirv::FriendlyNameMapper(&hijack_context, code, wordCount));
+        new spvtools::FriendlyNameMapper(&hijack_context, code, wordCount));
     name_mapper = friendly_mapper->GetNameMapper();
   }
 
@@ -380,4 +432,45 @@ spv_result_t spvBinaryToText(const spv_const_context context,
   }
 
   return disassembler.SaveTextResult(pText);
+}
+
+std::string spvtools::spvInstructionBinaryToText(const spv_target_env env,
+                                                 const uint32_t* instCode,
+                                                 const size_t instWordCount,
+                                                 const uint32_t* code,
+                                                 const size_t wordCount,
+                                                 const uint32_t options) {
+  spv_context context = spvContextCreate(env);
+  const spvtools::AssemblyGrammar grammar(context);
+  if (!grammar.isValid()) {
+    spvContextDestroy(context);
+    return "";
+  }
+
+  // Generate friendly names for Ids if requested.
+  std::unique_ptr<spvtools::FriendlyNameMapper> friendly_mapper;
+  spvtools::NameMapper name_mapper = spvtools::GetTrivialNameMapper();
+  if (options & SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES) {
+    friendly_mapper.reset(
+        new spvtools::FriendlyNameMapper(context, code, wordCount));
+    name_mapper = friendly_mapper->GetNameMapper();
+  }
+
+  // Now disassemble!
+  Disassembler disassembler(grammar, options, name_mapper);
+  WrappedDisassembler wrapped(&disassembler, instCode, instWordCount);
+  spvBinaryParse(context, &wrapped, code, wordCount, DisassembleTargetHeader,
+                 DisassembleTargetInstruction, nullptr);
+
+  spv_text text = nullptr;
+  std::string output;
+  if (disassembler.SaveTextResult(&text) == SPV_SUCCESS) {
+    output.assign(text->str, text->str + text->length);
+    // Drop trailing newline characters.
+    while (!output.empty() && output.back() == '\n') output.pop_back();
+  }
+  spvTextDestroy(text);
+  spvContextDestroy(context);
+
+  return output;
 }

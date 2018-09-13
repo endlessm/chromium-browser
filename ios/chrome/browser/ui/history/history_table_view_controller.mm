@@ -12,6 +12,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/url_formatter.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
 #include "ios/chrome/browser/sync/sync_setup_service.h"
 #include "ios/chrome/browser/sync/sync_setup_service_factory.h"
@@ -20,15 +21,21 @@
 #import "ios/chrome/browser/ui/history/history_entries_status_item_delegate.h"
 #include "ios/chrome/browser/ui/history/history_entry_inserter.h"
 #import "ios/chrome/browser/ui/history/history_entry_item.h"
+#import "ios/chrome/browser/ui/history/history_entry_item_delegate.h"
+#import "ios/chrome/browser/ui/history/history_image_data_source.h"
 #include "ios/chrome/browser/ui/history/history_local_commands.h"
 #import "ios/chrome/browser/ui/history/history_ui_constants.h"
 #include "ios/chrome/browser/ui/history/history_util.h"
+#import "ios/chrome/browser/ui/history/public/history_presentation_delegate.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_text_link_item.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
 #import "ios/chrome/browser/ui/table_view/table_view_navigation_controller_constants.h"
 #import "ios/chrome/browser/ui/url_loader.h"
 #import "ios/chrome/browser/ui/util/pasteboard_util.h"
 #import "ios/chrome/browser/ui/util/top_view_controller.h"
+#import "ios/chrome/common/favicon/favicon_view.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/navigation_manager.h"
 #import "ios/web/public/referrer.h"
@@ -46,16 +53,23 @@ namespace {
 typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeHistoryEntry = kItemTypeEnumZero,
   ItemTypeEntriesStatus,
+  ItemTypeEntriesStatusWithLink,
   ItemTypeActivityIndicator,
 };
 // Section identifier for the header (sync information) section.
 const NSInteger kEntriesStatusSectionIdentifier = kSectionIdentifierEnumZero;
 // Maximum number of entries to retrieve in a single query to history service.
 const int kMaxFetchCount = 100;
-}
+// Separation space between sections.
+const CGFloat kSeparationSpaceBetweenSections = 9;
+// The Alpha value used by the SearchBar when disabled.
+const CGFloat kAlphaForDisabledSearchBar = 0.5;
+}  // namespace
 
 @interface HistoryTableViewController ()<HistoryEntriesStatusItemDelegate,
                                          HistoryEntryInserterDelegate,
+                                         HistoryEntryItemDelegate,
+                                         TableViewTextLinkCellDelegate,
                                          UISearchResultsUpdating,
                                          UISearchBarDelegate> {
   // Closure to request next page of history.
@@ -68,6 +82,8 @@ const int kMaxFetchCount = 100;
 @property(nonatomic, strong) ContextMenuCoordinator* contextMenuCoordinator;
 // The current query for visible history entries.
 @property(nonatomic, copy) NSString* currentQuery;
+// The current status message for the tableView, it might be nil.
+@property(nonatomic, copy) NSString* currentStatusMessage;
 // YES if there are no results to show.
 @property(nonatomic, assign) BOOL empty;
 // YES if the history panel should show a notice about additional forms of
@@ -76,6 +92,12 @@ const int kMaxFetchCount = 100;
     BOOL shouldShowNoticeAboutOtherFormsOfBrowsingHistory;
 // YES if there is an outstanding history query.
 @property(nonatomic, assign, getter=isLoading) BOOL loading;
+// YES if there is a search happening.
+@property(nonatomic, assign) BOOL searchInProgress;
+// NSMutableArray that holds all indexPaths for entries that will be filtered
+// out by the search controller.
+@property(nonatomic, strong)
+    NSMutableArray<NSIndexPath*>* filteredOutEntriesIndexPaths;
 // YES if there are no more history entries to load.
 @property(nonatomic, assign, getter=hasFinishedLoading) BOOL finishedLoading;
 // YES if the table should be filtered by the next received query result.
@@ -95,19 +117,24 @@ const int kMaxFetchCount = 100;
 @synthesize clearBrowsingDataButton = _clearBrowsingDataButton;
 @synthesize contextMenuCoordinator = _contextMenuCoordinator;
 @synthesize currentQuery = _currentQuery;
+@synthesize currentStatusMessage = _currentStatusMessage;
 @synthesize deleteButton = _deleteButton;
 @synthesize editButton = _editButton;
 @synthesize empty = _empty;
 @synthesize entryInserter = _entryInserter;
+@synthesize filteredOutEntriesIndexPaths = _filteredOutEntriesIndexPaths;
 @synthesize filterQueryResult = _filterQueryResult;
 @synthesize finishedLoading = _finishedLoading;
 @synthesize historyService = _historyService;
+@synthesize imageDataSource = _imageDataSource;
 @synthesize loader = _loader;
 @synthesize loading = _loading;
 @synthesize localDispatcher = _localDispatcher;
 @synthesize searchController = _searchController;
+@synthesize searchInProgress = _searchInProgress;
 @synthesize shouldShowNoticeAboutOtherFormsOfBrowsingHistory =
     _shouldShowNoticeAboutOtherFormsOfBrowsingHistory;
+@synthesize presentationDelegate = _presentationDelegate;
 
 #pragma mark - ViewController Lifecycle.
 
@@ -129,6 +156,9 @@ const int kMaxFetchCount = 100;
   self.tableView.allowsMultipleSelectionDuringEditing = YES;
   self.clearsSelectionOnViewWillAppear = NO;
   self.tableView.allowsMultipleSelection = YES;
+  // Add a tableFooterView in order to disable separators at the bottom of the
+  // tableView.
+  self.tableView.tableFooterView = [[UIView alloc] init];
 
   // ContextMenu gesture recognizer.
   UILongPressGestureRecognizer* longPressRecognizer = [
@@ -136,11 +166,6 @@ const int kMaxFetchCount = 100;
       initWithTarget:self
               action:@selector(displayContextMenuInvokedByGestureRecognizer:)];
   [self.tableView addGestureRecognizer:longPressRecognizer];
-
-  // If the NavigationBar is not translucent, set
-  // |self.extendedLayoutIncludesOpaqueBars| to YES in order to avoid a top
-  // margin inset on the |_tableViewController| subview.
-  self.extendedLayoutIncludesOpaqueBars = YES;
 
   // NavigationController configuration.
   self.title = l10n_util::GetNSString(IDS_HISTORY_TITLE);
@@ -163,9 +188,9 @@ const int kMaxFetchCount = 100;
   self.searchController.dimsBackgroundDuringPresentation = NO;
   self.searchController.searchBar.delegate = self;
   self.searchController.searchResultsUpdater = self;
-  self.searchController.searchBar.backgroundColor = [UIColor whiteColor];
+  self.searchController.searchBar.backgroundColor = [UIColor clearColor];
   self.searchController.searchBar.accessibilityIdentifier =
-      l10n_util::GetNSStringWithFixup(IDS_IOS_ICON_SEARCH);
+      kHistorySearchControllerSearchBarIdentifier;
   // UIKit needs to know which controller will be presenting the
   // searchController. If we don't add this trying to dismiss while
   // SearchController is active will fail.
@@ -185,18 +210,10 @@ const int kMaxFetchCount = 100;
 
 - (void)loadModel {
   [super loadModel];
-  // Add initial info section as header.
+  // Add Status section, this section will always exist during the lifetime of
+  // HistoryTableVC. Its content will be driven by |updateEntriesStatusMessage|.
   [self.tableViewModel
       addSectionWithIdentifier:kEntriesStatusSectionIdentifier];
-  // TODO(crbug.com/833623): Temporary loading indicator, will update once we
-  // decide on a standard.
-  TableViewTextItem* entriesStatusItem =
-      [[TableViewTextItem alloc] initWithType:ItemTypeEntriesStatus];
-  entriesStatusItem.text = @"Loading";
-  entriesStatusItem.textColor = TextItemColorBlack;
-  [self.tableViewModel addItem:entriesStatusItem
-       toSectionWithIdentifier:kEntriesStatusSectionIdentifier];
-
   _entryInserter =
       [[HistoryEntryInserter alloc] initWithModel:self.tableViewModel];
   _entryInserter.delegate = self;
@@ -229,16 +246,22 @@ const int kMaxFetchCount = 100;
     return;
   }
 
+  // At this point there has been a response, stop the loading indicator.
+  [self stopLoadingIndicatorWithCompletion:nil];
+
   // If there are no results and no URLs have been loaded, report that no
   // history entries were found.
-  if (results.empty() && self.empty) {
-    [self updateEntriesStatusMessage];
+  if (results.empty() && self.empty && !self.searchInProgress) {
+    [self addEmptyTableViewWithMessage:l10n_util::GetNSString(
+                                           IDS_HISTORY_NO_RESULTS)
+                                 image:[UIImage imageNamed:@"empty_history"]];
     [self updateToolbarButtons];
     return;
   }
 
   self.finishedLoading = queryResultsInfo.reached_beginning;
   self.empty = NO;
+  [self removeEmptyTableView];
 
   // Header section should be updated outside of batch updates, otherwise
   // loading indicator removal will not be observed.
@@ -248,54 +271,54 @@ const int kMaxFetchCount = 100;
   NSString* searchQuery =
       [base::SysUTF16ToNSString(queryResultsInfo.search_text) copy];
 
-  void (^tableUpdates)(void) = ^{
-    // There should always be at least a header section present.
-    DCHECK([[self tableViewModel] numberOfSections]);
-    for (const BrowsingHistoryService::HistoryEntry& entry : results) {
-      HistoryEntryItem* item =
-          [[HistoryEntryItem alloc] initWithType:ItemTypeHistoryEntry];
-      item.text = [history::FormattedTitle(entry.title, entry.url) copy];
-      item.detailText =
-          [base::SysUTF8ToNSString(entry.url.GetOrigin().spec()) copy];
-      item.timeText = [base::SysUTF16ToNSString(
-          base::TimeFormatTimeOfDay(entry.time)) copy];
-      item.URL = entry.url;
-      item.timestamp = entry.time;
-      [resultsItems addObject:item];
-    }
-
-    [self updateToolbarButtons];
-
-    if ((self.searchController.isActive && [searchQuery length] > 0 &&
-         [self.currentQuery isEqualToString:searchQuery]) ||
-        self.filterQueryResult) {
-      // If in search mode, filter out entries that are not part of the
-      // search result.
-      [self filterForHistoryEntries:resultsItems];
-      NSArray* deletedIndexPaths = self.tableView.indexPathsForSelectedRows;
-      [self deleteItemsFromTableViewModelWithIndex:deletedIndexPaths];
-      self.filterQueryResult = NO;
-    }
-    // Wait to insert until after the deletions are done, this is needed
-    // because performBatchUpdates processes deletion indexes first, and
-    // then inserts.
-    for (HistoryEntryItem* item in resultsItems) {
-      [self.entryInserter insertHistoryEntryItem:item];
-    }
-  };
-
-  // If iOS11+ use performBatchUpdates: instead of beginUpdates/endUpdates.
-  if (@available(iOS 11, *)) {
-    [self.tableView performBatchUpdates:tableUpdates
-                             completion:^(BOOL) {
-                               [self updateTableViewAfterDeletingEntries];
-                             }];
-  } else {
-    [self.tableView beginUpdates];
-    tableUpdates();
-    [self updateTableViewAfterDeletingEntries];
-    [self.tableView endUpdates];
+  // There should always be at least a header section present.
+  DCHECK([[self tableViewModel] numberOfSections]);
+  for (const BrowsingHistoryService::HistoryEntry& entry : results) {
+    HistoryEntryItem* item =
+        [[HistoryEntryItem alloc] initWithType:ItemTypeHistoryEntry
+                         accessibilityDelegate:self];
+    item.text = [history::FormattedTitle(entry.title, entry.url) copy];
+    item.detailText =
+        [base::SysUTF8ToNSString(entry.url.GetOrigin().spec()) copy];
+    item.timeText =
+        [base::SysUTF16ToNSString(base::TimeFormatTimeOfDay(entry.time)) copy];
+    item.URL = entry.url;
+    item.timestamp = entry.time;
+    [resultsItems addObject:item];
   }
+
+  [self updateToolbarButtons];
+
+  if ((self.searchInProgress && [searchQuery length] > 0 &&
+       [self.currentQuery isEqualToString:searchQuery]) ||
+      self.filterQueryResult) {
+    // If in search mode, filter out entries that are not part of the
+    // search result.
+    [self filterForHistoryEntries:resultsItems];
+    [self
+        deleteItemsFromTableViewModelWithIndex:self.filteredOutEntriesIndexPaths
+                      deleteItemsFromTableView:NO];
+    // Clear all objects that were just deleted from the tableViewModel.
+    [self.filteredOutEntriesIndexPaths removeAllObjects];
+    self.filterQueryResult = NO;
+  }
+
+  // Insert result items into the model.
+  for (HistoryEntryItem* item in resultsItems) {
+    [self.entryInserter insertHistoryEntryItem:item];
+  }
+
+  // Save the currently selected rows to preserve its state after the tableView
+  // is reloaded. Since a query with selected rows can only happen when
+  // scrolling down the tableView this should be safe. If this changes in the
+  // future e.g. being able to search while selected rows exist, we should
+  // update this.
+  NSIndexPath* currentSelectedCells = [self.tableView indexPathForSelectedRow];
+  [self.tableView reloadData];
+  [self.tableView selectRowAtIndexPath:currentSelectedCells
+                              animated:NO
+                        scrollPosition:UITableViewScrollPositionNone];
+  [self updateTableViewAfterDeletingEntries];
 }
 
 - (void)showNoticeAboutOtherFormsOfBrowsingHistory:(BOOL)shouldShowNotice {
@@ -326,25 +349,72 @@ const int kMaxFetchCount = 100;
 
 - (void)historyEntryInserter:(HistoryEntryInserter*)inserter
     didInsertItemAtIndexPath:(NSIndexPath*)indexPath {
-  [self.tableView insertRowsAtIndexPaths:@[ indexPath ]
-                        withRowAnimation:UITableViewRowAnimationNone];
+  // NO-OP since [self.tableView reloadData] will be called after the inserter
+  // has completed its updates.
 }
 
 - (void)historyEntryInserter:(HistoryEntryInserter*)inserter
      didInsertSectionAtIndex:(NSInteger)sectionIndex {
-  [self.tableView insertSections:[NSIndexSet indexSetWithIndex:sectionIndex]
-                withRowAnimation:UITableViewRowAnimationNone];
+  // NO-OP since [self.tableView reloadData] will be called after the inserter
+  // has completed its updates.
 }
 
 - (void)historyEntryInserter:(HistoryEntryInserter*)inserter
      didRemoveSectionAtIndex:(NSInteger)sectionIndex {
-  [self.tableView deleteSections:[NSIndexSet indexSetWithIndex:sectionIndex]
-                withRowAnimation:UITableViewRowAnimationNone];
+  // NO-OP since [self.tableView reloadData] will be called after the inserter
+  // has completed its updates.
 }
 
 #pragma mark HistoryEntryItemDelegate
-// TODO(crbug.com/805190): Migrate once we decide how to handle favicons and the
-// a11y callback on HistoryEntryItem.
+
+- (void)historyEntryItemDidRequestOpen:(HistoryEntryItem*)item {
+  [self openURL:item.URL];
+}
+
+- (void)historyEntryItemDidRequestDelete:(HistoryEntryItem*)item {
+  NSInteger sectionIdentifier =
+      [self.entryInserter sectionIdentifierForTimestamp:item.timestamp];
+  if ([self.tableViewModel hasSectionForSectionIdentifier:sectionIdentifier] &&
+      [self.tableViewModel hasItem:item
+           inSectionWithIdentifier:sectionIdentifier]) {
+    NSIndexPath* indexPath = [self.tableViewModel indexPathForItem:item];
+    [self.tableView selectRowAtIndexPath:indexPath
+                                animated:NO
+                          scrollPosition:UITableViewScrollPositionNone];
+    [self deleteSelectedItemsFromHistory];
+  }
+}
+
+- (void)historyEntryItemDidRequestCopy:(HistoryEntryItem*)item {
+  StoreURLInPasteboard(item.URL);
+}
+
+- (void)historyEntryItemDidRequestOpenInNewTab:(HistoryEntryItem*)item {
+  [self openURLInNewTab:item.URL];
+}
+
+- (void)historyEntryItemDidRequestOpenInNewIncognitoTab:
+    (HistoryEntryItem*)item {
+  [self openURLInNewIncognitoTab:item.URL];
+}
+
+- (void)historyEntryItemShouldUpdateView:(HistoryEntryItem*)item {
+  NSInteger sectionIdentifier =
+      [self.entryInserter sectionIdentifierForTimestamp:item.timestamp];
+  // If the item is still in the model, reconfigure it.
+  if ([self.tableViewModel hasSectionForSectionIdentifier:sectionIdentifier] &&
+      [self.tableViewModel hasItem:item
+           inSectionWithIdentifier:sectionIdentifier]) {
+    [self reconfigureCellsForItems:@[ item ]];
+  }
+}
+
+#pragma mark TableViewTextLinkCellDelegate
+
+- (void)tableViewTextLinkCell:(TableViewTextLinkCell*)cell
+            didRequestOpenURL:(const GURL&)URL {
+  [self openURLInNewTab:URL];
+}
 
 #pragma mark UISearchResultsUpdating
 
@@ -357,10 +427,12 @@ const int kMaxFetchCount = 100;
 #pragma mark UISearchBarDelegate
 
 - (void)searchBarTextDidBeginEditing:(UISearchBar*)searchBar {
+  self.searchInProgress = YES;
   [self updateEntriesStatusMessage];
 }
 
 - (void)searchBarTextDidEndEditing:(UISearchBar*)searchBar {
+  self.searchInProgress = NO;
   [self updateEntriesStatusMessage];
 }
 
@@ -396,7 +468,8 @@ const int kMaxFetchCount = 100;
   // If iOS11+ use performBatchUpdates: instead of beginUpdates/endUpdates.
   if (@available(iOS 11, *)) {
     [self.tableView performBatchUpdates:^{
-      [self deleteItemsFromTableViewModelWithIndex:toDeleteIndexPaths];
+      [self deleteItemsFromTableViewModelWithIndex:toDeleteIndexPaths
+                          deleteItemsFromTableView:YES];
     }
         completion:^(BOOL) {
           [self updateTableViewAfterDeletingEntries];
@@ -404,7 +477,8 @@ const int kMaxFetchCount = 100;
         }];
   } else {
     [self.tableView beginUpdates];
-    [self deleteItemsFromTableViewModelWithIndex:toDeleteIndexPaths];
+    [self deleteItemsFromTableViewModelWithIndex:toDeleteIndexPaths
+                        deleteItemsFromTableView:YES];
     [self updateTableViewAfterDeletingEntries];
     [self configureViewsForNonEditModeWithAnimation:YES];
     [self.tableView endUpdates];
@@ -422,6 +496,14 @@ const int kMaxFetchCount = 100;
   return UITableViewAutomaticDimension;
 }
 
+- (CGFloat)tableView:(UITableView*)tableView
+    heightForFooterInSection:(NSInteger)section {
+  if ([self.tableViewModel sectionIdentifierForSection:section] ==
+      kEntriesStatusSectionIdentifier)
+    return 0;
+  return kSeparationSpaceBetweenSections;
+}
+
 - (void)tableView:(UITableView*)tableView
     didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
   DCHECK_EQ(tableView, self.tableView);
@@ -431,7 +513,7 @@ const int kMaxFetchCount = 100;
     TableViewItem* item = [self.tableViewModel itemAtIndexPath:indexPath];
     // Only navigate and record metrics if a ItemTypeHistoryEntry was selected.
     if (item.type == ItemTypeHistoryEntry) {
-      if (self.searchController.isActive) {
+      if (self.searchInProgress) {
         // Set the searchController active property to NO or the SearchBar will
         // cause the navigation controller to linger for a second  when
         // dismissing.
@@ -456,25 +538,44 @@ const int kMaxFetchCount = 100;
     [self updateToolbarButtons];
 }
 
+- (BOOL)tableView:(UITableView*)tableView
+    canEditRowAtIndexPath:(NSIndexPath*)indexPath {
+  TableViewItem* item = [self.tableViewModel itemAtIndexPath:indexPath];
+  return (item.type == ItemTypeHistoryEntry);
+}
+
+#pragma mark - UITableViewDataSource
+
 - (UITableViewCell*)tableView:(UITableView*)tableView
         cellForRowAtIndexPath:(NSIndexPath*)indexPath {
   UITableViewCell* cellToReturn =
       [super tableView:tableView cellForRowAtIndexPath:indexPath];
   TableViewItem* item = [self.tableViewModel itemAtIndexPath:indexPath];
-  if (item.type == ItemTypeEntriesStatus) {
-    cellToReturn.userInteractionEnabled = NO;
+  cellToReturn.userInteractionEnabled = !(item.type == ItemTypeEntriesStatus);
+  if (item.type == ItemTypeHistoryEntry) {
+    HistoryEntryItem* URLItem =
+        base::mac::ObjCCastStrict<HistoryEntryItem>(item);
+    TableViewURLCell* URLCell =
+        base::mac::ObjCCastStrict<TableViewURLCell>(cellToReturn);
+    FaviconAttributes* cachedAttributes = [self.imageDataSource
+        faviconForURL:URLItem.URL
+           completion:^(FaviconAttributes* attributes) {
+             // Only set favicon if the cell hasn't been reused.
+             if ([URLCell.cellUniqueIdentifier
+                     isEqualToString:URLItem.uniqueIdentifier]) {
+               DCHECK(attributes);
+               [URLCell.faviconView configureWithAttributes:attributes];
+             }
+           }];
+    DCHECK(cachedAttributes);
+    [URLCell.faviconView configureWithAttributes:cachedAttributes];
+  }
+  if (item.type == ItemTypeEntriesStatusWithLink) {
+    TableViewTextLinkCell* tableViewTextLinkCell =
+        base::mac::ObjCCastStrict<TableViewTextLinkCell>(cellToReturn);
+    [tableViewTextLinkCell setDelegate:self];
   }
   return cellToReturn;
-}
-
-- (BOOL)tableView:(UITableView*)tableView
-    canEditRowAtIndexPath:(NSIndexPath*)indexPath {
-  TableViewItem* item = [self.tableViewModel itemAtIndexPath:indexPath];
-  if (item.type == ItemTypeEntriesStatus) {
-    return NO;
-  } else {
-    return YES;
-  }
 }
 
 #pragma mark - UIScrollViewDelegate
@@ -517,8 +618,9 @@ const int kMaxFetchCount = 100;
 - (void)fetchHistoryForQuery:(NSString*)query continuation:(BOOL)continuation {
   self.loading = YES;
   // Add loading indicator if no items are shown.
-  if (self.empty && !self.searchController.isActive) {
-    [self addLoadingIndicator];
+  if (self.empty && !self.searchInProgress) {
+    [self startLoadingIndicatorWithLoadingMessage:l10n_util::GetNSString(
+                                                      IDS_HISTORY_NO_RESULTS)];
   }
 
   if (continuation) {
@@ -547,6 +649,11 @@ const int kMaxFetchCount = 100;
   // If only the header section remains, there are no history entries.
   if ([self.tableViewModel numberOfSections] == 1) {
     self.empty = YES;
+    if (!self.searchInProgress) {
+      [self addEmptyTableViewWithMessage:l10n_util::GetNSString(
+                                             IDS_HISTORY_NO_RESULTS)
+                                   image:[UIImage imageNamed:@"empty_history"]];
+    }
   }
   [self updateEntriesStatusMessage];
   [self updateToolbarButtons];
@@ -556,73 +663,124 @@ const int kMaxFetchCount = 100;
 // displayed history entries. There should only ever be at most one item in this
 // section.
 - (void)updateEntriesStatusMessage {
-  NSString* messageText = nil;
-  TextItemColor messageColor;
+  // Get the new status message, newStatusMessage could be nil.
+  NSString* newStatusMessage = nil;
+  BOOL messageWillContainLink = NO;
   if (self.empty) {
-    messageText = self.searchController.isActive
-                      ? l10n_util::GetNSString(IDS_HISTORY_NO_SEARCH_RESULTS)
-                      : l10n_util::GetNSString(IDS_HISTORY_NO_RESULTS);
-    messageColor = TextItemColorBlack;
+    newStatusMessage =
+        self.searchController.isActive
+            ? l10n_util::GetNSString(IDS_HISTORY_NO_SEARCH_RESULTS)
+            : nil;
   } else if (self.shouldShowNoticeAboutOtherFormsOfBrowsingHistory &&
              !self.searchController.isActive) {
-    messageText =
+    newStatusMessage =
         l10n_util::GetNSString(IDS_IOS_HISTORY_OTHER_FORMS_OF_HISTORY);
-    messageColor = TextItemColorLightGrey;
+    messageWillContainLink = YES;
   }
 
-  // Get the number of items currently at the StatusMessageSection.
-  NSArray* items = [self.tableViewModel
-      itemsInSectionWithIdentifier:kEntriesStatusSectionIdentifier];
-  DCHECK([items count] <= 1);
-
-  // If no message remove message cell/item if exists, then return.
-  if (messageText == nil) {
-    if ([items count]) {
-      NSIndexPath* statusMessageIndexPath = [self.tableViewModel
-          indexPathForItemType:ItemTypeEntriesStatus
-             sectionIdentifier:kEntriesStatusSectionIdentifier];
-      [self.tableViewModel removeItemWithType:ItemTypeEntriesStatus
-                    fromSectionWithIdentifier:kEntriesStatusSectionIdentifier];
-      [self.tableView deleteRowsAtIndexPaths:@[ statusMessageIndexPath ]
-                            withRowAnimation:UITableViewRowAnimationNone];
-    }
+  // If the new message is the same as the old one, there's no need to do
+  // anything else. Compare the objects since they might both be nil.
+  if ([self.currentStatusMessage isEqualToString:newStatusMessage] ||
+      newStatusMessage == self.currentStatusMessage)
     return;
+
+  // Get the previous status item and its information, if any.
+  NSArray* previousStatusItems = [self.tableViewModel
+      itemsInSectionWithIdentifier:kEntriesStatusSectionIdentifier];
+  DCHECK([previousStatusItems count] <= 1);
+  TableViewItem* previousStatusItem = nil;
+  NSIndexPath* previousStatusItemIndexPath = nil;
+  if ([previousStatusItems count]) {
+    previousStatusItem = [previousStatusItems lastObject];
+    previousStatusItemIndexPath = [self.tableViewModel
+        indexPathForItemType:previousStatusItem.type
+           sectionIdentifier:kEntriesStatusSectionIdentifier];
   }
 
-  if ([items count]) {
-    // If a previous item exists, update its message.
-    TableViewItem* oldEntriesStatusItem = items[0];
-    TableViewTextItem* oldEntriesStatusTextItem =
-        base::mac::ObjCCastStrict<TableViewTextItem>(oldEntriesStatusItem);
-    // If its the same message there's no need to update the item or reload the
-    // table.
-    if ([messageText isEqualToString:oldEntriesStatusTextItem.text])
-      return;
-    oldEntriesStatusTextItem.text = messageText;
-    oldEntriesStatusTextItem.textColor = messageColor;
-    NSIndexPath* statusMessageIndexPath = [self.tableViewModel
-        indexPathForItemType:ItemTypeEntriesStatus
-           sectionIdentifier:kEntriesStatusSectionIdentifier];
-    [self.tableView reloadRowsAtIndexPaths:@[ statusMessageIndexPath ]
-                          withRowAnimation:UITableViewRowAnimationNone];
+  // Block to hold any tableView and model updates that will be performed.
+  void (^tableUpdates)(void) = nil;
+
+  // If no new status message remove the previous status item if it exists.
+  if (newStatusMessage == nil) {
+    if (previousStatusItem) {
+      tableUpdates = ^{
+        [self.tableViewModel
+                   removeItemWithType:previousStatusItem.type
+            fromSectionWithIdentifier:kEntriesStatusSectionIdentifier];
+        [self.tableView
+            deleteRowsAtIndexPaths:@[ previousStatusItemIndexPath ]
+                  withRowAnimation:UITableViewRowAnimationAutomatic];
+      };
+    }
   } else {
-    // If a previous item doesn't exist it create a new one and insert it.
+    // Since there's a new status message, create the new status item.
+    TableViewItem* updatedMessageItem =
+        [self statusItemWithMessage:newStatusMessage
+             messageWillContainLink:messageWillContainLink];
+
+    // If there was a previous status item delete it, insert the new status item
+    // and reload. If not simply insert the new status item.
+    tableUpdates = ^{
+      if (previousStatusItem) {
+        [self.tableViewModel
+                   removeItemWithType:previousStatusItem.type
+            fromSectionWithIdentifier:kEntriesStatusSectionIdentifier];
+        [self.tableViewModel addItem:updatedMessageItem
+             toSectionWithIdentifier:kEntriesStatusSectionIdentifier];
+        [self.tableView
+            reloadRowsAtIndexPaths:@[ [self.tableViewModel
+                                       indexPathForItem:updatedMessageItem] ]
+                  withRowAnimation:UITableViewRowAnimationAutomatic];
+      } else {
+        [self.tableViewModel addItem:updatedMessageItem
+             toSectionWithIdentifier:kEntriesStatusSectionIdentifier];
+        [self.tableView
+            insertRowsAtIndexPaths:@[ [self.tableViewModel
+                                       indexPathForItem:updatedMessageItem] ]
+                  withRowAnimation:UITableViewRowAnimationAutomatic];
+      }
+    };
+  }
+
+  // If there's any tableUpdates, run them.
+  if (tableUpdates) {
+    // If iOS11+ use performBatchUpdates: instead of beginUpdates/endUpdates.
+    if (@available(iOS 11, *)) {
+      [self.tableView performBatchUpdates:tableUpdates completion:nil];
+    } else {
+      [self.tableView beginUpdates];
+      tableUpdates();
+      [self.tableView endUpdates];
+    }
+  }
+  self.currentStatusMessage = newStatusMessage;
+}
+
+// Helper function that creates a new item for the Status message.
+- (TableViewItem*)statusItemWithMessage:(NSString*)statusMessage
+                 messageWillContainLink:(BOOL)messageWillContainLink {
+  TableViewItem* statusMessageItem = nil;
+  if (messageWillContainLink) {
+    TableViewTextLinkItem* entriesStatusItem = [[TableViewTextLinkItem alloc]
+        initWithType:ItemTypeEntriesStatusWithLink];
+    entriesStatusItem.text = statusMessage;
+    entriesStatusItem.linkURL = GURL(kHistoryMyActivityURL);
+    statusMessageItem = entriesStatusItem;
+  } else {
     TableViewTextItem* entriesStatusItem =
         [[TableViewTextItem alloc] initWithType:ItemTypeEntriesStatus];
-    entriesStatusItem.text = messageText;
-    entriesStatusItem.textColor = messageColor;
-    [self.tableViewModel addItem:entriesStatusItem
-         toSectionWithIdentifier:kEntriesStatusSectionIdentifier];
-    NSIndexPath* statusMessageIndexPath =
-        [self.tableViewModel indexPathForItem:entriesStatusItem];
-    [self.tableView insertRowsAtIndexPaths:@[ statusMessageIndexPath ]
-                          withRowAnimation:UITableViewRowAnimationNone];
+    entriesStatusItem.text = statusMessage;
+    entriesStatusItem.textColor = [UIColor blackColor];
+    statusMessageItem = entriesStatusItem;
   }
+  return statusMessageItem;
 }
 
 // Deletes all items in the tableView which indexes are included in indexArray,
-// needs to be run inside a performBatchUpdates block.
-- (void)deleteItemsFromTableViewModelWithIndex:(NSArray*)indexArray {
+// if |deleteItemsFromTableView| is YES this method needs to be run inside a
+// performBatchUpdates block.
+- (void)deleteItemsFromTableViewModelWithIndex:(NSArray*)indexArray
+                      deleteItemsFromTableView:(BOOL)deleteItemsFromTableView {
   NSArray* sortedIndexPaths =
       [indexArray sortedArrayUsingSelector:@selector(compare:)];
   for (NSIndexPath* indexPath in [sortedIndexPaths reverseObjectEnumerator]) {
@@ -635,14 +793,18 @@ const int kMaxFetchCount = 100;
                   fromSectionWithIdentifier:sectionIdentifier
                                     atIndex:index];
   }
-  [self.tableView deleteRowsAtIndexPaths:indexArray
-                        withRowAnimation:UITableViewRowAnimationNone];
+  if (deleteItemsFromTableView)
+    [self.tableView deleteRowsAtIndexPaths:indexArray
+                          withRowAnimation:UITableViewRowAnimationNone];
 
   // Remove any empty sections, except the header section.
   for (int section = self.tableView.numberOfSections - 1; section > 0;
        --section) {
     if (![self.tableViewModel numberOfItemsInSection:section]) {
       [self.entryInserter removeSection:section];
+      if (deleteItemsFromTableView)
+        [self.tableView deleteSections:[NSIndexSet indexSetWithIndex:section]
+                      withRowAnimation:UITableViewRowAnimationAutomatic];
     }
   }
 }
@@ -663,19 +825,11 @@ const int kMaxFetchCount = 100;
         if (![entries containsObject:historyItem]) {
           NSIndexPath* indexPath =
               [self.tableViewModel indexPathForItem:historyItem];
-          [self.tableView selectRowAtIndexPath:indexPath
-                                      animated:NO
-                                scrollPosition:UITableViewScrollPositionNone];
+          [self.filteredOutEntriesIndexPaths addObject:indexPath];
         }
       }
     }
   }
-}
-
-// Adds loading indicator to the top of the history tableView, if one is not
-// already present.
-- (void)addLoadingIndicator {
-  // TODO(crbug.com/805190): Migrate.
 }
 
 #pragma mark Navigation Toolbar Configuration
@@ -701,6 +855,8 @@ const int kMaxFetchCount = 100;
     self.clearBrowsingDataButton, spaceButton, self.editButton
   ]
                animated:animated];
+  [self.searchController.searchBar setUserInteractionEnabled:YES];
+  self.searchController.searchBar.alpha = 1.0;
   [self updateToolbarButtons];
 }
 
@@ -713,6 +869,8 @@ const int kMaxFetchCount = 100;
                            action:nil];
   [self setToolbarItems:@[ self.deleteButton, spaceButton, self.cancelButton ]
                animated:animated];
+  [self.searchController.searchBar setUserInteractionEnabled:NO];
+  self.searchController.searchBar.alpha = kAlphaForDisabledSearchBar;
   [self updateToolbarButtons];
 }
 
@@ -803,7 +961,9 @@ const int kMaxFetchCount = 100;
                            referrer:web::Referrer()
                         inIncognito:NO
                        inBackground:NO
+                        originPoint:CGPointZero
                            appendTo:kLastTab];
+    [self.presentationDelegate showActiveRegularTabFromHistory];
   }];
 }
 
@@ -815,7 +975,9 @@ const int kMaxFetchCount = 100;
                            referrer:web::Referrer()
                         inIncognito:YES
                        inBackground:NO
+                        originPoint:CGPointZero
                            appendTo:kLastTab];
+    [self.presentationDelegate showActiveIncognitoTabFromHistory];
   }];
 }
 
@@ -829,6 +991,7 @@ const int kMaxFetchCount = 100;
   params.transition_type = ui::PAGE_TRANSITION_AUTO_BOOKMARK;
   [self.localDispatcher dismissHistoryWithCompletion:^{
     [self.loader loadURLWithParams:params];
+    [self.presentationDelegate showActiveRegularTabFromHistory];
   }];
 }
 
@@ -838,13 +1001,16 @@ const int kMaxFetchCount = 100;
 }
 
 - (void)openPrivacySettings {
-  // Ignore the button tap if |self| is presenting another ViewController.
-  if ([self presentedViewController]) {
-    return;
-  }
   base::RecordAction(
       base::UserMetricsAction("HistoryPage_InitClearBrowsingData"));
   [self.localDispatcher displayPrivacySettings];
+}
+
+#pragma mark - Accessibility
+
+- (BOOL)accessibilityPerformEscape {
+  [self.localDispatcher dismissHistoryWithCompletion:nil];
+  return YES;
 }
 
 #pragma mark Setter & Getters
@@ -910,6 +1076,12 @@ const int kMaxFetchCount = 100;
     _editButton.accessibilityIdentifier = kHistoryToolbarEditButtonIdentifier;
   }
   return _editButton;
+}
+
+- (NSMutableArray<NSIndexPath*>*)filteredOutEntriesIndexPaths {
+  if (!_filteredOutEntriesIndexPaths)
+    _filteredOutEntriesIndexPaths = [[NSMutableArray alloc] init];
+  return _filteredOutEntriesIndexPaths;
 }
 
 @end

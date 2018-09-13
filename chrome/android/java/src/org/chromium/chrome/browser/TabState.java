@@ -16,7 +16,6 @@ import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.browser.crypto.CipherFactory;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.util.ColorUtils;
-import org.chromium.components.sync.SyncConstants;
 import org.chromium.content_public.browser.WebContents;
 
 import java.io.BufferedOutputStream;
@@ -136,7 +135,6 @@ public class TabState {
     /** Navigation history of the WebContents. */
     public WebContentsState contentsState;
     public int parentId = Tab.INVALID_TAB_ID;
-    public long syncId;
 
     public long timestampMillis = TIMESTAMP_NOT_SET;
     public String openerAppId;
@@ -218,9 +216,7 @@ public class TabState {
                 stream = new DataInputStream(new CipherInputStream(input, cipher));
             }
         }
-        if (stream == null) {
-            stream = new DataInputStream(input);
-        }
+        if (stream == null) stream = new DataInputStream(input);
         try {
             if (encrypted && stream.readLong() != KEY_CHECKER) {
                 // Got the wrong key, skip the file
@@ -268,11 +264,9 @@ public class TabState {
                         + "version " + tabState.contentsState.version());
             }
             try {
-                tabState.syncId = stream.readLong();
+                // Skip obsolete sync ID.
+                stream.readLong();
             } catch (EOFException eof) {
-                tabState.syncId = SyncConstants.INVALID_TAB_NODE_ID;
-                // Could happen if reading a version of TabState without syncId.
-                Log.w(TAG, "Failed to read syncId from tab state. Assuming syncId is: -1");
             }
             try {
                 tabState.shouldPreserve = stream.readBoolean();
@@ -306,9 +300,7 @@ public class TabState {
      * @param encrypted Whether or not the TabState should be encrypted.
      */
     public static void saveState(File file, TabState state, boolean encrypted) {
-        if (state == null || state.contentsState == null) {
-            return;
-        }
+        if (state == null || state.contentsState == null) return;
 
         // Create the byte array from contentsState before opening the FileOutputStream, in case
         // contentsState.buffer is an instance of MappedByteBuffer that is mapped to
@@ -346,16 +338,14 @@ public class TabState {
             } else {
                 dataOutputStream = new DataOutputStream(new BufferedOutputStream(fileOutputStream));
             }
-            if (encrypted) {
-                dataOutputStream.writeLong(KEY_CHECKER);
-            }
+            if (encrypted) dataOutputStream.writeLong(KEY_CHECKER);
             dataOutputStream.writeLong(state.timestampMillis);
             dataOutputStream.writeInt(contentsStateBytes.length);
             dataOutputStream.write(contentsStateBytes);
             dataOutputStream.writeInt(state.parentId);
             dataOutputStream.writeUTF(state.openerAppId != null ? state.openerAppId : "");
             dataOutputStream.writeInt(state.contentsState.version());
-            dataOutputStream.writeLong(state.syncId);
+            dataOutputStream.writeLong(-1); // Obsolete sync ID.
             dataOutputStream.writeBoolean(state.shouldPreserve);
             dataOutputStream.writeInt(state.themeColor);
         } catch (FileNotFoundException e) {

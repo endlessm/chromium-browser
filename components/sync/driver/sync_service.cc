@@ -13,4 +13,22 @@ SyncSetupInProgressHandle::~SyncSetupInProgressHandle() {
   on_destroy_.Run();
 }
 
+bool SyncService::CanSyncStart() const {
+  return GetDisableReasons() == DISABLE_REASON_NONE;
+}
+
+bool SyncService::IsSyncAllowed() const {
+  return !HasDisableReason(DISABLE_REASON_PLATFORM_OVERRIDE) &&
+         !HasDisableReason(DISABLE_REASON_ENTERPRISE_POLICY);
+}
+
+bool SyncService::IsSyncActive() const {
+  State state = GetState();
+  return state == State::CONFIGURING || state == State::ACTIVE;
+}
+
+bool SyncService::HasUnrecoverableError() const {
+  return HasDisableReason(DISABLE_REASON_UNRECOVERABLE_ERROR);
+}
+
 }  // namespace syncer

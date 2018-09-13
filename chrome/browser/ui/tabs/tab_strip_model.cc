@@ -9,6 +9,7 @@
 #include <string>
 #include <utility>
 
+#include "base/auto_reset.h"
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
@@ -28,6 +29,9 @@
 #include "components/feature_engagement/buildflags.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_widget_host.h"
+#include "content/public/browser/render_widget_host_observer.h"
+#include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 
@@ -57,6 +61,49 @@ bool ShouldForgetOpenersForTransition(ui::PageTransition transition) {
          ui::PageTransitionCoreTypeIs(transition,
                                       ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
 }
+
+// This tracks (and reports via UMA and tracing) how long it takes before a
+// RenderWidgetHost is requested to become visible.
+class RenderWidgetHostVisibilityTracker
+    : public content::RenderWidgetHostObserver {
+ public:
+  explicit RenderWidgetHostVisibilityTracker(content::RenderWidgetHost* host)
+      : host_(host) {
+    if (!host_ || host_->GetView()->IsShowing())
+      return;
+    host_->AddObserver(this);
+    TRACE_EVENT_ASYNC_BEGIN0("ui,latency", "TabSwitchVisibilityRequest", this);
+  }
+
+  ~RenderWidgetHostVisibilityTracker() override {
+    if (host_)
+      host_->RemoveObserver(this);
+  }
+
+ private:
+  // content::RenderWidgetHostObserver:
+  void RenderWidgetHostVisibilityChanged(content::RenderWidgetHost* host,
+                                         bool became_visible) override {
+    DCHECK_EQ(host_, host);
+    DCHECK(became_visible);
+    UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES(
+        "Browser.Tabs.SelectionToVisibilityRequestTime", timer_.Elapsed(),
+        base::TimeDelta::FromMicroseconds(1), base::TimeDelta::FromSeconds(3),
+        50);
+    TRACE_EVENT_ASYNC_END0("ui,latency", "TabSwitchVisibilityRequest", this);
+  }
+
+  void RenderWidgetHostDestroyed(content::RenderWidgetHost* host) override {
+    DCHECK_EQ(host_, host);
+    host_->RemoveObserver(this);
+    host_ = nullptr;
+  }
+
+  content::RenderWidgetHost* host_ = nullptr;
+  base::ElapsedTimer timer_;
+
+  DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostVisibilityTracker);
+};
 
 }  // namespace
 
@@ -246,6 +293,10 @@ void TabStripModel::AppendWebContents(std::unique_ptr<WebContents> contents,
 void TabStripModel::InsertWebContentsAt(int index,
                                         std::unique_ptr<WebContents> contents,
                                         int add_types) {
+  // TODO(erikchne): Change this to a CHECK. https://crbug.com/851400.
+  DCHECK(!reentrancy_guard_);
+  base::AutoReset<bool> resetter(&reentrancy_guard_, true);
+
   delegate()->WillAddWebContents(contents.get());
 
   bool active = (add_types & ADD_ACTIVE) != 0;
@@ -338,6 +389,10 @@ std::unique_ptr<content::WebContents> TabStripModel::ReplaceWebContentsAt(
 
 std::unique_ptr<content::WebContents> TabStripModel::DetachWebContentsAt(
     int index) {
+  // TODO(erikchne): Change this to a CHECK. https://crbug.com/851400.
+  DCHECK(!reentrancy_guard_);
+  base::AutoReset<bool> resetter(&reentrancy_guard_, true);
+
   DCHECK_NE(active_index(), kNoTab) << "Activate the TabStripModel by "
                                        "selecting at least one tab before "
                                        "trying to detach web contents.";
@@ -360,7 +415,6 @@ std::unique_ptr<content::WebContents> TabStripModel::DetachWebContentsImpl(
     int index,
     bool create_historical_tab,
     bool will_delete) {
-  CHECK(!in_notify_);
   if (contents_data_.empty())
     return nullptr;
   DCHECK(ContainsIndex(index));
@@ -1273,6 +1327,10 @@ std::vector<content::WebContents*> TabStripModel::GetWebContentsesByIndices(
 bool TabStripModel::InternalCloseTabs(
     base::span<content::WebContents* const> items,
     uint32_t close_types) {
+  // TODO(erikchne): Change this to a CHECK. https://crbug.com/851400.
+  DCHECK(!reentrancy_guard_);
+  base::AutoReset<bool> resetter(&reentrancy_guard_, true);
+
   if (items.empty())
     return true;
 
@@ -1280,15 +1338,20 @@ bool TabStripModel::InternalCloseTabs(
   base::WeakPtr<TabStripModel> ref = weak_factory_.GetWeakPtr();
   if (closing_all) {
     for (auto& observer : observers_)
-      observer.WillCloseAllTabs();
+      observer.WillCloseAllTabs(this);
   }
   const bool closed_all = CloseWebContentses(items, close_types);
   if (!ref)
     return closed_all;
-  if (closing_all && !closed_all) {
+  if (closing_all) {
+    // CloseAllTabsStopped is sent with reason kCloseAllCompleted if
+    // closed_all; otherwise kCloseAllCanceled is sent.
     for (auto& observer : observers_)
-      observer.CloseAllTabsCanceled();
+      observer.CloseAllTabsStopped(
+          this, closed_all ? TabStripModelObserver::kCloseAllCompleted
+                           : TabStripModelObserver::kCloseAllCanceled);
   }
+
   return closed_all;
 }
 
@@ -1381,16 +1444,20 @@ void TabStripModel::NotifyIfActiveTabChanged(WebContents* old_contents,
   if (old_contents == new_contents)
     return;
 
+  content::RenderWidgetHost* track_host = nullptr;
+  if (notify_types == Notify::kUserGesture &&
+      new_contents->GetRenderWidgetHostView()) {
+    track_host = new_contents->GetRenderWidgetHostView()->GetRenderWidgetHost();
+  }
+  RenderWidgetHostVisibilityTracker tracker(track_host);
+
   int reason = notify_types == Notify::kUserGesture
                    ? TabStripModelObserver::CHANGE_REASON_USER_GESTURE
                    : TabStripModelObserver::CHANGE_REASON_NONE;
-  CHECK(!in_notify_);
-  in_notify_ = true;
   for (auto& observer : observers_) {
     observer.ActiveTabChanged(old_contents, new_contents, active_index(),
                               reason);
   }
-  in_notify_ = false;
 }
 
 void TabStripModel::NotifyIfActiveOrSelectionChanged(

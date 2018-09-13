@@ -7,13 +7,13 @@
 
 #include "SkTypes.h"
 
-#if SK_SUPPORT_GPU
 #include "GrContext.h"
 #include "GrContextFactory.h"
 #include "GrContextPriv.h"
 #include "GrDeferredUpload.h"
 #include "GrDrawOpAtlas.h"
 #include "GrDrawingManager.h"
+#include "GrMemoryPool.h"
 #include "GrOnFlushResourceProvider.h"
 #include "GrOpFlushState.h"
 #include "GrRenderTargetContext.h"
@@ -33,7 +33,7 @@
 #include "Test.h"
 #include "ops/GrDrawOp.h"
 #include "text/GrAtlasManager.h"
-#include "text/GrAtlasTextContext.h"
+#include "text/GrTextContext.h"
 #include "text/GrTextUtils.h"
 
 #include <memory>
@@ -181,7 +181,8 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrAtlasTextOpPreparation, reporter, ctxInfo) 
     auto gpu = context->contextPriv().getGpu();
     auto resourceProvider = context->contextPriv().resourceProvider();
     auto drawingManager = context->contextPriv().drawingManager();
-    auto textContext = drawingManager->getAtlasTextContext();
+    auto textContext = drawingManager->getTextContext();
+    auto opMemoryPool = context->contextPriv().opMemoryPool();
 
     auto rtc =  context->contextPriv().makeDeferredRenderTargetContext(SkBackingFit::kApprox,
                                                                        32, 32,
@@ -201,7 +202,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrAtlasTextOpPreparation, reporter, ctxInfo) 
                                                                      rtc.get(), paint,
                                                                      SkMatrix::I(), text,
                                                                      16, 16);
-    op->finalize(*context->contextPriv().caps(), nullptr, GrPixelConfigIsClamped::kNo);
+    op->finalize(*context->contextPriv().caps(), nullptr);
 
     TestingUploadTarget uploadTarget;
 
@@ -223,7 +224,5 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrAtlasTextOpPreparation, reporter, ctxInfo) 
     flushState.setOpArgs(&opArgs);
     op->prepare(&flushState);
     flushState.setOpArgs(nullptr);
+    opMemoryPool->release(std::move(op));
 }
-
-
-#endif

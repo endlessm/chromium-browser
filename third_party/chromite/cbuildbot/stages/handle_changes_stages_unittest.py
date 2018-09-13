@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -75,7 +76,7 @@ class CommitQueueHandleChangesStageTests(
 
     return sync_stage
 
-  # pylint: disable=W0221
+  # pylint: disable=arguments-differ
   def ConstructStage(self, sync_stage=None, completion_stage=None):
     sync_stage = sync_stage or self.sync_stage
     completion_stage = completion_stage or self.completion_stage
@@ -102,8 +103,6 @@ class CommitQueueHandleChangesStageTests(
     self.PatchObject(relevant_changes.RelevantChanges,
                      'GetRelevantChangesForSlaves',
                      return_value={'master-paladin': {mock.Mock()}})
-    self.PatchObject(relevant_changes.RelevantChanges,
-                     'GetSubsysResultForSlaves')
     self.PatchObject(handle_changes_stages.CommitQueueHandleChangesStage,
                      '_GetBuildsPassedSyncStage')
     stage.sync_stage.pool.SubmitPartialPool.return_value = self.changes

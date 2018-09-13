@@ -12,6 +12,7 @@ import json
 import optparse
 import re
 import sys
+import time
 import urllib
 
 from core import results_dashboard
@@ -71,12 +72,16 @@ def _GetDashboardHistogramData(options):
   is_reference_build = 'reference' in options.name
   stripped_test_name = options.name.replace('.reference', '')
 
-  return results_dashboard.MakeHistogramSetWithDiagnostics(
+  begin_time = time.time()
+  hs = results_dashboard.MakeHistogramSetWithDiagnostics(
       options.results_file, stripped_test_name,
       options.configuration_name, options.buildername, options.buildnumber,
       revisions, is_reference_build,
       perf_dashboard_machine_group=options.perf_dashboard_machine_group)
-
+  end_time = time.time()
+  print 'Duration of adding diagnostics for %s: %d seconds' % (
+      stripped_test_name, end_time - begin_time)
+  return hs
 
 def _CreateParser():
   # Parse options
@@ -125,11 +130,11 @@ def main(args):
   else:
     dashboard_json = _GetDashboardHistogramData(options)
 
-  if dashboard_json:
-    if options.output_json_file:
-      json.dump(dashboard_json, options.output_json_file,
-          indent=4, separators=(',', ': '))
+  if options.output_json_file:
+    json.dump(dashboard_json, options.output_json_file,
+        indent=4, separators=(',', ': '))
 
+  if dashboard_json:
     if options.output_json_dashboard_url:
       # Dump dashboard url to file.
       dashboard_url = GetDashboardUrl(options.name,
@@ -147,9 +152,8 @@ def main(args):
         oauth_token=oauth_token):
       return 1
   else:
-    print 'Error: No perf dashboard JSON was produced.'
-    print '@@@STEP_FAILURE@@@'
-    return 1
+    # The upload didn't fail since there was no data to upload.
+    print 'Warning: No perf dashboard JSON was produced.'
   return 0
 
 if __name__ == '__main__':

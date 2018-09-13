@@ -177,8 +177,23 @@ void OmniboxEditModel::RestoreState(const State* state) {
   if (!state)
     return;
 
-  SetFocusState(state->focus_state, OMNIBOX_FOCUS_CHANGE_TAB_SWITCH);
-  focus_source_ = state->focus_source;
+  // The tab-management system saves the last-focused control for each tab and
+  // restores it. That operation also updates this edit model's focus_state_
+  // if necessary. This occurs before we reach this point in the code.
+  //
+  // The only reason we need to separately save and restore our focus state is
+  // to preserve our special "invisible focus" state used for the fakebox.
+  //
+  // However, in some circumstances (if the last-focused control was destroyed),
+  // the Omnibox will be focused by default, and the edit model's saved state
+  // may be invalid. We make a check to guard against that.
+  bool saved_focus_state_invalid = focus_state_ == OMNIBOX_FOCUS_VISIBLE &&
+                                   state->focus_state == OMNIBOX_FOCUS_NONE;
+  if (!saved_focus_state_invalid) {
+    SetFocusState(state->focus_state, OMNIBOX_FOCUS_CHANGE_TAB_SWITCH);
+    focus_source_ = state->focus_source;
+  }
+
   // Restore any user editing.
   if (state->user_input_in_progress) {
     // NOTE: Be sure to set keyword-related state AFTER invoking
@@ -207,6 +222,12 @@ AutocompleteMatch OmniboxEditModel::CurrentMatch(
 bool OmniboxEditModel::ResetDisplayUrls() {
   const base::string16 old_current_permanent_url = GetCurrentPermanentUrlText();
 
+  // Track if the user has modified the text. This is different from
+  // |user_input_in_progress_| because we care if the user has actually
+  // modified the text, while |user_input_in_progress_| may be true even if
+  // the user has merely made a partial selection.
+  bool user_has_modified_text = view_->GetText() != old_current_permanent_url;
+
   url_for_editing_ = controller()->GetToolbarModel()->GetFormattedFullURL();
   display_only_url_ =
       OmniboxFieldTrial::IsHideSteadyStateUrlSchemeAndSubdomainsEnabled()
@@ -224,7 +245,7 @@ bool OmniboxEditModel::ResetDisplayUrls() {
   // URL" (which sounds as if it might be persistent) from seeing just that URL
   // forever afterwards.
   return (GetCurrentPermanentUrlText() != old_current_permanent_url) &&
-         (!has_focus() || (!user_input_in_progress_ && !PopupIsOpen()));
+         (!has_focus() || (!user_has_modified_text && !PopupIsOpen()));
 }
 
 GURL OmniboxEditModel::PermanentURL() const {
@@ -280,10 +301,6 @@ bool OmniboxEditModel::CurrentTextIsURL() const {
     return true;
 
   return !AutocompleteMatch::IsSearchType(CurrentMatch(nullptr).type);
-}
-
-AutocompleteMatch::Type OmniboxEditModel::CurrentTextType() const {
-  return CurrentMatch(nullptr).type;
 }
 
 void OmniboxEditModel::AdjustTextForCopy(int sel_min,
@@ -442,6 +459,9 @@ void OmniboxEditModel::StopAutocomplete() {
 
 bool OmniboxEditModel::CanPasteAndGo(const base::string16& text) const {
   if (!client_->IsPasteAndGoEnabled())
+    return false;
+
+  if (text.length() > kMaxPasteAndGoTextLength)
     return false;
 
   AutocompleteMatch match;
@@ -622,17 +642,12 @@ void OmniboxEditModel::OpenMatch(AutocompleteMatch match,
   fake_single_entry_result.AppendMatches(input_, fake_single_entry_matches);
   OmniboxLog log(
       input_.from_omnibox_focus() ? base::string16() : input_text,
-      just_deleted_text_,
-      input_.type(),
-      popup_open,
-      dropdown_ignored ? 0 : index,
-      disposition,
-      !pasted_text.empty(),
-      SessionID::InvalidValue(), // don't know tab ID; set later if appropriate
-      ClassifyPage(),
-      elapsed_time_since_user_first_modified_omnibox,
-      match.allowed_to_be_default_match ? match.inline_autocompletion.length() :
-          base::string16::npos,
+      just_deleted_text_, input_.type(), popup_open,
+      dropdown_ignored ? 0 : index, disposition, !pasted_text.empty(),
+      SessionID::InvalidValue(),  // don't know tab ID; set later if appropriate
+      ClassifyPage(), elapsed_time_since_user_first_modified_omnibox,
+      match.allowed_to_be_default_match ? match.inline_autocompletion.length()
+                                        : base::string16::npos,
       elapsed_time_since_last_change_to_default_match,
       dropdown_ignored ? fake_single_entry_result : result());
   DCHECK(dropdown_ignored ||

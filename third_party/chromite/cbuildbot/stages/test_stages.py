@@ -64,11 +64,6 @@ class UnitTestStage(generic_stages.BoardSpecificBuilderStage,
         self._build_root, self._current_board, self.archive_path)
     self.UploadArtifact(tarball, archive=False)
 
-    if os.path.exists(os.path.join(self.GetImageDirSymlink(),
-                                   'au-generator.zip')):
-      commands.TestAuZip(self._build_root,
-                         self.GetImageDirSymlink())
-
 
 class HWTestStage(generic_stages.BoardSpecificBuilderStage,
                   generic_stages.ArchivingStageMixin):
@@ -113,7 +108,7 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
     self._board_name = lab_board_name or board
 
   # Disable complaint about calling _HandleStageException.
-  # pylint: disable=W0212
+  # pylint: disable=protected-access
   def _HandleStageException(self, exc_info):
     """Override and don't set status to FAIL but FORGIVEN instead."""
     exc_type = exc_info[0]
@@ -240,8 +235,7 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
                      arch, cpv.version_no_rev.split('_')[0])
         return
 
-    if self.suite_config.suite in [constants.HWTEST_CTS_FOLLOWER_SUITE,
-                                   constants.HWTEST_CTS_QUAL_SUITE,
+    if self.suite_config.suite in [constants.HWTEST_CTS_QUAL_SUITE,
                                    constants.HWTEST_GTS_QUAL_SUITE]:
       # Increase the priority for CTS/GTS qualification suite as we want stable
       # build to have higher priority than beta build (again higher than dev).
@@ -336,6 +330,32 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
     if 'all' in subsystems:
       return set()
     return subsystems
+
+
+class SkylabHWTestStage(HWTestStage):
+  """Stage that runs tests in the Autotest lab with Skylab."""
+
+  def PerformStage(self):
+    build = '/'.join([self._bot_id, self.version])
+
+    # TODO (xixuan): Only allow to run provision & bvt-inline suite.
+    if self.suite_config.suite not in [constants.HWTEST_PROVISION_SUITE,
+                                       constants.HWTEST_BVT_SUITE]:
+      return
+
+    cmd_result = commands.RunSkylabHWTestSuite(
+        build, self.suite_config.suite, self._board_name,
+        model=self._model,
+        pool=self.suite_config.pool,
+        wait_for_results=self.wait_for_results,
+        priority=self.suite_config.priority,
+        timeout_mins=self.suite_config.timeout_mins,
+        retry=self.suite_config.retry,
+        max_retries=self.suite_config.max_retries,
+        suite_args=self.suite_config.suite_args)
+
+    if cmd_result.to_raise:
+      raise cmd_result.to_raise
 
 
 class ASyncHWTestStage(HWTestStage, generic_stages.ForgivingBuilderStage):
@@ -437,9 +457,16 @@ class BranchUtilTestStage(generic_stages.BuilderStage):
             self._run.attrs.manifest_manager is not None), \
         'Must run ManifestVersionedSyncStage before this stage.'
     manifest_manager = self._run.attrs.manifest_manager
-    commands.RunBranchUtilTest(
-        self._build_root,
-        manifest_manager.GetCurrentVersionInfo().VersionString())
+
+    args = [
+        '--branch-name', 'test_branch',
+        '--version', manifest_manager.GetCurrentVersionInfo().VersionString(),
+    ]
+
+    if self._run.options.git_cache_dir:
+      args.extend(['--git-cache-dir', self._run.options.git_cache_dir])
+
+    commands.RunLocalTryjob(self._build_root, 'branch-util-tryjob', args)
 
 
 class CrosSigningTestStage(generic_stages.BuilderStage):

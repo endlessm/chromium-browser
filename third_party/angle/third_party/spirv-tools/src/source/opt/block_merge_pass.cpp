@@ -22,19 +22,9 @@
 namespace spvtools {
 namespace opt {
 
-bool BlockMergePass::HasMultipleRefs(uint32_t labId) {
-  int rcnt = 0;
-  get_def_use_mgr()->ForEachUser(labId, [&rcnt](ir::Instruction* user) {
-    if (user->opcode() != SpvOpName) {
-      ++rcnt;
-    }
-  });
-  return rcnt > 1;
-}
-
-void BlockMergePass::KillInstAndName(ir::Instruction* inst) {
-  std::vector<ir::Instruction*> to_kill;
-  get_def_use_mgr()->ForEachUser(inst, [&to_kill](ir::Instruction* user) {
+void BlockMergePass::KillInstAndName(opt::Instruction* inst) {
+  std::vector<opt::Instruction*> to_kill;
+  get_def_use_mgr()->ForEachUser(inst, [&to_kill](opt::Instruction* user) {
     if (user->opcode() == SpvOpName) {
       to_kill.push_back(user);
     }
@@ -45,110 +35,130 @@ void BlockMergePass::KillInstAndName(ir::Instruction* inst) {
   context()->KillInst(inst);
 }
 
-bool BlockMergePass::MergeBlocks(ir::Function* func) {
+bool BlockMergePass::MergeBlocks(opt::Function* func) {
   bool modified = false;
   for (auto bi = func->begin(); bi != func->end();) {
-    // Do not merge loop header blocks, at least for now.
-    if (bi->IsLoopHeader()) {
-      ++bi;
-      continue;
-    }
     // Find block with single successor which has no other predecessors.
-    // Continue and Merge blocks are currently ruled out as second blocks.
-    // Happily any such candidate blocks will have >1 uses due to their
-    // LoopMerge instruction.
-    // TODO(): Deal with phi instructions that reference the
-    // second block. Happily, these references currently inhibit
-    // the merge.
     auto ii = bi->end();
     --ii;
-    ir::Instruction* br = &*ii;
+    opt::Instruction* br = &*ii;
     if (br->opcode() != SpvOpBranch) {
       ++bi;
       continue;
     }
-    const uint32_t labId = br->GetSingleWordInOperand(0);
-    if (HasMultipleRefs(labId)) {
+
+    const uint32_t lab_id = br->GetSingleWordInOperand(0);
+    if (cfg()->preds(lab_id).size() != 1) {
       ++bi;
       continue;
     }
-    // Merge blocks
+
+    bool pred_is_header = IsHeader(&*bi);
+    bool succ_is_header = IsHeader(lab_id);
+    if (pred_is_header && succ_is_header) {
+      // Cannot merge two headers together.
+      ++bi;
+      continue;
+    }
+
+    bool pred_is_merge = IsMerge(&*bi);
+    bool succ_is_merge = IsMerge(lab_id);
+    if (pred_is_merge && succ_is_merge) {
+      // Cannot merge two merges together.
+      ++bi;
+      continue;
+    }
+
+    opt::Instruction* merge_inst = bi->GetMergeInst();
+    if (pred_is_header && lab_id != merge_inst->GetSingleWordInOperand(0u)) {
+      // If this is a header block and the successor is not its merge, we must
+      // be careful about which blocks we are willing to merge together.
+      // OpLoopMerge must be followed by a conditional or unconditional branch.
+      // The merge must be a loop merge because a selection merge cannot be
+      // followed by an unconditional branch.
+      opt::BasicBlock* succ_block = context()->get_instr_block(lab_id);
+      SpvOp succ_term_op = succ_block->terminator()->opcode();
+      assert(merge_inst->opcode() == SpvOpLoopMerge);
+      if (succ_term_op != SpvOpBranch &&
+          succ_term_op != SpvOpBranchConditional) {
+        ++bi;
+        continue;
+      }
+    }
+
+    // Merge blocks.
     context()->KillInst(br);
     auto sbi = bi;
     for (; sbi != func->end(); ++sbi)
-      if (sbi->id() == labId) break;
+      if (sbi->id() == lab_id) break;
     // If bi is sbi's only predecessor, it dominates sbi and thus
     // sbi must follow bi in func's ordering.
     assert(sbi != func->end());
+
+    // Update the inst-to-block mapping for the instructions in sbi.
+    for (auto& inst : *sbi) {
+      context()->set_instr_block(&inst, &*bi);
+    }
+
+    // Now actually move the instructions.
     bi->AddInstructions(&*sbi);
+
+    if (merge_inst) {
+      if (pred_is_header && lab_id == merge_inst->GetSingleWordInOperand(0u)) {
+        // Merging the header and merge blocks, so remove the structured control
+        // flow declaration.
+        context()->KillInst(merge_inst);
+      } else {
+        // Move the merge instruction to just before the terminator.
+        merge_inst->InsertBefore(bi->terminator());
+      }
+    }
+    context()->ReplaceAllUsesWith(lab_id, bi->id());
     KillInstAndName(sbi->GetLabelInst());
     (void)sbi.Erase();
-    // reprocess block
+    // Reprocess block.
     modified = true;
   }
   return modified;
 }
 
-void BlockMergePass::Initialize(ir::IRContext* c) {
-  InitializeProcessing(c);
-
-  // Initialize extension whitelist
-  InitExtensions();
-};
-
-bool BlockMergePass::AllExtensionsSupported() const {
-  // If any extension not in whitelist, return false
-  for (auto& ei : get_module()->extensions()) {
-    const char* extName =
-        reinterpret_cast<const char*>(&ei.GetInOperand(0).words[0]);
-    if (extensions_whitelist_.find(extName) == extensions_whitelist_.end())
-      return false;
-  }
-  return true;
+bool BlockMergePass::IsHeader(opt::BasicBlock* block) {
+  return block->GetMergeInst() != nullptr;
 }
 
+bool BlockMergePass::IsHeader(uint32_t id) {
+  return IsHeader(context()->get_instr_block(get_def_use_mgr()->GetDef(id)));
+}
+
+bool BlockMergePass::IsMerge(uint32_t id) {
+  return !get_def_use_mgr()->WhileEachUse(id, [](opt::Instruction* user,
+                                                 uint32_t index) {
+    SpvOp op = user->opcode();
+    if ((op == SpvOpLoopMerge || op == SpvOpSelectionMerge) && index == 0u) {
+      return false;
+    }
+    return true;
+  });
+}
+
+bool BlockMergePass::IsMerge(opt::BasicBlock* block) {
+  return IsMerge(block->id());
+}
+
+void BlockMergePass::Initialize(opt::IRContext* c) { InitializeProcessing(c); }
+
 Pass::Status BlockMergePass::ProcessImpl() {
-  // Do not process if any disallowed extensions are enabled
-  if (!AllExtensionsSupported()) return Status::SuccessWithoutChange;
   // Process all entry point functions.
-  ProcessFunction pfn = [this](ir::Function* fp) { return MergeBlocks(fp); };
+  ProcessFunction pfn = [this](opt::Function* fp) { return MergeBlocks(fp); };
   bool modified = ProcessEntryPointCallTree(pfn, get_module());
   return modified ? Status::SuccessWithChange : Status::SuccessWithoutChange;
 }
 
 BlockMergePass::BlockMergePass() {}
 
-Pass::Status BlockMergePass::Process(ir::IRContext* c) {
+Pass::Status BlockMergePass::Process(opt::IRContext* c) {
   Initialize(c);
   return ProcessImpl();
-}
-
-void BlockMergePass::InitExtensions() {
-  extensions_whitelist_.clear();
-  extensions_whitelist_.insert({
-      "SPV_AMD_shader_explicit_vertex_parameter",
-      "SPV_AMD_shader_trinary_minmax",
-      "SPV_AMD_gcn_shader",
-      "SPV_KHR_shader_ballot",
-      "SPV_AMD_shader_ballot",
-      "SPV_AMD_gpu_shader_half_float",
-      "SPV_KHR_shader_draw_parameters",
-      "SPV_KHR_subgroup_vote",
-      "SPV_KHR_16bit_storage",
-      "SPV_KHR_device_group",
-      "SPV_KHR_multiview",
-      "SPV_NVX_multiview_per_view_attributes",
-      "SPV_NV_viewport_array2",
-      "SPV_NV_stereo_view_rendering",
-      "SPV_NV_sample_mask_override_coverage",
-      "SPV_NV_geometry_shader_passthrough",
-      "SPV_AMD_texture_gather_bias_lod",
-      "SPV_KHR_storage_buffer_storage_class",
-      "SPV_KHR_variable_pointers",
-      "SPV_AMD_gpu_shader_int16",
-      "SPV_KHR_post_depth_coverage",
-      "SPV_KHR_shader_atomic_counter_ops",
-  });
 }
 
 }  // namespace opt

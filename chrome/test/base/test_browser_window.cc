@@ -164,17 +164,20 @@ autofill::SaveCardBubbleView* TestBrowserWindow::ShowSaveCreditCardBubble(
   return nullptr;
 }
 
+autofill::LocalCardMigrationBubble*
+TestBrowserWindow::ShowLocalCardMigrationBubble(
+    content::WebContents* contents,
+    autofill::LocalCardMigrationBubbleController* controller,
+    bool user_gesture) {
+  return nullptr;
+}
+
 bool TestBrowserWindow::IsDownloadShelfVisible() const {
   return false;
 }
 
 DownloadShelf* TestBrowserWindow::GetDownloadShelf() {
   return &download_shelf_;
-}
-
-WindowOpenDisposition TestBrowserWindow::GetDispositionForPopupBounds(
-    const gfx::Rect& bounds) {
-  return WindowOpenDisposition::NEW_POPUP;
 }
 
 FindBar* TestBrowserWindow::CreateFindBar() {

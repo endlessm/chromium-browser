@@ -19,7 +19,9 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.support.v4.text.BidiFormatter;
+import android.support.v4.view.MarginLayoutParamsCompat;
 import android.text.SpannableString;
 import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
@@ -29,6 +31,7 @@ import android.view.GestureDetector;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -52,6 +55,8 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.util.AccessibilityUtil;
 import org.chromium.chrome.browser.util.ColorUtils;
+import org.chromium.chrome.browser.util.FeatureUtilities;
+import org.chromium.chrome.browser.widget.ScrimView;
 import org.chromium.chrome.browser.widget.TintedDrawable;
 import org.chromium.chrome.browser.widget.TintedImageButton;
 import org.chromium.components.url_formatter.UrlFormatter;
@@ -84,16 +89,16 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
 
         public InterceptTouchLayout(Context context, AttributeSet attrs) {
             super(context, attrs);
-            mGestureDetector = new GestureDetector(getContext(),
-                    new GestureDetector.SimpleOnGestureListener() {
+            mGestureDetector = new GestureDetector(
+                    getContext(), new GestureDetector.SimpleOnGestureListener() {
                         @Override
                         public boolean onSingleTapConfirmed(MotionEvent e) {
-                            if (LibraryLoader.isInitialized()) {
+                            if (LibraryLoader.getInstance().isInitialized()) {
                                 RecordUserAction.record("CustomTabs.TapUrlBar");
                             }
                             return super.onSingleTapConfirmed(e);
                         }
-                    });
+                    }, ThreadUtils.getUiThreadHandler());
         }
 
         @Override
@@ -154,8 +159,8 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        setBackground(new ColorDrawable(
-                ApiCompatibilityUtils.getColor(getResources(), R.color.default_primary_color)));
+        setBackground(new ColorDrawable(ColorUtils.getDefaultThemeColor(
+                getResources(), FeatureUtilities.isChromeModernDesignEnabled(), false)));
         mUrlBar = findViewById(R.id.url_bar);
         mUrlBar.setHint("");
         mUrlBar.setDelegate(this);
@@ -188,7 +193,7 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
             Activity activity = currentTab.getWindowAndroid().getActivity().get();
             if (activity == null) return;
             PageInfoController.show(activity, currentTab, getContentPublisher(),
-                    PageInfoController.OPENED_FROM_TOOLBAR);
+                    PageInfoController.OpenedFromSource.TOOLBAR);
         });
     }
 
@@ -485,7 +490,9 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
     }
 
     private void updateButtonsTint() {
-        mMenuButton.setTint(mUseDarkColors ? mDarkModeTint : mLightModeTint);
+        if (getMenuButton() != null) {
+            getMenuButton().setTint(mUseDarkColors ? mDarkModeTint : mLightModeTint);
+        }
         updateButtonTint(mCloseButton);
         int numCustomActionButtons = mCustomActionButtons.getChildCount();
         for (int i = 0; i < numCustomActionButtons; i++) {
@@ -606,8 +613,8 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
                         R.dimen.custom_tabs_toolbar_horizontal_margin_no_close);
             } else if (childView.getVisibility() != GONE) {
                 LayoutParams childLayoutParams = (LayoutParams) childView.getLayoutParams();
-                if (ApiCompatibilityUtils.getMarginStart(childLayoutParams) != startMargin) {
-                    ApiCompatibilityUtils.setMarginStart(childLayoutParams, startMargin);
+                if (MarginLayoutParamsCompat.getMarginStart(childLayoutParams) != startMargin) {
+                    MarginLayoutParamsCompat.setMarginStart(childLayoutParams, startMargin);
                     childView.setLayoutParams(childLayoutParams);
                 }
                 if (childView == mLocationBarFrameLayout) {
@@ -651,8 +658,8 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
         }
         LayoutParams urlLayoutParams = (LayoutParams) mLocationBarFrameLayout.getLayoutParams();
 
-        if (ApiCompatibilityUtils.getMarginEnd(urlLayoutParams) != locationBarLayoutEndMargin) {
-            ApiCompatibilityUtils.setMarginEnd(urlLayoutParams, locationBarLayoutEndMargin);
+        if (MarginLayoutParamsCompat.getMarginEnd(urlLayoutParams) != locationBarLayoutEndMargin) {
+            MarginLayoutParamsCompat.setMarginEnd(urlLayoutParams, locationBarLayoutEndMargin);
             mLocationBarFrameLayout.setLayoutParams(urlLayoutParams);
         }
 
@@ -755,11 +762,6 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
     public void revertChanges() {}
 
     @Override
-    public long getFirstUrlBarFocusTime() {
-        return 0;
-    }
-
-    @Override
     public void hideSuggestions() {}
 
     @Override
@@ -788,7 +790,20 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
     @Override
     public View getMenuButtonWrapper() {
         // This class has no menu button wrapper, so return the menu button instead.
-        return mMenuButton;
+        return getMenuButton();
+    }
+
+    @Override
+    public void disableMenuButton() {
+        super.disableMenuButton();
+        // In addition to removing the menu button, we also need to remove the margin on the custom
+        // action button.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            ViewGroup.MarginLayoutParams p =
+                    (ViewGroup.MarginLayoutParams) mCustomActionButtons.getLayoutParams();
+            p.setMarginEnd(0);
+            mCustomActionButtons.setLayoutParams(p);
+        }
     }
 
     @Override
@@ -818,4 +833,7 @@ public class CustomTabToolbar extends ToolbarLayout implements LocationBar,
     public int getUrlContainerMarginEnd() {
         return 0;
     }
+
+    @Override
+    public void setScrim(ScrimView scrim) {}
 }

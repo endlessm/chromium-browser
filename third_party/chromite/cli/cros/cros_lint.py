@@ -8,28 +8,24 @@
 from __future__ import print_function
 
 import functools
+import json
 import multiprocessing
 import os
 import re
 import sys
+import urllib
 
 from chromite.lib import constants
 from chromite.cli import command
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
+from chromite.lib import osutils
 from chromite.lib import parallel
 
 
 # Extract a script's shebang.
 SHEBANG_RE = re.compile(r'^#!\s*([^\s]+)(\s+([^\s]+))?')
-
-
-PYTHON_EXTENSIONS = frozenset(['.py'])
-
-# Note these are defined to keep in line with cpplint.py. Technically, we could
-# include additional ones, but cpplint.py would just filter them out.
-CPP_EXTENSIONS = frozenset(['.cc', '.cpp', '.h'])
 
 
 def _GetProjectPath(path):
@@ -104,10 +100,54 @@ CPPLINT_OUTPUT_FORMAT_MAP = {
 }
 
 
+# The mapping between the "cros lint" --output-format flag and shellcheck
+# flags.
+# Note that the msvs mapping here isn't quite VS format, but it's closer than
+# the default output.
+SHLINT_OUTPUT_FORMAT_MAP = {
+    'colorized': ['--color=always'],
+    'msvs': ['--format=gcc'],
+    'parseable': ['--format=gcc'],
+}
+
+
 def _LinterRunCommand(cmd, debug, **kwargs):
   """Run the linter with common RunCommand args set as higher levels expect."""
   return cros_build_lib.RunCommand(cmd, error_code_ok=True, print_cmd=debug,
                                    debug_level=logging.NOTICE, **kwargs)
+
+
+def _WhiteSpaceLintData(path, data):
+  """Run basic whitespace checks on |data|.
+
+  Args:
+    path: The name of the file (for diagnostics).
+    data: The file content to lint.
+
+  Returns:
+    True if everything passed.
+  """
+  ret = True
+
+  # Make sure files all have a trailing newline.
+  if not data.endswith('\n'):
+    ret = False
+    logging.warn('%s: file needs a trailing newline', path)
+
+  # Disallow leading & trailing blank lines.
+  if data.startswith('\n'):
+    ret = False
+    logging.warn('%s: delete leading blank lines', path)
+  if data.endswith('\n\n'):
+    ret = False
+    logging.warn('%s: delete trailing blank lines', path)
+
+  for i, line in enumerate(data.splitlines(), start=1):
+    if line.rstrip() != line:
+      ret = False
+      logging.warn('%s:%i: trim trailing whitespace: %s', path, i, line)
+
+  return ret
 
 
 def _CpplintFile(path, output_format, debug):
@@ -131,10 +171,99 @@ def _PylintFile(path, output_format, debug):
   return _LinterRunCommand(cmd, debug, extra_env=extra_env)
 
 
-def _ShellFile(path, _output_format, debug):
+def _JsonLintFile(path, _output_format, _debug):
+  """Returns result of running json lint checks on |path|."""
+  result = cros_build_lib.CommandResult('python -mjson.tool "%s"' % path,
+                                        returncode=0)
+
+  data = osutils.ReadFile(path)
+
+  # Strip off leading UTF-8 BOM if it exists.
+  if data.startswith(b'\xef\xbb\xbf'):
+    data = data[3:]
+
+  # Strip out comments for JSON parsing.
+  stripped_data = re.sub(r'^\s*#.*', '', data, flags=re.M)
+
+  # See if it validates.
+  try:
+    json.loads(stripped_data)
+  except ValueError as e:
+    result.returncode = 1
+    logging.notice('%s: %s', path, e)
+
+  # Check whitespace.
+  if not _WhiteSpaceLintData(path, data):
+    result.returncode = 1
+
+  return result
+
+
+def _MarkdownLintFile(path, _output_format, _debug):
+  """Returns result of running lint checks on |path|."""
+  result = cros_build_lib.CommandResult('mdlint(internal) "%s"' % path,
+                                        returncode=0)
+
+  data = osutils.ReadFile(path)
+
+  # Check whitespace.
+  if not _WhiteSpaceLintData(path, data):
+    result.returncode = 1
+
+  return result
+
+
+def _ShellLintFile(path, output_format, debug, gentoo_format=False):
   """Returns result of running lint checks on |path|."""
   # TODO: Try using `checkbashisms`.
-  return _LinterRunCommand(['bash', '-n', path], debug)
+  syntax_check = _LinterRunCommand(['bash', '-n', path], debug)
+  if syntax_check.returncode != 0:
+    return syntax_check
+
+  # Try using shellcheck if it exists.
+  shellcheck = osutils.Which('shellcheck')
+  if not shellcheck:
+    logging.notice('Install shellcheck for additional shell linting.')
+    return syntax_check
+
+  cmd = [shellcheck]
+  if output_format != 'default':
+    cmd.extend(SHLINT_OUTPUT_FORMAT_MAP[output_format])
+  if gentoo_format:
+    # ebuilds don't explicitly export variables or contain a shebang.
+    cmd.append('--exclude=SC2034,SC2148')
+    # ebuilds always use bash.
+    cmd.append('--shell=bash')
+  cmd.append(path)
+  lint_result = _LinterRunCommand(cmd, debug)
+  # During testing, we don't want to fail the linter for shellcheck errors,
+  # so override the return code.
+  if lint_result.returncode != 0:
+    bug_url = (
+        'https://bugs.chromium.org/p/chromium/issues/entry?' +
+        urllib.urlencode({
+            'template':
+                'Defect report from Developer',
+            'summary':
+                'Bad shellcheck warnings for %s' % os.path.basename(path),
+            'components':
+                'Infra>Client>ChromeOS>Build,',
+            'cc':
+                'bmgordon@chromium.org,vapier@chromium.org',
+            'comment':
+                'Shellcheck output from file:\n%s\n\n<paste output here>\n\n'
+                "What is wrong with shellcheck's findings?\n" % path,
+        }))
+    logging.warn('Shellcheck found problems. These will eventually become '
+                 'errors.  If the shellcheck findings are not useful, '
+                 'please file a bug at:\n%s', bug_url)
+    lint_result.returncode = 0
+  return lint_result
+
+
+def _GentooShellLintFile(path, output_format, debug):
+  """Run shell checks with Gentoo rules."""
+  return _ShellLintFile(path, output_format, debug, gentoo_format=True)
 
 
 def _BreakoutDataByLinter(map_to_return, path):
@@ -160,10 +289,23 @@ def _BreakoutDataByLinter(map_to_return, path):
           pylint_list = map_to_return.setdefault(_PylintFile, [])
           pylint_list.append(path)
         elif basename in ('sh', 'dash', 'bash'):
-          shlint_list = map_to_return.setdefault(_ShellFile, [])
+          shlint_list = map_to_return.setdefault(_ShellLintFile, [])
           shlint_list.append(path)
   except IOError as e:
     logging.debug('%s: reading initial data failed: %s', path, e)
+
+
+# Map file extensions to a linter function.
+_EXT_TO_LINTER_MAP = {
+    # Note these are defined to keep in line with cpplint.py. Technically, we
+    # could include additional ones, but cpplint.py would just filter them out.
+    frozenset({'.cc', '.cpp', '.h'}): _CpplintFile,
+    frozenset({'.json'}): _JsonLintFile,
+    frozenset({'.py'}): _PylintFile,
+    frozenset({'.sh'}): _ShellLintFile,
+    frozenset({'.ebuild', '.eclass', '.bashrc'}): _GentooShellLintFile,
+    frozenset({'.md'}): _MarkdownLintFile,
+}
 
 
 def _BreakoutFilesByLinter(files):
@@ -171,14 +313,14 @@ def _BreakoutFilesByLinter(files):
   map_to_return = {}
   for f in files:
     extension = os.path.splitext(f)[1]
-    if extension in PYTHON_EXTENSIONS:
-      pylint_list = map_to_return.setdefault(_PylintFile, [])
-      pylint_list.append(f)
-    elif extension in CPP_EXTENSIONS:
-      cpplint_list = map_to_return.setdefault(_CpplintFile, [])
-      cpplint_list.append(f)
-    elif os.path.isfile(f):
-      _BreakoutDataByLinter(map_to_return, f)
+    for extensions, linter in _EXT_TO_LINTER_MAP.items():
+      if extension in extensions:
+        todo = map_to_return.setdefault(linter, [])
+        todo.append(f)
+        break
+    else:
+      if os.path.isfile(f):
+        _BreakoutDataByLinter(map_to_return, f)
 
   return map_to_return
 

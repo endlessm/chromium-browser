@@ -10,11 +10,11 @@
 #include <string>
 #include <unordered_map>
 
+#include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/ios/block_types.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
-#import "base/mac/bind_objc_block.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/sys_string_conversions.h"
@@ -325,12 +325,16 @@ struct PendingPaymentResponse {
 
   if (_activeWebState) {
     __weak PaymentRequestManager* weakSelf = self;
-    auto callback = base::BindBlockArc(^bool(const base::DictionaryValue& JSON,
-                                             const GURL& originURL,
-                                             bool userIsInteracting) {
-      // |originURL| and |userIsInteracting| aren't used.
-      return [weakSelf handleScriptCommand:JSON];
-    });
+    auto callback = base::BindRepeating(
+        ^bool(const base::DictionaryValue& JSON, const GURL& originURL,
+              bool interacting, bool isMainFrame) {
+          if (!isMainFrame) {
+            // Payment request is only supported on main frame.
+            return false;
+          }
+          // |originURL| and |userIsInteracting| aren't used.
+          return [weakSelf handleScriptCommand:JSON];
+        });
     _activeWebState->AddObserver(_activeWebStateObserver.get());
     _activeWebState->AddScriptCommandCallback(callback, kCommandPrefix);
 

@@ -4,7 +4,6 @@
 
 package org.chromium.chrome.browser.payments;
 
-import android.os.AsyncTask;
 import android.os.Handler;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
@@ -13,6 +12,7 @@ import android.text.style.ForegroundColorSpan;
 import android.util.Pair;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.AsyncTask;
 import org.chromium.base.Callback;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
@@ -196,7 +196,7 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument>
             mProfilesForBillingAddress.add(profile);
             Pair<Integer, Integer> editMessageResIds = AutofillAddress.getEditMessageAndTitleResIds(
                     AutofillAddress.checkAddressCompletionStatus(
-                            profile, AutofillAddress.IGNORE_PHONE_COMPLETENESS_CHECK));
+                            profile, AutofillAddress.CompletenessCheckType.IGNORE_PHONE));
             if (editMessageResIds.first.intValue() != 0) {
                 mIncompleteProfilesForBillingAddress.put(
                         profile.getGUID(), editMessageResIds.first);
@@ -206,11 +206,11 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument>
         // Sort profiles for billing address according to completeness.
         Collections.sort(mProfilesForBillingAddress, (a, b) -> {
             boolean isAComplete = AutofillAddress.checkAddressCompletionStatus(
-                    a, AutofillAddress.NORMAL_COMPLETENESS_CHECK)
-                    == AutofillAddress.COMPLETE;
+                                          a, AutofillAddress.CompletenessCheckType.NORMAL)
+                    == AutofillAddress.CompletionStatus.COMPLETE;
             boolean isBComplete = AutofillAddress.checkAddressCompletionStatus(
-                    b, AutofillAddress.NORMAL_COMPLETENESS_CHECK)
-                    == AutofillAddress.COMPLETE;
+                                          b, AutofillAddress.CompletenessCheckType.NORMAL)
+                    == AutofillAddress.CompletionStatus.COMPLETE;
             return ApiCompatibilityUtils.compareBoolean(isBComplete, isAComplete);
         });
 
@@ -302,24 +302,22 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument>
     }
 
     /**
-     * Adds accepted payment methods to the editor, if they are recognized credit card types.
+     * Adds accepted payment method to the editor, if they are recognized credit card types.
      *
-     * @param data Supported methods and method specific data. Should not be null.
+     * @param data Supported method and method specific data. Should not be null.
      */
-    public void addAcceptedPaymentMethodsIfRecognized(PaymentMethodData data) {
+    public void addAcceptedPaymentMethodIfRecognized(PaymentMethodData data) {
         assert data != null;
-        for (int i = 0; i < data.supportedMethods.length; i++) {
-            String method = data.supportedMethods[i];
-            if (mCardIssuerNetworks.containsKey(method)) {
-                addAcceptedNetwork(method);
-            } else if (BasicCardUtils.BASIC_CARD_METHOD_NAME.equals(method)) {
-                Set<String> basicCardNetworks = BasicCardUtils.convertBasicCardToNetworks(data);
-                mAcceptedBasicCardIssuerNetworks.addAll(basicCardNetworks);
-                for (String network : basicCardNetworks) {
-                    addAcceptedNetwork(network);
-                }
-                mAcceptedBasicCardTypes.addAll(BasicCardUtils.convertBasicCardToTypes(data));
+        String method = data.supportedMethod;
+        if (mCardIssuerNetworks.containsKey(method)) {
+            addAcceptedNetwork(method);
+        } else if (BasicCardUtils.BASIC_CARD_METHOD_NAME.equals(method)) {
+            Set<String> basicCardNetworks = BasicCardUtils.convertBasicCardToNetworks(data);
+            mAcceptedBasicCardIssuerNetworks.addAll(basicCardNetworks);
+            for (String network : basicCardNetworks) {
+                addAcceptedNetwork(network);
             }
+            mAcceptedBasicCardTypes.addAll(BasicCardUtils.convertBasicCardToTypes(data));
         }
     }
 
@@ -659,7 +657,7 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument>
                 int endIndex = builder.length();
 
                 Object foregroundSpanner = new ForegroundColorSpan(ApiCompatibilityUtils.getColor(
-                        mContext.getResources(), R.color.google_blue_700));
+                        mContext.getResources(), R.color.default_text_color_link));
                 builder.setSpan(foregroundSpanner, startIndex, endIndex, 0);
 
                 // The text size in the dropdown is 14dp.

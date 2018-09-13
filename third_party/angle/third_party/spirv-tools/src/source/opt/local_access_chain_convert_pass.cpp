@@ -31,30 +31,22 @@ const uint32_t kTypeIntWidthInIdx = 0;
 
 }  // anonymous namespace
 
-void LocalAccessChainConvertPass::DeleteIfUseless(ir::Instruction* inst) {
-  const uint32_t resId = inst->result_id();
-  assert(resId != 0);
-  if (HasOnlyNamesAndDecorates(resId)) {
-    context()->KillInst(inst);
-  }
-}
-
 void LocalAccessChainConvertPass::BuildAndAppendInst(
     SpvOp opcode, uint32_t typeId, uint32_t resultId,
-    const std::vector<ir::Operand>& in_opnds,
-    std::vector<std::unique_ptr<ir::Instruction>>* newInsts) {
-  std::unique_ptr<ir::Instruction> newInst(
-      new ir::Instruction(context(), opcode, typeId, resultId, in_opnds));
+    const std::vector<opt::Operand>& in_opnds,
+    std::vector<std::unique_ptr<opt::Instruction>>* newInsts) {
+  std::unique_ptr<opt::Instruction> newInst(
+      new opt::Instruction(context(), opcode, typeId, resultId, in_opnds));
   get_def_use_mgr()->AnalyzeInstDefUse(&*newInst);
   newInsts->emplace_back(std::move(newInst));
 }
 
 uint32_t LocalAccessChainConvertPass::BuildAndAppendVarLoad(
-    const ir::Instruction* ptrInst, uint32_t* varId, uint32_t* varPteTypeId,
-    std::vector<std::unique_ptr<ir::Instruction>>* newInsts) {
+    const opt::Instruction* ptrInst, uint32_t* varId, uint32_t* varPteTypeId,
+    std::vector<std::unique_ptr<opt::Instruction>>* newInsts) {
   const uint32_t ldResultId = TakeNextId();
   *varId = ptrInst->GetSingleWordInOperand(kAccessChainPtrIdInIdx);
-  const ir::Instruction* varInst = get_def_use_mgr()->GetDef(*varId);
+  const opt::Instruction* varInst = get_def_use_mgr()->GetDef(*varId);
   assert(varInst->opcode() == SpvOpVariable);
   *varPteTypeId = GetPointeeTypeId(varInst);
   BuildAndAppendInst(SpvOpLoad, *varPteTypeId, ldResultId,
@@ -64,11 +56,11 @@ uint32_t LocalAccessChainConvertPass::BuildAndAppendVarLoad(
 }
 
 void LocalAccessChainConvertPass::AppendConstantOperands(
-    const ir::Instruction* ptrInst, std::vector<ir::Operand>* in_opnds) {
+    const opt::Instruction* ptrInst, std::vector<opt::Operand>* in_opnds) {
   uint32_t iidIdx = 0;
   ptrInst->ForEachInId([&iidIdx, &in_opnds, this](const uint32_t* iid) {
     if (iidIdx > 0) {
-      const ir::Instruction* cInst = get_def_use_mgr()->GetDef(*iid);
+      const opt::Instruction* cInst = get_def_use_mgr()->GetDef(*iid);
       uint32_t val = cInst->GetSingleWordInOperand(kConstantValueInIdx);
       in_opnds->push_back(
           {spv_operand_type_t::SPV_OPERAND_TYPE_LITERAL_INTEGER, {val}});
@@ -78,8 +70,8 @@ void LocalAccessChainConvertPass::AppendConstantOperands(
 }
 
 uint32_t LocalAccessChainConvertPass::GenAccessChainLoadReplacement(
-    const ir::Instruction* ptrInst,
-    std::vector<std::unique_ptr<ir::Instruction>>* newInsts) {
+    const opt::Instruction* ptrInst,
+    std::vector<std::unique_ptr<opt::Instruction>>* newInsts) {
   // Build and append load of variable in ptrInst
   uint32_t varId;
   uint32_t varPteTypeId;
@@ -89,7 +81,7 @@ uint32_t LocalAccessChainConvertPass::GenAccessChainLoadReplacement(
   // Build and append Extract
   const uint32_t extResultId = TakeNextId();
   const uint32_t ptrPteTypeId = GetPointeeTypeId(ptrInst);
-  std::vector<ir::Operand> ext_in_opnds = {
+  std::vector<opt::Operand> ext_in_opnds = {
       {spv_operand_type_t::SPV_OPERAND_TYPE_ID, {ldResultId}}};
   AppendConstantOperands(ptrInst, &ext_in_opnds);
   BuildAndAppendInst(SpvOpCompositeExtract, ptrPteTypeId, extResultId,
@@ -98,8 +90,8 @@ uint32_t LocalAccessChainConvertPass::GenAccessChainLoadReplacement(
 }
 
 void LocalAccessChainConvertPass::GenAccessChainStoreReplacement(
-    const ir::Instruction* ptrInst, uint32_t valId,
-    std::vector<std::unique_ptr<ir::Instruction>>* newInsts) {
+    const opt::Instruction* ptrInst, uint32_t valId,
+    std::vector<std::unique_ptr<opt::Instruction>>* newInsts) {
   // Build and append load of variable in ptrInst
   uint32_t varId;
   uint32_t varPteTypeId;
@@ -108,7 +100,7 @@ void LocalAccessChainConvertPass::GenAccessChainStoreReplacement(
 
   // Build and append Insert
   const uint32_t insResultId = TakeNextId();
-  std::vector<ir::Operand> ins_in_opnds = {
+  std::vector<opt::Operand> ins_in_opnds = {
       {spv_operand_type_t::SPV_OPERAND_TYPE_ID, {valId}},
       {spv_operand_type_t::SPV_OPERAND_TYPE_ID, {ldResultId}}};
   AppendConstantOperands(ptrInst, &ins_in_opnds);
@@ -123,48 +115,46 @@ void LocalAccessChainConvertPass::GenAccessChainStoreReplacement(
 }
 
 bool LocalAccessChainConvertPass::IsConstantIndexAccessChain(
-    const ir::Instruction* acp) const {
+    const opt::Instruction* acp) const {
   uint32_t inIdx = 0;
-  uint32_t nonConstCnt = 0;
-  acp->ForEachInId([&inIdx, &nonConstCnt, this](const uint32_t* tid) {
+  return acp->WhileEachInId([&inIdx, this](const uint32_t* tid) {
     if (inIdx > 0) {
-      ir::Instruction* opInst = get_def_use_mgr()->GetDef(*tid);
-      if (opInst->opcode() != SpvOpConstant) ++nonConstCnt;
+      opt::Instruction* opInst = get_def_use_mgr()->GetDef(*tid);
+      if (opInst->opcode() != SpvOpConstant) return false;
     }
     ++inIdx;
+    return true;
   });
-  return nonConstCnt == 0;
 }
 
 bool LocalAccessChainConvertPass::HasOnlySupportedRefs(uint32_t ptrId) {
   if (supported_ref_ptrs_.find(ptrId) != supported_ref_ptrs_.end()) return true;
-  bool hasOnlySupportedRefs = true;
-  get_def_use_mgr()->ForEachUser(
-      ptrId, [this, &hasOnlySupportedRefs](ir::Instruction* user) {
+  if (get_def_use_mgr()->WhileEachUser(ptrId, [this](opt::Instruction* user) {
         SpvOp op = user->opcode();
         if (IsNonPtrAccessChain(op) || op == SpvOpCopyObject) {
           if (!HasOnlySupportedRefs(user->result_id())) {
-            hasOnlySupportedRefs = false;
+            return false;
           }
         } else if (op != SpvOpStore && op != SpvOpLoad && op != SpvOpName &&
                    !IsNonTypeDecorate(op)) {
-          hasOnlySupportedRefs = false;
+          return false;
         }
-      });
-  if (hasOnlySupportedRefs) {
+        return true;
+      })) {
     supported_ref_ptrs_.insert(ptrId);
+    return true;
   }
-  return hasOnlySupportedRefs;
+  return false;
 }
 
-void LocalAccessChainConvertPass::FindTargetVars(ir::Function* func) {
+void LocalAccessChainConvertPass::FindTargetVars(opt::Function* func) {
   for (auto bi = func->begin(); bi != func->end(); ++bi) {
     for (auto ii = bi->begin(); ii != bi->end(); ++ii) {
       switch (ii->opcode()) {
         case SpvOpStore:
         case SpvOpLoad: {
           uint32_t varId;
-          ir::Instruction* ptrInst = GetPtr(&*ii, &varId);
+          opt::Instruction* ptrInst = GetPtr(&*ii, &varId);
           if (!IsTargetVar(varId)) break;
           const SpvOp op = ptrInst->opcode();
           // Rule out variables with non-supported refs eg function calls
@@ -195,22 +185,26 @@ void LocalAccessChainConvertPass::FindTargetVars(ir::Function* func) {
   }
 }
 
-bool LocalAccessChainConvertPass::ConvertLocalAccessChains(ir::Function* func) {
+bool LocalAccessChainConvertPass::ConvertLocalAccessChains(
+    opt::Function* func) {
   FindTargetVars(func);
   // Replace access chains of all targeted variables with equivalent
   // extract and insert sequences
   bool modified = false;
   for (auto bi = func->begin(); bi != func->end(); ++bi) {
+    std::vector<opt::Instruction*> dead_instructions;
     for (auto ii = bi->begin(); ii != bi->end(); ++ii) {
       switch (ii->opcode()) {
         case SpvOpLoad: {
           uint32_t varId;
-          ir::Instruction* ptrInst = GetPtr(&*ii, &varId);
+          opt::Instruction* ptrInst = GetPtr(&*ii, &varId);
           if (!IsNonPtrAccessChain(ptrInst->opcode())) break;
           if (!IsTargetVar(varId)) break;
-          std::vector<std::unique_ptr<ir::Instruction>> newInsts;
+          std::vector<std::unique_ptr<opt::Instruction>> newInsts;
           uint32_t replId = GenAccessChainLoadReplacement(ptrInst, &newInsts);
-          ReplaceAndDeleteLoad(&*ii, replId);
+          context()->KillNamesAndDecorates(&*ii);
+          context()->ReplaceAllUsesWith(ii->result_id(), replId);
+          dead_instructions.push_back(&*ii);
           ++ii;
           ii = ii.InsertBefore(std::move(newInsts));
           ++ii;
@@ -218,14 +212,13 @@ bool LocalAccessChainConvertPass::ConvertLocalAccessChains(ir::Function* func) {
         } break;
         case SpvOpStore: {
           uint32_t varId;
-          ir::Instruction* ptrInst = GetPtr(&*ii, &varId);
+          opt::Instruction* ptrInst = GetPtr(&*ii, &varId);
           if (!IsNonPtrAccessChain(ptrInst->opcode())) break;
           if (!IsTargetVar(varId)) break;
-          std::vector<std::unique_ptr<ir::Instruction>> newInsts;
+          std::vector<std::unique_ptr<opt::Instruction>> newInsts;
           uint32_t valId = ii->GetSingleWordInOperand(kStoreValIdInIdx);
           GenAccessChainStoreReplacement(ptrInst, valId, &newInsts);
-          context()->KillInst(&*ii);
-          DeleteIfUseless(ptrInst);
+          dead_instructions.push_back(&*ii);
           ++ii;
           ii = ii.InsertBefore(std::move(newInsts));
           ++ii;
@@ -236,11 +229,23 @@ bool LocalAccessChainConvertPass::ConvertLocalAccessChains(ir::Function* func) {
           break;
       }
     }
+
+    while (!dead_instructions.empty()) {
+      opt::Instruction* inst = dead_instructions.back();
+      dead_instructions.pop_back();
+      DCEInst(inst, [&dead_instructions](opt::Instruction* other_inst) {
+        auto i = std::find(dead_instructions.begin(), dead_instructions.end(),
+                           other_inst);
+        if (i != dead_instructions.end()) {
+          dead_instructions.erase(i);
+        }
+      });
+    }
   }
   return modified;
 }
 
-void LocalAccessChainConvertPass::Initialize(ir::IRContext* c) {
+void LocalAccessChainConvertPass::Initialize(opt::IRContext* c) {
   InitializeProcessing(c);
 
   // Initialize Target Variable Caches
@@ -252,7 +257,7 @@ void LocalAccessChainConvertPass::Initialize(ir::IRContext* c) {
 
   // Initialize extension whitelist
   InitExtensions();
-};
+}
 
 bool LocalAccessChainConvertPass::AllExtensionsSupported() const {
   // If any extension not in whitelist, return false
@@ -268,7 +273,7 @@ bool LocalAccessChainConvertPass::AllExtensionsSupported() const {
 Pass::Status LocalAccessChainConvertPass::ProcessImpl() {
   // If non-32-bit integer type in module, terminate processing
   // TODO(): Handle non-32-bit integer constants in access chains
-  for (const ir::Instruction& inst : get_module()->types_values())
+  for (const opt::Instruction& inst : get_module()->types_values())
     if (inst.opcode() == SpvOpTypeInt &&
         inst.GetSingleWordInOperand(kTypeIntWidthInIdx) != 32)
       return Status::SuccessWithoutChange;
@@ -280,7 +285,7 @@ Pass::Status LocalAccessChainConvertPass::ProcessImpl() {
   // Do not process if any disallowed extensions are enabled
   if (!AllExtensionsSupported()) return Status::SuccessWithoutChange;
   // Process all entry point functions.
-  ProcessFunction pfn = [this](ir::Function* fp) {
+  ProcessFunction pfn = [this](opt::Function* fp) {
     return ConvertLocalAccessChains(fp);
   };
   bool modified = ProcessEntryPointCallTree(pfn, get_module());
@@ -289,7 +294,7 @@ Pass::Status LocalAccessChainConvertPass::ProcessImpl() {
 
 LocalAccessChainConvertPass::LocalAccessChainConvertPass() {}
 
-Pass::Status LocalAccessChainConvertPass::Process(ir::IRContext* c) {
+Pass::Status LocalAccessChainConvertPass::Process(opt::IRContext* c) {
   Initialize(c);
   return ProcessImpl();
 }
@@ -320,6 +325,16 @@ void LocalAccessChainConvertPass::InitExtensions() {
       "SPV_AMD_gpu_shader_int16",
       "SPV_KHR_post_depth_coverage",
       "SPV_KHR_shader_atomic_counter_ops",
+      "SPV_EXT_shader_stencil_export",
+      "SPV_EXT_shader_viewport_index_layer",
+      "SPV_AMD_shader_image_load_store_lod",
+      "SPV_AMD_shader_fragment_mask",
+      "SPV_EXT_fragment_fully_covered",
+      "SPV_AMD_gpu_shader_half_float_fetch",
+      "SPV_GOOGLE_decorate_string",
+      "SPV_GOOGLE_hlsl_functionality1",
+      "SPV_NV_shader_subgroup_partitioned",
+      "SPV_EXT_descriptor_indexing",
   });
 }
 

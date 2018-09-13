@@ -2,8 +2,7 @@
     "images": [
         {
             "idiom": "universal",
-            "scale": "1x",
-            "filename": "identity_picker_view_arrow_down.png"
+            "scale": "1x"
         },
         {
             "idiom": "universal",

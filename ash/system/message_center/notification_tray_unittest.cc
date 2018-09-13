@@ -10,6 +10,7 @@
 
 #include "ash/message_center/message_center_bubble.h"
 #include "ash/message_center/message_center_view.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shelf/shelf.h"
@@ -74,7 +75,8 @@ SystemTray* GetSystemTray() {
 // Trivial item implementation for testing PopupAndSystemTray test case.
 class TestItem : public SystemTrayItem {
  public:
-  TestItem() : SystemTrayItem(GetSystemTray(), UMA_TEST) {}
+  TestItem()
+      : SystemTrayItem(GetSystemTray(), SystemTrayItemUmaType::UMA_TEST) {}
 
   views::View* CreateDefaultView(LoginStatus status) override {
     views::View* default_view = new views::View;
@@ -150,6 +152,11 @@ class NotificationTrayTest : public AshTestBase {
 };
 
 TEST_F(NotificationTrayTest, Notifications) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   // TODO(mukai): move this test case to ui/message_center.
   ASSERT_TRUE(GetWidget());
 
@@ -180,6 +187,11 @@ TEST_F(NotificationTrayTest, Notifications) {
 }
 
 TEST_F(NotificationTrayTest, NotificationPopupBubble) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   // TODO(mukai): move this test case to ui/message_center.
   ASSERT_TRUE(GetWidget());
 
@@ -215,6 +227,11 @@ TEST_F(NotificationTrayTest, NotificationPopupBubble) {
 using message_center::NotificationList;
 
 TEST_F(NotificationTrayTest, ManyMessageCenterNotifications) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   // Add the max visible notifications +1, ensure the correct visible number.
   size_t notifications_to_add = MessageCenterView::kMaxVisibleNotifications + 1;
   for (size_t i = 0; i < notifications_to_add; ++i) {
@@ -234,6 +251,11 @@ TEST_F(NotificationTrayTest, ManyMessageCenterNotifications) {
 }
 
 TEST_F(NotificationTrayTest, ManyPopupNotifications) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   // Add the max visible popup notifications +1, ensure the correct num visible.
   size_t notifications_to_add =
       message_center::kMaxVisiblePopupNotifications + 1;
@@ -251,6 +273,11 @@ TEST_F(NotificationTrayTest, ManyPopupNotifications) {
 
 // Verifies if the notification appears on both displays when extended mode.
 TEST_F(NotificationTrayTest, PopupShownOnBothDisplays) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   Shell::Get()->screen_layout_observer()->set_show_notifications_for_testing(
       true);
 
@@ -307,6 +334,11 @@ TEST_F(NotificationTrayTest, PopupShownOnBothDisplays) {
 // RootWindow's bound can be bigger than display::Display's work area so that
 // openingsystem tray doesn't affect at all the work area of popups.
 TEST_F(NotificationTrayTest, PopupAndSystemTray) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   GetSystemTray()->AddTrayItem(std::make_unique<TestItem>());
 
   AddNotification("test_id");
@@ -323,6 +355,11 @@ TEST_F(NotificationTrayTest, PopupAndSystemTray) {
 }
 
 TEST_F(NotificationTrayTest, PopupAndAutoHideShelf) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   AddNotification("test_id");
   EXPECT_TRUE(GetTray()->IsPopupVisible());
   int bottom = GetPopupWorkAreaBottom();
@@ -356,6 +393,11 @@ TEST_F(NotificationTrayTest, PopupAndAutoHideShelf) {
 }
 
 TEST_F(NotificationTrayTest, PopupAndFullscreen) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   AddNotification("test_id");
   EXPECT_TRUE(IsPopupVisible());
   int bottom = GetPopupWorkAreaBottom();
@@ -383,16 +425,16 @@ TEST_F(NotificationTrayTest, PopupAndFullscreen) {
   EXPECT_EQ(bottom_auto_hidden, bottom_fullscreen_hidden);
 
   // Move the mouse cursor at the bottom, which shows the shelf.
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   gfx::Point bottom_right =
       display::Screen::GetScreen()->GetPrimaryDisplay().bounds().bottom_right();
   bottom_right.Offset(-1, -1);
-  generator.MoveMouseTo(bottom_right);
+  generator->MoveMouseTo(bottom_right);
   shelf->UpdateVisibilityState();
   EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
   EXPECT_EQ(bottom, GetPopupWorkAreaBottom());
 
-  generator.MoveMouseTo(
+  generator->MoveMouseTo(
       display::Screen::GetScreen()->GetPrimaryDisplay().bounds().CenterPoint());
   shelf->UpdateVisibilityState();
   EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->GetAutoHideState());
@@ -400,6 +442,11 @@ TEST_F(NotificationTrayTest, PopupAndFullscreen) {
 }
 
 TEST_F(NotificationTrayTest, PopupAndSystemTrayMultiDisplay) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   UpdateDisplay("800x600,600x400");
 
   AddNotification("test_id");
@@ -415,6 +462,11 @@ TEST_F(NotificationTrayTest, PopupAndSystemTrayMultiDisplay) {
 }
 
 TEST_F(NotificationTrayTest, VisibleSmallIcon) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   EXPECT_EQ(0u, GetTray()->visible_small_icons_.size());
   EXPECT_EQ(3, GetTray()->tray_container()->child_count());
   std::unique_ptr<message_center::Notification> notification =
@@ -435,6 +487,11 @@ TEST_F(NotificationTrayTest, VisibleSmallIcon) {
 }
 
 TEST_F(NotificationTrayTest, QuietModeIcon) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   NotificationTray::DisableAnimationsForTest(true);
 
   AddNotification("test");
@@ -474,6 +531,11 @@ TEST_F(NotificationTrayTest, QuietModeIcon) {
 // Makes sure that the system tray bubble closes when another window is
 // activated, and does not crash regardless of the initial activation state.
 TEST_F(NotificationTrayTest, CloseOnActivation) {
+  // TODO(tetsui): Remove the test after UnifiedSystemTray launch.
+  // https://crbug.com/847104
+  if (features::IsSystemTrayUnifiedEnabled())
+    return;
+
   NotificationTray* tray = GetTray();
 
   // Show the notification bubble.

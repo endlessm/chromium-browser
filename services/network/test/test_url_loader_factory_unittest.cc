@@ -8,6 +8,7 @@
 #include "mojo/public/cpp/system/data_pipe_utils.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "services/network/test/test_url_loader_client.h"
+#include "services/network/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace network {
@@ -23,10 +24,12 @@ class TestURLLoaderFactoryTest : public testing::Test {
 
   void StartRequest(const std::string& url,
                     TestURLLoaderClient* client,
-                    int load_flags = 0) {
+                    int load_flags = 0,
+                    bool report_raw_headers = false) {
     ResourceRequest request;
     request.url = GURL(url);
     request.load_flags = load_flags;
+    request.report_raw_headers = report_raw_headers;
     factory_.CreateLoaderAndStart(
         mojo::MakeRequest(&loader_), 0, 0, 0, request,
         client->CreateInterfacePtr(),
@@ -118,12 +121,12 @@ TEST_F(TestURLLoaderFactoryTest, Redirects) {
   net::RedirectInfo redirect_info;
   redirect_info.status_code = 301;
   redirect_info.new_url = GURL("http://example2.test/");
-  network::TestURLLoaderFactory::Redirects redirects{
-      {redirect_info, network::ResourceResponseHead()}};
+  TestURLLoaderFactory::Redirects redirects{
+      {redirect_info, ResourceResponseHead()}};
   URLLoaderCompletionStatus status;
   std::string content = "foo";
   status.decoded_body_length = content.size();
-  factory()->AddResponse(url, network::ResourceResponseHead(), content, status,
+  factory()->AddResponse(url, ResourceResponseHead(), content, status,
                          redirects);
   StartRequest(url.spec());
   client()->RunUntilComplete();
@@ -207,6 +210,241 @@ TEST_F(TestURLLoaderFactoryTest, NumPending2) {
   factory()->AddResponse(url, "hello");
   client2.RunUntilComplete();
   EXPECT_EQ(0, factory()->NumPending());
+}
+
+TEST_F(TestURLLoaderFactoryTest, SimulateResponse) {
+  std::string url = "http://foo/";
+  std::string cookie_line = "my_cookie=myvalue";
+  network::URLLoaderCompletionStatus ok_status(net::OK);
+  ResourceResponseHead response_head =
+      CreateResourceResponseHead(net::HTTP_NOT_FOUND);
+  AddCookiesToResourceResponseHead({cookie_line}, &response_head);
+
+  // By default no request is pending.
+  EXPECT_FALSE(factory()->SimulateResponseForPendingRequest(
+      GURL(url), ok_status, response_head, /*content=*/""));
+
+  StartRequest(url);
+  EXPECT_EQ(1, factory()->NumPending());
+  // Try with the wrong URL
+  EXPECT_FALSE(factory()->SimulateResponseForPendingRequest(
+      GURL("http://this_is_not_the_url_you_are_looking_for"), ok_status,
+      response_head, /*content=*/""));
+  EXPECT_TRUE(factory()->SimulateResponseForPendingRequest(
+      GURL(url), ok_status, response_head, /*content=*/"hello"));
+  EXPECT_EQ(0, factory()->NumPending());
+  EXPECT_TRUE(client()->has_received_completion());
+  EXPECT_EQ(net::OK, client()->completion_status().error_code);
+  ASSERT_TRUE(client()->response_head().headers);
+  EXPECT_EQ(net::HTTP_NOT_FOUND,
+            client()->response_head().headers->response_code());
+  // Our cookie should be set.
+  int cookie_count = 0;
+  std::string value;
+  size_t iter = 0;
+  while (client()->response_head().headers->EnumerateHeader(&iter, "Set-Cookie",
+                                                            &value)) {
+    EXPECT_EQ(cookie_line, value);
+    cookie_count++;
+  }
+  EXPECT_EQ(1, cookie_count);
+  std::string response;
+  EXPECT_TRUE(
+      mojo::BlockingCopyToString(client()->response_body_release(), &response));
+  EXPECT_EQ("hello", response);
+}
+
+TEST_F(TestURLLoaderFactoryTest, SimulateResponseMultipleRequests) {
+  std::string url = "http://foo/";
+
+  TestURLLoaderClient client1;
+  StartRequest(url, &client1);
+  TestURLLoaderClient client2;
+  StartRequest(url, &client2);
+
+  network::URLLoaderCompletionStatus ok_status(net::OK);
+  ResourceResponseHead response_head = CreateResourceResponseHead(net::HTTP_OK);
+
+  EXPECT_EQ(2, factory()->NumPending());
+  EXPECT_TRUE(factory()->SimulateResponseForPendingRequest(
+      GURL(url), ok_status, response_head, /*content=*/""));
+  EXPECT_EQ(1, factory()->NumPending());
+  EXPECT_TRUE(client1.has_received_completion());
+  EXPECT_TRUE(factory()->SimulateResponseForPendingRequest(
+      GURL(url), ok_status, response_head, /*content=*/""));
+  EXPECT_EQ(0, factory()->NumPending());
+  EXPECT_TRUE(client2.has_received_completion());
+}
+
+TEST_F(TestURLLoaderFactoryTest, SimulateResponseUrlMatch) {
+  std::string base_url = "http://foo/";
+  std::string full_url = base_url + "hello?parameter=bar";
+  network::URLLoaderCompletionStatus ok_status(net::OK);
+  ResourceResponseHead response_head = CreateResourceResponseHead(net::HTTP_OK);
+
+  StartRequest(full_url);
+
+  // Default is non URL prefix match.
+  EXPECT_FALSE(factory()->SimulateResponseForPendingRequest(
+      GURL(base_url), ok_status, response_head, /*content=*/""));
+  EXPECT_FALSE(factory()->SimulateResponseForPendingRequest(
+      GURL(base_url), ok_status, response_head, /*content=*/"",
+      TestURLLoaderFactory::kMatchDefault));
+
+  EXPECT_TRUE(factory()->SimulateResponseForPendingRequest(
+      GURL(base_url), ok_status, response_head, /*content=*/"",
+      TestURLLoaderFactory::kUrlMatchPrefix));
+}
+
+TEST_F(TestURLLoaderFactoryTest, SimulateResponseMostRecentMatch) {
+  std::string url = "http://foo/";
+
+  network::URLLoaderCompletionStatus ok_status(net::OK);
+  ResourceResponseHead response_head = CreateResourceResponseHead(net::HTTP_OK);
+
+  EXPECT_FALSE(factory()->SimulateResponseForPendingRequest(
+      GURL(url), ok_status, response_head, /*content=*/"",
+      TestURLLoaderFactory::kMostRecentMatch));
+
+  TestURLLoaderClient client1;
+  StartRequest(url, &client1);
+  TestURLLoaderClient client2;
+  StartRequest(url, &client2);
+
+  // test non matching URL when there are pending requests.
+  EXPECT_FALSE(factory()->SimulateResponseForPendingRequest(
+      GURL("http://bar"), ok_status, response_head, /*content=*/"",
+      TestURLLoaderFactory::kMostRecentMatch));
+
+  EXPECT_EQ(2, factory()->NumPending());
+  EXPECT_TRUE(factory()->SimulateResponseForPendingRequest(
+      GURL(url), ok_status, response_head, /*content=*/"",
+      TestURLLoaderFactory::kMostRecentMatch));
+  EXPECT_EQ(1, factory()->NumPending());
+  // Last sent request should have been served.
+  EXPECT_TRUE(client2.has_received_completion());
+  EXPECT_TRUE(factory()->SimulateResponseForPendingRequest(
+      GURL(url), ok_status, response_head, /*content=*/"",
+      TestURLLoaderFactory::kMostRecentMatch));
+  EXPECT_EQ(0, factory()->NumPending());
+  EXPECT_TRUE(client1.has_received_completion());
+}
+
+TEST_F(TestURLLoaderFactoryTest, SimulateResponseNoRawHeadersByDefault) {
+  std::string url = "http://foo/";
+  // Raw-headers are not reported by default.
+  StartRequest(url);
+  network::URLLoaderCompletionStatus ok_status(net::OK);
+  ResourceResponseHead response_head = CreateResourceResponseHead(net::HTTP_OK);
+  EXPECT_TRUE(factory()->SimulateResponseForPendingRequest(
+      GURL(url), ok_status, response_head, /*content=*/""));
+  EXPECT_TRUE(client()->has_received_completion());
+  EXPECT_FALSE(client()->response_head().raw_request_response_info);
+}
+
+TEST_F(TestURLLoaderFactoryTest, SimulateResponseReportRawHeaders) {
+  std::string url = "http://foo/";
+  std::string cookie_line = "my_cookie=myvalue";
+
+  TestURLLoaderClient client;
+  StartRequest(url, &client, /*load_flags=*/0, /*report_raw_headers=*/true);
+  network::URLLoaderCompletionStatus ok_status(net::OK);
+  ResourceResponseHead response_head = CreateResourceResponseHead(
+      net::HTTP_NOT_FOUND, /*report_raw_headers=*/true);
+  AddCookiesToResourceResponseHead({cookie_line}, &response_head);
+  EXPECT_TRUE(factory()->SimulateResponseForPendingRequest(
+      GURL(url), ok_status, response_head, /*content=*/"hello"));
+  EXPECT_TRUE(client.has_received_completion());
+  scoped_refptr<HttpRawRequestResponseInfo> raw_response_info =
+      client.response_head().raw_request_response_info;
+  ASSERT_TRUE(raw_response_info);
+  EXPECT_EQ(net::HTTP_NOT_FOUND, raw_response_info->http_status_code);
+  network::HttpRawRequestResponseInfo::HeadersVector headers =
+      raw_response_info->response_headers;
+  int cookie_count = 0;
+  for (auto iter = headers.begin(); iter != headers.end(); ++iter) {
+    if (iter->first == "Set-Cookie") {
+      cookie_count++;
+      EXPECT_EQ(cookie_line, iter->second);
+    }
+  }
+}
+
+TEST_F(TestURLLoaderFactoryTest,
+       SimulateResponseWithoutRemovingFromPendingList) {
+  network::URLLoaderCompletionStatus ok_status(net::OK);
+
+  // #1
+  std::string url_1 = "http://foo/1";
+  TestURLLoaderClient client_1;
+
+  // #2
+  std::string url_2 = "http://foo/2";
+  TestURLLoaderClient client_2;
+
+  // #3
+  std::string url_3 = "http://foo/3";
+  TestURLLoaderClient client_3;
+
+  // By default no request is pending.
+  EXPECT_EQ(0, factory()->NumPending());
+
+  StartRequest(url_1, &client_1);
+  StartRequest(url_2, &client_2);
+  StartRequest(url_3, &client_3);
+  EXPECT_EQ(3, factory()->NumPending());
+
+  // Try out loading the pending requests out of order.
+  // #2
+  auto* request = &(*factory()->pending_requests())[1];
+  factory()->SimulateResponseWithoutRemovingFromPendingList(
+      request, CreateResourceResponseHead(net::HTTP_NOT_FOUND), /*content=*/"",
+      ok_status);
+  // The pending request list remains untounched and successful.
+  EXPECT_EQ(3, factory()->NumPending());
+  EXPECT_TRUE(client_2.has_received_completion());
+  EXPECT_EQ(net::OK, client_2.completion_status().error_code);
+  ASSERT_TRUE(client_2.response_head().headers);
+  EXPECT_EQ(net::HTTP_NOT_FOUND,
+            client_2.response_head().headers->response_code());
+
+  // #1
+  request = &(*factory()->pending_requests())[0];
+  factory()->SimulateResponseWithoutRemovingFromPendingList(
+      request, CreateResourceResponseHead(net::HTTP_OK), /*content=*/"hello",
+      ok_status);
+  // Again, the pending request list remains untounched and successful.
+  EXPECT_EQ(3, factory()->NumPending());
+  EXPECT_TRUE(client_1.has_received_completion());
+  EXPECT_EQ(net::OK, client_1.completion_status().error_code);
+  ASSERT_TRUE(client_1.response_head().headers);
+  EXPECT_EQ(net::HTTP_OK, client_1.response_head().headers->response_code());
+
+  // Ensure that when the client is unbound, it is counted out
+  // of the pending request list.
+  client_1.Unbind();
+  EXPECT_EQ(2, factory()->NumPending());
+  EXPECT_EQ(3u, factory()->pending_requests()->size());
+
+  // Add one more request and load it (remember that request #3
+  // is not handled, where #1 and #2 are.
+  std::string url_4 = "http://foo/4";
+  TestURLLoaderClient client_4;
+
+  StartRequest(url_4, &client_4);
+  EXPECT_EQ(3, factory()->NumPending());
+
+  // # Process 4.
+  request = &(*factory()->pending_requests())[3];
+  factory()->SimulateResponseWithoutRemovingFromPendingList(
+      request, CreateResourceResponseHead(net::HTTP_OK), /*content=*/"hello",
+      ok_status);
+  // Again, the pending request list remains untounched and successful.
+  EXPECT_EQ(3, factory()->NumPending());
+  EXPECT_TRUE(client_4.has_received_completion());
+  EXPECT_EQ(net::OK, client_4.completion_status().error_code);
+  ASSERT_TRUE(client_4.response_head().headers);
+  EXPECT_EQ(net::HTTP_OK, client_4.response_head().headers->response_code());
 }
 
 }  // namespace network

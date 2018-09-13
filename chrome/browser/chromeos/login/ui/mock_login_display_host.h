@@ -19,9 +19,11 @@ class MockLoginDisplayHost : public LoginDisplayHost {
   MockLoginDisplayHost();
   virtual ~MockLoginDisplayHost();
 
-  MOCK_METHOD1(CreateLoginDisplay, LoginDisplay*(LoginDisplay::Delegate*));
+  MOCK_METHOD0(GetLoginDisplay, LoginDisplay*());
+  MOCK_METHOD0(GetExistingUserController, ExistingUserController*());
   MOCK_CONST_METHOD0(GetNativeWindow, gfx::NativeWindow(void));
   MOCK_CONST_METHOD0(GetOobeUI, OobeUI*(void));
+  MOCK_CONST_METHOD0(GetOobeWebContents, content::WebContents*(void));
   MOCK_CONST_METHOD0(GetWebUILoginView, WebUILoginView*(void));
   MOCK_METHOD0(BeforeSessionStart, void(void));
 
@@ -51,9 +53,11 @@ class MockLoginDisplayHost : public LoginDisplayHost {
   MOCK_METHOD1(StartArcKiosk, void(const AccountId&));
   MOCK_METHOD0(StartVoiceInteractionOobe, void(void));
   MOCK_METHOD0(IsVoiceInteractionOobe, bool(void));
-  MOCK_METHOD2(UpdateGaiaDialogVisibility,
-               void(bool visible, const base::Optional<AccountId>& account));
-  MOCK_METHOD2(UpdateGaiaDialogSize, void(int width, int height));
+  MOCK_METHOD2(ShowGaiaDialog,
+               void(bool can_close,
+                    const base::Optional<AccountId>& prefilled_account));
+  MOCK_METHOD0(HideOobeDialog, void());
+  MOCK_METHOD2(UpdateOobeDialogSize, void(int width, int height));
   MOCK_METHOD0(GetUsers, const user_manager::UserList(void));
 
   MOCK_METHOD1(CompleteLogin, void(const UserContext&));
@@ -64,6 +68,14 @@ class MockLoginDisplayHost : public LoginDisplayHost {
   MOCK_METHOD1(LoadWallpaper, void(const AccountId&));
   MOCK_METHOD0(LoadSigninWallpaper, void());
   MOCK_METHOD1(IsUserWhitelisted, bool(const AccountId&));
+  MOCK_METHOD0(CancelPasswordChangedFlow, void());
+  MOCK_METHOD1(MigrateUserData, void(const std::string&));
+  MOCK_METHOD0(ResyncUserData, void());
+  MOCK_METHOD0(ShowFeedback, void());
+  MOCK_METHOD0(OnCancelPasswordChangedFlow, void());
+  MOCK_METHOD0(ShowDialogForCaptivePortal, void());
+  MOCK_METHOD0(HideDialogForCaptivePortal, void());
+  MOCK_METHOD0(UpdateAddUserButtonStatus, void());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockLoginDisplayHost);

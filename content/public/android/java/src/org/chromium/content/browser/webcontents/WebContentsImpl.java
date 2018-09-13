@@ -5,6 +5,7 @@
 package org.chromium.content.browser.webcontents;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.os.Bundle;
@@ -23,14 +24,19 @@ import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.content.browser.AppWebMessagePort;
+import org.chromium.content.browser.Gamepad;
 import org.chromium.content.browser.MediaSessionImpl;
 import org.chromium.content.browser.RenderCoordinatesImpl;
+import org.chromium.content.browser.TapDisambiguator;
+import org.chromium.content.browser.ViewEventSinkImpl;
 import org.chromium.content.browser.WindowEventObserver;
 import org.chromium.content.browser.WindowEventObserverManager;
 import org.chromium.content.browser.accessibility.WebContentsAccessibilityImpl;
 import org.chromium.content.browser.framehost.RenderFrameHostDelegate;
 import org.chromium.content.browser.framehost.RenderFrameHostImpl;
+import org.chromium.content.browser.input.ImeAdapterImpl;
 import org.chromium.content.browser.input.SelectPopup;
+import org.chromium.content.browser.input.TextSuggestionHost;
 import org.chromium.content.browser.selection.SelectionPopupControllerImpl;
 import org.chromium.content_public.browser.AccessibilitySnapshotCallback;
 import org.chromium.content_public.browser.AccessibilitySnapshotNode;
@@ -40,6 +46,7 @@ import org.chromium.content_public.browser.JavaScriptCallback;
 import org.chromium.content_public.browser.MessagePort;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.RenderFrameHost;
+import org.chromium.content_public.browser.ViewEventSink.InternalAccessDelegate;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContents.UserDataFactory;
 import org.chromium.content_public.browser.WebContentsInternals;
@@ -124,10 +131,6 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     // the same life time as native MediaSession.
     private MediaSessionImpl mMediaSession;
 
-    // True while WebContents is functional and alive. Set to false when the native WebContents is
-    // gone, or destroy() is called explicitly.
-    private boolean mIsAlive;
-
     private class SmartClipCallback {
         public SmartClipCallback(final Handler smartClipHandler) {
             mHandler = smartClipHandler;
@@ -177,7 +180,7 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     private InternalsHolder mInternalsHolder;
 
     private static class WebContentsInternalsImpl implements WebContentsInternals {
-        public HashMap<Class, WebContentsUserData> userDataMap;
+        public HashMap<Class<?>, WebContentsUserData> userDataMap;
         public ViewAndroidDelegate viewAndroidDelegate;
     }
 
@@ -197,14 +200,38 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
 
         mInternalsHolder = new DefaultInternalsHolder();
         mInternalsHolder.set(internals);
-        WindowEventObserverManager.from(this).addObserver(this);
-        mIsAlive = true;
     }
 
     @CalledByNative
     private static WebContentsImpl create(
             long nativeWebContentsAndroid, NavigationController navigationController) {
         return new WebContentsImpl(nativeWebContentsAndroid, navigationController);
+    }
+
+    @Override
+    public void initialize(Context context, String productVersion, ViewAndroidDelegate viewDelegate,
+            InternalAccessDelegate internalDispatcher, WindowAndroid windowAndroid) {
+        // Makes sure |initialize| is not called more than once.
+        assert ViewEventSinkImpl.from(this) == null;
+
+        // TODO(jinsukkim): Consider creating objects using observer pattern so that WebContents
+        //     doesn't have to have direct references to them.
+        ViewEventSinkImpl.create(context, this);
+
+        setViewAndroidDelegate(viewDelegate);
+        setTopLevelNativeWindow(windowAndroid);
+
+        ImeAdapterImpl.create(this, ImeAdapterImpl.createDefaultInputMethodManagerWrapper(context));
+        SelectionPopupControllerImpl.create(context, windowAndroid, this);
+        WebContentsAccessibilityImpl.create(
+                context, viewDelegate.getContainerView(), this, productVersion);
+        TapDisambiguator.create(context, this, viewDelegate.getContainerView());
+        TextSuggestionHost.create(context, this, windowAndroid);
+        SelectPopup.create(context, this);
+        Gamepad.create(context, this);
+
+        ViewEventSinkImpl.from(this).setAccessDelegate(internalDispatcher);
+        getRenderCoordinates().setDeviceScaleFactor(windowAndroid.getDisplay().getDipScale());
     }
 
     @CalledByNative
@@ -215,7 +242,6 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
             mObserverProxy.destroy();
             mObserverProxy = null;
         }
-        mIsAlive = false;
     }
 
     @Override
@@ -297,13 +323,9 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
         if (mNativeWebContentsAndroid != 0) nativeDestroyWebContents(mNativeWebContentsAndroid);
     }
 
-    public void destroyContentsInternal() {
-        mIsAlive = false;
-    }
-
     @Override
     public boolean isDestroyed() {
-        return !mIsAlive || mNativeWebContentsAndroid == 0;
+        return mNativeWebContentsAndroid == 0 || nativeIsBeingDestroyed(mNativeWebContentsAndroid);
     }
 
     @Override
@@ -673,9 +695,9 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     }
 
     @Override
-    public void getContentBitmapAsync(
+    public void writeContentBitmapToDiskAsync(
             int width, int height, String path, Callback<String> callback) {
-        nativeGetContentBitmap(mNativeWebContentsAndroid, width, height, path, callback);
+        nativeWriteContentBitmapToDisk(mNativeWebContentsAndroid, width, height, path, callback);
     }
 
     @Override
@@ -784,9 +806,8 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     }
 
     @Override
-    @SuppressWarnings("unchecked")
-    public <T> T getOrSetUserData(Class key, UserDataFactory<T> userDataFactory) {
-        Map<Class, WebContentsUserData> userDataMap = getUserDataMap();
+    public <T> T getOrSetUserData(Class<T> key, UserDataFactory<T> userDataFactory) {
+        Map<Class<?>, WebContentsUserData> userDataMap = getUserDataMap();
 
         // Map can be null after WebView gets gc'ed on its way to destruction.
         if (userDataMap == null) {
@@ -805,15 +826,14 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
             // to store the object.
             data = userDataMap.get(key);
         }
-        // Casting Object to T is safe since we make sure the object was of type T upon creation.
-        return data != null ? (T) data.getObject() : null;
+        return data != null ? key.cast(data.getObject()) : null;
     }
 
     /**
      * @return {@code UserDataMap} that contains internal user data. {@code null} if
      *         the map is already gc'ed.
      */
-    private Map<Class, WebContentsUserData> getUserDataMap() {
+    private Map<Class<?>, WebContentsUserData> getUserDataMap() {
         WebContentsInternals internals = mInternalsHolder.get();
         if (internals == null) return null;
         return ((WebContentsInternalsImpl) internals).userDataMap;
@@ -850,6 +870,18 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
         if (mNativeWebContentsAndroid == 0) return;
         mRenderCoordinates.setDeviceScaleFactor(dipScale);
         nativeOnScaleFactorChanged(mNativeWebContentsAndroid);
+    }
+
+    public void setFocus(boolean hasFocus) {
+        if (mNativeWebContentsAndroid == 0) return;
+        nativeSetFocus(mNativeWebContentsAndroid, hasFocus);
+    }
+
+    @Override
+    public void setDisplayCutoutSafeArea(Rect insets) {
+        if (mNativeWebContentsAndroid == 0) return;
+        nativeSetDisplayCutoutSafeArea(
+                mNativeWebContentsAndroid, insets.top, insets.left, insets.bottom, insets.right);
     }
 
     // This is static to avoid exposing a public destroy method on the native side of this class.
@@ -908,8 +940,8 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
             long nativeWebContentsAndroid, AccessibilitySnapshotCallback callback);
     private native void nativeSetOverscrollRefreshHandler(
             long nativeWebContentsAndroid, OverscrollRefreshHandler nativeOverscrollRefreshHandler);
-    private native void nativeGetContentBitmap(long nativeWebContentsAndroid, int width, int height,
-            String path, Callback<String> callback);
+    private native void nativeWriteContentBitmapToDisk(long nativeWebContentsAndroid, int width,
+            int height, String path, Callback<String> callback);
     private native void nativeReloadLoFiImages(long nativeWebContentsAndroid);
     private native int nativeDownloadImage(long nativeWebContentsAndroid,
             String url, boolean isFavicon, int maxBitmapSize,
@@ -933,4 +965,8 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     private native void nativeSendOrientationChangeEvent(
             long nativeWebContentsAndroid, int orientation);
     private native void nativeOnScaleFactorChanged(long nativeWebContentsAndroid);
+    private native void nativeSetFocus(long nativeWebContentsAndroid, boolean focused);
+    private native void nativeSetDisplayCutoutSafeArea(
+            long nativeWebContentsAndroid, int top, int left, int bottom, int right);
+    private native boolean nativeIsBeingDestroyed(long nativeWebContentsAndroid);
 }

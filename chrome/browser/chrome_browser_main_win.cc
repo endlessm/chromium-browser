@@ -10,18 +10,18 @@
 #include <windows.h>
 
 #include <algorithm>
-#include <memory>
+#include <utility>
 
 #include "base/base_switches.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/environment.h"
+#include "base/feature_list.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/i18n/rtl.h"
 #include "base/location.h"
-#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/scoped_native_library.h"
@@ -87,6 +87,10 @@
 #include "ui/gfx/platform_font_win.h"
 #include "ui/gfx/switches.h"
 #include "ui/strings/grit/app_locale_settings.h"
+
+#if defined(GOOGLE_CHROME_BUILD)
+#include "chrome/browser/conflicts/third_party_conflicts_manager_win.h"
+#endif
 
 namespace {
 
@@ -370,6 +374,7 @@ void SetupModuleDatabase(std::unique_ptr<ModuleWatcher>* module_watcher) {
   ModuleDatabase::SetInstance(
       std::make_unique<ModuleDatabase>(base::SequencedTaskRunnerHandle::Get()));
   auto* module_database = ModuleDatabase::GetInstance();
+  module_database->StartDrainingModuleLoadAttemptsLog();
 
   *module_watcher = ModuleWatcher::Create(base::BindRepeating(&OnModuleEvent));
 
@@ -513,11 +518,30 @@ void ChromeBrowserMainPartsWin::ShowMissingLocaleMessageBox() {
 void ChromeBrowserMainPartsWin::PostProfileInit() {
   ChromeBrowserMainParts::PostProfileInit();
 
+#if defined(GOOGLE_CHROME_BUILD)
+  // Explicitly disable the third-party modules blocking.
+  //
+  // Because the blocking code lives in chrome_elf, it is not possible to check
+  // the feature (via the FeatureList API) or the policy to control whether it
+  // is enabled or not.
+  //
+  // What truly controls if the blocking is enabled is the presence of the
+  // module blacklist cache file. This means that to disable the feature, the
+  // cache must be deleted and the browser relaunched.
+  if (!ModuleDatabase::IsThirdPartyBlockingPolicyEnabled() ||
+      !base::FeatureList::IsEnabled(features::kThirdPartyModulesBlocking))
+    ThirdPartyConflictsManager::DisableThirdPartyModuleBlocking(
+        base::CreateTaskRunnerWithTraits(
+            {base::TaskPriority::BACKGROUND,
+             base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN,
+             base::MayBlock()})
+            .get());
+#endif
+
   // Create the module database and hook up the in-process module watcher. This
   // needs to be done before any child processes are initialized as the
   // ModuleDatabase is an endpoint for IPC from child processes.
-  if (base::FeatureList::IsEnabled(features::kModuleDatabase))
-    SetupModuleDatabase(&module_watcher_);
+  SetupModuleDatabase(&module_watcher_);
 }
 
 void ChromeBrowserMainPartsWin::PostBrowserStart() {

@@ -235,7 +235,7 @@ class RunCommandError(Exception):
         'ascii', 'xmlcharrefreplace')
 
   def __eq__(self, other):
-    return (type(self) == type(other) and
+    return (isinstance(other, type(self)) and
             self.args == other.args)
 
   def __ne__(self, other):
@@ -786,7 +786,7 @@ def GetHostName(fully_qualified=False):
   hostname = socket.gethostname()
   try:
     hostname = socket.gethostbyaddr(hostname)[0]
-  except socket.gaierror as e:
+  except (socket.gaierror, socket.herror) as e:
     logging.warning('please check your /etc/hosts file; resolving your hostname'
                     ' (%s) failed: %s', hostname, e)
 
@@ -1009,6 +1009,7 @@ def CreateTarball(target, cwd, sudo=False, compression=COMP_XZ, chroot=None,
          ['--sparse', '-I', comp, '-cf', target] +
          list(inputs))
   rc_func = SudoRunCommand if sudo else RunCommand
+  input_abs_paths = [os.path.abspath(x) for x in inputs]
 
   # If tar fails with status 1, retry, but only once.  We think this is
   # acceptable because we see directories being modified, but not files.  Our
@@ -1019,6 +1020,32 @@ def CreateTarball(target, cwd, sudo=False, compression=COMP_XZ, chroot=None,
     if result.returncode == 0:
       return result
     if result.returncode != 1 or try_count > 0:
+      # Debug logic to find the competing program that is modifying the
+      # directory being compressed.
+      try:
+        lsof_result = RunCommand(['lsof', '-n', '-d', '0-999', '-F', 'pn'],
+                                 cwd=cwd, mute_output=True)
+      except Exception:
+        lsof_result = 0
+        logging.info('Exception running lsof.', exc_info=True)
+
+      if lsof_result:
+        logging.info('Potential competing programs:')
+        current_pid = 0
+        for line in lsof_result.output.splitlines():
+          if line.startswith('p'):
+            current_pid = line[1:]
+          elif line.startswith('n') and current_pid:
+            current_path = line[1:]
+            for input_path in input_abs_paths:
+              if input_path in current_path:
+                try:
+                  ps_result = RunCommand(['ps', '-f', current_pid],
+                                         mute_output=True)
+                  logging.info('%s', ps_result.output)
+                except Exception:
+                  logging.info('Exception running ps.', exc_info=True)
+
       raise CreateTarballError('CreateTarball', result)
     assert result.returncode == 1 and try_count == 0
     logging.warning('CreateTarball: tar: source modification time changed ' +
@@ -1564,65 +1591,6 @@ def LoadKeyValueFile(obj, ignore_missing=False, multiline=False):
   return d
 
 
-def MemoizedSingleCall(functor):
-  """Decorator for simple functor targets, caching the results
-
-  The functor must accept no arguments beyond either a class or self (depending
-  on if this is used in a classmethod/instancemethod context).  Results of the
-  wrapped method will be written to the class/instance namespace in a specially
-  named cached value.  All future invocations will just reuse that value.
-
-  Note that this cache is per-process, so sibling and parent processes won't
-  notice updates to the cache.
-  """
-  # TODO(build): Should we rebase to snakeoil.klass.cached* functionality?
-  # pylint: disable=protected-access
-  @functools.wraps(functor)
-  def wrapper(obj):
-    key = wrapper._cache_key
-    val = getattr(obj, key, None)
-    if val is None:
-      val = functor(obj)
-      setattr(obj, key, val)
-    return val
-
-  # Use name mangling to store the cached value in a (hopefully) unique place.
-  wrapper._cache_key = '_%s_cached' % (functor.__name__.lstrip('_'),)
-  return wrapper
-
-
-def Memoize(f):
-  """Decorator for memoizing a function.
-
-  Caches all calls to the function using a ._memo_cache dict mapping (args,
-  kwargs) to the results of the first function call with those args and kwargs.
-
-  If any of args or kwargs are not hashable, trying to store them in a dict will
-  cause a ValueError.
-
-  Note that this cache is per-process, so sibling and parent processes won't
-  notice updates to the cache.
-  """
-  # pylint: disable=protected-access
-  f._memo_cache = {}
-
-  @functools.wraps(f)
-  def wrapper(*args, **kwargs):
-    # Make sure that the key is hashable... as long as the contents of args and
-    # kwargs are hashable.
-    # TODO(phobbs) we could add an option to use the id(...) of an object if
-    # it's not hashable.  Then "MemoizedSingleCall" would be obsolete.
-    key = (tuple(args), tuple(sorted(kwargs.items())))
-    if key in f._memo_cache:
-      return f._memo_cache[key]
-
-    result = f(*args, **kwargs)
-    f._memo_cache[key] = result
-    return result
-
-  return wrapper
-
-
 def SafeRun(functors, combine_exceptions=False):
   """Executes a list of functors, continuing on exceptions.
 
@@ -1656,20 +1624,6 @@ def SafeRun(functors, combine_exceptions=False):
       raise inst, None, tb
     else:
       raise RuntimeError([e[0] for e in errors])
-
-
-def ParseDurationToSeconds(duration):
-  """Parses a string duration of the form HH:MM:SS into seconds.
-
-  Args:
-    duration: A string such as '12:43:12' (representing in this case
-              12 hours, 43 minutes, 12 seconds).
-
-  Returns:
-    An integer number of seconds.
-  """
-  h, m, s = [int(t) for t in duration.split(':')]
-  return s + 60 * m + 3600 * h
 
 
 def UserDateTimeFormat(timeval=None):
@@ -1913,7 +1867,7 @@ def Collection(classname, **kwargs):
 
   # Create the class in a local namespace as exec requires.
   namespace = {}
-  exec expr in namespace
+  exec expr in namespace  # pylint: disable=exec-used
   new_class = namespace[classname]
 
   # Bind the helpers.

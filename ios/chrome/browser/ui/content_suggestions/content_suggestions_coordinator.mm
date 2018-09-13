@@ -18,6 +18,7 @@
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_data_sink.h"
@@ -65,13 +66,6 @@
 @property(nonatomic, strong, readwrite)
     ContentSuggestionsHeaderViewController* headerController;
 
-// Toolbar to be embeded in header view.
-@property(nonatomic, strong)
-    PrimaryToolbarViewController* primaryToolbarViewController;
-
-// Mediator for updating the toolbar when the WebState changes.
-@property(nonatomic, strong) ToolbarMediator* primaryToolbarMediator;
-
 @end
 
 @implementation ContentSuggestionsCoordinator
@@ -90,8 +84,6 @@
 @synthesize delegate = _delegate;
 @synthesize metricsRecorder = _metricsRecorder;
 @synthesize NTPMediator = _NTPMediator;
-@synthesize primaryToolbarViewController = _primaryToolbarViewController;
-@synthesize primaryToolbarMediator = _primaryToolbarMediator;
 
 - (void)start {
   if (self.visible || !self.browserState) {
@@ -145,25 +137,6 @@
   self.headerController.readingListModel =
       ReadingListModelFactory::GetForBrowserState(self.browserState);
   self.headerController.toolbarDelegate = self.toolbarDelegate;
-
-  if (IsUIRefreshPhase1Enabled()) {
-    ToolbarButtonFactory* buttonFactory =
-        [[ToolbarButtonFactory alloc] initWithStyle:NORMAL];
-    buttonFactory.dispatcher = self.dispatcher;
-    buttonFactory.visibilityConfiguration =
-        [[ToolbarButtonVisibilityConfiguration alloc] initWithType:PRIMARY];
-
-    self.primaryToolbarViewController =
-        [[PrimaryToolbarViewController alloc] init];
-    self.primaryToolbarViewController.buttonFactory = buttonFactory;
-    [self.primaryToolbarViewController updateForSideSwipeSnapshotOnNTP:YES];
-    self.headerController.toolbarViewController =
-        self.primaryToolbarViewController;
-
-    self.primaryToolbarMediator = [[ToolbarMediator alloc] init];
-    self.primaryToolbarMediator.consumer = self.primaryToolbarViewController;
-    self.primaryToolbarMediator.webStateList = self.webStateList;
-  }
 
   favicon::LargeIconService* largeIconService =
       IOSChromeLargeIconServiceFactory::GetForBrowserState(self.browserState);
@@ -232,8 +205,6 @@
   self.NTPMediator = nil;
   self.contentSuggestionsMediator = nil;
   self.headerController = nil;
-  [self.primaryToolbarMediator disconnect];
-  self.primaryToolbarMediator = nil;
   _visible = NO;
 }
 
@@ -260,7 +231,7 @@
                    didTriggerAction:(OverscrollAction)action {
   switch (action) {
     case OverscrollAction::NEW_TAB: {
-      [_dispatcher openNewTab:[OpenNewTabCommand command]];
+      [_dispatcher openURL:[OpenNewTabCommand command]];
     } break;
     case OverscrollAction::CLOSE_TAB: {
       [_dispatcher closeCurrentTab];

@@ -80,12 +80,28 @@ class InstantService : public KeyedService,
   void UndoMostVisitedDeletion(const GURL& url);
   // Invoked when the Instant page wants to undo all Most Visited deletions.
   void UndoAllMostVisitedDeletions();
+  // Invoked when the Instant page wants to add a custom link.
+  bool AddCustomLink(const GURL& url, const std::string& title);
+  // Invoked when the Instant page wants to update a custom link.
+  bool UpdateCustomLink(const GURL& url,
+                        const GURL& new_url,
+                        const std::string& new_title);
+  // Invoked when the Instant page wants to delete a custom link.
+  bool DeleteCustomLink(const GURL& url);
+  // Invoked when the Instant page wants to undo the previous custom link
+  // action. Returns false and does nothing if the profile is using a non-Google
+  // search provider.
+  bool UndoCustomLinkAction();
+  // Invoked when the Instant page wants to delete all custom links and use Most
+  // Visited sites instead. Returns false and does nothing if the profile is
+  // using a non-Google search provider.
+  bool ResetCustomLinks();
 
   // Invoked by the InstantController to update theme information for NTP.
   //
   // TODO(kmadhusu): Invoking this from InstantController shouldn't be
   // necessary. Investigate more and remove this from here.
-  void UpdateThemeInfo(bool force_update);
+  void UpdateThemeInfo();
 
   // Invoked by the InstantController to update most visited items details for
   // NTP.
@@ -96,6 +112,19 @@ class InstantService : public KeyedService,
 
   // Invoked when a custom background is selected on the NTP.
   void SetCustomBackgroundURL(const GURL& url);
+
+  // Invoked when a custom background with attributions is selected on the NTP.
+  void SetCustomBackgroundURLWithAttributions(
+      const GURL& background_url,
+      const std::string& attribution_line_1,
+      const std::string& attribution_line_2,
+      const GURL& action_url);
+
+  // Invoked when a user selected the "Upload an image" option on the NTP.
+  void SelectLocalBackgroundImage(const base::FilePath& path);
+
+  // Used for testing.
+  ThemeBackgroundInfo* GetThemeInfoForTesting() { return theme_info_.get(); }
 
  private:
   friend class InstantExtendedTest;
@@ -126,6 +155,14 @@ class InstantService : public KeyedService,
 
   void BuildThemeInfo();
 
+  void ApplyOrResetCustomBackgroundThemeInfo();
+
+  void ResetCustomBackgroundThemeInfo();
+
+  // Update the background pref to point to
+  // chrome-search://local-ntp/background.jpg
+  void SetBackgroundToLocalResource();
+
   Profile* const profile_;
 
   // The process ids associated with Instant processes.
@@ -145,6 +182,8 @@ class InstantService : public KeyedService,
 
   // Data source for NTP tiles (aka Most Visited tiles). May be null.
   std::unique_ptr<ntp_tiles::MostVisitedSites> most_visited_sites_;
+
+  base::WeakPtrFactory<InstantService> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(InstantService);
 };

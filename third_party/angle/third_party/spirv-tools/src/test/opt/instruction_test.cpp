@@ -25,12 +25,14 @@
 namespace {
 
 using namespace spvtools;
-using ir::Instruction;
-using ir::IRContext;
-using ir::Operand;
+using opt::IRContext;
+using opt::Instruction;
+using opt::Operand;
 using spvtest::MakeInstruction;
 using ::testing::Eq;
 using DescriptorTypeTest = PassTest<::testing::Test>;
+using OpaqueTypeTest = PassTest<::testing::Test>;
+using GetBaseTest = PassTest<::testing::Test>;
 
 TEST(InstructionTest, CreateTrivial) {
   Instruction empty;
@@ -45,7 +47,7 @@ TEST(InstructionTest, CreateTrivial) {
 }
 
 TEST(InstructionTest, CreateWithOpcodeAndNoOperands) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&context, SpvOpReturn);
   EXPECT_EQ(SpvOpReturn, inst.opcode());
   EXPECT_EQ(0u, inst.type_id());
@@ -126,7 +128,7 @@ spv_parsed_instruction_t kSampleControlBarrierInstruction = {
     3};
 
 TEST(InstructionTest, CreateWithOpcodeAndOperands) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&context, kSampleParsedInstruction);
   EXPECT_EQ(SpvOpTypeInt, inst.opcode());
   EXPECT_EQ(0u, inst.type_id());
@@ -137,7 +139,7 @@ TEST(InstructionTest, CreateWithOpcodeAndOperands) {
 }
 
 TEST(InstructionTest, GetOperand) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&context, kSampleParsedInstruction);
   EXPECT_THAT(inst.GetOperand(0).words, Eq(std::vector<uint32_t>{44}));
   EXPECT_THAT(inst.GetOperand(1).words, Eq(std::vector<uint32_t>{32}));
@@ -145,14 +147,14 @@ TEST(InstructionTest, GetOperand) {
 }
 
 TEST(InstructionTest, GetInOperand) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&context, kSampleParsedInstruction);
   EXPECT_THAT(inst.GetInOperand(0).words, Eq(std::vector<uint32_t>{32}));
   EXPECT_THAT(inst.GetInOperand(1).words, Eq(std::vector<uint32_t>{1}));
 }
 
 TEST(InstructionTest, OperandConstIterators) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&context, kSampleParsedInstruction);
   // Spot check iteration across operands.
   auto cbegin = inst.cbegin();
@@ -179,7 +181,7 @@ TEST(InstructionTest, OperandConstIterators) {
 }
 
 TEST(InstructionTest, OperandIterators) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&context, kSampleParsedInstruction);
   // Spot check iteration across operands, with mutable iterators.
   auto begin = inst.begin();
@@ -210,7 +212,7 @@ TEST(InstructionTest, OperandIterators) {
 }
 
 TEST(InstructionTest, ForInIdStandardIdTypes) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&context, kSampleAccessChainInstruction);
 
   std::vector<uint32_t> ids;
@@ -223,7 +225,7 @@ TEST(InstructionTest, ForInIdStandardIdTypes) {
 }
 
 TEST(InstructionTest, ForInIdNonstandardIdTypes) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&context, kSampleControlBarrierInstruction);
 
   std::vector<uint32_t> ids;
@@ -236,14 +238,14 @@ TEST(InstructionTest, ForInIdNonstandardIdTypes) {
 }
 
 TEST(InstructionTest, UniqueIds) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst1(&context);
   Instruction inst2(&context);
   EXPECT_NE(inst1.unique_id(), inst2.unique_id());
 }
 
 TEST(InstructionTest, CloneUniqueIdDifferent) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&context);
   std::unique_ptr<Instruction> clone(inst.Clone(&context));
   EXPECT_EQ(inst.context(), clone->context());
@@ -251,8 +253,8 @@ TEST(InstructionTest, CloneUniqueIdDifferent) {
 }
 
 TEST(InstructionTest, CloneDifferentContext) {
-  IRContext c1(nullptr);
-  IRContext c2(nullptr);
+  IRContext c1(SPV_ENV_UNIVERSAL_1_2, nullptr);
+  IRContext c2(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&c1);
   std::unique_ptr<Instruction> clone(inst.Clone(&c2));
   EXPECT_EQ(&c1, inst.context());
@@ -261,8 +263,8 @@ TEST(InstructionTest, CloneDifferentContext) {
 }
 
 TEST(InstructionTest, CloneDifferentContextDifferentUniqueId) {
-  IRContext c1(nullptr);
-  IRContext c2(nullptr);
+  IRContext c1(SPV_ENV_UNIVERSAL_1_2, nullptr);
+  IRContext c2(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction inst(&c1);
   Instruction other(&c2);
   std::unique_ptr<Instruction> clone(inst.Clone(&c2));
@@ -271,7 +273,7 @@ TEST(InstructionTest, CloneDifferentContextDifferentUniqueId) {
 }
 
 TEST(InstructionTest, EqualsEqualsOperator) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction i1(&context);
   Instruction i2(&context);
   std::unique_ptr<Instruction> clone(i1.Clone(&context));
@@ -282,7 +284,7 @@ TEST(InstructionTest, EqualsEqualsOperator) {
 }
 
 TEST(InstructionTest, LessThanOperator) {
-  IRContext context(nullptr);
+  IRContext context(SPV_ENV_UNIVERSAL_1_2, nullptr);
   Instruction i1(&context);
   Instruction i2(&context);
   std::unique_ptr<Instruction> clone(i1.Clone(&context));
@@ -314,7 +316,7 @@ TEST_F(DescriptorTypeTest, StorageImage) {
                OpFunctionEnd
 )";
 
-  std::unique_ptr<ir::IRContext> context =
+  std::unique_ptr<opt::IRContext> context =
       BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
   Instruction* type = context->get_def_use_mgr()->GetDef(8);
   EXPECT_TRUE(type->IsVulkanStorageImage());
@@ -350,7 +352,7 @@ TEST_F(DescriptorTypeTest, SampledImage) {
                OpFunctionEnd
 )";
 
-  std::unique_ptr<ir::IRContext> context =
+  std::unique_ptr<opt::IRContext> context =
       BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
   Instruction* type = context->get_def_use_mgr()->GetDef(8);
   EXPECT_FALSE(type->IsVulkanStorageImage());
@@ -386,7 +388,7 @@ TEST_F(DescriptorTypeTest, StorageTexelBuffer) {
                OpFunctionEnd
 )";
 
-  std::unique_ptr<ir::IRContext> context =
+  std::unique_ptr<opt::IRContext> context =
       BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
   Instruction* type = context->get_def_use_mgr()->GetDef(8);
   EXPECT_FALSE(type->IsVulkanStorageImage());
@@ -425,7 +427,7 @@ TEST_F(DescriptorTypeTest, StorageBuffer) {
                OpFunctionEnd
 )";
 
-  std::unique_ptr<ir::IRContext> context =
+  std::unique_ptr<opt::IRContext> context =
       BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
   Instruction* type = context->get_def_use_mgr()->GetDef(10);
   EXPECT_FALSE(type->IsVulkanStorageImage());
@@ -464,7 +466,7 @@ TEST_F(DescriptorTypeTest, UniformBuffer) {
                OpFunctionEnd
 )";
 
-  std::unique_ptr<ir::IRContext> context =
+  std::unique_ptr<opt::IRContext> context =
       BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
   Instruction* type = context->get_def_use_mgr()->GetDef(10);
   EXPECT_FALSE(type->IsVulkanStorageImage());
@@ -504,9 +506,153 @@ TEST_F(DescriptorTypeTest, NonWritableIsReadOnly) {
                OpFunctionEnd
 )";
 
-  std::unique_ptr<ir::IRContext> context =
+  std::unique_ptr<opt::IRContext> context =
       BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
   Instruction* variable = context->get_def_use_mgr()->GetDef(3);
   EXPECT_TRUE(variable->IsReadOnlyVariable());
+}
+
+TEST_F(OpaqueTypeTest, BaseOpaqueTypesShader) {
+  const std::string text = R"(
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %2 "main"
+               OpExecutionMode %2 OriginUpperLeft
+               OpSource GLSL 430
+          %3 = OpTypeVoid
+          %4 = OpTypeFunction %3
+          %5 = OpTypeFloat 32
+          %6 = OpTypeImage %5 2D 1 0 0 1 Unknown
+          %7 = OpTypeSampler
+          %8 = OpTypeSampledImage %6
+          %9 = OpTypeRuntimeArray %5
+          %2 = OpFunction %3 None %4
+         %10 = OpLabel
+               OpReturn
+               OpFunctionEnd
+)";
+
+  std::unique_ptr<opt::IRContext> context =
+      BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
+  Instruction* image_type = context->get_def_use_mgr()->GetDef(6);
+  EXPECT_TRUE(image_type->IsOpaqueType());
+  Instruction* sampler_type = context->get_def_use_mgr()->GetDef(7);
+  EXPECT_TRUE(sampler_type->IsOpaqueType());
+  Instruction* sampled_image_type = context->get_def_use_mgr()->GetDef(8);
+  EXPECT_TRUE(sampled_image_type->IsOpaqueType());
+  Instruction* runtime_array_type = context->get_def_use_mgr()->GetDef(9);
+  EXPECT_TRUE(runtime_array_type->IsOpaqueType());
+  Instruction* float_type = context->get_def_use_mgr()->GetDef(5);
+  EXPECT_FALSE(float_type->IsOpaqueType());
+  Instruction* void_type = context->get_def_use_mgr()->GetDef(3);
+  EXPECT_FALSE(void_type->IsOpaqueType());
+}
+
+TEST_F(OpaqueTypeTest, OpaqueStructTypes) {
+  const std::string text = R"(
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %2 "main"
+               OpExecutionMode %2 OriginUpperLeft
+               OpSource GLSL 430
+          %3 = OpTypeVoid
+          %4 = OpTypeFunction %3
+          %5 = OpTypeFloat 32
+          %6 = OpTypeRuntimeArray %5
+          %7 = OpTypeStruct %6 %6
+          %8 = OpTypeStruct %5 %6
+          %9 = OpTypeStruct %6 %5
+         %10 = OpTypeStruct %7
+          %2 = OpFunction %3 None %4
+         %11 = OpLabel
+               OpReturn
+               OpFunctionEnd
+)";
+
+  std::unique_ptr<opt::IRContext> context =
+      BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
+  for (int i = 7; i <= 10; i++) {
+    Instruction* type = context->get_def_use_mgr()->GetDef(i);
+    EXPECT_TRUE(type->IsOpaqueType());
+  }
+}
+
+TEST_F(GetBaseTest, SampleImage) {
+  const std::string text = R"(
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %2 "main"
+               OpExecutionMode %2 OriginUpperLeft
+               OpSource GLSL 430
+               OpName %3 "myStorageImage"
+               OpDecorate %3 DescriptorSet 0
+               OpDecorate %3 Binding 0
+          %4 = OpTypeVoid
+          %5 = OpTypeFunction %4
+          %6 = OpTypeFloat 32
+          %7 = OpTypeVector %6 2
+          %8 = OpTypeVector %6 4
+          %9 = OpConstant %6 0
+         %10 = OpConstantComposite %7 %9 %9
+         %11 = OpTypeImage %6 2D 0 0 0 1 R32f
+         %12 = OpTypePointer UniformConstant %11
+          %3 = OpVariable %12 UniformConstant
+         %13 = OpTypeSampledImage %11
+         %14 = OpTypeSampler
+         %15 = OpTypePointer UniformConstant %14
+         %16 = OpVariable %15 UniformConstant
+          %2 = OpFunction %4 None %5
+         %17 = OpLabel
+         %18 = OpLoad %11 %3
+         %19 = OpLoad %14 %16
+         %20 = OpSampledImage %13 %18 %19
+         %21 = OpImageSampleImplicitLod %8 %20 %10
+               OpReturn
+               OpFunctionEnd
+)";
+
+  std::unique_ptr<opt::IRContext> context =
+      BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
+  Instruction* load = context->get_def_use_mgr()->GetDef(21);
+  Instruction* base = context->get_def_use_mgr()->GetDef(20);
+  EXPECT_TRUE(load->GetBaseAddress() == base);
+}
+
+TEST_F(GetBaseTest, ImageRead) {
+  const std::string text = R"(
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %2 "main"
+               OpExecutionMode %2 OriginUpperLeft
+               OpSource GLSL 430
+               OpName %3 "myStorageImage"
+               OpDecorate %3 DescriptorSet 0
+               OpDecorate %3 Binding 0
+          %4 = OpTypeVoid
+          %5 = OpTypeFunction %4
+          %6 = OpTypeInt 32 0
+          %7 = OpTypeVector %6 2
+          %8 = OpConstant %6 0
+          %9 = OpConstantComposite %7 %8 %8
+         %10 = OpTypeImage %6 2D 0 0 0 2 R32f
+         %11 = OpTypePointer UniformConstant %10
+          %3 = OpVariable %11 UniformConstant
+          %2 = OpFunction %4 None %5
+         %12 = OpLabel
+         %13 = OpLoad %10 %3
+         %14 = OpImageRead %6 %13 %9
+               OpReturn
+               OpFunctionEnd
+)";
+
+  std::unique_ptr<opt::IRContext> context =
+      BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
+  Instruction* load = context->get_def_use_mgr()->GetDef(14);
+  Instruction* base = context->get_def_use_mgr()->GetDef(13);
+  EXPECT_TRUE(load->GetBaseAddress() == base);
 }
 }  // anonymous namespace

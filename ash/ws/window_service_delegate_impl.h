@@ -21,8 +21,31 @@ class WindowServiceDelegateImpl : public ui::ws2::WindowServiceDelegate {
       aura::PropertyConverter* property_converter,
       const base::flat_map<std::string, std::vector<uint8_t>>& properties)
       override;
+  void OnUnhandledKeyEvent(const ui::KeyEvent& key_event) override;
+  bool StoreAndSetCursor(aura::Window* window, ui::Cursor cursor) override;
+  void RunWindowMoveLoop(aura::Window* window,
+                         ui::mojom::MoveLoopSource source,
+                         const gfx::Point& cursor,
+                         DoneCallback callback) override;
+  void CancelWindowMoveLoop() override;
+  void RunDragLoop(aura::Window* window,
+                   const ui::OSExchangeData& data,
+                   const gfx::Point& screen_location,
+                   uint32_t drag_operation,
+                   ui::DragDropTypes::DragEventSource source,
+                   DragDropCompletedCallback callback) override;
+  void CancelDragLoop(aura::Window* window) override;
+  void UpdateTextInputState(aura::Window* window,
+                            ui::mojom::TextInputStatePtr state) override;
+  void UpdateImeVisibility(aura::Window* window,
+                           bool visible,
+                           ui::mojom::TextInputStatePtr state) override;
+  void SetModalType(aura::Window* window, ui::ModalType type) override;
+  ui::SystemInputInjector* GetSystemInputInjector() override;
 
  private:
+  std::unique_ptr<ui::SystemInputInjector> system_input_injector_;
+
   DISALLOW_COPY_AND_ASSIGN(WindowServiceDelegateImpl);
 };
 

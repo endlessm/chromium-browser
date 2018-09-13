@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <sstream>
 #include <utility>
 
 #include "base/base64url.h"
@@ -15,17 +16,19 @@
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
 #include "base/values.h"
+#include "chromeos/chromeos_features.h"
 #include "chromeos/components/proximity_auth/logging/logging.h"
 #include "chromeos/components/proximity_auth/messenger.h"
 #include "chromeos/components/proximity_auth/remote_device_life_cycle_impl.h"
 #include "chromeos/components/proximity_auth/remote_status_update.h"
-#include "chromeos/components/proximity_auth/webui/reachable_phone_flow.h"
 #include "components/cryptauth/cryptauth_enrollment_manager.h"
 #include "components/cryptauth/proto/cryptauth_api.pb.h"
+#include "components/cryptauth/proto/enum_string_util.h"
 #include "components/cryptauth/remote_device_loader.h"
 #include "components/cryptauth/remote_device_ref.h"
 #include "components/cryptauth/secure_context.h"
 #include "components/cryptauth/secure_message_delegate_impl.h"
+#include "components/cryptauth/software_feature_state.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_ui.h"
@@ -34,6 +37,16 @@
 namespace proximity_auth {
 
 namespace {
+
+constexpr const cryptauth::SoftwareFeature kAllSoftareFeatures[] = {
+    cryptauth::SoftwareFeature::BETTER_TOGETHER_HOST,
+    cryptauth::SoftwareFeature::BETTER_TOGETHER_CLIENT,
+    cryptauth::SoftwareFeature::EASY_UNLOCK_HOST,
+    cryptauth::SoftwareFeature::EASY_UNLOCK_CLIENT,
+    cryptauth::SoftwareFeature::MAGIC_TETHER_HOST,
+    cryptauth::SoftwareFeature::MAGIC_TETHER_CLIENT,
+    cryptauth::SoftwareFeature::SMS_CONNECT_HOST,
+    cryptauth::SoftwareFeature::SMS_CONNECT_CLIENT};
 
 // Keys in the JSON representation of a log message.
 const char kLogMessageTextKey[] = "text";
@@ -76,6 +89,7 @@ const char kExternalDeviceMobileHotspot[] = "hasMobileHotspot";
 const char kExternalDeviceIsArcPlusPlusEnrollment[] = "isArcPlusPlusEnrollment";
 const char kExternalDeviceIsPixelPhone[] = "isPixelPhone";
 const char kExternalDeviceConnectionStatus[] = "connectionStatus";
+const char kExternalDeviceFeatureStates[] = "featureStates";
 const char kExternalDeviceRemoteState[] = "remoteState";
 
 // The possible values of the |kExternalDeviceConnectionStatus| field.
@@ -103,23 +117,58 @@ std::unique_ptr<base::DictionaryValue> CreateSyncStateDictionary(
   return sync_state;
 }
 
+std::string GenerateFeaturesString(const cryptauth::RemoteDeviceRef& device) {
+  std::stringstream ss;
+  ss << "{";
+
+  bool logged_feature = false;
+  for (const auto& software_feature : kAllSoftareFeatures) {
+    cryptauth::SoftwareFeatureState state =
+        device.GetSoftwareFeatureState(software_feature);
+
+    // Only log features with values.
+    if (state == cryptauth::SoftwareFeatureState::kNotSupported)
+      continue;
+
+    logged_feature = true;
+    ss << software_feature << ": " << state << ", ";
+  }
+
+  if (logged_feature)
+    ss.seekp(-2, ss.cur);  // Remove last ", " from the stream.
+
+  ss << "}";
+  return ss.str();
+}
+
 }  // namespace
 
 ProximityAuthWebUIHandler::ProximityAuthWebUIHandler(
-    ProximityAuthClient* proximity_auth_client)
+    ProximityAuthClient* proximity_auth_client,
+    chromeos::device_sync::DeviceSyncClient* device_sync_client,
+    chromeos::secure_channel::SecureChannelClient* secure_channel_client)
     : proximity_auth_client_(proximity_auth_client),
+      device_sync_client_(device_sync_client),
+      secure_channel_client_(secure_channel_client),
       web_contents_initialized_(false),
       weak_ptr_factory_(this) {
-  cryptauth_client_factory_ =
-      proximity_auth_client_->CreateCryptAuthClientFactory();
+  if (!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    cryptauth_client_factory_ =
+        proximity_auth_client_->CreateCryptAuthClientFactory();
+  }
 }
 
 ProximityAuthWebUIHandler::~ProximityAuthWebUIHandler() {
   LogBuffer::GetInstance()->RemoveObserver(this);
-  cryptauth::CryptAuthDeviceManager* device_manager =
-      proximity_auth_client_->GetCryptAuthDeviceManager();
-  if (device_manager)
-    device_manager->RemoveObserver(this);
+
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    device_sync_client_->RemoveObserver(this);
+  } else {
+    cryptauth::CryptAuthDeviceManager* device_manager =
+        proximity_auth_client_->GetCryptAuthDeviceManager();
+    if (device_manager)
+      device_manager->RemoveObserver(this);
+  }
 }
 
 void ProximityAuthWebUIHandler::RegisterMessages() {
@@ -146,11 +195,6 @@ void ProximityAuthWebUIHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "findEligibleUnlockDevices",
       base::BindRepeating(&ProximityAuthWebUIHandler::FindEligibleUnlockDevices,
-                          base::Unretained(this)));
-
-  web_ui()->RegisterMessageCallback(
-      "findReachableDevices",
-      base::BindRepeating(&ProximityAuthWebUIHandler::FindReachableDevices,
                           base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
@@ -188,22 +232,19 @@ void ProximityAuthWebUIHandler::OnLogBufferCleared() {
 }
 
 void ProximityAuthWebUIHandler::OnEnrollmentStarted() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
   web_ui()->CallJavascriptFunctionUnsafe(
       "LocalStateInterface.onEnrollmentStateChanged",
       *GetEnrollmentStateDictionary());
 }
 
 void ProximityAuthWebUIHandler::OnEnrollmentFinished(bool success) {
-  std::unique_ptr<base::DictionaryValue> enrollment_state =
-      GetEnrollmentStateDictionary();
-  PA_LOG(INFO) << "Enrollment attempt completed with success=" << success
-               << ":\n"
-               << *enrollment_state;
-  web_ui()->CallJavascriptFunctionUnsafe(
-      "LocalStateInterface.onEnrollmentStateChanged", *enrollment_state);
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
+  NotifyOnEnrollmentFinished(success, GetEnrollmentStateDictionary());
 }
 
 void ProximityAuthWebUIHandler::OnSyncStarted() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
   web_ui()->CallJavascriptFunctionUnsafe(
       "LocalStateInterface.onDeviceSyncStateChanged",
       *GetDeviceSyncStateDictionary());
@@ -213,36 +254,53 @@ void ProximityAuthWebUIHandler::OnSyncFinished(
     cryptauth::CryptAuthDeviceManager::SyncResult sync_result,
     cryptauth::CryptAuthDeviceManager::DeviceChangeResult
         device_change_result) {
-  std::unique_ptr<base::DictionaryValue> device_sync_state =
-      GetDeviceSyncStateDictionary();
-  PA_LOG(INFO) << "Device sync completed with result="
-               << static_cast<int>(sync_result) << ":\n"
-               << *device_sync_state;
-  web_ui()->CallJavascriptFunctionUnsafe(
-      "LocalStateInterface.onDeviceSyncStateChanged", *device_sync_state);
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
+  NotifyOnSyncFinished(
+      sync_result == cryptauth::CryptAuthDeviceManager::SyncResult::
+                         SUCCESS /* was_sync_successful */,
+      device_change_result == cryptauth::CryptAuthDeviceManager::
+                                  DeviceChangeResult::CHANGED /* changed */,
+      GetDeviceSyncStateDictionary());
+}
 
-  if (device_change_result ==
-      cryptauth::CryptAuthDeviceManager::DeviceChangeResult::CHANGED) {
-    std::unique_ptr<base::ListValue> synced_devices = GetRemoteDevicesList();
-    PA_LOG(INFO) << "New unlock keys obtained after device sync:\n"
-                 << *synced_devices;
-    web_ui()->CallJavascriptFunctionUnsafe(
-        "LocalStateInterface.onRemoteDevicesChanged", *synced_devices);
-  }
+void ProximityAuthWebUIHandler::OnEnrollmentFinished() {
+  DCHECK(base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
+
+  // OnGetDebugInfo() will call NotifyOnEnrollmentFinished() with the enrollment
+  // state info.
+  enrollment_update_waiting_for_debug_info_ = true;
+  device_sync_client_->GetDebugInfo(
+      base::BindOnce(&ProximityAuthWebUIHandler::OnGetDebugInfo,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void ProximityAuthWebUIHandler::OnNewDevicesSynced() {
+  DCHECK(base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
+
+  // OnGetDebugInfo() will call NotifyOnSyncFinished() with the device sync
+  // state info.
+  sync_update_waiting_for_debug_info_ = true;
+  device_sync_client_->GetDebugInfo(
+      base::BindOnce(&ProximityAuthWebUIHandler::OnGetDebugInfo,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void ProximityAuthWebUIHandler::OnWebContentsInitialized(
     const base::ListValue* args) {
   if (!web_contents_initialized_) {
-    cryptauth::CryptAuthEnrollmentManager* enrollment_manager =
-        proximity_auth_client_->GetCryptAuthEnrollmentManager();
-    if (enrollment_manager)
-      enrollment_manager->AddObserver(this);
+    if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+      device_sync_client_->AddObserver(this);
+    } else {
+      cryptauth::CryptAuthEnrollmentManager* enrollment_manager =
+          proximity_auth_client_->GetCryptAuthEnrollmentManager();
+      if (enrollment_manager)
+        enrollment_manager->AddObserver(this);
 
-    cryptauth::CryptAuthDeviceManager* device_manager =
-        proximity_auth_client_->GetCryptAuthDeviceManager();
-    if (device_manager)
-      device_manager->AddObserver(this);
+      cryptauth::CryptAuthDeviceManager* device_manager =
+          proximity_auth_client_->GetCryptAuthDeviceManager();
+      if (device_manager)
+        device_manager->AddObserver(this);
+    }
 
     LogBuffer::GetInstance()->AddObserver(this);
 
@@ -277,83 +335,90 @@ void ProximityAuthWebUIHandler::ToggleUnlockKey(const base::ListValue* args) {
     return;
   }
 
-  cryptauth::ToggleEasyUnlockRequest request;
-  request.set_enable(make_unlock_key);
-  request.set_public_key(public_key);
-  *(request.mutable_device_classifier()) =
-      proximity_auth_client_->GetDeviceClassifier();
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    device_sync_client_->SetSoftwareFeatureState(
+        public_key, cryptauth::SoftwareFeature::EASY_UNLOCK_HOST,
+        true /* enabled */, true /* is_exclusive */,
+        base::BindOnce(&ProximityAuthWebUIHandler::OnSetSoftwareFeatureState,
+                       weak_ptr_factory_.GetWeakPtr(), public_key));
+  } else {
+    cryptauth::ToggleEasyUnlockRequest request;
+    request.set_enable(make_unlock_key);
+    request.set_public_key(public_key);
+    *(request.mutable_device_classifier()) =
+        proximity_auth_client_->GetDeviceClassifier();
 
-  PA_LOG(INFO) << "Toggling unlock key:\n"
-               << "    public_key: " << public_key_b64 << "\n"
-               << "    make_unlock_key: " << make_unlock_key;
-  cryptauth_client_ = cryptauth_client_factory_->CreateInstance();
-  cryptauth_client_->ToggleEasyUnlock(
-      request,
-      base::Bind(&ProximityAuthWebUIHandler::OnEasyUnlockToggled,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&ProximityAuthWebUIHandler::OnCryptAuthClientError,
-                 weak_ptr_factory_.GetWeakPtr()));
+    PA_LOG(INFO) << "Toggling unlock key:\n"
+                 << "    public_key: " << public_key_b64 << "\n"
+                 << "    make_unlock_key: " << make_unlock_key;
+    cryptauth_client_ = cryptauth_client_factory_->CreateInstance();
+    cryptauth_client_->ToggleEasyUnlock(
+        request,
+        base::Bind(&ProximityAuthWebUIHandler::OnEasyUnlockToggled,
+                   weak_ptr_factory_.GetWeakPtr()),
+        base::Bind(&ProximityAuthWebUIHandler::OnCryptAuthClientError,
+                   weak_ptr_factory_.GetWeakPtr()));
+  }
 }
 
 void ProximityAuthWebUIHandler::FindEligibleUnlockDevices(
     const base::ListValue* args) {
-  cryptauth_client_ = cryptauth_client_factory_->CreateInstance();
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    device_sync_client_->FindEligibleDevices(
+        cryptauth::SoftwareFeature::EASY_UNLOCK_HOST,
+        base::BindOnce(&ProximityAuthWebUIHandler::OnFindEligibleDevices,
+                       weak_ptr_factory_.GetWeakPtr()));
+  } else {
+    cryptauth_client_ = cryptauth_client_factory_->CreateInstance();
 
-  cryptauth::FindEligibleUnlockDevicesRequest request;
-  *(request.mutable_device_classifier()) =
-      proximity_auth_client_->GetDeviceClassifier();
-  cryptauth_client_->FindEligibleUnlockDevices(
-      request,
-      base::Bind(&ProximityAuthWebUIHandler::OnFoundEligibleUnlockDevices,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&ProximityAuthWebUIHandler::OnCryptAuthClientError,
-                 weak_ptr_factory_.GetWeakPtr()));
-}
-
-void ProximityAuthWebUIHandler::FindReachableDevices(
-    const base::ListValue* args) {
-  if (reachable_phone_flow_) {
-    PA_LOG(INFO) << "Waiting for existing ReachablePhoneFlow to finish.";
-    return;
+    cryptauth::FindEligibleUnlockDevicesRequest request;
+    *(request.mutable_device_classifier()) =
+        proximity_auth_client_->GetDeviceClassifier();
+    cryptauth_client_->FindEligibleUnlockDevices(
+        request,
+        base::Bind(&ProximityAuthWebUIHandler::OnFoundEligibleUnlockDevices,
+                   weak_ptr_factory_.GetWeakPtr()),
+        base::Bind(&ProximityAuthWebUIHandler::OnCryptAuthClientError,
+                   weak_ptr_factory_.GetWeakPtr()));
   }
-
-  reachable_phone_flow_.reset(
-      new ReachablePhoneFlow(cryptauth_client_factory_.get()));
-  reachable_phone_flow_->Run(
-      base::Bind(&ProximityAuthWebUIHandler::OnReachablePhonesFound,
-                 weak_ptr_factory_.GetWeakPtr()));
 }
 
 void ProximityAuthWebUIHandler::ForceEnrollment(const base::ListValue* args) {
-  cryptauth::CryptAuthEnrollmentManager* enrollment_manager =
-      proximity_auth_client_->GetCryptAuthEnrollmentManager();
-  if (enrollment_manager) {
-    enrollment_manager->ForceEnrollmentNow(cryptauth::INVOCATION_REASON_MANUAL);
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    device_sync_client_->ForceEnrollmentNow(
+        base::BindOnce(&ProximityAuthWebUIHandler::OnForceEnrollmentNow,
+                       weak_ptr_factory_.GetWeakPtr()));
+  } else {
+    cryptauth::CryptAuthEnrollmentManager* enrollment_manager =
+        proximity_auth_client_->GetCryptAuthEnrollmentManager();
+    if (enrollment_manager) {
+      enrollment_manager->ForceEnrollmentNow(
+          cryptauth::INVOCATION_REASON_MANUAL);
+    }
   }
 }
 
 void ProximityAuthWebUIHandler::ForceDeviceSync(const base::ListValue* args) {
-  cryptauth::CryptAuthDeviceManager* device_manager =
-      proximity_auth_client_->GetCryptAuthDeviceManager();
-  if (device_manager)
-    device_manager->ForceSyncNow(cryptauth::INVOCATION_REASON_MANUAL);
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    device_sync_client_->ForceSyncNow(
+        base::BindOnce(&ProximityAuthWebUIHandler::OnForceSyncNow,
+                       weak_ptr_factory_.GetWeakPtr()));
+  } else {
+    cryptauth::CryptAuthDeviceManager* device_manager =
+        proximity_auth_client_->GetCryptAuthDeviceManager();
+    if (device_manager)
+      device_manager->ForceSyncNow(cryptauth::INVOCATION_REASON_MANUAL);
+  }
 }
 
 void ProximityAuthWebUIHandler::ToggleConnection(const base::ListValue* args) {
-  cryptauth::CryptAuthEnrollmentManager* enrollment_manager =
-      proximity_auth_client_->GetCryptAuthEnrollmentManager();
-  cryptauth::CryptAuthDeviceManager* device_manager =
-      proximity_auth_client_->GetCryptAuthDeviceManager();
-  if (!enrollment_manager || !device_manager)
-    return;
-
   std::string b64_public_key;
   std::string public_key;
-  if (!enrollment_manager || !device_manager || !args->GetSize() ||
-      !args->GetString(0, &b64_public_key) ||
+  if (!args->GetSize() || !args->GetString(0, &b64_public_key) ||
       !base::Base64UrlDecode(b64_public_key,
                              base::Base64UrlDecodePolicy::REQUIRE_PADDING,
                              &public_key)) {
+    PA_LOG(ERROR) << "Unlock key (" << b64_public_key << ") not found";
     return;
   }
 
@@ -361,35 +426,55 @@ void ProximityAuthWebUIHandler::ToggleConnection(const base::ListValue* args) {
   if (selected_remote_device_)
     selected_device_public_key = selected_remote_device_->public_key();
 
-  for (const auto& unlock_key : device_manager->GetUnlockKeys()) {
-    if (unlock_key.public_key() == public_key) {
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    for (const auto& remote_device : device_sync_client_->GetSyncedDevices()) {
+      if (remote_device.public_key() != public_key)
+        continue;
+
       if (life_cycle_ && selected_device_public_key == public_key) {
         CleanUpRemoteDeviceLifeCycle();
         return;
       }
 
-      // TODO(sacomoto): Pass an instance of ProximityAuthPrefManager. This is
-      // used to get the address of BLE devices.
+      StartRemoteDeviceLifeCycle(remote_device);
+    }
+  } else {
+    cryptauth::CryptAuthEnrollmentManager* enrollment_manager =
+        proximity_auth_client_->GetCryptAuthEnrollmentManager();
+    cryptauth::CryptAuthDeviceManager* device_manager =
+        proximity_auth_client_->GetCryptAuthDeviceManager();
+    if (!enrollment_manager || !device_manager)
+      return;
+
+    for (const auto& unlock_key : device_manager->GetUnlockKeys()) {
+      if (unlock_key.public_key() != public_key)
+        continue;
+
+      if (life_cycle_ && selected_device_public_key == public_key) {
+        CleanUpRemoteDeviceLifeCycle();
+        return;
+      }
+
       remote_device_loader_.reset(new cryptauth::RemoteDeviceLoader(
           std::vector<cryptauth::ExternalDeviceInfo>(1, unlock_key),
           proximity_auth_client_->GetAccountId(),
           enrollment_manager->GetUserPrivateKey(),
           cryptauth::SecureMessageDelegateImpl::Factory::NewInstance()));
       remote_device_loader_->Load(
-          true /* should_load_beacon_seeds */,
           base::Bind(&ProximityAuthWebUIHandler::OnRemoteDevicesLoaded,
                      weak_ptr_factory_.GetWeakPtr()));
       return;
     }
   }
-
-  PA_LOG(ERROR) << "Unlock key (" << b64_public_key << ") not found";
 }
 
 void ProximityAuthWebUIHandler::OnCryptAuthClientError(
-    const std::string& error_message) {
-  PA_LOG(WARNING) << "CryptAuth request failed: " << error_message;
-  base::Value error_string(error_message);
+    cryptauth::NetworkRequestError error) {
+  PA_LOG(WARNING) << "CryptAuth request failed: " << error;
+
+  std::stringstream ss;
+  ss << error;
+  base::Value error_string(ss.str());
   web_ui()->CallJavascriptFunctionUnsafe("CryptAuthInterface.onError",
                                          error_string);
 }
@@ -421,39 +506,30 @@ void ProximityAuthWebUIHandler::OnFoundEligibleUnlockDevices(
       ineligible_devices);
 }
 
-void ProximityAuthWebUIHandler::OnReachablePhonesFound(
-    const std::vector<cryptauth::ExternalDeviceInfo>& reachable_phones) {
-  reachable_phone_flow_.reset();
-  base::ListValue device_list;
-  for (const auto& external_device : reachable_phones) {
-    device_list.Append(ExternalDeviceInfoToDictionary(external_device));
-  }
-  web_ui()->CallJavascriptFunctionUnsafe(
-      "CryptAuthInterface.onGotReachableDevices", device_list);
-}
-
 void ProximityAuthWebUIHandler::GetLocalState(const base::ListValue* args) {
-  std::unique_ptr<base::Value> truncated_local_device_id =
-      GetTruncatedLocalDeviceId();
-  std::unique_ptr<base::DictionaryValue> enrollment_state =
-      GetEnrollmentStateDictionary();
-  std::unique_ptr<base::DictionaryValue> device_sync_state =
-      GetDeviceSyncStateDictionary();
-  std::unique_ptr<base::ListValue> synced_devices = GetRemoteDevicesList();
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    // OnGetDebugInfo() will call NotifyGotLocalState() with the enrollment and
+    // device sync state info.
+    get_local_state_update_waiting_for_debug_info_ = true;
+    device_sync_client_->GetDebugInfo(
+        base::BindOnce(&ProximityAuthWebUIHandler::OnGetDebugInfo,
+                       weak_ptr_factory_.GetWeakPtr()));
+    return;
+  }
 
-  PA_LOG(INFO) << "==== Got Local State ====\n"
-               << "Device ID (truncated): " << *truncated_local_device_id
-               << "\nEnrollment State: \n"
-               << *enrollment_state << "Device Sync State: \n"
-               << *device_sync_state << "Unlock Keys: \n"
-               << *synced_devices;
-  web_ui()->CallJavascriptFunctionUnsafe(
-      "LocalStateInterface.onGotLocalState", *truncated_local_device_id,
-      *enrollment_state, *device_sync_state, *synced_devices);
+  NotifyGotLocalState(GetTruncatedLocalDeviceId(),
+                      GetEnrollmentStateDictionary(),
+                      GetDeviceSyncStateDictionary(), GetRemoteDevicesList());
 }
 
 std::unique_ptr<base::Value>
 ProximityAuthWebUIHandler::GetTruncatedLocalDeviceId() {
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    return std::make_unique<base::Value>(
+        device_sync_client_->GetLocalDeviceMetadata()
+            ->GetTruncatedDeviceIdForLogs());
+  }
+
   std::string local_public_key =
       proximity_auth_client_->GetLocalDevicePublicKey();
 
@@ -468,6 +544,8 @@ ProximityAuthWebUIHandler::GetTruncatedLocalDeviceId() {
 
 std::unique_ptr<base::DictionaryValue>
 ProximityAuthWebUIHandler::GetEnrollmentStateDictionary() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
+
   cryptauth::CryptAuthEnrollmentManager* enrollment_manager =
       proximity_auth_client_->GetCryptAuthEnrollmentManager();
   if (!enrollment_manager)
@@ -482,6 +560,8 @@ ProximityAuthWebUIHandler::GetEnrollmentStateDictionary() {
 
 std::unique_ptr<base::DictionaryValue>
 ProximityAuthWebUIHandler::GetDeviceSyncStateDictionary() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
+
   cryptauth::CryptAuthDeviceManager* device_manager =
       proximity_auth_client_->GetCryptAuthDeviceManager();
   if (!device_manager)
@@ -496,17 +576,22 @@ ProximityAuthWebUIHandler::GetDeviceSyncStateDictionary() {
 
 std::unique_ptr<base::ListValue>
 ProximityAuthWebUIHandler::GetRemoteDevicesList() {
-  std::unique_ptr<base::ListValue> unlock_keys(new base::ListValue());
-  cryptauth::CryptAuthDeviceManager* device_manager =
-      proximity_auth_client_->GetCryptAuthDeviceManager();
-  if (!device_manager)
-    return unlock_keys;
+  std::unique_ptr<base::ListValue> devices_list_value(new base::ListValue());
 
-  for (const auto& unlock_key : device_manager->GetSyncedDevices()) {
-    unlock_keys->Append(ExternalDeviceInfoToDictionary(unlock_key));
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    for (const auto& remote_device : device_sync_client_->GetSyncedDevices())
+      devices_list_value->Append(RemoteDeviceToDictionary(remote_device));
+  } else {
+    cryptauth::CryptAuthDeviceManager* device_manager =
+        proximity_auth_client_->GetCryptAuthDeviceManager();
+    if (!device_manager)
+      return devices_list_value;
+
+    for (const auto& unlock_key : device_manager->GetSyncedDevices())
+      devices_list_value->Append(ExternalDeviceInfoToDictionary(unlock_key));
   }
 
-  return unlock_keys;
+  return devices_list_value;
 }
 
 void ProximityAuthWebUIHandler::OnRemoteDevicesLoaded(
@@ -521,16 +606,41 @@ void ProximityAuthWebUIHandler::OnRemoteDevicesLoaded(
     return;
   }
 
-  selected_remote_device_ = cryptauth::RemoteDeviceRef(
-      std::make_shared<cryptauth::RemoteDevice>(remote_devices[0]));
-  life_cycle_.reset(new RemoteDeviceLifeCycleImpl(*selected_remote_device_));
+  StartRemoteDeviceLifeCycle(cryptauth::RemoteDeviceRef(
+      std::make_shared<cryptauth::RemoteDevice>(remote_devices[0])));
+}
+
+void ProximityAuthWebUIHandler::StartRemoteDeviceLifeCycle(
+    cryptauth::RemoteDeviceRef remote_device) {
+  base::Optional<cryptauth::RemoteDeviceRef> local_device;
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    local_device = device_sync_client_->GetLocalDeviceMetadata();
+  }
+
+  selected_remote_device_ = remote_device;
+  life_cycle_.reset(new RemoteDeviceLifeCycleImpl(
+      *selected_remote_device_, local_device, secure_channel_client_));
   life_cycle_->AddObserver(this);
   life_cycle_->Start();
+}
+
+void ProximityAuthWebUIHandler::CleanUpRemoteDeviceLifeCycle() {
+  if (selected_remote_device_) {
+    PA_LOG(INFO) << "Cleaning up connection to "
+                 << selected_remote_device_->name();
+  }
+  life_cycle_.reset();
+  selected_remote_device_ = base::nullopt;
+  last_remote_status_update_.reset();
+  web_ui()->CallJavascriptFunctionUnsafe(
+      "LocalStateInterface.onRemoteDevicesChanged", *GetRemoteDevicesList());
 }
 
 std::unique_ptr<base::DictionaryValue>
 ProximityAuthWebUIHandler::ExternalDeviceInfoToDictionary(
     const cryptauth::ExternalDeviceInfo& device_info) {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
+
   std::string base64_public_key;
   base::Base64UrlEncode(device_info.public_key(),
                         base::Base64UrlEncodePolicy::INCLUDE_PADDING,
@@ -547,9 +657,14 @@ ProximityAuthWebUIHandler::ExternalDeviceInfoToDictionary(
                         device_info.friendly_device_name());
   dictionary->SetString(kExternalDeviceBluetoothAddress,
                         device_info.bluetooth_address());
-  dictionary->SetBoolean(kExternalDeviceUnlockKey, device_info.unlock_key());
-  dictionary->SetBoolean(kExternalDeviceMobileHotspot,
-                         device_info.mobile_hotspot_supported());
+  dictionary->SetBoolean(
+      kExternalDeviceUnlockKey,
+      base::ContainsValue(device_info.enabled_software_features(),
+                          cryptauth::SoftwareFeature::EASY_UNLOCK_HOST));
+  dictionary->SetBoolean(
+      kExternalDeviceMobileHotspot,
+      base::ContainsValue(device_info.supported_software_features(),
+                          cryptauth::SoftwareFeature::MAGIC_TETHER_HOST));
   dictionary->SetBoolean(kExternalDeviceIsArcPlusPlusEnrollment,
                          device_info.arc_plus_plus());
   dictionary->SetBoolean(kExternalDeviceIsPixelPhone,
@@ -611,6 +726,73 @@ ProximityAuthWebUIHandler::ExternalDeviceInfoToDictionary(
 }
 
 std::unique_ptr<base::DictionaryValue>
+ProximityAuthWebUIHandler::RemoteDeviceToDictionary(
+    const cryptauth::RemoteDeviceRef& remote_device) {
+  DCHECK(base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
+
+  // Set the fields in the ExternalDeviceInfo proto.
+  std::unique_ptr<base::DictionaryValue> dictionary(
+      new base::DictionaryValue());
+  dictionary->SetString(kExternalDevicePublicKey, remote_device.GetDeviceId());
+  dictionary->SetString(kExternalDevicePublicKeyTruncated,
+                        remote_device.GetTruncatedDeviceIdForLogs());
+  dictionary->SetString(kExternalDeviceFriendlyName, remote_device.name());
+  dictionary->SetBoolean(kExternalDeviceUnlockKey,
+                         remote_device.GetSoftwareFeatureState(
+                             cryptauth::SoftwareFeature::EASY_UNLOCK_HOST) ==
+                             cryptauth::SoftwareFeatureState::kEnabled);
+  dictionary->SetBoolean(kExternalDeviceMobileHotspot,
+                         remote_device.GetSoftwareFeatureState(
+                             cryptauth::SoftwareFeature::MAGIC_TETHER_HOST) ==
+                             cryptauth::SoftwareFeatureState::kSupported);
+  dictionary->SetString(kExternalDeviceConnectionStatus,
+                        kExternalDeviceDisconnected);
+  dictionary->SetString(kExternalDeviceFeatureStates,
+                        GenerateFeaturesString(remote_device));
+
+  // TODO(crbug.com/852836): Add kExternalDeviceIsArcPlusPlusEnrollment and
+  // kExternalDeviceIsPixelPhone values to the dictionary once RemoteDevice
+  // carries those relevant fields.
+
+  std::string selected_device_public_key;
+  if (selected_remote_device_)
+    selected_device_public_key = selected_remote_device_->public_key();
+
+  // If it's the selected remote device, combine the already-populated
+  // dictionary with corresponding local device data (e.g. connection status and
+  // remote status updates).
+  if (selected_device_public_key != remote_device.public_key())
+    return dictionary;
+
+  // Fill in the current Bluetooth connection status.
+  std::string connection_status = kExternalDeviceDisconnected;
+  if (life_cycle_ &&
+      life_cycle_->GetState() ==
+          RemoteDeviceLifeCycle::State::SECURE_CHANNEL_ESTABLISHED) {
+    connection_status = kExternalDeviceConnected;
+  } else if (life_cycle_) {
+    connection_status = kExternalDeviceConnecting;
+  }
+  dictionary->SetString(kExternalDeviceConnectionStatus, connection_status);
+
+  // Fill the remote status dictionary.
+  if (last_remote_status_update_) {
+    std::unique_ptr<base::DictionaryValue> status_dictionary(
+        new base::DictionaryValue());
+    status_dictionary->SetInteger("userPresent",
+                                  last_remote_status_update_->user_presence);
+    status_dictionary->SetInteger(
+        "secureScreenLock",
+        last_remote_status_update_->secure_screen_lock_state);
+    status_dictionary->SetInteger(
+        "trustAgent", last_remote_status_update_->trust_agent_state);
+    dictionary->Set(kExternalDeviceRemoteState, std::move(status_dictionary));
+  }
+
+  return dictionary;
+}
+
+std::unique_ptr<base::DictionaryValue>
 ProximityAuthWebUIHandler::IneligibleDeviceToDictionary(
     const cryptauth::IneligibleDevice& ineligible_device) {
   std::unique_ptr<base::ListValue> ineligibility_reasons(new base::ListValue());
@@ -623,18 +805,6 @@ ProximityAuthWebUIHandler::IneligibleDeviceToDictionary(
   device_dictionary->Set(kIneligibleDeviceReasons,
                          std::move(ineligibility_reasons));
   return device_dictionary;
-}
-
-void ProximityAuthWebUIHandler::CleanUpRemoteDeviceLifeCycle() {
-  if (selected_remote_device_) {
-    PA_LOG(INFO) << "Cleaning up connection to "
-                 << selected_remote_device_->name();
-  }
-  life_cycle_.reset();
-  selected_remote_device_ = base::nullopt;
-  last_remote_status_update_.reset();
-  web_ui()->CallJavascriptFunctionUnsafe(
-      "LocalStateInterface.onRemoteDevicesChanged", *GetRemoteDevicesList());
 }
 
 void ProximityAuthWebUIHandler::OnLifeCycleStateChanged(
@@ -674,6 +844,146 @@ void ProximityAuthWebUIHandler::OnRemoteStatusUpdate(
   std::unique_ptr<base::ListValue> synced_devices = GetRemoteDevicesList();
   web_ui()->CallJavascriptFunctionUnsafe(
       "LocalStateInterface.onRemoteDevicesChanged", *synced_devices);
+}
+
+void ProximityAuthWebUIHandler::OnForceEnrollmentNow(bool success) {
+  PA_LOG(INFO) << "Force enrollment result: " << success;
+}
+
+void ProximityAuthWebUIHandler::OnForceSyncNow(bool success) {
+  PA_LOG(INFO) << "Force sync result: " << success;
+}
+
+void ProximityAuthWebUIHandler::OnSetSoftwareFeatureState(
+    const std::string public_key,
+    chromeos::device_sync::mojom::NetworkRequestResult result_code) {
+  std::string device_id =
+      cryptauth::RemoteDeviceRef::GenerateDeviceId(public_key);
+
+  if (result_code ==
+      chromeos::device_sync::mojom::NetworkRequestResult::kSuccess) {
+    PA_LOG(INFO) << "Successfully set SoftwareFeature state for device: "
+                 << device_id;
+  } else {
+    PA_LOG(ERROR) << "Failed to set SoftwareFeature state for device: "
+                  << device_id << ", error code: " << result_code;
+  }
+}
+
+void ProximityAuthWebUIHandler::OnFindEligibleDevices(
+    chromeos::device_sync::mojom::NetworkRequestResult result_code,
+    cryptauth::RemoteDeviceRefList eligible_devices,
+    cryptauth::RemoteDeviceRefList ineligible_devices) {
+  if (result_code !=
+      chromeos::device_sync::mojom::NetworkRequestResult::kSuccess) {
+    PA_LOG(ERROR) << "Failed to find eligible devices: " << result_code;
+    return;
+  }
+
+  base::ListValue eligible_devices_list_value;
+  for (const auto& device : eligible_devices) {
+    eligible_devices_list_value.Append(RemoteDeviceToDictionary(device));
+  }
+
+  base::ListValue ineligible_devices_list_value;
+  for (const auto& device : ineligible_devices) {
+    ineligible_devices_list_value.Append(RemoteDeviceToDictionary(device));
+  }
+
+  PA_LOG(INFO) << "Found " << eligible_devices_list_value.GetSize()
+               << " eligible devices and "
+               << ineligible_devices_list_value.GetSize()
+               << " ineligible devices.";
+  web_ui()->CallJavascriptFunctionUnsafe(
+      "CryptAuthInterface.onGotEligibleDevices", eligible_devices_list_value,
+      ineligible_devices_list_value);
+}
+
+void ProximityAuthWebUIHandler::OnGetDebugInfo(
+    chromeos::device_sync::mojom::DebugInfoPtr debug_info_ptr) {
+  if (enrollment_update_waiting_for_debug_info_) {
+    enrollment_update_waiting_for_debug_info_ = false;
+    NotifyOnEnrollmentFinished(
+        true /* success */,
+        CreateSyncStateDictionary(
+            debug_info_ptr->last_enrollment_time.ToJsTime(),
+            debug_info_ptr->time_to_next_enrollment_attempt.InMillisecondsF(),
+            debug_info_ptr->is_recovering_from_enrollment_failure,
+            debug_info_ptr->is_enrollment_in_progress));
+  }
+
+  if (sync_update_waiting_for_debug_info_) {
+    sync_update_waiting_for_debug_info_ = false;
+    NotifyOnSyncFinished(
+        true /* was_sync_successful */, true /* changed */,
+        CreateSyncStateDictionary(
+            debug_info_ptr->last_sync_time.ToJsTime(),
+            debug_info_ptr->time_to_next_sync_attempt.InMillisecondsF(),
+            debug_info_ptr->is_recovering_from_sync_failure,
+            debug_info_ptr->is_sync_in_progress));
+  }
+
+  if (get_local_state_update_waiting_for_debug_info_) {
+    get_local_state_update_waiting_for_debug_info_ = false;
+    NotifyGotLocalState(
+        GetTruncatedLocalDeviceId(),
+        CreateSyncStateDictionary(
+            debug_info_ptr->last_enrollment_time.ToJsTime(),
+            debug_info_ptr->time_to_next_enrollment_attempt.InMillisecondsF(),
+            debug_info_ptr->is_recovering_from_enrollment_failure,
+            debug_info_ptr->is_enrollment_in_progress),
+        CreateSyncStateDictionary(
+            debug_info_ptr->last_sync_time.ToJsTime(),
+            debug_info_ptr->time_to_next_sync_attempt.InMillisecondsF(),
+            debug_info_ptr->is_recovering_from_sync_failure,
+            debug_info_ptr->is_sync_in_progress),
+        GetRemoteDevicesList());
+  }
+}
+
+void ProximityAuthWebUIHandler::NotifyOnEnrollmentFinished(
+    bool success,
+    std::unique_ptr<base::DictionaryValue> enrollment_state) {
+  PA_LOG(INFO) << "Enrollment attempt completed with success=" << success
+               << ":\n"
+               << *enrollment_state;
+  web_ui()->CallJavascriptFunctionUnsafe(
+      "LocalStateInterface.onEnrollmentStateChanged", *enrollment_state);
+}
+
+void ProximityAuthWebUIHandler::NotifyOnSyncFinished(
+    bool was_sync_successful,
+    bool changed,
+    std::unique_ptr<base::DictionaryValue> device_sync_state) {
+  PA_LOG(INFO) << "Device sync completed with result=" << was_sync_successful
+               << ":\n"
+               << *device_sync_state;
+  web_ui()->CallJavascriptFunctionUnsafe(
+      "LocalStateInterface.onDeviceSyncStateChanged", *device_sync_state);
+
+  if (changed) {
+    std::unique_ptr<base::ListValue> synced_devices = GetRemoteDevicesList();
+    PA_LOG(INFO) << "New unlock keys obtained after device sync:\n"
+                 << *synced_devices;
+    web_ui()->CallJavascriptFunctionUnsafe(
+        "LocalStateInterface.onRemoteDevicesChanged", *synced_devices);
+  }
+}
+
+void ProximityAuthWebUIHandler::NotifyGotLocalState(
+    std::unique_ptr<base::Value> truncated_local_device_id,
+    std::unique_ptr<base::DictionaryValue> enrollment_state,
+    std::unique_ptr<base::DictionaryValue> device_sync_state,
+    std::unique_ptr<base::ListValue> synced_devices) {
+  PA_LOG(INFO) << "==== Got Local State ====\n"
+               << "Device ID (truncated): " << *truncated_local_device_id
+               << "\nEnrollment State: \n"
+               << *enrollment_state << "Device Sync State: \n"
+               << *device_sync_state << "Synced devices: \n"
+               << *synced_devices;
+  web_ui()->CallJavascriptFunctionUnsafe(
+      "LocalStateInterface.onGotLocalState", *truncated_local_device_id,
+      *enrollment_state, *device_sync_state, *synced_devices);
 }
 
 }  // namespace proximity_auth

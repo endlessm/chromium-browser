@@ -312,11 +312,6 @@ enum {
   EM_RISCV = 243,         // RISC-V
   EM_LANAI = 244,         // Lanai 32-bit processor
   EM_BPF = 247,           // Linux kernel bpf virtual machine
-
-  // A request has been made to the maintainer of the official registry for
-  // such numbers for an official value for WebAssembly. As soon as one is
-  // allocated, this enum will be updated to use it.
-  EM_WEBASSEMBLY = 0x4157, // WebAssembly architecture
 };
 
 // Object file classes.
@@ -644,11 +639,6 @@ enum {
 #include "ELFRelocs/Sparc.def"
 };
 
-// ELF Relocation types for WebAssembly
-enum {
-#include "ELFRelocs/WebAssembly.def"
-};
-
 // AMDGPU specific e_flags.
 enum : unsigned {
   // Processor selection mask for EF_AMDGPU_MACH_* values.
@@ -796,6 +786,9 @@ enum : unsigned {
   SHT_PREINIT_ARRAY = 16,               // Pointers to pre-init functions.
   SHT_GROUP = 17,                       // Section group.
   SHT_SYMTAB_SHNDX = 18,                // Indices for SHN_XINDEX entries.
+  // Experimental support for SHT_RELR sections. For details, see proposal
+  // at https://groups.google.com/forum/#!topic/generic-abi/bX460iggiKg
+  SHT_RELR = 19,                        // Relocation entries; only offsets.
   SHT_LOOS = 0x60000000,                // Lowest operating system-specific type.
   // Android packed relocation section types.
   // https://android.googlesource.com/platform/bionic/+/6f12bfece5dcc01325e0abba56a46b1bcf991c69/tools/relocation_packer/src/elf_file.cc#37
@@ -803,6 +796,12 @@ enum : unsigned {
   SHT_ANDROID_RELA = 0x60000002,
   SHT_LLVM_ODRTAB = 0x6fff4c00,         // LLVM ODR table.
   SHT_LLVM_LINKER_OPTIONS = 0x6fff4c01, // LLVM Linker Options.
+  SHT_LLVM_CALL_GRAPH_PROFILE = 0x6fff4c02, // LLVM Call Graph Profile.
+  SHT_LLVM_ADDRSIG = 0x6fff4c03,        // List of address-significant symbols
+                                        // for safe ICF.
+  // Android's experimental support for SHT_RELR sections.
+  // https://android.googlesource.com/platform/bionic/+/b7feec74547f84559a1467aca02708ff61346d2a/libc/include/elf.h#512
+  SHT_ANDROID_RELR = 0x6fffff00,        // Relocation entries; only offsets.
   SHT_GNU_ATTRIBUTES = 0x6ffffff5,      // Object attributes.
   SHT_GNU_HASH = 0x6ffffff6,            // GNU-style hash table.
   SHT_GNU_verdef = 0x6ffffffd,          // GNU version definitions.
@@ -1066,6 +1065,9 @@ struct Elf32_Rela {
   }
 };
 
+// Relocation entry without explicit addend or info (relative relocations only).
+typedef Elf32_Word Elf32_Relr; // offset/bitmap for relative relocations
+
 // Relocation entry, without explicit addend.
 struct Elf64_Rel {
   Elf64_Addr r_offset; // Location (file byte offset, or program virtual addr).
@@ -1098,6 +1100,9 @@ struct Elf64_Rela {
     r_info = ((Elf64_Xword)s << 32) + (t & 0xffffffffL);
   }
 };
+
+// Relocation entry without explicit addend or info (relative relocations only).
+typedef Elf64_Xword Elf64_Relr; // offset/bitmap for relative relocations
 
 // Program header for ELF32.
 struct Elf32_Phdr {
@@ -1162,9 +1167,6 @@ enum {
   PT_MIPS_RTPROC = 0x70000001,   // Runtime procedure table.
   PT_MIPS_OPTIONS = 0x70000002,  // Options segment.
   PT_MIPS_ABIFLAGS = 0x70000003, // Abiflags segment.
-
-  // WebAssembly program header types.
-  PT_WEBASSEMBLY_FUNCTIONS = PT_LOPROC + 0, // Function definitions.
 };
 
 // Segment flag bits.
@@ -1305,9 +1307,16 @@ enum {
 };
 
 // Property types used in GNU_PROPERTY_TYPE_0 notes.
-enum {
+enum : unsigned {
   GNU_PROPERTY_STACK_SIZE = 1,
   GNU_PROPERTY_NO_COPY_ON_PROTECTED = 2,
+  GNU_PROPERTY_X86_FEATURE_1_AND = 0xc0000002
+};
+
+// CET properties
+enum {
+  GNU_PROPERTY_X86_FEATURE_1_IBT = 1 << 0,
+  GNU_PROPERTY_X86_FEATURE_1_SHSTK = 1 << 1
 };
 
 // AMDGPU specific notes.

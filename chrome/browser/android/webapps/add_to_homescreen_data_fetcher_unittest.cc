@@ -16,7 +16,7 @@
 #include "base/strings/nullable_string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/android/chrome_feature_list.h"
 #include "chrome/browser/installable/installable_manager.h"
@@ -111,10 +111,10 @@ blink::Manifest BuildDefaultManifest() {
   manifest.start_url = GURL(kDefaultStartUrl);
   manifest.display = kDefaultManifestDisplayMode;
 
-  blink::Manifest::Icon primary_icon;
+  blink::Manifest::ImageResource primary_icon;
   primary_icon.type = base::ASCIIToUTF16("image/png");
   primary_icon.sizes.push_back(gfx::Size(144, 144));
-  primary_icon.purpose.push_back(blink::Manifest::Icon::IconPurpose::ANY);
+  primary_icon.purpose.push_back(blink::Manifest::ImageResource::Purpose::ANY);
   primary_icon.src = GURL(kDefaultIconUrl);
   manifest.icons.push_back(primary_icon);
 

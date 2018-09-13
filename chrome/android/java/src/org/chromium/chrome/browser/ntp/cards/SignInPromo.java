@@ -151,8 +151,8 @@ public class SignInPromo extends OptionalLeaf {
     }
 
     @Override
-    protected void visitOptionalItem(NodeVisitor visitor) {
-        visitor.visitSignInPromo();
+    public String describeForTesting() {
+        return "SIGN_IN_PROMO";
     }
 
     private void updateVisibility() {
@@ -170,9 +170,8 @@ public class SignInPromo extends OptionalLeaf {
         mDismissed = true;
         updateVisibility();
 
-        final @StringRes int promoHeader;
         ChromePreferenceManager.getInstance().setNewTabPageSigninPromoDismissed(true);
-        promoHeader = mSigninPromoController.getDescriptionStringId();
+        final @StringRes int promoHeader = mSigninPromoController.getDescriptionStringId();
 
         mSigninObserver.unregister();
         itemRemovedCallback.onResult(ContextUtils.getApplicationContext().getString(promoHeader));

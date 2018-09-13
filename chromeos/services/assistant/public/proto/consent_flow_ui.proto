@@ -1,7 +1,6 @@
 // Copyright 2018 The Chromium Authors. All rights reserved.
-// Use of this source code is govered by a BSD-style
-// license that can be found in the LICENSE file or at
-// https://developers.google.com/open-source/licenses/bsd
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 syntax = "proto2";
 
@@ -91,6 +90,91 @@ message ConsentFlowUi {
     }
     optional ActivityControlUi activity_control_ui = 1;
 
+    // A screen where we ask the user to confirm their intention to reject
+    // activity control.
+    // The client should only show if user rejects ActivityControlUi.
+    message ActivityControlConfirmRejectUi {
+      // Title for the whole page.
+      //
+      // Required.
+      optional string title = 1;
+
+      // Title for the option to opt in to ActivityControl.
+      //
+      // Required.
+      optional string accept_title = 2;
+
+      // Message for the option to opt in to ActivityControl.
+      //
+      // Required.
+      optional string accept_message = 3;
+
+      // Message for the option to opt in to ActivityControl in its expanded
+      // state. This extra text conveys some fine-print info about what will
+      // happen if the user accepts ActivityControl from this screen.
+      //
+      // Required
+      optional string accept_message_expanded = 4;
+
+      // A button that expands the accept message. In expanded state,
+      // both accept_message and accept_message_expanded are visible.
+      //
+      // Required.
+      optional string button_accept_expand = 5;
+
+      // A button that collapses the accept message. In collapsed state,
+      // accept_message is visible, but accept_message_expanded is not.
+      //
+      // Required.
+      optional string button_accept_collapse = 6;
+
+      // Title for the option to opt out of ActivityControl.
+      //
+      // Required.
+      optional string reject_title = 7;
+
+      // Message for the option to opt out of ActivityControl.
+      //
+      // Required.
+      optional string reject_message = 8;
+
+      // Text of the action button that lets the user commit their decision
+      // to accept or reject ActivityControl from the confirm page.
+      //
+      // Required.
+      optional string button_continue = 9;
+    }
+    optional ActivityControlConfirmRejectUi activity_control_confirm_reject_ui =
+        7;
+
+    // Represents the subsection of the ConsentUi that displays and conveys a
+    // disclosure that the user's account might be shared with third
+    // parties the user invokes in conversation/interaction with the Assistant.
+    //
+    // Always present.
+    message ThirdPartyDisclosureUi {
+      // Title of the page.
+      //
+      // Required.
+      optional string title = 5;
+
+      // The disclosures to present.
+      //
+      // Required.
+      repeated ClassicActivityControlUiTexts.SettingZippy disclosures = 2;
+
+      // Text for button that lets user acknowledge disclosures and continue
+      // to next screen.
+      //
+      // Required.
+      optional string button_continue = 3;
+    }
+    optional ThirdPartyDisclosureUi third_party_disclosure_ui = 3;
+
+    // Contains an HTML string with links to Google's Terms of Service and
+    // Privacy Policy.
+    optional string tos_pp_links = 9;
+
     // Text for the button that lets the user accept the opt-ins, committing
     // their new state.
     //
@@ -116,6 +200,10 @@ message ConsentFlowUiUpdate {
 
   // If present, opt the user in.
   optional bytes consent_token = 1;
+
+  // True means the user saw 3p disclosure and acknowledged it, false means 3p
+  // disclosure was not presented to the user.
+  optional bool saw_third_party_disclosure = 3;
 }
 
 // Represents the response to updating consent flow.

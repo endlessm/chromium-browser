@@ -19,9 +19,14 @@
 
 class AccountId;
 
+namespace content {
+class WebContents;
+}
+
 namespace chromeos {
 
 class AppLaunchController;
+class ExistingUserController;
 class LoginScreenContext;
 class OobeUI;
 class WebUILoginView;
@@ -52,16 +57,20 @@ class LoginDisplayHost {
   // Returns the default LoginDisplayHost instance if it has been created.
   static LoginDisplayHost* default_host() { return default_host_; }
 
-  // Creates UI implementation specific login display instance (views/WebUI).
-  // The caller takes ownership of the returned value.
-  virtual LoginDisplay* CreateLoginDisplay(
-      LoginDisplay::Delegate* delegate) = 0;
+  // Returns an unowned pointer to the LoginDisplay instance.
+  virtual LoginDisplay* GetLoginDisplay() = 0;
+
+  // Returns an unowned pointer to the ExistingUserController instance.
+  virtual ExistingUserController* GetExistingUserController() = 0;
 
   // Returns corresponding native window.
   virtual gfx::NativeWindow GetNativeWindow() const = 0;
 
   // Returns instance of the OOBE WebUI.
   virtual OobeUI* GetOobeUI() const = 0;
+
+  // Return the WebContents instance of OOBE, if any.
+  virtual content::WebContents* GetOobeWebContents() const = 0;
 
   // Returns the current login view.
   virtual WebUILoginView* GetWebUILoginView() const = 0;
@@ -125,14 +134,17 @@ class LoginDisplayHost {
   // Returns whether current host is for voice interaction OOBE.
   virtual bool IsVoiceInteractionOobe() = 0;
 
-  // Update the visibility of the gaia dialog. If available, |account| is
-  // preloaded in the gaia dialog.
-  virtual void UpdateGaiaDialogVisibility(
-      bool visible,
-      const base::Optional<AccountId>& account) = 0;
+  // Show the gaia dialog. |can_close| determines if the user is allowed to
+  // close the dialog. If available, |account| is preloaded in the gaia dialog.
+  virtual void ShowGaiaDialog(
+      bool can_close,
+      const base::Optional<AccountId>& prefilled_account) = 0;
 
-  // Update the size of the gaia dialog.
-  virtual void UpdateGaiaDialogSize(int width, int height) = 0;
+  // Hide any visible oobe dialog.
+  virtual void HideOobeDialog() = 0;
+
+  // Update the size of the oobe dialog.
+  virtual void UpdateOobeDialogSize(int width, int height) = 0;
 
   // Get users that are visible in the login screen UI.
   // This is mainly used by views login screen. WebUI login screen will
@@ -166,6 +178,32 @@ class LoginDisplayHost {
 
   // Returns true if user is allowed to log in by domain policy.
   virtual bool IsUserWhitelisted(const AccountId& account_id) = 0;
+
+  // ----- Password change flow methods -----
+  // Cancels current password changed flow.
+  virtual void CancelPasswordChangedFlow() = 0;
+
+  // Decrypt cryptohome using user provided |old_password| and migrate to new
+  // password.
+  virtual void MigrateUserData(const std::string& old_password) = 0;
+
+  // Ignore password change, remove existing cryptohome and force full sync of
+  // user data.
+  virtual void ResyncUserData() = 0;
+
+  // Shows a feedback report dialog.
+  virtual void ShowFeedback() = 0;
+
+  // In the views case, make the OobeUIDialogDelegate visible so that Captive
+  // Portal web modal can be seen. In webui login, this should be a no-op.
+  virtual void ShowDialogForCaptivePortal() = 0;
+
+  // Hide the captive portal signin dialog (e.g. when authentication is
+  // complete). In webui login, this should be a no-op.
+  virtual void HideDialogForCaptivePortal() = 0;
+
+  // Update status of add user button in the shelf.
+  virtual void UpdateAddUserButtonStatus() = 0;
 
  protected:
   LoginDisplayHost();

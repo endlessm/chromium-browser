@@ -13,7 +13,6 @@
 #include "ToolChains/Clang.h"
 #include "clang/Basic/ObjCRuntime.h"
 #include "clang/Basic/Sanitizers.h"
-#include "clang/Basic/VersionTuple.h"
 #include "clang/Basic/VirtualFileSystem.h"
 #include "clang/Config/config.h"
 #include "clang/Driver/Action.h"
@@ -29,6 +28,7 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Config/llvm-config.h"
+#include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptTable.h"
@@ -36,9 +36,9 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
-#include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Support/TargetParser.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/VersionTuple.h"
 #include <cassert>
 #include <cstddef>
 #include <cstring>
@@ -74,6 +74,11 @@ ToolChain::ToolChain(const Driver &D, const llvm::Triple &T,
                      const ArgList &Args)
     : D(D), Triple(T), Args(Args), CachedRTTIArg(GetRTTIArgument(Args)),
       CachedRTTIMode(CalculateRTTIMode(Args, Triple, CachedRTTIArg)) {
+  SmallString<128> P(D.ResourceDir);
+  llvm::sys::path::append(P, D.getTargetTriple(), "lib");
+  if (getVFS().exists(P))
+    getFilePaths().push_back(P.str());
+
   std::string CandidateLibPath = getArchSpecificLibPath();
   if (getVFS().exists(CandidateLibPath))
     getFilePaths().push_back(CandidateLibPath);
@@ -350,15 +355,23 @@ std::string ToolChain::getCompilerRTPath() const {
 std::string ToolChain::getCompilerRT(const ArgList &Args, StringRef Component,
                                      bool Shared) const {
   const llvm::Triple &TT = getTriple();
-  const char *Env = TT.isAndroid() ? "-android" : "";
   bool IsITANMSVCWindows =
       TT.isWindowsMSVCEnvironment() || TT.isWindowsItaniumEnvironment();
 
-  StringRef Arch = getArchNameForCompilerRTLib(*this, Args);
   const char *Prefix = IsITANMSVCWindows ? "" : "lib";
   const char *Suffix = Shared ? (Triple.isOSWindows() ? ".dll" : ".so")
                               : (IsITANMSVCWindows ? ".lib" : ".a");
 
+  const Driver &D = getDriver();
+  SmallString<128> P(D.ResourceDir);
+  llvm::sys::path::append(P, D.getTargetTriple(), "lib");
+  if (getVFS().exists(P)) {
+    llvm::sys::path::append(P, Prefix + Twine("clang_rt.") + Component + Suffix);
+    return P.str();
+  }
+
+  StringRef Arch = getArchNameForCompilerRTLib(*this, Args);
+  const char *Env = TT.isAndroid() ? "-android" : "";
   SmallString<128> Path(getCompilerRTPath());
   llvm::sys::path::append(Path, Prefix + Twine("clang_rt.") + Component + "-" +
                                     Arch + Env + Suffix);
@@ -471,8 +484,6 @@ ObjCRuntime ToolChain::getDefaultObjCRuntime(bool isNonFragile) const {
 
 llvm::ExceptionHandling
 ToolChain::GetExceptionModel(const llvm::opt::ArgList &Args) const {
-  if (Triple.isOSWindows() && Triple.getArch() != llvm::Triple::x86)
-    return llvm::ExceptionHandling::WinEH;
   return llvm::ExceptionHandling::None;
 }
 

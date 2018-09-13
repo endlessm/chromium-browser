@@ -41,57 +41,47 @@
 1442 OPENGL D3D11 : dEQP-GLES31.functional.program_interface_query.transform_feedback_varying.array_size.vertex_fragment.default_block_struct_member = SKIP
 1442 OPENGL D3D11 : dEQP-GLES31.functional.program_interface_query.transform_feedback_varying.name_length.vertex_fragment.default_block_struct_member = SKIP
 1442 OPENGL D3D11 : dEQP-GLES31.functional.program_interface_query.transform_feedback_varying.type.vertex_fragment.struct.* = SKIP
-1442 D3D11 : dEQP-GLES31.functional.vertex_attribute_binding.* = SKIP
 1442 D3D11 : dEQP-GLES31.functional.stencil_texturing.* = SKIP
 1442 D3D11 : dEQP-GLES31.functional.texture.gather.* = SKIP
 // TODO(xinghua.cao@intel.com): FAIL expectation instead of SKIP should be sufficient for OpenGL, but the
 // test expectations parser doesn't support having FAIL for GL and SKIP for D3D with the same test filter.
 1442 OPENGL D3D11 : dEQP-GLES31.functional.image_load_store.* = SKIP
 
-// TODO(jiawei.shao@intel.com): Implement FramebufferTextureEXT entry point defined in OpenGL ES 3.1 extension GL_EXT_geometry_shader
-1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.query.framebuffer_attachment_layered = SKIP
-1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.query.framebuffer_incomplete_layer_targets = SKIP
-1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.layered.* = SKIP
-1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.instanced.invocation_per_layer_* = SKIP
-1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.instanced.multiple_layers_per_invocation_* = SKIP
+1442 D3D11 : dEQP-GLES31.functional.compute* = SKIP
+1729 D3D11 : dEQP-GLES31.functional.atomic_counter.* = SKIP
+1951 D3D11 : dEQP-GLES31.functional.layout_binding.ssbo.* = SKIP
+1951 D3D11 : dEQP-GLES31.functional.shaders.opaque_type_indexing.ssbo.* = SKIP
+1729 D3D11 : dEQP-GLES31.functional.state_query.indexed.atomic_counter_buffer_* = SKIP
+1951 D3D11 : dEQP-GLES31.functional.state_query.indexed.shader_storage_buffer_* = SKIP
+1442 D3D11 : dEQP-GLES31.functional.program_interface_query.* = SKIP
+1442 D3D11 : dEQP-GLES31.functional.synchronization.* = SKIP
+1951 D3D11 : dEQP-GLES31.functional.ssbo.* = SKIP
+1442 D3D11 : dEQP-GLES31.functional.layout_binding.image.* = SKIP
+1951 D3D11 : dEQP-GLES31.functional.shaders.linkage.es31.shader_storage_block.* = SKIP
 
 // D3D11 Failing Tests
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_compute_shared_memory_size_* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_compute_atomic_counter_buffers_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_compute_atomic_counters_* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_compute_shader_storage_blocks_* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_atomic_counter_buffer_bindings_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_atomic_counter_buffer_size_* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_combined_atomic_counter_buffers_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_combined_atomic_counters* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_image_units_* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_combined_image_uniforms_* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_shader_storage_buffer_bindings_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_shader_storage_block_size_* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_combined_shader_storage_blocks_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_uniform_buffer_bindings_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_combined_texture_image_units_* = FAIL
-1729 D3D11 : dEQP-GLES31.functional.state_query.indexed.atomic_counter_buffer_* = FAIL
-1951 D3D11 : dEQP-GLES31.functional.state_query.indexed.shader_storage_buffer_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.program.compute_work_group_size_get_programiv = FAIL
-1442 D3D11 : dEQP-GLES31.functional.layout_binding.ssbo.* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.compute* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.atomic_counter.* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.debug.async.case_4_log = SKIP
 1442 D3D11 : dEQP-GLES31.functional.debug.async.case_5_callback = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_2 = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_3 = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_9 = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_10 = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_27 = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_28 = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_groups.case_2 = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_groups.case_3 = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_groups.case_9 = SKIP
-1442 D3D11 : dEQP-GLES31.functional.debug.error_groups.case_10 = SKIP
+1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_2 = FAIL
+1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_3 = FAIL
+1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_9 = FAIL
+1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_10 = FAIL
+1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_27 = FAIL
+1442 D3D11 : dEQP-GLES31.functional.debug.error_filters.case_28 = FAIL
+1442 D3D11 : dEQP-GLES31.functional.debug.error_groups.case_2 = FAIL
+1442 D3D11 : dEQP-GLES31.functional.debug.error_groups.case_3 = FAIL
+1442 D3D11 : dEQP-GLES31.functional.debug.error_groups.case_9 = FAIL
+1442 D3D11 : dEQP-GLES31.functional.debug.error_groups.case_10 = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.program.active_atomic_counter_buffers_get_programiv = FAIL
 1442 D3D11 : dEQP-GLES31.functional.layout_binding.ubo.* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.program_interface_query.* = FAIL
 1663 D3D11 : dEQP-GLES31.functional.draw_indirect.compute_interop.* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.shaders.builtin_constants.core.max_vertex_attribs = FAIL
 1442 D3D11 : dEQP-GLES31.functional.shaders.builtin_constants.core.max_vertex_uniform_vectors = FAIL
@@ -1130,16 +1120,6 @@
 1951 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.precision.inverse.mediump_compute.mat2 = FAIL
 1951 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.precision.frexp.* = FAIL
 1951 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.precision.ldexp.* = FAIL
-1951 D3D11 : dEQP-GLES31.functional.shaders.linkage.shader_storage_block.mismatch_number_of_declarations = FAIL
-1951 D3D11 : dEQP-GLES31.functional.shaders.linkage.shader_storage_block.mismatch_order = FAIL
-1951 D3D11 : dEQP-GLES31.functional.shaders.linkage.shader_storage_block.mismatch_type = FAIL
-1951 D3D11 : dEQP-GLES31.functional.shaders.linkage.shader_storage_block.mismatch_member_name = FAIL
-1951 D3D11 : dEQP-GLES31.functional.shaders.linkage.shader_storage_block.mismatch_member_unsized_sized_array = FAIL
-1951 D3D11 : dEQP-GLES31.functional.shaders.linkage.shader_storage_block.mismatch_member_array_size = FAIL
-1951 D3D11 : dEQP-GLES31.functional.shaders.linkage.shader_storage_block.mismatch_with_and_without_instance_name = FAIL
-1951 D3D11 : dEQP-GLES31.functional.shaders.linkage.shader_storage_block.mismatch_block_array_size = FAIL
-1442 D3D11 : dEQP-GLES31.functional.synchronization.* = FAIL
-1951 D3D11 : dEQP-GLES31.functional.ssbo.* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.shaders.builtin_var.compute.num_work_groups = FAIL
 1442 D3D11 : dEQP-GLES31.functional.shaders.builtin_var.compute.work_group_size = FAIL
 1442 D3D11 : dEQP-GLES31.functional.shaders.builtin_var.compute.work_group_id = FAIL
@@ -1570,9 +1550,8 @@
 1941 D3D11 : dEQP-GLES31.functional.geometry_shading.conversion.* = FAIL
 1941 D3D11 : dEQP-GLES31.functional.geometry_shading.emit.* = FAIL
 1941 D3D11 : dEQP-GLES31.functional.geometry_shading.varying.* = FAIL
-1941 D3D11 : dEQP-GLES31.functional.geometry_shading.instanced.geometry_* = FAIL
-1941 D3D11 : dEQP-GLES31.functional.geometry_shading.instanced.invocation_output_* = FAIL
-1941 D3D11 : dEQP-GLES31.functional.geometry_shading.instanced.draw_* = FAIL
+1941 D3D11 : dEQP-GLES31.functional.geometry_shading.layered.* = FAIL
+1941 D3D11 : dEQP-GLES31.functional.geometry_shading.instanced.* = FAIL
 1941 D3D11 : dEQP-GLES31.functional.geometry_shading.input.* = FAIL
 1941 D3D11 : dEQP-GLES31.functional.geometry_shading.negative.* = FAIL
 1941 D3D11 : dEQP-GLES31.functional.geometry_shading.vertex_transform_feedback.* = FAIL
@@ -1580,6 +1559,20 @@
 1941 D3D11 : dEQP-GLES31.functional.debug.negative_coverage.callbacks.shader_directive.geometry_shader = FAIL
 1941 D3D11 : dEQP-GLES31.functional.debug.negative_coverage.log.shader_directive.geometry_shader = FAIL
 1941 D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.shader_directive.geometry_shader = FAIL
+
+// Recetly added tests failing on D3D11 Windows.
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findLSBMinusOne.highp_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findLSBMinusOne.lowp_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findLSBMinusOne.mediump_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findLSBZero.highp_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findLSBZero.lowp_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findLSBZero.mediump_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findMSBMinusOne.highp_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findMSBMinusOne.lowp_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findMSBMinusOne.mediump_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findMSBZero.highp_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findMSBZero.lowp_compute = FAIL
+2619 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.uniform.findMSBZero.mediump_compute = FAIL
 
 // OPENGL Failing Tests
 1665 WIN NVIDIA OPENGL : dEQP-GLES31.functional.draw_indirect.negative.command_offset_not_in_buffer_unsigned32_wrap = FAIL
@@ -1630,7 +1623,6 @@
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.texture.copyteximage2d_inequal_width_height_cube = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.texture.copyteximage2d_max_width_height = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.texture.copytexsubimage2d_invalid_offset = FAIL
-1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.texture.copytexsubimage2d_texture_internalformat = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.texture.compressedtexsubimage2d = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.texture.compressedtexsubimage2d_invalid_size = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.texture.texsubimage3d_neg_level = FAIL
@@ -1651,3 +1643,8 @@
 2324 DEBUG RELEASE : dEQP-GLES31.functional.debug.negative_coverage.get_error.shader_storage.block_number_limits = FAIL
 2324 DEBUG RELEASE : dEQP-GLES31.functional.debug.negative_coverage.log.shader_storage.block_number_limits = FAIL
 2324 DEBUG RELEASE : dEQP-GLES31.functional.debug.negative_coverage.callbacks.shader_storage.block_number_limits = FAIL
+
+// These tests are failing because of compile errors with SSBOs in compute shaders.
+1951 D3D11 : dEQP-GLES31.functional.debug.negative_coverage.callbacks.compute.exceed_shared_memory_size_limit = FAIL
+1951 D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.compute.exceed_shared_memory_size_limit = FAIL
+1951 D3D11 : dEQP-GLES31.functional.debug.negative_coverage.log.compute.exceed_shared_memory_size_limit = FAIL

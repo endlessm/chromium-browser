@@ -6,6 +6,7 @@
 
 #include "ash/login/mock_login_screen_client.h"
 #include "ash/login/ui/lock_screen.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller.h"
@@ -13,7 +14,9 @@
 #include "ash/shell.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/system_tray.h"
+#include "ash/system/unified/unified_system_tray.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/wallpaper/wallpaper_controller.h"
 #include "base/run_loop.h"
 #include "base/test/bind_test_util.h"
 #include "components/prefs/pref_service.h"
@@ -33,9 +36,13 @@ enum WindowType { kPrimary = 0, kSecondary = 1 };
 
 bool IsSystemTrayForWindowVisible(WindowType index) {
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();
-  return RootWindowController::ForWindow(root_windows[index])
-      ->GetSystemTray()
-      ->visible();
+  RootWindowController* controller =
+      RootWindowController::ForWindow(root_windows[index]);
+  return features::IsSystemTrayUnifiedEnabled()
+             ? controller->GetStatusAreaWidget()
+                   ->unified_system_tray()
+                   ->visible()
+             : controller->GetSystemTray()->visible();
 }
 
 TEST_F(LoginScreenControllerTest, RequestAuthentication) {
@@ -123,7 +130,7 @@ TEST_F(LoginScreenControllerTest, RequestUserPodFocus) {
 TEST_F(LoginScreenControllerTest,
        ShowLoginScreenRequiresLoginPrimarySessionState) {
   auto show_login = [&](session_manager::SessionState state) {
-    EXPECT_FALSE(ash::LockScreen::IsShown());
+    EXPECT_FALSE(ash::LockScreen::HasInstance());
 
     LoginScreenController* controller = Shell::Get()->login_screen_controller();
 
@@ -142,7 +149,7 @@ TEST_F(LoginScreenControllerTest,
     EXPECT_TRUE(result.has_value());
 
     // Verify result matches actual ash::LockScreen state.
-    EXPECT_EQ(*result, ash::LockScreen::IsShown());
+    EXPECT_EQ(*result, ash::LockScreen::HasInstance());
 
     // Destroy login if we created it.
     if (*result)
@@ -166,7 +173,7 @@ TEST_F(LoginScreenControllerNoSessionTest, ShowSystemTrayOnPrimaryLoginScreen) {
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();
   ASSERT_EQ(2u, root_windows.size());
 
-  EXPECT_FALSE(ash::LockScreen::IsShown());
+  EXPECT_FALSE(ash::LockScreen::HasInstance());
   EXPECT_FALSE(IsSystemTrayForWindowVisible(WindowType::kPrimary));
   EXPECT_FALSE(IsSystemTrayForWindowVisible(WindowType::kSecondary));
 
@@ -183,7 +190,7 @@ TEST_F(LoginScreenControllerNoSessionTest, ShowSystemTrayOnPrimaryLoginScreen) {
   run_loop.Run();
   EXPECT_TRUE(result.has_value());
 
-  EXPECT_TRUE(ash::LockScreen::IsShown());
+  EXPECT_TRUE(ash::LockScreen::HasInstance());
   EXPECT_TRUE(IsSystemTrayForWindowVisible(WindowType::kPrimary));
   EXPECT_FALSE(IsSystemTrayForWindowVisible(WindowType::kSecondary));
 
@@ -198,7 +205,7 @@ TEST_F(LoginScreenControllerTest, ShowSystemTrayOnPrimaryLockScreen) {
   ASSERT_EQ(2u, root_windows.size());
 
   GetSessionControllerClient()->SetSessionState(SessionState::ACTIVE);
-  EXPECT_FALSE(ash::LockScreen::IsShown());
+  EXPECT_FALSE(ash::LockScreen::HasInstance());
   EXPECT_TRUE(IsSystemTrayForWindowVisible(WindowType::kPrimary));
   EXPECT_TRUE(IsSystemTrayForWindowVisible(WindowType::kSecondary));
 
@@ -215,12 +222,35 @@ TEST_F(LoginScreenControllerTest, ShowSystemTrayOnPrimaryLockScreen) {
   run_loop.Run();
   EXPECT_TRUE(result.has_value());
 
-  EXPECT_TRUE(ash::LockScreen::IsShown());
+  EXPECT_TRUE(ash::LockScreen::HasInstance());
   EXPECT_TRUE(IsSystemTrayForWindowVisible(WindowType::kPrimary));
   EXPECT_FALSE(IsSystemTrayForWindowVisible(WindowType::kSecondary));
 
   if (*result)
     ash::LockScreen::Get()->Destroy();
+}
+
+TEST_F(LoginScreenControllerTest, ShowLoginScreenRequiresWallpaper) {
+  // Show login screen.
+  EXPECT_FALSE(ash::LockScreen::HasInstance());
+  GetSessionControllerClient()->SetSessionState(SessionState::LOGIN_PRIMARY);
+  base::RunLoop run_loop;
+  Shell::Get()->login_screen_controller()->ShowLoginScreen(base::BindOnce(
+      [](base::RunLoop* run_loop, bool did_show) { run_loop->Quit(); },
+      &run_loop));
+  run_loop.Run();
+
+  // Verify the instance has been created, but the login screen is not actually
+  // shown yet because there's no wallpaper.
+  EXPECT_TRUE(ash::LockScreen::HasInstance());
+  EXPECT_FALSE(ash::LockScreen::Get()->is_shown());
+
+  // Set the wallpaper. Verify the login screen is shown.
+  Shell::Get()->wallpaper_controller()->ShowDefaultWallpaperForTesting();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(ash::LockScreen::Get()->is_shown());
+
+  ash::LockScreen::Get()->Destroy();
 }
 
 }  // namespace

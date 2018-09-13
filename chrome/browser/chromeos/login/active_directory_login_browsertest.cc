@@ -17,7 +17,7 @@
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_webui.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/settings/stub_install_attributes.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
@@ -30,6 +30,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_auth_policy_client.h"
 #include "chromeos/dbus/fake_cryptohome_client.h"
+#include "chromeos/dbus/util/tpm_util.h"
 #include "chromeos/login/auth/authpolicy_login_helper.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/user_names.h"
@@ -54,7 +55,8 @@ constexpr char kAdMachineInput[] = "machineNameInput";
 constexpr char kAdMoreOptionsButton[] = "moreOptionsBtn";
 constexpr char kAdUserInput[] = "userInput";
 constexpr char kAdPasswordInput[] = "passwordInput";
-constexpr char kAdButton[] = "button";
+constexpr char kAdCredsButton[] = "adCreds /deep/ #button";
+constexpr char kAdPasswordChangeButton[] = "button";
 constexpr char kAdWelcomMessage[] = "welcomeMsg";
 constexpr char kAdAutocompleteRealm[] = "userInput /deep/ #domainLabel";
 
@@ -71,7 +73,7 @@ constexpr char kCloseButtonId[] = "closeButton";
 
 class TestAuthPolicyClient : public FakeAuthPolicyClient {
  public:
-  TestAuthPolicyClient() { FakeAuthPolicyClient::set_started(true); }
+  TestAuthPolicyClient() { FakeAuthPolicyClient::SetStarted(true); }
 
   void AuthenticateUser(const authpolicy::AuthenticateUserRequest& request,
                         int password_fd,
@@ -156,8 +158,7 @@ class ActiveDirectoryLoginTest : public LoginManagerTest {
               loop.QuitClosure(), test_realm_));
       loop.Run();
     }
-    ASSERT_TRUE(AuthPolicyLoginHelper::LockDeviceActiveDirectoryForTesting(
-        test_realm_));
+    ASSERT_TRUE(tpm_util::LockDeviceActiveDirectoryForTesting(test_realm_));
     {
       base::RunLoop loop;
       fake_auth_policy_client()->RefreshDevicePolicy(base::BindOnce(
@@ -288,7 +289,7 @@ class ActiveDirectoryLoginTest : public LoginManagerTest {
                               ".value='" + username + "'");
     js_checker().ExecuteAsync(JSElement(kAdOfflineAuthId, kAdPasswordInput) +
                               ".value='" + password + "'");
-    js_checker().Evaluate(JSElement(kAdOfflineAuthId, kAdButton) +
+    js_checker().Evaluate(JSElement(kAdOfflineAuthId, kAdCredsButton) +
                           ".fire('tap')");
   }
 
@@ -306,8 +307,9 @@ class ActiveDirectoryLoginTest : public LoginManagerTest {
     js_checker().ExecuteAsync(
         JSElement(kAdPasswordChangeId, kAdNewPassword2Input) + ".value='" +
         new_password2 + "'");
-    js_checker().Evaluate(JSElement(kAdPasswordChangeId, kAdButton) +
-                          ".fire('tap')");
+    js_checker().Evaluate(
+        JSElement(kAdPasswordChangeId, kAdPasswordChangeButton) +
+        ".fire('tap')");
   }
 
   void SetupActiveDirectoryJSNotifications() {

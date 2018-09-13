@@ -18,9 +18,7 @@
 #include "headless/public/devtools/domains/runtime.h"
 #include "headless/public/headless_browser.h"
 #include "headless/public/headless_browser_context.h"
-#include "headless/public/util/testing/test_in_memory_protocol_handler.h"
 #include "headless/test/headless_browser_test.h"
-#include "net/test/embedded_test_server/http_request.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
@@ -34,12 +32,13 @@ class GetSnapshotResult;
 
 // Base class for tests that render a particular page and verify the output.
 class HeadlessRenderTest : public HeadlessAsyncDevTooledBrowserTest,
-                           public HeadlessBrowserContext::Observer,
                            public page::ExperimentalObserver,
-                           public runtime::ExperimentalObserver,
-                           public TestInMemoryProtocolHandler::RequestDeferrer {
+                           public runtime::ExperimentalObserver {
  public:
-  typedef std::pair<std::string, page::FrameScheduledNavigationReason> Redirect;
+  struct Navigation {
+    std::string url;
+    page::FrameScheduledNavigationReason reason;
+  };
 
   void RunDevTooledTest() override;
 
@@ -81,9 +80,6 @@ class HeadlessRenderTest : public HeadlessAsyncDevTooledBrowserTest,
   // Marks that the test case reached the final conclusion.
   void SetTestCompleted() { state_ = FINISHED; }
 
-  // The protocol handler used to respond to requests.
-  TestInMemoryProtocolHandler* GetProtocolHandler() { return http_handler_; }
-
   // Do necessary preparations and return a URL to render.
   virtual GURL GetPageUrl(HeadlessDevToolsClient* client) = 0;
 
@@ -114,12 +110,6 @@ class HeadlessRenderTest : public HeadlessAsyncDevTooledBrowserTest,
       HeadlessBrowserContext::Builder& builder) override;
   bool GetEnableBeginFrameControl() override;
   void PostRunAsynchronousTest() override;
-  ProtocolHandlerMap GetProtocolHandlers() override;
-
-  // HeadlessBrowserContext::Observer
-  void UrlRequestFailed(net::URLRequest* request,
-                        int net_error,
-                        DevToolsStatus devtools_status) override;
 
   // page::ExperimentalObserver implementation:
   void OnLoadEventFired(const page::LoadEventFiredParams& params) override;
@@ -127,8 +117,6 @@ class HeadlessRenderTest : public HeadlessAsyncDevTooledBrowserTest,
       const page::FrameStartedLoadingParams& params) override;
   void OnFrameScheduledNavigation(
       const page::FrameScheduledNavigationParams& params) override;
-  void OnFrameClearedScheduledNavigation(
-      const page::FrameClearedScheduledNavigationParams& params) override;
   void OnFrameNavigated(const page::FrameNavigatedParams& params) override;
 
   // runtime::ExperimentalObserver implementation:
@@ -136,11 +124,12 @@ class HeadlessRenderTest : public HeadlessAsyncDevTooledBrowserTest,
       const runtime::ConsoleAPICalledParams& params) override;
   void OnExceptionThrown(const runtime::ExceptionThrownParams& params) override;
 
-  // TestInMemoryProtocolHandler::RequestDeferrer
-  void OnRequest(const GURL& url, base::Closure complete_request) override;
+  // For each frame, keep track of scheduled navigations.
+  // FYI: It doesn't track every navigations. For instance, it doesn't include
+  // the first navigation. It doesn't include HTTP redirect, but it includes
+  // client-side redirect.
+  std::map<std::string, std::vector<Navigation>> scheduled_navigations_;
 
-  std::map<std::string, std::vector<Redirect>> confirmed_frame_redirects_;
-  std::map<std::string, Redirect> unconfirmed_frame_redirects_;
   std::map<std::string, std::vector<std::unique_ptr<page::Frame>>> frames_;
   std::string main_frame_;
   std::vector<std::string> console_log_;
@@ -174,7 +163,6 @@ class HeadlessRenderTest : public HeadlessAsyncDevTooledBrowserTest,
 
   std::unique_ptr<VirtualTimeController> virtual_time_controller_;
   std::unique_ptr<CompositorController> compositor_controller_;
-  TestInMemoryProtocolHandler* http_handler_;  // NOT OWNED
 
   base::test::ScopedFeatureList scoped_feature_list_;
 

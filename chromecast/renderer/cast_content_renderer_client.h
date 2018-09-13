@@ -16,10 +16,6 @@
 #include "media/base/audio_codecs.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
-#if defined(CHROMECAST_BUILD)
-#include <string>
-#endif
-
 namespace extensions {
 class ExtensionsClient;
 class ExtensionsGuestViewContainerDispatcher;
@@ -67,19 +63,19 @@ class CastContentRendererClient
   bool IsSupportedVideoConfig(const ::media::VideoConfig& config) override;
   bool IsSupportedBitstreamAudioCodec(::media::AudioCodec codec) override;
   blink::WebPrescientNetworking* GetPrescientNetworking() override;
-  void DeferMediaLoad(content::RenderFrame* render_frame,
+  bool DeferMediaLoad(content::RenderFrame* render_frame,
                       bool render_frame_has_played_media_before,
-                      const base::Closure& closure) override;
+                      base::OnceClosure closure) override;
   bool AllowIdleMediaSuspend() override;
   void SetRuntimeFeaturesDefaultsBeforeBlinkInitialization() override;
-  std::unique_ptr<blink::WebSpeechSynthesizer> OverrideSpeechSynthesizer(
-      blink::WebSpeechSynthesizerClient* client) override;
 
  protected:
   CastContentRendererClient();
 
-  virtual void RunWhenInForeground(content::RenderFrame* render_frame,
-                                   const base::Closure& closure);
+  // Returns true if running is deferred until in foreground; false if running
+  // occurs immediately.
+  virtual bool RunWhenInForeground(content::RenderFrame* render_frame,
+                                   base::OnceClosure closure);
 
  private:
   // mojom::ApplicationMediaCapabilitiesObserver implementation:

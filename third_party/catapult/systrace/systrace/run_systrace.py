@@ -44,13 +44,12 @@ from systrace import util
 from systrace.tracing_agents import atrace_agent
 from systrace.tracing_agents import atrace_from_file_agent
 from systrace.tracing_agents import atrace_process_dump
-from systrace.tracing_agents import battor_trace_agent
 from systrace.tracing_agents import ftrace_agent
 from systrace.tracing_agents import walt_agent
 
 
 ALL_MODULES = [atrace_agent, atrace_from_file_agent, atrace_process_dump,
-               battor_trace_agent, ftrace_agent, walt_agent]
+               ftrace_agent, walt_agent]
 
 
 def parse_options(argv):
@@ -158,13 +157,16 @@ def main_impl(arguments):
 
   if options.target == 'android' and not options.from_file:
     initialize_devil()
+    devices = [a.GetDeviceSerial() for a in adb_wrapper.AdbWrapper.Devices()]
     if not options.device_serial_number:
-      devices = [a.GetDeviceSerial() for a in adb_wrapper.AdbWrapper.Devices()]
       if len(devices) == 0:
         raise RuntimeError('No ADB devices connected.')
       elif len(devices) >= 2:
         raise RuntimeError('Multiple devices connected, serial number required')
       options.device_serial_number = devices[0]
+    elif options.device_serial_number not in devices:
+      raise RuntimeError('Device with the serial number "%s" is not connected.'
+                         % options.device_serial_number)
 
   # If list_categories is selected, just print the list of categories.
   # In this case, use of the tracing controller is not necessary.

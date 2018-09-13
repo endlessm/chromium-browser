@@ -16,7 +16,7 @@ FakeArcSession::~FakeArcSession() = default;
 
 void FakeArcSession::StartMiniInstance() {}
 
-void FakeArcSession::RequestUpgrade() {
+void FakeArcSession::RequestUpgrade(UpgradeParams params) {
   upgrade_requested_ = true;
   if (boot_failure_emulation_enabled_) {
     for (auto& observer : observer_list_)

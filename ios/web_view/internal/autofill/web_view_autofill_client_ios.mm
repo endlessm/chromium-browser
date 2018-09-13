@@ -53,11 +53,24 @@ identity::IdentityManager* WebViewAutofillClientIOS::GetIdentityManager() {
 }
 
 ukm::UkmRecorder* WebViewAutofillClientIOS::GetUkmRecorder() {
+  // UKM recording is not supported for WebViews.
   return nullptr;
+}
+
+ukm::SourceId WebViewAutofillClientIOS::GetUkmSourceId() {
+  // UKM recording is not supported for WebViews.
+  return 0;
 }
 
 AddressNormalizer* WebViewAutofillClientIOS::GetAddressNormalizer() {
   return nullptr;
+}
+
+security_state::SecurityLevel
+WebViewAutofillClientIOS::GetSecurityLevelForUmaHistograms() {
+  // The metrics are not recorded for iOS webview, so return the count value
+  // which will not be recorded.
+  return security_state::SecurityLevel::SECURITY_LEVEL_COUNT;
 }
 
 void WebViewAutofillClientIOS::ShowAutofillSettings() {
@@ -76,6 +89,19 @@ void WebViewAutofillClientIOS::OnUnmaskVerificationResult(
   [bridge_ didReceiveUnmaskVerificationResult:result];
 }
 
+void WebViewAutofillClientIOS::ShowLocalCardMigrationPrompt(
+    base::OnceClosure closure) {
+  NOTREACHED();
+}
+
+void WebViewAutofillClientIOS::ConfirmSaveAutofillProfile(
+    const AutofillProfile& profile,
+    base::OnceClosure callback) {
+  // Since there is no confirmation needed to save an Autofill Profile,
+  // running |callback| will proceed with saving |profile|.
+  std::move(callback).Run();
+}
+
 void WebViewAutofillClientIOS::ConfirmSaveCreditCardLocally(
     const CreditCard& card,
     const base::RepeatingClosure& callback) {
@@ -85,7 +111,8 @@ void WebViewAutofillClientIOS::ConfirmSaveCreditCardLocally(
 void WebViewAutofillClientIOS::ConfirmSaveCreditCardToCloud(
     const CreditCard& card,
     std::unique_ptr<base::DictionaryValue> legal_message,
-    const base::Closure& callback) {}
+    bool should_request_name_from_user,
+    base::OnceCallback<void(const base::string16&)> callback) {}
 
 void WebViewAutofillClientIOS::ConfirmCreditCardFillAssist(
     const CreditCard& card,
@@ -107,6 +134,7 @@ void WebViewAutofillClientIOS::ShowAutofillPopup(
     const gfx::RectF& element_bounds,
     base::i18n::TextDirection text_direction,
     const std::vector<Suggestion>& suggestions,
+    bool /*unused_autoselect_first_suggestion*/,
     base::WeakPtr<AutofillPopupDelegate> delegate) {
   [bridge_ showAutofillPopup:suggestions popupDelegate:delegate];
 }

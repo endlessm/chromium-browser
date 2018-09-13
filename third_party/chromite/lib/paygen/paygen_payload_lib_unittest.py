@@ -100,8 +100,7 @@ class PaygenPayloadLibTest(cros_test_lib.MoxTempDirTestCase):
 class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
   """PaygenPayloadLib basic (and quick) testing."""
 
-  def _GetStdGenerator(self, work_dir=None, payload=None, sign=True,
-                       au_generator_uri_override=None):
+  def _GetStdGenerator(self, work_dir=None, payload=None, sign=True):
     """Helper function to create a standardized PayloadGenerator."""
     if payload is None:
       payload = self.full_payload
@@ -109,23 +108,17 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     if work_dir is None:
       work_dir = self.tempdir
 
-    if not au_generator_uri_override:
-      au_generator_uri_override = gspaths.ChromeosReleases.GeneratorUri(
-          payload.tgt_image.channel, payload.tgt_image.board, '7587.0.0')
-
     return paygen_payload_lib._PaygenPayload(
         payload=payload,
         cache=self.cache,
         work_dir=work_dir,
         sign=sign,
-        verify=False,
-        au_generator_uri_override=au_generator_uri_override)
+        verify=False)
 
   def testWorkingDirNames(self):
     """Make sure that some of the files we create have the expected names."""
     gen = self._GetStdGenerator(work_dir='/foo')
 
-    self.assertEqual(gen.generator_dir, '/foo/au-generator')
     self.assertEqual(gen.src_image_file, '/foo/src_image.bin')
     self.assertEqual(gen.tgt_image_file, '/foo/tgt_image.bin')
     self.assertEqual(gen.payload_file, '/foo/delta.bin')
@@ -156,21 +149,8 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     self.assertEqual(gen._JsonUri('gs://foo/bar'),
                      'gs://foo/bar.json')
 
-  @cros_test_lib.NetworkTest()
-  def testPrepareGenerator(self):
-    """Validate that we can download an unzip a generator artifact."""
-    gen = self._GetStdGenerator()
-    gen._PrepareGenerator()
-
-    # Ensure that the expected executables in the au-generator are available.
-    expected = os.path.join(gen.generator_dir, 'cros_generate_update_payload')
-    self.assertExists(expected)
-
-    expected = os.path.join(gen.generator_dir, 'delta_generator')
-    self.assertExists(expected)
-
   def testRunGeneratorCmd(self):
-    """Test the specialized command to run programs from au-generate.zip."""
+    """Test the specialized command to run programs in chroot."""
     expected_cmd = ['cmd', 'bar', 'jo nes']
     original_environ = os.environ.copy()
     gen = self._GetStdGenerator(work_dir='/foo')
@@ -186,8 +166,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
         expected_cmd,
         redirect_stdout=True,
         enter_chroot=True,
-        combine_stdout_stderr=True,
-        error_code_ok=True).AndReturn(mock_result)
+        combine_stdout_stderr=True).AndReturn(mock_result)
 
     gen._StoreLog('Output of command: cmd bar jo nes')
     gen._StoreLog(mock_result.output)
@@ -288,7 +267,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--board', 'x86-alex',
            '--version', '1620.0.0',
            '--kern_path', '/work/new_kernel.dat',
-           '--root_path', '/work/new_rootfs.dat',
+           '--root_path', '/work/new_root.dat',
            '--key', 'mp-v3',
            '--build_channel', 'dev-channel',
            '--build_version', '1620.0.0']
@@ -315,7 +294,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--board', 'x86-alex',
            '--version', '4171.0.0',
            '--kern_path', '/work/new_kernel.dat',
-           '--root_path', '/work/new_rootfs.dat',
+           '--root_path', '/work/new_root.dat',
            '--key', 'mp-v3',
            '--build_channel', 'dev-channel',
            '--build_version', '4171.0.0',
@@ -324,7 +303,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--src_board', 'x86-alex',
            '--src_version', '1620.0.0',
            '--src_kern_path', '/work/old_kernel.dat',
-           '--src_root_path', '/work/old_rootfs.dat',
+           '--src_root_path', '/work/old_root.dat',
            '--src_key', 'mp-v3',
            '--src_build_channel', 'dev-channel',
            '--src_build_version', '1620.0.0']
@@ -352,7 +331,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--board', 'x86-alex',
            '--version', '1620.0.0',
            '--kern_path', '/work/new_kernel.dat',
-           '--root_path', '/work/new_rootfs.dat',
+           '--root_path', '/work/new_root.dat',
            '--key', 'test',
            '--build_channel', 'dev-channel',
            '--build_version', '1620.0.0']
@@ -380,7 +359,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--board', 'x86-alex',
            '--version', '4171.0.0',
            '--kern_path', '/work/new_kernel.dat',
-           '--root_path', '/work/new_rootfs.dat',
+           '--root_path', '/work/new_root.dat',
            '--key', 'test',
            '--build_channel', 'dev-channel',
            '--build_version', '4171.0.0',
@@ -389,7 +368,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--src_board', 'x86-alex',
            '--src_version', '1620.0.0',
            '--src_kern_path', '/work/old_kernel.dat',
-           '--src_root_path', '/work/old_rootfs.dat',
+           '--src_root_path', '/work/old_root.dat',
            '--src_key', 'test',
            '--src_build_channel', 'dev-channel',
            '--src_build_version', '1620.0.0']
@@ -409,11 +388,11 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
                              '_RunGeneratorCmd')
 
     # Record the expected function calls.
-    cmd = ['brillo_update_payload', 'hash',
-           '--unsigned_payload', gen.payload_file,
-           '--payload_hash_file', mox.IsA(str),
-           '--metadata_hash_file', mox.IsA(str),
-           '--signature_size', '256']
+    cmd = ['delta_generator',
+           '--in_file=' + gen.payload_file,
+           '--signature_size=256',
+           mox.Regex('--out_hash_file=.+'),
+           mox.Regex('--out_metadata_hash_file=.+')]
     gen._RunGeneratorCmd(cmd)
 
     # Run the test.
@@ -438,8 +417,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
     # Run the test.
     self.mox.ReplayAll()
-    self.assertEqual(gen._SignHashes(hashes),
-                     signatures)
+    self.assertEqual(gen._SignHashes(hashes), signatures)
 
   def testInsertPayloadSignatures(self):
     """Test inserting payload signatures."""
@@ -454,10 +432,10 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
     # Record the expected function calls.
     cmd = ['delta_generator',
-           '-in_file=' + gen.payload_file,
-           mox.IsA(str),
-           '-out_file=' + gen.signed_payload_file,
-           '-out_metadata_size_file=' + gen.metadata_size_file]
+           '--in_file=' + gen.payload_file,
+           mox.StrContains('payload_signature_file'),
+           '--out_file=' + gen.signed_payload_file,
+           '--out_metadata_size_file=' + gen.metadata_size_file]
     gen._RunGeneratorCmd(cmd)
     gen._ReadMetadataSizeFile()
 
@@ -493,16 +471,15 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
     # Record the expected function calls.
     cmd = ['check_update_payload',
+           gen.signed_payload_file,
            '--check',
            '--type', 'delta',
            '--disabled_tests', 'move-same-src-dst-block',
-           '--dst_kern', '/work/new_kernel.dat',
-           '--dst_root', '/work/new_rootfs.dat',
+           '--part_names', 'kernel', 'root',
+           '--dst_part_paths', '/work/new_kernel.dat', '/work/new_root.dat',
            '--meta-sig', gen.metadata_signature_file,
            '--metadata-size', "10",
-           '--src_kern', '/work/old_kernel.dat',
-           '--src_root', '/work/old_rootfs.dat',
-           gen.signed_payload_file]
+           '--src_part_paths', '/work/old_kernel.dat', '/work/old_root.dat']
 
     gen._RunGeneratorCmd(cmd)
 
@@ -521,14 +498,14 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
     # Record the expected function calls.
     cmd = ['check_update_payload',
+           gen.signed_payload_file,
            '--check',
            '--type', 'full',
            '--disabled_tests', 'move-same-src-dst-block',
-           '--dst_kern', '/work/new_kernel.dat',
-           '--dst_root', '/work/new_rootfs.dat',
+           '--part_names', 'kernel', 'root',
+           '--dst_part_paths', '/work/new_kernel.dat', '/work/new_root.dat',
            '--meta-sig', gen.metadata_signature_file,
-           '--metadata-size', "10",
-           gen.signed_payload_file]
+           '--metadata-size', "10"]
 
     gen._RunGeneratorCmd(cmd)
 
@@ -618,8 +595,6 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
 
     # Set up stubs.
     self.mox.StubOutWithMock(paygen_payload_lib._PaygenPayload,
-                             '_PrepareGenerator')
-    self.mox.StubOutWithMock(paygen_payload_lib._PaygenPayload,
                              '_PrepareImage')
     self.mox.StubOutWithMock(paygen_payload_lib._PaygenPayload,
                              '_GenerateUnsignedPayload')
@@ -629,7 +604,6 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
                              '_StorePayloadJson')
 
     # Record expected calls.
-    gen._PrepareGenerator()
     gen._PrepareImage(payload.tgt_image, gen.tgt_image_file)
     gen._PrepareImage(payload.src_image, gen.src_image_file)
     gen._GenerateUnsignedPayload()
@@ -772,9 +746,6 @@ class PaygenPayloadLibEndToEndTest(PaygenPayloadLibTest):
     paygen_payload_lib.CreateAndUploadPayload(
         payload=payload,
         cache=self.cache,
-        work_dir=self.tempdir,
-        au_generator_uri=gspaths.ChromeosReleases.GeneratorUri(
-            payload.tgt_image.channel, payload.tgt_image.board, '7587.0.0'),
         sign=sign)
 
     self.assertExists(output_uri)

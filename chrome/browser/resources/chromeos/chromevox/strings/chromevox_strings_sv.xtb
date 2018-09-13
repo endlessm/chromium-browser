@@ -92,6 +92,7 @@ Om du är klar med självstudierna kan du använda ChromeVox till att navigera t
 <translation id="1787176709638001873">Lösenordsinmatning</translation>
 <translation id="1802710350767629429">Visa uppdateringsanteckningar</translation>
 <translation id="1810107444790159527">Listruta</translation>
+<translation id="1812527064848182527">liggande</translation>
 <translation id="1828385960365606039">maj</translation>
 <translation id="1834891354138622109">Kolumn</translation>
 <translation id="1845944666972354496">Aktivera genom att trycka snabbt två gånger</translation>
@@ -146,6 +147,7 @@ Om du är klar med självstudierna kan du använda ChromeVox till att navigera t
 <translation id="2416512023405990736">En omarkerad kryssruta</translation>
 <translation id="2417569100218200841">Innehållsinformation</translation>
 <translation id="2417948780551741035">Slutnoter</translation>
+<translation id="2421113964388408478">Borttagning</translation>
 <translation id="2422937916923936891">Kryssruta för menyalternativ</translation>
 <translation id="2428534162001909979">Kommandomenyer</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@ Om du är klar med självstudierna kan du använda ChromeVox till att navigera t
 <translation id="3232388865800379423">En popup-knapp</translation>
 <translation id="3241052487511142956">Föregående länk som har besökts</translation>
 <translation id="3241638166094654466">Celler i varje rad:</translation>
+<translation id="3286372614333682499">stående</translation>
 <translation id="3286390186030710347">Skjutreglage</translation>
 <translation id="3299925995433437805">Det finns inga fler länkar som har besökts.</translation>
 <translation id="3300348286427369683">Stöd för Rich Text. ChromeVox har nu stöd för fält med Rich Text, till exempel hoppkommandon, dirigering av punktskriftsmarkören, urval med mera.</translation>
@@ -426,6 +429,7 @@ Om du är klar med självstudierna kan du använda ChromeVox till att navigera t
 <translation id="4476183483923481720">ny rad</translation>
 <translation id="4482330759234983253">Föregående tabell</translation>
 <translation id="4491109536499578614">Bild</translation>
+<translation id="4505167975768625962">Infogning</translation>
 <translation id="4517854969512651305">Öka värdet</translation>
 <translation id="4529987814483543472">Klassisk tangentuppsättning</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{snedstreck}other{# snedstreck}}</translation>
@@ -589,6 +593,7 @@ Om du är klar med självstudierna kan du använda ChromeVox till att navigera t
 <translation id="5712338278108304766">Nästa tabellkolumn</translation>
 <translation id="571866080859340309">Utforskar grupper</translation>
 <translation id="5728409797179002635">Inga tabeller hittades.</translation>
+<translation id="5729047866208036762">Utforska matematiska uttryck genom att trycka på uppåt-, nedåt-, vänster- eller högerpil.</translation>
 <translation id="5732189279857692565">Det här är den andra rubriken. Fortsätt genom att trycka på söktangenten + H eller söktangenten + Skift + H</translation>
 <translation id="5748623122140342504">Föregående rubrik på nivå 5</translation>
 <translation id="5750633686117194034">Ingen specialtangent har tryckts in. Tryck länge på en eller flera specialtangenter. Lyft fingrarna när du är klar så får du höra vilka tangenter som har konfigurerats. Avsluta genom att trycka på tabbtangenten.</translation>
@@ -744,6 +749,7 @@ Flytta framåt mellan öppna flikar genom att trycka på Ctrl + tabbtangenten.
 <translation id="7226216518520804442">lista</translation>
 <translation id="7229749224609077523">Välj punktskrift med sex punkter:</translation>
 <translation id="72393384879519786">Rubrik</translation>
+<translation id="7240858705033280249">Hoppa till mer information</translation>
 <translation id="7241683698754534149">Öppna lång beskrivning på ny flik</translation>
 <translation id="7248671827512403053">Program</translation>
 <translation id="725969808843520477">Nästa alternativknapp</translation>
@@ -920,6 +926,7 @@ Flytta framåt mellan öppna flikar genom att trycka på Ctrl + tabbtangenten.
 <translation id="9043969572162476692"><ph name="NUM" /> %</translation>
 <translation id="9061884144798498064">Välj punktskrift med åtta punkter:</translation>
 <translation id="9065283790526219006">+popup</translation>
+<translation id="9066023754636984703">Du kan hoppa till mer information om detta med söktangenten+A, J.</translation>
 <translation id="9067522039955793016">Sidbrytning</translation>
 <translation id="9077213568694924680">togs bort från markeringen</translation>
 <translation id="9082874451376019682">Det finns inget föregående skjutreglage.</translation>

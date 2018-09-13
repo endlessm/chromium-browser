@@ -26,9 +26,8 @@
 #import "ios/chrome/browser/ui/icons/chrome_icon.h"
 #import "ios/chrome/browser/ui/material_components/utils.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/third_party/material_components_ios/src/components/Buttons/src/MDCFlatButton.h"
 #import "ios/third_party/material_components_ios/src/components/NavigationBar/src/MaterialNavigationBar.h"
@@ -179,6 +178,7 @@ folderEditorWithBookmarkModel:(bookmarks::BookmarkModel*)bookmarkModel
         setSeparatorInset:UIEdgeInsetsMake(
                               0, kBookmarkCellHorizontalLeadingInset, 0, 0)];
   } else {
+    self.navigationController.navigationBarHidden = YES;
     [self.tableView setSeparatorStyle:UITableViewCellSeparatorStyleNone];
   }
 
@@ -189,7 +189,8 @@ folderEditorWithBookmarkModel:(bookmarks::BookmarkModel*)bookmarkModel
               style:UIBarButtonItemStylePlain
              target:self
              action:@selector(saveFolder)];
-  doneItem.accessibilityIdentifier = @"Save";
+  doneItem.accessibilityIdentifier =
+      kBookmarkFolderEditNavigationBarDoneButtonIdentifier;
   self.navigationItem.rightBarButtonItem = doneItem;
   self.doneItem = doneItem;
 
@@ -228,6 +229,12 @@ folderEditorWithBookmarkModel:(bookmarks::BookmarkModel*)bookmarkModel
   } else {
     self.navigationController.toolbarHidden = YES;
   }
+}
+
+#pragma mark - Presentation controller integration
+
+- (BOOL)shouldBeDismissedOnTouchOutside {
+  return NO;
 }
 
 #pragma mark - Accessibility
@@ -410,7 +417,8 @@ folderEditorWithBookmarkModel:(bookmarks::BookmarkModel*)bookmarkModel
     return;
 
   self.view.accessibilityIdentifier =
-      (self.folder) ? @"Folder Editor" : @"Folder Creator";
+      (self.folder) ? kBookmarkFolderEditViewContainerIdentifier
+                    : kBookmarkFolderCreateViewContainerIdentifier;
 
   [self setTitle:(self.folder)
                      ? l10n_util::GetNSString(
@@ -480,6 +488,8 @@ folderEditorWithBookmarkModel:(bookmarks::BookmarkModel*)bookmarkModel
 
   if (experimental_flags::IsBookmarksUIRebootEnabled()) {
     deleteButton.tintColor = [UIColor redColor];
+    [self.navigationController.toolbar setShadowImage:[UIImage new]
+                                   forToolbarPosition:UIBarPositionAny];
     [self setToolbarItems:@[ spaceButton, deleteButton, spaceButton ]
                  animated:NO];
   } else {

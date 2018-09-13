@@ -4,8 +4,12 @@
 
 #include "chrome/browser/ui/signin_view_controller.h"
 
+#include <utility>
+
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/search.h"
+#include "chrome/browser/signin/account_consistency_mode_manager.h"
+#include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/dice_tab_helper.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_promo.h"
@@ -25,6 +29,7 @@
 
 namespace {
 
+#if !defined(OS_CHROMEOS)
 // Returns the sign-in reason for |mode|.
 signin_metrics::Reason GetSigninReasonFromMode(profiles::BubbleViewMode mode) {
   DCHECK(SigninViewController::ShouldShowSigninForMode(mode));
@@ -74,6 +79,22 @@ int FindDiceSigninTab(TabStripModel* tab_strip) {
   return -1;
 }
 
+// Returns the promo action to be used when signing with a new account.
+signin_metrics::PromoAction GetPromoActionForNewAccount(
+    AccountTrackerService* account_tracker,
+    signin::AccountConsistencyMethod account_consistency) {
+  if (account_consistency != signin::AccountConsistencyMethod::kDice)
+    return signin_metrics::PromoAction::PROMO_ACTION_NEW_ACCOUNT_PRE_DICE;
+
+  return account_tracker->GetAccounts().size() > 0
+             ? signin_metrics::PromoAction::
+                   PROMO_ACTION_NEW_ACCOUNT_EXISTING_ACCOUNT
+             : signin_metrics::PromoAction::
+                   PROMO_ACTION_NEW_ACCOUNT_NO_EXISTING_ACCOUNT;
+}
+
+#endif
+
 }  // namespace
 
 SigninViewController::SigninViewController() : delegate_(nullptr) {}
@@ -95,20 +116,30 @@ void SigninViewController::ShowSignin(
     Browser* browser,
     signin_metrics::AccessPoint access_point) {
   DCHECK(ShouldShowSigninForMode(mode));
-  if (signin::IsDicePrepareMigrationEnabled()) {
+
+#if defined(OS_CHROMEOS)
+  ShowModalSigninDialog(mode, browser, access_point);
+#else   // defined(OS_CHROMEOS)
+  Profile* profile = browser->profile();
+  signin::AccountConsistencyMethod account_consistency =
+      AccountConsistencyModeManager::GetMethodForProfile(profile);
+  if (signin::DiceMethodGreaterOrEqual(
+          account_consistency,
+          signin::AccountConsistencyMethod::kDicePrepareMigration)) {
     std::string email;
     if (GetSigninReasonFromMode(mode) ==
         signin_metrics::Reason::REASON_REAUTHENTICATION) {
-      SigninManagerBase* manager =
-          SigninManagerFactory::GetForProfile(browser->profile());
+      SigninManagerBase* manager = SigninManagerFactory::GetForProfile(profile);
       email = manager->GetAuthenticatedAccountInfo().email;
     }
-    ShowDiceSigninTab(mode, browser, access_point,
-                      signin_metrics::PromoAction::PROMO_ACTION_NEW_ACCOUNT,
-                      email);
+    signin_metrics::PromoAction promo_action = GetPromoActionForNewAccount(
+        AccountTrackerServiceFactory::GetForProfile(profile),
+        account_consistency);
+    ShowDiceSigninTab(mode, browser, access_point, promo_action, email);
   } else {
     ShowModalSigninDialog(mode, browser, access_point);
   }
+#endif  // defined(OS_CHROMEOS)
 }
 
 void SigninViewController::ShowModalSigninDialog(
@@ -182,6 +213,7 @@ void SigninViewController::ResetModalSigninDelegate() {
   delegate_ = nullptr;
 }
 
+#if !defined(OS_CHROMEOS)
 void SigninViewController::ShowDiceSigninTab(
     profiles::BubbleViewMode mode,
     Browser* browser,
@@ -223,6 +255,7 @@ void SigninViewController::ShowDiceSigninTab(
   tab_helper->InitializeSigninFlow(signin_url, access_point, signin_reason,
                                    promo_action);
 }
+#endif  // !defined(OS_CHROMEOS)
 
 content::WebContents*
 SigninViewController::GetModalDialogWebContentsForTesting() {

@@ -6,7 +6,7 @@
 #include <string>
 #include <utility>
 
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -36,7 +36,7 @@
 
 namespace subresource_filter {
 
-const char kSubresourceFilterActionsHistogram[] = "SubresourceFilter.Actions";
+const char kSubresourceFilterActionsHistogram[] = "SubresourceFilter.Actions2";
 
 class SubresourceFilterSettingsBrowserTest
     : public SubresourceFilterBrowserTest {
@@ -255,7 +255,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterSettingsBrowserTest,
   EXPECT_TRUE(client->did_show_ui_for_navigation());
 
   histogram_tester.ExpectBucketCount(kSubresourceFilterActionsHistogram,
-                                     kActionUISuppressed, 0);
+                                     SubresourceFilterAction::kUISuppressed, 0);
 
   // Second load should not trigger the UI, but should still filter content.
   ui_test_utils::NavigateToURL(browser(), a_url);
@@ -265,7 +265,8 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterSettingsBrowserTest,
   EXPECT_EQ(client->did_show_ui_for_navigation(), !use_smart_ui);
 
   histogram_tester.ExpectBucketCount(kSubresourceFilterActionsHistogram,
-                                     kActionUISuppressed, use_smart_ui ? 1 : 0);
+                                     SubresourceFilterAction::kUISuppressed,
+                                     use_smart_ui ? 1 : 0);
 
   ConfigureAsPhishingURL(b_url);
 
@@ -284,7 +285,8 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterSettingsBrowserTest,
   EXPECT_TRUE(client->did_show_ui_for_navigation());
 
   histogram_tester.ExpectBucketCount(kSubresourceFilterActionsHistogram,
-                                     kActionUISuppressed, use_smart_ui ? 1 : 0);
+                                     SubresourceFilterAction::kUISuppressed,
+                                     use_smart_ui ? 1 : 0);
 }
 
 }  // namespace subresource_filter

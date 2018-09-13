@@ -10,10 +10,9 @@ from __future__ import print_function
 import copy
 import itertools
 import json
-import os
 
-from chromite.lib.const import waterfall
 from chromite.lib import constants
+from chromite.lib import memoize
 from chromite.lib import osutils
 
 
@@ -44,6 +43,7 @@ TRYJOB_DISPLAY_LABEL = {
 
 DISPLAY_LABEL_INCREMENATAL = 'incremental'
 DISPLAY_LABEL_FULL = 'full'
+DISPLAY_LABEL_CHROME_INFORMATIONAL = 'chrome_informational'
 DISPLAY_LABEL_INFORMATIONAL = 'informational'
 DISPLAY_LABEL_CQ = 'cq'
 DISPLAY_LABEL_RELEASE = 'release'
@@ -62,6 +62,7 @@ DISPLAY_LABEL_PRODUCTION_TRYJOB = 'production_tryjob'
 ALL_DISPLAY_LABEL = TRYJOB_DISPLAY_LABEL | {
     DISPLAY_LABEL_INCREMENATAL,
     DISPLAY_LABEL_FULL,
+    DISPLAY_LABEL_CHROME_INFORMATIONAL,
     DISPLAY_LABEL_INFORMATIONAL,
     DISPLAY_LABEL_CQ,
     DISPLAY_LABEL_RELEASE,
@@ -84,11 +85,13 @@ ALL_DISPLAY_LABEL = TRYJOB_DISPLAY_LABEL | {
 LUCI_BUILDER_TRY = 'Try'
 LUCI_BUILDER_PRECQ = 'PreCQ'
 LUCI_BUILDER_PROD = 'Prod'
+LUCI_BUILDER_STAGING = 'Staging'
 
 ALL_LUCI_BUILDER = {
     LUCI_BUILDER_TRY,
     LUCI_BUILDER_PRECQ,
     LUCI_BUILDER_PROD,
+    LUCI_BUILDER_STAGING,
 }
 
 def isTryjobConfig(build_config):
@@ -106,9 +109,6 @@ def isTryjobConfig(build_config):
 # In the Json, this special build config holds the default values for all
 # other configs.
 DEFAULT_BUILD_CONFIG = '_default'
-
-# We cache the config we load from disk to avoid reparsing.
-_CACHED_CONFIG = None
 
 # Constants for config template file
 CONFIG_TEMPLATE_BOARDS = 'boards'
@@ -158,25 +158,6 @@ def IsMasterCQ(config):
   """Returns True if this build is master CQ."""
   return config.build_type == constants.PALADIN_TYPE and config.master
 
-def IsMasterBuild(config):
-  """Returns True if this build is master."""
-  return config.master
-
-def UseBuildbucketScheduler(config):
-  """Returns True if this build uses Buildbucket to schedule builds."""
-  return (config.active_waterfall in (waterfall.WATERFALL_INTERNAL,
-                                      waterfall.WATERFALL_EXTERNAL,
-                                      waterfall.WATERFALL_SWARMING,
-                                      waterfall.WATERFALL_RELEASE) and
-          config.name in (constants.CQ_MASTER,
-                          constants.CANARY_MASTER,
-                          constants.PFQ_MASTER,
-                          constants.MST_ANDROID_PFQ_MASTER,
-                          constants.NYC_ANDROID_PFQ_MASTER,
-                          constants.PI_ANDROID_PFQ_MASTER,
-                          constants.TOOLCHAIN_MASTTER,
-                          constants.PRE_CQ_LAUNCHER_NAME))
-
 def RetryAlreadyStartedSlaves(config):
   """Returns True if wants to retry slaves which already start but fail.
 
@@ -200,11 +181,6 @@ def GetCriticalStageForRetry(config):
     return {'CommitQueueSync', 'MasterSlaveLKGMSync'}
   else:
     return set()
-
-def ScheduledByBuildbucket(config):
-  """Returns True if this build is scheduled by Buildbucket."""
-  return (config.build_type == constants.PALADIN_TYPE and
-          config.name != constants.CQ_MASTER)
 
 
 class AttrDict(dict):
@@ -251,7 +227,7 @@ class BuildConfig(AttrDict):
                    'tast_vm_tests'):
           result[k] = [copy.copy(x) for x in v]
         # type(v) is faster than isinstance.
-        elif type(v) is list:
+        elif type(v) is list:  # pylint: disable=unidiomatic-typecheck
           result[k] = v[:]
 
     return result
@@ -632,7 +608,7 @@ def DefaultSettings():
       # this bot passed or failed. Set this to False if you are setting up a
       # new bot. Once the bot is on the waterfall and is consistently green,
       # mark the builder as important=True.
-      important=False,
+      important=True,
 
       # If True, build config should always be run as if --debug was set
       # on the cbuildbot command line. This is different from 'important'
@@ -826,6 +802,9 @@ def DefaultSettings():
       # failures.
       vm_test_runs=1,
 
+      # If True, run SkylabHWTestStage instead of HWTestStage.
+      enable_skylab_hw_tests=False,
+
       # A list of HWTestConfig objects to run.
       hw_tests=[],
 
@@ -986,11 +965,6 @@ def DefaultSettings():
       # method.
       child_configs=[],
 
-      # Set shared user password for "chronos" user in built images. Use
-      # "None" (default) to remove the shared user password. Note that test
-      # images will always set the password to "test0000".
-      shared_user_password=None,
-
       # Whether this config belongs to a config group.
       grouped=False,
 
@@ -1071,6 +1045,18 @@ def DefaultSettings():
       # If not None, the name (in waterfall.CIDB_KNOWN_WATERFALLS) of the
       # waterfall that this target should be active on.
       active_waterfall=None,
+
+      # This is a LUCI Scheduler schedule string. Setting this will create
+      # a LUCI Scheduler for this build on swarming (not buildbot).
+      # See: https://goo.gl/VxSzFf
+      schedule=None,
+
+      # This is the list of git repos which can trigger this build in swarming.
+      # Implies that schedule is set, to "triggered".
+      # The format is of the form:
+      #   [ (<git repo url>, (<ref1>, <ref2>, …)),
+      #    …]
+      triggered_gitiles=None,
 
       # If true, skip package retries in BuildPackages step.
       nobuildretry=False,
@@ -1501,6 +1487,29 @@ class SiteConfig(dict):
 
     return result
 
+  def ApplyForBoards(self, suffix, boards, *args, **kwargs):
+    """Update configs for all boards in |boards|.
+
+    Args:
+      suffix: Config name is <board>-<suffix>.
+      boards: A list of board names as strings.
+      *args: Mixin templates to apply.
+      **kwargs: Additional keyword arguments to be used in AddConfig.
+
+    Returns:
+      List of the configs updated.
+    """
+    result = []
+
+    for board in boards:
+      config_name = '%s-%s' % (board, suffix)
+      assert config_name in self, ('%s does not exist.' % config_name)
+
+      # Update the config for this board.
+      result.append(self[config_name].apply(*args, **kwargs))
+
+    return result
+
   def AddTemplate(self, name, *args, **kwargs):
     """Create a template named |name|.
 
@@ -1753,7 +1762,7 @@ class ObjectJSONEncoder(json.JSONEncoder):
 def PrettyJsonDict(dictionary):
   """Returns a pretty-ified json dump of a dictionary."""
   return json.dumps(dictionary, cls=ObjectJSONEncoder,
-                    sort_keys=True, indent=4, separators=(',', ': '))
+                    sort_keys=True, indent=4, separators=(',', ': ')) + '\n'
 
 
 def LoadConfigFromFile(config_file=constants.CHROMEOS_CONFIG_FILE):
@@ -1867,38 +1876,11 @@ def _CreateBuildConfig(name, default, build_dict, templates):
   return result
 
 
-def ClearConfigCache():
-  """Clear the currently cached SiteConfig.
-
-  This is intended to be used very early in the startup, after we fetch/update
-  the site config information available to us.
-
-  However, this operation is never 100% safe, since the Chrome OS config, or an
-  outdated config was availble to any code that ran before (including on
-  import), and that code might have used or cached related values.
-  """
-  # pylint: disable=global-statement
-  global _CACHED_CONFIG
-  _CACHED_CONFIG = None
-
-
+@memoize.Memoize
 def GetConfig():
   """Load the current SiteConfig.
 
   Returns:
     SiteConfig instance to use for this build.
   """
-  # pylint: disable=global-statement
-  global _CACHED_CONFIG
-
-  if _CACHED_CONFIG is None:
-    if os.path.exists(constants.SITE_CONFIG_FILE):
-      # Use a site specific config, if present.
-      filename = constants.SITE_CONFIG_FILE
-    else:
-      # Fall back to default Chrome OS configuration.
-      filename = constants.CHROMEOS_CONFIG_FILE
-
-    _CACHED_CONFIG = LoadConfigFromFile(filename)
-
-  return _CACHED_CONFIG
+  return LoadConfigFromFile(constants.CHROMEOS_CONFIG_FILE)

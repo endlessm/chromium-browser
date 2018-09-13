@@ -20,7 +20,7 @@
 
 // Structure of this control:
 //
-// The page control is similar to a UISegmentedCoffee in appearance, but not in
+// The page control is similar to a UISegmentedControl in appearance, but not in
 // function. This control doesn't have segments that highlight; instead there
 // is a white "slider" that moves across the view onto whichever segment is
 // active. Each segment has an image and (optionally) a label. When the slider
@@ -30,7 +30,8 @@
 // smaller ones in the view hierarchy but are masked out by the slider view, so
 // they are only seen when the slider is over them.
 //
-// This control is built out of several views. From the bottom up, they are:
+// This control is built out of several views. From the (z-axis) bottom up, they
+// are:
 //
 //  * The background view, a grey roundrect with vertical transparent bars.
 //  * The background image views.
@@ -79,8 +80,8 @@ const CGFloat kBackgroundWidth = 3 * kSegmentWidth + 2 * kSeparatorWidth;
 // Overall height of the control -- the larger of the slider and segment
 // heights.
 const CGFloat kOverallHeight = std::max(kSliderHeight, kSegmentHeight);
-// Overall width of the control -- the background width plusand twice
-// the slider overhang.
+// Overall width of the control -- the background width plus twice the slider
+// overhang.
 const CGFloat kOverallWidth = kBackgroundWidth + 2 * kSliderOverhang;
 
 // Radius used to draw the background and the slider.
@@ -96,7 +97,11 @@ const NSTimeInterval kSliderMoveDuration = 0.2;
 // Color for the slider
 const int kSliderColor = 0xF8F9FA;
 // Color for the background view.
-const int kBackgroundColor = 0x5F6368;
+const int kBackgroundColor = 0xFFFFFF;
+// Alpha for the background view.
+const CGFloat kBackgroundAlpha = 0.3;
+// Color for the regular tab count label and icons.
+const CGFloat kSelectedColor = 0x3C4043;
 
 // Returns the point that's at the center of |rect|.
 CGPoint RectCenter(CGRect rect) {
@@ -110,6 +115,17 @@ NSString* StringForItemCount(long count) {
   if (count > 99)
     return @":-)";
   return [NSString stringWithFormat:@"%ld", count];
+}
+
+// Convenience method that composes an asset name and returns the correct image
+// (in template rendering mode) based on the segment name (one of "regular",
+// "incognito, "remote") and whether the selected state image is needed or not.
+UIImage* ImageForSegment(NSString* segment, BOOL selected) {
+  NSString* asset =
+      [NSString stringWithFormat:@"page_control_%@_tabs%@", segment,
+                                 selected ? @"_selected" : @""];
+  return [[UIImage imageNamed:asset]
+      imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
 }
 }
 
@@ -147,6 +163,10 @@ NSString* StringForItemCount(long count) {
 // the positive-x direction.
 @property(nonatomic) CGFloat sliderRange;
 @property(nonatomic, strong) NSArray* accessibilityElements;
+// YES if the slider is currently being dragged
+@property(nonatomic) BOOL dragging;
+@property(nonatomic) CGPoint dragStart;
+@property(nonatomic) CGFloat dragStartPosition;
 @end
 
 @implementation TabGridPageControl
@@ -171,6 +191,9 @@ NSString* StringForItemCount(long count) {
 @synthesize sliderOrigin = _sliderOrigin;
 @synthesize sliderRange = _sliderRange;
 @synthesize accessibilityElements = _accessibilityElements;
+@synthesize dragging = _dragging;
+@synthesize dragStart = _dragStart;
+@synthesize dragStartPosition = _dragStartPosition;
 
 + (instancetype)pageControl {
   return [[TabGridPageControl alloc] init];
@@ -180,7 +203,6 @@ NSString* StringForItemCount(long count) {
   CGRect frame = CGRectMake(0, 0, kOverallWidth, kOverallHeight);
   if (self = [super initWithFrame:frame]) {
     // Default to the regular tab page as the selected page.
-
     _selectedPage = TabGridPageRegularTabs;
   }
   return self;
@@ -258,6 +280,47 @@ NSString* StringForItemCount(long count) {
   } else {
     self.sliderPosition = newPosition;
   }
+}
+
+#pragma mark - UIControl
+
+- (BOOL)beginTrackingWithTouch:(UITouch*)touch withEvent:(UIEvent*)event {
+  CGPoint locationInSlider = [touch locationInView:self.sliderView];
+  if ([self.sliderView pointInside:locationInSlider withEvent:event]) {
+    self.dragging = YES;
+    self.dragStart = [touch locationInView:self];
+    self.dragStartPosition = self.sliderPosition;
+    return YES;
+  }
+  return NO;
+}
+
+- (BOOL)continueTrackingWithTouch:(UITouch*)touch withEvent:(UIEvent*)event {
+  if (!self.dragging)
+    return NO;
+  // Compute x-distance offset
+  CGPoint position = [touch locationInView:self];
+  CGFloat deltaX = position.x - self.dragStart.x;
+  // Convert to position change.
+  CGFloat positionChange = deltaX / self.sliderRange;
+
+  self.sliderPosition = self.dragStartPosition + positionChange;
+  [self sendActionsForControlEvents:UIControlEventValueChanged];
+  return YES;
+}
+
+- (void)endTrackingWithTouch:(UITouch*)touch withEvent:(UIEvent*)event {
+  // endTracking is called when -continueTracking returns NO. There's no
+  // additional logic in this case, so just forward to -cancelTracking
+  [self cancelTrackingWithEvent:event];
+}
+
+- (void)cancelTrackingWithEvent:(UIEvent*)event {
+  // cancelTracking is called when there are no more touches (that is, when the
+  // user lifts their finger).
+  self.dragging = NO;
+  [self setSelectedPage:self.selectedPage animated:YES];
+  [self sendActionsForControlEvents:UIControlEventTouchUpInside];
 }
 
 #pragma mark - UIView
@@ -361,6 +424,7 @@ NSString* StringForItemCount(long count) {
 // used to position the section content.
 - (void)setupViews {
   UIView* backgroundView = [[TabGridPageControlBackground alloc] init];
+  backgroundView.userInteractionEnabled = NO;
   backgroundView.layer.cornerRadius = kCornerRadius;
   backgroundView.layer.masksToBounds = YES;
   [self addSubview:backgroundView];
@@ -405,6 +469,7 @@ NSString* StringForItemCount(long count) {
   // Add the slider above the section images and labels.
   CGRect sliderFrame = CGRectMake(0, 0, kSliderWidth, kSliderHeight);
   UIView* slider = [[UIView alloc] initWithFrame:sliderFrame];
+  slider.userInteractionEnabled = NO;
   slider.layer.cornerRadius = kCornerRadius;
   slider.layer.masksToBounds = YES;
   slider.backgroundColor = UIColorFromRGB(kSliderColor);
@@ -416,23 +481,19 @@ NSString* StringForItemCount(long count) {
   // will be clipped by the slider.
   UIView* selectedImageView = [[UIView alloc]
       initWithFrame:(CGRectMake(0, 0, kOverallWidth, kOverallHeight))];
+  selectedImageView.userInteractionEnabled = NO;
   [self.sliderView addSubview:selectedImageView];
   self.selectedImageView = selectedImageView;
 
-  // Scale the selected images, since the current assets don't have a larger
-  // size for the selected state.
-  // TODO(crbug.com/804500): Remove this once the correct assets are available.
-  CGFloat scale = kSelectedLabelSize / kLabelSize;
-  CGAffineTransform scaleTransform = CGAffineTransformMakeScale(scale, scale);
-
   // Icons and labels for the regular tabs.
-  UIImageView* regularIcon = [[UIImageView alloc]
-      initWithImage:[UIImage imageNamed:@"page_control_regular_tabs"]];
+  UIImageView* regularIcon =
+      [[UIImageView alloc] initWithImage:ImageForSegment(@"regular", NO)];
+  regularIcon.tintColor = UIColorFromRGB(kSliderColor);
   [self insertSubview:regularIcon belowSubview:self.sliderView];
   self.regularIcon = regularIcon;
-  UIImageView* regularSelectedIcon = [[UIImageView alloc]
-      initWithImage:[UIImage imageNamed:@"page_control_regular_tabs_selected"]];
-  regularSelectedIcon.transform = scaleTransform;
+  UIImageView* regularSelectedIcon =
+      [[UIImageView alloc] initWithImage:ImageForSegment(@"regular", YES)];
+  regularSelectedIcon.tintColor = UIColorFromRGB(kSelectedColor);
   [self.selectedImageView addSubview:regularSelectedIcon];
   self.regularSelectedIcon = regularSelectedIcon;
   UILabel* regularLabel = [self labelSelected:NO];
@@ -443,25 +504,26 @@ NSString* StringForItemCount(long count) {
   self.regularSelectedLabel = regularSelectedLabel;
 
   // Icons for the incognito tabs section.
-  UIImageView* incognitoIcon = [[UIImageView alloc]
-      initWithImage:[UIImage imageNamed:@"page_control_incognito_tabs"]];
+  UIImageView* incognitoIcon =
+      [[UIImageView alloc] initWithImage:ImageForSegment(@"incognito", NO)];
+  incognitoIcon.tintColor = UIColorFromRGB(kSliderColor);
   [self insertSubview:incognitoIcon belowSubview:self.sliderView];
   self.incognitoIcon = incognitoIcon;
-  UIImageView* incognitoSelectedIcon = [[UIImageView alloc]
-      initWithImage:[UIImage
-                        imageNamed:@"page_control_incognito_tabs_selected"]];
-  incognitoSelectedIcon.transform = scaleTransform;
+  UIImageView* incognitoSelectedIcon =
+      [[UIImageView alloc] initWithImage:ImageForSegment(@"incognito", YES)];
+  incognitoSelectedIcon.tintColor = UIColorFromRGB(kSelectedColor);
   [self.selectedImageView addSubview:incognitoSelectedIcon];
   self.incognitoSelectedIcon = incognitoSelectedIcon;
 
   // Icons for the remote tabs section.
-  UIImageView* remoteIcon = [[UIImageView alloc]
-      initWithImage:[UIImage imageNamed:@"page_control_remote_tabs"]];
+  UIImageView* remoteIcon =
+      [[UIImageView alloc] initWithImage:ImageForSegment(@"remote", NO)];
+  remoteIcon.tintColor = UIColorFromRGB(kSliderColor);
   [self insertSubview:remoteIcon belowSubview:self.sliderView];
   self.remoteIcon = remoteIcon;
-  UIImageView* remoteSelectedIcon = [[UIImageView alloc]
-      initWithImage:[UIImage imageNamed:@"page_control_remote_tabs_selected"]];
-  remoteSelectedIcon.transform = scaleTransform;
+  UIImageView* remoteSelectedIcon =
+      [[UIImageView alloc] initWithImage:ImageForSegment(@"remote", YES)];
+  remoteSelectedIcon.tintColor = UIColorFromRGB(kSelectedColor);
   [self.selectedImageView addSubview:remoteSelectedIcon];
   self.remoteSelectedIcon = remoteSelectedIcon;
 
@@ -486,7 +548,8 @@ NSString* StringForItemCount(long count) {
 // Selected labels use a different size and are black.
 - (UILabel*)labelSelected:(BOOL)selected {
   CGFloat size = selected ? kSelectedLabelSize : kLabelSize;
-  UIColor* color = selected ? UIColor.blackColor : UIColorFromRGB(kSliderColor);
+  UIColor* color =
+      selected ? UIColorFromRGB(kSelectedColor) : UIColorFromRGB(kSliderColor);
   UILabel* label = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, size, size)];
   label.backgroundColor = UIColor.clearColor;
   label.textAlignment = NSTextAlignmentCenter;
@@ -514,7 +577,7 @@ NSString* StringForItemCount(long count) {
   }
   if (page != self.selectedPage) {
     [self setSelectedPage:page animated:YES];
-    [self sendActionsForControlEvents:UIControlEventValueChanged];
+    [self sendActionsForControlEvents:UIControlEventTouchUpInside];
   }
 }
 
@@ -535,8 +598,12 @@ NSString* StringForItemCount(long count) {
 @implementation TabGridPageControlBackground
 
 - (instancetype)init {
-  return
+  self =
       [super initWithFrame:CGRectMake(0, 0, kBackgroundWidth, kSegmentHeight)];
+  if (self) {
+    self.backgroundColor = UIColor.clearColor;
+  }
+  return self;
 }
 
 - (CGSize)intrinsicContentsSize {
@@ -545,7 +612,7 @@ NSString* StringForItemCount(long count) {
 
 - (void)drawRect:(CGRect)rect {
   CGContextRef drawing = UIGraphicsGetCurrentContext();
-  UIColor* backgroundColor = UIColorFromRGB(kBackgroundColor);
+  UIColor* backgroundColor = UIColorFromRGB(kBackgroundColor, kBackgroundAlpha);
   CGContextSetFillColorWithColor(drawing, backgroundColor.CGColor);
   CGRect fillRect = CGRectMake(0, 0, kSegmentWidth, kSegmentHeight);
   CGContextFillRect(drawing, fillRect);

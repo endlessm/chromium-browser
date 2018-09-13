@@ -2498,6 +2498,348 @@ OpFunctionEnd
       predefs + before + nonEntryFuncs, predefs + after + nonEntryFuncs, false,
       true);
 }
+
+TEST_F(InlineTest, DeleteName) {
+  // Test that the name of the result id of the call is deleted.
+  const std::string before =
+      R"(
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %main "main"
+               OpName %main "main"
+               OpName %main_entry "main_entry"
+               OpName %foo_result "foo_result"
+               OpName %void_fn "void_fn"
+               OpName %foo "foo"
+               OpName %foo_entry "foo_entry"
+       %void = OpTypeVoid
+    %void_fn = OpTypeFunction %void
+        %foo = OpFunction %void None %void_fn
+  %foo_entry = OpLabel
+               OpReturn
+               OpFunctionEnd
+       %main = OpFunction %void None %void_fn
+ %main_entry = OpLabel
+ %foo_result = OpFunctionCall %void %foo
+               OpReturn
+               OpFunctionEnd
+)";
+
+  const std::string after =
+      R"(OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint Vertex %main "main"
+OpName %main "main"
+OpName %main_entry "main_entry"
+OpName %void_fn "void_fn"
+OpName %foo "foo"
+OpName %foo_entry "foo_entry"
+%void = OpTypeVoid
+%void_fn = OpTypeFunction %void
+%foo = OpFunction %void None %void_fn
+%foo_entry = OpLabel
+OpReturn
+OpFunctionEnd
+%main = OpFunction %void None %void_fn
+%main_entry = OpLabel
+OpReturn
+OpFunctionEnd
+)";
+
+  SinglePassRunAndCheck<opt::InlineExhaustivePass>(before, after, false, true);
+}
+
+TEST_F(InlineTest, SetParent) {
+  // Test that after inlining all basic blocks have the correct parent.
+  const std::string text =
+      R"(
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %main "main"
+               OpName %main "main"
+               OpName %main_entry "main_entry"
+               OpName %foo_result "foo_result"
+               OpName %void_fn "void_fn"
+               OpName %foo "foo"
+               OpName %foo_entry "foo_entry"
+       %void = OpTypeVoid
+    %void_fn = OpTypeFunction %void
+        %foo = OpFunction %void None %void_fn
+  %foo_entry = OpLabel
+               OpReturn
+               OpFunctionEnd
+       %main = OpFunction %void None %void_fn
+ %main_entry = OpLabel
+ %foo_result = OpFunctionCall %void %foo
+               OpReturn
+               OpFunctionEnd
+)";
+
+  std::unique_ptr<opt::IRContext> context =
+      BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
+  opt::InlineExhaustivePass pass;
+  pass.Run(context.get());
+
+  for (opt::Function& func : *context->module()) {
+    for (opt::BasicBlock& bb : func) {
+      EXPECT_TRUE(bb.GetParent() == &func);
+    }
+  }
+}
+
+#ifdef SPIRV_EFFCEE
+TEST_F(InlineTest, OpKill) {
+  const std::string text = R"(
+; CHECK: OpFunction
+; CHECK-NEXT: OpLabel
+; CHECK-NEXT: OpKill
+; CHECK-NEXT: OpLabel
+; CHECK-NEXT: OpReturn
+; CHECK-NEXT: OpFunctionEnd
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint Fragment %main "main"
+%void = OpTypeVoid
+%voidfuncty = OpTypeFunction %void
+%main = OpFunction %void None %voidfuncty
+%1 = OpLabel
+%2 = OpFunctionCall %void %func
+OpReturn
+OpFunctionEnd
+%func = OpFunction %void None %voidfuncty
+%3 = OpLabel
+OpKill
+OpFunctionEnd
+)";
+
+  SinglePassRunAndMatch<opt::InlineExhaustivePass>(text, true);
+}
+
+TEST_F(InlineTest, OpKillWithTrailingInstructions) {
+  const std::string text = R"(
+; CHECK: OpFunction
+; CHECK-NEXT: OpLabel
+; CHECK-NEXT: [[var:%\w+]] = OpVariable
+; CHECK-NEXT: OpKill
+; CHECK-NEXT: OpLabel
+; CHECK-NEXT: OpStore [[var]]
+; CHECK-NEXT: OpReturn
+; CHECK-NEXT: OpFunctionEnd
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint Fragment %main "main"
+%void = OpTypeVoid
+%bool = OpTypeBool
+%true = OpConstantTrue %bool
+%bool_func_ptr = OpTypePointer Function %bool
+%voidfuncty = OpTypeFunction %void
+%main = OpFunction %void None %voidfuncty
+%1 = OpLabel
+%2 = OpVariable %bool_func_ptr Function
+%3 = OpFunctionCall %void %func
+OpStore %2 %true
+OpReturn
+OpFunctionEnd
+%func = OpFunction %void None %voidfuncty
+%4 = OpLabel
+OpKill
+OpFunctionEnd
+)";
+
+  SinglePassRunAndMatch<opt::InlineExhaustivePass>(text, true);
+}
+
+TEST_F(InlineTest, OpKillInIf) {
+  const std::string text = R"(
+; CHECK: OpFunction
+; CHECK: OpLabel
+; CHECK: [[var:%\w+]] = OpVariable
+; CHECK-NEXT: [[ld:%\w+]] = OpLoad {{%\w+}} [[var]]
+; CHECK-NEXT: OpBranch [[label:%\w+]]
+; CHECK-NEXT: [[label]] = OpLabel
+; CHECK-NEXT: OpLoopMerge [[loop_merge:%\w+]] [[continue:%\w+]] None
+; CHECK-NEXT: OpBranch [[label:%\w+]]
+; CHECK-NEXT: [[label]] = OpLabel
+; CHECK-NEXT: OpSelectionMerge [[sel_merge:%\w+]] None
+; CHECK-NEXT: OpBranchConditional {{%\w+}} [[kill_label:%\w+]] [[label:%\w+]]
+; CHECK-NEXT: [[kill_label]] = OpLabel
+; CHECK-NEXT: OpKill
+; CHECK-NEXT: [[label]] = OpLabel
+; CHECK-NEXT: OpBranch [[loop_merge]]
+; CHECK-NEXT: [[sel_merge]] = OpLabel
+; CHECK-NEXT: OpBranch [[loop_merge]]
+; CHECK-NEXT: [[continue]] = OpLabel
+; CHECK-NEXT: OpBranchConditional
+; CHECK-NEXT: [[loop_merge]] = OpLabel
+; CHECK-NEXT: OpStore [[var]] [[ld]]
+; CHECK-NEXT: OpReturn
+; CHECK-NEXT: OpFunctionEnd
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint Fragment %main "main"
+%void = OpTypeVoid
+%bool = OpTypeBool
+%true = OpConstantTrue %bool
+%bool_func_ptr = OpTypePointer Function %bool
+%voidfuncty = OpTypeFunction %void
+%main = OpFunction %void None %voidfuncty
+%1 = OpLabel
+%2 = OpVariable %bool_func_ptr Function
+%3 = OpLoad %bool %2
+%4 = OpFunctionCall %void %func
+OpStore %2 %3
+OpReturn
+OpFunctionEnd
+%func = OpFunction %void None %voidfuncty
+%5 = OpLabel
+OpSelectionMerge %6 None
+OpBranchConditional %true %7 %8
+%7 = OpLabel
+OpKill
+%8 = OpLabel
+OpReturn
+%6 = OpLabel
+OpReturn
+OpFunctionEnd
+)";
+
+  SinglePassRunAndMatch<opt::InlineExhaustivePass>(text, true);
+}
+
+TEST_F(InlineTest, OpKillInLoop) {
+  const std::string text = R"(
+; CHECK: OpFunction
+; CHECK: OpLabel
+; CHECK: [[var:%\w+]] = OpVariable
+; CHECK-NEXT: [[ld:%\w+]] = OpLoad {{%\w+}} [[var]]
+; CHECK-NEXT: OpBranch [[loop:%\w+]]
+; CHECK-NEXT: [[loop]] = OpLabel
+; CHECK-NEXT: OpLoopMerge [[loop_merge:%\w+]] [[continue:%\w+]] None
+; CHECK-NEXT: OpBranch [[label:%\w+]]
+; CHECK-NEXT: [[label]] = OpLabel
+; CHECK-NEXT: OpKill
+; CHECK-NEXT: [[loop_merge]] = OpLabel
+; CHECK-NEXT: OpBranch [[label:%\w+]]
+; CHECK-NEXT: [[continue]] = OpLabel
+; CHECK-NEXT: OpBranch [[loop]]
+; CHECK-NEXT: [[label]] = OpLabel
+; CHECK-NEXT: OpStore [[var]] [[ld]]
+; CHECK-NEXT: OpReturn
+; CHECK-NEXT: OpFunctionEnd
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint Fragment %main "main"
+%void = OpTypeVoid
+%bool = OpTypeBool
+%true = OpConstantTrue %bool
+%voidfuncty = OpTypeFunction %void
+%bool_func_ptr = OpTypePointer Function %bool
+%main = OpFunction %void None %voidfuncty
+%1 = OpLabel
+%2 = OpVariable %bool_func_ptr Function
+%3 = OpLoad %bool %2
+%4 = OpFunctionCall %void %func
+OpStore %2 %3
+OpReturn
+OpFunctionEnd
+%func = OpFunction %void None %voidfuncty
+%5 = OpLabel
+OpBranch %10
+%10 = OpLabel
+OpLoopMerge %6 %7 None
+OpBranch %8
+%8 = OpLabel
+OpKill
+%6 = OpLabel
+OpReturn
+%7 = OpLabel
+OpBranch %10
+OpFunctionEnd
+)";
+
+  SinglePassRunAndMatch<opt::InlineExhaustivePass>(text, true);
+}
+
+TEST_F(InlineTest, OpVariableWithInit) {
+  // Check that there is a store that corresponds to the initializer.  This
+  // test makes sure that is a store to the variable in the loop and before any
+  // load.
+  const std::string text = R"(
+; CHECK: OpFunction
+; CHECK-NOT: OpFunctionEnd
+; CHECK: [[var:%\w+]] = OpVariable %_ptr_Function_float Function %float_0
+; CHECK: OpLoopMerge [[outer_merge:%\w+]]
+; CHECK-NOT: OpLoad %float [[var]]
+; CHECK: OpStore [[var]] %float_0
+; CHECK: OpFunctionEnd
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %main "main" %o
+               OpExecutionMode %main OriginUpperLeft
+               OpSource GLSL 450
+               OpDecorate %o Location 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+      %float = OpTypeFloat 32
+          %7 = OpTypeFunction %float
+%_ptr_Function_float = OpTypePointer Function %float
+    %float_0 = OpConstant %float 0
+       %bool = OpTypeBool
+    %float_1 = OpConstant %float 1
+%_ptr_Output_float = OpTypePointer Output %float
+          %o = OpVariable %_ptr_Output_float Output
+        %int = OpTypeInt 32 1
+%_ptr_Function_int = OpTypePointer Function %int
+%_ptr_Input_int = OpTypePointer Input %int
+      %int_0 = OpConstant %int 0
+      %int_1 = OpConstant %int 1
+      %int_2 = OpConstant %int 2
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+               OpStore %o %float_0
+               OpBranch %34
+         %34 = OpLabel
+         %39 = OpPhi %int %int_0 %5 %47 %37
+               OpLoopMerge %36 %37 None
+               OpBranch %38
+         %38 = OpLabel
+         %41 = OpSLessThan %bool %39 %int_2
+               OpBranchConditional %41 %35 %36
+         %35 = OpLabel
+         %42 = OpFunctionCall %float %foo_
+         %43 = OpLoad %float %o
+         %44 = OpFAdd %float %43 %42
+               OpStore %o %44
+               OpBranch %37
+         %37 = OpLabel
+         %47 = OpIAdd %int %39 %int_1
+               OpBranch %34
+         %36 = OpLabel
+               OpReturn
+               OpFunctionEnd
+       %foo_ = OpFunction %float None %7
+          %9 = OpLabel
+          %n = OpVariable %_ptr_Function_float Function %float_0
+         %13 = OpLoad %float %n
+         %15 = OpFOrdEqual %bool %13 %float_0
+               OpSelectionMerge %17 None
+               OpBranchConditional %15 %16 %17
+         %16 = OpLabel
+         %19 = OpLoad %float %n
+         %20 = OpFAdd %float %19 %float_1
+               OpStore %n %20
+               OpBranch %17
+         %17 = OpLabel
+         %21 = OpLoad %float %n
+               OpReturnValue %21
+               OpFunctionEnd
+)";
+
+  SinglePassRunAndMatch<opt::InlineExhaustivePass>(text, true);
+}
+#endif
+
 // TODO(greg-lunarg): Add tests to verify handling of these cases:
 //
 //    Empty modules

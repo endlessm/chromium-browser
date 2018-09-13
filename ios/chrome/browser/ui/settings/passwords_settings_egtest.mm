@@ -11,6 +11,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#import "base/test/ios/wait_util.h"
 #include "base/time/time.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/keyed_service/core/service_access_type.h"
@@ -34,10 +35,10 @@
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
-#import "ios/testing/wait_util.h"
 #import "ios/third_party/material_components_ios/src/components/Snackbar/src/MaterialSnackbar.h"
 #include "ios/web/public/test/earl_grey/web_view_actions.h"
 #include "ios/web/public/test/earl_grey/web_view_matchers.h"
+#include "ios/web/public/test/element_selector.h"
 #include "ios/web/public/test/http_server/http_server.h"
 #include "ios/web/public/test/http_server/http_server_util.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -60,6 +61,7 @@ using chrome_test_util::SettingsDoneButton;
 using chrome_test_util::SettingsMenuBackButton;
 using chrome_test_util::SetUpAndReturnMockReauthenticationModule;
 using chrome_test_util::SetUpAndReturnMockReauthenticationModuleForExport;
+using web::test::ElementSelector;
 
 namespace {
 
@@ -275,13 +277,13 @@ class TestStoreConsumer : public password_manager::PasswordStoreConsumer {
     results_.clear();
     ResetObtained();
     GetPasswordStore()->GetAutofillableLogins(this);
-    bool responded = testing::WaitUntilConditionOrTimeout(1.0, ^bool {
+    bool responded = base::test::ios::WaitUntilConditionOrTimeout(1.0, ^bool {
       return !AreObtainedReset();
     });
     GREYAssert(responded, @"Obtaining fillable items took too long.");
     AppendObtainedToResults();
     GetPasswordStore()->GetBlacklistLogins(this);
-    responded = testing::WaitUntilConditionOrTimeout(1.0, ^bool {
+    responded = base::test::ios::WaitUntilConditionOrTimeout(1.0, ^bool {
       return !AreObtainedReset();
     });
     GREYAssert(responded, @"Obtaining blacklisted items took too long.");
@@ -914,9 +916,8 @@ PasswordForm CreateSampleFormWithIndex(int index) {
 
   // Check that the "Save Passwords" switch is disabled. Disabled switches are
   // toggled off.
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::CollectionViewSwitchCell(
-                                   @"savePasswordsItem_switch", NO, NO)]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsSwitchCell(
+                                          @"savePasswordsItem_switch", NO, NO)]
       assertWithMatcher:grey_notNil()];
 
   [GetInteractionForPasswordEntry(@"example.com, concrete username")
@@ -1309,11 +1310,10 @@ PasswordForm CreateSampleFormWithIndex(int index) {
   for (BOOL expected_state : kExpectedState) {
     // Toggle the switch. It is located near the top, so if not interactable,
     // try scrolling up.
-    [GetInteractionForListItem(chrome_test_util::CollectionViewSwitchCell(
+    [GetInteractionForListItem(chrome_test_util::SettingsSwitchCell(
                                    @"savePasswordsItem_switch", expected_state),
                                kGREYDirectionUp)
-        performAction:chrome_test_util::TurnCollectionViewSwitchOn(
-                          !expected_state)];
+        performAction:chrome_test_util::TurnSettingsSwitchOn(!expected_state)];
     // Check the stored items. Scroll down if needed.
     [GetInteractionForPasswordEntry(@"example.com, concrete username")
         assertWithMatcher:grey_notNil()];
@@ -1336,11 +1336,10 @@ PasswordForm CreateSampleFormWithIndex(int index) {
   // preferences.
   constexpr BOOL kExpectedState[] = {YES, NO};
   for (BOOL expected_initial_state : kExpectedState) {
-    [[EarlGrey
-        selectElementWithMatcher:chrome_test_util::CollectionViewSwitchCell(
-                                     @"savePasswordsItem_switch",
-                                     expected_initial_state)]
-        performAction:chrome_test_util::TurnCollectionViewSwitchOn(
+    [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsSwitchCell(
+                                            @"savePasswordsItem_switch",
+                                            expected_initial_state)]
+        performAction:chrome_test_util::TurnSettingsSwitchOn(
                           !expected_initial_state)];
     ios::ChromeBrowserState* browserState =
         chrome_test_util::GetOriginalBrowserState();
@@ -1561,7 +1560,8 @@ PasswordForm CreateSampleFormWithIndex(int index) {
       selectElementWithMatcher:web::WebViewInWebState(
                                    chrome_test_util::GetCurrentWebState())]
       performAction:web::WebViewTapElement(
-                        chrome_test_util::GetCurrentWebState(), "password")];
+                        chrome_test_util::GetCurrentWebState(),
+                        ElementSelector::ElementSelectorId("password"))];
 
   // Wait until the keyboard shows up before tapping.
   id<GREYMatcher> showAll = grey_allOf(
@@ -1575,8 +1575,9 @@ PasswordForm CreateSampleFormWithIndex(int index) {
                                                    error:&error];
                                    return (error == nil);
                                  }];
-  GREYAssert([condition waitWithTimeout:testing::kWaitForUIElementTimeout],
-             @"No keyboard with 'Show All' button showed up.");
+  GREYAssert(
+      [condition waitWithTimeout:base::test::ios::kWaitForUIElementTimeout],
+      @"No keyboard with 'Show All' button showed up.");
   [[EarlGrey selectElementWithMatcher:showAll] performAction:grey_tap()];
 
   [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabel(

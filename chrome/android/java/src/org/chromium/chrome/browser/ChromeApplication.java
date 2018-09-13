@@ -13,6 +13,7 @@ import android.os.Bundle;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
+import org.chromium.base.AsyncTask;
 import org.chromium.base.BuildConfig;
 import org.chromium.base.CommandLineInitUtil;
 import org.chromium.base.ContextUtils;
@@ -30,18 +31,11 @@ import org.chromium.build.BuildHooksAndroid;
 import org.chromium.build.BuildHooksConfig;
 import org.chromium.chrome.browser.crash.PureJavaExceptionHandler;
 import org.chromium.chrome.browser.crash.PureJavaExceptionReporter;
-import org.chromium.chrome.browser.document.DocumentActivity;
-import org.chromium.chrome.browser.document.IncognitoDocumentActivity;
 import org.chromium.chrome.browser.init.InvalidStartupDialog;
 import org.chromium.chrome.browser.metrics.UmaUtils;
 import org.chromium.chrome.browser.preferences.ChromePreferenceManager;
-import org.chromium.chrome.browser.tabmodel.document.ActivityDelegateImpl;
-import org.chromium.chrome.browser.tabmodel.document.DocumentTabModelSelector;
-import org.chromium.chrome.browser.tabmodel.document.StorageDelegate;
-import org.chromium.chrome.browser.tabmodel.document.TabDelegate;
-import org.chromium.chrome.browser.vr_shell.OnExitVrRequestListener;
-import org.chromium.chrome.browser.vr_shell.VrIntentUtils;
-import org.chromium.chrome.browser.vr_shell.VrShellDelegate;
+import org.chromium.chrome.browser.vr.OnExitVrRequestListener;
+import org.chromium.chrome.browser.vr.VrModuleProvider;
 
 /**
  * Basic application functionality that should be shared among all browser applications that use
@@ -51,7 +45,6 @@ public class ChromeApplication extends Application {
     private static final String COMMAND_LINE_FILE = "chrome-command-line";
     private static final String TAG = "ChromiumApplication";
 
-    private static DocumentTabModelSelector sDocumentTabModelSelector;
     private DiscardableReferencePool mReferencePool;
 
     // Called by the framework for ALL processes. Runs before ContentProviders are created.
@@ -59,17 +52,15 @@ public class ChromeApplication extends Application {
     @Override
     protected void attachBaseContext(Context context) {
         boolean browserProcess = ContextUtils.isMainProcess();
-        if (browserProcess) {
-            UmaUtils.recordMainEntryPointTime();
-        }
+        if (browserProcess) UmaUtils.recordMainEntryPointTime();
         super.attachBaseContext(context);
-        checkAppBeingReplaced();
         ContextUtils.initApplicationContext(this);
 
         if (browserProcess) {
             if (BuildConfig.IS_MULTIDEX_ENABLED) {
                 ChromiumMultiDexInstaller.install(this);
             }
+            checkAppBeingReplaced();
 
             // Renderers and GPU process have command line passed to them via IPC
             // (see ChildProcessService.java).
@@ -118,6 +109,7 @@ public class ChromeApplication extends Application {
                         PureJavaExceptionReporter::reportJavaException);
             }
         }
+        AsyncTask.takeOverAndroidThreadPool();
     }
 
     /** Ensure this application object is not out-of-date. */
@@ -125,7 +117,7 @@ public class ChromeApplication extends Application {
         // During app update the old apk can still be triggered by broadcasts and spin up an
         // out-of-date application. Kill old applications in this bad state. See
         // http://crbug.com/658130 for more context and http://b.android.com/56296 for the bug.
-        if (getResources() == null) {
+        if (ContextUtils.getApplicationAssets() == null) {
             Log.e(TAG, "getResources() null, closing app.");
             System.exit(0);
         }
@@ -156,23 +148,6 @@ public class ChromeApplication extends Application {
     }
 
     /**
-     * Returns the singleton instance of the DocumentTabModelSelector.
-     * TODO(dfalcantara): Find a better place for this once we differentiate between activity and
-     *                    application-level TabModelSelectors.
-     * @return The DocumentTabModelSelector for the application.
-     */
-    public static DocumentTabModelSelector getDocumentTabModelSelector() {
-        ThreadUtils.assertOnUiThread();
-        if (sDocumentTabModelSelector == null) {
-            ActivityDelegateImpl activityDelegate = new ActivityDelegateImpl(
-                    DocumentActivity.class, IncognitoDocumentActivity.class);
-            sDocumentTabModelSelector = new DocumentTabModelSelector(activityDelegate,
-                    new StorageDelegate(), new TabDelegate(false), new TabDelegate(true));
-        }
-        return sDocumentTabModelSelector;
-    }
-
-    /**
      * @return The DiscardableReferencePool for the application.
      */
     @MainDex
@@ -191,15 +166,16 @@ public class ChromeApplication extends Application {
 
     @Override
     public void startActivity(Intent intent, Bundle options) {
-        if (VrShellDelegate.canLaunch2DIntents() || VrIntentUtils.isVrIntent(intent)) {
+        if (VrModuleProvider.getDelegate().canLaunch2DIntents()
+                || VrModuleProvider.getIntentDelegate().isVrIntent(intent)) {
             super.startActivity(intent, options);
             return;
         }
 
-        VrShellDelegate.requestToExitVr(new OnExitVrRequestListener() {
+        VrModuleProvider.getDelegate().requestToExitVr(new OnExitVrRequestListener() {
             @Override
             public void onSucceeded() {
-                if (!VrShellDelegate.canLaunch2DIntents()) {
+                if (!VrModuleProvider.getDelegate().canLaunch2DIntents()) {
                     throw new IllegalStateException("Still in VR after having exited VR.");
                 }
                 startActivity(intent, options);

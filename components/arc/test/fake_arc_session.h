@@ -21,7 +21,7 @@ class FakeArcSession : public ArcSession {
 
   // ArcSession overrides:
   void StartMiniInstance() override;
-  void RequestUpgrade() override;
+  void RequestUpgrade(UpgradeParams params) override;
   void Stop() override;
   bool IsStopRequested() override;
   void OnShutdown() override;

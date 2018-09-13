@@ -9,7 +9,7 @@ import com.android.webview.chromium.MonochromeLibraryPreloader;
 
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
-import org.chromium.content.browser.ChildProcessCreationParams;
+import org.chromium.content_public.browser.ChildProcessCreationParams;
 
 /**
  * This is Application class for Monochrome.
@@ -23,13 +23,12 @@ public class MonochromeApplication extends ChromeApplication {
     public void onCreate() {
         super.onCreate();
         FontPreloadingWorkaround.maybeInstallWorkaround(this);
-        LibraryLoader.setNativeLibraryPreloader(new MonochromeLibraryPreloader());
+        LibraryLoader.getInstance().setNativeLibraryPreloader(new MonochromeLibraryPreloader());
         // ChildProcessCreationParams is only needed for browser process, though it is
         // created and set in all processes.
         boolean bindToCaller = false;
         boolean ignoreVisibilityForImportance = false;
-        ChildProcessCreationParams.set(new ChildProcessCreationParams(getPackageName(),
-                true /* isExternalService */, LibraryProcessType.PROCESS_CHILD, bindToCaller,
-                ignoreVisibilityForImportance));
+        ChildProcessCreationParams.set(getPackageName(), true /* isExternalService */,
+                LibraryProcessType.PROCESS_CHILD, bindToCaller, ignoreVisibilityForImportance);
     }
 }

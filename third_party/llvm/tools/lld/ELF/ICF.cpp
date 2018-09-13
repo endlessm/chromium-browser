@@ -78,6 +78,7 @@
 #include "SymbolTable.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
+#include "Writer.h"
 #include "lld/Common/Threads.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/BinaryFormat/ELF.h"
@@ -113,9 +114,9 @@ private:
   size_t findBoundary(size_t Begin, size_t End);
 
   void forEachClassRange(size_t Begin, size_t End,
-                         std::function<void(size_t, size_t)> Fn);
+                         llvm::function_ref<void(size_t, size_t)> Fn);
 
-  void forEachClass(std::function<void(size_t, size_t)> Fn);
+  void forEachClass(llvm::function_ref<void(size_t, size_t)> Fn);
 
   std::vector<InputSection *> Sections;
 
@@ -162,13 +163,19 @@ template <class ELFT> static uint32_t getHash(InputSection *S) {
 
 // Returns true if section S is subject of ICF.
 static bool isEligible(InputSection *S) {
-  if (!S->Live || S->KeepUnique || !(S->Flags & SHF_ALLOC) ||
-      (S->Flags & SHF_WRITE))
+  if (!S->Live || S->KeepUnique || !(S->Flags & SHF_ALLOC))
+    return false;
+
+  // Don't merge writable sections. .data.rel.ro sections are marked as writable
+  // but are semantically read-only.
+  if ((S->Flags & SHF_WRITE) && S->Name != ".data.rel.ro" &&
+      !S->Name.startswith(".data.rel.ro."))
     return false;
 
   // Don't merge read only data sections unless
-  // --ignore-data-address-equality was passed.
-  if (!(S->Flags & SHF_EXECINSTR) && !Config->IgnoreDataAddressEquality)
+  // --ignore-data-address-equality or --icf=safe was passed.
+  if (!(S->Flags & SHF_EXECINSTR) &&
+      !(Config->IgnoreDataAddressEquality || Config->ICF == ICFLevel::Safe))
     return false;
 
   // Don't merge synthetic sections as their Data member is not valid and empty.
@@ -180,6 +187,12 @@ static bool isEligible(InputSection *S) {
   // .init and .fini contains instructions that must be executed to initialize
   // and finalize the process. They cannot and should not be merged.
   if (S->Name == ".init" || S->Name == ".fini")
+    return false;
+
+  // A user program may enumerate sections named with a C identifier using
+  // __start_* and __stop_* symbols. We cannot ICF any such sections because
+  // that could change program semantics.
+  if (isValidCIdentifier(S->Name))
     return false;
 
   return true;
@@ -227,9 +240,6 @@ template <class ELFT>
 template <class RelTy>
 bool ICF<ELFT>::constantEq(const InputSection *SecA, ArrayRef<RelTy> RA,
                            const InputSection *SecB, ArrayRef<RelTy> RB) {
-  if (RA.size() != RB.size())
-    return false;
-
   for (size_t I = 0; I < RA.size(); ++I) {
     if (RA[I].r_offset != RB[I].r_offset ||
         RA[I].getType(Config->IsMips64EL) != RB[I].getType(Config->IsMips64EL))
@@ -295,6 +305,13 @@ template <class ELFT>
 bool ICF<ELFT>::equalsConstant(const InputSection *A, const InputSection *B) {
   if (A->NumRelocations != B->NumRelocations || A->Flags != B->Flags ||
       A->getSize() != B->getSize() || A->Data != B->Data)
+    return false;
+
+  // If two sections have different output sections, we cannot merge them.
+  // FIXME: This doesn't do the right thing in the case where there is a linker
+  // script. We probably need to move output section assignment before ICF to
+  // get the correct behaviour here.
+  if (getOutputSectionName(A) != getOutputSectionName(B))
     return false;
 
   if (A->AreRelocsRela)
@@ -366,7 +383,7 @@ template <class ELFT> size_t ICF<ELFT>::findBoundary(size_t Begin, size_t End) {
 // This function calls Fn on every group within [Begin, End).
 template <class ELFT>
 void ICF<ELFT>::forEachClassRange(size_t Begin, size_t End,
-                                  std::function<void(size_t, size_t)> Fn) {
+                                  llvm::function_ref<void(size_t, size_t)> Fn) {
   while (Begin < End) {
     size_t Mid = findBoundary(Begin, End);
     Fn(Begin, Mid);
@@ -376,7 +393,7 @@ void ICF<ELFT>::forEachClassRange(size_t Begin, size_t End,
 
 // Call Fn on each equivalence class.
 template <class ELFT>
-void ICF<ELFT>::forEachClass(std::function<void(size_t, size_t)> Fn) {
+void ICF<ELFT>::forEachClass(llvm::function_ref<void(size_t, size_t)> Fn) {
   // If threading is disabled or the number of sections are
   // too small to use threading, call Fn sequentially.
   if (!ThreadsEnabled || Sections.size() < 1024) {
@@ -425,7 +442,7 @@ template <class ELFT> void ICF<ELFT>::run() {
   // Initially, we use hash values to partition sections.
   parallelForEach(Sections, [&](InputSection *S) {
     // Set MSB to 1 to avoid collisions with non-hash IDs.
-    S->Class[0] = getHash<ELFT>(S) | (1 << 31);
+    S->Class[0] = getHash<ELFT>(S) | (1U << 31);
   });
 
   // From now on, sections in Sections vector are ordered so that sections

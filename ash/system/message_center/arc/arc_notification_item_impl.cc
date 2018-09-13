@@ -8,7 +8,9 @@
 #include <vector>
 
 #include "ash/system/message_center/arc/arc_notification_constants.h"
+#include "ash/system/message_center/arc/arc_notification_content_view.h"
 #include "ash/system/message_center/arc/arc_notification_delegate.h"
+#include "ash/system/message_center/arc/arc_notification_view.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/gfx/geometry/size.h"
@@ -75,18 +77,35 @@ void ArcNotificationItemImpl::OnUpdatedFromAndroid(
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK_EQ(notification_key_, data->key);
 
+  bool is_setting_shown =
+      ((data->shown_contents ==
+        arc::mojom::ArcNotificationShownContents::SETTINGS_SHOWN) ||
+       (data->shown_contents ==
+        arc::mojom::ArcNotificationShownContents::SNOOZE_SHOWN));
+
   message_center::RichNotificationData rich_data;
-  rich_data.pinned = (data->no_clear || data->ongoing_event);
+  rich_data.pinned =
+      (data->no_clear || data->ongoing_event)  // Unclosable notification
+      || is_setting_shown;                     // Settings are unclosable
   rich_data.priority = ConvertAndroidPriority(data->priority);
   if (data->small_icon)
     rich_data.small_image = gfx::Image::CreateFrom1xBitmap(*data->small_icon);
 
   rich_data.accessible_name = base::UTF8ToUTF16(
       data->accessible_name.value_or(data->title + "\n" + data->message));
-  if (manager_->IsOpeningSettingsSupported()) {
+  if (manager_->IsOpeningSettingsSupported() && !is_setting_shown) {
     rich_data.settings_button_handler =
         message_center::SettingsButtonHandler::DELEGATE;
+  } else {
+    rich_data.settings_button_handler =
+        message_center::SettingsButtonHandler::NONE;
   }
+
+  bool is_snooze_supported =
+      (data->flags && (data->flags->value &
+                       arc::mojom::ArcNotificationFlags::SUPPORT_SNOOZE) != 0);
+  rich_data.should_show_snooze_button =
+      is_snooze_supported && !is_setting_shown;
 
   message_center::NotifierId notifier_id(
       message_center::NotifierId::ARC_APPLICATION,
@@ -113,7 +132,13 @@ void ArcNotificationItemImpl::OnUpdatedFromAndroid(
 
   type_ = data->type;
   expand_state_ = data->expand_state;
+
+  if (shown_contents_ != data->shown_contents) {
+    for (auto& observer : observers_)
+      observer.OnItemContentChanged(data->shown_contents);
+  }
   shown_contents_ = data->shown_contents;
+
   swipe_input_rect_ =
       data->swipe_input_rect ? *data->swipe_input_rect : gfx::Rect();
 
@@ -156,6 +181,10 @@ void ArcNotificationItemImpl::OpenSettings() {
   manager_->OpenNotificationSettings(notification_key_);
 }
 
+void ArcNotificationItemImpl::OpenSnooze() {
+  manager_->OpenNotificationSnoozeSettings(notification_key_);
+}
+
 void ArcNotificationItemImpl::ToggleExpansion() {
   switch (expand_state_) {
     case ArcNotificationExpandState::EXPANDED:
@@ -170,6 +199,11 @@ void ArcNotificationItemImpl::ToggleExpansion() {
   }
 
   manager_->SendNotificationToggleExpansionOnChrome(notification_key_);
+}
+
+void ArcNotificationItemImpl::OnRemoteInputActivationChanged(bool activated) {
+  for (auto& observer : observers_)
+    observer.OnRemoteInputActivationChanged(activated);
 }
 
 void ArcNotificationItemImpl::AddObserver(Observer* observer) {
@@ -210,11 +244,6 @@ bool ArcNotificationItemImpl::IsManuallyExpandedOrCollapsed() const {
   return manually_expanded_or_collapsed_;
 }
 
-arc::mojom::ArcNotificationShownContents
-ArcNotificationItemImpl::GetShownContents() const {
-  return shown_contents_;
-}
-
 gfx::Rect ArcNotificationItemImpl::GetSwipeInputRect() const {
   return swipe_input_rect_;
 }
@@ -225,6 +254,10 @@ const std::string& ArcNotificationItemImpl::GetNotificationKey() const {
 
 const std::string& ArcNotificationItemImpl::GetNotificationId() const {
   return notification_id_;
+}
+
+void ArcNotificationItemImpl::CancelLongPress() {
+  manager_->CancelLongPress(notification_key_);
 }
 
 }  // namespace ash

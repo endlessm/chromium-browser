@@ -131,9 +131,9 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
       IsBuildingRecoveryCallExpr(false), Cleanup{}, LateTemplateParser(nullptr),
       LateTemplateParserCleanup(nullptr), OpaqueParser(nullptr), IdResolver(pp),
       StdExperimentalNamespaceCache(nullptr), StdInitializerList(nullptr),
-      CXXTypeInfoDecl(nullptr), MSVCGuidDecl(nullptr), NSNumberDecl(nullptr),
-      NSValueDecl(nullptr), NSStringDecl(nullptr),
-      StringWithUTF8StringMethod(nullptr),
+      StdCoroutineTraitsCache(nullptr), CXXTypeInfoDecl(nullptr),
+      MSVCGuidDecl(nullptr), NSNumberDecl(nullptr), NSValueDecl(nullptr),
+      NSStringDecl(nullptr), StringWithUTF8StringMethod(nullptr),
       ValueWithBytesObjCTypeMethod(nullptr), NSArrayDecl(nullptr),
       ArrayWithObjectsMethod(nullptr), NSDictionaryDecl(nullptr),
       DictionaryWithObjectsMethod(nullptr), GlobalNewDeleteDeclared(false),
@@ -163,7 +163,7 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
 
   ExprEvalContexts.emplace_back(
       ExpressionEvaluationContext::PotentiallyEvaluated, 0, CleanupInfo{},
-      nullptr, false);
+      nullptr, ExpressionEvaluationContextRecord::EK_Other);
 
   PreallocatedFunctionScope.reset(new FunctionScopeInfo(Diags));
 
@@ -481,6 +481,7 @@ ExprResult Sema::ImpCastExprToType(Expr *E, QualType Ty,
     case CK_ArrayToPointerDecay:
     case CK_FunctionToPointerDecay:
     case CK_ToVoid:
+    case CK_NonAtomicToAtomic:
       break;
     }
   }
@@ -644,6 +645,8 @@ void Sema::getUndefinedButUsed(
       if (FD->isExternallyVisible() &&
           !isExternalWithNoLinkageType(FD) &&
           !FD->getMostRecentDecl()->isInlined())
+        continue;
+      if (FD->getBuiltinID())
         continue;
     } else {
       auto *VD = cast<VarDecl>(ND);
@@ -1008,11 +1011,6 @@ void Sema::ActOnEndOfTranslationUnit() {
     // Warnings emitted in ActOnEndOfTranslationUnit() should be emitted for
     // modules when they are built, not every time they are used.
     emitAndClearUnusedLocalTypedefWarnings();
-
-    // Modules don't need any of the checking below.
-    if (!PP.isIncrementalProcessingEnabled())
-      TUScope = nullptr;
-    return;
   }
 
   // C99 6.9.2p2:
@@ -1030,8 +1028,7 @@ void Sema::ActOnEndOfTranslationUnit() {
   for (TentativeDefinitionsType::iterator
             T = TentativeDefinitions.begin(ExternalSource),
          TEnd = TentativeDefinitions.end();
-       T != TEnd; ++T)
-  {
+       T != TEnd; ++T) {
     VarDecl *VD = (*T)->getActingDefinition();
 
     // If the tentative definition was completed, getActingDefinition() returns
@@ -1058,12 +1055,13 @@ void Sema::ActOnEndOfTranslationUnit() {
     // Notify the consumer that we've completed a tentative definition.
     if (!VD->isInvalidDecl())
       Consumer.CompleteTentativeDefinition(VD);
-
   }
 
   // If there were errors, disable 'unused' warnings since they will mostly be
-  // noise.
-  if (!Diags.hasErrorOccurred()) {
+  // noise. Don't warn for a use from a module: either we should warn on all
+  // file-scope declarations in modules or not at all, but whether the
+  // declaration is used is immaterial.
+  if (!Diags.hasErrorOccurred() && TUKind != TU_Module) {
     // Output warning for unused file scoped decls.
     for (UnusedFileScopedDeclsType::iterator
            I = UnusedFileScopedDecls.begin(ExternalSource),
@@ -1131,6 +1129,8 @@ void Sema::ActOnEndOfTranslationUnit() {
   }
 
   if (!Diags.isIgnored(diag::warn_unused_private_field, SourceLocation())) {
+    // FIXME: Load additional unused private field candidates from the external
+    // source.
     RecordCompleteMap RecordsComplete;
     RecordCompleteMap MNCComplete;
     for (NamedDeclSetType::iterator I = UnusedPrivateFields.begin(),

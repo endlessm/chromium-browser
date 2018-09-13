@@ -142,7 +142,7 @@ TEST(DecisionDetailsTest, DecisionDetails) {
   EXPECT_TRUE(details.toggled());
 
   // Clear and go back to the initial state.
-  details.ClearForTesting();
+  details.Clear();
   EXPECT_EQ(0u, details.reasons().size());
   EXPECT_FALSE(details.IsPositive());
   EXPECT_FALSE(details.toggled());
@@ -201,6 +201,10 @@ TEST(DecisionDetailsTest, TabManagerLifecycleStateChangeUkm) {
   EXPECT_FALSE(
       details.AddReason(DecisionFailureReason::LIVE_STATE_USING_WEB_USB));
   EXPECT_FALSE(details.AddReason(DecisionFailureReason::LIVE_STATE_VISIBLE));
+  EXPECT_FALSE(
+      details.AddReason(DecisionFailureReason::LIVE_STATE_DEVTOOLS_OPEN));
+  EXPECT_FALSE(
+      details.AddReason(DecisionFailureReason::LIVE_STATE_DESKTOP_CAPTURE));
   EXPECT_TRUE(details.AddReason(
       DecisionSuccessReason::LIFECYCLES_FEATURE_POLICY_OPT_IN));
 
@@ -250,6 +254,10 @@ TEST(DecisionDetailsTest, TabManagerLifecycleStateChangeUkm) {
       entry, ukm_builder.kFailureLiveStateUsingWebUSBName, 1);
   ukm_recorder.ExpectEntryMetric(entry,
                                  ukm_builder.kFailureLiveStateVisibleName, 1);
+  ukm_recorder.ExpectEntryMetric(
+      entry, ukm_builder.kFailureLiveStateDevToolsOpenName, 1);
+  ukm_recorder.ExpectEntryMetric(
+      entry, ukm_builder.kFailureLiveStateDesktopCaptureName, 1);
   EXPECT_FALSE(ukm_recorder.EntryHasMetric(
       entry, ukm_builder.kSuccessLifecyclesFeaturePolicyOptInName));
   EXPECT_FALSE(ukm_recorder.EntryHasMetric(

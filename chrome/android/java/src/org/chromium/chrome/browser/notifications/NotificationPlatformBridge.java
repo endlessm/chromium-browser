@@ -28,7 +28,6 @@ import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.browserservices.TrustedWebActivityClient;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.notifications.channels.ChannelDefinitions;
@@ -133,7 +132,7 @@ public class NotificationPlatformBridge {
             mNotificationManager = new NotificationManagerProxyImpl(
                     (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE));
         }
-        mTwaClient = new TrustedWebActivityClient(context);
+        mTwaClient = new TrustedWebActivityClient();
     }
 
     /**
@@ -238,17 +237,16 @@ public class NotificationPlatformBridge {
      * from the gear button on a flipped notification, this launches the site specific preferences
      * screen.
      *
-     * @param context The context that received the intent.
      * @param incomingIntent The received intent.
      */
-    public static void launchNotificationPreferences(Context context, Intent incomingIntent) {
+    public static void launchNotificationPreferences(Intent incomingIntent) {
         // This method handles an intent fired by the Android system. There is no guarantee that the
         // native library is loaded at this point. The native library is needed for the preferences
         // activity, and it loads the library, but there are some native calls even before that
         // activity is started: from RecordUserAction.record and (indirectly) from
         // UrlFormatter.formatUrlForSecurityDisplay.
         try {
-            ChromeBrowserInitializer.getInstance(context).handleSynchronousStartup();
+            ChromeBrowserInitializer.getInstance().handleSynchronousStartup();
         } catch (ProcessInitException e) {
             Log.e(TAG, "Failed to start browser process.", e);
             // The library failed to initialize and nothing in the application can work, so kill
@@ -259,7 +257,7 @@ public class NotificationPlatformBridge {
 
         // Use the application context because it lives longer. When using the given context, it
         // may be stopped before the preferences intent is handled.
-        Context applicationContext = context.getApplicationContext();
+        Context applicationContext = ContextUtils.getApplicationContext();
 
         // If we can read an origin from the intent, use it to open the settings screen for that
         // origin.
@@ -283,7 +281,7 @@ public class NotificationPlatformBridge {
             // Notification preferences for all origins.
             fragmentArguments = new Bundle();
             fragmentArguments.putString(SingleCategoryPreferences.EXTRA_CATEGORY,
-                    SiteSettingsCategory.CATEGORY_NOTIFICATIONS);
+                    SiteSettingsCategory.preferenceKey(SiteSettingsCategory.Type.NOTIFICATIONS));
             fragmentArguments.putString(SingleCategoryPreferences.EXTRA_TITLE,
                     applicationContext.getResources().getString(
                             R.string.push_notifications_permission_title));
@@ -555,16 +553,12 @@ public class NotificationPlatformBridge {
                         .setTicker(createTickerText(title, body))
                         .setTimestamp(timestamp)
                         .setRenotify(renotify)
-                        .setOrigin(UrlFormatter.formatUrlForSecurityDisplay(
-                                origin, false /* showScheme */));
+                        .setOrigin(UrlFormatter.formatUrlForSecurityDisplayOmitScheme(origin));
 
         if (shouldSetChannelId(forWebApk)) {
-            // TODO(crbug.com/700377): Channel ID should be retrieved from cache in native and
+            // TODO(crbug.com/773738): Channel ID should be retrieved from cache in native and
             // passed through to here with other notification parameters.
-            String channelId =
-                    ChromeFeatureList.isEnabled(ChromeFeatureList.SITE_NOTIFICATION_CHANNELS)
-                    ? SiteChannelsManager.getInstance().getChannelIdForOrigin(origin)
-                    : ChannelDefinitions.CHANNEL_ID_SITES;
+            String channelId = SiteChannelsManager.getInstance().getChannelIdForOrigin(origin);
             notificationBuilder.setChannelId(channelId);
         }
 
@@ -629,15 +623,14 @@ public class NotificationPlatformBridge {
 
             mNotificationManager.notify(notificationId, PLATFORM_ID, notificationBuilder.build());
             NotificationUmaTracker.getInstance().onNotificationShown(
-                    NotificationUmaTracker.SITES, notificationBuilder.mChannelId);
+                    NotificationUmaTracker.SystemNotificationType.SITES,
+                    notificationBuilder.mChannelId);
         }
     }
 
     private NotificationBuilderBase createNotificationBuilder(Context context, boolean hasImage) {
-        if (useCustomLayouts(hasImage)) {
-            return new CustomNotificationBuilder(context);
-        }
-        return new StandardNotificationBuilder(context);
+        return useCustomLayouts(hasImage) ? new CustomNotificationBuilder(context)
+                                          : new StandardNotificationBuilder(context);
     }
 
     /** Returns whether to set a channel id when building a notification. */

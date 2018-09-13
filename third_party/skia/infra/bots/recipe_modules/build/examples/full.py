@@ -32,18 +32,19 @@ TEST_BUILDERS = [
   'Build-Debian9-Clang-x86_64-Debug-Chromebook_GLES',
   'Build-Debian9-Clang-x86_64-Debug-Coverage',
   'Build-Debian9-Clang-x86_64-Debug-MSAN',
+  'Build-Debian9-Clang-x86_64-Debug-OpenCL',
   'Build-Debian9-Clang-x86_64-Debug-SK_CPU_LIMIT_SSE41',
   'Build-Debian9-Clang-x86_64-Debug-SafeStack',
   'Build-Debian9-Clang-x86_64-Release-ASAN',
   'Build-Debian9-Clang-x86_64-Release-Fast',
   'Build-Debian9-Clang-x86_64-Release-Mini',
   'Build-Debian9-Clang-x86_64-Release-NoDEPS',
+  'Build-Debian9-Clang-x86_64-Release-Static',
   'Build-Debian9-Clang-x86_64-Release-SwiftShader',
   'Build-Debian9-Clang-x86_64-Release-Vulkan',
   'Build-Debian9-EMCC-wasm-Release',
   'Build-Debian9-GCC-arm-Release-Chromecast',
   'Build-Debian9-GCC-loongson3a-Release',
-  'Build-Debian9-GCC-x86_64-Debug-EmbededResouces',
   'Build-Debian9-GCC-x86_64-Release-ANGLE',
   'Build-Debian9-GCC-x86_64-Release-Flutter_Android',
   'Build-Debian9-GCC-x86_64-Release-NoGPU',
@@ -57,7 +58,6 @@ TEST_BUILDERS = [
   'Build-Win-Clang-x86-Debug-Exceptions',
   'Build-Win-Clang-x86_64-Release-Vulkan',
   'Housekeeper-PerCommit-CheckGeneratedFiles',
-  'Test-Ubuntu14-Clang-GCE-CPU-AVX2-x86_64-Debug-All-CT_DM_10k_SKPs'
 ]
 
 # Default properties used for TEST_BUILDERS.
@@ -77,4 +77,3 @@ def GenTests(api):
       api.properties(**defaultProps(buildername))
     )
     yield test
-

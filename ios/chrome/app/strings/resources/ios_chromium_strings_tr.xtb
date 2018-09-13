@@ -23,7 +23,9 @@
 <translation id="3605252743693911722">Tüm cihazlarınızda yer işaretlerinizi, şifrelerinizi almak ve daha pek çok şey yapmak için Chromium'da oturum açın.</translation>
 <translation id="3805899903892079518">Chromium, fotoğraflarınıza veya videolarınıza erişemiyor. iOS Ayarlar &gt; Gizlilik &gt; Fotoğraflar'dan erişimi etkinleştirin.</translation>
 <translation id="4024541897090868497">Sekmelerinize tüm cihazlarınızda ulaşmak için Chromium'da oturum açın.</translation>
+<translation id="4157467675761413638">Chromium için ipucu: Sekmelerle ilgili daha fazla seçenek görmek için ekranınızın altında veya üstünde görünen araç çubuğunda Sekmeleri Göster düğmesini basılı tutun.</translation>
 <translation id="4241912885070669028"><ph name="SIGNOUT_MANAGED_DOMAIN" /> tarafından yönetilen bir hesabın oturumunu kapatıyorsunuz. Bu işlemle Chromium verileriniz bu cihazdan silinir, ancak Google hesabınızda kalmaya devam eder.</translation>
+<translation id="4272892696084633551">Chromium'un özelliklerini ve performansını iyileştirmeye yardımcı olun</translation>
 <translation id="4555020257205549924">Bu özellik açık durumdayken Chromium, diğer dillerde yazılmış sayfaları Google Çeviri'yi kullanarak çevirmeyi teklif eder. <ph name="BEGIN_LINK" />Daha fazla bilgi<ph name="END_LINK" /></translation>
 <translation id="4787850887676698916">Diğer cihazlarınızda Chromium'da açtığınız sekmeler burada görünür.</translation>
 <translation id="495292094137889840">Chromium QR tarayıcısını kullanmaya başlayın</translation>
@@ -33,6 +35,7 @@
 <translation id="5945387852661427312"><ph name="DOMAIN" /> tarafından yönetilen bir hesapla oturum açıyor ve yöneticiye tüm Chromium verileriniz üzerinde denetim olanağı veriyorsunuz. Verileriniz kalıcı olarak bu hesaba bağlanacaktır. Chromium'da oturumu kapattığınızda verileriniz bu cihazdan silinir ancak Google Hesabınızda kalmaya devam eder.</translation>
 <translation id="6068866989048414399">Chromium Hizmet Şartları</translation>
 <translation id="6268381023930128611">Chromium oturumunu kapatıyor musunuz?</translation>
+<translation id="641451971369018375">Göz atma işlevini ve Chromium'u iyileştirmek için Google ile iletişim kurar</translation>
 <translation id="6424492062988593837">Chromium daha da iyi hale geldi! Yeni bir sürüm var.</translation>
 <translation id="6604711459180487467">Chromium'da, konumunuza dayalı olarak daha iyi bir deneyim yaşayın.</translation>
 <translation id="6626296268883197964">Bu uygulamayı kullanarak Chromium’un <ph name="BEGIN_LINK_TOS" />Hizmet Şartları<ph name="END_LINK_TOS" />'nı ve <ph name="BEGIN_LINK_PRIVACY" />Gizlilik Uyarısı<ph name="END_LINK_PRIVACY" />'nı kabul etmiş olursunuz.</translation>
@@ -43,6 +46,7 @@
 <translation id="7357211569052832586">Seçilen veriler Chromium'dan ve senkronize edilen cihazlardan kaldırıldı. Google Hesabınızda diğer tarama geçmişi biçimleri (örneğin, history.google.com adresindeki diğer Google hizmetlerine bağlı aramalar ve etkinlikler) bulunabilir.</translation>
 <translation id="7400689562045506105">Chromium'u Her Yerde Kullanın</translation>
 <translation id="7674213385180944843">Ayarlar &gt; Gizlilik &gt; Kamera &gt; Chromium'a gidin ve kamerayı açın.</translation>
+<translation id="7746854981345936341">Chromium için ipucu: Geri, İleri ve Ara gibi bazı düğmeler artık ekranınızın alt bölümünde bulunuyor.</translation>
 <translation id="786327964234957808">Senkronizasyon hesapları arasında (<ph name="USER_EMAIL1" /> hesabından <ph name="USER_EMAIL2" /> hesabına) geçiş yapıyorsunuz. Mevcut Chromium verileriniz <ph name="DOMAIN" /> tarafından yönetiliyor. Bu işlemle verileriniz bu cihazdan silinir, ancak <ph name="USER_EMAIL1" /> hesabınızda kalmaya devam eder.</translation>
 <translation id="8175055321229419309">İpucu: <ph name="BEGIN_LINK" />Chromium'u yuva bölümüne taşıyın<ph name="END_LINK" /></translation>
 <translation id="8252885722420466166">Chromium'da, konumunuza dayalı olarak daha iyi bir Google deneyimi yaşayın.</translation>

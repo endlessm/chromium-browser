@@ -25,7 +25,8 @@
 #include <string>
 #include <vector>
 
-namespace spvutils {
+namespace spvtools {
+namespace utils {
 
 // Returns rounded down log2(val). log2(0) is considered 0.
 size_t Log2U64(uint64_t val);
@@ -154,7 +155,7 @@ template <size_t N>
 inline std::string PadToWord(std::string&& str) {
   const size_t tail_length = str.size() % N;
   if (tail_length != 0) str += std::string(N - tail_length, '0');
-  return str;
+  return std::move(str);
 }
 
 // Adds '0' chars at the end of the string until the size is a multiple of N.
@@ -442,6 +443,7 @@ class BitReaderWord64 : public BitReaderInterface {
   std::function<void(const std::string&)> callback_;
 };
 
-}  // namespace spvutils
+}  // namespace utils
+}  // namespace spvtools
 
 #endif  // LIBSPIRV_UTIL_BIT_STREAM_H_

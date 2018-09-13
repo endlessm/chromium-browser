@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_ANDROID_TAB_WEB_CONTENTS_DELEGATE_ANDROID_H_
 
 #include "base/files/file_path.h"
-#include "components/web_contents_delegate_android/web_contents_delegate_android.h"
+#include "components/embedder_support/android/delegate/web_contents_delegate_android.h"
 #include "content/public/browser/bluetooth_chooser.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -62,7 +62,7 @@ class TabWebContentsDelegateAndroid
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
-      const content::MediaResponseCallback& callback) override;
+      content::MediaResponseCallback callback) override;
   bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
                                   content::MediaStreamType type) override;

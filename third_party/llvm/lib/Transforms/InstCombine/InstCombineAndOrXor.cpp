@@ -14,7 +14,7 @@
 #include "InstCombineInternal.h"
 #include "llvm/Analysis/CmpInstAnalysis.h"
 #include "llvm/Analysis/InstructionSimplify.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/PatternMatch.h"
@@ -1401,14 +1401,15 @@ Instruction *InstCombiner::narrowMaskedBinOp(BinaryOperator &And) {
 // here. We should standardize that construct where it is needed or choose some
 // other way to ensure that commutated variants of patterns are not missed.
 Instruction *InstCombiner::visitAnd(BinaryOperator &I) {
-  bool Changed = SimplifyAssociativeOrCommutative(I);
-  Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
-
-  if (Value *V = SimplifyVectorOp(I))
+  if (Value *V = SimplifyAndInst(I.getOperand(0), I.getOperand(1),
+                                 SQ.getWithInstruction(&I)))
     return replaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifyAndInst(Op0, Op1, SQ.getWithInstruction(&I)))
-    return replaceInstUsesWith(I, V);
+  if (SimplifyAssociativeOrCommutative(I))
+    return &I;
+
+  if (Instruction *X = foldShuffledBinop(I))
+    return X;
 
   // See if we can simplify any instructions used by the instruction whose sole
   // purpose is to compute bits we don't care about.
@@ -1426,6 +1427,7 @@ Instruction *InstCombiner::visitAnd(BinaryOperator &I) {
   if (Value *V = SimplifyBSwap(I, Builder))
     return replaceInstUsesWith(I, V);
 
+  Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
   const APInt *C;
   if (match(Op1, m_APInt(C))) {
     Value *X, *Y;
@@ -1648,7 +1650,7 @@ Instruction *InstCombiner::visitAnd(BinaryOperator &I) {
       A->getType()->isIntOrIntVectorTy(1))
     return SelectInst::Create(A, Op0, Constant::getNullValue(I.getType()));
 
-  return Changed ? &I : nullptr;
+  return nullptr;
 }
 
 /// Given an OR instruction, check to see if this is a bswap idiom. If so,
@@ -2016,14 +2018,15 @@ Value *InstCombiner::foldOrOfICmps(ICmpInst *LHS, ICmpInst *RHS,
 // here. We should standardize that construct where it is needed or choose some
 // other way to ensure that commutated variants of patterns are not missed.
 Instruction *InstCombiner::visitOr(BinaryOperator &I) {
-  bool Changed = SimplifyAssociativeOrCommutative(I);
-  Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
-
-  if (Value *V = SimplifyVectorOp(I))
+  if (Value *V = SimplifyOrInst(I.getOperand(0), I.getOperand(1),
+                                SQ.getWithInstruction(&I)))
     return replaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifyOrInst(Op0, Op1, SQ.getWithInstruction(&I)))
-    return replaceInstUsesWith(I, V);
+  if (SimplifyAssociativeOrCommutative(I))
+    return &I;
+
+  if (Instruction *X = foldShuffledBinop(I))
+    return X;
 
   // See if we can simplify any instructions used by the instruction whose sole
   // purpose is to compute bits we don't care about.
@@ -2048,6 +2051,7 @@ Instruction *InstCombiner::visitOr(BinaryOperator &I) {
   if (Instruction *BSwap = MatchBSwap(I))
     return BSwap;
 
+  Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
   {
     Value *A;
     const APInt *C;
@@ -2287,7 +2291,7 @@ Instruction *InstCombiner::visitOr(BinaryOperator &I) {
     }
   }
 
-  return Changed ? &I : nullptr;
+  return nullptr;
 }
 
 /// A ^ B can be specified using other logic ops in a variety of patterns. We
@@ -2470,14 +2474,15 @@ static Instruction *visitMaskedMerge(BinaryOperator &I,
 // here. We should standardize that construct where it is needed or choose some
 // other way to ensure that commutated variants of patterns are not missed.
 Instruction *InstCombiner::visitXor(BinaryOperator &I) {
-  bool Changed = SimplifyAssociativeOrCommutative(I);
-  Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
-
-  if (Value *V = SimplifyVectorOp(I))
+  if (Value *V = SimplifyXorInst(I.getOperand(0), I.getOperand(1),
+                                 SQ.getWithInstruction(&I)))
     return replaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifyXorInst(Op0, Op1, SQ.getWithInstruction(&I)))
-    return replaceInstUsesWith(I, V);
+  if (SimplifyAssociativeOrCommutative(I))
+    return &I;
+
+  if (Instruction *X = foldShuffledBinop(I))
+    return X;
 
   if (Instruction *NewXor = foldXorToXor(I, Builder))
     return NewXor;
@@ -2495,6 +2500,7 @@ Instruction *InstCombiner::visitXor(BinaryOperator &I) {
     return replaceInstUsesWith(I, V);
 
   // A^B --> A|B iff A and B have no bits set in common.
+  Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
   if (haveNoCommonBitsSet(Op0, Op1, DL, &AC, &I, &DT))
     return BinaryOperator::CreateOr(Op0, Op1);
 
@@ -2731,7 +2737,7 @@ Instruction *InstCombiner::visitXor(BinaryOperator &I) {
   if (Instruction *CastedXor = foldCastedBitwiseLogic(I))
     return CastedXor;
 
-  // Canonicalize the shifty way to code absolute value to the common pattern.
+  // Canonicalize a shifty way to code absolute value to the common pattern.
   // There are 4 potential commuted variants. Move the 'ashr' candidate to Op1.
   // We're relying on the fact that we only do this transform when the shift has
   // exactly 2 uses and the add has exactly 1 use (otherwise, we might increase
@@ -2785,5 +2791,5 @@ Instruction *InstCombiner::visitXor(BinaryOperator &I) {
     }
   }
 
-  return Changed ? &I : nullptr;
+  return nullptr;
 }

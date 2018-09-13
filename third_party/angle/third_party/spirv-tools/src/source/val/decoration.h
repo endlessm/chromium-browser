@@ -19,9 +19,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "spirv/1.2/spirv.h"
+#include "latest_version_spirv_header.h"
 
-namespace libspirv {
+namespace spvtools {
 
 // An object of this class represents a specific decoration including its
 // parameters (if any). Decorations are used by OpDecorate and OpMemberDecorate,
@@ -63,9 +63,7 @@ class Decoration {
       : dec_type_(t), params_(parameters), struct_member_index_(member_index) {}
 
   void set_struct_member_index(uint32_t index) { struct_member_index_ = index; }
-  int struct_member_index() { return struct_member_index_; }
   int struct_member_index() const { return struct_member_index_; }
-  SpvDecoration dec_type() { return dec_type_; }
   SpvDecoration dec_type() const { return dec_type_; }
   std::vector<uint32_t>& params() { return params_; }
   const std::vector<uint32_t>& params() const { return params_; }
@@ -84,6 +82,6 @@ class Decoration {
   int struct_member_index_;
 };
 
-}  // namespace libspirv
+}  // namespace spvtools
 
 #endif  /// LIBSPIRV_VAL_DECORATION_H_

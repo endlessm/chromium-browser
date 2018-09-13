@@ -267,7 +267,6 @@ void BrowserTabStripController::CloseTab(int model_index,
   // Cancel any pending tab transition.
   hover_tab_selector_.CancelTabTransition();
 
-  tabstrip_->PrepareForCloseAt(model_index, source);
   model_->CloseWebContentsAt(model_index,
                              TabStripModel::CLOSE_USER_GESTURE |
                              TabStripModel::CLOSE_CREATE_HISTORICAL_TAB);
@@ -305,6 +304,23 @@ void BrowserTabStripController::OnDropIndexUpdate(int index,
 bool BrowserTabStripController::IsCompatibleWith(TabStrip* other) const {
   Profile* other_profile = other->controller()->GetProfile();
   return other_profile == GetProfile();
+}
+
+NewTabButtonPosition BrowserTabStripController::GetNewTabButtonPosition()
+    const {
+  const std::string switch_value =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kNewTabButtonPosition);
+  if (switch_value == switches::kNewTabButtonPositionOppositeCaption)
+    return GetFrameView()->CaptionButtonsOnLeadingEdge() ? TRAILING : LEADING;
+  if (switch_value == switches::kNewTabButtonPositionLeading)
+    return LEADING;
+  if (switch_value == switches::kNewTabButtonPositionAfterTabs)
+    return AFTER_TABS;
+  if (switch_value == switches::kNewTabButtonPositionTrailing)
+    return TRAILING;
+
+  return AFTER_TABS;
 }
 
 void BrowserTabStripController::CreateNewTab() {
@@ -346,6 +362,14 @@ void BrowserTabStripController::StackedLayoutMaybeChanged() {
                                                tabstrip_->stacked_layout());
 }
 
+bool BrowserTabStripController::IsSingleTabModeAvailable() {
+  return GetFrameView()->IsSingleTabModeAvailable();
+}
+
+bool BrowserTabStripController::ShouldDrawStrokes() const {
+  return GetFrameView()->ShouldDrawStrokes();
+}
+
 void BrowserTabStripController::OnStartedDraggingTabs() {
   if (!immersive_reveal_lock_.get()) {
     // The top-of-window views should be revealed while the user is dragging
@@ -362,8 +386,37 @@ void BrowserTabStripController::OnStoppedDraggingTabs() {
   immersive_reveal_lock_.reset();
 }
 
+bool BrowserTabStripController::HasVisibleBackgroundTabShapes() const {
+  return GetFrameView()->HasVisibleBackgroundTabShapes(
+      BrowserNonClientFrameView::kUseCurrent);
+}
+
+bool BrowserTabStripController::EverHasVisibleBackgroundTabShapes() const {
+  return GetFrameView()->EverHasVisibleBackgroundTabShapes();
+}
+
+SkColor BrowserTabStripController::GetFrameColor() const {
+  return GetFrameView()->GetFrameColor();
+}
+
 SkColor BrowserTabStripController::GetToolbarTopSeparatorColor() const {
-  return browser_view_->frame()->GetFrameView()->GetToolbarTopSeparatorColor();
+  return GetFrameView()->GetToolbarTopSeparatorColor();
+}
+
+SkColor BrowserTabStripController::GetTabBackgroundColor(TabState state,
+                                                         bool opaque) const {
+  return GetFrameView()->GetTabBackgroundColor(state, opaque);
+}
+
+SkColor BrowserTabStripController::GetTabForegroundColor(TabState state) const {
+  return GetFrameView()->GetTabForegroundColor(state);
+}
+
+int BrowserTabStripController::GetTabBackgroundResourceId(
+    BrowserNonClientFrameView::ActiveState active_state,
+    bool* has_custom_image) const {
+  return GetFrameView()->GetTabBackgroundResourceId(active_state,
+                                                    has_custom_image);
 }
 
 base::string16 BrowserTabStripController::GetAccessibleTabName(
@@ -394,7 +447,7 @@ void BrowserTabStripController::TabDetachedAt(WebContents* contents,
   // Cancel any pending tab transition.
   hover_tab_selector_.CancelTabTransition();
 
-  tabstrip_->RemoveTabAt(contents, model_index);
+  tabstrip_->RemoveTabAt(contents, model_index, was_active);
 }
 
 void BrowserTabStripController::ActiveTabChanged(
@@ -457,6 +510,15 @@ void BrowserTabStripController::TabBlockedStateChanged(WebContents* contents,
 void BrowserTabStripController::SetTabNeedsAttentionAt(int index,
                                                        bool attention) {
   tabstrip_->SetTabNeedsAttention(index, attention);
+}
+
+BrowserNonClientFrameView* BrowserTabStripController::GetFrameView() {
+  return browser_view_->frame()->GetFrameView();
+}
+
+const BrowserNonClientFrameView* BrowserTabStripController::GetFrameView()
+    const {
+  return browser_view_->frame()->GetFrameView();
 }
 
 TabRendererData BrowserTabStripController::TabRendererDataFromModel(

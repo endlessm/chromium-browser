@@ -19,13 +19,13 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_button_updater.h"
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_view.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/toolbar/public/omnibox_focuser.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/util/named_guide_util.h"
 #import "ios/chrome/common/material_timing.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
 #import "ios/third_party/material_components_ios/src/components/ProgressView/src/MaterialProgressView.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
@@ -491,7 +491,7 @@ const CGFloat kScrollFadeDistance = 30;
   [self.view.progressBar setProgress:progress animated:YES completion:nil];
 }
 
-- (void)setTabCount:(int)tabCount {
+- (void)setTabCount:(int)tabCount addedInBackground:(BOOL)inBackground {
   // Return if tabSwitchStripButton wasn't initialized.
   if (!self.view.tabSwitchStripButton)
     return;

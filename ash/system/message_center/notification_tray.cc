@@ -321,8 +321,7 @@ NotificationTray::NotificationTray(Shelf* shelf,
   popup_alignment_delegate_ =
       std::make_unique<AshPopupAlignmentDelegate>(shelf);
   popup_collection_ = std::make_unique<message_center::MessagePopupCollection>(
-      message_center(), message_center_ui_controller_.get(),
-      popup_alignment_delegate_.get());
+      message_center(), popup_alignment_delegate_.get());
   display::Screen* screen = display::Screen::GetScreen();
   popup_alignment_delegate_->StartObserving(
       screen, screen->GetDisplayNearestWindow(status_area_window_));
@@ -647,6 +646,15 @@ void NotificationTray::CloseBubble() {
 void NotificationTray::ShowBubble(bool show_by_click) {
   if (!IsMessageCenterVisible())
     message_center_ui_controller_->ShowMessageCenterBubble(show_by_click);
+}
+
+void NotificationTray::ActivateBubble() {
+  views::TrayBubbleView* bubble_view = GetBubbleView();
+  // If the bubble is in the process of closing, do not try to activate it.
+  if (bubble_view->GetWidget()->IsClosed())
+    return;
+  bubble_view->set_can_activate(true);
+  bubble_view->GetWidget()->Activate();
 }
 
 views::TrayBubbleView* NotificationTray::GetBubbleView() {

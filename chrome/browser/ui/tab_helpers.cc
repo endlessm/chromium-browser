@@ -39,9 +39,10 @@
 #include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/plugins/pdf_plugin_placeholder_observer.h"
 #include "chrome/browser/predictors/loading_predictor_factory.h"
-#include "chrome/browser/predictors/resource_prefetch_predictor_tab_helper.h"
+#include "chrome/browser/predictors/loading_predictor_tab_helper.h"
 #include "chrome/browser/prerender/prerender_tab_helper.h"
 #include "chrome/browser/previews/previews_infobar_tab_helper.h"
+#include "chrome/browser/previews/resource_loading_hints/resource_loading_hints_web_contents_observer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resource_coordinator/tab_helper.h"
 #include "chrome/browser/safe_browsing/trigger_creator.h"
@@ -55,6 +56,7 @@
 #include "chrome/browser/tracing/navigation_tracing.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
+#include "chrome/browser/ui/bloated_renderer/bloated_renderer_tab_helper.h"
 #include "chrome/browser/ui/blocked_content/popup_blocker_tab_helper.h"
 #include "chrome/browser/ui/blocked_content/popup_opener_tab_helper.h"
 #include "chrome/browser/ui/find_bar/find_tab_helper.h"
@@ -63,6 +65,7 @@
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
 #include "chrome/browser/ui/pdf/chrome_pdf_web_contents_helper_client.h"
 #include "chrome/browser/ui/prefs/prefs_tab_helper.h"
+#include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/search_engines/search_engine_tab_helper.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
 #include "chrome/browser/ui/tab_dialogs.h"
@@ -81,7 +84,6 @@
 #include "components/history/core/browser/top_sites.h"
 #include "components/offline_pages/buildflags/buildflags.h"
 #include "components/password_manager/core/browser/password_manager.h"
-#include "components/subresource_filter/content/browser/content_subresource_filter_driver_factory.h"
 #include "components/subresource_filter/core/browser/subresource_filter_features.h"
 #include "components/tracing/common/tracing_switches.h"
 #include "components/ukm/content/source_url_recorder.h"
@@ -91,9 +93,9 @@
 
 #if defined(OS_ANDROID)
 #include "chrome/browser/android/chrome_feature_list.h"
-#include "chrome/browser/android/data_usage/data_use_tab_helper.h"
 #include "chrome/browser/android/oom_intervention/oom_intervention_tab_helper.h"
 #include "chrome/browser/android/search_permissions/search_geolocation_disclosure_tab_helper.h"
+#include "chrome/browser/android/tasks/task_tab_helper.h"
 #include "chrome/browser/android/webapps/single_tab_mode_tab_helper.h"
 #include "chrome/browser/banners/app_banner_manager_android.h"
 #include "chrome/browser/ui/android/context_menu_helper.h"
@@ -108,7 +110,7 @@
 #include "chrome/browser/ui/hung_plugin_tab_helper.h"
 #include "chrome/browser/ui/sad_tab_helper.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
-#include "chrome/browser/ui/sync/tab_contents_synced_tab_delegate.h"
+#include "chrome/browser/ui/sync/browser_synced_tab_delegate.h"
 #include "components/pdf/browser/pdf_web_contents_helper.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "components/zoom/zoom_controller.h"
@@ -187,6 +189,7 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
       autofill::ChromeAutofillClient::FromWebContents(web_contents),
       g_browser_process->GetApplicationLocale(),
       autofill::AutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER);
+  BloatedRendererTabHelper::CreateForWebContents(web_contents);
   BookmarkLastVisitUpdater::MaybeCreateForWebContentsWithBookmarkModel(
       web_contents, BookmarkModelFactory::GetForBrowserContext(
                         web_contents->GetBrowserContext()));
@@ -237,6 +240,8 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
   PrefsTabHelper::CreateForWebContents(web_contents);
   prerender::PrerenderTabHelper::CreateForWebContents(web_contents);
   PreviewsInfoBarTabHelper::CreateForWebContents(web_contents);
+  RecentlyAudibleHelper::CreateForWebContents(web_contents);
+  ResourceLoadingHintsWebContentsObserver::CreateForWebContents(web_contents);
   safe_browsing::TriggerCreator::MaybeCreateTriggersForWebContents(
       profile, web_contents);
   SearchEngineTabHelper::CreateForWebContents(web_contents);
@@ -264,7 +269,6 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
 #if defined(OS_ANDROID)
   banners::AppBannerManagerAndroid::CreateForWebContents(web_contents);
   ContextMenuHelper::CreateForWebContents(web_contents);
-  DataUseTabHelper::CreateForWebContents(web_contents);
   JavaScriptDialogTabHelper::CreateForWebContents(web_contents);
   if (OomInterventionTabHelper::IsEnabled()) {
     OomInterventionTabHelper::CreateForWebContents(web_contents);
@@ -272,9 +276,11 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
 
   SearchGeolocationDisclosureTabHelper::CreateForWebContents(web_contents);
   SingleTabModeTabHelper::CreateForWebContents(web_contents);
+  tasks::TaskTabHelper::CreateForWebContents(web_contents);
   ViewAndroidHelper::CreateForWebContents(web_contents);
 #else
   BookmarkTabHelper::CreateForWebContents(web_contents);
+  BrowserSyncedTabDelegate::CreateForWebContents(web_contents);
   extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
       web_contents);
   extensions::WebNavigationTabObserver::CreateForWebContents(web_contents);
@@ -291,7 +297,6 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
   safe_browsing::SafeBrowsingNavigationObserver::MaybeCreateForWebContents(
       web_contents);
   SearchTabHelper::CreateForWebContents(web_contents);
-  TabContentsSyncedTabDelegate::CreateForWebContents(web_contents);
   TabDialogs::CreateForWebContents(web_contents);
   ThumbnailTabHelper::CreateForWebContents(web_contents);
   web_modal::WebContentsModalDialogManager::CreateForWebContents(web_contents);
@@ -335,10 +340,8 @@ offline_pages::RecentTabHelper::CreateForWebContents(web_contents);
         web_contents);
   }
 
-  if (predictors::LoadingPredictorFactory::GetForProfile(profile)) {
-    predictors::ResourcePrefetchPredictorTabHelper::CreateForWebContents(
-        web_contents);
-  }
+  if (predictors::LoadingPredictorFactory::GetForProfile(profile))
+    predictors::LoadingPredictorTabHelper::CreateForWebContents(web_contents);
 
   if (tracing::NavigationTracingObserver::IsEnabled())
     tracing::NavigationTracingObserver::CreateForWebContents(web_contents);
@@ -346,8 +349,6 @@ offline_pages::RecentTabHelper::CreateForWebContents(web_contents);
   if (MediaEngagementService::IsEnabled())
     MediaEngagementService::CreateWebContentsObserver(web_contents);
 
-  if (resource_coordinator::ResourceCoordinatorTabHelper::IsEnabled()) {
-    resource_coordinator::ResourceCoordinatorTabHelper::CreateForWebContents(
-        web_contents);
-  }
+  resource_coordinator::ResourceCoordinatorTabHelper::CreateForWebContents(
+      web_contents);
 }

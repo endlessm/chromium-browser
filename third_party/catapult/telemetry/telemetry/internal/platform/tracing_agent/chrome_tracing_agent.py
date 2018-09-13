@@ -152,14 +152,10 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
   def _RecordClockSyncMarkerAsyncEvent(
       self, sync_id, record_controller_clock_sync_marker_callback):
     has_clock_synced = False
-    for backend in self._IterInspectorBackends():
+    for backend in self._IterFirstTabBackends():
       try:
         timestamp = trace_time.Now()
-        event = 'ClockSyncEvent.%s' % sync_id
-        backend.EvaluateJavaScript(
-            "console.time({{ event }});", event=event)
-        backend.EvaluateJavaScript(
-            "console.timeEnd({{ event }});", event=event)
+        backend.AddTimelineMarker('ClockSyncEvent.%s' % sync_id)
         has_clock_synced = True
         break
       except Exception: # pylint: disable=broad-except
@@ -175,7 +171,8 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
     devtools_clients = (chrome_tracing_devtools_manager
                         .GetActiveDevToolsClients(self._platform_backend))
     if not devtools_clients:
-      raise ChromeClockSyncError('Cannot issue clock sync. No devtools clients')
+      logging.info('No devtools clients for issuing clock sync.')
+      return False
     version = None
     for client in devtools_clients:
       version = client.GetChromeBranchNumber()
@@ -193,6 +190,7 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
     else:  # TODO(rnephew): Remove once chrome stable is past branch 2743.
       self._RecordClockSyncMarkerAsyncEvent(
           sync_id, record_controller_clock_sync_marker_callback)
+    return True
 
   def StopAgentTracing(self):
     if not self._trace_config:
@@ -315,20 +313,19 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
           'Tracing is not running on platform backend %s.'
           % self._platform_backend)
 
-    for backend in self._IterInspectorBackends():
+    for backend in self._IterFirstTabBackends():
       backend.EvaluateJavaScript("console.time('flush-tracing');")
 
     self.StopAgentTracing()
     self.CollectAgentTraceData(trace_data_builder)
     self.StartAgentTracing(config, timeout)
 
-    for backend in self._IterInspectorBackends():
+    for backend in self._IterFirstTabBackends():
       backend.EvaluateJavaScript("console.timeEnd('flush-tracing');")
 
-  def _IterInspectorBackends(self):
+  def _IterFirstTabBackends(self):
     for client in chrome_tracing_devtools_manager.GetDevToolsClients(
         self._platform_backend):
-      context_map = client.GetUpdatedInspectableContexts()
-      for context in context_map.contexts:
-        if context['type'] in ['iframe', 'page', 'webview']:
-          yield context_map.GetInspectorBackend(context['id'])
+      backend = client.FirstTabBackend()
+      if backend is not None:
+        yield backend

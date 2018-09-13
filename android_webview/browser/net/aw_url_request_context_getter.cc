@@ -148,7 +148,7 @@ std::unique_ptr<net::URLRequestJobFactory> CreateJobFactory(
 
   // Note that even though the content:// scheme handler is created here,
   // it cannot be used by child processes until access to it is granted via
-  // ChildProcessSecurityPolicy::GrantScheme(). This is done in
+  // ChildProcessSecurityPolicy::GrantRequestScheme(). This is done in
   // AwContentBrowserClient.
   request_interceptors.push_back(CreateAndroidContentRequestInterceptor());
   request_interceptors.push_back(CreateAndroidAssetFileRequestInterceptor());
@@ -192,8 +192,6 @@ class AwSSLConfigService : public net::SSLConfigService {
   }
 
  private:
-  ~AwSSLConfigService() override = default;
-
   net::SSLConfig default_config_;
 };
 
@@ -340,7 +338,7 @@ void AwURLRequestContextGetter::InitializeURLRequestContext() {
       CreateAuthHandlerFactory(host_resolver.get()));
   builder.set_host_resolver(std::move(host_resolver));
 
-  builder.set_ssl_config_service(base::MakeRefCounted<AwSSLConfigService>());
+  builder.set_ssl_config_service(std::make_unique<AwSSLConfigService>());
 
   url_request_context_ = builder.Build();
 #if DCHECK_IS_ON()
@@ -400,13 +398,13 @@ AwURLRequestContextGetter::CreateAuthHandlerFactory(
   // there is no interest to have it available so far.
   std::vector<std::string> supported_schemes = {"basic", "digest", "ntlm",
                                                 "negotiate"};
-  http_auth_preferences_.reset(new net::HttpAuthPreferences(supported_schemes));
 
+  http_auth_preferences_.reset(new net::HttpAuthPreferences());
   UpdateServerWhitelist();
   UpdateAndroidAuthNegotiateAccountType();
 
   return net::HttpAuthHandlerRegistryFactory::Create(
-      http_auth_preferences_.get(), resolver);
+      resolver, http_auth_preferences_.get(), supported_schemes);
 }
 
 void AwURLRequestContextGetter::UpdateServerWhitelist() {

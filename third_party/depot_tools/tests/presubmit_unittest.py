@@ -936,26 +936,29 @@ class InputApiUnittest(PresubmitTestsBase):
         'AffectedSourceFiles',
         'AffectedTestableFiles',
         'AffectedTextFiles',
+        'Command',
+        'CreateTemporaryFile',
         'DEFAULT_BLACK_LIST',
         'DEFAULT_WHITE_LIST',
-        'CreateTemporaryFile',
         'FilterSourceFile',
         'LocalPaths',
-        'Command',
-        'RunTests',
         'PresubmitLocalPath',
         'ReadFile',
         'RightHandSideLines',
+        'RunTests',
         'ast',
         'basename',
-        'cPickle',
-        'cpplint',
-        'cStringIO',
         'canned_checks',
         'change',
+        'cPickle',
+        'cpplint',
         'cpu_count',
+        'cStringIO',
+        'dry_run',
         'environ',
         'fnmatch',
+        'gclient_utils',
+        'gerrit',
         'glob',
         'is_committing',
         'is_windows',
@@ -963,9 +966,9 @@ class InputApiUnittest(PresubmitTestsBase):
         'logging',
         'marshal',
         'os_listdir',
-        'os_walk',
         'os_path',
         'os_stat',
+        'os_walk',
         'owners_db',
         'owners_finder',
         'parallel',
@@ -981,10 +984,8 @@ class InputApiUnittest(PresubmitTestsBase):
         'traceback',
         'unittest',
         'urllib2',
-        'version',
         'verbose',
-        'dry_run',
-        'gerrit',
+        'version',
     ]
     # If this test fails, you should add the relevant test.
     self.compareMembers(
@@ -1979,7 +1980,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
     input_api = self.MockInputApi(change1, False)
     affected_files = (affected_file1, affected_file2)
 
-    input_api.AffectedFiles = lambda: affected_files
+    input_api.AffectedFiles = lambda **_: affected_files
 
     self.mox.ReplayAll()
 
@@ -2389,7 +2390,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
     affected_file.Action = lambda: 'M'
 
     change = self.mox.CreateMock(presubmit.Change)
-    change.AffectedFiles = lambda: [affected_file]
+    change.AffectedFiles = lambda **_: [affected_file]
 
     input_api = self.MockInputApi(None, False)
     input_api.change = change

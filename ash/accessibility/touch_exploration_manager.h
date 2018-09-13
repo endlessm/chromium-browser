@@ -22,10 +22,6 @@ namespace chromeos {
 class CrasAudioHandler;
 }
 
-namespace keyboard {
-class KeyboardController;
-}
-
 namespace ash {
 class RootWindowController;
 
@@ -38,6 +34,7 @@ class RootWindowController;
 // on Windows, which we don't ship anymore.
 class ASH_EXPORT TouchExplorationManager
     : public AccessibilityObserver,
+      public aura::WindowObserver,
       public TouchExplorationControllerDelegate,
       public TouchAccessibilityEnablerDelegate,
       public display::DisplayObserver,
@@ -51,6 +48,11 @@ class ASH_EXPORT TouchExplorationManager
 
   // AccessibilityObserver overrides:
   void OnAccessibilityStatusChanged() override;
+
+  // aura::WindowObserver overrides:
+  void OnWindowPropertyChanged(aura::Window* window,
+                               const void* key,
+                               intptr_t old) override;
 
   // TouchExplorationControllerDelegate overrides:
   void SetOutputLevel(int volume) override;
@@ -85,11 +87,7 @@ class ASH_EXPORT TouchExplorationManager
  private:
   // keyboard::KeyboardControllerObserver overrides:
   void OnKeyboardVisibleBoundsChanged(const gfx::Rect& new_bounds) override;
-  void OnKeyboardClosed() override;
-
-  // ShellObserver overrides:
-  void OnVirtualKeyboardStateChanged(bool activated,
-                                     aura::Window* root_window) override;
+  void OnKeyboardDisabled() override;
 
   void UpdateTouchExplorationState();
   bool VolumeAdjustSoundEnabled();
@@ -98,9 +96,7 @@ class ASH_EXPORT TouchExplorationManager
   std::unique_ptr<TouchAccessibilityEnabler> touch_accessibility_enabler_;
   RootWindowController* root_window_controller_;
   chromeos::CrasAudioHandler* audio_handler_;
-  ScopedObserver<keyboard::KeyboardController,
-                 keyboard::KeyboardControllerObserver>
-      keyboard_observer_;
+  aura::Window* observing_window_;
 
   DISALLOW_COPY_AND_ASSIGN(TouchExplorationManager);
 };

@@ -7,6 +7,8 @@
 
 #import <UIKit/UIKit.h>
 
+@protocol EditViewAnimatee;
+@protocol LocationBarAnimatee;
 @protocol ToolbarAnimatee;
 
 // Orchestrator for the animation occuring when the omnibox is
@@ -15,6 +17,10 @@
 
 // Toolbar animatee, orchestrated by this object.
 @property(nonatomic, weak) id<ToolbarAnimatee> toolbarAnimatee;
+
+@property(nonatomic, weak) id<LocationBarAnimatee> locationBarAnimatee;
+
+@property(nonatomic, weak) id<EditViewAnimatee> editViewAnimatee;
 
 // Updates the UI elements orchestrated by this object to reflect the
 // |omniboxFocused| state, and the |toolbarExpanded| state, |animated| or not.

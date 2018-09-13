@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
@@ -18,7 +19,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "chromeos/chromeos_switches.h"
+#include "chromeos/dbus/dbus_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_shill_device_client.h"
 #include "chromeos/dbus/shill_device_client.h"
@@ -868,6 +869,7 @@ void FakeShillManagerClient::SetupDefaultEnvironment() {
                  base::Value("Localized Test APN"));
       apn.SetKey(shill::kApnUsernameProperty, base::Value("User1"));
       apn.SetKey(shill::kApnPasswordProperty, base::Value("password"));
+      apn.SetKey(shill::kApnAuthenticationProperty, base::Value("chap"));
       base::DictionaryValue apn2;
       apn2.SetKey(shill::kApnProperty, base::Value("testapn2"));
       services->SetServiceProperty(kCellularServicePath,

@@ -105,6 +105,10 @@ class BrowserWindowCocoa
       content::WebContents* contents,
       autofill::SaveCardBubbleController* controller,
       bool user_gesture) override;
+  autofill::LocalCardMigrationBubble* ShowLocalCardMigrationBubble(
+      content::WebContents* contents,
+      autofill::LocalCardMigrationBubbleController* controller,
+      bool user_gesture) override;
   ShowTranslateBubbleResult ShowTranslateBubble(
       content::WebContents* contents,
       translate::TranslateStep step,
@@ -129,8 +133,6 @@ class BrowserWindowCocoa
   void HandleKeyboardEvent(
       const content::NativeWebKeyboardEvent& event) override;
   void CutCopyPaste(int command_id) override;
-  WindowOpenDisposition GetDispositionForPopupBounds(
-      const gfx::Rect& bounds) override;
   FindBar* CreateFindBar() override;
   web_modal::WebContentsModalDialogHost* GetWebContentsModalDialogHost()
       override;

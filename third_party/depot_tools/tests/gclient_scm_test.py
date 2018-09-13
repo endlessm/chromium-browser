@@ -21,6 +21,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from testing_support import fake_repos
 from testing_support.super_mox import mox, StdoutCheck, SuperMoxTestBase
 from testing_support.super_mox import TestCaseUtils
 
@@ -446,6 +447,23 @@ class ManagedGitWrapperTestCase(BaseGitWrapperTestCase):
     scm.update(options, (), file_list)
     self.assert_(gclient_scm.os.path.isdir(dir_path))
     self.assert_(gclient_scm.os.path.isfile(file_path))
+    sys.stdout.close()
+
+  def testUpdateResetUnsetsFetchConfig(self):
+    if not self.enabled:
+      return
+    options = self.Options()
+    options.reset = True
+
+    scm = gclient_scm.GitWrapper(self.url, self.root_dir,
+                                 self.relpath)
+    scm._Run(['config', 'remote.origin.fetch',
+              '+refs/heads/bad/ref:refs/remotes/origin/bad/ref'], options)
+
+    file_list = []
+    scm.update(options, (), file_list)
+    self.assertEquals(scm.revinfo(options, (), None),
+                      '069c602044c5388d2d15c3f875b057c852003458')
     sys.stdout.close()
 
   def testUpdateResetDeleteUnversionedTrees(self):
@@ -987,6 +1005,80 @@ class CipdWrapperTestCase(BaseTestCase):
     self.mox.ReplayAll()
 
     scm.update(None, (), [])
+
+
+class GerritChangesFakeRepo(fake_repos.FakeReposBase):
+  def populateGit(self):
+    # Creates a tree that looks like this:
+    #
+    #           6 refs/changes/35/1235/1
+    #          /
+    #         5 refs/changes/34/1234/1
+    #        /
+    # 1--2--3--4 refs/heads/master
+
+
+    self._commit_git('repo_1', {'commit 1': 'touched'})
+    self._commit_git('repo_1', {'commit 2': 'touched'})
+    self._commit_git('repo_1', {'commit 3': 'touched'})
+    self._commit_git('repo_1', {'commit 4': 'touched'})
+    self._create_ref('repo_1', 'refs/heads/master', 4)
+
+    # Create a change on top of commit 3 that consists of two commits.
+    self._commit_git('repo_1',
+                     {'commit 5': 'touched',
+                      'change': '1234'},
+                     base=3)
+    self._create_ref('repo_1', 'refs/changes/34/1234/1', 5)
+    self._commit_git('repo_1',
+                     {'commit 6': 'touched',
+                      'change': '1235'})
+    self._create_ref('repo_1', 'refs/changes/35/1235/1', 6)
+
+
+class GerritChangesTest(fake_repos.FakeReposTestBase):
+  FAKE_REPOS_CLASS = GerritChangesFakeRepo
+
+  def setUp(self):
+    super(GerritChangesTest, self).setUp()
+    self.enabled = self.FAKE_REPOS.set_up_git()
+    self.options = BaseGitWrapperTestCase.OptionsObject()
+    self.url = self.git_base + 'repo_1'
+    self.mirror = None
+
+  def setUpMirror(self):
+    self.mirror = tempfile.mkdtemp()
+    git_cache.Mirror.SetCachePath(self.mirror)
+    self.addCleanup(rmtree, self.mirror)
+    self.addCleanup(git_cache.Mirror.SetCachePath, None)
+
+  def testCanCloneGerritChange(self):
+    scm = gclient_scm.GitWrapper(self.url, self.root_dir, '.')
+    file_list = []
+
+    self.options.revision = 'refs/changes/35/1235/1'
+    scm.update(self.options, None, file_list)
+    self.assertEqual(self.githash('repo_1', 6), self.gitrevparse(self.root_dir))
+
+  def testCanSyncToGerritChange(self):
+    scm = gclient_scm.GitWrapper(self.url, self.root_dir, '.')
+    file_list = []
+
+    self.options.revision = self.githash('repo_1', 1)
+    scm.update(self.options, None, file_list)
+    self.assertEqual(self.githash('repo_1', 1), self.gitrevparse(self.root_dir))
+
+    self.options.revision = 'refs/changes/35/1235/1'
+    scm.update(self.options, None, file_list)
+    self.assertEqual(self.githash('repo_1', 6), self.gitrevparse(self.root_dir))
+
+  def testCanCloneGerritChangeMirror(self):
+    self.setUpMirror()
+    self.testCanCloneGerritChange()
+
+  def testCanSyncToGerritChangeMirror(self):
+    self.setUpMirror()
+    self.testCanSyncToGerritChange()
 
 
 if __name__ == '__main__':

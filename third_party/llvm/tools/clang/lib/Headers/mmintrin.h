@@ -32,7 +32,7 @@ typedef short __v4hi __attribute__((__vector_size__(8)));
 typedef char __v8qi __attribute__((__vector_size__(8)));
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("mmx")))
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("mmx"), __min_vector_width__(64)))
 
 /// Clears the MMX state by setting the state of the x87 stack registers
 ///    to empty.
@@ -41,7 +41,7 @@ typedef char __v8qi __attribute__((__vector_size__(8)));
 ///
 /// This intrinsic corresponds to the <c> EMMS </c> instruction.
 ///
-static __inline__ void __DEFAULT_FN_ATTRS
+static __inline__ void  __attribute__((__always_inline__, __nodebug__, __target__("mmx")))
 _mm_empty(void)
 {
     __builtin_ia32_emms();
@@ -1295,7 +1295,7 @@ _mm_cmpgt_pi32(__m64 __m1, __m64 __m2)
 static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_setzero_si64(void)
 {
-    return (__m64){ 0LL };
+    return __extension__ (__m64){ 0LL };
 }
 
 /// Constructs a 64-bit integer vector initialized with the specified

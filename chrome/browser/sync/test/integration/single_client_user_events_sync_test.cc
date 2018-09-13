@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "base/macros.h"
+#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/sessions_helper.h"
 #include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
@@ -12,9 +13,11 @@
 #include "chrome/browser/sync/test/integration/sync_integration_test_util.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/user_event_service_factory.h"
+#include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/model/model_type_sync_bridge.h"
 #include "components/sync/protocol/user_event_specifics.pb.h"
 #include "components/sync/user_events/user_event_service.h"
+#include "components/unified_consent/scoped_unified_consent.h"
 #include "components/variations/variations_associated_data.h"
 
 using fake_server::FakeServer;
@@ -103,6 +106,9 @@ class UserEventEqualityChecker : public SingleClientStatusChangeChecker {
       // We don't expect to encounter id matching events with different values,
       // this isn't going to recover so fail the test case now.
       EXPECT_TRUE(expected_specifics_.end() != iter);
+      if (expected_specifics_.end() == iter) {
+        return false;
+      }
       // TODO(skym): This may need to change if we start updating navigation_id
       // based on what sessions data is committed, and end up committing the
       // same event multiple times.
@@ -122,6 +128,8 @@ class UserEventEqualityChecker : public SingleClientStatusChangeChecker {
  private:
   FakeServer* fake_server_;
   std::multimap<int64_t, UserEventSpecifics> expected_specifics_;
+
+  DISALLOW_COPY_AND_ASSIGN(UserEventEqualityChecker);
 };
 
 // A more simplistic version of UserEventEqualityChecker that only checks the
@@ -173,6 +181,8 @@ class UserEventCaseChecker : public SingleClientStatusChangeChecker {
  private:
   FakeServer* fake_server_;
   std::multiset<UserEventSpecifics::EventCase> expected_cases_;
+
+  DISALLOW_COPY_AND_ASSIGN(UserEventCaseChecker);
 };
 
 class SingleClientUserEventsSyncTest : public SyncTest {
@@ -280,8 +290,38 @@ IN_PROC_BROWSER_TEST_F(SingleClientUserEventsSyncTest, NoHistory) {
   EXPECT_TRUE(ExpectUserEvents({testEvent1, consent1, consent2, testEvent3}));
 }
 
+IN_PROC_BROWSER_TEST_F(SingleClientUserEventsSyncTest, NoUserEvents) {
+  // Enable unified consent feature and the ones it depends on.
+  unified_consent::ScopedUnifiedConsent scoped_unified_consent(
+      unified_consent::UnifiedConsentFeatureState::kEnabledNoBump);
+
+  const UserEventSpecifics testEvent1 = CreateTestEvent(1);
+  const UserEventSpecifics testEvent2 = CreateTestEvent(2);
+  const UserEventSpecifics testEvent3 = CreateTestEvent(3);
+
+  ASSERT_TRUE(SetupSync());
+  syncer::UserEventService* event_service =
+      browser_sync::UserEventServiceFactory::GetForProfile(GetProfile(0));
+  event_service->RecordUserEvent(testEvent1);
+
+  // Wait until the first two events are committed before disabling sync,
+  // because disabled USER_EVENTS drops all uncommitted consents.
+  ASSERT_TRUE(ExpectUserEvents({testEvent1}));
+  ASSERT_TRUE(GetClient(0)->DisableSyncForDatatype(syncer::USER_EVENTS));
+
+  event_service->RecordUserEvent(testEvent2);
+  ASSERT_TRUE(GetClient(0)->EnableSyncForDatatype(syncer::USER_EVENTS));
+  event_service->RecordUserEvent(testEvent3);
+
+  // No |testEvent2| because it was recorded while history was disabled.
+  EXPECT_TRUE(ExpectUserEvents({testEvent1, testEvent3}));
+}
+
 // Test that events that are logged before sync is enabled don't get lost.
 IN_PROC_BROWSER_TEST_F(SingleClientUserEventsSyncTest, LoggedBeforeSyncSetup) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(switches::kSyncUserConsentSeparateType);
+
   const UserEventSpecifics consent1 = CreateUserConsent(1);
   const UserEventSpecifics consent2 = CreateUserConsent(2);
   ASSERT_TRUE(SetupClients());
@@ -309,6 +349,9 @@ IN_PROC_BROWSER_TEST_F(SingleClientUserEventsSyncTest, NoSessions) {
 }
 
 IN_PROC_BROWSER_TEST_F(SingleClientUserEventsSyncTest, Encryption) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(switches::kSyncUserConsentSeparateType);
+
   const UserEventSpecifics testEvent1 = CreateTestEvent(1);
   const UserEventSpecifics testEvent2 = CreateTestEvent(2);
   const UserEventSpecifics consent1 = CreateUserConsent(3);

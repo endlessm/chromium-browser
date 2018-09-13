@@ -17,9 +17,9 @@
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/webdata/common/web_data_service_base.h"
 #include "components/webdata/common/web_data_service_consumer.h"
+#include "content/public/browser/network_connection_tracker.h"
 #include "google_apis/gaia/oauth2_token_service_delegate.h"
 #include "net/base/backoff_entry.h"
-#include "net/base/network_change_notifier.h"
 
 namespace user_prefs {
 class PrefRegistrySyncable;
@@ -28,7 +28,7 @@ class PrefRegistrySyncable;
 class MutableProfileOAuth2TokenServiceDelegate
     : public OAuth2TokenServiceDelegate,
       public WebDataServiceConsumer,
-      public net::NetworkChangeNotifier::NetworkChangeObserver {
+      public content::NetworkConnectionTracker::NetworkConnectionObserver {
  public:
   MutableProfileOAuth2TokenServiceDelegate(
       SigninClient* client,
@@ -43,7 +43,7 @@ class MutableProfileOAuth2TokenServiceDelegate
   // OAuth2TokenServiceDelegate overrides.
   OAuth2AccessTokenFetcher* CreateAccessTokenFetcher(
       const std::string& account_id,
-      net::URLRequestContextGetter* getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       OAuth2AccessTokenConsumer* consumer) override;
 
   // Updates the internal cache of the result from the most-recently-completed
@@ -55,7 +55,8 @@ class MutableProfileOAuth2TokenServiceDelegate
   GoogleServiceAuthError GetAuthError(
       const std::string& account_id) const override;
   std::vector<std::string> GetAccounts() override;
-  net::URLRequestContextGetter* GetRequestContext() const override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory()
+      const override;
 
   void LoadCredentials(const std::string& primary_account_id) override;
   void UpdateCredentials(const std::string& account_id,
@@ -69,9 +70,8 @@ class MutableProfileOAuth2TokenServiceDelegate
   void Shutdown() override;
   LoadCredentialsState GetLoadCredentialsState() const override;
 
-  // Overridden from NetworkChangeObserver.
-  void OnNetworkChanged(net::NetworkChangeNotifier::ConnectionType type)
-      override;
+  // Overridden from NetworkConnectionTracker::NetworkConnectionObserver.
+  void OnConnectionChanged(network::mojom::ConnectionType type) override;
 
   // Overridden from OAuth2TokenServiceDelegate.
   const net::BackoffEntry* BackoffEntry() const override;
@@ -126,6 +126,8 @@ class MutableProfileOAuth2TokenServiceDelegate
   FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
                            DelayedRevoke);
   FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
+                           DiceMigrationHostedDomainPrimaryAccount);
+  FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
                            ShutdownDuringRevoke);
   FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
                            UpdateInvalidToken);
@@ -179,6 +181,14 @@ class MutableProfileOAuth2TokenServiceDelegate
   void AddAccountStatus(const std::string& account_id,
                         const std::string& refresh_token,
                         const GoogleServiceAuthError& error);
+
+  // Creates a new device ID if there are no accounts, or if the current device
+  // ID is empty.
+  void RecreateDeviceIdIfNeeded();
+
+  // Called at when tokens are loaded. Performs housekeeping tasks and notifies
+  // the observers.
+  void FinishLoadingCredentials();
 
   // Maps the |account_id| of accounts known to ProfileOAuth2TokenService
   // to information about the account.

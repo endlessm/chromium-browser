@@ -22,7 +22,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "cfg.h"
 #include "ir_context.h"
 #include "module.h"
 
@@ -31,10 +30,12 @@ namespace opt {
 
 // Represents a CFG control edge.
 struct Edge {
-  explicit Edge(ir::BasicBlock* b1, ir::BasicBlock* b2)
-      : source(b1), dest(b2) {}
-  ir::BasicBlock* source;
-  ir::BasicBlock* dest;
+  Edge(opt::BasicBlock* b1, opt::BasicBlock* b2) : source(b1), dest(b2) {
+    assert(source && "CFG edges cannot have a null source block.");
+    assert(dest && "CFG edges cannot have a null destination block.");
+  }
+  opt::BasicBlock* source;
+  opt::BasicBlock* dest;
   bool operator<(const Edge& o) const {
     return std::make_pair(source->id(), dest->id()) <
            std::make_pair(o.source->id(), o.dest->id());
@@ -147,13 +148,13 @@ struct Edge {
 // following code builds a table |values| where every id that was assigned a
 // constant value is mapped to the constant value it was assigned.
 //
-//   auto ctx = spvtools::BuildModule(...);
+//   auto ctx = BuildModule(...);
 //   std::map<uint32_t, uint32_t> values;
-//   const auto visit_fn = [&ctx, &values](ir::Instruction* instr,
-//                                         ir::BasicBlock** dest_bb) {
+//   const auto visit_fn = [&ctx, &values](opt::Instruction* instr,
+//                                         opt::BasicBlock** dest_bb) {
 //     if (instr->opcode() == SpvOpStore) {
 //       uint32_t rhs_id = instr->GetSingleWordOperand(1);
-//       ir::Instruction* rhs_def = ctx->get_def_use_mgr()->GetDef(rhs_id);
+//       opt::Instruction* rhs_def = ctx->get_def_use_mgr()->GetDef(rhs_id);
 //       if (rhs_def->opcode() == SpvOpConstant) {
 //         uint32_t val = rhs_def->GetSingleWordOperand(2);
 //         values[rhs_id] = val;
@@ -183,47 +184,65 @@ class SSAPropagator {
   enum PropStatus { kNotInteresting, kInteresting, kVarying };
 
   using VisitFunction =
-      std::function<PropStatus(ir::Instruction*, ir::BasicBlock**)>;
+      std::function<PropStatus(opt::Instruction*, opt::BasicBlock**)>;
 
-  SSAPropagator(ir::IRContext* context, ir::CFG* cfg,
-                const VisitFunction& visit_fn)
-      : ctx_(context), cfg_(cfg), visit_fn_(visit_fn) {}
+  SSAPropagator(opt::IRContext* context, const VisitFunction& visit_fn)
+      : ctx_(context), visit_fn_(visit_fn) {}
 
-  // Run the propagator on function |fn|. Returns true if changes were made to
+  // Runs the propagator on function |fn|. Returns true if changes were made to
   // the function. Otherwise, it returns false.
-  bool Run(ir::Function* fn);
+  bool Run(opt::Function* fn);
+
+  // Returns true if the |i|th argument for |phi| comes through a CFG edge that
+  // has been marked executable. |i| should be an index value accepted by
+  // Instruction::GetSingleWordOperand.
+  bool IsPhiArgExecutable(opt::Instruction* phi, uint32_t i) const;
+
+  // Returns true if |inst| has a recorded status. This will be true once |inst|
+  // has been simulated once.
+  bool HasStatus(opt::Instruction* inst) const { return statuses_.count(inst); }
+
+  // Returns the current propagation status of |inst|. Assumes
+  // |HasStatus(inst)| returns true.
+  PropStatus Status(opt::Instruction* inst) const {
+    return statuses_.find(inst)->second;
+  }
+
+  // Records the propagation status |status| for |inst|. Returns true if the
+  // status for |inst| has changed or set was set for the first time.
+  bool SetStatus(opt::Instruction* inst, PropStatus status);
 
  private:
   // Initialize processing.
-  void Initialize(ir::Function* fn);
+  void Initialize(opt::Function* fn);
 
   // Simulate the execution |block| by calling |visit_fn_| on every instruction
   // in it.
-  bool Simulate(ir::BasicBlock* block);
+  bool Simulate(opt::BasicBlock* block);
 
   // Simulate the execution of |instr| by replacing all the known values in
   // every operand and determining whether the result is interesting for
   // propagation. This invokes the callback function |visit_fn_| to determine
   // the value computed by |instr|.
-  bool Simulate(ir::Instruction* instr);
+  bool Simulate(opt::Instruction* instr);
 
   // Returns true if |instr| should be simulated again.
-  bool ShouldSimulateAgain(ir::Instruction* instr) const {
+  bool ShouldSimulateAgain(opt::Instruction* instr) const {
     return do_not_simulate_.find(instr) == do_not_simulate_.end();
   }
 
   // Add |instr| to the set of instructions not to simulate again.
-  void DontSimulateAgain(ir::Instruction* instr) {
+  void DontSimulateAgain(opt::Instruction* instr) {
     do_not_simulate_.insert(instr);
   }
 
   // Returns true if |block| has been simulated already.
-  bool BlockHasBeenSimulated(ir::BasicBlock* block) {
+  bool BlockHasBeenSimulated(opt::BasicBlock* block) const {
     return simulated_blocks_.find(block) != simulated_blocks_.end();
   }
 
   // Marks block |block| as simulated.
-  void MarkBlockSimulated(ir::BasicBlock* block) {
+  void MarkBlockSimulated(opt::BasicBlock* block) {
     simulated_blocks_.insert(block);
   }
 
@@ -234,7 +253,7 @@ class SSAPropagator {
   }
 
   // Returns true if |edge| has been marked as executable.
-  bool IsEdgeExecutable(const Edge& edge) {
+  bool IsEdgeExecutable(const Edge& edge) const {
     return executable_edges_.find(edge) != executable_edges_.end();
   }
 
@@ -243,19 +262,16 @@ class SSAPropagator {
     return ctx_->get_def_use_mgr();
   }
 
-  // If the CFG edge |e| has not been executed, add its destination block to the
-  // work list.
+  // If the CFG edge |e| has not been executed, this function adds |e|'s
+  // destination block to the work list.
   void AddControlEdge(const Edge& e);
 
-  // Add all the instructions that use |id| to the SSA edges work list.
-  void AddSSAEdges(uint32_t id);
+  // Adds all the instructions that use the result of |instr| to the SSA edges
+  // work list. If |instr| produces no result id, this does nothing.
+  void AddSSAEdges(opt::Instruction* instr);
 
   // IR context to use.
-  ir::IRContext* ctx_;
-
-  // CFG to propagate values on. TODO(dnovillo): The CFG should be part of
-  // IRContext.
-  ir::CFG* cfg_;
+  opt::IRContext* ctx_;
 
   // Function that visits instructions during simulation. The output of this
   // function is used to determine if the simulated instruction produced a value
@@ -265,31 +281,37 @@ class SSAPropagator {
 
   // SSA def-use edges to traverse. Each entry is a destination statement for an
   // SSA def-use edge as returned by |def_use_manager_|.
-  std::queue<ir::Instruction*> ssa_edge_uses_;
+  std::queue<opt::Instruction*> ssa_edge_uses_;
 
   // Blocks to simulate.
-  std::queue<ir::BasicBlock*> blocks_;
+  std::queue<opt::BasicBlock*> blocks_;
 
   // Blocks simulated during propagation.
-  std::unordered_set<ir::BasicBlock*> simulated_blocks_;
+  std::unordered_set<opt::BasicBlock*> simulated_blocks_;
 
   // Set of instructions that should not be simulated again because they have
   // been found to be in the kVarying state.
-  std::unordered_set<ir::Instruction*> do_not_simulate_;
+  std::unordered_set<opt::Instruction*> do_not_simulate_;
 
   // Map between a basic block and its predecessor edges.
-  // TODO(dnovillo): Move this to ir::CFG and always build them. Alternately,
+  // TODO(dnovillo): Move this to opt::CFG and always build them. Alternately,
   // move it to IRContext and build CFG preds/succs on-demand.
-  std::unordered_map<ir::BasicBlock*, std::vector<Edge>> bb_preds_;
+  std::unordered_map<opt::BasicBlock*, std::vector<Edge>> bb_preds_;
 
   // Map between a basic block and its successor edges.
-  // TODO(dnovillo): Move this to ir::CFG and always build them. Alternately,
+  // TODO(dnovillo): Move this to opt::CFG and always build them. Alternately,
   // move it to IRContext and build CFG preds/succs on-demand.
-  std::unordered_map<ir::BasicBlock*, std::vector<Edge>> bb_succs_;
+  std::unordered_map<opt::BasicBlock*, std::vector<Edge>> bb_succs_;
 
   // Set of executable CFG edges.
   std::set<Edge> executable_edges_;
+
+  // Tracks instruction propagation status.
+  std::unordered_map<opt::Instruction*, SSAPropagator::PropStatus> statuses_;
 };
+
+std::ostream& operator<<(std::ostream& str,
+                         const SSAPropagator::PropStatus& status);
 
 }  // namespace opt
 }  // namespace spvtools

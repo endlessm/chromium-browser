@@ -11,6 +11,7 @@
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/process/process.h"
 #include "build/build_config.h"
 #include "content/public/common/content_features.h"
@@ -21,10 +22,12 @@
 #include "net/cert/test_root_certs.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/transport_security_state.h"
+#include "net/nqe/network_quality_estimator.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "net/test/test_data_directory.h"
 #include "services/network/network_context.h"
+#include "services/network/network_service.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/network_change_manager.mojom.h"
 #include "services/service_manager/sandbox/sandbox_type.h"
@@ -37,7 +40,8 @@
 namespace content {
 
 class NetworkServiceTestHelper::NetworkServiceTestImpl
-    : public network::mojom::NetworkServiceTest {
+    : public network::mojom::NetworkServiceTest,
+      public base::MessageLoopCurrent::DestructionObserver {
  public:
   NetworkServiceTestImpl() {
     if (base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -67,6 +71,15 @@ class NetworkServiceTestHelper::NetworkServiceTestImpl
     DCHECK(net::NetworkChangeNotifier::HasNetworkChangeNotifier());
     net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
         net::NetworkChangeNotifier::ConnectionType(type));
+    std::move(callback).Run();
+  }
+
+  void SimulateNetworkQualityChange(
+      net::EffectiveConnectionType type,
+      SimulateNetworkChangeCallback callback) override {
+    network::NetworkService::GetNetworkServiceForTesting()
+        ->network_quality_estimator()
+        ->SimulateNetworkQualityChangeForTesting(type);
     std::move(callback).Run();
   }
 
@@ -114,9 +127,20 @@ class NetworkServiceTestHelper::NetworkServiceTestImpl
 
   void BindRequest(network::mojom::NetworkServiceTestRequest request) {
     bindings_.AddBinding(this, std::move(request));
+    if (!registered_as_destruction_observer_) {
+      base::MessageLoopCurrentForIO::Get()->AddDestructionObserver(this);
+      registered_as_destruction_observer_ = true;
+    }
+  }
+
+  // base::MessageLoopCurrent::DestructionObserver:
+  void WillDestroyCurrentMessageLoop() override {
+    // Needs to be called on the IO thread.
+    bindings_.CloseAllBindings();
   }
 
  private:
+  bool registered_as_destruction_observer_ = false;
   mojo::BindingSet<network::mojom::NetworkServiceTest> bindings_;
   TestHostResolver test_host_resolver_;
   std::unique_ptr<net::MockCertVerifier> mock_cert_verifier_;

@@ -23,6 +23,7 @@
 namespace viz {
 class GLHelper;
 class FrameSinkManagerImpl;
+class ServerSharedBitmapManager;
 class TestFrameSinkManagerImpl;
 }  // namespace viz
 
@@ -53,6 +54,7 @@ class TestImageTransportFactory : public ui::ContextFactory,
   cc::TaskGraphRunner* GetTaskGraphRunner() override;
   void AddObserver(ui::ContextFactoryObserver* observer) override;
   void RemoveObserver(ui::ContextFactoryObserver* observer) override;
+  bool SyncTokensRequiredForDisplayCompositor() override;
 
   // ui::ContextFactoryPrivate implementation.
   std::unique_ptr<ui::Reflector> CreateReflector(ui::Compositor* source,
@@ -63,6 +65,7 @@ class TestImageTransportFactory : public ui::ContextFactory,
   void SetDisplayVisible(ui::Compositor* compositor, bool visible) override {}
   void ResizeDisplay(ui::Compositor* compositor,
                      const gfx::Size& size) override {}
+  void DisableSwapUntilResize(ui::Compositor* compositor) override {}
   void SetDisplayColorMatrix(ui::Compositor* compositor,
                              const SkMatrix44& matrix) override {}
   void SetDisplayColorSpace(
@@ -80,6 +83,7 @@ class TestImageTransportFactory : public ui::ContextFactory,
   viz::FrameSinkManagerImpl* GetFrameSinkManager() override;
 
   // ImageTransportFactory implementation.
+  void DisableGpuCompositing() override;
   bool IsGpuCompositingDisabled() override;
   ui::ContextFactory* GetContextFactory() override;
   ui::ContextFactoryPrivate* GetContextFactoryPrivate() override;
@@ -98,6 +102,7 @@ class TestImageTransportFactory : public ui::ContextFactory,
   viz::HostFrameSinkManager host_frame_sink_manager_;
 
   // Objects that exist if |enable_viz_| is false.
+  std::unique_ptr<viz::ServerSharedBitmapManager> shared_bitmap_manager_;
   std::unique_ptr<viz::FrameSinkManagerImpl> frame_sink_manager_impl_;
   std::unique_ptr<viz::GLHelper> gl_helper_;
 

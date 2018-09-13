@@ -12,8 +12,7 @@
 #include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/sync/base/weak_handle.h"
 #include "components/sync/engine/engine_components_factory.h"
 #include "components/sync/engine/net/http_post_provider_factory.h"
@@ -73,7 +72,7 @@ void FakeSyncManager::WaitForSyncThread() {
 }
 
 void FakeSyncManager::Init(InitArgs* args) {
-  sync_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  sync_task_runner_ = base::SequencedTaskRunnerHandle::Get();
   PurgePartiallySyncedTypes();
 
   test_user_share_.SetUp();
@@ -192,7 +191,7 @@ void FakeSyncManager::SaveChanges() {
   // Do nothing.
 }
 
-void FakeSyncManager::ShutdownOnSyncThread(ShutdownReason reason) {
+void FakeSyncManager::ShutdownOnSyncThread() {
   DCHECK(sync_task_runner_->RunsTasksInCurrentSequence());
   test_user_share_.TearDown();
 }

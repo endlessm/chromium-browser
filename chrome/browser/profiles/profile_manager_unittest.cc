@@ -60,11 +60,17 @@
 #include "chrome/browser/ui/ash/test_wallpaper_controller.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/arc/arc_prefs.h"
+#include "components/arc/arc_supervision_transition.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_names.h"
 #include "extensions/common/features/feature_session_type.h"
 #endif  // defined(OS_CHROMEOS)
+
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+#include "chrome/browser/supervised_user/supervised_user_constants.h"
+#endif
 
 using base::ASCIIToUTF16;
 
@@ -72,20 +78,21 @@ namespace {
 
 // This global variable is used to check that value returned to different
 // observers is the same.
-Profile* g_created_profile;
+Profile* g_created_profile = nullptr;
 
-class UnittestProfileManager : public ::ProfileManagerWithoutInit {
+class UnittestProfileManager : public ProfileManagerWithoutInit {
  public:
   explicit UnittestProfileManager(const base::FilePath& user_data_dir)
-      : ::ProfileManagerWithoutInit(user_data_dir) {}
+      : ProfileManagerWithoutInit(user_data_dir) {}
+  ~UnittestProfileManager() override = default;
 
  protected:
   Profile* CreateProfileHelper(const base::FilePath& file_path) override {
     if (!base::PathExists(file_path)) {
       if (!base::CreateDirectory(file_path))
-        return NULL;
+        return nullptr;
     }
-    return new TestingProfile(file_path, NULL);
+    return new TestingProfile(file_path, nullptr);
   }
 
   Profile* CreateProfileAsyncHelper(const base::FilePath& path,
@@ -159,7 +166,7 @@ class ProfileManagerTest : public testing::Test {
   }
 
   void TearDown() override {
-    TestingBrowserProcess::GetGlobal()->SetProfileManager(NULL);
+    TestingBrowserProcess::GetGlobal()->SetProfileManager(nullptr);
     content::RunAllTasksUntilIdle();
 #if defined(OS_CHROMEOS)
     session_type_.reset();
@@ -210,8 +217,6 @@ class ProfileManagerTest : public testing::Test {
     entry->SetIsEphemeral(true);
   }
 
-  content::TestBrowserThreadBundle thread_bundle_;
-
 #if defined(OS_CHROMEOS)
   // Helper function to register an user with id |user_id| and create profile
   // with a correct path.
@@ -231,10 +236,11 @@ class ProfileManagerTest : public testing::Test {
   chromeos::ScopedTestCrosSettings test_cros_settings_;
 #endif
 
+  content::TestBrowserThreadBundle thread_bundle_;
+
   // The path to temporary directory used to contain the test operations.
   base::ScopedTempDir temp_dir_;
   ScopedTestingLocalState local_state_;
-
 
 #if defined(OS_CHROMEOS)
   chromeos::ScopedTestUserManager test_user_manager_;
@@ -277,7 +283,7 @@ MATCHER(NotFail, "Profile creation failure status is not reported.") {
 MATCHER(SameNotNull, "The same non-NULL value for all calls.") {
   if (!g_created_profile)
     g_created_profile = arg;
-  return arg != NULL && arg == g_created_profile;
+  return arg && arg == g_created_profile;
 }
 
 #if defined(OS_CHROMEOS)
@@ -368,7 +374,7 @@ TEST_F(ProfileManagerTest, UserProfileLoading) {
       ProfileManager::GetLastUsedProfile()->IsSameProfile(user_profile));
 }
 
-#endif
+#endif  // defined(OS_CHROMEOS)
 
 // Data race on Linux bots. http://crbug.com/789214
 #if defined(OS_LINUX)
@@ -410,7 +416,7 @@ TEST_F(ProfileManagerTest, MAYBE_CreateAndUseTwoProfiles) {
   // Make sure any pending tasks run before we destroy the profiles.
   content::RunAllTasksUntilIdle();
 
-  TestingBrowserProcess::GetGlobal()->SetProfileManager(NULL);
+  TestingBrowserProcess::GetGlobal()->SetProfileManager(nullptr);
 
   // Make sure history cleans up correctly.
   content::RunAllTasksUntilIdle();
@@ -471,7 +477,7 @@ TEST_F(ProfileManagerTest, LoadExistingProfile) {
 }
 
 TEST_F(ProfileManagerTest, CreateProfileAsyncMultipleRequests) {
-  g_created_profile = NULL;
+  g_created_profile = nullptr;
 
   MockObserver mock_observer1;
   EXPECT_CALL(mock_observer1, OnProfileCreated(
@@ -523,17 +529,17 @@ TEST_F(ProfileManagerTest, CreateProfileAsyncCheckOmitted) {
   CreateProfileAsync(profile_manager, name, true, &mock_observer);
   content::RunAllTasksUntilIdle();
 
-  EXPECT_EQ(1u, storage.GetNumberOfProfiles());
+  ASSERT_EQ(1u, storage.GetNumberOfProfiles());
   // Supervised profiles should start out omitted from the profile list.
-  EXPECT_TRUE(storage.GetAllProfilesAttributesSortedByName()[0u]->IsOmitted());
+  EXPECT_TRUE(storage.GetAllProfilesAttributesSortedByName()[0]->IsOmitted());
 
   name = "1 Regular Profile";
   CreateProfileAsync(profile_manager, name, false, &mock_observer);
   content::RunAllTasksUntilIdle();
 
-  EXPECT_EQ(2u, storage.GetNumberOfProfiles());
+  ASSERT_EQ(2u, storage.GetNumberOfProfiles());
   // Non-supervised profiles should be included in the profile list.
-  EXPECT_FALSE(storage.GetAllProfilesAttributesSortedByName()[1u]->IsOmitted());
+  EXPECT_FALSE(storage.GetAllProfilesAttributesSortedByName()[1]->IsOmitted());
 }
 
 TEST_F(ProfileManagerTest, AddProfileToStorageCheckOmitted) {
@@ -545,18 +551,18 @@ TEST_F(ProfileManagerTest, AddProfileToStorageCheckOmitted) {
   const base::FilePath supervised_path =
       temp_dir_.GetPath().AppendASCII("Supervised");
   TestingProfile* supervised_profile =
-      new TestingProfile(supervised_path, NULL);
+      new TestingProfile(supervised_path, nullptr);
   supervised_profile->GetPrefs()->SetString(prefs::kSupervisedUserId, "An ID");
 
   // RegisterTestingProfile adds the profile to the cache and takes ownership.
   profile_manager->RegisterTestingProfile(supervised_profile, true, false);
-  EXPECT_EQ(1u, storage.GetNumberOfProfiles());
-  EXPECT_TRUE(storage.GetAllProfilesAttributesSortedByName()[0u]->IsOmitted());
+  ASSERT_EQ(1u, storage.GetNumberOfProfiles());
+  EXPECT_TRUE(storage.GetAllProfilesAttributesSortedByName()[0]->IsOmitted());
 
   const base::FilePath nonsupervised_path =
       temp_dir_.GetPath().AppendASCII("Non-Supervised");
-  TestingProfile* nonsupervised_profile = new TestingProfile(nonsupervised_path,
-                                                             NULL);
+  TestingProfile* nonsupervised_profile =
+      new TestingProfile(nonsupervised_path, nullptr);
   profile_manager->RegisterTestingProfile(nonsupervised_profile, true, false);
 
   EXPECT_EQ(2u, storage.GetNumberOfProfiles());
@@ -691,12 +697,12 @@ TEST_F(ProfileManagerTest, AutoloadProfilesWithBackgroundApps) {
                      ASCIIToUTF16("name_3"), "34567", base::string16(), 0,
                      std::string(), EmptyAccountId());
 
-  EXPECT_EQ(3u, storage.GetNumberOfProfiles());
+  ASSERT_EQ(3u, storage.GetNumberOfProfiles());
 
   std::vector<ProfileAttributesEntry*> entries =
       storage.GetAllProfilesAttributes();
-  entries[0u]->SetBackgroundStatus(true);
-  entries[2u]->SetBackgroundStatus(true);
+  entries[0]->SetBackgroundStatus(true);
+  entries[2]->SetBackgroundStatus(true);
 
   profile_manager->AutoloadProfiles();
 
@@ -719,12 +725,12 @@ TEST_F(ProfileManagerTest, DoNotAutoloadProfilesIfBackgroundModeOff) {
                      ASCIIToUTF16("name_2"), "23456", base::string16(), 0,
                      std::string(), EmptyAccountId());
 
-  EXPECT_EQ(2u, storage.GetNumberOfProfiles());
+  ASSERT_EQ(2u, storage.GetNumberOfProfiles());
 
   std::vector<ProfileAttributesEntry*> entries =
       storage.GetAllProfilesAttributes();
-  entries[0u]->SetBackgroundStatus(false);
-  entries[1u]->SetBackgroundStatus(true);
+  entries[0]->SetBackgroundStatus(false);
+  entries[1]->SetBackgroundStatus(true);
 
   profile_manager->AutoloadProfiles();
 
@@ -780,6 +786,121 @@ TEST_F(ProfileManagerTest, InitProfileInfoCacheForAProfile) {
   EXPECT_EQ(profile_name, base::UTF16ToUTF8(entry->GetName()));
   EXPECT_EQ(avatar_index, entry->GetAvatarIconIndex());
 }
+
+#if defined(OS_CHROMEOS)
+TEST_F(ProfileManagerTest, InitProfileForChildOnFirstSignIn) {
+  chromeos::ProfileHelper* profile_helper = chromeos::ProfileHelper::Get();
+  user_manager::UserManager* user_manager = user_manager::UserManager::Get();
+
+  const std::string user_email = "child@example.com";
+  const AccountId account_id = AccountId::FromUserEmailGaiaId(user_email, "1");
+  const std::string user_id_hash =
+      profile_helper->GetUserIdHashByUserIdForTesting(user_email);
+  const base::FilePath dest_path =
+      profile_helper->GetProfilePathByUserIdHash(user_id_hash);
+
+  TestingProfile::Builder builder;
+  builder.SetPath(dest_path);
+  builder.OverrideIsNewProfile(true);
+  std::unique_ptr<Profile> profile = builder.Build();
+
+  user_manager->UserLoggedIn(account_id, user_id_hash,
+                             false /* browser_restart */, true /* is_child */);
+  g_browser_process->profile_manager()->InitProfileUserPrefs(profile.get());
+
+  EXPECT_EQ(
+      profile->GetPrefs()->GetInteger(arc::prefs::kArcSupervisionTransition),
+      static_cast<int>(arc::ArcSupervisionTransition::NO_TRANSITION));
+  EXPECT_EQ(profile->GetPrefs()->GetString(prefs::kSupervisedUserId),
+            supervised_users::kChildAccountSUID);
+}
+
+TEST_F(ProfileManagerTest, InitProfileForRegularToChildTransition) {
+  chromeos::ProfileHelper* profile_helper = chromeos::ProfileHelper::Get();
+  user_manager::UserManager* user_manager = user_manager::UserManager::Get();
+
+  const std::string user_email = "child@example.com";
+  const AccountId account_id = AccountId::FromUserEmailGaiaId(user_email, "1");
+  const std::string user_id_hash =
+      profile_helper->GetUserIdHashByUserIdForTesting(user_email);
+  const base::FilePath dest_path =
+      profile_helper->GetProfilePathByUserIdHash(user_id_hash);
+
+  TestingProfile::Builder builder;
+  builder.SetPath(dest_path);
+  builder.OverrideIsNewProfile(false);
+  std::unique_ptr<Profile> profile = builder.Build();
+  profile->GetPrefs()->SetBoolean(arc::prefs::kArcSignedIn, true);
+
+  user_manager->UserLoggedIn(account_id, user_id_hash,
+                             false /* browser_restart */, true /* is_child */);
+  g_browser_process->profile_manager()->InitProfileUserPrefs(profile.get());
+
+  EXPECT_EQ(
+      profile->GetPrefs()->GetInteger(arc::prefs::kArcSupervisionTransition),
+      static_cast<int>(arc::ArcSupervisionTransition::REGULAR_TO_CHILD));
+  EXPECT_EQ(profile->GetPrefs()->GetString(prefs::kSupervisedUserId),
+            supervised_users::kChildAccountSUID);
+}
+
+TEST_F(ProfileManagerTest, InitProfileForChildToRegularTransition) {
+  chromeos::ProfileHelper* profile_helper = chromeos::ProfileHelper::Get();
+  user_manager::UserManager* user_manager = user_manager::UserManager::Get();
+
+  const std::string user_email = "child@example.com";
+  const AccountId account_id = AccountId::FromUserEmailGaiaId(user_email, "1");
+  const std::string user_id_hash =
+      profile_helper->GetUserIdHashByUserIdForTesting(user_email);
+  const base::FilePath dest_path =
+      profile_helper->GetProfilePathByUserIdHash(user_id_hash);
+
+  TestingProfile::Builder builder;
+  builder.SetPath(dest_path);
+  builder.OverrideIsNewProfile(false);
+  builder.SetSupervisedUserId(supervised_users::kChildAccountSUID);
+  std::unique_ptr<Profile> profile = builder.Build();
+  profile->GetPrefs()->SetBoolean(arc::prefs::kArcSignedIn, true);
+
+  user_manager->UserLoggedIn(account_id, user_id_hash,
+                             false /* browser_restart */, false /* is_child */);
+  g_browser_process->profile_manager()->InitProfileUserPrefs(profile.get());
+
+  EXPECT_EQ(
+      profile->GetPrefs()->GetInteger(arc::prefs::kArcSupervisionTransition),
+      static_cast<int>(arc::ArcSupervisionTransition::CHILD_TO_REGULAR));
+  EXPECT_TRUE(profile->GetPrefs()->GetString(prefs::kSupervisedUserId).empty());
+}
+
+TEST_F(ProfileManagerTest,
+       InitProfileForChildToRegularTransitionArcNotSignedIn) {
+  chromeos::ProfileHelper* profile_helper = chromeos::ProfileHelper::Get();
+  user_manager::UserManager* user_manager = user_manager::UserManager::Get();
+
+  const std::string user_email = "child@example.com";
+  const AccountId account_id = AccountId::FromUserEmailGaiaId(user_email, "1");
+  const std::string user_id_hash =
+      profile_helper->GetUserIdHashByUserIdForTesting(user_email);
+  const base::FilePath dest_path =
+      profile_helper->GetProfilePathByUserIdHash(user_id_hash);
+
+  TestingProfile::Builder builder;
+  builder.SetPath(dest_path);
+  builder.OverrideIsNewProfile(false);
+  builder.SetSupervisedUserId(supervised_users::kChildAccountSUID);
+  std::unique_ptr<Profile> profile = builder.Build();
+  profile->GetPrefs()->SetBoolean(arc::prefs::kArcSignedIn, false);
+
+  user_manager->UserLoggedIn(account_id, user_id_hash,
+                             false /* browser_restart */, false /* is_child */);
+  g_browser_process->profile_manager()->InitProfileUserPrefs(profile.get());
+
+  EXPECT_EQ(
+      profile->GetPrefs()->GetInteger(arc::prefs::kArcSupervisionTransition),
+      static_cast<int>(arc::ArcSupervisionTransition::NO_TRANSITION));
+  EXPECT_TRUE(profile->GetPrefs()->GetString(prefs::kSupervisedUserId).empty());
+}
+
+#endif
 
 TEST_F(ProfileManagerTest, GetLastUsedProfileAllowedByPolicy) {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
@@ -1100,7 +1221,7 @@ TEST_F(ProfileManagerTest, CleanUpEphemeralProfiles) {
   storage.AddProfile(path1, base::UTF8ToUTF16(profile_name1), std::string(),
                      base::UTF8ToUTF16(profile_name1), 0, std::string(),
                      EmptyAccountId());
-  storage.GetAllProfilesAttributes()[0u]->SetIsEphemeral(true);
+  storage.GetAllProfilesAttributes()[0]->SetIsEphemeral(true);
   ASSERT_TRUE(base::CreateDirectory(path1));
 
   const std::string profile_name2 = "Marge";
@@ -1127,7 +1248,7 @@ TEST_F(ProfileManagerTest, CleanUpEphemeralProfiles) {
   ASSERT_EQ(1u, storage.GetNumberOfProfiles());
 
   // Mark the remaining profile ephemeral and clean up.
-  storage.GetAllProfilesAttributes()[0u]->SetIsEphemeral(true);
+  storage.GetAllProfilesAttributes()[0]->SetIsEphemeral(true);
   profile_manager->CleanUpEphemeralProfiles();
   content::RunAllTasksUntilIdle();
 
@@ -1149,7 +1270,7 @@ TEST_F(ProfileManagerTest, CleanUpEphemeralProfilesWithGuestLastUsedProfile) {
   storage.AddProfile(path1, base::UTF8ToUTF16(profile_name1), std::string(),
                      base::UTF8ToUTF16(profile_name1), 0, std::string(),
                      EmptyAccountId());
-  storage.GetAllProfilesAttributes()[0u]->SetIsEphemeral(true);
+  storage.GetAllProfilesAttributes()[0]->SetIsEphemeral(true);
   ASSERT_TRUE(base::CreateDirectory(path1));
   ASSERT_EQ(1u, storage.GetNumberOfProfiles());
 
@@ -1232,7 +1353,8 @@ TEST_F(ProfileManagerTest, LastProfileDeleted) {
 
   EXPECT_EQ(dest_path2, profile_manager->GetLastUsedProfile()->GetPath());
   EXPECT_EQ(profile_name2, local_state->GetString(prefs::kProfileLastUsed));
-  EXPECT_EQ(dest_path2, storage.GetAllProfilesAttributes()[0u]->GetPath());
+  ASSERT_EQ(1u, storage.GetNumberOfProfiles());
+  EXPECT_EQ(dest_path2, storage.GetAllProfilesAttributes()[0]->GetPath());
 }
 
 TEST_F(ProfileManagerTest, LastProfileDeletedWithGuestActiveProfile) {
@@ -1284,8 +1406,8 @@ TEST_F(ProfileManagerTest, LastProfileDeletedWithGuestActiveProfile) {
   base::FilePath dest_path2 = temp_dir_.GetPath().AppendASCII(profile_name2);
 
   EXPECT_EQ(3u, profile_manager->GetLoadedProfiles().size());
-  EXPECT_EQ(1u, storage.GetNumberOfProfiles());
-  EXPECT_EQ(dest_path2, storage.GetAllProfilesAttributes()[0u]->GetPath());
+  ASSERT_EQ(1u, storage.GetNumberOfProfiles());
+  EXPECT_EQ(dest_path2, storage.GetAllProfilesAttributes()[0]->GetPath());
 }
 
 TEST_F(ProfileManagerTest, ProfileDisplayNameResetsDefaultName) {
@@ -1344,7 +1466,7 @@ TEST_F(ProfileManagerTest, ProfileDisplayNamePreservesCustomName) {
 
   // We should display custom names for local profiles.
   const base::string16 custom_profile_name = ASCIIToUTF16("Batman");
-  ProfileAttributesEntry* entry = storage.GetAllProfilesAttributes()[0u];
+  ProfileAttributesEntry* entry = storage.GetAllProfilesAttributes()[0];
   entry->SetName(custom_profile_name);
   entry->SetIsUsingDefaultName(false);
   EXPECT_EQ(custom_profile_name, entry->GetName());
@@ -1386,7 +1508,8 @@ TEST_F(ProfileManagerTest, ProfileDisplayNamePreservesSignedInName) {
   EXPECT_EQ(default_profile_name,
             profiles::GetAvatarNameForProfile(profile1->GetPath()));
 
-  ProfileAttributesEntry* entry = storage.GetAllProfilesAttributes()[0u];
+  ASSERT_EQ(1u, storage.GetNumberOfProfiles());
+  ProfileAttributesEntry* entry = storage.GetAllProfilesAttributes()[0];
   // For a signed in profile with a default name we still display
   // IDS_SINGLE_PROFILE_DISPLAY_NAME.
   entry->SetAuthInfo("12345", ASCIIToUTF16("user@gmail.com"));
@@ -1589,4 +1712,4 @@ TEST_F(ProfileManagerTest, ActiveProfileDeletedNextProfileDeletedToo) {
   EXPECT_EQ(dest_path3, profile_manager->GetLastUsedProfile()->GetPath());
   EXPECT_EQ(profile_name3, local_state->GetString(prefs::kProfileLastUsed));
 }
-#endif  // !defined(OS_MACOSX)
+#endif  // defined(OS_MACOSX)

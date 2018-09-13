@@ -15,7 +15,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -176,8 +176,9 @@ class StartupBrowserCreatorTest : public extensions::ExtensionBrowserTest {
                const Extension** out_app_extension) {
     ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII(app_name.c_str())));
 
-    ExtensionService* service = extensions::ExtensionSystem::Get(
-        browser()->profile())->extension_service();
+    extensions::ExtensionService* service =
+        extensions::ExtensionSystem::Get(browser()->profile())
+            ->extension_service();
     *out_app_extension = service->GetExtensionById(
         last_loaded_extension_id(), false);
     ASSERT_TRUE(*out_app_extension);
@@ -1450,8 +1451,13 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorWelcomeBackTest,
 }
 #endif  // defined(OS_WIN)
 
+#if defined(OS_LINUX)
+#define MAYBE_WelcomeBackStandardNoPolicy DISABLED_WelcomeBackStandardNoPolicy
+#else
+#define MAYBE_WelcomeBackStandardNoPolicy WelcomeBackStandardNoPolicy
+#endif
 IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorWelcomeBackTest,
-                       WelcomeBackStandardNoPolicy) {
+                       MAYBE_WelcomeBackStandardNoPolicy) {
   ASSERT_NO_FATAL_FAILURE(
       StartBrowser(StartupBrowserCreator::WelcomeBackPage::kWelcomeStandard,
                    PolicyVariant()));

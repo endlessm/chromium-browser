@@ -203,7 +203,7 @@ public:
   bool parseRegisterOperand(MachineOperand &Dest,
                             Optional<unsigned> &TiedDefIdx, bool IsDef = false);
   bool parseImmediateOperand(MachineOperand &Dest);
-  bool parseIRConstant(StringRef::iterator Loc, StringRef Source,
+  bool parseIRConstant(StringRef::iterator Loc, StringRef StringValue,
                        const Constant *&C);
   bool parseIRConstant(StringRef::iterator Loc, const Constant *&C);
   bool parseLowLevelType(StringRef::iterator Loc, LLT &Ty);
@@ -222,7 +222,7 @@ public:
   bool parseJumpTableIndexOperand(MachineOperand &Dest);
   bool parseExternalSymbolOperand(MachineOperand &Dest);
   bool parseMDNode(MDNode *&Node);
-  bool parseDIExpression(MDNode *&Node);
+  bool parseDIExpression(MDNode *&Expr);
   bool parseMetadataOperand(MachineOperand &Dest);
   bool parseCFIOffset(int &Offset);
   bool parseCFIRegister(unsigned &Reg);
@@ -929,7 +929,7 @@ bool MIParser::verifyImplicitOperands(ArrayRef<ParsedMachineOperand> Operands,
       continue;
     return error(Operands.empty() ? Token.location() : Operands.back().End,
                  Twine("missing implicit register operand '") +
-                     printImplicitRegisterFlag(I) + " %" +
+                     printImplicitRegisterFlag(I) + " $" +
                      getRegisterName(TRI, I.getReg()) + "'");
   }
   return false;
@@ -1373,8 +1373,11 @@ bool MIParser::parseTypedImmediateOperand(MachineOperand &Dest) {
 
   auto Loc = Token.location();
   lex();
-  if (Token.isNot(MIToken::IntegerLiteral))
-    return error("expected an integer literal");
+  if (Token.isNot(MIToken::IntegerLiteral)) {
+    if (Token.isNot(MIToken::Identifier) ||
+        !(Token.range() == "true" || Token.range() == "false"))
+      return error("expected an integer literal");
+  }
   const Constant *C = nullptr;
   if (parseIRConstant(Loc, C))
     return true;

@@ -44,16 +44,12 @@ CHROMITE_BIN_DIR = os.path.join(CHROMITE_DIR, 'bin')
 PATH_TO_CBUILDBOT = os.path.join(CHROMITE_BIN_SUBDIR, 'cbuildbot')
 DEFAULT_CHROOT_DIR = 'chroot'
 
-SITE_CONFIG_DIR = os.path.join(CHROMITE_DIR, 'config')
-SITE_CONFIG_FILE = os.path.join(SITE_CONFIG_DIR, 'config_dump.json')
-
-CHROMEOS_CONFIG_FILE = os.path.join(CHROMITE_DIR, 'cbuildbot',
-                                    'config_dump.json')
-WATERFALL_CONFIG_FILE = os.path.join(CHROMITE_DIR, 'cbuildbot',
+CHROMEOS_CONFIG_FILE = os.path.join(CHROMITE_DIR, 'config', 'config_dump.json')
+WATERFALL_CONFIG_FILE = os.path.join(CHROMITE_DIR, 'config',
                                      'waterfall_layout_dump.txt')
 
 GE_BUILD_CONFIG_FILE = os.path.join(
-    CHROMITE_DIR, 'cbuildbot', 'ge_build_config.json')
+    CHROMITE_DIR, 'config', 'ge_build_config.json')
 
 # The following define the location for storing toolchain packages and
 # SDK overlay tarballs created during SDK builder runs. The paths are relative
@@ -269,7 +265,7 @@ MON_GS_ERROR = 'chromeos/gs/error_count'
 # Major is used for tracking heavy API breakage- for example, no longer
 # supporting the --resume option.
 REEXEC_API_MAJOR = 0
-REEXEC_API_MINOR = 8
+REEXEC_API_MINOR = 9
 REEXEC_API_VERSION = '%i.%i' % (REEXEC_API_MAJOR, REEXEC_API_MINOR)
 
 # Support --master-build-id
@@ -284,6 +280,8 @@ REEXEC_API_TSMON_TASK_NUM = 6
 REEXEC_API_SANITY_CHECK_BUILD = 7
 # Support --previous-build-state
 REEXEC_API_PREVIOUS_BUILD_STATE = 8
+# Support --workspace
+REEXEC_API_WORKSPACE = 9
 
 # We rely on the (waterfall, builder name, build number) to uniquely identify
 # a build. However, future migrations or state wipes of the buildbot master may
@@ -331,7 +329,7 @@ DEFAULT_CTS_APFE_GSURI = 'gs://chromeos-cts-apfe/'
 ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
 ANDROID_MST_BUILD_BRANCH = 'git_master-arc-dev'
-ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc-m68'
+ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
 ANDROID_PI_BUILD_BRANCH = 'git_pi-arc-dev'
 ANDROID_GTS_BUILD_TARGETS = {
     # "gts_arm64" is the build maintained by GMS team.
@@ -568,7 +566,7 @@ ANDROID_PFQ_TYPE = 'android'
 
 # Builds from source and non-incremental.  This builds fully wipe their
 # chroot before the start of every build and no not use a BINHOST.
-BUILD_FROM_SOURCE_TYPE = 'full'
+FULL_TYPE = 'full'
 
 # Full but with versioned logic.
 CANARY_TYPE = 'canary'
@@ -598,7 +596,7 @@ PRE_CQ_TYPE = 'pre_cq'
 VALID_BUILD_TYPES = (
     PALADIN_TYPE,
     INCREMENTAL_TYPE,
-    BUILD_FROM_SOURCE_TYPE,
+    FULL_TYPE,
     CANARY_TYPE,
     CHROOT_BUILDER_TYPE,
     CHROOT_BUILDER_BOARD,
@@ -620,7 +618,11 @@ PRE_CQ_DEFAULT_CONFIGS = [
     'cyan-no-vmtest-pre-cq',          # braswell     kernel 3.18
     'daisy_spring-no-vmtest-pre-cq',  # arm32        kernel 3.8
     'eve-no-vmtest-pre-cq',           # kabylake     kernel 4.4   cheets_user_64
+    'fizz-no-vmtest-pre-cq',          # kabylake     kernel 4.4
+    'grunt-no-vmtest-pre-cq',         # stoneyridge  kernel 4.14
+    'guado_moblab-no-vmtest-pre-cq',  # broadwell    kernel 3.14  moblab
     'kevin-arcnext-no-vmtest-pre-cq', # arm64        kernel 4.4   arcnext
+    'lakitu-no-vmtest-pre-cq',        # container    kernel 4.14
     'nyan_blaze-no-vmtest-pre-cq',    # arm32        kernel 3.10
     'reef-no-vmtest-pre-cq',          # apollolake   kernel 4.4   vulkan
     'samus-no-vmtest-pre-cq',         # broadwell    kernel 3.14
@@ -691,7 +693,6 @@ HWTEST_MOBLAB_QUICK_SUITE = 'moblab_quick'
 HWTEST_SANITY_SUITE = 'sanity'
 HWTEST_TOOLCHAIN_SUITE = 'toolchain-tests'
 HWTEST_PROVISION_SUITE = 'provision'
-HWTEST_CTS_FOLLOWER_SUITE = 'arc-cts-follower'
 HWTEST_CTS_QUAL_SUITE = 'arc-cts-qual'
 HWTEST_GTS_QUAL_SUITE = 'arc-gts-qual'
 HWTEST_CTS_PRIORITY = 11
@@ -737,8 +738,6 @@ HWTEST_STATUES_NOT_PASSED = frozenset([HWTEST_STATUS_FAIL,
 
 # Define HWTEST subsystem logic constants.
 SUBSYSTEMS = 'subsystems'
-SUBSYSTEM_PASS = 'subsystem_pass'
-SUBSYSTEM_FAIL = 'subsystem_fail'
 SUBSYSTEM_UNUSED = 'subsystem_unused'
 
 # Build messages
@@ -961,7 +960,6 @@ STRATEGY_CQ_PARTIAL_NOT_TESTED = 'strategy:cq-submit-partial-pool-not-tested'
 STRATEGY_CQ_PARTIAL_CQ_HISTORY = 'strategy:cq-submit-partial-pool-cq-history'
 STRATEGY_CQ_PARTIAL_IGNORED_STAGES = (
     'strategy:cq-submit-partial-pool-ignored-stages')
-STRATEGY_CQ_PARTIAL_SUBSYSTEM = 'strategy:cq-submit-partial-pool-pass-subsystem'
 STRATEGY_CQ_PARTIAL_BUILDS_PASSED = (
     'strategy:cq-submit-partial-pool-builds-passed')
 
@@ -971,8 +969,7 @@ STRATEGY_CQ_PARTIAL_REASONS = {
     STRATEGY_CQ_PARTIAL_NOT_TESTED: 1,
     STRATEGY_CQ_PARTIAL_CQ_HISTORY: 2,
     STRATEGY_CQ_PARTIAL_IGNORED_STAGES: 3,
-    STRATEGY_CQ_PARTIAL_SUBSYSTEM: 4,
-    STRATEGY_CQ_PARTIAL_BUILDS_PASSED: 5
+    STRATEGY_CQ_PARTIAL_BUILDS_PASSED: 4
 }
 
 # CQ types.

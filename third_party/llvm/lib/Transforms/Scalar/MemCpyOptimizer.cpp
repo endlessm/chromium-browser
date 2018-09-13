@@ -25,7 +25,7 @@
 #include "llvm/Analysis/MemoryDependenceAnalysis.h"
 #include "llvm/Analysis/MemoryLocation.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
@@ -531,7 +531,7 @@ static bool moveUp(AliasAnalysis &AA, StoreInst *SI, Instruction *P,
     return false;
 
   // Keep track of the arguments of all instruction we plan to lift
-  // so we can make sure to lift them as well if apropriate.
+  // so we can make sure to lift them as well if appropriate.
   DenseSet<Instruction*> Args;
   if (auto *Ptr = dyn_cast<Instruction>(SI->getPointerOperand()))
     if (Ptr->getParent() == SI->getParent())

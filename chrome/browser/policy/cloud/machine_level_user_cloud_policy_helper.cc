@@ -20,15 +20,26 @@
 #include "components/policy/core/common/cloud/machine_level_user_cloud_policy_store.h"
 #include "components/prefs/pref_service.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace policy {
+
+namespace {
+
+void OnPolicyFetchCompleted(bool success) {
+  VLOG(1) << "Policy fetch " << (success ? "succeeded" : "failed");
+}
+
+}  // namespace
 
 /* MachineLevelUserCloudPolicyRegistrar */
 MachineLevelUserCloudPolicyRegistrar::MachineLevelUserCloudPolicyRegistrar(
     DeviceManagementService* device_management_service,
-    scoped_refptr<net::URLRequestContextGetter> system_request_context)
+    scoped_refptr<net::URLRequestContextGetter> system_request_context,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
     : device_management_service_(device_management_service),
-      system_request_context_(system_request_context) {}
+      system_request_context_(system_request_context),
+      url_loader_factory_(url_loader_factory) {}
 
 MachineLevelUserCloudPolicyRegistrar::~MachineLevelUserCloudPolicyRegistrar() {}
 
@@ -51,7 +62,7 @@ void MachineLevelUserCloudPolicyRegistrar::RegisterForPolicyWithEnrollmentToken(
       std::make_unique<CloudPolicyClient>(
           std::string() /* machine_id */, std::string() /* machine_model */,
           std::string() /* brand_code */, device_management_service_,
-          system_request_context_, nullptr,
+          system_request_context_, url_loader_factory_, nullptr,
           CloudPolicyClient::DeviceDMTokenCallback());
 
   // Fire off the registration process. Callback keeps the CloudPolicyClient
@@ -80,16 +91,18 @@ MachineLevelUserCloudPolicyFetcher::MachineLevelUserCloudPolicyFetcher(
     MachineLevelUserCloudPolicyManager* policy_manager,
     PrefService* local_state,
     DeviceManagementService* device_management_service,
-    scoped_refptr<net::URLRequestContextGetter> system_request_context)
+    scoped_refptr<net::URLRequestContextGetter> system_request_context,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
     : policy_manager_(policy_manager),
       local_state_(local_state),
       device_management_service_(device_management_service),
-      system_request_context_(system_request_context) {
+      system_request_context_(system_request_context),
+      url_loader_factory_(url_loader_factory) {
   std::unique_ptr<CloudPolicyClient> client =
       std::make_unique<CloudPolicyClient>(
           std::string() /* machine_id */, std::string() /* machine_model */,
           std::string() /* brand_code */, device_management_service_,
-          system_request_context_, nullptr,
+          system_request_context_, url_loader_factory, nullptr,
           CloudPolicyClient::DeviceDMTokenCallback());
   InitializeManager(std::move(client));
 }
@@ -106,7 +119,8 @@ void MachineLevelUserCloudPolicyFetcher::SetupRegistrationAndFetchPolicy(
   policy_manager_->store()->SetupRegistration(dm_token, client_id);
   DCHECK(policy_manager_->IsClientRegistered());
 
-  policy_manager_->core()->service()->RefreshPolicy(base::DoNothing());
+  policy_manager_->core()->service()->RefreshPolicy(
+      base::BindRepeating(&OnPolicyFetchCompleted));
 }
 
 void MachineLevelUserCloudPolicyFetcher::OnInitializationCompleted(
@@ -119,6 +133,8 @@ void MachineLevelUserCloudPolicyFetcher::OnInitializationCompleted(
   // Note that Chrome will not fetch policy again immediately here if DM server
   // returns a policy that Chrome is not able to validate.
   if (!policy_manager_->IsClientRegistered()) {
+    VLOG(1) << "OnInitializationCompleted: Fetching policy when there is no "
+               "valid local cache.";
     TryToFetchPolicy();
   }
 }
@@ -134,6 +150,8 @@ void MachineLevelUserCloudPolicyFetcher::InitializeManager(
   // which means there is no valid policy cache.
   if (policy_manager_->store()->is_initialized() &&
       !policy_manager_->IsClientRegistered()) {
+    VLOG(1) << "InitializeManager: Fetching policy when there is no valid "
+               "local cache.";
     TryToFetchPolicy();
   }
 }

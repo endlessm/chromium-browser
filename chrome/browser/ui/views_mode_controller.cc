@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ui/views_mode_controller.h"
 
-#include "chrome/common/chrome_features.h"
+#include "base/feature_list.h"
 #include "ui/base/ui_base_features.h"
 
 #if defined(OS_MACOSX) && BUILDFLAG(MAC_VIEWS_BROWSER)

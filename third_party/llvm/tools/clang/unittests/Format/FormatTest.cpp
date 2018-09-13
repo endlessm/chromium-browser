@@ -1316,15 +1316,40 @@ TEST_F(FormatTest, FormatsClasses) {
   verifyFormat("class ::A::B {};");
 }
 
-TEST_F(FormatTest, BreakBeforeInheritanceComma) {
-  FormatStyle StyleWithInheritanceBreak = getLLVMStyle();
-  StyleWithInheritanceBreak.BreakBeforeInheritanceComma = true;
-
-  verifyFormat("class MyClass : public X {};", StyleWithInheritanceBreak);
+TEST_F(FormatTest, BreakInheritanceStyle) {
+  FormatStyle StyleWithInheritanceBreakBeforeComma = getLLVMStyle();
+  StyleWithInheritanceBreakBeforeComma.BreakInheritanceList =
+          FormatStyle::BILS_BeforeComma;
+  verifyFormat("class MyClass : public X {};",
+               StyleWithInheritanceBreakBeforeComma);
   verifyFormat("class MyClass\n"
                "    : public X\n"
                "    , public Y {};",
-               StyleWithInheritanceBreak);
+               StyleWithInheritanceBreakBeforeComma);
+  verifyFormat("class AAAAAAAAAAAAAAAAAAAAAA\n"
+               "    : public BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n"
+               "    , public CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC {};",
+               StyleWithInheritanceBreakBeforeComma);
+  verifyFormat("struct aaaaaaaaaaaaa\n"
+               "    : public aaaaaaaaaaaaaaaaaaa< // break\n"
+               "          aaaaaaaaaaaaaaaa> {};",
+               StyleWithInheritanceBreakBeforeComma);
+
+  FormatStyle StyleWithInheritanceBreakAfterColon = getLLVMStyle();
+  StyleWithInheritanceBreakAfterColon.BreakInheritanceList =
+          FormatStyle::BILS_AfterColon;
+  verifyFormat("class MyClass : public X {};",
+               StyleWithInheritanceBreakAfterColon);
+  verifyFormat("class MyClass : public X, public Y {};",
+               StyleWithInheritanceBreakAfterColon);
+  verifyFormat("class AAAAAAAAAAAAAAAAAAAAAA :\n"
+               "    public BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB,\n"
+               "    public CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC {};",
+               StyleWithInheritanceBreakAfterColon);
+  verifyFormat("struct aaaaaaaaaaaaa :\n"
+               "    public aaaaaaaaaaaaaaaaaaa< // break\n"
+               "        aaaaaaaaaaaaaaaa> {};",
+               StyleWithInheritanceBreakAfterColon);
 }
 
 TEST_F(FormatTest, FormatsVariableDeclarationsAfterStructOrClass) {
@@ -3726,6 +3751,23 @@ TEST_F(FormatTest, BreakConstructorInitializersAfterColon) {
                "  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
                "  bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb {}",
                Style);
+
+  // `ConstructorInitializerIndentWidth` actually applies to InheritanceList as well
+  Style.BreakInheritanceList = FormatStyle::BILS_BeforeColon;
+  verifyFormat("class SomeClass\n"
+               "  : public aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "    public bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb {};",
+               Style);
+  Style.BreakInheritanceList = FormatStyle::BILS_BeforeComma;
+  verifyFormat("class SomeClass\n"
+               "  : public aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+               "  , public bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb {};",
+               Style);
+  Style.BreakInheritanceList = FormatStyle::BILS_AfterColon;
+  verifyFormat("class SomeClass :\n"
+               "  public aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "  public bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb {};",
+               Style);
 }
 
 #ifndef EXPENSIVE_CHECKS
@@ -5521,6 +5563,57 @@ TEST_F(FormatTest, WrapsTemplateDeclarations) {
                NeverBreak);
 }
 
+TEST_F(FormatTest, WrapsTemplateDeclarationsWithComments) {
+  FormatStyle Style = getGoogleStyle(FormatStyle::LK_Cpp);
+  Style.ColumnLimit = 60;
+  EXPECT_EQ("// Baseline - no comments.\n"
+            "template <\n"
+            "    typename aaaaaaaaaaaaaaaaaaaaaa<bbbbbbbbbbbb>::value>\n"
+            "void f() {}",
+            format("// Baseline - no comments.\n"
+                   "template <\n"
+                   "    typename aaaaaaaaaaaaaaaaaaaaaa<bbbbbbbbbbbb>::value>\n"
+                   "void f() {}",
+                   Style));
+
+  EXPECT_EQ("template <\n"
+            "    typename aaaaaaaaaa<bbbbbbbbbbbb>::value>  // trailing\n"
+            "void f() {}",
+            format("template <\n"
+                   "    typename aaaaaaaaaa<bbbbbbbbbbbb>::value> // trailing\n"
+                   "void f() {}",
+                   Style));
+
+  EXPECT_EQ(
+      "template <\n"
+      "    typename aaaaaaaaaa<bbbbbbbbbbbb>::value> /* line */\n"
+      "void f() {}",
+      format("template <typename aaaaaaaaaa<bbbbbbbbbbbb>::value>  /* line */\n"
+             "void f() {}",
+             Style));
+
+  EXPECT_EQ(
+      "template <\n"
+      "    typename aaaaaaaaaa<bbbbbbbbbbbb>::value>  // trailing\n"
+      "                                               // multiline\n"
+      "void f() {}",
+      format("template <\n"
+             "    typename aaaaaaaaaa<bbbbbbbbbbbb>::value> // trailing\n"
+             "                                              // multiline\n"
+             "void f() {}",
+             Style));
+
+  EXPECT_EQ(
+      "template <typename aaaaaaaaaa<\n"
+      "    bbbbbbbbbbbb>::value>  // trailing loooong\n"
+      "void f() {}",
+      format(
+          "template <\n"
+          "    typename aaaaaaaaaa<bbbbbbbbbbbb>::value> // trailing loooong\n"
+          "void f() {}",
+          Style));
+}
+
 TEST_F(FormatTest, WrapsTemplateParameters) {
   FormatStyle Style = getLLVMStyle();
   Style.AlignAfterOpenBracket = FormatStyle::BAS_DontAlign;
@@ -6628,6 +6721,18 @@ TEST_F(FormatTest, IncorrectCodeUnbalancedBraces) {
   verifyNoCrash("(/**/[:!] ?[).");
 }
 
+TEST_F(FormatTest, IncorrectUnbalancedBracesInMacrosWithUnicode) {
+  // Found by oss-fuzz:
+  // https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=8212
+  FormatStyle Style = getGoogleStyle(FormatStyle::LK_Cpp);
+  Style.ColumnLimit = 60;
+  verifyNoCrash(
+      "\x23\x47\xff\x20\x28\xff\x3c\xff\x3f\xff\x20\x2f\x7b\x7a\xff\x20"
+      "\xff\xff\xff\xca\xb5\xff\xff\xff\xff\x3a\x7b\x7d\xff\x20\xff\x20"
+      "\xff\x74\xff\x20\x7d\x7d\xff\x7b\x3a\xff\x20\x71\xff\x20\xff\x0a",
+      Style);
+}
+
 TEST_F(FormatTest, IncorrectCodeDoNoWhile) {
   verifyFormat("do {\n}");
   verifyFormat("do {\n}\n"
@@ -6914,6 +7019,11 @@ TEST_F(FormatTest, LayoutCxx11BraceInitializers) {
                "  { \"ccccccccccccccccccccc\", 2 }\n"
                "};",
                ExtraSpaces);
+
+  FormatStyle SpaceBeforeBrace = getLLVMStyle();
+  SpaceBeforeBrace.SpaceBeforeCpp11BracedList = true;
+  verifyFormat("vector<int> x {1, 2, 3, 4};", SpaceBeforeBrace);
+  verifyFormat("f({}, {{}, {}}, MyMap[{k, v}]);", SpaceBeforeBrace);
 }
 
 TEST_F(FormatTest, FormatsBracedListsInColumnLayout) {
@@ -9101,7 +9211,7 @@ TEST_F(FormatTest, ConfigurableSpaceBeforeColon) {
                "  bbbbbbbbbbbbbbbb(2) {}",
                CtorInitializerStyle);
 
-  FormatStyle InheritanceStyle = getLLVMStyle();
+  FormatStyle InheritanceStyle = getLLVMStyleWithColumns(30);
   InheritanceStyle.SpaceBeforeInheritanceColon = false;
   verifyFormat("class Foo: public Bar {};", InheritanceStyle);
   verifyFormat("Foo::Foo() : foo(1) {}", InheritanceStyle);
@@ -9116,6 +9226,29 @@ TEST_F(FormatTest, ConfigurableSpaceBeforeColon) {
                "case 1:\n"
                "default:\n"
                "}",
+               InheritanceStyle);
+  InheritanceStyle.BreakInheritanceList = FormatStyle::BILS_AfterColon;
+  verifyFormat("class Foooooooooooooooooooooo:\n"
+               "    public aaaaaaaaaaaaaaaaaa,\n"
+               "    public bbbbbbbbbbbbbbbbbb {\n"
+               "}",
+               InheritanceStyle);
+  InheritanceStyle.BreakInheritanceList = FormatStyle::BILS_BeforeComma;
+  verifyFormat("class Foooooooooooooooooooooo\n"
+               "    : public aaaaaaaaaaaaaaaaaa\n"
+               "    , public bbbbbbbbbbbbbbbbbb {\n"
+               "}",
+               InheritanceStyle);
+  InheritanceStyle.BreakInheritanceList = FormatStyle::BILS_BeforeColon;
+  verifyFormat("class Foooooooooooooooooooooo\n"
+               "    : public aaaaaaaaaaaaaaaaaa,\n"
+               "      public bbbbbbbbbbbbbbbbbb {\n"
+               "}",
+               InheritanceStyle);
+  InheritanceStyle.ConstructorInitializerIndentWidth = 0;
+  verifyFormat("class Foooooooooooooooooooooo\n"
+               ": public aaaaaaaaaaaaaaaaaa,\n"
+               "  public bbbbbbbbbbbbbbbbbb {}",
                InheritanceStyle);
 
   FormatStyle ForLoopStyle = getLLVMStyle();
@@ -10471,7 +10604,6 @@ TEST_F(FormatTest, ParsesConfigurationBools) {
   CHECK_PARSE_BOOL(BreakAfterJavaFieldAnnotations);
   CHECK_PARSE_BOOL(BreakBeforeTernaryOperators);
   CHECK_PARSE_BOOL(BreakStringLiterals);
-  CHECK_PARSE_BOOL(BreakBeforeInheritanceComma)
   CHECK_PARSE_BOOL(CompactNamespaces);
   CHECK_PARSE_BOOL(ConstructorInitializerAllOnOneLineOrOnePerLine);
   CHECK_PARSE_BOOL(DerivePointerAlignment);
@@ -10495,6 +10627,7 @@ TEST_F(FormatTest, ParsesConfigurationBools) {
   CHECK_PARSE_BOOL(SpaceAfterCStyleCast);
   CHECK_PARSE_BOOL(SpaceAfterTemplateKeyword);
   CHECK_PARSE_BOOL(SpaceBeforeAssignmentOperators);
+  CHECK_PARSE_BOOL(SpaceBeforeCpp11BracedList);
   CHECK_PARSE_BOOL(SpaceBeforeCtorInitializerColon);
   CHECK_PARSE_BOOL(SpaceBeforeInheritanceColon);
   CHECK_PARSE_BOOL(SpaceBeforeRangeBasedForLoopColon);
@@ -10587,6 +10720,17 @@ TEST_F(FormatTest, ParsesConfiguration) {
   // For backward compatibility:
   CHECK_PARSE("BreakConstructorInitializersBeforeComma: true",
               BreakConstructorInitializers, FormatStyle::BCIS_BeforeComma);
+
+  Style.BreakInheritanceList = FormatStyle::BILS_BeforeColon;
+  CHECK_PARSE("BreakInheritanceList: BeforeComma",
+              BreakInheritanceList, FormatStyle::BILS_BeforeComma);
+  CHECK_PARSE("BreakInheritanceList: AfterColon",
+              BreakInheritanceList, FormatStyle::BILS_AfterColon);
+  CHECK_PARSE("BreakInheritanceList: BeforeColon",
+              BreakInheritanceList, FormatStyle::BILS_BeforeColon);
+  // For backward compatibility:
+  CHECK_PARSE("BreakBeforeInheritanceComma: true",
+              BreakInheritanceList, FormatStyle::BILS_BeforeComma);
 
   Style.AlignAfterOpenBracket = FormatStyle::BAS_AlwaysBreak;
   CHECK_PARSE("AlignAfterOpenBracket: Align", AlignAfterOpenBracket,

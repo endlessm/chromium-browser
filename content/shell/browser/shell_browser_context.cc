@@ -42,12 +42,6 @@ ShellBrowserContext::ShellResourceContext::ShellResourceContext()
 ShellBrowserContext::ShellResourceContext::~ShellResourceContext() {
 }
 
-net::HostResolver*
-ShellBrowserContext::ShellResourceContext::GetHostResolver() {
-  CHECK(getter_);
-  return getter_->host_resolver();
-}
-
 net::URLRequestContext*
 ShellBrowserContext::ShellResourceContext::GetRequestContext() {
   CHECK(getter_);
@@ -232,7 +226,8 @@ SSLHostStateDelegate* ShellBrowserContext::GetSSLHostStateDelegate() {
   return nullptr;
 }
 
-PermissionManager* ShellBrowserContext::GetPermissionManager() {
+PermissionControllerDelegate*
+ShellBrowserContext::GetPermissionControllerDelegate() {
   if (!permission_manager_.get())
     permission_manager_.reset(new ShellPermissionManager());
   return permission_manager_.get();

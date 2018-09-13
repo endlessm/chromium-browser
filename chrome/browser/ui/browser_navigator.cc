@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -56,7 +57,7 @@
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
-#include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/web_applications/extensions/web_app_extension_helpers.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
@@ -463,13 +464,6 @@ void Navigate(NavigateParams* params) {
     params->url = GURL(chrome::kExtensionInvalidRequestURL);
 #endif
 
-  // The browser window may want to adjust the disposition.
-  if (params->disposition == WindowOpenDisposition::NEW_POPUP &&
-      source_browser && source_browser->window()) {
-    params->disposition =
-        source_browser->window()->GetDispositionForPopupBounds(
-            params->window_bounds);
-  }
   // Trying to open a background tab when in an app browser results in
   // focusing a regular browser window an opening a tab in the background
   // of that window. Change the disposition to NEW_FOREGROUND_TAB so that
@@ -718,14 +712,13 @@ bool IsURLAllowedInIncognito(const GURL& url,
   // chrome://extensions is on the list because it redirects to
   // chrome://settings.
   if (url.scheme() == content::kChromeUIScheme &&
-      (url.host_piece() == chrome::kChromeUISettingsHost ||
+      (url.host_piece() == chrome::kChromeUIAppLauncherPageHost ||
+       url.host_piece() == chrome::kChromeUISettingsHost ||
        url.host_piece() == chrome::kChromeUIHelpHost ||
        url.host_piece() == chrome::kChromeUIHistoryHost ||
        url.host_piece() == chrome::kChromeUIExtensionsHost ||
        url.host_piece() == chrome::kChromeUIBookmarksHost ||
-#if !defined(OS_CHROMEOS)
        url.host_piece() == chrome::kChromeUIChromeSigninHost ||
-#endif
        url.host_piece() == chrome::kChromeUIUberHost ||
        url.host_piece() == chrome::kChromeUIThumbnailHost ||
        url.host_piece() == chrome::kChromeUIThumbnailHost2 ||

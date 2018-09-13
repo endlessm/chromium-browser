@@ -561,10 +561,13 @@ ExprResult Parser::tryParseCXXIdExpression(CXXScopeSpec &SS, bool isAddressOfOpe
   if (isAddressOfOperand && isPostfixExpressionSuffixStart())
     isAddressOfOperand = false;
 
-  return Actions.ActOnIdExpression(getCurScope(), SS, TemplateKWLoc, Name,
-                                   Tok.is(tok::l_paren), isAddressOfOperand,
-                                   nullptr, /*IsInlineAsmIdentifier=*/false,
-                                   &Replacement);
+  ExprResult E = Actions.ActOnIdExpression(
+      getCurScope(), SS, TemplateKWLoc, Name, Tok.is(tok::l_paren),
+      isAddressOfOperand, nullptr, /*IsInlineAsmIdentifier=*/false,
+      &Replacement);
+  if (!E.isInvalid() && !E.isUnset() && Tok.is(tok::less))
+    checkPotentialAngleBracket(E);
+  return E;
 }
 
 /// ParseCXXIdExpression - Handle id-expression.
@@ -805,6 +808,7 @@ Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
     IdentifierInfo *Id = nullptr;
     SourceLocation EllipsisLoc;
     ExprResult Init;
+    SourceLocation LocStart = Tok.getLocation();
 
     if (Tok.is(tok::star)) {
       Loc = ConsumeToken(); 
@@ -978,8 +982,11 @@ Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
           Loc, Kind == LCK_ByRef, Id, InitKind, InitExpr);
       Init = InitExpr;
     }
+
+    SourceLocation LocEnd = PrevTokLocation;
+
     Intro.addCapture(Kind, Loc, Id, EllipsisLoc, InitKind, Init,
-                     InitCaptureType);
+                     InitCaptureType, SourceRange(LocStart, LocEnd));
   }
 
   T.consumeClose();
@@ -1106,12 +1113,12 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   // after '(...)'. nvcc doesn't accept this.
   auto WarnIfHasCUDATargetAttr = [&] {
     if (getLangOpts().CUDA)
-      for (auto *A = Attr.getList(); A != nullptr; A = A->getNext())
-        if (A->getKind() == AttributeList::AT_CUDADevice ||
-            A->getKind() == AttributeList::AT_CUDAHost ||
-            A->getKind() == AttributeList::AT_CUDAGlobal)
-          Diag(A->getLoc(), diag::warn_cuda_attr_lambda_position)
-              << A->getName()->getName();
+      for (const ParsedAttr &A : Attr)
+        if (A.getKind() == ParsedAttr::AT_CUDADevice ||
+            A.getKind() == ParsedAttr::AT_CUDAHost ||
+            A.getKind() == ParsedAttr::AT_CUDAGlobal)
+          Diag(A.getLoc(), diag::warn_cuda_attr_lambda_position)
+              << A.getName()->getName();
   };
 
   TypeResult TrailingReturnType;
@@ -1194,29 +1201,23 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     WarnIfHasCUDATargetAttr();
 
     SourceLocation NoLoc;
-    D.AddTypeInfo(DeclaratorChunk::getFunction(/*hasProto=*/true,
-                                           /*isAmbiguous=*/false,
-                                           LParenLoc,
-                                           ParamInfo.data(), ParamInfo.size(),
-                                           EllipsisLoc, RParenLoc,
-                                           DS.getTypeQualifiers(),
-                                           /*RefQualifierIsLValueRef=*/true,
-                                           /*RefQualifierLoc=*/NoLoc,
-                                           /*ConstQualifierLoc=*/NoLoc,
-                                           /*VolatileQualifierLoc=*/NoLoc,
-                                           /*RestrictQualifierLoc=*/NoLoc,
-                                           MutableLoc,
-                                           ESpecType, ESpecRange,
-                                           DynamicExceptions.data(),
-                                           DynamicExceptionRanges.data(),
-                                           DynamicExceptions.size(),
-                                           NoexceptExpr.isUsable() ?
-                                             NoexceptExpr.get() : nullptr,
-                                           /*ExceptionSpecTokens*/nullptr,
-                                           /*DeclsInPrototype=*/None,
-                                           LParenLoc, FunLocalRangeEnd, D,
-                                           TrailingReturnType),
-                  Attr, DeclEndLoc);
+    D.AddTypeInfo(DeclaratorChunk::getFunction(
+                      /*hasProto=*/true,
+                      /*isAmbiguous=*/false, LParenLoc, ParamInfo.data(),
+                      ParamInfo.size(), EllipsisLoc, RParenLoc,
+                      DS.getTypeQualifiers(),
+                      /*RefQualifierIsLValueRef=*/true,
+                      /*RefQualifierLoc=*/NoLoc,
+                      /*ConstQualifierLoc=*/NoLoc,
+                      /*VolatileQualifierLoc=*/NoLoc,
+                      /*RestrictQualifierLoc=*/NoLoc, MutableLoc, ESpecType,
+                      ESpecRange, DynamicExceptions.data(),
+                      DynamicExceptionRanges.data(), DynamicExceptions.size(),
+                      NoexceptExpr.isUsable() ? NoexceptExpr.get() : nullptr,
+                      /*ExceptionSpecTokens*/ nullptr,
+                      /*DeclsInPrototype=*/None, LParenLoc, FunLocalRangeEnd, D,
+                      TrailingReturnType),
+                  std::move(Attr), DeclEndLoc);
   } else if (Tok.isOneOf(tok::kw_mutable, tok::arrow, tok::kw___attribute,
                          tok::kw_constexpr) ||
              (Tok.is(tok::l_square) && NextToken().is(tok::l_square))) {
@@ -1263,31 +1264,29 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     WarnIfHasCUDATargetAttr();
 
     SourceLocation NoLoc;
-    D.AddTypeInfo(DeclaratorChunk::getFunction(/*hasProto=*/true,
-                                               /*isAmbiguous=*/false,
-                                               /*LParenLoc=*/NoLoc,
-                                               /*Params=*/nullptr,
-                                               /*NumParams=*/0,
-                                               /*EllipsisLoc=*/NoLoc,
-                                               /*RParenLoc=*/NoLoc,
-                                               /*TypeQuals=*/0,
-                                               /*RefQualifierIsLValueRef=*/true,
-                                               /*RefQualifierLoc=*/NoLoc,
-                                               /*ConstQualifierLoc=*/NoLoc,
-                                               /*VolatileQualifierLoc=*/NoLoc,
-                                               /*RestrictQualifierLoc=*/NoLoc,
-                                               MutableLoc,
-                                               EST_None,
-                                               /*ESpecRange=*/SourceRange(),
-                                               /*Exceptions=*/nullptr,
-                                               /*ExceptionRanges=*/nullptr,
-                                               /*NumExceptions=*/0,
-                                               /*NoexceptExpr=*/nullptr,
-                                               /*ExceptionSpecTokens=*/nullptr,
-                                               /*DeclsInPrototype=*/None,
-                                               DeclLoc, DeclEndLoc, D,
-                                               TrailingReturnType),
-                  Attr, DeclEndLoc);
+    D.AddTypeInfo(DeclaratorChunk::getFunction(
+                      /*hasProto=*/true,
+                      /*isAmbiguous=*/false,
+                      /*LParenLoc=*/NoLoc,
+                      /*Params=*/nullptr,
+                      /*NumParams=*/0,
+                      /*EllipsisLoc=*/NoLoc,
+                      /*RParenLoc=*/NoLoc,
+                      /*TypeQuals=*/0,
+                      /*RefQualifierIsLValueRef=*/true,
+                      /*RefQualifierLoc=*/NoLoc,
+                      /*ConstQualifierLoc=*/NoLoc,
+                      /*VolatileQualifierLoc=*/NoLoc,
+                      /*RestrictQualifierLoc=*/NoLoc, MutableLoc, EST_None,
+                      /*ESpecRange=*/SourceRange(),
+                      /*Exceptions=*/nullptr,
+                      /*ExceptionRanges=*/nullptr,
+                      /*NumExceptions=*/0,
+                      /*NoexceptExpr=*/nullptr,
+                      /*ExceptionSpecTokens=*/nullptr,
+                      /*DeclsInPrototype=*/None, DeclLoc, DeclEndLoc, D,
+                      TrailingReturnType),
+                  std::move(Attr), DeclEndLoc);
   }
 
   // FIXME: Rename BlockScope -> ClosureScope if we decide to continue using
@@ -1735,6 +1734,8 @@ Parser::ParseCXXTypeConstructExpression(const DeclSpec &DS) {
 Sema::ConditionResult Parser::ParseCXXCondition(StmtResult *InitStmt,
                                                 SourceLocation Loc,
                                                 Sema::ConditionKind CK) {
+  ParenBraceBracketBalancer BalancerRAIIObj(*this);
+
   if (Tok.is(tok::code_completion)) {
     Actions.CodeCompleteOrdinaryName(getCurScope(), Sema::PCC_Condition);
     cutOffParsing();
@@ -2505,10 +2506,10 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
     if (AllowConstructorName && 
         Actions.isCurrentClassName(*Id, getCurScope(), &SS)) {
       // We have parsed a constructor name.
-      ParsedType Ty = Actions.getTypeName(*Id, IdLoc, getCurScope(), &SS, false,
-                                          false, nullptr,
-                                          /*IsCtorOrDtorName=*/true,
-                                          /*NonTrivialTypeSourceInfo=*/true);
+      ParsedType Ty = Actions.getConstructorName(*Id, IdLoc, getCurScope(), SS,
+                                                 EnteringContext);
+      if (!Ty)
+        return true;
       Result.setConstructorName(Ty, IdLoc, IdLoc);
     } else if (getLangOpts().CPlusPlus17 &&
                AllowDeductionGuide && SS.isEmpty() &&
@@ -2555,11 +2556,11 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
           << TemplateId->Name
           << FixItHint::CreateRemoval(
                     SourceRange(TemplateId->LAngleLoc, TemplateId->RAngleLoc));
-        ParsedType Ty =
-            Actions.getTypeName(*TemplateId->Name, TemplateId->TemplateNameLoc,
-                                getCurScope(), &SS, false, false, nullptr,
-                                /*IsCtorOrDtorName=*/true,
-                                /*NontrivialTypeSourceInfo=*/true);
+        ParsedType Ty = Actions.getConstructorName(
+            *TemplateId->Name, TemplateId->TemplateNameLoc, getCurScope(), SS,
+            EnteringContext);
+        if (!Ty)
+          return true;
         Result.setConstructorName(Ty, TemplateId->TemplateNameLoc,
                                   TemplateId->RAngleLoc);
         ConsumeAnnotationToken();
@@ -2884,10 +2885,9 @@ void Parser::ParseDirectNewDeclarator(Declarator &D) {
 
     D.AddTypeInfo(DeclaratorChunk::getArray(0,
                                             /*static=*/false, /*star=*/false,
-                                            Size.get(),
-                                            T.getOpenLocation(),
+                                            Size.get(), T.getOpenLocation(),
                                             T.getCloseLocation()),
-                  Attrs, T.getCloseLocation());
+                  std::move(Attrs), T.getCloseLocation());
 
     if (T.getCloseLocation().isInvalid())
       return;

@@ -5,21 +5,20 @@
 #ifndef CHROMEOS_SERVICES_SECURE_CHANNEL_CONNECTION_ATTEMPT_BASE_H_
 #define CHROMEOS_SERVICES_SECURE_CHANNEL_CONNECTION_ATTEMPT_BASE_H_
 
-#include <unordered_map>
-
+#include "base/containers/flat_map.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/stl_util.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/components/proximity_auth/logging/logging.h"
+#include "chromeos/services/secure_channel/authenticated_channel.h"
 #include "chromeos/services/secure_channel/connect_to_device_operation.h"
-#include "chromeos/services/secure_channel/connect_to_device_operation_factory.h"
 #include "chromeos/services/secure_channel/connection_attempt.h"
+#include "chromeos/services/secure_channel/connection_attempt_details.h"
 #include "chromeos/services/secure_channel/connection_details.h"
 #include "chromeos/services/secure_channel/pending_connection_request.h"
-#include "chromeos/services/secure_channel/pending_connection_request_delegate.h"
+#include "chromeos/services/secure_channel/public/cpp/shared/connection_priority.h"
 #include "chromeos/services/secure_channel/public/mojom/secure_channel.mojom.h"
 
 namespace chromeos {
@@ -45,32 +44,37 @@ class AuthenticatedChannel;
 // ConnectionAttempt simply starts up a new operation and retries the
 // connection.
 template <typename FailureDetailType>
-class ConnectionAttemptBase : public ConnectionAttempt<FailureDetailType>,
-                              public PendingConnectionRequestDelegate {
+class ConnectionAttemptBase : public ConnectionAttempt<FailureDetailType> {
  protected:
   ConnectionAttemptBase(
-      std::unique_ptr<ConnectToDeviceOperationFactory<FailureDetailType>>
-          connect_to_device_operation_factory,
       ConnectionAttemptDelegate* delegate,
-      const ConnectionDetails& connection_details,
-      scoped_refptr<base::TaskRunner> task_runner =
-          base::ThreadTaskRunnerHandle::Get())
-      : ConnectionAttempt<FailureDetailType>(delegate, connection_details),
-        connect_to_device_operation_factory_(
-            std::move(connect_to_device_operation_factory)),
-        task_runner_(task_runner),
+      const ConnectionAttemptDetails& connection_attempt_details)
+      : ConnectionAttempt<FailureDetailType>(delegate,
+                                             connection_attempt_details),
         weak_ptr_factory_(this) {}
 
   ~ConnectionAttemptBase() override {
-    if (current_operation_)
-      current_operation_->Cancel();
+    if (operation_)
+      operation_->Cancel();
   }
+
+  virtual std::unique_ptr<ConnectToDeviceOperation<FailureDetailType>>
+  CreateConnectToDeviceOperation(
+      const DeviceIdPair& device_id_pair,
+      ConnectionPriority connection_priority,
+      typename ConnectToDeviceOperation<
+          FailureDetailType>::ConnectionSuccessCallback success_callback,
+      const typename ConnectToDeviceOperation<
+          FailureDetailType>::ConnectionFailedCallback& failure_callback) = 0;
 
  private:
   // ConnectionAttempt<FailureDetailType>:
   void ProcessAddingNewConnectionRequest(
       std::unique_ptr<PendingConnectionRequest<FailureDetailType>> request)
       override {
+    ConnectionPriority priority_before_add =
+        GetHighestRemainingConnectionPriority();
+
     if (base::ContainsKey(id_to_request_map_, request->GetRequestId())) {
       PA_LOG(ERROR) << "ConnectionAttemptBase::"
                     << "ProcessAddingNewConnectionRequest(): Processing "
@@ -82,14 +86,31 @@ class ConnectionAttemptBase : public ConnectionAttempt<FailureDetailType>,
     id_to_request_map_[request->GetRequestId()] = std::move(request);
 
     // In the case that this ConnectionAttempt was just created and had not yet
-    // received a request yet, start up an operation.
-    if (was_empty)
-      StartNextConnectToDeviceOperation();
+    // received a request yet, start up its operation.
+    if (was_empty) {
+      operation_ = CreateConnectToDeviceOperation(
+          this->connection_attempt_details().device_id_pair(),
+          GetHighestRemainingConnectionPriority(),
+          base::BindOnce(
+              &ConnectionAttemptBase<
+                  FailureDetailType>::OnConnectToDeviceOperationSuccess,
+              weak_ptr_factory_.GetWeakPtr()),
+          base::BindRepeating(
+              &ConnectionAttemptBase<
+                  FailureDetailType>::OnConnectToDeviceOperationFailure,
+              weak_ptr_factory_.GetWeakPtr()));
+      return;
+    }
+
+    ConnectionPriority priority_after_add =
+        GetHighestRemainingConnectionPriority();
+    if (priority_before_add != priority_after_add)
+      operation_->UpdateConnectionPriority(priority_after_add);
   }
 
-  std::vector<ClientConnectionParameters> ExtractClientConnectionParameters()
-      override {
-    std::vector<ClientConnectionParameters> data_list;
+  std::vector<std::unique_ptr<ClientConnectionParameters>>
+  ExtractClientConnectionParameters() override {
+    std::vector<std::unique_ptr<ClientConnectionParameters>> data_list;
     for (auto& map_entry : id_to_request_map_) {
       data_list.push_back(
           PendingConnectionRequest<FailureDetailType>::
@@ -103,6 +124,9 @@ class ConnectionAttemptBase : public ConnectionAttempt<FailureDetailType>,
       const base::UnguessableToken& request_id,
       PendingConnectionRequestDelegate::FailedConnectionReason reason)
       override {
+    ConnectionPriority priority_before_removal =
+        GetHighestRemainingConnectionPriority();
+
     size_t removed_element_count = id_to_request_map_.erase(request_id);
     if (removed_element_count != 1) {
       DCHECK(removed_element_count == 0);
@@ -111,62 +135,41 @@ class ConnectionAttemptBase : public ConnectionAttempt<FailureDetailType>,
                     << "finished, but it was missing from the map.";
     }
 
+    ConnectionPriority priority_after_removal =
+        GetHighestRemainingConnectionPriority();
+    if (priority_before_removal != priority_after_removal)
+      operation_->UpdateConnectionPriority(priority_after_removal);
+
     // If there are no longer any active entries, this attempt is finished.
     if (id_to_request_map_.empty())
       this->OnConnectionAttemptFinishedWithoutConnection();
   }
 
-  void StartNextConnectToDeviceOperation() {
-    DCHECK(!current_operation_);
-    current_operation_ = connect_to_device_operation_factory_->CreateOperation(
-        base::BindOnce(
-            &ConnectionAttemptBase<
-                FailureDetailType>::OnConnectToDeviceOperationSuccess,
-            weak_ptr_factory_.GetWeakPtr()),
-        base::BindOnce(
-            &ConnectionAttemptBase<
-                FailureDetailType>::OnConnectToDeviceOperationFailure,
-            weak_ptr_factory_.GetWeakPtr()));
-  }
-
   void OnConnectToDeviceOperationSuccess(
       std::unique_ptr<AuthenticatedChannel> authenticated_channel) {
-    DCHECK(current_operation_);
-    current_operation_.reset();
+    DCHECK(operation_);
+    operation_.reset();
     this->OnConnectionAttemptSucceeded(std::move(authenticated_channel));
   }
 
   void OnConnectToDeviceOperationFailure(FailureDetailType failure_detail) {
-    DCHECK(current_operation_);
-    current_operation_.reset();
-
-    // After all requests have been notified of the failure (below), start a
-    // retry attempt. If all requests give up without a connection, this
-    // instance's delegate will be notified and will, in response, delete
-    // |this|. Thus, the retry attempt is posted as a task using a WeakPtr to
-    // ensure that a segfault will not occur.
-    task_runner_->PostTask(
-        FROM_HERE,
-        base::BindOnce(
-            &ConnectionAttemptBase<
-                FailureDetailType>::StartNextConnectToDeviceOperation,
-            weak_ptr_factory_.GetWeakPtr()));
-
     for (auto& map_entry : id_to_request_map_)
       map_entry.second->HandleConnectionFailure(failure_detail);
   }
 
-  std::unique_ptr<ConnectToDeviceOperationFactory<FailureDetailType>>
-      connect_to_device_operation_factory_;
+  ConnectionPriority GetHighestRemainingConnectionPriority() {
+    ConnectionPriority highest_priority = ConnectionPriority::kLow;
+    for (const auto& map_entry : id_to_request_map_) {
+      if (map_entry.second->connection_priority() > highest_priority)
+        highest_priority = map_entry.second->connection_priority();
+    }
+    return highest_priority;
+  }
 
-  std::unique_ptr<ConnectToDeviceOperation<FailureDetailType>>
-      current_operation_;
-  std::unordered_map<
-      base::UnguessableToken,
-      std::unique_ptr<PendingConnectionRequest<FailureDetailType>>,
-      base::UnguessableTokenHash>
+  std::unique_ptr<ConnectToDeviceOperation<FailureDetailType>> operation_;
+  base::flat_map<base::UnguessableToken,
+                 std::unique_ptr<PendingConnectionRequest<FailureDetailType>>>
       id_to_request_map_;
-  scoped_refptr<base::TaskRunner> task_runner_;
 
   base::WeakPtrFactory<ConnectionAttemptBase<FailureDetailType>>
       weak_ptr_factory_;

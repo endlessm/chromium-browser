@@ -7,28 +7,35 @@
 #include <memory>
 #include <string>
 
-#include "ash/shell.h"
 #include "base/json/json_writer.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/values.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/arc/arc_migration_guide_notification.h"
 #include "chrome/browser/chromeos/arc/arc_session_manager.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/boot_phase_monitor/arc_boot_phase_monitor_bridge.h"
+#include "chrome/browser/chromeos/arc/notification/arc_supervision_transition_notification.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/ash/launcher/arc_app_shelf_id.h"
 #include "chrome/browser/ui/ash/launcher/arc_shelf_spinner_item_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/shelf_spinner_controller.h"
+#include "chrome/common/pref_names.h"
 #include "components/arc/arc_bridge_service.h"
+#include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_util.h"
 #include "components/arc/common/intent_helper.mojom.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
+#include "components/language/core/browser/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "ui/aura/window.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -77,10 +84,12 @@ constexpr char kLaunchFlags[] = "launchFlags";
 
 constexpr char kAndroidClockAppId[] = "ddmmnabaeomoacfpfjgghfpocfolhjlg";
 constexpr char kAndroidFilesAppId[] = "gmiohhmfhgfclpeacmdfancbipocempm";
+constexpr char kAndroidCameraAppId[] = "goamfaniemdfcajgcmmflhchgkmbngka";
+constexpr char kAndroidLegacyCameraAppId[] = "obfofkigjfamlldmipdegnjlcpincibc";
 
 constexpr char const* kAppIdsHiddenInLauncher[] = {
-    kAndroidClockAppId, kSettingsAppId, kAndroidFilesAppId,
-};
+    kAndroidClockAppId, kSettingsAppId, kAndroidFilesAppId, kAndroidCameraAppId,
+    kAndroidLegacyCameraAppId};
 
 // Returns true if |event_flags| came from a mouse or touch event.
 bool IsMouseOrTouchEventFromFlags(int event_flags) {
@@ -110,6 +119,11 @@ bool Launch(content::BrowserContext* context,
 
   if (!app_info->launchable) {
     VLOG(2) << "Cannot launch non-launchable app: " << app_id << ".";
+    return false;
+  }
+
+  if (app_info->suspended) {
+    VLOG(2) << "Cannot launch suspended app: " << app_id << ".";
     return false;
   }
 
@@ -186,7 +200,8 @@ bool ShouldShowInLauncher(const std::string& app_id) {
 bool LaunchAndroidSettingsApp(content::BrowserContext* context,
                               int event_flags,
                               int64_t display_id) {
-  return LaunchApp(context, kSettingsAppId, event_flags, display_id);
+  return LaunchApp(context, kSettingsAppId, event_flags,
+                   UserInteractionType::APP_STARTED_FROM_SETTINGS, display_id);
 }
 
 bool LaunchPlayStoreWithUrl(const std::string& url) {
@@ -203,24 +218,31 @@ bool LaunchPlayStoreWithUrl(const std::string& url) {
 
 bool LaunchApp(content::BrowserContext* context,
                const std::string& app_id,
-               int event_flags) {
-  return LaunchApp(context, app_id, event_flags, display::kInvalidDisplayId);
+               int event_flags,
+               arc::UserInteractionType user_action) {
+  return LaunchApp(context, app_id, event_flags, user_action,
+                   display::kInvalidDisplayId);
 }
 
 bool LaunchApp(content::BrowserContext* context,
                const std::string& app_id,
                int event_flags,
+               arc::UserInteractionType user_action,
                int64_t display_id) {
   return LaunchAppWithIntent(context, app_id, base::nullopt /* launch_intent */,
-                             event_flags, display_id);
+                             event_flags, user_action, display_id);
 }
 
 bool LaunchAppWithIntent(content::BrowserContext* context,
                          const std::string& app_id,
                          const base::Optional<std::string>& launch_intent,
                          int event_flags,
+                         arc::UserInteractionType user_action,
                          int64_t display_id) {
   DCHECK(!launch_intent.has_value() || !launch_intent->empty());
+  if (user_action != UserInteractionType::NOT_USER_INITIATED)
+    UMA_HISTOGRAM_ENUMERATION("Arc.UserInteraction", user_action,
+                              UserInteractionType::SIZE);
 
   Profile* const profile = Profile::FromBrowserContext(context);
 
@@ -228,7 +250,20 @@ bool LaunchAppWithIntent(content::BrowserContext* context,
   // as a placeholder to show the guide notification for proper configuration.
   // Handle such a case here and shows the desired notification.
   if (IsArcBlockedDueToIncompatibleFileSystem(profile)) {
+    VLOG(1) << "Attempt to launch " << app_id
+            << " while ARC++ is blocked due to incompatible file system.";
     arc::ShowArcMigrationGuideNotification(profile);
+    return false;
+  }
+
+  // In case supervision transition is in progress ARC++ is not available.
+  const ArcSupervisionTransition supervision_transition =
+      GetSupervisionTransition(profile);
+  if (supervision_transition != ArcSupervisionTransition::NO_TRANSITION) {
+    VLOG(1) << "Attempt to launch " << app_id
+            << " while supervision transition " << supervision_transition
+            << " is in progress.";
+    arc::ShowSupervisionTransitionNotification(profile);
     return false;
   }
 
@@ -275,7 +310,7 @@ bool LaunchAppWithIntent(content::BrowserContext* context,
     arc::ArcBootPhaseMonitorBridge::RecordFirstAppLaunchDelayUMA(context);
     ChromeLauncherController* chrome_controller =
         ChromeLauncherController::instance();
-    DCHECK(chrome_controller || !ash::Shell::HasInstance());
+    // chrome_controller may be null in tests.
     if (chrome_controller) {
       chrome_controller->GetShelfSpinnerController()->AddSpinnerToShelf(
           app_id, std::make_unique<ArcShelfSpinnerItemController>(
@@ -290,8 +325,8 @@ bool LaunchAppWithIntent(content::BrowserContext* context,
     prefs->SetLastLaunchTime(app_id);
     return true;
   }
-  arc::ArcBootPhaseMonitorBridge::RecordFirstAppLaunchDelayUMA(context);
 
+  arc::ArcBootPhaseMonitorBridge::RecordFirstAppLaunchDelayUMA(context);
   return Launch(context, app_id, launch_intent, event_flags,
                 GetValidDisplayId(display_id));
 }
@@ -331,8 +366,9 @@ bool LaunchSettingsAppActivity(content::BrowserContext* context,
                                int64_t display_id) {
   const std::string launch_intent = GetLaunchIntent(
       kSettingsAppPackage, activity, std::vector<std::string>());
-  return LaunchAppWithIntent(context, kSettingsAppId, launch_intent,
-                             event_flags, display_id);
+  return LaunchAppWithIntent(
+      context, kSettingsAppId, launch_intent, event_flags,
+      UserInteractionType::APP_STARTED_FROM_SETTINGS, display_id);
 }
 
 void SetTaskActive(int task_id) {
@@ -366,6 +402,34 @@ void StartPaiFlow() {
   if (!app_instance)
     return;
   app_instance->StartPaiFlow();
+}
+
+std::vector<std::string> GetSelectedPackagesFromPrefs(
+    content::BrowserContext* context) {
+  std::vector<std::string> packages;
+  const Profile* const profile = Profile::FromBrowserContext(context);
+  const PrefService* prefs = profile->GetPrefs();
+
+  const base::ListValue* selected_package_prefs =
+      prefs->GetList(arc::prefs::kArcFastAppReinstallPackages);
+  for (const base::Value& item : selected_package_prefs->GetList()) {
+    std::string item_str;
+    item.GetAsString(&item_str);
+    packages.push_back(std::move(item_str));
+  }
+
+  return packages;
+}
+
+void StartFastAppReinstallFlow(const std::vector<std::string>& package_names) {
+  arc::mojom::AppInstance* app_instance =
+      GET_APP_INSTANCE(StartFastAppReinstallFlow);
+  if (!app_instance) {
+    LOG(ERROR) << "Failed to start Fast App Reinstall flow because app "
+                  "instance is not connected.";
+    return;
+  }
+  app_instance->StartFastAppReinstallFlow(package_names);
 }
 
 void UninstallPackage(const std::string& package_name) {
@@ -527,6 +591,27 @@ bool ParseIntent(const std::string& intent_as_string, Intent* intent) {
   return true;
 }
 
+void GetLocaleAndPreferredLanguages(const Profile* profile,
+                                    std::string* out_locale,
+                                    std::string* out_preferred_languages) {
+  const PrefService::Preference* locale_pref =
+      profile->GetPrefs()->FindPreference(
+          ::language::prefs::kApplicationLocale);
+  DCHECK(locale_pref);
+  const bool value_exists = locale_pref->GetValue()->GetAsString(out_locale);
+  DCHECK(value_exists);
+  if (out_locale->empty())
+    *out_locale = g_browser_process->GetApplicationLocale();
+
+  // |preferredLanguages| consists of comma separated locale strings. It may be
+  // empty or contain empty items, but those are ignored on ARC.  If an item
+  // has no country code, it is derived in ARC.  In such a case, it may
+  // conflict with another item in the list, then these will be dedupped (the
+  // first one is taken) in ARC.
+  *out_preferred_languages =
+      profile->GetPrefs()->GetString(::prefs::kLanguagePreferredLanguages);
+}
+
 Intent::Intent() = default;
 
 Intent::~Intent() = default;
@@ -536,8 +621,7 @@ void Intent::AddExtraParam(const std::string& extra_param) {
 }
 
 bool Intent::HasExtraParam(const std::string& extra_param) const {
-  return std::find(extra_params_.begin(), extra_params_.end(), extra_param) !=
-         extra_params_.end();
+  return base::ContainsValue(extra_params_, extra_param);
 }
 
 }  // namespace arc

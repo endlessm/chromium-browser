@@ -7,50 +7,86 @@
 
 #import <UIKit/UIKit.h>
 
-@class GridTransitionLayoutItem;
+@protocol GridToTabTransitionView;
+@class GridTransitionActiveItem;
+@class GridTransitionItem;
 
 // An encapsulation of information for the layout of a grid of cells that will
 // be used in an animated transition. The layout object is composed of layout
 // items (see below).
 @interface GridTransitionLayout : NSObject
 
-// All of the items in the layout.
-@property(nonatomic, copy, readonly) NSArray<GridTransitionLayoutItem*>* items;
-// The item in the layout (if any) that's selected.
-// Note that |selectedItem.cell.selected| doesn't need to be YES; the transition
-// animation may set or unset that selection state as part of the animation.
-@property(nonatomic, strong, readonly) GridTransitionLayoutItem* selectedItem;
+// The inactive items in the layout. |activeItem| and |selectionItem| are not
+// in this array.
+@property(nonatomic, copy, readonly)
+    NSArray<GridTransitionItem*>* inactiveItems;
 
-// Creates a new layout object with |items|, and |selectedItem| selected.
-// |items| should be non-nil, but it may be empty.
-// |selectedItem| must either be nil, or one of the members of |items|.
-+ (instancetype)layoutWithItems:(NSArray<GridTransitionLayoutItem*>*)items
-                   selectedItem:(GridTransitionLayoutItem*)selectedItem;
+// The item in the layout (if any) that's the 'active' item (the one that will
+// expand and contract).
+@property(nonatomic, strong, readonly) GridTransitionActiveItem* activeItem;
+
+// An item that shows the selections state (and nothing else) of the active
+// item.
+@property(nonatomic, strong, readonly) GridTransitionItem* selectionItem;
+
+// The rect, in UIWindow coordinates, that an "expanded" item should occupy.
+@property(nonatomic, assign) CGRect expandedRect;
+
+// YES if the initial frame of the grid is different from the frame used for
+// the animation.
+@property(nonatomic, assign) BOOL frameChanged;
+
+// Creates a new layout object.
+// |inactiveItems| should be non-nil, but it may be empty.
+// |activeItem| and |selectionItem| may be nil.
++ (instancetype)layoutWithInactiveItems:(NSArray<GridTransitionItem*>*)items
+                             activeItem:(GridTransitionActiveItem*)activeItem
+                          selectionItem:(GridTransitionItem*)selectionItem;
 
 @end
 
-// An encapsulation of information for the layout of a single grid cell, in the
-// form of UICollectionView classes.
-@interface GridTransitionLayoutItem : NSObject
+// An encapsulation of information for the layout of a single grid cell.
+@interface GridTransitionItem : NSObject
 
-// A cell object with the desired appearance for the animation. This should
-// correspond to an actual cell in the collection view involved in the trans-
-// ition, but the value of thie property should not be in any view hierarchy
-// when the layout item is created.
-@property(nonatomic, strong, readonly) UICollectionViewCell* cell;
-// The layout attributes for the cell in the collection view, normalized to
-// UIWindow coordinates. It's the responsibility of the setter to do this
-// normalization.
-@property(nonatomic, strong, readonly)
-    UICollectionViewLayoutAttributes* attributes;
+// A view with the desired appearance of the cell for animation. This should
+// not be in any view hierarchy when the layout item is created. It should
+// otherwise be sized correctly and have the correct appearance.
+@property(nonatomic, strong, readonly) UIView* cell;
 
-// Creates a new layout item instance will |cell| and |attributes|, neither of
-// which can be nil.
-// It's an error if |cell| has a superview.
-// The properties (size, etc) of |attributes| don't need to match the corres-
-// ponding properties of |cell| when the item is created.
-+ (instancetype)itemWithCell:(UICollectionViewCell*)cell
-                  attributes:(UICollectionViewLayoutAttributes*)attributes;
+// The position of |cell| in the grid view, normalized to UIWindow coordinates.
+@property(nonatomic, readonly) CGPoint center;
+
+// Creates a new layout item instance with |cell| and |center|. It's the
+// responsibility of the caller to normalize |center| to UIWindow coordinates.
+// It's an error if |cell| has a superview or is nil.
++ (instancetype)itemWithCell:(UIView*)cell center:(CGPoint)center;
+
+@end
+
+// An extension of GridTransitionItem for an item that will transition between
+// 'cell' and 'tab' appearance during the animation.
+@interface GridTransitionActiveItem : GridTransitionItem
+
+// A view with the desired appearance of the cell for animation. This should
+// not be in any view hierarchy when the layout item is created. It should
+// otherwise be sized correctly and have the correct appearance.
+@property(nonatomic, strong, readonly) UIView<GridToTabTransitionView>* cell;
+
+// The size of |cell| in the grid.
+@property(nonatomic, readonly) CGSize size;
+
+// YES if the item is "appearing" in the grid as part of this animation.
+@property(nonatomic, assign) BOOL isAppearing;
+
+// Creates a new active item instance with |cell|, |center| and |size|.
++ (instancetype)itemWithCell:(UIView<GridToTabTransitionView>*)cell
+                      center:(CGPoint)center
+                        size:(CGSize)size;
+
+// Populate the |cell| view of the reciever by extracting snapshots from |view|,
+// using |rect| to define (in |view|'s coordinates) the main tab view, with any
+// space above and below |rect| being the top and bottom tab views.
+- (void)populateWithSnapshotsFromView:(UIView*)view middleRect:(CGRect)rect;
 
 @end
 

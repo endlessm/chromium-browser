@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "ui/message_center/message_center_observer.h"
 #include "ui/message_center/notification_list.h"
+#include "ui/views/controls/button/button.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/view.h"
 
@@ -21,21 +22,40 @@ class MessageCenter;
 
 }  // namespace message_center
 
+namespace views {
+
+class FocusManager;
+
+}  // namespace views
+
 namespace ash {
+
+class UnifiedSystemTrayController;
 
 // Container for message list view. Acts as a controller/delegate of message
 // list view, passing data back and forth to message center.
 class ASH_EXPORT UnifiedMessageCenterView
     : public views::View,
       public message_center::MessageCenterObserver,
-      public views::ViewObserver {
+      public views::ViewObserver,
+      public views::ButtonListener,
+      public views::FocusChangeListener,
+      public MessageListView::Observer {
  public:
-  explicit UnifiedMessageCenterView(
-      message_center::MessageCenter* message_center);
+  UnifiedMessageCenterView(UnifiedSystemTrayController* tray_controller,
+                           message_center::MessageCenter* message_center);
   ~UnifiedMessageCenterView() override;
+
+  // Initialize focus listener.
+  void Init();
 
   // Set the maximum height that the view can take.
   void SetMaxHeight(int max_height);
+
+  // Show the animation of clearing all notifications. After the animation is
+  // finished, UnifiedSystemTrayController::OnClearAllAnimationEnded() will be
+  // called.
+  void ShowClearAllAnimation();
 
  protected:
   void SetNotifications(
@@ -53,16 +73,32 @@ class ASH_EXPORT UnifiedMessageCenterView
   // views::ViewObserver:
   void OnViewPreferredSizeChanged(views::View* observed_view) override;
 
+  // views::ButtonListener:
+  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+
+  // views::FocusChangeListener:
+  void OnWillChangeFocus(views::View* before, views::View* now) override;
+  void OnDidChangeFocus(views::View* before, views::View* now) override;
+
+  // MessageListView::Observer:
+  void OnAllNotificationsCleared() override;
+
  private:
   void Update();
   void AddNotificationAt(const message_center::Notification& notification,
                          int index);
   void UpdateNotification(const std::string& notification_id);
 
-  message_center::MessageCenter* message_center_;
+  // Scroll the notification list to the bottom.
+  void ScrollToBottom();
+
+  UnifiedSystemTrayController* const tray_controller_;
+  message_center::MessageCenter* const message_center_;
 
   views::ScrollView* const scroller_;
   MessageListView* const message_list_view_;
+
+  views::FocusManager* focus_manager_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(UnifiedMessageCenterView);
 };

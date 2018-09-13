@@ -5,10 +5,10 @@
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_cell.h"
 
 #import "ios/chrome/browser/ui/colors/MDCPalette+CrAdditions.h"
-#import "ios/chrome/browser/ui/favicon/favicon_view.h"
 #include "ios/chrome/browser/ui/ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/chrome/browser/ui/util/i18n_string.h"
+#import "ios/chrome/common/favicon/favicon_view.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #import "ios/third_party/material_components_ios/src/components/Palettes/src/MaterialPalettes.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
 
@@ -122,7 +122,7 @@ const CGFloat kAnimationDuration = 0.3;
     _faviconView.font = [[MDCTypography fontLoader] mediumFontOfSize:10];
     if (IsUIRefreshPhase1Enabled()) {
       _additionalInformationLabel.textColor =
-          [UIColor colorWithWhite:0 alpha:0.4];
+          [UIColor colorWithWhite:0 alpha:0.54];
     } else {
       _additionalInformationLabel.textColor =
           [[MDCPalette greyPalette] tint700];

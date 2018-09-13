@@ -18,55 +18,73 @@
 #include <cstdint>
 #include <unordered_map>
 #include "instruction.h"
-#include "ir_context.h"
 
 namespace spvtools {
 namespace opt {
+
+class IRContext;
 
 // Returns true if the two instructions compute the same value.  Used by the
 // value number table to compare two instructions.
 class ComputeSameValue {
  public:
-  bool operator()(const ir::Instruction& lhs, const ir::Instruction& rhs) const;
+  bool operator()(const opt::Instruction& lhs,
+                  const opt::Instruction& rhs) const;
 };
 
 // The hash function used in the value number table.
 class ValueTableHash {
  public:
-  std::size_t operator()(const spvtools::ir::Instruction& inst) const;
+  std::size_t operator()(const opt::Instruction& inst) const;
 };
 
 // This class implements the value number analysis.  It is using a hash-based
-// approach to value numbering.  For now, it is very simple, and computes value
-// numbers for instructions when they are asked for via |GetValueNumber|.  This
-// may change in the future and should not be relied on.
+// approach to value numbering.  It is essentially doing dominator-tree value
+// numbering described in
+//
+//   Preston Briggs, Keith D. Cooper, and L. Taylor Simpson. 1997. Value
+//   numbering. Softw. Pract. Exper. 27, 6 (June 1997), 701-724.
+//   https://www.cs.rice.edu/~keith/Promo/CRPC-TR94517.pdf.gz
+//
+// The main difference is that because we do not perform redundancy elimination
+// as we build the value number table, we do not have to deal with cleaning up
+// the scope.
 class ValueNumberTable {
  public:
-  ValueNumberTable(ir::IRContext* ctx) : context_(ctx), next_value_number_(1) {}
+  ValueNumberTable(opt::IRContext* ctx) : context_(ctx), next_value_number_(1) {
+    BuildDominatorTreeValueNumberTable();
+  }
 
   // Returns the value number of the value computed by |inst|.  |inst| must have
-  // a result id that will hold the computed value.
-  uint32_t GetValueNumber(spvtools::ir::Instruction* inst);
+  // a result id that will hold the computed value.  If no value number has been
+  // assigned to the result id, then the return value is 0.
+  uint32_t GetValueNumber(opt::Instruction* inst) const;
 
-  // Returns the value number of the value contain in |id|.
-  inline uint32_t GetValueNumber(uint32_t id);
+  // Returns the value number of the value contain in |id|.  Returns 0 if it
+  // has not been assigned a value number.
+  uint32_t GetValueNumber(uint32_t id) const;
 
-  ir::IRContext* context() { return context_; }
+  opt::IRContext* context() const { return context_; }
 
  private:
-  std::unordered_map<spvtools::ir::Instruction, uint32_t, ValueTableHash,
+  // Assigns a value number to every result id in the module.
+  void BuildDominatorTreeValueNumberTable();
+
+  // Returns the new value number.
+  uint32_t TakeNextValueNumber() { return next_value_number_++; }
+
+  // Assigns a new value number to the result of |inst| if it does not already
+  // have one.  Return the value number for |inst|.  |inst| must have a result
+  // id.
+  uint32_t AssignValueNumber(opt::Instruction* inst);
+
+  std::unordered_map<opt::Instruction, uint32_t, ValueTableHash,
                      ComputeSameValue>
       instruction_to_value_;
   std::unordered_map<uint32_t, uint32_t> id_to_value_;
-  ir::IRContext* context_;
+  opt::IRContext* context_;
   uint32_t next_value_number_;
-
-  uint32_t TakeNextValueNumber() { return next_value_number_++; }
 };
-
-uint32_t ValueNumberTable::GetValueNumber(uint32_t id) {
-  return GetValueNumber(context()->get_def_use_mgr()->GetDef(id));
-}
 
 }  // namespace opt
 }  // namespace spvtools

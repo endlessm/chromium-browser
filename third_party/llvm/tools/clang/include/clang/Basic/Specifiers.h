@@ -54,6 +54,8 @@ namespace clang {
     TST_int128,
     TST_half,         // OpenCL half, ARM NEON __fp16
     TST_Float16,      // C11 extension ISO/IEC TS 18661-3
+    TST_Accum,        // ISO/IEC JTC1 SC22 WG14 N1169 Extension
+    TST_Fract,
     TST_float,
     TST_double,
     TST_float128,
@@ -291,6 +293,12 @@ namespace clang {
     /// though it has been considered.
     Unspecified
   };
+
+  /// Return true if \p L has a weaker nullability annotation than \p R. The
+  /// ordering is: Unspecified < Nullable < NonNull.
+  inline bool hasWeakerNullability(NullabilityKind L, NullabilityKind R) {
+    return uint8_t(L) > uint8_t(R);
+  }
 
   /// Retrieve the spelling of the given nullability kind.
   llvm::StringRef getNullabilitySpelling(NullabilityKind kind,

@@ -200,7 +200,7 @@ void ManagedNetworkConfigurationHandlerImpl::SendManagedProperties(
   const base::DictionaryValue* user_settings = nullptr;
 
   if (ui_data && profile) {
-    user_settings = ui_data->user_settings();
+    user_settings = ui_data->GetUserSettingsDictionary();
   } else if (profile) {
     NET_LOG_DEBUG("Service contains empty or invalid UIData", service_path);
     // TODO(pneubeck): add a conversion of user configured entries of old
@@ -388,9 +388,7 @@ void ManagedNetworkConfigurationHandlerImpl::SetShillProperties(
     const base::Closure& callback,
     const network_handler::ErrorCallback& error_callback) {
   network_configuration_handler_->SetShillProperties(
-      service_path, *shill_dictionary,
-      NetworkConfigurationObserver::SOURCE_USER_ACTION, callback,
-      error_callback);
+      service_path, *shill_dictionary, callback, error_callback);
 }
 
 void ManagedNetworkConfigurationHandlerImpl::CreateConfiguration(
@@ -495,17 +493,15 @@ void ManagedNetworkConfigurationHandlerImpl::CreateConfiguration(
                                             validated_properties.get()));
 
   network_configuration_handler_->CreateShillConfiguration(
-      *shill_dictionary, NetworkConfigurationObserver::SOURCE_USER_ACTION,
-      callback, error_callback);
+      *shill_dictionary, callback, error_callback);
 }
 
 void ManagedNetworkConfigurationHandlerImpl::RemoveConfiguration(
     const std::string& service_path,
     const base::Closure& callback,
     const network_handler::ErrorCallback& error_callback) const {
-  network_configuration_handler_->RemoveConfiguration(
-      service_path, NetworkConfigurationObserver::SOURCE_USER_ACTION, callback,
-      error_callback);
+  network_configuration_handler_->RemoveConfiguration(service_path, callback,
+                                                      error_callback);
 }
 
 void ManagedNetworkConfigurationHandlerImpl::
@@ -514,8 +510,7 @@ void ManagedNetworkConfigurationHandlerImpl::
         const base::Closure& callback,
         const network_handler::ErrorCallback& error_callback) const {
   network_configuration_handler_->RemoveConfigurationFromCurrentProfile(
-      service_path, NetworkConfigurationObserver::SOURCE_USER_ACTION, callback,
-      error_callback);
+      service_path, callback, error_callback);
 }
 
 void ManagedNetworkConfigurationHandlerImpl::SetPolicy(
@@ -662,7 +657,7 @@ void ManagedNetworkConfigurationHandlerImpl::OnProfileRemoved(
 void ManagedNetworkConfigurationHandlerImpl::CreateConfigurationFromPolicy(
     const base::DictionaryValue& shill_properties) {
   network_configuration_handler_->CreateShillConfiguration(
-      shill_properties, NetworkConfigurationObserver::SOURCE_POLICY,
+      shill_properties,
       base::Bind(
           &ManagedNetworkConfigurationHandlerImpl::OnPolicyAppliedToNetwork,
           weak_ptr_factory_.GetWeakPtr()),
@@ -698,7 +693,7 @@ void ManagedNetworkConfigurationHandlerImpl::
   shill_properties.MergeDictionary(&new_properties);
 
   network_configuration_handler_->CreateShillConfiguration(
-      shill_properties, NetworkConfigurationObserver::SOURCE_POLICY,
+      shill_properties,
       base::Bind(
           &ManagedNetworkConfigurationHandlerImpl::OnPolicyAppliedToNetwork,
           weak_ptr_factory_.GetWeakPtr()),
@@ -801,6 +796,47 @@ ManagedNetworkConfigurationHandlerImpl::FindPolicyByGuidAndProfile(
                                              : ::onc::ONC_SOURCE_USER_POLICY);
   }
   return policy;
+}
+
+bool ManagedNetworkConfigurationHandlerImpl::IsNetworkBlockedByPolicy(
+    const std::string& type,
+    const std::string& guid,
+    const std::string& profile_path,
+    const std::string& hex_ssid) const {
+  // Only apply blocking to WiFi networks.
+  if (!NetworkTypePattern::WiFi().MatchesType(type))
+    return false;
+
+  // Policies to block WiFis are located in the |global_network_config|.
+  const base::DictionaryValue* global_network_config =
+      GetGlobalConfigFromPolicy(
+          std::string() /* no username hash, device policy */);
+  if (!global_network_config)
+    return false;
+
+  // Check if the network is managed. Managed networks are always allowed.
+  bool is_managed =
+      !profile_path.empty() &&
+      FindPolicyByGuidAndProfile(guid, profile_path, nullptr /* onc_source */);
+  if (is_managed)
+    return false;
+
+  // Check if the network is blacklisted.
+  const base::Value* blacklist_value = global_network_config->FindKeyOfType(
+      ::onc::global_network_config::kBlacklistedHexSSIDs,
+      base::Value::Type::LIST);
+  if (blacklist_value && !blacklist_value->GetList().empty() &&
+      base::ContainsValue(blacklist_value->GetList(), base::Value(hex_ssid)))
+    return true;
+
+  // Check if only managed networks are allowed.
+  const base::Value* managed_only_value = global_network_config->FindKeyOfType(
+      ::onc::global_network_config::kAllowOnlyPolicyNetworksToConnect,
+      base::Value::Type::BOOLEAN);
+  if (managed_only_value && managed_only_value->GetBool())
+    return true;
+
+  return false;
 }
 
 const ManagedNetworkConfigurationHandlerImpl::Policies*

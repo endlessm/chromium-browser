@@ -31,7 +31,11 @@ void MusPropertyMirrorAsh::MirrorPropertyFromWidgetWindowToRootWindow(
     aura::Window* window,
     aura::Window* root_window,
     const void* key) {
-  if (key == kPanelAttachedKey) {
+  if (key == kBlockedForAssistantSnapshotKey) {
+    root_window->SetProperty(
+        kBlockedForAssistantSnapshotKey,
+        window->GetProperty(kBlockedForAssistantSnapshotKey));
+  } else if (key == kPanelAttachedKey) {
     bool value = window->GetProperty(kPanelAttachedKey);
     root_window->SetProperty(kPanelAttachedKey, value);
   } else if (key == kShelfItemTypeKey) {
@@ -61,13 +65,37 @@ void MusPropertyMirrorAsh::MirrorPropertyFromWidgetWindowToRootWindow(
     MirrorOwnedProperty(window, root_window, aura::client::kMinimumSize);
   } else if (key == aura::client::kTitleKey) {
     MirrorOwnedProperty(window, root_window, aura::client::kTitleKey);
+  } else if (key == aura::client::kTitleShownKey) {
+    root_window->SetProperty(aura::client::kTitleShownKey,
+                             window->GetProperty(aura::client::kTitleShownKey));
   } else if (key == aura::client::kWindowIconKey) {
     MirrorOwnedProperty(window, root_window, aura::client::kWindowIconKey);
+  } else if (key == kFrameBackButtonStateKey) {
+    root_window->SetProperty(kFrameBackButtonStateKey,
+                             window->GetProperty(kFrameBackButtonStateKey));
+  } else if (key == kFrameActiveColorKey) {
+    root_window->SetProperty(kFrameActiveColorKey,
+                             window->GetProperty(kFrameActiveColorKey));
+  } else if (key == kFrameInactiveColorKey) {
+    root_window->SetProperty(kFrameInactiveColorKey,
+                             window->GetProperty(kFrameInactiveColorKey));
   } else if (key == kFrameImageActiveKey) {
     MirrorOwnedProperty(window, root_window, kFrameImageActiveKey);
-  } else if (key == kWindowTitleShownKey) {
-    root_window->SetProperty(kWindowTitleShownKey,
-                             window->GetProperty(kWindowTitleShownKey));
+  } else if (key == kFrameImageInactiveKey) {
+    MirrorOwnedProperty(window, root_window, kFrameImageInactiveKey);
+  } else if (key == kFrameImageOverlayActiveKey) {
+    MirrorOwnedProperty(window, root_window, kFrameImageOverlayActiveKey);
+  } else if (key == kFrameImageOverlayInactiveKey) {
+    MirrorOwnedProperty(window, root_window, kFrameImageOverlayInactiveKey);
+  } else if (key == kFrameImageYInsetKey) {
+    root_window->SetProperty(kFrameImageYInsetKey,
+                             window->GetProperty(kFrameImageYInsetKey));
+  } else if (key == kFrameIsThemedByHostedAppKey) {
+    root_window->SetProperty(kFrameIsThemedByHostedAppKey,
+                             window->GetProperty(kFrameIsThemedByHostedAppKey));
+  } else if (key == kFrameTextColorKey) {
+    root_window->SetProperty(kFrameTextColorKey,
+                             window->GetProperty(kFrameTextColorKey));
   }
 }
 

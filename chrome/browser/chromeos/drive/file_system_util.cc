@@ -56,7 +56,7 @@ DriveIntegrationService* GetIntegrationServiceByProfile(Profile* profile) {
   DriveIntegrationService* service =
       DriveIntegrationServiceFactory::FindForProfile(profile);
   if (!service || !service->IsMounted())
-    return NULL;
+    return nullptr;
   return service;
 }
 
@@ -73,7 +73,7 @@ base::FilePath GetDriveMountPointPath(Profile* profile) {
         user_manager::UserManager::IsInitialized()
             ? chromeos::ProfileHelper::Get()->GetUserByProfile(
                   profile->GetOriginalProfile())
-            : NULL;
+            : nullptr;
     if (user)
       id = user->username_hash();
   }
@@ -120,7 +120,7 @@ FileSystemInterface* GetFileSystemByProfile(Profile* profile) {
 
   DriveIntegrationService* integration_service =
       GetIntegrationServiceByProfile(profile);
-  return integration_service ? integration_service->file_system() : NULL;
+  return integration_service ? integration_service->file_system() : nullptr;
 }
 
 FileSystemInterface* GetFileSystemByProfileId(void* profile_id) {
@@ -129,7 +129,7 @@ FileSystemInterface* GetFileSystemByProfileId(void* profile_id) {
   // |profile_id| needs to be checked with ProfileManager::IsValidProfile
   // before using it.
   if (!g_browser_process->profile_manager()->IsValidProfile(profile_id))
-    return NULL;
+    return nullptr;
   Profile* profile = reinterpret_cast<Profile*>(profile_id);
   return GetFileSystemByProfile(profile);
 }
@@ -139,7 +139,8 @@ DriveAppRegistry* GetDriveAppRegistryByProfile(Profile* profile) {
 
   DriveIntegrationService* integration_service =
       GetIntegrationServiceByProfile(profile);
-  return integration_service ? integration_service->drive_app_registry() : NULL;
+  return integration_service ? integration_service->drive_app_registry()
+                             : nullptr;
 }
 
 DriveServiceInterface* GetDriveServiceByProfile(Profile* profile) {
@@ -147,7 +148,7 @@ DriveServiceInterface* GetDriveServiceByProfile(Profile* profile) {
 
   DriveIntegrationService* integration_service =
       GetIntegrationServiceByProfile(profile);
-  return integration_service ? integration_service->drive_service() : NULL;
+  return integration_service ? integration_service->drive_service() : nullptr;
 }
 
 Profile* ExtractProfileFromPath(const base::FilePath& path) {
@@ -165,7 +166,7 @@ Profile* ExtractProfileFromPath(const base::FilePath& path) {
         return original_profile;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 base::FilePath ExtractDrivePathFromFileSystemUrl(
@@ -189,7 +190,7 @@ void PrepareWritableFileAndRun(Profile* profile,
                                const base::FilePath& path,
                                const PrepareWritableFileCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(!callback.is_null());
+  DCHECK(callback);
 
   FileSystemInterface* file_system = GetFileSystemByProfile(profile);
   if (!file_system || !IsUnderDriveMountPoint(path)) {
@@ -208,7 +209,7 @@ void EnsureDirectoryExists(Profile* profile,
                            const base::FilePath& directory,
                            const FileOperationCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(!callback.is_null());
+  DCHECK(callback);
   if (IsUnderDriveMountPoint(directory)) {
     FileSystemInterface* file_system = GetFileSystemByProfile(profile);
     DCHECK(file_system);
@@ -236,14 +237,13 @@ bool IsDriveEnabledForProfile(Profile* profile) {
 }
 
 ConnectionStatusType GetDriveConnectionStatus(Profile* profile) {
-  drive::DriveServiceInterface* const drive_service =
-      drive::util::GetDriveServiceByProfile(profile);
-
-  if (!drive_service)
+  auto* drive_integration_service = GetIntegrationServiceByProfile(profile);
+  if (!drive_integration_service)
     return DRIVE_DISCONNECTED_NOSERVICE;
   if (net::NetworkChangeNotifier::IsOffline())
     return DRIVE_DISCONNECTED_NONETWORK;
-  if (!drive_service->CanSendRequest())
+  auto* drive_service = drive_integration_service->drive_service();
+  if (drive_service && !drive_service->CanSendRequest())
     return DRIVE_DISCONNECTED_NOTREADY;
 
   const bool is_connection_cellular =

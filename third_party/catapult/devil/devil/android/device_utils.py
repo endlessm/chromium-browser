@@ -59,6 +59,11 @@ _DEFAULT_RETRIES = 3
 # the timeout_retry decorators.
 DEFAULT = object()
 
+# A sentinel object to require that calls to RunShellCommand force running the
+# command with su even if the device has been rooted. To use, pass into the
+# as_root param.
+_FORCE_SU = object()
+
 _RESTART_ADBD_SCRIPT = """
   trap '' HUP
   trap '' TERM
@@ -88,6 +93,7 @@ _PERMISSIONS_BLACKLIST_RE = re.compile('|'.join(fnmatch.translate(p) for p in [
     'android.permission.DISABLE_KEYGUARD',
     'android.permission.DOWNLOAD_WITHOUT_NOTIFICATION',
     'android.permission.EXPAND_STATUS_BAR',
+    'android.permission.FOREGROUND_SERVICE',
     'android.permission.GET_PACKAGE_SIZE',
     'android.permission.INSTALL_SHORTCUT',
     'android.permission.INJECT_EVENTS',
@@ -1105,7 +1111,7 @@ class DeviceUtils(object):
     if run_as:
       cmd = 'run-as %s sh -c %s' % (cmd_helper.SingleQuote(run_as),
                                     cmd_helper.SingleQuote(cmd))
-    if as_root and self.NeedsSU():
+    if (as_root is _FORCE_SU) or (as_root and self.NeedsSU()):
       # "su -c sh -c" allows using shell features in |cmd|
       cmd = self._Su('sh -c %s' % cmd_helper.SingleQuote(cmd))
 
@@ -2737,7 +2743,7 @@ class DeviceUtils(object):
 
   @classmethod
   def HealthyDevices(cls, blacklist=None, device_arg='default', retry=True,
-                     **kwargs):
+                     abis=None, **kwargs):
     """Returns a list of DeviceUtils instances.
 
     Returns a list of DeviceUtils instances that are attached, not blacklisted,
@@ -2761,6 +2767,8 @@ class DeviceUtils(object):
               blacklisted.
       retry: If true, will attempt to restart adb server and query it again if
           no devices are found.
+      abis: A list of ABIs for which the device needs to support at least one of
+          (optional).
       A device serial, or a list of device serials (optional).
 
     Returns:
@@ -2796,14 +2804,23 @@ class DeviceUtils(object):
         return True
       return False
 
+    def supports_abi(abi, serial):
+      if abis and abi not in abis:
+        logger.warning("Device %s doesn't support required ABIs.", serial)
+        return False
+      return True
+
     def _get_devices():
       if device_arg:
         devices = [cls(x, **kwargs) for x in device_arg if not blacklisted(x)]
       else:
         devices = []
         for adb in adb_wrapper.AdbWrapper.Devices():
-          if not blacklisted(adb.GetDeviceSerial()):
-            devices.append(cls(_CreateAdbWrapper(adb), **kwargs))
+          serial = adb.GetDeviceSerial()
+          if not blacklisted(serial):
+            device = cls(_CreateAdbWrapper(adb), **kwargs)
+            if supports_abi(device.GetABI(), serial):
+              devices.append(device)
 
       if len(devices) == 0 and not allow_no_devices:
         raise device_errors.NoDevicesError()
@@ -2937,19 +2954,30 @@ class DeviceUtils(object):
       owner_group: New owner and group to assign. Note that this should be a
         string in the form user[.group] where the group is option.
       paths: Paths to change ownership of.
+
+      Note that the -R recursive option is not supported by all Android
+      versions.
     """
+    if not paths:
+      return
     self.RunShellCommand(['chown', owner_group] + paths, check_return=True)
 
   @decorators.WithTimeoutAndRetriesFromInstance()
-  def ChangeSecurityContext(self, security_context, path, recursive=False,
-                            timeout=None, retries=None):
-    """Changes a file's SELinux security context.
+  def ChangeSecurityContext(self, security_context, paths, timeout=None,
+                            retries=None):
+    """Changes the SELinux security context for files.
 
     Args:
       security_context: The new security context as a string
-      path: Path to change the security context of.
-      recursive: Whether to recursively change the security contexts.
+      paths: Paths to change the security context of.
+
+      Note that the -R recursive option is not supported by all Android
+      versions.
     """
-    flags = ['-R'] if recursive else []
-    command = ['chcon'] + flags + [security_context, path]
-    self.RunShellCommand(command, as_root=True, check_return=True)
+    if not paths:
+      return
+    command = ['chcon', security_context] + paths
+
+    # Note, need to force su because chcon can fail with permission errors even
+    # if the device is rooted.
+    self.RunShellCommand(command, as_root=_FORCE_SU, check_return=True)

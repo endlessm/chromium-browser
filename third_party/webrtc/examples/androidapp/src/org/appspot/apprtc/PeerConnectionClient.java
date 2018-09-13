@@ -63,17 +63,18 @@ import org.webrtc.SoftwareVideoDecoderFactory;
 import org.webrtc.SoftwareVideoEncoderFactory;
 import org.webrtc.StatsObserver;
 import org.webrtc.StatsReport;
+import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.VideoCapturer;
 import org.webrtc.VideoDecoderFactory;
 import org.webrtc.VideoEncoderFactory;
 import org.webrtc.VideoSink;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
+import org.webrtc.audio.AudioDeviceModule;
 import org.webrtc.audio.JavaAudioDeviceModule;
 import org.webrtc.audio.JavaAudioDeviceModule.AudioRecordErrorCallback;
 import org.webrtc.audio.JavaAudioDeviceModule.AudioTrackErrorCallback;
 import org.webrtc.audio.LegacyAudioDeviceModule;
-import org.webrtc.audio.AudioDeviceModule;
 import org.webrtc.voiceengine.WebRtcAudioManager;
 import org.webrtc.voiceengine.WebRtcAudioRecord;
 import org.webrtc.voiceengine.WebRtcAudioRecord.AudioRecordStartErrorCode;
@@ -137,8 +138,8 @@ public class PeerConnectionClient {
   private PeerConnection peerConnection;
   @Nullable
   private AudioSource audioSource;
-  @Nullable
-  private VideoSource videoSource;
+  @Nullable private SurfaceTextureHelper surfaceTextureHelper;
+  @Nullable private VideoSource videoSource;
   private boolean preferIsac;
   private boolean videoCapturerStopped;
   private boolean isError;
@@ -330,13 +331,10 @@ public class PeerConnectionClient {
 
     final String fieldTrials = getFieldTrials(peerConnectionParameters);
     executor.execute(() -> {
-      Log.d(TAG,
-          "Initialize WebRTC. Field trials: " + fieldTrials + " Enable video HW acceleration: "
-              + peerConnectionParameters.videoCodecHwAcceleration);
+      Log.d(TAG, "Initialize WebRTC. Field trials: " + fieldTrials);
       PeerConnectionFactory.initialize(
           PeerConnectionFactory.InitializationOptions.builder(appContext)
               .setFieldTrials(fieldTrials)
-              .setEnableVideoHwAcceleration(peerConnectionParameters.videoCodecHwAcceleration)
               .setEnableInternalTracer(true)
               .createInitializationOptions());
     });
@@ -449,6 +447,7 @@ public class PeerConnectionClient {
                   .setVideoDecoderFactory(decoderFactory)
                   .createPeerConnectionFactory();
     Log.d(TAG, "Peer connection factory created.");
+    adm.release();
   }
 
   AudioDeviceModule createLegacyAudioDevice() {
@@ -635,11 +634,6 @@ public class PeerConnectionClient {
 
     queuedRemoteCandidates = new ArrayList<>();
 
-    if (isVideoCallEnabled()) {
-      factory.setVideoHwAccelerationOptions(
-          rootEglBase.getEglBaseContext(), rootEglBase.getEglBaseContext());
-    }
-
     PeerConnection.RTCConfiguration rtcConfig =
         new PeerConnection.RTCConfiguration(signalingParameters.iceServers);
     // TCP candidates are only useful when connecting to a server that supports
@@ -768,6 +762,10 @@ public class PeerConnectionClient {
     if (videoSource != null) {
       videoSource.dispose();
       videoSource = null;
+    }
+    if (surfaceTextureHelper != null) {
+      surfaceTextureHelper.dispose();
+      surfaceTextureHelper = null;
     }
     if (saveRecordedAudioToFile != null) {
       Log.d(TAG, "Closing audio file for recorded input audio.");
@@ -984,7 +982,10 @@ public class PeerConnectionClient {
 
   @Nullable
   private VideoTrack createVideoTrack(VideoCapturer capturer) {
-    videoSource = factory.createVideoSource(capturer);
+    surfaceTextureHelper =
+        SurfaceTextureHelper.create("CaptureThread", rootEglBase.getEglBaseContext());
+    videoSource = factory.createVideoSource(capturer.isScreencast());
+    capturer.initialize(surfaceTextureHelper, appContext, videoSource.getCapturerObserver());
     capturer.startCapture(videoWidth, videoHeight, videoFps);
 
     localVideoTrack = factory.createVideoTrack(VIDEO_TRACK_ID, videoSource);

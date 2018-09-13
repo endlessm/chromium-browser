@@ -748,6 +748,8 @@ public:
     switch (CapRegionKind) {
     case CR_Default:
       return "default captured statement";
+    case CR_ObjCAtFinally:
+      return "Objective-C @finally statement";
     case CR_OpenMP:
       return "OpenMP region";
     }
@@ -826,6 +828,9 @@ public:
   ///  do not involve an odr-use (they may still need to be captured
   ///  if the enclosing full-expression is instantiation dependent).
   llvm::SmallSet<Expr *, 8> NonODRUsedCapturingExprs;
+
+  /// A map of explicit capture indices to their introducer source ranges.
+  llvm::DenseMap<unsigned, SourceRange> ExplicitCaptureRanges;
 
   /// Contains all of the variables defined in this lambda that shadow variables
   /// that were defined in parent contexts. Used to avoid warnings when the

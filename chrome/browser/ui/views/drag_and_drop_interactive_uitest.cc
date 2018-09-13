@@ -28,6 +28,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/hit_test_region_observer.h"
 #include "content/public/test/test_frame_navigation_observer.h"
 #include "content/public/test/test_utils.h"
 #include "net/base/escape.h"
@@ -700,8 +701,8 @@ class DragAndDropBrowserTest : public InProcessBrowserTest,
     frame = GetFrameByName(frame_name);
     DCHECK(frame);
 
-    // Wait until frame contents have painted and are ready for hit testing.
-    WaitForChildFrameSurfaceReady(frame);
+    // Wait until hit testing data is ready.
+    WaitForHitTestDataOrChildSurfaceReady(frame);
 
     return true;
   }
@@ -762,7 +763,7 @@ IN_PROC_BROWSER_TEST_P(DragAndDropBrowserTest, MAYBE_DropTextFromOutside) {
   }
 }
 
-#if defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS) || !defined(NDEBUG)
 // Flaky: https://crbug.com/835774
 #define MAYBE_DragStartInFrame DISABLED_DragStartInFrame
 #else

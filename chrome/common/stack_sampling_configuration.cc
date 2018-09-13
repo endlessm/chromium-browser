@@ -75,15 +75,14 @@ StackSamplingConfiguration::StackSamplingConfiguration()
 base::StackSamplingProfiler::SamplingParams
 StackSamplingConfiguration::GetSamplingParamsForCurrentProcess() const {
   base::StackSamplingProfiler::SamplingParams params;
-  params.bursts = 1;
   params.initial_delay = base::TimeDelta::FromMilliseconds(0);
   params.sampling_interval = base::TimeDelta::FromMilliseconds(0);
-  params.samples_per_burst = 0;
+  params.samples_per_profile = 0;
 
   if (IsProfilerEnabledForCurrentProcess()) {
     const base::TimeDelta duration = base::TimeDelta::FromSeconds(30);
     params.sampling_interval = base::TimeDelta::FromMilliseconds(100);
-    params.samples_per_burst = duration / params.sampling_interval;
+    params.samples_per_profile = duration / params.sampling_interval;
   }
 
   return params;
@@ -169,7 +168,7 @@ StackSamplingConfiguration::ChooseConfiguration(
 
   int chosen = base::RandInt(0, total_weight - 1);  // Max is inclusive.
   int cumulative_weight = 0;
-  for (const Variation& variation : variations) {
+  for (const auto& variation : variations) {
     if (chosen >= cumulative_weight &&
         chosen < cumulative_weight + variation.weight) {
       return variation.config;
@@ -190,27 +189,16 @@ StackSamplingConfiguration::GenerateConfiguration() {
     return PROFILE_DISABLED;
 
   switch (chrome::GetChannel()) {
-    // Enable the profiler in the ultimate production configuration for
-    // development/waterfall builds.
+    // Enable the profiler unconditionally for development/waterfall builds.
     case version_info::Channel::UNKNOWN:
       return PROFILE_ENABLED;
 
-#if defined(OS_WIN) && defined(ARCH_CPU_X86_64)
+#if (defined(OS_WIN) && defined(ARCH_CPU_X86_64)) || defined(OS_MACOSX)
     case version_info::Channel::CANARY:
     case version_info::Channel::DEV:
       return ChooseConfiguration({{PROFILE_ENABLED, 80},
                                   {PROFILE_CONTROL, 10},
                                   {PROFILE_DISABLED, 10}});
-#elif defined(OS_MACOSX)
-    case version_info::Channel::CANARY:
-      return ChooseConfiguration({{PROFILE_ENABLED, 80},
-                                  {PROFILE_CONTROL, 10},
-                                  {PROFILE_DISABLED, 10}});
-
-    case version_info::Channel::DEV:
-      return ChooseConfiguration({{PROFILE_ENABLED, 50},
-                                  {PROFILE_CONTROL, 0},
-                                  {PROFILE_DISABLED, 50}});
 #endif
 
     default:

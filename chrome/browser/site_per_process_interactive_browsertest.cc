@@ -14,6 +14,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller_test.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -37,6 +38,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/hit_test_region_observer.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/extensions_api_client.h"
@@ -78,6 +80,17 @@ void WaitForRenderWidgetHostCount(size_t target_count) {
     run_loop.Run();
   }
 }
+
+// Used to disable a few problematic tests for MacViews:
+// https://crbug.com/850594
+bool IsMacViewsBrowser() {
+#if defined(OS_MACOSX)
+  return !views_mode_controller::IsViewsBrowserCocoa();
+#else
+  return false;
+#endif
+}
+
 }  // namespace
 
 class SitePerProcessInteractiveBrowserTest : public InProcessBrowserTest {
@@ -347,8 +360,8 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
   ASSERT_NE(nullptr, child2);
 
   // Needed to avoid flakiness with --enable-browser-side-navigation.
-  content::WaitForChildFrameSurfaceReady(child1);
-  content::WaitForChildFrameSurfaceReady(child2);
+  content::WaitForHitTestDataOrChildSurfaceReady(child1);
+  content::WaitForHitTestDataOrChildSurfaceReady(child2);
 
   // Assign a name to each frame.  This will be sent along in test messages
   // from focus events.
@@ -644,6 +657,8 @@ void WaitForMultipleFullscreenEvents(
 //
 IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
                        FullscreenElementInSubframe) {
+  if (IsMacViewsBrowser())
+    return;
   // Start on a page with one subframe (id "child-0") that has
   // "allowfullscreen" enabled.
   GURL main_url(embedded_test_server()->GetURL(
@@ -834,13 +849,27 @@ void SitePerProcessInteractiveBrowserTest::FullscreenElementInABA(
   EXPECT_EQ("none", GetFullscreenElementId(grandchild));
 }
 
+// This is flaky on Linux (crbug.com/854294)
+#if defined(OS_LINUX)
+#define MAYBE_FullscreenElementInABAAndExitViaEscapeKey \
+  DISABLED_FullscreenElementInABAAndExitViaEscapeKey
+#else
+#define MAYBE_FullscreenElementInABAAndExitViaEscapeKey \
+  FullscreenElementInABAAndExitViaEscapeKey
+#endif
 IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
-                       FullscreenElementInABAAndExitViaEscapeKey) {
+                       MAYBE_FullscreenElementInABAAndExitViaEscapeKey) {
+  if (IsMacViewsBrowser())
+    return;
   FullscreenElementInABA(FullscreenExitMethod::ESC_PRESS);
 }
 
+// This test is flaky on Linux (crbug.com/851236) and also not working
+// on Mac (crbug.com/850594).
 IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
-                       FullscreenElementInABAAndExitViaJS) {
+                       DISABLED_FullscreenElementInABAAndExitViaJS) {
+  if (IsMacViewsBrowser())
+    return;
   FullscreenElementInABA(FullscreenExitMethod::JS_CALL);
 }
 
@@ -1180,6 +1209,7 @@ class SitePerProcessAutofillTest : public SitePerProcessInteractiveBrowserTest {
         const gfx::RectF& element_bounds,
         base::i18n::TextDirection text_direction,
         const std::vector<autofill::Suggestion>& suggestions,
+        bool autoselect_first_suggestion,
         base::WeakPtr<autofill::AutofillPopupDelegate> delegate) override {
       element_bounds_ = element_bounds;
       popup_shown_ = true;

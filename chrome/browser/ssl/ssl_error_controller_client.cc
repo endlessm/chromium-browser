@@ -52,6 +52,16 @@ using content::Referrer;
 
 namespace {
 
+void RecordRecurrentErrorAction(
+    SSLErrorControllerClient::RecurrentErrorAction action,
+    int cert_error) {
+  UMA_HISTOGRAM_ENUMERATION("interstitial.ssl_recurrent_error.action", action);
+  if (cert_error == net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "interstitial.ssl_recurrent_error.ct_error.action", action);
+  }
+}
+
 bool HasSeenRecurrentErrorInternal(content::WebContents* web_contents,
                                    int cert_error) {
   ChromeSSLHostStateDelegate* state =
@@ -159,9 +169,7 @@ SSLErrorControllerClient::SSLErrorControllerClient(
       request_url_(request_url),
       cert_error_(cert_error) {
   if (HasSeenRecurrentErrorInternal(web_contents_, cert_error_)) {
-    UMA_HISTOGRAM_ENUMERATION("interstitial.ssl_recurrent_error.action",
-                              RECURRENT_ERROR_ACTION_SHOW,
-                              RECURRENT_ERROR_ACTION_MAX);
+    RecordRecurrentErrorAction(RecurrentErrorAction::kShow, cert_error_);
   }
 }
 
@@ -178,9 +186,7 @@ void SSLErrorControllerClient::GoBack() {
 
 void SSLErrorControllerClient::Proceed() {
   if (HasSeenRecurrentErrorInternal(web_contents_, cert_error_)) {
-    UMA_HISTOGRAM_ENUMERATION("interstitial.ssl_recurrent_error.action",
-                              RECURRENT_ERROR_ACTION_PROCEED,
-                              RECURRENT_ERROR_ACTION_MAX);
+    RecordRecurrentErrorAction(RecurrentErrorAction::kProceed, cert_error_);
   }
 
   MaybeTriggerSecurityInterstitialProceededEvent(web_contents_, request_url_,

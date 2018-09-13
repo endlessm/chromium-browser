@@ -32,6 +32,9 @@ const char* kDecisionFailureReasonStrings[] = {
     "Tab is currently using WebSockets",
     "Tab is currently using WebUSB",
     "Tab is currently visible",
+    "Tab is currently using DevTools",
+    "Tab is currently capturing a window or screen",
+    "Tab is sharing its BrowsingInstance with another tab",
 };
 static_assert(base::size(kDecisionFailureReasonStrings) ==
                   static_cast<size_t>(DecisionFailureReason::MAX),
@@ -121,6 +124,15 @@ void PopulateFailureReason(
       break;
     case DecisionFailureReason::LIVE_STATE_VISIBLE:
       ukm->SetFailureLiveStateVisible(1);
+      break;
+    case DecisionFailureReason::LIVE_STATE_DEVTOOLS_OPEN:
+      ukm->SetFailureLiveStateDevToolsOpen(1);
+      break;
+    case DecisionFailureReason::LIVE_STATE_DESKTOP_CAPTURE:
+      ukm->SetFailureLiveStateDesktopCapture(1);
+      break;
+    case DecisionFailureReason::LIVE_STATE_SHARING_BROWSING_INSTANCE:
+      ukm->SetFailureLiveStateSharingBrowsingInstance(1);
       break;
     case DecisionFailureReason::MAX:
       break;
@@ -217,6 +229,13 @@ DecisionDetails::DecisionDetails() : toggled_(false) {}
 
 DecisionDetails::~DecisionDetails() = default;
 
+DecisionDetails& DecisionDetails::operator=(DecisionDetails&& rhs) {
+  toggled_ = rhs.toggled_;
+  reasons_ = std::move(rhs.reasons_);
+  rhs.Clear();
+  return *this;
+}
+
 bool DecisionDetails::AddReason(const Reason& reason) {
   reasons_.push_back(reason);
   return CheckIfToggled();
@@ -278,7 +297,7 @@ std::vector<std::string> DecisionDetails::GetFailureReasonStrings() const {
   return reasons;
 }
 
-void DecisionDetails::ClearForTesting() {
+void DecisionDetails::Clear() {
   reasons_.clear();
   toggled_ = false;
 }

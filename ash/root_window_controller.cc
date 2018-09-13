@@ -15,6 +15,8 @@
 #include "ash/focus_cycler.h"
 #include "ash/high_contrast/high_contrast_controller.h"
 #include "ash/host/ash_window_tree_host.h"
+#include "ash/keyboard/arc/arc_virtual_keyboard_container_layout_manager.h"
+#include "ash/keyboard/virtual_keyboard_container_layout_manager.h"
 #include "ash/lock_screen_action/lock_screen_action_background_controller.h"
 #include "ash/login_status.h"
 #include "ash/public/cpp/ash_constants.h"
@@ -33,18 +35,22 @@
 #include "ash/shelf/shelf_window_targeter.h"
 #include "ash/shell.h"
 #include "ash/shell_port.h"
+#include "ash/shell_state.h"
 #include "ash/system/status_area_layout_manager.h"
 #include "ash/system/status_area_widget.h"
+#include "ash/system/tray/system_tray.h"
+#include "ash/system/tray/tray_background_view.h"
+#include "ash/system/unified/unified_system_tray.h"
 #include "ash/touch/touch_hud_debug.h"
 #include "ash/touch/touch_hud_projection.h"
 #include "ash/touch/touch_observer_hud.h"
-#include "ash/virtual_keyboard_container_layout_manager.h"
 #include "ash/wallpaper/wallpaper_widget_controller.h"
 #include "ash/wm/always_on_top_controller.h"
 #include "ash/wm/container_finder.h"
 #include "ash/wm/fullscreen_window_finder.h"
 #include "ash/wm/lock_action_handler_layout_manager.h"
 #include "ash/wm/lock_layout_manager.h"
+#include "ash/wm/overlay_layout_manager.h"
 #include "ash/wm/panels/attached_panel_window_targeter.h"
 #include "ash/wm/panels/panel_layout_manager.h"
 #include "ash/wm/panels/panel_window_event_handler.h"
@@ -74,10 +80,12 @@
 #include "ui/aura/window_observer.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/base/models/menu_model.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/compositor/layer.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/events/event_utils.h"
 #include "ui/keyboard/keyboard_controller.h"
+#include "ui/keyboard/keyboard_layout_manager.h"
 #include "ui/keyboard/keyboard_util.h"
 #include "ui/views/controls/menu/menu_model_adapter.h"
 #include "ui/views/controls/menu/menu_runner.h"
@@ -264,7 +272,7 @@ bool ShouldDestroyWindowInCloseChildWindows(aura::Window* window) {
   if (!window->owned_by_parent())
     return false;
 
-  if (Shell::GetAshConfig() != Config::MASH)
+  if (Shell::GetAshConfig() != Config::MASH_DEPRECATED)
     return true;
 
   aura::WindowMus* window_mus = aura::WindowMus::Get(window);
@@ -391,6 +399,15 @@ SystemTray* RootWindowController::GetSystemTray() {
   return shelf_->shelf_widget()->status_area_widget()->system_tray();
 }
 
+bool RootWindowController::IsSystemTrayVisible() {
+  TrayBackgroundView* tray = nullptr;
+  if (features::IsSystemTrayUnifiedEnabled())
+    tray = GetStatusAreaWidget()->unified_system_tray();
+  else
+    tray = GetSystemTray();
+  return tray && tray->GetWidget()->IsVisible() && tray->visible();
+}
+
 bool RootWindowController::CanWindowReceiveEvents(aura::Window* window) {
   if (GetRootWindow() != window->GetRootWindow())
     return false;
@@ -481,7 +498,7 @@ void RootWindowController::CloseChildWindows() {
 
   // Deactivate keyboard container before closing child windows and shutting
   // down associated layout managers.
-  DeactivateKeyboard(keyboard::KeyboardController::GetInstance());
+  DeactivateKeyboard(keyboard::KeyboardController::Get());
 
   // |panel_layout_manager_| needs to be shut down before windows are destroyed.
   panel_layout_manager_->Shutdown();
@@ -556,50 +573,32 @@ aura::Window* RootWindowController::GetWindowForFullscreenMode() {
 
 void RootWindowController::ActivateKeyboard(
     keyboard::KeyboardController* keyboard_controller) {
-  if (!keyboard::IsKeyboardEnabled() || !keyboard_controller)
+  DCHECK(keyboard_controller);
+  if (!keyboard::IsKeyboardEnabled() || !keyboard_controller->enabled())
     return;
 
-  // keyboard window is already initialized and it's under the root window of
-  // this controller.
-  if (keyboard_controller->keyboard_container_initialized() &&
-      keyboard_controller->GetContainerWindow()->GetRootWindow() ==
-          GetRootWindow()) {
+  // If the keyboard is already activated, ensure that it is activated in this
+  // root window.
+  if (keyboard_controller->GetRootWindow() == GetRootWindow())
     return;
-  }
 
-  aura::Window* keyboard_window = keyboard_controller->GetContainerWindow();
-  DCHECK(keyboard_window->parent() == nullptr);
-
-  Shell::Get()->NotifyVirtualKeyboardActivated(true, GetRootWindow());
   aura::Window* vk_container =
       GetContainer(kShellWindowId_VirtualKeyboardContainer);
   DCHECK(vk_container);
-  vk_container->AddChild(keyboard_window);
+  keyboard_controller->ActivateKeyboardInContainer(vk_container);
 
-  keyboard_controller->LoadKeyboardUiInBackground();
+  keyboard_controller->LoadKeyboardWindowInBackground();
 }
 
 void RootWindowController::DeactivateKeyboard(
     keyboard::KeyboardController* keyboard_controller) {
-  if (!keyboard_controller ||
-      !keyboard_controller->keyboard_container_initialized()) {
+  DCHECK(keyboard_controller);
+  if (!keyboard_controller->enabled())
     return;
-  }
 
-  aura::Window* keyboard_window = keyboard_controller->GetContainerWindow();
   // If the VK is under the root window of this controller.
-  if (keyboard_window->GetRootWindow() == GetRootWindow()) {
-    // Virtual keyboard may be deactivated while still showing, hide the
-    // keyboard before removing it from view hierarchy.
-    keyboard_controller->HideKeyboard(
-        keyboard::KeyboardController::HIDE_REASON_AUTOMATIC);
-    aura::Window* vk_container =
-        GetContainer(kShellWindowId_VirtualKeyboardContainer);
-    DCHECK(vk_container);
-    DCHECK_EQ(vk_container, keyboard_window->parent());
-    vk_container->RemoveChild(keyboard_window);
-    Shell::Get()->NotifyVirtualKeyboardActivated(false, GetRootWindow());
-  }
+  if (keyboard_controller->GetRootWindow() == GetRootWindow())
+    keyboard_controller->DeactivateKeyboard();
 }
 
 void RootWindowController::SetTouchAccessibilityAnchorPoint(
@@ -625,13 +624,20 @@ void RootWindowController::ShowContextMenu(const gfx::Point& location_in_screen,
   UMA_HISTOGRAM_ENUMERATION("Apps.ContextMenuShowSource.Desktop", source_type,
                             ui::MENU_SOURCE_TYPE_LAST);
 
+  int run_types = views::MenuRunner::CONTEXT_MENU;
+  views::MenuAnchorPosition anchor_position = views::MENU_ANCHOR_TOPLEFT;
+  if (::features::IsTouchableAppContextMenuEnabled()) {
+    run_types |= views::MenuRunner::USE_TOUCHABLE_LAYOUT |
+                 views::MenuRunner::FIXED_ANCHOR;
+    anchor_position = views::MENU_ANCHOR_BUBBLE_TOUCHABLE_ABOVE;
+  }
   menu_runner_ = std::make_unique<views::MenuRunner>(
-      menu_model_.get(), views::MenuRunner::CONTEXT_MENU,
+      menu_model_.get(), run_types,
       base::Bind(&RootWindowController::OnMenuClosed, base::Unretained(this),
                  base::TimeTicks::Now()));
   menu_runner_->RunMenuAt(wallpaper_widget_controller()->GetWidget(), nullptr,
                           gfx::Rect(location_in_screen, gfx::Size()),
-                          views::MENU_ANCHOR_TOPLEFT, source_type);
+                          anchor_position, source_type);
 }
 
 void RootWindowController::HideContextMenu() {
@@ -705,8 +711,8 @@ void RootWindowController::Init(RootWindowType root_window_type) {
 
   root_window_layout_manager_->OnWindowResized();
   if (root_window_type == RootWindowType::PRIMARY) {
-    if (Shell::GetAshConfig() != Config::MASH)
-      shell->CreateKeyboard();
+    if (Shell::GetAshConfig() != Config::MASH_DEPRECATED)
+      shell->EnableKeyboard();
   } else {
     window_tree_host_->Show();
 
@@ -718,7 +724,7 @@ void RootWindowController::Init(RootWindowType root_window_type) {
   // http://crbug.com/679782
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kAshDisableTouchExplorationMode) &&
-      Shell::GetAshConfig() != Config::MASH) {
+      Shell::GetAshConfig() != Config::MASH_DEPRECATED) {
     touch_exploration_manager_ =
         std::make_unique<TouchExplorationManager>(this);
   }
@@ -879,6 +885,19 @@ void RootWindowController::CreateContainers() {
   wm::SetSnapsChildrenToPhysicalPixelBoundary(app_list_container);
   app_list_container->SetProperty(::wm::kUsesScreenCoordinatesKey, true);
 
+  aura::Window* arc_ime_parent_container = CreateContainer(
+      kShellWindowId_ArcImeWindowParentContainer, "ArcImeWindowParentContainer",
+      non_lock_screen_containers);
+  wm::SetSnapsChildrenToPhysicalPixelBoundary(arc_ime_parent_container);
+  arc_ime_parent_container->SetProperty(::wm::kUsesScreenCoordinatesKey, true);
+  arc_ime_parent_container->SetLayoutManager(
+      new ArcVirtualKeyboardContainerLayoutManager(arc_ime_parent_container));
+  aura::Window* arc_vk_container =
+      CreateContainer(kShellWindowId_ArcVirtualKeyboardContainer,
+                      "ArcVirtualKeyboardContainer", arc_ime_parent_container);
+  wm::SetSnapsChildrenToPhysicalPixelBoundary(arc_vk_container);
+  arc_vk_container->SetProperty(::wm::kUsesScreenCoordinatesKey, true);
+
   aura::Window* shelf_container_parent = lock_screen_related_containers;
   aura::Window* shelf_container = CreateContainer(
       kShellWindowId_ShelfContainer, "ShelfContainer", shelf_container_parent);
@@ -976,6 +995,8 @@ void RootWindowController::CreateContainers() {
   wm::SetSnapsChildrenToPhysicalPixelBoundary(virtual_keyboard_container);
   virtual_keyboard_container->SetProperty(::wm::kUsesScreenCoordinatesKey,
                                           true);
+  virtual_keyboard_container->SetLayoutManager(
+      new keyboard::KeyboardLayoutManager(keyboard::KeyboardController::Get()));
 
   aura::Window* menu_container =
       CreateContainer(kShellWindowId_MenuContainer, "MenuContainer",
@@ -996,6 +1017,8 @@ void RootWindowController::CreateContainers() {
                       lock_screen_related_containers);
   wm::SetSnapsChildrenToPhysicalPixelBoundary(overlay_container);
   overlay_container->SetProperty(::wm::kUsesScreenCoordinatesKey, true);
+  overlay_container->SetLayoutManager(
+      new OverlayLayoutManager(overlay_container));  // Takes ownership.
 
   CreateContainer(kShellWindowId_DockedMagnifierContainer,
                   "DockedMagnifierContainer", lock_screen_related_containers);
@@ -1035,7 +1058,7 @@ void RootWindowController::ResetRootForNewWindowsIfNecessary() {
     // The root window for new windows is being destroyed. Switch to the primary
     // root window if possible.
     aura::Window* primary_root = Shell::GetPrimaryRootWindow();
-    Shell::Get()->set_root_window_for_new_windows(
+    Shell::Get()->shell_state()->SetRootWindowForNewWindows(
         primary_root == root ? nullptr : primary_root);
   }
 }

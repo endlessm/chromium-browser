@@ -4,14 +4,16 @@
 
 #include "components/sync/driver/frontend_data_type_controller.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
-#include "base/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/sequenced_task_runner.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/sync/driver/data_type_controller_mock.h"
 #include "components/sync/driver/fake_sync_client.h"
 #include "components/sync/driver/fake_sync_service.h"
@@ -24,6 +26,7 @@
 using testing::_;
 using testing::DoAll;
 using testing::InvokeWithoutArgs;
+using testing::NiceMock;
 using testing::Return;
 using testing::SetArgPointee;
 using testing::StrictMock;
@@ -43,9 +46,9 @@ class FrontendDataTypeControllerFake : public FrontendDataTypeController {
   void CreateSyncComponents() override {
     SyncApiComponentFactory::SyncComponents sync_components =
         sync_client_->GetSyncApiComponentFactory()
-            ->CreateBookmarkSyncComponents(nullptr, CreateErrorHandler());
-    model_associator_.reset(sync_components.model_associator);
-    change_processor_.reset(sync_components.change_processor);
+            ->CreateBookmarkSyncComponents(CreateErrorHandler());
+    model_associator_ = std::move(sync_components.model_associator);
+    change_processor_ = std::move(sync_components.change_processor);
   }
 
   // We mock the following methods because their default implementations do
@@ -65,11 +68,22 @@ class FrontendDataTypeControllerFake : public FrontendDataTypeController {
 
 class SyncFrontendDataTypeControllerTest : public testing::Test {
  public:
-  SyncFrontendDataTypeControllerTest()
-      : model_associator_(new ModelAssociatorMock()),
-        change_processor_(new ChangeProcessorMock()),
-        components_factory_(model_associator_, change_processor_),
-        sync_client_(&components_factory_) {}
+  SyncFrontendDataTypeControllerTest() : sync_client_(&components_factory_) {
+    model_associator_deleter_ =
+        std::make_unique<NiceMock<ModelAssociatorMock>>();
+    change_processor_deleter_ =
+        std::make_unique<NiceMock<ChangeProcessorMock>>();
+    model_associator_ = model_associator_deleter_.get();
+    change_processor_ = change_processor_deleter_.get();
+
+    ON_CALL(components_factory_, CreateBookmarkSyncComponents(_))
+        .WillByDefault(testing::InvokeWithoutArgs([=]() {
+          SyncApiComponentFactory::SyncComponents components;
+          components.model_associator = std::move(model_associator_deleter_);
+          components.change_processor = std::move(change_processor_deleter_);
+          return components;
+        }));
+  }
 
   void SetUp() override {
     dtc_mock_ = std::make_unique<StrictMock<FrontendDataTypeControllerMock>>();
@@ -122,7 +136,9 @@ class SyncFrontendDataTypeControllerTest : public testing::Test {
   base::MessageLoop message_loop_;
   ModelAssociatorMock* model_associator_;
   ChangeProcessorMock* change_processor_;
-  SyncApiComponentFactoryMock components_factory_;
+  std::unique_ptr<ModelAssociatorMock> model_associator_deleter_;
+  std::unique_ptr<ChangeProcessorMock> change_processor_deleter_;
+  NiceMock<SyncApiComponentFactoryMock> components_factory_;
   FakeSyncClient sync_client_;
   std::unique_ptr<FrontendDataTypeControllerFake> frontend_dtc_;
   std::unique_ptr<FrontendDataTypeControllerMock> dtc_mock_;
@@ -159,9 +175,10 @@ TEST_F(SyncFrontendDataTypeControllerTest, StartStopBeforeAssociation) {
   EXPECT_CALL(*dtc_mock_, CleanUpState());
   EXPECT_CALL(model_load_callback_, Run(_, _));
   EXPECT_EQ(DataTypeController::NOT_RUNNING, frontend_dtc_->state());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&FrontendDataTypeController::Stop,
-                            base::AsWeakPtr(frontend_dtc_.get())));
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&FrontendDataTypeController::Stop,
+                     base::AsWeakPtr(frontend_dtc_.get()), KEEP_METADATA));
   Start();
   EXPECT_EQ(DataTypeController::NOT_RUNNING, frontend_dtc_->state());
 }
@@ -173,7 +190,7 @@ TEST_F(SyncFrontendDataTypeControllerTest, AbortDuringStartModels) {
   frontend_dtc_->LoadModels(base::Bind(
       &ModelLoadCallbackMock::Run, base::Unretained(&model_load_callback_)));
   EXPECT_EQ(DataTypeController::MODEL_STARTING, frontend_dtc_->state());
-  frontend_dtc_->Stop();
+  frontend_dtc_->Stop(KEEP_METADATA);
   EXPECT_EQ(DataTypeController::NOT_RUNNING, frontend_dtc_->state());
 }
 
@@ -192,7 +209,7 @@ TEST_F(SyncFrontendDataTypeControllerTest, StartAssociationFailed) {
   // Set up association to fail with an association failed error.
   EXPECT_EQ(DataTypeController::NOT_RUNNING, frontend_dtc_->state());
   Start();
-  EXPECT_EQ(DataTypeController::DISABLED, frontend_dtc_->state());
+  EXPECT_EQ(DataTypeController::FAILED, frontend_dtc_->state());
 }
 
 TEST_F(SyncFrontendDataTypeControllerTest,
@@ -228,7 +245,7 @@ TEST_F(SyncFrontendDataTypeControllerTest, Stop) {
   EXPECT_EQ(DataTypeController::NOT_RUNNING, frontend_dtc_->state());
   Start();
   EXPECT_EQ(DataTypeController::RUNNING, frontend_dtc_->state());
-  frontend_dtc_->Stop();
+  frontend_dtc_->Stop(KEEP_METADATA);
   EXPECT_EQ(DataTypeController::NOT_RUNNING, frontend_dtc_->state());
 }
 

@@ -13,8 +13,8 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/optional.h"
-#include "components/sync/driver/sync_service.h"
 #include "components/sync/model/model_type_change_processor.h"
 #include "components/sync/model/model_type_store.h"
 #include "components/sync/model/model_type_sync_bridge.h"
@@ -27,12 +27,11 @@ class UserEventSyncBridge : public ModelTypeSyncBridge {
   UserEventSyncBridge(
       OnceModelTypeStoreFactory store_factory,
       std::unique_ptr<ModelTypeChangeProcessor> change_processor,
-      GlobalIdMapper* global_id_mapper,
-      SyncService* sync_service);
+      GlobalIdMapper* global_id_mapper);
   ~UserEventSyncBridge() override;
 
   // ModelTypeSyncBridge implementation.
-  void OnSyncStarting() override;
+  void OnSyncStarting(const DataTypeActivationRequest& request) override;
   std::unique_ptr<MetadataChangeList> CreateMetadataChangeList() override;
   base::Optional<ModelError> MergeSyncData(
       std::unique_ptr<MetadataChangeList> metadata_change_list,
@@ -41,10 +40,10 @@ class UserEventSyncBridge : public ModelTypeSyncBridge {
       std::unique_ptr<MetadataChangeList> metadata_change_list,
       EntityChangeList entity_changes) override;
   void GetData(StorageKeyList storage_keys, DataCallback callback) override;
-  void GetAllData(DataCallback callback) override;
+  void GetAllDataForDebugging(DataCallback callback) override;
   std::string GetClientTag(const EntityData& entity_data) override;
   std::string GetStorageKey(const EntityData& entity_data) override;
-  DisableSyncResponse ApplyDisableSyncChanges(
+  StopSyncResponse ApplyStopSyncChanges(
       std::unique_ptr<MetadataChangeList> delete_metadata_change_list) override;
 
   void RecordUserEvent(std::unique_ptr<sync_pb::UserEventSpecifics> specifics);
@@ -82,8 +81,6 @@ class UserEventSyncBridge : public ModelTypeSyncBridge {
 
   void HandleGlobalIdChange(int64_t old_global_id, int64_t new_global_id);
 
-  std::string GetAuthenticatedAccountId() const;
-
   // Persistent storage for in flight events. Should remain quite small, as we
   // delete upon commit confirmation.
   std::unique_ptr<ModelTypeStore> store_;
@@ -98,9 +95,11 @@ class UserEventSyncBridge : public ModelTypeSyncBridge {
       in_flight_nav_linked_events_;
 
   GlobalIdMapper* global_id_mapper_;
-  SyncService* sync_service_;
 
-  bool is_sync_starting_or_started_;
+  // Empty if sync not running.
+  std::string syncing_account_id_;
+
+  base::WeakPtrFactory<UserEventSyncBridge> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(UserEventSyncBridge);
 };

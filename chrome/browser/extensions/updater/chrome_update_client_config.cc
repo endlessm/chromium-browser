@@ -168,6 +168,12 @@ ChromeUpdateClientConfig::RequestContext() const {
       ->GetURLRequestContext();
 }
 
+scoped_refptr<network::SharedURLLoaderFactory>
+ChromeUpdateClientConfig::URLLoaderFactory() const {
+  return content::BrowserContext::GetDefaultStoragePartition(context_)
+      ->GetURLLoaderFactoryForBrowserProcess();
+}
+
 std::unique_ptr<service_manager::Connector>
 ChromeUpdateClientConfig::CreateServiceManagerConnector() const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -207,6 +213,10 @@ bool ChromeUpdateClientConfig::IsPerUserInstall() const {
 
 std::vector<uint8_t> ChromeUpdateClientConfig::GetRunActionKeyHash() const {
   return impl_.GetRunActionKeyHash();
+}
+
+std::string ChromeUpdateClientConfig::GetAppGuid() const {
+  return impl_.GetAppGuid();
 }
 
 ChromeUpdateClientConfig::~ChromeUpdateClientConfig() {}

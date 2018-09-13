@@ -25,7 +25,6 @@
 #include "base/timer/timer.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chromeos/dbus/cryptohome_client.h"
-#include "chromeos/system/version_loader.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_member.h"
 #include "ui/base/idle/idle.h"
@@ -92,14 +91,18 @@ class DeviceStatusCollector {
   // Constructor. Callers can inject their own *Fetcher callbacks, e.g. for unit
   // testing. A null callback can be passed for any *Fetcher parameter, to use
   // the default implementation. These callbacks are always executed on Blocking
-  // Pool. If |is_enterprise_device| additional enterprise relevant status data
-  // will be reported.
+  // Pool. Caller is responsible for passing already initialized |pref_service|.
+  // |activity_day_start| indicates what time does the new day start for
+  // activity reporting daily data aggregation. It is represented by the
+  // distance from midnight. If |is_enterprise_device| additional enterprise
+  // relevant status data will be reported.
   DeviceStatusCollector(PrefService* pref_service,
                         chromeos::system::StatisticsProvider* provider,
                         const VolumeInfoFetcher& volume_info_fetcher,
                         const CPUStatisticsFetcher& cpu_statistics_fetcher,
                         const CPUTempFetcher& cpu_temp_fetcher,
                         const AndroidStatusFetcher& android_status_fetcher,
+                        base::TimeDelta activity_day_start,
                         bool is_enterprise_reporting);
   virtual ~DeviceStatusCollector();
 
@@ -217,8 +220,9 @@ class DeviceStatusCollector {
   // single session, even for multi-user sessions.
   std::string GetUserForActivityReporting() const;
 
-  // Called when |pref_service_| is initialized.
-  void OnPrefServiceInitialized(bool succeeded);
+  // Returns whether users' email addresses should be included in activity
+  // reports.
+  bool IncludeEmailsInActivityReports() const;
 
   // Pref service that is mainly used to store activity periods for reporting.
   PrefService* const pref_service_;

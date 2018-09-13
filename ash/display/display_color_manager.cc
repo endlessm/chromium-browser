@@ -6,18 +6,20 @@
 
 #include <utility>
 
-#include "ash/public/cpp/config.h"
 #include "ash/shell.h"
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
+#include "base/stl_util.h"
 #include "base/task_runner_util.h"
 #include "base/task_scheduler/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "components/quirks/quirks_manager.h"
 #include "third_party/qcms/src/qcms.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/display/display.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/display/types/display_snapshot.h"
@@ -175,6 +177,18 @@ SkMatrix44 SkMatrix44FromColorMatrixVector(
   return matrix;
 }
 
+bool HasColorCorrectionMatrix(display::DisplayConfigurator* configurator,
+                              int64_t display_id) {
+  for (const auto* display_snapshot : configurator->cached_displays()) {
+    if (display_snapshot->display_id() != display_id)
+      continue;
+
+    return display_snapshot->has_color_correction_matrix();
+  }
+
+  return false;
+}
+
 }  // namespace
 
 DisplayColorManager::DisplayColorManager(
@@ -206,28 +220,38 @@ bool DisplayColorManager::SetDisplayColorMatrix(
     if (display_snapshot->display_id() != display_id)
       continue;
 
-    if (!display_snapshot->has_color_correction_matrix()) {
-      // This display doesn't support setting a CRTC matrix.
-      return false;
-    }
-
-    // Always overwrite any existing matrix for this display.
-    displays_color_matrix_map_[display_id] = color_matrix;
-    const auto iter = calibration_map_.find(display_snapshot->product_code());
-    SkMatrix44 combined_matrix = color_matrix;
-    if (iter != calibration_map_.end()) {
-      DCHECK(iter->second);
-      combined_matrix.preConcat(
-          SkMatrix44FromColorMatrixVector(iter->second->correction_matrix));
-    }
-
-    ColorMatrixVectorFromSkMatrix44(combined_matrix, &matrix_buffer_);
-    return configurator_->SetColorCorrection(
-        display_id, {} /* degamma_lut */, {} /* gamma_lut */, matrix_buffer_);
+    return SetDisplayColorMatrix(display_snapshot, color_matrix);
   }
 
   LOG(ERROR) << "Display ID: " << display_id << " cannot be found.";
   return false;
+}
+
+bool DisplayColorManager::SetDisplayColorMatrix(
+    const display::DisplaySnapshot* display_snapshot,
+    const SkMatrix44& color_matrix) {
+  DCHECK(display_snapshot);
+  DCHECK(
+      base::ContainsValue(configurator_->cached_displays(), display_snapshot));
+
+  if (!display_snapshot->has_color_correction_matrix()) {
+    // This display doesn't support setting a CRTC matrix.
+    return false;
+  }
+
+  // Always overwrite any existing matrix for this display.
+  const int64_t display_id = display_snapshot->display_id();
+  displays_color_matrix_map_[display_id] = color_matrix;
+  const auto iter = calibration_map_.find(display_snapshot->product_code());
+  SkMatrix44 combined_matrix = color_matrix;
+  if (iter != calibration_map_.end()) {
+    DCHECK(iter->second);
+    combined_matrix.preConcat(
+        SkMatrix44FromColorMatrixVector(iter->second->correction_matrix));
+  }
+
+  ColorMatrixVectorFromSkMatrix44(combined_matrix, &matrix_buffer_);
+  return configurator_->SetColorMatrix(display_id, matrix_buffer_);
 }
 
 void DisplayColorManager::OnDisplayModeChanged(
@@ -270,19 +294,25 @@ void DisplayColorManager::OnDisplayRemoved(
 void DisplayColorManager::ApplyDisplayColorCalibration(
     int64_t display_id,
     const ColorCalibrationData& calibration_data) {
-  const auto color_matrix_iter = displays_color_matrix_map_.find(display_id);
-  const std::vector<float>* final_matrix = &calibration_data.correction_matrix;
-  if (color_matrix_iter != displays_color_matrix_map_.end()) {
-    SkMatrix44 combined_matrix = color_matrix_iter->second;
-    combined_matrix.preConcat(SkMatrix44FromColorMatrixVector(*final_matrix));
-    ColorMatrixVectorFromSkMatrix44(combined_matrix, &matrix_buffer_);
-    final_matrix = &matrix_buffer_;
+  if (HasColorCorrectionMatrix(configurator_, display_id)) {
+    const auto color_matrix_iter = displays_color_matrix_map_.find(display_id);
+    const std::vector<float>* final_matrix =
+        &calibration_data.correction_matrix;
+    if (color_matrix_iter != displays_color_matrix_map_.end()) {
+      SkMatrix44 combined_matrix = color_matrix_iter->second;
+      combined_matrix.preConcat(SkMatrix44FromColorMatrixVector(*final_matrix));
+      ColorMatrixVectorFromSkMatrix44(combined_matrix, &matrix_buffer_);
+      final_matrix = &matrix_buffer_;
+    }
+
+    if (!configurator_->SetColorMatrix(display_id, *final_matrix))
+      LOG(WARNING) << "Error applying the color matrix.";
   }
 
-  if (!configurator_->SetColorCorrection(
-          display_id, calibration_data.degamma_lut, calibration_data.gamma_lut,
-          *final_matrix)) {
-    LOG(WARNING) << "Error applying color correction data";
+  if (!configurator_->SetGammaCorrection(display_id,
+                                         calibration_data.degamma_lut,
+                                         calibration_data.gamma_lut)) {
+    LOG(WARNING) << "Error applying gamma correction data.";
   }
 }
 
@@ -297,8 +327,11 @@ bool DisplayColorManager::LoadCalibrationForDisplay(
   // TODO: enable QuirksManager for mash. http://crbug.com/728748. Some tests
   // don't create the Shell when running this code, hence the
   // Shell::HasInstance() conditional.
-  if (Shell::HasInstance() && Shell::GetAshConfig() == Config::MASH)
+  if (Shell::HasInstance() &&
+      (base::FeatureList::IsEnabled(::features::kMashDeprecated) ||
+       base::FeatureList::IsEnabled(::features::kMash))) {
     return false;
+  }
 
   const bool valid_product_code =
       display->product_code() != display::DisplaySnapshot::kInvalidProductCode;
@@ -389,7 +422,8 @@ void DisplayColorManager::ResetDisplayColorCalibration(int64_t display_id) {
   ApplyDisplayColorCalibration(display_id, {} /* calibration_data */);
 }
 
-DisplayColorManager::ColorCalibrationData::ColorCalibrationData() = default;
+DisplayColorManager::ColorCalibrationData::ColorCalibrationData()
+    : correction_matrix{1, 0, 0, 0, 1, 0, 0, 0, 1} {};
 
 DisplayColorManager::ColorCalibrationData::~ColorCalibrationData() = default;
 

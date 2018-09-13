@@ -34,18 +34,19 @@ namespace opt {
 
 // See optimizer.hpp for documentation.
 class LocalMultiStoreElimPass : public MemPass {
-  using cbb_ptr = const ir::BasicBlock*;
+  using cbb_ptr = const opt::BasicBlock*;
 
  public:
   using GetBlocksFunction =
-      std::function<std::vector<ir::BasicBlock*>*(const ir::BasicBlock*)>;
+      std::function<std::vector<opt::BasicBlock*>*(const opt::BasicBlock*)>;
 
   LocalMultiStoreElimPass();
   const char* name() const override { return "eliminate-local-multi-store"; }
-  Status Process(ir::IRContext* c) override;
+  Status Process(opt::IRContext* c) override;
 
-  ir::IRContext::Analysis GetPreservedAnalyses() override {
-    return ir::IRContext::kAnalysisDefUse;
+  opt::IRContext::Analysis GetPreservedAnalyses() override {
+    return opt::IRContext::kAnalysisDefUse |
+           opt::IRContext::kAnalysisInstrToBlockMapping;
   }
 
  private:
@@ -55,14 +56,7 @@ class LocalMultiStoreElimPass : public MemPass {
   // Return true if all extensions in this module are allowed by this pass.
   bool AllExtensionsSupported() const;
 
-  // Remove remaining loads and stores of function scope variables only
-  // referenced with non-access-chain loads and stores from function |func|.
-  // Insert Phi functions where necessary. Running LocalAccessChainRemoval,
-  // SingleBlockLocalElim and SingleStoreLocalElim beforehand will improve
-  // the runtime and effectiveness of this function.
-  bool EliminateMultiStoreLocal(ir::Function* func);
-
-  void Initialize(ir::IRContext* c);
+  void Initialize(opt::IRContext* c);
   Pass::Status ProcessImpl();
 
   // Extensions supported by this pass.

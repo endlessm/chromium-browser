@@ -4,49 +4,53 @@
 
 package org.chromium.chrome.browser.compositor.layouts.components;
 
-import static org.chromium.chrome.browser.compositor.layouts.ChromeAnimation.AnimatableAnimation.createAnimation;
-
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Color;
 import android.graphics.RectF;
+import android.support.annotation.IntDef;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.animation.FloatProperty;
 import org.chromium.chrome.browser.compositor.layouts.ChromeAnimation;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.toolbar.ToolbarPhone;
-import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.browser.util.MathUtils;
-import org.chromium.ui.interpolators.BakedBezierInterpolator;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * {@link LayoutTab} is used to keep track of a thumbnail's bitmap and position and to
  * draw itself onto the GL canvas at the desired Y Offset.
  */
-public class LayoutTab implements ChromeAnimation.Animatable<LayoutTab.Property> {
+public class LayoutTab implements ChromeAnimation.Animatable {
     /**
      * Properties that can be animated by using a
      * {@link org.chromium.chrome.browser.compositor.layouts.ChromeAnimation.Animatable}.
      */
-    public enum Property {
-        BORDER_ALPHA,
-        BORDER_SCALE,
-        ALPHA,
-        SATURATION,
-        STATIC_TO_VIEW_BLEND,
-        SCALE,
-        TILTX,
-        TILTY,
-        X,
-        Y,
-        MAX_CONTENT_WIDTH,
-        MAX_CONTENT_HEIGHT,
-        TOOLBAR_ALPHA,
-        DECORATION_ALPHA,
-        TOOLBAR_Y_OFFSET,
-        SIDE_BORDER_SCALE,
-        TOOLBAR_COLOR,
+    @IntDef({Property.BORDER_ALPHA, Property.BORDER_SCALE, Property.ALPHA, Property.SATURATION,
+            Property.STATIC_TO_VIEW_BLEND, Property.SCALE, Property.TILTX, Property.TILTY,
+            Property.X, Property.Y, Property.MAX_CONTENT_WIDTH, Property.MAX_CONTENT_HEIGHT,
+            Property.TOOLBAR_ALPHA, Property.DECORATION_ALPHA, Property.TOOLBAR_Y_OFFSET,
+            Property.SIDE_BORDER_SCALE})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Property {
+        int BORDER_ALPHA = 0;
+        int BORDER_SCALE = 1;
+        int ALPHA = 2;
+        int SATURATION = 3;
+        int STATIC_TO_VIEW_BLEND = 4;
+        int SCALE = 5;
+        int TILTX = 6;
+        int TILTY = 7;
+        int X = 8;
+        int Y = 9;
+        int MAX_CONTENT_WIDTH = 10;
+        int MAX_CONTENT_HEIGHT = 11;
+        int TOOLBAR_ALPHA = 12;
+        int DECORATION_ALPHA = 13;
+        int TOOLBAR_Y_OFFSET = 14;
+        int SIDE_BORDER_SCALE = 15;
     }
 
     public static final float ALPHA_THRESHOLD = 1.0f / 255.0f;
@@ -122,7 +126,7 @@ public class LayoutTab implements ChromeAnimation.Animatable<LayoutTab.Property>
     private boolean mInitFromHostCalled;
 
     /** The animation set specific to this LayoutTab. */
-    private ChromeAnimation<ChromeAnimation.Animatable<?>> mCurrentAnimations;
+    private ChromeAnimation<ChromeAnimation.Animatable> mCurrentAnimations;
     private int mInitialThemeColor;
     private int mFinalThemeColor;
 
@@ -227,30 +231,7 @@ public class LayoutTab implements ChromeAnimation.Animatable<LayoutTab.Property>
 
         boolean needsUpdate = false;
 
-        // If the toolbar color changed, animate between the old and new colors.
-        if (mToolbarBackgroundColor != toolbarBackgroundColor && isVisible()
-                && mInitFromHostCalled) {
-            ChromeAnimation.Animation<ChromeAnimation.Animatable<?>>  themeColorAnimation =
-                    createAnimation(this, Property.TOOLBAR_COLOR, 0.0f, 1.0f,
-                    ToolbarPhone.THEME_COLOR_TRANSITION_DURATION, 0, false,
-                    BakedBezierInterpolator.TRANSFORM_CURVE);
-
-            mInitialThemeColor = mToolbarBackgroundColor;
-            mFinalThemeColor = toolbarBackgroundColor;
-
-            if (mCurrentAnimations != null) {
-                mCurrentAnimations.updateAndFinish();
-            }
-
-            mCurrentAnimations = new ChromeAnimation<ChromeAnimation.Animatable<?>>();
-            mCurrentAnimations.add(themeColorAnimation);
-            mCurrentAnimations.start();
-            needsUpdate = true;
-        } else {
-            // If the layout tab isn't visible, just set the toolbar color without animating.
-            mToolbarBackgroundColor = toolbarBackgroundColor;
-        }
-
+        mToolbarBackgroundColor = toolbarBackgroundColor;
         mTextBoxBackgroundColor = textBoxBackgroundColor;
         mTextBoxAlpha = textBoxAlpha;
         mShouldStall = shouldStall;
@@ -959,69 +940,61 @@ public class LayoutTab implements ChromeAnimation.Animatable<LayoutTab.Property>
      * @param val The value to set it to
      */
     @Override
-    public void setProperty(Property prop, float val) {
+    public void setProperty(@Property int prop, float val) {
         switch (prop) {
-            case BORDER_ALPHA:
+            case Property.BORDER_ALPHA:
                 setBorderAlpha(val);
                 break;
-            case BORDER_SCALE:
+            case Property.BORDER_SCALE:
                 setBorderScale(val);
                 break;
-            case ALPHA:
+            case Property.ALPHA:
                 setAlpha(val);
                 break;
-            case SATURATION:
+            case Property.SATURATION:
                 setSaturation(val);
                 break;
-            case STATIC_TO_VIEW_BLEND:
+            case Property.STATIC_TO_VIEW_BLEND:
                 setStaticToViewBlend(val);
                 break;
-            case SCALE:
+            case Property.SCALE:
                 setScale(val);
                 break;
-            case TILTX:
+            case Property.TILTX:
                 setTiltX(val, mTiltXPivotOffset);
                 break;
-            case TILTY:
+            case Property.TILTY:
                 setTiltY(val, mTiltYPivotOffset);
                 break;
-            case X:
+            case Property.X:
                 setX(val);
                 break;
-            case Y:
+            case Property.Y:
                 setY(val);
                 break;
-            case MAX_CONTENT_WIDTH:
+            case Property.MAX_CONTENT_WIDTH:
                 setMaxContentWidth(val);
                 break;
-            case MAX_CONTENT_HEIGHT:
+            case Property.MAX_CONTENT_HEIGHT:
                 setMaxContentHeight(val);
                 break;
-            case TOOLBAR_ALPHA:
+            case Property.TOOLBAR_ALPHA:
                 setToolbarAlpha(val);
                 break;
-            case DECORATION_ALPHA:
+            case Property.DECORATION_ALPHA:
                 setDecorationAlpha(val);
                 break;
-            case TOOLBAR_Y_OFFSET:
+            case Property.TOOLBAR_Y_OFFSET:
                 setToolbarYOffset(val);
                 break;
-            case SIDE_BORDER_SCALE:
+            case Property.SIDE_BORDER_SCALE:
                 setSideBorderScale(val);
-                break;
-            case TOOLBAR_COLOR:
-                if (!isVisible()) {
-                    mCurrentAnimations.updateAndFinish();
-                } else {
-                    mToolbarBackgroundColor = ColorUtils.getColorWithOverlay(mInitialThemeColor,
-                            mFinalThemeColor, val);
-                }
                 break;
         }
     }
 
     @Override
-    public void onPropertyAnimationFinished(Property prop) {
+    public void onPropertyAnimationFinished(@Property int prop) {
         if (mCurrentAnimations != null && mCurrentAnimations.finished()) {
             mCurrentAnimations = null;
         }

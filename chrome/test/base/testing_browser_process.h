@@ -72,7 +72,10 @@ class TestingBrowserProcess : public BrowserProcess {
   rappor::RapporServiceImpl* rappor_service() override;
   IOThread* io_thread() override;
   SystemNetworkContextManager* system_network_context_manager() override;
+  scoped_refptr<network::SharedURLLoaderFactory> shared_url_loader_factory()
+      override;
   content::NetworkConnectionTracker* network_connection_tracker() override;
+  network::NetworkQualityTracker* network_quality_tracker() override;
   WatchDogThread* watchdog_thread() override;
   ProfileManager* profile_manager() override;
   PrefService* local_state() override;
@@ -144,6 +147,8 @@ class TestingBrowserProcess : public BrowserProcess {
       std::unique_ptr<optimization_guide::OptimizationGuideService>
           optimization_guide_service);
   void SetSystemRequestContext(net::URLRequestContextGetter* context_getter);
+  void SetSharedURLLoaderFactory(
+      scoped_refptr<network::SharedURLLoaderFactory> shared_url_loader_factory);
   void SetNetworkConnectionTracker(
       std::unique_ptr<content::NetworkConnectionTracker> tracker);
   void SetNotificationUIManager(
@@ -193,7 +198,7 @@ class TestingBrowserProcess : public BrowserProcess {
 
   // |tab_manager_| is null by default and will be created when
   // GetTabManager() is invoked on supported platforms.
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
+#if !defined(OS_ANDROID)
   std::unique_ptr<resource_coordinator::TabManager> tab_manager_;
   std::unique_ptr<resource_coordinator::TabLifecycleUnitSource>
       tab_lifecycle_unit_source_;
@@ -203,6 +208,7 @@ class TestingBrowserProcess : public BrowserProcess {
   PrefService* local_state_;
   IOThread* io_thread_;
   net::URLRequestContextGetter* system_request_context_;
+  scoped_refptr<network::SharedURLLoaderFactory> shared_url_loader_factory_;
   rappor::RapporServiceImpl* rappor_service_;
 
   std::unique_ptr<BrowserProcessPlatformPart> platform_part_;

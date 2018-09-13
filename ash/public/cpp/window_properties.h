@@ -19,6 +19,10 @@ template <typename T>
 using WindowProperty = ui::ClassProperty<T>;
 }
 
+namespace base {
+class UnguessableToken;
+}
+
 namespace gfx {
 class ImageSkia;
 class Rect;
@@ -37,6 +41,14 @@ enum class BackdropWindowMode {
   kAuto,  // The window manager decides if the window should have a backdrop.
 };
 
+enum class FrameBackButtonState {
+  kNone,      // Window frame shouldn't have a back button.
+  kEnabled,   // Window frame should have a back button, and it should be
+              // enabled.
+  kDisabled,  // Window frame should have a back button, but it should be
+              // disabled.
+};
+
 // Registers Ash's properties with the given PropertyConverter. This allows Ash
 // and other services (eg. Chrome) to exchange Ash window property values.
 ASH_PUBLIC_EXPORT void RegisterWindowProperties(
@@ -51,23 +63,61 @@ ASH_PUBLIC_EXPORT void RegisterWindowProperties(
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<BackdropWindowMode>* const
     kBackdropWindowMode;
 
+// If set to true, the window will be replaced by a black rectangle when taking
+// screenshot for assistant. Used to preserve privacy for incognito windows.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kBlockedForAssistantSnapshotKey;
+
+// If true, the window can attach into another window.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kCanAttachToAnotherWindowKey;
+
 // If true, will send system keys to the window for dispatch.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kCanConsumeSystemKeysKey;
 
-// The frame's active image. Only set on themed windows.
-ASH_PUBLIC_EXPORT extern const aura::WindowProperty<gfx::ImageSkia*>* const
-    kFrameImageActiveKey;
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<FrameBackButtonState>* const
+    kFrameBackButtonStateKey;
+
+// The frame header's images. Only set on themed windows. The type is a token
+// which can be redeemed with the ClientImageRegistry to get a gfx::ImageSkia.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<
+    base::UnguessableToken*>* const kFrameImageActiveKey;
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<
+    base::UnguessableToken*>* const kFrameImageInactiveKey;
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<
+    base::UnguessableToken*>* const kFrameImageOverlayActiveKey;
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<
+    base::UnguessableToken*>* const kFrameImageOverlayInactiveKey;
+
+// A property that controls where a themed window's image is painted.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<int>* const
+    kFrameImageYInsetKey;
+
+// A property key to indicate whether we should hide this window in overview
+// mode and Alt + Tab.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kHideInOverviewKey;
 
 // Whether the shelf should be hidden when this window is put into fullscreen.
 // Exposed because some windows want to explicitly opt-out of this.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kHideShelfWhenFullscreenKey;
 
+// If true, the window is the target window for the tab-dragged window. The key
+// is used by overview to show a highlight indication to indicate which overview
+// window the dragged tabs will merge into when the user releases the pointer.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kIsDeferredTabDraggingTargetWindowKey;
+
 // If true, the window is a browser window and its tab(s) are currently being
 // dragged.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kIsDraggingTabsKey;
+
+// If true, the window is currently showing in overview mode.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kIsShowingInOverviewKey;
 
 // If true (and the window is a panel), it's attached to its shelf item.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
@@ -90,6 +140,13 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<gfx::Rect*>* const
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<
     mojom::WindowStateType>* const kRestoreWindowStateTypeOverrideKey;
 
+// A property key to store whether search key accelerator is reserved for a
+// window. This is used to pass through search key accelerators to Android
+// window if user is navigating with TalkBack (screen reader on Android).
+// TalkBack uses search key as a modifier key.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kSearchKeyAcceleratorReservedKey;
+
 // A property key to store the id for a window's shelf item.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<std::string*>* const
     kShelfIDKey;
@@ -97,11 +154,6 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<std::string*>* const
 // A property key to store the type of a window's shelf item.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<int32_t>* const
     kShelfItemTypeKey;
-
-// A property key to indicate whether we should hide this window in overview
-// mode and Alt + Tab.
-ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
-    kShowInOverviewKey;
 
 // A property key to store the address of the source window that the drag
 // originated from if the window is currenlty in tab-dragging process.
@@ -114,6 +166,15 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<SkColor>* const
 // A property key to store the inactive color on the window frame.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<SkColor>* const
     kFrameInactiveColorKey;
+
+// True when the frame colors were provided by a hosted app, i.e. by a
+// progressive web app manifest.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kFrameIsThemedByHostedAppKey;
+
+// A property that controls the color of text rendered on a browser frame.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<SkColor>* const
+    kFrameTextColorKey;
 
 // A property key to store ash::WindowPinType for a window.
 // When setting this property to PINNED or TRUSTED_PINNED, the window manager
@@ -132,11 +193,6 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
 // A property key to indicate ash's extended window state.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<
     mojom::WindowStateType>* const kWindowStateTypeKey;
-
-// Determines whether the window title should be drawn. For example, app and
-// non-tabbed, trusted source windows (such as Settings) will not show a title.
-ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
-    kWindowTitleShownKey;
 
 // Alphabetical sort.
 

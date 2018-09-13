@@ -12,17 +12,13 @@
 #include "base/memory/scoped_refptr.h"
 #include "services/service_manager/public/mojom/service.mojom.h"
 
-namespace base {
-class SingleThreadTaskRunner;
-}
-
 namespace service_manager {
 class ServiceContext;
 }
 
 namespace ui {
 namespace ws2 {
-class GpuSupport;
+class GpuInterfaceProvider;
 class WindowService;
 }  // namespace ws2
 }  // namespace ui
@@ -36,16 +32,23 @@ class WindowServiceDelegateImpl;
 // BindWindowService() is called the WindowService is created.
 class ASH_EXPORT WindowServiceOwner {
  public:
-  explicit WindowServiceOwner(std::unique_ptr<ui::ws2::GpuSupport> gpu_support);
+  explicit WindowServiceOwner(
+      std::unique_ptr<ui::ws2::GpuInterfaceProvider> gpu_interface_provider);
   ~WindowServiceOwner();
 
   // Called from the ServiceManager when a request is made for the
   // WindowService.
   void BindWindowService(service_manager::mojom::ServiceRequest request);
 
+  // Returns the WindowService, or null if BindWindowService() hasn't been
+  // called yet.
+  ui::ws2::WindowService* window_service() { return window_service_; }
+
  private:
+  friend class AshTestHelper;
+
   // Non-null until |service_context_| is created.
-  std::unique_ptr<ui::ws2::GpuSupport> gpu_support_;
+  std::unique_ptr<ui::ws2::GpuInterfaceProvider> gpu_interface_provider_;
 
   // The following state is created once BindWindowService() is called.
 
@@ -55,17 +58,10 @@ class ASH_EXPORT WindowServiceOwner {
   std::unique_ptr<service_manager::ServiceContext> service_context_;
 
   // The WindowService. This is owned by |service_context_|.
-  ui::ws2::WindowService* window_service_;
+  ui::ws2::WindowService* window_service_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(WindowServiceOwner);
 };
-
-// This function should be bound to a ServiceManagerConnection. The
-// ServiceManager executes this on a background thread, so this posts a task
-// to |main_runner| that calls BindWindowService().
-ASH_EXPORT void BindWindowServiceOnIoThread(
-    scoped_refptr<base::SingleThreadTaskRunner> main_runner,
-    service_manager::mojom::ServiceRequest request);
 
 }  // namespace ash
 

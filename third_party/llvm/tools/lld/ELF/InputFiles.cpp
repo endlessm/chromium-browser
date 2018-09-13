@@ -126,19 +126,21 @@ std::string InputFile::getSrcMsg(const Symbol &Sym, InputSectionBase &Sec,
 template <class ELFT> void ObjFile<ELFT>::initializeDwarf() {
   Dwarf = llvm::make_unique<DWARFContext>(make_unique<LLDDwarfObj<ELFT>>(this));
   const DWARFObject &Obj = Dwarf->getDWARFObj();
-  DwarfLine.reset(new DWARFDebugLine);
   DWARFDataExtractor LineData(Obj, Obj.getLineSection(), Config->IsLE,
                               Config->Wordsize);
 
   for (std::unique_ptr<DWARFCompileUnit> &CU : Dwarf->compile_units()) {
+    auto Report = [](Error Err) {
+      handleAllErrors(std::move(Err),
+                      [](ErrorInfoBase &Info) { warn(Info.message()); });
+    };
     Expected<const DWARFDebugLine::LineTable *> ExpectedLT =
-        Dwarf->getLineTableForUnit(CU.get(), warn);
+        Dwarf->getLineTableForUnit(CU.get(), Report);
     const DWARFDebugLine::LineTable *LT = nullptr;
     if (ExpectedLT)
       LT = *ExpectedLT;
     else
-      handleAllErrors(ExpectedLT.takeError(),
-                      [](ErrorInfoBase &Err) { warn(Err.message()); });
+      Report(ExpectedLT.takeError());
     if (!LT)
       continue;
     LineTables.push_back(LT);
@@ -164,10 +166,15 @@ template <class ELFT> void ObjFile<ELFT>::initializeDwarf() {
       // Get the line number on which the variable is declared.
       unsigned Line = dwarf::toUnsigned(Die.find(dwarf::DW_AT_decl_line), 0);
 
-      // Get the name of the variable and add the collected information to
-      // VariableLoc. Usually Name is non-empty, but it can be empty if the
+      // Here we want to take the variable name to add it into VariableLoc.
+      // Variable can have regular and linkage name associated. At first, we try
+      // to get linkage name as it can be different, for example when we have
+      // two variables in different namespaces of the same object. Use common
+      // name otherwise, but handle the case when it also absent in case if the
       // input object file lacks some debug info.
-      StringRef Name = dwarf::toString(Die.find(dwarf::DW_AT_name), "");
+      StringRef Name =
+          dwarf::toString(Die.find(dwarf::DW_AT_linkage_name),
+                          dwarf::toString(Die.find(dwarf::DW_AT_name), ""));
       if (!Name.empty())
         VariableLoc.insert({Name, {LT, File, Line}});
     }
@@ -212,14 +219,6 @@ Optional<DILineInfo> ObjFile<ELFT>::getDILineInfo(InputSectionBase *S,
             DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath, Info))
       return Info;
   return None;
-}
-
-// Returns source line information for a given offset using DWARF debug info.
-template <class ELFT>
-std::string ObjFile<ELFT>::getLineInfo(InputSectionBase *S, uint64_t Offset) {
-  if (Optional<DILineInfo> Info = getDILineInfo(S, Offset))
-    return Info->FileName + ":" + std::to_string(Info->Line);
-  return "";
 }
 
 // Returns "<internal>", "foo.a(bar.o)" or "baz.o".
@@ -421,6 +420,17 @@ void ObjFile<ELFT>::initializeSections(
     // if -r is given, we'll let the final link discard such sections.
     // This is compatible with GNU.
     if ((Sec.sh_flags & SHF_EXCLUDE) && !Config->Relocatable) {
+      if (Sec.sh_type == SHT_LLVM_ADDRSIG) {
+        // We ignore the address-significance table if we know that the object
+        // file was created by objcopy or ld -r. This is because these tools
+        // will reorder the symbols in the symbol table, invalidating the data
+        // in the address-significance table, which refers to symbols by index.
+        if (Sec.sh_link != 0)
+          this->AddrsigSec = &Sec;
+        else if (Config->ICF == ICFLevel::Safe)
+          warn(toString(this) + ": --icf=safe is incompatible with object "
+                                "files created using objcopy or ld -r");
+      }
       this->Sections[I] = &InputSection::Discarded;
       continue;
     }
@@ -646,13 +656,24 @@ InputSectionBase *ObjFile<ELFT>::createInputSection(const Elf_Shdr &Sec) {
   if (Name == ".note.GNU-stack")
     return &InputSection::Discarded;
 
-  // Split stacks is a feature to support a discontiguous stack. At least
-  // as of 2017, it seems that the feature is not being used widely.
-  // Only GNU gold supports that. We don't. For the details about that,
-  // see https://gcc.gnu.org/wiki/SplitStacks
+  // Split stacks is a feature to support a discontiguous stack,
+  // commonly used in the programming language Go. For the details,
+  // see https://gcc.gnu.org/wiki/SplitStacks. An object file compiled
+  // for split stack will include a .note.GNU-split-stack section.
   if (Name == ".note.GNU-split-stack") {
-    error(toString(this) +
-          ": object file compiled with -fsplit-stack is not supported");
+    if (Config->Relocatable) {
+      error("Cannot mix split-stack and non-split-stack in a relocatable link");
+      return &InputSection::Discarded;
+    }
+    this->SplitStack = true;
+    return &InputSection::Discarded;
+  }
+
+  // An object file cmpiled for split stack, but where some of the
+  // functions were compiled with the no_split_stack_attribute will
+  // include a .note.GNU-no-split-stack section.
+  if (Name == ".note.GNU-no-split-stack") {
+    this->SomeNoSplitStack = true;
     return &InputSection::Discarded;
   }
 
@@ -892,16 +913,12 @@ std::vector<const typename ELFT::Verdef *> SharedFile<ELFT>::parseVerdefs() {
 template <class ELFT>
 uint32_t SharedFile<ELFT>::getAlignment(ArrayRef<Elf_Shdr> Sections,
                                         const Elf_Sym &Sym) {
-  uint64_t Ret = 1;
+  uint64_t Ret = UINT64_MAX;
   if (Sym.st_value)
     Ret = 1ULL << countTrailingZeros((uint64_t)Sym.st_value);
   if (0 < Sym.st_shndx && Sym.st_shndx < Sections.size())
     Ret = std::min<uint64_t>(Ret, Sections[Sym.st_shndx].sh_addralign);
-
-  if (Ret > UINT32_MAX)
-    error(toString(this) + ": alignment too large: " +
-          CHECK(Sym.getName(this->StringTable), this));
-  return Ret;
+  return (Ret > UINT32_MAX) ? 0 : Ret;
 }
 
 // Fully parse the shared object file. This must be called after parseSoName().
@@ -1014,8 +1031,9 @@ static uint8_t getBitcodeMachineKind(StringRef Path, const Triple &T) {
   case Triple::x86_64:
     return EM_X86_64;
   default:
-    fatal(Path + ": could not infer e_machine from bitcode target triple " +
+    error(Path + ": could not infer e_machine from bitcode target triple " +
           T.str());
+    return EM_NONE;
   }
 }
 
@@ -1062,7 +1080,7 @@ template <class ELFT>
 static Symbol *createBitcodeSymbol(const std::vector<bool> &KeptComdats,
                                    const lto::InputFile::Symbol &ObjSym,
                                    BitcodeFile &F) {
-  StringRef NameRef = Saver.save(ObjSym.getName());
+  StringRef Name = Saver.save(ObjSym.getName());
   uint32_t Binding = ObjSym.isWeak() ? STB_WEAK : STB_GLOBAL;
 
   uint8_t Type = ObjSym.isTLS() ? STT_TLS : STT_NOTYPE;
@@ -1071,20 +1089,20 @@ static Symbol *createBitcodeSymbol(const std::vector<bool> &KeptComdats,
 
   int C = ObjSym.getComdatIndex();
   if (C != -1 && !KeptComdats[C])
-    return Symtab->addUndefined<ELFT>(NameRef, Binding, Visibility, Type,
+    return Symtab->addUndefined<ELFT>(Name, Binding, Visibility, Type,
                                       CanOmitFromDynSym, &F);
 
   if (ObjSym.isUndefined())
-    return Symtab->addUndefined<ELFT>(NameRef, Binding, Visibility, Type,
+    return Symtab->addUndefined<ELFT>(Name, Binding, Visibility, Type,
                                       CanOmitFromDynSym, &F);
 
   if (ObjSym.isCommon())
-    return Symtab->addCommon(NameRef, ObjSym.getCommonSize(),
+    return Symtab->addCommon(Name, ObjSym.getCommonSize(),
                              ObjSym.getCommonAlignment(), Binding, Visibility,
                              STT_OBJECT, F);
 
-  return Symtab->addBitcode(NameRef, Binding, Visibility, Type,
-                            CanOmitFromDynSym, F);
+  return Symtab->addBitcode(Name, Binding, Visibility, Type, CanOmitFromDynSym,
+                            F);
 }
 
 template <class ELFT>

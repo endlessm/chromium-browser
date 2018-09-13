@@ -9,6 +9,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.RectF;
+import android.support.annotation.IntDef;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.Interpolator;
 
@@ -28,13 +29,20 @@ import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.browser.util.MathUtils;
 import org.chromium.ui.base.LocalizationUtils;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
 /**
  * Handles all the drawing and events of a stack of stackTabs.
  *
  * @VisibleForTesting
  */
-public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property> {
-    enum Property { SCROLL_OFFSET }
+public abstract class Stack implements ChromeAnimation.Animatable {
+    @IntDef({Property.SCROLL_OFFSET})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Property {
+        int SCROLL_OFFSET = 0;
+    }
 
     public static final int MAX_NUMBER_OF_STACKED_TABS_TOP = 3;
     public static final int MAX_NUMBER_OF_STACKED_TABS_BOTTOM = 3;
@@ -43,7 +51,13 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
     private static final float STACK_LANDSCAPE_START_OFFSET_PROPORTION = -0.7f;
     private static final float STACK_LANDSCAPE_Y_OFFSET_PROPORTION = -0.5f;
 
-    public enum DragLock { NONE, SCROLL, DISCARD }
+    @IntDef({DragLock.NONE, DragLock.SCROLL, DragLock.DISCARD})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface DragLock {
+        int NONE = 0;
+        int SCROLL = 1;
+        int DISCARD = 2;
+    }
 
     /**
      * The percentage of the screen to cover for the discarded tab to be fully transparent.
@@ -169,7 +183,7 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
             new AccelerateDecelerateInterpolator();
 
     // Drag Lock
-    private DragLock mDragLock = DragLock.NONE;
+    private @DragLock int mDragLock = DragLock.NONE;
     private long mLastScrollUpdate;
     private float mMinScrollMotion;
 
@@ -200,7 +214,7 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
     protected int mCurrentMode = Orientation.PORTRAIT;
 
     // Animation Variables
-    protected OverviewAnimationType mOverviewAnimationType = OverviewAnimationType.NONE;
+    protected @OverviewAnimationType int mOverviewAnimationType = OverviewAnimationType.NONE;
     private StackAnimation mAnimationFactory;
     private StackViewAnimation mViewAnimationFactory;
 
@@ -334,9 +348,7 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
             startAnimation(time, OverviewAnimationType.DISCARD);
         }
 
-        if (newIndex == 0) {
-            mIsDying = true;
-        }
+        if (newIndex == 0) mIsDying = true;
     }
 
     /**
@@ -474,7 +486,7 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
      * @param time The current time of the app in ms.
      * @param type The type of the animation to start.
      */
-    protected void startAnimation(long time, OverviewAnimationType type) {
+    protected void startAnimation(long time, @OverviewAnimationType int type) {
         startAnimation(time, type, TabList.INVALID_TAB_INDEX, false);
     }
 
@@ -485,7 +497,8 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
      * @param type The type of the animation to start.
      * @param finishImmediately Whether the animation jumps straight to the end.
      */
-    private void startAnimation(long time, OverviewAnimationType type, boolean finishImmediately) {
+    private void startAnimation(
+            long time, @OverviewAnimationType int type, boolean finishImmediately) {
         startAnimation(time, type, TabList.INVALID_TAB_INDEX, finishImmediately);
     }
 
@@ -497,12 +510,12 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
      * @param sourceIndex The source index needed by some animation types.
      * @param finishImmediately Whether the animation jumps straight to the end.
      */
-    protected void startAnimation(
-            long time, OverviewAnimationType type, int sourceIndex, boolean finishImmediately) {
+    protected void startAnimation(long time, @OverviewAnimationType int type, int sourceIndex,
+            boolean finishImmediately) {
         startAnimation(time, type, mTabList.index(), sourceIndex, finishImmediately);
     }
 
-    private void startAnimation(long time, OverviewAnimationType type, int focusIndex,
+    private void startAnimation(long time, @OverviewAnimationType int type, int focusIndex,
             int sourceIndex, boolean finishImmediately) {
         if (!canUpdateAnimation(time, type, sourceIndex, finishImmediately)) {
             // We need to finish animations started earlier before we start
@@ -555,30 +568,30 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
         if (mTabAnimations != null || mViewAnimations != null) mLayout.onStackAnimationFinished();
 
         switch (mOverviewAnimationType) {
-            case ENTER_STACK:
+            case OverviewAnimationType.ENTER_STACK:
                 mLayout.uiDoneEnteringStack();
                 break;
-            case FULL_ROLL:
+            case OverviewAnimationType.FULL_ROLL:
                 for (int i = 0; i < mStackTabs.length; i++) {
                     mStackTabs[i].getLayoutTab().setTiltX(0, 0);
                     mStackTabs[i].getLayoutTab().setTiltY(0, 0);
                 }
                 springBack(time);
                 break;
-            case TAB_FOCUSED:
+            case OverviewAnimationType.TAB_FOCUSED:
             // Purposeful fall through
-            case NEW_TAB_OPENED:
+            case OverviewAnimationType.NEW_TAB_OPENED:
                 // Nothing to do.
                 break;
-            case DISCARD_ALL:
+            case OverviewAnimationType.DISCARD_ALL:
                 mLayout.uiDoneClosingAllTabs(mTabList.isIncognito());
                 cleanupStackTabState();
                 break;
-            case UNDISCARD:
+            case OverviewAnimationType.UNDISCARD:
             // Purposeful fall through because if UNDISCARD animation updated DISCARD animation,
             // DISCARD animation clean up below is not called so UNDISCARD is responsible for
             // cleaning it up.
-            case DISCARD:
+            case OverviewAnimationType.DISCARD:
                 // Remove all dying tabs from mStackTabs.
                 if (mStackTabs != null) {
                     // Request for the model to be updated.
@@ -663,8 +676,8 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
      * @return                  true, if we can start the animation without cleaning up the current
      *                          animation.
      */
-    private boolean canUpdateAnimation(
-            long time, OverviewAnimationType type, int sourceIndex, boolean finishImmediately) {
+    private boolean canUpdateAnimation(long time, @OverviewAnimationType int type, int sourceIndex,
+            boolean finishImmediately) {
         if (mAnimationFactory != null) {
             if ((mOverviewAnimationType == OverviewAnimationType.DISCARD
                         || mOverviewAnimationType == OverviewAnimationType.UNDISCARD
@@ -751,11 +764,12 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
      * @return            The current lock mode or a hint if the motion was not strong enough
      *                    to fully lock the mode.
      */
-    private DragLock computeDragLock(float scrollDrag, float discardDrag) {
+    private @DragLock int computeDragLock(float scrollDrag, float discardDrag) {
         scrollDrag = Math.abs(scrollDrag);
         discardDrag = Math.abs(discardDrag);
-        DragLock hintLock = (discardDrag * DRAG_ANGLE_THRESHOLD) > scrollDrag ? DragLock.DISCARD
-                                                                              : DragLock.SCROLL;
+        @DragLock
+        int hintLock = (discardDrag * DRAG_ANGLE_THRESHOLD) > scrollDrag ? DragLock.DISCARD
+                                                                         : DragLock.SCROLL;
         // If the user paused the drag for too long, re-determine what the new action is.
         long timeMillisecond = System.currentTimeMillis();
         if ((timeMillisecond - mLastScrollUpdate) > DRAG_TIME_THRESHOLD) {
@@ -803,7 +817,8 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
             discardDrag = amountY;
             scrollDrag = LocalizationUtils.isLayoutRtl() ? -amountX : amountX;
         }
-        DragLock hintLock = computeDragLock(scrollDrag, discardDrag);
+        @DragLock
+        int hintLock = computeDragLock(scrollDrag, discardDrag);
         if (hintLock == DragLock.DISCARD) {
             discard(x, y, amountX, amountY);
         } else {
@@ -1932,8 +1947,7 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
         mAnimationFactory = StackAnimation.createAnimationFactory(this, mLayout.getWidth(),
                 mLayout.getHeight(), mLayout.getTopBrowserControlsHeight(), mBorderTopPadding,
                 opaqueTopPadding, mBorderLeftPadding, mCurrentMode);
-        float dpToPx = mLayout.getContext().getResources().getDisplayMetrics().density;
-        mViewAnimationFactory = new StackViewAnimation(dpToPx, mLayout.getWidth());
+        mViewAnimationFactory = new StackViewAnimation(mLayout.getContext().getResources());
         if (mStackTabs == null) return;
         float width = mLayout.getWidth();
         for (int i = 0; i < mStackTabs.length; i++) {
@@ -1975,7 +1989,7 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
      * @param x         The horizontal coordinate the swipe started at in dp.
      * @param y         The vertical coordinate the swipe started at in dp.
      */
-    public void swipeStarted(long time, ScrollDirection direction, float x, float y) {
+    public void swipeStarted(long time, @ScrollDirection int direction, float x, float y) {
         if (direction != ScrollDirection.DOWN) return;
 
         // Restart the enter stack animation with the new warp values.
@@ -2127,14 +2141,10 @@ public abstract class Stack implements ChromeAnimation.Animatable<Stack.Property
     }
 
     @Override
-    public void setProperty(Property prop, float val) {
-        switch (prop) {
-            case SCROLL_OFFSET:
-                setScrollTarget(val, true);
-                break;
-        }
+    public void setProperty(@Property int prop, float val) {
+        if (prop == Property.SCROLL_OFFSET) setScrollTarget(val, true);
     }
 
     @Override
-    public void onPropertyAnimationFinished(Property prop) {}
+    public void onPropertyAnimationFinished(@Property int prop) {}
 }

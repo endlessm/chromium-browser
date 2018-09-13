@@ -45,7 +45,7 @@ int CalculateLoadFlags(int load_flags,
   if (disable_cache)
     load_flags |= net::LOAD_DISABLE_CACHE;
   if (disable_connection_migration)
-    load_flags |= net::LOAD_DISABLE_CONNECTION_MIGRATION;
+    load_flags |= net::LOAD_DISABLE_CONNECTION_MIGRATION_TO_CELLULAR;
   return load_flags;
 }
 
@@ -301,7 +301,8 @@ void CronetURLRequest::NetworkTasks::GetStatus(
 
 void CronetURLRequest::NetworkTasks::FollowDeferredRedirect() {
   DCHECK_CALLED_ON_VALID_THREAD(network_thread_checker_);
-  url_request_->FollowDeferredRedirect();
+  url_request_->FollowDeferredRedirect(
+      base::nullopt /* modified_request_headers */);
 }
 
 void CronetURLRequest::NetworkTasks::ReadData(

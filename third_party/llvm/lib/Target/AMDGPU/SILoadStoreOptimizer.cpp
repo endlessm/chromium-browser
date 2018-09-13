@@ -45,6 +45,7 @@
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "SIRegisterInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "Utils/AMDGPUBaseInfo.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
@@ -102,7 +103,7 @@ class SILoadStoreOptimizer : public MachineFunctionPass {
    };
 
 private:
-  const SISubtarget *STM = nullptr;
+  const GCNSubtarget *STM = nullptr;
   const SIInstrInfo *TII = nullptr;
   const SIRegisterInfo *TRI = nullptr;
   MachineRegisterInfo *MRI = nullptr;
@@ -938,7 +939,7 @@ bool SILoadStoreOptimizer::runOnMachineFunction(MachineFunction &MF) {
   if (skipFunction(MF.getFunction()))
     return false;
 
-  STM = &MF.getSubtarget<SISubtarget>();
+  STM = &MF.getSubtarget<GCNSubtarget>();
   if (!STM->loadStoreOptEnabled())
     return false;
 

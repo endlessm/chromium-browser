@@ -7,7 +7,6 @@
 
 #include "Test.h"
 #include "TestUtils.h"
-#if SK_SUPPORT_GPU
 #include "GrContext.h"
 #include "GrContextFactory.h"
 #include "GrContextPriv.h"
@@ -17,6 +16,7 @@
 #include "GrTest.h"
 #include "GrTexture.h"
 #include "GrTextureContext.h"
+#include "GrTexturePriv.h"
 #include "GrTextureProxyPriv.h"
 #include "gl/GLTestContext.h"
 #include "gl/GrGLGpu.h"
@@ -153,7 +153,8 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
     }
 
     // Wrap this texture ID in a GrTexture
-    GrBackendTexture backendTex(kSize, kSize, kRGBA_8888_GrPixelConfig, externalTexture);
+    GrBackendTexture backendTex(kSize, kSize, GrMipMapped::kNo, externalTexture);
+    backendTex.setPixelConfig(kRGBA_8888_GrPixelConfig);
 
     // TODO: If I make this TopLeft origin to match resolve_origin calls for kDefault, this test
     // fails on the Nexus5. Why?
@@ -167,8 +168,9 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
     }
 
     GrTextureProxy* proxy = surfaceContext->asTextureProxy();
-    REPORTER_ASSERT(reporter, proxy->texPriv().doesNotSupportMipMaps());
-    REPORTER_ASSERT(reporter, proxy->priv().peekTexture()->surfacePriv().doesNotSupportMipMaps());
+    REPORTER_ASSERT(reporter, proxy->mipMapped() == GrMipMapped::kNo);
+    REPORTER_ASSERT(reporter,
+                    proxy->priv().peekTexture()->texturePriv().mipMapped() == GrMipMapped::kNo);
 
     REPORTER_ASSERT(reporter, proxy->texPriv().isGLTextureRectangleOrExternal());
     REPORTER_ASSERT(reporter,
@@ -198,5 +200,3 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
 
     cleanup(glCtx0, externalTexture.fID, glCtx1.get(), context1, &backendTexture1, image);
 }
-
-#endif

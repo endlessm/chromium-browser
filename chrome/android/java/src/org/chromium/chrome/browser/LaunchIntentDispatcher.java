@@ -16,7 +16,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.StrictMode;
 import android.support.annotation.IntDef;
-import android.support.annotation.Nullable;
 import android.support.customtabs.CustomTabsIntent;
 import android.support.customtabs.CustomTabsSessionToken;
 import android.support.customtabs.TrustedWebUtils;
@@ -43,8 +42,7 @@ import org.chromium.chrome.browser.tabmodel.DocumentModeAssassin;
 import org.chromium.chrome.browser.upgrade.UpgradeActivity;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.util.IntentUtils;
-import org.chromium.chrome.browser.vr.CustomTabVrActivity;
-import org.chromium.chrome.browser.vr_shell.VrIntentUtils;
+import org.chromium.chrome.browser.vr.VrModuleProvider;
 import org.chromium.chrome.browser.webapps.ActivityAssigner;
 import org.chromium.chrome.browser.webapps.WebappActivity;
 import org.chromium.chrome.browser.webapps.WebappInfo;
@@ -129,9 +127,7 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
      */
     public static @Action int dispatchToCustomTabActivity(Activity currentActivity, Intent intent) {
         LaunchIntentDispatcher dispatcher = new LaunchIntentDispatcher(currentActivity, intent);
-        if (!dispatcher.mIsCustomTabIntent) {
-            return Action.CONTINUE;
-        }
+        if (!dispatcher.mIsCustomTabIntent) return Action.CONTINUE;
         dispatcher.launchCustomTabActivity();
         return Action.FINISH_ACTIVITY;
     }
@@ -148,23 +144,8 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
 
         recordIntentMetrics();
 
-        mIsVrIntent = VrIntentUtils.isVrIntent(mIntent);
-        boolean isCustomTabIntent = (!mIsVrIntent && isCustomTabIntent(mIntent))
-                || (mIsVrIntent && VrIntentUtils.isCustomTabVrIntent(mIntent));
-        mIsCustomTabIntent = isCustomTabIntent;
-    }
-
-    /**
-     * Returns the options that should be used to start an activity.
-     */
-    @Nullable
-    private Bundle getStartActivityIntentOptions() {
-        Bundle options = null;
-        if (mIsVrIntent) {
-            // These options hide the 2D screenshot while we prepare for VR rendering.
-            options = VrIntentUtils.getVrIntentOptions(mActivity);
-        }
-        return options;
+        mIsVrIntent = VrModuleProvider.getIntentDelegate().isVrIntent(mIntent);
+        mIsCustomTabIntent = isCustomTabIntent(mIntent);
     }
 
     /**
@@ -180,7 +161,7 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
                 mActivity.getApplicationContext(), PARTNER_BROWSER_CUSTOMIZATIONS_TIMEOUT_MS);
 
         int tabId = IntentUtils.safeGetIntExtra(
-                mIntent, IntentHandler.TabOpenType.BRING_TAB_TO_FRONT.name(), Tab.INVALID_TAB_ID);
+                mIntent, IntentHandler.TabOpenType.BRING_TAB_TO_FRONT_STRING, Tab.INVALID_TAB_ID);
         boolean incognito =
                 mIntent.getBooleanExtra(IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, false);
 
@@ -204,7 +185,7 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
         // The notification settings cog on the flipped side of Notifications and in the Android
         // Settings "App Notifications" view will open us with a specific category.
         if (mIntent.hasCategory(Notification.INTENT_CATEGORY_NOTIFICATION_PREFERENCES)) {
-            NotificationPlatformBridge.launchNotificationPreferences(mActivity, mIntent);
+            NotificationPlatformBridge.launchNotificationPreferences(mIntent);
             return Action.FINISH_ACTIVITY;
         }
 
@@ -273,8 +254,8 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
 
     @Override
     public void processUrlViewIntent(String url, String referer, String headers,
-            IntentHandler.TabOpenType tabOpenType, String externalAppId, int tabIdToBringToFront,
-            boolean hasUserGesture, Intent intent) {
+            @IntentHandler.TabOpenType int tabOpenType, String externalAppId,
+            int tabIdToBringToFront, boolean hasUserGesture, Intent intent) {
         assert false;
     }
 
@@ -335,15 +316,12 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 // Force a new document L+ to ensure the proper task/stack creation.
                 newIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
-                if (VrIntentUtils.isCustomTabVrIntent(intent)) {
-                    newIntent.setClassName(context, CustomTabVrActivity.class.getName());
-                } else {
-                    newIntent.setClassName(context, SeparateTaskCustomTabActivity.class.getName());
-                }
+                newIntent.setClassName(context, SeparateTaskCustomTabActivity.class.getName());
             } else {
-                int activityIndex =
-                        ActivityAssigner.instance(ActivityAssigner.SEPARATE_TASK_CCT_NAMESPACE)
-                                .assign(uuid);
+                int activityIndex = ActivityAssigner
+                                            .instance(ActivityAssigner.ActivityAssignerNamespace
+                                                              .SEPARATE_TASK_CCT_NAMESPACE)
+                                            .assign(uuid);
                 String className = SeparateTaskCustomTabActivity.class.getName() + activityIndex;
                 newIntent.setClassName(context, className);
             }
@@ -376,7 +354,7 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
         // Allow disk writes during startActivity() to avoid strict mode violations on some
         // Samsung devices, see https://crbug.com/796548.
         try (StrictModeContext smc = StrictModeContext.allowDiskWrites()) {
-            mActivity.startActivity(launchIntent, getStartActivityIntentOptions());
+            mActivity.startActivity(launchIntent, null);
         }
     }
 
@@ -435,7 +413,10 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
         // This system call is often modified by OEMs and not actionable. http://crbug.com/619646.
         StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
         try {
-            mActivity.startActivity(newIntent, getStartActivityIntentOptions());
+            Bundle options = mIsVrIntent
+                    ? VrModuleProvider.getIntentDelegate().getVrIntentOptions(mActivity)
+                    : null;
+            mActivity.startActivity(newIntent, options);
         } catch (SecurityException ex) {
             if (isContentScheme) {
                 Toast.makeText(mActivity,
@@ -456,7 +437,8 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
      * Records metrics gleaned from the Intent.
      */
     private void recordIntentMetrics() {
-        IntentHandler.ExternalAppId source = IntentHandler.determineExternalIntentSource(mIntent);
+        @IntentHandler.ExternalAppId
+        int source = IntentHandler.determineExternalIntentSource(mIntent);
         if (mIntent.getPackage() == null && source != IntentHandler.ExternalAppId.CHROME) {
             int flagsOfInterest = Intent.FLAG_ACTIVITY_NEW_TASK;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {

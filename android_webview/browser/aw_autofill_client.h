@@ -65,19 +65,25 @@ class AwAutofillClient : public autofill::AutofillClient,
   syncer::SyncService* GetSyncService() override;
   identity::IdentityManager* GetIdentityManager() override;
   ukm::UkmRecorder* GetUkmRecorder() override;
+  ukm::SourceId GetUkmSourceId() override;
   autofill::AddressNormalizer* GetAddressNormalizer() override;
+  security_state::SecurityLevel GetSecurityLevelForUmaHistograms() override;
   void ShowAutofillSettings() override;
   void ShowUnmaskPrompt(
       const autofill::CreditCard& card,
       UnmaskCardReason reason,
       base::WeakPtr<autofill::CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(PaymentsRpcResult result) override;
+  void ShowLocalCardMigrationPrompt(base::OnceClosure closure) override;
+  void ConfirmSaveAutofillProfile(const autofill::AutofillProfile& profile,
+                                  base::OnceClosure callback) override;
   void ConfirmSaveCreditCardLocally(const autofill::CreditCard& card,
                                     const base::Closure& callback) override;
   void ConfirmSaveCreditCardToCloud(
       const autofill::CreditCard& card,
       std::unique_ptr<base::DictionaryValue> legal_message,
-      const base::Closure& callback) override;
+      bool should_request_name_from_user,
+      base::OnceCallback<void(const base::string16&)> callback) override;
   void ConfirmCreditCardFillAssist(const autofill::CreditCard& card,
                                    const base::Closure& callback) override;
   void LoadRiskData(
@@ -88,6 +94,7 @@ class AwAutofillClient : public autofill::AutofillClient,
       const gfx::RectF& element_bounds,
       base::i18n::TextDirection text_direction,
       const std::vector<autofill::Suggestion>& suggestions,
+      bool /*unused_autoselect_first_suggestion*/,
       base::WeakPtr<autofill::AutofillPopupDelegate> delegate) override;
   void UpdateAutofillPopupDataListValues(
       const std::vector<base::string16>& values,

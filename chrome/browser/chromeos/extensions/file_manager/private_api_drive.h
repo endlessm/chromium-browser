@@ -16,6 +16,7 @@
 #include "base/files/file.h"
 #include "chrome/browser/chromeos/extensions/file_manager/private_api_base.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
+#include "chromeos/components/drivefs/mojom/drivefs.mojom.h"
 #include "components/drive/chromeos/file_system_interface.h"
 #include "components/drive/file_errors.h"
 
@@ -44,7 +45,7 @@ class FileManagerPrivateInternalEnsureFileDownloadedFunction
                              FILEMANAGERPRIVATE_ENSUREFILEDOWNLOADED)
 
  protected:
-  ~FileManagerPrivateInternalEnsureFileDownloadedFunction() override {}
+  ~FileManagerPrivateInternalEnsureFileDownloadedFunction() override = default;
 
   // AsyncExtensionFunction overrides.
   bool RunAsync() override;
@@ -92,13 +93,17 @@ class FileManagerPrivateInternalPinDriveFileFunction
                              FILEMANAGERPRIVATEINTERNAL_PINDRIVEFILE)
 
  protected:
-  ~FileManagerPrivateInternalPinDriveFileFunction() override {}
+  ~FileManagerPrivateInternalPinDriveFileFunction() override = default;
 
   // ChromeAsyncExtensionFunction overrides.
   bool RunAsync() override;
 
  private:
-  // Callback for RunAsync().
+  bool RunAsyncForDrive(const GURL& url, bool pin);
+  bool RunAsyncForDriveFs(const storage::FileSystemURL& file_system_url,
+                          bool pin);
+
+  // Callback for RunAsyncForDrive() and RunAsyncForDriveFs.
   void OnPinStateSet(drive::FileError error);
 };
 
@@ -110,7 +115,7 @@ class FileManagerPrivateInternalCancelFileTransfersFunction
                              FILEMANAGERPRIVATEINTERNAL_CANCELFILETRANSFERS)
 
  protected:
-  ~FileManagerPrivateInternalCancelFileTransfersFunction() override {}
+  ~FileManagerPrivateInternalCancelFileTransfersFunction() override = default;
 
   // ChromeAsyncExtensionFunction overrides.
   bool RunAsync() override;
@@ -124,7 +129,7 @@ class FileManagerPrivateCancelAllFileTransfersFunction
                              FILEMANAGERPRIVATE_CANCELALLFILETRANSFERS)
 
  protected:
-  ~FileManagerPrivateCancelAllFileTransfersFunction() override {}
+  ~FileManagerPrivateCancelAllFileTransfersFunction() override = default;
 
   // ChromeAsyncExtensionFunction overrides.
   bool RunAsync() override;
@@ -139,7 +144,7 @@ class FileManagerPrivateSearchDriveFunction
                              FILEMANAGERPRIVATE_SEARCHDRIVE)
 
  protected:
-  ~FileManagerPrivateSearchDriveFunction() override {}
+  ~FileManagerPrivateSearchDriveFunction() override = default;
 
   bool RunAsync() override;
 
@@ -168,7 +173,7 @@ class FileManagerPrivateSearchDriveMetadataFunction
                              FILEMANAGERPRIVATE_SEARCHDRIVEMETADATA)
 
  protected:
-  ~FileManagerPrivateSearchDriveMetadataFunction() override {}
+  ~FileManagerPrivateSearchDriveMetadataFunction() override = default;
 
   bool RunAsync() override;
 
@@ -196,7 +201,7 @@ class FileManagerPrivateGetDriveConnectionStateFunction
       FILEMANAGERPRIVATE_GETDRIVECONNECTIONSTATE);
 
  protected:
-  ~FileManagerPrivateGetDriveConnectionStateFunction() override {}
+  ~FileManagerPrivateGetDriveConnectionStateFunction() override = default;
 
   ResponseAction Run() override;
 };
@@ -209,7 +214,7 @@ class FileManagerPrivateRequestAccessTokenFunction
                              FILEMANAGERPRIVATE_REQUESTACCESSTOKEN)
 
  protected:
-  ~FileManagerPrivateRequestAccessTokenFunction() override {}
+  ~FileManagerPrivateRequestAccessTokenFunction() override = default;
 
   // ChromeAsyncExtensionFunction overrides.
   bool RunAsync() override;
@@ -227,7 +232,7 @@ class FileManagerPrivateInternalGetShareUrlFunction
                              FILEMANAGERPRIVATEINTERNAL_GETSHAREURL)
 
  protected:
-  ~FileManagerPrivateInternalGetShareUrlFunction() override {}
+  ~FileManagerPrivateInternalGetShareUrlFunction() override = default;
 
   // ChromeAsyncExtensionFunction overrides.
   bool RunAsync() override;
@@ -245,7 +250,7 @@ class FileManagerPrivateInternalRequestDriveShareFunction
                              FILEMANAGERPRIVATEINTERNAL_REQUESTDRIVESHARE);
 
  protected:
-  ~FileManagerPrivateInternalRequestDriveShareFunction() override {}
+  ~FileManagerPrivateInternalRequestDriveShareFunction() override = default;
   bool RunAsync() override;
 
  private:
@@ -268,13 +273,22 @@ class FileManagerPrivateInternalGetDownloadUrlFunction
   // ChromeAsyncExtensionFunction overrides.
   bool RunAsync() override;
 
+ private:
+  bool RunAsyncForDrive(const GURL& url);
+
   void OnGetResourceEntry(drive::FileError error,
                           std::unique_ptr<drive::ResourceEntry> entry);
+
+  void OnGotDownloadUrl(GURL download_url);
 
   // Callback with an |access_token|, called by
   // drive::DriveReadonlyTokenFetcher.
   void OnTokenFetched(google_apis::DriveApiErrorCode code,
                       const std::string& access_token);
+
+  bool RunAsyncForDriveFs(const storage::FileSystemURL& file_system_url);
+  void OnGotMetadata(drive::FileError error,
+                     drivefs::mojom::FileMetadataPtr metadata);
 
  private:
   GURL download_url_;

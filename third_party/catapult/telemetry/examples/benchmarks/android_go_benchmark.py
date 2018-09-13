@@ -1,6 +1,8 @@
 # Copyright 2018 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+
+import contextlib
 import logging
 
 from telemetry.core import android_platform
@@ -27,7 +29,6 @@ class SharedAndroidStoryState(story_module.SharedState):
         test, finder_options, story_set)
     self._finder_options = finder_options
     self._possible_browser = browser_finder.FindBrowser(self._finder_options)
-    self._browser = None
     self._current_story = None
 
     # This is an Android-only shared state.
@@ -47,6 +48,9 @@ class SharedAndroidStoryState(story_module.SharedState):
     self.platform.network_controller.Close()
 
   def LaunchBrowser(self, url):
+    # Clear caches before starting browser.
+    self.platform.FlushDnsCache()
+    self._possible_browser.FlushOsPageCaches()
     # TODO: Android Go stories could, e.g., use the customtabs helper app to
     # start Chrome as a custom tab.
     self.platform.StartActivity(
@@ -55,10 +59,24 @@ class SharedAndroidStoryState(story_module.SharedState):
                       action=None, data=url),
         blocking=True)
 
+  @contextlib.contextmanager
   def FindBrowser(self):
-    assert self._browser is None, 'Browser was already found'
-    self._browser = self._possible_browser.FindExistingBrowser()
-    return self._browser
+    """Find and manage the lifetime of a browser.
+
+    The browser is closed when exiting the context managed code, and the
+    browser state is dumped in case of errors during the story execution.
+    """
+    browser = self._possible_browser.FindExistingBrowser()
+    try:
+      yield browser
+    except Exception as exc:
+      logging.critical(
+          '%s raised during story run. Dumping current browser state to help'
+          ' diagnose this issue.', type(exc).__name__)
+      browser.DumpStateUponFailure()
+      raise
+    finally:
+      browser.Close()
 
   def WillRunStory(self, story):
     # TODO: Should start replay to use WPR recordings.
@@ -72,37 +90,33 @@ class SharedAndroidStoryState(story_module.SharedState):
 
   def DidRunStory(self, _):
     self._current_story = None
-    try:
-      self._browser.Close()
-    finally:
-      self._browser = None
-      self._possible_browser.CleanUpEnvironment()
+    self._possible_browser.CleanUpEnvironment()
 
   def DumpStateUponFailure(self, story, results):
     del story
     del results
-    if self._browser is not None:
-      self._browser.DumpStateUponFailure()
-    else:
-      logging.warning('Cannot dump browser state: No browser.')
-    # TODO: Should also capture screenshot, etc., like shared_page_state does.
-    # Ideally common code should be factored out. See: https://goo.gl/RUwgGW
+    # Note: Dumping state of objects upon errors, e.g. of the browser, is
+    # handled individually by the context managers that handle their lifetime.
 
   def CanRunStory(self, _):
     return True
 
 
 class AndroidGoFooStory(story_module.Story):
+  """An example story that restarts the browser a few times."""
+  URL = 'https://en.wikipedia.org/wiki/Main_Page'
+
   def __init__(self):
     super(AndroidGoFooStory, self).__init__(
         SharedAndroidStoryState, name='go:story:foo')
 
   def Run(self, state):
-    state.LaunchBrowser('https://en.wikipedia.org/wiki/Main_Page')
-    browser = state.FindBrowser()
-    action_runner = browser.foreground_tab.action_runner
-    action_runner.tab.WaitForDocumentReadyStateToBeComplete()
-    action_runner.RepeatableBrowserDrivenScroll(repeat_count=2)
+    for _ in xrange(3):
+      state.LaunchBrowser(self.URL)
+      with state.FindBrowser() as browser:
+        action_runner = browser.foreground_tab.action_runner
+        action_runner.tab.WaitForDocumentReadyStateToBeComplete()
+        action_runner.RepeatableBrowserDrivenScroll(repeat_count=2)
 
 
 class AndroidGoBarStory(story_module.Story):
@@ -112,10 +126,10 @@ class AndroidGoBarStory(story_module.Story):
 
   def Run(self, state):
     state.LaunchBrowser('http://www.bbc.co.uk/news')
-    browser = state.FindBrowser()
-    action_runner = browser.foreground_tab.action_runner
-    action_runner.tab.WaitForDocumentReadyStateToBeComplete()
-    action_runner.RepeatableBrowserDrivenScroll(repeat_count=2)
+    with state.FindBrowser() as browser:
+      action_runner = browser.foreground_tab.action_runner
+      action_runner.tab.WaitForDocumentReadyStateToBeComplete()
+      action_runner.RepeatableBrowserDrivenScroll(repeat_count=2)
 
 
 class AndroidGoStories(story_module.StorySet):

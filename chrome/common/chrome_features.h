@@ -40,9 +40,9 @@ extern const base::Feature kAnimatedAppMenuIcon;
 extern const base::Feature kAppBanners;
 #endif  // !defined(OS_ANDROID)
 
-#if defined(OS_CHROMEOS)
-extern const base::Feature kArcMemoryManagement;
-#endif  // defined(OS_CHROMEOS)
+#if defined(OS_ANDROID)
+extern const base::Feature kAppNotificationStatusMessaging;
+#endif  // defined(OS_ANDROID)
 
 extern const base::Feature kAssetDownloadSuggestionsFeature;
 
@@ -90,6 +90,8 @@ extern const base::Feature kClickToOpenPDFPlaceholder;
 
 extern const base::Feature kClipboardContentSetting;
 
+extern const base::Feature kCloseButtonsInactiveTabs;
+
 #if defined(OS_MACOSX)
 extern const base::Feature kContentFullscreen;
 #endif
@@ -121,8 +123,6 @@ extern const base::Feature kDownloadsForeground;
 #if defined(OS_ANDROID)
 extern const base::Feature kDownloadsLocationChange;
 #endif
-
-extern const base::Feature kExpectCTReporting;
 
 extern const base::Feature kExperimentalAppBanners;
 
@@ -175,8 +175,6 @@ extern const base::Feature kHappinessTrackingSystem;
 extern const base::Feature kViewsCastDialog;
 #endif
 
-extern const base::Feature kImportantSitesInCbd;
-
 extern const base::Feature kImprovedRecoveryComponent;
 
 #if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
@@ -200,7 +198,6 @@ extern const base::Feature kMacMaterialDesignDownloadShelf;
 #endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-extern const base::Feature kMaterialDesignExtensions;
 extern const base::Feature kAcknowledgeNtpOverrideOnDeactivate;
 #endif
 
@@ -212,15 +209,6 @@ extern const base::Feature kMaterialDesignIncognitoNTP;
 
 extern const base::Feature kModalPermissionPrompts;
 
-#if defined(OS_WIN)
-extern const base::Feature kModuleDatabase;
-#endif
-
-#if defined(OS_CHROMEOS)
-extern const base::Feature kMultidevice;
-extern const base::Feature kMultiDeviceApi;
-#endif
-
 #if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
 extern const base::Feature kNativeNotifications;
 #endif
@@ -230,12 +218,6 @@ extern const base::Feature kNetworkPrediction;
 #if defined(OS_POSIX)
 extern const base::Feature kNtlmV2Enabled;
 #endif
-
-extern const base::Feature kNtpBackgrounds;
-
-extern const base::Feature kNtpIcons;
-
-extern const base::Feature kNtpUIMd;
 
 extern const base::Feature kOfflinePageDownloadSuggestionsFeature;
 
@@ -268,6 +250,7 @@ extern const base::Feature kPreloadLockScreen;
 #endif
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+extern const base::Feature kCloudPrinterHandler;
 extern const base::Feature kNewPrintPreview;
 extern const base::Feature kNupPrinting;
 #endif
@@ -292,10 +275,6 @@ extern const base::Feature kShowTrustedPublisherURL;
 
 extern const base::Feature kSiteSettings;
 
-#if defined(OS_ANDROID)
-extern const base::Feature kSiteNotificationChannels;
-#endif
-
 extern const base::Feature kSitePerProcess;
 
 extern const base::Feature kSitePerProcessOnlyForHighMemoryClients;
@@ -305,7 +284,13 @@ extern const char kSitePerProcessOnlyForHighMemoryClientsParamName[];
 extern const base::Feature kNativeSmb;
 #endif
 
+extern const base::Feature kSingleTabMode;
+
 extern const base::Feature kSoundContentSetting;
+
+#if defined(OS_MACOSX)
+extern const base::Feature kSuggestedTextTouchBar;
+#endif
 
 extern const base::Feature kSupervisedUserCommittedInterstitials;
 
@@ -317,6 +302,10 @@ extern const base::Feature kSysInternals;
 extern const base::Feature kTabMetricsLogging;
 #endif
 
+#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
+extern const base::Feature kThirdPartyModulesBlocking;
+#endif
+
 extern const base::Feature kTopSitesFromSiteEngagement;
 
 extern const base::Feature kUseGoogleLocalNtp;
@@ -325,6 +314,8 @@ extern const base::Feature kUseGoogleLocalNtp;
 extern const base::Feature kAdaptiveScreenBrightnessLogging;
 
 extern const base::Feature kUserActivityEventLogging;
+
+extern const base::Feature kUserActivityPrediction;
 #endif
 
 extern const base::Feature kUseSameCacheForMedia;
@@ -334,6 +325,8 @@ extern const base::Feature kVoiceSearchOnLocalNtp;
 #endif
 
 #if defined(OS_CHROMEOS)
+extern const base::Feature kArcCupsApi;
+
 extern const base::Feature kOptInImeMenu;
 
 extern const base::Feature kQuickUnlockPin;
@@ -350,14 +343,16 @@ extern const base::Feature kCrosCompUpdates;
 
 extern const base::Feature kCrOSComponent;
 
-extern const base::Feature kInstantTethering;
-
-extern const base::Feature kEasyUnlockPromotions;
-
 extern const base::Feature kTPMFirmwareUpdate;
 
 extern const base::Feature kCrOSEnableUSMUserService;
+
+extern const base::Feature kMachineLearningService;
 #endif  // defined(OS_CHROMEOS)
+
+#if !defined(OS_ANDROID)
+extern const base::Feature kWebRtcRemoteEventLog;
+#endif
 
 #if defined(OS_WIN)
 extern const base::Feature kWin10AcceleratedDefaultBrowserFlow;

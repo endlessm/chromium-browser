@@ -16,6 +16,10 @@ class PixelExpectations(GpuTestExpectations):
     self.Flaky('Pixel_GpuRasterization_BlueBox',
         ['win', ('amd', 0x6613)], bug=653538)
 
+    # TODO(senorblanco) generate new reference images after Edge-AA tess change.
+    self.Fail('Pixel_OffscreenCanvasAccelerated2D')
+    self.Fail('Pixel_OffscreenCanvasAccelerated2DWorker')
+
     # Software compositing is not supported on Android; so we skip these tests
     # that disables gpu compositing on Android platforms.
     self.Skip('Pixel_OffscreenCanvasUnaccelerated2D', ['android'])
@@ -53,6 +57,12 @@ class PixelExpectations(GpuTestExpectations):
     self.Flaky('Pixel_Video_MP4', ['android', 'nvidia'], bug=716564)
     self.Flaky('Pixel_Video_MP4', ['linux', 'nvidia'], bug=819635)
 
+    # TODO(junov): rebaselining
+    self.Fail('Pixel_OffscreenCanvasUnaccelerated2DGPUCompositing',
+              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=788439)
+    self.Fail('Pixel_OffscreenCanvasUnaccelerated2DGPUCompositingWorker',
+              ['mac', 'linux', 'win', 'android', 'chromeos'], bug=788439)
+
     # TODO(junov); validate new test results
     self.Fail('Pixel_CanvasLowLatency2D',
         ['mac', 'linux', 'win', 'android', 'chromeos'], bug=788439)
@@ -80,6 +90,8 @@ class PixelExpectations(GpuTestExpectations):
         ['highsierra', ('intel', 0xa2e)], bug=774809)
     self.Fail('Pixel_WebGLGreenTriangle_NonChromiumImage_NoAA_NoAlpha',
         ['highsierra', ('intel', 0xa2e)], bug=774809)
+    self.Flaky('Pixel_OffscreenCanvasTransferBeforeStyleResize',
+        ['highsierra', ('intel', 0xa2e)], bug=857578)
 
     # Failing on NVIDIA Shield TV; not sure why yet.
     self.Fail('Pixel_WebGL_PremultipliedAlpha_False',
@@ -96,7 +108,11 @@ class PixelExpectations(GpuTestExpectations):
     self.Flaky('Pixel_OffscreenCanvas2DResizeOnWorker',
         ['linux', 'mac'], bug=840394)
     self.Fail('Pixel_WorkerRAF_OOPD', ['android', 'nvidia'], bug=833902)
+    self.Fail('Pixel_WorkerRAF_OOPD', ['mac'], bug=851213)
 
     # TODO(kbr): temporary suppression for new test.
     self.Flaky('Pixel_WebGLSadCanvas', ['linux', 'mac', 'win'], bug=575305)
     self.Fail('Pixel_WebGLSadCanvas', ['android'], bug=575305)
+
+    # Flaky on Android: crbug.com/860548
+    self.Flaky('Pixel_Video_VP9', ['android'], bug=860548)

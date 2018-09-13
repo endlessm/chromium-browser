@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">Поле за парола</translation>
 <translation id="1802710350767629429">Показване на бележките за актуализацията</translation>
 <translation id="1810107444790159527">Списъчно поле</translation>
+<translation id="1812527064848182527">хоризонтална ориентация</translation>
 <translation id="1828385960365606039">май</translation>
 <translation id="1834891354138622109">Графа</translation>
 <translation id="1845944666972354496">Докоснете двукратно, за да активирате</translation>
@@ -145,6 +146,7 @@
 <translation id="2416512023405990736">Квадратче без отметка</translation>
 <translation id="2417569100218200841">Информация за съдържанието</translation>
 <translation id="2417948780551741035">Бележки в края</translation>
+<translation id="2421113964388408478">Изтриване</translation>
 <translation id="2422937916923936891">Квадратче за отметка на елемент от меню</translation>
 <translation id="2428534162001909979">Менюта с команди</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -252,6 +254,7 @@
 <translation id="3232388865800379423">Бутон с изскачащ прозорец</translation>
 <translation id="3241052487511142956">Предишна посетена връзка</translation>
 <translation id="3241638166094654466">Клетки във всеки ред:</translation>
+<translation id="3286372614333682499">вертикална ориентация</translation>
 <translation id="3286390186030710347">Плъзгач</translation>
 <translation id="3299925995433437805">Няма следваща посетена връзка.</translation>
 <translation id="3300348286427369683">Поддръжка за разширени функции при работа с текст: ChromeVox вече поддържа текстови полета с разширени функции, включително команди за преход, следване на курсора при брайлови дисплеи, избиране и др.</translation>
@@ -425,6 +428,7 @@
 <translation id="4476183483923481720">нов ред</translation>
 <translation id="4482330759234983253">Предишната таблица</translation>
 <translation id="4491109536499578614">Изображение</translation>
+<translation id="4505167975768625962">Вмъкване</translation>
 <translation id="4517854969512651305">Увеличаване на стойността</translation>
 <translation id="4529987814483543472">Традиционна клавиатурна подредба</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{наклонена черта}other{# наклонени черти}}</translation>
@@ -588,6 +592,7 @@
 <translation id="5712338278108304766">Следващата графа в таблицата</translation>
 <translation id="571866080859340309">Разглеждане на групи</translation>
 <translation id="5728409797179002635">Няма намерена таблица.</translation>
+<translation id="5729047866208036762">Разглеждайте математическото съдържание с помощта на стрелките за нагоре, надолу, наляво или надясно.</translation>
 <translation id="5732189279857692565">Това е второто заглавие. Продължете, като натиснете клавиша „търсене“ + H или „търсене“ + Shift + H</translation>
 <translation id="5748623122140342504">Предишното заглавие от пето ниво</translation>
 <translation id="5750633686117194034">Не сте натиснали модифициращ клавиш. Моля, натиснете и задръжте един или повече. Щом сте готови, вдигнете пръстите си и ще чуете набора от клавиши. Използвайте „Tab“ за изход.</translation>
@@ -743,6 +748,7 @@
 <translation id="7226216518520804442">списък</translation>
 <translation id="7229749224609077523">Изберете таблица за 6-точково брайлово писмо:</translation>
 <translation id="72393384879519786">Заглавие</translation>
+<translation id="7240858705033280249">Преминаване към подробностите</translation>
 <translation id="7241683698754534149">Отваряне на дългото описание в нов раздел</translation>
 <translation id="7248671827512403053">Приложение</translation>
 <translation id="725969808843520477">Следващият бутон за избор</translation>
@@ -919,6 +925,7 @@
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Изберете таблица за 8-точково брайлово писмо:</translation>
 <translation id="9065283790526219006">+изскачащ прозорец</translation>
+<translation id="9066023754636984703">Натиснете клавиша „търсене“ + A, използвайте J, за да видите подробностите.</translation>
 <translation id="9067522039955793016">Разделител на страници</translation>
 <translation id="9077213568694924680">премахнати от открояването</translation>
 <translation id="9082874451376019682">Няма предишен плъзгач.</translation>

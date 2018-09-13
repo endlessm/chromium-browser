@@ -43,6 +43,15 @@ class TagDecl;
 class TypeSourceInfo;
 class Attr;
 
+  // \brief Returns with a list of declarations started from the canonical decl
+  // then followed by subsequent decls in the translation unit.
+  // This gives a canonical list for each entry in the redecl chain.
+  // `Decl::redecls()` gives a list of decls which always start from the
+  // previous decl and the next item is actually the previous item in the order
+  // of source locations.  Thus, `Decl::redecls()` gives different lists for
+  // the different entries in a given redecl chain.
+  llvm::SmallVector<Decl*, 2> getCanonicalForwardRedeclChain(Decl* D);
+
   /// Imports selected nodes from one AST context into another context,
   /// merging AST nodes where appropriate.
   class ASTImporter {
@@ -305,13 +314,13 @@ class Attr;
     /// \param D A declaration in the "to" context.
     virtual void CompleteDecl(Decl* D);
     
-    /// Note that we have imported the "from" declaration by mapping it
-    /// to the (potentially-newly-created) "to" declaration.
-    ///
     /// Subclasses can override this function to observe all of the \c From ->
     /// \c To declaration mappings as they are imported.
-    virtual Decl *Imported(Decl *From, Decl *To);
-      
+    virtual Decl *Imported(Decl *From, Decl *To) { return To; }
+
+    /// Store and assign the imported declaration to its counterpart.
+    Decl *MapImported(Decl *From, Decl *To);
+
     /// Called by StructuralEquivalenceContext.  If a RecordDecl is
     /// being compared to another RecordDecl as part of import, completing the
     /// other RecordDecl may trigger importation of the first RecordDecl. This

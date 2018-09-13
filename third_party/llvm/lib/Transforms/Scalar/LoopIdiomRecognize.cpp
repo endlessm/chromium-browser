@@ -56,7 +56,7 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -188,8 +188,9 @@ private:
                                PHINode *CntPhi, Value *Var);
   bool recognizeAndInsertCTLZ();
   void transformLoopToCountable(BasicBlock *PreCondBB, Instruction *CntInst,
-                                PHINode *CntPhi, Value *Var, const DebugLoc DL,
-                                bool ZeroCheck, bool IsCntPhiUsedOutsideLoop);
+                                PHINode *CntPhi, Value *Var, Instruction *DefX,
+                                const DebugLoc &DL, bool ZeroCheck,
+                                bool IsCntPhiUsedOutsideLoop);
 
   /// @}
 };
@@ -1040,7 +1041,7 @@ bool LoopIdiomRecognize::processLoopStoreOfLoopLoad(StoreInst *SI,
 
   CallInst *NewCall = nullptr;
   // Check whether to generate an unordered atomic memcpy:
-  //  If the load or store are atomic, then they must neccessarily be unordered
+  //  If the load or store are atomic, then they must necessarily be unordered
   //  by previous checks.
   if (!SI->isAtomic() && !LI->isAtomic())
     NewCall = Builder.CreateMemCpy(StoreBasePtr, SI->getAlignment(),
@@ -1316,7 +1317,8 @@ static bool detectCTLZIdiom(Loop *CurLoop, PHINode *&PhiX,
     return false;
 
   // step 2: detect instructions corresponding to "x.next = x >> 1"
-  if (!DefX || DefX->getOpcode() != Instruction::AShr)
+  if (!DefX || (DefX->getOpcode() != Instruction::AShr &&
+                DefX->getOpcode() != Instruction::LShr))
     return false;
   ConstantInt *Shft = dyn_cast<ConstantInt>(DefX->getOperand(1));
   if (!Shft || !Shft->isOne())
@@ -1397,16 +1399,27 @@ bool LoopIdiomRecognize::recognizeAndInsertCTLZ() {
   // parent function RunOnLoop.
   BasicBlock *PH = CurLoop->getLoopPreheader();
   Value *InitX = PhiX->getIncomingValueForBlock(PH);
-  // If we check X != 0 before entering the loop we don't need a zero
-  // check in CTLZ intrinsic, but only if Cnt Phi is not used outside of the
-  // loop (if it is used we count CTLZ(X >> 1)).
-  if (!IsCntPhiUsedOutsideLoop)
-    if (BasicBlock *PreCondBB = PH->getSinglePredecessor())
-      if (BranchInst *PreCondBr =
-          dyn_cast<BranchInst>(PreCondBB->getTerminator())) {
-        if (matchCondition(PreCondBr, PH) == InitX)
-          ZeroCheck = true;
-      }
+
+  // Make sure the initial value can't be negative otherwise the ashr in the
+  // loop might never reach zero which would make the loop infinite.
+  if (DefX->getOpcode() == Instruction::AShr && !isKnownNonNegative(InitX, *DL))
+    return false;
+
+  // If we are using the count instruction outside the loop, make sure we
+  // have a zero check as a precondition. Without the check the loop would run
+  // one iteration for before any check of the input value. This means 0 and 1
+  // would have identical behavior in the original loop and thus
+  if (!IsCntPhiUsedOutsideLoop) {
+    auto *PreCondBB = PH->getSinglePredecessor();
+    if (!PreCondBB)
+      return false;
+    auto *PreCondBI = dyn_cast<BranchInst>(PreCondBB->getTerminator());
+    if (!PreCondBI)
+      return false;
+    if (matchCondition(PreCondBI, PH) != InitX)
+      return false;
+    ZeroCheck = true;
+  }
 
   // Check if CTLZ intrinsic is profitable. Assume it is always profitable
   // if we delete the loop (the loop has only 6 instructions):
@@ -1425,8 +1438,8 @@ bool LoopIdiomRecognize::recognizeAndInsertCTLZ() {
           TargetTransformInfo::TCC_Basic)
     return false;
 
-  const DebugLoc DL = DefX->getDebugLoc();
-  transformLoopToCountable(PH, CntInst, CntPhi, InitX, DL, ZeroCheck,
+  transformLoopToCountable(PH, CntInst, CntPhi, InitX, DefX,
+                           DefX->getDebugLoc(), ZeroCheck,
                            IsCntPhiUsedOutsideLoop);
   return true;
 }
@@ -1462,7 +1475,7 @@ bool LoopIdiomRecognize::recognizePopcount() {
   if (!EntryBI || EntryBI->isConditional())
     return false;
 
-  // It should have a precondition block where the generated popcount instrinsic
+  // It should have a precondition block where the generated popcount intrinsic
   // function can be inserted.
   auto *PreCondBB = PH->getSinglePredecessor();
   if (!PreCondBB)
@@ -1540,7 +1553,8 @@ static CallInst *createCTLZIntrinsic(IRBuilder<> &IRBuilder, Value *Val,
 /// If CntInst and DefX are not used in LOOP_BODY they will be removed.
 void LoopIdiomRecognize::transformLoopToCountable(
     BasicBlock *Preheader, Instruction *CntInst, PHINode *CntPhi, Value *InitX,
-    const DebugLoc DL, bool ZeroCheck, bool IsCntPhiUsedOutsideLoop) {
+    Instruction *DefX, const DebugLoc &DL, bool ZeroCheck,
+    bool IsCntPhiUsedOutsideLoop) {
   BranchInst *PreheaderBr = cast<BranchInst>(Preheader->getTerminator());
 
   // Step 1: Insert the CTLZ instruction at the end of the preheader block
@@ -1551,10 +1565,16 @@ void LoopIdiomRecognize::transformLoopToCountable(
   Builder.SetCurrentDebugLocation(DL);
   Value *CTLZ, *Count, *CountPrev, *NewCount, *InitXNext;
 
-  if (IsCntPhiUsedOutsideLoop)
-    InitXNext = Builder.CreateAShr(InitX,
-                                   ConstantInt::get(InitX->getType(), 1));
-  else
+  if (IsCntPhiUsedOutsideLoop) {
+    if (DefX->getOpcode() == Instruction::AShr)
+      InitXNext =
+          Builder.CreateAShr(InitX, ConstantInt::get(InitX->getType(), 1));
+    else if (DefX->getOpcode() == Instruction::LShr)
+      InitXNext =
+          Builder.CreateLShr(InitX, ConstantInt::get(InitX->getType(), 1));
+    else
+      llvm_unreachable("Unexpected opcode!");      
+  } else
     InitXNext = InitX;
   CTLZ = createCTLZIntrinsic(Builder, InitXNext, DL, ZeroCheck);
   Count = Builder.CreateSub(
@@ -1627,7 +1647,7 @@ void LoopIdiomRecognize::transformLoopToPopcount(BasicBlock *PreCondBB,
                                                  PHINode *CntPhi, Value *Var) {
   BasicBlock *PreHead = CurLoop->getLoopPreheader();
   auto *PreCondBr = cast<BranchInst>(PreCondBB->getTerminator());
-  const DebugLoc DL = CntInst->getDebugLoc();
+  const DebugLoc &DL = CntInst->getDebugLoc();
 
   // Assuming before transformation, the loop is following:
   //  if (x) // the precondition

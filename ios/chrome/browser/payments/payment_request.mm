@@ -31,10 +31,12 @@
 #include "ios/chrome/browser/autofill/address_normalizer_factory.h"
 #include "ios/chrome/browser/autofill/validation_rules_storage_factory.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/metrics/ukm_url_recorder.h"
 #import "ios/chrome/browser/payments/ios_payment_instrument.h"
 #import "ios/chrome/browser/payments/payment_request_util.h"
 #include "ios/chrome/browser/signin/signin_manager_factory.h"
 #include "ios/web/public/web_state/web_state.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "third_party/libaddressinput/chromium/chrome_metadata_source.h"
 #include "third_party/libaddressinput/src/cpp/include/libaddressinput/source.h"
 #include "third_party/libaddressinput/src/cpp/include/libaddressinput/storage.h"
@@ -46,11 +48,11 @@
 namespace payments {
 namespace {
 
-std::unique_ptr<::i18n::addressinput::Source> GetAddressInputSource(
-    net::URLRequestContextGetter* url_context_getter) {
+std::unique_ptr<::i18n::addressinput::Source> GetAddressInputSource() {
   return std::unique_ptr<::i18n::addressinput::Source>(
-      new autofill::ChromeMetadataSource(I18N_ADDRESS_VALIDATION_DATA_URL,
-                                         url_context_getter));
+      new autofill::ChromeMetadataSource(
+          I18N_ADDRESS_VALIDATION_DATA_URL,
+          GetApplicationContext()->GetSharedURLLoaderFactory()));
 }
 
 std::unique_ptr<::i18n::addressinput::Storage> GetAddressInputStorage() {
@@ -95,10 +97,11 @@ PaymentRequest::PaymentRequest(
       selected_payment_method_(nullptr),
       selected_shipping_option_(nullptr),
       profile_comparator_(GetApplicationLocale(), *this),
-      journey_logger_(IsIncognito(), GetLastCommittedURL(), GetUkmRecorder()),
+      journey_logger_(IsIncognito(),
+                      ukm::GetSourceIdForWebStateDocument(web_state)),
       payment_instruments_ready_(false),
       ios_instrument_finder_(
-          GetApplicationContext()->GetSystemURLRequestContext(),
+          GetApplicationContext()->GetSharedURLLoaderFactory(),
           payment_request_ui_delegate_) {
   PopulateAvailableShippingOptions();
   PopulateProfileCache();
@@ -166,11 +169,9 @@ autofill::AddressNormalizer* PaymentRequest::GetAddressNormalizer() {
 }
 
 autofill::RegionDataLoader* PaymentRequest::GetRegionDataLoader() {
-  return new autofill::RegionDataLoaderImpl(
-      GetAddressInputSource(
-          GetApplicationContext()->GetSystemURLRequestContext())
-          .release(),
-      GetAddressInputStorage().release(), GetApplicationLocale());
+  return new autofill::RegionDataLoaderImpl(GetAddressInputSource().release(),
+                                            GetAddressInputStorage().release(),
+                                            GetApplicationLocale());
 }
 
 ukm::UkmRecorder* PaymentRequest::GetUkmRecorder() {
@@ -317,7 +318,7 @@ const PaymentDetailsModifier* PaymentRequest::GetApplicableModifier(
         &unused_payment_method_identifiers);
 
     if (selected_instrument->IsValidForModifier(
-            modifier.method_data.supported_methods,
+            modifier.method_data.supported_method,
             !modifier.method_data.supported_networks.empty(),
             supported_card_networks_set,
             !modifier.method_data.supported_types.empty(),
@@ -491,9 +492,8 @@ void PaymentRequest::RecordUseStats() {
 void PaymentRequest::ParsePaymentMethodData() {
   for (const PaymentMethodData& method_data_entry :
        web_payment_request_.method_data) {
-    for (const std::string& method : method_data_entry.supported_methods) {
-      stringified_method_data_[method].insert(method_data_entry.data);
-    }
+    stringified_method_data_[method_data_entry.supported_method].insert(
+        method_data_entry.data);
   }
 
   std::set<std::string> unused_payment_method_identifiers;
@@ -523,7 +523,8 @@ void PaymentRequest::PopulatePaymentMethodCache(
     std::vector<std::unique_ptr<IOSPaymentInstrument>> native_app_instruments) {
   const std::vector<autofill::CreditCard*>& credit_cards_to_suggest =
       personal_data_manager_->GetCreditCardsToSuggest(
-          /*include_server_cards=*/true);
+          /*include_server_cards=*/base::FeatureList::IsEnabled(
+              payments::features::kReturnGooglePayInBasicCard));
 
   // Return early if the user has no stored credit cards or installed payment
   // apps.

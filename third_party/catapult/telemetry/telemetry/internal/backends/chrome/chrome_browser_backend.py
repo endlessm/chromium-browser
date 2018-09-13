@@ -207,20 +207,6 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
   def supports_tracing(self):
     return True
 
-  def StartTracing(self, trace_options,
-                   timeout=web_contents.DEFAULT_WEB_CONTENTS_TIMEOUT):
-    """
-    Args:
-        trace_options: An tracing_options.TracingOptions instance.
-    """
-    return self.devtools_client.StartChromeTracing(trace_options, timeout)
-
-  def StopTracing(self):
-    self.devtools_client.StopChromeTracing()
-
-  def CollectTracingData(self, trace_data_builder):
-    self.devtools_client.CollectChromeTracingData(trace_data_builder)
-
   def GetProcessName(self, cmd_line):
     """Returns a user-friendly name for the process of the given |cmd_line|."""
     if not cmd_line:
@@ -257,16 +243,17 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
       return 'render'
 
   def Close(self):
+    # If Chrome tracing is running, flush the trace before closing the browser.
+    tracing_backend = self._platform_backend.tracing_controller_backend
+    if tracing_backend.is_chrome_tracing_running:
+      tracing_backend.FlushTracing()
+
     if self._devtools_client:
       self._devtools_client.Close()
       self._devtools_client = None
     if self._forwarder:
       self._forwarder.Close()
       self._forwarder = None
-
-  @property
-  def supports_system_info(self):
-    return self.GetSystemInfo() != None
 
   def GetSystemInfo(self):
     try:

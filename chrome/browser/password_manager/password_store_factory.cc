@@ -33,6 +33,9 @@
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "content/public/browser/browser_context.h"
+#include "content/public/browser/storage_partition.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if defined(OS_WIN)
 #include "chrome/browser/password_manager/password_manager_util_win.h"
@@ -106,11 +109,11 @@ void PasswordStoreFactory::OnPasswordsSyncedStatePotentiallyChanged(
     return;
   syncer::SyncService* sync_service =
       ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile);
-  net::URLRequestContextGetter* request_context_getter =
-      profile->GetRequestContext();
 
   password_manager::ToggleAffiliationBasedMatchingBasedOnPasswordSyncedState(
-      password_store.get(), sync_service, request_context_getter,
+      password_store.get(), sync_service,
+      content::BrowserContext::GetDefaultStoragePartition(profile)
+          ->GetURLLoaderFactoryForBrowserProcess(),
       profile->GetPath());
 }
 
@@ -271,10 +274,8 @@ PasswordStoreFactory::BuildServiceInstanceFor(
   }
 
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
-  // Prepare sync password hash data for reuse detection.
-  std::string sync_username = GetSyncUsername(profile);
-  if (!sync_username.empty())
-    ps->PrepareSyncPasswordHashData(sync_username);
+  // Prepare password hash data for reuse detection.
+  ps->PreparePasswordHashData(GetSyncUsername(profile));
 #endif
 
   // TODO(https://crbug.com/817754): remove the code once majority of the users

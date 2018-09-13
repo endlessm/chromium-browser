@@ -29,17 +29,17 @@ import java.util.List;
  *   tracking the current position across both as iterating (see {@link #onItemsRemoved(Collection)}
  *   for an example since that is close to doing what we want - minus the contains() call).
  */
-public class DateOrderedListMutator implements OfflineItemFilterObserver {
+class DateOrderedListMutator implements OfflineItemFilterObserver {
     private static final int INVALID_INDEX = -1;
 
-    private final DateOrderedListModel mModel;
+    private final ListItemModel mModel;
 
     /**
      * Creates an DateOrderedList instance that will reflect {@code source}.
      * @param source The source of data for this list.
      * @param model  The model that will be the storage for the updated list.
      */
-    public DateOrderedListMutator(OfflineItemFilterSource source, DateOrderedListModel model) {
+    public DateOrderedListMutator(OfflineItemFilterSource source, ListItemModel model) {
         mModel = model;
         source.addObserver(this);
         onItemsAdded(source.getItems());
@@ -58,16 +58,16 @@ public class DateOrderedListMutator implements OfflineItemFilterObserver {
 
         for (OfflineItem item : sorted) {
             int index = getBestIndexFor(item);
-            mModel.addItem(index, new DateOrderedListModel.ListItem(item));
+            mModel.addItem(index, new ListItem.OfflineItemListItem(item));
 
             boolean isFirst = index == 0;
             boolean isPrevSameDay = !isFirst
                     && CalendarUtils.isSameDay(
-                               mModel.getItemAt(index - 1).date.getTime(), item.creationTimeMs);
+                               getItemAt(index - 1).date.getTime(), item.creationTimeMs);
 
             if (isFirst || !isPrevSameDay) {
                 Calendar startOfDay = CalendarUtils.getStartOfDay(item.creationTimeMs);
-                mModel.addItem(index, new DateOrderedListModel.ListItem(startOfDay));
+                mModel.addItem(index, new ListItem.DateListItem(startOfDay));
             }
         }
 
@@ -76,14 +76,13 @@ public class DateOrderedListMutator implements OfflineItemFilterObserver {
 
     @Override
     public void onItemsRemoved(Collection<OfflineItem> items) {
-        for (int i = mModel.getItemCount() - 1; i >= 0; i--) {
-            DateOrderedListModel.ListItem item = mModel.getItemAt(i);
-            boolean isHeader = item.item == null;
-            boolean isLast = i == mModel.getItemCount() - 1;
-            boolean isNextHeader = isLast ? false : mModel.getItemAt(i + 1).item == null;
-
+        for (int i = mModel.size() - 1; i >= 0; i--) {
+            ListItem.DateListItem item = getItemAt(i);
+            boolean isHeader = isHeader(item);
+            boolean isLast = i == mModel.size() - 1;
+            boolean isNextHeader = isLast ? false : isHeader(getItemAt(i + 1));
             boolean removeHeader = isHeader && (isLast || isNextHeader);
-            boolean removeItem = !isHeader && items.contains(item.item);
+            boolean removeItem = !isHeader && items.contains(getOfflineItemFrom(item));
 
             if (removeHeader || removeItem) mModel.removeItem(i);
         }
@@ -103,27 +102,49 @@ public class DateOrderedListMutator implements OfflineItemFilterObserver {
             onItemsRemoved(CollectionUtil.newArrayList(oldItem));
             onItemsAdded(CollectionUtil.newArrayList(item));
         } else {
-            mModel.setItem(i, new DateOrderedListModel.ListItem(item));
+            mModel.setItem(i, new ListItem.OfflineItemListItem(item));
         }
 
         mModel.dispatchLastEvent();
     }
 
     private int indexOfItem(ContentId id) {
-        for (int i = 0; i < mModel.getItemCount(); i++) {
-            OfflineItem item = mModel.getItemAt(i).item;
-            if (item != null && item.id.equals(id)) return i;
+        for (int i = 0; i < mModel.size(); i++) {
+            ListItem.DateListItem listItem = getItemAt(i);
+            if (isHeader(listItem)) continue;
+            if (getOfflineItemFrom(listItem).id.equals(id)) return i;
         }
 
         return INVALID_INDEX;
     }
 
     private int getBestIndexFor(OfflineItem item) {
-        for (int i = 0; i < mModel.getItemCount(); i++) {
-            long timeStamp = mModel.getItemAt(i).date.getTime();
-            if (item.creationTimeMs < timeStamp) return i;
+        for (int i = 0; i < mModel.size(); i++) {
+            ListItem.DateListItem listItem = getItemAt(i);
+
+            // We need to compare different things depending on whether or not the ListItem is a
+            // header.  If it is a header we want to compare the day, otherwise we want to compare
+            // the exact time.
+            long itemTimestamp = isHeader(listItem)
+                    ? CalendarUtils.getStartOfDay(item.creationTimeMs).getTimeInMillis()
+                    : item.creationTimeMs;
+
+            if (itemTimestamp > listItem.date.getTime()) return i;
         }
 
-        return mModel.getItemCount();
+        return mModel.size();
+    }
+
+    private ListItem.DateListItem getItemAt(int index) {
+        return (ListItem.DateListItem) mModel.get(index);
+    }
+
+    private boolean isHeader(ListItem.DateListItem item) {
+        return !(item instanceof ListItem.OfflineItemListItem);
+    }
+
+    private OfflineItem getOfflineItemFrom(ListItem.DateListItem item) {
+        if (isHeader(item)) return null;
+        return ((ListItem.OfflineItemListItem) item).item;
     }
 }

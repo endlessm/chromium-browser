@@ -199,18 +199,20 @@ void PopulateSheetHeaderView(bool show_back_arrow,
 
   views::ColumnSet* columns = layout->AddColumnSet(0);
   // A column for the optional back arrow.
-  columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER, 0,
-                     views::GridLayout::USE_PREF, 0, 0);
+  columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER,
+                     views::GridLayout::kFixedSize, views::GridLayout::USE_PREF,
+                     0, 0);
 
   constexpr int kPaddingBetweenArrowAndTitle = 8;
   if (show_back_arrow)
-    columns->AddPaddingColumn(0, kPaddingBetweenArrowAndTitle);
+    columns->AddPaddingColumn(views::GridLayout::kFixedSize,
+                              kPaddingBetweenArrowAndTitle);
 
   // A column for the title.
-  columns->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER, 1,
+  columns->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER, 1.0,
                      views::GridLayout::USE_PREF, 0, 0);
 
-  layout->StartRow(0, 0);
+  layout->StartRow(views::GridLayout::kFixedSize, 0);
   if (!show_back_arrow) {
     layout->SkipColumns(1);
   } else {
@@ -412,7 +414,7 @@ std::unique_ptr<views::View> CreateShippingOptionLabel(
 }
 
 SkColor GetForegroundColorForBackground(SkColor background_color) {
-  constexpr double kLightForegroundRatioThreshold = 3;
+  constexpr float kLightForegroundRatioThreshold = 3;
   if (background_color != 0 &&
       color_utils::GetContrastRatio(background_color, SK_ColorWHITE) >=
           kLightForegroundRatioThreshold) {

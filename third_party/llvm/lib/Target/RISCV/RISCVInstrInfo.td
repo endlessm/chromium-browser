@@ -38,10 +38,19 @@ def RetFlag      : SDNode<"RISCVISD::RET_FLAG", SDTNone,
                           [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 def SelectCC     : SDNode<"RISCVISD::SELECT_CC", SDT_RISCVSelectCC,
                           [SDNPInGlue]>;
+def Tail         : SDNode<"RISCVISD::TAIL", SDT_RISCVCall,
+                          [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
+                           SDNPVariadic]>;
 
 //===----------------------------------------------------------------------===//
 // Operand and SDNode transformation definitions.
 //===----------------------------------------------------------------------===//
+
+class ImmXLenAsmOperand<string prefix, string suffix = ""> : AsmOperandClass {
+  let Name = prefix # "ImmXLen" # suffix;
+  let RenderMethod = "addImmOperands";
+  let DiagnosticType = !strconcat("Invalid", Name);
+}
 
 class ImmAsmOperand<string prefix, int width, string suffix> : AsmOperandClass {
   let Name = prefix # "Imm" # width # suffix;
@@ -168,7 +177,9 @@ def bare_symbol : Operand<XLenVT> {
 }
 
 // A parameterized register class alternative to i32imm/i64imm from Target.td.
-def ixlenimm : Operand<XLenVT>;
+def ixlenimm : Operand<XLenVT> {
+  let ParserMatchClass = ImmXLenAsmOperand<"">;
+}
 
 // Standalone (codegen-only) immleaf patterns.
 def simm32     : ImmLeaf<XLenVT, [{return isInt<32>(Imm);}]>;
@@ -339,6 +350,12 @@ def FENCE : RVInstI<0b000, OPC_MISC_MEM, (outs),
   let imm12 = {0b0000,pred,succ};
 }
 
+def FENCE_TSO : RVInstI<0b000, OPC_MISC_MEM, (outs), (ins), "fence.tso", ""> {
+  let rs1 = 0;
+  let rd = 0;
+  let imm12 = {0b1000,0b0011,0b0011};
+}
+
 def FENCE_I : RVInstI<0b001, OPC_MISC_MEM, (outs), (ins), "fence.i", ""> {
   let rs1 = 0;
   let rd = 0;
@@ -437,7 +454,16 @@ def SFENCE_VMA : RVInstR<0b0001001, 0b000, OPC_SYSTEM, (outs),
 // TODO RV64I: sd
 
 def : InstAlias<"nop",           (ADDI      X0,      X0,       0)>;
-// TODO li
+
+// Note that the size is 32 because up to 8 32-bit instructions are needed to
+// generate an arbitrary 64-bit immediate. However, the size does not really
+// matter since PseudoLI is currently only used in the AsmParser where it gets
+// expanded to real instructions immediately.
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0, Size = 32,
+    isCodeGenOnly = 0, isAsmParserOnly = 1 in
+def PseudoLI : Pseudo<(outs GPR:$rd), (ins ixlenimm:$imm), [],
+                      "li", "$rd, $imm">;
+
 def : InstAlias<"mv $rd, $rs",   (ADDI GPR:$rd, GPR:$rs,       0)>;
 def : InstAlias<"not $rd, $rs",  (XORI GPR:$rd, GPR:$rs,      -1)>;
 def : InstAlias<"neg $rd, $rs",  (SUB  GPR:$rd,      X0, GPR:$rs)>;
@@ -451,6 +477,11 @@ def : InstAlias<"seqz $rd, $rs", (SLTIU GPR:$rd, GPR:$rs,       1)>;
 def : InstAlias<"snez $rd, $rs", (SLTU  GPR:$rd,      X0, GPR:$rs)>;
 def : InstAlias<"sltz $rd, $rs", (SLT   GPR:$rd, GPR:$rs,      X0)>;
 def : InstAlias<"sgtz $rd, $rs", (SLT   GPR:$rd,      X0, GPR:$rs)>;
+
+// sgt/sgtu are recognised by the GNU assembler but the canonical slt/sltu
+// form will always be printed. Therefore, set a zero weight.
+def : InstAlias<"sgt $rd, $rs, $rt", (SLT GPR:$rd, GPR:$rt, GPR:$rs), 0>;
+def : InstAlias<"sgtu $rd, $rs, $rt", (SLTU GPR:$rd, GPR:$rt, GPR:$rs), 0>;
 
 def : InstAlias<"beqz $rs, $offset",
                 (BEQ GPR:$rs,      X0, simm13_lsb0:$offset)>;
@@ -665,10 +696,19 @@ def PseudoRET : Pseudo<(outs), (ins), [(RetFlag)]>,
 // expand to auipc and jalr while encoding.
 // Define AsmString to print "tail" when compile with -S flag.
 let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [X2],
-    hasSideEffects = 0, mayLoad = 0, mayStore = 0, isCodeGenOnly = 0 in
+    isCodeGenOnly = 0 in
 def PseudoTAIL : Pseudo<(outs), (ins bare_symbol:$dst), []> {
   let AsmString = "tail\t$dst";
 }
+
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [X2] in
+def PseudoTAILIndirect : Pseudo<(outs), (ins GPRTC:$rs1), [(Tail GPRTC:$rs1)]>,
+                         PseudoInstExpansion<(JALR X0, GPR:$rs1, 0)>;
+
+def : Pat<(Tail (iPTR tglobaladdr:$dst)),
+          (PseudoTAIL texternalsym:$dst)>;
+def : Pat<(Tail (iPTR texternalsym:$dst)),
+          (PseudoTAIL texternalsym:$dst)>;
 
 /// Loads
 
@@ -707,6 +747,26 @@ multiclass StPat<PatFrag StoreOp, RVInst Inst, RegisterClass StTy> {
 defm : StPat<truncstorei8, SB, GPR>;
 defm : StPat<truncstorei16, SH, GPR>;
 defm : StPat<store, SW, GPR>;
+
+/// Fences
+
+// Refer to Table A.6 in the version 2.3 draft of the RISC-V Instruction Set
+// Manual: Volume I.
+
+// fence acquire -> fence r, rw
+def : Pat<(atomic_fence (i32 4), (imm)), (FENCE 0b10, 0b11)>;
+// fence release -> fence rw, w
+def : Pat<(atomic_fence (i32 5), (imm)), (FENCE 0b11, 0b1)>;
+// fence acq_rel -> fence.tso
+def : Pat<(atomic_fence (i32 6), (imm)), (FENCE_TSO)>;
+// fence seq_cst -> fence rw, rw
+def : Pat<(atomic_fence (i32 7), (imm)), (FENCE 0b11, 0b11)>;
+
+// Lowering for atomic load and store is defined in RISCVInstrInfoA.td.
+// Although these are lowered to fence+load/store instructions defined in the
+// base RV32I/RV64I ISA, this lowering is only used when the A extension is
+// present. This is necessary as it isn't valid to mix __atomic_* libcalls
+// with inline atomic operations for the same object.
 
 /// Other pseudo-instructions
 

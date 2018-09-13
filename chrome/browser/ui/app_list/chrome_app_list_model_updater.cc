@@ -9,9 +9,9 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
+#include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_item.h"
 #include "chrome/browser/ui/app_list/search/chrome_search_result.h"
-#include "chrome/browser/ui/ash/ash_util.h"
 #include "extensions/common/constants.h"
 #include "ui/base/models/menu_model.h"
 
@@ -151,7 +151,7 @@ void ChromeAppListModelUpdater::ActivateChromeItem(const std::string& id,
   if (!item)
     return;
   DCHECK(!item->is_folder());
-  item->Activate(event_flags);
+  item->PerformActivate(event_flags);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -506,7 +506,30 @@ void ChromeAppListModelUpdater::OnItemUpdated(
     ash::mojom::AppListItemMetadataPtr item) {
   ChromeAppListItem* chrome_item = FindItem(item->id);
   DCHECK(chrome_item);
+
+  // Preserve icon once it cannot be modified at ash.
+  item->icon = chrome_item->icon();
+
   chrome_item->SetMetadata(std::move(item));
   if (delegate_)
     delegate_->OnAppListItemUpdated(chrome_item);
+}
+
+void ChromeAppListModelUpdater::OnPageBreakItemAdded(
+    const std::string& id,
+    const syncer::StringOrdinal& position) {
+  ChromeAppListItem* chrome_item = FindItem(id);
+
+  // If the item already exists, we should have set its information properly.
+  if (chrome_item)
+    return;
+
+  // Otherwise, create a new "page break" item.
+  auto new_item = std::make_unique<ChromeAppListItem>(profile_, id, this);
+  new_item->SetPosition(position);
+  new_item->SetIsPageBreak(true);
+  chrome_item = AddChromeItem(std::move(new_item));
+
+  if (delegate_)
+    delegate_->OnAppListItemAdded(chrome_item);
 }

@@ -16,9 +16,11 @@
 #include "components/gcm_driver/account_tracker.h"
 #include "components/gcm_driver/gcm_client.h"
 #include "components/gcm_driver/gcm_connection_observer.h"
-#include "google_apis/gaia/oauth2_token_service.h"
+#include "services/identity/public/cpp/access_token_fetcher.h"
 
-class ProfileOAuth2TokenService;
+namespace identity {
+class IdentityManager;
+}
 
 namespace base {
 class Time;
@@ -36,7 +38,6 @@ class GCMDriver;
 // can immediately report that to the GCM and stop messages addressed to that
 // user from ever reaching Chrome.
 class GCMAccountTracker : public AccountTracker::Observer,
-                          public OAuth2TokenService::Consumer,
                           public GCMConnectionObserver {
  public:
   // State of the account.
@@ -74,7 +75,7 @@ class GCMAccountTracker : public AccountTracker::Observer,
   // |account_tracker| is used to deliver information about the accounts present
   // in the browser context to |driver|.
   GCMAccountTracker(std::unique_ptr<AccountTracker> account_tracker,
-                    ProfileOAuth2TokenService* token_service,
+                    identity::IdentityManager* identity_manager,
                     GCMDriver* driver);
   ~GCMAccountTracker() override;
 
@@ -102,12 +103,10 @@ class GCMAccountTracker : public AccountTracker::Observer,
   void OnAccountSignInChanged(const AccountIds& ids,
                               bool is_signed_in) override;
 
-  // OAuth2TokenService::Consumer overrides.
-  void OnGetTokenSuccess(const OAuth2TokenService::Request* request,
-                         const std::string& access_token,
-                         const base::Time& expiration_time) override;
-  void OnGetTokenFailure(const OAuth2TokenService::Request* request,
-                         const GoogleServiceAuthError& error) override;
+  void OnAccessTokenFetchCompleteForAccount(
+      std::string account_id,
+      GoogleServiceAuthError error,
+      identity::AccessTokenInfo access_token_info);
 
   // GCMConnectionObserver overrides.
   void OnConnected(const net::IPEndPoint& ip_endpoint) override;
@@ -129,9 +128,6 @@ class GCMAccountTracker : public AccountTracker::Observer,
   bool IsTokenFetchingRequired() const;
   // Gets the time until next token reporting.
   base::TimeDelta GetTimeToNextTokenReporting() const;
-  // Deletes a token request. Should be called from OnGetTokenSuccess(..) or
-  // OnGetTokenFailure(..).
-  void DeleteTokenRequest(const OAuth2TokenService::Request* request);
   // Checks on all known accounts, and calls GetToken(..) for those with
   // |state == TOKEN_NEEDED|.
   void GetAllNeededTokens();
@@ -142,12 +138,10 @@ class GCMAccountTracker : public AccountTracker::Observer,
   void OnAccountSignedIn(const AccountIds& ids);
   void OnAccountSignedOut(const AccountIds& ids);
 
-  OAuth2TokenService* GetTokenService();
-
   // Account tracker.
   std::unique_ptr<AccountTracker> account_tracker_;
 
-  ProfileOAuth2TokenService* token_service_;
+  identity::IdentityManager* identity_manager_;
 
   GCMDriver* driver_;
 
@@ -157,8 +151,12 @@ class GCMAccountTracker : public AccountTracker::Observer,
   // Indicates whether shutdown has been called.
   bool shutdown_called_;
 
-  std::vector<std::unique_ptr<OAuth2TokenService::Request>>
-      pending_token_requests_;
+  // Stores the ongoing access token fetchers for deletion either upon
+  // completion or upon signout of the account for which the request is being
+  // made.
+  using AccountIDToTokenFetcherMap =
+      std::map<std::string, std::unique_ptr<identity::AccessTokenFetcher>>;
+  AccountIDToTokenFetcherMap pending_token_requests_;
 
   // Creates weak pointers used to postpone reporting tokens. See
   // ScheduleReportTokens.

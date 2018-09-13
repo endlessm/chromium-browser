@@ -29,7 +29,6 @@ class MouseWheelEvent;
 namespace ash {
 
 enum class AnimationChangeType;
-class LoginShelfView;
 class ShelfBezelEventHandler;
 class ShelfLayoutManager;
 class ShelfLayoutManagerTest;
@@ -74,7 +73,7 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
   // Returns a value based on shelf alignment.
   int SelectValueForShelfAlignment(int bottom, int left, int right) const;
 
-  // Returns |horizontal| is shelf is horizontal, otherwise |vertical|.
+  // Returns |horizontal| if shelf is horizontal, otherwise |vertical|.
   int PrimaryAxisValue(int horizontal, int vertical) const;
 
   ShelfAutoHideBehavior auto_hide_behavior() const {
@@ -157,7 +156,6 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
   void SetVirtualKeyboardBoundsForTesting(const gfx::Rect& bounds);
   ShelfLockingManager* GetShelfLockingManagerForTesting();
   ShelfView* GetShelfViewForTesting();
-  LoginShelfView* GetLoginShelfViewForTesting();
 
  protected:
   // ShelfLayoutManagerObserver:
@@ -187,11 +185,9 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
   base::ObserverList<ShelfObserver> observers_;
 
   // Forwards mouse and gesture events to ShelfLayoutManager for auto-hide.
-  // TODO(mash): Facilitate simliar functionality in mash: crbug.com/631216
   std::unique_ptr<AutoHideEventHandler> auto_hide_event_handler_;
 
   // Forwards touch gestures on a bezel sensor to the shelf.
-  // TODO(mash): Facilitate simliar functionality in mash: crbug.com/636647
   std::unique_ptr<ShelfBezelEventHandler> bezel_event_handler_;
 
   // True while the animation to enter or exit tablet mode is running. Sometimes

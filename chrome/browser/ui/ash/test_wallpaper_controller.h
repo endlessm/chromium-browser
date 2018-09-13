@@ -54,11 +54,13 @@ class TestWallpaperController : ash::mojom::WallpaperController {
       bool preview_mode,
       ash::mojom::WallpaperController::SetOnlineWallpaperIfExistsCallback
           callback) override;
-  void SetOnlineWallpaperFromData(ash::mojom::WallpaperUserInfoPtr user_info,
-                                  const std::string& image_data,
-                                  const std::string& url,
-                                  ash::WallpaperLayout layout,
-                                  bool preview_mode) override;
+  void SetOnlineWallpaperFromData(
+      ash::mojom::WallpaperUserInfoPtr user_info,
+      const std::string& image_data,
+      const std::string& url,
+      ash::WallpaperLayout layout,
+      bool preview_mode,
+      SetOnlineWallpaperFromDataCallback callback) override;
   void SetDefaultWallpaper(ash::mojom::WallpaperUserInfoPtr user_info,
                            const std::string& wallpaper_files_id,
                            bool show_wallpaper) override;
@@ -83,6 +85,7 @@ class TestWallpaperController : ash::mojom::WallpaperController {
                                    ash::WallpaperLayout layout) override;
   void ShowUserWallpaper(ash::mojom::WallpaperUserInfoPtr user_info) override;
   void ShowSigninWallpaper() override;
+  void ShowOneShotWallpaper(const gfx::ImageSkia& image) override;
   void RemoveUserWallpaper(ash::mojom::WallpaperUserInfoPtr user_info,
                            const std::string& wallpaper_files_id) override;
   void RemovePolicyWallpaper(ash::mojom::WallpaperUserInfoPtr user_info,
@@ -108,8 +111,8 @@ class TestWallpaperController : ash::mojom::WallpaperController {
   void IsActiveUserWallpaperControlledByPolicy(
       ash::mojom::WallpaperController::
           IsActiveUserWallpaperControlledByPolicyCallback callback) override;
-  void GetActiveUserWallpaperLocation(
-      ash::mojom::WallpaperController::GetActiveUserWallpaperLocationCallback
+  void GetActiveUserWallpaperInfo(
+      ash::mojom::WallpaperController::GetActiveUserWallpaperInfoCallback
           callback) override;
   void ShouldShowWallpaperSetting(
       ash::mojom::WallpaperController::ShouldShowWallpaperSettingCallback

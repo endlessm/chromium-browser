@@ -88,6 +88,19 @@ Non-comprehensive list of changes in this release
   ``llvm/Config/llvm-config.h``.  If you used this macro, use the compiler-set
   ``_WIN32`` instead which is set exactly when ``LLVM_ON_WIN32`` used to be set.
 
+* The ``DEBUG`` macro has been renamed to ``LLVM_DEBUG``, the interface remains
+  the same.  If you used this macro you need to migrate to the new one.
+  You should also clang-format your code to make it easier to integrate future
+  changes locally.  This can be done with the following bash commands:
+
+.. code-block:: bash
+
+    git grep -l 'DEBUG' | xargs perl -pi -e 's/\bDEBUG\s?\(/LLVM_DEBUG(/g'
+    git diff -U0 master | ../clang/tools/clang-format/clang-format-diff.py -i -p1 -style LLVM
+
+* Early support for UBsan, X-Ray instrumentation and libFuzzer (x86 and x86_64) for OpenBSD. Support for MSan
+  (x86_64), X-Ray instrumentation and libFuzzer (x86 and x86_64) for FreeBSD.
+
 * Note..
 
 .. NOTE
@@ -146,14 +159,24 @@ Changes to the AVR Target
 Changes to the OCaml bindings
 -----------------------------
 
- During this release ...
+* Remove ``add_bb_vectorize``.
 
 
 Changes to the C API
 --------------------
 
- During this release ...
+* Remove ``LLVMAddBBVectorizePass``. The implementation was removed and the C
+  interface was made a deprecated no-op in LLVM 5. Use
+  ``LLVMAddSLPVectorizePass`` instead to get the supported SLP vectorizer.
 
+Changes to the DAG infrastructure
+---------------------------------
+* ADDC/ADDE/SUBC/SUBE are now deprecated and will default to expand. Backends
+  that wish to continue to use these opcodes should explicitely request so
+  using ``setOperationAction`` in their ``TargetLowering``. New backends
+  should use UADDO/ADDCARRY/USUBO/SUBCARRY instead of the deprecated opcodes.
+
+* The SETCCE opcode has now been removed in favor of SETCCCARRY.
 
 External Open Source Projects Using LLVM 7
 ==========================================

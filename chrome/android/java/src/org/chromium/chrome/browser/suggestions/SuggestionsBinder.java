@@ -59,13 +59,18 @@ public class SuggestionsBinder {
     private final @Nullable TextView mSnippetTextView;
     private final TextView mPublisherTextView;
     private final TextView mAgeTextView;
-    private final TintedImageView mThumbnailView;
+    // TODO(twellington): Try to change this back to a TintedImageView. This was changed for a crash
+    // in contextual suggestions that occurs when trying to mutate state when tinting a
+    // LayerDrawable that contains a RoundedBitmapDrawable on older versions of Android.
+    private final ImageView mThumbnailView;
     private final @Nullable ImageView mVideoBadge;
     private final ImageView mOfflineBadge;
+    private final @Nullable ImageView mOfflineBadgePublisherRow;
     private final View mPublisherBar;
     private final int mThumbnailSize;
     private final int mSmallThumbnailCornerRadius;
 
+    boolean mShowThumbnail;
     boolean mHasVideoBadge;
     boolean mHasOfflineBadge;
 
@@ -95,6 +100,8 @@ public class SuggestionsBinder {
         mAgeTextView = mCardContainerView.findViewById(R.id.article_age);
         mVideoBadge = mCardContainerView.findViewById(R.id.video_badge);
         mOfflineBadge = mCardContainerView.findViewById(R.id.offline_icon);
+        mOfflineBadgePublisherRow =
+                mCardContainerView.findViewById(R.id.offline_icon_publisher_row);
         mPublisherBar = mCardContainerView.findViewById(R.id.publisher_bar);
 
         if (mIsContextual) {
@@ -132,6 +139,7 @@ public class SuggestionsBinder {
                 showSnippet ? MAX_HEADER_LINES_WITH_SNIPPET : MAX_HEADER_LINES);
         mThumbnailView.setVisibility(showThumbnail ? View.VISIBLE : View.GONE);
         mHasVideoBadge = showThumbnailVideoBadge;
+        mShowThumbnail = showThumbnail;
         updateVisibilityForBadges();
 
         ViewGroup.MarginLayoutParams publisherBarParams =
@@ -170,7 +178,15 @@ public class SuggestionsBinder {
             mVideoBadge.setVisibility(
                     mHasVideoBadge && !mHasOfflineBadge ? View.VISIBLE : View.GONE);
         }
-        mOfflineBadge.setVisibility(mHasOfflineBadge ? View.VISIBLE : View.GONE);
+
+        boolean showPublisherRowOfflineBadge =
+                mOfflineBadgePublisherRow != null && mHasOfflineBadge && !mShowThumbnail;
+        mOfflineBadge.setVisibility(
+                mHasOfflineBadge && !showPublisherRowOfflineBadge ? View.VISIBLE : View.GONE);
+        if (mOfflineBadgePublisherRow != null) {
+            mOfflineBadgePublisherRow.setVisibility(
+                    showPublisherRowOfflineBadge ? View.VISIBLE : View.GONE);
+        }
     }
 
     private void setFavicon() {
@@ -239,7 +255,7 @@ public class SuggestionsBinder {
         } else {
             mThumbnailView.setImageResource(R.drawable.ic_snippet_thumbnail_placeholder);
         }
-        mThumbnailView.setTint(null);
+        if (!mIsContextual) ((TintedImageView) mThumbnailView).setTint(null);
 
         // Fetch thumbnail for the current article.
         mImageFetcher.makeArticleThumbnailRequest(
@@ -249,12 +265,13 @@ public class SuggestionsBinder {
     private void setDownloadThumbnail() {
         assert mSuggestion.isDownload();
         if (!mSuggestion.isAssetDownload()) {
-            setThumbnailFromFileType(DownloadFilter.FILTER_PAGE);
+            setThumbnailFromFileType(DownloadFilter.Type.PAGE);
             return;
         }
 
+        @DownloadFilter.Type
         int fileType = DownloadFilter.fromMimeType(mSuggestion.getAssetDownloadMimeType());
-        if (fileType == DownloadFilter.FILTER_IMAGE) {
+        if (fileType == DownloadFilter.Type.IMAGE) {
             // For image downloads, attempt to fetch a thumbnail.
             ImageFetcher.DownloadThumbnailRequest thumbnailRequest =
                     mImageFetcher.makeDownloadThumbnailRequest(mSuggestion, mThumbnailSize);
@@ -287,7 +304,7 @@ public class SuggestionsBinder {
         mThumbnailView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         mThumbnailView.setBackground(null);
         mThumbnailView.setImageDrawable(thumbnail);
-        mThumbnailView.setTint(null);
+        if (!mIsContextual) ((TintedImageView) mThumbnailView).setTint(null);
     }
 
     private void setThumbnailFromFileType(@DownloadFilter.Type int fileType) {
@@ -299,7 +316,7 @@ public class SuggestionsBinder {
         mThumbnailView.setBackgroundColor(iconBackgroundColor);
         mThumbnailView.setImageResource(
                 DownloadUtils.getIconResId(fileType, DownloadUtils.ICON_SIZE_36_DP));
-        mThumbnailView.setTint(iconForegroundColorList);
+        if (!mIsContextual) ((TintedImageView) mThumbnailView).setTint(iconForegroundColorList);
     }
 
     private void setDefaultFaviconOnView(int faviconSizePx) {
@@ -328,7 +345,7 @@ public class SuggestionsBinder {
 
         mThumbnailView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         mThumbnailView.setBackground(null);
-        mThumbnailView.setTint(null);
+        if (!mIsContextual) ((TintedImageView) mThumbnailView).setTint(null);
         int duration = (int) (FADE_IN_ANIMATION_TIME_MS
                 * ChromeAnimation.Animation.getAnimationMultiplier());
         if (duration == 0) {

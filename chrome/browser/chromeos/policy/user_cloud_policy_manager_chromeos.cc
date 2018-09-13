@@ -25,20 +25,17 @@
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_impl.h"
 #include "chrome/browser/chromeos/policy/app_install_event_log_uploader.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/device_status_collector.h"
 #include "chrome/browser/chromeos/policy/policy_oauth2_token_fetcher.h"
 #include "chrome/browser/chromeos/policy/remote_commands/user_commands_factory_chromeos.h"
-#include "chrome/browser/chromeos/policy/status_uploader.h"
 #include "chrome/browser/chromeos/policy/user_policy_manager_factory_chromeos.h"
 #include "chrome/browser/chromeos/policy/wildcard_login_checker.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/policy/cloud/remote_commands_invalidator_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chromeos/chromeos_switches.h"
-#include "chromeos/system/statistics_provider.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
@@ -56,6 +53,7 @@
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "url/gurl.h"
 
 namespace em = enterprise_management;
@@ -81,10 +79,6 @@ const char kUMAInitialFetchOAuth2Error[] =
     "Enterprise.UserPolicyChromeOS.InitialFetch.OAuth2Error";
 const char kUMAInitialFetchOAuth2NetworkError[] =
     "Enterprise.UserPolicyChromeOS.InitialFetch.OAuth2NetworkError";
-
-// Default frequency for uploading non-enterprise status reports.
-constexpr base::TimeDelta kDeviceStatusUploadFrequency =
-    base::TimeDelta::FromMinutes(10);
 
 // This class is used to subscribe for notifications that the current profile is
 // being shut down.
@@ -137,7 +131,6 @@ UserCloudPolicyManagerChromeOS::UserCloudPolicyManagerChromeOS(
                                     PolicyEnforcement::kServerCheckRequired ||
                                 !policy_refresh_timeout.is_zero()),
       enforcement_type_(enforcement_type),
-      task_runner_(task_runner),
       account_id_(account_id),
       fatal_error_callback_(std::move(fatal_error_callback)) {
   DCHECK(profile_);
@@ -179,12 +172,23 @@ void UserCloudPolicyManagerChromeOS::ForceTimeoutForTest() {
   OnPolicyRefreshTimeout();
 }
 
+void UserCloudPolicyManagerChromeOS::SetSignInURLLoaderFactoryForTests(
+    scoped_refptr<network::SharedURLLoaderFactory> signin_url_loader_factory) {
+  signin_url_loader_factory_for_tests_ = signin_url_loader_factory;
+}
+
+void UserCloudPolicyManagerChromeOS::SetSystemURLLoaderFactoryForTests(
+    scoped_refptr<network::SharedURLLoaderFactory> system_url_loader_factory) {
+  system_url_loader_factory_for_tests_ = system_url_loader_factory;
+}
+
 UserCloudPolicyManagerChromeOS::~UserCloudPolicyManagerChromeOS() {}
 
 void UserCloudPolicyManagerChromeOS::Connect(
     PrefService* local_state,
     DeviceManagementService* device_management_service,
-    scoped_refptr<net::URLRequestContextGetter> system_request_context) {
+    scoped_refptr<net::URLRequestContextGetter> system_request_context,
+    scoped_refptr<network::SharedURLLoaderFactory> system_url_loader_factory) {
   DCHECK(device_management_service);
   DCHECK(local_state);
 
@@ -209,7 +213,8 @@ void UserCloudPolicyManagerChromeOS::Connect(
       std::make_unique<CloudPolicyClient>(
           std::string() /* machine_id */, std::string() /* machine_model */,
           std::string() /* brand_code */, device_management_service,
-          system_request_context, nullptr /* signing_service */,
+          system_request_context, system_url_loader_factory,
+          nullptr /* signing_service */,
           chromeos::GetDeviceDMTokenForUserPolicyGetter(account_id_));
   CreateComponentCloudPolicyService(
       dm_protocol::kChromeExtensionPolicyType, component_policy_cache_path_,
@@ -318,7 +323,6 @@ void UserCloudPolicyManagerChromeOS::Shutdown() {
   if (service())
     service()->RemoveObserver(this);
   token_fetcher_.reset();
-  status_uploader_.reset();
   external_data_manager_->Disconnect();
   CloudPolicyManager::Shutdown();
 }
@@ -405,22 +409,6 @@ void UserCloudPolicyManagerChromeOS::OnRegistrationStateChanged(
       // indicates the cloud policy setup flow has been aborted.
       CancelWaitForPolicyFetch(true);
     }
-  }
-
-  // TODO(agawronska): Move StatusUploader creation to profile keyed
-  // service, where profile pref service is fully initialized.
-
-  // If child is registered with DMServer and has User Policy applied, it
-  // should upload device status to the server. For enterprise reporting
-  // status upload is controlled by DeviceCloudPolicyManagerChromeOS.
-  const user_manager::User* const user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(profile_);
-  if (client()->is_registered() && user &&
-      user->GetType() == user_manager::USER_TYPE_CHILD) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(&UserCloudPolicyManagerChromeOS::CreateStatusUploader,
-                       base::Unretained(this)));
   }
 }
 
@@ -535,30 +523,43 @@ void UserCloudPolicyManagerChromeOS::FetchPolicyOAuthToken() {
     return;
   }
 
+  // TODO(jcivelli): Connect() is passed a SharedURLLoaderFactory but here we
+  // retrieve it from |g_browser_process|. We should move away from retrieving
+  // it from |g_browser_process| at which point we can remove
+  // SetSystemURLLoaderFactoryForTests().
+  scoped_refptr<network::SharedURLLoaderFactory> system_url_loader_factory =
+      system_url_loader_factory_for_tests_;
+  if (!system_url_loader_factory) {
+    system_url_loader_factory =
+        g_browser_process->system_network_context_manager()
+            ->GetSharedURLLoaderFactory();
+  }
   const std::string& refresh_token = chromeos::UserSessionManager::GetInstance()
                                          ->user_context()
                                          .GetRefreshToken();
   if (!refresh_token.empty()) {
     token_fetcher_.reset(PolicyOAuth2TokenFetcher::CreateInstance());
     token_fetcher_->StartWithRefreshToken(
-        refresh_token, g_browser_process->system_request_context(),
+        refresh_token, system_url_loader_factory,
         base::Bind(&UserCloudPolicyManagerChromeOS::OnOAuth2PolicyTokenFetched,
                    base::Unretained(this)));
     return;
   }
 
-  scoped_refptr<net::URLRequestContextGetter> signin_context =
-      chromeos::login::GetSigninContext();
-  if (!signin_context.get()) {
-    LOG(ERROR) << "No signin context for policy oauth token fetch!";
+  scoped_refptr<network::SharedURLLoaderFactory> signin_url_loader_factory =
+      signin_url_loader_factory_for_tests_;
+  if (!signin_url_loader_factory)
+    signin_url_loader_factory = chromeos::login::GetSigninURLLoaderFactory();
+  if (!signin_url_loader_factory) {
+    LOG(ERROR) << "No signin URLLoaderfactory for policy oauth token fetch!";
     OnOAuth2PolicyTokenFetched(
         std::string(), GoogleServiceAuthError(GoogleServiceAuthError::NONE));
     return;
   }
 
   token_fetcher_.reset(PolicyOAuth2TokenFetcher::CreateInstance());
-  token_fetcher_->StartWithSigninContext(
-      signin_context.get(), g_browser_process->system_request_context(),
+  token_fetcher_->StartWithSigninURLLoaderFactory(
+      signin_url_loader_factory, system_url_loader_factory,
       base::Bind(&UserCloudPolicyManagerChromeOS::OnOAuth2PolicyTokenFetched,
                  base::Unretained(this)));
 }
@@ -703,24 +704,6 @@ void UserCloudPolicyManagerChromeOS::ProfileShutdown() {
   invalidator_->Shutdown();
   invalidator_.reset();
   shutdown_notifier_.reset();
-}
-
-void UserCloudPolicyManagerChromeOS::CreateStatusUploader() {
-  // Do not recreate status uploader if this is called multiple times.
-  if (status_uploader_)
-    return;
-
-  status_uploader_ = std::make_unique<StatusUploader>(
-      client(),
-      std::make_unique<DeviceStatusCollector>(
-          profile_->GetPrefs(),
-          chromeos::system::StatisticsProvider::GetInstance(),
-          DeviceStatusCollector::VolumeInfoFetcher(),
-          DeviceStatusCollector::CPUStatisticsFetcher(),
-          DeviceStatusCollector::CPUTempFetcher(),
-          DeviceStatusCollector::AndroidStatusFetcher(),
-          false /* is_enterprise_device */),
-      task_runner_, kDeviceStatusUploadFrequency);
 }
 
 }  // namespace policy

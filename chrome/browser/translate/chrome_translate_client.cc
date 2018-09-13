@@ -15,7 +15,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/language/language_model_factory.h"
+#include "chrome/browser/language/language_model_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/user_event_service_factory.h"
 #include "chrome/browser/translate/translate_accept_languages_factory.h"
@@ -30,6 +30,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/theme_resources.h"
+#include "components/language/core/browser/language_model_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/protocol/user_event_specifics.pb.h"
@@ -118,8 +119,9 @@ ChromeTranslateClient::ChromeTranslateClient(content::WebContents* web_contents)
           this,
           translate::TranslateRankerFactory::GetForBrowserContext(
               web_contents->GetBrowserContext()),
-          LanguageModelFactory::GetForBrowserContext(
-              web_contents->GetBrowserContext()))) {
+          LanguageModelManagerFactory::GetForBrowserContext(
+              web_contents->GetBrowserContext())
+              ->GetDefaultModel())) {
   translate_driver_.AddObserver(this);
   translate_driver_.set_translate_manager(translate_manager_.get());
 }
@@ -207,8 +209,9 @@ void ChromeTranslateClient::GetTranslateLanguages(
   }
 
   *target = translate::TranslateManager::GetTargetLanguage(
-      translate_prefs.get(),
-      LanguageModelFactory::GetInstance()->GetForBrowserContext(profile));
+      translate_prefs.get(), LanguageModelManagerFactory::GetInstance()
+                                 ->GetForBrowserContext(profile)
+                                 ->GetDefaultModel());
 }
 
 void ChromeTranslateClient::RecordTranslateEvent(
@@ -220,7 +223,7 @@ translate::TranslateManager* ChromeTranslateClient::GetTranslateManager() {
   return translate_manager_.get();
 }
 
-void ChromeTranslateClient::ShowTranslateUI(
+bool ChromeTranslateClient::ShowTranslateUI(
     translate::TranslateStep step,
     const std::string& source_language,
     const std::string& target_language,
@@ -241,7 +244,7 @@ void ChromeTranslateClient::ShowTranslateUI(
         InfoBarService::FromWebContents(web_contents()),
         web_contents()->GetBrowserContext()->IsOffTheRecord(), step,
         source_language, target_language, error_type, triggered_from_menu);
-    return;
+    return true;
   }
 #endif
 
@@ -249,7 +252,7 @@ void ChromeTranslateClient::ShowTranslateUI(
   if (step == translate::TRANSLATE_STEP_BEFORE_TRANSLATE &&
       translate_manager_->ShouldSuppressBubbleUI(triggered_from_menu,
                                                  source_language)) {
-    return;
+    return false;
   }
 
   ShowTranslateBubbleResult result = ShowBubble(step, error_type);
@@ -258,6 +261,8 @@ void ChromeTranslateClient::ShowTranslateUI(
     translate_manager_->RecordTranslateEvent(
         BubbleResultToTranslateEvent(result));
   }
+
+  return true;
 }
 
 translate::TranslateDriver* ChromeTranslateClient::GetTranslateDriver() {

@@ -230,12 +230,15 @@ class Volume : public base::SupportsWeakPtr<Volume> {
   DISALLOW_COPY_AND_ASSIGN(Volume);
 };
 
-// Manages "Volume"s for file manager. Here are "Volume"s.
-// - Drive File System (not yet supported).
+// Manages Volumes for file manager. Example of Volumes:
+// - Drive File System.
 // - Downloads directory.
 // - Removable disks (volume will be created for each partition, not only one
 //   for a device).
 // - Mounted zip archives.
+// - Linux/Crostini file system.
+// - Android/Arc++ file system.
+// - File System Providers.
 class VolumeManager : public KeyedService,
                       public arc::ArcSessionManager::Observer,
                       public drive::DriveIntegrationServiceObserver,
@@ -285,9 +288,16 @@ class VolumeManager : public KeyedService,
   // Add sshfs crostini volume mounted at specified path.
   void AddSshfsCrostiniVolume(const base::FilePath& sshfs_mount_path);
 
+  // Removes specified sshfs crostini mount.
+  void RemoveSshfsCrostiniVolume(const base::FilePath& sshfs_mount_path);
+
   // For testing purpose, registers a native local file system pointing to
   // |path| with DOWNLOADS type, and adds its volume info.
   bool RegisterDownloadsDirectoryForTesting(const base::FilePath& path);
+
+  // For testing purpose, registers a native local file system pointing to
+  // |path| with CROSTINI type, and adds its volume info.
+  bool RegisterCrostiniDirectoryForTesting(const base::FilePath& path);
 
   // For testing purpose, adds a volume info pointing to |path|, with TESTING
   // type. Assumes that the mount point is already registered.

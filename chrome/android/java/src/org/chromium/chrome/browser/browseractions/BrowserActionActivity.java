@@ -21,6 +21,7 @@ import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.contextmenu.ContextMenuParams;
+import org.chromium.chrome.browser.download.items.OfflineContentAggregatorNotificationBridgeUiFactory;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.gsa.GSAState;
 import org.chromium.chrome.browser.init.AsyncInitializationActivity;
@@ -48,10 +49,11 @@ public class BrowserActionActivity extends AsyncInitializationActivity {
     private BrowserActionsContextMenuHelper mHelper;
 
     @Override
-    protected void setContentView() {
+    protected void triggerLayoutInflation() {
         View view = new View(this);
         setContentView(view);
         openContextMenu(view);
+        onInitialLayoutInflationComplete();
     }
 
     @Override
@@ -168,6 +170,7 @@ public class BrowserActionActivity extends AsyncInitializationActivity {
     @Override
     public void finishNativeInitialization() {
         super.finishNativeInitialization();
+        OfflineContentAggregatorNotificationBridgeUiFactory.instance();
         recordClientPackageName();
         mHelper.onNativeInitialized();
     }

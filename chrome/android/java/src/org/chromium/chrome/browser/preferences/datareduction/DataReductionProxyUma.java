@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.preferences.datareduction;
 
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.chrome.browser.util.ConversionUtils;
 
 /**
  * Centralizes UMA data collection for the Data Reduction Proxy.
@@ -20,6 +21,10 @@ public class DataReductionProxyUma {
             "DataReductionProxy.UserViewedOriginalSize";
     public static final String USER_VIEWED_SAVINGS_SIZE_HISTOGRAM_NAME =
             "DataReductionProxy.UserViewedSavingsSize";
+    public static final String USER_VIEWED_USAGE_DIFFERENCE_HISTOGRAM_NAME =
+            "DataReductionProxy.UserViewedUsageDifferenceWithBreakdown";
+    public static final String USER_VIEWED_SAVINGS_DIFFERENCE_HISTOGRAM_NAME =
+            "DataReductionProxy.UserViewedSavingsDifferenceWithBreakdown";
 
     // Represent the possible user actions in the various data reduction promos and settings menu.
     // This must remain in sync with DataReductionProxy.UIAction in
@@ -92,15 +97,30 @@ public class DataReductionProxyUma {
             long compressedTotalBytes, long originalTotalBytes) {
         // The byte counts are stored in KB. The largest histogram bucket is set to ~1 TB.
         RecordHistogram.recordCustomCountHistogram(USER_VIEWED_ORIGINAL_SIZE_HISTOGRAM_NAME,
-                (int) (originalTotalBytes / 1024), 1, 1000 * 1000 * 1000, 100);
-        RecordHistogram.recordCustomCountHistogram(USER_VIEWED_SAVINGS_SIZE_HISTOGRAM_NAME,
-                (int) ((originalTotalBytes - compressedTotalBytes) / 1024), 1, 1000 * 1000 * 1000,
+                (int) ConversionUtils.bytesToKilobytes(originalTotalBytes), 1, 1000 * 1000 * 1000,
                 100);
+        RecordHistogram.recordCustomCountHistogram(USER_VIEWED_SAVINGS_SIZE_HISTOGRAM_NAME,
+                (int) ConversionUtils.bytesToKilobytes(originalTotalBytes - compressedTotalBytes),
+                1, 1000 * 1000 * 1000, 100);
+    }
+
+    /**
+     * Record UMA on the difference between data savings displayed to the user and the sum of the
+     * breakdown columns. Called when the user views the data savings in the UI.
+     * @param savedDifference The percent difference of data saved in the range [0, 100].
+     * @param usedDifference The percent difference of data used in the range [0, 100].
+     */
+    public static void dataReductionProxyUserViewedSavingsDifference(
+            int savedDifference, int usedDifference) {
+        RecordHistogram.recordPercentageHistogram(
+                USER_VIEWED_USAGE_DIFFERENCE_HISTOGRAM_NAME, usedDifference);
+        RecordHistogram.recordPercentageHistogram(
+                USER_VIEWED_SAVINGS_DIFFERENCE_HISTOGRAM_NAME, savedDifference);
     }
 
     /**
      * Record the Previews.ContextMenuAction.LoFi histogram.
-     * @param action LoFi user action on the context menu
+     * @param action Lo-Fi user action on the context menu
      */
     public static void previewsLoFiContextMenuAction(int action) {
         assert action >= 0 && action < ACTION_LOFI_CONTEXT_MENU_INDEX_BOUNDARY;

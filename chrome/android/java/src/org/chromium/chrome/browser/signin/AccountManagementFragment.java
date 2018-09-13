@@ -46,7 +46,6 @@ import org.chromium.chrome.browser.signin.SigninManager.SignInStateObserver;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.chrome.browser.sync.ProfileSyncService.SyncStateChangedListener;
 import org.chromium.chrome.browser.sync.ui.SyncCustomizationFragment;
-import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.components.signin.AccountManagerFacade;
 import org.chromium.components.signin.ChromeSigninController;
 
@@ -91,9 +90,6 @@ public class AccountManagementFragment extends PreferenceFragment
     public static final String PREF_SYNC_SETTINGS = "sync_settings";
     public static final String PREF_SIGN_OUT = "sign_out";
     public static final String PREF_SIGN_OUT_DIVIDER = "sign_out_divider";
-
-    private static final String ACCOUNT_SETTINGS_ACTION = "android.settings.ACCOUNT_SYNC_SETTINGS";
-    private static final String ACCOUNT_SETTINGS_ACCOUNT_KEY = "account";
 
     private int mGaiaServiceType;
 
@@ -270,10 +266,7 @@ public class AccountManagementFragment extends PreferenceFragment
 
             if (ProfileSyncService.get() == null) return true;
 
-            Bundle args = new Bundle();
-            args.putString(SyncCustomizationFragment.ARGUMENT_ACCOUNT, mSignedInAccountName);
-            preferences.startFragment(SyncCustomizationFragment.class.getName(), args);
-
+            preferences.startFragment(SyncCustomizationFragment.class.getName(), new Bundle());
             return true;
         });
     }
@@ -356,11 +349,8 @@ public class AccountManagementFragment extends PreferenceFragment
             pref.setTitle(account.name);
             pref.setIcon(mProfileDataCache.getProfileDataOrDefault(account.name).getImage());
 
-            pref.setOnPreferenceClickListener(preference -> {
-                Intent intent = new Intent(ACCOUNT_SETTINGS_ACTION);
-                intent.putExtra(ACCOUNT_SETTINGS_ACCOUNT_KEY, account);
-                return IntentUtils.safeStartActivity(getActivity(), intent);
-            });
+            pref.setOnPreferenceClickListener(
+                    preference -> SigninUtils.openAccountSettingsPage(getActivity(), account));
 
             accountsCategory.addPreference(pref);
         }

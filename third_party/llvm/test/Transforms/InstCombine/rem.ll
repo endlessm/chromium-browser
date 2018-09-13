@@ -58,6 +58,28 @@ define i5 @biggest_divisor(i5 %x) {
   ret i5 %rem
 }
 
+define i8 @urem_with_sext_bool_divisor(i1 %x, i8 %y) {
+; CHECK-LABEL: @urem_with_sext_bool_divisor(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq i8 [[Y:%.*]], -1
+; CHECK-NEXT:    [[REM:%.*]] = select i1 [[TMP1]], i8 0, i8 [[Y]]
+; CHECK-NEXT:    ret i8 [[REM]]
+;
+  %s = sext i1 %x to i8
+  %rem = urem i8 %y, %s
+  ret i8 %rem
+}
+
+define <2 x i8> @urem_with_sext_bool_divisor_vec(<2 x i1> %x, <2 x i8> %y) {
+; CHECK-LABEL: @urem_with_sext_bool_divisor_vec(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq <2 x i8> [[Y:%.*]], <i8 -1, i8 -1>
+; CHECK-NEXT:    [[REM:%.*]] = select <2 x i1> [[TMP1]], <2 x i8> zeroinitializer, <2 x i8> [[Y]]
+; CHECK-NEXT:    ret <2 x i8> [[REM]]
+;
+  %s = sext <2 x i1> %x to <2 x i8>
+  %rem = urem <2 x i8> %y, %s
+  ret <2 x i8> %rem
+}
+
 define <2 x i4> @big_divisor_vec(<2 x i4> %x) {
 ; CHECK-LABEL: @big_divisor_vec(
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp ult <2 x i4> [[X:%.*]], <i4 -3, i4 -3>
@@ -314,8 +336,8 @@ define i64 @test14(i64 %x, i32 %y) {
 
 define i64 @test15(i32 %x, i32 %y) {
 ; CHECK-LABEL: @test15(
-; CHECK-NEXT:    [[SHL:%.*]] = shl nuw i32 1, [[Y:%.*]]
-; CHECK-NEXT:    [[TMP1:%.*]] = add i32 [[SHL]], -1
+; CHECK-NEXT:    [[NOTMASK:%.*]] = shl nsw i32 -1, [[Y:%.*]]
+; CHECK-NEXT:    [[TMP1:%.*]] = xor i32 [[NOTMASK]], -1
 ; CHECK-NEXT:    [[TMP2:%.*]] = and i32 [[TMP1]], [[X:%.*]]
 ; CHECK-NEXT:    [[UREM:%.*]] = zext i32 [[TMP2]] to i64
 ; CHECK-NEXT:    ret i64 [[UREM]]
@@ -485,11 +507,9 @@ define i32 @pr27968_0(i1 %c0, i32* %p) {
 ; CHECK-NEXT:    [[V:%.*]] = load volatile i32, i32* [[P:%.*]], align 4
 ; CHECK-NEXT:    br label [[IF_END]]
 ; CHECK:       if.end:
-; CHECK-NEXT:    [[LHS:%.*]] = phi i32 [ [[V]], [[IF_THEN]] ], [ 5, [[ENTRY:%.*]] ]
 ; CHECK-NEXT:    br i1 icmp eq (i16* getelementptr inbounds ([5 x i16], [5 x i16]* @a, i64 0, i64 4), i16* @b), label [[REM_IS_SAFE:%.*]], label [[REM_IS_UNSAFE:%.*]]
 ; CHECK:       rem.is.safe:
-; CHECK-NEXT:    [[REM:%.*]] = srem i32 [[LHS]], zext (i1 icmp eq (i16* getelementptr inbounds ([5 x i16], [5 x i16]* @a, i64 0, i64 4), i16* @b) to i32)
-; CHECK-NEXT:    ret i32 [[REM]]
+; CHECK-NEXT:    ret i32 0
 ; CHECK:       rem.is.unsafe:
 ; CHECK-NEXT:    ret i32 0
 ;
@@ -555,11 +575,9 @@ define i32 @pr27968_2(i1 %c0, i32* %p) {
 ; CHECK-NEXT:    [[V:%.*]] = load volatile i32, i32* [[P:%.*]], align 4
 ; CHECK-NEXT:    br label [[IF_END]]
 ; CHECK:       if.end:
-; CHECK-NEXT:    [[LHS:%.*]] = phi i32 [ [[V]], [[IF_THEN]] ], [ 5, [[ENTRY:%.*]] ]
 ; CHECK-NEXT:    br i1 icmp eq (i16* getelementptr inbounds ([5 x i16], [5 x i16]* @a, i64 0, i64 4), i16* @b), label [[REM_IS_SAFE:%.*]], label [[REM_IS_UNSAFE:%.*]]
 ; CHECK:       rem.is.safe:
-; CHECK-NEXT:    [[REM:%.*]] = urem i32 [[LHS]], zext (i1 icmp eq (i16* getelementptr inbounds ([5 x i16], [5 x i16]* @a, i64 0, i64 4), i16* @b) to i32)
-; CHECK-NEXT:    ret i32 [[REM]]
+; CHECK-NEXT:    ret i32 0
 ; CHECK:       rem.is.unsafe:
 ; CHECK-NEXT:    ret i32 0
 ;

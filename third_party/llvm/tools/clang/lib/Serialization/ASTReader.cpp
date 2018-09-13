@@ -61,7 +61,6 @@
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/TokenKinds.h"
 #include "clang/Basic/Version.h"
-#include "clang/Basic/VersionTuple.h"
 #include "clang/Frontend/PCHContainerOperations.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/HeaderSearchOptions.h"
@@ -104,8 +103,8 @@
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Bitcode/BitstreamReader.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/Compression.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/Support/Compression.h"
 #include "llvm/Support/DJB.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
@@ -115,6 +114,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/VersionTuple.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cassert>
@@ -704,6 +704,17 @@ static bool checkPreprocessorOptions(const PreprocessorOptions &PPOpts,
   // Compute the #include and #include_macros lines we need.
   for (unsigned I = 0, N = ExistingPPOpts.Includes.size(); I != N; ++I) {
     StringRef File = ExistingPPOpts.Includes[I];
+
+    if (!ExistingPPOpts.ImplicitPCHInclude.empty() &&
+        !ExistingPPOpts.PCHThroughHeader.empty()) {
+      // In case the through header is an include, we must add all the includes
+      // to the predefines so the start point can be determined.
+      SuggestedPredefines += "#include \"";
+      SuggestedPredefines += File;
+      SuggestedPredefines += "\"\n";
+      continue;
+    }
+
     if (File == ExistingPPOpts.ImplicitPCHInclude)
       continue;
 
@@ -2482,7 +2493,7 @@ ASTReader::ReadControlBlock(ModuleFile &F,
         return VersionMismatch;
       }
 
-      bool hasErrors = Record[6];
+      bool hasErrors = Record[7];
       if (hasErrors && !DisableValidation && !AllowASTWithCompilerErrors) {
         Diag(diag::err_pch_with_compiler_errors);
         return HadErrors;
@@ -2499,6 +2510,8 @@ ASTReader::ReadControlBlock(ModuleFile &F,
         F.BaseDirectory = isysroot.empty() ? "/" : isysroot;
 
       F.HasTimestamps = Record[5];
+
+      F.PCHHasObjectFile = Record[6];
 
       const std::string &CurBranch = getClangFullRepositoryVersion();
       StringRef ASTBranch = Blob;
@@ -2613,7 +2626,9 @@ ASTReader::ReadControlBlock(ModuleFile &F,
              "MODULE_DIRECTORY found before MODULE_NAME");
       // If we've already loaded a module map file covering this module, we may
       // have a better path for it (relative to the current build).
-      Module *M = PP.getHeaderSearchInfo().lookupModule(F.ModuleName);
+      Module *M = PP.getHeaderSearchInfo().lookupModule(
+          F.ModuleName, /*AllowSearch*/ true,
+          /*AllowExtraModuleMapSearch*/ true);
       if (M && M->Directory) {
         // If we're implicitly loading a module, the base directory can't
         // change between the build and use.
@@ -4811,7 +4826,8 @@ bool ASTReader::readASTFileControlBlock(
 
       unsigned NumInputFiles = Record[0];
       unsigned NumUserFiles = Record[1];
-      const uint64_t *InputFileOffs = (const uint64_t *)Blob.data();
+      const llvm::support::unaligned_uint64_t *InputFileOffs =
+          (const llvm::support::unaligned_uint64_t *)Blob.data();
       for (unsigned I = 0; I != NumInputFiles; ++I) {
         // Go find this input file.
         bool isSystemFile = I >= NumUserFiles;
@@ -6355,6 +6371,17 @@ QualType ASTReader::readTypeRecord(unsigned Index) {
     return Context.getPipeType(ElementType, ReadOnly);
   }
 
+  case TYPE_DEPENDENT_SIZED_VECTOR: {
+    unsigned Idx = 0;
+    QualType ElementType = readType(*Loc.F, Record, Idx);
+    Expr *SizeExpr = ReadExpr(*Loc.F);
+    SourceLocation AttrLoc = ReadSourceLocation(*Loc.F, Record, Idx);
+    unsigned VecKind = Record[Idx];
+
+    return Context.getDependentVectorType(ElementType, SizeExpr, AttrLoc,
+                                               (VectorType::VectorKind)VecKind);
+  }
+
   case TYPE_DEPENDENT_SIZED_EXT_VECTOR: {
     unsigned Idx = 0;
 
@@ -6532,6 +6559,11 @@ void TypeLocReader::VisitDependentSizedExtVectorTypeLoc(
 }
 
 void TypeLocReader::VisitVectorTypeLoc(VectorTypeLoc TL) {
+  TL.setNameLoc(ReadSourceLocation());
+}
+
+void TypeLocReader::VisitDependentVectorTypeLoc(
+    DependentVectorTypeLoc TL) {
   TL.setNameLoc(ReadSourceLocation());
 }
 
@@ -6730,6 +6762,13 @@ void TypeLocReader::VisitPipeTypeLoc(PipeTypeLoc TL) {
   TL.setKWLoc(ReadSourceLocation());
 }
 
+void ASTReader::ReadTypeLoc(ModuleFile &F, const ASTReader::RecordData &Record,
+                            unsigned &Idx, TypeLoc TL) {
+  TypeLocReader TLR(F, *this, Record, Idx);
+  for (; !TL.isNull(); TL = TL.getNextTypeLoc())
+    TLR.Visit(TL);
+}
+
 TypeSourceInfo *
 ASTReader::GetTypeSourceInfo(ModuleFile &F, const ASTReader::RecordData &Record,
                              unsigned &Idx) {
@@ -6738,9 +6777,7 @@ ASTReader::GetTypeSourceInfo(ModuleFile &F, const ASTReader::RecordData &Record,
     return nullptr;
 
   TypeSourceInfo *TInfo = getContext().CreateTypeSourceInfo(InfoTy);
-  TypeLocReader TLR(F, *this, Record, Idx);
-  for (TypeLoc TL = TInfo->getTypeLoc(); !TL.isNull(); TL = TL.getNextTypeLoc())
-    TLR.Visit(TL);
+  ReadTypeLoc(F, Record, Idx, TInfo->getTypeLoc());
   return TInfo;
 }
 
@@ -6817,6 +6854,78 @@ QualType ASTReader::GetType(TypeID ID) {
       break;
     case PREDEF_TYPE_LONGDOUBLE_ID:
       T = Context.LongDoubleTy;
+      break;
+    case PREDEF_TYPE_SHORT_ACCUM_ID:
+      T = Context.ShortAccumTy;
+      break;
+    case PREDEF_TYPE_ACCUM_ID:
+      T = Context.AccumTy;
+      break;
+    case PREDEF_TYPE_LONG_ACCUM_ID:
+      T = Context.LongAccumTy;
+      break;
+    case PREDEF_TYPE_USHORT_ACCUM_ID:
+      T = Context.UnsignedShortAccumTy;
+      break;
+    case PREDEF_TYPE_UACCUM_ID:
+      T = Context.UnsignedAccumTy;
+      break;
+    case PREDEF_TYPE_ULONG_ACCUM_ID:
+      T = Context.UnsignedLongAccumTy;
+      break;
+    case PREDEF_TYPE_SHORT_FRACT_ID:
+      T = Context.ShortFractTy;
+      break;
+    case PREDEF_TYPE_FRACT_ID:
+      T = Context.FractTy;
+      break;
+    case PREDEF_TYPE_LONG_FRACT_ID:
+      T = Context.LongFractTy;
+      break;
+    case PREDEF_TYPE_USHORT_FRACT_ID:
+      T = Context.UnsignedShortFractTy;
+      break;
+    case PREDEF_TYPE_UFRACT_ID:
+      T = Context.UnsignedFractTy;
+      break;
+    case PREDEF_TYPE_ULONG_FRACT_ID:
+      T = Context.UnsignedLongFractTy;
+      break;
+    case PREDEF_TYPE_SAT_SHORT_ACCUM_ID:
+      T = Context.SatShortAccumTy;
+      break;
+    case PREDEF_TYPE_SAT_ACCUM_ID:
+      T = Context.SatAccumTy;
+      break;
+    case PREDEF_TYPE_SAT_LONG_ACCUM_ID:
+      T = Context.SatLongAccumTy;
+      break;
+    case PREDEF_TYPE_SAT_USHORT_ACCUM_ID:
+      T = Context.SatUnsignedShortAccumTy;
+      break;
+    case PREDEF_TYPE_SAT_UACCUM_ID:
+      T = Context.SatUnsignedAccumTy;
+      break;
+    case PREDEF_TYPE_SAT_ULONG_ACCUM_ID:
+      T = Context.SatUnsignedLongAccumTy;
+      break;
+    case PREDEF_TYPE_SAT_SHORT_FRACT_ID:
+      T = Context.SatShortFractTy;
+      break;
+    case PREDEF_TYPE_SAT_FRACT_ID:
+      T = Context.SatFractTy;
+      break;
+    case PREDEF_TYPE_SAT_LONG_FRACT_ID:
+      T = Context.SatLongFractTy;
+      break;
+    case PREDEF_TYPE_SAT_USHORT_FRACT_ID:
+      T = Context.SatUnsignedShortFractTy;
+      break;
+    case PREDEF_TYPE_SAT_UFRACT_ID:
+      T = Context.SatUnsignedFractTy;
+      break;
+    case PREDEF_TYPE_SAT_ULONG_FRACT_ID:
+      T = Context.SatUnsignedLongFractTy;
       break;
     case PREDEF_TYPE_FLOAT16_ID:
       T = Context.Float16Ty;
@@ -8375,6 +8484,11 @@ Module *ASTReader::getModule(unsigned ID) {
   return getSubmodule(ID);
 }
 
+bool ASTReader::DeclIsFromPCHWithObjectFile(const Decl *D) {
+  ModuleFile *MF = getOwningModuleFile(D);
+  return MF && MF->PCHHasObjectFile;
+}
+
 ModuleFile *ASTReader::getLocalModuleFile(ModuleFile &F, unsigned ID) {
   if (ID & 1) {
     // It's a module, look it up by submodule ID.
@@ -9276,6 +9390,19 @@ void ASTReader::finishPendingActions() {
                                PBEnd = PendingBodies.end();
        PB != PBEnd; ++PB) {
     if (FunctionDecl *FD = dyn_cast<FunctionDecl>(PB->first)) {
+      // For a function defined inline within a class template, force the
+      // canonical definition to be the one inside the canonical definition of
+      // the template. This ensures that we instantiate from a correct view
+      // of the template.
+      //
+      // Sadly we can't do this more generally: we can't be sure that all
+      // copies of an arbitrary class definition will have the same members
+      // defined (eg, some member functions may not be instantiated, and some
+      // special members may or may not have been implicitly defined).
+      if (auto *RD = dyn_cast<CXXRecordDecl>(FD->getLexicalParent()))
+        if (RD->isDependentContext() && !RD->isThisDeclarationADefinition())
+          continue;
+
       // FIXME: Check for =delete/=default?
       // FIXME: Complain about ODR violations here?
       const FunctionDecl *Defn = nullptr;
@@ -9288,7 +9415,15 @@ void ASTReader::finishPendingActions() {
         if (!FD->isLateTemplateParsed() &&
             !NonConstDefn->isLateTemplateParsed() &&
             FD->getODRHash() != NonConstDefn->getODRHash()) {
-          PendingFunctionOdrMergeFailures[FD].push_back(NonConstDefn);
+          if (!isa<CXXMethodDecl>(FD)) {
+            PendingFunctionOdrMergeFailures[FD].push_back(NonConstDefn);
+          } else if (FD->getLexicalParent()->isFileContext() &&
+                     NonConstDefn->getLexicalParent()->isFileContext()) {
+            // Only diagnose out-of-line method definitions.  If they are
+            // in class definitions, then an error will be generated when
+            // processing the class bodies.
+            PendingFunctionOdrMergeFailures[FD].push_back(NonConstDefn);
+          }
         }
       }
       continue;
@@ -9460,6 +9595,14 @@ void ASTReader::diagnoseOdrViolations() {
     Hash.AddTemplateArgument(TA);
     return Hash.CalculateHash();
   };
+
+  auto ComputeTemplateParameterListODRHash =
+      [&Hash](const TemplateParameterList *TPL) {
+        assert(TPL);
+        Hash.clear();
+        Hash.AddTemplateParameterList(TPL);
+        return Hash.CalculateHash();
+      };
 
   // Issue any pending ODR-failure diagnostics.
   for (auto &Merge : OdrMergeFailures) {
@@ -9813,6 +9956,7 @@ void ASTReader::diagnoseOdrViolations() {
         TypeDef,
         Var,
         Friend,
+        FunctionTemplate,
         Other
       } FirstDiffType = Other,
         SecondDiffType = Other;
@@ -9850,6 +9994,8 @@ void ASTReader::diagnoseOdrViolations() {
           return Var;
         case Decl::Friend:
           return Friend;
+        case Decl::FunctionTemplate:
+          return FunctionTemplate;
         }
       };
 
@@ -9936,7 +10082,7 @@ void ASTReader::diagnoseOdrViolations() {
 
       // Used with err_module_odr_violation_mismatch_decl_diff and
       // note_module_odr_violation_mismatch_decl_diff
-      enum ODRDeclDifference{
+      enum ODRDeclDifference {
         StaticAssertCondition,
         StaticAssertMessage,
         StaticAssertOnlyMessage,
@@ -9949,6 +10095,7 @@ void ASTReader::diagnoseOdrViolations() {
         FieldDifferentInitializers,
         MethodName,
         MethodDeleted,
+        MethodDefaulted,
         MethodVirtual,
         MethodStatic,
         MethodVolatile,
@@ -9962,6 +10109,8 @@ void ASTReader::diagnoseOdrViolations() {
         MethodNoTemplateArguments,
         MethodDifferentNumberTemplateArguments,
         MethodDifferentTemplateArgument,
+        MethodSingleBody,
+        MethodDifferentBody,
         TypedefName,
         TypedefType,
         VarName,
@@ -9972,6 +10121,13 @@ void ASTReader::diagnoseOdrViolations() {
         FriendTypeFunction,
         FriendType,
         FriendFunction,
+        FunctionTemplateDifferentNumberParameters,
+        FunctionTemplateParameterDifferentKind,
+        FunctionTemplateParameterName,
+        FunctionTemplateParameterSingleDefaultArgument,
+        FunctionTemplateParameterDifferentDefaultArgument,
+        FunctionTemplateParameterDifferentType,
+        FunctionTemplatePackParameter,
       };
 
       // These lambdas have the common portions of the ODR diagnostics.  This
@@ -10188,8 +10344,8 @@ void ASTReader::diagnoseOdrViolations() {
           break;
         }
 
-        const bool FirstDeleted = FirstMethod->isDeleted();
-        const bool SecondDeleted = SecondMethod->isDeleted();
+        const bool FirstDeleted = FirstMethod->isDeletedAsWritten();
+        const bool SecondDeleted = SecondMethod->isDeletedAsWritten();
         if (FirstDeleted != SecondDeleted) {
           ODRDiagError(FirstMethod->getLocation(),
                        FirstMethod->getSourceRange(), MethodDeleted)
@@ -10198,6 +10354,20 @@ void ASTReader::diagnoseOdrViolations() {
           ODRDiagNote(SecondMethod->getLocation(),
                       SecondMethod->getSourceRange(), MethodDeleted)
               << SecondMethodType << SecondName << SecondDeleted;
+          Diagnosed = true;
+          break;
+        }
+
+        const bool FirstDefaulted = FirstMethod->isExplicitlyDefaulted();
+        const bool SecondDefaulted = SecondMethod->isExplicitlyDefaulted();
+        if (FirstDefaulted != SecondDefaulted) {
+          ODRDiagError(FirstMethod->getLocation(),
+                       FirstMethod->getSourceRange(), MethodDefaulted)
+              << FirstMethodType << FirstName << FirstDefaulted;
+
+          ODRDiagNote(SecondMethod->getLocation(),
+                      SecondMethod->getSourceRange(), MethodDefaulted)
+              << SecondMethodType << SecondName << SecondDefaulted;
           Diagnosed = true;
           break;
         }
@@ -10467,6 +10637,44 @@ void ASTReader::diagnoseOdrViolations() {
             break;
           }
         }
+
+        // Compute the hash of the method as if it has no body.
+        auto ComputeCXXMethodODRHash = [&Hash](const CXXMethodDecl *D) {
+          Hash.clear();
+          Hash.AddFunctionDecl(D, true /*SkipBody*/);
+          return Hash.CalculateHash();
+        };
+
+        // Compare the hash generated to the hash stored.  A difference means
+        // that a body was present in the original source.  Due to merging,
+        // the stardard way of detecting a body will not work.
+        const bool HasFirstBody =
+            ComputeCXXMethodODRHash(FirstMethod) != FirstMethod->getODRHash();
+        const bool HasSecondBody =
+            ComputeCXXMethodODRHash(SecondMethod) != SecondMethod->getODRHash();
+
+        if (HasFirstBody != HasSecondBody) {
+          ODRDiagError(FirstMethod->getLocation(),
+                       FirstMethod->getSourceRange(), MethodSingleBody)
+              << FirstMethodType << FirstName << HasFirstBody;
+          ODRDiagNote(SecondMethod->getLocation(),
+                      SecondMethod->getSourceRange(), MethodSingleBody)
+              << SecondMethodType << SecondName << HasSecondBody;
+          Diagnosed = true;
+          break;
+        }
+
+        if (HasFirstBody && HasSecondBody) {
+          ODRDiagError(FirstMethod->getLocation(),
+                       FirstMethod->getSourceRange(), MethodDifferentBody)
+              << FirstMethodType << FirstName;
+          ODRDiagNote(SecondMethod->getLocation(),
+                      SecondMethod->getSourceRange(), MethodDifferentBody)
+              << SecondMethodType << SecondName;
+          Diagnosed = true;
+          break;
+        }
+
         break;
       }
       case TypeAlias:
@@ -10617,6 +10825,305 @@ void ASTReader::diagnoseOdrViolations() {
             << (SecondTSI == nullptr);
 
         Diagnosed = true;
+        break;
+      }
+      case FunctionTemplate: {
+        FunctionTemplateDecl *FirstTemplate =
+            cast<FunctionTemplateDecl>(FirstDecl);
+        FunctionTemplateDecl *SecondTemplate =
+            cast<FunctionTemplateDecl>(SecondDecl);
+
+        TemplateParameterList *FirstTPL =
+            FirstTemplate->getTemplateParameters();
+        TemplateParameterList *SecondTPL =
+            SecondTemplate->getTemplateParameters();
+
+        if (FirstTPL->size() != SecondTPL->size()) {
+          ODRDiagError(FirstTemplate->getLocation(),
+                       FirstTemplate->getSourceRange(),
+                       FunctionTemplateDifferentNumberParameters)
+              << FirstTemplate << FirstTPL->size();
+          ODRDiagNote(SecondTemplate->getLocation(),
+                      SecondTemplate->getSourceRange(),
+                      FunctionTemplateDifferentNumberParameters)
+              << SecondTemplate  << SecondTPL->size();
+
+          Diagnosed = true;
+          break;
+        }
+
+        bool ParameterMismatch = false;
+        for (unsigned i = 0, e = FirstTPL->size(); i != e; ++i) {
+          NamedDecl *FirstParam = FirstTPL->getParam(i);
+          NamedDecl *SecondParam = SecondTPL->getParam(i);
+
+          if (FirstParam->getKind() != SecondParam->getKind()) {
+            enum {
+              TemplateTypeParameter,
+              NonTypeTemplateParameter,
+              TemplateTemplateParameter,
+            };
+            auto GetParamType = [](NamedDecl *D) {
+              switch (D->getKind()) {
+                default:
+                  llvm_unreachable("Unexpected template parameter type");
+                case Decl::TemplateTypeParm:
+                  return TemplateTypeParameter;
+                case Decl::NonTypeTemplateParm:
+                  return NonTypeTemplateParameter;
+                case Decl::TemplateTemplateParm:
+                  return TemplateTemplateParameter;
+              }
+            };
+
+            ODRDiagError(FirstTemplate->getLocation(),
+                         FirstTemplate->getSourceRange(),
+                         FunctionTemplateParameterDifferentKind)
+                << FirstTemplate << (i + 1) << GetParamType(FirstParam);
+            ODRDiagNote(SecondTemplate->getLocation(),
+                        SecondTemplate->getSourceRange(),
+                        FunctionTemplateParameterDifferentKind)
+                << SecondTemplate << (i + 1) << GetParamType(SecondParam);
+
+            ParameterMismatch = true;
+            break;
+          }
+
+          if (FirstParam->getName() != SecondParam->getName()) {
+            ODRDiagError(FirstTemplate->getLocation(),
+                         FirstTemplate->getSourceRange(),
+                         FunctionTemplateParameterName)
+                << FirstTemplate << (i + 1) << (bool)FirstParam->getIdentifier()
+                << FirstParam;
+            ODRDiagNote(SecondTemplate->getLocation(),
+                        SecondTemplate->getSourceRange(),
+                        FunctionTemplateParameterName)
+                << SecondTemplate << (i + 1)
+                << (bool)SecondParam->getIdentifier() << SecondParam;
+            ParameterMismatch = true;
+            break;
+          }
+
+          if (isa<TemplateTypeParmDecl>(FirstParam) &&
+              isa<TemplateTypeParmDecl>(SecondParam)) {
+            TemplateTypeParmDecl *FirstTTPD =
+                cast<TemplateTypeParmDecl>(FirstParam);
+            TemplateTypeParmDecl *SecondTTPD =
+                cast<TemplateTypeParmDecl>(SecondParam);
+            bool HasFirstDefaultArgument =
+                FirstTTPD->hasDefaultArgument() &&
+                !FirstTTPD->defaultArgumentWasInherited();
+            bool HasSecondDefaultArgument =
+                SecondTTPD->hasDefaultArgument() &&
+                !SecondTTPD->defaultArgumentWasInherited();
+            if (HasFirstDefaultArgument != HasSecondDefaultArgument) {
+              ODRDiagError(FirstTemplate->getLocation(),
+                           FirstTemplate->getSourceRange(),
+                           FunctionTemplateParameterSingleDefaultArgument)
+                  << FirstTemplate << (i + 1) << HasFirstDefaultArgument;
+              ODRDiagNote(SecondTemplate->getLocation(),
+                          SecondTemplate->getSourceRange(),
+                          FunctionTemplateParameterSingleDefaultArgument)
+                  << SecondTemplate << (i + 1) << HasSecondDefaultArgument;
+              ParameterMismatch = true;
+              break;
+            }
+
+            if (HasFirstDefaultArgument && HasSecondDefaultArgument) {
+              QualType FirstType = FirstTTPD->getDefaultArgument();
+              QualType SecondType = SecondTTPD->getDefaultArgument();
+              if (ComputeQualTypeODRHash(FirstType) !=
+                  ComputeQualTypeODRHash(SecondType)) {
+                ODRDiagError(FirstTemplate->getLocation(),
+                             FirstTemplate->getSourceRange(),
+                             FunctionTemplateParameterDifferentDefaultArgument)
+                    << FirstTemplate << (i + 1) << FirstType;
+                ODRDiagNote(SecondTemplate->getLocation(),
+                            SecondTemplate->getSourceRange(),
+                            FunctionTemplateParameterDifferentDefaultArgument)
+                    << SecondTemplate << (i + 1) << SecondType;
+                ParameterMismatch = true;
+                break;
+              }
+            }
+
+            if (FirstTTPD->isParameterPack() !=
+                SecondTTPD->isParameterPack()) {
+              ODRDiagError(FirstTemplate->getLocation(),
+                           FirstTemplate->getSourceRange(),
+                           FunctionTemplatePackParameter)
+                  << FirstTemplate << (i + 1) << FirstTTPD->isParameterPack();
+              ODRDiagNote(SecondTemplate->getLocation(),
+                          SecondTemplate->getSourceRange(),
+                          FunctionTemplatePackParameter)
+                  << SecondTemplate << (i + 1) << SecondTTPD->isParameterPack();
+              ParameterMismatch = true;
+              break;
+            }
+          }
+
+          if (isa<TemplateTemplateParmDecl>(FirstParam) &&
+              isa<TemplateTemplateParmDecl>(SecondParam)) {
+            TemplateTemplateParmDecl *FirstTTPD =
+                cast<TemplateTemplateParmDecl>(FirstParam);
+            TemplateTemplateParmDecl *SecondTTPD =
+                cast<TemplateTemplateParmDecl>(SecondParam);
+
+            TemplateParameterList *FirstTPL =
+                FirstTTPD->getTemplateParameters();
+            TemplateParameterList *SecondTPL =
+                SecondTTPD->getTemplateParameters();
+
+            if (ComputeTemplateParameterListODRHash(FirstTPL) !=
+                ComputeTemplateParameterListODRHash(SecondTPL)) {
+              ODRDiagError(FirstTemplate->getLocation(),
+                           FirstTemplate->getSourceRange(),
+                           FunctionTemplateParameterDifferentType)
+                  << FirstTemplate << (i + 1);
+              ODRDiagNote(SecondTemplate->getLocation(),
+                          SecondTemplate->getSourceRange(),
+                          FunctionTemplateParameterDifferentType)
+                  << SecondTemplate << (i + 1);
+              ParameterMismatch = true;
+              break;
+            }
+
+            bool HasFirstDefaultArgument =
+                FirstTTPD->hasDefaultArgument() &&
+                !FirstTTPD->defaultArgumentWasInherited();
+            bool HasSecondDefaultArgument =
+                SecondTTPD->hasDefaultArgument() &&
+                !SecondTTPD->defaultArgumentWasInherited();
+            if (HasFirstDefaultArgument != HasSecondDefaultArgument) {
+              ODRDiagError(FirstTemplate->getLocation(),
+                           FirstTemplate->getSourceRange(),
+                           FunctionTemplateParameterSingleDefaultArgument)
+                  << FirstTemplate << (i + 1) << HasFirstDefaultArgument;
+              ODRDiagNote(SecondTemplate->getLocation(),
+                          SecondTemplate->getSourceRange(),
+                          FunctionTemplateParameterSingleDefaultArgument)
+                  << SecondTemplate << (i + 1) << HasSecondDefaultArgument;
+              ParameterMismatch = true;
+              break;
+            }
+
+            if (HasFirstDefaultArgument && HasSecondDefaultArgument) {
+              TemplateArgument FirstTA =
+                  FirstTTPD->getDefaultArgument().getArgument();
+              TemplateArgument SecondTA =
+                  SecondTTPD->getDefaultArgument().getArgument();
+              if (ComputeTemplateArgumentODRHash(FirstTA) !=
+                  ComputeTemplateArgumentODRHash(SecondTA)) {
+                ODRDiagError(FirstTemplate->getLocation(),
+                             FirstTemplate->getSourceRange(),
+                             FunctionTemplateParameterDifferentDefaultArgument)
+                    << FirstTemplate << (i + 1) << FirstTA;
+                ODRDiagNote(SecondTemplate->getLocation(),
+                            SecondTemplate->getSourceRange(),
+                            FunctionTemplateParameterDifferentDefaultArgument)
+                    << SecondTemplate << (i + 1) << SecondTA;
+                ParameterMismatch = true;
+                break;
+              }
+            }
+
+            if (FirstTTPD->isParameterPack() !=
+                SecondTTPD->isParameterPack()) {
+              ODRDiagError(FirstTemplate->getLocation(),
+                           FirstTemplate->getSourceRange(),
+                           FunctionTemplatePackParameter)
+                  << FirstTemplate << (i + 1) << FirstTTPD->isParameterPack();
+              ODRDiagNote(SecondTemplate->getLocation(),
+                          SecondTemplate->getSourceRange(),
+                          FunctionTemplatePackParameter)
+                  << SecondTemplate << (i + 1) << SecondTTPD->isParameterPack();
+              ParameterMismatch = true;
+              break;
+            }
+          }
+
+          if (isa<NonTypeTemplateParmDecl>(FirstParam) &&
+              isa<NonTypeTemplateParmDecl>(SecondParam)) {
+            NonTypeTemplateParmDecl *FirstNTTPD =
+                cast<NonTypeTemplateParmDecl>(FirstParam);
+            NonTypeTemplateParmDecl *SecondNTTPD =
+                cast<NonTypeTemplateParmDecl>(SecondParam);
+
+            QualType FirstType = FirstNTTPD->getType();
+            QualType SecondType = SecondNTTPD->getType();
+            if (ComputeQualTypeODRHash(FirstType) !=
+                ComputeQualTypeODRHash(SecondType)) {
+              ODRDiagError(FirstTemplate->getLocation(),
+                           FirstTemplate->getSourceRange(),
+                           FunctionTemplateParameterDifferentType)
+                  << FirstTemplate << (i + 1);
+              ODRDiagNote(SecondTemplate->getLocation(),
+                          SecondTemplate->getSourceRange(),
+                          FunctionTemplateParameterDifferentType)
+                  << SecondTemplate << (i + 1);
+              ParameterMismatch = true;
+              break;
+            }
+
+            bool HasFirstDefaultArgument =
+                FirstNTTPD->hasDefaultArgument() &&
+                !FirstNTTPD->defaultArgumentWasInherited();
+            bool HasSecondDefaultArgument =
+                SecondNTTPD->hasDefaultArgument() &&
+                !SecondNTTPD->defaultArgumentWasInherited();
+            if (HasFirstDefaultArgument != HasSecondDefaultArgument) {
+              ODRDiagError(FirstTemplate->getLocation(),
+                           FirstTemplate->getSourceRange(),
+                           FunctionTemplateParameterSingleDefaultArgument)
+                  << FirstTemplate << (i + 1) << HasFirstDefaultArgument;
+              ODRDiagNote(SecondTemplate->getLocation(),
+                          SecondTemplate->getSourceRange(),
+                          FunctionTemplateParameterSingleDefaultArgument)
+                  << SecondTemplate << (i + 1) << HasSecondDefaultArgument;
+              ParameterMismatch = true;
+              break;
+            }
+
+            if (HasFirstDefaultArgument && HasSecondDefaultArgument) {
+              Expr *FirstDefaultArgument = FirstNTTPD->getDefaultArgument();
+              Expr *SecondDefaultArgument = SecondNTTPD->getDefaultArgument();
+              if (ComputeODRHash(FirstDefaultArgument) !=
+                  ComputeODRHash(SecondDefaultArgument)) {
+                ODRDiagError(FirstTemplate->getLocation(),
+                             FirstTemplate->getSourceRange(),
+                             FunctionTemplateParameterDifferentDefaultArgument)
+                    << FirstTemplate << (i + 1) << FirstDefaultArgument;
+                ODRDiagNote(SecondTemplate->getLocation(),
+                            SecondTemplate->getSourceRange(),
+                            FunctionTemplateParameterDifferentDefaultArgument)
+                    << SecondTemplate << (i + 1) << SecondDefaultArgument;
+                ParameterMismatch = true;
+                break;
+              }
+            }
+
+            if (FirstNTTPD->isParameterPack() !=
+                SecondNTTPD->isParameterPack()) {
+              ODRDiagError(FirstTemplate->getLocation(),
+                           FirstTemplate->getSourceRange(),
+                           FunctionTemplatePackParameter)
+                  << FirstTemplate << (i + 1) << FirstNTTPD->isParameterPack();
+              ODRDiagNote(SecondTemplate->getLocation(),
+                          SecondTemplate->getSourceRange(),
+                          FunctionTemplatePackParameter)
+                  << SecondTemplate << (i + 1)
+                  << SecondNTTPD->isParameterPack();
+              ParameterMismatch = true;
+              break;
+            }
+          }
+        }
+
+        if (ParameterMismatch) {
+          Diagnosed = true;
+          break;
+        }
+
         break;
       }
       }

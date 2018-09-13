@@ -7,16 +7,16 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "chrome/browser/resource_coordinator/local_site_characteristics_data_impl.h"
 #include "chrome/browser/resource_coordinator/site_characteristics_data_writer.h"
 
 namespace resource_coordinator {
 
-namespace internal {
-class LocalSiteCharacteristicsDataImpl;
-}  // namespace internal
-
 // Specialization of a SiteCharacteristicsDataWriter that delegates to a
 // LocalSiteCharacteristicsDataImpl.
+//
+// This writer is initially in an unloaded state, a |NotifySiteLoaded| event
+// should be sent if/when the tab using it gets loaded.
 class LocalSiteCharacteristicsDataWriter
     : public SiteCharacteristicsDataWriter {
  public:
@@ -25,10 +25,15 @@ class LocalSiteCharacteristicsDataWriter
   // SiteCharacteristicsDataWriter:
   void NotifySiteLoaded() override;
   void NotifySiteUnloaded() override;
+  void NotifySiteVisibilityChanged(TabVisibility visibility) override;
   void NotifyUpdatesFaviconInBackground() override;
   void NotifyUpdatesTitleInBackground() override;
   void NotifyUsesAudioInBackground() override;
   void NotifyUsesNotificationsInBackground() override;
+
+  internal::LocalSiteCharacteristicsDataImpl* impl_for_testing() const {
+    return impl_.get();
+  }
 
  private:
   friend class LocalSiteCharacteristicsDataWriterTest;
@@ -37,11 +42,20 @@ class LocalSiteCharacteristicsDataWriter
 
   // Private constructor, these objects are meant to be created by a site
   // characteristics data store.
-  explicit LocalSiteCharacteristicsDataWriter(
-      scoped_refptr<internal::LocalSiteCharacteristicsDataImpl> impl);
+  LocalSiteCharacteristicsDataWriter(
+      scoped_refptr<internal::LocalSiteCharacteristicsDataImpl> impl,
+      TabVisibility tab_visibility);
 
   // The LocalSiteCharacteristicDataInternal object we delegate to.
   const scoped_refptr<internal::LocalSiteCharacteristicsDataImpl> impl_;
+
+  // The visibility of the tab using this writer.
+  TabVisibility tab_visibility_;
+
+  // Indicates if the tab using this writer is loaded.
+  bool is_loaded_;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(LocalSiteCharacteristicsDataWriter);
 };

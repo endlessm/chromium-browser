@@ -40,7 +40,8 @@ extensions::ComponentLoader* GetComponentLoader(
     content::BrowserContext* context) {
   extensions::ExtensionSystem* extension_system =
       extensions::ExtensionSystem::Get(context);
-  ExtensionService* extension_service = extension_system->extension_service();
+  extensions::ExtensionService* extension_service =
+      extension_system->extension_service();
   return extension_service->component_loader();
 }
 
@@ -163,11 +164,13 @@ void LoginFeedback::FeedbackWindowHandler::OnAppWindowAdded(
 
   // Move the feedback window to the same container as the login screen and make
   // it a transient child of the login screen.
-  views::Widget::ReparentNativeView(
-      app_window->GetNativeWindow(),
-      LoginDisplayHost::default_host()->GetNativeWindow()->parent());
-  wm::AddTransientChild(LoginDisplayHost::default_host()->GetNativeWindow(),
-                        app_window->GetNativeWindow());
+  if (LoginDisplayHost::default_host()->GetNativeWindow()) {
+    views::Widget::ReparentNativeView(
+        app_window->GetNativeWindow(),
+        LoginDisplayHost::default_host()->GetNativeWindow()->parent());
+    wm::AddTransientChild(LoginDisplayHost::default_host()->GetNativeWindow(),
+                          app_window->GetNativeWindow());
+  }
 }
 
 void LoginFeedback::FeedbackWindowHandler::OnAppWindowRemoved(

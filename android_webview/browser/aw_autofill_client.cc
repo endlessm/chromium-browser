@@ -82,8 +82,20 @@ ukm::UkmRecorder* AwAutofillClient::GetUkmRecorder() {
   return nullptr;
 }
 
+ukm::SourceId AwAutofillClient::GetUkmSourceId() {
+  // UKM recording is not supported for WebViews.
+  return ukm::kInvalidSourceId;
+}
+
 autofill::AddressNormalizer* AwAutofillClient::GetAddressNormalizer() {
   return nullptr;
+}
+
+security_state::SecurityLevel
+AwAutofillClient::GetSecurityLevelForUmaHistograms() {
+  // The metrics are not recorded for Android webview, so return the count value
+  // which will not be recorded.
+  return security_state::SecurityLevel::SECURITY_LEVEL_COUNT;
 }
 
 autofill::PersonalDataManager* AwAutofillClient::GetPersonalDataManager() {
@@ -103,6 +115,7 @@ void AwAutofillClient::ShowAutofillPopup(
     const gfx::RectF& element_bounds,
     base::i18n::TextDirection text_direction,
     const std::vector<autofill::Suggestion>& suggestions,
+    bool /*unused_autoselect_first_suggestion*/,
     base::WeakPtr<autofill::AutofillPopupDelegate> delegate) {
   suggestions_ = suggestions;
   delegate_ = delegate;
@@ -252,6 +265,18 @@ void AwAutofillClient::OnUnmaskVerificationResult(PaymentsRpcResult result) {
   NOTIMPLEMENTED();
 }
 
+void AwAutofillClient::ShowLocalCardMigrationPrompt(base::OnceClosure closure) {
+  NOTIMPLEMENTED();
+}
+
+void AwAutofillClient::ConfirmSaveAutofillProfile(
+    const autofill::AutofillProfile& profile,
+    base::OnceClosure callback) {
+  // Since there is no confirmation needed to save an Autofill Profile,
+  // running |callback| will proceed with saving |profile|.
+  std::move(callback).Run();
+}
+
 void AwAutofillClient::ConfirmSaveCreditCardLocally(
     const autofill::CreditCard& card,
     const base::Closure& callback) {
@@ -261,7 +286,8 @@ void AwAutofillClient::ConfirmSaveCreditCardLocally(
 void AwAutofillClient::ConfirmSaveCreditCardToCloud(
     const autofill::CreditCard& card,
     std::unique_ptr<base::DictionaryValue> legal_message,
-    const base::Closure& callback) {
+    bool should_request_name_from_user,
+    base::OnceCallback<void(const base::string16&)> callback) {
   NOTIMPLEMENTED();
 }
 

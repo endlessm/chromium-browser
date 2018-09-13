@@ -29,7 +29,9 @@
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/theme_provider.h"
 #include "ui/compositor/clip_recorder.h"
+#include "ui/compositor/closure_animation_observer.h"
 #include "ui/compositor/paint_recorder.h"
+#include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/canvas.h"
@@ -42,6 +44,10 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
+
+#if defined(USE_AURA)
+#include "ui/wm/core/window_util.h"
+#endif  // defined(USE_AURA)
 
 namespace {
 
@@ -171,7 +177,7 @@ class OmniboxPopupContentsView::AutocompletePopupWidget
     params.context = parent_widget->GetNativeWindow();
 
     if (LocationBarView::IsRounded())
-      RoundedOmniboxResultsFrame::OnBeforeWidgetInit(&params);
+      RoundedOmniboxResultsFrame::OnBeforeWidgetInit(&params, this);
     else
       animator_ = std::make_unique<WidgetShrinkAnimation>(this, bounds);
 
@@ -192,10 +198,99 @@ class OmniboxPopupContentsView::AutocompletePopupWidget
       animator_->SetTargetBounds(bounds);
     else
       SetBounds(bounds);
+
+#if defined(USE_AURA)
+    // TODO(malaykeshav): Remove this manual snap when we start snapping each
+    // window to its parent window. See https://crbug.com/863268 for more info.
+    wm::SnapWindowToPixelBoundary(GetNativeWindow());
+#endif  // defined(USE_AURA)
+  }
+
+  void ShowAnimated() {
+    if (!LocationBarView::IsRounded()) {
+      ShowInactive();
+      return;
+    }
+
+    // Set the initial opacity to 0 and ease into fully opaque.
+    GetLayer()->SetOpacity(0.0);
+    ShowInactive();
+
+    auto scoped_settings = GetScopedAnimationSettings();
+    GetLayer()->SetOpacity(1.0);
+  }
+
+  void CloseAnimated() {
+    if (!LocationBarView::IsRounded()) {
+      // NOTE: Do NOT use CloseNow() here, as we may be deep in a callstack
+      // triggered by the popup receiving a message (e.g. LBUTTONUP), and
+      // destroying the popup would cause us to read garbage when we unwind back
+      // to that level.
+      Close();
+      return;
+    }
+
+    // If the opening or shrinking animations still running, abort them, as the
+    // popup is closing. This is an edge case for superhumanly fast users.
+    GetLayer()->GetAnimator()->AbortAllAnimations();
+
+    auto scoped_settings = GetScopedAnimationSettings();
+    GetLayer()->SetOpacity(0.0);
+    is_animating_closed_ = true;
+
+    // Destroy the popup when done. The observer deletes itself on completion.
+    scoped_settings->AddObserver(new ui::ClosureAnimationObserver(
+        base::BindOnce(&AutocompletePopupWidget::Close, AsWeakPtr())));
+  }
+
+  void OnNativeWidgetDestroying() override {
+    // End all our animations immediately, as our closing animation may trigger
+    // a Close call which will be invalid once the native widget is gone.
+    GetLayer()->GetAnimator()->AbortAllAnimations();
+
+    ThemeCopyingWidget::OnNativeWidgetDestroying();
+  }
+
+  void OnMouseEvent(ui::MouseEvent* event) override {
+    // Ignore mouse events if the popup is closed or animating closed.
+    if (IsClosed() || is_animating_closed_) {
+      if (event->cancelable())
+        event->SetHandled();
+      return;
+    }
+
+    ThemeCopyingWidget::OnMouseEvent(event);
+  }
+
+  void OnGestureEvent(ui::GestureEvent* event) override {
+    // Ignore gesture events if the popup is closed or animating closed.
+    // However, just like the base class, we do not capture the event, so
+    // multiple widgets may get tap events at the same time.
+    if (IsClosed() || is_animating_closed_)
+      return;
+
+    ThemeCopyingWidget::OnGestureEvent(event);
   }
 
  private:
+  std::unique_ptr<ui::ScopedLayerAnimationSettings>
+  GetScopedAnimationSettings() {
+    auto settings = std::make_unique<ui::ScopedLayerAnimationSettings>(
+        GetLayer()->GetAnimator());
+
+    settings->SetTweenType(gfx::Tween::Type::FAST_OUT_SLOW_IN);
+
+    constexpr base::TimeDelta kPopupOpacityAnimationDuration =
+        base::TimeDelta::FromMilliseconds(82);
+    settings->SetTransitionDuration(kPopupOpacityAnimationDuration);
+
+    return settings;
+  }
+
   std::unique_ptr<WidgetShrinkAnimation> animator_;
+
+  // True if the popup is in the process of closing via animation.
+  bool is_animating_closed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(AutocompletePopupWidget);
 };
@@ -248,23 +343,7 @@ void OmniboxPopupContentsView::OpenMatch(WindowOpenDisposition disposition) {
 gfx::Image OmniboxPopupContentsView::GetMatchIcon(
     const AutocompleteMatch& match,
     SkColor vector_icon_color) const {
-  gfx::Image icon = model_->GetMatchIcon(match, vector_icon_color);
-  if (icon.IsEmpty())
-    return icon;
-
-  const int icon_size = GetLayoutConstant(LOCATION_BAR_ICON_SIZE);
-  // In touch mode, icons are 20x20. FaviconCache and ExtensionIconManager both
-  // guarantee favicons and extension icons will be 16x16, so add extra padding
-  // around them to align them vertically with the other vector icons.
-  DCHECK_GE(icon_size, icon.Height());
-  DCHECK_GE(icon_size, icon.Width());
-  gfx::Insets padding_border((icon_size - icon.Height()) / 2,
-                             (icon_size - icon.Width()) / 2);
-  if (!padding_border.IsEmpty()) {
-    return gfx::Image(gfx::CanvasImageSource::CreatePadded(*icon.ToImageSkia(),
-                                                           padding_border));
-  }
-  return icon;
+  return model_->GetMatchIcon(match, vector_icon_color);
 }
 
 OmniboxTint OmniboxPopupContentsView::GetTint() const {
@@ -318,11 +397,7 @@ void OmniboxPopupContentsView::UpdatePopupAppearance() {
     // the omnibox popup window.  Close any existing popup.
     if (popup_) {
       NotifyAccessibilityEvent(ax::mojom::Event::kExpandedChanged, true);
-      // NOTE: Do NOT use CloseNow() here, as we may be deep in a callstack
-      // triggered by the popup receiving a message (e.g. LBUTTONUP), and
-      // destroying the popup would cause us to read garbage when we unwind back
-      // to that level.
-      popup_->Close();  // This will eventually delete the popup.
+      popup_->CloseAnimated();  // This will eventually delete the popup.
       popup_.reset();
     }
     return;
@@ -378,7 +453,7 @@ void OmniboxPopupContentsView::UpdatePopupAppearance() {
   if (!popup_)
     return;
 
-  popup_->ShowInactive();
+  popup_->ShowAnimated();
 
   // Popup is now expanded and first item will be selected.
   NotifyAccessibilityEvent(ax::mojom::Event::kExpandedChanged, true);
@@ -463,10 +538,12 @@ gfx::Rect OmniboxPopupContentsView::UpdateMarginsAndGetTargetBounds() {
   if (LocationBarView::IsRounded()) {
     // The rounded popup is always offset the same amount from the omnibox.
     gfx::Rect content_rect = location_bar_view_->GetBoundsInScreen();
-    gfx::Insets popup_insets =
-        -RoundedOmniboxResultsFrame::kLocationBarAlignmentInsets;
-    content_rect.Inset(popup_insets);
+    content_rect.Inset(
+        -RoundedOmniboxResultsFrame::GetLocationBarAlignmentInsets());
     content_rect.set_height(CalculatePopupHeight());
+
+    // Finally, expand the widget to accomodate the custom-drawn shadows.
+    content_rect.Inset(-RoundedOmniboxResultsFrame::GetShadowInsets());
     return content_rect;
   }
 

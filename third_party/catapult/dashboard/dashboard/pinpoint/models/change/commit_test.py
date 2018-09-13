@@ -2,40 +2,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import mock
-
-from dashboard.common import namespaced_stored_object
-from dashboard.common import testing_common
 from dashboard.pinpoint.models.change import commit
+from dashboard.pinpoint import test
 
 
-_CHROMIUM_URL = 'https://chromium.googlesource.com/chromium/src'
-_GITILES_COMMIT_INFO = {
-    'author': {'email': 'author@chromium.org'},
-    'commit': 'aaa7336',
-    'committer': {'time': 'Fri Jan 01 00:01:00 2016'},
-    'message': 'Subject.\n\n'
-               'Commit message.\n'
-               'Cr-Commit-Position: refs/heads/master@{#437745}',
-}
+def Commit(number, repository='chromium'):
+  return commit.Commit(repository, 'commit ' + str(number))
 
 
-class _CommitTest(testing_common.TestCase):
-
-  def setUp(self):
-    super(_CommitTest, self).setUp()
-
-    self.SetCurrentUser('internal@chromium.org', is_admin=True)
-
-    namespaced_stored_object.Set('repositories', {
-        'chromium': {'repository_url': _CHROMIUM_URL},
-    })
-    namespaced_stored_object.Set('repository_urls_to_names', {
-        _CHROMIUM_URL: 'chromium',
-    })
-
-
-class CommitTest(_CommitTest):
+class CommitTest(test.TestCase):
 
   def testCommit(self):
     c = commit.Commit('chromium', 'aaa7336c821888839f759c6c0a36')
@@ -46,12 +21,10 @@ class CommitTest(_CommitTest):
     self.assertEqual(c.id_string, 'chromium@aaa7336c821888839f759c6c0a36')
     self.assertEqual(c.repository, 'chromium')
     self.assertEqual(c.git_hash, 'aaa7336c821888839f759c6c0a36')
-    self.assertEqual(c.repository_url,
-                     'https://chromium.googlesource.com/chromium/src')
+    self.assertEqual(c.repository_url, test.CHROMIUM_URL)
 
-  @mock.patch('dashboard.services.gitiles_service.FileContents')
-  def testDeps(self, file_contents):
-    file_contents.return_value = """
+  def testDeps(self):
+    self.file_contents.return_value = """
 vars = {
   'chromium_git': 'https://chromium.googlesource.com',
   'webrtc_git': 'https://webrtc.googlesource.com',
@@ -84,70 +57,66 @@ deps_os = {
 }
     """
 
-    c = commit.Commit('chromium', 'aaa7336')
     expected = frozenset((
         ('https://chromium.googlesource.com/chromium/deps/cygwin', 'c89e446'),
         ('https://chromium.googlesource.com/deps/lighttpd', '9dfa55d'),
         ('https://chromium.googlesource.com/v8/v8', 'c092edb'),
         ('https://webrtc.googlesource.com/src', 'deadbeef'),
     ))
-    self.assertEqual(c.Deps(), expected)
+    self.assertEqual(Commit(0).Deps(), expected)
 
-  @mock.patch('dashboard.services.gitiles_service.CommitInfo')
-  def testAsDict(self, commit_info):
-    commit_info.return_value = _GITILES_COMMIT_INFO
+  def testAsDict(self):
+    self.commit_info.side_effect = None
+    self.commit_info.return_value = {
+        'author': {'email': 'author@chromium.org'},
+        'commit': 'aaa7336',
+        'committer': {'time': 'Fri Jan 01 00:01:00 2016'},
+        'message': 'Subject.\n\n'
+                   'Commit message.\n'
+                   'Cr-Commit-Position: refs/heads/master@{#437745}',
+    }
 
-    c = commit.Commit('chromium', 'aaa7336')
     expected = {
         'repository': 'chromium',
         'git_hash': 'aaa7336',
-        'url': _CHROMIUM_URL + '/+/aaa7336',
+        'url': test.CHROMIUM_URL + '/+/aaa7336',
         'subject': 'Subject.',
         'author': 'author@chromium.org',
         'time': 'Fri Jan 01 00:01:00 2016',
         'commit_position': 437745,
     }
-    self.assertEqual(c.AsDict(), expected)
+    self.assertEqual(Commit(0).AsDict(), expected)
 
   def testFromDepNewRepo(self):
-    c = commit.Commit.FromDep(commit.Dep('https://new/repository/url.git', 'git_hash'))
+    dep = commit.Dep('https://new/repository/url.git', 'git_hash')
+    c = commit.Commit.FromDep(dep)
     self.assertEqual(c, commit.Commit('url', 'git_hash'))
 
   def testFromDepExistingRepo(self):
-    c = commit.Commit.FromDep(commit.Dep(_CHROMIUM_URL, 'git_hash'))
-    self.assertEqual(c, commit.Commit('chromium', 'git_hash'))
+    c = commit.Commit.FromDep(commit.Dep(test.CHROMIUM_URL, 'commit 0'))
+    self.assertEqual(c, Commit(0))
 
-  @mock.patch('dashboard.services.gitiles_service.CommitInfo',
-              mock.MagicMock(side_effect=lambda x, y: {'commit': y}))
   def testFromDict(self):
     c = commit.Commit.FromDict({
         'repository': 'chromium',
-        'git_hash': 'aaa7336',
+        'git_hash': 'commit 0',
     })
+    self.assertEqual(c, Commit(0))
 
-    expected = commit.Commit('chromium', 'aaa7336')
-    self.assertEqual(c, expected)
-
-  @mock.patch('dashboard.services.gitiles_service.CommitInfo',
-              mock.MagicMock(side_effect=lambda x, y: {'commit': y}))
   def testFromDictWithRepositoryUrl(self):
     c = commit.Commit.FromDict({
-        'repository': 'https://chromium.googlesource.com/chromium/src',
-        'git_hash': 'aaa7336',
+        'repository': test.CHROMIUM_URL,
+        'git_hash': 'commit 0',
     })
+    self.assertEqual(c, Commit(0))
 
-    expected = commit.Commit('chromium', 'aaa7336')
-    self.assertEqual(c, expected)
-
-  @mock.patch('dashboard.services.gitiles_service.CommitInfo',
-              mock.MagicMock(return_value={'commit': 'aaa7336'}))
   def testFromDictResolvesHEAD(self):
     c = commit.Commit.FromDict({
-        'repository': 'https://chromium.googlesource.com/chromium/src',
+        'repository': test.CHROMIUM_URL,
         'git_hash': 'HEAD',
     })
 
-    expected = commit.Commit('chromium', 'aaa7336')
+    expected = commit.Commit('chromium', 'git hash at HEAD')
     self.assertEqual(c, expected)
 
   def testFromDictFailureFromUnknownRepo(self):
@@ -157,9 +126,8 @@ deps_os = {
           'git_hash': 'git hash',
       })
 
-  @mock.patch('dashboard.services.gitiles_service.CommitInfo')
-  def testFromDictFailureFromUnknownCommit(self, commit_info):
-    commit_info.side_effect = KeyError()
+  def testFromDictFailureFromUnknownCommit(self):
+    self.commit_info.side_effect = KeyError()
 
     with self.assertRaises(KeyError):
       commit.Commit.FromDict({
@@ -168,46 +136,27 @@ deps_os = {
       })
 
 
-class MidpointTest(_CommitTest):
+class MidpointTest(test.TestCase):
 
-  @mock.patch('dashboard.services.gitiles_service.CommitRange')
-  def testSuccess(self, commit_range):
-    commit_range.return_value = [
-        {'commit': 'babe852'},
-        {'commit': 'b57345e'},
-        {'commit': '949b36d'},
-        {'commit': '1ef4789'},
-    ]
-
-    commit_a = commit.Commit('chromium', '0e57e2b')
-    commit_b = commit.Commit('chromium', 'babe852')
-    self.assertEqual(commit.Commit.Midpoint(commit_a, commit_b),
-                     commit.Commit('chromium', '949b36d'))
+  def testSuccess(self):
+    midpoint = commit.Commit.Midpoint(Commit(1), Commit(9))
+    self.assertEqual(midpoint, Commit(5))
 
   def testSameCommit(self):
-    commit_a = commit.Commit('chromium', '0e57e2b')
-    commit_b = commit.Commit('chromium', '0e57e2b')
-    self.assertEqual(commit.Commit.Midpoint(commit_a, commit_b), commit_a)
+    midpoint = commit.Commit.Midpoint(Commit(1), Commit(1))
+    self.assertEqual(midpoint, Commit(1))
 
-  @mock.patch('dashboard.services.gitiles_service.CommitRange')
-  def testAdjacentCommits(self, commit_range):
-    commit_range.return_value = [{'commit': 'b57345e'}]
-
-    commit_a = commit.Commit('chromium', '949b36d')
-    commit_b = commit.Commit('chromium', 'b57345e')
-    self.assertEqual(commit.Commit.Midpoint(commit_a, commit_b), commit_a)
+  def testAdjacentCommits(self):
+    midpoint = commit.Commit.Midpoint(Commit(1), Commit(2))
+    self.assertEqual(midpoint, Commit(1))
 
   def testRaisesWithDifferingRepositories(self):
-    commit_a = commit.Commit('chromium', '0e57e2b')
-    commit_b = commit.Commit('not_chromium', 'babe852')
     with self.assertRaises(commit.NonLinearError):
-      commit.Commit.Midpoint(commit_a, commit_b)
+      commit.Commit.Midpoint(Commit(1), Commit(2, repository='catapult'))
 
-  @mock.patch('dashboard.services.gitiles_service.CommitRange')
-  def testRaisesWithEmptyRange(self, commit_range):
-    commit_range.return_value = []
+  def testRaisesWithEmptyRange(self):
+    self.commit_range.side_effect = None
+    self.commit_range.return_value = []
 
-    commit_b = commit.Commit('chromium', 'b57345e')
-    commit_a = commit.Commit('chromium', '949b36d')
     with self.assertRaises(commit.NonLinearError):
-      commit.Commit.Midpoint(commit_a, commit_b)
+      commit.Commit.Midpoint(Commit(1), Commit(9))

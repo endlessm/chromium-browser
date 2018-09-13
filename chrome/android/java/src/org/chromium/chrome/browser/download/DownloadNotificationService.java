@@ -61,7 +61,7 @@ import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
-import org.chromium.content.browser.BrowserStartupController;
+import org.chromium.content_public.browser.BrowserStartupController;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -326,7 +326,7 @@ public class DownloadNotificationService extends Service {
         ChromeNotificationBuilder builder =
                 NotificationBuilderFactory
                         .createChromeNotificationBuilder(
-                                true /* preferCompat */, ChannelDefinitions.CHANNEL_ID_DOWNLOADS)
+                                true /* preferCompat */, ChannelDefinitions.ChannelId.DOWNLOADS)
                         .setContentTitle(
                                 context.getString(R.string.download_notification_summary_title))
                         .setSubText(context.getString(R.string.menu_downloads))
@@ -1071,7 +1071,7 @@ public class DownloadNotificationService extends Service {
         ChromeNotificationBuilder builder =
                 NotificationBuilderFactory
                         .createChromeNotificationBuilder(
-                                true /* preferCompat */, ChannelDefinitions.CHANNEL_ID_DOWNLOADS)
+                                true /* preferCompat */, ChannelDefinitions.ChannelId.DOWNLOADS)
                         .setContentTitle(
                                 DownloadUtils.getAbbreviatedFileName(title, MAX_FILE_NAME_LENGTH))
                         .setSmallIcon(iconId)
@@ -1279,7 +1279,7 @@ public class DownloadNotificationService extends Service {
         ContentId contentId = DownloadNotificationService.getContentIdFromIntent(intent);
         DownloadManagerService.openDownloadedContent(context, downloadFilename, isSupportedMimeType,
                 isOffTheRecord, contentId.id, id, originalUrl, referrer,
-                DownloadMetrics.NOTIFICATION);
+                DownloadMetrics.DownloadOpenSource.NOTIFICATION);
     }
 
     /**
@@ -1321,10 +1321,9 @@ public class DownloadNotificationService extends Service {
      * @return delegate for interactions with the entry
      */
     DownloadServiceDelegate getServiceDelegate(ContentId id) {
-        if (LegacyHelpers.isLegacyDownload(id)) {
-            return DownloadManagerService.getDownloadManagerService();
-        }
-        return OfflineContentAggregatorNotificationBridgeUiFactory.instance();
+        return LegacyHelpers.isLegacyDownload(id)
+                ? DownloadManagerService.getDownloadManagerService()
+                : OfflineContentAggregatorNotificationBridgeUiFactory.instance();
     }
 
     @VisibleForTesting
@@ -1355,9 +1354,10 @@ public class DownloadNotificationService extends Service {
         // we had built one for this download before.
         if (mDownloadSharedPreferenceHelper.hasEntry(id)) return;
         NotificationUmaTracker.getInstance().onNotificationShown(
-                LegacyHelpers.isLegacyOfflinePage(id) ? NotificationUmaTracker.DOWNLOAD_PAGES
-                                                      : NotificationUmaTracker.DOWNLOAD_FILES,
-                ChannelDefinitions.CHANNEL_ID_DOWNLOADS);
+                LegacyHelpers.isLegacyOfflinePage(id)
+                        ? NotificationUmaTracker.SystemNotificationType.DOWNLOAD_PAGES
+                        : NotificationUmaTracker.SystemNotificationType.DOWNLOAD_FILES,
+                ChannelDefinitions.ChannelId.DOWNLOADS);
 
         // Record number of other notifications when there's a new notification.
         DownloadNotificationUmaHelper.recordExistingNotificationsCountHistogram(

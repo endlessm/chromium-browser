@@ -38,13 +38,16 @@ PageActionIconView::PageActionIconView(CommandUpdater* command_updater,
                                        PageActionIconView::Delegate* delegate)
     : widget_observer_(this),
       image_(new views::ImageView()),
+      icon_size_(GetLayoutConstant(LOCATION_BAR_ICON_SIZE)),
       command_updater_(command_updater),
       delegate_(delegate),
       command_id_(command_id),
       active_(false),
       suppress_mouse_released_action_(false) {
+  if (views::PlatformStyle::kPreferFocusRings)
+    focus_ring_ = views::FocusRing::Install(this);
   SetBorder(views::CreateEmptyBorder(
-      gfx::Insets(GetLayoutConstant(LOCATION_BAR_ICON_INTERIOR_PADDING))));
+      GetLayoutInsets(LOCATION_BAR_ICON_INTERIOR_PADDING)));
   if (ui::MaterialDesignController::IsNewerMaterialUi()) {
     // Ink drop ripple opacity.
     set_ink_drop_visible_opacity(
@@ -87,21 +90,13 @@ void PageActionIconView::OnBubbleWidgetCreated(views::Widget* bubble_widget) {
     SetHighlighted(true);
 }
 
-bool PageActionIconView::Refresh() {
+bool PageActionIconView::Update() {
   return false;
 }
 
 void PageActionIconView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kButton;
   node_data->SetName(GetTextForTooltipAndAccessibleName());
-}
-
-void PageActionIconView::OnFocus() {
-  InkDropHostView::OnFocus();
-}
-
-void PageActionIconView::OnBlur() {
-  InkDropHostView::OnFocus();
 }
 
 bool PageActionIconView::GetTooltipText(const gfx::Point& p,
@@ -120,11 +115,12 @@ gfx::Size PageActionIconView::CalculatePreferredSize() const {
 
 void PageActionIconView::Layout() {
   image_->SetBoundsRect(GetContentsBounds());
-  if (views::PlatformStyle::kPreferFocusRings) {
-    focus_ring_ = views::FocusRing::Install(this);
+  if (focus_ring_) {
+    focus_ring_->Layout();
     if (LocationBarView::IsRounded()) {
       SkPath path;
-      path.addOval(gfx::RectToSkRect(GetLocalBounds()));
+      const float radius = height() / 2.f;
+      path.addRoundRect(gfx::RectToSkRect(GetLocalBounds()), radius, radius);
       focus_ring_->SetPath(path);
     }
   }
@@ -186,15 +182,15 @@ void PageActionIconView::ViewHierarchyChanged(
     const ViewHierarchyChangedDetails& details) {
   View::ViewHierarchyChanged(details);
   if (details.is_add && details.child == this && GetNativeTheme())
-    UpdateIcon();
+    UpdateIconImage();
 }
 
 void PageActionIconView::OnNativeThemeChanged(const ui::NativeTheme* theme) {
-  UpdateIcon();
+  UpdateIconImage();
 }
 
 void PageActionIconView::OnThemeChanged() {
-  UpdateIcon();
+  UpdateIconImage();
 }
 
 void PageActionIconView::AddInkDropLayer(ui::Layer* ink_drop_layer) {
@@ -274,23 +270,26 @@ void PageActionIconView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   InkDropHostView::OnBoundsChanged(previous_bounds);
 }
 
-void PageActionIconView::UpdateIcon() {
+void PageActionIconView::SetIconColor(SkColor icon_color) {
+  icon_color_ = icon_color;
+  UpdateIconImage();
+}
+
+void PageActionIconView::UpdateIconImage() {
   const ui::NativeTheme* theme = GetNativeTheme();
-  SkColor icon_color =
-      active_ ? theme->GetSystemColor(
-                    ui::NativeTheme::kColorId_ProminentButtonColor)
-              : GetOmniboxColor(OmniboxPart::LOCATION_BAR_SECURITY_CHIP,
-                                delegate_->GetTint(),
-                                OmniboxPartState::CHIP_DEFAULT);
-  image_->SetImage(gfx::CreateVectorIcon(
-      GetVectorIcon(), GetLayoutConstant(LOCATION_BAR_ICON_SIZE), icon_color));
+  SkColor icon_color = active_
+                           ? theme->GetSystemColor(
+                                 ui::NativeTheme::kColorId_ProminentButtonColor)
+                           : icon_color_;
+  image_->SetImage(
+      gfx::CreateVectorIcon(GetVectorIcon(), icon_size_, icon_color));
 }
 
 void PageActionIconView::SetActiveInternal(bool active) {
   if (active_ == active)
     return;
   active_ = active;
-  UpdateIcon();
+  UpdateIconImage();
 }
 
 content::WebContents* PageActionIconView::GetWebContents() const {

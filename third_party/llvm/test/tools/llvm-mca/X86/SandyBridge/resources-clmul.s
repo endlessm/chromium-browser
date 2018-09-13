@@ -10,7 +10,7 @@ pclmulqdq     $11, (%rax), %xmm2
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      14    6.00                        pclmulqdq	$11, %xmm0, %xmm2
@@ -34,4 +34,3 @@ pclmulqdq     $11, (%rax), %xmm2
 # CHECK-NEXT: [0]    [1]    [2]    [3]    [4]    [5]    [6.0]  [6.1]  Instructions:
 # CHECK-NEXT:  -      -     6.00   6.00    -     6.00    -      -     pclmulqdq	$11, %xmm0, %xmm2
 # CHECK-NEXT:  -      -     5.67   5.67    -     5.67   0.50   0.50   pclmulqdq	$11, (%rax), %xmm2
-

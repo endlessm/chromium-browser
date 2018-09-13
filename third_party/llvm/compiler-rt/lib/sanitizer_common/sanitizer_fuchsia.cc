@@ -87,6 +87,7 @@ void GetThreadStackTopAndBottom(bool, uptr *stack_top, uptr *stack_bottom) {
 }
 
 void MaybeReexec() {}
+void CheckASLR() {}
 void PlatformPrepareForSandboxing(__sanitizer_sandbox_arguments *args) {}
 void DisableCoreDumperIfNecessary() {}
 void InstallDeadlySignalHandlers(SignalHandlerType handler) {}
@@ -407,7 +408,31 @@ bool ReadFileToBuffer(const char *file_name, char **buff, uptr *buff_size,
 }
 
 void RawWrite(const char *buffer) {
-  __sanitizer_log_write(buffer, internal_strlen(buffer));
+  constexpr size_t size = 128;
+  static _Thread_local char line[size];
+  static _Thread_local size_t lastLineEnd = 0;
+  static _Thread_local size_t cur = 0;
+
+  while (*buffer) {
+    if (cur >= size) {
+      if (lastLineEnd == 0)
+        lastLineEnd = size;
+      __sanitizer_log_write(line, lastLineEnd);
+      internal_memmove(line, line + lastLineEnd, cur - lastLineEnd);
+      cur = cur - lastLineEnd;
+      lastLineEnd = 0;
+    }
+    if (*buffer == '\n')
+      lastLineEnd = cur + 1;
+    line[cur++] = *buffer++;
+  }
+  // Flush all complete lines before returning.
+  if (lastLineEnd != 0) {
+    __sanitizer_log_write(line, lastLineEnd);
+    internal_memmove(line, line + lastLineEnd, cur - lastLineEnd);
+    cur = cur - lastLineEnd;
+    lastLineEnd = 0;
+  }
 }
 
 void CatastrophicErrorWrite(const char *buffer, uptr length) {
@@ -447,9 +472,7 @@ uptr MainThreadStackBase, MainThreadStackSize;
 
 bool GetRandom(void *buffer, uptr length, bool blocking) {
   CHECK_LE(length, ZX_CPRNG_DRAW_MAX_LEN);
-  size_t size;
-  CHECK_EQ(_zx_cprng_draw(buffer, length, &size), ZX_OK);
-  CHECK_EQ(size, length);
+  _zx_cprng_draw(buffer, length);
   return true;
 }
 

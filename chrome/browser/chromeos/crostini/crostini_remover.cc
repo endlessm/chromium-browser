@@ -49,15 +49,22 @@ void CrostiniRemover::OnConciergeStarted(ConciergeClientResult result) {
     return;
   }
   CrostiniManager::GetInstance()->StopVm(
-      profile_, kCrostiniDefaultVmName,
+      profile_, vm_name_,
       base::BindOnce(&CrostiniRemover::StopVmFinished, this));
 }
 
 void CrostiniRemover::OnRestartCrostini(ConciergeClientResult result) {
+  // If we got here, it must be due to a failure before Concierge was started.
+  // |result| should never be SUCCESS.
   DCHECK_NE(result, ConciergeClientResult::SUCCESS)
       << "RestartCrostini should have been aborted after starting the "
          "Concierge service.";
-  LOG(ERROR) << "Failed to start concierge service";
+
+  // We still need to signal failure via |callback_|
+  if (result != ConciergeClientResult::SUCCESS) {
+    LOG(ERROR) << "Failed to start concierge service";
+    std::move(callback_).Run(result);
+  }
 }
 
 void CrostiniRemover::StopVmFinished(ConciergeClientResult result) {
@@ -67,9 +74,9 @@ void CrostiniRemover::StopVmFinished(ConciergeClientResult result) {
     return;
   }
   CrostiniRegistryServiceFactory::GetForProfile(profile_)->ClearApplicationList(
-      kCrostiniDefaultVmName, kCrostiniDefaultContainerName);
+      vm_name_, container_name_);
   CrostiniManager::GetInstance()->DestroyDiskImage(
-      CryptohomeIdForProfile(profile_), base::FilePath(kCrostiniDefaultVmName),
+      CryptohomeIdForProfile(profile_), base::FilePath(vm_name_),
       vm_tools::concierge::StorageLocation::STORAGE_CRYPTOHOME_ROOT,
       base::BindOnce(&CrostiniRemover::DestroyDiskImageFinished, this));
 }

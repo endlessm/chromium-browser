@@ -14,6 +14,7 @@
 #import "components/autofill/ios/browser/form_suggestion.h"
 #import "components/autofill/ios/browser/form_suggestion_provider.h"
 #import "ios/chrome/browser/autofill/form_input_accessory_view_controller.h"
+#import "ios/chrome/browser/autofill/form_input_accessory_view_provider.h"
 #import "ios/chrome/browser/autofill/form_suggestion_view.h"
 #import "ios/chrome/browser/passwords/password_generation_utils.h"
 #include "ios/chrome/browser/ui/ui_util.h"
@@ -197,6 +198,7 @@ AutofillSuggestionState::AutofillSuggestionState(
   NSString* strongValue =
       base::SysUTF8ToNSString(_suggestionState.get()->typed_value);
   BOOL is_main_frame = params.is_main_frame;
+  BOOL has_user_gesture = params.has_user_gesture;
 
   // Build a block for each provider that will invoke its completion with YES
   // if the provider can provide suggestions for the specified form/field/type
@@ -221,6 +223,7 @@ AutofillSuggestionState::AutofillSuggestionState(
                                                   type:strongType
                                             typedValue:strongValue
                                            isMainFrame:is_main_frame
+                                        hasUserGesture:has_user_gesture
                                               webState:webState
                                      completionHandler:completion];
         };
@@ -229,7 +232,8 @@ AutofillSuggestionState::AutofillSuggestionState(
 
   // Once the suggestions are retrieved, update the suggestions UI.
   SuggestionsReadyCompletion readyCompletion =
-      ^(NSArray* suggestions, id<FormSuggestionProvider> provider) {
+      ^(NSArray<FormSuggestion*>* suggestions,
+        id<FormSuggestionProvider> provider) {
         [weakSelf onSuggestionsReady:suggestions provider:provider];
       };
 
@@ -260,7 +264,7 @@ AutofillSuggestionState::AutofillSuggestionState(
   passwords::RunSearchPipeline(findProviderBlocks, completion);
 }
 
-- (void)onSuggestionsReady:(NSArray*)suggestions
+- (void)onSuggestionsReady:(NSArray<FormSuggestion*>*)suggestions
                   provider:(id<FormSuggestionProvider>)provider {
   // TODO(ios): crbug.com/249916. If we can also pass in the form/field for
   // which |suggestions| are, we should check here if |suggestions| are for
@@ -375,17 +379,13 @@ checkIfAccessoryViewIsAvailableForForm:(const web::FormActivityParams&)params
 }
 
 - (void)inputAccessoryViewControllerDidReset:
-        (FormInputAccessoryViewController*)controller {
+    (FormInputAccessoryViewController*)controller {
   accessoryViewUpdateBlock_ = nil;
   [self resetSuggestionState];
 }
 
 - (void)resizeAccessoryView {
   [self updateKeyboard:_suggestionState.get()];
-}
-
-- (BOOL)getLogKeyboardAccessoryMetrics {
-  return YES;
 }
 
 @end

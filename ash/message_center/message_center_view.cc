@@ -8,6 +8,7 @@
 #include <map>
 
 #include "ash/message_center/message_center_button_bar.h"
+#include "ash/message_center/message_center_scroll_bar.h"
 #include "ash/message_center/message_center_style.h"
 #include "ash/message_center/notifier_settings_view.h"
 #include "ash/public/cpp/ash_features.h"
@@ -212,10 +213,10 @@ MessageCenterView::MessageCenterView(
   // set the default opaque background color.
   scroller_->SetBackgroundColor(SK_ColorTRANSPARENT);
   scroller_->ClipHeightTo(kMinScrollViewHeight, max_scroll_view_height);
-  scroller_->SetVerticalScrollBar(new views::OverlayScrollBar(false));
-  scroller_->SetHorizontalScrollBar(new views::OverlayScrollBar(true));
+  scroller_->SetVerticalScrollBar(new MessageCenterScrollBar());
 
   message_list_view_.reset(new MessageListView());
+  message_list_view_->SetBorderPadding();
   message_list_view_->set_scroller(scroller_);
   message_list_view_->set_owned_by_client();
   message_list_view_->AddObserver(this);
@@ -232,6 +233,8 @@ MessageCenterView::MessageCenterView(
   scroller_->SetContents(scroller_contents);
 
   settings_view_ = new NotifierSettingsView();
+  settings_view_->SetBackground(
+      views::CreateSolidBackground(message_center_style::kBackgroundColor));
 
   no_notifications_view_ = CreateEmptyNotificationView();
 
@@ -244,9 +247,6 @@ MessageCenterView::MessageCenterView(
   AddChildView(scroller_shadow_);
   AddChildView(settings_view_);
   AddChildView(button_bar_);
-
-  if (switches::IsSidebarEnabled())
-    MessageView::SetSidebarEnabled();
 }
 
 MessageCenterView::~MessageCenterView() {
@@ -679,7 +679,8 @@ void MessageCenterView::EnableCloseAllIfAppropriate() {
     bool no_closable_views = true;
     size_t count = message_list_view_->GetNotificationCount();
     for (size_t i = 0; i < count; ++i) {
-      if (!message_list_view_->GetNotificationAt(i)->GetPinned()) {
+      if (message_list_view_->GetNotificationAt(i)->GetMode() ==
+          MessageView::Mode::NORMAL) {
         no_closable_views = false;
         break;
       }
@@ -703,11 +704,11 @@ void MessageCenterView::UpdateNotification(const std::string& id) {
   if (notification) {
     int old_width = view->width();
     int old_height = view->height();
-    bool old_pinned = view->GetPinned();
+    MessageView::Mode old_mode = view->GetMode();
     message_list_view_->UpdateNotification(view, *notification);
     if (view->GetHeightForWidth(old_width) != old_height) {
       Update(true /* animate */);
-    } else if (view->GetPinned() != old_pinned) {
+    } else if (view->GetMode() != old_mode) {
       // Animate flag is false, since the pinned flag transition doesn't need
       // animation.
       Update(false /* animate */);

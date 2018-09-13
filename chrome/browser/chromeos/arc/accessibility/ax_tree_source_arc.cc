@@ -14,10 +14,12 @@
 #include "components/exo/wm_helper.h"
 #include "ui/accessibility/ax_enum_util.h"
 #include "ui/accessibility/platform/ax_android_constants.h"
+#include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
+#include "ui/views/widget/widget_delegate.h"
 
 namespace arc {
 
@@ -132,37 +134,13 @@ void PopulateAXState(AXNodeInfoData* node, ui::AXNodeData* out_data) {
   }
 }
 
-// This class keeps focus on a |ShellSurface| without interfering with default
-// focus management in |ShellSurface|. For example, touch causes the
-// |ShellSurface| to lose focus to its ancestor containing View.
-class AXTreeSourceArc::FocusStealer : public views::View {
- public:
-  explicit FocusStealer(int32_t id) : id_(id) { set_owned_by_client(); }
-
-  void Steal() {
-    SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
-    RequestFocus();
-  }
-
-  // views::View overrides.
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
-    node_data->AddIntAttribute(ax::mojom::IntAttribute::kChildTreeId, id_);
-    node_data->role = ax::mojom::Role::kClient;
-  }
-
- private:
-  const int32_t id_;
-  DISALLOW_COPY_AND_ASSIGN(FocusStealer);
-};
-
 AXTreeSourceArc::AXTreeSourceArc(Delegate* delegate)
     : current_tree_serializer_(new AXTreeArcSerializer(this)),
       root_id_(-1),
       window_id_(-1),
       focused_node_id_(-1),
       is_notification_(false),
-      delegate_(delegate),
-      focus_stealer_(new FocusStealer(tree_id())) {}
+      delegate_(delegate) {}
 
 AXTreeSourceArc::~AXTreeSourceArc() {
   Reset();
@@ -216,47 +194,31 @@ void AXTreeSourceArc::NotifyAccessibilityEvent(AXEventData* event_data) {
     cached_computed_bounds_[node] = ComputeEnclosingBounds(node);
   }
 
-  std::vector<ExtensionMsg_AccessibilityEventParams> events;
-  events.emplace_back();
-  ExtensionMsg_AccessibilityEventParams& params = events.back();
-  params.event_type = ToAXEvent(event_data->event_type);
+  ExtensionMsg_AccessibilityEventBundleParams event_bundle;
+  event_bundle.tree_id = tree_id();
 
-  params.tree_id = tree_id();
-  params.id = event_data->source_id;
+  event_bundle.events.emplace_back();
+  ui::AXEvent& event = event_bundle.events.back();
+  event.event_type = ToAXEvent(event_data->event_type);
+  event.id = event_data->source_id;
 
-  ui::AXTreeUpdate update;
-
+  event_bundle.updates.emplace_back();
   if (event_data->event_type == AXEventType::WINDOW_CONTENT_CHANGED) {
-    current_tree_serializer_->DeleteClientSubtree(
+    current_tree_serializer_->InvalidateSubtree(
         GetFromId(event_data->source_id));
   }
-
   current_tree_serializer_->SerializeChanges(GetFromId(event_data->source_id),
-                                             &params.update);
+                                             &event_bundle.updates.back());
 
   extensions::AutomationEventRouter* router =
       extensions::AutomationEventRouter::GetInstance();
-  router->DispatchAccessibilityEvents(events);
+  router->DispatchAccessibilityEvents(event_bundle);
 }
 
 void AXTreeSourceArc::NotifyActionResult(const ui::AXActionData& data,
                                          bool result) {
   extensions::AutomationEventRouter::GetInstance()->DispatchActionResult(
       data, result);
-}
-
-void AXTreeSourceArc::Focus(aura::Window* window) {
-  if (focus_stealer_->HasFocus())
-    return;
-
-  views::Widget* widget = views::Widget::GetWidgetForNativeView(window);
-  if (!widget || !widget->GetContentsView())
-    return;
-
-  views::View* view = widget->GetContentsView();
-  if (!view->Contains(focus_stealer_.get()))
-    view->AddChildView(focus_stealer_.get());
-  focus_stealer_->Steal();
 }
 
 bool AXTreeSourceArc::GetTreeData(ui::AXTreeData* data) const {
@@ -405,6 +367,16 @@ void AXTreeSourceArc::SerializeNode(AXNodeInfoData* node,
     }
   }
 
+  // If it exists, set tooltip value as descritiption on node.
+  std::string tooltip;
+  if (GetProperty(node, AXStringProperty::TOOLTIP, &tooltip)) {
+    out_data->AddStringAttribute(ax::mojom::StringAttribute::kDescription,
+                                 tooltip);
+    if (GetProperty(node, AXStringProperty::TEXT, &name)) {
+      out_data->SetName(name);
+    }
+  }
+
   if (has_name) {
     if (out_data->role == ax::mojom::Role::kTextField)
       out_data->AddStringAttribute(ax::mojom::StringAttribute::kValue, name);
@@ -534,12 +506,31 @@ const gfx::Rect AXTreeSourceArc::GetBounds(AXNodeInfoData* node,
     aura::Window* toplevel_window = focused_window->GetToplevelWindow();
     float scale = toplevel_window->layer()->device_scale_factor();
 
-    // Bounds of root node is relative to its container, i.e. focused window.
+    views::Widget* widget =
+        views::Widget::GetWidgetForNativeView(focused_window);
+    DCHECK(widget);
+    DCHECK(widget->widget_delegate());
+    DCHECK(widget->widget_delegate()->GetContentsView());
+    const gfx::Rect bounds =
+        widget->widget_delegate()->GetContentsView()->GetBoundsInScreen();
+
+    // Bounds of root node is relative to its container, i.e. contents view
+    // (ShellSurfaceBase).
     node_bounds.Offset(
-        static_cast<int>(-1.0f * scale *
-                         static_cast<float>(toplevel_window->bounds().x())),
-        static_cast<int>(-1.0f * scale *
-                         static_cast<float>(toplevel_window->bounds().y())));
+        static_cast<int>(-1.0f * scale * static_cast<float>(bounds.x())),
+        static_cast<int>(-1.0f * scale * static_cast<float>(bounds.y())));
+
+    // On Android side, content is rendered without considering height of
+    // caption bar, e.g. content is rendered at y:0 instead of y:32 where 32 is
+    // height of caption bar. Add back height of caption bar here.
+    if (widget->IsMaximized()) {
+      node_bounds.Offset(
+          0, static_cast<int>(scale *
+                              static_cast<float>(widget->non_client_view()
+                                                     ->frame_view()
+                                                     ->GetBoundsForClientView()
+                                                     .y())));
+    }
 
     return node_bounds;
   }
@@ -617,12 +608,6 @@ void AXTreeSourceArc::Reset() {
   current_tree_serializer_.reset(new AXTreeArcSerializer(this));
   root_id_ = -1;
   focused_node_id_ = -1;
-  if (focus_stealer_->parent()) {
-    views::View* parent = focus_stealer_->parent();
-    parent->RemoveChildView(focus_stealer_.get());
-    parent->NotifyAccessibilityEvent(ax::mojom::Event::kChildrenChanged, false);
-  }
-  focus_stealer_.reset();
   extensions::AutomationEventRouter* router =
       extensions::AutomationEventRouter::GetInstance();
   if (!router)
@@ -641,6 +626,11 @@ void AXTreeSourceArc::PopulateAXRole(AXNodeInfoData* node,
 
   if (GetProperty(node, AXBooleanProperty::EDITABLE)) {
     out_data->role = ax::mojom::Role::kTextField;
+    return;
+  }
+
+  if (GetProperty(node, AXBooleanProperty::HEADING)) {
+    out_data->role = ax::mojom::Role::kHeading;
     return;
   }
 

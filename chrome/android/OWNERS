@@ -1,9 +1,10 @@
 bauerb@chromium.org
 dtrainor@chromium.org
-mariakhomenko@chromium.org
 nyquist@chromium.org
 tedchoc@chromium.org
+twellington@chromium.org
 yfriedman@chromium.org
+yusufo@chromium.org
 
 per-file static_initializers.gni=*
 per-file java_sources.gni=*

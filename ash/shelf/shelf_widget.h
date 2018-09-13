@@ -60,6 +60,8 @@ class ASH_EXPORT ShelfWidget : public views::Widget,
 
   void OnShelfAlignmentChanged();
 
+  void OnTabletModeChanged();
+
   // Sets the shelf's background type.
   void SetPaintsBackground(ShelfBackgroundType background_type,
                            AnimationChangeType change_type);
@@ -98,6 +100,9 @@ class ASH_EXPORT ShelfWidget : public views::Widget,
   // Returns the ApplicationDragAndDropHost for this shelf.
   app_list::ApplicationDragAndDropHost* GetDragAndDropHostForAppList();
 
+  // Fetch the LoginShelfView instance.
+  LoginShelfView* login_shelf_view() { return login_shelf_view_; }
+
   void set_default_last_focusable_child(bool default_last_focusable_child);
 
   // Overridden from views::WidgetObserver:
@@ -115,9 +120,8 @@ class ASH_EXPORT ShelfWidget : public views::Widget,
   // Internal implementation detail. Do not expose outside of tests.
   ShelfView* shelf_view_for_testing() const { return shelf_view_; }
 
-  // Internal implementation detail. Do not expose outside of tests.
-  LoginShelfView* login_shelf_view_for_testing() const {
-    return login_shelf_view_;
+  void set_activated_from_overflow_bubble(bool val) {
+    activated_from_overflow_bubble_ = val;
   }
 
  private:
@@ -148,6 +152,11 @@ class ASH_EXPORT ShelfWidget : public views::Widget,
   // View containing the shelf items for Login/Lock/OOBE/Add User screens.
   // Owned by the views hierarchy.
   LoginShelfView* const login_shelf_view_;
+
+  // Set to true when the widget is activated from the shelf overflow bubble.
+  // Do not focus the default element in this case. This should be set when
+  // cycling focus from the overflow bubble to the main shelf.
+  bool activated_from_overflow_bubble_ = false;
 
   ShelfBackgroundAnimator background_animator_;
 

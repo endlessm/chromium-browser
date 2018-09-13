@@ -25,11 +25,14 @@ DisconnectTetheringOperation::Factory*
 std::unique_ptr<DisconnectTetheringOperation>
 DisconnectTetheringOperation::Factory::NewInstance(
     cryptauth::RemoteDeviceRef device_to_connect,
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client,
     BleConnectionManager* connection_manager) {
   if (!factory_instance_) {
     factory_instance_ = new Factory();
   }
-  return factory_instance_->BuildInstance(device_to_connect,
+  return factory_instance_->BuildInstance(device_to_connect, device_sync_client,
+                                          secure_channel_client,
                                           connection_manager);
 }
 
@@ -42,16 +45,24 @@ void DisconnectTetheringOperation::Factory::SetInstanceForTesting(
 std::unique_ptr<DisconnectTetheringOperation>
 DisconnectTetheringOperation::Factory::BuildInstance(
     cryptauth::RemoteDeviceRef device_to_connect,
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client,
     BleConnectionManager* connection_manager) {
-  return base::WrapUnique(
-      new DisconnectTetheringOperation(device_to_connect, connection_manager));
+  return base::WrapUnique(new DisconnectTetheringOperation(
+      device_to_connect, device_sync_client, secure_channel_client,
+      connection_manager));
 }
 
 DisconnectTetheringOperation::DisconnectTetheringOperation(
     cryptauth::RemoteDeviceRef device_to_connect,
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client,
     BleConnectionManager* connection_manager)
     : MessageTransferOperation(
           cryptauth::RemoteDeviceRefList{device_to_connect},
+          secure_channel::ConnectionPriority::kHigh,
+          device_sync_client,
+          secure_channel_client,
           connection_manager),
       remote_device_(device_to_connect),
       has_sent_message_(false),

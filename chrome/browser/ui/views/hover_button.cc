@@ -70,6 +70,7 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
     : views::MenuButton(text, this, false),
       title_(nullptr),
       subtitle_(nullptr),
+      secondary_icon_view_(nullptr),
       listener_(button_listener) {
   SetFocusBehavior(FocusBehavior::ALWAYS);
   SetFocusPainter(nullptr);
@@ -133,15 +134,14 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
                                      views::DISTANCE_RELATED_LABEL_HORIZONTAL) -
                                  badge_spacing;
 
-  constexpr float kFixed = 0.f;
-  constexpr float kStretchy = 1.f;
   constexpr int kColumnSetId = 0;
   views::ColumnSet* columns = grid_layout->AddColumnSet(kColumnSetId);
   columns->AddColumn(views::GridLayout::CENTER, views::GridLayout::CENTER,
-                     kFixed, views::GridLayout::USE_PREF, 0, 0);
-  columns->AddPaddingColumn(kFixed, icon_label_spacing);
-  columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL,
-                     kStretchy, views::GridLayout::USE_PREF, 0, 0);
+                     views::GridLayout::kFixedSize, views::GridLayout::USE_PREF,
+                     0, 0);
+  columns->AddPaddingColumn(views::GridLayout::kFixedSize, icon_label_spacing);
+  columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1.0,
+                     views::GridLayout::USE_PREF, 0, 0);
 
   taken_width_ = GetInsets().width() + icon_view->GetPreferredSize().width() +
                  icon_label_spacing;
@@ -155,7 +155,8 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
   // Split the two rows evenly between the total height minus the padding.
   const int row_height =
       (total_height - remaining_vert_spacing * 2) / num_labels;
-  grid_layout->StartRow(0, kColumnSetId, row_height);
+  grid_layout->StartRow(views::GridLayout::kFixedSize, kColumnSetId,
+                        row_height);
   grid_layout->AddView(icon_view.release(), 1, num_labels);
 
   title_ = new views::StyledLabel(title, nullptr);
@@ -174,9 +175,11 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
   title_wrapper->set_can_process_events_within_subtree(false);
   grid_layout->AddView(title_wrapper);
 
+  secondary_icon_view_ = secondary_icon_view.get();
   if (secondary_icon_view) {
     columns->AddColumn(views::GridLayout::CENTER, views::GridLayout::CENTER,
-                       kFixed, views::GridLayout::USE_PREF, 0, 0);
+                       views::GridLayout::kFixedSize,
+                       views::GridLayout::USE_PREF, 0, 0);
     // Make sure hovering over |secondary_icon_view| also hovers the
     // |HoverButton|.
     secondary_icon_view->set_can_process_events_within_subtree(false);
@@ -188,7 +191,8 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
   }
 
   if (!subtitle.empty()) {
-    grid_layout->StartRow(0, kColumnSetId, row_height);
+    grid_layout->StartRow(views::GridLayout::kFixedSize, kColumnSetId,
+                          row_height);
     subtitle_ = new views::Label(subtitle, views::style::CONTEXT_BUTTON,
                                  STYLE_SECONDARY);
     subtitle_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
@@ -334,6 +338,17 @@ void HoverButton::Layout() {
 views::View* HoverButton::GetTooltipHandlerForPoint(const gfx::Point& point) {
   if (!HitTestPoint(point))
     return nullptr;
+
+  // Let the secondary icon handle it if it has a tooltip.
+  if (secondary_icon_view_) {
+    gfx::Point point_in_icon_coords(point);
+    ConvertPointToTarget(this, secondary_icon_view_, &point_in_icon_coords);
+    base::string16 tooltip;
+    if (secondary_icon_view_->HitTestPoint(point_in_icon_coords) &&
+        secondary_icon_view_->GetTooltipText(point_in_icon_coords, &tooltip)) {
+      return secondary_icon_view_;
+    }
+  }
 
   // If possible, take advantage of the |views::Label| tooltip behavior, which
   // only sets the tooltip when the text is too long.

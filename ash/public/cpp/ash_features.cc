@@ -10,11 +10,11 @@
 namespace ash {
 namespace features {
 
-const base::Feature kDisplayMoveWindowAccels{"DisplayMoveWindowAccels",
-                                             base::FEATURE_ENABLED_BY_DEFAULT};
-
 const base::Feature kDockedMagnifier{"DockedMagnifier",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kDragAppsInTabletMode{"DragAppsInTabletMode",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kDragTabsInTabletMode{"DragTabsInTabletMode",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
@@ -22,17 +22,22 @@ const base::Feature kDragTabsInTabletMode{"DragTabsInTabletMode",
 const base::Feature kKeyboardShortcutViewer{"KeyboardShortcutViewer",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
+const base::Feature kKeyboardShortcutViewerApp{
+    "KeyboardShortcutViewerApp", base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kLockScreenNotifications{"LockScreenNotifications",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kNewOverviewAnimations{"NewOverviewAnimations",
                                            base::FEATURE_ENABLED_BY_DEFAULT};
 
-const base::Feature kOverviewSwipeToClose{"OverviewSwipeToClose",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kNewWallpaperPicker{"NewWallpaperPicker",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kPersistentWindowBounds{"PersistentWindowBounds",
-                                            base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kNightLight{"NightLight", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kOverviewSwipeToClose{"OverviewSwipeToClose",
+                                          base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kSystemTrayUnified{"SystemTrayUnified",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
@@ -41,14 +46,10 @@ const base::Feature kTapVisualizerApp{"TapVisualizerApp",
                                       base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kTrilinearFiltering{"TrilinearFiltering",
-                                        base::FEATURE_ENABLED_BY_DEFAULT};
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kViewsLogin{"ViewsLogin",
                                 base::FEATURE_DISABLED_BY_DEFAULT};
-
-bool IsDisplayMoveWindowAccelsEnabled() {
-  return base::FeatureList::IsEnabled(kDisplayMoveWindowAccels);
-}
 
 bool IsDockedMagnifierEnabled() {
   return base::FeatureList::IsEnabled(kDockedMagnifier);
@@ -58,12 +59,22 @@ bool IsKeyboardShortcutViewerEnabled() {
   return base::FeatureList::IsEnabled(kKeyboardShortcutViewer);
 }
 
+bool IsKeyboardShortcutViewerAppEnabled() {
+  return base::FeatureList::IsEnabled(kKeyboardShortcutViewerApp);
+}
+
 bool IsLockScreenNotificationsEnabled() {
   return base::FeatureList::IsEnabled(kLockScreenNotifications);
 }
 
-bool IsPersistentWindowBoundsEnabled() {
-  return base::FeatureList::IsEnabled(kPersistentWindowBounds);
+bool IsNewWallpaperPickerEnabled() {
+  static bool use_new_wallpaper_picker =
+      base::FeatureList::IsEnabled(kNewWallpaperPicker);
+  return use_new_wallpaper_picker;
+}
+
+bool IsNightLightEnabled() {
+  return base::FeatureList::IsEnabled(kNightLight);
 }
 
 bool IsSystemTrayUnifiedEnabled() {

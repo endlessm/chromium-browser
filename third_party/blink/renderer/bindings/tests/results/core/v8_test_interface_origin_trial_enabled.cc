@@ -11,11 +11,12 @@
 #include "third_party/blink/renderer/bindings/tests/results/core/v8_test_interface_origin_trial_enabled.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_configuration.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -315,15 +316,15 @@ static void installV8TestInterfaceOriginTrialEnabledTemplate(
   };
   V8DOMConfiguration::InstallConstants(
       isolate, interfaceTemplate, prototypeTemplate,
-      V8TestInterfaceOriginTrialEnabledConstants, arraysize(V8TestInterfaceOriginTrialEnabledConstants));
+      V8TestInterfaceOriginTrialEnabledConstants, base::size(V8TestInterfaceOriginTrialEnabledConstants));
   static_assert(0 == TestInterfaceOriginTrialEnabled::kUnsignedLong, "the value of TestInterfaceOriginTrialEnabled_kUnsignedLong does not match with implementation");
   static_assert(1 == TestInterfaceOriginTrialEnabled::kConstJavascript, "the value of TestInterfaceOriginTrialEnabled_kConstJavascript does not match with implementation");
   V8DOMConfiguration::InstallAccessors(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInterfaceOriginTrialEnabledAccessors, arraysize(V8TestInterfaceOriginTrialEnabledAccessors));
+      signature, V8TestInterfaceOriginTrialEnabledAccessors, base::size(V8TestInterfaceOriginTrialEnabledAccessors));
   V8DOMConfiguration::InstallMethods(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInterfaceOriginTrialEnabledMethods, arraysize(V8TestInterfaceOriginTrialEnabledMethods));
+      signature, V8TestInterfaceOriginTrialEnabledMethods, base::size(V8TestInterfaceOriginTrialEnabledMethods));
 
   // Custom signature
 
@@ -353,7 +354,7 @@ void V8TestInterfaceOriginTrialEnabled::InstallRuntimeEnabledFeaturesOnTemplate(
     V8DOMConfiguration::InstallAccessors(
         isolate, world, instance_template, prototype_template, interface_template,
         signature, accessor_configurations,
-        arraysize(accessor_configurations));
+        base::size(accessor_configurations));
   }
 
   // Custom signature

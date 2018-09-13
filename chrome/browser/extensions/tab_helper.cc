@@ -12,7 +12,6 @@
 #include "chrome/browser/extensions/activity_log/activity_log.h"
 #include "chrome/browser/extensions/api/bookmark_manager_private/bookmark_manager_private_api.h"
 #include "chrome/browser/extensions/api/declarative_content/chrome_content_rules_registry.h"
-#include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "chrome/browser/extensions/bookmark_app_helper.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
 #include "chrome/browser/extensions/extension_action_runner.h"
@@ -30,7 +29,7 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/web_applications/extensions/web_app_extension_helpers.h"
 #include "chrome/common/extensions/api/webstore/webstore_api_constants.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
@@ -313,9 +312,6 @@ void TabHelper::DidFinishNavigation(
     UpdateExtensionAppIcon(
         enabled_extensions.GetExtensionOrAppByURL(navigation_handle->GetURL()));
   }
-
-  if (!navigation_handle->IsSameDocument())
-    ExtensionActionAPI::Get(context)->ClearAllValuesForTab(web_contents());
 }
 
 bool TabHelper::OnMessageReceived(const IPC::Message& message,
@@ -340,10 +336,6 @@ void TabHelper::DidCloneToNewWebContents(WebContents* old_web_contents,
 
   new_helper->SetExtensionApp(extension_app());
   new_helper->extension_app_icon_ = extension_app_icon_;
-}
-
-void TabHelper::WebContentsDestroyed() {
-  ExtensionActionAPI::Get(profile_)->ClearAllValuesForTab(web_contents());
 }
 
 void TabHelper::OnDidGetWebApplicationInfo(

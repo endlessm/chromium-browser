@@ -73,13 +73,17 @@ HttpBridgeFactory::HttpBridgeFactory(
   // This registration is happening on the Sync thread, while signalling occurs
   // on the UI thread. We must handle the possibility signalling has already
   // occurred.
-  if (!cancelation_signal_->TryRegisterHandler(this)) {
+  if (cancelation_signal_->TryRegisterHandler(this)) {
+    registered_for_cancelation_ = true;
+  } else {
     OnSignalReceived();
   }
 }
 
 HttpBridgeFactory::~HttpBridgeFactory() {
-  cancelation_signal_->UnregisterHandler(this);
+  if (registered_for_cancelation_) {
+    cancelation_signal_->UnregisterHandler(this);
+  }
 }
 
 void HttpBridgeFactory::Init(
@@ -227,7 +231,7 @@ void HttpBridge::MakeAsynchronousPost() {
   // on, and on which the url fetcher lives).
   DCHECK(!fetch_state_.http_request_timeout_timer);
   fetch_state_.http_request_timeout_timer =
-      std::make_unique<base::Timer>(false, false);
+      std::make_unique<base::OneShotTimer>();
   fetch_state_.http_request_timeout_timer->Start(
       FROM_HERE, base::TimeDelta::FromSeconds(kMaxHttpRequestTimeSeconds),
       base::Bind(&HttpBridge::OnURLFetchTimedOut, this));
@@ -338,10 +342,10 @@ void HttpBridge::Abort() {
 }
 
 void HttpBridge::DestroyURLFetcherOnIOThread(net::URLFetcher* fetcher,
-                                             base::Timer* fetch_timer) {
+                                             base::OneShotTimer* fetch_timer) {
   DCHECK(network_task_runner_->BelongsToCurrentThread());
 
-    delete fetch_timer;
+  delete fetch_timer;
   delete fetcher;
 }
 

@@ -414,6 +414,30 @@ public:
                          MDNode *ScopeTag = nullptr,
                          MDNode *NoAliasTag = nullptr);
 
+  /// Create and insert an element unordered-atomic memset of the region of
+  /// memory starting at the given pointer to the given value.
+  ///
+  /// If the pointer isn't an i8*, it will be converted. If a TBAA tag is
+  /// specified, it will be added to the instruction. Likewise with alias.scope
+  /// and noalias tags.
+  CallInst *CreateElementUnorderedAtomicMemSet(Value *Ptr, Value *Val,
+                                               uint64_t Size, unsigned Align,
+                                               uint32_t ElementSize,
+                                               MDNode *TBAATag = nullptr,
+                                               MDNode *ScopeTag = nullptr,
+                                               MDNode *NoAliasTag = nullptr) {
+    return CreateElementUnorderedAtomicMemSet(Ptr, Val, getInt64(Size), Align,
+                                              ElementSize, TBAATag, ScopeTag,
+                                              NoAliasTag);
+  }
+
+  CallInst *CreateElementUnorderedAtomicMemSet(Value *Ptr, Value *Val,
+                                               Value *Size, unsigned Align,
+                                               uint32_t ElementSize,
+                                               MDNode *TBAATag = nullptr,
+                                               MDNode *ScopeTag = nullptr,
+                                               MDNode *NoAliasTag = nullptr);
+
   /// Create and insert a memcpy between the specified pointers.
   ///
   /// If the pointers aren't i8*, they will be converted.  If a TBAA tag is
@@ -479,6 +503,31 @@ public:
                           Value *Size, bool isVolatile = false, MDNode *TBAATag = nullptr,
                           MDNode *ScopeTag = nullptr,
                           MDNode *NoAliasTag = nullptr);
+
+  /// \brief Create and insert an element unordered-atomic memmove between the
+  /// specified pointers.
+  ///
+  /// DstAlign/SrcAlign are the alignments of the Dst/Src pointers,
+  /// respectively.
+  ///
+  /// If the pointers aren't i8*, they will be converted.  If a TBAA tag is
+  /// specified, it will be added to the instruction. Likewise with alias.scope
+  /// and noalias tags.
+  CallInst *CreateElementUnorderedAtomicMemMove(
+      Value *Dst, unsigned DstAlign, Value *Src, unsigned SrcAlign,
+      uint64_t Size, uint32_t ElementSize, MDNode *TBAATag = nullptr,
+      MDNode *TBAAStructTag = nullptr, MDNode *ScopeTag = nullptr,
+      MDNode *NoAliasTag = nullptr) {
+    return CreateElementUnorderedAtomicMemMove(
+        Dst, DstAlign, Src, SrcAlign, getInt64(Size), ElementSize, TBAATag,
+        TBAAStructTag, ScopeTag, NoAliasTag);
+  }
+
+  CallInst *CreateElementUnorderedAtomicMemMove(
+      Value *Dst, unsigned DstAlign, Value *Src, unsigned SrcAlign, Value *Size,
+      uint32_t ElementSize, MDNode *TBAATag = nullptr,
+      MDNode *TBAAStructTag = nullptr, MDNode *ScopeTag = nullptr,
+      MDNode *NoAliasTag = nullptr);
 
   /// Create a vector fadd reduction intrinsic of the source vector.
   /// The first parameter is a scalar accumulator value for ordered reductions.
@@ -631,6 +680,11 @@ public:
   CallInst *CreateBinaryIntrinsic(Intrinsic::ID ID,
                                   Value *LHS, Value *RHS,
                                   const Twine &Name = "");
+
+  /// Create a call to intrinsic \p ID with no operands.
+  CallInst *CreateIntrinsic(Intrinsic::ID ID,
+                            Instruction *FMFSource = nullptr,
+                            const Twine &Name = "");
 
   /// Create a call to intrinsic \p ID with 1 or more operands assuming the
   /// intrinsic and all operands have the same type. If \p FMFSource is
@@ -1968,6 +2022,7 @@ public:
   Value *CreateLaunderInvariantGroup(Value *Ptr) {
     assert(isa<PointerType>(Ptr->getType()) &&
            "launder.invariant.group only applies to pointers.");
+    // FIXME: we could potentially avoid casts to/from i8*.
     auto *PtrType = Ptr->getType();
     auto *Int8PtrTy = getInt8PtrTy(PtrType->getPointerAddressSpace());
     if (PtrType != Int8PtrTy)
@@ -1982,6 +2037,34 @@ public:
            "LaunderInvariantGroup should take and return the same type");
 
     CallInst *Fn = CreateCall(FnLaunderInvariantGroup, {Ptr});
+
+    if (PtrType != Int8PtrTy)
+      return CreateBitCast(Fn, PtrType);
+    return Fn;
+  }
+
+  /// \brief Create a strip.invariant.group intrinsic call. If Ptr type is
+  /// different from pointer to i8, it's casted to pointer to i8 in the same
+  /// address space before call and casted back to Ptr type after call.
+  Value *CreateStripInvariantGroup(Value *Ptr) {
+    assert(isa<PointerType>(Ptr->getType()) &&
+           "strip.invariant.group only applies to pointers.");
+
+    // FIXME: we could potentially avoid casts to/from i8*.
+    auto *PtrType = Ptr->getType();
+    auto *Int8PtrTy = getInt8PtrTy(PtrType->getPointerAddressSpace());
+    if (PtrType != Int8PtrTy)
+      Ptr = CreateBitCast(Ptr, Int8PtrTy);
+    Module *M = BB->getParent()->getParent();
+    Function *FnStripInvariantGroup = Intrinsic::getDeclaration(
+        M, Intrinsic::strip_invariant_group, {Int8PtrTy});
+
+    assert(FnStripInvariantGroup->getReturnType() == Int8PtrTy &&
+           FnStripInvariantGroup->getFunctionType()->getParamType(0) ==
+               Int8PtrTy &&
+           "StripInvariantGroup should take and return the same type");
+
+    CallInst *Fn = CreateCall(FnStripInvariantGroup, {Ptr});
 
     if (PtrType != Int8PtrTy)
       return CreateBitCast(Fn, PtrType);

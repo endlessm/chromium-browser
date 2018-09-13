@@ -13,6 +13,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/version.h"
 #include "chrome/browser/vr/assets_load_status.h"
+#include "chrome/browser/vr/graphics_delegate.h"
 #include "chrome/browser/vr/model/assets.h"
 #include "chrome/browser/vr/model/model.h"
 #include "chrome/browser/vr/model/omnibox_suggestions.h"
@@ -32,7 +33,6 @@
 #include "components/omnibox/browser/vector_icons.h"
 #include "components/security_state/core/security_state.h"
 #include "components/toolbar/vector_icons.h"
-#include "third_party/blink/public/platform/web_gesture_event.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -79,19 +79,19 @@ bool LoadPng(int resource_id, std::unique_ptr<SkBitmap>* out_image) {
       out_image->get());
 }
 
-GestureList CreateScrollGestureEventList(blink::WebGestureEvent::Type type) {
-  auto gesture = std::make_unique<blink::WebGestureEvent>();
-  gesture->SetType(type);
-  GestureList list;
+InputEventList CreateScrollGestureEventList(InputEvent::Type type) {
+  std::unique_ptr<InputEvent> gesture = std::make_unique<InputEvent>(type);
+  InputEventList list;
   list.push_back(std::move(gesture));
   return list;
 }
 
-GestureList CreateScrollGestureEventList(blink::WebGestureEvent::Type type,
-                                         const gfx::Vector2dF& delta) {
+InputEventList CreateScrollGestureEventList(InputEvent::Type type,
+                                            const gfx::Vector2dF& delta) {
   auto list = CreateScrollGestureEventList(type);
-  list.front()->data.scroll_update.delta_x = delta.x();
-  list.front()->data.scroll_update.delta_y = delta.y();
+  InputEvent* event = static_cast<InputEvent*>(list.front().get());
+  event->scroll_data.delta_x = delta.x();
+  event->scroll_data.delta_y = delta.y();
   return list;
 }
 
@@ -110,23 +110,25 @@ VrTestContext::VrTestContext() : view_scale_factor_(kDefaultViewScaleFactor) {
 
   UiInitialState ui_initial_state;
   ui_initial_state.create_tabs_view = true;
-  ui_ = std::make_unique<Ui>(this, nullptr, keyboard_delegate_.get(),
-                             text_input_delegate_.get(), nullptr,
-                             ui_initial_state);
+  ui_instance_ = std::make_unique<Ui>(this, nullptr, keyboard_delegate_.get(),
+                                      text_input_delegate_.get(), nullptr,
+                                      ui_initial_state);
+  ui_ = ui_instance_.get();
+
   LoadAssets();
 
-  text_input_delegate_->SetRequestFocusCallback(
-      base::BindRepeating(&vr::Ui::RequestFocus, base::Unretained(ui_.get())));
+  text_input_delegate_->SetRequestFocusCallback(base::BindRepeating(
+      &vr::UiInterface::RequestFocus, base::Unretained(ui_)));
   text_input_delegate_->SetRequestUnfocusCallback(base::BindRepeating(
-      &vr::Ui::RequestUnfocus, base::Unretained(ui_.get())));
+      &vr::UiInterface::RequestUnfocus, base::Unretained(ui_)));
   text_input_delegate_->SetUpdateInputCallback(
       base::BindRepeating(&TestKeyboardDelegate::UpdateInput,
                           base::Unretained(keyboard_delegate_.get())));
-  keyboard_delegate_->SetUiInterface(ui_.get());
+  keyboard_delegate_->SetUiInterface(ui_instance_.get());
 
   touchpad_touch_position_ = kInitialTouchPosition;
 
-  model_ = ui_->model_for_test();
+  model_ = ui_instance_->model_for_test();
 
   CycleOrigin();
   ui_->SetHistoryButtonsEnabled(true, true);
@@ -138,7 +140,7 @@ VrTestContext::VrTestContext() : view_scale_factor_(kDefaultViewScaleFactor) {
   capturing_state.bluetooth_connected = true;
   capturing_state.location_access_enabled = true;
   ui_->SetCapturingState(capturing_state);
-  ui_->input_manager()->set_hit_test_strategy(
+  ui_instance_->input_manager()->set_hit_test_strategy(
       UiInputManager::PROJECT_TO_LASER_ORIGIN_FOR_TEST);
   for (size_t i = 0; i < 5; i++) {
     ui_->AddOrUpdateTab(tab_id_++, false,
@@ -159,12 +161,14 @@ void VrTestContext::DrawFrame() {
   RenderInfo render_info = GetRenderInfo();
 
   // Update the render position of all UI elements (including desktop).
-  ui_->scene()->OnBeginFrame(current_time, head_pose_);
+  ui_->OnBeginFrame(current_time, head_pose_);
   ui_->OnProjMatrixChanged(render_info.left_eye_model.proj_matrix);
 
   UpdateController(render_info, current_time);
 
-  ui_->scene()->UpdateTextures();
+  graphics_delegate_->MakeSkiaContextCurrent();
+  ui_->UpdateSceneTextures();
+  graphics_delegate_->MakeMainContextCurrent();
 
   auto load_progress = (current_time - page_load_start_).InMilliseconds() /
                        kPageLoadTimeMilliseconds;
@@ -172,9 +176,9 @@ void VrTestContext::DrawFrame() {
   ui_->SetLoadProgress(std::min(load_progress, 1.0f));
 
   if (web_vr_mode_ && ui_->ShouldRenderWebVr() && webvr_frames_received_) {
-    ui_->ui_renderer()->DrawWebVrOverlayForeground(render_info);
+    ui_->DrawWebVrOverlayForeground(render_info);
   } else {
-    ui_->ui_renderer()->Draw(render_info);
+    ui_->Draw(render_info);
   }
 }
 
@@ -220,10 +224,10 @@ void VrTestContext::HandleInput(ui::Event* event) {
         CycleIndicators();
         break;
       case ui::DomCode::US_D:
-        ui_->Dump(false);
+        ui_instance_->Dump(false);
         break;
       case ui::DomCode::US_B:
-        ui_->Dump(true);
+        ui_instance_->Dump(true);
         break;
       case ui::DomCode::US_V:
         CreateFakeVoiceSearchResult();
@@ -243,10 +247,6 @@ void VrTestContext::HandleInput(ui::Event* event) {
         ui_->OnWebVrFrameAvailable();
         break;
       }
-      case ui::DomCode::US_E:
-        model_->experimental_features_enabled =
-            !model_->experimental_features_enabled;
-        break;
       case ui::DomCode::US_O:
         CycleOrigin();
         model_->can_navigate_back = !model_->can_navigate_back;
@@ -273,6 +273,14 @@ void VrTestContext::HandleInput(ui::Event* event) {
       case ui::DomCode::US_L:
         model_->standalone_vr_device = !model_->standalone_vr_device;
         break;
+      case ui::DomCode::US_N:
+        if (hosted_ui_enabled_) {
+          CloseHostedDialog();
+        } else {
+          ui_->SetAlertDialogEnabled(true, nullptr, 100, 50);
+          hosted_ui_enabled_ = true;
+        }
+        break;
       default:
         break;
     }
@@ -291,8 +299,8 @@ void VrTestContext::HandleInput(ui::Event* event) {
           touchpad_touch_position_.y() + kTouchpadPositionDelta * direction,
           0.0f, 1.0f));
     } else {
-      gesture_lists_.push(CreateScrollGestureEventList(
-          blink::WebGestureEvent::kGestureScrollBegin));
+      input_event_lists_.push(
+          CreateScrollGestureEventList(InputEvent::kScrollBegin));
 
       auto offset = gfx::Vector2dF(event->AsMouseWheelEvent()->offset());
       if (event->IsShiftDown()) {
@@ -301,11 +309,11 @@ void VrTestContext::HandleInput(ui::Event* event) {
       } else {
         offset.Scale(kVerticalScrollScaleFactor);
       }
-      gesture_lists_.push(CreateScrollGestureEventList(
-          blink::WebGestureEvent::kGestureScrollUpdate, offset));
+      input_event_lists_.push(
+          CreateScrollGestureEventList(InputEvent::kScrollUpdate, offset));
 
-      gesture_lists_.push(CreateScrollGestureEventList(
-          blink::WebGestureEvent::kGestureScrollEnd));
+      input_event_lists_.push(
+          CreateScrollGestureEventList(InputEvent::kScrollEnd));
     }
     return;
   }
@@ -409,13 +417,14 @@ ControllerModel VrTestContext::UpdateController(const RenderInfo& render_info,
   RotateToward(controller_model.laser_direction, &controller_model.transform);
 
   // Hit testing is done in terms of this synthesized controller model.
-  if (gesture_lists_.empty()) {
-    gesture_lists_.push(GestureList());
+  if (input_event_lists_.empty()) {
+    input_event_lists_.push(InputEventList());
   }
   ReticleModel reticle_model;
-  ui_->input_manager()->HandleInput(current_time, render_info, controller_model,
-                                    &reticle_model, &gesture_lists_.front());
-  gesture_lists_.pop();
+  ui_instance_->input_manager()->HandleInput(current_time, render_info,
+                                             controller_model, &reticle_model,
+                                             &input_event_lists_.front());
+  input_event_lists_.pop();
 
   // Now that we have accurate hit information, we use this to construct a
   // controller model for display.
@@ -438,21 +447,26 @@ ControllerModel VrTestContext::UpdateController(const RenderInfo& render_info,
   return controller_model;
 }
 
-void VrTestContext::OnGlInitialized() {
-  unsigned int content_texture_id = CreateFakeContentTexture();
+void VrTestContext::OnGlInitialized(
+    std::unique_ptr<GraphicsDelegate> graphics_delegate) {
+  graphics_delegate_ = std::move(graphics_delegate);
+  unsigned int content_texture_id = CreateTexture(0xFF000080);
+  unsigned int ui_texture_id = CreateTexture(0xFF008000);
 
-  ui_->OnGlInitialized(
-      content_texture_id, UiElementRenderer::kTextureLocationLocal,
-      content_texture_id, UiElementRenderer::kTextureLocationLocal, 0, false);
+  ui_->OnGlInitialized(content_texture_id,
+                       UiElementRenderer::kTextureLocationLocal,
+                       content_texture_id,
+                       UiElementRenderer::kTextureLocationLocal, ui_texture_id);
 
-  keyboard_delegate_->Initialize(ui_->scene()->SurfaceProviderForTesting(),
-                                 ui_->ui_element_renderer());
+  keyboard_delegate_->Initialize(
+      ui_instance_->scene()->SurfaceProviderForTesting(),
+      ui_instance_->ui_element_renderer());
 }
 
-unsigned int VrTestContext::CreateFakeContentTexture() {
+unsigned int VrTestContext::CreateTexture(SkColor color) {
   sk_sp<SkSurface> surface = SkSurface::MakeRasterN32Premul(1, 1);
   SkCanvas* canvas = surface->getCanvas();
-  canvas->clear(0xFF000080);
+  canvas->clear(color);
 
   SkPixmap pixmap;
   CHECK(surface->peekPixels(&pixmap));
@@ -486,8 +500,6 @@ void VrTestContext::CycleWebVrModes() {
       ui_->SetWebVrMode(true);
       break;
     }
-    case kWebVrAwaitingMinSplashScreenDuration:
-      break;
     case kWebVrAwaitingFirstFrame:
       ui_->OnWebVrTimeoutImminent();
       break;
@@ -514,9 +526,9 @@ void VrTestContext::ToggleSplashScreen() {
     UiInitialState state;
     state.in_web_vr = true;
     state.web_vr_autopresentation_expected = true;
-    ui_->ReinitializeForTest(state);
+    ui_instance_->ReinitializeForTest(state);
   } else {
-    ui_->ReinitializeForTest(UiInitialState());
+    ui_instance_->ReinitializeForTest(UiInitialState());
   }
   show_web_vr_splash_screen_ = !show_web_vr_splash_screen_;
 }
@@ -613,15 +625,16 @@ void VrTestContext::CloseAllIncognitoTabs() {
 
 void VrTestContext::OpenFeedback() {}
 
-void VrTestContext::ExitCct() {}
-
 void VrTestContext::OnUnsupportedMode(vr::UiUnsupportedMode mode) {
   if (mode == UiUnsupportedMode::kVoiceSearchNeedsRecordAudioOsPermission) {
     ui_->ShowExitVrPrompt(mode);
   }
 }
 
-void VrTestContext::CloseHostedDialog() {}
+void VrTestContext::CloseHostedDialog() {
+  ui_->SetAlertDialogEnabled(false, nullptr, 0, 0);
+  hosted_ui_enabled_ = false;
+}
 
 void VrTestContext::OnExitVrPromptResult(vr::ExitVrPromptChoice choice,
                                          vr::UiUnsupportedMode reason) {

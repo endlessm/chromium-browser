@@ -38,30 +38,34 @@ class BlockMergePass : public Pass {
  public:
   BlockMergePass();
   const char* name() const override { return "merge-blocks"; }
-  Status Process(ir::IRContext*) override;
+  Status Process(opt::IRContext*) override;
+  virtual opt::IRContext::Analysis GetPreservedAnalyses() override {
+    return opt::IRContext::kAnalysisDefUse |
+           opt::IRContext::kAnalysisInstrToBlockMapping |
+           opt::IRContext::kAnalysisDecorations |
+           opt::IRContext::kAnalysisCombinators |
+           opt::IRContext::kAnalysisNameMap;
+  }
 
  private:
-  // Return true if |labId| has multiple refs. Do not count OpName.
-  bool HasMultipleRefs(uint32_t labId);
-
   // Kill any OpName instruction referencing |inst|, then kill |inst|.
-  void KillInstAndName(ir::Instruction* inst);
+  void KillInstAndName(opt::Instruction* inst);
 
   // Search |func| for blocks which have a single Branch to a block
   // with no other predecessors. Merge these blocks into a single block.
-  bool MergeBlocks(ir::Function* func);
+  bool MergeBlocks(opt::Function* func);
 
-  // Initialize extensions whitelist
-  void InitExtensions();
+  // Returns true if |block| (or |id|) contains a merge instruction.
+  bool IsHeader(opt::BasicBlock* block);
+  bool IsHeader(uint32_t id);
 
-  // Return true if all extensions in this module are allowed by this pass.
-  bool AllExtensionsSupported() const;
+  // Returns true if |block| (or |id|) is the merge target of a merge
+  // instruction.
+  bool IsMerge(opt::BasicBlock* block);
+  bool IsMerge(uint32_t id);
 
-  void Initialize(ir::IRContext* c);
+  void Initialize(opt::IRContext* c);
   Pass::Status ProcessImpl();
-
-  // Extensions supported by this pass.
-  std::unordered_set<std::string> extensions_whitelist_;
 };
 
 }  // namespace opt

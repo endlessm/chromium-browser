@@ -93,14 +93,14 @@ void FakeRendererScheduler::ResumeTimersForAndroidWebView() {}
 
 void FakeRendererScheduler::Shutdown() {}
 
-void FakeRendererScheduler::SetFreezingWhenBackgroundedEnabled(bool enabled) {}
-
 void FakeRendererScheduler::SetTopLevelBlameContext(
     base::trace_event::BlameContext* blame_context) {}
 
-void FakeRendererScheduler::SetRAILModeObserver(RAILModeObserver* observer) {}
+void FakeRendererScheduler::AddRAILModeObserver(RAILModeObserver* observer) {}
 
 void FakeRendererScheduler::SetRendererProcessType(RendererProcessType type) {}
+
+void FakeRendererScheduler::OnMainFrameRequestedForInput() {}
 
 WebScopedVirtualTimePauser
 FakeRendererScheduler::CreateWebScopedVirtualTimePauser(

@@ -21,7 +21,8 @@ ModelTypeSyncBridge::ModelTypeSyncBridge(
 
 ModelTypeSyncBridge::~ModelTypeSyncBridge() {}
 
-void ModelTypeSyncBridge::OnSyncStarting() {}
+void ModelTypeSyncBridge::OnSyncStarting(
+    const DataTypeActivationRequest& request) {}
 
 bool ModelTypeSyncBridge::SupportsGetStorageKey() const {
   return true;
@@ -37,12 +38,14 @@ ConflictResolution ModelTypeSyncBridge::ResolveConflict(
   return ConflictResolution::UseRemote();
 }
 
-ModelTypeSyncBridge::DisableSyncResponse
-ModelTypeSyncBridge::ApplyDisableSyncChanges(
+ModelTypeSyncBridge::StopSyncResponse ModelTypeSyncBridge::ApplyStopSyncChanges(
     std::unique_ptr<MetadataChangeList> delete_metadata_change_list) {
-  // Nothing to do if this fails, so just ignore the error it might return.
-  ApplySyncChanges(std::move(delete_metadata_change_list), EntityChangeList());
-  return DisableSyncResponse::kModelStillReadyToSync;
+  if (delete_metadata_change_list) {
+    // Nothing to do if this fails, so just ignore the error it might return.
+    ApplySyncChanges(std::move(delete_metadata_change_list),
+                     EntityChangeList());
+  }
+  return StopSyncResponse::kModelStillReadyToSync;
 }
 
 ModelTypeChangeProcessor* ModelTypeSyncBridge::change_processor() {

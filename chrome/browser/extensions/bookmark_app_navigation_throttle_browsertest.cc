@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -19,7 +19,7 @@
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/web_applications/extensions/web_app_extension_helpers.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -1097,9 +1097,14 @@ IN_PROC_BROWSER_TEST_P(
 
 // Tests that same-origin or cross-origin apps created with window.open() from
 // another app window have an opener.
+#if defined(OS_MACOSX)
+#define MAYBE_WindowOpenInApp DISABLED_WindowOpenInApp
+#else
+#define MAYBE_WindowOpenInApp WindowOpenInApp
+#endif
 IN_PROC_BROWSER_TEST_P(
     BookmarkAppNavigationThrottleExperimentalWindowOpenBrowserTest,
-    WindowOpenInApp) {
+    MAYBE_WindowOpenInApp) {
   InstallTestBookmarkApp();
   InstallOtherTestBookmarkApp();
 
@@ -1303,8 +1308,14 @@ IN_PROC_BROWSER_TEST_P(BookmarkAppNavigationThrottleCommonBrowserTest,
 
 // Tests that popups to out-of-scope URLs are opened in regular popup windows
 // and not in app windows.
+// TODO(crbug.com/849163) Times out flakily on MacOS.
+#if defined(OS_MACOSX)
+#define MAYBE_OutOfScopePopup DISABLED_OutOfScopePopup
+#else
+#define MAYBE_OutOfScopePopup OutOfScopePopup
+#endif
 IN_PROC_BROWSER_TEST_P(BookmarkAppNavigationThrottleCommonBrowserTest,
-                       OutOfScopePopup) {
+                       MAYBE_OutOfScopePopup) {
   InstallTestBookmarkApp();
   Browser* app_browser = OpenTestBookmarkApp();
 
@@ -1353,8 +1364,14 @@ IN_PROC_BROWSER_TEST_P(BookmarkAppNavigationThrottleCommonBrowserTest,
 }
 
 // Tests that popups to in-scope URLs are opened in App windows.
+// TODO(crbug.com/849163) Times out flakily on MacOS.
+#if defined(OS_MACOSX)
+#define MAYBE_InScopePopup DISABLED_InScopePopup
+#else
+#define MAYBE_InScopePopup InScopePopup
+#endif
 IN_PROC_BROWSER_TEST_P(BookmarkAppNavigationThrottleCommonBrowserTest,
-                       InScopePopup) {
+                       MAYBE_InScopePopup) {
   InstallTestBookmarkApp();
   Browser* app_browser = OpenTestBookmarkApp();
 

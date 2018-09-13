@@ -13,7 +13,7 @@ namespace vr {
 
 // These are used to map user-friendly names, e.g. URL_BAR, to the underlying
 // element names for interaction during testing.
-// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr_shell
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr
 enum class UserFriendlyElementName : int {
   kUrl = 0,         // URL bar
   kBackButton,      // Back button on the URL bar
@@ -22,23 +22,12 @@ enum class UserFriendlyElementName : int {
   kOverflowMenu,    // Overflow menu
   kPageInfoButton,  // Page info button on the URL bar
   kBrowsingDialog,  // 2D fallback UI, e.g. permission prompts
-};
-
-// These are used to specify what type of action should be performed on a UI
-// element during testing.
-// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr_shell
-enum class VrUiTestAction : int {
-  kHoverEnter,
-  kHoverLeave,
-  kMove,
-  kButtonDown,
-  kButtonUp,
-  // Scroll actions currently not supported
+  kContentQuad,     // Main content quad showing web contents
 };
 
 // These are used to report the current state of the UI after performing an
 // action
-// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr_shell
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr
 enum class VrUiTestActivityResult : int {
   kUnreported,
   kQuiescent,
@@ -46,10 +35,20 @@ enum class VrUiTestActivityResult : int {
   kTimeoutNoEnd,
 };
 
-// Holds all information necessary to perform a simulated UI action.
-struct UiTestInput {
+// These are used to specify what type of action should be performed on a UI
+// element using simulated controller input during testing.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr
+enum class VrControllerTestAction : int {
+  kClick,
+  kHover,
+  kRevertToRealController,
+};
+
+// Holds all information necessary to perform a simulated controller action on
+// a UI element.
+struct ControllerTestInput {
   UserFriendlyElementName element_name;
-  VrUiTestAction action;
+  VrControllerTestAction action;
   gfx::PointF position;
 };
 

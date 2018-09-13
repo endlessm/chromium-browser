@@ -6,26 +6,29 @@
 
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/ime/ime_controller.h"
+#include "ash/keyboard/virtual_keyboard_controller.h"
 #include "ash/public/cpp/ash_constants.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/ime_menu/ime_list_view.h"
+#include "ash/system/model/system_tray_model.h"
+#include "ash/system/tray/detailed_view_delegate.h"
 #include "ash/system/tray/system_menu_button.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_container.h"
 #include "ash/system/tray/tray_popup_item_style.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/tray/tray_utils.h"
-#include "ash/virtual_keyboard_controller.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/session_manager/session_manager_types.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
 #include "ui/base/ime/ime_bridge.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -36,6 +39,7 @@
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/keyboard/keyboard_util.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/separator.h"
@@ -59,7 +63,7 @@ gfx::Range GetImeListViewRange() {
 // Shows language and input settings page.
 void ShowIMESettings() {
   base::RecordAction(base::UserMetricsAction("StatusArea_IME_Detailed"));
-  Shell::Get()->system_tray_controller()->ShowIMESettings();
+  Shell::Get()->system_tray_model()->client_ptr()->ShowIMESettings();
 }
 
 // Returns true if the current screen is login or lock screen.
@@ -97,6 +101,15 @@ class ImeMenuLabel : public views::Label {
   DISALLOW_COPY_AND_ASSIGN(ImeMenuLabel);
 };
 
+class ImeMenuImageView : public views::ImageView {
+ public:
+  ImeMenuImageView() { SetBorder(views::CreateEmptyBorder(gfx::Insets(0, 6))); }
+  ~ImeMenuImageView() override = default;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ImeMenuImageView);
+};
+
 SystemMenuButton* CreateImeMenuButton(views::ButtonListener* listener,
                                       const gfx::VectorIcon& icon,
                                       int accessible_name_id,
@@ -121,7 +134,8 @@ class ImeTitleView : public views::View, public views::ButtonListener {
     title_label->SetBorder(
         views::CreateEmptyBorder(0, kMenuEdgeEffectivePadding, 1, 0));
     title_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-    TrayPopupItemStyle style(TrayPopupItemStyle::FontStyle::TITLE);
+    TrayPopupItemStyle style(TrayPopupItemStyle::FontStyle::TITLE,
+                             false /* use_unified_theme */);
     style.SetupLabel(title_label);
 
     AddChildView(title_label);
@@ -251,13 +265,47 @@ class ImeButtonsView : public views::View, public views::ButtonListener {
 
 // A list of available IMEs shown in the opt-in IME menu, which has a different
 // height depending on the number of IMEs in the list.
-class ImeMenuListView : public ImeListView {
+class ImeMenuListView : public ImeListView, public DetailedViewDelegate {
  public:
-  ImeMenuListView(DetailedViewDelegate* delegate) : ImeListView(delegate) {
+  ImeMenuListView() : ImeListView(this, false /* use_unified_theme */) {
     set_should_focus_ime_after_selection_with_keyboard(true);
   }
 
   ~ImeMenuListView() override = default;
+
+  // DetailedViewDelegate:
+  void TransitionToMainView(bool restore_focus) override {}
+  void CloseBubble() override {}
+  SkColor GetBackgroundColor(ui::NativeTheme* native_theme) override {
+    return native_theme->GetSystemColor(
+        ui::NativeTheme::kColorId_BubbleBackground);
+  }
+  bool IsOverflowIndicatorEnabled() const override { return true; }
+  TriView* CreateTitleRow(int string_id) override { return nullptr; }
+  views::View* CreateTitleSeparator() override { return nullptr; }
+  void ShowStickyHeaderSeparator(views::View* view,
+                                 bool show_separator) override {}
+  views::Separator* CreateListSubHeaderSeparator() override { return nullptr; }
+  HoverHighlightView* CreateScrollListItem(
+      ViewClickListener* listener,
+      const gfx::VectorIcon& icon,
+      const base::string16& text) override {
+    return nullptr;
+  }
+  views::Button* CreateBackButton(views::ButtonListener* listener) override {
+    return nullptr;
+  }
+  views::Button* CreateInfoButton(views::ButtonListener* listener,
+                                  int info_accessible_name_id) override {
+    return nullptr;
+  }
+  views::Button* CreateSettingsButton(views::ButtonListener* listener,
+                                      int setting_accessible_name_id) override {
+    return nullptr;
+  }
+  views::Button* CreateHelpButton(views::ButtonListener* listener) override {
+    return nullptr;
+  }
 
  protected:
   void Layout() override {
@@ -274,7 +322,8 @@ class ImeMenuListView : public ImeListView {
 ImeMenuTray::ImeMenuTray(Shelf* shelf)
     : TrayBackgroundView(shelf),
       ime_controller_(Shell::Get()->ime_controller()),
-      label_(new ImeMenuLabel()),
+      label_(nullptr),
+      image_view_(nullptr),
       keyboard_suppressed_(false),
       show_bubble_after_keyboard_hidden_(false),
       is_emoji_enabled_(false),
@@ -283,10 +332,7 @@ ImeMenuTray::ImeMenuTray(Shelf* shelf)
       weak_ptr_factory_(this) {
   DCHECK(ime_controller_);
   SetInkDropMode(InkDropMode::ON);
-  SetupLabelForTray(label_);
-  label_->SetElideBehavior(gfx::TRUNCATE);
-  label_->SetTooltipText(l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_IME));
-  tray_container()->AddChildView(label_);
+  CreateLabel();
   SystemTrayNotifier* tray_notifier = Shell::Get()->system_tray_notifier();
   tray_notifier->AddIMEObserver(this);
   tray_notifier->AddVirtualKeyboardObserver(this);
@@ -298,9 +344,8 @@ ImeMenuTray::~ImeMenuTray() {
   SystemTrayNotifier* tray_notifier = Shell::Get()->system_tray_notifier();
   tray_notifier->RemoveIMEObserver(this);
   tray_notifier->RemoveVirtualKeyboardObserver(this);
-  keyboard::KeyboardController* keyboard_controller =
-      keyboard::KeyboardController::GetInstance();
-  if (keyboard_controller)
+  auto* keyboard_controller = keyboard::KeyboardController::Get();
+  if (keyboard_controller->enabled())
     keyboard_controller->RemoveObserver(this);
 }
 
@@ -323,7 +368,7 @@ void ImeMenuTray::ShowImeMenuBubbleInternal(bool show_by_click) {
   bubble_view->AddChildView(new ImeTitleView(!show_bottom_buttons));
 
   // Adds IME list to the bubble.
-  ime_list_view_ = new ImeMenuListView(nullptr);
+  ime_list_view_ = new ImeMenuListView();
   ime_list_view_->Init(ShouldShowKeyboardToggle(),
                        ImeListView::SHOW_SINGLE_IME);
   bubble_view->AddChildView(ime_list_view_);
@@ -406,13 +451,12 @@ void ImeMenuTray::CloseBubble() {
 }
 
 void ImeMenuTray::ShowBubble(bool show_by_click) {
-  keyboard::KeyboardController* keyboard_controller =
-      keyboard::KeyboardController::GetInstance();
-  if (keyboard_controller && keyboard_controller->keyboard_visible()) {
+  auto* keyboard_controller = keyboard::KeyboardController::Get();
+  if (keyboard_controller->enabled() &&
+      keyboard_controller->IsKeyboardVisible()) {
     show_bubble_after_keyboard_hidden_ = true;
     keyboard_controller->AddObserver(this);
-    keyboard_controller->HideKeyboard(
-        keyboard::KeyboardController::HIDE_REASON_AUTOMATIC);
+    keyboard_controller->HideKeyboardExplicitlyBySystem();
   } else {
     base::RecordAction(base::UserMetricsAction("Tray_ImeMenu_Opened"));
     ShowImeMenuBubbleInternal(show_by_click);
@@ -460,12 +504,10 @@ void ImeMenuTray::HideBubble(const views::TrayBubbleView* bubble_view) {
   HideBubbleWithView(bubble_view);
 }
 
-void ImeMenuTray::OnKeyboardHidden() {
+void ImeMenuTray::OnKeyboardHidden(bool is_temporary_hide) {
   if (show_bubble_after_keyboard_hidden_) {
     show_bubble_after_keyboard_hidden_ = false;
-    keyboard::KeyboardController* keyboard_controller =
-        keyboard::KeyboardController::GetInstance();
-    DCHECK(keyboard_controller);
+    auto* keyboard_controller = keyboard::KeyboardController::Get();
     keyboard_controller->RemoveObserver(this);
 
     ShowImeMenuBubbleInternal(false /* show_by_click */);
@@ -482,11 +524,54 @@ void ImeMenuTray::OnKeyboardSuppressionChanged(bool suppressed) {
 void ImeMenuTray::UpdateTrayLabel() {
   const mojom::ImeInfo& current_ime = ime_controller_->current_ime();
 
+  // For ARC IMEs, we use the globe icon instead of the short name of the active
+  // IME.
+  if (chromeos::extension_ime_util::IsArcIME(current_ime.id)) {
+    CreateImageView();
+    // TODO(yhanada): We may want to update the globe icon later.
+    //                https://crbug.com/845079.
+    image_view_->SetImage(
+        gfx::CreateVectorIcon(kKeyboardIcon, kTrayIconSize, kTrayIconColor));
+    return;
+  }
+
   // Updates the tray label based on the current input method.
+  CreateLabel();
   if (current_ime.third_party)
     label_->SetText(current_ime.short_name + base::UTF8ToUTF16("*"));
   else
     label_->SetText(current_ime.short_name);
+}
+
+void ImeMenuTray::CreateLabel() {
+  // Do nothing if label_ is already created.
+  if (label_)
+    return;
+  // Remove image_view_ at first if it's created.
+  if (image_view_) {
+    tray_container()->RemoveChildView(image_view_);
+    image_view_ = nullptr;
+  }
+  label_ = new ImeMenuLabel();
+  SetupLabelForTray(label_);
+  label_->SetElideBehavior(gfx::TRUNCATE);
+  label_->SetTooltipText(l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_IME));
+  tray_container()->AddChildView(label_);
+}
+
+void ImeMenuTray::CreateImageView() {
+  // Do nothing if image_view_ is already created.
+  if (image_view_)
+    return;
+  // Remove label_ at first if it's created.
+  if (label_) {
+    tray_container()->RemoveChildView(label_);
+    label_ = nullptr;
+  }
+  image_view_ = new ImeMenuImageView();
+  image_view_->SetTooltipText(
+      l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_IME));
+  tray_container()->AddChildView(image_view_);
 }
 
 }  // namespace ash

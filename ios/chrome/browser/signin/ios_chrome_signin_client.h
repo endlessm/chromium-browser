@@ -45,15 +45,16 @@ class IOSChromeSigninClient : public SigninClient,
   std::unique_ptr<GaiaAuthFetcher> CreateGaiaAuthFetcher(
       GaiaAuthConsumer* consumer,
       const std::string& source,
-      net::URLRequestContextGetter* getter) override;
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
+      override;
   void PreGaiaLogout(base::OnceClosure callback) override;
   scoped_refptr<TokenWebData> GetDatabase() override;
   PrefService* GetPrefs() override;
   net::URLRequestContextGetter* GetURLRequestContext() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   void DoFinalInit() override;
   bool CanRevokeCredentials() override;
   std::string GetSigninScopedDeviceId() override;
-  bool ShouldMergeSigninCredentialsIntoCookieJar() override;
   bool IsFirstRun() const override;
   bool AreSigninCookiesAllowed() override;
   void AddContentSettingsObserver(

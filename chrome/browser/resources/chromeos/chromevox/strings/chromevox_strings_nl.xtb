@@ -92,6 +92,7 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="1787176709638001873">Tekst voor bewerken wachtwoord</translation>
 <translation id="1802710350767629429">Opmerkingen voor updates tonen</translation>
 <translation id="1810107444790159527">Keuzelijst</translation>
+<translation id="1812527064848182527">liggend</translation>
 <translation id="1828385960365606039">mei</translation>
 <translation id="1834891354138622109">Kolom</translation>
 <translation id="1845944666972354496">Dubbeltik om te activeren</translation>
@@ -145,6 +146,7 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="2416512023405990736">Een niet-aangevinkt selectievakje</translation>
 <translation id="2417569100218200841">Informatie over content</translation>
 <translation id="2417948780551741035">Eindnoten</translation>
+<translation id="2421113964388408478">Verwijdering</translation>
 <translation id="2422937916923936891">Selectievakje voor menu-item</translation>
 <translation id="2428534162001909979">Opdrachtmenu's</translation>
 <translation id="2429669115401274487">p.m.</translation>
@@ -252,6 +254,7 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="3232388865800379423">Een pop-upknop</translation>
 <translation id="3241052487511142956">Vorige bezochte link</translation>
 <translation id="3241638166094654466">Cellen in elke regel:</translation>
+<translation id="3286372614333682499">staand</translation>
 <translation id="3286390186030710347">Schuifregelaar</translation>
 <translation id="3299925995433437805">Geen volgende bezochte link.</translation>
 <translation id="3300348286427369683">Uitgebreide tekstondersteuning. ChromeVox ondersteunt nu uitgebreide tekstvelden waarmee je gebruik kunt maken van navigatieopdrachten, cursorrouting van een brailleleesregel, selectie en meer.</translation>
@@ -425,6 +428,7 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="4476183483923481720">nieuwe regel</translation>
 <translation id="4482330759234983253">Vorige tabel</translation>
 <translation id="4491109536499578614">Afbeelding</translation>
+<translation id="4505167975768625962">Invoeging</translation>
 <translation id="4517854969512651305">Waarde verhogen</translation>
 <translation id="4529987814483543472">Klassieke toetsenbordindeling</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{slash}other{# slashes}}</translation>
@@ -588,6 +592,7 @@ Als je klaar bent met de training, gebruik je ChromeVox om naar de knop Sluiten 
 <translation id="5712338278108304766">Volgende kolom van tabel</translation>
 <translation id="571866080859340309">Groepen verkennen</translation>
 <translation id="5728409797179002635">Geen tabel gevonden.</translation>
+<translation id="5729047866208036762">Druk op omhoog, omlaag, links of rechts om wiskundige content te verkennen.</translation>
 <translation id="5732189279857692565">Dit is de tweede kop. Ga door. Druk op Zoeken + H of Zoeken + Shift + H.</translation>
 <translation id="5748623122140342504">Vorige kop voor niveau 5</translation>
 <translation id="5750633686117194034">Er is geen functietoets ingedrukt. Raak een of meer functietoetsen aan, til je vingers op zodra je klaar bent en je hoort dat de toetsen zijn ingedrukt. Druk op Tab om te sluiten.</translation>
@@ -742,6 +747,7 @@ Als je het menu van de Chrome-browser wilt openen, druk je op Alt + F.</translat
 <translation id="7226216518520804442">lijst</translation>
 <translation id="7229749224609077523">Een tabel voor zespuntsbraille selecteren:</translation>
 <translation id="72393384879519786">Kop</translation>
+<translation id="7240858705033280249">Ga naar details</translation>
 <translation id="7241683698754534149">Lange beschrijving openen op een nieuw tabblad</translation>
 <translation id="7248671827512403053">Applicatie</translation>
 <translation id="725969808843520477">Volgend keuzerondje</translation>
@@ -918,6 +924,7 @@ Als je het menu van de Chrome-browser wilt openen, druk je op Alt + F.</translat
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Een tabel voor achtpuntsbraille selecteren:</translation>
 <translation id="9065283790526219006">+pop-up</translation>
+<translation id="9066023754636984703">Druk op Zoeken+A, J om naar de details te gaan.</translation>
 <translation id="9067522039955793016">Pagina-einde</translation>
 <translation id="9077213568694924680">uit selectie verwijderd</translation>
 <translation id="9082874451376019682">Geen vorige schuifregelaar.</translation>

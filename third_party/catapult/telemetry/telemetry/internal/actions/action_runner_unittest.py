@@ -21,7 +21,7 @@ class ActionRunnerInteractionTest(tab_test_case.TabTestCase):
 
   def GetInteractionRecords(self, trace_data):
     timeline_model = model.TimelineModel(trace_data)
-    renderer_thread = timeline_model.GetRendererThreadFromTabId(self._tab.id)
+    renderer_thread = timeline_model.GetFirstRendererThread(self._tab.id)
     return [
         tir_module.TimelineInteractionRecord.FromAsyncEvent(e)
         for e in renderer_thread.async_slices
@@ -172,6 +172,7 @@ class ActionRunnerTest(tab_test_case.TabTestCase):
     action_runner.WaitForJavaScriptCondition(
         'document.location.pathname === "/page_with_link.html"')
 
+  @decorators.Disabled('mac')  # crbug.com/855885
   def testWait(self):
     action_runner = action_runner_module.ActionRunner(self._tab)
     self.Navigate('blank.html')
@@ -186,6 +187,7 @@ class ActionRunnerTest(tab_test_case.TabTestCase):
     action_runner.Wait(0.2)
     self.assertEqual(102, self._tab.EvaluateJavaScript('window.testing'))
 
+  @decorators.Disabled('mac')  # crbug.com/854744
   def testWaitForJavaScriptCondition(self):
     action_runner = action_runner_module.ActionRunner(
         self._tab, skip_waits=True)
@@ -213,6 +215,7 @@ class ActionRunnerTest(tab_test_case.TabTestCase):
                      action_runner.WaitForJavaScriptCondition(
                          'window.testing', timeout=10))
 
+  @decorators.Disabled('mac')  # crbug.com/855885
   def testWaitForElement(self):
     action_runner = action_runner_module.ActionRunner(
         self._tab, skip_waits=True)

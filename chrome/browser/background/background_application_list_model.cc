@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <set>
+#include <utility>
 
 #include "base/strings/string_number_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -78,7 +79,7 @@ class BackgroundApplicationListModel::Application
 };
 
 namespace {
-void GetServiceApplications(ExtensionService* service,
+void GetServiceApplications(extensions::ExtensionService* service,
                             ExtensionList* applications_result) {
   ExtensionRegistry* registry = ExtensionRegistry::Get(service->profile());
   const ExtensionSet& enabled_extensions = registry->enabled_extensions();
@@ -106,15 +107,10 @@ void GetServiceApplications(ExtensionService* service,
 
 }  // namespace
 
-void
-BackgroundApplicationListModel::Observer::OnApplicationDataChanged(
-    const Extension* extension, Profile* profile) {
-}
+void BackgroundApplicationListModel::Observer::OnApplicationDataChanged() {}
 
-void
-BackgroundApplicationListModel::Observer::OnApplicationListChanged(
-    Profile* profile) {
-}
+void BackgroundApplicationListModel::Observer::OnApplicationListChanged(
+    const Profile* profile) {}
 
 BackgroundApplicationListModel::Observer::~Observer() {
 }
@@ -132,7 +128,7 @@ void BackgroundApplicationListModel::Application::OnImageLoaded(
   if (image.IsEmpty())
     return;
   icon_.reset(image.CopyImageSkia());
-  model_->SendApplicationDataChangedNotifications(extension_);
+  model_->SendApplicationDataChangedNotifications();
 }
 
 void BackgroundApplicationListModel::Application::RequestIcon(
@@ -283,8 +279,8 @@ void BackgroundApplicationListModel::Observe(
     int type,
     const content::NotificationSource& source,
     const content::NotificationDetails& details) {
-  ExtensionService* service = extensions::ExtensionSystem::Get(profile_)->
-      extension_service();
+  extensions::ExtensionService* service =
+      extensions::ExtensionSystem::Get(profile_)->extension_service();
   if (!service || !service->is_ready())
     return;
 
@@ -304,10 +300,9 @@ void BackgroundApplicationListModel::Observe(
   }
 }
 
-void BackgroundApplicationListModel::SendApplicationDataChangedNotifications(
-    const Extension* extension) {
+void BackgroundApplicationListModel::SendApplicationDataChangedNotifications() {
   for (auto& observer : observers_)
-    observer.OnApplicationDataChanged(extension, profile_);
+    observer.OnApplicationDataChanged();
 }
 
 void BackgroundApplicationListModel::OnExtensionLoaded(
@@ -381,8 +376,8 @@ void BackgroundApplicationListModel::RemoveObserver(Observer* observer) {
 // differs from the old list, it generates OnApplicationListChanged events for
 // each observer.
 void BackgroundApplicationListModel::Update() {
-  ExtensionService* service = extensions::ExtensionSystem::Get(profile_)->
-      extension_service();
+  extensions::ExtensionService* service =
+      extensions::ExtensionSystem::Get(profile_)->extension_service();
 
   // Discover current background applications, compare with previous list, which
   // is consistently sorted, and notify observers if they differ.

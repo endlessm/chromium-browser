@@ -46,6 +46,7 @@
 #include "components/variations/variations_associated_data.h"
 #include "components/version_info/version_info.h"
 #include "ios/chrome/browser/application_context.h"
+#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state_manager.h"
 #include "ios/chrome/browser/chrome_paths.h"
 #include "ios/chrome/browser/google/google_brand.h"
@@ -53,11 +54,12 @@
 #include "ios/chrome/browser/metrics/ios_chrome_stability_metrics_provider.h"
 #include "ios/chrome/browser/metrics/mobile_session_shutdown_metrics_provider.h"
 #include "ios/chrome/browser/signin/ios_chrome_signin_status_metrics_provider_delegate.h"
-#include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
 #include "ios/chrome/browser/sync/ios_chrome_sync_client.h"
+#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
 #include "ios/chrome/browser/tab_parenting_global_observer.h"
 #import "ios/chrome/browser/tabs/tab_model_list.h"
 #include "ios/chrome/browser/translate/translate_ranker_metrics_provider.h"
+#include "ios/chrome/browser/unified_consent/feature.h"
 #include "ios/chrome/common/channel_info.h"
 #include "ios/web/public/web_thread.h"
 
@@ -288,9 +290,11 @@ bool IOSChromeMetricsServiceClient::RegisterForBrowserStateEvents(
           browser_state, ServiceAccessType::IMPLICIT_ACCESS);
   ObserveServiceForDeletions(history_service);
   browser_sync::ProfileSyncService* sync =
-      IOSChromeProfileSyncServiceFactory::GetInstance()->GetForBrowserState(
+      ProfileSyncServiceFactory::GetInstance()->GetForBrowserState(
           browser_state);
-  ObserveServiceForSyncDisables(static_cast<syncer::SyncService*>(sync));
+  ObserveServiceForSyncDisables(static_cast<syncer::SyncService*>(sync),
+                                browser_state->GetPrefs(),
+                                IsUnifiedConsentEnabled());
   return (history_service != nullptr && sync != nullptr);
 }
 

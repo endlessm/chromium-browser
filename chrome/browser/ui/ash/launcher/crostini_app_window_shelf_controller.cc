@@ -4,8 +4,10 @@
 #include "chrome/browser/ui/ash/launcher/crostini_app_window_shelf_controller.h"
 
 #include <string>
+#include <utility>
 
 #include "ash/public/cpp/shelf_model.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
 #include "base/bind.h"
 #include "base/strings/string_util.h"
@@ -16,9 +18,10 @@
 #include "chrome/browser/ui/ash/launcher/app_window_base.h"
 #include "chrome/browser/ui/ash/launcher/app_window_launcher_item_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
+#include "chrome/browser/ui/ash/launcher/shelf_spinner_controller.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "components/exo/shell_surface.h"
 #include "components/user_manager/user_manager.h"
@@ -26,8 +29,36 @@
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
 #include "ui/base/base_window.h"
+#include "ui/display/display.h"
+#include "ui/display/screen.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/window_util.h"
+
+namespace {
+
+void MoveWindowFromOldDisplayToNewDisplay(aura::Window* window,
+                                          display::Display& old_display,
+                                          display::Display& new_display) {
+  // Adjust the window size and origin in proportion to the relative size of the
+  // display.
+  int old_width = old_display.bounds().width();
+  int new_width = new_display.bounds().width();
+  int old_height = old_display.bounds().height();
+  int new_height = new_display.bounds().height();
+  gfx::Rect old_bounds = window->bounds();
+  gfx::Rect new_bounds(old_bounds.x() * new_width / old_width,
+                       old_bounds.y() * new_height / old_height,
+                       old_bounds.width() * new_width / old_width,
+                       old_bounds.height() * new_height / old_height);
+
+  // Transform the bounds in display to that in screen.
+  gfx::Point new_origin = new_display.bounds().origin();
+  new_origin.Offset(new_bounds.x(), new_bounds.y());
+  new_bounds.set_origin(new_origin);
+  window->SetBoundsInScreen(new_bounds, new_display);
+}
+
+}  // namespace
 
 CrostiniAppWindowShelfController::CrostiniAppWindowShelfController(
     ChromeLauncherController* owner)
@@ -35,11 +66,9 @@ CrostiniAppWindowShelfController::CrostiniAppWindowShelfController(
   aura::Env* env = aura::Env::GetInstanceDontCreate();
   if (env)
     env->AddObserver(this);
-  BrowserList::AddObserver(this);
 }
 
 CrostiniAppWindowShelfController::~CrostiniAppWindowShelfController() {
-  BrowserList::RemoveObserver(this);
   for (auto* window : observed_windows_)
     window->RemoveObserver(this);
   aura::Env* env = aura::Env::GetInstanceDontCreate();
@@ -114,12 +143,11 @@ void CrostiniAppWindowShelfController::OnWindowInitialized(
   if (!widget->CanActivate())
     return;
 
-  observed_windows_.push_back(window);
-
+  observed_windows_.emplace(window);
   window->AddObserver(this);
 }
 
-void CrostiniAppWindowShelfController::OnWindowVisibilityChanged(
+void CrostiniAppWindowShelfController::OnWindowVisibilityChanging(
     aura::Window* window,
     bool visible) {
   if (!visible)
@@ -131,37 +159,68 @@ void CrostiniAppWindowShelfController::OnWindowVisibilityChanged(
   if (app_window_it != aura_window_to_app_window_.end())
     return;
 
+  // Handle browser windows, such as the Crostini terminal.
+  Browser* browser = chrome::FindBrowserWithWindow(window);
+  if (browser) {
+    base::Optional<std::string> app_id =
+        CrostiniAppIdFromAppName(browser->app_name());
+    if (!app_id)
+      return;
+    RegisterAppWindow(window, app_id.value());
+    return;
+  }
+
+  // Handle genuine Crostini app windows.
   const std::string* window_app_id =
       exo::ShellSurface::GetApplicationId(window);
-  if (window_app_id == nullptr)
-    return;
 
   crostini::CrostiniRegistryService* registry_service =
       crostini::CrostiniRegistryServiceFactory::GetForProfile(
           owner()->profile());
   const std::string& shelf_app_id = registry_service->GetCrostiniShelfAppId(
-      *window_app_id, exo::ShellSurface::GetStartupId(window));
+      window_app_id, exo::ShellSurface::GetStartupId(window));
   // Non-crostini apps (i.e. arc++) are filtered out here.
   if (shelf_app_id.empty())
     return;
+
+  // Failed to uniquely identify the Crostini app that this window is for.
+  // The spinners on the shelf have internal app IDs which are valid
+  // extensions IDs. If the ID here starts with "crostini:" then it implies
+  // that it has failed to identify the exact app that's starting.
+  // The existing spinner that fails to be linked back should be closed,
+  // otherwise it will be left on the shelf indefinetely until it is closed
+  // manually by the user.
+  // When the condition is triggered here, the container is up and at least
+  // one app is starting. It's safe to close all the spinners since their
+  // respective apps take at most another few seconds to start.
+  // Work is ongoing to make this occur as infrequently as possible.
+  // See https://crbug.com/854911.
+  if (base::StartsWith(shelf_app_id, crostini::kCrostiniAppIdPrefix,
+                       base::CompareCase::SENSITIVE)) {
+    owner()->GetShelfSpinnerController()->CloseCrostiniSpinners();
+  }
+
+  RegisterAppWindow(window, shelf_app_id);
 
   // Prevent Crostini window from showing up after user switch.
   MultiUserWindowManager::GetInstance()->SetWindowOwner(
       window,
       user_manager::UserManager::Get()->GetActiveUser()->GetAccountId());
-  RegisterAppWindow(window, shelf_app_id);
-}
 
-void CrostiniAppWindowShelfController::OnBrowserAdded(Browser* browser) {
-  // The Crostini Terminal opens in Crosh (a v1 App), but we override the
-  // Browser's app name so we can properly detect it.
-  if (!browser->is_type_popup() || !browser->is_app())
+  // Move the Crostini app window to the right display if necessary.
+  int64_t display_id = crostini_app_display_.GetDisplayIdForAppId(shelf_app_id);
+  if (display_id == display::kInvalidDisplayId)
     return;
-  base::Optional<std::string> app_id =
-      CrostiniAppIdFromAppName(browser->app_name());
-  if (!app_id)
+
+  display::Display new_display;
+  if (!display::Screen::GetScreen()->GetDisplayWithDisplayId(display_id,
+                                                             &new_display))
     return;
-  RegisterAppWindow(browser->window()->GetNativeWindow(), app_id.value());
+  display::Display old_display =
+      display::Screen::GetScreen()->GetDisplayNearestWindow(window);
+
+  if (new_display != old_display)
+    MoveWindowFromOldDisplayToNewDisplay(window, old_display, new_display);
 }
 
 void CrostiniAppWindowShelfController::RegisterAppWindow(
@@ -177,8 +236,7 @@ void CrostiniAppWindowShelfController::RegisterAppWindow(
 
 void CrostiniAppWindowShelfController::OnWindowDestroying(
     aura::Window* window) {
-  auto it =
-      std::find(observed_windows_.begin(), observed_windows_.end(), window);
+  auto it = observed_windows_.find(window);
   DCHECK(it != observed_windows_.end());
   observed_windows_.erase(it);
   window->RemoveObserver(this);
@@ -232,4 +290,10 @@ void CrostiniAppWindowShelfController::OnItemDelegateDiscarded(
 
     UnregisterAppWindow(it.second.get());
   }
+}
+
+void CrostiniAppWindowShelfController::OnAppLaunchRequested(
+    const std::string& app_id,
+    int64_t display_id) {
+  crostini_app_display_.Register(app_id, display_id);
 }

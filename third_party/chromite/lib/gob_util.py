@@ -36,6 +36,7 @@ except ImportError:  # Newer oauth2client versions put it in .contrib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
+from chromite.lib import memoize
 from chromite.lib import retry_util
 from chromite.lib import timeout_util
 from chromite.lib import cros_build_lib
@@ -87,7 +88,7 @@ class ErrorParser(HTMLParser.HTMLParser):
     return self.err_data.strip()
 
 
-@cros_build_lib.Memoize
+@memoize.Memoize
 def _GetNetRC():
   try:
     return netrc.netrc(None)
@@ -109,7 +110,7 @@ def _NetRCAuthenticators(host):
     return net_rc.authenticators(host)
 
 
-@cros_build_lib.Memoize
+@memoize.Memoize
 def _GetAppCredentials():
   """Returns the singleton Appengine credentials for gerrit code review."""
   return gce.AppAssertionCredentials(
@@ -400,7 +401,7 @@ def QueryChanges(host, param_dict, first_param=None, limit=None, o_params=None,
   Args:
     host: The Gerrit server hostname.
     param_dict: A dictionary of search parameters, as documented here:
-        http://gerrit-documentation.googlecode.com/svn/Documentation/2.6/user-search.html
+        https://gerrit-review.googlesource.com/Documentation/user-search.html
     first_param: A change identifier
     limit: Maximum number of results to return.
     o_params: A list of additional output specifiers, as documented here:
@@ -817,7 +818,7 @@ def GetCommitDate(git_url, commit):
     commit: A git commit identifier (e.g. a sha1).
 
   Returns:
-     A datetime object.
+    A datetime object.
   """
   parsed_url = urlparse.urlparse(git_url)
   path = '%s/+log/%s?n=1&format=JSON' % (parsed_url.path.rstrip('/'), commit)

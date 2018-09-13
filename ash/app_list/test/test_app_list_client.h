@@ -23,7 +23,7 @@ class TestAppListClient : public mojom::AppListClient {
   mojom::AppListClientPtr CreateInterfacePtrAndBind();
 
   // ash::mojom::AppListClient:
-  void StartSearch(const base::string16& raw_query) override {}
+  void StartSearch(const base::string16& trimmed_query) override {}
   void OpenSearchResult(const std::string& result_id,
                         int event_flags) override {}
   void InvokeSearchResultAction(const std::string& result_id,
@@ -50,6 +50,8 @@ class TestAppListClient : public mojom::AppListClient {
   void OnFolderCreated(mojom::AppListItemMetadataPtr item) override {}
   void OnFolderDeleted(mojom::AppListItemMetadataPtr item) override {}
   void OnItemUpdated(mojom::AppListItemMetadataPtr item) override {}
+  void OnPageBreakItemAdded(const std::string& id,
+                            const syncer::StringOrdinal& position) override {}
 
   size_t voice_session_count() const { return voice_session_count_; }
 

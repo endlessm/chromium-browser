@@ -12,6 +12,7 @@
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/net/chrome_accept_language_settings.h"
 #include "chrome/browser/net/default_network_context_params.h"
 #include "chrome/browser/net/system_network_context_manager.h"
@@ -20,6 +21,8 @@
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/pref_names.h"
+#include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/content_settings/core/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_context.h"
@@ -31,24 +34,30 @@
 #include "net/net_buildflags.h"
 #include "services/network/public/cpp/features.h"
 
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#endif
-
 ProfileNetworkContextService::ProfileNetworkContextService(Profile* profile)
     : profile_(profile), proxy_config_monitor_(profile) {
+  PrefService* profile_prefs = profile->GetPrefs();
   quic_allowed_.Init(
-      prefs::kQuicAllowed, profile->GetPrefs(),
+      prefs::kQuicAllowed, profile_prefs,
       base::Bind(&ProfileNetworkContextService::DisableQuicIfNotAllowed,
                  base::Unretained(this)));
   pref_accept_language_.Init(
-      prefs::kAcceptLanguages, profile->GetPrefs(),
+      prefs::kAcceptLanguages, profile_prefs,
       base::BindRepeating(&ProfileNetworkContextService::UpdateAcceptLanguage,
                           base::Unretained(this)));
-  // The system context must be initialized before any other network contexts.
-  // TODO(mmenke): Figure out a way to enforce this.
-  g_browser_process->system_network_context_manager()->GetContext();
+  enable_referrers_.Init(
+      prefs::kEnableReferrers, profile_prefs,
+      base::BindRepeating(&ProfileNetworkContextService::UpdateReferrersEnabled,
+                          base::Unretained(this)));
+  block_third_party_cookies_.Init(
+      prefs::kBlockThirdPartyCookies, profile_prefs,
+      base::BindRepeating(
+          &ProfileNetworkContextService::UpdateBlockThirdPartyCookies,
+          base::Unretained(this)));
   DisableQuicIfNotAllowed();
+
+  // Observe content settings so they can be synced to the network service.
+  HostContentSettingsMapFactory::GetForProfile(profile_)->AddObserver(this);
 }
 
 ProfileNetworkContextService::~ProfileNetworkContextService() {}
@@ -130,9 +139,21 @@ void ProfileNetworkContextService::UpdateAcceptLanguage() {
       ->SetAcceptLanguage(ComputeAcceptLanguage());
 }
 
+void ProfileNetworkContextService::UpdateBlockThirdPartyCookies() {
+  content::BrowserContext::GetDefaultStoragePartition(profile_)
+      ->GetCookieManagerForBrowserProcess()
+      ->BlockThirdPartyCookies(block_third_party_cookies_.GetValue());
+}
+
 std::string ProfileNetworkContextService::ComputeAcceptLanguage() const {
   return chrome_accept_language_settings::ComputeAcceptLanguageFromPref(
       pref_accept_language_.GetValue());
+}
+
+void ProfileNetworkContextService::UpdateReferrersEnabled() {
+  content::BrowserContext::GetDefaultStoragePartition(profile_)
+      ->GetNetworkContext()
+      ->SetEnableReferrers(enable_referrers_.GetValue());
 }
 
 void ProfileNetworkContextService::FlushProxyConfigMonitorForTesting() {
@@ -149,16 +170,25 @@ network::mojom::NetworkContextParamsPtr
 ProfileNetworkContextService::CreateNetworkContextParams(
     bool in_memory,
     const base::FilePath& relative_partition_path) {
-  // TODO(mmenke): Set up parameters here.
   network::mojom::NetworkContextParamsPtr network_context_params =
       CreateDefaultNetworkContextParams();
 
   network_context_params->context_name = std::string("main");
 
   network_context_params->accept_language = ComputeAcceptLanguage();
+  network_context_params->enable_referrers = enable_referrers_.GetValue();
 
   // Always enable the HTTP cache.
   network_context_params->http_cache_enabled = true;
+
+  network_context_params->cookie_manager_params =
+      network::mojom::CookieManagerParams::New();
+  network_context_params->cookie_manager_params->block_third_party_cookies =
+      block_third_party_cookies_.GetValue();
+  ContentSettingsForOneType settings;
+  HostContentSettingsMapFactory::GetForProfile(profile_)->GetSettingsForOneType(
+      CONTENT_SETTINGS_TYPE_COOKIES, std::string(), &settings);
+  network_context_params->cookie_manager_params->settings = std::move(settings);
 
   base::FilePath path = profile_->GetPath();
   if (!relative_partition_path.empty())
@@ -211,7 +241,12 @@ ProfileNetworkContextService::CreateNetworkContextParams(
   // ProfileIOData::IsHandledProtocol().
   // TODO(mmenke): Find a better way of handling tracking supported schemes.
   network_context_params->enable_data_url_support = true;
-  network_context_params->enable_file_url_support = true;
+  // File support is needed for PAC scripts that use file or data URLs.
+  // TODO(crbug.com/839566): remove file support for all cases.
+  // It is disabled with the network service as it is not responsible for
+  // loading files.
+  if (!base::FeatureList::IsEnabled(network::features::kNetworkService))
+    network_context_params->enable_file_url_support = true;
 #if !BUILDFLAG(DISABLE_FTP_SUPPORT)
   network_context_params->enable_ftp_url_support = true;
 #endif  // !BUILDFLAG(DISABLE_FTP_SUPPORT)
@@ -219,20 +254,25 @@ ProfileNetworkContextService::CreateNetworkContextParams(
   proxy_config_monitor_.AddToNetworkContextParams(network_context_params.get());
 
   network_context_params->enable_certificate_reporting = true;
-
-#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
-  if (prefs->FindPreference(prefs::kGSSAPILibraryName)) {
-    network_context_params->gssapi_library_name =
-        prefs->GetString(prefs::kGSSAPILibraryName);
-  }
-#endif
-
-#if defined(OS_CHROMEOS)
-  policy::BrowserPolicyConnectorChromeOS* connector =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  network_context_params->allow_gssapi_library_load =
-      connector->IsActiveDirectoryManaged();
-#endif
+  network_context_params->enable_expect_ct_reporting = true;
 
   return network_context_params;
+}
+
+void ProfileNetworkContextService::OnContentSettingChanged(
+    const ContentSettingsPattern& primary_pattern,
+    const ContentSettingsPattern& secondary_pattern,
+    ContentSettingsType content_type,
+    const std::string& resource_identifier) {
+  if (content_type != CONTENT_SETTINGS_TYPE_COOKIES &&
+      content_type != CONTENT_SETTINGS_TYPE_DEFAULT) {
+    return;
+  }
+
+  ContentSettingsForOneType settings;
+  HostContentSettingsMapFactory::GetForProfile(profile_)->GetSettingsForOneType(
+      CONTENT_SETTINGS_TYPE_COOKIES, std::string(), &settings);
+  content::BrowserContext::GetDefaultStoragePartition(profile_)
+      ->GetCookieManagerForBrowserProcess()
+      ->SetContentSettings(std::move(settings));
 }

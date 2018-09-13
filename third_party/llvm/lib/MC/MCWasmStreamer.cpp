@@ -45,7 +45,8 @@ void MCWasmStreamer::mergeFragment(MCDataFragment *DF, MCDataFragment *EF) {
                                  DF->getContents().size());
     DF->getFixups().push_back(EF->getFixups()[i]);
   }
-  DF->setHasInstructions(true);
+  if (DF->getSubtargetInfo() == nullptr && EF->getSubtargetInfo())
+    DF->setHasInstructions(*EF->getSubtargetInfo());
   DF->getContents().append(EF->getContents().begin(), EF->getContents().end());
 }
 
@@ -183,15 +184,12 @@ void MCWasmStreamer::EmitInstToData(const MCInst &Inst,
     Fixups[i].setOffset(Fixups[i].getOffset() + DF->getContents().size());
     DF->getFixups().push_back(Fixups[i]);
   }
-  DF->setHasInstructions(true);
+  DF->setHasInstructions(STI);
   DF->getContents().append(Code.begin(), Code.end());
 }
 
 void MCWasmStreamer::FinishImpl() {
   EmitFrames(nullptr);
-
-  // Set fragment atoms so we can map from code fragment to defining symbol
-  addFragmentAtoms();
 
   this->MCObjectStreamer::FinishImpl();
 }
@@ -217,7 +215,8 @@ void MCWasmStreamer::EmitSymbolDesc(MCSymbol *Symbol, unsigned DescValue) {
 }
 
 void MCWasmStreamer::EmitZerofill(MCSection *Section, MCSymbol *Symbol,
-                                  uint64_t Size, unsigned ByteAlignment) {
+                                  uint64_t Size, unsigned ByteAlignment,
+                                  SMLoc Loc) {
   llvm_unreachable("Wasm doesn't support this directive");
 }
 

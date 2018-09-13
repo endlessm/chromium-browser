@@ -29,12 +29,12 @@
 #include "chrome/browser/chromeos/arc/process/arc_process_service.h"
 #include "chrome/browser/memory/memory_kills_monitor.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_external.h"
+#include "chrome/browser/resource_coordinator/tab_manager_stats_collector.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/chrome_features.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_service_manager.h"
@@ -67,10 +67,6 @@ wm::ActivationClient* GetActivationClient() {
   if (!ash::Shell::HasInstance())
     return nullptr;
   return wm::GetActivationClient(ash::Shell::GetPrimaryRootWindow());
-}
-
-bool IsArcMemoryManagementEnabled() {
-  return base::FeatureList::IsEnabled(features::kArcMemoryManagement);
 }
 
 void OnSetOomScoreAdj(bool success, const std::string& output) {
@@ -148,8 +144,11 @@ ProcessType TabManagerDelegate::Candidate::GetProcessTypeInternal() const {
   if (lifecycle_unit()) {
     if (lifecycle_unit_sort_key_.last_focused_time == base::TimeTicks::Max())
       return ProcessType::FOCUSED_TAB;
-    if (!lifecycle_unit()->CanDiscard(DiscardReason::kProactive))
+    DecisionDetails decision_details;
+    if (!lifecycle_unit()->CanDiscard(DiscardReason::kProactive,
+                                      &decision_details)) {
       return ProcessType::PROTECTED_BACKGROUND_TAB;
+    }
     return ProcessType::BACKGROUND_TAB;
   }
   NOTREACHED() << "Unexpected process type";
@@ -339,14 +338,16 @@ void TabManagerDelegate::ScheduleEarlyOomPrioritiesAdjustment() {
 // Otherwise try to kill tabs only.
 void TabManagerDelegate::LowMemoryKill(DiscardReason reason) {
   arc::ArcProcessService* arc_process_service = arc::ArcProcessService::Get();
+  base::TimeTicks now = base::TimeTicks::Now();
   if (arc_process_service &&
       arc_process_service->RequestAppProcessList(
           base::BindRepeating(&TabManagerDelegate::LowMemoryKillImpl,
-                              weak_ptr_factory_.GetWeakPtr(), reason))) {
+                              weak_ptr_factory_.GetWeakPtr(),
+                              now, reason))) {
     return;
   }
 
-  LowMemoryKillImpl(reason, std::vector<arc::ArcProcess>());
+  LowMemoryKillImpl(now, reason, std::vector<arc::ArcProcess>());
 }
 
 int TabManagerDelegate::GetCachedOomScore(ProcessHandle process_handle) {
@@ -473,15 +474,14 @@ void TabManagerDelegate::Observe(int type,
 // 2) last time a tab was selected
 // 3) is the tab currently selected
 void TabManagerDelegate::AdjustOomPriorities() {
-  if (IsArcMemoryManagementEnabled()) {
-    arc::ArcProcessService* arc_process_service = arc::ArcProcessService::Get();
-    if (arc_process_service &&
-        arc_process_service->RequestAppProcessList(
-            base::Bind(&TabManagerDelegate::AdjustOomPrioritiesImpl,
-                       weak_ptr_factory_.GetWeakPtr()))) {
-      return;
-    }
+  arc::ArcProcessService* arc_process_service = arc::ArcProcessService::Get();
+  if (arc_process_service &&
+      arc_process_service->RequestAppProcessList(
+          base::Bind(&TabManagerDelegate::AdjustOomPrioritiesImpl,
+                     weak_ptr_factory_.GetWeakPtr()))) {
+    return;
   }
+
   // Pass in a dummy list if unable to get ARC processes.
   AdjustOomPrioritiesImpl(std::vector<arc::ArcProcess>());
 }
@@ -536,7 +536,17 @@ bool TabManagerDelegate::KillArcProcess(const int nspid) {
 
 bool TabManagerDelegate::KillTab(LifecycleUnit* lifecycle_unit,
                                  DiscardReason reason) {
-  return lifecycle_unit->CanDiscard(reason) && lifecycle_unit->Discard(reason);
+  DecisionDetails decision_details;
+  if (!lifecycle_unit->CanDiscard(reason, &decision_details))
+    return false;
+  auto old_state = lifecycle_unit->GetState();
+  bool did_discard = lifecycle_unit->Discard(reason);
+  if (did_discard) {
+    // TODO(chrisha): Move this to a LifecycleUnitObserver.
+    TabManagerStatsCollector::RecordDiscardDecision(
+        lifecycle_unit, decision_details, old_state, reason);
+  }
+  return did_discard;
 }
 
 chromeos::DebugDaemonClient* TabManagerDelegate::GetDebugDaemonClient() {
@@ -544,6 +554,7 @@ chromeos::DebugDaemonClient* TabManagerDelegate::GetDebugDaemonClient() {
 }
 
 void TabManagerDelegate::LowMemoryKillImpl(
+    base::TimeTicks start_time,
     DiscardReason reason,
     std::vector<arc::ArcProcess> arc_processes) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -571,6 +582,7 @@ void TabManagerDelegate::LowMemoryKillImpl(
   // The list is sorted by descending importance, so we go through the list
   // backwards.
   const TimeTicks now = TimeTicks::Now();
+  base::TimeTicks first_kill_time;
   for (auto it = candidates.rbegin(); it != candidates.rend(); ++it) {
     MEMORY_LOG(ERROR) << "Target memory to free: " << target_memory_to_free_kb
                       << " KB";
@@ -598,6 +610,9 @@ void TabManagerDelegate::LowMemoryKillImpl(
       int estimated_memory_freed_kb =
           mem_stat_->EstimatedMemoryFreedKB(it->app()->pid());
       if (KillArcProcess(it->app()->nspid())) {
+        if (first_kill_time.is_null()) {
+          first_kill_time = base::TimeTicks::Now();
+        }
         recently_killed_arc_processes_[it->app()->process_name()] = now;
         target_memory_to_free_kb -= estimated_memory_freed_kb;
         memory::MemoryKillsMonitor::LogLowMemoryKill("APP",
@@ -616,6 +631,9 @@ void TabManagerDelegate::LowMemoryKillImpl(
       int estimated_memory_freed_kb =
           it->lifecycle_unit()->GetEstimatedMemoryFreedOnDiscardKB();
       if (KillTab(it->lifecycle_unit(), reason)) {
+        if (first_kill_time.is_null()) {
+          first_kill_time = base::TimeTicks::Now();
+        }
         target_memory_to_free_kb -= estimated_memory_freed_kb;
         memory::MemoryKillsMonitor::LogLowMemoryKill("TAB",
                                                      estimated_memory_freed_kb);
@@ -628,6 +646,11 @@ void TabManagerDelegate::LowMemoryKillImpl(
   if (target_memory_to_free_kb > 0) {
     MEMORY_LOG(ERROR)
         << "Unable to kill enough candidates to meet target_memory_to_free_kb ";
+  }
+  if (!first_kill_time.is_null()) {
+    TimeDelta delta = first_kill_time - start_time;
+    MEMORY_LOG(ERROR) << "Time to first kill " << delta;
+    UMA_HISTOGRAM_MEDIUM_TIMES("Arc.LowMemoryKiller.FirstKillLatency", delta);
   }
 }
 

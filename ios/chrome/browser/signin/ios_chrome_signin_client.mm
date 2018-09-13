@@ -17,6 +17,7 @@
 #include "ios/chrome/browser/signin/gaia_auth_fetcher_ios.h"
 #include "ios/chrome/browser/web_data_service_factory.h"
 #include "ios/chrome/common/channel_info.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -102,6 +103,11 @@ net::URLRequestContextGetter* IOSChromeSigninClient::GetURLRequestContext() {
   return browser_state_->GetRequestContext();
 }
 
+scoped_refptr<network::SharedURLLoaderFactory>
+IOSChromeSigninClient::GetURLLoaderFactory() {
+  return browser_state_->GetSharedURLLoaderFactory();
+}
+
 void IOSChromeSigninClient::DoFinalInit() {}
 
 bool IOSChromeSigninClient::CanRevokeCredentials() {
@@ -110,10 +116,6 @@ bool IOSChromeSigninClient::CanRevokeCredentials() {
 
 std::string IOSChromeSigninClient::GetSigninScopedDeviceId() {
   return GetOrCreateScopedDeviceIdPref(GetPrefs());
-}
-
-bool IOSChromeSigninClient::ShouldMergeSigninCredentialsIntoCookieJar() {
-  return false;
 }
 
 bool IOSChromeSigninClient::IsFirstRun() const {
@@ -153,9 +155,9 @@ void IOSChromeSigninClient::DelayNetworkCall(const base::Closure& callback) {
 std::unique_ptr<GaiaAuthFetcher> IOSChromeSigninClient::CreateGaiaAuthFetcher(
     GaiaAuthConsumer* consumer,
     const std::string& source,
-    net::URLRequestContextGetter* getter) {
-  return std::make_unique<GaiaAuthFetcherIOS>(consumer, source, getter,
-                                              browser_state_);
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
+  return std::make_unique<GaiaAuthFetcherIOS>(
+      consumer, source, url_loader_factory, browser_state_);
 }
 
 void IOSChromeSigninClient::PreGaiaLogout(base::OnceClosure callback) {

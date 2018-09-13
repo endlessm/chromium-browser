@@ -33,9 +33,6 @@ from chromite.lib import partial_mock
 from chromite.lib import signals as cros_signals
 
 
-# pylint: disable=W0212,R0904
-
-
 class RunCommandErrorStrTest(cros_test_lib.TestCase):
   """Test that RunCommandError __str__ works as expected."""
 
@@ -820,10 +817,6 @@ class HelperMethodSimpleTests(cros_test_lib.OutputTestCase):
     self.assertEqual(cros_build_lib.ParseUserDateTimeFormat(stringtime),
                      100000.0)
 
-  def testParseDurationToSeconds(self):
-    self.assertEqual(cros_build_lib.ParseDurationToSeconds('1:01:01'),
-                     3600 + 60 + 1)
-
   def testMachineDetails(self):
     """Verify we don't crash."""
     contents = cros_build_lib.MachineDetails()
@@ -1099,13 +1092,13 @@ class TestManifestCheckout(cros_test_lib.TempDirTestCase):
     self.assertEqual(list(manifest.checkouts_by_name), ['monkeys'])
     self.assertEqual(list(manifest.remotes), ['foon'])
 
-  # pylint: disable=E1101
   def testGetManifestsBranch(self):
+    # pylint: disable=protected-access
     func = git.ManifestCheckout._GetManifestsBranch
     manifest = self.manifest_dir
     repo_root = self.tempdir
 
-    # pylint: disable=W0613
+    # pylint: disable=unused-argument
     def reconfig(merge='master', origin='origin'):
       if merge is not None:
         merge = 'refs/heads/%s' % merge
@@ -1257,11 +1250,12 @@ class Test_iflatten_instance(cros_test_lib.TestCase):
   """Test iflatten_instance function."""
 
   def test_it(self):
-    f = lambda *a: list(cros_build_lib.iflatten_instance(*a))
+    f = lambda x, **kwargs: list(cros_build_lib.iflatten_instance(x, **kwargs))
     self.assertEqual([1, 2], f([1, 2]))
     self.assertEqual([1, '2a'], f([1, '2a']))
     self.assertEqual([1, 2, 'b'], f([1, [2, 'b']]))
-    self.assertEqual([1, 2, 'f', 'd', 'a', 's'], f([1, 2, ('fdas',)], int))
+    self.assertEqual([1, 2, 'f', 'd', 'a', 's'],
+                     f([1, 2, ('fdas',)], terminate_on_kls=int))
     self.assertEqual([''], f(''))
 
 
@@ -1404,7 +1398,7 @@ class FrozenAttributesTest(cros_test_lib.TestCase):
       object.__setattr__(self, attr, self.SETATTR_OFFSET + value)
 
   def _TestBasics(self, cls):
-    # pylint: disable=W0201
+    # pylint: disable=attribute-defined-outside-init
     def _Expected(val):
       return getattr(cls, 'SETATTR_OFFSET', 0) + val
 
@@ -1804,7 +1798,7 @@ class FailedCreateTarballTests(cros_test_lib.MockTestCase):
     with self.assertRaises(cros_build_lib.RunCommandError) as cm:
       cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
 
-    self.assertEqual(self.mockRun.call_count, 1)
+    self.assertEqual(self.mockRun.call_count, 2)
     self.assertEqual(cm.exception.args[1].returncode, 2)
 
   def testFailedTwiceSoft(self):
@@ -1813,5 +1807,5 @@ class FailedCreateTarballTests(cros_test_lib.MockTestCase):
     with self.assertRaises(cros_build_lib.RunCommandError) as cm:
       cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
 
-    self.assertEqual(self.mockRun.call_count, 2)
+    self.assertEqual(self.mockRun.call_count, 3)
     self.assertEqual(cm.exception.args[1].returncode, 1)

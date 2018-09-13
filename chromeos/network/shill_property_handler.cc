@@ -42,8 +42,6 @@ const base::ListValue* GetListValue(const std::string& key,
   return vlist;
 }
 
-const char kDhcpPropertyHostnameProperty[] = "DHCPProperty.Hostname";
-
 }  // namespace
 
 namespace chromeos {
@@ -235,7 +233,7 @@ void ShillPropertyHandler::SetWakeOnLanEnabled(bool enabled) {
 void ShillPropertyHandler::SetHostname(const std::string& hostname) {
   base::Value value(hostname);
   shill_manager_->SetProperty(
-      kDhcpPropertyHostnameProperty, value, base::DoNothing(),
+      shill::kDhcpPropertyHostnameProperty, value, base::DoNothing(),
       base::BindRepeating(&network_handler::ShillErrorCallbackFunction,
                           "SetHostname Failed", "Manager",
                           network_handler::ErrorCallback()));

@@ -583,8 +583,6 @@ class PrerenderBrowserTest : public test_utils::PrerenderInProcessBrowserTest {
     test_utils::PrerenderInProcessBrowserTest::SetUpOnMainThread();
     prerender::PrerenderManager::SetMode(
         prerender::PrerenderManager::PRERENDER_MODE_ENABLED);
-    prerender::PrerenderManager::SetOmniboxMode(
-        prerender::PrerenderManager::PRERENDER_MODE_ENABLED);
     const testing::TestInfo* const test_info =
         testing::UnitTest::GetInstance()->current_test_info();
     // This one test fails with the host resolver redirecting all hosts.
@@ -704,24 +702,6 @@ class PrerenderBrowserTest : public test_utils::PrerenderInProcessBrowserTest {
         "window.domAutomationController.send(IsOriginalPrerenderPage())",
         &original_prerender_page));
     EXPECT_TRUE(original_prerender_page);
-  }
-
-  // Goes back to the page that was active before the prerender was swapped
-  // in. This must be called when the prerendered page is the current page
-  // in the active tab.
-  void GoBackToPageBeforePrerender() {
-    WebContents* tab = GetActiveWebContents();
-    ASSERT_TRUE(tab);
-    EXPECT_FALSE(tab->IsLoading());
-    TestNavigationObserver back_nav_observer(tab);
-    chrome::GoBack(current_browser(), WindowOpenDisposition::CURRENT_TAB);
-    back_nav_observer.Wait();
-    bool js_result;
-    ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-        tab,
-        "window.domAutomationController.send(DidBackToOriginalPagePass())",
-        &js_result));
-    EXPECT_TRUE(js_result);
   }
 
   void DisableJavascriptCalls() {
@@ -882,10 +862,11 @@ class PrerenderBrowserTest : public test_utils::PrerenderInProcessBrowserTest {
         base::ASCIIToUTF16(javascript));
   }
 
-  void OverridePrerenderManagerTimeTicks(base::SimpleTestTickClock* clock) {
+  base::SimpleTestTickClock* OverridePrerenderManagerTimeTicks() {
     // The default zero time causes the prerender manager to do strange things.
-    clock->Advance(base::TimeDelta::FromSeconds(1));
-    GetPrerenderManager()->SetTickClockForTesting(clock);
+    clock_.Advance(base::TimeDelta::FromSeconds(1));
+    GetPrerenderManager()->SetTickClockForTesting(&clock_);
+    return &clock_;
   }
 
   void SetMidLoadClockAdvance(base::SimpleTestTickClock* clock,
@@ -1037,6 +1018,9 @@ class PrerenderBrowserTest : public test_utils::PrerenderInProcessBrowserTest {
       observer.Wait();
     }
   }
+
+  // Test TickClock that is set by OverridePrerenderManagerTimeTicks().
+  base::SimpleTestTickClock clock_;
 
   GURL dest_url_;
   bool call_javascript_;
@@ -2575,16 +2559,6 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   agent->DetachClient(&client);
 }
 
-// Validate that the sessionStorage namespace remains the same when swapping
-// in a prerendered page.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderSessionStorage) {
-  set_loader_path("/prerender/prerender_loader_with_session_storage.html");
-  PrerenderTestURL(GetCrossDomainTestUrl("prerender/prerender_page.html"),
-                   FINAL_STATUS_USED, 1);
-  NavigateToDestURL();
-  GoBackToPageBeforePrerender();
-}
-
 // Checks that the referrer policy is used when prerendering.
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderReferrerPolicy) {
   set_loader_path("/prerender/prerender_loader_with_referrer_policy.html");
@@ -3192,7 +3166,9 @@ class HangingURLLoader : public network::mojom::URLLoader {
       : client_(std::move(client)) {}
   ~HangingURLLoader() override {}
   // mojom::URLLoader implementation:
-  void FollowRedirect(const base::Optional<net::HttpRequestHeaders>&
+  void FollowRedirect(const base::Optional<std::vector<std::string>>&
+                          to_be_removed_request_headers,
+                      const base::Optional<net::HttpRequestHeaders>&
                           modified_request_headers) override {}
   void ProceedWithResponse() override {}
   void SetPriority(net::RequestPriority priority,
@@ -3276,12 +3252,11 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, ResourcePriorityOverlappingSwap) {
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
                        DISABLED_FirstContentfulPaintTimingSimple) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
-  base::SimpleTestTickClock clock;
-  OverridePrerenderManagerTimeTicks(&clock);
+  base::SimpleTestTickClock* clock = OverridePrerenderManagerTimeTicks();
   PrerenderTestURL("/prerender/prerender_page.html", FINAL_STATUS_USED, 1);
 
-  base::TimeTicks load_start = clock.NowTicks();
-  clock.Advance(base::TimeDelta::FromSeconds(1));
+  base::TimeTicks load_start = clock->NowTicks();
+  clock->Advance(base::TimeDelta::FromSeconds(1));
   NavigateToDestURL();
 
   PrerenderPageLoadMetricsObserver observer(GetPrerenderManager(),
@@ -3305,8 +3280,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, FirstContentfulPaintTimingReuse) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
-  base::SimpleTestTickClock clock;
-  OverridePrerenderManagerTimeTicks(&clock);
+  base::SimpleTestTickClock* clock = OverridePrerenderManagerTimeTicks();
 
   GURL url = embedded_test_server()->GetURL("/prerender/prerender_page.html");
   base::RunLoop hanging_request_waiter;
@@ -3319,11 +3293,11 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, FirstContentfulPaintTimingReuse) {
   hanging_request_waiter.Run();
 
   // This prerender cancels and reuses the first.
-  clock.Advance(base::TimeDelta::FromSeconds(1));
-  base::TimeTicks load_start = clock.NowTicks();
+  clock->Advance(base::TimeDelta::FromSeconds(1));
+  base::TimeTicks load_start = clock->NowTicks();
   EnableJavascriptCalls();
   PrerenderTestURL(url, FINAL_STATUS_USED, 1);
-  clock.Advance(base::TimeDelta::FromSeconds(1));
+  clock->Advance(base::TimeDelta::FromSeconds(1));
 
   NavigateToDestURL();
   PrerenderPageLoadMetricsObserver observer(GetPrerenderManager(),
@@ -3350,23 +3324,22 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, FirstContentfulPaintTimingReuse) {
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
                        FirstContentfulPaintTimingTimeout) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
-  base::SimpleTestTickClock clock;
-  OverridePrerenderManagerTimeTicks(&clock);
+  base::SimpleTestTickClock* clock = OverridePrerenderManagerTimeTicks();
 
   // Make the first prerender time out.
   base::TimeDelta time_out_delta =
       GetPrerenderManager()->config().time_to_live +
       base::TimeDelta::FromSeconds(10);
-  SetMidLoadClockAdvance(&clock, time_out_delta);
+  SetMidLoadClockAdvance(clock, time_out_delta);
 
   GURL url = embedded_test_server()->GetURL("/prerender/prerender_page.html");
   PrerenderTestURL(url, FINAL_STATUS_TIMED_OUT, 1);
 
   ClearMidLoadClock();
-  base::TimeTicks load_start = clock.NowTicks();
+  base::TimeTicks load_start = clock->NowTicks();
   PrerenderTestURL(url, FINAL_STATUS_USED, 1);
 
-  clock.Advance(base::TimeDelta::FromSeconds(1));
+  clock->Advance(base::TimeDelta::FromSeconds(1));
   NavigateToDestURL();
 
   PrerenderPageLoadMetricsObserver observer(GetPrerenderManager(),
@@ -3393,8 +3366,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
                        FirstContentfulPaintTimingNoCommit) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
-  base::SimpleTestTickClock clock;
-  OverridePrerenderManagerTimeTicks(&clock);
+  base::SimpleTestTickClock* clock = OverridePrerenderManagerTimeTicks();
 
   GURL url = embedded_test_server()->GetURL("/prerender/prerender_page.html");
   base::FilePath url_file = ui_test_utils::GetTestFilePath(
@@ -3410,12 +3382,12 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   PrerenderTestURL(url, FINAL_STATUS_NAVIGATION_UNCOMMITTED, 0);
   prerender_start_loop.Run();
 
-  clock.Advance(base::TimeDelta::FromSeconds(1));
+  clock->Advance(base::TimeDelta::FromSeconds(1));
   NavigateToDestURLWithDisposition(WindowOpenDisposition::CURRENT_TAB, false);
 
   PrerenderPageLoadMetricsObserver observer(GetPrerenderManager(),
                                             GetActiveWebContents());
-  observer.SetNavigationStartTicksForTesting(clock.NowTicks());
+  observer.SetNavigationStartTicksForTesting(clock->NowTicks());
 
   page_load_metrics::mojom::PageLoadTiming timing;
   page_load_metrics::InitPageLoadTimingForTest(&timing);
@@ -3455,8 +3427,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
                        MAYBE_FirstContentfulPaintTimingTwoPages) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
-  base::SimpleTestTickClock clock;
-  OverridePrerenderManagerTimeTicks(&clock);
+  base::SimpleTestTickClock* clock = OverridePrerenderManagerTimeTicks();
 
   // As this load will be canceled, it is not waited for, and hence no
   // javascript is executed.
@@ -3464,12 +3435,12 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   // First prerender a different page from the usual target.
   PrerenderTestURL("/prerender/prefetch_page.html", FINAL_STATUS_CANCELLED, 0);
 
-  clock.Advance(base::TimeDelta::FromSeconds(1));
-  base::TimeTicks load_start = clock.NowTicks();
+  clock->Advance(base::TimeDelta::FromSeconds(1));
+  base::TimeTicks load_start = clock->NowTicks();
   EnableJavascriptCalls();
   PrerenderTestURL("/prerender/prerender_page.html", FINAL_STATUS_USED, 1);
 
-  clock.Advance(base::TimeDelta::FromSeconds(1));
+  clock->Advance(base::TimeDelta::FromSeconds(1));
   NavigateToDestURL();
 
   PrerenderPageLoadMetricsObserver observer(GetPrerenderManager(),
@@ -3494,12 +3465,12 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, FirstContentfulPaintHidden) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
-  base::SimpleTestTickClock clock;
-  OverridePrerenderManagerTimeTicks(&clock);
-  base::TimeTicks load_start = clock.NowTicks();
+  base::SimpleTestTickClock* clock = OverridePrerenderManagerTimeTicks();
+
+  base::TimeTicks load_start = clock->NowTicks();
   PrerenderTestURL("/prerender/prerender_page.html", FINAL_STATUS_USED, 1);
 
-  clock.Advance(base::TimeDelta::FromSeconds(1));
+  clock->Advance(base::TimeDelta::FromSeconds(1));
   NavigateToDestURL();
 
   PrerenderPageLoadMetricsObserver observer(GetPrerenderManager(),
@@ -3529,8 +3500,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, FirstContentfulPaintHidden) {
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
                        DISABLED_FirstContentfulPaintHiddenNoCommit) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
-  base::SimpleTestTickClock clock;
-  OverridePrerenderManagerTimeTicks(&clock);
+  base::SimpleTestTickClock* clock = OverridePrerenderManagerTimeTicks();
 
   GURL url = embedded_test_server()->GetURL("/prerender/prerender_page.html");
   base::FilePath url_file = ui_test_utils::GetTestFilePath(
@@ -3547,12 +3517,12 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   PrerenderTestURL(url, FINAL_STATUS_NAVIGATION_UNCOMMITTED, 0);
   prerender_start_loop.Run();
 
-  clock.Advance(base::TimeDelta::FromSeconds(1));
+  clock->Advance(base::TimeDelta::FromSeconds(1));
   NavigateToDestURLWithDisposition(WindowOpenDisposition::CURRENT_TAB, false);
 
   PrerenderPageLoadMetricsObserver observer(GetPrerenderManager(),
                                             GetActiveWebContents());
-  observer.SetNavigationStartTicksForTesting(clock.NowTicks());
+  observer.SetNavigationStartTicksForTesting(clock->NowTicks());
 
   EXPECT_EQ(page_load_metrics::PageLoadMetricsObserver::CONTINUE_OBSERVING,
             observer.OnHidden(page_load_metrics::mojom::PageLoadTiming(),

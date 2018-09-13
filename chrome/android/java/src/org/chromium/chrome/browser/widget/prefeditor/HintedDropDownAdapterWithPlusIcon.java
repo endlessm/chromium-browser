@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.widget.prefeditor;
 
 import android.content.Context;
 import android.content.res.Resources;
+import android.support.v4.view.ViewCompat;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -60,7 +61,6 @@ public class HintedDropDownAdapterWithPlusIcon<T> extends HintedDropDownAdapter<
         // The plus icon is for the last item on the list.
         if (position == getCount() - 1) {
             // Add a "+" icon and a blue tint to the last element.
-            Resources resources = getContext().getResources();
             if (mTextView == null) {
                 mTextView = (TextView) convertView.findViewById(mTextViewResourceId);
             }
@@ -68,8 +68,9 @@ public class HintedDropDownAdapterWithPlusIcon<T> extends HintedDropDownAdapter<
             // Create the "+" icon, put it left of the text and add appropriate padding.
             mTextView.setCompoundDrawablesWithIntrinsicBounds(
                     TintedDrawable.constructTintedDrawable(
-                            resources, R.drawable.plus, R.color.light_active_color),
+                            getContext(), R.drawable.plus, R.color.default_icon_color_blue),
                     null, null, null);
+            Resources resources = getContext().getResources();
             mTextView.setCompoundDrawablePadding(
                     resources.getDimensionPixelSize(R.dimen.editor_dialog_section_large_spacing));
 
@@ -79,9 +80,8 @@ public class HintedDropDownAdapterWithPlusIcon<T> extends HintedDropDownAdapter<
             mTextView.setTypeface(UiUtils.createRobotoMediumTypeface());
 
             // Padding at the bottom of the dropdown.
-            ApiCompatibilityUtils.setPaddingRelative(convertView,
-                    ApiCompatibilityUtils.getPaddingStart(convertView), convertView.getPaddingTop(),
-                    ApiCompatibilityUtils.getPaddingEnd(convertView),
+            ViewCompat.setPaddingRelative(convertView, ViewCompat.getPaddingStart(convertView),
+                    convertView.getPaddingTop(), ViewCompat.getPaddingEnd(convertView),
                     getContext().getResources().getDimensionPixelSize(
                             R.dimen.editor_dialog_section_small_spacing));
         }

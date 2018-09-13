@@ -19,7 +19,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
-#include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/input_method/input_method_syncer.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
@@ -32,7 +31,6 @@
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/browser/ui/ash/ash_shell_init.h"
-#include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/system_tray_client.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
@@ -109,6 +107,21 @@ void TryMigrateToResolveTimezoneByGeolocationMethod(PrefService* prefs) {
                     static_cast<int>(method));
 }
 
+// Whitelist synable preferences that may be registered after sync system init.
+void WhitelistLateRegistrationPrefsForSync(
+    user_prefs::PrefRegistrySyncable* registry) {
+  // These foreign syncable preferences are registered asynchronously by Ash,
+  // perhaps after sync system initialization. Whitelist these prefs so that any
+  // values obtained via sync before the prefs are registered will be stored.
+  const char* const kAshForeignSyncablePrefs[] = {
+      ash::prefs::kEnableAutoScreenLock,      ash::prefs::kEnableStylusTools,
+      ash::prefs::kLaunchPaletteOnEjectEvent, ash::prefs::kShelfAlignment,
+      ash::prefs::kShelfAutoHideBehavior,     ash::prefs::kTapDraggingEnabled,
+  };
+  for (const auto* pref : kAshForeignSyncablePrefs)
+    registry->WhitelistLateRegistrationPrefForSync(pref);
+}
+
 }  // namespace
 
 Preferences::Preferences()
@@ -159,6 +172,8 @@ void Preferences::RegisterPrefs(PrefRegistrySimple* registry) {
 // static
 void Preferences::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
+  WhitelistLateRegistrationPrefsForSync(registry);
+
   std::string hardware_keyboard_id;
   // TODO(yusukes): Remove the runtime hack.
   if (IsRunningAsSystemCompositor()) {
@@ -174,8 +189,7 @@ void Preferences::RegisterProfilePrefs(
   registry->RegisterBooleanPref(prefs::kPerformanceTracingEnabled, false);
 
   registry->RegisterBooleanPref(
-      prefs::kTapToClickEnabled,
-      true,
+      prefs::kTapToClickEnabled, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PRIORITY_PREF);
   registry->RegisterBooleanPref(prefs::kEnableTouchpadThreeFingerClick, false);
   // This preference can only be set to true by policy or command_line flag
@@ -213,11 +227,23 @@ void Preferences::RegisterProfilePrefs(
   registry->RegisterBooleanPref(
       ash::prefs::kAccessibilityHighContrastEnabled, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF | PrefRegistry::PUBLIC);
+  registry->RegisterBooleanPref(
+      ash::prefs::kHighContrastAcceleratorDialogHasBeenAccepted, false,
+      PrefRegistry::PUBLIC);
   registry->RegisterBooleanPref(ash::prefs::kDockedMagnifierEnabled, false,
                                 PrefRegistry::PUBLIC);
   registry->RegisterBooleanPref(
+      ash::prefs::kDockedMagnifierAcceleratorDialogHasBeenAccepted, false,
+      PrefRegistry::PUBLIC);
+  registry->RegisterBooleanPref(
       ash::prefs::kAccessibilityScreenMagnifierCenterFocus, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(
+      ash::prefs::kScreenMagnifierAcceleratorDialogHasBeenAccepted, false,
+      PrefRegistry::PUBLIC);
+  registry->RegisterBooleanPref(
+      ash::prefs::kDictationAcceleratorDialogHasBeenAccepted, false,
+      PrefRegistry::PUBLIC);
   registry->RegisterBooleanPref(
       ash::prefs::kAccessibilityScreenMagnifierEnabled, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF | PrefRegistry::PUBLIC);
@@ -270,6 +296,7 @@ void Preferences::RegisterProfilePrefs(
       prefs::kUse24HourClock,
       base::GetHourClockType() == base::k24HourClock,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kCameraMediaConsolidated, false);
   registry->RegisterBooleanPref(
       drive::prefs::kDisableDrive, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
@@ -283,11 +310,13 @@ void Preferences::RegisterProfilePrefs(
   // because they're just used to track the logout state of the device.
   registry->RegisterStringPref(prefs::kLanguageCurrentInputMethod, "");
   registry->RegisterStringPref(prefs::kLanguagePreviousInputMethod, "");
+  registry->RegisterListPref(prefs::kLanguageAllowedInputMethods,
+                             std::make_unique<base::ListValue>());
   registry->RegisterStringPref(prefs::kLanguagePreferredLanguages,
                                kFallbackInputMethodLocale);
   registry->RegisterStringPref(prefs::kLanguagePreloadEngines,
                                hardware_keyboard_id);
-  registry->RegisterStringPref(prefs::kLanguageEnabledExtensionImes, "");
+  registry->RegisterStringPref(prefs::kLanguageEnabledImes, "");
 
   registry->RegisterIntegerPref(
       prefs::kLanguageRemapSearchKeyTo,
@@ -475,12 +504,13 @@ void Preferences::InitUserPrefs(sync_preferences::PrefServiceSyncable* prefs) {
   download_default_directory_.Init(prefs::kDownloadDefaultDirectory,
                                    prefs, callback);
   preload_engines_.Init(prefs::kLanguagePreloadEngines, prefs, callback);
-  enabled_extension_imes_.Init(prefs::kLanguageEnabledExtensionImes,
-                               prefs, callback);
+  enabled_imes_.Init(prefs::kLanguageEnabledImes, prefs, callback);
   current_input_method_.Init(prefs::kLanguageCurrentInputMethod,
                              prefs, callback);
   previous_input_method_.Init(prefs::kLanguagePreviousInputMethod,
                               prefs, callback);
+  allowed_input_methods_.Init(prefs::kLanguageAllowedInputMethods, prefs,
+                              callback);
   ime_menu_activated_.Init(prefs::kLanguageImeMenuActivated, prefs, callback);
   // Notifies the system tray to remove the IME items.
   if (base::FeatureList::IsEnabled(features::kOptInImeMenu) &&
@@ -539,7 +569,11 @@ void Preferences::Init(Profile* profile, const user_manager::User* user) {
   // SetState() is modifying |current_input_method_| (via
   // PersistUserInputMethod() ). This way SetState() here may be called only
   // after ApplyPreferences().
-  input_method_manager_->SetState(ime_state_);
+  // As InputMethodManager only holds the active state for the active user,
+  // SetState() is only called if the preferences belongs to the active user.
+  // See https://crbug.com/841112.
+  if (user->is_active())
+    input_method_manager_->SetState(ime_state_);
 
   input_method_syncer_.reset(
       new input_method::InputMethodSyncer(prefs, ime_state_));
@@ -734,6 +768,19 @@ void Preferences::ApplyPreferences(ApplyReason reason,
     if (user_is_active)
       UpdateAutoRepeatRate();
   }
+  if (reason != REASON_PREF_CHANGED ||
+      pref_name == prefs::kLanguageAllowedInputMethods) {
+    const std::vector<std::string> allowed_input_methods =
+        allowed_input_methods_.GetValue();
+
+    bool managed_by_policy =
+        ime_state_->SetAllowedInputMethods(allowed_input_methods, false);
+
+    if (managed_by_policy) {
+      preload_engines_.SetValue(
+          base::JoinString(ime_state_->GetActiveInputMethodIds(), ","));
+    }
+  }
 
   if (reason == REASON_INITIALIZATION)
     SetInputMethodList();
@@ -746,9 +793,9 @@ void Preferences::ApplyPreferences(ApplyReason reason,
   }
 
   if ((reason == REASON_INITIALIZATION) ||
-      (pref_name == prefs::kLanguageEnabledExtensionImes &&
+      (pref_name == prefs::kLanguageEnabledImes &&
        reason == REASON_PREF_CHANGED)) {
-    std::string value(enabled_extension_imes_.GetValue());
+    std::string value(enabled_imes_.GetValue());
 
     std::vector<std::string> split_values;
     if (!value.empty()) {

@@ -92,6 +92,7 @@ Nếu bạn đã đọc xong hướng dẫn, hãy sử dụng ChromeVox để đ
 <translation id="1787176709638001873">Văn bản chỉnh sửa mật khẩu</translation>
 <translation id="1802710350767629429">Hiển thị ghi chú cập nhật</translation>
 <translation id="1810107444790159527">Hộp danh sách</translation>
+<translation id="1812527064848182527">ngang</translation>
 <translation id="1828385960365606039">Tháng 5</translation>
 <translation id="1834891354138622109">Cột</translation>
 <translation id="1845944666972354496">Nhấn đúp để kích hoạt</translation>
@@ -146,6 +147,7 @@ Nếu bạn đã đọc xong hướng dẫn, hãy sử dụng ChromeVox để đ
 <translation id="2416512023405990736">Hộp kiểm được bỏ chọn</translation>
 <translation id="2417569100218200841">Thông tin nội dung</translation>
 <translation id="2417948780551741035">Chú thích</translation>
+<translation id="2421113964388408478">Xóa</translation>
 <translation id="2422937916923936891">Hộp kiểm mục menu</translation>
 <translation id="2428534162001909979">Menu lệnh</translation>
 <translation id="2429669115401274487">CH</translation>
@@ -253,6 +255,7 @@ Nếu bạn đã đọc xong hướng dẫn, hãy sử dụng ChromeVox để đ
 <translation id="3232388865800379423">Nút bật lên</translation>
 <translation id="3241052487511142956">Liên kết đã truy cập trước đó</translation>
 <translation id="3241638166094654466">Số ô mỗi dòng:</translation>
+<translation id="3286372614333682499">dọc</translation>
 <translation id="3286390186030710347">Thanh trượt</translation>
 <translation id="3299925995433437805">Không có liên kết đã truy cập tiếp theo nào.</translation>
 <translation id="3300348286427369683">Hỗ trợ văn bản đa dạng thức. ChromeVox hiện hỗ trợ các trường văn bản đa dạng thức, bao gồm cả lệnh di chuyển, định tuyến con trỏ chữ nổi, lựa chọn và các trường khác.</translation>
@@ -426,6 +429,7 @@ Nếu bạn đã đọc xong hướng dẫn, hãy sử dụng ChromeVox để đ
 <translation id="4476183483923481720">dòng mới</translation>
 <translation id="4482330759234983253">Bảng trước</translation>
 <translation id="4491109536499578614">Hình ảnh</translation>
+<translation id="4505167975768625962">Chèn</translation>
 <translation id="4517854969512651305">Tăng giá trị</translation>
 <translation id="4529987814483543472">Sơ đồ bàn phím cổ điển</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{dấu gạch chéo}other{# dấu gạch chéo}}</translation>
@@ -589,6 +593,7 @@ Nếu bạn đã đọc xong hướng dẫn, hãy sử dụng ChromeVox để đ
 <translation id="5712338278108304766">Cột tiếp theo của bảng</translation>
 <translation id="571866080859340309">Thăm dò nhóm</translation>
 <translation id="5728409797179002635">Không tìm thấy bảng nào.</translation>
+<translation id="5729047866208036762">Nhấn các phím lên, xuống, trái hoặc phải để khám phá nội dung toán học.</translation>
 <translation id="5732189279857692565">Đây là tiêu đề thứ hai. Tiếp tục; nhấn Search+H hoặc Search+Shift+H</translation>
 <translation id="5748623122140342504">Tiêu đề cấp 5 trước</translation>
 <translation id="5750633686117194034">Không có phím bổ trợ nào được nhấn; vui lòng nhấn và giữ một hoặc nhiều phím bổ trợ; nhấc ngón tay khi hoàn tất và bạn sẽ nghe thấy phím được đặt. Nhấn tab để thoát.</translation>
@@ -744,6 +749,7 @@ Nếu bạn đã đọc xong hướng dẫn, hãy sử dụng ChromeVox để đ
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">Chọn bảng chữ nổi 6 chấm:</translation>
 <translation id="72393384879519786">Tiêu đề</translation>
+<translation id="7240858705033280249">Chuyển tới phần Thông tin chi tiết</translation>
 <translation id="7241683698754534149">Mở mô tả dài trong tab mới</translation>
 <translation id="7248671827512403053">Ứng dụng</translation>
 <translation id="725969808843520477">Nút radio tiếp theo</translation>
@@ -920,6 +926,7 @@ Nếu bạn đã đọc xong hướng dẫn, hãy sử dụng ChromeVox để đ
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Chọn bảng chữ nổi 8 chấm:</translation>
 <translation id="9065283790526219006">+cửa sổ bật lên</translation>
+<translation id="9066023754636984703">Nhấn phím Tìm kiếm+A, J để chuyển tới phần thông tin chi tiết.</translation>
 <translation id="9067522039955793016">Ngắt trang</translation>
 <translation id="9077213568694924680">đã xóa khỏi lựa chọn</translation>
 <translation id="9082874451376019682">Không có thanh trượt trước nào.</translation>

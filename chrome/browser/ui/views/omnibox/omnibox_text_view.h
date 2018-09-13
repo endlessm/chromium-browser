@@ -36,50 +36,48 @@ class OmniboxTextView : public views::View {
   int GetHeightForWidth(int width) const override;
   void OnPaint(gfx::Canvas* canvas) override;
 
-  // Dim the text (i.e. make it gray). This is used for secondary text (so that
-  // the non-dimmed text stands out more).
-  void Dim();
+  // Applies given part's theme color to underlying render text. Using
+  // OmniboxPart::RESULTS_TEXT_DIMMED gives the gray used by Dim() in the past.
+  // This is called Apply* instead of Set* because the only state kept is in
+  // render_text, so call this after setting text with methods below.
+  void ApplyTextColor(OmniboxPart part);
 
-  // Creates a RenderText with default rendering for the given |text|. The
+  // Returns the render text, or an empty string if there is none.
+  const base::string16& text() const;
+
+  // Sets the render text with default rendering for the given |text|. The
   // |classifications| are used to style the text. An ImageLine incorporates
   // both the text and the styling.
+  // |deemphasize| specifies whether to use a slightly smaller font than normal.
+  void SetText(const base::string16& text, bool deemphasize = false);
   void SetText(const base::string16& text,
-               const ACMatchClassifications& classifications);
-  void SetText(const SuggestionAnswer::ImageLine& line);
-  void SetText(const base::string16& text);
+               const ACMatchClassifications& classifications,
+               bool deemphasize = false);
+  void SetText(const SuggestionAnswer::ImageLine& line,
+               bool deemphasize = false);
+
+  // Adds the "additional" and "status" text from |line|, if any.
+  void AppendExtraText(const SuggestionAnswer::ImageLine& line);
 
   // Get the height of one line of text.  This is handy if the view might have
   // multiple lines.
   int GetLineHeight() const;
 
+  // Reapplies text styling to the results text, based on the types of the match
+  // parts.
+  void ReapplyStyling();
+
  private:
   std::unique_ptr<gfx::RenderText> CreateRenderText(
       const base::string16& text) const;
 
-  // Similar to CreateRenderText, but also apply styling (classifications).
-  std::unique_ptr<gfx::RenderText> CreateClassifiedRenderText(
-      const base::string16& text,
-      const ACMatchClassifications& classifications) const;
-
-  // Creates a RenderText with text and styling from the image line.
-  std::unique_ptr<gfx::RenderText> CreateText(
-      const SuggestionAnswer::ImageLine& line) const;
-
-  // Adds |text| to |destination|.  |text_type| is an index into the
+  // Adds |text| to the render text.  |text_type| is an index into the
   // kTextStyles constant defined in the .cc file and is used to style the text,
   // including setting the font size, color, and baseline style.  See the
   // TextStyle struct in the .cc file for more.
-  void AppendText(gfx::RenderText* destination,
-                  const base::string16& text,
-                  int text_type) const;
+  void AppendText(const base::string16& text, int text_type);
 
-  // AppendText will break up the |text| into bold and non-bold pieces
-  // and pass each to this helper with the correct |is_bold| value.
-  void AppendTextHelper(gfx::RenderText* destination,
-                        const base::string16& text,
-                        int text_type,
-                        bool is_bold) const;
-
+  // Updates the cached maximum line height.
   void UpdateLineHeight();
 
   // To get color values.
@@ -88,11 +86,20 @@ class OmniboxTextView : public views::View {
   // Font settings for this view.
   int font_height_;
 
+  // Whether to apply deemphasized font instead of primary omnibox font.
+  // TODO(orinj): Use a more general ChromeTextContext for flexibility, or
+  // otherwise clean up & unify the different ways of selecting fonts & styles.
+  bool use_deemphasized_font_;
+
   // Whether to wrap lines if the width is too narrow for the whole string.
   bool wrap_text_lines_;
 
   // The primary data for this class.
-  mutable std::unique_ptr<gfx::RenderText> render_text_;
+  std::unique_ptr<gfx::RenderText> render_text_;
+  // The classifications most recently passed to SetText. Used to exit
+  // early instead of setting text when the text and classifications
+  // match the current state of the view.
+  std::unique_ptr<ACMatchClassifications> cached_classifications_;
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxTextView);
 };

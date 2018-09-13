@@ -25,9 +25,9 @@
 #include "assembly_grammar.h"
 #include "diagnostic.h"
 #include "ext_inst.h"
+#include "latest_version_spirv_header.h"
 #include "opcode.h"
 #include "operand.h"
-#include "spirv/1.2/spirv.h"
 #include "spirv_constant.h"
 #include "spirv_endian.h"
 
@@ -121,12 +121,13 @@ class Parser {
   // the input stream, and for the given error code. Any data written to the
   // returned object will be propagated to the current parse's diagnostic
   // object.
-  libspirv::DiagnosticStream diagnostic(spv_result_t error) {
-    return libspirv::DiagnosticStream({0, 0, _.word_index}, consumer_, error);
+  spvtools::DiagnosticStream diagnostic(spv_result_t error) {
+    return spvtools::DiagnosticStream({0, 0, _.word_index}, consumer_, "",
+                                      error);
   }
 
   // Returns a diagnostic stream object with the default parse error code.
-  libspirv::DiagnosticStream diagnostic() {
+  spvtools::DiagnosticStream diagnostic() {
     // The default failure for parsing is invalid binary.
     return diagnostic(SPV_ERROR_INVALID_BINARY);
   }
@@ -156,7 +157,7 @@ class Parser {
 
   // Data members
 
-  const libspirv::AssemblyGrammar grammar_;        // SPIR-V syntax utility.
+  const spvtools::AssemblyGrammar grammar_;        // SPIR-V syntax utility.
   const spvtools::MessageConsumer& consumer_;      // Message consumer callback.
   void* const user_data_;                          // Context for the callbacks
   const spv_parsed_header_fn_t parsed_header_fn_;  // Parsed header callback
@@ -613,7 +614,11 @@ spv_result_t Parser::parseOperand(size_t inst_offset,
     case SPV_OPERAND_TYPE_BUILT_IN:
     case SPV_OPERAND_TYPE_GROUP_OPERATION:
     case SPV_OPERAND_TYPE_KERNEL_ENQ_FLAGS:
-    case SPV_OPERAND_TYPE_KERNEL_PROFILING_INFO: {
+    case SPV_OPERAND_TYPE_KERNEL_PROFILING_INFO:
+    case SPV_OPERAND_TYPE_DEBUG_BASE_TYPE_ATTRIBUTE_ENCODING:
+    case SPV_OPERAND_TYPE_DEBUG_COMPOSITE_TYPE:
+    case SPV_OPERAND_TYPE_DEBUG_TYPE_QUALIFIER:
+    case SPV_OPERAND_TYPE_DEBUG_OPERATION: {
       // A single word that is a plain enum value.
 
       // Map an optional operand type to its corresponding concrete type.
@@ -636,7 +641,8 @@ spv_result_t Parser::parseOperand(size_t inst_offset,
     case SPV_OPERAND_TYPE_IMAGE:
     case SPV_OPERAND_TYPE_OPTIONAL_IMAGE:
     case SPV_OPERAND_TYPE_OPTIONAL_MEMORY_ACCESS:
-    case SPV_OPERAND_TYPE_SELECTION_CONTROL: {
+    case SPV_OPERAND_TYPE_SELECTION_CONTROL:
+    case SPV_OPERAND_TYPE_DEBUG_INFO_FLAGS: {
       // This operand is a mask.
 
       // Map an optional operand type to its corresponding concrete type.
@@ -678,8 +684,7 @@ spv_result_t Parser::parseOperand(size_t inst_offset,
       return diagnostic() << "Internal error: Unhandled operand type: " << type;
   }
 
-  assert(int(SPV_OPERAND_TYPE_FIRST_CONCRETE_TYPE) <= int(parsed_operand.type));
-  assert(int(SPV_OPERAND_TYPE_LAST_CONCRETE_TYPE) >= int(parsed_operand.type));
+  assert(spvOperandIsConcrete(parsed_operand.type));
 
   operands->push_back(parsed_operand);
 
@@ -762,7 +767,7 @@ spv_result_t spvBinaryParse(const spv_const_context context, void* user_data,
   spv_context_t hijack_context = *context;
   if (diagnostic) {
     *diagnostic = nullptr;
-    libspirv::UseDiagnosticAsMessageConsumer(&hijack_context, diagnostic);
+    spvtools::UseDiagnosticAsMessageConsumer(&hijack_context, diagnostic);
   }
   Parser parser(&hijack_context, user_data, parsed_header, parsed_instruction);
   return parser.parse(code, num_words, diagnostic);

@@ -9,6 +9,10 @@
 #include "chromeos/services/assistant/public/mojom/assistant.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
+namespace gfx {
+class Rect;
+}  // namespace gfx
+
 namespace chromeos {
 namespace assistant {
 
@@ -23,8 +27,21 @@ class MockAssistant : public mojom::Assistant {
 
   MOCK_METHOD1(SendTextQuery, void(const std::string&));
 
-  MOCK_METHOD1(AddAssistantEventSubscriber,
-               void(chromeos::assistant::mojom::AssistantEventSubscriberPtr));
+  MOCK_METHOD1(
+      AddAssistantInteractionSubscriber,
+      void(chromeos::assistant::mojom::AssistantInteractionSubscriberPtr));
+
+  MOCK_METHOD1(
+      AddAssistantNotificationSubscriber,
+      void(chromeos::assistant::mojom::AssistantNotificationSubscriberPtr));
+
+  MOCK_METHOD2(RetrieveNotification,
+               void(chromeos::assistant::mojom::AssistantNotificationPtr, int));
+
+  MOCK_METHOD1(DismissNotification,
+               void(chromeos::assistant::mojom::AssistantNotificationPtr));
+
+  MOCK_METHOD2(RequestScreenContext, void(const gfx::Rect&, base::OnceClosure));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockAssistant);

@@ -26,6 +26,7 @@ HostedAppMenuButton::HostedAppMenuButton(BrowserView* browser_view)
   SetInkDropMode(InkDropMode::ON);
   // Disable focus ring for consistency with sibling buttons and AppMenuButton.
   SetFocusPainter(nullptr);
+  SetFocusBehavior(FocusBehavior::ALWAYS);
   // Avoid the native theme border, which would crop the icon (see
   // https://crbug.com/831968).
   SetBorder(nullptr);
@@ -76,4 +77,8 @@ void HostedAppMenuButton::FadeHighlightOff() {
     GetInkDrop()->SetHovered(false);
     GetInkDrop()->UseDefaultHoverHighlightFadeDuration();
   }
+}
+
+const char* HostedAppMenuButton::GetClassName() const {
+  return "HostedAppMenuButton";
 }

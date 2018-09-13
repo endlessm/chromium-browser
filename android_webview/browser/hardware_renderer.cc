@@ -33,10 +33,9 @@ HardwareRenderer::HardwareRenderer(RenderThreadManager* state)
       last_committed_layer_tree_frame_sink_id_(0u),
       last_submitted_layer_tree_frame_sink_id_(0u) {
   DCHECK(last_egl_context_);
-  surfaces_->GetFrameSinkManager()->surface_manager()->RegisterFrameSinkId(
-      frame_sink_id_);
-  surfaces_->GetFrameSinkManager()->surface_manager()->SetFrameSinkDebugLabel(
-      frame_sink_id_, "HardwareRenderer");
+  surfaces_->GetFrameSinkManager()->RegisterFrameSinkId(frame_sink_id_);
+  surfaces_->GetFrameSinkManager()->SetFrameSinkDebugLabel(frame_sink_id_,
+                                                           "HardwareRenderer");
   CreateNewCompositorFrameSinkSupport();
 }
 
@@ -46,8 +45,7 @@ HardwareRenderer::~HardwareRenderer() {
   if (child_id_.is_valid())
     DestroySurface();
   support_.reset();
-  surfaces_->GetFrameSinkManager()->surface_manager()->InvalidateFrameSinkId(
-      frame_sink_id_);
+  surfaces_->GetFrameSinkManager()->InvalidateFrameSinkId(frame_sink_id_);
 
   // Reset draw constraints.
   render_thread_manager_->PostExternalDrawConstraintsToChildCompositorOnRT(
@@ -184,12 +182,9 @@ void HardwareRenderer::DidReceiveCompositorFrameAck(
                               last_submitted_layer_tree_frame_sink_id_);
 }
 
-void HardwareRenderer::DidPresentCompositorFrame(uint32_t presentation_token,
-                                                 base::TimeTicks time,
-                                                 base::TimeDelta refresh,
-                                                 uint32_t flags) {}
-
-void HardwareRenderer::DidDiscardCompositorFrame(uint32_t presentation_token) {}
+void HardwareRenderer::DidPresentCompositorFrame(
+    uint32_t presentation_token,
+    const gfx::PresentationFeedback& feedback) {}
 
 void HardwareRenderer::OnBeginFrame(const viz::BeginFrameArgs& args) {
   // TODO(tansell): Hook this up.

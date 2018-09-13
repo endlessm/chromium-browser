@@ -34,7 +34,8 @@
  * @param {VolumeManagerCommon.Source} source Source of the volume's data.
  * @param {VolumeManagerCommon.FileSystemType} diskFileSystemType File system
  *     type indentifier.
- * @param {!IconSet} iconSet Set of icons for this volume.
+ * @param {!chrome.fileManagerPrivate.IconSet} iconSet Set of icons for this
+ *     volume.
  */
 function VolumeInfoImpl(
     volumeType, volumeId, fileSystem, error, deviceType, devicePath, isReadOnly,
@@ -47,10 +48,17 @@ function VolumeInfoImpl(
   this.displayRoot_ = null;
   this.teamDriveDisplayRoot_ = null;
 
+  /**
+   * @type {FilesAppEntry} an entry to be used as prefix of this volume on
+   *     breadcrumbs, e.g. "My Files > Downloads", "My Files" is a prefixEntry
+   *     on "Downloads" VolumeInfo.
+   */
+  this.prefixEntry_ = null;
+
   /** @type {Promise<boolean>} */
   this.isTeamDrivesEnabledPromise_ = new Promise(resolve => {
-    chrome.commandLinePrivate.hasSwitch('team-drives', enabled => {
-      resolve(enabled);
+    chrome.commandLinePrivate.hasSwitch('disable-team-drives', enabled => {
+      resolve(!enabled);
     });
   });
 
@@ -211,11 +219,22 @@ VolumeInfoImpl.prototype = /** @struct */ {
     return this.diskFileSystemType_;
   },
   /**
-   * @return {IconSet} Set of icons for this volume.
+   * @return {chrome.fileManagerPrivate.IconSet} Set of icons for this volume.
    */
   get iconSet() {
     return this.iconSet_;
-  }
+  },
+  /**
+   * @type {FilesAppEntry} an entry to be used as prefix of this volume on
+   *     breadcrumbs, e.g. "My Files > Downloads", "My Files" is a prefixEntry
+   *     on "Downloads" VolumeInfo.
+   */
+  get prefixEntry() {
+    return this.prefixEntry_;
+  },
+  set prefixEntry(entry) {
+    this.prefixEntry_ = entry;
+  },
 };
 
 /**

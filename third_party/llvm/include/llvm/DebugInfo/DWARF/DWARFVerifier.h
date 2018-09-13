@@ -152,7 +152,7 @@ private:
   ///                  type of the unit DIE.
   ///
   /// \returns true if the content is verified successfully, false otherwise.
-  bool verifyUnitContents(DWARFUnit Unit, uint8_t UnitType = 0);
+  bool verifyUnitContents(DWARFUnit &Unit, uint8_t UnitType = 0);
 
   /// Verify that all Die ranges are valid.
   ///
@@ -242,7 +242,7 @@ private:
                                     const DWARFDebugNames::Abbrev &Abbr,
                                     DWARFDebugNames::AttributeEncoding AttrEnc);
   unsigned verifyNameIndexEntries(const DWARFDebugNames::NameIndex &NI,
-                                  uint32_t Name, const DataExtractor &StrData);
+                                  const DWARFDebugNames::NameTableEntry &NTE);
   unsigned verifyNameIndexCompleteness(const DWARFDie &Die,
                                        const DWARFDebugNames::NameIndex &NI);
 

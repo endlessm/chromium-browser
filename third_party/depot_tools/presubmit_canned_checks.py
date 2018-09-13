@@ -80,7 +80,7 @@ def CheckChangeWasUploaded(input_api, output_api):
 
 ### Content checks
 
-def CheckAuthorizedAuthor(input_api, output_api):
+def CheckAuthorizedAuthor(input_api, output_api, bot_whitelist=None):
   """For non-googler/chromites committers, verify the author's email address is
   in AUTHORS.
   """
@@ -93,6 +93,11 @@ def CheckAuthorizedAuthor(input_api, output_api):
   if not author:
     input_api.logging.info('No author, skipping AUTHOR check')
     return []
+
+  # This is used for CLs created by trusted robot accounts.
+  if bot_whitelist and author in bot_whitelist:
+    return []
+
   authors_path = input_api.os_path.join(
       input_api.PresubmitLocalPath(), 'AUTHORS')
   valid_authors = (
@@ -1055,12 +1060,21 @@ def PanProjectChecks(input_api, output_api,
   return results
 
 
-def CheckPatchFormatted(input_api, output_api, check_js=False):
+def CheckPatchFormatted(
+    input_api, output_api, check_js=False, check_python=False,
+    result_factory=None):
+  result_factory = result_factory or output_api.PresubmitPromptWarning
   import git_cl
-  cmd = ['-C', input_api.change.RepositoryRoot(),
-         'cl', 'format', '--dry-run', '--presubmit']
+
+  display_args = []
   if check_js:
-    cmd.append('--js')
+    display_args.append('--js')
+  if check_python:
+    # --python requires --full
+    display_args.extend(['--python', '--full'])
+
+  cmd = ['-C', input_api.change.RepositoryRoot(),
+         'cl', 'format', '--dry-run', '--presubmit'] + display_args
   presubmit_subdir = input_api.os_path.relpath(
       input_api.PresubmitLocalPath(), input_api.change.RepositoryRoot())
   if presubmit_subdir.startswith('..') or presubmit_subdir == '.':
@@ -1076,10 +1090,11 @@ def CheckPatchFormatted(input_api, output_api, check_js=False):
       short_path = presubmit_subdir
     else:
       short_path = input_api.basename(input_api.change.RepositoryRoot())
-    return [output_api.PresubmitPromptWarning(
+    display_args.append(presubmit_subdir)
+    return [result_factory(
       'The %s directory requires source formatting. '
-      'Please run: git cl format %s%s' %
-      (short_path, '--js ' if check_js else '', presubmit_subdir))]
+      'Please run: git cl format %s' %
+      (short_path, ' '.join(display_args)))]
   # As this is just a warning, ignore all other errors if the user
   # happens to have a broken clang-format, doesn't use git, etc etc.
   return []

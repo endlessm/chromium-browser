@@ -40,11 +40,14 @@ class MockArcNotificationItem : public ArcNotificationItem {
   void Click() override {}
   void ToggleExpansion() override {}
   void OpenSettings() override {}
+  void OpenSnooze() override {}
   void IncrementWindowRefCount() override {}
   void DecrementWindowRefCount() override {}
+  void OnRemoteInputActivationChanged(bool activate) override {}
+  void CancelLongPress() override {}
+
   arc::mojom::ArcNotificationType GetNotificationType() const override;
   arc::mojom::ArcNotificationExpandState GetExpandState() const override;
-  arc::mojom::ArcNotificationShownContents GetShownContents() const override;
   gfx::Rect GetSwipeInputRect() const override;
 
   void OnUpdatedFromAndroid(arc::mojom::ArcNotificationDataPtr data,

@@ -9,7 +9,6 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/model/system_tray_model.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/public/cpp/notification.h"
@@ -46,11 +45,14 @@ void UpdateNotificationController::OnUpdateAvailable() {
     return;
   }
 
-  // TODO(tetsui): Update resource strings according to UX.
+  message_center::SystemNotificationWarningLevel warning_level =
+      model_->rollback()
+          ? message_center::SystemNotificationWarningLevel::WARNING
+          : message_center::SystemNotificationWarningLevel::NORMAL;
   std::unique_ptr<Notification> notification =
       Notification::CreateSystemNotification(
           message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId,
-          GetNotificationTitle(), base::string16() /* message */, gfx::Image(),
+          GetNotificationTitle(), GetNotificationMessage(), gfx::Image(),
           base::string16() /* display_source */, GURL(),
           message_center::NotifierId(
               message_center::NotifierId::SYSTEM_COMPONENT, kNotifierId),
@@ -59,9 +61,22 @@ void UpdateNotificationController::OnUpdateAvailable() {
               base::BindRepeating(
                   &UpdateNotificationController::HandleNotificationClick,
                   weak_ptr_factory_.GetWeakPtr())),
-          kSystemMenuUpdateIcon,
-          message_center::SystemNotificationWarningLevel::NORMAL);
+          model_->rollback() ? kSystemMenuRollbackIcon : kSystemMenuUpdateIcon,
+          warning_level);
   notification->set_pinned(true);
+
+  if (model_->update_required()) {
+    std::vector<message_center::ButtonInfo> notification_actions;
+    if (model_->rollback()) {
+      notification_actions.push_back(message_center::ButtonInfo(
+          l10n_util::GetStringUTF16(IDS_ROLLBACK_NOTIFICATION_RESTART_BUTTON)));
+    } else {
+      notification_actions.push_back(message_center::ButtonInfo(
+          l10n_util::GetStringUTF16(IDS_UPDATE_NOTIFICATION_RESTART_BUTTON)));
+    }
+    notification->set_buttons(notification_actions);
+  }
+
   MessageCenter::Get()->AddNotification(std::move(notification));
 }
 
@@ -69,38 +84,55 @@ bool UpdateNotificationController::ShouldShowUpdate() const {
   return model_->update_required() || model_->update_over_cellular_available();
 }
 
-base::string16 UpdateNotificationController::GetNotificationTitle() const {
-  // TODO(tetsui): Update resource strings according to UX.
+base::string16 UpdateNotificationController::GetNotificationMessage() const {
+  base::string16 system_app_name =
+      l10n_util::GetStringUTF16(IDS_ASH_MESSAGE_CENTER_SYSTEM_APP_NAME);
+  if (model_->rollback()) {
+    return l10n_util::GetStringUTF16(IDS_UPDATE_NOTIFICATION_MESSAGE_ROLLBACK);
+  }
   if (model_->factory_reset_required()) {
-    return l10n_util::GetStringUTF16(
-        IDS_ASH_STATUS_TRAY_RESTART_AND_POWERWASH_TO_UPDATE);
+    return l10n_util::GetStringFUTF16(IDS_UPDATE_NOTIFICATION_MESSAGE_POWERWASH,
+                                      system_app_name);
   }
-  if (model_->update_type() == mojom::UpdateType::FLASH) {
-    return l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_UPDATE_FLASH);
-  }
-
-  if (!model_->update_required() && model_->update_over_cellular_available()) {
-    return l10n_util::GetStringUTF16(
-        IDS_ASH_STATUS_TRAY_UPDATE_OVER_CELLULAR_AVAILABLE);
-  }
-
-  return l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_UPDATE);
+  return l10n_util::GetStringFUTF16(IDS_UPDATE_NOTIFICATION_MESSAGE_LEARN_MORE,
+                                    system_app_name);
 }
 
-void UpdateNotificationController::HandleNotificationClick() {
+base::string16 UpdateNotificationController::GetNotificationTitle() const {
+#if defined(GOOGLE_CHROME_BUILD)
+  if (model_->update_type() == mojom::UpdateType::FLASH) {
+    return l10n_util::GetStringUTF16(
+        IDS_UPDATE_NOTIFICATION_TITLE_FLASH_PLAYER);
+  }
+#endif
+  return model_->rollback()
+             ? l10n_util::GetStringUTF16(IDS_ROLLBACK_NOTIFICATION_TITLE)
+             : l10n_util::GetStringUTF16(IDS_UPDATE_NOTIFICATION_TITLE);
+}
+
+void UpdateNotificationController::HandleNotificationClick(
+    base::Optional<int> button_index) {
   DCHECK(ShouldShowUpdate());
 
+  if (!button_index) {
+    // Notification message body clicked, which says "learn more".
+    Shell::Get()->system_tray_model()->client_ptr()->ShowAboutChromeOS();
+    return;
+  }
+
+  // Restart
+  DCHECK(button_index.value() == 0);
   message_center::MessageCenter::Get()->RemoveNotification(kNotificationId,
                                                            false /* by_user */);
 
   if (model_->update_required()) {
-    Shell::Get()->system_tray_controller()->RequestRestartForUpdate();
+    Shell::Get()->system_tray_model()->client_ptr()->RequestRestartForUpdate();
     Shell::Get()->metrics()->RecordUserMetricsAction(
         UMA_STATUS_AREA_OS_UPDATE_DEFAULT_SELECTED);
   } else {
     // Shows the about chrome OS page and checks for update after the page is
     // loaded.
-    Shell::Get()->system_tray_controller()->ShowAboutChromeOS();
+    Shell::Get()->system_tray_model()->client_ptr()->ShowAboutChromeOS();
   }
 }
 

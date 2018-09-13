@@ -7,8 +7,12 @@
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_url_cell_favicon_badge_view.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#include "ios/chrome/browser/ui/ui_util.h"
+#import "ios/chrome/browser/ui/uikit_ui_util.h"
+#import "ios/chrome/common/favicon/favicon_view.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #include "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -20,13 +24,26 @@ namespace {
 const CGFloat kFaviconWidth = 16;
 // The width and height of the favicon container view.
 const CGFloat kFaviconContainerWidth = 28;
+// The text color of the URL and metadata labels.
+const CGFloat kSecondaryLabelLightGrayTextColor = 0x8E8E93;
+// Default delimiter to use between the hostname and the supplemental URL text
+// if text is specified but not the delimiter.
+const char kDefaultSupplementalURLTextDelimiter[] = "•";
 }
+
+#pragma mark - TableViewURLCellFaviconBadgeView
+
+
+#pragma mark - TableViewURLItem
 
 @implementation TableViewURLItem
 
-@synthesize metadata = _metadata;
 @synthesize title = _title;
 @synthesize URL = _URL;
+@synthesize supplementalURLText = _supplementalURLText;
+@synthesize supplementalURLTextDelimiter = _supplementalURLTextDelimiter;
+@synthesize badgeImage = _badgeImage;
+@synthesize metadata = _metadata;
 
 - (instancetype)initWithType:(NSInteger)type {
   self = [super initWithType:type];
@@ -42,37 +59,81 @@ const CGFloat kFaviconContainerWidth = 28;
 
   TableViewURLCell* cell =
       base::mac::ObjCCastStrict<TableViewURLCell>(tableCell);
-  // Use the page's title for the label, or its URL if title is empty.
-  if (self.title) {
-    cell.titleLabel.text = self.title;
-    cell.URLLabel.text = base::SysUTF8ToNSString(self.URL.host());
-  } else {
-    cell.titleLabel.text = base::SysUTF8ToNSString(self.URL.host());
-  }
+  cell.titleLabel.text = [self titleLabelText];
+  cell.URLLabel.text = [self URLLabelText];
+  cell.faviconBadgeView.image = self.badgeImage;
   cell.metadataLabel.text = self.metadata;
   cell.metadataLabel.hidden = ([self.metadata length] == 0);
-
   cell.cellUniqueIdentifier = self.uniqueIdentifier;
-  cell.faviconView.backgroundColor = styler.tableViewBackgroundColor;
-  cell.faviconContainerView.backgroundColor = styler.tableViewBackgroundColor;
-  cell.titleLabel.backgroundColor = styler.tableViewBackgroundColor;
-  cell.URLLabel.backgroundColor = styler.tableViewBackgroundColor;
-  cell.metadataLabel.backgroundColor = styler.tableViewBackgroundColor;
+  cell.accessibilityTraits |= UIAccessibilityTraitButton;
+  // If the background color specified by the styler is opaque, use it as the
+  // subview backround colors as well.
+  UIColor* backgroundColor = styler.tableViewBackgroundColor;
+  if (AreCGFloatsEqual(CGColorGetAlpha(backgroundColor.CGColor), 1.0)) {
+    cell.faviconContainerView.backgroundColor = styler.tableViewBackgroundColor;
+    cell.titleLabel.backgroundColor = styler.tableViewBackgroundColor;
+    cell.URLLabel.backgroundColor = styler.tableViewBackgroundColor;
+    cell.metadataLabel.backgroundColor = styler.tableViewBackgroundColor;
+  }
+  if (styler.cellTitleColor)
+    cell.titleLabel.textColor = styler.cellTitleColor;
 }
 
 - (NSString*)uniqueIdentifier {
   return base::SysUTF8ToNSString(self.URL.host());
 }
 
+#pragma mark Private
+
+// Returns the text to use when configuring a TableViewURLCell's title label.
+- (NSString*)titleLabelText {
+  return self.title.length ? self.title
+                           : base::SysUTF8ToNSString(self.URL.host());
+}
+
+// Returns the text to use when configuring a TableViewURLCell's URL label.
+- (NSString*)URLLabelText {
+  // If there's no title text, the URL is used as the cell title.  Add the
+  // supplemental text to the URL label below if it exists.
+  if (!self.title.length)
+    return self.supplementalURLText;
+
+  // Append the hostname with the supplemental text.
+  NSString* hostname = base::SysUTF8ToNSString(self.URL.host());
+  if (self.supplementalURLText.length) {
+    NSString* delimeter =
+        self.supplementalURLTextDelimiter.length
+            ? self.supplementalURLTextDelimiter
+            : base::SysUTF8ToNSString(kDefaultSupplementalURLTextDelimiter);
+    return [NSString stringWithFormat:@"%@ %@ %@", hostname, delimeter,
+                                      self.supplementalURLText];
+  } else {
+    return hostname;
+  }
+}
+
+@end
+
+#pragma mark - TableViewURLCell
+
+@interface TableViewURLCell ()
+// If the cell's accessibility label has not been manually set via
+// |-setAccessibilityLabel:|, this property will be YES, and
+// |-accessibilityLabel| will return a lazily created label based on the
+// text values of the UILabel subviews.
+@property(nonatomic, assign) BOOL shouldGenerateAccessibilityLabel;
 @end
 
 @implementation TableViewURLCell
 @synthesize faviconView = _faviconView;
 @synthesize faviconContainerView = _faviconContainerView;
+@synthesize faviconBadgeView = _faviconBadgeView;
 @synthesize metadataLabel = _metadataLabel;
 @synthesize titleLabel = _titleLabel;
 @synthesize URLLabel = _URLLabel;
 @synthesize cellUniqueIdentifier = _cellUniqueIdentifier;
+@synthesize shouldGenerateAccessibilityLabel =
+    _shouldGenerateAccessibilityLabel;
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style
               reuseIdentifier:(NSString*)reuseIdentifier {
@@ -81,10 +142,11 @@ const CGFloat kFaviconContainerWidth = 28;
     _faviconContainerView = [[UIImageView alloc]
         initWithImage:[UIImage
                           imageNamed:@"table_view_cell_favicon_background"]];
-    _faviconView = [[UIImageView alloc] init];
+    _faviconView = [[FaviconViewNew alloc] init];
     _faviconView.contentMode = UIViewContentModeScaleAspectFit;
     _faviconView.clipsToBounds = YES;
     [_faviconContainerView addSubview:_faviconView];
+    _faviconBadgeView = [[TableViewURLCellFaviconBadgeView alloc] init];
     _titleLabel = [[UILabel alloc] init];
     _URLLabel = [[UILabel alloc] init];
     _metadataLabel = [[UILabel alloc] init];
@@ -94,9 +156,11 @@ const CGFloat kFaviconContainerWidth = 28;
     _titleLabel.adjustsFontForContentSizeCategory = YES;
     _URLLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
     _URLLabel.adjustsFontForContentSizeCategory = YES;
-    _URLLabel.textColor = [UIColor lightGrayColor];
+    _URLLabel.textColor = UIColorFromRGB(kSecondaryLabelLightGrayTextColor);
     _metadataLabel.font =
         [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+    _metadataLabel.textColor =
+        UIColorFromRGB(kSecondaryLabelLightGrayTextColor);
     _metadataLabel.adjustsFontForContentSizeCategory = YES;
 
     // Use stack views to layout the subviews except for the favicon.
@@ -110,7 +174,7 @@ const CGFloat kFaviconContainerWidth = 28;
                                         forAxis:
                                             UILayoutConstraintAxisHorizontal];
 
-    // Horizontal stack view holds vertical stack view and favicon.
+    // Horizontal stack view holds vertical stack view and metadata label.
     UIStackView* horizontalStack = [[UIStackView alloc]
         initWithArrangedSubviews:@[ verticalStack, _metadataLabel ]];
     horizontalStack.axis = UILayoutConstraintAxisHorizontal;
@@ -121,8 +185,10 @@ const CGFloat kFaviconContainerWidth = 28;
     UIView* contentView = self.contentView;
     _faviconView.translatesAutoresizingMaskIntoConstraints = NO;
     _faviconContainerView.translatesAutoresizingMaskIntoConstraints = NO;
+    _faviconBadgeView.translatesAutoresizingMaskIntoConstraints = NO;
     horizontalStack.translatesAutoresizingMaskIntoConstraints = NO;
     [contentView addSubview:_faviconContainerView];
+    [contentView addSubview:_faviconBadgeView];
     [contentView addSubview:horizontalStack];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -143,6 +209,13 @@ const CGFloat kFaviconContainerWidth = 28;
                          constant:kTableViewHorizontalSpacing],
       [_faviconContainerView.centerYAnchor
           constraintEqualToAnchor:self.contentView.centerYAnchor],
+
+      // The favicon badge view is aligned with the top-trailing corner of the
+      // favicon container.
+      [_faviconBadgeView.centerXAnchor
+          constraintEqualToAnchor:_faviconContainerView.trailingAnchor],
+      [_faviconBadgeView.centerYAnchor
+          constraintEqualToAnchor:_faviconContainerView.topAnchor],
 
       // The stack view fills the remaining space, has an intrinsic height, and
       // is centered vertically.
@@ -165,7 +238,39 @@ const CGFloat kFaviconContainerWidth = 28;
 
 - (void)prepareForReuse {
   [super prepareForReuse];
-  self.faviconView.image = nil;
+  [self.faviconView configureWithAttributes:nil];
+  self.faviconBadgeView.image = nil;
+}
+
+- (void)setAccessibilityLabel:(NSString*)accessibilityLabel {
+  self.shouldGenerateAccessibilityLabel = !accessibilityLabel.length;
+  [super setAccessibilityLabel:accessibilityLabel];
+}
+
+- (NSString*)accessibilityLabel {
+  if (self.shouldGenerateAccessibilityLabel) {
+    NSString* accessibilityLabel = self.titleLabel.text;
+    if (self.URLLabel.text.length > 0) {
+      accessibilityLabel = [NSString
+          stringWithFormat:@"%@, %@", accessibilityLabel, self.URLLabel.text];
+    }
+    if (self.metadataLabel.text.length > 0) {
+      accessibilityLabel =
+          [NSString stringWithFormat:@"%@, %@", accessibilityLabel,
+                                     self.metadataLabel.text];
+    }
+    return accessibilityLabel;
+  } else {
+    return [super accessibilityLabel];
+  }
+}
+
+- (NSString*)accessibilityIdentifier {
+  return self.titleLabel.text;
+}
+
+- (BOOL)isAccessibilityElement {
+  return YES;
 }
 
 @end

@@ -92,12 +92,17 @@ void BackgroundFetchDelegateImpl::JobDetails::UpdateOfflineItem() {
   offline_item.is_transient = true;
 
   using OfflineItemState = offline_items_collection::OfflineItemState;
-  if (cancelled)
+  if (cancelled) {
     offline_item.state = OfflineItemState::CANCELLED;
-  else if (fetch_description->completed_parts == fetch_description->total_parts)
+  } else if (fetch_description->completed_parts ==
+             fetch_description->total_parts) {
+    // This includes cases when the download failed, or completed but the
+    // response was an HTTP error, e.g. 404.
     offline_item.state = OfflineItemState::COMPLETE;
-  else
+    offline_item.is_openable = true;
+  } else {
     offline_item.state = OfflineItemState::IN_PROGRESS;
+  }
 }
 
 bool BackgroundFetchDelegateImpl::JobDetails::ShouldReportProgressBySize() {
@@ -145,6 +150,7 @@ void BackgroundFetchDelegateImpl::CreateDownloadJob(
   for (const auto& download_guid : details.fetch_description->current_guids) {
     DCHECK(!download_job_unique_id_map_.count(download_guid));
     download_job_unique_id_map_.emplace(download_guid, job_unique_id);
+    download_service_->ResumeDownload(download_guid);
   }
 
   for (auto* observer : observers_) {
@@ -199,6 +205,23 @@ void BackgroundFetchDelegateImpl::Abort(const std::string& job_unique_id) {
   }
   UpdateOfflineItemAndUpdateObservers(&job_details);
   job_details_map_.erase(job_details_iter);
+}
+
+void BackgroundFetchDelegateImpl::UpdateUI(const std::string& job_unique_id,
+                                           const std::string& title) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  auto job_details_iter = job_details_map_.find(job_unique_id);
+  if (job_details_iter == job_details_map_.end())
+    return;
+
+  JobDetails& job_details = job_details_iter->second;
+
+  // Update the title, if it's different.
+  if (job_details.fetch_description->title == title)
+    return;
+  job_details.fetch_description->title = title;
+  UpdateOfflineItemAndUpdateObservers(&job_details);
 }
 
 void BackgroundFetchDelegateImpl::OnDownloadStarted(
@@ -332,8 +355,8 @@ void BackgroundFetchDelegateImpl::OnDownloadSucceeded(
   if (client()) {
     client()->OnDownloadComplete(
         job_unique_id, download_guid,
-        std::make_unique<content::BackgroundFetchResult>(base::Time::Now(),
-                                                         path, size));
+        std::make_unique<content::BackgroundFetchResult>(
+            base::Time::Now(), path, base::nullopt /* blob_handle */, size));
   }
 
   job_details.current_download_guids.erase(
@@ -390,8 +413,8 @@ void BackgroundFetchDelegateImpl::UpdateOfflineItemAndUpdateObservers(
 
 void BackgroundFetchDelegateImpl::OpenItem(
     const offline_items_collection::ContentId& id) {
-  // TODO(delphick): Add custom OpenItem behavior.
-  NOTIMPLEMENTED();
+  if (client())
+    client()->OnUIActivated(id.id);
 }
 
 void BackgroundFetchDelegateImpl::RemoveItem(

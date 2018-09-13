@@ -469,6 +469,7 @@ public:
   explicit WebAssemblyCXXABI(CodeGen::CodeGenModule &CGM)
       : ItaniumCXXABI(CGM, /*UseARMMethodPtrABI=*/true,
                       /*UseARMGuardVarABI=*/true) {}
+  void emitBeginCatch(CodeGenFunction &CGF, const CXXCatchStmt *C) override;
 
 private:
   bool HasThisReturn(GlobalDecl GD) const override {
@@ -621,13 +622,53 @@ CGCallee ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
     VTableOffset = Builder.CreateTrunc(VTableOffset, CGF.Int32Ty);
     VTableOffset = Builder.CreateZExt(VTableOffset, CGM.PtrDiffTy);
   }
-  VTable = Builder.CreateGEP(VTable, VTableOffset);
+  // Compute the address of the virtual function pointer.
+  llvm::Value *VFPAddr = Builder.CreateGEP(VTable, VTableOffset);
+
+  // Check the address of the function pointer if CFI on member function
+  // pointers is enabled.
+  llvm::Constant *CheckSourceLocation;
+  llvm::Constant *CheckTypeDesc;
+  bool ShouldEmitCFICheck = CGF.SanOpts.has(SanitizerKind::CFIMFCall) &&
+                            CGM.HasHiddenLTOVisibility(RD);
+  if (ShouldEmitCFICheck) {
+    CodeGenFunction::SanitizerScope SanScope(&CGF);
+
+    CheckSourceLocation = CGF.EmitCheckSourceLocation(E->getLocStart());
+    CheckTypeDesc = CGF.EmitCheckTypeDescriptor(QualType(MPT, 0));
+    llvm::Constant *StaticData[] = {
+        llvm::ConstantInt::get(CGF.Int8Ty, CodeGenFunction::CFITCK_VMFCall),
+        CheckSourceLocation,
+        CheckTypeDesc,
+    };
+
+    llvm::Metadata *MD =
+        CGM.CreateMetadataIdentifierForVirtualMemPtrType(QualType(MPT, 0));
+    llvm::Value *TypeId = llvm::MetadataAsValue::get(CGF.getLLVMContext(), MD);
+
+    llvm::Value *TypeTest = Builder.CreateCall(
+        CGM.getIntrinsic(llvm::Intrinsic::type_test), {VFPAddr, TypeId});
+
+    if (CGM.getCodeGenOpts().SanitizeTrap.has(SanitizerKind::CFIMFCall)) {
+      CGF.EmitTrapCheck(TypeTest);
+    } else {
+      llvm::Value *AllVtables = llvm::MetadataAsValue::get(
+          CGM.getLLVMContext(),
+          llvm::MDString::get(CGM.getLLVMContext(), "all-vtables"));
+      llvm::Value *ValidVtable = Builder.CreateCall(
+          CGM.getIntrinsic(llvm::Intrinsic::type_test), {VTable, AllVtables});
+      CGF.EmitCheck(std::make_pair(TypeTest, SanitizerKind::CFIMFCall),
+                    SanitizerHandler::CFICheckFail, StaticData,
+                    {VTable, ValidVtable});
+    }
+
+    FnVirtual = Builder.GetInsertBlock();
+  }
 
   // Load the virtual function to call.
-  VTable = Builder.CreateBitCast(VTable, FTy->getPointerTo()->getPointerTo());
-  llvm::Value *VirtualFn =
-    Builder.CreateAlignedLoad(VTable, CGF.getPointerAlign(),
-                              "memptr.virtualfn");
+  VFPAddr = Builder.CreateBitCast(VFPAddr, FTy->getPointerTo()->getPointerTo());
+  llvm::Value *VirtualFn = Builder.CreateAlignedLoad(
+      VFPAddr, CGF.getPointerAlign(), "memptr.virtualfn");
   CGF.EmitBranch(FnEnd);
 
   // In the non-virtual path, the function pointer is actually a
@@ -635,6 +676,43 @@ CGCallee ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
   CGF.EmitBlock(FnNonVirtual);
   llvm::Value *NonVirtualFn =
     Builder.CreateIntToPtr(FnAsInt, FTy->getPointerTo(), "memptr.nonvirtualfn");
+
+  // Check the function pointer if CFI on member function pointers is enabled.
+  if (ShouldEmitCFICheck) {
+    CXXRecordDecl *RD = MPT->getClass()->getAsCXXRecordDecl();
+    if (RD->hasDefinition()) {
+      CodeGenFunction::SanitizerScope SanScope(&CGF);
+
+      llvm::Constant *StaticData[] = {
+          llvm::ConstantInt::get(CGF.Int8Ty, CodeGenFunction::CFITCK_NVMFCall),
+          CheckSourceLocation,
+          CheckTypeDesc,
+      };
+
+      llvm::Value *Bit = Builder.getFalse();
+      llvm::Value *CastedNonVirtualFn =
+          Builder.CreateBitCast(NonVirtualFn, CGF.Int8PtrTy);
+      for (const CXXRecordDecl *Base : CGM.getMostBaseClasses(RD)) {
+        llvm::Metadata *MD = CGM.CreateMetadataIdentifierForType(
+            getContext().getMemberPointerType(
+                MPT->getPointeeType(),
+                getContext().getRecordType(Base).getTypePtr()));
+        llvm::Value *TypeId =
+            llvm::MetadataAsValue::get(CGF.getLLVMContext(), MD);
+
+        llvm::Value *TypeTest =
+            Builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::type_test),
+                               {CastedNonVirtualFn, TypeId});
+        Bit = Builder.CreateOr(Bit, TypeTest);
+      }
+
+      CGF.EmitCheck(std::make_pair(Bit, SanitizerKind::CFIMFCall),
+                    SanitizerHandler::CFICheckFail, StaticData,
+                    {CastedNonVirtualFn, llvm::UndefValue::get(CGF.IntPtrTy)});
+
+      FnNonVirtual = Builder.GetInsertBlock();
+    }
+  }
 
   // We're done.
   CGF.EmitBlock(FnEnd);
@@ -1706,11 +1784,19 @@ bool ItaniumCXXABI::canSpeculativelyEmitVTable(const CXXRecordDecl *RD) const {
   if (CGM.getLangOpts().AppleKext)
     return false;
 
-  // If we don't have any not emitted inline virtual function, and if vtable is
-  // not hidden, then we are safe to emit available_externally copy of vtable.
+  // If the vtable is hidden then it is not safe to emit an available_externally
+  // copy of vtable.
+  if (isVTableHidden(RD))
+    return false;
+
+  if (CGM.getCodeGenOpts().ForceEmitVTables)
+    return true;
+
+  // If we don't have any not emitted inline virtual function then we are safe
+  // to emit an available_externally copy of vtable.
   // FIXME we can still emit a copy of the vtable if we
   // can emit definition of the inline functions.
-  return !hasAnyUnusedVirtualInlineFunction(RD) && !isVTableHidden(RD);
+  return !hasAnyUnusedVirtualInlineFunction(RD);
 }
 static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
                                           Address InitialPtr,
@@ -2450,8 +2536,12 @@ void ItaniumCXXABI::EmitThreadLocalInitFuncs(
     if (InitIsInitFunc) {
       if (Init) {
         llvm::CallInst *CallVal = Builder.CreateCall(Init);
-        if (isThreadWrapperReplaceable(VD, CGM))
+        if (isThreadWrapperReplaceable(VD, CGM)) {
           CallVal->setCallingConv(llvm::CallingConv::CXX_FAST_TLS);
+          llvm::Function *Fn =
+              cast<llvm::Function>(cast<llvm::GlobalAlias>(Init)->getAliasee());
+          Fn->setCallingConv(llvm::CallingConv::CXX_FAST_TLS);
+        }
       }
     } else {
       // Don't know whether we have an init function. Call it if it exists.
@@ -2719,6 +2809,30 @@ static bool TypeInfoIsInStandardLibrary(const BuiltinType *Ty) {
     case BuiltinType::OCLClkEvent:
     case BuiltinType::OCLQueue:
     case BuiltinType::OCLReserveID:
+    case BuiltinType::ShortAccum:
+    case BuiltinType::Accum:
+    case BuiltinType::LongAccum:
+    case BuiltinType::UShortAccum:
+    case BuiltinType::UAccum:
+    case BuiltinType::ULongAccum:
+    case BuiltinType::ShortFract:
+    case BuiltinType::Fract:
+    case BuiltinType::LongFract:
+    case BuiltinType::UShortFract:
+    case BuiltinType::UFract:
+    case BuiltinType::ULongFract:
+    case BuiltinType::SatShortAccum:
+    case BuiltinType::SatAccum:
+    case BuiltinType::SatLongAccum:
+    case BuiltinType::SatUShortAccum:
+    case BuiltinType::SatUAccum:
+    case BuiltinType::SatULongAccum:
+    case BuiltinType::SatShortFract:
+    case BuiltinType::SatFract:
+    case BuiltinType::SatLongFract:
+    case BuiltinType::SatUShortFract:
+    case BuiltinType::SatUFract:
+    case BuiltinType::SatULongFract:
       return false;
 
     case BuiltinType::Dependent:
@@ -3006,46 +3120,8 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
 
 /// Return the linkage that the type info and type info name constants
 /// should have for the given type.
-static std::pair<llvm::GlobalVariable::LinkageTypes,
-                 llvm::GlobalVariable::LinkageTypes>
-getTypeInfoLinkage(CodeGenModule &CGM, QualType Ty) {
-  llvm::GlobalValue::LinkageTypes TypeLinkage = [&]() {
-    switch (Ty->getLinkage()) {
-    case NoLinkage:
-    case InternalLinkage:
-    case UniqueExternalLinkage:
-      return llvm::GlobalValue::InternalLinkage;
-
-    case VisibleNoLinkage:
-    case ModuleInternalLinkage:
-    case ModuleLinkage:
-    case ExternalLinkage:
-      // RTTI is not enabled, which means that this type info struct is going
-      // to be used for exception handling. Give it linkonce_odr linkage.
-      if (!CGM.getLangOpts().RTTI)
-        return llvm::GlobalValue::LinkOnceODRLinkage;
-
-      if (const RecordType *Record = dyn_cast<RecordType>(Ty)) {
-        const CXXRecordDecl *RD = cast<CXXRecordDecl>(Record->getDecl());
-        if (RD->hasAttr<WeakAttr>())
-          return llvm::GlobalValue::WeakODRLinkage;
-        if (CGM.getTriple().isWindowsItaniumEnvironment())
-          if (RD->hasAttr<DLLImportAttr>() &&
-              ShouldUseExternalRTTIDescriptor(CGM, Ty))
-            return llvm::GlobalValue::ExternalLinkage;
-        // MinGW always uses LinkOnceODRLinkage for type info.
-        if (RD->isCompleteDefinition() && RD->isDynamicClass() &&
-            !CGM.getContext()
-                 .getTargetInfo()
-                 .getTriple()
-                 .isWindowsGNUEnvironment())
-          return CGM.getVTableLinkage(RD);
-      }
-
-      return llvm::GlobalValue::LinkOnceODRLinkage;
-    }
-    llvm_unreachable("Invalid linkage!");
-  }();
+static llvm::GlobalVariable::LinkageTypes getTypeInfoLinkage(CodeGenModule &CGM,
+                                                             QualType Ty) {
   // Itanium C++ ABI 2.9.5p7:
   //   In addition, it and all of the intermediate abi::__pointer_type_info
   //   structs in the chain down to the abi::__class_type_info for the
@@ -3056,8 +3132,44 @@ getTypeInfoLinkage(CodeGenModule &CGM, QualType Ty) {
   //   complete class RTTI (because the latter need not exist), possibly by
   //   making it a local static object.
   if (ContainsIncompleteClassType(Ty))
-    return {llvm::GlobalValue::InternalLinkage, TypeLinkage};
-  return {TypeLinkage, TypeLinkage};
+    return llvm::GlobalValue::InternalLinkage;
+
+  switch (Ty->getLinkage()) {
+  case NoLinkage:
+  case InternalLinkage:
+  case UniqueExternalLinkage:
+    return llvm::GlobalValue::InternalLinkage;
+
+  case VisibleNoLinkage:
+  case ModuleInternalLinkage:
+  case ModuleLinkage:
+  case ExternalLinkage:
+    // RTTI is not enabled, which means that this type info struct is going
+    // to be used for exception handling. Give it linkonce_odr linkage.
+    if (!CGM.getLangOpts().RTTI)
+      return llvm::GlobalValue::LinkOnceODRLinkage;
+
+    if (const RecordType *Record = dyn_cast<RecordType>(Ty)) {
+      const CXXRecordDecl *RD = cast<CXXRecordDecl>(Record->getDecl());
+      if (RD->hasAttr<WeakAttr>())
+        return llvm::GlobalValue::WeakODRLinkage;
+      if (CGM.getTriple().isWindowsItaniumEnvironment())
+        if (RD->hasAttr<DLLImportAttr>() &&
+            ShouldUseExternalRTTIDescriptor(CGM, Ty))
+          return llvm::GlobalValue::ExternalLinkage;
+      // MinGW always uses LinkOnceODRLinkage for type info.
+      if (RD->isDynamicClass() &&
+          !CGM.getContext()
+               .getTargetInfo()
+               .getTriple()
+               .isWindowsGNUEnvironment())
+        return CGM.getVTableLinkage(RD);
+    }
+
+    return llvm::GlobalValue::LinkOnceODRLinkage;
+  }
+
+  llvm_unreachable("Invalid linkage!");
 }
 
 llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
@@ -3084,25 +3196,23 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
     return GetAddrOfExternalRTTIDescriptor(Ty);
 
   // Emit the standard library with external linkage.
-  llvm::GlobalVariable::LinkageTypes InfoLinkage, NameLinkage;
+  llvm::GlobalVariable::LinkageTypes Linkage;
   if (IsStdLib)
-    InfoLinkage = NameLinkage = llvm::GlobalValue::ExternalLinkage;
-  else {
-    auto LinkagePair = getTypeInfoLinkage(CGM, Ty);
-    InfoLinkage = LinkagePair.first;
-    NameLinkage = LinkagePair.second;
-  }
+    Linkage = llvm::GlobalValue::ExternalLinkage;
+  else
+    Linkage = getTypeInfoLinkage(CGM, Ty);
+
   // Add the vtable pointer.
   BuildVTablePointer(cast<Type>(Ty));
 
   // And the name.
-  llvm::GlobalVariable *TypeName = GetAddrOfTypeName(Ty, NameLinkage);
+  llvm::GlobalVariable *TypeName = GetAddrOfTypeName(Ty, Linkage);
   llvm::Constant *TypeNameField;
 
   // If we're supposed to demote the visibility, be sure to set a flag
   // to use a string comparison for type_info comparisons.
   ItaniumCXXABI::RTTIUniquenessKind RTTIUniqueness =
-      CXXABI.classifyRTTIUniqueness(Ty, NameLinkage);
+      CXXABI.classifyRTTIUniqueness(Ty, Linkage);
   if (RTTIUniqueness != ItaniumCXXABI::RUK_Unique) {
     // The flag is the sign bit, which on ARM64 is defined to be clear
     // for global pointers.  This is very ARM64-specific.
@@ -3208,7 +3318,7 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
   llvm::Module &M = CGM.getModule();
   llvm::GlobalVariable *GV =
       new llvm::GlobalVariable(M, Init->getType(),
-                               /*Constant=*/true, InfoLinkage, Init, Name);
+                               /*Constant=*/true, Linkage, Init, Name);
 
   // If there's already an old global variable, replace it with the new one.
   if (OldGV) {
@@ -3239,20 +3349,19 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
 
   // Give the type_info object and name the formal visibility of the
   // type itself.
-  auto computeVisibility = [&](llvm::GlobalValue::LinkageTypes Linkage) {
-    if (llvm::GlobalValue::isLocalLinkage(Linkage))
-      // If the linkage is local, only default visibility makes sense.
-      return llvm::GlobalValue::DefaultVisibility;
-    else if (RTTIUniqueness == ItaniumCXXABI::RUK_NonUniqueHidden)
-      return llvm::GlobalValue::HiddenVisibility;
-    else
-      return CodeGenModule::GetLLVMVisibility(Ty->getVisibility());
-  };
+  llvm::GlobalValue::VisibilityTypes llvmVisibility;
+  if (llvm::GlobalValue::isLocalLinkage(Linkage))
+    // If the linkage is local, only default visibility makes sense.
+    llvmVisibility = llvm::GlobalValue::DefaultVisibility;
+  else if (RTTIUniqueness == ItaniumCXXABI::RUK_NonUniqueHidden)
+    llvmVisibility = llvm::GlobalValue::HiddenVisibility;
+  else
+    llvmVisibility = CodeGenModule::GetLLVMVisibility(Ty->getVisibility());
 
-  TypeName->setVisibility(computeVisibility(NameLinkage));
+  TypeName->setVisibility(llvmVisibility);
   CGM.setDSOLocal(TypeName);
 
-  GV->setVisibility(computeVisibility(InfoLinkage));
+  GV->setVisibility(llvmVisibility);
   CGM.setDSOLocal(GV);
 
   if (CGM.getTriple().isWindowsItaniumEnvironment()) {
@@ -3660,6 +3769,9 @@ static void emitConstructorDestructorAlias(CodeGenModule &CGM,
 
   // Create the alias with no name.
   auto *Alias = llvm::GlobalAlias::create(Linkage, "", Aliasee);
+
+  // Constructors and destructors are always unnamed_addr.
+  Alias->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
 
   // Switch any previous uses to the alias.
   if (Entry) {
@@ -4098,4 +4210,12 @@ std::pair<llvm::Value *, const CXXRecordDecl *>
 ItaniumCXXABI::LoadVTablePtr(CodeGenFunction &CGF, Address This,
                              const CXXRecordDecl *RD) {
   return {CGF.GetVTablePtr(This, CGM.Int8PtrTy, RD), RD};
+}
+
+void WebAssemblyCXXABI::emitBeginCatch(CodeGenFunction &CGF,
+                                       const CXXCatchStmt *C) {
+  if (CGF.getTarget().hasFeature("exception-handling"))
+    CGF.EHStack.pushCleanup<CatchRetScope>(
+        NormalCleanup, cast<llvm::CatchPadInst>(CGF.CurrentFuncletPad));
+  ItaniumCXXABI::emitBeginCatch(CGF, C);
 }

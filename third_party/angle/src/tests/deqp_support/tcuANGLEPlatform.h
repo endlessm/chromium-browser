@@ -29,6 +29,7 @@
 #   include "egluPlatform.hpp"
 #endif
 
+#include "platform/Platform.h"
 #include "tcuANGLENativeDisplayFactory.h"
 
 namespace tcu
@@ -39,7 +40,7 @@ class ANGLEPlatform : public tcu::Platform,
                       private eglu::Platform
 {
   public:
-    ANGLEPlatform();
+    ANGLEPlatform(angle::LogErrorFunc logErrorFunc);
     ~ANGLEPlatform();
 
     bool processEvents() override;
@@ -48,7 +49,14 @@ class ANGLEPlatform : public tcu::Platform,
     const eglu::Platform &getEGLPlatform() const override { return static_cast<const eglu::Platform&>(*this); }
 
   private:
+    // Note: -1 represents EGL_DONT_CARE, but we don't have the EGL headers here.
+    std::vector<eglw::EGLAttrib> initAttribs(eglw::EGLAttrib type,
+                                             eglw::EGLAttrib deviceType   = -1,
+                                             eglw::EGLAttrib majorVersion = -1,
+                                             eglw::EGLAttrib minorVersion = -1);
+
     EventState mEvents;
+    angle::PlatformMethods mPlatformMethods;
 };
 
 } // tcu

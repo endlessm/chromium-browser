@@ -40,12 +40,25 @@ ASH_PUBLIC_EXPORT extern const base::Feature kEnableHomeLauncher;
 // Enables the Settings shortcut search.
 ASH_PUBLIC_EXPORT extern const base::Feature kEnableSettingsShortcutSearch;
 
+// Enables the apps grid gap feature.
+ASH_PUBLIC_EXPORT extern const base::Feature kEnableAppsGridGapFeature;
+
+// Enables the new style launcher (See details at http://crbug.com/857206).
+ASH_PUBLIC_EXPORT extern const base::Feature kEnableNewStyleLauncher;
+
+// Enables the feature to allow users to seamlessly continue reading a web page
+// when they switch from phones or tablets to Chromebook.
+ASH_PUBLIC_EXPORT extern const base::Feature kEnableContinueReading;
+
 bool ASH_PUBLIC_EXPORT IsAnswerCardEnabled();
 bool ASH_PUBLIC_EXPORT IsAppShortcutSearchEnabled();
 bool ASH_PUBLIC_EXPORT IsBackgroundBlurEnabled();
 bool ASH_PUBLIC_EXPORT IsPlayStoreAppSearchEnabled();
 bool ASH_PUBLIC_EXPORT IsHomeLauncherEnabled();
 bool ASH_PUBLIC_EXPORT IsSettingsShortcutSearchEnabled();
+bool ASH_PUBLIC_EXPORT IsAppsGridGapFeatureEnabled();
+bool ASH_PUBLIC_EXPORT IsNewStyleLauncherEnabled();
+bool ASH_PUBLIC_EXPORT IsContinueReadingEnabled();
 std::string ASH_PUBLIC_EXPORT AnswerServerUrl();
 std::string ASH_PUBLIC_EXPORT AnswerServerQuerySuffix();
 

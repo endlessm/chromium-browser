@@ -5,14 +5,19 @@
 #include "chrome/browser/browsing_data/counters/browsing_data_counter_utils.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/browsing_data/counters/cache_counter.h"
 #include "chrome/browser/browsing_data/counters/media_licenses_counter.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
+#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/core/browser/profile_oauth2_token_service.h"
+#include "components/signin/core/browser/signin_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/text/bytes_formatting.h"
@@ -33,6 +38,24 @@ base::string16 FormatBytesMBOrHigher(
 
   return ui::FormatBytesWithUnits(
       bytes, ui::DataUnits::DATA_UNITS_MEBIBYTE, true);
+}
+
+bool ShouldShowCookieException(Profile* profile) {
+  if (AccountConsistencyModeManager::IsMirrorEnabledForProfile(profile)) {
+    auto* signin_manager = SigninManagerFactory::GetForProfile(profile);
+    return signin_manager->IsAuthenticated();
+  }
+  if (AccountConsistencyModeManager::IsDiceEnabledForProfile(profile)) {
+    auto* token_service =
+        ProfileOAuth2TokenServiceFactory::GetForProfile(profile);
+    std::vector<std::string> accounts = token_service->GetAccounts();
+    bool has_valid_token = std::any_of(
+        accounts.begin(), accounts.end(), [&](std::string account_id) {
+          return !token_service->RefreshTokenHasError(account_id);
+        });
+    return has_valid_token;
+  }
+  return false;
 }
 
 base::string16 GetChromeCounterTextFromResult(
@@ -85,16 +108,10 @@ base::string16 GetChromeCounterTextFromResult(
             ->Value();
 
     // Determines whether or not to show the count with exception message.
-    int del_cookie_counter_msg_id = IDS_DEL_COOKIES_COUNTER_ADVANCED;
-
-#if defined(OS_CHROMEOS)
-    if (AccountConsistencyModeManager::IsMirrorEnabledForProfile(profile)) {
-#else  // !defined(OS_CHROMEOS)
-    if (AccountConsistencyModeManager::IsDiceEnabledForProfile(profile)) {
-#endif
-      del_cookie_counter_msg_id =
-          IDS_DEL_COOKIES_COUNTER_ADVANCED_WITH_EXCEPTION;
-    }
+    int del_cookie_counter_msg_id =
+        ShouldShowCookieException(profile)
+            ? IDS_DEL_COOKIES_COUNTER_ADVANCED_WITH_EXCEPTION
+            : IDS_DEL_COOKIES_COUNTER_ADVANCED;
 
     return l10n_util::GetPluralStringFUTF16(del_cookie_counter_msg_id, origins);
   }

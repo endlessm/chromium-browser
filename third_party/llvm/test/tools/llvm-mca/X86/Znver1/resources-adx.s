@@ -17,7 +17,7 @@ adox        (%rbx), %rcx
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      1     0.25                        adcxl	%ebx, %ecx
@@ -57,4 +57,3 @@ adox        (%rbx), %rcx
 # CHECK-NEXT: 0.50   0.50   0.25   0.25   0.25   0.25    -      -      -      -      -      -     adoxl	(%rbx), %ecx
 # CHECK-NEXT:  -      -     0.25   0.25   0.25   0.25    -      -      -      -      -      -     adoxq	%rbx, %rcx
 # CHECK-NEXT: 0.50   0.50   0.25   0.25   0.25   0.25    -      -      -      -      -      -     adoxq	(%rbx), %rcx
-

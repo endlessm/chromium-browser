@@ -15,9 +15,11 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
+#include "chrome/browser/media/router/issues_observer.h"
 #include "chrome/browser/media/router/media_router_dialog_controller.h"
 #include "chrome/browser/media/router/presentation/presentation_service_delegate_impl.h"
 #include "chrome/browser/ui/media_router/media_cast_mode.h"
+#include "chrome/browser/ui/media_router/media_router_file_dialog.h"
 #include "chrome/browser/ui/media_router/media_router_ui_helper.h"
 #include "chrome/browser/ui/media_router/media_sink_with_cast_modes.h"
 #include "chrome/browser/ui/media_router/query_result_manager.h"
@@ -51,9 +53,11 @@ class RouteRequestResult;
 // observing and organizing route, sink, and presentation request information,
 // and executing and keeping track of route requests from the dialog to Media
 // Router.
-class MediaRouterUIBase : public QueryResultManager::Observer,
-                          public PresentationServiceDelegateImpl::
-                              DefaultPresentationRequestObserver {
+class MediaRouterUIBase
+    : public QueryResultManager::Observer,
+      public PresentationServiceDelegateImpl::
+          DefaultPresentationRequestObserver,
+      public MediaRouterFileDialog::MediaRouterFileDialogDelegate {
  public:
   MediaRouterUIBase();
   ~MediaRouterUIBase() override;
@@ -108,10 +112,19 @@ class MediaRouterUIBase : public QueryResultManager::Observer,
 
   // Returns a subset of |sinks_| that should be listed in the dialog. This
   // excludes the wired display that the initiator WebContents is on.
-  std::vector<MediaSinkWithCastModes> GetEnabledSinks() const;
+  virtual std::vector<MediaSinkWithCastModes> GetEnabledSinks() const;
 
   // Returns a source name that can be shown in the dialog.
   std::string GetTruncatedPresentationRequestSourceName() const;
+
+  // Calls MediaRouter to add the given issue.
+  void AddIssue(const IssueInfo& issue);
+
+  // Calls MediaRouter to remove the given issue.
+  void RemoveIssue(const Issue::Id& issue_id);
+
+  // Opens a file picker for when the user selected local file casting.
+  void OpenFileDialog();
 
   const std::vector<MediaRoute>& routes() const { return routes_; }
   content::WebContents* initiator() const { return initiator_; }
@@ -125,6 +138,15 @@ class MediaRouterUIBase : public QueryResultManager::Observer,
 #endif
 
  protected:
+  struct RouteRequest {
+   public:
+    explicit RouteRequest(const MediaSink::Id& sink_id);
+    ~RouteRequest();
+
+    int id;
+    MediaSink::Id sink_id;
+  };
+
   std::vector<MediaSource> GetSourcesForCastMode(MediaCastMode cast_mode) const;
 
   // QueryResultManager::Observer:
@@ -171,7 +193,26 @@ class MediaRouterUIBase : public QueryResultManager::Observer,
   // Otherwise returns an empty GURL.
   GURL GetFrameURL() const;
 
-  int current_route_request_id() const { return current_route_request_id_; }
+  // Creates and sends an issue if route creation timed out.
+  void SendIssueForRouteTimeout(
+      MediaCastMode cast_mode,
+      const base::string16& presentation_request_source_name);
+
+  // Creates and sends an issue if casting fails for any other reason.
+  void SendIssueForUnableToCast(MediaCastMode cast_mode);
+
+  // Returns the IssueManager associated with |router_|.
+  IssueManager* GetIssueManager();
+
+  // Instantiates and initializes the issues observer.
+  void StartObservingIssues();
+
+  // MediaRouterFileDialogDelegate:
+  void FileDialogSelectionFailed(const IssueInfo& issue) override;
+
+  const base::Optional<RouteRequest> current_route_request() const {
+    return current_route_request_;
+  }
 
   StartPresentationContext* start_presentation_context() const {
     return start_presentation_context_.get();
@@ -180,6 +221,11 @@ class MediaRouterUIBase : public QueryResultManager::Observer,
   void set_start_presentation_context_for_test(
       std::unique_ptr<StartPresentationContext> start_presentation_context) {
     start_presentation_context_ = std::move(start_presentation_context);
+  }
+
+  void set_media_router_file_dialog_for_test(
+      std::unique_ptr<MediaRouterFileDialog> file_dialog) {
+    media_router_file_dialog_ = std::move(file_dialog);
   }
 
   QueryResultManager* query_result_manager() const {
@@ -192,6 +238,26 @@ class MediaRouterUIBase : public QueryResultManager::Observer,
   FRIEND_TEST_ALL_PREFIXES(MediaRouterUITest,
                            UIMediaRoutesObserverSkipsUnavailableCastModes);
 
+  class WebContentsFullscreenOnLoadedObserver;
+
+  // This class calls to refresh the UI when the highest priority issue is
+  // updated.
+  class UiIssuesObserver : public IssuesObserver {
+   public:
+    UiIssuesObserver(IssueManager* issue_manager, MediaRouterUIBase* ui);
+    ~UiIssuesObserver() override;
+
+    // IssuesObserver:
+    void OnIssue(const Issue& issue) override;
+    void OnIssuesCleared() override;
+
+   private:
+    // Reference back to the owning MediaRouterUIBase instance.
+    MediaRouterUIBase* const ui_;
+
+    DISALLOW_COPY_AND_ASSIGN(UiIssuesObserver);
+  };
+
   class UIMediaRoutesObserver : public MediaRoutesObserver {
    public:
     using RoutesUpdatedCallback =
@@ -202,7 +268,7 @@ class MediaRouterUIBase : public QueryResultManager::Observer,
                           const RoutesUpdatedCallback& callback);
     ~UIMediaRoutesObserver() override;
 
-    // MediaRoutesObserver
+    // MediaRoutesObserver:
     void OnRoutesUpdated(
         const std::vector<MediaRoute>& routes,
         const std::vector<MediaRoute::Id>& joinable_route_ids) override;
@@ -214,19 +280,42 @@ class MediaRouterUIBase : public QueryResultManager::Observer,
     DISALLOW_COPY_AND_ASSIGN(UIMediaRoutesObserver);
   };
 
+  // Called by |issues_observer_| when the top issue has changed.
+  virtual void OnIssue(const Issue& issue) = 0;
+  virtual void OnIssueCleared() = 0;
+
+  // Populates route-related parameters for CreateRoute() when doing file
+  // casting.
+  base::Optional<RouteParameters> GetLocalFileRouteParameters(
+      const MediaSink::Id& sink_id,
+      const GURL& file_url,
+      content::WebContents* tab_contents);
+
+  // If the current URL for |web_contents| is |file_url|, requests the first
+  // video in it to be shown fullscreen.
+  void FullScreenFirstVideoElement(const GURL& file_url,
+                                   content::WebContents* web_contents,
+                                   const RouteRequestResult& result);
+
+  // Sends a request to the file dialog to log UMA stats for the file that was
+  // cast if the result is successful.
+  void MaybeReportFileInformation(const RouteRequestResult& result);
+
+  // Opens the URL in a tab, returns the tab it was opened in.
+  content::WebContents* OpenTabWithUrl(const GURL& url);
+
   // Returns the MediaRouter for this instance's BrowserContext.
   virtual MediaRouter* GetMediaRouter() const;
+
+  // Retrieves the browser associated with this UI.
+  Browser* GetBrowser();
 
   // This is non-null while this instance is registered to receive
   // updates from them.
   std::unique_ptr<MediaRoutesObserver> routes_observer_;
 
-  // Set to -1 if not tracking a pending route request.
-  int current_route_request_id_;
-
-  // Sequential counter for route requests. Used to update
-  // |current_route_request_id_| when there is a new route request.
-  int route_request_counter_;
+  // This contains a value only when tracking a pending route request.
+  base::Optional<RouteRequest> current_route_request_;
 
   // Used for locale-aware sorting of sinks by name. Set during |InitCommon()|
   // using the current locale.
@@ -257,6 +346,12 @@ class MediaRouterUIBase : public QueryResultManager::Observer,
 
   // WebContents for the tab for which the Cast dialog is shown.
   content::WebContents* initiator_;
+
+  // The dialog that handles opening the file dialog and validating and
+  // returning the results.
+  std::unique_ptr<MediaRouterFileDialog> media_router_file_dialog_;
+
+  std::unique_ptr<IssuesObserver> issues_observer_;
 
 #if !defined(OS_MACOSX) || BUILDFLAG(MAC_VIEWS_BROWSER)
   // Keeps track of which display the initiator WebContents is on. This is used

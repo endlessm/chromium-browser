@@ -11,7 +11,9 @@
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
+#include "components/unified_consent/feature.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_ui_constants.h"
 #import "ios/chrome/browser/ui/collection_view/cells/collection_view_switch_item.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_steady_view.h"
@@ -22,8 +24,11 @@
 #import "ios/chrome/browser/ui/payments/payment_request_view_controller.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/settings/accounts_collection_view_controller.h"
+#import "ios/chrome/browser/ui/settings/cells/clear_browsing_data_constants.h"
+#import "ios/chrome/browser/ui/settings/cells/settings_switch_item.h"
 #import "ios/chrome/browser/ui/settings/cells/sync_switch_item.h"
 #import "ios/chrome/browser/ui/settings/clear_browsing_data_collection_view_controller.h"
+#import "ios/chrome/browser/ui/settings/clear_browsing_data_ui_constants.h"
 #import "ios/chrome/browser/ui/settings/import_data_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/settings_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/sync_settings_collection_view_controller.h"
@@ -45,16 +50,16 @@
 
 namespace {
 
-id<GREYMatcher> CollectionViewSwitchIsToggledOn(BOOL isToggledOn) {
+id<GREYMatcher> SettingsSwitchIsToggledOn(BOOL isToggledOn) {
   MatchesBlock matches = ^BOOL(id element) {
-    CollectionViewSwitchCell* switch_cell =
-        base::mac::ObjCCastStrict<CollectionViewSwitchCell>(element);
+    SettingsSwitchCell* switch_cell =
+        base::mac::ObjCCastStrict<SettingsSwitchCell>(element);
     UISwitch* switch_view = switch_cell.switchView;
     return (switch_view.on && isToggledOn) || (!switch_view.on && !isToggledOn);
   };
   DescribeToBlock describe = ^void(id<GREYDescription> description) {
     NSString* name =
-        [NSString stringWithFormat:@"collectionViewSwitchToggledState(%@)",
+        [NSString stringWithFormat:@"settingsSwitchToggledState(%@)",
                                    isToggledOn ? @"ON" : @"OFF"];
     [description appendText:name];
   };
@@ -62,17 +67,17 @@ id<GREYMatcher> CollectionViewSwitchIsToggledOn(BOOL isToggledOn) {
                                               descriptionBlock:describe];
 }
 
-id<GREYMatcher> CollectionViewSwitchIsEnabled(BOOL isEnabled) {
+id<GREYMatcher> SettingsSwitchIsEnabled(BOOL isEnabled) {
   MatchesBlock matches = ^BOOL(id element) {
-    CollectionViewSwitchCell* switch_cell =
-        base::mac::ObjCCastStrict<CollectionViewSwitchCell>(element);
+    SettingsSwitchCell* switch_cell =
+        base::mac::ObjCCastStrict<SettingsSwitchCell>(element);
     UISwitch* switch_view = switch_cell.switchView;
     return (switch_view.enabled && isEnabled) ||
            (!switch_view.enabled && !isEnabled);
   };
   DescribeToBlock describe = ^void(id<GREYDescription> description) {
     NSString* name =
-        [NSString stringWithFormat:@"collectionViewSwitchEnabledState(%@)",
+        [NSString stringWithFormat:@"settingsSwitchEnabledState(%@)",
                                    isEnabled ? @"YES" : @"NO"];
     [description appendText:name];
   };
@@ -92,6 +97,40 @@ id<GREYMatcher> ButtonWithAccessibilityLabel(NSString* label) {
 id<GREYMatcher> ButtonWithAccessibilityLabelId(int message_id) {
   return ButtonWithAccessibilityLabel(
       l10n_util::GetNSStringWithFixup(message_id));
+}
+
+id<GREYMatcher> ImageViewWithImageNamed(NSString* imageName) {
+  UIImage* expected_image = [UIImage imageNamed:imageName];
+  MatchesBlock matches = ^BOOL(UIImageView* imageView) {
+    return ui::test::uiimage_utils::UIImagesAreEqual(expected_image,
+                                                     imageView.image);
+  };
+  NSString* description_string =
+      [NSString stringWithFormat:@"Images matching image named %@", imageName];
+  DescribeToBlock describe = ^(id<GREYDescription> description) {
+    [description appendText:description_string];
+  };
+  id<GREYMatcher> image_matcher =
+      [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
+                                           descriptionBlock:describe];
+  return image_matcher;
+}
+
+id<GREYMatcher> ImageViewWithImage(int image_id) {
+  UIImage* expected_image = NativeImage(image_id);
+  MatchesBlock matches = ^BOOL(UIImageView* imageView) {
+    return ui::test::uiimage_utils::UIImagesAreEqual(expected_image,
+                                                     imageView.image);
+  };
+  NSString* description_string =
+      [NSString stringWithFormat:@"Images matching %i", image_id];
+  DescribeToBlock describe = ^(id<GREYDescription> description) {
+    [description appendText:description_string];
+  };
+  id<GREYMatcher> image_matcher =
+      [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
+                                           descriptionBlock:describe];
+  return image_matcher;
 }
 
 id<GREYMatcher> ButtonWithImage(int image_id) {
@@ -159,6 +198,10 @@ id<GREYMatcher> PageSecurityInfoButton() {
   return grey_accessibilityLabel(@"Page Security Info");
 }
 
+id<GREYMatcher> PageSecurityInfoIndicator() {
+  return grey_accessibilityLabel(@"Page Security Info");
+}
+
 id<GREYMatcher> OmniboxText(std::string text) {
   return grey_allOf(Omnibox(),
                     hasProperty(@"text", base::SysUTF8ToNSString(text)), nil);
@@ -200,7 +243,8 @@ id<GREYMatcher> ToolsMenuButton() {
 }
 
 id<GREYMatcher> ShareButton() {
-  return ButtonWithAccessibilityLabelId(IDS_IOS_TOOLS_MENU_SHARE);
+  return grey_allOf(ButtonWithAccessibilityLabelId(IDS_IOS_TOOLS_MENU_SHARE),
+                    grey_sufficientlyVisible(), nil);
 }
 
 id<GREYMatcher> ShowTabsButton() {
@@ -208,17 +252,17 @@ id<GREYMatcher> ShowTabsButton() {
                     grey_sufficientlyVisible(), nil);
 }
 
-id<GREYMatcher> CollectionViewSwitchCell(NSString* accessibilityIdentifier,
-                                         BOOL isToggledOn) {
-  return CollectionViewSwitchCell(accessibilityIdentifier, isToggledOn, YES);
+id<GREYMatcher> SettingsSwitchCell(NSString* accessibilityIdentifier,
+                                   BOOL isToggledOn) {
+  return SettingsSwitchCell(accessibilityIdentifier, isToggledOn, YES);
 }
 
-id<GREYMatcher> CollectionViewSwitchCell(NSString* accessibilityIdentifier,
-                                         BOOL isToggledOn,
-                                         BOOL isEnabled) {
+id<GREYMatcher> SettingsSwitchCell(NSString* accessibilityIdentifier,
+                                   BOOL isToggledOn,
+                                   BOOL isEnabled) {
   return grey_allOf(grey_accessibilityID(accessibilityIdentifier),
-                    CollectionViewSwitchIsToggledOn(isToggledOn),
-                    CollectionViewSwitchIsEnabled(isEnabled),
+                    SettingsSwitchIsToggledOn(isToggledOn),
+                    SettingsSwitchIsEnabled(isEnabled),
                     grey_sufficientlyVisible(), nil);
 }
 
@@ -239,14 +283,20 @@ id<GREYMatcher> NavigationBarDoneButton() {
   return ButtonWithAccessibilityLabelId(IDS_IOS_NAVIGATION_BAR_DONE_BUTTON);
 }
 
+id<GREYMatcher> BookmarksNavigationBarDoneButton() {
+  return grey_accessibilityID(kBookmarkHomeNavigationBarDoneButtonIdentifier);
+}
+
 id<GREYMatcher> AccountConsistencySetupSigninButton() {
   return ButtonWithAccessibilityLabelId(
       IDS_IOS_ACCOUNT_CONSISTENCY_SETUP_SIGNIN_BUTTON);
 }
 
 id<GREYMatcher> AccountConsistencyConfirmationOkButton() {
-  return ButtonWithAccessibilityLabelId(
-      IDS_IOS_ACCOUNT_CONSISTENCY_CONFIRMATION_OK_BUTTON);
+  int labelID = base::FeatureList::IsEnabled(unified_consent::kUnifiedConsent)
+                    ? IDS_IOS_ACCOUNT_UNIFIED_CONSENT_OK_BUTTON
+                    : IDS_IOS_ACCOUNT_CONSISTENCY_CONFIRMATION_OK_BUTTON;
+  return ButtonWithAccessibilityLabelId(labelID);
 }
 
 id<GREYMatcher> AddAccountButton() {
@@ -258,7 +308,15 @@ id<GREYMatcher> SignOutAccountsButton() {
 }
 
 id<GREYMatcher> ClearBrowsingDataCollectionView() {
-  return grey_accessibilityID(kClearBrowsingDataCollectionViewId);
+  return grey_accessibilityID(
+      kClearBrowsingDataCollectionViewAccessibilityIdentifier);
+}
+
+id<GREYMatcher> ConfirmClearBrowsingDataButton() {
+  return grey_allOf(
+      grey_accessibilityLabel(l10n_util::GetNSString(IDS_IOS_CLEAR_BUTTON)),
+      grey_accessibilityTrait(UIAccessibilityTraitButton),
+      grey_not(grey_accessibilityID(kClearBrowsingDataButtonIdentifier)), nil);
 }
 
 id<GREYMatcher> SettingsMenuButton() {
@@ -306,11 +364,16 @@ id<GREYMatcher> SettingsSyncManageSyncedDataButton() {
 }
 
 id<GREYMatcher> AccountsSyncButton() {
-  return grey_accessibilityID(kSettingsAccountsSyncCellId);
+  return grey_allOf(grey_accessibilityID(kSettingsAccountsSyncCellId),
+                    grey_sufficientlyVisible(), nil);
 }
 
 id<GREYMatcher> ContentSettingsButton() {
   return ButtonWithAccessibilityLabelId(IDS_IOS_CONTENT_SETTINGS_TITLE);
+}
+
+id<GREYMatcher> GoogleServicesSettingsButton() {
+  return ButtonWithAccessibilityLabelId(IDS_IOS_GOOGLE_SERVICES_SETTINGS_TITLE);
 }
 
 id<GREYMatcher> SettingsMenuBackButton() {
@@ -346,19 +409,19 @@ id<GREYMatcher> SettingsCollectionView() {
 }
 
 id<GREYMatcher> ClearBrowsingHistoryButton() {
-  return grey_accessibilityID(kClearBrowsingHistoryCellId);
+  return grey_accessibilityID(kClearBrowsingHistoryCellAccessibilityIdentifier);
 }
 
 id<GREYMatcher> ClearCookiesButton() {
-  return grey_accessibilityID(kClearCookiesCellId);
+  return grey_accessibilityID(kClearCookiesCellAccessibilityIdentifier);
 }
 
 id<GREYMatcher> ClearCacheButton() {
-  return grey_accessibilityID(kClearCacheCellId);
+  return grey_accessibilityID(kClearCacheCellAccessibilityIdentifier);
 }
 
 id<GREYMatcher> ClearSavedPasswordsButton() {
-  return grey_accessibilityID(kClearSavedPasswordsCellId);
+  return grey_accessibilityID(kClearSavedPasswordsCellAccessibilityIdentifier);
 }
 
 id<GREYMatcher> ContentSuggestionCollectionView() {

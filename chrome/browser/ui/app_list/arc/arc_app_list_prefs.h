@@ -22,6 +22,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/chromeos/arc/arc_session_manager.h"
+#include "chrome/browser/chromeos/arc/policy/arc_policy_bridge.h"
 #include "chrome/browser/ui/app_list/arc/arc_default_app_list.h"
 #include "components/arc/common/app.mojom.h"
 #include "components/arc/connection_observer.h"
@@ -54,7 +55,8 @@ class ArcAppListPrefs : public KeyedService,
                         public arc::mojom::AppHost,
                         public arc::ConnectionObserver<arc::mojom::AppInstance>,
                         public arc::ArcSessionManager::Observer,
-                        public ArcDefaultAppList::Delegate {
+                        public ArcDefaultAppList::Delegate,
+                        public arc::ArcPolicyBridge::Observer {
  public:
   struct AppInfo {
     AppInfo(const std::string& name,
@@ -67,9 +69,11 @@ class ArcAppListPrefs : public KeyedService,
             bool sticky,
             bool notifications_enabled,
             bool ready,
-            bool showInLauncher,
+            bool suspended,
+            bool show_in_launcher,
             bool shortcut,
             bool launchable);
+    AppInfo(const AppInfo& other);
     ~AppInfo();
 
     std::string name;
@@ -79,12 +83,26 @@ class ArcAppListPrefs : public KeyedService,
     std::string icon_resource_id;
     base::Time last_launch_time;
     base::Time install_time;
+    // Whether app could not be uninstalled.
     bool sticky;
+    // Whether notifications are enabled for the app.
     bool notifications_enabled;
+    // Whether app is ready.
     bool ready;
-    bool showInLauncher;
+    // Whether app was suspended by policy. It may have or may not have ready
+    // state.
+    bool suspended;
+    // Whether app needs to be shown in launcher.
+    bool show_in_launcher;
+    // Whether app represents a shortcut.
     bool shortcut;
+    // Whether app can be launched. In some case we cannot launch an app because
+    // it requires parameters we might not provide.
     bool launchable;
+
+    static void SetIgnoreCompareInstallTimeForTesting(bool ignore);
+
+    bool operator==(const AppInfo& other) const;
   };
 
   struct PackageInfo {
@@ -110,8 +128,9 @@ class ArcAppListPrefs : public KeyedService,
     // Notifies an observer that new app is registered.
     virtual void OnAppRegistered(const std::string& app_id,
                                  const AppInfo& app_info) {}
-    // Notifies an observer that app ready state has been changed.
-    virtual void OnAppReadyChanged(const std::string& id, bool ready) {}
+    // Notifies an observer that app states have been changed.
+    virtual void OnAppStatesChanged(const std::string& id,
+                                    const AppInfo& app_info) {}
     // Notifies an observer that app was removed.
     virtual void OnAppRemoved(const std::string& id) {}
     // Notifies an observer that app icon has been installed or updated.
@@ -195,8 +214,8 @@ class ArcAppListPrefs : public KeyedService,
   // Returns a list of all app ids, including ready and non-ready apps.
   std::vector<std::string> GetAppIds() const;
 
-  // Extracts attributes of an app based on its id. Returns NULL if the app is
-  // not found.
+  // Extracts attributes of an app based on its id. Returns nullptr if the app
+  // is not found or ARC is disabled and app is not a default app.
   std::unique_ptr<AppInfo> GetApp(const std::string& app_id) const;
 
   // Get current installed package names.
@@ -253,6 +272,12 @@ class ArcAppListPrefs : public KeyedService,
 
   // ArcDefaultAppList::Delegate:
   void OnDefaultAppsReady() override;
+
+  // arc::ArcPolicyBridge::Observer:
+  void OnPolicySent(const std::string& policy) override;
+
+  // KeyedService:
+  void Shutdown() override;
 
   // Removes app with the given app_id.
   void RemoveApp(const std::string& app_id);
@@ -349,14 +374,15 @@ class ArcAppListPrefs : public KeyedService,
                                                 bool installed) const;
 
   void AddApp(const arc::mojom::AppInfo& app_info);
-  void AddAppAndShortcut(bool app_ready,
-                         const std::string& name,
+  void AddAppAndShortcut(const std::string& name,
                          const std::string& package_name,
                          const std::string& activity,
                          const std::string& intent_uri,
                          const std::string& icon_resource_id,
                          const bool sticky,
                          const bool notifications_enabled,
+                         const bool app_ready,
+                         const bool suspended,
                          const bool shortcut,
                          const bool launchable);
   // Adds or updates local pref for given package.
@@ -423,14 +449,24 @@ class ArcAppListPrefs : public KeyedService,
 
   void ClearIconRequestRecord();
 
-  // Dispatches OnAppReadyChanged event to observers.
-  void NotifyAppReadyChanged(const std::string& app_id, bool ready);
+  // Dispatches OnAppStatesChanged event to observers.
+  void NotifyAppStatesChanged(const std::string& app_id);
 
   // Marks app icons as invalidated and request icons updated.
   void InvalidateAppIcons(const std::string& app_id);
 
   // Marks package icons as invalidated and request icons updated.
   void InvalidatePackageIcons(const std::string& package_name);
+
+  // Returns true if install time has to be set to current time for the newly
+  // installed app from the |package_name|. App launcher uses install time to
+  // rank apps. Do not set install time for apps, installed by default or by
+  // policy.
+  bool NeedSetInstallTime(const std::string& package_name) const;
+
+  // Extracts app info from the prefs without any ARC availability check.
+  // Returns null if app is not registered.
+  std::unique_ptr<AppInfo> GetAppFromPrefs(const std::string& app_id) const;
 
   Profile* const profile_;
 
@@ -483,6 +519,8 @@ class ArcAppListPrefs : public KeyedService,
   bool default_apps_ready_ = false;
   ArcDefaultAppList default_apps_;
   base::Closure default_apps_ready_callback_;
+  // Set of packages installed by policy in case of managed user.
+  std::set<std::string> packages_by_policy_;
 
   // TODO (b/70566216): Remove this once fixed.
   base::OnceClosure app_list_refreshed_callback_;

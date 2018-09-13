@@ -291,13 +291,13 @@ bool ArcProcessService::RequestAppProcessList(
 
 void ArcProcessService::OnReceiveProcessList(
     const RequestProcessListCallback& callback,
-    std::vector<mojom::RunningAppProcessInfoPtr> instance_processes) {
+    std::vector<mojom::RunningAppProcessInfoPtr> processes) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   base::PostTaskAndReplyWithResult(
       task_runner_.get(), FROM_HERE,
       base::Bind(&UpdateAndReturnProcessList, nspid_to_pid_,
-                 base::Passed(&instance_processes)),
+                 base::Passed(&processes)),
       callback);
 }
 

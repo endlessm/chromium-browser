@@ -35,24 +35,6 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller,
     DBusThreadManager::Get()->GetCryptohomeClient()->RemoveObserver(this);
   }
 
-  void AsyncMigrateKey(const Identification& cryptohome_id,
-                       const std::string& old_hash,
-                       const std::string& new_hash,
-                       Callback callback) override {
-    DBusThreadManager::Get()->GetCryptohomeClient()->AsyncMigrateKey(
-        cryptohome_id, old_hash, new_hash,
-        base::BindOnce(&AsyncMethodCallerImpl::RegisterAsyncCallback,
-                       weak_ptr_factory_.GetWeakPtr(), callback,
-                       "Couldn't initiate aync migration of user's key"));
-  }
-
-  void AsyncMountGuest(Callback callback) override {
-    DBusThreadManager::Get()->GetCryptohomeClient()->AsyncMountGuest(
-        base::BindOnce(&AsyncMethodCallerImpl::RegisterAsyncCallback,
-                       weak_ptr_factory_.GetWeakPtr(), callback,
-                       "Couldn't initiate async mount of cryptohome."));
-  }
-
   void AsyncRemove(const Identification& cryptohome_id,
                    Callback callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->AsyncRemove(
@@ -163,19 +145,6 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller,
                 &AsyncMethodCallerImpl::RegisterAsyncDataCallback,
                 weak_ptr_factory_.GetWeakPtr(), callback,
                 "Couldn't initiate async attestation simple challenge."));
-  }
-
-  void AsyncGetSanitizedUsername(const Identification& cryptohome_id,
-                                 const DataCallback& callback) override {
-    DBusThreadManager::Get()->GetCryptohomeClient()->GetSanitizedUsername(
-        cryptohome_id,
-        base::BindOnce(&AsyncMethodCallerImpl::GetSanitizedUsernameCallback,
-                       weak_ptr_factory_.GetWeakPtr(), callback));
-  }
-
-  void GetSanitizedUsernameCallback(const DataCallback& callback,
-                                    base::Optional<std::string> result) {
-    callback.Run(true, result.value_or(std::string()));
   }
 
  private:

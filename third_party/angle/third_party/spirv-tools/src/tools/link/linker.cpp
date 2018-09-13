@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "source/spirv_target_env.h"
+#include "source/table.h"
 #include "spirv-tools/libspirv.hpp"
 #include "spirv-tools/linker.hpp"
 #include "tools/io.h"
@@ -32,12 +33,14 @@ The SPIR-V binaries are read from the different <filename>.
 NOTE: The linker is a work in progress.
 
 Options:
-  -h, --help       Print this help.
-  -o               Name of the resulting linked SPIR-V binary.
-  --create-library Link the binaries into a library, keeping all exported symbols.
-  --version        Display linker version information
-  --target-env     {vulkan1.0|spv1.0|spv1.1|spv1.2|opencl2.1|opencl2.2}
-                   Use Vulkan1.0/SPIR-V1.0/SPIR-V1.1/SPIR-V1.2/OpenCL-2.1/OpenCL2.2 validation rules.
+  -h, --help              Print this help.
+  -o                      Name of the resulting linked SPIR-V binary.
+  --create-library        Link the binaries into a library, keeping all exported symbols.
+  --allow-partial-linkage Allow partial linkage by accepting imported symbols to be unresolved.
+  --verify-ids            Verify that IDs in the resulting modules are truly unique.
+  --version               Display linker version information
+  --target-env            {vulkan1.0|spv1.0|spv1.1|spv1.2|opencl2.1|opencl2.2}
+                          Use Vulkan1.0/SPIR-V1.0/SPIR-V1.1/SPIR-V1.2/OpenCL-2.1/OpenCL2.2 validation rules.
 )",
       argv0, argv0);
 }
@@ -69,6 +72,10 @@ int main(int argc, char** argv) {
         }
       } else if (0 == strcmp(cur_arg, "--create-library")) {
         options.SetCreateLibrary(true);
+      } else if (0 == strcmp(cur_arg, "--verify-ids")) {
+        options.SetVerifyIds(true);
+      } else if (0 == strcmp(cur_arg, "--allow-partial-linkage")) {
+        options.SetAllowPartialLinkage(true);
       } else if (0 == strcmp(cur_arg, "--version")) {
         printf("%s\n", spvSoftwareVersionDetailsString());
         // TODO(dneto): Add OpenCL 2.2 at least.
@@ -116,10 +123,10 @@ int main(int argc, char** argv) {
     if (!ReadFile<uint32_t>(inFiles[i], "rb", &contents[i])) return 1;
   }
 
-  spvtools::Linker linker(target_env);
-  linker.SetMessageConsumer([](spv_message_level_t level, const char*,
-                               const spv_position_t& position,
-                               const char* message) {
+  const spvtools::MessageConsumer consumer = [](spv_message_level_t level,
+                                                const char*,
+                                                const spv_position_t& position,
+                                                const char* message) {
     switch (level) {
       case SPV_MSG_FATAL:
       case SPV_MSG_INTERNAL_ERROR:
@@ -137,10 +144,12 @@ int main(int argc, char** argv) {
       default:
         break;
     }
-  });
+  };
+  spvtools::Context context(target_env);
+  context.SetMessageConsumer(consumer);
 
   std::vector<uint32_t> linkingResult;
-  spv_result_t status = linker.Link(contents, linkingResult, options);
+  spv_result_t status = Link(context, contents, &linkingResult, options);
 
   if (!WriteFile<uint32_t>(outFile, "wb", linkingResult.data(),
                            linkingResult.size()))

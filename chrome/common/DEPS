@@ -22,11 +22,13 @@ include_rules = [
   "+components/metrics/call_stack_profile_metrics_provider.h",
   "+components/metrics/call_stack_profile_params.h",
   "+components/metrics/child_call_stack_profile_collector.h",
+  "+components/metrics/call_stack_profile_builder.h",
   "+components/metrics/client_info.h",
   "+components/metrics/metrics_pref_names.h",
   "+components/nacl/common",
   "+components/network_session_configurator/common",
   "+components/ntp_tiles",
+  "+components/nux_google_apps",
   "+components/offline_pages/buildflags",
   "+components/password_manager/core/common",
   "+components/policy/core/common",
@@ -36,6 +38,7 @@ include_rules = [
   "+components/safe_browsing/web_ui/constants.h",
   "+components/translate/core/common",
   "+components/url_formatter",
+  "+components/variations/net",
   "+components/version_info",
   "+device/vr/buildflags/buildflags.h",
   "+extensions/buildflags",
@@ -56,8 +59,3 @@ include_rules = [
   # FIXME - refactor code and remove these dependencies
   "+chrome/installer/util",
 ]
-specific_include_rules = {
-  "service_process_util.*": [
-    "+mojo/edk/embedder",
-  ],
-}

@@ -44,7 +44,6 @@
 #include "chrome/browser/chromeos/app_mode/kiosk_mode_idle_app_name_notification.h"
 #include "chrome/browser/chromeos/arc/arc_service_launcher.h"
 #include "chrome/browser/chromeos/arc/voice_interaction/voice_interaction_controller_client.h"
-#include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/boot_times_recorder.h"
 #include "chrome/browser/chromeos/dbus/chrome_proxy_resolution_service_provider_delegate.h"
 #include "chrome/browser/chromeos/dbus/chrome_virtual_file_request_service_provider_delegate.h"
@@ -61,6 +60,7 @@
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/lock_screen_apps/state_controller.h"
 #include "chrome/browser/chromeos/logging.h"
+#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
 #include "chrome/browser/chromeos/login/login_wizard.h"
@@ -74,7 +74,6 @@
 #include "chrome/browser/chromeos/net/network_throttling_observer.h"
 #include "chrome/browser/chromeos/net/wake_on_wifi_manager.h"
 #include "chrome/browser/chromeos/note_taking_helper.h"
-#include "chrome/browser/chromeos/options/cert_library.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
@@ -91,6 +90,7 @@
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/browser/chromeos/settings/shutdown_policy_forwarder.h"
 #include "chrome/browser/chromeos/system/input_device_settings.h"
+#include "chrome/browser/chromeos/system/user_removal_manager.h"
 #include "chrome/browser/chromeos/ui/low_disk_notification.h"
 #include "chrome/browser/chromeos/upgrade_detector_chromeos.h"
 #include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
@@ -98,7 +98,6 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/browser/net/system_network_context_manager.h"
-#include "chrome/browser/notifications/notification_platform_bridge.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/task_manager/task_manager_interface.h"
@@ -116,6 +115,7 @@
 #include "chromeos/chromeos_paths.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/components/drivefs/drive_file_stream_service_provider_delegate.h"
+#include "chromeos/components/drivefs/fake_drivefs_launcher_client.h"
 #include "chromeos/cryptohome/async_method_caller.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/cryptohome/homedir_methods.h"
@@ -131,6 +131,7 @@
 #include "chromeos/dbus/services/virtual_file_request_service_provider.h"
 #include "chromeos/dbus/services/vm_applications_service_provider.h"
 #include "chromeos/dbus/session_manager_client.h"
+#include "chromeos/dbus/util/version_loader.h"
 #include "chromeos/disks/disk_mount_manager.h"
 #include "chromeos/login/login_state.h"
 #include "chromeos/login_event_recorder.h"
@@ -166,8 +167,6 @@
 #include "net/base/network_change_notifier.h"
 #include "net/cert/nss_cert_database.h"
 #include "net/cert/nss_cert_database_chromeos.h"
-#include "net/url_request/url_request.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "printing/backend/print_backend.h"
 #include "rlz/buildflags/buildflags.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -317,7 +316,7 @@ class DBusServices {
         DBusThreadManager::Get()->GetSystemBus(),
         chromeos::DBusThreadManager::Get()->IsUsingFakes());
 
-    if (GetAshConfig() != ash::Config::MASH) {
+    if (features::IsAshInBrowserProcess()) {
       // In Mash, power policy is sent to powerd by ash.
       PowerPolicyController::Initialize(
           DBusThreadManager::Get()->GetPowerManagerClient());
@@ -394,7 +393,6 @@ class DBusServices {
     cryptohome::HomedirMethods::Initialize();
 
     NetworkHandler::Initialize();
-    CertLibrary::Initialize();
 
     // Initialize the network change notifier for Chrome OS. The network
     // change notifier starts to monitor changes from the power manager and
@@ -411,7 +409,6 @@ class DBusServices {
   }
 
   ~DBusServices() {
-    CertLibrary::Shutdown();
     NetworkHandler::Shutdown();
     cryptohome::AsyncMethodCaller::Shutdown();
     disks::DiskMountManager::Shutdown();
@@ -427,7 +424,7 @@ class DBusServices {
     vm_applications_service_.reset();
     drive_file_stream_service_.reset();
     PowerDataCollector::Shutdown();
-    if (GetAshConfig() != ash::Config::MASH)
+    if (features::IsAshInBrowserProcess())
       PowerPolicyController::Shutdown();
     device::BluetoothAdapterFactory::Shutdown();
     bluez::BluezDBusManager::Shutdown();
@@ -527,6 +524,11 @@ class SystemTokenCertDBInitializer {
         std::move(system_slot) /* public_slot */,
         crypto::ScopedPK11Slot() /* private_slot */);
     database->SetSystemSlot(std::move(system_slot_copy));
+
+    // TODO(https://crbug.com/844537): Remove this after we've collected logs
+    // that show device-wide certificates disappearing.
+    database->LogUserCertificates("SystemTokenInitiallyLoaded");
+
     system_token_cert_database_ = std::move(database);
 
     VLOG(1) << "SystemTokenCertDBInitializer: Passing system token NSS "
@@ -600,6 +602,18 @@ int ChromeBrowserMainPartsChromeos::PreEarlyInitialization() {
 
   dbus_pre_early_init_ = std::make_unique<internal::DBusPreEarlyInit>();
 
+  if (!base::SysInfo::IsRunningOnChromeOS() &&
+      parsed_command_line().HasSwitch(
+          switches::kFakeDriveFsLauncherChrootPath) &&
+      parsed_command_line().HasSwitch(
+          switches::kFakeDriveFsLauncherSocketPath)) {
+    drivefs::FakeDriveFsLauncherClient::Init(
+        parsed_command_line().GetSwitchValuePath(
+            switches::kFakeDriveFsLauncherChrootPath),
+        parsed_command_line().GetSwitchValuePath(
+            switches::kFakeDriveFsLauncherSocketPath));
+  }
+
   return ChromeBrowserMainPartsLinux::PreEarlyInitialization();
 }
 
@@ -651,7 +665,8 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
       std::unique_ptr<quirks::QuirksManager::Delegate>(
           new quirks::QuirksManagerDelegateImpl()),
       g_browser_process->local_state(),
-      g_browser_process->system_request_context());
+      g_browser_process->system_network_context_manager()
+          ->GetSharedURLLoaderFactory());
 
   // Start loading machine statistics here. StatisticsProvider::Shutdown()
   // will ensure that loading is aborted on early exit.
@@ -675,11 +690,6 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
 
   chromeos::ResourceReporter::GetInstance()->StartMonitoring(
       task_manager::TaskManagerInterface::GetTaskManager());
-
-  if (!base::FeatureList::IsEnabled(features::kNativeNotifications) &&
-      !base::FeatureList::IsEnabled(features::kMash)) {
-    notification_client_.reset(NotificationPlatformBridge::Create());
-  }
 
   ChromeBrowserMainPartsLinux::PreMainMessageLoopRun();
 }
@@ -737,7 +747,7 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
 
   AccessibilityManager::Initialize();
 
-  if (chromeos::GetAshConfig() != ash::Config::MASH) {
+  if (features::IsAshInBrowserProcess()) {
     // Initialize magnification manager before ash tray is created. And this
     // must be placed after UserManager::SessionStarted();
     // TODO(sad): These components expects the ash::Shell instance to be
@@ -952,6 +962,7 @@ void ChromeBrowserMainPartsChromeos::PostProfileInit() {
 
   g_browser_process->platform_part()->InitializeAutomaticRebootManager();
   g_browser_process->platform_part()->InitializeDeviceDisablingManager();
+  user_removal_manager::RemoveUsersIfNeeded();
 
   // This observer cannot be created earlier because it requires the shell to be
   // available.
@@ -1001,11 +1012,12 @@ void ChromeBrowserMainPartsChromeos::PostBrowserStart() {
   spoken_feedback_event_rewriter_delegate_ =
       std::make_unique<SpokenFeedbackEventRewriterDelegate>();
 
-  if (chromeos::GetAshConfig() != ash::Config::MASH) {
+  if (features::IsAshInBrowserProcess()) {
     // TODO(mash): Support EventRewriterController; see crbug.com/647781
     ash::EventRewriterController* event_rewriter_controller =
         ash::Shell::Get()->event_rewriter_controller();
-    event_rewriter_delegate_ = std::make_unique<EventRewriterDelegateImpl>();
+    event_rewriter_delegate_ = std::make_unique<EventRewriterDelegateImpl>(
+        ash::Shell::Get()->activation_client());
     event_rewriter_controller->AddEventRewriter(
         std::make_unique<ui::EventRewriterChromeOS>(
             event_rewriter_delegate_.get(),
@@ -1083,12 +1095,14 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   // Detach D-Bus clients before DBusThreadManager is shut down.
   idle_action_warning_observer_.reset();
 
-  if (chromeos::GetAshConfig() != ash::Config::MASH)
+  if (features::IsAshInBrowserProcess())
     MagnificationManager::Shutdown();
 
   media::SoundsManager::Shutdown();
 
   system::StatisticsProvider::GetInstance()->Shutdown();
+
+  chromeos::DemoSession::ShutDownIfInitialized();
 
   // Let the UserManager unregister itself as an observer of the CrosSettings
   // singleton before it is destroyed. This also ensures that the UserManager
@@ -1116,9 +1130,6 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
       ->browser_policy_connector_chromeos()
       ->PreShutdown();
 
-  // Close the notification client before destroying the profile manager.
-  notification_client_.reset();
-
   // NOTE: Closes ash and destroys ash::Shell.
   ChromeBrowserMainPartsLinux::PostMainMessageLoopRun();
 
@@ -1132,7 +1143,7 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   // ChromeBrowserMainPartsLinux::PostMainMessageLoopRun().
   arc_service_launcher_.reset();
 
-  if (chromeos::GetAshConfig() != ash::Config::MASH)
+  if (features::IsAshInBrowserProcess())
     AccessibilityManager::Shutdown();
 
   input_method::Shutdown();

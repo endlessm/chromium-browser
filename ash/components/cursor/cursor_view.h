@@ -7,12 +7,17 @@
 
 #include "ash/components/fast_ink/fast_ink_view.h"
 #include "base/sequence_checker.h"
+#include "base/timer/timer.h"
 #include "components/viz/common/frame_sinks/delay_based_time_source.h"
 #include "ui/events/ozone/chromeos/cursor_controller.h"
 
 namespace base {
 class SingleThreadTaskRunner;
 }  // namespace base
+
+namespace gfx {
+struct PresentationFeedback;
+}
 
 namespace cursor {
 
@@ -44,9 +49,7 @@ class CursorView : public fast_ink::FastInkView,
   void SetActiveOnPaintThread(bool active);
   void SetTimebaseAndIntervalOnPaintThread(base::TimeTicks timebase,
                                            base::TimeDelta interval);
-  void DidPresentCompositorFrame(base::TimeTicks time,
-                                 base::TimeDelta refresh,
-                                 uint32_t flags);
+  void DidPresentCompositorFrame(const gfx::PresentationFeedback& feedback);
 
   // Constants that can be used on any thread.
   const bool is_motion_blur_enabled_;
@@ -76,7 +79,7 @@ class CursorView : public fast_ink::FastInkView,
   SkMatrix motion_blur_matrix_;
   SkMatrix motion_blur_inverse_matrix_;
   std::unique_ptr<viz::DelayBasedTimeSource> time_source_;
-  std::unique_ptr<base::Timer> stationary_timer_;
+  base::RetainingOneShotTimer stationary_timer_;
   base::RepeatingCallback<void(const gfx::Rect&, const gfx::Rect&, bool)>
       update_surface_callback_;
   SEQUENCE_CHECKER(paint_sequence_checker_);

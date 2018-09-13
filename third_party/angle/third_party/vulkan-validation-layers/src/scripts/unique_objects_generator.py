@@ -156,22 +156,19 @@ class UniqueObjectsOutputGenerator(OutputGenerator):
             'vkDestroyRenderPass',
             'vkSetDebugUtilsObjectNameEXT',
             'vkSetDebugUtilsObjectTagEXT',
-            ]
-        # Commands shadowed by interface functions and are not implemented
-        self.interface_functions = [
             'vkGetPhysicalDeviceDisplayPropertiesKHR',
+            'vkGetPhysicalDeviceDisplayProperties2KHR',
             'vkGetPhysicalDeviceDisplayPlanePropertiesKHR',
+            'vkGetPhysicalDeviceDisplayPlaneProperties2KHR',
             'vkGetDisplayPlaneSupportedDisplaysKHR',
             'vkGetDisplayModePropertiesKHR',
-            'vkGetDisplayPlaneCapabilitiesKHR',
-            # VK_EXT_debug_report APIs are hooked, but handled separately in the source file
-            'vkCreateDebugReportCallbackEXT',
-            'vkDestroyDebugReportCallbackEXT',
-            'vkDebugReportMessageEXT',
-            # VK_EXT_debug_utils APIs are hooked, but handled separately in the source file
+            'vkGetDisplayModeProperties2KHR',
             'vkCreateDebugUtilsMessengerEXT',
             'vkDestroyDebugUtilsMessengerEXT',
             'vkSubmitDebugUtilsMessageEXT',
+            'vkCreateDebugReportCallbackEXT',
+            'vkDestroyDebugReportCallbackEXT',
+            'vkDebugReportMessageEXT',
             ]
         self.headerVersion = None
         # Internal state - accumulators for different inner block text
@@ -848,8 +845,6 @@ class UniqueObjectsOutputGenerator(OutputGenerator):
         for api_call in self.cmdMembers:
             cmdname = api_call.name
             cmdinfo = cmd_info_dict[api_call.name]
-            if cmdname in self.interface_functions:
-                continue
             if cmdname in self.no_autogen_list:
                 decls = self.makeCDecls(cmdinfo.elem)
                 self.appendSection('command', '')

@@ -425,7 +425,7 @@ class MachineBlockPlacement : public MachineFunctionPass {
       MachineBasicBlock *BB, MachineBasicBlock *LPred,
       BlockChain &Chain, BlockFilterSet *BlockFilter,
       MachineFunction::iterator &PrevUnplacedBlockIt,
-      bool &DuplicatedToPred);
+      bool &DuplicatedToLPred);
   bool hasBetterLayoutPredecessor(
       const MachineBasicBlock *BB, const MachineBasicBlock *Succ,
       const BlockChain &SuccChain, BranchProbability SuccProb,
@@ -474,7 +474,7 @@ class MachineBlockPlacement : public MachineFunctionPass {
   /// fallthroughs.
   bool isProfitableToTailDup(
     const MachineBasicBlock *BB, const MachineBasicBlock *Succ,
-    BranchProbability AdjustedSumProb,
+    BranchProbability QProb,
     const BlockChain &Chain, const BlockFilterSet *BlockFilter);
 
   /// Check for a trellis layout.
@@ -2759,7 +2759,7 @@ bool MachineBlockPlacement::runOnMachineFunction(MachineFunction &MF) {
     TailDupSize = TailDupPlacementAggressiveThreshold;
 
   TargetPassConfig *PassConfig = &getAnalysis<TargetPassConfig>();
-  // For agressive optimization, we can adjust some thresholds to be less
+  // For aggressive optimization, we can adjust some thresholds to be less
   // conservative.
   if (PassConfig->getOptLevel() >= CodeGenOpt::Aggressive) {
     // At O3 we should be more willing to copy blocks for tail duplication. This

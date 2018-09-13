@@ -8,8 +8,6 @@
 #include "base/time/time.h"
 #include "chrome/browser/vr/platform_controller.h"
 #include "chrome/browser/vr/platform_input_handler.h"
-#include "third_party/blink/public/platform/web_gesture_event.h"
-#include "third_party/blink/public/platform/web_mouse_event.h"
 
 namespace vr {
 
@@ -48,26 +46,21 @@ void ContentInputDelegate::OnSwapContents(int new_content_id) {
 }
 
 void ContentInputDelegate::SendGestureToTarget(
-    std::unique_ptr<blink::WebInputEvent> event) {
-  if (!event || !input_handler() || ContentGestureIsLocked(event->GetType()))
+    std::unique_ptr<InputEvent> event) {
+  if (!event || !input_handler() || ContentGestureIsLocked(event->type()))
     return;
 
   input_handler()->ForwardEventToContent(std::move(event), content_id_);
 }
 
-bool ContentInputDelegate::ContentGestureIsLocked(
-    blink::WebInputEvent::Type type) {
-  // TODO (asimjour) create a new MouseEnter event when we swap webcontents and
+bool ContentInputDelegate::ContentGestureIsLocked(InputEvent::Type type) {
+  // TODO (asimjour) create a new HoverEnter event when we swap webcontents and
   // pointer is on the content quad.
-  if (type == blink::WebInputEvent::kGestureScrollBegin ||
-      type == blink::WebInputEvent::kMouseMove ||
-      type == blink::WebInputEvent::kMouseDown ||
-      type == blink::WebInputEvent::kMouseEnter)
+  if (type == InputEvent::kScrollBegin || type == InputEvent::kHoverMove ||
+      type == InputEvent::kButtonDown || type == InputEvent::kHoverEnter)
     locked_content_id_ = content_id_;
 
-  if (locked_content_id_ != content_id_)
-    return true;
-  return false;
+  return locked_content_id_ != content_id_;
 }
 
 void ContentInputDelegate::OnWebInputIndicesChanged(
@@ -114,7 +107,6 @@ void ContentInputDelegate::OnWebInputIndicesChanged(
       i.selection_end == selection_end &&
       i.composition_start == composition_start &&
       i.composition_end == composition_end) {
-    pending_text_input_info_ = TextInputInfo();
     pending_text_request_state_ = kNoPendingRequest;
     return;
   }
@@ -144,46 +136,6 @@ void ContentInputDelegate::OnWebInputTextChanged(const base::string16& text) {
   auto update_state_callback = std::move(update_state_callbacks_.front());
   update_state_callbacks_.pop();
   base::ResetAndReturn(&update_state_callback).Run(pending_text_input_info_);
-}
-
-std::unique_ptr<blink::WebMouseEvent> ContentInputDelegate::MakeMouseEvent(
-    blink::WebInputEvent::Type type,
-    const gfx::PointF& normalized_web_content_location) {
-  if (!controller_)
-    return nullptr;
-
-  gfx::Point location(size().width() * normalized_web_content_location.x(),
-                      size().height() * normalized_web_content_location.y());
-  blink::WebInputEvent::Modifiers modifiers =
-      controller_->IsButtonDown(PlatformController::kButtonSelect)
-          ? blink::WebInputEvent::kLeftButtonDown
-          : blink::WebInputEvent::kNoModifiers;
-
-  base::TimeTicks timestamp;
-  switch (type) {
-    case blink::WebInputEvent::kMouseUp:
-    case blink::WebInputEvent::kMouseDown:
-      timestamp = controller_->GetLastButtonTimestamp();
-      break;
-    case blink::WebInputEvent::kMouseMove:
-    case blink::WebInputEvent::kMouseEnter:
-    case blink::WebInputEvent::kMouseLeave:
-      timestamp = controller_->GetLastOrientationTimestamp();
-      break;
-    default:
-      NOTREACHED();
-  }
-
-  auto mouse_event =
-      std::make_unique<blink::WebMouseEvent>(type, modifiers, timestamp);
-  mouse_event->pointer_type = blink::WebPointerProperties::PointerType::kMouse;
-  mouse_event->button = blink::WebPointerProperties::Button::kLeft;
-  mouse_event->SetPositionInWidget(location.x(), location.y());
-  // TODO(mthiesse): Should we support double-clicks for input? What should the
-  // timeout be?
-  mouse_event->click_count = 1;
-
-  return mouse_event;
 }
 
 }  // namespace vr

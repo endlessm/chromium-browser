@@ -12,7 +12,7 @@
 #include "base/metrics/histogram_samples.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
@@ -82,9 +82,9 @@ class TestSyncService : public browser_sync::ProfileSyncServiceMock {
   ~TestSyncService() override {}
 
   // FakeSyncService:
+  int GetDisableReasons() const override { return DISABLE_REASON_NONE; }
+  State GetState() const override { return State::ACTIVE; }
   bool IsFirstSetupComplete() const override { return true; }
-  bool IsSyncAllowed() const override { return true; }
-  bool IsSyncActive() const override { return true; }
   syncer::ModelTypeSet GetActiveDataTypes() const override {
     switch (synced_types_) {
       case SyncedTypes::ALL:
@@ -95,7 +95,6 @@ class TestSyncService : public browser_sync::ProfileSyncServiceMock {
     NOTREACHED();
     return syncer::ModelTypeSet();
   }
-  bool CanSyncStart() const override { return true; }
   syncer::ModelTypeSet GetPreferredDataTypes() const override {
     return GetActiveDataTypes();
   }
@@ -107,6 +106,8 @@ class TestSyncService : public browser_sync::ProfileSyncServiceMock {
 
  private:
   SyncedTypes synced_types_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestSyncService);
 };
 
 std::unique_ptr<KeyedService> TestingSyncFactoryFunction(
@@ -541,47 +542,6 @@ TEST_F(ManagePasswordsBubbleModelTest, SignInPromoDismiss) {
       password_manager::prefs::kWasSignInPasswordPromoClicked));
 }
 
-namespace {
-
-struct TitleTestCase {
-  TestSyncService::SyncedTypes synced_types;
-  const char* expected_title;
-};
-
-}  // namespace
-
-class ManagePasswordsBubbleModelTitleTest
-    : public ManagePasswordsBubbleModelTest,
-      public ::testing::WithParamInterface<TitleTestCase> {};
-
-TEST_P(ManagePasswordsBubbleModelTitleTest, BrandedTitleOnSaving) {
-  TitleTestCase test_case = GetParam();
-  TestSyncService* sync_service = static_cast<TestSyncService*>(
-      ProfileSyncServiceFactory::GetInstance()->SetTestingFactoryAndUse(
-          profile(), &TestingSyncFactoryFunction));
-  sync_service->set_synced_types(test_case.synced_types);
-
-  PretendPasswordWaiting();
-  EXPECT_THAT(base::UTF16ToUTF8(model()->title()),
-              testing::HasSubstr(test_case.expected_title));
-}
-
-namespace {
-
-// Below, "Chrom" is the common prefix of Chromium and Google Chrome. Ideally,
-// we would use the localised strings, but ResourceBundle does not get
-// initialised for this unittest.
-constexpr TitleTestCase kTitleTestCases[] = {
-    {TestSyncService::SyncedTypes::ALL, "Google Smart Lock"},
-    {TestSyncService::SyncedTypes::NONE, "Chrom"},
-};
-
-}  // namespace
-
-INSTANTIATE_TEST_CASE_P(Default,
-                        ManagePasswordsBubbleModelTitleTest,
-                        ::testing::ValuesIn(kTitleTestCases));
-
 class ManagePasswordsBubbleModelManageLinkTest
     : public ManagePasswordsBubbleModelTest,
       public ::testing::WithParamInterface<TestSyncService::SyncedTypes> {};
@@ -721,6 +681,7 @@ TEST_F(ManagePasswordsBubbleModelTest, EyeIcon_ReauthForPasswordsRevealing) {
       for (ManagePasswordsBubbleModel::DisplayReason display_reason :
            {ManagePasswordsBubbleModel::AUTOMATIC,
             ManagePasswordsBubbleModel::USER_ACTION}) {
+        // That state is impossible.
         if (is_manual_fallback_for_saving &&
             (display_reason == ManagePasswordsBubbleModel::AUTOMATIC))
           continue;
@@ -739,13 +700,15 @@ TEST_F(ManagePasswordsBubbleModelTest, EyeIcon_ReauthForPasswordsRevealing) {
         EXPECT_CALL(*controller(), ArePasswordsRevealedWhenBubbleIsOpened())
             .WillOnce(Return(false));
         EXPECT_CALL(*controller(), BubbleIsManualFallbackForSaving())
-            .WillOnce(Return(is_manual_fallback_for_saving));
+            .WillRepeatedly(Return(is_manual_fallback_for_saving));
 
         PretendPasswordWaiting(display_reason);
-        bool reauth_expected =
-            is_manual_fallback_for_saving
-                ? form_has_autofilled_value
-                : display_reason == ManagePasswordsBubbleModel::USER_ACTION;
+        bool reauth_expected = form_has_autofilled_value;
+        if (!reauth_expected) {
+          reauth_expected =
+              !is_manual_fallback_for_saving &&
+              display_reason == ManagePasswordsBubbleModel::USER_ACTION;
+        }
         EXPECT_EQ(reauth_expected,
                   model()->password_revealing_requires_reauth());
 
@@ -753,7 +716,6 @@ TEST_F(ManagePasswordsBubbleModelTest, EyeIcon_ReauthForPasswordsRevealing) {
           EXPECT_CALL(*controller(), AuthenticateUser())
               .WillOnce(Return(false));
           EXPECT_FALSE(model()->RevealPasswords());
-          ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(controller()));
 
           EXPECT_CALL(*controller(), AuthenticateUser()).WillOnce(Return(true));
           EXPECT_TRUE(model()->RevealPasswords());
@@ -805,7 +767,7 @@ TEST_F(ManagePasswordsBubbleModelTest, PasswordsRevealedReportedAfterReauth) {
 
 TEST_F(ManagePasswordsBubbleModelTest, DisableEditing) {
   EXPECT_CALL(*controller(), BubbleIsManualFallbackForSaving())
-      .WillOnce(Return(false));
+      .WillRepeatedly(Return(false));
   EXPECT_CALL(*controller(), GetCredentialSource())
       .WillOnce(Return(password_manager::metrics_util::CredentialSourceType::
                            kCredentialManagementAPI));

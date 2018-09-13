@@ -466,3 +466,4 @@ DEF_TEST(rrect_region_crbug_850350, reporter) {
     SkRegion rgn;
     rgn.setPath(path, SkRegion{SkIRect{0, 0, 24, 24}});
 }
+

@@ -3385,8 +3385,8 @@ namespace X86 {   // Register class instances
 
 GR8Class::GR8Class()  : TargetRegisterClass(&X86MCRegisterClasses[GR8RegClassID], GR8VTs, GR8SubclassMask, NullRegClasses, GR8SuperRegClasses) {}
 
-static inline unsigned GR8AltOrderSelect(const MachineFunction &MF) {
-    return MF.getTarget().getSubtarget<X86Subtarget>().is64Bit();
+static inline unsigned GR8AltOrderSelect(const MachineFunction &MF) {
+    return MF.getTarget().getSubtarget<X86Subtarget>().is64Bit();
   }
 
 ArrayRef<unsigned> GR8Class::getRawAllocationOrder(const MachineFunction &MF) const {
@@ -3415,8 +3415,8 @@ GR64_TCClass::GR64_TCClass()  : TargetRegisterClass(&X86MCRegisterClasses[GR64_T
 GR64_NOREXClass::GR64_NOREXClass()  : TargetRegisterClass(&X86MCRegisterClasses[GR64_NOREXRegClassID], GR64_NOREXVTs, GR64_NOREXSubclassMask, GR64_NOREXSuperclasses, GR64_NOREXSuperRegClasses) {}
 GR8_NOREXClass::GR8_NOREXClass()  : TargetRegisterClass(&X86MCRegisterClasses[GR8_NOREXRegClassID], GR8_NOREXVTs, GR8_NOREXSubclassMask, GR8_NOREXSuperclasses, GR8_NOREXSuperRegClasses) {}
 
-static inline unsigned GR8_NOREXAltOrderSelect(const MachineFunction &MF) {
-    return MF.getTarget().getSubtarget<X86Subtarget>().is64Bit();
+static inline unsigned GR8_NOREXAltOrderSelect(const MachineFunction &MF) {
+    return MF.getTarget().getSubtarget<X86Subtarget>().is64Bit();
   }
 
 ArrayRef<unsigned> GR8_NOREXClass::getRawAllocationOrder(const MachineFunction &MF) const {

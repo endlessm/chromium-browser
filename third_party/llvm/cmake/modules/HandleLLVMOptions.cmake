@@ -48,14 +48,6 @@ elseif(LLVM_PARALLEL_LINK_JOBS)
   message(WARNING "Job pooling is only available with Ninja generators.")
 endif()
 
-if (LINKER_IS_LLD_LINK)
-  # Pass /MANIFEST:NO so that CMake doesn't run mt.exe on our binaries.  Adding
-  # manifests with mt.exe breaks LLD's symbol tables and takes as much time as
-  # the link. See PR24476.
-  append("/MANIFEST:NO"
-    CMAKE_EXE_LINKER_FLAGS CMAKE_MODULE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
-endif()
-
 if( LLVM_ENABLE_ASSERTIONS )
   # MSVC doesn't like _DEBUG on release builds. See PR 4379.
   if( NOT MSVC )
@@ -563,7 +555,7 @@ if (LLVM_ENABLE_WARNINGS AND (LLVM_COMPILER_IS_GCC_COMPATIBLE OR CLANG_CL))
     append("-Wall" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
   endif()
 
-  append("-W -Wno-unused-parameter -Wwrite-strings" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+  append("-Wextra -Wno-unused-parameter -Wwrite-strings" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
   append("-Wcast-qual" CMAKE_CXX_FLAGS)
 
   # Turn off missing field initializer warnings for gcc to avoid noise from

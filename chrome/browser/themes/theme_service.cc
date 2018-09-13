@@ -27,6 +27,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/browser_theme_pack.h"
 #include "chrome/browser/themes/custom_theme_supplier.h"
+#include "chrome/browser/themes/increased_contrast_theme_supplier.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/themes/theme_syncable_service.h"
@@ -106,6 +107,27 @@ void WritePackToDiskCallback(BrowserThemePack* pack,
                    false);
 }
 
+// For legacy reasons, the theme supplier requires the incognito variants of
+// color IDs.  This converts from normal to incognito IDs where they exist.
+int GetIncognitoId(int id) {
+  switch (id) {
+    case ThemeProperties::COLOR_FRAME:
+      return ThemeProperties::COLOR_FRAME_INCOGNITO;
+    case ThemeProperties::COLOR_FRAME_INACTIVE:
+      return ThemeProperties::COLOR_FRAME_INCOGNITO_INACTIVE;
+    case ThemeProperties::COLOR_BACKGROUND_TAB:
+      return ThemeProperties::COLOR_BACKGROUND_TAB_INCOGNITO;
+    case ThemeProperties::COLOR_BACKGROUND_TAB_INACTIVE:
+      return ThemeProperties::COLOR_BACKGROUND_TAB_INCOGNITO_INACTIVE;
+    case ThemeProperties::COLOR_BACKGROUND_TAB_TEXT:
+      return ThemeProperties::COLOR_BACKGROUND_TAB_TEXT_INCOGNITO;
+    case ThemeProperties::COLOR_BACKGROUND_TAB_TEXT_INACTIVE:
+      return ThemeProperties::COLOR_BACKGROUND_TAB_TEXT_INCOGNITO_INACTIVE;
+    default:
+      return id;
+  }
+}
+
 // Heuristic to determine if color is grayscale. This is used to decide whether
 // to use the colorful or white logo, if a theme fails to specify which.
 bool IsColorGrayscale(SkColor color) {
@@ -152,6 +174,12 @@ bool ThemeService::BrowserThemeProvider::ShouldUseNativeFrame() const {
 
 bool ThemeService::BrowserThemeProvider::HasCustomImage(int id) const {
   return theme_service_.HasCustomImage(id);
+}
+
+bool ThemeService::BrowserThemeProvider::HasCustomColor(int id) const {
+  bool has_custom_color = false;
+  theme_service_.GetColor(id, incognito_, &has_custom_color);
+  return has_custom_color;
 }
 
 base::RefCountedMemory* ThemeService::BrowserThemeProvider::GetRawData(
@@ -293,7 +321,7 @@ void ThemeService::SetTheme(const Extension* extension) {
 
 void ThemeService::RevertToTheme(const Extension* extension) {
   DCHECK(extension->is_theme());
-  ExtensionService* service =
+  extensions::ExtensionService* service =
       extensions::ExtensionSystem::Get(profile_)->extension_service();
   DCHECK(!service->IsExtensionEnabled(extension->id()));
   // |extension| is disabled when reverting to the previous theme via an
@@ -311,6 +339,12 @@ void ThemeService::UseDefaultTheme() {
     return;
   }
 #endif
+  ui::NativeTheme* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
+  // IncreasedContrastThemeSupplier is designed for the Refresh UI only.
+  if (native_theme && native_theme->UsesHighContrastColors() &&
+      ui::MaterialDesignController::IsRefreshUi()) {
+    SetCustomDefaultTheme(new IncreasedContrastThemeSupplier);
+  }
   ClearAllThemeData();
   NotifyThemeChanged();
 }
@@ -358,7 +392,7 @@ void ThemeService::RemoveUnusedThemes(bool ignore_infobars) {
   if (!ignore_infobars && number_of_infobars_ != 0)
     return;
 
-  ExtensionService* service =
+  extensions::ExtensionService* service =
       extensions::ExtensionSystem::Get(profile_)->extension_service();
   if (!service)
     return;
@@ -428,13 +462,6 @@ SkColor ThemeService::GetDefaultColor(int id, bool incognito) const {
       ui::MaterialDesignController::IsNewerMaterialUi();
   switch (id) {
     case ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON:
-      // Touch-optimized UI uses different colors than gfx::kChromeIconGrey.
-      // They are two specific colors in normal and incognito modes which we
-      // can't get one from the other by HSLShift().
-      // TODO: This will break custom themes. https://crbug.com/820495.
-      if (is_newer_material)
-        break;
-
       return color_utils::HSLShift(
           gfx::kChromeIconGrey,
           GetTint(ThemeProperties::TINT_BUTTONS, incognito));
@@ -466,10 +493,12 @@ SkColor ThemeService::GetDefaultColor(int id, bool incognito) const {
           GetColor(ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON, incognito),
           0x4D);
     }
-    case ThemeProperties::COLOR_BACKGROUND_TAB: {
-      // Touch optimized color design uses different tab background colors.
-      // TODO(malaykeshav) - This will break custom themes on touch optimized
-      // UI. Use tint shift instead. https://crbug.com/820495.
+    case ThemeProperties::COLOR_BACKGROUND_TAB:
+    case ThemeProperties::COLOR_BACKGROUND_TAB_INACTIVE: {
+      // Touchable hardcodes the background tab color. This can break custom
+      // themes, but touchable is replaced by touchable refresh, which doesn't
+      // use the default background tab color at all, so this issue won't be
+      // fixed.
       if (is_newer_material)
         break;
 
@@ -656,16 +685,16 @@ SkColor ThemeService::GetSeparatorColor(SkColor tab_color,
   // However, if the frame is already very dark or very light, respectively,
   // this won't contrast sufficiently with the frame color, so we'll need to
   // reverse when we're lightening and darkening.
-  const double tab_luminance = color_utils::GetRelativeLuminance(tab_color);
-  const double frame_luminance = color_utils::GetRelativeLuminance(frame_color);
+  const float tab_luminance = color_utils::GetRelativeLuminance(tab_color);
+  const float frame_luminance = color_utils::GetRelativeLuminance(frame_color);
   const bool lighten = tab_luminance < frame_luminance;
   SkColor separator_color = lighten ? SK_ColorWHITE : SK_ColorBLACK;
-  double separator_luminance = color_utils::GetRelativeLuminance(
+  float separator_luminance = color_utils::GetRelativeLuminance(
       color_utils::AlphaBlend(separator_color, frame_color, kAlpha));
   // The minimum contrast ratio here is just under the ~1.1469 in the default MD
   // incognito theme.  We want the separator to still darken the frame in that
   // theme, but that's about as low of contrast as we're willing to accept.
-  const double kMinContrastRatio = 1.1465;
+  const float kMinContrastRatio = 1.1465f;
   if (color_utils::GetContrastRatio(separator_luminance, frame_luminance) >=
       kMinContrastRatio)
     return SkColorSetA(separator_color, kAlpha);
@@ -683,7 +712,7 @@ SkColor ThemeService::GetSeparatorColor(SkColor tab_color,
   // The reversed separator doesn't contrast enough with the tab.  Compute the
   // resulting luminance from adjusting the tab color, instead of the frame
   // color, by the separator color.
-  const double target_luminance = color_utils::GetRelativeLuminance(
+  const float target_luminance = color_utils::GetRelativeLuminance(
       color_utils::AlphaBlend(separator_color, tab_color, kAlpha));
 
   // Now try to compute an alpha for the separator such that, when blended with
@@ -692,7 +721,7 @@ SkColor ThemeService::GetSeparatorColor(SkColor tab_color,
   // possible range of alpha values.
   SkAlpha alpha = 128;
   for (int delta = lighten ? 64 : -64; delta != 0; delta /= 2) {
-    const double luminance = color_utils::GetRelativeLuminance(
+    const float luminance = color_utils::GetRelativeLuminance(
         color_utils::AlphaBlend(separator_color, frame_color, alpha));
     if (luminance == target_luminance)
       break;
@@ -719,8 +748,13 @@ gfx::ImageSkia* ThemeService::GetImageSkiaNamed(int id, bool incognito) const {
   return const_cast<gfx::ImageSkia*>(image.ToImageSkia());
 }
 
-SkColor ThemeService::GetColor(int id, bool incognito) const {
+SkColor ThemeService::GetColor(int id,
+                               bool incognito,
+                               bool* has_custom_color) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (has_custom_color)
+    *has_custom_color = false;
 
   // The incognito NTP always uses the default background color, unless there is
   // a custom NTP background image. See also https://crbug.com/21798#c114.
@@ -729,19 +763,13 @@ SkColor ThemeService::GetColor(int id, bool incognito) const {
     return ThemeProperties::GetDefaultColor(id, incognito);
   }
 
-  // For legacy reasons, |theme_supplier_| requires the incognito variants
-  // of color IDs.
-  int theme_supplier_id = id;
-  if (incognito) {
-    if (id == ThemeProperties::COLOR_FRAME)
-      theme_supplier_id = ThemeProperties::COLOR_FRAME_INCOGNITO;
-    else if (id == ThemeProperties::COLOR_FRAME_INACTIVE)
-      theme_supplier_id = ThemeProperties::COLOR_FRAME_INCOGNITO_INACTIVE;
-  }
-
   SkColor color;
-  if (theme_supplier_ && theme_supplier_->GetColor(theme_supplier_id, &color))
+  const int theme_supplier_id = incognito ? GetIncognitoId(id) : id;
+  if (theme_supplier_ && theme_supplier_->GetColor(theme_supplier_id, &color)) {
+    if (has_custom_color)
+      *has_custom_color = true;
     return color;
+  }
 
   return GetDefaultColor(id, incognito);
 }
@@ -830,7 +858,7 @@ void ThemeService::OnExtensionServiceReady() {
 }
 
 void ThemeService::MigrateTheme() {
-  ExtensionService* service =
+  extensions::ExtensionService* service =
       extensions::ExtensionSystem::Get(profile_)->extension_service();
   const Extension* extension =
       service ? service->GetExtensionById(GetThemeID(), false) : nullptr;
@@ -895,7 +923,7 @@ void ThemeService::OnThemeBuiltFromExtension(
     return;
   }
 
-  ExtensionService* service =
+  extensions::ExtensionService* service =
       extensions::ExtensionSystem::Get(profile_)->extension_service();
   if (!service)
     return;

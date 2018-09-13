@@ -18,6 +18,7 @@
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
 #include "components/component_updater/component_updater_service.h"
+#include "components/component_updater/timer_update_scheduler.h"
 #include "components/gcm_driver/gcm_client_factory.h"
 #include "components/gcm_driver/gcm_desktop_utils.h"
 #include "components/gcm_driver/gcm_driver.h"
@@ -29,6 +30,7 @@
 #include "components/network_time/network_time_tracker.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
+#include "components/sessions/core/session_id_generator.h"
 #include "components/translate/core/browser/translate_download_manager.h"
 #include "components/ukm/ukm_service.h"
 #include "components/update_client/configurator.h"
@@ -53,7 +55,6 @@
 #include "net/socket/client_socket_pool_manager.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
-#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 
 ApplicationContextImpl::ApplicationContextImpl(
@@ -107,7 +108,11 @@ void ApplicationContextImpl::StartTearDown() {
 
   if (local_state_) {
     local_state_->CommitPendingWrite();
+    sessions::SessionIdGenerator::GetInstance()->Shutdown();
   }
+
+  if (shared_url_loader_factory_)
+    shared_url_loader_factory_->Detach();
 
   if (network_context_) {
     web::WebThread::DeleteSoon(web::WebThread::IO, FROM_HERE,
@@ -283,7 +288,7 @@ ApplicationContextImpl::GetNetworkTimeTracker() {
     network_time_tracker_.reset(new network_time::NetworkTimeTracker(
         base::WrapUnique(new base::DefaultClock),
         base::WrapUnique(new base::DefaultTickClock), GetLocalState(),
-        GetSystemURLRequestContext()));
+        GetSharedURLLoaderFactory()));
   }
   return network_time_tracker_.get();
 }
@@ -310,7 +315,8 @@ ApplicationContextImpl::GetComponentUpdateService() {
     // be registered and Start() needs to be called.
     component_updater_ = component_updater::ComponentUpdateServiceFactory(
         component_updater::MakeIOSComponentUpdaterConfigurator(
-            base::CommandLine::ForCurrentProcess()));
+            base::CommandLine::ForCurrentProcess()),
+        std::make_unique<component_updater::TimerUpdateScheduler>());
   }
   return component_updater_.get();
 }
@@ -336,6 +342,8 @@ void ApplicationContextImpl::CreateLocalState() {
   local_state_ = ::CreateLocalState(
       local_state_path, local_state_task_runner_.get(), pref_registry);
   DCHECK(local_state_);
+
+  sessions::SessionIdGenerator::GetInstance()->Init(local_state_.get());
 
   net::ClientSocketPoolManager::set_max_sockets_per_proxy_server(
       net::HttpNetworkSession::NORMAL_SOCKET_POOL,
@@ -364,7 +372,7 @@ void ApplicationContextImpl::CreateGCMDriver() {
 
   gcm_driver_ = gcm::CreateGCMDriverDesktop(
       base::WrapUnique(new gcm::GCMClientFactory), GetLocalState(), store_path,
-      GetSystemURLRequestContext(), ::GetChannel(),
+      GetSystemURLRequestContext(), GetSharedURLLoaderFactory(), ::GetChannel(),
       IOSChromeGCMProfileServiceFactory::GetProductCategoryForSubtypes(),
       web::WebThread::GetTaskRunnerForThread(web::WebThread::UI),
       web::WebThread::GetTaskRunnerForThread(web::WebThread::IO),

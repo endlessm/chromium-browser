@@ -83,7 +83,8 @@ class MockFrameHost : public mojom::FrameHost {
 
   void BeginNavigation(const CommonNavigationParams& common_params,
                        mojom::BeginNavigationParamsPtr begin_params,
-                       blink::mojom::BlobURLTokenPtr blob_url_token) override {}
+                       blink::mojom::BlobURLTokenPtr blob_url_token,
+                       mojom::NavigationClientAssociatedPtrInfo) override {}
 
   void SubresourceResponseStarted(const GURL& url,
                                   net::CertStatus cert_status) override {}
@@ -108,6 +109,8 @@ class MockFrameHost : public mojom::FrameHost {
   void UpdateEncoding(const std::string& encoding_name) override {}
 
   void FrameSizeChanged(const gfx::Size& frame_size) override {}
+
+  void FullscreenStateChanged(bool is_fullscreen) override {}
 
  private:
   std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params>
@@ -148,12 +151,13 @@ void TestRenderFrame::WillSendRequest(blink::WebURLRequest& request) {
 
 void TestRenderFrame::Navigate(const CommonNavigationParams& common_params,
                                const RequestNavigationParams& request_params) {
-  CommitNavigation(network::ResourceResponseHead(), common_params,
-                   request_params,
-                   network::mojom::URLLoaderClientEndpointsPtr(),
-                   std::make_unique<URLLoaderFactoryBundleInfo>(),
-                   base::nullopt, mojom::ControllerServiceWorkerInfoPtr(),
-                   base::UnguessableToken::Create());
+  CommitNavigation(
+      network::ResourceResponseHead(), common_params, request_params,
+      network::mojom::URLLoaderClientEndpointsPtr(),
+      std::make_unique<URLLoaderFactoryBundleInfo>(), base::nullopt,
+      mojom::ControllerServiceWorkerInfoPtr(),
+      network::mojom::URLLoaderFactoryPtr(), base::UnguessableToken::Create(),
+      CommitNavigationCallback());
 }
 
 void TestRenderFrame::SwapOut(
@@ -196,7 +200,7 @@ void TestRenderFrame::SetCompositionFromExistingText(
 }
 
 blink::WebNavigationPolicy TestRenderFrame::DecidePolicyForNavigation(
-    const blink::WebFrameClient::NavigationPolicyInfo& info) {
+    const blink::WebLocalFrameClient::NavigationPolicyInfo& info) {
   if (IsBrowserSideNavigationEnabled() &&
       info.url_request.CheckForBrowserSideNavigation() &&
       ((GetWebFrame()->Parent() && info.form.IsNull()) ||

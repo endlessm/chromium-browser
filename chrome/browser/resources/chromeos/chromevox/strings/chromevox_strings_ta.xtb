@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">கடவுச்சொல் திருத்த உரை</translation>
 <translation id="1802710350767629429">புதுப்பிப்புக் குறிப்புகளைக் காட்டு</translation>
 <translation id="1810107444790159527">பட்டியல் பெட்டி</translation>
+<translation id="1812527064848182527">லேண்ட்ஸ்கேப்</translation>
 <translation id="1828385960365606039">மே</translation>
 <translation id="1834891354138622109">நெடுவரிசை</translation>
 <translation id="1845944666972354496">செயல்படுத்த, இருமுறை தட்டவும்</translation>
@@ -146,6 +147,7 @@
 <translation id="2416512023405990736">தேர்வுநீக்கப்பட்ட செக்பாக்ஸ்</translation>
 <translation id="2417569100218200841">உள்ளடக்கத் தகவல்</translation>
 <translation id="2417948780551741035">முடிவுக்குறிப்புகள்</translation>
+<translation id="2421113964388408478">நீக்கும்</translation>
 <translation id="2422937916923936891">மெனு உருப்படி செக் பாக்ஸ்</translation>
 <translation id="2428534162001909979">கட்டளை மெனுக்கள்</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@
 <translation id="3232388865800379423">பாப் அப் பொத்தான்</translation>
 <translation id="3241052487511142956">முந்தையதாக பார்வையிட்ட இணைப்பு</translation>
 <translation id="3241638166094654466">ஒவ்வொரு வரியிலும் உள்ள கலங்கள்:</translation>
+<translation id="3286372614333682499">போர்ட்ரெயிட்</translation>
 <translation id="3286390186030710347">ஸ்லைடர்</translation>
 <translation id="3299925995433437805">அடுத்ததாக பார்வையிட்ட இணைப்பு இல்லை.</translation>
 <translation id="3300348286427369683">உயர் உரை ஆதரவு. இப்போது உரையில் தாவுவதற்கான கட்டளைகள், பிரெய்ல் கர்சர் ரூட்டிங், தேர்ந்தெடுத்தல் மற்றும் பல அம்சங்கள் உட்பட உயர் உரைப் புலங்களை ChromeVox ஆதரிக்கிறது.</translation>
@@ -426,6 +429,7 @@
 <translation id="4476183483923481720">புதிய வரி</translation>
 <translation id="4482330759234983253">முந்தைய அட்டவணை</translation>
 <translation id="4491109536499578614">படம்</translation>
+<translation id="4505167975768625962">செருகும்</translation>
 <translation id="4517854969512651305">மதிப்பை அதிகரிக்கும்</translation>
 <translation id="4529987814483543472">கிளாஸிக் விசைவரைபடம்</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{சாய்கோடு}other{# சாய்கோடுகள்}}</translation>
@@ -589,6 +593,7 @@
 <translation id="5712338278108304766">அடுத்த அட்டவணை நெடுவரிசை</translation>
 <translation id="571866080859340309">குழுக்களை ஆராய்கிறது</translation>
 <translation id="5728409797179002635">அட்டவணை காணப்படவில்லை.</translation>
+<translation id="5729047866208036762">கணித உள்ளடக்கத்தை ஆராய்வதற்கு மேல்,கீழ், இடது அல்லது வலது அம்புக்குறிகளை அழுத்தவும்.</translation>
 <translation id="5732189279857692565">இது இரண்டாவது தலைப்பாகும். தொடர்ந்து வாசிக்க, தேடு மற்றும் Hஐ அல்லது தேடு, ஷிஃப்ட் மற்றும் Hஐ ஒன்றாக அழுத்தவும்</translation>
 <translation id="5748623122140342504">முந்தைய 5 ஆம் படிநிலை தலைப்பு</translation>
 <translation id="5750633686117194034">மாற்றி எதுவும் அழுத்தப்படவில்லை; ஒன்று அல்லது அதற்கு மேற்பட்ட மாற்றிகளை அழுத்திப் பிடிக்கவும்; முடித்தவுடன் உங்கள் விரல்களை எடுக்கவும், விசைகள் அமைக்கப்படுவதைக் கேட்பீர்கள். வெளியேறத் தட்டவும்.</translation>
@@ -744,6 +749,7 @@ Chrome உலாவி மெனுவைத் திறக்க, Alt+F வி
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">6 புள்ளி பிரெய்லி அட்டவணையைத் தேர்ந்தெடுக்கவும்:</translation>
 <translation id="72393384879519786">தலைப்பு</translation>
+<translation id="7240858705033280249">விவரங்களைக் காட்டு</translation>
 <translation id="7241683698754534149">நீண்ட விளக்கத்தைப் புதிய தாவலில் திறக்கவும்</translation>
 <translation id="7248671827512403053">பயன்பாடு</translation>
 <translation id="725969808843520477">அடுத்த ரேடியோ பொத்தான்</translation>
@@ -920,6 +926,7 @@ Chrome உலாவி மெனுவைத் திறக்க, Alt+F வி
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">8 புள்ளி பிரெய்லி அட்டவணையைத் தேர்ந்தெடுக்கவும்:</translation>
 <translation id="9065283790526219006">+பாப்அப்</translation>
+<translation id="9066023754636984703">விவரங்களைப் பார்க்க, Search+A, Jவை அழுத்தவும்.</translation>
 <translation id="9067522039955793016">பக்க முறிப்பு</translation>
 <translation id="9077213568694924680">தேர்விலிருந்து அகற்றப்பட்டது</translation>
 <translation id="9082874451376019682">முந்தைய ஸ்லைடர் இல்லை.</translation>

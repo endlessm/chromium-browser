@@ -21,10 +21,14 @@ class OmniboxMatchCellView : public views::View {
   ~OmniboxMatchCellView() override;
 
   views::ImageView* icon() { return icon_view_; }
-  views::ImageView* image() { return image_view_; }
+  views::ImageView* answer_image() { return answer_image_view_; }
   OmniboxTextView* content() { return content_view_; }
   OmniboxTextView* description() { return description_view_; }
   OmniboxTextView* separator() { return separator_view_; }
+
+  // Used to define the amount the keyword view overlaps with the suggestion
+  // view in non-keyword mode.
+  int IconWidthAndPadding() const;
 
   void OnMatchUpdate(const OmniboxResultView* result_view,
                      const AutocompleteMatch& match);
@@ -33,25 +37,28 @@ class OmniboxMatchCellView : public views::View {
   gfx::Size CalculatePreferredSize() const override;
   bool CanProcessEventsWithinSubtree() const override;
 
+  // The right-hand margin used for rows with the refresh UI.
+  static constexpr int kRefreshMarginRight = 8;
+
  protected:
   // views::View:
   void Layout() override;
   const char* GetClassName() const override;
 
-  // Returns the height of the the description section of answer suggestions.
-  int GetDescriptionHeight() const;
-
-  void LayoutOldStyleAnswer();
-  void LayoutRichSuggestion();
-  void LayoutSplit();
+  void LayoutOldStyleAnswer(int icon_view_width, int text_indent);
+  void LayoutNewStyleTwoLineSuggestion();
+  void LayoutOneLineSuggestion(int icon_view_width, int text_indent);
 
   bool is_old_style_answer_;
   bool is_rich_suggestion_;
   bool is_search_type_;
+  bool should_show_tab_match_ = false;
 
   // Weak pointers for easy reference.
-  views::ImageView* icon_view_;   // An icon representing the type or content.
-  views::ImageView* image_view_;  // For rich suggestions.
+  // An icon representing the type or content.
+  views::ImageView* icon_view_;
+  // The image for answers in suggest and rich entity suggestions.
+  views::ImageView* answer_image_view_;
   OmniboxTextView* content_view_;
   OmniboxTextView* description_view_;
   OmniboxTextView* separator_view_;

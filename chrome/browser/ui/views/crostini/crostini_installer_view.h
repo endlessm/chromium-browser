@@ -9,10 +9,13 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
+#include "ui/views/controls/link_listener.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace views {
+class ImageView;
 class Label;
+class Link;
 class ProgressBar;
 }  // namespace views
 
@@ -26,6 +29,7 @@ class Profile;
 // installs it if the user chooses to do so.
 class CrostiniInstallerView
     : public views::DialogDelegateView,
+      public views::LinkListener,
       public crostini::CrostiniManager::RestartObserver {
  public:
   // These values are persisted to logs. Entries should not be renumbered and
@@ -39,6 +43,7 @@ class CrostiniInstallerView
     kErrorCreatingDiskImage = 5,
     kErrorStartingTermina = 6,
     kErrorStartingContainer = 7,
+    kErrorOffline = 8,
     kCount
   };
 
@@ -47,11 +52,14 @@ class CrostiniInstallerView
   // views::DialogDelegateView:
   int GetDialogButtons() const override;
   base::string16 GetDialogButtonLabel(ui::DialogButton button) const override;
-  base::string16 GetWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
+  bool ShouldShowWindowTitle() const override;
   bool Accept() override;
   bool Cancel() override;
   gfx::Size CalculatePreferredSize() const override;
+
+  // views::LinkListener:
+  void LinkClicked(views::Link* source, int event_flags) override;
 
   // crostini::CrostiniManager::RestartObserver
   void OnComponentLoaded(crostini::ConciergeClientResult result) override;
@@ -84,13 +92,17 @@ class CrostiniInstallerView
   void ShowLoginShell();
   void StepProgress();
   void SetMessageLabel();
+  void SetBigMessageLabel();
 
   void RecordSetupResultHistogram(SetupResult result);
 
   State state_ = State::PROMPT;
+  views::ImageView* logo_image_ = nullptr;
+  views::Label* big_message_label_ = nullptr;
   views::Label* message_label_ = nullptr;
+  views::Link* learn_more_link_ = nullptr;
+  views::ImageView* big_image_ = nullptr;
   views::ProgressBar* progress_bar_ = nullptr;
-  base::string16 app_name_;
   Profile* profile_;
   crostini::CrostiniManager::RestartId restart_id_ =
       crostini::CrostiniManager::kUninitializedRestartId;

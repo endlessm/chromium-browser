@@ -54,6 +54,7 @@ namespace spv {
 #ifdef AMD_EXTENSIONS
         #include "GLSL.ext.AMD.h"
 #endif
+
 #ifdef NV_EXTENSIONS
         #include "GLSL.ext.NV.h"
 #endif
@@ -80,12 +81,15 @@ static void Kill(std::ostream& out, const char* message)
 // used to identify the extended instruction library imported when printing
 enum ExtInstSet {
     GLSL450Inst,
+
 #ifdef AMD_EXTENSIONS
     GLSLextAMDInst,
 #endif
+
 #ifdef NV_EXTENSIONS
     GLSLextNVInst,
 #endif
+
     OpenCLExtInst,
 };
 
@@ -349,10 +353,21 @@ void SpirvStream::disassembleInstruction(Id resultId, Id /*typeId*/, Op opCode, 
         if (resultId != 0 && idDescriptor[resultId].size() == 0) {
             switch (opCode) {
             case OpTypeInt:
-                idDescriptor[resultId] = "int";
+                switch (stream[word]) {
+                case 8:  idDescriptor[resultId] = "int8_t"; break;
+                case 16: idDescriptor[resultId] = "int16_t"; break;
+                default: assert(0); // fallthrough
+                case 32: idDescriptor[resultId] = "int"; break;
+                case 64: idDescriptor[resultId] = "int64_t"; break;
+                }
                 break;
             case OpTypeFloat:
-                idDescriptor[resultId] = "float";
+                switch (stream[word]) {
+                case 16: idDescriptor[resultId] = "float16_t"; break;
+                default: assert(0); // fallthrough
+                case 32: idDescriptor[resultId] = "float"; break;
+                case 64: idDescriptor[resultId] = "float64_t"; break;
+                }
                 break;
             case OpTypeBool:
                 idDescriptor[resultId] = "bool";
@@ -364,8 +379,18 @@ void SpirvStream::disassembleInstruction(Id resultId, Id /*typeId*/, Op opCode, 
                 idDescriptor[resultId] = "ptr";
                 break;
             case OpTypeVector:
-                if (idDescriptor[stream[word]].size() > 0)
+                if (idDescriptor[stream[word]].size() > 0) {
                     idDescriptor[resultId].append(idDescriptor[stream[word]].begin(), idDescriptor[stream[word]].begin() + 1);
+                    if (strstr(idDescriptor[stream[word]].c_str(), "8")) {
+                        idDescriptor[resultId].append("8");
+                    }
+                    if (strstr(idDescriptor[stream[word]].c_str(), "16")) {
+                        idDescriptor[resultId].append("16");
+                    }
+                    if (strstr(idDescriptor[stream[word]].c_str(), "64")) {
+                        idDescriptor[resultId].append("64");
+                    }
+                }
                 idDescriptor[resultId].append("vec");
                 switch (stream[word + 1]) {
                 case 2:   idDescriptor[resultId].append("2");   break;
@@ -652,7 +677,6 @@ static const char* GLSLextAMDGetDebugNames(const char* name, unsigned entrypoint
     return "Bad";
 }
 #endif
-
 
 #ifdef NV_EXTENSIONS
 static const char* GLSLextNVGetDebugNames(const char* name, unsigned entrypoint)

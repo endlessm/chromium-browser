@@ -282,6 +282,13 @@ void AArch64InstPrinter::printInst(const MCInst *MI, raw_ostream &O,
     return;
   }
 
+  // Instruction TSB is specified as a one operand instruction, but 'csync' is
+  // not encoded, so for printing it is treated as a special case here:
+  if (Opcode == AArch64::TSB) {
+    O << "\ttsb\tcsync";
+    return;
+  }
+
   if (!printAliasInstr(MI, STI, O))
     printInstruction(MI, STI, O);
 
@@ -1329,6 +1336,9 @@ void AArch64InstPrinter::printBarrierOption(const MCInst *MI, unsigned OpNo,
   if (Opcode == AArch64::ISB) {
     auto ISB = AArch64ISB::lookupISBByEncoding(Val);
     Name = ISB ? ISB->Name : "";
+  } else if (Opcode == AArch64::TSB) {
+    auto TSB = AArch64TSB::lookupTSBByEncoding(Val);
+    Name = TSB ? TSB->Name : "";
   } else {
     auto DB = AArch64DB::lookupDBByEncoding(Val);
     Name = DB ? DB->Name : "";
@@ -1436,4 +1446,101 @@ void AArch64InstPrinter::printSVERegOp(const MCInst *MI, unsigned OpNum,
   O << getRegisterName(Reg);
   if (suffix != 0)
     O << '.' << suffix;
+}
+
+template <typename T>
+void AArch64InstPrinter::printImmSVE(T Value, raw_ostream &O) {
+  typename std::make_unsigned<T>::type HexValue = Value;
+
+  if (getPrintImmHex())
+    O << '#' << formatHex((uint64_t)HexValue);
+  else
+    O << '#' << formatDec(Value);
+
+  if (CommentStream) {
+    // Do the opposite to that used for instruction operands.
+    if (getPrintImmHex())
+      *CommentStream << '=' << formatDec(HexValue) << '\n';
+    else
+      *CommentStream << '=' << formatHex((uint64_t)Value) << '\n';
+  }
+}
+
+template <typename T>
+void AArch64InstPrinter::printImm8OptLsl(const MCInst *MI, unsigned OpNum,
+                                         const MCSubtargetInfo &STI,
+                                         raw_ostream &O) {
+  unsigned UnscaledVal = MI->getOperand(OpNum).getImm();
+  unsigned Shift = MI->getOperand(OpNum + 1).getImm();
+  assert(AArch64_AM::getShiftType(Shift) == AArch64_AM::LSL &&
+         "Unexepected shift type!");
+
+  // #0 lsl #8 is never pretty printed
+  if ((UnscaledVal == 0) && (AArch64_AM::getShiftValue(Shift) != 0)) {
+    O << '#' << formatImm(UnscaledVal);
+    printShifter(MI, OpNum + 1, STI, O);
+    return;
+  }
+
+  T Val;
+  if (std::is_signed<T>())
+    Val = (int8_t)UnscaledVal * (1 << AArch64_AM::getShiftValue(Shift));
+  else
+    Val = (uint8_t)UnscaledVal * (1 << AArch64_AM::getShiftValue(Shift));
+
+  printImmSVE(Val, O);
+}
+
+template <typename T>
+void AArch64InstPrinter::printSVELogicalImm(const MCInst *MI, unsigned OpNum,
+                                            const MCSubtargetInfo &STI,
+                                            raw_ostream &O) {
+  typedef typename std::make_signed<T>::type SignedT;
+  typedef typename std::make_unsigned<T>::type UnsignedT;
+
+  uint64_t Val = MI->getOperand(OpNum).getImm();
+  UnsignedT PrintVal = AArch64_AM::decodeLogicalImmediate(Val, 64);
+
+  // Prefer the default format for 16bit values, hex otherwise.
+  if ((int16_t)PrintVal == (SignedT)PrintVal)
+    printImmSVE((T)PrintVal, O);
+  else if ((uint16_t)PrintVal == PrintVal)
+    printImmSVE(PrintVal, O);
+  else
+    O << '#' << formatHex((uint64_t)PrintVal);
+}
+
+template <int Width>
+void AArch64InstPrinter::printZPRasFPR(const MCInst *MI, unsigned OpNum,
+                                       const MCSubtargetInfo &STI,
+                                       raw_ostream &O) {
+  unsigned Base;
+  switch (Width) {
+  case 8:   Base = AArch64::B0; break;
+  case 16:  Base = AArch64::H0; break;
+  case 32:  Base = AArch64::S0; break;
+  case 64:  Base = AArch64::D0; break;
+  case 128: Base = AArch64::Q0; break;
+  default:
+    llvm_unreachable("Unsupported width");
+  }
+  unsigned Reg = MI->getOperand(OpNum).getReg();
+  O << getRegisterName(Reg - AArch64::Z0 + Base);
+}
+
+template <unsigned ImmIs0, unsigned ImmIs1>
+void AArch64InstPrinter::printExactFPImm(const MCInst *MI, unsigned OpNum,
+                                         const MCSubtargetInfo &STI,
+                                         raw_ostream  &O) {
+  auto *Imm0Desc = AArch64ExactFPImm::lookupExactFPImmByEnum(ImmIs0);
+  auto *Imm1Desc = AArch64ExactFPImm::lookupExactFPImmByEnum(ImmIs1);
+  unsigned Val = MI->getOperand(OpNum).getImm();
+  O << "#" << (Val ? Imm1Desc->Repr : Imm0Desc->Repr);
+}
+
+void AArch64InstPrinter::printGPR64as32(const MCInst *MI, unsigned OpNum,
+                                        const MCSubtargetInfo &STI,
+                                        raw_ostream &O) {
+  unsigned Reg = MI->getOperand(OpNum).getReg();
+  O << getRegisterName(getWRegFromXReg(Reg));
 }

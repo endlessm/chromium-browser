@@ -28,12 +28,6 @@ class MockAsyncMethodCaller : public AsyncMethodCaller {
 
   void SetUp(bool success, MountError return_code);
 
-  MOCK_METHOD4(AsyncMigrateKey,
-               void(const Identification& user_id,
-                    const std::string& old_hash,
-                    const std::string& new_hash,
-                    Callback callback));
-  MOCK_METHOD1(AsyncMountGuest, void(Callback callback));
   MOCK_METHOD2(AsyncRemove,
                void(const Identification& user_id, Callback callback));
   MOCK_METHOD2(AsyncTpmAttestationCreateEnrollRequest,
@@ -76,10 +70,6 @@ class MockAsyncMethodCaller : public AsyncMethodCaller {
                     const std::string& key_name,
                     const std::string& challenge,
                     const DataCallback& callback));
-  MOCK_METHOD2(AsyncGetSanitizedUsername,
-               void(const Identification& user_id,
-                    const DataCallback& callback));
-
  private:
   bool success_;
   MountError return_code_;

@@ -25,7 +25,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/apps/app_browsertest_util.h"
+#include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/download/download_core_service.h"
@@ -43,6 +43,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -50,6 +51,8 @@
 #include "components/guest_view/browser/guest_view_manager_delegate.h"
 #include "components/guest_view/browser/guest_view_manager_factory.h"
 #include "components/guest_view/browser/test_guest_view_manager.h"
+#include "components/version_info/channel.h"
+#include "components/version_info/version_info.h"
 #include "components/viz/common/features.h"
 #include "content/public/browser/ax_event_notification_details.h"
 #include "content/public/browser/browser_thread.h"
@@ -69,11 +72,11 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/fake_speech_recognition_manager.h"
+#include "content/public/test/hit_test_region_observer.h"
 #include "content/public/test/test_file_error_injector.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/test_utils.h"
-#include "device/geolocation/public/cpp/scoped_geolocation_overrider.h"
 #include "extensions/browser/api/declarative/rules_cache_delegate.h"
 #include "extensions/browser/api/declarative/rules_registry.h"
 #include "extensions/browser/api/declarative/rules_registry_service.h"
@@ -84,6 +87,7 @@
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extensions_client.h"
+#include "extensions/common/features/feature_channel.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "media/base/media_switches.h"
 #include "net/dns/mock_host_resolver.h"
@@ -91,6 +95,7 @@
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "ppapi/buildflags/buildflags.h"
+#include "services/device/public/cpp/test/scoped_geolocation_overrider.h"
 #include "third_party/blink/public/platform/web_mouse_event.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
@@ -374,7 +379,7 @@ class MockWebContentsDelegate : public content::WebContentsDelegate {
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
-      const content::MediaResponseCallback& callback) override {
+      content::MediaResponseCallback callback) override {
     requested_ = true;
     if (request_message_loop_runner_.get())
       request_message_loop_runner_->Quit();
@@ -852,17 +857,13 @@ class WebViewTest : public extensions::PlatformAppBrowserTest {
   content::WebContents* embedder_web_contents_;
 };
 
-class WebViewNewWindowTest : public WebViewTest {};
-
-class WebViewSizeTest : public WebViewTest {};
-
-class WebViewVisibilityTest : public WebViewTest {};
-
-class WebViewSpeechAPITest : public WebViewTest {};
-
 // The following test suites are created to group tests based on specific
 // features of <webview>.
-class WebViewAccessibilityTest : public WebViewTest {};
+using WebViewNewWindowTest = WebViewTest;
+using WebViewSizeTest = WebViewTest;
+using WebViewVisibilityTest = WebViewTest;
+using WebViewSpeechAPITest = WebViewTest;
+using WebViewAccessibilityTest = WebViewTest;
 
 class WebViewDPITest : public WebViewTest {
  protected:
@@ -948,32 +949,36 @@ class WebContentsAudioMutedObserver : public content::WebContentsObserver {
   DISALLOW_COPY_AND_ASSIGN(WebContentsAudioMutedObserver);
 };
 
-class WasAudibleWebContentsDelegate : public content::WebContentsDelegate {
+class IsAudibleObserver : public content::WebContentsObserver {
  public:
-  WasAudibleWebContentsDelegate() : invalidate_type_tab_seen_(false) {}
+  explicit IsAudibleObserver(content::WebContents* contents)
+      : WebContentsObserver(contents) {}
+  ~IsAudibleObserver() override {}
 
-  void NavigationStateChanged(content::WebContents* contents,
-                              content::InvalidateTypes changed_flags) override {
-    if (changed_flags == content::INVALIDATE_TYPE_TAB) {
-      invalidate_type_tab_seen_ = true;
-      if (message_loop_runner_.get())
-        message_loop_runner_->Quit();
-    }
-  }
+  void WaitForCurrentlyAudible(bool audible) {
+    // If there's no state change to observe then return right away.
+    if (web_contents()->IsCurrentlyAudible() == audible)
+      return;
 
-  void WaitForInvalidateTypeTab() {
-    if (!invalidate_type_tab_seen_) {
-      message_loop_runner_ = new content::MessageLoopRunner;
-      message_loop_runner_->Run();
-    }
-    invalidate_type_tab_seen_ = false;
+    message_loop_runner_ = new content::MessageLoopRunner;
+    message_loop_runner_->Run();
+    message_loop_runner_ = nullptr;
+
+    EXPECT_EQ(audible, web_contents()->IsCurrentlyAudible());
+    EXPECT_EQ(audible, audible_);
   }
 
  private:
-  bool invalidate_type_tab_seen_;
+  void OnAudioStateChanged(bool audible) override {
+    audible_ = audible;
+    if (message_loop_runner_.get())
+      message_loop_runner_->Quit();
+  }
+
+  bool audible_;
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
 
-  DISALLOW_COPY_AND_ASSIGN(WasAudibleWebContentsDelegate);
+  DISALLOW_COPY_AND_ASSIGN(IsAudibleObserver);
 };
 
 IN_PROC_BROWSER_TEST_F(WebViewTest, AudibilityStatePropagates) {
@@ -983,13 +988,9 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, AudibilityStatePropagates) {
 
   content::WebContents* embedder = GetEmbedderWebContents();
   content::WebContents* guest = GetGuestWebContents();
-
-  EXPECT_FALSE(embedder->WasRecentlyAudible());
-  EXPECT_FALSE(guest->WasRecentlyAudible());
-
-  std::unique_ptr<WasAudibleWebContentsDelegate> was_audible_delegate(
-      new WasAudibleWebContentsDelegate);
-  embedder->SetDelegate(was_audible_delegate.get());
+  IsAudibleObserver embedder_obs(embedder);
+  EXPECT_FALSE(embedder->IsCurrentlyAudible());
+  EXPECT_FALSE(guest->IsCurrentlyAudible());
 
   // Just in case we get console error messages from the guest, we should
   // surface them in the test output.
@@ -1011,18 +1012,15 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, AudibilityStatePropagates) {
       audio_url.spec().c_str());
   EXPECT_TRUE(content::ExecuteScript(guest, setup_audio_script));
 
-  was_audible_delegate->WaitForInvalidateTypeTab();
-  EXPECT_TRUE(embedder->WasRecentlyAudible());
-  EXPECT_TRUE(guest->WasRecentlyAudible());
+  // Wait for audio to start.
+  embedder_obs.WaitForCurrentlyAudible(true);
+  EXPECT_TRUE(embedder->IsCurrentlyAudible());
+  EXPECT_TRUE(guest->IsCurrentlyAudible());
 
-  // Wait for audio to stop (the .mp3 is shorter than the audio stream
-  // monitor's timeout, so no need to explicitly stop it. Other callers may
-  // call NotifyNavigationStateChanged() on the embedder web contents, so
-  // we may have to wait several times).
-  while (embedder->WasRecentlyAudible())
-    was_audible_delegate->WaitForInvalidateTypeTab();
-  EXPECT_FALSE(embedder->WasRecentlyAudible());
-  EXPECT_FALSE(guest->WasRecentlyAudible());
+  // Wait for audio to stop.
+  embedder_obs.WaitForCurrentlyAudible(false);
+  EXPECT_FALSE(embedder->IsCurrentlyAudible());
+  EXPECT_FALSE(guest->IsCurrentlyAudible());
 }
 
 IN_PROC_BROWSER_TEST_F(WebViewTest, WebViewRespectsInsets) {
@@ -1895,7 +1893,7 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, MAYBE_InterstitialPageFocusedWidget) {
   content::RenderWidgetHost* interstitial_widget =
       interstitial_main_frame->GetRenderViewHost()->GetWidget();
 
-  content::WaitForChildFrameSurfaceReady(interstitial_main_frame);
+  content::WaitForHitTestDataOrChildSurfaceReady(interstitial_main_frame);
 
   EXPECT_NE(interstitial_widget,
             content::GetFocusedRenderWidgetHost(guest_web_contents));
@@ -3319,12 +3317,29 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, Shim_TestZoomBeforeNavigation) {
   TestHelper("testZoomBeforeNavigation", "web_view/shim", NO_TEST_SERVER);
 }
 
+// Test fixture to run the test on multiple channels.
+class WebViewChannelTest
+    : public WebViewTest,
+      public testing::WithParamInterface<version_info::Channel> {
+ public:
+  WebViewChannelTest() : channel_(GetParam()) {}
+
+ private:
+  extensions::ScopedCurrentChannel channel_;
+  DISALLOW_COPY_AND_ASSIGN(WebViewChannelTest);
+};
+
 // This test verify that the set of rules registries of a webview will be
 // removed from RulesRegistryService after the webview is gone.
 // http://crbug.com/438327
-IN_PROC_BROWSER_TEST_F(
-    WebViewTest,
+IN_PROC_BROWSER_TEST_P(
+    WebViewChannelTest,
     DISABLED_Shim_TestRulesRegistryIDAreRemovedAfterWebViewIsGone) {
+  ASSERT_EQ(extensions::GetCurrentChannel(), GetParam());
+  SCOPED_TRACE(
+      base::StringPrintf("Testing Channel %s",
+                         version_info::GetChannelString(GetParam()).c_str()));
+
   LoadAppWithGuest("web_view/rules_registry");
 
   content::WebContents* embedder_web_contents = GetEmbedderWebContents();
@@ -3348,12 +3363,12 @@ IN_PROC_BROWSER_TEST_F(
   extensions::RulesRegistryService* registry_service =
       extensions::RulesRegistryService::Get(profile);
   extensions::TestRulesRegistry* rules_registry =
-      new extensions::TestRulesRegistry(
-          content::BrowserThread::UI, "ui", rules_registry_id);
+      new extensions::TestRulesRegistry(content::BrowserThread::UI, "ui",
+                                        rules_registry_id);
   registry_service->RegisterRulesRegistry(base::WrapRefCounted(rules_registry));
 
-  EXPECT_TRUE(registry_service->GetRulesRegistry(
-      rules_registry_id, "ui").get());
+  EXPECT_TRUE(
+      registry_service->GetRulesRegistry(rules_registry_id, "ui").get());
 
   // Kill the embedder's render process, so the webview will go as well.
   base::Process process = base::Process::DeprecatedGetProcessFromHandle(
@@ -3364,12 +3379,17 @@ IN_PROC_BROWSER_TEST_F(
   process.Terminate(0, false);
   observer->WaitForEmbedderRenderProcessTerminate();
 
-  EXPECT_FALSE(registry_service->GetRulesRegistry(
-      rules_registry_id, "ui").get());
+  EXPECT_FALSE(
+      registry_service->GetRulesRegistry(rules_registry_id, "ui").get());
 }
 
-IN_PROC_BROWSER_TEST_F(WebViewTest,
+IN_PROC_BROWSER_TEST_P(WebViewChannelTest,
                        Shim_WebViewWebRequestRegistryHasNoPersistentCache) {
+  ASSERT_EQ(extensions::GetCurrentChannel(), GetParam());
+  SCOPED_TRACE(
+      base::StringPrintf("Testing Channel %s",
+                         version_info::GetChannelString(GetParam()).c_str()));
+
   LoadAppWithGuest("web_view/rules_registry");
 
   content::WebContents* guest_web_contents = GetGuestWebContents();
@@ -3388,15 +3408,22 @@ IN_PROC_BROWSER_TEST_F(WebViewTest,
 
   // Get an existing registered rule for the guest.
   extensions::RulesRegistry* registry =
-      registry_service->GetRulesRegistry(
-          rules_registry_id,
-          extensions::declarative_webrequest_constants::kOnRequest).get();
+      registry_service
+          ->GetRulesRegistry(
+              rules_registry_id,
+              extensions::declarative_webrequest_constants::kOnRequest)
+          .get();
 
   ASSERT_TRUE(registry);
   ASSERT_TRUE(registry->rules_cache_delegate_for_testing());
   EXPECT_EQ(extensions::RulesCacheDelegate::Type::kEphemeral,
             registry->rules_cache_delegate_for_testing()->type());
 }
+
+INSTANTIATE_TEST_CASE_P(,
+                        WebViewChannelTest,
+                        testing::Values(version_info::Channel::UNKNOWN,
+                                        version_info::Channel::STABLE));
 
 // This test verifies that webview.contentWindow works inside an iframe.
 IN_PROC_BROWSER_TEST_F(WebViewTest, Shim_TestWebViewInsideFrame) {
@@ -3624,7 +3651,8 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, ReloadAfterCrash) {
   // Load guest and wait for it to appear.
   LoadAppWithGuest("web_view/simple");
   EXPECT_TRUE(GetGuestWebContents()->GetMainFrame()->GetView());
-  WaitForChildFrameSurfaceReady(GetGuestWebContents()->GetMainFrame());
+  content::RenderFrameSubmissionObserver frame_observer(GetGuestWebContents());
+  frame_observer.WaitForMetadataChange();
 
   // Kill guest.
   auto* rph = GetGuestWebContents()->GetMainFrame()->GetProcess();
@@ -3640,11 +3668,8 @@ IN_PROC_BROWSER_TEST_F(WebViewTest, ReloadAfterCrash) {
                             "document.querySelector('webview').reload()"));
   load_observer.Wait();
   EXPECT_TRUE(GetGuestWebContents()->GetMainFrame()->GetView());
-
-  // When the frame passed has a RenderWidgetHostViewChildFrame,
-  // WaitForChildFrameSurfaceReady will only return when the guest is embedded
-  // within the root surface.
-  WaitForChildFrameSurfaceReady(GetGuestWebContents()->GetMainFrame());
+  // Ensure that the guest produces a new frame.
+  frame_observer.WaitForAnyFrameSubmission();
 }
 
 // The presence of DomAutomationController interferes with these tests, so we
@@ -3749,13 +3774,27 @@ class WebContentsAccessibilityEventWatcher
   }
 
   void AccessibilityEventReceived(
-      const std::vector<content::AXEventNotificationDetails>& details_vector)
-          override {
-    for (auto& details : details_vector) {
-      if (details.event_type == event_ && details.update.nodes.size() > 0) {
-        count_++;
-        node_data_ = details.update.nodes[0];
-        loop_runner_->Quit();
+      const content::AXEventNotificationDetails& event_bundle) override {
+    bool found = false;
+    int event_node_id = 0;
+    for (auto& event : event_bundle.events) {
+      if (event.event_type == event_) {
+        event_node_id = event.id;
+        found = true;
+        break;
+      }
+    }
+    if (!found)
+      return;
+
+    for (auto& update : event_bundle.updates) {
+      for (auto& node : update.nodes) {
+        if (node.id == event_node_id) {
+          count_++;
+          node_data_ = node;
+          loop_runner_->Quit();
+          return;
+        }
       }
     }
   }
@@ -3901,31 +3940,9 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest, TestGuestWheelScrollsBubble) {
   }
 }
 
-// Tests scroll latching behaviour with WebViews.
-// Only applicable with OOPIF-based guests when scroll latching is enabled.
-// We can move these tests to a more general fixture once the features
-// have landed (crbug.com/533069 and crbug.com/526463).
-class WebViewGuestScrollLatchingTest : public WebViewTest {
- protected:
-  WebViewGuestScrollLatchingTest() {}
-  ~WebViewGuestScrollLatchingTest() override {}
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    WebViewTest::SetUpCommandLine(command_line);
-    feature_list_.InitWithFeatures({features::kTouchpadAndWheelScrollLatching,
-                                    features::kAsyncWheelEvents},
-                                   {});
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebViewGuestScrollLatchingTest);
-};
-
 // Test that when we bubble scroll from a guest, the guest does not also
 // consume the scroll.
-IN_PROC_BROWSER_TEST_F(WebViewGuestScrollLatchingTest,
+IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
                        ScrollLatchingPreservedInGuests) {
   LoadAppWithGuest("web_view/scrollable_embedder_and_guest");
 
@@ -4072,7 +4089,7 @@ IN_PROC_BROWSER_TEST_F(WebViewGuestTouchFocusBrowserPluginSpecificTest,
 
   // Don't send events that need to be routed until we know the child's surface
   // is ready for hit testing.
-  WaitForGuestSurfaceReady(guest_contents);
+  content::WaitForHitTestDataOrGuestSurfaceReady(guest_contents);
 
   // 1) BrowserPlugin should not be focused at start.
   EXPECT_FALSE(IsWebContentsBrowserPluginFocused(guest_contents));

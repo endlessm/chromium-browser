@@ -30,7 +30,6 @@
 #include "chromeos/dbus/session_manager_client.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
-#include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/display.h"
 #include "ui/display/display_layout.h"
@@ -93,7 +92,7 @@ class DisplayRotationDefaultTest
     if (chromeos::LoginDisplayHost::default_host()) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::BindOnce(&chrome::AttemptExit));
-      content::RunMessageLoop();
+      RunUntilBrowserProcessQuits();
     }
   }
 

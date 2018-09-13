@@ -37,10 +37,11 @@ class CHROMEOS_EXPORT FakeCryptohomeClient : public CryptohomeClient {
       WaitForServiceToBeAvailableCallback callback) override;
   void IsMounted(DBusMethodCallback<bool> callback) override;
   void Unmount(DBusMethodCallback<bool> callback) override;
-  void AsyncMigrateKey(const cryptohome::Identification& cryptohome_id,
-                       const std::string& from_key,
-                       const std::string& to_key,
-                       AsyncMethodCallback callback) override;
+  void MigrateKeyEx(
+      const cryptohome::AccountIdentifier& account,
+      const cryptohome::AuthorizationRequest& auth_request,
+      const cryptohome::MigrateKeyRequest& migrate_request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) override;
   void AsyncRemove(const cryptohome::Identification& cryptohome_id,
                    AsyncMethodCallback callback) override;
   void RenameCryptohome(
@@ -56,7 +57,9 @@ class CHROMEOS_EXPORT FakeCryptohomeClient : public CryptohomeClient {
                             DBusMethodCallback<std::string> callback) override;
   std::string BlockingGetSanitizedUsername(
       const cryptohome::Identification& cryptohome_id) override;
-  void AsyncMountGuest(AsyncMethodCallback callback) override;
+  void MountGuestEx(
+      const cryptohome::MountGuestRequest& request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) override;
   void TpmIsReady(DBusMethodCallback<bool> callback) override;
   void TpmIsEnabled(DBusMethodCallback<bool> callback) override;
   bool CallTpmIsEnabledAndBlock(bool* enabled) override;
@@ -206,6 +209,11 @@ class CHROMEOS_EXPORT FakeCryptohomeClient : public CryptohomeClient {
   void GetSupportedKeyPolicies(
       const cryptohome::GetSupportedKeyPoliciesRequest& request,
       DBusMethodCallback<cryptohome::BaseReply> callback) override;
+  void IsQuotaSupported(DBusMethodCallback<bool> callback) override;
+  void GetCurrentSpaceForUid(uid_t android_uid,
+                             DBusMethodCallback<int64_t> callback) override;
+  void GetCurrentSpaceForGid(gid_t android_gid,
+                             DBusMethodCallback<int64_t> callback) override;
 
   /////////// Test helpers ////////////
 

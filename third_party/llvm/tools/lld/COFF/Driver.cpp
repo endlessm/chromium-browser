@@ -332,13 +332,24 @@ StringRef LinkerDriver::doFindFile(StringRef Filename) {
   return Filename;
 }
 
+static Optional<sys::fs::UniqueID> getUniqueID(StringRef Path) {
+  sys::fs::UniqueID Ret;
+  if (sys::fs::getUniqueID(Path, Ret))
+    return None;
+  return Ret;
+}
+
 // Resolves a file path. This never returns the same path
 // (in that case, it returns None).
 Optional<StringRef> LinkerDriver::findFile(StringRef Filename) {
   StringRef Path = doFindFile(Filename);
-  bool Seen = !VisitedFiles.insert(Path.lower()).second;
-  if (Seen)
-    return None;
+
+  if (Optional<sys::fs::UniqueID> ID = getUniqueID(Path)) {
+    bool Seen = !VisitedFiles.insert(*ID).second;
+    if (Seen)
+      return None;
+  }
+
   if (Path.endswith_lower(".lib"))
     VisitedLibs.insert(sys::path::filename(Path));
   return Path;
@@ -361,11 +372,14 @@ Optional<StringRef> LinkerDriver::findLib(StringRef Filename) {
     return None;
   if (!VisitedLibs.insert(Filename.lower()).second)
     return None;
+
   StringRef Path = doFindLib(Filename);
   if (Config->NoDefaultLibs.count(Path))
     return None;
-  if (!VisitedFiles.insert(Path.lower()).second)
-    return None;
+
+  if (Optional<sys::fs::UniqueID> ID = getUniqueID(Path))
+    if (!VisitedFiles.insert(*ID).second)
+      return None;
   return Path;
 }
 
@@ -400,7 +414,24 @@ StringRef LinkerDriver::mangle(StringRef Sym) {
 }
 
 // Windows specific -- find default entry point name.
+//
+// There are four different entry point functions for Windows executables,
+// each of which corresponds to a user-defined "main" function. This function
+// infers an entry point from a user-defined "main" function.
 StringRef LinkerDriver::findDefaultEntry() {
+  // As a special case, if /nodefaultlib is given, we directly look for an
+  // entry point. This is because, if no default library is linked, users
+  // need to define an entry point instead of a "main".
+  if (Config->NoDefaultLibAll) {
+    for (StringRef S : {"mainCRTStartup", "wmainCRTStartup",
+                        "WinMainCRTStartup", "wWinMainCRTStartup"}) {
+      StringRef Entry = Symtab->findMangle(S);
+      if (!Entry.empty() && !isa<Undefined>(Symtab->find(Entry)))
+        return mangle(S);
+    }
+    return "";
+  }
+
   // User-defined main functions and their corresponding entry points.
   static const char *Entries[][2] = {
       {"main", "mainCRTStartup"},
@@ -953,6 +984,9 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       Config->PDBAltPath = Arg->getValue();
     if (Args.hasArg(OPT_natvis))
       Config->NatvisFiles = Args.getAllArgValues(OPT_natvis);
+
+    if (auto *Arg = Args.getLastArg(OPT_pdb_source_path))
+      Config->PDBSourcePath = Arg->getValue();
   }
 
   // Handle /noentry
@@ -1086,12 +1120,12 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
         TailMerge = 0;
       } else if (S.startswith("lldlto=")) {
         StringRef OptLevel = S.substr(7);
-        if (OptLevel.getAsInteger(10, Config->LTOOptLevel) ||
-            Config->LTOOptLevel > 3)
+        if (OptLevel.getAsInteger(10, Config->LTOO) || Config->LTOO > 3)
           error("/opt:lldlto: invalid optimization level: " + OptLevel);
       } else if (S.startswith("lldltojobs=")) {
         StringRef Jobs = S.substr(11);
-        if (Jobs.getAsInteger(10, Config->LTOJobs) || Config->LTOJobs == 0)
+        if (Jobs.getAsInteger(10, Config->ThinLTOJobs) ||
+            Config->ThinLTOJobs == 0)
           error("/opt:lldltojobs: invalid job count: " + Jobs);
       } else if (S.startswith("lldltopartitions=")) {
         StringRef N = S.substr(17);
@@ -1196,11 +1230,14 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       Args.hasFlag(OPT_incremental, OPT_incremental_no,
                    !Config->DoGC && !Config->DoICF && !Args.hasArg(OPT_order) &&
                        !Args.hasArg(OPT_profile));
+  Config->IntegrityCheck =
+      Args.hasFlag(OPT_integritycheck, OPT_integritycheck_no, false);
   Config->NxCompat = Args.hasFlag(OPT_nxcompat, OPT_nxcompat_no, true);
   Config->TerminalServerAware =
       !Config->DLL && Args.hasFlag(OPT_tsaware, OPT_tsaware_no, true);
   Config->DebugDwarf = Args.hasArg(OPT_debug_dwarf);
   Config->DebugGHashes = Args.hasArg(OPT_debug_ghash);
+  Config->DebugSymtab = Args.hasArg(OPT_debug_symtab);
 
   Config->MapFile = getMapFile(Args);
 
@@ -1229,22 +1266,30 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (errorCount())
     return;
 
-  bool WholeArchiveFlag = Args.hasArg(OPT_wholearchive_flag);
+  std::set<sys::fs::UniqueID> WholeArchives;
+  for (auto *Arg : Args.filtered(OPT_wholearchive_file))
+    if (Optional<StringRef> Path = doFindFile(Arg->getValue()))
+      if (Optional<sys::fs::UniqueID> ID = getUniqueID(*Path))
+        WholeArchives.insert(*ID);
+
+  // A predicate returning true if a given path is an argument for
+  // /wholearchive:, or /wholearchive is enabled globally.
+  // This function is a bit tricky because "foo.obj /wholearchive:././foo.obj"
+  // needs to be handled as "/wholearchive:foo.obj foo.obj".
+  auto IsWholeArchive = [&](StringRef Path) -> bool {
+    if (Args.hasArg(OPT_wholearchive_flag))
+      return true;
+    if (Optional<sys::fs::UniqueID> ID = getUniqueID(Path))
+      return WholeArchives.count(*ID);
+    return false;
+  };
+
   // Create a list of input files. Files can be given as arguments
   // for /defaultlib option.
-  std::vector<MemoryBufferRef> MBs;
-  for (auto *Arg : Args.filtered(OPT_INPUT, OPT_wholearchive_file)) {
-    switch (Arg->getOption().getID()) {
-    case OPT_INPUT:
-      if (Optional<StringRef> Path = findFile(Arg->getValue()))
-        enqueuePath(*Path, WholeArchiveFlag);
-      break;
-    case OPT_wholearchive_file:
-      if (Optional<StringRef> Path = findFile(Arg->getValue()))
-        enqueuePath(*Path, true);
-      break;
-    }
-  }
+  for (auto *Arg : Args.filtered(OPT_INPUT, OPT_wholearchive_file))
+    if (Optional<StringRef> Path = findFile(Arg->getValue()))
+      enqueuePath(*Path, IsWholeArchive(*Path));
+
   for (auto *Arg : Args.filtered(OPT_defaultlib))
     if (Optional<StringRef> Path = findLib(Arg->getValue()))
       enqueuePath(*Path, false);
@@ -1359,7 +1404,12 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     // /pdbaltpath flag was passed.
     if (Config->PDBAltPath.empty()) {
       Config->PDBAltPath = Config->PDBPath;
+
+      // It's important to make the path absolute and remove dots.  This path
+      // will eventually be written into the PE header, and certain Microsoft
+      // tools won't work correctly if these assumptions are not held.
       sys::fs::make_absolute(Config->PDBAltPath);
+      sys::path::remove_dots(Config->PDBAltPath);
     }
   }
 

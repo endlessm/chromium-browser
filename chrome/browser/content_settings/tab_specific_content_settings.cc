@@ -147,8 +147,7 @@ void TabSpecificContentSettings::CookiesRead(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   TabSpecificContentSettings* settings = GetForWCGetter(wc_getter);
   if (settings) {
-    settings->OnCookiesRead(url, frame_url, cookie_list,
-                            blocked_by_policy);
+    settings->OnCookiesRead(url, frame_url, cookie_list, blocked_by_policy);
   }
 }
 
@@ -158,13 +157,11 @@ void TabSpecificContentSettings::CookieChanged(
     const GURL& url,
     const GURL& frame_url,
     const net::CanonicalCookie& cookie,
-    const net::CookieOptions& options,
     bool blocked_by_policy) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   TabSpecificContentSettings* settings = GetForWCGetter(wc_getter);
   if (settings)
-    settings->OnCookieChange(url, frame_url, cookie, options,
-                             blocked_by_policy);
+    settings->OnCookieChange(url, frame_url, cookie, blocked_by_policy);
 }
 
 // static
@@ -272,7 +269,8 @@ bool TabSpecificContentSettings::IsContentBlocked(
       content_type == CONTENT_SETTINGS_TYPE_MIDI_SYSEX ||
       content_type == CONTENT_SETTINGS_TYPE_ADS ||
       content_type == CONTENT_SETTINGS_TYPE_SOUND ||
-      content_type == CONTENT_SETTINGS_TYPE_CLIPBOARD_READ) {
+      content_type == CONTENT_SETTINGS_TYPE_CLIPBOARD_READ ||
+      content_type == CONTENT_SETTINGS_TYPE_SENSORS) {
     const auto& it = content_settings_status_.find(content_type);
     if (it != content_settings_status_.end())
       return it->second.blocked;
@@ -300,13 +298,15 @@ bool TabSpecificContentSettings::IsContentAllowed(
       << "Automatic downloads handled by DownloadRequestLimiter";
 
   // This method currently only returns meaningful values for the content type
-  // cookies, media, PPAPI broker, downloads, MIDI sysex, and clipboard.
+  // cookies, media, PPAPI broker, downloads, MIDI sysex, clipboard, and
+  // sensors.
   if (content_type != CONTENT_SETTINGS_TYPE_COOKIES &&
       content_type != CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC &&
       content_type != CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA &&
       content_type != CONTENT_SETTINGS_TYPE_PPAPI_BROKER &&
       content_type != CONTENT_SETTINGS_TYPE_MIDI_SYSEX &&
-      content_type != CONTENT_SETTINGS_TYPE_CLIPBOARD_READ) {
+      content_type != CONTENT_SETTINGS_TYPE_CLIPBOARD_READ &&
+      content_type != CONTENT_SETTINGS_TYPE_SENSORS) {
     return false;
   }
 
@@ -422,7 +422,6 @@ void TabSpecificContentSettings::OnCookieChange(
     const GURL& url,
     const GURL& frame_url,
     const net::CanonicalCookie& cookie,
-    const net::CookieOptions& options,
     bool blocked_by_policy) {
   if (blocked_by_policy) {
     blocked_local_shared_objects_.cookies()->AddChangedCookie(frame_url, url,
@@ -757,18 +756,14 @@ void TabSpecificContentSettings::OnContentSettingChanged(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
     ContentSettingsType content_type,
-    std::string resource_identifier) {
+    const std::string& resource_identifier) {
   const ContentSettingsDetails details(
       primary_pattern, secondary_pattern, content_type, resource_identifier);
-  const NavigationController& controller = web_contents()->GetController();
-  NavigationEntry* entry = controller.GetVisibleEntry();
-  GURL entry_url;
-  if (entry)
-    entry_url = entry->GetURL();
+  const GURL& visible_url = web_contents()->GetVisibleURL();
   if (details.update_all() ||
-      // The visible NavigationEntry is the URL in the URL field of a tab.
+      // The visible URL is the URL in the URL field of a tab.
       // Currently this should be matched by the |primary_pattern|.
-      details.primary_pattern().Matches(entry_url)) {
+      details.primary_pattern().Matches(visible_url)) {
     Profile* profile =
         Profile::FromBrowserContext(web_contents()->GetBrowserContext());
     const HostContentSettingsMap* map =

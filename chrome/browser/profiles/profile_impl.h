@@ -87,7 +87,8 @@ class ProfileImpl : public Profile {
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
   content::BrowsingDataRemoverDelegate* GetBrowsingDataRemoverDelegate()
       override;
-  content::PermissionManager* GetPermissionManager() override;
+  content::PermissionControllerDelegate* GetPermissionControllerDelegate()
+      override;
   content::BackgroundFetchDelegate* GetBackgroundFetchDelegate() override;
   content::BackgroundSyncController* GetBackgroundSyncController() override;
   net::URLRequestContextGetter* CreateRequestContext(
@@ -130,6 +131,7 @@ class ProfileImpl : public Profile {
   PrefService* GetReadOnlyOffTheRecordPrefs() override;
   net::URLRequestContextGetter* GetRequestContext() override;
   net::URLRequestContextGetter* GetRequestContextForExtensions() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   bool IsSameProfile(Profile* profile) override;
   base::Time GetStartTime() const override;
   base::FilePath last_selected_directory() override;
@@ -187,7 +189,6 @@ class ProfileImpl : public Profile {
   void UpdateAvatarInStorage();
   void UpdateIsEphemeralInStorage();
   void UpdateCTPolicy();
-  void UpdateBlockThirdPartyCookies();
 
   void ScheduleUpdateCTPolicy();
 
@@ -199,6 +200,11 @@ class ProfileImpl : public Profile {
   // Creates an instance of the Identity Service for this Profile, populating it
   // with the appropriate instances of its dependencies.
   std::unique_ptr<service_manager::Service> CreateIdentityService();
+
+#if defined(OS_CHROMEOS)
+  std::unique_ptr<service_manager::Service> CreateDeviceSyncService();
+  std::unique_ptr<service_manager::Service> CreateMultiDeviceSetupService();
+#endif  // defined(OS_CHROMEOS)
 
   PrefChangeRegistrar pref_change_registrar_;
 

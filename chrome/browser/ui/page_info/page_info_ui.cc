@@ -47,7 +47,7 @@ const int kInvalidResourceID = -1;
 // The icon size is actually 16, but the vector icons being used generally all
 // have additional internal padding. Account for this difference by asking for
 // the vectors in 18x18dip sizes.
-constexpr int kIconSize = 18;
+constexpr int kVectorIconSize = 18;
 #endif
 
 // The resource IDs for the strings that are displayed on the permissions
@@ -250,9 +250,15 @@ PageInfoUI::GetSecurityDescription(const IdentityInfo& identity_info) const {
       return CreateSecurityDescription(SecuritySummaryColor::RED,
                                        IDS_PAGE_INFO_UNWANTED_SOFTWARE_SUMMARY,
                                        IDS_PAGE_INFO_UNWANTED_SOFTWARE_DETAILS);
-    case PageInfo::SITE_IDENTITY_STATUS_PASSWORD_REUSE:
+    case PageInfo::SITE_IDENTITY_STATUS_SIGN_IN_PASSWORD_REUSE:
 #if defined(SAFE_BROWSING_DB_LOCAL)
-      return CreateSecurityDescriptionForPasswordReuse();
+      return CreateSecurityDescriptionForPasswordReuse(
+          /*is_enterprise_password=*/false);
+#endif
+    case PageInfo::SITE_IDENTITY_STATUS_ENTERPRISE_PASSWORD_REUSE:
+#if defined(SAFE_BROWSING_DB_LOCAL)
+      return CreateSecurityDescriptionForPasswordReuse(
+          /*is_enterprise_password=*/true);
 #endif
     case PageInfo::SITE_IDENTITY_STATUS_DEPRECATED_SIGNATURE_ALGORITHM:
     case PageInfo::SITE_IDENTITY_STATUS_UNKNOWN:
@@ -491,12 +497,12 @@ const gfx::ImageSkia PageInfoUI::GetPermissionIcon(const PermissionInfo& info,
                                : info.setting;
   if (setting == CONTENT_SETTING_BLOCK) {
     return gfx::CreateVectorIconWithBadge(
-        *icon, kIconSize,
+        *icon, kVectorIconSize,
         color_utils::DeriveDefaultIconColor(related_text_color),
         kBlockedBadgeIcon);
   }
   return gfx::CreateVectorIcon(
-      *icon, kIconSize,
+      *icon, kVectorIconSize,
       color_utils::DeriveDefaultIconColor(related_text_color));
 }
 
@@ -510,12 +516,12 @@ const gfx::ImageSkia PageInfoUI::GetChosenObjectIcon(
   const gfx::VectorIcon* icon = &vector_icons::kUsbIcon;
   if (deleted) {
     return gfx::CreateVectorIconWithBadge(
-        *icon, kIconSize,
+        *icon, kVectorIconSize,
         color_utils::DeriveDefaultIconColor(related_text_color),
         kBlockedBadgeIcon);
   }
   return gfx::CreateVectorIcon(
-      *icon, kIconSize,
+      *icon, kVectorIconSize,
       color_utils::DeriveDefaultIconColor(related_text_color));
 }
 
@@ -523,7 +529,7 @@ const gfx::ImageSkia PageInfoUI::GetChosenObjectIcon(
 const gfx::ImageSkia PageInfoUI::GetCertificateIcon(
     const SkColor related_text_color) {
   return gfx::CreateVectorIcon(
-      kCertificateIcon, kIconSize,
+      kCertificateIcon, kVectorIconSize,
       color_utils::DeriveDefaultIconColor(related_text_color));
 }
 
@@ -531,7 +537,7 @@ const gfx::ImageSkia PageInfoUI::GetCertificateIcon(
 const gfx::ImageSkia PageInfoUI::GetSiteSettingsIcon(
     const SkColor related_text_color) {
   return gfx::CreateVectorIcon(
-      kSettingsIcon, kIconSize,
+      kSettingsIcon, kVectorIconSize,
       color_utils::DeriveDefaultIconColor(related_text_color));
 }
 #endif

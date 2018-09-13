@@ -43,9 +43,7 @@ class NullMessageObserver : public RouteMessageObserver {
       : RouteMessageObserver(router, route_id) {}
   ~NullMessageObserver() final {}
 
-  void OnMessagesReceived(
-      const std::vector<content::PresentationConnectionMessage>& messages)
-      final {}
+  void OnMessagesReceived(const std::vector<mojom::RouteMessagePtr>) final {}
 };
 
 }  // namespace
@@ -199,6 +197,24 @@ TEST_F(MediaRouterDesktopTest, ProvideSinks) {
 TEST_F(MediaRouterDesktopTest, SendCastJoinRequestsToExtension) {
   TestJoinRoute(kAutoJoinPresentationId);
   TestJoinRoute(kCastPresentationIdPrefix + std::string("123"));
+}
+
+TEST_F(MediaRouterDesktopTest, ExtensionMrpRecoversFromConnectionError) {
+  MediaRouterDesktop* media_router_desktop =
+      static_cast<MediaRouterDesktop*>(router());
+  auto* extension_mrp_proxy =
+      media_router_desktop->extension_provider_proxy_.get();
+  // |media_router_desktop| detects connection error and reconnects with
+  // |extension_mrp_proxy|.
+  for (int i = 0; i < MediaRouterDesktop::kMaxMediaRouteProviderErrorCount;
+       i++) {
+    extension_mrp_proxy->binding_.Unbind();
+    base::RunLoop().RunUntilIdle();
+    EXPECT_TRUE(extension_mrp_proxy->binding_.is_bound());
+  }
+  extension_mrp_proxy->binding_.Unbind();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(extension_mrp_proxy->binding_.is_bound());
 }
 
 }  // namespace media_router

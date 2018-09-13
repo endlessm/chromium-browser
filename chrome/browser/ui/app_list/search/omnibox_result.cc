@@ -6,7 +6,7 @@
 
 #include <stddef.h>
 
-#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/vector_icons/vector_icons.h"
 #include "base/strings/string_split.h"
@@ -88,6 +88,7 @@ const gfx::VectorIcon& TypeToVectorIcon(AutocompleteMatchType::Type type) {
     case AutocompleteMatchType::PHYSICAL_WEB_DEPRECATED:
     case AutocompleteMatchType::PHYSICAL_WEB_OVERFLOW_DEPRECATED:
     case AutocompleteMatchType::TAB_SEARCH_DEPRECATED:
+    case AutocompleteMatchType::DOCUMENT_SUGGESTION:
       return kIcDomainIcon;
 
     case AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED:
@@ -163,7 +164,9 @@ void OmniboxResult::UpdateIcon() {
 
   const gfx::VectorIcon& icon =
       is_bookmarked ? kIcBookmarkIcon : TypeToVectorIcon(match_.type);
-  SetIcon(gfx::CreateVectorIcon(icon, kListIconSize, kListIconColor));
+  SetIcon(gfx::CreateVectorIcon(
+      icon, AppListConfig::instance().search_list_icon_dimension(),
+      kListIconColor));
 }
 
 void OmniboxResult::UpdateTitleAndDetails() {

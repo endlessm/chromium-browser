@@ -19,6 +19,8 @@
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/service.h"
 
 using base::android::JavaParamRef;
 
@@ -46,8 +48,17 @@ class DownloadManagerService
   DownloadManagerService();
   ~DownloadManagerService() override;
 
+  std::unique_ptr<service_manager::Service>
+  CreateServiceManagerServiceInstance();
+
+  void NotifyServiceStarted(
+      std::unique_ptr<service_manager::Connector> connector);
+
   // Called to Initialize this object.
   void Init(JNIEnv* env, jobject obj);
+
+  // Called to open a given download item.
+  void OpenDownload(download::DownloadItem* download, int source);
 
   // Called to open a download item whose GUID is equal to |jdownload_guid|.
   void OpenDownload(JNIEnv* env,

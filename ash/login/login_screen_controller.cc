@@ -5,10 +5,14 @@
 #include "ash/login/login_screen_controller.h"
 
 #include "ash/login/ui/lock_screen.h"
+#include "ash/login/ui/lock_window.h"
 #include "ash/login/ui/login_data_dispatcher.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller.h"
+#include "ash/shelf/login_shelf_view.h"
+#include "ash/shelf/shelf.h"
+#include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
 #include "ash/system/status_area_widget.h"
 #include "base/debug/alias.h"
@@ -70,15 +74,20 @@ void LoginScreenController::BindRequest(mojom::LoginScreenRequest request) {
   bindings_.AddBinding(this, std::move(request));
 }
 
+bool LoginScreenController::IsAuthenticating() const {
+  return authentication_stage_ != AuthenticationStage::kIdle;
+}
+
 void LoginScreenController::AuthenticateUser(const AccountId& account_id,
                                              const std::string& password,
                                              bool authenticated_by_pin,
                                              OnAuthenticateCallback callback) {
   // It is an error to call this function while an authentication is in
   // progress.
-  LOG_IF(ERROR, authentication_stage_ != AuthenticationStage::kIdle)
-      << "Authentication stage is " << static_cast<int>(authentication_stage_);
-  CHECK_EQ(authentication_stage_, AuthenticationStage::kIdle);
+  LOG_IF(ERROR, IsAuthenticating())
+      << "Duplicate authentication attempt; current authentication stage is "
+      << static_cast<int>(authentication_stage_);
+  CHECK(!IsAuthenticating());
 
   if (!login_screen_client_) {
     std::move(callback).Run(base::nullopt);
@@ -94,6 +103,9 @@ void LoginScreenController::AuthenticateUser(const AccountId& account_id,
       OnAuthenticateComplete(std::move(callback), false /*success*/);
       return;
     case ForceFailAuth::kDelayed:
+      // Set a dummy authentication stage so that |IsAuthenticating| returns
+      // true.
+      authentication_stage_ = AuthenticationStage::kDoAuthenticate;
       base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
           FROM_HERE,
           base::BindOnce(&LoginScreenController::OnAuthenticateComplete,
@@ -183,10 +195,11 @@ void LoginScreenController::FocusLockScreenApps(bool reverse) {
 }
 
 void LoginScreenController::ShowGaiaSignin(
-    const base::Optional<AccountId>& account_id) {
+    bool can_close,
+    const base::Optional<AccountId>& prefilled_account) {
   if (!login_screen_client_)
     return;
-  login_screen_client_->ShowGaiaSignin(account_id);
+  login_screen_client_->ShowGaiaSignin(can_close, prefilled_account);
 }
 
 void LoginScreenController::OnRemoveUserWarningShown() {
@@ -216,6 +229,12 @@ void LoginScreenController::RequestPublicSessionKeyboardLayouts(
   if (!login_screen_client_)
     return;
   login_screen_client_->RequestPublicSessionKeyboardLayouts(account_id, locale);
+}
+
+void LoginScreenController::ShowFeedback() {
+  if (!login_screen_client_)
+    return;
+  login_screen_client_->ShowFeedback();
 }
 
 void LoginScreenController::AddObserver(
@@ -302,6 +321,10 @@ void LoginScreenController::LoadUsers(
   DCHECK(DataDispatcher());
 
   DataDispatcher()->NotifyUsers(users);
+  Shelf::ForWindow(Shell::Get()->GetPrimaryRootWindow())
+      ->shelf_widget()
+      ->login_shelf_view()
+      ->SetAllowLoginAsGuest(show_guest);
 }
 
 void LoginScreenController::SetPinEnabledForUser(const AccountId& account_id,
@@ -345,8 +368,7 @@ void LoginScreenController::SetDevChannelInfo(
 
 void LoginScreenController::IsReadyForPassword(
     IsReadyForPasswordCallback callback) {
-  std::move(callback).Run(LockScreen::IsShown() &&
-                          authentication_stage_ == AuthenticationStage::kIdle);
+  std::move(callback).Run(LockScreen::HasInstance() && !IsAuthenticating());
 }
 
 void LoginScreenController::SetPublicSessionDisplayName(
@@ -384,6 +406,40 @@ void LoginScreenController::SetFingerprintUnlockState(
     DataDispatcher()->SetFingerprintUnlockState(account_id, state);
 }
 
+void LoginScreenController::SetKioskApps(
+    std::vector<mojom::KioskAppInfoPtr> kiosk_apps) {
+  Shelf::ForWindow(Shell::Get()->GetPrimaryRootWindow())
+      ->shelf_widget()
+      ->login_shelf_view()
+      ->SetKioskApps(std::move(kiosk_apps));
+}
+
+void LoginScreenController::NotifyOobeDialogVisibility(bool visible) {
+  Shelf::ForWindow(Shell::Get()->GetPrimaryRootWindow())
+      ->shelf_widget()
+      ->login_shelf_view()
+      ->SetLoginDialogVisible(visible);
+}
+
+void LoginScreenController::SetAddUserButtonEnabled(bool enable) {
+  Shelf::ForWindow(Shell::Get()->GetPrimaryRootWindow())
+      ->shelf_widget()
+      ->login_shelf_view()
+      ->SetAddUserButtonEnabled(enable);
+}
+
+void LoginScreenController::LaunchKioskApp(const std::string& app_id) {
+  login_screen_client_->LaunchKioskApp(app_id);
+}
+
+void LoginScreenController::LaunchArcKioskApp(const AccountId& account_id) {
+  login_screen_client_->LaunchArcKioskApp(account_id);
+}
+
+void LoginScreenController::ShowResetScreen() {
+  login_screen_client_->ShowResetScreen();
+}
+
 void LoginScreenController::DoAuthenticateUser(const AccountId& account_id,
                                                const std::string& password,
                                                bool authenticated_by_pin,
@@ -414,7 +470,7 @@ void LoginScreenController::OnAuthenticateComplete(
 }
 
 LoginDataDispatcher* LoginScreenController::DataDispatcher() const {
-  if (!ash::LockScreen::IsShown())
+  if (!ash::LockScreen::HasInstance())
     return nullptr;
   return ash::LockScreen::Get()->data_dispatcher();
 }

@@ -20,12 +20,13 @@ include_rules = [
   "+components/user_prefs",
   "+components/version_info",
   "+components/viz/common/switches.h",
+  "+components/zoom",
+  "+content/common/net",
   "+content/public/android",
   "+content/public/browser",
   "+content/public/common",
   "+content/public/test",
   "+device/bluetooth",
-  "+device/geolocation",
   "+extensions/browser",
   "+extensions/common",
   "+extensions/shell/browser/api",
@@ -49,6 +50,7 @@ include_rules = [
   "+ui/display",
   "+ui/ozone",
   "+ui/views",
+  "+ui/wm",
 
   # TODO(sanfin): Remove this by fixing the crash handler on android.
   "!chromecast/app",

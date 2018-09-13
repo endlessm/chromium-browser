@@ -41,9 +41,8 @@
 #include "google_apis/gcm/monitoring/gcm_stats_recorder.h"
 #include "google_apis/gcm/protocol/checkin.pb.h"
 #include "google_apis/gcm/protocol/mcs.pb.h"
-#include "net/http/http_network_session.h"
-#include "net/http/http_transaction_factory.h"
 #include "net/url_request/url_request_context.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "url/gurl.h"
 
 namespace gcm {
@@ -280,12 +279,10 @@ std::unique_ptr<MCSClient> GCMInternalsBuilder::BuildMCSClient(
 std::unique_ptr<ConnectionFactory> GCMInternalsBuilder::BuildConnectionFactory(
     const std::vector<GURL>& endpoints,
     const net::BackoffEntry::Policy& backoff_policy,
-    net::HttpNetworkSession* gcm_network_session,
-    net::HttpNetworkSession* http_network_session,
+    net::URLRequestContext* url_request_context,
     GCMStatsRecorder* recorder) {
-  return base::WrapUnique<ConnectionFactory>(
-      new ConnectionFactoryImpl(endpoints, backoff_policy, gcm_network_session,
-                                http_network_session, nullptr, recorder));
+  return base::WrapUnique<ConnectionFactory>(new ConnectionFactoryImpl(
+      endpoints, backoff_policy, url_request_context, recorder));
 }
 
 GCMClientImpl::CheckinInfo::CheckinInfo()
@@ -335,6 +332,7 @@ void GCMClientImpl::Initialize(
     const scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner,
     const scoped_refptr<net::URLRequestContextGetter>&
         url_request_context_getter,
+    const scoped_refptr<network::SharedURLLoaderFactory>& url_loader_factory,
     std::unique_ptr<Encryptor> encryptor,
     GCMClient::Delegate* delegate) {
   DCHECK_EQ(UNINITIALIZED, state_);
@@ -342,16 +340,7 @@ void GCMClientImpl::Initialize(
   DCHECK(delegate);
 
   url_request_context_getter_ = url_request_context_getter;
-  const net::HttpNetworkSession::Params* network_session_params =
-      url_request_context_getter_->GetURLRequestContext()->
-          GetNetworkSessionParams();
-  DCHECK(network_session_params);
-  const net::HttpNetworkSession::Context* network_session_context =
-      url_request_context_getter_->GetURLRequestContext()
-          ->GetNetworkSessionContext();
-  network_session_.reset(new net::HttpNetworkSession(*network_session_params,
-                                                     *network_session_context));
-
+  url_loader_factory_ = url_loader_factory;
   chrome_build_info_ = chrome_build_info;
 
   gcm_store_.reset(
@@ -508,13 +497,8 @@ void GCMClientImpl::InitializeMCSClient() {
   if (fallback_endpoint.is_valid())
     endpoints.push_back(fallback_endpoint);
   connection_factory_ = internals_builder_->BuildConnectionFactory(
-      endpoints,
-      GetGCMBackoffPolicy(),
-      network_session_.get(),
-      url_request_context_getter_->GetURLRequestContext()
-          ->http_transaction_factory()
-          ->GetSession(),
-      &recorder_);
+      endpoints, GetGCMBackoffPolicy(),
+      url_request_context_getter_->GetURLRequestContext(), &recorder_);
   connection_factory_->SetConnectionListener(this);
   mcs_client_ = internals_builder_->BuildMCSClient(
       chrome_build_info_.version, clock_, connection_factory_.get(),
@@ -651,7 +635,8 @@ void GCMClientImpl::SetLastTokenFetchTime(const base::Time& time) {
                  weak_ptr_factory_.GetWeakPtr()));
 }
 
-void GCMClientImpl::UpdateHeartbeatTimer(std::unique_ptr<base::Timer> timer) {
+void GCMClientImpl::UpdateHeartbeatTimer(
+    std::unique_ptr<base::RetainingOneShotTimer> timer) {
   DCHECK(mcs_client_);
   mcs_client_->UpdateHeartbeatTimer(std::move(timer));
 }
@@ -710,14 +695,11 @@ void GCMClientImpl::StartCheckin() {
                                            device_checkin_info_.account_tokens,
                                            gservices_settings_.digest(),
                                            chrome_build_proto);
-  checkin_request_.reset(
-      new CheckinRequest(gservices_settings_.GetCheckinURL(),
-                         request_info,
-                         GetGCMBackoffPolicy(),
-                         base::Bind(&GCMClientImpl::OnCheckinCompleted,
-                                    weak_ptr_factory_.GetWeakPtr()),
-                         url_request_context_getter_.get(),
-                         &recorder_));
+  checkin_request_.reset(new CheckinRequest(
+      gservices_settings_.GetCheckinURL(), request_info, GetGCMBackoffPolicy(),
+      base::Bind(&GCMClientImpl::OnCheckinCompleted,
+                 weak_ptr_factory_.GetWeakPtr()),
+      url_loader_factory_, &recorder_));
   // Taking a snapshot of the accounts count here, as there might be an asynch
   // update of the account tokens while checkin is in progress.
   device_checkin_info_.SnapshotCheckinAccounts();
@@ -992,7 +974,7 @@ void GCMClientImpl::Register(
           std::move(request_handler), GetGCMBackoffPolicy(),
           base::Bind(&GCMClientImpl::OnRegisterCompleted,
                      weak_ptr_factory_.GetWeakPtr(), registration_info),
-          kMaxRegistrationRetries, url_request_context_getter_, &recorder_,
+          kMaxRegistrationRetries, url_loader_factory_, &recorder_,
           source_to_record));
   registration_request->Start();
   pending_registration_requests_.insert(
@@ -1177,7 +1159,7 @@ void GCMClientImpl::Unregister(
           std::move(request_handler), GetGCMBackoffPolicy(),
           base::Bind(&GCMClientImpl::OnUnregisterCompleted,
                      weak_ptr_factory_.GetWeakPtr(), registration_info),
-          kMaxUnregistrationRetries, url_request_context_getter_, &recorder_,
+          kMaxUnregistrationRetries, url_loader_factory_, &recorder_,
           source_to_record));
   unregistration_request->Start();
   pending_unregistration_requests_.insert(

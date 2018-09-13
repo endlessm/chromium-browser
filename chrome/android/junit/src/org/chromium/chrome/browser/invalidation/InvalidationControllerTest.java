@@ -28,6 +28,7 @@ import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.CollectionUtil;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.asynctask.CustomShadowAsyncTask;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.components.signin.AccountManagerFacade;
@@ -38,7 +39,6 @@ import org.chromium.components.sync.ModelType;
 import org.chromium.components.sync.ModelTypeHelper;
 import org.chromium.components.sync.notifier.InvalidationIntentProtocol;
 import org.chromium.components.sync.test.util.MockSyncContentResolverDelegate;
-import org.chromium.testing.local.CustomShadowAsyncTask;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -132,12 +132,11 @@ public class InvalidationControllerTest {
         MockSyncContentResolverDelegate delegate = new MockSyncContentResolverDelegate();
         // Android master sync can safely always be on.
         delegate.setMasterSyncAutomatically(true);
-        AndroidSyncSettings.overrideForTests(mActivity, delegate, null);
+        AndroidSyncSettings.overrideForTests(delegate, null);
 
         ChromeSigninController.get().setSignedInAccountName("test@example.com");
-        AndroidSyncSettings.updateAccount(
-                mActivity, ChromeSigninController.get().getSignedInUser());
-        AndroidSyncSettings.enableChromeSync(mActivity);
+        AndroidSyncSettings.updateAccount(ChromeSigninController.get().getSignedInUser());
+        AndroidSyncSettings.enableChromeSync();
     }
 
     @After
@@ -194,7 +193,7 @@ public class InvalidationControllerTest {
     @Test
     @Feature({"Sync"})
     public void testPauseAndResumeMainActivityWithSyncDisabled() throws Exception {
-        AndroidSyncSettings.disableChromeSync(mActivity);
+        AndroidSyncSettings.disableChromeSync();
 
         InvalidationController controller = new InvalidationController(mActivity, false);
         controller.onApplicationStateChange(ApplicationState.HAS_PAUSED_ACTIVITIES);

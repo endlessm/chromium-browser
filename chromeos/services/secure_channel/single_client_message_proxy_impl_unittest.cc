@@ -13,8 +13,7 @@
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/test/scoped_task_environment.h"
-#include "chromeos/services/secure_channel/client_connection_parameters.h"
-#include "chromeos/services/secure_channel/fake_connection_delegate.h"
+#include "chromeos/services/secure_channel/fake_client_connection_parameters.h"
 #include "chromeos/services/secure_channel/fake_message_receiver.h"
 #include "chromeos/services/secure_channel/fake_single_client_message_proxy.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -39,17 +38,19 @@ class SecureChannelSingleClientMessageProxyImplTest : public testing::Test {
     auto fake_message_receiver = std::make_unique<FakeMessageReceiver>();
     fake_message_receiver_ = fake_message_receiver.get();
 
-    fake_connection_delegate_ = std::make_unique<FakeConnectionDelegate>();
-    fake_connection_delegate_->set_message_receiver(
+    auto fake_client_connection_parameters =
+        std::make_unique<FakeClientConnectionParameters>(kTestFeature);
+    fake_client_connection_parameters_ =
+        fake_client_connection_parameters.get();
+    fake_client_connection_parameters_->set_message_receiver(
         std::move(fake_message_receiver));
 
     proxy_ = SingleClientMessageProxyImpl::Factory::Get()->BuildInstance(
         fake_proxy_delegate_.get(),
-        ClientConnectionParameters(
-            kTestFeature, fake_connection_delegate_->GenerateInterfacePtr()));
+        std::move(fake_client_connection_parameters));
 
     CompletePendingMojoCalls();
-    EXPECT_TRUE(fake_connection_delegate_->channel());
+    EXPECT_TRUE(fake_client_connection_parameters_->channel());
   }
 
   void CompletePendingMojoCalls() {
@@ -70,7 +71,7 @@ class SecureChannelSingleClientMessageProxyImplTest : public testing::Test {
 
     int message_counter = next_message_counter_++;
 
-    mojom::ChannelPtr& channel = fake_connection_delegate_->channel();
+    mojom::ChannelPtr& channel = *fake_client_connection_parameters_->channel();
     channel->SendMessage(
         message,
         base::BindOnce(
@@ -122,10 +123,6 @@ class SecureChannelSingleClientMessageProxyImplTest : public testing::Test {
     return fake_message_receiver_;
   }
 
-  FakeConnectionDelegate* fake_connection_delegate() {
-    return fake_connection_delegate_.get();
-  }
-
   bool WasMessageSent(int message_counter) {
     return base::ContainsKey(sent_message_counters_, message_counter);
   }
@@ -136,21 +133,21 @@ class SecureChannelSingleClientMessageProxyImplTest : public testing::Test {
     base::RunLoop run_loop;
     fake_proxy_delegate_->set_on_client_disconnected_closure(
         run_loop.QuitClosure());
-    fake_connection_delegate_->channel().reset();
+    fake_client_connection_parameters_->channel().reset();
     run_loop.Run();
 
     EXPECT_TRUE(WasDelegateNotifiedOfDisconnection());
   }
 
   void DisconnectFromRemoteDeviceSide() {
-    EXPECT_TRUE(fake_connection_delegate()->channel());
+    EXPECT_TRUE(fake_client_connection_parameters_->channel());
 
     proxy_->HandleRemoteDeviceDisconnection();
     CompletePendingMojoCalls();
 
-    EXPECT_FALSE(fake_connection_delegate()->channel());
+    EXPECT_FALSE(fake_client_connection_parameters_->channel());
     EXPECT_EQ(static_cast<uint32_t>(mojom::Channel::kConnectionDroppedReason),
-              fake_connection_delegate()->disconnection_reason());
+              fake_client_connection_parameters_->disconnection_reason());
   }
 
   bool WasDelegateNotifiedOfDisconnection() {
@@ -158,13 +155,16 @@ class SecureChannelSingleClientMessageProxyImplTest : public testing::Test {
            fake_proxy_delegate_->disconnected_proxy_id();
   }
 
-  const mojom::ConnectionMetadata& GetConnectionMetadataFromChannel() {
-    mojom::ChannelPtr& channel = fake_connection_delegate_->channel();
+  mojom::ConnectionMetadataPtr GetConnectionMetadataFromChannel() {
+    EXPECT_FALSE(last_metadata_from_channel_);
+
+    mojom::ChannelPtr& channel = *fake_client_connection_parameters_->channel();
     channel->GetConnectionMetadata(base::BindOnce(
         &SecureChannelSingleClientMessageProxyImplTest::OnConnectionMetadata,
         base::Unretained(this)));
     channel.FlushForTesting();
-    return last_metadata_from_channel_;
+
+    return std::move(last_metadata_from_channel_);
   }
 
  private:
@@ -174,19 +174,19 @@ class SecureChannelSingleClientMessageProxyImplTest : public testing::Test {
 
   void OnConnectionMetadata(
       mojom::ConnectionMetadataPtr connection_metadata_ptr) {
-    last_metadata_from_channel_ = *connection_metadata_ptr;
+    last_metadata_from_channel_ = std::move(connection_metadata_ptr);
   }
 
   const base::test::ScopedTaskEnvironment scoped_task_environment_;
 
   std::unique_ptr<FakeSingleClientMessageProxyDelegate> fake_proxy_delegate_;
-  std::unique_ptr<FakeConnectionDelegate> fake_connection_delegate_;
+  FakeClientConnectionParameters* fake_client_connection_parameters_;
   FakeMessageReceiver* fake_message_receiver_;
 
   int next_message_counter_ = 0;
   std::unordered_set<int> sent_message_counters_;
 
-  mojom::ConnectionMetadata last_metadata_from_channel_;
+  mojom::ConnectionMetadataPtr last_metadata_from_channel_;
 
   std::unique_ptr<SingleClientMessageProxy> proxy_;
 
@@ -239,16 +239,20 @@ TEST_F(SecureChannelSingleClientMessageProxyImplTest,
 }
 
 TEST_F(SecureChannelSingleClientMessageProxyImplTest, ConnectionMetadata) {
-  mojom::ConnectionMetadata metadata;
-  fake_proxy_delegate()->set_connection_metadata(metadata);
-  EXPECT_TRUE(metadata.Equals(GetConnectionMetadataFromChannel()));
-
-  metadata.rssi_rolling_average = -5.5f;
-  metadata.creation_details.push_back(
+  std::vector<mojom::ConnectionCreationDetail> creation_details{
       mojom::ConnectionCreationDetail::
-          REMOTE_DEVICE_USED_BACKGROUND_BLE_ADVERTISING);
-  fake_proxy_delegate()->set_connection_metadata(metadata);
-  EXPECT_TRUE(metadata.Equals(GetConnectionMetadataFromChannel()));
+          REMOTE_DEVICE_USED_BACKGROUND_BLE_ADVERTISING};
+
+  mojom::ConnectionMetadataPtr metadata = mojom::ConnectionMetadata::New(
+      creation_details,
+      mojom::BluetoothConnectionMetadata::New(-24 /* current_rssi */),
+      "channel_binding_data");
+  fake_proxy_delegate()->set_connection_metadata_for_next_call(
+      std::move(metadata));
+
+  metadata = GetConnectionMetadataFromChannel();
+  EXPECT_EQ(creation_details, metadata->creation_details);
+  EXPECT_EQ(-24, metadata->bluetooth_connection_metadata->current_rssi);
 }
 
 }  // namespace secure_channel

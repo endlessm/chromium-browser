@@ -479,6 +479,18 @@ void darwin::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     }
   }
 
+  // Propagate the -moutline flag to the linker in LTO.
+  if (Args.hasFlag(options::OPT_moutline, options::OPT_mno_outline, false)) {
+    if (getMachOToolChain().getMachOArchName(Args) == "arm64") {
+      CmdArgs.push_back("-mllvm");
+      CmdArgs.push_back("-enable-machine-outliner");
+
+      // Outline from linkonceodr functions by default in LTO.
+      CmdArgs.push_back("-mllvm");
+      CmdArgs.push_back("-enable-linkonceodr-outlining");
+    }
+  }
+
   // It seems that the 'e' option is completely ignored for dynamic executables
   // (the default), and with static executables, the last one wins, as expected.
   Args.AddAllArgs(CmdArgs, {options::OPT_d_Flag, options::OPT_s, options::OPT_t,
@@ -1019,7 +1031,6 @@ void Darwin::addProfileRTLibs(const ArgList &Args,
   // runtime, automatically export symbols necessary to implement some of the
   // runtime's functionality.
   if (hasExportSymbolDirective(Args)) {
-    addExportedSymbol(CmdArgs, "_VPMergeHook");
     addExportedSymbol(CmdArgs, "___llvm_profile_filename");
     addExportedSymbol(CmdArgs, "___llvm_profile_raw_version");
     addExportedSymbol(CmdArgs, "_lprofCurFilename");
@@ -1473,10 +1484,16 @@ Optional<DarwinPlatform> inferDeploymentTargetFromSDK(DerivedArgList &Args) {
 std::string getOSVersion(llvm::Triple::OSType OS, const llvm::Triple &Triple,
                          const Driver &TheDriver) {
   unsigned Major, Minor, Micro;
+  llvm::Triple SystemTriple(llvm::sys::getProcessTriple());
   switch (OS) {
   case llvm::Triple::Darwin:
   case llvm::Triple::MacOSX:
-    if (!Triple.getMacOSXVersion(Major, Minor, Micro))
+    // If there is no version specified on triple, and both host and target are
+    // macos, use the host triple to infer OS version.
+    if (Triple.isMacOSX() && SystemTriple.isMacOSX() &&
+        !Triple.getOSMajorVersion())
+      SystemTriple.getMacOSXVersion(Major, Minor, Micro);
+    else if (!Triple.getMacOSXVersion(Major, Minor, Micro))
       TheDriver.Diag(diag::err_drv_invalid_darwin_version)
           << Triple.getOSName();
     break;

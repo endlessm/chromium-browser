@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,7 @@
 #include "components/drive/drive.pb.h"
 #include "components/drive/file_system_core_util.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "google_apis/drive/drive_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace drive {
@@ -146,7 +148,7 @@ class ResourceMetadataTest : public testing::Test {
         temp_dir_.GetPath(), base::ThreadTaskRunnerHandle::Get().get()));
     ASSERT_TRUE(metadata_storage_->Initialize());
 
-    fake_free_disk_space_getter_.reset(new FakeFreeDiskSpaceGetter);
+    fake_free_disk_space_getter_ = std::make_unique<FakeFreeDiskSpaceGetter>();
     cache_.reset(new FileCache(metadata_storage_.get(), temp_dir_.GetPath(),
                                base::ThreadTaskRunnerHandle::Get().get(),
                                fake_free_disk_space_getter_.get()));
@@ -560,8 +562,14 @@ TEST_F(ResourceMetadataTest, Iterate) {
       ++directory_count;
   }
 
+  int expected_directory_count = 7;
+  if (google_apis::GetTeamDrivesIntegrationSwitch() ==
+      google_apis::TEAM_DRIVES_INTEGRATION_ENABLED) {
+    ++expected_directory_count;
+  }
+
   EXPECT_EQ(7, file_count);
-  EXPECT_EQ(7, directory_count);
+  EXPECT_EQ(expected_directory_count, directory_count);
 }
 
 TEST_F(ResourceMetadataTest, DuplicatedNames) {
@@ -693,7 +701,12 @@ TEST_F(ResourceMetadataTest, Reset) {
   ASSERT_EQ(FILE_ERROR_OK,
             resource_metadata_->ReadDirectoryByPath(
                 base::FilePath::FromUTF8Unsafe("drive"), &entries));
-  EXPECT_EQ(3U, entries.size());
+  size_t expected_count = 3U;
+  if (google_apis::GetTeamDrivesIntegrationSwitch() ==
+      google_apis::TEAM_DRIVES_INTEGRATION_ENABLED) {
+    ++expected_count;
+  }
+  EXPECT_EQ(expected_count, entries.size());
 
   // The "other" directory should be empty.
   ASSERT_EQ(FILE_ERROR_OK,
@@ -706,6 +719,22 @@ TEST_F(ResourceMetadataTest, Reset) {
             resource_metadata_->ReadDirectoryByPath(
                 base::FilePath::FromUTF8Unsafe("drive/trash"), &entries));
   EXPECT_TRUE(entries.empty());
+
+  if (google_apis::GetTeamDrivesIntegrationSwitch() ==
+      google_apis::TEAM_DRIVES_INTEGRATION_ENABLED) {
+    // The "team_drives" directory should be empty.
+    ASSERT_EQ(
+        FILE_ERROR_OK,
+        resource_metadata_->ReadDirectoryByPath(
+            base::FilePath::FromUTF8Unsafe("drive/team_drives"), &entries));
+    EXPECT_TRUE(entries.empty());
+
+  } else {
+    ASSERT_EQ(
+        FILE_ERROR_NOT_FOUND,
+        resource_metadata_->ReadDirectoryByPath(
+            base::FilePath::FromUTF8Unsafe("drive/team_drives"), &entries));
+  }
 }
 
 }  // namespace internal

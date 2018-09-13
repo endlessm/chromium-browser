@@ -443,9 +443,35 @@ public:
 
   bool isMaskAndCmp0FoldingBeneficial(const Instruction &AndI) const override;
 
-  bool hasAndNotCompare(SDValue) const override {
-    // 'bics'
-    return true;
+  bool hasAndNotCompare(SDValue V) const override {
+    // We can use bics for any scalar.
+    return V.getValueType().isScalarInteger();
+  }
+
+  bool hasAndNot(SDValue Y) const override {
+    EVT VT = Y.getValueType();
+
+    if (!VT.isVector())
+      return hasAndNotCompare(Y);
+
+    return VT.getSizeInBits() >= 64; // vector 'bic'
+  }
+
+  bool shouldTransformSignedTruncationCheck(EVT XVT,
+                                            unsigned KeptBits) const override {
+    // For vectors, we don't have a preference..
+    if (XVT.isVector())
+      return false;
+
+    auto VTIsOk = [](EVT VT) -> bool {
+      return VT == MVT::i8 || VT == MVT::i16 || VT == MVT::i32 ||
+             VT == MVT::i64;
+    };
+
+    // We are ok with KeptBitsVT being byte/word/dword, what SXT supports.
+    // XVT will be larger than KeptBitsVT.
+    MVT KeptBitsVT = MVT::getIntegerVT(KeptBits);
+    return VTIsOk(XVT) && VTIsOk(KeptBitsVT);
   }
 
   bool hasBitPreservingFPLogic(EVT VT) const override {
@@ -489,11 +515,11 @@ public:
                                                  CallingConv::ID CallConv,
                                                  bool isVarArg) const override;
 private:
-  bool isExtFreeImpl(const Instruction *Ext) const override;
-
   /// Keep a pointer to the AArch64Subtarget around so that we can
   /// make the right decision when generating code for different targets.
   const AArch64Subtarget *Subtarget;
+
+  bool isExtFreeImpl(const Instruction *Ext) const override;
 
   void addTypeForNEON(MVT VT, MVT PromotedBitwiseVT);
   void addDRTypeForNEON(MVT VT);
@@ -514,6 +540,8 @@ private:
                           const SDLoc &DL, SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals, bool isThisReturn,
                           SDValue ThisVal) const;
+
+  SDValue LowerSTORE(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
 
@@ -584,6 +612,7 @@ private:
   SDValue LowerVAARG(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerFLT_ROUNDS_(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const;

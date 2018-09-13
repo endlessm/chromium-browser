@@ -23,17 +23,33 @@
 #include "opcode.h"
 #include "operand.h"
 #include "util/ilist_node.h"
+#include "util/small_vector.h"
 
+#include "latest_version_glsl_std_450_header.h"
+#include "latest_version_spirv_header.h"
+#include "reflect.h"
 #include "spirv-tools/libspirv.h"
-#include "spirv/1.2/spirv.h"
 
 namespace spvtools {
-namespace ir {
+namespace opt {
 
 class Function;
 class IRContext;
 class Module;
 class InstructionList;
+
+// Relaxed logical addressing:
+//
+// In the logical addressing model, pointers cannot be stored or loaded.  This
+// is a useful assumption because it simplifies the aliasing significantly.
+// However, for the purpose of legalizing code generated from HLSL, we will have
+// to allow storing and loading of pointers to opaque objects and runtime
+// arrays.  This relaxation of the rule still implies that function and private
+// scope variables do not have any aliasing, so we can treat them as before.
+// This will be call the relaxed logical addressing model.
+//
+// This relaxation of the rule will be allowed by |GetBaseAddress|, but it will
+// enforce that no other pointers are stored or loaded.
 
 // About operand:
 //
@@ -53,14 +69,14 @@ class InstructionList;
 // A *logical* operand to a SPIR-V instruction. It can be the type id, result
 // id, or other additional operands carried in an instruction.
 struct Operand {
-  Operand(spv_operand_type_t t, std::vector<uint32_t>&& w)
+  using OperandData = utils::SmallVector<uint32_t, 2>;
+  Operand(spv_operand_type_t t, OperandData&& w)
       : type(t), words(std::move(w)) {}
 
-  Operand(spv_operand_type_t t, const std::vector<uint32_t>& w)
-      : type(t), words(w) {}
+  Operand(spv_operand_type_t t, const OperandData& w) : type(t), words(w) {}
 
-  spv_operand_type_t type;      // Type of this logical operand.
-  std::vector<uint32_t> words;  // Binary segments of this logical operand.
+  spv_operand_type_t type;  // Type of this logical operand.
+  OperandData words;        // Binary segments of this logical operand.
 
   friend bool operator==(const Operand& o1, const Operand& o2) {
     return o1.type == o2.type && o1.words == o2.words;
@@ -81,8 +97,9 @@ inline bool operator!=(const Operand& o1, const Operand& o2) {
 // needs to change, the user should create a new instruction instead.
 class Instruction : public utils::IntrusiveNodeBase<Instruction> {
  public:
-  using iterator = std::vector<Operand>::iterator;
-  using const_iterator = std::vector<Operand>::const_iterator;
+  using OperandList = std::vector<Operand>;
+  using iterator = OperandList::iterator;
+  using const_iterator = OperandList::const_iterator;
 
   // Creates a default OpNop instruction.
   // This exists solely for containers that can't do without. Should be removed.
@@ -109,7 +126,7 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
   // Creates an instruction with the given opcode |op|, type id: |ty_id|,
   // result id: |res_id| and input operands: |in_operands|.
   Instruction(IRContext* c, SpvOp op, uint32_t ty_id, uint32_t res_id,
-              const std::vector<Operand>& in_operands);
+              const OperandList& in_operands);
 
   // TODO: I will want to remove these, but will first have to remove the use of
   // std::vector<Instruction>.
@@ -172,6 +189,7 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
     return NumInOperandWords() + TypeResultIdCount();
   }
   // Gets the |index|-th logical operand.
+  inline Operand& GetOperand(uint32_t index);
   inline const Operand& GetOperand(uint32_t index) const;
   // Adds |operand| to the list of operands of this instruction.
   // It is the responsibility of the caller to make sure
@@ -182,11 +200,18 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
   // words.
   uint32_t GetSingleWordOperand(uint32_t index) const;
   // Sets the |index|-th in-operand's data to the given |data|.
-  inline void SetInOperand(uint32_t index, std::vector<uint32_t>&& data);
+  inline void SetInOperand(uint32_t index, Operand::OperandData&& data);
+  // Sets the |index|-th operand's data to the given |data|.
+  // This is for in-operands modification only, but with |index| expressed in
+  // terms of operand index rather than in-operand index.
+  inline void SetOperand(uint32_t index, Operand::OperandData&& data);
+  // Replace all of the in operands with those in |new_operands|.
+  inline void SetInOperands(OperandList&& new_operands);
   // Sets the result type id.
   inline void SetResultType(uint32_t ty_id);
   // Sets the result id
   inline void SetResultId(uint32_t res_id);
+  inline bool HasResultId() const { return result_id_ != 0; }
   // Remove the |index|-th operand
   void RemoveOperand(uint32_t index) {
     operands_.erase(operands_.begin() + index);
@@ -197,6 +222,9 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
     return static_cast<uint32_t>(operands_.size() - TypeResultIdCount());
   }
   uint32_t NumInOperandWords() const;
+  Operand& GetInOperand(uint32_t index) {
+    return GetOperand(index + TypeResultIdCount());
+  }
   const Operand& GetInOperand(uint32_t index) const {
     return GetOperand(index + TypeResultIdCount());
   }
@@ -221,20 +249,41 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
   inline void ForEachInst(const std::function<void(const Instruction*)>& f,
                           bool run_on_debug_line_insts = false) const;
 
+  // Runs the given function |f| on this instruction and optionally on the
+  // preceding debug line instructions.  The function will always be run
+  // if this is itself a debug line instruction. If |f| returns false,
+  // iteration is terminated and this function returns false.
+  inline bool WhileEachInst(const std::function<bool(Instruction*)>& f,
+                            bool run_on_debug_line_insts = false);
+  inline bool WhileEachInst(const std::function<bool(const Instruction*)>& f,
+                            bool run_on_debug_line_insts = false) const;
+
   // Runs the given function |f| on all operand ids.
   //
   // |f| should not transform an ID into 0, as 0 is an invalid ID.
   inline void ForEachId(const std::function<void(uint32_t*)>& f);
   inline void ForEachId(const std::function<void(const uint32_t*)>& f) const;
 
-  // Runs the given function |f| on all "in" operand ids
+  // Runs the given function |f| on all "in" operand ids.
   inline void ForEachInId(const std::function<void(uint32_t*)>& f);
   inline void ForEachInId(const std::function<void(const uint32_t*)>& f) const;
 
-  // Runs the given function |f| on all "in" operands
+  // Runs the given function |f| on all "in" operand ids. If |f| returns false,
+  // iteration is terminated and this function returns false.
+  inline bool WhileEachInId(const std::function<bool(uint32_t*)>& f);
+  inline bool WhileEachInId(
+      const std::function<bool(const uint32_t*)>& f) const;
+
+  // Runs the given function |f| on all "in" operands.
   inline void ForEachInOperand(const std::function<void(uint32_t*)>& f);
   inline void ForEachInOperand(
       const std::function<void(const uint32_t*)>& f) const;
+
+  // Runs the given function |f| on all "in" operands. If |f| returns false,
+  // iteration is terminated and this function return false.
+  inline bool WhileEachInOperand(const std::function<bool(uint32_t*)>& f);
+  inline bool WhileEachInOperand(
+      const std::function<bool(const uint32_t*)>& f) const;
 
   // Returns true if any operands can be labels
   inline bool HasLabels() const;
@@ -245,7 +294,7 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
   // Replaces the operands to the instruction with |new_operands|. The caller
   // is responsible for building a complete and valid list of operands for
   // this instruction.
-  void ReplaceOperands(const std::vector<Operand>& new_operands);
+  void ReplaceOperands(const OperandList& new_operands);
 
   // Returns true if the instruction annotates an id with a decoration.
   inline bool IsDecoration() const;
@@ -255,15 +304,17 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
   bool IsReadOnlyLoad() const;
 
   // Returns the instruction that gives the base address of an address
-  // calculation.  The instruction must be a load instruction.  In logical
-  // addressing mode, will return an OpVariable or OpFunctionParameter
-  // instruction. For physical addressing mode, could return other types of
+  // calculation.  The instruction must be a load, as defined by |IsLoad|,
+  // store, copy, or access chain instruction.  In logical addressing mode, will
+  // return an OpVariable or OpFunctionParameter instruction. For relaxed
+  // logical addressing, it would also return a load of a pointer to an opaque
+  // object.  For physical addressing mode, could return other types of
   // instructions.
   Instruction* GetBaseAddress() const;
 
-  // Returns true if the instruction is a load from memory into a result id. It
-  // considers only core instructions. Memory-to-memory instructions are not
-  // considered loads.
+  // Returns true if the instruction loads from memory or samples an image, and
+  // stores the result into an id. It considers only core instructions.
+  // Memory-to-memory instructions are not considered loads.
   inline bool IsLoad() const;
 
   // Returns true if the instruction declares a variable that is read-only.
@@ -303,14 +354,66 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
   // and return to its caller
   bool IsReturn() const { return spvOpcodeIsReturn(opcode()); }
 
+  // Returns true if this instruction exits this function or aborts execution.
+  bool IsReturnOrAbort() const { return spvOpcodeIsReturnOrAbort(opcode()); }
+
+  // Returns the id for the |element|'th subtype. If the |this| is not a
+  // composite type, this function returns 0.
+  uint32_t GetTypeComponent(uint32_t element) const;
+
   // Returns true if this instruction is a basic block terminator.
   bool IsBlockTerminator() const {
     return spvOpcodeIsBlockTerminator(opcode());
   }
 
+  // Returns true if |this| is an instruction that define an opaque type.  Since
+  // runtime array have similar characteristics they are included as opaque
+  // types.
+  bool IsOpaqueType() const;
+
+  // Returns true if |this| is an instruction which could be folded into a
+  // constant value.
+  bool IsFoldable() const;
+
+  // Returns true if |this| is an instruction which could be folded into a
+  // constant value by |FoldScalar|.
+  bool IsFoldableByFoldScalar() const;
+
+  // Returns true if we are allowed to fold or otherwise manipulate the
+  // instruction that defines |id| in the given context. This includes not
+  // handling NaN values.
+  bool IsFloatingPointFoldingAllowed() const;
+
   inline bool operator==(const Instruction&) const;
   inline bool operator!=(const Instruction&) const;
   inline bool operator<(const Instruction&) const;
+
+  Instruction* InsertBefore(std::vector<std::unique_ptr<Instruction>>&& list);
+  Instruction* InsertBefore(std::unique_ptr<Instruction>&& i);
+  using utils::IntrusiveNodeBase<Instruction>::InsertBefore;
+
+  // Returns true if |this| is an instruction defining a constant, but not a
+  // Spec constant.
+  inline bool IsConstant() const;
+
+  // Returns true if |this| is an instruction with an opcode safe to move
+  bool IsOpcodeCodeMotionSafe() const;
+
+  // Pretty-prints |inst|.
+  //
+  // Provides the disassembly of a specific instruction. Utilizes |inst|'s
+  // context to provide the correct interpretation of types, constants, etc.
+  //
+  // |options| are the disassembly options. SPV_BINARY_TO_TEXT_OPTION_NO_HEADER
+  // is always added to |options|.
+  std::string PrettyPrint(uint32_t options = 0u) const;
+
+  // Returns true if the result can be a vector and the result of each component
+  // depends on the corresponding component of any vector inputs.
+  bool IsScalarizable() const;
+
+  // Return true if the only effect of this instructions is the result.
+  bool IsOpcodeSafeToDelete() const;
 
  private:
   // Returns the total count of result type id and result id.
@@ -324,13 +427,23 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
   bool IsReadOnlyVariableShaders() const;
   bool IsReadOnlyVariableKernel() const;
 
+  // Returns true if it is valid to use the result of |inst| as the base
+  // pointer for a load or store.  In this case, valid is defined by the relaxed
+  // logical addressing rules when using logical addressing.  Normal validation
+  // rules for physical addressing.
+  bool IsValidBasePointer() const;
+
+  // Returns true if the result of |inst| can be used as the base image for an
+  // instruction that samples a image, reads an image, or writes to an image.
+  bool IsValidBaseImage() const;
+
   IRContext* context_;  // IR Context
   SpvOp opcode_;        // Opcode
   uint32_t type_id_;    // Result type id. A value of 0 means no result type id.
   uint32_t result_id_;  // Result id. A value of 0 means no result id.
   uint32_t unique_id_;  // Unique instruction id
   // All logical operands, including result type id and result id.
-  std::vector<Operand> operands_;
+  OperandList operands_;
   // Opline and OpNoLine instructions preceding this instruction. Note that for
   // Instructions representing OpLine or OpNonLine itself, this field should be
   // empty.
@@ -338,6 +451,14 @@ class Instruction : public utils::IntrusiveNodeBase<Instruction> {
 
   friend InstructionList;
 };
+
+// Pretty-prints |inst| to |str| and returns |str|.
+//
+// Provides the disassembly of a specific instruction. Utilizes |inst|'s context
+// to provide the correct interpretation of types, constants, etc.
+//
+// Disassembly uses raw ids (not pretty printed names).
+std::ostream& operator<<(std::ostream& str, const opt::Instruction& inst);
 
 inline bool Instruction::operator==(const Instruction& other) const {
   return unique_id() == other.unique_id();
@@ -351,20 +472,37 @@ inline bool Instruction::operator<(const Instruction& other) const {
   return unique_id() < other.unique_id();
 }
 
+inline Operand& Instruction::GetOperand(uint32_t index) {
+  assert(index < operands_.size() && "operand index out of bound");
+  return operands_[index];
+}
+
 inline const Operand& Instruction::GetOperand(uint32_t index) const {
   assert(index < operands_.size() && "operand index out of bound");
   return operands_[index];
-};
+}
 
 inline void Instruction::AddOperand(Operand&& operand) {
   operands_.push_back(std::move(operand));
 }
 
 inline void Instruction::SetInOperand(uint32_t index,
-                                      std::vector<uint32_t>&& data) {
-  assert(index + TypeResultIdCount() < operands_.size() &&
-         "operand index out of bound");
-  operands_[index + TypeResultIdCount()].words = std::move(data);
+                                      Operand::OperandData&& data) {
+  SetOperand(index + TypeResultIdCount(), std::move(data));
+}
+
+inline void Instruction::SetOperand(uint32_t index,
+                                    Operand::OperandData&& data) {
+  assert(index < operands_.size() && "operand index out of bound");
+  assert(index >= TypeResultIdCount() && "operand is not a in-operand");
+  operands_[index].words = std::move(data);
+}
+
+inline void Instruction::SetInOperands(OperandList&& new_operands) {
+  // Remove the old in operands.
+  operands_.erase(operands_.begin() + TypeResultIdCount(), operands_.end());
+  // Add the new in operands.
+  operands_.insert(operands_.end(), new_operands.begin(), new_operands.end());
 }
 
 inline void Instruction::SetResultId(uint32_t res_id) {
@@ -393,19 +531,46 @@ inline void Instruction::ToNop() {
   operands_.clear();
 }
 
+inline bool Instruction::WhileEachInst(
+    const std::function<bool(Instruction*)>& f, bool run_on_debug_line_insts) {
+  if (run_on_debug_line_insts) {
+    for (auto& dbg_line : dbg_line_insts_) {
+      if (!f(&dbg_line)) return false;
+    }
+  }
+  return f(this);
+}
+
+inline bool Instruction::WhileEachInst(
+    const std::function<bool(const Instruction*)>& f,
+    bool run_on_debug_line_insts) const {
+  if (run_on_debug_line_insts) {
+    for (auto& dbg_line : dbg_line_insts_) {
+      if (!f(&dbg_line)) return false;
+    }
+  }
+  return f(this);
+}
+
 inline void Instruction::ForEachInst(const std::function<void(Instruction*)>& f,
                                      bool run_on_debug_line_insts) {
-  if (run_on_debug_line_insts)
-    for (auto& dbg_line : dbg_line_insts_) f(&dbg_line);
-  f(this);
+  WhileEachInst(
+      [&f](Instruction* inst) {
+        f(inst);
+        return true;
+      },
+      run_on_debug_line_insts);
 }
 
 inline void Instruction::ForEachInst(
     const std::function<void(const Instruction*)>& f,
     bool run_on_debug_line_insts) const {
-  if (run_on_debug_line_insts)
-    for (auto& dbg_line : dbg_line_insts_) f(&dbg_line);
-  f(this);
+  WhileEachInst(
+      [&f](const Instruction* inst) {
+        f(inst);
+        return true;
+      },
+      run_on_debug_line_insts);
 }
 
 inline void Instruction::ForEachId(const std::function<void(uint32_t*)>& f) {
@@ -422,59 +587,99 @@ inline void Instruction::ForEachId(
     if (spvIsIdType(opnd.type)) f(&opnd.words[0]);
 }
 
-inline void Instruction::ForEachInId(const std::function<void(uint32_t*)>& f) {
+inline bool Instruction::WhileEachInId(
+    const std::function<bool(uint32_t*)>& f) {
   for (auto& opnd : operands_) {
     switch (opnd.type) {
       case SPV_OPERAND_TYPE_RESULT_ID:
       case SPV_OPERAND_TYPE_TYPE_ID:
         break;
       default:
-        if (spvIsIdType(opnd.type)) f(&opnd.words[0]);
+        if (spvIsIdType(opnd.type)) {
+          if (!f(&opnd.words[0])) return false;
+        }
         break;
     }
   }
+  return true;
+}
+
+inline bool Instruction::WhileEachInId(
+    const std::function<bool(const uint32_t*)>& f) const {
+  for (const auto& opnd : operands_) {
+    switch (opnd.type) {
+      case SPV_OPERAND_TYPE_RESULT_ID:
+      case SPV_OPERAND_TYPE_TYPE_ID:
+        break;
+      default:
+        if (spvIsIdType(opnd.type)) {
+          if (!f(&opnd.words[0])) return false;
+        }
+        break;
+    }
+  }
+  return true;
+}
+
+inline void Instruction::ForEachInId(const std::function<void(uint32_t*)>& f) {
+  WhileEachInId([&f](uint32_t* id) {
+    f(id);
+    return true;
+  });
 }
 
 inline void Instruction::ForEachInId(
     const std::function<void(const uint32_t*)>& f) const {
-  for (const auto& opnd : operands_) {
-    switch (opnd.type) {
-      case SPV_OPERAND_TYPE_RESULT_ID:
-      case SPV_OPERAND_TYPE_TYPE_ID:
-        break;
-      default:
-        if (spvIsIdType(opnd.type)) f(&opnd.words[0]);
-        break;
-    }
-  }
+  WhileEachInId([&f](const uint32_t* id) {
+    f(id);
+    return true;
+  });
 }
 
-inline void Instruction::ForEachInOperand(
-    const std::function<void(uint32_t*)>& f) {
+inline bool Instruction::WhileEachInOperand(
+    const std::function<bool(uint32_t*)>& f) {
   for (auto& opnd : operands_) {
     switch (opnd.type) {
       case SPV_OPERAND_TYPE_RESULT_ID:
       case SPV_OPERAND_TYPE_TYPE_ID:
         break;
       default:
-        f(&opnd.words[0]);
+        if (!f(&opnd.words[0])) return false;
         break;
     }
   }
+  return true;
 }
 
-inline void Instruction::ForEachInOperand(
-    const std::function<void(const uint32_t*)>& f) const {
+inline bool Instruction::WhileEachInOperand(
+    const std::function<bool(const uint32_t*)>& f) const {
   for (const auto& opnd : operands_) {
     switch (opnd.type) {
       case SPV_OPERAND_TYPE_RESULT_ID:
       case SPV_OPERAND_TYPE_TYPE_ID:
         break;
       default:
-        f(&opnd.words[0]);
+        if (!f(&opnd.words[0])) return false;
         break;
     }
   }
+  return true;
+}
+
+inline void Instruction::ForEachInOperand(
+    const std::function<void(uint32_t*)>& f) {
+  WhileEachInOperand([&f](uint32_t* op) {
+    f(op);
+    return true;
+  });
+}
+
+inline void Instruction::ForEachInOperand(
+    const std::function<void(const uint32_t*)>& f) const {
+  WhileEachInOperand([&f](const uint32_t* op) {
+    f(op);
+    return true;
+  });
 }
 
 inline bool Instruction::HasLabels() const {
@@ -500,7 +705,11 @@ bool Instruction::IsDecoration() const {
 bool Instruction::IsLoad() const { return spvOpcodeIsLoad(opcode()); }
 
 bool Instruction::IsAtomicOp() const { return spvOpcodeIsAtomicOp(opcode()); }
-}  // namespace ir
+
+bool Instruction::IsConstant() const {
+  return IsCompileTimeConstantInst(opcode());
+}
+}  // namespace opt
 }  // namespace spvtools
 
 #endif  // LIBSPIRV_OPT_INSTRUCTION_H_

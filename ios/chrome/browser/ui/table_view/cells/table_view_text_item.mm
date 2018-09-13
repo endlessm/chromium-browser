@@ -13,6 +13,11 @@
 #error "This file requires ARC support."
 #endif
 
+namespace {
+// Vertical spacing between label and the container view of a cell.
+const CGFloat kLabelCellVerticalSpacing = 11.0;
+}  // namespace
+
 #pragma mark - TableViewTextItem
 
 @implementation TableViewTextItem
@@ -35,12 +40,18 @@
       base::mac::ObjCCastStrict<TableViewTextCell>(tableCell);
   cell.textLabel.text = self.text;
   cell.textLabel.backgroundColor = styler.tableViewBackgroundColor;
-  cell.textLabel.textColor = self.textColor
-                                 ? UIColorFromRGB(self.textColor, 1.0)
-                                 : UIColorFromRGB(TextItemColorLightGrey, 1.0);
+  // This item's text color takes precedence over the global styler.
+  // TODO(crbug.com/854249): redo the logic for this convoluted if clause.
+  if (self.textColor) {
+    cell.textLabel.textColor = self.textColor;
+  } else if (styler.cellTitleColor) {
+    cell.textLabel.textColor = styler.cellTitleColor;
+  } else {
+    cell.textLabel.textColor =
+        UIColorFromRGB(kTableViewTextLabelColorLightGrey);
+  }
   cell.textLabel.textAlignment =
       self.textAlignment ? self.textAlignment : NSTextAlignmentLeft;
-  cell.selectionStyle = UITableViewCellSelectionStyleNone;
 }
 
 @end
@@ -49,6 +60,7 @@
 
 @implementation TableViewTextCell
 @synthesize textLabel = _textLabel;
+@synthesize checked = _checked;
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style
               reuseIdentifier:(NSString*)reuseIdentifier {
@@ -70,18 +82,32 @@
       [_textLabel.leadingAnchor
           constraintEqualToAnchor:self.contentView.leadingAnchor
                          constant:kTableViewHorizontalSpacing],
-      [_textLabel.topAnchor
-          constraintEqualToAnchor:self.contentView.topAnchor
-                         constant:kTableViewLabelVerticalSpacing],
+      [_textLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor
+                                           constant:kLabelCellVerticalSpacing],
       [_textLabel.bottomAnchor
           constraintEqualToAnchor:self.contentView.bottomAnchor
-                         constant:-kTableViewLabelVerticalSpacing],
+                         constant:-kLabelCellVerticalSpacing],
       [_textLabel.trailingAnchor
           constraintEqualToAnchor:self.contentView.trailingAnchor
                          constant:-kTableViewHorizontalSpacing]
     ]];
   }
   return self;
+}
+
+- (void)setChecked:(BOOL)checked {
+  if (checked) {
+    self.accessoryView = [[UIImageView alloc]
+        initWithImage:[UIImage imageNamed:@"bookmark_blue_check"]];
+  } else {
+    self.accessoryView = nil;
+  }
+  _checked = checked;
+}
+
+- (void)prepareForReuse {
+  [super prepareForReuse];
+  self.checked = NO;
 }
 
 @end

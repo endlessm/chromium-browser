@@ -15,8 +15,10 @@
 #include "chrome/browser/chromeos/arc/auth/arc_background_auth_code_fetcher.h"
 #include "chrome/browser/chromeos/arc/auth/arc_robot_auth_code_fetcher.h"
 #include "chrome/browser/chromeos/arc/policy/arc_policy_util.h"
+#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/app_list/arc/arc_data_removal_dialog.h"
 #include "chromeos/chromeos_switches.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
@@ -97,8 +99,22 @@ mojom::ChromeAccountType GetAccountType(const Profile* profile) {
   if (profile->IsChild())
     return mojom::ChromeAccountType::CHILD_ACCOUNT;
 
-  return IsRobotAccountMode() ? mojom::ChromeAccountType::ROBOT_ACCOUNT
-                              : mojom::ChromeAccountType::USER_ACCOUNT;
+  chromeos::DemoSession* demo_session = chromeos::DemoSession::Get();
+  if (demo_session && demo_session->started()) {
+    // Internally, demo mode is implemented as a public session, and should
+    // generally follow normal robot account provisioning flow. Offline enrolled
+    // demo mode is an exception, as it is expected to work purely offline, with
+    // a (fake) robot account not known to auth service - this means that it has
+    // to go through different, offline provisioning flow.
+    DCHECK(IsRobotOrOfflineDemoAccountMode());
+    return demo_session->offline_enrolled()
+               ? mojom::ChromeAccountType::OFFLINE_DEMO_ACCOUNT
+               : mojom::ChromeAccountType::ROBOT_ACCOUNT;
+  }
+
+  return IsRobotOrOfflineDemoAccountMode()
+             ? mojom::ChromeAccountType::ROBOT_ACCOUNT
+             : mojom::ChromeAccountType::USER_ACCOUNT;
 }
 
 mojom::AccountInfoPtr CreateAccountInfo(bool is_enforced,
@@ -209,6 +225,7 @@ void ArcAuthService::ReportAccountCheckStatus(
 
 void ArcAuthService::ReportSupervisionChangeStatus(
     mojom::SupervisionChangeStatus status) {
+  UpdateSupervisionTransitionResultUMA(status);
   switch (status) {
     case mojom::SupervisionChangeStatus::CLOUD_DPC_DISABLED:
     case mojom::SupervisionChangeStatus::CLOUD_DPC_ALREADY_DISABLED:
@@ -219,12 +236,15 @@ void ArcAuthService::ReportSupervisionChangeStatus(
           static_cast<int>(ArcSupervisionTransition::NO_TRANSITION));
       // TODO(brunokim): notify potential observers.
       break;
-    case mojom::SupervisionChangeStatus::INVALID_SUPERVISION_STATE:
     case mojom::SupervisionChangeStatus::CLOUD_DPC_DISABLING_FAILED:
     case mojom::SupervisionChangeStatus::CLOUD_DPC_ENABLING_FAILED:
-    default:
-      LOG(WARNING) << "Failed to changed supervision: " << status;
-      // TODO(crbug/841939): Block ARC++ in case of Unicorn graduation failure.
+      LOG(ERROR) << "Child transition failed: " << status;
+      ShowDataRemovalConfirmationDialog(
+          profile_, base::BindOnce(&ArcAuthService::OnDataRemovalAccepted,
+                                   weak_ptr_factory_.GetWeakPtr()));
+      break;
+    case mojom::SupervisionChangeStatus::INVALID_SUPERVISION_STATE:
+      NOTREACHED() << "Invalid status of child transition: " << status;
   }
 }
 
@@ -233,7 +253,10 @@ void ArcAuthService::OnAccountInfoReady(mojom::AccountInfoPtr account_info,
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   auto* instance = ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->auth(),
                                                OnAccountInfoReady);
-  DCHECK(instance);
+  if (!instance) {
+    LOG(ERROR) << "Auth instance is not available.";
+    return;
+  }
   instance->OnAccountInfoReady(std::move(account_info), status);
 }
 
@@ -242,12 +265,14 @@ void ArcAuthService::RequestAccountInfo(bool initial_signin) {
   // No other auth code-related operation may be in progress.
   DCHECK(!fetcher_);
 
+  const mojom::ChromeAccountType account_type = GetAccountType(profile_);
+
   if (IsArcOptInVerificationDisabled()) {
     OnAccountInfoReady(
-        CreateAccountInfo(
-            false /* is_enforced */, std::string() /* auth_info */,
-            std::string() /* auth_name */, GetAccountType(profile_),
-            policy_util::IsAccountManaged(profile_)),
+        CreateAccountInfo(false /* is_enforced */,
+                          std::string() /* auth_info */,
+                          std::string() /* auth_name */, account_type,
+                          policy_util::IsAccountManaged(profile_)),
         mojom::ArcSignInStatus::SUCCESS);
     return;
   }
@@ -264,10 +289,22 @@ void ArcAuthService::RequestAccountInfo(bool initial_signin) {
     fetcher_ = std::move(enrollment_token_fetcher);
     return;
   }
+
+  if (account_type == mojom::ChromeAccountType::OFFLINE_DEMO_ACCOUNT) {
+    // Skip account auth code fetch for offline enrolled demo mode.
+    OnAccountInfoReady(
+        CreateAccountInfo(true /* is_enforced */, std::string() /* auth_info */,
+                          std::string() /* auth_name */, account_type,
+                          true /* is_managed */),
+        mojom::ArcSignInStatus::SUCCESS);
+    return;
+  }
+
   // For non-AD enrolled devices an auth code is fetched.
   std::unique_ptr<ArcAuthCodeFetcher> auth_code_fetcher;
-  if (IsRobotAccountMode()) {
-    // In Kiosk and public session mode, use Robot auth code fetching.
+  if (account_type == mojom::ChromeAccountType::ROBOT_ACCOUNT) {
+    // For robot accounts, which are used in kiosk and public session mode
+    // (which includes online demo sessions), use Robot auth code fetching.
     auth_code_fetcher = std::make_unique<ArcRobotAuthCodeFetcher>();
   } else {
     // Optionally retrieve auth code in silent mode.
@@ -338,6 +375,17 @@ void ArcAuthService::OnAuthCodeFetched(bool success,
 void ArcAuthService::SetURLLoaderFactoryForTesting(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
   url_loader_factory_ = std::move(url_loader_factory);
+}
+
+void ArcAuthService::OnDataRemovalAccepted(bool accepted) {
+  if (!accepted)
+    return;
+  if (!IsArcPlayStoreEnabledForProfile(profile_))
+    return;
+  VLOG(1)
+      << "Request for data removal on child transition failure is confirmed";
+  ArcSessionManager::Get()->RequestArcDataRemoval();
+  ArcSessionManager::Get()->StopAndEnableArc();
 }
 
 }  // namespace arc

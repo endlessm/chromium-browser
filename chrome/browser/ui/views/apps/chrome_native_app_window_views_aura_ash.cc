@@ -12,17 +12,14 @@
 #include "ash/public/cpp/ash_constants.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/immersive/immersive_fullscreen_controller.h"
+#include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/public/cpp/window_state_type.h"
-#include "ash/shell.h"
-#include "ash/wm/panels/panel_frame_view.h"
 #include "ash/wm/window_properties.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_state_delegate.h"
-#include "ash/wm/window_state_observer.h"
 #include "base/logging.h"
-#include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/note_taking_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profiles_state.h"
@@ -40,6 +37,8 @@
 #include "ui/aura/window_observer.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/base/ui_base_features.h"
+#include "ui/display/screen.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/skia_util.h"
@@ -147,11 +146,8 @@ void ChromeNativeAppWindowViewsAuraAsh::InitializeWindow(
     const AppWindow::CreateParams& create_params) {
   ChromeNativeAppWindowViewsAura::InitializeWindow(app_window, create_params);
   aura::Window* window = widget()->GetNativeWindow();
-
-  if (!app_window->window_type_is_panel()) {
-    window->SetProperty(aura::client::kAppType,
-                        static_cast<int>(ash::AppType::CHROME_APP));
-  }
+  window->SetProperty(aura::client::kAppType,
+                      static_cast<int>(ash::AppType::CHROME_APP));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -170,19 +166,18 @@ void ChromeNativeAppWindowViewsAuraAsh::OnBeforeWidgetInit(
                            : ash::kShellWindowId_LockActionHandlerContainer;
     ash_util::SetupWidgetInitParamsForContainer(init_params, container_id);
   }
-  DCHECK_NE(AppWindow::WINDOW_TYPE_PANEL, create_params.window_type);
   init_params->mus_properties
       [ui::mojom::WindowManager::kRemoveStandardFrame_InitProperty] =
       mojo::ConvertTo<std::vector<uint8_t>>(init_params->remove_standard_frame);
   if (HasFrameColor()) {
-    init_params->mus_properties
-        [ui::mojom::WindowManager::kActiveFrameColor_InitProperty] =
+    init_params
+        ->mus_properties[ui::mojom::WindowManager::kFrameActiveColor_Property] =
         mojo::ConvertTo<std::vector<uint8_t>>(
-            static_cast<int32_t>(ActiveFrameColor()));
+            static_cast<int64_t>(ActiveFrameColor()));
     init_params->mus_properties
-        [ui::mojom::WindowManager::kInactiveFrameColor_InitProperty] =
+        [ui::mojom::WindowManager::kFrameInactiveColor_Property] =
         mojo::ConvertTo<std::vector<uint8_t>>(
-            static_cast<int32_t>(InactiveFrameColor()));
+            static_cast<int64_t>(InactiveFrameColor()));
   }
   init_params
       ->mus_properties[ui::mojom::WindowManager::kShelfItemType_Property] =
@@ -191,25 +186,6 @@ void ChromeNativeAppWindowViewsAuraAsh::OnBeforeWidgetInit(
   init_params
       ->mus_properties[ui::mojom::WindowManager::kWindowTitleShown_Property] =
       mojo::ConvertTo<std::vector<uint8_t>>(static_cast<int64_t>(false));
-}
-
-void ChromeNativeAppWindowViewsAuraAsh::OnBeforePanelWidgetInit(
-    views::Widget::InitParams* init_params,
-    views::Widget* widget) {
-  ChromeNativeAppWindowViewsAura::OnBeforePanelWidgetInit(init_params, widget);
-
-  if (chromeos::GetAshConfig() != ash::Config::MASH &&
-      ash::Shell::HasInstance()) {
-    // Open a new panel on the target root.
-    init_params->context = ash::Shell::GetRootWindowForNewWindows();
-    init_params->bounds = gfx::Rect(GetPreferredSize());
-    wm::ConvertRectToScreen(ash::Shell::GetRootWindowForNewWindows(),
-                            &init_params->bounds);
-  }
-  init_params
-      ->mus_properties[ui::mojom::WindowManager::kShelfItemType_Property] =
-      mojo::ConvertTo<std::vector<uint8_t>>(
-          static_cast<int64_t>(ash::TYPE_APP_PANEL));
 }
 
 views::NonClientFrameView*
@@ -230,7 +206,7 @@ bool ChromeNativeAppWindowViewsAuraAsh::ShouldRemoveStandardFrame() {
   if (IsFrameless())
     return true;
 
-  return HasFrameColor() && chromeos::GetAshConfig() != ash::Config::MASH;
+  return HasFrameColor() && features::IsAshInBrowserProcess();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -280,8 +256,6 @@ ChromeNativeAppWindowViewsAuraAsh::GetRestoredState() const {
 }
 
 bool ChromeNativeAppWindowViewsAuraAsh::IsAlwaysOnTop() const {
-  if (app_window()->window_type_is_panel())
-    return widget()->GetNativeWindow()->GetProperty(ash::kPanelAttachedKey);
   return widget()->IsAlwaysOnTop();
 }
 
@@ -329,17 +303,8 @@ ChromeNativeAppWindowViewsAuraAsh::CreateNonClientFrameView(
   if (IsFrameless())
     return CreateNonStandardAppFrame();
 
-  if (chromeos::GetAshConfig() == ash::Config::MASH)
+  if (!features::IsAshInBrowserProcess())
     return nullptr;
-
-  if (app_window()->window_type_is_panel()) {
-    ash::PanelFrameView* frame_view =
-        new ash::PanelFrameView(widget, ash::PanelFrameView::FRAME_ASH);
-    frame_view->set_context_menu_controller(this);
-    if (HasFrameColor())
-      frame_view->SetFrameColors(ActiveFrameColor(), InactiveFrameColor());
-    return frame_view;
-  }
 
   ash::CustomFrameViewAsh* custom_frame_view =
       new ash::CustomFrameViewAsh(widget);
@@ -399,7 +364,7 @@ void ChromeNativeAppWindowViewsAuraAsh::UpdateDraggableRegions(
   SkRegion* draggable_region = GetDraggableRegion();
   // Set the NativeAppWindow's draggable region on the mus window.
   if (draggable_region && !draggable_region->isEmpty() && widget() &&
-      chromeos::GetAshConfig() == ash::Config::MASH) {
+      !features::IsAshInBrowserProcess()) {
     // Supply client area insets that encompass all draggable regions.
     gfx::Insets insets(draggable_region->getBounds().bottom(), 0, 0, 0);
 

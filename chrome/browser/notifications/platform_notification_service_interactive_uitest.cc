@@ -13,17 +13,18 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/user_action_tester.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/engagement/site_engagement_score.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
-#include "chrome/browser/notifications/desktop_notification_profile_util.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service_impl.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
+#include "chrome/browser/notifications/notification_handler.h"
+#include "chrome/browser/notifications/notification_permission_context.h"
 #include "chrome/browser/notifications/notification_test_util.h"
 #include "chrome/browser/notifications/platform_notification_service_impl.h"
 #include "chrome/browser/permissions/permission_manager.h"
@@ -62,6 +63,8 @@ constexpr int kNotificationVibrationPattern[] = {100, 200, 300};
 constexpr double kNotificationTimestamp = 621046800000.;
 
 const char kTestFileName[] = "notifications/platform_notification_service.html";
+const char kTestNotificationOrigin[] = "https://example.com/";
+const char kTestNotificationId[] = "random#notification-id";
 
 }  // namespace
 
@@ -122,15 +125,8 @@ class PlatformNotificationServiceBrowserTest : public InProcessBrowserTest {
   // Grants permission to display Web Notifications for origin of the test
   // page that's being used in this browser test.
   void GrantNotificationPermissionForTest() const {
-    GURL origin = TestPageUrl().GetOrigin();
-
-    DesktopNotificationProfileUtil::GrantPermission(browser()->profile(),
-                                                    origin);
-    ASSERT_EQ(CONTENT_SETTING_ALLOW,
-              PermissionManager::Get(browser()->profile())
-                  ->GetPermissionStatus(CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
-                                        origin, origin)
-                  .content_setting);
+    NotificationPermissionContext::UpdatePermission(
+        browser()->profile(), TestPageUrl().GetOrigin(), CONTENT_SETTING_ALLOW);
   }
 
   bool RequestAndAcceptPermission() {
@@ -243,7 +239,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        NonPersistentWebNotificationOptionsReflection) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   // First, test the default values.
 
@@ -347,7 +343,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        DisplayAndCloseNonPersistentNotification) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   std::string script_result;
   ASSERT_TRUE(
@@ -367,7 +363,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        WebNotificationOptionsReflection) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   // First, test the default values.
 
@@ -443,7 +439,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 #if !defined(OS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        WebNotificationSiteSettingsButton) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   // Expect 0.5 engagement for the navigation.
   content::WebContents* web_contents =
@@ -481,7 +477,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        WebNotificationOptionsVibrationPattern) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   std::string script_result;
   ASSERT_TRUE(RunScript("DisplayPersistentNotificationVibrate()",
@@ -502,7 +498,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        CloseDisplayedPersistentNotification) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   // Expect 0.5 engagement for the navigation.
   EXPECT_DOUBLE_EQ(0.5, GetEngagementScore(GetLastCommittedURL()));
@@ -532,7 +528,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        UserClosesPersistentNotification) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   // Expect 0.5 engagement for the navigation.
   EXPECT_DOUBLE_EQ(0.5, GetEngagementScore(GetLastCommittedURL()));
@@ -649,7 +645,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        DataUrlAsNotificationImage) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   std::string script_result;
   ASSERT_TRUE(RunScript("DisplayPersistentNotificationDataUrlImage()",
@@ -670,7 +666,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        BlobAsNotificationImage) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   std::string script_result;
   ASSERT_TRUE(RunScript("DisplayPersistentNotificationBlobImage()",
@@ -691,7 +687,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        DisplayPersistentNotificationWithActionButtons) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   // Expect 0.5 engagement for the navigation.
   EXPECT_DOUBLE_EQ(0.5, GetEngagementScore(GetLastCommittedURL()));
@@ -741,7 +737,7 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        DisplayPersistentNotificationWithReplyButton) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   // Expect 0.5 engagement for the navigation.
   EXPECT_DOUBLE_EQ(0.5, GetEngagementScore(GetLastCommittedURL()));
@@ -832,13 +828,54 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
   ASSERT_EQ(notification_ids[0], first_id);
 }
 
+IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
+                       OrphanedNonPersistentNotificationCreatesForegroundTab) {
+  // Verifies that activating a non-persistent notification that no longer has
+  // any event listeners attached (e.g. because the tab closed) creates a new
+  // foreground tab.
+
+  Profile* profile = browser()->profile();
+
+  NotificationDisplayServiceImpl* display_service =
+      NotificationDisplayServiceImpl::GetForProfile(profile);
+  ASSERT_TRUE(display_service);
+
+  NotificationHandler* handler = display_service->GetNotificationHandler(
+      NotificationHandler::Type::WEB_NON_PERSISTENT);
+  ASSERT_TRUE(handler);
+
+  // There should be one open tab for the current |browser()|.
+  EXPECT_EQ(browser()->tab_strip_model()->count(), 1);
+  content::WebContents* original_web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  // Signal an activation for a notification that's never been shown.
+  {
+    base::RunLoop run_loop;
+    handler->OnClick(profile, GURL(kTestNotificationOrigin),
+                     kTestNotificationId, base::nullopt /* action_index */,
+                     base::nullopt /* reply */, run_loop.QuitClosure());
+    run_loop.Run();
+  }
+
+  // A second tab should've been created and have been brought to the foreground
+  // for the notification's test origin.
+  ASSERT_EQ(browser()->tab_strip_model()->count(), 2);
+  content::WebContents* active_web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  EXPECT_NE(active_web_contents, original_web_contents);
+  EXPECT_EQ(active_web_contents->GetVisibleURL(),
+            GURL(kTestNotificationOrigin));
+}
+
 // Mac OS X exclusively uses native notifications, so the decision on whether to
 // display notifications whilst fullscreen is deferred to the operating system.
 #if !defined(OS_MACOSX)
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
                        TestShouldDisplayFullscreen) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   // Set the page fullscreen
   browser()->exclusive_access_manager()->fullscreen_controller()->
@@ -970,7 +1007,7 @@ class PlatformNotificationServiceWithoutContentImageBrowserTest
 IN_PROC_BROWSER_TEST_F(
     PlatformNotificationServiceWithoutContentImageBrowserTest,
     KillSwitch) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   std::string script_result;
   ASSERT_TRUE(
@@ -989,7 +1026,7 @@ IN_PROC_BROWSER_TEST_F(
 IN_PROC_BROWSER_TEST_F(
     PlatformNotificationServiceWithoutContentImageBrowserTest,
     KillSwitch_NonPersistentNotifications) {
-  ASSERT_NO_FATAL_FAILURE(GrantNotificationPermissionForTest());
+  GrantNotificationPermissionForTest();
 
   std::string script_result;
   ASSERT_TRUE(RunScript(

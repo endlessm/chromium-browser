@@ -12,7 +12,7 @@
 #import "ios/chrome/browser/favicon/favicon_loader.h"
 #include "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
 #include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
-#include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
 #include "ios/chrome/browser/sync/sync_setup_service.h"
 #include "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/ui/ntp/recent_tabs/recent_tabs_table_consumer.h"
@@ -23,7 +23,14 @@
 #error "This file requires ARC support."
 #endif
 
-@interface RecentTabsMediator () {
+namespace {
+// Desired width and height of favicon.
+const CGFloat kFaviconWidthHeight = 24;
+// Minimum favicon size to retrieve.
+const CGFloat kFaviconMinWidthHeight = 16;
+}  // namespace
+
+@interface RecentTabsMediator ()<SyncedSessionsObserver> {
   std::unique_ptr<synced_sessions::SyncedSessionsObserverBridge>
       _syncedSessionsObserver;
   std::unique_ptr<recent_tabs::ClosedTabsObserverBridge> _closedTabsObserver;
@@ -40,8 +47,6 @@
 - (BOOL)isSyncCompleted;
 // Reload the panel.
 - (void)refreshSessionsView;
-// Force a contact to the sync server to reload remote sessions.
-- (void)reloadSessionsData;
 
 @end
 
@@ -81,10 +86,13 @@
   }
 }
 
+- (void)configureConsumer {
+  [self refreshSessionsView];
+}
+
 #pragma mark - SyncedSessionsObserver
 
 - (void)reloadSessions {
-  [self reloadSessionsData];
   [self refreshSessionsView];
 }
 
@@ -107,19 +115,18 @@
 
 #pragma mark - RecentTabsImageDataSource
 
-- (UIImage*)faviconForURL:(const GURL&)URL
-               completion:(void (^)(UIImage*))completion {
+- (FaviconAttributes*)faviconForURL:(const GURL&)URL
+                         completion:(void (^)(FaviconAttributes*))completion {
   FaviconLoader* faviconLoader =
       IOSChromeFaviconLoaderFactory::GetForBrowserState(self.browserState);
-  favicon_base::IconTypeSet faviconTypes = {
-      favicon_base::IconType::kFavicon, favicon_base::IconType::kTouchIcon,
-      favicon_base::IconType::kTouchPrecomposedIcon};
-  UIImage* cachedFavicon =
-      faviconLoader->ImageForURL(URL, faviconTypes, ^(UIImage* favicon) {
-        DCHECK(favicon);
-        completion(favicon);
+  FaviconAttributes* cachedAttributes = faviconLoader->FaviconForUrl(
+      URL, kFaviconMinWidthHeight, kFaviconWidthHeight,
+      ^(FaviconAttributes* attributes) {
+        completion(attributes);
       });
-  return cachedFavicon;
+  DCHECK(cachedAttributes);
+
+  return cachedAttributes;
 }
 
 #pragma mark - Private
@@ -150,7 +157,7 @@
 
 - (BOOL)hasForeignSessions {
   browser_sync::ProfileSyncService* service =
-      IOSChromeProfileSyncServiceFactory::GetForBrowserState(_browserState);
+      ProfileSyncServiceFactory::GetForBrowserState(_browserState);
   DCHECK(service);
   sync_sessions::OpenTabsUIDelegate* openTabs =
       service->GetOpenTabsUIDelegate();
@@ -160,13 +167,6 @@
 
 - (BOOL)isSyncCompleted {
   return _syncedSessionsObserver->IsFirstSyncCycleCompleted();
-}
-
-- (void)reloadSessionsData {
-  const syncer::ModelTypeSet types(syncer::SESSIONS);
-  // Requests a sync refresh of the sessions for the current profile.
-  IOSChromeProfileSyncServiceFactory::GetForBrowserState(_browserState)
-      ->TriggerRefresh(types);
 }
 
 #pragma mark - RecentTabsTableViewControllerDelegate

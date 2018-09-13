@@ -1351,6 +1351,47 @@ public:
   }
 };
 
+class FixedPointLiteral : public Expr, public APIntStorage {
+  SourceLocation Loc;
+  unsigned Scale;
+
+  /// \brief Construct an empty integer literal.
+  explicit FixedPointLiteral(EmptyShell Empty)
+      : Expr(FixedPointLiteralClass, Empty) {}
+
+ public:
+  FixedPointLiteral(const ASTContext &C, const llvm::APInt &V, QualType type,
+                    SourceLocation l, unsigned Scale);
+
+  // Store the int as is without any bit shifting.
+  static FixedPointLiteral *CreateFromRawInt(const ASTContext &C,
+                                             const llvm::APInt &V,
+                                             QualType type, SourceLocation l,
+                                             unsigned Scale);
+
+  SourceLocation getLocStart() const LLVM_READONLY { return Loc; }
+  SourceLocation getLocEnd() const LLVM_READONLY { return Loc; }
+
+  /// \brief Retrieve the location of the literal.
+  SourceLocation getLocation() const { return Loc; }
+
+  void setLocation(SourceLocation Location) { Loc = Location; }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == FixedPointLiteralClass;
+  }
+
+  std::string getValueAsString(unsigned Radix) const;
+
+  // Iterators
+  child_range children() {
+    return child_range(child_iterator(), child_iterator());
+  }
+  const_child_range children() const {
+    return const_child_range(const_child_iterator(), const_child_iterator());
+  }
+};
+
 class CharacterLiteral : public Expr {
 public:
   enum CharacterKind {
@@ -1619,6 +1660,14 @@ public:
   bool isUTF16() const { return Kind == UTF16; }
   bool isUTF32() const { return Kind == UTF32; }
   bool isPascal() const { return IsPascal; }
+
+  bool containsNonAscii() const {
+    StringRef Str = getString();
+    for (unsigned i = 0, e = Str.size(); i != e; ++i)
+      if (!isASCII(Str[i]))
+        return true;
+    return false;
+  }
 
   bool containsNonAsciiOrNull() const {
     StringRef Str = getString();
@@ -2800,6 +2849,10 @@ public:
   const Expr *getSubExprAsWritten() const {
     return const_cast<CastExpr *>(this)->getSubExprAsWritten();
   }
+
+  /// If this cast applies a user-defined conversion, retrieve the conversion
+  /// function that it invokes.
+  NamedDecl *getConversionFunction() const;
 
   typedef CXXBaseSpecifier **path_iterator;
   typedef const CXXBaseSpecifier * const *path_const_iterator;

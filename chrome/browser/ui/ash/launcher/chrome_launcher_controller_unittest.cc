@@ -39,7 +39,6 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
@@ -979,10 +978,10 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
     ArcAppListPrefs* const prefs = arc_test_.arc_app_list_prefs();
     // Adding app to the prefs, and check that the app is accessible by id.
     prefs->AddAppAndShortcut(
-        true /* app_ready */, app_info.name, app_info.package_name,
-        app_info.activity, std::string() /* intent_uri */,
-        std::string() /* icon_resource_id */, false /* sticky */,
-        true /* notifications_enabled */, false /* shortcut */,
+        app_info.name, app_info.package_name, app_info.activity,
+        std::string() /* intent_uri */, std::string() /* icon_resource_id */,
+        false /* sticky */, true /* notifications_enabled */,
+        true /* app_ready */, false /* suspended */, false /* shortcut */,
         true /* launchable */);
     const std::string app_id =
         ArcAppListPrefs::GetAppId(app_info.package_name, app_info.activity);
@@ -1019,7 +1018,7 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
   // |item_delegate_manager_| owns |test_controller_|.
   ash::ShelfItemDelegate* test_controller_ = nullptr;
 
-  ExtensionService* extension_service_ = nullptr;
+  extensions::ExtensionService* extension_service_ = nullptr;
 
   app_list::AppListSyncableService* app_service_ = nullptr;
 
@@ -1109,7 +1108,7 @@ class V1App : public TestBrowserWindow {
 };
 
 // A V2 application window created with an |extension| and for a |profile|.
-// Upon destruction it will properly close the application; supports panels too.
+// Upon destruction it will properly close the application.
 class V2App {
  public:
   V2App(Profile* profile,
@@ -1904,11 +1903,16 @@ TEST_P(ChromeLauncherControllerWithArcTest, ArcDeferredLaunch) {
   EXPECT_FALSE(launcher_controller_->GetItem(shelf_id_app_3));
   EXPECT_FALSE(launcher_controller_->GetItem(shelf_id_shortcut));
 
-  arc::LaunchApp(profile(), arc_app_id1, ui::EF_LEFT_MOUSE_BUTTON);
-  arc::LaunchApp(profile(), arc_app_id1, ui::EF_LEFT_MOUSE_BUTTON);
-  arc::LaunchApp(profile(), arc_app_id2, ui::EF_LEFT_MOUSE_BUTTON);
-  arc::LaunchApp(profile(), arc_app_id3, ui::EF_LEFT_MOUSE_BUTTON);
-  arc::LaunchApp(profile(), arc_shortcut_id, ui::EF_LEFT_MOUSE_BUTTON);
+  arc::LaunchApp(profile(), arc_app_id1, ui::EF_LEFT_MOUSE_BUTTON,
+                 arc::UserInteractionType::NOT_USER_INITIATED);
+  arc::LaunchApp(profile(), arc_app_id1, ui::EF_LEFT_MOUSE_BUTTON,
+                 arc::UserInteractionType::NOT_USER_INITIATED);
+  arc::LaunchApp(profile(), arc_app_id2, ui::EF_LEFT_MOUSE_BUTTON,
+                 arc::UserInteractionType::NOT_USER_INITIATED);
+  arc::LaunchApp(profile(), arc_app_id3, ui::EF_LEFT_MOUSE_BUTTON,
+                 arc::UserInteractionType::NOT_USER_INITIATED);
+  arc::LaunchApp(profile(), arc_shortcut_id, ui::EF_LEFT_MOUSE_BUTTON,
+                 arc::UserInteractionType::NOT_USER_INITIATED);
 
   EXPECT_TRUE(launcher_controller_->GetItem(shelf_id_app_1));
   EXPECT_TRUE(launcher_controller_->GetItem(shelf_id_app_2));
@@ -1954,6 +1958,39 @@ TEST_P(ChromeLauncherControllerWithArcTest, ArcDeferredLaunch) {
             shortcut.intent_uri);
 }
 
+// Launch is canceled in case app becomes suspended.
+TEST_P(ChromeLauncherControllerWithArcTest, ArcDeferredLaunchForSuspendedApp) {
+  InitLauncherController();
+
+  arc::mojom::AppInfo app = arc_test_.fake_apps()[0];
+  const std::string app_id = ArcAppTest::GetAppId(app);
+
+  // Register app first.
+  arc_test_.app_instance()->RefreshAppList();
+  arc_test_.app_instance()->SendRefreshAppList({app});
+  arc_test_.StopArcInstance();
+
+  // Restart ARC
+  arc_test_.RestartArcInstance();
+
+  // Deferred controller should be allocated on start.
+  const ash::ShelfID shelf_id(app_id);
+  arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON,
+                 arc::UserInteractionType::NOT_USER_INITIATED);
+  EXPECT_TRUE(launcher_controller_->GetItem(shelf_id));
+
+  // Send app with suspended state.
+  app.suspended = true;
+  arc_test_.app_instance()->RefreshAppList();
+  arc_test_.app_instance()->SendRefreshAppList({app});
+
+  // Controler automatically closed.
+  EXPECT_FALSE(launcher_controller_->GetItem(shelf_id));
+
+  // And no launch request issued.
+  EXPECT_TRUE(arc_test_.app_instance()->launch_requests().empty());
+}
+
 // Ensure the spinner controller does not override the active app controller
 // (crbug.com/701152).
 TEST_P(ChromeLauncherControllerWithArcTest, ArcDeferredLaunchForActiveApp) {
@@ -1980,7 +2017,8 @@ TEST_P(ChromeLauncherControllerWithArcTest, ArcDeferredLaunchForActiveApp) {
   launcher_controller_->SetItemStatus(shelf_id, ash::STATUS_RUNNING);
 
   // This launch request should be ignored in case of active app.
-  arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON);
+  arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON,
+                 arc::UserInteractionType::NOT_USER_INITIATED);
   EXPECT_FALSE(
       launcher_controller_->GetShelfSpinnerController()->HasApp(app_id));
 
@@ -1992,7 +2030,8 @@ TEST_P(ChromeLauncherControllerWithArcTest, ArcDeferredLaunchForActiveApp) {
   EXPECT_EQ(ash::TYPE_PINNED_APP, item->type);
 
   // Now launch request should not be ignored.
-  arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON);
+  arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON,
+                 arc::UserInteractionType::NOT_USER_INITIATED);
   EXPECT_TRUE(
       launcher_controller_->GetShelfSpinnerController()->HasApp(app_id));
 }
@@ -2639,36 +2678,6 @@ TEST_F(MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest,
   EXPECT_FALSE(manager->IsWindowOnDesktopOfUser(window, current_user));
   launcher_controller_->ActivateWindowOrMinimizeIfActive(browser_window, false);
   EXPECT_TRUE(manager->IsWindowOnDesktopOfUser(window, current_user));
-}
-
-// Ensure multi-profile panels are properly added / removed from the shelf.
-TEST_F(MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest,
-       PanelUpdateOnUserSwitch) {
-  InitLauncherController();
-
-  // Check the shelf model used by ShelfWindowWatcher.
-  ash::ShelfModel* shelf_model = ash::Shell::Get()->shelf_model();
-  ASSERT_EQ(2, shelf_model->item_count());
-  EXPECT_EQ(ash::TYPE_BACK_BUTTON, shelf_model->items()[0].type);
-  EXPECT_EQ(ash::TYPE_APP_LIST, shelf_model->items()[1].type);
-
-  // Add an app panel window; ShelfWindowWatcher will add a shelf item.
-  V2App panel(profile(), extension_platform_app_.get(),
-              extensions::AppWindow::WINDOW_TYPE_PANEL);
-  ASSERT_EQ(3, shelf_model->item_count());
-  EXPECT_EQ(ash::TYPE_APP_PANEL, shelf_model->items()[2].type);
-
-  // After switching users the item should go away.
-  TestingProfile* profile2 = CreateMultiUserProfile("user2");
-  SwitchActiveUser(multi_user_util::GetAccountIdFromProfile(profile2));
-  ASSERT_EQ(2, shelf_model->item_count());
-  EXPECT_EQ(ash::TYPE_BACK_BUTTON, shelf_model->items()[0].type);
-  EXPECT_EQ(ash::TYPE_APP_LIST, shelf_model->items()[1].type);
-
-  // And it should come back when switching back.
-  SwitchActiveUser(multi_user_util::GetAccountIdFromProfile(profile()));
-  ASSERT_EQ(3, shelf_model->item_count());
-  EXPECT_EQ(ash::TYPE_APP_PANEL, shelf_model->items()[2].type);
 }
 
 // Check that a running windowed V1 application will be properly pinned and
@@ -3792,8 +3801,7 @@ TEST_F(ChromeLauncherControllerTest, MultipleAppIconLoaders) {
   EXPECT_EQ(1, app_icon_loader2->clear_count());
 }
 
-// Test is flaking. https://crbug.com/839916
-TEST_P(ChromeLauncherControllerWithArcTest, DISABLED_ArcAppPinPolicy) {
+TEST_P(ChromeLauncherControllerWithArcTest, ArcAppPinPolicy) {
   InitLauncherControllerWithBrowser();
   arc::mojom::AppInfo appinfo =
       CreateAppInfo("Some App", "SomeActivity", "com.example.app");
@@ -3996,7 +4004,8 @@ TEST_P(ChromeLauncherControllerArcDefaultAppsTest, DefaultApps) {
   const std::string app_id =
       ArcAppTest::GetAppId(arc_test_.fake_default_apps()[0]);
   EXPECT_FALSE(launcher_controller_->GetItem(ash::ShelfID(app_id)));
-  EXPECT_TRUE(arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON));
+  EXPECT_TRUE(arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON,
+                             arc::UserInteractionType::NOT_USER_INITIATED));
   EXPECT_TRUE(arc::IsArcPlayStoreEnabledForProfile(profile()));
   EXPECT_TRUE(launcher_controller_->GetItem(ash::ShelfID(app_id)));
 
@@ -4004,7 +4013,8 @@ TEST_P(ChromeLauncherControllerArcDefaultAppsTest, DefaultApps) {
   EnablePlayStore(false);
   EXPECT_FALSE(launcher_controller_->GetItem(ash::ShelfID(app_id)));
 
-  EXPECT_TRUE(arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON));
+  EXPECT_TRUE(arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON,
+                             arc::UserInteractionType::NOT_USER_INITIATED));
   EXPECT_TRUE(arc::IsArcPlayStoreEnabledForProfile(profile()));
   EXPECT_TRUE(launcher_controller_->GetItem(ash::ShelfID(app_id)));
 
@@ -4294,7 +4304,8 @@ TEST_F(ChromeLauncherControllerTest, InternalAppWindowRecreation) {
   InitLauncherController();
 
   // Only test the first internal app. The others should be the same.
-  const auto& internal_app = app_list::GetInternalAppList().front();
+  const auto& internal_app =
+      app_list::GetInternalAppList(profile()->IsGuestSession()).front();
   const std::string app_id = internal_app.app_id;
   const ash::ShelfID shelf_id(app_id);
   EXPECT_FALSE(launcher_controller_->GetItem(shelf_id));
@@ -4325,7 +4336,8 @@ TEST_F(ChromeLauncherControllerTest, InternalAppWindowPropertyChanged) {
   InitLauncherController();
 
   // Only test the first internal app. The others should be the same.
-  const auto& internal_app = app_list::GetInternalAppList().front();
+  const auto& internal_app =
+      app_list::GetInternalAppList(profile()->IsGuestSession()).front();
   std::string app_id;
   ash::ShelfID shelf_id;
   EXPECT_FALSE(launcher_controller_->GetItem(shelf_id));

@@ -4,6 +4,8 @@
 
 #include "components/sync/driver/frontend_data_type_controller.h"
 
+#include <utility>
+
 #include "base/logging.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "components/sync/base/data_type_histogram.h"
@@ -74,7 +76,8 @@ void FrontendDataTypeController::StartAssociating(
                             base::AsWeakPtr(this)));
 }
 
-void FrontendDataTypeController::Stop() {
+// For directory datatypes metadata clears by SyncManager::PurgeDisabledTypes().
+void FrontendDataTypeController::Stop(SyncStopMetadataFate metadata_fate) {
   DCHECK(CalledOnValidThread());
 
   if (state_ == NOT_RUNNING)
@@ -196,7 +199,7 @@ void FrontendDataTypeController::StartDone(
   if (!IsSuccessfulResult(start_result)) {
     CleanUp();
     if (start_result == ASSOCIATION_FAILED) {
-      state_ = DISABLED;
+      state_ = FAILED;
     } else {
       state_ = NOT_RUNNING;
     }
@@ -248,8 +251,8 @@ AssociatorInterface* FrontendDataTypeController::model_associator() const {
 }
 
 void FrontendDataTypeController::set_model_associator(
-    AssociatorInterface* model_associator) {
-  model_associator_.reset(model_associator);
+    std::unique_ptr<AssociatorInterface> model_associator) {
+  model_associator_ = std::move(model_associator);
 }
 
 ChangeProcessor* FrontendDataTypeController::GetChangeProcessor() const {
@@ -257,8 +260,8 @@ ChangeProcessor* FrontendDataTypeController::GetChangeProcessor() const {
 }
 
 void FrontendDataTypeController::set_change_processor(
-    ChangeProcessor* change_processor) {
-  change_processor_.reset(change_processor);
+    std::unique_ptr<ChangeProcessor> change_processor) {
+  change_processor_ = std::move(change_processor);
 }
 
 }  // namespace syncer

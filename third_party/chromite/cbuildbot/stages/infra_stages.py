@@ -26,8 +26,7 @@ _CIPD_PACKAGE_PREFIX = 'chromiumos/infra/'
 # categories) but are also used to produce CIPD package names.
 _GO_PACKAGES = [
     'lucifer',
-    'tast-cmd',
-    'tast-remote-tests-cros',
+    'skylab-inventory',
 ]
 
 _CRED_FILE = ('/creds/service_accounts/'
@@ -46,7 +45,7 @@ class EmergeInfraGoBinariesStage(generic_stages.BuilderStage):
     cmd.extend(_GO_PACKAGES)
     commands.RunBuildScript(self._build_root, cmd,
                             sudo=True, enter_chroot=True,
-                            extra_env={'FEATURES=test'})
+                            extra_env={'FEATURES': 'test'})
 
 
 class PackageInfraGoBinariesStage(generic_stages.BuilderStage,

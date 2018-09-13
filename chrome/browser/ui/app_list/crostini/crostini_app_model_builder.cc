@@ -11,7 +11,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 #include "chrome/browser/ui/app_list/crostini/crostini_app_item.h"
-#include "components/crx_file/id_util.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -49,16 +48,13 @@ void CrostiniAppModelBuilder::InsertCrostiniAppItem(
     // becomes enabled.
     return;
   }
-  std::unique_ptr<crostini::CrostiniRegistryService::Registration>
-      registration = registry_service->GetRegistration(app_id);
-  DCHECK(registration);
-  if (registration->no_display)
+  crostini::CrostiniRegistryService::Registration registration =
+      *registry_service->GetRegistration(app_id);
+  if (registration.NoDisplay())
     return;
-  const std::string& localized_name =
-      crostini::CrostiniRegistryService::Registration::Localize(
-          registration->name);
-  InsertApp(std::make_unique<CrostiniAppItem>(
-      profile(), model_updater(), GetSyncItem(app_id), app_id, localized_name));
+  InsertApp(std::make_unique<CrostiniAppItem>(profile(), model_updater(),
+                                              GetSyncItem(app_id), app_id,
+                                              registration.Name()));
 }
 
 void CrostiniAppModelBuilder::OnRegistryUpdated(
@@ -73,8 +69,12 @@ void CrostiniAppModelBuilder::OnRegistryUpdated(
     RemoveApp(app_id, unsynced_change);
     InsertCrostiniAppItem(registry_service, app_id);
   }
-  for (const std::string& app_id : inserted_apps)
+  for (const std::string& app_id : inserted_apps) {
+    // If the app has been installed before and has not been cleaned up
+    // correctly, it needs to be removed.
+    RemoveApp(app_id, unsynced_change);
     InsertCrostiniAppItem(registry_service, app_id);
+  }
 }
 
 void CrostiniAppModelBuilder::OnAppIconUpdated(const std::string& app_id,
@@ -91,12 +91,15 @@ void CrostiniAppModelBuilder::OnAppIconUpdated(const std::string& app_id,
 }
 
 void CrostiniAppModelBuilder::OnCrostiniEnabledChanged() {
+  const bool unsynced_change = false;
   if (IsCrostiniEnabled(profile())) {
+    // If Terminal has been installed before and has not been cleaned up
+    // correctly, it needs to be removed.
+    RemoveApp(kCrostiniTerminalId, unsynced_change);
     crostini::CrostiniRegistryService* registry_service =
         crostini::CrostiniRegistryServiceFactory::GetForProfile(profile());
     InsertCrostiniAppItem(registry_service, kCrostiniTerminalId);
   } else {
-    const bool unsynced_change = false;
     RemoveApp(kCrostiniTerminalId, unsynced_change);
   }
 }

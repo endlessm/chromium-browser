@@ -12,7 +12,6 @@
 #include "chrome/browser/vr/ui_renderer.h"
 #include "chrome/browser/vr/ui_scene.h"
 #include "chrome/browser/vr/ui_scene_creator.h"
-#include "third_party/blink/public/platform/web_gesture_event.h"
 #include "ui/gfx/geometry/vector3d_f.h"
 
 namespace vr {
@@ -81,11 +80,12 @@ void UiTest::CreateSceneInternal(
     const UiInitialState& state,
     std::unique_ptr<MockContentInputDelegate> content_input_delegate) {
   content_input_delegate_ = content_input_delegate.get();
-  ui_ = std::make_unique<Ui>(std::move(browser_.get()),
-                             std::move(content_input_delegate), nullptr,
-                             nullptr, nullptr, state);
-  scene_ = ui_->scene();
-  model_ = ui_->model_for_test();
+  ui_instance_ = std::make_unique<Ui>(std::move(browser_.get()),
+                                      std::move(content_input_delegate),
+                                      nullptr, nullptr, nullptr, state);
+  ui_ = ui_instance_.get();
+  scene_ = ui_instance_->scene();
+  model_ = ui_instance_->model_for_test();
   model_->controller.transform.Translate3d(kStartControllerPosition);
 
   OnBeginFrame();
@@ -97,17 +97,9 @@ void UiTest::CreateScene(const UiInitialState& state) {
   CreateSceneInternal(state, std::move(content_input_delegate));
 }
 
-void UiTest::CreateScene(InCct in_cct, InWebVr in_web_vr) {
+void UiTest::CreateScene(InWebVr in_web_vr) {
   UiInitialState state;
-  state.in_cct = in_cct;
   state.in_web_vr = in_web_vr;
-  CreateScene(state);
-}
-
-void UiTest::CreateSceneForAutoPresentation() {
-  UiInitialState state;
-  state.in_web_vr = true;
-  state.web_vr_autopresentation_expected = true;
   CreateScene(state);
 }
 
@@ -223,7 +215,10 @@ bool UiTest::RunForSeconds(float seconds) {
 bool UiTest::OnBeginFrame() const {
   bool changed = false;
   changed |= scene_->OnBeginFrame(current_time_, kStartHeadPose);
-  changed |= scene_->UpdateTextures();
+  if (scene_->HasDirtyTextures()) {
+    scene_->UpdateTextures();
+    changed = true;
+  }
   return changed;
 }
 
@@ -251,21 +246,21 @@ void UiTest::ClickElement(UiElement* element) {
 
   RenderInfo render_info;
   ReticleModel reticle_model;
-  GestureList gesture_list;
+  InputEventList input_event_list;
   ControllerModel controller_model;
   controller_model.laser_direction = direction;
   controller_model.laser_origin = origin;
 
   controller_model.touchpad_button_state = UiInputManager::ButtonState::DOWN;
-  ui_->input_manager()->HandleInput(current_time_, render_info,
-                                    controller_model, &reticle_model,
-                                    &gesture_list);
+  ui_instance_->input_manager()->HandleInput(current_time_, render_info,
+                                             controller_model, &reticle_model,
+                                             &input_event_list);
   OnBeginFrame();
 
   controller_model.touchpad_button_state = UiInputManager::ButtonState::UP;
-  ui_->input_manager()->HandleInput(current_time_, render_info,
-                                    controller_model, &reticle_model,
-                                    &gesture_list);
+  ui_instance_->input_manager()->HandleInput(current_time_, render_info,
+                                             controller_model, &reticle_model,
+                                             &input_event_list);
   OnBeginFrame();
 }
 

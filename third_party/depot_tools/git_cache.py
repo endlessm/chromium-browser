@@ -195,6 +195,11 @@ class Mirror(object):
     os.path.dirname(os.path.abspath(__file__)), 'gsutil.py')
   cachepath_lock = threading.Lock()
 
+  UNSET_CACHEPATH = object()
+
+  # Used for tests
+  _GIT_CONFIG_LOCATION = []
+
   @staticmethod
   def parse_fetch_spec(spec):
     """Parses and canonicalizes a fetch spec.
@@ -272,14 +277,18 @@ class Mirror(object):
       if not hasattr(cls, 'cachepath'):
         try:
           cachepath = subprocess.check_output(
-              [cls.git_exe, 'config', '--global', 'cache.cachepath']).strip()
+              [cls.git_exe, 'config'] +
+              cls._GIT_CONFIG_LOCATION +
+              ['cache.cachepath']).strip()
         except subprocess.CalledProcessError:
-          cachepath = None
-        if not cachepath:
-          raise RuntimeError(
-              'No global cache.cachepath git configuration found.')
+          cachepath = os.environ.get('GIT_CACHE_PATH', cls.UNSET_CACHEPATH)
         setattr(cls, 'cachepath', cachepath)
-      return getattr(cls, 'cachepath')
+
+      ret = getattr(cls, 'cachepath')
+      if ret is cls.UNSET_CACHEPATH:
+        raise RuntimeError('No cache.cachepath git configuration or '
+                           '$GIT_CACHE_PATH is set.')
+      return ret
 
   def Rename(self, src, dst):
     # This is somehow racy on Windows.
@@ -302,9 +311,18 @@ class Mirror(object):
     self.print('running "git %s" in "%s"' % (' '.join(cmd), cwd))
     gclient_utils.CheckCallAndFilter([self.git_exe] + cmd, **kwargs)
 
-  def config(self, cwd=None):
+  def config(self, cwd=None, reset_fetch_config=False):
     if cwd is None:
       cwd = self.mirror_path
+
+    if reset_fetch_config:
+      try:
+        self.RunGit(['config', '--unset-all', 'remote.origin.fetch'], cwd=cwd)
+      except subprocess.CalledProcessError as e:
+        # If exit code was 5, it means we attempted to unset a config that
+        # didn't exist. Ignore it.
+        if e.returncode != 5:
+          raise
 
     # Don't run git-gc in a daemon.  Bad things can happen if it gets killed.
     try:
@@ -499,8 +517,8 @@ class Mirror(object):
             'Shallow fetch requested, but repo cache already exists.')
     return tempdir
 
-  def _fetch(self, rundir, verbose, depth):
-    self.config(rundir)
+  def _fetch(self, rundir, verbose, depth, reset_fetch_config):
+    self.config(rundir, reset_fetch_config)
     v = []
     d = []
     if verbose:
@@ -522,7 +540,8 @@ class Mirror(object):
         logging.warn('Fetch of %s failed' % spec)
 
   def populate(self, depth=None, shallow=False, bootstrap=False,
-               verbose=False, ignore_lock=False, lock_timeout=0):
+               verbose=False, ignore_lock=False, lock_timeout=0,
+               reset_fetch_config=False):
     assert self.GetCachePath()
     if shallow and not depth:
       depth = 10000
@@ -536,14 +555,14 @@ class Mirror(object):
     try:
       tempdir = self._ensure_bootstrapped(depth, bootstrap)
       rundir = tempdir or self.mirror_path
-      self._fetch(rundir, verbose, depth)
+      self._fetch(rundir, verbose, depth, reset_fetch_config)
     except ClobberNeeded:
       # This is a major failure, we need to clean and force a bootstrap.
       gclient_utils.rmtree(rundir)
       self.print(GIT_CACHE_CORRUPT_MESSAGE)
       tempdir = self._ensure_bootstrapped(depth, bootstrap, force=True)
       assert tempdir
-      self._fetch(tempdir, verbose, depth)
+      self._fetch(tempdir, verbose, depth, reset_fetch_config)
     finally:
       if tempdir:
         if os.path.exists(self.mirror_path):
@@ -684,6 +703,8 @@ def CMDpopulate(parser, args):
   parser.add_option('--ignore_locks', '--ignore-locks',
                     action='store_true',
                     help='Don\'t try to lock repository')
+  parser.add_option('--reset-fetch-config', action='store_true', default=False,
+                    help='Reset the fetch config before populating the cache.')
 
   options, args = parser.parse_args(args)
   if not len(args) == 1:
@@ -697,6 +718,7 @@ def CMDpopulate(parser, args):
       'bootstrap': not options.no_bootstrap,
       'ignore_lock': options.ignore_locks,
       'lock_timeout': options.timeout,
+      'reset_fetch_config': options.reset_fetch_config,
   }
   if options.depth:
     kwargs['depth'] = options.depth
@@ -795,7 +817,10 @@ class OptionParser(optparse.OptionParser):
   def __init__(self, *args, **kwargs):
     optparse.OptionParser.__init__(self, *args, prog='git cache', **kwargs)
     self.add_option('-c', '--cache-dir',
-                    help='Path to the directory containing the cache')
+                    help=(
+                      'Path to the directory containing the caches. Normally '
+                      'deduced from git config cache.cachepath or '
+                      '$GIT_CACHE_PATH.'))
     self.add_option('-v', '--verbose', action='count', default=1,
                     help='Increase verbosity (can be passed multiple times)')
     self.add_option('-q', '--quiet', action='store_true',

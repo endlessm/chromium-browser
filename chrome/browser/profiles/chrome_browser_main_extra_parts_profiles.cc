@@ -33,7 +33,7 @@
 #include "chrome/browser/google/google_url_tracker_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
-#include "chrome/browser/language/language_model_factory.h"
+#include "chrome/browser/language/language_model_manager_factory.h"
 #include "chrome/browser/language/url_language_histogram_factory.h"
 #include "chrome/browser/media/media_engagement_service.h"
 #include "chrome/browser/media/media_engagement_service_factory.h"
@@ -70,6 +70,7 @@
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/sync/model_type_store_service_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/user_event_service_factory.h"
 #include "chrome/browser/themes/theme_service_factory.h"
@@ -82,19 +83,19 @@
 #include "chrome/browser/ui/webui/ntp/ntp_resource_cache_factory.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/browser/undo/bookmark_undo_service_factory.h"
+#include "chrome/browser/unified_consent/unified_consent_service_factory.h"
 #include "chrome/browser/web_data_service_factory.h"
 #include "chrome/common/buildflags.h"
 #include "components/feature_engagement/buildflags.h"
-#include "components/policy/content/policy_blacklist_navigation_throttle.h"
 #include "components/spellcheck/spellcheck_buildflags.h"
 #include "extensions/buildflags/buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "printing/buildflags/buildflags.h"
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/data_usage/data_use_ui_tab_model_factory.h"
 #include "chrome/browser/android/search_permissions/search_permissions_service.h"
 #else
+#include "chrome/browser/resource_coordinator/local_site_characteristics_data_store_factory.h"
 #include "chrome/browser/search/instant_service_factory.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
 #include "chrome/browser/ui/webui/media_router/media_router_ui_service_factory.h"
@@ -137,11 +138,12 @@
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "apps/browser_context_keyed_service_factories.h"
-#include "chrome/browser/apps/browser_context_keyed_service_factories.h"
+#include "chrome/browser/apps/platform_apps/browser_context_keyed_service_factories.h"
 #include "chrome/browser/extensions/api/networking_private/networking_private_ui_delegate_factory_impl.h"
 #include "chrome/browser/extensions/browser_context_keyed_service_factories.h"
 #include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/ui/bookmarks/enhanced_bookmark_key_service_factory.h"
+#include "chrome/browser/web_applications/web_app_provider_factory.h"
 #include "extensions/browser/api/networking_private/networking_private_delegate_factory.h"
 #include "extensions/browser/browser_context_keyed_service_factories.h"
 #if defined(OS_CHROMEOS)
@@ -219,9 +221,6 @@ void ChromeBrowserMainExtraPartsProfiles::
   CaptivePortalServiceFactory::GetInstance();
 #endif
   CertificateReportingServiceFactory::GetInstance();
-#if defined(OS_ANDROID)
-  android::DataUseUITabModelFactory::GetInstance();
-#endif
   ChromeBrowsingDataRemoverDelegateFactory::GetInstance();
 #if defined(OS_CHROMEOS)
   chromeos::ChromeCryptAuthServiceFactory::GetInstance();
@@ -231,6 +230,7 @@ void ChromeBrowserMainExtraPartsProfiles::
   CloudPrintProxyServiceFactory::GetInstance();
 #endif
   ConsentAuditorFactory::GetInstance();
+  ContentSuggestionsServiceFactory::GetInstance();
   CookieSettingsFactory::GetInstance();
   NotifierStateTrackerFactory::GetInstance();
   data_use_measurement::ChromeDataUseAscriberServiceFactory::GetInstance();
@@ -257,6 +257,11 @@ void ChromeBrowserMainExtraPartsProfiles::
   extensions::VerifyTrustAPI::GetFactoryInstance();
 #endif
   FaviconServiceFactory::GetInstance();
+#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
+  feature_engagement::BookmarkTrackerFactory::GetInstance();
+  feature_engagement::IncognitoWindowTrackerFactory::GetInstance();
+  feature_engagement::NewTabTrackerFactory::GetInstance();
+#endif
   feature_engagement::TrackerFactory::GetInstance();
   FindBarStateFactory::GetInstance();
   GAIAInfoUpdateServiceFactory::GetInstance();
@@ -287,7 +292,7 @@ void ChromeBrowserMainExtraPartsProfiles::
       ->SetUIDelegateFactory(std::move(networking_private_ui_delegate_factory));
 #endif
 #endif
-  LanguageModelFactory::GetInstance();
+  LanguageModelManagerFactory::GetInstance();
 #if !defined(OS_ANDROID)
   LoginUIServiceFactory::GetInstance();
 #endif
@@ -299,17 +304,14 @@ void ChromeBrowserMainExtraPartsProfiles::
 #endif
 #if !defined(OS_ANDROID)
   MediaGalleriesPreferencesFactory::GetInstance();
-  NTPResourceCacheFactory::GetInstance();
 #endif
-#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
-  feature_engagement::BookmarkTrackerFactory::GetInstance();
-  feature_engagement::IncognitoWindowTrackerFactory::GetInstance();
-  feature_engagement::NewTabTrackerFactory::GetInstance();
-#endif
-  ContentSuggestionsServiceFactory::GetInstance();
 #if defined(OS_WIN) || defined(OS_MACOSX) || \
     (defined(OS_LINUX) && !defined(OS_CHROMEOS))
   metrics::DesktopProfileSessionDurationsServiceFactory::GetInstance();
+#endif
+  ModelTypeStoreServiceFactory::GetInstance();
+#if !defined(OS_ANDROID)
+  NTPResourceCacheFactory::GetInstance();
 #endif
   PasswordStoreFactory::GetInstance();
 #if !defined(OS_ANDROID)
@@ -342,8 +344,9 @@ void ChromeBrowserMainExtraPartsProfiles::
   prerender::PrerenderMessageFilter::EnsureShutdownNotifierFactoryBuilt();
   ProfileSyncServiceFactory::GetInstance();
   ProtocolHandlerRegistryFactory::GetInstance();
-  PolicyBlacklistFactory::GetInstance()->SetBlacklistOverride(
-      base::BindRepeating(policy::OverrideBlacklistForURL));
+#if !defined(OS_ANDROID)
+  resource_coordinator::LocalSiteCharacteristicsDataStoreFactory::GetInstance();
+#endif
 #if defined(OS_ANDROID)
   SearchPermissionsService::Factory::GetInstance();
 #endif
@@ -369,9 +372,13 @@ void ChromeBrowserMainExtraPartsProfiles::
   TriggeredProfileResetterFactory::GetInstance();
 #endif
   UINetworkQualityEstimatorServiceFactory::GetInstance();
+  UnifiedConsentServiceFactory::GetInstance();
   UrlLanguageHistogramFactory::GetInstance();
 #if !defined(OS_ANDROID)
   UsbChooserContextFactory::GetInstance();
+#endif
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  web_app::WebAppProviderFactory::GetInstance();
 #endif
   WebDataServiceFactory::GetInstance();
 }

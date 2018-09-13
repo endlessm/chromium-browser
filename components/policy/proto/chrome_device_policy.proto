@@ -262,6 +262,18 @@ message AutoUpdateSettingsProto {
   // firmware and kernel rollback protection to apply for at least this number
   // of milestones.
   optional int32 rollback_allowed_milestones = 11 [default = 0];
+
+  // Specifies the time intervals during which the device is not allowed to do
+  // automatic update checks. This is a JSON string, for details see
+  // "DeviceAutoUpdateTimeRestrictions" in policy_templates.json.
+  optional string disallowed_time_intervals = 12;
+
+  // Specifies the percent of the fleet to update per week. Each week is
+  // represented by an int in the list. For example, a list with values
+  // [5,20,100] means: by the end of week 1, 5% of devices should be updated. By
+  // the end of week 2, 20% of devices should be updated. By the end of week 3,
+  // 100% of devices should be updated.
+  repeated int32 staging_percent_of_fleet_per_week = 13;
 }
 
 message OBSOLETE_StartUpUrlsProto {
@@ -851,7 +863,7 @@ message CastReceiverNameProto {
   optional string name = 1;
 }
 
-// Day of the week and time settings for DeviceOffHoursIntervalProto.
+// Day of the week and time in milliseconds since the start of the day.
 message WeeklyTimeProto {
   enum DayOfWeek {
     DAY_OF_WEEK_UNSPECIFIED = 0;
@@ -865,13 +877,12 @@ message WeeklyTimeProto {
   }
   // Day of week.
   optional DayOfWeek day_of_week = 1;
-  // Time of day in milliseconds from beginning of the day
-  // in timezone that is defined in DeviceOffHoursProto.
+  // Time of day in milliseconds from beginning of the day.
   optional int32 time = 2;
 }
 
-// Start and end interval settings for DeviceOffHoursProto.
-message DeviceOffHoursIntervalProto {
+// Start and end of an interval represented by WeeklyTimes
+message WeeklyTimeIntervalProto {
   optional WeeklyTimeProto start = 1;
   optional WeeklyTimeProto end = 2;
 }
@@ -879,8 +890,9 @@ message DeviceOffHoursIntervalProto {
 // Allow less restricted using of Chromebooks that are managed by school,
 // while the device is not at school ("OffHours").
 message DeviceOffHoursProto {
-  // List of intervals when ignored policies are not applied.
-  repeated DeviceOffHoursIntervalProto intervals = 1;
+  // List of intervals when ignored policies are not applied. These intervals
+  // are in the timezone specified by the timezone string.
+  repeated WeeklyTimeIntervalProto intervals = 1;
   // Timezone in the same format as SystemTimezoneProto.timezone.
   // If timezone isn't set then "GMT" will be used
   optional string timezone = 2;
@@ -891,6 +903,7 @@ message DeviceOffHoursProto {
   // During OffHoursMode default settings of ignored policies are used.
   repeated int32 ignored_policy_proto_tags = 3;
 }
+
 // The url and hash that specified in JSON format that can be used to retrieve
 // the device-level printers configuration file.
 message DeviceNativePrintersProto {

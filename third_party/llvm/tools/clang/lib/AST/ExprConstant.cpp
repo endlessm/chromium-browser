@@ -5787,8 +5787,8 @@ bool PointerExprEvaluator::VisitUnaryAddrOf(const UnaryOperator *E) {
   return evaluateLValue(E->getSubExpr(), Result);
 }
 
-bool PointerExprEvaluator::VisitCastExpr(const CastExpr* E) {
-  const Expr* SubExpr = E->getSubExpr();
+bool PointerExprEvaluator::VisitCastExpr(const CastExpr *E) {
+  const Expr *SubExpr = E->getSubExpr();
 
   switch (E->getCastKind()) {
   default:
@@ -5805,7 +5805,11 @@ bool PointerExprEvaluator::VisitCastExpr(const CastExpr* E) {
     // permitted in constant expressions in C++11. Bitcasts from cv void* are
     // also static_casts, but we disallow them as a resolution to DR1312.
     if (!E->getType()->isVoidPointerType()) {
-      Result.Designator.setInvalid();
+      // If we changed anything other than cvr-qualifiers, we can't use this
+      // value for constant folding. FIXME: Qualification conversions should
+      // always be CK_NoOp, but we get this wrong in C.
+      if (!Info.Ctx.hasCvrSimilarType(E->getType(), E->getSubExpr()->getType()))
+        Result.Designator.setInvalid();
       if (SubExpr->getType()->isVoidPointerType())
         CCEDiag(E, diag::note_constexpr_invalid_cast)
           << 3 << SubExpr->getType();
@@ -7220,6 +7224,73 @@ public:
 
   // FIXME: Missing: array subscript of vector, member of vector
 };
+
+class FixedPointExprEvaluator
+    : public ExprEvaluatorBase<FixedPointExprEvaluator> {
+  APValue &Result;
+
+ public:
+  FixedPointExprEvaluator(EvalInfo &info, APValue &result)
+      : ExprEvaluatorBaseTy(info), Result(result) {}
+
+  bool Success(const llvm::APSInt &SI, const Expr *E, APValue &Result) {
+    assert(E->getType()->isFixedPointType() && "Invalid evaluation result.");
+    assert(SI.isSigned() == E->getType()->isSignedFixedPointType() &&
+           "Invalid evaluation result.");
+    assert(SI.getBitWidth() == Info.Ctx.getIntWidth(E->getType()) &&
+           "Invalid evaluation result.");
+    Result = APValue(SI);
+    return true;
+  }
+  bool Success(const llvm::APSInt &SI, const Expr *E) {
+    return Success(SI, E, Result);
+  }
+
+  bool Success(const llvm::APInt &I, const Expr *E, APValue &Result) {
+    assert(E->getType()->isFixedPointType() && "Invalid evaluation result.");
+    assert(I.getBitWidth() == Info.Ctx.getIntWidth(E->getType()) &&
+           "Invalid evaluation result.");
+    Result = APValue(APSInt(I));
+    Result.getInt().setIsUnsigned(E->getType()->isUnsignedFixedPointType());
+    return true;
+  }
+  bool Success(const llvm::APInt &I, const Expr *E) {
+    return Success(I, E, Result);
+  }
+
+  bool Success(uint64_t Value, const Expr *E, APValue &Result) {
+    assert(E->getType()->isFixedPointType() && "Invalid evaluation result.");
+    Result = APValue(Info.Ctx.MakeIntValue(Value, E->getType()));
+    return true;
+  }
+  bool Success(uint64_t Value, const Expr *E) {
+    return Success(Value, E, Result);
+  }
+
+  bool Success(CharUnits Size, const Expr *E) {
+    return Success(Size.getQuantity(), E);
+  }
+
+  bool Success(const APValue &V, const Expr *E) {
+    if (V.isLValue() || V.isAddrLabelDiff()) {
+      Result = V;
+      return true;
+    }
+    return Success(V.getInt(), E);
+  }
+
+  bool ZeroInitialization(const Expr *E) { return Success(0, E); }
+
+  //===--------------------------------------------------------------------===//
+  //                            Visitor Methods
+  //===--------------------------------------------------------------------===//
+
+  bool VisitFixedPointLiteral(const FixedPointLiteral *E) {
+    return Success(E->getValue(), E);
+  }
+
+  bool VisitUnaryOperator(const UnaryOperator *E);
+};
 } // end anonymous namespace
 
 /// EvaluateIntegerOrLValue - Evaluate an rvalue integral-typed expression, and
@@ -7277,30 +7348,43 @@ bool IntExprEvaluator::CheckReferencedDecl(const Expr* E, const Decl* D) {
   return false;
 }
 
+/// Values returned by __builtin_classify_type, chosen to match the values
+/// produced by GCC's builtin.
+enum class GCCTypeClass {
+  None = -1,
+  Void = 0,
+  Integer = 1,
+  // GCC reserves 2 for character types, but instead classifies them as
+  // integers.
+  Enum = 3,
+  Bool = 4,
+  Pointer = 5,
+  // GCC reserves 6 for references, but appears to never use it (because
+  // expressions never have reference type, presumably).
+  PointerToDataMember = 7,
+  RealFloat = 8,
+  Complex = 9,
+  // GCC reserves 10 for functions, but does not use it since GCC version 6 due
+  // to decay to pointer. (Prior to version 6 it was only used in C++ mode).
+  // GCC claims to reserve 11 for pointers to member functions, but *actually*
+  // uses 12 for that purpose, same as for a class or struct. Maybe it
+  // internally implements a pointer to member as a struct?  Who knows.
+  PointerToMemberFunction = 12, // Not a bug, see above.
+  ClassOrStruct = 12,
+  Union = 13,
+  // GCC reserves 14 for arrays, but does not use it since GCC version 6 due to
+  // decay to pointer. (Prior to version 6 it was only used in C++ mode).
+  // GCC reserves 15 for strings, but actually uses 5 (pointer) for string
+  // literals.
+};
+
 /// EvaluateBuiltinClassifyType - Evaluate __builtin_classify_type the same way
 /// as GCC.
-static int EvaluateBuiltinClassifyType(const CallExpr *E,
-                                       const LangOptions &LangOpts) {
-  // The following enum mimics the values returned by GCC.
-  // FIXME: Does GCC differ between lvalue and rvalue references here?
-  enum gcc_type_class {
-    no_type_class = -1,
-    void_type_class, integer_type_class, char_type_class,
-    enumeral_type_class, boolean_type_class,
-    pointer_type_class, reference_type_class, offset_type_class,
-    real_type_class, complex_type_class,
-    function_type_class, method_type_class,
-    record_type_class, union_type_class,
-    array_type_class, string_type_class,
-    lang_type_class
-  };
+static GCCTypeClass
+EvaluateBuiltinClassifyType(QualType T, const LangOptions &LangOpts) {
+  assert(!T->isDependentType() && "unexpected dependent type");
 
-  // If no argument was supplied, default to "no_type_class". This isn't
-  // ideal, however it is what gcc does.
-  if (E->getNumArgs() == 0)
-    return no_type_class;
-
-  QualType CanTy = E->getArg(0)->getType().getCanonicalType();
+  QualType CanTy = T.getCanonicalType();
   const BuiltinType *BT = dyn_cast<BuiltinType>(CanTy);
 
   switch (CanTy->getTypeClass()) {
@@ -7309,37 +7393,55 @@ static int EvaluateBuiltinClassifyType(const CallExpr *E,
 #define NON_CANONICAL_TYPE(ID, BASE) case Type::ID:
 #define NON_CANONICAL_UNLESS_DEPENDENT_TYPE(ID, BASE) case Type::ID:
 #include "clang/AST/TypeNodes.def"
-      llvm_unreachable("CallExpr::isBuiltinClassifyType(): unimplemented type");
+  case Type::Auto:
+  case Type::DeducedTemplateSpecialization:
+      llvm_unreachable("unexpected non-canonical or dependent type");
 
   case Type::Builtin:
     switch (BT->getKind()) {
 #define BUILTIN_TYPE(ID, SINGLETON_ID)
-#define SIGNED_TYPE(ID, SINGLETON_ID) case BuiltinType::ID: return integer_type_class;
-#define FLOATING_TYPE(ID, SINGLETON_ID) case BuiltinType::ID: return real_type_class;
-#define PLACEHOLDER_TYPE(ID, SINGLETON_ID) case BuiltinType::ID: break;
+#define SIGNED_TYPE(ID, SINGLETON_ID) \
+    case BuiltinType::ID: return GCCTypeClass::Integer;
+#define FLOATING_TYPE(ID, SINGLETON_ID) \
+    case BuiltinType::ID: return GCCTypeClass::RealFloat;
+#define PLACEHOLDER_TYPE(ID, SINGLETON_ID) \
+    case BuiltinType::ID: break;
 #include "clang/AST/BuiltinTypes.def"
     case BuiltinType::Void:
-      return void_type_class;
+      return GCCTypeClass::Void;
 
     case BuiltinType::Bool:
-      return boolean_type_class;
+      return GCCTypeClass::Bool;
 
-    case BuiltinType::Char_U: // gcc doesn't appear to use char_type_class
+    case BuiltinType::Char_U:
     case BuiltinType::UChar:
+    case BuiltinType::WChar_U:
+    case BuiltinType::Char8:
+    case BuiltinType::Char16:
+    case BuiltinType::Char32:
     case BuiltinType::UShort:
     case BuiltinType::UInt:
     case BuiltinType::ULong:
     case BuiltinType::ULongLong:
     case BuiltinType::UInt128:
-      return integer_type_class;
+      return GCCTypeClass::Integer;
+
+    case BuiltinType::UShortAccum:
+    case BuiltinType::UAccum:
+    case BuiltinType::ULongAccum:
+    case BuiltinType::UShortFract:
+    case BuiltinType::UFract:
+    case BuiltinType::ULongFract:
+    case BuiltinType::SatUShortAccum:
+    case BuiltinType::SatUAccum:
+    case BuiltinType::SatULongAccum:
+    case BuiltinType::SatUShortFract:
+    case BuiltinType::SatUFract:
+    case BuiltinType::SatULongFract:
+      return GCCTypeClass::None;
 
     case BuiltinType::NullPtr:
-      return pointer_type_class;
 
-    case BuiltinType::WChar_U:
-    case BuiltinType::Char8:
-    case BuiltinType::Char16:
-    case BuiltinType::Char32:
     case BuiltinType::ObjCId:
     case BuiltinType::ObjCClass:
     case BuiltinType::ObjCSel:
@@ -7351,74 +7453,73 @@ static int EvaluateBuiltinClassifyType(const CallExpr *E,
     case BuiltinType::OCLClkEvent:
     case BuiltinType::OCLQueue:
     case BuiltinType::OCLReserveID:
+      return GCCTypeClass::None;
+
     case BuiltinType::Dependent:
-      llvm_unreachable("CallExpr::isBuiltinClassifyType(): unimplemented type");
+      llvm_unreachable("unexpected dependent type");
     };
-    break;
+    llvm_unreachable("unexpected placeholder type");
 
   case Type::Enum:
-    return LangOpts.CPlusPlus ? enumeral_type_class : integer_type_class;
-    break;
+    return LangOpts.CPlusPlus ? GCCTypeClass::Enum : GCCTypeClass::Integer;
 
   case Type::Pointer:
-    return pointer_type_class;
-    break;
-
-  case Type::MemberPointer:
-    if (CanTy->isMemberDataPointerType())
-      return offset_type_class;
-    else {
-      // We expect member pointers to be either data or function pointers,
-      // nothing else.
-      assert(CanTy->isMemberFunctionPointerType());
-      return method_type_class;
-    }
-
-  case Type::Complex:
-    return complex_type_class;
-
-  case Type::FunctionNoProto:
-  case Type::FunctionProto:
-    return LangOpts.CPlusPlus ? function_type_class : pointer_type_class;
-
-  case Type::Record:
-    if (const RecordType *RT = CanTy->getAs<RecordType>()) {
-      switch (RT->getDecl()->getTagKind()) {
-      case TagTypeKind::TTK_Struct:
-      case TagTypeKind::TTK_Class:
-      case TagTypeKind::TTK_Interface:
-        return record_type_class;
-
-      case TagTypeKind::TTK_Enum:
-        return LangOpts.CPlusPlus ? enumeral_type_class : integer_type_class;
-
-      case TagTypeKind::TTK_Union:
-        return union_type_class;
-      }
-    }
-    llvm_unreachable("CallExpr::isBuiltinClassifyType(): unimplemented type");
-
   case Type::ConstantArray:
   case Type::VariableArray:
   case Type::IncompleteArray:
-    return LangOpts.CPlusPlus ? array_type_class : pointer_type_class;
+  case Type::FunctionNoProto:
+  case Type::FunctionProto:
+    return GCCTypeClass::Pointer;
+
+  case Type::MemberPointer:
+    return CanTy->isMemberDataPointerType()
+               ? GCCTypeClass::PointerToDataMember
+               : GCCTypeClass::PointerToMemberFunction;
+
+  case Type::Complex:
+    return GCCTypeClass::Complex;
+
+  case Type::Record:
+    return CanTy->isUnionType() ? GCCTypeClass::Union
+                                : GCCTypeClass::ClassOrStruct;
+
+  case Type::Atomic:
+    // GCC classifies _Atomic T the same as T.
+    return EvaluateBuiltinClassifyType(
+        CanTy->castAs<AtomicType>()->getValueType(), LangOpts);
 
   case Type::BlockPointer:
-  case Type::LValueReference:
-  case Type::RValueReference:
   case Type::Vector:
   case Type::ExtVector:
-  case Type::Auto:
-  case Type::DeducedTemplateSpecialization:
   case Type::ObjCObject:
   case Type::ObjCInterface:
   case Type::ObjCObjectPointer:
   case Type::Pipe:
-  case Type::Atomic:
-    llvm_unreachable("CallExpr::isBuiltinClassifyType(): unimplemented type");
+    // GCC classifies vectors as None. We follow its lead and classify all
+    // other types that don't fit into the regular classification the same way.
+    return GCCTypeClass::None;
+
+  case Type::LValueReference:
+  case Type::RValueReference:
+    llvm_unreachable("invalid type for expression");
   }
 
-  llvm_unreachable("CallExpr::isBuiltinClassifyType(): unimplemented type");
+  llvm_unreachable("unexpected type class");
+}
+
+/// EvaluateBuiltinClassifyType - Evaluate __builtin_classify_type the same way
+/// as GCC.
+static GCCTypeClass
+EvaluateBuiltinClassifyType(const CallExpr *E, const LangOptions &LangOpts) {
+  // If no argument was supplied, default to None. This isn't
+  // ideal, however it is what gcc does.
+  if (E->getNumArgs() == 0)
+    return GCCTypeClass::None;
+
+  // FIXME: Bizarrely, GCC treats a call with more than one argument as not
+  // being an ICE, but still folds it to a constant using the type of the first
+  // argument.
+  return EvaluateBuiltinClassifyType(E->getArg(0)->getType(), LangOpts);
 }
 
 /// EvaluateBuiltinConstantPForLValue - Determine the result of
@@ -7842,7 +7943,7 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
   }
 
   case Builtin::BI__builtin_classify_type:
-    return Success(EvaluateBuiltinClassifyType(E, Info.getLangOpts()), E);
+    return Success((int)EvaluateBuiltinClassifyType(E, Info.getLangOpts()), E);
 
   // FIXME: BI__builtin_clrsb
   // FIXME: BI__builtin_clrsbl
@@ -8134,6 +8235,125 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
   case Builtin::BIomp_is_initial_device:
     // We can decide statically which value the runtime would return if called.
     return Success(Info.getLangOpts().OpenMPIsDevice ? 0 : 1, E);
+  case Builtin::BI__builtin_add_overflow:
+  case Builtin::BI__builtin_sub_overflow:
+  case Builtin::BI__builtin_mul_overflow:
+  case Builtin::BI__builtin_sadd_overflow:
+  case Builtin::BI__builtin_uadd_overflow:
+  case Builtin::BI__builtin_uaddl_overflow:
+  case Builtin::BI__builtin_uaddll_overflow:
+  case Builtin::BI__builtin_usub_overflow:
+  case Builtin::BI__builtin_usubl_overflow:
+  case Builtin::BI__builtin_usubll_overflow:
+  case Builtin::BI__builtin_umul_overflow:
+  case Builtin::BI__builtin_umull_overflow:
+  case Builtin::BI__builtin_umulll_overflow:
+  case Builtin::BI__builtin_saddl_overflow:
+  case Builtin::BI__builtin_saddll_overflow:
+  case Builtin::BI__builtin_ssub_overflow:
+  case Builtin::BI__builtin_ssubl_overflow:
+  case Builtin::BI__builtin_ssubll_overflow:
+  case Builtin::BI__builtin_smul_overflow:
+  case Builtin::BI__builtin_smull_overflow:
+  case Builtin::BI__builtin_smulll_overflow: {
+    LValue ResultLValue;
+    APSInt LHS, RHS;
+
+    QualType ResultType = E->getArg(2)->getType()->getPointeeType();
+    if (!EvaluateInteger(E->getArg(0), LHS, Info) ||
+        !EvaluateInteger(E->getArg(1), RHS, Info) ||
+        !EvaluatePointer(E->getArg(2), ResultLValue, Info))
+      return false;
+
+    APSInt Result;
+    bool DidOverflow = false;
+
+    // If the types don't have to match, enlarge all 3 to the largest of them.
+    if (BuiltinOp == Builtin::BI__builtin_add_overflow ||
+        BuiltinOp == Builtin::BI__builtin_sub_overflow ||
+        BuiltinOp == Builtin::BI__builtin_mul_overflow) {
+      bool IsSigned = LHS.isSigned() || RHS.isSigned() ||
+                      ResultType->isSignedIntegerOrEnumerationType();
+      bool AllSigned = LHS.isSigned() && RHS.isSigned() &&
+                      ResultType->isSignedIntegerOrEnumerationType();
+      uint64_t LHSSize = LHS.getBitWidth();
+      uint64_t RHSSize = RHS.getBitWidth();
+      uint64_t ResultSize = Info.Ctx.getTypeSize(ResultType);
+      uint64_t MaxBits = std::max(std::max(LHSSize, RHSSize), ResultSize);
+
+      // Add an additional bit if the signedness isn't uniformly agreed to. We
+      // could do this ONLY if there is a signed and an unsigned that both have
+      // MaxBits, but the code to check that is pretty nasty.  The issue will be
+      // caught in the shrink-to-result later anyway.
+      if (IsSigned && !AllSigned)
+        ++MaxBits;
+
+      LHS = APSInt(IsSigned ? LHS.sextOrSelf(MaxBits) : LHS.zextOrSelf(MaxBits),
+                   !IsSigned);
+      RHS = APSInt(IsSigned ? RHS.sextOrSelf(MaxBits) : RHS.zextOrSelf(MaxBits),
+                   !IsSigned);
+      Result = APSInt(MaxBits, !IsSigned);
+    }
+
+    // Find largest int.
+    switch (BuiltinOp) {
+    default:
+      llvm_unreachable("Invalid value for BuiltinOp");
+    case Builtin::BI__builtin_add_overflow:
+    case Builtin::BI__builtin_sadd_overflow:
+    case Builtin::BI__builtin_saddl_overflow:
+    case Builtin::BI__builtin_saddll_overflow:
+    case Builtin::BI__builtin_uadd_overflow:
+    case Builtin::BI__builtin_uaddl_overflow:
+    case Builtin::BI__builtin_uaddll_overflow:
+      Result = LHS.isSigned() ? LHS.sadd_ov(RHS, DidOverflow)
+                              : LHS.uadd_ov(RHS, DidOverflow);
+      break;
+    case Builtin::BI__builtin_sub_overflow:
+    case Builtin::BI__builtin_ssub_overflow:
+    case Builtin::BI__builtin_ssubl_overflow:
+    case Builtin::BI__builtin_ssubll_overflow:
+    case Builtin::BI__builtin_usub_overflow:
+    case Builtin::BI__builtin_usubl_overflow:
+    case Builtin::BI__builtin_usubll_overflow:
+      Result = LHS.isSigned() ? LHS.ssub_ov(RHS, DidOverflow)
+                              : LHS.usub_ov(RHS, DidOverflow);
+      break;
+    case Builtin::BI__builtin_mul_overflow:
+    case Builtin::BI__builtin_smul_overflow:
+    case Builtin::BI__builtin_smull_overflow:
+    case Builtin::BI__builtin_smulll_overflow:
+    case Builtin::BI__builtin_umul_overflow:
+    case Builtin::BI__builtin_umull_overflow:
+    case Builtin::BI__builtin_umulll_overflow:
+      Result = LHS.isSigned() ? LHS.smul_ov(RHS, DidOverflow)
+                              : LHS.umul_ov(RHS, DidOverflow);
+      break;
+    }
+
+    // In the case where multiple sizes are allowed, truncate and see if
+    // the values are the same.
+    if (BuiltinOp == Builtin::BI__builtin_add_overflow ||
+        BuiltinOp == Builtin::BI__builtin_sub_overflow ||
+        BuiltinOp == Builtin::BI__builtin_mul_overflow) {
+      // APSInt doesn't have a TruncOrSelf, so we use extOrTrunc instead,
+      // since it will give us the behavior of a TruncOrSelf in the case where
+      // its parameter <= its size.  We previously set Result to be at least the
+      // type-size of the result, so getTypeSize(ResultType) <= Result.BitWidth
+      // will work exactly like TruncOrSelf.
+      APSInt Temp = Result.extOrTrunc(Info.Ctx.getTypeSize(ResultType));
+      Temp.setIsSigned(ResultType->isSignedIntegerOrEnumerationType());
+
+      if (!APSInt::isSameValue(Temp, Result))
+        DidOverflow = true;
+      Result = Temp;
+    }
+
+    APValue APV{Result};
+    if (!handleAssignment(Info, E, ResultLValue, ResultType, APV))
+      return false;
+    return Success(DidOverflow, E);
+  }
   }
 }
 
@@ -9312,6 +9532,37 @@ bool IntExprEvaluator::VisitCXXNoexceptExpr(const CXXNoexceptExpr *E) {
   return Success(E->getValue(), E);
 }
 
+bool FixedPointExprEvaluator::VisitUnaryOperator(const UnaryOperator *E) {
+  switch (E->getOpcode()) {
+    default:
+      // Invalid unary operators
+      return Error(E);
+    case UO_Plus:
+      // The result is just the value.
+      return Visit(E->getSubExpr());
+    case UO_Minus: {
+      if (!Visit(E->getSubExpr())) return false;
+      if (!Result.isInt()) return Error(E);
+      const APSInt &Value = Result.getInt();
+      if (Value.isSigned() && Value.isMinSignedValue() && E->canOverflow()) {
+        SmallString<64> S;
+        FixedPointValueToString(S, Value,
+                                Info.Ctx.getTypeInfo(E->getType()).Width,
+                                /*Radix=*/10);
+        Info.CCEDiag(E, diag::note_constexpr_overflow) << S << E->getType();
+        if (Info.noteUndefinedBehavior()) return false;
+      }
+      return Success(-Value, E);
+    }
+    case UO_LNot: {
+      bool bres;
+      if (!EvaluateAsBooleanCondition(E->getSubExpr(), bres, Info))
+        return false;
+      return Success(!bres, E);
+    }
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // Float Evaluation
 //===----------------------------------------------------------------------===//
@@ -10163,6 +10414,8 @@ static bool Evaluate(APValue &Result, EvalInfo &Info, const Expr *E) {
     if (!EvaluateComplex(E, C, Info))
       return false;
     C.moveInto(Result);
+  } else if (T->isFixedPointType()) {
+    if (!FixedPointExprEvaluator(Info, Result).Visit(E)) return false;
   } else if (T->isMemberPointerType()) {
     MemberPtr P;
     if (!EvaluateMemberPointer(E, P, Info))
@@ -10611,6 +10864,7 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::GenericSelectionExprClass:
     return CheckICE(cast<GenericSelectionExpr>(E)->getResultExpr(), Ctx);
   case Expr::IntegerLiteralClass:
+  case Expr::FixedPointLiteralClass:
   case Expr::CharacterLiteralClass:
   case Expr::ObjCBoolLiteralExprClass:
   case Expr::CXXBoolLiteralExprClass:

@@ -25,7 +25,7 @@ aeskeygenassist $22, (%rax), %xmm2
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  2      7     1.00                        aesdec	%xmm0, %xmm2
@@ -69,4 +69,3 @@ aeskeygenassist $22, (%rax), %xmm2
 # CHECK-NEXT:  -      -      -      -      -     2.00   0.50   0.50   aesimc	(%rax), %xmm2
 # CHECK-NEXT:  -      -     3.67   3.67    -     3.67    -      -     aeskeygenassist	$22, %xmm0, %xmm2
 # CHECK-NEXT:  -      -     3.33   3.33    -     3.33   0.50   0.50   aeskeygenassist	$22, (%rax), %xmm2
-

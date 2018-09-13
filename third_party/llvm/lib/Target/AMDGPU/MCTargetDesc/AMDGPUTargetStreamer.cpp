@@ -133,9 +133,12 @@ AMDGPUTargetAsmStreamer::AMDGPUTargetAsmStreamer(MCStreamer &S,
                                                  formatted_raw_ostream &OS)
     : AMDGPUTargetStreamer(S), OS(OS) { }
 
-void
-AMDGPUTargetAsmStreamer::EmitDirectiveHSACodeObjectVersion(uint32_t Major,
-                                                           uint32_t Minor) {
+void AMDGPUTargetAsmStreamer::EmitDirectiveAMDGCNTarget(StringRef Target) {
+  OS << "\t.amdgcn_target \"" << Target << "\"\n";
+}
+
+void AMDGPUTargetAsmStreamer::EmitDirectiveHSACodeObjectVersion(
+    uint32_t Major, uint32_t Minor) {
   OS << "\t.hsa_code_object_version " <<
         Twine(Major) << "," << Twine(Minor) << '\n';
 }
@@ -196,6 +199,138 @@ bool AMDGPUTargetAsmStreamer::EmitPALMetadata(
   return true;
 }
 
+void AMDGPUTargetAsmStreamer::EmitAmdhsaKernelDescriptor(
+    const MCSubtargetInfo &STI, StringRef KernelName,
+    const amdhsa::kernel_descriptor_t &KD, uint64_t NextVGPR, uint64_t NextSGPR,
+    bool ReserveVCC, bool ReserveFlatScr, bool ReserveXNACK) {
+  amdhsa::kernel_descriptor_t DefaultKD = getDefaultAmdhsaKernelDescriptor();
+
+  IsaInfo::IsaVersion IVersion = IsaInfo::getIsaVersion(STI.getFeatureBits());
+
+  OS << "\t.amdhsa_kernel " << KernelName << '\n';
+
+#define PRINT_IF_NOT_DEFAULT(STREAM, DIRECTIVE, KERNEL_DESC,                   \
+                             DEFAULT_KERNEL_DESC, MEMBER_NAME, FIELD_NAME)     \
+  if (AMDHSA_BITS_GET(KERNEL_DESC.MEMBER_NAME, FIELD_NAME) !=                  \
+      AMDHSA_BITS_GET(DEFAULT_KERNEL_DESC.MEMBER_NAME, FIELD_NAME))            \
+    STREAM << "\t\t" << DIRECTIVE << " "                                       \
+           << AMDHSA_BITS_GET(KERNEL_DESC.MEMBER_NAME, FIELD_NAME) << '\n';
+
+  if (KD.group_segment_fixed_size != DefaultKD.group_segment_fixed_size)
+    OS << "\t\t.amdhsa_group_segment_fixed_size " << KD.group_segment_fixed_size
+       << '\n';
+  if (KD.private_segment_fixed_size != DefaultKD.private_segment_fixed_size)
+    OS << "\t\t.amdhsa_private_segment_fixed_size "
+       << KD.private_segment_fixed_size << '\n';
+
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_user_sgpr_private_segment_buffer", KD, DefaultKD,
+      kernel_code_properties,
+      amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_PRIVATE_SEGMENT_BUFFER);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_user_sgpr_dispatch_ptr", KD, DefaultKD,
+                       kernel_code_properties,
+                       amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_DISPATCH_PTR);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_user_sgpr_queue_ptr", KD, DefaultKD,
+                       kernel_code_properties,
+                       amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_QUEUE_PTR);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_user_sgpr_kernarg_segment_ptr", KD, DefaultKD,
+      kernel_code_properties,
+      amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_KERNARG_SEGMENT_PTR);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_user_sgpr_dispatch_id", KD, DefaultKD,
+                       kernel_code_properties,
+                       amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_DISPATCH_ID);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_user_sgpr_flat_scratch_init", KD, DefaultKD,
+      kernel_code_properties,
+      amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_FLAT_SCRATCH_INIT);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_user_sgpr_private_segment_size", KD, DefaultKD,
+      kernel_code_properties,
+      amdhsa::KERNEL_CODE_PROPERTY_ENABLE_SGPR_PRIVATE_SEGMENT_SIZE);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_system_sgpr_private_segment_wavefront_offset", KD, DefaultKD,
+      compute_pgm_rsrc2,
+      amdhsa::COMPUTE_PGM_RSRC2_ENABLE_SGPR_PRIVATE_SEGMENT_WAVEFRONT_OFFSET);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_system_sgpr_workgroup_id_x", KD, DefaultKD,
+                       compute_pgm_rsrc2,
+                       amdhsa::COMPUTE_PGM_RSRC2_ENABLE_SGPR_WORKGROUP_ID_X);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_system_sgpr_workgroup_id_y", KD, DefaultKD,
+                       compute_pgm_rsrc2,
+                       amdhsa::COMPUTE_PGM_RSRC2_ENABLE_SGPR_WORKGROUP_ID_Y);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_system_sgpr_workgroup_id_z", KD, DefaultKD,
+                       compute_pgm_rsrc2,
+                       amdhsa::COMPUTE_PGM_RSRC2_ENABLE_SGPR_WORKGROUP_ID_Z);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_system_sgpr_workgroup_info", KD, DefaultKD,
+                       compute_pgm_rsrc2,
+                       amdhsa::COMPUTE_PGM_RSRC2_ENABLE_SGPR_WORKGROUP_INFO);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_system_vgpr_workitem_id", KD, DefaultKD,
+                       compute_pgm_rsrc2,
+                       amdhsa::COMPUTE_PGM_RSRC2_ENABLE_VGPR_WORKITEM_ID);
+
+  // These directives are required.
+  OS << "\t\t.amdhsa_next_free_vgpr " << NextVGPR << '\n';
+  OS << "\t\t.amdhsa_next_free_sgpr " << NextSGPR << '\n';
+
+  if (!ReserveVCC)
+    OS << "\t\t.amdhsa_reserve_vcc " << ReserveVCC << '\n';
+  if (IVersion.Major >= 7 && !ReserveFlatScr)
+    OS << "\t\t.amdhsa_reserve_flat_scratch " << ReserveFlatScr << '\n';
+  if (IVersion.Major >= 8 && ReserveXNACK != hasXNACK(STI))
+    OS << "\t\t.amdhsa_reserve_xnack_mask " << ReserveXNACK << '\n';
+
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_float_round_mode_32", KD, DefaultKD,
+                       compute_pgm_rsrc1,
+                       amdhsa::COMPUTE_PGM_RSRC1_FLOAT_ROUND_MODE_32);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_float_round_mode_16_64", KD, DefaultKD,
+                       compute_pgm_rsrc1,
+                       amdhsa::COMPUTE_PGM_RSRC1_FLOAT_ROUND_MODE_16_64);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_float_denorm_mode_32", KD, DefaultKD,
+                       compute_pgm_rsrc1,
+                       amdhsa::COMPUTE_PGM_RSRC1_FLOAT_DENORM_MODE_32);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_float_denorm_mode_16_64", KD, DefaultKD,
+                       compute_pgm_rsrc1,
+                       amdhsa::COMPUTE_PGM_RSRC1_FLOAT_DENORM_MODE_16_64);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_dx10_clamp", KD, DefaultKD,
+                       compute_pgm_rsrc1,
+                       amdhsa::COMPUTE_PGM_RSRC1_ENABLE_DX10_CLAMP);
+  PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_ieee_mode", KD, DefaultKD,
+                       compute_pgm_rsrc1,
+                       amdhsa::COMPUTE_PGM_RSRC1_ENABLE_IEEE_MODE);
+  if (IVersion.Major >= 9)
+    PRINT_IF_NOT_DEFAULT(OS, ".amdhsa_fp16_overflow", KD, DefaultKD,
+                         compute_pgm_rsrc1,
+                         amdhsa::COMPUTE_PGM_RSRC1_FP16_OVFL);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_exception_fp_ieee_invalid_op", KD, DefaultKD,
+      compute_pgm_rsrc2,
+      amdhsa::COMPUTE_PGM_RSRC2_ENABLE_EXCEPTION_IEEE_754_FP_INVALID_OPERATION);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_exception_fp_denorm_src", KD, DefaultKD, compute_pgm_rsrc2,
+      amdhsa::COMPUTE_PGM_RSRC2_ENABLE_EXCEPTION_FP_DENORMAL_SOURCE);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_exception_fp_ieee_div_zero", KD, DefaultKD,
+      compute_pgm_rsrc2,
+      amdhsa::COMPUTE_PGM_RSRC2_ENABLE_EXCEPTION_IEEE_754_FP_DIVISION_BY_ZERO);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_exception_fp_ieee_overflow", KD, DefaultKD,
+      compute_pgm_rsrc2,
+      amdhsa::COMPUTE_PGM_RSRC2_ENABLE_EXCEPTION_IEEE_754_FP_OVERFLOW);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_exception_fp_ieee_underflow", KD, DefaultKD,
+      compute_pgm_rsrc2,
+      amdhsa::COMPUTE_PGM_RSRC2_ENABLE_EXCEPTION_IEEE_754_FP_UNDERFLOW);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_exception_fp_ieee_inexact", KD, DefaultKD, compute_pgm_rsrc2,
+      amdhsa::COMPUTE_PGM_RSRC2_ENABLE_EXCEPTION_IEEE_754_FP_INEXACT);
+  PRINT_IF_NOT_DEFAULT(
+      OS, ".amdhsa_exception_int_div_zero", KD, DefaultKD, compute_pgm_rsrc2,
+      amdhsa::COMPUTE_PGM_RSRC2_ENABLE_EXCEPTION_INT_DIVIDE_BY_ZERO);
+#undef PRINT_IF_NOT_DEFAULT
+
+  OS << "\t.end_amdhsa_kernel\n";
+}
+
 //===----------------------------------------------------------------------===//
 // AMDGPUTargetELFStreamer
 //===----------------------------------------------------------------------===//
@@ -241,9 +376,10 @@ void AMDGPUTargetELFStreamer::EmitAMDGPUNote(
   S.PopSection();
 }
 
-void
-AMDGPUTargetELFStreamer::EmitDirectiveHSACodeObjectVersion(uint32_t Major,
-                                                           uint32_t Minor) {
+void AMDGPUTargetELFStreamer::EmitDirectiveAMDGCNTarget(StringRef Target) {}
+
+void AMDGPUTargetELFStreamer::EmitDirectiveHSACodeObjectVersion(
+    uint32_t Major, uint32_t Minor) {
 
   EmitAMDGPUNote(
     MCConstantExpr::create(8, getContext()),
@@ -361,4 +497,47 @@ bool AMDGPUTargetELFStreamer::EmitPALMetadata(
     }
   );
   return true;
+}
+
+void AMDGPUTargetELFStreamer::EmitAmdhsaKernelDescriptor(
+    const MCSubtargetInfo &STI, StringRef KernelName,
+    const amdhsa::kernel_descriptor_t &KernelDescriptor, uint64_t NextVGPR,
+    uint64_t NextSGPR, bool ReserveVCC, bool ReserveFlatScr,
+    bool ReserveXNACK) {
+  auto &Streamer = getStreamer();
+  auto &Context = Streamer.getContext();
+
+  MCSymbolELF *KernelDescriptorSymbol = cast<MCSymbolELF>(
+      Context.getOrCreateSymbol(Twine(KernelName) + Twine(".kd")));
+  KernelDescriptorSymbol->setBinding(ELF::STB_GLOBAL);
+  KernelDescriptorSymbol->setType(ELF::STT_OBJECT);
+  KernelDescriptorSymbol->setSize(
+      MCConstantExpr::create(sizeof(KernelDescriptor), Context));
+
+  MCSymbolELF *KernelCodeSymbol = cast<MCSymbolELF>(
+      Context.getOrCreateSymbol(Twine(KernelName)));
+  KernelCodeSymbol->setBinding(ELF::STB_LOCAL);
+
+  Streamer.EmitLabel(KernelDescriptorSymbol);
+  Streamer.EmitBytes(StringRef(
+      (const char*)&(KernelDescriptor),
+      offsetof(amdhsa::kernel_descriptor_t, kernel_code_entry_byte_offset)));
+  // FIXME: Remove the use of VK_AMDGPU_REL64 in the expression below. The
+  // expression being created is:
+  //   (start of kernel code) - (start of kernel descriptor)
+  // It implies R_AMDGPU_REL64, but ends up being R_AMDGPU_ABS64.
+  Streamer.EmitValue(MCBinaryExpr::createSub(
+      MCSymbolRefExpr::create(
+          KernelCodeSymbol, MCSymbolRefExpr::VK_AMDGPU_REL64, Context),
+      MCSymbolRefExpr::create(
+          KernelDescriptorSymbol, MCSymbolRefExpr::VK_None, Context),
+      Context),
+      sizeof(KernelDescriptor.kernel_code_entry_byte_offset));
+  Streamer.EmitBytes(StringRef(
+      (const char*)&(KernelDescriptor) +
+          offsetof(amdhsa::kernel_descriptor_t, kernel_code_entry_byte_offset) +
+          sizeof(KernelDescriptor.kernel_code_entry_byte_offset),
+      sizeof(KernelDescriptor) -
+          offsetof(amdhsa::kernel_descriptor_t, kernel_code_entry_byte_offset) -
+          sizeof(KernelDescriptor.kernel_code_entry_byte_offset)));
 }

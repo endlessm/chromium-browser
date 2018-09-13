@@ -25,19 +25,6 @@ using chromeos::NetworkStateHandler;
 using chromeos::NetworkTypePattern;
 
 namespace ash {
-namespace {
-
-base::string16 GetNetworkStateHandlerLabel() {
-  NetworkStateHandler* handler = NetworkHandler::Get()->network_state_handler();
-  const NetworkState* vpn =
-      handler->FirstNetworkByType(NetworkTypePattern::VPN());
-  if (!tray::IsVPNConnected())
-    return l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_VPN_DISCONNECTED);
-  return network_icon::GetLabelForNetwork(vpn,
-                                          network_icon::ICON_TYPE_DEFAULT_VIEW);
-}
-
-}  // namespace
 
 VPNFeaturePodController::VPNFeaturePodController(
     UnifiedSystemTrayController* tray_controller)
@@ -48,7 +35,9 @@ VPNFeaturePodController::~VPNFeaturePodController() = default;
 FeaturePodButton* VPNFeaturePodController::CreateButton() {
   DCHECK(!button_);
   button_ = new FeaturePodButton(this);
-  button_->SetVectorIcon(kNetworkVpnIcon);
+  button_->SetVectorIcon(kUnifiedMenuVpnIcon);
+  button_->SetLabel(l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_VPN_SHORT));
+  button_->ShowDetailedViewArrow();
   Update();
   return button_;
 }
@@ -57,12 +46,22 @@ void VPNFeaturePodController::OnIconPressed() {
   tray_controller_->ShowVPNDetailedView();
 }
 
+SystemTrayItemUmaType VPNFeaturePodController::GetUmaType() const {
+  return SystemTrayItemUmaType::UMA_VPN;
+}
+
 void VPNFeaturePodController::Update() {
+  // NetworkHandler can be uninitialized in unit tests.
+  if (!chromeos::NetworkHandler::IsInitialized())
+    return;
+
   button_->SetVisible(tray::IsVPNVisibleInSystemTray());
   if (!button_->visible())
     return;
 
-  button_->SetLabel(GetNetworkStateHandlerLabel());
+  button_->SetSubLabel(l10n_util::GetStringUTF16(
+      tray::IsVPNConnected() ? IDS_ASH_STATUS_TRAY_VPN_CONNECTED_SHORT
+                             : IDS_ASH_STATUS_TRAY_VPN_DISCONNECTED_SHORT));
   button_->SetToggled(tray::IsVPNEnabled() && tray::IsVPNConnected());
 }
 

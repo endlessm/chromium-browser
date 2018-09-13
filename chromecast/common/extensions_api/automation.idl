@@ -22,6 +22,7 @@
     childrenChanged,
     clicked,
     documentSelectionChanged,
+    documentTitleChanged,
     expandedChanged,
     focus,
     focusContext,
@@ -90,6 +91,8 @@
     comboBoxGrouping,
     comboBoxMenuButton,
     complementary,
+    contentDeletion,
+    contentInsertion,
     contentInfo,
     date,
     dateTime,
@@ -222,7 +225,6 @@
     slider,
     sliderThumb,
     spinButton,
-    spinButtonPart,
     splitter,
     staticText,
     status,
@@ -260,7 +262,6 @@
     expanded,
     focusable,
     focused,
-    haspopup,
     horizontal,
     hovered,
     ignored,
@@ -279,6 +280,7 @@
   // All possible actions that can be performed on automation nodes.
   enum ActionType {
     blur,
+    clearAccessibilityFocus,
     customAction,
     decrement,
     doDefault,
@@ -296,6 +298,7 @@
     scrollToMakeVisible,
     scrollToPoint,
     scrollUp,
+    setAccessibilityFocus,
     setScrollOffset,
     setSelection,
     setSequentialFocusNavigationStartingPoint,
@@ -359,6 +362,16 @@
   enum Restriction {
     disabled,
     readOnly
+  };
+
+  // Indicates the availability and type of interactive popup element
+  enum HasPopup {
+    true,
+    menu,
+    listbox,
+    tree,
+    grid,
+    dialog
   };
 
   // Describes possible actions when performing a do default action.
@@ -585,6 +598,12 @@
 
     // Reverse relationship for labelledBy.
     AutomationNode[]? labelFor;
+
+    // The column header nodes for a table cell.
+    AutomationNode? tableCellColumnHeaders;
+
+    // The row header nodes for a table cell.
+    AutomationNode? tableCellRowHeaders;
 
     // An array of standard actions available on this node.
     ActionType[]? standardActions;
@@ -813,6 +832,15 @@
     // The language code for this subtree.
     DOMString? language;
 
+    // Indicates the availability and type of interactive popup element
+    // true - the popup is a menu
+    // menu - the popup is a menu
+    // listbox - the popup is a listbox
+    // tree - the popup is a tree
+    // grid - the popup is a grid
+    // dialog - the popup is a dialog
+    DOMString? hasPopup;
+
     // Input restriction, if any, such as readonly or disabled:
     // undefined - enabled control or other object that is not disabled
     // Restriction.DISABLED - disallows input in itself + any descendants
@@ -927,7 +955,7 @@
 
     // Sets the value of a text field.
     static void setValue(DOMString value);
-    
+
     // Show the context menu for this element, as if the user right-clicked.
     static void showContextMenu();
 
@@ -995,6 +1023,9 @@
 
     // Returns whether this node matches the given $(ref:automation.FindParams).
     static boolean matches(FindParams params);
+
+    static AutomationNode getNextTextMatch(
+        DOMString searchStr, boolean backward);
   };
 
   // Called when the <code>AutomationNode</code> for the page is available.

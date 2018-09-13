@@ -4,7 +4,7 @@
      found in the LICENSE file. -->
 <org.chromium.chrome.browser.signin.SigninView
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:chrome="http://schemas.android.com/apk/res-auto"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -27,9 +27,9 @@
                 android:layout_height="wrap_content"
                 android:layout_alignParentTop="true"
                 android:background="@color/signin_header_animation_background"
-                android:contentDescription="@null"
-                android:scaleType="fitCenter"
-                chrome:srcCompat="@drawable/signin_header_animation"
+                tools:ignore="ContentDescription"
+                android:scaleType="center"
+                app:srcCompat="@drawable/signin_header_animation"
                 tools:src="@drawable/signin_header_animation"/>
             <TextView
                 android:id="@+id/signin_title"
@@ -61,7 +61,7 @@
                     android:id="@+id/account_image"
                     android:layout_width="56dp"
                     android:layout_height="40dp"
-                    android:contentDescription="@null"
+                    tools:ignore="ContentDescription"
                     android:scaleType="fitStart"
                     tools:src="@drawable/logo_avatar_anonymous"/>
                 <LinearLayout
@@ -92,9 +92,9 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:layout_marginStart="16dp"
-                    android:alpha="0.54"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_expand_more_black_24dp"/>
+                    tools:ignore="ContentDescription"
+                    tools:src="@drawable/ic_expand_more_black_24dp"
+                    tools:tint="@color/dark_mode_tint"/>
             </LinearLayout>
             <ImageView
                 android:id="@+id/signin_sync_icon"
@@ -105,8 +105,8 @@
                 android:layout_alignParentStart="true"
                 android:layout_centerVertical="true"
                 android:layout_marginStart="@dimen/signin_margin_start"
-                android:contentDescription="@null"
-                chrome:srcCompat="@drawable/ic_sync_circle_green_16dp"/>
+                tools:ignore="ContentDescription"
+                app:srcCompat="@drawable/ic_sync_circle_green_16dp"/>
             <TextView
                 android:id="@+id/signin_sync_description"
                 android:layout_width="match_parent"
@@ -128,8 +128,8 @@
                 android:layout_alignParentStart="true"
                 android:layout_centerVertical="true"
                 android:layout_marginStart="@dimen/signin_margin_start"
-                android:contentDescription="@null"
-                chrome:srcCompat="@drawable/ic_assistant_16dp"/>
+                tools:ignore="ContentDescription"
+                app:srcCompat="@drawable/ic_assistant_16dp"/>
             <TextView
                 android:id="@+id/signin_personalization_description"
                 android:layout_width="match_parent"
@@ -151,8 +151,8 @@
                 android:layout_alignParentStart="true"
                 android:layout_centerVertical="true"
                 android:layout_marginStart="@dimen/signin_margin_start"
-                android:contentDescription="@null"
-                chrome:srcCompat="@drawable/ic_logo_googleg_16dp"/>
+                tools:ignore="ContentDescription"
+                app:srcCompat="@drawable/ic_logo_googleg_16dp"/>
             <TextView
                 android:id="@+id/signin_google_services_description"
                 android:layout_width="match_parent"
@@ -180,8 +180,8 @@
                 android:layout_alignParentStart="true"
                 android:layout_marginStart="@dimen/signin_margin_start"
                 android:baseline="12dp"
-                android:contentDescription="@null"
-                chrome:srcCompat="@drawable/ic_settings_grey_16dp"/>
+                tools:ignore="ContentDescription"
+                app:srcCompat="@drawable/ic_settings_grey_16dp"/>
             <TextView
                 android:id="@+id/signin_details_description"
                 android:layout_width="match_parent"
@@ -201,46 +201,34 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="16dp">
-        <!-- TODO(https://crbug.com/819142): Use textAppearance instead of text* attributes. -->
         <Button
             android:id="@+id/negative_button"
-            style="@style/ButtonCompatBorderless"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:paddingStart="@dimen/fre_button_padding"
             android:paddingEnd="@dimen/fre_button_padding"
-            android:textAllCaps="true"
-            android:textColor="@color/light_active_color"
-            android:textSize="14sp"
             tools:text="@string/no_thanks"/>
         <View
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:visibility="invisible"/>
-        <!-- TODO(https://crbug.com/819142): Specify WhiteBody as textAppearance. -->
         <org.chromium.ui.widget.ButtonCompat
             android:id="@+id/positive_button"
-            style="@style/WhiteBody"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:paddingStart="@dimen/fre_button_padding"
             android:paddingEnd="@dimen/fre_button_padding"
-            android:textAllCaps="true"
-            chrome:buttonColor="@color/light_active_color"
-            chrome:buttonRaised="false"
+            android:textAppearance="@style/WhiteButtonText"
+            app:buttonColor="@color/light_active_color"
+            app:buttonRaised="false"
             tools:text="@string/signin_accept_button"/>
-        <!-- TODO(https://crbug.com/819142): Use textAppearance instead of text* attributes. -->
         <Button
             android:id="@+id/more_button"
-            style="@style/ButtonCompatBorderless"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:drawableEnd="@drawable/down_arrow"
             android:drawablePadding="8dp"
-            android:textAllCaps="true"
-            android:textColor="@color/light_active_color"
-            android:textSize="@dimen/text_size_medium"
             android:visibility="gone"
             tools:text="@string/more"/>
         <View

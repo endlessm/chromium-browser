@@ -5,8 +5,6 @@
 #ifndef CHROME_BROWSER_RESOURCE_COORDINATOR_LOCAL_SITE_CHARACTERISTICS_DATA_IMPL_H_
 #define CHROME_BROWSER_RESOURCE_COORDINATOR_LOCAL_SITE_CHARACTERISTICS_DATA_IMPL_H_
 
-#include <string>
-
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -16,14 +14,20 @@
 #include "chrome/browser/resource_coordinator/local_site_characteristics_database.h"
 #include "chrome/browser/resource_coordinator/local_site_characteristics_feature_usage.h"
 #include "chrome/browser/resource_coordinator/site_characteristics.pb.h"
+#include "chrome/browser/resource_coordinator/site_characteristics_tab_visibility.h"
 #include "chrome/browser/resource_coordinator/tab_manager_features.h"
+#include "url/origin.h"
 
 namespace resource_coordinator {
 
 class LocalSiteCharacteristicsDatabase;
 class LocalSiteCharacteristicsDataStore;
+class LocalSiteCharacteristicsDataStoreTest;
 class LocalSiteCharacteristicsDataReaderTest;
 class LocalSiteCharacteristicsDataWriterTest;
+
+FORWARD_DECLARE_TEST(LocalSiteCharacteristicsDataReaderTest,
+                     FreeingReaderDoesntCauseWriteOperation);
 
 namespace internal {
 
@@ -40,6 +44,10 @@ FORWARD_DECLARE_TEST(LocalSiteCharacteristicsDataImplTest,
 // about the same origin will share a unique ref counted instance of this
 // object, because of this all the operations done on these objects should be
 // done on the same thread, this class isn't thread safe.
+//
+// By default tabs associated with instances of this class are assumed to be
+// running in foreground, |NotifyTabBackgrounded| should get called to indicate
+// that the tab is running in background.
 class LocalSiteCharacteristicsDataImpl
     : public base::RefCounted<LocalSiteCharacteristicsDataImpl> {
  public:
@@ -60,7 +68,13 @@ class LocalSiteCharacteristicsDataImpl
   // Must be called when an unload event is received for this site, this can be
   // invoked several times if instances of this class are shared between
   // multiple tabs.
-  void NotifySiteUnloaded();
+  void NotifySiteUnloaded(TabVisibility tab_visibility);
+
+  // Must be called when a loaded tab gets backgrounded.
+  void NotifyLoadedSiteBackgrounded();
+
+  // Must be called when a loaded tab gets foregrounded.
+  void NotifyLoadedSiteForegrounded();
 
   // Returns the usage of a given feature for this origin.
   SiteFeatureUsage UpdatesFaviconInBackground() const;
@@ -87,14 +101,33 @@ class LocalSiteCharacteristicsDataImpl
     return site_characteristics_;
   }
 
+  size_t loaded_tabs_count_for_testing() const { return loaded_tabs_count_; }
+
+  size_t loaded_tabs_in_background_count_for_testing() const {
+    return loaded_tabs_in_background_count_;
+  }
+
+  base::TimeTicks background_session_begin_for_testing() const {
+    return background_session_begin_;
+  }
+
+  const url::Origin& origin() const { return origin_; }
+
+  void ExpireAllObservationWindowsForTesting();
+
+  void ClearObservationsAndInvalidateReadOperationForTesting() {
+    ClearObservationsAndInvalidateReadOperation();
+  }
+
  protected:
   friend class base::RefCounted<LocalSiteCharacteristicsDataImpl>;
   friend class LocalSiteCharacteristicsDataImplTest;
   friend class resource_coordinator::LocalSiteCharacteristicsDataReaderTest;
   friend class resource_coordinator::LocalSiteCharacteristicsDataStore;
+  friend class resource_coordinator::LocalSiteCharacteristicsDataStoreTest;
   friend class resource_coordinator::LocalSiteCharacteristicsDataWriterTest;
 
-  LocalSiteCharacteristicsDataImpl(const std::string& origin_str,
+  LocalSiteCharacteristicsDataImpl(const url::Origin& origin,
                                    OnDestroyDelegate* delegate,
                                    LocalSiteCharacteristicsDatabase* database);
 
@@ -120,6 +153,9 @@ class LocalSiteCharacteristicsDataImpl
  private:
   FRIEND_TEST_ALL_PREFIXES(LocalSiteCharacteristicsDataImplTest,
                            LateAsyncReadDoesntBypassClearEvent);
+  FRIEND_TEST_ALL_PREFIXES(
+      resource_coordinator::LocalSiteCharacteristicsDataReaderTest,
+      FreeingReaderDoesntCauseWriteOperation);
 
   // Add |extra_observation_duration| to the observation window of a given
   // feature if it hasn't been used yet, do nothing otherwise.
@@ -151,34 +187,40 @@ class LocalSiteCharacteristicsDataImpl
 
   // Helper function to update a given |SiteCharacteristicsFeatureProto| when a
   // feature gets used.
-  void NotifyFeatureUsage(SiteCharacteristicsFeatureProto* feature_proto);
+  void NotifyFeatureUsage(SiteCharacteristicsFeatureProto* feature_proto,
+                          const char* feature_name);
 
-  const std::string& origin_str() const { return origin_str_; }
-
-  bool IsLoaded() const { return active_webcontents_count_ > 0U; }
+  bool IsLoaded() const { return loaded_tabs_count_ > 0U; }
 
   // Callback that needs to be called by the database once it has finished
   // trying to read the protobuf.
   void OnInitCallback(
       base::Optional<SiteCharacteristicsProto> site_characteristic_proto);
 
+  // Decrement the |loaded_tabs_in_background_count_| counter and update the
+  // local feature observation durations if necessary.
+  void DecrementNumLoadedBackgroundTabs();
+
   // This site's characteristics, contains the features and other values are
   // measured.
   SiteCharacteristicsProto site_characteristics_;
 
   // This site's origin.
-  const std::string origin_str_;
+  const url::Origin origin_;
 
-  // The number of active WebContents for this origin. Several tabs with the
+  // The number of loaded tabs for this origin. Several tabs with the
   // same origin might share the same instance of this object, this counter
   // will allow to properly update the observation time (starts when the first
   // tab gets loaded, stops when the last one gets unloaded).
-  //
-  // TODO(sebmarchand): Also track the number of tabs that are in background for
-  // this origin and use this to update the observation windows. The number of
-  // active WebContents doesn't tell anything about the background/foreground
-  // state of a tab.
-  size_t active_webcontents_count_;
+  size_t loaded_tabs_count_;
+
+  // Number of loaded tabs currently in background for this origin, the
+  // implementation doesn't need to track unloaded tabs running in background.
+  size_t loaded_tabs_in_background_count_;
+
+  // The time at which the |loaded_tabs_in_background_count_| counter changed
+  // from 0 to 1.
+  base::TimeTicks background_session_begin_;
 
   // The database used to store the site characteristics, it should outlive
   // this object.
@@ -188,9 +230,14 @@ class LocalSiteCharacteristicsDataImpl
   // destroyed, it should outlive this object.
   OnDestroyDelegate* const delegate_;
 
-  // Indicates if this object is in a state where it can be written to the
-  // database without erasing some data.
-  bool safe_to_write_to_db_;
+  // Indicates if this object has been fully initialized, either because the
+  // read operation from the database has completed or because it has been
+  // cleared.
+  bool fully_initialized_;
+
+  // Dirty bit, indicates if any of the fields in |site_characteristics_| has
+  // changed since it has been initialized.
+  bool is_dirty_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

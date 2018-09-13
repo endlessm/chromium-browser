@@ -11,7 +11,6 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "chrome/browser/chromeos/login/signin_specifics.h"
-#include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/ui/webui/chromeos/login/native_window_delegate.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "components/user_manager/user.h"
@@ -28,7 +27,7 @@ class LoginDisplayWebUI : public LoginDisplay,
                           public SigninScreenHandlerDelegate,
                           public ui::UserActivityObserver {
  public:
-  explicit LoginDisplayWebUI(LoginDisplay::Delegate* delegate);
+  LoginDisplayWebUI();
   ~LoginDisplayWebUI() override;
 
   // LoginDisplay implementation:
@@ -54,10 +53,6 @@ class LoginDisplayWebUI : public LoginDisplay,
   gfx::NativeWindow GetNativeWindow() const override;
 
   // SigninScreenHandlerDelegate implementation:
-  void CancelPasswordChangedFlow() override;
-  void ResyncUserData() override;
-  void MigrateUserData(const std::string& old_password) override;
-
   void Login(const UserContext& user_context,
              const SigninSpecifics& specifics) override;
   bool IsSigninInProgress() const override;
@@ -72,12 +67,6 @@ class LoginDisplayWebUI : public LoginDisplay,
   void ShowUpdateRequiredScreen() override;
   void ShowWrongHWIDScreen() override;
   void SetWebUIHandler(LoginDisplayWebUIHandler* webui_handler) override;
-  // Should match the same method in SigninScreenHandler.
-  // |services| must be a valid JSON array. See SigninScreenHandler for
-  // detalis.
-  virtual void ShowSigninScreenForTest(const std::string& username,
-                                       const std::string& password,
-                                       const std::string& services);
   bool IsShowGuest() const override;
   bool IsShowUsers() const override;
   bool ShowUsersHasChanged() const override;

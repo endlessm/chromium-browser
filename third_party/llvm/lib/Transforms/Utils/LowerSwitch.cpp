@@ -74,7 +74,7 @@ namespace {
 
     LowerSwitch() : FunctionPass(ID) {
       initializeLowerSwitchPass(*PassRegistry::getPassRegistry());
-    } 
+    }
 
     bool runOnFunction(Function &F) override;
 
@@ -327,7 +327,7 @@ BasicBlock* LowerSwitch::newLeafBlock(CaseRange& Leaf, Value* Val,
     } else if (Leaf.Low->isZero()) {
       // Val >= 0 && Val <= Hi --> Val <=u Hi
       Comp = new ICmpInst(*NewLeaf, ICmpInst::ICMP_ULE, Val, Leaf.High,
-                          "SwitchLeaf");      
+                          "SwitchLeaf");
     } else {
       // Emit V-Lo <=u Hi-Lo
       Constant* NegLo = ConstantExpr::getNeg(Leaf.Low);
@@ -354,7 +354,7 @@ BasicBlock* LowerSwitch::newLeafBlock(CaseRange& Leaf, Value* Val,
     for (uint64_t j = 0; j < Range; ++j) {
       PN->removeIncomingValue(OrigBlock);
     }
-    
+
     int BlockIdx = PN->getBasicBlockIndex(OrigBlock);
     assert(BlockIdx != -1 && "Switch didn't go to this successor??");
     PN->setIncomingBlock((unsigned)BlockIdx, NewLeaf);
@@ -495,6 +495,10 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
     }
 #endif
 
+    // As the default block in the switch is unreachable, update the PHI nodes
+    // (remove the entry to the default block) to reflect this.
+    Default->removePredecessor(OrigBlock);
+
     // Use the most popular block as the new default, reducing the number of
     // cases.
     assert(MaxPop > 0 && PopSucc);
@@ -508,9 +512,18 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
     if (Cases.empty()) {
       BranchInst::Create(Default, CurBlock);
       SI->eraseFromParent();
+      // As all the cases have been replaced with a single branch, only keep
+      // one entry in the PHI nodes.
+      for (unsigned I = 0 ; I < (MaxPop - 1) ; ++I)
+        PopSucc->removePredecessor(OrigBlock);
       return;
     }
   }
+
+  unsigned NrOfDefaults = (SI->getDefaultDest() == Default) ? 1 : 0;
+  for (const auto &Case : SI->cases())
+    if (Case.getCaseSuccessor() == Default)
+      NrOfDefaults++;
 
   // Create a new, empty default block so that the new hierarchy of
   // if-then statements go to this and the PHI nodes are happy.
@@ -518,18 +531,13 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
   F->getBasicBlockList().insert(Default->getIterator(), NewDefault);
   BranchInst::Create(Default, NewDefault);
 
-  // If there is an entry in any PHI nodes for the default edge, make sure
-  // to update them as well.
-  for (BasicBlock::iterator I = Default->begin(); isa<PHINode>(I); ++I) {
-    PHINode *PN = cast<PHINode>(I);
-    int BlockIdx = PN->getBasicBlockIndex(OrigBlock);
-    assert(BlockIdx != -1 && "Switch didn't go to this successor??");
-    PN->setIncomingBlock((unsigned)BlockIdx, NewDefault);
-  }
-
   BasicBlock *SwitchBlock =
       switchConvert(Cases.begin(), Cases.end(), LowerBound, UpperBound, Val,
                     OrigBlock, OrigBlock, NewDefault, UnreachableRanges);
+
+  // If there are entries in any PHI nodes for the default edge, make sure
+  // to update them as well.
+  fixPhis(Default, OrigBlock, NewDefault, NrOfDefaults);
 
   // Branch to our shiny new if-then stuff...
   BranchInst::Create(SwitchBlock, OrigBlock);

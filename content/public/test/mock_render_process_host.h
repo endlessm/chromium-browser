@@ -88,7 +88,7 @@ class MockRenderProcessHost : public RenderProcessHost {
   const base::Process& GetProcess() const override;
   bool IsReady() const override;
   int GetID() const override;
-  bool HasConnection() const override;
+  bool IsInitializedAndNotDead() const override;
   void SetIgnoreInputEvents(bool ignore_input_events) override;
   bool IgnoreInputEvents() const override;
   void Cleanup() override;
@@ -134,6 +134,8 @@ class MockRenderProcessHost : public RenderProcessHost {
   mojom::Renderer* GetRendererInterface() override;
   resource_coordinator::ProcessResourceCoordinator*
   GetProcessResourceCoordinator() override;
+  void CreateURLLoaderFactory(
+      network::mojom::URLLoaderFactoryRequest request) override;
 
   void SetIsNeverSuitableForReuse() override;
   bool MayReuseHost() override;
@@ -141,6 +143,7 @@ class MockRenderProcessHost : public RenderProcessHost {
   void SetIsUsed() override;
 
   bool HostHasNotBeenUsed() override;
+  void LockToOrigin(const GURL& lock_url) override;
   void BindCacheStorage(blink::mojom::CacheStorageRequest request,
                         const url::Origin& origin) override;
 
@@ -176,6 +179,12 @@ class MockRenderProcessHost : public RenderProcessHost {
       std::unique_ptr<mojo::AssociatedInterfacePtr<mojom::Renderer>>
           renderer_interface);
 
+  void OverrideURLLoaderFactory(network::mojom::URLLoaderFactory* factory);
+
+  bool is_renderer_locked_to_site() const {
+    return is_renderer_locked_to_site_;
+  }
+
  private:
   // Stores IPC messages that would have been sent to the renderer.
   IPC::TestSink sink_;
@@ -203,6 +212,8 @@ class MockRenderProcessHost : public RenderProcessHost {
   std::unique_ptr<resource_coordinator::ProcessResourceCoordinator>
       process_resource_coordinator_;
   service_manager::Identity child_identity_;
+  bool is_renderer_locked_to_site_ = false;
+  network::mojom::URLLoaderFactory* url_loader_factory_;
   blink::mojom::CacheStorageRequest cache_storage_request_;
   base::WeakPtrFactory<MockRenderProcessHost> weak_ptr_factory_;
 

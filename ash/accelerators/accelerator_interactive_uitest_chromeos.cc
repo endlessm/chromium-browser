@@ -14,7 +14,7 @@
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "base/run_loop.h"
-#include "base/test/user_action_tester.h"
+#include "base/test/metrics/user_action_tester.h"
 #include "chromeos/network/network_handler.h"
 #include "ui/base/test/ui_controls.h"
 
@@ -155,7 +155,7 @@ TEST_F(AcceleratorInteractiveUITest, MAYBE_ChromeOsAccelerators) {
   EXPECT_EQ(0, screenshot_delegate->handle_take_screenshot_count());
   SendKeyPressSync(ui::VKEY_MEDIA_LAUNCH_APP1, true, false, false);
   EXPECT_EQ(1, screenshot_delegate->handle_take_screenshot_count());
-  SendKeyPressSync(ui::VKEY_PRINT, false, false, false);
+  SendKeyPressSync(ui::VKEY_SNAPSHOT, false, false, false);
   EXPECT_EQ(2, screenshot_delegate->handle_take_screenshot_count());
   SendKeyPressSync(ui::VKEY_MEDIA_LAUNCH_APP1, true, true, false);
   EXPECT_EQ(2, screenshot_delegate->handle_take_screenshot_count());

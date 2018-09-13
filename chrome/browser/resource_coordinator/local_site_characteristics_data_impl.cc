@@ -8,6 +8,9 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/strings/stringprintf.h"
 #include "chrome/browser/resource_coordinator/local_site_characteristics_database.h"
 #include "chrome/browser/resource_coordinator/time.h"
 
@@ -17,7 +20,7 @@ namespace internal {
 namespace {
 
 base::TimeDelta GetTickDeltaSinceEpoch() {
-  return resource_coordinator::NowTicks() - base::TimeTicks::UnixEpoch();
+  return NowTicks() - base::TimeTicks::UnixEpoch();
 }
 
 // Returns all the SiteCharacteristicsFeatureProto elements contained in a
@@ -39,120 +42,150 @@ void LocalSiteCharacteristicsDataImpl::NotifySiteLoaded() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Update the last loaded time when this origin gets loaded for the first
   // time.
-  if (active_webcontents_count_ == 0) {
+  if (loaded_tabs_count_ == 0) {
     site_characteristics_.set_last_loaded(
         TimeDeltaToInternalRepresentation(GetTickDeltaSinceEpoch()));
+
+    is_dirty_ = true;
   }
-  active_webcontents_count_++;
+  loaded_tabs_count_++;
 }
 
-void LocalSiteCharacteristicsDataImpl::NotifySiteUnloaded() {
+void LocalSiteCharacteristicsDataImpl::NotifySiteUnloaded(
+    TabVisibility tab_visibility) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  active_webcontents_count_--;
+
+  if (tab_visibility == TabVisibility::kBackground)
+    DecrementNumLoadedBackgroundTabs();
+
+  loaded_tabs_count_--;
   // Only update the last loaded time when there's no more loaded instance of
   // this origin.
-  if (active_webcontents_count_ > 0U)
+  if (loaded_tabs_count_ > 0U)
     return;
 
   base::TimeDelta current_unix_time = GetTickDeltaSinceEpoch();
-  base::TimeDelta extra_observation_duration =
-      current_unix_time -
-      InternalRepresentationToTimeDelta(site_characteristics_.last_loaded());
 
   // Update the |last_loaded_time_| field, as the moment this site gets unloaded
   // also corresponds to the last moment it was loaded.
   site_characteristics_.set_last_loaded(
       TimeDeltaToInternalRepresentation(current_unix_time));
+}
 
-  // Update the observation duration fields.
-  for (auto* iter : GetAllFeaturesFromProto(&site_characteristics_))
-    IncrementFeatureObservationDuration(iter, extra_observation_duration);
+void LocalSiteCharacteristicsDataImpl::NotifyLoadedSiteBackgrounded() {
+  if (loaded_tabs_in_background_count_ == 0)
+    background_session_begin_ = NowTicks();
+
+  loaded_tabs_in_background_count_++;
+
+  DCHECK_LE(loaded_tabs_in_background_count_, loaded_tabs_count_);
+}
+
+void LocalSiteCharacteristicsDataImpl::NotifyLoadedSiteForegrounded() {
+  DecrementNumLoadedBackgroundTabs();
 }
 
 SiteFeatureUsage LocalSiteCharacteristicsDataImpl::UpdatesFaviconInBackground()
     const {
   return GetFeatureUsage(
       site_characteristics_.updates_favicon_in_background(),
-      GetStaticProactiveTabDiscardParams().favicon_update_observation_window);
+      GetSiteCharacteristicsDatabaseParams().favicon_update_observation_window);
 }
 
 SiteFeatureUsage LocalSiteCharacteristicsDataImpl::UpdatesTitleInBackground()
     const {
   return GetFeatureUsage(
       site_characteristics_.updates_title_in_background(),
-      GetStaticProactiveTabDiscardParams().title_update_observation_window);
+      GetSiteCharacteristicsDatabaseParams().title_update_observation_window);
 }
 
 SiteFeatureUsage LocalSiteCharacteristicsDataImpl::UsesAudioInBackground()
     const {
   return GetFeatureUsage(
       site_characteristics_.uses_audio_in_background(),
-      GetStaticProactiveTabDiscardParams().audio_usage_observation_window);
+      GetSiteCharacteristicsDatabaseParams().audio_usage_observation_window);
 }
 
 SiteFeatureUsage
 LocalSiteCharacteristicsDataImpl::UsesNotificationsInBackground() const {
   return GetFeatureUsage(
       site_characteristics_.uses_notifications_in_background(),
-      GetStaticProactiveTabDiscardParams()
+      GetSiteCharacteristicsDatabaseParams()
           .notifications_usage_observation_window);
 }
 
 void LocalSiteCharacteristicsDataImpl::NotifyUpdatesFaviconInBackground() {
   NotifyFeatureUsage(
-      site_characteristics_.mutable_updates_favicon_in_background());
+      site_characteristics_.mutable_updates_favicon_in_background(),
+      "FaviconUpdateInBackground");
 }
 
 void LocalSiteCharacteristicsDataImpl::NotifyUpdatesTitleInBackground() {
   NotifyFeatureUsage(
-      site_characteristics_.mutable_updates_title_in_background());
+      site_characteristics_.mutable_updates_title_in_background(),
+      "TitleUpdateInBackground");
 }
 
 void LocalSiteCharacteristicsDataImpl::NotifyUsesAudioInBackground() {
-  NotifyFeatureUsage(site_characteristics_.mutable_uses_audio_in_background());
+  NotifyFeatureUsage(site_characteristics_.mutable_uses_audio_in_background(),
+                     "AudioUsageInBackground");
 }
 
 void LocalSiteCharacteristicsDataImpl::NotifyUsesNotificationsInBackground() {
   NotifyFeatureUsage(
-      site_characteristics_.mutable_uses_notifications_in_background());
+      site_characteristics_.mutable_uses_notifications_in_background(),
+      "NotificationsUsageInBackground");
+}
+
+void LocalSiteCharacteristicsDataImpl::ExpireAllObservationWindowsForTesting() {
+  auto params = GetSiteCharacteristicsDatabaseParams();
+  base::TimeDelta longest_observation_window =
+      std::max({params.favicon_update_observation_window,
+                params.title_update_observation_window,
+                params.audio_usage_observation_window,
+                params.notifications_usage_observation_window});
+  for (auto* iter : GetAllFeaturesFromProto(&site_characteristics_))
+    IncrementFeatureObservationDuration(iter, longest_observation_window);
 }
 
 LocalSiteCharacteristicsDataImpl::LocalSiteCharacteristicsDataImpl(
-    const std::string& origin_str,
+    const url::Origin& origin,
     OnDestroyDelegate* delegate,
     LocalSiteCharacteristicsDatabase* database)
-    : origin_str_(origin_str),
-      active_webcontents_count_(0U),
+    : origin_(origin),
+      loaded_tabs_count_(0U),
+      loaded_tabs_in_background_count_(0U),
       database_(database),
       delegate_(delegate),
-      safe_to_write_to_db_(false),
+      fully_initialized_(false),
+      is_dirty_(false),
       weak_factory_(this) {
   DCHECK(database_);
   DCHECK(delegate_);
   DCHECK(!site_characteristics_.IsInitialized());
 
   database_->ReadSiteCharacteristicsFromDB(
-      origin_str_,
-      base::BindOnce(&LocalSiteCharacteristicsDataImpl::OnInitCallback,
-                     weak_factory_.GetWeakPtr()));
+      origin_, base::BindOnce(&LocalSiteCharacteristicsDataImpl::OnInitCallback,
+                              weak_factory_.GetWeakPtr()));
 }
 
 LocalSiteCharacteristicsDataImpl::~LocalSiteCharacteristicsDataImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // It's currently required that the site gets unloaded before destroying this
-  // object.
-  // TODO(sebmarchand): Check if this is a valid assumption.
+  // All users of this object should make sure that they send the same number of
+  // NotifySiteLoaded and NotifySiteUnloaded events, in practice this mean
+  // tracking the loaded state and sending an unload event in their destructor
+  // if needed.
   DCHECK(!IsLoaded());
+  DCHECK_EQ(0U, loaded_tabs_in_background_count_);
 
   DCHECK(delegate_);
   delegate_->OnLocalSiteCharacteristicsDataImplDestroyed(this);
 
   // TODO(sebmarchand): Some data might be lost here if the read operation has
   // not completed, add some metrics to measure if this is really an issue.
-  if (safe_to_write_to_db_) {
+  if (is_dirty_ && fully_initialized_) {
     DCHECK(site_characteristics_.IsInitialized());
-    database_->WriteSiteCharacteristicsIntoDB(origin_str_,
-                                              site_characteristics_);
+    database_->WriteSiteCharacteristicsIntoDB(origin_, site_characteristics_);
   }
 }
 
@@ -164,15 +197,14 @@ base::TimeDelta LocalSiteCharacteristicsDataImpl::FeatureObservationDuration(
   base::TimeDelta observation_time_for_feature =
       InternalRepresentationToTimeDelta(feature_proto.observation_duration());
 
-  // If this site is still loaded and the feature isn't in use then the
+  // If this site is still in background and the feature isn't in use then the
   // observation time since load needs to be added.
-  if (IsLoaded() &&
+  if (loaded_tabs_in_background_count_ > 0U &&
       InternalRepresentationToTimeDelta(feature_proto.use_timestamp())
           .is_zero()) {
-    base::TimeDelta observation_time_since_load =
-        GetTickDeltaSinceEpoch() -
-        InternalRepresentationToTimeDelta(site_characteristics_.last_loaded());
-    observation_time_for_feature += observation_time_since_load;
+    base::TimeDelta observation_time_since_backgrounded =
+        NowTicks() - background_session_begin_;
+    observation_time_for_feature += observation_time_since_backgrounded;
   }
 
   return observation_time_for_feature;
@@ -241,13 +273,17 @@ void LocalSiteCharacteristicsDataImpl::
   }
 
   // This object is now in a valid state and can be written in the database.
-  safe_to_write_to_db_ = true;
+  fully_initialized_ = true;
 }
 
 SiteFeatureUsage LocalSiteCharacteristicsDataImpl::GetFeatureUsage(
     const SiteCharacteristicsFeatureProto& feature_proto,
     const base::TimeDelta min_obs_time) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  UMA_HISTOGRAM_BOOLEAN(
+      "ResourceCoordinator.LocalDB.ReadHasCompletedBeforeQuery",
+      fully_initialized_);
 
   if (!feature_proto.IsInitialized())
     return SiteFeatureUsage::kSiteFeatureUsageUnknown;
@@ -267,9 +303,23 @@ SiteFeatureUsage LocalSiteCharacteristicsDataImpl::GetFeatureUsage(
 }
 
 void LocalSiteCharacteristicsDataImpl::NotifyFeatureUsage(
-    SiteCharacteristicsFeatureProto* feature_proto) {
+    SiteCharacteristicsFeatureProto* feature_proto,
+    const char* feature_name) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(IsLoaded());
+  DCHECK_GT(loaded_tabs_in_background_count_, 0U);
+
+  // Report the observation time if this is the first time this feature is
+  // observed.
+  if (feature_proto->observation_duration() != 0) {
+    base::UmaHistogramCustomTimes(
+        base::StringPrintf(
+            "ResourceCoordinator.LocalDB.ObservationTimeBeforeFirstUse.%s",
+            feature_name),
+        InternalRepresentationToTimeDelta(
+            feature_proto->observation_duration()),
+        base::TimeDelta::FromSeconds(1), base::TimeDelta::FromDays(1), 100);
+  }
 
   feature_proto->set_use_timestamp(
       TimeDeltaToInternalRepresentation(GetTickDeltaSinceEpoch()));
@@ -296,7 +346,8 @@ void LocalSiteCharacteristicsDataImpl::OnInitCallback(
       // feature then there's nothing to do, otherwise update it with the values
       // from the database.
       if (!(*this_features_iter)->has_use_timestamp()) {
-        if ((*db_features_iter)->has_use_timestamp()) {
+        if ((*db_features_iter)->has_use_timestamp() &&
+            (*db_features_iter)->use_timestamp() != 0) {
           // Keep the use timestamp from the database, if any.
           (*this_features_iter)
               ->set_use_timestamp((*db_features_iter)->use_timestamp());
@@ -317,6 +368,11 @@ void LocalSiteCharacteristicsDataImpl::OnInitCallback(
               (*this_features_iter),
               InternalRepresentationToTimeDelta(
                   (*db_features_iter)->observation_duration()));
+          // Makes sure that the |use_timestamp| field gets initialized.
+          (*this_features_iter)
+              ->set_use_timestamp(
+                  LocalSiteCharacteristicsDataImpl::
+                      TimeDeltaToInternalRepresentation(base::TimeDelta()));
         }
       }
     }
@@ -331,8 +387,26 @@ void LocalSiteCharacteristicsDataImpl::OnInitCallback(
     InitWithDefaultValues(true /* only_init_uninitialized_fields */);
   }
 
-  safe_to_write_to_db_ = true;
+  fully_initialized_ = true;
   DCHECK(site_characteristics_.IsInitialized());
+}
+
+void LocalSiteCharacteristicsDataImpl::DecrementNumLoadedBackgroundTabs() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_GT(loaded_tabs_in_background_count_, 0U);
+  loaded_tabs_in_background_count_--;
+  // Only update the observation durations if there's no more backgounded
+  // instance of this origin.
+  if (loaded_tabs_in_background_count_ > 0U)
+    return;
+
+  DCHECK(!background_session_begin_.is_null());
+  base::TimeDelta extra_observation_duration =
+      NowTicks() - background_session_begin_;
+
+  // Update the observation duration fields.
+  for (auto* iter : GetAllFeaturesFromProto(&site_characteristics_))
+    IncrementFeatureObservationDuration(iter, extra_observation_duration);
 }
 
 }  // namespace internal

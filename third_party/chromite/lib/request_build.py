@@ -15,15 +15,7 @@ from chromite.lib import buildbucket_lib
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
-
-site_config = config_lib.GetConfig()
-
-
-# URL to open a build details page.
-BUILD_DETAILS_PATTERN = (
-    'http://cros-goldeneye/chromeos/healthmonitoring/buildDetails?'
-    'buildbucketId=%(buildbucket_id)s'
-)
+from chromite.lib import tree_status
 
 
 class RemoteRequestFailure(Exception):
@@ -32,16 +24,8 @@ class RemoteRequestFailure(Exception):
 
 # Contains the results of a single scheduled build.
 ScheduledBuild = collections.namedtuple(
-    'ScheduledBuild', ('buildbucket_id', 'build_config', 'url', 'created_ts'))
-
-
-def TryJobUrl(buildbucket_id):
-  """Get link to the build UI for a given build.
-
-  Returns:
-    The URL as a string to view the given build.
-  """
-  return BUILD_DETAILS_PATTERN % {'buildbucket_id': buildbucket_id}
+    'ScheduledBuild',
+    ('bucket', 'buildbucket_id', 'build_config', 'url', 'created_ts'))
 
 
 def SlaveBuildSet(master_buildbucket_id):
@@ -62,9 +46,10 @@ class RequestBuild(object):
   """Request a builder via buildbucket."""
   # Buildbucket_put response must contain 'buildbucket_bucket:bucket]',
   # '[config:config_name] and '[buildbucket_id:id]'.
-  BUILDBUCKET_PUT_RESP_FORMAT = ('Successfully sent PUT request to '
-                                 '[buildbucket_bucket:%s] '
-                                 'with [config:%s] [buildbucket_id:%s].')
+  BUILDBUCKET_PUT_RESP_FORMAT = (
+      'Successfully sent PUT request to '
+      '[buildbucket_bucket:%(bucket)s] '
+      'with [config:%(build_config)s] [buildbucket_id:%(buildbucket_id)s].')
 
   def __init__(self,
                build_config,
@@ -73,6 +58,7 @@ class RequestBuild(object):
                branch='master',
                extra_args=(),
                user_email=None,
+               email_template=None,
                master_cidb_id=None,
                master_buildbucket_id=None,
                bucket=constants.INTERNAL_SWARMING_BUILDBUCKET_BUCKET):
@@ -87,12 +73,15 @@ class RequestBuild(object):
       branch: Name of branch to build for.
       extra_args: Command line arguments to pass to cbuildbot in job.
       user_email: Email address of person requesting job, or None.
+      email_template: Name of the luci-notify template to use. None for
+                      default. Ignored if user_email is not set.
       master_cidb_id: CIDB id of scheduling builder, or None.
       master_buildbucket_id: buildbucket id of scheduling builder, or None.
       bucket: Which bucket do we request the build in?
     """
     self.bucket = bucket
 
+    site_config = config_lib.GetConfig()
     if build_config in site_config:
       # Extract from build_config, if possible.
       self.luci_builder = site_config[build_config].luci_builder
@@ -113,6 +102,7 @@ class RequestBuild(object):
     self.branch = branch
     self.extra_args = extra_args
     self.user_email = user_email
+    self.email_template = email_template or 'default'
     self.master_cidb_id = master_cidb_id
     self.master_buildbucket_id = master_buildbucket_id
 
@@ -151,7 +141,10 @@ class RequestBuild(object):
     }
 
     if self.user_email:
-      parameters['email_notify'] = [{'email': self.user_email}]
+      parameters['email_notify'] = [{
+          'email': self.user_email,
+          'template': self.email_template,
+      }]
 
     return {
         'bucket': self.bucket,
@@ -184,12 +177,13 @@ class RequestBuild(object):
            buildbucket_lib.GetErrorMessage(content)))
 
     buildbucket_id = buildbucket_lib.GetBuildId(content)
-    url = TryJobUrl(buildbucket_id)
+    url = tree_status.ConstructLegolandBuildURL(buildbucket_id)
     created_ts = buildbucket_lib.GetBuildCreated_ts(content)
 
-    result = ScheduledBuild(buildbucket_id, self.build_config, url, created_ts)
+    result = ScheduledBuild(
+        self.bucket, buildbucket_id, self.build_config, url, created_ts)
 
-    logging.info(self.BUILDBUCKET_PUT_RESP_FORMAT, result)
+    logging.info(self.BUILDBUCKET_PUT_RESP_FORMAT, result._asdict())
 
     return result
 

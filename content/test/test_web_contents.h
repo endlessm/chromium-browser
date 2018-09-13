@@ -16,6 +16,7 @@
 #include "content/public/test/web_contents_tester.h"
 #include "content/test/test_render_frame_host.h"
 #include "content/test/test_render_view_host.h"
+#include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom.h"
 #include "ui/base/page_transition_types.h"
 
 class GURL;
@@ -96,7 +97,6 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
       const std::vector<gfx::Size>& original_bitmap_sizes) override;
   void SetLastCommittedURL(const GURL& url) override;
   void SetMainFrameMimeType(const std::string& mime_type) override;
-  void SetWasRecentlyAudible(bool audible) override;
   void SetIsCurrentlyAudible(bool audible) override;
   void TestDidReceiveInputEvent(blink::WebInputEvent::Type type) override;
   void TestDidFailLoadWithError(
@@ -140,7 +140,19 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   void SetHistoryOffsetAndLength(int history_offset,
                                  int history_length) override;
 
+  // Records that this was called and returns and empty vector.
+  std::vector<blink::mojom::PauseSubresourceLoadingHandlePtr>
+  PauseSubresourceLoading() override;
+
+  bool GetPauseSubresourceLoadingCalled() override;
+
+  void ResetPauseSubresourceLoadingCalled() override;
+
   void TestDidFinishLoad(const GURL& url);
+
+  void SetPageImportanceSignals(PageImportanceSignals signals) override;
+
+  void SetLastActiveTime(base::TimeTicks last_active_time) override;
 
  protected:
   // The deprecated WebContentsTester still needs to subclass this.
@@ -188,6 +200,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   std::map<GURL, std::list<std::pair<int, ImageDownloadCallback>>>
       pending_image_downloads_;
   GURL last_committed_url_;
+  bool pause_subresource_loading_called_;
 };
 
 }  // namespace content

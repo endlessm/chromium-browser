@@ -25,7 +25,7 @@ class TestMetricsRenderFrameObserver : public MetricsRenderFrameObserver,
  public:
   TestMetricsRenderFrameObserver() : MetricsRenderFrameObserver(nullptr) {}
 
-  std::unique_ptr<base::Timer> CreateTimer() override {
+  std::unique_ptr<base::OneShotTimer> CreateTimer() override {
     auto timer = std::make_unique<test::WeakMockTimer>();
     SetMockTimer(timer->AsWeakPtr());
     return std::move(timer);
@@ -81,6 +81,7 @@ TEST_F(MetricsRenderFrameObserverTest, SingleMetric) {
   page_load_metrics::InitPageLoadTimingForTest(&timing);
   timing.navigation_start = nav_start;
   observer.ExpectPageLoadTiming(timing);
+  observer.DidStartProvisionalLoad(nullptr);
   observer.DidCommitProvisionalLoad(true, false);
   observer.GetMockTimer()->Fire();
 
@@ -103,6 +104,7 @@ TEST_F(MetricsRenderFrameObserverTest, MultipleMetrics) {
   page_load_metrics::InitPageLoadTimingForTest(&timing);
   timing.navigation_start = nav_start;
   observer.ExpectPageLoadTiming(timing);
+  observer.DidStartProvisionalLoad(nullptr);
   observer.DidCommitProvisionalLoad(true, false);
   observer.GetMockTimer()->Fire();
 
@@ -149,6 +151,7 @@ TEST_F(MetricsRenderFrameObserverTest, MultipleNavigations) {
   page_load_metrics::InitPageLoadTimingForTest(&timing);
   timing.navigation_start = nav_start;
   observer.ExpectPageLoadTiming(timing);
+  observer.DidStartProvisionalLoad(nullptr);
   observer.DidCommitProvisionalLoad(true, false);
   observer.GetMockTimer()->Fire();
 
@@ -175,6 +178,7 @@ TEST_F(MetricsRenderFrameObserverTest, MultipleNavigations) {
   observer.SetMockTimer(nullptr);
 
   observer.ExpectPageLoadTiming(timing_2);
+  observer.DidStartProvisionalLoad(nullptr);
   observer.DidCommitProvisionalLoad(true, false);
   observer.GetMockTimer()->Fire();
 

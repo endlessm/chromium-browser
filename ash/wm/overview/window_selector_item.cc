@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/cpp/window_properties.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
@@ -74,9 +75,6 @@ constexpr SkColor kLabelColor = SK_ColorWHITE;
 // Close button color.
 constexpr SkColor kCloseButtonColor = SK_ColorWHITE;
 
-// Label background color once in overview mode.
-constexpr SkColor kLabelBackgroundColor = SkColorSetARGB(25, 255, 255, 255);
-
 // Corner radius for the selection tiles.
 static int kLabelBackgroundRadius = 2;
 
@@ -93,7 +91,7 @@ constexpr float kDimmedItemOpacity = 0.3f;
 constexpr float kClosingItemOpacity = 0.8f;
 
 // Opacity for the item header.
-constexpr float kHeaderOpacity = (SkColorGetA(kLabelBackgroundColor) / 255.f);
+constexpr float kHeaderOpacity = 0.1f;
 
 // Duration it takes for the header to shift from opaque header color to
 // |kLabelBackgroundColor|.
@@ -115,7 +113,7 @@ constexpr float kPreCloseScale = 0.02f;
 
 // The size in dp of the window icon shown on the overview window next to the
 // title.
-constexpr gfx::Size kIconSize = gfx::Size(24, 24);
+constexpr gfx::Size kIconSize{24, 24};
 
 constexpr int kCloseButtonInkDropInsetDp = 2;
 
@@ -125,9 +123,9 @@ constexpr int kCloseButtonOffsetDp = 8;
 
 // The colors of the close button ripple.
 constexpr SkColor kCloseButtonInkDropRippleColor =
-    SkColorSetARGB(0x0F, 0xFF, 0xFF, 0xFF);
+    SkColorSetA(0x0F, kCloseButtonColor);
 constexpr SkColor kCloseButtonInkDropRippleHighlightColor =
-    SkColorSetARGB(0x14, 0xFF, 0xFF, 0xFF);
+    SkColorSetA(0x14, kCloseButtonColor);
 
 // The font delta of the overview window title.
 constexpr int kLabelFontDelta = 2;
@@ -683,10 +681,12 @@ WindowSelectorItem::WindowSelectorItem(aura::Window* window,
       ScopedTransformOverviewWindow::GridWindowFillMode::kNormal) {
     backdrop_widget_ = CreateBackdropWidget(window->parent());
   }
+  GetWindow()->SetProperty(ash::kIsShowingInOverviewKey, true);
 }
 
 WindowSelectorItem::~WindowSelectorItem() {
   GetWindow()->RemoveObserver(this);
+  GetWindow()->ClearProperty(ash::kIsShowingInOverviewKey);
 }
 
 aura::Window* WindowSelectorItem::GetWindow() {
@@ -816,7 +816,8 @@ void WindowSelectorItem::SendAccessibleSelectionEvent() {
 void WindowSelectorItem::AnimateAndCloseWindow(bool up) {
   base::RecordAction(base::UserMetricsAction("WindowSelector_SwipeToClose"));
 
-  window_selector_->PositionWindows(/*animate=*/true, /*ignored_item=*/this);
+  animating_to_close_ = true;
+  window_selector_->PositionWindows(/*animate=*/true);
   caption_container_view_->listener_button()->ResetListener();
   close_button_->ResetListener();
 
@@ -863,8 +864,10 @@ void WindowSelectorItem::OnMinimizedStateChanged() {
 }
 
 void WindowSelectorItem::UpdateCannotSnapWarningVisibility() {
-  // Windows which can snap will never show this warning.
-  if (Shell::Get()->split_view_controller()->CanSnap(GetWindow())) {
+  // Windows which can snap will never show this warning. Or if the window is
+  // the new selector item window, also do not show this warning.
+  if (Shell::Get()->split_view_controller()->CanSnap(GetWindow()) ||
+      window_grid_->IsNewSelectorItemWindow(GetWindow())) {
     caption_container_view_->SetCannotSnapLabelVisibility(false);
     return;
   }
@@ -963,6 +966,15 @@ void WindowSelectorItem::ButtonPressed(views::Button* sender,
   // For other cases, the event is handled in OverviewWindowDragController.
   if (!SplitViewController::ShouldAllowSplitView())
     window_selector_->SelectWindow(this);
+}
+
+void WindowSelectorItem::OnWindowBoundsChanged(
+    aura::Window* window,
+    const gfx::Rect& old_bounds,
+    const gfx::Rect& new_bounds,
+    ui::PropertyChangeReason reason) {
+  if (reason == ui::PropertyChangeReason::NOT_FROM_ANIMATION)
+    transform_window_.ResizeMinimizedWidgetIfNeeded();
 }
 
 void WindowSelectorItem::OnWindowDestroying(aura::Window* window) {
@@ -1257,10 +1269,7 @@ void WindowSelectorItem::CreateWindowLabel(const base::string16& title) {
   label_view_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   label_view_->SetAutoColorReadabilityEnabled(false);
   label_view_->SetEnabledColor(kLabelColor);
-  // Tell the label what color it will be drawn onto. It will use whether the
-  // background color is opaque or transparent to decide whether to use
-  // subpixel rendering. Does not actually set the label's background color.
-  label_view_->SetBackgroundColor(kLabelBackgroundColor);
+  label_view_->SetSubpixelRenderingEnabled(false);
   label_view_->SetFontList(gfx::FontList().Derive(
       kLabelFontDelta, gfx::Font::NORMAL, gfx::Font::Weight::MEDIUM));
 

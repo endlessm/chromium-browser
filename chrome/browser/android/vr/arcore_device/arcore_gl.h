@@ -36,6 +36,7 @@ class MailboxToSurfaceBridge;
 namespace device {
 
 class ARCore;
+struct ARCoreHitTestRequest;
 class ARImageTransport;
 
 // All of this class's methods must be called on the same valid GL thread with
@@ -45,19 +46,31 @@ class ARCoreGl {
   explicit ARCoreGl(std::unique_ptr<vr::MailboxToSurfaceBridge> mailbox_bridge);
   ~ARCoreGl();
 
-  bool Initialize();
+  void Initialize(base::OnceCallback<void(bool)> callback);
 
   void ProduceFrame(const gfx::Size& frame_size,
                     display::Display::Rotation display_rotation,
                     mojom::VRMagicWindowProvider::GetFrameDataCallback);
+  void Pause();
+  void Resume();
 
   const scoped_refptr<base::SingleThreadTaskRunner>& GetGlThreadTaskRunner() {
     return gl_thread_task_runner_;
   }
 
+  void RequestHitTest(mojom::XRRayPtr,
+                      mojom::VRMagicWindowProvider::RequestHitTestCallback);
+
   base::WeakPtr<ARCoreGl> GetWeakPtr();
 
  private:
+  // TODO(https://crbug/835948): remove frame_size.
+  void ProcessFrame(
+      mojom::XRFrameDataPtr frame_data,
+      const gfx::Size& frame_size,
+      mojom::VRMagicWindowProvider::GetFrameDataCallback callback);
+
+  bool InitializeGl();
   bool IsOnGlThread() const;
 
   scoped_refptr<gl::GLSurface> surface_;
@@ -68,9 +81,22 @@ class ARCoreGl {
   std::unique_ptr<ARCore> arcore_;
   std::unique_ptr<ARImageTransport> ar_image_transport_;
 
+  // Default dummy values to ensure consistent behaviour.
+  gfx::Size transfer_size_ = gfx::Size(0, 0);
+  display::Display::Rotation display_rotation_ = display::Display::ROTATE_0;
+
+  gfx::Transform uv_transform_;
+  gfx::Transform projection_;
+  // The first run of ProduceFrame should set uv_transform_ and projection_
+  // using the default settings in ARCore.
+  bool should_recalculate_uvs_ = true;
+
   bool is_initialized_ = false;
 
   vr::FPSMeter fps_meter_;
+
+  std::vector<std::unique_ptr<ARCoreHitTestRequest>> hit_test_requests_;
+
   // Must be last.
   base::WeakPtrFactory<ARCoreGl> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(ARCoreGl);

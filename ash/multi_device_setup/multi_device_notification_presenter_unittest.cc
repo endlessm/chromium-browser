@@ -14,7 +14,8 @@
 #include "ash/test/ash_test_helper.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "chromeos/services/multidevice_setup/public/cpp/fake_multidevice_setup.h"
 #include "chromeos/services/multidevice_setup/public/mojom/constants.mojom.h"
 #include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -79,43 +80,6 @@ class TestMessageCenter : public message_center::FakeMessageCenter {
   DISALLOW_COPY_AND_ASSIGN(TestMessageCenter);
 };
 
-// Fake for the MultiDeviceSetup service. This class only implements the
-// SetObserver() interface function since it's the only one that is used by
-// MultiDeviceNotificationPresenter.
-class FakeMultiDeviceSetup
-    : public chromeos::multidevice_setup::mojom::MultiDeviceSetup {
- public:
-  FakeMultiDeviceSetup() : binding_(this) {}
-  ~FakeMultiDeviceSetup() override = default;
-
-  chromeos::multidevice_setup::mojom::MultiDeviceSetupObserverPtr& observer() {
-    return observer_;
-  }
-
-  void Bind(mojo::ScopedMessagePipeHandle handle) {
-    binding_.Bind(chromeos::multidevice_setup::mojom::MultiDeviceSetupRequest(
-        std::move(handle)));
-  }
-
-  // mojom::MultiDeviceSetup:
-  void SetObserver(
-      chromeos::multidevice_setup::mojom::MultiDeviceSetupObserverPtr observer,
-      SetObserverCallback callback) override {
-    observer_ = std::move(observer);
-    std::move(callback).Run();
-  }
-
-  void TriggerEventForDebugging(
-      chromeos::multidevice_setup::mojom::EventTypeForDebugging type,
-      TriggerEventForDebuggingCallback callback) override {
-    NOTIMPLEMENTED();
-  }
-
- private:
-  chromeos::multidevice_setup::mojom::MultiDeviceSetupObserverPtr observer_;
-  mojo::Binding<chromeos::multidevice_setup::mojom::MultiDeviceSetup> binding_;
-};
-
 }  // namespace
 
 class MultiDeviceNotificationPresenterTest : public NoSessionAshTestBase {
@@ -170,15 +134,17 @@ class MultiDeviceNotificationPresenterTest : public NoSessionAshTestBase {
     service_manager::mojom::ConnectorRequest request;
     connector_ = service_manager::Connector::Create(&request);
 
-    fake_multidevice_setup_ = std::make_unique<FakeMultiDeviceSetup>();
+    fake_multidevice_setup_ =
+        std::make_unique<chromeos::multidevice_setup::FakeMultiDeviceSetup>();
     service_manager::Connector::TestApi test_api(connector_.get());
     test_api.OverrideBinderForTesting(
         service_manager::Identity(
             chromeos::multidevice_setup::mojom::kServiceName,
             kTestServiceUserId),
         chromeos::multidevice_setup::mojom::MultiDeviceSetup::Name_,
-        base::BindRepeating(&FakeMultiDeviceSetup::Bind,
-                            base::Unretained(fake_multidevice_setup_.get())));
+        base::BindRepeating(
+            &chromeos::multidevice_setup::FakeMultiDeviceSetup::BindHandle,
+            base::Unretained(fake_multidevice_setup_.get())));
 
     notification_presenter_ =
         std::make_unique<MultiDeviceNotificationPresenter>(
@@ -206,25 +172,25 @@ class MultiDeviceNotificationPresenterTest : public NoSessionAshTestBase {
         AccountId::FromUserEmail(kTestUserEmail));
 
     InvokePendingMojoCalls();
-    EXPECT_TRUE(fake_multidevice_setup_->observer().is_bound());
+    EXPECT_TRUE(fake_multidevice_setup_->delegate().is_bound());
   }
 
   void ShowNewUserNotification() {
-    EXPECT_TRUE(fake_multidevice_setup_->observer().is_bound());
-    fake_multidevice_setup_->observer()->OnPotentialHostExistsForNewUser();
+    EXPECT_TRUE(fake_multidevice_setup_->delegate().is_bound());
+    fake_multidevice_setup_->delegate()->OnPotentialHostExistsForNewUser();
     InvokePendingMojoCalls();
   }
 
   void ShowExistingUserHostSwitchedNotification() {
-    EXPECT_TRUE(fake_multidevice_setup_->observer().is_bound());
-    fake_multidevice_setup_->observer()
+    EXPECT_TRUE(fake_multidevice_setup_->delegate().is_bound());
+    fake_multidevice_setup_->delegate()
         ->OnConnectedHostSwitchedForExistingUser();
     InvokePendingMojoCalls();
   }
 
   void ShowExistingUserNewChromebookNotification() {
-    EXPECT_TRUE(fake_multidevice_setup_->observer().is_bound());
-    fake_multidevice_setup_->observer()->OnNewChromebookAddedForExistingUser();
+    EXPECT_TRUE(fake_multidevice_setup_->delegate().is_bound());
+    fake_multidevice_setup_->delegate()->OnNewChromebookAddedForExistingUser();
     InvokePendingMojoCalls();
   }
 
@@ -295,7 +261,8 @@ class MultiDeviceNotificationPresenterTest : public NoSessionAshTestBase {
   TestOpenUiDelegate* test_open_ui_delegate_;
   TestMessageCenter test_message_center_;
   std::unique_ptr<service_manager::Connector> connector_;
-  std::unique_ptr<FakeMultiDeviceSetup> fake_multidevice_setup_;
+  std::unique_ptr<chromeos::multidevice_setup::FakeMultiDeviceSetup>
+      fake_multidevice_setup_;
   std::unique_ptr<MultiDeviceNotificationPresenter> notification_presenter_;
 
  private:
@@ -348,15 +315,15 @@ TEST_F(MultiDeviceNotificationPresenterTest, NotSignedIntoAccount) {
       session_manager::SessionState::LOGIN_SECONDARY};
 
   // For each of the states which is not ACTIVE, set the session state. None of
-  // these should trigger a SetObserver() call.
+  // these should trigger a SetAccountStatusChangeDelegate() call.
   for (const auto state : kNonActiveStates) {
     GetSessionControllerClient()->SetSessionState(state);
     InvokePendingMojoCalls();
-    EXPECT_FALSE(fake_multidevice_setup_->observer().is_bound());
+    EXPECT_FALSE(fake_multidevice_setup_->delegate().is_bound());
   }
 
   SignIntoAccount();
-  EXPECT_TRUE(fake_multidevice_setup_->observer().is_bound());
+  EXPECT_TRUE(fake_multidevice_setup_->delegate().is_bound());
 }
 
 TEST_F(MultiDeviceNotificationPresenterTest,

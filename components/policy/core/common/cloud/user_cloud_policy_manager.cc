@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/sequenced_task_runner.h"
+#include "build/build_config.h"
 #include "components/account_id/account_id.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
@@ -20,6 +21,7 @@
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/policy_constants.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace em = enterprise_management;
 
@@ -83,11 +85,12 @@ void UserCloudPolicyManager::Connect(
 std::unique_ptr<CloudPolicyClient>
 UserCloudPolicyManager::CreateCloudPolicyClient(
     DeviceManagementService* device_management_service,
-    scoped_refptr<net::URLRequestContextGetter> request_context) {
+    scoped_refptr<net::URLRequestContextGetter> request_context,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
   return std::make_unique<CloudPolicyClient>(
       std::string() /* machine_id */, std::string() /* machine_model */,
       std::string() /* brand_code */, device_management_service,
-      request_context, nullptr /* signing_service */,
+      request_context, url_loader_factory, nullptr /* signing_service */,
       CloudPolicyClient::DeviceDMTokenCallback());
 }
 
@@ -119,6 +122,7 @@ void UserCloudPolicyManager::GetChromePolicy(PolicyMap* policy_map) {
   // given that this is an enterprise user.
   // TODO(treib,atwilson): We should just call SetEnterpriseUsersDefaults here,
   // see crbug.com/640950.
+#if defined(OS_ANDROID)
   if (store()->has_policy() &&
       !policy_map->Get(key::kNTPContentSuggestionsEnabled)) {
     policy_map->Set(key::kNTPContentSuggestionsEnabled, POLICY_LEVEL_MANDATORY,
@@ -126,6 +130,7 @@ void UserCloudPolicyManager::GetChromePolicy(PolicyMap* policy_map) {
                     std::make_unique<base::Value>(false),
                     nullptr /* external_data_fetcher */);
   }
+#endif
 }
 
 }  // namespace policy

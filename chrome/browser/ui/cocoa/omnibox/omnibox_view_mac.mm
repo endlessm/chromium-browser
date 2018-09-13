@@ -218,11 +218,11 @@ void OmniboxViewMac::OnTabChanged(const WebContents* web_contents) {
   // Restore focus and selection if they were present when the tab
   // was switched away.
   if (state && state->has_focus) {
-    // TODO(shess): Unfortunately, there is no safe way to update
-    // this because TabStripController -selectTabWithContents:* is
-    // also messing with focus.  Both parties need to agree to
-    // store existing state before anyone tries to setup the new
-    // state.  Anyhow, it would look something like this.
+// TODO(shess): Unfortunately, there is no safe way to update
+// this because TabStripControllerCocoa -selectTabWithContents:* is
+// also messing with focus.  Both parties need to agree to
+// store existing state before anyone tries to setup the new
+// state.  Anyhow, it would look something like this.
 #if 0
     [[field_ window] makeFirstResponder:field_];
     [[field_ currentEditor] setSelectedRange:state->selection];
@@ -803,11 +803,6 @@ bool OmniboxViewMac::OnDoCommandBySelector(SEL cmd) {
   // |-noop:| is sent when the user presses Cmd+Return. Override the no-op
   // behavior with the proper WindowOpenDisposition.
   NSEvent* event = [NSApp currentEvent];
-  if (([event type] == NSKeyDown || [event type] == NSKeyUp) &&
-      [event keyCode] == kVK_Shift) {
-    OnShiftKeyChanged([event type] == NSKeyDown);
-    return true;
-  }
   if (cmd == @selector(insertNewline:) ||
      (cmd == @selector(noop:) &&
       ([event type] == NSKeyDown || [event type] == NSKeyUp) &&
@@ -872,7 +867,6 @@ void OmniboxViewMac::OnSetFocus(bool control_down) {
 }
 
 void OmniboxViewMac::OnKillFocus() {
-  OnShiftKeyChanged(false);
   // Tell the model to reset itself.
   model()->OnWillKillFocus();
   model()->OnKillFocus();

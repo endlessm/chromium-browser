@@ -45,10 +45,6 @@
 #include "net/base/url_util.h"
 #include "ui/base/window_open_disposition.h"
 
-#if defined(OS_WIN)
-#include "chrome/browser/win/enumerate_modules_model.h"
-#endif
-
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/genius_app/app_id.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
@@ -244,14 +240,6 @@ void ShowExtensions(Browser* browser,
   ShowSingletonTabOverwritingNTP(browser, std::move(params));
 }
 
-void ShowConflicts(Browser* browser) {
-#if defined(OS_WIN)
-  EnumerateModulesModel::GetInstance()->AcknowledgeConflictNotification();
-#endif
-
-  ShowSingletonTab(browser, GURL(kChromeUIConflictsURL));
-}
-
 void ShowHelp(Browser* browser, HelpSource source) {
   ShowHelpImpl(browser, browser->profile(), source);
 }
@@ -440,8 +428,11 @@ void ShowBrowserSignin(Browser* browser,
 #if defined(OS_CHROMEOS)
     NOTREACHED();
 #else
-    browser->signin_view_controller()->ShowSignin(
-        profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN, browser, access_point);
+    profiles::BubbleViewMode bubble_view_mode =
+        manager->IsAuthenticated() ? profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH
+                                   : profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN;
+    browser->signin_view_controller()->ShowSignin(bubble_view_mode, browser,
+                                                  access_point);
 #endif
   }
 }

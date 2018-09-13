@@ -19,13 +19,7 @@ namespace chromeos {
 class HIDDetectionScreenTest : public WizardInProcessBrowserTest {
  public:
   HIDDetectionScreenTest()
-      : WizardInProcessBrowserTest(OobeScreen::SCREEN_OOBE_HID_DETECTION) {}
-
- protected:
-  void SetUpOnMainThread() override {
-    WizardInProcessBrowserTest::SetUpOnMainThread();
-    ASSERT_TRUE(WizardController::default_controller());
-
+      : WizardInProcessBrowserTest(OobeScreen::SCREEN_OOBE_HID_DETECTION) {
     fake_input_service_manager_ =
         std::make_unique<device::FakeInputServiceLinux>();
 
@@ -33,6 +27,17 @@ class HIDDetectionScreenTest : public WizardInProcessBrowserTest {
         device::mojom::kServiceName, device::mojom::InputDeviceManager::Name_,
         base::Bind(&device::FakeInputServiceLinux::Bind,
                    base::Unretained(fake_input_service_manager_.get())));
+  }
+
+  ~HIDDetectionScreenTest() override {
+    service_manager::ServiceContext::ClearGlobalBindersForTesting(
+        device::mojom::kServiceName);
+  }
+
+ protected:
+  void SetUpOnMainThread() override {
+    WizardInProcessBrowserTest::SetUpOnMainThread();
+    ASSERT_TRUE(WizardController::default_controller());
 
     hid_detection_screen_ = static_cast<HIDDetectionScreen*>(
         WizardController::default_controller()->GetScreen(
@@ -156,7 +161,7 @@ IN_PROC_BROWSER_TEST_F(HIDDetectionScreenTest, BluetoothDeviceConnected) {
 
   // Simulate the user's click on "Continue" button.
   hid_detection_screen()->OnContinueButtonClicked();
-  OobeScreenWaiter(OobeScreen::SCREEN_OOBE_NETWORK).Wait();
+  OobeScreenWaiter(OobeScreen::SCREEN_OOBE_WELCOME).Wait();
 
   // The adapter should not be powered off at this moment.
   EXPECT_TRUE(adapter()->IsPowered());
@@ -173,7 +178,7 @@ IN_PROC_BROWSER_TEST_F(HIDDetectionScreenTest, NoBluetoothDeviceConnected) {
 
   // Simulate the user's click on "Continue" button.
   hid_detection_screen()->OnContinueButtonClicked();
-  OobeScreenWaiter(OobeScreen::SCREEN_OOBE_NETWORK).Wait();
+  OobeScreenWaiter(OobeScreen::SCREEN_OOBE_WELCOME).Wait();
 
   // The adapter should be powered off at this moment.
   EXPECT_FALSE(adapter()->IsPowered());

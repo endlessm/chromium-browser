@@ -4,54 +4,32 @@
 
 import json
 import mock
-import unittest
-
-import webapp2
-import webtest
-
-from google.appengine.ext import ndb
-from google.appengine.ext import testbed
 
 from dashboard.pinpoint.handlers import jobs
 from dashboard.pinpoint.models import job as job_module
+from dashboard.pinpoint import test
 
 
-class JobsTest(unittest.TestCase):
+class JobsTest(test.TestCase):
 
-  def setUp(self):
-    app = webapp2.WSGIApplication([
-        webapp2.Route(r'/jobs', jobs.Jobs),
-    ])
-    self.testapp = webtest.TestApp(app)
-    self.testapp.extra_environ.update({'REMOTE_ADDR': 'remote_ip'})
-
-    self.testbed = testbed.Testbed()
-    self.testbed.activate()
-    self.testbed.init_datastore_v3_stub()
-    self.testbed.init_memcache_stub()
-    ndb.get_context().clear_cache()
-
-  def tearDown(self):
-    self.testbed.deactivate()
-
-  @mock.patch.object(jobs.api_auth, 'Email', mock.MagicMock(return_value=None))
+  @mock.patch.object(jobs.utils, 'GetEmail', mock.MagicMock(return_value=None))
   def testGet_NoUser(self):
     job = job_module.Job.New((), ())
 
-    data = json.loads(self.testapp.get('/jobs?o=STATE').body)
+    data = json.loads(self.testapp.get('/api/jobs?o=STATE').body)
 
     self.assertEqual(1, data['count'])
     self.assertEqual(1, len(data['jobs']))
     self.assertEqual(job.AsDict([job_module.OPTION_STATE]), data['jobs'][0])
 
-  @mock.patch.object(jobs.api_auth, 'Email',
+  @mock.patch.object(jobs.utils, 'GetEmail',
                      mock.MagicMock(return_value='lovely.user@example.com'))
   def testGet_WithUser(self):
     job_module.Job.New((), ())
     job_module.Job.New((), (), user='lovely.user@example.com')
     job = job_module.Job.New((), (), user='lovely.user@example.com')
 
-    data = json.loads(self.testapp.get('/jobs?o=STATE').body)
+    data = json.loads(self.testapp.get('/api/jobs?o=STATE').body)
 
     self.assertEqual(2, data['count'])
     self.assertEqual(2, len(data['jobs']))

@@ -15,6 +15,7 @@
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/referrer.h"
+#include "mojo/public/cpp/bindings/associated_interface_request.h"
 #include "net/base/host_port_pair.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "ui/base/page_transition_types.h"
@@ -24,14 +25,20 @@ class GURL;
 namespace content {
 
 class FrameTreeNode;
+class MockNavigationClientImpl;
 class NavigationHandle;
 class NavigationHandleImpl;
+class NavigationRequest;
 class RenderFrameHost;
 class TestRenderFrameHost;
 struct Referrer;
 
-// An interface for simulating a navigation in unit tests. Currently this only
-// supports renderer-initiated navigations.
+namespace mojom {
+class NavigationClient;
+}
+
+// An interface for simulating a navigation in unit tests. Supports both
+// renderer and browser-initiated navigations.
 // Note: this should not be used in browser tests.
 class NavigationSimulator : public WebContentsObserver {
  public:
@@ -128,6 +135,12 @@ class NavigationSimulator : public WebContentsObserver {
       const GURL& original_url,
       RenderFrameHost* render_frame_host);
 
+  // Creates a NavigationSimulator for an already-started browser initiated
+  // navigation via LoadURL / Reload / GoToOffset. Can be used to drive the
+  // navigation to completion.
+  static std::unique_ptr<NavigationSimulator> CreateFromPendingBrowserInitiated(
+      WebContents* contents);
+
   ~NavigationSimulator() override;
 
   // --------------------------------------------------------------------------
@@ -186,6 +199,9 @@ class NavigationSimulator : public WebContentsObserver {
 
   // Simulates the commit of the navigation in the RenderFrameHost.
   virtual void Commit();
+
+  // Simulates the commit of a navigation or an error page aborting.
+  virtual void AbortCommit();
 
   // Simulates the navigation failing with the error code |error_code|.
   virtual void Fail(int error_code);
@@ -281,6 +297,15 @@ class NavigationSimulator : public WebContentsObserver {
                       WebContentsImpl* web_contents,
                       TestRenderFrameHost* render_frame_host);
 
+  // Adds a test navigation throttle to |handle| which sanity checks various
+  // callbacks have been properly called.
+  void RegisterTestThrottle(NavigationHandle* handle);
+
+  // Initializes a NavigationSimulator from an existing NavigationRequest. This
+  // should only be needed if a navigation was started without a valid
+  // NavigationSimulator.
+  void InitializeFromStartedRequest(NavigationRequest* request);
+
   // WebContentsObserver:
   void DidStartNavigation(NavigationHandle* navigation_handle) override;
   void DidRedirectNavigation(NavigationHandle* navigation_handle) override;
@@ -332,6 +357,11 @@ class NavigationSimulator : public WebContentsObserver {
   // offset. Typically -1 for back navigations or 1 for forward navigations.
   void SetSessionHistoryOffset(int offset);
 
+  // Only used when PerNavigationMojoInterface is enabled.
+  void StoreNavigationClientRequest(
+      mojo::AssociatedInterfaceRequest<mojom::NavigationClient>
+          navigation_client_request);
+
   enum State {
     INITIALIZATION,
     STARTED,
@@ -354,6 +384,8 @@ class NavigationSimulator : public WebContentsObserver {
   // The NavigationHandle associated with this navigation.
   NavigationHandleImpl* handle_;
 
+  // Note: additional parameters to modify the navigation should be properly
+  // initialized (if needed) in InitializeFromStartedRequest.
   GURL navigation_url_;
   net::HostPortPair socket_address_;
   std::string initial_method_;
@@ -397,6 +429,12 @@ class NavigationSimulator : public WebContentsObserver {
   // Closure that is called in OnThrottleChecksComplete if we are waiting on the
   // result. Calling this will quit the nested run loop.
   base::OnceClosure wait_closure_;
+
+  // A mock NavigationClient implementation that is used because we do not
+  // actually have a renderer. The navigations would be instantly aborted if
+  // this was not kept alive.
+  // Only used when PerNavigationMojoInterface is enabled.
+  std::unique_ptr<MockNavigationClientImpl> navigation_client_impl_;
 
   base::WeakPtrFactory<NavigationSimulator> weak_factory_;
 };

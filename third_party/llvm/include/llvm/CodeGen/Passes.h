@@ -329,12 +329,16 @@ namespace llvm {
 
   /// createWinEHPass - Prepares personality functions used by MSVC on Windows,
   /// in addition to the Itanium LSDA based personalities.
-  FunctionPass *createWinEHPass();
+  FunctionPass *createWinEHPass(bool DemoteCatchSwitchPHIOnly = false);
 
   /// createSjLjEHPreparePass - This pass adapts exception handling code to use
   /// the GCC-style builtin setjmp/longjmp (sjlj) to handling EH control flow.
   ///
   FunctionPass *createSjLjEHPreparePass();
+
+  /// createWasmEHPass - This pass adapts exception handling code to use
+  /// WebAssembly's exception handling scheme.
+  FunctionPass *createWasmEHPass();
 
   /// LocalStackSlotAllocation - This pass assigns local frame indices to stack
   /// slots relative to one another and allocates base registers to access them
@@ -419,7 +423,7 @@ namespace llvm {
 
   /// This pass performs outlining on machine instructions directly before
   /// printing assembly.
-  ModulePass *createMachineOutlinerPass();
+  ModulePass *createMachineOutlinerPass(bool RunOnAllFunctions = true);
 
   /// This pass expands the experimental reduction intrinsics into sequences of
   /// shuffles.

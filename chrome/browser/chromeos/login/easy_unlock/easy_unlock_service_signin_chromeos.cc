@@ -24,6 +24,7 @@
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_tpm_key_manager_factory.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/chromeos_features.h"
 #include "chromeos/components/proximity_auth/logging/logging.h"
 #include "chromeos/components/proximity_auth/proximity_auth_local_state_pref_manager.h"
 #include "chromeos/components/proximity_auth/switches.h"
@@ -167,11 +168,14 @@ EasyUnlockServiceSignin::UserData::UserData()
 
 EasyUnlockServiceSignin::UserData::~UserData() {}
 
-EasyUnlockServiceSignin::EasyUnlockServiceSignin(Profile* profile)
-    : EasyUnlockService(profile),
+EasyUnlockServiceSignin::EasyUnlockServiceSignin(
+    Profile* profile,
+    secure_channel::SecureChannelClient* secure_channel_client)
+    : EasyUnlockService(profile, secure_channel_client),
       account_id_(EmptyAccountId()),
       user_pod_last_focused_timestamp_(base::TimeTicks::Now()),
-      remote_device_cache_(std::make_unique<cryptauth::RemoteDeviceCache>()),
+      remote_device_cache_(
+          cryptauth::RemoteDeviceCache::Factory::Get()->BuildInstance()),
       weak_ptr_factory_(this) {}
 
 EasyUnlockServiceSignin::~EasyUnlockServiceSignin() {}
@@ -256,20 +260,28 @@ EasyUnlockServiceSignin::GetTurnOffFlowStatus() const {
 
 std::string EasyUnlockServiceSignin::GetChallenge() const {
   const UserData* data = FindLoadedDataForCurrentUser();
-  // TODO(xiyuan): Use correct remote device instead of hard coded first one.
-  uint32_t device_index = 0;
-  if (!data || data->devices.size() <= device_index)
+  if (!data)
     return std::string();
-  return data->devices[device_index].challenge;
+
+  for (const auto& device : data->devices) {
+    if (device.unlock_key)
+      return device.challenge;
+  }
+
+  return std::string();
 }
 
 std::string EasyUnlockServiceSignin::GetWrappedSecret() const {
   const UserData* data = FindLoadedDataForCurrentUser();
-  // TODO(xiyuan): Use correct remote device instead of hard coded first one.
-  uint32_t device_index = 0;
-  if (!data || data->devices.size() <= device_index)
+  if (!data)
     return std::string();
-  return data->devices[device_index].wrapped_secret;
+
+  for (const auto& device : data->devices) {
+    if (device.unlock_key)
+      return device.wrapped_secret;
+  }
+
+  return std::string();
 }
 
 void EasyUnlockServiceSignin::RecordEasySignInOutcome(
@@ -403,7 +415,8 @@ void EasyUnlockServiceSignin::OnFocusedUserChanged(
   account_id_ = account_id;
   pref_manager_->SetActiveUser(account_id);
   user_pod_last_focused_timestamp_ = base::TimeTicks::Now();
-  SetProximityAuthDevices(account_id_, cryptauth::RemoteDeviceRefList());
+  SetProximityAuthDevices(account_id_, cryptauth::RemoteDeviceRefList(),
+                          base::nullopt /* local_device */);
   ResetScreenlockState();
 
   pref_manager_->SetActiveUser(account_id);
@@ -464,6 +477,7 @@ void EasyUnlockServiceSignin::LoadCurrentUserDataIfNeeded() {
                  weak_ptr_factory_.GetWeakPtr(), account_id_));
 }
 
+// TODO(crbug.com/856387): Write tests for device retrieval from the TPM.
 void EasyUnlockServiceSignin::OnUserDataLoaded(
     const AccountId& account_id,
     bool success,
@@ -506,38 +520,120 @@ void EasyUnlockServiceSignin::OnUserDataLoaded(
                     << "  psk: " << device.psk;
       continue;
     }
-    // TODO(tengs): We assume that the device is an unlock key since we only
-    // request unlock keys for EasyUnlock. Instead, we should include unlockable
-    // (as well as the "supports_mobile_hotspot" bool and
-    // last_update_time_millis) as part of EasyUnlockDeviceKeyData instead of
-    // making that assumption here.
 
-    cryptauth::RemoteDevice remote_device(
-        account_id.GetUserEmail(), std::string(), decoded_public_key,
-        decoded_psk, true /* unlock_key */, false /* supports_mobile_hotspot */,
-        0L /* last_update_time_millis */,
-        std::map<cryptauth::SoftwareFeature,
-                 cryptauth::SoftwareFeatureState>() /* software_features */);
+    std::map<cryptauth::SoftwareFeature, cryptauth::SoftwareFeatureState>
+        software_features;
+    software_features[cryptauth::SoftwareFeature::EASY_UNLOCK_HOST] =
+        device.unlock_key ? cryptauth::SoftwareFeatureState::kEnabled
+                          : cryptauth::SoftwareFeatureState::kNotSupported;
 
+    std::vector<cryptauth::BeaconSeed> beacon_seeds;
     if (!device.serialized_beacon_seeds.empty()) {
       PA_LOG(INFO) << "Deserializing BeaconSeeds: "
                    << device.serialized_beacon_seeds;
-      remote_device.LoadBeaconSeeds(
-          DeserializeBeaconSeeds(device.serialized_beacon_seeds));
+      beacon_seeds = DeserializeBeaconSeeds(device.serialized_beacon_seeds);
     } else {
       PA_LOG(WARNING) << "No BeaconSeeds were loaded.";
     }
 
+    cryptauth::RemoteDevice remote_device(
+        account_id.GetUserEmail(), std::string() /* name */, decoded_public_key,
+        decoded_psk /* persistent_symmetric_key */,
+        0L /* last_update_time_millis */, software_features, beacon_seeds);
+
     remote_devices.push_back(remote_device);
     PA_LOG(INFO) << "Loaded Remote Device:\n"
                  << "  user id: " << remote_device.user_id << "\n"
-                 << "  name: " << remote_device.name << "\n"
-                 << "  public key" << remote_device.public_key;
+                 << "  device id: "
+                 << cryptauth::RemoteDeviceRef::TruncateDeviceIdForLogs(
+                        remote_device.GetDeviceId());
+  }
+
+  // If |chromeos::features::kMultiDeviceApi| is enabled, both a remote device
+  // and local device are expected, and this service cannot continue unless
+  // both are present.
+  //
+  // If the flag is disabled, just one device, the remote device, is expected to
+  // be passed along -- if a second device is present, it can simply be ignored.
+  //
+  // TODO(crbug.com/856380): The remote and local devices need to be passed in a
+  // less hacky way.
+  if (remote_devices.size() > 2u) {
+    PA_LOG(ERROR)
+        << "Expected a device list of size 1 or 2, received list of size "
+        << remote_devices.size();
+    SetHardlockStateForUser(account_id,
+                            EasyUnlockScreenlockStateHandler::NO_PAIRING);
+    return;
+  }
+
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi) &&
+      remote_devices.size() != 2u) {
+    PA_LOG(ERROR) << "Expected a device list of size 2, received list of size "
+                  << remote_devices.size();
+    SetHardlockStateForUser(account_id,
+                            EasyUnlockScreenlockStateHandler::PAIRING_CHANGED);
+    return;
+  }
+
+  std::string unlock_key_id;
+  // This may be left unset if the local device was not passed along.
+  std::string local_device_id;
+
+  for (const auto& remote_device : remote_devices) {
+    if (base::ContainsKey(remote_device.software_features,
+                          cryptauth::SoftwareFeature::EASY_UNLOCK_HOST) &&
+        remote_device.software_features.at(
+            cryptauth::SoftwareFeature::EASY_UNLOCK_HOST) ==
+            cryptauth::SoftwareFeatureState::kEnabled) {
+      if (!unlock_key_id.empty()) {
+        PA_LOG(ERROR) << "Only one of the devices should be an unlock key.";
+        SetHardlockStateForUser(account_id,
+                                EasyUnlockScreenlockStateHandler::NO_PAIRING);
+        return;
+      }
+
+      unlock_key_id = remote_device.GetDeviceId();
+    } else {
+      if (!local_device_id.empty()) {
+        PA_LOG(ERROR) << "Only one of the devices should be the local device.";
+        SetHardlockStateForUser(account_id,
+                                EasyUnlockScreenlockStateHandler::NO_PAIRING);
+        return;
+      }
+
+      local_device_id = remote_device.GetDeviceId();
+    }
   }
 
   remote_device_cache_->SetRemoteDevices(remote_devices);
 
-  SetProximityAuthDevices(account_id, remote_device_cache_->GetRemoteDevices());
+  base::Optional<cryptauth::RemoteDeviceRef> unlock_key_device =
+      remote_device_cache_->GetRemoteDevice(unlock_key_id);
+  base::Optional<cryptauth::RemoteDeviceRef> local_device =
+      remote_device_cache_->GetRemoteDevice(local_device_id);
+
+  // TODO(hansberry): It is possible that there may not be an unlock key by this
+  // point. If this occurs, it is due to a bug in how device metadata is
+  // persisted in CryptoHome. See https://crbug.com/856380 for more details. For
+  // now, simply return early here to prevent a potential crash which can occur
+  // in this situation (see https://crbug.com/866711).
+  if (!unlock_key_device) {
+    SetHardlockStateForUser(account_id,
+                            EasyUnlockScreenlockStateHandler::NO_PAIRING);
+    return;
+  }
+
+  // Likewise, a similar issue could exist when the kMultiDeviceApi flag is
+  // enabled.
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi) &&
+      !local_device) {
+    SetHardlockStateForUser(account_id,
+                            EasyUnlockScreenlockStateHandler::NO_PAIRING);
+    return;
+  }
+
+  SetProximityAuthDevices(account_id, {*unlock_key_device}, local_device);
 }
 
 const EasyUnlockServiceSignin::UserData*

@@ -7,6 +7,7 @@
 #include <shellapi.h>
 
 #include "base/command_line.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/process/process.h"
 #include "base/strings/string16.h"
 #include "base/win/windows_types.h"
@@ -18,6 +19,40 @@ namespace {
 
 // The response entered by the user while interacting with the toast.
 const wchar_t kUserResponse[] = L"userResponse";
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class NotificationActivatorPrimaryStatus {
+  kSuccess = 0,
+  kChromeExeMissing = 1,
+  kShellExecuteFailed = 2,
+  kMaxValue = kShellExecuteFailed,
+};
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class NotificationActivatorSecondaryStatus {
+  kSuccess = 0,
+  kLaunchIdEmpty = 1 << 0,
+  kAllowSetForegroundWindowFailed = 1 << 1,
+  kProcessHandleMissing = 1 << 2,
+  kScenarioCount = 1 << 3,
+  kMaxValue = kScenarioCount,
+};
+
+void LogNotificationActivatorPrimaryStatus(
+    NotificationActivatorPrimaryStatus status) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Notifications.NotificationHelper.NotificationActivatorPrimaryStatus",
+      status);
+}
+
+void LogNotificationActivatorSecondaryStatus(
+    NotificationActivatorSecondaryStatus status) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Notifications.NotificationHelper.NotificationActivatorSecondaryStatus",
+      status);
+}
 
 }  // namespace
 
@@ -53,13 +88,26 @@ HRESULT NotificationActivator::Activate(
   base::FilePath chrome_exe_path = GetChromeExePath();
   if (chrome_exe_path.empty()) {
     Trace(L"Failed to get chrome exe path\n");
+    LogNotificationActivatorPrimaryStatus(
+        NotificationActivatorPrimaryStatus::kChromeExeMissing);
     return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
   }
+
+  int secondary_status =
+      static_cast<int>(NotificationActivatorSecondaryStatus::kSuccess);
 
   // |invoked_args| contains the launch ID string encoded by Chrome. Chrome adds
   // it to the launch argument of the toast and gets it back via |invoked_args|
   // here. Chrome needs the data to be able to look up the notification on its
   // end.
+  //
+  // TODO(chengx): When |invoked_args| is null or empty, there is no need to
+  // launch chrome. However, we still launch chrome for now to help investigate
+  // issue 839942.
+  if (invoked_args == nullptr || invoked_args[0] == 0) {
+    secondary_status |=
+        static_cast<int>(NotificationActivatorSecondaryStatus::kLaunchIdEmpty);
+  }
   base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   command_line.AppendSwitchNative(switches::kNotificationLaunchId,
                                   invoked_args);
@@ -87,6 +135,8 @@ HRESULT NotificationActivator::Activate(
   if (!::ShellExecuteEx(&info)) {
     DWORD error_code = ::GetLastError();
     Trace(L"Unable to launch Chrome.exe; error: 0x%08X\n", error_code);
+    LogNotificationActivatorPrimaryStatus(
+        NotificationActivatorPrimaryStatus::kShellExecuteFailed);
     return HRESULT_FROM_WIN32(error_code);
   }
 
@@ -102,8 +152,20 @@ HRESULT NotificationActivator::Activate(
       // The lack of ability to set the window to foreground is not reason
       // enough to fail the activation call. The user will see the Chrome icon
       // flash in the task bar if this happens, which is a graceful failure.
+      secondary_status |=
+          static_cast<int>(NotificationActivatorSecondaryStatus::
+                               kAllowSetForegroundWindowFailed);
     }
+  } else {
+    secondary_status |= static_cast<int>(
+        NotificationActivatorSecondaryStatus::kProcessHandleMissing);
   }
+
+  LogNotificationActivatorPrimaryStatus(
+      NotificationActivatorPrimaryStatus::kSuccess);
+
+  LogNotificationActivatorSecondaryStatus(
+      static_cast<NotificationActivatorSecondaryStatus>(secondary_status));
 
   return S_OK;
 }

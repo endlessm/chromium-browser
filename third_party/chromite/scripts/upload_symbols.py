@@ -63,6 +63,7 @@ from chromite.scripts import cros_generate_breakpad_symbols
 # try to import & connect to a dbus server.  That's a waste of time.
 sys.modules['keyring'] = None
 # And our sys.path muckery confuses pylint.
+import isolate_storage  # pylint: disable=import-error
 import isolateserver  # pylint: disable=import-error
 
 
@@ -243,16 +244,14 @@ def FindSymbolFiles(tempdir, paths):
   tar_cache = cache.TarballCache(common_path)
 
   for p in paths:
-    # Pylint is confused about members of ParseResult.
-
     o = urlparse.urlparse(p)
-    if o.scheme:  # pylint: disable=E1101
+    if o.scheme:
       # Support globs of filenames.
       ctx = gs.GSContext()
       for p in ctx.LS(p):
         logging.info('processing files inside %s', p)
         o = urlparse.urlparse(p)
-        key = ('%s%s' % (o.netloc, o.path)).split('/')  # pylint: disable=E1101
+        key = ('%s%s' % (o.netloc, o.path)).split('/')
         # The common cache will not be LRU, removing the need to hold a read
         # lock on the cached gsutil.
         ref = tar_cache.Lookup(key)
@@ -347,8 +346,8 @@ def OpenDeduplicateConnection(dedupe_namespace):
   """
   try:
     with timeout_util.Timeout(DEDUPE_TIMEOUT):
-      return isolateserver.get_storage_api(constants.ISOLATESERVER,
-                                           dedupe_namespace)
+      return isolate_storage.get_storage_api(constants.ISOLATESERVER,
+                                             dedupe_namespace)
   except Exception:
     logging.warning('initializing isolate server connection failed',
                     exc_info=True)

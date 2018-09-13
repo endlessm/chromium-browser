@@ -374,17 +374,6 @@ AuthPolicyCredentialsManagerFactory::GetInstance() {
   return base::Singleton<AuthPolicyCredentialsManagerFactory>::get();
 }
 
-// static
-KeyedService*
-AuthPolicyCredentialsManagerFactory::BuildForProfileIfActiveDirectory(
-    Profile* profile) {
-  const user_manager::User* user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
-  if (!user || !user->IsActiveDirectoryUser())
-    return nullptr;
-  return GetInstance()->GetServiceForBrowserContext(profile, true /* create */);
-}
-
 AuthPolicyCredentialsManagerFactory::AuthPolicyCredentialsManagerFactory()
     : BrowserContextKeyedServiceFactory(
           "AuthPolicyCredentialsManager",
@@ -392,9 +381,21 @@ AuthPolicyCredentialsManagerFactory::AuthPolicyCredentialsManagerFactory()
 
 AuthPolicyCredentialsManagerFactory::~AuthPolicyCredentialsManagerFactory() {}
 
+bool AuthPolicyCredentialsManagerFactory::ServiceIsCreatedWithBrowserContext()
+    const {
+  return true;
+}
+
 KeyedService* AuthPolicyCredentialsManagerFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
+  // UserManager is usually not initialized in tests.
+  if (!user_manager::UserManager::IsInitialized())
+    return nullptr;
   Profile* profile = Profile::FromBrowserContext(context);
+  const user_manager::User* user =
+      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+  if (!user || !user->IsActiveDirectoryUser())
+    return nullptr;
   return new AuthPolicyCredentialsManager(profile);
 }
 

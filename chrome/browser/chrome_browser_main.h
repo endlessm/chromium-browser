@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_browser_field_trials.h"
 #include "chrome/browser/chrome_process_singleton.h"
 #include "chrome/browser/first_run/first_run.h"
@@ -50,11 +51,14 @@ class ChromeBrowserMainParts : public content::BrowserMainParts {
   // Add additional ChromeBrowserMainExtraParts.
   virtual void AddParts(ChromeBrowserMainExtraParts* parts);
 
- protected:
 #if !defined(OS_ANDROID)
-  class DeferringTaskRunner;
+  // Returns the RunLoop that would be run by MainMessageLoopRun. This is used
+  // by InProcessBrowserTests to allow them to run until the BrowserProcess is
+  // ready for the browser to exit.
+  static std::unique_ptr<base::RunLoop> TakeRunLoopForTest();
 #endif
 
+ protected:
   explicit ChromeBrowserMainParts(const content::MainFunctionParams& parameters,
                                   std::unique_ptr<ui::DataPack> data_pack);
 
@@ -202,13 +206,6 @@ class ChromeBrowserMainParts : public content::BrowserMainParts {
   scoped_refptr<FieldTrialSynchronizer> field_trial_synchronizer_;
 
   base::FilePath user_data_dir_;
-
-#if !defined(OS_ANDROID)
-  // This TaskRunner is created and the constructor and destroyed in
-  // PreCreateThreadsImpl(). It's used to queue any tasks scheduled before the
-  // real task scheduler has been created.
-  scoped_refptr<DeferringTaskRunner> initial_task_runner_;
-#endif
 
   // This is used to store the ui data pack. The data pack is moved when
   // resource bundle gets created.

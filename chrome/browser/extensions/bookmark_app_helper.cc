@@ -82,19 +82,15 @@
 #include "chrome/common/chrome_switches.h"
 #endif
 
-#if defined(OS_WIN)
-#include "base/win/shortcut.h"
-#endif  // defined(OS_WIN)
-
 #if defined(OS_CHROMEOS)
 // gn check complains on Linux Ozone.
 #include "ash/public/cpp/shelf_model.h"  // nogncheck
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #endif
 
-namespace {
+namespace extensions {
 
-using extensions::BookmarkAppHelper;
+namespace {
 
 // Overlays a shortcut icon over the bottom left corner of a given image.
 class GeneratedIconImageSource : public gfx::CanvasImageSource {
@@ -189,8 +185,8 @@ void GenerateIcons(
     generated_icon_color = SK_ColorDKGRAY;
 
   for (int size : generate_sizes) {
-    extensions::BookmarkAppHelper::GenerateIcon(
-        bitmap_map, size, generated_icon_color, icon_letter);
+    BookmarkAppHelper::GenerateIcon(bitmap_map, size, generated_icon_color,
+                                    icon_letter);
   }
 }
 
@@ -216,10 +212,9 @@ void ReplaceWebAppIcons(
 class BookmarkAppInstaller : public base::RefCounted<BookmarkAppInstaller>,
                              public content::WebContentsObserver {
  public:
-  BookmarkAppInstaller(ExtensionService* service,
+  BookmarkAppInstaller(extensions::ExtensionService* service,
                        const WebApplicationInfo& web_app_info)
-      : service_(service),
-        web_app_info_(web_app_info) {}
+      : service_(service), web_app_info_(web_app_info) {}
 
   void Run() {
     for (const auto& icon : web_app_info_.icons) {
@@ -317,13 +312,12 @@ class BookmarkAppInstaller : public base::RefCounted<BookmarkAppInstaller>,
             downloaded_bitmaps_, sizes_to_generate, &web_app_info_);
     BookmarkAppHelper::UpdateWebAppIconsWithoutChangingLinks(size_map,
                                                              &web_app_info_);
-    scoped_refptr<extensions::CrxInstaller> installer(
-        extensions::CrxInstaller::CreateSilent(service_));
+    scoped_refptr<CrxInstaller> installer(CrxInstaller::CreateSilent(service_));
     installer->set_error_on_unsupported_requirements(true);
     installer->InstallWebApp(web_app_info_);
   }
 
-  ExtensionService* service_;
+  extensions::ExtensionService* service_;
   WebApplicationInfo web_app_info_;
 
   std::unique_ptr<content::WebContents> web_contents_;
@@ -333,8 +327,6 @@ class BookmarkAppInstaller : public base::RefCounted<BookmarkAppInstaller>,
 };
 
 }  // namespace
-
-namespace extensions {
 
 // static
 void BookmarkAppHelper::UpdateWebAppInfoFromManifest(
@@ -538,7 +530,7 @@ BookmarkAppHelper::BookmarkAppHelper(Profile* profile,
     : profile_(profile),
       contents_(contents),
       web_app_info_(web_app_info),
-      crx_installer_(extensions::CrxInstaller::CreateSilent(
+      crx_installer_(CrxInstaller::CreateSilent(
           ExtensionSystem::Get(profile)->extension_service())),
       install_source_(install_source),
       weak_factory_(this) {
@@ -547,11 +539,10 @@ BookmarkAppHelper::BookmarkAppHelper(Profile* profile,
 
   // Use the last bookmark app creation type. The launch container is decided by
   // the system for desktop PWAs.
-  if (!base::FeatureList::IsEnabled(features::kDesktopPWAWindowing)) {
+  if (!base::FeatureList::IsEnabled(::features::kDesktopPWAWindowing)) {
     web_app_info_.open_as_window =
         profile_->GetPrefs()->GetInteger(
-            extensions::pref_names::kBookmarkAppCreationLaunchType) ==
-        extensions::LAUNCH_TYPE_WINDOW;
+            pref_names::kBookmarkAppCreationLaunchType) == LAUNCH_TYPE_WINDOW;
   }
 
   // The default app title is the page title, which can be quite long. Limit the
@@ -562,12 +553,10 @@ BookmarkAppHelper::BookmarkAppHelper(Profile* profile,
                           base::UTF8ToUTF16("...");
   }
 
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_CRX_INSTALLER_DONE,
+  registrar_.Add(this, NOTIFICATION_CRX_INSTALLER_DONE,
                  content::Source<CrxInstaller>(crx_installer_.get()));
 
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_INSTALL_ERROR,
+  registrar_.Add(this, NOTIFICATION_EXTENSION_INSTALL_ERROR,
                  content::Source<CrxInstaller>(crx_installer_.get()));
 
   crx_installer_->set_error_on_unsupported_requirements(true);
@@ -579,8 +568,7 @@ void BookmarkAppHelper::Create(const CreateBookmarkAppCallback& callback) {
   callback_ = callback;
 
   // Do not fetch the manifest for extension URLs.
-  if (contents_ &&
-      !contents_->GetVisibleURL().SchemeIs(extensions::kExtensionScheme)) {
+  if (contents_ && !contents_->GetVisibleURL().SchemeIs(kExtensionScheme)) {
     // Null in tests. OnDidPerformInstallableCheck is called via a testing API.
     // TODO(crbug.com/829232) ensure this is consistent with other calls to
     // GetData.
@@ -618,7 +606,7 @@ void BookmarkAppHelper::OnDidPerformInstallableCheck(
   // TODO(mgiuca): Web Share Target should have its own flag, rather than using
   // the experimental-web-platform-features flag. https://crbug.com/736178.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableExperimentalWebPlatformFeatures)) {
+          ::switches::kEnableExperimentalWebPlatformFeatures)) {
     UpdateShareTargetInPrefs(data.manifest_url, *data.manifest,
                              profile_->GetPrefs());
   }
@@ -711,7 +699,7 @@ void BookmarkAppHelper::OnIconsDownloaded(
     return;
   }
 
-  if (base::FeatureList::IsEnabled(features::kDesktopPWAWindowing) &&
+  if (base::FeatureList::IsEnabled(::features::kDesktopPWAWindowing) &&
       for_installable_site_ == ForInstallableSite::kYes) {
     web_app_info_.open_as_window = true;
     chrome::ShowPWAInstallDialog(
@@ -745,21 +733,20 @@ void BookmarkAppHelper::OnBubbleCompleted(
 void BookmarkAppHelper::FinishInstallation(const Extension* extension) {
   // Set the default 'open as' preference for use next time the dialog is
   // shown.
-  extensions::LaunchType launch_type = web_app_info_.open_as_window
-                                           ? extensions::LAUNCH_TYPE_WINDOW
-                                           : extensions::LAUNCH_TYPE_REGULAR;
+  LaunchType launch_type =
+      web_app_info_.open_as_window ? LAUNCH_TYPE_WINDOW : LAUNCH_TYPE_REGULAR;
 
-  if (base::FeatureList::IsEnabled(features::kDesktopPWAWindowing)) {
+  if (base::FeatureList::IsEnabled(::features::kDesktopPWAWindowing)) {
     DCHECK_NE(ForInstallableSite::kUnknown, for_installable_site_);
     launch_type = for_installable_site_ == ForInstallableSite::kYes
-                      ? extensions::LAUNCH_TYPE_WINDOW
-                      : extensions::LAUNCH_TYPE_REGULAR;
+                      ? LAUNCH_TYPE_WINDOW
+                      : LAUNCH_TYPE_REGULAR;
   }
-  profile_->GetPrefs()->SetInteger(
-      extensions::pref_names::kBookmarkAppCreationLaunchType, launch_type);
+  profile_->GetPrefs()->SetInteger(pref_names::kBookmarkAppCreationLaunchType,
+                                   launch_type);
 
   // Set the launcher type for the app.
-  extensions::SetLaunchType(profile_, extension->id(), launch_type);
+  SetLaunchType(profile_, extension->id(), launch_type);
 
   if (!contents_) {
     // The web contents can be null in tests.
@@ -813,16 +800,15 @@ void BookmarkAppHelper::FinishInstallation(const Extension* extension) {
 #endif  // !defined(OS_CHROMEOS)
 
   // Reparent the tab into an app window immediately when opening as a window.
-  if (base::FeatureList::IsEnabled(features::kDesktopPWAWindowing) &&
-      launch_type == extensions::LAUNCH_TYPE_WINDOW &&
-      !profile_->IsOffTheRecord()) {
+  if (base::FeatureList::IsEnabled(::features::kDesktopPWAWindowing) &&
+      launch_type == LAUNCH_TYPE_WINDOW && !profile_->IsOffTheRecord()) {
     ReparentWebContentsIntoAppBrowser(contents_, extension);
   }
 #endif  // !defined(OS_MACOSX)
 
 #if defined(OS_MACOSX)
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-                 switches::kDisableHostedAppShimCreation)) {
+          ::switches::kDisableHostedAppShimCreation)) {
     web_app::RevealAppShimInFinderForApp(current_profile, extension);
   }
 #endif
@@ -837,7 +823,7 @@ void BookmarkAppHelper::Observe(int type,
   // created (e.g. due to management policies). Add to shelf visibility should
   // be gated on whether extensions can be created - see crbug.com/545541.
   switch (type) {
-    case extensions::NOTIFICATION_CRX_INSTALLER_DONE: {
+    case NOTIFICATION_CRX_INSTALLER_DONE: {
       const Extension* extension =
           content::Details<const Extension>(details).ptr();
       if (extension) {
@@ -849,7 +835,7 @@ void BookmarkAppHelper::Observe(int type,
       }
       break;
     }
-    case extensions::NOTIFICATION_EXTENSION_INSTALL_ERROR:
+    case NOTIFICATION_EXTENSION_INSTALL_ERROR:
       callback_.Run(nullptr, web_app_info_);
       break;
     default:
@@ -858,7 +844,7 @@ void BookmarkAppHelper::Observe(int type,
   }
 }
 
-void CreateOrUpdateBookmarkApp(ExtensionService* service,
+void CreateOrUpdateBookmarkApp(extensions::ExtensionService* service,
                                WebApplicationInfo* web_app_info) {
   scoped_refptr<BookmarkAppInstaller> installer(
       new BookmarkAppInstaller(service, *web_app_info));

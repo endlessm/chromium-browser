@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/conflicts/installed_applications_win.h"
 #include "chrome/browser/conflicts/module_database_observer_win.h"
 #include "chrome/browser/conflicts/proto/module_list.pb.h"
@@ -24,6 +25,44 @@ class PrefRegistrySimple;
 // file so that it is available at startup.
 class IncompatibleApplicationsUpdater : public ModuleDatabaseObserver {
  public:
+  // The decision that explains why a particular module caused an
+  // incompatibility warning or not.
+  //
+  // Note that this enum is very similar to the ModuleBlockingDecision in
+  // ModuleBlacklistCacheUpdater. This is done so that it is easier to keep the
+  // 2 features separate, as they can be independently enabled/disabled.
+  enum ModuleWarningDecision {
+    // Explicitly defined as zero so it is the default value when a
+    // ModuleWarningDecision
+    // variable is value-initialized (std::vector::resize()).
+    kUnknown = 0,
+    // A shell extension or IME that is not loaded in the process yet.
+    kNotLoaded,
+    // Input method editors are allowed.
+    kAllowedIME,
+    // Shell extensions are unwanted, but does not cause trigger a warning.
+    kAllowedShellExtension,
+    // Allowed because the certificate's subject of the module matches the
+    // certificate's subject of the executable. The certificate is not
+    // validated.
+    kAllowedSameCertificate,
+    // Allowed because the path of the executable is the parent of the path of
+    // the module. Only used in non-official builds.
+    kAllowedSameDirectory,
+    // Allowed because it is signed by Microsoft. The certificate is not
+    // validated.
+    kAllowedMicrosoft,
+    // Explicitly whitelisted by the Module List component.
+    kAllowedWhitelisted,
+    // This module is already going to be blocked on next browser launch, so
+    // don't warn about it.
+    kAddedToBlacklist,
+    // Unwanted, but can't tie back to an installed application.
+    kNoTiedApplication,
+    // An incompatibility warning will be shown because of this module.
+    kIncompatible,
+  };
+
   struct IncompatibleApplication {
     IncompatibleApplication(
         InstalledApplications::ApplicationInfo info,
@@ -42,15 +81,16 @@ class IncompatibleApplicationsUpdater : public ModuleDatabaseObserver {
   // Creates an instance of the updater.
   // The parameters must outlive the lifetime of this class.
   IncompatibleApplicationsUpdater(
+      ModuleDatabaseEventSource* module_database_event_source,
       const CertificateInfo& exe_certificate_info,
-      const ModuleListFilter& module_list_filter,
+      scoped_refptr<ModuleListFilter> module_list_filter,
       const InstalledApplications& installed_applications);
   ~IncompatibleApplicationsUpdater() override;
 
   static void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
 
-  // Returns true if the tracking of incompatible applications is enabled. The
-  // return value will not change throughout the lifetime of the process.
+  // Returns true if the tracking of incompatible applications is enabled. Note
+  // that this is a Windows 10+ feature only.
   static bool IsWarningEnabled();
 
   // Returns true if the cache contains at least one incompatible application.
@@ -64,13 +104,19 @@ class IncompatibleApplicationsUpdater : public ModuleDatabaseObserver {
   // ModuleDatabaseObserver:
   void OnNewModuleFound(const ModuleInfoKey& module_key,
                         const ModuleInfoData& module_data) override;
+  void OnKnownModuleLoaded(const ModuleInfoKey& module_key,
+                           const ModuleInfoData& module_data) override;
   void OnModuleDatabaseIdle() override;
 
+  // Returns the warning decision for a module.
+  ModuleWarningDecision GetModuleWarningDecision(
+      ModuleInfoKey module_key) const;
+
  private:
+  ModuleDatabaseEventSource* const module_database_event_source_;
+
   const CertificateInfo& exe_certificate_info_;
-
-  const ModuleListFilter& module_list_filter_;
-
+  scoped_refptr<ModuleListFilter> module_list_filter_;
   const InstalledApplications& installed_applications_;
 
   // Temporarily holds incompatible applications that were recently found.
@@ -78,6 +124,10 @@ class IncompatibleApplicationsUpdater : public ModuleDatabaseObserver {
 
   // Becomes false on the first call to OnModuleDatabaseIdle.
   bool before_first_idle_ = true;
+
+  // Holds the warning decision for all known modules. The index is the module
+  // id.
+  std::vector<ModuleWarningDecision> module_warning_decisions_;
 
   DISALLOW_COPY_AND_ASSIGN(IncompatibleApplicationsUpdater);
 };

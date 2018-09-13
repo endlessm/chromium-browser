@@ -17,6 +17,7 @@
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/vr/service/vr_service_impl.h"
+#include "chrome/browser/vr/vr_export.h"
 #include "device/vr/public/mojom/vr_service.mojom.h"
 #include "device/vr/vr_device.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
@@ -31,7 +32,7 @@ class BrowserXrDevice;
 
 // Singleton used to provide the platform's VR devices to VRServiceImpl
 // instances.
-class VRDeviceManager {
+class VR_EXPORT VRDeviceManager {
  public:
   virtual ~VRDeviceManager();
 
@@ -48,6 +49,10 @@ class VRDeviceManager {
   void AddService(VRServiceImpl* service);
   void RemoveService(VRServiceImpl* service);
 
+  BrowserXrDevice* GetDeviceForOptions(
+      device::mojom::XRSessionOptions* options);
+  BrowserXrDevice* GetImmersiveDevice();
+
  protected:
   using ProviderList = std::vector<std::unique_ptr<device::VRDeviceProvider>>;
 
@@ -55,7 +60,7 @@ class VRDeviceManager {
   explicit VRDeviceManager(ProviderList providers);
 
   // Used by tests to check on device state.
-  device::VRDevice* GetDevice(unsigned int index);
+  device::mojom::XRRuntime* GetRuntime(unsigned int id);
 
   size_t NumberOfConnectedServices();
 
@@ -64,14 +69,19 @@ class VRDeviceManager {
   void OnProviderInitialized();
   bool AreAllProvidersInitialized();
 
-  void AddDevice(device::VRDevice* device);
-  void RemoveDevice(device::VRDevice* device);
+  void AddDevice(unsigned int id,
+                 device::mojom::VRDisplayInfoPtr info,
+                 device::mojom::XRRuntimePtr runtime);
+  void RemoveDevice(unsigned int id);
+
+  BrowserXrDevice* GetDevice(device::VRDeviceId id);
 
   ProviderList providers_;
 
   // VRDevices are owned by their providers, each correspond to a
   // BrowserXrDevice that is owned by VRDeviceManager.
-  using DeviceMap = std::map<unsigned int, std::unique_ptr<BrowserXrDevice>>;
+  using DeviceMap =
+      base::small_map<std::map<unsigned int, std::unique_ptr<BrowserXrDevice>>>;
   DeviceMap devices_;
 
   bool providers_initialized_ = false;

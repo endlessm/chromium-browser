@@ -15,6 +15,7 @@
 #include "ash/shelf/app_list_shelf_item_delegate.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_constants.h"
+#include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/message_center/arc/arc_notification_constants.h"
@@ -108,8 +109,8 @@ void SetShelfBehaviorsFromPrefs() {
 }  // namespace
 
 ShelfController::ShelfController()
-    : is_touchable_app_context_menu_enabled_(
-          features::IsTouchableAppContextMenuEnabled()),
+    : is_notification_indicator_enabled_(
+          features::IsNotificationIndicatorEnabled()),
       message_center_observer_(this) {
   // Set the delegate and title string for the back button.
   model_.SetShelfItemDelegate(ShelfID(kBackButtonId), nullptr);
@@ -131,7 +132,7 @@ ShelfController::ShelfController()
   Shell::Get()->session_controller()->AddObserver(this);
   Shell::Get()->tablet_mode_controller()->AddObserver(this);
   Shell::Get()->window_tree_host_manager()->AddObserver(this);
-  if (is_touchable_app_context_menu_enabled_)
+  if (is_notification_indicator_enabled_)
     message_center_observer_.Add(message_center::MessageCenter::Get());
 }
 
@@ -348,6 +349,7 @@ void ShelfController::OnTabletModeStarted() {
         shelf->set_is_tablet_mode_animation_running(true);
       shelf->SetAutoHideBehavior(SHELF_AUTO_HIDE_BEHAVIOR_NEVER);
       shelf->SetAlignment(SHELF_ALIGNMENT_BOTTOM);
+      shelf->shelf_widget()->OnTabletModeChanged();
     }
   }
 }
@@ -361,8 +363,11 @@ void ShelfController::OnTabletModeEnded() {
   // Only animate out of tablet mode if the shelf alignment will not change.
   for (const auto& display : display::Screen::GetScreen()->GetAllDisplays()) {
     Shelf* shelf = GetShelfForDisplay(display.id());
-    if (shelf && shelf->IsHorizontalAlignment())
-      shelf->set_is_tablet_mode_animation_running(true);
+    if (shelf) {
+      if (shelf->IsHorizontalAlignment())
+        shelf->set_is_tablet_mode_animation_running(true);
+      shelf->shelf_widget()->OnTabletModeChanged();
+    }
   }
 }
 
@@ -399,7 +404,7 @@ void ShelfController::OnWindowTreeHostsSwappedDisplays(
 }
 
 void ShelfController::OnNotificationAdded(const std::string& notification_id) {
-  if (!is_touchable_app_context_menu_enabled_)
+  if (!is_notification_indicator_enabled_)
     return;
 
   message_center::Notification* notification =
@@ -426,7 +431,7 @@ void ShelfController::OnNotificationAdded(const std::string& notification_id) {
 
 void ShelfController::OnNotificationRemoved(const std::string& notification_id,
                                             bool by_user) {
-  if (!is_touchable_app_context_menu_enabled_)
+  if (!is_notification_indicator_enabled_)
     return;
 
   model_.RemoveNotificationRecord(notification_id);

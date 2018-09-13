@@ -12,6 +12,7 @@
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/assistant/assistant_controller.h"
 #include "ash/cast_config_controller.h"
+#include "ash/client_image_registry.h"
 #include "ash/display/ash_display_controller.h"
 #include "ash/display/cros_display_config.h"
 #include "ash/events/event_rewriter_controller.h"
@@ -31,11 +32,12 @@
 #include "ash/shelf/shelf_controller.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
+#include "ash/shell_state.h"
 #include "ash/shutdown_controller.h"
 #include "ash/system/locale/locale_notification_controller.h"
+#include "ash/system/model/system_tray_model.h"
 #include "ash/system/network/vpn_list.h"
 #include "ash/system/night_light/night_light_controller.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/tray_action/tray_action.h"
 #include "ash/voice_interaction/voice_interaction_controller.h"
 #include "ash/wallpaper/wallpaper_controller.h"
@@ -96,6 +98,11 @@ void BindAshMessageCenterControllerRequestOnMainThread(
 
 void BindCastConfigOnMainThread(mojom::CastConfigRequest request) {
   Shell::Get()->cast_config()->BindRequest(std::move(request));
+}
+
+void BindClientImageRegistryRequestOnMainThread(
+    mojom::ClientImageRegistryRequest request) {
+  Shell::Get()->client_image_registry()->BindRequest(std::move(request));
 }
 
 void BindDockedMagnifierControllerRequestOnMainThread(
@@ -166,13 +173,17 @@ void BindShelfRequestOnMainThread(mojom::ShelfControllerRequest request) {
   Shell::Get()->shelf_controller()->BindRequest(std::move(request));
 }
 
+void BindShellStateOnMainThread(mojom::ShellStateRequest request) {
+  Shell::Get()->shell_state()->BindRequest(std::move(request));
+}
+
 void BindShutdownControllerRequestOnMainThread(
     mojom::ShutdownControllerRequest request) {
   Shell::Get()->shutdown_controller()->BindRequest(std::move(request));
 }
 
 void BindSystemTrayRequestOnMainThread(mojom::SystemTrayRequest request) {
-  Shell::Get()->system_tray_controller()->BindRequest(std::move(request));
+  Shell::Get()->system_tray_model()->BindRequest(std::move(request));
 }
 
 void BindTabletModeRequestOnMainThread(
@@ -209,32 +220,37 @@ void RegisterInterfaces(
     service_manager::BinderRegistry* registry,
     scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner) {
   registry->AddInterface(
-      base::Bind(&BindAcceleratorControllerRequestOnMainThread),
+      base::BindRepeating(&BindAcceleratorControllerRequestOnMainThread),
       main_thread_task_runner);
   registry->AddInterface(
-      base::Bind(&BindAccessibilityControllerRequestOnMainThread),
+      base::BindRepeating(&BindAccessibilityControllerRequestOnMainThread),
       main_thread_task_runner);
   registry->AddInterface(
-      base::Bind(&BindAccessibilityFocusRingControllerRequestOnMainThread),
+      base::BindRepeating(
+          &BindAccessibilityFocusRingControllerRequestOnMainThread),
       main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindAppListControllerRequestOnMainThread),
-                         main_thread_task_runner);
+  registry->AddInterface(
+      base::BindRepeating(&BindAppListControllerRequestOnMainThread),
+      main_thread_task_runner);
   if (chromeos::switches::IsAssistantEnabled()) {
     registry->AddInterface(
-        base::Bind(&BindAssistantControllerRequestOnMainThread),
+        base::BindRepeating(&BindAssistantControllerRequestOnMainThread),
         main_thread_task_runner);
   }
   registry->AddInterface(
-      base::Bind(&BindAshDisplayControllerRequestOnMainThread),
+      base::BindRepeating(&BindAshDisplayControllerRequestOnMainThread),
       main_thread_task_runner);
   registry->AddInterface(
       base::BindRepeating(&BindCrosDisplayConfigControllerRequestOnMainThread),
       main_thread_task_runner);
   registry->AddInterface(
-      base::Bind(&BindAshMessageCenterControllerRequestOnMainThread),
+      base::BindRepeating(&BindAshMessageCenterControllerRequestOnMainThread),
       main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindCastConfigOnMainThread),
+  registry->AddInterface(base::BindRepeating(&BindCastConfigOnMainThread),
                          main_thread_task_runner);
+  registry->AddInterface(
+      base::BindRepeating(&BindClientImageRegistryRequestOnMainThread),
+      main_thread_task_runner);
   if (features::IsDockedMagnifierEnabled()) {
     registry->AddInterface(
         base::BindRepeating(&BindDockedMagnifierControllerRequestOnMainThread),
@@ -247,51 +263,61 @@ void RegisterInterfaces(
       base::BindRepeating(&BindFirstRunHelperRequestOnMainThread),
       main_thread_task_runner);
   registry->AddInterface(
-      base::Bind(&BindHighlighterControllerRequestOnMainThread),
+      base::BindRepeating(&BindHighlighterControllerRequestOnMainThread),
       main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindImeControllerRequestOnMainThread),
-                         main_thread_task_runner);
   registry->AddInterface(
-      base::Bind(&BindLocaleNotificationControllerOnMainThread),
+      base::BindRepeating(&BindImeControllerRequestOnMainThread),
       main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindLockScreenRequestOnMainThread),
-                         main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindMediaControllerRequestOnMainThread),
-                         main_thread_task_runner);
   registry->AddInterface(
-      base::Bind(&BindNewWindowControllerRequestOnMainThread),
+      base::BindRepeating(&BindLocaleNotificationControllerOnMainThread),
       main_thread_task_runner);
-  if (switches::IsNightLightEnabled()) {
+  registry->AddInterface(
+      base::BindRepeating(&BindLockScreenRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(
+      base::BindRepeating(&BindMediaControllerRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(
+      base::BindRepeating(&BindNewWindowControllerRequestOnMainThread),
+      main_thread_task_runner);
+  if (features::IsNightLightEnabled()) {
     registry->AddInterface(
-        base::Bind(&BindNightLightControllerRequestOnMainThread),
+        base::BindRepeating(&BindNightLightControllerRequestOnMainThread),
         main_thread_task_runner);
   }
   registry->AddInterface(
-      base::Bind(&BindNoteTakingControllerRequestOnMainThread),
+      base::BindRepeating(&BindNoteTakingControllerRequestOnMainThread),
       main_thread_task_runner);
   registry->AddInterface(
-      base::Bind(&BindProcessCreationTimeRecorderOnMainThread),
+      base::BindRepeating(&BindProcessCreationTimeRecorderOnMainThread),
       main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindSessionControllerRequestOnMainThread),
+  registry->AddInterface(
+      base::BindRepeating(&BindSessionControllerRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(base::BindRepeating(&BindShellStateOnMainThread),
                          main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindShelfRequestOnMainThread),
-                         main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindShutdownControllerRequestOnMainThread),
-                         main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindSystemTrayRequestOnMainThread),
-                         main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindTabletModeRequestOnMainThread),
-                         main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindTrayActionRequestOnMainThread),
+  registry->AddInterface(base::BindRepeating(&BindShelfRequestOnMainThread),
                          main_thread_task_runner);
   registry->AddInterface(
-      base::Bind(&BindVoiceInteractionControllerRequestOnMainThread),
+      base::BindRepeating(&BindShutdownControllerRequestOnMainThread),
       main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindVpnListRequestOnMainThread),
+  registry->AddInterface(
+      base::BindRepeating(&BindSystemTrayRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(
+      base::BindRepeating(&BindTabletModeRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(
+      base::BindRepeating(&BindTrayActionRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(
+      base::BindRepeating(&BindVoiceInteractionControllerRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(base::BindRepeating(&BindVpnListRequestOnMainThread),
                          main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindWallpaperRequestOnMainThread),
+  registry->AddInterface(base::BindRepeating(&BindWallpaperRequestOnMainThread),
                          main_thread_task_runner);
-  registry->AddInterface(base::Bind(&BindSplitViewRequestOnMainThread),
+  registry->AddInterface(base::BindRepeating(&BindSplitViewRequestOnMainThread),
                          main_thread_task_runner);
 
   // Inject additional optional interfaces.

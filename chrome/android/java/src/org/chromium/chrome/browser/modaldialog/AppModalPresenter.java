@@ -29,18 +29,16 @@ public class AppModalPresenter extends ModalDialogManager.Presenter {
         mDialog.setOnCancelListener(dialogInterface -> cancelCurrentDialog());
         ViewGroup container = (ViewGroup) LayoutInflater.from(mContext).inflate(
                 R.layout.modal_dialog_container, null);
+        // We use the Android Dialog dim for app modal dialog, so a custom scrim is not needed.
+        container.findViewById(R.id.scrim).setVisibility(View.GONE);
         mDialog.setContentView(container);
+
         FrameLayout.LayoutParams params =
                 new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
-        dialogView.setBackgroundResource(R.drawable.menu_bg);
+        dialogView.setBackgroundResource(R.drawable.popup_bg);
         container.addView(dialogView, params);
-        if (getModalDialog().getCancelOnTouchOutside()) {
-            mDialog.setCanceledOnTouchOutside(true);
-            // The dialog container covers the entire screen. To achieve the cancel on touch outside
-            // behavior cancel the dialog if the container is touched.
-            container.setOnClickListener((v) -> mDialog.cancel());
-        }
+        mDialog.setCanceledOnTouchOutside(getModalDialog().getCancelOnTouchOutside());
         mDialog.show();
     }
 

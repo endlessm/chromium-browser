@@ -249,6 +249,9 @@ def _CreateParser():
                          'where the build occurs. For external build configs, '
                          "defaults to 'trybot' directory at top level of your "
                          'repo-managed checkout.')
+  parser.add_option('--workspace', type='path',
+                    api=constants.REEXEC_API_WORKSPACE,
+                    help='Root directory for a secondary checkout .')
   parser.add_option('--bootstrap-dir', type='path',
                     help='Bootstrapping cbuildbot may involve checking out '
                          'multiple copies of chromite. All these checkouts '
@@ -566,7 +569,7 @@ def _CreateParser():
   # Debug options
   #
   # Temporary hack; in place till --dry-run replaces --debug.
-  # pylint: disable=W0212
+  # pylint: disable=protected-access
   group = parser.debug_group
   debug = [x for x in group.option_list if x._long_opts == ['--debug']][0]
   debug.help += '  Currently functions as --dry-run in addition.'
@@ -649,7 +652,7 @@ def _FinishParsing(options):
     exclusive_opts = {'--version': options.force_version,
                       '--delete-branch': options.delete_branch,
                       '--rename-to': options.rename_to}
-    if 1 != sum(1 for x in exclusive_opts.values() if x):
+    if sum(1 for x in exclusive_opts.values() if x) != 1:
       cros_build_lib.Die('When using the %s config, you must'
                          ' specifiy one and only one of the following'
                          ' options: %s.', constants.BRANCH_UTIL_CONFIG,
@@ -674,7 +677,7 @@ def _FinishParsing(options):
         'running the %s config', constants.BRANCH_UTIL_CONFIG)
 
 
-# pylint: disable=W0613
+# pylint: disable=unused-argument
 def _PostParseCheck(parser, options, site_config):
   """Perform some usage validation after we've parsed the arguments
 

@@ -81,9 +81,6 @@ TEST_F(ErrorRetryStateMachineTest, OfflineThenReload) {
     ASSERT_EQ(ErrorRetryState::kReadyToDisplayErrorForFailedNavigation,
               clone.state());
   }
-
-  machine.ResetState();
-  ASSERT_EQ(ErrorRetryState::kNewRequest, machine.state());
 }
 
 // Tests state transitions for displaying error in web view.
@@ -119,6 +116,15 @@ TEST_F(ErrorRetryStateMachineTest, WebErrorPageThenReload) {
     ASSERT_EQ(ErrorRetryCommand::kDoNothing,
               clone.DidFinishNavigation(test_url));
     ASSERT_EQ(ErrorRetryState::kNoNavigationError, clone.state());
+  }
+
+  // Back-forward navigation to failed navigation rewrites Web View URL.
+  {
+    ErrorRetryStateMachine clone(machine);
+    ASSERT_EQ(ErrorRetryCommand::kRewriteWebViewURL,
+              clone.DidFinishNavigation(placeholder_url));
+    ASSERT_EQ(ErrorRetryState::kNavigatingToFailedNavigationItem,
+              clone.state());
   }
 
   // Reload fails again in provisional navigation.

@@ -4,9 +4,12 @@
 
 #include <memory>
 
-#include "ash/app_list/app_list_presenter_impl.h"
 #include "ash/app_list/model/app_list_view_state.h"
+#include "ash/app_list/presenter/app_list_presenter_impl.h"
 #include "ash/app_list/test/app_list_test_helper.h"
+#include "ash/app_list/views/app_list_main_view.h"
+#include "ash/app_list/views/app_list_view.h"
+#include "ash/app_list/views/search_box_view.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
 #include "ash/public/cpp/ash_switches.h"
@@ -33,15 +36,15 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
-#include "ui/app_list/views/app_list_main_view.h"
-#include "ui/app_list/views/app_list_view.h"
-#include "ui/app_list/views/search_box_view.h"
 #include "ui/aura/test/test_windows.h"
 #include "ui/aura/window.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/keyboard/keyboard_controller.h"
+#include "ui/keyboard/keyboard_switches.h"
+#include "ui/keyboard/test/keyboard_test_util.h"
 #include "ui/views/controls/textfield/textfield.h"
 
 namespace ash {
@@ -70,7 +73,7 @@ void EnableTabletMode(bool enable) {
 }
 
 // Generates a fling.
-void FlingUpOrDown(ui::test::EventGenerator& generator,
+void FlingUpOrDown(ui::test::EventGenerator* generator,
                    app_list::AppListView* view,
                    bool up) {
   int offset = up ? -100 : 100;
@@ -78,8 +81,8 @@ void FlingUpOrDown(ui::test::EventGenerator& generator,
   gfx::Point target_point = start_point;
   target_point.Offset(0, offset);
 
-  generator.GestureScrollSequence(start_point, target_point,
-                                  base::TimeDelta::FromMilliseconds(10), 2);
+  generator->GestureScrollSequence(start_point, target_point,
+                                   base::TimeDelta::FromMilliseconds(10), 2);
 }
 
 }  // namespace
@@ -92,10 +95,18 @@ class AppListPresenterDelegateTest : public AshTestBase,
 
   // testing::Test:
   void SetUp() override {
+    app_list::AppListView::SetShortAnimationForTesting(true);
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        keyboard::switches::kEnableVirtualKeyboard);
     AshTestBase::SetUp();
 
     // Make the display big enough to hold the app list.
     UpdateDisplay("1024x768");
+  }
+
+  void TearDown() override {
+    AshTestBase::TearDown();
+    app_list::AppListView::SetShortAnimationForTesting(false);
   }
 
   // Whether to run the test with mouse or gesture events.
@@ -184,16 +195,16 @@ TEST_F(AppListPresenterDelegateTest, SideShelfAlignmentDragDisabled) {
   // Drag the widget across the screen over an arbitrary 100Ms, this would
   // normally result in the app list transitioning to PEEKING but will now
   // result in no state change.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.GestureScrollSequence(GetPointOutsideSearchbox(),
-                                  gfx::Point(10, 900),
-                                  base::TimeDelta::FromMilliseconds(100), 10);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->GestureScrollSequence(GetPointOutsideSearchbox(),
+                                   gfx::Point(10, 900),
+                                   base::TimeDelta::FromMilliseconds(100), 10);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
 
   // Tap the app list body. This should still close the app list.
-  generator.GestureTapAt(GetPointOutsideSearchbox());
+  generator->GestureTapAt(GetPointOutsideSearchbox());
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::CLOSED);
   GetAppListTestHelper()->CheckVisibility(false);
@@ -215,15 +226,15 @@ TEST_F(AppListPresenterDelegateTest, SideShelfAlignmentTextStateTransitions) {
 
   // Enter text in the searchbox, the app list should transition to fullscreen
   // search.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_SEARCH);
 
   // Delete the text in the searchbox, the app list should transition to
   // fullscreen all apps.
-  generator.PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
@@ -240,13 +251,13 @@ TEST_F(AppListPresenterDelegateTest, BottomShelfAlignmentTextStateTransitions) {
 
   // Enter text in the searchbox, this should transition the app list to half
   // state.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::HALF);
 
   // Empty the searchbox, this should transition the app list to it's previous
   // state.
-  generator.PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 }
 
@@ -261,15 +272,15 @@ TEST_F(AppListPresenterDelegateTest, TabletModeTextStateTransitions) {
 
   // Enter text in the searchbox, the app list should transition to fullscreen
   // search.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_SEARCH);
 
   // Delete the text in the searchbox, the app list should transition to
-  // fullscreen all apps. generator.PressKey(ui::KeyboardCode::VKEY_BACK, 0);
-  generator.PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  // fullscreen all apps.
+  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
@@ -293,14 +304,14 @@ TEST_F(AppListPresenterDelegateTest,
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
   // Enter text in the searchbox, the app list should transition to fullscreen
   // search.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_SEARCH);
 
   // Delete the text in the searchbox, the app list should transition to
-  // fullscreen all apps. generator.PressKey(ui::KeyboardCode::VKEY_BACK, 0);
-  generator.PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  // fullscreen all apps. generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
 }
@@ -313,8 +324,8 @@ TEST_F(AppListPresenterDelegateTest, HalfToFullscreenWhenTabletModeIsActive) {
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 
   // Enter text in the search box to transition to half app list.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::HALF);
 
   // Enable tablet mode and force the app list to transition to the fullscreen
@@ -322,7 +333,7 @@ TEST_F(AppListPresenterDelegateTest, HalfToFullscreenWhenTabletModeIsActive) {
   EnableTabletMode(true);
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_SEARCH);
-  generator.PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
 }
@@ -333,29 +344,29 @@ TEST_F(AppListPresenterDelegateTest, AppListViewDragHandler) {
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   // Execute a slow short upwards drag this should fail to transition the app
   // list.
   int top_of_app_list =
       GetAppListView()->GetWidget()->GetWindowBoundsInScreen().y();
-  generator.GestureScrollSequence(gfx::Point(0, top_of_app_list + 20),
-                                  gfx::Point(0, top_of_app_list - 20),
-                                  base::TimeDelta::FromMilliseconds(500), 50);
+  generator->GestureScrollSequence(gfx::Point(0, top_of_app_list + 20),
+                                   gfx::Point(0, top_of_app_list - 20),
+                                   base::TimeDelta::FromMilliseconds(500), 50);
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 
   // Execute a long upwards drag, this should transition the app list.
-  generator.GestureScrollSequence(gfx::Point(10, top_of_app_list + 20),
-                                  gfx::Point(10, 10),
-                                  base::TimeDelta::FromMilliseconds(100), 10);
+  generator->GestureScrollSequence(gfx::Point(10, top_of_app_list + 20),
+                                   gfx::Point(10, 10),
+                                   base::TimeDelta::FromMilliseconds(100), 10);
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
 
   // Execute a short downward drag, this should fail to transition the app list.
   gfx::Point start(10, 10);
   gfx::Point end(10, 100);
-  generator.GestureScrollSequence(
+  generator->GestureScrollSequence(
       start, end,
-      generator.CalculateScrollDurationForFlingVelocity(start, end, 1, 100),
+      generator->CalculateScrollDurationForFlingVelocity(start, end, 1, 100),
       100);
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
@@ -363,37 +374,37 @@ TEST_F(AppListPresenterDelegateTest, AppListViewDragHandler) {
   // Execute a long and slow downward drag to switch to peeking.
   start = gfx::Point(10, 200);
   end = gfx::Point(10, 650);
-  generator.GestureScrollSequence(
+  generator->GestureScrollSequence(
       start, end,
-      generator.CalculateScrollDurationForFlingVelocity(start, end, 1, 100),
+      generator->CalculateScrollDurationForFlingVelocity(start, end, 1, 100),
       100);
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 
   // Transition to fullscreen.
-  generator.GestureScrollSequence(gfx::Point(10, top_of_app_list + 20),
-                                  gfx::Point(10, 10),
-                                  base::TimeDelta::FromMilliseconds(100), 10);
+  generator->GestureScrollSequence(gfx::Point(10, top_of_app_list + 20),
+                                   gfx::Point(10, 10),
+                                   base::TimeDelta::FromMilliseconds(100), 10);
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
 
   // Enter text to transition to |FULLSCREEN_SEARCH|.
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_SEARCH);
 
   // Execute a short downward drag, this should fail to close the app list.
   start = gfx::Point(10, 10);
   end = gfx::Point(10, 100);
-  generator.GestureScrollSequence(
+  generator->GestureScrollSequence(
       start, end,
-      generator.CalculateScrollDurationForFlingVelocity(start, end, 1, 100),
+      generator->CalculateScrollDurationForFlingVelocity(start, end, 1, 100),
       100);
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_SEARCH);
 
   // Execute a long downward drag, this should close the app list.
-  generator.GestureScrollSequence(gfx::Point(10, 10), gfx::Point(10, 900),
-                                  base::TimeDelta::FromMilliseconds(100), 10);
+  generator->GestureScrollSequence(gfx::Point(10, 10), gfx::Point(10, 900),
+                                   base::TimeDelta::FromMilliseconds(100), 10);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::CLOSED);
   GetAppListTestHelper()->CheckVisibility(false);
@@ -408,10 +419,10 @@ TEST_F(AppListPresenterDelegateTest,
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
 
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   // Drag down.
-  generator.GestureScrollSequence(gfx::Point(0, 0), gfx::Point(0, 720),
-                                  base::TimeDelta::FromMilliseconds(100), 10);
+  generator->GestureScrollSequence(gfx::Point(0, 0), gfx::Point(0, 720),
+                                   base::TimeDelta::FromMilliseconds(100), 10);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::CLOSED);
   GetAppListTestHelper()->CheckVisibility(false);
@@ -428,15 +439,15 @@ TEST_F(AppListPresenterDelegateTest,
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
 
   // Type in the search box to transition to |FULLSCREEN_SEARCH|.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_SEARCH);
 
   // Drag down, this should close the app list.
-  generator.GestureScrollSequence(gfx::Point(0, 0), gfx::Point(0, 720),
-                                  base::TimeDelta::FromMilliseconds(100), 10);
+  generator->GestureScrollSequence(gfx::Point(0, 0), gfx::Point(0, 720),
+                                   base::TimeDelta::FromMilliseconds(100), 10);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::CLOSED);
   GetAppListTestHelper()->CheckVisibility(false);
@@ -460,7 +471,7 @@ TEST_P(AppListPresenterDelegateTest, TapAndClickOutsideClosesPeekingAppList) {
   const bool test_mouse_event = TestMouseEventParam();
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   // Tapping outside the bounds closes the app list.
   const gfx::Rect peeking_bounds = GetAppListView()->GetBoundsInScreen();
@@ -469,11 +480,11 @@ TEST_P(AppListPresenterDelegateTest, TapAndClickOutsideClosesPeekingAppList) {
   ASSERT_FALSE(peeking_bounds.Contains(tap_point));
 
   if (test_mouse_event) {
-    generator.MoveMouseTo(tap_point);
-    generator.ClickLeftButton();
-    generator.ReleaseLeftButton();
+    generator->MoveMouseTo(tap_point);
+    generator->ClickLeftButton();
+    generator->ReleaseLeftButton();
   } else {
-    generator.GestureTapAt(tap_point);
+    generator->GestureTapAt(tap_point);
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(false);
@@ -491,7 +502,7 @@ TEST_P(AppListPresenterDelegateTest, LongPressOutsideCloseAppList) {
   ui::TouchEvent long_press(
       ui::ET_GESTURE_LONG_PRESS, outside_point, base::TimeTicks::Now(),
       ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH));
-  GetEventGenerator().Dispatch(&long_press);
+  GetEventGenerator()->Dispatch(&long_press);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(false);
 }
@@ -508,7 +519,7 @@ TEST_P(AppListPresenterDelegateTest, TwoFingerTapOutsideCloseAppList) {
   ui::TouchEvent two_finger_tap(
       ui::ET_GESTURE_TWO_FINGER_TAP, outside_point, base::TimeTicks::Now(),
       ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH));
-  GetEventGenerator().Dispatch(&two_finger_tap);
+  GetEventGenerator()->Dispatch(&two_finger_tap);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(false);
 }
@@ -517,13 +528,13 @@ TEST_P(AppListPresenterDelegateTest, TwoFingerTapOutsideCloseAppList) {
 // searchbox, the searchbox remains active.
 TEST_F(AppListPresenterDelegateTest, KeyPressEnablesSearchBox) {
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   app_list::SearchBoxView* search_box_view =
       GetAppListView()->search_box_view();
   EXPECT_FALSE(search_box_view->is_search_box_active());
 
   // Press any key, the search box should be active.
-  generator.PressKey(ui::VKEY_0, 0);
+  generator->PressKey(ui::VKEY_0, 0);
   EXPECT_TRUE(search_box_view->is_search_box_active());
 
   // Delete the text, the search box should be inactive.
@@ -540,12 +551,12 @@ TEST_P(AppListPresenterDelegateTest,
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   app_list::AppListView* app_list_view = GetAppListView();
   app_list::SearchBoxView* search_box_view = app_list_view->search_box_view();
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 
   // Press a key, the AppListView should transition to half.
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::HALF);
   EXPECT_TRUE(search_box_view->is_search_box_active());
@@ -553,11 +564,11 @@ TEST_P(AppListPresenterDelegateTest,
   // Tap outside the search box, the AppListView should transition to Peeking
   // and the search box should be inactive.
   if (test_mouse_event) {
-    generator.MoveMouseTo(GetPointOutsideSearchbox());
-    generator.ClickLeftButton();
-    generator.ReleaseLeftButton();
+    generator->MoveMouseTo(GetPointOutsideSearchbox());
+    generator->ClickLeftButton();
+    generator->ReleaseLeftButton();
   } else {
-    generator.GestureTapDownAndUp(GetPointOutsideSearchbox());
+    generator->GestureTapDownAndUp(GetPointOutsideSearchbox());
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
@@ -565,11 +576,11 @@ TEST_P(AppListPresenterDelegateTest,
 
   // Tap outside the search box again, the AppListView should hide.
   if (test_mouse_event) {
-    generator.MoveMouseTo(GetPointOutsideSearchbox());
-    generator.ClickLeftButton();
-    generator.ReleaseLeftButton();
+    generator->MoveMouseTo(GetPointOutsideSearchbox());
+    generator->ClickLeftButton();
+    generator->ReleaseLeftButton();
   } else {
-    generator.GestureTapDownAndUp(GetPointOutsideSearchbox());
+    generator->GestureTapDownAndUp(GetPointOutsideSearchbox());
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::CLOSED);
@@ -585,22 +596,22 @@ TEST_P(AppListPresenterDelegateTest,
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   app_list::AppListView* app_list_view = GetAppListView();
   app_list::SearchBoxView* search_box_view = app_list_view->search_box_view();
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   // Execute a long upwards drag, this should transition the app list to
   // fullscreen.
   const int top_of_app_list =
       app_list_view->GetWidget()->GetWindowBoundsInScreen().y();
-  generator.GestureScrollSequence(gfx::Point(10, top_of_app_list + 20),
-                                  gfx::Point(10, 10),
-                                  base::TimeDelta::FromMilliseconds(100), 10);
+  generator->GestureScrollSequence(gfx::Point(10, top_of_app_list + 20),
+                                   gfx::Point(10, 10),
+                                   base::TimeDelta::FromMilliseconds(100), 10);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_ALL_APPS);
 
   // Press a key, this should activate the searchbox and transition to
   // fullscreen search.
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(
       app_list::AppListViewState::FULLSCREEN_SEARCH);
@@ -609,10 +620,10 @@ TEST_P(AppListPresenterDelegateTest,
   // Tap outside the searchbox, this should deactivate the searchbox and the
   // applistview should return to fullscreen all apps.
   if (test_mouse_event) {
-    generator.MoveMouseTo(GetPointOutsideSearchbox());
-    generator.ClickLeftButton();
+    generator->MoveMouseTo(GetPointOutsideSearchbox());
+    generator->ClickLeftButton();
   } else {
-    generator.GestureTapDownAndUp(GetPointOutsideSearchbox());
+    generator->GestureTapDownAndUp(GetPointOutsideSearchbox());
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(
@@ -621,10 +632,10 @@ TEST_P(AppListPresenterDelegateTest,
 
   // Tap outside the searchbox again, this should close the applistview.
   if (test_mouse_event) {
-    generator.MoveMouseTo(GetPointOutsideSearchbox());
-    generator.ClickLeftButton();
+    generator->MoveMouseTo(GetPointOutsideSearchbox());
+    generator->ClickLeftButton();
   } else {
-    generator.GestureTapDownAndUp(GetPointOutsideSearchbox());
+    generator->GestureTapDownAndUp(GetPointOutsideSearchbox());
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::CLOSED);
@@ -640,24 +651,24 @@ TEST_P(AppListPresenterDelegateTest, TapAndClickEnablesSearchBox) {
       GetAppListView()->search_box_view();
 
   // Tap/Click the search box, it should activate.
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   if (test_mouse_event) {
-    generator.MoveMouseTo(GetPointInsideSearchbox());
-    generator.PressLeftButton();
-    generator.ReleaseLeftButton();
+    generator->MoveMouseTo(GetPointInsideSearchbox());
+    generator->PressLeftButton();
+    generator->ReleaseLeftButton();
   } else {
-    generator.GestureTapAt(GetPointInsideSearchbox());
+    generator->GestureTapAt(GetPointInsideSearchbox());
   }
 
   EXPECT_TRUE(search_box_view->is_search_box_active());
 
   // Tap on the body of the app list, the search box should deactivate.
   if (test_mouse_event) {
-    generator.MoveMouseTo(GetPointOutsideSearchbox());
-    generator.PressLeftButton();
-    generator.ReleaseLeftButton();
+    generator->MoveMouseTo(GetPointOutsideSearchbox());
+    generator->PressLeftButton();
+    generator->ReleaseLeftButton();
   } else {
-    generator.GestureTapAt(GetPointOutsideSearchbox());
+    generator->GestureTapAt(GetPointOutsideSearchbox());
   }
   GetAppListTestHelper()->WaitUntilIdle();
   EXPECT_FALSE(search_box_view->is_search_box_active());
@@ -665,14 +676,73 @@ TEST_P(AppListPresenterDelegateTest, TapAndClickEnablesSearchBox) {
 
   // Tap on the body of the app list again, the app list should hide.
   if (test_mouse_event) {
-    generator.PressLeftButton();
-    generator.ReleaseLeftButton();
+    generator->PressLeftButton();
+    generator->ReleaseLeftButton();
   } else {
-    generator.GestureTapAt(GetPointOutsideSearchbox());
+    generator->GestureTapAt(GetPointOutsideSearchbox());
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::CLOSED);
   GetAppListTestHelper()->CheckVisibility(false);
+}
+
+// Tests that tapping or clicking the body of the applist with an active virtual
+// keyboard results in the virtual keyboard closing with no side effects.
+TEST_P(AppListPresenterDelegateTest,
+       TapAppListWithVirtualKeyboardDismissesVirtualKeyboard) {
+  const bool test_click = GetParam();
+  GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
+  EnableTabletMode(true);
+
+  // Tap to activate the searchbox.
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->GestureTapAt(GetPointInsideSearchbox());
+
+  // Enter some text in the searchbox, the applist should transition to
+  // fullscreen search.
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckState(
+      app_list::AppListViewState::FULLSCREEN_SEARCH);
+
+  // Manually show the virtual keyboard.
+  auto* const keyboard_controller = keyboard::KeyboardController::Get();
+  keyboard_controller->ShowKeyboard(true);
+  keyboard_controller->ui()->GetKeyboardWindow()->SetBounds(
+      keyboard::KeyboardBoundsFromRootBounds(
+          Shell::GetPrimaryRootWindow()->bounds(), 100));
+  keyboard_controller->NotifyKeyboardWindowLoaded();
+  EXPECT_TRUE(keyboard_controller->IsKeyboardVisible());
+
+  // Tap or click outside the searchbox, the virtual keyboard should hide.
+  if (test_click) {
+    generator->MoveMouseTo(GetPointOutsideSearchbox());
+    generator->ClickLeftButton();
+    generator->ReleaseLeftButton();
+  } else {
+    generator->GestureTapAt(GetPointOutsideSearchbox());
+  }
+  EXPECT_FALSE(keyboard_controller->IsKeyboardVisible());
+
+  // The searchbox should still be active and the AppListView should still be in
+  // FULLSCREEN_SEARCH.
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckState(
+      app_list::AppListViewState::FULLSCREEN_SEARCH);
+  EXPECT_TRUE(GetAppListView()->search_box_view()->is_search_box_active());
+
+  // Tap or click the body of the AppList again, the searchbox should deactivate
+  // and the applist should be in FULLSCREEN_ALL_APPS.
+  if (test_click) {
+    generator->MoveMouseTo(GetPointOutsideSearchbox());
+    generator->ClickLeftButton();
+    generator->ReleaseLeftButton();
+  } else {
+    generator->GestureTapAt(GetPointOutsideSearchbox());
+  }
+  GetAppListTestHelper()->CheckState(
+      app_list::AppListViewState::FULLSCREEN_ALL_APPS);
+  EXPECT_FALSE(GetAppListView()->search_box_view()->is_search_box_active());
 }
 
 // Tests that the shelf background displays/hides with bottom shelf
@@ -703,31 +773,31 @@ TEST_F(AppListPresenterDelegateTest,
 // after the body is clicked/tapped.
 TEST_P(AppListPresenterDelegateTest, HalfToPeekingByClickOrTap) {
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   // Transition to half app list by entering text.
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::HALF);
 
   // Click or Tap the app list view body.
   if (TestMouseEventParam()) {
-    generator.MoveMouseTo(GetPointOutsideSearchbox());
-    generator.ClickLeftButton();
-    generator.ReleaseLeftButton();
+    generator->MoveMouseTo(GetPointOutsideSearchbox());
+    generator->ClickLeftButton();
+    generator->ReleaseLeftButton();
   } else {
-    generator.GestureTapAt(GetPointOutsideSearchbox());
+    generator->GestureTapAt(GetPointOutsideSearchbox());
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 
   // Click or Tap the app list view body again.
   if (TestMouseEventParam()) {
-    generator.MoveMouseTo(GetPointOutsideSearchbox());
-    generator.ClickLeftButton();
-    generator.ReleaseLeftButton();
+    generator->MoveMouseTo(GetPointOutsideSearchbox());
+    generator->ClickLeftButton();
+    generator->ReleaseLeftButton();
   } else {
-    generator.GestureTapAt(GetPointOutsideSearchbox());
+    generator->GestureTapAt(GetPointOutsideSearchbox());
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::CLOSED);
@@ -739,10 +809,10 @@ TEST_P(AppListPresenterDelegateTest, HalfToPeekingByClickOrTap) {
 TEST_P(AppListPresenterDelegateTest, TapAndClickOutsideClosesHalfAppList) {
   // TODO(newcomer): Investigate mash failures crbug.com/726838
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   // Transition to half app list by entering text.
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::HALF);
 
@@ -752,20 +822,20 @@ TEST_P(AppListPresenterDelegateTest, TapAndClickOutsideClosesHalfAppList) {
 
   // Clicking/tapping outside the bounds closes the search results page.
   if (TestMouseEventParam()) {
-    generator.MoveMouseTo(to_point);
-    generator.ClickLeftButton();
+    generator->MoveMouseTo(to_point);
+    generator->ClickLeftButton();
   } else {
-    generator.GestureTapAt(to_point);
+    generator->GestureTapAt(to_point);
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 
   // Clicking/tapping outside the bounds closes the app list.
   if (TestMouseEventParam()) {
-    generator.MoveMouseTo(to_point);
-    generator.ClickLeftButton();
+    generator->MoveMouseTo(to_point);
+    generator->ClickLeftButton();
   } else {
-    generator.GestureTapAt(to_point);
+    generator->GestureTapAt(to_point);
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(false);
@@ -776,25 +846,25 @@ TEST_P(AppListPresenterDelegateTest, TapAndClickOutsideClosesHalfAppList) {
 TEST_F(AppListPresenterDelegateTest, WhitespaceQuery) {
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   app_list::AppListView* view = GetAppListView();
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   EXPECT_FALSE(view->search_box_view()->is_search_box_active());
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 
   // Enter a whitespace query, the searchbox should activate but stay in peeking
   // mode.
-  generator.PressKey(ui::VKEY_SPACE, 0);
+  generator->PressKey(ui::VKEY_SPACE, 0);
   EXPECT_TRUE(view->search_box_view()->is_search_box_active());
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 
   // Enter a non-whitespace character, the Searchbox should stay active and go
   // to HALF
-  generator.PressKey(ui::VKEY_0, 0);
+  generator->PressKey(ui::VKEY_0, 0);
   EXPECT_TRUE(view->search_box_view()->is_search_box_active());
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::HALF);
 
   // Delete the non whitespace character, the Searchbox should not deactivate
   // but go to PEEKING
-  generator.PressKey(ui::VKEY_BACK, 0);
+  generator->PressKey(ui::VKEY_BACK, 0);
   EXPECT_TRUE(view->search_box_view()->is_search_box_active());
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
 }
@@ -811,16 +881,16 @@ TEST_P(AppListPresenterDelegateTest, UnhandledEventOnPeeking) {
   gfx::Point empty_space =
       GetAppListView()->search_box_view()->GetBoundsInScreen().bottom_left();
   empty_space.Offset(0, 10);
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   if (TestMouseEventParam()) {
-    generator.MoveMouseTo(empty_space);
-    generator.PressRightButton();
-    generator.ReleaseRightButton();
+    generator->MoveMouseTo(empty_space);
+    generator->PressRightButton();
+    generator->ReleaseRightButton();
   } else {
     ui::GestureEvent two_finger_tap(
         empty_space.x(), empty_space.y(), 0, base::TimeTicks(),
         ui::GestureEventDetails(ui::ET_GESTURE_TWO_FINGER_TAP));
-    generator.Dispatch(&two_finger_tap);
+    generator->Dispatch(&two_finger_tap);
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::PEEKING);
@@ -829,10 +899,10 @@ TEST_P(AppListPresenterDelegateTest, UnhandledEventOnPeeking) {
   // One finger tap or left click in the empty space below the searchbox. The
   // app list should close.
   if (TestMouseEventParam()) {
-    generator.MoveMouseTo(empty_space);
-    generator.ClickLeftButton();
+    generator->MoveMouseTo(empty_space);
+    generator->ClickLeftButton();
   } else {
-    generator.GestureTapAt(empty_space);
+    generator->GestureTapAt(empty_space);
   }
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::CLOSED);
@@ -856,12 +926,12 @@ TEST_P(AppListPresenterDelegateTest,
   }
 
   // Drag the app list to 50 DIPs from the bottom bezel.
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   const int bezel_y = display::Screen::GetScreen()
                           ->GetDisplayNearestView(view->parent_window())
                           .bounds()
                           .bottom();
-  generator.GestureScrollSequence(
+  generator->GestureScrollSequence(
       gfx::Point(0, bezel_y - (kAppListBezelMargin + 100)),
       gfx::Point(0, bezel_y - (kAppListBezelMargin)),
       base::TimeDelta::FromMilliseconds(1500), 100);
@@ -914,7 +984,7 @@ TEST_P(AppListPresenterDelegateTest, LongUpwardDragInFullscreenShouldNotClose) {
 
   if (test_fullscreen_search) {
     // Enter a character into the searchbox to transition to FULLSCREEN_SEARCH.
-    GetEventGenerator().PressKey(ui::VKEY_0, 0);
+    GetEventGenerator()->PressKey(ui::VKEY_0, 0);
     GetAppListTestHelper()->WaitUntilIdle();
     GetAppListTestHelper()->CheckState(
         app_list::AppListViewState::FULLSCREEN_SEARCH);
@@ -926,9 +996,9 @@ TEST_P(AppListPresenterDelegateTest, LongUpwardDragInFullscreenShouldNotClose) {
   drag_start.set_x(15);
   gfx::Point drag_end = view->GetBoundsInScreen().top_right();
   drag_end.set_x(15);
-  GetEventGenerator().GestureScrollSequence(
+  GetEventGenerator()->GestureScrollSequence(
       drag_start, drag_end,
-      GetEventGenerator().CalculateScrollDurationForFlingVelocity(
+      GetEventGenerator()->CalculateScrollDurationForFlingVelocity(
           drag_start, drag_end, 1, 1000),
       1000);
   GetAppListTestHelper()->WaitUntilIdle();
@@ -962,8 +1032,8 @@ TEST_F(AppListPresenterDelegateTest, LauncherCannotGetSmallerThanShelf) {
 // Tests that the AppListView is on screen on a small display.
 TEST_F(AppListPresenterDelegateTest, SearchBoxShownOnSmallDisplay) {
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   app_list::AppListView* view = GetAppListView();
   GetAppListTestHelper()->CheckState(app_list::AppListViewState::HALF);
 
@@ -973,11 +1043,11 @@ TEST_F(AppListPresenterDelegateTest, SearchBoxShownOnSmallDisplay) {
   EXPECT_LE(0, view->GetWidget()->GetNativeView()->bounds().y());
 
   // Animate to peeking.
-  generator.PressKey(ui::KeyboardCode::VKEY_DELETE, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_DELETE, 0);
   EXPECT_LE(0, view->GetWidget()->GetNativeView()->bounds().y());
 
   // Animate back to Half.
-  generator.PressKey(ui::KeyboardCode::VKEY_0, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   EXPECT_LE(0, view->GetWidget()->GetNativeView()->bounds().y());
 }
 
@@ -1085,29 +1155,29 @@ TEST_F(AppListPresenterDelegateHomeLauncherTest, TapOrClickToDismiss) {
   // Show app list in non-tablet mode. Click outside search box.
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckVisibility(true);
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.MoveMouseTo(GetPointOutsideSearchbox());
-  generator.PressLeftButton();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(GetPointOutsideSearchbox());
+  generator->PressLeftButton();
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(false);
 
   // Show app list in non-tablet mode. Tap outside search box.
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckVisibility(true);
-  generator.GestureTapDownAndUp(GetPointOutsideSearchbox());
+  generator->GestureTapDownAndUp(GetPointOutsideSearchbox());
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(false);
 
   // Show app list in tablet mode. Click outside search box.
   EnableTabletMode(true);
   GetAppListTestHelper()->CheckVisibility(true);
-  generator.MoveMouseTo(GetPointOutsideSearchbox());
-  generator.PressLeftButton();
+  generator->MoveMouseTo(GetPointOutsideSearchbox());
+  generator->PressLeftButton();
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(true);
 
   // Tap outside search box.
-  generator.GestureTapDownAndUp(GetPointOutsideSearchbox());
+  generator->GestureTapDownAndUp(GetPointOutsideSearchbox());
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(true);
 }
@@ -1118,39 +1188,39 @@ TEST_F(AppListPresenterDelegateHomeLauncherTest, PressAcceleratorToDismiss) {
   // Show app list in non-tablet mode. Press Escape key.
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckVisibility(true);
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(false);
 
   // Show app list in non-tablet mode. Press Browser back key.
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckVisibility(true);
-  generator.PressKey(ui::KeyboardCode::VKEY_BROWSER_BACK, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_BROWSER_BACK, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(false);
 
   // Show app list in non-tablet mode. Press search key.
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckVisibility(true);
-  generator.PressKey(ui::KeyboardCode::VKEY_BROWSER_SEARCH, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_BROWSER_SEARCH, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(false);
 
   // Show app list in tablet mode. Press Escape key.
   EnableTabletMode(true);
   GetAppListTestHelper()->CheckVisibility(true);
-  generator.PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(true);
 
   // Press Browser back key.
-  generator.PressKey(ui::KeyboardCode::VKEY_BROWSER_BACK, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_BROWSER_BACK, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(true);
 
   // Press search key.
-  generator.PressKey(ui::KeyboardCode::VKEY_BROWSER_SEARCH, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_BROWSER_SEARCH, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(true);
 }
@@ -1186,6 +1256,26 @@ TEST_F(AppListPresenterDelegateHomeLauncherTest, GestureScrollToDismiss) {
   EnableTabletMode(true);
   GetAppListTestHelper()->CheckVisibility(true);
   FlingUpOrDown(GetEventGenerator(), GetAppListView(), false /* up */);
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckVisibility(true);
+}
+
+// Tests that the mouse-scroll cannot dismiss the app list.
+TEST_F(AppListPresenterDelegateHomeLauncherTest, MouseScrollToDismiss) {
+  // Show app list in non-tablet mode. Mouse-scroll up.
+  GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
+  GetAppListTestHelper()->CheckVisibility(true);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(GetPointOutsideSearchbox());
+  generator->MoveMouseWheel(0, 1);
+  GetAppListTestHelper()->WaitUntilIdle();
+  GetAppListTestHelper()->CheckVisibility(false);
+
+  // Show app list in tablet mode. Mouse-scroll up.
+  EnableTabletMode(true);
+  GetAppListTestHelper()->CheckVisibility(true);
+  generator->MoveMouseTo(GetPointOutsideSearchbox());
+  generator->MoveMouseWheel(0, 1);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(true);
 }
@@ -1263,9 +1353,9 @@ TEST_F(AppListPresenterDelegateHomeLauncherTest, DragFromShelf) {
   UpdateDisplay("1080x900");
 
   // Drag from the shelf to show the app list.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.GestureScrollSequence(gfx::Point(540, 890), gfx::Point(540, 0),
-                                  base::TimeDelta::FromMilliseconds(100), 10);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->GestureScrollSequence(gfx::Point(540, 890), gfx::Point(540, 0),
+                                   base::TimeDelta::FromMilliseconds(100), 10);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckVisibility(true);
 
@@ -1278,8 +1368,8 @@ TEST_F(AppListPresenterDelegateHomeLauncherTest, DragFromShelf) {
   EXPECT_FALSE(GetAppListView()->GetWidget()->IsVisible());
 
   // Drag from the shelf.
-  generator.GestureScrollSequence(gfx::Point(540, 890), gfx::Point(540, 0),
-                                  base::TimeDelta::FromMilliseconds(100), 10);
+  generator->GestureScrollSequence(gfx::Point(540, 890), gfx::Point(540, 0),
+                                   base::TimeDelta::FromMilliseconds(100), 10);
   GetAppListTestHelper()->WaitUntilIdle();
   EXPECT_FALSE(GetAppListView()->GetWidget()->IsVisible());
 }
@@ -1350,11 +1440,11 @@ TEST_F(AppListPresenterDelegateHomeLauncherTest, WallpaperContextMenu) {
 
   // Long press on the app list to open the context menu.
   const gfx::Point onscreen_point(GetPointOutsideSearchbox());
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   ui::GestureEvent long_press(
       onscreen_point.x(), onscreen_point.y(), 0, base::TimeTicks(),
       ui::GestureEventDetails(ui::ET_GESTURE_LONG_PRESS));
-  generator.Dispatch(&long_press);
+  generator->Dispatch(&long_press);
   GetAppListTestHelper()->WaitUntilIdle();
   const aura::Window* root = wm::GetRootWindowAt(onscreen_point);
   const RootWindowController* root_window_controller =
@@ -1365,19 +1455,19 @@ TEST_F(AppListPresenterDelegateHomeLauncherTest, WallpaperContextMenu) {
   ui::GestureEvent tap_down(onscreen_point.x(), onscreen_point.y(), 0,
                             base::TimeTicks(),
                             ui::GestureEventDetails(ui::ET_GESTURE_TAP_DOWN));
-  generator.Dispatch(&tap_down);
+  generator->Dispatch(&tap_down);
   GetAppListTestHelper()->WaitUntilIdle();
   EXPECT_FALSE(root_window_controller->IsContextMenuShown());
 
   // Right click to open the context menu.
-  generator.MoveMouseTo(onscreen_point);
-  generator.PressRightButton();
+  generator->MoveMouseTo(onscreen_point);
+  generator->PressRightButton();
   GetAppListTestHelper()->WaitUntilIdle();
   EXPECT_TRUE(root_window_controller->IsContextMenuShown());
 
   // Left click to close the context menu.
-  generator.MoveMouseTo(onscreen_point);
-  generator.PressLeftButton();
+  generator->MoveMouseTo(onscreen_point);
+  generator->PressLeftButton();
   GetAppListTestHelper()->WaitUntilIdle();
   EXPECT_FALSE(root_window_controller->IsContextMenuShown());
 }

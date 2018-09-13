@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/component_updater/component_updater_utils.h"
 #include "chrome/browser/google/google_brand.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/update_client/chrome_update_query_params_delegate.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/pref_names.h"
@@ -30,6 +32,7 @@
 
 #if defined(OS_WIN)
 #include "base/win/win_util.h"
+#include "chrome/install_static/install_util.h"
 #include "chrome/installer/util/google_update_settings.h"
 #endif
 
@@ -58,6 +61,8 @@ class ChromeConfigurator : public update_client::Configurator {
   std::string ExtraRequestParams() const override;
   std::string GetDownloadPreference() const override;
   scoped_refptr<net::URLRequestContextGetter> RequestContext() const override;
+  scoped_refptr<network::SharedURLLoaderFactory> URLLoaderFactory()
+      const override;
   std::unique_ptr<service_manager::Connector> CreateServiceManagerConnector()
       const override;
   bool EnabledDeltas() const override;
@@ -68,6 +73,7 @@ class ChromeConfigurator : public update_client::Configurator {
   update_client::ActivityDataService* GetActivityDataService() const override;
   bool IsPerUserInstall() const override;
   std::vector<uint8_t> GetRunActionKeyHash() const override;
+  std::string GetAppGuid() const override;
 
  private:
   friend class base::RefCountedThreadSafe<ChromeConfigurator>;
@@ -161,6 +167,16 @@ scoped_refptr<net::URLRequestContextGetter> ChromeConfigurator::RequestContext()
   return g_browser_process->system_request_context();
 }
 
+scoped_refptr<network::SharedURLLoaderFactory>
+ChromeConfigurator::URLLoaderFactory() const {
+  SystemNetworkContextManager* system_network_context_manager =
+      g_browser_process->system_network_context_manager();
+  // Manager will be null if called from InitializeForTesting.
+  if (!system_network_context_manager)
+    return nullptr;
+  return system_network_context_manager->GetSharedURLLoaderFactory();
+}
+
 std::unique_ptr<service_manager::Connector>
 ChromeConfigurator::CreateServiceManagerConnector() const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -200,6 +216,14 @@ bool ChromeConfigurator::IsPerUserInstall() const {
 
 std::vector<uint8_t> ChromeConfigurator::GetRunActionKeyHash() const {
   return configurator_impl_.GetRunActionKeyHash();
+}
+
+std::string ChromeConfigurator::GetAppGuid() const {
+#if defined(OS_WIN)
+  return install_static::UTF16ToUTF8(install_static::GetAppGuid());
+#else
+  return configurator_impl_.GetAppGuid();
+#endif
 }
 
 }  // namespace

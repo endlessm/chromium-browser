@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "ash/ash_export.h"
+#include "ash/system/unified/unified_system_tray_model.h"
 #include "base/macros.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/geometry/point.h"
@@ -21,20 +22,17 @@ namespace ash {
 
 class DetailedViewController;
 class FeaturePodControllerBase;
-class SystemTray;
-class SystemTrayItem;
 class UnifiedBrightnessSliderController;
 class UnifiedVolumeSliderController;
+class UnifiedSystemTrayBubble;
 class UnifiedSystemTrayModel;
 class UnifiedSystemTrayView;
 
 // Controller class of UnifiedSystemTrayView. Handles events of the view.
 class ASH_EXPORT UnifiedSystemTrayController : public gfx::AnimationDelegate {
  public:
-  // |system_tray| is used to show detailed views which are still not
-  // implemented on UnifiedSystemTray.
   UnifiedSystemTrayController(UnifiedSystemTrayModel* model,
-                              SystemTray* system_tray);
+                              UnifiedSystemTrayBubble* bubble = nullptr);
   ~UnifiedSystemTrayController() override;
 
   // Create the view. The created view is unowned.
@@ -52,19 +50,32 @@ class ASH_EXPORT UnifiedSystemTrayController : public gfx::AnimationDelegate {
   void HandleSettingsAction();
   // Shutdown the computer. Called from the view.
   void HandlePowerAction();
+  // Show date and time settings. Called from the view.
+  void HandleOpenDateTimeSettingsAction();
+  // Show enterprise managed device info. Called from the view.
+  void HandleEnterpriseInfoAction();
   // Toggle expanded state of UnifiedSystemTrayView. Called from the view.
   void ToggleExpanded();
+  // Clear all notifications. It triggers animation, and does not remove
+  // notifications immediately. Called from the view.
+  void HandleClearAllAction();
+  // Called when notification removing animation is finished. Called from the
+  // view.
+  void OnClearAllAnimationEnded();
 
   // Handle finger dragging and expand/collapse the view. Called from view.
   void BeginDrag(const gfx::Point& location);
   void UpdateDrag(const gfx::Point& location);
   void EndDrag(const gfx::Point& location);
+  void Fling(int velocity);
 
   // Show user selector popup widget. Called from the view.
   void ShowUserChooserWidget();
-  // Show the detailed view of network. Called from the view.
-  void ShowNetworkDetailedView();
-  // Show the detailed view of bluetooth. Called from the view.
+  // Show the detailed view of network. If |force| is true, it shows the
+  // detailed view even if it's collapsed. Called from the view.
+  void ShowNetworkDetailedView(bool force);
+  // Show the detailed view of bluetooth. If collapsed, it doesn't show the
+  // detailed view. Called from the view.
   void ShowBluetoothDetailedView();
   // Show the detailed view of cast. Called from the view.
   void ShowCastDetailedView();
@@ -74,8 +85,23 @@ class ASH_EXPORT UnifiedSystemTrayController : public gfx::AnimationDelegate {
   void ShowVPNDetailedView();
   // Show the detailed view of IME. Called from the view.
   void ShowIMEDetailedView();
+  // Show the detailed view of audio. Called from the view.
+  void ShowAudioDetailedView();
+  // Show the detailed view of notifier settings. Called from the view.
+  void ShowNotifierSettingsView();
 
   // If you want to add a new detailed view, add here.
+
+  // Show the main view back from a detailed view. If |restore_focus| is true,
+  // it restores previous keyboard focus in the main view. Called from a
+  // detailed view controller.
+  void TransitionToMainView(bool restore_focus);
+
+  // Close the bubble. Called from a detailed view controller.
+  void CloseBubble();
+
+  // Ensure the main view is expanded. Called from the slider bubble controller.
+  void EnsureExpanded();
 
   // gfx::AnimationDelegate:
   void AnimationEnded(const gfx::Animation* animation) override;
@@ -105,11 +131,6 @@ class ASH_EXPORT UnifiedSystemTrayController : public gfx::AnimationDelegate {
   // Show the detailed view.
   void ShowDetailedView(std::unique_ptr<DetailedViewController> controller);
 
-  // Show detailed view of SystemTrayItem.
-  // TODO(tetsui): Remove when Unified's own DetailedViewControllers are
-  // implemented.
-  void ShowSystemTrayItemDetailedView(SystemTrayItem* system_tray_item);
-
   // Update how much the view is expanded based on |animation_|.
   void UpdateExpandedAmount();
 
@@ -120,16 +141,20 @@ class ASH_EXPORT UnifiedSystemTrayController : public gfx::AnimationDelegate {
   // keeps returning 1.0.
   double GetDragExpandedAmount(const gfx::Point& location) const;
 
+  // Return true if UnifiedSystemTray is expanded.
+  bool IsExpanded() const;
+
+  // Starts animation to expand or collapse the bubble.
+  void StartAnimation(bool expand);
+
   // Model that stores UI specific variables. Unowned.
   UnifiedSystemTrayModel* const model_;
 
-  // Only used to show detailed views which are still not implemented on
-  // UnifiedSystemTray. Unowned.
-  // TODO(tetsui): Remove reference to |system_tray|.
-  SystemTray* const system_tray_;
-
   // Unowned. Owned by Views hierarchy.
   UnifiedSystemTrayView* unified_view_ = nullptr;
+
+  // Unowned.
+  UnifiedSystemTrayBubble* bubble_ = nullptr;
 
   // The controller of the current detailed view. If the main view is shown,
   // it's null. Owned.

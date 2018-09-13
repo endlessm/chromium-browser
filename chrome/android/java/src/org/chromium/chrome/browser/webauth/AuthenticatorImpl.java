@@ -4,16 +4,24 @@
 
 package org.chromium.chrome.browser.webauth;
 
+import android.annotation.TargetApi;
+import android.app.KeyguardManager;
+import android.content.Context;
+import android.os.Build;
+
+import org.chromium.base.PackageUtils;
+import org.chromium.blink.mojom.Authenticator;
+import org.chromium.blink.mojom.AuthenticatorStatus;
+import org.chromium.blink.mojom.GetAssertionAuthenticatorResponse;
+import org.chromium.blink.mojom.MakeCredentialAuthenticatorResponse;
+import org.chromium.blink.mojom.PublicKeyCredentialCreationOptions;
+import org.chromium.blink.mojom.PublicKeyCredentialRequestOptions;
+import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsStatics;
 import org.chromium.mojo.system.MojoException;
-import org.chromium.webauth.mojom.Authenticator;
-import org.chromium.webauth.mojom.AuthenticatorStatus;
-import org.chromium.webauth.mojom.GetAssertionAuthenticatorResponse;
-import org.chromium.webauth.mojom.MakeCredentialAuthenticatorResponse;
-import org.chromium.webauth.mojom.PublicKeyCredentialCreationOptions;
-import org.chromium.webauth.mojom.PublicKeyCredentialRequestOptions;
 
 /**
  * Android implementation of the authenticator.mojom interface.
@@ -22,8 +30,11 @@ public class AuthenticatorImpl implements Authenticator, HandlerResponseCallback
     private final RenderFrameHost mRenderFrameHost;
     private final WebContents mWebContents;
 
+    private static final String GMSCORE_PACKAGE_NAME = "com.google.android.gms";
+    private static final int GMSCORE_MIN_VERSION = 12800000;
+
     /** Ensures only one request is processed at a time. */
-    boolean mIsOperationPending = false;
+    private boolean mIsOperationPending = false;
 
     private org.chromium.mojo.bindings.Callbacks
             .Callback2<Integer, MakeCredentialAuthenticatorResponse> mMakeCredentialCallback;
@@ -45,26 +56,58 @@ public class AuthenticatorImpl implements Authenticator, HandlerResponseCallback
     public void makeCredential(
             PublicKeyCredentialCreationOptions options, MakeCredentialResponse callback) {
         mMakeCredentialCallback = callback;
+        Context context = ChromeActivity.fromWebContents(mWebContents);
+        if (PackageUtils.getPackageVersion(context, GMSCORE_PACKAGE_NAME) < GMSCORE_MIN_VERSION) {
+            onError(AuthenticatorStatus.NOT_IMPLEMENTED);
+            return;
+        }
+
         if (mIsOperationPending) {
             onError(AuthenticatorStatus.PENDING_REQUEST);
             return;
         }
 
         mIsOperationPending = true;
-        onError(AuthenticatorStatus.NOT_IMPLEMENTED);
+        Fido2ApiHandler.getInstance().makeCredential(options, mRenderFrameHost, this);
     }
 
     @Override
     public void getAssertion(
             PublicKeyCredentialRequestOptions options, GetAssertionResponse callback) {
         mGetAssertionCallback = callback;
+        Context context = ChromeActivity.fromWebContents(mWebContents);
+        if (PackageUtils.getPackageVersion(context, GMSCORE_PACKAGE_NAME) < GMSCORE_MIN_VERSION) {
+            onError(AuthenticatorStatus.NOT_IMPLEMENTED);
+            return;
+        }
+
         if (mIsOperationPending) {
             onError(AuthenticatorStatus.PENDING_REQUEST);
             return;
         }
 
         mIsOperationPending = true;
-        onError(AuthenticatorStatus.NOT_IMPLEMENTED);
+        Fido2ApiHandler.getInstance().getAssertion(options, mRenderFrameHost, this);
+    }
+
+    @Override
+    @TargetApi(Build.VERSION_CODES.M)
+    public void isUserVerifyingPlatformAuthenticatorAvailable(
+            IsUserVerifyingPlatformAuthenticatorAvailableResponse callback) {
+        Context context = ChromeActivity.fromWebContents(mWebContents);
+        if (PackageUtils.getPackageVersion(context, GMSCORE_PACKAGE_NAME)
+            < GMSCORE_MIN_VERSION) {
+            callback.call(false);
+            return;
+        }
+        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.WEB_AUTH)) {
+            callback.call(false);
+            return;
+        }
+
+        KeyguardManager keyguardManager =
+                (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        callback.call(keyguardManager != null && keyguardManager.isDeviceSecure());
     }
 
     /**
@@ -86,7 +129,8 @@ public class AuthenticatorImpl implements Authenticator, HandlerResponseCallback
 
     @Override
     public void onError(Integer status) {
-        assert(mMakeCredentialCallback != null || mGetAssertionCallback != null);
+        assert((mMakeCredentialCallback != null && mGetAssertionCallback == null)
+                || (mMakeCredentialCallback == null && mGetAssertionCallback != null));
         if (mMakeCredentialCallback != null) {
             mMakeCredentialCallback.call(status, null);
         } else if (mGetAssertionCallback != null) {

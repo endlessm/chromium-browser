@@ -19,11 +19,6 @@ class BrowserFrameAsh : public views::NativeWidgetAura,
  public:
   BrowserFrameAsh(BrowserFrame* browser_frame, BrowserView* browser_view);
 
-  // The color used for the frame when showing a non-tabbed WebUI, such as
-  // the Settings window.
-  static constexpr SkColor kMdWebUiFrameColor =
-      SkColorSetARGB(0xff, 0x25, 0x4f, 0xae);
-
  protected:
   ~BrowserFrameAsh() override;
 
@@ -38,7 +33,7 @@ class BrowserFrameAsh : public views::NativeWidgetAura,
   bool ShouldSaveWindowPlacement() const override;
   void GetWindowPlacement(gfx::Rect* bounds,
                           ui::WindowShowState* show_state) const override;
-  bool PreHandleKeyboardEvent(
+  content::KeyboardEventProcessingResult PreHandleKeyboardEvent(
       const content::NativeWebKeyboardEvent& event) override;
   bool HandleKeyboardEvent(
       const content::NativeWebKeyboardEvent& event) override;

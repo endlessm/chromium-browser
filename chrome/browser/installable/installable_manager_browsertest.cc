@@ -7,7 +7,7 @@
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/banners/app_banner_manager_desktop.h"
 #include "chrome/browser/installable/installable_manager.h"
 #include "chrome/browser/installable/installable_metrics.h"
@@ -18,7 +18,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
-using IconPurpose = blink::Manifest::Icon::IconPurpose;
+using IconPurpose = blink::Manifest::ImageResource::Purpose;
 
 namespace {
 

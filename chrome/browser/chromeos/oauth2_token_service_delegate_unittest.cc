@@ -11,6 +11,7 @@
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/stl_util.h"
 #include "base/test/scoped_task_environment.h"
 #include "chromeos/account_manager/account_manager.h"
@@ -20,6 +21,8 @@
 #include "components/signin/core/browser/test_signin_client.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "google_apis/gaia/oauth2_token_service.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/test/test_url_loader_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace chromeos {
@@ -52,6 +55,14 @@ class TokenServiceObserver : public OAuth2TokenService::Observer {
     batch_change_records_.rbegin()->emplace_back(account_id);
   }
 
+  void OnRefreshTokenRevoked(const std::string& account_id) override {
+    EXPECT_TRUE(is_inside_batch_);
+    account_ids_.erase(account_id);
+
+    // Record the |account_id| in the last batch.
+    batch_change_records_.rbegin()->emplace_back(account_id);
+  }
+
   void OnAuthErrorChanged(const std::string& account_id,
                           const GoogleServiceAuthError& auth_error) override {
     last_err_account_id_ = account_id;
@@ -73,14 +84,18 @@ class TokenServiceObserver : public OAuth2TokenService::Observer {
 
 class CrOSOAuthDelegateTest : public testing::Test {
  public:
-  CrOSOAuthDelegateTest() = default;
+  CrOSOAuthDelegateTest()
+      : test_shared_loader_factory_(
+            base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+                &test_url_loader_factory_)) {}
   ~CrOSOAuthDelegateTest() override = default;
 
  protected:
   void SetUp() override {
     ASSERT_TRUE(tmp_dir_.CreateUniqueTempDir());
 
-    account_manager_.Initialize(tmp_dir_.GetPath());
+    account_manager_.Initialize(tmp_dir_.GetPath(), test_shared_loader_factory_,
+                                immediate_callback_runner_);
     scoped_task_environment_.RunUntilIdle();
 
     pref_service_.registry()->RegisterListPref(
@@ -88,9 +103,7 @@ class CrOSOAuthDelegateTest : public testing::Test {
     pref_service_.registry()->RegisterIntegerPref(
         prefs::kAccountIdMigrationState,
         AccountTrackerService::MIGRATION_NOT_STARTED);
-    client_.reset(new TestSigninClient(&pref_service_));
-    client_->SetURLRequestContext(new net::TestURLRequestContextGetter(
-        base::ThreadTaskRunnerHandle::Get()));
+    client_ = std::make_unique<TestSigninClient>(&pref_service_);
 
     account_tracker_service_.Initialize(client_.get());
 
@@ -103,6 +116,8 @@ class CrOSOAuthDelegateTest : public testing::Test {
     delegate_->LoadCredentials(
         account_info_.account_id /* primary_account_id */);
   }
+
+  void TearDown() override { test_shared_loader_factory_->Detach(); }
 
   AccountInfo CreateAccountInfoTestFixture(const std::string& gaia_id,
                                            const std::string& email) {
@@ -131,10 +146,16 @@ class CrOSOAuthDelegateTest : public testing::Test {
   base::test::ScopedTaskEnvironment scoped_task_environment_;
 
   base::ScopedTempDir tmp_dir_;
+  network::TestURLLoaderFactory test_url_loader_factory_;
+  scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
+      test_shared_loader_factory_;
   AccountInfo account_info_;
   AccountTrackerService account_tracker_service_;
   AccountManager account_manager_;
   std::unique_ptr<ChromeOSOAuth2TokenServiceDelegate> delegate_;
+  AccountManager::DelayNetworkCallRunner immediate_callback_runner_ =
+      base::BindRepeating(
+          [](const base::RepeatingClosure& closure) -> void { closure.Run(); });
 
  private:
   sync_preferences::TestingPrefServiceSyncable pref_service_;
@@ -248,7 +269,8 @@ TEST_F(CrOSOAuthDelegateTest, BatchChangeObserversAreNotifiedOncePerBatch) {
   AccountManager account_manager;
   // AccountManager will not be fully initialized until
   // |scoped_task_environment_.RunUntilIdle()| is called.
-  account_manager.Initialize(tmp_dir_.GetPath());
+  account_manager.Initialize(tmp_dir_.GetPath(), test_shared_loader_factory_,
+                             immediate_callback_runner_);
 
   // Register callbacks before AccountManager has been fully initialized.
   auto delegate = std::make_unique<ChromeOSOAuth2TokenServiceDelegate>(
@@ -310,6 +332,23 @@ TEST_F(CrOSOAuthDelegateTest, UpdateCredentialsSucceeds) {
   std::vector<std::string> accounts = delegate_->GetAccounts();
   EXPECT_EQ(1UL, accounts.size());
   EXPECT_EQ(account_info_.account_id, accounts[0]);
+}
+
+TEST_F(CrOSOAuthDelegateTest, ObserversAreNotifiedOnAccountRemoval) {
+  delegate_->UpdateCredentials(account_info_.account_id, "token");
+
+  TokenServiceObserver observer;
+  delegate_->AddObserver(&observer);
+  const AccountManager::AccountKey account_key{account_info_.gaia,
+                                               ACCOUNT_TYPE_GAIA};
+  account_manager_.RemoveAccount(account_key);
+
+  EXPECT_EQ(1UL, observer.batch_change_records_.size());
+  EXPECT_EQ(1UL, observer.batch_change_records_[0].size());
+  EXPECT_EQ(account_info_.account_id, observer.batch_change_records_[0][0]);
+  EXPECT_TRUE(observer.account_ids_.empty());
+
+  delegate_->RemoveObserver(&observer);
 }
 
 }  // namespace chromeos

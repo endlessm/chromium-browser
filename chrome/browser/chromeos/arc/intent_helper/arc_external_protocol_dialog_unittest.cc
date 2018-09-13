@@ -10,7 +10,6 @@
 #include "chrome/browser/chromeos/arc/arc_web_contents_data.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
-#include "components/arc/intent_helper/page_transition_util.h"
 #include "url/gurl.h"
 
 namespace arc {
@@ -928,6 +927,31 @@ TEST(ArcExternalProtocolDialogTest, TestIsChromeAnAppCandidate) {
   // Empty vector case.
   EXPECT_FALSE(IsChromeAnAppCandidateForTesting(
       std::vector<mojom::IntentHandlerInfoPtr>()));
+}
+
+// Tests that when one app is passed to GetAction and it's for ARC IME, the
+// picker won't be triggered.
+TEST(ArcExternalProtocolDialogTest,
+     TestGetActionWithArcImeSettingsActivityBypassesIntentPicker) {
+  constexpr char kPackageForOpeningArcImeSettingsPage[] =
+      "org.chromium.arc.applauncher";
+  constexpr char kActivityForOpeningArcImeSettingsPage[] =
+      "org.chromium.arc.applauncher.InputMethodSettingsActivity";
+
+  std::vector<mojom::IntentHandlerInfoPtr> handlers;
+  handlers.push_back(Create("ARC IME settings",
+                            kPackageForOpeningArcImeSettingsPage,
+                            kActivityForOpeningArcImeSettingsPage,
+                            /*is_preferred=*/false, /*fallback_url=*/GURL()));
+
+  const size_t no_selection = handlers.size();
+  GurlAndActivityInfo url_and_activity_name = CreateEmptyGurlAndActivityInfo();
+  bool in_out_safe_to_bypass_ui = false;
+  EXPECT_EQ(
+      GetActionResult::HANDLE_URL_IN_ARC,
+      GetActionForTesting(GURL("intent:foo"), handlers, no_selection,
+                          &url_and_activity_name, &in_out_safe_to_bypass_ui));
+  EXPECT_TRUE(in_out_safe_to_bypass_ui);
 }
 
 }  // namespace arc

@@ -37,6 +37,7 @@
 - (void)webPageOrderedOpen:(const GURL&)url
                   referrer:(const web::Referrer&)referrer
               inBackground:(BOOL)inBackground
+               originPoint:(CGPoint)originPoint
                   appendTo:(OpenPosition)appendTo {
 }
 
@@ -44,6 +45,7 @@
                   referrer:(const web::Referrer&)referrer
                inIncognito:(BOOL)inIncognito
               inBackground:(BOOL)inBackground
+               originPoint:(CGPoint)originPoint
                   appendTo:(OpenPosition)appendTo {
   _url = url;
   _referrer = referrer;
@@ -51,6 +53,9 @@
 }
 
 - (void)loadSessionTab:(const sessions::SessionTab*)sessionTab {
+}
+
+- (void)restoreTabWithSessionID:(const SessionID)sessionID {
 }
 
 - (void)loadJavaScriptFromLocationBar:(NSString*)script {

@@ -106,8 +106,11 @@ VolumeManagerCommon.RootType = {
   // Root for crostini 'Linux Files'.
   CROSTINI: 'crostini',
 
-  // Root for android files,
+  // Root for android files.
   ANDROID_FILES: 'android_files',
+
+  // My Files root, which aggregates DOWNLOADS, ANDROID_FILES and CROSTINI.
+  MY_FILES: 'my_files',
 };
 Object.freeze(VolumeManagerCommon.RootType);
 
@@ -139,6 +142,7 @@ VolumeManagerCommon.RootTypesForUMA = [
   VolumeManagerCommon.RootType.ADD_NEW_SERVICES_MENU,
   VolumeManagerCommon.RootType.CROSTINI,
   VolumeManagerCommon.RootType.ANDROID_FILES,
+  VolumeManagerCommon.RootType.MY_FILES,
 ];
 console.assert(
     Object.keys(VolumeManagerCommon.RootType).length ===
@@ -223,6 +227,7 @@ VolumeManagerCommon.VolumeType = {
   MEDIA_VIEW: 'media_view',
   CROSTINI: 'crostini',
   ANDROID_FILES: 'android_files',
+  MY_FILES: 'my_files',
 };
 
 /**
@@ -245,6 +250,8 @@ VolumeManagerCommon.Source = {
  */
 VolumeManagerCommon.VolumeType.isNative = function(type) {
   return type === VolumeManagerCommon.VolumeType.DOWNLOADS ||
+      type === VolumeManagerCommon.VolumeType.ANDROID_FILES ||
+      type === VolumeManagerCommon.VolumeType.CROSTINI ||
       type === VolumeManagerCommon.VolumeType.REMOVABLE ||
       type === VolumeManagerCommon.VolumeType.ARCHIVE;
 };
@@ -282,6 +289,8 @@ VolumeManagerCommon.getVolumeTypeFromRootType = function(rootType) {
       return VolumeManagerCommon.VolumeType.CROSTINI;
     case VolumeManagerCommon.RootType.ANDROID_FILES:
       return VolumeManagerCommon.VolumeType.ANDROID_FILES;
+    case VolumeManagerCommon.RootType.MY_FILES:
+      return VolumeManagerCommon.VolumeType.MY_FILES;
   }
   assertNotReached('Unknown root type: ' + rootType);
 };
@@ -304,8 +313,8 @@ VolumeManagerCommon.VolumeInfoProvider = function() {};
 
 /**
  * Obtains a volume info containing the passed entry.
- * @param {!Entry|!FakeEntry} entry Entry on the volume to be returned.
- *     Can be fake.
+ * @param {!Entry|!FakeEntry|!FilesAppEntry} entry Entry on the volume to be
+ *     returned. Can be fake.
  * @return {?VolumeInfo} The VolumeInfo instance or null if not found.
  */
 VolumeManagerCommon.VolumeInfoProvider.prototype.getVolumeInfo;

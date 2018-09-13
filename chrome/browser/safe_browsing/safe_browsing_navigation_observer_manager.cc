@@ -117,6 +117,7 @@ NavigationEventList::NavigationEventList(std::size_t size_limit)
 NavigationEventList::~NavigationEventList() {}
 
 NavigationEvent* NavigationEventList::FindNavigationEvent(
+    const base::Time& last_event_timestamp,
     const GURL& target_url,
     const GURL& target_main_frame_url,
     SessionID target_tab_id) {
@@ -132,6 +133,11 @@ NavigationEvent* NavigationEventList::FindNavigationEvent(
   for (auto rit = navigation_events_.rbegin(); rit != navigation_events_.rend();
        ++rit) {
     auto* nav_event = rit->get();
+
+    // The next event cannot come before the previous one.
+    if (nav_event->last_updated > last_event_timestamp)
+      continue;
+
     // If tab id is not valid, we only compare url, otherwise we compare both.
     if (nav_event->GetDestinationUrl() == search_url &&
         (!target_tab_id.is_valid() ||
@@ -147,7 +153,8 @@ NavigationEvent* NavigationEventList::FindNavigationEvent(
         // need to adjust our search url to the original request.
         if (!nav_event->server_redirect_urls.empty()) {
           NavigationEvent* retargeting_nav_event =
-              FindRetargetingNavigationEvent(nav_event->original_request_url,
+              FindRetargetingNavigationEvent(nav_event->last_updated,
+                                             nav_event->original_request_url,
                                              nav_event->target_tab_id);
           if (!retargeting_nav_event)
             return nullptr;
@@ -167,6 +174,7 @@ NavigationEvent* NavigationEventList::FindNavigationEvent(
 }
 
 NavigationEvent* NavigationEventList::FindRetargetingNavigationEvent(
+    const base::Time& last_event_timestamp,
     const GURL& target_url,
     SessionID target_tab_id) {
   if (target_url.is_empty())
@@ -177,6 +185,11 @@ NavigationEvent* NavigationEventList::FindRetargetingNavigationEvent(
   for (auto rit = navigation_events_.rbegin(); rit != navigation_events_.rend();
        ++rit) {
     auto* nav_event = rit->get();
+
+    // The next event cannot come before the previous one.
+    if (nav_event->last_updated > last_event_timestamp)
+      continue;
+
     // In addition to url and tab_id checking, we need to compare the
     // source_tab_id and target_tab_id to make sure it is a retargeting event.
     if (nav_event->original_request_url == target_url &&
@@ -274,7 +287,6 @@ void SafeBrowsingNavigationObserverManager::SanitizeReferrerChain(
 
 SafeBrowsingNavigationObserverManager::SafeBrowsingNavigationObserverManager()
     : navigation_event_list_(kNavigationRecordMaxSize) {
-
   // Schedule clean up in 2 minutes.
   ScheduleNextCleanUpAfterInterval(
       base::TimeDelta::FromSecondsD(kNavigationFootprintTTLInSecond));
@@ -357,7 +369,7 @@ SafeBrowsingNavigationObserverManager::IdentifyReferrerChainByEventURL(
     return INVALID_URL;
 
   NavigationEvent* nav_event = navigation_event_list_.FindNavigationEvent(
-      ClearURLRef(event_url), GURL(), event_tab_id);
+      base::Time::Now(), ClearURLRef(event_url), GURL(), event_tab_id);
   if (!nav_event) {
     // We cannot find a single navigation event related to this event.
     return NAVIGATION_EVENT_NOT_FOUND;
@@ -366,12 +378,9 @@ SafeBrowsingNavigationObserverManager::IdentifyReferrerChainByEventURL(
   AddToReferrerChain(out_referrer_chain, nav_event, GURL(),
                      ReferrerChainEntry::EVENT_URL);
   int user_gesture_count = 0;
-  GetRemainingReferrerChain(
-      nav_event,
-      user_gesture_count,
-      user_gesture_count_limit,
-      out_referrer_chain,
-      &result);
+  GetRemainingReferrerChain(nav_event, user_gesture_count,
+                            user_gesture_count_limit, out_referrer_chain,
+                            &result);
   return result;
 }
 
@@ -404,8 +413,8 @@ SafeBrowsingNavigationObserverManager::IdentifyReferrerChainByHostingPage(
     return INVALID_URL;
 
   NavigationEvent* nav_event = navigation_event_list_.FindNavigationEvent(
-      ClearURLRef(initiating_frame_url), ClearURLRef(initiating_main_frame_url),
-      tab_id);
+      base::Time::Now(), ClearURLRef(initiating_frame_url),
+      ClearURLRef(initiating_main_frame_url), tab_id);
   if (!nav_event) {
     // We cannot find a single navigation event related to this hosting page.
     return NAVIGATION_EVENT_NOT_FOUND;
@@ -427,12 +436,9 @@ SafeBrowsingNavigationObserverManager::IdentifyReferrerChainByHostingPage(
                        ReferrerChainEntry::CLIENT_REDIRECT);
   }
 
-  GetRemainingReferrerChain(
-      nav_event,
-      user_gesture_count,
-      user_gesture_count_limit,
-      out_referrer_chain,
-      &result);
+  GetRemainingReferrerChain(nav_event, user_gesture_count,
+                            user_gesture_count_limit, out_referrer_chain,
+                            &result);
   return result;
 }
 
@@ -444,6 +450,7 @@ void SafeBrowsingNavigationObserverManager::RecordNewWebContents(
     int source_render_process_id,
     int source_render_frame_id,
     GURL target_url,
+    ui::PageTransition page_transition,
     content::WebContents* target_web_contents,
     bool renderer_initiated) {
   DCHECK(source_web_contents);
@@ -469,6 +476,9 @@ void SafeBrowsingNavigationObserverManager::RecordNewWebContents(
   nav_event->original_request_url = cleaned_target_url;
   nav_event->target_tab_id = SessionTabHelper::IdForTab(target_web_contents);
   nav_event->frame_id = rfh ? rfh->GetFrameTreeNodeId() : -1;
+  nav_event->maybe_launched_by_external_application =
+      ui::PageTransitionCoreTypeIs(page_transition,
+                                   ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
 
   auto it = user_gesture_map_.find(source_web_contents);
   if (it == user_gesture_map_.end() ||
@@ -623,6 +633,8 @@ void SafeBrowsingNavigationObserverManager::AddToReferrerChain(
       server_redirect->set_url(ShortURLForReporting(redirect));
     }
   }
+  referrer_chain_entry->set_maybe_launched_by_external_application(
+      nav_event->maybe_launched_by_external_application);
   referrer_chain->Add()->Swap(referrer_chain_entry.get());
 }
 
@@ -637,6 +649,7 @@ void SafeBrowsingNavigationObserverManager::GetRemainingReferrerChain(
     // Back trace to the next nav_event that was initiated by the user.
     while (!last_nav_event_traced->IsUserInitiated()) {
       last_nav_event_traced = navigation_event_list_.FindNavigationEvent(
+          last_nav_event_traced->last_updated,
           last_nav_event_traced->source_url,
           last_nav_event_traced->source_main_frame_url,
           last_nav_event_traced->source_tab_id);
@@ -663,7 +676,7 @@ void SafeBrowsingNavigationObserverManager::GetRemainingReferrerChain(
     }
 
     last_nav_event_traced = navigation_event_list_.FindNavigationEvent(
-        last_nav_event_traced->source_url,
+        last_nav_event_traced->last_updated, last_nav_event_traced->source_url,
         last_nav_event_traced->source_main_frame_url,
         last_nav_event_traced->source_tab_id);
     if (!last_nav_event_traced)

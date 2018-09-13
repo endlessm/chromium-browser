@@ -17,7 +17,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/apps/app_browsertest_util.h"
+#include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_browsertest_util.h"
@@ -965,7 +965,8 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, EditCommands) {
 }
 
 // Tests that guests receive edit commands and respond appropriately.
-IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, EditCommandsNoMenu) {
+// Flaky test - crbug.com/859478
+IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, DISABLED_EditCommandsNoMenu) {
   SetupTest("web_view/edit_commands_no_menu",
       "/extensions/platform_apps/web_view/edit_commands_no_menu/"
       "guest.html");
@@ -978,6 +979,14 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, EditCommandsNoMenu) {
 
   ExtensionTestMessageListener start_of_line_listener("StartOfLine", false);
   SendStartOfLineKeyPressToPlatformApp();
+#if defined(OS_MACOSX)
+  // On macOS, sending an accelerator [key-down] will also cause the subsequent
+  // key-up to be swallowed. The implementation of guest.html is waiting for a
+  // key-up to send the caret-position message. So we send a key-down/key-up of
+  // a character that otherwise has no effect.
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_UP, false, false, false, false));
+#endif
   // Wait for the guest to receive a 'copy' edit command.
   ASSERT_TRUE(start_of_line_listener.WaitUntilSatisfied());
 }
@@ -1670,7 +1679,8 @@ IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest, MAYBE_FocusAndVisibility) {
 
 // Flaky on MacOSX, crbug.com/817066.
 // Flaky timeouts on Linux. https://crbug.com/709202
-#if defined(OS_LINUX) || defined(OS_MACOSX)
+// Flaky timeouts on Win. https://crbug.com/846695
+#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
 #define MAYBE_KeyboardFocusSimple DISABLED_KeyboardFocusSimple
 #else
 #define MAYBE_KeyboardFocusSimple KeyboardFocusSimple
@@ -1714,7 +1724,8 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, MAYBE_KeyboardFocusSimple) {
 // http://crbug.com/660044.
 // Flaky on MacOSX, crbug.com/817067.
 // Flaky on linux, crbug.com/706830.
-#if defined(OS_LINUX) || defined(OS_MACOSX)
+// Flaky on Windows, crbug.com/847201.
+#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_WIN)
 #define MAYBE_KeyboardFocusWindowCycle DISABLED_KeyboardFocusWindowCycle
 #else
 #define MAYBE_KeyboardFocusWindowCycle KeyboardFocusWindowCycle

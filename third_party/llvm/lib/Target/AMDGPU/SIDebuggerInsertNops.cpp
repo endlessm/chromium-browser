@@ -21,6 +21,7 @@
 
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -62,7 +63,7 @@ FunctionPass *llvm::createSIDebuggerInsertNopsPass() {
 bool SIDebuggerInsertNops::runOnMachineFunction(MachineFunction &MF) {
   // Skip this pass if "amdgpu-debugger-insert-nops" attribute was not
   // specified.
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   if (!ST.debuggerInsertNops())
     return false;
 

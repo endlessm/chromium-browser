@@ -12,14 +12,18 @@
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/path.h"
-#include "ui/views/bubble/bubble_border.h"
 
 #include <memory>
 #include <vector>
 
+namespace views {
+class BoxLayout;
+}
+
 namespace autofill {
 
 class AutofillPopupController;
+class AutofillPopupViewNativeViews;
 
 // Child view representing one row in the Autofill Popup. This could represent
 // a UI control (e.g., a suggestion which can be autofilled), or decoration like
@@ -37,7 +41,8 @@ class AutofillPopupRowView : public views::View {
   bool OnMousePressed(const ui::MouseEvent& event) override;
 
  protected:
-  AutofillPopupRowView(AutofillPopupController* controller, int line_number);
+  AutofillPopupRowView(AutofillPopupViewNativeViews* popup_view,
+                       int line_number);
 
   // Init handles initialization tasks which require virtual methods. Subclasses
   // should have private/protected constructors and implement a static Create
@@ -48,9 +53,8 @@ class AutofillPopupRowView : public views::View {
   virtual void RefreshStyle() = 0;
   virtual std::unique_ptr<views::Background> CreateBackground() = 0;
 
-  AutofillPopupController* controller_;
+  AutofillPopupViewNativeViews* popup_view_;
   const int line_number_;
-  bool is_warning_ = false;  // overwritten in ctor
   bool is_selected_ = false;
 };
 
@@ -76,19 +80,15 @@ class AutofillPopupViewNativeViews : public AutofillPopupBaseView,
   void Show() override;
   void Hide() override;
 
-  // views::View:
-  gfx::Size CalculatePreferredSize() const override;
-
   // AutofillPopupBaseView:
   // TODO(crbug.com/831603): Remove these overrides and the corresponding
   // methods in AutofillPopupBaseView once deprecation of
   // AutofillPopupViewViews is complete.
   void OnMouseMoved(const ui::MouseEvent& event) override {}
 
- private:
-  // views::View:
-  void VisibilityChanged(View* starting_from, bool is_visible) override;
+  AutofillPopupController* controller() { return controller_; }
 
+ private:
   void OnSelectedRowChanged(base::Optional<int> previous_row_selection,
                             base::Optional<int> current_row_selection) override;
   void OnSuggestionsChanged() override;
@@ -96,18 +96,18 @@ class AutofillPopupViewNativeViews : public AutofillPopupBaseView,
   // Creates child views based on the suggestions given by |controller_|.
   void CreateChildViews();
 
+  // Applies certain rounding rules to the given width, such as matching the
+  // element width when possible.
+  int AdjustWidth(int width) const;
+
   // AutofillPopupBaseView:
-  void AddExtraInitParams(views::Widget::InitParams* params) override;
-  std::unique_ptr<views::View> CreateWrapperView() override;
-  std::unique_ptr<views::Border> CreateBorder() override;
   void DoUpdateBoundsAndRedrawPopup() override;
 
   // Controller for this view.
   AutofillPopupController* controller_;
-
   std::vector<AutofillPopupRowView*> rows_;
-
-  views::BubbleBorder* bubble_border_;
+  views::BoxLayout* layout_;
+  views::ScrollView* scroll_view_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillPopupViewNativeViews);
 };

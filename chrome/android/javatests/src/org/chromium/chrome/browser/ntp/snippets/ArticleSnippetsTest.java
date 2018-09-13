@@ -104,12 +104,6 @@ public class ArticleSnippetsTest {
     public RenderTestRule mRenderTestRule = new RenderTestRule();
 
     @Rule
-    public TestRule mChromeModernDesignStateRule = new ChromeModernDesign.Processor();
-
-    @Rule
-    public TestRule mFeaturesProcessor = new Features.InstrumentationProcessor();
-
-    @Rule
     public TestRule mDisableChromeAnimations = new DisableChromeAnimations();
 
     private SuggestionsUiDelegate mUiDelegate;
@@ -170,7 +164,7 @@ public class ArticleSnippetsTest {
 
             mRecyclerView = new SuggestionsRecyclerView(activity);
             mContextMenuManager = new ContextMenuManager(mUiDelegate.getNavigationDelegate(),
-                    mRecyclerView::setTouchEnabled, activity::closeContextMenu);
+                    mRecyclerView::setTouchEnabled, activity::closeContextMenu, false);
             mRecyclerView.init(mUiConfig, mContextMenuManager);
 
             mSuggestion = new SnippetArticleViewHolder(mRecyclerView, mContextMenuManager,

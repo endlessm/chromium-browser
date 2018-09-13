@@ -105,6 +105,12 @@ typedef Tab* (^mock_gurl_nsuinteger_pagetransition)(const GURL&,
   return nil;
 }
 
+- (void)clearPresentedStateWithCompletion:(ProceduralBlock)completion
+                           dismissOmnibox:(BOOL)dismissOmnibox {
+  if (completion)
+    completion();
+}
+
 - (void)expectNewForegroundTab {
   // no-op.
 }
@@ -141,8 +147,7 @@ class URLOpenerTest : public PlatformTest {
   MainController* GetMainController() {
     if (!main_controller_) {
       main_controller_ = [[MainController alloc] init];
-      [main_controller_
-          setUpAsForegroundedWithBrowserState:GetChromeBrowserState()];
+
       id mainTabModel = [OCMockObject mockForClass:[TabModel class]];
       [[mainTabModel stub] resetSessionMetrics];
       [[mainTabModel stub] browserStateDestroyed];
@@ -156,6 +161,8 @@ class URLOpenerTest : public PlatformTest {
       [[otrTabModel stub] addObserver:[OCMArg any]];
       [[otrTabModel stub] removeObserver:[OCMArg any]];
       [[main_controller_ browserViewInformation] setOtrTabModel:otrTabModel];
+      [main_controller_
+          setUpAsForegroundedWithBrowserState:GetChromeBrowserState()];
     }
     return main_controller_;
   }
@@ -238,6 +245,8 @@ TEST_F(URLOpenerTest, HandleOpenURLWithOpenTabs) {
       static_cast<BrowserViewController*>(bvc_mock);
   controller.browserViewInformation.otrBVC =
       static_cast<BrowserViewController*>(otr_bvc_mock);
+  controller.browserViewInformation.currentBVC =
+      static_cast<BrowserViewController*>(bvc_mock);
 
   NSDictionary<NSString*, id>* options = nil;
   [URLOpener openURL:url

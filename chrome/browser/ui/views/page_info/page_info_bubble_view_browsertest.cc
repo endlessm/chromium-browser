@@ -5,7 +5,7 @@
 #include "chrome/browser/ui/views/page_info/page_info_bubble_view.h"
 
 #include "base/run_loop.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -41,6 +41,8 @@ namespace {
 
 const char kSyncPasswordPageInfoHistogramName[] =
     "PasswordProtection.PageInfoAction.SyncPasswordEntry";
+const char kEnterprisePasswordPageInfoHistogramName[] =
+    "PasswordProtection.PageInfoAction.NonGaiaEnterprisePasswordEntry";
 
 class ClickEvent : public ui::Event {
  public:
@@ -133,7 +135,8 @@ class PageInfoBubbleViewBrowserTest : public DialogBrowserTest {
     constexpr char kMalware[] = "Malware";
     constexpr char kDeceptive[] = "Deceptive";
     constexpr char kUnwantedSoftware[] = "UnwantedSoftware";
-    constexpr char kPasswordReuse[] = "PasswordReuse";
+    constexpr char kSignInPasswordReuse[] = "SignInPasswordReuse";
+    constexpr char kEnterprisePasswordReuse[] = "EnterprisePasswordReuse";
     constexpr char kMixedContentForm[] = "MixedContentForm";
     constexpr char kMixedContent[] = "MixedContent";
     constexpr char kAllowAllPermissions[] = "AllowAllPermissions";
@@ -185,8 +188,12 @@ class PageInfoBubbleViewBrowserTest : public DialogBrowserTest {
     } else if (name == kUnwantedSoftware) {
       identity.identity_status =
           PageInfo::SITE_IDENTITY_STATUS_UNWANTED_SOFTWARE;
-    } else if (name == kPasswordReuse) {
-      identity.identity_status = PageInfo::SITE_IDENTITY_STATUS_PASSWORD_REUSE;
+    } else if (name == kSignInPasswordReuse) {
+      identity.identity_status =
+          PageInfo::SITE_IDENTITY_STATUS_SIGN_IN_PASSWORD_REUSE;
+    } else if (name == kEnterprisePasswordReuse) {
+      identity.identity_status =
+          PageInfo::SITE_IDENTITY_STATUS_ENTERPRISE_PASSWORD_REUSE;
     } else if (name == kMixedContentForm) {
       identity.identity_status =
           PageInfo::SITE_IDENTITY_STATUS_ADMIN_PROVIDED_CERT;
@@ -348,24 +355,25 @@ IN_PROC_BROWSER_TEST_F(PageInfoBubbleViewBrowserTest,
             OpenSiteSettingsForUrl(browser(), url));
 }
 
-// Test opening page info bubble that matches SB_THREAT_TYPE_PASSWORD_REUSE
-// threat type.
+// Test opening page info bubble that matches
+// SB_THREAT_TYPE_SIGN_IN_PASSWORD_REUSE threat type.
 IN_PROC_BROWSER_TEST_F(PageInfoBubbleViewBrowserTest,
-                       VerifyPasswordReusePageInfoBubble) {
+                       VerifySignInPasswordReusePageInfoBubble) {
   ASSERT_TRUE(embedded_test_server()->Start());
   base::HistogramTester histograms;
   histograms.ExpectTotalCount(kSyncPasswordPageInfoHistogramName, 0);
   ui_test_utils::NavigateToURL(browser(), embedded_test_server()->GetURL("/"));
 
   // Update security state of the current page to match
-  // SB_THREAT_TYPE_PASSWORD_REUSE.
+  // SB_THREAT_TYPE_SIGN_IN_PASSWORD_REUSE.
   safe_browsing::ChromePasswordProtectionService* service =
       safe_browsing::ChromePasswordProtectionService::
           GetPasswordProtectionService(browser()->profile());
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  service->ShowModalWarning(contents, "token");
-  base::RunLoop().RunUntilIdle();
+  service->ShowModalWarning(contents, "token",
+                            safe_browsing::LoginReputationClientRequest::
+                                PasswordReuseEvent::SIGN_IN_PASSWORD);
 
   OpenPageInfoBubble(browser());
   views::View* change_password_button = GetView(
@@ -378,7 +386,7 @@ IN_PROC_BROWSER_TEST_F(PageInfoBubbleViewBrowserTest,
       SecurityStateTabHelper::FromWebContents(contents);
   security_state::SecurityInfo security_info;
   helper->GetSecurityInfo(&security_info);
-  ASSERT_EQ(security_state::MALICIOUS_CONTENT_STATUS_PASSWORD_REUSE,
+  ASSERT_EQ(security_state::MALICIOUS_CONTENT_STATUS_SIGN_IN_PASSWORD_REUSE,
             security_info.malicious_content_status);
 
   // Verify these two buttons are showing.
@@ -388,15 +396,86 @@ IN_PROC_BROWSER_TEST_F(PageInfoBubbleViewBrowserTest,
   // Verify clicking on button will increment corresponding bucket of
   // PasswordProtection.PageInfoAction.SyncPasswordEntry histogram.
   PerformMouseClickOnView(change_password_button);
-  EXPECT_THAT(histograms.GetAllSamples(kSyncPasswordPageInfoHistogramName),
-              testing::ElementsAre(base::Bucket(0 /*SHOWN*/, 1),
-                                   base::Bucket(1 /*CHANGE_PASSWORD*/, 1)));
+  EXPECT_THAT(
+      histograms.GetAllSamples(kSyncPasswordPageInfoHistogramName),
+      testing::ElementsAre(
+          base::Bucket(safe_browsing::PasswordProtectionService::SHOWN, 1),
+          base::Bucket(
+              safe_browsing::PasswordProtectionService::CHANGE_PASSWORD, 1)));
 
   PerformMouseClickOnView(whitelist_password_reuse_button);
-  EXPECT_THAT(histograms.GetAllSamples(kSyncPasswordPageInfoHistogramName),
-              testing::ElementsAre(base::Bucket(0 /*SHOWN*/, 1),
-                                   base::Bucket(1 /*CHANGE_PASSWORD*/, 1),
-                                   base::Bucket(4 /*MARK_AS_LEGITIMATE*/, 1)));
+  EXPECT_THAT(
+      histograms.GetAllSamples(kSyncPasswordPageInfoHistogramName),
+      testing::ElementsAre(
+          base::Bucket(safe_browsing::PasswordProtectionService::SHOWN, 1),
+          base::Bucket(
+              safe_browsing::PasswordProtectionService::CHANGE_PASSWORD, 1),
+          base::Bucket(
+              safe_browsing::PasswordProtectionService::MARK_AS_LEGITIMATE,
+              1)));
+  // Security state will change after whitelisting.
+  helper->GetSecurityInfo(&security_info);
+  EXPECT_EQ(security_state::MALICIOUS_CONTENT_STATUS_NONE,
+            security_info.malicious_content_status);
+}
+
+// Test opening page info bubble that matches
+// SB_THREAT_TYPE_ENTERPRISE_PASSWORD_REUSE threat type.
+IN_PROC_BROWSER_TEST_F(PageInfoBubbleViewBrowserTest,
+                       VerifyEnterprisePasswordReusePageInfoBubble) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  base::HistogramTester histograms;
+  ui_test_utils::NavigateToURL(browser(), embedded_test_server()->GetURL("/"));
+
+  // Update security state of the current page to match
+  // SB_THREAT_TYPE_ENTERPRISE_PASSWORD_REUSE.
+  safe_browsing::ChromePasswordProtectionService* service =
+      safe_browsing::ChromePasswordProtectionService::
+          GetPasswordProtectionService(browser()->profile());
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  service->ShowModalWarning(contents, "token",
+                            safe_browsing::LoginReputationClientRequest::
+                                PasswordReuseEvent::ENTERPRISE_PASSWORD);
+
+  OpenPageInfoBubble(browser());
+  views::View* change_password_button = GetView(
+      browser(), PageInfoBubbleView::VIEW_ID_PAGE_INFO_BUTTON_CHANGE_PASSWORD);
+  views::View* whitelist_password_reuse_button = GetView(
+      browser(),
+      PageInfoBubbleView::VIEW_ID_PAGE_INFO_BUTTON_WHITELIST_PASSWORD_REUSE);
+
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(contents);
+  security_state::SecurityInfo security_info;
+  helper->GetSecurityInfo(&security_info);
+  ASSERT_EQ(security_state::MALICIOUS_CONTENT_STATUS_ENTERPRISE_PASSWORD_REUSE,
+            security_info.malicious_content_status);
+
+  // Verify these two buttons are showing.
+  EXPECT_TRUE(change_password_button->visible());
+  EXPECT_TRUE(whitelist_password_reuse_button->visible());
+
+  // Verify clicking on button will increment corresponding bucket of
+  // PasswordProtection.PageInfoAction.NonGaiaEnterprisePasswordEntry histogram.
+  PerformMouseClickOnView(change_password_button);
+  EXPECT_THAT(
+      histograms.GetAllSamples(kEnterprisePasswordPageInfoHistogramName),
+      testing::ElementsAre(
+          base::Bucket(safe_browsing::PasswordProtectionService::SHOWN, 1),
+          base::Bucket(
+              safe_browsing::PasswordProtectionService::CHANGE_PASSWORD, 1)));
+
+  PerformMouseClickOnView(whitelist_password_reuse_button);
+  EXPECT_THAT(
+      histograms.GetAllSamples(kEnterprisePasswordPageInfoHistogramName),
+      testing::ElementsAre(
+          base::Bucket(safe_browsing::PasswordProtectionService::SHOWN, 1),
+          base::Bucket(
+              safe_browsing::PasswordProtectionService::CHANGE_PASSWORD, 1),
+          base::Bucket(
+              safe_browsing::PasswordProtectionService::MARK_AS_LEGITIMATE,
+              1)));
   // Security state will change after whitelisting.
   helper->GetSecurityInfo(&security_info);
   EXPECT_EQ(security_state::MALICIOUS_CONTENT_STATUS_NONE,

@@ -1790,6 +1790,7 @@ class CFCMSA_DESC {
   string AsmString = "cfcmsa\t$rd, $cs";
   InstrItinClass Itinerary = NoItinerary;
   bit hasSideEffects = 1;
+  bit isMoveReg = 1;
 }
 
 class CLE_S_B_DESC : MSA_3R_DESC_BASE<"cle_s.b", vsetle_v16i8, MSA128BOpnd>;
@@ -1884,6 +1885,7 @@ class CTCMSA_DESC {
   string AsmString = "ctcmsa\t$cd, $rs";
   InstrItinClass Itinerary = NoItinerary;
   bit hasSideEffects = 1;
+  bit isMoveReg = 1;
 }
 
 class DIV_S_B_DESC : MSA_3R_DESC_BASE<"div_s.b", sdiv, MSA128BOpnd>;
@@ -2429,6 +2431,7 @@ class MOVE_V_DESC {
   string AsmString = "move.v\t$wd, $ws";
   list<dag> Pattern = [];
   InstrItinClass Itinerary = NoItinerary;
+  bit isMoveReg = 1;
 }
 
 class MSUB_Q_H_DESC : MSA_3RF_4RF_DESC_BASE<"msub_q.h", int_mips_msub_q_h,
@@ -3147,17 +3150,17 @@ def FTRUNC_U_D : FTRUNC_U_D_ENC, FTRUNC_U_D_DESC;
 
 def : MipsPat<(fsub MSA128WOpnd:$wd, (fmul MSA128WOpnd:$ws, MSA128WOpnd:$wt)),
               (FMSUB_W MSA128WOpnd:$wd, MSA128WOpnd:$ws, MSA128WOpnd:$wt)>,
-              FPOP_FUSION_FAST;
+              ISA_MIPS1, ASE_MSA, FPOP_FUSION_FAST;
 def : MipsPat<(fsub MSA128DOpnd:$wd, (fmul MSA128DOpnd:$ws, MSA128DOpnd:$wt)),
               (FMSUB_D MSA128DOpnd:$wd, MSA128DOpnd:$ws, MSA128DOpnd:$wt)>,
-              FPOP_FUSION_FAST;
+              ISA_MIPS1, ASE_MSA, FPOP_FUSION_FAST;
 
 def : MipsPat<(fadd MSA128WOpnd:$wd, (fmul MSA128WOpnd:$ws, MSA128WOpnd:$wt)),
               (FMADD_W MSA128WOpnd:$wd, MSA128WOpnd:$ws, MSA128WOpnd:$wt)>,
-              FPOP_FUSION_FAST;
+              ISA_MIPS1, ASE_MSA, FPOP_FUSION_FAST;
 def : MipsPat<(fadd MSA128DOpnd:$wd, (fmul MSA128DOpnd:$ws, MSA128DOpnd:$wt)),
               (FMADD_D MSA128DOpnd:$wd, MSA128DOpnd:$ws, MSA128DOpnd:$wt)>,
-              FPOP_FUSION_FAST;
+              ISA_MIPS1, ASE_MSA, FPOP_FUSION_FAST;
 
 def HADD_S_H : HADD_S_H_ENC, HADD_S_H_DESC;
 def HADD_S_W : HADD_S_W_ENC, HADD_S_W_DESC;
@@ -3749,7 +3752,7 @@ def SZ_V_PSEUDO : MSA_CBRANCH_PSEUDO_DESC_BASE<MipsVAnyZero, v16i8,
 
 // Pseudoes used to implement transparent fp16 support.
 
-let Predicates = [HasMSA] in {
+let ASEPredicate = [HasMSA] in {
  def ST_F16 : MipsPseudo<(outs), (ins MSA128F16:$ws, mem_simm10:$addr),
                           [(store (f16 MSA128F16:$ws), (addrimm10:$addr))]> {
    let usesCustomInserter = 1;
@@ -3789,12 +3792,13 @@ let Predicates = [HasMSA] in {
  }
 
  def : MipsPat<(MipsTruncIntFP MSA128F16:$ws),
-               (TRUNC_W_D64 (MSA_FP_EXTEND_D_PSEUDO MSA128F16:$ws))>;
+               (TRUNC_W_D64 (MSA_FP_EXTEND_D_PSEUDO MSA128F16:$ws))>, ISA_MIPS1,
+               ASE_MSA;
 
  def : MipsPat<(MipsFPCmp MSA128F16:$ws, MSA128F16:$wt, imm:$cond),
                (FCMP_S32 (MSA_FP_EXTEND_W_PSEUDO MSA128F16:$ws),
                          (MSA_FP_EXTEND_W_PSEUDO MSA128F16:$wt), imm:$cond)>,
-       ISA_MIPS1_NOT_32R6_64R6;
+       ISA_MIPS1_NOT_32R6_64R6, ASE_MSA;
 }
 
 def vsplati64_imm_eq_63 : PatLeaf<(bitconvert (v4i32 (build_vector))), [{

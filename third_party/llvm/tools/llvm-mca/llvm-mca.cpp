@@ -21,12 +21,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "BackendPrinter.h"
 #include "CodeRegion.h"
+#include "Context.h"
 #include "DispatchStatistics.h"
 #include "FetchStage.h"
 #include "InstructionInfoView.h"
 #include "InstructionTables.h"
+#include "Pipeline.h"
+#include "PipelinePrinter.h"
 #include "RegisterFileStatistics.h"
 #include "ResourcePressureView.h"
 #include "RetireControlUnitStatistics.h"
@@ -65,15 +67,13 @@ static cl::opt<std::string> OutputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"));
 
 static cl::opt<std::string>
-    ArchName("march",
-             cl::desc("Target arch to assemble for, "
-                      "see -version for available targets"),
+    ArchName("march", cl::desc("Target arch to assemble for, "
+                               "see -version for available targets"),
              cl::cat(ToolOptions));
 
 static cl::opt<std::string>
-    TripleName("mtriple",
-               cl::desc("Target triple to assemble for, "
-                        "see -version for available targets"),
+    TripleName("mtriple", cl::desc("Target triple to assemble for, "
+                                   "see -version for available targets"),
                cl::cat(ToolOptions));
 
 static cl::opt<std::string>
@@ -108,6 +108,11 @@ static cl::opt<bool>
 static cl::opt<bool> PrintDispatchStats("dispatch-stats",
                                         cl::desc("Print dispatch statistics"),
                                         cl::cat(ViewOptions), cl::init(false));
+
+static cl::opt<bool>
+    PrintSummaryView("summary-view", cl::Hidden,
+                     cl::desc("Print summary view (enabled by default)"),
+                     cl::cat(ViewOptions), cl::init(true));
 
 static cl::opt<bool> PrintSchedulerStats("scheduler-stats",
                                          cl::desc("Print scheduler statistics"),
@@ -277,7 +282,8 @@ public:
   void EmitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                         unsigned ByteAlignment) override {}
   void EmitZerofill(MCSection *Section, MCSymbol *Symbol = nullptr,
-                    uint64_t Size = 0, unsigned ByteAlignment = 0) override {}
+                    uint64_t Size = 0, unsigned ByteAlignment = 0,
+                    SMLoc Loc = SMLoc()) override {}
   void EmitGPRel32Value(const MCExpr *Value) override {}
   void BeginCOFFSymbolDef(const MCSymbol *Symbol) override {}
   void EmitCOFFSymbolStorageClass(int StorageClass) override {}
@@ -302,6 +308,7 @@ static void processViewOptions() {
     return;
 
   if (EnableAllViews.getNumOccurrences()) {
+    processOptionImpl(PrintSummaryView, EnableAllViews);
     processOptionImpl(PrintResourcePressureView, EnableAllViews);
     processOptionImpl(PrintTimelineView, EnableAllViews);
     processOptionImpl(PrintInstructionInfoView, EnableAllViews);
@@ -311,6 +318,7 @@ static void processViewOptions() {
       EnableAllViews.getPosition() < EnableAllStats.getPosition()
           ? EnableAllStats
           : EnableAllViews;
+  processOptionImpl(PrintSummaryView, Default);
   processOptionImpl(PrintRegisterFileStats, Default);
   processOptionImpl(PrintDispatchStats, Default);
   processOptionImpl(PrintSchedulerStats, Default);
@@ -381,6 +389,9 @@ int main(int argc, char **argv) {
 
   std::unique_ptr<MCInstrInfo> MCII(TheTarget->createMCInstrInfo());
 
+  std::unique_ptr<MCInstrAnalysis> MCIA(
+      TheTarget->createMCInstrAnalysis(MCII.get()));
+
   if (!MCPU.compare("native"))
     MCPU = llvm::sys::getHostCPUName();
 
@@ -450,7 +461,13 @@ int main(int argc, char **argv) {
     Width = DispatchWidth;
 
   // Create an instruction builder.
-  mca::InstrBuilder IB(*STI, *MCII);
+  mca::InstrBuilder IB(*STI, *MCII, *MRI, *MCIA, *IP);
+
+  // Create a context to control ownership of the pipeline hardware.
+  mca::Context MCA(*MRI, *STI);
+
+  mca::PipelineOptions PO(Width, RegisterFileSize, LoadQueueSize,
+                          StoreQueueSize, AssumeNoAlias);
 
   // Number each region in the sequence.
   unsigned RegionIdx = 0;
@@ -473,29 +490,31 @@ int main(int argc, char **argv) {
                      PrintInstructionTables ? 1 : Iterations);
 
     if (PrintInstructionTables) {
-      mca::InstructionTables IT(STI->getSchedModel(), IB, S);
+      //  Create a pipeline, stages, and a printer.
+      auto P = llvm::make_unique<mca::Pipeline>();
+      P->appendStage(llvm::make_unique<mca::FetchStage>(IB, S));
+      P->appendStage(llvm::make_unique<mca::InstructionTables>(SM, IB));
+      mca::PipelinePrinter Printer(*P);
 
+      // Create the views for this pipeline, execute, and emit a report.
       if (PrintInstructionInfoView) {
-        IT.addView(
+        Printer.addView(
             llvm::make_unique<mca::InstructionInfoView>(*STI, *MCII, S, *IP));
       }
-
-      IT.addView(llvm::make_unique<mca::ResourcePressureView>(*STI, *IP, S));
-      IT.run();
-      IT.printReport(TOF->os());
+      Printer.addView(
+          llvm::make_unique<mca::ResourcePressureView>(*STI, *IP, S));
+      P->run();
+      Printer.printReport(TOF->os());
       continue;
     }
 
-    // Ideally, I'd like to expose the pipeline building here,
-    // by registering all of the Stage instances.
-    // But for now, it's just this single puppy.
-    std::unique_ptr<mca::FetchStage> Fetch =
-        llvm::make_unique<mca::FetchStage>(IB, S);
-    mca::Backend B(*STI, *MRI, std::move(Fetch), Width, RegisterFileSize,
-                   LoadQueueSize, StoreQueueSize, AssumeNoAlias);
-    mca::BackendPrinter Printer(B);
+    // Create a basic pipeline simulating an out-of-order backend.
+    auto P = MCA.createDefaultPipeline(PO, IB, S);
+    mca::PipelinePrinter Printer(*P);
 
-    Printer.addView(llvm::make_unique<mca::SummaryView>(S, Width));
+    if (PrintSummaryView)
+      Printer.addView(llvm::make_unique<mca::SummaryView>(SM, S, Width));
+
     if (PrintInstructionInfoView)
       Printer.addView(
           llvm::make_unique<mca::InstructionInfoView>(*STI, *MCII, S, *IP));
@@ -521,8 +540,11 @@ int main(int argc, char **argv) {
           *STI, *IP, S, TimelineMaxIterations, TimelineMaxCycles));
     }
 
-    B.run();
+    P->run();
     Printer.printReport(TOF->os());
+
+    // Clear the InstrBuilder internal state in preparation for another round.
+    IB.clear();
   }
 
   TOF->keep();

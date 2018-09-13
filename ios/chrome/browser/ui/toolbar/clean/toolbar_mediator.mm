@@ -10,6 +10,7 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #include "ios/chrome/browser/ui/bookmarks/bookmark_model_bridge_observer.h"
+#import "ios/chrome/browser/ui/ntp/ntp_util.h"
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_consumer.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
@@ -145,14 +146,15 @@
               atIndex:(int)index
            activating:(BOOL)activating {
   DCHECK_EQ(_webStateList, webStateList);
-  [self.consumer setTabCount:_webStateList->count()];
+  [self.consumer setTabCount:_webStateList->count()
+           addedInBackground:!activating];
 }
 
 - (void)webStateList:(WebStateList*)webStateList
     didDetachWebState:(web::WebState*)webState
               atIndex:(int)index {
   DCHECK_EQ(_webStateList, webStateList);
-  [self.consumer setTabCount:_webStateList->count()];
+  [self.consumer setTabCount:_webStateList->count() addedInBackground:NO];
 }
 
 - (void)webStateList:(WebStateList*)webStateList
@@ -191,7 +193,7 @@
     [self updateConsumer];
   }
   if (self.webStateList) {
-    [self.consumer setTabCount:_webStateList->count()];
+    [self.consumer setTabCount:_webStateList->count() addedInBackground:NO];
   }
 }
 
@@ -209,7 +211,7 @@
     _webStateList->AddObserver(_webStateListObserver.get());
 
     if (self.consumer) {
-      [self.consumer setTabCount:_webStateList->count()];
+      [self.consumer setTabCount:_webStateList->count() addedInBackground:NO];
     }
   }
 }
@@ -233,10 +235,11 @@
   DCHECK(self.webState);
   DCHECK(self.consumer);
   [self updateConsumerForWebState:self.webState];
+
+  [self.consumer setIsNTP:IsVisibleUrlNewTabPage(self.webState)];
   [self.consumer setLoadingState:self.webState->IsLoading()];
   [self updateBookmarksForWebState:self.webState];
   [self updateShareMenuForWebState:self.webState];
-  [self.consumer setIsNTP:self.webState->GetVisibleURL() == kChromeUINewTabURL];
 }
 
 // Updates the consumer with the new forward and back states.
@@ -257,7 +260,7 @@
   }
 }
 
-// Uodates the Share Menu button of the consumer.
+// Updates the Share Menu button of the consumer.
 - (void)updateShareMenuForWebState:(web::WebState*)webState {
   const GURL& URL = webState->GetLastCommittedURL();
   BOOL shareMenuEnabled =

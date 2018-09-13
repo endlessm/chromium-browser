@@ -755,6 +755,36 @@ IntegerLiteral::Create(const ASTContext &C, EmptyShell Empty) {
   return new (C) IntegerLiteral(Empty);
 }
 
+FixedPointLiteral::FixedPointLiteral(const ASTContext &C, const llvm::APInt &V,
+                                     QualType type, SourceLocation l,
+                                     unsigned Scale)
+    : Expr(FixedPointLiteralClass, type, VK_RValue, OK_Ordinary, false, false,
+           false, false),
+      Loc(l), Scale(Scale) {
+  assert(type->isFixedPointType() && "Illegal type in FixedPointLiteral");
+  assert(V.getBitWidth() == C.getTypeInfo(type).Width &&
+         "Fixed point type is not the correct size for constant.");
+  setValue(C, V);
+}
+
+FixedPointLiteral *FixedPointLiteral::CreateFromRawInt(const ASTContext &C,
+                                                       const llvm::APInt &V,
+                                                       QualType type,
+                                                       SourceLocation l,
+                                                       unsigned Scale) {
+  return new (C) FixedPointLiteral(C, V, type, l, Scale);
+}
+
+std::string FixedPointLiteral::getValueAsString(unsigned Radix) const {
+  // Currently the longest decimal number that can be printed is the max for an
+  // unsigned long _Accum: 4294967295.99999999976716935634613037109375
+  // which is 43 characters.
+  SmallString<64> S;
+  FixedPointValueToString(
+      S, llvm::APSInt::getUnsigned(getValue().getZExtValue()), Scale, Radix);
+  return S.str();
+}
+
 FloatingLiteral::FloatingLiteral(const ASTContext &C, const llvm::APFloat &V,
                                  bool isexact, QualType Type, SourceLocation L)
   : Expr(FloatingLiteralClass, Type, VK_RValue, OK_Ordinary, false, false,
@@ -1643,23 +1673,22 @@ const char *CastExpr::getCastKindName(CastKind CK) {
 }
 
 namespace {
-  Expr *skipImplicitTemporary(Expr *expr) {
+  const Expr *skipImplicitTemporary(const Expr *E) {
     // Skip through reference binding to temporary.
-    if (MaterializeTemporaryExpr *Materialize
-                                  = dyn_cast<MaterializeTemporaryExpr>(expr))
-      expr = Materialize->GetTemporaryExpr();
+    if (auto *Materialize = dyn_cast<MaterializeTemporaryExpr>(E))
+      E = Materialize->GetTemporaryExpr();
 
     // Skip any temporary bindings; they're implicit.
-    if (CXXBindTemporaryExpr *Binder = dyn_cast<CXXBindTemporaryExpr>(expr))
-      expr = Binder->getSubExpr();
+    if (auto *Binder = dyn_cast<CXXBindTemporaryExpr>(E))
+      E = Binder->getSubExpr();
 
-    return expr;
+    return E;
   }
 }
 
 Expr *CastExpr::getSubExprAsWritten() {
-  Expr *SubExpr = nullptr;
-  CastExpr *E = this;
+  const Expr *SubExpr = nullptr;
+  const CastExpr *E = this;
   do {
     SubExpr = skipImplicitTemporary(E->getSubExpr());
 
@@ -1672,15 +1701,33 @@ Expr *CastExpr::getSubExprAsWritten() {
       assert((isa<CXXMemberCallExpr>(SubExpr) ||
               isa<BlockExpr>(SubExpr)) &&
              "Unexpected SubExpr for CK_UserDefinedConversion.");
-      if (isa<CXXMemberCallExpr>(SubExpr))
-        SubExpr = cast<CXXMemberCallExpr>(SubExpr)->getImplicitObjectArgument();
+      if (auto *MCE = dyn_cast<CXXMemberCallExpr>(SubExpr))
+        SubExpr = MCE->getImplicitObjectArgument();
     }
     
     // If the subexpression we're left with is an implicit cast, look
     // through that, too.
   } while ((E = dyn_cast<ImplicitCastExpr>(SubExpr)));  
   
-  return SubExpr;
+  return const_cast<Expr*>(SubExpr);
+}
+
+NamedDecl *CastExpr::getConversionFunction() const {
+  const Expr *SubExpr = nullptr;
+
+  for (const CastExpr *E = this; E; E = dyn_cast<ImplicitCastExpr>(SubExpr)) {
+    SubExpr = skipImplicitTemporary(E->getSubExpr());
+
+    if (E->getCastKind() == CK_ConstructorConversion)
+      return cast<CXXConstructExpr>(SubExpr)->getConstructor();
+
+    if (E->getCastKind() == CK_UserDefinedConversion) {
+      if (auto *MCE = dyn_cast<CXXMemberCallExpr>(SubExpr))
+        return MCE->getMethodDecl();
+    }
+  }
+
+  return nullptr;
 }
 
 CXXBaseSpecifier **CastExpr::path_buffer() {
@@ -2991,6 +3038,7 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
   case ObjCIvarRefExprClass:
   case PredefinedExprClass:
   case IntegerLiteralClass:
+  case FixedPointLiteralClass:
   case FloatingLiteralClass:
   case ImaginaryLiteralClass:
   case StringLiteralClass:

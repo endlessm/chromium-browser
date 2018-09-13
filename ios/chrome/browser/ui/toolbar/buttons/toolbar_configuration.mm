@@ -39,8 +39,15 @@
 }
 
 - (UIColor*)blurBackgroundColor {
-  if (UIAccessibilityIsReduceTransparencyEnabled())
-    return [UIColor colorWithWhite:kBlurBackgroundGrayscaleComponent alpha:1];
+  if (UIAccessibilityIsReduceTransparencyEnabled()) {
+    switch (self.style) {
+      case NORMAL:
+        return
+            [UIColor colorWithWhite:kBlurBackgroundGrayscaleComponent alpha:1];
+      case INCOGNITO:
+        return UIColorFromRGB(kIncognitoToolbarBackgroundColor);
+    }
+  }
   return [UIColor colorWithWhite:kBlurBackgroundGrayscaleComponent
                            alpha:kBlurBackgroundAlpha];
 }
@@ -176,9 +183,10 @@
                                alpha:kAdaptiveLocationBarBackgroundAlpha *
                                      visibilityFactor];
     case INCOGNITO:
-      return [UIColor colorWithWhite:1
-                               alpha:kAdaptiveLocationBarBackgroundAlpha *
-                                     visibilityFactor];
+      return
+          [UIColor colorWithWhite:1
+                            alpha:kAdaptiveLocationBarBackgroundAlphaIncognito *
+                                  visibilityFactor];
   }
 }
 

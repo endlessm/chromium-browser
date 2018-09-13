@@ -63,6 +63,8 @@ DesktopAutomationHandler = function(node) {
   this.addListener_(EventType.CHILDREN_CHANGED, this.onChildrenChanged);
   this.addListener_(
       EventType.DOCUMENT_SELECTION_CHANGED, this.onDocumentSelectionChanged);
+  this.addListener_(
+      EventType.DOCUMENT_TITLE_CHANGED, this.onDocumentTitleChanged);
   this.addListener_(EventType.EXPANDED_CHANGED, this.onEventIfInRange);
   this.addListener_(EventType.FOCUS, this.onFocus);
   this.addListener_(EventType.HOVER, this.onHover);
@@ -197,6 +199,21 @@ DesktopAutomationHandler.prototype = {
    * @param {!AutomationNode} node The hit result.
    */
   onHitTestResult: function(node) {
+    // It is possible that the user moved since we requested a hit test.
+    // The following events occur:
+    // load complete
+    // a hit test with reply is requested
+    // user moves
+    // we end up here
+    // As a result, check to ensure we're still on a root web area, before
+    // continuing.
+    if (ChromeVoxState.instance.currentRange &&
+        ChromeVoxState.instance.currentRange.start &&
+        ChromeVoxState.instance.currentRange.start.node &&
+        ChromeVoxState.instance.currentRange.start.node.role !=
+            RoleType.ROOT_WEB_AREA)
+      return;
+
     chrome.automation.getFocus(function(focus) {
       if (!focus && !node)
         return;
@@ -232,6 +249,10 @@ DesktopAutomationHandler.prototype = {
     if (ChromeVoxState.instance.currentRange &&
         target == ChromeVoxState.instance.currentRange.start.node)
       return;
+
+    if (!this.createTextEditHandlerIfNeeded_(target))
+      this.textEditHandler_ = null;
+
     Output.forceModeForNextSpeechUtterance(cvox.QueueMode.FLUSH);
     this.onEventDefault(
         new CustomAutomationEvent(evt.type, target, evt.eventFrom));
@@ -293,6 +314,13 @@ DesktopAutomationHandler.prototype = {
   onChildrenChanged: function(evt) {
     var curRange = ChromeVoxState.instance.currentRange;
 
+    // views::TextField blinks by making its cursor view alternate between
+    // visible and not visible. This results in a children changed event on its
+    // parent (the text field itself). In general, text field feedback should be
+    // given within text field specific events.
+    if (evt.target.role == RoleType.TEXT_FIELD)
+      return;
+
     // Always refresh the braille contents.
     if (curRange && curRange.equals(cursors.Range.fromNode(evt.target))) {
       new Output()
@@ -322,11 +350,22 @@ DesktopAutomationHandler.prototype = {
   },
 
   /**
+   * @param {!AutomationEvent} evt
+   */
+  onDocumentTitleChanged: function(evt) {
+    var t = evt.target;
+    var output = new Output();
+    output.format('$name', t);
+    output.go();
+  },
+
+  /**
    * Provides all feedback once a focus event fires.
    * @param {!AutomationEvent} evt
    */
   onFocus: function(evt) {
-    if (evt.target.role == RoleType.ROOT_WEB_AREA) {
+    if (evt.target.role == RoleType.ROOT_WEB_AREA &&
+        evt.eventFrom != 'action') {
       chrome.automation.getFocus(
           this.maybeRecoverFocusAndOutput_.bind(this, evt));
       return;
@@ -402,6 +441,13 @@ DesktopAutomationHandler.prototype = {
    * @param {!AutomationEvent} evt
    */
   onLocationChanged: function(evt) {
+    if (evt.target.role == RoleType.DESKTOP) {
+      var msg = evt.target.state[StateType.HORIZONTAL] ? 'device_landscape' :
+                                                         'device_portrait';
+      new Output().format('@' + msg).go();
+      return;
+    }
+
     var cur = ChromeVoxState.instance.currentRange;
     if (AutomationUtil.isDescendantOf(cur.start.node, evt.target) ||
         AutomationUtil.isDescendantOf(cur.end.node, evt.target)) {
@@ -596,9 +642,6 @@ DesktopAutomationHandler.prototype = {
          voxTarget.root.url.indexOf(DesktopAutomationHandler.KEYBOARD_URL) !=
              0) &&
             !AutomationUtil.isDescendantOf(target, voxTarget))
-      return false;
-
-    if (target.restriction == chrome.automation.Restriction.READ_ONLY)
       return false;
 
     if (!this.textEditHandler_ || this.textEditHandler_.node !== target) {

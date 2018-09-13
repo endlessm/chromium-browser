@@ -146,6 +146,14 @@ class TestCryptohomeClient : public ::chromeos::FakeCryptohomeClient {
     is_create_attempt_expected_ = expected;
   }
 
+  void set_migrate_key_should_succeed(bool should_succeed) {
+    migrate_key_should_succeed_ = should_succeed;
+  }
+
+  void set_mount_guest_should_succeed(bool should_succeed) {
+    mount_guest_should_succeed_ = should_succeed;
+  }
+
   void MountEx(const cryptohome::Identification& cryptohome_id,
                const cryptohome::AuthorizationRequest& auth,
                const cryptohome::MountRequest& request,
@@ -179,10 +187,38 @@ class TestCryptohomeClient : public ::chromeos::FakeCryptohomeClient {
         FROM_HERE, base::BindOnce(std::move(callback), reply));
   }
 
+  void MigrateKeyEx(
+      const cryptohome::AccountIdentifier& account,
+      const cryptohome::AuthorizationRequest& auth_request,
+      const cryptohome::MigrateKeyRequest& migrate_request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) override {
+    EXPECT_EQ(expected_id_.id(), account.account_id());
+
+    cryptohome::BaseReply reply;
+    if (!migrate_key_should_succeed_)
+      reply.set_error(cryptohome::CRYPTOHOME_ERROR_MIGRATE_KEY_FAILED);
+
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), reply));
+  }
+
+  void MountGuestEx(
+      const cryptohome::MountGuestRequest& request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) override {
+    cryptohome::BaseReply reply;
+    if (!mount_guest_should_succeed_)
+      reply.set_error(cryptohome::CRYPTOHOME_ERROR_MOUNT_FATAL);
+
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), reply));
+  }
+
  private:
   cryptohome::Identification expected_id_;
   std::string expected_authorization_secret_;
   bool is_create_attempt_expected_ = false;
+  bool migrate_key_should_succeed_ = false;
+  bool mount_guest_should_succeed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(TestCryptohomeClient);
 };
@@ -197,6 +233,7 @@ class CryptohomeAuthenticatorTest : public testing::Test {
         user_manager_(new chromeos::FakeChromeUserManager()),
         user_manager_enabler_(base::WrapUnique(user_manager_)),
         mock_caller_(NULL),
+        consumer_(run_loop_.QuitClosure()),
         owner_key_util_(new ownership::MockOwnerKeyUtil()) {
     // Testing profile must be initialized after user_manager_ +
     // user_manager_enabler_, because it will create another UserManager
@@ -267,45 +304,48 @@ class CryptohomeAuthenticatorTest : public testing::Test {
   // wasn't supposed to happen.
   void FailOnLoginFailure() {
     ON_CALL(consumer_, OnAuthFailure(_))
-        .WillByDefault(Invoke(MockAuthStatusConsumer::OnFailQuitAndFail));
+        .WillByDefault(
+            Invoke(&consumer_, &MockAuthStatusConsumer::OnFailQuitAndFail));
   }
 
   // Allow test to fail and exit gracefully, even if OnAuthSuccess()
   // wasn't supposed to happen.
   void FailOnLoginSuccess() {
     ON_CALL(consumer_, OnAuthSuccess(_))
-        .WillByDefault(Invoke(MockAuthStatusConsumer::OnSuccessQuitAndFail));
+        .WillByDefault(
+            Invoke(&consumer_, &MockAuthStatusConsumer::OnSuccessQuitAndFail));
   }
 
   // Allow test to fail and exit gracefully, even if
   // OnOffTheRecordAuthSuccess() wasn't supposed to happen.
   void FailOnGuestLoginSuccess() {
     ON_CALL(consumer_, OnOffTheRecordAuthSuccess())
-        .WillByDefault(
-            Invoke(MockAuthStatusConsumer::OnGuestSuccessQuitAndFail));
+        .WillByDefault(Invoke(
+            &consumer_, &MockAuthStatusConsumer::OnGuestSuccessQuitAndFail));
   }
 
   void ExpectLoginFailure(const AuthFailure& failure) {
     EXPECT_CALL(consumer_, OnAuthFailure(failure))
-        .WillOnce(Invoke(MockAuthStatusConsumer::OnFailQuit))
+        .WillOnce(Invoke(&consumer_, &MockAuthStatusConsumer::OnFailQuit))
         .RetiresOnSaturation();
   }
 
   void ExpectLoginSuccess(const UserContext& user_context) {
     EXPECT_CALL(consumer_, OnAuthSuccess(user_context))
-        .WillOnce(Invoke(MockAuthStatusConsumer::OnSuccessQuit))
+        .WillOnce(Invoke(&consumer_, &MockAuthStatusConsumer::OnSuccessQuit))
         .RetiresOnSaturation();
   }
 
   void ExpectGuestLoginSuccess() {
     EXPECT_CALL(consumer_, OnOffTheRecordAuthSuccess())
-        .WillOnce(Invoke(MockAuthStatusConsumer::OnGuestSuccessQuit))
+        .WillOnce(
+            Invoke(&consumer_, &MockAuthStatusConsumer::OnGuestSuccessQuit))
         .RetiresOnSaturation();
   }
 
   void ExpectPasswordChange() {
     EXPECT_CALL(consumer_, OnPasswordChangeDetected())
-        .WillOnce(Invoke(MockAuthStatusConsumer::OnMigrateQuit))
+        .WillOnce(Invoke(&consumer_, &MockAuthStatusConsumer::OnMigrateQuit))
         .RetiresOnSaturation();
   }
 
@@ -354,6 +394,16 @@ class CryptohomeAuthenticatorTest : public testing::Test {
         transformed_key_.GetSecret());
   }
 
+  void ExpectMigrateKeyExCall(bool should_succeed) {
+    fake_cryptohome_client_->set_expected_id(
+        cryptohome::Identification(user_context_.GetAccountId()));
+    fake_cryptohome_client_->set_migrate_key_should_succeed(should_succeed);
+  }
+
+  void ExpectMountGuestExCall(bool should_succeed) {
+    fake_cryptohome_client_->set_mount_guest_should_succeed(should_succeed);
+  }
+
   void RunResolve(CryptohomeAuthenticator* auth) {
     auth->Resolve();
     base::RunLoop().RunUntilIdle();
@@ -390,6 +440,7 @@ class CryptohomeAuthenticatorTest : public testing::Test {
 
   cryptohome::MockAsyncMethodCaller* mock_caller_;
 
+  base::RunLoop run_loop_;
   MockAuthStatusConsumer consumer_;
 
   scoped_refptr<CryptohomeAuthenticator> auth_;
@@ -579,27 +630,19 @@ TEST_F(CryptohomeAuthenticatorTest, DriveFailedMount) {
 TEST_F(CryptohomeAuthenticatorTest, DriveGuestLogin) {
   ExpectGuestLoginSuccess();
   FailOnLoginFailure();
-
-  // Set up mock async method caller to respond as though a tmpfs mount
-  // attempt has occurred and succeeded.
-  mock_caller_->SetUp(true, cryptohome::MOUNT_ERROR_NONE);
-  EXPECT_CALL(*mock_caller_, AsyncMountGuest(_)).Times(1).RetiresOnSaturation();
+  ExpectMountGuestExCall(true /*should_succeeed*/);
 
   auth_->LoginOffTheRecord();
-  base::RunLoop().Run();
+  run_loop_.Run();
 }
 
 TEST_F(CryptohomeAuthenticatorTest, DriveGuestLoginButFail) {
   FailOnGuestLoginSuccess();
   ExpectLoginFailure(AuthFailure(AuthFailure::COULD_NOT_MOUNT_TMPFS));
-
-  // Set up mock async method caller to respond as though a tmpfs mount
-  // attempt has occurred and failed.
-  mock_caller_->SetUp(false, cryptohome::MOUNT_ERROR_FATAL);
-  EXPECT_CALL(*mock_caller_, AsyncMountGuest(_)).Times(1).RetiresOnSaturation();
+  ExpectMountGuestExCall(false /*should_succeed*/);
 
   auth_->LoginOffTheRecord();
-  base::RunLoop().Run();
+  run_loop_.Run();
 }
 
 TEST_F(CryptohomeAuthenticatorTest, DriveDataResync) {
@@ -628,7 +671,7 @@ TEST_F(CryptohomeAuthenticatorTest, DriveDataResync) {
   SetAttemptState(auth_.get(), state_.release());
 
   auth_->ResyncEncryptedData();
-  base::RunLoop().Run();
+  run_loop_.Run();
 }
 
 TEST_F(CryptohomeAuthenticatorTest, DriveResyncFail) {
@@ -646,7 +689,7 @@ TEST_F(CryptohomeAuthenticatorTest, DriveResyncFail) {
   SetAttemptState(auth_.get(), state_.release());
 
   auth_->ResyncEncryptedData();
-  base::RunLoop().Run();
+  run_loop_.Run();
 }
 
 TEST_F(CryptohomeAuthenticatorTest, DriveRequestOldPassword) {
@@ -667,46 +710,29 @@ TEST_F(CryptohomeAuthenticatorTest, DriveDataRecover) {
   ExpectLoginSuccess(expected_user_context);
   FailOnLoginFailure();
 
-  // Set up mock async method caller to respond successfully to a key migration.
-  mock_caller_->SetUp(true, cryptohome::MOUNT_ERROR_NONE);
-  EXPECT_CALL(
-      *mock_caller_,
-      AsyncMigrateKey(cryptohome::Identification(user_context_.GetAccountId()),
-                      _, transformed_key_.GetSecret(), _))
-      .Times(1)
-      .RetiresOnSaturation();
-
   // Set up mock homedir methods to respond successfully to a cryptohome mount
   // attempt.
   ExpectGetKeyDataExCall(std::unique_ptr<int64_t>(),
                          std::unique_ptr<std::string>());
   ExpectMountExCall(false /* expect_create_attempt */);
+  ExpectMigrateKeyExCall(true /*should_succeed*/);
 
   state_->PresetOnlineLoginStatus(AuthFailure::AuthFailureNone());
   SetAttemptState(auth_.get(), state_.release());
 
   auth_->RecoverEncryptedData(std::string());
-  base::RunLoop().Run();
+  run_loop_.Run();
 }
 
 TEST_F(CryptohomeAuthenticatorTest, DriveDataRecoverButFail) {
   FailOnLoginSuccess();
   ExpectPasswordChange();
-
-  // Set up mock async method caller to fail a key migration attempt,
-  // asserting that the wrong password was used.
-  mock_caller_->SetUp(false, cryptohome::MOUNT_ERROR_KEY_FAILURE);
-  EXPECT_CALL(
-      *mock_caller_,
-      AsyncMigrateKey(cryptohome::Identification(user_context_.GetAccountId()),
-                      _, transformed_key_.GetSecret(), _))
-      .Times(1)
-      .RetiresOnSaturation();
+  ExpectMigrateKeyExCall(false /*should_succeed*/);
 
   SetAttemptState(auth_.get(), state_.release());
 
   auth_->RecoverEncryptedData(std::string());
-  base::RunLoop().Run();
+  run_loop_.Run();
 }
 
 TEST_F(CryptohomeAuthenticatorTest, ResolveOfflineNoMount) {
@@ -791,7 +817,7 @@ TEST_F(CryptohomeAuthenticatorTest, DriveUnlock) {
   ExpectCheckKeyExCall();
 
   auth_->AuthenticateToUnlock(user_context_);
-  base::RunLoop().Run();
+  run_loop_.Run();
 }
 
 TEST_F(CryptohomeAuthenticatorTest, DriveLoginWithPreHashedPassword) {
@@ -812,7 +838,7 @@ TEST_F(CryptohomeAuthenticatorTest, DriveLoginWithPreHashedPassword) {
   ExpectMountExCall(false /* expect_create_attempt */);
 
   auth_->AuthenticateToLogin(NULL, user_context_);
-  base::RunLoop().Run();
+  run_loop_.Run();
 }
 
 TEST_F(CryptohomeAuthenticatorTest, FailLoginWithMissingSalt) {
@@ -828,7 +854,7 @@ TEST_F(CryptohomeAuthenticatorTest, FailLoginWithMissingSalt) {
                          std::unique_ptr<std::string>());
 
   auth_->AuthenticateToLogin(NULL, user_context_);
-  base::RunLoop().Run();
+  run_loop_.Run();
 }
 
 }  // namespace chromeos

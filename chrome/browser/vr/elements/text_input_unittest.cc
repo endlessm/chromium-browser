@@ -22,7 +22,6 @@
 #include "chrome/browser/vr/ui_scene_constants.h"
 #include "chrome/browser/vr/ui_scene_creator.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/blink/public/platform/web_gesture_event.h"
 #include "ui/gfx/render_text.h"
 
 using ::testing::_;
@@ -39,7 +38,7 @@ class TextInputSceneTest : public UiTest {
  public:
   void SetUp() override {
     UiTest::SetUp();
-    CreateScene(kNotInCct, kNotInWebVr);
+    CreateScene(kNotInWebVr);
 
     // Make test text input.
     text_input_delegate_ =
@@ -107,7 +106,7 @@ TEST_F(TextInputSceneTest, InputFieldFocus) {
 
   // Clicking on the text field should request focus.
   EXPECT_CALL(*text_input_delegate_, RequestFocus(_)).InSequence(in_sequence_);
-  text_input_->OnButtonUp(gfx::PointF());
+  text_input_->OnButtonUp(gfx::PointF(), base::TimeTicks());
 
   // Focusing on an input field should show the keyboard and tell the delegate
   // the field's content.
@@ -150,7 +149,7 @@ TEST_F(TextInputSceneTest, InputFieldEdit) {
 
 TEST_F(TextInputSceneTest, ClickOnTextGrabsFocus) {
   EXPECT_CALL(*text_input_delegate_, RequestFocus(_));
-  text_input_->get_text_element()->OnButtonUp({0, 0});
+  text_input_->get_text_element()->OnButtonUp({0, 0}, base::TimeTicks());
 }
 
 TEST(TextInputTest, ControllerInteractionsSentToDelegate) {
@@ -162,15 +161,15 @@ TEST(TextInputTest, ControllerInteractionsSentToDelegate) {
 
   EXPECT_CALL(*kb_delegate, OnHoverEnter(_)).InSequence(s);
   EXPECT_CALL(*kb_delegate, OnHoverLeave()).InSequence(s);
-  EXPECT_CALL(*kb_delegate, OnMove(_)).InSequence(s);
+  EXPECT_CALL(*kb_delegate, OnHoverMove(_)).InSequence(s);
   EXPECT_CALL(*kb_delegate, OnButtonDown(_)).InSequence(s);
   EXPECT_CALL(*kb_delegate, OnButtonUp(_)).InSequence(s);
   gfx::PointF p;
-  keyboard->OnHoverEnter(p);
-  keyboard->OnHoverLeave();
-  keyboard->OnMove(p);
-  keyboard->OnButtonDown(p);
-  keyboard->OnButtonUp(p);
+  keyboard->OnHoverEnter(p, base::TimeTicks());
+  keyboard->OnHoverLeave(base::TimeTicks());
+  keyboard->OnHoverMove(p, base::TimeTicks());
+  keyboard->OnButtonDown(p, base::TimeTicks());
+  keyboard->OnButtonUp(p, base::TimeTicks());
 }
 
 TEST(TextInputTest, HintText) {
@@ -281,14 +280,14 @@ TEST(TextInputTest, CursorPositionUpdatesOnClicks) {
   element->get_text_element()->PrepareToDrawForTest();
 
   // Click on the left edge of the field.
-  element->OnButtonDown(gfx::PointF(0.0, 0.5));
-  element->OnButtonUp(gfx::PointF(0.0, 0.5));
+  element->OnButtonDown(gfx::PointF(0.0, 0.5), base::TimeTicks());
+  element->OnButtonUp(gfx::PointF(0.0, 0.5), base::TimeTicks());
   element->get_text_element()->PrepareToDrawForTest();
   auto x1 = element->get_text_element()->GetRawCursorBounds().x();
 
   // Click on the right edge of the field.
-  element->OnButtonDown(gfx::PointF(1.0, 0.5));
-  element->OnButtonUp(gfx::PointF(1.0, 0.5));
+  element->OnButtonDown(gfx::PointF(1.0, 0.5), base::TimeTicks());
+  element->OnButtonUp(gfx::PointF(1.0, 0.5), base::TimeTicks());
   element->get_text_element()->PrepareToDrawForTest();
   auto x2 = element->get_text_element()->GetRawCursorBounds().x();
 
@@ -300,9 +299,44 @@ TEST(TextInputTest, CursorPositionUpdatesOnClicks) {
   info.current.selection_end = info.current.text.size();
   element->UpdateInput(info);
   EXPECT_GT(element->edited_text().current.SelectionSize(), 0u);
-  element->OnButtonDown(gfx::PointF(0.5, 0.5));
-  element->OnButtonUp(gfx::PointF(0.5, 0.5));
+  element->OnButtonDown(gfx::PointF(0.5, 0.5), base::TimeTicks());
+  element->OnButtonUp(gfx::PointF(0.5, 0.5), base::TimeTicks());
   EXPECT_EQ(element->edited_text().current.SelectionSize(), 0u);
+}
+
+TEST(TextInputTest, TextSelectionUpdatesOnTouchMove) {
+  auto element = std::make_unique<TextInput>(
+      kFontHeightMeters, TextInput::OnInputEditedCallback());
+  element->SetSize(1.0, 0);
+
+  EditedText info(TextInputInfo(
+      base::UTF8ToUTF16("this is a long text with the cursor at the beginning"),
+      0, 0));
+  element->UpdateInput(info);
+  element->get_text_element()->PrepareToDrawForTest();
+  EXPECT_EQ(element->edited_text().current.SelectionSize(), 0u);
+
+  // Click on the left edge of the field.
+  element->OnButtonDown(gfx::PointF(0.0, 0.5), base::TimeTicks());
+  EXPECT_EQ(element->edited_text().current.selection_start, 0);
+  EXPECT_EQ(element->edited_text().current.selection_end, 0);
+
+  element->OnTouchMove(gfx::PointF(0.5, 0.5), base::TimeTicks());
+  EXPECT_EQ(element->edited_text().current.selection_start, 0);
+  auto end1 = element->edited_text().current.selection_end;
+  EXPECT_GT(end1, 0);
+
+  // Move to the right edge of the field.
+  element->OnTouchMove(gfx::PointF(1.0, 0.5), base::TimeTicks());
+  EXPECT_EQ(element->edited_text().current.selection_start, 0);
+  auto end2 = element->edited_text().current.selection_end;
+  EXPECT_GT(end2, end1);
+
+  // Move past the right edge of the field and release.
+  element->OnTouchMove(gfx::PointF(2.0, 0.5), base::TimeTicks());
+  element->OnButtonUp(gfx::PointF(2.0, 0.5), base::TimeTicks());
+  auto end3 = element->edited_text().current.selection_end;
+  EXPECT_GT(end3, end2);
 }
 
 }  // namespace vr

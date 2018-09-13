@@ -38,7 +38,7 @@
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/PHITransAddr.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Attributes.h"
@@ -1064,7 +1064,7 @@ bool GVN::PerformLoadPRE(LoadInst *LI, AvailValInBlkVect &ValuesPerBlock,
   // It is illegal to move the array access to any point above the guard,
   // because if the index is out of bounds we should deoptimize rather than
   // access the array.
-  // Check that there is no guard in this block above our intruction.
+  // Check that there is no guard in this block above our instruction.
   if (!IsSafeToSpeculativelyExecute) {
     auto It = FirstImplicitControlFlowInsts.find(TmpBB);
     if (It != FirstImplicitControlFlowInsts.end()) {

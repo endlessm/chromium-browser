@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "base/base64.h"
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
@@ -20,7 +21,6 @@
 #include "base/ios/block_types.h"
 #include "base/ios/ios_util.h"
 #include "base/logging.h"
-#include "base/mac/bind_objc_block.h"
 #include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
 #include "base/macros.h"
@@ -55,6 +55,7 @@
 #include "ios/chrome/app/tests_hook.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_tab_helper.h"
 #import "ios/chrome/browser/autofill/autofill_tab_helper.h"
+#import "ios/chrome/browser/autofill/form_input_accessory_coordinator.h"
 #include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
@@ -124,14 +125,14 @@
 #import "ios/chrome/browser/ui/browser_container/browser_container_view_controller.h"
 #import "ios/chrome/browser/ui/browser_view_controller_dependency_factory.h"
 #import "ios/chrome/browser/ui/browser_view_controller_helper.h"
-#import "ios/chrome/browser/ui/bubble/bubble_util.h"
+#import "ios/chrome/browser/ui/bubble/bubble_presenter.h"
+#import "ios/chrome/browser/ui/bubble/bubble_presenter_delegate.h"
 #import "ios/chrome/browser/ui/bubble/bubble_view_controller_presenter.h"
 #import "ios/chrome/browser/ui/chrome_web_view_factory.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
-#import "ios/chrome/browser/ui/commands/open_url_command.h"
 #import "ios/chrome/browser/ui/commands/popup_menu_commands.h"
 #import "ios/chrome/browser/ui/commands/reading_list_add_command.h"
 #import "ios/chrome/browser/ui/commands/show_signin_command.h"
@@ -152,10 +153,12 @@
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_animator.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_controller_factory.h"
+#import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_ui_element.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_ui_updater.h"
 #import "ios/chrome/browser/ui/history_popup/requirements/tab_history_presentation.h"
 #import "ios/chrome/browser/ui/history_popup/tab_history_legacy_coordinator.h"
+#import "ios/chrome/browser/ui/image_util/image_copier.h"
 #import "ios/chrome/browser/ui/image_util/image_saver.h"
 #import "ios/chrome/browser/ui/key_commands_provider.h"
 #import "ios/chrome/browser/ui/location_bar_notification_names.h"
@@ -172,11 +175,11 @@
 #import "ios/chrome/browser/ui/page_not_available_controller.h"
 #import "ios/chrome/browser/ui/payments/payment_request_manager.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_coordinator.h"
-#import "ios/chrome/browser/ui/popup_menu/popup_menu_flags.h"
 #import "ios/chrome/browser/ui/presenters/vertical_animation_container.h"
 #import "ios/chrome/browser/ui/print/print_controller.h"
 #import "ios/chrome/browser/ui/qr_scanner/qr_scanner_legacy_coordinator.h"
 #import "ios/chrome/browser/ui/qr_scanner/requirements/qr_scanner_presenting.h"
+#import "ios/chrome/browser/ui/reading_list/legacy_reading_list_coordinator.h"
 #import "ios/chrome/browser/ui/reading_list/offline_page_native_content.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_coordinator.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_menu_notifier.h"
@@ -191,6 +194,8 @@
 #import "ios/chrome/browser/ui/stack_view/page_animation_util.h"
 #import "ios/chrome/browser/ui/static_content/static_html_native_content.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_switcher_controller.h"
+#import "ios/chrome/browser/ui/tabs/background_tab_animation_view.h"
+#import "ios/chrome/browser/ui/tabs/foreground_tab_animation_view.h"
 #import "ios/chrome/browser/ui/tabs/requirements/tab_strip_constants.h"
 #import "ios/chrome/browser/ui/tabs/requirements/tab_strip_presentation.h"
 #import "ios/chrome/browser/ui/tabs/tab_strip_legacy_coordinator.h"
@@ -203,8 +208,8 @@
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_coordinator.h"
 #import "ios/chrome/browser/ui/toolbar/legacy/toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/toolbar/legacy_toolbar_ui_updater.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/toolbar/public/primary_toolbar_coordinator.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
 #include "ios/chrome/browser/ui/toolbar/toolbar_model_delegate_ios.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_snapshot_providing.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_ui.h"
@@ -217,16 +222,16 @@
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/util/named_guide_util.h"
 #import "ios/chrome/browser/ui/util/pasteboard_util.h"
-#import "ios/chrome/browser/ui/voice/text_to_speech_player.h"
+#import "ios/chrome/browser/ui/voice/text_to_speech_playback_controller.h"
+#import "ios/chrome/browser/ui/voice/text_to_speech_playback_controller_factory.h"
 #include "ios/chrome/browser/upgrade/upgrade_center.h"
 #import "ios/chrome/browser/voice/voice_search_navigations_tab_helper.h"
+#import "ios/chrome/browser/web/app_launcher_abuse_detector.h"
 #import "ios/chrome/browser/web/blocked_popup_tab_helper.h"
 #import "ios/chrome/browser/web/error_page_content.h"
-#import "ios/chrome/browser/web/external_apps_launch_policy_decider.h"
 #import "ios/chrome/browser/web/load_timing_tab_helper.h"
 #import "ios/chrome/browser/web/page_placeholder_tab_helper.h"
 #include "ios/chrome/browser/web/print_tab_helper.h"
@@ -240,6 +245,7 @@
 #import "ios/chrome/browser/webui/net_export_tab_helper.h"
 #import "ios/chrome/browser/webui/net_export_tab_helper_delegate.h"
 #import "ios/chrome/browser/webui/show_mail_composer_context.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/net/request_tracker.h"
@@ -249,7 +255,6 @@
 #import "ios/public/provider/chrome/browser/voice/voice_search_bar.h"
 #import "ios/public/provider/chrome/browser/voice/voice_search_bar_owner.h"
 #include "ios/public/provider/chrome/browser/voice/voice_search_controller.h"
-#include "ios/public/provider/chrome/browser/voice/voice_search_controller_delegate.h"
 #include "ios/public/provider/chrome/browser/voice/voice_search_provider.h"
 #import "ios/third_party/material_components_ios/src/components/Snackbar/src/MaterialSnackbar.h"
 #include "ios/web/public/features.h"
@@ -264,6 +269,7 @@
 #import "ios/web/public/web_state/js/crw_js_injection_receiver.h"
 #import "ios/web/public/web_state/ui/crw_native_content_provider.h"
 #import "ios/web/public/web_state/ui/crw_web_view_proxy.h"
+#import "ios/web/public/web_state/ui/crw_web_view_scroll_view_proxy.h"
 #import "ios/web/public/web_state/web_state.h"
 #import "ios/web/public/web_state/web_state_delegate_bridge.h"
 #include "ios/web/public/web_thread.h"
@@ -272,6 +278,7 @@
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/ssl/ssl_info.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "third_party/google_toolbox_for_mac/src/iPhone/GTMUIImage+Resize.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
@@ -299,6 +306,7 @@ typedef NS_ENUM(NSInteger, ContextMenuHistogram) {
   ACTION_SAVE_IMAGE = 6,
   ACTION_OPEN_IMAGE = 7,
   ACTION_OPEN_IMAGE_IN_NEW_TAB = 8,
+  ACTION_COPY_IMAGE = 9,
   ACTION_SEARCH_BY_IMAGE = 11,
   ACTION_OPEN_JAVASCRIPT = 21,
   ACTION_READ_LATER = 22,
@@ -336,6 +344,10 @@ const CGFloat kVoiceSearchBarHeight = 59.0;
 const CGFloat kSearchByImageMaxImageArea = 90000.0;
 const CGFloat kSearchByImageMaxImageWidth = 600.0;
 const CGFloat kSearchByImageMaxImageHeight = 400.0;
+
+// When the tab strip moves beyond this origin offset, switch the status bar
+// appearance from light to dark.
+const CGFloat kTabStripAppearanceOffset = -29;
 
 enum HeaderBehaviour {
   // The header moves completely out of the screen.
@@ -410,6 +422,7 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 
 @interface BrowserViewController ()<ActivityServicePresentation,
                                     AppRatingPromptDelegate,
+                                    BubblePresenterDelegate,
                                     CaptivePortalDetectorTabHelperDelegate,
                                     CRWNativeContentProvider,
                                     CRWWebStateDelegate,
@@ -480,7 +493,7 @@ NSString* const kBrowserViewControllerSnackbarCategory =
   scoped_refptr<VoiceSearchController> _voiceSearchController;
 
   // Used to display the Reading List.
-  ReadingListCoordinator* _readingListCoordinator;
+  ChromeCoordinator* _readingListCoordinator;
 
   // Used to display the Find In Page UI. Nil if not visible.
   FindBarControllerIOS* _findBarController;
@@ -608,6 +621,10 @@ NSString* const kBrowserViewControllerSnackbarCategory =
   // Coordinator for UI related to launching external apps.
   AppLauncherCoordinator* _appLauncherCoordinator;
 
+  // Coordinator in charge of the presenting autofill options above the
+  // keyboard.
+  FormInputAccessoryCoordinator* _formInputAccessoryCoordinator;
+
   // Fake status bar view used to blend the toolbar into the status bar.
   UIView* _fakeStatusBarView;
 
@@ -626,8 +643,6 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 @property(nonatomic, strong, readonly) DialogPresenter* dialogPresenter;
 // The object that manages keyboard commands on behalf of the BVC.
 @property(nonatomic, strong, readonly) KeyCommandsProvider* keyCommandsProvider;
-// Whether the current tab can enable the request desktop menu item.
-@property(nonatomic, assign, readonly) BOOL canUseDesktopUserAgent;
 // Whether the sharing menu should be enabled.
 @property(nonatomic, assign, readonly) BOOL canShowShareMenu;
 // Helper method to check web controller canShowFindBar method.
@@ -668,6 +683,8 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 @property(nonatomic, weak) UIView* tabStripView;
 // Helper for saving images.
 @property(nonatomic, strong) ImageSaver* imageSaver;
+// Helper for copying images.
+@property(nonatomic, strong) ImageCopier* imageCopier;
 // Helper for the bvc.
 @property(nonatomic, strong) BrowserViewControllerHelper* helper;
 
@@ -683,14 +700,7 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 // Coordinator for the popup menus.
 @property(nonatomic, strong) PopupMenuCoordinator* popupMenuCoordinator;
 
-// Used to display the new tab tip in-product help promotion bubble. |nil| if
-// the new tab tip bubble has not yet been presented. Once the bubble is
-// dismissed, it remains allocated so that |userEngaged| remains accessible.
-@property(nonatomic, strong)
-    BubbleViewControllerPresenter* tabTipBubblePresenter;
-// Used to display the new incognito tab tip in-product help promotion bubble.
-@property(nonatomic, strong)
-    BubbleViewControllerPresenter* incognitoTabTipBubblePresenter;
+@property(nonatomic, strong) BubblePresenter* bubblePresenter;
 
 // Primary toolbar.
 @property(nonatomic, strong) id<PrimaryToolbarCoordinator>
@@ -721,6 +731,11 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 
 // The webState of the active tab.
 @property(nonatomic, readonly) web::WebState* currentWebState;
+
+// Whether the browser container should be the full bounds of self.view.
+@property(nonatomic, readonly) BOOL usesFullscreenContainer;
+// Whether the safe area insets should be used to adjust the viewport.
+@property(nonatomic, readonly) BOOL usesSafeInsetsForViewportAdjustments;
 
 // BVC initialization
 // ------------------
@@ -778,10 +793,10 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 // TODO(crbug.com/522721): Support size changes for all popups and modal
 // dialogs.
 - (void)dismissPopups;
-// Returns whether |tab| is scrolled to the top.
-- (BOOL)isTabScrolledToTop:(Tab*)tab;
 // Returns the footer view if one exists (e.g. the voice search bar).
 - (UIView*)footerView;
+// Returns web contents frame without including primary toolbar.
+- (CGRect)visibleFrameForTab:(Tab*)tab;
 // Returns the header height needed for |tab|.
 - (CGFloat)headerHeightForTab:(Tab*)tab;
 // Sets the frame for the headers.
@@ -796,44 +811,6 @@ NSString* const kBrowserViewControllerSnackbarCategory =
 // -------------------------------
 // Dismisses the "rate this app" dialog.
 - (void)dismissRateThisAppDialog;
-
-// Bubble Views
-// ------------
-// Returns a bubble associated with an in-product help promotion if
-// it is valid to show the promotion and |nil| otherwise. |feature| is the
-// base::Feature object associated with the given promotion. |direction| is the
-// direction the bubble's arrow is pointing. |alignment| is the alignment of the
-// arrow on the button. |text| is the text displayed by the bubble. This method
-// requires that |self.browserState| is not NULL.
-- (BubbleViewControllerPresenter*)
-bubblePresenterForFeature:(const base::Feature&)feature
-                direction:(BubbleArrowDirection)direction
-                alignment:(BubbleAlignment)alignment
-                     text:(NSString*)text;
-
-// Waits to present a bubble associated with the new tab tip in-product help
-// promotion until the feature engagement tracker database is fully initialized.
-// Does not present the bubble if |tabTipBubblePresenter.userEngaged| is |YES|
-// to prevent resetting |tabTipBubblePresenter| and affecting the value of
-// |userEngaged|. Does not present the bubble if the feature engagement tracker
-// determines it is not valid to present it. This method requires that
-// |self.browserState| is not NULL.
-- (void)presentNewTabTipBubbleOnInitialized;
-// Optionally presents a bubble associated with the new tab tip in-product help
-// promotion. If the feature engagement tracker determines it is valid to show
-// the new tab tip, then it initializes |tabTipBubblePresenter| and presents
-// the bubble. If it is not valid to show the new tab tip,
-// |tabTipBubblePresenter| is set to |nil| and no bubble is shown. This method
-// requires that |self.browserState| is not NULL.
-- (void)presentNewTabTipBubble;
-// Waits to present a bubble associated with the new incognito tab tip
-// in-product help promotion until the feature engagement tracker database is
-// fully initialized. This method requires that |self.browserState| is
-// not NULL.
-- (void)presentNewIncognitoTabTipBubbleOnInitialized;
-// Presents a bubble associated with the new incognito tab tip in-product help
-// promotion. This method requires that |self.browserState| is not NULL.
-- (void)presentNewIncognitoTabTipBubble;
 
 // Find Bar UI
 // -----------
@@ -864,8 +841,8 @@ bubblePresenterForFeature:(const base::Feature&)feature
 // Tap Handling
 // ------------
 // Record the last tap point based on the |originPoint| (if any) passed in
-// |command|.
-- (void)setLastTapPoint:(OpenNewTabCommand*)command;
+// command.
+- (void)setLastTapPointFromCommand:(CGPoint)originPoint;
 // Returns the last stored |_lastTapPoint| if it's been set within the past
 // second.
 - (CGPoint)lastTapPoint;
@@ -950,8 +927,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
 @synthesize tabStripCoordinator = _tabStripCoordinator;
 @synthesize tabStripView = _tabStripView;
 @synthesize popupMenuCoordinator = _popupMenuCoordinator;
-@synthesize tabTipBubblePresenter = _tabTipBubblePresenter;
-@synthesize incognitoTabTipBubblePresenter = _incognitoTabTipBubblePresenter;
+@synthesize bubblePresenter = _bubblePresenter;
 @synthesize primaryToolbarCoordinator = _primaryToolbarCoordinator;
 @synthesize secondaryToolbarCoordinator = _secondaryToolbarCoordinator;
 @synthesize primaryToolbarOffsetConstraint = _primaryToolbarOffsetConstraint;
@@ -963,6 +939,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
 @synthesize footerFullscreenProgress = _footerFullscreenProgress;
 @synthesize toolbarInterface = _toolbarInterface;
 @synthesize imageSaver = _imageSaver;
+@synthesize imageCopier = _imageCopier;
 @synthesize helper = _helper;
 // DialogPresenterDelegate property
 @synthesize dialogPresenterDelegateIsPresenting =
@@ -1041,6 +1018,12 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     _appLauncherCoordinator =
         [[AppLauncherCoordinator alloc] initWithBaseViewController:self];
 
+    _formInputAccessoryCoordinator = [[FormInputAccessoryCoordinator alloc]
+        initWithBaseViewController:self
+                      browserState:self.browserState
+                      webStateList:model.webStateList];
+    [_formInputAccessoryCoordinator start];
+
     _javaScriptDialogPresenter.reset(
         new JavaScriptDialogPresenterImpl(_dialogPresenter));
     _webStateDelegate.reset(new web::WebStateDelegateBridge(self));
@@ -1114,6 +1097,12 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     ActiveStateManager* active_state_manager =
         ActiveStateManager::FromBrowserState(_browserState);
     active_state_manager->SetActive(active);
+
+    if (IsUIRefreshPhase1Enabled()) {
+      TextToSpeechPlaybackControllerFactory::GetInstance()
+          ->GetForBrowserState(_browserState)
+          ->SetEnabled(_active);
+    }
   }
 
   [_model setWebUsageEnabled:active];
@@ -1180,15 +1169,6 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     _keyCommandsProvider = [_dependencyFactory newKeyCommandsProvider];
   }
   return _keyCommandsProvider;
-}
-
-- (BOOL)canUseDesktopUserAgent {
-  Tab* tab = [_model currentTab];
-  if ([self isTabNativePage:tab])
-    return NO;
-
-  // If |useDesktopUserAgent| is |NO|, allow useDesktopUserAgent.
-  return !tab.usesDesktopUserAgent;
 }
 
 // Whether the sharing menu should be shown.
@@ -1343,19 +1323,20 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
                                           inset:0.0]];
     }
     if ([_findBarController view]) {
+      CGFloat inset = kIPadFindBarOverlap;
+      if (IsUIRefreshPhase1Enabled())
+        inset = 0;
       [results addObject:[HeaderDefinition
                              definitionWithView:[_findBarController view]
                                 headerBehaviour:Overlap
-                                          inset:kIPadFindBarOverlap]];
+                                          inset:inset]];
     }
   }
   return [results copy];
 }
 
 - (CGFloat)headerOffset {
-  if ([self canShowTabStrip])
-    return StatusBarHeight();
-  return 0.0;
+  return [self canShowTabStrip] ? StatusBarHeight() : 0.0;
 }
 
 - (CGFloat)headerHeight {
@@ -1364,6 +1345,37 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
 
 - (web::WebState*)currentWebState {
   return [[_model currentTab] webState];
+}
+
+- (BOOL)usesFullscreenContainer {
+  return base::FeatureList::IsEnabled(
+             web::features::kBrowserContainerFullscreen) ||
+         self.usesSafeInsetsForViewportAdjustments;
+}
+
+- (BOOL)usesSafeInsetsForViewportAdjustments {
+  // The WKWebView viewport is only updatable via the safe area in iOS 11.
+  if (@available(iOS 11, *)) {
+    fullscreen::features::ViewportAdjustmentExperiment viewportExperiment =
+        fullscreen::features::GetActiveViewportExperiment();
+    return viewportExperiment ==
+               fullscreen::features::ViewportAdjustmentExperiment::SAFE_AREA ||
+           viewportExperiment ==
+               fullscreen::features::ViewportAdjustmentExperiment::HYBRID;
+  }
+  return NO;
+}
+
+- (BubblePresenter*)bubblePresenter {
+  if (!_bubblePresenter) {
+    _bubblePresenter =
+        [[BubblePresenter alloc] initWithBrowserState:self.browserState
+                                             delegate:self
+                                   rootViewController:self];
+    _bubblePresenter.dispatcher = self.dispatcher;
+    self.popupMenuCoordinator.bubblePresenter = _bubblePresenter;
+  }
+  return _bubblePresenter;
 }
 
 #pragma mark - Public methods
@@ -1383,14 +1395,11 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
 }
 
 - (void)userEnteredTabSwitcher {
-  if ([self.tabTipBubblePresenter isUserEngaged]) {
-    base::RecordAction(UserMetricsAction("NewTabTipTargetSelected"));
-  }
+  [self.bubblePresenter userEnteredTabSwitcher];
 }
 
 - (void)presentBubblesIfEligible {
-  [self presentNewTabTipBubbleOnInitialized];
-  [self presentNewIncognitoTabTipBubbleOnInitialized];
+  [self.bubblePresenter presentBubblesIfEligible];
 }
 
 - (void)browserStateDestroyed {
@@ -1406,6 +1415,10 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   _fullscreenUIUpdater = nullptr;
   fullscreenController->SetWebStateList(nullptr);
 
+  TextToSpeechPlaybackControllerFactory::GetInstance()
+      ->GetForBrowserState(_browserState)
+      ->SetWebStateList(nullptr);
+
   // Disconnect child coordinators.
   [_activityServiceCoordinator disconnect];
   [_qrScannerCoordinator disconnect];
@@ -1420,6 +1433,54 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   _browserState = nullptr;
   [_dispatcher stopDispatchingToTarget:self];
   _dispatcher = nil;
+}
+
+- (void)openNewTabFromOriginPoint:(CGPoint)originPoint
+                     focusOmnibox:(BOOL)focusOmnibox {
+  NSTimeInterval startTime = [NSDate timeIntervalSinceReferenceDate];
+  BOOL offTheRecord = self.isOffTheRecord;
+  ProceduralBlock oldForegroundTabWasAddedCompletionBlock =
+      self.foregroundTabWasAddedCompletionBlock;
+  __weak BrowserViewController* weakSelf = self;
+  self.foregroundTabWasAddedCompletionBlock = ^{
+    if (oldForegroundTabWasAddedCompletionBlock) {
+      oldForegroundTabWasAddedCompletionBlock();
+    }
+    double duration = [NSDate timeIntervalSinceReferenceDate] - startTime;
+    base::TimeDelta timeDelta = base::TimeDelta::FromSecondsD(duration);
+    if (offTheRecord) {
+      UMA_HISTOGRAM_TIMES("Toolbar.Menu.NewIncognitoTabPresentationDuration",
+                          timeDelta);
+    } else {
+      UMA_HISTOGRAM_TIMES("Toolbar.Menu.NewTabPresentationDuration", timeDelta);
+    }
+    if (focusOmnibox) {
+      [weakSelf.dispatcher focusOmnibox];
+    }
+  };
+
+  [self setLastTapPointFromCommand:originPoint];
+  // When the tab switcher presentation experiment is enabled, the new tab can
+  // be opened before BVC has been made visible onscreen.  Test for this case by
+  // checking if the parent container VC is currently in the process of being
+  // presented.
+  DCHECK(self.visible || self.dismissingModal ||
+         (TabSwitcherPresentsBVCEnabled() &&
+          self.parentViewController.isBeingPresented));
+
+  // In most cases, we want to take a snapshot of the current tab before opening
+  // a new tab. However, if the current tab is not fully visible (did not finish
+  // |-viewDidAppear:|, then we must not take an empty snapshot, replacing an
+  // existing snapshot for the tab. This can happen when a new regular tab is
+  // opened from an incognito tab. A different BVC is displayed, which may not
+  // have enough time to finish appearing before a snapshot is requested.
+  Tab* currentTab = [_model currentTab];
+  if (currentTab && self.viewVisible) {
+    SnapshotTabHelper::FromWebState(currentTab.webState)
+        ->UpdateSnapshot(/*with_overlays=*/true, /*visible_frame_only=*/true);
+  }
+  [self addSelectedTabWithURL:GURL(kChromeUINewTabURL)
+                   transition:ui::PAGE_TRANSITION_TYPED];
 }
 
 - (Tab*)addSelectedTabWithURL:(const GURL&)url
@@ -1464,9 +1525,6 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   // dismiss the keyboard.
   [self closeFindInPage];
   [_model.currentTab.view endEditing:NO];
-  id nativeController = [self nativeControllerForTab:_model.currentTab];
-  if ([nativeController respondsToSelector:@selector(dismissKeyboard)])
-    [nativeController dismissKeyboard];
 
   // Ensure that voice search objects are created.
   [self ensureVoiceSearchControllerCreated];
@@ -1488,8 +1546,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   }
   [_dialogPresenter cancelAllDialogs];
   [self.dispatcher hidePageInfo];
-  [self.tabTipBubblePresenter dismissAnimated:NO];
-  [self.incognitoTabTipBubblePresenter dismissAnimated:NO];
+  [self.bubblePresenter dismissBubbles];
   if (_voiceSearchController)
     _voiceSearchController->DismissMicPermissionsHelp();
 
@@ -1574,7 +1631,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   [_model removeObserver:self];
   [[UpgradeCenter sharedInstance] unregisterClient:self];
   if (_voiceSearchController)
-    _voiceSearchController->SetDelegate(nil);
+    _voiceSearchController->SetDispatcher(nil);
   [_rateThisAppDialog setDelegate:nil];
   [_model closeAllTabs];
   [_paymentRequestManager setActiveWebState:nullptr];
@@ -1624,11 +1681,9 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
 
 #pragma mark - UIViewController
 
-// Perform additional set up after loading the view, typically from a nib.
 - (void)viewDidLoad {
   CGRect initialViewsRect = self.view.bounds;
-  if (!base::FeatureList::IsEnabled(
-          web::features::kBrowserContainerFullscreen)) {
+  if (!self.usesFullscreenContainer) {
     initialViewsRect.origin.y += StatusBarHeight();
     initialViewsRect.size.height -= StatusBarHeight();
   }
@@ -1643,6 +1698,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   UIViewController* containerViewController =
       _browserContainerCoordinator.viewController;
   [self addChildViewController:containerViewController];
+
   self.contentArea.frame = initialViewsRect;
   self.typingShield = [[UIButton alloc] initWithFrame:initialViewsRect];
   self.typingShield.autoresizingMask = initialViewAutoresizing;
@@ -1692,9 +1748,20 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   self.secondaryToolbarNoFullscreenHeightConstraint.constant =
       [self secondaryToolbarHeightWithInset];
 
-  // Force a layout pass to make sure the toolbar has the correct height.
-  [self.primaryToolbarCoordinator.viewController.view setNeedsLayout];
-  [self.primaryToolbarCoordinator.viewController.view layoutIfNeeded];
+  if (!IsUIRefreshPhase1Enabled()) {
+    // Force a layout pass to make sure the toolbar has the correct height.
+    [self.primaryToolbarCoordinator.viewController.view setNeedsLayout];
+    [self.primaryToolbarCoordinator.viewController.view layoutIfNeeded];
+  }
+
+  // Native content pages depend on |self.view|'s safeArea.  If the BVC is
+  // presented underneath another view (such as the first time welcome view),
+  // the BVC has no safe area set during webController's layout initial, and
+  // won't automatically get another layout without forcing it here.
+  Tab* currentTab = [_model currentTab];
+  if ([self isTabNativePage:currentTab]) {
+    [currentTab.webController.view setNeedsLayout];
+  }
 }
 
 - (void)viewDidLayoutSubviews {
@@ -1722,6 +1789,19 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   [super viewWillAppear:animated];
 
   self.visible = YES;
+
+  if (IsUIRefreshPhase1Enabled() && self.transitionCoordinator.animated) {
+    // The transition coordinator is animated only when presented from the
+    // TabGrid (when presented at the app start up, it is not animated). In that
+    // case, display the Long Press InProductHelp if needed.
+    auto completion =
+        ^(id<UIViewControllerTransitionCoordinatorContext> context) {
+          [self.bubblePresenter presentLongPressBubbleIfEligible];
+        };
+
+    [self.transitionCoordinator animateAlongsideTransition:nil
+                                                completion:completion];
+  }
 
   // Restore hidden infobars.
   if (IsIPadIdiom() && _infoBarContainer) {
@@ -1774,7 +1854,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     _browserContainerCoordinator = nil;
     self.typingShield = nil;
     if (_voiceSearchController)
-      _voiceSearchController->SetDelegate(nil);
+      _voiceSearchController->SetDispatcher(nil);
     _readingListCoordinator = nil;
     self.recentTabsCoordinator = nil;
     _toolbarCoordinator = nil;
@@ -1809,7 +1889,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   self.secondaryToolbarNoFullscreenHeightConstraint.constant =
       [self secondaryToolbarHeightWithInset];
   [self updateFootersForFullscreenProgress:self.footerFullscreenProgress];
-  if (self.currentWebState) {
+  if (!self.usesSafeInsetsForViewportAdjustments && self.currentWebState) {
     UIEdgeInsets contentPadding =
         self.currentWebState->GetWebViewProxy().contentInset;
     contentPadding.bottom = AlignValueToPixel(
@@ -1823,7 +1903,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   // Update the tab strip visibility.
   if (self.tabStripView) {
     [self showTabStripView:self.tabStripView];
-    self.tabStripView.hidden = ![self canShowTabStrip];
+    [self.tabStripCoordinator hideTabStrip:![self canShowTabStrip]];
     _fakeStatusBarView.hidden = ![self canShowTabStrip];
     [self addConstraintsToPrimaryToolbar];
   }
@@ -1833,6 +1913,8 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   if (IsUIRefreshPhase1Enabled() && !base::ios::IsRunningOnIOS11OrLater()) {
     [self setUpViewLayout:NO];
   }
+
+  [self setNeedsStatusBarAppearanceUpdate];
 }
 
 - (void)viewWillTransitionToSize:(CGSize)size
@@ -1979,9 +2061,13 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
 }
 
 - (UIStatusBarStyle)preferredStatusBarStyle {
-  return ([self canShowTabStrip] || _isOffTheRecord)
-             ? UIStatusBarStyleLightContent
-             : UIStatusBarStyleDefault;
+  if ([self canShowTabStrip] && !_isOffTheRecord) {
+    return self.tabStripView.frame.origin.y < kTabStripAppearanceOffset
+               ? UIStatusBarStyleDefault
+               : UIStatusBarStyleLightContent;
+  }
+  return _isOffTheRecord ? UIStatusBarStyleLightContent
+                         : UIStatusBarStyleDefault;
 }
 
 #pragma mark - ** Private BVC Methods **
@@ -2009,8 +2095,9 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     [self installDelegatesForTab:[_model tabAtIndex:index]];
 
   _imageFetcher = std::make_unique<image_fetcher::IOSImageDataFetcherWrapper>(
-      _browserState->GetRequestContext());
+      _browserState->GetSharedURLLoaderFactory());
   self.imageSaver = [[ImageSaver alloc] initWithBaseViewController:self];
+  self.imageCopier = [[ImageCopier alloc] initWithBaseViewController:self];
 
   // Register for bookmark changed notification (BookmarkModel may be null
   // during testing, so explicitly support this).
@@ -2023,6 +2110,11 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   _fullscreenUIUpdater = std::make_unique<FullscreenUIUpdater>(self);
   // Set the FullscreenController's WebStateList.
   controller->SetWebStateList(_model.webStateList);
+
+  // Set the TTS playback controller's WebStateList.
+  TextToSpeechPlaybackControllerFactory::GetInstance()
+      ->GetForBrowserState(_browserState)
+      ->SetWebStateList(_model.webStateList);
 
   // When starting the browser with an open tab, it is necessary to reset the
   // clipsToBounds property of the WKWebView so the page can bleed behind the
@@ -2041,7 +2133,8 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   if (IsIPadIdiom()) {
     [_fakeStatusBarView setBackgroundColor:StatusBarBackgroundColor()];
     [_fakeStatusBarView setAutoresizingMask:UIViewAutoresizingFlexibleWidth];
-    [_fakeStatusBarView layer].zPosition = 99;
+    if (!IsUIRefreshPhase1Enabled())
+      [_fakeStatusBarView layer].zPosition = 99;
     [[self view] addSubview:_fakeStatusBarView];
   } else {
     // Add a white bar on phone so that the status bar on the NTP is white.
@@ -2077,6 +2170,8 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     topToolbarCoordinator.URLLoader = self;
     topToolbarCoordinator.webStateList = [_model webStateList];
     topToolbarCoordinator.dispatcher = self.dispatcher;
+    topToolbarCoordinator.commandDispatcher = _dispatcher;
+    topToolbarCoordinator.longPressDelegate = self.popupMenuCoordinator;
     [topToolbarCoordinator start];
 
     SecondaryToolbarCoordinator* bottomToolbarCoordinator = [
@@ -2084,6 +2179,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     self.secondaryToolbarCoordinator = bottomToolbarCoordinator;
     bottomToolbarCoordinator.webStateList = [_model webStateList];
     bottomToolbarCoordinator.dispatcher = self.dispatcher;
+    bottomToolbarCoordinator.longPressDelegate = self.popupMenuCoordinator;
     [bottomToolbarCoordinator start];
 
     _toolbarCoordinatorAdaptor =
@@ -2099,6 +2195,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     _toolbarCoordinator.webStateList = [_model webStateList];
     _toolbarCoordinator.delegate = self;
     _toolbarCoordinator.URLLoader = self;
+    _toolbarCoordinator.commandDispatcher = _dispatcher;
     self.primaryToolbarCoordinator = _toolbarCoordinator;
     self.toolbarInterface = _toolbarCoordinator;
 
@@ -2111,15 +2208,10 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   self.sideSwipeController.secondaryToolbarSnapshotProvider =
       self.secondaryToolbarCoordinator;
 
-  [_dispatcher
-      startDispatchingToTarget:self.primaryToolbarCoordinator.omniboxFocuser
-                   forProtocol:@protocol(OmniboxFocuser)];
-  [_dispatcher startDispatchingToTarget:self.primaryToolbarCoordinator
-                            forProtocol:@protocol(FakeboxFocuser)];
   [self updateBroadcastState];
   if (_voiceSearchController)
-    _voiceSearchController->SetDelegate(
-        [self.primaryToolbarCoordinator voiceSearchDelegate]);
+    _voiceSearchController->SetDispatcher(
+        static_cast<id<LoadQueryCommands>>(_dispatcher));
 
   if (IsIPadIdiom()) {
     self.tabStripCoordinator =
@@ -2130,6 +2222,11 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     self.tabStripCoordinator.presentationProvider = self;
     self.tabStripCoordinator.animationWaitDuration =
         kLegacyFullscreenControllerToolbarAnimationDuration;
+    self.tabStripCoordinator.longPressDelegate = self.popupMenuCoordinator;
+
+    UILayoutGuide* guide =
+        [[NamedGuide alloc] initWithName:kTabStripTabSwitcherGuide];
+    [self.view addLayoutGuide:guide];
     [self.tabStripCoordinator start];
   }
 
@@ -2254,7 +2351,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
         LayoutSides::kBottom | LayoutSides::kLeading | LayoutSides::kTrailing);
 
     UILayoutGuide* guide =
-        [[NamedGuide alloc] initWithName:kSecondaryToolbarNoFullscreen];
+        [[NamedGuide alloc] initWithName:kSecondaryToolbarNoFullscreenGuide];
     [self.view addLayoutGuide:guide];
     self.secondaryToolbarNoFullscreenHeightConstraint = [guide.heightAnchor
         constraintEqualToConstant:[self secondaryToolbarHeightWithInset]];
@@ -2303,26 +2400,34 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   _qrScannerCoordinator =
       [[QRScannerLegacyCoordinator alloc] initWithBaseViewController:self];
   _qrScannerCoordinator.dispatcher = _dispatcher;
-  _qrScannerCoordinator.loadProvider =
-      [self.primaryToolbarCoordinator QRScannerResultLoader];
   _qrScannerCoordinator.presentationProvider = self;
 
   // DownloadManagerCoordinator is already created.
   DCHECK(_downloadManagerCoordinator);
   _downloadManagerCoordinator.webStateList = [_model webStateList];
   _downloadManagerCoordinator.bottomMarginHeightAnchor =
-      [NamedGuide guideWithName:kSecondaryToolbar view:self.view].heightAnchor;
+      [NamedGuide guideWithName:kSecondaryToolbarGuide view:self.view]
+          .heightAnchor;
 
   if (IsUIRefreshPhase1Enabled()) {
     self.popupMenuCoordinator = [[PopupMenuCoordinator alloc]
         initWithBaseViewController:self
                       browserState:self.browserState];
-    self.popupMenuCoordinator.incognitoTabTipPresenter =
-        self.incognitoTabTipBubblePresenter;
+    self.popupMenuCoordinator.bubblePresenter = self.bubblePresenter;
     self.popupMenuCoordinator.dispatcher = _dispatcher;
     self.popupMenuCoordinator.webStateList = [_model webStateList];
     self.popupMenuCoordinator.UIUpdater = _toolbarCoordinatorAdaptor;
     [self.popupMenuCoordinator start];
+
+    // TODO(crbug.com/800266): Remove this cast once there is only one top
+    // toolbar.
+    AdaptiveToolbarCoordinator* topToolbarCoordinator =
+        base::mac::ObjCCastStrict<AdaptiveToolbarCoordinator>(
+            self.primaryToolbarCoordinator);
+    topToolbarCoordinator.longPressDelegate = self.popupMenuCoordinator;
+    self.secondaryToolbarCoordinator.longPressDelegate =
+        self.popupMenuCoordinator;
+    self.tabStripCoordinator.longPressDelegate = self.popupMenuCoordinator;
   } else {
     _tabHistoryCoordinator = [[LegacyTabHistoryCoordinator alloc]
         initWithBaseViewController:self
@@ -2399,25 +2504,56 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   // Place the toolbar controller above the infobar container and adds the
   // layout guides.
   if (initialLayout) {
+    UIView* bottomView = IsIPadIdiom() && IsUIRefreshPhase1Enabled()
+                             ? _fakeStatusBarView
+                             : infoBarContainerView;
     [[self view]
         insertSubview:self.primaryToolbarCoordinator.viewController.view
-         aboveSubview:infoBarContainerView];
+         aboveSubview:bottomView];
     if (self.secondaryToolbarCoordinator) {
       [[self view]
           insertSubview:self.secondaryToolbarCoordinator.viewController.view
            aboveSubview:self.primaryToolbarCoordinator.viewController.view];
     }
     NSArray<GuideName*>* guideNames = @[
+      kContentAreaGuide,
       kOmniboxGuide,
       kBackButtonGuide,
       kForwardButtonGuide,
       kToolsMenuGuide,
       kTabSwitcherGuide,
       kSearchButtonGuide,
-      kSecondaryToolbar,
+      kSecondaryToolbarGuide,
       kVoiceSearchButtonGuide,
     ];
     AddNamedGuidesToView(guideNames, self.view);
+
+    // Configure the content area guide.
+    NamedGuide* contentAreaGuide =
+        [NamedGuide guideWithName:kContentAreaGuide view:self.view];
+
+    // Constrain top to bottom of top toolbar.
+    UIView* primaryToolbarView =
+        self.primaryToolbarCoordinator.viewController.view;
+    [contentAreaGuide.topAnchor
+        constraintEqualToAnchor:primaryToolbarView.bottomAnchor]
+        .active = YES;
+
+    LayoutSides contentSides = LayoutSides::kLeading | LayoutSides::kTrailing;
+    if (self.secondaryToolbarCoordinator) {
+      // If there's a bottom toolbar, the content area guide is constrained to
+      // its top.
+      UIView* secondaryToolbarView =
+          self.secondaryToolbarCoordinator.viewController.view;
+      [contentAreaGuide.bottomAnchor
+          constraintEqualToAnchor:secondaryToolbarView.topAnchor]
+          .active = YES;
+    } else {
+      // Otherwise, the content area guide is constrained to self.view's bootom
+      // along with its sides;
+      contentSides = contentSides | LayoutSides::kBottom;
+    }
+    AddSameConstraintsToSides(self.view, contentAreaGuide, contentSides);
   }
   if (initialLayout) {
     [self.primaryToolbarCoordinator.viewController
@@ -2431,8 +2567,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   // Adjust the content area to be under the toolbar, for fullscreen or below
   // the toolbar is not fullscreen.
   CGRect contentFrame = self.contentArea.frame;
-  if (!base::FeatureList::IsEnabled(
-          web::features::kBrowserContainerFullscreen)) {
+  if (!self.usesFullscreenContainer) {
     CGFloat marginWithHeader = StatusBarHeight();
     contentFrame.size.height = CGRectGetMaxY(contentFrame) - marginWithHeader;
     contentFrame.origin.y = marginWithHeader;
@@ -2527,16 +2662,19 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
                        shouldFocus:[_findBarController isFocused]];
   }
 
-  // Hide the toolbar if displaying the compact NTP.
   web::NavigationItem* item = [tab navigationManager]->GetVisibleItem();
   BOOL hideToolbar = NO;
   if (item) {
     GURL url = item->GetURL();
     BOOL isNTP = url.GetOrigin() == kChromeUINewTabURL;
+    // Hide the toolbar when displaying content suggestions without the tab
+    // strip, without the focused omnibox, and for UI Refresh, only when in
+    // split toolbar mode.
     hideToolbar = isNTP && !_isOffTheRecord &&
                   ![self.primaryToolbarCoordinator isOmniboxFirstResponder] &&
                   ![self.primaryToolbarCoordinator showingOmniboxPopup] &&
-                  ![self canShowTabStrip];
+                  ![self canShowTabStrip] &&
+                  (!IsUIRefreshPhase1Enabled() || IsSplitToolbarMode(self));
   }
   [self.primaryToolbarCoordinator.viewController.view setHidden:hideToolbar];
 }
@@ -2558,21 +2696,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     [self.dispatcher dismissToolsMenu];
     [_tabHistoryCoordinator dismissHistoryPopup];
   }
-  [self.tabTipBubblePresenter dismissAnimated:NO];
-  [self.incognitoTabTipBubblePresenter dismissAnimated:NO];
-}
-
-- (BOOL)isTabScrolledToTop:(Tab*)tab {
-  CGPoint scrollOffset =
-      tab.webState->GetWebViewProxy().scrollViewProxy.contentOffset;
-
-  // If there is a native controller, use the native controller's scroll offset.
-  id nativeController = [self nativeControllerForTab:tab];
-  if ([nativeController conformsToProtocol:@protocol(CRWNativeContent)] &&
-      [nativeController respondsToSelector:@selector(scrollOffset)]) {
-    scrollOffset = [nativeController scrollOffset];
-  }
-  return CGPointEqualToPoint(scrollOffset, CGPointZero);
+  [self.bubblePresenter dismissBubbles];
 }
 
 - (UIView*)footerView {
@@ -2583,15 +2707,21 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   }
 }
 
+- (CGRect)visibleFrameForTab:(Tab*)tab {
+  UIEdgeInsets headerInset = UIEdgeInsetsMake(
+      [self nativeContentHeaderHeightForWebState:tab.webState], 0, 0, 0);
+  return UIEdgeInsetsInsetRect(tab.view.bounds, headerInset);
+}
+
 - (CGFloat)headerHeightForTab:(Tab*)tab {
   id nativeController = [self nativeControllerForTab:tab];
   if ([nativeController conformsToProtocol:@protocol(ToolbarOwner)] &&
-      [nativeController respondsToSelector:@selector(toolbarHeight)] &&
-      [nativeController toolbarHeight] > 0.0 && ![self canShowTabStrip]) {
+      [nativeController respondsToSelector:@selector(toolbarFrame)] &&
+      CGRectGetHeight([nativeController toolbarFrame]) > 0.0 &&
+      ![self canShowTabStrip]) {
     // On iPhone, don't add any header height for ToolbarOwner native
     // controllers when they're displaying their own toolbar.
-    if (base::FeatureList::IsEnabled(
-            web::features::kBrowserContainerFullscreen))
+    if (self.usesFullscreenContainer)
       return StatusBarHeight();
     return 0;
   }
@@ -2604,12 +2734,11 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
       height += CGRectGetHeight([header.view frame]) - header.inset;
     }
   }
+
   CGFloat statusBarOffset = 0;
-  if (!base::FeatureList::IsEnabled(
-          web::features::kBrowserContainerFullscreen)) {
+  if (!self.usesFullscreenContainer) {
     statusBarOffset = StatusBarHeight();
   }
-
   return height - statusBarOffset;
 }
 
@@ -2633,6 +2762,9 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
     [header.view setFrame:frame];
     if (header.behaviour != Overlap)
       height += CGRectGetHeight(frame);
+
+    if (header.view == self.tabStripView && IsUIRefreshPhase1Enabled())
+      [self setNeedsStatusBarAppearanceUpdate];
   }
 }
 
@@ -2641,8 +2773,7 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   // Changing the origin here is unnecessary, it's set in page_animation_util.
   if (!fullScreen) {
     frame.size.height -= self.headerHeight;
-  } else if (base::FeatureList::IsEnabled(
-                 web::features::kBrowserContainerFullscreen)) {
+  } else if (self.usesFullscreenContainer) {
     frame.size.height -= StatusBarHeight();
   }
 
@@ -2674,187 +2805,6 @@ applicationCommandEndpoint:(id<ApplicationCommands>)applicationCommandEndpoint {
   }
 }
 
-#pragma mark - Private Methods: Bubble views
-
-- (BubbleViewControllerPresenter*)
-bubblePresenterForFeature:(const base::Feature&)feature
-                direction:(BubbleArrowDirection)direction
-                alignment:(BubbleAlignment)alignment
-                     text:(NSString*)text {
-  DCHECK(self.browserState);
-  if (!feature_engagement::TrackerFactory::GetForBrowserState(self.browserState)
-           ->ShouldTriggerHelpUI(feature)) {
-    return nil;
-  }
-  // Capture |weakSelf| instead of the feature engagement tracker object
-  // because |weakSelf| will safely become |nil| if it is deallocated, whereas
-  // the feature engagement tracker will remain pointing to invalid memory if
-  // its owner (the ChromeBrowserState) is deallocated.
-  __weak BrowserViewController* weakSelf = self;
-  void (^dismissalCallback)(void) = ^{
-    BrowserViewController* strongSelf = weakSelf;
-    if (strongSelf) {
-      feature_engagement::TrackerFactory::GetForBrowserState(
-          strongSelf.browserState)
-          ->Dismissed(feature);
-    }
-  };
-
-  BubbleViewControllerPresenter* bubbleViewControllerPresenter =
-      [[BubbleViewControllerPresenter alloc] initWithText:text
-                                           arrowDirection:direction
-                                                alignment:alignment
-                                        dismissalCallback:dismissalCallback];
-
-  return bubbleViewControllerPresenter;
-}
-
-- (void)presentNewTabTipBubbleOnInitialized {
-  DCHECK(self.browserState);
-  // If the tab tip bubble has already been presented and the user is still
-  // considered engaged, it can't be overwritten or set to |nil| or else it will
-  // reset the |userEngaged| property. Once the user is not engaged, the bubble
-  // can be safely overwritten or set to |nil|.
-  if (!self.tabTipBubblePresenter.isUserEngaged) {
-    __weak BrowserViewController* weakSelf = self;
-    void (^onInitializedBlock)(bool) = ^(bool successfullyLoaded) {
-      [weakSelf presentNewTabTipBubble];
-    };
-
-    // Because the new tab tip occurs on startup, the feature engagement
-    // tracker's database is not guaranteed to be loaded by this time. For the
-    // bubble to appear properly, a callback is used to guarantee the event data
-    // is loaded before the check to see if the promotion should be displayed.
-    feature_engagement::TrackerFactory::GetForBrowserState(self.browserState)
-        ->AddOnInitializedCallback(base::BindBlockArc(onInitializedBlock));
-  }
-}
-
-- (void)presentNewTabTipBubble {
-  DCHECK(self.browserState);
-  // If the BVC is not visible, do not present the bubble.
-  if (!self.viewVisible)
-    return;
-  // Do not present the bubble if there is no current tab or if the current tab
-  // is the NTP.
-  Tab* currentTab = [self.tabModel currentTab];
-  if (!currentTab)
-    return;
-  if (currentTab.webState->GetVisibleURL() == kChromeUINewTabURL)
-    return;
-
-  // Do not present the bubble if the tab is not scrolled to the top.
-  if (![self isTabScrolledToTop:currentTab])
-    return;
-
-  BubbleArrowDirection arrowDirection =
-      (IsUIRefreshPhase1Enabled() && IsSplitToolbarMode())
-          ? BubbleArrowDirectionDown
-          : BubbleArrowDirectionUp;
-  NSString* text =
-      l10n_util::GetNSStringWithFixup(IDS_IOS_NEW_TAB_IPH_PROMOTION_TEXT);
-  CGPoint tabSwitcherAnchor;
-  if (IsIPadIdiom()) {
-    tabSwitcherAnchor = [self.tabStripCoordinator
-        anchorPointForTabSwitcherButton:arrowDirection];
-  } else {
-    UILayoutGuide* guide =
-        [NamedGuide guideWithName:kTabSwitcherGuide view:self.view];
-    DCHECK(guide);
-    CGPoint anchorPoint =
-        bubble_util::AnchorPoint(guide.layoutFrame, arrowDirection);
-    tabSwitcherAnchor = [guide.owningView convertPoint:anchorPoint
-                                                toView:guide.owningView.window];
-  }
-
-  // If the feature engagement tracker does not consider it valid to display
-  // the new tab tip, then end early to prevent the potential reassignment
-  // of the existing |tabTipBubblePresenter| to nil.
-  BubbleViewControllerPresenter* presenter =
-      [self bubblePresenterForFeature:feature_engagement::kIPHNewTabTipFeature
-                            direction:arrowDirection
-                            alignment:BubbleAlignmentTrailing
-                                 text:text];
-  if (!presenter)
-    return;
-
-  self.tabTipBubblePresenter = presenter;
-
-  [self.tabTipBubblePresenter presentInViewController:self
-                                                 view:self.view
-                                          anchorPoint:tabSwitcherAnchor];
-}
-
-- (void)presentNewIncognitoTabTipBubbleOnInitialized {
-  DCHECK(self.browserState);
-  // Do not override |incognitoTabtipBubblePresenter| or set it to nil if the
-  // user is still considered engaged.
-  if (!self.incognitoTabTipBubblePresenter.isUserEngaged) {
-    __weak BrowserViewController* weakSelf = self;
-    void (^onInitializedBlock)(bool) = ^(bool successfullyLoaded) {
-      [weakSelf presentNewIncognitoTabTipBubble];
-    };
-
-    // Use a callback in case the new incognito tab tip should be shown on
-    // startup. This ensures that the tracker's database will be fully loaded
-    // before checking if the promotion should be displayed.
-    feature_engagement::TrackerFactory::GetForBrowserState(self.browserState)
-        ->AddOnInitializedCallback(base::BindBlockArc(onInitializedBlock));
-  }
-}
-
-- (void)presentNewIncognitoTabTipBubble {
-  DCHECK(self.browserState);
-  // If the BVC is not visible, do not present the bubble.
-  if (!self.viewVisible)
-    return;
-
-  // Do not present the bubble if there is no current tab.
-  Tab* currentTab = [self.tabModel currentTab];
-  if (!currentTab)
-    return;
-
-  // Do not present the bubble if the tab is not scrolled to the top.
-  if (![self isTabScrolledToTop:currentTab])
-    return;
-
-  BubbleArrowDirection arrowDirection =
-      (IsUIRefreshPhase1Enabled() && IsSplitToolbarMode())
-          ? BubbleArrowDirectionDown
-          : BubbleArrowDirectionUp;
-  NSString* text = l10n_util::GetNSStringWithFixup(
-      IDS_IOS_NEW_INCOGNITO_TAB_IPH_PROMOTION_TEXT);
-  CGPoint toolsButtonAnchor;
-  UILayoutGuide* guide =
-      [NamedGuide guideWithName:kToolsMenuGuide view:self.view];
-  DCHECK(guide);
-  CGPoint anchorPoint =
-      bubble_util::AnchorPoint(guide.layoutFrame, arrowDirection);
-  toolsButtonAnchor = [guide.owningView convertPoint:anchorPoint
-                                              toView:guide.owningView.window];
-
-  // If the feature engagement tracker does not consider it valid to display
-  // the incognito tab tip, then end early to prevent the potential reassignment
-  // of the existing |incognitoTabTipBubblePresenter| to nil.
-  BubbleViewControllerPresenter* presenter =
-      [self bubblePresenterForFeature:feature_engagement::
-                                          kIPHNewIncognitoTabTipFeature
-                            direction:arrowDirection
-                            alignment:BubbleAlignmentTrailing
-                                 text:text];
-  if (!presenter)
-    return;
-
-  self.incognitoTabTipBubblePresenter = presenter;
-  self.popupMenuCoordinator.incognitoTabTipPresenter = presenter;
-
-  [self.incognitoTabTipBubblePresenter
-      presentInViewController:self
-                         view:self.view
-                  anchorPoint:toolsButtonAnchor];
-  [self.dispatcher triggerToolsMenuButtonAnimation];
-}
-
 #pragma mark - Private Methods: Find Bar UI
 
 - (void)hideFindBarWithAnimation:(BOOL)animate {
@@ -2865,14 +2815,12 @@ bubblePresenterForFeature:(const base::Feature&)feature
                       selectText:(BOOL)selectText
                      shouldFocus:(BOOL)shouldFocus {
   DCHECK(_findBarController);
-  Tab* tab = [_model currentTab];
-  DCHECK(tab);
-  CRWWebController* webController = tab.webController;
-
   CGRect referenceFrame = CGRectZero;
   if ([self canShowTabStrip]) {
-    referenceFrame = webController.visibleFrame;
-    referenceFrame.origin.y -= kIPadFindBarOverlap;
+    DCHECK(_model.currentTab);
+    referenceFrame = [self visibleFrameForTab:_model.currentTab];
+    if (!IsUIRefreshPhase1Enabled())
+      referenceFrame.origin.y -= kIPadFindBarOverlap;
   } else {
     referenceFrame = self.contentArea.frame;
   }
@@ -2960,12 +2908,12 @@ bubblePresenterForFeature:(const base::Feature&)feature
 
 #pragma mark - Private Methods: Tap handling
 
-- (void)setLastTapPoint:(OpenNewTabCommand*)command {
-  if (CGPointEqualToPoint(command.originPoint, CGPointZero)) {
+- (void)setLastTapPointFromCommand:(CGPoint)originPoint {
+  if (CGPointEqualToPoint(originPoint, CGPointZero)) {
     _lastTapPoint = CGPointZero;
   } else {
     _lastTapPoint =
-        [self.view.window convertPoint:command.originPoint toView:self.view];
+        [self.view.window convertPoint:originPoint toView:self.view];
   }
   _lastTapTime = CACurrentMediaTime();
 }
@@ -3119,7 +3067,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
   CaptivePortalDetectorTabHelper::CreateForWebState(tab.webState, self);
   PassKitTabHelper::CreateForWebState(tab.webState, _passKitCoordinator);
   AppLauncherTabHelper::CreateForWebState(
-      tab.webState, [[ExternalAppsLaunchPolicyDecider alloc] init],
+      tab.webState, [[AppLauncherAbuseDetector alloc] init],
       _appLauncherCoordinator);
 
   // DownloadManagerTabHelper cannot function without delegate.
@@ -3218,8 +3166,10 @@ bubblePresenterForFeature:(const base::Feature&)feature
     if (provider) {
       _voiceSearchController =
           provider->CreateVoiceSearchController(_browserState);
-      _voiceSearchController->SetDelegate(
-          [self.primaryToolbarCoordinator voiceSearchDelegate]);
+      if (self.primaryToolbarCoordinator) {
+        _voiceSearchController->SetDispatcher(
+            static_cast<id<LoadQueryCommands>>(_dispatcher));
+      }
     }
   }
 }
@@ -3277,10 +3227,13 @@ bubblePresenterForFeature:(const base::Feature&)feature
 
 - (void)createRecentTabsCoordinator {
   if (experimental_flags::IsRecentTabsUIRebootEnabled()) {
-    // New RecentTabs UIReboot coordinator.
-    RecentTabsCoordinator* recentTabsCoordinator = [
-        [RecentTabsCoordinator alloc] initWithBaseViewController:self
-                                                    browserState:_browserState];
+    // New RecentTabs UIReboot coordinator. Always use the regular BrowserState
+    // since the incognito one doesn't have a SignIn manager.
+    RecentTabsCoordinator* recentTabsCoordinator =
+        [[RecentTabsCoordinator alloc]
+            initWithBaseViewController:self
+                          browserState:_browserState
+                                           ->GetOriginalChromeBrowserState()];
     recentTabsCoordinator.loader = self;
     recentTabsCoordinator.dispatcher = self.dispatcher;
     self.recentTabsCoordinator = recentTabsCoordinator;
@@ -3296,6 +3249,35 @@ bubblePresenterForFeature:(const base::Feature&)feature
 }
 
 #pragma mark - ** Protocol Implementations and Helpers **
+
+#pragma mark - BubblePresenterDelegate
+
+- (web::WebState*)currentWebStateForBubblePresenter:
+    (BubblePresenter*)bubblePresenter {
+  DCHECK(bubblePresenter == self.bubblePresenter);
+  return self.currentWebState;
+}
+
+- (BOOL)rootViewVisibleForBubblePresenter:(BubblePresenter*)bubblePresenter {
+  DCHECK(bubblePresenter == self.bubblePresenter);
+  return self.viewVisible;
+}
+
+- (BOOL)isTabScrolledToTopForBubblePresenter:(BubblePresenter*)bubblePresenter {
+  DCHECK(bubblePresenter == self.bubblePresenter);
+  CGPoint scrollOffset =
+      self.currentWebState->GetWebViewProxy().scrollViewProxy.contentOffset;
+
+  // If there is a native controller, use the native controller's scroll offset.
+  id nativeController =
+      [self nativeControllerForTab:[self.tabModel currentTab]];
+  if ([nativeController conformsToProtocol:@protocol(CRWNativeContent)] &&
+      [nativeController respondsToSelector:@selector(scrollOffset)]) {
+    scrollOffset = [nativeController scrollOffset];
+  }
+
+  return CGPointEqualToPoint(scrollOffset, CGPointZero);
+}
 
 #pragma mark - SnapshotGeneratorDelegate methods
 
@@ -3316,8 +3298,8 @@ bubblePresenterForFeature:(const base::Feature&)feature
 
   CGFloat headerHeight = [self headerHeightForTab:tab];
   id nativeController = [self nativeControllerForTab:tab];
-  if ([nativeController respondsToSelector:@selector(toolbarHeight)])
-    headerHeight += [nativeController toolbarHeight];
+  if ([nativeController respondsToSelector:@selector(toolbarFrame)])
+    headerHeight += CGRectGetHeight([nativeController toolbarFrame]);
   return UIEdgeInsetsMake(headerHeight, 0.0, 0.0, 0.0);
 }
 
@@ -3412,10 +3394,10 @@ bubblePresenterForFeature:(const base::Feature&)feature
     return CGRectGetMaxY(self.view.frame);
   } else if (IsIPadIdiom()) {
     // The infobars on iPad are display at the top of a tab.
-    return CGRectGetMinY([[_model currentTab].webController visibleFrame]);
+    return CGRectGetMinY([self visibleFrameForTab:_model.currentTab]);
   } else {
     // The infobars on iPhone are displayed at the bottom of a tab.
-    CGRect visibleFrame = [[_model currentTab].webController visibleFrame];
+    CGRect visibleFrame = [self visibleFrameForTab:_model.currentTab];
     return CGRectGetMaxY(visibleFrame) -
            CGRectGetHeight(_infoBarContainer->view().frame);
   }
@@ -3423,7 +3405,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
 
 // Returns a vertical download manager offset relative to the tab content.
 - (CGFloat)downloadManagerOverlayYOffsetForTab:(Tab*)tab {
-  return CGRectGetMaxY([tab.webController visibleFrame]) -
+  return CGRectGetMaxY([self visibleFrameForTab:tab]) -
          CGRectGetHeight(_downloadManagerCoordinator.viewController.view.frame);
 }
 
@@ -3446,7 +3428,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
     return CGRectGetMaxY(self.view.frame);
   } else {
     // The voice search bar on iPhone is displayed at the bottom of a tab.
-    CGRect visibleFrame = [[_model currentTab].webController visibleFrame];
+    CGRect visibleFrame = [self visibleFrameForTab:_model.currentTab];
     return CGRectGetMaxY(visibleFrame) - kVoiceSearchBarHeight;
   }
 }
@@ -3586,6 +3568,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
   GURL imageUrl = params.src_url;
   bool isImage = imageUrl.is_valid();
   const GURL& lastCommittedURL = webState->GetLastCommittedURL();
+  CGPoint originPoint = [params.view convertPoint:params.location toView:nil];
 
   if (isLink) {
     if (link.SchemeIs(url::kJavaScriptScheme)) {
@@ -3613,6 +3596,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
                             referrer:referrer
                          inIncognito:weakSelf.isOffTheRecord
                         inBackground:YES
+                         originPoint:originPoint
                             appendTo:kCurrentTab];
       };
       [_contextMenuCoordinator addItemWithTitle:title action:action];
@@ -3626,6 +3610,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
                               referrer:referrer
                            inIncognito:YES
                           inBackground:NO
+                           originPoint:CGPointZero
                               appendTo:kCurrentTab];
         };
         [_contextMenuCoordinator addItemWithTitle:title action:action];
@@ -3661,6 +3646,16 @@ bubblePresenterForFeature:(const base::Feature&)feature
       [weakSelf saveImageAtURL:imageUrl referrer:referrer];
     };
     [_contextMenuCoordinator addItemWithTitle:title action:action];
+    // Copy Image.
+    if (base::FeatureList::IsEnabled(kCopyImage)) {
+      title =
+          l10n_util::GetNSStringWithFixup(IDS_IOS_CONTENT_CONTEXT_COPYIMAGE);
+      action = ^{
+        Record(ACTION_COPY_IMAGE, isImage, isLink);
+        [weakSelf copyImageAtURL:imageUrl referrer:referrer];
+      };
+      [_contextMenuCoordinator addItemWithTitle:title action:action];
+    }
     // Open Image.
     title = l10n_util::GetNSStringWithFixup(IDS_IOS_CONTENT_CONTEXT_OPENIMAGE);
     action = ^{
@@ -3677,6 +3672,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
       [weakSelf webPageOrderedOpen:imageUrl
                           referrer:referrer
                       inBackground:true
+                       originPoint:originPoint
                           appendTo:kCurrentTab];
     };
     [_contextMenuCoordinator addItemWithTitle:title action:action];
@@ -3709,8 +3705,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
       CGPointMake(CGRectGetMidX(view.frame),
                   CGRectGetMinY(view.frame) + [self headerHeightForTab:tab]);
   auto* helper = RepostFormTabHelper::FromWebState(webState);
-  helper->PresentDialog(dialogLocation,
-                        base::BindBlockArc(^(bool shouldContinue) {
+  helper->PresentDialog(dialogLocation, base::BindOnce(^(bool shouldContinue) {
                           handler(shouldContinue);
                         }));
 }
@@ -3729,6 +3724,10 @@ bubblePresenterForFeature:(const base::Feature&)feature
                                      proposedCredential:proposedCredential
                                                webState:webState
                                       completionHandler:handler];
+}
+
+- (BOOL)isAppLaunchingAllowedForWebState:(web::WebState*)webState {
+  return YES;
 }
 
 #pragma mark - CRWWebStateDelegate helpers
@@ -3750,7 +3749,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
   DCHECK(url.is_valid());
   __weak BrowserViewController* weakSelf = self;
   const GURL image_source_url = url;
-  image_fetcher::IOSImageDataFetcherCallback callback =
+  image_fetcher::ImageDataFetcherBlock callback =
       ^(NSData* data, const image_fetcher::RequestMetadata& metadata) {
         DCHECK(data);
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -3811,9 +3810,26 @@ bubblePresenterForFeature:(const base::Feature&)feature
               referrer:(const web::Referrer&)referrer {
   DCHECK(url.is_valid());
 
-  image_fetcher::IOSImageDataFetcherCallback callback =
+  image_fetcher::ImageDataFetcherBlock callback =
       ^(NSData* data, const image_fetcher::RequestMetadata& metadata) {
         [self.imageSaver saveImageData:data withMetadata:metadata];
+      };
+  _imageFetcher->FetchImageDataWebpDecoded(
+      url, callback, web::ReferrerHeaderValueForNavigation(url, referrer),
+      web::PolicyForNavigation(url, referrer));
+}
+
+// Copies the image at the given URL to system's Pasteboard. The referrer is
+// used to download the image.
+- (void)copyImageAtURL:(const GURL&)url
+              referrer:(const web::Referrer&)referrer {
+  DCHECK(url.is_valid());
+
+  ImageCopierSessionID sessionID = [self.imageCopier beginSession];
+
+  image_fetcher::ImageDataFetcherBlock callback =
+      ^(NSData* data, const image_fetcher::RequestMetadata& metadata) {
+        [self.imageCopier endSession:sessionID withImageData:data];
       };
   _imageFetcher->FetchImageDataWebpDecoded(
       url, callback, web::ReferrerHeaderValueForNavigation(url, referrer),
@@ -3831,8 +3847,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
   switch (action) {
     case OverscrollAction::NEW_TAB:
       [self.dispatcher
-          openNewTab:[OpenNewTabCommand
-                         commandWithIncognito:self.isOffTheRecord]];
+          openURL:[OpenNewTabCommand commandWithIncognito:self.isOffTheRecord]];
       break;
     case OverscrollAction::CLOSE_TAB:
       [self.dispatcher closeCurrentTab];
@@ -3873,9 +3888,8 @@ bubblePresenterForFeature:(const base::Feature&)feature
 }
 
 - (CGFloat)overscrollHeaderHeight {
-  if (base::FeatureList::IsEnabled(web::features::kBrowserContainerFullscreen))
-    return self.headerHeight;
-  return self.headerHeight + StatusBarHeight();
+  return self.headerHeight +
+         (self.usesFullscreenContainer ? 0 : StatusBarHeight());
 }
 
 #pragma mark - CRWNativeContentProvider methods
@@ -4002,10 +4016,9 @@ bubblePresenterForFeature:(const base::Feature&)feature
 - (CGFloat)nativeContentHeaderHeightForWebState:(web::WebState*)webState {
   Tab* tab = LegacyTabHelper::GetTabForWebState(webState);
   if (IsUIRefreshPhase1Enabled() && tab &&
-      tab.webState->GetVisibleURL() == kChromeUINewTabURL &&
+      tab.webState->GetVisibleURL().GetOrigin() == kChromeUINewTabURL &&
       ![self canShowTabStrip]) {
-    if (base::FeatureList::IsEnabled(
-            web::features::kBrowserContainerFullscreen))
+    if (self.usesFullscreenContainer)
       return 0;
     // Also subtract the top safe area so the view will appear as full screen.
     // TODO(crbug.com/826369) Remove this once NTP is out of native content.
@@ -4032,16 +4045,33 @@ bubblePresenterForFeature:(const base::Feature&)feature
 
 #pragma mark - ToolbarHeightProviderForFullscreen
 
+- (CGFloat)collapsedTopToolbarHeight {
+  // For the legacy UI, the toolbar is completely hidden when in fullscreen
+  // mode.  After the UI refresh, kToolbarHeightFullscreen is still visible
+  // after scroll events.
+  CGFloat minHeight =
+      IsUIRefreshPhase1Enabled() ? kToolbarHeightFullscreen : 0.0;
+  // |minHeight| describes the distance past the top safe area.  If the browser
+  // container view is laid out using the full screen, it extends past the
+  // status bar, so that additional overlap is added here.
+  if (self.usesFullscreenContainer)
+    minHeight += StatusBarHeight();
+  return minHeight;
+}
+
+- (CGFloat)expandedTopToolbarHeight {
+  return self.headerHeight;
+}
+
+- (CGFloat)bottomToolbarHeight {
+  return [self secondaryToolbarHeightWithInset];
+}
+
+#pragma mark - Toolbar height helpers
+
 - (CGFloat)nonFullscreenToolbarHeight {
-  CGFloat toolbarHeightFullscreen = 0;
-  if (IsUIRefreshPhase1Enabled()) {
-    toolbarHeightFullscreen = kToolbarHeightFullscreen;
-  }
-  if (base::FeatureList::IsEnabled(
-          web::features::kBrowserContainerFullscreen)) {
-    toolbarHeightFullscreen += StatusBarHeight();
-  }
-  return MAX(0, self.headerHeight - toolbarHeightFullscreen);
+  return MAX(
+      0, [self expandedTopToolbarHeight] - [self collapsedTopToolbarHeight]);
 }
 
 #pragma mark - FullscreenUIElement methods
@@ -4049,7 +4079,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
 - (void)updateForFullscreenProgress:(CGFloat)progress {
   [self updateHeadersForFullscreenProgress:progress];
   [self updateFootersForFullscreenProgress:progress];
-  [self updateContentViewPaddingForFullscreenProgress:progress];
+  [self updateBrowserViewportForFullscreenProgress:progress];
 }
 
 - (void)updateForFullscreenEnabled:(BOOL)enabled {
@@ -4070,7 +4100,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
     CGPoint contentOffset = scrollProxy.contentOffset;
     if (contentOffset.y - scrollProxy.contentInset.top <
         webProxy.contentInset.top) {
-      [self updateContentViewPaddingForFullscreenProgress:finalProgress];
+      [self updateBrowserViewportForFullscreenProgress:finalProgress];
       contentOffset.y = -scrollProxy.contentInset.top;
       scrollProxy.contentOffset = contentOffset;
     }
@@ -4088,7 +4118,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
   // animator to trigger a rerender in the page's new viewport.
   __weak FullscreenAnimator* weakAnimator = animator;
   [animator addCompletion:^(UIViewAnimatingPosition finalPosition) {
-    [weakSelf updateContentViewPaddingForFullscreenProgress:
+    [weakSelf updateBrowserViewportForFullscreenProgress:
                   [weakAnimator progressForAnimatingPosition:finalPosition]];
   }];
 }
@@ -4098,7 +4128,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
   [animator addAnimations:^{
     [self updateHeadersForFullscreenProgress:finalProgress];
     [self updateFootersForFullscreenProgress:finalProgress];
-    [self updateContentViewPaddingForFullscreenProgress:finalProgress];
+    [self updateBrowserViewportForFullscreenProgress:finalProgress];
   }];
 }
 
@@ -4157,21 +4187,81 @@ bubblePresenterForFeature:(const base::Feature&)feature
   }
 }
 
+// Updates the browser container view such that its viewport is the space
+// between the primary and secondary toolbars.
+- (void)updateBrowserViewportForFullscreenProgress:(CGFloat)progress {
+  if (!self.currentWebState)
+    return;
+
+  // Calculate the heights of the toolbars for |progress|.  |-toolbarHeight|
+  // returns the height of the toolbar extending below this view controller's
+  // safe area, so the unsafe top height must be added.
+  CGFloat top = AlignValueToPixel(
+      self.headerHeight + (progress - 1.0) * [self nonFullscreenToolbarHeight]);
+  CGFloat bottom =
+      AlignValueToPixel(progress * [self secondaryToolbarHeightWithInset]);
+
+  if (self.usesSafeInsetsForViewportAdjustments) {
+    if (fullscreen::features::GetActiveViewportExperiment() ==
+        fullscreen::features::ViewportAdjustmentExperiment::HYBRID) {
+      [self updateWebViewFrameForBottomOffset:bottom];
+    }
+
+    [self updateBrowserSafeAreaForTopToolbarHeight:top
+                               bottomToolbarHeight:bottom];
+  } else {
+    [self updateContentPaddingForTopToolbarHeight:top
+                              bottomToolbarHeight:bottom];
+  }
+}
+
+// Updates the frame of the web view so that it's |offset| from the bottom of
+// the container view.
+- (void)updateWebViewFrameForBottomOffset:(CGFloat)offset {
+  if (!self.currentWebState)
+    return;
+
+  // Move the frame of the container view such that the bottom is aligned with
+  // the top of the bottom toolbar.
+  id<CRWWebViewProxy> webViewProxy = self.currentWebState->GetWebViewProxy();
+  CGRect webViewFrame = webViewProxy.frame;
+  CGFloat oldOriginY = CGRectGetMinY(webViewFrame);
+  webViewProxy.contentOffset = CGPointMake(0.0, -offset);
+  // Update the contentOffset so that the scroll position is maintained
+  // relative to the screen.
+  CRWWebViewScrollViewProxy* scrollViewProxy = webViewProxy.scrollViewProxy;
+  CGFloat originDelta = CGRectGetMinY(webViewProxy.frame) - oldOriginY;
+  CGPoint contentOffset = scrollViewProxy.contentOffset;
+  contentOffset.y += originDelta;
+  scrollViewProxy.contentOffset = contentOffset;
+}
+
+// Updates the web view's viewport by changing the safe area insets.
+- (void)updateBrowserSafeAreaForTopToolbarHeight:(CGFloat)topToolbarHeight
+                             bottomToolbarHeight:(CGFloat)bottomToolbarHeight {
+  UIViewController* containerViewController =
+      _browserContainerCoordinator.viewController;
+  if (@available(iOS 11, *)) {
+    containerViewController.additionalSafeAreaInsets = UIEdgeInsetsMake(
+        topToolbarHeight - self.view.safeAreaInsets.top -
+            self.currentWebState->GetWebViewProxy().contentOffset.y,
+        0, 0, 0);
+  }
+}
+
 // Updates the padding of the web view proxy. This either resets the frame of
 // the WKWebView or the contentInsets of the WKWebView's UIScrollView, depending
 // on the the proxy's |shouldUseViewContentInset| property.
-- (void)updateContentViewPaddingForFullscreenProgress:(CGFloat)progress {
-  if (self.currentWebState) {
-    UIEdgeInsets contentPadding =
-        self.currentWebState->GetWebViewProxy().contentInset;
-    CGFloat toolbarHeightFullscreen =
-        self.headerHeight - [self nonFullscreenToolbarHeight];
-    contentPadding.top = AlignValueToPixel(
-        toolbarHeightFullscreen + progress * [self nonFullscreenToolbarHeight]);
-    contentPadding.bottom =
-        AlignValueToPixel(progress * [self secondaryToolbarHeightWithInset]);
-    self.currentWebState->GetWebViewProxy().contentInset = contentPadding;
-  }
+- (void)updateContentPaddingForTopToolbarHeight:(CGFloat)topToolbarHeight
+                            bottomToolbarHeight:(CGFloat)bottomToolbarHeight {
+  if (!self.currentWebState)
+    return;
+
+  id<CRWWebViewProxy> webViewProxy = self.currentWebState->GetWebViewProxy();
+  UIEdgeInsets contentPadding = webViewProxy.contentInset;
+  contentPadding.top = topToolbarHeight;
+  contentPadding.bottom = bottomToolbarHeight;
+  webViewProxy.contentInset = contentPadding;
 }
 
 - (CGFloat)currentHeaderOffset {
@@ -4256,12 +4346,8 @@ bubblePresenterForFeature:(const base::Feature&)feature
   if (entry->type != sessions::TabRestoreService::TAB)
     return;
 
-  [self.dispatcher openNewTab:[OpenNewTabCommand command]];
-  TabRestoreServiceDelegateImplIOS* const delegate =
-      TabRestoreServiceDelegateImplIOSFactory::GetForBrowserState(
-          _browserState);
-  tabRestoreService->RestoreEntryById(delegate, entry->id,
-                                      WindowOpenDisposition::CURRENT_TAB);
+  [self.dispatcher openURL:[OpenNewTabCommand command]];
+  [self restoreTabWithSessionID:entry->id];
 }
 
 #pragma mark - MainContentUI
@@ -4364,6 +4450,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
                     referrer:web::Referrer()
                  inIncognito:NO
                 inBackground:NO
+                 originPoint:CGPointZero
                     appendTo:kCurrentTab];
     return;
   }
@@ -4410,23 +4497,38 @@ bubblePresenterForFeature:(const base::Feature&)feature
 - (void)webPageOrderedOpen:(const GURL&)URL
                   referrer:(const web::Referrer&)referrer
               inBackground:(BOOL)inBackground
+               originPoint:(CGPoint)originPoint
                   appendTo:(OpenPosition)appendTo {
   Tab* adjacentTab = nil;
   if (appendTo == kCurrentTab)
     adjacentTab = [_model currentTab];
-  [_model insertTabWithURL:URL
-                  referrer:referrer
-                transition:ui::PAGE_TRANSITION_LINK
-                    opener:adjacentTab
-               openedByDOM:NO
-                   atIndex:TabModelConstants::kTabPositionAutomatically
-              inBackground:inBackground];
+
+  GURL capturedURL = URL;
+  web::Referrer capturedReferrer = referrer;
+  auto openTab = ^{
+    [_model insertTabWithURL:capturedURL
+                    referrer:capturedReferrer
+                  transition:ui::PAGE_TRANSITION_LINK
+                      opener:adjacentTab
+                 openedByDOM:NO
+                     atIndex:TabModelConstants::kTabPositionAutomatically
+                inBackground:inBackground];
+  };
+
+  if (!IsUIRefreshPhase1Enabled() || !inBackground || [self canShowTabStrip] ||
+      CGPointEqualToPoint(originPoint, CGPointZero)) {
+    openTab();
+  } else {
+    [self animateNewTabInBackgroundFromPoint:originPoint
+                              withCompletion:openTab];
+  }
 }
 
 - (void)webPageOrderedOpen:(const GURL&)url
                   referrer:(const web::Referrer&)referrer
                inIncognito:(BOOL)inIncognito
               inBackground:(BOOL)inBackground
+               originPoint:(CGPoint)originPoint
                   appendTo:(OpenPosition)appendTo {
   // Send either the "New Tab Opened" or "New Incognito Tab" opened to the
   // feature_engagement::Tracker based on |inIncognito|.
@@ -4436,6 +4538,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
     [self webPageOrderedOpen:url
                     referrer:referrer
                 inBackground:inBackground
+                 originPoint:originPoint
                     appendTo:appendTo];
     return;
   }
@@ -4443,12 +4546,13 @@ bubblePresenterForFeature:(const base::Feature&)feature
   // ends up appended to the end of the model, not just next to what is
   // currently selected in the other mode. This is done with the |append|
   // parameter.
-  OpenUrlCommand* command = [[OpenUrlCommand alloc]
+  OpenNewTabCommand* command = [[OpenNewTabCommand alloc]
        initWithURL:url
           referrer:web::Referrer()  // Strip referrer when switching modes.
        inIncognito:inIncognito
       inBackground:inBackground
           appendTo:kLastTab];
+  command.originPoint = originPoint;
   [self.dispatcher openURL:command];
 }
 
@@ -4459,6 +4563,17 @@ bubblePresenterForFeature:(const base::Feature&)feature
       session_util::CreateWebStateWithNavigationEntries(
           [_model browserState], sessionTab->current_navigation_index,
           sessionTab->navigations));
+}
+
+- (void)restoreTabWithSessionID:(const SessionID)sessionID {
+  TabRestoreServiceDelegateImplIOS* delegate =
+      TabRestoreServiceDelegateImplIOSFactory::GetForBrowserState(
+          self.browserState);
+  sessions::TabRestoreService* restoreService =
+      IOSChromeTabRestoreServiceFactory::GetForBrowserState(
+          self.browserState->GetOriginalChromeBrowserState());
+  restoreService->RestoreEntryById(delegate, sessionID,
+                                   WindowOpenDisposition::CURRENT_TAB);
 }
 
 #pragma mark - UrlLoader helpers
@@ -4591,9 +4706,11 @@ bubblePresenterForFeature:(const base::Feature&)feature
 
   [configuration setUserAgentType:self.userAgentType];
 
-  if (self.incognitoTabTipBubblePresenter.triggerFollowUpAction) {
+  if (self.bubblePresenter.incognitoTabTipBubblePresenter
+          .triggerFollowUpAction) {
     [configuration setHighlightNewIncognitoTabCell:YES];
-    [self.incognitoTabTipBubblePresenter setTriggerFollowUpAction:NO];
+    self.bubblePresenter.incognitoTabTipBubblePresenter.triggerFollowUpAction =
+        NO;
   }
 
   return configuration;
@@ -4647,74 +4764,13 @@ bubblePresenterForFeature:(const base::Feature&)feature
 - (void)bookmarkPage {
   [self initializeBookmarkInteractionController];
   [_bookmarkInteractionController
-      presentBookmarkForTab:[_model currentTab]
-        currentlyBookmarked:
-            [self.helper isWebStateBookmarkedByUser:self.currentWebState]];
+      presentBookmarkEditorForTab:[_model currentTab]
+              currentlyBookmarked:[self.helper isWebStateBookmarkedByUser:
+                                                   self.currentWebState]];
 }
 
 - (void)openNewTab:(OpenNewTabCommand*)command {
-  if (self.isOffTheRecord != command.incognito) {
-    // Must take a snapshot of the tab before we switch the incognito mode
-    // because the currentTab will change after the switch.
-    Tab* currentTab = [_model currentTab];
-    if (currentTab) {
-      SnapshotTabHelper::FromWebState(currentTab.webState)
-          ->UpdateSnapshot(/*with_overlays=*/true, /*visible_frame_only=*/true);
-    }
-    // Not for this browser state, send it on its way.
-    [self.dispatcher switchModesAndOpenNewTab:command];
-    return;
-  }
-
-  // Either send or don't send the "New Tab Opened" or "Incognito Tab Opened"
-  // events to the feature_engagement::Tracker based on |command.userInitiated|
-  // and |command.incognito|.
-  feature_engagement::NotifyNewTabEventForCommand(_browserState, command);
-
-  NSTimeInterval startTime = [NSDate timeIntervalSinceReferenceDate];
-  BOOL offTheRecord = self.isOffTheRecord;
-  ProceduralBlock oldForegroundTabWasAddedCompletionBlock =
-      self.foregroundTabWasAddedCompletionBlock;
-  __weak BrowserViewController* weakSelf = self;
-  self.foregroundTabWasAddedCompletionBlock = ^{
-    if (oldForegroundTabWasAddedCompletionBlock) {
-      oldForegroundTabWasAddedCompletionBlock();
-    }
-    double duration = [NSDate timeIntervalSinceReferenceDate] - startTime;
-    base::TimeDelta timeDelta = base::TimeDelta::FromSecondsD(duration);
-    if (offTheRecord) {
-      UMA_HISTOGRAM_TIMES("Toolbar.Menu.NewIncognitoTabPresentationDuration",
-                          timeDelta);
-    } else {
-      UMA_HISTOGRAM_TIMES("Toolbar.Menu.NewTabPresentationDuration", timeDelta);
-    }
-    if (command.shouldFocusOmnibox) {
-      [weakSelf.dispatcher focusOmnibox];
-    }
-  };
-
-  [self setLastTapPoint:command];
-  // When the tab switcher presentation experiment is enabled, the new tab can
-  // be opened before BVC has been made visible onscreen.  Test for this case by
-  // checking if the parent container VC is currently in the process of being
-  // presented.
-  DCHECK(self.visible || self.dismissingModal ||
-         (TabSwitcherPresentsBVCEnabled() &&
-          self.parentViewController.isBeingPresented));
-
-  // In most cases, we want to take a snapshot of the current tab before opening
-  // a new tab. However, if the current tab is not fully visible (did not finish
-  // |-viewDidAppear:|, then we must not take an empty snapshot, replacing an
-  // existing snapshot for the tab. This can happen when a new regular tab is
-  // opened from an incognito tab. A different BVC is displayed, which may not
-  // have enough time to finish appearing before a snapshot is requested.
-  Tab* currentTab = [_model currentTab];
-  if (currentTab && self.viewVisible) {
-    SnapshotTabHelper::FromWebState(currentTab.webState)
-        ->UpdateSnapshot(/*with_overlays=*/true, /*visible_frame_only=*/true);
-  }
-  [self addSelectedTabWithURL:GURL(kChromeUINewTabURL)
-                   transition:ui::PAGE_TRANSITION_TYPED];
+  [self.dispatcher openURL:command];
 }
 
 - (void)printTab {
@@ -4742,10 +4798,16 @@ bubblePresenterForFeature:(const base::Feature&)feature
 }
 
 - (void)showReadingList {
-  _readingListCoordinator = [[ReadingListCoordinator alloc]
-      initWithBaseViewController:self
-                    browserState:self.browserState
-                          loader:self];
+  _readingListCoordinator =
+      experimental_flags::IsReadingListUIRebootEnabled()
+          ? [[ReadingListCoordinator alloc]
+                initWithBaseViewController:self
+                              browserState:self.browserState
+                                    loader:self]
+          : [[LegacyReadingListCoordinator alloc]
+                initWithBaseViewController:self
+                              browserState:self.browserState
+                                    loader:self];
 
   [_readingListCoordinator start];
 }
@@ -4899,6 +4961,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
   [self webPageOrderedOpen:helpUrl
                   referrer:web::Referrer()
               inBackground:NO
+               originPoint:CGPointZero
                   appendTo:kCurrentTab];
 }
 
@@ -4926,10 +4989,14 @@ bubblePresenterForFeature:(const base::Feature&)feature
 }
 
 - (void)requestDesktopSite {
+  if (self.userAgentType != web::UserAgentType::MOBILE)
+    return;
   [[_model currentTab] reloadWithUserAgentType:web::UserAgentType::DESKTOP];
 }
 
 - (void)requestMobileSite {
+  if (self.userAgentType != web::UserAgentType::DESKTOP)
+    return;
   [[_model currentTab] reloadWithUserAgentType:web::UserAgentType::MOBILE];
 }
 
@@ -4974,22 +5041,11 @@ bubblePresenterForFeature:(const base::Feature&)feature
   [self.dispatcher cancelOmniboxEdit];
   // Dismiss the soft keyboard (if open).
   [_model.currentTab.view endEditing:NO];
-  id nativeController = [self nativeControllerForTab:_model.currentTab];
-  if ([nativeController respondsToSelector:@selector(dismissKeyboard)])
-    [nativeController dismissKeyboard];
   // Dismiss Find in Page focus.
   [self updateFindBar:NO shouldFocus:NO];
 
-  switch (type) {
-    case PopupMenuCommandTypeToolsMenu:
-      if (self.incognitoTabTipBubblePresenter.isUserEngaged) {
-        base::RecordAction(
-            UserMetricsAction("NewIncognitoTabTipTargetSelected"));
-      }
-      break;
-    case PopupMenuCommandTypeDefault:
-      // Do nothing.
-      break;
+  if (type == PopupMenuCommandTypeToolsMenu) {
+    [self.bubblePresenter toolsMenuDisplayed];
   }
 }
 
@@ -5144,7 +5200,7 @@ bubblePresenterForFeature:(const base::Feature&)feature
 
   // Block that starts voice search at the end of new Tab animation if
   // necessary.
-  ProceduralBlock startVoiceSearchIfNecessaryBlock = ^void() {
+  ProceduralBlock startVoiceSearchIfNecessary = ^void() {
     if (_startVoiceSearchAfterNewTabAnimation) {
       _startVoiceSearchAfterNewTabAnimation = NO;
       [self startVoiceSearch];
@@ -5153,153 +5209,11 @@ bubblePresenterForFeature:(const base::Feature&)feature
 
   self.inNewTabAnimation = YES;
   if (!background) {
-    // Create the new page image, and load with the new tab snapshot except if
-    // it is the NTP.
-    CGFloat newPageOffset = 0;
-    UIView* newPage = nil;
-    CGFloat offset = 0;
-    GURL tabURL = tab.webState->GetLastCommittedURL();
-    // Vislble URL should be more correct here than last committed, but for
-    // safety, limiting the scope only to WKBasedNavigationManager, which needs
-    // it to correctly animate NTP. See https://crbug.com/819606.
-    if (web::GetWebClient()->IsSlimNavigationManagerEnabled())
-      tabURL = tab.webState->GetVisibleURL();
-    if (tabURL == kChromeUINewTabURL && !_isOffTheRecord &&
-        ![self canShowTabStrip]) {
-      offset = 0;
-      // Temporary expand content area to take whole view space. Otherwise the
-      // animated NTP will be clipped by content area bound. Previous frame will
-      // be reset back on the animation completion.
-      self.contentArea.frame = self.view.frame;
-      newPage = tab.view;
-      newPage.userInteractionEnabled = NO;
-      if (base::FeatureList::IsEnabled(
-              web::features::kBrowserContainerFullscreen)) {
-        newPage.frame = self.view.bounds;
-      } else {
-        // Compute a frame for the new page by removing the status bar height
-        // from the bounds of |self.view|.
-        CGRect viewBounds, remainder;
-        CGRectDivide(self.view.bounds, &remainder, &viewBounds,
-                     StatusBarHeight(), CGRectMinYEdge);
-        newPage.frame = viewBounds;
-      }
-    } else {
-      UIImageView* pageScreenshot = [self pageOpenCloseAnimationView];
-      tab.view.frame = self.contentArea.bounds;
-      pageScreenshot.image = SnapshotTabHelper::FromWebState(tab.webState)
-                                 ->UpdateSnapshot(/*with_overlays=*/true,
-                                                  /*visible_frame_only=*/true);
-      newPage = pageScreenshot;
-      offset =
-          pageScreenshot.frame.size.height - pageScreenshot.image.size.height;
-    }
-    newPageOffset = newPage.frame.origin.y;
-
-    [self.contentArea addSubview:newPage];
-    CGPoint origin = [self lastTapPoint];
-    page_animation_util::AnimateInPaperWithAnimationAndCompletion(
-        newPage, -newPageOffset, offset, origin, _isOffTheRecord, NULL, ^{
-          tab.view.frame = self.contentArea.bounds;
-          newPage.userInteractionEnabled = YES;
-          [newPage removeFromSuperview];
-          self.inNewTabAnimation = NO;
-          // Use the model's currentTab here because it is possible that it can
-          // be reset to a new value before the new Tab animation finished (e.g.
-          // if another Tab shows a dialog via |dialogPresenter|). However, that
-          // tab's view hasn't been displayed yet because it was in a new tab
-          // animation.
-          Tab* currentTab = [_model currentTab];
-          if (currentTab) {
-            [self tabSelected:currentTab notifyToolbar:NO];
-          }
-          startVoiceSearchIfNecessaryBlock();
-
-          if (self.foregroundTabWasAddedCompletionBlock) {
-            self.foregroundTabWasAddedCompletionBlock();
-            self.foregroundTabWasAddedCompletionBlock = nil;
-          }
-
-          // Restore content area frame, which was resized to fullscreen for
-          // NTP opening animation.
-          CGRect contentAreaFrame = self.view.bounds;
-          if (!base::FeatureList::IsEnabled(
-                  web::features::kBrowserContainerFullscreen)) {
-            contentAreaFrame.origin.y += StatusBarHeight();
-            contentAreaFrame.size.height -= StatusBarHeight();
-          }
-          self.contentArea.frame = contentAreaFrame;
-        });
+    [self animateNewTab:tab
+        inForegroundWithCompletion:startVoiceSearchIfNecessary];
   } else {
-    // SnapshotTabHelper::UpdateSnapshot will force a screen redraw, so take the
-    // snapshot before adding the views needed for the background animation.
-    Tab* topTab = [_model currentTab];
-    UIImage* image =
-        SnapshotTabHelper::FromWebState(topTab.webState)
-            ->UpdateSnapshot(/*with_overlays=*/true,
-                             /*visible_frame_only=*/self.isToolbarOnScreen);
-
-    // The size of the |image| above can be wrong if the snapshot fails, grab
-    // the correct size here.
-    CGRect imageFrame = CGRectZero;
-    if (self.isToolbarOnScreen) {
-      imageFrame = UIEdgeInsetsInsetRect(
-          self.contentArea.bounds,
-          [self snapshotEdgeInsetsForWebState:topTab.webState]);
-    } else {
-      imageFrame = [topTab.webState->GetView() bounds];
-      if (base::FeatureList::IsEnabled(
-              web::features::kBrowserContainerFullscreen)) {
-        imageFrame.origin.y += StatusBarHeight();
-        imageFrame.size.height -= StatusBarHeight();
-      }
-    }
-
-    // Add three layers in order on top of the contentArea for the animation:
-    // 1. The black "background" screen.
-    UIView* background = [[UIView alloc] initWithFrame:self.contentArea.bounds];
-    InstallBackgroundInView(background);
-    [self.contentArea addSubview:background];
-
-    // 2. A CardView displaying the data from the current tab.
-    CardView* topCard = [self addCardViewInFullscreen:!self.isToolbarOnScreen];
-    NSString* title = [topTab title];
-    if (![title length])
-      title = [topTab urlDisplayString];
-    [topCard setTitle:title];
-    [topCard setImage:image];
-    [topCard setFavicon:nil];
-
-    favicon::FaviconDriver* faviconDriver =
-        favicon::WebFaviconDriver::FromWebState(topTab.webState);
-    if (faviconDriver && faviconDriver->FaviconIsValid()) {
-      gfx::Image favicon = faviconDriver->GetFavicon();
-      if (!favicon.IsEmpty())
-        [topCard setFavicon:favicon.ToUIImage()];
-    }
-
-    // 3. A new, blank CardView to represent the new tab being added.
-    // Launch the new background tab animation.
-    page_animation_util::AnimateNewBackgroundPageWithCompletion(
-        topCard, self.contentArea.frame, imageFrame, IsPortrait(), ^{
-          [background removeFromSuperview];
-          [topCard removeFromSuperview];
-          self.inNewTabAnimation = NO;
-          // Resnapshot the top card if it has its own toolbar, as the toolbar
-          // will be captured in the new tab animation, but isn't desired for
-          // the stack view snapshots.
-          id nativeController = [self nativeControllerForTab:topTab];
-          if ([nativeController conformsToProtocol:@protocol(ToolbarOwner)]) {
-            SnapshotTabHelper::FromWebState(topTab.webState)
-                ->UpdateSnapshot(/*with_overlays=*/true,
-                                 /*visible_frame_only=*/true);
-          }
-          startVoiceSearchIfNecessaryBlock();
-        });
-    // Reset the foreground tab completion block so that it can never be
-    // called more than once regardless of foreground/background tab
-    // appearances.
-    self.foregroundTabWasAddedCompletionBlock = nil;
+    [self animateNewTab:tab
+        inBackgroundWithCompletion:startVoiceSearchIfNecessary];
   }
 }
 
@@ -5362,6 +5276,237 @@ bubblePresenterForFeature:(const base::Feature&)feature
   if ([model count] == 1) {  // About to remove the last tab.
     [_paymentRequestManager setActiveWebState:nullptr];
   }
+}
+
+#pragma mark - TabModelObserver helpers (new tab animations)
+
+- (void)animateNewTab:(Tab*)tab
+    inForegroundWithCompletion:(ProceduralBlock)completion {
+  // Create the new page image, and load with the new tab snapshot except if
+  // it is the NTP.
+  CGFloat newPageOffset = 0;
+  UIView* newPage = nil;
+  CGFloat offset = 0;
+  GURL tabURL = tab.webState->GetLastCommittedURL();
+  // Toolbar snapshot is only used for the UIRefresh animation.
+  UIView* toolbarSnapshot;
+  // Vislble URL should be more correct here than last committed, but for
+  // safety, limiting the scope only to WKBasedNavigationManager, which needs
+  // it to correctly animate NTP. See https://crbug.com/819606.
+  if (web::GetWebClient()->IsSlimNavigationManagerEnabled())
+    tabURL = tab.webState->GetVisibleURL();
+  if (tabURL == kChromeUINewTabURL && !_isOffTheRecord &&
+      ![self canShowTabStrip]) {
+    offset = 0;
+    if (IsUIRefreshPhase1Enabled()) {
+      // Add a snapshot of the primary toolbar to the background as the
+      // animation runs.
+      UIViewController* toolbarViewController =
+          self.primaryToolbarCoordinator.viewController;
+      toolbarSnapshot =
+          [toolbarViewController.view snapshotViewAfterScreenUpdates:NO];
+      toolbarSnapshot.frame =
+          [self.contentArea convertRect:toolbarSnapshot.frame
+                               fromView:self.view];
+      [self.contentArea addSubview:toolbarSnapshot];
+    } else {
+      // Temporarily expand content area to take whole view space. Otherwise the
+      // animated NTP will be clipped by content area bound. Previous frame will
+      // be reset back on the animation completion.
+      self.contentArea.frame = self.view.frame;
+    }
+
+    newPage = tab.view;
+    newPage.userInteractionEnabled = NO;
+    if (base::FeatureList::IsEnabled(
+            web::features::kBrowserContainerFullscreen)) {
+      newPage.frame = self.view.bounds;
+    } else {
+      // Compute a frame for the new page by removing the status bar height
+      // from the bounds of |self.view|.
+      CGRect viewBounds, remainder;
+      CGRectDivide(self.view.bounds, &remainder, &viewBounds, StatusBarHeight(),
+                   CGRectMinYEdge);
+      newPage.frame = viewBounds;
+    }
+  } else {
+    UIImageView* pageScreenshot = [self pageOpenCloseAnimationView];
+    tab.view.frame = self.contentArea.bounds;
+    // Setting the frame here doesn't trigger a layout pass. Trigger it manually
+    // if needed. Not triggering it can create problem if the previous frame
+    // wasn't the right one, for example in https://crbug.com/852106.
+    [tab.view layoutIfNeeded];
+    pageScreenshot.image = SnapshotTabHelper::FromWebState(tab.webState)
+                               ->UpdateSnapshot(/*with_overlays=*/true,
+                                                /*visible_frame_only=*/true);
+    newPage = pageScreenshot;
+    offset =
+        pageScreenshot.frame.size.height - pageScreenshot.image.size.height;
+  }
+  newPageOffset = newPage.frame.origin.y;
+
+  // Cleanup steps needed for both UI Refresh and stack-view style animations.
+  auto commonCompletion = ^{
+    tab.view.frame = self.contentArea.bounds;
+    newPage.userInteractionEnabled = YES;
+    self.inNewTabAnimation = NO;
+    // Use the model's currentTab here because it is possible that it can
+    // be reset to a new value before the new Tab animation finished (e.g.
+    // if another Tab shows a dialog via |dialogPresenter|). However, that
+    // tab's view hasn't been displayed yet because it was in a new tab
+    // animation.
+    Tab* currentTab = [_model currentTab];
+    if (currentTab) {
+      [self tabSelected:currentTab notifyToolbar:NO];
+    }
+    if (completion)
+      completion();
+    [self.bubblePresenter presentLongPressBubbleIfEligible];
+
+    if (self.foregroundTabWasAddedCompletionBlock) {
+      self.foregroundTabWasAddedCompletionBlock();
+      self.foregroundTabWasAddedCompletionBlock = nil;
+    }
+  };
+
+  CGPoint origin = [self lastTapPoint];
+
+  // UI Refresh animation.
+  if (IsUIRefreshPhase1Enabled()) {
+    // The animation will have the same frame as |self|, minus the status bar,
+    // so shift it down and reduce its height accordingly.
+    CGRect frame = self.view.bounds;
+    frame.origin.y += StatusBarHeight();
+    frame.size.height -= StatusBarHeight();
+    frame = [self.contentArea convertRect:frame fromView:self.view];
+    ForegroundTabAnimationView* animatedView =
+        [[ForegroundTabAnimationView alloc] initWithFrame:frame];
+    animatedView.contentView = newPage;
+    __weak UIView* weakAnimatedView = animatedView;
+    auto completionBlock = ^() {
+      [weakAnimatedView removeFromSuperview];
+      [toolbarSnapshot removeFromSuperview];
+      commonCompletion();
+    };
+    [self.contentArea addSubview:animatedView];
+    [animatedView animateFrom:origin withCompletion:completionBlock];
+    return;
+  }
+
+  // Else, stack view-style animation.
+  [self.contentArea addSubview:newPage];
+
+  auto animationCompletion = ^{
+    [newPage removeFromSuperview];
+    commonCompletion();
+    // Restore content area frame, which was resized to fullscreen for
+    // NTP opening animation.
+    CGRect contentAreaFrame = self.view.bounds;
+    if (!self.usesFullscreenContainer) {
+      contentAreaFrame.origin.y += StatusBarHeight();
+      contentAreaFrame.size.height -= StatusBarHeight();
+    }
+    self.contentArea.frame = contentAreaFrame;
+  };
+
+  page_animation_util::AnimateInPaperWithAnimationAndCompletion(
+      newPage, -newPageOffset, offset, origin, _isOffTheRecord, NULL,
+      animationCompletion);
+}
+
+- (void)animateNewTabInBackgroundFromPoint:(CGPoint)originPoint
+                            withCompletion:(ProceduralBlock)completion {
+  self.inNewTabAnimation = YES;
+  const CGFloat kAnimatedViewSize = 50;
+  BackgroundTabAnimationView* animatedView = [[BackgroundTabAnimationView alloc]
+      initWithFrame:CGRectMake(0, 0, kAnimatedViewSize, kAnimatedViewSize)];
+  __weak UIView* weakAnimatedView = animatedView;
+  auto completionBlock = ^() {
+    self.inNewTabAnimation = NO;
+    [weakAnimatedView removeFromSuperview];
+    if (completion)
+      completion();
+  };
+  [self.view addSubview:animatedView];
+  [animatedView animateFrom:originPoint
+      toTabGridButtonWithCompletion:completionBlock];
+}
+
+- (void)animateNewTab:(Tab*)tab
+    inBackgroundWithCompletion:(ProceduralBlock)completion {
+  if (IsUIRefreshPhase1Enabled()) {
+    self.inNewTabAnimation = NO;
+    return;
+  }
+
+  // SnapshotTabHelper::UpdateSnapshot will force a screen redraw, so take the
+  // snapshot before adding the views needed for the background animation.
+  Tab* topTab = [_model currentTab];
+  UIImage* image =
+      SnapshotTabHelper::FromWebState(topTab.webState)
+          ->UpdateSnapshot(/*with_overlays=*/true,
+                           /*visible_frame_only=*/self.isToolbarOnScreen);
+
+  // The size of the |image| above can be wrong if the snapshot fails, grab
+  // the correct size here.
+  CGRect imageFrame = CGRectZero;
+  if (self.isToolbarOnScreen) {
+    imageFrame = UIEdgeInsetsInsetRect(
+        self.contentArea.bounds,
+        [self snapshotEdgeInsetsForWebState:topTab.webState]);
+  } else {
+    imageFrame = [topTab.webState->GetView() bounds];
+    if (self.usesFullscreenContainer) {
+      imageFrame.origin.y += StatusBarHeight();
+      imageFrame.size.height -= StatusBarHeight();
+    }
+  }
+
+  // Add three layers in order on top of the contentArea for the animation:
+  // 1. The black "background" screen.
+  UIView* background = [[UIView alloc] initWithFrame:self.contentArea.bounds];
+  InstallBackgroundInView(background);
+  [self.contentArea addSubview:background];
+
+  // 2. A CardView displaying the data from the current tab.
+  CardView* topCard = [self addCardViewInFullscreen:!self.isToolbarOnScreen];
+  NSString* title = [topTab title];
+  if (![title length])
+    title = [topTab urlDisplayString];
+  [topCard setTitle:title];
+  [topCard setImage:image];
+  [topCard setFavicon:nil];
+
+  favicon::FaviconDriver* faviconDriver =
+      favicon::WebFaviconDriver::FromWebState(topTab.webState);
+  if (faviconDriver && faviconDriver->FaviconIsValid()) {
+    gfx::Image favicon = faviconDriver->GetFavicon();
+    if (!favicon.IsEmpty())
+      [topCard setFavicon:favicon.ToUIImage()];
+  }
+
+  // 3. A new, blank CardView to represent the new tab being added.
+  // Launch the new background tab animation.
+  page_animation_util::AnimateNewBackgroundPageWithCompletion(
+      topCard, self.contentArea.frame, imageFrame, IsPortrait(), ^{
+        [background removeFromSuperview];
+        [topCard removeFromSuperview];
+        self.inNewTabAnimation = NO;
+        // Resnapshot the top card if it has its own toolbar, as the toolbar
+        // will be captured in the new tab animation, but isn't desired for
+        // the stack view snapshots.
+        id nativeController = [self nativeControllerForTab:topTab];
+        if ([nativeController conformsToProtocol:@protocol(ToolbarOwner)]) {
+          SnapshotTabHelper::FromWebState(topTab.webState)
+              ->UpdateSnapshot(/*with_overlays=*/true,
+                               /*visible_frame_only=*/true);
+        }
+        completion();
+      });
+  // Reset the foreground tab completion block so that it can never be
+  // called more than once regardless of foreground/background tab
+  // appearances.
+  self.foregroundTabWasAddedCompletionBlock = nil;
 }
 
 #pragma mark - UpgradeCenterClient
@@ -5792,7 +5937,7 @@ nativeContentHeaderHeightForPreloadController:(PreloadController*)controller
   [self.tabModel.currentTab goBack];
 
   if (url.is_valid()) {
-    OpenUrlCommand* command = [[OpenUrlCommand alloc]
+    OpenNewTabCommand* command = [[OpenNewTabCommand alloc]
          initWithURL:url
             referrer:web::Referrer()  // Strip referrer when switching modes.
          inIncognito:YES
@@ -5800,7 +5945,7 @@ nativeContentHeaderHeightForPreloadController:(PreloadController*)controller
             appendTo:kLastTab];
     [self.dispatcher openURL:command];
   } else {
-    [self.dispatcher openNewTab:[OpenNewTabCommand command]];
+    [self.dispatcher openURL:[OpenNewTabCommand command]];
   }
 }
 

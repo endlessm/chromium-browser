@@ -279,8 +279,8 @@ ShelfButton::ShelfButton(InkDropButtonListener* listener, ShelfView* shelf_view)
       notification_indicator_(nullptr),
       state_(STATE_NORMAL),
       destroyed_flag_(nullptr),
-      is_touchable_app_context_menu_enabled_(
-          features::IsTouchableAppContextMenuEnabled()) {
+      is_notification_indicator_enabled_(
+          features::IsNotificationIndicatorEnabled()) {
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
   SetInkDropMode(InkDropMode::ON_NO_GESTURE_HANDLER);
   set_ink_drop_base_color(kShelfInkDropBaseColor);
@@ -305,7 +305,7 @@ ShelfButton::ShelfButton(InkDropButtonListener* listener, ShelfView* shelf_view)
 
   AddChildView(indicator_);
   AddChildView(icon_view_);
-  if (is_touchable_app_context_menu_enabled_) {
+  if (is_notification_indicator_enabled_) {
     notification_indicator_ = new AppNotificationIndicatorView(kIndicatorColor);
     notification_indicator_->SetPaintToLayer();
     notification_indicator_->layer()->SetFillsBoundsOpaquely(false);
@@ -363,7 +363,7 @@ void ShelfButton::AddState(State state) {
     if (state & STATE_ATTENTION)
       indicator_->ShowAttention(true);
 
-    if (is_touchable_app_context_menu_enabled_ && (state & STATE_NOTIFICATION))
+    if (is_notification_indicator_enabled_ && (state & STATE_NOTIFICATION))
       notification_indicator_->SetVisible(true);
 
     if (state & STATE_DRAGGING)
@@ -378,7 +378,7 @@ void ShelfButton::ClearState(State state) {
     if (state & STATE_ATTENTION)
       indicator_->ShowAttention(false);
 
-    if (is_touchable_app_context_menu_enabled_ && (state & STATE_NOTIFICATION))
+    if (is_notification_indicator_enabled_ && (state & STATE_NOTIFICATION))
       notification_indicator_->SetVisible(false);
 
     if (state & STATE_DRAGGING)
@@ -399,8 +399,9 @@ void ShelfButton::OnDragStarted(const ui::LocatedEvent* event) {
 }
 
 void ShelfButton::OnMenuClosed() {
-  if (GetInkDrop()->GetTargetInkDropState() != views::InkDropState::DEACTIVATED)
-    GetInkDrop()->AnimateToState(views::InkDropState::DEACTIVATED);
+  DCHECK_EQ(views::InkDropState::ACTIVATED,
+            GetInkDrop()->GetTargetInkDropState());
+  GetInkDrop()->AnimateToState(views::InkDropState::DEACTIVATED);
 }
 
 void ShelfButton::ShowContextMenu(const gfx::Point& p,
@@ -412,9 +413,11 @@ void ShelfButton::ShowContextMenu(const gfx::Point& p,
   destroyed_flag_ = &destroyed;
 
   Button::ShowContextMenu(p, source_type);
-  UMA_HISTOGRAM_ENUMERATION("Apps.ContextMenuShowSource.ShelfButton",
-                            source_type, ui::MENU_SOURCE_TYPE_LAST);
 
+  if (source_type == ui::MenuSourceType::MENU_SOURCE_MOUSE ||
+      source_type == ui::MenuSourceType::MENU_SOURCE_KEYBOARD) {
+    GetInkDrop()->AnimateToState(views::InkDropState::ACTIVATED);
+  }
   if (!destroyed) {
     destroyed_flag_ = nullptr;
     // The menu will not propagate mouse events while its shown. To address,
@@ -511,7 +514,7 @@ void ShelfButton::Layout() {
 
   // The indicators should be aligned with the icon, not the icon + shadow.
   gfx::Point indicator_midpoint = icon_view_bounds.CenterPoint();
-  if (is_touchable_app_context_menu_enabled_) {
+  if (is_notification_indicator_enabled_) {
     notification_indicator_->SetBoundsRect(
         gfx::Rect(icon_view_bounds.right() - kNotificationIndicatorRadiusDip,
                   icon_view_bounds.y(), kNotificationIndicatorRadiusDip * 2,
@@ -576,8 +579,11 @@ void ShelfButton::OnGestureEvent(ui::GestureEvent* event) {
       // If the button is being dragged, or there is an active context menu,
       // for this ShelfButton, don't deactivate the ink drop.
       if (!(state_ & STATE_DRAGGING) &&
-          !shelf_view_->IsShowingMenuForView(this))
+          !shelf_view_->IsShowingMenuForView(this) &&
+          (GetInkDrop()->GetTargetInkDropState() ==
+           views::InkDropState::ACTIVATED)) {
         GetInkDrop()->AnimateToState(views::InkDropState::DEACTIVATED);
+      }
       ClearState(STATE_HOVERED);
       ClearState(STATE_DRAGGING);
       break;

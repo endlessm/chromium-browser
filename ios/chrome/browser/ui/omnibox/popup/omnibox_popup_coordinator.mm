@@ -8,10 +8,13 @@
 #include "components/omnibox/browser/autocomplete_result.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_legacy_presenter.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_mediator.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_presenter.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_view_controller.h"
 #include "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_view_ios.h"
+#include "ios/chrome/browser/ui/ui_util.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -48,7 +51,7 @@
 - (void)start {
   std::unique_ptr<image_fetcher::IOSImageDataFetcherWrapper> imageFetcher =
       std::make_unique<image_fetcher::IOSImageDataFetcherWrapper>(
-          self.browserState->GetRequestContext());
+          self.browserState->GetSharedURLLoaderFactory());
 
   self.mediator =
       [[OmniboxPopupMediator alloc] initWithFetcher:std::move(imageFetcher)
@@ -56,12 +59,19 @@
   self.popupViewController = [[OmniboxPopupViewController alloc] init];
   self.popupViewController.incognito = self.browserState->IsOffTheRecord();
 
-  self.mediator.incognito = self.browserState->IsOffTheRecord();
+  BOOL isIncognito = self.browserState->IsOffTheRecord();
+  self.mediator.incognito = isIncognito;
   self.mediator.consumer = self.popupViewController;
-  self.mediator.presenter = [[OmniboxPopupPresenter alloc]
-      initWithPopupPositioner:self.positioner
-          popupViewController:self.popupViewController];
-
+  if (IsUIRefreshPhase1Enabled()) {
+    self.mediator.presenter = [[OmniboxPopupPresenter alloc]
+        initWithPopupPositioner:self.positioner
+            popupViewController:self.popupViewController
+                      incognito:isIncognito];
+  } else {
+    self.mediator.presenter = [[OmniboxPopupLegacyPresenter alloc]
+        initWithPopupPositioner:self.positioner
+            popupViewController:self.popupViewController];
+  }
   self.popupViewController.imageRetriever = self.mediator;
   self.popupViewController.delegate = self.mediator;
   [self.dispatcher

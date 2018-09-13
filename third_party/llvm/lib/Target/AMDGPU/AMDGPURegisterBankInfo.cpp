@@ -14,7 +14,9 @@
 
 #include "AMDGPURegisterBankInfo.h"
 #include "AMDGPUInstrInfo.h"
+#include "SIMachineFunctionInfo.h"
 #include "SIRegisterInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/CodeGen/GlobalISel/RegisterBank.h"
 #include "llvm/CodeGen/GlobalISel/RegisterBankInfo.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
@@ -478,13 +480,18 @@ AMDGPURegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
     break;
   }
   case AMDGPU::G_INTRINSIC: {
-    switch(MI.getOperand(1).getIntrinsicID()) {
+    switch (MI.getOperand(1).getIntrinsicID()) {
     default:
       return getInvalidInstructionMapping();
     case Intrinsic::maxnum:
     case Intrinsic::minnum:
     case Intrinsic::amdgcn_cvt_pkrtz:
       return getDefaultMappingVOP(MI);
+    case Intrinsic::amdgcn_kernarg_segment_ptr: {
+      unsigned Size = MRI.getType(MI.getOperand(0).getReg()).getSizeInBits();
+      OpdsMapping[0] = AMDGPU::getValueMapping(AMDGPU::SGPRRegBankID, Size);
+      break;
+    }
     }
     break;
   }

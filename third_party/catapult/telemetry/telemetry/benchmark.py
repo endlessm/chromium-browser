@@ -15,7 +15,11 @@ from telemetry.story import expectations as expectations_module
 from telemetry.web_perf import timeline_based_measurement
 from tracing.value.diagnostics import generic_set
 
-Owner = decorators.Owner # pylint: disable=invalid-name
+Info = decorators.Info
+
+# TODO(crbug.com/859524): remove this once we update all the benchmarks in
+# tools/perf to use Info decorator.
+Owner = decorators.Info # pylint: disable=invalid-name
 
 
 class InvalidOptionsError(Exception):
@@ -207,6 +211,17 @@ class Benchmark(command_line.Command):
     """
     return generic_set.GenericSet(decorators.GetEmails(self) or [])
 
+  def GetDocumentationLink(self):
+    """Returns a Generic Diagnostic containing the benchmark's documentation
+       link in a string.
+
+    Returns:
+      Diagnostic with the link (string) to the benchmark documentation.
+    """
+    pair = ['Benchmark documentation link',
+            decorators.GetDocumentationLink(self)]
+    return generic_set.GenericSet([pair])
+
   @decorators.Deprecated(
       2017, 7, 29, 'Use CreateCoreTimelineBasedMeasurementOptions instead.')
   def CreateTimelineBasedMeasurementOptions(self):
@@ -257,9 +272,8 @@ class Benchmark(command_line.Command):
       tbm_options = self.CreateTimelineBasedMeasurementOptions()
     if options and options.extra_chrome_categories:
       # If Chrome tracing categories for this benchmark are not already
-      # enabled, there is probably a good reason why (for example, maybe
-      # it is the benchmark that runs a BattOr without Chrome to get an energy
-      # baseline). Don't change whether Chrome tracing is enabled.
+      # enabled, there is probably a good reason why. Don't change whether
+      # Chrome tracing is enabled.
       assert tbm_options.config.enable_chrome_trace, (
           'This benchmark does not support Chrome tracing.')
       tbm_options.config.chrome_trace_config.category_filter.AddFilterString(
@@ -271,7 +285,7 @@ class Benchmark(command_line.Command):
       tbm_options.config.enable_atrace_trace = True
 
       categories = tbm_options.config.atrace_config.categories
-      if type(categories) != list:
+      if isinstance(categories, basestring):
         # Categories can either be a list or comma-separated string.
         # https://github.com/catapult-project/catapult/issues/3712
         categories = categories.split(',')

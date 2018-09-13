@@ -21,6 +21,7 @@ using namespace lld;
 using namespace lld::elf;
 
 static uint64_t PPC64TocOffset = 0x8000;
+static uint64_t DynamicThreadPointerOffset = 0x8000;
 
 uint64_t elf::getPPC64TocBase() {
   // The TOC consists of sections .got, .toc, .tocbss, .plt in that order. The
@@ -50,6 +51,11 @@ public:
   void writeGotHeader(uint8_t *Buf) const override;
   bool needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
                   uint64_t BranchAddr, const Symbol &S) const override;
+  RelExpr adjustRelaxExpr(RelType Type, const uint8_t *Data,
+                          RelExpr Expr) const override;
+  void relaxTlsGdToIe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
+  void relaxTlsGdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
+  void relaxTlsLdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
 };
 } // namespace
 
@@ -57,18 +63,19 @@ public:
 // #higher(value), #highera(value), #highest(value), and #highesta(value)
 // macros defined in section 4.5.1. Relocation Types of the PPC-elf64abi
 // document.
-static uint16_t applyPPCLo(uint64_t V) { return V; }
-static uint16_t applyPPCHi(uint64_t V) { return V >> 16; }
-static uint16_t applyPPCHa(uint64_t V) { return (V + 0x8000) >> 16; }
-static uint16_t applyPPCHigher(uint64_t V) { return V >> 32; }
-static uint16_t applyPPCHighera(uint64_t V) { return (V + 0x8000) >> 32; }
-static uint16_t applyPPCHighest(uint64_t V) { return V >> 48; }
-static uint16_t applyPPCHighesta(uint64_t V) { return (V + 0x8000) >> 48; }
+static uint16_t lo(uint64_t V) { return V; }
+static uint16_t hi(uint64_t V) { return V >> 16; }
+static uint16_t ha(uint64_t V) { return (V + 0x8000) >> 16; }
+static uint16_t higher(uint64_t V) { return V >> 32; }
+static uint16_t highera(uint64_t V) { return (V + 0x8000) >> 32; }
+static uint16_t highest(uint64_t V) { return V >> 48; }
+static uint16_t highesta(uint64_t V) { return (V + 0x8000) >> 48; }
 
 PPC64::PPC64() {
   GotRel = R_PPC64_GLOB_DAT;
   PltRel = R_PPC64_JMP_SLOT;
   RelativeRel = R_PPC64_RELATIVE;
+  IRelativeRel = R_PPC64_IRELATIVE;
   GotEntrySize = 8;
   PltEntrySize = 4;
   GotPltEntrySize = 8;
@@ -78,6 +85,13 @@ PPC64::PPC64() {
   GotPltHeaderEntriesNum = 2;
   PltHeaderSize = 60;
   NeedsThunks = true;
+  TcbSize = 8;
+  TlsTpOffset = 0x7000;
+
+  TlsModuleIndexRel = R_PPC64_DTPMOD64;
+  TlsOffsetRel = R_PPC64_DTPREL64;
+
+  TlsGotRel = R_PPC64_TPREL64;
 
   // We need 64K pages (at least under glibc/Linux, the loader won't
   // set different permissions on a finer granularity than that).
@@ -98,53 +112,104 @@ PPC64::PPC64() {
 }
 
 static uint32_t getEFlags(InputFile *File) {
-  // Get the e_flag from the input file and issue an error if incompatible
-  // e_flag encountered.
-  uint32_t EFlags;
-  switch (Config->EKind) {
-  case ELF64BEKind:
-    EFlags = cast<ObjFile<ELF64BE>>(File)->getObj().getHeader()->e_flags;
-    break;
-  case ELF64LEKind:
-    EFlags = cast<ObjFile<ELF64LE>>(File)->getObj().getHeader()->e_flags;
-    break;
-  default:
-    llvm_unreachable("unknown Config->EKind");
-  }
-  if (EFlags > 2) {
-    error("incompatible e_flags: " +  toString(File));
-    return 0;
-  }
-  return EFlags;
+  if (Config->EKind == ELF64BEKind)
+    return cast<ObjFile<ELF64BE>>(File)->getObj().getHeader()->e_flags;
+  return cast<ObjFile<ELF64LE>>(File)->getObj().getHeader()->e_flags;
 }
 
+// This file implements v2 ABI. This function makes sure that all
+// object files have v2 or an unspecified version as an ABI version.
 uint32_t PPC64::calcEFlags() const {
-  assert(!ObjectFiles.empty());
-
-  uint32_t NonZeroFlag;
-  for (InputFile *F : makeArrayRef(ObjectFiles)) {
-    NonZeroFlag = getEFlags(F);
-    if (NonZeroFlag)
-      break;
-  }
-
-  // Verify that all input files have either the same e_flags, or zero.
-  for (InputFile *F : makeArrayRef(ObjectFiles)) {
+  for (InputFile *F : ObjectFiles) {
     uint32_t Flag = getEFlags(F);
-    if (Flag == 0 || Flag == NonZeroFlag)
-      continue;
-    error(toString(F) + ": ABI version " + Twine(Flag) +
-          " is not compatible with ABI version " + Twine(NonZeroFlag) +
-          " output");
-    return 0;
+    if (Flag == 1)
+      error(toString(F) + ": ABI version 1 is not supported");
+    else if (Flag > 2)
+      error(toString(F) + ": unrecognized e_flags: " + Twine(Flag));
   }
-
-  if (NonZeroFlag == 1) {
-    error("PPC64 V1 ABI not supported");
-    return 0;
-  }
-
   return 2;
+}
+
+void PPC64::relaxTlsGdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const {
+  // Reference: 3.7.4.2 of the 64-bit ELF V2 abi supplement.
+  // The general dynamic code sequence for a global `x` will look like:
+  // Instruction                    Relocation                Symbol
+  // addis r3, r2, x@got@tlsgd@ha   R_PPC64_GOT_TLSGD16_HA      x
+  // addi  r3, r3, x@got@tlsgd@l    R_PPC64_GOT_TLSGD16_LO      x
+  // bl __tls_get_addr(x@tlsgd)     R_PPC64_TLSGD               x
+  //                                R_PPC64_REL24               __tls_get_addr
+  // nop                            None                       None
+
+  // Relaxing to local exec entails converting:
+  // addis r3, r2, x@got@tlsgd@ha    into      nop
+  // addi  r3, r3, x@got@tlsgd@l     into      addis r3, r13, x@tprel@ha
+  // bl __tls_get_addr(x@tlsgd)      into      nop
+  // nop                             into      addi r3, r3, x@tprel@l
+
+  uint32_t EndianOffset = Config->EKind == ELF64BEKind ? 2U : 0U;
+
+  switch (Type) {
+  case R_PPC64_GOT_TLSGD16_HA:
+    write32(Loc - EndianOffset, 0x60000000); // nop
+    break;
+  case R_PPC64_GOT_TLSGD16_LO:
+    write32(Loc - EndianOffset, 0x3c6d0000); // addis r3, r13
+    relocateOne(Loc, R_PPC64_TPREL16_HA, Val);
+    break;
+  case R_PPC64_TLSGD:
+    write32(Loc, 0x60000000);     // nop
+    write32(Loc + 4, 0x38630000); // addi r3, r3
+    relocateOne(Loc + 4 + EndianOffset, R_PPC64_TPREL16_LO, Val);
+    break;
+  default:
+    llvm_unreachable("unsupported relocation for TLS GD to LE relaxation");
+  }
+}
+
+
+void PPC64::relaxTlsLdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const {
+  // Reference: 3.7.4.3 of the 64-bit ELF V2 abi supplement.
+  // The local dynamic code sequence for a global `x` will look like:
+  // Instruction                    Relocation                Symbol
+  // addis r3, r2, x@got@tlsld@ha   R_PPC64_GOT_TLSLD16_HA      x
+  // addi  r3, r3, x@got@tlsld@l    R_PPC64_GOT_TLSLD16_LO      x
+  // bl __tls_get_addr(x@tlsgd)     R_PPC64_TLSLD               x
+  //                                R_PPC64_REL24               __tls_get_addr
+  // nop                            None                       None
+
+  // Relaxing to local exec entails converting:
+  // addis r3, r2, x@got@tlsld@ha   into      nop
+  // addi  r3, r3, x@got@tlsld@l    into      addis r3, r13, 0
+  // bl __tls_get_addr(x@tlsgd)     into      nop
+  // nop                            into      addi r3, r3, 4096
+
+  uint32_t EndianOffset = Config->EKind == ELF64BEKind ? 2U : 0U;
+  switch (Type) {
+  case R_PPC64_GOT_TLSLD16_HA:
+    write32(Loc - EndianOffset, 0x60000000); // nop
+    break;
+  case R_PPC64_GOT_TLSLD16_LO:
+    write32(Loc - EndianOffset, 0x3c6d0000); // addis r3, r13, 0
+    break;
+  case R_PPC64_TLSLD:
+    write32(Loc, 0x60000000);     // nop
+    write32(Loc + 4, 0x38631000); // addi r3, r3, 4096
+    break;
+  case R_PPC64_DTPREL16:
+  case R_PPC64_DTPREL16_HA:
+  case R_PPC64_DTPREL16_HI:
+  case R_PPC64_DTPREL16_DS:
+  case R_PPC64_DTPREL16_LO:
+  case R_PPC64_DTPREL16_LO_DS:
+  case R_PPC64_GOT_DTPREL16_HA:
+  case R_PPC64_GOT_DTPREL16_LO_DS:
+  case R_PPC64_GOT_DTPREL16_DS:
+  case R_PPC64_GOT_DTPREL16_HI:
+    relocateOne(Loc, Type, Val);
+    break;
+  default:
+    llvm_unreachable("unsupported relocation for TLS LD to LE relaxation");
+  }
 }
 
 RelExpr PPC64::getRelExpr(RelType Type, const Symbol &S,
@@ -166,6 +231,55 @@ RelExpr PPC64::getRelExpr(RelType Type, const Symbol &S,
   case R_PPC64_REL32:
   case R_PPC64_REL64:
     return R_PC;
+  case R_PPC64_GOT_TLSGD16:
+  case R_PPC64_GOT_TLSGD16_HA:
+  case R_PPC64_GOT_TLSGD16_HI:
+  case R_PPC64_GOT_TLSGD16_LO:
+    return R_TLSGD_GOT;
+  case R_PPC64_GOT_TLSLD16:
+  case R_PPC64_GOT_TLSLD16_HA:
+  case R_PPC64_GOT_TLSLD16_HI:
+  case R_PPC64_GOT_TLSLD16_LO:
+    return R_TLSLD_GOT;
+  case R_PPC64_GOT_TPREL16_HA:
+  case R_PPC64_GOT_TPREL16_LO_DS:
+  case R_PPC64_GOT_TPREL16_DS:
+  case R_PPC64_GOT_TPREL16_HI:
+    return R_GOT_OFF;
+  case R_PPC64_GOT_DTPREL16_HA:
+  case R_PPC64_GOT_DTPREL16_LO_DS:
+  case R_PPC64_GOT_DTPREL16_DS:
+  case R_PPC64_GOT_DTPREL16_HI:
+    return R_TLSLD_GOT_OFF;
+  case R_PPC64_TPREL16:
+  case R_PPC64_TPREL16_HA:
+  case R_PPC64_TPREL16_LO:
+  case R_PPC64_TPREL16_HI:
+  case R_PPC64_TPREL16_DS:
+  case R_PPC64_TPREL16_LO_DS:
+  case R_PPC64_TPREL16_HIGHER:
+  case R_PPC64_TPREL16_HIGHERA:
+  case R_PPC64_TPREL16_HIGHEST:
+  case R_PPC64_TPREL16_HIGHESTA:
+    return R_TLS;
+  case R_PPC64_DTPREL16:
+  case R_PPC64_DTPREL16_DS:
+  case R_PPC64_DTPREL16_HA:
+  case R_PPC64_DTPREL16_HI:
+  case R_PPC64_DTPREL16_HIGHER:
+  case R_PPC64_DTPREL16_HIGHERA:
+  case R_PPC64_DTPREL16_HIGHEST:
+  case R_PPC64_DTPREL16_HIGHESTA:
+  case R_PPC64_DTPREL16_LO:
+  case R_PPC64_DTPREL16_LO_DS:
+  case R_PPC64_DTPREL64:
+    return R_ABS;
+  case R_PPC64_TLSGD:
+    return R_TLSDESC_CALL;
+  case R_PPC64_TLSLD:
+    return R_TLSLD_HINT;
+  case R_PPC64_TLS:
+    return R_HINT;
   default:
     return R_ABS;
   }
@@ -207,20 +321,66 @@ void PPC64::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
 }
 
 static std::pair<RelType, uint64_t> toAddr16Rel(RelType Type, uint64_t Val) {
-  uint64_t V = Val - PPC64TocOffset;
+  // Relocations relative to the toc-base need to be adjusted by the Toc offset.
+  uint64_t TocBiasedVal = Val - PPC64TocOffset;
+  // Relocations relative to dtv[dtpmod] need to be adjusted by the DTP offset.
+  uint64_t DTPBiasedVal = Val - DynamicThreadPointerOffset;
+
   switch (Type) {
+  // TOC biased relocation.
+  case R_PPC64_GOT_TLSGD16:
+  case R_PPC64_GOT_TLSLD16:
   case R_PPC64_TOC16:
-    return {R_PPC64_ADDR16, V};
+    return {R_PPC64_ADDR16, TocBiasedVal};
   case R_PPC64_TOC16_DS:
-    return {R_PPC64_ADDR16_DS, V};
+  case R_PPC64_GOT_TPREL16_DS:
+  case R_PPC64_GOT_DTPREL16_DS:
+    return {R_PPC64_ADDR16_DS, TocBiasedVal};
+  case R_PPC64_GOT_TLSGD16_HA:
+  case R_PPC64_GOT_TLSLD16_HA:
+  case R_PPC64_GOT_TPREL16_HA:
+  case R_PPC64_GOT_DTPREL16_HA:
   case R_PPC64_TOC16_HA:
-    return {R_PPC64_ADDR16_HA, V};
+    return {R_PPC64_ADDR16_HA, TocBiasedVal};
+  case R_PPC64_GOT_TLSGD16_HI:
+  case R_PPC64_GOT_TLSLD16_HI:
+  case R_PPC64_GOT_TPREL16_HI:
+  case R_PPC64_GOT_DTPREL16_HI:
   case R_PPC64_TOC16_HI:
-    return {R_PPC64_ADDR16_HI, V};
+    return {R_PPC64_ADDR16_HI, TocBiasedVal};
+  case R_PPC64_GOT_TLSGD16_LO:
+  case R_PPC64_GOT_TLSLD16_LO:
   case R_PPC64_TOC16_LO:
-    return {R_PPC64_ADDR16_LO, V};
+    return {R_PPC64_ADDR16_LO, TocBiasedVal};
   case R_PPC64_TOC16_LO_DS:
-    return {R_PPC64_ADDR16_LO_DS, V};
+  case R_PPC64_GOT_TPREL16_LO_DS:
+  case R_PPC64_GOT_DTPREL16_LO_DS:
+    return {R_PPC64_ADDR16_LO_DS, TocBiasedVal};
+
+  // Dynamic Thread pointer biased relocation types.
+  case R_PPC64_DTPREL16:
+    return {R_PPC64_ADDR16, DTPBiasedVal};
+  case R_PPC64_DTPREL16_DS:
+    return {R_PPC64_ADDR16_DS, DTPBiasedVal};
+  case R_PPC64_DTPREL16_HA:
+    return {R_PPC64_ADDR16_HA, DTPBiasedVal};
+  case R_PPC64_DTPREL16_HI:
+    return {R_PPC64_ADDR16_HI, DTPBiasedVal};
+  case R_PPC64_DTPREL16_HIGHER:
+    return {R_PPC64_ADDR16_HIGHER, DTPBiasedVal};
+  case R_PPC64_DTPREL16_HIGHERA:
+    return {R_PPC64_ADDR16_HIGHERA, DTPBiasedVal};
+  case R_PPC64_DTPREL16_HIGHEST:
+    return {R_PPC64_ADDR16_HIGHEST, DTPBiasedVal};
+  case R_PPC64_DTPREL16_HIGHESTA:
+    return {R_PPC64_ADDR16_HIGHESTA, DTPBiasedVal};
+  case R_PPC64_DTPREL16_LO:
+    return {R_PPC64_ADDR16_LO, DTPBiasedVal};
+  case R_PPC64_DTPREL16_LO_DS:
+    return {R_PPC64_ADDR16_LO_DS, DTPBiasedVal};
+  case R_PPC64_DTPREL64:
+    return {R_PPC64_ADDR64, DTPBiasedVal};
+
   default:
     return {Type, Val};
   }
@@ -240,39 +400,49 @@ void PPC64::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     break;
   }
   case R_PPC64_ADDR16:
+  case R_PPC64_TPREL16:
     checkInt(Loc, Val, 16, Type);
     write16(Loc, Val);
     break;
   case R_PPC64_ADDR16_DS:
+  case R_PPC64_TPREL16_DS:
     checkInt(Loc, Val, 16, Type);
     write16(Loc, (read16(Loc) & 3) | (Val & ~3));
     break;
   case R_PPC64_ADDR16_HA:
   case R_PPC64_REL16_HA:
-    write16(Loc, applyPPCHa(Val));
+  case R_PPC64_TPREL16_HA:
+    write16(Loc, ha(Val));
     break;
   case R_PPC64_ADDR16_HI:
   case R_PPC64_REL16_HI:
-    write16(Loc, applyPPCHi(Val));
+  case R_PPC64_TPREL16_HI:
+    write16(Loc, hi(Val));
     break;
   case R_PPC64_ADDR16_HIGHER:
-    write16(Loc, applyPPCHigher(Val));
+  case R_PPC64_TPREL16_HIGHER:
+    write16(Loc, higher(Val));
     break;
   case R_PPC64_ADDR16_HIGHERA:
-    write16(Loc, applyPPCHighera(Val));
+  case R_PPC64_TPREL16_HIGHERA:
+    write16(Loc, highera(Val));
     break;
   case R_PPC64_ADDR16_HIGHEST:
-    write16(Loc, applyPPCHighest(Val));
+  case R_PPC64_TPREL16_HIGHEST:
+    write16(Loc, highest(Val));
     break;
   case R_PPC64_ADDR16_HIGHESTA:
-    write16(Loc, applyPPCHighesta(Val));
+  case R_PPC64_TPREL16_HIGHESTA:
+    write16(Loc, highesta(Val));
     break;
   case R_PPC64_ADDR16_LO:
   case R_PPC64_REL16_LO:
-    write16(Loc, applyPPCLo(Val));
+  case R_PPC64_TPREL16_LO:
+    write16(Loc, lo(Val));
     break;
   case R_PPC64_ADDR16_LO_DS:
-    write16(Loc, (read16(Loc) & 3) | (applyPPCLo(Val) & ~3));
+  case R_PPC64_TPREL16_LO_DS:
+    write16(Loc, (read16(Loc) & 3) | (lo(Val) & ~3));
     break;
   case R_PPC64_ADDR32:
   case R_PPC64_REL32:
@@ -290,6 +460,9 @@ void PPC64::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     write32(Loc, (read32(Loc) & ~Mask) | (Val & Mask));
     break;
   }
+  case R_PPC64_DTPREL64:
+    write64(Loc, Val - DynamicThreadPointerOffset);
+    break;
   default:
     error(getErrorLocation(Loc) + "unrecognized reloc " + Twine(Type));
   }
@@ -300,6 +473,57 @@ bool PPC64::needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
   // If a function is in the plt it needs to be called through
   // a call stub.
   return Type == R_PPC64_REL24 && S.isInPlt();
+}
+
+RelExpr PPC64::adjustRelaxExpr(RelType Type, const uint8_t *Data,
+                               RelExpr Expr) const {
+  if (Expr == R_RELAX_TLS_GD_TO_IE)
+    return R_RELAX_TLS_GD_TO_IE_GOT_OFF;
+  if (Expr == R_RELAX_TLS_LD_TO_LE)
+    return R_RELAX_TLS_LD_TO_LE_ABS;
+  return Expr;
+}
+
+// Reference: 3.7.4.1 of the 64-bit ELF V2 abi supplement.
+// The general dynamic code sequence for a global `x` uses 4 instructions.
+// Instruction                    Relocation                Symbol
+// addis r3, r2, x@got@tlsgd@ha   R_PPC64_GOT_TLSGD16_HA      x
+// addi  r3, r3, x@got@tlsgd@l    R_PPC64_GOT_TLSGD16_LO      x
+// bl __tls_get_addr(x@tlsgd)     R_PPC64_TLSGD               x
+//                                R_PPC64_REL24               __tls_get_addr
+// nop                            None                       None
+//
+// Relaxing to initial-exec entails:
+// 1) Convert the addis/addi pair that builds the address of the tls_index
+//    struct for 'x' to an addis/ld pair that loads an offset from a got-entry.
+// 2) Convert the call to __tls_get_addr to a nop.
+// 3) Convert the nop following the call to an add of the loaded offset to the
+//    thread pointer.
+// Since the nop must directly follow the call, the R_PPC64_TLSGD relocation is
+// used as the relaxation hint for both steps 2 and 3.
+void PPC64::relaxTlsGdToIe(uint8_t *Loc, RelType Type, uint64_t Val) const {
+  switch (Type) {
+  case R_PPC64_GOT_TLSGD16_HA:
+    // This is relaxed from addis rT, r2, sym@got@tlsgd@ha to
+    //                      addis rT, r2, sym@got@tprel@ha.
+    relocateOne(Loc, R_PPC64_GOT_TPREL16_HA, Val);
+    return;
+  case R_PPC64_GOT_TLSGD16_LO: {
+    // Relax from addi  r3, rA, sym@got@tlsgd@l to
+    //            ld r3, sym@got@tprel@l(rA)
+    uint32_t EndianOffset = Config->EKind == ELF64BEKind ? 2U : 0U;
+    uint32_t InputRegister = (read32(Loc - EndianOffset) & (0x1f << 16));
+    write32(Loc - EndianOffset, 0xE8600000 | InputRegister);
+    relocateOne(Loc, R_PPC64_GOT_TPREL16_LO_DS, Val);
+    return;
+  }
+  case R_PPC64_TLSGD:
+    write32(Loc, 0x60000000);     // bl __tls_get_addr(sym@tlsgd) --> nop
+    write32(Loc + 4, 0x7c636A14); // nop --> add r3, r3, r13
+    return;
+  default:
+    llvm_unreachable("unsupported relocation for TLS GD to IE relaxation");
+  }
 }
 
 TargetInfo *elf::getPPC64TargetInfo() {

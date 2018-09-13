@@ -1,15 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_presenter.h"
 
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_positioner.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
-#include "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
+#include "ios/chrome/common/ui_util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -19,12 +20,7 @@
 namespace {
 const CGFloat kExpandAnimationDuration = 0.1;
 const CGFloat kCollapseAnimationDuration = 0.05;
-const CGFloat kShadowHeight = 10;
-const CGFloat kiPadVerticalOffset = 3;
-const CGFloat kRefreshVerticalOffset = 6;
-NS_INLINE CGFloat BottomPadding() {
-  return IsIPadIdiom() ? kShadowHeight : 0;
-}
+const CGFloat kVerticalOffset = 6;
 }  // namespace
 
 @interface OmniboxPopupPresenter ()
@@ -43,42 +39,35 @@ NS_INLINE CGFloat BottomPadding() {
 @synthesize bottomConstraint = _bottomConstraint;
 
 - (instancetype)initWithPopupPositioner:(id<OmniboxPopupPositioner>)positioner
-                    popupViewController:(UIViewController*)viewController {
+                    popupViewController:(UIViewController*)viewController
+                              incognito:(BOOL)incognito {
   self = [super init];
   if (self) {
     _positioner = positioner;
     _viewController = viewController;
 
-    // Set up a container for presentation.
-    UIView* popupContainer = [[UIView alloc] init];
-    _popupContainerView = popupContainer;
-    popupContainer.translatesAutoresizingMaskIntoConstraints = NO;
-    popupContainer.layoutMargins = UIEdgeInsetsMake(0, 0, BottomPadding(), 0);
+    // Popup uses same colors as the toolbar, so the ToolbarConfiguration is
+    // used to get the style.
+    ToolbarConfiguration* configuration = [[ToolbarConfiguration alloc]
+        initWithStyle:incognito ? INCOGNITO : NORMAL];
 
-    // Add the view controller's view to the container.
-    [popupContainer addSubview:viewController.view];
+    UIBlurEffect* effect = [configuration blurEffect];
+
+    if (effect) {
+      UIVisualEffectView* effectView =
+          [[UIVisualEffectView alloc] initWithEffect:effect];
+      [effectView.contentView addSubview:viewController.view];
+      _popupContainerView = effectView;
+
+    } else {
+      UIView* containerView = [[UIView alloc] init];
+      [containerView addSubview:viewController.view];
+      _popupContainerView = containerView;
+    }
+    _popupContainerView.backgroundColor = [configuration blurBackgroundColor];
+    _popupContainerView.translatesAutoresizingMaskIntoConstraints = NO;
     viewController.view.translatesAutoresizingMaskIntoConstraints = NO;
-    AddSameConstraintsToSidesWithInsets(
-        viewController.view, popupContainer,
-        LayoutSides::kLeading | LayoutSides::kTrailing | LayoutSides::kBottom |
-            LayoutSides::kTop,
-        ChromeDirectionalEdgeInsetsMake(0, 0, BottomPadding(), 0));
-
-    // Add a shadow.
-    UIImageView* shadowView = [[UIImageView alloc]
-        initWithImage:NativeImage(IDR_IOS_TOOLBAR_SHADOW_FULL_BLEED)];
-    [shadowView setUserInteractionEnabled:NO];
-    [shadowView setTranslatesAutoresizingMaskIntoConstraints:NO];
-    [popupContainer addSubview:shadowView];
-
-    // On iPhone, the shadow is on the top of the popup, as if it's cast by
-    // the omnibox; on iPad, the shadow is cast by the popup instead, so it's
-    // below the popup.
-    AddSameConstraintsToSides(shadowView, popupContainer,
-                              LayoutSides::kLeading | LayoutSides::kTrailing);
-    AddSameConstraintsToSides(
-        shadowView, popupContainer,
-        IsIPadIdiom() ? LayoutSides::kBottom : LayoutSides::kTop);
+    AddSameConstraints(viewController.view, _popupContainerView);
   }
   return self;
 }
@@ -86,7 +75,11 @@ NS_INLINE CGFloat BottomPadding() {
 - (void)updateHeightAndAnimateAppearanceIfNecessary {
   UIView* popup = self.popupContainerView;
   if (!popup.superview) {
+    UIViewController* parentVC = [self.positioner popupParentViewController];
+    [parentVC addChildViewController:self.viewController];
     [[self.positioner popupParentView] addSubview:popup];
+    [self.viewController didMoveToParentViewController:parentVC];
+
     [self initialLayout];
   }
 
@@ -108,6 +101,7 @@ NS_INLINE CGFloat BottomPadding() {
 
 - (void)animateCollapse {
   UIView* retainedPopupView = self.popupContainerView;
+  UIViewController* retainedViewController = self.viewController;
   if (!IsIPadIdiom()) {
     self.bottomConstraint.active = NO;
   }
@@ -119,7 +113,9 @@ NS_INLINE CGFloat BottomPadding() {
         [[self.popupContainerView superview] layoutIfNeeded];
       }
       completion:^(BOOL) {
+        [retainedViewController willMoveToParentViewController:nil];
         [retainedPopupView removeFromSuperview];
+        [retainedViewController removeFromParentViewController];
       }];
 }
 
@@ -142,13 +138,7 @@ NS_INLINE CGFloat BottomPadding() {
       [NamedGuide guideWithName:kOmniboxGuide view:popup];
   NSLayoutConstraint* topConstraint =
       [popup.topAnchor constraintEqualToAnchor:topLayout.bottomAnchor];
-  if (IsUIRefreshPhase1Enabled()) {
-    // TODO(crbug.com/846337) Remove this workaround and clean up popup
-    // presentation.
-    topConstraint.constant = kRefreshVerticalOffset;
-  } else if (IsIPadIdiom()) {
-    topConstraint.constant = kiPadVerticalOffset;
-  }
+  topConstraint.constant = kVerticalOffset;
 
   [NSLayoutConstraint activateConstraints:@[
     [popup.leadingAnchor constraintEqualToAnchor:popup.superview.leadingAnchor],

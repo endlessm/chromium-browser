@@ -33,6 +33,13 @@ EventBoundary = collections.namedtuple('EventBoundary',
 MergedEvent = collections.namedtuple('MergedEvent',
                                      ['bounds', 'thread_or_wall_duration'])
 
+
+class _BlinkPerfPage(page_module.Page):
+  def RunPageInteractions(self, action_runner):
+    action_runner.ExecuteJavaScript('testRunner.scheduleTestRun()')
+    action_runner.WaitForJavaScriptCondition('testRunner.isDone', timeout=600)
+
+
 def CreateStorySetFromPath(path, skipped_file,
                            shared_page_state_class=(
                                shared_page_state.SharedPageState)):
@@ -77,9 +84,9 @@ def CreateStorySetFromPath(path, skipped_file,
 
   all_urls = [p.rstrip('/') for p in page_urls]
   common_prefix = os.path.dirname(os.path.commonprefix(all_urls))
-  for url in page_urls:
+  for url in sorted(page_urls):
     name = url[len(common_prefix):].strip('/')
-    ps.AddStory(page_module.Page(
+    ps.AddStory(_BlinkPerfPage(
         url, ps, ps.base_dir,
         shared_page_state_class=shared_page_state_class,
         name=name))
@@ -236,6 +243,12 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
     del tab  # unused
     page.script_to_evaluate_on_commit = self._blink_perf_js
 
+  def DidNavigateToPage(self, page, tab):
+    tab.WaitForJavaScriptCondition('testRunner.isWaitingForTelemetry')
+    tracing_categories = tab.EvaluateJavaScript('testRunner.tracingCategories')
+    if tracing_categories:
+      self._StartTracing(tab, tracing_categories)
+
   def CustomizeBrowserOptions(self, options):
     options.AppendExtraBrowserArgs([
         '--js-flags=--expose_gc',
@@ -253,9 +266,7 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
     if options.enable_systrace:
       self._enable_systrace = True
 
-  def _ContinueTestRunWithTracing(self, tab):
-    tracing_categories = tab.EvaluateJavaScript(
-        'testRunner.tracingCategories')
+  def _StartTracing(self, tab, tracing_categories):
     config = tracing_config.TracingConfig()
     config.enable_chrome_trace = True
     config.chrome_trace_config.category_filter.AddFilterString(
@@ -268,11 +279,6 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
     if self._enable_systrace:
       config.chrome_trace_config.SetEnableSystrace()
     tab.browser.platform.tracing_controller.StartTracing(config)
-    tab.EvaluateJavaScript('testRunner.scheduleTestRun()')
-    tab.WaitForJavaScriptCondition('testRunner.isDone')
-
-    trace_data = tab.browser.platform.tracing_controller.StopTracing()[0]
-    return trace_data
 
 
   def PrintAndCollectTraceEventMetrics(self, trace_cpu_time_metrics, results):
@@ -293,11 +299,9 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
     print '\n'
 
   def ValidateAndMeasurePage(self, page, tab, results):
-    tab.WaitForJavaScriptCondition(
-        'testRunner.isDone || testRunner.isWaitingForTracingStart', timeout=600)
     trace_cpu_time_metrics = {}
-    if tab.EvaluateJavaScript('testRunner.isWaitingForTracingStart'):
-      trace_data = self._ContinueTestRunWithTracing(tab)
+    if tab.EvaluateJavaScript('testRunner.tracingCategories'):
+      trace_data = tab.browser.platform.tracing_controller.StopTracing()[0]
       # TODO(#763375): Rely on results.telemetry_info.trace_local_path/etc.
       kwargs = {}
       if hasattr(results.telemetry_info, 'trace_local_path'):
@@ -311,7 +315,7 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
       trace_events_to_measure = tab.EvaluateJavaScript(
           'window.testRunner.traceEventsToMeasure')
       model = model_module.TimelineModel(trace_data)
-      renderer_thread = model.GetRendererThreadFromTabId(tab.id)
+      renderer_thread = model.GetFirstRendererThread(tab.id)
       trace_cpu_time_metrics = _ComputeTraceEventsThreadTimeForBlinkPerf(
           model, renderer_thread, trace_events_to_measure)
 
@@ -349,9 +353,10 @@ class _BlinkPerfBenchmark(perf_benchmark.PerfBenchmark):
     return CreateStorySetFromPath(path, SKIPPED_FILE)
 
 
-@benchmark.Owner(emails=['jbroman@chromium.org',
-                         'yukishiino@chromium.org',
-                         'haraken@chromium.org'])
+@benchmark.Info(
+    emails=['jbroman@chromium.org', 'yukishiino@chromium.org',
+            'haraken@chromium.org'],
+    documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfBindings(_BlinkPerfBenchmark):
   subdir = 'bindings'
 
@@ -360,7 +365,8 @@ class BlinkPerfBindings(_BlinkPerfBenchmark):
     return 'blink_perf.bindings'
 
 
-@benchmark.Owner(emails=['futhark@chromium.org'])
+@benchmark.Info(emails=['futhark@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfCSS(_BlinkPerfBenchmark):
   subdir = 'css'
 
@@ -370,7 +376,8 @@ class BlinkPerfCSS(_BlinkPerfBenchmark):
 
 
 
-@benchmark.Owner(emails=['junov@chromium.org'])
+@benchmark.Info(emails=['junov@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfCanvas(_BlinkPerfBenchmark):
   subdir = 'canvas'
 
@@ -391,9 +398,10 @@ class BlinkPerfCanvas(_BlinkPerfBenchmark):
     return story_set
 
 
-@benchmark.Owner(emails=['jbroman@chromium.org',
+@benchmark.Info(emails=['jbroman@chromium.org',
                          'yukishiino@chromium.org',
-                         'haraken@chromium.org'])
+                         'haraken@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfDOM(_BlinkPerfBenchmark):
   subdir = 'dom'
 
@@ -402,7 +410,8 @@ class BlinkPerfDOM(_BlinkPerfBenchmark):
     return 'blink_perf.dom'
 
 
-@benchmark.Owner(emails=['hayato@chromium.org'])
+@benchmark.Info(emails=['hayato@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfEvents(_BlinkPerfBenchmark):
   subdir = 'events'
 
@@ -411,7 +420,8 @@ class BlinkPerfEvents(_BlinkPerfBenchmark):
     return 'blink_perf.events'
 
 
-@benchmark.Owner(emails=['cblume@chromium.org'])
+@benchmark.Info(emails=['cblume@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfImageDecoder(_BlinkPerfBenchmark):
   tag = 'image_decoder'
   subdir = 'image_decoder'
@@ -426,7 +436,8 @@ class BlinkPerfImageDecoder(_BlinkPerfBenchmark):
     ])
 
 
-@benchmark.Owner(emails=['eae@chromium.org'])
+@benchmark.Info(emails=['eae@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfLayout(_BlinkPerfBenchmark):
   subdir = 'layout'
 
@@ -435,7 +446,8 @@ class BlinkPerfLayout(_BlinkPerfBenchmark):
     return 'blink_perf.layout'
 
 
-@benchmark.Owner(emails=['dmurph@chromium.org'])
+@benchmark.Info(emails=['dmurph@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfOWPStorage(_BlinkPerfBenchmark):
   subdir = 'owp_storage'
 
@@ -453,7 +465,8 @@ class BlinkPerfOWPStorage(_BlinkPerfBenchmark):
     ])
 
 
-@benchmark.Owner(emails=['wangxianzhu@chromium.org'])
+@benchmark.Info(emails=['wangxianzhu@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfPaint(_BlinkPerfBenchmark):
   subdir = 'paint'
 
@@ -462,9 +475,10 @@ class BlinkPerfPaint(_BlinkPerfBenchmark):
     return 'blink_perf.paint'
 
 
-@benchmark.Owner(emails=['jbroman@chromium.org',
+@benchmark.Info(emails=['jbroman@chromium.org',
                          'yukishiino@chromium.org',
-                         'haraken@chromium.org'])
+                         'haraken@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfParser(_BlinkPerfBenchmark):
   subdir = 'parser'
 
@@ -473,7 +487,8 @@ class BlinkPerfParser(_BlinkPerfBenchmark):
     return 'blink_perf.parser'
 
 
-@benchmark.Owner(emails=['kouhei@chromium.org', 'fs@opera.com'])
+@benchmark.Info(emails=['kouhei@chromium.org', 'fs@opera.com'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfSVG(_BlinkPerfBenchmark):
   subdir = 'svg'
 
@@ -482,7 +497,8 @@ class BlinkPerfSVG(_BlinkPerfBenchmark):
     return 'blink_perf.svg'
 
 
-@benchmark.Owner(emails=['hayato@chromium.org'])
+@benchmark.Info(emails=['hayato@chromium.org'],
+                documentation_url='https://bit.ly/blink-perf-benchmarks')
 class BlinkPerfShadowDOM(_BlinkPerfBenchmark):
   subdir = 'shadow_dom'
 

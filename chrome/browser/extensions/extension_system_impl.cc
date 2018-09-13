@@ -16,7 +16,7 @@
 #include "base/strings/string_tokenizer.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
-#include "chrome/browser/apps/browser_context_keyed_service_factories.h"
+#include "chrome/browser/apps/platform_apps/browser_context_keyed_service_factories.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/chrome_app_sorting.h"
@@ -193,7 +193,8 @@ void ExtensionSystemImpl::Shared::Init(bool extensions_enabled) {
 
   navigation_observer_.reset(new NavigationObserver(profile_));
 
-  bool allow_noisy_errors = !command_line->HasSwitch(switches::kNoErrorDialogs);
+  bool allow_noisy_errors =
+      !command_line->HasSwitch(::switches::kNoErrorDialogs);
   LoadErrorReporter::Init(allow_noisy_errors);
 
   content_verifier_ = new ContentVerifier(
@@ -443,6 +444,7 @@ void ExtensionSystemImpl::InstallUpdate(
     const std::string& extension_id,
     const std::string& public_key,
     const base::FilePath& unpacked_dir,
+    bool install_immediately,
     InstallUpdateCallback install_update_callback) {
   DCHECK(!install_update_callback.is_null());
 
@@ -452,6 +454,7 @@ void ExtensionSystemImpl::InstallUpdate(
   scoped_refptr<CrxInstaller> installer = CrxInstaller::CreateSilent(service);
   installer->set_delete_source(true);
   installer->set_installer_callback(std::move(install_update_callback));
+  installer->set_install_immediately(install_immediately);
   installer->UpdateExtensionFromUnpackedCrx(extension_id, public_key,
                                             unpacked_dir);
 }

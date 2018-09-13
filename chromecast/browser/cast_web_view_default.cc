@@ -29,10 +29,6 @@
 #include "ui/display/screen.h"
 #include "url/gurl.h"
 
-#if defined(OS_ANDROID)
-#include "chromecast/browser/android/cast_web_contents_surface_helper.h"
-#endif  // defined(OS_ANDROID)
-
 #if defined(USE_AURA)
 #include "ui/aura/window.h"
 #endif
@@ -223,13 +219,13 @@ const content::MediaStreamDevice* GetRequestedDeviceOrDefault(
 void CastWebViewDefault::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
-    const content::MediaResponseCallback& callback) {
+    content::MediaResponseCallback callback) {
   if (!chromecast::IsFeatureEnabled(kAllowUserMediaAccess) &&
       !allow_media_access_) {
     LOG(WARNING) << __func__ << ": media access is disabled.";
-    callback.Run(content::MediaStreamDevices(),
-                 content::MEDIA_DEVICE_NOT_SUPPORTED,
-                 std::unique_ptr<content::MediaStreamUI>());
+    std::move(callback).Run(content::MediaStreamDevices(),
+                            content::MEDIA_DEVICE_NOT_SUPPORTED,
+                            std::unique_ptr<content::MediaStreamUI>());
     return;
   }
 
@@ -261,8 +257,8 @@ void CastWebViewDefault::RequestMediaAccessPermission(
     }
   }
 
-  callback.Run(devices, content::MEDIA_DEVICE_OK,
-               std::unique_ptr<content::MediaStreamUI>());
+  std::move(callback).Run(devices, content::MEDIA_DEVICE_OK,
+                          std::unique_ptr<content::MediaStreamUI>());
 }
 
 std::unique_ptr<content::BluetoothChooser>
@@ -274,15 +270,6 @@ CastWebViewDefault::RunBluetoothChooser(
              ? std::move(chooser)
              : WebContentsDelegate::RunBluetoothChooser(frame, event_handler);
 }
-
-#if defined(OS_ANDROID)
-base::android::ScopedJavaLocalRef<jobject>
-CastWebViewDefault::GetContentVideoViewEmbedder() {
-  DCHECK(web_contents_);
-  auto* helper = shell::CastWebContentsSurfaceHelper::Get(web_contents_.get());
-  return helper->GetContentVideoViewEmbedder();
-}
-#endif  // defined(OS_ANDROID)
 
 void CastWebViewDefault::RenderProcessGone(base::TerminationStatus status) {
   LOG(INFO) << "APP_ERROR_CHILD_PROCESS_CRASHED";

@@ -422,6 +422,13 @@ public:
     bool AllowPeeling;
     /// Allow unrolling of all the iterations of the runtime loop remainder.
     bool UnrollRemainder;
+    /// Allow unroll and jam. Used to enable unroll and jam for the target.
+    bool UnrollAndJam;
+    /// Threshold for unroll and jam, for inner loop size. The 'Threshold'
+    /// value above is used during unroll and jam for the outer loop size.
+    /// This value is used in the same manner to limit the size of the inner
+    /// loop.
+    unsigned UnrollAndJamInnerLoopThreshold;
   };
 
   /// Get target-customized preferences for the generic loop unrolling
@@ -641,7 +648,9 @@ public:
   enum ShuffleKind {
     SK_Broadcast,       ///< Broadcast element 0 to all other elements.
     SK_Reverse,         ///< Reverse the order of the vector.
-    SK_Alternate,       ///< Choose alternate elements from vector.
+    SK_Select,          ///< Selects elements from the corresponding lane of
+                        ///< either source operand. This is equivalent to a
+                        ///< vector select with a constant condition operand.
     SK_Transpose,       ///< Transpose two vectors.
     SK_InsertSubvector, ///< InsertSubvector. Index indicates start offset.
     SK_ExtractSubvector,///< ExtractSubvector Index indicates start offset.

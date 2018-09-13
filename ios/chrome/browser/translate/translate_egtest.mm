@@ -6,11 +6,12 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/command_line.h"
-#include "base/mac/bind_objc_block.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#import "base/test/ios/wait_util.h"
 #include "components/language/ios/browser/ios_language_detection_tab_helper.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/translate/core/browser/translate_download_manager.h"
@@ -30,7 +31,6 @@
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
-#import "ios/testing/wait_util.h"
 #include "ios/web/public/test/http_server/data_response_provider.h"
 #import "ios/web/public/test/http_server/http_server.h"
 #include "ios/web/public/test/http_server/http_server_util.h"
@@ -316,7 +316,8 @@ using translate::LanguageDetectionController;
 - (void)setUp {
   [super setUp];
   language::IOSLanguageDetectionTabHelper::Callback copyDetailsCallback =
-      base::BindBlockArc(^(const translate::LanguageDetectionDetails& details) {
+      base::BindRepeating(^(
+          const translate::LanguageDetectionDetails& details) {
         _language_detection_details =
             std::make_unique<translate::LanguageDetectionDetails>(details);
       });
@@ -471,8 +472,16 @@ using translate::LanguageDetectionController;
   [self assertLanguageDetails:expectedLanguageDetails];
 }
 
+// TODO(crbug.com/847948): This test is faling on devices.
+#if TARGET_IPHONE_SIMULATOR
+#define MAYBE_testLanguageDetectionHttpContentLanguage \
+  testLanguageDetectionHttpContentLanguage
+#else
+#define MAYBE_testLanguageDetectionHttpContentLanguage \
+  DISABLED_testLanguageDetectionHttpContentLanguage
+#endif
 // Tests that language in http content is detected.
-- (void)testLanguageDetectionHttpContentLanguage {
+- (void)MAYBE_testLanguageDetectionHttpContentLanguage {
   // Start the HTTP server.
   std::unique_ptr<web::DataResponseProvider> provider(new TestResponseProvider);
   web::test::SetUpHttpServer(std::move(provider));
@@ -781,8 +790,8 @@ using translate::LanguageDetectionController;
       performAction:grey_tap()];
 
   // Wait for all callbacks.
-  GREYAssert(testing::WaitUntilConditionOrTimeout(
-                 testing::kWaitForJSCompletionTimeout,
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(
+                 base::test::ios::kWaitForJSCompletionTimeout,
                  ^{
                    return jsTranslateManager.translateStatusChecked;
                  }),
@@ -810,7 +819,7 @@ using translate::LanguageDetectionController;
 // Waits until a language has been detected and checks the language details.
 - (void)assertLanguageDetails:
     (const translate::LanguageDetectionDetails&)expectedDetails {
-  GREYAssert(testing::WaitUntilConditionOrTimeout(
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(
                  2.0,
                  ^{
                    return _language_detection_details.get() != nullptr;

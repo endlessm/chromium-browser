@@ -67,7 +67,7 @@ To measure the latency of all instructions for the host architecture, run:
 .. code-block:: bash
 
   #!/bin/bash
-  readonly INSTRUCTIONS=$(grep INSTRUCTION_LIST_END build/lib/Target/X86/X86GenInstrInfo.inc | cut -f2 -d=)
+  readonly INSTRUCTIONS=$(($(grep INSTRUCTION_LIST_END build/lib/Target/X86/X86GenInstrInfo.inc | cut -f2 -d=) - 1))
   for INSTRUCTION in $(seq 1 ${INSTRUCTIONS});
   do
     ./build/bin/llvm-exegesis -mode=latency -opcode-index=${INSTRUCTION} | sed -n '/---/,$p'
@@ -112,21 +112,11 @@ following format:
   ...
 
 :program:`llvm-exegesis` will also analyze the clusters to point out
-inconsistencies in the scheduling information. For example,
-`/tmp/inconsistencies.txt` will contain messages like:
+inconsistencies in the scheduling information. The output is an html file. For
+example, `/tmp/inconsistencies.html` will contain messages like the following :
 
-.. code-block:: none
-
-  Sched Class EXTRACTPSrr_VEXTRACTPSrr contains instructions with distinct performance characteristics, falling into 2 clusters:
-  4,EXTRACTPSrr,,3.00
-  3,VEXTRACTPSrr,,2.01
-
-  Sched Class WriteCRC32 contains instructions with distinct performance characteristics, falling into 2 clusters:
-  4,CRC32r32r16,,3.01
-  4,CRC32r32r32,,3.00
-  11,CRC32r32r8,,4.01
-  4,CRC32r64r64,,3.01
-  4,CRC32r64r8,,3.00
+.. image:: llvm-exegesis-analysis.png
+  :align: center
 
 Note that the scheduling class names will be resolved only when
 :program:`llvm-exegesis` is compiled in debug mode, else only the class id will
@@ -159,7 +149,7 @@ OPTIONS
  Specify the number of repetitions of the asm snippet.
  Higher values lead to more accurate measurements but lengthen the benchmark.
 
- .. option:: -benchmarks-file=</path/to/file>
+.. option:: -benchmarks-file=</path/to/file>
 
  File to read (`analysis` mode) or write (`latency`/`uops` modes) benchmark
  results. "-" uses stdin/stdout.
@@ -183,6 +173,10 @@ OPTIONS
 
  Specify the numPoints parameters to be used for DBSCAN clustering
  (`analysis` mode).
+
+.. option:: -ignore-invalid-sched-class=false
+
+ If set, ignore instructions that do not have a sched class (class idx = 0).
 
 
 EXIT STATUS

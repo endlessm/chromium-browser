@@ -5,44 +5,70 @@
 #ifndef CHROMEOS_SERVICES_SECURE_CHANNEL_FAKE_CONNECT_TO_DEVICE_OPERATION_H_
 #define CHROMEOS_SERVICES_SECURE_CHANNEL_FAKE_CONNECT_TO_DEVICE_OPERATION_H_
 
-#include <string>
-
 #include "base/callback.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "chromeos/services/secure_channel/connect_to_device_operation.h"
+#include "chromeos/services/secure_channel/public/cpp/shared/connection_priority.h"
 
 namespace chromeos {
 
 namespace secure_channel {
 
-// Fake ConnectToDeviceOperation implementation, whose FailureDetailType is
-// std::string.
+// Fake ConnectToDeviceOperation implementation
+template <typename FailureDetailType>
 class FakeConnectToDeviceOperation
-    : public ConnectToDeviceOperation<std::string> {
+    : public ConnectToDeviceOperation<FailureDetailType> {
  public:
   FakeConnectToDeviceOperation(
-      ConnectToDeviceOperation<std::string>::ConnectionSuccessCallback
-          success_callback,
-      ConnectToDeviceOperation<std::string>::ConnectionFailedCallback
-          failure_callback);
-  ~FakeConnectToDeviceOperation() override;
+      typename ConnectToDeviceOperation<
+          FailureDetailType>::ConnectionSuccessCallback success_callback,
+      typename ConnectToDeviceOperation<
+          FailureDetailType>::ConnectionFailedCallback failure_callback,
+      ConnectionPriority connection_priority)
+      : ConnectToDeviceOperation<FailureDetailType>(std::move(success_callback),
+                                                    std::move(failure_callback),
+                                                    connection_priority) {}
+
+  ~FakeConnectToDeviceOperation() override = default;
 
   bool canceled() const { return canceled_; }
+
+  const base::Optional<ConnectionPriority>& updated_priority() {
+    return updated_priority_;
+  }
 
   void set_destructor_callback(base::OnceClosure destructor_callback) {
     destructor_callback_ = std::move(destructor_callback);
   }
 
-  // ConnectToDeviceOperation<std::string>:
-  void PerformCancellation() override;
+  void set_cancel_callback(base::OnceClosure cancel_callback) {
+    cancel_callback_ = std::move(cancel_callback);
+  }
 
   // Make On{Successful|Failed}ConnectionAttempt() public for testing.
-  using ConnectToDeviceOperation<std::string>::OnSuccessfulConnectionAttempt;
-  using ConnectToDeviceOperation<std::string>::OnFailedConnectionAttempt;
+  using ConnectToDeviceOperation<
+      FailureDetailType>::OnSuccessfulConnectionAttempt;
+  using ConnectToDeviceOperation<FailureDetailType>::OnFailedConnectionAttempt;
 
  private:
+  // ConnectToDeviceOperation<FailureDetailType>:
+  void PerformCancellation() override {
+    canceled_ = true;
+
+    if (cancel_callback_)
+      std::move(cancel_callback_).Run();
+  }
+
+  void PerformUpdateConnectionPriority(
+      ConnectionPriority connection_priority) override {
+    updated_priority_ = connection_priority;
+  }
+
   bool canceled_ = false;
+  base::Optional<ConnectionPriority> updated_priority_;
   base::OnceClosure destructor_callback_;
+  base::OnceClosure cancel_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeConnectToDeviceOperation);
 };

@@ -11,6 +11,7 @@
 #include "ui/gfx/image/image_skia.h"
 
 class Profile;
+class GURL;
 
 namespace app_list {
 
@@ -28,6 +29,9 @@ struct InternalApp {
   // Can show as a suggested app.
   bool recommendable;
 
+  // Can be searched.
+  bool searchable;
+
   // Can show in launcher apps grid.
   bool show_in_launcher;
 
@@ -36,7 +40,7 @@ struct InternalApp {
 };
 
 // Returns a list of Chrome OS internal apps, which are searchable in launcher.
-const std::vector<InternalApp>& GetInternalAppList();
+const std::vector<InternalApp>& GetInternalAppList(bool is_guest_mode);
 
 // Returns InternalApp by |app_id|.
 // Returns nullptr if |app_id| does not correspond to an internal app.
@@ -54,17 +58,29 @@ base::string16 GetInternalAppNameById(const std::string& app_id);
 int GetIconResourceIdByAppId(const std::string& app_id);
 
 // Helper function to open internal apps.
-void OpenInternalApp(const std::string& app_id, Profile* profile);
+void OpenInternalApp(const std::string& app_id,
+                     Profile* profile,
+                     int event_flags);
 
 // Returns icon associated with the |resource_id|.
 // Returns empty ImageSkia if |resource_id| is 0;
 // |resource_size_in_dip| is the preferred size of the icon.
 gfx::ImageSkia GetIconForResourceId(int resource_id, int resource_size_in_dip);
 
+// Returns true if there is a recommendable foreign tab.
+// If |title| is not nullptr, it will be replaced with the title of the foreign
+// tab's last navigation.
+// If |url| is not nullptr, it will be replaced with the url of the foreign
+// tab's last navigation.
+bool HasRecommendableForeignTab(Profile* profile,
+                                base::string16* title,
+                                GURL* url);
+
 // Returns the number of internal apps which can show in launcher.
 // If |apps_name| is not nullptr, it will be the concatenated string of these
 // internal apps' name.
-size_t GetNumberOfInternalAppsShowInLauncherForTest(std::string* apps_name);
+size_t GetNumberOfInternalAppsShowInLauncherForTest(std::string* apps_name,
+                                                    bool is_guest_mode);
 
 }  // namespace app_list
 

@@ -8,12 +8,14 @@
 #include "base/metrics/user_metrics_action.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
+#import "ios/chrome/browser/ui/commands/load_query_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/popup_menu/cells/popup_menu_footer_item.h"
 #import "ios/chrome/browser/ui/popup_menu/cells/popup_menu_item.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_table_view_controller_commands.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
+#import "ios/chrome/browser/ui/uikit_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -46,40 +48,49 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
                            appBarStyle:ChromeTableViewControllerStyleNoAppBar];
 }
 
-#pragma mark - Properties
+- (void)selectRowAtPoint:(CGPoint)point {
+  NSIndexPath* rowIndexPath = [self indexPathForInnerRowAtPoint:point];
+  if (!rowIndexPath)
+    return;
+
+  UITableViewCell* cell = [self.tableView cellForRowAtIndexPath:rowIndexPath];
+  if (!cell.userInteractionEnabled)
+    return;
+
+  base::RecordAction(base::UserMetricsAction("MobilePopupMenuSwipeToSelect"));
+  [self executeActionForItem:[self.tableViewModel itemAtIndexPath:rowIndexPath]
+                      origin:[cell convertPoint:cell.center toView:nil]];
+}
+
+- (void)focusRowAtPoint:(CGPoint)point {
+  NSIndexPath* rowIndexPath = [self indexPathForInnerRowAtPoint:point];
+
+  BOOL rowAlreadySelected = NO;
+  NSArray<NSIndexPath*>* selectedRows =
+      [self.tableView indexPathsForSelectedRows];
+  for (NSIndexPath* selectedIndexPath in selectedRows) {
+    if (selectedIndexPath == rowIndexPath) {
+      rowAlreadySelected = YES;
+      continue;
+    }
+    [self.tableView deselectRowAtIndexPath:selectedIndexPath animated:NO];
+  }
+
+  if (!rowAlreadySelected && rowIndexPath) {
+    [self.tableView selectRowAtIndexPath:rowIndexPath
+                                animated:NO
+                          scrollPosition:UITableViewScrollPositionNone];
+    TriggerHapticFeedbackForSelectionChange();
+  }
+}
+
+#pragma mark - PopupMenuConsumer
 
 - (void)setItemToHighlight:(TableViewItem<PopupMenuItem>*)itemToHighlight {
   DCHECK_GT(self.tableViewModel.numberOfSections, 0L);
   _itemToHighlight = itemToHighlight;
   if (itemToHighlight && self.viewDidAppear) {
     [self highlightItem:itemToHighlight repeat:YES];
-  }
-}
-
-#pragma mark - UIViewController
-
-- (void)viewDidLoad {
-  self.styler.tableViewBackgroundColor = nil;
-  [super viewDidLoad];
-  self.tableView.contentInset = UIEdgeInsetsMake(kPopupMenuVerticalInsets, 0,
-                                                 kPopupMenuVerticalInsets, 0);
-  self.tableView.scrollIndicatorInsets = UIEdgeInsetsMake(
-      kScrollIndicatorVerticalInsets, 0, kScrollIndicatorVerticalInsets, 0);
-  self.tableView.rowHeight = 0;
-  self.tableView.sectionHeaderHeight = 0;
-  self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
-  // Adding a tableHeaderView is needed to prevent a wide inset on top of the
-  // collection.
-  self.tableView.tableHeaderView = [[UIView alloc]
-      initWithFrame:CGRectMake(0.0f, 0.0f, self.tableView.bounds.size.width,
-                               0.01f)];
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-  [super viewDidAppear:animated];
-  self.viewDidAppear = YES;
-  if (self.itemToHighlight) {
-    [self highlightItem:self.itemToHighlight repeat:YES];
   }
 }
 
@@ -103,6 +114,40 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
     }
   }
   [self.tableView reloadData];
+}
+
+- (void)itemsHaveChanged:(NSArray<TableViewItem<PopupMenuItem>*>*)items {
+  [self reconfigureCellsForItems:items];
+}
+
+#pragma mark - UIViewController
+
+- (void)viewDidLoad {
+  self.styler.tableViewBackgroundColor = nil;
+  [super viewDidLoad];
+  self.tableView.contentInset = UIEdgeInsetsMake(kPopupMenuVerticalInsets, 0,
+                                                 kPopupMenuVerticalInsets, 0);
+  self.tableView.scrollIndicatorInsets = UIEdgeInsetsMake(
+      kScrollIndicatorVerticalInsets, 0, kScrollIndicatorVerticalInsets, 0);
+  self.tableView.rowHeight = 0;
+  self.tableView.sectionHeaderHeight = 0;
+  self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
+  // Adding a tableHeaderView is needed to prevent a wide inset on top of the
+  // collection.
+  self.tableView.tableHeaderView = [[UIView alloc]
+      initWithFrame:CGRectMake(0.0f, 0.0f, self.tableView.bounds.size.width,
+                               0.01f)];
+
+  self.view.layer.cornerRadius = kPopupMenuCornerRadius;
+  self.view.layer.masksToBounds = YES;
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+  [super viewDidAppear:animated];
+  self.viewDidAppear = YES;
+  if (self.itemToHighlight) {
+    [self highlightItem:self.itemToHighlight repeat:YES];
+  }
 }
 
 - (CGSize)preferredContentSize {
@@ -152,6 +197,26 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
 
 #pragma mark - Private
 
+// Returns the index path identifying the the row at the position |point|.
+// |point| must be in the window coordinates. Returns nil if |point| is outside
+// the bounds of the table view.
+- (NSIndexPath*)indexPathForInnerRowAtPoint:(CGPoint)point {
+  CGPoint pointInTableViewCoordinates =
+      [self.tableView convertPoint:point fromView:nil];
+  CGRect insetRect =
+      CGRectInset(self.tableView.bounds, 0, kPopupMenuVerticalInsets);
+  BOOL pointInTableViewBounds =
+      CGRectContainsPoint(insetRect, pointInTableViewCoordinates);
+
+  NSIndexPath* indexPath = nil;
+  if (pointInTableViewBounds) {
+    indexPath =
+        [self.tableView indexPathForRowAtPoint:pointInTableViewCoordinates];
+  }
+
+  return indexPath;
+}
+
 // Highlights the |item| and |repeat| the highlighting once.
 - (void)highlightItem:(TableViewItem<PopupMenuItem>*)item repeat:(BOOL)repeat {
   NSIndexPath* indexPath = [self.tableViewModel indexPathForItem:item];
@@ -198,15 +263,13 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
       break;
     case PopupMenuActionOpenNewTab:
       base::RecordAction(UserMetricsAction("MobileMenuNewTab"));
-      [self.dispatcher
-          openNewTab:[[OpenNewTabCommand alloc] initWithIncognito:NO
-                                                      originPoint:origin]];
+      [self.dispatcher openURL:[OpenNewTabCommand commandWithIncognito:NO
+                                                           originPoint:origin]];
       break;
     case PopupMenuActionOpenNewIncognitoTab:
       base::RecordAction(UserMetricsAction("MobileMenuNewIncognitoTab"));
-      [self.dispatcher
-          openNewTab:[[OpenNewTabCommand alloc] initWithIncognito:YES
-                                                      originPoint:origin]];
+      [self.dispatcher openURL:[OpenNewTabCommand commandWithIncognito:YES
+                                                           originPoint:origin]];
       break;
     case PopupMenuActionReadLater:
       base::RecordAction(UserMetricsAction("MobileMenuReadLater"));
@@ -275,17 +338,14 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
       base::RecordAction(UserMetricsAction("MobileMenuCloseTab"));
       [self.dispatcher closeCurrentTab];
       break;
-    case PopupMenuActionCloseAllIncognitoTabs:
-      base::RecordAction(UserMetricsAction("MobileMenuCloseAllIncognitoTabs"));
-      [self.dispatcher closeAllIncognitoTabs];
-      break;
     case PopupMenuActionNavigate:
       // No metrics for this item.
       [self.commandHandler navigateToPageForItem:item];
       break;
     case PopupMenuActionPasteAndGo:
       base::RecordAction(UserMetricsAction("MobileMenuPasteAndGo"));
-      // TODO(crbug.com/821560):Implement this.
+      [self.dispatcher loadQuery:[UIPasteboard generalPasteboard].string
+                     immediately:YES];
       break;
     case PopupMenuActionVoiceSearch:
       base::RecordAction(UserMetricsAction("MobileMenuVoiceSearch"));

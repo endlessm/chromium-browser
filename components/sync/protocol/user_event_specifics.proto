@@ -90,7 +90,7 @@ message UserEventSpecifics {
   }
 
   // User consented to the usage of a feature or denied/revoked a consent.
-  // Next id: 13
+  // Next id: 14
   message UserConsent {
     // =========================================================================
     // Fields common to all Chrome User Consents.
@@ -127,6 +127,8 @@ message UserEventSpecifics {
 
       UserConsentTypes.ArcMetricsAndUsageConsent arc_metrics_and_usage_consent =
           11;
+
+      UserConsentTypes.UnifiedConsent unified_consent = 13;
     }
 
     // =========================================================================
@@ -158,6 +160,7 @@ message UserEventSpecifics {
       PLAY_STORE = 2;
       BACKUP_AND_RESTORE = 3;
       GOOGLE_LOCATION_SERVICE = 4;
+      CHROME_UNIFIED_CONSENT = 5;
     }
     optional Feature feature = 1 [deprecated = true];
     // Ids of the strings of the consent text presented to the user.
@@ -251,6 +254,19 @@ message UserEventSpecifics {
       optional InteractionResult interaction_result = 1;
     }
     optional PasswordReuseDialogInteraction dialog_interaction = 3;
+
+    // Logged when the user logs into Google, and at least once per 28d.
+    message PasswordCaptured {
+      enum EventTrigger {
+        UNSPECIFIED = 0;
+        // Event added because user logged in.
+        USER_LOGGED_IN = 1;
+        // Event added because 28d timer fired.
+        EXPIRED_28D_TIMER = 2;
+      }
+      optional EventTrigger event_trigger = 1;
+    }
+    optional PasswordCaptured password_captured = 4;
   }
 
   oneof event {

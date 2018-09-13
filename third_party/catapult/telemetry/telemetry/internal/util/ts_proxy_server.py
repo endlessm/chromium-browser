@@ -9,12 +9,18 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 from py_utils import atexit_with_log
 from telemetry.core import util
 from telemetry.internal.util import ps_util
 
 import py_utils
+
+try:
+  import fcntl
+except ImportError:
+  fcntl = None
 
 
 _TSPROXY_PATH = os.path.join(
@@ -49,6 +55,10 @@ class TsProxyServer(object):
     assert bool(http_port) == bool(https_port)
     self._http_port = http_port
     self._https_port = https_port
+    self._non_blocking = False
+    self._rtt = None
+    self._inbkps = None
+    self._outkbps = None
 
   @property
   def port(self):
@@ -69,6 +79,15 @@ class TsProxyServer(object):
     self._proc = subprocess.Popen(
         cmd_line, stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         stderr=subprocess.PIPE, bufsize=1)
+    self._non_blocking = False
+    if fcntl:
+      logging.info('fcntl is supported, try setting '
+                   'non blocking I/O for the ts_proxy process')
+      fd = self._proc.stdout.fileno()
+      fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+      fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+      self._non_blocking = True
+
     atexit_with_log.Register(self.StopServer)
     try:
       py_utils.WaitFor(self._IsStarted, timeout)
@@ -87,11 +106,21 @@ class TsProxyServer(object):
     if self._proc.poll() is not None:
       return False
     self._proc.stdout.flush()
-    output_line = self._proc.stdout.readline().strip()
+    output_line = self._ReadLineTsProxyStdout(timeout=5)
     logging.debug('TsProxy output: %s', output_line)
     self._port = ParseTsProxyPortFromOutput(output_line)
     return self._port != None
 
+  def _ReadLineTsProxyStdout(self, timeout):
+    def ReadlLine():
+      try:
+        return self._proc.stdout.readline().strip()
+      except IOError:
+        # Add a sleep to avoid trying to read self._proc.stdout too often.
+        if self._non_blocking:
+          time.sleep(0.5)
+        return None
+    return py_utils.WaitFor(ReadlLine, timeout)
 
   def _IssueCommand(self, command_string, timeout):
     logging.info('Issuing command to ts_proxy_server: %s', command_string)
@@ -100,9 +129,9 @@ class TsProxyServer(object):
     self._proc.stdin.flush()
     self._proc.stdout.flush()
     def CommandStatusIsRead():
-      command_output.append(self._proc.stdout.readline().strip())
-      return (
-          command_output[-1] == 'OK' or command_output[-1] == 'ERROR')
+      command_output.append(self._ReadLineTsProxyStdout(timeout))
+      return command_output[-1] == 'OK' or command_output[-1] == 'ERROR'
+
     py_utils.WaitFor(CommandStatusIsRead, timeout)
 
     success = 'OK' in command_output
@@ -121,11 +150,27 @@ class TsProxyServer(object):
                        timeout)
 
   def UpdateTrafficSettings(
-      self, round_trip_latency_ms=0,
-      download_bandwidth_kbps=0, upload_bandwidth_kbps=0, timeout=5):
-    self._IssueCommand('set rtt %s' % round_trip_latency_ms, timeout)
-    self._IssueCommand('set inkbps %s' % download_bandwidth_kbps, timeout)
-    self._IssueCommand('set outkbps %s' % upload_bandwidth_kbps, timeout)
+      self, round_trip_latency_ms=None,
+      download_bandwidth_kbps=None, upload_bandwidth_kbps=None, timeout=5):
+    """Update traffic settings of the proxy server.
+
+    Notes that this method only updates the specified parameter
+    """
+    # Memorize the traffic settings & only execute the command if the traffic
+    # settings are different.
+    if round_trip_latency_ms is not None and self._rtt != round_trip_latency_ms:
+      self._IssueCommand('set rtt %s' % round_trip_latency_ms, timeout)
+      self._rtt = round_trip_latency_ms
+
+    if (download_bandwidth_kbps is not None and
+        self._inbkps != download_bandwidth_kbps):
+      self._IssueCommand('set inkbps %s' % download_bandwidth_kbps, timeout)
+      self._inbkps = download_bandwidth_kbps
+
+    if (upload_bandwidth_kbps is not None and
+        self._outkbps != upload_bandwidth_kbps):
+      self._IssueCommand('set outkbps %s' % upload_bandwidth_kbps, timeout)
+      self._outkbps = upload_bandwidth_kbps
 
   def StopServer(self):
     """Stop TsProxy Server."""
@@ -139,6 +184,9 @@ class TsProxyServer(object):
     self._proc = None
     self._port = None
     self._is_running = False
+    self._rtt = None
+    self._inbkps = None
+    self._outkbps = None
     return err
 
   def __enter__(self):

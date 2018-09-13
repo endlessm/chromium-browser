@@ -112,6 +112,7 @@ class ToolbarMediatorTest : public PlatformTest {
         std::make_unique<ToolbarTestNavigationManager>();
     navigation_manager_ = navigation_manager.get();
     test_web_state_ = std::make_unique<ToolbarTestWebState>();
+    test_web_state_->SetBrowserState(chrome_browser_state_.get());
     test_web_state_->SetNavigationManager(std::move(navigation_manager));
     test_web_state_->SetLoading(true);
     web_state_ = test_web_state_.get();
@@ -148,6 +149,9 @@ class ToolbarMediatorTest : public PlatformTest {
 
   void InsertNewWebState(int index) {
     auto web_state = std::make_unique<web::TestWebState>();
+    web_state->SetBrowserState(chrome_browser_state_.get());
+    web_state->SetNavigationManager(
+        std::make_unique<web::TestNavigationManager>());
     GURL url("http://test/" + std::to_string(index));
     web_state->SetCurrentURL(url);
     web_state_list_->InsertWebState(index, std::move(web_state),
@@ -317,7 +321,8 @@ TEST_F(ToolbarMediatorTest, TestToolbarSetupWithNoActiveWebstate) {
 TEST_F(ToolbarMediatorTest, TestToolbarSetupWithNoWebstateList) {
   mediator_.consumer = consumer_;
 
-  [[[consumer_ reject] ignoringNonObjectArgs] setTabCount:0];
+  [[[consumer_ reject] ignoringNonObjectArgs] setTabCount:0
+                                        addedInBackground:NO];
 }
 
 // Tests the Toolbar Setup gets called when the mediator's WebState and Consumer
@@ -352,7 +357,7 @@ TEST_F(ToolbarMediatorTest, TestWebstateListRelatedSetup) {
   mediator_.webStateList = web_state_list_.get();
   mediator_.consumer = consumer_;
 
-  [[consumer_ verify] setTabCount:3];
+  [[consumer_ verify] setTabCount:3 addedInBackground:NO];
 }
 
 // Test the WebstateList related setup gets called when the mediator's WebState
@@ -361,7 +366,7 @@ TEST_F(ToolbarMediatorTest, TestWebstateListRelatedSetupReverse) {
   mediator_.consumer = consumer_;
   mediator_.webStateList = web_state_list_.get();
 
-  [[consumer_ verify] setTabCount:3];
+  [[consumer_ verify] setTabCount:3 addedInBackground:NO];
 }
 
 // Tests the Toolbar is updated when the Webstate observer method
@@ -487,7 +492,7 @@ TEST_F(ToolbarMediatorTest, TestIncreaseNumberOfWebstates) {
   mediator_.consumer = consumer_;
 
   InsertNewWebState(0);
-  [[consumer_ verify] setTabCount:kNumberOfWebStates + 1];
+  [[consumer_ verify] setTabCount:kNumberOfWebStates + 1 addedInBackground:YES];
 }
 
 // Test that decreasing the number of Webstates will update the consumer with
@@ -497,7 +502,7 @@ TEST_F(ToolbarMediatorTest, TestDecreaseNumberOfWebstates) {
   mediator_.consumer = consumer_;
 
   web_state_list_->DetachWebStateAt(0);
-  [[consumer_ verify] setTabCount:kNumberOfWebStates - 1];
+  [[consumer_ verify] setTabCount:kNumberOfWebStates - 1 addedInBackground:NO];
 }
 
 // Test that consumer is informed that voice search is enabled.

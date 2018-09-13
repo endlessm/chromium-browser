@@ -1243,7 +1243,7 @@ SDValue SelectionDAG::getConstant(const ConstantInt &Val, const SDLoc &DL,
       return SDValue(N, 0);
 
   if (!N) {
-    N = newSDNode<ConstantSDNode>(isT, isO, Elt, DL.getDebugLoc(), EltVT);
+    N = newSDNode<ConstantSDNode>(isT, isO, Elt, EltVT);
     CSEMap.InsertNode(N, IP);
     InsertNode(N);
     NewSDValueDbgMsg(SDValue(N, 0), "Creating constant: ", this);
@@ -1286,7 +1286,7 @@ SDValue SelectionDAG::getConstantFP(const ConstantFP &V, const SDLoc &DL,
       return SDValue(N, 0);
 
   if (!N) {
-    N = newSDNode<ConstantFPSDNode>(isTarget, &V, DL.getDebugLoc(), EltVT);
+    N = newSDNode<ConstantFPSDNode>(isTarget, &V, EltVT);
     CSEMap.InsertNode(N, IP);
     InsertNode(N);
   }
@@ -3611,17 +3611,33 @@ bool SelectionDAG::isKnownNeverNaN(SDValue Op) const {
   return false;
 }
 
-bool SelectionDAG::isKnownNeverZero(SDValue Op) const {
+bool SelectionDAG::isKnownNeverZeroFloat(SDValue Op) const {
+  assert(Op.getValueType().isFloatingPoint() &&
+         "Floating point type expected");
+
   // If the value is a constant, we can obviously see if it is a zero or not.
+  // TODO: Add BuildVector support.
   if (const ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(Op))
     return !C->isZero();
+  return false;
+}
+
+bool SelectionDAG::isKnownNeverZero(SDValue Op) const {
+  assert(!Op.getValueType().isFloatingPoint() &&
+         "Floating point types unsupported - use isKnownNeverZeroFloat");
+
+  // If the value is a constant, we can obviously see if it is a zero or not.
+  if (ISD::matchUnaryPredicate(
+          Op, [](ConstantSDNode *C) { return !C->isNullValue(); }))
+    return true;
 
   // TODO: Recognize more cases here.
   switch (Op.getOpcode()) {
   default: break;
   case ISD::OR:
-    if (const ConstantSDNode *C = dyn_cast<ConstantSDNode>(Op.getOperand(1)))
-      return !C->isNullValue();
+    if (isKnownNeverZero(Op.getOperand(1)) ||
+        isKnownNeverZero(Op.getOperand(0)))
+      return true;
     break;
   }
 
@@ -4049,10 +4065,10 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
     break;
   case ISD::FNEG:
     // -(X-Y) -> (Y-X) is unsafe because when X==Y, -0.0 != +0.0
-    if (getTarget().Options.UnsafeFPMath && OpOpcode == ISD::FSUB)
-      // FIXME: FNEG has no fast-math-flags to propagate; use the FSUB's flags?
+    if ((getTarget().Options.UnsafeFPMath || Flags.hasNoSignedZeros()) &&
+        OpOpcode == ISD::FSUB)
       return getNode(ISD::FSUB, DL, VT, Operand.getOperand(1),
-                     Operand.getOperand(0), Operand.getNode()->getFlags());
+                     Operand.getOperand(0), Flags);
     if (OpOpcode == ISD::FNEG)  // --X -> X
       return Operand.getOperand(0);
     break;
@@ -4442,24 +4458,6 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
   case ISD::FMUL:
   case ISD::FDIV:
   case ISD::FREM:
-    if (getTarget().Options.UnsafeFPMath) {
-      if (Opcode == ISD::FADD) {
-        // x+0 --> x
-        if (N2CFP && N2CFP->getValueAPF().isZero())
-          return N1;
-      } else if (Opcode == ISD::FSUB) {
-        // x-0 --> x
-        if (N2CFP && N2CFP->getValueAPF().isZero())
-          return N1;
-      } else if (Opcode == ISD::FMUL) {
-        // x*0 --> 0
-        if (N2CFP && N2CFP->isZero())
-          return N2;
-        // x*1 --> x
-        if (N2CFP && N2CFP->isExactlyValue(1.0))
-          return N1;
-      }
-    }
     assert(VT.isFloatingPoint() && "This operator only applies to FP types!");
     assert(N1.getValueType() == N2.getValueType() &&
            N1.getValueType() == VT && "Binary operator types must match!");
@@ -4767,6 +4765,18 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
     }
   }
 
+  // Any FP binop with an undef operand is folded to NaN. This matches the
+  // behavior of the IR optimizer.
+  switch (Opcode) {
+  case ISD::FADD:
+  case ISD::FSUB:
+  case ISD::FMUL:
+  case ISD::FDIV:
+  case ISD::FREM:
+    if (N1.isUndef() || N2.isUndef())
+      return getConstantFP(APFloat::getNaN(EVTToAPFloatSemantics(VT)), DL, VT);
+  }
+
   // Canonicalize an UNDEF to the RHS, even over a constant.
   if (N1.isUndef()) {
     if (TLI->isCommutativeBinOp(Opcode)) {
@@ -4776,9 +4786,6 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
       case ISD::FP_ROUND_INREG:
       case ISD::SIGN_EXTEND_INREG:
       case ISD::SUB:
-      case ISD::FSUB:
-      case ISD::FDIV:
-      case ISD::FREM:
         return getUNDEF(VT);     // fold op(undef, arg2) -> undef
       case ISD::UDIV:
       case ISD::SDIV:
@@ -4813,14 +4820,6 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
     case ISD::SRL:
     case ISD::SHL:
       return getUNDEF(VT);       // fold op(arg1, undef) -> undef
-    case ISD::FADD:
-    case ISD::FSUB:
-    case ISD::FMUL:
-    case ISD::FDIV:
-    case ISD::FREM:
-      if (getTarget().Options.UnsafeFPMath)
-        return N2;
-      break;
     case ISD::MUL:
     case ISD::AND:
       return getConstant(0, DL, VT);  // fold op(arg1, undef) -> 0
@@ -4858,10 +4857,14 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
 }
 
 SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
-                              SDValue N1, SDValue N2, SDValue N3) {
+                              SDValue N1, SDValue N2, SDValue N3,
+                              const SDNodeFlags Flags) {
   // Perform various simplifications.
   switch (Opcode) {
   case ISD::FMA: {
+    assert(VT.isFloatingPoint() && "This operator only applies to FP types!");
+    assert(N1.getValueType() == VT && N2.getValueType() == VT &&
+           N3.getValueType() == VT && "FMA types must match!");
     ConstantFPSDNode *N1CFP = dyn_cast<ConstantFPSDNode>(N1);
     ConstantFPSDNode *N2CFP = dyn_cast<ConstantFPSDNode>(N2);
     ConstantFPSDNode *N3CFP = dyn_cast<ConstantFPSDNode>(N3);
@@ -4952,10 +4955,13 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
     FoldingSetNodeID ID;
     AddNodeIDNode(ID, Opcode, VTs, Ops);
     void *IP = nullptr;
-    if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP))
+    if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP)) {
+      E->intersectFlagsWith(Flags);
       return SDValue(E, 0);
+    }
 
     N = newSDNode<SDNode>(Opcode, DL.getIROrder(), DL.getDebugLoc(), VTs);
+    N->setFlags(Flags);
     createOperands(N, Ops);
     CSEMap.InsertNode(N, IP);
   } else {
@@ -6879,6 +6885,7 @@ SDNode *SelectionDAG::UpdateNodeOperands(SDNode *N, SDValue Op) {
   // Now we update the operands.
   N->OperandList[0].set(Op);
 
+  updateDivergence(N);
   // If this gets put into a CSE map, add it.
   if (InsertPos) CSEMap.InsertNode(N, InsertPos);
   return N;
@@ -6958,6 +6965,7 @@ UpdateNodeOperands(SDNode *N, ArrayRef<SDValue> Ops) {
     if (N->OperandList[i] != Ops[i])
       N->OperandList[i].set(Ops[i]);
 
+  updateDivergence(N);
   // If this gets put into a CSE map, add it.
   if (InsertPos) CSEMap.InsertNode(N, InsertPos);
   return N;

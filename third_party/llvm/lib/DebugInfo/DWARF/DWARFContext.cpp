@@ -385,8 +385,7 @@ void DWARFContext::dump(
       }
       OS << "debug_line[" << format("0x%8.8x", Parser.getOffset()) << "]\n";
       if (DumpOpts.Verbose) {
-        Parser.parseNext(DWARFDebugLine::warn, DWARFDebugLine::warnForError,
-                         &OS);
+        Parser.parseNext(DWARFDebugLine::warn, DWARFDebugLine::warn, &OS);
       } else {
         DWARFDebugLine::LineTable LineTable = Parser.parseNext();
         LineTable.dump(OS, DumpOpts);
@@ -471,8 +470,13 @@ void DWARFContext::dump(
                                   isLittleEndian(), savedAddressByteSize);
     uint32_t offset = 0;
     DWARFDebugRangeList rangeList;
-    while (rangeList.extract(rangesData, &offset))
+    while (rangesData.isValidOffset(offset)) {
+      if (Error E = rangeList.extract(rangesData, &offset)) {
+        WithColor::error() << toString(std::move(E)) << '\n';
+        break;  
+      }
       rangeList.dump(OS);
+    }
   }
 
   if (shouldDump(Explicit, ".debug_rnglists", DIDT_ID_DebugRnglists,
@@ -562,9 +566,19 @@ DWARFCompileUnit *DWARFContext::getDWOCompileUnitForHash(uint64_t Hash) {
   // probably only one unless this is something like LTO - though an in-process
   // built/cached lookup table could be used in that case to improve repeated
   // lookups of different CUs in the DWO.
-  for (const auto &DWOCU : dwo_compile_units())
+  for (const auto &DWOCU : dwo_compile_units()) {
+    // Might not have parsed DWO ID yet.
+    if (!DWOCU->getDWOId()) {
+      if (Optional<uint64_t> DWOId =
+          toUnsigned(DWOCU->getUnitDIE().find(DW_AT_GNU_dwo_id)))
+        DWOCU->setDWOId(*DWOId);
+      else
+        // No DWO ID?
+        continue;
+    }
     if (DWOCU->getDWOId() == Hash)
       return DWOCU.get();
+  }
   return nullptr;
 }
 
@@ -764,15 +778,14 @@ DWARFContext::getLineTableForUnit(DWARFUnit *U) {
   Expected<const DWARFDebugLine::LineTable *> ExpectedLineTable =
       getLineTableForUnit(U, DWARFDebugLine::warn);
   if (!ExpectedLineTable) {
-    DWARFDebugLine::warnForError(ExpectedLineTable.takeError());
+    DWARFDebugLine::warn(ExpectedLineTable.takeError());
     return nullptr;
   }
   return *ExpectedLineTable;
 }
 
-Expected<const DWARFDebugLine::LineTable *>
-DWARFContext::getLineTableForUnit(DWARFUnit *U,
-                                  std::function<void(StringRef)> WarnCallback) {
+Expected<const DWARFDebugLine::LineTable *> DWARFContext::getLineTableForUnit(
+    DWARFUnit *U, std::function<void(Error)> RecoverableErrorCallback) {
   if (!Line)
     Line.reset(new DWARFDebugLine);
 
@@ -797,7 +810,7 @@ DWARFContext::getLineTableForUnit(DWARFUnit *U,
   DWARFDataExtractor lineData(*DObj, U->getLineSection(), isLittleEndian(),
                               U->getAddressByteSize());
   return Line->getOrParseLineTable(lineData, stmtOffset, *this, U,
-                                   WarnCallback);
+                                   RecoverableErrorCallback);
 }
 
 void DWARFContext::parseCompileUnits() {

@@ -42,6 +42,10 @@ const base::Feature kOmniboxRichEntitySuggestions{
 const base::Feature kOmniboxNewAnswerLayout{"OmniboxNewAnswerLayout",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Feature used to enable swapping the rows on answers.
+const base::Feature kOmniboxReverseAnswers{"OmniboxReverseAnswers",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Feature used to force on the experiment of transmission of tail suggestions
 // from GWS to this client, currently testing for desktop.
 const base::Feature kOmniboxTailSuggestions{
@@ -113,6 +117,14 @@ const base::Feature kUIExperimentHideSteadyStateUrlSchemeAndSubdomains{
     "OmniboxUIExperimentHideSteadyStateUrlSchemeAndSubdomains",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Feature used to jog the Omnibox textfield to align with the dropdown
+// suggestions text when the popup is opened. When this feature is disabled, the
+// textfield is always aligned with the suggestions text, and a separator fills
+// the gap. If Material Refresh is disabled, this has no effect.
+const base::Feature kUIExperimentJogTextfieldOnPopup{
+    "OmniboxUIExperimentJogTextfieldOnPopup",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+
 // Feature used for showing the URL suggestion favicons as a UI experiment.
 const base::Feature kUIExperimentShowSuggestionFavicons{
     "OmniboxUIExperimentShowSuggestionFavicons",
@@ -139,6 +151,9 @@ const base::Feature kSpeculativeServiceWorkerStartOnQueryInput{
 const base::Feature kBreakWordsAtUnderscores{"OmniboxBreakWordsAtUnderscores",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Feature used to fetch document suggestions.
+const base::Feature kDocumentProvider{"OmniboxDocumentProvider",
+                                      base::FEATURE_DISABLED_BY_DEFAULT};
 }  // namespace omnibox
 
 namespace {
@@ -640,12 +655,14 @@ int OmniboxFieldTrial::KeywordScoreForSufficientlyCompleteMatch() {
 OmniboxFieldTrial::EmphasizeTitlesCondition
 OmniboxFieldTrial::GetEmphasizeTitlesConditionForInput(
     const AutocompleteInput& input) {
-  if (base::FeatureList::IsEnabled(omnibox::kUIExperimentSwapTitleAndUrl))
+  if (base::FeatureList::IsEnabled(omnibox::kUIExperimentSwapTitleAndUrl) ||
+      base::FeatureList::IsEnabled(features::kExperimentalUi)) {
     return EMPHASIZE_WHEN_NONEMPTY;
+  }
 
-  // Touch-optimized UI and MD Refresh also always swap title and URL.
+  // Touch-optimized UI always swaps title and URL.
   if (ui::MaterialDesignController::is_mode_initialized() &&
-      ui::MaterialDesignController::IsNewerMaterialUi()) {
+      ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
     return EMPHASIZE_WHEN_NONEMPTY;
   }
 
@@ -677,12 +694,31 @@ OmniboxFieldTrial::GetEmphasizeTitlesConditionForInput(
   return static_cast<EmphasizeTitlesCondition>(value);
 }
 
+bool OmniboxFieldTrial::IsRichEntitySuggestionsEnabled() {
+  return base::FeatureList::IsEnabled(omnibox::kOmniboxRichEntitySuggestions) &&
+         ui::MaterialDesignController::is_mode_initialized() &&
+         ui::MaterialDesignController::IsRefreshUi();
+}
+
 bool OmniboxFieldTrial::IsNewAnswerLayoutEnabled() {
-  return base::FeatureList::IsEnabled(omnibox::kOmniboxNewAnswerLayout);
+  return (base::FeatureList::IsEnabled(omnibox::kOmniboxNewAnswerLayout) &&
+          ui::MaterialDesignController::is_mode_initialized() &&
+          ui::MaterialDesignController::IsRefreshUi()) ||
+         base::FeatureList::IsEnabled(features::kExperimentalUi);
+}
+
+bool OmniboxFieldTrial::IsReverseAnswersEnabled() {
+  return (base::FeatureList::IsEnabled(omnibox::kOmniboxReverseAnswers) &&
+          ui::MaterialDesignController::is_mode_initialized() &&
+          ui::MaterialDesignController::IsRefreshUi()) ||
+         base::FeatureList::IsEnabled(features::kExperimentalUi);
 }
 
 bool OmniboxFieldTrial::IsTabSwitchSuggestionsEnabled() {
-  return base::FeatureList::IsEnabled(omnibox::kOmniboxTabSwitchSuggestions);
+  return (base::FeatureList::IsEnabled(omnibox::kOmniboxTabSwitchSuggestions) &&
+          ui::MaterialDesignController::is_mode_initialized() &&
+          ui::MaterialDesignController::IsRefreshUi()) ||
+         base::FeatureList::IsEnabled(features::kExperimentalUi);
 }
 
 bool OmniboxFieldTrial::IsHideSteadyStateUrlSchemeAndSubdomainsEnabled() {
@@ -699,15 +735,26 @@ bool OmniboxFieldTrial::IsHideSteadyStateUrlSchemeAndSubdomainsEnabled() {
 #endif  // defined(OS_MACOSX)
 
   return base::FeatureList::IsEnabled(
-      omnibox::kUIExperimentHideSteadyStateUrlSchemeAndSubdomains);
+             omnibox::kUIExperimentHideSteadyStateUrlSchemeAndSubdomains) ||
+         base::FeatureList::IsEnabled(features::kExperimentalUi);
+}
+
+bool OmniboxFieldTrial::IsJogTextfieldOnPopupEnabled() {
+  return ui::MaterialDesignController::IsRefreshUi() &&
+         base::FeatureList::IsEnabled(
+             omnibox::kUIExperimentJogTextfieldOnPopup);
 }
 
 bool OmniboxFieldTrial::IsShowSuggestionFaviconsEnabled() {
   return base::FeatureList::IsEnabled(
-      omnibox::kUIExperimentShowSuggestionFavicons);
+             omnibox::kUIExperimentShowSuggestionFavicons) ||
+         base::FeatureList::IsEnabled(features::kExperimentalUi);
 }
 
 int OmniboxFieldTrial::GetSuggestionVerticalMargin() {
+  if (base::FeatureList::IsEnabled(features::kExperimentalUi))
+    return 10;
+
   using Md = ui::MaterialDesignController;
   return base::GetFieldTrialParamByFeatureAsInt(
       omnibox::kUIExperimentVerticalMargin, kUIVerticalMarginParam,

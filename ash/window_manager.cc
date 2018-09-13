@@ -23,10 +23,9 @@
 #include "ash/root_window_settings.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
-#include "ash/shell_delegate_mus.h"
+#include "ash/shell_delegate_mash.h"
 #include "ash/shell_init_params.h"
 #include "ash/shell_port_mash.h"
-#include "ash/shell_port_mus.h"
 #include "ash/wm/ash_focus_rules.h"
 #include "ash/wm/move_event_handler.h"
 #include "ash/wm/non_client_frame_controller.h"
@@ -80,7 +79,7 @@ WindowManager::WindowManager(service_manager::Connector* connector,
       show_primary_host_on_connect_(show_primary_host_on_connect),
       wm_state_(std::make_unique<::wm::WMState>()),
       property_converter_(std::make_unique<aura::PropertyConverter>()) {
-  DCHECK(features::IsMashEnabled());
+  DCHECK(!features::IsAshInBrowserProcess());
   RegisterWindowProperties(property_converter_.get());
 }
 
@@ -109,7 +108,6 @@ void WindowManager::Init(
   DCHECK_EQ(nullptr, ash::Shell::window_tree_client());
   ash::Shell::set_window_tree_client(window_tree_client_.get());
 
-  // TODO(jamescook): Maybe not needed in Config::MUS?
   pointer_watcher_event_router_ =
       std::make_unique<views::PointerWatcherEventRouter>(
           window_tree_client_.get());
@@ -158,7 +156,7 @@ void WindowManager::CreateShell() {
       this, pointer_watcher_event_router_.get());
   init_params.delegate = shell_delegate_
                              ? std::move(shell_delegate_)
-                             : std::make_unique<ShellDelegateMus>(connector_);
+                             : std::make_unique<ShellDelegateMash>(connector_);
   init_params.initial_display_prefs = std::move(initial_display_prefs_);
   Shell::CreateInstance(std::move(init_params));
 }
@@ -345,7 +343,7 @@ void WindowManager::OnWmClientJankinessChanged(
 }
 
 void WindowManager::OnWmBuildDragImage(const gfx::Point& screen_location,
-                                       const SkBitmap& drag_image,
+                                       const gfx::ImageSkia& drag_image,
                                        const gfx::Vector2d& drag_image_offset,
                                        ui::mojom::PointerKind source) {
   if (drag_image.isNull())
@@ -355,16 +353,13 @@ void WindowManager::OnWmBuildDragImage(const gfx::Point& screen_location,
   // the drag drop code is multidisplay aware.
   aura::Window* root_window = Shell::GetPrimaryRootWindow();
 
-  // TODO(erg): SkBitmap is the wrong data type for the drag image; we should
-  // be passing ImageSkias once http://crbug.com/655874 is implemented.
-
   ui::DragDropTypes::DragEventSource ui_source =
       source == ui::mojom::PointerKind::MOUSE
           ? ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE
           : ui::DragDropTypes::DRAG_EVENT_SOURCE_TOUCH;
   std::unique_ptr<DragImageView> drag_view =
       std::make_unique<DragImageView>(root_window, ui_source);
-  drag_view->SetImage(gfx::ImageSkia::CreateFrom1xBitmap(drag_image));
+  drag_view->SetImage(drag_image);
   gfx::Size size = drag_view->GetPreferredSize();
   gfx::Rect drag_image_bounds(screen_location - drag_image_offset, size);
   drag_view->SetBoundsInScreen(drag_image_bounds);
@@ -460,7 +455,7 @@ void WindowManager::OnWmSetClientArea(
       NonClientFrameController::Get(window);
   if (!non_client_frame_controller)
     return;
-  non_client_frame_controller->SetClientArea(insets, additional_client_areas);
+  non_client_frame_controller->SetClientArea(insets);
 }
 
 bool WindowManager::IsWindowActive(aura::Window* window) {

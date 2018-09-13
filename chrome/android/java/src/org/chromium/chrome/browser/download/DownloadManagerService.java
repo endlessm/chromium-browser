@@ -13,13 +13,14 @@ import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Handler;
+import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
 import android.util.Pair;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.AsyncTask;
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
@@ -33,13 +34,13 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.download.DownloadMetrics.DownloadOpenSource;
 import org.chromium.chrome.browser.download.ui.BackendProvider;
-import org.chromium.chrome.browser.download.ui.DownloadHistoryAdapter;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationDelegateImpl;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.media.MediaViewerUtils;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.util.ConversionUtils;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.components.download.DownloadState;
 import org.chromium.components.feature_engagement.EventConstants;
@@ -48,13 +49,15 @@ import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.FailState;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.PendingState;
-import org.chromium.content.browser.BrowserStartupController;
+import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.net.ConnectionType;
 import org.chromium.net.NetworkChangeNotifierAutoDetect;
 import org.chromium.net.RegistrationPolicyAlwaysRegister;
 import org.chromium.ui.widget.Toast;
 
 import java.io.File;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -80,11 +83,16 @@ public class DownloadManagerService
                    DownloadManagerDelegate.EnqueueDownloadRequestCallback, DownloadServiceDelegate,
                    BackendProvider.DownloadDelegate {
     // Download status.
-    public static final int DOWNLOAD_STATUS_IN_PROGRESS = 0;
-    public static final int DOWNLOAD_STATUS_COMPLETE = 1;
-    public static final int DOWNLOAD_STATUS_FAILED = 2;
-    public static final int DOWNLOAD_STATUS_CANCELLED = 3;
-    public static final int DOWNLOAD_STATUS_INTERRUPTED = 4;
+    @IntDef({DownloadStatus.IN_PROGRESS, DownloadStatus.COMPLETE, DownloadStatus.FAILED,
+            DownloadStatus.CANCELLED, DownloadStatus.INTERRUPTED})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface DownloadStatus {
+        int IN_PROGRESS = 0;
+        int COMPLETE = 1;
+        int FAILED = 2;
+        int CANCELLED = 3;
+        int INTERRUPTED = 4;
+    }
 
     private static final String TAG = "DownloadService";
     private static final String DOWNLOAD_DIRECTORY = "Download";
@@ -102,14 +110,18 @@ public class DownloadManagerService
             "org.chromium.chrome.browser.download.IS_DOWNLOAD_HOME_ENABLED";
 
     // Values for the histogram MobileDownloadResumptionCount.
-    private static final int UMA_DOWNLOAD_RESUMPTION_MANUAL_PAUSE = 0;
-    private static final int UMA_DOWNLOAD_RESUMPTION_BROWSER_KILLED = 1;
-    private static final int UMA_DOWNLOAD_RESUMPTION_CLICKED = 2;
-    private static final int UMA_DOWNLOAD_RESUMPTION_FAILED = 3;
-    private static final int UMA_DOWNLOAD_RESUMPTION_AUTO_STARTED = 4;
-    private static final int UMA_DOWNLOAD_RESUMPTION_COUNT = 5;
-
-    private static final int GB_IN_KILO_BYTES = 1024 * 1024;
+    @IntDef({UmaDownloadResumption.MANUAL_PAUSE, UmaDownloadResumption.BROWSER_KILLED,
+            UmaDownloadResumption.CLICKED, UmaDownloadResumption.FAILED,
+            UmaDownloadResumption.AUTO_STARTED})
+    @Retention(RetentionPolicy.SOURCE)
+    private @interface UmaDownloadResumption {
+        int MANUAL_PAUSE = 0;
+        int BROWSER_KILLED = 1;
+        int CLICKED = 2;
+        int FAILED = 3;
+        int AUTO_STARTED = 4;
+        int NUM_ENTRIES = 5;
+    }
 
     // Set will be more expensive to initialize, so use an ArrayList here.
     private static final List<String> MIME_TYPES_TO_OPEN = new ArrayList<String>(Arrays.asList(
@@ -140,10 +152,25 @@ public class DownloadManagerService
     private final Handler mHandler;
     private final Context mContext;
 
+    /** Generic interface for notifying external UI components about downloads and their states. */
+    public interface DownloadObserver extends DownloadSharedPreferenceHelper.Observer {
+        /** Called in response to {@link DownloadManagerService#getAllDownloads(boolean)}. */
+        void onAllDownloadsRetrieved(final List<DownloadItem> list, boolean isOffTheRecord);
+
+        /** Called when a download is created. */
+        void onDownloadItemCreated(DownloadItem item);
+
+        /** Called when a download is updated. */
+        void onDownloadItemUpdated(DownloadItem item);
+
+        /** Called when a download has been removed. */
+        void onDownloadItemRemoved(String guid, boolean isOffTheRecord);
+    }
+
     @VisibleForTesting protected final List<String> mAutoResumableDownloadIds =
             new ArrayList<String>();
     private final List<DownloadUmaStatsEntry> mUmaEntries = new ArrayList<DownloadUmaStatsEntry>();
-    private final ObserverList<DownloadHistoryAdapter> mHistoryAdapters = new ObserverList<>();
+    private final ObserverList<DownloadObserver> mDownloadObservers = new ObserverList<>();
 
     private OMADownloadHandler mOMADownloadHandler;
     private DownloadSnackbarController mDownloadSnackbarController;
@@ -156,6 +183,9 @@ public class DownloadManagerService
     private boolean mIsUIUpdateScheduled;
     private int mAutoResumptionLimit = -1;
     private DownloadManagerRequestInterceptor mDownloadManagerRequestInterceptor;
+
+    // Whether any ChromeActivity is launched.
+    private boolean mActivityLaunched;
 
     /**
      * Interface to intercept download request to Android DownloadManager. This is implemented by
@@ -172,13 +202,14 @@ public class DownloadManagerService
         final long mStartTimeInMillis;
         boolean mCanDownloadWhileMetered;
         DownloadItem mDownloadItem;
+        @DownloadStatus
         int mDownloadStatus;
         boolean mIsAutoResumable;
         boolean mIsUpdated;
         boolean mIsSupportedMimeType;
 
         DownloadProgress(long startTimeInMillis, boolean canDownloadWhileMetered,
-                DownloadItem downloadItem, int downloadStatus) {
+                DownloadItem downloadItem, @DownloadStatus int downloadStatus) {
             mStartTimeInMillis = startTimeInMillis;
             mCanDownloadWhileMetered = canDownloadWhileMetered;
             mDownloadItem = downloadItem;
@@ -252,8 +283,6 @@ public class DownloadManagerService
         mUpdateDelayInMillis = updateDelayInMillis;
         mHandler = handler;
         mDownloadSnackbarController = new DownloadSnackbarController(context);
-        mInfoBarController = new DownloadInfoBarController(false);
-        mIncognitoInfoBarController = new DownloadInfoBarController(true);
         mDownloadManagerDelegate = new DownloadManagerDelegate(mContext);
         mOMADownloadHandler = new OMADownloadHandler(
                 context, mDownloadManagerDelegate, mDownloadSnackbarController);
@@ -282,9 +311,7 @@ public class DownloadManagerService
                 hasChanges = true;
             }
         }
-        if (hasChanges) {
-            storeUmaEntries();
-        }
+        if (hasChanges) storeUmaEntries();
     }
 
     /**
@@ -305,10 +332,11 @@ public class DownloadManagerService
 
     @Override
     public void onDownloadCompleted(final DownloadInfo downloadInfo) {
-        int status = DOWNLOAD_STATUS_COMPLETE;
+        @DownloadStatus
+        int status = DownloadStatus.COMPLETE;
         String mimeType = downloadInfo.getMimeType();
         if (downloadInfo.getBytesReceived() == 0) {
-            status = DOWNLOAD_STATUS_FAILED;
+            status = DownloadStatus.FAILED;
         } else {
             String origMimeType = mimeType;
             if (TextUtils.isEmpty(origMimeType)) origMimeType = UNKNOWN_MIME_TYPE;
@@ -328,7 +356,7 @@ public class DownloadManagerService
         if (downloadInfo.isPaused()) {
             removeAutoResumableDownload(item.getId());
         }
-        updateDownloadProgress(item, DOWNLOAD_STATUS_IN_PROGRESS);
+        updateDownloadProgress(item, DownloadStatus.IN_PROGRESS);
         scheduleUpdateIfNeeded();
     }
 
@@ -336,15 +364,16 @@ public class DownloadManagerService
     public void onDownloadCancelled(final DownloadInfo downloadInfo) {
         DownloadItem item = new DownloadItem(false, downloadInfo);
         removeAutoResumableDownload(item.getId());
-        updateDownloadProgress(new DownloadItem(false, downloadInfo), DOWNLOAD_STATUS_CANCELLED);
+        updateDownloadProgress(new DownloadItem(false, downloadInfo), DownloadStatus.CANCELLED);
     }
 
     @Override
     public void onDownloadInterrupted(final DownloadInfo downloadInfo, boolean isAutoResumable) {
-        int status = DOWNLOAD_STATUS_INTERRUPTED;
+        @DownloadStatus
+        int status = DownloadStatus.INTERRUPTED;
         DownloadItem item = new DownloadItem(false, downloadInfo);
         if (!downloadInfo.isResumable()) {
-            status = DOWNLOAD_STATUS_FAILED;
+            status = DownloadStatus.FAILED;
         } else if (isAutoResumable) {
             addAutoResumableDownload(item.getId());
         }
@@ -384,10 +413,16 @@ public class DownloadManagerService
      * will not be called.
      */
     public void onActivityLaunched() {
-        DownloadNotificationService.clearResumptionAttemptLeft();
+        if (!mActivityLaunched) {
+            mInfoBarController = new DownloadInfoBarController(false);
+            mIncognitoInfoBarController = new DownloadInfoBarController(true);
 
-        DownloadManagerService.getDownloadManagerService().checkForExternallyRemovedDownloads(
-                /*isOffTheRecord=*/false);
+            DownloadNotificationService.clearResumptionAttemptLeft();
+
+            DownloadManagerService.getDownloadManagerService().checkForExternallyRemovedDownloads(
+                    /*isOffTheRecord=*/false);
+            mActivityLaunched = true;
+        }
     }
 
     /**
@@ -457,30 +492,30 @@ public class DownloadManagerService
         boolean notificationUpdateScheduled = true;
         boolean removeFromDownloadProgressMap = true;
         switch (progress.mDownloadStatus) {
-            case DOWNLOAD_STATUS_COMPLETE:
+            case DownloadStatus.COMPLETE:
                 notificationUpdateScheduled = updateDownloadSuccessNotification(progress);
                 removeFromDownloadProgressMap = notificationUpdateScheduled;
                 break;
-            case DOWNLOAD_STATUS_FAILED:
+            case DownloadStatus.FAILED:
                 // TODO(cmsy): Use correct FailState.
                 mDownloadNotifier.notifyDownloadFailed(info, FailState.CANNOT_DOWNLOAD);
                 Log.w(TAG, "Download failed: " + info.getFilePath());
                 onDownloadFailed(item, DownloadManager.ERROR_UNKNOWN);
                 break;
-            case DOWNLOAD_STATUS_IN_PROGRESS:
+            case DownloadStatus.IN_PROGRESS:
                 if (info.isPaused()) {
                     mDownloadNotifier.notifyDownloadPaused(info);
-                    recordDownloadResumption(UMA_DOWNLOAD_RESUMPTION_MANUAL_PAUSE);
+                    recordDownloadResumption(UmaDownloadResumption.MANUAL_PAUSE);
                 } else {
                     mDownloadNotifier.notifyDownloadProgress(
                             info, progress.mStartTimeInMillis, progress.mCanDownloadWhileMetered);
                     removeFromDownloadProgressMap = false;
                 }
                 break;
-            case DOWNLOAD_STATUS_CANCELLED:
+            case DownloadStatus.CANCELLED:
                 mDownloadNotifier.notifyDownloadCanceled(item.getContentId());
                 break;
-            case DOWNLOAD_STATUS_INTERRUPTED:
+            case DownloadStatus.INTERRUPTED:
                 mDownloadNotifier.notifyDownloadInterrupted(
                         info, progress.mIsAutoResumable, PendingState.PENDING_NETWORK);
                 removeFromDownloadProgressMap = !progress.mIsAutoResumable;
@@ -489,12 +524,8 @@ public class DownloadManagerService
                 assert false;
                 break;
         }
-        if (notificationUpdateScheduled) {
-            progress.mIsUpdated = false;
-        }
-        if (removeFromDownloadProgressMap) {
-            mDownloadProgressMap.remove(item.getId());
-        }
+        if (notificationUpdateScheduled) progress.mIsUpdated = false;
+        if (removeFromDownloadProgressMap) mDownloadProgressMap.remove(item.getId());
     }
 
     /**
@@ -586,7 +617,7 @@ public class DownloadManagerService
             return;
         }
         openDownloadedContent(download.getDownloadInfo(), download.getSystemDownloadId(),
-                DownloadMetrics.AUTO_OPEN);
+                DownloadMetrics.DownloadOpenSource.AUTO_OPEN);
     }
 
     /**
@@ -624,8 +655,9 @@ public class DownloadManagerService
      * @param downloadItem Information about the download.
      * @param downloadStatus Status of the download.
      */
-    private void updateDownloadProgress(DownloadItem downloadItem, int downloadStatus) {
-        boolean isSupportedMimeType = downloadStatus == DOWNLOAD_STATUS_COMPLETE
+    private void updateDownloadProgress(
+            DownloadItem downloadItem, @DownloadStatus int downloadStatus) {
+        boolean isSupportedMimeType = downloadStatus == DownloadStatus.COMPLETE
                 && isSupportedMimeType(downloadItem.getDownloadInfo().getMimeType());
         String id = downloadItem.getId();
         DownloadProgress progress = mDownloadProgressMap.get(id);
@@ -641,17 +673,16 @@ public class DownloadManagerService
                 sFirstSeenDownloadIds.add(id);
                 DownloadUmaStatsEntry entry = getUmaStatsEntry(downloadItem.getId());
                 if (entry == null) {
-                    addUmaStatsEntry(new DownloadUmaStatsEntry(
-                            downloadItem.getId(), startTime,
-                            downloadStatus == DOWNLOAD_STATUS_INTERRUPTED ? 1 : 0, false, false,
+                    addUmaStatsEntry(new DownloadUmaStatsEntry(downloadItem.getId(), startTime,
+                            downloadStatus == DownloadStatus.INTERRUPTED ? 1 : 0, false, false,
                             bytesReceived, 0));
                 } else if (updateBytesReceived(entry, bytesReceived)) {
                     storeUmaEntries();
                 }
 
                 // This is mostly for testing, when the download is not tracked/progress is null but
-                // downloadStatus is not DOWNLOAD_STATUS_IN_PROGRESS.
-                if (downloadStatus != DOWNLOAD_STATUS_IN_PROGRESS) {
+                // downloadStatus is not DownloadStatus.IN_PROGRESS.
+                if (downloadStatus != DownloadStatus.IN_PROGRESS) {
                     updateNotification(progress);
                 }
             }
@@ -665,9 +696,9 @@ public class DownloadManagerService
         progress.mIsSupportedMimeType = isSupportedMimeType;
         DownloadUmaStatsEntry entry;
         switch (downloadStatus) {
-            case DOWNLOAD_STATUS_COMPLETE:
-            case DOWNLOAD_STATUS_FAILED:
-            case DOWNLOAD_STATUS_CANCELLED:
+            case DownloadStatus.COMPLETE:
+            case DownloadStatus.FAILED:
+            case DownloadStatus.CANCELLED:
                 recordDownloadFinishedUMA(
                         downloadStatus, id, downloadItem.getDownloadInfo().getBytesReceived());
                 clearDownloadRetryCount(id, true);
@@ -675,14 +706,14 @@ public class DownloadManagerService
                 updateNotification(progress);
                 sFirstSeenDownloadIds.remove(id);
                 break;
-            case DOWNLOAD_STATUS_INTERRUPTED:
+            case DownloadStatus.INTERRUPTED:
                 entry = getUmaStatsEntry(id);
                 entry.numInterruptions++;
                 updateBytesReceived(entry, bytesReceived);
                 storeUmaEntries();
                 updateNotification(progress);
                 break;
-            case DOWNLOAD_STATUS_IN_PROGRESS:
+            case DownloadStatus.IN_PROGRESS:
                 entry = getUmaStatsEntry(id);
                 if (entry.isPaused != downloadItem.getDownloadInfo().isPaused()
                         || updateBytesReceived(entry, bytesReceived)) {
@@ -741,7 +772,7 @@ public class DownloadManagerService
         if (!result) {
             onDownloadFailed(downloadItem, failureReason);
             recordDownloadCompletionStats(
-                    true, DownloadManagerService.DOWNLOAD_STATUS_FAILED, 0, 0, 0, 0);
+                    true, DownloadManagerService.DownloadStatus.FAILED, 0, 0, 0, 0);
             return;
         }
 
@@ -936,13 +967,13 @@ public class DownloadManagerService
     @Override
     public void resumeDownload(ContentId id, DownloadItem item, boolean hasUserGesture) {
         DownloadProgress progress = mDownloadProgressMap.get(item.getId());
-        if (progress != null && progress.mDownloadStatus == DOWNLOAD_STATUS_IN_PROGRESS
+        if (progress != null && progress.mDownloadStatus == DownloadStatus.IN_PROGRESS
                 && !progress.mDownloadItem.getDownloadInfo().isPaused()) {
             // Download already in progress, do nothing
             return;
         }
-        int uma = hasUserGesture ? UMA_DOWNLOAD_RESUMPTION_CLICKED
-                : UMA_DOWNLOAD_RESUMPTION_AUTO_STARTED;
+        int uma =
+                hasUserGesture ? UmaDownloadResumption.CLICKED : UmaDownloadResumption.AUTO_STARTED;
         recordDownloadResumption(uma);
         if (progress == null) {
             assert !item.getDownloadInfo().isPaused();
@@ -950,9 +981,9 @@ public class DownloadManagerService
             // download is active.
             if (!sFirstSeenDownloadIds.contains(item.getId())) {
                 sFirstSeenDownloadIds.add(item.getId());
-                recordDownloadResumption(UMA_DOWNLOAD_RESUMPTION_BROWSER_KILLED);
+                recordDownloadResumption(UmaDownloadResumption.BROWSER_KILLED);
             }
-            updateDownloadProgress(item, DOWNLOAD_STATUS_IN_PROGRESS);
+            updateDownloadProgress(item, DownloadStatus.IN_PROGRESS);
             progress = mDownloadProgressMap.get(item.getId());
         }
         if (hasUserGesture) {
@@ -996,7 +1027,7 @@ public class DownloadManagerService
             onDownloadCancelled(info);
             removeDownloadProgress(id.id);
         }
-        recordDownloadFinishedUMA(DOWNLOAD_STATUS_CANCELLED, id.id, 0);
+        recordDownloadFinishedUMA(DownloadStatus.CANCELLED, id.id, 0);
     }
 
     /**
@@ -1011,8 +1042,9 @@ public class DownloadManagerService
         // Calling pause will stop listening to the download item. Update its progress now.
         // If download is already completed, canceled or failed, there is no need to update the
         // download notification.
-        if (progress != null && (progress.mDownloadStatus == DOWNLOAD_STATUS_INTERRUPTED
-                || progress.mDownloadStatus == DOWNLOAD_STATUS_IN_PROGRESS)) {
+        if (progress != null
+                && (progress.mDownloadStatus == DownloadStatus.INTERRUPTED
+                           || progress.mDownloadStatus == DownloadStatus.IN_PROGRESS)) {
             DownloadInfo info = DownloadInfo.Builder.fromDownloadInfo(
                     progress.mDownloadItem.getDownloadInfo()).setIsPaused(true)
                     .setBytesReceived(UNKNOWN_BYTES_RECEIVED).build();
@@ -1087,8 +1119,8 @@ public class DownloadManagerService
                 new DownloadInfo.Builder().setDownloadGuid(downloadGuid).build(),
                 FailState.CANNOT_DOWNLOAD);
         removeDownloadProgress(downloadGuid);
-        recordDownloadResumption(UMA_DOWNLOAD_RESUMPTION_FAILED);
-        recordDownloadFinishedUMA(DOWNLOAD_STATUS_FAILED, downloadGuid, 0);
+        recordDownloadResumption(UmaDownloadResumption.FAILED);
+        recordDownloadFinishedUMA(DownloadStatus.FAILED, downloadGuid, 0);
     }
 
     /**
@@ -1105,8 +1137,11 @@ public class DownloadManagerService
             item.setSystemDownloadId(systemDownloadId);
             handleAutoOpenAfterDownload(item);
         } else {
-            getInfoBarController(info.isOffTheRecord())
-                    .onNotificationShown(info.getContentId(), notificationId);
+            DownloadInfoBarController infobarController =
+                    getInfoBarController(info.isOffTheRecord());
+            if (infobarController != null) {
+                infobarController.onNotificationShown(info.getContentId(), notificationId);
+            }
             mDownloadSnackbarController.onDownloadSucceeded(
                     info, notificationId, systemDownloadId, canResolve, false);
         }
@@ -1122,10 +1157,9 @@ public class DownloadManagerService
      * Helper method to record the download resumption UMA.
      * @param type UMA type to be recorded.
      */
-    private void recordDownloadResumption(int type) {
-        assert type < UMA_DOWNLOAD_RESUMPTION_COUNT && type >= 0;
+    private void recordDownloadResumption(@UmaDownloadResumption int type) {
         RecordHistogram.recordEnumeratedHistogram(
-                "MobileDownload.DownloadResumption", type, UMA_DOWNLOAD_RESUMPTION_COUNT);
+                "MobileDownload.DownloadResumption", type, UmaDownloadResumption.NUM_ENTRIES);
     }
 
     /**
@@ -1139,21 +1173,21 @@ public class DownloadManagerService
     private void recordDownloadCompletionStats(boolean useDownloadManager, int status,
             long totalDuration, long bytesDownloaded, int numInterruptions, long bytesWasted) {
         switch (status) {
-            case DOWNLOAD_STATUS_COMPLETE:
+            case DownloadStatus.COMPLETE:
                 if (useDownloadManager) {
                     RecordHistogram.recordLongTimesHistogram(
                             "MobileDownload.DownloadTime.DownloadManager.Success",
                             totalDuration, TimeUnit.MILLISECONDS);
                     RecordHistogram.recordCount1000Histogram(
                             "MobileDownload.BytesDownloaded.DownloadManager.Success",
-                            (int) (bytesDownloaded / 1024));
+                            (int) ConversionUtils.bytesToKilobytes(bytesDownloaded));
                 } else {
                     RecordHistogram.recordLongTimesHistogram(
                             "MobileDownload.DownloadTime.ChromeNetworkStack.Success",
                             totalDuration, TimeUnit.MILLISECONDS);
                     RecordHistogram.recordCount1000Histogram(
                             "MobileDownload.BytesDownloaded.ChromeNetworkStack.Success",
-                            (int) (bytesDownloaded / 1024));
+                            (int) ConversionUtils.bytesToKilobytes(bytesDownloaded));
                     RecordHistogram.recordCountHistogram(
                             "MobileDownload.InterruptionsCount.ChromeNetworkStack.Success",
                             numInterruptions);
@@ -1161,21 +1195,21 @@ public class DownloadManagerService
                             "MobileDownload.BytesWasted.ChromeNetworkStack.Success", bytesWasted);
                 }
                 break;
-            case DOWNLOAD_STATUS_FAILED:
+            case DownloadStatus.FAILED:
                 if (useDownloadManager) {
                     RecordHistogram.recordLongTimesHistogram(
                             "MobileDownload.DownloadTime.DownloadManager.Failure",
                             totalDuration, TimeUnit.MILLISECONDS);
                     RecordHistogram.recordCount1000Histogram(
                             "MobileDownload.BytesDownloaded.DownloadManager.Failure",
-                            (int) (bytesDownloaded / 1024));
+                            (int) ConversionUtils.bytesToKilobytes(bytesDownloaded));
                 } else {
                     RecordHistogram.recordLongTimesHistogram(
                             "MobileDownload.DownloadTime.ChromeNetworkStack.Failure",
                             totalDuration, TimeUnit.MILLISECONDS);
                     RecordHistogram.recordCount1000Histogram(
                             "MobileDownload.BytesDownloaded.ChromeNetworkStack.Failure",
-                            (int) (bytesDownloaded / 1024));
+                            (int) ConversionUtils.bytesToKilobytes(bytesDownloaded));
                     RecordHistogram.recordCountHistogram(
                             "MobileDownload.InterruptionsCount.ChromeNetworkStack.Failure",
                             numInterruptions);
@@ -1183,7 +1217,7 @@ public class DownloadManagerService
                             "MobileDownload.BytesWasted.ChromeNetworkStack.Failure", bytesWasted);
                 }
                 break;
-            case DOWNLOAD_STATUS_CANCELLED:
+            case DownloadStatus.CANCELLED:
                 if (!useDownloadManager) {
                     RecordHistogram.recordLongTimesHistogram(
                             "MobileDownload.DownloadTime.ChromeNetworkStack.Cancel",
@@ -1206,17 +1240,18 @@ public class DownloadManagerService
      * @param bytesWasted Bytes wasted during download.
      */
     private void recordBytesWasted(String name, long bytesWasted) {
-        RecordHistogram.recordCustomCountHistogram(
-                name, (int) (bytesWasted / 1024), 1, GB_IN_KILO_BYTES, 50);
+        RecordHistogram.recordCustomCountHistogram(name,
+                (int) ConversionUtils.bytesToKilobytes(bytesWasted), 1,
+                ConversionUtils.KILOBYTES_PER_GIGABYTE, 50);
     }
 
     @Override
     public void onQueryCompleted(
             DownloadManagerDelegate.DownloadQueryResult result, boolean showNotification) {
-        if (result.downloadStatus == DOWNLOAD_STATUS_IN_PROGRESS) return;
+        if (result.downloadStatus == DownloadStatus.IN_PROGRESS) return;
         if (showNotification) {
             switch (result.downloadStatus) {
-                case DOWNLOAD_STATUS_COMPLETE:
+                case DownloadStatus.COMPLETE:
                     if (shouldOpenAfterDownload(result.item.getDownloadInfo())
                             && result.canResolve) {
                         handleAutoOpenAfterDownload(result.item);
@@ -1227,7 +1262,7 @@ public class DownloadManagerService
                                 result.item.getSystemDownloadId(), result.canResolve, true);
                     }
                     break;
-                case DOWNLOAD_STATUS_FAILED:
+                case DownloadStatus.FAILED:
                     onDownloadFailed(result.item, result.failureReason);
                     break;
                 default:
@@ -1412,18 +1447,18 @@ public class DownloadManagerService
         }
     }
 
-    /** Adds a new DownloadHistoryAdapter to the list. */
+    /** Adds a new DownloadObserver to the list. */
     @Override
-    public void addDownloadHistoryAdapter(DownloadHistoryAdapter adapter) {
-        mHistoryAdapters.addObserver(adapter);
-        DownloadSharedPreferenceHelper.getInstance().addObserver(adapter);
+    public void addDownloadObserver(DownloadObserver observer) {
+        mDownloadObservers.addObserver(observer);
+        DownloadSharedPreferenceHelper.getInstance().addObserver(observer);
     }
 
-    /** Removes a DownloadHistoryAdapter from the list. */
+    /** Removes a DownloadObserver from the list. */
     @Override
-    public void removeDownloadHistoryAdapter(DownloadHistoryAdapter adapter) {
-        mHistoryAdapters.removeObserver(adapter);
-        DownloadSharedPreferenceHelper.getInstance().removeObserver(adapter);
+    public void removeDownloadObserver(DownloadObserver observer) {
+        mDownloadObservers.removeObserver(observer);
+        DownloadSharedPreferenceHelper.getInstance().removeObserver(observer);
     }
 
     /**
@@ -1507,7 +1542,7 @@ public class DownloadManagerService
 
     @CalledByNative
     private void onAllDownloadsRetrieved(final List<DownloadItem> list, boolean isOffTheRecord) {
-        for (DownloadHistoryAdapter adapter : mHistoryAdapters) {
+        for (DownloadObserver adapter : mDownloadObservers) {
             adapter.onAllDownloadsRetrieved(list, isOffTheRecord);
         }
         maybeShowMissingSdCardError(list);
@@ -1586,28 +1621,34 @@ public class DownloadManagerService
 
     @CalledByNative
     private void onDownloadItemCreated(DownloadItem item) {
-        for (DownloadHistoryAdapter adapter : mHistoryAdapters) {
+        for (DownloadObserver adapter : mDownloadObservers) {
             adapter.onDownloadItemCreated(item);
         }
-
-        getInfoBarController(item.getDownloadInfo().isOffTheRecord()).onDownloadItemUpdated(item);
+        DownloadInfoBarController infobarController =
+                getInfoBarController(item.getDownloadInfo().isOffTheRecord());
+        if (infobarController != null) infobarController.onDownloadItemUpdated(item);
     }
 
     @CalledByNative
     private void onDownloadItemUpdated(DownloadItem item) {
-        for (DownloadHistoryAdapter adapter : mHistoryAdapters) {
+        for (DownloadObserver adapter : mDownloadObservers) {
             adapter.onDownloadItemUpdated(item);
         }
 
-        getInfoBarController(item.getDownloadInfo().isOffTheRecord()).onDownloadItemUpdated(item);
+        DownloadInfoBarController infobarController =
+                getInfoBarController(item.getDownloadInfo().isOffTheRecord());
+        if (infobarController != null) infobarController.onDownloadItemUpdated(item);
     }
 
     @CalledByNative
     private void onDownloadItemRemoved(String guid, boolean isOffTheRecord) {
-        getInfoBarController(isOffTheRecord)
-                .onDownloadItemRemoved(LegacyHelpers.buildLegacyContentId(false, guid));
+        DownloadInfoBarController infobarController = getInfoBarController(isOffTheRecord);
+        if (infobarController != null) {
+            infobarController.onDownloadItemRemoved(
+                    LegacyHelpers.buildLegacyContentId(false, guid));
+        }
 
-        for (DownloadHistoryAdapter adapter : mHistoryAdapters) {
+        for (DownloadObserver adapter : mDownloadObservers) {
             adapter.onDownloadItemRemoved(guid, isOffTheRecord);
         }
     }

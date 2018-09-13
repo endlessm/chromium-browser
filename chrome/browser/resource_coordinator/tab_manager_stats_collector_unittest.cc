@@ -10,7 +10,7 @@
 
 #include "base/macros.h"
 #include "base/metrics/metrics_hashes.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/resource_coordinator/tab_helper.h"
@@ -33,9 +33,9 @@ namespace resource_coordinator {
 
 using LoadingState = TabLoadTracker::LoadingState;
 
-constexpr TabLoadTracker::LoadingState UNLOADED = TabLoadTracker::UNLOADED;
-constexpr TabLoadTracker::LoadingState LOADING = TabLoadTracker::LOADING;
-constexpr TabLoadTracker::LoadingState LOADED = TabLoadTracker::LOADED;
+constexpr TabLoadTracker::LoadingState UNLOADED = LoadingState::UNLOADED;
+constexpr TabLoadTracker::LoadingState LOADING = LoadingState::LOADING;
+constexpr TabLoadTracker::LoadingState LOADED = LoadingState::LOADED;
 
 class TabManagerStatsCollectorTest : public ChromeRenderViewHostTestHarness {
  protected:

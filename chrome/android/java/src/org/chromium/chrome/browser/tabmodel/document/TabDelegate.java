@@ -13,6 +13,7 @@ import android.provider.Browser;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ContextUtils;
+import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.ServiceTabLauncher;
 import org.chromium.chrome.browser.TabState;
@@ -61,7 +62,7 @@ public class TabDelegate extends TabCreator {
 
     @Override
     public boolean createTabWithWebContents(Tab parent, WebContents webContents, int parentId,
-            TabLaunchType type, String url) {
+            @TabLaunchType int type, String url) {
         if (url == null) url = "";
 
         AsyncTabCreationParams asyncParams =
@@ -96,12 +97,12 @@ public class TabDelegate extends TabCreator {
     }
 
     @Override
-    public Tab launchUrl(String url, TabLaunchType type) {
+    public Tab launchUrl(String url, @TabLaunchType int type) {
         return createNewTab(new LoadUrlParams(url), type, null);
     }
 
     @Override
-    public Tab createNewTab(LoadUrlParams loadUrlParams, TabLaunchType type, Tab parent) {
+    public Tab createNewTab(LoadUrlParams loadUrlParams, @TabLaunchType int type, Tab parent) {
         AsyncTabCreationParams asyncParams = new AsyncTabCreationParams(loadUrlParams);
         createNewTab(asyncParams, type, parent == null ? Tab.INVALID_TAB_ID : parent.getId());
         return null;
@@ -114,7 +115,7 @@ public class TabDelegate extends TabCreator {
      * @param parentId        ID of the parent tab, if it exists.
      */
     public void createNewTab(
-            AsyncTabCreationParams asyncParams, TabLaunchType type, int parentId) {
+            AsyncTabCreationParams asyncParams, @TabLaunchType int type, int parentId) {
         assert asyncParams != null;
 
         // Tabs should't be launched in affiliated mode when a webcontents exists.
@@ -145,7 +146,7 @@ public class TabDelegate extends TabCreator {
         if (componentName == null) {
             intent.setClass(ContextUtils.getApplicationContext(), ChromeLauncherActivity.class);
         } else {
-            intent.setComponent(componentName);
+            ChromeTabbedActivity.setNonAliasedComponent(intent, componentName);
         }
 
         Map<String, String> extraHeaders = asyncParams.getLoadUrlParams().getExtraHeaders();

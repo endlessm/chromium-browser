@@ -26,6 +26,7 @@ import org.chromium.chrome.browser.favicon.LargeIconBridge;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmarksReader;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.snackbar.SnackbarManager;
+import org.chromium.chrome.browser.util.ConversionUtils;
 import org.chromium.chrome.browser.widget.selection.SelectableListLayout;
 import org.chromium.chrome.browser.widget.selection.SelectableListToolbar.SearchDelegate;
 import org.chromium.chrome.browser.widget.selection.SelectionDelegate;
@@ -40,7 +41,8 @@ import java.util.Stack;
  */
 public class BookmarkManager implements BookmarkDelegate, SearchDelegate,
                                         PartnerBookmarksReader.FaviconUpdateObserver {
-    private static final int FAVICON_MAX_CACHE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+    private static final int FAVICON_MAX_CACHE_SIZE_BYTES =
+            10 * ConversionUtils.BYTES_PER_MEGABYTE; // 10MB
 
     /**
      * This shared preference used to be used to save a list of recent searches. That feature
@@ -150,7 +152,8 @@ public class BookmarkManager implements BookmarkDelegate, SearchDelegate,
 
         mToolbar = (BookmarkActionBar) mSelectableListLayout.initializeToolbar(
                 R.layout.bookmark_action_bar, mSelectionDelegate, 0, null, R.id.normal_menu_group,
-                R.id.selection_mode_menu_group, R.color.modern_primary_color, null, true);
+                R.id.selection_mode_menu_group, R.color.modern_primary_color, null, true,
+                isDialogUi);
         mToolbar.initializeSearchView(
                 this, R.string.bookmark_action_bar_search, R.id.search_menu_id);
 
@@ -173,8 +176,9 @@ public class BookmarkManager implements BookmarkDelegate, SearchDelegate,
         mLargeIconBridge = new LargeIconBridge(Profile.getLastUsedProfile().getOriginalProfile());
         ActivityManager activityManager = ((ActivityManager) ContextUtils
                 .getApplicationContext().getSystemService(Context.ACTIVITY_SERVICE));
-        int maxSize = Math.min(activityManager.getMemoryClass() / 4 * 1024 * 1024,
-                FAVICON_MAX_CACHE_SIZE_BYTES);
+        int maxSize =
+                Math.min(activityManager.getMemoryClass() / 4 * ConversionUtils.BYTES_PER_MEGABYTE,
+                        FAVICON_MAX_CACHE_SIZE_BYTES);
         mLargeIconBridge.createCache(maxSize);
 
         RecordUserAction.record("MobileBookmarkManagerOpen");
@@ -234,13 +238,7 @@ public class BookmarkManager implements BookmarkDelegate, SearchDelegate,
         if (mIsDestroyed) return false;
 
         // TODO(twellington): replicate this behavior for other list UIs during unification.
-        if (mSelectionDelegate.isSelectionEnabled()) {
-            mSelectionDelegate.clearSelection();
-            return true;
-        }
-
-        if (mToolbar.isSearching()) {
-            mToolbar.hideSearchView();
+        if (mSelectableListLayout.onBackPressed()) {
             return true;
         }
 

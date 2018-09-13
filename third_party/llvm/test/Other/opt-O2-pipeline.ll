@@ -59,8 +59,6 @@
 ; CHECK-NEXT:         Memory SSA
 ; CHECK-NEXT:         Early CSE w/ MemorySSA
 ; CHECK-NEXT:         Speculatively execute instructions if target has divergent branches
-; CHECK-NEXT:         Dominator Tree Construction
-; CHECK-NEXT:         Basic Alias Analysis (stateless AA impl)
 ; CHECK-NEXT:         Function Alias Analysis Results
 ; CHECK-NEXT:         Lazy Value Information Analysis
 ; CHECK-NEXT:         Jump Threading
@@ -82,7 +80,6 @@
 ; CHECK-NEXT:         Lazy Block Frequency Analysis
 ; CHECK-NEXT:         Optimization Remark Emitter
 ; CHECK-NEXT:         PGOMemOPSize
-; CHECK-NEXT:         Dominator Tree Construction
 ; CHECK-NEXT:         Basic Alias Analysis (stateless AA impl)
 ; CHECK-NEXT:         Function Alias Analysis Results
 ; CHECK-NEXT:         Natural Loop Information
@@ -134,10 +131,8 @@
 ; CHECK-NEXT:         Memory Dependence Analysis
 ; CHECK-NEXT:         MemCpy Optimization
 ; CHECK-NEXT:         Sparse Conditional Constant Propagation
-; CHECK-NEXT:         Dominator Tree Construction
 ; CHECK-NEXT:         Demanded bits analysis
 ; CHECK-NEXT:         Bit-Tracking Dead Code Elimination
-; CHECK-NEXT:         Basic Alias Analysis (stateless AA impl)
 ; CHECK-NEXT:         Function Alias Analysis Results
 ; CHECK-NEXT:         Natural Loop Information
 ; CHECK-NEXT:         Lazy Branch Probability Analysis
@@ -147,7 +142,6 @@
 ; CHECK-NEXT:         Lazy Value Information Analysis
 ; CHECK-NEXT:         Jump Threading
 ; CHECK-NEXT:         Value Propagation
-; CHECK-NEXT:         Dominator Tree Construction
 ; CHECK-NEXT:         Basic Alias Analysis (stateless AA impl)
 ; CHECK-NEXT:         Function Alias Analysis Results
 ; CHECK-NEXT:         Memory Dependence Analysis

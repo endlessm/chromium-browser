@@ -422,12 +422,23 @@ class LowerTypeTestsModule {
                               ArrayRef<GlobalTypeMember *> Globals,
                               ArrayRef<ICallBranchFunnel *> ICallBranchFunnels);
 
-  void replaceWeakDeclarationWithJumpTablePtr(Function *F, Constant *JT);
+  void replaceWeakDeclarationWithJumpTablePtr(Function *F, Constant *JT, bool IsDefinition);
   void moveInitializerToModuleConstructor(GlobalVariable *GV);
   void findGlobalVariableUsersOf(Constant *C,
                                  SmallSetVector<GlobalVariable *, 8> &Out);
 
   void createJumpTable(Function *F, ArrayRef<GlobalTypeMember *> Functions);
+
+  /// replaceCfiUses - Go through the uses list for this definition
+  /// and make each use point to "V" instead of "this" when the use is outside
+  /// the block. 'This's use list is expected to have at least one element.
+  /// Unlike replaceAllUsesWith this function skips blockaddr and direct call
+  /// uses.
+  void replaceCfiUses(Function *Old, Value *New, bool IsDefinition);
+
+  /// replaceDirectCalls - Go through the uses list for this definition and
+  /// replace each use, which is a direct function call.
+  void replaceDirectCalls(Value *Old, Value *New);
 
 public:
   LowerTypeTestsModule(Module &M, ModuleSummaryIndex *ExportSummary,
@@ -967,14 +978,23 @@ void LowerTypeTestsModule::importTypeTest(CallInst *CI) {
 void LowerTypeTestsModule::importFunction(Function *F, bool isDefinition) {
   assert(F->getType()->getAddressSpace() == 0);
 
-  // Declaration of a local function - nothing to do.
-  if (F->isDeclarationForLinker() && isDefinition)
-    return;
-
   GlobalValue::VisibilityTypes Visibility = F->getVisibility();
   std::string Name = F->getName();
-  Function *FDecl;
 
+  if (F->isDeclarationForLinker() && isDefinition) {
+    // Non-dso_local functions may be overriden at run time,
+    // don't short curcuit them
+    if (F->isDSOLocal()) {
+      Function *RealF = Function::Create(F->getFunctionType(),
+                                         GlobalValue::ExternalLinkage,
+                                         Name + ".cfi", &M);
+      RealF->setVisibility(GlobalVariable::HiddenVisibility);
+      replaceDirectCalls(F, RealF);
+    }
+    return;
+  }
+
+  Function *FDecl;
   if (F->isDeclarationForLinker() && !isDefinition) {
     // Declaration of an external function.
     FDecl = Function::Create(F->getFunctionType(), GlobalValue::ExternalLinkage,
@@ -983,10 +1003,10 @@ void LowerTypeTestsModule::importFunction(Function *F, bool isDefinition) {
   } else if (isDefinition) {
     F->setName(Name + ".cfi");
     F->setLinkage(GlobalValue::ExternalLinkage);
-    F->setVisibility(GlobalValue::HiddenVisibility);
     FDecl = Function::Create(F->getFunctionType(), GlobalValue::ExternalLinkage,
                              Name, &M);
     FDecl->setVisibility(Visibility);
+    Visibility = GlobalValue::HiddenVisibility;
 
     // Delete aliases pointing to this function, they'll be re-created in the
     // merged output
@@ -1012,9 +1032,13 @@ void LowerTypeTestsModule::importFunction(Function *F, bool isDefinition) {
   }
 
   if (F->isWeakForLinker())
-    replaceWeakDeclarationWithJumpTablePtr(F, FDecl);
+    replaceWeakDeclarationWithJumpTablePtr(F, FDecl, isDefinition);
   else
-    F->replaceUsesExceptBlockAddr(FDecl);
+    replaceCfiUses(F, FDecl, isDefinition);
+
+  // Set visibility late because it's used in replaceCfiUses() to determine
+  // whether uses need to to be replaced.
+  F->setVisibility(Visibility);
 }
 
 void LowerTypeTestsModule::lowerTypeTestCalls(
@@ -1196,7 +1220,7 @@ void LowerTypeTestsModule::findGlobalVariableUsersOf(
 
 // Replace all uses of F with (F ? JT : 0).
 void LowerTypeTestsModule::replaceWeakDeclarationWithJumpTablePtr(
-    Function *F, Constant *JT) {
+    Function *F, Constant *JT, bool IsDefinition) {
   // The target expression can not appear in a constant initializer on most
   // (all?) targets. Switch to a runtime initializer.
   SmallSetVector<GlobalVariable *, 8> GlobalVarUsers;
@@ -1209,7 +1233,7 @@ void LowerTypeTestsModule::replaceWeakDeclarationWithJumpTablePtr(
   Function *PlaceholderFn =
       Function::Create(cast<FunctionType>(F->getValueType()),
                        GlobalValue::ExternalWeakLinkage, "", &M);
-  F->replaceAllUsesWith(PlaceholderFn);
+  replaceCfiUses(F, PlaceholderFn, IsDefinition);
 
   Constant *Target = ConstantExpr::getSelect(
       ConstantExpr::getICmp(CmpInst::ICMP_NE, F,
@@ -1431,9 +1455,9 @@ void LowerTypeTestsModule::buildBitSetsFromFunctionsNative(
     }
     if (!IsDefinition) {
       if (F->isWeakForLinker())
-        replaceWeakDeclarationWithJumpTablePtr(F, CombinedGlobalElemPtr);
+        replaceWeakDeclarationWithJumpTablePtr(F, CombinedGlobalElemPtr, IsDefinition);
       else
-        F->replaceAllUsesWith(CombinedGlobalElemPtr);
+        replaceCfiUses(F, CombinedGlobalElemPtr, IsDefinition);
     } else {
       assert(F->getType()->getAddressSpace() == 0);
 
@@ -1443,10 +1467,10 @@ void LowerTypeTestsModule::buildBitSetsFromFunctionsNative(
       FAlias->takeName(F);
       if (FAlias->hasName())
         F->setName(FAlias->getName() + ".cfi");
-      F->replaceUsesExceptBlockAddr(FAlias);
+      replaceCfiUses(F, FAlias, IsDefinition);
+      if (!F->hasLocalLinkage())
+        F->setVisibility(GlobalVariable::HiddenVisibility);
     }
-    if (!F->isDeclarationForLinker())
-      F->setLinkage(GlobalValue::InternalLinkage);
   }
 
   createJumpTable(JumpTableFn, Functions);
@@ -1567,7 +1591,7 @@ LowerTypeTestsModule::LowerTypeTestsModule(
 }
 
 bool LowerTypeTestsModule::runForTesting(Module &M) {
-  ModuleSummaryIndex Summary(/*IsPerformingAnalysis=*/false);
+  ModuleSummaryIndex Summary(/*HaveGVs=*/false);
 
   // Handle the command-line summary arguments. This code is for testing
   // purposes only, so we handle errors directly.
@@ -1600,6 +1624,63 @@ bool LowerTypeTestsModule::runForTesting(Module &M) {
   }
 
   return Changed;
+}
+
+static bool isDirectCall(Use& U) {
+  auto *Usr = dyn_cast<CallInst>(U.getUser());
+  if (Usr) {
+    CallSite CS(Usr);
+    if (CS.isCallee(&U))
+      return true;
+  }
+  return false;
+}
+
+void LowerTypeTestsModule::replaceCfiUses(Function *Old, Value *New, bool IsDefinition) {
+  SmallSetVector<Constant *, 4> Constants;
+  auto UI = Old->use_begin(), E = Old->use_end();
+  for (; UI != E;) {
+    Use &U = *UI;
+    ++UI;
+
+    // Skip block addresses
+    if (isa<BlockAddress>(U.getUser()))
+      continue;
+
+    // Skip direct calls to externally defined or non-dso_local functions
+    if (isDirectCall(U) && (Old->isDSOLocal() || !IsDefinition))
+      continue;
+
+    // Must handle Constants specially, we cannot call replaceUsesOfWith on a
+    // constant because they are uniqued.
+    if (auto *C = dyn_cast<Constant>(U.getUser())) {
+      if (!isa<GlobalValue>(C)) {
+        // Save unique users to avoid processing operand replacement
+        // more than once.
+        Constants.insert(C);
+        continue;
+      }
+    }
+
+    U.set(New);
+  }
+
+  // Process operand replacement of saved constants.
+  for (auto *C : Constants)
+    C->handleOperandChange(Old, New);
+}
+
+void LowerTypeTestsModule::replaceDirectCalls(Value *Old, Value *New) {
+  auto UI = Old->use_begin(), E = Old->use_end();
+  for (; UI != E;) {
+    Use &U = *UI;
+    ++UI;
+
+    if (!isDirectCall(U))
+      continue;
+
+    U.set(New);
+  }
 }
 
 bool LowerTypeTestsModule::lower() {
@@ -1669,26 +1750,54 @@ bool LowerTypeTestsModule::lower() {
   unsigned CurUniqueId = 0;
   SmallVector<MDNode *, 2> Types;
 
+  // Cross-DSO CFI emits jumptable entries for exported functions as well as
+  // address taken functions in case they are address taken in other modules.
+  const bool CrossDsoCfi = M.getModuleFlag("Cross-DSO CFI") != nullptr;
+
   struct ExportedFunctionInfo {
     CfiFunctionLinkage Linkage;
     MDNode *FuncMD; // {name, linkage, type[, type...]}
   };
   DenseMap<StringRef, ExportedFunctionInfo> ExportedFunctions;
   if (ExportSummary) {
+    // A set of all functions that are address taken by a live global object.
+    DenseSet<GlobalValue::GUID> AddressTaken;
+    for (auto &I : *ExportSummary)
+      for (auto &GVS : I.second.SummaryList)
+        if (GVS->isLive())
+          for (auto &Ref : GVS->refs())
+            AddressTaken.insert(Ref.getGUID());
+
     NamedMDNode *CfiFunctionsMD = M.getNamedMetadata("cfi.functions");
     if (CfiFunctionsMD) {
       for (auto FuncMD : CfiFunctionsMD->operands()) {
         assert(FuncMD->getNumOperands() >= 2);
         StringRef FunctionName =
             cast<MDString>(FuncMD->getOperand(0))->getString();
-        if (!ExportSummary->isGUIDLive(GlobalValue::getGUID(
-                GlobalValue::dropLLVMManglingEscape(FunctionName))))
-          continue;
         CfiFunctionLinkage Linkage = static_cast<CfiFunctionLinkage>(
             cast<ConstantAsMetadata>(FuncMD->getOperand(1))
                 ->getValue()
                 ->getUniqueInteger()
                 .getZExtValue());
+        const GlobalValue::GUID GUID = GlobalValue::getGUID(
+                GlobalValue::dropLLVMManglingEscape(FunctionName));
+        // Do not emit jumptable entries for functions that are not-live and
+        // have no live references (and are not exported with cross-DSO CFI.)
+        if (!ExportSummary->isGUIDLive(GUID))
+          continue;
+        if (!AddressTaken.count(GUID)) {
+          if (!CrossDsoCfi || Linkage != CFL_Definition)
+            continue;
+
+          bool Exported = false;
+          if (auto VI = ExportSummary->getValueInfo(GUID))
+            for (auto &GVS : VI.getSummaryList())
+              if (GVS->isLive() && !GlobalValue::isLocalLinkage(GVS->linkage()))
+                Exported = true;
+
+          if (!Exported)
+            continue;
+        }
         auto P = ExportedFunctions.insert({FunctionName, {Linkage, FuncMD}});
         if (!P.second && P.first->second.Linkage != CFL_Definition)
           P.first->second = {Linkage, FuncMD};
@@ -1715,6 +1824,11 @@ bool LowerTypeTestsModule::lower() {
           F->setComdat(nullptr);
           F->clearMetadata();
         }
+
+        // Update the linkage for extern_weak declarations when a definition
+        // exists.
+        if (Linkage == CFL_Definition && F->hasExternalWeakLinkage())
+          F->setLinkage(GlobalValue::ExternalLinkage);
 
         // If the function in the full LTO module is a declaration, replace its
         // type metadata with the type metadata we found in cfi.functions. That
@@ -1743,9 +1857,18 @@ bool LowerTypeTestsModule::lower() {
 
     bool IsDefinition = !GO.isDeclarationForLinker();
     bool IsExported = false;
-    if (isa<Function>(GO) && ExportedFunctions.count(GO.getName())) {
-      IsDefinition |= ExportedFunctions[GO.getName()].Linkage == CFL_Definition;
-      IsExported = true;
+    if (Function *F = dyn_cast<Function>(&GO)) {
+      if (ExportedFunctions.count(F->getName())) {
+        IsDefinition |= ExportedFunctions[F->getName()].Linkage == CFL_Definition;
+        IsExported = true;
+      // TODO: The logic here checks only that the function is address taken,
+      // not that the address takers are live. This can be updated to check
+      // their liveness and emit fewer jumptable entries once monolithic LTO
+      // builds also emit summaries.
+      } else if (!F->hasAddressTaken()) {
+        if (!CrossDsoCfi || !IsDefinition || F->hasLocalLinkage())
+          continue;
+      }
     }
 
     auto *GTM =

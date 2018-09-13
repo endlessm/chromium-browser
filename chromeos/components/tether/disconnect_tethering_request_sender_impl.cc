@@ -22,13 +22,16 @@ DisconnectTetheringRequestSenderImpl::Factory*
 // static
 std::unique_ptr<DisconnectTetheringRequestSender>
 DisconnectTetheringRequestSenderImpl::Factory::NewInstance(
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client,
     BleConnectionManager* ble_connection_manager,
     TetherHostFetcher* tether_host_fetcher) {
   if (!factory_instance_)
     factory_instance_ = new Factory();
 
-  return factory_instance_->BuildInstance(ble_connection_manager,
-                                          tether_host_fetcher);
+  return factory_instance_->BuildInstance(
+      device_sync_client, secure_channel_client, ble_connection_manager,
+      tether_host_fetcher);
 }
 
 // static
@@ -39,16 +42,23 @@ void DisconnectTetheringRequestSenderImpl::Factory::SetInstanceForTesting(
 
 std::unique_ptr<DisconnectTetheringRequestSender>
 DisconnectTetheringRequestSenderImpl::Factory::BuildInstance(
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client,
     BleConnectionManager* ble_connection_manager,
     TetherHostFetcher* tether_host_fetcher) {
   return base::WrapUnique(new DisconnectTetheringRequestSenderImpl(
-      ble_connection_manager, tether_host_fetcher));
+      device_sync_client, secure_channel_client, ble_connection_manager,
+      tether_host_fetcher));
 }
 
 DisconnectTetheringRequestSenderImpl::DisconnectTetheringRequestSenderImpl(
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client,
     BleConnectionManager* ble_connection_manager,
     TetherHostFetcher* tether_host_fetcher)
-    : ble_connection_manager_(ble_connection_manager),
+    : device_sync_client_(device_sync_client),
+      secure_channel_client_(secure_channel_client),
+      ble_connection_manager_(ble_connection_manager),
       tether_host_fetcher_(tether_host_fetcher),
       weak_ptr_factory_(this) {}
 
@@ -94,7 +104,8 @@ void DisconnectTetheringRequestSenderImpl::OnTetherHostFetched(
 
   std::unique_ptr<DisconnectTetheringOperation> disconnect_tethering_operation =
       DisconnectTetheringOperation::Factory::NewInstance(
-          *tether_host, ble_connection_manager_);
+          *tether_host, device_sync_client_, secure_channel_client_,
+          ble_connection_manager_);
 
   // Add to the map.
   device_id_to_operation_map_.emplace(

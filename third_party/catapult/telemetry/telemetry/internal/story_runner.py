@@ -24,7 +24,6 @@ from telemetry import page
 from telemetry.page import legacy_page_test
 from telemetry import story as story_module
 from telemetry.util import wpr_modes
-from telemetry.value import scalar
 from telemetry.web_perf import story_test
 from tracing.value import histogram
 from tracing.value.diagnostics import generic_set
@@ -200,7 +199,7 @@ def Run(test, story_set, finder_options, results, max_failures=None,
   state = None
   device_info_diags = {}
   try:
-    pageset_repeat = finder_options.pageset_repeat
+    pageset_repeat = _GetPageSetRepeat(finder_options)
     if finder_options.smoke_test_mode:
       pageset_repeat = 1
     for storyset_repeat_counter in xrange(pageset_repeat):
@@ -303,7 +302,6 @@ def RunBenchmark(benchmark, finder_options):
   Returns:
     1 if there is failure or 2 if there is an uncaught exception.
   """
-  start = time.time()
   benchmark.CustomizeBrowserOptions(finder_options.browser_options)
 
   benchmark_metadata = benchmark.GetMetadata()
@@ -371,14 +369,19 @@ def RunBenchmark(benchmark, finder_options):
       # this will log error messages if names do not match what is in the set.
       benchmark.GetBrokenExpectations(stories)
     except Exception: # pylint: disable=broad-except
+
       logging.fatal(
           'Benchmark execution interrupted by a fatal exception.')
-      results.telemetry_info.InterruptBenchmark()
+
+      filtered_stories = story_module.StoryFilter.FilterStorySet(stories)
+      results.InterruptBenchmark(
+          filtered_stories, _GetPageSetRepeat(finder_options))
       exception_formatter.PrintFormattedException()
       return_code = 2
 
     benchmark_owners = benchmark.GetOwners()
     benchmark_component = benchmark.GetBugComponents()
+    benchmark_documentation_url = benchmark.GetDocumentationLink()
 
     if benchmark_owners:
       results.AddSharedDiagnostic(
@@ -388,19 +391,23 @@ def RunBenchmark(benchmark, finder_options):
       results.AddSharedDiagnostic(
           reserved_infos.BUG_COMPONENTS.name, benchmark_component)
 
+    if benchmark_documentation_url:
+      results.AddSharedDiagnostic(
+          reserved_infos.DOCUMENTATION_URLS.name, benchmark_documentation_url)
+
     try:
       if finder_options.upload_results:
         results.UploadTraceFilesToCloud()
         results.UploadArtifactsToCloud()
     finally:
-      duration = time.time() - start
-      results.AddSummaryValue(scalar.ScalarValue(
-          None, 'benchmark_duration', 'minutes', duration / 60.0))
-      results.AddDurationHistogram(duration * 1000.0)
       memory_debug.LogHostMemoryUsage()
       results.PrintSummary()
   return return_code
 
+def _GetPageSetRepeat(finder_options):
+  if finder_options.smoke_test_mode:
+    return 1
+  return finder_options.pageset_repeat
 
 def _UpdateAndCheckArchives(archive_data_file, wpr_archive_info,
                             filtered_stories):
@@ -494,8 +501,11 @@ def _MakeDeviceInfoDiagnostics(state):
   device_info_data = {
       reserved_infos.ARCHITECTURES.name: state.platform.GetArchName(),
       reserved_infos.DEVICE_IDS.name: state.platform.GetDeviceId(),
-      reserved_infos.MEMORY_AMOUNTS.name:
-          state.platform.GetSystemTotalPhysicalMemory(),
+      # This is not consistent and caused dashboard upload failure
+      # TODO(crbug.com/854676): reenable this later if this is proved to be
+      # useful
+      # reserved_infos.MEMORY_AMOUNTS.name:
+      #    state.platform.GetSystemTotalPhysicalMemory(),
       reserved_infos.OS_NAMES.name: state.platform.GetOSName(),
       reserved_infos.OS_VERSIONS.name: state.platform.GetOSVersionName(),
   }

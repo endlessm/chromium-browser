@@ -8,7 +8,6 @@
 
 #import "base/auto_reset.h"
 #include "base/command_line.h"
-#include "base/mac/bind_objc_block.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #import "base/mac/scoped_nsobject.h"
@@ -31,7 +30,7 @@
 #import "chrome/browser/ui/cocoa/find_bar/find_bar_cocoa_controller.h"
 #import "chrome/browser/ui/cocoa/floating_bar_backing_view.h"
 #import "chrome/browser/ui/cocoa/framed_browser_window.h"
-#import "chrome/browser/ui/cocoa/fullscreen/fullscreen_toolbar_controller.h"
+#import "chrome/browser/ui/cocoa/fullscreen/fullscreen_toolbar_controller_cocoa.h"
 #import "chrome/browser/ui/cocoa/fullscreen_window.h"
 #import "chrome/browser/ui/cocoa/infobars/infobar_container_controller.h"
 #include "chrome/browser/ui/cocoa/last_active_browser_cocoa.h"
@@ -58,7 +57,7 @@
 using content::RenderWidgetHostView;
 using content::WebContents;
 
-@interface NSView (PrivateAPI)
+@interface NSView (PrivateBrowserWindowControllerAPI)
 // Returns the fullscreen button's origin in window coordinates. This method is
 // only available on NSThemeFrame (the contentView's superview), and it should
 // not be relied on to exist on macOS >10.9 (which doesn't have a separate
@@ -81,7 +80,7 @@ enum WindowLocation {
 
 }  // namespace
 
-@interface NSWindow (NSPrivateApis)
+@interface NSWindow (NSPrivateBrowserWindowControllerApis)
 // Note: These functions are private, use -[NSObject respondsToSelector:]
 // before calling them.
 - (NSWindow*)_windowForToolbar;
@@ -93,7 +92,7 @@ enum WindowLocation {
 - (void)createTabStripController {
   DCHECK([overlayableContentsController_ activeContainer]);
   DCHECK([[overlayableContentsController_ activeContainer] window]);
-  tabStripController_.reset([[TabStripController alloc]
+  tabStripController_.reset([[TabStripControllerCocoa alloc]
       initWithView:[self tabStripView]
         switchView:[overlayableContentsController_ activeContainer]
            browser:browser_.get()
@@ -108,7 +107,7 @@ enum WindowLocation {
   // This ensures the fullscreen button is appropriately positioned. It must
   // be done before calling layoutSubviews because the new avatar button's
   // position depends on the fullscreen button's position, as well as
-  // TabStripController's trailingIndentForControls.
+  // TabStripControllerCocoa's trailingIndentForControls.
   // The fullscreen button's position may depend on the old avatar button's
   // width, but that does not require calling layoutSubviews first.
   NSWindow* window = [self window];
@@ -625,8 +624,6 @@ willPositionSheet:(NSWindow*)sheet
   [[tabStripController_ activeTabContentsController]
       updateFullscreenWidgetFrame];
 
-  [self invalidateTouchBar];
-
   [self showFullscreenExitBubbleIfNecessary];
   browser_->WindowFullscreenStateChanged();
 
@@ -714,8 +711,6 @@ willPositionSheet:(NSWindow*)sheet
 
   [self resetCustomAppKitFullscreenVariables];
 
-  [self invalidateTouchBar];
-
   // Ensures that the permission bubble shows up properly at the front.
   PermissionRequestManager* manager = [self permissionRequestManager];
   if (manager && manager->IsBubbleVisible()) {
@@ -768,8 +763,8 @@ willPositionSheet:(NSWindow*)sheet
 - (void)adjustUIForEnteringFullscreen {
   DCHECK([self isInAnyFullscreenMode]);
   if (!fullscreenToolbarController_) {
-    fullscreenToolbarController_.reset(
-        [[FullscreenToolbarController alloc] initWithBrowserController:self]);
+    fullscreenToolbarController_.reset([[FullscreenToolbarControllerCocoa alloc]
+        initWithBrowserController:self]);
   }
 
   [fullscreenToolbarController_ enterFullscreenMode];
@@ -1062,8 +1057,9 @@ willPositionSheet:(NSWindow*)sheet
   if (base::mac::IsAtLeastOS10_13())
     return NO;
 
-  // Disable the custom exit animation in OSX 10.9: http://crbug.com/526327#c3.
-  if (base::mac::IsOS10_9() && !enterFullScreen)
+  // Disable the custom exit animation in Mac OSX 10.11:
+  // http://crbug.com/823191.
+  if (base::mac::IsOS10_11() && !enterFullScreen)
     return NO;
 
   NSView* root = [[self.window contentView] superview];

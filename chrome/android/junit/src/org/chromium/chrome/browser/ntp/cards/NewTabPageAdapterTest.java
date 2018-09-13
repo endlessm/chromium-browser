@@ -4,51 +4,45 @@
 
 package org.chromium.chrome.browser.ntp.cards;
 
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import static org.chromium.chrome.browser.ntp.cards.ContentSuggestionsUnitTestUtils.makeUiConfig;
 import static org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.createDummySuggestions;
 import static org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.registerCategory;
-import static org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.stringify;
 
 import android.accounts.Account;
 import android.content.res.Resources;
+import android.support.annotation.Nullable;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.RecyclerView.AdapterDataObserver;
 import android.view.View;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.mockito.exceptions.base.MockitoAssertionError;
-import org.mockito.internal.verification.Times;
-import org.mockito.internal.verification.api.VerificationDataInOrder;
-import org.mockito.verification.VerificationMode;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
@@ -56,10 +50,10 @@ import org.robolectric.shadows.ShadowResources;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.asynctask.CustomShadowAsyncTask;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
-import org.chromium.chrome.browser.DisableHistogramsRule;
 import org.chromium.chrome.browser.ntp.ContextMenuManager;
 import org.chromium.chrome.browser.ntp.cards.SignInPromo.SigninObserver;
 import org.chromium.chrome.browser.ntp.snippets.CategoryInt;
@@ -78,7 +72,7 @@ import org.chromium.chrome.browser.suggestions.DestructionObserver;
 import org.chromium.chrome.browser.suggestions.SuggestionsEventReporter;
 import org.chromium.chrome.browser.suggestions.SuggestionsRanker;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegate;
-import org.chromium.chrome.browser.util.FeatureUtilities;
+import org.chromium.chrome.test.support.DisableHistogramsRule;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.CategoryInfoBuilder;
@@ -87,13 +81,13 @@ import org.chromium.components.signin.AccountManagerFacade;
 import org.chromium.components.signin.test.util.AccountHolder;
 import org.chromium.components.signin.test.util.FakeAccountManagerDelegate;
 import org.chromium.net.NetworkChangeNotifier;
-import org.chromium.testing.local.CustomShadowAsyncTask;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Unit tests for {@link NewTabPageAdapter}. {@link AccountManagerFacade} uses AsyncTasks, thus
@@ -101,11 +95,10 @@ import java.util.List;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {CustomShadowAsyncTask.class})
-
 @DisableFeatures({ChromeFeatureList.CONTENT_SUGGESTIONS_SCROLL_TO_LOAD,
         ChromeFeatureList.NTP_ARTICLE_SUGGESTIONS_EXPANDABLE_HEADER,
-        ChromeFeatureList.SIMPLIFIED_NTP, ChromeFeatureList.CHROME_DUPLEX})
-
+        ChromeFeatureList.SIMPLIFIED_NTP, ChromeFeatureList.CHROME_DUET,
+        ChromeFeatureList.UNIFIED_CONSENT})
 public class NewTabPageAdapterTest {
     @Rule
     public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
@@ -144,12 +137,7 @@ public class NewTabPageAdapterTest {
         public SectionDescriptor() {}
 
         public SectionDescriptor(List<SnippetArticle> suggestions) {
-            withContentSuggestions(suggestions);
-        }
-
-        public SectionDescriptor withContentSuggestions(List<SnippetArticle> suggestions) {
             mSuggestions = suggestions;
-            return this;
         }
 
         public SectionDescriptor withoutHeader() {
@@ -192,82 +180,67 @@ public class NewTabPageAdapterTest {
      * expressed as a sequence of calls to the {@code expect...()} methods.
      */
     private static class ItemsMatcher { // TODO(pke): Find better name.
-        private final TreeNode mRoot;
-        private final NodeVisitor mVisitor = mock(NodeVisitor.class);
-        private final InOrder mInOrder = inOrder(mVisitor);
-
-        /**
-         * The {@link org.mockito.internal.verification.Description} verification mode doesn't
-         * support in-order verification, so we use a custom verification mode that derives from the
-         * default one.
-         */
-        private final VerificationMode mVerification = new Times(1) {
-            @Override
-            public void verifyInOrder(VerificationDataInOrder data) {
-                try {
-                    super.verifyInOrder(data);
-                } catch (MockitoAssertionError e) {
-                    throw new MockitoAssertionError(e, stringify(mRoot));
-                }
-            }
-        };
+        private final List<String> mExpectedDescriptions = new ArrayList<>();
+        private final List<String> mActualDescriptions = new ArrayList<>();
 
         public ItemsMatcher(TreeNode root) {
-            mRoot = root;
-            root.visitItems(mVisitor);
+            for (int i = 0; i < root.getItemCount(); i++) {
+                mActualDescriptions.add(root.describeItemForTesting(i));
+            }
+        }
+
+        private void expectDescription(String description) {
+            mExpectedDescriptions.add(description);
         }
 
         public void expectSection(SectionDescriptor descriptor) {
             if (descriptor.mIsSignInPromo) {
-                mInOrder.verify(mVisitor, mVerification).visitSignInPromo();
+                expectDescription("SIGN_IN_PROMO");
                 return;
             }
 
             if (descriptor.mHeader) {
-                mInOrder.verify(mVisitor, mVerification).visitHeader();
+                expectDescription("HEADER");
             }
 
             for (SnippetArticle suggestion : descriptor.mSuggestions) {
-                mInOrder.verify(mVisitor, mVerification).visitSuggestion(eq(suggestion));
+                expectDescription(
+                        String.format(Locale.US, "SUGGESTION(%1.42s)", suggestion.mTitle));
             }
 
             if (descriptor.mStatusCard) {
-                mInOrder.verify(mVisitor, mVerification).visitNoSuggestionsItem();
+                expectDescription("NO_SUGGESTIONS");
             }
 
             if (descriptor.mViewAllButton) {
-                mInOrder.verify(mVisitor, mVerification)
-                        .visitActionItem(ContentSuggestionsAdditionalAction.VIEW_ALL);
+                expectDescription(String.format(
+                        Locale.US, "ACTION(%d)", ContentSuggestionsAdditionalAction.VIEW_ALL));
             }
 
             if (descriptor.mFetchButton) {
-                mInOrder.verify(mVisitor, mVerification)
-                        .visitActionItem(ContentSuggestionsAdditionalAction.FETCH);
+                expectDescription(String.format(
+                        Locale.US, "ACTION(%d)", ContentSuggestionsAdditionalAction.FETCH));
             }
 
             if (descriptor.mProgressItem) {
-                mInOrder.verify(mVisitor, mVerification).visitProgressItem();
+                expectDescription("PROGRESS");
             }
         }
 
         public void expectAboveTheFoldItem() {
-            mInOrder.verify(mVisitor, mVerification).visitAboveTheFoldItem();
+            expectDescription("ABOVE_THE_FOLD");
         }
 
         public void expectAllDismissedItem() {
-            mInOrder.verify(mVisitor, mVerification).visitAllDismissedItem();
+            expectDescription("ALL_DISMISSED");
         }
 
         public void expectFooter() {
-            mInOrder.verify(mVisitor, mVerification).visitFooter();
+            expectDescription("FOOTER");
         }
 
-        public void expectEnd() {
-            try {
-                verifyNoMoreInteractions(mVisitor);
-            } catch (MockitoAssertionError e) {
-                throw new MockitoAssertionError(e, stringify(mRoot));
-            }
+        public void finish() {
+            assertThat(mActualDescriptions, is(mExpectedDescriptions));
         }
     }
 
@@ -275,17 +248,11 @@ public class NewTabPageAdapterTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
 
-
         // Ensure that NetworkChangeNotifier is initialized.
         if (!NetworkChangeNotifier.isInitialized()) {
             NetworkChangeNotifier.init();
         }
         NetworkChangeNotifier.forceConnectivityState(true);
-
-        // Make sure that isChromeHome() is current value set by the test, not the value saved in
-        // the shared preference.
-        // TODO(changwan): check if we can clear shared preferences for each test case.
-        FeatureUtilities.resetChromeHomeEnabledForTests();
 
         // Set empty variation params for the test.
         CardsVariationParameters.setTestVariationParams(new HashMap<>());
@@ -351,7 +318,7 @@ public class NewTabPageAdapterTest {
     @Feature({"Ntp"})
     public void testSuggestionLoadingInitiallyEmpty() {
         // If we don't get anything, we should be in the same situation as the initial one.
-        mSource.setSuggestionsForCategory(TEST_CATEGORY, new ArrayList<SnippetArticle>());
+        mSource.setSuggestionsForCategory(TEST_CATEGORY, new ArrayList<>());
         assertItemsFor(sectionWithStatusCard().withProgress());
 
         // We should load new suggestions when we get notified about them.
@@ -804,7 +771,7 @@ public class NewTabPageAdapterTest {
         registerCategory(suggestionsSource, categories[3], 0);
         reloadNtp();
 
-        List<TreeNode> children = mAdapter.getSectionListForTesting().getChildren();
+        List<ChildNode> children = mAdapter.getSectionListForTesting().getChildren();
         assertEquals(4, children.size());
         assertEquals(SuggestionsSection.class, children.get(0).getClass());
         assertEquals(categories[0], getCategory(children.get(0)));
@@ -951,10 +918,13 @@ public class NewTabPageAdapterTest {
         List<DestructionObserver> observers = getDestructionObserver(mUiDelegate);
         SignInStateObserver signInStateObserver =
                 findFirstInstanceOf(observers, SignInStateObserver.class);
+        assertNotNull(signInStateObserver);
         SignInAllowedObserver signInAllowedObserver =
                 findFirstInstanceOf(observers, SignInAllowedObserver.class);
+        assertNotNull(signInAllowedObserver);
         SuggestionsSource.Observer suggestionsObserver =
                 findFirstInstanceOf(observers, SuggestionsSource.Observer.class);
+        assertNotNull(suggestionsObserver);
 
         signInStateObserver.onSignedIn();
         assertFalse(isSignInPromoVisible());
@@ -1014,26 +984,13 @@ public class NewTabPageAdapterTest {
         assertEquals(0, preferenceManager.getNewTabPageSigninPromoSuppressionPeriodStart());
     }
 
-    @Ignore // Disabled for new Chrome Home, see: https://crbug.com/805160, re-enable for Modern
-    @Test
-    @Feature({"Ntp"})
-    public void testSigninPromoModern() {
-        when(mMockSigninManager.isSignInAllowed()).thenReturn(true);
-        when(mMockSigninManager.isSignedInOnNative()).thenReturn(false);
-        resetUiDelegate();
-        reloadNtp();
-
-        // Special case of the modern layout: the signin promo comes before the content suggestions.
-        assertItemsFor(signinPromo(), emptySection().withProgress());
-    }
-
     @Test
     @Feature({"Ntp"})
     @Config(shadows = MyShadowResources.class)
     public void testSigninPromoDismissal() {
         final String signInPromoText = "sign in";
         when(MyShadowResources.sResources.getText(
-                     R.string.signin_promo_description_ntp_content_suggestions))
+                     R.string.signin_promo_description_ntp_content_suggestions_legacy))
                 .thenReturn(signInPromoText);
 
         when(mMockSigninManager.isSignInAllowed()).thenReturn(true);
@@ -1060,6 +1017,7 @@ public class NewTabPageAdapterTest {
     public void testAllDismissedVisibility() {
         SigninObserver signinObserver =
                 findFirstInstanceOf(getDestructionObserver(mUiDelegate), SigninObserver.class);
+        assertNotNull(signinObserver);
 
         @SuppressWarnings("unchecked")
         Callback<String> itemDismissedCallback = mock(Callback.class);
@@ -1173,34 +1131,6 @@ public class NewTabPageAdapterTest {
                 mAdapter.getFirstPositionForType(ItemViewType.ALL_DISMISSED));
     }
 
-    @Ignore // Disabled for new Chrome Home, see: https://crbug.com/805160, re-enable for Modern
-    @Test
-    @Feature({"Ntp"})
-    public void testAllDismissedModern() {
-        when(mUiDelegate.isVisible()).thenReturn(true);
-
-        @CategoryInt
-        int category = KnownCategories.ARTICLES;
-        mSource.setStatusForCategory(TEST_CATEGORY, CategoryStatus.NOT_PROVIDED);
-        mSource.setInfoForCategory(
-                category, new CategoryInfoBuilder(category).showIfEmpty().build());
-        mSource.setStatusForCategory(category, CategoryStatus.AVAILABLE);
-        final int numSuggestions = 3;
-        List<SnippetArticle> suggestions = createDummySuggestions(numSuggestions, category);
-        mSource.setSuggestionsForCategory(category, suggestions);
-        reloadNtp();
-        assertItemsForChromeHome(section(suggestions).withoutHeader());
-
-        for (int i = 0; i < numSuggestions; i++) {
-            @SuppressWarnings("unchecked")
-            Callback<String> itemRemovedCallback = mock(Callback.class);
-            mAdapter.dismissItem(1, itemRemovedCallback);
-            verify(itemRemovedCallback).onResult(anyString());
-        }
-
-        assertItemsForEmptyChromeHome(emptySection().withoutHeader());
-    }
-
     /**
      * Robolectric shadow to mock out calls to {@link Resources#getString}.
      */
@@ -1223,7 +1153,7 @@ public class NewTabPageAdapterTest {
     private void assertSectionMatches(SectionDescriptor descriptor, SuggestionsSection section) {
         ItemsMatcher matcher = new ItemsMatcher(section);
         matcher.expectSection(descriptor);
-        matcher.expectEnd();
+        matcher.finish();
     }
 
     /**
@@ -1242,35 +1172,14 @@ public class NewTabPageAdapterTest {
         } else {
             matcher.expectFooter();
         }
-        matcher.expectEnd();
-    }
-
-    private void assertItemsForChromeHome(SectionDescriptor section) {
-        ItemsMatcher matcher = new ItemsMatcher(mAdapter.getRootForTesting());
-
-        // TODO(bauerb): Remove above-the-fold from test setup in Chrome Home.
-        matcher.expectAboveTheFoldItem();
-        matcher.expectSection(section);
-        matcher.expectFooter(); // TODO(dgn): Handle scroll to reload with removes the footer
-        matcher.expectEnd();
-    }
-
-    private void assertItemsForEmptyChromeHome(SectionDescriptor section) {
-        ItemsMatcher matcher = new ItemsMatcher(mAdapter.getRootForTesting());
-
-        // TODO(bauerb): Remove above-the-fold from test setup in Chrome Home.
-        matcher.expectAboveTheFoldItem();
-        matcher.expectAllDismissedItem();
-        matcher.expectSection(section);
-        matcher.expectEnd();
+        matcher.finish();
     }
 
     /**
      * To be used with {@link #assertItemsFor(SectionDescriptor...)}, for a section with
      * {@code numSuggestions} cards in it.
      * @param suggestions The list of suggestions in the section. If the list is empty, use either
-     *         no section at all (if it is not displayed) or {@link #sectionWithStatusCard()} /
-     *         {@link #emptySection()}.
+     *         no section at all (if it is not displayed) or {@link #sectionWithStatusCard()}.
      * @return A descriptor for the section.
      */
     private SectionDescriptor section(List<SnippetArticle> suggestions) {
@@ -1284,13 +1193,11 @@ public class NewTabPageAdapterTest {
 
     /**
      * To be used with {@link #assertItemsFor(SectionDescriptor...)}, for a section that has no
-     * suggestions, but a status card to be displayed. Should not be used with the modern layout;
-     * use {@link #emptySection()} otherwise.
+     * suggestions, but a status card to be displayed.
      * @return A descriptor for the section.
      */
     private SectionDescriptor sectionWithStatusCard() {
-        assertFalse(FeatureUtilities.isChromeHomeEnabled());
-        return new SectionDescriptor(Collections.<SnippetArticle>emptyList()).withStatusCard();
+        return new SectionDescriptor(Collections.emptyList()).withStatusCard();
     }
 
     /**
@@ -1300,8 +1207,8 @@ public class NewTabPageAdapterTest {
      * @return A descriptor for the section.
      */
     private SectionDescriptor emptySection() {
-        assertTrue(FeatureUtilities.isChromeHomeEnabled());
-        return new SectionDescriptor(Collections.<SnippetArticle>emptyList());
+        assertTrue(false);
+        return new SectionDescriptor(Collections.emptyList());
     }
 
     private void resetUiDelegate() {
@@ -1313,9 +1220,9 @@ public class NewTabPageAdapterTest {
 
     private void reloadNtp() {
         mSource.removeObservers();
-        mAdapter = new NewTabPageAdapter(mUiDelegate, mock(View.class), /* logoView = */ null,
-                makeUiConfig(), mOfflinePageBridge, mock(ContextMenuManager.class),
-                /* tileGroupDelegate = */ null);
+        mAdapter = new NewTabPageAdapter(mUiDelegate, mock(View.class), /* logoView = */
+                makeUiConfig(), mOfflinePageBridge, mock(ContextMenuManager.class)
+                /* tileGroupDelegate = */);
         mAdapter.refreshSuggestions();
     }
 
@@ -1340,6 +1247,7 @@ public class NewTabPageAdapterTest {
         return observers.getAllValues();
     }
 
+    @Nullable
     @SuppressWarnings("unchecked")
     private static <T> T findFirstInstanceOf(Collection<?> collection, Class<T> clazz) {
         for (Object item : collection) {

@@ -12,7 +12,7 @@
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/system/tray/system_tray_controller.h"
+#include "ash/system/model/system_tray_model.h"
 #include "base/bind_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
@@ -58,7 +58,7 @@ MultiDeviceNotificationPresenter::OpenUiDelegate::~OpenUiDelegate() = default;
 
 void MultiDeviceNotificationPresenter::OpenUiDelegate::
     OpenMultiDeviceSetupUi() {
-  Shell::Get()->system_tray_controller()->ShowMultiDeviceSetup();
+  Shell::Get()->system_tray_model()->client_ptr()->ShowMultiDeviceSetup();
 }
 
 void MultiDeviceNotificationPresenter::OpenUiDelegate::
@@ -157,7 +157,7 @@ void MultiDeviceNotificationPresenter::OnSessionStateChanged(
 }
 
 void MultiDeviceNotificationPresenter::ObserveMultiDeviceSetupIfPossible() {
-  // If already observing, there is nothing else to do.
+  // If already the delegate, there is nothing else to do.
   if (multidevice_setup_ptr_)
     return;
 
@@ -185,11 +185,12 @@ void MultiDeviceNotificationPresenter::ObserveMultiDeviceSetupIfPossible() {
           chromeos::multidevice_setup::mojom::kServiceName, service_user_id),
       &multidevice_setup_ptr_);
 
-  // Start observing the MultiDeviceSetup Service.
-  chromeos::multidevice_setup::mojom::MultiDeviceSetupObserverPtr observer_ptr;
-  binding_.Bind(mojo::MakeRequest(&observer_ptr));
-  multidevice_setup_ptr_->SetObserver(std::move(observer_ptr),
-                                      base::DoNothing());
+  // Add this object as the delegate of the MultiDeviceSetup Service.
+  chromeos::multidevice_setup::mojom::AccountStatusChangeDelegatePtr
+      delegate_ptr;
+  binding_.Bind(mojo::MakeRequest(&delegate_ptr));
+  multidevice_setup_ptr_->SetAccountStatusChangeDelegate(
+      std::move(delegate_ptr));
 }
 
 void MultiDeviceNotificationPresenter::OnNotificationClicked() {

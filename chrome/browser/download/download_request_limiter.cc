@@ -135,14 +135,23 @@ void DownloadRequestLimiter::TabDownloadState::DidStartNavigation(
   download_seen_ = false;
   ui_status_ = DOWNLOAD_UI_DEFAULT;
 
-  // If the navigation is renderer-initiated (but not user-initiated), ensure
-  // that a prompting or blocking limiter state is not reset, so
-  // window.location.href or meta refresh can't be abused to avoid the limiter.
-  // User-initiated navigations will trigger DidGetUserInteraction, which resets
-  // the limiter before the navigation starts.
-  if (navigation_handle->IsRendererInitiated() &&
-      (status_ == PROMPT_BEFORE_DOWNLOAD || status_ == DOWNLOADS_NOT_ALLOWED)) {
-    return;
+  if (status_ == PROMPT_BEFORE_DOWNLOAD || status_ == DOWNLOADS_NOT_ALLOWED) {
+    std::string host = navigation_handle->GetURL().host();
+    // If the navigation is renderer-initiated (but not user-initiated), ensure
+    // that a prompting or blocking limiter state is not reset, so
+    // window.location.href or meta refresh can't be abused to avoid the
+    // limiter.
+    if (navigation_handle->IsRendererInitiated()) {
+      if (!host.empty())
+        restricted_hosts_.emplace(host);
+      return;
+    }
+
+    // If this is a forward/back navigation, also don't reset a prompting or
+    // blocking limiter state unless a new host is encounted. This prevents a
+    // page to use history forward/backward to trigger multiple downloads.
+    if (IsNavigationRestricted(navigation_handle))
+      return;
   }
 
   if (status_ == DownloadRequestLimiter::ALLOW_ALL_DOWNLOADS ||
@@ -165,6 +174,14 @@ void DownloadRequestLimiter::TabDownloadState::DidFinishNavigation(
   if (!navigation_handle->IsInMainFrame())
     return;
 
+  // Treat browser-initiated navigations as user interactions as long as the
+  // navigation isn't restricted.
+  if (!navigation_handle->IsRendererInitiated() &&
+      !IsNavigationRestricted(navigation_handle)) {
+    OnUserInteraction();
+    return;
+  }
+
   // When the status is ALLOW_ALL_DOWNLOADS or DOWNLOADS_NOT_ALLOWED, don't drop
   // this information. The user has explicitly said that they do/don't want
   // downloads from this host. If they accidentally Accepted or Canceled, they
@@ -172,10 +189,8 @@ void DownloadRequestLimiter::TabDownloadState::DidFinishNavigation(
   // settings. Alternatively, they can copy the URL into a new tab, which will
   // make a new DownloadRequestLimiter. See also the initial_page_host_ logic in
   // DidStartNavigation.
-  if (status_ == ALLOW_ONE_DOWNLOAD ||
-      (status_ == PROMPT_BEFORE_DOWNLOAD &&
-       !navigation_handle->IsRendererInitiated())) {
-    // When the user reloads the page without responding to the infobar,
+  if (status_ == ALLOW_ONE_DOWNLOAD) {
+    // When the user reloads the page without responding to the prompt,
     // they are expecting DownloadRequestLimiter to behave as if they had
     // just initially navigated to this page. See http://crbug.com/171372.
     // However, explicitly leave the limiter in place if the navigation was
@@ -194,18 +209,7 @@ void DownloadRequestLimiter::TabDownloadState::DidGetUserInteraction(
     return;
   }
 
-  bool promptable =
-      PermissionRequestManager::FromWebContents(web_contents()) != nullptr;
-
-  // See PromptUserForDownload(): if there's no PermissionRequestManager, then
-  // DOWNLOADS_NOT_ALLOWED is functionally equivalent to PROMPT_BEFORE_DOWNLOAD.
-  if ((status_ != DownloadRequestLimiter::ALLOW_ALL_DOWNLOADS) &&
-      (!promptable ||
-       (status_ != DownloadRequestLimiter::DOWNLOADS_NOT_ALLOWED))) {
-    // Revert to default status.
-    host_->Remove(this, web_contents());
-    // WARNING: We've been deleted.
-  }
+  OnUserInteraction();
 }
 
 void DownloadRequestLimiter::TabDownloadState::WebContentsDestroyed() {
@@ -290,11 +294,26 @@ bool DownloadRequestLimiter::TabDownloadState::is_showing_prompt() const {
   return factory_.HasWeakPtrs();
 }
 
+void DownloadRequestLimiter::TabDownloadState::OnUserInteraction() {
+  bool promptable =
+      PermissionRequestManager::FromWebContents(web_contents()) != nullptr;
+
+  // See PromptUserForDownload(): if there's no PermissionRequestManager, then
+  // DOWNLOADS_NOT_ALLOWED is functionally equivalent to PROMPT_BEFORE_DOWNLOAD.
+  if ((status_ != DownloadRequestLimiter::ALLOW_ALL_DOWNLOADS) &&
+      (!promptable ||
+       (status_ != DownloadRequestLimiter::DOWNLOADS_NOT_ALLOWED))) {
+    // Revert to default status.
+    host_->Remove(this, web_contents());
+    // WARNING: We've been deleted.
+  }
+}
+
 void DownloadRequestLimiter::TabDownloadState::OnContentSettingChanged(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
     ContentSettingsType content_type,
-    std::string resource_identifier) {
+    const std::string& resource_identifier) {
   if (content_type != CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS)
     return;
 
@@ -383,6 +402,11 @@ void DownloadRequestLimiter::TabDownloadState::SetDownloadStatusAndNotifyImpl(
   if (!web_contents())
     return;
 
+  if (status_ == PROMPT_BEFORE_DOWNLOAD || status_ == DOWNLOADS_NOT_ALLOWED) {
+    if (!initial_page_host_.empty())
+      restricted_hosts_.emplace(initial_page_host_);
+  }
+
   // We want to send a notification if the UI status has changed to ensure that
   // the omnibox decoration updates appropriately. This is effectively the same
   // as other permissions which might be in an allow state, but do not show UI
@@ -394,6 +418,14 @@ void DownloadRequestLimiter::TabDownloadState::SetDownloadStatusAndNotifyImpl(
       chrome::NOTIFICATION_WEB_CONTENT_SETTINGS_CHANGED,
       content::Source<content::WebContents>(web_contents()),
       content::NotificationService::NoDetails());
+}
+
+bool DownloadRequestLimiter::TabDownloadState::IsNavigationRestricted(
+    content::NavigationHandle* navigation_handle) {
+  std::string host = navigation_handle->GetURL().host();
+  if (navigation_handle->GetPageTransition() & ui::PAGE_TRANSITION_FORWARD_BACK)
+    return restricted_hosts_.find(host) != restricted_hosts_.end();
+  return false;
 }
 
 // DownloadRequestLimiter ------------------------------------------------------

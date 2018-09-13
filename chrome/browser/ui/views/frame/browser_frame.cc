@@ -105,8 +105,8 @@ gfx::Rect BrowserFrame::GetBoundsForTabStrip(views::View* tabstrip) const {
       browser_frame_view_->GetBoundsForTabStrip(tabstrip) : gfx::Rect();
 }
 
-int BrowserFrame::GetTopInset(bool restored) const {
-  return browser_frame_view_->GetTopInset(restored);
+int BrowserFrame::GetTopInset() const {
+  return browser_frame_view_->GetTopInset(false);
 }
 
 int BrowserFrame::GetThemeBackgroundXInset() const {
@@ -134,7 +134,7 @@ void BrowserFrame::GetWindowPlacement(gfx::Rect* bounds,
   return native_browser_frame_->GetWindowPlacement(bounds, show_state);
 }
 
-bool BrowserFrame::PreHandleKeyboardEvent(
+content::KeyboardEventProcessingResult BrowserFrame::PreHandleKeyboardEvent(
     const content::NativeWebKeyboardEvent& event) {
   return native_browser_frame_->PreHandleKeyboardEvent(event);
 }

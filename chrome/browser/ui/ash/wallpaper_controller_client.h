@@ -44,11 +44,14 @@ class WallpaperControllerClient : public ash::mojom::WallpaperControllerClient,
       bool preview_mode,
       ash::mojom::WallpaperController::SetOnlineWallpaperIfExistsCallback
           callback);
-  void SetOnlineWallpaperFromData(const AccountId& account_id,
-                                  const std::string& image_data,
-                                  const std::string& url,
-                                  ash::WallpaperLayout layout,
-                                  bool preview_mode);
+  void SetOnlineWallpaperFromData(
+      const AccountId& account_id,
+      const std::string& image_data,
+      const std::string& url,
+      ash::WallpaperLayout layout,
+      bool preview_mode,
+      ash::mojom::WallpaperController::SetOnlineWallpaperFromDataCallback
+          callback);
   void SetDefaultWallpaper(const AccountId& account_id, bool show_wallpaper);
   void SetCustomizedDefaultWallpaperPaths(
       const base::FilePath& customized_default_small_path,
@@ -87,8 +90,8 @@ class WallpaperControllerClient : public ash::mojom::WallpaperControllerClient,
   void IsActiveUserWallpaperControlledByPolicy(
       ash::mojom::WallpaperController::
           IsActiveUserWallpaperControlledByPolicyCallback callback);
-  void GetActiveUserWallpaperLocation(
-      ash::mojom::WallpaperController::GetActiveUserWallpaperLocationCallback
+  void GetActiveUserWallpaperInfo(
+      ash::mojom::WallpaperController::GetActiveUserWallpaperInfoCallback
           callback);
   void ShouldShowWallpaperSetting(
       ash::mojom::WallpaperController::ShouldShowWallpaperSettingCallback
@@ -106,10 +109,14 @@ class WallpaperControllerClient : public ash::mojom::WallpaperControllerClient,
   // Binds this object to its mojo interface and sets it as the ash client.
   void BindAndSetClient();
 
-  // Updates the wallpaper of a registered device after device policy is
-  // trusted, outside an user session. Note that before device is enrolled, it
-  // proceeds with untrusted setting.
-  void UpdateRegisteredDeviceWallpaper();
+  // Shows the wallpaper of the first user in |UserManager::GetUsers|, or a
+  // default signin wallpaper if there's no user. This ensures the wallpaper is
+  // shown right after boot, regardless of when the login screen is available.
+  //
+  // TODO(wzang|784495): Consider deprecating this method after views-based
+  // login is enabled. It should be fast enough to request the first wallpaper
+  // so that there's no visible delay.
+  void ShowWallpaperOnLoginScreen();
 
   // ash::mojom::WallpaperControllerClient:
   void OpenWallpaperPicker() override;

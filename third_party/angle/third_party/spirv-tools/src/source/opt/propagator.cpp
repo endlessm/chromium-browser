@@ -18,10 +18,10 @@ namespace spvtools {
 namespace opt {
 
 void SSAPropagator::AddControlEdge(const Edge& edge) {
-  ir::BasicBlock* dest_bb = edge.dest;
+  opt::BasicBlock* dest_bb = edge.dest;
 
   // Refuse to add the exit block to the work list.
-  if (dest_bb == cfg_->pseudo_exit_block()) {
+  if (dest_bb == ctx_->cfg()->pseudo_exit_block()) {
     return;
   }
 
@@ -36,20 +36,56 @@ void SSAPropagator::AddControlEdge(const Edge& edge) {
   blocks_.push(dest_bb);
 }
 
-void SSAPropagator::AddSSAEdges(uint32_t id) {
-  get_def_use_mgr()->ForEachUser(id, [this](ir::Instruction *instr) {
-    // If the basic block for |instr| has not been simulated yet, do nothing.
-    if (!BlockHasBeenSimulated(ctx_->get_instr_block(instr))) {
-      return;
-    }
+void SSAPropagator::AddSSAEdges(opt::Instruction* instr) {
+  // Ignore instructions that produce no result.
+  if (instr->result_id() == 0) {
+    return;
+  }
 
-    if (ShouldSimulateAgain(instr)) {
-      ssa_edge_uses_.push(instr);
-    }
-  });
+  get_def_use_mgr()->ForEachUser(
+      instr->result_id(), [this](opt::Instruction* use_instr) {
+        // If the basic block for |use_instr| has not been simulated yet, do
+        // nothing.  The instruction |use_instr| will be simulated next time the
+        // block is scheduled.
+        if (!BlockHasBeenSimulated(ctx_->get_instr_block(use_instr))) {
+          return;
+        }
+
+        if (ShouldSimulateAgain(use_instr)) {
+          ssa_edge_uses_.push(use_instr);
+        }
+      });
 }
 
-bool SSAPropagator::Simulate(ir::Instruction* instr) {
+bool SSAPropagator::IsPhiArgExecutable(opt::Instruction* phi,
+                                       uint32_t i) const {
+  opt::BasicBlock* phi_bb = ctx_->get_instr_block(phi);
+
+  uint32_t in_label_id = phi->GetSingleWordOperand(i + 1);
+  opt::Instruction* in_label_instr = get_def_use_mgr()->GetDef(in_label_id);
+  opt::BasicBlock* in_bb = ctx_->get_instr_block(in_label_instr);
+
+  return IsEdgeExecutable(Edge(in_bb, phi_bb));
+}
+
+bool SSAPropagator::SetStatus(opt::Instruction* inst, PropStatus status) {
+  bool has_old_status = false;
+  PropStatus old_status = kVarying;
+  if (HasStatus(inst)) {
+    has_old_status = true;
+    old_status = Status(inst);
+  }
+
+  assert((!has_old_status || old_status <= status) &&
+         "Invalid lattice transition");
+
+  bool status_changed = !has_old_status || (old_status != status);
+  if (status_changed) statuses_[inst] = status;
+
+  return status_changed;
+}
+
+bool SSAPropagator::Simulate(opt::Instruction* instr) {
   bool changed = false;
 
   // Don't bother visiting instructions that should not be simulated again.
@@ -57,37 +93,38 @@ bool SSAPropagator::Simulate(ir::Instruction* instr) {
     return changed;
   }
 
-  ir::BasicBlock* dest_bb = nullptr;
+  opt::BasicBlock* dest_bb = nullptr;
   PropStatus status = visit_fn_(instr, &dest_bb);
+  bool status_changed = SetStatus(instr, status);
 
   if (status == kVarying) {
     // The statement produces a varying result, add it to the list of statements
     // not to simulate anymore and add its SSA def-use edges for simulation.
     DontSimulateAgain(instr);
-    if (instr->result_id() > 0) {
-      AddSSAEdges(instr->result_id());
+    if (status_changed) {
+      AddSSAEdges(instr);
     }
 
     // If |instr| is a block terminator, add all the control edges out of its
     // block.
     if (instr->IsBlockTerminator()) {
-      ir::BasicBlock* block = ctx_->get_instr_block(instr);
+      opt::BasicBlock* block = ctx_->get_instr_block(instr);
       for (const auto& e : bb_succs_.at(block)) {
         AddControlEdge(e);
       }
     }
     return false;
   } else if (status == kInteresting) {
-    // If the instruction produced a new interesting value, add the SSA edge
-    // for its result ID.
-    if (instr->result_id() > 0) {
-      AddSSAEdges(instr->result_id());
+    // Add the SSA edges coming out of this instruction if the propagation
+    // status has changed.
+    if (status_changed) {
+      AddSSAEdges(instr);
     }
 
     // If there are multiple outgoing control flow edges and we know which one
     // will be taken, add the destination block to the CFG work list.
     if (dest_bb) {
-      blocks_.push(dest_bb);
+      AddControlEdge(Edge(ctx_->get_instr_block(instr), dest_bb));
     }
     changed = true;
   }
@@ -98,7 +135,6 @@ bool SSAPropagator::Simulate(ir::Instruction* instr) {
   // defined at an instruction D that should be simulated again, then the output
   // of D might affect |instr|, so we should simulate |instr| again.
   bool has_operands_to_simulate = false;
-  ir::BasicBlock* instr_bb = ctx_->get_instr_block(instr);
   if (instr->opcode() == SpvOpPhi) {
     // For Phi instructions, an operand causes the Phi to be simulated again if
     // the operand comes from an edge that has not yet been traversed or if its
@@ -110,13 +146,8 @@ bool SSAPropagator::Simulate(ir::Instruction* instr) {
              "malformed Phi arguments");
 
       uint32_t arg_id = instr->GetSingleWordOperand(i);
-      ir::Instruction* arg_def_instr = get_def_use_mgr()->GetDef(arg_id);
-      uint32_t in_label_id = instr->GetSingleWordOperand(i + 1);
-      ir::Instruction* in_label_instr = get_def_use_mgr()->GetDef(in_label_id);
-      ir::BasicBlock* in_bb = ctx_->get_instr_block(in_label_instr);
-      Edge edge(in_bb, instr_bb);
-
-      if (!IsEdgeExecutable(edge) || ShouldSimulateAgain(arg_def_instr)) {
+      opt::Instruction* arg_def_instr = get_def_use_mgr()->GetDef(arg_id);
+      if (!IsPhiArgExecutable(instr, i) || ShouldSimulateAgain(arg_def_instr)) {
         has_operands_to_simulate = true;
         break;
       }
@@ -125,13 +156,14 @@ bool SSAPropagator::Simulate(ir::Instruction* instr) {
     // For regular instructions, check if the defining instruction of each
     // operand needs to be simulated again.  If so, then this instruction should
     // also be simulated again.
-    instr->ForEachInId([&has_operands_to_simulate, this](const uint32_t* use) {
-      ir::Instruction* def_instr = get_def_use_mgr()->GetDef(*use);
-      if (ShouldSimulateAgain(def_instr)) {
-        has_operands_to_simulate = true;
-        return;
-      }
-    });
+    has_operands_to_simulate =
+        !instr->WhileEachInId([this](const uint32_t* use) {
+          opt::Instruction* def_instr = get_def_use_mgr()->GetDef(*use);
+          if (ShouldSimulateAgain(def_instr)) {
+            return false;
+          }
+          return true;
+        });
   }
 
   if (!has_operands_to_simulate) {
@@ -141,8 +173,8 @@ bool SSAPropagator::Simulate(ir::Instruction* instr) {
   return changed;
 }
 
-bool SSAPropagator::Simulate(ir::BasicBlock* block) {
-  if (block == cfg_->pseudo_exit_block()) {
+bool SSAPropagator::Simulate(opt::BasicBlock* block) {
+  if (block == ctx_->cfg()->pseudo_exit_block()) {
     return false;
   }
 
@@ -151,13 +183,14 @@ bool SSAPropagator::Simulate(ir::BasicBlock* block) {
   // incoming edges. When those edges are marked executable, the corresponding
   // operand can be simulated.
   bool changed = false;
-  block->ForEachPhiInst(
-      [&changed, this](ir::Instruction* instr) { changed |= Simulate(instr); });
+  block->ForEachPhiInst([&changed, this](opt::Instruction* instr) {
+    changed |= Simulate(instr);
+  });
 
   // If this is the first time this block is being simulated, simulate every
   // statement in it.
   if (!BlockHasBeenSimulated(block)) {
-    block->ForEachInst([this, &changed](ir::Instruction* instr) {
+    block->ForEachInst([this, &changed](opt::Instruction* instr) {
       if (instr->opcode() != SpvOpPhi) {
         changed |= Simulate(instr);
       }
@@ -175,35 +208,37 @@ bool SSAPropagator::Simulate(ir::BasicBlock* block) {
   return changed;
 }
 
-void SSAPropagator::Initialize(ir::Function* fn) {
+void SSAPropagator::Initialize(opt::Function* fn) {
   // Compute predecessor and successor blocks for every block in |fn|'s CFG.
-  // TODO(dnovillo): Move this to ir::CFG and always build them. Alternately,
+  // TODO(dnovillo): Move this to opt::CFG and always build them. Alternately,
   // move it to IRContext and build CFG preds/succs on-demand.
-  bb_succs_[cfg_->pseudo_entry_block()].push_back(
-      Edge(cfg_->pseudo_entry_block(), fn->entry().get()));
+  bb_succs_[ctx_->cfg()->pseudo_entry_block()].push_back(
+      Edge(ctx_->cfg()->pseudo_entry_block(), fn->entry().get()));
 
   for (auto& block : *fn) {
-    block.ForEachSuccessorLabel([this, &block](uint32_t label_id) {
-      ir::BasicBlock* succ_bb =
+    const auto& const_block = block;
+    const_block.ForEachSuccessorLabel([this, &block](const uint32_t label_id) {
+      opt::BasicBlock* succ_bb =
           ctx_->get_instr_block(get_def_use_mgr()->GetDef(label_id));
       bb_succs_[&block].push_back(Edge(&block, succ_bb));
       bb_preds_[succ_bb].push_back(Edge(succ_bb, &block));
     });
-    if (block.IsReturn()) {
-      bb_succs_[&block].push_back(Edge(&block, cfg_->pseudo_exit_block()));
-      bb_preds_[cfg_->pseudo_exit_block()].push_back(
-          Edge(cfg_->pseudo_exit_block(), &block));
+    if (block.IsReturnOrAbort()) {
+      bb_succs_[&block].push_back(
+          Edge(&block, ctx_->cfg()->pseudo_exit_block()));
+      bb_preds_[ctx_->cfg()->pseudo_exit_block()].push_back(
+          Edge(ctx_->cfg()->pseudo_exit_block(), &block));
     }
   }
 
   // Add the edges out of the entry block to seed the propagator.
-  const auto& entry_succs = bb_succs_[cfg_->pseudo_entry_block()];
+  const auto& entry_succs = bb_succs_[ctx_->cfg()->pseudo_entry_block()];
   for (const auto& e : entry_succs) {
     AddControlEdge(e);
   }
 }
 
-bool SSAPropagator::Run(ir::Function* fn) {
+bool SSAPropagator::Run(opt::Function* fn) {
   Initialize(fn);
 
   bool changed = false;
@@ -219,13 +254,39 @@ bool SSAPropagator::Run(ir::Function* fn) {
 
     // Simulate edges from the SSA queue.
     if (!ssa_edge_uses_.empty()) {
-      ir::Instruction* instr = ssa_edge_uses_.front();
+      opt::Instruction* instr = ssa_edge_uses_.front();
       changed |= Simulate(instr);
       ssa_edge_uses_.pop();
     }
   }
 
+#ifndef NDEBUG
+  // Verify all visited values have settled. No value that has been simulated
+  // should end on not interesting.
+  fn->ForEachInst([this](opt::Instruction* inst) {
+    assert(
+        (!HasStatus(inst) || Status(inst) != SSAPropagator::kNotInteresting) &&
+        "Unsettled value");
+  });
+#endif
+
   return changed;
+}
+
+std::ostream& operator<<(std::ostream& str,
+                         const SSAPropagator::PropStatus& status) {
+  switch (status) {
+    case SSAPropagator::kVarying:
+      str << "Varying";
+      break;
+    case SSAPropagator::kInteresting:
+      str << "Interesting";
+      break;
+    default:
+      str << "Not interesting";
+      break;
+  }
+  return str;
 }
 
 }  // namespace opt

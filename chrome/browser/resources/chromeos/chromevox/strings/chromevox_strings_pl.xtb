@@ -92,6 +92,7 @@ Jeśli nie korzystasz już z samouczka, użyj czytnika ChromeVox, by przejść 
 <translation id="1787176709638001873">Edytowanie tekstu, hasło</translation>
 <translation id="1802710350767629429">Pokaż informacje dotyczące aktualizacji</translation>
 <translation id="1810107444790159527">Pole listy</translation>
+<translation id="1812527064848182527">orientacja pozioma</translation>
 <translation id="1828385960365606039">maj</translation>
 <translation id="1834891354138622109">Kolumna</translation>
 <translation id="1845944666972354496">Kliknij dwukrotnie, by użyć</translation>
@@ -146,6 +147,7 @@ Jeśli nie korzystasz już z samouczka, użyj czytnika ChromeVox, by przejść 
 <translation id="2416512023405990736">Niezaznaczone pole</translation>
 <translation id="2417569100218200841">Informacje o zawartości</translation>
 <translation id="2417948780551741035">Przypisy końcowe</translation>
+<translation id="2421113964388408478">Usunięcie</translation>
 <translation id="2422937916923936891">Pole wyboru elementu menu</translation>
 <translation id="2428534162001909979">Menu poleceń</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@ Jeśli nie korzystasz już z samouczka, użyj czytnika ChromeVox, by przejść 
 <translation id="3232388865800379423">Przycisk wyskakującego okienka</translation>
 <translation id="3241052487511142956">Poprzedni kliknięty link</translation>
 <translation id="3241638166094654466">Komórki w każdym wierszu:</translation>
+<translation id="3286372614333682499">orientacja pionowa</translation>
 <translation id="3286390186030710347">Suwak</translation>
 <translation id="3299925995433437805">Brak następnego klikniętego linku.</translation>
 <translation id="3300348286427369683">Obsługa tekstu sformatowanego. ChromeVox obsługuje teraz pola tekstu sformatowanego, w tym między innymi polecenia nawigacyjne, kierowanie kursorem brajlowskim oraz wybór.</translation>
@@ -426,6 +429,7 @@ Jeśli nie korzystasz już z samouczka, użyj czytnika ChromeVox, by przejść 
 <translation id="4476183483923481720">nowy wiersz</translation>
 <translation id="4482330759234983253">Poprzednia tabela</translation>
 <translation id="4491109536499578614">Obraz</translation>
+<translation id="4505167975768625962">Wstawienie</translation>
 <translation id="4517854969512651305">Zwiększ wartość</translation>
 <translation id="4529987814483543472">Klasyczny układ klawiatury</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{ukośnik}few{# ukośniki}many{# ukośników}other{# slashes}}</translation>
@@ -589,6 +593,7 @@ Jeśli nie korzystasz już z samouczka, użyj czytnika ChromeVox, by przejść 
 <translation id="5712338278108304766">Następna kolumna tabeli</translation>
 <translation id="571866080859340309">Poznawanie grup</translation>
 <translation id="5728409797179002635">Nie znaleziono tabel.</translation>
+<translation id="5729047866208036762">Naciśnij strzałkę w górę, w dół, w lewo lub w prawo, by poruszać się po wyrażeniach matematycznych.</translation>
 <translation id="5732189279857692565">To jest drugi nagłówek. Kontynuuj: naciśnij klawisz wyszukiwania + H albo klawisz wyszukiwania + Shift + H</translation>
 <translation id="5748623122140342504">Poprzedni nagłówek poziomu 5</translation>
 <translation id="5750633686117194034">Nie naciśnięto modyfikatora. Naciśnij i przytrzymaj przynajmniej jeden modyfikator, a później unieś palce – usłyszysz, że klawisze zostały ustawione. Naciśnij Tab, by wyjść.</translation>
@@ -744,6 +749,7 @@ Aby otworzyć menu przeglądarki Chrome, naciśnij Alt + F.</translation>
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">Wybierz tabelę sześciopunktowego pisma Braille'a:</translation>
 <translation id="72393384879519786">Nagłówek</translation>
+<translation id="7240858705033280249">Przejdź do szczegółów</translation>
 <translation id="7241683698754534149">Otwórz długi opis na nowej karcie</translation>
 <translation id="7248671827512403053">Aplikacja</translation>
 <translation id="725969808843520477">Następny przycisk opcji</translation>
@@ -920,6 +926,7 @@ Aby otworzyć menu przeglądarki Chrome, naciśnij Alt + F.</translation>
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Wybierz tabelę ośmiopunktowego pisma Braille'a:</translation>
 <translation id="9065283790526219006">+wyskakujące okienko</translation>
+<translation id="9066023754636984703">Naciśnij klawisz wyszukiwania + A, J, by przejść do szczegółów.</translation>
 <translation id="9067522039955793016">Podział strony</translation>
 <translation id="9077213568694924680">usunięto zaznaczenie</translation>
 <translation id="9082874451376019682">Brak poprzedniego suwaka.</translation>

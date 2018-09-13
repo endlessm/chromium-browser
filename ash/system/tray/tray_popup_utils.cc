@@ -8,9 +8,9 @@
 #include <memory>
 #include <utility>
 
-#include "ash/ash_view_ids.h"
 #include "ash/public/cpp/ash_constants.h"
 #include "ash/public/cpp/ash_features.h"
+#include "ash/public/cpp/ash_view_ids.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
@@ -160,14 +160,15 @@ TriView* TrayPopupUtils::CreateMultiTargetRowView() {
 views::Label* TrayPopupUtils::CreateDefaultLabel() {
   views::Label* label = new views::Label();
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  // Frequently the label will paint to a layer that's non-opaque, so subpixel
-  // rendering won't work unless we explicitly set a background. See
-  // crbug.com/686363
-  label->SetBackground(
-      features::IsSystemTrayUnifiedEnabled()
-          ? views::CreateSolidBackground(kUnifiedMenuBackgroundColor)
-          : views::CreateThemedSolidBackground(
-                label, ui::NativeTheme::kColorId_BubbleBackground));
+  if (features::IsSystemTrayUnifiedEnabled()) {
+    label->SetSubpixelRenderingEnabled(false);
+  } else {
+    // Frequently the label will paint to a layer that's non-opaque, so subpixel
+    // rendering won't work unless we explicitly set a background. See
+    // https://crbug.com/686363
+    label->SetBackground(views::CreateThemedSolidBackground(
+        label, ui::NativeTheme::kColorId_BubbleBackground));
+  }
   return label;
 }
 
@@ -225,11 +226,11 @@ void TrayPopupUtils::ConfigureTrayPopupButton(views::Button* button) {
 
 void TrayPopupUtils::ConfigureAsStickyHeader(views::View* view) {
   view->set_id(VIEW_ID_STICKY_HEADER);
-  view->SetBackground(
-      features::IsSystemTrayUnifiedEnabled()
-          ? views::CreateSolidBackground(kUnifiedMenuBackgroundColor)
-          : views::CreateThemedSolidBackground(
-                view, ui::NativeTheme::kColorId_BubbleBackground));
+
+  if (!features::IsSystemTrayUnifiedEnabled()) {
+    view->SetBackground(views::CreateThemedSolidBackground(
+        view, ui::NativeTheme::kColorId_BubbleBackground));
+  }
   view->SetBorder(
       views::CreateEmptyBorder(gfx::Insets(kMenuSeparatorVerticalPadding, 0)));
   view->SetPaintToLayer();

@@ -19,6 +19,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.drawable.shapes.OvalShape;
+import android.support.annotation.IntDef;
 import android.text.TextUtils;
 
 import org.chromium.base.ApiCompatibilityUtils;
@@ -36,8 +37,10 @@ import org.chromium.components.offline_items_collection.FailState;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
 import org.chromium.components.offline_items_collection.PendingState;
-import org.chromium.content.browser.BrowserStartupController;
+import org.chromium.content_public.browser.BrowserStartupController;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,7 +51,16 @@ import java.util.List;
  *  - Update DownloadForegroundServiceManager about downloads, allowing it to start/stop service.
  */
 public class DownloadNotificationService2 {
-    public enum DownloadStatus { IN_PROGRESS, PAUSED, COMPLETED, CANCELLED, FAILED }
+    @IntDef({DownloadStatus.IN_PROGRESS, DownloadStatus.PAUSED, DownloadStatus.COMPLETED,
+            DownloadStatus.CANCELLED, DownloadStatus.FAILED})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface DownloadStatus {
+        int IN_PROGRESS = 0;
+        int PAUSED = 1;
+        int COMPLETED = 2;
+        int CANCELLED = 3;
+        int FAILED = 4;
+    }
 
     static final String EXTRA_DOWNLOAD_CONTENTID_ID =
             "org.chromium.chrome.browser.download.DownloadContentId_Id";
@@ -296,7 +308,7 @@ public class DownloadNotificationService2 {
         if (entry != null && !entry.isAutoResumable && !forceRebuild) return;
         boolean canDownloadWhileMetered = entry == null ? false : entry.canDownloadWhileMetered;
         // If download is interrupted due to network disconnection, show download pending state.
-        if (isAutoResumable) {
+        if (isAutoResumable || pendingState != PendingState.NOT_PENDING) {
             notifyDownloadPending(id, fileName, isOffTheRecord, canDownloadWhileMetered,
                     isTransient, icon, hasUserGesture, pendingState);
             stopTrackingInProgressDownload(id);
@@ -466,9 +478,10 @@ public class DownloadNotificationService2 {
         // we had built one for this download before.
         if (mDownloadSharedPreferenceHelper.hasEntry(id)) return;
         NotificationUmaTracker.getInstance().onNotificationShown(
-                LegacyHelpers.isLegacyOfflinePage(id) ? NotificationUmaTracker.DOWNLOAD_PAGES
-                                                      : NotificationUmaTracker.DOWNLOAD_FILES,
-                ChannelDefinitions.CHANNEL_ID_DOWNLOADS);
+                LegacyHelpers.isLegacyOfflinePage(id)
+                        ? NotificationUmaTracker.SystemNotificationType.DOWNLOAD_PAGES
+                        : NotificationUmaTracker.SystemNotificationType.DOWNLOAD_FILES,
+                ChannelDefinitions.ChannelId.DOWNLOADS);
 
         // Record the number of other notifications when there's a new notification.
         DownloadNotificationUmaHelper.recordExistingNotificationsCountHistogram(

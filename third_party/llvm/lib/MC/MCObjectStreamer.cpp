@@ -59,32 +59,6 @@ void MCObjectStreamer::flushPendingLabels(MCFragment *F, uint64_t FOffset) {
   PendingLabels.clear();
 }
 
-void MCObjectStreamer::addFragmentAtoms() {
-  // First, scan the symbol table to build a lookup table from fragments to
-  // defining symbols.
-  DenseMap<const MCFragment *, const MCSymbol *> DefiningSymbolMap;
-  for (const MCSymbol &Symbol : getAssembler().symbols()) {
-    if (getAssembler().isSymbolLinkerVisible(Symbol) && Symbol.isInSection() &&
-        !Symbol.isVariable()) {
-      // An atom defining symbol should never be internal to a fragment.
-      assert(Symbol.getOffset() == 0 &&
-             "Invalid offset in atom defining symbol!");
-      DefiningSymbolMap[Symbol.getFragment()] = &Symbol;
-    }
-  }
-
-  // Set the fragment atom associations by tracking the last seen atom defining
-  // symbol.
-  for (MCSection &Sec : getAssembler()) {
-    const MCSymbol *CurrentAtom = nullptr;
-    for (MCFragment &Frag : Sec) {
-      if (const MCSymbol *Symbol = DefiningSymbolMap.lookup(&Frag))
-        CurrentAtom = Symbol;
-      Frag.setAtom(CurrentAtom);
-    }
-  }
-}
-
 // As a compile-time optimization, avoid allocating and evaluating an MCExpr
 // tree for (Hi - Lo) when Hi and Lo are offsets into the same fragment.
 static Optional<uint64_t> absoluteSymbolDiff(const MCSymbol *Hi,
@@ -146,12 +120,24 @@ MCFragment *MCObjectStreamer::getCurrentFragment() const {
   return nullptr;
 }
 
-MCDataFragment *MCObjectStreamer::getOrCreateDataFragment() {
-  MCDataFragment *F = dyn_cast_or_null<MCDataFragment>(getCurrentFragment());
+static bool CanReuseDataFragment(const MCDataFragment &F,
+                                 const MCAssembler &Assembler,
+                                 const MCSubtargetInfo *STI) {
+  if (!F.hasInstructions())
+    return true;
   // When bundling is enabled, we don't want to add data to a fragment that
   // already has instructions (see MCELFStreamer::EmitInstToData for details)
-  if (!F || (Assembler->isBundlingEnabled() && !Assembler->getRelaxAll() &&
-             F->hasInstructions())) {
+  if (Assembler.isBundlingEnabled())
+    return Assembler.getRelaxAll();
+  // If the subtarget is changed mid fragment we start a new fragment to record
+  // the new STI.
+  return !STI || F.getSubtargetInfo() == STI;
+}
+
+MCDataFragment *
+MCObjectStreamer::getOrCreateDataFragment(const MCSubtargetInfo *STI) {
+  MCDataFragment *F = dyn_cast_or_null<MCDataFragment>(getCurrentFragment());
+  if (!F || !CanReuseDataFragment(*F, *Assembler, STI)) {
     F = new MCDataFragment();
     insert(F);
   }
@@ -327,7 +313,7 @@ void MCObjectStreamer::EmitInstructionImpl(const MCInst &Inst,
 
   // If this instruction doesn't need relaxation, just emit it as data.
   MCAssembler &Assembler = getAssembler();
-  if (!Assembler.getBackend().mayNeedRelaxation(Inst)) {
+  if (!Assembler.getBackend().mayNeedRelaxation(Inst, STI)) {
     EmitInstToData(Inst, STI);
     return;
   }
@@ -341,7 +327,7 @@ void MCObjectStreamer::EmitInstructionImpl(const MCInst &Inst,
       (Assembler.isBundlingEnabled() && Sec->isBundleLocked())) {
     MCInst Relaxed;
     getAssembler().getBackend().relaxInstruction(Inst, STI, Relaxed);
-    while (getAssembler().getBackend().mayNeedRelaxation(Relaxed))
+    while (getAssembler().getBackend().mayNeedRelaxation(Relaxed, STI))
       getAssembler().getBackend().relaxInstruction(Relaxed, STI, Relaxed);
     EmitInstToData(Relaxed, STI);
     return;
@@ -606,7 +592,8 @@ void MCObjectStreamer::EmitGPRel64Value(const MCExpr *Value) {
 }
 
 bool MCObjectStreamer::EmitRelocDirective(const MCExpr &Offset, StringRef Name,
-                                          const MCExpr *Expr, SMLoc Loc) {
+                                          const MCExpr *Expr, SMLoc Loc,
+                                          const MCSubtargetInfo &STI) {
   int64_t OffsetValue;
   if (!Offset.evaluateAsAbsolute(OffsetValue))
     llvm_unreachable("Offset is not absolute");
@@ -614,7 +601,7 @@ bool MCObjectStreamer::EmitRelocDirective(const MCExpr &Offset, StringRef Name,
   if (OffsetValue < 0)
     llvm_unreachable("Offset is negative");
 
-  MCDataFragment *DF = getOrCreateDataFragment();
+  MCDataFragment *DF = getOrCreateDataFragment(&STI);
   flushPendingLabels(DF, DF->getContents().size());
 
   Optional<MCFixupKind> MaybeKind = Assembler->getBackend().getFixupKind(Name);
@@ -673,7 +660,18 @@ void MCObjectStreamer::EmitFileDirective(StringRef Filename) {
   getAssembler().addFileName(Filename);
 }
 
+void MCObjectStreamer::EmitAddrsig() {
+  getAssembler().getWriter().emitAddrsigSection();
+}
+
+void MCObjectStreamer::EmitAddrsigSym(const MCSymbol *Sym) {
+  getAssembler().registerSymbol(*Sym);
+  getAssembler().getWriter().addAddrsigSymbol(Sym);
+}
+
 void MCObjectStreamer::FinishImpl() {
+  getContext().RemapDebugPaths();
+
   // If we are generating dwarf for assembly source files dump out the sections.
   if (getContext().getGenDwarfForAssembly())
     MCGenDwarfInfo::Emit(this);
@@ -681,6 +679,6 @@ void MCObjectStreamer::FinishImpl() {
   // Dump out the dwarf file & directory tables and line tables.
   MCDwarfLineTable::Emit(this, getAssembler().getDWARFLinetableParams());
 
-  flushPendingLabels(nullptr);
+  flushPendingLabels();
   getAssembler().Finish();
 }

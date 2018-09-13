@@ -13,16 +13,20 @@
 #include "chromeos/services/assistant/platform/audio_input_provider_impl.h"
 #include "chromeos/services/assistant/platform/file_provider_impl.h"
 #include "chromeos/services/assistant/platform/network_provider_impl.h"
+#include "chromeos/services/assistant/platform/resource_provider_impl.h"
 #include "chromeos/services/assistant/platform/system_provider_impl.h"
 #include "chromeos/services/assistant/public/mojom/assistant.mojom.h"
 // TODO(xiaohuic): replace with "base/macros.h" once we remove
 // libassistant/contrib dependency.
 #include "libassistant/contrib/core/macros.h"
 #include "libassistant/contrib/platform/audio/output/audio_output_provider_impl.h"
-#include "libassistant/contrib/platform/resources/resource_provider.h"
 #include "libassistant/shared/public/platform_api.h"
 #include "libassistant/shared/public/platform_auth.h"
 #include "services/device/public/mojom/battery_monitor.mojom.h"
+
+namespace service_manager {
+class Connector;
+}  // namespace service_manager
 
 namespace chromeos {
 namespace assistant {
@@ -30,9 +34,9 @@ namespace assistant {
 // Platform API required by the voice assistant.
 class PlatformApiImpl : public assistant_client::PlatformApi {
  public:
-  PlatformApiImpl(const std::string& config,
-                  mojom::AudioInputPtr audio_input,
-                  device::mojom::BatteryMonitorPtr battery_monitor);
+  PlatformApiImpl(service_manager::Connector* connector,
+                  device::mojom::BatteryMonitorPtr battery_monitor,
+                  bool enable_hotword);
   ~PlatformApiImpl() override;
 
   // assistant_client::PlatformApi overrides
@@ -43,6 +47,9 @@ class PlatformApiImpl : public assistant_client::PlatformApi {
   assistant_client::NetworkProvider& GetNetworkProvider() override;
   assistant_client::ResourceProvider& GetResourceProvider() override;
   assistant_client::SystemProvider& GetSystemProvider() override;
+
+  // Called when the mic state associated with the interaction is changed.
+  void SetMicState(bool mic_open);
 
  private:
   // ChromeOS does not use auth manager, so we don't yet need to implement a
@@ -82,7 +89,7 @@ class PlatformApiImpl : public assistant_client::PlatformApi {
   DummyAuthProvider auth_provider_;
   FileProviderImpl file_provider_;
   NetworkProviderImpl network_provider_;
-  assistant_contrib::ResourceProviderImpl resource_provider_;
+  ResourceProviderImpl resource_provider_;
   SystemProviderImpl system_provider_;
 
   DISALLOW_COPY_AND_ASSIGN(PlatformApiImpl);

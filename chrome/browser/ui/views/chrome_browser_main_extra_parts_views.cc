@@ -13,6 +13,7 @@
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "services/service_manager/sandbox/switches.h"
+#include "ui/base/material_design/material_design_controller.h"
 
 #if defined(USE_AURA)
 #include "base/run_loop.h"
@@ -51,8 +52,8 @@
 
 #if defined(OS_CHROMEOS)
 #include "ash/public/interfaces/constants.mojom.h"
-#include "chrome/browser/chromeos/ash_config.h"
 #include "content/public/common/content_switches.h"
+#include "ui/base/ui_base_features.h"
 #else  // defined(OS_CHROMEOS)
 #include "chrome/browser/ui/views/relaunch_notification/relaunch_notification_controller.h"
 #endif  // defined(OS_CHROMEOS)
@@ -71,6 +72,11 @@ void ChromeBrowserMainExtraPartsViews::ToolkitInitialized() {
     views_delegate_ = std::make_unique<ChromeViewsDelegate>();
 
   SetConstrainedWindowViewsClient(CreateChromeConstrainedWindowViewsClient());
+
+  // The MaterialDesignController needs to look at command line flags, which
+  // are not available until this point. Now that they are, proceed with
+  // initializing the MaterialDesignController.
+  ui::MaterialDesignController::Initialize();
 
 #if defined(USE_AURA)
   wm_state_.reset(new wm::WMState);
@@ -150,24 +156,17 @@ void ChromeBrowserMainExtraPartsViews::PreProfileInit() {
 void ChromeBrowserMainExtraPartsViews::ServiceManagerConnectionStarted(
     content::ServiceManagerConnection* connection) {
   DCHECK(connection);
-#if defined(USE_AURA)
-  if (aura::Env::GetInstance()->mode() == aura::Env::Mode::LOCAL)
-    return;
-
 #if defined(OS_CHROMEOS)
-  // Start up the window service and the ash system UI service.
-  if (chromeos::GetAshConfig() == ash::Config::MASH) {
-    connection->GetConnector()->StartService(
-        service_manager::Identity(ui::mojom::kServiceName));
-    connection->GetConnector()->StartService(
-        service_manager::Identity(ash::mojom::kServiceName));
+  if (aura::Env::GetInstance()->mode() == aura::Env::Mode::LOCAL ||
+      features::IsAshInBrowserProcess()) {
+    return;
   }
-#endif
 
-#if defined(OS_CHROMEOS)
-  if (chromeos::GetAshConfig() != ash::Config::MASH)
-    return;
-#endif
+  // Start up the window service and the ash system UI service.
+  connection->GetConnector()->StartService(
+      service_manager::Identity(ui::mojom::kServiceName));
+  connection->GetConnector()->StartService(
+      service_manager::Identity(ash::mojom::kServiceName));
 
   views::MusClient::InitParams params;
   params.connector = connection->GetConnector();
@@ -175,8 +174,9 @@ void ChromeBrowserMainExtraPartsViews::ServiceManagerConnectionStarted(
       content::BrowserThread::IO);
   // WMState is owned as a member, so don't have MusClient create it.
   params.create_wm_state = false;
+  params.wtc_config = aura::WindowTreeClient::Config::kMus2;
   mus_client_ = std::make_unique<views::MusClient>(params);
-#endif  // defined(USE_AURA)
+#endif  // defined(OS_CHROMEOS)
 }
 
 void ChromeBrowserMainExtraPartsViews::PostBrowserStart() {

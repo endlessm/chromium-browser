@@ -16,38 +16,60 @@
 #ifndef LLVM_TOOLS_LLVM_MCA_STAGE_H
 #define LLVM_TOOLS_LLVM_MCA_STAGE_H
 
+#include "HWEventListener.h"
 #include <set>
 
 namespace mca {
 
-class HWEventListener;
 class InstRef;
 
 class Stage {
-  std::set<HWEventListener *> Listeners;
   Stage(const Stage &Other) = delete;
   Stage &operator=(const Stage &Other) = delete;
+  std::set<HWEventListener *> Listeners;
+
+protected:
+  const std::set<HWEventListener *> &getListeners() const { return Listeners; }
 
 public:
   Stage();
   virtual ~Stage() = default;
 
-  /// Called prior to preExecute to ensure that the stage can operate.
-  /// TODO: Remove this logic once backend::run and backend::runCycle become
-  /// one routine.
-  virtual bool isReady() const { return true; }
+  /// Called prior to preExecute to ensure that the stage has items that it
+  /// is to process.  For example, a FetchStage might have more instructions
+  /// that need to be processed, or a RCU might have items that have yet to
+  /// retire.
+  virtual bool hasWorkToComplete() const = 0;
 
-  /// Called as a setup phase to prepare for the main stage execution.
-  virtual void preExecute(const InstRef &IR) {}
+  /// Called once at the start of each cycle.  This can be used as a setup
+  /// phase to prepare for the executions during the cycle.
+  virtual void cycleStart() {}
 
-  /// Called as a cleanup and finalization phase after main stage execution.
-  virtual void postExecute(const InstRef &IR) {}
+  /// Called once at the end of each cycle.
+  virtual void cycleEnd() {}
+
+  /// Called prior to executing the list of stages.
+  /// This can be called multiple times per cycle.
+  virtual void preExecute() {}
+
+  /// Called as a cleanup and finalization phase after each execution.
+  /// This will only be called if all stages return a success from their
+  /// execute callback.  This can be called multiple times per cycle.
+  virtual void postExecute() {}
 
   /// The primary action that this stage performs.
+  /// Returning false prevents successor stages from having their 'execute'
+  /// routine called.  This can be called multiple times during a single cycle.
   virtual bool execute(InstRef &IR) = 0;
 
-  /// Add a listener to receive callbaks during the execution of this stage.
+  /// Add a listener to receive callbacks during the execution of this stage.
   void addListener(HWEventListener *Listener);
+
+  /// Notify listeners of a particular hardware event.
+  template <typename EventT> void notifyEvent(const EventT &Event) {
+    for (HWEventListener *Listener : Listeners)
+      Listener->onEvent(Event);
+  }
 };
 
 } // namespace mca

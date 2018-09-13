@@ -19,7 +19,6 @@
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/Specifiers.h"
-#include "clang/Basic/VersionTuple.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/PointerUnion.h"
@@ -28,6 +27,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/VersionTuple.h"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -83,7 +83,7 @@ enum AvailabilityResult {
 /// (and its subclasses) in its Decl::operator new(). Proper alignment
 /// of all subclasses (not requiring more than the alignment of Decl) is
 /// asserted in DeclBase.cpp.
-class LLVM_ALIGNAS(/*alignof(uint64_t)*/ 8) Decl {
+class alignas(8) Decl {
 public:
   /// Lists the kind of concrete classes of Decl.
   enum Kind {
@@ -309,7 +309,7 @@ private:
 protected:
   friend class ASTDeclReader;
   friend class ASTDeclWriter;
-  friend class ASTImporter;
+  friend class ASTNodeImporter;
   friend class ASTReader;
   friend class CXXClassMemberWrapper;
   friend class LinkageComputer;
@@ -1779,9 +1779,13 @@ public:
 
   /// Removes a declaration from this context.
   void removeDecl(Decl *D);
-    
+
   /// Checks whether a declaration is in this context.
   bool containsDecl(Decl *D) const;
+
+  /// Checks whether a declaration is in this context.
+  /// This also loads the Decls from the external source before the check.
+  bool containsDeclAndLoad(Decl *D) const;
 
   using lookup_result = DeclContextLookupResult;
   using lookup_iterator = lookup_result::iterator;

@@ -53,6 +53,21 @@ const int64_t kInvalidTimestamp = std::numeric_limits<int64_t>::min();
 
 const int64_t kNoPendingOutput = -1;
 
+// TODO(jameswest): Replace numeric playout channel with AudioChannel enum in
+// mixer.
+int ToPlayoutChannel(AudioChannel audio_channel) {
+  switch (audio_channel) {
+    case AudioChannel::kAll:
+      return kChannelAll;
+    case AudioChannel::kLeft:
+      return 0;
+    case AudioChannel::kRight:
+      return 1;
+  }
+  NOTREACHED();
+  return kChannelAll;
+}
+
 }  // namespace
 
 // static
@@ -123,8 +138,8 @@ bool AudioDecoderForMixer::Start(int64_t playback_start_timestamp) {
   DCHECK(IsValidConfig(config_));
   mixer_input_.reset(new BufferingMixerSource(
       this, config_.samples_per_second, backend_->Primary(),
-      backend_->DeviceId(), backend_->ContentType(), config_.playout_channel,
-      playback_start_timestamp));
+      backend_->DeviceId(), backend_->ContentType(),
+      ToPlayoutChannel(backend_->AudioChannel()), playback_start_timestamp));
 
   mixer_input_->SetVolumeMultiplier(volume_multiplier_);
   // Create decoder_ if necessary. This can happen if Stop() was called, and
@@ -186,6 +201,19 @@ float AudioDecoderForMixer::SetPlaybackRate(float rate) {
 
   rate_shifter_info_.push_back(RateShifterInfo(rate));
   return rate;
+}
+
+bool AudioDecoderForMixer::GetTimestampedPts(int64_t* timestamp,
+                                             int64_t* pts) const {
+  if (last_push_timestamp_ == kInvalidTimestamp ||
+      last_push_pts_ == kInvalidTimestamp)
+    return false;
+
+  // Hmm this timestamp may be in the future. That should be fine, but it's
+  // a bit weird.
+  *timestamp = last_push_timestamp_;
+  *pts = last_push_pts_;
+  return true;
 }
 
 int64_t AudioDecoderForMixer::GetCurrentPts() const {
@@ -270,8 +298,8 @@ bool AudioDecoderForMixer::SetConfig(const AudioConfig& config) {
     mixer_input_.reset();
     mixer_input_.reset(new BufferingMixerSource(
         this, config.samples_per_second, backend_->Primary(),
-        backend_->DeviceId(), backend_->ContentType(), config.playout_channel,
-        playback_start_timestamp_));
+        backend_->DeviceId(), backend_->ContentType(),
+        ToPlayoutChannel(backend_->AudioChannel()), playback_start_timestamp_));
     mixer_input_->SetVolumeMultiplier(volume_multiplier_);
     pending_output_frames_ = kNoPendingOutput;
   }
@@ -300,6 +328,7 @@ void AudioDecoderForMixer::CreateDecoder() {
   // Create a decoder.
   decoder_ = CastAudioDecoder::Create(
       task_runner_, config_, kDecoderSampleFormat,
+      ::media::CHANNEL_LAYOUT_STEREO,
       base::Bind(&AudioDecoderForMixer::OnDecoderInitialized,
                  weak_factory_.GetWeakPtr()));
 }

@@ -8,6 +8,7 @@
 
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
+#import "base/test/ios/wait_util.h"
 #import "ios/chrome/app/main_controller.h"
 #import "ios/chrome/browser/tabs/tab_model.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_egtest_util.h"
@@ -21,7 +22,6 @@
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
-#import "ios/testing/wait_util.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/test/embedded_test_server/request_handler_util.h"
@@ -492,8 +492,8 @@ std::unique_ptr<net::test_server::HttpResponse> HandleQueryTitle(
         return error == nil;
       };
 
-      GREYAssertTrue(testing::WaitUntilConditionOrTimeout(
-                         testing::kWaitForUIElementTimeout, condition),
+      GREYAssertTrue(base::test::ios::WaitUntilConditionOrTimeout(
+                         base::test::ios::kWaitForUIElementTimeout, condition),
                      @"Incognito card wasn't interactable.");
       [[EarlGrey
           selectElementWithMatcher:grey_allOf(
@@ -556,6 +556,16 @@ std::unique_ptr<net::test_server::HttpResponse> HandleQueryTitle(
   // Opening a new tab from the menu will force a change in BVC.
   [ChromeEarlGreyUI openNewIncognitoTab];
   [ChromeEarlGreyUI openNewTab];
+}
+
+// Tests switching back and forth between the normal and incognito BVCs many
+// times.  This is a regression test for https://crbug.com/851954.
+- (void)testSwappingBVCModesManyTimesWithoutEnteringSwitcher {
+  for (int ii = 0; ii < 10; ++ii) {
+    // Opening a new tab from the menu will force a change in BVC.
+    [ChromeEarlGreyUI openNewIncognitoTab];
+    [ChromeEarlGreyUI openNewTab];
+  }
 }
 
 // Tests rotating the device while the switcher is not active.  This is a

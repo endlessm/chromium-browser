@@ -15,8 +15,10 @@
 // <include src="oobe_screen_eula.js">
 // <include src="oobe_screen_hid_detection.js">
 // <include src="oobe_screen_host_pairing.js">
-// <include src="oobe_screen_network.js">
+// <include src="oobe_screen_welcome.js">
 // <include src="oobe_screen_update.js">
+// <include src="oobe_screen_demo_setup.js">
+// <include src="oobe_screen_demo_preferences.js">
 
 cr.define('cr.ui.Oobe', function() {
   return {
@@ -25,11 +27,10 @@ cr.define('cr.ui.Oobe', function() {
      * be invoked to do final setup.
      */
     initialize: function() {
-      this.setMDMode_();
       cr.ui.login.DisplayManager.initialize();
       login.HIDDetectionScreen.register();
       login.WrongHWIDScreen.register();
-      login.NetworkScreen.register();
+      login.WelcomeScreen.register();
       login.EulaScreen.register();
       login.UpdateScreen.register();
       login.AutoEnrollmentCheckScreen.register();
@@ -48,6 +49,7 @@ cr.define('cr.ui.Oobe', function() {
       login.SyncConsentScreen.register();
       login.ArcTermsOfServiceScreen.register();
       login.RecommendAppsScreen.register();
+      login.AppDownloadingScreen.register();
       login.AppLaunchSplashScreen.register();
       login.ArcKioskSplashScreen.register();
       login.ConfirmPasswordScreen.register();
@@ -59,6 +61,8 @@ cr.define('cr.ui.Oobe', function() {
       login.VoiceInteractionValuePropScreen.register();
       login.WaitForContainerReadyScreen.register();
       login.DemoSetupScreen.register();
+      login.DemoPreferencesScreen.register();
+      login.DiscoverScreen.register();
 
       cr.ui.Bubble.decorate($('bubble-persistent'));
       $('bubble-persistent').persistent = true;
@@ -79,20 +83,11 @@ cr.define('cr.ui.Oobe', function() {
      */
     initializeA11yMenu: function() {
       cr.ui.Bubble.decorate($('accessibility-menu'));
-      $('connect-accessibility-link')
-          .addEventListener('click', Oobe.handleAccessibilityLinkClick);
-      $('eula-accessibility-link')
-          .addEventListener('click', Oobe.handleAccessibilityLinkClick);
-      $('update-accessibility-link')
-          .addEventListener('click', Oobe.handleAccessibilityLinkClick);
       // Same behaviour on hitting spacebar. See crbug.com/342991.
       function reactOnSpace(event) {
         if (event.keyCode == 32)
           Oobe.handleAccessibilityLinkClick(event);
       }
-      $('connect-accessibility-link').addEventListener('keyup', reactOnSpace);
-      $('eula-accessibility-link').addEventListener('keyup', reactOnSpace);
-      $('update-accessibility-link').addEventListener('keyup', reactOnSpace);
 
       $('high-contrast')
           .addEventListener('click', Oobe.handleHighContrastClick);
@@ -216,16 +211,7 @@ cr.define('cr.ui.Oobe', function() {
      * @param {boolean} checked Is the checkbox checked?
      */
     setUsageStats: function(checked) {
-      $('usage-stats').checked = checked;
       $('oobe-eula-md').usageStatsChecked = checked;
-    },
-
-    /**
-     * Set OEM EULA URL.
-     * @param {text} oemEulaUrl OEM EULA URL.
-     */
-    setOemEulaUrl: function(oemEulaUrl) {
-      $('eula').setOemEulaUrl(oemEulaUrl);
     },
 
     /**
@@ -260,13 +246,6 @@ cr.define('cr.ui.Oobe', function() {
       loadTimeData.overrideValues(data);
       i18nTemplate.process(document, loadTimeData);
 
-      // Update language and input method menu lists.
-      setupSelect($('language-select'), data.languageList);
-      setupSelect($('keyboard-select'), data.inputMethodsList);
-      setupSelect($('timezone-select'), data.timezoneList);
-
-      this.setMDMode_();
-
       // Update localized content of the screens.
       Oobe.updateLocalizedContent();
     },
@@ -298,17 +277,11 @@ cr.define('cr.ui.Oobe', function() {
     },
 
     /**
-     * This method takes care of switching to material-design OOBE.
-     * @private
+     * Updates OOBE configuration when it is loaded.
+     * @param {dictionary} configuration OOBE configuration.
      */
-    setMDMode_: function() {
-      if (loadTimeData.getString('newOobeUI') == 'on') {
-        $('oobe').setAttribute('md-mode', 'true');
-        $('popup-overlay').setAttribute('md-mode', 'true');
-      } else {
-        $('oobe').removeAttribute('md-mode');
-        $('popup-overlay').removeAttribute('md-mode');
-      }
+    updateOobeConfiguration: function(configuration) {
+      Oobe.getInstance().updateOobeConfiguration_(configuration);
     },
   };
 });

@@ -13,6 +13,7 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
@@ -82,9 +83,10 @@ class IntentPickerLabelButton : public views::LabelButton {
     if (!icon->IsEmpty())
       SetImage(views::ImageButton::STATE_NORMAL, *icon->ToImageSkia());
     SetBorder(views::CreateEmptyBorder(8, 16, 8, 0));
+    SetFocusForPlatform();
+    set_ink_drop_base_color(SK_ColorGRAY);
+    set_ink_drop_visible_opacity(kToolbarInkDropVisibleOpacity);
   }
-
-  SkColor GetInkDropBaseColor() const override { return SK_ColorGRAY; }
 
   void MarkAsUnselected(const ui::Event* event) {
     AnimateInkDrop(views::InkDropState::HIDDEN,
@@ -125,7 +127,7 @@ views::Widget* IntentPickerBubbleView::ShowBubble(
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
   if (!browser || !BrowserView::GetBrowserViewForBrowser(browser)) {
     std::move(intent_picker_cb)
-        .Run(kInvalidLaunchName, chromeos::AppType::INVALID,
+        .Run(kInvalidLaunchName, apps::mojom::AppType::kUnknown,
              chromeos::IntentPickerCloseReason::ERROR, false);
     return nullptr;
   }
@@ -158,7 +160,10 @@ views::Widget* IntentPickerBubbleView::ShowBubble(
   // TODO(aleventhal) Should not need to be focusable as only descendant widgets
   // are interactive; however, it does call RequestFocus(). If it is going to be
   // focusable, it needs an accessible name so that it can pass accessibility
-  // checks. Use the same accessible name as the icon.
+  // checks. Use the same accessible name as the icon. Set the role as kDialog
+  // to ensure screen readers immediately announce the text of this view.
+  intent_picker_bubble_->GetViewAccessibility().OverrideRole(
+      ax::mojom::Role::kDialog);
   intent_picker_bubble_->GetViewAccessibility().OverrideName(
       l10n_util::GetStringUTF16(IDS_TOOLTIP_INTENT_PICKER_ICON));
   intent_picker_bubble_->SetFocusBehavior(View::FocusBehavior::ALWAYS);
@@ -202,7 +207,7 @@ bool IntentPickerBubbleView::Accept() {
 
 bool IntentPickerBubbleView::Cancel() {
   RunCallback(arc::ArcIntentHelperBridge::kArcIntentHelperPackageName,
-              chromeos::AppType::INVALID,
+              apps::mojom::AppType::kUnknown,
               chromeos::IntentPickerCloseReason::STAY_IN_CHROME,
               remember_selection_checkbox_->checked());
   return true;
@@ -211,7 +216,7 @@ bool IntentPickerBubbleView::Cancel() {
 bool IntentPickerBubbleView::Close() {
   // Whenever closing the bubble without pressing |Just once| or |Always| we
   // need to report back that the user didn't select anything.
-  RunCallback(kInvalidLaunchName, chromeos::AppType::INVALID,
+  RunCallback(kInvalidLaunchName, apps::mojom::AppType::kUnknown,
               chromeos::IntentPickerCloseReason::DIALOG_DEACTIVATED, false);
   return true;
 }
@@ -264,30 +269,33 @@ void IntentPickerBubbleView::Init() {
 
   constexpr int kColumnSetId = 0;
   views::ColumnSet* cs = layout->AddColumnSet(kColumnSetId);
-  cs->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER, 0,
-                views::GridLayout::FIXED, kMaxWidth, 0);
+  cs->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER,
+                views::GridLayout::kFixedSize, views::GridLayout::FIXED,
+                kMaxWidth, 0);
 
-  layout->StartRowWithPadding(0, kColumnSetId, 0, kTitlePadding);
+  layout->StartRowWithPadding(views::GridLayout::kFixedSize, kColumnSetId,
+                              views::GridLayout::kFixedSize, kTitlePadding);
   layout->AddView(scroll_view_);
-  layout->StartRow(0, kColumnSetId, 0);
+  layout->StartRow(views::GridLayout::kFixedSize, kColumnSetId, 0);
   layout->AddView(CreateHorizontalSeparator());
 
   // This second ColumnSet has a padding column in order to manipulate the
   // Checkbox positioning freely.
   constexpr int kColumnSetIdPadded = 1;
   views::ColumnSet* cs_padded = layout->AddColumnSet(kColumnSetIdPadded);
-  cs_padded->AddPaddingColumn(0, kTitlePadding);
-  cs_padded->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER, 0,
-                       views::GridLayout::FIXED, kMaxWidth - 2 * kTitlePadding,
-                       0);
+  cs_padded->AddPaddingColumn(views::GridLayout::kFixedSize, kTitlePadding);
+  cs_padded->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER,
+                       views::GridLayout::kFixedSize, views::GridLayout::FIXED,
+                       kMaxWidth - 2 * kTitlePadding, 0);
 
-  layout->StartRowWithPadding(0, kColumnSetIdPadded, 0, 0);
+  layout->StartRowWithPadding(views::GridLayout::kFixedSize, kColumnSetIdPadded,
+                              views::GridLayout::kFixedSize, 0);
   remember_selection_checkbox_ = new views::Checkbox(l10n_util::GetStringUTF16(
       IDS_INTENT_PICKER_BUBBLE_VIEW_REMEMBER_SELECTION));
   layout->AddView(remember_selection_checkbox_);
   UpdateCheckboxState();
 
-  layout->AddPaddingRow(0, kTitlePadding);
+  layout->AddPaddingRow(views::GridLayout::kFixedSize, kTitlePadding);
 }
 
 base::string16 IntentPickerBubbleView::GetWindowTitle() const {
@@ -333,7 +341,7 @@ IntentPickerBubbleView::~IntentPickerBubbleView() {
 // If the widget gets closed without an app being selected we still need to use
 // the callback so the caller can Resume the navigation.
 void IntentPickerBubbleView::OnWidgetDestroying(views::Widget* widget) {
-  RunCallback(kInvalidLaunchName, chromeos::AppType::INVALID,
+  RunCallback(kInvalidLaunchName, apps::mojom::AppType::kUnknown,
               chromeos::IntentPickerCloseReason::DIALOG_DEACTIVATED, false);
 }
 
@@ -384,7 +392,7 @@ IntentPickerLabelButton* IntentPickerBubbleView::GetIntentPickerLabelButtonAt(
 
 void IntentPickerBubbleView::RunCallback(
     const std::string& launch_name,
-    chromeos::AppType app_type,
+    apps::mojom::AppType app_type,
     chromeos::IntentPickerCloseReason close_reason,
     bool should_persist) {
   if (!intent_picker_cb_.is_null()) {
@@ -428,7 +436,7 @@ void IntentPickerBubbleView::UpdateCheckboxState() {
   // TODO(crbug.com/826982): allow PWAs to have their decision persisted when
   // there is a central Chrome OS apps registry to store persistence.
   const bool should_enable =
-      app_info_[selected_app_tag_].type != chromeos::AppType::PWA;
+      app_info_[selected_app_tag_].type != apps::mojom::AppType::kWeb;
 
   // Reset the checkbox state to the default unchecked if becomes disabled.
   if (!should_enable)

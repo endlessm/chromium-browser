@@ -16,7 +16,7 @@
 #include "services/ui/public/cpp/property_type_converters.h"
 #include "services/ui/public/interfaces/constants.mojom.h"
 #include "services/ui/public/interfaces/event_injector.mojom.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
 #include "ui/aura/mus/property_converter.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/display/display.h"
@@ -93,11 +93,12 @@ AutoclickApplication::AutoclickApplication()
 AutoclickApplication::~AutoclickApplication() = default;
 
 void AutoclickApplication::OnStart() {
-  const bool register_path_provider = running_standalone_;
-  aura_init_ = views::AuraInit::Create(
-      context()->connector(), context()->identity(), "views_mus_resources.pak",
-      std::string(), nullptr, views::AuraInit::Mode::AURA_MUS,
-      register_path_provider);
+  views::AuraInit::InitParams params;
+  params.connector = context()->connector();
+  params.identity = context()->identity();
+  params.mode = views::AuraInit::Mode::AURA_MUS;
+  params.register_path_provider = running_standalone_;
+  aura_init_ = views::AuraInit::Create(params);
   if (!aura_init_) {
     context()->QuitNow();
     return;

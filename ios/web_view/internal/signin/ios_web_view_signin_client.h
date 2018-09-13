@@ -15,8 +15,7 @@
 #include "components/signin/ios/browser/wait_for_network_callback_helper.h"
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "net/url_request/url_request_context_getter.h"
-
-@class CWVAuthenticationController;
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 // iOS WebView specific signin client.
 class IOSWebViewSigninClient : public SigninClient,
@@ -25,6 +24,7 @@ class IOSWebViewSigninClient : public SigninClient,
   IOSWebViewSigninClient(
       PrefService* pref_service,
       net::URLRequestContextGetter* url_request_context,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       SigninErrorController* signin_error_controller,
       scoped_refptr<content_settings::CookieSettings> cookie_settings,
       scoped_refptr<HostContentSettingsMap> host_content_settings_map,
@@ -41,10 +41,10 @@ class IOSWebViewSigninClient : public SigninClient,
   scoped_refptr<TokenWebData> GetDatabase() override;
   PrefService* GetPrefs() override;
   net::URLRequestContextGetter* GetURLRequestContext() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   void DoFinalInit() override;
   bool CanRevokeCredentials() override;
   std::string GetSigninScopedDeviceId() override;
-  bool ShouldMergeSigninCredentialsIntoCookieJar() override;
   bool IsFirstRun() const override;
   bool AreSigninCookiesAllowed() override;
   void AddContentSettingsObserver(
@@ -59,15 +59,11 @@ class IOSWebViewSigninClient : public SigninClient,
   std::unique_ptr<GaiaAuthFetcher> CreateGaiaAuthFetcher(
       GaiaAuthConsumer* consumer,
       const std::string& source,
-      net::URLRequestContextGetter* getter) override;
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
+      override;
 
   // SigninErrorController::Observer implementation.
   void OnErrorChanged() override;
-
-  // Setter and getter for |authentication_controller_|.
-  void SetAuthenticationController(
-      CWVAuthenticationController* authentication_controller);
-  CWVAuthenticationController* GetAuthenticationController();
 
  private:
   // SigninClient private implementation.
@@ -79,6 +75,7 @@ class IOSWebViewSigninClient : public SigninClient,
   PrefService* pref_service_;
   // The URLRequestContext associated with this service.
   net::URLRequestContextGetter* url_request_context_;
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   // Used to check for errors related to signing in.
   SigninErrorController* signin_error_controller_;
   // Used to check if sign in cookies are allowed.
@@ -87,9 +84,6 @@ class IOSWebViewSigninClient : public SigninClient,
   scoped_refptr<HostContentSettingsMap> host_content_settings_map_;
   // The TokenWebData associated with this service.
   scoped_refptr<TokenWebData> token_web_data_;
-
-  // The CWVAuthenticationController associated with this service.
-  __weak CWVAuthenticationController* authentication_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(IOSWebViewSigninClient);
 };

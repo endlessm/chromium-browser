@@ -9,6 +9,7 @@
 #include "base/ios/ios_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
+#import "base/test/ios/wait_util.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/strings/grit/components_strings.h"
@@ -35,7 +36,6 @@
 #import "ios/public/provider/chrome/browser/signin/chrome_identity.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
-#import "ios/testing/wait_util.h"
 #import "ios/web/public/test/http_server/http_server.h"
 #import "ios/web/public/test/http_server/http_server_util.h"
 #import "net/base/mac/url_conversions.h"
@@ -120,8 +120,7 @@ id<GREYMatcher> DeleteHistoryEntriesButton() {
 // Matcher for the search button.
 id<GREYMatcher> SearchIconButton() {
   if (IsUIRefreshPhase1Enabled()) {
-    return grey_accessibilityID(
-        l10n_util::GetNSStringWithFixup(IDS_IOS_ICON_SEARCH));
+    return grey_accessibilityID(kHistorySearchControllerSearchBarIdentifier);
   } else {
     return ButtonWithAccessibilityLabelId(IDS_IOS_ICON_SEARCH);
   }
@@ -143,10 +142,7 @@ id<GREYMatcher> OpenInNewIncognitoTabButton() {
 id<GREYMatcher> ClearBrowsingDataButton() {
   return ButtonWithAccessibilityLabelId(IDS_IOS_CLEAR_BUTTON);
 }
-// Matcher for the clear browsing data action sheet item.
-id<GREYMatcher> ConfirmClearBrowsingDataButton() {
-  return ButtonWithAccessibilityLabelId(IDS_IOS_CONFIRM_CLEAR_BUTTON);
-}
+
 }  // namespace
 
 // History UI tests.
@@ -271,8 +267,13 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
 
   NSString* searchString =
       [NSString stringWithFormat:@"%s", _URL1.path().c_str()];
-  [[EarlGrey selectElementWithMatcher:grey_keyWindow()]
-      performAction:grey_typeText(searchString)];
+  if (IsUIRefreshPhase1Enabled()) {
+    [[EarlGrey selectElementWithMatcher:SearchIconButton()]
+        performAction:grey_typeText(searchString)];
+  } else {
+    [[EarlGrey selectElementWithMatcher:grey_keyWindow()]
+        performAction:grey_typeText(searchString)];
+  }
   [[EarlGrey selectElementWithMatcher:HistoryEntry(_URL1, kTitle1)]
       assertWithMatcher:grey_notNil()];
   [[EarlGrey selectElementWithMatcher:HistoryEntry(_URL2, kTitle2)]
@@ -340,7 +341,8 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
       performAction:grey_tap()];
   [[EarlGrey selectElementWithMatcher:ClearBrowsingDataButton()]
       performAction:grey_tap()];
-  [[EarlGrey selectElementWithMatcher:ConfirmClearBrowsingDataButton()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          ConfirmClearBrowsingDataButton()]
       performAction:grey_tap()];
 
   // Include sufficientlyVisible condition for the case of the clear browsing
@@ -414,8 +416,8 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
   // Tap "Copy URL" and wait for the URL to be copied to the pasteboard.
   [[EarlGrey selectElementWithMatcher:ContextMenuCopyButton()]
       performAction:grey_tap()];
-  bool success =
-      testing::WaitUntilConditionOrTimeout(testing::kWaitForUIElementTimeout, ^{
+  bool success = base::test::ios::WaitUntilConditionOrTimeout(
+      base::test::ios::kWaitForUIElementTimeout, ^{
         return _URL1 ==
                net::GURLWithNSURL([UIPasteboard generalPasteboard].URL);
       });
@@ -425,6 +427,7 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
 
 // Navigates to history and checks elements for accessibility.
 - (void)testAccessibilityOnHistory {
+  [self loadTestURLs];
   [self openHistoryPanel];
   chrome_test_util::VerifyAccessibilityForCurrentScreen();
   // Close history.
@@ -463,11 +466,19 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
   [[EarlGrey selectElementWithMatcher:noHistoryMessageMatcher]
       assertWithMatcher:grey_notNil()];
 
-  id<GREYMatcher> historyEntryMatcher =
-      grey_allOf(grey_kindOfClass([LegacyHistoryEntryCell class]),
-                 grey_sufficientlyVisible(), nil);
-  [[EarlGrey selectElementWithMatcher:historyEntryMatcher]
-      assertWithMatcher:grey_nil()];
+  if (IsUIRefreshPhase1Enabled()) {
+    id<GREYMatcher> historyEntryMatcher =
+        grey_allOf(grey_kindOfClass([TableViewURLCell class]),
+                   grey_sufficientlyVisible(), nil);
+    [[EarlGrey selectElementWithMatcher:historyEntryMatcher]
+        assertWithMatcher:grey_nil()];
+  } else {
+    id<GREYMatcher> historyEntryMatcher =
+        grey_allOf(grey_kindOfClass([LegacyHistoryEntryCell class]),
+                   grey_sufficientlyVisible(), nil);
+    [[EarlGrey selectElementWithMatcher:historyEntryMatcher]
+        assertWithMatcher:grey_nil()];
+  }
 }
 
 - (void)resetBrowsingDataPrefs {

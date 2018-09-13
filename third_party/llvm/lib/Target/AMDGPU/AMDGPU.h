@@ -11,7 +11,6 @@
 #ifndef LLVM_LIB_TARGET_AMDGPU_AMDGPU_H
 #define LLVM_LIB_TARGET_AMDGPU_AMDGPU_H
 
-#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
@@ -52,6 +51,7 @@ FunctionPass *createSIMemoryLegalizerPass();
 FunctionPass *createSIDebuggerInsertNopsPass();
 FunctionPass *createSIInsertWaitcntsPass();
 FunctionPass *createSIFixWWMLivenessPass();
+FunctionPass *createSIFormMemoryClausesPass();
 FunctionPass *createAMDGPUSimplifyLibCallsPass(const TargetOptions &);
 FunctionPass *createAMDGPUUseNativeCallsPass();
 FunctionPass *createAMDGPUCodeGenPreparePass();
@@ -72,6 +72,10 @@ extern char &AMDGPUAnnotateKernelFeaturesID;
 ModulePass *createAMDGPULowerIntrinsicsPass();
 void initializeAMDGPULowerIntrinsicsPass(PassRegistry &);
 extern char &AMDGPULowerIntrinsicsID;
+
+FunctionPass *createAMDGPULowerKernelArgumentsPass();
+void initializeAMDGPULowerKernelArgumentsPass(PassRegistry &);
+extern char &AMDGPULowerKernelArgumentsID;
 
 ModulePass *createAMDGPULowerKernelAttributesPass();
 void initializeAMDGPULowerKernelAttributesPass(PassRegistry &);
@@ -137,6 +141,9 @@ extern char &AMDGPUSimplifyLibCallsID;
 void initializeAMDGPUUseNativeCallsPass(PassRegistry &);
 extern char &AMDGPUUseNativeCallsID;
 
+void initializeAMDGPUPerfHintAnalysisPass(PassRegistry &);
+extern char &AMDGPUPerfHintAnalysisID;
+
 // Passes common to R600 and SI
 FunctionPass *createAMDGPUPromoteAlloca();
 void initializeAMDGPUPromoteAllocaPass(PassRegistry&);
@@ -174,6 +181,9 @@ extern char &SIDebuggerInsertNopsID;
 
 void initializeSIInsertWaitcntsPass(PassRegistry&);
 extern char &SIInsertWaitcntsID;
+
+void initializeSIFormMemoryClausesPass(PassRegistry&);
+extern char &SIFormMemoryClausesID;
 
 void initializeAMDGPUUnifyDivergentExitNodesPass(PassRegistry&);
 extern char &AMDGPUUnifyDivergentExitNodesID;

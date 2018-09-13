@@ -5,6 +5,8 @@
 package org.chromium.support_lib_glue;
 
 import android.net.Uri;
+import android.webkit.WebChromeClient;
+import android.webkit.WebViewClient;
 
 import com.android.webview.chromium.SharedWebViewChromium;
 
@@ -57,5 +59,15 @@ class SupportLibWebViewChromium implements WebViewProviderBoundaryInterface {
                 targetOrigin.toString(),
                 SupportLibWebMessagePortAdapter.toMessagePorts(
                         messageBoundaryInterface.getPorts()));
+    }
+
+    @Override
+    public WebViewClient getWebViewClient() {
+        return mSharedWebViewChromium.getWebViewClient();
+    }
+
+    @Override
+    public WebChromeClient getWebChromeClient() {
+        return mSharedWebViewChromium.getWebChromeClient();
     }
 }

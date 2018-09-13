@@ -40,6 +40,9 @@ TestOptionsProvider::TestOptionsProvider()
                          &strike_server_,
                          color_space_.get(),
                          can_use_lcd_text_,
+                         context_supports_distance_field_text_,
+                         max_texture_size_,
+                         max_texture_bytes_,
                          SkMatrix::I()),
       deserialize_options_(this, &strike_client_) {}
 
@@ -61,7 +64,7 @@ ImageProvider::ScopedDecodedDrawImage TestOptionsProvider::GetDecodedDrawImage(
   if (LockEntryDirect(entry_key)) {
     return ScopedDecodedDrawImage(
         DecodedDrawImage(image_id, SkSize::MakeEmpty(), draw_image.scale(),
-                         draw_image.filter_quality(), true));
+                         draw_image.filter_quality(), false, true));
   }
 
   decoded_images_.push_back(draw_image);
@@ -73,8 +76,8 @@ ImageProvider::ScopedDecodedDrawImage TestOptionsProvider::GetDecodedDrawImage(
 
   // Create a transfer cache entry for this image.
   auto color_space = SkColorSpace::MakeSRGB();
-  ClientImageTransferCacheEntry cache_entry(&bitmap.pixmap(),
-                                            color_space.get());
+  ClientImageTransferCacheEntry cache_entry(&bitmap.pixmap(), color_space.get(),
+                                            false /* needs_mips */);
   std::vector<uint8_t> data;
   data.resize(cache_entry.SerializedSize());
   if (!cache_entry.Serialize(base::span<uint8_t>(data.data(), data.size()))) {
@@ -85,7 +88,7 @@ ImageProvider::ScopedDecodedDrawImage TestOptionsProvider::GetDecodedDrawImage(
 
   return ScopedDecodedDrawImage(
       DecodedDrawImage(image_id, SkSize::MakeEmpty(), draw_image.scale(),
-                       draw_image.filter_quality(), true));
+                       draw_image.filter_quality(), false, true));
 }
 
 }  // namespace cc

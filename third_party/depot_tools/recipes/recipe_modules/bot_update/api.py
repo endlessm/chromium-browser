@@ -10,7 +10,7 @@ from recipe_engine import recipe_api
 class BotUpdateApi(recipe_api.RecipeApi):
 
   def __init__(self, properties, patch_issue, patch_set,
-               repository, patch_repository_url, gerrit_ref, patch_ref,
+               repository, patch_repository_url, patch_ref,
                patch_gerrit_url, revision, parent_got_revision,
                deps_revision_overrides, fail_patch, *args, **kwargs):
     self._apply_patch_on_gclient = properties.get(
@@ -18,7 +18,7 @@ class BotUpdateApi(recipe_api.RecipeApi):
     self._issue = patch_issue
     self._patchset = patch_set
     self._repository = repository or patch_repository_url
-    self._gerrit_ref = gerrit_ref or patch_ref
+    self._gerrit_ref = patch_ref
     self._gerrit = patch_gerrit_url
     self._revision = revision
     self._parent_got_revision = parent_got_revision
@@ -27,6 +27,12 @@ class BotUpdateApi(recipe_api.RecipeApi):
 
     self._last_returned_properties = {}
     super(BotUpdateApi, self).__init__(*args, **kwargs)
+
+  def initialize(self):
+    gm = self.m.buildbucket.build_input.gitiles_commit
+    if self._revision is None and self._repository is None and gm:
+      self._revision = gm.id
+      self._repository = gm.host + '/' + gm.project
 
   def __call__(self, name, cmd, **kwargs):
     """Wrapper for easy calling of bot_update."""
@@ -67,7 +73,7 @@ class BotUpdateApi(recipe_api.RecipeApi):
 
   def ensure_checkout(self, gclient_config=None, suffix=None,
                       patch=True, update_presentation=True,
-                      patch_root=None, no_shallow=False,
+                      patch_root=None,
                       with_branch_heads=False, with_tags=False, refs=None,
                       patch_oauth2=None, oauth2_json=None,
                       use_site_config_creds=None, clobber=False,
@@ -208,8 +214,6 @@ class BotUpdateApi(recipe_api.RecipeApi):
 
     if clobber:
       cmd.append('--clobber')
-    if no_shallow:
-      cmd.append('--no_shallow')
     if with_branch_heads or cfg.with_branch_heads:
       cmd.append('--with_branch_heads')
     if with_tags or cfg.with_tags:

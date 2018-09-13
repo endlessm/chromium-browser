@@ -4,7 +4,11 @@
 
 package org.chromium.content.browser;
 
+import android.content.res.Configuration;
+
+import org.chromium.base.ActivityState;
 import org.chromium.base.ObserverList;
+import org.chromium.content.browser.webcontents.WebContentsImpl;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContents.UserDataFactory;
 import org.chromium.ui.base.WindowAndroid;
@@ -18,6 +22,7 @@ public final class WindowEventObserverManager implements DisplayAndroidObserver 
     private final ObserverList<WindowEventObserver> mWindowEventObservers = new ObserverList<>();
 
     private WindowAndroid mWindowAndroid;
+    private ViewEventSinkImpl mViewEventSink;
     private boolean mAttachedToWindow;
 
     // The cache of device's current orientation and DIP scale factor.
@@ -35,8 +40,11 @@ public final class WindowEventObserverManager implements DisplayAndroidObserver 
     }
 
     private WindowEventObserverManager(WebContents webContents) {
+        mViewEventSink = ViewEventSinkImpl.from(webContents);
+        assert mViewEventSink != null;
         WindowAndroid window = webContents.getTopLevelNativeWindow();
         if (window != null) onWindowAndroidChanged(window);
+        addObserver((WebContentsImpl) webContents);
     }
 
     /**
@@ -62,7 +70,7 @@ public final class WindowEventObserverManager implements DisplayAndroidObserver 
      */
     public void onAttachedToWindow() {
         mAttachedToWindow = true;
-        addDisplayAndroidObserverIfNeeded();
+        addUiObservers();
         for (WindowEventObserver observer : mWindowEventObservers) observer.onAttachedToWindow();
     }
 
@@ -70,8 +78,8 @@ public final class WindowEventObserverManager implements DisplayAndroidObserver 
      * @see android.view.View#onDetachedFromWindow()
      */
     public void onDetachedFromWindow() {
+        removeUiObservers();
         mAttachedToWindow = false;
-        removeDisplayAndroidObserver();
         for (WindowEventObserver observer : mWindowEventObservers) observer.onDetachedFromWindow();
     }
 
@@ -89,11 +97,26 @@ public final class WindowEventObserverManager implements DisplayAndroidObserver 
      * @param windowAndroid A new WindowAndroid object.
      */
     public void onWindowAndroidChanged(WindowAndroid windowAndroid) {
-        removeDisplayAndroidObserver();
+        if (windowAndroid == mWindowAndroid) return;
+        removeUiObservers();
+
         mWindowAndroid = windowAndroid;
-        addDisplayAndroidObserverIfNeeded();
+        addUiObservers();
+
         for (WindowEventObserver observer : mWindowEventObservers) {
             observer.onWindowAndroidChanged(windowAndroid);
+        }
+    }
+
+    public void onConfigurationChanged(Configuration newConfig) {
+        for (WindowEventObserver observer : mWindowEventObservers) {
+            observer.onConfigurationChanged(newConfig);
+        }
+    }
+
+    public void onViewFocusChanged(boolean gainFocus, boolean hideKeyboardOnBlur) {
+        for (WindowEventObserver observer : mWindowEventObservers) {
+            observer.onViewFocusChanged(gainFocus, hideKeyboardOnBlur);
         }
     }
 
@@ -105,8 +128,35 @@ public final class WindowEventObserverManager implements DisplayAndroidObserver 
         onDIPScaleChanged(display.getDipScale());
     }
 
+    private void addActivityStateObserver() {
+        if (!mAttachedToWindow || mWindowAndroid == null) return;
+        mWindowAndroid.addActivityStateObserver(mViewEventSink);
+        // Sets the state of ViewEventSink right if activity is already in resumed state.
+        // Can happen when the front tab gets moved down in the stack while Chrome
+        // is in background. See https://crbug.com/852336.
+        if (mWindowAndroid.getActivityState() == ActivityState.RESUMED) {
+            mViewEventSink.onActivityResumed();
+        }
+    }
+
+    private void addUiObservers() {
+        addDisplayAndroidObserverIfNeeded();
+        addActivityStateObserver();
+    }
+
+    private void removeUiObservers() {
+        removeDisplayAndroidObserver();
+        removeActivityStateObserver();
+    }
+
     private void removeDisplayAndroidObserver() {
-        if (mWindowAndroid != null) mWindowAndroid.getDisplay().removeObserver(this);
+        if (mWindowAndroid == null) return;
+        mWindowAndroid.getDisplay().removeObserver(this);
+    }
+
+    private void removeActivityStateObserver() {
+        if (!mAttachedToWindow || mWindowAndroid == null) return;
+        mWindowAndroid.removeActivityStateObserver(mViewEventSink);
     }
 
     // DisplayAndroidObserver

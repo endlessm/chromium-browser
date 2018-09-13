@@ -44,7 +44,7 @@
 
 using extensions::AppWindow;
 
-@interface NSWindow (NSPrivateApis)
+@interface NSWindow (NSPrivateNativeAppWindowApis)
 - (void)setBottomCornerRounded:(BOOL)rounded;
 - (BOOL)_isTitleHidden;
 @end
@@ -568,7 +568,7 @@ void NativeAppWindowCocoa::HandleKeyboardEvent(
       event.GetType() == content::NativeWebKeyboardEvent::kChar) {
     return;
   }
-  [window() redispatchKeyEvent:event.os_event];
+  [[window() commandDispatcher] redispatchKeyEvent:event.os_event];
 }
 
 void NativeAppWindowCocoa::UpdateDraggableRegionViews() {

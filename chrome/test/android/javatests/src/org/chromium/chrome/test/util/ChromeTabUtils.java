@@ -34,8 +34,10 @@ import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.content.browser.test.util.TestTouchUtils;
 import org.chromium.content.browser.test.util.TouchCommon;
 import org.chromium.content_public.browser.LoadUrlParams;
+import org.chromium.content_public.browser.WebContents;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -150,11 +152,13 @@ public class ChromeTabUtils {
                         "onPageLoadFinished was never called, but loading stopped "
                                 + "on the expected page. Tentatively continuing.");
             } else {
-                Assert.fail("Page did not load.  Tab information at time of failure --"
-                        + " url: " + url + ", final URL: " + tab.getUrl() + ", load progress: "
-                        + tab.getProgress() + ", is loading: " + Boolean.toString(tab.isLoading())
-                        + ", web contents loading: "
-                        + Boolean.toString(tab.getWebContents().isLoadingToDifferentDocument()));
+                WebContents webContents = tab.getWebContents();
+                Assert.fail(String.format(Locale.ENGLISH,
+                        "Page did not load.  Tab information at time of failure -- "
+                                + "expected url: '%s', actual URL: '%s', load progress: %d, is "
+                                + "loading: %b, web contents init: %b, web contents loading: %b",
+                        url, tab.getUrl(), tab.getProgress(), tab.isLoading(), webContents != null,
+                        webContents == null ? false : webContents.isLoadingToDifferentDocument()));
             }
         }
     }
@@ -334,14 +338,13 @@ public class ChromeTabUtils {
             ChromeTabbedActivity activity) throws InterruptedException {
         final TabModel normalTabModel = activity.getTabModelSelector().getModel(false);
         final CallbackHelper createdCallback = new CallbackHelper();
-        normalTabModel.addObserver(
-                new EmptyTabModelObserver() {
-                    @Override
-                    public void didAddTab(Tab tab, TabLaunchType type) {
-                        createdCallback.notifyCalled();
-                        normalTabModel.removeObserver(this);
-                    }
-                });
+        normalTabModel.addObserver(new EmptyTabModelObserver() {
+            @Override
+            public void didAddTab(Tab tab, @TabLaunchType int type) {
+                createdCallback.notifyCalled();
+                normalTabModel.removeObserver(this);
+            }
+        });
         // Tablet and phone have different new tab buttons; click the right one.
         if (activity.isTablet()) {
             StripLayoutHelper strip =
@@ -385,12 +388,12 @@ public class ChromeTabUtils {
         TabModel tabModel = activity.getTabModelSelector().getModel(incognito);
         TabModelObserver observer = new EmptyTabModelObserver() {
             @Override
-            public void didAddTab(Tab tab, TabLaunchType type) {
+            public void didAddTab(Tab tab, @TabLaunchType int type) {
                 createdCallback.notifyCalled();
             }
 
             @Override
-            public void didSelectTab(Tab tab, TabSelectionType type, int lastId) {
+            public void didSelectTab(Tab tab, @TabSelectionType int type, int lastId) {
                 selectedCallback.notifyCalled();
             }
         };
@@ -601,7 +604,7 @@ public class ChromeTabUtils {
         final CallbackHelper selectCallback = new CallbackHelper();
         final TabModelObserver observer = new EmptyTabModelObserver() {
             @Override
-            public void didSelectTab(Tab tab, TabSelectionType type, int lastId) {
+            public void didSelectTab(Tab tab, @TabSelectionType int type, int lastId) {
                 selectCallback.notifyCalled();
             }
         };
@@ -653,7 +656,7 @@ public class ChromeTabUtils {
                 testRule.getActivity().getTabModelSelector().getModel(expectIncognito);
         tabModel.addObserver(new EmptyTabModelObserver() {
             @Override
-            public void didAddTab(Tab tab, TabLaunchType type) {
+            public void didAddTab(Tab tab, @TabLaunchType int type) {
                 if (TextUtils.equals(expectedUrl, tab.getUrl())) {
                     createdCallback.notifyCalled();
                     tabModel.removeObserver(this);
@@ -702,7 +705,7 @@ public class ChromeTabUtils {
                 backgroundActivity.getTabModelSelector().getModel(expectIncognito);
         tabModel.addObserver(new EmptyTabModelObserver() {
             @Override
-            public void didAddTab(Tab tab, TabLaunchType type) {
+            public void didAddTab(Tab tab, @TabLaunchType int type) {
                 if (TextUtils.equals(expectedUrl, tab.getUrl())) {
                     createdCallback.notifyCalled();
                     tabModel.removeObserver(this);

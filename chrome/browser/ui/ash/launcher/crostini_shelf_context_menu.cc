@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "ash/public/cpp/app_menu_constants.h"
 #include "ash/public/cpp/shelf_item.h"
 #include "chrome/browser/chromeos/crostini/crostini_registry_service.h"
 #include "chrome/browser/chromeos/crostini/crostini_registry_service_factory.h"
@@ -33,18 +34,19 @@ void CrostiniShelfContextMenu::BuildMenu(ui::SimpleMenuModel* menu_model) {
   const crostini::CrostiniRegistryService* registry_service =
       crostini::CrostiniRegistryServiceFactory::GetForProfile(
           controller()->profile());
-  std::unique_ptr<crostini::CrostiniRegistryService::Registration>
-      registration = registry_service->GetRegistration(item().id.app_id);
+  base::Optional<crostini::CrostiniRegistryService::Registration> registration =
+      registry_service->GetRegistration(item().id.app_id);
   if (registration)
     AddPinMenu(menu_model);
 
-  menu_model->AddItemWithStringId(MENU_NEW_WINDOW, IDS_APP_LIST_NEW_WINDOW);
+  menu_model->AddItemWithStringId(ash::MENU_NEW_WINDOW,
+                                  IDS_APP_LIST_NEW_WINDOW);
 
   if (controller()->IsOpen(item().id)) {
-    menu_model->AddItemWithStringId(MENU_CLOSE,
+    menu_model->AddItemWithStringId(ash::MENU_CLOSE,
                                     IDS_LAUNCHER_CONTEXT_MENU_CLOSE);
   } else {
-    menu_model->AddItemWithStringId(MENU_OPEN_NEW,
+    menu_model->AddItemWithStringId(ash::MENU_OPEN_NEW,
                                     IDS_APP_CONTEXT_MENU_ACTIVATE_ARC);
   }
 
@@ -56,8 +58,8 @@ void CrostiniShelfContextMenu::ExecuteCommand(int command_id, int event_flags) {
   if (ExecuteCommonCommand(command_id, event_flags))
     return;
 
-  if (command_id == MENU_NEW_WINDOW) {
-    LaunchCrostiniApp(controller()->profile(), item().id.app_id);
+  if (command_id == ash::MENU_NEW_WINDOW) {
+    LaunchCrostiniApp(controller()->profile(), item().id.app_id, display_id());
     return;
   }
   NOTREACHED();

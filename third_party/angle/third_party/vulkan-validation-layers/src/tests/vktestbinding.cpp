@@ -249,6 +249,7 @@ void Device::init(std::vector<const char *> &extensions, VkPhysicalDeviceFeature
     for (uint32_t i = 0; i < (uint32_t)queue_props.size(); i++) {
         if (queue_props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
             graphics_queue_node_index_ = i;
+            break;
         }
     }
     // Only request creation with queuefamilies that have at least one queue
@@ -364,7 +365,7 @@ void Device::init_formats() {
     EXPECT(!formats_.empty());
 }
 
-bool Device::IsEnbledExtension(const char *extension) {
+bool Device::IsEnabledExtension(const char *extension) {
     const auto is_x = [&extension](const char *enabled_extension) { return strcmp(extension, enabled_extension) == 0; };
     return std::any_of(enabled_extensions_.begin(), enabled_extensions_.end(), is_x);
 }

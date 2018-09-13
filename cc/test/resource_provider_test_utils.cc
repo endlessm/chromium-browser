@@ -12,7 +12,7 @@ const std::unordered_map<viz::ResourceId, viz::ResourceId>&
 SendResourceAndGetChildToParentMap(
     const std::vector<viz::ResourceId>& resource_ids,
     viz::DisplayResourceProvider* resource_provider,
-    LayerTreeResourceProvider* child_resource_provider,
+    viz::ClientResourceProvider* child_resource_provider,
     viz::ContextProvider* child_context_provider) {
   DCHECK(resource_provider);
   DCHECK(child_resource_provider);
@@ -23,6 +23,12 @@ SendResourceAndGetChildToParentMap(
   child_resource_provider->PrepareSendToParent(resource_ids, &send_to_parent,
                                                child_context_provider);
   resource_provider->ReceiveFromChild(child_id, send_to_parent);
+
+  // Delete them in the child so they won't be leaked, and will be released once
+  // returned from the parent. This assumes they won't need to be sent to the
+  // parent again.
+  for (viz::ResourceId id : resource_ids)
+    child_resource_provider->RemoveImportedResource(id);
 
   // Return the child to parent map.
   return resource_provider->GetChildToParentMap(child_id);

@@ -42,7 +42,7 @@ interface ExternalNavigationDelegate {
      * Returns the number of specialized intent handlers in {@params infos}. Specialized intent
      * handlers are intent handlers which handle only a few URLs (e.g. google maps or youtube).
      */
-    int countSpecializedHandlers(List<ResolveInfo> infos);
+    int countSpecializedHandlers(List<ResolveInfo> infos, Intent intent);
 
     /**
      * Returns the package name of the first valid WebAPK in {@link infos}.
@@ -111,7 +111,8 @@ interface ExternalNavigationDelegate {
      * @return OverrideUrlLoadingResult (if the tab has been clobbered, or we're launching an
      *         intent.)
      */
-    OverrideUrlLoadingResult clobberCurrentTab(String url, String referrerUrl);
+    @OverrideUrlLoadingResult
+    int clobberCurrentTab(String url, String referrerUrl);
 
     /** Adds a window id to the intent, if necessary. */
     void maybeSetWindowId(Intent intent);

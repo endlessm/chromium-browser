@@ -86,6 +86,22 @@ cr.define('wallpapers', function() {
       }
 
       var imageEl = cr.doc.createElement('img');
+      if (loadTimeData.getBoolean('useNewWallpaperPicker')) {
+        // On the new picker, do not show the image until |cropImageToFitGrid_|
+        // is done.
+        imageEl.style.visibility = 'hidden';
+        imageEl.setAttribute('aria-hidden', 'true');
+        this.setAttribute('aria-label', this.dataItem.ariaLabel);
+        this.tabIndex = 0;
+        this.addEventListener('keypress', e => {
+          if (e.keyCode == 13)
+            this.parentNode.selectedItem = this.dataItem;
+        });
+        this.addEventListener('mousedown', e => {
+          e.preventDefault();
+        });
+      }
+
       imageEl.classList.add('thumbnail');
       cr.defineProperty(imageEl, 'offline', cr.PropertyKind.BOOL_ATTR);
       imageEl.offline = this.dataItem.availableOffline;
@@ -354,7 +370,11 @@ cr.define('wallpapers', function() {
      * @type {boolean}
      */
     get isShowingDailyRefresh() {
-      return this.dataModel.item(0).isDailyRefreshItem;
+      for (var i = 0; i < this.dataModel.length; ++i) {
+        if (this.dataModel.item(i).isDailyRefreshItem)
+          return true;
+      }
+      return false;
     },
 
     /**
@@ -362,9 +382,11 @@ cr.define('wallpapers', function() {
      * @type {Object}
      */
     get dailyRefreshItem() {
-      return this.isShowingDailyRefresh ?
-          this.getListItem(this.dataModel.item(0)) :
-          null;
+      for (var i = 0; i < this.dataModel.length; ++i) {
+        if (this.dataModel.item(i).isDailyRefreshItem)
+          return this.getListItemByIndex(i);
+      }
+      return null;
     },
 
     /**
@@ -375,6 +397,15 @@ cr.define('wallpapers', function() {
       return this.dailyRefreshItem ?
           this.dailyRefreshItem.querySelectorAll('.slide-show') :
           {};
+    },
+
+    /**
+     * The id of the collection that the wallpapers belong to, assuming all the
+     * wallpapers have the same id (enfored by the source of the data model).
+     * @type {string}
+     */
+    get collectionId() {
+      return this.dataModel.item(this.dataModel.length - 1).collectionId;
     },
 
     /**
@@ -456,24 +487,35 @@ cr.define('wallpapers', function() {
         newHeight = GRID_SIZE_CSS;
         newWidth = GRID_SIZE_CSS;
       } else {
+        var ROUND_CORNER_RADIUS_PX = 4;
+        var getClipPathString = (top, left, round) => {
+          return 'inset(' + top + 'px ' + left + 'px round ' + round + 'px)';
+        };
         var aspectRatio = image.offsetWidth / image.offsetHeight;
         if (aspectRatio > 1) {
           newHeight = GRID_SIZE_CSS;
           newWidth = GRID_SIZE_CSS * aspectRatio;
           // The center portion is visible, and the overflow area on the left
           // and right will be hidden.
-          image.style.left = (GRID_SIZE_CSS - newWidth) / 2 + 'px';
+          var leftDistance = (newWidth - GRID_SIZE_CSS) / 2;
+          image.style.left = -leftDistance + 'px';
+          image.style.clipPath =
+              getClipPathString(0, leftDistance, ROUND_CORNER_RADIUS_PX);
         } else {
           newWidth = GRID_SIZE_CSS;
           newHeight = GRID_SIZE_CSS / aspectRatio;
           // The center portion is visible, and the overflow area on the top and
           // buttom will be hidden.
-          image.style.top = (GRID_SIZE_CSS - newHeight) / 2 + 'px';
+          var topDistance = (newHeight - GRID_SIZE_CSS) / 2;
+          image.style.top = -topDistance + 'px';
+          image.style.clipPath =
+              getClipPathString(topDistance, 0, ROUND_CORNER_RADIUS_PX);
         }
       }
 
       image.style.height = newHeight + 'px';
       image.style.width = newWidth + 'px';
+      image.style.visibility = 'visible';
     },
 
     /**
@@ -497,6 +539,7 @@ cr.define('wallpapers', function() {
       if (opt_thumbnail && this.useNewWallpaperPicker_)
         this.cropImageToFitGrid_(opt_thumbnail);
 
+      // Daily refresh item only exists in new wallpaper picker.
       if (this.isShowingDailyRefresh) {
         var dailyRefreshItemReady = this.dailyRefreshItem &&
             this.dailyRefreshImages.length >= DAILY_REFRESH_IMAGES_NUM;
@@ -543,6 +586,10 @@ cr.define('wallpapers', function() {
           window.clearTimeout(this.dailyRefreshTimer_);
           this.showNextImage_(0);
         }
+        if (this.useNewWallpaperPicker_ &&
+            this.classList.contains('image-picker-offline')) {
+          this.highlightOfflineWallpapers();
+        }
       }
     },
 
@@ -554,6 +601,8 @@ cr.define('wallpapers', function() {
       // updateActiveThumb_().
       this.checkmark_ = cr.doc.createElement('div');
       this.checkmark_.classList.add('check');
+      this.checkmark_.setAttribute(
+          'aria-label', loadTimeData.getString('setSuccessfullyMessage'));
       this.dataModel = new ArrayDataModel([]);
       this.thumbnailList_ = new ArrayDataModel([]);
       this.useNewWallpaperPicker_ =
@@ -633,22 +682,11 @@ cr.define('wallpapers', function() {
 
       // Clears previous checkmark.
       var previousSelectedGridItem = this.checkmark_.parentNode;
-      if (previousSelectedGridItem) {
+      if (previousSelectedGridItem)
         previousSelectedGridItem.removeChild(this.checkmark_);
-        var border =
-            previousSelectedGridItem.querySelector('.selected-grid-border');
-        if (border)
-          previousSelectedGridItem.removeChild(border);
-      }
-      if (!selectedGridItem)
-        return;
 
-      if (this.useNewWallpaperPicker_) {
-        var selectedGridBorder = cr.doc.createElement('div');
-        selectedGridBorder.classList.add('selected-grid-border');
-        selectedGridItem.appendChild(selectedGridBorder);
-      }
-      selectedGridItem.appendChild(this.checkmark_);
+      if (selectedGridItem)
+        selectedGridItem.appendChild(this.checkmark_);
     },
 
     /**
@@ -680,13 +718,9 @@ cr.define('wallpapers', function() {
       if (!this.dailyRefreshItem.querySelector('.daily-refresh-banner')) {
         var dailyRefreshBanner = document.querySelector('.daily-refresh-banner')
                                      .cloneNode(true /*deep=*/);
-        dailyRefreshBanner.hidden = false;
-        dailyRefreshBanner.querySelector('.daily-refresh-slider')
-            .addEventListener(
-                'click',
-                WallpaperManager.prototype.toggleSurpriseMe.bind(
-                    wallpaperManager));
         this.dailyRefreshItem.appendChild(dailyRefreshBanner);
+        wallpaperManager.decorateDailyRefreshItem(
+            this.collectionId, this.dailyRefreshItem);
       }
 
       slideShowImage.style.opacity =
@@ -706,17 +740,43 @@ cr.define('wallpapers', function() {
       var images = this.dailyRefreshImages;
       if (images.length <= index)
         return;
-      images[index].style.opacity = 1;
-
-      if (images.length > 1) {
-        var previousIndex = (index - 1) % images.length;
-        if (previousIndex < 0)
-          previousIndex += images.length;
-        images[previousIndex].style.opacity = 0;
-        var nextIndex = (index + 1) % images.length;
-        this.dailyRefreshTimer_ =
-            window.setTimeout(this.showNextImage_.bind(this, nextIndex), 3000);
+      for (var i = 0; i < images.length; ++i) {
+        images[i].style.opacity = i === index ? 1 : 0;
       }
+      var nextIndex = (index + 1) % images.length;
+      this.dailyRefreshTimer_ =
+          window.setTimeout(this.showNextImage_.bind(this, nextIndex), 3000);
+    },
+
+    /**
+     * Highlights the wallpapers that are available offline by greying out all
+     * the other wallpapers.
+     */
+    highlightOfflineWallpapers: function() {
+      if (!this.useNewWallpaperPicker_ ||
+          !this.classList.contains('image-picker-offline')) {
+        return;
+      }
+
+      chrome.wallpaperPrivate.getOfflineWallpaperList(list => {
+        var offlineWallpaperList = {};
+        for (var url of list) {
+          offlineWallpaperList[url] = true;
+        }
+
+        for (var i = 0; i < this.dataModel.length; ++i) {
+          var url = this.dataModel.item(i).baseURL;
+          if (!url)
+            continue;
+          var fileName = url.substring(url.lastIndexOf('/') + 1) +
+              loadTimeData.getString('highResolutionSuffix');
+          if (this.getListItemByIndex(i) &&
+              offlineWallpaperList.hasOwnProperty(encodeURI(fileName))) {
+            this.getListItemByIndex(i).querySelector('.thumbnail').offline =
+                true;
+          }
+        }
+      });
     },
 
     /**
@@ -727,8 +787,23 @@ cr.define('wallpapers', function() {
       // The active thumbnail maybe deleted in the above redraw(). Sets it again
       // to make sure checkmark shows correctly.
       this.updateActiveThumb_();
-      if (this.useNewWallpaperPicker_)
+      if (this.useNewWallpaperPicker_) {
+        if (this.dataModel) {
+          var scrollUp =
+              this.cachedScrollTop_ && this.cachedScrollTop_ > this.scrollTop;
+          for (var i = 0; i < this.dataModel.length; ++i) {
+            if (this.getListItemByIndex(i)) {
+              this.getListItemByIndex(i).classList.toggle(
+                  'first-row',
+                  i < this.columns &&
+                      (this.firstIndex_ == 0 || i != this.firstIndex_ ||
+                       scrollUp));
+            }
+          }
+        }
         wallpaperManager.onScrollPositionChanged(this.scrollTop);
+        this.cachedScrollTop_ = this.scrollTop;
+      }
     }
   };
 

@@ -542,6 +542,8 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
         } else if (ViewUtils.hasFocus(containerView)
                 && resultCode == InputMethodManager.RESULT_UNCHANGED_SHOWN) {
             // If the OSK was already there, focus the form immediately.
+            // Also, the VR soft keyboard always reports RESULT_UNCHANGED_SHOWN as it
+            // doesn't affect the size of the web contents.
             mWebContents.scrollFocusedEditableNodeIntoView();
         }
     }
@@ -606,10 +608,10 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
         }
     }
 
-    /**
-     * Call this when keyboard configuration has changed.
-     */
-    public void onKeyboardConfigurationChanged(Configuration newConfig) {
+    // WindowEventObserver
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
         if (!isValid()) return;
         // If configuration unchanged, do nothing.
         if (mCurrentConfig.keyboard == newConfig.keyboard
@@ -641,8 +643,6 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
         }
     }
 
-    // WindowEventObserver
-
     @Override
     public void onWindowFocusChanged(boolean gainFocus) {
         if (mInputConnectionFactory != null) {
@@ -665,11 +665,7 @@ public class ImeAdapterImpl implements ImeAdapter, WindowEventObserver {
         }
     }
 
-    /**
-     * Call this when view's focus has changed.
-     * @param gainFocus True if we're gaining focus.
-     * @param hideKeyboardOnBlur True if we should hide soft keyboard when losing focus.
-     */
+    @Override
     public void onViewFocusChanged(boolean gainFocus, boolean hideKeyboardOnBlur) {
         if (DEBUG_LOGS) Log.i(TAG, "onViewFocusChanged: gainFocus [%b]", gainFocus);
         if (!gainFocus && hideKeyboardOnBlur) resetAndHideKeyboard();

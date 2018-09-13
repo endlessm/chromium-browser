@@ -11,11 +11,12 @@
 #include "third_party/blink/renderer/bindings/tests/results/core/v8_test_interface_conditional_secure_context.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_configuration.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -472,7 +473,7 @@ void V8TestInterfaceConditionalSecureContext::InstallConditionalFeatures(
       V8DOMConfiguration::InstallAccessors(
           isolate, world, instanceObject, prototypeObject, interfaceObject,
           signature, accessor_configurations,
-          arraysize(accessor_configurations));
+          base::size(accessor_configurations));
       if (RuntimeEnabledFeatures::SecureFeatureEnabled()) {
         static const V8DOMConfiguration::AccessorConfiguration accessor_configurations[] = {
             { "secureContextRuntimeEnabledAttribute", V8TestInterfaceConditionalSecureContext::secureContextRuntimeEnabledAttributeAttributeGetterCallback, V8TestInterfaceConditionalSecureContext::secureContextRuntimeEnabledAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
@@ -480,7 +481,7 @@ void V8TestInterfaceConditionalSecureContext::InstallConditionalFeatures(
         V8DOMConfiguration::InstallAccessors(
             isolate, world, instanceObject, prototypeObject, interfaceObject,
             signature, accessor_configurations,
-            arraysize(accessor_configurations));
+            base::size(accessor_configurations));
       }
     }
     if (executionContext && (executionContext->IsDocument())) {
@@ -491,7 +492,7 @@ void V8TestInterfaceConditionalSecureContext::InstallConditionalFeatures(
         V8DOMConfiguration::InstallAccessors(
             isolate, world, instanceObject, prototypeObject, interfaceObject,
             signature, accessor_configurations,
-            arraysize(accessor_configurations));
+            base::size(accessor_configurations));
         if (RuntimeEnabledFeatures::SecureFeatureEnabled()) {
           static const V8DOMConfiguration::AccessorConfiguration accessor_configurations[] = {
               { "secureContextWindowExposedRuntimeEnabledAttribute", V8TestInterfaceConditionalSecureContext::secureContextWindowExposedRuntimeEnabledAttributeAttributeGetterCallback, V8TestInterfaceConditionalSecureContext::secureContextWindowExposedRuntimeEnabledAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
@@ -499,7 +500,7 @@ void V8TestInterfaceConditionalSecureContext::InstallConditionalFeatures(
           V8DOMConfiguration::InstallAccessors(
               isolate, world, instanceObject, prototypeObject, interfaceObject,
               signature, accessor_configurations,
-              arraysize(accessor_configurations));
+              base::size(accessor_configurations));
         }
       }
     }
@@ -511,7 +512,7 @@ void V8TestInterfaceConditionalSecureContext::InstallConditionalFeatures(
         V8DOMConfiguration::InstallAccessors(
             isolate, world, instanceObject, prototypeObject, interfaceObject,
             signature, accessor_configurations,
-            arraysize(accessor_configurations));
+            base::size(accessor_configurations));
         if (RuntimeEnabledFeatures::SecureFeatureEnabled()) {
           static const V8DOMConfiguration::AccessorConfiguration accessor_configurations[] = {
               { "secureContextWorkerExposedRuntimeEnabledAttribute", V8TestInterfaceConditionalSecureContext::secureContextWorkerExposedRuntimeEnabledAttributeAttributeGetterCallback, V8TestInterfaceConditionalSecureContext::secureContextWorkerExposedRuntimeEnabledAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
@@ -519,7 +520,7 @@ void V8TestInterfaceConditionalSecureContext::InstallConditionalFeatures(
           V8DOMConfiguration::InstallAccessors(
               isolate, world, instanceObject, prototypeObject, interfaceObject,
               signature, accessor_configurations,
-              arraysize(accessor_configurations));
+              base::size(accessor_configurations));
         }
       }
     }

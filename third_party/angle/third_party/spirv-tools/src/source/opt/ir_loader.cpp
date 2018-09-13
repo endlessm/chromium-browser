@@ -18,7 +18,7 @@
 #include "reflect.h"
 
 namespace spvtools {
-namespace ir {
+namespace opt {
 
 IrLoader::IrLoader(const MessageConsumer& consumer, Module* m)
     : consumer_(consumer),
@@ -114,7 +114,7 @@ bool IrLoader::AddInstruction(const spv_parsed_instruction_t* inst) {
         module_->AddGlobalValue(std::move(spv_inst));
       } else {
         SPIRV_UNIMPLEMENTED(consumer_,
-                            "unhandled inst type outside function defintion");
+                            "unhandled inst type outside function definition");
       }
     } else {
       if (block_ == nullptr) {  // Inside function but outside blocks
@@ -157,5 +157,5 @@ void IrLoader::EndModule() {
   }
 }
 
-}  // namespace ir
+}  // namespace opt
 }  // namespace spvtools

@@ -6,14 +6,14 @@
 
 #import <Foundation/Foundation.h>
 
-#import "base/mac/bind_objc_block.h"
+#include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/sys_string_conversions.h"
+#import "base/test/ios/wait_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "ios/net/cookies/cookie_store_ios_test_util.h"
 #import "ios/net/cookies/ns_http_system_cookie_store.h"
 #import "ios/net/cookies/system_cookie_store.h"
-#import "ios/testing/wait_util.h"
 #include "ios/web/public/features.h"
 #include "ios/web/public/test/test_web_thread_bundle.h"
 #include "ios/web/public/test/web_test.h"
@@ -25,8 +25,8 @@
 #error "This file requires ARC support."
 #endif
 
-using testing::WaitUntilConditionOrTimeout;
-using testing::kWaitForCookiesTimeout;
+using base::test::ios::WaitUntilConditionOrTimeout;
+using base::test::ios::kWaitForCookiesTimeout;
 
 namespace {
 
@@ -106,7 +106,7 @@ TEST_F(CookieUtilTest, CreateCookieStoreInIOS11) {
   __block NSArray<NSHTTPCookie*>* result_cookies = nil;
   __block bool callback_called = false;
   ns_cookie_store->GetCookiesForURLAsync(
-      test_url, base::BindBlockArc(^(NSArray<NSHTTPCookie*>* cookies) {
+      test_url, base::BindOnce(^(NSArray<NSHTTPCookie*>* cookies) {
         callback_called = true;
         result_cookies = [cookies copy];
       }));
@@ -129,7 +129,7 @@ TEST_F(CookieUtilTest, CreateCookieStoreInIOS11) {
 
   // Clear cookies that was set in the test.
   __block bool cookies_cleared = false;
-  cookie_store->DeleteAllAsync(base::BindBlockArc(^(unsigned int) {
+  cookie_store->DeleteAllAsync(base::BindOnce(^(unsigned int) {
     cookies_cleared = true;
   }));
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForCookiesTimeout, ^bool {

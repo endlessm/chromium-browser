@@ -17,9 +17,11 @@
 
 #include "AMDGPU.h"
 #include "AMDKernelCodeT.h"
-#include "MCTargetDesc/AMDGPUHSAMetadataStreamer.h"
+#include "AMDGPUHSAMetadataStreamer.h"
+#include "SIProgramInfo.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/Support/AMDHSAKernelDescriptor.h"
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -29,9 +31,10 @@
 
 namespace llvm {
 
+class AMDGPUMachineFunction;
 class AMDGPUTargetStreamer;
 class MCOperand;
-class SISubtarget;
+class GCNSubtarget;
 
 class AMDGPUAsmPrinter final : public AsmPrinter {
 private:
@@ -47,68 +50,7 @@ private:
     bool HasDynamicallySizedStack = false;
     bool HasRecursion = false;
 
-    int32_t getTotalNumSGPRs(const SISubtarget &ST) const;
-  };
-
-  // Track resource usage for kernels / entry functions.
-  struct SIProgramInfo {
-    // Fields set in PGM_RSRC1 pm4 packet.
-    uint32_t VGPRBlocks = 0;
-    uint32_t SGPRBlocks = 0;
-    uint32_t Priority = 0;
-    uint32_t FloatMode = 0;
-    uint32_t Priv = 0;
-    uint32_t DX10Clamp = 0;
-    uint32_t DebugMode = 0;
-    uint32_t IEEEMode = 0;
-    uint64_t ScratchSize = 0;
-
-    uint64_t ComputePGMRSrc1 = 0;
-
-    // Fields set in PGM_RSRC2 pm4 packet.
-    uint32_t LDSBlocks = 0;
-    uint32_t ScratchBlocks = 0;
-
-    uint64_t ComputePGMRSrc2 = 0;
-
-    uint32_t NumVGPR = 0;
-    uint32_t NumSGPR = 0;
-    uint32_t LDSSize = 0;
-    bool FlatUsed = false;
-
-    // Number of SGPRs that meets number of waves per execution unit request.
-    uint32_t NumSGPRsForWavesPerEU = 0;
-
-    // Number of VGPRs that meets number of waves per execution unit request.
-    uint32_t NumVGPRsForWavesPerEU = 0;
-
-    // If ReservedVGPRCount is 0 then must be 0. Otherwise, this is the first
-    // fixed VGPR number reserved.
-    uint16_t ReservedVGPRFirst = 0;
-
-    // The number of consecutive VGPRs reserved.
-    uint16_t ReservedVGPRCount = 0;
-
-    // Fixed SGPR number used to hold wave scratch offset for entire kernel
-    // execution, or std::numeric_limits<uint16_t>::max() if the register is not
-    // used or not known.
-    uint16_t DebuggerWavefrontPrivateSegmentOffsetSGPR =
-        std::numeric_limits<uint16_t>::max();
-
-    // Fixed SGPR number of the first 4 SGPRs used to hold scratch V# for entire
-    // kernel execution, or std::numeric_limits<uint16_t>::max() if the register
-    // is not used or not known.
-    uint16_t DebuggerPrivateSegmentBufferSGPR =
-        std::numeric_limits<uint16_t>::max();
-
-    // Whether there is recursion, dynamic allocas, indirect calls or some other
-    // reason there may be statically unknown stack usage.
-    bool DynamicCallStack = false;
-
-    // Bonus information for debugging.
-    bool VCCUsed = false;
-
-    SIProgramInfo() = default;
+    int32_t getTotalNumSGPRs(const GCNSubtarget &ST) const;
   };
 
   SIProgramInfo CurrentProgramInfo;
@@ -128,16 +70,8 @@ private:
                               unsigned &NumSGPR,
                               unsigned &NumVGPR) const;
 
-  AMDGPU::HSAMD::Kernel::CodeProps::Metadata getHSACodeProps(
-      const MachineFunction &MF,
-      const SIProgramInfo &ProgramInfo) const;
-  AMDGPU::HSAMD::Kernel::DebugProps::Metadata getHSADebugProps(
-      const MachineFunction &MF,
-      const SIProgramInfo &ProgramInfo) const;
-
   /// Emit register usage information so that the GPU driver
   /// can correctly setup the GPU state.
-  void EmitProgramInfoR600(const MachineFunction &MF);
   void EmitProgramInfoSI(const MachineFunction &MF,
                          const SIProgramInfo &KernelInfo);
   void EmitPALMetadata(const MachineFunction &MF,
@@ -145,7 +79,15 @@ private:
   void emitCommonFunctionComments(uint32_t NumVGPR,
                                   uint32_t NumSGPR,
                                   uint64_t ScratchSize,
-                                  uint64_t CodeSize);
+                                  uint64_t CodeSize,
+                                  const AMDGPUMachineFunction* MFI);
+
+  uint16_t getAmdhsaKernelCodeProperties(
+      const MachineFunction &MF) const;
+
+  amdhsa::kernel_descriptor_t getAmdhsaKernelDescriptor(
+      const MachineFunction &MF,
+      const SIProgramInfo &PI) const;
 
 public:
   explicit AMDGPUAsmPrinter(TargetMachine &TM,
@@ -178,6 +120,8 @@ public:
   void EmitInstruction(const MachineInstr *MI) override;
 
   void EmitFunctionBodyStart() override;
+
+  void EmitFunctionBodyEnd() override;
 
   void EmitFunctionEntryLabel() override;
 

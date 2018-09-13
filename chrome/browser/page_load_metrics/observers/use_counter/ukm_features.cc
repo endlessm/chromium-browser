@@ -35,6 +35,19 @@ bool IsAllowedUkmFeature(blink::mojom::WebFeature feature) {
           WebFeature::kCredentialManagerMakePublicKeyCredentialSuccess,
           WebFeature::kCredentialManagerGetPublicKeyCredentialSuccess,
           WebFeature::kV8AudioContext_Constructor,
+          WebFeature::kElementAttachShadow,
+          WebFeature::kElementAttachShadowOpen,
+          WebFeature::kElementAttachShadowClosed,
+          WebFeature::kCustomElementRegistryDefine,
+          WebFeature::kTextToSpeech_Speak,
+          WebFeature::kTextToSpeech_SpeakDisallowedByAutoplay,
+          WebFeature::kCSSEnvironmentVariable,
+          WebFeature::kCSSEnvironmentVariable_SafeAreaInsetTop,
+          WebFeature::kCSSEnvironmentVariable_SafeAreaInsetLeft,
+          WebFeature::kCSSEnvironmentVariable_SafeAreaInsetRight,
+          WebFeature::kCSSEnvironmentVariable_SafeAreaInsetBottom,
+          WebFeature::kMediaControlsDisplayCutoutGesture,
+          WebFeature::kPolymerV1Detected, WebFeature::kPolymerV2Detected,
       }));
   return opt_in_features.count(feature);
 }

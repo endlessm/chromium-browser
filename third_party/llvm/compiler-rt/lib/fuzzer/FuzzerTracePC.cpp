@@ -39,8 +39,6 @@ namespace fuzzer {
 
 TracePC TPC;
 
-int ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr;
-
 uint8_t *TracePC::Counters() const {
   return __sancov_trace_pc_guard_8bit_counters;
 }
@@ -59,6 +57,37 @@ size_t TracePC::GetTotalPCCoverage() {
   return Res;
 }
 
+template<class CallBack>
+void TracePC::IterateInline8bitCounters(CallBack CB) const {
+  if (NumInline8bitCounters && NumInline8bitCounters == NumPCsInPCTables) {
+    size_t CounterIdx = 0;
+    for (size_t i = 0; i < NumModulesWithInline8bitCounters; i++) {
+      uint8_t *Beg = ModuleCounters[i].Start;
+      size_t Size = ModuleCounters[i].Stop - Beg;
+      assert(Size == (size_t)(ModulePCTable[i].Stop - ModulePCTable[i].Start));
+      for (size_t j = 0; j < Size; j++, CounterIdx++)
+        CB(i, j, CounterIdx);
+    }
+  }
+}
+
+// Initializes unstable counters by copying Inline8bitCounters to unstable
+// counters.
+void TracePC::InitializeUnstableCounters() {
+  IterateInline8bitCounters([&](int i, int j, int UnstableIdx) {
+    if (UnstableCounters[UnstableIdx] != kUnstableCounter)
+      UnstableCounters[UnstableIdx] = ModuleCounters[i].Start[j];
+  });
+}
+
+// Compares the current counters with counters from previous runs
+// and records differences as unstable edges.
+void TracePC::UpdateUnstableCounters() {
+  IterateInline8bitCounters([&](int i, int j, int UnstableIdx) {
+    if (ModuleCounters[i].Start[j] != UnstableCounters[UnstableIdx])
+      UnstableCounters[UnstableIdx] = kUnstableCounter;
+  });
+}
 
 void TracePC::HandleInline8bitCountersInit(uint8_t *Start, uint8_t *Stop) {
   if (Start == Stop) return;
@@ -147,8 +176,10 @@ void TracePC::HandleCallerCallee(uintptr_t Caller, uintptr_t Callee) {
 void TracePC::UpdateObservedPCs() {
   Vector<uintptr_t> CoveredFuncs;
   auto ObservePC = [&](uintptr_t PC) {
-    if (ObservedPCs.insert(PC).second && DoPrintNewPCs)
-      PrintPC("\tNEW_PC: %p %F %L\n", "\tNEW_PC: %p\n", PC + 1);
+    if (ObservedPCs.insert(PC).second && DoPrintNewPCs) {
+      PrintPC("\tNEW_PC: %p %F %L", "\tNEW_PC: %p", PC + 1);
+      Printf("\n");
+    }
   };
 
   auto Observe = [&](const PCTableEntry &TE) {
@@ -160,15 +191,10 @@ void TracePC::UpdateObservedPCs() {
 
   if (NumPCsInPCTables) {
     if (NumInline8bitCounters == NumPCsInPCTables) {
-      for (size_t i = 0; i < NumModulesWithInline8bitCounters; i++) {
-        uint8_t *Beg = ModuleCounters[i].Start;
-        size_t Size = ModuleCounters[i].Stop - Beg;
-        assert(Size ==
-               (size_t)(ModulePCTable[i].Stop - ModulePCTable[i].Start));
-        for (size_t j = 0; j < Size; j++)
-          if (Beg[j])
-            Observe(ModulePCTable[i].Start[j]);
-      }
+      IterateInline8bitCounters([&](int i, int j, int CounterIdx) {
+        if (ModuleCounters[i].Start[j])
+          Observe(ModulePCTable[i].Start[j]);
+      });
     } else if (NumGuards == NumPCsInPCTables) {
       size_t GuardIdx = 1;
       for (size_t i = 0; i < NumModules; i++) {
@@ -184,8 +210,9 @@ void TracePC::UpdateObservedPCs() {
   }
 
   for (size_t i = 0, N = Min(CoveredFuncs.size(), NumPrintNewFuncs); i < N; i++) {
-    Printf("\tNEW_FUNC[%zd/%zd]: ", i, CoveredFuncs.size());
-    PrintPC("%p %F %L\n", "%p\n", CoveredFuncs[i] + 1);
+    Printf("\tNEW_FUNC[%zd/%zd]: ", i + 1, CoveredFuncs.size());
+    PrintPC("%p %F %L", "%p", CoveredFuncs[i] + 1);
+    Printf("\n");
   }
 }
 
@@ -279,7 +306,7 @@ void TracePC::PrintCoverage() {
     std::string FunctionStr = DescribePC("%F", VisualizePC);
     std::string LineStr = DescribePC("%l", VisualizePC);
     size_t Line = std::stoul(LineStr);
-    std::vector<uintptr_t> UncoveredPCs;
+    Vector<uintptr_t> UncoveredPCs;
     for (auto TE = First; TE < Last; TE++)
       if (!ObservedPCs.count(TE->PC))
         UncoveredPCs.push_back(TE->PC);
@@ -296,6 +323,24 @@ void TracePC::PrintCoverage() {
   };
 
   IterateCoveredFunctions(CoveredFunctionCallback);
+}
+
+void TracePC::DumpCoverage() {
+  if (EF->__sanitizer_dump_coverage) {
+    Vector<uintptr_t> PCsCopy(GetNumPCs());
+    for (size_t i = 0; i < GetNumPCs(); i++)
+      PCsCopy[i] = PCs()[i] ? GetPreviousInstructionPc(PCs()[i]) : 0;
+    EF->__sanitizer_dump_coverage(PCsCopy.data(), PCsCopy.size());
+  }
+}
+
+void TracePC::PrintUnstableStats() {
+  size_t count = 0;
+  for (size_t i = 0; i < NumInline8bitCounters; i++)
+    if (UnstableCounters[i] == kUnstableCounter)
+      count++;
+  Printf("stat::stability_rate: %.2f\n",
+         100 - static_cast<float>(count * 100) / NumInline8bitCounters);
 }
 
 // Value profile.
@@ -347,7 +392,14 @@ void TracePC::HandleCmp(uintptr_t PC, T Arg1, T Arg2) {
       TORC4.Insert(ArgXor, Arg1, Arg2);
   else if (sizeof(T) == 8)
       TORC8.Insert(ArgXor, Arg1, Arg2);
-  ValueProfileMap.AddValue(Idx);
+  // TODO: remove these flags and instead use all metrics at once.
+  if (UseValueProfileMask & 1)
+    ValueProfileMap.AddValue(Idx);
+  if (UseValueProfileMask & 2)
+    ValueProfileMap.AddValue(
+        PC * 64 + (Arg1 == Arg2 ? 0 : __builtin_clzll(Arg1 - Arg2) + 1));
+  if (UseValueProfileMask & 4)  // alternative way to use the hamming distance
+    ValueProfileMap.AddValue(PC * 64 + ArgDistance);
 }
 
 static size_t InternalStrnlen(const char *S, size_t MaxLen) {
@@ -549,7 +601,7 @@ void __sanitizer_cov_trace_gep(uintptr_t Idx) {
 ATTRIBUTE_INTERFACE ATTRIBUTE_NO_SANITIZE_MEMORY
 void __sanitizer_weak_hook_memcmp(void *caller_pc, const void *s1,
                                   const void *s2, size_t n, int result) {
-  if (fuzzer::ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr) return;
+  if (!fuzzer::RunningUserCallback) return;
   if (result == 0) return;  // No reason to mutate.
   if (n <= 1) return;  // Not interesting.
   fuzzer::TPC.AddValueForMemcmp(caller_pc, s1, s2, n, /*StopAtZero*/false);
@@ -558,7 +610,7 @@ void __sanitizer_weak_hook_memcmp(void *caller_pc, const void *s1,
 ATTRIBUTE_INTERFACE ATTRIBUTE_NO_SANITIZE_MEMORY
 void __sanitizer_weak_hook_strncmp(void *caller_pc, const char *s1,
                                    const char *s2, size_t n, int result) {
-  if (fuzzer::ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr) return;
+  if (!fuzzer::RunningUserCallback) return;
   if (result == 0) return;  // No reason to mutate.
   size_t Len1 = fuzzer::InternalStrnlen(s1, n);
   size_t Len2 = fuzzer::InternalStrnlen(s2, n);
@@ -571,7 +623,7 @@ void __sanitizer_weak_hook_strncmp(void *caller_pc, const char *s1,
 ATTRIBUTE_INTERFACE ATTRIBUTE_NO_SANITIZE_MEMORY
 void __sanitizer_weak_hook_strcmp(void *caller_pc, const char *s1,
                                    const char *s2, int result) {
-  if (fuzzer::ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr) return;
+  if (!fuzzer::RunningUserCallback) return;
   if (result == 0) return;  // No reason to mutate.
   size_t N = fuzzer::InternalStrnlen2(s1, s2);
   if (N <= 1) return;  // Not interesting.
@@ -581,35 +633,35 @@ void __sanitizer_weak_hook_strcmp(void *caller_pc, const char *s1,
 ATTRIBUTE_INTERFACE ATTRIBUTE_NO_SANITIZE_MEMORY
 void __sanitizer_weak_hook_strncasecmp(void *called_pc, const char *s1,
                                        const char *s2, size_t n, int result) {
-  if (fuzzer::ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr) return;
+  if (!fuzzer::RunningUserCallback) return;
   return __sanitizer_weak_hook_strncmp(called_pc, s1, s2, n, result);
 }
 
 ATTRIBUTE_INTERFACE ATTRIBUTE_NO_SANITIZE_MEMORY
 void __sanitizer_weak_hook_strcasecmp(void *called_pc, const char *s1,
                                       const char *s2, int result) {
-  if (fuzzer::ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr) return;
+  if (!fuzzer::RunningUserCallback) return;
   return __sanitizer_weak_hook_strcmp(called_pc, s1, s2, result);
 }
 
 ATTRIBUTE_INTERFACE ATTRIBUTE_NO_SANITIZE_MEMORY
 void __sanitizer_weak_hook_strstr(void *called_pc, const char *s1,
                                   const char *s2, char *result) {
-  if (fuzzer::ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr) return;
+  if (!fuzzer::RunningUserCallback) return;
   fuzzer::TPC.MMT.Add(reinterpret_cast<const uint8_t *>(s2), strlen(s2));
 }
 
 ATTRIBUTE_INTERFACE ATTRIBUTE_NO_SANITIZE_MEMORY
 void __sanitizer_weak_hook_strcasestr(void *called_pc, const char *s1,
                                       const char *s2, char *result) {
-  if (fuzzer::ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr) return;
+  if (!fuzzer::RunningUserCallback) return;
   fuzzer::TPC.MMT.Add(reinterpret_cast<const uint8_t *>(s2), strlen(s2));
 }
 
 ATTRIBUTE_INTERFACE ATTRIBUTE_NO_SANITIZE_MEMORY
 void __sanitizer_weak_hook_memmem(void *called_pc, const void *s1, size_t len1,
                                   const void *s2, size_t len2, void *result) {
-  if (fuzzer::ScopedDoingMyOwnMemOrStr::DoingMyOwnMemOrStr) return;
+  if (!fuzzer::RunningUserCallback) return;
   fuzzer::TPC.MMT.Add(reinterpret_cast<const uint8_t *>(s2), len2);
 }
 }  // extern "C"

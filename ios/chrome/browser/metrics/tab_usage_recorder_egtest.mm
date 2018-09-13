@@ -4,7 +4,7 @@
 
 #include <memory>
 
-#include "base/mac/bind_objc_block.h"
+#include "base/bind.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -29,8 +29,8 @@
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
-#import "ios/testing/wait_util.h"
 #import "ios/web/public/test/earl_grey/web_view_matchers.h"
+#include "ios/web/public/test/element_selector.h"
 #include "ios/web/public/test/http_server/delayed_response_provider.h"
 #include "ios/web/public/test/http_server/html_response_provider.h"
 #import "ios/web/public/test/http_server/http_server.h"
@@ -48,6 +48,7 @@ using chrome_test_util::SettingsMenuButton;
 using chrome_test_util::SettingsMenuPrivacyButton;
 using tab_usage_recorder_test_util::OpenNewIncognitoTabUsingUIAndEvictMainTabs;
 using tab_usage_recorder_test_util::SwitchToNormalMode;
+using web::test::ElementSelector;
 
 namespace {
 
@@ -78,9 +79,9 @@ void Wait(id<GREYMatcher> matcher, NSString* name) {
                                                              error:&error];
     return error == nil;
   };
-  GREYAssert(
-      testing::WaitUntilConditionOrTimeout(kWaitElementTimeout, condition),
-      @"Waiting for matcher %@ failed.", name);
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(kWaitElementTimeout,
+                                                          condition),
+             @"Waiting for matcher %@ failed.", name);
 }
 
 // Creates a new main tab and load |url|. Wait until |word| is visible on the
@@ -113,9 +114,9 @@ void CloseTabAtIndexAndSync(NSUInteger i) {
   ConditionBlock condition = ^{
     return chrome_test_util::GetMainTabCount() == (nb_main_tab - 1);
   };
-  GREYAssert(
-      testing::WaitUntilConditionOrTimeout(kWaitElementTimeout, condition),
-      @"Waiting for tab to close");
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(kWaitElementTimeout,
+                                                          condition),
+             @"Waiting for tab to close");
 }
 }  // namespace
 
@@ -207,14 +208,14 @@ void CloseTabAtIndexAndSync(NSUInteger i) {
     __block bool finished = false;
     chrome_test_util::GetCurrentWebState()->ExecuteJavaScript(
         base::UTF8ToUTF16(kClearPageScript),
-        base::BindBlockArc(^(const base::Value*) {
+        base::BindOnce(^(const base::Value*) {
           finished = true;
         }));
 
-    GREYAssert(testing::WaitUntilConditionOrTimeout(1.0,
-                                                    ^{
-                                                      return finished;
-                                                    }),
+    GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(1.0,
+                                                            ^{
+                                                              return finished;
+                                                            }),
                @"JavaScript to reload each tab did not finish");
     [ChromeEarlGreyUI reload];
     [ChromeEarlGrey waitForWebViewContainingText:kURL1FirstWord];
@@ -691,7 +692,8 @@ void CloseTabAtIndexAndSync(NSUInteger i) {
       web::WebViewInWebState(chrome_test_util::GetCurrentWebState());
   [[EarlGrey selectElementWithMatcher:webViewMatcher]
       performAction:chrome_test_util::LongPressElementForContextMenu(
-                        "link", true /* menu should appear */)];
+                        ElementSelector::ElementSelectorId("link"),
+                        true /* menu should appear */)];
 
   [[EarlGrey selectElementWithMatcher:OpenLinkInNewTabButton()]
       performAction:grey_tap()];

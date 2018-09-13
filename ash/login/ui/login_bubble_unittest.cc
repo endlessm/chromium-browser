@@ -15,6 +15,7 @@
 #include "ui/events/test/event_generator.h"
 #include "ui/views/animation/test/ink_drop_host_view_test_api.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/focus/focus_manager.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/widget/widget.h"
 
@@ -145,21 +146,21 @@ TEST_F(LoginBubbleTest, BubbleKeyEventHandling) {
   EXPECT_FALSE(bubble_->IsVisible());
 
   // Verifies that key event won't open the bubble.
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   other_view_->RequestFocus();
-  generator.PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
+  generator->PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
   EXPECT_FALSE(bubble_->IsVisible());
 
   // Verifies that key event on the bubble opener view won't close the bubble.
   ShowUserMenu(base::OnceClosure(), base::OnceClosure());
   EXPECT_TRUE(bubble_->IsVisible());
   bubble_opener_->RequestFocus();
-  generator.PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
+  generator->PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that key event on the other view will close the bubble.
   other_view_->RequestFocus();
-  generator.PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
+  generator->PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
   EXPECT_FALSE(bubble_->IsVisible());
 }
 
@@ -168,27 +169,27 @@ TEST_F(LoginBubbleTest, BubbleMouseEventHandling) {
   EXPECT_FALSE(bubble_->IsVisible());
 
   // Verifies that mouse event won't open the bubble.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
+  generator->ClickLeftButton();
   EXPECT_FALSE(bubble_->IsVisible());
 
   // Verifies that mouse event on the bubble opener view won't close the bubble.
   ShowUserMenu(base::OnceClosure(), base::OnceClosure());
   EXPECT_TRUE(bubble_->IsVisible());
-  generator.MoveMouseTo(bubble_opener_->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
+  generator->MoveMouseTo(bubble_opener_->GetBoundsInScreen().CenterPoint());
+  generator->ClickLeftButton();
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that mouse event on the bubble itself won't close the bubble.
-  generator.MoveMouseTo(
+  generator->MoveMouseTo(
       bubble_->bubble_view()->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
+  generator->ClickLeftButton();
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that mouse event on the other view will close the bubble.
-  generator.MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
+  generator->MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
+  generator->ClickLeftButton();
   EXPECT_FALSE(bubble_->IsVisible());
 }
 
@@ -197,24 +198,24 @@ TEST_F(LoginBubbleTest, BubbleGestureEventHandling) {
   EXPECT_FALSE(bubble_->IsVisible());
 
   // Verifies that gesture event won't open the bubble.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.GestureTapAt(other_view_->GetBoundsInScreen().CenterPoint());
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->GestureTapAt(other_view_->GetBoundsInScreen().CenterPoint());
   EXPECT_FALSE(bubble_->IsVisible());
 
   // Verifies that gesture event on the bubble opener view won't close the
   // bubble.
   ShowUserMenu(base::OnceClosure(), base::OnceClosure());
   EXPECT_TRUE(bubble_->IsVisible());
-  generator.GestureTapAt(bubble_opener_->GetBoundsInScreen().CenterPoint());
+  generator->GestureTapAt(bubble_opener_->GetBoundsInScreen().CenterPoint());
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that gesture event on the bubble itself won't close the bubble.
-  generator.GestureTapAt(
+  generator->GestureTapAt(
       bubble_->bubble_view()->GetBoundsInScreen().CenterPoint());
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that gesture event on the other view will close the bubble.
-  generator.GestureTapAt(other_view_->GetBoundsInScreen().CenterPoint());
+  generator->GestureTapAt(other_view_->GetBoundsInScreen().CenterPoint());
   EXPECT_FALSE(bubble_->IsVisible());
 }
 
@@ -233,9 +234,9 @@ TEST_F(LoginBubbleTest, LoginButtonRipple) {
   EXPECT_TRUE(ink_drop_api.GetInkDrop()->IsHighlightFadingInOrVisible());
 
   // Close the bubble should hide the ripple effect.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
+  generator->ClickLeftButton();
   EXPECT_FALSE(bubble_->IsVisible());
 
   // InkDropState::DEACTIVATED state will automatically transition to the
@@ -267,7 +268,7 @@ TEST_F(LoginBubbleTest, RemoveUserRequiresTwoActivations) {
 
   auto click = [&]() {
     EXPECT_TRUE(remove_user_button->HasFocus());
-    GetEventGenerator().PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
+    GetEventGenerator()->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
   };
 
   // First click calls remove warning.
@@ -283,7 +284,7 @@ TEST_F(LoginBubbleTest, RemoveUserRequiresTwoActivations) {
 }
 
 TEST_F(LoginBubbleTest, ErrorBubbleKeyEventHandling) {
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   EXPECT_FALSE(bubble_->IsVisible());
   views::Label* error_text = new views::Label(base::ASCIIToUTF16("Error text"));
@@ -292,12 +293,12 @@ TEST_F(LoginBubbleTest, ErrorBubbleKeyEventHandling) {
 
   // Verifies that key event on a view other than error closes the error bubble.
   other_view_->RequestFocus();
-  generator.PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
+  generator->PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
   EXPECT_FALSE(bubble_->IsVisible());
 }
 
 TEST_F(LoginBubbleTest, ErrorBubbleMouseEventHandling) {
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   EXPECT_FALSE(bubble_->IsVisible());
   views::Label* error_text = new views::Label(base::ASCIIToUTF16("Error text"));
@@ -305,19 +306,19 @@ TEST_F(LoginBubbleTest, ErrorBubbleMouseEventHandling) {
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that mouse event on the bubble itself won't close the bubble.
-  generator.MoveMouseTo(
+  generator->MoveMouseTo(
       bubble_->bubble_view()->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
+  generator->ClickLeftButton();
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that mouse event on the other view will close the bubble.
-  generator.MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
+  generator->MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
+  generator->ClickLeftButton();
   EXPECT_FALSE(bubble_->IsVisible());
 }
 
 TEST_F(LoginBubbleTest, ErrorBubbleGestureEventHandling) {
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   EXPECT_FALSE(bubble_->IsVisible());
   views::Label* error_text = new views::Label(base::ASCIIToUTF16("Error text"));
@@ -325,17 +326,17 @@ TEST_F(LoginBubbleTest, ErrorBubbleGestureEventHandling) {
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that gesture event on the bubble itself won't close the bubble.
-  generator.GestureTapAt(
+  generator->GestureTapAt(
       bubble_->bubble_view()->GetBoundsInScreen().CenterPoint());
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that gesture event on the other view will close the bubble.
-  generator.GestureTapAt(other_view_->GetBoundsInScreen().CenterPoint());
+  generator->GestureTapAt(other_view_->GetBoundsInScreen().CenterPoint());
   EXPECT_FALSE(bubble_->IsVisible());
 }
 
 TEST_F(LoginBubbleTest, PersistentErrorBubbleEventHandling) {
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   EXPECT_FALSE(bubble_->IsVisible());
   views::Label* error_text = new views::Label(base::ASCIIToUTF16("Error text"));
@@ -344,28 +345,28 @@ TEST_F(LoginBubbleTest, PersistentErrorBubbleEventHandling) {
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that mouse event on the bubble itself won't close the bubble.
-  generator.MoveMouseTo(
+  generator->MoveMouseTo(
       bubble_->bubble_view()->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
+  generator->ClickLeftButton();
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that mouse event on the other view won't close the bubble.
-  generator.MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
+  generator->MoveMouseTo(other_view_->GetBoundsInScreen().CenterPoint());
+  generator->ClickLeftButton();
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that gesture event on the bubble itself won't close the bubble.
-  generator.GestureTapAt(
+  generator->GestureTapAt(
       bubble_->bubble_view()->GetBoundsInScreen().CenterPoint());
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that gesture event on the other view won't close the bubble.
-  generator.GestureTapAt(other_view_->GetBoundsInScreen().CenterPoint());
+  generator->GestureTapAt(other_view_->GetBoundsInScreen().CenterPoint());
   EXPECT_TRUE(bubble_->IsVisible());
 
   // Verifies that key event on the other view won't close the bubble.
   other_view_->RequestFocus();
-  generator.PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
+  generator->PressKey(ui::KeyboardCode::VKEY_A, ui::EF_NONE);
   EXPECT_TRUE(bubble_->IsVisible());
 
   // LoginBubble::Close should close the persistent error bubble.
@@ -374,7 +375,7 @@ TEST_F(LoginBubbleTest, PersistentErrorBubbleEventHandling) {
 }
 
 TEST_F(LoginBubbleTest, TestShowSelectionMenu) {
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   EXPECT_FALSE(bubble_->IsVisible());
   LoginMenuView::Item selected_item;
@@ -390,7 +391,7 @@ TEST_F(LoginBubbleTest, TestShowSelectionMenu) {
       static_cast<LoginMenuView*>(bubble_->bubble_view());
   LoginMenuView::TestApi test_api1(menu_view);
   EXPECT_TRUE(test_api1.contents()->child_at(0)->HasFocus());
-  generator.PressKey(ui::KeyboardCode::VKEY_RETURN, 0 /*flag*/);
+  generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0 /*flag*/);
   EXPECT_FALSE(bubble_->IsVisible());
   EXPECT_EQ(selected_item.title, "Regular Item 1");
   EXPECT_TRUE(selected);
@@ -405,25 +406,66 @@ TEST_F(LoginBubbleTest, TestShowSelectionMenu) {
   menu_view = static_cast<LoginMenuView*>(bubble_->bubble_view());
   LoginMenuView::TestApi test_api2(menu_view);
   test_api2.contents()->child_at(1)->RequestFocus();
-  generator.PressKey(ui::KeyboardCode::VKEY_RETURN, 0 /*flag*/);
+  generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0 /*flag*/);
   EXPECT_TRUE(bubble_->IsVisible());
   EXPECT_FALSE(selected);
 
   // Verifies up/down arrow key can navigate menu entries.
-  generator.PressKey(ui::KeyboardCode::VKEY_UP, 0 /*flag*/);
+  generator->PressKey(ui::KeyboardCode::VKEY_UP, 0 /*flag*/);
   EXPECT_TRUE(test_api2.contents()->child_at(0)->HasFocus());
-  generator.PressKey(ui::KeyboardCode::VKEY_UP, 0 /*flag*/);
+  generator->PressKey(ui::KeyboardCode::VKEY_UP, 0 /*flag*/);
   EXPECT_TRUE(test_api2.contents()->child_at(0)->HasFocus());
 
-  generator.PressKey(ui::KeyboardCode::VKEY_DOWN, 0 /*flag*/);
+  generator->PressKey(ui::KeyboardCode::VKEY_DOWN, 0 /*flag*/);
   // Group item is skipped in up/down key navigation.
   EXPECT_TRUE(test_api2.contents()->child_at(2)->HasFocus());
-  generator.PressKey(ui::KeyboardCode::VKEY_DOWN, 0 /*flag*/);
+  generator->PressKey(ui::KeyboardCode::VKEY_DOWN, 0 /*flag*/);
   EXPECT_TRUE(test_api2.contents()->child_at(2)->HasFocus());
   EXPECT_TRUE(bubble_->IsVisible());
 
   bubble_->Close();
   EXPECT_FALSE(bubble_->IsVisible());
+}
+
+TEST_F(LoginBubbleTest, LongUserNameLaidOutCorrectly) {
+  ui::test::EventGenerator* generator = GetEventGenerator();
+
+  EXPECT_FALSE(bubble_->IsVisible());
+
+  bubble_->ShowUserMenu(
+      base::UTF8ToUTF16("NedHasAReallyLongName StarkHasAReallyLongName"),
+      base::UTF8ToUTF16("reallylonggaianame@gmail.com"),
+      user_manager::UserType::USER_TYPE_REGULAR, false /*is_owner*/, container_,
+      bubble_opener_, true /*show_remove_user*/, base::OnceClosure(),
+      base::OnceClosure());
+
+  EXPECT_TRUE(bubble_->IsVisible());
+
+  views::View* bubble_view = bubble_->bubble_view();
+
+  LoginBubble::TestApi user_menu(bubble_->bubble_view());
+  views::View* username_label = user_menu.username_label();
+  views::View* remove_user_button = user_menu.user_menu_remove_user_button();
+  views::View* remove_user_confirm_data = user_menu.remove_user_confirm_data();
+
+  EXPECT_TRUE(bubble_view->GetBoundsInScreen().Contains(
+      remove_user_button->GetBoundsInScreen()));
+  EXPECT_TRUE(username_label->visible());
+  EXPECT_FALSE(remove_user_confirm_data->visible());
+
+  // This component doesn't seem to play well with the mouse click generator,
+  // so we use a keypress to trigger ButtonPressed instead.
+  bubble_view->GetWidget()->GetFocusManager()->SetFocusedView(
+      remove_user_button);
+  generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
+
+  EXPECT_TRUE(username_label->visible());
+  EXPECT_TRUE(remove_user_confirm_data->visible());
+  EXPECT_TRUE(remove_user_button->GetBoundsInScreen().y() >=
+              remove_user_confirm_data->GetBoundsInScreen().y() +
+                  remove_user_confirm_data->GetBoundsInScreen().height());
+  EXPECT_TRUE(bubble_view->GetBoundsInScreen().Contains(
+      remove_user_button->GetBoundsInScreen()));
 }
 
 }  // namespace ash

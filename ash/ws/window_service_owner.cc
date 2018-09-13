@@ -9,23 +9,16 @@
 #include "ash/wm/non_client_frame_controller.h"
 #include "ash/ws/window_service_delegate_impl.h"
 #include "services/service_manager/public/cpp/service_context.h"
-#include "services/ui/ws2/gpu_support.h"
+#include "services/ui/ws2/gpu_interface_provider.h"
 #include "services/ui/ws2/window_service.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/wm/core/focus_controller.h"
 
 namespace ash {
-namespace {
-
-void BindWindowServiceOnMainThread(
-    service_manager::mojom::ServiceRequest request) {
-  Shell::Get()->window_service_owner()->BindWindowService(std::move(request));
-}
-
-}  // namespace
 
 WindowServiceOwner::WindowServiceOwner(
-    std::unique_ptr<ui::ws2::GpuSupport> gpu_support)
-    : gpu_support_(std::move(gpu_support)) {}
+    std::unique_ptr<ui::ws2::GpuInterfaceProvider> gpu_interface_provider)
+    : gpu_interface_provider_(std::move(gpu_interface_provider)) {}
 
 WindowServiceOwner::~WindowServiceOwner() = default;
 
@@ -39,8 +32,8 @@ void WindowServiceOwner::BindWindowService(
   window_service_delegate_ = std::make_unique<WindowServiceDelegateImpl>();
   std::unique_ptr<ui::ws2::WindowService> window_service =
       std::make_unique<ui::ws2::WindowService>(
-          window_service_delegate_.get(), std::move(gpu_support_),
-          Shell::Get()->focus_controller());
+          window_service_delegate_.get(), std::move(gpu_interface_provider_),
+          Shell::Get()->focus_controller(), features::IsAshInBrowserProcess());
   window_service_ = window_service.get();
   window_service_->SetFrameDecorationValues(
       NonClientFrameController::GetPreferredClientAreaInsets(),
@@ -48,14 +41,6 @@ void WindowServiceOwner::BindWindowService(
   RegisterWindowProperties(window_service_->property_converter());
   service_context_ = std::make_unique<service_manager::ServiceContext>(
       std::move(window_service), std::move(request));
-}
-
-void BindWindowServiceOnIoThread(
-    scoped_refptr<base::SingleThreadTaskRunner> main_runner,
-    service_manager::mojom::ServiceRequest request) {
-  main_runner->PostTask(
-      FROM_HERE,
-      base::BindOnce(&BindWindowServiceOnMainThread, std::move(request)));
 }
 
 }  // namespace ash

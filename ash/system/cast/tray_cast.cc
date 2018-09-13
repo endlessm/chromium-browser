@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "ash/metrics/user_metrics_recorder.h"
+#include "ash/public/cpp/ash_view_ids.h"
 #include "ash/public/interfaces/cast_config.mojom.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
@@ -160,6 +161,7 @@ CastCastView::CastCastView()
           l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_CAST_STOP)) {
   icon()->SetImage(
       gfx::CreateVectorIcon(kSystemMenuCastEnabledIcon, kMenuIconColor));
+  label()->set_id(VIEW_ID_CAST_CAST_VIEW_LABEL);
 }
 
 CastCastView::~CastCastView() = default;
@@ -332,39 +334,6 @@ CastTrayView::CastTrayView(SystemTrayItem* tray_item)
 
 CastTrayView::~CastTrayView() = default;
 
-// This view displays a list of cast receivers that can be clicked on and casted
-// to. It is activated by clicking on the chevron inside of
-// |CastSelectDefaultView|.
-class CastDetailedView : public TrayDetailedView {
- public:
-  CastDetailedView(DetailedViewDelegate* delegate,
-                   const std::vector<mojom::SinkAndRoutePtr>& sinks_and_routes);
-  ~CastDetailedView() override;
-
-  // Makes the detail view think the view associated with the given receiver_id
-  // was clicked. This will start a cast.
-  void SimulateViewClickedForTest(const std::string& receiver_id);
-
-  // Updates the list of available receivers.
-  void UpdateReceiverList(
-      const std::vector<mojom::SinkAndRoutePtr>& sinks_routes);
-
- private:
-  void CreateItems();
-
-  void UpdateReceiverListFromCachedData();
-
-  // TrayDetailedView:
-  void HandleViewClicked(views::View* view) override;
-
-  // A mapping from the receiver id to the receiver/activity data.
-  std::map<std::string, ash::mojom::SinkAndRoutePtr> sinks_and_routes_;
-  // A mapping from the view pointer to the associated activity id.
-  std::map<views::View*, ash::mojom::CastSinkPtr> view_to_sink_map_;
-
-  DISALLOW_COPY_AND_ASSIGN(CastDetailedView);
-};
-
 CastDetailedView::CastDetailedView(
     DetailedViewDelegate* delegate,
     const std::vector<mojom::SinkAndRoutePtr>& sinks_routes)
@@ -448,7 +417,7 @@ void CastDetailedView::HandleViewClicked(views::View* view) {
 }  // namespace tray
 
 TrayCast::TrayCast(SystemTray* system_tray)
-    : SystemTrayItem(system_tray, UMA_CAST),
+    : SystemTrayItem(system_tray, SystemTrayItemUmaType::UMA_CAST),
       detailed_view_delegate_(
           std::make_unique<SystemTrayItemDetailedViewDelegate>(this)) {
   Shell::Get()->AddShellObserver(this);
@@ -459,15 +428,6 @@ TrayCast::TrayCast(SystemTray* system_tray)
 TrayCast::~TrayCast() {
   Shell::Get()->cast_config()->RemoveObserver(this);
   Shell::Get()->RemoveShellObserver(this);
-}
-
-void TrayCast::StartCastForTest(const std::string& receiver_id) {
-  if (detailed_ != nullptr)
-    detailed_->SimulateViewClickedForTest(receiver_id);
-}
-
-void TrayCast::StopCastForTest() {
-  default_->cast_view()->StopCasting();
 }
 
 const std::string& TrayCast::GetDisplayedCastId() {
@@ -490,9 +450,9 @@ views::View* TrayCast::CreateDefaultView(LoginStatus status) {
 
   default_ = new tray::CastDuplexView(this, status != LoginStatus::LOCKED,
                                       sinks_and_routes_);
-  default_->set_id(TRAY_VIEW);
-  default_->select_view()->set_id(SELECT_VIEW);
-  default_->cast_view()->set_id(CAST_VIEW);
+  default_->set_id(VIEW_ID_CAST_MAIN_VIEW);
+  default_->select_view()->set_id(VIEW_ID_CAST_SELECT_VIEW);
+  default_->cast_view()->set_id(VIEW_ID_CAST_CAST_VIEW);
 
   UpdatePrimaryView();
   return default_;

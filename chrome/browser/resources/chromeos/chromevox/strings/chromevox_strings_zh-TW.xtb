@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">密碼文字</translation>
 <translation id="1802710350767629429">顯示更新注意事項</translation>
 <translation id="1810107444790159527">清單方塊</translation>
+<translation id="1812527064848182527">橫向</translation>
 <translation id="1828385960365606039">5 月</translation>
 <translation id="1834891354138622109">欄</translation>
 <translation id="1845944666972354496">輕觸兩下即可啟用</translation>
@@ -146,6 +147,7 @@
 <translation id="2416512023405990736">未勾選的核取方塊</translation>
 <translation id="2417569100218200841">內容資訊</translation>
 <translation id="2417948780551741035">章節附註</translation>
+<translation id="2421113964388408478">刪除</translation>
 <translation id="2422937916923936891">選單項目核取方塊</translation>
 <translation id="2428534162001909979">指令選單</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@
 <translation id="3232388865800379423">彈出式按鈕</translation>
 <translation id="3241052487511142956">上一個造訪過的連結</translation>
 <translation id="3241638166094654466">各行儲存格數目：</translation>
+<translation id="3286372614333682499">縱向</translation>
 <translation id="3286390186030710347">滑桿</translation>
 <translation id="3299925995433437805">沒有下一個造訪過的連結。</translation>
 <translation id="3300348286427369683">支援 RTF 格式：ChromeVox 現在支援 RTF 格式欄位，包括跳轉指令、點字游標路徑、選取等等。</translation>
@@ -426,6 +429,7 @@
 <translation id="4476183483923481720">換行</translation>
 <translation id="4482330759234983253">上一個表格</translation>
 <translation id="4491109536499578614">圖片</translation>
+<translation id="4505167975768625962">插入</translation>
 <translation id="4517854969512651305">調升值</translation>
 <translation id="4529987814483543472">傳統按鍵對應配置</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{斜線}other{# 個斜線}}</translation>
@@ -589,6 +593,7 @@
 <translation id="5712338278108304766">下一個表格欄</translation>
 <translation id="571866080859340309">正在探索群組</translation>
 <translation id="5728409797179002635">找不到表格。</translation>
+<translation id="5729047866208036762">按下向上鍵、向下鍵、向左鍵或向右鍵即可探索數學內容。</translation>
 <translation id="5732189279857692565">這是第二個標題。請按下搜尋鍵 + H 鍵或搜尋鍵 + Shift 鍵 + H 鍵，前往下一個標題</translation>
 <translation id="5748623122140342504">上一個第 5 階標題</translation>
 <translation id="5750633686117194034">你尚未按下任何輔助鍵。請按住一或多個輔助鍵，完成後即可將手指移開，此時系統會透過語音說明按鍵已成功設定。如要結束，請按下 Tab 鍵。</translation>
@@ -744,6 +749,7 @@
 <translation id="7226216518520804442">清單</translation>
 <translation id="7229749224609077523">選取 6 點點字表：</translation>
 <translation id="72393384879519786">標題</translation>
+<translation id="7240858705033280249">跳到詳細資料</translation>
 <translation id="7241683698754534149">在新分頁中開啟詳細說明</translation>
 <translation id="7248671827512403053">應用程式</translation>
 <translation id="725969808843520477">下一個圓形按鈕</translation>
@@ -920,6 +926,7 @@
 <translation id="9043969572162476692">百分之 <ph name="NUM" /></translation>
 <translation id="9061884144798498064">選取 8 點點字表：</translation>
 <translation id="9065283790526219006">含彈出式元件</translation>
+<translation id="9066023754636984703">按下搜尋鍵 + A 鍵和 J 鍵即可跳至詳細資料。</translation>
 <translation id="9067522039955793016">分頁符號</translation>
 <translation id="9077213568694924680">已從所選範圍中移除</translation>
 <translation id="9082874451376019682">沒有上一個滑桿。</translation>

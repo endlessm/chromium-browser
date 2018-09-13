@@ -9,7 +9,7 @@
 #include "base/logging.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/ios/wait_util.h"
+#import "base/test/ios/wait_util.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/test_personal_data_manager.h"
 #include "components/payments/core/autofill_payment_instrument.h"
@@ -114,6 +114,7 @@ class PaymentRequestCreditCardEditCoordinatorTest
       public PlatformTest {
  protected:
   PaymentRequestCreditCardEditCoordinatorTest() {
+    personal_data_manager_.SetAutofillProfileEnabled(true);
     personal_data_manager_.SetAutofillCreditCardEnabled(true);
     personal_data_manager_.SetAutofillWalletImportEnabled(true);
   }

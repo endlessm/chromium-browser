@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "ash/public/cpp/ash_features.h"
 #include "base/command_line.h"
 #include "base/files/file_enumerator.h"
 #include "base/macros.h"
@@ -28,7 +29,6 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/grit/generated_resources.h"
@@ -66,6 +66,7 @@ namespace get_local_image_paths = wallpaper_private::GetLocalImagePaths;
 namespace get_local_image_data = wallpaper_private::GetLocalImageData;
 namespace get_current_wallpaper_thumbnail =
     wallpaper_private::GetCurrentWallpaperThumbnail;
+namespace get_surprise_me_image = wallpaper_private::GetSurpriseMeImage;
 
 namespace {
 
@@ -93,8 +94,7 @@ bool IsOEMDefaultWallpaper() {
 }
 
 bool IsUsingNewWallpaperPicker() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      chromeos::switches::kNewWallpaperPicker);
+  return ash::features::IsNewWallpaperPickerEnabled();
 }
 
 // Returns a suffix to be appended to the base url of Backdrop wallpapers.
@@ -102,7 +102,7 @@ std::string GetBackdropWallpaperSuffix() {
   // FIFE url is used for Backdrop wallpapers and the desired image size should
   // be specified. Currently we are using two times the display size. This is
   // determined by trial and error and is subject to change.
-  const gfx::Size& display_size =
+  gfx::Size display_size =
       display::Screen::GetScreen()->GetPrimaryDisplay().size();
   return "=w" + std::to_string(
                     2 * std::max(display_size.width(), display_size.height()));
@@ -213,7 +213,7 @@ ExtensionFunction::ResponseAction WallpaperPrivateGetStringsFunction::Run() {
   SET_STRING("deleteCommandLabel", IDS_WALLPAPER_MANAGER_DELETE_COMMAND_LABEL);
   SET_STRING("customCategoryLabel",
              IsUsingNewWallpaperPicker()
-                 ? IDS_WALLPAPER_MANAGER_MY_PHOTOS_CATEGORY_LABEL
+                 ? IDS_WALLPAPER_MANAGER_MY_IMAGES_CATEGORY_LABEL
                  : IDS_WALLPAPER_MANAGER_CUSTOM_CATEGORY_LABEL);
   SET_STRING("selectCustomLabel",
              IDS_WALLPAPER_MANAGER_SELECT_CUSTOM_LABEL);
@@ -225,8 +225,12 @@ ExtensionFunction::ResponseAction WallpaperPrivateGetStringsFunction::Run() {
              IDS_WALLPAPER_MANAGER_LAYOUT_CENTER_CROPPED);
   SET_STRING("centerLayout", IDS_WALLPAPER_MANAGER_LAYOUT_CENTER);
   SET_STRING("stretchLayout", IDS_WALLPAPER_MANAGER_LAYOUT_STRETCH);
-  SET_STRING("connectionFailed", IDS_WALLPAPER_MANAGER_ACCESS_FAIL);
-  SET_STRING("downloadFailed", IDS_WALLPAPER_MANAGER_DOWNLOAD_FAIL);
+  SET_STRING("connectionFailed", IsUsingNewWallpaperPicker()
+                                     ? IDS_WALLPAPER_MANAGER_NETWORK_ERROR
+                                     : IDS_WALLPAPER_MANAGER_ACCESS_FAIL);
+  SET_STRING("downloadFailed", IsUsingNewWallpaperPicker()
+                                   ? IDS_WALLPAPER_MANAGER_IMAGE_ERROR
+                                   : IDS_WALLPAPER_MANAGER_DOWNLOAD_FAIL);
   SET_STRING("downloadCanceled", IDS_WALLPAPER_MANAGER_DOWNLOAD_CANCEL);
   SET_STRING("customWallpaperWarning",
              IDS_WALLPAPER_MANAGER_SHOW_CUSTOM_WALLPAPER_ON_START_WARNING);
@@ -261,17 +265,19 @@ ExtensionFunction::ResponseAction WallpaperPrivateGetStringsFunction::Run() {
                                               ? GetBackdropWallpaperSuffix()
                                               : kHighResolutionSuffix);
 
-  WallpaperControllerClient::Get()->GetActiveUserWallpaperLocation(
-      base::BindOnce(
-          &WallpaperPrivateGetStringsFunction::OnWallpaperLocationReturned,
-          this, std::move(dict)));
+  WallpaperControllerClient::Get()->GetActiveUserWallpaperInfo(base::BindOnce(
+      &WallpaperPrivateGetStringsFunction::OnWallpaperInfoReturned, this,
+      std::move(dict)));
   return RespondLater();
 }
 
-void WallpaperPrivateGetStringsFunction::OnWallpaperLocationReturned(
+void WallpaperPrivateGetStringsFunction::OnWallpaperInfoReturned(
     std::unique_ptr<base::DictionaryValue> dict,
-    const std::string& location) {
+    const std::string& location,
+    ash::WallpaperLayout layout) {
   dict->SetString("currentWallpaper", location);
+  dict->SetString("currentWallpaperLayout",
+                  wallpaper_api_util::GetLayoutString(layout));
   Respond(OneArgument(std::move(dict)));
 }
 
@@ -306,7 +312,7 @@ void WallpaperPrivateGetSyncSettingFunction::CheckProfileSyncServiceStatus() {
     return;
   }
 
-  if (sync_service->IsSyncActive() && sync_service->ConfigurationDone()) {
+  if (sync_service->GetState() == syncer::SyncService::State::ACTIVE) {
     dict->SetBoolean("syncThemes",
                      sync_service->GetActiveDataTypes().Has(syncer::THEMES));
     Respond(OneArgument(std::move(dict)));
@@ -381,9 +387,20 @@ ExtensionFunction::ResponseAction WallpaperPrivateSetWallpaperFunction::Run() {
       params->url,
       wallpaper_api_util::GetLayoutEnum(
           wallpaper_base::ToString(params->layout)),
-      params->preview_mode);
+      params->preview_mode,
+      base::BindOnce(
+          &WallpaperPrivateSetWallpaperFunction::OnSetWallpaperCallback, this));
+  return RespondLater();
+}
 
-  return RespondNow(NoArguments());
+void WallpaperPrivateSetWallpaperFunction::OnSetWallpaperCallback(
+    bool success) {
+  if (!success) {
+    Respond(Error("Failed to set wallpaper."));
+    return;
+  }
+
+  Respond(NoArguments());
 }
 
 WallpaperPrivateResetWallpaperFunction::
@@ -835,3 +852,37 @@ void WallpaperPrivateGetCurrentWallpaperThumbnailFunction::
 
 void WallpaperPrivateGetCurrentWallpaperThumbnailFunction::OnWallpaperDecoded(
     const gfx::ImageSkia& wallpaper) {}
+
+WallpaperPrivateGetSurpriseMeImageFunction::
+    WallpaperPrivateGetSurpriseMeImageFunction() = default;
+
+WallpaperPrivateGetSurpriseMeImageFunction::
+    ~WallpaperPrivateGetSurpriseMeImageFunction() = default;
+
+ExtensionFunction::ResponseAction
+WallpaperPrivateGetSurpriseMeImageFunction::Run() {
+  std::unique_ptr<get_surprise_me_image::Params> params(
+      get_surprise_me_image::Params::Create(*args_));
+  EXTENSION_FUNCTION_VALIDATE(params);
+
+  surprise_me_image_fetcher_ =
+      std::make_unique<backdrop_wallpaper_handlers::SurpriseMeImageFetcher>(
+          params->collection_id,
+          params->resume_token ? *params->resume_token : std::string());
+  surprise_me_image_fetcher_->Start(base::BindOnce(
+      &WallpaperPrivateGetSurpriseMeImageFunction::OnSurpriseMeImageFetched,
+      this));
+  return RespondLater();
+}
+
+void WallpaperPrivateGetSurpriseMeImageFunction::OnSurpriseMeImageFetched(
+    bool success,
+    const extensions::api::wallpaper_private::ImageInfo& image_info,
+    const std::string& next_resume_token) {
+  if (!success) {
+    Respond(Error("Image not available."));
+    return;
+  }
+  Respond(TwoArguments(image_info.ToValue(),
+                       std::make_unique<Value>(next_resume_token)));
+}

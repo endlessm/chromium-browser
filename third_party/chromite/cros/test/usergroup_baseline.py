@@ -108,8 +108,8 @@ GROUP_BASELINE = dict((e.group, e) for e in (
     GroupEntry(group='nobody', gid=65534),
     GroupEntry(group='chronos', gid=1000),
     GroupEntry(group='chronos-access', gid=1001,
-               users={'root', 'ipsec', 'chronos', 'ntfs-3g', 'avfs',
-                      'fuse-exfat', 'chaps', 'cros-disks', 'imageloaderd'}),
+               users={'root', 'ipsec', 'chronos',
+                      'chaps', 'cros-disks', 'imageloaderd'}),
     GroupEntry(group='tss', gid=207, users={'root', 'attestation',
                                             'bootlockboxd', 'chaps',
                                             'tpm_manager', 'trunks'}),
@@ -139,7 +139,7 @@ GROUP_BASELINE = dict((e.group, e) for e in (
     GroupEntry(group='debugfs-access', gid=605, users={'shill'}),
     GroupEntry(group='arc-camera', gid=603, users={'chronos'}),
     GroupEntry(group='daemon-store', gid=400, users={'biod', 'chaps',
-                                                     'crosvm'}),
+                                                     'crosvm', 'shill'}),
     GroupEntry(group='logs-access', gid=401, users={'debugd-logs'}),
     GroupEntry(group='serial', gid=402, users={'uucp'}),
     GroupEntry(group='devbroker-access', gid=403, users={'chronos'}),
@@ -155,6 +155,8 @@ GROUP_BASELINE = dict((e.group, e) for e in (
                                                  'cups'}),
     GroupEntry(group='tun', gid=413, users={'crosvm', 'shill'}),
     GroupEntry(group='gpio', gid=414, users={'modem'}),
+    GroupEntry(group='shill', gid=20104, users={'shill', 'ipsec'}),
+    GroupEntry(group='fuse-drivefs', gid=304, users={'chronos'}),
 ))
 
 GROUP_BASELINE_FREON = dict((e.group, e) for e in (

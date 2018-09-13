@@ -3,11 +3,11 @@ clang_format/script/
 third_party/libc++/trunk
 third_party/libc++abi/trunk
 third_party/libunwind/trunk
-linux64/gn
 linux64/clang-format
-mac/gn
+linux64/gn
 mac/clang-format
-win/gn.exe
+mac/gn
 win/clang-format.exe
+win/gn.exe
 android/doclava/
 android/doclava.tar.gz

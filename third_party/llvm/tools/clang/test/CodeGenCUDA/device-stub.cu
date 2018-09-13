@@ -1,27 +1,27 @@
 // RUN: echo "GPU binary would be here" > %t
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s \
 // RUN:     -fcuda-include-gpubinary %t -o - \
-// RUN:   | FileCheck %s --check-prefixes=ALL,NORDC,CUDA,CUDANORDC
+// RUN:   | FileCheck -allow-deprecated-dag-overlap %s --check-prefixes=ALL,NORDC,CUDA,CUDANORDC
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s \
 // RUN:     -fcuda-include-gpubinary %t -o -  -DNOGLOBALS \
-// RUN:   | FileCheck %s -check-prefixes=NOGLOBALS,CUDANOGLOBALS
+// RUN:   | FileCheck -allow-deprecated-dag-overlap %s -check-prefixes=NOGLOBALS,CUDANOGLOBALS
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s \
 // RUN:     -fcuda-rdc -fcuda-include-gpubinary %t -o - \
-// RUN:   | FileCheck %s --check-prefixes=ALL,RDC,CUDA,CUDARDC
+// RUN:   | FileCheck -allow-deprecated-dag-overlap %s --check-prefixes=ALL,RDC,CUDA,CUDARDC
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s -o - \
-// RUN:   | FileCheck %s -check-prefix=NOGPUBIN
+// RUN:   | FileCheck -allow-deprecated-dag-overlap %s -check-prefix=NOGPUBIN
 
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s \
 // RUN:     -fcuda-include-gpubinary %t -o - -x hip\
-// RUN:   | FileCheck %s --check-prefixes=ALL,NORDC,HIP
+// RUN:   | FileCheck -allow-deprecated-dag-overlap %s --check-prefixes=ALL,NORDC,HIP
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s \
 // RUN:     -fcuda-include-gpubinary %t -o -  -DNOGLOBALS -x hip \
-// RUN:   | FileCheck %s -check-prefixes=NOGLOBALS,HIPNOGLOBALS
+// RUN:   | FileCheck -allow-deprecated-dag-overlap %s -check-prefixes=NOGLOBALS,HIPNOGLOBALS
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s \
 // RUN:     -fcuda-rdc -fcuda-include-gpubinary %t -o - -x hip \
-// RUN:   | FileCheck %s --check-prefixes=ALL,RDC,HIP,HIPRDC
+// RUN:   | FileCheck -allow-deprecated-dag-overlap %s --check-prefixes=ALL,RDC,HIP,HIPRDC
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s -o - -x hip\
-// RUN:   | FileCheck %s -check-prefix=NOGPUBIN
+// RUN:   | FileCheck -allow-deprecated-dag-overlap %s -check-prefix=NOGPUBIN
 
 #include "Inputs/cuda.h"
 
@@ -65,7 +65,7 @@ void use_pointers() {
 // ALL: private unnamed_addr constant{{.*}}kernelfunc{{.*}}\00"
 // * constant unnamed string with GPU binary
 // HIP: @[[FATBIN:__hip_fatbin]] = external constant i8, section ".hip_fatbin"
-// CUDA: @[[FATBIN:.*]] = private unnamed_addr constant{{.*GPU binary would be here.*}}\00",
+// CUDA: @[[FATBIN:.*]] = private constant{{.*GPU binary would be here.*}}\00",
 // CUDANORDC-SAME: section ".nv_fatbin", align 8
 // CUDARDC-SAME: section "__nv_relfatbin", align 8
 // * constant struct that wraps GPU binary
@@ -81,13 +81,11 @@ void use_pointers() {
 // * variable to save GPU binary handle after initialization
 // NORDC: @__[[PREFIX]]_gpubin_handle = internal global i8** null
 // * constant unnamed string with NVModuleID
-// RDC: [[MODULE_ID_GLOBAL:@.*]] = private unnamed_addr constant
+// RDC: [[MODULE_ID_GLOBAL:@.*]] = private constant
 // CUDARDC-SAME: c"[[MODULE_ID:.+]]\00", section "__nv_module_id", align 32
 // HIPRDC-SAME: c"[[MODULE_ID:.+]]\00", section "__hip_module_id", align 32
 // * Make sure our constructor was added to global ctor list.
 // ALL: @llvm.global_ctors = appending global {{.*}}@__[[PREFIX]]_module_ctor
-// * In separate mode we also register a destructor.
-// NORDC: @llvm.global_dtors = appending global {{.*}}@__[[PREFIX]]_module_dtor
 // * Alias to global symbol containing the NVModuleID.
 // RDC: @__fatbinwrap[[MODULE_ID]] = alias { i32, i32, i8*, i8* }
 // RDC-SAME: { i32, i32, i8*, i8* }* @__[[PREFIX]]_fatbin_wrapper
@@ -127,6 +125,8 @@ void hostfunc(void) { kernelfunc<<<1, 1>>>(1, 1, 1); }
 // NORDC-NEXT: store{{.*}}__[[PREFIX]]_gpubin_handle
 //   .. and then calls __[[PREFIX]]_register_globals
 // NORDC-NEXT: call void @__[[PREFIX]]_register_globals
+// * In separate mode we also register a destructor.
+// NORDC-NEXT: call i32 @atexit(void (i8*)* @__[[PREFIX]]_module_dtor)
 
 // With relocatable device code we call __[[PREFIX]]RegisterLinkedBinary%NVModuleID%
 // RDC: call{{.*}}__[[PREFIX]]RegisterLinkedBinary[[MODULE_ID]](
@@ -141,7 +141,7 @@ void hostfunc(void) { kernelfunc<<<1, 1>>>(1, 1, 1); }
 // There should be no __[[PREFIX]]_register_globals if we have no
 // device-side globals, but we still need to register GPU binary.
 // Skip GPU binary string first.
-// CUDANOGLOBALS: @{{.*}} = private unnamed_addr constant{{.*}}
+// CUDANOGLOBALS: @{{.*}} = private constant{{.*}}
 // HIPNOGLOBALS: @{{.*}} = external constant{{.*}}
 // NOGLOBALS-NOT: define internal void @__{{.*}}_register_globals
 // NOGLOBALS: define internal void @__[[PREFIX:cuda|hip]]_module_ctor

@@ -128,14 +128,15 @@ void GeolocationPermissionContextAndroid::RequestPermission(
   std::vector<ContentSettingsType> content_settings_types;
   content_settings_types.push_back(CONTENT_SETTINGS_TYPE_GEOLOCATION);
   if (content_setting == CONTENT_SETTING_ALLOW &&
-      PermissionUpdateInfoBarDelegate::ShouldShowPermissionInfobar(
-          web_contents, content_settings_types)) {
+      PermissionUpdateInfoBarDelegate::ShouldShowPermissionInfoBar(
+          web_contents, content_settings_types) ==
+          ShowPermissionInfoBarState::SHOW_PERMISSION_INFOBAR) {
     PermissionUpdateInfoBarDelegate::Create(
         web_contents, content_settings_types,
-        base::Bind(&GeolocationPermissionContextAndroid ::
-                       HandleUpdateAndroidPermissions,
-                   weak_factory_.GetWeakPtr(), id, requesting_frame_origin,
-                   embedding_origin, callback));
+        base::BindOnce(&GeolocationPermissionContextAndroid ::
+                           HandleUpdateAndroidPermissions,
+                       weak_factory_.GetWeakPtr(), id, requesting_frame_origin,
+                       embedding_origin, callback));
 
     return;
   }
@@ -188,6 +189,8 @@ void GeolocationPermissionContextAndroid::NotifyPermissionSet(
         content::WebContents::FromRenderFrameHost(
             content::RenderFrameHost::FromID(id.render_process_id(),
                                              id.render_frame_id()));
+    if (!web_contents)
+      return;
 
     // Only show the location settings dialog if the tab for |web_contents| is
     // user-interactable (i.e. is the current tab, and Chrome is active and not

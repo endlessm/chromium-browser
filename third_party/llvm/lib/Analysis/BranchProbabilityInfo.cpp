@@ -203,12 +203,10 @@ BranchProbabilityInfo::updatePostDominatedByColdCall(const BasicBlock *BB) {
 /// unreachable-terminated block as extremely unlikely.
 bool BranchProbabilityInfo::calcUnreachableHeuristics(const BasicBlock *BB) {
   const TerminatorInst *TI = BB->getTerminator();
+  (void) TI;
   assert(TI->getNumSuccessors() > 1 && "expected more than one successor!");
-
-  // Return false here so that edge weights for InvokeInst could be decided
-  // in calcInvokeHeuristics().
-  if (isa<InvokeInst>(TI))
-    return false;
+  assert(!isa<InvokeInst>(TI) &&
+         "Invokes should have already been handled by calcInvokeHeuristics");
 
   SmallVector<unsigned, 4> UnreachableEdges;
   SmallVector<unsigned, 4> ReachableEdges;
@@ -351,12 +349,10 @@ bool BranchProbabilityInfo::calcMetadataWeights(const BasicBlock *BB) {
 /// Return false, otherwise.
 bool BranchProbabilityInfo::calcColdCallHeuristics(const BasicBlock *BB) {
   const TerminatorInst *TI = BB->getTerminator();
+  (void) TI;
   assert(TI->getNumSuccessors() > 1 && "expected more than one successor!");
-
-  // Return false here so that edge weights for InvokeInst could be decided
-  // in calcInvokeHeuristics().
-  if (isa<InvokeInst>(TI))
-    return false;
+  assert(!isa<InvokeInst>(TI) &&
+         "Invokes should have already been handled by calcInvokeHeuristics");
 
   // Determine which successors are post-dominated by a cold block.
   SmallVector<unsigned, 4> ColdEdges;
@@ -504,13 +500,13 @@ computeUnlikelySuccessors(const BasicBlock *BB, Loop *L,
   PHINode *CmpPHI = dyn_cast<PHINode>(CmpLHS);
   Constant *CmpConst = dyn_cast<Constant>(CI->getOperand(1));
   // Collect the instructions until we hit a PHI
-  std::list<BinaryOperator*> InstChain;
+  SmallVector<BinaryOperator *, 1> InstChain;
   while (!CmpPHI && CmpLHS && isa<BinaryOperator>(CmpLHS) &&
          isa<Constant>(CmpLHS->getOperand(1))) {
     // Stop if the chain extends outside of the loop
     if (!L->contains(CmpLHS))
       return;
-    InstChain.push_front(dyn_cast<BinaryOperator>(CmpLHS));
+    InstChain.push_back(cast<BinaryOperator>(CmpLHS));
     CmpLHS = dyn_cast<Instruction>(CmpLHS->getOperand(0));
     if (CmpLHS)
       CmpPHI = dyn_cast<PHINode>(CmpLHS);
@@ -546,10 +542,9 @@ computeUnlikelySuccessors(const BasicBlock *BB, Loop *L,
           std::find(succ_begin(BB), succ_end(BB), B) == succ_end(BB))
         continue;
       // First collapse InstChain
-      for (Instruction *I : InstChain) {
+      for (Instruction *I : llvm::reverse(InstChain)) {
         CmpLHSConst = ConstantExpr::get(I->getOpcode(), CmpLHSConst,
-                                        dyn_cast<Constant>(I->getOperand(1)),
-                                        true);
+                                        cast<Constant>(I->getOperand(1)), true);
         if (!CmpLHSConst)
           break;
       }
@@ -975,6 +970,8 @@ void BranchProbabilityInfo::calculate(const Function &F, const LoopInfo &LI,
       continue;
     if (calcMetadataWeights(BB))
       continue;
+    if (calcInvokeHeuristics(BB))
+      continue;
     if (calcUnreachableHeuristics(BB))
       continue;
     if (calcColdCallHeuristics(BB))
@@ -987,7 +984,6 @@ void BranchProbabilityInfo::calculate(const Function &F, const LoopInfo &LI,
       continue;
     if (calcFloatingPointHeuristics(BB))
       continue;
-    calcInvokeHeuristics(BB);
   }
 
   PostDominatedByUnreachable.clear();

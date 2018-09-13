@@ -16,7 +16,6 @@
 #include "chromecast/renderer/cast_media_load_deferrer.h"
 #include "chromecast/renderer/media/key_systems_cast.h"
 #include "chromecast/renderer/media/media_caps_observer_impl.h"
-#include "chromecast/renderer/tts_dispatcher.h"
 #include "components/network_hints/renderer/prescient_networking_dispatcher.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_names.mojom.h"
@@ -270,19 +269,19 @@ CastContentRendererClient::GetPrescientNetworking() {
   return prescient_networking_dispatcher_.get();
 }
 
-void CastContentRendererClient::DeferMediaLoad(
+bool CastContentRendererClient::DeferMediaLoad(
     content::RenderFrame* render_frame,
     bool render_frame_has_played_media_before,
-    const base::Closure& closure) {
-  RunWhenInForeground(render_frame, closure);
+    base::OnceClosure closure) {
+  return RunWhenInForeground(render_frame, std::move(closure));
 }
 
-void CastContentRendererClient::RunWhenInForeground(
+bool CastContentRendererClient::RunWhenInForeground(
     content::RenderFrame* render_frame,
-    const base::Closure& closure) {
+    base::OnceClosure closure) {
   auto* media_load_deferrer = CastMediaLoadDeferrer::Get(render_frame);
   DCHECK(media_load_deferrer);
-  media_load_deferrer->RunWhenInForeground(closure);
+  return media_load_deferrer->RunWhenInForeground(std::move(closure));
 }
 
 bool CastContentRendererClient::AllowIdleMediaSuspend() {
@@ -298,12 +297,6 @@ void CastContentRendererClient::
 void CastContentRendererClient::OnSupportedBitstreamAudioCodecsChanged(
     int codecs) {
   supported_bitstream_audio_codecs_ = codecs;
-}
-
-std::unique_ptr<blink::WebSpeechSynthesizer>
-CastContentRendererClient::OverrideSpeechSynthesizer(
-    blink::WebSpeechSynthesizerClient* client) {
-  return std::make_unique<TtsDispatcher>(client);
 }
 
 }  // namespace shell

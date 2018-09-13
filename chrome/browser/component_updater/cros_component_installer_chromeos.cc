@@ -18,7 +18,6 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/image_loader_client.h"
 #include "components/component_updater/component_updater_paths.h"
-#include "components/component_updater/component_updater_service.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "crypto/sha2.h"
@@ -36,7 +35,7 @@ const ComponentConfig kConfigs[] = {
      "1913a5e0a6cad30b6f03e176177e0d7ed62c5d6700a9c66da556d7c3f5d6a47e"},
     {"cros-termina", "1.1",
      "e9d960f84f628e1f42d05de4046bb5b3154b6f1f65c08412c6af57a29aecaffb"},
-    {"rtanalytics-light", "4.0",
+    {"rtanalytics-light", "5.0",
      "69f09d33c439c2ab55bbbe24b47ab55cb3f6c0bd1f1ef46eefea3216ec925038"},
     {"rtanalytics-full", "1.0",
      "c93c3e1013c52100a20038b405ac854d69fa889f6dc4fa6f188267051e05e444"},
@@ -212,11 +211,20 @@ void CrOSComponentManager::SetDelegate(Delegate* delegate) {
 
 void CrOSComponentManager::Load(const std::string& name,
                                 MountPolicy mount_policy,
+                                UpdatePolicy update_policy,
                                 LoadCallback load_callback) {
   if (!IsCompatible(name)) {
-    // A compatible component is not installed, start installation process.
+    // A compatible component is not installed.
+    // Start installation process.
     auto* const cus = g_browser_process->component_updater();
-    Install(cus, name, mount_policy, std::move(load_callback));
+    Install(cus, name, OnDemandUpdater::Priority::FOREGROUND, mount_policy,
+            std::move(load_callback));
+  } else if (update_policy == UpdatePolicy::kForce) {
+    // Caller forces update check.
+    // Start update process.
+    auto* const cus = g_browser_process->component_updater();
+    Install(cus, name, OnDemandUpdater::Priority::BACKGROUND, mount_policy,
+            std::move(load_callback));
   } else if (mount_policy == MountPolicy::kMount) {
     // A compatible component is installed, load it.
     LoadInternal(name, std::move(load_callback));
@@ -277,6 +285,7 @@ void CrOSComponentManager::Register(ComponentUpdateService* cus,
 
 void CrOSComponentManager::Install(ComponentUpdateService* cus,
                                    const std::string& name,
+                                   OnDemandUpdater::Priority priority,
                                    MountPolicy mount_policy,
                                    LoadCallback load_callback) {
   const ComponentConfig* config = FindConfig(name);
@@ -287,20 +296,22 @@ void CrOSComponentManager::Install(ComponentUpdateService* cus,
                                   base::FilePath()));
     return;
   }
-  Register(
-      cus, *config,
-      base::BindOnce(&CrOSComponentManager::StartInstall,
-                     base::Unretained(this), cus, GenerateId(config->sha2hash),
-                     base::BindOnce(&CrOSComponentManager::FinishInstall,
-                                    base::Unretained(this), name, mount_policy,
-                                    std::move(load_callback))));
+  Register(cus, *config,
+           base::BindOnce(
+               &CrOSComponentManager::StartInstall, base::Unretained(this), cus,
+               GenerateId(config->sha2hash), priority,
+               base::BindOnce(&CrOSComponentManager::FinishInstall,
+                              base::Unretained(this), name, mount_policy,
+                              std::move(load_callback))));
 }
 
 void CrOSComponentManager::StartInstall(
     ComponentUpdateService* cus,
     const std::string& id,
+    OnDemandUpdater::Priority priority,
     update_client::Callback install_callback) {
-  cus->GetOnDemandUpdater().OnDemandUpdate(id, std::move(install_callback));
+  cus->GetOnDemandUpdater().OnDemandUpdate(id, priority,
+                                           std::move(install_callback));
 }
 
 void CrOSComponentManager::FinishInstall(const std::string& name,

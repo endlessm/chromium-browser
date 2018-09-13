@@ -94,6 +94,7 @@
 #define IDC_ROUTE_MEDIA                 35011
 #define IDC_WINDOW_MUTE_SITE            35012
 #define IDC_WINDOW_PIN_TAB              35013
+#define IDC_MIGRATE_LOCAL_CREDIT_CARD_FOR_PAGE 35014
 
 // Clipboard commands
 #define IDC_CUT                         36000
@@ -151,7 +152,6 @@
 #define IDC_MANAGE_EXTENSIONS           40022
 #define IDC_DEV_TOOLS_INSPECT           40023
 #define IDC_UPGRADE_DIALOG              40024
-#define IDC_VIEW_INCOMPATIBILITIES      40025
 #define IDC_SHOW_KEYBOARD_OVERLAY       40027
 #define IDC_PROFILING_ENABLED           40028
 #define IDC_BOOKMARKS_MENU              40029
@@ -183,6 +183,7 @@
 #define IDC_CUSTOMIZE_TOUCH_BAR         40251
 #define IDC_SHOW_BETA_FORUM             40252
 #define IDC_TOGGLE_JAVASCRIPT_APPLE_EVENTS 40253
+#define IDC_TOGGLE_CONFIRM_TO_QUIT_OPTION 40254
 
 // Spell-check
 // Insert any additional suggestions before _LAST; these have to be consecutive.
@@ -254,7 +255,7 @@
 #define IDC_CONTENT_CONTEXT_SAVEAVAS 50120
 #define IDC_CONTENT_CONTEXT_COPYAVLOCATION 50121
 #define IDC_CONTENT_CONTEXT_OPENAVNEWTAB 50122
-#define IDC_CONTENT_CONTENT_PICTUREINPICTURE 50123
+#define IDC_CONTENT_CONTEXT_PICTUREINPICTURE 50123
 // Media items.
 #define IDC_CONTENT_CONTEXT_PLAYPAUSE 50130
 #define IDC_CONTENT_CONTEXT_MUTE 50131
@@ -357,6 +358,9 @@
 // Open link in profile entries
 #define IDC_OPEN_LINK_IN_PROFILE_FIRST 52300
 #define IDC_OPEN_LINK_IN_PROFILE_LAST  52399
+
+// Start smart text selection action
+#define IDC_CONTENT_CONTEXT_START_SMART_SELECTION_ACTION 52400
 
 // NOTE: The last valid command value is 57343 (0xDFFF)
 // See http://msdn.microsoft.com/en-us/library/t2zechd4(VS.71).aspx

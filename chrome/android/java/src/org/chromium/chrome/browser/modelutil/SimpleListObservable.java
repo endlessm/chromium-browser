@@ -5,14 +5,15 @@ package org.chromium.chrome.browser.modelutil;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
 /**
- * A {@link ListObservable} containing an {@link ArrayList} of Tabs or Actions.
+ * A {@link ListObservable} containing a {@link List} of items.
  * It allows models to compose different ListObservables.
  * @param <T> The object type that this class manages in a list.
  */
-public class SimpleListObservable<T> extends ListObservable {
+public class SimpleListObservable<T> extends ListObservableImpl<Void> implements SimpleList<T> {
     private final List<T> mItems = new ArrayList<>();
 
     /**
@@ -20,12 +21,13 @@ public class SimpleListObservable<T> extends ListObservable {
      * @param index The position to get the item from.
      * @return Returns the found item.
      */
+    @Override
     public T get(int index) {
         return mItems.get(index);
     }
 
     @Override
-    public int getItemCount() {
+    public int size() {
         return mItems.size();
     }
 
@@ -36,7 +38,7 @@ public class SimpleListObservable<T> extends ListObservable {
      */
     public void add(T item) {
         mItems.add(item);
-        notifyItemRangeInserted(mItems.size() - 1, 1);
+        notifyItemInserted(mItems.size() - 1);
     }
 
     /**
@@ -46,32 +48,47 @@ public class SimpleListObservable<T> extends ListObservable {
     public void remove(T item) {
         int position = mItems.indexOf(item);
         mItems.remove(position);
-        notifyItemRangeRemoved(position, 1);
+        notifyItemRemoved(position);
     }
 
     /**
-     * Replaces all held items with the given array of items.
-     * If the held list was empty, notify observers about inserted elements.
-     * If the held list isn't empty but the new list is, notify observer about the removal.
-     * If the new and old list aren't empty, notify observer about the complete exchange.
-     * @param newItems The set of items that should replace all held items.
+     * Convenience method to replace all held items with the given array of items.
+     * @param newItems The array of items that should replace all held items.
+     * @see #set(Collection)
      */
     public void set(T[] newItems) {
-        if (mItems.isEmpty()) {
-            if (newItems.length == 0) {
-                return; // Nothing to do, nothing changes.
-            }
-            mItems.addAll(Arrays.asList(newItems));
-            notifyItemRangeInserted(0, mItems.size());
-            return;
-        }
+        set(Arrays.asList(newItems));
+    }
+
+    /**
+     * Replaces all held items with the given collection of items, notifying observers about the
+     * resulting insertions, deletions, changes, or combinations thereof.
+     * @param newItems The collection of items that should replace all held items.
+     */
+    public void set(Collection<T> newItems) {
         int oldSize = mItems.size();
+        int newSize = newItems.size();
+
         mItems.clear();
-        if (newItems.length == 0) {
-            notifyItemRangeRemoved(0, oldSize);
-            return;
+        mItems.addAll(newItems);
+
+        int min = Math.min(oldSize, newSize);
+        if (min > 0) notifyItemRangeChanged(0, min);
+
+        if (newSize > oldSize) {
+            notifyItemRangeInserted(min, newSize - oldSize);
+        } else if (newSize < oldSize) {
+            notifyItemRangeRemoved(min, oldSize - newSize);
         }
-        mItems.addAll(Arrays.asList(newItems));
-        notifyItemRangeChanged(0, Math.max(oldSize, mItems.size()), this);
+    }
+
+    /**
+     * Replaces a single {@code item} at the given {@code index}.
+     * @param index The index of the item to be replaced.
+     * @param item The item to be replaced.
+     */
+    public void update(int index, T item) {
+        mItems.set(index, item);
+        notifyItemRangeChanged(index, 1);
     }
 }

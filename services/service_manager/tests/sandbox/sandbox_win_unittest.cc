@@ -151,6 +151,8 @@ class TestTargetPolicy : public sandbox::TargetPolicy {
     return app_container_profile_;
   }
 
+  void SetEffectiveToken(HANDLE token) override {}
+
  private:
   scoped_refptr<sandbox::AppContainerProfileBase> app_container_profile_;
 };
@@ -339,17 +341,6 @@ TEST_F(SandboxWinTest, AppContainerCheckProfileAddCapabilities) {
   ASSERT_EQ(sandbox::SBOX_ALL_OK, result);
   ASSERT_NE(nullptr, profile);
   EXPECT_TRUE(CheckCapabilities(profile.get(), {L"cap1", L"cap2"}));
-}
-
-TEST_F(SandboxWinTest, AppContainerUnsupportedType) {
-  if (base::win::GetVersion() < base::win::VERSION_WIN10_RS1)
-    return;
-  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
-  scoped_refptr<sandbox::AppContainerProfileBase> profile;
-  sandbox::ResultCode result = CreateAppContainerProfile(
-      command_line, false, SANDBOX_TYPE_NO_SANDBOX, &profile);
-  EXPECT_EQ(sandbox::SBOX_ERROR_UNSUPPORTED, result);
-  EXPECT_EQ(nullptr, profile);
 }
 
 }  // namespace service_manager

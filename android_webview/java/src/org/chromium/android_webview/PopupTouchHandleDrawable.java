@@ -23,12 +23,12 @@ import android.widget.PopupWindow;
 import org.chromium.base.ObserverList;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.content.browser.selection.HandleViewResources;
 import org.chromium.content_public.browser.GestureListenerManager;
 import org.chromium.content_public.browser.GestureStateListener;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.display.DisplayAndroid.DisplayAndroidObserver;
+import org.chromium.ui.resources.HandleViewResources;
 import org.chromium.ui.touch_selection.TouchHandleOrientation;
 
 import java.lang.reflect.InvocationTargetException;
@@ -45,10 +45,10 @@ import java.lang.reflect.Method;
 public class PopupTouchHandleDrawable extends View implements DisplayAndroidObserver {
 
     private final PopupWindow mContainer;
-    private final PositionObserver.Listener mParentPositionListener;
+    private final ViewPositionObserver.Listener mParentPositionListener;
     private WebContents mWebContents;
     private ViewGroup mContainerView;
-    private PositionObserver mParentPositionObserver;
+    private ViewPositionObserver mParentPositionObserver;
     private Drawable mDrawable;
 
     // The native side of this object.

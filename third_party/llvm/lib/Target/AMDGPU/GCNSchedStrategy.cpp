@@ -28,18 +28,6 @@ GCNMaxOccupancySchedStrategy::GCNMaxOccupancySchedStrategy(
     const MachineSchedContext *C) :
     GenericScheduler(C), TargetOccupancy(0), MF(nullptr) { }
 
-static unsigned getMaxWaves(unsigned SGPRs, unsigned VGPRs,
-                            const MachineFunction &MF) {
-
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
-  const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
-  unsigned MinRegOccupancy = std::min(ST.getOccupancyWithNumSGPRs(SGPRs),
-                                      ST.getOccupancyWithNumVGPRs(VGPRs));
-  return std::min(MinRegOccupancy,
-                  ST.getOccupancyWithLocalMemSize(MFI->getLDSSize(),
-                                                  MF.getFunction()));
-}
-
 void GCNMaxOccupancySchedStrategy::initialize(ScheduleDAGMI *DAG) {
   GenericScheduler::initialize(DAG);
 
@@ -47,7 +35,7 @@ void GCNMaxOccupancySchedStrategy::initialize(ScheduleDAGMI *DAG) {
 
   MF = &DAG->MF;
 
-  const SISubtarget &ST = MF->getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF->getSubtarget<GCNSubtarget>();
 
   // FIXME: This is also necessary, because some passes that run after
   // scheduling and before regalloc increase register pressure.
@@ -306,11 +294,9 @@ SUnit *GCNMaxOccupancySchedStrategy::pickNode(bool &IsTopNode) {
 GCNScheduleDAGMILive::GCNScheduleDAGMILive(MachineSchedContext *C,
                         std::unique_ptr<MachineSchedStrategy> S) :
   ScheduleDAGMILive(C, std::move(S)),
-  ST(MF.getSubtarget<SISubtarget>()),
+  ST(MF.getSubtarget<GCNSubtarget>()),
   MFI(*MF.getInfo<SIMachineFunctionInfo>()),
-  StartingOccupancy(std::min(ST.getOccupancyWithLocalMemSize(MFI.getLDSSize(),
-                                                             MF.getFunction()),
-                             MFI.getMaxWavesPerEU())),
+  StartingOccupancy(MFI.getOccupancy()),
   MinOccupancy(StartingOccupancy), Stage(0), RegionIdx(0) {
 
   LLVM_DEBUG(dbgs() << "Starting occupancy is " << StartingOccupancy << ".\n");
@@ -360,25 +346,31 @@ void GCNScheduleDAGMILive::schedule() {
     LLVM_DEBUG(dbgs() << "Pressure in desired limits, done.\n");
     return;
   }
-  unsigned WavesAfter = getMaxWaves(PressureAfter.getSGPRNum(),
-                                    PressureAfter.getVGPRNum(), MF);
-  unsigned WavesBefore = getMaxWaves(PressureBefore.getSGPRNum(),
-                                     PressureBefore.getVGPRNum(), MF);
-  WavesAfter = std::min(WavesAfter, MFI.getMaxWavesPerEU());
-  WavesBefore = std::min(WavesBefore, MFI.getMaxWavesPerEU());
+  unsigned Occ = MFI.getOccupancy();
+  unsigned WavesAfter = std::min(Occ, PressureAfter.getOccupancy(ST));
+  unsigned WavesBefore = std::min(Occ, PressureBefore.getOccupancy(ST));
   LLVM_DEBUG(dbgs() << "Occupancy before scheduling: " << WavesBefore
                     << ", after " << WavesAfter << ".\n");
 
   // We could not keep current target occupancy because of the just scheduled
   // region. Record new occupancy for next scheduling cycle.
   unsigned NewOccupancy = std::max(WavesAfter, WavesBefore);
+  // Allow memory bound functions to drop to 4 waves if not limited by an
+  // attribute.
+  if (WavesAfter < WavesBefore && WavesAfter < MinOccupancy &&
+      WavesAfter >= MFI.getMinAllowedOccupancy()) {
+    LLVM_DEBUG(dbgs() << "Function is memory bound, allow occupancy drop up to "
+                      << MFI.getMinAllowedOccupancy() << " waves\n");
+    NewOccupancy = WavesAfter;
+  }
   if (NewOccupancy < MinOccupancy) {
     MinOccupancy = NewOccupancy;
+    MFI.limitOccupancy(MinOccupancy);
     LLVM_DEBUG(dbgs() << "Occupancy lowered for the function to "
                       << MinOccupancy << ".\n");
   }
 
-  if (WavesAfter >= WavesBefore) {
+  if (WavesAfter >= MinOccupancy) {
     Pressure[RegionIdx] = PressureAfter;
     return;
   }

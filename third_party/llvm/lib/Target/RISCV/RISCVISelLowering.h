@@ -28,7 +28,8 @@ enum NodeType : unsigned {
   CALL,
   SELECT_CC,
   BuildPairF64,
-  SplitF64
+  SplitF64,
+  TAIL
 };
 }
 
@@ -65,6 +66,14 @@ public:
   EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
                          EVT VT) const override;
 
+  bool shouldInsertFencesForAtomic(const Instruction *I) const override {
+    return isa<LoadInst>(I) || isa<StoreInst>(I);
+  }
+  Instruction *emitLeadingFence(IRBuilder<> &Builder, Instruction *Inst,
+                                AtomicOrdering Ord) const override;
+  Instruction *emitTrailingFence(IRBuilder<> &Builder, Instruction *Inst,
+                                 AtomicOrdering Ord) const override;
+
 private:
   void analyzeInputArgs(MachineFunction &MF, CCState &CCInfo,
                         const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -100,6 +109,10 @@ private:
   SDValue lowerVASTART(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
+
+  bool IsEligibleForTailCallOptimization(CCState &CCInfo,
+    CallLoweringInfo &CLI, MachineFunction &MF,
+    const SmallVector<CCValAssign, 16> &ArgLocs) const;
 };
 }
 

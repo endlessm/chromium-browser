@@ -28,7 +28,6 @@ from telemetry.value import trace
 from tracing.value import convert_chart_json
 from tracing.value import histogram
 from tracing.value import histogram_set
-from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
 
 class TelemetryInfo(object):
@@ -256,6 +255,12 @@ class PageTestResults(object):
     self._artifact_results = artifact_results
     self._benchmark_metadata = benchmark_metadata
 
+    self._histogram_dicts_to_add = []
+
+    # Mapping of the stories that have run to the number of times they have run
+    # This is necessary on interrupt if some of the stories did not run.
+    self._story_run_count = {}
+
   @property
   def telemetry_info(self):
     return self._telemetry_info
@@ -286,6 +291,7 @@ class PageTestResults(object):
                     vinn_result.stdout)
       return []
     self._histograms.ImportDicts(json.loads(vinn_result.stdout))
+    self._histograms.ImportDicts(self._histogram_dicts_to_add)
     self._histograms.ResolveRelatedHistograms()
 
   def __copy__(self):
@@ -419,32 +425,34 @@ class PageTestResults(object):
     assert self._current_page_run, 'Did not call WillRunPage.'
     self._progress_reporter.DidRunPage(self)
     self._all_page_runs.append(self._current_page_run)
-    self._all_stories.add(self._current_page_run.story)
+    story = self._current_page_run.story
+    self._all_stories.add(story)
+    if bool(self._story_run_count.get(story)):
+      self._story_run_count[story] += 1
+    else:
+      self._story_run_count[story] = 1
     self._current_page_run = None
 
-  def AddDurationHistogram(self, duration_in_milliseconds):
-    hist = histogram.Histogram(
-        'benchmark_total_duration', 'ms_smallerIsBetter')
-    hist.AddSample(duration_in_milliseconds)
-    # TODO(#4244): Do this generally.
-    if self.telemetry_info.label:
-      hist.diagnostics[reserved_infos.LABELS.name] = generic_set.GenericSet(
-          [self.telemetry_info.label])
-    hist.diagnostics[reserved_infos.BENCHMARKS.name] = generic_set.GenericSet(
-        [self.telemetry_info.benchmark_name])
-    hist.diagnostics[reserved_infos.BENCHMARK_START.name] = histogram.DateRange(
-        self.telemetry_info.benchmark_start_epoch * 1000)
-    if self.telemetry_info.benchmark_descriptions:
-      hist.diagnostics[
-          reserved_infos.BENCHMARK_DESCRIPTIONS.name] = generic_set.GenericSet([
-              self.telemetry_info.benchmark_descriptions])
-    self._histograms.AddHistogram(hist)
+  def InterruptBenchmark(self, stories, repeat_count):
+    self.telemetry_info.InterruptBenchmark()
+    # If we are in the middle of running a page it didn't finish
+    # so reset the current page run
+    self._current_page_run = None
+    for story in stories:
+      num_runs = repeat_count - self._story_run_count.get(story, 0)
+      for i in xrange(num_runs):
+        self._GenerateSkippedStoryRun(story, i)
+
+  def _GenerateSkippedStoryRun(self, story, storyset_repeat_counter):
+    self.WillRunPage(story, storyset_repeat_counter)
+    self.Skip('Telemetry interrupted', is_expected=False)
+    self.DidRunPage(story)
 
   def AddHistogram(self, hist):
     if self._ShouldAddHistogram(hist):
       self._histograms.AddHistogram(hist)
 
-  def ImportHistogramDicts(self, histogram_dicts):
+  def ImportHistogramDicts(self, histogram_dicts, import_immediately=True):
     dicts_to_add = []
     for d in histogram_dicts:
       # If there's a type field, it's a diagnostic.
@@ -454,7 +462,20 @@ class PageTestResults(object):
         hist = histogram.Histogram.FromDict(d)
         if self._ShouldAddHistogram(hist):
           dicts_to_add.append(d)
-    self._histograms.ImportDicts(dicts_to_add)
+
+    # For measurements that add both TBMv2 and legacy metrics to results, we
+    # want TBMv2 histograms be imported at the end, when PopulateHistogramSet is
+    # called so that legacy histograms can be built, too, from scalar value
+    # data.
+    #
+    # Measurements that add only TBMv2 metrics and also add scalar value data
+    # should set import_immediately to True (i.e. the default behaviour) to
+    # prevent PopulateHistogramSet from trying to build more histograms from the
+    # scalar value data.
+    if import_immediately:
+      self._histograms.ImportDicts(dicts_to_add)
+    else:
+      self._histogram_dicts_to_add.extend(dicts_to_add)
 
   def _ShouldAddHistogram(self, hist):
     assert self._current_page_run, 'Not currently running test.'
@@ -518,9 +539,9 @@ class PageTestResults(object):
       failure_str = ''.join(traceback.format_exception(*failure))
     self._current_page_run.SetFailed(failure_str)
 
-  def Skip(self, reason):
+  def Skip(self, reason, is_expected=True):
     assert self._current_page_run, 'Not currently running test.'
-    self.AddValue(skip.SkipValue(self.current_page, reason))
+    self.AddValue(skip.SkipValue(self.current_page, reason, is_expected))
 
   def CreateArtifact(self, story, name, prefix='', suffix=''):
     return self._artifact_results.CreateArtifact(

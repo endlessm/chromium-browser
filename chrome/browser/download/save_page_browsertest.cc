@@ -20,7 +20,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_file_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -1006,7 +1006,7 @@ IN_PROC_BROWSER_TEST_F(SavePageSitePerProcessBrowserTest,
           << "a.com and bar.com should be in different processes.";
 
       EXPECT_TRUE(process_to_kill->FastShutdownIfPossible());
-      EXPECT_FALSE(process_to_kill->HasConnection());
+      EXPECT_FALSE(process_to_kill->IsInitializedAndNotDead());
       did_kill_a_process = true;
       break;
     }

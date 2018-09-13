@@ -21,10 +21,12 @@
 #include "SkStream.h"
 #include "SkStrokeRec.h"
 #include "SkSurface.h"
+#include "SkTo.h"
 #include "SkWriter32.h"
 #include "Test.h"
-#include <cmath>
 
+#include <cmath>
+#include <utility>
 
 static void set_radii(SkVector radii[4], int index, float rad) {
     sk_bzero(radii, sizeof(SkVector) * 4);
@@ -1803,10 +1805,12 @@ static void test_conservativelyContains(skiatest::Reporter* reporter) {
         for (size_t q = 0; q < SK_ARRAY_COUNT(kQueries); ++q) {
             SkRect qRect = kQueries[q].fQueryRect;
             if (inv & 0x1) {
-                SkTSwap(qRect.fLeft, qRect.fRight);
+                using std::swap;
+                swap(qRect.fLeft, qRect.fRight);
             }
             if (inv & 0x2) {
-                SkTSwap(qRect.fTop, qRect.fBottom);
+                using std::swap;
+                swap(qRect.fTop, qRect.fBottom);
             }
             for (int d = 0; d < 2; ++d) {
                 SkPath::Direction dir = d ? SkPath::kCCW_Direction : SkPath::kCW_Direction;
@@ -2144,6 +2148,7 @@ static void check_simple_closed_rect(skiatest::Reporter* reporter, const SkPath&
 }
 
 static void test_is_simple_closed_rect(skiatest::Reporter* reporter) {
+    using std::swap;
     SkRect r = SkRect::MakeEmpty();
     SkPath::Direction d = SkPath::kCCW_Direction;
     unsigned s = ~0U;
@@ -2215,12 +2220,12 @@ static void test_is_simple_closed_rect(skiatest::Reporter* reporter) {
             static constexpr unsigned kXSwapStarts[] = { 1, 0, 3, 2 };
             static constexpr unsigned kYSwapStarts[] = { 3, 2, 1, 0 };
             SkRect swapRect = testRect;
-            SkTSwap(swapRect.fLeft, swapRect.fRight);
+            swap(swapRect.fLeft, swapRect.fRight);
             path2.reset();
             path2.addRect(swapRect, dir, start);
             check_simple_closed_rect(reporter, path2, testRect, swapDir, kXSwapStarts[start]);
             swapRect = testRect;
-            SkTSwap(swapRect.fTop, swapRect.fBottom);
+            swap(swapRect.fTop, swapRect.fBottom);
             path2.reset();
             path2.addRect(swapRect, dir, start);
             check_simple_closed_rect(reporter, path2, testRect, swapDir, kYSwapStarts[start]);
@@ -4276,19 +4281,19 @@ public:
 
         // Check that listener is notified on moveTo().
 
-        SkPathPriv::AddGenIDChangeListener(p, new ChangeListener(&changed));
+        SkPathPriv::AddGenIDChangeListener(p, sk_make_sp<ChangeListener>(&changed));
         REPORTER_ASSERT(reporter, !changed);
         p.moveTo(10, 0);
         REPORTER_ASSERT(reporter, changed);
 
         // Check that listener is notified on lineTo().
-        SkPathPriv::AddGenIDChangeListener(p, new ChangeListener(&changed));
+        SkPathPriv::AddGenIDChangeListener(p, sk_make_sp<ChangeListener>(&changed));
         REPORTER_ASSERT(reporter, !changed);
         p.lineTo(20, 0);
         REPORTER_ASSERT(reporter, changed);
 
         // Check that listener is notified on reset().
-        SkPathPriv::AddGenIDChangeListener(p, new ChangeListener(&changed));
+        SkPathPriv::AddGenIDChangeListener(p, sk_make_sp<ChangeListener>(&changed));
         REPORTER_ASSERT(reporter, !changed);
         p.reset();
         REPORTER_ASSERT(reporter, changed);
@@ -4296,7 +4301,7 @@ public:
         p.moveTo(0, 0);
 
         // Check that listener is notified on rewind().
-        SkPathPriv::AddGenIDChangeListener(p, new ChangeListener(&changed));
+        SkPathPriv::AddGenIDChangeListener(p, sk_make_sp<ChangeListener>(&changed));
         REPORTER_ASSERT(reporter, !changed);
         p.rewind();
         REPORTER_ASSERT(reporter, changed);
@@ -4305,7 +4310,7 @@ public:
         {
             SkPath q;
             q.moveTo(10, 10);
-            SkPathPriv::AddGenIDChangeListener(q, new ChangeListener(&changed));
+            SkPathPriv::AddGenIDChangeListener(q, sk_make_sp<ChangeListener>(&changed));
             REPORTER_ASSERT(reporter, !changed);
         }
         // q went out of scope.
@@ -5053,6 +5058,20 @@ DEF_TEST(Path_isRect, reporter) {
 }
 
 #include "SkVertices.h"
+static void draw_triangle(SkCanvas* canvas, const SkPoint pts[]) {
+    // draw in different ways, looking for an assert
+
+    {
+        SkPath path;
+        path.addPoly(pts, 3, false);
+        canvas->drawPath(path, SkPaint());
+    }
+
+    const SkColor colors[] = { SK_ColorBLACK, SK_ColorBLACK, SK_ColorBLACK };
+    auto v = SkVertices::MakeCopy(SkVertices::kTriangles_VertexMode, 3, pts, nullptr, colors);
+    canvas->drawVertices(v, SkBlendMode::kSrcOver, SkPaint());
+}
+
 DEF_TEST(triangle_onehalf, reporter) {
     auto surface(SkSurface::MakeRasterN32Premul(100, 100));
 
@@ -5061,8 +5080,22 @@ DEF_TEST(triangle_onehalf, reporter) {
         {  0.499402374f, 7.88207579f },
         { 10.2363272f,   0.49999997f }
     };
-    const SkColor colors[] = { SK_ColorBLACK, SK_ColorBLACK, SK_ColorBLACK };
-
-    auto v = SkVertices::MakeCopy(SkVertices::kTriangles_VertexMode, 3, pts, nullptr, colors);
-    surface->getCanvas()->drawVertices(v, SkBlendMode::kSrcOver, SkPaint());
+    draw_triangle(surface->getCanvas(), pts);
 }
+
+DEF_TEST(triangle_big, reporter) {
+    auto surface(SkSurface::MakeRasterN32Premul(4, 4304));
+
+    // The first two points, when sent through our fixed-point SkEdge, can walk negative beyond
+    // -0.5 due to accumulated += error of the slope. We have since make the bounds calculation
+    // be conservative, so we invoke clipping if we get in this situation.
+    // This test was added to demonstrate the need for this conservative bounds calc.
+    // (found by a fuzzer)
+    const SkPoint pts[] = {
+        { 0.327190518f, -114.945152f },
+        { -0.5f, 1.00003874f },
+        { 0.666425824f, 4304.26172f },
+    };
+    draw_triangle(surface->getCanvas(), pts);
+}
+

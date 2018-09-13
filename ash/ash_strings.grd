@@ -186,6 +186,9 @@ This file contains the strings for ash.
       <message name="IDS_ASH_SHOW_WEBUI_LOGIN_BUTTON" desc="Button on login/lock screen which reverts to the previous implementation." translateable="false">
         (TEMP) Show webui login; if used file bug (crbug.com) or feedback (alt+shift+i)
       </message>
+      <message name="IDS_ASH_SHELF_APPS_BUTTON" desc="Text shown on apps button on login screen.">
+        Apps
+      </message>
 
       <message name="IDS_ASH_KEYBOARD_OVERLAY_TITLE" desc="The title of the keyboard overlay.">
         Keyboard overlay
@@ -217,10 +220,16 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_SPOKEN_FEEDBACK_BRAILLE_ENABLED_TITLE" desc="The message shown on a notification when both the spoken feedback and braille are enabled">
         Braille and ChromeVox are enabled
       </message>
-      <message name="IDS_ASH_STATUS_TRAY_SIGN_OUT" desc="The label used for the button in the status tray to sign out of the system.">
+      <message name="IDS_ASH_STATUS_TRAY_USER_INFO_ACCESSIBILITY" desc="The accessibility string used for an item in user chooser that tells the user name and the mail address.">
+        <ph name="USERNAME">$1<ex>Jane Doe</ex></ph> <ph name="MAIL">$2<ex>janedoe@example.com</ex></ph>
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_FEATURE_POD_BUTTON_TOOLTIP" desc="The tooltip string used for a feature button in system tray that combines the label and the sub-label.">
+        <ph name="LABEL">$1<ex>VPN</ex></ph> <ph name="SUBLABEL">$2<ex>Off</ex></ph>
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_SIGN_OUT" desc="The label used for the button in the status tray to sign out of the system. Should not exceed about 20 latin characters. Overflowed text is truncated with ellipsis.">
         Sign out
       </message>
-      <message name="IDS_ASH_STATUS_TRAY_SIGN_OUT_ALL" desc="The label used for the button in the status tray to sign out all users of the system.">
+      <message name="IDS_ASH_STATUS_TRAY_SIGN_OUT_ALL" desc="The label used for the button in the status tray to sign out all users of the system. Should not exceed about 20 latin characters. Overflowed text is truncated with ellipsis.">
         Sign out all
       </message>
       <message name="IDS_ASH_STATUS_TRAY_GUEST_LABEL" desc="The label used in the system tray's user card to indicate that the current session is a guest session.">
@@ -265,23 +274,32 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_CAST" desc="The label used as the header in the cast popup.">
         Cast screen
       </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_SHORT" desc="The label used for Cast button in system tray bubble.">
+        Cast
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_NOTIFICATION_TITLE" desc="The notification title to tell the user we are casting to a cast device.">
+        Casting to <ph name="RECEIVER_NAME">$1<ex>Living Room</ex></ph>
+      </message>
       <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_DESKTOP" desc="The label used in the tray popup to tell the user we are casting the desktop.">
         Casting screen to <ph name="RECEIVER_NAME">$1<ex>Living Room</ex></ph>
       </message>
       <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_DESKTOP_ACCESSIBILITY_STOP" desc="Stop button accessibility label used in the tray popup to tell the user to stop a cast to the desktop.">
         Stop casting screen to <ph name="RECEIVER_NAME">$1<ex>Living Room</ex></ph>
       </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_DESKTOP_NOTIFICATION_MESSAGE" desc="The notification message to tell the user we are casting the desktop.">
+        You are currently casting screen.
+      </message>
       <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_TAB" desc="The title label used in the tray popup to tell the user we are casting a tab.">
-        Casting <ph name="TAB_NAME">$1<ex>YouTube</ex></ph> to <ph name="RECEIVER_NAME">$2<ex>Living Room</ex></ph>
+        <ph name="ROUTE_TITLE">$1<ex>YouTube</ex></ph> on <ph name="RECEIVER_NAME">$2<ex>Living Room</ex></ph>
       </message>
       <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_TAB_ACCESSIBILITY_STOP" desc="Stop button accessibility label used in the tray popup to tell the user to stop a tab cast.">
-        Stop casting <ph name="TAB_NAME">$1<ex>YouTube</ex></ph> to <ph name="RECEIVER_NAME">$2<ex>Living Room</ex></ph>
+        Stop <ph name="ROUTE_TITLE">$1<ex>YouTube</ex></ph> on <ph name="RECEIVER_NAME">$2<ex>Living Room</ex></ph>
       </message>
       <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_UNKNOWN" desc="The label used when we have detected we are casting but do not know what we are casting or who we are casting to.">
-        Casting to an unknown receiver
+        Casting on an unknown receiver
       </message>
       <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_UNKNOWN_ACCESSIBILITY_STOP" desc="Stop button accessibility label used in the tray popup to tell the user to stop a cast, but we do not know what we are casting or who we are casting to.">
-        Stop casting to an unknown receiver
+        Stop casting on an unknown receiver
       </message>
       <message name="IDS_ASH_STATUS_TRAY_CAST_DESKTOP" desc="The label used in the tray popup to notify that desktop may be cast.">
         Cast devices available
@@ -299,6 +317,12 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_DISABLED" desc="The label used in the tray popup to notify that bluetooth is disabled.">
         Bluetooth disabled
       </message>
+      <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_ENABLED_SHORT" desc="The short label used in the tray popup to notify that bluetooth is enabled.">
+        On
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_DISABLED_SHORT" desc="The short label used in the tray popup to notify that bluetooth is disabled.">
+        Off
+      </message>
       <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_DISCOVERING" desc="The label used in the tray popup to show bluetooth is discovering devices.">
         Scanning for devices...
       </message>
@@ -310,6 +334,12 @@ This file contains the strings for ash.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_SETTINGS" desc="The label used in the tray pop up to open Bluetooth setting page.">
         Bluetooth settings
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_DEVICE_CONNECTED_LABEL" desc="The sub-header label to notify that one bluetooth device is connected.">
+        Connected
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_MULTIPLE_DEVICES_CONNECTED_LABEL" desc="The header label to notify that multiple bluetooth devices are connected.">
+        Devices
       </message>
 
       <message name="IDS_ASH_STATUS_TRAY_UPDATE" desc="The label used in the tray popup to notify that the user should restart to get system updates.">
@@ -328,6 +358,33 @@ This file contains the strings for ash.
         Click to view update details
       </message>
 
+      <message name="IDS_UPDATE_NOTIFICATION_TITLE" desc="The title of the notification to notify that the user should restart to get system updates.">
+        Update available
+      </message>
+      <if expr="is_chrome_branded">
+        <message name="IDS_UPDATE_NOTIFICATION_TITLE_FLASH_PLAYER" desc="The title of the notification to notify the user should restart to get system updates in order to update Flash Player.">
+          Adobe Flash Player update available
+        </message>
+      </if>
+      <message name="IDS_ROLLBACK_NOTIFICATION_TITLE" desc="The title of the notification to notify that the user should restart to roll back the device.">
+        Device will be rolled back
+      </message>
+      <message name="IDS_UPDATE_NOTIFICATION_MESSAGE_LEARN_MORE" desc="The body of the notification to notify that the user should restart to get system updates. This notification body links to the info page on the update.">
+        Learn more about the latest <ph name="SYSTEM_APP_NAME">$1<ex>Chromium OS</ex></ph> update
+      </message>
+      <message name="IDS_UPDATE_NOTIFICATION_RESTART_BUTTON" meaning="button label" desc="The label used as the button to restart system and update. Displayed as the action button of the notification for system update.">
+        Restart to update
+      </message>
+      <message name="IDS_ROLLBACK_NOTIFICATION_RESTART_BUTTON" meaning="button label" desc="The label used as the button to restart system to rollback. Displayed as the action button of the notification for system rollback.">
+        Restart and reset
+      </message>
+      <message name="IDS_UPDATE_NOTIFICATION_MESSAGE_POWERWASH" desc="The notification message used in the system notification update when user need to powerwash the device in order to update the system.">
+        This update requires powerwashing your device. Learn more about the latest <ph name="SYSTEM_APP_NAME">$1<ex>Chromium OS</ex></ph> update.
+      </message>
+      <message name="IDS_UPDATE_NOTIFICATION_MESSAGE_ROLLBACK" desc="The notification message used in the system notification update when the device is rolled back and data will be deleted.">
+        Your administrator is rolling back your device. All data will be deleted when the device is restarted.
+      </message>
+
       <message name="IDS_ASH_STATUS_TRAY_VOLUME" desc="The accessible text for the volume slider.">
         Volume
       </message>
@@ -335,6 +392,9 @@ This file contains the strings for ash.
         Mute
       </message>
 
+      <message name="IDS_ASH_STATUS_TRAY_IME_SHORT" desc="The short label used for IME button in system tray bubble.">
+        Keyboard
+      </message>
       <message name="IDS_ASH_STATUS_TRAY_IME" desc="The label used as the header in the IME popup.">
         Input methods
       </message>
@@ -379,6 +439,12 @@ This file contains the strings for ash.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_DICTATION" desc="The label used in the accessibility menu of the system tray to toggle on/off the speak to type feature.">
         Dictation
+      </message>
+      <message name="IDS_ASH_DICTATION_CONFIRMATION_TITLE" desc="The title for the modal dialog shown the first time the user enables dictation">
+        Dictation
+      </message>
+      <message name="IDS_ASH_DICTATION_CONFIRMATION_BODY" desc="The message shown the first time the user enables Dictation, explaining that the audio data will be sent to Google for transcription">
+        Dictation sends your voice to Google to allow voice typing in any text field.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_HIGH_CONTRAST_MODE" desc="The label used in the accessibility menu of the system tray to toggle on/off high contrast feature.">
         High contrast mode
@@ -434,8 +500,25 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_SHUTDOWN" desc="The accessible text for the shutdown button.">
         Shut down
       </message>
-      <message name="IDS_ASH_STATUS_TRAY_COLLAPSE" desc="The accessible text for the collapse button of system menu.">
-        Collapse
+      <message name="IDS_ASH_STATUS_TRAY_COLLAPSE" desc="The accessible text for the button to collapse system menu.">
+        Collapse menu
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_EXPAND" desc="The accessible text for the button to expand system menu.">
+        Expand menu
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NOTIFICATIONS_LABEL" desc="The label text shown under do not disturb button in system tray bubble.">
+        Notifications
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NOTIFICATIONS_ON_SUBLABEL" desc="The sub label text shown under do not disturb button when all notifications are enabled.">
+        On, all apps
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NOTIFICATIONS_OFF_FOR_APPS_SUBLABEL" desc="The sub label text shown under do not disturb button when some notifications are disabled. [ICU Syntax]">
+        {NUM_APPS, plural,
+         =1 {Off for an app}
+         other {Off for # apps}}
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NOTIFICATIONS_DO_NOT_DISTURB_SUBLABEL" desc="The sub label text shown under do not disturb button when all notifications are disabled.">
+        Do not disturb
       </message>
 
       <!-- Status tray enterprise management. -->
@@ -656,6 +739,35 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_DISCOVERABLE" desc="Notification shown when a Bluetooth adapter is discoverable.">
         Your computer is discoverable to nearby Bluetooth devices and will appear as "<ph name="NAME">$1<ex>Chromebook</ex></ph>" with address <ph name="ADDRESS">$2<ex>01:23:45:67:89:0A</ex></ph>
       </message>
+      <message name="IDS_ASH_NETWORK_AUTOCONNECT_NOTIFICATION_TITLE" desc="Title used for the system notification shown when a network has been auto-connected (e.g., when an enterprise policy is applied which initiates a connection to a corporate network like Google-A).">
+        Switched network connection
+      </message>
+      <message name="IDS_ASH_NETWORK_AUTOCONNECT_NOTIFICATION_MESSAGE" desc="Message displayed in the system notification shown when a network has been auto-connected (e.g., when an enterprise policy is applied which initiates a connection to a corporate network like Google-A).">
+        Your connection has switched to a more secure network
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NETWORK_DISCONNECTED_LABEL" desc="The label text used when network is not connected.">
+        Not connected
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NETWORK_DISCONNECTED_SUBLABEL" desc="The sub label text used when network is not connected.">
+        No networks
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NETWORK_SIGNAL_WEAK_SUBLABEL" desc="The sub label text used when WiFi signal strength is weak (among weak, medium, and strong.)">
+        Weak
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NETWORK_SIGNAL_MEDIUM_SUBLABEL" desc="The sub label text used when WiFi signal strength is medium (among weak, medium, and strong.)">
+        Medium
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NETWORK_SIGNAL_STRONG_SUBLABEL" desc="The sub label text used when WiFi signal strength is strong (among weak, medium, and strong.)">
+        Strong
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NETWORK_CONNECTING_SUBLABEL" desc="The sub label text used when network is connecting. The network name is shown above this label.">
+        Connecting
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_NETWORK_ACTIVATING_SUBLABEL" desc="The sub label text used when network is activating. The network name is shown above this label.">
+        Activating
+      </message>
+
+      <!-- Status Tray Network strings -->
       <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_DISPLAY_PINCODE" desc="Bluetooth pairing message typically shown on a request from a 2.0 device that has a keyboard.">
         Bluetooth device "<ph name="DEVICE_NAME">$1<ex>Nexus S</ex></ph>" would like permission to pair. Please enter this PIN code on that device: <ph name="PINCODE">$2<ex>123456</ex></ph>
       </message>
@@ -684,6 +796,9 @@ This file contains the strings for ash.
       </message>
       <message name="IDS_DESKTOP_CASTING_ACTIVE_MESSAGE" desc="The message for the dialog which tells the user that desktop casting is in progress, asking if the casting should be stopped before switching - or - the switch should be aborted.">
         Screen sharing will stop when you switch to another user. Do you want to continue?
+      </message>
+      <message name="IDS_DESKTOP_CASTING_ACTIVE_CONTINUE" desc="Label for the Continue (OK) button.">
+        Continue
       </message>
 
       <!-- Status tray screen capture strings. -->
@@ -758,6 +873,12 @@ This file contains the strings for ash.
 
       <message name="IDS_ASH_STATUS_TRAY_TRACING" desc="The status tray item indicating that performance tracing is running.">
         Performance tracing enabled
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_TRACING_NOTIFICATION_TITLE" desc="The title of a notification indicating that performance tracing is running.">
+        Performance tracing active
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_TRACING_NOTIFICATION_MESSAGE" desc="The message of a notification indicating that performance tracing is running.">
+        Performance tracing is turned on
       </message>
       <message name="IDS_ASH_STATUS_TRAY_BRIGHTNESS" desc="The accessible text for the brightness slider.">
         Brightness
@@ -921,6 +1042,21 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_PORTRAIT" desc="The text shown in the tray menu when rotation is set locked to portrait.">
         Portrait
       </message>
+      <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_LOCKED_LABEL" desc="The label text shown under the tray menu button when screen rotation is locked.">
+        Lock
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_LOCKED_VERTICAL_SUBLABEL" desc="The sub label text shown under the tray menu button when screen rotation is locked to vertical.">
+        Vertical
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_LOCKED_HORIZONTAL_SUBLABEL" desc="The sub label text shown under the tray menu button when screen rotation is locked to horizontal.">
+        Horizontal
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_AUTO_LABEL" desc="The label text shown under the tray menu button when screen rotation is set to auto.">
+        Auto-rotate
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_AUTO_SUBLABEL" desc="The sub label text shown under the tray menu button when screen rotation is set to auto.">
+        On
+      </message>
       <message name="IDS_ASH_STATUS_TRAY_KEYBOARD_DISABLED" desc="The text shown in the tray menu when the virtual keyboard is disabled.">
         On-screen keyboard disabled
       </message>
@@ -977,7 +1113,7 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_NETWORK_NOT_CONNECTED" desc="Description in status area or network list when no network is connected.">
         No network
       </message>
-      <message name="IDS_ASH_STATUS_TRAY_NETWORK_PROHIBITED" desc="Tooltip in network list when no network is prohibited by policy.">
+      <message name="IDS_ASH_STATUS_TRAY_NETWORK_PROHIBITED" desc="Tooltip in network list when the network is prohibited by policy.">
         This network is disabled by your administrator.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_NETWORK_SIGNAL_WEAK" desc="Accessibility text for the network status tray when the connected network has a weak signal.">
@@ -1009,6 +1145,15 @@ This file contains the strings for ash.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_VPN_DISCONNECTED" desc="The label used in system tray bubble to display vpn is disconnected.">
         VPN disconnected
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_VPN_SHORT" desc="The short label used for VPN button in system tray bubble.">
+        VPN
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_VPN_DISCONNECTED_SHORT" desc="The short label used in system tray bubble to display vpn is disconnected.">
+        Off
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_VPN_CONNECTED_SHORT" desc="The short label used in system tray bubble to display vpn is connected.">
+        On
       </message>
       <message name="IDS_ASH_STATUS_TRAY_NETWORK_WIFI_ENABLED" desc="The label used in the tray popup to notify that Wi-Fi is turned on.">
         Wi-Fi is turned on.
@@ -1083,6 +1228,27 @@ This file contains the strings for ash.
       <message name="IDS_ASH_LOGOUT_CONFIRMATION_BUTTON" desc="The text for okay button of the logout confirmation dialog.">
         Sign out now
       </message>
+      <message name="IDS_ASH_HIGH_CONTRAST_TITLE" desc="Dialog title for the hight contrast confirmation dialog.">
+        High contrast
+      </message>
+      <message name="IDS_ASH_HIGH_CONTRAST_BODY" desc="The text for the high contrast confirmation dialog.">
+        You pressed the shortcut for high contrast. Do you want to turn it on?
+      </message>
+      <message name="IDS_ASH_DOCKED_MAGNIFIER_TITLE" desc="Dialog title when docked magnifier is enabled.">
+        Docked magnifier
+      </message>
+      <message name="IDS_ASH_DOCKED_MAGNIFIER_BODY" desc="The text for the docked magnifier dialog.">
+       You pressed the shortcut for the docked magnifier. Do you want to turn it on?
+      </message>
+      <message name="IDS_ASH_SCREEN_MAGNIFIER_TITLE" desc="Dialog title when screen magnifier is enabled.">
+        Full-screen magnifier
+      </message>
+      <message name="IDS_ASH_SCREEN_MAGNIFIER_BODY" desc="The text for the screen magnifier dialog.">
+       You pressed the shortcut for the full-screen magnifier. Do you want to turn it on?
+      </message>
+      <message name="IDS_ASH_CONTINUE_BUTTON" desc="The text for continue button on accessibility confirmation dialogs.">
+        Continue
+      </message>
 
       <message name="IDS_ASH_IME_MENU_ACCESSIBLE_NAME" desc="The accessible text for opt-in IME menu icon in status tray.">
         IME menu button
@@ -1139,12 +1305,32 @@ This file contains the strings for ash.
 
       <!-- Notification that an accelerator was pressed, so the user knows how to toggle it back -->
       <message name="IDS_HIGH_CONTRAST_ACCEL_TITLE"
-               desc="Notification title to tell users that they just pressed the Search+Shift+H shortcut to toggle High Contrast Mode, and that pressing it again will toggle it off.">
+               desc="Notification title to tell users that they just pressed the Ctrl+Search+H shortcut to toggle High Contrast Mode, and that pressing it again will toggle it off.">
         High Contrast Mode
       </message>
       <message name="IDS_HIGH_CONTRAST_ACCEL_MSG"
-               desc="Notification message to tell users that they just pressed the Search+Shift+H shortcut to toggle High Contrast Mode, and that pressing it again will toggle it off.">
+               desc="Notification message to tell users that they just pressed the Ctrl+Search+H shortcut to toggle High Contrast Mode, and that pressing it again will toggle it off.">
         High Contrast Mode enabled. Press Ctrl+Search+H again to toggle it off.
+      </message>
+
+      <!-- Notification that an accelerator was pressed, so the user knows how to toggle it back -->
+      <message name="IDS_DOCKED_MAGNIFIER_ACCEL_TITLE"
+               desc="Notification title to tell users that they just pressed the Ctrl+Search+D shortcut to toggle Docked Magnifier, and that pressing it again will toggle it off.">
+        Docked Magnifier
+      </message>
+      <message name="IDS_DOCKED_MAGNIFIER_ACCEL_MSG"
+               desc="Notification message to tell users that they just pressed the Ctrl+Search+D shortcut to toggle Docked Magnifier, and that pressing it again will toggle it off.">
+        Docked Magnifier enabled. Press Ctrl+Search+D again to toggle it off.
+      </message>
+
+      <!-- Notification that an accelerator was pressed, so the user knows how to toggle it back -->
+      <message name="IDS_FULLSCREEN_MAGNIFIER_ACCEL_TITLE"
+               desc="Notification title to tell users that they just pressed the Ctrl+Search+M shortcut to toggle Fullscreen Magnifier, and that pressing it again will toggle it off.">
+        Fullscreen Magnifier
+      </message>
+      <message name="IDS_FULLSCREEN_MAGNIFIER_ACCEL_MSG"
+               desc="Notification message to tell users that they just pressed the Ctrl+Search+M shortcut to toggle Fullscreen Magnifier, and that pressing it again will toggle it off.">
+        Fullscreen Magnifier enabled. Press Ctrl+Search+M again to toggle it off.
       </message>
 
       <!-- Tray scale strings -->
@@ -1169,6 +1355,9 @@ This file contains the strings for ash.
       </message>
       <message name="IDS_ASH_LOGIN_POD_PASSWORD_TAP_PLACEHOLDER" desc="Text to display as placeholder in the password field when the user can click/tap their profile picture to unlock.">
         Click your photo
+      </message>
+      <message name="IDS_ASH_LOGIN_POD_PASSWORD_SIGNING_IN_PLACEHOLDER" desc="Text to display as placeholder in the password field during signing in the user. The translation should be as short as possible because of limited UI space.">
+        Signing in
       </message>
       <message name="IDS_ASH_LOGIN_ERROR_AUTHENTICATING" desc="Couldn't sign in because password is invalid">
         Sorry, your password couldn't be verified. Please try again.
@@ -1254,23 +1443,23 @@ This file contains the strings for ash.
       </message>
 
       <!-- Strings shown within MultiDevice setup notifications -->
-      <message name="IDS_ASH_MULTI_DEVICE_SETUP_NEW_USER_POTENTIAL_HOST_EXISTS_TITLE" desc="Title of the notification shown to a user that has not completed the MultiDevice setup flow when a potential host device is found." translateable="false">
-        PLACEHOLDER TEXT blah blah blah (Better together in sickness and in health)
+      <message name="IDS_ASH_MULTI_DEVICE_SETUP_NEW_USER_POTENTIAL_HOST_EXISTS_TITLE" desc="Title of the notification shown to a user that has not completed the MultiDevice setup when their Chromebook recognizes that they have a phone on their account that the Chromebook can connect to">
+        Your devices work even better together
       </message>
-      <message name="IDS_ASH_MULTI_DEVICE_SETUP_NEW_USER_POTENTIAL_HOST_EXISTS_MESSAGE" desc="Message shown as part of the notification shown to a user that has not completed the MultiDevice setup flow when a potential host device is found. Clicking it opens the setup WebUI." translateable="false">
-        PLACEHOLDER TEXT blah blah blah (Your Chromebook works better with your phone)
+      <message name="IDS_ASH_MULTI_DEVICE_SETUP_NEW_USER_POTENTIAL_HOST_EXISTS_MESSAGE" desc="Message shown as part of the notification shown to a user that has not completed the MultiDevice setup when their Chromebook recognizes that they have a phone on their account that the Chromebook can connect to. Clicking it opens a prompt to guide them through setting up.">
+        Connect your Chromebook with your phone
       </message>
-      <message name="IDS_ASH_MULTI_DEVICE_SETUP_EXISTING_USER_HOST_SWITCHED_TITLE" desc="Title of the notification shown to a user that has already completed the MultiDevice setup flow that a new host device is replacing the current one (i.e., when the user purchases a new Android phone)." translateable="false">
-        PLACEHOLDER TEXT blah blah blah (Better together phone changed)
+      <message name="IDS_ASH_MULTI_DEVICE_SETUP_EXISTING_USER_HOST_SWITCHED_TITLE" desc="Title of the notification shown to a user that has already completed the MultiDevice setup flow that a new phone is replacing the phone they currently have set up to connect to their Chromebook.">
+        <ph name="DEVICE_NAME">$1<ex>Pixel XL</ex></ph> added
       </message>
-      <message name="IDS_ASH_MULTI_DEVICE_SETUP_EXISTING_USER_HOST_SWITCHED_MESSAGE" desc="Message shown as part of the notification shown to a user that has already completed the MultiDevice setup flow that a new host device is replacing the current one (i.e., when the user purchases a new Android phone)." translateable="false">
-        PLACEHOLDER TEXT blah blah blah (A new phone was connected to your Chromebook)
+      <message name="IDS_ASH_MULTI_DEVICE_SETUP_EXISTING_USER_HOST_SWITCHED_MESSAGE" desc="Message shown as part of the notification shown to a user that has already completed the MultiDevice setup flow that a new phone is replacing the phone they currently have set up to connect to their Chromebook.">
+        Better Together switched to a new phone
       </message>
-      <message name="IDS_ASH_MULTI_DEVICE_SETUP_EXISTING_USER_NEW_CHROMEBOOK_ADDED_TITLE" desc="Title of the notification shown to a user that has already completed the MultiDevice setup flow logging into a new Chromebook that all their Chromebooks are MultiDevice enabled." translateable="false">
-        PLACEHOLDER TEXT blah blah blah (New Chromebook added to Better together)
+      <message name="IDS_ASH_MULTI_DEVICE_SETUP_EXISTING_USER_NEW_CHROMEBOOK_ADDED_TITLE" desc="Title of the notification shown to a user that has already completed the MultiDevice setup flow logging into a new Chromebook that all their Chromebooks are MultiDevice enabled.">
+        Better Together is on
       </message>
-      <message name="IDS_ASH_MULTI_DEVICE_SETUP_EXISTING_USER_NEW_CHROMEBOOK_ADDED_MESSAGE" desc="Message shown as part of the notification shown to a user that has already completed the MultiDevice setup flow logging into a new Chromebook that all their Chromebooks are MultiDevice enabled." translateable="false">
-        PLACEHOLDER TEXT blah blah blah (All Chromebooks work better with your phone)
+      <message name="IDS_ASH_MULTI_DEVICE_SETUP_EXISTING_USER_NEW_CHROMEBOOK_ADDED_MESSAGE" desc="Message shown as part of the notification shown to a user that has already completed the MultiDevice setup flow logging into a new Chromebook that all their Chromebooks are MultiDevice enabled.">
+        This Chromebook and your phone will connect automatically
       </message>
 
       <!-- Window teleportation warning dialog -->
@@ -1341,6 +1530,9 @@ This file contains the strings for ash.
       <message name="IDS_ASH_DIALOG_DONT_SHOW_AGAIN" desc="Label for checkbox dismissing show of a dialog.">
         Don't show again
       </message>
+      <message name="IDS_ASH_WINDOW_CONTROL_ACCNAME_CLOSE" desc="The accessible name for a close button on a window frame.">
+        Close
+      </message>
 
       <!-- Power off menu  -->
       <message name="IDS_ASH_POWER_BUTTON_MENU_POWER_OFF_BUTTON" desc="Text shown on power off button in power button menu.">
@@ -1348,6 +1540,9 @@ This file contains the strings for ash.
       </message>
       <message name="IDS_ASH_POWER_BUTTON_MENU_LOCK_SCREEN_BUTTON" desc="Text shown on lock screen button in power button menu.">
         Lock screen
+      </message>
+      <message name="IDS_ASH_POWER_BUTTON_MENU_FEEDBACK_BUTTON" desc="Text shown on feedback button in power button menu.">
+        Feedback
       </message>
       <message name ="IDS_ASH_POWER_BUTTON_MENU_ACCESSIBLE" desc="The accessible name of the power button menu, may be spoken out loud.">
         Power
@@ -1393,6 +1588,23 @@ This file contains the strings for ash.
       <!-- TODO(jamescook): Remove when mash switches to ws2. -->
       <message name="IDS_ASH_UI_SERVICE_NAME" desc="Name of the internal software service that manages the user interface (UI). Appears in the task manager.">
         UI service
+      </message>
+
+      <!-- Assistant -->
+      <message name="IDS_ASH_ASSISTANT_DIALOG_PLATE_HINT" desc="Message shown as a placeholder in Assistant's input textfield when empty.">
+        Type a message
+      </message>
+      <message name="IDS_ASH_ASSISTANT_ERROR_GENERIC" desc="Generic message shown when Assistant is in an error state.">
+        Something went wrong. Try again in a few seconds.
+      </message>
+      <message name="IDS_ASH_ASSISTANT_PROMPT_DEFAULT" desc="Message shown to indicate that Assistant is ready to receive a query in Assistant UI.">
+        Hi, how can I help?
+      </message>
+      <message name="IDS_ASH_ASSISTANT_PROMPT_STYLUS" desc="Message shown to indicate that Assistant is ready to receive a selection made using the stylus.">
+        Use your stylus to select
+      </message>
+      <message name="IDS_ASH_ASSISTANT_NOTIFICATION_DISPLAY_SOURCE" desc="The name for the source of the assistant notification.">
+        Assistant
       </message>
     </messages>
   </release>

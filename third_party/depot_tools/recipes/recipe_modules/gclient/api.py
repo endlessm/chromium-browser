@@ -79,13 +79,8 @@ class GclientApi(recipe_api.RecipeApi):
     if self.spec_alias:
       prefix = ('[spec: %s] ' % self.spec_alias) + prefix
 
-    # TODO(phajdan.jr): create a helper for adding to PATH.
-    env = self.m.context.env
-    env.setdefault('PATH', '%(PATH)s')
-    env['PATH'] = self.m.path.pathsep.join([
-        env['PATH'], str(self._module.PACKAGE_REPO_ROOT)])
-
-    with self.m.context(env=env):
+    with self.m.context(
+        env_suffixes={'PATH': [self._module.PACKAGE_REPO_ROOT]}):
       return self.m.python(prefix + name,
                            self.package_repo_resource('gclient.py'),
                            cmd,
@@ -259,7 +254,7 @@ class GclientApi(recipe_api.RecipeApi):
         name = 'recurse (git config %s)' % var
         self(name, ['recurse', 'git', 'config', var, val], **kwargs)
     finally:
-      cwd = kwargs.get('cwd', self.m.path['start_dir'])
+      cwd = self.m.context.cwd or self.m.path['start_dir']
       if 'checkout' not in self.m.path:
         self.m.path['checkout'] = cwd.join(
           *cfg.solutions[0].name.split(self.m.path.sep))

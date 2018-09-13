@@ -18,6 +18,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_configuration.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_node.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/bindings/exception_messages.h"
 
 namespace blink {
 
@@ -64,7 +65,7 @@ static void InstallV8TestLegacyCallbackInterfaceTemplate(v8::Isolate* isolate, c
   };
   V8DOMConfiguration::InstallConstants(
       isolate, interfaceTemplate, prototypeTemplate,
-      V8TestLegacyCallbackInterfaceConstants, arraysize(V8TestLegacyCallbackInterfaceConstants));
+      V8TestLegacyCallbackInterfaceConstants, base::size(V8TestLegacyCallbackInterfaceConstants));
   static_assert(42 == TestLegacyCallbackInterface::kConstValueUshort42, "the value of TestLegacyCallbackInterface_kConstValueUshort42 does not match with implementation");
 }
 
@@ -76,11 +77,16 @@ v8::Local<v8::FunctionTemplate> V8TestLegacyCallbackInterface::DomTemplate(v8::I
       InstallV8TestLegacyCallbackInterfaceTemplate);
 }
 
+const char* V8TestLegacyCallbackInterface::NameInHeapSnapshot() const {
+  return "V8TestLegacyCallbackInterface";
+}
+
 v8::Maybe<uint16_t> V8TestLegacyCallbackInterface::acceptNode(ScriptWrappable* callback_this_value, Node* node) {
   // This function implements "call a user object's operation".
   // https://heycam.github.io/webidl/#call-a-user-objects-operation
 
-  if (!IsCallbackFunctionRunnable(CallbackRelevantScriptState())) {
+  if (!IsCallbackFunctionRunnable(CallbackRelevantScriptState(),
+                                  IncumbentScriptState())) {
     // Wrapper-tracing for the callback function makes the function object and
     // its creation context alive. Thus it's safe to use the creation context
     // of the callback function here.
@@ -100,15 +106,6 @@ v8::Maybe<uint16_t> V8TestLegacyCallbackInterface::acceptNode(ScriptWrappable* c
   ScriptState::Scope callback_relevant_context_scope(
       CallbackRelevantScriptState());
   // step 8. Prepare to run a callback with stored settings.
-  if (IncumbentScriptState()->GetContext().IsEmpty()) {
-    V8ThrowException::ThrowError(
-        GetIsolate(),
-        ExceptionMessages::FailedToExecute(
-            "acceptNode",
-            "TestLegacyCallbackInterface",
-            "The provided callback is no longer runnable."));
-    return v8::Nothing<uint16_t>();
-  }
   v8::Context::BackupIncumbentScope backup_incumbent_scope(
       IncumbentScriptState()->GetContext());
 
@@ -196,7 +193,6 @@ v8::Maybe<uint16_t> V8TestLegacyCallbackInterface::acceptNode(ScriptWrappable* c
   }
 }
 
-CORE_EXTERN_TEMPLATE_EXPORT
 v8::Maybe<uint16_t> V8PersistentCallbackInterface<V8TestLegacyCallbackInterface>::acceptNode(ScriptWrappable* callback_this_value, Node* node) {
   return Proxy()->acceptNode(
       callback_this_value, node);

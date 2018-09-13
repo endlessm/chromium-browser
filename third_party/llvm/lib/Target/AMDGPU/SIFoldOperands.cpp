@@ -13,6 +13,7 @@
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "SIMachineFunctionInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/CodeGen/LiveIntervals.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -75,7 +76,7 @@ public:
   MachineRegisterInfo *MRI;
   const SIInstrInfo *TII;
   const SIRegisterInfo *TRI;
-  const SISubtarget *ST;
+  const GCNSubtarget *ST;
 
   void foldOperand(MachineOperand &OpToFold,
                    MachineInstr *UseMI,
@@ -971,7 +972,7 @@ bool SIFoldOperands::runOnMachineFunction(MachineFunction &MF) {
     return false;
 
   MRI = &MF.getRegInfo();
-  ST = &MF.getSubtarget<SISubtarget>();
+  ST = &MF.getSubtarget<GCNSubtarget>();
   TII = ST->getInstrInfo();
   TRI = &TII->getRegisterInfo();
 

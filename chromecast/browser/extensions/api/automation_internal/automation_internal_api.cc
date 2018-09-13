@@ -41,6 +41,7 @@
 #include "ui/accessibility/ax_tree_id_registry.h"
 
 #if defined(USE_AURA)
+#include "chromecast/browser/ui/aura/accessibility/automation_manager_aura.h"
 #include "ui/aura/env.h"
 #endif
 
@@ -103,8 +104,8 @@ class QuerySelectorHandler : public content::WebContentsObserver {
       return false;
 
     IPC_BEGIN_MESSAGE_MAP(QuerySelectorHandler, message)
-      IPC_MESSAGE_HANDLER(ExtensionHostMsg_AutomationQuerySelector_Result,
-                          OnQueryResponse)
+    IPC_MESSAGE_HANDLER(ExtensionHostMsg_AutomationQuerySelector_Result,
+                        OnQueryResponse)
     IPC_END_MESSAGE_MAP()
     return true;
   }
@@ -161,25 +162,18 @@ class AutomationWebContentsObserver
   ~AutomationWebContentsObserver() override {}
 
   // content::WebContentsObserver overrides.
-  void AccessibilityEventReceived(
-      const std::vector<content::AXEventNotificationDetails>& details)
-      override {
-    std::vector<ExtensionMsg_AccessibilityEventParams> events;
-    for (const auto& event : details) {
-      events.emplace_back();
-      ExtensionMsg_AccessibilityEventParams& params = events.back();
-      params.tree_id = event.ax_tree_id;
-      params.id = event.id;
-      params.event_type = event.event_type;
-      params.update = event.update;
-      params.event_from = event.event_from;
-      params.action_request_id = event.action_request_id;
+  void AccessibilityEventReceived(const content::AXEventNotificationDetails&
+                                      content_event_bundle) override {
+    ExtensionMsg_AccessibilityEventBundleParams extension_event_bundle;
+    extension_event_bundle.updates = content_event_bundle.updates;
+    extension_event_bundle.events = content_event_bundle.events;
+    extension_event_bundle.tree_id = content_event_bundle.ax_tree_id;
 #if defined(USE_AURA)
-      params.mouse_location = aura::Env::GetInstance()->last_mouse_location();
+    extension_event_bundle.mouse_location =
+        aura::Env::GetInstance()->last_mouse_location();
 #endif
-    }
     AutomationEventRouter* router = AutomationEventRouter::GetInstance();
-    router->DispatchAccessibilityEvents(events);
+    router->DispatchAccessibilityEvents(extension_event_bundle);
   }
 
   void AccessibilityLocationChangesReceived(
@@ -199,30 +193,29 @@ class AutomationWebContentsObserver
       content::RenderFrameHost* render_frame_host) override {
     int tree_id = render_frame_host->GetAXTreeID();
     AutomationEventRouter::GetInstance()->DispatchTreeDestroyedEvent(
-        tree_id,
-        browser_context_);
+        tree_id, browser_context_);
   }
 
   void MediaStartedPlaying(const MediaPlayerInfo& video_type,
                            const MediaPlayerId& id) override {
-    std::vector<content::AXEventNotificationDetails> details;
-    content::AXEventNotificationDetails detail;
-    detail.ax_tree_id = id.first->GetAXTreeID();
-    detail.event_type = ax::mojom::Event::kMediaStartedPlaying;
-    details.push_back(detail);
-    AccessibilityEventReceived(details);
+    content::AXEventNotificationDetails content_event_bundle;
+    content_event_bundle.ax_tree_id = id.render_frame_host->GetAXTreeID();
+    content_event_bundle.events.resize(1);
+    content_event_bundle.events[0].event_type =
+        ax::mojom::Event::kMediaStartedPlaying;
+    AccessibilityEventReceived(content_event_bundle);
   }
 
   void MediaStoppedPlaying(
       const MediaPlayerInfo& video_type,
       const MediaPlayerId& id,
       WebContentsObserver::MediaStoppedReason reason) override {
-    std::vector<content::AXEventNotificationDetails> details;
-    content::AXEventNotificationDetails detail;
-    detail.ax_tree_id = id.first->GetAXTreeID();
-    detail.event_type = ax::mojom::Event::kMediaStoppedPlaying;
-    details.push_back(detail);
-    AccessibilityEventReceived(details);
+    content::AXEventNotificationDetails content_event_bundle;
+    content_event_bundle.ax_tree_id = id.render_frame_host->GetAXTreeID();
+    content_event_bundle.events.resize(1);
+    content_event_bundle.events[0].event_type =
+        ax::mojom::Event::kMediaStoppedPlaying;
+    AccessibilityEventReceived(content_event_bundle);
   }
 
  private:
@@ -231,17 +224,17 @@ class AutomationWebContentsObserver
   explicit AutomationWebContentsObserver(content::WebContents* web_contents)
       : content::WebContentsObserver(web_contents),
         browser_context_(web_contents->GetBrowserContext()) {
-    if (web_contents->WasRecentlyAudible()) {
-      std::vector<content::AXEventNotificationDetails> details;
+    if (web_contents->IsCurrentlyAudible()) {
       content::RenderFrameHost* rfh = web_contents->GetMainFrame();
       if (!rfh)
         return;
 
-      content::AXEventNotificationDetails detail;
-      detail.ax_tree_id = rfh->GetAXTreeID();
-      detail.event_type = ax::mojom::Event::kMediaStartedPlaying;
-      details.push_back(detail);
-      AccessibilityEventReceived(details);
+      content::AXEventNotificationDetails content_event_bundle;
+      content_event_bundle.ax_tree_id = rfh->GetAXTreeID();
+      content_event_bundle.events.resize(1);
+      content_event_bundle.events[0].event_type =
+          ax::mojom::Event::kMediaStartedPlaying;
+      AccessibilityEventReceived(content_event_bundle);
     }
   }
 
@@ -251,37 +244,7 @@ class AutomationWebContentsObserver
 };
 
 ExtensionFunction::ResponseAction AutomationInternalEnableTabFunction::Run() {
-  const AutomationInfo* automation_info = AutomationInfo::Get(extension());
-  EXTENSION_FUNCTION_VALIDATE(automation_info);
-
-  using api::automation_internal::EnableTab::Params;
-  std::unique_ptr<Params> params(Params::Create(*args_));
-  EXTENSION_FUNCTION_VALIDATE(params.get());
-  content::WebContents* contents = NULL;
-
-  // Stub implementation does not find web contents yet.
-  contents = nullptr;
-
-  content::RenderFrameHost* rfh = contents->GetMainFrame();
-  if (!rfh)
-    return RespondNow(Error("Could not enable accessibility for active tab"));
-
-  if (!CanRequestAutomation(extension(), automation_info, contents)) {
-    return RespondNow(
-        Error(kCannotRequestAutomationOnPage, contents->GetURL().spec()));
-  }
-
-  AutomationWebContentsObserver::CreateForWebContents(contents);
-  contents->EnableWebContentsOnlyAccessibilityMode();
-
-  int ax_tree_id = rfh->GetAXTreeID();
-
-  // This gets removed when the extension process dies.
-  AutomationEventRouter::GetInstance()->RegisterListenerForOneTree(
-      extension_id(), source_process_id(), ax_tree_id);
-
-  return RespondNow(ArgumentList(
-      api::automation_internal::EnableTab::Results::Create(ax_tree_id)));
+  return RespondNow(Error("enableTab is unsupported by this platform"));
 }
 
 ExtensionFunction::ResponseAction AutomationInternalEnableFrameFunction::Run() {
@@ -323,6 +286,9 @@ AutomationInternalPerformActionFunction::ConvertToAXActionData(
     case api::automation::ACTION_TYPE_BLUR:
       action->action = ax::mojom::Action::kBlur;
       break;
+    case api::automation::ACTION_TYPE_CLEARACCESSIBILITYFOCUS:
+      action->action = ax::mojom::Action::kClearAccessibilityFocus;
+      break;
     case api::automation::ACTION_TYPE_DECREMENT:
       action->action = ax::mojom::Action::kDecrement;
       break;
@@ -360,6 +326,9 @@ AutomationInternalPerformActionFunction::ConvertToAXActionData(
     }
     case api::automation::ACTION_TYPE_LOADINLINETEXTBOXES:
       action->action = ax::mojom::Action::kLoadInlineTextBoxes;
+      break;
+    case api::automation::ACTION_TYPE_SETACCESSIBILITYFOCUS:
+      action->action = ax::mojom::Action::kSetAccessibilityFocus;
       break;
     case api::automation::ACTION_TYPE_SCROLLTOMAKEVISIBLE:
       action->action = ax::mojom::Action::kScrollToMakeVisible;
@@ -423,7 +392,7 @@ AutomationInternalPerformActionFunction::ConvertToAXActionData(
               params->opt_args.additional_properties,
               &replace_selected_text_params));
       action->action = ax::mojom::Action::kReplaceSelectedText;
-      action->value = base::UTF8ToUTF16(replace_selected_text_params.value);
+      action->value = replace_selected_text_params.value;
       break;
     }
     case api::automation::ACTION_TYPE_SETVALUE: {
@@ -432,7 +401,7 @@ AutomationInternalPerformActionFunction::ConvertToAXActionData(
           api::automation_internal::SetValueParams::Populate(
               params->opt_args.additional_properties, &set_value_params));
       action->action = ax::mojom::Action::kSetValue;
-      action->value = base::UTF8ToUTF16(set_value_params.value);
+      action->value = set_value_params.value;
       break;
     }
     // These actions are currently unused by any existing clients of
@@ -518,8 +487,16 @@ AutomationInternalPerformActionFunction::Run() {
 
 ExtensionFunction::ResponseAction
 AutomationInternalEnableDesktopFunction::Run() {
-  // Not applicable to cast.
-  return RespondNow(Error("getDesktop is unsupported by this platform"));
+  const AutomationInfo* automation_info = AutomationInfo::Get(extension());
+  if (!automation_info || !automation_info->desktop)
+    return RespondNow(Error("desktop permission must be requested"));
+
+  // This gets removed when the extension process dies.
+  AutomationEventRouter::GetInstance()->RegisterListenerWithDesktopPermission(
+      extension_id(), source_process_id());
+
+  AutomationManagerAura::GetInstance()->Enable(browser_context());
+  return RespondNow(NoArguments());
 }
 
 // static

@@ -21,7 +21,7 @@ void RunCallback(bool* success, base::RepeatingClosure callback, bool result) {
 
 class AppLaunchTest : public service_manager::test::ServiceTest {
  public:
-  AppLaunchTest() : ServiceTest("mash_unittests") {}
+  AppLaunchTest() : ServiceTest("ash_unittests") {}
   ~AppLaunchTest() override = default;
 
  private:
@@ -35,7 +35,8 @@ class AppLaunchTest : public service_manager::test::ServiceTest {
   DISALLOW_COPY_AND_ASSIGN(AppLaunchTest);
 };
 
-TEST_F(AppLaunchTest, TestQuickLaunch) {
+// TODO(sky): reenable this once it is actually uses ash with ws2.
+TEST_F(AppLaunchTest, DISABLED_TestQuickLaunch) {
   connector()->StartService(mojom::kServiceName);
   connector()->StartService(quick_launch::mojom::kServiceName);
 

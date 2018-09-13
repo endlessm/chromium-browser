@@ -24,6 +24,7 @@
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_paths.h"
 #include "ios/chrome/browser/infobars/infobar_manager_impl.h"
+#include "ios/chrome/browser/ssl/ios_security_state_tab_helper.h"
 #include "ios/chrome/browser/web/chrome_web_client.h"
 #import "ios/chrome/browser/web/chrome_web_test.h"
 #import "ios/web/public/web_state/web_state.h"
@@ -124,13 +125,21 @@ class FormStructureBrowserTest
 
 FormStructureBrowserTest::FormStructureBrowserTest()
     : ChromeWebTest(std::make_unique<ChromeWebClient>()),
-      DataDrivenTest(GetTestDataDir()) {}
+      DataDrivenTest(GetTestDataDir()) {
+  feature_list_.InitWithFeatures(
+      // Enabled
+      {},
+      // Disabled
+      {autofill::features::kAutofillEnforceMinRequiredFieldsForHeuristics,
+       autofill::features::kAutofillEnforceMinRequiredFieldsForQuery,
+       autofill::features::kAutofillEnforceMinRequiredFieldsForUpload,
+       autofill::features::kAutofillRestrictUnownedFieldsToFormlessCheckout});
+}
 
 void FormStructureBrowserTest::SetUp() {
   ChromeWebTest::SetUp();
-  feature_list_.InitAndDisableFeature(
-      autofill::features::kAutofillEnforceMinRequiredFieldsForUpload);
 
+  IOSSecurityStateTabHelper::CreateForWebState(web_state());
   InfoBarManagerImpl::CreateForWebState(web_state());
   AutofillAgent* autofillAgent = [[AutofillAgent alloc]
       initWithPrefService:chrome_browser_state_->GetPrefs()
@@ -165,7 +174,7 @@ void FormStructureBrowserTest::GenerateResults(const std::string& input,
       AutofillDriverIOS::FromWebState(web_state())->autofill_manager();
   ASSERT_NE(nullptr, autofill_manager);
   const std::vector<std::unique_ptr<FormStructure>>& forms =
-      autofill_manager->form_structures_;
+      autofill_manager->form_structures();
   *output = FormStructureBrowserTest::FormStructuresToString(forms);
 }
 
@@ -200,7 +209,8 @@ std::string FormStructureBrowserTest::FormStructuresToString(
   return forms_string;
 }
 
-TEST_P(FormStructureBrowserTest, DataDrivenHeuristics) {
+// Crashes on iPhone 6 Plus.  https://crbug.com/857488
+TEST_P(FormStructureBrowserTest, DISABLED_DataDrivenHeuristics) {
   bool is_expected_to_pass =
       !base::ContainsKey(GetFailingTestNames(), GetParam().BaseName().value());
   RunOneDataDrivenTest(GetParam(), GetIOSOutputDirectory(),

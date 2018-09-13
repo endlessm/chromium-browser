@@ -27,17 +27,41 @@ class MediaRouterViewsUI : public MediaRouterUIBase,
                     MediaCastMode cast_mode) override;
   void StopCasting(const std::string& route_id) override;
 
+  // MediaRouterUIBase:
+  std::vector<MediaSinkWithCastModes> GetEnabledSinks() const override;
+
  private:
   FRIEND_TEST_ALL_PREFIXES(MediaRouterViewsUITest, NotifyObserver);
+  FRIEND_TEST_ALL_PREFIXES(MediaRouterViewsUITest, RemovePseudoSink);
+  FRIEND_TEST_ALL_PREFIXES(MediaRouterViewsUITest, ConnectingState);
+  FRIEND_TEST_ALL_PREFIXES(MediaRouterViewsUITest, AddAndRemoveIssue);
 
   // MediaRouterUIBase:
+  void InitCommon(content::WebContents* initiator) override;
   void OnRoutesUpdated(
       const std::vector<MediaRoute>& routes,
       const std::vector<MediaRoute::Id>& joinable_route_ids) override;
   void UpdateSinks() override;
+  void OnIssue(const Issue& issue) override;
+  void OnIssueCleared() override;
+
+  // This value is set whenever there is an outstanding issue.
+  base::Optional<Issue> issue_;
+
+  UIMediaSink ConvertToUISink(const MediaSinkWithCastModes& sink,
+                              const MediaRoute* route,
+                              const base::Optional<Issue>& issue);
+
+  // MediaRouterFileDialogDelegate:
+  void FileDialogFileSelected(const ui::SelectedFileInfo& file_info) override;
+  void FileDialogSelectionFailed(const IssueInfo& issue) override;
 
   // Contains up-to-date data to show in the dialog.
   CastDialogModel model_;
+
+  // This value is set when the user opens a file picker, and used when a file
+  // is selected and casting starts.
+  base::Optional<MediaSink::Id> local_file_sink_id_;
 
   // Observers for dialog model updates.
   base::ObserverList<CastDialogController::Observer> observers_;

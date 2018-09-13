@@ -16,7 +16,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DepthFirstIterator.h"
-#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
@@ -25,7 +25,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/BinaryFormat/MachO.h"
 #include "llvm/IR/Argument.h"
@@ -153,7 +153,7 @@ static const char *const kAsanHandleNoReturnName = "__asan_handle_no_return";
 static const int kMaxAsanStackMallocSizeClass = 10;
 static const char *const kAsanStackMallocNameTemplate = "__asan_stack_malloc_";
 static const char *const kAsanStackFreeNameTemplate = "__asan_stack_free_";
-static const char *const kAsanGenPrefix = "__asan_gen_";
+static const char *const kAsanGenPrefix = "___asan_gen_";
 static const char *const kODRGenPrefix = "__odr_asan_gen_";
 static const char *const kSanCovGenPrefix = "__sancov_gen_";
 static const char *const kAsanSetShadowPrefix = "__asan_set_shadow_";
@@ -493,10 +493,8 @@ static ShadowMapping getShadowMapping(Triple &TargetTriple, int LongSize,
   bool IsSystemZ = TargetTriple.getArch() == Triple::systemz;
   bool IsX86 = TargetTriple.getArch() == Triple::x86;
   bool IsX86_64 = TargetTriple.getArch() == Triple::x86_64;
-  bool IsMIPS32 = TargetTriple.getArch() == Triple::mips ||
-                  TargetTriple.getArch() == Triple::mipsel;
-  bool IsMIPS64 = TargetTriple.getArch() == Triple::mips64 ||
-                  TargetTriple.getArch() == Triple::mips64el;
+  bool IsMIPS32 = TargetTriple.isMIPS32();
+  bool IsMIPS64 = TargetTriple.isMIPS64();
   bool IsArmOrThumb = TargetTriple.isARM() || TargetTriple.isThumb();
   bool IsAArch64 = TargetTriple.getArch() == Triple::aarch64;
   bool IsWindows = TargetTriple.isOSWindows();
@@ -1686,13 +1684,17 @@ bool AddressSanitizerModule::ShouldInstrumentGlobal(GlobalVariable *G) {
       return false;
     }
 
-    // Callbacks put into the CRT initializer/terminator sections
-    // should not be instrumented.
+    // On COFF, if the section name contains '$', it is highly likely that the
+    // user is using section sorting to create an array of globals similar to
+    // the way initialization callbacks are registered in .init_array and
+    // .CRT$XCU. The ATL also registers things in .ATL$__[azm]. Adding redzones
+    // to such globals is counterproductive, because the intent is that they
+    // will form an array, and out-of-bounds accesses are expected.
     // See https://github.com/google/sanitizers/issues/305
     // and http://msdn.microsoft.com/en-US/en-en/library/bb918180(v=vs.120).aspx
-    if (Section.startswith(".CRT")) {
-      LLVM_DEBUG(dbgs() << "Ignoring a global initializer callback: " << *G
-                        << "\n");
+    if (TargetTriple.isOSBinFormatCOFF() && Section.contains('$')) {
+      LLVM_DEBUG(dbgs() << "Ignoring global in sorted section (contains '$'): "
+                        << *G << "\n");
       return false;
     }
 
@@ -2484,7 +2486,7 @@ bool AddressSanitizer::runOnFunction(Function &F) {
 
   // We want to instrument every address only once per basic block (unless there
   // are calls between uses).
-  SmallSet<Value *, 16> TempsToInstrument;
+  SmallPtrSet<Value *, 16> TempsToInstrument;
   SmallVector<Instruction *, 16> ToInstrument;
   SmallVector<Instruction *, 8> NoReturnCalls;
   SmallVector<BasicBlock *, 16> AllBlocks;

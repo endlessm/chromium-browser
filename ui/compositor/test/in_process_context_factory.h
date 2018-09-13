@@ -47,9 +47,9 @@ class InProcessContextFactory : public ContextFactory,
     use_test_surface_ = use_test_surface;
   }
 
-  // This is used to call OnLostResources on all clients, to ensure they stop
-  // using the SharedMainThreadContextProvider.
-  void SendOnLostResources();
+  // This is used to call SendOnLostSharedContext() on all clients, to ensure
+  // they stop using the SharedMainThreadContextProvider.
+  void SendOnLostSharedContext();
 
   // Set refresh rate will be set to 200 to spend less time waiting for
   // BeginFrame when used for tests.
@@ -73,6 +73,7 @@ class InProcessContextFactory : public ContextFactory,
   void SetDisplayVisible(ui::Compositor* compositor, bool visible) override;
   void ResizeDisplay(ui::Compositor* compositor,
                      const gfx::Size& size) override;
+  void DisableSwapUntilResize(ui::Compositor* compositor) override;
   void SetDisplayColorMatrix(ui::Compositor* compositor,
                              const SkMatrix44& matrix) override;
   void SetDisplayColorSpace(
@@ -89,6 +90,7 @@ class InProcessContextFactory : public ContextFactory,
   void SetOutputIsSecure(ui::Compositor* compositor, bool secure) override {}
   void AddObserver(ContextFactoryObserver* observer) override;
   void RemoveObserver(ContextFactoryObserver* observer) override;
+  bool SyncTokensRequiredForDisplayCompositor() override;
   viz::FrameSinkManagerImpl* GetFrameSinkManager() override;
 
   SkMatrix44 GetOutputColorMatrix(Compositor* compositor) const;

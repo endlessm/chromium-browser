@@ -9,9 +9,9 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "chrome/browser/browser_process.h"
 #include "chromeos/account_manager/account_manager.h"
 #include "components/signin/core/browser/account_tracker_service.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace chromeos {
 
@@ -30,7 +30,7 @@ ChromeOSOAuth2TokenServiceDelegate::~ChromeOSOAuth2TokenServiceDelegate() {
 OAuth2AccessTokenFetcher*
 ChromeOSOAuth2TokenServiceDelegate::CreateAccessTokenFetcher(
     const std::string& account_id,
-    net::URLRequestContextGetter* getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     OAuth2AccessTokenConsumer* consumer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(LOAD_CREDENTIALS_FINISHED_WITH_SUCCESS, load_credentials_state_);
@@ -42,7 +42,7 @@ ChromeOSOAuth2TokenServiceDelegate::CreateAccessTokenFetcher(
 
   // |OAuth2TokenService| will manage the lifetime of the released pointer.
   return account_manager_
-      ->CreateAccessTokenFetcher(account_key, getter, consumer)
+      ->CreateAccessTokenFetcher(account_key, url_loader_factory, consumer)
       .release();
 }
 
@@ -138,15 +138,9 @@ void ChromeOSOAuth2TokenServiceDelegate::UpdateCredentials(
   account_manager_->UpsertToken(account_key, refresh_token);
 }
 
-net::URLRequestContextGetter*
-ChromeOSOAuth2TokenServiceDelegate::GetRequestContext() const {
-  // LSTs on Chrome are not channel/token bound for now and hence we can use
-  // the system request context.
-  // Note that we cannot use the Profile's request context since
-  // |AccountManager| acts outside the scope of Profiles.
-  // TODO(sinhak): Create a new |URLRequestContext| for |AccountManager| which
-  // conforms to token binding when those details are finalized.
-  return g_browser_process->system_request_context();
+scoped_refptr<network::SharedURLLoaderFactory>
+ChromeOSOAuth2TokenServiceDelegate::GetURLLoaderFactory() const {
+  return account_manager_->GetUrlLoaderFactory();
 }
 
 OAuth2TokenServiceDelegate::LoadCredentialsState
@@ -214,20 +208,56 @@ void ChromeOSOAuth2TokenServiceDelegate::OnTokenUpserted(
   account_keys_.insert(account_key);
 
   std::string account_id = MapAccountKeyToAccountId(account_key);
-  if (!account_id.empty()) {
-    ScopedBatchChange batch(this);
-    FireRefreshTokenAvailable(account_id);
-
-    // We cannot directly use |UpdateAuthError| because it does not invoke
-    // |FireAuthErrorChanged| if |account_id|'s error state was already
-    // |GoogleServiceAuthError::State::NONE|, but |FireAuthErrorChanged| must be
-    // invoked here, regardless. See the comment below.
-    errors_.erase(account_id);
-    // See |OAuth2TokenService::Observer::OnAuthErrorChanged|.
-    // |OnAuthErrorChanged| must be always called after
-    // |OnRefreshTokenAvailable|, when refresh token is updated.
-    FireAuthErrorChanged(account_id, GoogleServiceAuthError::AuthErrorNone());
+  if (account_id.empty()) {
+    return;
   }
+
+  ScopedBatchChange batch(this);
+  FireRefreshTokenAvailable(account_id);
+
+  // We cannot directly use |UpdateAuthError| because it does not invoke
+  // |FireAuthErrorChanged| if |account_id|'s error state was already
+  // |GoogleServiceAuthError::State::NONE|, but |FireAuthErrorChanged| must be
+  // invoked here, regardless. See the comment below.
+  errors_.erase(account_id);
+  // See |OAuth2TokenService::Observer::OnAuthErrorChanged|.
+  // |OnAuthErrorChanged| must be always called after
+  // |OnRefreshTokenAvailable|, when refresh token is updated.
+  FireAuthErrorChanged(account_id, GoogleServiceAuthError::AuthErrorNone());
+}
+
+void ChromeOSOAuth2TokenServiceDelegate::OnAccountRemoved(
+    const AccountManager::AccountKey& account_key) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_EQ(LOAD_CREDENTIALS_FINISHED_WITH_SUCCESS, load_credentials_state_);
+
+  auto it = account_keys_.find(account_key);
+  if (it == account_keys_.end()) {
+    return;
+  }
+
+  account_keys_.erase(it);
+  std::string account_id = MapAccountKeyToAccountId(account_key);
+  if (account_id.empty()) {
+    return;
+  }
+
+  ScopedBatchChange batch(this);
+
+  // ProfileOAuth2TokenService will clear its cache for |account_id| when this
+  // is called. See |ProfileOAuth2TokenService::OnRefreshTokenRevoked|.
+  FireRefreshTokenRevoked(account_id);
+}
+
+void ChromeOSOAuth2TokenServiceDelegate::RevokeCredentials(
+    const std::string& account_id) {
+  // Signing out of Chrome is not possible on Chrome OS.
+  NOTREACHED();
+}
+
+void ChromeOSOAuth2TokenServiceDelegate::RevokeAllCredentials() {
+  // Signing out of Chrome is not possible on Chrome OS.
+  NOTREACHED();
 }
 
 }  // namespace chromeos

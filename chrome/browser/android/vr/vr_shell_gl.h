@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_ANDROID_VR_VR_SHELL_GL_H_
 
 #include <memory>
+#include <queue>
 #include <utility>
 #include <vector>
 
@@ -25,6 +26,7 @@
 #include "chrome/browser/vr/ui_renderer.h"
 #include "chrome/browser/vr/ui_test_input.h"
 #include "device/vr/public/mojom/vr_service.mojom.h"
+#include "device/vr/vr_device.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr_types.h"
@@ -33,8 +35,11 @@
 #include "ui/gfx/geometry/size_f.h"
 #include "ui/gfx/native_widget_types.h"
 
+namespace base {
+class WaitableEvent;
+}
+
 namespace gl {
-class GLContext;
 class GLFence;
 class GLFenceAndroidNativeFenceSync;
 class GLFenceEGL;
@@ -59,10 +64,11 @@ namespace vr {
 class BrowserUiInterface;
 class FPSMeter;
 class GlBrowserInterface;
+class GraphicsDelegate;
 class MailboxToSurfaceBridge;
 class ScopedGpuTrace;
 class SlidingTimeDeltaAverage;
-class Ui;
+class UiInterface;
 class VrController;
 class VrShell;
 
@@ -83,12 +89,12 @@ struct WebVrBounds {
 // The stages can overlap, but we enforce that there isn't more than one
 // frame in a given non-Idle state at any one time.
 //
-//       <- GetVSync
+//       <- GetFrameData
 //   Idle
 //       SendVSync
 //   Animating
 //       <- UpdateLayerBounds (optional)
-//       <- GetVSync
+//       <- GetFrameData
 //       <- SubmitFrame
 //       ProcessWebVrFrame
 //   Processing
@@ -110,12 +116,12 @@ struct WebVrBounds {
 // The renderer may call SubmitFrameMissing instead of SubmitFrame. In that
 // case, the frame transitions from Animating back to Idle.
 //
-//       <- GetVSync
+//       <- GetFrameData
 //   Idle
 //       SendVSync
 //   Animating
 //       <- UpdateLayerBounds (optional)
-//       <- GetVSync
+//       <- GetFrameData
 //       <- SubmitFrameMissing
 //   Idle
 
@@ -261,7 +267,7 @@ class WebXrPresentationState {
 class VrShellGl : public device::mojom::VRPresentationProvider {
  public:
   VrShellGl(GlBrowserInterface* browser_interface,
-            std::unique_ptr<Ui> ui,
+            std::unique_ptr<UiInterface> ui,
             gvr_context* gvr_api,
             bool reprojected_rendering,
             bool daydream_support,
@@ -270,8 +276,9 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
             bool low_density);
   ~VrShellGl() override;
 
-  void Initialize();
-  void InitializeGl(gfx::AcceleratedWidget window);
+  void Initialize(base::WaitableEvent* gl_surface_created_event,
+                  base::OnceCallback<gfx::AcceleratedWidget()> callback);
+  void InitializeGl(gfx::AcceleratedWidget surface);
 
   void OnTriggerEvent(bool pressed);
   void OnPause();
@@ -285,6 +292,7 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   }
 
   void SetWebVrMode(bool enabled);
+  void CreateSurfaceBridge(gl::SurfaceTexture* surface_texture);
   void CreateOrResizeWebVRSurface(const gfx::Size& size);
   void WebVrCreateOrResizeSharedBufferImage(WebXrSharedBuffer* buffer,
                                             const gfx::Size& size);
@@ -298,10 +306,8 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   base::WeakPtr<VrShellGl> GetWeakPtr();
 
   void ConnectPresentingService(
-      device::mojom::VRSubmitFrameClientPtrInfo submit_client_info,
-      device::mojom::VRPresentationProviderRequest request,
       device::mojom::VRDisplayInfoPtr display_info,
-      device::mojom::VRRequestPresentOptionsPtr present_options);
+      device::mojom::XRDeviceRuntimeSessionOptionsPtr options);
 
   void set_is_exiting(bool exiting) { is_exiting_ = exiting; }
 
@@ -320,14 +326,17 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   void CancelToast();
 
   void AcceptDoffPromptForTesting();
-  void PerformUiActionForTesting(UiTestInput test_input);
   void SetUiExpectingActivityForTesting(
       UiTestActivityExpectation ui_expectation);
+  void PerformControllerActionForTesting(ControllerTestInput controller_input);
 
  private:
   void GvrInit(gvr_context* gvr_api);
+
   device::mojom::VRDisplayFrameTransportOptionsPtr
-      GetWebVrFrameTransportOptions(device::mojom::VRRequestPresentOptionsPtr);
+  GetWebVrFrameTransportOptions(
+      const device::mojom::XRDeviceRuntimeSessionOptionsPtr&);
+
   void InitializeRenderer();
   void UpdateViewports();
   void OnGpuProcessConnectionReady();
@@ -379,7 +388,8 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   bool IsSubmitFrameExpected(int16_t frame_index);
 
   // VRPresentationProvider
-  void GetVSync(GetVSyncCallback callback) override;
+  void GetFrameData(device::mojom::VRPresentationProvider::GetFrameDataCallback
+                        callback) override;
   void SubmitFrameMissing(int16_t frame_index, const gpu::SyncToken&) override;
   void SubmitFrame(int16_t frame_index,
                    const gpu::MailboxHolder& mailbox,
@@ -400,7 +410,7 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
 
   void ForceExitVr();
 
-  // Sends a GetVSync response to the presentation client.
+  // Sends a GetFrameData response to the presentation client.
   void SendVSync();
 
   // Heuristics to avoid excessive backlogged frames.
@@ -455,7 +465,7 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   bool webvr_vsync_align_;
 
   scoped_refptr<gl::GLSurface> surface_;
-  scoped_refptr<gl::GLContext> context_;
+  std::unique_ptr<GraphicsDelegate> graphics_delegate_;
   scoped_refptr<gl::SurfaceTexture> content_surface_texture_;
   scoped_refptr<gl::SurfaceTexture> content_overlay_surface_texture_;
   scoped_refptr<gl::SurfaceTexture> ui_surface_texture_;
@@ -492,13 +502,13 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   gfx::Size render_size_webvr_ui_;
   const bool low_density_;
 
-  // WebVR currently supports multiple render path choices, with runtime
+  // WebXR currently supports multiple render path choices, with runtime
   // selection based on underlying support being available and feature flags.
-  // The webvr_use_* booleans choose among the implementations. Please don't
+  // The webxr_use_* booleans choose among the implementations. Please don't
   // check WebXrRenderPath or other feature flags in individual code paths
   // directly to avoid inconsistent logic.
-  bool webvr_use_gpu_fence_ = false;
-  bool webvr_use_shared_buffer_draw_ = false;
+  bool webxr_use_gpu_fence_ = false;
+  bool webxr_use_shared_buffer_draw_ = false;
 
   void WebVrWaitForServerFence();
   void OnWebVRTokenSignaled(int16_t frame_index,
@@ -514,7 +524,7 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
 
   std::unique_ptr<WebXrPresentationState> webxr_ = nullptr;
 
-  std::unique_ptr<Ui> ui_;
+  std::unique_ptr<UiInterface> ui_;
 
   bool web_vr_mode_ = false;
   bool ready_to_draw_ = false;
@@ -523,7 +533,6 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   bool daydream_support_;
   bool is_exiting_ = false;
   bool content_paused_;
-  bool report_webxr_input_ = false;
   bool cardboard_trigger_pressed_ = false;
   bool cardboard_trigger_clicked_ = false;
 
@@ -533,8 +542,8 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   // Attributes tracking WebVR rAF/VSync animation loop state. Blink schedules
-  // a callback using the GetVSync mojo call which is stored in
-  // get_vsync_callback_. The callback is executed by SendVSync once
+  // a callback using the GetFrameData mojo call which is stored in
+  // get_frame_data_callback_. The callback is executed by SendVSync once
   // WebVrCanAnimateFrame returns true.
   //
   // pending_vsync_ is set to true in OnVSync and false in SendVSync. It
@@ -542,7 +551,8 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   // updated in OnVSync and used as the rAF animation timer in SendVSync.
   base::TimeTicks pending_time_;
   bool pending_vsync_ = false;
-  GetVSyncCallback get_vsync_callback_;
+  device::mojom::VRPresentationProvider::GetFrameDataCallback
+      get_frame_data_callback_;
 
   mojo::Binding<device::mojom::VRPresentationProvider> binding_;
   device::mojom::VRSubmitFrameClientPtr submit_client_;
@@ -605,6 +615,9 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   std::unique_ptr<PlatformUiInputDelegate> vr_dialog_input_delegate_;
   bool showing_vr_dialog_ = false;
   std::unique_ptr<UiTestState> ui_test_state_;
+  std::queue<ControllerModel> test_controller_model_queue_;
+  ControllerModel cached_test_controller_model_;
+  bool using_test_controller_model_ = false;
 
   base::WeakPtrFactory<VrShellGl> weak_ptr_factory_;
 

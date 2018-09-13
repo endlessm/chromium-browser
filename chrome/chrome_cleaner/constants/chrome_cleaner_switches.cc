@@ -106,6 +106,9 @@ const char kPostRebootSwitchesInOtherRegistryKeySwitch[] =
 // only.
 const char kRemoveScanOnlyUwS[] = "remove-scan-only-uws";
 
+// Enable reporting of force-installed Chrome extensions.
+const char kReportExtensionsSwitch[] = "report-extensions";
+
 // Mojo pipe token generated in the broker process and passed to the sandbox
 // process to bind with the EngineCommands IPC interface.
 const char kSandboxMojoPipeTokenSwitch[] = "sandbox-mojo-pipe-token";
@@ -113,6 +116,11 @@ const char kSandboxMojoPipeTokenSwitch[] = "sandbox-mojo-pipe-token";
 // Used to identify the id of the sandbox process that is intended
 // to be spawned.
 const char kSandboxedProcessIdSwitch[] = "sandboxed-process-id";
+
+// Used to limit trace locations that will be scanned. Trace locations should be
+// specified as integers, separated by commas. For example:
+//   --scan-locations=1,2,3,5
+const char kScanLocationsSwitch[] = "scan-locations";
 
 // Set the timeout for the scanning phase, in minutes. 0 disables the timeout
 // entirely.

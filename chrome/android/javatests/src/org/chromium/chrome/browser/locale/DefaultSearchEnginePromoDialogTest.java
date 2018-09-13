@@ -1,3 +1,4 @@
+// Copyright 2018 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -120,7 +121,7 @@ public class DefaultSearchEnginePromoDialogTest {
             @Override
             public DefaultSearchEnginePromoDialog call() throws Exception {
                 DefaultSearchEnginePromoDialog dialog = new DefaultSearchEnginePromoDialog(
-                        activity, LocaleManager.SEARCH_ENGINE_PROMO_SHOW_EXISTING, null);
+                        activity, LocaleManager.SearchEnginePromoType.SHOW_EXISTING, null);
                 dialog.show();
                 return dialog;
             }

@@ -29,7 +29,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/apps/app_shim/extension_app_shim_handler_mac.h"
-#include "chrome/browser/apps/app_window_registry_util.h"
+#include "chrome/browser/apps/platform_apps/app_window_registry_util.h"
 #include "chrome/browser/background/background_application_list_model.h"
 #include "chrome/browser/background/background_mode_manager.h"
 #include "chrome/browser/browser_process.h"
@@ -42,6 +42,8 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/mac/mac_startup_profiler.h"
+#include "chrome/browser/policy/chrome_browser_policy_connector.h"
+#include "chrome/browser/policy/machine_level_user_cloud_policy_controller.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
@@ -67,18 +69,19 @@
 #import "chrome/browser/ui/cocoa/apps/app_shim_menu_controller_mac.h"
 #include "chrome/browser/ui/cocoa/apps/quit_with_apps_controller_mac.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_menu_bridge.h"
-#import "chrome/browser/ui/cocoa/confirm_quit.h"
 #import "chrome/browser/ui/cocoa/confirm_quit_panel_controller.h"
 #include "chrome/browser/ui/cocoa/handoff_active_url_observer_bridge.h"
 #import "chrome/browser/ui/cocoa/history_menu_bridge.h"
 #include "chrome/browser/ui/cocoa/last_active_browser_cocoa.h"
 #import "chrome/browser/ui/cocoa/profiles/profile_menu_controller.h"
 #import "chrome/browser/ui/cocoa/share_menu_controller.h"
+#import "chrome/browser/ui/confirm_quit.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/startup/startup_browser_creator_impl.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/user_manager.h"
+#include "chrome/browser/web_applications/extensions/web_app_extension_helpers.h"
 #include "chrome/browser/web_applications/web_app_mac.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths_internal.h"
@@ -198,7 +201,6 @@ bool IsProfileSignedOut(Profile* profile) {
 }  // namespace
 
 @interface AppController () <HandoffActiveURLObserverBridgeDelegate>
-
 - (void)initMenuState;
 - (void)initProfileMenu;
 - (void)updateConfirmToQuitPrefMenuItem:(NSMenuItem*)item;
@@ -595,28 +597,7 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
 // Close Tab/Close Window accordingly.
 - (void)menuNeedsUpdate:(NSMenu*)menu {
   DCHECK(menu == [closeTabMenuItem_ menu]);
-
-  BOOL enableCloseTabShortcut = NO;
-  id target = [NSApp targetForAction:@selector(performClose:)];
-
-  // |target| is an instance of NSPopover or NSWindow.
-  // If a popover (likely the dictionary lookup popover), we want Cmd-W to
-  // close the popover so map it to "Close Window".
-  // Otherwise, map Cmd-W to "Close Tab" if it's a browser window.
-  if ([target isKindOfClass:[NSWindow class]]) {
-    NSWindow* window = target;
-    NSWindow* mainWindow = [NSApp mainWindow];
-    if (!window || ([window parentWindow] == mainWindow)) {
-      // If the target window is a child of the main window (e.g. a bubble), the
-      // main window should be the one that handles the close menu item action.
-      window = mainWindow;
-    }
-    Browser* browser = chrome::FindBrowserWithWindow(window);
-    enableCloseTabShortcut = browser && browser->is_type_tabbed();
-  }
-
-  [self adjustCloseWindowMenuItemKeyEquivalent:enableCloseTabShortcut];
-  [self adjustCloseTabMenuItemKeyEquivalent:enableCloseTabShortcut];
+  [self updateMenuItemKeyEquivalents];
 }
 
 - (void)windowDidResignKey:(NSNotification*)notify {
@@ -755,6 +736,14 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
 // This is called after profiles have been loaded and preferences registered.
 // It is safe to access the default profile here.
 - (void)applicationDidFinishLaunching:(NSNotification*)notify {
+  if (g_browser_process->browser_policy_connector()
+          ->machine_level_user_cloud_policy_controller()
+          ->IsEnterpriseStartupDialogShowing()) {
+    // As Chrome is not ready when the Enterprise startup dialog is being shown.
+    // Store the notification as it will be reposted when the dialog is closed.
+    return;
+  }
+
   MacStartupProfiler::GetInstance()->Profile(
       MacStartupProfiler::DID_FINISH_LAUNCHING);
   MacStartupProfiler::GetInstance()->RecordMetrics();
@@ -1625,6 +1614,30 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
                  lastProfile_));
 }
 
+- (void)updateMenuItemKeyEquivalents {
+  BOOL enableCloseTabShortcut = NO;
+  id target = [NSApp targetForAction:@selector(performClose:)];
+
+  // |target| is an instance of NSPopover or NSWindow.
+  // If a popover (likely the dictionary lookup popover), we want Cmd-W to
+  // close the popover so map it to "Close Window".
+  // Otherwise, map Cmd-W to "Close Tab" if it's a browser window.
+  if ([target isKindOfClass:[NSWindow class]]) {
+    NSWindow* window = target;
+    NSWindow* mainWindow = [NSApp mainWindow];
+    if (!window || ([window parentWindow] == mainWindow)) {
+      // If the target window is a child of the main window (e.g. a bubble), the
+      // main window should be the one that handles the close menu item action.
+      window = mainWindow;
+    }
+    Browser* browser = chrome::FindBrowserWithWindow(window);
+    enableCloseTabShortcut = browser && browser->is_type_tabbed();
+  }
+
+  [self adjustCloseWindowMenuItemKeyEquivalent:enableCloseTabShortcut];
+  [self adjustCloseTabMenuItemKeyEquivalent:enableCloseTabShortcut];
+}
+
 - (BOOL)application:(NSApplication*)application
     willContinueUserActivityWithType:(NSString*)userActivityType
     API_AVAILABLE(macos(10.10)) {
@@ -1744,6 +1757,17 @@ void CreateGuestProfileIfNeeded() {
       ProfileManager::GetGuestProfilePath(),
       base::BindRepeating(&UpdateProfileInUse), base::string16(), std::string(),
       std::string());
+}
+
+void EnterpriseStartupDialogClosed() {
+  AppController* controller =
+      base::mac::ObjCCastStrict<AppController>([NSApp delegate]);
+  if (controller != nil) {
+    NSNotification* notify = [NSNotification
+        notificationWithName:NSApplicationDidFinishLaunchingNotification
+                      object:NSApp];
+    [controller applicationDidFinishLaunching:notify];
+  }
 }
 
 }  // namespace app_controller_mac

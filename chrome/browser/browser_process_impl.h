@@ -83,6 +83,20 @@ class BrowserProcessImpl : public BrowserProcess,
   // Called to complete initialization.
   void Init();
 
+#if !defined(OS_ANDROID)
+  // Called by ChromeBrowserMainParts to provide a closure that will quit the
+  // browser main message-loop.
+  void SetQuitClosure(base::OnceClosure quit_closure);
+#endif
+
+#if defined(OS_MACOSX)
+  // TODO(https://crbug.com/845966): Replaces the current |quit_closure_| and
+  // returns it. Used by the Cocoa first-run dialog to swap-out the RunLoop set
+  // by ChromeBrowserMainParts' for one that will cause the first-run dialog's
+  // modal RunLoop to exit.
+  base::OnceClosure SwapQuitClosure(base::OnceClosure quit_closure);
+#endif
+
   // Called before the browser threads are created.
   void PreCreateThreads(const base::CommandLine& command_line);
 
@@ -110,7 +124,10 @@ class BrowserProcessImpl : public BrowserProcess,
   rappor::RapporServiceImpl* rappor_service() override;
   IOThread* io_thread() override;
   SystemNetworkContextManager* system_network_context_manager() override;
+  scoped_refptr<network::SharedURLLoaderFactory> shared_url_loader_factory()
+      override;
   content::NetworkConnectionTracker* network_connection_tracker() override;
+  network::NetworkQualityTracker* network_quality_tracker() override;
   WatchDogThread* watchdog_thread() override;
   ProfileManager* profile_manager() override;
   PrefService* local_state() override;
@@ -229,6 +246,8 @@ class BrowserProcessImpl : public BrowserProcess,
   std::unique_ptr<content::NetworkConnectionTracker>
       network_connection_tracker_;
 
+  std::unique_ptr<network::NetworkQualityTracker> network_quality_tracker_;
+
   bool created_icon_manager_ = false;
   std::unique_ptr<IconManager> icon_manager_;
 
@@ -257,7 +276,7 @@ class BrowserProcessImpl : public BrowserProcess,
       background_printing_manager_;
 #endif
 
-#if !defined(OS_ANDROID)
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   // Manager for desktop notification UI.
   bool created_notification_ui_manager_ = false;
   std::unique_ptr<NotificationUIManager> notification_ui_manager_;
@@ -363,7 +382,7 @@ class BrowserProcessImpl : public BrowserProcess,
 
   std::unique_ptr<ChromeDeviceClient> device_client_;
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
+#if !defined(OS_ANDROID)
   // Any change to this #ifdef must be reflected as well in
   // chrome/browser/resource_coordinator/tab_manager_browsertest.cc
   std::unique_ptr<resource_coordinator::TabManager> tab_manager_;
@@ -375,6 +394,11 @@ class BrowserProcessImpl : public BrowserProcess,
       shell_integration::UNKNOWN_DEFAULT;
 
   std::unique_ptr<prefs::InProcessPrefServiceFactory> pref_service_factory_;
+
+#if !defined(OS_ANDROID)
+  // Called to signal the process' main message loop to exit.
+  base::OnceClosure quit_closure_;
+#endif
 
   SEQUENCE_CHECKER(sequence_checker_);
 

@@ -98,11 +98,16 @@
 
 // We can use .preinit_array section on Linux to call sanitizer initialization
 // functions very early in the process startup (unless PIC macro is defined).
+//
+// On FreeBSD, .preinit_array functions are called with rtld_bind_lock writer
+// lock held. It will lead to dead lock if unresolved PLT functions (which helds
+// rtld_bind_lock reader lock) are called inside .preinit_array functions.
+//
 // FIXME: do we have anything like this on Mac?
 #ifndef SANITIZER_CAN_USE_PREINIT_ARRAY
-#if ((SANITIZER_LINUX && !SANITIZER_ANDROID) || \
-  SANITIZER_FREEBSD || SANITIZER_OPENBSD) && !defined(PIC)
-# define SANITIZER_CAN_USE_PREINIT_ARRAY 1
+#if ((SANITIZER_LINUX && !SANITIZER_ANDROID) || SANITIZER_OPENBSD) && \
+    !defined(PIC)
+#define SANITIZER_CAN_USE_PREINIT_ARRAY 1
 // Before Solaris 11.4, .preinit_array is fully supported only with GNU ld.
 // FIXME: Check for those conditions.
 #elif SANITIZER_SOLARIS && !defined(PIC)
@@ -352,6 +357,12 @@ void NORETURN CheckFailed(const char *file, int line, const char *cond,
 #define INT64_MAX              (__INT64_C(9223372036854775807))
 #undef UINT64_MAX
 #define UINT64_MAX             (__UINT64_C(18446744073709551615))
+#undef UINTPTR_MAX
+#if SANITIZER_WORDSIZE == 64
+# define UINTPTR_MAX           (18446744073709551615UL)
+#else
+# define UINTPTR_MAX           (4294967295U)
+#endif  // SANITIZER_WORDSIZE == 64
 
 enum LinkerInitialized { LINKER_INITIALIZED = 0 };
 

@@ -46,6 +46,7 @@ cr.define('cr.ui.Oobe', function() {
       login.SyncConsentScreen.register();
       login.ArcTermsOfServiceScreen.register();
       login.RecommendAppsScreen.register();
+      login.AppDownloadingScreen.register();
       login.AppLaunchSplashScreen.register();
       login.ArcKioskSplashScreen.register();
       login.ConfirmPasswordScreen.register();
@@ -58,6 +59,7 @@ cr.define('cr.ui.Oobe', function() {
       login.WaitForContainerReadyScreen.register();
       login.UpdateRequiredScreen.register();
       login.DemoSetupScreen.register();
+      login.DiscoverScreen.register();
 
       cr.ui.Bubble.decorate($('bubble'));
       login.HeaderBar.decorate($('login-header-bar'));
@@ -72,7 +74,6 @@ cr.define('cr.ui.Oobe', function() {
     handleHighContrastClick: function(e) {},
     handleScreenMagnifierClick: function(e) {},
     setUsageStats: function(checked) {},
-    setOemEulaUrl: function(oemEulaUrl) {},
     setTpmPassword: function(password) {},
     refreshA11yInfo: function(data) {},
     reloadEulaContent: function(data) {},
@@ -93,6 +94,14 @@ cr.define('cr.ui.Oobe', function() {
      */
     setTabletModeState: function(isInTabletMode) {
       Oobe.getInstance().setTabletModeState_(isInTabletMode);
+    },
+
+    /**
+     * Updates OOBE configuration when it is loaded.
+     * @param {dictionary} configuration OOBE configuration.
+     */
+    updateOobeConfiguration: function(configuration) {
+      Oobe.getInstance().updateOobeConfiguration_(configuration);
     },
   };
 });

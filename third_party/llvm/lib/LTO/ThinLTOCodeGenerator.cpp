@@ -55,6 +55,12 @@
 
 #include <numeric>
 
+#if !defined(_MSC_VER) && !defined(__MINGW32__)
+#include <unistd.h>
+#else
+#include <io.h>
+#endif
+
 using namespace llvm;
 
 #define DEBUG_TYPE "thinlto"
@@ -268,7 +274,7 @@ std::unique_ptr<MemoryBuffer> codegenModule(Module &TheModule,
     PM.add(createObjCARCContractPass());
 
     // Setup the codegen now.
-    if (TM.addPassesToEmitFile(PM, OS, TargetMachine::CGFT_ObjectFile,
+    if (TM.addPassesToEmitFile(PM, OS, nullptr, TargetMachine::CGFT_ObjectFile,
                                /* DisableVerify */ true))
       report_fatal_error("Failed to setup codegen");
 
@@ -391,7 +397,18 @@ public:
   ErrorOr<std::unique_ptr<MemoryBuffer>> tryLoadingBuffer() {
     if (EntryPath.empty())
       return std::error_code();
-    return MemoryBuffer::getFile(EntryPath);
+    int FD;
+    SmallString<64> ResultPath;
+    std::error_code EC = sys::fs::openFileForRead(
+        Twine(EntryPath), FD, sys::fs::OF_UpdateAtime, &ResultPath);
+    if (EC)
+      return EC;
+    ErrorOr<std::unique_ptr<MemoryBuffer>> MBOrErr =
+        MemoryBuffer::getOpenFile(FD, EntryPath,
+                                  /*FileSize*/ -1,
+                                  /*RequiresNullTerminator*/ false);
+    close(FD);
+    return MBOrErr;
   }
 
   // Cache the Produced object file
@@ -590,7 +607,7 @@ std::unique_ptr<TargetMachine> TargetMachineBuilder::create() const {
  */
 std::unique_ptr<ModuleSummaryIndex> ThinLTOCodeGenerator::linkCombinedIndex() {
   std::unique_ptr<ModuleSummaryIndex> CombinedIndex =
-      llvm::make_unique<ModuleSummaryIndex>(/*IsPeformingAnalysis=*/false);
+      llvm::make_unique<ModuleSummaryIndex>(/*HaveGVs=*/false);
   uint64_t NextModuleId = 0;
   for (auto &ModuleBuffer : Modules) {
     if (Error Err = readModuleSummaryIndex(ModuleBuffer.getMemBuffer(),
@@ -741,8 +758,14 @@ void ThinLTOCodeGenerator::emitImports(StringRef ModulePath,
   ComputeCrossModuleImport(Index, ModuleToDefinedGVSummaries, ImportLists,
                            ExportLists);
 
+  std::map<std::string, GVSummaryMapTy> ModuleToSummariesForIndex;
+  llvm::gatherImportedSummariesForModule(ModulePath, ModuleToDefinedGVSummaries,
+                                         ImportLists[ModulePath],
+                                         ModuleToSummariesForIndex);
+
   std::error_code EC;
-  if ((EC = EmitImportsFiles(ModulePath, OutputName, ImportLists[ModulePath])))
+  if ((EC =
+           EmitImportsFiles(ModulePath, OutputName, ModuleToSummariesForIndex)))
     report_fatal_error(Twine("Failed to open ") + OutputName +
                        " to save imports lists\n");
 }

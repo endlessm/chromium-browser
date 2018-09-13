@@ -5,12 +5,16 @@
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_SESSION_USER_SESSION_MANAGER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_SESSION_USER_SESSION_MANAGER_H_
 
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -45,6 +49,10 @@ class CommandLine;
 
 namespace net {
 class URLRequestContextGetter;
+}
+
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace user_manager {
@@ -277,8 +285,11 @@ class UserSessionManager
   // Update Easy unlock cryptohome keys for given user context.
   void UpdateEasyUnlockKeys(const UserContext& user_context);
 
-  // Returns the auth request context associated with auth data.
+  // Returns the auth request context/URLLoaderFactory associated with auth
+  // data.
   net::URLRequestContextGetter* GetAuthRequestContext() const;
+  scoped_refptr<network::SharedURLLoaderFactory> GetAuthURLLoaderFactory()
+      const;
 
   // Removes a profile from the per-user input methods states map.
   void RemoveProfileForTesting(Profile* profile);
@@ -348,6 +359,15 @@ class UserSessionManager
   // created yet and user services were not yet initialized. Can store
   // information in Local State like GAIA ID.
   void StoreUserContextDataBeforeProfileIsCreated();
+
+  // Initializes |chromeos::DemoSession| if starting user session for demo mode.
+  // Runs |callback| when demo session initialization finishes, i.e. when the
+  // offline demo session resources are loaded.
+  void InitDemoSessionIfNeeded(base::OnceClosure callback);
+
+  // Updates ARC file system compatibility pref, and then calls
+  // PrepareProfile().
+  void UpdateArcFileSystemCompatibilityAndPrepareProfile();
 
   void StartCrosSession();
   void PrepareProfile();

@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">Επεξεργασία κειμένου κωδικού πρόσβασης</translation>
 <translation id="1802710350767629429">Εμφάνιση σημειώσεων ενημέρωσης</translation>
 <translation id="1810107444790159527">Πλαίσιο λίστας</translation>
+<translation id="1812527064848182527">οριζόντιος προσανατολισμός</translation>
 <translation id="1828385960365606039">Μάιος</translation>
 <translation id="1834891354138622109">Στήλη</translation>
 <translation id="1845944666972354496">Πατήστε δύο φορές για ενεργοποίηση</translation>
@@ -146,6 +147,7 @@
 <translation id="2416512023405990736">Ένα αποεπιλεγμένο πλαίσιο ελέγχου</translation>
 <translation id="2417569100218200841">Πληροφορίες περιεχομένου</translation>
 <translation id="2417948780551741035">Σημειώσεις τέλους</translation>
+<translation id="2421113964388408478">Διαγραφή</translation>
 <translation id="2422937916923936891">Πλαίσιο ελέγχου στοιχείου μενού</translation>
 <translation id="2428534162001909979">Μενού εντολών</translation>
 <translation id="2429669115401274487">μ.μ.</translation>
@@ -253,6 +255,7 @@
 <translation id="3232388865800379423">Ένα αναδυόμενο κουμπί</translation>
 <translation id="3241052487511142956">Προηγούμενος σύνδεσμος που έχετε επισκεφτεί</translation>
 <translation id="3241638166094654466">Κελιά σε κάθε γραμμή:</translation>
+<translation id="3286372614333682499">κατακόρυφος προσανατολισμός</translation>
 <translation id="3286390186030710347">Ρυθμιστικό</translation>
 <translation id="3299925995433437805">Δεν υπάρχει επόμενος σύνδεσμος που έχετε επισκεφτεί.</translation>
 <translation id="3300348286427369683">Υποστήριξη εμπλουτισμένου κειμένου. Το ChromeVox υποστηρίζει πλέον πεδία εμπλουτισμένου κειμένου, όπως εντολές μετάβασης, δρομολόγηση δρομέα μπράιγ, επιλογή και άλλα.</translation>
@@ -426,6 +429,7 @@
 <translation id="4476183483923481720">νέα γραμμή</translation>
 <translation id="4482330759234983253">Προηγούμενος πίνακας</translation>
 <translation id="4491109536499578614">Εικόνα</translation>
+<translation id="4505167975768625962">Εισαγωγή</translation>
 <translation id="4517854969512651305">Αύξηση αξίας</translation>
 <translation id="4529987814483543472">Κλασική αντιστοίχιση πλήκτρων</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{κάθετος}other{# κάθετοι}}</translation>
@@ -589,6 +593,7 @@
 <translation id="5712338278108304766">Επόμενη στήλη πίνακα</translation>
 <translation id="571866080859340309">Εξερεύνηση ομάδων</translation>
 <translation id="5728409797179002635">Δεν βρέθηκε πίνακας.</translation>
+<translation id="5729047866208036762">Πατήστε το επάνω, το κάτω, το αριστερό ή το δεξί βέλος, για να εξερευνήσετε το περιεχόμενο μαθηματικών.</translation>
 <translation id="5732189279857692565">Αυτή είναι η δεύτερη επικεφαλίδα. Συνεχίστε πατώντας Search+H ή Search+Shift+H</translation>
 <translation id="5748623122140342504">Επικεφαλίδα προηγούμενου επιπέδου 5</translation>
 <translation id="5750633686117194034">Δεν πατήθηκε κανένας τροποποιητής. Πατήστε παρατεταμένα έναν ή περισσότερους τροποποιητές και όταν σηκώσετε τα δάχτυλά σας θα ακούσετε τον ήχο ορισμού ρύθμισης των πλήκτρων. Πατήστε "Tab" για έξοδο.</translation>
@@ -745,6 +750,7 @@
 <translation id="7226216518520804442">λίστα</translation>
 <translation id="7229749224609077523">Επιλογή εξάστιγμου πίνακα Μπράιγ:</translation>
 <translation id="72393384879519786">Επικεφαλίδα</translation>
+<translation id="7240858705033280249">Μετάβαση στις Λεπτομέρειες</translation>
 <translation id="7241683698754534149">Άνοιγμα εκτενούς περιγραφής σε νέα καρτέλα</translation>
 <translation id="7248671827512403053">Εφαρμογή</translation>
 <translation id="725969808843520477">Επόμενο κουμπί επιλογής</translation>
@@ -921,6 +927,7 @@
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Επιλογή οκτάστιγμου πίνακα Μπράιγ:</translation>
 <translation id="9065283790526219006">+αναδυόμενα παράθυρα</translation>
+<translation id="9066023754636984703">Πατήστε Αναζήτηση+A, J για να μεταβείτε στις λεπτομέρειες.</translation>
 <translation id="9067522039955793016">Αλλαγή σελίδας</translation>
 <translation id="9077213568694924680">καταργήθηκε από την επιλογή</translation>
 <translation id="9082874451376019682">Δεν υπάρχει προηγούμενο ρυθμιστικό.</translation>

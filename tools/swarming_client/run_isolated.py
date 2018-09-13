@@ -38,6 +38,7 @@ import json
 import logging
 import optparse
 import os
+import re
 import sys
 import tempfile
 import time
@@ -58,7 +59,7 @@ from libs import luci_context
 import auth
 import cipd
 import isolateserver
-import named_cache
+import local_caching
 
 
 # Absolute path to this file (can be None if running from zip on Mac).
@@ -108,6 +109,10 @@ ISOLATED_OUT_DIR = u'io'
 ISOLATED_TMP_DIR = u'it'
 
 
+# Keep synced with task_request.py
+CACHE_NAME_RE = re.compile(ur'^[a-z0-9_]{1,4096}$')
+
+
 OUTLIVING_ZOMBIE_MSG = """\
 *** Swarming tried multiple times to delete the %s directory and failed ***
 *** Hard failing the task ***
@@ -136,11 +141,16 @@ How to fix?
     them to terminate before quitting.
 
 See
-https://github.com/luci/luci-py/blob/master/appengine/swarming/doc/Bot.md#graceful-termination-aka-the-sigterm-and-sigkill-dance
+https://chromium.googlesource.com/infra/luci/luci-py.git/+/master/appengine/swarming/doc/Bot.md#Graceful-termination_aka-the-SIGTERM-and-SIGKILL-dance
 for more information.
 
 *** May the SIGKILL force be with you ***
 """
+
+
+# Currently hardcoded. Eventually could be exposed as a flag once there's value.
+# 3 weeks
+MAX_AGE_SECS = 21*24*60*60
 
 
 TaskData = collections.namedtuple(
@@ -216,7 +226,6 @@ def get_as_zip_package(executable=True):
   package.add_python_file(os.path.join(BASE_DIR, 'auth.py'))
   package.add_python_file(os.path.join(BASE_DIR, 'cipd.py'))
   package.add_python_file(os.path.join(BASE_DIR, 'local_caching.py'))
-  package.add_python_file(os.path.join(BASE_DIR, 'named_cache.py'))
   package.add_directory(os.path.join(BASE_DIR, 'libs'))
   package.add_directory(os.path.join(BASE_DIR, 'third_party'))
   package.add_directory(os.path.join(BASE_DIR, 'utils'))
@@ -263,10 +272,10 @@ def change_tree_read_only(rootdir, read_only):
     file_path.make_tree_files_read_only(rootdir)
   elif read_only in (0, None):
     # Anything can be modified.
-    # TODO(maruel): This is currently dangerous as long as DiskCache.touch()
-    # is not yet changed to verify the hash of the content of the files it is
-    # looking at, so that if a test modifies an input file, the file must be
-    # deleted.
+    # TODO(maruel): This is currently dangerous as long as
+    # DiskContentAddressedCache.touch() is not yet changed to verify the hash of
+    # the content of the files it is looking at, so that if a test modifies an
+    # input file, the file must be deleted.
     file_path.make_tree_writeable(rootdir)
   else:
     raise ValueError(
@@ -484,8 +493,6 @@ def fetch_and_map(isolated_hash, storage, cache, outdir, use_symlinks):
       use_symlinks=use_symlinks)
   return bundle, {
     'duration': time.time() - start,
-    'initial_number_items': cache.initial_number_items,
-    'initial_size': cache.initial_size,
     'items_cold': base64.b64encode(large.pack(sorted(cache.added))),
     'items_hot': base64.b64encode(
         large.pack(sorted(set(cache.used) - set(cache.added)))),
@@ -618,32 +625,32 @@ def map_and_run(data, constant_run_path):
     'had_hard_timeout': False,
     'internal_failure': 'run_isolated did not complete properly',
     'stats': {
-    # 'isolated': {
-    #    'cipd': {
-    #      'duration': 0.,
-    #      'get_client_duration': 0.,
-    #    },
-    #    'download': {
-    #      'duration': 0.,
-    #      'initial_number_items': 0,
-    #      'initial_size': 0,
-    #      'items_cold': '<large.pack()>',
-    #      'items_hot': '<large.pack()>',
-    #    },
-    #    'upload': {
-    #      'duration': 0.,
-    #      'items_cold': '<large.pack()>',
-    #      'items_hot': '<large.pack()>',
-    #    },
-    #  },
+      'isolated': {
+        #'cipd': {
+        #  'duration': 0.,
+        #  'get_client_duration': 0.,
+        #},
+        'download': {
+          #'duration': 0.,
+          'initial_number_items': len(data.isolate_cache),
+          'initial_size': data.isolate_cache.total_size,
+          #'items_cold': '<large.pack()>',
+          #'items_hot': '<large.pack()>',
+        },
+        #'upload': {
+        #  'duration': 0.,
+        #  'items_cold': '<large.pack()>',
+        #  'items_hot': '<large.pack()>',
+        #},
+      },
     },
-    # 'cipd_pins': {
-    #   'packages': [
-    #     {'package_name': ..., 'version': ..., 'path': ...},
-    #     ...
-    #   ],
-    #  'client_package': {'package_name': ..., 'version': ...},
-    # },
+    #'cipd_pins': {
+    #  'packages': [
+    #    {'package_name': ..., 'version': ..., 'path': ...},
+    #    ...
+    #  ],
+    # 'client_package': {'package_name': ..., 'version': ...},
+    #},
     'outputs_ref': None,
     'version': 5,
   }
@@ -681,12 +688,13 @@ def map_and_run(data, constant_run_path):
 
       if data.isolated_hash:
         isolated_stats = result['stats'].setdefault('isolated', {})
-        bundle, isolated_stats['download'] = fetch_and_map(
+        bundle, stats = fetch_and_map(
             isolated_hash=data.isolated_hash,
             storage=data.storage,
             cache=data.isolate_cache,
             outdir=run_dir,
             use_symlinks=data.use_symlinks)
+        isolated_stats['download'].update(stats)
         change_tree_read_only(run_dir, bundle.read_only)
         # Inject the command
         if not command and bundle.command:
@@ -1011,37 +1019,6 @@ def install_client_and_packages(
       })
 
 
-def clean_caches(isolate_cache, named_cache_manager):
-  """Trims isolated and named caches.
-
-  The goal here is to coherently trim both caches, deleting older items
-  independent of which container they belong to.
-  """
-  # TODO(maruel): Trim CIPD cache the same way.
-  total = 0
-  with named_cache_manager.open():
-    oldest_isolated = isolate_cache.get_oldest()
-    oldest_named = named_cache_manager.get_oldest()
-    trimmers = [
-      (
-        isolate_cache.trim,
-        isolate_cache.get_timestamp(oldest_isolated) if oldest_isolated else 0,
-      ),
-      (
-        named_cache_manager.trim,
-        named_cache_manager.get_timestamp(oldest_named) if oldest_named else 0,
-      ),
-    ]
-    trimmers.sort(key=lambda (_, ts): ts)
-    # TODO(maruel): This is incorrect, we want to trim 'items' that are strictly
-    # the oldest independent of in which cache they live in. Right now, the
-    # cache with the oldest item pays the price.
-    for trim, _ in trimmers:
-      total += trim()
-  isolate_cache.cleanup()
-  return total
-
-
 def create_option_parser():
   parser = logging_utils.OptionParserWithLogging(
       usage='%prog <options> [command to run or extra args]',
@@ -1121,7 +1098,23 @@ def create_option_parser():
   isolateserver.add_cache_options(parser)
 
   cipd.add_cipd_options(parser)
-  named_cache.add_named_cache_options(parser)
+
+  group = optparse.OptionGroup(parser, 'Named caches')
+  group.add_option(
+      '--named-cache',
+      dest='named_caches',
+      action='append',
+      nargs=2,
+      default=[],
+      help='A named cache to request. Accepts two arguments, name and path. '
+           'name identifies the cache, must match regex [a-z0-9_]{1,4096}. '
+           'path is a path relative to the run dir where the cache directory '
+           'must be put to. '
+           'This option can be specified more than once.')
+  group.add_option(
+      '--named-cache-root', default='named_caches',
+      help='Cache root directory. Default=%default')
+  parser.add_option_group(group)
 
   debug_group = optparse.OptionGroup(parser, 'Debugging')
   debug_group.add_option(
@@ -1135,11 +1128,35 @@ def create_option_parser():
 
   auth.add_auth_options(parser)
 
-  parser.set_defaults(
-      cache='cache',
-      cipd_cache='cipd_cache',
-      named_cache_root='named_caches')
+  parser.set_defaults(cache='cache', cipd_cache='cipd_cache')
   return parser
+
+
+def process_named_cache_options(parser, options, time_fn=None):
+  """Validates named cache options and returns a CacheManager."""
+  if options.named_caches and not options.named_cache_root:
+    parser.error('--named-cache is specified, but --named-cache-root is empty')
+  for name, path in options.named_caches:
+    if not CACHE_NAME_RE.match(name):
+      parser.error(
+          'cache name %r does not match %r' % (name, CACHE_NAME_RE.pattern))
+    if not path:
+      parser.error('cache path cannot be empty')
+  if options.named_cache_root:
+    # Make these configurable later if there is use case but for now it's fairly
+    # safe values.
+    # In practice, a fair chunk of bots are already recycled on a daily schedule
+    # so this code doesn't have any effect to them, unless they are preloaded
+    # with a really old cache.
+    policies = local_caching.CachePolicies(
+        # 1TiB.
+        max_cache_size=1024*1024*1024*1024,
+        min_free_space=options.min_free_space,
+        max_items=50,
+        max_age_secs=MAX_AGE_SECS)
+    root_dir = unicode(os.path.abspath(options.named_cache_root))
+    return local_caching.NamedCache(root_dir, policies, time_fn=time_fn)
+  return None
 
 
 def parse_args(args):
@@ -1178,8 +1195,16 @@ def main(args):
   if not file_path.enable_symlink():
     logging.error('Symlink support is not enabled')
 
+  # TODO(maruel): CIPD caches should be defined at an higher level here too, so
+  # they can be cleaned the same way.
   isolate_cache = isolateserver.process_cache_options(options, trim=False)
-  named_cache_manager = named_cache.process_named_cache_options(parser, options)
+  named_cache = process_named_cache_options(parser, options)
+  caches = []
+  if isolate_cache:
+    caches.append(isolate_cache)
+  if named_cache:
+    caches.append(named_cache)
+  root = caches[0].cache_dir if caches else unicode(os.getcwd())
   if options.clean:
     if options.isolated:
       parser.error('Can\'t use --isolated with --clean.')
@@ -1189,11 +1214,23 @@ def main(args):
       parser.error('Can\'t use --json with --clean.')
     if options.named_caches:
       parser.error('Can\t use --named-cache with --clean.')
-    clean_caches(isolate_cache, named_cache_manager)
+    # Trim first, then clean.
+    local_caching.trim_caches(
+        caches,
+        root,
+        min_free_space=options.min_free_space,
+        max_age_secs=MAX_AGE_SECS)
+    for c in caches:
+      c.clean()
     return 0
 
   if not options.no_clean:
-    clean_caches(isolate_cache, named_cache_manager)
+    # Trim but do not clean (which is slower).
+    local_caching.trim_caches(
+        caches,
+        root,
+        min_free_space=options.min_free_space,
+        max_age_secs=MAX_AGE_SECS)
 
   if not options.isolated and not args:
     parser.error('--isolated or command to run is required.')
@@ -1251,13 +1288,15 @@ def main(args):
   def install_named_caches(run_dir):
     # WARNING: this function depends on "options" variable defined in the outer
     # function.
+    assert unicode(run_dir), repr(run_dir)
+    assert os.path.isabs(run_dir), run_dir
     caches = [
       (os.path.join(run_dir, unicode(relpath)), name)
       for name, relpath in options.named_caches
     ]
-    with named_cache_manager.open():
-      for path, name in caches:
-        named_cache_manager.install(path, name)
+    for path, name in caches:
+      named_cache.install(path, name)
+    named_cache.trim()
     try:
       yield
     finally:
@@ -1267,13 +1306,13 @@ def main(args):
       #
       # If the Swarming bot cannot clean up the cache, it will handle it like
       # any other bot file that could not be removed.
-      with named_cache_manager.open():
-        for path, name in caches:
-          try:
-            named_cache_manager.uninstall(path, name)
-          except named_cache.Error:
-            logging.exception('Error while removing named cache %r at %r. '
-                              'The cache will be lost.', path, name)
+      for path, name in caches:
+        try:
+          named_cache.uninstall(path, name)
+        except local_caching.NamedCacheError:
+          logging.exception('Error while removing named cache %r at %r. '
+                            'The cache will be lost.', path, name)
+      named_cache.trim()
 
   extra_args = []
   command = []
@@ -1318,7 +1357,10 @@ def main(args):
         assert storage.hash_algo == isolate_cache.hash_algo
         return run_tha_test(data, options.json)
     return run_tha_test(data, options.json)
-  except (cipd.Error, named_cache.Error) as ex:
+  except (
+      cipd.Error,
+      local_caching.NamedCacheError,
+      local_caching.NotFoundError) as ex:
     print >> sys.stderr, ex.message
     return 1
 

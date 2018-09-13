@@ -10,6 +10,7 @@ import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.support.annotation.Nullable;
+import android.support.v4.view.ViewCompat;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -22,6 +23,8 @@ import org.chromium.chrome.browser.WindowDelegate;
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter.OmniboxResultItem;
 import org.chromium.chrome.browser.util.ViewUtils;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
+
+import java.util.ArrayList;
 
 /**
  * A widget for showing a list of omnibox suggestions.
@@ -97,7 +100,7 @@ public class OmniboxSuggestionsList extends ListView {
                           R.dimen.omnibox_suggestion_list_padding_top);
         int paddingBottom = context.getResources().getDimensionPixelOffset(
                 R.dimen.omnibox_suggestion_list_padding_bottom);
-        ApiCompatibilityUtils.setPaddingRelative(this, 0, paddingTop, 0, paddingBottom);
+        ViewCompat.setPaddingRelative(this, 0, paddingTop, 0, paddingBottom);
 
         refreshPopupBackground();
         getBackground().getPadding(mTempRect);
@@ -312,5 +315,13 @@ public class OmniboxSuggestionsList extends ListView {
             if (!(childView instanceof SuggestionView)) continue;
             ApiCompatibilityUtils.setLayoutDirection(childView, layoutDirection);
         }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        // Ensure none of the views are reused when re-attaching as the TextViews in the suggestions
+        // do not handle it in all cases.  https://crbug.com/851839
+        reclaimViews(new ArrayList<>());
     }
 }

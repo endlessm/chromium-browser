@@ -92,7 +92,7 @@ if(CMAKE_HOST_APPLE AND APPLE)
 
     foreach(lang ${languages})
       set(CMAKE_${lang}_CREATE_STATIC_LIBRARY
-        "${CMAKE_LIBTOOL} -static ${LIBTOOL_NO_WARNING_FLAG} -o <TARGET> \
+        "\"${CMAKE_LIBTOOL}\" -static ${LIBTOOL_NO_WARNING_FLAG} -o <TARGET> \
         <LINK_FLAGS> <OBJECTS> ")
     endforeach()
   endif()
@@ -429,6 +429,9 @@ option(LLVM_USE_OPROFILE
 option(LLVM_EXTERNALIZE_DEBUGINFO
   "Generate dSYM files and strip executables and libraries (Darwin Only)" OFF)
 
+option(LLVM_CODESIGNING_IDENTITY
+  "Sign executables and dylibs with the given identity (Darwin Only)" OFF)
+
 # If enabled, verify we are on a platform that supports oprofile.
 if( LLVM_USE_OPROFILE )
   if( NOT CMAKE_SYSTEM_NAME MATCHES "Linux" )
@@ -583,6 +586,9 @@ endif()
 # Override the default target with an environment variable named by LLVM_TARGET_TRIPLE_ENV.
 set(LLVM_TARGET_TRIPLE_ENV CACHE STRING "The name of environment variable to override default target. Disabled by blank.")
 mark_as_advanced(LLVM_TARGET_TRIPLE_ENV)
+
+set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR OFF CACHE BOOL
+  "Enable per-target runtimes directory")
 
 # All options referred to from HandleLLVMOptions have to be specified
 # BEFORE this include, otherwise options will not be correctly set on
@@ -985,6 +991,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
 
   if (NOT CMAKE_CONFIGURATION_TYPES)
     add_llvm_install_targets(install-llvm-headers
+                             DEPENDS llvm-headers
                              COMPONENT llvm-headers)
   endif()
 endif()

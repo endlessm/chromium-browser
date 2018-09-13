@@ -7,8 +7,8 @@
 #include <set>
 #include <string>
 
+#include "base/bind.h"
 #include "base/logging.h"
-#import "base/mac/bind_objc_block.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -27,7 +27,7 @@
 #include "ios/chrome/browser/autofill/personal_data_manager_factory.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
-#include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
 #include "ios/chrome/browser/sync/sync_setup_service.h"
 #include "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
@@ -51,7 +51,7 @@ void OverrideSyncNetworkResources(
       chrome_test_util::GetOriginalBrowserState();
   DCHECK(browser_state);
   browser_sync::ProfileSyncService* service =
-      IOSChromeProfileSyncServiceFactory::GetForBrowserState(browser_state);
+      ProfileSyncServiceFactory::GetForBrowserState(browser_state);
   service->OverrideNetworkResourcesForTest(std::move(resources));
 }
 
@@ -97,7 +97,7 @@ void TriggerSyncCycle(syncer::ModelType type) {
   ios::ChromeBrowserState* browser_state =
       chrome_test_util::GetOriginalBrowserState();
   browser_sync::ProfileSyncService* profile_sync_service =
-      IOSChromeProfileSyncServiceFactory::GetForBrowserState(browser_state);
+      ProfileSyncServiceFactory::GetForBrowserState(browser_state);
   profile_sync_service->TriggerRefresh({type});
 }
 
@@ -152,7 +152,7 @@ bool IsSyncInitialized() {
       chrome_test_util::GetOriginalBrowserState();
   DCHECK(browser_state);
   syncer::SyncService* syncService =
-      IOSChromeProfileSyncServiceFactory::GetForBrowserState(browser_state);
+      ProfileSyncServiceFactory::GetForBrowserState(browser_state);
   return syncService->IsEngineInitialized();
 }
 
@@ -161,8 +161,8 @@ std::string GetSyncCacheGuid() {
   ios::ChromeBrowserState* browser_state =
       chrome_test_util::GetOriginalBrowserState();
   browser_sync::ProfileSyncService* profile_sync_service =
-      IOSChromeProfileSyncServiceFactory::GetForBrowserState(browser_state);
-  syncer::LocalDeviceInfoProvider* info_provider =
+      ProfileSyncServiceFactory::GetForBrowserState(browser_state);
+  const syncer::LocalDeviceInfoProvider* info_provider =
       profile_sync_service->GetLocalDeviceInfoProvider();
   return info_provider->GetLocalSyncCacheGUID();
 }
@@ -290,7 +290,7 @@ BOOL IsTypedUrlPresentOnClient(const GURL& url,
   __block int count = 0;
   using history::OriginCountAndLastVisitMap;
   history_service->GetCountsAndLastVisitForOriginsForTesting(
-      origins, base::BindBlockArc(^(const OriginCountAndLastVisitMap& result) {
+      origins, base::BindRepeating(^(const OriginCountAndLastVisitMap& result) {
         auto iter = result.find(block_safe_url);
         if (iter != result.end())
           count = iter->second.first;

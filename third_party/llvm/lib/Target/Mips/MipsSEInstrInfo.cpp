@@ -179,6 +179,69 @@ void MipsSEInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     MIB.addReg(ZeroReg);
 }
 
+static bool isORCopyInst(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  default:
+    break;
+  case Mips::OR_MM:
+  case Mips::OR:
+    if (MI.getOperand(2).getReg() == Mips::ZERO)
+      return true;
+    break;
+  case Mips::OR64:
+    if (MI.getOperand(2).getReg() == Mips::ZERO_64)
+      return true;
+    break;
+  }
+  return false;
+}
+
+/// If @MI is WRDSP/RRDSP instruction return true with @isWrite set to true
+/// if it is WRDSP instruction.
+static bool isReadOrWriteToDSPReg(const MachineInstr &MI, bool &isWrite) {
+  switch (MI.getOpcode()) {
+  default:
+   return false;
+  case Mips::WRDSP:
+  case Mips::WRDSP_MM:
+    isWrite = true;
+    break;
+  case Mips::RDDSP:
+  case Mips::RDDSP_MM:
+    isWrite = false;
+    break;
+  }
+  return true;
+}
+
+/// We check for the common case of 'or', as it's MIPS' preferred instruction
+/// for GPRs but we have to check the operands to ensure that is the case.
+/// Other move instructions for MIPS are directly identifiable.
+bool MipsSEInstrInfo::isCopyInstr(const MachineInstr &MI,
+                                  const MachineOperand *&Src,
+                                  const MachineOperand *&Dest) const {
+  bool isDSPControlWrite = false;
+  // Condition is made to match the creation of WRDSP/RDDSP copy instruction
+  // from copyPhysReg function.
+  if (isReadOrWriteToDSPReg(MI, isDSPControlWrite)) {
+    if (!MI.getOperand(1).isImm() || MI.getOperand(1).getImm() != (1<<4))
+      return false;
+    else if (isDSPControlWrite) {
+      Src = &MI.getOperand(0);
+      Dest = &MI.getOperand(2);
+    } else {
+      Dest = &MI.getOperand(0);
+      Src = &MI.getOperand(2);
+    }
+    return true;
+  } else if (MI.isMoveReg() || isORCopyInst(MI)) {
+    Dest = &MI.getOperand(0);
+    Src = &MI.getOperand(1);
+    return true;
+  }
+  return false;
+}
+
 void MipsSEInstrInfo::
 storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                 unsigned SrcReg, bool isKill, int FI,

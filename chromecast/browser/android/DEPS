@@ -1,5 +1,5 @@
 include_rules = [
-  "+components/content_view",
+  "+components/embedder_support/android",
   "+content/public/android",
   "+jni",
   "+ui/android",

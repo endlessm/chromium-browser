@@ -18,7 +18,7 @@
 #include "chromeos/dbus/fake_cryptohome_client.h"
 #include "chromeos/dbus/fake_session_manager_client.h"
 #include "chromeos/dbus/login_manager/policy_descriptor.pb.h"
-#include "chromeos/login/auth/authpolicy_login_helper.h"
+#include "chromeos/dbus/util/tpm_util.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/policy_builder.h"
 #include "components/policy/core/common/policy_service.h"
@@ -86,15 +86,13 @@ class ComponentActiveDirectoryPolicyTest
         base::WrapUnique(session_manager_client_));
 
     // TODO(crbug.com/836857): Can probably be removed after the bug is fixed.
-    // Right now, this is necessary since AuthPolicyLoginHelper talks to
-    // CryptohomeClient through tpm_util directly instead of using
-    // InstallAttributes, but other code checks state like
-    // InstallAttributes::IsActiveDirectoryManaged().
+    // Right now, this is necessary since tpm_util talks to CryptohomeClient
+    // directly instead of using InstallAttributes, but other code checks state
+    // like InstallAttributes::IsActiveDirectoryManaged().
     chromeos::DBusThreadManager::GetSetterForTesting()->SetCryptohomeClient(
         std::make_unique<chromeos::FakeCryptohomeClient>());
     ASSERT_TRUE(
-        chromeos::AuthPolicyLoginHelper::LockDeviceActiveDirectoryForTesting(
-            kTestDomain));
+        chromeos::tpm_util::LockDeviceActiveDirectoryForTesting(kTestDomain));
     ExtensionBrowserTest::SetUp();
   }
 

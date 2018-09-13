@@ -102,12 +102,13 @@ public:
   bool NonAlloc = false;
   bool Noload = false;
   bool ExpressionsUseSymbols = false;
+  bool InOverlay = false;
 
   template <class ELFT> void finalize();
   template <class ELFT> void writeTo(uint8_t *Buf);
   template <class ELFT> void maybeCompress();
 
-  void sort(std::function<int(InputSectionBase *S)> Order);
+  void sort(llvm::function_ref<int(InputSectionBase *S)> Order);
   void sortInitFini();
   void sortCtorsDtors();
 

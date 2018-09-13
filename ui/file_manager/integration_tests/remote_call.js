@@ -5,6 +5,19 @@
 'use strict';
 
 /**
+ * When step by step tests are enabled, turns on automatic step() calls. Note
+ * that if step() is defined at the time of this call, invoke it to start the
+ * test auto-stepping ball rolling.
+ */
+function autoStep() {
+  window.autostep = window.autostep || false;
+  if (!autostep)
+    autostep = true;
+  if (autostep && typeof window.step == 'function')
+    window.step();
+}
+
+/**
  * Class to manipulate the window in the remote extension.
  *
  * @param {string} extensionId ID of extension to be manipulated.
@@ -45,11 +58,16 @@ RemoteCall.prototype.callRemoteTestUtil =
     return new Promise(function(onFulfilled) {
       console.info('Executing: ' + func + ' on ' + appId + ' with args: ');
       console.info(args);
-      console.info('Type step() to continue...');
-      window.step = function() {
-        window.step = null;
+      if (window.autostep !== true) {
+        console.info('Type step() to continue...');
+        window.step = function() {
+          window.step = null;
+          onFulfilled(stepByStep);
+        };
+      } else {
+        console.info('Auto calling step() ...');
         onFulfilled(stepByStep);
-      };
+      }
     });
   }).then(function(stepByStep) {
     return new Promise(function(onFulfilled) {
@@ -64,7 +82,7 @@ RemoteCall.prototype.callRemoteTestUtil =
           function(var_args) {
             if (stepByStep) {
               console.info('Returned value:');
-              console.info(JSON.stringify(arguments));
+              console.info(JSON.stringify(var_args));
             }
             if (opt_callback)
               opt_callback.apply(null, arguments);
@@ -158,26 +176,17 @@ RemoteCall.prototype.waitForWindowGeometry = function(windowId, width, height) {
  * Waits for the specified element appearing in the DOM.
  * @param {string} windowId Target window ID.
  * @param {string} query Query string for the element.
- * @param {string=} opt_iframeQuery Query string for the iframe containing the
- *     element.
  * @return {Promise} Promise to be fulfilled when the element appears.
  */
-RemoteCall.prototype.waitForElement = function(
-    windowId, query, opt_iframeQuery) {
+RemoteCall.prototype.waitForElement = function(windowId, query) {
   var caller = getCaller();
   return repeatUntil(function() {
-    return this.callRemoteTestUtil(
-        'queryAllElements',
-        windowId,
-        [query, opt_iframeQuery]
-    ).then(function(elements) {
-      if (elements.length > 0)
-        return elements[0];
-      else
-        return pending(
-            caller, 'Element %s (maybe in iframe %s) is not found.', query,
-            opt_iframeQuery);
-    });
+    return this.callRemoteTestUtil('queryAllElements', windowId, [query])
+        .then(function(elements) {
+          if (elements.length > 0)
+            return elements[0];
+          return pending(caller, 'Element %s is not found.', query);
+        });
   }.bind(this));
 };
 
@@ -185,23 +194,17 @@ RemoteCall.prototype.waitForElement = function(
  * Waits for the specified element leaving from the DOM.
  * @param {string} windowId Target window ID.
  * @param {string} query Query string for the element.
- * @param {string=} opt_iframeQuery Query string for the iframe containing the
- *     element.
  * @return {Promise} Promise to be fulfilled when the element is lost.
  */
-RemoteCall.prototype.waitForElementLost = function(
-    windowId, query, opt_iframeQuery) {
+RemoteCall.prototype.waitForElementLost = function(windowId, query) {
   var caller = getCaller();
   return repeatUntil(function() {
-    return this.callRemoteTestUtil(
-        'queryAllElements',
-        windowId,
-        [query, opt_iframeQuery]
-    ).then(function(elements) {
-      if (elements.length > 0)
-        return pending(caller, 'Elements %j is still exists.', elements);
-      return true;
-    });
+    return this.callRemoteTestUtil('queryAllElements', windowId, [query])
+        .then(function(elements) {
+          if (elements.length > 0)
+            return pending(caller, 'Elements %j is still exists.', elements);
+          return true;
+        });
   }.bind(this));
 };
 
@@ -408,8 +411,13 @@ RemoteCallFilesApp.prototype.waitUntilCurrentDirectoryIsChanged = function(
   return repeatUntil(function () {
     return this.callRemoteTestUtil('getBreadcrumbPath', windowId, []).then(
       function(path) {
-        if(path !== expectedPath)
-          return pending(caller, 'Expected path is %s', expectedPath);
+        // TODO(lucmult): Remove this once MyFiles flag is removed.
+        // https://crbug.com/850348.
+        const myFilesExpectedPath = '/My files' + expectedPath;
+        if(!(path === expectedPath || path === myFilesExpectedPath)) {
+          return pending(
+              caller, 'Expected path is %s got %s', expectedPath, path);
+        }
       });
   }.bind(this));
 };
@@ -449,27 +457,29 @@ RemoteCallGallery.prototype.waitForSlideImage =
 
   return repeatUntil(function() {
     var query = '.gallery[mode="slide"] .image-container > .image';
-    return Promise.all([
-        this.waitForElement(windowId, '.filename-spacer input'),
-        this.waitForElement(windowId, query)
-    ]).then(function(args) {
-      var nameBox = args[0];
-      var image = args[1];
-      var actual = {};
-      if (width && image)
-        actual.width = image.imageWidth;
-      if (height && image)
-        actual.height = image.imageHeight;
-      if (name && nameBox)
-        actual.name = nameBox.value;
+    return Promise
+        .all([
+          this.waitForElement(windowId, '#rename-input'),
+          this.waitForElement(windowId, query)
+        ])
+        .then(function(args) {
+          var nameBox = args[0];
+          var image = args[1];
+          var actual = {};
+          if (width && image)
+            actual.width = image.imageWidth;
+          if (height && image)
+            actual.height = image.imageHeight;
+          if (name && nameBox)
+            actual.name = nameBox.value;
 
-      if (!chrome.test.checkDeepEq(expected, actual)) {
-        return pending(
-            caller, 'Slide mode state, expected is %j, actual is %j.', expected,
-            actual);
-      }
-      return actual;
-    });
+          if (!chrome.test.checkDeepEq(expected, actual)) {
+            return pending(
+                caller, 'Slide mode state, expected is %j, actual is %j.',
+                expected, actual);
+          }
+          return actual;
+        });
   }.bind(this));
 };
 

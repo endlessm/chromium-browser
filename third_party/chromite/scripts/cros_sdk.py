@@ -97,28 +97,6 @@ def GetStage3Urls(version):
           for ext in COMPRESSION_PREFERENCE]
 
 
-def GetToolchainsOverlayUrls(version, toolchains):
-  """Returns the URL(s) for a toolchains SDK overlay.
-
-  Args:
-    version: The SDK version used, e.g. 2015.05.27.145939. We use the year and
-        month components to point to a subdirectory on the SDK bucket where
-        overlays are stored (.../2015/05/ in this case).
-    toolchains: Iterable of toolchain target strings (e.g. 'i686-pc-linux-gnu').
-
-  Returns:
-    List of alternative download URLs for an SDK overlay tarball that contains
-    the given toolchains.
-  """
-  toolchains_desc = '-'.join(sorted(toolchains))
-  suburl_template = os.path.join(
-      *(version.split('.')[:2] +
-        ['cros-sdk-overlay-toolchains-%s-%s.tar.%%s' %
-         (toolchains_desc, version)]))
-  return [toolchain.GetSdkURL(suburl=suburl_template % ext)
-          for ext in COMPRESSION_PREFERENCE]
-
-
 def FetchRemoteTarballs(storage_dir, urls, desc, allow_none=False):
   """Fetches a tarball given by url, and place it in |storage_dir|.
 
@@ -137,13 +115,11 @@ def FetchRemoteTarballs(storage_dir, urls, desc, allow_none=False):
 
   # Note we track content length ourselves since certain versions of curl
   # fail if asked to resume a complete file.
-  # pylint: disable=C0301,W0631
   # https://sourceforge.net/tracker/?func=detail&atid=100976&aid=3482927&group_id=976
   logging.notice('Downloading %s tarball...', desc)
   status_re = re.compile(r'^HTTP/[0-9]+(\.[0-9]+)? 200')
+  # pylint: disable=undefined-loop-variable
   for url in urls:
-    # http://www.logilab.org/ticket/8766
-    # pylint: disable=E1101
     parsed = urlparse.urlparse(url)
     tarball_name = os.path.basename(parsed.path)
     if parsed.scheme in ('', 'file'):
@@ -203,15 +179,12 @@ def FetchRemoteTarballs(storage_dir, urls, desc, allow_none=False):
   return tarball_dest
 
 
-def CreateChroot(chroot_path, sdk_tarball, toolchains_overlay_tarball,
-                 cache_dir, nousepkg=False):
+def CreateChroot(chroot_path, sdk_tarball, cache_dir, nousepkg=False):
   """Creates a new chroot from a given SDK.
 
   Args:
     chroot_path: Path where the new chroot will be created.
     sdk_tarball: Path to a downloaded Gentoo Stage3 or Chromium OS SDK tarball.
-    toolchains_overlay_tarball: Optional path to a second tarball that will be
-        unpacked into the chroot on top of the SDK tarball.
     cache_dir: Path to a directory that will be used for caching portage files,
         etc.
     nousepkg: If True, pass --nousepkg to cros_setup_toolchains inside the
@@ -221,9 +194,6 @@ def CreateChroot(chroot_path, sdk_tarball, toolchains_overlay_tarball,
   cmd = MAKE_CHROOT + ['--stage3_path', sdk_tarball,
                        '--chroot', chroot_path,
                        '--cache_dir', cache_dir]
-
-  if toolchains_overlay_tarball:
-    cmd.extend(['--toolchains_overlay_path', toolchains_overlay_tarball])
 
   if nousepkg:
     cmd.append('--nousepkg')
@@ -244,6 +214,11 @@ def DeleteChroot(chroot_path):
     cros_build_lib.RunCommand(cmd, print_cmd=False)
   except cros_build_lib.RunCommandError:
     raise SystemExit('Running %r failed!' % cmd)
+
+
+def CleanupChroot(chroot_path):
+  """Unmounts a chroot and cleans up any associated devices."""
+  cros_sdk_lib.CleanupChrootMount(chroot_path, delete=False)
 
 
 def EnterChroot(chroot_path, cache_dir, chrome_root, chrome_root_mount,
@@ -767,21 +742,6 @@ def _CreateParser(sdk_latest_version, bootstrap_latest_version):
 
   parser.add_argument('commands', nargs=argparse.REMAINDER)
 
-  # SDK overlay tarball options (mutually exclusive).
-  group = parser.add_mutually_exclusive_group()
-  group.add_argument('--toolchains',
-                     help=('Comma-separated list of toolchains we expect to be '
-                           'using on the chroot. Used for downloading a '
-                           'corresponding SDK toolchains group (if one is '
-                           'found), which may speed up chroot initialization '
-                           'when building for the first time. Otherwise this '
-                           'has no effect and will not restrict the chroot in '
-                           'any way. Ignored if using --bootstrap.'))
-  group.add_argument('--board',
-                     help=('The board we intend to be building in the chroot. '
-                           'Used for deriving the list of required toolchains '
-                           '(see --toolchains).'))
-
   # Commands.
   group = parser.add_argument_group('Commands')
   group.add_argument(
@@ -806,6 +766,15 @@ def _CreateParser(sdk_latest_version, bootstrap_latest_version):
   group.add_argument(
       '--delete', action='store_true', default=False,
       help='Delete the current SDK chroot if it exists.')
+  group.add_argument(
+      '--unmount', action='store_true', default=False,
+      help='Unmount and clean up devices associated with the '
+      'SDK chroot if it exists.  This does not delete the '
+      'backing image file, so the same chroot can be later '
+      're-mounted for reuse.  To fully delete the chroot, use '
+      '--delete.  This is primarily useful for working on '
+      'cros_sdk or the chroot setup; you should not need it '
+      'under normal circumstances.')
   group.add_argument(
       '--download', action='store_true', default=False,
       help='Download the sdk.')
@@ -916,30 +885,17 @@ def main(argv):
     parser.error("Trying to enter or snapshot the chroot when --delete "
                  "was specified makes no sense.")
 
+  if (options.unmount and
+      (options.create or options.enter or any_snapshot_operation)):
+    parser.error('--unmount cannot be specified with other chroot actions.')
+
   if options.working_dir is not None and not os.path.isabs(options.working_dir):
     options.working_dir = path_util.ToChrootPath(options.working_dir)
 
-  # Clean up potential leftovers from previous interrupted builds.
-  # TODO(bmgordon): Remove this at the end of 2017.  That should be long enough
-  # to get rid of them all.
-  chroot_build_path = options.chroot + '.build'
-  if options.use_image and os.path.exists(chroot_build_path):
-    try:
-      with cgroups.SimpleContainChildren('cros_sdk'):
-        with locking.FileLock(lock_path, 'chroot lock') as lock:
-          logging.notice('Cleaning up leftover build directory %s',
-                         chroot_build_path)
-          lock.write_lock()
-          osutils.UmountTree(chroot_build_path)
-          osutils.RmDir(chroot_build_path)
-    except cros_build_lib.RunCommandError as e:
-      logging.warning('Unable to remove %s: %s', chroot_build_path, e)
-
   # Discern if we need to create the chroot.
-  chroot_ver_file = os.path.join(options.chroot, 'etc', 'cros_chroot_version')
-  chroot_exists = os.path.exists(chroot_ver_file)
+  chroot_exists = cros_sdk_lib.IsChrootReady(options.chroot)
   if (options.use_image and not chroot_exists and not options.delete and
-      not missing_image_tools and
+      not options.unmount and not missing_image_tools and
       os.path.exists(_ImageFileForChroot(options.chroot))):
     # Try to re-mount an existing image in case the user has rebooted.
     with cgroups.SimpleContainChildren('cros_sdk'):
@@ -947,21 +903,17 @@ def main(argv):
         logging.debug('Checking if existing chroot image can be mounted.')
         lock.write_lock()
         cros_sdk_lib.MountChroot(options.chroot, create=False)
-        chroot_exists = os.path.exists(chroot_ver_file)
+        chroot_exists = cros_sdk_lib.IsChrootReady(options.chroot)
         if chroot_exists:
           logging.notice('Mounted existing image %s on chroot',
                          _ImageFileForChroot(options.chroot))
-  if (options.create or options.enter or options.snapshot_create or
-      options.snapshot_restore):
-    # Only create if it's being wiped, or if it doesn't exist.
-    if not options.delete and chroot_exists:
-      options.create = False
-    else:
-      options.download = True
 
   # Finally, flip create if necessary.
   if options.enter or options.snapshot_create:
     options.create |= not chroot_exists
+
+  # Make sure we will download if we plan to create.
+  options.download |= options.create
 
   # Anything that needs to manipulate the main chroot mount or communicate with
   # LVM needs to be done here before we enter the new namespaces.
@@ -980,9 +932,18 @@ def main(argv):
           osutils.UmountTree(options.chroot)
         else:
           logging.notice('Deleting chroot.')
-          cros_sdk_lib.CleanupChrootMount(options.chroot, delete_image=True)
-          osutils.RmDir(options.chroot, ignore_missing=True)
+          cros_sdk_lib.CleanupChrootMount(options.chroot, delete=True)
           chroot_deleted = True
+
+  # If cleanup was requested, we have to do it while we're still in the original
+  # namespace.  Since cleaning up the mount will interfere with any other
+  # commands, we exit here.  The check above should have made sure that no other
+  # action was requested, anyway.
+  if options.unmount:
+    with locking.FileLock(lock_path, 'chroot lock') as lock:
+      lock.write_lock()
+      CleanupChroot(options.chroot)
+      sys.exit(0)
 
   # Make sure the main chroot mount is visible.  Contents will be filled in
   # below if needed.
@@ -1103,23 +1064,8 @@ snapshots will be unavailable).''' % ', '.join(missing_image_tools))
     else:
       urls = GetArchStageTarballs(sdk_version)
 
-  # Get URLs for the toolchains overlay, if one is to be used.
-  toolchains_overlay_urls = None
-  if not options.bootstrap:
-    toolchains = None
-    if options.toolchains:
-      toolchains = options.toolchains.split(',')
-    elif options.board:
-      toolchains = toolchain.GetToolchainsForBoard(options.board).keys()
-
-    if toolchains:
-      toolchains_overlay_urls = GetToolchainsOverlayUrls(sdk_version,
-                                                         toolchains)
-
   with cgroups.SimpleContainChildren('cros_sdk', pid=first_pid):
     with locking.FileLock(lock_path, 'chroot lock') as lock:
-      toolchains_overlay_tarball = None
-
       if options.proxy_sim:
         _ProxySimSetup(options)
 
@@ -1162,16 +1108,17 @@ snapshots will be unavailable).''' % ', '.join(missing_image_tools))
         lock.write_lock()
         sdk_tarball = FetchRemoteTarballs(
             sdk_cache, urls, 'stage3' if options.bootstrap else 'SDK')
-        if toolchains_overlay_urls:
-          toolchains_overlay_tarball = FetchRemoteTarballs(
-              sdk_cache, toolchains_overlay_urls, 'SDK toolchains overlay',
-              allow_none=True)
 
       if options.create:
         lock.write_lock()
-        CreateChroot(options.chroot, sdk_tarball, toolchains_overlay_tarball,
-                     options.cache_dir,
-                     nousepkg=(options.bootstrap or options.nousepkg))
+        # Recheck if the chroot is set up here before creating to make sure we
+        # account for whatever the various delete/unmount/remount steps above
+        # have done.
+        if cros_sdk_lib.IsChrootReady(options.chroot):
+          logging.debug('Chroot already exists.  Skipping creation.')
+        else:
+          CreateChroot(options.chroot, sdk_tarball, options.cache_dir,
+                       nousepkg=(options.bootstrap or options.nousepkg))
 
       if options.enter:
         lock.read_lock()

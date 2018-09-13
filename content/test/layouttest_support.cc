@@ -32,16 +32,16 @@
 #include "content/public/common/page_state.h"
 #include "content/public/common/screen_info.h"
 #include "content/public/renderer/renderer_gamepad_provider.h"
-#include "content/renderer/gpu/render_widget_compositor.h"
+#include "content/renderer/gpu/layer_tree_view.h"
 #include "content/renderer/input/render_widget_input_handler_delegate.h"
 #include "content/renderer/layout_test_dependencies.h"
 #include "content/renderer/loader/request_extra_data.h"
+#include "content/renderer/loader/web_worker_fetch_context_impl.h"
 #include "content/renderer/render_frame_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/render_view_impl.h"
 #include "content/renderer/render_widget.h"
 #include "content/renderer/renderer_blink_platform_impl.h"
-#include "content/renderer/service_worker/worker_fetch_context_impl.h"
 #include "content/shell/common/layout_test/layout_test_switches.h"
 #include "content/shell/common/shell_switches.h"
 #include "content/shell/test_runner/test_common.h"
@@ -68,8 +68,8 @@
 #elif defined(OS_WIN)
 #include "content/child/font_warmup_win.h"
 #include "third_party/blink/public/web/win/web_font_rendering.h"
+#include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
-#include "third_party/skia/include/ports/SkFontMgr.h"
 #include "third_party/skia/include/ports/SkTypeface_win.h"
 #include "ui/gfx/win/direct_write.h"
 #endif
@@ -92,24 +92,9 @@ base::LazyInstance<WidgetProxyCreationCallback>::Leaky
 base::LazyInstance<FrameProxyCreationCallback>::Leaky
     g_frame_test_proxy_callback = LAZY_INSTANCE_INITIALIZER;
 
-using WebViewTestProxyType =
-    test_runner::WebViewTestProxy<RenderViewImpl,
-                                  CompositorDependencies*,
-                                  const mojom::CreateViewParams&,
-                                  scoped_refptr<base::SingleThreadTaskRunner>>;
-using WebWidgetTestProxyType = test_runner::WebWidgetTestProxy<
-    RenderWidget,
-    int32_t,
-    CompositorDependencies*,
-    blink::WebPopupType,
-    const ScreenInfo&,
-    bool,
-    bool,
-    bool,
-    scoped_refptr<base::SingleThreadTaskRunner>>;
-using WebFrameTestProxyType =
-    test_runner::WebFrameTestProxy<RenderFrameImpl,
-                                   RenderFrameImpl::CreateParams>;
+using WebViewTestProxyType = test_runner::WebViewTestProxy<RenderViewImpl>;
+using WebWidgetTestProxyType = test_runner::WebWidgetTestProxy<RenderWidget>;
+using WebFrameTestProxyType = test_runner::WebFrameTestProxy<RenderFrameImpl>;
 
 RenderViewImpl* CreateWebViewTestProxy(CompositorDependencies* compositor_deps,
                                        const mojom::CreateViewParams& params) {
@@ -194,9 +179,8 @@ test_runner::WebWidgetTestProxyBase* GetWebWidgetTestProxyBase(
   if (local_root->IsMainFrame()) {
     test_runner::WebViewTestProxyBase* web_view_test_proxy_base =
         GetWebViewTestProxyBase(local_root->GetRenderView());
-    auto* web_widget_test_proxy_base =
-        static_cast<test_runner::WebWidgetTestProxyBase*>(
-            web_view_test_proxy_base);
+    test_runner::WebWidgetTestProxyBase* web_widget_test_proxy_base =
+        web_view_test_proxy_base->web_widget_test_proxy_base();
     DCHECK(web_widget_test_proxy_base->web_widget()->IsWebView());
     return web_widget_test_proxy_base;
   } else {
@@ -219,11 +203,13 @@ RenderWidget* GetRenderWidget(
   blink::WebWidget* widget = web_widget_test_proxy_base->web_widget();
   // TODO(lfg): Simplify once RenderView no longer inherits from RenderWidget.
   if (widget->IsWebView()) {
+    test_runner::WebViewTestProxyBase* render_view_proxy_base =
+        web_widget_test_proxy_base->web_view_test_proxy_base();
     WebViewTestProxyType* render_view_proxy =
-        static_cast<WebViewTestProxyType*>(web_widget_test_proxy_base);
+        static_cast<WebViewTestProxyType*>(render_view_proxy_base);
     RenderViewImpl* render_view_impl =
         static_cast<RenderViewImpl*>(render_view_proxy);
-    return render_view_impl;
+    return render_view_impl->GetWidget();
   } else if (widget->IsWebFrameWidget()) {
     WebWidgetTestProxyType* render_widget_proxy =
         static_cast<WebWidgetTestProxyType*>(web_widget_test_proxy_base);
@@ -253,22 +239,8 @@ void FetchManifest(blink::WebView* view, FetchManifestCallback callback) {
       .RequestManifest(std::move(callback));
 }
 
-void SetMockGamepadProvider(std::unique_ptr<RendererGamepadProvider> provider) {
-  RenderThreadImpl::current_blink_platform_impl()
-      ->SetPlatformEventObserverForTesting(blink::kWebPlatformEventTypeGamepad,
-                                           std::move(provider));
-}
-
-void SetMockDeviceMotionData(const MotionData& data) {
-  RendererBlinkPlatformImpl::SetMockDeviceMotionDataForTesting(data);
-}
-
-void SetMockDeviceOrientationData(const OrientationData& data) {
-  RendererBlinkPlatformImpl::SetMockDeviceOrientationDataForTesting(data);
-}
-
 void SetWorkerRewriteURLFunction(RewriteURLFunction rewrite_url_function) {
-  WorkerFetchContextImpl::InstallRewriteURLFunction(rewrite_url_function);
+  WebWorkerFetchContextImpl::InstallRewriteURLFunction(rewrite_url_function);
 }
 
 namespace {
@@ -294,16 +266,14 @@ class CopyRequestSwapPromise : public cc::SwapPromise {
     DCHECK(layer_tree_frame_sink_from_commit_);
   }
   void DidActivate() override {}
-  void WillSwap(viz::CompositorFrameMetadata*,
-                cc::FrameTokenAllocator*) override {
+  void WillSwap(viz::CompositorFrameMetadata*) override {
     layer_tree_frame_sink_from_commit_->RequestCopyOfOutput(
         std::move(copy_request_));
   }
   void DidSwap() override {}
-  DidNotSwapAction DidNotSwap(DidNotSwapReason r) override {
+  void DidNotSwap(DidNotSwapReason r) override {
     // The compositor should always swap in layout test mode.
     NOTREACHED() << "did not swap for reason " << r;
-    return DidNotSwapAction::BREAK_PROMISE;
   }
   int64_t TraceId() const override { return 0; }
 
@@ -408,7 +378,7 @@ class LayoutTestDependenciesImpl : public LayoutTestDependencies,
                "LayoutTestDependenciesImpl::CreateOutputSurface"),
           automatic_flushes, support_locking, support_grcontext,
           gpu::SharedMemoryLimits(), attributes,
-          ui::command_buffer_metrics::OFFSCREEN_CONTEXT_FOR_TESTING);
+          ui::command_buffer_metrics::ContextType::FOR_TESTING);
       context_result = context_provider->BindToCurrentThread();
 
       // Layout tests can't recover from a fatal failure.
@@ -562,7 +532,7 @@ void DisableAutoResizeMode(RenderView* render_view, const WebSize& new_size) {
 }
 
 void SchedulerRunIdleTasks(base::OnceClosure callback) {
-  blink::scheduler::WebMainThreadScheduler* scheduler =
+  blink::scheduler::WebThreadScheduler* scheduler =
       content::RenderThreadImpl::current()->GetWebMainThreadScheduler();
   blink::scheduler::RunIdleTasksForTesting(scheduler, std::move(callback));
 }

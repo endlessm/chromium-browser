@@ -1,4 +1,4 @@
-//===--------------------- Dispatch.cpp -------------------------*- C++ -*-===//
+//===--------------------- DispatchStage.cpp --------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -8,12 +8,15 @@
 //===----------------------------------------------------------------------===//
 /// \file
 ///
-/// This file implements methods declared by the DispatchStage class.
+/// This file models the dispatch component of an instruction pipeline.
+///
+/// The DispatchStage is responsible for updating instruction dependencies
+/// and communicating to the simulated instruction scheduler that an instruction
+/// is ready to be scheduled for execution.
 ///
 //===----------------------------------------------------------------------===//
 
 #include "DispatchStage.h"
-#include "Backend.h"
 #include "HWEventListener.h"
 #include "Scheduler.h"
 #include "llvm/Support/Debug.h"
@@ -26,30 +29,21 @@ namespace mca {
 
 void DispatchStage::notifyInstructionDispatched(const InstRef &IR,
                                                 ArrayRef<unsigned> UsedRegs) {
-  LLVM_DEBUG(dbgs() << "[E] Instruction Dispatched: " << IR << '\n');
-  Owner->notifyInstructionEvent(HWInstructionDispatchedEvent(IR, UsedRegs));
+  LLVM_DEBUG(dbgs() << "[E] Instruction Dispatched: #" << IR << '\n');
+  notifyEvent<HWInstructionEvent>(HWInstructionDispatchedEvent(IR, UsedRegs));
 }
 
-void DispatchStage::notifyInstructionRetired(const InstRef &IR) {
-  LLVM_DEBUG(dbgs() << "[E] Instruction Retired: " << IR << '\n');
-  SmallVector<unsigned, 4> FreedRegs(RAT->getNumRegisterFiles());
-  const InstrDesc &Desc = IR.getInstruction()->getDesc();
-
-  for (const std::unique_ptr<WriteState> &WS : IR.getInstruction()->getDefs())
-    RAT->removeRegisterWrite(*WS.get(), FreedRegs, !Desc.isZeroLatency());
-  Owner->notifyInstructionEvent(HWInstructionRetiredEvent(IR, FreedRegs));
-}
-
-bool DispatchStage::checkRAT(const InstRef &IR) {
+bool DispatchStage::checkPRF(const InstRef &IR) {
   SmallVector<unsigned, 4> RegDefs;
   for (const std::unique_ptr<WriteState> &RegDef :
        IR.getInstruction()->getDefs())
     RegDefs.emplace_back(RegDef->getRegisterID());
 
-  unsigned RegisterMask = RAT->isAvailable(RegDefs);
+  const unsigned RegisterMask = PRF.isAvailable(RegDefs);
   // A mask with all zeroes means: register files are available.
   if (RegisterMask) {
-    Owner->notifyStallEvent(HWStallEvent(HWStallEvent::RegisterFileStall, IR));
+    notifyEvent<HWStallEvent>(
+        HWStallEvent(HWStallEvent::RegisterFileStall, IR));
     return false;
   }
 
@@ -58,44 +52,39 @@ bool DispatchStage::checkRAT(const InstRef &IR) {
 
 bool DispatchStage::checkRCU(const InstRef &IR) {
   const unsigned NumMicroOps = IR.getInstruction()->getDesc().NumMicroOps;
-  if (RCU->isAvailable(NumMicroOps))
+  if (RCU.isAvailable(NumMicroOps))
     return true;
-  Owner->notifyStallEvent(
+  notifyEvent<HWStallEvent>(
       HWStallEvent(HWStallEvent::RetireControlUnitStall, IR));
   return false;
 }
 
 bool DispatchStage::checkScheduler(const InstRef &IR) {
-  return SC->canBeDispatched(IR);
+  HWStallEvent::GenericEventType Event;
+  const bool Ready = SC.canBeDispatched(IR, Event);
+  if (!Ready)
+    notifyEvent<HWStallEvent>(HWStallEvent(Event, IR));
+  return Ready;
 }
 
 void DispatchStage::updateRAWDependencies(ReadState &RS,
                                           const MCSubtargetInfo &STI) {
-  SmallVector<WriteState *, 4> DependentWrites;
+  SmallVector<WriteRef, 4> DependentWrites;
 
   collectWrites(DependentWrites, RS.getRegisterID());
   RS.setDependentWrites(DependentWrites.size());
-  LLVM_DEBUG(dbgs() << "Found " << DependentWrites.size()
-                    << " dependent writes\n");
   // We know that this read depends on all the writes in DependentWrites.
   // For each write, check if we have ReadAdvance information, and use it
   // to figure out in how many cycles this read becomes available.
   const ReadDescriptor &RD = RS.getDescriptor();
-  if (!RD.HasReadAdvanceEntries) {
-    for (WriteState *WS : DependentWrites)
-      WS->addUser(&RS, /* ReadAdvance */ 0);
-    return;
-  }
-
   const MCSchedModel &SM = STI.getSchedModel();
   const MCSchedClassDesc *SC = SM.getSchedClassDesc(RD.SchedClassID);
-  for (WriteState *WS : DependentWrites) {
-    unsigned WriteResID = WS->getWriteResourceID();
+  for (WriteRef &WR : DependentWrites) {
+    WriteState &WS = *WR.getWriteState();
+    unsigned WriteResID = WS.getWriteResourceID();
     int ReadAdvance = STI.getReadAdvanceCycles(SC, RD.UseIndex, WriteResID);
-    WS->addUser(&RS, ReadAdvance);
+    WS.addUser(&RS, ReadAdvance);
   }
-  // Prepare the set for another round.
-  DependentWrites.clear();
 }
 
 void DispatchStage::dispatch(InstRef IR) {
@@ -125,21 +114,22 @@ void DispatchStage::dispatch(InstRef IR) {
   // By default, a dependency-breaking zero-latency instruction is expected to
   // be optimized at register renaming stage. That means, no physical register
   // is allocated to the instruction.
-  SmallVector<unsigned, 4> RegisterFiles(RAT->getNumRegisterFiles());
+  SmallVector<unsigned, 4> RegisterFiles(PRF.getNumRegisterFiles());
   for (std::unique_ptr<WriteState> &WS : IS.getDefs())
-    RAT->addRegisterWrite(*WS, RegisterFiles, !Desc.isZeroLatency());
+    PRF.addRegisterWrite(WriteRef(IR.first, WS.get()), RegisterFiles,
+                         !Desc.isZeroLatency());
 
   // Reserve slots in the RCU, and notify the instruction that it has been
   // dispatched to the schedulers for execution.
-  IS.dispatch(RCU->reserveSlot(IR, NumMicroOps));
+  IS.dispatch(RCU.reserveSlot(IR, NumMicroOps));
 
   // Notify listeners of the "instruction dispatched" event.
   notifyInstructionDispatched(IR, RegisterFiles);
+}
 
-  // Now move the instruction into the scheduler's queue.
-  // The scheduler is responsible for checking if this is a zero-latency
-  // instruction that doesn't consume pipeline/scheduler resources.
-  SC->scheduleInstruction(IR);
+void DispatchStage::cycleStart() {
+  AvailableEntries = CarryOver >= DispatchWidth ? 0 : DispatchWidth - CarryOver;
+  CarryOver = CarryOver >= DispatchWidth ? CarryOver - DispatchWidth : 0U;
 }
 
 bool DispatchStage::execute(InstRef &IR) {
@@ -152,8 +142,8 @@ bool DispatchStage::execute(InstRef &IR) {
 
 #ifndef NDEBUG
 void DispatchStage::dump() const {
-  RAT->dump();
-  RCU->dump();
+  PRF.dump();
+  RCU.dump();
 }
 #endif
 } // namespace mca

@@ -566,7 +566,8 @@ public:
   /// \param ByteAlignment - The alignment of the zerofill symbol if
   /// non-zero. This must be a power of 2 on some targets.
   virtual void EmitZerofill(MCSection *Section, MCSymbol *Symbol = nullptr,
-                            uint64_t Size = 0, unsigned ByteAlignment = 0) = 0;
+                            uint64_t Size = 0, unsigned ByteAlignment = 0,
+                            SMLoc Loc = SMLoc()) = 0;
 
   /// Emit a thread local bss (.tbss) symbol.
   ///
@@ -901,6 +902,9 @@ public:
                                 SMLoc Loc = SMLoc());
   virtual void EmitWinEHHandlerData(SMLoc Loc = SMLoc());
 
+  virtual void emitCGProfileEntry(const MCSymbolRefExpr *From,
+                                  const MCSymbolRefExpr *To, uint64_t Count);
+
   /// Get the .pdata section used for the given section. Typically the given
   /// section is either the main .text section or some other COMDAT .text
   /// section, but it may be any section containing code.
@@ -915,9 +919,13 @@ public:
   /// Returns true if the relocation could not be emitted because Name is not
   /// known.
   virtual bool EmitRelocDirective(const MCExpr &Offset, StringRef Name,
-                                  const MCExpr *Expr, SMLoc Loc) {
+                                  const MCExpr *Expr, SMLoc Loc,
+                                  const MCSubtargetInfo &STI) {
     return true;
   }
+
+  virtual void EmitAddrsig() {}
+  virtual void EmitAddrsigSym(const MCSymbol *Sym) {}
 
   /// Emit the given \p Instruction into the current section.
   /// PrintSchedInfo == true then schedul comment should be added to output

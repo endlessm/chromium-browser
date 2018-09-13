@@ -308,13 +308,6 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
           setCmpLibcallCC(LC.Op, LC.Cond);
       }
     }
-
-    // Set the correct calling convention for ARMv7k WatchOS. It's just
-    // AAPCS_VFP for functions as simple as libcalls.
-    if (Subtarget->isTargetWatchABI()) {
-      for (int i = 0; i < RTLIB::UNKNOWN_LIBCALL; ++i)
-        setLibcallCallingConv((RTLIB::Libcall)i, CallingConv::ARM_AAPCS_VFP);
-    }
   }
 
   // These libcalls are not available in 32-bit.
@@ -842,11 +835,6 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::SRL_PARTS, MVT::i32, Expand);
   }
 
-  setOperationAction(ISD::ADDC,      MVT::i32, Custom);
-  setOperationAction(ISD::ADDE,      MVT::i32, Custom);
-  setOperationAction(ISD::SUBC,      MVT::i32, Custom);
-  setOperationAction(ISD::SUBE,      MVT::i32, Custom);
-
   if (!Subtarget->isThumb1Only() && Subtarget->hasV6T2Ops())
     setOperationAction(ISD::BITREVERSE, MVT::i32, Legal);
 
@@ -1064,9 +1052,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::SELECT_CC, MVT::f16, Custom);
   }
 
-  // Thumb-1 cannot currently select ARMISD::SUBE.
-  if (!Subtarget->isThumb1Only())
-    setOperationAction(ISD::SETCCCARRY, MVT::i32, Custom);
+  setOperationAction(ISD::SETCCCARRY, MVT::i32, Custom);
 
   setOperationAction(ISD::BRCOND,    MVT::Other, Custom);
   setOperationAction(ISD::BR_CC,     MVT::i32,   Custom);
@@ -3864,8 +3850,8 @@ SDValue ARMTargetLowering::getARMCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                                      const SDLoc &dl) const {
   if (ConstantSDNode *RHSC = dyn_cast<ConstantSDNode>(RHS.getNode())) {
     unsigned C = RHSC->getZExtValue();
-    if (!isLegalICmpImmediate(C)) {
-      // Constant does not fit, try adjusting it by one?
+    if (!isLegalICmpImmediate((int32_t)C)) {
+      // Constant does not fit, try adjusting it by one.
       switch (CC) {
       default: break;
       case ISD::SETLT:
@@ -4688,9 +4674,11 @@ SDValue ARMTargetLowering::LowerBRCOND(SDValue Op, SelectionDAG &DAG) const {
   // Optimize {s|u}{add|sub|mul}.with.overflow feeding into a branch
   // instruction.
   unsigned Opc = Cond.getOpcode();
+  bool OptimizeMul = (Opc == ISD::SMULO || Opc == ISD::UMULO) &&
+                      !Subtarget->isThumb1Only();
   if (Cond.getResNo() == 1 &&
       (Opc == ISD::SADDO || Opc == ISD::UADDO || Opc == ISD::SSUBO ||
-       Opc == ISD::USUBO || Opc == ISD::SMULO || Opc == ISD::UMULO)) {
+       Opc == ISD::USUBO || OptimizeMul)) {
     // Only lower legal XALUO ops.
     if (!DAG.getTargetLoweringInfo().isTypeLegal(Cond->getValueType(0)))
       return SDValue();
@@ -4737,9 +4725,11 @@ SDValue ARMTargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
   // Optimize {s|u}{add|sub|mul}.with.overflow feeding into a branch
   // instruction.
   unsigned Opc = LHS.getOpcode();
+  bool OptimizeMul = (Opc == ISD::SMULO || Opc == ISD::UMULO) &&
+                      !Subtarget->isThumb1Only();
   if (LHS.getResNo() == 1 && (isOneConstant(RHS) || isNullConstant(RHS)) &&
       (Opc == ISD::SADDO || Opc == ISD::UADDO || Opc == ISD::SSUBO ||
-       Opc == ISD::USUBO || Opc == ISD::SMULO || Opc == ISD::UMULO) &&
+       Opc == ISD::USUBO || OptimizeMul) &&
       (CC == ISD::SETEQ || CC == ISD::SETNE)) {
     // Only lower legal XALUO ops.
     if (!DAG.getTargetLoweringInfo().isTypeLegal(LHS->getValueType(0)))
@@ -7732,27 +7722,6 @@ static SDValue LowerUDIV(SDValue Op, SelectionDAG &DAG) {
   return N0;
 }
 
-static SDValue LowerADDC_ADDE_SUBC_SUBE(SDValue Op, SelectionDAG &DAG) {
-  EVT VT = Op.getNode()->getValueType(0);
-  SDVTList VTs = DAG.getVTList(VT, MVT::i32);
-
-  unsigned Opc;
-  bool ExtraOp = false;
-  switch (Op.getOpcode()) {
-  default: llvm_unreachable("Invalid code");
-  case ISD::ADDC: Opc = ARMISD::ADDC; break;
-  case ISD::ADDE: Opc = ARMISD::ADDE; ExtraOp = true; break;
-  case ISD::SUBC: Opc = ARMISD::SUBC; break;
-  case ISD::SUBE: Opc = ARMISD::SUBE; ExtraOp = true; break;
-  }
-
-  if (!ExtraOp)
-    return DAG.getNode(Opc, SDLoc(Op), VTs, Op.getOperand(0),
-                       Op.getOperand(1));
-  return DAG.getNode(Opc, SDLoc(Op), VTs, Op.getOperand(0),
-                     Op.getOperand(1), Op.getOperand(2));
-}
-
 static SDValue LowerADDSUBCARRY(SDValue Op, SelectionDAG &DAG) {
   SDNode *N = Op.getNode();
   EVT VT = N->getValueType(0);
@@ -8148,10 +8117,6 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
     if (Subtarget->isTargetWindows() && !Op.getValueType().isVector())
       return LowerDIV_Windows(Op, DAG, /* Signed */ false);
     return LowerUDIV(Op, DAG);
-  case ISD::ADDC:
-  case ISD::ADDE:
-  case ISD::SUBC:
-  case ISD::SUBE:          return LowerADDC_ADDE_SUBC_SUBE(Op, DAG);
   case ISD::ADDCARRY:
   case ISD::SUBCARRY:      return LowerADDSUBCARRY(Op, DAG);
   case ISD::SADDO:
@@ -11516,6 +11481,12 @@ static SDValue CombineBaseUpdate(SDNode *N,
         NumVecs = 3; break;
       case Intrinsic::arm_neon_vld4:     NewOpc = ARMISD::VLD4_UPD;
         NumVecs = 4; break;
+      case Intrinsic::arm_neon_vld2dup:
+      case Intrinsic::arm_neon_vld3dup:
+      case Intrinsic::arm_neon_vld4dup:
+        // TODO: Support updating VLDxDUP nodes. For now, we just skip
+        // combining base updates for such intrinsics.
+        continue;
       case Intrinsic::arm_neon_vld2lane: NewOpc = ARMISD::VLD2LN_UPD;
         NumVecs = 2; isLaneOp = true; break;
       case Intrinsic::arm_neon_vld3lane: NewOpc = ARMISD::VLD3LN_UPD;
@@ -12795,13 +12766,22 @@ SDValue ARMTargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::INTRINSIC_W_CHAIN:
     switch (cast<ConstantSDNode>(N->getOperand(1))->getZExtValue()) {
     case Intrinsic::arm_neon_vld1:
+    case Intrinsic::arm_neon_vld1x2:
+    case Intrinsic::arm_neon_vld1x3:
+    case Intrinsic::arm_neon_vld1x4:
     case Intrinsic::arm_neon_vld2:
     case Intrinsic::arm_neon_vld3:
     case Intrinsic::arm_neon_vld4:
     case Intrinsic::arm_neon_vld2lane:
     case Intrinsic::arm_neon_vld3lane:
     case Intrinsic::arm_neon_vld4lane:
+    case Intrinsic::arm_neon_vld2dup:
+    case Intrinsic::arm_neon_vld3dup:
+    case Intrinsic::arm_neon_vld4dup:
     case Intrinsic::arm_neon_vst1:
+    case Intrinsic::arm_neon_vst1x2:
+    case Intrinsic::arm_neon_vst1x3:
+    case Intrinsic::arm_neon_vst1x4:
     case Intrinsic::arm_neon_vst2:
     case Intrinsic::arm_neon_vst3:
     case Intrinsic::arm_neon_vst4:
@@ -12825,6 +12805,10 @@ bool ARMTargetLowering::allowsMisalignedMemoryAccesses(EVT VT,
                                                        unsigned,
                                                        unsigned,
                                                        bool *Fast) const {
+  // Depends what it gets converted into if the type is weird.
+  if (!VT.isSimple())
+    return false;
+
   // The AllowsUnaliged flag models the SCTLR.A setting in ARM cpus
   bool AllowsUnaligned = Subtarget->allowsUnalignedMem();
 
@@ -13217,9 +13201,11 @@ bool ARMTargetLowering::isLegalAddressingMode(const DataLayout &DL,
 bool ARMTargetLowering::isLegalICmpImmediate(int64_t Imm) const {
   // Thumb2 and ARM modes can use cmn for negative immediates.
   if (!Subtarget->isThumb())
-    return ARM_AM::getSOImmVal(std::abs(Imm)) != -1;
+    return ARM_AM::getSOImmVal((uint32_t)Imm) != -1 ||
+           ARM_AM::getSOImmVal(-(uint32_t)Imm) != -1;
   if (Subtarget->isThumb2())
-    return ARM_AM::getT2SOImmVal(std::abs(Imm)) != -1;
+    return ARM_AM::getT2SOImmVal((uint32_t)Imm) != -1 ||
+           ARM_AM::getT2SOImmVal(-(uint32_t)Imm) != -1;
   // Thumb1 doesn't have cmn, and only 8-bit immediates.
   return Imm >= 0 && Imm <= 255;
 }
@@ -14088,7 +14074,10 @@ bool ARMTargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
   case Intrinsic::arm_neon_vld4:
   case Intrinsic::arm_neon_vld2lane:
   case Intrinsic::arm_neon_vld3lane:
-  case Intrinsic::arm_neon_vld4lane: {
+  case Intrinsic::arm_neon_vld4lane:
+  case Intrinsic::arm_neon_vld2dup:
+  case Intrinsic::arm_neon_vld3dup:
+  case Intrinsic::arm_neon_vld4dup: {
     Info.opc = ISD::INTRINSIC_W_CHAIN;
     // Conservatively set memVT to the entire set of vectors loaded.
     auto &DL = I.getCalledFunction()->getParent()->getDataLayout();
@@ -14098,6 +14087,21 @@ bool ARMTargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
     Info.offset = 0;
     Value *AlignArg = I.getArgOperand(I.getNumArgOperands() - 1);
     Info.align = cast<ConstantInt>(AlignArg)->getZExtValue();
+    // volatile loads with NEON intrinsics not supported
+    Info.flags = MachineMemOperand::MOLoad;
+    return true;
+  }
+  case Intrinsic::arm_neon_vld1x2:
+  case Intrinsic::arm_neon_vld1x3:
+  case Intrinsic::arm_neon_vld1x4: {
+    Info.opc = ISD::INTRINSIC_W_CHAIN;
+    // Conservatively set memVT to the entire set of vectors loaded.
+    auto &DL = I.getCalledFunction()->getParent()->getDataLayout();
+    uint64_t NumElts = DL.getTypeSizeInBits(I.getType()) / 64;
+    Info.memVT = EVT::getVectorVT(I.getType()->getContext(), MVT::i64, NumElts);
+    Info.ptrVal = I.getArgOperand(I.getNumArgOperands() - 1);
+    Info.offset = 0;
+    Info.align = 0;
     // volatile loads with NEON intrinsics not supported
     Info.flags = MachineMemOperand::MOLoad;
     return true;
@@ -14124,6 +14128,27 @@ bool ARMTargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
     Info.offset = 0;
     Value *AlignArg = I.getArgOperand(I.getNumArgOperands() - 1);
     Info.align = cast<ConstantInt>(AlignArg)->getZExtValue();
+    // volatile stores with NEON intrinsics not supported
+    Info.flags = MachineMemOperand::MOStore;
+    return true;
+  }
+  case Intrinsic::arm_neon_vst1x2:
+  case Intrinsic::arm_neon_vst1x3:
+  case Intrinsic::arm_neon_vst1x4: {
+    Info.opc = ISD::INTRINSIC_VOID;
+    // Conservatively set memVT to the entire set of vectors stored.
+    auto &DL = I.getCalledFunction()->getParent()->getDataLayout();
+    unsigned NumElts = 0;
+    for (unsigned ArgI = 1, ArgE = I.getNumArgOperands(); ArgI < ArgE; ++ArgI) {
+      Type *ArgTy = I.getArgOperand(ArgI)->getType();
+      if (!ArgTy->isVectorTy())
+        break;
+      NumElts += DL.getTypeSizeInBits(ArgTy) / 64;
+    }
+    Info.memVT = EVT::getVectorVT(I.getType()->getContext(), MVT::i64, NumElts);
+    Info.ptrVal = I.getArgOperand(0);
+    Info.offset = 0;
+    Info.align = 0;
     // volatile stores with NEON intrinsics not supported
     Info.flags = MachineMemOperand::MOStore;
     return true;

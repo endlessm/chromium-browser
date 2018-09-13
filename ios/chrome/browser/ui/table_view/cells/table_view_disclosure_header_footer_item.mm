@@ -37,18 +37,37 @@ constexpr float kRotationNinetyCCW = -(90 / 180.0) * M_PI;
 - (void)configureHeaderFooterView:(UITableViewHeaderFooterView*)headerFooter
                        withStyler:(ChromeTableViewStyler*)styler {
   [super configureHeaderFooterView:headerFooter withStyler:styler];
-
-  // Set the contentView backgroundColor, not the header's.
-  headerFooter.contentView.backgroundColor = styler.tableViewBackgroundColor;
-
   TableViewDisclosureHeaderFooterView* header =
       base::mac::ObjCCastStrict<TableViewDisclosureHeaderFooterView>(
           headerFooter);
   header.titleLabel.text = self.text;
   header.subtitleLabel.text = self.subtitleText;
+  header.isAccessibilityElement = YES;
+  header.accessibilityTraits |= UIAccessibilityTraitButton;
   DisclosureDirection direction =
       self.collapsed ? DisclosureDirectionUp : DisclosureDirectionDown;
   [header setInitialDirection:direction];
+  // Use colors from styler if available.
+  if (styler.tableViewBackgroundColor)
+    header.contentView.backgroundColor = styler.tableViewBackgroundColor;
+  if (styler.headerFooterTitleColor)
+    header.titleLabel.textColor = styler.headerFooterTitleColor;
+}
+
+- (CGFloat)headerHeightForWidth:(CGFloat)width {
+  static TableViewDisclosureHeaderFooterView* header;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    header = [[TableViewDisclosureHeaderFooterView alloc] init];
+  });
+
+  [self configureHeaderFooterView:header
+                       withStyler:[[ChromeTableViewStyler alloc] init]];
+  header.frame = CGRectMake(0, 0, width, 0);
+  [header setNeedsLayout];
+  [header layoutIfNeeded];
+  return
+      [header systemLayoutSizeFittingSize:UILayoutFittingCompressedSize].height;
 }
 
 @end
@@ -78,13 +97,19 @@ constexpr float kRotationNinetyCCW = -(90 / 180.0) * M_PI;
         preferredFontDescriptorWithTextStyle:UIFontTextStyleSubheadline];
     UIFontDescriptor* styleDescriptor = [baseDescriptor
         fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitBold];
-
     _titleLabel.font =
         [UIFont fontWithDescriptor:styleDescriptor size:kUseDefaultFontSize];
+    [_titleLabel
+        setContentCompressionResistancePriority:UILayoutPriorityRequired
+                                        forAxis:UILayoutConstraintAxisVertical];
+
     _subtitleLabel = [[UILabel alloc] init];
     _subtitleLabel.font =
         [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
     _subtitleLabel.textColor = [UIColor lightGrayColor];
+    [_subtitleLabel
+        setContentCompressionResistancePriority:UILayoutPriorityRequired
+                                        forAxis:UILayoutConstraintAxisVertical];
 
     // Vertical StackView.
     UIStackView* verticalStack = [[UIStackView alloc]
@@ -109,20 +134,31 @@ constexpr float kRotationNinetyCCW = -(90 / 180.0) * M_PI;
     // Add subviews to View Hierarchy.
     [self.contentView addSubview:horizontalStack];
 
+    // Lower the padding constraints priority. UITableView might try to set
+    // the header view height/width to 0 breaking the constraints. See
+    // https://crbug.com/854117 for more information.
+    NSLayoutConstraint* topAnchorConstraint = [horizontalStack.topAnchor
+        constraintGreaterThanOrEqualToAnchor:self.contentView.topAnchor
+                                    constant:kTableViewVerticalSpacing];
+    topAnchorConstraint.priority = UILayoutPriorityDefaultHigh;
+    NSLayoutConstraint* bottomAnchorConstraint = [horizontalStack.bottomAnchor
+        constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor
+                                 constant:-kTableViewVerticalSpacing];
+    bottomAnchorConstraint.priority = UILayoutPriorityDefaultHigh;
+    NSLayoutConstraint* leadingAnchorConstraint = [horizontalStack.leadingAnchor
+        constraintEqualToAnchor:self.contentView.leadingAnchor
+                       constant:kTableViewHorizontalSpacing];
+    leadingAnchorConstraint.priority = UILayoutPriorityDefaultHigh;
+    NSLayoutConstraint* trailingAnchorConstraint =
+        [horizontalStack.trailingAnchor
+            constraintEqualToAnchor:self.contentView.trailingAnchor
+                           constant:-kTableViewHorizontalSpacing];
+    trailingAnchorConstraint.priority = UILayoutPriorityDefaultHigh;
+
     // Set and activate constraints.
     [NSLayoutConstraint activateConstraints:@[
-      [horizontalStack.leadingAnchor
-          constraintEqualToAnchor:self.contentView.leadingAnchor
-                         constant:kTableViewHorizontalSpacing],
-      [horizontalStack.trailingAnchor
-          constraintEqualToAnchor:self.contentView.trailingAnchor
-                         constant:-kTableViewHorizontalSpacing],
-      [horizontalStack.topAnchor
-          constraintGreaterThanOrEqualToAnchor:self.contentView.topAnchor
-                                      constant:kTableViewVerticalSpacing],
-      [horizontalStack.bottomAnchor
-          constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor
-                                   constant:-kTableViewVerticalSpacing],
+      topAnchorConstraint, bottomAnchorConstraint, leadingAnchorConstraint,
+      trailingAnchorConstraint,
       [horizontalStack.centerYAnchor
           constraintEqualToAnchor:self.contentView.centerYAnchor]
     ]];
@@ -205,6 +241,13 @@ constexpr float kRotationNinetyCCW = -(90 / 180.0) * M_PI;
           CGAffineTransformRotate(CGAffineTransformIdentity, angle);
     }
   }
+}
+
+#pragma mark - Accessibility
+
+- (NSString*)accessibilityLabel {
+  return [NSString stringWithFormat:@"%@, %@", self.titleLabel.text,
+                                    self.subtitleLabel.text];
 }
 
 @end

@@ -17,6 +17,7 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
+#include "services/network/public/mojom/proxy_resolving_socket.mojom.h"
 #include "services/network/public/mojom/restricted_cookie_manager.mojom.h"
 #include "services/network/public/mojom/tcp_socket.mojom.h"
 #include "services/network/public/mojom/udp_socket.mojom.h"
@@ -35,12 +36,11 @@ class TestNetworkContext : public mojom::NetworkContext {
 
   void CreateURLLoaderFactory(
       mojom::URLLoaderFactoryRequest request,
-      network::mojom::URLLoaderFactoryParamsPtr params) override {}
+      mojom::URLLoaderFactoryParamsPtr params) override {}
   void GetCookieManager(mojom::CookieManagerRequest cookie_manager) override {}
   void GetRestrictedCookieManager(
       mojom::RestrictedCookieManagerRequest restricted_cookie_manager,
-      int32_t render_process_id,
-      int32_t render_frame_id) override {}
+      const url::Origin& origin) override {}
   void ClearNetworkingHistorySince(
       base::Time start_time,
       ClearNetworkingHistorySinceCallback callback) override {}
@@ -48,10 +48,15 @@ class TestNetworkContext : public mojom::NetworkContext {
                       base::Time end_time,
                       mojom::ClearDataFilterPtr filter,
                       ClearHttpCacheCallback callback) override {}
+  void ComputeHttpCacheSize(base::Time start_time,
+                            base::Time end_time,
+                            ComputeHttpCacheSizeCallback callback) override {}
   void ClearChannelIds(base::Time start_time,
                        base::Time end_time,
                        mojom::ClearDataFilterPtr filter,
                        ClearChannelIdsCallback callback) override {}
+  void ClearHostCache(mojom::ClearDataFilterPtr filter,
+                      ClearHostCacheCallback callback) override {}
   void ClearHttpAuthCache(base::Time start_time,
                           ClearHttpAuthCacheCallback callback) override {}
   void ClearReportingCacheReports(
@@ -63,9 +68,10 @@ class TestNetworkContext : public mojom::NetworkContext {
   void ClearNetworkErrorLogging(
       mojom::ClearDataFilterPtr filter,
       ClearNetworkErrorLoggingCallback callback) override {}
-  void SetNetworkConditions(const std::string& profile_id,
+  void SetNetworkConditions(const base::UnguessableToken& throttling_profile_id,
                             mojom::NetworkConditionsPtr conditions) override {}
   void SetAcceptLanguage(const std::string& new_accept_language) override {}
+  void SetEnableReferrers(bool enable_referrers) override {}
   void SetCTPolicy(
       const std::vector<std::string>& required_hosts,
       const std::vector<std::string>& excluded_hosts,
@@ -86,19 +92,25 @@ class TestNetworkContext : public mojom::NetworkContext {
       mojom::TCPConnectedSocketRequest socket,
       mojom::SocketObserverPtr observer,
       CreateTCPConnectedSocketCallback callback) override {}
+  void CreateProxyResolvingSocketFactory(
+      mojom::ProxyResolvingSocketFactoryRequest request) override {}
   void CreateWebSocket(mojom::WebSocketRequest request,
                        int32_t process_id,
                        int32_t render_frame_id,
-                       const url::Origin& origin) override {}
+                       const url::Origin& origin,
+                       mojom::AuthenticationHandlerPtr auth_handler) override {}
   void CreateNetLogExporter(mojom::NetLogExporterRequest exporter) override {}
-  void BlockThirdPartyCookies(bool block) override {}
   void AddHSTSForTesting(const std::string& host,
                          base::Time expiry,
                          bool include_subdomains,
                          AddHSTSForTestingCallback callback) override {}
   void SetFailingHttpTransactionForTesting(
       int32_t rv,
-      SetFailingHttpTransactionForTestingCallback callback) override{};
+      SetFailingHttpTransactionForTestingCallback callback) override {}
+  void PreconnectSockets(uint32_t num_streams,
+                         const GURL& url,
+                         int32_t load_flags,
+                         bool privacy_mode_enabled) override {}
 };
 
 }  // namespace network

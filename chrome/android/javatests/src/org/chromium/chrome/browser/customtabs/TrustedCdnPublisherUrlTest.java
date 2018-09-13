@@ -27,7 +27,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.CommandLine;
@@ -38,6 +37,7 @@ import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.test.util.AnnotationRule;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
@@ -85,8 +85,6 @@ public class TrustedCdnPublisherUrlTest {
 
     @Rule
     public final ScreenShooter mScreenShooter = new ScreenShooter();
-    @Rule
-    public TestRule mProcessor = new Features.InstrumentationProcessor();
 
     /**
      * Annotation to override the trusted CDN.
@@ -131,10 +129,11 @@ public class TrustedCdnPublisherUrlTest {
     }
 
     @Test
-    @SmallTest
-    @Feature({"UiCatalogue"})
+    //@SmallTest
+    //@Feature({"UiCatalogue"})
     @Features.EnableFeatures(ChromeFeatureList.SHOW_TRUSTED_PUBLISHER_URL)
     @OverrideTrustedCdn
+    @DisabledTest // Disabled for flakiness! See http://crbug.com/851950
     public void testHttps() throws Exception {
         runTrustedCdnPublisherUrlTest("https://www.example.com/test", "com.example.test",
                 "example.com", org.chromium.chrome.R.drawable.omnibox_https_valid);
@@ -146,6 +145,7 @@ public class TrustedCdnPublisherUrlTest {
     @Feature({"UiCatalogue"})
     @Features.EnableFeatures(ChromeFeatureList.SHOW_TRUSTED_PUBLISHER_URL)
     @OverrideTrustedCdn
+    @DisabledTest // Disabled for flakiness! See http://crbug.com/847341
     public void testHttp() throws Exception {
         runTrustedCdnPublisherUrlTest("http://example.com/test", "com.example.test", "example.com",
                 org.chromium.chrome.R.drawable.omnibox_info);
@@ -157,6 +157,7 @@ public class TrustedCdnPublisherUrlTest {
     @Feature({"UiCatalogue"})
     @Features.EnableFeatures(ChromeFeatureList.SHOW_TRUSTED_PUBLISHER_URL)
     @OverrideTrustedCdn
+    @DisabledTest // Disabled for flakiness! See http://crbug.com/847341
     public void testRtl() throws Exception {
         String publisher = "\u200e\u202b\u0645\u0648\u0642\u0639\u002e\u0648\u0632\u0627\u0631"
                 + "\u0629\u002d\u0627\u0644\u0623\u062a\u0635\u0627\u0644\u0627\u062a\u002e\u0645"
@@ -231,6 +232,7 @@ public class TrustedCdnPublisherUrlTest {
     @Feature({"UiCatalogue"})
     @Features.EnableFeatures(ChromeFeatureList.SHOW_TRUSTED_PUBLISHER_URL)
     @OverrideTrustedCdn
+    @DisabledTest // Disabled for flakiness! See http://crbug.com/847341
     public void testPageInfo() throws Exception {
         runTrustedCdnPublisherUrlTest("https://example.com/test", "com.example.test", "example.com",
                 R.drawable.omnibox_https_valid);
@@ -247,6 +249,7 @@ public class TrustedCdnPublisherUrlTest {
     @Feature({"UiCatalogue"})
     @Features.EnableFeatures(ChromeFeatureList.SHOW_TRUSTED_PUBLISHER_URL)
     @OverrideTrustedCdn
+    @DisabledTest // Disabled for flakiness! See http://crbug.com/847341
     public void testNavigateAway() throws Exception {
         runTrustedCdnPublisherUrlTest("https://example.com/test", "com.example.test", "example.com",
                 R.drawable.omnibox_https_valid);
@@ -254,7 +257,7 @@ public class TrustedCdnPublisherUrlTest {
         String otherTestUrl = mWebServer.setResponse("/other.html", PAGE_WITH_TITLE, null);
         mCustomTabActivityTestRule.loadUrl(otherTestUrl);
 
-        verifyUrl(UrlFormatter.formatUrlForSecurityDisplay(otherTestUrl, false));
+        verifyUrl(UrlFormatter.formatUrlForSecurityDisplayOmitScheme(otherTestUrl));
         // TODO(bauerb): The security icon is updated via an animation. Find a way to reliably
         // disable animations and verify the icon.
     }
@@ -264,6 +267,7 @@ public class TrustedCdnPublisherUrlTest {
     @Feature({"UiCatalogue"})
     @Features.EnableFeatures(ChromeFeatureList.SHOW_TRUSTED_PUBLISHER_URL)
     @OverrideTrustedCdn
+    @DisabledTest // Disabled for flakiness! See http://crbug.com/847341
     public void testReparent() throws Exception {
         String publisherUrl = "https://example.com/test";
         runTrustedCdnPublisherUrlTest(
@@ -309,6 +313,7 @@ public class TrustedCdnPublisherUrlTest {
     @SmallTest
     @Features.EnableFeatures(ChromeFeatureList.SHOW_TRUSTED_PUBLISHER_URL)
     @OverrideTrustedCdn
+    @DisabledTest // Disabled for flakiness! See http://crbug.com/847341
     public void testOfflinePage() throws TimeoutException, InterruptedException {
         String publisherUrl = "https://example.com/test";
         runTrustedCdnPublisherUrlTest(
@@ -359,7 +364,7 @@ public class TrustedCdnPublisherUrlTest {
         // succeed, but not show a publisher URL.
         String testUrl = mWebServer.getResponseUrl("/test.html");
         mCustomTabActivityTestRule.loadUrl(testUrl);
-        verifyUrl(UrlFormatter.formatUrlForSecurityDisplay(testUrl, false));
+        verifyUrl(UrlFormatter.formatUrlForSecurityDisplayOmitScheme(testUrl));
         verifySecurityIcon(R.drawable.offline_pin_round);
     }
 
@@ -387,7 +392,7 @@ public class TrustedCdnPublisherUrlTest {
 
         final String expectedUrl;
         if (expectedPublisher == null) {
-            expectedUrl = UrlFormatter.formatUrlForSecurityDisplay(testUrl, false);
+            expectedUrl = UrlFormatter.formatUrlForSecurityDisplayOmitScheme(testUrl);
         } else {
             expectedUrl =
                     String.format(Locale.US, "From %s – delivered by Google", expectedPublisher);

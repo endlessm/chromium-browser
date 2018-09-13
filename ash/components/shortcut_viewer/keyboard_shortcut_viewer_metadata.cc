@@ -16,6 +16,7 @@
 #include "ui/events/devices/input_device_manager.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/dom/dom_code.h"
+#include "ui/events/keycodes/dom/dom_codes.h"
 #include "ui/events/keycodes/dom/dom_key.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/events/keycodes/keyboard_code_conversion.h"
@@ -26,20 +27,6 @@
 namespace keyboard_shortcut_viewer {
 
 namespace {
-
-// Get all DomCodes to construct the reverse mapping from DomCode to VKEY
-// and DomKey. We want to map a VKEY value to a text label, i.e. VKEY -> DomKey.
-// But VKEY and DomKey are both outputs of layout, so we only have
-// DomCode -> (VKEY, DomKey) by KeyboardLayoutEngine::Lookup(). We need to
-// iterate over the full list of DomCodes in order to look up a corresponding
-// DomKey for a KeyboardCode we want to get the string representation for.
-// keycode_converter.cc does not expose this list, so we need to generate it
-// here.
-#define USB_KEYMAP(usb, evdev, xkb, win, mac, code, id) usb
-#define USB_KEYMAP_DECLARATION constexpr uint32_t kDomCodes[] =
-#include "ui/events/keycodes/dom/keycode_converter_data.inc"
-#undef USB_KEYMAP
-#undef USB_KEYMAP_DECLARATION
 
 // Gets the keyboard codes for modifiers.
 ui::KeyboardCode GetKeyCodeForModifier(ui::EventFlags modifier) {
@@ -145,8 +132,7 @@ base::string16 GetStringForKeyboardCode(ui::KeyboardCode key_code) {
 
   ui::DomKey dom_key;
   ui::KeyboardCode key_code_to_compare = ui::VKEY_UNKNOWN;
-  for (const auto& code : kDomCodes) {
-    const ui::DomCode dom_code = static_cast<ui::DomCode>(code);
+  for (const auto& dom_code : ui::dom_codes) {
     if (!ui::KeyboardLayoutEngineManager::GetKeyboardLayoutEngine()->Lookup(
             dom_code, /*flags=*/ui::EF_NONE, &dom_key, &key_code_to_compare)) {
       continue;
@@ -220,13 +206,17 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
-       IDS_KSV_DESCRIPTION_CHANGE_SCREEN_RESOLUTION,
-       IDS_KSV_SHORTCUT_CHANGE_SCREEN_RESOLUTION,
+       IDS_KSV_DESCRIPTION_DISPLAY_ZOOM_OUT,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
        // |accelerator_ids|
-       {},
-       // |shortcut_key_codes|
-       {ui::VKEY_CONTROL, ui::VKEY_UNKNOWN, ui::VKEY_SHIFT, ui::VKEY_UNKNOWN,
-        ui::VKEY_OEM_PLUS, ui::VKEY_OEM_MINUS}},
+       {{ui::VKEY_OEM_MINUS, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kSystemAndDisplay},
+       IDS_KSV_DESCRIPTION_DISPLAY_ZOOM_IN,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_OEM_PLUS, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
@@ -462,6 +452,20 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
        IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
        // |accelerator_ids|
        {{ui::VKEY_T, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kPageAndBrowser},
+       IDS_KSV_DESCRIPTION_IDC_BACK,
+       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_LEFT, ui::EF_ALT_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kPageAndBrowser},
+       IDS_KSV_DESCRIPTION_IDC_FORWARD,
+       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_RIGHT, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
@@ -1077,14 +1081,14 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
        {{ui::VKEY_BRIGHTNESS_UP, ui::EF_NONE}}},
 
       {// |categories|
-       {ShortcutCategory::kSystemAndDisplay},
+       {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_MAGNIFY_SCREEN_ZOOM_OUT,
        IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
        // |accelerator_ids|
        {{ui::VKEY_BRIGHTNESS_DOWN, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
-       {ShortcutCategory::kSystemAndDisplay},
+       {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_MAGNIFY_SCREEN_ZOOM_IN,
        IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
        // |accelerator_ids|

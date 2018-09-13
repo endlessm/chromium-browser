@@ -17,6 +17,52 @@ from chromite.lib import cros_test_lib
 # pylint: disable=protected-access
 
 
+class DocStringSectionDetailsTest(cros_test_lib.TestCase):
+  """Basic DocStringSectionDetails class tests."""
+
+  def testInit(self):
+    """Verify constructor behavior."""
+    s = lint.DocStringSectionDetails()
+    self.assertEqual(None, s.name)
+    self.assertEqual(None, s.header)
+    self.assertEqual([], s.lines)
+    self.assertEqual(None, s.lineno)
+
+    s = lint.DocStringSectionDetails(
+        name='Args', header='  Args:', lines=['    foo: Yes.'], lineno=2)
+    self.assertEqual('Args', s.name)
+    self.assertEqual('  Args:', s.header)
+    self.assertEqual(['    foo: Yes.'], s.lines)
+    self.assertEqual(2, s.lineno)
+
+  def testStr(self):
+    """Sanity check __str__."""
+    s = lint.DocStringSectionDetails()
+    self.assertNotEqual(None, str(s))
+
+  def testRepr(self):
+    """Sanity check __repr__."""
+    s = lint.DocStringSectionDetails()
+    self.assertNotEqual(None, repr(s))
+
+  def testEqual(self):
+    """Sanity check __eq__."""
+    s1 = lint.DocStringSectionDetails()
+    s2 = lint.DocStringSectionDetails()
+    self.assertEqual(s1, s2)
+
+    s2 = lint.DocStringSectionDetails(name='Args')
+    self.assertNotEqual(s1, s2)
+    s2 = lint.DocStringSectionDetails(header='  Args:')
+    self.assertNotEqual(s1, s2)
+    s2 = lint.DocStringSectionDetails(lineno=2)
+    self.assertNotEqual(s1, s2)
+
+    s1 = lint.DocStringSectionDetails(name='n', header='h', lineno=0)
+    s2 = lint.DocStringSectionDetails(name='n', header='h', lineno=0)
+    self.assertEqual(s1, s2)
+
+
 class TestNode(object):
   """Object good enough to stand in for lint funcs"""
 
@@ -72,6 +118,18 @@ class CheckerTestCase(cros_test_lib.TestCase):
     self.checker = self.CHECKER()
     self.checker.add_message = self.add_message
 
+  def assertLintPassed(self, msg='Checks failed'):
+    """Assert that no lint results have been queued."""
+    msg += '\nChecks failed: %s' % ([x[0] for x in self.results],)
+    self.assertEqual(self.results, [], msg=msg)
+
+  def assertLintFailed(self, msg='Checks incorrectly passed', expected=()):
+    """Assert that failed results matching |expected| have been queued."""
+    if expected:
+      self.assertEqual(list(expected), [x[0] for x in self.results])
+    else:
+      self.assertNotEqual(len(self.results), 0, msg=msg)
+
 
 class DocStringCheckerTest(CheckerTestCase):
   """Tests for DocStringChecker module"""
@@ -108,6 +166,12 @@ class DocStringCheckerTest(CheckerTestCase):
 
       Args:
         return: Foo!
+      """,
+      """the indentation is extra special
+
+      Returns:
+        First line is two spaces which is ok.
+          Then we indent some more!
       """,
   )
 
@@ -190,6 +254,31 @@ class DocStringCheckerTest(CheckerTestCase):
 
       Blah.
        """,
+      """the indentation is incorrect
+
+      Returns:
+       one space but should be two
+      """,
+      """the indentation is incorrect
+
+      Returns:
+         three spaces but should be two (and we have just one line)
+      """,
+      """the indentation is incorrect
+
+      Args:
+         some: has three spaces but should be two
+      """,
+      """the indentation is incorrect
+
+      Args:
+       some: has one space but should be two
+      """,
+      """the indentation is incorrect
+
+      Args:
+          some: has four spaces but should be two
+      """,
   )
 
   # The current linter isn't good enough yet to detect these.
@@ -211,8 +300,7 @@ class DocStringCheckerTest(CheckerTestCase):
       self.results = []
       node = TestNode(doc=dc, display_type=None, col_offset=4)
       self.checker.visit_function(node)
-      self.assertEqual(self.results, [],
-                       msg='docstring was not accepted:\n"""%s"""' % dc)
+      self.assertLintPassed(msg='docstring was not accepted:\n"""%s"""' % dc)
 
   def testBad_visit_function(self):
     """Reject known bad docstrings"""
@@ -220,15 +308,14 @@ class DocStringCheckerTest(CheckerTestCase):
       self.results = []
       node = TestNode(doc=dc, display_type=None, col_offset=4)
       self.checker.visit_function(node)
-      self.assertNotEqual(self.results, [],
-                          msg='docstring was not rejected:\n"""%s"""' % dc)
+      self.assertLintFailed(msg='docstring was not rejected:\n"""%s"""' % dc)
 
   def testSmoke_visit_module(self):
     """Smoke test for modules"""
     self.checker.visit_module(TestNode(doc='foo'))
-    self.assertEqual(self.results, [])
+    self.assertLintPassed()
     self.checker.visit_module(TestNode(doc='', path='/foo/__init__.py'))
-    self.assertEqual(self.results, [])
+    self.assertLintPassed()
 
   def testSmoke_visit_class(self):
     """Smoke test for classes"""
@@ -243,8 +330,7 @@ class DocStringCheckerTest(CheckerTestCase):
       self.results = []
       node = TestNode(doc=dc)
       self.checker._check_first_line(node, node.lines)
-      self.assertEqual(self.results, [],
-                       msg='docstring was not accepted:\n"""%s"""' % dc)
+      self.assertLintPassed(msg='docstring was not accepted:\n"""%s"""' % dc)
 
   def testBad_check_first_line(self):
     """Verify _check_first_line rejects bad inputs"""
@@ -255,7 +341,7 @@ class DocStringCheckerTest(CheckerTestCase):
       self.results = []
       node = TestNode(doc=dc)
       self.checker._check_first_line(node, node.lines)
-      self.assertEqual(len(self.results), 1)
+      self.assertLintFailed(expected=('C9009',))
 
   def testGood_check_second_line_blank(self):
     """Verify _check_second_line_blank accepts good inputs"""
@@ -267,8 +353,7 @@ class DocStringCheckerTest(CheckerTestCase):
       self.results = []
       node = TestNode(doc=dc)
       self.checker._check_second_line_blank(node, node.lines)
-      self.assertEqual(self.results, [],
-                       msg='docstring was not accepted:\n"""%s"""' % dc)
+      self.assertLintPassed(msg='docstring was not accepted:\n"""%s"""' % dc)
 
   def testBad_check_second_line_blank(self):
     """Verify _check_second_line_blank rejects bad inputs"""
@@ -279,7 +364,7 @@ class DocStringCheckerTest(CheckerTestCase):
       self.results = []
       node = TestNode(doc=dc)
       self.checker._check_second_line_blank(node, node.lines)
-      self.assertEqual(len(self.results), 1)
+      self.assertLintFailed(expected=('C9014',))
 
   def testGoodFuncVarKwArg(self):
     """Check valid inputs for *args and **kwargs"""
@@ -288,7 +373,7 @@ class DocStringCheckerTest(CheckerTestCase):
         self.results = []
         node = TestNode(vararg=vararg, kwarg=kwarg)
         self.checker._check_func_signature(node)
-        self.assertEqual(len(self.results), 0)
+        self.assertLintPassed()
 
   def testMisnamedFuncVarKwArg(self):
     """Reject anything but *args and **kwargs"""
@@ -296,13 +381,13 @@ class DocStringCheckerTest(CheckerTestCase):
       self.results = []
       node = TestNode(vararg=vararg)
       self.checker._check_func_signature(node)
-      self.assertEqual(len(self.results), 1)
+      self.assertLintFailed(expected=('C9011',))
 
     for kwarg in ('kwds', '_kwds', 'args', '_moo'):
       self.results = []
       node = TestNode(kwarg=kwarg)
       self.checker._check_func_signature(node)
-      self.assertEqual(len(self.results), 1)
+      self.assertLintFailed(expected=('C9011',))
 
   def testGoodFuncArgs(self):
     """Verify normal args in Args are allowed"""
@@ -336,8 +421,9 @@ class DocStringCheckerTest(CheckerTestCase):
     for dc, args, vararg, kwarg in datasets:
       self.results = []
       node = TestNode(doc=dc, args=args, vararg=vararg, kwarg=kwarg)
-      self.checker._check_all_args_in_doc(node, node.lines)
-      self.assertEqual(len(self.results), 0)
+      sections = self.checker._parse_docstring_sections(node, node.lines)
+      self.checker._check_all_args_in_doc(node, node.lines, sections)
+      self.assertLintPassed()
 
   def testBadFuncArgs(self):
     """Verify bad/missing args in Args are caught"""
@@ -374,8 +460,48 @@ class DocStringCheckerTest(CheckerTestCase):
     for dc, args in datasets:
       self.results = []
       node = TestNode(doc=dc, args=args)
-      self.checker._check_all_args_in_doc(node, node.lines)
-      self.assertEqual(len(self.results), 1)
+      sections = self.checker._parse_docstring_sections(node, node.lines)
+      self.checker._check_all_args_in_doc(node, node.lines, sections)
+      self.assertLintFailed()
+
+  def test_parse_docstring_sections(self):
+    """Check docstrings are parsed."""
+    datasets = (
+        ("""Some docstring
+
+         Args:
+           foo: blah
+
+         Raises:
+           blaaaaaah
+
+         Note:
+           This section shouldn't be checked.
+
+         Returns:
+           some value
+         """, [
+             ('Args', lint.DocStringSectionDetails(
+                 name='Args',
+                 header='         Args:',
+                 lines=['           foo: blah'],
+                 lineno=3)),
+             ('Raises', lint.DocStringSectionDetails(
+                 name='Raises',
+                 header='         Raises:',
+                 lines=['           blaaaaaah'],
+                 lineno=6)),
+             ('Returns', lint.DocStringSectionDetails(
+                 name='Returns',
+                 header='         Returns:',
+                 lines=['           some value'],
+                 lineno=12)),
+         ]),
+    )
+    for dc, expected in datasets:
+      node = TestNode(doc=dc)
+      sections = self.checker._parse_docstring_sections(node, node.lines)
+      self.assertEqual(expected, sections.items())
 
 
 class ChromiteLoggingCheckerTest(CheckerTestCase):
@@ -393,7 +519,7 @@ class ChromiteLoggingCheckerTest(CheckerTestCase):
     """Test that importing something else (not logging) is not flagged."""
     node = TestNode(names=[('myModule', None)], lineno=15)
     self.checker.visit_import(node)
-    self.assertEqual(self.results, [])
+    self.assertLintPassed()
 
 
 class SourceCheckerTest(CheckerTestCase):
@@ -409,8 +535,11 @@ class SourceCheckerTest(CheckerTestCase):
       stream = StringIO.StringIO(shebang)
       st = StatStub(size=len(shebang), mode=mode)
       self.checker._check_shebang(node, stream, st)
-      self.assertEqual(len(self.results), exp,
-                       msg='processing shebang failed: %r' % shebang)
+      msg = 'processing shebang failed: %r' % shebang
+      if not exp:
+        self.assertLintPassed(msg=msg)
+      else:
+        self.assertLintFailed(msg=msg, expected=exp)
 
   def testBadShebang(self):
     """Verify _check_shebang rejects bad shebangs"""
@@ -421,7 +550,7 @@ class SourceCheckerTest(CheckerTestCase):
         '#! /usr/bin/env python2 \n',
         '#!/usr/bin/python2\n',
     )
-    self._testShebang(shebangs, 1, 0o755)
+    self._testShebang(shebangs, ('R9200',), 0o755)
 
   def testGoodShebangNoExec(self):
     """Verify _check_shebang rejects shebangs on non-exec files"""
@@ -429,7 +558,7 @@ class SourceCheckerTest(CheckerTestCase):
         '#!/usr/bin/env python2\n',
         '#!/usr/bin/env python3\n',
     )
-    self._testShebang(shebangs, 1, 0o644)
+    self._testShebang(shebangs, ('R9202',), 0o644)
 
   def testGoodShebang(self):
     """Verify _check_shebang accepts good shebangs"""
@@ -438,7 +567,64 @@ class SourceCheckerTest(CheckerTestCase):
         '#!/usr/bin/env python3\n',
         '#!/usr/bin/env python2\t\n',
     )
-    self._testShebang(shebangs, 0, 0o755)
+    self._testShebang(shebangs, (), 0o755)
+
+  def testEmptyFileNoEncoding(self):
+    """_check_encoding should ignore 0 byte files"""
+    node = TestNode()
+    self.results = []
+    stream = StringIO.StringIO('')
+    self.checker._check_encoding(node, stream, StatStub())
+    self.assertLintPassed()
+
+  def testMissingEncoding(self):
+    """_check_encoding should fail when there is no encoding"""
+    headers = (
+        '#',
+        '#\n',
+        '#\n#',
+        '#\n#\n',
+        '#!/usr/bin/python\n# foo\n'
+        '#!/usr/bin/python\n',
+        '# some comment\n',
+        '# some comment\n# another line\n',
+        '# first line is not a shebang\n# -*- coding: utf-8 -*-\n',
+        '#!/usr/bin/python\n# second line\n# -*- coding: utf-8 -*-\n',
+    )
+    node = TestNode()
+    for header in headers:
+      self.results = []
+      stream = StringIO.StringIO(header)
+      self.checker._check_encoding(node, stream, StatStub(size=len(header)))
+      self.assertLintFailed(expected=('R9204',))
+
+  def testBadEncoding(self):
+    """_check_encoding should reject non-"utf-8" encodings"""
+    encodings = (
+        'UTF8', 'UTF-8', 'utf8', 'ISO-8859-1',
+    )
+    node = TestNode()
+    for encoding in encodings:
+      self.results = []
+      header = '# -*- coding: %s -*-\n' % (encoding,)
+      stream = StringIO.StringIO(header)
+      self.checker._check_encoding(node, stream, StatStub(size=len(header)))
+      self.assertLintFailed(expected=('R9205',))
+
+  def testGoodEncodings(self):
+    """Verify _check_encoding accepts various correct encoding forms"""
+    shebang = '#!/usr/bin/python\n'
+    encodings = (
+        '# -*- coding: utf-8 -*-',
+    )
+    node = TestNode()
+    self.results = []
+    for first in ('', shebang):
+      for encoding in encodings:
+        data = first + encoding + '\n'
+        stream = StringIO.StringIO(data)
+        self.checker._check_encoding(node, stream, StatStub(size=len(data)))
+        self.assertLintPassed()
 
   def testGoodUnittestName(self):
     """Verify _check_module_name accepts good unittest names"""
@@ -449,10 +635,10 @@ class SourceCheckerTest(CheckerTestCase):
       node = TestNode(name=name)
       self.results = []
       self.checker._check_module_name(node)
-      self.assertEqual(len(self.results), 0)
+      self.assertLintPassed()
 
   def testBadUnittestName(self):
-    """Verify _check_module_name accepts good unittest names"""
+    """Verify _check_module_name rejects bad unittest names"""
     module_names = (
         'lint_unittests',
     )
@@ -460,4 +646,4 @@ class SourceCheckerTest(CheckerTestCase):
       node = TestNode(name=name)
       self.results = []
       self.checker._check_module_name(node)
-      self.assertEqual(len(self.results), 1)
+      self.assertLintFailed(expected=('R9203',))

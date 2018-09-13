@@ -10,7 +10,7 @@
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "ios/chrome/app/tests_hook.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ui/base/device_form_factor.h"
@@ -62,7 +62,9 @@ bool IsRefreshInfobarEnabled() {
 }
 
 bool IsRefreshLocationBarEnabled() {
-  return base::FeatureList::IsEnabled(kUIRefreshLocationBar);
+  // Refresh location bar requires UIRefreshPhase1 as well.
+  return base::FeatureList::IsEnabled(kUIRefreshLocationBar) &&
+         IsUIRefreshPhase1Enabled();
 }
 
 bool IsRefreshPopupPresentationEnabled() {

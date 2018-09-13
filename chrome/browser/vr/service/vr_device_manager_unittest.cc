@@ -34,17 +34,13 @@ class VRDeviceManagerForTesting : public VRDeviceManager {
   }
 
   // Expose this test-only method as public for tests.
-  using VRDeviceManager::GetDevice;
+  using VRDeviceManager::GetRuntime;
 };
 
 class VRServiceImplForTesting : public VRServiceImpl {
  public:
   VRServiceImplForTesting() : VRServiceImpl() {}
   ~VRServiceImplForTesting() override = default;
-
-  int GetNumberOfConnectedDisplayHosts() {
-    return NumberOfConnectedDisplayHosts();
-  }
 };
 
 }  // namespace
@@ -115,24 +111,8 @@ TEST_F(VRDeviceManagerTest, GetNoDevicesTest) {
   EXPECT_TRUE(Provider()->Initialized());
 
   // GetDeviceByIndex should return nullptr if an invalid index in queried.
-  device::VRDevice* queried_device = DeviceManager()->GetDevice(1);
+  device::mojom::XRRuntime* queried_device = DeviceManager()->GetRuntime(1);
   EXPECT_EQ(nullptr, queried_device);
-}
-
-TEST_F(VRDeviceManagerTest, GetDevicesTest) {
-  device::FakeVRDevice* device1 = new device::FakeVRDevice();
-  Provider()->AddDevice(base::WrapUnique(device1));
-  // VRDeviceManager will query devices as a side effect.
-  auto service_1 = BindService();
-  // Should have successfully returned one device.
-  EXPECT_EQ(device1, DeviceManager()->GetDevice(device1->GetId()));
-
-  device::FakeVRDevice* device2 = new device::FakeVRDevice();
-  Provider()->AddDevice(base::WrapUnique(device2));
-  auto service_2 = BindService();
-  // Querying the WebVRDevice index should return the correct device.
-  EXPECT_EQ(device1, DeviceManager()->GetDevice(device1->GetId()));
-  EXPECT_EQ(device2, DeviceManager()->GetDevice(device2->GetId()));
 }
 
 // Ensure that services are registered with the device manager as they are
@@ -149,17 +129,21 @@ TEST_F(VRDeviceManagerTest, DeviceManagerRegistration) {
   EXPECT_FALSE(VRDeviceManager::HasInstance());
 }
 
-// Ensure that devices added and removed are propagated to the service after
-// initialization.
+// Ensure that devices added and removed are reflected in calls to request
+// sessions.
 TEST_F(VRDeviceManagerTest, AddRemoveDevices) {
   auto service = BindService();
   EXPECT_EQ(1u, ServiceCount());
   EXPECT_TRUE(Provider()->Initialized());
-  device::FakeVRDevice* device = new device::FakeVRDevice();
+  device::FakeVRDevice* device = new device::FakeVRDevice(
+      static_cast<int>(device::VRDeviceId::ARCORE_DEVICE_ID));
   Provider()->AddDevice(base::WrapUnique(device));
-  EXPECT_EQ(1, service->GetNumberOfConnectedDisplayHosts());
+
+  device::mojom::XRSessionOptions options = {};
+  options.provide_passthrough_camera = true;
+  EXPECT_TRUE(DeviceManager()->GetDeviceForOptions(&options));
   Provider()->RemoveDevice(device->GetId());
-  EXPECT_EQ(0, service->GetNumberOfConnectedDisplayHosts());
+  EXPECT_TRUE(!DeviceManager()->GetDeviceForOptions(&options));
 }
 
 }  // namespace vr

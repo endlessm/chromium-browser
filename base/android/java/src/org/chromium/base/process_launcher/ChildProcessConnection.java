@@ -14,6 +14,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
 
+import org.chromium.base.ChildBindingState;
 import org.chromium.base.Log;
 import org.chromium.base.MemoryPressureLevel;
 import org.chromium.base.MemoryPressureListener;
@@ -22,15 +23,18 @@ import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.memory.MemoryPressureCallback;
 
+import java.util.Arrays;
 import java.util.List;
 
 import javax.annotation.Nullable;
+import javax.annotation.concurrent.GuardedBy;
 
 /**
  * Manages a connection between the browser activity and a child service.
  */
 public class ChildProcessConnection {
     private static final String TAG = "ChildProcessConn";
+    private static final int NUM_BINDING_STATES = ChildBindingState.MAX_VALUE + 1;
 
     /**
      * Used to notify the consumer about the process start. These callbacks will be invoked before
@@ -148,6 +152,19 @@ public class ChildProcessConnection {
         }
     }
 
+    // Synchronize on this for access.
+    @GuardedBy("sAllBindingStateCounts")
+    private static final int[] sAllBindingStateCounts = new int[NUM_BINDING_STATES];
+
+    @VisibleForTesting
+    static void resetBindingStateCountsForTesting() {
+        synchronized (sAllBindingStateCounts) {
+            for (int i = 0; i < NUM_BINDING_STATES; ++i) {
+                sAllBindingStateCounts[i] = 0;
+            }
+        }
+    }
+
     private final Handler mLauncherHandler;
     private final ComponentName mServiceName;
 
@@ -215,15 +232,26 @@ public class ChildProcessConnection {
     private int mStrongBindingCount;
     private int mModerateBindingCount;
 
-    // Indicates whether the connection only has the waived binding (if the connection is unbound,
-    // it contains the state at time of unbinding).
-    private volatile boolean mWaivedBoundOnly;
-
     // Set to true once unbind() was called.
     private boolean mUnbound;
 
+    // Binding state of this connection.
+    private @ChildBindingState int mBindingState;
+
+    // Protects access to instance variables that are also accessed on the client thread.
+    private final Object mClientThreadLock = new Object();
+
+    // Same as above except it no longer updates after |unbind()|.
+    @GuardedBy("mClientThreadLock")
+    private @ChildBindingState int mBindingStateCurrentOrWhenDied;
+
     // Indicate |kill()| was called to intentionally kill this process.
-    private volatile boolean mKilledByUs;
+    @GuardedBy("mClientThreadLock")
+    private boolean mKilledByUs;
+
+    // Copy of |sAllBindingStateCounts| at the time this is unbound.
+    @GuardedBy("mClientThreadLock")
+    private int[] mAllBindingStateCountsWhenDied;
 
     private MemoryPressureCallback mMemoryPressureCallback;
 
@@ -395,7 +423,9 @@ public class ChildProcessConnection {
         } catch (RemoteException e) {
             // Intentionally ignore since we are killing it anyway.
         }
-        mKilledByUs = true;
+        synchronized (mClientThreadLock) {
+            mKilledByUs = true;
+        }
         notifyChildProcessDied();
     }
 
@@ -526,8 +556,8 @@ public class ChildProcessConnection {
         }
         if (!success) return false;
 
-        updateWaivedBoundOnlyState();
         mWaivedBinding.bind();
+        updateBindingState();
         return true;
     }
 
@@ -540,8 +570,15 @@ public class ChildProcessConnection {
         mStrongBinding.unbind();
         mWaivedBinding.unbind();
         mModerateBinding.unbind();
-        // Note that we don't update the waived bound only state here as to preserve the state when
-        // disconnected.
+        updateBindingState();
+
+        int[] bindingStateCounts;
+        synchronized (sAllBindingStateCounts) {
+            bindingStateCounts = Arrays.copyOf(sAllBindingStateCounts, NUM_BINDING_STATES);
+        }
+        synchronized (mClientThreadLock) {
+            mAllBindingStateCountsWhenDied = bindingStateCounts;
+        }
 
         if (mMemoryPressureCallback != null) {
             final MemoryPressureCallback callback = mMemoryPressureCallback;
@@ -563,7 +600,7 @@ public class ChildProcessConnection {
         }
         if (mStrongBindingCount == 0) {
             mStrongBinding.bind();
-            updateWaivedBoundOnlyState();
+            updateBindingState();
         }
         mStrongBindingCount++;
     }
@@ -578,7 +615,7 @@ public class ChildProcessConnection {
         mStrongBindingCount--;
         if (mStrongBindingCount == 0) {
             mStrongBinding.unbind();
-            updateWaivedBoundOnlyState();
+            updateBindingState();
         }
     }
 
@@ -595,7 +632,7 @@ public class ChildProcessConnection {
         }
         if (mModerateBindingCount == 0) {
             mModerateBinding.bind();
-            updateWaivedBoundOnlyState();
+            updateBindingState();
         }
         mModerateBindingCount++;
     }
@@ -610,7 +647,7 @@ public class ChildProcessConnection {
         mModerateBindingCount--;
         if (mModerateBindingCount == 0) {
             mModerateBinding.unbind();
-            updateWaivedBoundOnlyState();
+            updateBindingState();
         }
     }
 
@@ -618,11 +655,13 @@ public class ChildProcessConnection {
      * @return true if the connection is bound and only bound with the waived binding or if the
      * connection is unbound and was only bound with the waived binding when it disconnected.
      */
-    public boolean isWaivedBoundOnlyOrWasWhenDied() {
+    public @ChildBindingState int bindingStateCurrentOrWhenDied() {
         // WARNING: this method can be called from a thread other than the launcher thread.
         // Note that it returns the current waived bound only state and is racy. This not really
         // preventable without changing the caller's API, short of blocking.
-        return mWaivedBoundOnly;
+        synchronized (mClientThreadLock) {
+            return mBindingStateCurrentOrWhenDied;
+        }
     }
 
     /**
@@ -632,13 +671,55 @@ public class ChildProcessConnection {
         // WARNING: this method can be called from a thread other than the launcher thread.
         // Note that it returns the current waived bound only state and is racy. This not really
         // preventable without changing the caller's API, short of blocking.
-        return mKilledByUs;
+        synchronized (mClientThreadLock) {
+            return mKilledByUs;
+        }
     }
 
-    // Should be called every time the mModerateBinding or mStrongBinding are bound/unbound.
-    private void updateWaivedBoundOnlyState() {
+    public int[] bindingStateCountsCurrentOrWhenDied() {
+        // WARNING: this method can be called from a thread other than the launcher thread.
+        // Note that it returns the current waived bound only state and is racy. This not really
+        // preventable without changing the caller's API, short of blocking.
+        synchronized (mClientThreadLock) {
+            if (mAllBindingStateCountsWhenDied != null) {
+                return Arrays.copyOf(mAllBindingStateCountsWhenDied, NUM_BINDING_STATES);
+            }
+        }
+        synchronized (sAllBindingStateCounts) {
+            return Arrays.copyOf(sAllBindingStateCounts, NUM_BINDING_STATES);
+        }
+    }
+
+    // Should be called any binding is bound or unbound.
+    private void updateBindingState() {
+        int oldBindingState = mBindingState;
+        if (mUnbound) {
+            mBindingState = ChildBindingState.UNBOUND;
+        } else if (mStrongBinding.isBound()) {
+            mBindingState = ChildBindingState.STRONG;
+        } else if (mModerateBinding.isBound()) {
+            mBindingState = ChildBindingState.MODERATE;
+        } else {
+            assert mWaivedBinding.isBound();
+            mBindingState = ChildBindingState.WAIVED;
+        }
+
+        if (mBindingState != oldBindingState) {
+            synchronized (sAllBindingStateCounts) {
+                if (oldBindingState != ChildBindingState.UNBOUND) {
+                    assert sAllBindingStateCounts[oldBindingState] > 0;
+                    sAllBindingStateCounts[oldBindingState]--;
+                }
+                if (mBindingState != ChildBindingState.UNBOUND) {
+                    sAllBindingStateCounts[mBindingState]++;
+                }
+            }
+        }
+
         if (!mUnbound) {
-            mWaivedBoundOnly = !mStrongBinding.isBound() && !mModerateBinding.isBound();
+            synchronized (mClientThreadLock) {
+                mBindingStateCurrentOrWhenDied = mBindingState;
+            }
         }
     }
 

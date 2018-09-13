@@ -177,6 +177,7 @@ class OrcMCJITReplacement : public ExecutionEngine {
         if (auto Sym = M.findMangledSymbol(*S)) {
           if (auto Addr = Sym.getAddress()) {
             Query->resolve(S, JITEvaluatedSymbol(*Addr, Sym.getFlags()));
+            Query->notifySymbolReady();
             NewSymbolsResolved = true;
           } else {
             M.ES.failQuery(*Query, Addr.takeError());
@@ -189,6 +190,7 @@ class OrcMCJITReplacement : public ExecutionEngine {
           if (auto Sym2 = M.ClientResolver->findSymbol(*S)) {
             if (auto Addr = Sym2.getAddress()) {
               Query->resolve(S, JITEvaluatedSymbol(*Addr, Sym2.getFlags()));
+              Query->notifySymbolReady();
               NewSymbolsResolved = true;
             } else {
               M.ES.failQuery(*Query, Addr.takeError());
@@ -204,6 +206,9 @@ class OrcMCJITReplacement : public ExecutionEngine {
 
       if (NewSymbolsResolved && Query->isFullyResolved())
         Query->handleFullyResolved();
+
+      if (NewSymbolsResolved && Query->isFullyReady())
+        Query->handleFullyReady();
 
       return UnresolvedSymbols;
     }
@@ -437,7 +442,10 @@ private:
   public:
     NotifyFinalizedT(OrcMCJITReplacement &M) : M(M) {}
 
-    void operator()(VModuleKey K) { M.UnfinalizedSections.erase(K); }
+    void operator()(VModuleKey K, const object::ObjectFile &Obj,
+                    const RuntimeDyld::LoadedObjectInfo &Info) {
+      M.UnfinalizedSections.erase(K);
+    }
 
   private:
     OrcMCJITReplacement &M;

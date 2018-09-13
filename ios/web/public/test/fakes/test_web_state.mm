@@ -149,10 +149,13 @@ CRWJSInjectionReceiver* TestWebState::GetJSInjectionReceiver() const {
   return injection_receiver_;
 }
 
-void TestWebState::ExecuteJavaScript(const base::string16& javascript) {}
+void TestWebState::ExecuteJavaScript(const base::string16& javascript) {
+  last_executed_javascript_ = javascript;
+}
 
 void TestWebState::ExecuteJavaScript(const base::string16& javascript,
                                      JavaScriptResultCallback callback) {
+  last_executed_javascript_ = javascript;
   std::move(callback).Run(nullptr);
 }
 
@@ -264,20 +267,6 @@ void TestWebState::OnRenderProcessGone() {
     observer.RenderProcessGone(this);
 }
 
-void TestWebState::OnFormActivity(const FormActivityParams& params) {
-  for (auto& observer : observers_) {
-    observer.FormActivityRegistered(this, params);
-  }
-}
-
-void TestWebState::OnDocumentSubmitted(const std::string& form_name,
-                                       bool user_initiated,
-                                       bool is_main_frame) {
-  for (auto& observer : observers_) {
-    observer.DocumentSubmitted(this, form_name, user_initiated, is_main_frame);
-  }
-}
-
 void TestWebState::OnBackForwardStateChanged() {
   for (auto& observer : observers_) {
     observer.DidChangeBackForwardState(this);
@@ -304,12 +293,11 @@ CRWContentView* TestWebState::GetTransientContentView() {
   return transient_content_view_;
 }
 
-bool TestWebState::ShouldAllowRequest(NSURLRequest* request,
-                                      ui::PageTransition transition,
-                                      bool from_main_frame) {
+bool TestWebState::ShouldAllowRequest(
+    NSURLRequest* request,
+    const WebStatePolicyDecider::RequestInfo& request_info) {
   for (auto& policy_decider : policy_deciders_) {
-    if (!policy_decider.ShouldAllowRequest(request, transition,
-                                           from_main_frame))
+    if (!policy_decider.ShouldAllowRequest(request, request_info))
       return false;
   }
   return true;
@@ -324,6 +312,10 @@ bool TestWebState::ShouldAllowResponse(NSURLResponse* response,
   return true;
 }
 
+base::string16 TestWebState::GetLastExecutedJavascript() const {
+  return last_executed_javascript_;
+}
+
 void TestWebState::SetCurrentURL(const GURL& url) {
   url_ = url;
 }
@@ -334,6 +326,10 @@ void TestWebState::SetVisibleURL(const GURL& url) {
 
 void TestWebState::SetTrustLevel(URLVerificationTrustLevel trust_level) {
   trust_level_ = trust_level;
+}
+
+void TestWebState::ClearLastExecutedJavascript() {
+  last_executed_javascript_.clear();
 }
 
 CRWWebViewProxyType TestWebState::GetWebViewProxy() const {
@@ -360,9 +356,9 @@ void TestWebState::SetHasOpener(bool has_opener) {
   has_opener_ = has_opener;
 }
 
-void TestWebState::TakeSnapshot(const SnapshotCallback& callback,
+void TestWebState::TakeSnapshot(SnapshotCallback callback,
                                 CGSize target_size) const {
-  callback.Run(gfx::Image([[UIImage alloc] init]));
+  std::move(callback).Run(gfx::Image([[UIImage alloc] init]));
 }
 
 }  // namespace web

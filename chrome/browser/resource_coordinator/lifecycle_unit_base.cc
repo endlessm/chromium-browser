@@ -5,27 +5,54 @@
 #include "chrome/browser/resource_coordinator/lifecycle_unit_base.h"
 
 #include "chrome/browser/resource_coordinator/lifecycle_unit_observer.h"
+#include "chrome/browser/resource_coordinator/lifecycle_unit_source_base.h"
 #include "chrome/browser/resource_coordinator/time.h"
+#include "chrome/browser/resource_coordinator/usage_clock.h"
 
 namespace resource_coordinator {
 
-LifecycleUnitBase::LifecycleUnitBase(content::Visibility visibility)
-    : last_visible_time_(visibility == content::Visibility::VISIBLE
-                             ? base::TimeTicks::Max()
-                             : base::TimeTicks()) {}
+LifecycleUnitBase::LifecycleUnitBase(LifecycleUnitSourceBase* source,
+                                     content::Visibility visibility,
+                                     UsageClock* usage_clock)
+    : source_(source),
+      wall_time_when_hidden_(visibility == content::Visibility::VISIBLE
+                                 ? base::TimeTicks::Max()
+                                 : NowTicks()),
+      usage_clock_(usage_clock),
+      chrome_usage_time_when_hidden_(visibility == content::Visibility::VISIBLE
+                                         ? base::TimeDelta::Max()
+                                         : usage_clock_->GetTotalUsageTime()) {
+  if (source_)
+    source_->NotifyLifecycleUnitBeingCreated(this);
+}
 
-LifecycleUnitBase::~LifecycleUnitBase() = default;
+LifecycleUnitBase::~LifecycleUnitBase() {
+  if (source_)
+    source_->NotifyLifecycleUnitBeingDestroyed(this);
+}
+
+LifecycleUnitSource* LifecycleUnitBase::GetSource() const {
+  return source_;
+}
 
 int32_t LifecycleUnitBase::GetID() const {
   return id_;
 }
 
-LifecycleState LifecycleUnitBase::GetState() const {
+LifecycleUnitState LifecycleUnitBase::GetState() const {
   return state_;
 }
 
-base::TimeTicks LifecycleUnitBase::GetLastVisibleTime() const {
-  return last_visible_time_;
+base::TimeTicks LifecycleUnitBase::GetStateChangeTime() const {
+  return state_change_time_;
+}
+
+base::TimeTicks LifecycleUnitBase::GetWallTimeWhenHidden() const {
+  return wall_time_when_hidden_;
+}
+
+base::TimeDelta LifecycleUnitBase::GetChromeUsageTimeWhenHidden() const {
+  return chrome_usage_time_when_hidden_;
 }
 
 void LifecycleUnitBase::AddObserver(LifecycleUnitObserver* observer) {
@@ -36,21 +63,36 @@ void LifecycleUnitBase::RemoveObserver(LifecycleUnitObserver* observer) {
   observers_.RemoveObserver(observer);
 }
 
-void LifecycleUnitBase::SetState(LifecycleState state) {
+ukm::SourceId LifecycleUnitBase::GetUkmSourceId() const {
+  return ukm::kInvalidSourceId;
+}
+
+void LifecycleUnitBase::SetState(LifecycleUnitState state,
+                                 LifecycleUnitStateChangeReason reason) {
   if (state == state_)
     return;
-  LifecycleState last_state = state_;
+  LifecycleUnitState last_state = state_;
   state_ = state;
+  state_change_time_ = NowTicks();
+  OnLifecycleUnitStateChanged(last_state, reason);
   for (auto& observer : observers_)
-    observer.OnLifecycleUnitStateChanged(this, last_state);
+    observer.OnLifecycleUnitStateChanged(this, last_state, reason);
 }
+
+void LifecycleUnitBase::OnLifecycleUnitStateChanged(
+    LifecycleUnitState last_state,
+    LifecycleUnitStateChangeReason reason) {}
 
 void LifecycleUnitBase::OnLifecycleUnitVisibilityChanged(
     content::Visibility visibility) {
-  if (visibility == content::Visibility::VISIBLE)
-    last_visible_time_ = base::TimeTicks::Max();
-  else if (last_visible_time_.is_max())
-    last_visible_time_ = NowTicks();
+  if (visibility == content::Visibility::VISIBLE) {
+    wall_time_when_hidden_ = base::TimeTicks::Max();
+    chrome_usage_time_when_hidden_ = base::TimeDelta::Max();
+  } else if (wall_time_when_hidden_.is_max()) {
+    DCHECK(chrome_usage_time_when_hidden_.is_max());
+    wall_time_when_hidden_ = NowTicks();
+    chrome_usage_time_when_hidden_ = usage_clock_->GetTotalUsageTime();
+  }
 
   for (auto& observer : observers_)
     observer.OnLifecycleUnitVisibilityChanged(this, visibility);

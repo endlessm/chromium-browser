@@ -23,9 +23,11 @@ class FakeLoginDisplayHost : public LoginDisplayHost {
   ~FakeLoginDisplayHost() override;
 
   // chromeos::LoginDisplayHost:
-  LoginDisplay* CreateLoginDisplay(LoginDisplay::Delegate* delegate) override;
+  LoginDisplay* GetLoginDisplay() override;
+  ExistingUserController* GetExistingUserController() override;
   gfx::NativeWindow GetNativeWindow() const override;
   OobeUI* GetOobeUI() const override;
+  content::WebContents* GetOobeWebContents() const override;
   WebUILoginView* GetWebUILoginView() const override;
   void BeforeSessionStart() override;
   void Finalize(base::OnceClosure) override;
@@ -53,11 +55,19 @@ class FakeLoginDisplayHost : public LoginDisplayHost {
   void LoadWallpaper(const AccountId& account_id) override;
   void LoadSigninWallpaper() override;
   bool IsUserWhitelisted(const AccountId& account_id) override;
-  void UpdateGaiaDialogVisibility(
-      bool visible,
-      const base::Optional<AccountId>& account) override;
-  void UpdateGaiaDialogSize(int width, int height) override;
+  void ShowGaiaDialog(
+      bool can_close,
+      const base::Optional<AccountId>& prefilled_account) override;
+  void HideOobeDialog() override;
+  void UpdateOobeDialogSize(int width, int height) override;
   const user_manager::UserList GetUsers() override;
+  void CancelPasswordChangedFlow() override;
+  void MigrateUserData(const std::string& old_password) override;
+  void ResyncUserData() override;
+  void ShowFeedback() override;
+  void ShowDialogForCaptivePortal() override;
+  void HideDialogForCaptivePortal() override;
+  void UpdateAddUserButtonStatus() override;
 
  private:
   class FakeBaseScreen;

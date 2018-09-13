@@ -1,7 +1,7 @@
 400.geom
 ERROR: 0:12: 'invocations' : can only apply to a standalone qualifier 
 ERROR: 0:20: 'patch' : not supported in this stage: geometry
-ERROR: 0:20: 'gl_PointSize' : cannot add layout to redeclared block member 
+ERROR: 0:20: 'gl_PointSize' : cannot add non-XFB layout to redeclared block member 
 ERROR: 0:20: 'gl_PointSize' : cannot add patch to redeclared block member 
 ERROR: 0:25: 'length' :  array must first be sized by a redeclaration or layout qualifier
 ERROR: 0:36: 'length' :  array must first be sized by a redeclaration or layout qualifier
@@ -844,25 +844,29 @@ ERROR: node is still EOpNull!
 0:288        refract ( global double)
 0:288          'doublev' ( temp double)
 0:288          'doublev' ( temp double)
-0:288          'doublev' ( temp double)
+0:288          Constant:
+0:288            1.300000
 0:289      add second child into first child ( temp 2-component vector of double)
 0:289        'dvec2v' ( temp 2-component vector of double)
 0:289        refract ( global 2-component vector of double)
 0:289          'dvec2v' ( temp 2-component vector of double)
 0:289          'dvec2v' ( temp 2-component vector of double)
-0:289          'doublev' ( temp double)
+0:289          Constant:
+0:289            1.300000
 0:290      add second child into first child ( temp 3-component vector of double)
 0:290        'dvec3v' ( temp 3-component vector of double)
 0:290        refract ( global 3-component vector of double)
 0:290          'dvec3v' ( temp 3-component vector of double)
 0:290          'dvec3v' ( temp 3-component vector of double)
-0:290          'doublev' ( temp double)
+0:290          Constant:
+0:290            1.300000
 0:291      add second child into first child ( temp 4-component vector of double)
 0:291        'dvec4v' ( temp 4-component vector of double)
 0:291        refract ( global 4-component vector of double)
 0:291          'dvec4v' ( temp 4-component vector of double)
 0:291          'dvec4v' ( temp 4-component vector of double)
-0:291          'doublev' ( temp double)
+0:291          Constant:
+0:291            1.300000
 0:293      Sequence
 0:293        move second child to first child ( temp 2X2 matrix of double)
 0:293          'dmat2v' ( temp 2X2 matrix of double)

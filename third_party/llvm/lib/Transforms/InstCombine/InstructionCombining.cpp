@@ -57,7 +57,7 @@
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetFolder.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
@@ -1351,11 +1351,7 @@ Value *InstCombiner::Descale(Value *Val, APInt Scale, bool &NoSignedWrap) {
   } while (true);
 }
 
-/// Makes transformation of binary operation specific for vector types.
-/// \param Inst Binary operator to transform.
-/// \return Pointer to node that must replace the original binary operator, or
-///         null pointer if no transformation was made.
-Value *InstCombiner::SimplifyVectorOp(BinaryOperator &Inst) {
+Instruction *InstCombiner::foldShuffledBinop(BinaryOperator &Inst) {
   if (!Inst.getType()->isVectorTy()) return nullptr;
 
   // It may not be safe to reorder shuffles and things like div, urem, etc.
@@ -1373,7 +1369,7 @@ Value *InstCombiner::SimplifyVectorOp(BinaryOperator &Inst) {
     Value *XY = Builder.CreateBinOp(Inst.getOpcode(), X, Y);
     if (auto *BO = dyn_cast<BinaryOperator>(XY))
       BO->copyIRFlags(&Inst);
-    return Builder.CreateShuffleVector(XY, UndefValue::get(XY->getType()), M);
+    return new ShuffleVectorInst(XY, UndefValue::get(XY->getType()), M);
   };
 
   // If both arguments of the binary operation are shuffles that use the same
@@ -1421,9 +1417,16 @@ Value *InstCombiner::SimplifyVectorOp(BinaryOperator &Inst) {
       }
     }
     if (MayChange) {
+      Constant *NewC = ConstantVector::get(NewVecC);
+      // It may not be safe to execute a binop on a vector with undef elements
+      // because the entire instruction can be folded to undef or create poison
+      // that did not exist in the original code.
+      bool ConstOp1 = isa<Constant>(Inst.getOperand(1));
+      if (Inst.isIntDivRem() || (Inst.isShift() && ConstOp1))
+        NewC = getSafeVectorConstantForBinop(Inst.getOpcode(), NewC, ConstOp1);
+      
       // Op(shuffle(V1, Mask), C) -> shuffle(Op(V1, NewC), Mask)
       // Op(C, shuffle(V1, Mask)) -> shuffle(Op(NewC, V1), Mask)
-      Constant *NewC = ConstantVector::get(NewVecC);
       Value *NewLHS = isa<Constant>(LHS) ? NewC : V1;
       Value *NewRHS = isa<Constant>(LHS) ? V1 : NewC;
       return createBinOpShuffle(NewLHS, NewRHS, Mask);

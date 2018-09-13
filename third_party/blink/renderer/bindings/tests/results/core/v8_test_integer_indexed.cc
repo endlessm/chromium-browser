@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/bindings/tests/results/core/v8_test_integer_indexed.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
@@ -20,6 +19,8 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_iterator.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_node.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
@@ -342,10 +343,10 @@ static void installV8TestIntegerIndexedTemplate(
   // Register IDL constants, attributes and operations.
   V8DOMConfiguration::InstallAccessors(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestIntegerIndexedAccessors, arraysize(V8TestIntegerIndexedAccessors));
+      signature, V8TestIntegerIndexedAccessors, base::size(V8TestIntegerIndexedAccessors));
   V8DOMConfiguration::InstallMethods(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestIntegerIndexedMethods, arraysize(V8TestIntegerIndexedMethods));
+      signature, V8TestIntegerIndexedMethods, base::size(V8TestIntegerIndexedMethods));
 
   // Indexed properties
   v8::IndexedPropertyHandlerConfiguration indexedPropertyHandlerConfig(

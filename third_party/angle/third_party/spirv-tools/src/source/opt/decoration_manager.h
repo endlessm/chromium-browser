@@ -17,6 +17,7 @@
 
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "instruction.h"
@@ -26,64 +27,75 @@ namespace spvtools {
 namespace opt {
 namespace analysis {
 
-// A class for analyzing and managing decorations in an ir::Module.
+// A class for analyzing and managing decorations in an opt::Module.
 class DecorationManager {
  public:
   // Constructs a decoration manager from the given |module|
-  explicit DecorationManager(ir::Module* module) : module_(module) {
+  explicit DecorationManager(opt::Module* module) : module_(module) {
     AnalyzeDecorations();
   }
   DecorationManager() = delete;
 
-  // Removes all decorations from |id|, which should not be a group ID.
-  void RemoveDecorationsFrom(uint32_t id);
+  // Removes all decorations from |id| (either directly or indirectly) for
+  // which |pred| returns true.
+  // If |id| is a group ID, OpGroupDecorate and OpGroupMemberDecorate will be
+  // removed if they have no targets left, and OpDecorationGroup will be
+  // removed if the group is not applied to anyone and contains no decorations.
+  void RemoveDecorationsFrom(uint32_t id,
+                             std::function<bool(const opt::Instruction&)> pred =
+                                 [](const opt::Instruction&) { return true; });
 
   // Removes all decorations from the result id of |inst|.
-  void RemoveDecoration(ir::Instruction* inst);
+  //
+  // NOTE: This is only meant to be called from ir_context, as only metadata
+  // will be removed, and no actual instruction.
+  void RemoveDecoration(opt::Instruction* inst);
 
   // Returns a vector of all decorations affecting |id|. If a group is applied
   // to |id|, the decorations of that group are returned rather than the group
   // decoration instruction. If |include_linkage| is not set, linkage
   // decorations won't be returned.
-  std::vector<ir::Instruction*> GetDecorationsFor(uint32_t id,
-                                                  bool include_linkage);
-  std::vector<const ir::Instruction*> GetDecorationsFor(
+  std::vector<opt::Instruction*> GetDecorationsFor(uint32_t id,
+                                                   bool include_linkage);
+  std::vector<const opt::Instruction*> GetDecorationsFor(
       uint32_t id, bool include_linkage) const;
   // Returns whether two IDs have the same decorations. Two SpvOpGroupDecorate
   // instructions that apply the same decorations but to different IDs, still
   // count as being the same.
   bool HaveTheSameDecorations(uint32_t id1, uint32_t id2) const;
-  // Returns whether two decorations are the same. SpvOpDecorateId is currently
-  // not handled and will return false no matter what.
-  bool AreDecorationsTheSame(const ir::Instruction* inst1,
-                             const ir::Instruction* inst2) const;
+  // Returns whether the two decorations instructions are the same and are
+  // applying the same decorations; unless |ignore_target| is false, the targets
+  // to which they are applied to does not matter, except for the member part.
+  //
+  // This is only valid for OpDecorate, OpMemberDecorate and OpDecorateId; it
+  // will return false for other opcodes.
+  bool AreDecorationsTheSame(const opt::Instruction* inst1,
+                             const opt::Instruction* inst2,
+                             bool ignore_target) const;
 
   // |f| is run on each decoration instruction for |id| with decoration
   // |decoration|. Processed are all decorations which target |id| either
   // directly or indirectly by Decoration Groups.
   void ForEachDecoration(uint32_t id, uint32_t decoration,
-                         std::function<void(const ir::Instruction&)> f);
+                         std::function<void(const opt::Instruction&)> f);
+
+  // |f| is run on each decoration instruction for |id| with decoration
+  // |decoration|. Processes all decoration which target |id| either directly or
+  // indirectly through decoration groups. If |f| returns false, iteration is
+  // terminated and this function returns false.
+  bool WhileEachDecoration(uint32_t id, uint32_t decoration,
+                           std::function<bool(const opt::Instruction&)> f);
 
   // Clone all decorations from one id |from|.
   // The cloned decorations are assigned to the given id |to| and are
   // added to the module. The purpose is to decorate cloned instructions.
   // This function does not check if the id |to| is already decorated.
-  // Function |f| can be used to update context information and is called
-  // with |false|, before an instruction is going to be changed and
-  // with |true| afterwards.
-  void CloneDecorations(uint32_t from, uint32_t to,
-                        std::function<void(ir::Instruction&, bool)> f);
+  void CloneDecorations(uint32_t from, uint32_t to);
 
   // Informs the decoration manager of a new decoration that it needs to track.
-  void AddDecoration(ir::Instruction* inst);
+  void AddDecoration(opt::Instruction* inst);
 
  private:
-  // Removes the instruction from the set of decorations targeting |target_id|.
-  void RemoveInstructionFromTarget(ir::Instruction* inst,
-                                   const uint32_t target_id);
-
-  using IdToDecorationInstsMap =
-      std::unordered_map<uint32_t, std::vector<ir::Instruction*>>;
   // Analyzes the defs and uses in the given |module| and populates data
   // structures in this class. Does nothing if |module| is nullptr.
   void AnalyzeDecorations();
@@ -91,16 +103,31 @@ class DecorationManager {
   template <typename T>
   std::vector<T> InternalGetDecorationsFor(uint32_t id, bool include_linkage);
 
-  // Mapping from ids to the instructions applying a decoration to them. In
-  // other words, for each id you get all decoration instructions referencing
-  // that id, be it directly (SpvOpDecorate, SpvOpMemberDecorate and
-  // SpvOpDecorateId), or indirectly (SpvOpGroupDecorate,
+  // Tracks decoration information of an ID.
+  struct TargetData {
+    std::vector<opt::Instruction*> direct_decorations;  // All decorate
+                                                        // instructions applied
+                                                        // to the tracked ID.
+    std::vector<opt::Instruction*> indirect_decorations;  // All instructions
+                                                          // applying a group to
+                                                          // the tracked ID.
+    std::vector<opt::Instruction*> decorate_insts;  // All decorate instructions
+                                                    // applying the decorations
+                                                    // of the tracked ID to
+                                                    // targets.
+                                                    // It is empty if the
+                                                    // tracked ID is not a
+                                                    // group.
+  };
+
+  // Mapping from ids to the instructions applying a decoration to those ids.
+  // In other words, for each id you get all decoration instructions
+  // referencing that id, be it directly (SpvOpDecorate, SpvOpMemberDecorate
+  // and SpvOpDecorateId), or indirectly (SpvOpGroupDecorate,
   // SpvOpMemberGroupDecorate).
-  IdToDecorationInstsMap id_to_decoration_insts_;
-  // Mapping from group ids to all the decoration instructions they apply.
-  IdToDecorationInstsMap group_to_decoration_insts_;
+  std::unordered_map<uint32_t, TargetData> id_to_decoration_insts_;
   // The enclosing module.
-  ir::Module* module_;
+  opt::Module* module_;
 };
 
 }  // namespace analysis

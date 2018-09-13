@@ -7,11 +7,12 @@
 #include <utility>
 #include <vector>
 
-#include "ash/app_list/app_list_presenter_delegate_factory.h"
+#include "ash/app_list/app_list_presenter_delegate_impl.h"
 #include "ash/app_list/model/app_list_folder_item.h"
 #include "ash/app_list/model/app_list_item.h"
-#include "ash/app_list/presenter/app_list_presenter_delegate_factory.h"
-#include "ash/app_list/presenter/app_list_view_delegate_factory.h"
+#include "ash/app_list/views/app_list_main_view.h"
+#include "ash/app_list/views/app_list_view.h"
+#include "ash/app_list/views/contents_view.h"
 #include "ash/public/cpp/app_list/answer_card_contents_registry.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/config.h"
@@ -24,9 +25,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "extensions/common/constants.h"
-#include "ui/app_list/views/app_list_main_view.h"
-#include "ui/app_list/views/app_list_view.h"
-#include "ui/app_list/views/contents_view.h"
 #include "ui/display/screen.h"
 
 namespace {
@@ -37,38 +35,18 @@ int64_t GetDisplayIdToShowAppListOn() {
       .id();
 }
 
-class ViewDelegateFactoryImpl : public app_list::AppListViewDelegateFactory {
- public:
-  explicit ViewDelegateFactoryImpl(app_list::AppListViewDelegate* delegate)
-      : delegate_(delegate) {}
-  ~ViewDelegateFactoryImpl() override {}
-
-  // app_list::AppListViewDelegateFactory:
-  app_list::AppListViewDelegate* GetDelegate() override { return delegate_; }
-
- private:
-  app_list::AppListViewDelegate* delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewDelegateFactoryImpl);
-};
-
 }  // namespace
 
 namespace ash {
 
-// TODO(hejq): Get rid of AppListPresenterDelegateFactory and pass in
-// ash::AppListPresenterDelegate directly.
 AppListControllerImpl::AppListControllerImpl()
-    : presenter_(std::make_unique<AppListPresenterDelegateFactory>(
-                     std::make_unique<ViewDelegateFactoryImpl>(this)),
-                 this),
-      keyboard_observer_(this),
+    : presenter_(std::make_unique<AppListPresenterDelegateImpl>(this)),
       is_home_launcher_enabled_(app_list::features::IsHomeLauncherEnabled()) {
   model_.AddObserver(this);
 
   // Create only for non-mash. Mash uses window tree embed API to get a
   // token to map answer card contents.
-  if (Shell::GetAshConfig() != Config::MASH) {
+  if (Shell::GetAshConfig() != Config::MASH_DEPRECATED) {
     answer_card_contents_registry_ =
         std::make_unique<app_list::AnswerCardContentsRegistry>();
   }
@@ -84,9 +62,11 @@ AppListControllerImpl::AppListControllerImpl()
   Shell::Get()->tablet_mode_controller()->AddObserver(this);
   Shell::Get()->wallpaper_controller()->AddObserver(this);
   Shell::Get()->AddShellObserver(this);
+  keyboard::KeyboardController::Get()->AddObserver(this);
 }
 
 AppListControllerImpl::~AppListControllerImpl() {
+  keyboard::KeyboardController::Get()->RemoveObserver(this);
   Shell::Get()->RemoveShellObserver(this);
   Shell::Get()->wallpaper_controller()->RemoveObserver(this);
   Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
@@ -384,6 +364,8 @@ void AppListControllerImpl::ShowAppList() {
 void AppListControllerImpl::OnAppListItemAdded(app_list::AppListItem* item) {
   if (item->is_folder())
     client_->OnFolderCreated(item->CloneMetadata());
+  else if (item->is_page_break())
+    client_->OnPageBreakItemAdded(item->id(), item->position());
 }
 
 void AppListControllerImpl::OnSessionStateChanged(
@@ -465,18 +447,6 @@ void AppListControllerImpl::FlushForTesting() {
   bindings_.FlushForTesting();
 }
 
-void AppListControllerImpl::OnVirtualKeyboardStateChanged(
-    bool activated,
-    aura::Window* root_window) {
-  auto* keyboard_controller = keyboard::KeyboardController::GetInstance();
-  if (!keyboard_controller)
-    return;
-  if (activated && !keyboard_observer_.IsObserving(keyboard_controller))
-    keyboard_observer_.Add(keyboard_controller);
-  else if (!activated && keyboard_observer_.IsObserving(keyboard_controller))
-    keyboard_observer_.Remove(keyboard_controller);
-}
-
 void AppListControllerImpl::OnOverviewModeStarting() {
   in_overview_mode_ = true;
   if (!IsHomeLauncherEnabledInTabletMode()) {
@@ -524,12 +494,12 @@ void AppListControllerImpl::OnWallpaperColorsChanged() {
     presenter_.GetView()->OnWallpaperColorsChanged();
 }
 
-void AppListControllerImpl::OnKeyboardAvailabilityChanged(
-    const bool is_available) {
-  onscreen_keyboard_shown_ = is_available;
+void AppListControllerImpl::OnKeyboardVisibilityStateChanged(
+    const bool is_visible) {
+  onscreen_keyboard_shown_ = is_visible;
   app_list::AppListView* app_list_view = presenter_.GetView();
   if (app_list_view)
-    app_list_view->OnScreenKeyboardShown(is_available);
+    app_list_view->OnScreenKeyboardShown(is_visible);
 }
 
 void AppListControllerImpl::OnWallpaperPreviewStarted() {
@@ -553,8 +523,11 @@ bool AppListControllerImpl::IsHomeLauncherEnabledInTabletMode() const {
 
 void AppListControllerImpl::StartSearch(const base::string16& raw_query) {
   last_raw_query_ = raw_query;
-  if (client_)
-    client_->StartSearch(raw_query);
+  if (client_) {
+    base::string16 query;
+    base::TrimWhitespace(raw_query, base::TRIM_ALL, &query);
+    client_->StartSearch(query);
+  }
 }
 
 void AppListControllerImpl::OpenSearchResult(const std::string& result_id,

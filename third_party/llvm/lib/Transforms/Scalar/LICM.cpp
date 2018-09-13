@@ -47,7 +47,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionAliasAnalysis.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
@@ -170,7 +170,8 @@ struct LegacyLICMPass : public LoopPass {
   /// loop preheaders be inserted into the CFG...
   ///
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesCFG();
+    AU.addPreserved<DominatorTreeWrapperPass>();
+    AU.addPreserved<LoopInfoWrapperPass>();
     AU.addRequired<TargetLibraryInfoWrapperPass>();
     if (EnableMSSALoopDependency)
       AU.addRequired<MemorySSAWrapperPass>();
@@ -220,7 +221,10 @@ PreservedAnalyses LICMPass::run(Loop &L, LoopAnalysisManager &AM,
     return PreservedAnalyses::all();
 
   auto PA = getLoopPassPreservedAnalyses();
-  PA.preserveSet<CFGAnalyses>();
+
+  PA.preserve<DominatorTreeAnalysis>();
+  PA.preserve<LoopAnalysis>();
+
   return PA;
 }
 
@@ -473,6 +477,20 @@ bool llvm::hoistRegion(DomTreeNode *N, AliasAnalysis *AA, LoopInfo *LI,
         continue;
       }
 
+      // Try hoisting the instruction out to the preheader.  We can only do
+      // this if all of the operands of the instruction are loop invariant and
+      // if it is safe to hoist the instruction.
+      //
+      if (CurLoop->hasLoopInvariantOperands(&I) &&
+          canSinkOrHoistInst(I, AA, DT, CurLoop, CurAST, SafetyInfo, ORE) &&
+          (IsMustExecute ||
+           isSafeToExecuteUnconditionally(
+               I, DT, CurLoop, SafetyInfo, ORE,
+               CurLoop->getLoopPreheader()->getTerminator()))) {
+        Changed |= hoist(I, DT, CurLoop, SafetyInfo, ORE);
+        continue;
+      }
+
       // Attempt to remove floating point division out of the loop by
       // converting it to a reciprocal multiplication.
       if (I.getOpcode() == Instruction::FDiv &&
@@ -493,20 +511,6 @@ bool llvm::hoistRegion(DomTreeNode *N, AliasAnalysis *AA, LoopInfo *LI,
 
         hoist(*ReciprocalDivisor, DT, CurLoop, SafetyInfo, ORE);
         Changed = true;
-        continue;
-      }
-
-      // Try hoisting the instruction out to the preheader.  We can only do
-      // this if all of the operands of the instruction are loop invariant and
-      // if it is safe to hoist the instruction.
-      //
-      if (CurLoop->hasLoopInvariantOperands(&I) &&
-          canSinkOrHoistInst(I, AA, DT, CurLoop, CurAST, SafetyInfo, ORE) &&
-          (IsMustExecute ||
-           isSafeToExecuteUnconditionally(
-               I, DT, CurLoop, SafetyInfo, ORE,
-               CurLoop->getLoopPreheader()->getTerminator()))) {
-        Changed |= hoist(I, DT, CurLoop, SafetyInfo, ORE);
         continue;
       }
 
@@ -686,7 +690,7 @@ bool llvm::canSinkOrHoistInst(Instruction &I, AAResults *AA, DominatorTree *DT,
 /// This is true when all incoming values are that instruction.
 /// This pattern occurs most often with LCSSA PHI nodes.
 ///
-static bool isTriviallyReplacablePHI(const PHINode &PN, const Instruction &I) {
+static bool isTriviallyReplaceablePHI(const PHINode &PN, const Instruction &I) {
   for (const Value *IncValue : PN.incoming_values())
     if (IncValue != &I)
       return false;
@@ -816,12 +820,12 @@ CloneInstructionInExitBlock(Instruction &I, BasicBlock &ExitBlock, PHINode &PN,
   return New;
 }
 
-static Instruction *sinkThroughTriviallyReplacablePHI(
+static Instruction *sinkThroughTriviallyReplaceablePHI(
     PHINode *TPN, Instruction *I, LoopInfo *LI,
     SmallDenseMap<BasicBlock *, Instruction *, 32> &SunkCopies,
     const LoopSafetyInfo *SafetyInfo, const Loop *CurLoop) {
-  assert(isTriviallyReplacablePHI(*TPN, *I) &&
-         "Expect only trivially replacalbe PHI");
+  assert(isTriviallyReplaceablePHI(*TPN, *I) &&
+         "Expect only trivially replaceable PHI");
   BasicBlock *ExitBlock = TPN->getParent();
   Instruction *New;
   auto It = SunkCopies.find(ExitBlock);
@@ -864,7 +868,7 @@ static void splitPredecessorsOfLoopExit(PHINode *PN, DominatorTree *DT,
   assert(ExitBlockSet.count(ExitBB) && "Expect the PHI is in an exit block.");
 
   // Split predecessors of the loop exit to make instructions in the loop are
-  // exposed to exit blocks through trivially replacable PHIs while keeping the
+  // exposed to exit blocks through trivially replaceable PHIs while keeping the
   // loop in the canonical form where each predecessor of each exit block should
   // be contained within the loop. For example, this will convert the loop below
   // from
@@ -876,7 +880,7 @@ static void splitPredecessorsOfLoopExit(PHINode *PN, DominatorTree *DT,
   //   %v2 =
   //   br %LE, %LB1
   // LE:
-  //   %p = phi [%v1, %LB1], [%v2, %LB2] <-- non-trivially replacable
+  //   %p = phi [%v1, %LB1], [%v2, %LB2] <-- non-trivially replaceable
   //
   // to
   //
@@ -887,10 +891,10 @@ static void splitPredecessorsOfLoopExit(PHINode *PN, DominatorTree *DT,
   //   %v2 =
   //   br %LE.split2, %LB1
   // LE.split:
-  //   %p1 = phi [%v1, %LB1]  <-- trivially replacable
+  //   %p1 = phi [%v1, %LB1]  <-- trivially replaceable
   //   br %LE
   // LE.split2:
-  //   %p2 = phi [%v2, %LB2]  <-- trivially replacable
+  //   %p2 = phi [%v2, %LB2]  <-- trivially replaceable
   //   br %LE
   // LE:
   //   %p = phi [%p1, %LE.split], [%p2, %LE.split2]
@@ -971,14 +975,14 @@ static bool sink(Instruction &I, LoopInfo *LI, DominatorTree *DT,
     }
 
     VisitedUsers.insert(PN);
-    if (isTriviallyReplacablePHI(*PN, I))
+    if (isTriviallyReplaceablePHI(*PN, I))
       continue;
 
     if (!canSplitPredecessors(PN, SafetyInfo))
       return Changed;
 
     // Split predecessors of the PHI so that we can make users trivially
-    // replacable.
+    // replaceable.
     splitPredecessorsOfLoopExit(PN, DT, LI, CurLoop, SafetyInfo);
 
     // Should rebuild the iterators, as they may be invalidated by
@@ -1013,9 +1017,9 @@ static bool sink(Instruction &I, LoopInfo *LI, DominatorTree *DT,
     PHINode *PN = cast<PHINode>(User);
     assert(ExitBlockSet.count(PN->getParent()) &&
            "The LCSSA PHI is not in an exit block!");
-    // The PHI must be trivially replacable.
-    Instruction *New = sinkThroughTriviallyReplacablePHI(PN, &I, LI, SunkCopies,
-                                                         SafetyInfo, CurLoop);
+    // The PHI must be trivially replaceable.
+    Instruction *New = sinkThroughTriviallyReplaceablePHI(PN, &I, LI, SunkCopies,
+                                                          SafetyInfo, CurLoop);
     PN->replaceAllUsesWith(New);
     PN->eraseFromParent();
     Changed = true;

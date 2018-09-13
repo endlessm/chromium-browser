@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "ash/login/login_screen_controller.h"
-#include "ash/login/ui/layout_util.h"
 #include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_display_style.h"
 #include "ash/login/ui/login_password_view.h"
@@ -16,6 +15,7 @@
 #include "ash/login/ui/login_user_view.h"
 #include "ash/login/ui/non_accessible_view.h"
 #include "ash/login/ui/pin_keyboard_animation.h"
+#include "ash/login/ui/views_utils.h"
 #include "ash/public/cpp/login_constants.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
@@ -100,6 +100,26 @@ ui::CallbackLayerAnimationObserver* BuildObserverToHideView(views::View* view) {
       },
       view));
 }
+
+// Clears the password for the given |LoginPasswordView| instance and then
+// deletes itself.
+class ClearPasswordAnimationObserver : public ui::ImplicitAnimationObserver {
+ public:
+  explicit ClearPasswordAnimationObserver(LoginPasswordView* view)
+      : view_(view) {}
+  ~ClearPasswordAnimationObserver() override = default;
+
+  // ui::ImplicitAnimationObserver:
+  void OnImplicitAnimationsCompleted() override {
+    view_->Clear();
+    delete this;
+  }
+
+ private:
+  LoginPasswordView* view_;
+
+  DISALLOW_COPY_AND_ASSIGN(ClearPasswordAnimationObserver);
+};
 
 // A view which has a round border and a fingerprint icon at the center.
 class FingerprintIconView : public views::View {
@@ -384,17 +404,17 @@ LoginAuthUserView::LoginAuthUserView(const mojom::LoginUserInfoPtr& user,
 
   // Build layout.
   auto* wrapped_password_view =
-      login_layout_util::WrapViewForPreferredSize(password_view_);
+      login_views_utils::WrapViewForPreferredSize(password_view_);
   auto* wrapped_online_sign_in_message_view =
-      login_layout_util::WrapViewForPreferredSize(online_sign_in_message_);
+      login_views_utils::WrapViewForPreferredSize(online_sign_in_message_);
   auto* wrapped_disabled_auth_message_view =
-      login_layout_util::WrapViewForPreferredSize(disabled_auth_message_);
+      login_views_utils::WrapViewForPreferredSize(disabled_auth_message_);
   auto* wrapped_user_view =
-      login_layout_util::WrapViewForPreferredSize(user_view_);
+      login_views_utils::WrapViewForPreferredSize(user_view_);
   auto* wrapped_pin_view =
-      login_layout_util::WrapViewForPreferredSize(pin_view_);
+      login_views_utils::WrapViewForPreferredSize(pin_view_);
   auto* wrapped_fingerprint_view =
-      login_layout_util::WrapViewForPreferredSize(fingerprint_view_);
+      login_views_utils::WrapViewForPreferredSize(fingerprint_view_);
 
   // Add views in tabbing order; they are rendered in a different order below.
   AddChildView(wrapped_password_view);
@@ -448,14 +468,15 @@ void LoginAuthUserView::SetAuthMethods(uint32_t auth_methods) {
   bool has_tap = HasAuthMethod(AUTH_TAP);
   bool force_online_sign_in = HasAuthMethod(AUTH_ONLINE_SIGN_IN);
   bool has_fingerprint = HasAuthMethod(AUTH_FINGERPRINT);
-  bool disabled_auth = HasAuthMethod(AUTH_DISABLED);
+  bool auth_disabled = HasAuthMethod(AUTH_DISABLED);
+  bool hide_auth = auth_disabled || force_online_sign_in;
 
   online_sign_in_message_->SetVisible(force_online_sign_in);
-  disabled_auth_message_->SetVisible(disabled_auth);
+  disabled_auth_message_->SetVisible(auth_disabled);
 
   password_view_->SetEnabled(has_password);
   password_view_->SetFocusEnabledForChildViews(has_password);
-  password_view_->SetVisible(!force_online_sign_in && !disabled_auth);
+  password_view_->SetVisible(!hide_auth);
   password_view_->layer()->SetOpacity(has_password ? 1 : 0);
 
   if (!had_password && has_password)
@@ -479,9 +500,10 @@ void LoginAuthUserView::SetAuthMethods(uint32_t auth_methods) {
   // Only the active auth user view has a password displayed. If that is the
   // case, then render the user view as if it was always focused, since clicking
   // on it will not do anything (such as swapping users).
-  user_view_->SetForceOpaque(has_password || force_online_sign_in ||
-                             disabled_auth);
+  user_view_->SetForceOpaque(has_password || hide_auth);
   user_view_->SetTapEnabled(!has_password);
+  if (hide_auth)
+    user_view_->RequestFocus();
 
   PreferredSizeChanged();
 }
@@ -527,8 +549,8 @@ void LoginAuthUserView::ApplyAnimationPostLayout() {
           base::TimeDelta::FromMilliseconds(
               login_constants::kChangeUserAnimationDurationMs));
   transition->set_tween_type(gfx::Tween::Type::FAST_OUT_SLOW_IN);
-  auto* sequence = new ui::LayerAnimationSequence(std::move(transition));
-  layer()->GetAnimator()->StartAnimation(sequence);
+  layer()->GetAnimator()->StartAnimation(
+      new ui::LayerAnimationSequence(std::move(transition)));
 
   ////////
   // Fade the password view if it is being hidden or shown.
@@ -546,6 +568,10 @@ void LoginAuthUserView::ApplyAnimationPostLayout() {
       settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(
           login_constants::kChangeUserAnimationDurationMs));
       settings.SetTweenType(gfx::Tween::Type::FAST_OUT_SLOW_IN);
+      if (cached_animation_state_->had_password && !has_password) {
+        settings.AddObserver(
+            new ClearPasswordAnimationObserver(password_view_));
+      }
 
       password_view_->layer()->SetOpacity(opacity_end);
     }
@@ -575,7 +601,6 @@ void LoginAuthUserView::ApplyAnimationPostLayout() {
             login_constants::kChangeUserAnimationDurationMs),
         gfx::Tween::FAST_OUT_SLOW_IN);
     auto* sequence = new ui::LayerAnimationSequence(std::move(transition));
-    pin_view_->layer()->GetAnimator()->ScheduleAnimation(sequence);
 
     // Hide the PIN keyboard after animation if needed.
     if (!has_pin) {
@@ -583,6 +608,8 @@ void LoginAuthUserView::ApplyAnimationPostLayout() {
       sequence->AddObserver(observer);
       observer->SetActive();
     }
+
+    pin_view_->layer()->GetAnimator()->ScheduleAnimation(sequence);
   }
 
   cached_animation_state_.reset();
@@ -643,8 +670,7 @@ void LoginAuthUserView::OnAuthSubmit(const base::string16& password) {
   // Pressing enter when the password field is empty and tap-to-unlock is
   // enabled should attempt unlock.
   if (HasAuthMethod(AUTH_TAP) && password.empty()) {
-    Shell::Get()->login_screen_controller()->AttemptUnlock(
-        current_user()->basic_user_info->account_id);
+    OnUserViewTap();
     return;
   }
 
@@ -672,8 +698,42 @@ void LoginAuthUserView::OnAuthComplete(base::Optional<bool> auth_success) {
   on_auth_.Run(auth_success.value());
 }
 
+void LoginAuthUserView::AnimateEllipses(const base::string16& placeholder,
+                                        int step) {
+  const int kEllipsesCount = 3;
+  const int kAnimationDelayMs = 750;
+  const base::char16 kPeriod = '.';
+
+  // There are four total steps, so increment just past kEllipsesCount.
+  if (step > kEllipsesCount) {
+    // Start the animation over.
+    step = 0;
+  }
+
+  base::string16 ellipses;
+  for (int i = 0; i < step; i++)
+    ellipses += kPeriod;
+
+  password_view_->SetPlaceholderText(placeholder + ellipses);
+
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&LoginAuthUserView::AnimateEllipses,
+                     weak_factory_.GetWeakPtr(), placeholder, ++step),
+      base::TimeDelta::FromMilliseconds(kAnimationDelayMs));
+}
+
 void LoginAuthUserView::OnUserViewTap() {
   if (HasAuthMethod(AUTH_TAP)) {
+    password_view_->SetReadOnly(true);
+
+    base::string16 placeholder = l10n_util::GetStringUTF16(
+        IDS_ASH_LOGIN_POD_PASSWORD_SIGNING_IN_PLACEHOLDER);
+    password_view_->SetPlaceholderText(placeholder);
+
+    const int kInitialStep = 0;
+    AnimateEllipses(placeholder, kInitialStep);
+
     Shell::Get()->login_screen_controller()->AttemptUnlock(
         current_user()->basic_user_info->account_id);
   } else if (HasAuthMethod(AUTH_ONLINE_SIGN_IN)) {
@@ -686,7 +746,7 @@ void LoginAuthUserView::OnUserViewTap() {
 
 void LoginAuthUserView::OnOnlineSignInMessageTap() {
   Shell::Get()->login_screen_controller()->ShowGaiaSignin(
-      current_user()->basic_user_info->account_id);
+      true /*can_close*/, current_user()->basic_user_info->account_id);
 }
 
 bool LoginAuthUserView::HasAuthMethod(AuthMethods auth_method) const {

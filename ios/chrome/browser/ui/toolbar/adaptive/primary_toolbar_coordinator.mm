@@ -55,6 +55,7 @@
 @implementation PrimaryToolbarCoordinator
 
 @dynamic viewController;
+@synthesize commandDispatcher = _commandDispatcher;
 @synthesize delegate = _delegate;
 @synthesize locationBarCoordinator = _locationBarCoordinator;
 @synthesize orchestrator = _orchestrator;
@@ -63,6 +64,11 @@
 #pragma mark - ChromeCoordinator
 
 - (void)start {
+  DCHECK(self.commandDispatcher);
+
+  [self.commandDispatcher startDispatchingToTarget:self
+                                       forProtocol:@protocol(FakeboxFocuser)];
+
   self.viewController = [[PrimaryToolbarViewController alloc] init];
   self.viewController.buttonFactory = [self buttonFactoryWithType:PRIMARY];
   self.viewController.dispatcher = self.dispatcher;
@@ -73,6 +79,18 @@
 
   [self setUpLocationBar];
   self.viewController.locationBarView = self.locationBarCoordinator.view;
+  if ([self.locationBarCoordinator
+          respondsToSelector:@selector(locationBarAnimatee)]) {
+    self.orchestrator.locationBarAnimatee =
+        [self.locationBarCoordinator locationBarAnimatee];
+  }
+
+  if ([self.locationBarCoordinator
+          respondsToSelector:@selector(editViewAnimatee)]) {
+    self.orchestrator.editViewAnimatee =
+        [self.locationBarCoordinator editViewAnimatee];
+  }
+
   [super start];
 
   _fullscreenObserver =
@@ -84,18 +102,11 @@
 
 - (void)stop {
   [super stop];
+  [self.commandDispatcher stopDispatchingToTarget:self];
   [self.locationBarCoordinator stop];
 }
 
 #pragma mark - PrimaryToolbarCoordinator
-
-- (id<VoiceSearchControllerDelegate>)voiceSearchDelegate {
-  return self.locationBarCoordinator;
-}
-
-- (id<QRScannerResultLoading>)QRScannerResultLoader {
-  return self.locationBarCoordinator;
-}
 
 - (id<ActivityServicePositioner>)activityServicePositioner {
   return self.viewController;
@@ -118,10 +129,15 @@
 }
 
 - (void)transitionToLocationBarFocusedState:(BOOL)focused {
+  if (self.viewController.traitCollection.verticalSizeClass ==
+      UIUserInterfaceSizeClassUnspecified) {
+    return;
+  }
+
   [self.orchestrator
       transitionToStateOmniboxFocused:focused
-                      toolbarExpanded:focused &&
-                                      IsSplitToolbarMode(self.viewController)
+                      toolbarExpanded:focused && !IsRegularXRegularSizeClass(
+                                                     self.viewController)
                              animated:YES];
 }
 
@@ -134,7 +150,8 @@
   [self.orchestrator
       transitionToStateOmniboxFocused:omniboxFocused
                       toolbarExpanded:omniboxFocused &&
-                                      IsSplitToolbarMode(self.viewController)
+                                      !IsRegularXRegularSizeClass(
+                                          self.viewController)
                              animated:NO];
 }
 
@@ -148,8 +165,7 @@
   // Hide the toolbar if the NTP is currently displayed.
   web::WebState* webState = self.webStateList->GetActiveWebState();
   if (webState && IsVisibleUrlNewTabPage(webState)) {
-    self.viewController.view.hidden =
-        !IsRegularXRegularSizeClass(self.viewController);
+    self.viewController.view.hidden = IsSplitToolbarMode();
   }
 }
 
@@ -164,6 +180,10 @@
 
 - (UIView*)popupParentView {
   return self.viewController.view.superview;
+}
+
+- (UIViewController*)popupParentViewController {
+  return self.viewController.parentViewController;
 }
 
 #pragma mark - Protected override
@@ -201,6 +221,7 @@
   self.locationBarCoordinator.browserState = self.browserState;
   self.locationBarCoordinator.dispatcher =
       base::mac::ObjCCastStrict<CommandDispatcher>(self.dispatcher);
+  self.locationBarCoordinator.commandDispatcher = self.commandDispatcher;
   self.locationBarCoordinator.URLLoader = self.URLLoader;
   self.locationBarCoordinator.delegate = self.delegate;
   self.locationBarCoordinator.webStateList = self.webStateList;

@@ -21,6 +21,7 @@ import android.os.SystemClock;
 import android.view.Surface;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -36,6 +37,7 @@ import org.webrtc.VideoFrame;
 // Java-side of peerconnection.cc:MediaCodecVideoDecoder.
 // This class is an implementation detail of the Java PeerConnection API.
 @SuppressWarnings("deprecation")
+@Deprecated
 public class MediaCodecVideoDecoder {
   // This class is constructed, operated, and destroyed by its C++ incarnation,
   // so the class and its methods have non-public visibility.  The API this
@@ -43,6 +45,86 @@ public class MediaCodecVideoDecoder {
   // possibly to minimize the amount of translation work necessary.
 
   private static final String TAG = "MediaCodecVideoDecoder";
+
+  /**
+   * Create a VideoDecoderFactory that can be injected in the PeerConnectionFactory and replicate
+   * the old behavior.
+   */
+  public static VideoDecoderFactory createFactory() {
+    return new DefaultVideoDecoderFactory(new HwDecoderFactory());
+  }
+
+  // Factory for creating HW MediaCodecVideoDecoder instances.
+  static class HwDecoderFactory implements VideoDecoderFactory {
+    private static boolean isSameCodec(VideoCodecInfo codecA, VideoCodecInfo codecB) {
+      if (!codecA.name.equalsIgnoreCase(codecB.name)) {
+        return false;
+      }
+      return codecA.name.equalsIgnoreCase("H264")
+          ? H264Utils.isSameH264Profile(codecA.params, codecB.params)
+          : true;
+    }
+
+    private static boolean isCodecSupported(
+        VideoCodecInfo[] supportedCodecs, VideoCodecInfo codec) {
+      for (VideoCodecInfo supportedCodec : supportedCodecs) {
+        if (isSameCodec(supportedCodec, codec)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    private static VideoCodecInfo[] getSupportedHardwareCodecs() {
+      final List<VideoCodecInfo> codecs = new ArrayList<VideoCodecInfo>();
+
+      if (isVp8HwSupported()) {
+        Logging.d(TAG, "VP8 HW Decoder supported.");
+        codecs.add(new VideoCodecInfo("VP8", new HashMap<>()));
+      }
+
+      if (isVp9HwSupported()) {
+        Logging.d(TAG, "VP9 HW Decoder supported.");
+        codecs.add(new VideoCodecInfo("VP9", new HashMap<>()));
+      }
+
+      if (isH264HighProfileHwSupported()) {
+        Logging.d(TAG, "H.264 High Profile HW Decoder supported.");
+        codecs.add(H264Utils.DEFAULT_H264_HIGH_PROFILE_CODEC);
+      }
+
+      if (isH264HwSupported()) {
+        Logging.d(TAG, "H.264 HW Decoder supported.");
+        codecs.add(H264Utils.DEFAULT_H264_BASELINE_PROFILE_CODEC);
+      }
+
+      return codecs.toArray(new VideoCodecInfo[codecs.size()]);
+    }
+
+    private final VideoCodecInfo[] supportedHardwareCodecs = getSupportedHardwareCodecs();
+
+    @Override
+    public VideoCodecInfo[] getSupportedCodecs() {
+      return supportedHardwareCodecs;
+    }
+
+    @Nullable
+    @Override
+    public VideoDecoder createDecoder(VideoCodecInfo codec) {
+      if (!isCodecSupported(supportedHardwareCodecs, codec)) {
+        Logging.d(TAG, "No HW video decoder for codec " + codec.name);
+        return null;
+      }
+      Logging.d(TAG, "Create HW video decoder for " + codec.name);
+      return new WrappedNativeVideoDecoder() {
+        @Override
+        public long createNativeVideoDecoder() {
+          return nativeCreateDecoder(codec.name, useSurface());
+        }
+      };
+    }
+  }
+
   private static final long MAX_DECODE_TIME_MS = 200;
 
   // TODO(magjed): Use MediaFormat constants when part of the public API.
@@ -55,6 +137,7 @@ public class MediaCodecVideoDecoder {
 
   // Tracks webrtc::VideoCodecType.
   public enum VideoCodecType {
+    VIDEO_CODEC_UNKNOWN,
     VIDEO_CODEC_VP8,
     VIDEO_CODEC_VP9,
     VIDEO_CODEC_H264;
@@ -78,6 +161,7 @@ public class MediaCodecVideoDecoder {
   private static int codecErrors = 0;
   // List of disabled codec types - can be set from application.
   private static Set<String> hwDecoderDisabledTypes = new HashSet<String>();
+  @Nullable private static EglBase eglBase;
 
   @Nullable private Thread mediaCodecThread;
   @Nullable private MediaCodec mediaCodec;
@@ -140,7 +224,6 @@ public class MediaCodecVideoDecoder {
   private int sliceHeight;
   private boolean hasDecodedFirstFrame;
   private final Queue<TimeStamps> decodeStartTimeMs = new ArrayDeque<TimeStamps>();
-  private boolean useSurface;
 
   // The below variables are only used when decoding to a Surface.
   @Nullable private TextureListener textureListener;
@@ -154,6 +237,27 @@ public class MediaCodecVideoDecoder {
   // is hanging and can no longer be used in the next call.
   public static interface MediaCodecVideoDecoderErrorCallback {
     void onMediaCodecVideoDecoderCriticalError(int codecErrors);
+  }
+
+  /** Set EGL context used by HW decoding. The EGL context must be shared with the remote render. */
+  public static void setEglContext(EglBase.Context eglContext) {
+    if (eglBase != null) {
+      Logging.w(TAG, "Egl context already set.");
+      eglBase.release();
+    }
+    eglBase = EglBase.create(eglContext);
+  }
+
+  /** Dispose the EGL context used by HW decoding. */
+  public static void disposeEglContext() {
+    if (eglBase != null) {
+      eglBase.release();
+      eglBase = null;
+    }
+  }
+
+  static boolean useSurface() {
+    return eglBase != null;
   }
 
   public static void setErrorCallback(MediaCodecVideoDecoderErrorCallback errorCallback) {
@@ -179,25 +283,21 @@ public class MediaCodecVideoDecoder {
   }
 
   // Functions to query if HW decoding is supported.
-  @CalledByNativeUnchecked
   public static boolean isVp8HwSupported() {
     return !hwDecoderDisabledTypes.contains(VP8_MIME_TYPE)
         && (findDecoder(VP8_MIME_TYPE, supportedVp8HwCodecPrefixes()) != null);
   }
 
-  @CalledByNativeUnchecked
   public static boolean isVp9HwSupported() {
     return !hwDecoderDisabledTypes.contains(VP9_MIME_TYPE)
         && (findDecoder(VP9_MIME_TYPE, supportedVp9HwCodecPrefixes) != null);
   }
 
-  @CalledByNativeUnchecked
   public static boolean isH264HwSupported() {
     return !hwDecoderDisabledTypes.contains(H264_MIME_TYPE)
         && (findDecoder(H264_MIME_TYPE, supportedH264HwCodecPrefixes()) != null);
   }
 
-  @CalledByNative
   public static boolean isH264HighProfileHwSupported() {
     if (hwDecoderDisabledTypes.contains(H264_MIME_TYPE)) {
       return false;
@@ -322,16 +422,13 @@ public class MediaCodecVideoDecoder {
     }
   }
 
-  // Pass null in |eglContext| to configure the codec for ByteBuffer output.
   @CalledByNativeUnchecked
-  private boolean initDecode(
-      VideoCodecType type, int width, int height, @Nullable EglBase.Context eglContext) {
+  private boolean initDecode(VideoCodecType type, int width, int height) {
     if (mediaCodecThread != null) {
       throw new RuntimeException("initDecode: Forgot to release()?");
     }
 
     String mime = null;
-    useSurface = (eglContext != null);
     String[] supportedCodecPrefixes = null;
     if (type == VideoCodecType.VIDEO_CODEC_VP8) {
       mime = VP8_MIME_TYPE;
@@ -350,8 +447,9 @@ public class MediaCodecVideoDecoder {
       throw new RuntimeException("Cannot find HW decoder for " + type);
     }
 
-    Logging.d(TAG, "Java initDecode: " + type + " : " + width + " x " + height + ". Color: 0x"
-            + Integer.toHexString(properties.colorFormat) + ". Use Surface: " + useSurface);
+    Logging.d(TAG,
+        "Java initDecode: " + type + " : " + width + " x " + height + ". Color: 0x"
+            + Integer.toHexString(properties.colorFormat) + ". Use Surface: " + useSurface());
 
     runningInstance = this; // Decoder is now running and can be queried for stack traces.
     mediaCodecThread = Thread.currentThread();
@@ -361,18 +459,19 @@ public class MediaCodecVideoDecoder {
       stride = width;
       sliceHeight = height;
 
-      if (useSurface) {
+      if (useSurface()) {
         @Nullable
-        final SurfaceTextureHelper surfaceTextureHelper =
-            SurfaceTextureHelper.create("Decoder SurfaceTextureHelper", eglContext);
+        final SurfaceTextureHelper surfaceTextureHelper = SurfaceTextureHelper.create(
+            "Decoder SurfaceTextureHelper", eglBase.getEglBaseContext());
         if (surfaceTextureHelper != null) {
           textureListener = new TextureListener(surfaceTextureHelper);
+          textureListener.setSize(width, height);
           surface = new Surface(surfaceTextureHelper.getSurfaceTexture());
         }
       }
 
       MediaFormat format = MediaFormat.createVideoFormat(mime, width, height);
-      if (!useSurface) {
+      if (!useSurface()) {
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, properties.colorFormat);
       }
       Logging.d(TAG, "  Format: " + format);
@@ -413,6 +512,9 @@ public class MediaCodecVideoDecoder {
 
     this.width = width;
     this.height = height;
+    if (textureListener != null) {
+      textureListener.setSize(width, height);
+    }
     decodeStartTimeMs.clear();
     dequeuedSurfaceOutputBuffers.clear();
     hasDecodedFirstFrame = false;
@@ -456,7 +558,7 @@ public class MediaCodecVideoDecoder {
     mediaCodec = null;
     mediaCodecThread = null;
     runningInstance = null;
-    if (useSurface) {
+    if (useSurface()) {
       surface.release();
       surface = null;
       textureListener.release();
@@ -633,12 +735,12 @@ public class MediaCodecVideoDecoder {
   }
 
   // Poll based texture listener.
-  private class TextureListener implements SurfaceTextureHelper.OnTextureFrameAvailableListener {
+  private class TextureListener implements VideoSink {
     private final SurfaceTextureHelper surfaceTextureHelper;
     // |newFrameLock| is used to synchronize arrival of new frames with wait()/notifyAll().
     private final Object newFrameLock = new Object();
     // |bufferToRender| is non-null when waiting for transition between addBufferToRender() to
-    // onTextureFrameAvailable().
+    // onFrame().
     @Nullable private DecodedOutputBuffer bufferToRender;
     @Nullable private DecodedTextureBuffer renderedBuffer;
 
@@ -661,19 +763,21 @@ public class MediaCodecVideoDecoder {
       }
     }
 
+    public void setSize(int width, int height) {
+      surfaceTextureHelper.setTextureSize(width, height);
+    }
+
     // Callback from |surfaceTextureHelper|. May be called on an arbitrary thread.
     @Override
-    public void onTextureFrameAvailable(
-        int oesTextureId, float[] transformMatrix, long timestampNs) {
+    public void onFrame(VideoFrame frame) {
       synchronized (newFrameLock) {
         if (renderedBuffer != null) {
-          Logging.e(
-              TAG, "Unexpected onTextureFrameAvailable() called while already holding a texture.");
+          Logging.e(TAG, "Unexpected onFrame() called while already holding a texture.");
           throw new IllegalStateException("Already holding a texture.");
         }
         // |timestampNs| is always zero on some Android versions.
-        final VideoFrame.Buffer buffer = surfaceTextureHelper.createTextureBuffer(
-            width, height, RendererCommon.convertMatrixToAndroidGraphicsMatrix(transformMatrix));
+        final VideoFrame.Buffer buffer = frame.getBuffer();
+        buffer.retain();
         renderedBuffer = new DecodedTextureBuffer(buffer, bufferToRender.presentationTimeStampMs,
             bufferToRender.timeStampMs, bufferToRender.ntpTimeStampMs, bufferToRender.decodeTimeMs,
             SystemClock.elapsedRealtime() - bufferToRender.endDecodeTimeMs);
@@ -702,9 +806,9 @@ public class MediaCodecVideoDecoder {
     }
 
     public void release() {
-      // SurfaceTextureHelper.stopListening() will block until any onTextureFrameAvailable() in
-      // progress is done. Therefore, the call must be outside any synchronized
-      // statement that is also used in the onTextureFrameAvailable() above to avoid deadlocks.
+      // SurfaceTextureHelper.stopListening() will block until any onFrame() in progress is done.
+      // Therefore, the call must be outside any synchronized statement that is also used in the
+      // onFrame() above to avoid deadlocks.
       surfaceTextureHelper.stopListening();
       synchronized (newFrameLock) {
         if (renderedBuffer != null) {
@@ -762,8 +866,11 @@ public class MediaCodecVideoDecoder {
           }
           width = newWidth;
           height = newHeight;
+          if (textureListener != null) {
+            textureListener.setSize(width, height);
+          }
 
-          if (!useSurface && format.containsKey(MediaFormat.KEY_COLOR_FORMAT)) {
+          if (!useSurface() && format.containsKey(MediaFormat.KEY_COLOR_FORMAT)) {
             colorFormat = format.getInteger(MediaFormat.KEY_COLOR_FORMAT);
             Logging.d(TAG, "Color: 0x" + Integer.toHexString(colorFormat));
             if (!supportedColorList.contains(colorFormat)) {
@@ -807,7 +914,7 @@ public class MediaCodecVideoDecoder {
   @CalledByNativeUnchecked
   private @Nullable DecodedTextureBuffer dequeueTextureBuffer(int dequeueTimeoutMs) {
     checkOnMediaCodecThread();
-    if (!useSurface) {
+    if (!useSurface()) {
       throw new IllegalStateException("dequeueTexture() called for byte buffer decoding.");
     }
     DecodedOutputBuffer outputBuffer = dequeueOutputBuffer(dequeueTimeoutMs);
@@ -871,7 +978,7 @@ public class MediaCodecVideoDecoder {
   private void returnDecodedOutputBuffer(int index)
       throws IllegalStateException, MediaCodec.CodecException {
     checkOnMediaCodecThread();
-    if (useSurface) {
+    if (useSurface()) {
       throw new IllegalStateException("returnDecodedOutputBuffer() called for surface decoding.");
     }
     mediaCodec.releaseOutputBuffer(index, false /* render */);
@@ -911,4 +1018,6 @@ public class MediaCodecVideoDecoder {
   int getSliceHeight() {
     return sliceHeight;
   }
+
+  private static native long nativeCreateDecoder(String codec, boolean useSurface);
 }

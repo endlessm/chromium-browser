@@ -69,6 +69,7 @@
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "SIRegisterInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
@@ -567,7 +568,7 @@ static bool hoistAndMergeSGPRInits(unsigned Reg,
 }
 
 bool SIFixSGPRCopies::runOnMachineFunction(MachineFunction &MF) {
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   MachineRegisterInfo &MRI = MF.getRegInfo();
   const SIRegisterInfo *TRI = ST.getRegisterInfo();
   const SIInstrInfo *TII = ST.getInstrInfo();

@@ -5,6 +5,7 @@
 #include "ash/login/ui/login_password_view.h"
 
 #include "ash/login/ui/hover_notifier.h"
+#include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_button.h"
 #include "ash/login/ui/non_accessible_view.h"
 #include "ash/public/cpp/login_constants.h"
@@ -168,32 +169,51 @@ IconBundle GetEasyUnlockResources(mojom::EasyUnlockIconId id) {
 //
 //    [1][2][3][4]
 //
-// |duration|: The total duration of the animation.
-// |num_frames|: The total number of frames in the animation.
-AnimationFrames DecodeAnimationStrip(const SkBitmap& bitmap,
-                                     base::TimeDelta duration,
-                                     int num_frames) {
-  int frame_width = bitmap.width() / num_frames;
-  base::TimeDelta frame_duration = duration / num_frames;
+class EasyUnlockAnimationDecoder
+    : public AnimatedRoundedImageView::AnimationDecoder {
+ public:
+  EasyUnlockAnimationDecoder(const gfx::ImageSkia& image,
+                             base::TimeDelta duration,
+                             int num_frames)
+      : image_(image), duration_(duration), num_frames_(num_frames) {}
+  ~EasyUnlockAnimationDecoder() override = default;
 
-  AnimationFrames animation;
-  animation.reserve(num_frames);
-  for (int i = 0; i < num_frames; ++i) {
-    // Get the subsection of the animation strip.
-    SkBitmap frame_bitmap;
-    bitmap.extractSubset(
-        &frame_bitmap,
-        SkIRect::MakeXYWH(i * frame_width, 0, frame_width, bitmap.height()));
+  // AnimatedRoundedImageView::AnimationDecoder:
+  AnimationFrames Decode(float image_scale) override {
+    SkBitmap bitmap = image_.GetRepresentation(image_scale).sk_bitmap();
 
-    // Add an animation frame.
-    AnimationFrame frame;
-    frame.duration = frame_duration;
-    frame.image = gfx::ImageSkia::CreateFrom1xBitmap(frame_bitmap);
-    animation.push_back(frame);
+    int frame_width = bitmap.width() / num_frames_;
+    base::TimeDelta frame_duration = duration_ / num_frames_;
+
+    AnimationFrames animation;
+    animation.reserve(num_frames_);
+    for (int i = 0; i < num_frames_; ++i) {
+      // Get the subsection of the animation strip.
+      SkBitmap frame_bitmap;
+      bitmap.extractSubset(
+          &frame_bitmap,
+          SkIRect::MakeXYWH(i * frame_width, 0, frame_width, bitmap.height()));
+
+      // Add an animation frame.
+      AnimationFrame frame;
+      frame.duration = frame_duration;
+      frame.image = gfx::ImageSkia::CreateFrom1xBitmap(frame_bitmap);
+      animation.push_back(frame);
+    }
+
+    return animation;
   }
 
-  return animation;
-}
+ private:
+  // The animation image source.
+  gfx::ImageSkia image_;
+  // The total duration of the animation.
+  base::TimeDelta duration_;
+  // The total number of frames in the animation.
+  int num_frames_;
+
+  DISALLOW_COPY_AND_ASSIGN(EasyUnlockAnimationDecoder);
+};
 
 }  // namespace
 
@@ -308,9 +328,8 @@ class LoginPasswordView::EasyUnlockIcon : public views::Button,
       DCHECK_EQ(resources.normal, resources.hover);
       DCHECK_EQ(resources.normal, resources.pressed);
       if (changed_states) {
-        AnimationFrames animation = DecodeAnimationStrip(
-            *image->bitmap(), resources.duration, resources.num_frames);
-        icon_->SetAnimation(animation);
+        icon_->SetAnimationDecoder(std::make_unique<EasyUnlockAnimationDecoder>(
+            *image, resources.duration, resources.num_frames));
       }
     } else {
       icon_->SetImage(*image);
@@ -563,6 +582,33 @@ void LoginPasswordView::ContentsChanged(views::Textfield* sender,
   DCHECK_EQ(sender, textfield_);
   UpdateUiState();
   on_password_text_changed_.Run(new_contents.empty() /*is_empty*/);
+}
+
+// Implements swapping active user with arrow keys
+bool LoginPasswordView::HandleKeyEvent(views::Textfield* sender,
+                                       const ui::KeyEvent& key_event) {
+  // Treat the password field as normal if it has text
+  if (!textfield_->text().empty())
+    return false;
+
+  if (key_event.type() != ui::ET_KEY_PRESSED)
+    return false;
+
+  if (key_event.is_repeat())
+    return false;
+
+  switch (key_event.key_code()) {
+    case ui::VKEY_LEFT:
+      LockScreen::Get()->FocusPreviousUser();
+      break;
+    case ui::VKEY_RIGHT:
+      LockScreen::Get()->FocusNextUser();
+      break;
+    default:
+      return false;
+  }
+
+  return true;
 }
 
 void LoginPasswordView::UpdateUiState() {

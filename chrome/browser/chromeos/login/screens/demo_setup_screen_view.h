@@ -1,9 +1,11 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_SCREENS_DEMO_SETUP_SCREEN_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_SCREENS_DEMO_SETUP_SCREEN_VIEW_H_
+
+#include <string>
 
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 
@@ -26,6 +28,9 @@ class DemoSetupScreenView {
 
   // Sets view and screen.
   virtual void Bind(DemoSetupScreen* screen) = 0;
+
+  // Handles setup result.
+  virtual void OnSetupFinished(bool is_success, const std::string& message) = 0;
 };
 
 }  // namespace chromeos

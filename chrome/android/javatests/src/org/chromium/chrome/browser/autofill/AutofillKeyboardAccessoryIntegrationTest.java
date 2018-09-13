@@ -21,7 +21,6 @@ import android.widget.LinearLayout;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ThreadUtils;
@@ -39,7 +38,6 @@ import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
@@ -62,8 +60,6 @@ public class AutofillKeyboardAccessoryIntegrationTest {
     @Rule
     public ChromeActivityTestRule<ChromeActivity> mActivityTestRule =
             new ChromeActivityTestRule<>(ChromeActivity.class);
-    @Rule
-    public TestRule mFeaturesProcessor = new Features.InstrumentationProcessor();
 
     private final AtomicReference<WebContents> mWebContentsRef = new AtomicReference<>();
     private final AtomicReference<ViewGroup> mContainerRef = new AtomicReference<>();
@@ -115,6 +111,10 @@ public class AutofillKeyboardAccessoryIntegrationTest {
     @Test
     @MediumTest
     @Feature({"keyboard-accessory"})
+    @DisabledTest(message = "crbug.com/854224")
+    // TODO(fhorschig): Figure out why this test exists. If a keyboard is shown, the accessory
+    // should be there. If there is no keyboard, there shouldn't be an accessory. Looks more like a
+    // keyboard test than an accessory test.
     public void testAutofocusedFieldDoesNotShowKeyboardAccessory()
             throws ExecutionException, InterruptedException, TimeoutException {
         loadTestPage(false);
@@ -127,6 +127,7 @@ public class AutofillKeyboardAccessoryIntegrationTest {
     @Test
     @MediumTest
     @Feature({"keyboard-accessory"})
+    @DisabledTest(message = "crbug.com/854224")
     public void testTapInputFieldShowsKeyboardAccessory()
             throws ExecutionException, InterruptedException, TimeoutException {
         loadTestPage(false);
@@ -203,6 +204,7 @@ public class AutofillKeyboardAccessoryIntegrationTest {
     @Test
     @MediumTest
     @Feature({"keyboard-accessory"})
+    @DisabledTest(message = "crbug.com/847959")
     public void testSelectSuggestionHidesKeyboardAccessory()
             throws ExecutionException, InterruptedException, TimeoutException {
         loadTestPage(false);

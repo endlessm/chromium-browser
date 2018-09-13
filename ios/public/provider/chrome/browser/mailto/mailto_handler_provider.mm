@@ -13,11 +13,9 @@ MailtoHandlerProvider::MailtoHandlerProvider() {}
 MailtoHandlerProvider::~MailtoHandlerProvider() {}
 
 void MailtoHandlerProvider::PrepareMailtoHandling(
-    ios::ChromeBrowserState* browserState) {}
+    ios::ChromeBrowserState* browser_state) {}
 
-void MailtoHandlerProvider::PrepareMailtoHandling(
-    SignedInIdentityBlock signed_in_identity_block,
-    SignedInIdentitiesBlock signed_in_identities_block) {}
+void MailtoHandlerProvider::RemoveMailtoHandling() {}
 
 NSString* MailtoHandlerProvider::MailtoHandlerSettingsTitle() const {
   return nil;

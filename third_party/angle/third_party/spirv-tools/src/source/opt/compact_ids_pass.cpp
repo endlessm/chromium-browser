@@ -21,10 +21,10 @@
 namespace spvtools {
 namespace opt {
 
-using ir::Instruction;
-using ir::Operand;
+using opt::Instruction;
+using opt::Operand;
 
-Pass::Status CompactIdsPass::Process(ir::IRContext* c) {
+Pass::Status CompactIdsPass::Process(opt::IRContext* c) {
   InitializeProcessing(c);
 
   bool modified = false;
@@ -64,7 +64,8 @@ Pass::Status CompactIdsPass::Process(ir::IRContext* c) {
       true);
 
   if (modified)
-    c->SetIdBound(static_cast<uint32_t>(result_id_mapping.size() + 1));
+    c->module()->SetIdBound(
+        static_cast<uint32_t>(result_id_mapping.size() + 1));
 
   return modified ? Status::SuccessWithChange : Status::SuccessWithoutChange;
 }

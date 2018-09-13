@@ -2,27 +2,29 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-function testCrostiniNotEnabled(done) {
+const crostini = {};
+
+crostini.testCrostiniNotEnabled = (done) => {
   chrome.fileManagerPrivate.crostiniEnabled_ = false;
-  fileManager.setupCrostini_();
   test.setupAndWaitUntilReady()
       .then(() => {
+        fileManager.setupCrostini_();
         return test.waitForElementLost(
             '#directory-tree .tree-item [root-type-icon="crostini"]');
       })
       .then(() => {
+        // Reset crostini back to default enabled=true.
+        chrome.fileManagerPrivate.crostiniEnabled_ = true;
         done();
       });
-}
+};
 
-function testCrostiniSuccess(done) {
-  chrome.fileManagerPrivate.crostiniEnabled_ = true;
-  var oldMount = chrome.fileManagerPrivate.mountCrostiniContainer;
-  var mountCallback = null;
+crostini.testCrostiniSuccess = (done) => {
+  const oldMount = chrome.fileManagerPrivate.mountCrostiniContainer;
+  let mountCallback = null;
   chrome.fileManagerPrivate.mountCrostiniContainer = (callback) => {
     mountCallback = callback;
   };
-  fileManager.setupCrostini_();
   test.setupAndWaitUntilReady()
       .then(() => {
         // Linux Files fake root is shown.
@@ -48,30 +50,12 @@ function testCrostiniSuccess(done) {
       .then(() => {
         // Intercept the fileManagerPrivate.mountCrostiniContainer call
         // and add crostini disk mount.
-        var volumeInfo = mockVolumeManager.createVolumeInfo(
-            VolumeManagerCommon.VolumeType.CROSTINI, 'crostini',
-            str('LINUX_FILES_ROOT_LABEL'));
-        volumeInfo.fileSystem.populate(
-            test.TestEntryInfo.getMockFileSystemPopulateRows(
-                test.CROSTINI_ENTRY_SET, '/'),
-            true);
-        chrome.fileManagerPrivate.dispatchEvent_('onMountCompleted', {
-          status: 'success',
-          eventType: 'mount',
-          volumeMetadata: {
-            volumeType: VolumeManagerCommon.VolumeType.CROSTINI,
-            volumeId: 'crostini',
-            isReadOnly: false,
-            iconSet: {},
-            profile: {isCurrentProfile: true, displayName: ''},
-            mountContext: 'user',
-          },
-        });
+        test.mountCrostini();
         // Continue from fileManagerPrivate.mountCrostiniContainer callback
         // and ensure expected files are shown.
         mountCallback();
         return test.waitForFiles(
-            test.TestEntryInfo.getExpectedRows(test.CROSTINI_ENTRY_SET));
+            test.TestEntryInfo.getExpectedRows(test.BASIC_CROSTINI_ENTRY_SET));
       })
       .then(() => {
         // Reset fileManagerPrivate.mountCrostiniContainer and remove mount.
@@ -89,18 +73,16 @@ function testCrostiniSuccess(done) {
       .then(() => {
         done();
       });
-}
+};
 
-function testCrostiniError(done) {
-  chrome.fileManagerPrivate.crostiniEnabled_ = true;
-  var oldMount = chrome.fileManagerPrivate.mountCrostiniContainer;
+crostini.testCrostiniError = (done) => {
+  const oldMount = chrome.fileManagerPrivate.mountCrostiniContainer;
   // Override fileManagerPrivate.mountCrostiniContainer to return error.
   chrome.fileManagerPrivate.mountCrostiniContainer = (callback) => {
     chrome.runtime.lastError = {message: 'test message'};
     callback();
-    chrome.runtime.lastError = null;
+    delete chrome.runtime.lastError;
   };
-  fileManager.setupCrostini_();
   test.setupAndWaitUntilReady()
       .then(() => {
         return test.waitForElement(
@@ -122,4 +104,93 @@ function testCrostiniError(done) {
         chrome.fileManagerPrivate.mountCrostiniContainer = oldMount;
         done();
       });
-}
+};
+
+crostini.testCrostiniMountOnDrag = (done) => {
+  chrome.fileManagerPrivate.mountCrostiniContainerDelay_ = 0;
+  test.setupAndWaitUntilReady()
+      .then(() => {
+        return test.waitForElement(
+            '#directory-tree .tree-item [root-type-icon="crostini"]');
+      })
+      .then(() => {
+        assertTrue(test.sendEvent(
+            '#directory-tree .tree-item [root-type-icon="crostini"]',
+            new Event('dragenter', {bubbles: true})));
+        assertTrue(test.sendEvent(
+            '#directory-tree .tree-item [root-type-icon="crostini"]',
+            new Event('dragleave', {bubbles: true})));
+        return test.waitForFiles(
+            test.TestEntryInfo.getExpectedRows(test.BASIC_CROSTINI_ENTRY_SET));
+      })
+      .then(() => {
+        chrome.fileManagerPrivate.removeMount('crostini');
+        return test.waitForElement(
+            '#directory-tree .tree-item [root-type-icon="crostini"]');
+      })
+      .then(() => {
+        done();
+      });
+};
+
+crostini.testErrorOpeningDownloadsWithCrostiniApp = (done) => {
+  // Save old fmp.getFileTasks and replace with version that returns
+  // crostini app and chrome Text app.
+  let oldGetFileTasks = chrome.fileManagerPrivate.getFileTasks;
+  chrome.fileManagerPrivate.getFileTasks = (entries, callback) => {
+    setTimeout(callback, 0, [
+      {
+        taskId: 'text-app-id|app|text',
+        title: 'Text',
+        verb: 'open_with',
+      },
+      {
+        taskId: 'crostini-app-id|crostini|open-with',
+        title: 'Crostini App',
+        verb: 'open_with',
+      }
+    ]);
+  };
+
+  test.setupAndWaitUntilReady()
+      .then(() => {
+        // Right click on 'hello.txt' file, wait for dialog with 'Open with'.
+        assertTrue(
+            test.fakeMouseRightClick('#listitem-' + test.maxListItemId()));
+        return test.waitForElement(
+            'cr-menu-item[command="#open-with"]:not([hidden]');
+      })
+      .then(() => {
+        // Click 'Open with', wait for picker.
+        assertTrue(test.fakeMouseClick('cr-menu-item[command="#open-with"]'));
+        return test.waitForElement('#default-tasks-list');
+      })
+      .then(() => {
+        // Ensure picker shows both options.  Click on 'Crostini App'.  Ensure
+        // error is shown.
+        const list = document.querySelectorAll('#default-tasks-list li div');
+        assertEquals(2, list.length);
+        assertEquals('Open with Crostini App', list[0].innerText);
+        assertEquals('Open with Text', list[1].innerText);
+        assertTrue(test.fakeMouseClick('#default-tasks-list li'));
+        return test.repeatUntil(() => {
+          return document.querySelector('.cr-dialog-title').innerText ===
+              'Unable to open with Crostini App' ||
+              test.pending('Waiting for Unable to open dialog');
+        });
+      })
+      .then(() => {
+        // Validate error messages, click 'OK' to close.  Ensure dialog closes.
+        assertEquals(
+            'To open files with Crostini App, ' +
+                'first copy to Linux files folder.',
+            document.querySelector('.cr-dialog-text').innerText);
+        assertTrue(test.fakeMouseClick('button.cr-dialog-ok'));
+        return test.waitForElementLost('.cr-dialog-container.shown');
+      })
+      .then(() => {
+        // Restore fmp.getFileTasks.
+        chrome.fileManagerPrivate.getFileTasks = oldGetFileTasks;
+        done();
+      });
+};

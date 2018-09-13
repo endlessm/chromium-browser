@@ -26,6 +26,7 @@
 #include "jni/DownloadInfo_jni.h"
 #include "jni/DownloadItem_jni.h"
 #include "jni/DownloadManagerService_jni.h"
+#include "services/service_manager/public/cpp/service_context.h"
 #include "third_party/blink/public/common/mime_util/mime_util.h"
 
 using base::android::JavaParamRef;
@@ -54,6 +55,21 @@ ScopedJavaLocalRef<jobject> JNI_DownloadManagerService_CreateJavaDownloadItem(
       env, DownloadManagerService::CreateJavaDownloadInfo(env, item),
       item->GetStartTime().ToJavaTime(), item->GetFileExternallyRemoved());
 }
+
+class ServiceImpl : public service_manager::Service {
+ public:
+  ServiceImpl() = default;
+  ~ServiceImpl() override = default;
+
+ private:
+  // service_manager::Service:
+  void OnStart() override {
+    DownloadManagerService::GetInstance()->NotifyServiceStarted(
+        context()->connector()->Clone());
+  }
+
+  DISALLOW_COPY_AND_ASSIGN(ServiceImpl);
+};
 
 }  // namespace
 
@@ -105,6 +121,8 @@ ScopedJavaLocalRef<jobject> DownloadManagerService::CreateJavaDownloadInfo(
   bool time_remaining_known = item->TimeRemaining(&time_delta);
   std::string original_url = item->GetOriginalUrl().SchemeIs(url::kDataScheme)
       ? std::string() : item->GetOriginalUrl().spec();
+  content::BrowserContext* browser_context =
+      content::DownloadItemUtils::GetBrowserContext(item);
   return Java_DownloadInfo_createDownloadInfo(
       env, ConvertUTF8ToJavaString(env, item->GetGuid()),
       ConvertUTF8ToJavaString(env, item->GetFileNameToReportUser().value()),
@@ -112,7 +130,7 @@ ScopedJavaLocalRef<jobject> DownloadManagerService::CreateJavaDownloadInfo(
       ConvertUTF8ToJavaString(env, item->GetTabUrl().spec()),
       ConvertUTF8ToJavaString(env, item->GetMimeType()),
       item->GetReceivedBytes(), item->GetTotalBytes(),
-      content::DownloadItemUtils::GetBrowserContext(item)->IsOffTheRecord(),
+      browser_context ? browser_context->IsOffTheRecord() : false,
       item->GetState(), item->PercentComplete(), item->IsPaused(),
       has_user_gesture, item->CanResume(), item->IsParallelDownload(),
       ConvertUTF8ToJavaString(env, original_url),
@@ -139,15 +157,26 @@ static jlong JNI_DownloadManagerService_Init(
 DownloadManagerService::DownloadManagerService()
     : is_history_query_complete_(false),
       pending_get_downloads_actions_(NONE) {
-  registrar_.Add(this, chrome::NOTIFICATION_PROFILE_CREATED,
-                 content::NotificationService::AllSources());
 }
 
 DownloadManagerService::~DownloadManagerService() {}
 
+std::unique_ptr<service_manager::Service>
+DownloadManagerService::CreateServiceManagerServiceInstance() {
+  return std::make_unique<ServiceImpl>();
+}
+
+void DownloadManagerService::NotifyServiceStarted(
+    std::unique_ptr<service_manager::Connector> connector) {
+  // TODO: Additional initialization, e.g. connect to Network Service using
+  // |connector| if the minimal download manager path is enabled by flag.
+}
+
 void DownloadManagerService::Init(
     JNIEnv* env,
     jobject obj) {
+  registrar_.Add(this, chrome::NOTIFICATION_PROFILE_CREATED,
+                 content::NotificationService::AllSources());
   java_ref_.Reset(env, obj);
 }
 
@@ -177,6 +206,15 @@ void DownloadManagerService::Observe(
   }
 }
 
+void DownloadManagerService::OpenDownload(download::DownloadItem* download,
+                                          int source) {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> j_item =
+      JNI_DownloadManagerService_CreateJavaDownloadItem(env, download);
+
+  Java_DownloadManagerService_openDownloadItem(env, java_ref_, j_item, source);
+}
+
 void DownloadManagerService::OpenDownload(
     JNIEnv* env,
     jobject obj,
@@ -195,10 +233,7 @@ void DownloadManagerService::OpenDownload(
   if (!item)
     return;
 
-  ScopedJavaLocalRef<jobject> j_item =
-      JNI_DownloadManagerService_CreateJavaDownloadItem(env, item);
-
-  Java_DownloadManagerService_openDownloadItem(env, java_ref_, j_item, source);
+  OpenDownload(item, source);
 }
 
 void DownloadManagerService::ResumeDownload(

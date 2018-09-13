@@ -312,6 +312,22 @@ void RuntimeDyldELF::resolveX86_64Relocation(const SectionEntry &Section,
     int64_t RealOffset = Value + Addend - FinalAddress;
     support::ulittle64_t::ref(Section.getAddressWithOffset(Offset)) =
         RealOffset;
+    LLVM_DEBUG(dbgs() << "Writing " << format("%p", RealOffset) << " at "
+                      << format("%p\n", FinalAddress));
+    break;
+  }
+  case ELF::R_X86_64_GOTOFF64: {
+    // Compute Value - GOTBase.
+    uint64_t GOTBase = 0;
+    for (const auto &Section : Sections) {
+      if (Section.getName() == ".got") {
+        GOTBase = Section.getLoadAddressWithOffset(0);
+        break;
+      }
+    }
+    assert(GOTBase != 0 && "missing GOT");
+    int64_t GOTOffset = Value - GOTBase + Addend;
+    support::ulittle64_t::ref(Section.getAddressWithOffset(Offset)) = GOTOffset;
     break;
   }
   }
@@ -723,9 +739,11 @@ void RuntimeDyldELF::resolvePPC64Relocation(const SectionEntry &Section,
     writeInt16BE(LocalAddress, applyPPClo(Value + Addend) & ~3);
     break;
   case ELF::R_PPC64_ADDR16_HI:
+  case ELF::R_PPC64_ADDR16_HIGH:
     writeInt16BE(LocalAddress, applyPPChi(Value + Addend));
     break;
   case ELF::R_PPC64_ADDR16_HA:
+  case ELF::R_PPC64_ADDR16_HIGHA:
     writeInt16BE(LocalAddress, applyPPCha(Value + Addend));
     break;
   case ELF::R_PPC64_ADDR16_HIGHER:
@@ -772,8 +790,9 @@ void RuntimeDyldELF::resolvePPC64Relocation(const SectionEntry &Section,
     int64_t delta = static_cast<int64_t>(Value - FinalAddress + Addend);
     if (SignExtend64<26>(delta) != delta)
       llvm_unreachable("Relocation R_PPC64_REL24 overflow");
-    // Generates a 'bl <address>' instruction
-    writeInt32BE(LocalAddress, 0x48000001 | (delta & 0x03FFFFFC));
+    // We preserve bits other than LI field, i.e. PO and AA/LK fields.
+    uint32_t Inst = readBytesUnaligned(LocalAddress, 4);
+    writeInt32BE(LocalAddress, (Inst & 0xFC000003) | (delta & 0x03FFFFFC));
   } break;
   case ELF::R_PPC64_REL32: {
     uint64_t FinalAddress = Section.getLoadAddressWithOffset(Offset);
@@ -1697,6 +1716,29 @@ RuntimeDyldELF::processRelocationRef(
         addRelocationForSymbol(RE, Value.SymbolName);
       else
         addRelocationForSection(RE, Value.SectionID);
+    } else if (RelType == ELF::R_X86_64_GOT64) {
+      // Fill in a 64-bit GOT offset.
+      uint64_t GOTOffset = allocateGOTEntries(1);
+      resolveRelocation(Sections[SectionID], Offset, GOTOffset,
+                        ELF::R_X86_64_64, 0);
+
+      // Fill in the value of the symbol we're targeting into the GOT
+      RelocationEntry RE =
+          computeGOTOffsetRE(GOTOffset, Value.Offset, ELF::R_X86_64_64);
+      if (Value.SymbolName)
+        addRelocationForSymbol(RE, Value.SymbolName);
+      else
+        addRelocationForSection(RE, Value.SectionID);
+    } else if (RelType == ELF::R_X86_64_GOTPC64) {
+      // Materialize the address of the base of the GOT relative to the PC.
+      // This doesn't create a GOT entry, but it does mean we need a GOT
+      // section.
+      (void)allocateGOTEntries(0);
+      resolveGOTOffsetRelocation(SectionID, Offset, Addend, ELF::R_X86_64_PC64);
+    } else if (RelType == ELF::R_X86_64_GOTOFF64) {
+      // GOTOFF relocations ultimately require a section difference relocation.
+      (void)allocateGOTEntries(0);
+      processSimpleRelocation(SectionID, Offset, RelType, Value);
     } else if (RelType == ELF::R_X86_64_PC32) {
       Value.Addend += support::ulittle32_t::ref(computePlaceholderAddress(SectionID, Offset));
       processSimpleRelocation(SectionID, Offset, RelType, Value);
@@ -1868,6 +1910,7 @@ bool RuntimeDyldELF::relocationNeedsGot(const RelocationRef &R) const {
   if (Arch == Triple::x86_64)
     return RelTy == ELF::R_X86_64_GOTPCREL ||
            RelTy == ELF::R_X86_64_GOTPCRELX ||
+           RelTy == ELF::R_X86_64_GOT64 ||
            RelTy == ELF::R_X86_64_REX_GOTPCRELX;
   return false;
 }
@@ -1884,6 +1927,9 @@ bool RuntimeDyldELF::relocationNeedsStub(const RelocationRef &R) const {
   case ELF::R_X86_64_GOTPCREL:
   case ELF::R_X86_64_GOTPCRELX:
   case ELF::R_X86_64_REX_GOTPCRELX:
+  case ELF::R_X86_64_GOTPC64:
+  case ELF::R_X86_64_GOT64:
+  case ELF::R_X86_64_GOTOFF64:
   case ELF::R_X86_64_PC32:
   case ELF::R_X86_64_PC64:
   case ELF::R_X86_64_64:

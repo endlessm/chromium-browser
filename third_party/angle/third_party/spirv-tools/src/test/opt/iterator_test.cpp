@@ -32,8 +32,8 @@ TEST(Iterator, IncrementDeref) {
     data.emplace_back(new int(i));
   }
 
-  ir::UptrVectorIterator<int> it(&data, data.begin());
-  ir::UptrVectorIterator<int> end(&data, data.end());
+  opt::UptrVectorIterator<int> it(&data, data.begin());
+  opt::UptrVectorIterator<int> end(&data, data.end());
 
   EXPECT_EQ(*data[0], *it);
   for (int i = 1; i < count; ++i) {
@@ -50,8 +50,8 @@ TEST(Iterator, DecrementDeref) {
     data.emplace_back(new int(i));
   }
 
-  ir::UptrVectorIterator<int> begin(&data, data.begin());
-  ir::UptrVectorIterator<int> it(&data, data.end());
+  opt::UptrVectorIterator<int> begin(&data, data.begin());
+  opt::UptrVectorIterator<int> it(&data, data.end());
 
   for (int i = count - 1; i >= 0; --i) {
     EXPECT_NE(begin, it);
@@ -67,8 +67,8 @@ TEST(Iterator, PostIncrementDeref) {
     data.emplace_back(new int(i));
   }
 
-  ir::UptrVectorIterator<int> it(&data, data.begin());
-  ir::UptrVectorIterator<int> end(&data, data.end());
+  opt::UptrVectorIterator<int> it(&data, data.begin());
+  opt::UptrVectorIterator<int> end(&data, data.end());
 
   for (int i = 0; i < count; ++i) {
     EXPECT_NE(end, it);
@@ -84,9 +84,9 @@ TEST(Iterator, PostDecrementDeref) {
     data.emplace_back(new int(i));
   }
 
-  ir::UptrVectorIterator<int> begin(&data, data.begin());
-  ir::UptrVectorIterator<int> end(&data, data.end());
-  ir::UptrVectorIterator<int> it(&data, data.end());
+  opt::UptrVectorIterator<int> begin(&data, data.begin());
+  opt::UptrVectorIterator<int> end(&data, data.end());
+  opt::UptrVectorIterator<int> it(&data, data.end());
 
   EXPECT_EQ(end, it--);
   for (int i = count - 1; i >= 1; --i) {
@@ -103,7 +103,7 @@ TEST(Iterator, Access) {
     data.emplace_back(new int(i));
   }
 
-  ir::UptrVectorIterator<int> it(&data, data.begin());
+  opt::UptrVectorIterator<int> it(&data, data.begin());
 
   for (int i = 0; i < count; ++i) EXPECT_EQ(*data[i], it[i]);
 }
@@ -115,8 +115,8 @@ TEST(Iterator, Comparison) {
     data.emplace_back(new int(i));
   }
 
-  ir::UptrVectorIterator<int> it(&data, data.begin());
-  ir::UptrVectorIterator<int> end(&data, data.end());
+  opt::UptrVectorIterator<int> it(&data, data.begin());
+  opt::UptrVectorIterator<int> end(&data, data.end());
 
   for (int i = 0; i < count; ++i, ++it) EXPECT_TRUE(it < end);
   EXPECT_EQ(end, it);
@@ -136,7 +136,7 @@ TEST(Iterator, InsertBeginEnd) {
 
   // Insert at the beginning
   expected.insert(expected.begin(), -100);
-  ir::UptrVectorIterator<int> begin(&data, data.begin());
+  opt::UptrVectorIterator<int> begin(&data, data.begin());
   auto insert_point = begin.InsertBefore(MakeUnique<int>(-100));
   for (int i = 0; i < count + 1; ++i) {
     actual.push_back(*(insert_point++));
@@ -147,13 +147,13 @@ TEST(Iterator, InsertBeginEnd) {
   expected.push_back(-42);
   expected.push_back(-36);
   expected.push_back(-77);
-  ir::UptrVectorIterator<int> end(&data, data.end());
+  opt::UptrVectorIterator<int> end(&data, data.end());
   end = end.InsertBefore(MakeUnique<int>(-77));
   end = end.InsertBefore(MakeUnique<int>(-36));
   end = end.InsertBefore(MakeUnique<int>(-42));
 
   actual.clear();
-  begin = ir::UptrVectorIterator<int>(&data, data.begin());
+  begin = opt::UptrVectorIterator<int>(&data, data.begin());
   for (int i = 0; i < count + 4; ++i) {
     actual.push_back(*(begin++));
   }
@@ -176,11 +176,11 @@ TEST(Iterator, InsertMiddle) {
   expected.insert(expected.begin() + insert_pos, -100);
   expected.insert(expected.begin() + insert_pos, -42);
 
-  ir::UptrVectorIterator<int> it(&data, data.begin());
+  opt::UptrVectorIterator<int> it(&data, data.begin());
   for (int i = 0; i < insert_pos; ++i) ++it;
   it = it.InsertBefore(MakeUnique<int>(-100));
   it = it.InsertBefore(MakeUnique<int>(-42));
-  auto begin = ir::UptrVectorIterator<int>(&data, data.begin());
+  auto begin = opt::UptrVectorIterator<int>(&data, data.begin());
   for (int i = 0; i < count + 2; ++i) {
     actual.push_back(*(begin++));
   }
@@ -196,9 +196,9 @@ TEST(IteratorRange, Interface) {
     data.emplace_back(new uint32_t(i));
   }
 
-  auto b = ir::UptrVectorIterator<uint32_t>(&data, data.begin());
-  auto e = ir::UptrVectorIterator<uint32_t>(&data, data.end());
-  auto range = ir::IteratorRange<decltype(b)>(b, e);
+  auto b = opt::UptrVectorIterator<uint32_t>(&data, data.begin());
+  auto e = opt::UptrVectorIterator<uint32_t>(&data, data.end());
+  auto range = opt::IteratorRange<decltype(b)>(b, e);
 
   EXPECT_EQ(b, range.begin());
   EXPECT_EQ(e, range.end());
@@ -212,6 +212,55 @@ TEST(IteratorRange, Interface) {
   EXPECT_EQ(count, range.size());
   ++range.begin(), --range.end();
   EXPECT_EQ(count, range.size());
+}
+
+TEST(Iterator, FilterIterator) {
+  struct Placeholder {
+    int val;
+  };
+  std::vector<Placeholder> data = {{1}, {2}, {3}, {4}, {5},
+                                   {6}, {7}, {8}, {9}, {10}};
+
+  // Predicate to only consider odd values.
+  struct Predicate {
+    bool operator()(const Placeholder& data) { return data.val % 2; }
+  };
+  Predicate pred;
+
+  auto filter_range =
+      opt::MakeFilterIteratorRange(data.begin(), data.end(), pred);
+
+  EXPECT_EQ(filter_range.begin().Get(), data.begin());
+  EXPECT_EQ(filter_range.end(), filter_range.begin().GetEnd());
+
+  for (Placeholder& data : filter_range) {
+    EXPECT_EQ(data.val % 2, 1);
+  }
+
+  for (auto it = filter_range.begin(); it != filter_range.end(); it++) {
+    EXPECT_EQ(it->val % 2, 1);
+    EXPECT_EQ((*it).val % 2, 1);
+  }
+
+  for (auto it = filter_range.begin(); it != filter_range.end(); ++it) {
+    EXPECT_EQ(it->val % 2, 1);
+    EXPECT_EQ((*it).val % 2, 1);
+  }
+
+  EXPECT_EQ(opt::MakeFilterIterator(data.begin(), data.end(), pred).Get(),
+            data.begin());
+  EXPECT_EQ(opt::MakeFilterIterator(data.end(), data.end(), pred).Get(),
+            data.end());
+  EXPECT_EQ(opt::MakeFilterIterator(data.begin(), data.end(), pred).GetEnd(),
+            opt::MakeFilterIterator(data.end(), data.end(), pred));
+  EXPECT_NE(opt::MakeFilterIterator(data.begin(), data.end(), pred),
+            opt::MakeFilterIterator(data.end(), data.end(), pred));
+
+  // Empty range: no values satisfies the predicate.
+  auto empty_range = opt::MakeFilterIteratorRange(
+      data.begin(), data.end(),
+      [](const Placeholder& data) { return data.val > 10; });
+  EXPECT_EQ(empty_range.begin(), empty_range.end());
 }
 
 }  // anonymous namespace

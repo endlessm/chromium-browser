@@ -663,8 +663,8 @@ void SupervisedUserService::OnBlacklistFileChecked(const base::FilePath& path,
                      ->GetURLLoaderFactoryForBrowserProcess();
   blacklist_downloader_.reset(new FileDownloader(
       url, path, false, std::move(factory),
-      base::Bind(&SupervisedUserService::OnBlacklistDownloadDone,
-                 base::Unretained(this), path),
+      base::BindOnce(&SupervisedUserService::OnBlacklistDownloadDone,
+                     base::Unretained(this), path),
       traffic_annotation));
 }
 
@@ -817,11 +817,10 @@ SupervisedUserService::ExtensionState SupervisedUserService::GetExtensionState(
 
 std::string SupervisedUserService::GetDebugPolicyProviderName() const {
   // Save the string space in official builds.
-#ifdef NDEBUG
-  NOTREACHED();
-  return std::string();
-#else
+#if DCHECK_IS_ON()
   return "Supervised User Service";
+#else
+  IMMEDIATE_CRASH();
 #endif
 }
 
@@ -980,7 +979,7 @@ void SupervisedUserService::ChangeExtensionStateIfNecessary(
     return;
 
   ExtensionPrefs* extension_prefs = ExtensionPrefs::Get(profile_);
-  ExtensionService* service =
+  extensions::ExtensionService* service =
       ExtensionSystem::Get(profile_)->extension_service();
 
   ExtensionState state = GetExtensionState(*extension);

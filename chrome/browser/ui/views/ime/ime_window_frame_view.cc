@@ -20,22 +20,6 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 
-namespace {
-
-// The distance values for layout in DIPs.
-const int kButtonSize = 24;
-const int kBorderThickness = 1;
-const int kIconSize = 16;
-const int kTitlebarHeight = 32;
-const int kTitlebarLeftPadding = 8;
-const int kTitlebarRightPadding = 6;
-
-// Colors used to draw border, titlebar background and title text.
-const SkColor kBackgroundColor = SkColorSetRGB(0xec, 0xef, 0xf1);
-const SkColor kBorderColor = SkColorSetRGB(0xda, 0xdf, 0xe1);
-
-}  // namespace
-
 namespace ui {
 
 ImeWindowFrameView::ImeWindowFrameView(ImeWindowView* ime_window_view,
@@ -75,13 +59,15 @@ void ImeWindowFrameView::UpdateIcon() {
 
 gfx::Rect ImeWindowFrameView::GetBoundsForClientView() const {
   if (in_follow_cursor_mode()) {
-    return gfx::Rect(kTitlebarHeight, kBorderThickness,
-                     std::max(0, width() - kTitlebarHeight - kBorderThickness),
-                     std::max(0, height() - kBorderThickness * 2));
+    return gfx::Rect(
+        kTitlebarHeight, kImeBorderThickness,
+        std::max(0, width() - kTitlebarHeight - kImeBorderThickness),
+        std::max(0, height() - kImeBorderThickness * 2));
   }
-  return gfx::Rect(kBorderThickness, kTitlebarHeight,
-                   std::max(0, width() - kBorderThickness * 2),
-                   std::max(0, height() - kTitlebarHeight - kBorderThickness));
+  return gfx::Rect(
+      kImeBorderThickness, kTitlebarHeight,
+      std::max(0, width() - kImeBorderThickness * 2),
+      std::max(0, height() - kTitlebarHeight - kImeBorderThickness));
 }
 
 gfx::Rect ImeWindowFrameView::GetWindowBoundsForClientBounds(
@@ -89,15 +75,17 @@ gfx::Rect ImeWindowFrameView::GetWindowBoundsForClientBounds(
   // The window bounds include both client area and non-client area (titlebar
   // and left, right and bottom borders).
   if (in_follow_cursor_mode()) {
-    return gfx::Rect(client_bounds.x() - kTitlebarHeight,
-                     client_bounds.y() - kBorderThickness,
-                     client_bounds.width() + kTitlebarHeight + kBorderThickness,
-                     client_bounds.height() + kBorderThickness * 2);
+    return gfx::Rect(
+        client_bounds.x() - kTitlebarHeight,
+        client_bounds.y() - kImeBorderThickness,
+        client_bounds.width() + kTitlebarHeight + kImeBorderThickness,
+        client_bounds.height() + kImeBorderThickness * 2);
   }
-  return gfx::Rect(client_bounds.x() - kBorderThickness,
-                   client_bounds.y() - kTitlebarHeight,
-                   client_bounds.width() + kBorderThickness * 2,
-                   client_bounds.height() + kTitlebarHeight + kBorderThickness);
+  return gfx::Rect(
+      client_bounds.x() - kImeBorderThickness,
+      client_bounds.y() - kTitlebarHeight,
+      client_bounds.width() + kImeBorderThickness * 2,
+      client_bounds.height() + kTitlebarHeight + kImeBorderThickness);
 }
 
 int ImeWindowFrameView::NonClientHitTest(const gfx::Point& point) {
@@ -157,11 +145,11 @@ gfx::Size ImeWindowFrameView::GetMaximumSize() const {
 void ImeWindowFrameView::Layout() {
   // Layout the icon.
   // TODO(shuchen): Consider the RTL case.
-  int icon_y = (kTitlebarHeight - kIconSize) / 2;
+  int icon_y = (kTitlebarHeight - kTitleIconSize) / 2;
   bool follow_cursor = in_follow_cursor_mode();
   title_icon_->SetBounds(follow_cursor ? icon_y : kTitlebarLeftPadding,
                          follow_cursor ? kTitlebarLeftPadding : icon_y,
-                         kIconSize, kIconSize);
+                         kTitleIconSize, kTitleIconSize);
 
   if (follow_cursor) {
     close_button_->SetVisible(false);
@@ -242,21 +230,20 @@ void ImeWindowFrameView::ButtonPressed(views::Button* sender,
 }
 
 void ImeWindowFrameView::PaintFrameBackground(gfx::Canvas* canvas) {
-  canvas->DrawColor(kBackgroundColor);
+  canvas->DrawColor(kImeBackgroundColor);
 
   // left border.
-  canvas->FillRect(gfx::Rect(0, 0, kBorderThickness, height()),
+  canvas->FillRect(gfx::Rect(0, 0, kImeBorderThickness, height()),
                    kBorderColor);
   // top border.
-  canvas->FillRect(gfx::Rect(0, 0, width(), kBorderThickness),
-                   kBorderColor);
+  canvas->FillRect(gfx::Rect(0, 0, width(), kImeBorderThickness), kBorderColor);
   // right border.
-  canvas->FillRect(gfx::Rect(width() - kBorderThickness, 0, kBorderThickness,
-                             height()),
+  canvas->FillRect(gfx::Rect(width() - kImeBorderThickness, 0,
+                             kImeBorderThickness, height()),
                    kBorderColor);
   // bottom border.
-  canvas->FillRect(gfx::Rect(0, height() - kBorderThickness, width(),
-                             kBorderThickness),
+  canvas->FillRect(gfx::Rect(0, height() - kImeBorderThickness, width(),
+                             kImeBorderThickness),
                    kBorderColor);
 }
 

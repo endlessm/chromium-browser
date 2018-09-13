@@ -19,13 +19,13 @@
 #include "enum_string_mapping.h"
 #include "extensions.h"
 #include "gmock/gmock.h"
+#include "spirv_target_env.h"
 #include "test_fixture.h"
 #include "unit_spirv.h"
 #include "val_fixtures.h"
 
+namespace spvtools {
 namespace {
-
-using ::libspirv::Extension;
 
 using ::testing::HasSubstr;
 using ::testing::Not;
@@ -60,7 +60,9 @@ INSTANTIATE_TEST_CASE_P(
         "SPV_AMD_gpu_shader_int16", "SPV_KHR_post_depth_coverage",
         "SPV_KHR_shader_atomic_counter_ops", "SPV_EXT_shader_stencil_export",
         "SPV_EXT_shader_viewport_index_layer",
-        "SPV_AMD_shader_image_load_store_lod", "SPV_AMD_shader_fragment_mask"));
+        "SPV_AMD_shader_image_load_store_lod", "SPV_AMD_shader_fragment_mask",
+        "SPV_GOOGLE_decorate_string", "SPV_GOOGLE_hlsl_functionality1",
+        "SPV_NV_shader_subgroup_partitioned", "SPV_EXT_descriptor_indexing"));
 
 INSTANTIATE_TEST_CASE_P(FailSilently, ValidateUnknownExtensions,
                         Values("ERROR_unknown_extension", "SPV_KHR_",
@@ -107,7 +109,6 @@ TEST_F(ValidateExtensionCapabilities, DeclCapabilityFailure) {
   EXPECT_THAT(getDiagnosticString(), HasSubstr("SPV_KHR_device_group"));
 }
 
-
 using ValidateAMDShaderBallotCapabilities = spvtest::ValidateBase<string>;
 
 // Returns a vector of strings for the prefix of a SPIR-V assembly shader
@@ -139,38 +140,56 @@ std::vector<string> ShaderPartsForAMDShaderBallot() {
 // of ShaderPartsForAMDShaderBallot.
 std::vector<string> AMDShaderBallotGroupInstructions() {
   return std::vector<string>{
-  "%iadd_reduce = OpGroupIAddNonUniformAMD %uint %scope Reduce %uint_const",
-  "%iadd_iscan = OpGroupIAddNonUniformAMD %uint %scope InclusiveScan %uint_const",
-  "%iadd_escan = OpGroupIAddNonUniformAMD %uint %scope ExclusiveScan %uint_const",
+      "%iadd_reduce = OpGroupIAddNonUniformAMD %uint %scope Reduce %uint_const",
+      "%iadd_iscan = OpGroupIAddNonUniformAMD %uint %scope InclusiveScan "
+      "%uint_const",
+      "%iadd_escan = OpGroupIAddNonUniformAMD %uint %scope ExclusiveScan "
+      "%uint_const",
 
-  "%fadd_reduce = OpGroupFAddNonUniformAMD %float %scope Reduce %float_const",
-  "%fadd_iscan = OpGroupFAddNonUniformAMD %float %scope InclusiveScan %float_const",
-  "%fadd_escan = OpGroupFAddNonUniformAMD %float %scope ExclusiveScan %float_const",
+      "%fadd_reduce = OpGroupFAddNonUniformAMD %float %scope Reduce "
+      "%float_const",
+      "%fadd_iscan = OpGroupFAddNonUniformAMD %float %scope InclusiveScan "
+      "%float_const",
+      "%fadd_escan = OpGroupFAddNonUniformAMD %float %scope ExclusiveScan "
+      "%float_const",
 
-  "%fmin_reduce = OpGroupFMinNonUniformAMD %float %scope Reduce %float_const",
-  "%fmin_iscan = OpGroupFMinNonUniformAMD %float %scope InclusiveScan %float_const",
-  "%fmin_escan = OpGroupFMinNonUniformAMD %float %scope ExclusiveScan %float_const",
+      "%fmin_reduce = OpGroupFMinNonUniformAMD %float %scope Reduce "
+      "%float_const",
+      "%fmin_iscan = OpGroupFMinNonUniformAMD %float %scope InclusiveScan "
+      "%float_const",
+      "%fmin_escan = OpGroupFMinNonUniformAMD %float %scope ExclusiveScan "
+      "%float_const",
 
-  "%umin_reduce = OpGroupUMinNonUniformAMD %uint %scope Reduce %uint_const",
-  "%umin_iscan = OpGroupUMinNonUniformAMD %uint %scope InclusiveScan %uint_const",
-  "%umin_escan = OpGroupUMinNonUniformAMD %uint %scope ExclusiveScan %uint_const",
+      "%umin_reduce = OpGroupUMinNonUniformAMD %uint %scope Reduce %uint_const",
+      "%umin_iscan = OpGroupUMinNonUniformAMD %uint %scope InclusiveScan "
+      "%uint_const",
+      "%umin_escan = OpGroupUMinNonUniformAMD %uint %scope ExclusiveScan "
+      "%uint_const",
 
-  "%smin_reduce = OpGroupUMinNonUniformAMD %int %scope Reduce %int_const",
-  "%smin_iscan = OpGroupUMinNonUniformAMD %int %scope InclusiveScan %int_const",
-  "%smin_escan = OpGroupUMinNonUniformAMD %int %scope ExclusiveScan %int_const",
+      "%smin_reduce = OpGroupUMinNonUniformAMD %int %scope Reduce %int_const",
+      "%smin_iscan = OpGroupUMinNonUniformAMD %int %scope InclusiveScan "
+      "%int_const",
+      "%smin_escan = OpGroupUMinNonUniformAMD %int %scope ExclusiveScan "
+      "%int_const",
 
-  "%fmax_reduce = OpGroupFMaxNonUniformAMD %float %scope Reduce %float_const",
-  "%fmax_iscan = OpGroupFMaxNonUniformAMD %float %scope InclusiveScan %float_const",
-  "%fmax_escan = OpGroupFMaxNonUniformAMD %float %scope ExclusiveScan %float_const",
+      "%fmax_reduce = OpGroupFMaxNonUniformAMD %float %scope Reduce "
+      "%float_const",
+      "%fmax_iscan = OpGroupFMaxNonUniformAMD %float %scope InclusiveScan "
+      "%float_const",
+      "%fmax_escan = OpGroupFMaxNonUniformAMD %float %scope ExclusiveScan "
+      "%float_const",
 
-  "%umax_reduce = OpGroupUMaxNonUniformAMD %uint %scope Reduce %uint_const",
-  "%umax_iscan = OpGroupUMaxNonUniformAMD %uint %scope InclusiveScan %uint_const",
-  "%umax_escan = OpGroupUMaxNonUniformAMD %uint %scope ExclusiveScan %uint_const",
+      "%umax_reduce = OpGroupUMaxNonUniformAMD %uint %scope Reduce %uint_const",
+      "%umax_iscan = OpGroupUMaxNonUniformAMD %uint %scope InclusiveScan "
+      "%uint_const",
+      "%umax_escan = OpGroupUMaxNonUniformAMD %uint %scope ExclusiveScan "
+      "%uint_const",
 
-  "%smax_reduce = OpGroupUMaxNonUniformAMD %int %scope Reduce %int_const",
-  "%smax_iscan = OpGroupUMaxNonUniformAMD %int %scope InclusiveScan %int_const",
-  "%smax_escan = OpGroupUMaxNonUniformAMD %int %scope ExclusiveScan %int_const"
-  };
+      "%smax_reduce = OpGroupUMaxNonUniformAMD %int %scope Reduce %int_const",
+      "%smax_iscan = OpGroupUMaxNonUniformAMD %int %scope InclusiveScan "
+      "%int_const",
+      "%smax_escan = OpGroupUMaxNonUniformAMD %int %scope ExclusiveScan "
+      "%int_const"};
 }
 
 TEST_P(ValidateAMDShaderBallotCapabilities, ExpectSuccess) {
@@ -188,7 +207,8 @@ INSTANTIATE_TEST_CASE_P(ExpectSuccess, ValidateAMDShaderBallotCapabilities,
                         ValuesIn(AMDShaderBallotGroupInstructions()));
 
 TEST_P(ValidateAMDShaderBallotCapabilities, ExpectFailure) {
-  // Fail because the module does not specify the SPV_AMD_shader_ballot extension.
+  // Fail because the module does not specify the SPV_AMD_shader_ballot
+  // extension.
   auto parts = ShaderPartsForAMDShaderBallot();
 
   const string assembly =
@@ -209,4 +229,91 @@ TEST_P(ValidateAMDShaderBallotCapabilities, ExpectFailure) {
 INSTANTIATE_TEST_CASE_P(ExpectFailure, ValidateAMDShaderBallotCapabilities,
                         ValuesIn(AMDShaderBallotGroupInstructions()));
 
-}  // anonymous namespace
+struct ExtIntoCoreCase {
+  const char* ext;
+  const char* cap;
+  const char* builtin;
+  spv_target_env env;
+  bool success;
+};
+
+using ValidateExtIntoCore = spvtest::ValidateBase<ExtIntoCoreCase>;
+
+// Make sure that we don't panic about missing extensions for using
+// functionalities that introduced in extensions but became core SPIR-V later.
+
+TEST_P(ValidateExtIntoCore, DoNotAskForExtensionInLaterVersion) {
+  const string code = string(R"(
+               OpCapability Shader
+               OpCapability )") +
+                      GetParam().cap + R"(
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %main "main" %builtin
+               OpDecorate %builtin BuiltIn )" + GetParam().builtin + R"(
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+        %int = OpTypeInt 32 1
+%_ptr_Input_int = OpTypePointer Input %int
+    %builtin = OpVariable %_ptr_Input_int Input
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+         %18 = OpLoad %int %builtin
+               OpReturn
+               OpFunctionEnd)";
+
+  CompileSuccessfully(code.c_str(), GetParam().env);
+  if (GetParam().success) {
+    ASSERT_EQ(SPV_SUCCESS, ValidateInstructions(GetParam().env));
+  } else {
+    ASSERT_NE(SPV_SUCCESS, ValidateInstructions(GetParam().env));
+    const string message = getDiagnosticString();
+    if (spvIsVulkanEnv(GetParam().env)) {
+      EXPECT_THAT(message, HasSubstr(string(GetParam().cap) +
+                                     " is not allowed by Vulkan"));
+      EXPECT_THAT(message, HasSubstr(string("or requires extension")));
+    } else {
+      EXPECT_THAT(message,
+                  HasSubstr(string("requires one of these extensions: ") +
+                            GetParam().ext));
+    }
+  }
+}
+
+// clang-format off
+INSTANTIATE_TEST_CASE_P(
+    KHR_extensions, ValidateExtIntoCore,
+    ValuesIn(std::vector<ExtIntoCoreCase>{
+        // SPV_KHR_shader_draw_parameters became core SPIR-V 1.3
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "BaseVertex", SPV_ENV_UNIVERSAL_1_3, true},
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "BaseVertex", SPV_ENV_UNIVERSAL_1_2, false},
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "BaseVertex", SPV_ENV_UNIVERSAL_1_1, false},
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "BaseVertex", SPV_ENV_UNIVERSAL_1_0, false},
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "BaseVertex", SPV_ENV_VULKAN_1_1, true},
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "BaseVertex", SPV_ENV_VULKAN_1_0, false},
+
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "BaseInstance", SPV_ENV_UNIVERSAL_1_3, true},
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "BaseInstance", SPV_ENV_VULKAN_1_0, false},
+
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "DrawIndex", SPV_ENV_UNIVERSAL_1_3, true},
+        {"SPV_KHR_shader_draw_parameters", "DrawParameters", "DrawIndex", SPV_ENV_UNIVERSAL_1_1, false},
+
+        // SPV_KHR_multiview became core SPIR-V 1.3
+        {"SPV_KHR_multiview", "MultiView", "ViewIndex", SPV_ENV_UNIVERSAL_1_3, true},
+        {"SPV_KHR_multiview", "MultiView", "ViewIndex", SPV_ENV_UNIVERSAL_1_2, false},
+        {"SPV_KHR_multiview", "MultiView", "ViewIndex", SPV_ENV_UNIVERSAL_1_1, false},
+        {"SPV_KHR_multiview", "MultiView", "ViewIndex", SPV_ENV_UNIVERSAL_1_0, false},
+        {"SPV_KHR_multiview", "MultiView", "ViewIndex", SPV_ENV_VULKAN_1_1, true},
+        {"SPV_KHR_multiview", "MultiView", "ViewIndex", SPV_ENV_VULKAN_1_0, false},
+
+        // SPV_KHR_device_group became core SPIR-V 1.3
+        {"SPV_KHR_device_group", "DeviceGroup", "DeviceIndex", SPV_ENV_UNIVERSAL_1_3, true},
+        {"SPV_KHR_device_group", "DeviceGroup", "DeviceIndex", SPV_ENV_UNIVERSAL_1_2, false},
+        {"SPV_KHR_device_group", "DeviceGroup", "DeviceIndex", SPV_ENV_UNIVERSAL_1_1, false},
+        {"SPV_KHR_device_group", "DeviceGroup", "DeviceIndex", SPV_ENV_UNIVERSAL_1_0, false},
+        {"SPV_KHR_device_group", "DeviceGroup", "DeviceIndex", SPV_ENV_VULKAN_1_1, true},
+        {"SPV_KHR_device_group", "DeviceGroup", "DeviceIndex", SPV_ENV_VULKAN_1_0, false},
+    }));
+// clang-format on
+
+}  // namespace
+}  // namespace spvtools

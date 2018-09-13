@@ -252,7 +252,7 @@ public class TabModalPresenter
             mActiveTab.onTabModalDialogStateChanged(true);
 
             if (mHasBottomControls) {
-                bottomSheet.setSheetState(BottomSheet.SHEET_STATE_PEEK, true);
+                bottomSheet.setSheetState(BottomSheet.SheetState.PEEK, true);
                 bottomSheet.addObserver(mBottomSheetObserver);
             } else {
                 mChromeActivity.getToolbarManager().setUrlBarFocus(false);
@@ -286,7 +286,7 @@ public class TabModalPresenter
         FrameLayout.LayoutParams params =
                 new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
-        dialogView.setBackgroundResource(R.drawable.menu_bg);
+        dialogView.setBackgroundResource(R.drawable.popup_bg);
         mDialogContainer.addView(dialogView, params);
         mDialogContainer.setAlpha(0f);
         mDialogContainer.setVisibility(View.VISIBLE);

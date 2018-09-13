@@ -12,6 +12,7 @@
 
 #include "base/macros.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/common/navigation_client.mojom.h"
 #include "content/common/navigation_params.mojom.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/test/mock_render_process_host.h"
@@ -170,6 +171,10 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   // PlzNavigate: This simulates a BeforeUnload ACK from the renderer, and the
   // interaction with the IO thread up until the response is ready to commit.
   void PrepareForCommitIfNecessary();
+
+  // Used to simulate the commit of a navigation having been processed in the
+  // renderer.
+  void SimulateCommitProcessed(int64_t navigation_id, bool was_successful);
 
   // Send a message with the sandbox flags and feature policy
   void SendFramePolicy(blink::WebSandboxFlags sandbox_flags,

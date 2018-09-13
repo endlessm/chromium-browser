@@ -120,11 +120,7 @@
     "type": "console_test_launcher",
   },
   "app_list_unittests": {
-    "label": "//ui/app_list:app_list_unittests",
-    "type": "windowed_test_launcher",
-  },
-  "app_list_presenter_unittests": {
-    "label": "//ash/app_list/presenter:app_list_presenter_unittests",
+    "label": "//ash/app_list:app_list_unittests",
     "type": "windowed_test_launcher",
   },
   "app_shell_unittests": {
@@ -181,6 +177,10 @@
   },
   "blink_common_unittests": {
     "label": "//third_party/blink/common:blink_common_unittests",
+    "type": "console_test_launcher",
+  },
+  "blink_fuzzer_unittests": {
+    "label": "//third_party/blink/renderer/platform:blink_fuzzer_unittests",
     "type": "console_test_launcher",
   },
   "blink_heap_unittests": {
@@ -336,6 +336,7 @@
     "type": "script",
     "script": "//testing/xvfb.py",
     "args": [
+      "../../testing/scripts/run_chromedriver_tests.py",
       "../../chrome/test/chromedriver/test/run_py_tests.py",
       "--chromedriver=chromedriver",
       "--log-path=${ISOLATED_OUTDIR}/chromedriver.log",
@@ -400,7 +401,7 @@
   "components_perftests": {
     "label": "//components:components_perftests",
     "type": "script",
-    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "script": "//testing/scripts/run_performance_tests_wrapper.py",
     "args": [
       "--xvfb",
       "components_perftests",
@@ -490,6 +491,9 @@
   "cros_vm_sanity_test": {
     "label": "//chromeos:cros_vm_sanity_test",
     "type": "raw",
+    "args": [
+        "--vm-logs-dir=${ISOLATED_OUTDIR}",
+    ]
   },
   "crypto_unittests": {
     "label": "//crypto:crypto_unittests",
@@ -598,10 +602,6 @@
   "gn_all": {
     "label": "//:gn_all",
     "type": "additional_compile_target",
-  },
-  "gn_unittests": {
-    "label": "//tools/gn:gn_unittests",
-    "type": "console_test_launcher",
   },
   "google_apis_unittests": {
     "label": "//google_apis:google_apis_unittests",
@@ -841,7 +841,7 @@
     ],
   },
   "mojo_core_unittests": {
-    "label": "//mojo/edk:mojo_core_unittests",
+    "label": "//mojo/core:mojo_core_unittests",
     "type": "console_test_launcher",
   },
   "mojo_unittests": {
@@ -849,13 +849,13 @@
     "type": "console_test_launcher",
   },
   "mojo_test_apk": {
-    "label": "//mojo/android:mojo_test_apk",
+    "label": "//mojo/public/java/system:mojo_test_apk",
     "type": "console_test_launcher",
   },
   "monochrome_apk_checker": {
     "label": "//chrome/android/monochrome:monochrome_apk_checker",
     "type": "script",
-    "script": "//chrome/android/monochrome/scripts/monochrome_apk_checker_wrapper.py",
+    "script": "//testing/scripts/monochrome_apk_checker_wrapper.py",
     "args": [
       "--script",
       "../../chrome/android/monochrome/scripts/monochrome_apk_checker.py",
@@ -1021,6 +1021,10 @@
     "label": "//chrome/installer/setup:setup_unittests",
     "type": "console_test_launcher",
   },
+  "shell_dialogs_unittests": {
+    "label": "//ui/shell_dialogs:shell_dialogs_unittests",
+    "type": "console_test_launcher",
+  },
   "skia_unittests": {
     "label": "//skia:skia_unittests",
     "type": "console_test_launcher",
@@ -1080,14 +1084,9 @@
       "-v",
     ],
   },
-  "telemetry_perf_tests": {
-    "label": "//chrome/test:telemetry_perf_tests",
-    "type": "script",
-    "script": "//testing/scripts/run_telemetry_benchmark_as_googletest.py",
-    "args": [
-      "../../tools/perf/run_benchmark",
-    ],
-  },
+  # This isolate is solely used to run the One Builbot Step Tester
+  # trybot so that we don't use the full chrome build each time.  Instead
+  # this uses the reference build to run telemetry.
   "telemetry_perf_tests_without_chrome": {
     "label": "//chrome/test:telemetry_perf_tests_without_chrome",
     "type": "script",
@@ -1096,9 +1095,6 @@
       "../../tools/perf/run_benchmark",
     ],
   },
-  # Perf is in the middle of refactoring their recipe.  crbug.com/757933
-  # These isolates are the new targets for the refactor and will replace
-  # the old ones when migration is complete.
   "performance_test_suite": {
     "label": "//chrome/test:performance_test_suite",
     "type": "script",
@@ -1119,21 +1115,6 @@
       "-v",
       "--",
       "../../testing/scripts/run_performance_tests.py",
-      "../../tools/perf/run_benchmark",
-    ],
-  },
-  "telemetry_perf_webview_tests": {
-    "label": "//chrome/test:telemetry_perf_webview_tests",
-    "type": "script",
-    "script": "//third_party/catapult/devil/devil/android/tools/system_app.py",
-    "args": [
-      "remove",
-      "--package",
-      "com.android.webview",
-      "com.google.android.webview",
-      "-v",
-      "--",
-      "../../testing/scripts/run_telemetry_benchmark_as_googletest.py",
       "../../tools/perf/run_benchmark",
     ],
   },
@@ -1191,7 +1172,7 @@
   "gpu_perftests": {
     "label": "//gpu:gpu_perftests",
     "type": "script",
-    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "script": "//testing/scripts/run_performance_tests_wrapper.py",
     "args": [
       "gpu_perftests",
       "--adb-path",
@@ -1201,7 +1182,7 @@
   "command_buffer_perftests": {
     "label": "//gpu:command_buffer_perftests",
     "type": "script",
-    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "script": "//testing/scripts/run_performance_tests_wrapper.py",
     "args": [
       "command_buffer_perftests",
       "--adb-path",
@@ -1222,7 +1203,7 @@
   "vr_common_perftests": {
     "label": "//chrome/browser/vr:vr_common_perftests",
     "type": "script",
-    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "script": "//testing/scripts/run_performance_tests_wrapper.py",
     "args": [
       "vr_common_perftests",
       "--adb-path",

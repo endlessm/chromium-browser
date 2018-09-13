@@ -49,6 +49,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "blink_heap_unittests"
       },
       {
@@ -73,6 +79,18 @@
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 10
+        },
+        "test": "browser_tests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mojo.fyi.network_browser_tests.filter"
+        ],
+        "name": "network_service_browser_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 15
         },
         "test": "browser_tests"
       },
@@ -110,6 +128,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "chrome_cleaner_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "chrome_elf_import_unittests"
       },
       {
@@ -131,6 +155,16 @@
         "test": "components_browsertests"
       },
       {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "name": "network_service_components_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "components_browsertests"
+      },
+      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -145,6 +179,18 @@
       {
         "swarming": {
           "can_use_on_swarming_builders": true
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mojo.fyi.network_content_browsertests.filter"
+        ],
+        "name": "network_service_content_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 2
         },
         "test": "content_browsertests"
       },
@@ -238,10 +284,26 @@
         "test": "extensions_browsertests"
       },
       {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "name": "network_service_extensions_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "extensions_browsertests"
+      },
+      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
         "test": "extensions_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "filesystem_service_unittests"
       },
       {
         "swarming": {
@@ -259,7 +321,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gn_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
@@ -305,7 +367,18 @@
       {
         "swarming": {
           "can_use_on_swarming_builders": true,
-          "shards": 2
+          "shards": 3
+        },
+        "test": "interactive_ui_tests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "name": "network_service_interactive_ui_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 3
         },
         "test": "interactive_ui_tests"
       },
@@ -325,13 +398,13 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "keyboard_unittests"
+        "test": "latency_unittests"
       },
       {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "latency_unittests"
+        "test": "leveldb_service_unittests"
       },
       {
         "swarming": {
@@ -368,6 +441,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "midi_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "mojo_core_unittests"
       },
       {
         "swarming": {
@@ -467,7 +546,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "shell_dialogs_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "skia_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "snapshot_unittests"
       },
       {
         "swarming": {
@@ -486,6 +577,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "sync_integration_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "traffic_annotation_auditor_unittests"
       },
       {
         "swarming": {
@@ -562,6 +659,13 @@
       {
         "isolate_name": "components_perftests",
         "name": "components_perftests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        }
+      },
+      {
+        "isolate_name": "content_shell_crash_test",
+        "name": "content_shell_crash_test",
         "swarming": {
           "can_use_on_swarming_builders": true
         }
@@ -675,6 +779,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "blink_heap_unittests"
       },
       {
@@ -699,6 +809,18 @@
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 10
+        },
+        "test": "browser_tests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mojo.fyi.network_browser_tests.filter"
+        ],
+        "name": "network_service_browser_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 15
         },
         "test": "browser_tests"
       },
@@ -736,6 +858,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "chrome_cleaner_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "chrome_elf_import_unittests"
       },
       {
@@ -757,6 +885,16 @@
         "test": "components_browsertests"
       },
       {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "name": "network_service_components_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "components_browsertests"
+      },
+      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -771,6 +909,18 @@
       {
         "swarming": {
           "can_use_on_swarming_builders": true
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mojo.fyi.network_content_browsertests.filter"
+        ],
+        "name": "network_service_content_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 2
         },
         "test": "content_browsertests"
       },
@@ -864,10 +1014,26 @@
         "test": "extensions_browsertests"
       },
       {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "name": "network_service_extensions_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "extensions_browsertests"
+      },
+      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
         "test": "extensions_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "filesystem_service_unittests"
       },
       {
         "swarming": {
@@ -885,7 +1051,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gn_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
@@ -929,10 +1095,20 @@
         "test": "installer_util_unittests"
       },
       {
-        "experiment_percentage": 100,
         "swarming": {
           "can_use_on_swarming_builders": true,
-          "shards": 2
+          "shards": 3
+        },
+        "test": "interactive_ui_tests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "name": "network_service_interactive_ui_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 3
         },
         "test": "interactive_ui_tests"
       },
@@ -952,13 +1128,13 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "keyboard_unittests"
+        "test": "latency_unittests"
       },
       {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "latency_unittests"
+        "test": "leveldb_service_unittests"
       },
       {
         "swarming": {
@@ -995,6 +1171,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "midi_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "mojo_core_unittests"
       },
       {
         "swarming": {
@@ -1077,6 +1259,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "service_manager_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "services_unittests"
       },
       {
@@ -1094,7 +1282,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "shell_dialogs_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "skia_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "snapshot_unittests"
       },
       {
         "swarming": {
@@ -1113,6 +1313,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "sync_integration_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "traffic_annotation_auditor_unittests"
       },
       {
         "swarming": {
@@ -1161,6 +1367,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "wtf_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "zucchini_unittests"
       }
     ],
     "isolated_scripts": [
@@ -1226,6 +1438,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "blink_heap_unittests"
       },
       {
@@ -1280,6 +1498,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "chrome_cleaner_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "chrome_elf_import_unittests"
       },
       {
@@ -1298,6 +1522,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "components_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "components_unittests"
       },
       {
@@ -1307,6 +1537,7 @@
         "test": "compositor_unittests"
       },
       {
+        "experiment_percentage": 100,
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -1387,7 +1618,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "extensions_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "extensions_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "filesystem_service_unittests"
       },
       {
         "swarming": {
@@ -1411,12 +1654,6 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gn_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
         "test": "google_apis_unittests"
       },
       {
@@ -1424,6 +1661,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "gpu_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "headless_browsertests"
       },
       {
         "swarming": {
@@ -1449,9 +1692,22 @@
         "test": "installer_util_unittests"
       },
       {
+        "experiment_percentage": 100,
         "swarming": {
           "can_use_on_swarming_builders": true,
-          "shards": 2
+          "shards": 3
+        },
+        "test": "interactive_ui_tests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "experiment_percentage": 100,
+        "name": "network_service_interactive_ui_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 3
         },
         "test": "interactive_ui_tests"
       },
@@ -1471,13 +1727,13 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "keyboard_unittests"
+        "test": "latency_unittests"
       },
       {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "latency_unittests"
+        "test": "leveldb_service_unittests"
       },
       {
         "swarming": {
@@ -1514,6 +1770,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "midi_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "mojo_core_unittests"
       },
       {
         "swarming": {
@@ -1596,6 +1858,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "service_manager_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "services_unittests"
       },
       {
@@ -1613,7 +1881,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "shell_dialogs_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "skia_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "snapshot_unittests"
       },
       {
         "swarming": {
@@ -1637,6 +1917,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "traffic_annotation_auditor_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "ui_base_unittests"
       },
       {
@@ -1644,6 +1930,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "ui_touch_selection_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "unit_tests"
       },
       {
         "swarming": {
@@ -1702,6 +1994,14 @@
     ],
     "isolated_scripts": [
       {
+        "experiment_percentage": 100,
+        "isolate_name": "content_shell_crash_test",
+        "name": "content_shell_crash_test",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        }
+      },
+      {
         "isolate_name": "metrics_python_tests",
         "name": "metrics_python_tests",
         "swarming": {
@@ -1709,10 +2009,42 @@
         }
       },
       {
+        "args": [
+          "--smoke-test-mode",
+          "--test-shard-map-filename=smoke_test_benchmark_shard_map.json",
+          "--browser=debug_x64"
+        ],
+        "experiment_percentage": 100,
+        "isolate_name": "performance_test_suite",
+        "merge": {
+          "args": [
+            "--smoke-test-mode"
+          ],
+          "script": "//tools/perf/process_perf_results.py"
+        },
+        "name": "performance_test_suite",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "hard_timeout": 960,
+          "shards": 2
+        }
+      },
+      {
         "isolate_name": "telemetry_gpu_unittests",
         "name": "telemetry_gpu_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true
+        }
+      },
+      {
+        "args": [
+          "--jobs=1"
+        ],
+        "isolate_name": "telemetry_unittests",
+        "name": "telemetry_unittests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 4
         }
       },
       {
@@ -1825,6 +2157,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "blink_heap_unittests"
       },
       {
@@ -1881,6 +2219,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "chrome_app_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "chrome_cleaner_unittests"
       },
       {
         "swarming": {
@@ -2023,6 +2367,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "filesystem_service_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "gcm_unit_tests"
       },
       {
@@ -2036,12 +2386,6 @@
           "can_use_on_swarming_builders": true
         },
         "test": "gin_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "gn_unittests"
       },
       {
         "swarming": {
@@ -2087,7 +2431,7 @@
       {
         "swarming": {
           "can_use_on_swarming_builders": true,
-          "shards": 2
+          "shards": 3
         },
         "test": "interactive_ui_tests"
       },
@@ -2107,13 +2451,13 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "keyboard_unittests"
+        "test": "latency_unittests"
       },
       {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "latency_unittests"
+        "test": "leveldb_service_unittests"
       },
       {
         "swarming": {
@@ -2150,6 +2494,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "midi_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "mojo_core_unittests"
       },
       {
         "swarming": {
@@ -2249,7 +2599,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "shell_dialogs_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "skia_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "snapshot_unittests"
       },
       {
         "swarming": {
@@ -2268,6 +2630,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "sync_integration_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "traffic_annotation_auditor_unittests"
       },
       {
         "swarming": {
@@ -2403,7 +2771,6 @@
         }
       },
       {
-        "experiment_percentage": 100,
         "isolate_name": "webkit_layout_tests_exparchive",
         "merge": {
           "args": [
@@ -2482,6 +2849,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "blink_heap_unittests"
       },
       {
@@ -2506,6 +2879,30 @@
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 20
+        },
+        "test": "browser_tests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mojo.fyi.network_browser_tests.filter"
+        ],
+        "name": "network_service_browser_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 15
+        },
+        "test": "browser_tests"
+      },
+      {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.browser_tests.filter"
+        ],
+        "name": "viz_browser_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 10
         },
         "test": "browser_tests"
       },
@@ -2543,6 +2940,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "chrome_cleaner_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "chrome_elf_import_unittests"
       },
       {
@@ -2561,6 +2964,22 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "components_browsertests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "name": "network_service_components_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "components_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "components_unittests"
       },
       {
@@ -2570,6 +2989,18 @@
         "test": "compositor_unittests"
       },
       {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 2
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "args": [
+          "--enable-features=NetworkService",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mojo.fyi.network_content_browsertests.filter"
+        ],
+        "name": "network_service_content_browsertests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 2
@@ -2639,6 +3070,18 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "device_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "display_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "elevation_service_unittests"
       },
       {
@@ -2654,10 +3097,26 @@
         "test": "extensions_browsertests"
       },
       {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "name": "network_service_extensions_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "extensions_browsertests"
+      },
+      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
         "test": "extensions_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "filesystem_service_unittests"
       },
       {
         "swarming": {
@@ -2675,7 +3134,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gn_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
@@ -2726,6 +3185,17 @@
         "test": "interactive_ui_tests"
       },
       {
+        "args": [
+          "--enable-features=NetworkService"
+        ],
+        "name": "network_service_interactive_ui_tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 3
+        },
+        "test": "interactive_ui_tests"
+      },
+      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -2742,6 +3212,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "latency_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "leveldb_service_unittests"
       },
       {
         "swarming": {
@@ -2771,7 +3247,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "message_center_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "midi_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "mojo_core_unittests"
       },
       {
         "swarming": {
@@ -2848,6 +3336,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "service_manager_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "services_unittests"
       },
       {
@@ -2865,7 +3359,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "shell_dialogs_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "skia_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "snapshot_unittests"
       },
       {
         "swarming": {
@@ -2885,6 +3391,12 @@
           "shards": 2
         },
         "test": "sync_integration_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "traffic_annotation_auditor_unittests"
       },
       {
         "swarming": {
@@ -2955,10 +3467,37 @@
     ],
     "isolated_scripts": [
       {
+        "isolate_name": "content_shell_crash_test",
+        "name": "content_shell_crash_test",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        }
+      },
+      {
         "isolate_name": "metrics_python_tests",
         "name": "metrics_python_tests",
         "swarming": {
           "can_use_on_swarming_builders": true
+        }
+      },
+      {
+        "args": [
+          "--smoke-test-mode",
+          "--test-shard-map-filename=smoke_test_benchmark_shard_map.json",
+          "--browser=debug"
+        ],
+        "isolate_name": "performance_test_suite",
+        "merge": {
+          "args": [
+            "--smoke-test-mode"
+          ],
+          "script": "//tools/perf/process_perf_results.py"
+        },
+        "name": "performance_test_suite",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "hard_timeout": 960,
+          "shards": 2
         }
       },
       {
@@ -3005,6 +3544,7 @@
           "--time-out-ms",
           "60000"
         ],
+        "experiment_percentage": 100,
         "isolate_name": "webkit_layout_tests_exparchive",
         "merge": {
           "args": [

@@ -130,8 +130,8 @@ class SlaveStatus(object):
       completed_builds: A set of slave build configs (strings) completed before.
 
     Returns:
-       A dict mapping config names of slave builds which are not in the
-       completed_builds set to their BuildbucketInfos.
+      A dict mapping config names of slave builds which are not in the
+      completed_builds set to their BuildbucketInfos.
     """
     completed_builds = completed_builds or {}
     return {k: v for k, v in all_buildbucket_info_dict.iteritems()
@@ -167,9 +167,7 @@ class SlaveStatus(object):
       self.completed_builds = set([build for build in self.completed_builds
                                    if build not in experimental_builders])
 
-    if (self.config is not None and
-        self.metadata is not None and
-        config_lib.UseBuildbucketScheduler(self.config)):
+    if self.config and self.metadata:
       scheduled_buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
           self.metadata)
       # It's possible that CQ-master has a list of important slaves configured
@@ -282,6 +280,11 @@ class SlaveStatus(object):
       if build_result == constants.BUILDBUCKET_BUILDER_RESULT_SUCCESS:
         logging.info('Not retriable build %s completed with result %s.',
                      build, build_result)
+        continue
+
+      # TODO (xixuan): Remove this after Skylab testing stage is finished.
+      if build in ['nyan_blaze-paladin']:
+        builds_to_retry.add(build)
         continue
 
       build_retry = self.new_buildbucket_info_dict[build].retry

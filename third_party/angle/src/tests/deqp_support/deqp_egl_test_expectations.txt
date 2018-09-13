@@ -149,9 +149,8 @@
 1340 WIN : dEQP-EGL.functional.negative_api.swap_interval = FAIL
 2382 WIN : dEQP-EGL.functional.native_color_mapping.native_window.* = SKIP
 1340 WIN : dEQP-EGL.functional.native_coord_mapping.native_window.* = FAIL
-1340 WIN : dEQP-EGL.functional.get_proc_address.extension.egl_ext_platform_base = FAIL
-1340 WIN : dEQP-EGL.functional.preserve_swap.preserve.no_read_before_swap.* = SKIP
-1340 WIN : dEQP-EGL.functional.preserve_swap.preserve.read_before_swap.* = SKIP
+2716 WIN : dEQP-EGL.functional.preserve_swap.preserve.no_read_before_swap.* = SKIP
+2716 WIN : dEQP-EGL.functional.preserve_swap.preserve.read_before_swap.* = SKIP
 1340 WIN : dEQP-EGL.functional.resize.back_buffer.* = SKIP
 1340 WIN : dEQP-EGL.functional.resize.pixel_density.* = SKIP
 
@@ -161,7 +160,25 @@
 2546 WIN : dEQP-EGL.functional.reusable_sync.invalid.* = SKIP
 2546 WIN : dEQP-EGL.functional.color_clears.multi_thread.* = FAIL
 2546 WIN : dEQP-EGL.functional.query_surface.simple.pbuffer.rgba8888_depth_stencil = FAIL
-2546 WIN : dEQP-EGL.functional.thread_cleanup.* = FAIL
+2546 WIN : dEQP-EGL.functional.thread_cleanup.* = SKIP
+
+// Windows Vulkan failures
+2635 WIN VULKAN : dEQP-EGL.functional.multicontext.non_shared_clear = FAIL
+2635 WIN VULKAN : dEQP-EGL.functional.multicontext.non_shared_make_current = FAIL
+2635 WIN VULKAN : dEQP-EGL.functional.multicontext.shared_clear = FAIL
+2635 WIN VULKAN : dEQP-EGL.functional.multicontext.shared_make_current = FAIL
+2635 WIN VULKAN : dEQP-EGL.functional.query_surface.set_attribute.pbuffer.rgba8888_depth_stencil = FAIL
+2635 WIN VULKAN : dEQP-EGL.functional.query_surface.set_attribute.pbuffer.rgba8888_no_depth_no_stencil = FAIL
+2715 WIN VULKAN : dEQP-EGL.functional.query_surface.simple.pbuffer.rgb888_depth_no_stencil = FAIL
+2715 WIN VULKAN : dEQP-EGL.functional.query_surface.simple.pbuffer.rgb888_depth_stencil = FAIL
+2715 WIN VULKAN : dEQP-EGL.functional.query_surface.simple.pbuffer.rgb888_no_depth_no_stencil = FAIL
+2715 WIN VULKAN : dEQP-EGL.functional.query_surface.simple.pbuffer.rgba8888_depth_no_stencil = FAIL
+2715 WIN VULKAN : dEQP-EGL.functional.query_surface.simple.pbuffer.rgba8888_no_depth_no_stencil = FAIL
+2635 WIN VULKAN : dEQP-EGL.functional.resize.surface_size.grow = FAIL
+2635 WIN VULKAN : dEQP-EGL.functional.resize.surface_size.stretch_height = FAIL
+2635 WIN VULKAN : dEQP-EGL.functional.resize.surface_size.stretch_width = FAIL
+2635 WIN VULKAN : dEQP-EGL.functional.wide_color.pbuffer_8888_colorspace_default = FAIL
+2716 WIN VULKAN : dEQP-EGL.functional.preserve_swap.no_preserve.* = FAIL
 
 // Linux failures
 2546 LINUX : dEQP-EGL.functional.color_clears.multi_context.gles1.rgba8888_pixmap = SKIP
@@ -191,13 +208,33 @@
 2546 LINUX : dEQP-EGL.functional.render.single_context.gles2.rgba8888_pixmap = SKIP
 2546 LINUX : dEQP-EGL.functional.render.single_context.gles3.rgba8888_pixmap = SKIP
 2546 LINUX : dEQP-EGL.functional.thread_cleanup.* = SKIP
-2546 LINUX : dEQP-EGL.functional.get_proc_address.extension.egl_ext_platform_base = FAIL
 2546 LINUX : dEQP-EGL.functional.native_color_mapping.native_window.* = FAIL
 2546 LINUX : dEQP-EGL.functional.native_coord_mapping.native_window.* = FAIL
 2546 LINUX : dEQP-EGL.functional.negative_api.choose_config = FAIL
 2546 LINUX : dEQP-EGL.functional.negative_api.swap_interval = FAIL
 2546 LINUX : dEQP-EGL.functional.query_surface.simple.pbuffer.rgba8888_depth_stencil = FAIL
 2546 LINUX : dEQP-EGL.functional.query_surface.simple.pbuffer.rgba8888_no_depth_no_stencil = FAIL
+
+// Linux Vulkan failures
+2635 LINUX VULKAN : dEQP-EGL.functional.query_surface.set_attribute.pbuffer.rgba8888_depth_stencil = FAIL
+2635 LINUX VULKAN : dEQP-EGL.functional.query_surface.set_attribute.pbuffer.rgba8888_no_depth_no_stencil = FAIL
+2715 LINUX VULKAN : dEQP-EGL.functional.query_surface.simple.pbuffer.rgb888_depth_stencil = FAIL
+2715 LINUX VULKAN : dEQP-EGL.functional.query_surface.simple.pbuffer.rgb888_no_depth_no_stencil = FAIL
+2635 LINUX VULKAN : dEQP-EGL.functional.resize.surface_size.grow = FAIL
+2635 LINUX VULKAN : dEQP-EGL.functional.resize.surface_size.shrink = FAIL
+2635 LINUX VULKAN : dEQP-EGL.functional.resize.surface_size.stretch_height = FAIL
+2635 LINUX VULKAN : dEQP-EGL.functional.resize.surface_size.stretch_width = FAIL
+2716 LINUX VULKAN : dEQP-EGL.functional.preserve_swap.no_preserve.* = FAIL
+
+// Mac failures
+2546 MAC : dEQP-EGL.functional.native_color_mapping.native_window.* = FAIL
+2546 MAC : dEQP-EGL.functional.native_coord_mapping.native_window.* = FAIL
+2546 MAC : dEQP-EGL.functional.negative_api.choose_config = FAIL
+2546 MAC : dEQP-EGL.functional.negative_api.copy_buffers = FAIL
+2546 MAC : dEQP-EGL.functional.negative_api.swap_interval = FAIL
+2546 MAC : dEQP-EGL.functional.query_surface.simple.pbuffer.rgba8888_depth_stencil = FAIL
+2546 MAC : dEQP-EGL.functional.color_clears.multi_thread.* = SKIP
+2546 MAC : dEQP-EGL.functional.thread_cleanup.* = SKIP
 
 // Android failures
 2546 ANDROID : dEQP-EGL.functional.multithread.* = SKIP
@@ -210,7 +247,6 @@
 2546 ANDROID : dEQP-EGL.functional.color_clears.multi_context.* = FAIL
 2546 ANDROID : dEQP-EGL.functional.color_clears.multi_thread.* = FAIL
 2546 ANDROID : dEQP-EGL.functional.color_clears.single_context.* = FAIL
-2546 ANDROID : dEQP-EGL.functional.get_proc_address.extension.egl_ext_platform_base = FAIL
 2546 ANDROID : dEQP-EGL.functional.native_color_mapping.native_window.* = FAIL
 2546 ANDROID : dEQP-EGL.functional.native_coord_mapping.native_window.* = FAIL
 2546 ANDROID : dEQP-EGL.functional.negative_api.choose_config = FAIL
@@ -219,7 +255,7 @@
 2546 ANDROID : dEQP-EGL.functional.partial_update.odd_clear_* = FAIL
 2546 ANDROID : dEQP-EGL.functional.partial_update.odd_render_* = FAIL
 2546 ANDROID : dEQP-EGL.functional.partial_update.render_* = FAIL
-2546 ANDROID : dEQP-EGL.functional.preserve_swap.preserve.* = FAIL
+2716 ANDROID : dEQP-EGL.functional.preserve_swap.preserve.* = FAIL
 2546 ANDROID : dEQP-EGL.functional.query_context.get_current_context.* = FAIL
 2546 ANDROID : dEQP-EGL.functional.query_context.get_current_display.* = FAIL
 2546 ANDROID : dEQP-EGL.functional.query_context.get_current_surface.r* = FAIL

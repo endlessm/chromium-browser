@@ -134,16 +134,17 @@ class CookiesAuthenticator(Authenticator):
   def _get_netrc(cls):
     # Buffer the '.netrc' path. Use an empty file if it doesn't exist.
     path = cls.get_netrc_path()
-    content = ''
-    if os.path.exists(path):
-      st = os.stat(path)
-      if st.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
-        print >> sys.stderr, (
-            'WARNING: netrc file %s cannot be used because its file '
-            'permissions are insecure.  netrc file permissions should be '
-            '600.' % path)
-      with open(path) as fd:
-        content = fd.read()
+    if not os.path.exists(path):
+      return netrc.netrc(os.devnull)
+
+    st = os.stat(path)
+    if st.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+      print >> sys.stderr, (
+          'WARNING: netrc file %s cannot be used because its file '
+          'permissions are insecure.  netrc file permissions should be '
+          '600.' % path)
+    with open(path) as fd:
+      content = fd.read()
 
     # Load the '.netrc' file. We strip comments from it because processing them
     # can trigger a bug in Windows. See crbug.com/664664.
@@ -393,9 +394,9 @@ def ReadHttpResponse(conn, accept_statuses=frozenset([200])):
       raise GerritAuthenticationError(response.status, reason)
 
     # If response.status < 500 then the result is final; break retry loop.
-    # If the response is 404, it might be because of replication lag, so
+    # If the response is 404/409, it might be because of replication lag, so
     # keep trying anyway.
-    if ((response.status < 500 and response.status != 404)
+    if ((response.status < 500 and response.status not in [404, 409])
         or response.status in accept_statuses):
       LOGGER.debug('got response %d for %s %s', response.status,
                    conn.req_params['method'], conn.req_params['uri'])

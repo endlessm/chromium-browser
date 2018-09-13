@@ -8,6 +8,7 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "content/browser/compositor/image_transport_factory.h"
 #include "content/browser/compositor/surface_utils.h"
@@ -171,9 +172,8 @@ void TestRenderWidgetHostView::SubmitCompositorFrame(
     viz::CompositorFrame frame,
     base::Optional<viz::HitTestRegionList> hit_test_region_list) {
   did_swap_compositor_frame_ = true;
-  uint32_t frame_token = frame.metadata.frame_token;
-  if (frame_token)
-    OnFrameTokenChanged(frame_token);
+  if (frame.metadata.send_frame_token_to_embedder)
+    OnFrameTokenChanged(frame.metadata.frame_token);
 }
 
 void TestRenderWidgetHostView::TakeFallbackContentFrom(
@@ -190,8 +190,12 @@ bool TestRenderWidgetHostView::LockMouse() {
 void TestRenderWidgetHostView::UnlockMouse() {
 }
 
-viz::FrameSinkId TestRenderWidgetHostView::GetFrameSinkId() {
+const viz::FrameSinkId& TestRenderWidgetHostView::GetFrameSinkId() const {
   return frame_sink_id_;
+}
+
+const viz::LocalSurfaceId& TestRenderWidgetHostView::GetLocalSurfaceId() const {
+  return viz::ParentLocalSurfaceIdAllocator::InvalidLocalSurfaceId();
 }
 
 viz::SurfaceId TestRenderWidgetHostView::GetCurrentSurfaceId() const {
@@ -214,11 +218,13 @@ TestRenderViewHost::TestRenderViewHost(
     SiteInstance* instance,
     std::unique_ptr<RenderWidgetHostImpl> widget,
     RenderViewHostDelegate* delegate,
+    int32_t routing_id,
     int32_t main_frame_routing_id,
     bool swapped_out)
     : RenderViewHostImpl(instance,
                          std::move(widget),
                          delegate,
+                         routing_id,
                          main_frame_routing_id,
                          swapped_out,
                          false /* has_initialized_audio_host */),
@@ -280,7 +286,7 @@ void TestRenderViewHost::SimulateWasHidden() {
 }
 
 void TestRenderViewHost::SimulateWasShown() {
-  GetWidget()->WasShown(ui::LatencyInfo());
+  GetWidget()->WasShown(false /* record_presentation_time */);
 }
 
 WebPreferences TestRenderViewHost::TestComputeWebkitPrefs() {

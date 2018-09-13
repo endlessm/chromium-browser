@@ -230,6 +230,18 @@ base::FilePath TestPaths::BuildArtifact(
       directory = base::FilePath();
 #endif
       break;
+
+    case FileType::kCertificate:
+#if defined(CRASHPAD_IS_IN_FUCHSIA)
+      // When running in the Fuchsia tree, the .pem files are packaged as assets
+      // into the test data folder. This will need to be rationalized when
+      // things are actually run from a package.
+      // https://crashpad.chromium.org/bug/196.
+      directory =
+          base::FilePath(FILE_PATH_LITERAL("/system/test/crashpad_test_data"));
+#endif
+      extension = FILE_PATH_LITERAL(".pem");
+      break;
   }
 
   return directory.Append(test_name + FILE_PATH_LITERAL("_") + artifact +

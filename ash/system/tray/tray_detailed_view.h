@@ -23,6 +23,7 @@ class BoxLayout;
 class Button;
 class ProgressBar;
 class ScrollView;
+class Separator;
 }  // namespace views
 
 namespace ash {
@@ -51,6 +52,7 @@ class ASH_EXPORT TrayDetailedView : public views::View,
   // views::View:
   void Layout() override;
   int GetHeightForWidth(int width) const override;
+  void RequestFocus() override;
 
   // Exposes the layout manager of this view to give control to subclasses.
   views::BoxLayout* box_layout() { return box_layout_; }
@@ -104,8 +106,14 @@ class ASH_EXPORT TrayDetailedView : public views::View,
   // Helper functions which create and return the settings and help buttons,
   // respectively, used in the material design top-most header row. The caller
   // assumes ownership of the returned buttons.
+  views::Button* CreateInfoButton(int info_accessible_name_id);
   views::Button* CreateSettingsButton(int setting_accessible_name_id);
   views::Button* CreateHelpButton();
+
+  // Create a horizontal separator line to be drawn between rows in a detailed
+  // view above the sub-header rows. Caller takes ownership of the returned
+  // view.
+  views::Separator* CreateListSubHeaderSeparator();
 
   // Closes the bubble that contains the detailed view.
   void CloseBubble();
@@ -129,11 +137,6 @@ class ASH_EXPORT TrayDetailedView : public views::View,
 
   // Transition to main view from detailed view.
   void TransitionToMainView();
-
-  // Helper function which creates and returns the back button used in the
-  // material design top-most header row. The caller assumes ownership of the
-  // returned button.
-  views::Button* CreateBackButton();
 
   DetailedViewDelegate* const delegate_;
   views::BoxLayout* box_layout_;

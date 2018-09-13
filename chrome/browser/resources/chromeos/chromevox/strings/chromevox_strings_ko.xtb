@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">비밀번호 수정 텍스트</translation>
 <translation id="1802710350767629429">업데이트 메모 표시</translation>
 <translation id="1810107444790159527">목록 상자</translation>
+<translation id="1812527064848182527">가로 모드</translation>
 <translation id="1828385960365606039">5월</translation>
 <translation id="1834891354138622109">열</translation>
 <translation id="1845944666972354496">활성화하려면 두 번 탭하세요.</translation>
@@ -146,6 +147,7 @@
 <translation id="2416512023405990736">선택 취소된 체크박스</translation>
 <translation id="2417569100218200841">콘텐츠 정보</translation>
 <translation id="2417948780551741035">미주</translation>
+<translation id="2421113964388408478">삭제</translation>
 <translation id="2422937916923936891">메뉴 항목 체크박스</translation>
 <translation id="2428534162001909979">명령 메뉴</translation>
 <translation id="2429669115401274487">오후</translation>
@@ -253,6 +255,7 @@
 <translation id="3232388865800379423">팝업 버튼</translation>
 <translation id="3241052487511142956">이전 방문한 링크</translation>
 <translation id="3241638166094654466">각 행의 셀 수:</translation>
+<translation id="3286372614333682499">세로 모드</translation>
 <translation id="3286390186030710347">슬라이더</translation>
 <translation id="3299925995433437805">다음 방문한 링크가 없습니다.</translation>
 <translation id="3300348286427369683">서식 있는 텍스트가 지원됩니다. 이제 ChromeVox에서 이동 명령어, 점자 커서 라우팅, 선택 등의 서식 있는 텍스트 입력란이 지원됩니다.</translation>
@@ -426,6 +429,7 @@
 <translation id="4476183483923481720">새로운 행</translation>
 <translation id="4482330759234983253">이전 표</translation>
 <translation id="4491109536499578614">이미지</translation>
+<translation id="4505167975768625962">삽입</translation>
 <translation id="4517854969512651305">값 늘리기</translation>
 <translation id="4529987814483543472">기본 키맵</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{슬래시}other{슬래시 #개}}</translation>
@@ -589,6 +593,7 @@
 <translation id="5712338278108304766">다음 열</translation>
 <translation id="571866080859340309">그룹 탐색</translation>
 <translation id="5728409797179002635">표를 찾을 수 없습니다.</translation>
+<translation id="5729047866208036762">위, 아래, 왼쪽, 오른쪽 버튼을 눌러 수학 콘텐츠를 탐색하세요.</translation>
 <translation id="5732189279857692565">두 번째 제목입니다. Search+H 또는 Search+Shift+H를 눌러 계속 진행하세요.</translation>
 <translation id="5748623122140342504">이전 수준 5 제목</translation>
 <translation id="5750633686117194034">특수키를 누르지 않았습니다. 하나 이상의 특수키를 길게 누르세요. 완료 후 손가락을 떼면 키가 설정되었다는 메시지가 나옵니다. 탭하여 종료하세요.</translation>
@@ -744,6 +749,7 @@ Chrome 브라우저 메뉴를 열려면 Alt+F를 누릅니다.</translation>
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">6점 점자표 선택:</translation>
 <translation id="72393384879519786">제목</translation>
+<translation id="7240858705033280249">세부정보로 건너뛰기</translation>
 <translation id="7241683698754534149">새 탭에서 자세한 설명 열기</translation>
 <translation id="7248671827512403053">애플리케이션</translation>
 <translation id="725969808843520477">다음 라디오 버튼</translation>
@@ -920,6 +926,7 @@ Chrome 브라우저 메뉴를 열려면 Alt+F를 누릅니다.</translation>
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">8점 점자표 선택:</translation>
 <translation id="9065283790526219006">팝업있음</translation>
+<translation id="9066023754636984703">Search+A를 누른 다음 J를 눌러 세부정보로 이동하세요.</translation>
 <translation id="9067522039955793016">페이지 나누기</translation>
 <translation id="9077213568694924680">선택 항목에서 삭제</translation>
 <translation id="9082874451376019682">이전 슬라이더가 없습니다.</translation>

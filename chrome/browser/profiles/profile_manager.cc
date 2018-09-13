@@ -61,6 +61,7 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/sync/sync_promo_ui.h"
+#include "chrome/browser/unified_consent/unified_consent_service_factory.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
@@ -446,15 +447,19 @@ std::vector<Profile*> ProfileManager::GetLastOpenedProfiles() {
 // static
 Profile* ProfileManager::GetPrimaryUserProfile() {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
+  if (!profile_manager)  // Can be null in unit tests.
+    return nullptr;
 #if defined(OS_CHROMEOS)
   if (!profile_manager->IsLoggedIn() ||
       !user_manager::UserManager::IsInitialized())
     return profile_manager->GetActiveUserOrOffTheRecordProfileFromPath(
         profile_manager->user_data_dir());
   user_manager::UserManager* manager = user_manager::UserManager::Get();
+  const user_manager::User* user = manager->GetActiveUser();
+  if (!user)  // Can be null in unit tests.
+    return nullptr;
   // Note: The ProfileHelper will take care of guest profiles.
-  return chromeos::ProfileHelper::Get()->GetProfileByUserUnsafe(
-      manager->GetPrimaryUser());
+  return chromeos::ProfileHelper::Get()->GetProfileByUserUnsafe(user);
 #else
   return profile_manager->GetActiveUserOrOffTheRecordProfileFromPath(
       profile_manager->user_data_dir());
@@ -993,16 +998,23 @@ void ProfileManager::InitProfileUserPrefs(Profile* profile) {
     const bool user_is_child =
         (user->GetType() == user_manager::USER_TYPE_CHILD);
     const bool profile_is_child = profile->IsChild();
-    if (profile_is_child != user_is_child) {
+    const bool profile_is_new = profile->IsNewProfile();
+    if (!profile_is_new && profile_is_child != user_is_child) {
       ProfileAttributesEntry* entry;
       if (storage.GetProfileAttributesWithPath(profile->GetPath(), &entry)) {
         LOG(WARNING) << "Profile child status has changed.";
         storage.RemoveProfile(profile->GetPath());
       }
-      // Notify ARC about user type change via prefs.
-      const arc::ArcSupervisionTransition supervisionTransition =
-          user_is_child ? arc::ArcSupervisionTransition::REGULAR_TO_CHILD
-                        : arc::ArcSupervisionTransition::CHILD_TO_REGULAR;
+      arc::ArcSupervisionTransition supervisionTransition;
+      if (!profile->GetPrefs()->GetBoolean(arc::prefs::kArcSignedIn)) {
+        // No transition is necessary if user never enabled ARC.
+        supervisionTransition = arc::ArcSupervisionTransition::NO_TRANSITION;
+      } else {
+        // Notify ARC about user type change via prefs if user enabled ARC.
+        supervisionTransition =
+            user_is_child ? arc::ArcSupervisionTransition::REGULAR_TO_CHILD
+                          : arc::ArcSupervisionTransition::CHILD_TO_REGULAR;
+      }
       profile->GetPrefs()->SetInteger(arc::prefs::kArcSupervisionTransition,
                                       static_cast<int>(supervisionTransition));
     }
@@ -1079,9 +1091,13 @@ void ProfileManager::InitProfileUserPrefs(Profile* profile) {
   // new even if the "Preferences" file already existed. (For example: The
   // master_preferences file is dumped into the default profile on first run,
   // before profile creation.)
-  if (profile->IsNewProfile() || first_run::IsChromeFirstRun())
+  if (profile->IsNewProfile() || first_run::IsChromeFirstRun()) {
     profile->GetPrefs()->SetBoolean(prefs::kHasSeenWelcomePage, false);
-#endif
+#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
+    profile->GetPrefs()->SetBoolean(prefs::kHasSeenGoogleAppsPromoPage, false);
+#endif  // defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
+  }
+#endif  // !defined(OS_ANDROID)
 }
 
 void ProfileManager::RegisterTestingProfile(Profile* profile,
@@ -1340,6 +1356,10 @@ void ProfileManager::DoFinalInitForServices(Profile* profile,
       ->SetupInvalidationsOnProfileLoad(invalidation_service);
   AccountReconcilorFactory::GetForProfile(profile);
 
+  // Initialization needs to happen after the browser context is available
+  // because ProfileSyncService needs the URL context getter.
+  UnifiedConsentServiceFactory::GetForProfile(profile);
+
 #if defined(OS_ANDROID)
   // TODO(b/678590): create services during profile startup.
   // Service is responsible for fetching content snippets for the NTP.
@@ -1547,20 +1567,11 @@ void ProfileManager::OnLoadProfileForProfileDeletion(
         content::NotificationService::NoDetails());
 
     // Disable sync for doomed profile.
-    if (ProfileSyncServiceFactory::GetInstance()->HasProfileSyncService(
-            profile)) {
+    if (ProfileSyncServiceFactory::HasProfileSyncService(profile)) {
       browser_sync::ProfileSyncService* sync_service =
-          ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile);
-      if (sync_service->IsSyncRequested()) {
-        // Record sync stopped by profile destruction if it was on before.
-        UMA_HISTOGRAM_ENUMERATION("Sync.StopSource",
-                                  syncer::PROFILE_DESTRUCTION,
-                                  syncer::STOP_SOURCE_LIMIT);
-      }
+          ProfileSyncServiceFactory::GetForProfile(profile);
       // Ensure data is cleared even if sync was already off.
-      ProfileSyncServiceFactory::GetInstance()
-          ->GetForProfile(profile)
-          ->RequestStop(browser_sync::ProfileSyncService::CLEAR_DATA);
+      sync_service->RequestStop(browser_sync::ProfileSyncService::CLEAR_DATA);
     }
 
     ProfileAttributesEntry* entry;

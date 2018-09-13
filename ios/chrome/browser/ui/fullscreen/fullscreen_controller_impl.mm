@@ -41,7 +41,11 @@ FullscreenControllerImpl::FullscreenControllerImpl()
   [broadcaster_ addObserver:bridge_
                 forSelector:@selector(broadcastScrollViewIsDragging:)];
   [broadcaster_ addObserver:bridge_
-                forSelector:@selector(broadcastToolbarHeight:)];
+                forSelector:@selector(broadcastCollapsedToolbarHeight:)];
+  [broadcaster_ addObserver:bridge_
+                forSelector:@selector(broadcastExpandedToolbarHeight:)];
+  [broadcaster_ addObserver:bridge_
+                forSelector:@selector(broadcastBottomToolbarHeight:)];
 }
 
 FullscreenControllerImpl::~FullscreenControllerImpl() = default;
@@ -111,5 +115,9 @@ void FullscreenControllerImpl::Shutdown() {
   [broadcaster_ removeObserver:bridge_
                    forSelector:@selector(broadcastScrollViewIsDragging:)];
   [broadcaster_ removeObserver:bridge_
-                   forSelector:@selector(broadcastToolbarHeight:)];
+                   forSelector:@selector(broadcastCollapsedToolbarHeight:)];
+  [broadcaster_ removeObserver:bridge_
+                   forSelector:@selector(broadcastExpandedToolbarHeight:)];
+  [broadcaster_ removeObserver:bridge_
+                   forSelector:@selector(broadcastBottomToolbarHeight:)];
 }

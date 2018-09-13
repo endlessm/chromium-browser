@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_CONFLICTS_MODULE_INFO_WIN_H_
 
 #include <memory>
+#include <string>
 
 #include "base/files/file_path.h"
 #include "chrome/browser/conflicts/module_info_util_win.h"
@@ -77,15 +78,19 @@ struct ModuleInspectionResult {
 // Contains the inspection result of a module and additional information that is
 // useful to the ModuleDatabase.
 struct ModuleInfoData {
-  // The possible types of module we are dealing with. Used as bit set values.
-  enum ModuleType : uint32_t {
+  // Different properties that the module can have. Used as bit set values.
+  enum ModuleProperty : uint32_t {
     // These modules are or were loaded into one of chrome's process at some
     // point.
-    kTypeLoadedModule = 1 << 0,
+    kPropertyLoadedModule = 1 << 0,
     // These modules are registered as a shell extension.
-    kTypeShellExtension = 1 << 1,
+    kPropertyShellExtension = 1 << 1,
     // These modules are registered as an Input Method Editor.
-    kTypeIme = 1 << 2,
+    kPropertyIme = 1 << 2,
+    // The module was added to the module blacklist cache.
+    kPropertyAddedToBlacklist = 1 << 3,
+    // These modules were blocked from loading into the process.
+    kPropertyBlocked = 1 << 4,
   };
 
   ModuleInfoData();
@@ -99,8 +104,8 @@ struct ModuleInfoData {
   // "BitIndexToProcessType" for details.
   uint32_t process_types;
 
-  // Set that describes the type of the module.
-  uint32_t module_types;
+  // Set that describes the properties of the module.
+  uint32_t module_properties;
 
   // The inspection result obtained via InspectModule().
   std::unique_ptr<ModuleInspectionResult> inspection_result;
@@ -112,6 +117,9 @@ struct ModuleInfoData {
 std::unique_ptr<ModuleInspectionResult> InspectModule(
     const StringMapping& env_variable_mapping,
     const ModuleInfoKey& module_key);
+
+// Generate the code id of a module.
+std::string GenerateCodeId(const ModuleInfoKey& module_key);
 
 namespace internal {
 

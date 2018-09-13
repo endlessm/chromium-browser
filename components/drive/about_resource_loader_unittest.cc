@@ -4,8 +4,11 @@
 
 #include "components/drive/chromeos/about_resource_loader.h"
 
+#include <memory>
+
 #include "base/command_line.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/test/test_mock_time_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/drive/chromeos/drive_test_util.h"
 #include "components/drive/chromeos/file_cache.h"
@@ -16,45 +19,69 @@
 #include "components/drive/service/fake_drive_service.h"
 #include "components/drive/service/test_util.h"
 #include "components/prefs/testing_pref_service.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace drive {
 namespace internal {
 
+namespace {
+
+struct DestroyHelper {
+  template <typename T>
+  void operator()(T* object) const {
+    if (object) {
+      object->Destroy();
+    }
+  }
+};
+
+}  // namespace
+
 class AboutResourceLoaderTest : public testing::Test {
  protected:
   void SetUp() override {
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        google_apis::kEnableTeamDrives);
+    task_runner_ = base::MakeRefCounted<base::TestMockTimeTaskRunner>(
+        base::TestMockTimeTaskRunner::Type::kBoundToThread);
+
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
-    pref_service_.reset(new TestingPrefServiceSimple);
+    pref_service_ = std::make_unique<TestingPrefServiceSimple>();
     test_util::RegisterDrivePrefs(pref_service_->registry());
 
-    logger_.reset(new EventLogger);
+    logger_ = std::make_unique<EventLogger>();
 
-    drive_service_.reset(new FakeDriveService);
+    drive_service_ = std::make_unique<FakeDriveService>();
     ASSERT_TRUE(test_util::SetUpTestEntries(drive_service_.get()));
 
-    scheduler_.reset(new JobScheduler(
+    scheduler_ = std::make_unique<JobScheduler>(
         pref_service_.get(), logger_.get(), drive_service_.get(),
-        base::ThreadTaskRunnerHandle::Get().get(), nullptr));
-    metadata_storage_.reset(new ResourceMetadataStorage(
-        temp_dir_.GetPath(), base::ThreadTaskRunnerHandle::Get().get()));
+        task_runner_.get(), nullptr);
+    metadata_storage_.reset(
+        new ResourceMetadataStorage(temp_dir_.GetPath(), task_runner_.get()));
     ASSERT_TRUE(metadata_storage_->Initialize());
 
     cache_.reset(new FileCache(metadata_storage_.get(), temp_dir_.GetPath(),
-                               base::ThreadTaskRunnerHandle::Get().get(),
-                               NULL /* free_disk_space_getter */));
+                               task_runner_.get(),
+                               nullptr /* free_disk_space_getter */));
     ASSERT_TRUE(cache_->Initialize());
 
-    metadata_.reset(
-        new ResourceMetadata(metadata_storage_.get(), cache_.get(),
-                             base::ThreadTaskRunnerHandle::Get().get()));
+    metadata_.reset(new ResourceMetadata(metadata_storage_.get(), cache_.get(),
+                                         task_runner_.get()));
     ASSERT_EQ(FILE_ERROR_OK, metadata_->Initialize());
 
-    about_resource_loader_.reset(new AboutResourceLoader(scheduler_.get()));
+    about_resource_loader_ = std::make_unique<AboutResourceLoader>(
+        scheduler_.get(), task_runner_->GetMockTickClock());
+  }
+
+  void TearDown() override {
+    // We need to manually reset the objects that implement the Destroy idiom,
+    // that deletes the object on the |task_runner_|. This is simpler than
+    // introducing custom deleters that capture the |task_runner_| and
+    // invoke RunUntilIdle().
+    metadata_.reset();
+    cache_.reset();
+    metadata_storage_.reset();
+    task_runner_->RunUntilIdle();
   }
 
   // Adds a new file to the root directory of the service.
@@ -67,21 +94,20 @@ class AboutResourceLoaderTest : public testing::Test {
         title,
         false,  // shared_with_me
         google_apis::test_util::CreateCopyResultCallback(&error, &entry));
-    base::RunLoop().RunUntilIdle();
+    task_runner_->RunUntilIdle();
     EXPECT_EQ(google_apis::HTTP_CREATED, error);
     return entry;
   }
 
-  content::TestBrowserThreadBundle thread_bundle_;
+  scoped_refptr<base::TestMockTimeTaskRunner> task_runner_;
   base::ScopedTempDir temp_dir_;
   std::unique_ptr<TestingPrefServiceSimple> pref_service_;
   std::unique_ptr<EventLogger> logger_;
   std::unique_ptr<FakeDriveService> drive_service_;
   std::unique_ptr<JobScheduler> scheduler_;
-  std::unique_ptr<ResourceMetadataStorage, test_util::DestroyHelperForTests>
-      metadata_storage_;
-  std::unique_ptr<FileCache, test_util::DestroyHelperForTests> cache_;
-  std::unique_ptr<ResourceMetadata, test_util::DestroyHelperForTests> metadata_;
+  std::unique_ptr<ResourceMetadataStorage, DestroyHelper> metadata_storage_;
+  std::unique_ptr<FileCache, DestroyHelper> cache_;
+  std::unique_ptr<ResourceMetadata, DestroyHelper> metadata_;
   std::unique_ptr<AboutResourceLoader> about_resource_loader_;
 };
 
@@ -99,7 +125,7 @@ TEST_F(AboutResourceLoaderTest, AboutResourceLoader) {
   about_resource_loader_->GetAboutResource(
       google_apis::test_util::CreateCopyResultCallback(error + 1, about + 1));
 
-  base::RunLoop().RunUntilIdle();
+  task_runner_->RunUntilIdle();
   EXPECT_EQ(google_apis::HTTP_SUCCESS, error[0]);
   EXPECT_EQ(google_apis::HTTP_SUCCESS, error[1]);
   const int64_t first_changestamp = about[0]->largest_change_id();
@@ -119,7 +145,7 @@ TEST_F(AboutResourceLoaderTest, AboutResourceLoader) {
   about_resource_loader_->GetAboutResource(
       google_apis::test_util::CreateCopyResultCallback(error + 3, about + 3));
 
-  base::RunLoop().RunUntilIdle();
+  task_runner_->RunUntilIdle();
   EXPECT_EQ(google_apis::HTTP_SUCCESS, error[2]);
   EXPECT_EQ(google_apis::HTTP_SUCCESS, error[3]);
   EXPECT_EQ(first_changestamp + 1, about[2]->largest_change_id());
@@ -137,7 +163,7 @@ TEST_F(AboutResourceLoaderTest, AboutResourceLoader) {
   about_resource_loader_->UpdateAboutResource(
       google_apis::test_util::CreateCopyResultCallback(error + 5, about + 5));
 
-  base::RunLoop().RunUntilIdle();
+  task_runner_->RunUntilIdle();
   EXPECT_EQ(google_apis::HTTP_NO_CONTENT, error[4]);
   EXPECT_EQ(google_apis::HTTP_SUCCESS, error[5]);
   EXPECT_EQ(first_changestamp + 1, about[4]->largest_change_id());
@@ -147,6 +173,30 @@ TEST_F(AboutResourceLoaderTest, AboutResourceLoader) {
       about_resource_loader_->cached_about_resource()->largest_change_id());
 
   EXPECT_EQ(3, drive_service_->about_resource_load_count());
+}
+
+TEST_F(AboutResourceLoaderTest, EvictCache) {
+  google_apis::DriveApiErrorCode error;
+  std::unique_ptr<google_apis::AboutResource> about;
+
+  // No resource is cached at the beginning.
+  ASSERT_FALSE(about_resource_loader_->cached_about_resource());
+
+  // Since no resource is cached, this "Get" should trigger the update.
+  about_resource_loader_->GetAboutResource(
+      google_apis::test_util::CreateCopyResultCallback(&error, &about));
+
+  task_runner_->RunUntilIdle();
+  EXPECT_EQ(google_apis::HTTP_SUCCESS, error);
+
+  // Should have a cached resource.
+  ASSERT_TRUE(about_resource_loader_->cached_about_resource());
+
+  // Advance the timer should evict the cache.
+  task_runner_->FastForwardUntilNoTasksRemain();
+
+  // Cache should be evicted.
+  ASSERT_FALSE(about_resource_loader_->cached_about_resource());
 }
 
 }  // namespace internal

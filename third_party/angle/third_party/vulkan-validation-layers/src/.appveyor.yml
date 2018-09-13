@@ -18,11 +18,6 @@ environment:
   PYTHON_PATH: "C:/Python35"
   PYTHON_PACKAGE_PATH: "C:/Python35/Scripts"
 
-# Cache the external directory to improve build times.
-# If the appveyor config file changes, invalidate the cache.
-cache:
-    - external -> .appveyor.yml
-
 branches:
   only:
     - master
@@ -30,26 +25,43 @@ branches:
 before_build:
   - "SET PATH=C:\\Python35;C:\\Python35\\Scripts;%PATH%"
   - echo.
-  - echo Starting build for %APPVEYOR_REPO_NAME%
-  - echo Update external sources
-  - if %PLATFORM% == Win32 (if %CONFIGURATION% == Debug (update_external_sources.bat --32 --debug))
-  - if %PLATFORM% == Win32 (if %CONFIGURATION% == Release (update_external_sources.bat --32 --release))
-  - if %PLATFORM% == x64 (if %CONFIGURATION% == Debug (update_external_sources.bat --64 --debug))
-  - if %PLATFORM% == x64 (if %CONFIGURATION% == Release (update_external_sources.bat --64 --release))
-  # Determine the appropriate CMake generator for the current version of Visual Studio
-  - echo Determining VS version
-  - python .\scripts\determine_vs_version.py > vsversion.tmp
-  - set /p VS_VERSION=< vsversion.tmp
-  - echo Detected Visual Studio Version as %VS_VERSION%
-  - del /Q /F vsversion.tmp
-  - if %PLATFORM% == Win32 (set GENERATOR="Visual Studio %VS_VERSION%")
-  - if %PLATFORM% == x64 (set GENERATOR="Visual Studio %VS_VERSION% Win64")
-  # Generate build files using CMake for the build step.
-  - echo Generating CMake files for %GENERATOR%
-  - cd %TOP_DIR%
+  - echo Starting build for %APPVEYOR_REPO_NAME% in %APPVEYOR_BUILD_FOLDER%
+  # Build Vulkan-Headers
+  - echo Building Vulkan-Headers for %PLATFORM% %CONFIGURATION%
+  - cd %APPVEYOR_BUILD_FOLDER%
+  - git clone https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
+  - cd Vulkan-Headers
   - mkdir build
   - cd build
-  - cmake -G %GENERATOR% ..
+  - cmake -A %PLATFORM% -DCMAKE_INSTALL_PREFIX=install ..
+  - cmake --build . --config %CONFIGURATION% --target install -- /maxcpucount
+  # Build Vulkan-Loader
+  - echo Building Vulkan-Loader for %PLATFORM% %CONFIGURATION%
+  - cd %APPVEYOR_BUILD_FOLDER%
+  - git clone https://github.com/KhronosGroup/Vulkan-Loader.git
+  - cd Vulkan-Loader
+  - mkdir build
+  - cd build
+  - cmake -A %PLATFORM% -DCMAKE_INSTALL_PREFIX=install -DVULKAN_HEADERS_INSTALL_DIR=%APPVEYOR_BUILD_FOLDER%/Vulkan-Headers/build/install ..
+  - cmake --build . --config %CONFIGURATION% --target install -- /maxcpucount
+  # Build glslang
+  - echo Building glslang for %PLATFORM% %CONFIGURATION%
+  - cd %APPVEYOR_BUILD_FOLDER%
+  - git clone https://github.com/KhronosGroup/glslang.git
+  - cd glslang
+  - update_glslang_sources.py
+  - mkdir build
+  - cd build
+  - cmake -A %PLATFORM% -DCMAKE_INSTALL_PREFIX=install ..
+  - cmake --build . --config %CONFIGURATION% --target install -- /maxcpucount
+  # Generate build files using CMake for the build step.
+  - echo Fetching googletest external dependencies for building validation layer tests
+  - cd %APPVEYOR_BUILD_FOLDER%
+  - git clone https://github.com/google/googletest.git external/googletest
+  - echo Generating Vulkan-ValidationLayers CMake files for %PLATFORM% %CONFIGURATION%
+  - mkdir build
+  - cd build
+  - cmake -A %PLATFORM% -DVULKAN_HEADERS_INSTALL_DIR=%APPVEYOR_BUILD_FOLDER%/Vulkan-Headers/build/install -DGLSLANG_INSTALL_DIR=%APPVEYOR_BUILD_FOLDER%/glslang/build/install -DVULKAN_LOADER_INSTALL_DIR=%APPVEYOR_BUILD_FOLDER%/Vulkan-Loader/build/install ..
   - echo Building platform=%PLATFORM% configuration=%CONFIGURATION%
 
 platform:
@@ -60,7 +72,17 @@ configuration:
   - Release
   - Debug
 
+# Build only x64 Release and Win32(x86) Debug to reduce build time.
+# This should still provide adequate 32-bit vs 64-bit and
+# Release vs Debug coverage.
+matrix:
+  exclude:
+    - configuration: Release
+      platform: Win32
+    - configuration: Debug
+      platform: x64
+
 build:
-  parallel: true                  # enable MSBuild parallel builds
-  project: build/VULKAN.sln       # path to Visual Studio solution or project
-  verbosity: quiet                # quiet|minimal|normal|detailed
+  parallel: true                              # enable MSBuild parallel builds
+  project: build/Vulkan-ValidationLayers.sln  # path to Visual Studio solution or project
+  verbosity: quiet                            # quiet|minimal|normal|detailed

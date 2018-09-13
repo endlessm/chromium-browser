@@ -15,6 +15,7 @@
 #include "AMDGPU.h"
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 
 using namespace llvm;
@@ -46,7 +47,7 @@ char SIFixVGPRCopies::ID = 0;
 char &llvm::SIFixVGPRCopiesID = SIFixVGPRCopies::ID;
 
 bool SIFixVGPRCopies::runOnMachineFunction(MachineFunction &MF) {
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   const SIRegisterInfo *TRI = ST.getRegisterInfo();
   const SIInstrInfo *TII = ST.getInstrInfo();
   bool Changed = false;

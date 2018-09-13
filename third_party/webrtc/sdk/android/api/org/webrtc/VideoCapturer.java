@@ -16,6 +16,7 @@ import java.util.List;
 // Base interface for all VideoCapturers to implement.
 public interface VideoCapturer {
   // Interface used for providing callbacks to an observer.
+  @Deprecated
   public interface CapturerObserver {
     // Notify if the camera have been started successfully or not.
     // Called on a Java thread owned by VideoCapturer.
@@ -23,22 +24,14 @@ public interface VideoCapturer {
     void onCapturerStopped();
 
     // Delivers a captured frame. Called on a Java thread owned by VideoCapturer.
-    @Deprecated
-    default void onByteBufferFrameCaptured(
-        byte[] data, int width, int height, int rotation, long timeStamp) {
-      throw new UnsupportedOperationException("Deprecated and not implemented.");
-    }
-
-    // Delivers a captured frame in a texture with id {@code oesTextureId}. Called on a Java thread
-    // owned by VideoCapturer.
-    @Deprecated
-    default void onTextureFrameCaptured(int width, int height, int oesTextureId,
-        float[] transformMatrix, int rotation, long timestamp) {
-      throw new UnsupportedOperationException("Deprecated and not implemented.");
-    }
-
-    // Delivers a captured frame. Called on a Java thread owned by VideoCapturer.
     void onFrameCaptured(VideoFrame frame);
+  }
+
+  /** Deprecated, implementations should be update to implement the version below. */
+  @Deprecated
+  default void initialize(SurfaceTextureHelper surfaceTextureHelper, Context applicationContext,
+      CapturerObserver capturerObserver) {
+    throw new UnsupportedOperationException("Not implemented.");
   }
 
   /**
@@ -52,8 +45,12 @@ public interface VideoCapturer {
    * called. This also means that the caller can reuse the SurfaceTextureHelper to initialize a new
    * VideoCapturer once the previous VideoCapturer has been disposed.
    */
-  void initialize(SurfaceTextureHelper surfaceTextureHelper, Context applicationContext,
-      CapturerObserver capturerObserver);
+  // Our version of clang format doesn't understand default and messes up.
+  // clang-format off
+  default void initialize(SurfaceTextureHelper surfaceTextureHelper, Context applicationContext,
+      org.webrtc.CapturerObserver capturerObserver) {
+    initialize(surfaceTextureHelper, applicationContext, (CapturerObserver) capturerObserver);
+  }
 
   /**
    * Start capturing frames in a format that is as close as possible to {@code width x height} and

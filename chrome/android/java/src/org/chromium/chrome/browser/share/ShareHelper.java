@@ -24,7 +24,6 @@ import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Build;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AlertDialog;
@@ -38,6 +37,7 @@ import android.widget.AdapterView.OnItemClickListener;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
+import org.chromium.base.AsyncTask;
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
@@ -108,8 +108,7 @@ public class ShareHelper {
 
     private static void fireIntent(Activity activity, Intent intent) {
         if (sFakeIntentReceiverForTesting != null) {
-            Context context = activity.getApplicationContext();
-            sFakeIntentReceiverForTesting.fireIntent(context, intent);
+            sFakeIntentReceiverForTesting.fireIntent(ContextUtils.getApplicationContext(), intent);
         } else {
             activity.startActivity(intent);
         }
@@ -200,7 +199,7 @@ public class ShareHelper {
                     sTargetChosenReceiveAction = activity.getPackageName() + "/"
                             + TargetChosenReceiver.class.getName() + "_ACTION";
                 }
-                Context context = activity.getApplicationContext();
+                Context context = ContextUtils.getApplicationContext();
                 if (sLastRegisteredReceiver != null) {
                     context.unregisterReceiver(sLastRegisteredReceiver);
                     // Must cancel the callback (to satisfy guarantee that exactly one method of
@@ -233,7 +232,7 @@ public class ShareHelper {
         public void onReceive(Context context, Intent intent) {
             synchronized (LOCK) {
                 if (sLastRegisteredReceiver != this) return;
-                context.getApplicationContext().unregisterReceiver(sLastRegisteredReceiver);
+                ContextUtils.getApplicationContext().unregisterReceiver(sLastRegisteredReceiver);
                 sLastRegisteredReceiver = null;
             }
             if (!intent.hasExtra(EXTRA_RECEIVER_TOKEN)
@@ -415,7 +414,7 @@ public class ShareHelper {
         try {
             String path = UiUtils.getDirectoryForImageCapture(ContextUtils.getApplicationContext())
                     + File.separator + SHARE_IMAGES_DIRECTORY_NAME;
-            contents.getContentBitmapAsync(
+            contents.writeContentBitmapToDiskAsync(
                     width, height, path, new ExternallyVisibleUriCallback(callback));
         } catch (IOException e) {
             Log.e(TAG, "Error getting content bitmap: ", e);

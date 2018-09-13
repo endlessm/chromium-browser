@@ -14,6 +14,7 @@
 #import "ios/chrome/browser/ui/bookmarks/bookmark_folder_editor_view_controller.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_model_bridge_observer.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_navigation_controller.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_ui_constants.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_utils_ios.h"
 #import "ios/chrome/browser/ui/bookmarks/cells/bookmark_folder_item.h"
 #import "ios/chrome/browser/ui/icons/chrome_icon.h"
@@ -157,19 +158,22 @@ using bookmarks::BookmarkNode;
   if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
     [self setEdgesForExtendedLayout:UIRectEdgeNone];
   }
-  self.view.backgroundColor = [UIColor whiteColor];
-  self.view.accessibilityIdentifier = @"Folder Picker";
-
+  self.view.accessibilityIdentifier =
+      kBookmarkFolderPickerViewContainerIdentifier;
   self.title = l10n_util::GetNSString(IDS_IOS_BOOKMARK_CHOOSE_GROUP_BUTTON);
 
-  UIBarButtonItem* doneItem = [[UIBarButtonItem alloc]
-      initWithTitle:l10n_util::GetNSString(
-                        IDS_IOS_BOOKMARK_EDIT_MODE_EXIT_MOBILE)
-              style:UIBarButtonItemStylePlain
-             target:self
-             action:@selector(done:)];
-  doneItem.accessibilityIdentifier = @"Done";
-  self.navigationItem.rightBarButtonItem = doneItem;
+  if (!experimental_flags::IsBookmarksUIRebootEnabled()) {
+    self.view.backgroundColor = [UIColor whiteColor];
+    UIBarButtonItem* doneItem = [[UIBarButtonItem alloc]
+        initWithTitle:l10n_util::GetNSString(
+                          IDS_IOS_BOOKMARK_EDIT_MODE_EXIT_MOBILE)
+                style:UIBarButtonItemStylePlain
+               target:self
+               action:@selector(done:)];
+    doneItem.accessibilityIdentifier =
+        kBookmarkFolderEditNavigationBarDoneButtonIdentifier;
+    self.navigationItem.rightBarButtonItem = doneItem;
+  }
 
   if (self.allowsCancel) {
     UIBarButtonItem* cancelItem =
@@ -214,6 +218,12 @@ using bookmarks::BookmarkNode;
 
   // Load the model.
   [self reloadModel];
+}
+
+#pragma mark - Presentation controller integration
+
+- (BOOL)shouldBeDismissedOnTouchOutside {
+  return NO;
 }
 
 #pragma mark - Accessibility
@@ -276,7 +286,22 @@ using bookmarks::BookmarkNode;
       break;
 
     case SectionIdentifierBookmarkFolders: {
-      const BookmarkNode* folder = self.folders[indexPath.row];
+      int folderIndex = indexPath.row;
+      // On UIRefresh if |shouldShowDefaultSection| is YES, the first cell on
+      // this Section should call |pushFolderAddViewController|.
+      if (experimental_flags::IsBookmarksUIRebootEnabled() &&
+          [self shouldShowDefaultSection]) {
+        NSInteger itemType =
+            [self.tableViewModel itemTypeForIndexPath:indexPath];
+        if (itemType == ItemTypeCreateNewFolder) {
+          [self pushFolderAddViewController];
+          return;
+        }
+        // If |shouldShowDefaultSection| is YES we need to offset by 1 to get
+        // the right BookmarkNode from |self.folders|.
+        folderIndex--;
+      }
+      const BookmarkNode* folder = self.folders[folderIndex];
       [self changeSelectedFolder:folder];
       [self delayedNotifyDelegateOfSelection];
       break;
@@ -410,7 +435,7 @@ using bookmarks::BookmarkNode;
   // Adds default "Add Folder" item if needed.
   if ([self shouldShowDefaultSection]) {
     BookmarkFolderItem* createFolderItem =
-        [[BookmarkFolderItem alloc] initWithType:ItemTypeBookmarkFolder
+        [[BookmarkFolderItem alloc] initWithType:ItemTypeCreateNewFolder
                                            style:BookmarkFolderStyleNewFolder];
     // On UIRefresh we add the "Add Folder" Item to the same section as the rest
     // of the folder entries.

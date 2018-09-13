@@ -15,8 +15,6 @@ import mock
 import os
 import struct
 from StringIO import StringIO
-from os.path import join as pathjoin
-from os.path import abspath as abspath
 
 from chromite.cbuildbot import commands
 from chromite.lib import config_lib
@@ -200,6 +198,170 @@ class ChromeSDKTest(cros_test_lib.RunCommandTempDirTestCase):
     self.assertCommandContains([expected_target])
 
 
+# pylint: disable=protected-access
+class SkylabHWLabCommandsTest(cros_test_lib.RunCommandTestCase,
+                              cros_test_lib.OutputTestCase,
+                              cros_test_lib.MockTempDirTestCase):
+  """Test commands related to HWLab tests with Skylab via swarming proxy."""
+  SWARMING_TIMEOUT_DEFAULT = str(
+      commands._DEFAULT_HWTEST_TIMEOUT_MINS * 60 +
+      commands._SWARMING_ADDITIONAL_TIMEOUT)
+  SWARMING_EXPIRATION = str(commands._SWARMING_EXPIRATION)
+
+  WAIT_OUTPUT = '''
+WAIT OUTPUT: Finished.
+'''
+
+  CREATE_OUTPUT = '''
+FAKE OUTPUT. Will be filled in later.
+'''
+
+  def setUp(self):
+    self._build = 'test-build'
+    self._board = 'test-board'
+    self._suite = 'test-suite'
+    self.temp_json_path = os.path.join(self.tempdir, 'temp_summary.json')
+
+    self.create_cmd = None
+    self.wait_cmd = None
+
+  def SetCmdResults(self, swarming_cli_cmd='run',
+                    create_return_code=0,
+                    wait_return_code=0,
+                    args=(),
+                    swarming_timeout_secs=SWARMING_TIMEOUT_DEFAULT,
+                    swarming_io_timeout_secs=SWARMING_TIMEOUT_DEFAULT,
+                    swarming_hard_timeout_secs=SWARMING_TIMEOUT_DEFAULT,
+                    swarming_expiration_secs=SWARMING_EXPIRATION):
+    """Set the expected results from the specified commands.
+
+    Args:
+      swarming_cli_cmd: The swarming client command to kick off.
+      create_return_code: Return code from create command.
+      wait_return_code: Return code from wait command.
+      args: Additional args to pass to create and wait commands.
+      swarming_timeout_secs: swarming client timeout.
+      swarming_io_timeout_secs: swarming client io timeout.
+      swarming_hard_timeout_secs: swarming client hard timeout.
+      swarming_expiration_secs: swarming task expiration.
+    """
+    # Pull out the test priority for the swarming tag.
+    priority = None
+    priority_flag = '--priority'
+    if priority_flag in args:
+      priority = args[args.index(priority_flag) + 1]
+
+    base_cmd = [swarming_lib._SWARMING_PROXY_CLIENT, swarming_cli_cmd,
+                '--swarming', topology.topology.get(
+                    topology.CHROME_SWARMING_PROXY_HOST_KEY)]
+    if swarming_cli_cmd == 'run':
+      base_cmd += ['--task-summary-json', self.temp_json_path,
+                   '--print-status-updates',
+                   '--timeout', swarming_timeout_secs]
+    elif swarming_cli_cmd == 'trigger':
+      base_cmd += ['--dump-json', self.temp_json_path]
+
+    base_cmd += ['--raw-cmd',
+                 '--task-name', 'test-build-test-suite',
+                 '--dimension', 'os', 'Ubuntu-14.04',
+                 '--dimension', 'pool', commands.SKYLAB_SUITE_BOT_POOL,
+                 '--io-timeout', swarming_io_timeout_secs,
+                 '--hard-timeout', swarming_hard_timeout_secs,
+                 '--expiration', swarming_expiration_secs,
+                 '--tags=skylab:run_suite',
+                 '--tags=priority:%s' % priority,
+                 '--tags=build:test-build',
+                 '--tags=task_name:test-build-test-suite',
+                 '--tags=luci_project:chromiumos',
+                 '--tags=suite:test-suite',
+                 '--tags=board:test-board',
+                 '--', commands.SKYLAB_RUN_SUITE_PATH,
+                 '--build', self._build, '--board', self._board]
+    args = list(args)
+    base_cmd = base_cmd + ['--suite_name', self._suite] + args
+
+    self.create_cmd = base_cmd + ['--create_and_return']
+    create_results = iter([
+        self.rc.CmdResult(returncode=create_return_code,
+                          output=self.CREATE_OUTPUT,
+                          error=''),
+    ])
+    self.rc.AddCmdResult(
+        self.create_cmd,
+        side_effect=lambda *args, **kwargs: create_results.next(),
+    )
+
+    self.wait_cmd = base_cmd + ['--suite_id', 'fake_parent_id']
+    wait_results = iter([
+        self.rc.CmdResult(returncode=wait_return_code,
+                          output=self.WAIT_OUTPUT,
+                          error=''),
+    ])
+    self.rc.AddCmdResult(
+        self.wait_cmd,
+        side_effect=lambda *args, **kwargs: wait_results.next(),
+    )
+
+  def PatchJson(self, task_outputs):
+    """Mock out the code that loads from json.
+
+    Args:
+      task_outputs: See explaination in PatchJson of HWLabCommandsTest.
+    """
+    orig_func = commands._CreateSwarmingArgs
+
+    def replacement(*args, **kargs):
+      swarming_args = orig_func(*args, **kargs)
+      swarming_args['temp_json_path'] = self.temp_json_path
+      return swarming_args
+
+    self.PatchObject(commands, '_CreateSwarmingArgs', side_effect=replacement)
+
+    if task_outputs:
+      return_values = []
+      for s in task_outputs:
+        j = {'shards':[{'name': 'fake_name', 'bot_id': 'chromeos-server990',
+                        'created_ts': '2015-06-12 12:00:00',
+                        'internal_failure': s[1],
+                        'state': s[2],
+                        'outputs': [s[0]],
+                        'run_id': s[3]}]}
+        return_values.append(j)
+      return_values_iter = iter(return_values)
+      self.PatchObject(swarming_lib.SwarmingCommandResult, 'LoadJsonSummary',
+                       side_effect=lambda json_file: return_values_iter.next())
+    else:
+      self.PatchObject(swarming_lib.SwarmingCommandResult, 'LoadJsonSummary',
+                       return_value=None)
+
+  def RunSkylabHWTestSuite(self, *args, **kwargs):
+    """Run the hardware test suite, printing logs to stdout."""
+    with cros_test_lib.LoggingCapturer() as logs:
+      try:
+        cmd_result = commands.RunSkylabHWTestSuite(self._build, self._suite,
+                                                   self._board, *args, **kwargs)
+        return cmd_result
+      finally:
+        print(logs.messages)
+
+  def testRunSkylabHWTestSuiteWithWait(self):
+    """Test RunSkylabHWTestSuite with waiting for results."""
+    self.SetCmdResults(swarming_cli_cmd='run')
+    # When run without optional arguments, wait and dump_json cmd will not run.
+    self.PatchJson([(self.CREATE_OUTPUT, False, None, 'fake_parent_id'),
+                    (self.WAIT_OUTPUT, False, None, 'fake_wait_id')])
+
+    with self.OutputCapturer() as output:
+      cmd_result = self.RunSkylabHWTestSuite(wait_for_results=True)
+    self.assertEqual(cmd_result, (None, None))
+    self.assertCommandCalled(self.create_cmd, capture_output=True,
+                             combine_stdout_stderr=True, env=mock.ANY)
+    self.assertCommandCalled(self.wait_cmd, capture_output=True,
+                             combine_stdout_stderr=True, env=mock.ANY)
+    self.assertIn(self.CREATE_OUTPUT, '\n'.join(output.GetStdoutLines()))
+    self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
+
+
 class HWLabCommandsTest(cros_test_lib.RunCommandTestCase,
                         cros_test_lib.OutputTestCase,
                         cros_test_lib.MockTempDirTestCase):
@@ -305,12 +467,12 @@ The suite job has another 2:39:39.789250 till timeout.
                 '--swarming', topology.topology.get(
                     topology.SWARMING_PROXY_HOST_KEY),
                 '--task-summary-json', self.temp_json_path,
+                '--print-status-updates',
+                '--timeout', swarming_timeout_secs,
                 '--raw-cmd',
                 '--task-name', 'test-build-test-suite',
                 '--dimension', 'os', 'Ubuntu-14.04',
-                '--dimension', 'pool', 'default',
-                '--print-status-updates',
-                '--timeout', swarming_timeout_secs,
+                '--dimension', 'pool', commands.SUITE_BOT_POOL,
                 '--io-timeout', swarming_io_timeout_secs,
                 '--hard-timeout', swarming_hard_timeout_secs,
                 '--expiration', swarming_expiration_secs,
@@ -982,18 +1144,6 @@ fe5d699f2e9e4a7de031497953313dbd *./models/snappy/setvars.sh
     commands.BuildImage(self._buildroot, self._board, None)
     self.assertCommandContains(['./build_image'])
 
-  def testGenerateAuZip(self):
-    """Test Basic generate_au_zip Command."""
-    with mock.patch.object(path_util, 'ToChrootPath',
-                           side_effect=lambda x: x):
-      commands.GenerateAuZip(self._buildroot, '/tmp/taco', None)
-    self.assertCommandContains(['./build_library/generate_au_zip.py'])
-
-  def testTestAuZip(self):
-    """Test Basic generate_au_zip Command."""
-    commands.TestAuZip(self._buildroot, '/tmp/taco', None)
-    self.assertCommandContains(['./build_library/test_au_zip.py'])
-
   def testCompleteBuildImage(self):
     """Test Complete BuildImage Command."""
     images_to_build = ['bob', 'carol', 'ted', 'alice']
@@ -1085,6 +1235,31 @@ class GenerateDebugTarballTests(cros_test_lib.TempDirTestCase):
         ])
 
 
+class RunLocalTryjobTests(cros_test_lib.RunCommandTestCase):
+  """Tests related to RunLocalTryjob."""
+
+  def testRunLocalTryjobsSimple(self):
+    """Test that a minimul command works correctly."""
+    commands.RunLocalTryjob('current_root', 'build_config')
+
+    self.assertCommandCalled([
+        'current_root/chromite/bin/cros', 'tryjob', '--local', '--yes',
+        '--buildroot', mock.ANY,
+        'build_config',
+    ], cwd='current_root')
+
+  def testRunLocalTryjobsComplex(self):
+    """Test that a minimul command works correctly."""
+    commands.RunLocalTryjob(
+        'current_root', 'build_config', args=('--funky', 'stuff'),
+        target_buildroot='target_root')
+
+    self.assertCommandCalled([
+        'current_root/chromite/bin/cros', 'tryjob', '--local', '--yes',
+        '--buildroot', 'target_root', 'build_config', '--funky', 'stuff',
+    ], cwd='current_root')
+
+
 class BuildTarballTests(cros_test_lib.RunCommandTempDirTestCase):
   """Tests related to building tarball artifacts."""
 
@@ -1137,15 +1312,29 @@ class BuildTarballTests(cros_test_lib.RunCommandTempDirTestCase):
     """Tests that generating the autotest server package tarball is correct."""
     control_file_list = ['autotest/server/site_tests/testA/control',
                          'autotest/server/site_tests/testB/control']
+    # Pass a copy of the file list so the code under test can't mutate it.
     self.PatchObject(commands, 'FindFilesWithPattern',
-                     return_value=control_file_list)
+                     return_value=list(control_file_list))
     tar_mock = self.PatchObject(commands, 'BuildTarball')
+
+    expected_files = list(control_file_list)
+
+    # Touch Tast paths so they'll be included in the tar command. Skip creating
+    # the last file so we can verify that it's omitted from the tar command.
+    for p in commands.TAST_SSP_FILES[:-1]:
+      path = os.path.join(self._buildroot, p)
+      if not os.path.exists(os.path.dirname(path)):
+        os.makedirs(os.path.dirname(path))
+      open(path, 'a').close()
+      expected_files.append(path)
+
     commands.BuildAutotestServerPackageTarball(self._buildroot, self._cwd,
                                                self._tarball_dir)
+
     tar_mock.assert_called_once_with(
-        self._buildroot, control_file_list,
-        os.path.join(self._tarball_dir, 'autotest_server_package.tar.bz2'),
-        cwd=self._cwd, error_code_ok=True)
+        self._buildroot, expected_files,
+        os.path.join(self._tarball_dir, commands.AUTOTEST_SERVER_PACKAGE),
+        cwd=self._cwd, extra_args=mock.ANY, error_code_ok=True)
 
   def testBuildStrippedPackagesArchive(self):
     """Test generation of stripped package tarball using globs."""
@@ -1157,19 +1346,19 @@ class BuildTarballTests(cros_test_lib.RunCommandTempDirTestCase):
             [portage_util.SplitCPV('sys-kernel/kernel-1-r0'),
              portage_util.SplitCPV('sys-kernel/kernel-2-r0')]])
     # Drop "stripped packages".
-    pkg_dir = pathjoin(self._buildroot, 'chroot', 'build', 'test-board',
-                       'stripped-packages')
-    osutils.Touch(pathjoin(pkg_dir, 'chromeos-base', 'chrome-1-r0.tbz2'),
+    pkg_dir = os.path.join(self._buildroot, 'chroot', 'build', 'test-board',
+                           'stripped-packages')
+    osutils.Touch(os.path.join(pkg_dir, 'chromeos-base', 'chrome-1-r0.tbz2'),
                   makedirs=True)
-    sys_kernel = pathjoin(pkg_dir, 'sys-kernel')
-    osutils.Touch(pathjoin(sys_kernel, 'kernel-1-r0.tbz2'), makedirs=True)
-    osutils.Touch(pathjoin(sys_kernel, 'kernel-1-r01.tbz2'), makedirs=True)
-    osutils.Touch(pathjoin(sys_kernel, 'kernel-2-r0.tbz1'), makedirs=True)
-    osutils.Touch(pathjoin(sys_kernel, 'kernel-2-r0.tbz2'), makedirs=True)
-    stripped_files_list = [
-        abspath(pathjoin(pkg_dir, 'chromeos-base', 'chrome-1-r0.tbz2')),
-        abspath(pathjoin(pkg_dir, 'sys-kernel', 'kernel-1-r0.tbz2')),
-        abspath(pathjoin(pkg_dir, 'sys-kernel', 'kernel-2-r0.tbz2'))]
+    sys_kernel = os.path.join(pkg_dir, 'sys-kernel')
+    osutils.Touch(os.path.join(sys_kernel, 'kernel-1-r0.tbz2'), makedirs=True)
+    osutils.Touch(os.path.join(sys_kernel, 'kernel-1-r01.tbz2'), makedirs=True)
+    osutils.Touch(os.path.join(sys_kernel, 'kernel-2-r0.tbz1'), makedirs=True)
+    osutils.Touch(os.path.join(sys_kernel, 'kernel-2-r0.tbz2'), makedirs=True)
+    stripped_files_list = [os.path.abspath(x) for x in [
+        os.path.join(pkg_dir, 'chromeos-base', 'chrome-1-r0.tbz2'),
+        os.path.join(pkg_dir, 'sys-kernel', 'kernel-1-r0.tbz2'),
+        os.path.join(pkg_dir, 'sys-kernel', 'kernel-2-r0.tbz2')]]
 
     tar_mock = self.PatchObject(commands, 'BuildTarball')
     self.PatchObject(cros_build_lib, 'RunCommand')
@@ -1179,7 +1368,7 @@ class BuildTarballTests(cros_test_lib.RunCommandTempDirTestCase):
                                           self.tempdir)
     tar_mock.assert_called_once_with(
         self._buildroot, stripped_files_list,
-        pathjoin(self.tempdir, 'stripped-packages.tar'),
+        os.path.join(self.tempdir, 'stripped-packages.tar'),
         compressed=False)
 
 

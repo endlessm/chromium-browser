@@ -15,6 +15,7 @@
 #include "base/strings/string16.h"
 #include "chrome/browser/ui/app_list/search/mixer.h"
 
+class AppListControllerDelegate;
 class AppListModelUpdater;
 class ChromeSearchResult;
 
@@ -27,11 +28,11 @@ class SearchProvider;
 // results to the given SearchResults UI model.
 class SearchController {
  public:
-  explicit SearchController(AppListModelUpdater* model_updater);
+  SearchController(AppListModelUpdater* model_updater,
+                   AppListControllerDelegate* list_controller);
   virtual ~SearchController();
 
-  // TODO(hejq): can we accept a trimmed query here?
-  void Start(const base::string16& raw_query);
+  void Start(const base::string16& query);
 
   void OpenResult(ChromeSearchResult* result, int event_flags);
   void InvokeResultAction(ChromeSearchResult* result,
@@ -51,8 +52,6 @@ class SearchController {
   // Invoked when the search results are changed.
   void OnResultsChanged();
 
-  base::string16 last_raw_query_;
-
   bool dispatching_query_ = false;
 
   // If true, the search results are shown on the launcher start page.
@@ -61,6 +60,7 @@ class SearchController {
   using Providers = std::vector<std::unique_ptr<SearchProvider>>;
   Providers providers_;
   std::unique_ptr<Mixer> mixer_;
+  AppListControllerDelegate* list_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchController);
 };

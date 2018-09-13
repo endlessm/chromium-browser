@@ -492,6 +492,8 @@ static StringRef getModifierName(ModifierType MT) {
   case MT_Unknown:
     llvm_unreachable("invalid modifier type");
   }
+  // Unhandled case
+  llvm_unreachable("invalid modifier type");
 }
 
 struct Piece {
@@ -631,7 +633,7 @@ struct DiagnosticTextBuilder {
     return It->second.Root;
   }
 
-  void PrintFatalError(llvm::Twine const &Msg) const {
+  LLVM_ATTRIBUTE_NORETURN void PrintFatalError(llvm::Twine const &Msg) const {
     assert(EvaluatingRecord && "not evaluating a record?");
     llvm::PrintFatalError(EvaluatingRecord->getLoc(), Msg);
   }

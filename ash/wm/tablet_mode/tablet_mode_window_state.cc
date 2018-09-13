@@ -11,12 +11,14 @@
 #include "ash/public/cpp/window_state_type.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
+#include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/screen_pinning_controller.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_window_manager.h"
 #include "ash/wm/window_animation_types.h"
 #include "ash/wm/window_properties.h"
 #include "ash/wm/window_state_util.h"
+#include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
@@ -125,13 +127,40 @@ gfx::Rect GetRestoreBounds(wm::WindowState* window_state) {
   return window_state->window()->GetBoundsInScreen();
 }
 
+// Returns true if |window| is the source window of the current tab-dragging
+// window.
+bool IsTabDraggingSourceWindow(aura::Window* window) {
+  if (!window)
+    return false;
+
+  MruWindowTracker::WindowList window_list =
+      Shell::Get()->mru_window_tracker()->BuildMruWindowList();
+  if (window_list.empty())
+    return false;
+
+  // Find the window that's currently in tab-dragging process. There is at most
+  // one such window.
+  aura::Window* dragged_window = nullptr;
+  for (auto* window : window_list) {
+    if (wm::IsDraggingTabs(window)) {
+      dragged_window = window;
+      break;
+    }
+  }
+  if (!dragged_window)
+    return false;
+
+  return dragged_window->GetProperty(ash::kTabDraggingSourceWindowKey) ==
+         window;
+}
+
 }  // namespace
 
 // static
 void TabletModeWindowState::UpdateWindowPosition(
     wm::WindowState* window_state) {
   gfx::Rect bounds_in_parent = GetBoundsInMaximizedMode(window_state);
-  if (bounds_in_parent == window_state->window()->bounds())
+  if (bounds_in_parent == window_state->window()->GetTargetBounds())
     return;
   window_state->SetBoundsDirect(bounds_in_parent);
 }
@@ -204,12 +233,18 @@ void TabletModeWindowState::OnWMEvent(wm::WindowState* window_state,
                    true /* animated */);
       return;
     case wm::WM_EVENT_SNAP_LEFT:
+      // Set bounds_changed_by_user to true to avoid WindowPositioner to auto
+      // place the window.
+      window_state->set_bounds_changed_by_user(true);
       UpdateWindow(window_state,
                    GetSnappedWindowStateType(
                        window_state, mojom::WindowStateType::LEFT_SNAPPED),
                    false /* animated */);
       return;
     case wm::WM_EVENT_SNAP_RIGHT:
+      // Set bounds_changed_by_user to true to avoid WindowPositioner to auto
+      // place the window.
+      window_state->set_bounds_changed_by_user(true);
       UpdateWindow(window_state,
                    GetSnappedWindowStateType(
                        window_state, mojom::WindowStateType::RIGHT_SNAPPED),
@@ -227,7 +262,11 @@ void TabletModeWindowState::OnWMEvent(wm::WindowState* window_state,
       if (bounds_in_parent.IsEmpty())
         return;
 
-      if (window_state->is_dragged()) {
+      if (wm::IsDraggingTabs(window_state->window()) ||
+          IsTabDraggingSourceWindow(window_state->window())) {
+        // If the window is the current tab-dragged window or the current tab-
+        // dragged window's source window, we may need to update its bounds
+        // during dragging.
         window_state->SetBoundsDirect(bounds_in_parent);
       } else if (current_state_type_ == mojom::WindowStateType::MAXIMIZED) {
         // Having a maximized window, it could have been created with an empty
@@ -381,6 +420,11 @@ mojom::WindowStateType TabletModeWindowState::GetSnappedWindowStateType(
 void TabletModeWindowState::UpdateBounds(wm::WindowState* window_state,
                                          bool animated) {
   if (defer_bounds_updates_)
+    return;
+
+  // Do not update window's bounds if it's in tab-dragging process. The bounds
+  // will be updated later when the drag ends.
+  if (wm::IsDraggingTabs(window_state->window()))
     return;
 
   // Do not update minimized windows bounds until it was unminimized.

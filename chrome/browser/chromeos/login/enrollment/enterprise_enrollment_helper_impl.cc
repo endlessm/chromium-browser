@@ -20,12 +20,14 @@
 #include "chrome/browser/chromeos/policy/enrollment_status_chromeos.h"
 #include "chrome/browser/chromeos/policy/policy_oauth2_token_fetcher.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "google_apis/gaia/gaia_auth_consumer.h"
 #include "google_apis/gaia/gaia_auth_fetcher.h"
 #include "google_apis/gaia/gaia_constants.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace {
 
@@ -50,7 +52,8 @@ class TokenRevoker : public GaiaAuthConsumer {
 TokenRevoker::TokenRevoker()
     : gaia_fetcher_(this,
                     GaiaConstants::kChromeOSSource,
-                    g_browser_process->system_request_context()) {}
+                    g_browser_process->system_network_context_manager()
+                        ->GetSharedURLLoaderFactory()) {}
 
 TokenRevoker::~TokenRevoker() {}
 
@@ -97,7 +100,9 @@ void EnterpriseEnrollmentHelperImpl::EnrollUsingAuthCode(
   oauth_status_ = OAUTH_STARTED_WITH_AUTH_CODE;
   oauth_fetcher_.reset(policy::PolicyOAuth2TokenFetcher::CreateInstance());
   oauth_fetcher_->StartWithAuthCode(
-      auth_code, g_browser_process->system_request_context(),
+      auth_code,
+      g_browser_process->system_network_context_manager()
+          ->GetSharedURLLoaderFactory(),
       base::Bind(&EnterpriseEnrollmentHelperImpl::OnTokenFetched,
                  weak_ptr_factory_.GetWeakPtr(),
                  fetch_additional_token /* is_additional_token */));
@@ -163,6 +168,8 @@ bool EnterpriseEnrollmentHelperImpl::ShouldCheckLicenseType() const {
 void EnterpriseEnrollmentHelperImpl::DoEnroll(const std::string& token) {
   DCHECK(token == oauth_token_ || oauth_token_.empty());
   DCHECK(enrollment_config_.is_mode_attestation() ||
+         enrollment_config_.mode ==
+             policy::EnrollmentConfig::MODE_OFFLINE_DEMO ||
          oauth_status_ == OAUTH_STARTED_WITH_AUTH_CODE ||
          oauth_status_ == OAUTH_STARTED_WITH_TOKEN);
   oauth_token_ = token;
@@ -264,7 +271,9 @@ void EnterpriseEnrollmentHelperImpl::OnTokenFetched(
   std::string refresh_token = oauth_fetcher_->OAuth2RefreshToken();
   oauth_fetcher_.reset(policy::PolicyOAuth2TokenFetcher::CreateInstance());
   oauth_fetcher_->StartWithRefreshToken(
-      refresh_token, g_browser_process->system_request_context(),
+      refresh_token,
+      g_browser_process->system_network_context_manager()
+          ->GetSharedURLLoaderFactory(),
       base::Bind(&EnterpriseEnrollmentHelperImpl::OnTokenFetched,
                  weak_ptr_factory_.GetWeakPtr(),
                  false /* is_additional_token */));
@@ -492,6 +501,10 @@ void EnterpriseEnrollmentHelperImpl::ReportEnrollmentStatus(
       break;
     case policy::EnrollmentStatus::LICENSE_REQUEST_FAILED:
       UMA(policy::kMetricEnrollmentLicenseRequestFailed);
+      break;
+    case policy::EnrollmentStatus::OFFLINE_POLICY_LOAD_FAILED:
+    case policy::EnrollmentStatus::OFFLINE_POLICY_DECODING_FAILED:
+      UMA(policy::kMetricEnrollmentRegisterPolicyResponseInvalid);
       break;
   }
 }

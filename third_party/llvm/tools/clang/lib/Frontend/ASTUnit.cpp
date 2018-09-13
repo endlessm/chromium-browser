@@ -156,7 +156,8 @@ static bool moveOnNoError(llvm::ErrorOr<T> Val, T &Output) {
 static std::unique_ptr<llvm::MemoryBuffer>
 getBufferForFileHandlingRemapping(const CompilerInvocation &Invocation,
                                   vfs::FileSystem *VFS,
-                                  StringRef FilePath) {
+                                  StringRef FilePath,
+                                  bool isVolatile) {
   const auto &PreprocessorOpts = Invocation.getPreprocessorOpts();
 
   // Try to determine if the main file has been remapped, either from the
@@ -176,7 +177,7 @@ getBufferForFileHandlingRemapping(const CompilerInvocation &Invocation,
         llvm::sys::fs::UniqueID MID = MPathStatus->getUniqueID();
         if (MainFileID == MID) {
           // We found a remapping. Try to load the resulting, remapped source.
-          BufferOwner = valueOrNull(VFS->getBufferForFile(RF.second));
+          BufferOwner = valueOrNull(VFS->getBufferForFile(RF.second, -1, true, isVolatile));
           if (!BufferOwner)
             return nullptr;
         }
@@ -201,7 +202,7 @@ getBufferForFileHandlingRemapping(const CompilerInvocation &Invocation,
 
   // If the main source file was not remapped, load it now.
   if (!Buffer && !BufferOwner) {
-    BufferOwner = valueOrNull(VFS->getBufferForFile(FilePath));
+    BufferOwner = valueOrNull(VFS->getBufferForFile(FilePath, -1, true, isVolatile));
     if (!BufferOwner)
       return nullptr;
   }
@@ -272,6 +273,12 @@ ASTUnit::~ASTUnit() {
 
 void ASTUnit::setPreprocessor(std::shared_ptr<Preprocessor> PP) {
   this->PP = std::move(PP);
+}
+
+void ASTUnit::enableSourceFileDiagnostics() {
+  assert(getDiagnostics().getClient() && Ctx &&
+      "Bad context for source file");
+  getDiagnostics().getClient()->BeginSourceFile(Ctx->getLangOpts(), PP.get());
 }
 
 /// Determine the set of code-completion contexts in which this
@@ -707,7 +714,7 @@ ASTDeserializationListener *ASTUnit::getDeserializationListener() {
 std::unique_ptr<llvm::MemoryBuffer>
 ASTUnit::getBufferForFile(StringRef Filename, std::string *ErrorStr) {
   assert(FileMgr);
-  auto Buffer = FileMgr->getBufferForFile(Filename);
+  auto Buffer = FileMgr->getBufferForFile(Filename, UserFilesAreVolatile);
   if (Buffer)
     return std::move(*Buffer);
   if (ErrorStr)
@@ -1278,7 +1285,7 @@ ASTUnit::getMainBufferWithPrecompiledPreamble(
       PreambleInvocationIn.getFrontendOpts().Inputs[0].getFile();
   std::unique_ptr<llvm::MemoryBuffer> MainFileBuffer =
       getBufferForFileHandlingRemapping(PreambleInvocationIn, VFS.get(),
-                                        MainFilePath);
+                                        MainFilePath, UserFilesAreVolatile);
   if (!MainFileBuffer)
     return nullptr;
 
@@ -2122,6 +2129,7 @@ void ASTUnit::CodeComplete(
   CodeCompleteOpts.IncludeGlobals = CachedCompletionResults.empty();
   CodeCompleteOpts.IncludeBriefComments = IncludeBriefComments;
   CodeCompleteOpts.LoadExternal = Consumer.loadExternal();
+  CodeCompleteOpts.IncludeFixIts = Consumer.includeFixIts();
 
   assert(IncludeBriefComments == this->IncludeBriefCommentsInCodeCompletion);
 

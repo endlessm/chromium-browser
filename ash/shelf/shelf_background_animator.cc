@@ -18,6 +18,7 @@
 #include "base/command_line.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/color_analysis.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 
 using ColorProfile = color_utils::ColorProfile;
@@ -61,12 +62,22 @@ std::pair<int, int> GetTargetColorAlphaValues(
 
   switch (background_type) {
     case SHELF_BACKGROUND_DEFAULT:
-      target_shelf_color_alpha = 0;
-      target_item_color_alpha = kShelfTranslucentAlpha;
+      if (chromeos::switches::ShouldUseShelfNewUi()) {
+        target_shelf_color_alpha = kShelfTranslucentAlpha;
+        target_item_color_alpha = 0;
+      } else {
+        target_shelf_color_alpha = 0;
+        target_item_color_alpha = kShelfTranslucentAlpha;
+      }
       break;
     case SHELF_BACKGROUND_OVERLAP:
-      target_shelf_color_alpha = kShelfTranslucentAlpha;
-      target_item_color_alpha = 0;
+      if (chromeos::switches::ShouldUseShelfNewUi()) {
+        target_shelf_color_alpha = kShelfTranslucentWithOverlapAlphaNewUi;
+        target_item_color_alpha = 0;
+      } else {
+        target_shelf_color_alpha = kShelfTranslucentAlpha;
+        target_item_color_alpha = 0;
+      }
       break;
     case SHELF_BACKGROUND_MAXIMIZED:
       target_shelf_color_alpha = ShelfBackgroundAnimator::kMaxAlpha;
@@ -279,14 +290,23 @@ void ShelfBackgroundAnimator::GetTargetValues(
     ShelfBackgroundType background_type,
     AnimationValues* shelf_background_values,
     AnimationValues* item_background_values) const {
-  // Shelf has a transparent background except when session state is ACTIVE.
   // Shell may not have instance in tests.
-  if (Shell::HasInstance() &&
-      Shell::Get()->session_controller()->GetSessionState() !=
-          session_manager::SessionState::ACTIVE) {
-    shelf_background_values->SetTargetValues(SK_ColorTRANSPARENT);
-    item_background_values->SetTargetValues(SK_ColorTRANSPARENT);
-    return;
+  if (Shell::HasInstance()) {
+    auto session_state = Shell::Get()->session_controller()->GetSessionState();
+
+    // OOBE always uses a fixed shelf color.
+    if (session_state == session_manager::SessionState::OOBE) {
+      shelf_background_values->SetTargetValues(SK_ColorTRANSPARENT);
+      item_background_values->SetTargetValues(gfx::kGoogleGrey100);
+      return;
+    }
+
+    // All other non-active sessions use transparent colors.
+    if (session_state != session_manager::SessionState::ACTIVE) {
+      shelf_background_values->SetTargetValues(SK_ColorTRANSPARENT);
+      item_background_values->SetTargetValues(SK_ColorTRANSPARENT);
+      return;
+    }
   }
 
   std::pair<int, int> target_color_alpha_values =

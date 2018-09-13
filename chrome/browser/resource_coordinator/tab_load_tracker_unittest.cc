@@ -4,10 +4,12 @@
 
 #include "chrome/browser/resource_coordinator/tab_load_tracker.h"
 
+#include "base/process/kill.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/web_contents_tester.h"
 #include "services/resource_coordinator/public/cpp/resource_coordinator_features.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -18,6 +20,7 @@ namespace resource_coordinator {
 
 using testing::_;
 using testing::StrictMock;
+using LoadingState = TabLoadTracker::LoadingState;
 
 // Test wrapper of TabLoadTracker that exposes some internals.
 class TestTabLoadTracker : public TabLoadTracker {
@@ -28,6 +31,7 @@ class TestTabLoadTracker : public TabLoadTracker {
   using TabLoadTracker::DidReceiveResponse;
   using TabLoadTracker::DidStopLoading;
   using TabLoadTracker::DidFailLoad;
+  using TabLoadTracker::RenderProcessGone;
   using TabLoadTracker::OnPageAlmostIdle;
   using TabLoadTracker::DetermineLoadingState;
 
@@ -55,7 +59,8 @@ class LenientMockObserver : public TabLoadTracker::Observer {
 
   // TabLoadTracker::Observer implementation:
   MOCK_METHOD2(OnStartTracking, void(content::WebContents*, LoadingState));
-  MOCK_METHOD2(OnLoadingStateChange, void(content::WebContents*, LoadingState));
+  MOCK_METHOD3(OnLoadingStateChange,
+               void(content::WebContents*, LoadingState, LoadingState));
   MOCK_METHOD2(OnStopTracking, void(content::WebContents*, LoadingState));
 
  private:
@@ -85,6 +90,9 @@ class TestWebContentsObserver : public content::WebContentsObserver {
                    const base::string16& error_description) override {
     tracker_->DidFailLoad(web_contents());
   }
+  void RenderProcessGone(base::TerminationStatus status) override {
+    tracker_->RenderProcessGone(web_contents(), status);
+  }
 
  private:
   TestTabLoadTracker* tracker_;
@@ -113,12 +121,15 @@ class TabLoadTrackerTest : public ChromeRenderViewHostTestHarness {
     ChromeRenderViewHostTestHarness::TearDown();
   }
 
-  // Enables the PAI feature so that the TabLoadTracker can be tested in both
-  // modes.
-  void EnablePAI() {
+  // Enables or disables the PAI feature so that the TabLoadTracker can be
+  // tested in both modes.
+  void SetPageAlmostIdleFeatureEnabled(bool enabled) {
     feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
-    feature_list_->InitAndEnableFeature(features::kPageAlmostIdle);
-    ASSERT_TRUE(resource_coordinator::IsPageAlmostIdleSignalEnabled());
+    if (enabled)
+      feature_list_->InitAndEnableFeature(features::kPageAlmostIdle);
+    else
+      feature_list_->InitAndDisableFeature(features::kPageAlmostIdle);
+    ASSERT_EQ(resource_coordinator::IsPageAlmostIdleSignalEnabled(), enabled);
   }
 
   void ExpectTabCounts(size_t tabs,
@@ -162,23 +173,21 @@ class TabLoadTrackerTest : public ChromeRenderViewHostTestHarness {
 TEST_F(TabLoadTrackerTest, DetermineLoadingState) {
   auto* tester1 = content::WebContentsTester::For(contents1());
 
-  EXPECT_EQ(TestTabLoadTracker::UNLOADED,
+  EXPECT_EQ(LoadingState::UNLOADED,
             tracker().DetermineLoadingState(contents1()));
 
   // Navigate to a page and expect it to be loading.
   tester1->NavigateAndCommit(GURL("http://chromium.org"));
-  EXPECT_EQ(TestTabLoadTracker::LOADING,
+  EXPECT_EQ(LoadingState::LOADING,
             tracker().DetermineLoadingState(contents1()));
 
   // Indicate that loading is finished and expect the state to transition.
   tester1->TestSetIsLoading(false);
-  EXPECT_EQ(TestTabLoadTracker::LOADED,
-            tracker().DetermineLoadingState(contents1()));
+  EXPECT_EQ(LoadingState::LOADED, tracker().DetermineLoadingState(contents1()));
 }
 
 void TabLoadTrackerTest::StateTransitionsTest(bool enable_pai) {
-  if (enable_pai)
-    EnablePAI();
+  SetPageAlmostIdleFeatureEnabled(enable_pai);
 
   auto* tester1 = content::WebContentsTester::For(contents1());
   auto* tester2 = content::WebContentsTester::For(contents2());
@@ -191,20 +200,17 @@ void TabLoadTrackerTest::StateTransitionsTest(bool enable_pai) {
   tester3->TestSetIsLoading(false);
 
   // Add the contents to the trackers.
-  EXPECT_CALL(observer(),
-              OnStartTracking(contents1(), TestTabLoadTracker::UNLOADED));
+  EXPECT_CALL(observer(), OnStartTracking(contents1(), LoadingState::UNLOADED));
   tracker().StartTracking(contents1());
   EXPECT_TAB_COUNTS(1, 1, 0, 0);
   testing::Mock::VerifyAndClearExpectations(&observer());
 
-  EXPECT_CALL(observer(),
-              OnStartTracking(contents2(), TestTabLoadTracker::LOADING));
+  EXPECT_CALL(observer(), OnStartTracking(contents2(), LoadingState::LOADING));
   tracker().StartTracking(contents2());
   EXPECT_TAB_COUNTS(2, 1, 1, 0);
   testing::Mock::VerifyAndClearExpectations(&observer());
 
-  EXPECT_CALL(observer(),
-              OnStartTracking(contents3(), TestTabLoadTracker::LOADED));
+  EXPECT_CALL(observer(), OnStartTracking(contents3(), LoadingState::LOADED));
   tracker().StartTracking(contents3());
   EXPECT_TAB_COUNTS(3, 1, 1, 1);
   testing::Mock::VerifyAndClearExpectations(&observer());
@@ -218,7 +224,8 @@ void TabLoadTrackerTest::StateTransitionsTest(bool enable_pai) {
 
   // Finish the loading for contents2.
   EXPECT_CALL(observer(),
-              OnLoadingStateChange(contents2(), TestTabLoadTracker::LOADED));
+              OnLoadingStateChange(contents2(), LoadingState::LOADING,
+                                   LoadingState::LOADED));
   tester2->TestSetIsLoading(false);
   if (enable_pai) {
     // The state transition should only occur *after* the PAI signal when that
@@ -231,7 +238,8 @@ void TabLoadTrackerTest::StateTransitionsTest(bool enable_pai) {
 
   // Start the loading for contents1.
   EXPECT_CALL(observer(),
-              OnLoadingStateChange(contents1(), TestTabLoadTracker::LOADING));
+              OnLoadingStateChange(contents1(), LoadingState::UNLOADED,
+                                   LoadingState::LOADING));
   tester1->NavigateAndCommit(GURL("http://baz.com"));
   EXPECT_TAB_COUNTS(3, 0, 1, 2);
   testing::Mock::VerifyAndClearExpectations(&observer());
@@ -239,10 +247,23 @@ void TabLoadTrackerTest::StateTransitionsTest(bool enable_pai) {
   // Stop the loading with an error. The tab should go back to a LOADED
   // state.
   EXPECT_CALL(observer(),
-              OnLoadingStateChange(contents1(), TestTabLoadTracker::LOADED));
+              OnLoadingStateChange(contents1(), LoadingState::LOADING,
+                                   LoadingState::LOADED));
   tester1->TestDidFailLoadWithError(GURL("http://baz.com"), 500,
                                     base::UTF8ToUTF16("server error"));
   ExpectTabCounts(3, 0, 0, 3);
+  testing::Mock::VerifyAndClearExpectations(&observer());
+
+  // Crash the render process corresponding to the main frame of a tab. This
+  // should cause the tab to transition to the UNLOADED state.
+  EXPECT_CALL(observer(),
+              OnLoadingStateChange(contents1(), LoadingState::LOADED,
+                                   LoadingState::UNLOADED));
+  content::MockRenderProcessHost* rph =
+      static_cast<content::MockRenderProcessHost*>(
+          contents1()->GetMainFrame()->GetProcess());
+  rph->SimulateCrash();
+  ExpectTabCounts(3, 1, 0, 2);
   testing::Mock::VerifyAndClearExpectations(&observer());
 }
 

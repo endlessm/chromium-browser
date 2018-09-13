@@ -34,7 +34,7 @@ const CGFloat kBackgroundRGBComponents[] = {0.75f, 0.74f, 0.76f};
 @end
 
 @implementation CRWWebViewContentView
-
+@synthesize contentOffset = _contentOffset;
 @synthesize contentInset = _contentInset;
 @synthesize shouldUseViewContentInset = _shouldUseViewContentInset;
 @synthesize scrollView = _scrollView;
@@ -109,16 +109,24 @@ const CGFloat kBackgroundRGBComponents[] = {0.75f, 0.74f, 0.76f};
   return YES;
 }
 
+- (void)setContentOffset:(CGPoint)contentOffset {
+  if (CGPointEqualToPoint(_contentOffset, contentOffset))
+    return;
+  _contentOffset = contentOffset;
+  [self updateWebViewFrame];
+}
+
 - (UIEdgeInsets)contentInset {
   return self.shouldUseViewContentInset ? [_scrollView contentInset]
                                         : _contentInset;
 }
 
 - (void)setContentInset:(UIEdgeInsets)contentInset {
-  CGFloat delta = std::fabs(_contentInset.top - contentInset.top) +
-                  std::fabs(_contentInset.left - contentInset.left) +
-                  std::fabs(_contentInset.bottom - contentInset.bottom) +
-                  std::fabs(_contentInset.right - contentInset.right);
+  UIEdgeInsets oldInsets = self.contentInset;
+  CGFloat delta = std::fabs(oldInsets.top - contentInset.top) +
+                  std::fabs(oldInsets.left - contentInset.left) +
+                  std::fabs(oldInsets.bottom - contentInset.bottom) +
+                  std::fabs(oldInsets.right - contentInset.right);
   if (delta <= std::numeric_limits<CGFloat>::epsilon())
     return;
   if (self.shouldUseViewContentInset) {
@@ -155,13 +163,10 @@ const CGFloat kBackgroundRGBComponents[] = {0.75f, 0.74f, 0.76f};
 #pragma mark Private methods
 
 - (void)updateWebViewFrame {
-  CGRect webViewFrame = self.bounds;
-  webViewFrame.size.height -= _contentInset.top + _contentInset.bottom;
-  webViewFrame.origin.y += _contentInset.top;
-  webViewFrame.size.width -= _contentInset.right + _contentInset.left;
-  webViewFrame.origin.x += _contentInset.left;
-
-  self.webView.frame = webViewFrame;
+  CGRect frame = self.bounds;
+  frame = UIEdgeInsetsInsetRect(frame, _contentInset);
+  frame = CGRectOffset(frame, _contentOffset.x, _contentOffset.y);
+  self.webView.frame = frame;
 }
 
 @end

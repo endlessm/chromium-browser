@@ -39,7 +39,7 @@ class ResultIdTrie {
   // is found, creates a trie node with those keys, stores the instruction's
   // result id and returns that result id. If an existing result id is found,
   // returns the existing result id.
-  uint32_t LookupEquivalentResultFor(const ir::Instruction& inst) {
+  uint32_t LookupEquivalentResultFor(const opt::Instruction& inst) {
     auto keys = GetLookUpKeys(inst);
     auto* node = root_.get();
     for (uint32_t key : keys) {
@@ -85,7 +85,7 @@ class ResultIdTrie {
 
   // Returns a vector of the opcode followed by the words in the raw SPIR-V
   // instruction encoding but without the result id.
-  std::vector<uint32_t> GetLookUpKeys(const ir::Instruction& inst) {
+  std::vector<uint32_t> GetLookUpKeys(const opt::Instruction& inst) {
     std::vector<uint32_t> keys;
     // Need to use the opcode, otherwise there might be a conflict with the
     // following case when <op>'s binary value equals xx's id:
@@ -103,15 +103,19 @@ class ResultIdTrie {
 };
 }  // anonymous namespace
 
-Pass::Status UnifyConstantPass::Process(ir::IRContext* c) {
+Pass::Status UnifyConstantPass::Process(opt::IRContext* c) {
   InitializeProcessing(c);
   bool modified = false;
   ResultIdTrie defined_constants;
 
-  for (ir::Instruction& inst : context()->types_values()) {
+  for (opt::Instruction *next_instruction,
+       *inst = &*(context()->types_values_begin());
+       inst; inst = next_instruction) {
+    next_instruction = inst->NextNode();
+
     // Do not handle the instruction when there are decorations upon the result
     // id.
-    if (get_def_use_mgr()->GetAnnotations(inst.result_id()).size() != 0) {
+    if (get_def_use_mgr()->GetAnnotations(inst->result_id()).size() != 0) {
       continue;
     }
 
@@ -133,7 +137,7 @@ Pass::Status UnifyConstantPass::Process(ir::IRContext* c) {
     // used in key arrays will be the ids of the unified constants, when
     // processing is up to a descendant. This makes comparing the key array
     // always valid for judging duplication.
-    switch (inst.opcode()) {
+    switch (inst->opcode()) {
       case SpvOp::SpvOpConstantTrue:
       case SpvOp::SpvOpConstantFalse:
       case SpvOp::SpvOpConstant:
@@ -151,12 +155,12 @@ Pass::Status UnifyConstantPass::Process(ir::IRContext* c) {
       // same so are unifiable.
       case SpvOp::SpvOpSpecConstantOp:
       case SpvOp::SpvOpSpecConstantComposite: {
-        uint32_t id = defined_constants.LookupEquivalentResultFor(inst);
-        if (id != inst.result_id()) {
+        uint32_t id = defined_constants.LookupEquivalentResultFor(*inst);
+        if (id != inst->result_id()) {
           // The constant is a duplicated one, use the cached constant to
           // replace the uses of this duplicated one, then turn it to nop.
-          context()->ReplaceAllUsesWith(inst.result_id(), id);
-          context()->KillInst(&inst);
+          context()->ReplaceAllUsesWith(inst->result_id(), id);
+          context()->KillInst(inst);
           modified = true;
         }
         break;

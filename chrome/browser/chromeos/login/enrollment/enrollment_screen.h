@@ -89,6 +89,7 @@ class EnrollmentScreen
 
   // ActiveDirectoryJoinDelegate implementation:
   void JoinDomain(const std::string& dm_token,
+                  const std::string& domain_join_config,
                   OnDomainJoinedCallback on_joined_callback) override;
 
   // Used for testing.
@@ -109,16 +110,16 @@ class EnrollmentScreen
                            TestAttributePromptPageGetsLoaded);
   FRIEND_TEST_ALL_PREFIXES(EnterpriseEnrollmentTest,
                            TestAuthCodeGetsProperlyReceivedFromGaia);
-  FRIEND_TEST_ALL_PREFIXES(EnterpriseEnrollmentTest,
+  FRIEND_TEST_ALL_PREFIXES(ActiveDirectoryJoinTest,
                            TestActiveDirectoryEnrollment_Success);
-  FRIEND_TEST_ALL_PREFIXES(EnterpriseEnrollmentTest,
+  FRIEND_TEST_ALL_PREFIXES(ActiveDirectoryJoinTest,
                            TestActiveDirectoryEnrollment_DistinguishedName);
-  FRIEND_TEST_ALL_PREFIXES(EnterpriseEnrollmentTest,
+  FRIEND_TEST_ALL_PREFIXES(ActiveDirectoryJoinTest,
                            TestActiveDirectoryEnrollment_UIErrors);
-  FRIEND_TEST_ALL_PREFIXES(EnterpriseEnrollmentTest,
+  FRIEND_TEST_ALL_PREFIXES(ActiveDirectoryJoinTest,
                            TestActiveDirectoryEnrollment_ErrorCard);
-  FRIEND_TEST_ALL_PREFIXES(HandsOffNetworkScreenTest, RequiresNoInput);
-  FRIEND_TEST_ALL_PREFIXES(HandsOffNetworkScreenTest, ContinueClickedOnlyOnce);
+  FRIEND_TEST_ALL_PREFIXES(HandsOffWelcomeScreenTest, RequiresNoInput);
+  FRIEND_TEST_ALL_PREFIXES(HandsOffWelcomeScreenTest, ContinueClickedOnlyOnce);
   FRIEND_TEST_ALL_PREFIXES(ZeroTouchEnrollmentScreenUnitTest, Retry);
   FRIEND_TEST_ALL_PREFIXES(ZeroTouchEnrollmentScreenUnitTest, TestSuccess);
   FRIEND_TEST_ALL_PREFIXES(ZeroTouchEnrollmentScreenUnitTest,
@@ -198,6 +199,7 @@ class EnrollmentScreen
   Auth current_auth_ = AUTH_OAUTH;
   Auth last_auth_ = AUTH_OAUTH;
   bool enrollment_failed_once_ = false;
+  bool enrollment_succeeded_ = false;
   std::string enrolling_user_domain_;
   std::unique_ptr<base::ElapsedTimer> elapsed_timer_;
   net::BackoffEntry::Policy retry_policy_;

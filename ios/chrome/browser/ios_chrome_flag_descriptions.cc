@@ -23,15 +23,33 @@ const char kAutofillCreditCardUploadDescription[] =
     "Offers uploading Autofilled credit cards to Google Payments after form "
     "submission.";
 
+const char kAutofillDownstreamUseGooglePayBrandingOniOSName[] =
+    "Enable Google Pay branding when offering credit card downstream";
+const char kAutofillDownstreamUseGooglePayBrandingOniOSDescription[] =
+    "When enabled, shows the Google Pay logo animation when showing payments"
+    "credit card suggestions in downstream keyboard accessory";
+
 const char kEnableAutofillCreditCardUploadUpdatePromptExplanationName[] =
     "Enable updated prompt explanation when offering credit card upload";
 const char kEnableAutofillCreditCardUploadUpdatePromptExplanationDescription[] =
     "If enabled, changes the server save card prompt's explanation to mention "
     "the saving of the billing address.";
 
+const char kSyncSandboxName[] = "Use Chrome Sync sandbox";
+const char kSyncSandboxDescription[] =
+    "Connects to the testing server for Chrome Sync.";
+
+const char kWalletServiceUseSandboxName[] = "Use Google Payments sandbox";
+const char kWalletServiceUseSandboxDescription[] =
+    "Uses the sandbox service for Google Payments API calls.";
+
 const char kAutofillDynamicFormsName[] = "Autofill dynamic forms";
 const char kAutofillDynamicFormsDescription[] =
     "Refills forms that dynamically change after an initial fill";
+
+const char kAutofillPrefilledFieldsName[] = "Autofill prefilled forms";
+const char kAutofillPrefilledFieldsDescription[] =
+    "Fills forms that contain a programmatically filled value.";
 
 const char kAutofillEnforceMinRequiredFieldsForHeuristicsName[] =
     "Autofill Enforce Min Required Fields For Heuristics";
@@ -55,6 +73,17 @@ const char kAutofillIOSDelayBetweenFieldsName[] = "Autofill delay";
 const char kAutofillIOSDelayBetweenFieldsDescription[] =
     "Delay between the different fields of a form being autofilled. In "
     "milliseconds.";
+
+const char kAutofillManualFallbackName[] = "Enable autofill manual fallback";
+const char kAutofillManualFallbackDescription[] =
+    "When enabled, it shows the autofill UI with manual fallback when filling "
+    "forms.";
+
+const char kAutofillShowAllSuggestionsOnPrefilledFormsName[] =
+    "Enable showing all suggestions when focusing prefilled field";
+const char kAutofillShowAllSuggestionsOnPrefilledFormsDescription[] =
+    "When enabled: show all suggestions when the focused field value has not "
+    "been entered by the user. When disabled: use the field value as a filter.";
 
 const char kAutofillRestrictUnownedFieldsToFormlessCheckoutName[] =
     "Restrict formless form extraction";
@@ -97,6 +126,10 @@ const char kContextMenuElementPostMessageDescription[] =
     "webkit postMessage call instead of directly returned from the JavaScript "
     "function.";
 
+const char kCopyImageName[] = "Copy Image";
+const char kCopyImageDescription[] =
+    "Enable copying image to system pasteboard via context menu.";
+
 const char kDragAndDropName[] = "Drag and Drop";
 const char kDragAndDropDescription[] = "Enable support for drag and drop.";
 
@@ -106,13 +139,6 @@ const char kNewClearBrowsingDataUIDescription[] =
 
 const char kExternalSearchName[] = "External Search";
 const char kExternalSearchDescription[] = "Enable support for External Search.";
-
-const char kFeedbackKitV2Name[] = "FeedbackKit V2";
-const char kFeedbackKitV2Description[] = "Enable use of FeedbackKit V2.";
-const char kFeedbackKitV2WithSSOServiceName[] =
-    "FeedbackKit V2 with SSOService configured for FeedbackKit";
-const char kFeedbackKitV2WithSSOServiceDescription[] =
-    "Send SSOService with configuration for FeedbackKit V2.";
 
 const char kFullscreenViewportAdjustmentExperimentName[] =
     "Fullscreen Viewport Adjustment Mode";
@@ -154,9 +180,11 @@ const char kMemexTabSwitcherDescription[] =
     "prototype site instead of triggering the native Tab Switcher. The native "
     "TabSwitcher is accessible by long pressing the button";
 
-const char kNewToolsMenuName[] = "Enable the new tools menu";
-const char kNewToolsMenuDescription[] =
-    "When enabled, the new tools menu is displayed";
+const char kNewPasswordFormParsingName[] = "New password form parsing";
+const char kNewPasswordFormParsingDescription[] =
+    "Replaces existing form parsing in password manager with a new version, "
+    "currently under development. WARNING: when enabled Password Manager might "
+    "stop working";
 
 const char kOmniboxUIElideSuggestionUrlAfterHostName[] =
     "Hide the path, query, and ref of omnibox suggestions";
@@ -227,6 +255,17 @@ const char kUnifiedConsentDescription[] =
 const char kUseDdljsonApiName[] = "Use new ddljson API for Doodles";
 const char kUseDdljsonApiDescription[] =
     "Enables the new ddljson API to fetch Doodles for the NTP.";
+
+const char kWebFrameMessagingName[] = "Web Frame Messaging";
+const char kWebFrameMessagingDescription[] =
+    "When enabled, API will be injected into webpages to allow sending messages"
+    " directly to any frame of a webpage.";
+
+const char kWebPageTextAccessibilityName[] =
+    "Enable text accessibility in web pages";
+const char kWebPageTextAccessibilityDescription[] =
+    "When enabled, text in web pages will respect the user's Dynamic Type "
+    "setting.";
 
 const char kWebPaymentsName[] = "Web Payments";
 const char kWebPaymentsDescription[] =

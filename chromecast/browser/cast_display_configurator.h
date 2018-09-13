@@ -17,6 +17,7 @@ namespace display {
 class DisplayMode;
 class DisplaySnapshot;
 class NativeDisplayDelegate;
+struct GammaRampRGBEntry;
 }  // namespace display
 
 namespace gfx {
@@ -45,6 +46,10 @@ class CastDisplayConfigurator : public display::NativeDisplayObserver {
   void OnDisplaySnapshotsInvalidated() override {}
 
   void ConfigureDisplayFromCommandLine();
+  void SetColorMatrix(const std::vector<float>& color_matrix);
+  void SetGammaCorrection(
+      const std::vector<display::GammaRampRGBEntry>& degamma_lut,
+      const std::vector<display::GammaRampRGBEntry>& gamma_lut);
 
  private:
   void ForceInitialConfigure();
@@ -62,6 +67,7 @@ class CastDisplayConfigurator : public display::NativeDisplayObserver {
 
   std::unique_ptr<display::NativeDisplayDelegate> delegate_;
   std::unique_ptr<CastTouchDeviceManager> touch_device_manager_;
+  display::DisplaySnapshot* display_;
   CastScreen* const cast_screen_;
 
   base::WeakPtrFactory<CastDisplayConfigurator> weak_factory_;

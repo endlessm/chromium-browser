@@ -83,10 +83,11 @@ class PredictorObserver {
 
 // Predictor is constructed during Profile construction (on the UI thread),
 // but it is destroyed on the IO thread when ProfileIOData goes away. All of
-// its core state and functionality happens on the IO thread. The only UI
-// methods are initialization / shutdown related (including preconnect
-// initialization), or convenience methods that internally forward calls to
-// the IO thread.
+// its core state and functionality happens on the IO thread.
+// The only UI methods are initialization / shutdown related (including
+// preconnect initialization), convenience methods that internally forward
+// calls to the IO thread, or internal functions that interface with the Network
+// Service.
 class Predictor {
  public:
   // A version number for prefs that are saved. This should be incremented when
@@ -141,7 +142,8 @@ class Predictor {
   virtual void InitNetworkPredictor(PrefService* user_prefs,
                                     IOThread* io_thread,
                                     net::URLRequestContextGetter* getter,
-                                    ProfileIOData* profile_io_data);
+                                    ProfileIOData* profile_io_data,
+                                    Profile* profile);
 
   // The Omnibox has proposed a given url to the user, and if it is a search
   // URL, then it also indicates that this is preconnectable (i.e., we could
@@ -201,16 +203,6 @@ class Predictor {
   // canonicalized to not have a path.
   void LearnFromNavigation(const GURL& referring_url, const GURL& target_url);
 
-  // When displaying info in about:dns, the following API is called.
-  static void PredictorGetHtmlInfo(Predictor* predictor, std::string* output);
-
-  // Dump HTML table containing list of referrers for about:dns.
-  void GetHtmlReferrerLists(std::string* output);
-
-  // Dump the list of currently known referrer domains and related prefetchable
-  // domains for about:dns.
-  void GetHtmlInfo(std::string* output);
-
   // Construct a ListValue object that contains all the data in the referrers_
   // so that it can be persisted in a pref.
   void SerializeReferrers(base::ListValue* referral_list);
@@ -244,23 +236,17 @@ class Predictor {
   // Called from the UI thread in response to the load event.
   void SaveStateForNextStartup();
 
-  // May be called from either the IO or UI thread and will PostTask
-  // to the IO thread if necessary.
+  // ------------- End IO thread methods.
+
+  // The following methods may be called on either the IO or UI threads.
+
+  // Calls |PreconnectUrlOnIOThread()|, posting it to the IO thread if
+  // necessary.
   void PreconnectUrl(const GURL& url,
                      const GURL& site_for_cookies,
                      UrlInfo::ResolutionMotivation motivation,
                      bool allow_credentials,
                      int count);
-
-  void PreconnectUrlOnIOThread(const GURL& url,
-                               const GURL& site_for_cookies,
-                               UrlInfo::ResolutionMotivation motivation,
-                               bool allow_credentials,
-                               int count);
-
-  // ------------- End IO thread methods.
-
-  // The following methods may be called on either the IO or UI threads.
 
   // Instigate pre-connection to any URLs, or pre-resolution of related host,
   // that we predict will be needed after this navigation (typically
@@ -308,13 +294,13 @@ class Predictor {
 
   TimedCache* timed_cache() { return timed_cache_.get(); }
 
+  base::WeakPtr<Predictor> GetUIWeakPtr() {
+    return ui_weak_factory_->GetWeakPtr();
+  }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(PredictorTest, PriorityQueuePushPopTest);
   FRIEND_TEST_ALL_PREFIXES(PredictorTest, PriorityQueueReorderTest);
-  FRIEND_TEST_ALL_PREFIXES(PredictorTest, ReferrerSerializationTrimTest);
-  FRIEND_TEST_ALL_PREFIXES(PredictorTest, SingleLookupTestWithDisabledAdvisor);
-  FRIEND_TEST_ALL_PREFIXES(PredictorTest, SingleLookupTestWithEnabledAdvisor);
-  FRIEND_TEST_ALL_PREFIXES(PredictorTest, TestSimplePreconnectAdvisor);
   FRIEND_TEST_ALL_PREFIXES(PredictorTest, NoProxyService);
   FRIEND_TEST_ALL_PREFIXES(PredictorTest, ProxyDefinitelyEnabled);
   FRIEND_TEST_ALL_PREFIXES(PredictorTest, ProxyDefinitelyNotEnabled);
@@ -368,6 +354,12 @@ class Predictor {
 
   // ------------- Start IO thread methods.
 
+  void PreconnectUrlOnIOThread(const GURL& original_url,
+                               const GURL& site_for_cookies,
+                               UrlInfo::ResolutionMotivation motivation,
+                               bool allow_credentials,
+                               int count);
+
   // Perform actual resolution or preconnection to subresources now.  This is
   // an internal worker method that is reached via a post task from
   // PredictFrameSubresources().
@@ -414,6 +406,12 @@ class Predictor {
 
   // ------------- End IO thread methods.
 
+  void PreconnectUrlOnUIThread(const GURL& url,
+                               const GURL& site_for_cookies,
+                               UrlInfo::ResolutionMotivation motivation,
+                               bool allow_credentials,
+                               int count);
+
   std::unique_ptr<InitialObserver> initial_observer_;
 
   // Reference to URLRequestContextGetter from the Profile which owns the
@@ -434,6 +432,10 @@ class Predictor {
   // This is set by InitNetworkPredictor and used for calling
   // CanPrefetchAndPrerenderIO and CanPreresolveAndPreconnectIO.
   ProfileIOData* profile_io_data_;
+
+  // This is set by InitNetworkPredictor and used for calling into the Network
+  // Context.
+  Profile* profile_;
 
   // work_queue_ holds a list of names we need to look up.
   HostNameQueue work_queue_;
@@ -520,7 +522,8 @@ class SimplePredictor : public Predictor {
   void InitNetworkPredictor(PrefService* user_prefs,
                             IOThread* io_thread,
                             net::URLRequestContextGetter* getter,
-                            ProfileIOData* profile_io_data) override;
+                            ProfileIOData* profile_io_data,
+                            Profile* profile) override;
   void ShutdownOnUIThread() override;
 
  private:

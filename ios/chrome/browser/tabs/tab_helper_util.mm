@@ -15,7 +15,6 @@
 #include "components/keyed_service/core/service_access_type.h"
 #import "components/language/ios/browser/ios_language_detection_tab_helper.h"
 #import "ios/chrome/browser/autofill/autofill_tab_helper.h"
-#import "ios/chrome/browser/autofill/form_input_accessory_view_tab_helper.h"
 #import "ios/chrome/browser/autofill/form_suggestion_tab_helper.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/favicon/favicon_service_factory.h"
@@ -43,6 +42,8 @@
 #import "ios/chrome/browser/translate/chrome_ios_translate_client.h"
 #import "ios/chrome/browser/voice/voice_search_navigations_tab_helper.h"
 #import "ios/chrome/browser/web/blocked_popup_tab_helper.h"
+#import "ios/chrome/browser/web/features.h"
+#import "ios/chrome/browser/web/font_size_tab_helper.h"
 #import "ios/chrome/browser/web/load_timing_tab_helper.h"
 #import "ios/chrome/browser/web/network_activity_indicator_tab_helper.h"
 #import "ios/chrome/browser/web/page_placeholder_tab_helper.h"
@@ -90,6 +91,10 @@ void AttachTabHelpers(web::WebState* web_state, bool for_prerender) {
     CaptivePortalMetricsTabHelper::CreateForWebState(web_state);
   }
 
+  if (base::FeatureList::IsEnabled(web::kWebPageTextAccessibility)) {
+    FontSizeTabHelper::CreateForWebState(web_state);
+  }
+
   ReadingListModel* model =
       ReadingListModelFactory::GetForBrowserState(browser_state);
   ReadingListWebStateObserver::CreateForWebState(web_state, model);
@@ -113,11 +118,6 @@ void AttachTabHelpers(web::WebState* web_state, bool for_prerender) {
   FormSuggestionTabHelper::CreateForWebState(web_state, @[
     PasswordTabHelper::FromWebState(web_state)->GetSuggestionProvider(),
     AutofillTabHelper::FromWebState(web_state)->GetSuggestionProvider(),
-  ]);
-
-  FormInputAccessoryViewTabHelper::CreateForWebState(web_state, @[
-    FormSuggestionTabHelper::FromWebState(web_state)
-        ->GetAccessoryViewProvider(),
   ]);
 
   InsecureInputTabHelper::CreateForWebState(web_state);

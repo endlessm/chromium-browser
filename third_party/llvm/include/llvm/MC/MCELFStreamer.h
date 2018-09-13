@@ -59,7 +59,8 @@ public:
                              unsigned ByteAlignment) override;
 
   void EmitZerofill(MCSection *Section, MCSymbol *Symbol = nullptr,
-                    uint64_t Size = 0, unsigned ByteAlignment = 0) override;
+                    uint64_t Size = 0, unsigned ByteAlignment = 0,
+                    SMLoc L = SMLoc()) override;
   void EmitTBSSSymbol(MCSection *Section, MCSymbol *Symbol, uint64_t Size,
                       unsigned ByteAlignment = 0) override;
   void EmitValueImpl(const MCExpr *Value, unsigned Size,
@@ -68,6 +69,9 @@ public:
   void EmitIdent(StringRef IdentString) override;
 
   void EmitValueToAlignment(unsigned, int64_t, unsigned, unsigned) override;
+
+  void emitCGProfileEntry(const MCSymbolRefExpr *From,
+                          const MCSymbolRefExpr *To, uint64_t Count) override;
 
   void FinishImpl() override;
 
@@ -81,6 +85,8 @@ private:
   void EmitInstToData(const MCInst &Inst, const MCSubtargetInfo &) override;
 
   void fixSymbolsInTLSFixups(const MCExpr *expr);
+  void finalizeCGProfileEntry(const MCSymbolRefExpr *&S);
+  void finalizeCGProfile();
 
   /// Merge the content of the fragment \p EF into the fragment \p DF.
   void mergeFragment(MCDataFragment *, MCDataFragment *);

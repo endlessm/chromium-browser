@@ -13,6 +13,7 @@
 #include "chrome/browser/ui/views/confirm_quit_bubble.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/accelerators/accelerator.h"
+#include "ui/events/event.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/animation/slide_animation.h"
 
@@ -26,6 +27,30 @@ class TestConfirmQuitBubble : public ConfirmQuitBubbleBase {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestConfirmQuitBubble);
+};
+
+class TestConfirmQuitBubbleController : public ConfirmQuitBubbleController {
+ public:
+  TestConfirmQuitBubbleController(
+      std::unique_ptr<ConfirmQuitBubbleBase> bubble,
+      std::unique_ptr<base::OneShotTimer> hide_timer,
+      std::unique_ptr<gfx::SlideAnimation> animation)
+      : ConfirmQuitBubbleController(std::move(bubble),
+                                    std::move(hide_timer),
+                                    std::move(animation)) {}
+
+  void DeactivateBrowser() { OnBrowserNoLongerActive(nullptr); }
+
+  bool quit_called() const { return quit_called_; }
+
+ private:
+  void DoQuit() override { quit_called_ = true; }
+
+  bool IsFeatureEnabled() override { return true; }
+
+  bool quit_called_ = false;
+
+  DISALLOW_COPY_AND_ASSIGN(TestConfirmQuitBubbleController);
 };
 
 class TestSlideAnimation : public gfx::SlideAnimation {
@@ -48,32 +73,26 @@ class ConfirmQuitBubbleControllerTest : public testing::Test {
   void SetUp() override {
     std::unique_ptr<TestConfirmQuitBubble> bubble =
         std::make_unique<TestConfirmQuitBubble>();
-    std::unique_ptr<base::MockTimer> timer =
-        std::make_unique<base::MockTimer>(false, false);
+    auto timer = std::make_unique<base::MockOneShotTimer>();
     bubble_ = bubble.get();
     timer_ = timer.get();
-    controller_.reset(new ConfirmQuitBubbleController(
+    controller_.reset(new TestConfirmQuitBubbleController(
         std::move(bubble), std::move(timer),
         std::make_unique<TestSlideAnimation>()));
-
-    quit_called_ = false;
-    controller_->SetQuitActionForTest(base::BindOnce(
-        &ConfirmQuitBubbleControllerTest::OnQuit, base::Unretained(this)));
   }
 
   void TearDown() override { controller_.reset(); }
 
-  void OnQuit() { quit_called_ = true; }
+  void SendKeyEvent(ui::KeyEvent* event) { controller_->OnKeyEvent(event); }
 
   void SendAccelerator(bool quit, bool press, bool repeat) {
     ui::KeyboardCode key = quit ? ui::VKEY_Q : ui::VKEY_P;
     int modifiers = ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN;
     if (repeat)
       modifiers |= ui::EF_IS_REPEAT;
-    ui::Accelerator::KeyState state = press
-                                          ? ui::Accelerator::KeyState::PRESSED
-                                          : ui::Accelerator::KeyState::RELEASED;
-    controller_->HandleKeyboardEvent(ui::Accelerator(key, modifiers, state));
+    ui::EventType type = press ? ui::ET_KEY_PRESSED : ui::ET_KEY_RELEASED;
+    ui::KeyEvent event(type, key, modifiers);
+    SendKeyEvent(&event);
   }
 
   void PressQuitAccelerator() { SendAccelerator(true, true, false); }
@@ -86,15 +105,13 @@ class ConfirmQuitBubbleControllerTest : public testing::Test {
 
   void ReleaseOtherAccelerator() { SendAccelerator(false, false, false); }
 
-  void DeactivateBrowser() { controller_->OnBrowserNoLongerActive(nullptr); }
-
-  std::unique_ptr<ConfirmQuitBubbleController> controller_;
+  std::unique_ptr<TestConfirmQuitBubbleController> controller_;
 
   // Owned by |controller_|.
   TestConfirmQuitBubble* bubble_;
 
   // Owned by |controller_|.
-  base::MockTimer* timer_;
+  base::MockOneShotTimer* timer_;
 
   bool quit_called_ = false;
 };
@@ -104,9 +121,9 @@ TEST_F(ConfirmQuitBubbleControllerTest, PressAndHold) {
   PressQuitAccelerator();
   EXPECT_TRUE(timer_->IsRunning());
   timer_->Fire();
-  EXPECT_FALSE(quit_called_);
+  EXPECT_FALSE(controller_->quit_called());
   ReleaseQuitAccelerator();
-  EXPECT_TRUE(quit_called_);
+  EXPECT_TRUE(controller_->quit_called());
 }
 
 // Pressing the shortcut twice should quit.
@@ -116,9 +133,9 @@ TEST_F(ConfirmQuitBubbleControllerTest, DoublePress) {
   EXPECT_TRUE(timer_->IsRunning());
   PressQuitAccelerator();
   EXPECT_FALSE(timer_->IsRunning());
-  EXPECT_FALSE(quit_called_);
+  EXPECT_FALSE(controller_->quit_called());
   ReleaseQuitAccelerator();
-  EXPECT_TRUE(quit_called_);
+  EXPECT_TRUE(controller_->quit_called());
 }
 
 // Pressing the shortcut once should not quit.
@@ -127,7 +144,7 @@ TEST_F(ConfirmQuitBubbleControllerTest, SinglePress) {
   ReleaseQuitAccelerator();
   EXPECT_TRUE(timer_->IsRunning());
   timer_->Fire();
-  EXPECT_FALSE(quit_called_);
+  EXPECT_FALSE(controller_->quit_called());
 }
 
 // Repeated presses should not be counted.
@@ -137,7 +154,7 @@ TEST_F(ConfirmQuitBubbleControllerTest, RepeatedPresses) {
   ReleaseQuitAccelerator();
   EXPECT_TRUE(timer_->IsRunning());
   timer_->Fire();
-  EXPECT_FALSE(quit_called_);
+  EXPECT_FALSE(controller_->quit_called());
 }
 
 // Other keys shouldn't matter.
@@ -149,9 +166,9 @@ TEST_F(ConfirmQuitBubbleControllerTest, OtherKeyPress) {
   EXPECT_TRUE(timer_->IsRunning());
   PressQuitAccelerator();
   EXPECT_FALSE(timer_->IsRunning());
-  EXPECT_FALSE(quit_called_);
+  EXPECT_FALSE(controller_->quit_called());
   ReleaseQuitAccelerator();
-  EXPECT_TRUE(quit_called_);
+  EXPECT_TRUE(controller_->quit_called());
 }
 
 // The controller state should be reset when the browser loses focus.
@@ -159,25 +176,37 @@ TEST_F(ConfirmQuitBubbleControllerTest, BrowserLosesFocus) {
   // Press but don't release the accelerator.
   PressQuitAccelerator();
   EXPECT_TRUE(timer_->IsRunning());
-  DeactivateBrowser();
+  controller_->DeactivateBrowser();
   EXPECT_FALSE(timer_->IsRunning());
-  EXPECT_FALSE(quit_called_);
+  EXPECT_FALSE(controller_->quit_called());
   ReleaseQuitAccelerator();
 
   // Press and release the accelerator.
   PressQuitAccelerator();
   ReleaseQuitAccelerator();
   EXPECT_TRUE(timer_->IsRunning());
-  DeactivateBrowser();
+  controller_->DeactivateBrowser();
   EXPECT_FALSE(timer_->IsRunning());
-  EXPECT_FALSE(quit_called_);
+  EXPECT_FALSE(controller_->quit_called());
 
   // Press and hold the accelerator.
   PressQuitAccelerator();
   EXPECT_TRUE(timer_->IsRunning());
   timer_->Fire();
   EXPECT_FALSE(timer_->IsRunning());
-  DeactivateBrowser();
+  controller_->DeactivateBrowser();
   ReleaseQuitAccelerator();
-  EXPECT_FALSE(quit_called_);
+  EXPECT_FALSE(controller_->quit_called());
+}
+
+// The controller should not consume keyup events on the 'Q' key
+// (https://crbug.com/856868).
+TEST_F(ConfirmQuitBubbleControllerTest, ControllerDoesNotHandleQKeyUp) {
+  ui::KeyEvent press_event(ui::ET_KEY_PRESSED, ui::VKEY_Q, 0);
+  SendKeyEvent(&press_event);
+  EXPECT_FALSE(press_event.handled());
+
+  ui::KeyEvent release_event(ui::ET_KEY_RELEASED, ui::VKEY_Q, 0);
+  SendKeyEvent(&release_event);
+  EXPECT_FALSE(release_event.handled());
 }

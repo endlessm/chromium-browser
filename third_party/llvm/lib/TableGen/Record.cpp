@@ -1572,10 +1572,8 @@ DefInit *VarDefInit::instantiate() {
     Record *NewRec = NewRecOwner.get();
 
     // Copy values from class to instance
-    for (const RecordVal &Val : Class->getValues()) {
-      if (Val.getName() != "NAME")
-        NewRec->addValue(Val);
-    }
+    for (const RecordVal &Val : Class->getValues())
+      NewRec->addValue(Val);
 
     // Substitute and resolve template arguments
     ArrayRef<Init *> TArgs = Class->getTemplateArgs();
@@ -1844,14 +1842,6 @@ void RecordVal::print(raw_ostream &OS, bool PrintSem) const {
 }
 
 unsigned Record::LastID = 0;
-
-void Record::init() {
-  checkName();
-
-  // Every record potentially has a def at the top.  This value is
-  // replaced with the top-level def name at instantiation time.
-  addValue(RecordVal(StringInit::get("NAME"), StringRecTy::get(), false));
-}
 
 void Record::checkName() {
   // Ensure the record name has string type.
@@ -2141,15 +2131,6 @@ DagInit *Record::getValueAsDag(StringRef FieldName) const {
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-LLVM_DUMP_METHOD void MultiClass::dump() const {
-  errs() << "Record:\n";
-  Rec.dump();
-
-  errs() << "Defs:\n";
-  for (const auto &Proto : DefPrototypes)
-    Proto->dump();
-}
-
 LLVM_DUMP_METHOD void RecordKeeper::dump() const { errs() << *this; }
 #endif
 
@@ -2182,22 +2163,6 @@ RecordKeeper::getAllDerivedDefinitions(StringRef ClassName) const {
       Defs.push_back(D.second.get());
 
   return Defs;
-}
-
-Init *llvm::QualifyName(Record &CurRec, MultiClass *CurMultiClass,
-                        Init *Name, StringRef Scoper) {
-  Init *NewName =
-      BinOpInit::getStrConcat(CurRec.getNameInit(), StringInit::get(Scoper));
-  NewName = BinOpInit::getStrConcat(NewName, Name);
-  if (CurMultiClass && Scoper != "::") {
-    Init *Prefix = BinOpInit::getStrConcat(CurMultiClass->Rec.getNameInit(),
-                                           StringInit::get("::"));
-    NewName = BinOpInit::getStrConcat(Prefix, NewName);
-  }
-
-  if (BinOpInit *BinOp = dyn_cast<BinOpInit>(NewName))
-    NewName = BinOp->Fold(&CurRec);
-  return NewName;
 }
 
 Init *MapResolver::resolve(Init *VarName) {
@@ -2259,4 +2224,11 @@ Init *TrackUnresolvedResolver::resolve(Init *VarName) {
   if (!I)
     FoundUnresolved = true;
   return I;
+}
+
+Init *HasReferenceResolver::resolve(Init *VarName)
+{
+  if (VarName == VarNameToTrack)
+    Found = true;
+  return nullptr;
 }

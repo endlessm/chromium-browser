@@ -1832,7 +1832,7 @@ A sorted 'vector'
 ^^^^^^^^^^^^^^^^^
 
 If you intend to insert a lot of elements, then do a lot of queries, a great
-approach is to use a vector (or other sequential container) with
+approach is to use an std::vector (or other sequential container) with
 std::sort+std::unique to remove duplicates.  This approach works really well if
 your usage pattern has these two distinct phases (insert then query), and can be
 coupled with a good choice of :ref:`sequential container <ds_sequential>`.
@@ -3721,7 +3721,7 @@ Important Subclasses of the ``Instruction`` class
 
 * ``CmpInst``
 
-  This subclass respresents the two comparison instructions,
+  This subclass represents the two comparison instructions,
   `ICmpInst <LangRef.html#i_icmp>`_ (integer opreands), and
   `FCmpInst <LangRef.html#i_fcmp>`_ (floating point operands).
 

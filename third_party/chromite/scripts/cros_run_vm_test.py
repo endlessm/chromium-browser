@@ -48,6 +48,7 @@ class VMTest(object):
     self.cwd = opts.cwd
     self.files = opts.files
     self.files_from = opts.files_from
+    self.as_chronos = opts.as_chronos
     self.args = opts.args[1:] if opts.args else None
 
     self.output = opts.output
@@ -99,9 +100,9 @@ class VMTest(object):
     """Build chrome."""
     if not self.build:
       return
+
     cros_build_lib.RunCommand(['autoninja', '-C', self.build_dir, 'chrome',
-                               'chrome_sandbox', 'nacl_helper'],
-                              log_output=True)
+                               'chrome_sandbox', 'nacl_helper'])
 
   def _Deploy(self):
     """Deploy chrome."""
@@ -119,7 +120,7 @@ class VMTest(object):
       deploy_cmd += ['--board', self.board]
     if self.cache_dir:
       deploy_cmd += ['--cache-dir', self.cache_dir]
-    cros_build_lib.RunCommand(deploy_cmd, log_output=True)
+    cros_build_lib.RunCommand(deploy_cmd)
     self._vm.WaitForBoot()
 
   def _RunCatapultTests(self):
@@ -134,7 +135,7 @@ class VMTest(object):
         'python',
         '/usr/local/telemetry/src/third_party/catapult/telemetry/bin/run_tests',
         '--browser=%s' % browser,
-    ] + self.catapult_tests)
+    ] + self.catapult_tests, stream_output=True)
 
   def _RunAutotest(self):
     """Run an autotest using test_that.
@@ -152,7 +153,7 @@ class VMTest(object):
         '--ssh_options', '-F /dev/null -i /dev/null',
         'localhost:%d' % self._vm.ssh_port,
     ] + self.autotest
-    return cros_build_lib.RunCommand(cmd, log_output=True)
+    return cros_build_lib.RunCommand(cmd)
 
   def _RunTests(self):
     """Run tests.
@@ -166,13 +167,14 @@ class VMTest(object):
     if self.remote_cmd:
       result = self._RunVMCmd()
     elif self.host_cmd:
-      result = cros_build_lib.RunCommand(self.args, log_output=True)
+      result = cros_build_lib.RunCommand(self.args)
     elif self.catapult_tests:
       result = self._RunCatapultTests()
     elif self.autotest:
       result = self._RunAutotest()
     else:
-      result = self._vm.RemoteCommand(['/usr/local/autotest/bin/vm_sanity.py'])
+      result = self._vm.RemoteCommand(['/usr/local/autotest/bin/vm_sanity.py'],
+                                      stream_output=True)
 
     self._OutputResults(result)
     self._FetchResults()
@@ -235,12 +237,24 @@ class VMTest(object):
     if files and not (cwd and os.path.isabs(cwd)):
       cwd = os.path.join(DEST_BASE, cwd) if cwd else DEST_BASE
       self._vm.RemoteCommand(['mkdir', '-p', cwd])
+
+    if self.as_chronos:
+      # This authorizes the test ssh keys with chronos.
+      self._vm.RemoteCommand(['cp', '-r', '/root/.ssh/', '/home/chronos/user/'])
+      if files:
+        # The trailing ':' after the user also changes the group to the user's
+        # primary group.
+        self._vm.RemoteCommand(['chown', '-R', 'chronos:', DEST_BASE])
+
+    user = 'chronos' if self.as_chronos else None
     if cwd:
       # Run the remote command with cwd.
       cmd = '"cd %s && %s"' % (cwd, ' '.join(self.args))
-      result = self._vm.RemoteCommand(cmd, stream_log=True, shell=True)
+      result = self._vm.RemoteCommand(cmd, stream_output=True, shell=True,
+                                      remote_user=user)
     else:
-      result = self._vm.RemoteCommand(self.args, stream_log=True)
+      result = self._vm.RemoteCommand(self.args, stream_output=True,
+                                      remote_user=user)
 
     # Cleanup.
     if files:
@@ -293,6 +307,10 @@ def ParseCommandLine(argv):
                       'copy results to.')
   parser.add_argument('--remote-cmd', action='store_true', default=False,
                       help='Run a command in the VM.')
+  parser.add_argument('--as-chronos', action='store_true',
+                      help='Runs the remote test as the chronos user in '
+                           'the VM. Only supported for --remote-cmd tests. '
+                           'Runs as root if not set.')
   parser.add_argument('--host-cmd', action='store_true', default=False,
                       help='Run a command on the host.')
 
@@ -324,6 +342,8 @@ def ParseCommandLine(argv):
   opts.remote_cmd = opts.remote_cmd or opts.cmd
   if (opts.remote_cmd or opts.host_cmd) and len(opts.args) < 2:
     parser.error('Must specify test command to run.')
+  if opts.as_chronos and not opts.remote_cmd:
+    parser.error('as-chronos only supported when running test commands.')
   # Verify additional args.
   if opts.args:
     if not opts.remote_cmd and not opts.host_cmd:

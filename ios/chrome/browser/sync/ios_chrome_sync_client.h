@@ -42,13 +42,14 @@ class IOSChromeSyncClient : public syncer::SyncClient {
   syncer::SyncService* GetSyncService() override;
   PrefService* GetPrefService() override;
   base::FilePath GetLocalSyncBackendFolder() override;
+  syncer::ModelTypeStoreService* GetModelTypeStoreService() override;
   bookmarks::BookmarkModel* GetBookmarkModel() override;
   favicon::FaviconService* GetFaviconService() override;
   history::HistoryService* GetHistoryService() override;
   bool HasPasswordStore() override;
   base::Closure GetPasswordStateChangedCallback() override;
-  syncer::SyncApiComponentFactory::RegisterDataTypesMethod
-  GetRegisterPlatformTypesCallback() override;
+  syncer::DataTypeController::TypeVector CreateDataTypeControllers(
+      syncer::LocalDeviceInfoProvider* local_device_info_provider) override;
   autofill::PersonalDataManager* GetPersonalDataManager() override;
   invalidation::InvalidationService* GetInvalidationService() override;
   BookmarkUndoService* GetBookmarkUndoServiceIfExists() override;
@@ -84,8 +85,6 @@ class IOSChromeSyncClient : public syncer::SyncClient {
   scoped_refptr<base::SingleThreadTaskRunner> db_thread_;
 
   std::unique_ptr<sync_sessions::SyncSessionsClient> sync_sessions_client_;
-
-  base::WeakPtrFactory<IOSChromeSyncClient> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(IOSChromeSyncClient);
 };

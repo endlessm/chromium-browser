@@ -55,6 +55,10 @@ class PerfBenchmarkTest(unittest.TestCase):
   def testNoAdTaggingRuleset(self):
     benchmark = perf_benchmark.PerfBenchmark()
     options = options_for_unittests.GetCopy()
+
+    # Set the chrome root to avoid using a ruleset from an existing "Release"
+    # out dir.
+    options.chrome_root = self._output_dir
     benchmark.CustomizeBrowserOptions(options.browser_options)
     self._ExpectAdTaggingProfileFiles(options.browser_options, False)
 
@@ -90,3 +94,51 @@ class PerfBenchmarkTest(unittest.TestCase):
 
     benchmark.CustomizeBrowserOptions(options.browser_options)
     self._ExpectAdTaggingProfileFiles(options.browser_options, True)
+
+  def testAdTaggingRulesetNoExplicitOutDir(self):
+    # Make sure _output_dir points to Chrome's root and not the traditional
+    # output directory.
+    os.makedirs(os.path.join(
+        self._output_dir, 'out','Release','gen', 'components',
+        'subresource_filter', 'tools','GeneratedRulesetData'))
+
+    benchmark = perf_benchmark.PerfBenchmark()
+    options = options_for_unittests.GetCopy()
+    options.chrome_root = self._output_dir
+    options.browser_options.browser_type = "release"
+
+    benchmark.CustomizeBrowserOptions(options.browser_options)
+    self._ExpectAdTaggingProfileFiles(options.browser_options, True)
+
+  def testAdTaggingRulesetNoExplicitOutDirAndroidChromium(self):
+    # Make sure _output_dir points to Chrome's root and not the traditional
+    # output directory.
+    os.makedirs(os.path.join(
+        self._output_dir, 'out','Default','gen', 'components',
+        'subresource_filter', 'tools','GeneratedRulesetData'))
+
+    benchmark = perf_benchmark.PerfBenchmark()
+    options = options_for_unittests.GetCopy()
+    options.chrome_root = self._output_dir
+
+    # android-chromium is special cased to search for anything.
+    options.browser_options.browser_type = "android-chromium"
+
+    benchmark.CustomizeBrowserOptions(options.browser_options)
+    self._ExpectAdTaggingProfileFiles(options.browser_options, True)
+
+  def testAdTaggingRulesetOutputDirNotFound(self):
+    # Same as the above test but use Debug instead of Release. This should
+    # cause the benchmark to fail to find the ruleset because we only check
+    # directories matching the browser_type.
+    os.makedirs(os.path.join(
+        self._output_dir, 'out','Debug','gen', 'components',
+        'subresource_filter', 'tools','GeneratedRulesetData'))
+
+    benchmark = perf_benchmark.PerfBenchmark()
+    options = options_for_unittests.GetCopy()
+    options.chrome_root = self._output_dir
+    options.browser_options.browser_type = "release"
+
+    benchmark.CustomizeBrowserOptions(options.browser_options)
+    self._ExpectAdTaggingProfileFiles(options.browser_options, False)

@@ -6,22 +6,25 @@
 
 #include <utility>
 
+#include "ash/public/cpp/window_properties.h"
 #include "ash/system/message_center/arc/arc_notification_surface.h"
 #include "base/command_line.h"
 #include "base/memory/singleton.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs_factory.h"
-#include "chromeos/chromeos_switches.h"
+#include "chromeos/chromeos_features.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/exo/shell_surface.h"
 #include "components/exo/surface.h"
 #include "components/exo/wm_helper.h"
+#include "ui/accessibility/ax_action_data.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/controls/native/native_view_host.h"
+#include "ui/views/widget/widget.h"
 
 using ash::ArcNotificationSurface;
 using ash::ArcNotificationSurfaceManager;
@@ -75,35 +78,6 @@ void DispatchFocusChange(arc::mojom::AccessibilityNodeInfoData* node_data,
       1.0f / toplevel_window->layer()->device_scale_factor());
 
   accessibility_manager->OnViewFocusedInArc(bounds_in_screen);
-}
-
-arc::mojom::AccessibilityFilterType GetFilterTypeForProfile(Profile* profile) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kEnableChromeVoxArcSupport)) {
-    return arc::mojom::AccessibilityFilterType::ALL;
-  }
-
-  chromeos::AccessibilityManager* accessibility_manager =
-      chromeos::AccessibilityManager::Get();
-  if (!accessibility_manager)
-    return arc::mojom::AccessibilityFilterType::OFF;
-
-  // TODO(yawano): Support the case where primary user is in background.
-  if (accessibility_manager->profile() != profile)
-    return arc::mojom::AccessibilityFilterType::OFF;
-
-  if (accessibility_manager->IsSelectToSpeakEnabled() ||
-      accessibility_manager->IsSwitchAccessEnabled()) {
-    return arc::mojom::AccessibilityFilterType::ALL;
-  }
-
-  if (accessibility_manager->IsSpokenFeedbackEnabled())
-    return arc::mojom::AccessibilityFilterType::WHITELISTED_PACKAGE_NAME;
-
-  if (accessibility_manager->IsFocusHighlightEnabled())
-    return arc::mojom::AccessibilityFilterType::FOCUS;
-
-  return arc::mojom::AccessibilityFilterType::OFF;
 }
 
 }  // namespace
@@ -264,8 +238,23 @@ void ArcAccessibilityHelperBridge::OnAccessibilityEvent(
       if (task_id != event_data->task_id)
         return;
 
-      tree_source = GetOrCreateFromTaskId(event_data->task_id);
-      tree_source->Focus(active_window);
+      tree_source = GetFromTaskId(event_data->task_id);
+
+      if (!tree_source) {
+        tree_source = CreateFromTaskId(event_data->task_id);
+
+        ui::AXTreeData tree_data;
+        tree_source->GetTreeData(&tree_data);
+        exo::Surface* surface =
+            exo::ShellSurfaceBase::GetMainSurface(active_window);
+        if (surface) {
+          views::Widget* widget =
+              views::Widget::GetWidgetForNativeWindow(active_window);
+          static_cast<exo::ShellSurfaceBase*>(
+              widget->widget_delegate()->GetContentsView())
+              ->SetChildAxTreeId(tree_data.tree_id);
+        }
+      }
     }
 
     if (!tree_source)
@@ -289,6 +278,10 @@ void ArcAccessibilityHelperBridge::OnAccessibilityEvent(
               ax::mojom::Event::kTextSelectionChanged, true);
         }
       }
+    } else if (!is_notification_event &&
+               event_data->event_type ==
+                   arc::mojom::AccessibilityEventType::WINDOW_STATE_CHANGED) {
+      UpdateWindowProperties(GetActiveWindow());
     }
 
     return;
@@ -325,17 +318,18 @@ void ArcAccessibilityHelperBridge::OnNotificationStateChanged(
   }
 }
 
-AXTreeSourceArc* ArcAccessibilityHelperBridge::GetOrCreateFromTaskId(
-    int32_t task_id) {
-  AXTreeSourceArc* tree_source = nullptr;
+AXTreeSourceArc* ArcAccessibilityHelperBridge::GetFromTaskId(int32_t task_id) {
   auto tree_it = task_id_to_tree_.find(task_id);
-  if (tree_it == task_id_to_tree_.end()) {
-    task_id_to_tree_[task_id].reset(new AXTreeSourceArc(this));
-    tree_source = task_id_to_tree_[task_id].get();
-  } else {
-    tree_source = tree_it->second.get();
-  }
-  return tree_source;
+  if (tree_it == task_id_to_tree_.end())
+    return nullptr;
+
+  return tree_it->second.get();
+}
+
+AXTreeSourceArc* ArcAccessibilityHelperBridge::CreateFromTaskId(
+    int32_t task_id) {
+  task_id_to_tree_[task_id].reset(new AXTreeSourceArc(this));
+  return task_id_to_tree_[task_id].get();
 }
 
 AXTreeSourceArc* ArcAccessibilityHelperBridge::CreateFromNotificationKey(
@@ -488,7 +482,39 @@ void ArcAccessibilityHelperBridge::OnAccessibilityStatusChanged(
   }
 
   UpdateFilterType();
-  UpdateTouchExplorationPassThrough(GetActiveWindow());
+  UpdateWindowProperties(GetActiveWindow());
+}
+
+arc::mojom::AccessibilityFilterType
+ArcAccessibilityHelperBridge::GetFilterTypeForProfile(Profile* profile) {
+  if (use_filter_type_all_for_test_)
+    return arc::mojom::AccessibilityFilterType::ALL;
+
+  chromeos::AccessibilityManager* accessibility_manager =
+      chromeos::AccessibilityManager::Get();
+  if (!accessibility_manager)
+    return arc::mojom::AccessibilityFilterType::OFF;
+
+  // TODO(yawano): Support the case where primary user is in background.
+  if (accessibility_manager->profile() != profile)
+    return arc::mojom::AccessibilityFilterType::OFF;
+
+  if (accessibility_manager->IsSelectToSpeakEnabled() ||
+      accessibility_manager->IsSwitchAccessEnabled()) {
+    return arc::mojom::AccessibilityFilterType::ALL;
+  }
+
+  if (accessibility_manager->IsSpokenFeedbackEnabled()) {
+    return base::FeatureList::IsEnabled(
+               chromeos::features::kChromeVoxArcSupport)
+               ? arc::mojom::AccessibilityFilterType::ALL
+               : arc::mojom::AccessibilityFilterType::WHITELISTED_PACKAGE_NAME;
+  }
+
+  if (accessibility_manager->IsFocusHighlightEnabled())
+    return arc::mojom::AccessibilityFilterType::FOCUS;
+
+  return arc::mojom::AccessibilityFilterType::OFF;
 }
 
 void ArcAccessibilityHelperBridge::UpdateFilterType() {
@@ -517,7 +543,7 @@ void ArcAccessibilityHelperBridge::UpdateFilterType() {
     wm_helper->RemoveActivationObserver(this);
 }
 
-void ArcAccessibilityHelperBridge::UpdateTouchExplorationPassThrough(
+void ArcAccessibilityHelperBridge::UpdateWindowProperties(
     aura::Window* window) {
   if (!window)
     return;
@@ -533,8 +559,13 @@ void ArcAccessibilityHelperBridge::UpdateTouchExplorationPassThrough(
   // app isn't whitelisted Android side or no data has been received for the
   // app.
   auto it = task_id_to_tree_.find(task_id);
+  bool use_talkback = it == task_id_to_tree_.end();
+
   window->SetProperty(aura::client::kAccessibilityTouchExplorationPassThrough,
-                      it == task_id_to_tree_.end());
+                      use_talkback);
+  window->SetProperty(ash::kSearchKeyAcceleratorReservedKey, use_talkback);
+  window->SetProperty(aura::client::kAccessibilityFocusFallsbackToWidgetKey,
+                      !use_talkback);
 }
 
 aura::Window* ArcAccessibilityHelperBridge::GetActiveWindow() {
@@ -552,7 +583,7 @@ void ArcAccessibilityHelperBridge::OnWindowActivated(
   if (gained_active == lost_active)
     return;
 
-  UpdateTouchExplorationPassThrough(gained_active);
+  UpdateWindowProperties(gained_active);
 }
 
 void ArcAccessibilityHelperBridge::OnTaskDestroyed(int32_t task_id) {

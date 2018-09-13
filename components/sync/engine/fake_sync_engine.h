@@ -15,10 +15,10 @@
 
 namespace syncer {
 
-// A mock of the SyncEngine.
+// A fake of the SyncEngine.
 //
 // This class implements the bare minimum required for the ProfileSyncService to
-// get through initialization.  It often returns null pointers or nonesense
+// get through initialization. It often returns null pointers or nonsense
 // values; it is not intended to be used in tests that depend on SyncEngine
 // behavior.
 class FakeSyncEngine : public SyncEngine {
@@ -26,6 +26,7 @@ class FakeSyncEngine : public SyncEngine {
   FakeSyncEngine();
   ~FakeSyncEngine() override;
 
+  // Immediately calls params.host->OnEngineInitialized.
   void Initialize(InitParams params) override;
 
   void TriggerRefresh(const ModelTypeSet& types) override;
@@ -60,8 +61,9 @@ class FakeSyncEngine : public SyncEngine {
                                  ChangeProcessor* change_processor) override;
   void DeactivateDirectoryDataType(ModelType type) override;
 
-  void ActivateNonBlockingDataType(ModelType type,
-                                   std::unique_ptr<ActivationContext>) override;
+  void ActivateNonBlockingDataType(
+      ModelType type,
+      std::unique_ptr<DataTypeActivationResponse>) override;
   void DeactivateNonBlockingDataType(ModelType type) override;
 
   UserShare* GetUserShare() const override;

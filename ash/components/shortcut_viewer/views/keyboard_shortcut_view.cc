@@ -18,9 +18,12 @@
 #include "ash/public/cpp/window_properties.h"
 #include "base/bind.h"
 #include "base/i18n/string_search.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -28,9 +31,9 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/search_box/search_box_view_base.h"
-#include "ui/display/display.h"
-#include "ui/display/screen.h"
+#include "ui/events/event_constants.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/gfx/presentation_feedback.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
@@ -97,26 +100,24 @@ KeyboardShortcutView::~KeyboardShortcutView() {
 }
 
 // static
-views::Widget* KeyboardShortcutView::Toggle(gfx::NativeWindow context) {
+views::Widget* KeyboardShortcutView::Toggle(base::TimeTicks start_time) {
   if (g_ksv_view) {
     if (g_ksv_view->GetWidget()->IsActive())
       g_ksv_view->GetWidget()->Close();
     else
       g_ksv_view->GetWidget()->Activate();
   } else {
+    TRACE_EVENT0("shortcut_viewer", "CreateWidget");
     base::RecordAction(
         base::UserMetricsAction("KeyboardShortcutViewer.CreateWindow"));
 
-    constexpr gfx::Size kKSVWindowSize(800, 512);
-    gfx::Rect window_bounds(kKSVWindowSize);
-    if (context) {
-      window_bounds = display::Screen::GetScreen()
-                          ->GetDisplayNearestWindow(context->GetRootWindow())
-                          .work_area();
-      window_bounds.ClampToCenteredSize(kKSVWindowSize);
-    }
-    views::Widget::CreateWindowWithContextAndBounds(new KeyboardShortcutView(),
-                                                    context, window_bounds);
+    views::Widget::InitParams params;
+    params.delegate = new KeyboardShortcutView;
+    params.name = "KeyboardShortcutWidget";
+    // Intentionally don't set bounds. The window will be sized and centered
+    // based on CalculatePreferredSize().
+    views::Widget* widget = new views::Widget;
+    widget->Init(params);
 
     // Set frame view Active and Inactive colors, both are SK_ColorWHITE.
     aura::Window* window = g_ksv_view->GetWidget()->GetNativeWindow();
@@ -148,8 +149,20 @@ views::Widget* KeyboardShortcutView::Toggle(gfx::NativeWindow context) {
 
     g_ksv_view->GetWidget()->Show();
     g_ksv_view->search_box_view_->search_box()->RequestFocus();
+
+    widget->GetCompositor()->RequestPresentationTimeForNextFrame(base::BindOnce(
+        [](base::TimeTicks start_time,
+           const gfx::PresentationFeedback& feedback) {
+          UMA_HISTOGRAM_TIMES("Keyboard.ShortcutViewer.StartupTime",
+                              feedback.timestamp - start_time);
+        },
+        start_time));
   }
   return g_ksv_view->GetWidget();
+}
+
+const char* KeyboardShortcutView::GetClassName() const {
+  return "KeyboardShortcutView";
 }
 
 bool KeyboardShortcutView::AcceleratorPressed(
@@ -190,6 +203,10 @@ void KeyboardShortcutView::Layout() {
                           content_bounds.height() - search_box_used_height);
 }
 
+gfx::Size KeyboardShortcutView::CalculatePreferredSize() const {
+  return gfx::Size(800, 512);
+}
+
 void KeyboardShortcutView::QueryChanged(search_box::SearchBoxViewBase* sender) {
   const bool query_empty = sender->IsSearchBoxTrimmedQueryEmpty();
   if (is_search_box_empty_ != query_empty) {
@@ -213,7 +230,7 @@ void KeyboardShortcutView::QueryChanged(search_box::SearchBoxViewBase* sender) {
 
 void KeyboardShortcutView::BackButtonPressed() {
   search_box_view_->ClearSearch();
-  search_box_view_->SetSearchBoxActive(false);
+  search_box_view_->SetSearchBoxActive(false, ui::ET_UNKNOWN);
 }
 
 void KeyboardShortcutView::ActiveChanged(
@@ -238,6 +255,7 @@ KeyboardShortcutView::KeyboardShortcutView() {
 }
 
 void KeyboardShortcutView::InitViews() {
+  TRACE_EVENT0("shortcut_viewer", "InitViews");
   // Init search box view.
   search_box_view_ = std::make_unique<KSVSearchBoxView>(this);
   search_box_view_->Init();
@@ -437,6 +455,10 @@ bool KeyboardShortcutView::CanMinimize() const {
 }
 
 bool KeyboardShortcutView::CanResize() const {
+  return false;
+}
+
+bool KeyboardShortcutView::ShouldShowWindowTitle() const {
   return false;
 }
 

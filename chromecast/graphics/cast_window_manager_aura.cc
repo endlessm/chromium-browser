@@ -18,33 +18,39 @@
 #include "ui/base/ime/input_method_factory.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
+#include "ui/platform_window/platform_window_init_properties.h"
 #include "ui/wm/core/default_screen_position_client.h"
 
 namespace chromecast {
 namespace {
 
 gfx::Transform GetPrimaryDisplayRotationTransform() {
-  gfx::Transform rotation;
+  // NB: Using gfx::Transform::Rotate() introduces very small errors here
+  // which are later exacerbated by use of gfx::EnclosingRect() in
+  // WindowTreeHost::GetTransformedRootWindowBoundsInPixels().
+  const gfx::Transform rotate_90(0.f, -1.f, 0.f, 0.f,  //
+                                 1.f, 0.f, 0.f, 0.f,   //
+                                 0.f, 0.f, 1.f, 0.f,   //
+                                 0.f, 0.f, 0.f, 1.f);
+  const gfx::Transform rotate_180 = rotate_90 * rotate_90;
+  const gfx::Transform rotate_270 = rotate_180 * rotate_90;
+
+  gfx::Transform translation;
   display::Display display(display::Screen::GetScreen()->GetPrimaryDisplay());
   switch (display.rotation()) {
     case display::Display::ROTATE_0:
-      break;
+      return translation;
     case display::Display::ROTATE_90:
-      rotation.Translate(display.bounds().height() - 1, 0);
-      rotation.Rotate(90);
-      break;
+      translation.Translate(display.bounds().height(), 0);
+      return translation * rotate_90;
     case display::Display::ROTATE_180:
-      rotation.Translate(display.bounds().width() - 1,
-                         display.bounds().height() - 1);
-      rotation.Rotate(180);
-      break;
+      translation.Translate(display.bounds().width(),
+                            display.bounds().height());
+      return translation * rotate_180;
     case display::Display::ROTATE_270:
-      rotation.Translate(0, display.bounds().width() - 1);
-      rotation.Rotate(270);
-      break;
+      translation.Translate(0, display.bounds().width());
+      return translation * rotate_270;
   }
-
-  return rotation;
 }
 
 gfx::Rect GetPrimaryDisplayHostBounds() {
@@ -91,28 +97,10 @@ ui::EventTarget* CastEventIgnorer::FindNextBestTarget(
   return nullptr;
 }
 
-// An aura::WindowTreeHost that correctly converts input events.
-class CastWindowTreeHost : public aura::WindowTreeHostPlatform {
- public:
-  CastWindowTreeHost(bool enable_input, const gfx::Rect& bounds);
-  ~CastWindowTreeHost() override;
-
-  // aura::WindowTreeHostPlatform implementation:
-  void DispatchEvent(ui::Event* event) override;
-
-  // aura::WindowTreeHost implementation
-  gfx::Rect GetTransformedRootWindowBoundsInPixels(
-      const gfx::Size& size_in_pixels) const override;
-
- private:
-  const bool enable_input_;
-
-  DISALLOW_COPY_AND_ASSIGN(CastWindowTreeHost);
-};
-
 CastWindowTreeHost::CastWindowTreeHost(bool enable_input,
                                        const gfx::Rect& bounds)
-    : WindowTreeHostPlatform(bounds), enable_input_(enable_input) {
+    : WindowTreeHostPlatform(ui::PlatformWindowInitProperties{bounds}),
+      enable_input_(enable_input) {
   if (!enable_input) {
     window()->SetEventTargeter(
         std::unique_ptr<ui::EventTargeter>(new CastEventIgnorer));
@@ -191,39 +179,27 @@ void CastLayoutManager::OnChildWindowVisibilityChanged(aura::Window* child,
 
   // Determine z-order relative to existing windows.
   aura::Window::Windows windows = parent->children();
-  aura::Window* above = nullptr;
-  aura::Window* below = nullptr;
-  for (auto* other : windows) {
-    if (other == child) {
-      continue;
-    }
-    if ((other->id() < child->id()) && (!below || other->id() > below->id())) {
-      below = other;
-    } else if ((other->id() > child->id()) &&
-               (!above || other->id() < above->id())) {
-      above = other;
-    }
-  }
+  std::stable_sort(windows.begin(), windows.end(),
+                   [child](aura::Window* lhs, aura::Window* rhs) {
+                     // Promote |child| to the top of the stack of windows with
+                     // the same ID.
+                     if (lhs->id() == rhs->id() && rhs == child)
+                       return true;
 
-  // Adjust the z-order of the new child window.
-  if (above) {
-    parent->StackChildBelow(child, above);
-  } else if (below) {
-    parent->StackChildAbove(child, below);
-  } else {
-    parent->StackChildAtBottom(child);
+                     return lhs->id() < rhs->id();
+                   });
+
+  for (size_t i = 0; i < windows.size(); ++i) {
+    if (i == 0)
+      parent->StackChildAtBottom(windows[i]);
+    else
+      parent->StackChildAbove(windows[i], windows[i - 1]);
   }
 }
 
 void CastLayoutManager::SetChildBounds(aura::Window* child,
                                        const gfx::Rect& requested_bounds) {
   SetChildBoundsDirect(child, requested_bounds);
-}
-
-// static
-std::unique_ptr<CastWindowManager> CastWindowManager::Create(
-    bool enable_input) {
-  return base::WrapUnique(new CastWindowManagerAura(enable_input));
 }
 
 CastWindowManagerAura::CastWindowManagerAura(bool enable_input)
@@ -245,7 +221,8 @@ void CastWindowManagerAura::Setup() {
 
   LOG(INFO) << "Starting window manager, bounds: " << host_bounds.ToString();
   CHECK(aura::Env::GetInstance());
-  window_tree_host_.reset(new CastWindowTreeHost(enable_input_, host_bounds));
+  window_tree_host_ =
+      std::make_unique<CastWindowTreeHost>(enable_input_, host_bounds);
   window_tree_host_->InitHost();
   window_tree_host_->window()->SetLayoutManager(new CastLayoutManager());
   window_tree_host_->SetRootTransform(GetPrimaryDisplayRotationTransform());
@@ -253,7 +230,7 @@ void CastWindowManagerAura::Setup() {
   // Allow seeing through to the hardware video plane:
   window_tree_host_->compositor()->SetBackgroundColor(SK_ColorTRANSPARENT);
 
-  focus_client_.reset(new CastFocusClientAura());
+  focus_client_ = std::make_unique<CastFocusClientAura>();
   aura::client::SetFocusClient(window_tree_host_->window(),
                                focus_client_.get());
   wm::SetActivationClient(window_tree_host_->window(), focus_client_.get());
@@ -261,15 +238,20 @@ void CastWindowManagerAura::Setup() {
   capture_client_.reset(
       new aura::client::DefaultCaptureClient(window_tree_host_->window()));
 
-  screen_position_client_.reset(new wm::DefaultScreenPositionClient());
-  aura::client::SetScreenPositionClient(
-      window_tree_host_->window()->GetRootWindow(),
-      screen_position_client_.get());
+  screen_position_client_ = std::make_unique<wm::DefaultScreenPositionClient>();
+
+  aura::Window* root_window = window_tree_host_->window()->GetRootWindow();
+  aura::client::SetScreenPositionClient(root_window,
+                                        screen_position_client_.get());
 
   window_tree_host_->Show();
   system_gesture_event_handler_ =
-      std::make_unique<CastSystemGestureEventHandler>(
-          window_tree_host_->window()->GetRootWindow());
+      std::make_unique<CastSystemGestureEventHandler>(root_window);
+}
+
+CastWindowTreeHost* CastWindowManagerAura::window_tree_host() const {
+  DCHECK(window_tree_host_);
+  return window_tree_host_.get();
 }
 
 void CastWindowManagerAura::TearDown() {
@@ -319,17 +301,15 @@ void CastWindowManagerAura::AddWindow(gfx::NativeView child) {
   }
 }
 
-void CastWindowManagerAura::AddSideSwipeGestureHandler(
-    CastSideSwipeGestureHandlerInterface* handler) {
+void CastWindowManagerAura::AddGestureHandler(CastGestureHandler* handler) {
   DCHECK(system_gesture_event_handler_);
-  system_gesture_event_handler_->AddSideSwipeGestureHandler(handler);
+  system_gesture_event_handler_->AddGestureHandler(handler);
 }
 
-void CastWindowManagerAura::CastWindowManagerAura::
-    RemoveSideSwipeGestureHandler(
-        CastSideSwipeGestureHandlerInterface* handler) {
+void CastWindowManagerAura::CastWindowManagerAura::RemoveGestureHandler(
+    CastGestureHandler* handler) {
   DCHECK(system_gesture_event_handler_);
-  system_gesture_event_handler_->RemoveSideSwipeGestureHandler(handler);
+  system_gesture_event_handler_->RemoveGestureHandler(handler);
 }
 
 void CastWindowManagerAura::CastWindowManagerAura::SetColorInversion(

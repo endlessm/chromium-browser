@@ -6,13 +6,14 @@
 
 #include <utility>
 
+#include "base/base64.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/guid.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/enrollment/auto_enrollment_controller.h"
@@ -112,6 +113,36 @@ bool GetBlockdevmodeFromPolicy(
   return block_devmode;
 }
 
+// A utility funciton of base::ReadFileToString which returns an optional
+// string.
+// TODO(mukai): move this to base/files.
+base::Optional<std::string> ReadFileToOptionalString(
+    const base::FilePath& file_path) {
+  std::string content;
+  base::Optional<std::string> result;
+  if (base::ReadFileToString(file_path, &content))
+    result = std::move(content);
+  return result;
+}
+
+// Returns binary config which is encrypted by a password that the joining user
+// has to enter.
+std::string GetActiveDirectoryDomainJoinConfig(
+    const base::DictionaryValue* config) {
+  if (!config)
+    return std::string();
+  const base::Value* base64_value = config->FindKeyOfType(
+      "active_directory_domain_join_config", base::Value::Type::STRING);
+  if (!base64_value)
+    return std::string();
+  std::string result;
+  if (!base::Base64Decode(base64_value->GetString(), &result)) {
+    LOG(ERROR) << "Active Directory config is not base64";
+    return std::string();
+  }
+  return result;
+}
+
 }  // namespace
 
 EnrollmentHandlerChromeOS::EnrollmentHandlerChromeOS(
@@ -146,6 +177,8 @@ EnrollmentHandlerChromeOS::EnrollmentHandlerChromeOS(
   CHECK((enrollment_config_.is_mode_attestation() ||
          enrollment_config.mode == EnrollmentConfig::MODE_OFFLINE_DEMO) ==
         auth_token_.empty());
+  CHECK_NE(enrollment_config.mode == EnrollmentConfig::MODE_OFFLINE_DEMO,
+           enrollment_config.offline_policy_path.empty());
   CHECK(enrollment_config_.auth_mechanism !=
             EnrollmentConfig::AUTH_MECHANISM_ATTESTATION ||
         attestation_flow_);
@@ -171,11 +204,17 @@ void EnrollmentHandlerChromeOS::CheckAvailableLicenses(
 }
 
 void EnrollmentHandlerChromeOS::HandleAvailableLicensesResult(
-    bool success,
+    DeviceManagementStatus status,
     const CloudPolicyClient::LicenseMap& license_map) {
-  if (!success) {
+  if (status == DM_STATUS_SERVICE_MANAGEMENT_NOT_SUPPORTED) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&EnrollmentHandlerChromeOS::ReportResult,
+        FROM_HERE, base::BindOnce(&EnrollmentHandlerChromeOS::ReportResult,
+                              weak_ptr_factory_.GetWeakPtr(),
+                              EnrollmentStatus::ForRegistrationError(status)));
+    return;
+  } else if (status != DM_STATUS_SUCCESS) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(&EnrollmentHandlerChromeOS::ReportResult,
                               weak_ptr_factory_.GetWeakPtr(),
                               EnrollmentStatus::ForStatus(
                                   EnrollmentStatus::LICENSE_REQUEST_FAILED)));
@@ -246,31 +285,20 @@ void EnrollmentHandlerChromeOS::OnPolicyFetched(CloudPolicyClient* client) {
     return;
   }
 
-  auto validator = std::make_unique<DeviceCloudPolicyValidator>(
-      std::make_unique<em::PolicyFetchResponse>(*policy),
-      background_task_runner_);
-
-  validator->ValidateTimestamp(base::Time(),
-                               CloudPolicyValidatorBase::TIMESTAMP_VALIDATED);
-
   // If this is re-enrollment, make sure that the new policy matches the
   // previously-enrolled domain.  (Currently only implemented for cloud
   // management.)
   std::string domain;
-  if (install_attributes_->IsCloudManaged()) {
+  if (install_attributes_->IsCloudManaged())
     domain = install_attributes_->GetDomain();
+
+  auto validator = CreateValidator(
+      std::make_unique<em::PolicyFetchResponse>(*policy), domain);
+
+  if (install_attributes_->IsCloudManaged())
     validator->ValidateDomain(domain);
-  }
   validator->ValidateDMToken(client->dm_token(),
                              CloudPolicyValidatorBase::DM_TOKEN_REQUIRED);
-  validator->ValidatePolicyType(dm_protocol::kChromeDevicePolicyType);
-  validator->ValidatePayload();
-  // If |domain| is empty here, the policy validation code will just use the
-  // domain from the username field in the policy itself to do key validation.
-  // TODO(mnissler): Plumb the enrolling user's username into this object so we
-  // can validate the username on the resulting policy, and use the domain from
-  // that username to validate the key below (http://crbug.com/343074).
-  validator->ValidateInitialKey(domain);
   DeviceCloudPolicyValidator::StartValidation(
       std::move(validator),
       base::Bind(&EnrollmentHandlerChromeOS::HandlePolicyValidationResult,
@@ -406,19 +434,88 @@ void EnrollmentHandlerChromeOS::HandleRegistrationCertificateResult(
 }
 
 void EnrollmentHandlerChromeOS::StartOfflineDemoEnrollmentFlow() {
-  // TODO(mukai): set |policy_| which are obtained offline to enforce the actual
-  // policy for offline-demo mode. https://crbug.com/827290
+  DCHECK(!enrollment_config_.offline_policy_path.empty());
+
   device_mode_ = policy::DeviceMode::DEVICE_MODE_ENTERPRISE;
   domain_ = enrollment_config_.management_domain;
-  device_id_ = base::GenerateGUID();
   skip_robot_auth_ = true;
-  if (!policy_) {
-    ReportResult(
-        EnrollmentStatus::ForStatus(EnrollmentStatus::POLICY_FETCH_FAILED));
+  SetStep(STEP_POLICY_FETCH);
+
+  base::PostTaskWithTraitsAndReplyWithResult(
+      FROM_HERE,
+      {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+      base::BindOnce(&ReadFileToOptionalString,
+                     enrollment_config_.offline_policy_path),
+      base::BindOnce(&EnrollmentHandlerChromeOS::OnOfflinePolicyBlobLoaded,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void EnrollmentHandlerChromeOS::OnOfflinePolicyBlobLoaded(
+    base::Optional<std::string> blob) {
+  DCHECK_EQ(EnrollmentConfig::MODE_OFFLINE_DEMO, enrollment_config_.mode);
+  DCHECK_EQ(STEP_POLICY_FETCH, enrollment_step_);
+
+  if (!blob.has_value()) {
+    ReportResult(EnrollmentStatus::ForStatus(
+        EnrollmentStatus::OFFLINE_POLICY_LOAD_FAILED));
     return;
   }
+
+  SetStep(STEP_VALIDATION);
+
+  // Validate the policy.
+  auto policy = std::make_unique<em::PolicyFetchResponse>();
+  if (!policy->ParseFromString(blob.value())) {
+    ReportResult(EnrollmentStatus::ForStatus(
+        EnrollmentStatus::OFFLINE_POLICY_DECODING_FAILED));
+    return;
+  }
+
+  // Validate the device policy for the offline demo mode.
+  auto validator = CreateValidator(std::move(policy), domain_);
+  validator->ValidateDomain(domain_);
+  DeviceCloudPolicyValidator::StartValidation(
+      std::move(validator),
+      base::Bind(&EnrollmentHandlerChromeOS::OnOfflinePolicyValidated,
+                 weak_ptr_factory_.GetWeakPtr()));
+}
+
+void EnrollmentHandlerChromeOS::OnOfflinePolicyValidated(
+    DeviceCloudPolicyValidator* validator) {
+  DCHECK_EQ(enrollment_config_.mode, EnrollmentConfig::MODE_OFFLINE_DEMO);
+  DCHECK_EQ(STEP_VALIDATION, enrollment_step_);
+
+  if (!validator->success()) {
+    ReportResult(EnrollmentStatus::ForValidationError(validator->status()));
+    return;
+  }
+
+  device_id_ = validator->policy_data()->device_id();
+  policy_ = std::move(validator->policy());
+
+  // The steps for OAuth2 token fetching is skipped for the OFFLINE_DEMO_MODE.
   SetStep(STEP_SET_FWMP_DATA);
   SetFirmwareManagementParametersData();
+}
+
+std::unique_ptr<DeviceCloudPolicyValidator>
+EnrollmentHandlerChromeOS::CreateValidator(
+    std::unique_ptr<enterprise_management::PolicyFetchResponse> policy,
+    const std::string& domain) {
+  auto validator = std::make_unique<DeviceCloudPolicyValidator>(
+      std::move(policy), background_task_runner_);
+
+  validator->ValidateTimestamp(base::Time(),
+                               CloudPolicyValidatorBase::TIMESTAMP_VALIDATED);
+  validator->ValidatePolicyType(dm_protocol::kChromeDevicePolicyType);
+  validator->ValidatePayload();
+  // If |domain| is empty here, the policy validation code will just use the
+  // domain from the username field in the policy itself to do key validation.
+  // TODO(mnissler): Plumb the enrolling user's username into this object so we
+  // can validate the username on the resulting policy, and use the domain from
+  // that username to validate the key below (http://crbug.com/343074).
+  validator->ValidateInitialKey(domain);
+  return validator;
 }
 
 void EnrollmentHandlerChromeOS::HandlePolicyValidationResult(
@@ -507,11 +604,8 @@ void EnrollmentHandlerChromeOS::SetFirmwareManagementParametersData() {
 void EnrollmentHandlerChromeOS::OnFirmwareManagementParametersDataSet(
     base::Optional<cryptohome::BaseReply> reply) {
   DCHECK_EQ(STEP_SET_FWMP_DATA, enrollment_step_);
-  if (!reply.has_value()) {
-    LOG(ERROR)
-        << "Failed to update firmware management parameters in TPM, error: "
-        << reply->error();
-  }
+  if (!reply.has_value())
+    LOG(ERROR) << "Failed to update firmware management parameters in TPM.";
 
   SetStep(STEP_LOCK_DEVICE);
   StartLockDevice();
@@ -553,6 +647,7 @@ void EnrollmentHandlerChromeOS::StartJoinAdDomain() {
   DCHECK(ad_join_delegate_);
   ad_join_delegate_->JoinDomain(
       client_->dm_token(),
+      GetActiveDirectoryDomainJoinConfig(client_->configuration_seed()),
       base::BindOnce(&EnrollmentHandlerChromeOS::OnAdDomainJoined,
                      weak_ptr_factory_.GetWeakPtr()));
 }

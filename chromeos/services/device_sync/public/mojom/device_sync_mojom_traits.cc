@@ -46,7 +46,7 @@ bool StructTraits<chromeos::device_sync::mojom::BeaconSeedDataView,
   out->set_end_time_millis(end_time.ToJavaTime());
 
   return true;
-};
+}
 
 const std::string&
 StructTraits<chromeos::device_sync::mojom::RemoteDeviceDataView,
@@ -76,18 +76,6 @@ StructTraits<chromeos::device_sync::mojom::RemoteDeviceDataView,
   return remote_device.persistent_symmetric_key;
 }
 
-bool StructTraits<chromeos::device_sync::mojom::RemoteDeviceDataView,
-                  cryptauth::RemoteDevice>::
-    unlock_key(const cryptauth::RemoteDevice& remote_device) {
-  return remote_device.unlock_key;
-}
-
-bool StructTraits<chromeos::device_sync::mojom::RemoteDeviceDataView,
-                  cryptauth::RemoteDevice>::
-    supports_mobile_hotspot(const cryptauth::RemoteDevice& remote_device) {
-  return remote_device.supports_mobile_hotspot;
-}
-
 base::Time StructTraits<chromeos::device_sync::mojom::RemoteDeviceDataView,
                         cryptauth::RemoteDevice>::
     last_update_time(const cryptauth::RemoteDevice& remote_device) {
@@ -113,21 +101,17 @@ bool StructTraits<chromeos::device_sync::mojom::RemoteDeviceDataView,
     Read(chromeos::device_sync::mojom::RemoteDeviceDataView in,
          cryptauth::RemoteDevice* out) {
   base::Time last_update_time;
-  std::vector<cryptauth::BeaconSeed> beacon_seeds;
 
   if (!in.ReadUserId(&out->user_id) || !in.ReadDeviceName(&out->name) ||
       !in.ReadPublicKey(&out->public_key) ||
       !in.ReadPersistentSymmetricKey(&out->persistent_symmetric_key) ||
       !in.ReadLastUpdateTime(&last_update_time) ||
       !in.ReadSoftwareFeatures(&out->software_features) ||
-      !in.ReadBeaconSeeds(&beacon_seeds)) {
+      !in.ReadBeaconSeeds(&out->beacon_seeds)) {
     return false;
   }
 
-  out->unlock_key = in.unlock_key();
-  out->supports_mobile_hotspot = in.supports_mobile_hotspot();
   out->last_update_time_millis = last_update_time.ToJavaTime();
-  out->LoadBeaconSeeds(beacon_seeds);
 
   return true;
 }

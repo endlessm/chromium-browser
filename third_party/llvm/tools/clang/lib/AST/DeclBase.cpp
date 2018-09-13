@@ -34,7 +34,6 @@
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/TargetInfo.h"
-#include "clang/Basic/VersionTuple.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallVector.h"
@@ -42,6 +41,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/VersionTuple.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cassert>
@@ -1345,6 +1345,12 @@ bool DeclContext::decls_empty() const {
 bool DeclContext::containsDecl(Decl *D) const {
   return (D->getLexicalDeclContext() == this &&
           (D->NextInContextAndBits.getPointer() || D == LastDecl));
+}
+
+bool DeclContext::containsDeclAndLoad(Decl *D) const {
+  if (hasExternalLexicalStorage())
+    LoadLexicalDeclsFromExternalStorage();
+  return containsDecl(D);
 }
 
 /// shouldBeHidden - Determine whether a declaration which was declared

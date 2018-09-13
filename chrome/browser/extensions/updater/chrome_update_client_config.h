@@ -52,6 +52,8 @@ class ChromeUpdateClientConfig : public update_client::Configurator {
   std::string ExtraRequestParams() const override;
   std::string GetDownloadPreference() const override;
   scoped_refptr<net::URLRequestContextGetter> RequestContext() const override;
+  scoped_refptr<network::SharedURLLoaderFactory> URLLoaderFactory()
+      const override;
   std::unique_ptr<service_manager::Connector> CreateServiceManagerConnector()
       const override;
   bool EnabledDeltas() const override;
@@ -62,6 +64,7 @@ class ChromeUpdateClientConfig : public update_client::Configurator {
   update_client::ActivityDataService* GetActivityDataService() const override;
   bool IsPerUserInstall() const override;
   std::vector<uint8_t> GetRunActionKeyHash() const override;
+  std::string GetAppGuid() const override;
 
  protected:
   friend class base::RefCountedThreadSafe<ChromeUpdateClientConfig>;

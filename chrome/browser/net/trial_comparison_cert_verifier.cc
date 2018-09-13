@@ -5,6 +5,7 @@
 #include "chrome/browser/net/trial_comparison_cert_verifier.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/feature_list.h"
@@ -12,6 +13,7 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/task_scheduler/post_task.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/certificate_reporting_service.h"
@@ -21,10 +23,14 @@
 #include "chrome/common/chrome_features.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "content/public/browser/browser_thread.h"
+#include "crypto/sha2.h"
 #include "net/base/net_errors.h"
 #include "net/cert/cert_verify_proc.h"
 #include "net/cert/cert_verify_result.h"
 #include "net/cert/crl_set.h"
+#include "net/cert/ev_root_ca_metadata.h"
+#include "net/cert/internal/cert_errors.h"
+#include "net/cert/internal/parsed_certificate.h"
 #include "net/cert/multi_threaded_cert_verifier.h"
 #include "net/cert/x509_util.h"
 #include "net/log/net_log.h"
@@ -115,12 +121,88 @@ bool CertVerifyResultEqual(const net::CertVerifyResult& a,
           a.verified_cert->EqualsIncludingChain(b.verified_cert.get()));
 }
 
+scoped_refptr<net::ParsedCertificate> ParsedCertificateFromBuffer(
+    CRYPTO_BUFFER* cert_handle,
+    net::CertErrors* errors) {
+  return net::ParsedCertificate::Create(
+      bssl::UpRef(cert_handle),
+      net::x509_util::DefaultParseCertificateOptions(), errors);
+}
+
+net::ParsedCertificateList ParsedCertificateListFromX509Certificate(
+    const net::X509Certificate* cert) {
+  net::CertErrors parsing_errors;
+
+  net::ParsedCertificateList certs;
+  scoped_refptr<net::ParsedCertificate> target =
+      ParsedCertificateFromBuffer(cert->cert_buffer(), &parsing_errors);
+  if (!target)
+    return {};
+  certs.push_back(target);
+
+  for (const auto& buf : cert->intermediate_buffers()) {
+    scoped_refptr<net::ParsedCertificate> intermediate =
+        ParsedCertificateFromBuffer(buf.get(), &parsing_errors);
+    if (!intermediate)
+      return {};
+    certs.push_back(intermediate);
+  }
+
+  return certs;
+}
+
+// Tests whether cert has multiple EV policies, and at least one matches the
+// root. This is not a complete test of EV, but just enough to give a possible
+// explanation as to why the platform verifier did not validate as EV while
+// builtin did. (Since only the builtin verifier correctly handles multiple
+// candidate EV policies.)
+bool CertHasMultipleEVPoliciesAndOneMatchesRoot(
+    const net::X509Certificate* cert) {
+  if (cert->intermediate_buffers().empty())
+    return false;
+
+  net::ParsedCertificateList certs =
+      ParsedCertificateListFromX509Certificate(cert);
+  if (certs.empty())
+    return false;
+
+  net::ParsedCertificate* leaf = certs.front().get();
+  net::ParsedCertificate* root = certs.back().get();
+
+  if (!leaf->has_policy_oids())
+    return false;
+
+  const net::EVRootCAMetadata* ev_metadata =
+      net::EVRootCAMetadata::GetInstance();
+  std::set<net::der::Input> candidate_oids;
+  for (const net::der::Input& oid : leaf->policy_oids()) {
+    if (ev_metadata->IsEVPolicyOIDGivenBytes(oid))
+      candidate_oids.insert(oid);
+  }
+
+  if (candidate_oids.size() <= 1)
+    return false;
+
+  net::SHA256HashValue root_fingerprint;
+  crypto::SHA256HashString(root->der_cert().AsStringPiece(),
+                           root_fingerprint.data,
+                           sizeof(root_fingerprint.data));
+
+  for (const net::der::Input& oid : candidate_oids) {
+    if (ev_metadata->HasEVPolicyOIDGivenBytes(root_fingerprint, oid))
+      return true;
+  }
+
+  return false;
+}
+
 }  // namespace
 
 class TrialComparisonCertVerifier::TrialVerificationJob {
  public:
   TrialVerificationJob(const net::CertVerifier::RequestParams& params,
                        const net::NetLogWithSource& source_net_log,
+                       scoped_refptr<net::CRLSet> crl_set,
                        TrialComparisonCertVerifier* cert_verifier,
                        int primary_error,
                        const net::CertVerifyResult& primary_result,
@@ -129,10 +211,11 @@ class TrialComparisonCertVerifier::TrialVerificationJob {
         net_log_(net::NetLogWithSource::Make(
             source_net_log.net_log(),
             net::NetLogSourceType::TRIAL_CERT_VERIFIER_JOB)),
+        crl_set_(std::move(crl_set)),
+        profile_id_(profile_id),
         cert_verifier_(cert_verifier),
         primary_error_(primary_error),
-        primary_result_(primary_result),
-        profile_id_(profile_id) {
+        primary_result_(primary_result) {
     net_log_.BeginEvent(net::NetLogEventType::TRIAL_CERT_VERIFIER_JOB);
     source_net_log.AddEvent(
         net::NetLogEventType::TRIAL_CERT_VERIFIER_JOB_COMPARISON_STARTED,
@@ -146,82 +229,231 @@ class TrialComparisonCertVerifier::TrialVerificationJob {
     }
   }
 
-  int Start(net::CertVerifier* verifier, scoped_refptr<net::CRLSet> crl_set) {
+  void Start() {
     // Unretained is safe because trial_request_ will cancel the callback on
     // destruction.
-    int rv = verifier->Verify(
-        params_, crl_set.get(), &trial_result_,
-        base::AdaptCallbackForRepeating(base::BindOnce(
-            &TrialVerificationJob::OnJobCompleted, base::Unretained(this))),
+    int rv = cert_verifier_->trial_verifier()->Verify(
+        params_, crl_set_.get(), &trial_result_,
+        base::BindOnce(&TrialVerificationJob::OnJobCompleted,
+                       base::Unretained(this)),
         &trial_request_, net_log_);
     if (rv != net::ERR_IO_PENDING)
-      CompareTrialResults(rv);
-    return rv;
+      OnJobCompleted(rv);
   }
 
-  void CompareTrialResults(int trial_result_error) {
+  void Finish(bool is_success, TrialComparisonResult result_code) {
+    TrialComparisonCertVerifier* cert_verifier = cert_verifier_;
     cert_verifier_ = nullptr;
-    bool errors_equal = trial_result_error == primary_error_;
-    bool details_equal = CertVerifyResultEqual(trial_result_, primary_result_);
-    bool trial_success = errors_equal && details_equal;
 
-    net_log_.EndEvent(net::NetLogEventType::TRIAL_CERT_VERIFIER_JOB,
-                      base::BindRepeating(&TrialVerificationJobResultCallback,
-                                          trial_success));
-
-    TrialComparisonResult result_code = kInvalid;
-    if (trial_success) {
-      result_code = kEqual;
-    } else if (errors_equal) {
-      if (primary_error_ == net::OK)
-        result_code = kBothValidDifferentDetails;
-      else
-        result_code = kBothErrorDifferentDetails;
-    } else if (primary_error_ == net::OK) {
-      result_code = kPrimaryValidSecondaryError;
-    } else {
-      result_code = kPrimaryErrorSecondaryValid;
-    }
     UMA_HISTOGRAM_ENUMERATION("Net.CertVerifier_TrialComparisonResult",
                               result_code);
 
-    if (trial_success)
-      return;
+    net_log_.EndEvent(
+        net::NetLogEventType::TRIAL_CERT_VERIFIER_JOB,
+        base::BindRepeating(&TrialVerificationJobResultCallback, is_success));
 
-    if (base::GetFieldTrialParamByFeatureAsBool(
+    if (!is_success &&
+        !base::GetFieldTrialParamByFeatureAsBool(
             features::kCertDualVerificationTrialFeature, "uma_only", false)) {
-      return;
+      content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::UI)
+          ->PostTask(FROM_HERE,
+                     base::BindOnce(&SendTrialVerificationReport, profile_id_,
+                                    params_, primary_result_, trial_result_));
     }
-
-    content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::UI)
-        ->PostTask(FROM_HERE,
-                   base::BindOnce(&SendTrialVerificationReport, profile_id_,
-                                  params_, primary_result_, trial_result_));
-  }
-
-  void OnJobCompleted(int trial_result_error) {
-    // cert_verifier_ is cleared by CompareTrialResults, save a copy now.
-    TrialComparisonCertVerifier* cert_verifier = cert_verifier_;
-
-    CompareTrialResults(trial_result_error);
 
     // |this| is deleted after RemoveJob returns.
     cert_verifier->RemoveJob(this);
   }
 
+  void FinishSuccess(TrialComparisonResult result_code) {
+    Finish(true /* is_success */, result_code);
+  }
+
+  void FinishWithError() {
+    DCHECK(trial_error_ != primary_error_ ||
+           !CertVerifyResultEqual(trial_result_, primary_result_));
+
+    TrialComparisonResult result_code = kInvalid;
+
+    if (primary_error_ == net::OK && trial_error_ == net::OK) {
+      result_code = kBothValidDifferentDetails;
+    } else if (primary_error_ == net::OK) {
+      result_code = kPrimaryValidSecondaryError;
+    } else if (trial_error_ == net::OK) {
+      result_code = kPrimaryErrorSecondaryValid;
+    } else {
+      result_code = kBothErrorDifferentDetails;
+    }
+    Finish(false /* is_success */, result_code);
+  }
+
+  void OnJobCompleted(int trial_result_error) {
+    DCHECK(primary_result_.verified_cert);
+    DCHECK(trial_result_.verified_cert);
+
+    trial_error_ = trial_result_error;
+
+    bool errors_equal = trial_result_error == primary_error_;
+    bool details_equal = CertVerifyResultEqual(trial_result_, primary_result_);
+    bool trial_success = errors_equal && details_equal;
+
+    if (trial_success) {
+      FinishSuccess(kEqual);
+      return;
+    }
+
+#if defined(OS_MACOSX)
+    if (primary_error_ == net::ERR_CERT_REVOKED &&
+        !(params_.flags() & net::CertVerifier::VERIFY_REV_CHECKING_ENABLED) &&
+        !(primary_result_.cert_status &
+          net::CERT_STATUS_REV_CHECKING_ENABLED) &&
+        !(trial_result_.cert_status &
+          (net::CERT_STATUS_REVOKED | net::CERT_STATUS_REV_CHECKING_ENABLED))) {
+      // CertVerifyProcMac does some revocation checking even if we didn't want
+      // it. Try verifying with the trial verifier with revocation checking
+      // enabled, see if it then returns REVOKED.
+
+      RequestParams reverification_params(
+          params_.certificate(), params_.hostname(),
+          params_.flags() | net::CertVerifier::VERIFY_REV_CHECKING_ENABLED,
+          params_.ocsp_response(), params_.additional_trust_anchors());
+
+      int rv = cert_verifier_->trial_verifier()->Verify(
+          reverification_params, crl_set_.get(), &reverification_result_,
+          base::BindOnce(
+              &TrialVerificationJob::OnMacRevcheckingReverificationJobCompleted,
+              base::Unretained(this)),
+          &reverification_request_, net_log_);
+      if (rv != net::ERR_IO_PENDING)
+        OnMacRevcheckingReverificationJobCompleted(rv);
+      return;
+    }
+#endif
+
+    const bool chains_equal =
+        primary_result_.verified_cert->EqualsIncludingChain(
+            trial_result_.verified_cert.get());
+
+    if (!chains_equal &&
+        (trial_error_ == net::OK || primary_error_ != net::OK)) {
+      // Chains were different, reverify the trial_result_.verified_cert chain
+      // using the platform verifier and compare results again.
+      RequestParams reverification_params(
+          trial_result_.verified_cert, params_.hostname(), params_.flags(),
+          params_.ocsp_response(), params_.additional_trust_anchors());
+
+      int rv = cert_verifier_->primary_reverifier()->Verify(
+          reverification_params, crl_set_.get(), &reverification_result_,
+          base::BindOnce(&TrialVerificationJob::
+                             OnPrimaryReverifiyWithSecondaryChainCompleted,
+                         base::Unretained(this)),
+          &reverification_request_, net_log_);
+      if (rv != net::ERR_IO_PENDING)
+        OnPrimaryReverifiyWithSecondaryChainCompleted(rv);
+      return;
+    }
+
+    TrialComparisonResult ignorable_difference =
+        IsSynchronouslyIgnorableDifference(primary_error_, primary_result_,
+                                           trial_error_, trial_result_);
+    if (ignorable_difference != kInvalid) {
+      FinishSuccess(ignorable_difference);
+      return;
+    }
+
+    FinishWithError();
+  }
+
+  // Check if the differences between the primary and trial verifiers can be
+  // ignored. This only handles differences that can be checked synchronously.
+  // If the difference is ignorable, returns the relevant TrialComparisonResult,
+  // otherwise returns kInvalid.
+  static TrialComparisonResult IsSynchronouslyIgnorableDifference(
+      int primary_error,
+      const net::CertVerifyResult& primary_result,
+      int trial_error,
+      const net::CertVerifyResult& trial_result) {
+    DCHECK(primary_result.verified_cert);
+    DCHECK(trial_result.verified_cert);
+
+    if (primary_error == net::OK &&
+        primary_result.verified_cert->intermediate_buffers().empty()) {
+      // Platform may support trusting a leaf certificate directly. Builtin
+      // verifier does not. See https://crbug.com/814994.
+      return kIgnoredLocallyTrustedLeaf;
+    }
+
+    const bool chains_equal =
+        primary_result.verified_cert->EqualsIncludingChain(
+            trial_result.verified_cert.get());
+
+    if (chains_equal && (trial_result.cert_status & net::CERT_STATUS_IS_EV) &&
+        !(primary_result.cert_status & net::CERT_STATUS_IS_EV) &&
+        (primary_error == trial_error)) {
+      // The platform CertVerifyProc impls only check a single potential EV
+      // policy from the leaf.  If the leaf had multiple policies, builtin
+      // verifier may verify it as EV when the platform verifier did not.
+      if (CertHasMultipleEVPoliciesAndOneMatchesRoot(
+              trial_result.verified_cert.get())) {
+        return kIgnoredMultipleEVPoliciesAndOneMatchesRoot;
+      }
+    }
+    return kInvalid;
+  }
+
+#if defined(OS_MACOSX)
+  void OnMacRevcheckingReverificationJobCompleted(int reverification_error) {
+    if (reverification_error == net::ERR_CERT_REVOKED) {
+      FinishSuccess(kIgnoredMacUndesiredRevocationChecking);
+      return;
+    }
+    FinishWithError();
+  }
+#endif
+
+  void OnPrimaryReverifiyWithSecondaryChainCompleted(int reverification_error) {
+    if (reverification_error == trial_error_ &&
+        CertVerifyResultEqual(reverification_result_, trial_result_)) {
+      // The new result matches the builtin verifier, so this was just
+      // a difference in the platform's path-building ability.
+      // Ignore the difference.
+      FinishSuccess(kIgnoredDifferentPathReVerifiesEquivalent);
+      return;
+    }
+
+    if (IsSynchronouslyIgnorableDifference(reverification_error,
+                                           reverification_result_, trial_error_,
+                                           trial_result_) != kInvalid) {
+      // The new result matches if ignoring differences. Still use the
+      // |kIgnoredDifferentPathReVerifiesEquivalent| code rather than the
+      // result of IsSynchronouslyIgnorableDifference, since it's the higher
+      // level description of what the difference is in this case.
+      FinishSuccess(kIgnoredDifferentPathReVerifiesEquivalent);
+      return;
+    }
+
+    FinishWithError();
+  }
+
  private:
   const net::CertVerifier::RequestParams params_;
+  const net::NetLogWithSource net_log_;
+  scoped_refptr<net::CRLSet> crl_set_;
+  void* profile_id_;
+  TrialComparisonCertVerifier* cert_verifier_;  // Non-owned.
+
+  // Results from the trial verification.
+  int trial_error_;
   net::CertVerifyResult trial_result_;
   std::unique_ptr<net::CertVerifier::Request> trial_request_;
-
-  const net::NetLogWithSource net_log_;
-  TrialComparisonCertVerifier* cert_verifier_;  // Non-owned.
 
   // Saved results of the primary verification.
   int primary_error_;
   const net::CertVerifyResult primary_result_;
 
-  void* profile_id_;
+  // Results from re-verification attempt.
+  net::CertVerifyResult reverification_result_;
+  std::unique_ptr<net::CertVerifier::Request> reverification_request_;
 
   DISALLOW_COPY_AND_ASSIGN(TrialVerificationJob);
 };
@@ -240,6 +472,8 @@ TrialComparisonCertVerifier::TrialComparisonCertVerifier(
                   &TrialComparisonCertVerifier::OnPrimaryVerifierComplete,
                   base::Unretained(this)),
               true /* should_record_histograms */)),
+      primary_reverifier_(std::make_unique<net::MultiThreadedCertVerifier>(
+          primary_verify_proc)),
       trial_verifier_(
           net::MultiThreadedCertVerifier::CreateForDualVerificationTrial(
               trial_verify_proc,
@@ -261,17 +495,13 @@ void TrialComparisonCertVerifier::SetFakeOfficialBuildForTesting() {
 int TrialComparisonCertVerifier::Verify(const RequestParams& params,
                                         net::CRLSet* crl_set,
                                         net::CertVerifyResult* verify_result,
-                                        const net::CompletionCallback& callback,
+                                        net::CompletionOnceCallback callback,
                                         std::unique_ptr<Request>* out_req,
                                         const net::NetLogWithSource& net_log) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  return primary_verifier_->Verify(params, crl_set, verify_result, callback,
-                                   out_req, net_log);
-}
-
-bool TrialComparisonCertVerifier::SupportsOCSPStapling() {
-  return primary_verifier_->SupportsOCSPStapling();
+  return primary_verifier_->Verify(params, crl_set, verify_result,
+                                   std::move(callback), out_req, net_log);
 }
 
 void TrialComparisonCertVerifier::OnPrimaryVerifierComplete(
@@ -340,12 +570,11 @@ void TrialComparisonCertVerifier::MaybeDoTrialVerification(
 
   std::unique_ptr<TrialVerificationJob> job =
       std::make_unique<TrialVerificationJob>(
-          params, net_log, this, primary_error, primary_result, profile_id);
-
-  if (job->Start(trial_verifier_.get(), std::move(crl_set)) ==
-      net::ERR_IO_PENDING) {
-    jobs_.insert(std::move(job));
-  }
+          params, net_log, std::move(crl_set), this, primary_error,
+          primary_result, profile_id);
+  TrialVerificationJob* job_ptr = job.get();
+  jobs_.insert(std::move(job));
+  job_ptr->Start();
 }
 
 void TrialComparisonCertVerifier::RemoveJob(TrialVerificationJob* job_ptr) {

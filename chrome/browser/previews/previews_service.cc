@@ -9,16 +9,17 @@
 #include "base/sequenced_task_runner.h"
 #include "base/task_scheduler/post_task.h"
 #include "chrome/common/chrome_constants.h"
+#include "components/blacklist/opt_out_blacklist/opt_out_blacklist_data.h"
+#include "components/blacklist/opt_out_blacklist/opt_out_store.h"
+#include "components/blacklist/opt_out_blacklist/sql/opt_out_store_sql.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_features.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/optimization_guide/optimization_guide_service.h"
-#include "components/previews/content/previews_io_data.h"
+#include "components/previews/content/previews_decider_impl.h"
 #include "components/previews/content/previews_optimization_guide.h"
 #include "components/previews/content/previews_ui_service.h"
 #include "components/previews/core/previews_experiments.h"
 #include "components/previews/core/previews_logger.h"
-#include "components/previews/core/previews_opt_out_store.h"
-#include "components/previews/core/previews_opt_out_store_sql.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace {
@@ -36,13 +37,15 @@ bool IsPreviewsTypeEnabled(previews::PreviewsType type) {
       return server_previews_enabled || previews::params::IsClientLoFiEnabled();
     case previews::PreviewsType::LITE_PAGE:
       return server_previews_enabled;
-    case previews::PreviewsType::AMP_REDIRECTION:
-      return previews::params::IsAMPRedirectionPreviewEnabled();
     case previews::PreviewsType::NOSCRIPT:
       return previews::params::IsNoScriptPreviewsEnabled();
+    case previews::PreviewsType::DEPRECATED_AMP_REDIRECTION:
+      return false;
     case previews::PreviewsType::UNSPECIFIED:
       // Not a real previews type so treat as false.
       return false;
+    case previews::PreviewsType::RESOURCE_LOADING_HINTS:
+      return previews::params::IsResourceLoadingHintsEnabled();
     case previews::PreviewsType::NONE:
     case previews::PreviewsType::LAST:
       break;
@@ -61,13 +64,14 @@ int GetPreviewsTypeVersion(previews::PreviewsType type) {
       return previews::params::ClientLoFiVersion();
     case previews::PreviewsType::LITE_PAGE:
       return data_reduction_proxy::params::LitePageVersion();
-    case previews::PreviewsType::AMP_REDIRECTION:
-      return previews::params::AMPRedirectionPreviewsVersion();
     case previews::PreviewsType::NOSCRIPT:
       return previews::params::NoScriptPreviewsVersion();
+    case previews::PreviewsType::RESOURCE_LOADING_HINTS:
+      return previews::params::ResourceLoadingHintsVersion();
     case previews::PreviewsType::NONE:
     case previews::PreviewsType::UNSPECIFIED:
     case previews::PreviewsType::LAST:
+    case previews::PreviewsType::DEPRECATED_AMP_REDIRECTION:
       break;
   }
   NOTREACHED();
@@ -75,16 +79,15 @@ int GetPreviewsTypeVersion(previews::PreviewsType type) {
 }
 
 // Returns the enabled PreviewsTypes with their version.
-std::unique_ptr<previews::PreviewsTypeList> GetEnabledPreviews() {
-  std::unique_ptr<previews::PreviewsTypeList> enabled_previews(
-      new previews::PreviewsTypeList());
+blacklist::BlacklistData::AllowedTypesAndVersions GetAllowedPreviews() {
+  blacklist::BlacklistData::AllowedTypesAndVersions enabled_previews;
 
   // Loop across all previews types (relies on sequential enum values).
   for (int i = static_cast<int>(previews::PreviewsType::NONE) + 1;
        i < static_cast<int>(previews::PreviewsType::LAST); ++i) {
     previews::PreviewsType type = static_cast<previews::PreviewsType>(i);
     if (IsPreviewsTypeEnabled(type))
-      enabled_previews->push_back({type, GetPreviewsTypeVersion(type)});
+      enabled_previews.insert({i, GetPreviewsTypeVersion(type)});
   }
   return enabled_previews;
 }
@@ -100,7 +103,7 @@ PreviewsService::~PreviewsService() {
 }
 
 void PreviewsService::Initialize(
-    previews::PreviewsIOData* previews_io_data,
+    previews::PreviewsDeciderImpl* previews_decider_impl,
     optimization_guide::OptimizationGuideService* optimization_guide_service,
     const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
     const base::FilePath& profile_path) {
@@ -112,15 +115,14 @@ void PreviewsService::Initialize(
           {base::MayBlock(), base::TaskPriority::BACKGROUND});
 
   previews_ui_service_ = std::make_unique<previews::PreviewsUIService>(
-      previews_io_data, io_task_runner,
-      std::make_unique<previews::PreviewsOptOutStoreSQL>(
+      previews_decider_impl, io_task_runner,
+      std::make_unique<blacklist::OptOutStoreSQL>(
           io_task_runner, background_task_runner,
-          profile_path.Append(chrome::kPreviewsOptOutDBFilename),
-          GetEnabledPreviews()),
+          profile_path.Append(chrome::kPreviewsOptOutDBFilename)),
       optimization_guide_service
           ? std::make_unique<previews::PreviewsOptimizationGuide>(
                 optimization_guide_service, io_task_runner)
           : nullptr,
       base::Bind(&IsPreviewsTypeEnabled),
-      std::make_unique<previews::PreviewsLogger>());
+      std::make_unique<previews::PreviewsLogger>(), GetAllowedPreviews());
 }

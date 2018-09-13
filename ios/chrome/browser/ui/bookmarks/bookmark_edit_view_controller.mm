@@ -30,9 +30,11 @@
 #import "ios/chrome/browser/ui/image_util/image_util.h"
 #import "ios/chrome/browser/ui/keyboard/UIKeyCommand+Chrome.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_text_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #include "ios/chrome/browser/ui/ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/chrome/browser/ui/uikit_ui_util.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #import "ios/public/provider/chrome/browser/ui/text_field_styling.h"
@@ -71,7 +73,16 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeName = kItemTypeEnumZero,
   ItemTypeFolder,
   ItemTypeURL,
+  ItemTypeInvalidURLFooter,
 };
+
+// The text color for the invalid URL label.
+const CGFloat kInvalidURLTextColor = 0xEA4335;
+
+// Estimated Table Row height.
+const CGFloat kEstimatedTableRowHeight = 50;
+// Estimated TableSection Footer height.
+const CGFloat kEstimatedTableSectionFooterHeight = 40;
 }  // namespace
 
 @interface BookmarkEditViewController ()<BookmarkFolderViewControllerDelegate,
@@ -114,6 +125,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
 @property(nonatomic, strong) BookmarkParentFolderItem* folderItem;
 @property(nonatomic, strong) BookmarkTextFieldItem* URLItem;
 
+// YES if the URL item is displaying a valid URL.
+@property(nonatomic, assign) BOOL displayingValidURL;
+
 // Reports the changes to the delegate, that has the responsibility to save the
 // bookmark.
 - (void)commitBookmarkChanges;
@@ -153,6 +167,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 @synthesize bookmark = _bookmark;
 @synthesize bookmarkModel = _bookmarkModel;
 @synthesize delegate = _delegate;
+@synthesize displayingValidURL = _displayingValidURL;
 @synthesize folder = _folder;
 @synthesize folderViewController = _folderViewController;
 @synthesize browserState = _browserState;
@@ -204,11 +219,13 @@ typedef NS_ENUM(NSInteger, ItemType) {
 - (void)viewDidLoad {
   [super viewDidLoad];
   self.tableView.backgroundColor = self.styler.tableViewBackgroundColor;
-  self.tableView.estimatedRowHeight = 88.0;
+  self.tableView.estimatedRowHeight = kEstimatedTableRowHeight;
   self.tableView.rowHeight = UITableViewAutomaticDimension;
   self.tableView.sectionHeaderHeight = 0;
-  self.tableView.sectionFooterHeight = 0;
-  self.view.accessibilityIdentifier = @"Single Bookmark Editor";
+  self.tableView.sectionFooterHeight = UITableViewAutomaticDimension;
+  self.tableView.estimatedSectionFooterHeight =
+      kEstimatedTableSectionFooterHeight;
+  self.view.accessibilityIdentifier = kBookmarkEditViewContainerIdentifier;
 
   if (experimental_flags::IsBookmarksUIRebootEnabled()) {
     // Add a tableFooterView in order to disable separators at the bottom of the
@@ -218,6 +235,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
         setSeparatorInset:UIEdgeInsetsMake(
                               0, kBookmarkCellHorizontalLeadingInset, 0, 0)];
   } else {
+    self.navigationController.navigationBarHidden = YES;
     [self.tableView setSeparatorStyle:UITableViewCellSeparatorStyleNone];
   }
 
@@ -238,7 +256,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
               style:UIBarButtonItemStylePlain
              target:self
              action:@selector(save)];
-  doneItem.accessibilityIdentifier = @"Done";
+  doneItem.accessibilityIdentifier =
+      kBookmarkEditNavigationBarDoneButtonIdentifier;
   self.navigationItem.rightBarButtonItem = doneItem;
   self.doneItem = doneItem;
 
@@ -257,6 +276,10 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   if (experimental_flags::IsBookmarksUIRebootEnabled()) {
     deleteButton.tintColor = [UIColor redColor];
+    // Setting the image to nil will cause the default shadowImage to be used,
+    // we need to create a new one.
+    [self.navigationController.toolbar setShadowImage:[UIImage new]
+                                   forToolbarPosition:UIBarPositionAny];
     [self setToolbarItems:@[ spaceButton, deleteButton, spaceButton ]
                  animated:NO];
   } else {
@@ -281,6 +304,12 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [super viewWillAppear:animated];
   // Whevener this VC is displayed the bottom toolbar will be shown.
   self.navigationController.toolbarHidden = NO;
+}
+
+#pragma mark - Presentation controller integration
+
+- (BOOL)shouldBeDismissedOnTouchOutside {
+  return NO;
 }
 
 #pragma mark - Accessibility
@@ -394,6 +423,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
   self.URLItem.delegate = self;
   [model addItem:self.URLItem toSectionWithIdentifier:SectionIdentifierInfo];
 
+  TableViewHeaderFooterItem* errorFooter =
+      [[TableViewHeaderFooterItem alloc] initWithType:ItemTypeInvalidURLFooter];
+  [model setFooter:errorFooter forSectionWithIdentifier:SectionIdentifierInfo];
+  self.displayingValidURL = YES;
+
   // Save button state.
   [self updateSaveButtonState];
 }
@@ -460,21 +494,20 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (void)textDidChangeForItem:(BookmarkTextFieldItem*)item {
   [self updateSaveButtonState];
-
-  if (experimental_flags::IsBookmarksUIRebootEnabled()) {
-    NSIndexPath* textFieldIndexPath =
-        [self.tableViewModel indexPathForItemType:item.type
-                                sectionIdentifier:SectionIdentifierInfo];
-    UITableViewCell* cell =
-        [self.tableView cellForRowAtIndexPath:textFieldIndexPath];
-    BookmarkTextFieldCell* URLCell =
-        base::mac::ObjCCastStrict<BookmarkTextFieldCell>(cell);
-    // Update the URLCell valid state if it has changed.
-    if ([self inputURLIsValid] != URLCell.validState) {
-      [self.tableView beginUpdates];
-      URLCell.validState = [self inputURLIsValid];
-      [self.tableView endUpdates];
-    }
+  if (experimental_flags::IsBookmarksUIRebootEnabled() &&
+      (self.displayingValidURL != [self inputURLIsValid])) {
+    self.displayingValidURL = [self inputURLIsValid];
+    UITableViewHeaderFooterView* footer = [self.tableView
+        footerViewForSection:[self.tableViewModel sectionForSectionIdentifier:
+                                                      SectionIdentifierInfo]];
+    NSString* footerText =
+        [self inputURLIsValid]
+            ? @""
+            : l10n_util::GetNSString(
+                  IDS_IOS_BOOKMARK_URL_FIELD_VALIDATION_FAILED);
+    [self.tableView beginUpdates];
+    footer.textLabel.text = footerText;
+    [self.tableView endUpdates];
   }
 }
 
@@ -528,6 +561,21 @@ typedef NS_ENUM(NSInteger, ItemType) {
   DCHECK_EQ(tableView, self.tableView);
   if ([self.tableViewModel itemTypeForIndexPath:indexPath] == ItemTypeFolder)
     [self moveBookmark];
+}
+
+- (UIView*)tableView:(UITableView*)tableView
+    viewForFooterInSection:(NSInteger)section {
+  UIView* footerView =
+      [super tableView:tableView viewForFooterInSection:section];
+  if (section ==
+      [self.tableViewModel sectionForSectionIdentifier:SectionIdentifierInfo]) {
+    UITableViewHeaderFooterView* headerFooterView =
+        base::mac::ObjCCastStrict<UITableViewHeaderFooterView>(footerView);
+    headerFooterView.textLabel.font =
+        [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+    headerFooterView.textLabel.textColor = UIColorFromRGB(kInvalidURLTextColor);
+  }
+  return footerView;
 }
 
 #pragma mark - BookmarkFolderViewControllerDelegate

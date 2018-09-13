@@ -45,6 +45,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/common/extensions/extension_metrics.h"
 #include "chrome/common/url_constants.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
@@ -61,6 +62,7 @@
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/page_state.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension_set.h"
@@ -84,6 +86,70 @@ bool HasSingleNewTabPage(Browser* browser) {
   return active_tab->GetURL() == chrome::kChromeUINewTabURL ||
          search::IsInstantNTP(active_tab);
 }
+
+// WebContentsDestructionChecker crashes if the WebContents that it's observing
+// gets destroyed.
+// TODO(crbug.com/850626): Remove after bug is fixed.
+class WebContentsDestructionChecker : public content::WebContentsObserver {
+ public:
+  explicit WebContentsDestructionChecker(content::WebContents* contents)
+      : WebContentsObserver(contents) {}
+  ~WebContentsDestructionChecker() override = default;
+
+  const WebContents* contents() const { return web_contents(); }
+
+  // content::WebContentsObserver:
+  void WebContentsDestroyed() override {
+    LOG(FATAL) << "Restored WebContents " << web_contents() << " destroyed";
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(WebContentsDestructionChecker);
+};
+
+// TabStripRestoreObserver watches the next WebContents that's added to a
+// TabStripModel and crashes if it's closed or detached.
+// TODO(crbug.com/850626): Remove after bug is fixed.
+class TabStripRestoreObserver : public TabStripModelObserver {
+ public:
+  explicit TabStripRestoreObserver(TabStripModel* tab_strip)
+      : tab_strip_(tab_strip) {
+    DCHECK(tab_strip_);
+    tab_strip_->AddObserver(this);
+  }
+  ~TabStripRestoreObserver() override { tab_strip_->RemoveObserver(this); }
+
+  // TabStripModelObserver:
+  void TabInsertedAt(TabStripModel* tab_strip_model,
+                     content::WebContents* contents,
+                     int index,
+                     bool foreground) override {
+    if (!destruction_checker_) {
+      destruction_checker_ =
+          std::make_unique<WebContentsDestructionChecker>(contents);
+    }
+  }
+  void TabClosingAt(TabStripModel* tab_strip_model,
+                    content::WebContents* contents,
+                    int index) override {
+    if (destruction_checker_ && contents == destruction_checker_->contents())
+      LOG(FATAL) << "Restored WebContents " << contents << " closing";
+  }
+  void TabDetachedAt(content::WebContents* contents,
+                     int previous_index,
+                     bool was_active) override {
+    if (destruction_checker_ && contents == destruction_checker_->contents())
+      LOG(FATAL) << "Restored WebContents " << contents << " detached";
+  }
+
+ private:
+  TabStripModel* tab_strip_;  // owned by caller
+
+  // Initialized after a WebContents is inserted into the strip.
+  std::unique_ptr<WebContentsDestructionChecker> destruction_checker_;
+
+  DISALLOW_COPY_AND_ASSIGN(TabStripRestoreObserver);
+};
 
 // Pointers to SessionRestoreImpls which are currently restoring the session.
 std::set<SessionRestoreImpl*>* active_session_restorers = nullptr;
@@ -229,7 +295,7 @@ class SessionRestoreImpl : public content::NotificationObserver {
           browser, tab.navigations, tab_index, selected_index,
           tab.extension_app_id,
           disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB,  // selected
-          tab.pinned, true, nullptr, tab.user_agent_override,
+          tab.pinned, true, base::TimeTicks(), nullptr, tab.user_agent_override,
           true /* from_session_restore */);
       // Start loading the tab immediately.
       web_contents->GetController().LoadIfNecessary();
@@ -515,60 +581,54 @@ class SessionRestoreImpl : public content::NotificationObserver {
     DVLOG(1) << "RestoreTabsToBrowser " << window.tabs.size();
     DCHECK(!window.tabs.empty());
     base::TimeTicks now = base::TimeTicks::Now();
-    base::TimeTicks highest_time = base::TimeTicks::UnixEpoch();
-    if (initial_tab_count == 0) {
-      // The last active time of a WebContents is initially set to the
-      // creation time of the tab, which is not necessarly the same as the
-      // loading time, so we have to restore the values. Also, since TimeTicks
-      // only make sense in their current session, these values have to be
-      // sanitized first. To do so, we need to first figure out the largest
-      // time. This will then be used to set the last active time of
-      // each tab where the most recent tab will have its time set to |now|
-      // and the rest of the tabs will have theirs set earlier by the same
-      // delta as they originally had.
-      for (int i = 0; i < static_cast<int>(window.tabs.size()); ++i) {
-        const sessions::SessionTab& tab = *(window.tabs[i]);
-        if (tab.last_active_time > highest_time)
-          highest_time = tab.last_active_time;
-      }
+    base::TimeTicks latest_last_active_time = base::TimeTicks::UnixEpoch();
+    // The last active time of a WebContents is initially set to the
+    // creation time of the tab, which is not necessarly the same as the
+    // loading time, so we have to restore the values. Also, since TimeTicks
+    // only make sense in their current session, these values have to be
+    // sanitized first. To do so, we need to first figure out the largest
+    // time. This will then be used to set the last active time of
+    // each tab where the most recent tab will have its time set to |now|
+    // and the rest of the tabs will have theirs set earlier by the same
+    // delta as they originally had.
+    for (int i = 0; i < static_cast<int>(window.tabs.size()); ++i) {
+      const sessions::SessionTab& tab = *(window.tabs[i]);
+      if (tab.last_active_time > latest_last_active_time)
+        latest_last_active_time = tab.last_active_time;
+    }
 
-      for (int i = 0; i < static_cast<int>(window.tabs.size()); ++i) {
-        const sessions::SessionTab& tab = *(window.tabs[i]);
+    for (int i = 0; i < static_cast<int>(window.tabs.size()); ++i) {
+      const sessions::SessionTab& tab = *(window.tabs[i]);
 
-        // Loads are scheduled for each restored tab unless the tab is going to
-        // be selected as ShowBrowser() will load the selected tab.
-        bool is_selected_tab = (i == selected_tab_index);
-        RestoreTab(tab, browser, created_contents, i, is_selected_tab, now,
-                   highest_time);
-      }
-    } else {
+      // Loads are scheduled for each restored tab unless the tab is going to
+      // be selected as ShowBrowser() will load the selected tab.
+      bool is_selected_tab =
+          (initial_tab_count == 0) && (i == selected_tab_index);
+
+      // Sanitize the last active time.
+      base::TimeDelta delta = latest_last_active_time - tab.last_active_time;
+      base::TimeTicks last_active_time = now - delta;
+
       // If the browser already has tabs, we want to restore the new ones after
       // the existing ones. E.g. this happens in Win8 Metro where we merge
       // windows or when launching a hosted app from the app launcher.
-      int tab_index_offset = initial_tab_count;
-
-      // Always schedule loads as we will not be calling ShowBrowser().
-      bool is_selected_tab = false;
-
-      for (int i = 0; i < static_cast<int>(window.tabs.size()); ++i) {
-        const sessions::SessionTab& tab = *(window.tabs[i]);
-        RestoreTab(tab, browser, created_contents, tab_index_offset + i,
-                   is_selected_tab, now, highest_time);
-      }
+      int tab_index = i + initial_tab_count;
+      RestoreTab(tab, browser, created_contents, tab_index, is_selected_tab,
+                 last_active_time);
     }
   }
 
   // |tab_index| is ignored for pinned tabs which will always be pushed behind
   // the last existing pinned tab.
   // |tab_loader_| will schedule this tab for loading if |is_selected_tab| is
-  // false.
+  // false. |last_active_time| is the value to use to set the last time the
+  // WebContents was made active.
   void RestoreTab(const sessions::SessionTab& tab,
                   Browser* browser,
                   std::vector<RestoredTab>* created_contents,
                   const int tab_index,
                   bool is_selected_tab,
-                  base::TimeTicks now,
-                  base::TimeTicks highest_time) {
+                  base::TimeTicks last_active_time) {
     // It's possible (particularly for foreign sessions) to receive a tab
     // without valid navigations. In that case, just skip it.
     // See crbug.com/154129.
@@ -589,23 +649,18 @@ class SessionRestoreImpl : public content::NotificationObserver {
               ->RecreateSessionStorage(tab.session_storage_persistent_id);
     }
 
+    // TODO(crbug.com/850626): Remove this after bug is fixed.
+    TabStripRestoreObserver tab_strip_observer(browser->tab_strip_model());
+
     WebContents* web_contents = chrome::AddRestoredTab(
         browser, tab.navigations, tab_index, selected_index,
         tab.extension_app_id, is_selected_tab, tab.pinned, true,
-        session_storage_namespace.get(), tab.user_agent_override,
-        true /* from_session_restore */);
-    // Regression check: if the current tab |is_selected_tab|, it should load
-    // immediately, otherwise, tabs should not start loading right away. The
-    // focused tab will be loaded by Browser, and TabLoader will load the rest.
-    DCHECK(is_selected_tab || web_contents->GetController().NeedsReload());
+        last_active_time, session_storage_namespace.get(),
+        tab.user_agent_override, true /* from_session_restore */);
 
     // RestoreTab can return nullptr if |tab| doesn't have valid data.
     if (!web_contents)
       return;
-
-    // Sanitize the last active time.
-    base::TimeDelta delta = highest_time - tab.last_active_time;
-    web_contents->SetLastActiveTime(now - delta);
 
     RestoredTab restored_tab(web_contents, is_selected_tab,
                              tab.extension_app_id.empty(), tab.pinned);
@@ -617,8 +672,6 @@ class SessionRestoreImpl : public content::NotificationObserver {
 
     ShowBrowser(browser, browser->tab_strip_model()->GetIndexOfWebContents(
                              web_contents));
-    // TODO(sky): remove. For debugging 368236.
-    CHECK_EQ(browser->tab_strip_model()->GetActiveWebContents(), web_contents);
   }
 
   Browser* CreateRestoredBrowser(Browser::Type type,
@@ -651,8 +704,6 @@ class SessionRestoreImpl : public content::NotificationObserver {
     browser->window()->Show();
     browser->set_is_session_restore(false);
 
-    // TODO(jcampan): http://crbug.com/8123 we should not need to set the
-    //                initial focus explicitly.
     browser->tab_strip_model()->GetActiveWebContents()->SetInitialFocus();
   }
 

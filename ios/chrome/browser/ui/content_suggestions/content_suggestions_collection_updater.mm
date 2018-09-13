@@ -336,12 +336,42 @@ NSString* const kContentSuggestionsCollectionUpdaterSnackbarCategory =
   for (NSInteger i = 0; i < numberOfItems; i++) {
     [oldItems addObject:[NSIndexPath indexPathForItem:i inSection:section]];
   }
-  [self.collectionViewController
-                   collectionView:self.collectionViewController.collectionView
-      willDeleteItemsAtIndexPaths:oldItems];
 
-  [self addSuggestionsToModel:[self.dataSource itemsForSectionInfo:sectionInfo]
+  // Reset collection model data for |sectionIdentifier|
+  [self.collectionViewController.collectionViewModel
+                     setFooter:nil
+      forSectionWithIdentifier:sectionIdentifier];
+  [self.collectionViewController.collectionViewModel
+                     setHeader:nil
+      forSectionWithIdentifier:sectionIdentifier];
+  [self.sectionIdentifiersFromContentSuggestions
+      removeObject:@(sectionIdentifier)];
+
+  // Update the section and the other ones.
+  auto addSectionBlock = ^{
+    [self.collectionViewController.collectionViewModel
+        removeSectionWithIdentifier:sectionIdentifier];
+    [self.collectionViewController.collectionView
+        deleteSections:[NSIndexSet indexSetWithIndex:section]];
+
+    NSIndexSet* addedSections =
+        [self addSectionsForSectionInfoToModel:@[ sectionInfo ]];
+    [self.collectionViewController.collectionView insertSections:addedSections];
+
+    NSArray<NSIndexPath*>* addedItems = [self
+        addSuggestionsToModel:[self.dataSource itemsForSectionInfo:sectionInfo]
               withSectionInfo:sectionInfo];
+    [self.collectionViewController.collectionView
+        insertItemsAtIndexPaths:addedItems];
+  };
+  [self.collectionViewController.collectionView
+      performBatchUpdates:addSectionBlock
+               completion:nil];
+
+  // Make sure the section is still in the model and that the index is correct.
+  if (![model hasSectionForSectionIdentifier:sectionIdentifier])
+    return;
+  section = [model sectionForSectionIdentifier:sectionIdentifier];
 
   [self.collectionViewController.collectionView
       reloadSections:[NSIndexSet indexSetWithIndex:section]];

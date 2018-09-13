@@ -19,6 +19,12 @@ id<GREYMatcher> ButtonWithAccessibilityLabelId(int message_id);
 // accessibility trait UIAccessibilityTraitButton.
 id<GREYMatcher> ButtonWithAccessibilityLabel(NSString* label);
 
+// Matcher for element with an image corresponding to |image_id|.
+id<GREYMatcher> ImageViewWithImage(int image_id);
+
+// Matcher for element with an image defined by its name in the main bundle.
+id<GREYMatcher> ImageViewWithImageNamed(NSString* imageName);
+
 // Matcher for element with an image corresponding to |image_id| and
 // accessibility trait UIAccessibilityTraitButton.
 id<GREYMatcher> ButtonWithImage(int image_id);
@@ -57,6 +63,8 @@ id<GREYMatcher> DefocusedLocationView();
 
 // Returns a matcher for the page security info button.
 id<GREYMatcher> PageSecurityInfoButton();
+// Returns a matcher for the page security info indicator.
+id<GREYMatcher> PageSecurityInfoIndicator();
 
 // Returns matcher for omnibox containing |text|. Performs an exact match of the
 // omnibox contents.
@@ -78,14 +86,14 @@ id<GREYMatcher> ShareButton();
 // Matcher for show tabs button.
 id<GREYMatcher> ShowTabsButton();
 
-// Matcher for CollectionViewSwitchCell.
-id<GREYMatcher> CollectionViewSwitchCell(NSString* accessibilityIdentifier,
-                                         BOOL isToggledOn);
+// Matcher for SettingsSwitchCell.
+id<GREYMatcher> SettingsSwitchCell(NSString* accessibilityIdentifier,
+                                   BOOL isToggledOn);
 
-// Matcher for CollectionViewSwitchCell.
-id<GREYMatcher> CollectionViewSwitchCell(NSString* accessibilityIdentifier,
-                                         BOOL isToggledOn,
-                                         BOOL isEnabled);
+// Matcher for SettingsSwitchCell.
+id<GREYMatcher> SettingsSwitchCell(NSString* accessibilityIdentifier,
+                                   BOOL isToggledOn,
+                                   BOOL isEnabled);
 
 // Matcher for SyncSwitchCell.
 id<GREYMatcher> SyncSwitchCell(NSString* accessibilityLabel, BOOL isToggledOn);
@@ -96,6 +104,9 @@ id<GREYMatcher> OpenLinkInNewTabButton();
 
 // Matcher for the done button on the navigation bar.
 id<GREYMatcher> NavigationBarDoneButton();
+
+// Matcher for the done button on the Bookmarks navigation bar.
+id<GREYMatcher> BookmarksNavigationBarDoneButton();
 
 // Returns matcher for the account consistency setup signin button.
 id<GREYMatcher> AccountConsistencySetupSigninButton();
@@ -111,6 +122,9 @@ id<GREYMatcher> SignOutAccountsButton();
 
 // Returns matcher for the clear browsing data collection view.
 id<GREYMatcher> ClearBrowsingDataCollectionView();
+
+// Matcher for the clear browsing data action sheet item.
+id<GREYMatcher> ConfirmClearBrowsingDataButton();
 
 // Returns matcher for the settings button in the tools menu.
 id<GREYMatcher> SettingsMenuButton();
@@ -154,6 +168,10 @@ id<GREYMatcher> AccountsSyncButton();
 
 // Returns matcher for the Content Settings button on the main Settings screen.
 id<GREYMatcher> ContentSettingsButton();
+
+// Returns matcher for the Google Services Settings button on the main Settings
+// screen.
+id<GREYMatcher> GoogleServicesSettingsButton();
 
 // Returns matcher for the back button on a settings menu.
 id<GREYMatcher> SettingsMenuBackButton();

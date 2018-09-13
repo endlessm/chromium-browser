@@ -77,13 +77,16 @@ std::unique_ptr<CastContentWindow> CastContentWindow::Create(
 CastContentWindowAura::CastContentWindowAura(
     CastContentWindow::Delegate* delegate,
     bool is_touch_enabled)
-    : back_gesture_dispatcher_(
-          std::make_unique<CastBackGestureDispatcher>(delegate)),
-      is_touch_enabled_(is_touch_enabled) {}
+    : delegate_(delegate),
+      gesture_dispatcher_(std::make_unique<CastGestureDispatcher>(delegate_)),
+      is_touch_enabled_(is_touch_enabled) {
+  DCHECK(delegate_);
+}
 
 CastContentWindowAura::~CastContentWindowAura() {
-  if (window_manager_)
-    window_manager_->RemoveSideSwipeGestureHandler(this);
+  if (window_manager_) {
+    window_manager_->RemoveGestureHandler(this);
+  }
 }
 
 void CastContentWindowAura::CreateWindowForWebContents(
@@ -98,7 +101,7 @@ void CastContentWindowAura::CreateWindowForWebContents(
   gfx::NativeView window = web_contents->GetNativeView();
   window_manager_->SetWindowId(window, z_order);
   window_manager_->AddWindow(window);
-  window_manager_->AddSideSwipeGestureHandler(this);
+  window_manager_->AddGestureHandler(this);
 
   touch_blocker_ = std::make_unique<TouchBlocker>(window, !is_touch_enabled_);
 
@@ -118,23 +121,42 @@ void CastContentWindowAura::EnableTouchInput(bool enabled) {
 void CastContentWindowAura::RequestVisibility(
     VisibilityPriority visibility_priority){};
 
+void CastContentWindowAura::NotifyVisibilityChange(
+    VisibilityType visibility_type) {
+  delegate_->OnVisibilityChange(visibility_type);
+}
+
 void CastContentWindowAura::RequestMoveOut(){};
 
 bool CastContentWindowAura::CanHandleSwipe(CastSideSwipeOrigin swipe_origin) {
-  return back_gesture_dispatcher_->CanHandleSwipe(swipe_origin);
+  return gesture_dispatcher_->CanHandleSwipe(swipe_origin);
 }
 
 void CastContentWindowAura::HandleSideSwipeBegin(
     CastSideSwipeOrigin swipe_origin,
     const gfx::Point& touch_location) {
-  back_gesture_dispatcher_->HandleSideSwipeBegin(swipe_origin, touch_location);
+  gesture_dispatcher_->HandleSideSwipeBegin(swipe_origin, touch_location);
 }
 
 void CastContentWindowAura::HandleSideSwipeContinue(
     CastSideSwipeOrigin swipe_origin,
     const gfx::Point& touch_location) {
-  back_gesture_dispatcher_->HandleSideSwipeContinue(swipe_origin,
-                                                    touch_location);
+  gesture_dispatcher_->HandleSideSwipeContinue(swipe_origin, touch_location);
+}
+
+void CastContentWindowAura::HandleSideSwipeEnd(
+    CastSideSwipeOrigin swipe_origin,
+    const gfx::Point& touch_location) {
+  gesture_dispatcher_->HandleSideSwipeEnd(swipe_origin, touch_location);
+}
+
+void CastContentWindowAura::HandleTapDownGesture(
+    const gfx::Point& touch_location) {
+  gesture_dispatcher_->HandleTapDownGesture(touch_location);
+}
+
+void CastContentWindowAura::HandleTapGesture(const gfx::Point& touch_location) {
+  gesture_dispatcher_->HandleTapGesture(touch_location);
 }
 
 }  // namespace shell

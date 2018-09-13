@@ -13,8 +13,8 @@ namespace content {
 
 class FakeBluetoothChooser;
 class LayoutTestBrowserContext;
-class LayoutTestNotificationManager;
 class MockClipboardHost;
+class MockPlatformNotificationService;
 
 class LayoutTestContentBrowserClient : public ShellContentBrowserClient {
  public:
@@ -30,9 +30,6 @@ class LayoutTestContentBrowserClient : public ShellContentBrowserClient {
 
   // Retrieves the last created FakeBluetoothChooser instance.
   std::unique_ptr<FakeBluetoothChooser> GetNextFakeBluetoothChooser();
-
-  // Implements the PlatformNotificationService interface.
-  LayoutTestNotificationManager* GetLayoutTestNotificationManager();
 
   // ContentBrowserClient overrides.
   void RenderProcessWillLaunch(
@@ -54,6 +51,8 @@ class LayoutTestContentBrowserClient : public ShellContentBrowserClient {
       storage::OptionalQuotaSettingsCallback callback) override;
   bool DoesSiteRequireDedicatedProcess(BrowserContext* browser_context,
                                        const GURL& effective_site_url) override;
+  std::unique_ptr<OverlayWindow> CreateWindowForPictureInPicture(
+      PictureInPictureWindowController* controller) override;
 
   PlatformNotificationService* GetPlatformNotificationService() override;
 
@@ -78,8 +77,10 @@ class LayoutTestContentBrowserClient : public ShellContentBrowserClient {
   scoped_refptr<LoginDelegate> CreateLoginDelegate(
       net::AuthChallengeInfo* auth_info,
       content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+      const content::GlobalRequestID& request_id,
       bool is_main_frame,
       const GURL& url,
+      scoped_refptr<net::HttpResponseHeaders> response_headers,
       bool first_auth_attempt,
       LoginAuthRequiredCallback auth_required_callback) override;
 
@@ -88,8 +89,8 @@ class LayoutTestContentBrowserClient : public ShellContentBrowserClient {
   void CreateFakeBluetoothChooser(mojom::FakeBluetoothChooserRequest request);
   void BindClipboardHost(blink::mojom::ClipboardHostRequest request);
 
-  std::unique_ptr<LayoutTestNotificationManager>
-      layout_test_notification_manager_;
+  std::unique_ptr<MockPlatformNotificationService>
+      mock_platform_notification_service_;
   bool block_popups_ = false;
 
   // Stores the next instance of FakeBluetoothChooser that is to be returned

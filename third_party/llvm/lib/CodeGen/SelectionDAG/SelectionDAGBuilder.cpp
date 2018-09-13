@@ -778,8 +778,8 @@ SDValue RegsForValue::getCopyFromRegs(SelectionDAG &DAG,
     EVT ValueVT = ValueVTs[Value];
     unsigned NumRegs = RegCount[Value];
     MVT RegisterVT = IsABIMangled
-                         ? TLI.getRegisterTypeForCallingConv(RegVTs[Value])
-                         : RegVTs[Value];
+      ? TLI.getRegisterTypeForCallingConv(*DAG.getContext(), RegVTs[Value])
+      : RegVTs[Value];
 
     Parts.resize(NumRegs);
     for (unsigned i = 0; i != NumRegs; ++i) {
@@ -819,32 +819,15 @@ SDValue RegsForValue::getCopyFromRegs(SelectionDAG &DAG,
 
       // FIXME: We capture more information than the dag can represent.  For
       // now, just use the tightest assertzext/assertsext possible.
-      bool isSExt = true;
+      bool isSExt;
       EVT FromVT(MVT::Other);
-      if (NumSignBits == RegSize) {
-        isSExt = true;   // ASSERT SEXT 1
-        FromVT = MVT::i1;
-      } else if (NumZeroBits >= RegSize - 1) {
-        isSExt = false;  // ASSERT ZEXT 1
-        FromVT = MVT::i1;
-      } else if (NumSignBits > RegSize - 8) {
-        isSExt = true;   // ASSERT SEXT 8
-        FromVT = MVT::i8;
-      } else if (NumZeroBits >= RegSize - 8) {
-        isSExt = false;  // ASSERT ZEXT 8
-        FromVT = MVT::i8;
-      } else if (NumSignBits > RegSize - 16) {
-        isSExt = true;   // ASSERT SEXT 16
-        FromVT = MVT::i16;
-      } else if (NumZeroBits >= RegSize - 16) {
-        isSExt = false;  // ASSERT ZEXT 16
-        FromVT = MVT::i16;
-      } else if (NumSignBits > RegSize - 32) {
-        isSExt = true;   // ASSERT SEXT 32
-        FromVT = MVT::i32;
-      } else if (NumZeroBits >= RegSize - 32) {
-        isSExt = false;  // ASSERT ZEXT 32
-        FromVT = MVT::i32;
+      if (NumZeroBits) {
+        FromVT = EVT::getIntegerVT(*DAG.getContext(), RegSize - NumZeroBits);
+        isSExt = false;
+      } else if (NumSignBits > 1) {
+        FromVT =
+            EVT::getIntegerVT(*DAG.getContext(), RegSize - NumSignBits + 1);
+        isSExt = true;
       } else {
         continue;
       }
@@ -877,8 +860,8 @@ void RegsForValue::getCopyToRegs(SDValue Val, SelectionDAG &DAG,
     unsigned NumParts = RegCount[Value];
 
     MVT RegisterVT = IsABIMangled
-                         ? TLI.getRegisterTypeForCallingConv(RegVTs[Value])
-                         : RegVTs[Value];
+      ? TLI.getRegisterTypeForCallingConv(*DAG.getContext(), RegVTs[Value])
+      : RegVTs[Value];
 
     if (ExtendKind == ISD::ANY_EXTEND && TLI.isZExtFree(Val, RegisterVT))
       ExtendKind = ISD::ZERO_EXTEND;
@@ -1379,12 +1362,18 @@ void SelectionDAGBuilder::visitCatchPad(const CatchPadInst &I) {
   auto Pers = classifyEHPersonality(FuncInfo.Fn->getPersonalityFn());
   bool IsMSVCCXX = Pers == EHPersonality::MSVC_CXX;
   bool IsCoreCLR = Pers == EHPersonality::CoreCLR;
+  bool IsSEH = isAsynchronousEHPersonality(Pers);
+  bool IsWasmCXX = Pers == EHPersonality::Wasm_CXX;
   MachineBasicBlock *CatchPadMBB = FuncInfo.MBB;
+  if (!IsSEH)
+    CatchPadMBB->setIsEHScopeEntry();
   // In MSVC C++ and CoreCLR, catchblocks are funclets and need prologues.
   if (IsMSVCCXX || IsCoreCLR)
     CatchPadMBB->setIsEHFuncletEntry();
-
-  DAG.setRoot(DAG.getNode(ISD::CATCHPAD, getCurSDLoc(), MVT::Other, getControlRoot()));
+  // Wasm does not need catchpads anymore
+  if (!IsWasmCXX)
+    DAG.setRoot(DAG.getNode(ISD::CATCHPAD, getCurSDLoc(), MVT::Other,
+                            getControlRoot()));
 }
 
 void SelectionDAGBuilder::visitCatchRet(const CatchReturnInst &I) {
@@ -1427,7 +1416,8 @@ void SelectionDAGBuilder::visitCatchRet(const CatchReturnInst &I) {
 
 void SelectionDAGBuilder::visitCleanupPad(const CleanupPadInst &CPI) {
   // Don't emit any special code for the cleanuppad instruction. It just marks
-  // the start of a funclet.
+  // the start of an EH scope/funclet.
+  FuncInfo.MBB->setIsEHScopeEntry();
   FuncInfo.MBB->setIsEHFuncletEntry();
   FuncInfo.MBB->setIsCleanupFuncletEntry();
 }
@@ -1449,6 +1439,7 @@ static void findUnwindDestinations(
     classifyEHPersonality(FuncInfo.Fn->getPersonalityFn());
   bool IsMSVCCXX = Personality == EHPersonality::MSVC_CXX;
   bool IsCoreCLR = Personality == EHPersonality::CoreCLR;
+  bool IsSEH = isAsynchronousEHPersonality(Personality);
 
   while (EHPadBB) {
     const Instruction *Pad = EHPadBB->getFirstNonPHI();
@@ -1461,6 +1452,7 @@ static void findUnwindDestinations(
       // Stop on cleanup pads. Cleanups are always funclet entries for all known
       // personalities.
       UnwindDests.emplace_back(FuncInfo.MBBMap[EHPadBB], Prob);
+      UnwindDests.back().first->setIsEHScopeEntry();
       UnwindDests.back().first->setIsEHFuncletEntry();
       break;
     } else if (auto *CatchSwitch = dyn_cast<CatchSwitchInst>(Pad)) {
@@ -1470,6 +1462,8 @@ static void findUnwindDestinations(
         // For MSVC++ and the CLR, catchblocks are funclets and need prologues.
         if (IsMSVCCXX || IsCoreCLR)
           UnwindDests.back().first->setIsEHFuncletEntry();
+        if (!IsSEH)
+          UnwindDests.back().first->setIsEHScopeEntry();
       }
       NewEHPadBB = CatchSwitch->getUnwindDest();
     } else {
@@ -2614,9 +2608,23 @@ void SelectionDAGBuilder::visitIndirectBr(const IndirectBrInst &I) {
 }
 
 void SelectionDAGBuilder::visitUnreachable(const UnreachableInst &I) {
-  if (DAG.getTarget().Options.TrapUnreachable)
-    DAG.setRoot(
-        DAG.getNode(ISD::TRAP, getCurSDLoc(), MVT::Other, DAG.getRoot()));
+  if (!DAG.getTarget().Options.TrapUnreachable)
+    return;
+
+  // We may be able to ignore unreachable behind a noreturn call.
+  if (DAG.getTarget().Options.NoTrapAfterNoreturn) {
+    const BasicBlock &BB = *I.getParent();
+    if (&I != &BB.front()) {
+      BasicBlock::const_iterator PredI =
+        std::prev(BasicBlock::const_iterator(&I));
+      if (const CallInst *Call = dyn_cast<CallInst>(&*PredI)) {
+        if (Call->doesNotReturn())
+          return;
+      }
+    }
+  }
+
+  DAG.setRoot(DAG.getNode(ISD::TRAP, getCurSDLoc(), MVT::Other, DAG.getRoot()));
 }
 
 void SelectionDAGBuilder::visitFSub(const User &I) {
@@ -4940,17 +4948,10 @@ bool SelectionDAGBuilder::EmitFuncArgumentDbgValue(
 
   assert(Variable->isValidLocationForIntrinsic(DL) &&
          "Expected inlined-at fields to agree");
-  if (Op->isReg())
-    FuncInfo.ArgDbgValues.push_back(
-        BuildMI(MF, DL, TII->get(TargetOpcode::DBG_VALUE), IsIndirect,
-                Op->getReg(), Variable, Expr));
-  else
-    FuncInfo.ArgDbgValues.push_back(
-        BuildMI(MF, DL, TII->get(TargetOpcode::DBG_VALUE))
-            .add(*Op)
-            .addImm(0)
-            .addMetadata(Variable)
-            .addMetadata(Expr));
+  IsIndirect = (Op->isReg()) ? IsIndirect : true;
+  FuncInfo.ArgDbgValues.push_back(
+      BuildMI(MF, DL, TII->get(TargetOpcode::DBG_VALUE), IsIndirect,
+              *Op, Variable, Expr));
 
   return true;
 }
@@ -5655,6 +5656,43 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     setValue(&I, DAG.getNode(ISD::CTPOP, sdl, Ty, Arg));
     return nullptr;
   }
+  case Intrinsic::fshl:
+  case Intrinsic::fshr: {
+    bool IsFSHL = Intrinsic == Intrinsic::fshl;
+    SDValue X = getValue(I.getArgOperand(0));
+    SDValue Y = getValue(I.getArgOperand(1));
+    SDValue Z = getValue(I.getArgOperand(2));
+    EVT VT = X.getValueType();
+
+    // TODO: When X == Y, this is rotate. Create the node directly if legal.
+
+    // Get the shift amount and inverse shift amount, modulo the bit-width.
+    SDValue BitWidthC = DAG.getConstant(VT.getScalarSizeInBits(), sdl, VT);
+    SDValue ShAmt = DAG.getNode(ISD::UREM, sdl, VT, Z, BitWidthC);
+    SDValue NegZ = DAG.getNode(ISD::SUB, sdl, VT, BitWidthC, Z);
+    SDValue InvShAmt = DAG.getNode(ISD::UREM, sdl, VT, NegZ, BitWidthC);
+
+    // fshl: (X << (Z % BW)) | (Y >> ((BW - Z) % BW))
+    // fshr: (X << ((BW - Z) % BW)) | (Y >> (Z % BW))
+    SDValue ShX = DAG.getNode(ISD::SHL, sdl, VT, X, IsFSHL ? ShAmt : InvShAmt);
+    SDValue ShY = DAG.getNode(ISD::SRL, sdl, VT, Y, IsFSHL ? InvShAmt : ShAmt);
+    SDValue Res = DAG.getNode(ISD::OR, sdl, VT, ShX, ShY);
+
+    // If (Z % BW == 0), then (BW - Z) % BW is also zero, so the result would
+    // be X | Y. If X == Y (rotate), that's fine. If not, we have to select.
+    if (X != Y) {
+      SDValue Zero = DAG.getConstant(0, sdl, VT);
+      EVT CCVT = MVT::i1;
+      if (VT.isVector())
+        CCVT = EVT::getVectorVT(*Context, CCVT, VT.getVectorNumElements());
+      // For fshl, 0 shift returns the 1st arg (X).
+      // For fshr, 0 shift returns the 2nd arg (Y).
+      SDValue IsZeroShift = DAG.getSetCC(sdl, CCVT, ShAmt, Zero, ISD::SETEQ);
+      Res = DAG.getSelect(sdl, VT, IsZeroShift, IsFSHL ? X : Y, Res);
+    }
+    setValue(&I, Res);
+    return nullptr;
+  }
   case Intrinsic::stacksave: {
     SDValue Op = getRoot();
     Res = DAG.getNode(
@@ -5750,6 +5788,7 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
   case Intrinsic::annotation:
   case Intrinsic::ptr_annotation:
   case Intrinsic::launder_invariant_group:
+  case Intrinsic::strip_invariant_group:
     // Drop the intrinsic, but forward the value
     setValue(&I, getValue(I.getOperand(0)));
     return nullptr;
@@ -6164,6 +6203,12 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     HasTailCall = true;
     return nullptr;
   }
+
+  case Intrinsic::wasm_landingpad_index: {
+    // TODO store landing pad index in a map, which will be used when generating
+    // LSDA information
+    return nullptr;
+  }
   }
 }
 
@@ -6313,7 +6358,10 @@ SelectionDAGBuilder::lowerInvokable(TargetLowering::CallLoweringInfo &CLI,
     DAG.setRoot(DAG.getEHLabel(getCurSDLoc(), getRoot(), EndLabel));
 
     // Inform MachineModuleInfo of range.
-    if (MF.hasEHFunclets()) {
+    auto Pers = classifyEHPersonality(FuncInfo.Fn->getPersonalityFn());
+    // There is a platform (e.g. wasm) that uses funclet style IR but does not
+    // actually use outlined funclets and their LSDA info style.
+    if (MF.hasEHFunclets() && isFuncletEHPersonality(Pers)) {
       assert(CLI.CS);
       WinEHFuncInfo *EHInfo = DAG.getMachineFunction().getWinEHFuncInfo();
       EHInfo->addIPToStateRange(cast<InvokeInst>(CLI.CS.getInstruction()),
@@ -7721,8 +7769,17 @@ void SelectionDAGBuilder::emitInlineAsmError(ImmutableCallSite CS,
 
   // Make sure we leave the DAG in a valid state
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
-  auto VT = TLI.getValueType(DAG.getDataLayout(), CS.getType());
-  setValue(CS.getInstruction(), DAG.getUNDEF(VT));
+  SmallVector<EVT, 1> ValueVTs;
+  ComputeValueVTs(TLI, DAG.getDataLayout(), CS->getType(), ValueVTs);
+
+  if (ValueVTs.empty())
+    return;
+
+  SmallVector<SDValue, 1> Ops;
+  for (unsigned i = 0, e = ValueVTs.size(); i != e; ++i)
+    Ops.push_back(DAG.getUNDEF(ValueVTs[i]));
+
+  setValue(CS.getInstruction(), DAG.getMergeValues(Ops, getCurSDLoc()));
 }
 
 void SelectionDAGBuilder::visitVAStart(const CallInst &I) {

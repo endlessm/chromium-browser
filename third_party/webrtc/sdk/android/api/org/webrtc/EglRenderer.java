@@ -19,19 +19,18 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.view.Surface;
 import java.nio.ByteBuffer;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 
 /**
- * Implements org.webrtc.VideoRenderer.Callbacks by displaying the video stream on an EGL Surface.
- * This class is intended to be used as a helper class for rendering on SurfaceViews and
- * TextureViews.
+ * Implements VideoSink by displaying the video stream on an EGL Surface. This class is intended to
+ * be used as a helper class for rendering on SurfaceViews and TextureViews.
  */
-public class EglRenderer implements VideoRenderer.Callbacks, VideoSink {
+public class EglRenderer implements VideoSink {
   private static final String TAG = "EglRenderer";
   private static final long LOG_INTERVAL_SEC = 4;
 
@@ -421,14 +420,6 @@ public class EglRenderer implements VideoRenderer.Callbacks, VideoSink {
     ThreadUtils.awaitUninterruptibly(latch);
   }
 
-  // VideoRenderer.Callbacks interface.
-  @Override
-  public void renderFrame(VideoRenderer.I420Frame frame) {
-    VideoFrame videoFrame = frame.toVideoFrame();
-    onFrame(videoFrame);
-    videoFrame.release();
-  }
-
   // VideoSink interface.
   @Override
   public void onFrame(VideoFrame frame) {
@@ -665,6 +656,7 @@ public class EglRenderer implements VideoRenderer.Callbacks, VideoSink {
   }
 
   private void logStatistics() {
+    final DecimalFormat fpsFormat = new DecimalFormat("#.0");
     final long currentTimeNs = System.nanoTime();
     synchronized (statisticsLock) {
       final long elapsedTimeNs = currentTimeNs - statisticsStartTimeNs;
@@ -676,7 +668,7 @@ public class EglRenderer implements VideoRenderer.Callbacks, VideoSink {
           + " Frames received: " + framesReceived + "."
           + " Dropped: " + framesDropped + "."
           + " Rendered: " + framesRendered + "."
-          + " Render fps: " + String.format(Locale.US, "%.1f", renderFps) + "."
+          + " Render fps: " + fpsFormat.format(renderFps) + "."
           + " Average render time: " + averageTimeAsString(renderTimeNs, framesRendered) + "."
           + " Average swapBuffer time: "
           + averageTimeAsString(renderSwapBufferTimeNs, framesRendered) + ".");

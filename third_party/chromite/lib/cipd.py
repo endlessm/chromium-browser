@@ -21,6 +21,7 @@ import urlparse
 
 import chromite.lib.cros_logging as log
 from chromite.lib import cache
+from chromite.lib import memoize
 from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import cros_build_lib
@@ -30,7 +31,10 @@ import httplib2
 # The version of CIPD to download.
 # TODO(phobbs) we could make a call to the 'resolveVersion' endpoint
 #   to resolve 'latest' into an instance_id for us.
-CIPD_INSTANCE_ID = '03f354ad7a6031c7924d9b69a85f83269cc3c2e0'
+#
+# $ cipd resolve infra/tools/cipd/linux-amd64 \
+#       -version git_revision:b9c4670197dcefd8762d6e509302acd3efc6e303
+CIPD_INSTANCE_ID = '40506ccc2cd82978530da01fbf9a64c1e7d5d463'
 CIPD_PACKAGE = 'infra/tools/cipd/linux-amd64'
 
 CHROME_INFRA_PACKAGES_API_BASE = (
@@ -118,7 +122,7 @@ def GetCIPDFromCache(instance_id=CIPD_INSTANCE_ID):
   return ref.path
 
 
-@cros_build_lib.Memoize
+@memoize.Memoize
 def InstallPackage(cipd_path, package, instance_id, destination,
                    service_account_json=None):
   """Installs a package at a given destination using cipd.

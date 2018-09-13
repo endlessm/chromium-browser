@@ -10,6 +10,7 @@
 
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom.h"
 #include "ui/base/page_transition_types.h"
 
 class GURL;
@@ -137,10 +138,8 @@ class WebContentsTester {
   // Sets the return value of GetContentsMimeType().
   virtual void SetMainFrameMimeType(const std::string& mime_type) = 0;
 
-  // Override WasRecentlyAudible for testing.
-  virtual void SetWasRecentlyAudible(bool audible) = 0;
-
-  // Override IsCurrentlyAudible for testing.
+  // Change currently audible state for testing. This will cause all relevant
+  // notifications to fire as well.
   virtual void SetIsCurrentlyAudible(bool audible) = 0;
 
   // Simulates an input event from the user.
@@ -151,6 +150,18 @@ class WebContentsTester {
       const GURL& url,
       int error_code,
       const base::string16& error_description) = 0;
+
+  // Returns whether PauseSubresourceLoading was called on this web contents.
+  virtual bool GetPauseSubresourceLoadingCalled() = 0;
+
+  // Resets the state around PauseSubresourceLoadingCalled.
+  virtual void ResetPauseSubresourceLoadingCalled() = 0;
+
+  // Sets the return value of GetPageImportanceSignals().
+  virtual void SetPageImportanceSignals(PageImportanceSignals signals) = 0;
+
+  // Sets the last active time.
+  virtual void SetLastActiveTime(base::TimeTicks last_active_time) = 0;
 };
 
 }  // namespace content

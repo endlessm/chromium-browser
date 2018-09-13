@@ -7,33 +7,10 @@ import logging
 
 from dashboard.pinpoint.models import attempt as attempt_module
 from dashboard.pinpoint.models import change as change_module
-from dashboard.pinpoint.models import kolmogorov_smirnov
-from dashboard.pinpoint.models import mann_whitney_u
+from dashboard.pinpoint.models import compare
 
 
-# The questionable significance levels are determined by first picking two
-# representative samples of size 10. Take their p-value. Then repeat for each i,
-# multiplying the sample size by i. To calculate these values:
-# import math
-# from dashboard.pinpoint.models import mann_whitney_u
-# a = [0] * 10
-# b = [0] * 9 + [1]
-# print 1
-# for i in xrange(1, 10):
-#   pvalue = mann_whitney_u.MannWhitneyU(a * i, b * i)
-#   print math.ceil(pvalue * 10000) / 10000
-_QUESTIONABLE_SIGNIFICANCE_LEVELS = (
-    1.0000, 0.3682, 0.1625, 0.0815, 0.0428, 0.0230,
-    0.0126, 0.0070, 0.0039, 0.0022, 0.0013, 0.0007,
-)
-_SIGNIFICANCE_LEVEL = 0.001
 _REPEAT_COUNT_INCREASE = 10
-
-
-_DIFFERENT = 'different'
-_PENDING = 'pending'
-_SAME = 'same'
-_UNKNOWN = 'unknown'
 
 
 FUNCTIONAL = 'functional'
@@ -126,7 +103,7 @@ class JobState(object):
       change_b = self._changes[index]
       comparison = self._Compare(change_a, change_b)
 
-      if comparison == _DIFFERENT:
+      if comparison == compare.DIFFERENT:
         try:
           midpoint = change_module.Change.Midpoint(change_a, change_b)
         except change_module.NonLinearError:
@@ -135,7 +112,7 @@ class JobState(object):
         logging.info('Adding Change %s.', midpoint)
         self.AddChange(midpoint, index)
 
-      elif comparison == _UNKNOWN:
+      elif comparison == compare.UNKNOWN:
         if len(self._attempts[change_a]) <= len(self._attempts[change_b]):
           self.AddAttempts(change_a)
         else:
@@ -151,13 +128,28 @@ class JobState(object):
         attempt.ScheduleWork()
         work_left = True
 
-    # TODO: Skip this for functional jobs.
-    if not work_left and self._attempts and all(
-        a.failed for attempts in self._attempts.itervalues() for a in attempts):
-      raise Exception('All of the attempts failed. See the individual '
-                      'attempts for details on each error.')
+    if not work_left:
+      self._RaiseErrorIfAllAttemptsFailed()
 
     return work_left
+
+  def _RaiseErrorIfAllAttemptsFailed(self):
+    counter = collections.Counter()
+    for attempts in self._attempts.itervalues():
+      for attempt in attempts:
+        if not attempt.exception:
+          return
+        counter[attempt.exception.splitlines()[-1]] += 1
+
+    most_common_exceptions = counter.most_common(1)
+    if not most_common_exceptions:
+      return
+
+    exception, exception_count = most_common_exceptions[0]
+    attempt_count = sum(counter.itervalues())
+    raise Exception(
+        'All of the runs failed. The most common error (%d/%d runs) '
+        'was:\n%s' % (exception_count, attempt_count, exception))
 
   def Differences(self):
     """Compares every pair of Changes and yields ones with different results.
@@ -167,45 +159,29 @@ class JobState(object):
     assumed to have caused the difference).
 
     Yields:
-      Tuples of (change_index, Change).
+      Tuples of (Change_before, Change_after,
+                 result_values_before, result_values_after).
     """
     for index in xrange(1, len(self._changes)):
       change_a = self._changes[index - 1]
       change_b = self._changes[index]
-      if self._Compare(change_a, change_b) == _DIFFERENT:
-        yield index, change_b
+      if self._Compare(change_a, change_b) == compare.DIFFERENT:
+        values_a = self._ResultValues(change_a)
+        values_b = self._ResultValues(change_b)
+        yield change_a, change_b, values_a, values_b
 
   def AsDict(self):
     state = []
-    quest_index = len(self._quests) - 1
     for change in self._changes:
-      result_values = []
-
-      if self._comparison_mode == 'functional':
-        pass_fails = []
-        for attempt in self._attempts[change]:
-          if attempt.completed:
-            pass_fails.append(int(attempt.failed))
-        if pass_fails:
-          result_values.append(_Mean(pass_fails))
-
-      elif self._comparison_mode == 'performance':
-        for attempt in self._attempts[change]:
-          if quest_index < len(attempt.executions):
-            result_values += attempt.executions[quest_index].result_values
-
       state.append({
           'attempts': [attempt.AsDict() for attempt in self._attempts[change]],
           'change': change.AsDict(),
           'comparisons': {},
-          'result_values': result_values,
+          'result_values': self._ResultValues(change),
       })
 
     for index in xrange(1, len(self._changes)):
-      change_a = self._changes[index - 1]
-      change_b = self._changes[index]
-      comparison = self._Compare(change_a, change_b)
-
+      comparison = self._Compare(self._changes[index - 1], self._changes[index])
       state[index - 1]['comparisons']['next'] = comparison
       state[index]['comparisons']['prev'] = comparison
 
@@ -220,24 +196,24 @@ class JobState(object):
 
     Aggregate the exceptions and result_values across every Quest for both
     Changes. Then, compare all the results for each Quest. If any of them are
-    different, return _DIFFERENT. Otherwise, if any of them are inconclusive,
-    return _UNKNOWN.  Otherwise, they are the _SAME.
+    different, return DIFFERENT. Otherwise, if any of them are inconclusive,
+    return UNKNOWN.  Otherwise, they are the SAME.
 
     Arguments:
       change_a: The first Change whose results to compare.
       change_b: The second Change whose results to compare.
 
     Returns:
-      _PENDING: If either Change has an incomplete Attempt.
-      _DIFFERENT: If the two Changes (very likely) have different results.
-      _SAME: If the two Changes (probably) have the same result.
-      _UNKNOWN: If we'd like more data to make a decision.
+      PENDING: If either Change has an incomplete Attempt.
+      DIFFERENT: If the two Changes (very likely) have different results.
+      SAME: If the two Changes (probably) have the same result.
+      UNKNOWN: If we'd like more data to make a decision.
     """
     attempts_a = self._attempts[change_a]
     attempts_b = self._attempts[change_b]
 
     if any(not attempt.completed for attempt in attempts_a + attempts_b):
-      return _PENDING
+      return compare.PENDING
 
     attempt_count = len(attempts_a) + len(attempts_b)
 
@@ -253,10 +229,15 @@ class JobState(object):
       values_a = tuple(bool(execution.exception) for execution in executions_a)
       values_b = tuple(bool(execution.exception) for execution in executions_b)
       if values_a and values_b:
-        comparison = _CompareValues(values_a, values_b, attempt_count)
-        if comparison == _DIFFERENT:
-          return _DIFFERENT
-        elif comparison == _UNKNOWN:
+        # TODO(dtu): Always use FUNCTIONAL, when we're able to adjust
+        # thresholds to the size of the regression. Right now we can't, because
+        # the functional thresholds are much looser than the performance
+        # thresholds, and would cause perf jobs to do many more repats.
+        comparison = compare.Compare(values_a, values_b, attempt_count,
+                                     self._comparison_mode or FUNCTIONAL)
+        if comparison == compare.DIFFERENT:
+          return compare.DIFFERENT
+        elif comparison == compare.UNKNOWN:
           any_unknowns = True
 
       # Compare result values.
@@ -265,16 +246,36 @@ class JobState(object):
       values_b = tuple(_Mean(execution.result_values)
                        for execution in executions_b if execution.result_values)
       if values_a and values_b:
-        comparison = _CompareValues(values_a, values_b, attempt_count)
-        if comparison == _DIFFERENT:
-          return _DIFFERENT
-        elif comparison == _UNKNOWN:
+        comparison = compare.Compare(
+            values_a, values_b, attempt_count, PERFORMANCE)
+        if comparison == compare.DIFFERENT:
+          return compare.DIFFERENT
+        elif comparison == compare.UNKNOWN:
           any_unknowns = True
 
     if any_unknowns:
-      return _UNKNOWN
+      return compare.UNKNOWN
 
-    return _SAME
+    return compare.SAME
+
+  def _ResultValues(self, change):
+    quest_index = len(self._quests) - 1
+    result_values = []
+
+    if self._comparison_mode == 'functional':
+      pass_fails = []
+      for attempt in self._attempts[change]:
+        if attempt.completed:
+          pass_fails.append(int(attempt.failed))
+      if pass_fails:
+        result_values.append(_Mean(pass_fails))
+
+    elif self._comparison_mode == 'performance':
+      for attempt in self._attempts[change]:
+        if quest_index < len(attempt.executions):
+          result_values += attempt.executions[quest_index].result_values
+
+    return result_values
 
 
 def _ExecutionsPerQuest(attempts):
@@ -283,53 +284,6 @@ def _ExecutionsPerQuest(attempts):
     for quest, execution in zip(attempt.quests, attempt.executions):
       executions[quest].append(execution)
   return executions
-
-
-def _CompareValues(values_a, values_b, attempt_count):
-  """Decide whether two samples are the same, different, or unknown.
-
-  Arguments:
-    values_a: A list of sortable values. They don't need to be numeric.
-    values_b: A list of sortable values. They don't need to be numeric.
-    attempt_count: The total number of attempts made.
-
-  Returns:
-    _DIFFERENT: The samples likely come from different distributions.
-        Reject the null hypothesis.
-    _SAME: Not enough evidence to say that the samples come from different
-        distributions. Fail to reject the null hypothesis.
-    _UNKNOWN: Not enough evidence to say that the samples come from different
-        distributions, but it looks a little suspicious, and we would like more
-        data before making a final decision.
-  """
-  if not (values_a and values_b):
-    # A sample has no values in it.
-    return _UNKNOWN
-
-  # MWU is bad at detecting changes in variance, and K-S is bad with discrete
-  # distributions. So use both. We want low p-values for the below examples.
-  #        a                     b               MWU(a, b)  KS(a, b)
-  # [0]*20            [0]*15+[1]*5                0.0097     0.4973
-  # range(10, 30)     range(10)+range(30, 40)     0.4946     0.0082
-  p_value = min(
-      kolmogorov_smirnov.KolmogorovSmirnov(values_a, values_b),
-      mann_whitney_u.MannWhitneyU(values_a, values_b))
-
-  if p_value < _SIGNIFICANCE_LEVEL:
-    # The p-value is less than the significance level. Reject the null
-    # hypothesis.
-    return _DIFFERENT
-
-  index = min(attempt_count / 20, len(_QUESTIONABLE_SIGNIFICANCE_LEVELS) - 1)
-  questionable_significance_level = _QUESTIONABLE_SIGNIFICANCE_LEVELS[index]
-  if p_value < questionable_significance_level:
-    # The p-value is not less than the significance level, but it's small enough
-    # to be suspicious. We'd like to investigate more closely.
-    return _UNKNOWN
-
-  # The p-value is quite large. We're not suspicious that the two samples might
-  # come from different distributions, and we don't care to investigate more.
-  return _SAME
 
 
 def _Mean(values):

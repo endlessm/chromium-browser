@@ -26,6 +26,9 @@ const CGFloat kleadingImageViewEdgeOffset = 9;
 const CGFloat kTextFieldLeadingOffsetNoImage = 16;
 // Space between the leading button and the textfield when a button is shown.
 const CGFloat kTextFieldLeadingOffsetImage = 6;
+// Space between the clear button and the edge of the omnibox.
+const CGFloat kTextFieldClearButtonTrailingOffset = 4;
+
 }  // namespace
 
 #pragma mark - OmniboxContainerView
@@ -57,14 +60,17 @@ const CGFloat kTextFieldLeadingOffsetImage = 6;
 
 - (instancetype)initWithFrame:(CGRect)frame
                          font:(UIFont*)font
+                   largerFont:(UIFont*)largerFont
                     textColor:(UIColor*)textColor
-                    tintColor:(UIColor*)tintColor {
+                textFieldTint:(UIColor*)textFieldTint
+                     iconTint:(UIColor*)iconTint {
   self = [super initWithFrame:frame];
   if (self) {
     _textField = [[OmniboxTextFieldIOS alloc] initWithFrame:frame
                                                        font:font
+                                                 largerFont:largerFont
                                                   textColor:textColor
-                                                  tintColor:tintColor];
+                                                  tintColor:textFieldTint];
     [self addSubview:_textField];
 
     _leadingTextfieldConstraint = [_textField.leadingAnchor
@@ -73,11 +79,10 @@ const CGFloat kTextFieldLeadingOffsetImage = 6;
 
     [NSLayoutConstraint activateConstraints:@[
       [_textField.trailingAnchor
-          constraintEqualToAnchor:self.layoutMarginsGuide.trailingAnchor],
-      [_textField.topAnchor
-          constraintEqualToAnchor:self.layoutMarginsGuide.topAnchor],
-      [_textField.bottomAnchor
-          constraintEqualToAnchor:self.layoutMarginsGuide.bottomAnchor],
+          constraintEqualToAnchor:self.trailingAnchor
+                         constant:-kTextFieldClearButtonTrailingOffset],
+      [_textField.topAnchor constraintEqualToAnchor:self.topAnchor],
+      [_textField.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
       _leadingTextfieldConstraint,
     ]];
 
@@ -88,7 +93,7 @@ const CGFloat kTextFieldLeadingOffsetImage = 6;
                                             UILayoutConstraintAxisHorizontal];
 
     [self createLeadingImageView];
-    _leadingImageView.tintColor = tintColor ?: [UIColor blackColor];
+    _leadingImageView.tintColor = iconTint;
   }
   return self;
 }
@@ -100,10 +105,9 @@ const CGFloat kTextFieldLeadingOffsetImage = 6;
   } else {
     [self addSubview:_leadingImageView];
     self.leadingTextfieldConstraint.active = NO;
-    self.leadingImageViewLeadingConstraint =
-        [self.layoutMarginsGuide.leadingAnchor
-            constraintEqualToAnchor:self.leadingImageView.leadingAnchor
-                           constant:-kleadingImageViewEdgeOffset];
+    self.leadingImageViewLeadingConstraint = [self.leadingAnchor
+        constraintEqualToAnchor:self.leadingImageView.leadingAnchor
+                       constant:-kleadingImageViewEdgeOffset];
 
     NSLayoutConstraint* leadingImageViewToTextField = nil;
     leadingImageViewToTextField = [self.leadingImageView.trailingAnchor
@@ -112,7 +116,7 @@ const CGFloat kTextFieldLeadingOffsetImage = 6;
 
     [NSLayoutConstraint activateConstraints:@[
       [_leadingImageView.centerYAnchor
-          constraintEqualToAnchor:self.layoutMarginsGuide.centerYAnchor],
+          constraintEqualToAnchor:self.centerYAnchor],
       self.leadingImageViewLeadingConstraint,
       leadingImageViewToTextField,
     ]];
@@ -122,6 +126,17 @@ const CGFloat kTextFieldLeadingOffsetImage = 6;
 - (void)setLeadingImage:(UIImage*)image {
   [self.leadingImageView setImage:image];
 }
+
+- (void)setIncognito:(BOOL)incognito {
+  _incognito = incognito;
+  self.textField.incognito = incognito;
+}
+
+- (void)setLeadingImageAlpha:(CGFloat)alpha {
+  self.leadingImageView.alpha = alpha;
+}
+
+#pragma mark - private
 
 - (void)createLeadingImageView {
   _leadingImageView = [[UIImageView alloc] init];
@@ -133,10 +148,22 @@ const CGFloat kTextFieldLeadingOffsetImage = 6;
       setContentCompressionResistancePriority:UILayoutPriorityRequired
                                       forAxis:UILayoutConstraintAxisVertical];
   [_leadingImageView
-      setContentHuggingPriority:UILayoutPriorityRequired
+      setContentHuggingPriority:UILayoutPriorityDefaultLow
                         forAxis:UILayoutConstraintAxisHorizontal];
   [_leadingImageView setContentHuggingPriority:UILayoutPriorityRequired
                                        forAxis:UILayoutConstraintAxisVertical];
+
+  // Sometimes the image view is not hidden and has no image. Then it doesn't
+  // have an intrinsic size. In this case the omnibox should appear the same as
+  // with hidden image view. Add a placeholder width constraint.
+  CGFloat placeholderSize = kTextFieldLeadingOffsetNoImage -
+                            kleadingImageViewEdgeOffset -
+                            kTextFieldLeadingOffsetImage;
+  NSLayoutConstraint* placeholderWidthConstraint =
+      [_leadingImageView.widthAnchor constraintEqualToConstant:placeholderSize];
+  // The priority must be higher than content hugging.
+  placeholderWidthConstraint.priority = UILayoutPriorityDefaultLow + 1;
+  placeholderWidthConstraint.active = YES;
 }
 
 @end

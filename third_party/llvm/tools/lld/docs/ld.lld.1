@@ -187,6 +187,8 @@ is the default.
 Print a help message.
 .It Fl -icf Ns = Ns Cm all
 Enable identical code folding.
+.It Fl -icf Ns = Ns Cm safe
+Enable safe identical code folding.
 .It Fl -icf Ns = Ns Cm none
 Disable identical code folding.
 .It Fl -image-base Ns = Ns Ar value
@@ -289,6 +291,15 @@ Create a position independent executable.
 List removed unused sections.
 .It Fl -print-map
 Print a link map to the standard output.
+.It Fl -push-state
+Save the current state of
+.Fl -as-needed ,
+.Fl -static ,
+and
+.Fl -while-archive.
+.It Fl -pop-state
+Undo the effect of
+.Fl -push-state.
 .It Fl -relocatable
 Create relocatable object file.
 .It Fl -reproduce Ns = Ns Ar value

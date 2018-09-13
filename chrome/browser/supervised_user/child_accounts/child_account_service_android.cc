@@ -4,6 +4,8 @@
 
 #include "chrome/browser/supervised_user/child_accounts/child_account_service_android.h"
 
+#include <memory>
+
 #include "base/android/callback_android.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
@@ -19,7 +21,7 @@ using base::android::AttachCurrentThread;
 using base::android::ConvertUTF8ToJavaString;
 using base::android::JavaParamRef;
 using base::android::JavaRef;
-using base::android::RunCallbackAndroid;
+using base::android::RunBooleanCallbackAndroid;
 using base::android::ScopedJavaGlobalRef;
 
 void JNI_ChildAccountService_ListenForChildStatusReceived(
@@ -29,12 +31,9 @@ void JNI_ChildAccountService_ListenForChildStatusReceived(
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   ChildAccountService* service = ChildAccountServiceFactory::GetForProfile(
       profile_manager->GetLastUsedProfile());
-  // Needed to disambiguate RunCallbackAndroid
-  void (*runCallback)(const JavaRef<jobject>&, bool) = &RunCallbackAndroid;
-  // TODO(https://crbug.com/692591) Should use base::BindOnce, but
-  // AddChildStatusReceivedCallback won't yet accept a BindOnce.
   service->AddChildStatusReceivedCallback(
-      base::Bind(runCallback, ScopedJavaGlobalRef<jobject>(callback), true));
+      base::BindOnce(&RunBooleanCallbackAndroid,
+                     ScopedJavaGlobalRef<jobject>(callback), true));
 }
 
 void ReauthenticateChildAccount(content::WebContents* web_contents,

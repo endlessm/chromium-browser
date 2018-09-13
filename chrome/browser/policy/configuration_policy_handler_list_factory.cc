@@ -30,6 +30,7 @@
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "components/autofill/core/browser/autofill_address_policy_handler.h"
 #include "components/autofill/core/browser/autofill_credit_card_policy_handler.h"
 #include "components/autofill/core/browser/autofill_policy_handler.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
@@ -37,6 +38,7 @@
 #include "components/certificate_transparency/pref_names.h"
 #include "components/component_updater/pref_names.h"
 #include "components/content_settings/core/common/pref_names.h"
+#include "components/language/core/browser/pref_names.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/network_time/network_time_pref_names.h"
 #include "components/ntp_snippets/pref_names.h"
@@ -59,18 +61,20 @@
 #include "components/sync/base/pref_names.h"
 #include "components/sync/driver/sync_policy_handler.h"
 #include "components/translate/core/browser/translate_pref_names.h"
+#include "components/unified_consent/pref_names.h"
 #include "components/variations/pref_names.h"
 #include "extensions/buildflags/buildflags.h"
 #include "media/media_buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 
 #if defined(OS_ANDROID)
+#include "chrome/browser/android/contextual_suggestions/contextual_suggestions_prefs.h"
 #include "chrome/browser/search/contextual_search_policy_handler_android.h"
 #endif
 
 #if defined(OS_CHROMEOS)
-#include "ash/public/cpp/accessibility_types.h"
 #include "ash/public/cpp/ash_pref_names.h"
+#include "chrome/browser/chromeos/accessibility/magnifier_type.h"
 #include "chrome/browser/chromeos/platform_keys/key_permissions_policy_handler.h"
 #include "chrome/browser/chromeos/policy/configuration_policy_handler_chromeos.h"
 #include "chrome/browser/chromeos/policy/secondary_google_account_signin_policy_handler.h"
@@ -151,6 +155,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kSafeBrowsingForTrustedSourcesEnabled,
     prefs::kSafeBrowsingForTrustedSourcesEnabled,
     base::Value::Type::BOOLEAN },
+  { key::kUrlKeyedAnonymizedDataCollectionEnabled,
+    unified_consent::prefs::kUrlKeyedAnonymizedDataCollectionEnabled,
+    base::Value::Type::BOOLEAN },
   { key::kDownloadRestrictions,
     prefs::kDownloadRestrictions,
     base::Value::Type::INTEGER },
@@ -169,11 +176,8 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kDisablePrintPreview,
     prefs::kPrintPreviewDisabled,
     base::Value::Type::BOOLEAN },
-  { key::kDefaultPrinterSelection,
-    prefs::kPrintPreviewDefaultDestinationSelectionRules,
-    base::Value::Type::STRING },
   { key::kApplicationLocaleValue,
-    prefs::kApplicationLocale,
+    language::prefs::kApplicationLocale,
     base::Value::Type::STRING },
   { key::kAlwaysOpenPdfExternally,
     prefs::kPluginsAlwaysOpenPdfExternally,
@@ -205,9 +209,6 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kDefaultPopupsSetting,
     prefs::kManagedDefaultPopupsSetting,
     base::Value::Type::INTEGER },
-  { key::kAutoSelectCertificateForUrls,
-    prefs::kManagedAutoSelectCertificateForUrls,
-    base::Value::Type::LIST },
   { key::kCookiesAllowedForUrls,
     prefs::kManagedCookiesAllowedForUrls,
     base::Value::Type::LIST },
@@ -304,6 +305,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kPasswordProtectionChangePasswordURL,
     prefs::kPasswordProtectionChangePasswordURL,
     base::Value::Type::STRING},
+  { key::kSafeSitesFilterBehavior,
+    prefs::kSafeSitesFilterBehavior,
+    base::Value::Type::INTEGER},
 #if defined(OS_POSIX)
   { key::kNtlmV2Enabled,
     prefs::kNtlmV2Enabled,
@@ -614,9 +618,6 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kReportArcStatusEnabled,
     prefs::kReportArcStatusEnabled,
     base::Value::Type::BOOLEAN },
-  { key::kNativePrinters,
-    prefs::kRecommendedNativePrinters,
-    base::Value::Type::LIST },
   { key::kEcryptfsMigrationStrategy,
     arc::prefs::kEcryptfsMigrationStrategy,
     base::Value::Type::INTEGER },
@@ -632,8 +633,11 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kUserNativePrintersAllowed,
     prefs::kUserNativePrintersAllowed,
     base::Value::Type::BOOLEAN },
-  { key::kAllowedLocales,
-    prefs::kAllowedLocales,
+  { key::kAllowedUILocales,
+    prefs::kAllowedUILocales,
+    base::Value::Type::LIST },
+  { key::kAllowedInputMethods,
+    prefs::kLanguageAllowedInputMethods,
     base::Value::Type::LIST },
   { key::kArcAppInstallEventLoggingEnabled,
     prefs::kArcAppInstallEventLoggingEnabled,
@@ -667,6 +671,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kAuthAndroidNegotiateAccountType,
     prefs::kAuthAndroidNegotiateAccountType,
     base::Value::Type::STRING },
+  { key::kContextualSuggestionsEnabled,
+    contextual_suggestions::prefs::kContextualSuggestionsEnabled,
+    base::Value::Type::BOOLEAN },
 #endif  // defined(OS_ANDROID)
 
 #if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
@@ -701,6 +708,11 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
 #endif  // OS_WIN
 
 #if !defined(OS_ANDROID)
+#if !defined(OS_CHROMEOS)
+  { key::kPromotionalTabsEnabled,
+    prefs::kPromotionalTabsEnabled,
+    base::Value::Type::BOOLEAN },
+#endif  // !OS_CHROMEOS
   { key::kSuppressUnsupportedOSWarning,
     prefs::kSuppressUnsupportedOSWarning,
     base::Value::Type::BOOLEAN },
@@ -811,6 +823,10 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kWebUsbBlockedForUrls,
     prefs::kManagedWebUsbBlockedForUrls,
     base::Value::Type::LIST },
+
+  { key::kTabLifecyclesEnabled,
+    prefs::kTabLifecyclesEnabled,
+    base::Value::Type::BOOLEAN },
 };
 // clang-format on
 
@@ -906,11 +922,17 @@ class BrowsingHistoryPolicyHandler : public TypeCheckingPolicyHandler {
   }
 };
 
-class SecureOriginPolicyHandler : public TypeCheckingPolicyHandler {
+class SecureOriginPolicyHandler : public SchemaValidatingPolicyHandler {
  public:
-  SecureOriginPolicyHandler()
-      : TypeCheckingPolicyHandler(key::kUnsafelyTreatInsecureOriginAsSecure,
-                                  base::Value::Type::LIST) {}
+  SecureOriginPolicyHandler(const char* policy_name, Schema schema)
+      : SchemaValidatingPolicyHandler(policy_name,
+                                      schema.GetKnownProperty(policy_name),
+                                      SCHEMA_STRICT) {
+    DCHECK(policy_name == key::kUnsafelyTreatInsecureOriginAsSecure ||
+           policy_name == key::kOverrideSecurityRestrictionsOnInsecureOrigin);
+  }
+
+ protected:
   void ApplyPolicySettings(const PolicyMap& policies,
                            PrefValueMap* prefs) override {
     const base::Value* value = policies.GetValue(policy_name());
@@ -978,6 +1000,8 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
   }
 
   handlers->AddHandler(
+      std::make_unique<autofill::AutofillAddressPolicyHandler>());
+  handlers->AddHandler(
       std::make_unique<autofill::AutofillCreditCardPolicyHandler>());
   handlers->AddHandler(std::make_unique<autofill::AutofillPolicyHandler>());
   handlers->AddHandler(std::make_unique<DefaultSearchPolicyHandler>());
@@ -1009,7 +1033,26 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
       SimpleSchemaValidatingPolicyHandler::RECOMMENDED_PROHIBITED,
       SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED));
 
-  handlers->AddHandler(std::make_unique<SecureOriginPolicyHandler>());
+// On most platforms, there is a legacy policy
+// kUnsafelyTreatInsecureOriginAsSecure which has been replaced by
+// kOverrideSecurityRestrictionsOnInsecureOrigins. The legacy policy was never
+// supported on ChromeOS or Android, so on those platforms, simply use the new
+// one.
+#if defined(OS_CHROMEOS) || defined(OS_ANDROID)
+  handlers->AddHandler(std::make_unique<SecureOriginPolicyHandler>(
+      key::kOverrideSecurityRestrictionsOnInsecureOrigin, chrome_schema));
+#else
+  std::vector<std::unique_ptr<ConfigurationPolicyHandler>>
+      secure_origin_legacy_policy;
+  secure_origin_legacy_policy.push_back(
+      std::make_unique<SecureOriginPolicyHandler>(
+          key::kUnsafelyTreatInsecureOriginAsSecure, chrome_schema));
+  handlers->AddHandler(std::make_unique<LegacyPoliciesDeprecatingPolicyHandler>(
+      std::move(secure_origin_legacy_policy),
+      base::WrapUnique(new SecureOriginPolicyHandler(
+          key::kOverrideSecurityRestrictionsOnInsecureOrigin, chrome_schema))));
+#endif  // defined(OS_CHROMEOS) || defined(OS_ANDROID)
+
   handlers->AddHandler(std::make_unique<DeveloperToolsPolicyHandler>());
 
 #if defined(OS_ANDROID)
@@ -1098,6 +1141,24 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
           SCHEMA_STRICT,
           SimpleSchemaValidatingPolicyHandler::RECOMMENDED_ALLOWED,
           SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED))));
+
+  // Handlers for policies with embedded JSON strings. These handlers are very
+  // lenient - as long as the root value is of the right type, they only display
+  // warnings and never reject the policy value.
+  handlers->AddHandler(
+      std::make_unique<SimpleJsonStringSchemaValidatingPolicyHandler>(
+          key::kDefaultPrinterSelection,
+          prefs::kPrintPreviewDefaultDestinationSelectionRules,
+          chrome_schema.GetValidationSchema(),
+          SimpleSchemaValidatingPolicyHandler::RECOMMENDED_ALLOWED,
+          SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED));
+  handlers->AddHandler(
+      std::make_unique<SimpleJsonStringSchemaValidatingPolicyHandler>(
+          key::kAutoSelectCertificateForUrls,
+          prefs::kManagedAutoSelectCertificateForUrls,
+          chrome_schema.GetValidationSchema(),
+          SimpleSchemaValidatingPolicyHandler::RECOMMENDED_ALLOWED,
+          SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED));
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -1112,6 +1173,14 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
   handlers->AddHandler(std::make_unique<ScreenMagnifierPolicyHandler>());
   handlers->AddHandler(
       std::make_unique<LoginScreenPowerManagementPolicyHandler>(chrome_schema));
+
+  // Handler for another policy with JSON strings, lenient but shows warnings.
+  handlers->AddHandler(
+      std::make_unique<SimpleJsonStringSchemaValidatingPolicyHandler>(
+          key::kNativePrinters, prefs::kRecommendedNativePrinters,
+          chrome_schema.GetValidationSchema(),
+          SimpleSchemaValidatingPolicyHandler::RECOMMENDED_ALLOWED,
+          SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED));
 
   std::vector<std::unique_ptr<ConfigurationPolicyHandler>>
       power_management_idle_legacy_policies;
@@ -1186,7 +1255,7 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
       key::kUptimeLimit, prefs::kUptimeLimit, 3600, INT_MAX, true));
   handlers->AddHandler(base::WrapUnique(new IntRangePolicyHandler(
       key::kDeviceLoginScreenDefaultScreenMagnifierType, nullptr,
-      ash::MAGNIFIER_DISABLED, ash::MAGNIFIER_FULL, false)));
+      chromeos::MAGNIFIER_DISABLED, chromeos::MAGNIFIER_FULL, false)));
   // TODO(binjin): Remove LegacyPoliciesDeprecatingPolicyHandler for these two
   // policies once deprecation of legacy power management policies is done.
   // http://crbug.com/346229

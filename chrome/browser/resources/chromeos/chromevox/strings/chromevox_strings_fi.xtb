@@ -92,6 +92,7 @@ Jos haluat sulkea ohjeen, siirry ChromeVox-komennoilla Sulje-painikkeeseen ja kl
 <translation id="1787176709638001873">Salasanan muokkausteksti</translation>
 <translation id="1802710350767629429">Näytä päivitysmerkinnät</translation>
 <translation id="1810107444790159527">Luetteloruutu</translation>
+<translation id="1812527064848182527">vaakasuunta</translation>
 <translation id="1828385960365606039">touko</translation>
 <translation id="1834891354138622109">Sarake</translation>
 <translation id="1845944666972354496">Aktivoi kaksoisnapauttamalla</translation>
@@ -146,6 +147,7 @@ Jos haluat sulkea ohjeen, siirry ChromeVox-komennoilla Sulje-painikkeeseen ja kl
 <translation id="2416512023405990736">Valitsematon valintaruutu</translation>
 <translation id="2417569100218200841">Sisällön tiedot</translation>
 <translation id="2417948780551741035">Loppuhuomautukset</translation>
+<translation id="2421113964388408478">Poisto</translation>
 <translation id="2422937916923936891">Valikkokohteen valintaruutu</translation>
 <translation id="2428534162001909979">Komentovalikot</translation>
 <translation id="2429669115401274487">ip</translation>
@@ -253,6 +255,7 @@ Jos haluat sulkea ohjeen, siirry ChromeVox-komennoilla Sulje-painikkeeseen ja kl
 <translation id="3232388865800379423">Ponnahduspainike</translation>
 <translation id="3241052487511142956">Edellinen käyty linkki</translation>
 <translation id="3241638166094654466">Kunkin rivin solut:</translation>
+<translation id="3286372614333682499">pystysuunta</translation>
 <translation id="3286390186030710347">Liukusäädin</translation>
 <translation id="3299925995433437805">Ei seuraavia käytyjä linkkejä.</translation>
 <translation id="3300348286427369683">Rich Text ‑tuki. ChromeVox tukee nyt Rich Text ‑kenttiä ja niiden ominaisuuksia, kuten siirtymiskomentoja, pistekirjoitusosoittimen ohjausta ja valintaa.</translation>
@@ -426,6 +429,7 @@ Jos haluat sulkea ohjeen, siirry ChromeVox-komennoilla Sulje-painikkeeseen ja kl
 <translation id="4476183483923481720">uusi rivi</translation>
 <translation id="4482330759234983253">Edellinen taulukko</translation>
 <translation id="4491109536499578614">Kuva</translation>
+<translation id="4505167975768625962">Lisäys</translation>
 <translation id="4517854969512651305">Suurenna arvoa</translation>
 <translation id="4529987814483543472">Perinteinen näppäinasettelu</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{kauttaviiva}other{# kauttaviivaa}}</translation>
@@ -589,6 +593,7 @@ Jos haluat sulkea ohjeen, siirry ChromeVox-komennoilla Sulje-painikkeeseen ja kl
 <translation id="5712338278108304766">Taulukon seuraava sarake</translation>
 <translation id="571866080859340309">Tutkitaan ryhmiä</translation>
 <translation id="5728409797179002635">Taulukoita ei löytynyt.</translation>
+<translation id="5729047866208036762">Tutki laskutoimituksia painamalla ylä-, ala-, vasenta tai oikeaa painiketta.</translation>
 <translation id="5732189279857692565">Tämä on toinen otsikko. Jatka painamalla joko Haku + H tai Haku + Vaihto + H.</translation>
 <translation id="5748623122140342504">Edellinen tason 5 otsikko</translation>
 <translation id="5750633686117194034">Muokkausnäppäintä ei ole painettu. Paina yhtä tai useampaa näppäintä samanaikaisesti. Lopeta, kun olet valmis, niin kuulet asetetut näppäimet. Poistu sarkainnäppäimellä.</translation>
@@ -744,6 +749,7 @@ Avaa Chrome-selaimen valikko painamalla Alt + F.</translation>
 <translation id="7226216518520804442">luett.</translation>
 <translation id="7229749224609077523">Valitse 6 pisteen pistekirjoitustaulukko:</translation>
 <translation id="72393384879519786">Otsikko</translation>
+<translation id="7240858705033280249">Siirry tietoihin</translation>
 <translation id="7241683698754534149">Avaa pitkä kuvaus uudessa välilehdessä</translation>
 <translation id="7248671827512403053">Sovellus</translation>
 <translation id="725969808843520477">Seuraava valintanappi</translation>
@@ -920,6 +926,7 @@ Avaa Chrome-selaimen valikko painamalla Alt + F.</translation>
 <translation id="9043969572162476692"><ph name="NUM" /> %</translation>
 <translation id="9061884144798498064">Valitse 8 pisteen pistekirjoitustaulukko:</translation>
 <translation id="9065283790526219006">+ponnahdus</translation>
+<translation id="9066023754636984703">Siirry lisätietoihin painamalla haku + A, J.</translation>
 <translation id="9067522039955793016">Sivunvaihto</translation>
 <translation id="9077213568694924680">poistettu valinnasta</translation>
 <translation id="9082874451376019682">Ei edellisiä liukusäätimiä.</translation>

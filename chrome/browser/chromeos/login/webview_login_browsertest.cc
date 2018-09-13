@@ -16,7 +16,7 @@
 #include "chrome/browser/chromeos/login/signin_partition_manager.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
-#include "chrome/browser/chromeos/login/ui/login_display_webui.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_policy_builder.h"
 #include "chrome/browser/chromeos/policy/device_policy_cros_browser_test.h"
@@ -38,6 +38,7 @@
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/notification_service.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
@@ -631,15 +632,8 @@ IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
 // with multiple filters for the same pattern.
 //
 // Disabled due to flaky timeouts: https://crbug.com/830337.
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
-#define MAYBE_SigninFrameCertMultipleFiltersAutoSelected \
-  DISABLED_SigninFrameCertMultipleFiltersAutoSelected
-#else
-#define MAYBE_SigninFrameCertMultipleFiltersAutoSelected \
-  SigninFrameCertMultipleFiltersAutoSelected
-#endif
 IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
-                       MAYBE_SigninFrameCertMultipleFiltersAutoSelected) {
+                       DISABLED_SigninFrameCertMultipleFiltersAutoSelected) {
   ASSERT_NO_FATAL_FAILURE(SetUpClientCertInSystemSlot());
   net::SpawnedTestServer::SSLOptions ssl_options;
   ssl_options.request_client_certificate = true;
@@ -833,8 +827,10 @@ IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
 // Tests that client certificate authentication is not enabled in a webview on
 // the sign-in screen which is not the sign-in frame. In this case, the EULA
 // webview is used.
+// TODO(pmarko): This is DISABLED because the eula UI it depends on has been
+// deprecated and removed. https://crbug.com/849710.
 IN_PROC_BROWSER_TEST_F(WebviewClientCertsLoginTest,
-                       ClientCertRequestedInOtherWebView) {
+                       DISABLED_ClientCertRequestedInOtherWebView) {
   ASSERT_NO_FATAL_FAILURE(SetUpClientCertInSystemSlot());
   net::SpawnedTestServer::SSLOptions ssl_options;
   ssl_options.request_client_certificate = true;
@@ -999,7 +995,8 @@ class WebviewProxyAuthLoginTest : public WebviewLoginTest {
   DISALLOW_COPY_AND_ASSIGN(WebviewProxyAuthLoginTest);
 };
 
-IN_PROC_BROWSER_TEST_F(WebviewProxyAuthLoginTest, ProxyAuthTransfer) {
+// Disabled fails on msan and also non-msan bots: https://crbug.com/849128.
+IN_PROC_BROWSER_TEST_F(WebviewProxyAuthLoginTest, DISABLED_ProxyAuthTransfer) {
   WaitForSigninScreen();
 
   LoginHandler* login_handler = WaitForAuthRequested();

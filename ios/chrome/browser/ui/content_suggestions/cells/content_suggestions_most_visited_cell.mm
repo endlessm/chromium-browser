@@ -5,9 +5,9 @@
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_cell.h"
 
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_constants.h"
-#import "ios/chrome/browser/ui/favicon/favicon_view.h"
 #include "ios/chrome/browser/ui/ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/chrome/common/favicon/favicon_view.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -33,8 +33,7 @@ const CGFloat kIconSizeLegacy = 48;
     _titleLabel = [[UILabel alloc] init];
     if (IsUIRefreshPhase1Enabled()) {
       _titleLabel.textColor = [UIColor colorWithWhite:0 alpha:kTitleAlpha];
-      _titleLabel.font =
-          [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+      _titleLabel.font = [UIFont systemFontOfSize:12];
     } else {
       _titleLabel.textColor =
           [UIColor colorWithWhite:kLabelTextColor alpha:1.0];
@@ -46,12 +45,10 @@ const CGFloat kIconSizeLegacy = 48;
 
     _faviconView = [[FaviconViewNew alloc] init];
     if (IsUIRefreshPhase1Enabled()) {
-      _faviconView.font =
-          [UIFont preferredFontForTextStyle:UIFontTextStyleTitle2];
+      _faviconView.font = [UIFont systemFontOfSize:22];
     } else {
       _faviconView.font = [MDCTypography headlineFont];
     }
-
     _titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     _faviconView.translatesAutoresizingMaskIntoConstraints = NO;
 

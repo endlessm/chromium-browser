@@ -16,6 +16,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/extras/importer/linux_perf/disk_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/drm_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/exynos_parser.html">
+<link rel="import" href="/tracing/extras/importer/linux_perf/fence_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/gesture_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/i2c_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/i915_parser.html">
@@ -383,7 +384,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           openSlice: undefined,
           openSliceTS: undefined
         };
-        this.threadsByLinuxPid[pid] = thread;
+        this.threadsByLinuxPid[tid] = thread;
       }
       return this.kernelThreadStates_[kernelThreadName];
     },
@@ -405,7 +406,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           openSlice: undefined,
           openSliceTS: undefined
         };
-        this.threadsByLinuxPid[pid] = thread;
+        this.threadsByLinuxPid[tid] = thread;
       }
       return this.kernelThreadStates_[key];
     },

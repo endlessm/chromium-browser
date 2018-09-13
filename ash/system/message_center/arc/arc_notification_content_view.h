@@ -12,8 +12,10 @@
 #include "ash/system/message_center/arc/arc_notification_surface_manager.h"
 #include "base/macros.h"
 #include "ui/aura/window_observer.h"
+#include "ui/message_center/views/notification_background_painter.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
 #include "ui/views/controls/native/native_view_host.h"
+#include "ui/views/widget/widget_observer.h"
 
 namespace message_center {
 class Notification;
@@ -39,7 +41,8 @@ class ArcNotificationContentView
     : public views::NativeViewHost,
       public aura::WindowObserver,
       public ArcNotificationItem::Observer,
-      public ArcNotificationSurfaceManager::Observer {
+      public ArcNotificationSurfaceManager::Observer,
+      public views::WidgetObserver {
  public:
   static const char kViewClassName[];
 
@@ -51,16 +54,20 @@ class ArcNotificationContentView
   // views::View overrides:
   const char* GetClassName() const override;
 
-  void Update(message_center::MessageView* message_view,
-              const message_center::Notification& notification);
+  void Update(const message_center::Notification& notification);
   message_center::NotificationControlButtonsView* GetControlButtonsView();
   void UpdateControlButtonsVisibility();
+  void UpdateCornerRadius(int top_radius, int bottom_radius);
   void OnSlideChanged();
   void OnContainerAnimationStarted();
   void OnContainerAnimationEnded();
+  void ActivateWidget(bool activate);
 
  private:
+  friend class ArcNotificationViewTest;
   friend class ArcNotificationContentViewTest;
+  FRIEND_TEST_ALL_PREFIXES(ArcNotificationContentViewTest,
+                           ActivateWhenRemoteInputOpens);
 
   class EventForwarder;
   class MouseEnterExitHandler;
@@ -74,7 +81,6 @@ class ArcNotificationContentView
   void UpdatePreferredSize();
   void UpdateSnapshot();
   void AttachSurface();
-  void Activate();
   void SetExpanded(bool expanded);
   bool IsExpanded() const;
   void SetManuallyExpandedOrCollapsed(bool value);
@@ -82,6 +88,9 @@ class ArcNotificationContentView
 
   void ShowCopiedSurface();
   void HideCopiedSurface();
+
+  // Generates a mask using |top_radius_| and |bottom_radius_| and installs it.
+  void InstallMask();
 
   // views::NativeViewHost
   void ViewHierarchyChanged(
@@ -95,6 +104,8 @@ class ArcNotificationContentView
   views::FocusTraversable* GetFocusTraversable() override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnAccessibilityEvent(ax::mojom::Event event) override;
+  void AddedToWidget() override;
+  void RemovedFromWidget() override;
 
   // aura::WindowObserver
   void OnWindowBoundsChanged(aura::Window* window,
@@ -103,8 +114,14 @@ class ArcNotificationContentView
                              ui::PropertyChangeReason reason) override;
   void OnWindowDestroying(aura::Window* window) override;
 
+  // views::WidgetObserver:
+  void OnWidgetClosing(views::Widget* widget) override;
+
   // ArcNotificationItem::Observer
   void OnItemDestroying() override;
+  void OnItemContentChanged(
+      arc::mojom::ArcNotificationShownContents content) override;
+  void OnRemoteInputActivationChanged(bool activated) override;
 
   // ArcNotificationSurfaceManager::Observer:
   void OnNotificationSurfaceAdded(ArcNotificationSurface* surface) override;
@@ -114,6 +131,8 @@ class ArcNotificationContentView
   // we have to be careful about what we do.
   ArcNotificationItem* item_;
   ArcNotificationSurface* surface_ = nullptr;
+  arc::mojom::ArcNotificationShownContents shown_content_ =
+      arc::mojom::ArcNotificationShownContents::CONTENTS_SHOWN;
 
   // The flag to prevent an infinite loop of changing the visibility.
   bool updating_control_buttons_visibility_ = false;
@@ -141,15 +160,27 @@ class ArcNotificationContentView
   // it.
   std::unique_ptr<views::Widget> floating_control_buttons_widget_;
 
+  // The message view which wrapps thie view. This must be the parent of this
+  // view.
+  message_center::MessageView* const message_view_;
+
   // This view is owned by client (this).
   message_center::NotificationControlButtonsView control_buttons_view_;
 
   // Protects from call loops between Layout and OnWindowBoundsChanged.
   bool in_layout_ = false;
 
+  // Widget which this view tree is currently attached to.
+  views::Widget* attached_widget_ = nullptr;
+
   base::string16 accessible_name_;
 
+  // Radiuses of rounded corners. These values are used in InstallMask().
+  int top_radius_ = 0;
+  int bottom_radius_ = 0;
+
   std::unique_ptr<ui::LayerTreeOwner> surface_copy_;
+  std::unique_ptr<ui::LayerOwner> surface_copy_mask_;
 
   DISALLOW_COPY_AND_ASSIGN(ArcNotificationContentView);
 };

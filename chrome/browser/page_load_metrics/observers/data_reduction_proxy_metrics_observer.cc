@@ -23,6 +23,7 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_page_load_timing.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
+#include "components/previews/core/previews_user_data.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_data.h"
 #include "content/public/browser/navigation_handle.h"
@@ -147,6 +148,13 @@ DataReductionProxyMetricsObserver::OnCommit(
   if (!data || !data->used_data_reduction_proxy())
     return STOP_OBSERVING;
   data_ = data->DeepCopy();
+
+  previews::PreviewsUserData* previews_data =
+      chrome_navigation_data->previews_user_data();
+  if (previews_data) {
+    data_->set_black_listed(previews_data->black_listed_for_lite_page());
+  }
+
   process_id_ = navigation_handle->GetWebContents()
                     ->GetMainFrame()
                     ->GetProcess()
@@ -578,7 +586,7 @@ void DataReductionProxyMetricsObserver::RequestProcessDump(
     memory_instrumentation::MemoryInstrumentation::RequestGlobalDumpCallback
         callback) {
   memory_instrumentation::MemoryInstrumentation::GetInstance()
-      ->RequestGlobalDumpForPid(pid, callback);
+      ->RequestPrivateMemoryFootprint(pid, callback);
 }
 
 }  // namespace data_reduction_proxy

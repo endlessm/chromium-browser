@@ -74,6 +74,15 @@ void SendMessageToProcesses(
 ActiveTabPermissionGranter::Delegate* g_active_tab_permission_granter_delegate =
     nullptr;
 
+// Returns true if activeTab is allowed to be granted to the extension. This can
+// return false for platform-specific implementations.
+bool ShouldGrantActiveTabOrPrompt(const Extension* extension,
+                                  content::WebContents* web_contents) {
+  return !g_active_tab_permission_granter_delegate ||
+         g_active_tab_permission_granter_delegate->ShouldGrantActiveTabOrPrompt(
+             extension, web_contents);
+}
+
 }  // namespace
 
 ActiveTabPermissionGranter::ActiveTabPermissionGranter(
@@ -108,16 +117,21 @@ void ActiveTabPermissionGranter::GrantIfRequested(const Extension* extension) {
 
   const PermissionsData* permissions_data = extension->permissions_data();
 
-  bool should_grant_active_tab =
-      !g_active_tab_permission_granter_delegate ||
-      g_active_tab_permission_granter_delegate->ShouldGrantActiveTab(
-          extension, web_contents());
-  // If the extension requested all-hosts but has had it withheld, we grant it
-  // active tab-style permissions, even if it doesn't have the activeTab
-  // permission in the manifest.
-  if (should_grant_active_tab &&
-      (permissions_data->HasWithheldImpliedAllHosts() ||
-       permissions_data->HasAPIPermission(APIPermission::kActiveTab))) {
+  // TODO(devlin): This should be GetLastCommittedURL().
+  GURL url = web_contents()->GetVisibleURL();
+
+  // If the extension requested the host permission to |url| but had it
+  // withheld, we grant it active tab-style permissions, even if it doesn't have
+  // the activeTab permission in the manifest. This is necessary for the
+  // runtime host permissions feature to work.
+  // Note: It's important that we check if the extension has activeTab before
+  // checking ShouldGrantActiveTabOrPrompt() in order to prevent
+  // ShouldGrantActiveTabOrPrompt() from prompting for extensions that don't
+  // request the activeTab permission.
+  if ((permissions_data->HasAPIPermission(APIPermission::kActiveTab) ||
+       permissions_data->withheld_permissions().effective_hosts().MatchesURL(
+           url)) &&
+      ShouldGrantActiveTabOrPrompt(extension, web_contents())) {
     // Gate activeTab for file urls on extensions having explicit access to file
     // urls.
     int valid_schemes = UserScript::ValidUserScriptSchemes();
@@ -125,8 +139,7 @@ void ActiveTabPermissionGranter::GrantIfRequested(const Extension* extension) {
                                web_contents()->GetBrowserContext())) {
       valid_schemes &= ~URLPattern::SCHEME_FILE;
     }
-    new_hosts.AddOrigin(valid_schemes,
-                        web_contents()->GetVisibleURL().GetOrigin());
+    new_hosts.AddOrigin(valid_schemes, url.GetOrigin());
     new_apis.insert(APIPermission::kTab);
   }
 

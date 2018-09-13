@@ -39,8 +39,8 @@ import org.chromium.base.CommandLine;
 import org.chromium.base.SysUtils;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.DisableHistogramsRule;
 import org.chromium.chrome.browser.background_task_scheduler.NativeBackgroundTask;
+import org.chromium.chrome.test.support.DisableHistogramsRule;
 import org.chromium.components.background_task_scheduler.BackgroundTask;
 import org.chromium.components.background_task_scheduler.BackgroundTaskScheduler;
 import org.chromium.components.background_task_scheduler.BackgroundTaskSchedulerFactory;
@@ -150,7 +150,7 @@ public class OfflineBackgroundTaskTest {
 
         int result = new OfflineBackgroundTask().onStartTaskBeforeNativeLoaded(
                 RuntimeEnvironment.application, params, mTaskFinishedCallback);
-        assertEquals(NativeBackgroundTask.RESCHEDULE, result);
+        assertEquals(NativeBackgroundTask.StartBeforeNativeResult.RESCHEDULE, result);
         // Task finished can only gets called from the native part, when async processing starts.
         verify(mTaskFinishedCallback, times(0)).taskFinished(anyBoolean());
     }
@@ -175,7 +175,7 @@ public class OfflineBackgroundTaskTest {
 
         int result = new OfflineBackgroundTask().onStartTaskBeforeNativeLoaded(
                 RuntimeEnvironment.application, params, mTaskFinishedCallback);
-        assertEquals(NativeBackgroundTask.LOAD_NATIVE, result);
+        assertEquals(NativeBackgroundTask.StartBeforeNativeResult.LOAD_NATIVE, result);
         // Task finished can only gets called from the native part, when async processing starts.
         verify(mTaskFinishedCallback, times(0)).taskFinished(anyBoolean());
     }
@@ -197,7 +197,7 @@ public class OfflineBackgroundTaskTest {
 
         int result = new OfflineBackgroundTask().onStartTaskBeforeNativeLoaded(
                 RuntimeEnvironment.application, params, mTaskFinishedCallback);
-        assertEquals(NativeBackgroundTask.RESCHEDULE, result);
+        assertEquals(NativeBackgroundTask.StartBeforeNativeResult.RESCHEDULE, result);
         // Task finished can only gets called from the native part, when async processing starts.
         verify(mTaskFinishedCallback, times(0)).taskFinished(anyBoolean());
     }
@@ -219,7 +219,7 @@ public class OfflineBackgroundTaskTest {
 
         int result = new OfflineBackgroundTask().onStartTaskBeforeNativeLoaded(
                 RuntimeEnvironment.application, params, mTaskFinishedCallback);
-        assertEquals(NativeBackgroundTask.LOAD_NATIVE, result);
+        assertEquals(NativeBackgroundTask.StartBeforeNativeResult.LOAD_NATIVE, result);
         // Task finished can only gets called from the native part, when async processing starts.
         verify(mTaskFinishedCallback, times(0)).taskFinished(anyBoolean());
     }

@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_SIGNIN_ACCOUNT_CONSISTENCY_MODE_MANAGER_H_
 #define CHROME_BROWSER_SIGNIN_ACCOUNT_CONSISTENCY_MODE_MANAGER_H_
 
+#include "base/feature_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "build/buildflag.h"
@@ -18,6 +19,20 @@ class PrefRegistrySyncable;
 }
 
 class Profile;
+
+// Account consistency feature. Only used on platforms where Mirror is not
+// always enabled (ENABLE_MIRROR is false).
+extern const base::Feature kAccountConsistencyFeature;
+
+// The account consistency method feature parameter name.
+extern const char kAccountConsistencyFeatureMethodParameter[];
+
+// Account consistency method feature values.
+extern const char kAccountConsistencyFeatureMethodMirror[];
+extern const char kAccountConsistencyFeatureMethodDiceFixAuthErrors[];
+extern const char kAccountConsistencyFeatureMethodDicePrepareMigration[];
+extern const char kAccountConsistencyFeatureMethodDiceMigration[];
+extern const char kAccountConsistencyFeatureMethodDice[];
 
 // Manages the account consistency mode for each profile.
 class AccountConsistencyModeManager : public KeyedService {
@@ -33,12 +48,6 @@ class AccountConsistencyModeManager : public KeyedService {
 
   // Helper method, shorthand for calling GetAccountConsistencyMethod().
   static signin::AccountConsistencyMethod GetMethodForProfile(Profile* profile);
-
-  // Returns the account consistency method for the current profile. Can be
-  // called from any thread, with a PrefMember created with
-  // signin::CreateDicePrefMember().
-  static signin::AccountConsistencyMethod GetMethodForPrefMember(
-      BooleanPrefMember* dice_pref_member);
 
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
   // Schedules migration to happen at next startup.
@@ -58,9 +67,9 @@ class AccountConsistencyModeManager : public KeyedService {
   // behaviour enabled.
   static bool IsMirrorEnabledForProfile(Profile* profile);
 
-  // By default, Deskotp Identity Consistency (aka Dice) is not enabled in
+  // By default, Desktop Identity Consistency (aka Dice) is not enabled in
   // builds lacking an API key. For testing, set to have Dice enabled in tests.
-  static void SetIgnoreMissingApiKeysForTesting();
+  static void SetIgnoreMissingOAuthClientForTesting();
 
  private:
   FRIEND_TEST_ALL_PREFIXES(AccountConsistencyModeManagerTest,
@@ -72,17 +81,25 @@ class AccountConsistencyModeManager : public KeyedService {
   static void SetDiceMigrationOnStartup(PrefService* prefs, bool migrate);
 
   // Returns true if migration can happen on the next startup.
-  bool IsReadyForDiceMigration();
+  static bool IsReadyForDiceMigration(Profile* profile);
 #endif
 
   // Returns the account consistency method for the current profile.
   signin::AccountConsistencyMethod GetAccountConsistencyMethod();
 
+  // Computes the account consistency method for the current profile. This is
+  // only called from the constructor, the account consistency method cannot
+  // change during the lifetime of a profile.
+  static signin::AccountConsistencyMethod ComputeAccountConsistencyMethod(
+      Profile* profile);
+
   Profile* profile_;
+  signin::AccountConsistencyMethod account_consistency_;
+  bool account_consistency_initialized_;
 
   // By default, DICE is not enabled in builds lacking an API key. Set to true
   // for tests.
-  static bool ignore_missing_key_for_testing_;
+  static bool ignore_missing_oauth_client_for_testing_;
 
   DISALLOW_COPY_AND_ASSIGN(AccountConsistencyModeManager);
 };

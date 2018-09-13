@@ -89,29 +89,24 @@ static bool hasMemoryOperand(const llvm::MCOperandInfo &OpInfo) {
   return OpInfo.OperandType == llvm::MCOI::OPERAND_MEMORY;
 }
 
-static bool isInfeasible(const Instruction &Instruction, std::string &Error) {
-  const auto &MCInstrDesc = Instruction.Description;
-  if (MCInstrDesc.isPseudo()) {
-    Error = "is pseudo";
-    return true;
-  }
-  if (llvm::any_of(MCInstrDesc.operands(), hasUnknownOperand)) {
-    Error = "has unknown operands";
-    return true;
-  }
-  if (llvm::any_of(MCInstrDesc.operands(), hasMemoryOperand)) {
-    Error = "has memory operands";
-    return true;
-  }
-  return false;
+llvm::Error
+UopsBenchmarkRunner::isInfeasible(const llvm::MCInstrDesc &MCInstrDesc) const {
+  if (llvm::any_of(MCInstrDesc.operands(), hasUnknownOperand))
+    return llvm::make_error<BenchmarkFailure>(
+        "Infeasible : has unknown operands");
+  if (llvm::any_of(MCInstrDesc.operands(), hasMemoryOperand))
+    return llvm::make_error<BenchmarkFailure>(
+        "Infeasible : has memory operands");
+  return llvm::Error::success();
 }
 
 // Returns whether this Variable ties Use and Def operands together.
-static bool hasTiedOperands(const Variable *Var) {
+static bool hasTiedOperands(const Instruction &Instr, const Variable &Var) {
   bool HasUse = false;
   bool HasDef = false;
-  for (const Operand *Op : Var->TiedOperands) {
-    if (Op->IsDef)
+  for (const unsigned OpIndex : Var.TiedOperands) {
+    const Operand &Op = Instr.Operands[OpIndex];
+    if (Op.IsDef)
       HasDef = true;
     else
       HasUse = true;
@@ -119,12 +114,12 @@ static bool hasTiedOperands(const Variable *Var) {
   return HasUse && HasDef;
 }
 
-static llvm::SmallVector<Variable *, 8>
-getTiedVariables(const Instruction &Instruction) {
-  llvm::SmallVector<Variable *, 8> Result;
-  for (auto *Var : Instruction.Variables)
-    if (hasTiedOperands(Var))
-      Result.push_back(Var);
+static llvm::SmallVector<const Variable *, 8>
+getTiedVariables(const Instruction &Instr) {
+  llvm::SmallVector<const Variable *, 8> Result;
+  for (const auto &Var : Instr.Variables)
+    if (hasTiedOperands(Instr, Var))
+      Result.push_back(&Var);
   return Result;
 }
 
@@ -134,90 +129,72 @@ static void remove(llvm::BitVector &a, const llvm::BitVector &b) {
     a.reset(I);
 }
 
-static llvm::Error makeError(llvm::Twine Msg) {
-  return llvm::make_error<llvm::StringError>(Msg,
-                                             llvm::inconvertibleErrorCode());
-}
-
 UopsBenchmarkRunner::~UopsBenchmarkRunner() = default;
 
-const char *UopsBenchmarkRunner::getDisplayName() const { return "uops"; }
-
-llvm::Expected<std::vector<llvm::MCInst>>
-UopsBenchmarkRunner::createSnippet(RegisterAliasingTrackerCache &RATC,
-                                   unsigned Opcode,
-                                   llvm::raw_ostream &Info) const {
-  std::vector<llvm::MCInst> Snippet;
-  const llvm::MCInstrDesc &MCInstrDesc = MCInstrInfo.get(Opcode);
-  const Instruction Instruction(MCInstrDesc, RATC);
-
-  std::string Error;
-  if (isInfeasible(Instruction, Error)) {
-    llvm::report_fatal_error(llvm::Twine("Infeasible : ").concat(Error));
-  }
-
-  const AliasingConfigurations SelfAliasing(Instruction, Instruction);
+llvm::Expected<SnippetPrototype>
+UopsBenchmarkRunner::generatePrototype(unsigned Opcode) const {
+  const auto &InstrDesc = State.getInstrInfo().get(Opcode);
+  if (auto E = isInfeasible(InstrDesc))
+    return std::move(E);
+  const Instruction Instr(InstrDesc, RATC);
+  const AliasingConfigurations SelfAliasing(Instr, Instr);
   if (SelfAliasing.empty()) {
-    Info << "instruction is parallel, repeating a random one.\n";
-    Snippet.push_back(randomizeUnsetVariablesAndBuild(Instruction));
-    return Snippet;
+    return generateUnconstrainedPrototype(Instr, "instruction is parallel");
   }
   if (SelfAliasing.hasImplicitAliasing()) {
-    Info << "instruction is serial, repeating a random one.\n";
-    Snippet.push_back(randomizeUnsetVariablesAndBuild(Instruction));
-    return Snippet;
+    return generateUnconstrainedPrototype(Instr, "instruction is serial");
   }
-  const auto TiedVariables = getTiedVariables(Instruction);
+  const auto TiedVariables = getTiedVariables(Instr);
   if (!TiedVariables.empty()) {
-    if (TiedVariables.size() > 1) {
-      Info << "Not yet implemented, don't know how to handle several tied "
-              "variables\n";
-      return makeError("Infeasible : don't know how to handle several tied "
-                       "variables");
-    }
-    Info << "instruction has tied variables using static renaming.\n";
-    Variable *Var = TiedVariables.front();
+    if (TiedVariables.size() > 1)
+      return llvm::make_error<llvm::StringError>(
+          "Infeasible : don't know how to handle several tied variables",
+          llvm::inconvertibleErrorCode());
+    const Variable *Var = TiedVariables.front();
     assert(Var);
     assert(!Var->TiedOperands.empty());
-    const Operand &Operand = *Var->TiedOperands.front();
-    assert(Operand.Tracker);
-    for (const llvm::MCPhysReg Reg : Operand.Tracker->sourceBits().set_bits()) {
-      clearVariableAssignments(Instruction);
-      Var->AssignedValue = llvm::MCOperand::createReg(Reg);
-      Snippet.push_back(randomizeUnsetVariablesAndBuild(Instruction));
+    const Operand &Op = Instr.Operands[Var->TiedOperands.front()];
+    assert(Op.Tracker);
+    SnippetPrototype Prototype;
+    Prototype.Explanation =
+        "instruction has tied variables using static renaming.";
+    for (const llvm::MCPhysReg Reg : Op.Tracker->sourceBits().set_bits()) {
+      Prototype.Snippet.emplace_back(Instr);
+      Prototype.Snippet.back().getValueFor(*Var) =
+          llvm::MCOperand::createReg(Reg);
     }
-    return Snippet;
+    return std::move(Prototype);
   }
+  InstructionInstance II(Instr);
   // No tied variables, we pick random values for defs.
-  llvm::BitVector Defs(MCRegisterInfo.getNumRegs());
-  for (const auto &Op : Instruction.Operands) {
+  llvm::BitVector Defs(State.getRegInfo().getNumRegs());
+  for (const auto &Op : Instr.Operands) {
     if (Op.Tracker && Op.IsExplicit && Op.IsDef) {
-      assert(Op.Var);
       auto PossibleRegisters = Op.Tracker->sourceBits();
       remove(PossibleRegisters, RATC.reservedRegisters());
       assert(PossibleRegisters.any() && "No register left to choose from");
       const auto RandomReg = randomBit(PossibleRegisters);
       Defs.set(RandomReg);
-      Op.Var->AssignedValue = llvm::MCOperand::createReg(RandomReg);
+      II.getValueFor(Op) = llvm::MCOperand::createReg(RandomReg);
     }
   }
   // And pick random use values that are not reserved and don't alias with defs.
-  const auto DefAliases = getAliasedBits(MCRegisterInfo, Defs);
-  for (const auto &Op : Instruction.Operands) {
+  const auto DefAliases = getAliasedBits(State.getRegInfo(), Defs);
+  for (const auto &Op : Instr.Operands) {
     if (Op.Tracker && Op.IsExplicit && !Op.IsDef) {
-      assert(Op.Var);
       auto PossibleRegisters = Op.Tracker->sourceBits();
       remove(PossibleRegisters, RATC.reservedRegisters());
       remove(PossibleRegisters, DefAliases);
       assert(PossibleRegisters.any() && "No register left to choose from");
       const auto RandomReg = randomBit(PossibleRegisters);
-      Op.Var->AssignedValue = llvm::MCOperand::createReg(RandomReg);
+      II.getValueFor(Op) = llvm::MCOperand::createReg(RandomReg);
     }
   }
-  Info
-      << "instruction has no tied variables picking Uses different from defs\n";
-  Snippet.push_back(randomizeUnsetVariablesAndBuild(Instruction));
-  return Snippet;
+  SnippetPrototype Prototype;
+  Prototype.Explanation =
+      "instruction has no tied variables picking Uses different from defs";
+  Prototype.Snippet.push_back(std::move(II));
+  return std::move(Prototype);
 }
 
 std::vector<BenchmarkMeasure>
@@ -232,18 +209,24 @@ UopsBenchmarkRunner::runMeasurements(const ExecutableFunction &Function,
                                         .PfmCounters.IssueCounters[ProcResIdx];
     if (!PfmCounters)
       continue;
-    // FIXME: Sum results when there are several counters for a single ProcRes
+    // We sum counts when there are several counters for a single ProcRes
     // (e.g. P23 on SandyBridge).
-    pfm::PerfEvent UopPerfEvent(PfmCounters);
-    if (!UopPerfEvent.valid())
-      llvm::report_fatal_error(
-          llvm::Twine("invalid perf event ").concat(PfmCounters));
-    pfm::Counter Counter(UopPerfEvent);
-    Counter.start();
-    Function();
-    Counter.stop();
+    int64_t CounterValue = 0;
+    llvm::SmallVector<llvm::StringRef, 2> CounterNames;
+    llvm::StringRef(PfmCounters).split(CounterNames, ',');
+    for (const auto &CounterName : CounterNames) {
+      pfm::PerfEvent UopPerfEvent(CounterName);
+      if (!UopPerfEvent.valid())
+        llvm::report_fatal_error(
+            llvm::Twine("invalid perf event ").concat(PfmCounters));
+      pfm::Counter Counter(UopPerfEvent);
+      Counter.start();
+      Function();
+      Counter.stop();
+      CounterValue += Counter.read();
+    }
     Result.push_back({llvm::itostr(ProcResIdx),
-                      static_cast<double>(Counter.read()) / NumRepetitions,
+                      static_cast<double>(CounterValue) / NumRepetitions,
                       SchedModel.getProcResource(ProcResIdx)->Name});
   }
   return Result;

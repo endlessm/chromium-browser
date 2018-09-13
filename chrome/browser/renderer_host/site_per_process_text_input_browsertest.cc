@@ -744,13 +744,21 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
     send_tab_set_composition_wait_for_bounds_change(view);
 }
 
+// Failing on Mac - http://crbug.com/852452
+#if defined(OS_MACOSX)
+#define MAYBE_TrackTextSelectionForAllFrames \
+  DISABLED_TrackTextSelectionForAllFrames
+#else
+#define MAYBE_TrackTextSelectionForAllFrames TrackTextSelectionForAllFrames
+#endif
+
 // This test creates a page with multiple child frames and adds an <input> to
 // each frame. Then, sequentially, each <input> is focused by sending a tab key.
 // After focusing each input, a sequence of key presses (character 'E') are sent
 // to the focused widget. The test then verifies that the selection length
 // equals the length of the sequence of 'E's.
 IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
-                       TrackTextSelectionForAllFrames) {
+                       MAYBE_TrackTextSelectionForAllFrames) {
   CreateIframePage("a(b,c(a,b),d)");
   std::vector<content::RenderFrameHost*> frames{
       GetFrame(IndexVector{}),     GetFrame(IndexVector{0}),
@@ -799,8 +807,14 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
 // corresponding to a focused frame with a focused <input> to commit some text.
 // Then, it verifies that the <input>'s value matches the committed text
 // (https://crbug.com/688842).
+// Flaky on Android and Linux http://crbug.com/852274
+#if defined(OS_MACOSX)
+#define MAYBE_ImeCommitTextForAllFrames DISABLED_ImeCommitTextForAllFrames
+#else
+#define MAYBE_ImeCommitTextForAllFrames ImeCommitTextForAllFrames
+#endif
 IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
-                       ImeCommitTextForAllFrames) {
+                       MAYBE_ImeCommitTextForAllFrames) {
   CreateIframePage("a(b,c(a))");
   std::vector<content::RenderFrameHost*> frames{
       GetFrame(IndexVector{}), GetFrame(IndexVector{0}),
@@ -1063,7 +1077,8 @@ class InputMethodObserverForShowIme : public InputMethodObserverBase {
  public:
   explicit InputMethodObserverForShowIme(content::WebContents* web_contents)
       : InputMethodObserverBase(web_contents) {
-    test_observer()->SetOnShowImeIfNeededCallback(success_closure());
+    test_observer()->SetOnShowVirtualKeyboardIfEnabledCallback(
+        success_closure());
   }
 
  private:
@@ -1078,7 +1093,7 @@ class InputMethodObserverForShowIme : public InputMethodObserverBase {
 // the TextInputState has not changed (according to the platform), e.g., in
 // aura when receiving two consecutive updates with same |TextInputState.type|.
 IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
-                       CorrectlyShowImeIfNeeded) {
+                       CorrectlyShowVirtualKeyboardIfEnabled) {
   // We only need the <iframe> page to create RWHV.
   CreateIframePage("a()");
   content::RenderFrameHost* main_frame = GetFrame(IndexVector{});
@@ -1101,14 +1116,14 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
   EXPECT_FALSE(send_and_check_show_ime());
 
   // Set |TextInputState.show_ime_if_needed| to true. Expect IME.
-  sender.SetShowImeIfNeeded(true);
+  sender.SetShowVirtualKeyboardIfEnabled(true);
   EXPECT_TRUE(send_and_check_show_ime());
 
   // Send the same message. Expect IME (no change).
   EXPECT_TRUE(send_and_check_show_ime());
 
   // Reset |TextInputState.show_ime_if_needed|. Expect no IME.
-  sender.SetShowImeIfNeeded(false);
+  sender.SetShowVirtualKeyboardIfEnabled(false);
   EXPECT_FALSE(send_and_check_show_ime());
 
   // Setting an irrelevant field. Expect no IME.
@@ -1116,7 +1131,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
   EXPECT_FALSE(send_and_check_show_ime());
 
   // Set |TextInputState.show_ime_if_needed|. Expect IME.
-  sender.SetShowImeIfNeeded(true);
+  sender.SetShowVirtualKeyboardIfEnabled(true);
   EXPECT_TRUE(send_and_check_show_ime());
 
   // Set |TextInputState.type| to ui::TEXT_INPUT_TYPE_NONE. Expect no IME.

@@ -92,18 +92,20 @@ void BindColor(Model* model,
   view->AddBinding(std::make_unique<Binding<SkColor>>(
       base::BindRepeating([](Model* m, C c) { return (m->color_scheme()).*c; },
                           base::Unretained(model), color),
+#ifndef NDEBUG
       color_string,
+#endif
       base::BindRepeating(
           [](V* v, S s, const SkColor& value) { (v->*s)(value); },
-          base::Unretained(view), setter),
-      setter_string));
+          base::Unretained(view), setter)
+#ifndef NDEBUG
+          ,
+      setter_string
+#endif
+      ));
 }
 
-#ifndef NDEBUG
 #define VR_BIND_COLOR(m, v, c, s) BindColor(m, v, c, #c, s, #s)
-#else
-#define VR_BIND_COLOR(m, v, c, s) BindColor(m, v, c, "", s, "")
-#endif
 
 template <typename V, typename C, typename S>
 void BindButtonColors(Model* model,
@@ -115,18 +117,20 @@ void BindButtonColors(Model* model,
   view->AddBinding(std::make_unique<Binding<ButtonColors>>(
       base::BindRepeating([](Model* m, C c) { return (m->color_scheme()).*c; },
                           base::Unretained(model), colors),
+#ifndef NDEBUG
       colors_string,
+#endif
       base::BindRepeating(
           [](V* v, S s, const ButtonColors& value) { (v->*s)(value); },
-          base::Unretained(view), setter),
-      setter_string));
+          base::Unretained(view), setter)
+#ifndef NDEBUG
+          ,
+      setter_string
+#endif
+      ));
 }
 
-#ifndef NDEBUG
 #define VR_BIND_BUTTON_COLORS(m, v, c, s) BindButtonColors(m, v, c, #c, s, #s)
-#else
-#define VR_BIND_BUTTON_COLORS(m, v, c, s) BindButtonColors(m, v, c, "", s, "")
-#endif
 
 #define VR_BIND_VISIBILITY(v, c) \
   v->AddBinding(                 \
@@ -654,6 +658,38 @@ std::unique_ptr<UiElement> CreateControllerElement(Model* model) {
                    VectorIcon, home_button.get(), SetColor));
   controller->AddChild(std::move(home_button));
 
+  auto battery_layout =
+      Create<LinearLayout>(kNone, kPhaseNone, LinearLayout::kRight);
+  battery_layout->set_margin(kControllerBatteryDotMargin);
+  battery_layout->SetRotate(1, 0, 0, -base::kPiFloat / 2);
+  battery_layout->SetTranslate(0.0f, 0.0f, kControllerBatteryDotZ);
+
+  for (int i = 0; i < kControllerBatteryDotCount; ++i) {
+    auto battery_dot =
+        Create<Rect>(static_cast<UiElementName>(kControllerBatteryDot0 + i),
+                     kPhaseForeground);
+    battery_dot->SetSize(kControllerBatteryDotSize, kControllerBatteryDotSize);
+    battery_dot->set_corner_radius(kControllerBatteryDotSize / 2);
+
+    battery_dot->AddBinding(std::make_unique<Binding<SkColor>>(
+        VR_BIND_LAMBDA(
+            [](Model* model, int index) {
+              return model->controller.battery_level > index
+                         ? model->color_scheme().controller_battery_full
+                         : model->color_scheme().controller_battery_empty;
+            },
+            base::Unretained(model), i),
+        VR_BIND_LAMBDA(
+            [](Rect* battery_dot, const SkColor& value) {
+              battery_dot->SetColor(value);
+            },
+            base::Unretained(battery_dot.get()))));
+
+    battery_layout->AddChild(std::move(battery_dot));
+  }
+
+  controller->AddChild(std::move(battery_layout));
+
   return controller;
 }
 
@@ -793,6 +829,9 @@ std::unique_ptr<UiElement> CreateHostedUi(
   hosted_ui->AddBinding(VR_BIND_FUNC(
       unsigned int, Model, model, model->hosted_platform_ui.texture_id,
       PlatformUiElement, hosted_ui.get(), SetTextureId));
+  hosted_ui->AddBinding(VR_BIND_FUNC(
+      UiElementRenderer::TextureLocation, Model, model, model->content_location,
+      PlatformUiElement, hosted_ui.get(), SetTextureLocation));
   hosted_ui->AddBinding(std::make_unique<Binding<bool>>(
       VR_BIND_LAMBDA(
           [](Model* m) { return m->hosted_platform_ui.hosted_ui_enabled; },
@@ -808,7 +847,7 @@ std::unique_ptr<UiElement> CreateHostedUi(
               hosted_ui.get(),
               view->SetTranslate(0, 0, value ? 0 : kHostedUiShadowOffset)));
   hosted_ui->AddBinding(std::make_unique<Binding<std::pair<bool, gfx::SizeF>>>(
-      base::BindRepeating(
+      VR_BIND_LAMBDA(
           [](Model* m) {
             return std::pair<bool, gfx::SizeF>(
                 m->hosted_platform_ui.floating,
@@ -816,7 +855,7 @@ std::unique_ptr<UiElement> CreateHostedUi(
                            m->hosted_platform_ui.rect.height()));
           },
           base::Unretained(model)),
-      base::BindRepeating(
+      VR_BIND_LAMBDA(
           [](PlatformUiElement* dialog,
              const std::pair<bool, gfx::SizeF>& value) {
             if (!value.first && value.second.width() > 0) {
@@ -840,7 +879,7 @@ std::unique_ptr<UiElement> CreateHostedUi(
   shadow->SetTransitionedProperties({OPACITY});
   shadow->AddChild(std::move(hosted_ui));
   shadow->AddBinding(std::make_unique<Binding<std::pair<bool, gfx::PointF>>>(
-      base::BindRepeating(
+      VR_BIND_LAMBDA(
           [](Model* m) {
             return std::pair<bool, gfx::PointF>(
                 m->hosted_platform_ui.floating,
@@ -848,7 +887,7 @@ std::unique_ptr<UiElement> CreateHostedUi(
                             m->hosted_platform_ui.rect.y()));
           },
           base::Unretained(model)),
-      base::BindRepeating(
+      VR_BIND_LAMBDA(
           [](Shadow* shadow, const std::pair<bool, gfx::PointF>& value) {
             if (value.first /* floating */) {
               shadow->set_x_centering(LEFT);
@@ -885,23 +924,28 @@ std::unique_ptr<UiElement> CreateHostedUi(
       base::Unretained(model), base::Unretained(browser));
   backplane->set_event_handlers(event_handlers);
   backplane->AddChild(std::move(shadow));
-  backplane->AddBinding(VR_BIND_FUNC(
-      bool, Model, model, model->hosted_platform_ui.hosted_ui_enabled,
-      InvisibleHitTarget, backplane.get(), SetVisible));
+  backplane->AddBinding(
+      VR_BIND_FUNC(bool, Model, model,
+                   model->hosted_platform_ui.hosted_ui_enabled &&
+                       model->active_modal_prompt_type == kModalPromptTypeNone,
+                   InvisibleHitTarget, backplane.get(), SetVisible));
 
   return backplane;
 }
 
 std::unique_ptr<Grid> CreateGrid(Model* model, UiElementName name) {
   auto grid = Create<Grid>(name, kPhaseBackground);
-  grid->SetSize(kSceneSize, kSceneSize);
-  grid->SetTranslate(0.0, kFloorHeight, 0.0);
-  grid->SetRotate(1, 0, 0, -base::kPiFloat / 2);
   grid->set_gridline_count(kFloorGridlineCount);
-  grid->SetGridColor(model->color_scheme().floor_grid);
   grid->set_hit_testable(true);
   grid->set_focusable(false);
   return grid;
+}
+
+void ApplyFloorTransform(Rect* floor) {
+  floor->SetSize(1.0f, 1.0f);
+  floor->SetScale(kSceneSize, kSceneSize, kSceneSize);
+  floor->SetTranslate(0.0, kFloorHeight, 0.0);
+  floor->SetRotate(1, 0, 0, -base::kPiFloat / 2);
 }
 
 void SetVisibleInLayout(UiElement* e, bool v) {
@@ -1114,9 +1158,8 @@ void UiSceneCreator::Create2dBrowsingSubtreeRoots() {
   hider->SetTransitionedProperties({OPACITY});
   hider->SetTransitionDuration(base::TimeDelta::FromMilliseconds(
       kSpeechRecognitionOpacityAnimationDurationMs));
-  VR_BIND_VISIBILITY(hider,
-                     model->get_last_opaque_mode() == kModeBrowsing ||
-                         model->get_last_opaque_mode() == kModeFullscreen);
+  VR_BIND_VISIBILITY(
+      hider, model->default_browsing_enabled() || model->fullscreen_enabled());
   scene_->AddUiElement(k2dBrowsingRepositioner, std::move(hider));
 
   auto fader = Create<UiElement>(k2dBrowsingVisibiltyFader, kPhaseNone);
@@ -1144,8 +1187,6 @@ void UiSceneCreator::Create2dBrowsingSubtreeRoots() {
   element->SetTransitionedProperties({OPACITY});
   element->SetTransitionDuration(base::TimeDelta::FromMilliseconds(
       kSpeechRecognitionOpacityAnimationDurationMs));
-  VR_BIND_VISIBILITY(element, model->default_browsing_enabled() ||
-                                  model->fullscreen_enabled());
   scene_->AddUiElement(k2dBrowsingVisibiltyFader, std::move(element));
 
   element = Create<UiElement>(k2dBrowsingContentGroup, kPhaseNone);
@@ -1497,7 +1538,6 @@ void UiSceneCreator::CreateContentQuad() {
 }
 
 void UiSceneCreator::CreateWebVrSubtree() {
-  CreateSplashScreenForDirectWebVrLaunch();
   CreateWebVrOverlayElements();
   CreateWebVrTimeoutScreen();
 
@@ -1518,14 +1558,17 @@ void UiSceneCreator::CreateWebVrSubtree() {
   VR_BIND_VISIBILITY(
       bg, model->web_vr_enabled() && (!model->web_vr.presenting_web_vr() ||
                                       model->web_vr.showing_hosted_ui));
-  auto grid = CreateGrid(model_, kWebVrFloor);
-  VR_BIND_COLOR(model_, grid.get(), &ColorScheme::web_vr_floor_center,
-                &Grid::SetCenterColor);
-  VR_BIND_COLOR(model_, grid.get(), &ColorScheme::web_vr_floor_edge,
-                &Grid::SetEdgeColor);
+  auto grid = CreateGrid(model_, kNone);
+  grid->set_owner_name_for_test(kWebVrFloor);
   VR_BIND_COLOR(model_, grid.get(), &ColorScheme::web_vr_floor_grid,
                 &Grid::SetGridColor);
-  grid->AddBinding(std::make_unique<Binding<bool>>(
+  auto grid_bg = Create<Rect>(kWebVrFloor, kPhaseBackground);
+  ApplyFloorTransform(grid_bg.get());
+  VR_BIND_COLOR(model_, grid_bg.get(), &ColorScheme::web_vr_floor_center,
+                &Rect::SetCenterColor);
+  VR_BIND_COLOR(model_, grid_bg.get(), &ColorScheme::web_vr_floor_edge,
+                &Rect::SetEdgeColor);
+  grid_bg->AddBinding(std::make_unique<Binding<bool>>(
       VR_BIND_LAMBDA(
           [](Model* model, UiElement* timeout_screen) {
             return model->web_vr_enabled() &&
@@ -1536,60 +1579,10 @@ void UiSceneCreator::CreateWebVrSubtree() {
           base::Unretained(scene_->GetUiElementByName(kWebVrTimeoutRoot))),
       VR_BIND_LAMBDA(
           [](UiElement* e, const bool& value) { e->SetVisible(value); },
-          base::Unretained(grid.get()))));
-  bg->AddChild(std::move(grid));
+          base::Unretained(grid_bg.get()))));
+  grid_bg->AddChild(std::move(grid));
+  bg->AddChild(std::move(grid_bg));
   scene_->AddUiElement(kWebVrRoot, std::move(bg));
-}
-
-void UiSceneCreator::CreateSplashScreenForDirectWebVrLaunch() {
-  // Create transient parent.
-  // TODO(crbug.com/762074): We should timeout after some time and show an
-  // error if the user is stuck on the splash screen.
-  auto transient_parent = std::make_unique<ShowUntilSignalTransientElement>(
-      base::TimeDelta::FromSeconds(kSplashScreenMinDurationSeconds),
-      base::TimeDelta::Max(),
-      base::BindRepeating(
-          [](Model* model) {
-            DCHECK(model->web_vr.awaiting_min_splash_screen_duration());
-            // TODO(ymalik): The assumption here is that the WebVR VSync will be
-            // paused until the min splash screen duration passes. This state
-            // change should be driven by the scheduler in the future and the UI
-            // should act on it.
-            model->web_vr.state = kWebVrAwaitingFirstFrame;
-          },
-          base::Unretained(model_)),
-      base::BindRepeating(
-          [](Model* model, UiBrowserInterface* browser,
-             TransientElementHideReason reason) {
-            if (reason == TransientElementHideReason::kTimeout) {
-              browser->ExitPresent();
-            }
-          },
-          base::Unretained(model_), base::Unretained(browser_)));
-  transient_parent->SetName(kSplashScreenTransientParent);
-  transient_parent->SetTransitionedProperties({OPACITY});
-  VR_BIND_VISIBILITY(transient_parent,
-                     model->web_vr_autopresentation_enabled());
-  transient_parent->AddBinding(VR_BIND_FUNC(
-      bool, Model, model_,
-      model->web_vr_autopresentation_enabled() &&
-          model->web_vr.state > kWebVrAwaitingFirstFrame,
-      ShowUntilSignalTransientElement, transient_parent.get(), Signal));
-  scene_->AddUiElement(kWebVrViewportAwareRoot, std::move(transient_parent));
-
-  // Add "Running in Chrome" text.
-  auto text_scaler =
-      std::make_unique<ScaledDepthAdjuster>(kSplashScreenTextDistance);
-  auto text = std::make_unique<Text>(kSplashScreenTextFontHeightDMM);
-  VR_BIND_COLOR(model_, text.get(), &ColorScheme::splash_screen_text_color,
-                &Text::SetColor);
-  text->SetText(l10n_util::GetStringUTF16(IDS_VR_RUNNING_IN_CHROME_MESSAGE));
-  text->SetName(kSplashScreenText);
-  text->SetDrawPhase(kPhaseForeground);
-  text->SetFieldWidth(kSplashScreenTextWidthDMM);
-  text->SetTranslate(0, kSplashScreenTextVerticalOffsetDMM, 0);
-  text_scaler->AddChild(std::move(text));
-  scene_->AddUiElement(kSplashScreenTransientParent, std::move(text_scaler));
 }
 
 void UiSceneCreator::CreateWebVrTimeoutScreen() {
@@ -1597,16 +1590,11 @@ void UiSceneCreator::CreateWebVrTimeoutScreen() {
   scaler->SetName(kWebVrTimeoutRoot);
   scaler->AddBinding(std::make_unique<Binding<bool>>(
       VR_BIND_LAMBDA(
-          [](Model* model, UiElement* splash_screen) {
-            // The timeout UI should only be visible when the splash screen is
-            // not visible.
+          [](Model* model) {
             return (model->web_vr.state == kWebVrTimeoutImminent ||
-                    model->web_vr.state == kWebVrTimedOut) &&
-                   splash_screen->GetTargetOpacity() == 0.f;
+                    model->web_vr.state == kWebVrTimedOut);
           },
-          base::Unretained(model_),
-          base::Unretained(
-              scene_->GetUiElementByName(kSplashScreenTransientParent))),
+          base::Unretained(model_)),
       VR_BIND_LAMBDA(
           [](UiElement* e, const bool& value) { e->SetVisible(value); },
           base::Unretained(scaler.get()))));
@@ -1720,6 +1708,9 @@ void UiSceneCreator::CreateBackground() {
   scene_->AddUiElement(k2dBrowsingTexturedBackground, std::move(stars));
 
   auto grid = CreateGrid(model_, kNone);
+  ApplyFloorTransform(grid.get());
+  VR_BIND_COLOR(model_, grid.get(), &ColorScheme::floor_grid,
+                &Grid::SetGridColor);
   grid->SetOpacity(kGridOpacity);
   scene_->AddUiElement(k2dBrowsingTexturedBackground, std::move(grid));
 
@@ -1736,13 +1727,17 @@ void UiSceneCreator::CreateBackground() {
   scene_->AddUiElement(k2dBrowsingDefaultBackground,
                        std::move(solid_background));
 
-  auto floor = CreateGrid(model_, kFloor);
-  VR_BIND_COLOR(model_, floor.get(), &ColorScheme::floor,
-                &Grid::SetCenterColor);
-  VR_BIND_COLOR(model_, floor.get(), &ColorScheme::world_background,
-                &Grid::SetEdgeColor);
-  VR_BIND_COLOR(model_, floor.get(), &ColorScheme::floor_grid,
+  auto grid_fallback = CreateGrid(model_, kNone);
+  grid_fallback->set_owner_name_for_test(kFloor);
+  VR_BIND_COLOR(model_, grid_fallback.get(), &ColorScheme::floor_grid,
                 &Grid::SetGridColor);
+  auto floor = Create<Rect>(kFloor, kPhaseBackground);
+  ApplyFloorTransform(floor.get());
+  VR_BIND_COLOR(model_, floor.get(), &ColorScheme::floor,
+                &Rect::SetCenterColor);
+  VR_BIND_COLOR(model_, floor.get(), &ColorScheme::world_background,
+                &Rect::SetEdgeColor);
+  floor->AddChild(std::move(grid_fallback));
   scene_->AddUiElement(k2dBrowsingDefaultBackground, std::move(floor));
 
   // Ceiling.
@@ -1925,20 +1920,6 @@ void UiSceneCreator::CreateController() {
 
   auto group = std::make_unique<UiElement>();
   group->SetName(kControllerGroup);
-  group->SetTransitionedProperties({OPACITY});
-  group->AddBinding(std::make_unique<Binding<bool>>(
-      VR_BIND_LAMBDA(
-          [](Model* m) {
-            return !m->controller.quiescent || !m->skips_redraw_when_not_dirty;
-          },
-          base::Unretained(model_)),
-      VR_BIND_LAMBDA(
-          [](UiElement* e, const bool& visible) {
-            e->SetTransitionDuration(base::TimeDelta::FromMilliseconds(
-                visible ? kControllerFadeInMs : kControllerFadeOutMs));
-            e->SetVisible(visible);
-          },
-          base::Unretained(group.get()))));
   scene_->AddUiElement(kControllerRoot, std::move(group));
 
   auto controller = CreateControllerElement(model_);
@@ -2461,9 +2442,7 @@ void UiSceneCreator::CreateOverflowMenu() {
     text->SetFieldWidth(kOverflowMenuMinimumWidth -
                         2 * kOverflowMenuItemXPadding);
     text->SetAlignment(kTextAlignmentLeft);
-    text->AddBinding(VR_BIND_FUNC(
-        SkColor, Model, model_, model->color_scheme().url_bar_button.foreground,
-        Text, text.get(), SetColor));
+    VR_BIND_COLOR(model_, text.get(), &ColorScheme::menu_text, &Text::SetColor);
     layout->AddChild(std::move(text));
 
     auto spacer = Create<Rect>(kNone, kPhaseNone);
@@ -2764,13 +2743,23 @@ void UiSceneCreator::CreateOmnibox() {
   parent->AddChild(std::move(scaler));
 
   // This binding must run whether or not the omnibox is visible.
-  parent->AddBinding(std::make_unique<Binding<bool>>(
+  parent->AddBinding(std::make_unique<Binding<std::pair<bool, base::string16>>>(
       VR_BIND_LAMBDA(
-          [](Model* m) { return m->has_mode_in_stack(kModeEditingOmnibox); },
+          [](Model* m) {
+            bool editing_omnibox = m->has_mode_in_stack(kModeEditingOmnibox);
+            base::string16 url_text =
+                FormatUrlForVr(m->toolbar_state.gurl, nullptr);
+            return std::make_pair(editing_omnibox, url_text);
+          },
           base::Unretained(model_)),
       VR_BIND_LAMBDA(
-          [](Model* m, const bool& unused) {
-            m->omnibox_text_field_info = EditedText();
+          [](Model* m, const std::pair<bool, base::string16>& value) {
+            if (value.first /* editing_omnibox */) {
+              m->omnibox_text_field_info.current =
+                  TextInputInfo(value.second, 0, value.second.size());
+            } else {
+              m->omnibox_text_field_info = EditedText();
+            }
           },
           base::Unretained(model_))));
 }
@@ -2780,9 +2769,6 @@ void UiSceneCreator::CreateCloseButton() {
       [](Model* model, UiBrowserInterface* browser) {
         if (model->fullscreen_enabled()) {
           browser->ExitFullscreen();
-        }
-        if (model->in_cct) {
-          browser->ExitCct();
         }
       },
       base::Unretained(model_), base::Unretained(browser_));
@@ -2799,7 +2785,7 @@ void UiSceneCreator::CreateCloseButton() {
 
   // Close button is a special control element that needs to be hidden when
   // in WebVR, but it needs to be visible when in cct or fullscreen.
-  VR_BIND_VISIBILITY(element, model->fullscreen_enabled() || model->in_cct);
+  VR_BIND_VISIBILITY(element, model->fullscreen_enabled());
   element->AddBinding(
       VR_BIND(bool, Model, model_, model->fullscreen_enabled(), UiElement,
               element.get(),
@@ -2870,7 +2856,8 @@ void UiSceneCreator::CreatePrompts() {
                     IDS_VR_SHELL_EXIT_PROMPT_EXIT_VR_BUTTON;
                 secondary_button_text_id = IDS_VR_BUTTON_BACK;
                 break;
-              case kModalPromptTypeExitVRForConnectionInfo:
+              case kModalPromptTypeExitVRForCertificateInfo:
+              case kModalPromptTypeExitVRForConnectionSecurityInfo:
               case kModalPromptTypeGenericUnsupportedFeature:
                 message_id = IDS_VR_SHELL_EXIT_PROMPT_DESCRIPTION;
                 icon = &vector_icons::kInfoOutlineIcon;
@@ -2917,26 +2904,6 @@ void UiSceneCreator::CreatePrompts() {
 }
 
 void UiSceneCreator::CreateWebVrOverlayElements() {
-  // Create url toast shown when WebVR is auto-presented.
-  auto parent = CreateTransientParent(kWebVrUrlToastTransientParent,
-                                      kToastTimeoutSeconds, true);
-  parent->AddBinding(std::make_unique<Binding<bool>>(
-      VR_BIND_LAMBDA(
-          [](Model* model, UiElement* splash_screen) {
-            // The WebVR indicators should only be visible when the splash
-            // screen is not visible.
-            return model->web_vr_autopresentation_enabled() &&
-                   model->web_vr.presenting_web_vr() &&
-                   splash_screen->GetTargetOpacity() == 0.f;
-          },
-          base::Unretained(model_),
-          base::Unretained(
-              scene_->GetUiElementByName(kSplashScreenTransientParent))),
-      VR_BIND_LAMBDA(
-          [](UiElement* e, const bool& value) { e->SetVisible(value); },
-          base::Unretained(parent.get()))));
-  scene_->AddUiElement(kWebVrViewportAwareRoot, std::move(parent));
-
   // Create transient WebVR elements.
   auto indicators = Create<LinearLayout>(kWebVrIndicatorLayout, kPhaseNone,
                                          LinearLayout::kDown);
@@ -2955,39 +2922,23 @@ void UiSceneCreator::CreateWebVrOverlayElements() {
                                    false};
   indicators->AddChild(CreateWebVrIndicator(model_, browser_, app_button_spec));
 
-  IndicatorSpec url_indicator_spec = {kNone,
-                                      kWebVrUrlToast,
-                                      toolbar::kHttpsInvalidIcon,
-                                      0,
-                                      0,
-                                      0,
-                                      nullptr,
-                                      nullptr,
-                                      nullptr,
-                                      true};
-  indicators->AddChild(
-      CreateWebVrIndicator(model_, browser_, url_indicator_spec));
-
   auto specs = GetIndicatorSpecs();
   for (const auto& spec : specs) {
     indicators->AddChild(CreateWebVrIndicator(model_, browser_, spec));
   }
 
-  parent = CreateTransientParent(kWebVrIndicatorTransience,
-                                 kToastTimeoutSeconds, true);
+  auto parent = CreateTransientParent(kWebVrIndicatorTransience,
+                                      kToastTimeoutSeconds, true);
   parent->AddBinding(std::make_unique<Binding<std::tuple<bool, bool, bool>>>(
       VR_BIND_LAMBDA(
-          [](Model* model, UiElement* splash_screen) {
+          [](Model* model) {
             return std::tuple<bool, bool, bool>(
                 model->web_vr_enabled() && model->web_vr.presenting_web_vr() &&
-                    model->web_vr.has_received_permissions &&
-                    splash_screen->GetTargetOpacity() == 0.f,
+                    model->web_vr.has_received_permissions,
                 model->controller.app_button_long_pressed,
                 model->web_vr.showing_hosted_ui);
           },
-          base::Unretained(model_),
-          base::Unretained(
-              scene_->GetUiElementByName(kSplashScreenTransientParent))),
+          base::Unretained(model_)),
       VR_BIND_LAMBDA(
           [](TransientElement* e, Model* model, UiScene* scene,
              const base::Optional<std::tuple<bool, bool, bool>>& last_value,
@@ -3021,11 +2972,7 @@ void UiSceneCreator::CreateWebVrOverlayElements() {
             e->RefreshVisible();
             SetVisibleInLayout(
                 scene->GetUiElementByName(kWebVrExclusiveScreenToast),
-                !model->web_vr_autopresentation_enabled() &&
-                    !model->browsing_disabled && !in_long_press);
-            SetVisibleInLayout(scene->GetUiElementByName(kWebVrUrlToast),
-                               model->web_vr_autopresentation_enabled() &&
-                                   model->toolbar_state.should_display_url);
+                !model->browsing_disabled && !in_long_press);
 
             auto specs = GetIndicatorSpecs();
             for (const auto& spec : specs) {

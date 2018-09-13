@@ -105,6 +105,7 @@ void MCContext::reset() {
   MachOUniquingMap.clear();
   ELFUniquingMap.clear();
   COFFUniquingMap.clear();
+  WasmUniquingMap.clear();
 
   NextID.clear();
   AllowTemporaryLabels = true;
@@ -534,6 +535,33 @@ MCSubtargetInfo &MCContext::getSubtargetCopy(const MCSubtargetInfo &STI) {
   return *new (MCSubtargetAllocator.Allocate()) MCSubtargetInfo(STI);
 }
 
+void MCContext::addDebugPrefixMapEntry(const std::string &From,
+                                       const std::string &To) {
+  DebugPrefixMap.insert(std::make_pair(From, To));
+}
+
+void MCContext::RemapDebugPaths() {
+  const auto &DebugPrefixMap = this->DebugPrefixMap;
+  const auto RemapDebugPath = [&DebugPrefixMap](std::string &Path) {
+    for (const auto &Entry : DebugPrefixMap)
+      if (StringRef(Path).startswith(Entry.first)) {
+        std::string RemappedPath =
+            (Twine(Entry.second) + Path.substr(Entry.first.size())).str();
+        Path.swap(RemappedPath);
+      }
+  };
+
+  // Remap compilation directory.
+  std::string CompDir = CompilationDir.str();
+  RemapDebugPath(CompDir);
+  CompilationDir = CompDir;
+
+  // Remap MCDwarfDirs in all compilation units.
+  for (auto &CUIDTablePair : MCDwarfLineTablesCUMap)
+    for (auto &Dir : CUIDTablePair.second.getMCDwarfDirs())
+      RemapDebugPath(Dir);
+}
+
 //===----------------------------------------------------------------------===//
 // Dwarf Management
 //===----------------------------------------------------------------------===//
@@ -555,11 +583,13 @@ Expected<unsigned> MCContext::getDwarfFile(StringRef Directory,
 /// isValidDwarfFileNumber - takes a dwarf file number and returns true if it
 /// currently is assigned and false otherwise.
 bool MCContext::isValidDwarfFileNumber(unsigned FileNumber, unsigned CUID) {
-  const SmallVectorImpl<MCDwarfFile> &MCDwarfFiles = getMCDwarfFiles(CUID);
-  if (FileNumber == 0 || FileNumber >= MCDwarfFiles.size())
+  const MCDwarfLineTable &LineTable = getMCDwarfLineTable(CUID);
+  if (FileNumber == 0)
+    return getDwarfVersion() >= 5 && LineTable.hasRootFile();
+  if (FileNumber >= LineTable.getMCDwarfFiles().size())
     return false;
 
-  return !MCDwarfFiles[FileNumber].Name.empty();
+  return !LineTable.getMCDwarfFiles()[FileNumber].Name.empty();
 }
 
 /// Remove empty sections from SectionStartEndSyms, to avoid generating

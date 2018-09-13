@@ -132,24 +132,15 @@ void Utterance::set_options(const base::Value* options) {
   options_.reset(options->DeepCopy());
 }
 
-TtsController* TtsController::GetInstance() {
-  return TtsControllerImpl::GetInstance();
-}
-
 //
 // TtsControllerImpl
 //
 
-// static
-TtsControllerImpl* TtsControllerImpl::GetInstance() {
-  return base::Singleton<TtsControllerImpl>::get();
-}
-
-TtsControllerImpl::TtsControllerImpl()
+TtsControllerImpl::TtsControllerImpl(
+    std::unique_ptr<TtsPlatformImpl> platform_impl)
     : current_utterance_(nullptr),
       paused_(false),
-      platform_impl_(nullptr),
-      tts_engine_delegate_(nullptr) {}
+      platform_impl_(std::move(platform_impl)) {}
 
 TtsControllerImpl::~TtsControllerImpl() {
   if (current_utterance_) {
@@ -226,8 +217,6 @@ void TtsControllerImpl::SpeakNow(Utterance* utterance) {
     DCHECK(!voice.extension_id.empty());
     current_utterance_ = utterance;
     utterance->set_extension_id(voice.extension_id);
-    if (tts_engine_delegate_)
-      tts_engine_delegate_->Speak(utterance, voice);
     bool sends_end_event =
         voice.events.find(TTS_EVENT_END) != voice.events.end();
     if (!sends_end_event) {
@@ -268,13 +257,8 @@ void TtsControllerImpl::Stop() {
   base::RecordAction(base::UserMetricsAction("TextToSpeech.Stop"));
 
   paused_ = false;
-  if (current_utterance_ && !current_utterance_->extension_id().empty()) {
-    if (tts_engine_delegate_)
-      tts_engine_delegate_->Stop(current_utterance_);
-  } else {
-    GetPlatformImpl()->clear_error();
-    GetPlatformImpl()->StopSpeaking();
-  }
+  GetPlatformImpl()->clear_error();
+  GetPlatformImpl()->StopSpeaking();
 
   if (current_utterance_)
     current_utterance_->OnTtsEvent(TTS_EVENT_INTERRUPTED, kInvalidCharIndex,
@@ -287,10 +271,7 @@ void TtsControllerImpl::Pause() {
   base::RecordAction(base::UserMetricsAction("TextToSpeech.Pause"));
 
   paused_ = true;
-  if (current_utterance_ && !current_utterance_->extension_id().empty()) {
-    if (tts_engine_delegate_)
-      tts_engine_delegate_->Pause(current_utterance_);
-  } else if (current_utterance_) {
+  if (current_utterance_) {
     GetPlatformImpl()->clear_error();
     GetPlatformImpl()->Pause();
   }
@@ -300,10 +281,7 @@ void TtsControllerImpl::Resume() {
   base::RecordAction(base::UserMetricsAction("TextToSpeech.Resume"));
 
   paused_ = false;
-  if (current_utterance_ && !current_utterance_->extension_id().empty()) {
-    if (tts_engine_delegate_)
-      tts_engine_delegate_->Resume(current_utterance_);
-  } else if (current_utterance_) {
+  if (current_utterance_) {
     GetPlatformImpl()->clear_error();
     GetPlatformImpl()->Resume();
   } else {
@@ -379,9 +357,6 @@ void TtsControllerImpl::GetVoices(content::BrowserContext* browser_context,
     if (platform_impl->PlatformImplAvailable())
       platform_impl->GetVoices(out_voices);
   }
-
-  if (browser_context && tts_engine_delegate_)
-    tts_engine_delegate_->GetVoices(browser_context, out_voices);
 }
 
 bool TtsControllerImpl::IsSpeaking() {
@@ -424,8 +399,9 @@ void TtsControllerImpl::ClearUtteranceQueue(bool send_events) {
   }
 }
 
-void TtsControllerImpl::SetPlatformImpl(TtsPlatformImpl* platform_impl) {
-  platform_impl_ = platform_impl;
+void TtsControllerImpl::SetPlatformImpl(
+    std::unique_ptr<TtsPlatformImpl> platform_impl) {
+  platform_impl_ = std::move(platform_impl);
 }
 
 int TtsControllerImpl::QueueSize() {
@@ -433,18 +409,7 @@ int TtsControllerImpl::QueueSize() {
 }
 
 TtsPlatformImpl* TtsControllerImpl::GetPlatformImpl() {
-  // TODO(rdaum): This is temporarily disabled to avoid link time duplicate
-  // symbol failures when the internal platform version is added. This code
-  // will be restored after the internal CL which adds a GetInstance method
-  // lands.
-  //  if (!platform_impl_)
-  //    platform_impl_ = TtsPlatformImpl::GetInstance();
-  //  return platform_impl_;
-
-  // Disabling the code above is safe for now as nothing in the repository
-  // currently executes this code path, but this DCHECK is here just in case.
-  DCHECK(false) << "Unexpected execution of TTS code path";
-  return nullptr;
+  return platform_impl_.get();
 }
 
 std::string TtsControllerImpl::GetApplicationLocale() const {
@@ -564,7 +529,7 @@ void TtsControllerImpl::UpdateUtteranceDefaults(Utterance* utterance) {
 void TtsControllerImpl::VoicesChanged() {
   // Existence of platform tts indicates explicit requests to tts. Since
   // |VoicesChanged| can occur implicitly, only send if needed.
-  if (!platform_impl_)
+  if (!GetPlatformImpl())
     return;
 
   for (std::set<VoicesChangedDelegate*>::iterator iter =
@@ -600,24 +565,11 @@ void TtsControllerImpl::RemoveUtteranceEventDelegate(
 
   if (current_utterance_ && current_utterance_->event_delegate() == delegate) {
     current_utterance_->set_event_delegate(nullptr);
-    if (!current_utterance_->extension_id().empty()) {
-      if (tts_engine_delegate_)
-        tts_engine_delegate_->Stop(current_utterance_);
-    } else {
-      GetPlatformImpl()->clear_error();
-      GetPlatformImpl()->StopSpeaking();
-    }
+    GetPlatformImpl()->clear_error();
+    GetPlatformImpl()->StopSpeaking();
 
     FinishCurrentUtterance();
     if (!paused_)
       SpeakNextUtterance();
   }
-}
-
-void TtsControllerImpl::SetTtsEngineDelegate(TtsEngineDelegate* delegate) {
-  tts_engine_delegate_ = delegate;
-}
-
-TtsEngineDelegate* TtsControllerImpl::GetTtsEngineDelegate() {
-  return tts_engine_delegate_;
 }

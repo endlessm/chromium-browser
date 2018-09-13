@@ -10,7 +10,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Point;
-import android.os.AsyncTask;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.support.annotation.IntDef;
@@ -26,6 +26,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
+import org.chromium.base.AsyncTask;
 import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
@@ -73,14 +74,15 @@ public abstract class SigninFragmentBase
 
     private static final int ADD_ACCOUNT_REQUEST_CODE = 1;
 
-    @IntDef({FLOW_DEFAULT, FLOW_FORCED, FLOW_CHOOSE_ACCOUNT, FLOW_ADD_ACCOUNT})
+    @IntDef({SigninFlowType.DEFAULT, SigninFlowType.FORCED, SigninFlowType.CHOOSE_ACCOUNT,
+            SigninFlowType.ADD_ACCOUNT})
     @Retention(RetentionPolicy.SOURCE)
-    @interface SigninFlowType {}
-
-    private static final int FLOW_DEFAULT = 0;
-    private static final int FLOW_FORCED = 1;
-    private static final int FLOW_CHOOSE_ACCOUNT = 2;
-    private static final int FLOW_ADD_ACCOUNT = 3;
+    @interface SigninFlowType {
+        int DEFAULT = 0;
+        int FORCED = 1;
+        int CHOOSE_ACCOUNT = 2;
+        int ADD_ACCOUNT = 3;
+    }
 
     private @SigninAccessPoint int mSigninAccessPoint;
     private @SigninFlowType int mSigninFlowType;
@@ -119,7 +121,7 @@ public abstract class SigninFragmentBase
             @SigninAccessPoint int accessPoint, @Nullable String accountName) {
         Bundle result = new Bundle();
         result.putInt(ARGUMENT_ACCESS_POINT, accessPoint);
-        result.putInt(ARGUMENT_SIGNIN_FLOW_TYPE, FLOW_DEFAULT);
+        result.putInt(ARGUMENT_SIGNIN_FLOW_TYPE, SigninFlowType.DEFAULT);
         result.putString(ARGUMENT_ACCOUNT_NAME, accountName);
         return result;
     }
@@ -134,7 +136,7 @@ public abstract class SigninFragmentBase
             @SigninAccessPoint int accessPoint, @Nullable String accountName) {
         Bundle result = new Bundle();
         result.putInt(ARGUMENT_ACCESS_POINT, accessPoint);
-        result.putInt(ARGUMENT_SIGNIN_FLOW_TYPE, FLOW_CHOOSE_ACCOUNT);
+        result.putInt(ARGUMENT_SIGNIN_FLOW_TYPE, SigninFlowType.CHOOSE_ACCOUNT);
         result.putString(ARGUMENT_ACCOUNT_NAME, accountName);
         return result;
     }
@@ -147,7 +149,7 @@ public abstract class SigninFragmentBase
     protected static Bundle createArgumentsForAddAccountFlow(@SigninAccessPoint int accessPoint) {
         Bundle result = new Bundle();
         result.putInt(ARGUMENT_ACCESS_POINT, accessPoint);
-        result.putInt(ARGUMENT_SIGNIN_FLOW_TYPE, FLOW_ADD_ACCOUNT);
+        result.putInt(ARGUMENT_SIGNIN_FLOW_TYPE, SigninFlowType.ADD_ACCOUNT);
         return result;
     }
 
@@ -161,7 +163,7 @@ public abstract class SigninFragmentBase
             String accountName, @ChildAccountStatus.Status int childAccountStatus) {
         Bundle result = new Bundle();
         result.putInt(ARGUMENT_ACCESS_POINT, accessPoint);
-        result.putInt(ARGUMENT_SIGNIN_FLOW_TYPE, FLOW_FORCED);
+        result.putInt(ARGUMENT_SIGNIN_FLOW_TYPE, SigninFlowType.FORCED);
         result.putString(ARGUMENT_ACCOUNT_NAME, accountName);
         result.putInt(ARGUMENT_CHILD_ACCOUNT_STATUS, childAccountStatus);
         return result;
@@ -198,7 +200,7 @@ public abstract class SigninFragmentBase
 
     /** Returns whether this fragment is in "force sign-in" mode. */
     protected boolean isForcedSignin() {
-        return mSigninFlowType == FLOW_FORCED;
+        return mSigninFlowType == SigninFlowType.FORCED;
     }
 
     @Override
@@ -210,7 +212,7 @@ public abstract class SigninFragmentBase
         mRequestedAccountName = arguments.getString(ARGUMENT_ACCOUNT_NAME, null);
         mChildAccountStatus =
                 arguments.getInt(ARGUMENT_CHILD_ACCOUNT_STATUS, ChildAccountStatus.NOT_CHILD);
-        mSigninFlowType = arguments.getInt(ARGUMENT_SIGNIN_FLOW_TYPE, FLOW_DEFAULT);
+        mSigninFlowType = arguments.getInt(ARGUMENT_SIGNIN_FLOW_TYPE, SigninFlowType.DEFAULT);
 
         // Don't have a selected account now, onResume will trigger the selection.
         mAccountSelectionPending = true;
@@ -218,9 +220,9 @@ public abstract class SigninFragmentBase
         if (savedInstanceState == null) {
             // If this fragment is being recreated from a saved state there's no need to show
             // account picked or starting AddAccount flow.
-            if (mSigninFlowType == FLOW_CHOOSE_ACCOUNT) {
+            if (mSigninFlowType == SigninFlowType.CHOOSE_ACCOUNT) {
                 showAccountPicker();
-            } else if (mSigninFlowType == FLOW_ADD_ACCOUNT) {
+            } else if (mSigninFlowType == SigninFlowType.ADD_ACCOUNT) {
                 addAccount();
             }
         }
@@ -288,13 +290,15 @@ public abstract class SigninFragmentBase
         mView.getScrollView().setScrolledToBottomObserver(this::showAcceptButton);
         mView.getDetailsDescriptionView().setMovementMethod(LinkMovementMethod.getInstance());
 
+        final Drawable endImageViewDrawable;
         if (isForcedSignin()) {
-            mView.getAccountPickerEndImageView().setImageResource(
-                    R.drawable.ic_check_googblue_24dp);
-            mView.getAccountPickerEndImageView().setAlpha(1.0f);
+            endImageViewDrawable = SigninView.getCheckmarkDrawable(getContext());
             mView.getRefuseButton().setVisibility(View.GONE);
             mView.getAcceptButtonEndPadding().setVisibility(View.INVISIBLE);
+        } else {
+            endImageViewDrawable = SigninView.getExpandArrowDrawable(getContext());
         }
+        mView.getAccountPickerEndImageView().setImageDrawable(endImageViewDrawable);
 
         updateConsentText();
         setHasAccounts(true); // Assume there are accounts, updateAccounts will set the real value.

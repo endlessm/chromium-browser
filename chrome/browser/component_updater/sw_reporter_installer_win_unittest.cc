@@ -18,7 +18,7 @@
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "base/version.h"
@@ -698,8 +698,11 @@ class SwReporterOnDemandFetcherTest : public ::testing::Test,
   }
 
   // OnDemandUpdater implementation:
-  void OnDemandUpdate(const std::string& crx_id, Callback callback) override {
+  void OnDemandUpdate(const std::string& crx_id,
+                      Priority priority,
+                      Callback callback) override {
     ASSERT_EQ(kSwReporterComponentId, crx_id);
+    ASSERT_EQ(Priority::FOREGROUND, priority);
     on_demand_update_called_ = true;
 
     // |OnDemandUpdate| is called immediately on |SwReporterOnDemandFetcher|

@@ -93,6 +93,10 @@ TEST(InstallStaticTest, GetSwitchValueFromCommandLineTest) {
   value = GetSwitchValueFromCommandLine(L"c:\\temp\\bleh.exe --type=\t\t\t",
                                         L"type");
   EXPECT_TRUE(value.empty());
+
+  // Bad command line without closing quotes. Should not crash.
+  value = GetSwitchValueFromCommandLine(L"\"blah --type=\t\t\t", L"type");
+  EXPECT_TRUE(value.empty());
 }
 
 TEST(InstallStaticTest, SpacesAndQuotesInCommandLineArguments) {
@@ -156,15 +160,20 @@ TEST(InstallStaticTest, SpacesAndQuotesInCommandLineArguments) {
 
   tokenized = TokenizeCommandLineToArray(
       L"\"C:\\with space\\b.exe\" --stuff=\"d:\\stuff and things\"");
-  EXPECT_EQ(2u, tokenized.size());
+  ASSERT_EQ(2u, tokenized.size());
   EXPECT_EQ(L"C:\\with space\\b.exe", tokenized[0]);
   EXPECT_EQ(L"--stuff=d:\\stuff and things", tokenized[1]);
 
   tokenized = TokenizeCommandLineToArray(
       L"\"C:\\with space\\b.exe\" \\\\\\\"\"");
-  EXPECT_EQ(2u, tokenized.size());
+  ASSERT_EQ(2u, tokenized.size());
   EXPECT_EQ(L"C:\\with space\\b.exe", tokenized[0]);
   EXPECT_EQ(L"\\\"", tokenized[1]);
+
+  tokenized =
+      TokenizeCommandLineToArray(L"\"blah --type=\t\t\t no closing quote");
+  ASSERT_EQ(1u, tokenized.size());
+  EXPECT_EQ(L"blah --type=\t\t\t no closing quote", tokenized[0]);
 }
 
 // Test cases from
@@ -633,6 +642,27 @@ TEST_P(InstallStaticUtilTest, UsageStatsPolicy) {
 
 TEST_P(InstallStaticUtilTest, GetChromeChannelName) {
   EXPECT_EQ(default_channel(), GetChromeChannelName());
+}
+
+TEST_P(InstallStaticUtilTest, GetSandboxSidPrefix) {
+#if defined(GOOGLE_CHROME_BUILD)
+  static constexpr const wchar_t* kSandBoxSids[] = {
+      L"S-1-15-2-3251537155-1984446955-2931258699-841473695-1938553385-"
+      L"924012149-",  // Google Chrome.
+      L"S-1-15-2-3251537155-1984446955-2931258699-841473695-1938553385-"
+      L"924012151-",  // Google Chrome Beta.
+      L"S-1-15-2-3251537155-1984446955-2931258699-841473695-1938553385-"
+      L"924012152-",  // Google Chrome Dev.
+      L"S-1-15-2-3251537155-1984446955-2931258699-841473695-1938553385-"
+      L"924012150-",  // Google Chrome SxS (Canary).
+  };
+#else
+  static constexpr const wchar_t* kSandBoxSids[] = {
+      L"S-1-15-2-3251537155-1984446955-2931258699-841473695-1938553385-"
+      L"924012148-",  // Chromium.
+  };
+#endif
+  EXPECT_EQ(GetSandboxSidPrefix(), kSandBoxSids[std::get<0>(GetParam())]);
 }
 
 #if defined(GOOGLE_CHROME_BUILD)

@@ -15,16 +15,15 @@
 #include "chrome/browser/vr/model/text_input_info.h"
 #include "chrome/browser/vr/platform_ui_input_delegate.h"
 #include "chrome/browser/vr/text_edit_action.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "chrome/browser/vr/vr_export.h"
 
 namespace vr {
 
-class PlatformController;
 class PlatformInputHandler;
 
 // This class is responsible for processing all events and gestures for
 // ContentElement.
-class ContentInputDelegate : public PlatformUiInputDelegate {
+class VR_EXPORT ContentInputDelegate : public PlatformUiInputDelegate {
  public:
   ContentInputDelegate();
   explicit ContentInputDelegate(PlatformInputHandler* content);
@@ -47,10 +46,6 @@ class ContentInputDelegate : public PlatformUiInputDelegate {
       int compositon_end,
       base::OnceCallback<void(const TextInputInfo&)> callback);
 
-  void OnPlatformControllerInitialized(PlatformController* controller) {
-    controller_ = controller;
-  }
-
   void OnWebInputTextChangedForTest(const base::string16& text) {
     OnWebInputTextChanged(text);
   }
@@ -58,11 +53,7 @@ class ContentInputDelegate : public PlatformUiInputDelegate {
   void ClearTextInputState();
 
  protected:
-  void SendGestureToTarget(
-      std::unique_ptr<blink::WebInputEvent> event) override;
-  std::unique_ptr<blink::WebMouseEvent> MakeMouseEvent(
-      blink::WebInputEvent::Type type,
-      const gfx::PointF& normalized_web_content_location) override;
+  void SendGestureToTarget(std::unique_ptr<InputEvent> event) override;
 
  private:
   enum TextRequestState {
@@ -70,13 +61,11 @@ class ContentInputDelegate : public PlatformUiInputDelegate {
     kRequested,
     kResponseReceived,
   };
-  bool ContentGestureIsLocked(blink::WebInputEvent::Type type);
+  bool ContentGestureIsLocked(InputEvent::Type type);
   void OnWebInputTextChanged(const base::string16& text);
 
   int content_id_ = 0;
   int locked_content_id_ = 0;
-
-  PlatformController* controller_ = nullptr;
 
   EditedText last_keyboard_edit_;
   TextRequestState pending_text_request_state_ = kNoPendingRequest;

@@ -9,8 +9,6 @@
 
 #include "Test.h"
 
-#if SK_SUPPORT_GPU
-
 #include "GrBackendSurface.h"
 #include "GrContextPriv.h"
 #include "GrResourceCache.h"
@@ -108,6 +106,7 @@ static sk_sp<GrTextureProxy> create_wrapped_backend(GrContext* context, SkBackin
     }
 
     GrBackendTexture backendTex = (*backingSurface)->getBackendTexture();
+    backendTex.setPixelConfig(desc.fConfig);
 
     return proxyProvider->wrapBackendTexture(backendTex, kBottomLeft_GrSurfaceOrigin);
 }
@@ -256,7 +255,8 @@ static void invalidation_and_instantiation_test(GrContext* context, skiatest::Re
     SkAssertResult(proxyProvider->assignUniqueKeyToProxy(key, proxy.get()));
 
     // Send an invalidation message, which will be sitting in the cache's inbox
-    SkMessageBus<GrUniqueKeyInvalidatedMessage>::Post(GrUniqueKeyInvalidatedMessage(key));
+    SkMessageBus<GrUniqueKeyInvalidatedMessage>::Post(
+            GrUniqueKeyInvalidatedMessage(key, context->uniqueID()));
 
     REPORTER_ASSERT(reporter, 1 == proxyProvider->numUniqueKeyProxies_TestOnly());
     REPORTER_ASSERT(reporter, 0 == cache->getResourceCount());
@@ -303,5 +303,3 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextureProxyTest, reporter, ctxInfo) {
     invalidation_test(context, reporter);
     invalidation_and_instantiation_test(context, reporter);
 }
-
-#endif

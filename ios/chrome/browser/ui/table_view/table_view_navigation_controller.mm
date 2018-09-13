@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/ui/table_view/table_view_navigation_controller.h"
 
+#include "base/mac/foundation_util.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_controller.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 
@@ -27,17 +28,23 @@
 #pragma mark - View Lifecycle
 
 - (void)viewDidLoad {
-  [self.navigationBar setBackgroundImage:[UIImage new]
-                           forBarMetrics:UIBarMetricsDefault];
+  [super viewDidLoad];
 
-  if (self.tableViewController.styler.tableViewBackgroundColor !=
-      [UIColor clearColor]) {
-    self.navigationBar.translucent = NO;
-  }
+  UIVisualEffectView* visualEffectView = [[UIVisualEffectView alloc]
+      initWithEffect:[UIBlurEffect
+                         effectWithStyle:UIBlurEffectStyleExtraLight]];
 
-  if (@available(iOS 11, *)) {
+  self.navigationBar.translucent = YES;
+  self.navigationController.navigationBar.backgroundColor =
+      [UIColor clearColor];
+  [self.navigationController.navigationBar addSubview:visualEffectView];
+  if (@available(iOS 11, *))
     self.navigationBar.prefersLargeTitles = YES;
-  }
+
+  [self.toolbar setShadowImage:[UIImage new]
+            forToolbarPosition:UIBarPositionAny];
+  self.toolbar.translucent = YES;
+  [self.toolbar addSubview:visualEffectView];
 }
 
 @end

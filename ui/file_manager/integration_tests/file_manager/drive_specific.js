@@ -30,33 +30,26 @@ var SEARCH_RESULTS_ENTRY_SET = [
  */
 function getStepsForSearchResultsAutoComplete() {
   var appId;
-  var steps =
-  [
+  var steps = [
     function() {
       setupAndWaitUntilReady(null, RootPath.DRIVE, this.next);
     },
     // Focus the search box.
     function(results) {
       appId = results.windowId;
-      remoteCall.callRemoteTestUtil('fakeEvent',
-                                    appId,
-                                    ['#search-box input', 'focus'],
-                                    this.next);
+      remoteCall.callRemoteTestUtil(
+          'fakeEvent', appId, ['#search-box cr-input', 'focus'], this.next);
     },
     // Input a text.
     function(result) {
       chrome.test.assertTrue(result);
-      remoteCall.callRemoteTestUtil('inputText',
-                                    appId,
-                                    ['#search-box input', 'hello'],
-                                    this.next);
+      remoteCall.callRemoteTestUtil(
+          'inputText', appId, ['#search-box cr-input', 'hello'], this.next);
     },
     // Notify the element of the input.
     function() {
-      remoteCall.callRemoteTestUtil('fakeEvent',
-                                    appId,
-                                    ['#search-box input', 'input'],
-                                    this.next);
+      remoteCall.callRemoteTestUtil(
+          'fakeEvent', appId, ['#search-box cr-input', 'input'], this.next);
     },
     // Wait for the auto complete list getting the expected contents.
     function(result) {
@@ -79,8 +72,7 @@ function getStepsForSearchResultsAutoComplete() {
     function() {
       checkIfNoErrorsOccured(this.next);
     },
-    function()
-    {
+    function() {
       this.next(appId);
     }
   ];
@@ -216,30 +208,27 @@ testcase.drivePressEnterToSearch = function() {
   var appId;
   var steps = getStepsForSearchResultsAutoComplete();
   steps.push(
-    function(id) {
-      appId = id;
-      remoteCall.callRemoteTestUtil(
-          'fakeEvent', appId,
-          ['#search-box input', 'focus'],
-          this.next);
-    },
-    function(result) {
-      remoteCall.callRemoteTestUtil(
-          'fakeKeyDown', appId,
-          ['#search-box input', 'Enter', 'Enter', false, false, false],
-          this.next);
-    },
-    function(result) {
-      remoteCall.waitForFileListChange(appId, BASIC_DRIVE_ENTRY_SET.length).
-      then(this.next);
-    },
-    function(actualFilesAfter) {
-      chrome.test.assertEq(
-          TestEntryInfo.getExpectedRows(SEARCH_RESULTS_ENTRY_SET).sort(),
-          actualFilesAfter);
-      checkIfNoErrorsOccured(this.next);
-    }
-  );
+      function(id) {
+        appId = id;
+        remoteCall.callRemoteTestUtil(
+            'fakeEvent', appId, ['#search-box cr-input', 'focus'], this.next);
+      },
+      function(result) {
+        remoteCall.callRemoteTestUtil(
+            'fakeKeyDown', appId,
+            ['#search-box cr-input', 'Enter', 'Enter', false, false, false],
+            this.next);
+      },
+      function(result) {
+        remoteCall.waitForFileListChange(appId, BASIC_DRIVE_ENTRY_SET.length)
+            .then(this.next);
+      },
+      function(actualFilesAfter) {
+        chrome.test.assertEq(
+            TestEntryInfo.getExpectedRows(SEARCH_RESULTS_ENTRY_SET).sort(),
+            actualFilesAfter);
+        checkIfNoErrorsOccured(this.next);
+      });
 
   StepsRunner.run(steps);
 };
@@ -313,4 +302,45 @@ testcase.drivePinFileMobileNetwork = function() {
           });
         });
       }));
+};
+
+/**
+ * Tests that pressing Ctrl+A (select all files) from the search box doesn't put
+ * the Files App into check-select mode (crbug.com/849253).
+ */
+testcase.drivePressCtrlAFromSearch = function() {
+  var appId;
+  var steps = [
+    function() {
+      setupAndWaitUntilReady(null, RootPath.DRIVE, this.next);
+    },
+    // Focus the search box.
+    function(results) {
+      appId = results.windowId;
+      remoteCall.callRemoteTestUtil(
+          'fakeMouseClick', appId, ['#search-button'], this.next);
+    },
+    // Wait for the search box to be visible.
+    function(result) {
+      chrome.test.assertTrue(result);
+      remoteCall.waitForElement(appId, ['#search-box cr-input:not([hidden])'])
+          .then(this.next);
+    },
+    // Press Ctrl+A inside the search box.
+    function(result) {
+      remoteCall.callRemoteTestUtil(
+          'fakeKeyDown', appId,
+          ['#search-box cr-input', 'A', 'A', true, false, false], this.next);
+    },
+    // Check we didn't enter check-select mode.
+    function(result) {
+      chrome.test.assertTrue(result);
+      remoteCall.waitForElement(appId, ['body:not(.check-select)'])
+          .then(this.next);
+    },
+    function(result) {
+      checkIfNoErrorsOccured(this.next);
+    },
+  ];
+  StepsRunner.run(steps);
 };

@@ -44,6 +44,8 @@ class IOSConfigurator : public update_client::Configurator {
   std::string ExtraRequestParams() const override;
   std::string GetDownloadPreference() const override;
   scoped_refptr<net::URLRequestContextGetter> RequestContext() const override;
+  scoped_refptr<network::SharedURLLoaderFactory> URLLoaderFactory()
+      const override;
   std::unique_ptr<service_manager::Connector> CreateServiceManagerConnector()
       const override;
   bool EnabledDeltas() const override;
@@ -54,6 +56,7 @@ class IOSConfigurator : public update_client::Configurator {
   update_client::ActivityDataService* GetActivityDataService() const override;
   bool IsPerUserInstall() const override;
   std::vector<uint8_t> GetRunActionKeyHash() const override;
+  std::string GetAppGuid() const override;
 
  private:
   friend class base::RefCountedThreadSafe<IOSConfigurator>;
@@ -134,6 +137,11 @@ scoped_refptr<net::URLRequestContextGetter> IOSConfigurator::RequestContext()
   return GetApplicationContext()->GetSystemURLRequestContext();
 }
 
+scoped_refptr<network::SharedURLLoaderFactory>
+IOSConfigurator::URLLoaderFactory() const {
+  return GetApplicationContext()->GetSharedURLLoaderFactory();
+}
+
 std::unique_ptr<service_manager::Connector>
 IOSConfigurator::CreateServiceManagerConnector() const {
   return nullptr;
@@ -170,6 +178,10 @@ bool IOSConfigurator::IsPerUserInstall() const {
 
 std::vector<uint8_t> IOSConfigurator::GetRunActionKeyHash() const {
   return configurator_impl_.GetRunActionKeyHash();
+}
+
+std::string IOSConfigurator::GetAppGuid() const {
+  return configurator_impl_.GetAppGuid();
 }
 
 }  // namespace

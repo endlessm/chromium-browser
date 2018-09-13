@@ -11,9 +11,6 @@ import static org.hamcrest.Matchers.not;
 
 import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
 import static org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule.LONG_TIMEOUT_MS;
-import static org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider.CUSTOM_TABS_UI_TYPE_MEDIA_VIEWER;
-import static org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider.CUSTOM_TABS_UI_TYPE_OFFLINE_PAGE;
-import static org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider.CUSTOM_TABS_UI_TYPE_READER_MODE;
 
 import android.app.Activity;
 import android.app.Instrumentation;
@@ -60,7 +57,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ActivityState;
@@ -110,7 +106,6 @@ import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeTabUtils;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.LocationSettingsTestUtil;
 import org.chromium.chrome.test.util.browser.contextmenu.ContextMenuUtils;
@@ -202,8 +197,6 @@ public class CustomTabActivityTest {
 
     @Rule
     public final ScreenShooter mScreenShooter = new ScreenShooter();
-    @Rule
-    public TestRule mProcessor = new Features.InstrumentationProcessor();
 
     @Before
     public void setUp() throws Exception {
@@ -593,8 +586,8 @@ public class CustomTabActivityTest {
     @RetryOnFailure
     public void testAppMenuForMediaViewer() throws InterruptedException {
         Intent intent = createMinimalCustomTabIntent();
-        intent.putExtra(
-                CustomTabIntentDataProvider.EXTRA_UI_TYPE, CUSTOM_TABS_UI_TYPE_MEDIA_VIEWER);
+        intent.putExtra(CustomTabIntentDataProvider.EXTRA_UI_TYPE,
+                CustomTabIntentDataProvider.CustomTabsUiType.MEDIA_VIEWER);
         IntentHandler.addTrustedIntentExtras(intent);
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
 
@@ -616,7 +609,8 @@ public class CustomTabActivityTest {
     @RetryOnFailure
     public void testAppMenuForReaderMode() throws InterruptedException {
         Intent intent = createMinimalCustomTabIntent();
-        intent.putExtra(CustomTabIntentDataProvider.EXTRA_UI_TYPE, CUSTOM_TABS_UI_TYPE_READER_MODE);
+        intent.putExtra(CustomTabIntentDataProvider.EXTRA_UI_TYPE,
+                CustomTabIntentDataProvider.CustomTabsUiType.READER_MODE);
         IntentHandler.addTrustedIntentExtras(intent);
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
 
@@ -640,8 +634,8 @@ public class CustomTabActivityTest {
     @RetryOnFailure
     public void testAppMenuForOfflinePage() throws InterruptedException {
         Intent intent = createMinimalCustomTabIntent();
-        intent.putExtra(
-                CustomTabIntentDataProvider.EXTRA_UI_TYPE, CUSTOM_TABS_UI_TYPE_OFFLINE_PAGE);
+        intent.putExtra(CustomTabIntentDataProvider.EXTRA_UI_TYPE,
+                CustomTabIntentDataProvider.CustomTabsUiType.OFFLINE_PAGE);
         IntentHandler.addTrustedIntentExtras(intent);
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
 
@@ -858,8 +852,7 @@ public class CustomTabActivityTest {
             @Override
             public boolean isSatisfied() {
                 Tab currentTab = mCustomTabActivityTestRule.getActivity().getActivityTab();
-                return currentTab != null
-                        && currentTab.getContentViewCore() != null;
+                return currentTab != null && currentTab.getWebContents() != null;
             }
         });
         DOMUtils.clickNode(mCustomTabActivityTestRule.getWebContents(), "select");
@@ -1205,7 +1198,7 @@ public class CustomTabActivityTest {
         ThreadUtils.runOnUiThreadBlocking(() -> {
             tabSelector.getModel(false).addObserver(new EmptyTabModelObserver() {
                 @Override
-                public void didAddTab(Tab tab, TabLaunchType type) {
+                public void didAddTab(Tab tab, @TabLaunchType int type) {
                     openTabHelper.notifyCalled();
                 }
             });

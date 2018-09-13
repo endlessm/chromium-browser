@@ -630,133 +630,43 @@ int TargetTransformInfo::getInstructionLatency(const Instruction *I) const {
   return TTIImpl->getInstructionLatency(I);
 }
 
-static bool isReverseVectorMask(ArrayRef<int> Mask) {
-  for (unsigned i = 0, MaskSize = Mask.size(); i < MaskSize; ++i)
-    if (Mask[i] >= 0 && Mask[i] != (int)(MaskSize - 1 - i))
-      return false;
-  return true;
-}
-
-static bool isSingleSourceVectorMask(ArrayRef<int> Mask) {
-  bool Vec0 = false;
-  bool Vec1 = false;
-  for (unsigned i = 0, NumVecElts = Mask.size(); i < NumVecElts; ++i) {
-    if (Mask[i] >= 0) {
-      if ((unsigned)Mask[i] >= NumVecElts)
-        Vec1 = true;
-      else
-        Vec0 = true;
-    }
-  }
-  return !(Vec0 && Vec1);
-}
-
-static bool isZeroEltBroadcastVectorMask(ArrayRef<int> Mask) {
-  for (unsigned i = 0; i < Mask.size(); ++i)
-    if (Mask[i] > 0)
-      return false;
-  return true;
-}
-
-static bool isAlternateVectorMask(ArrayRef<int> Mask) {
-  bool isAlternate = true;
-  unsigned MaskSize = Mask.size();
-
-  // Example: shufflevector A, B, <0,5,2,7>
-  for (unsigned i = 0; i < MaskSize && isAlternate; ++i) {
-    if (Mask[i] < 0)
-      continue;
-    isAlternate = Mask[i] == (int)((i & 1) ? MaskSize + i : i);
-  }
-
-  if (isAlternate)
-    return true;
-
-  isAlternate = true;
-  // Example: shufflevector A, B, <4,1,6,3>
-  for (unsigned i = 0; i < MaskSize && isAlternate; ++i) {
-    if (Mask[i] < 0)
-      continue;
-    isAlternate = Mask[i] == (int)((i & 1) ? i : MaskSize + i);
-  }
-
-  return isAlternate;
-}
-
-static bool isTransposeVectorMask(ArrayRef<int> Mask) {
-  // Transpose vector masks transpose a 2xn matrix. They read corresponding
-  // even- or odd-numbered vector elements from two n-dimensional source
-  // vectors and write each result into consecutive elements of an
-  // n-dimensional destination vector. Two shuffles are necessary to complete
-  // the transpose, one for the even elements and another for the odd elements.
-  // This description closely follows how the TRN1 and TRN2 AArch64
-  // instructions operate.
-  //
-  // For example, a simple 2x2 matrix can be transposed with:
-  //
-  //   ; Original matrix
-  //   m0 = <a, b>
-  //   m1 = <c, d>
-  //
-  //   ; Transposed matrix
-  //   t0 = <a, c> = shufflevector m0, m1, <0, 2>
-  //   t1 = <b, d> = shufflevector m0, m1, <1, 3>
-  //
-  // For matrices having greater than n columns, the resulting nx2 transposed
-  // matrix is stored in two result vectors such that one vector contains
-  // interleaved elements from all the even-numbered rows and the other vector
-  // contains interleaved elements from all the odd-numbered rows. For example,
-  // a 2x4 matrix can be transposed with:
-  //
-  //   ; Original matrix
-  //   m0 = <a, b, c, d>
-  //   m1 = <e, f, g, h>
-  //
-  //   ; Transposed matrix
-  //   t0 = <a, e, c, g> = shufflevector m0, m1 <0, 4, 2, 6>
-  //   t1 = <b, f, d, h> = shufflevector m0, m1 <1, 5, 3, 7>
-  //
-  // The above explanation places limitations on what valid transpose masks can
-  // look like. These limitations are defined by the checks below.
-  //
-  // 1. The number of elements in the mask must be a power of two.
-  if (!isPowerOf2_32(Mask.size()))
-    return false;
-
-  // 2. The first element of the mask must be either a zero (for the
-  // even-numbered vector elements) or a one (for the odd-numbered vector
-  // elements).
-  if (Mask[0] != 0 && Mask[0] != 1)
-    return false;
-
-  // 3. The difference between the first two elements must be equal to the
-  // number of elements in the mask.
-  if (Mask[1] - Mask[0] != (int)Mask.size())
-    return false;
-
-  // 4. The difference between consecutive even-numbered and odd-numbered
-  // elements must be equal to two.
-  for (int I = 2; I < (int)Mask.size(); ++I)
-    if (Mask[I] - Mask[I - 2] != 2)
-      return false;
-
-  return true;
-}
-
-static TargetTransformInfo::OperandValueKind getOperandInfo(Value *V) {
+static TargetTransformInfo::OperandValueKind
+getOperandInfo(Value *V, TargetTransformInfo::OperandValueProperties &OpProps) {
   TargetTransformInfo::OperandValueKind OpInfo =
       TargetTransformInfo::OK_AnyValue;
+  OpProps = TargetTransformInfo::OP_None;
 
-  // Check for a splat of a constant or for a non uniform vector of constants.
+  if (auto *CI = dyn_cast<ConstantInt>(V)) {
+    if (CI->getValue().isPowerOf2())
+      OpProps = TargetTransformInfo::OP_PowerOf2;
+    return TargetTransformInfo::OK_UniformConstantValue;
+  }
+
+  const Value *Splat = getSplatValue(V);
+
+  // Check for a splat of a constant or for a non uniform vector of constants
+  // and check if the constant(s) are all powers of two.
   if (isa<ConstantVector>(V) || isa<ConstantDataVector>(V)) {
     OpInfo = TargetTransformInfo::OK_NonUniformConstantValue;
-    if (cast<Constant>(V)->getSplatValue() != nullptr)
+    if (Splat) {
       OpInfo = TargetTransformInfo::OK_UniformConstantValue;
+      if (auto *CI = dyn_cast<ConstantInt>(Splat))
+        if (CI->getValue().isPowerOf2())
+          OpProps = TargetTransformInfo::OP_PowerOf2;
+    } else if (auto *CDS = dyn_cast<ConstantDataSequential>(V)) {
+      OpProps = TargetTransformInfo::OP_PowerOf2;
+      for (unsigned I = 0, E = CDS->getNumElements(); I != E; ++I) {
+        if (auto *CI = dyn_cast<ConstantInt>(CDS->getElementAsConstant(I)))
+          if (CI->getValue().isPowerOf2())
+            continue;
+        OpProps = TargetTransformInfo::OP_None;
+        break;
+      }
+    }
   }
 
   // Check for a splat of a uniform value. This is not loop aware, so return
   // true only for the obviously uniform cases (argument, globalvalue)
-  const Value *Splat = getSplatValue(V);
   if (Splat && (isa<Argument>(Splat) || isa<GlobalValue>(Splat)))
     OpInfo = TargetTransformInfo::OK_UniformValue;
 
@@ -1086,15 +996,13 @@ int TargetTransformInfo::getInstructionThroughput(const Instruction *I) const {
   case Instruction::And:
   case Instruction::Or:
   case Instruction::Xor: {
-    TargetTransformInfo::OperandValueKind Op1VK =
-      getOperandInfo(I->getOperand(0));
-    TargetTransformInfo::OperandValueKind Op2VK =
-      getOperandInfo(I->getOperand(1));
-    SmallVector<const Value*, 2> Operands(I->operand_values());
-    return getArithmeticInstrCost(I->getOpcode(), I->getType(), Op1VK,
-                                       Op2VK, TargetTransformInfo::OP_None,
-                                       TargetTransformInfo::OP_None,
-                                       Operands);
+    TargetTransformInfo::OperandValueKind Op1VK, Op2VK;
+    TargetTransformInfo::OperandValueProperties Op1VP, Op2VP;
+    Op1VK = getOperandInfo(I->getOperand(0), Op1VP);
+    Op2VK = getOperandInfo(I->getOperand(1), Op2VP);
+    SmallVector<const Value *, 2> Operands(I->operand_values());
+    return getArithmeticInstrCost(I->getOpcode(), I->getType(), Op1VK, Op2VK,
+                                  Op1VP, Op2VP, Operands);
   }
   case Instruction::Select: {
     const SelectInst *SI = cast<SelectInst>(I);
@@ -1193,35 +1101,30 @@ int TargetTransformInfo::getInstructionThroughput(const Instruction *I) const {
   }
   case Instruction::ShuffleVector: {
     const ShuffleVectorInst *Shuffle = cast<ShuffleVectorInst>(I);
-    Type *VecTypOp0 = Shuffle->getOperand(0)->getType();
-    unsigned NumVecElems = VecTypOp0->getVectorNumElements();
-    SmallVector<int, 16> Mask = Shuffle->getShuffleMask();
+    // TODO: Identify and add costs for insert/extract subvector, etc.
+    if (Shuffle->changesLength())
+      return -1;
+    
+    if (Shuffle->isIdentity())
+      return 0;
 
-    if (NumVecElems == Mask.size()) {
-      if (isReverseVectorMask(Mask))
-        return TTIImpl->getShuffleCost(TargetTransformInfo::SK_Reverse,
-                                       VecTypOp0, 0, nullptr);
-      if (isAlternateVectorMask(Mask))
-        return TTIImpl->getShuffleCost(TargetTransformInfo::SK_Alternate,
-                                       VecTypOp0, 0, nullptr);
+    Type *Ty = Shuffle->getType();
+    if (Shuffle->isReverse())
+      return TTIImpl->getShuffleCost(SK_Reverse, Ty, 0, nullptr);
 
-      if (isTransposeVectorMask(Mask))
-        return TTIImpl->getShuffleCost(TargetTransformInfo::SK_Transpose,
-                                       VecTypOp0, 0, nullptr);
+    if (Shuffle->isSelect())
+      return TTIImpl->getShuffleCost(SK_Select, Ty, 0, nullptr);
 
-      if (isZeroEltBroadcastVectorMask(Mask))
-        return TTIImpl->getShuffleCost(TargetTransformInfo::SK_Broadcast,
-                                       VecTypOp0, 0, nullptr);
+    if (Shuffle->isTranspose())
+      return TTIImpl->getShuffleCost(SK_Transpose, Ty, 0, nullptr);
 
-      if (isSingleSourceVectorMask(Mask))
-        return TTIImpl->getShuffleCost(TargetTransformInfo::SK_PermuteSingleSrc,
-                                       VecTypOp0, 0, nullptr);
+    if (Shuffle->isZeroEltSplat())
+      return TTIImpl->getShuffleCost(SK_Broadcast, Ty, 0, nullptr);
 
-      return TTIImpl->getShuffleCost(TargetTransformInfo::SK_PermuteTwoSrc,
-                                     VecTypOp0, 0, nullptr);
-    }
+    if (Shuffle->isSingleSource())
+      return TTIImpl->getShuffleCost(SK_PermuteSingleSrc, Ty, 0, nullptr);
 
-    return -1;
+    return TTIImpl->getShuffleCost(SK_PermuteTwoSrc, Ty, 0, nullptr);
   }
   case Instruction::Call:
     if (const IntrinsicInst *II = dyn_cast<IntrinsicInst>(I)) {

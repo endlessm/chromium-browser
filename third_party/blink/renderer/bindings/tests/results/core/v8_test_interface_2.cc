@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/bindings/tests/results/core/v8_test_interface_2.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
@@ -20,6 +19,8 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_test_interface_empty.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
@@ -707,10 +708,10 @@ void V8TestInterface2::installV8TestInterface2Template(
   static_assert(1 == TestInterface2::kConstValue1, "the value of TestInterface2_kConstValue1 does not match with implementation");
   V8DOMConfiguration::InstallAccessors(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInterface2Accessors, arraysize(V8TestInterface2Accessors));
+      signature, V8TestInterface2Accessors, base::size(V8TestInterface2Accessors));
   V8DOMConfiguration::InstallMethods(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInterface2Methods, arraysize(V8TestInterface2Methods));
+      signature, V8TestInterface2Methods, base::size(V8TestInterface2Methods));
 
   // Indexed properties
   v8::IndexedPropertyHandlerConfiguration indexedPropertyHandlerConfig(
@@ -763,7 +764,7 @@ void V8TestInterface2::InstallRuntimeEnabledFeaturesOnTemplate(
     };
     V8DOMConfiguration::InstallConstants(
         isolate, interface_template, prototype_template,
-        constant_configurations, arraysize(constant_configurations));
+        constant_configurations, base::size(constant_configurations));
   }
 
   // Custom signature

@@ -26,9 +26,8 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabModelObserver;
-import org.chromium.chrome.browser.vr_shell.VrShellDelegate;
+import org.chromium.chrome.browser.vr.VrModuleProvider;
 import org.chromium.chrome.browser.widget.ControlContainer;
-import org.chromium.content_public.browser.ContentVideoView;
 import org.chromium.content_public.common.BrowserControlsState;
 
 import java.lang.annotation.Retention;
@@ -73,14 +72,14 @@ public class ChromeFullscreenManager
 
     private final ArrayList<FullscreenListener> mListeners = new ArrayList<>();
 
+    @IntDef({ControlsPosition.TOP, ControlsPosition.NONE})
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef({CONTROLS_POSITION_TOP, CONTROLS_POSITION_NONE})
-    public @interface ControlsPosition {}
-
-    /** Controls are at the top, eg normal ChromeTabbedActivity. */
-    public static final int CONTROLS_POSITION_TOP = 0;
-    /** Controls are not present, eg FullscreenActivity. */
-    public static final int CONTROLS_POSITION_NONE = 1;
+    public @interface ControlsPosition {
+        /** Controls are at the top, eg normal ChromeTabbedActivity. */
+        int TOP = 0;
+        /** Controls are not present, eg FullscreenActivity. */
+        int NONE = 1;
+    }
 
     /**
      * A listener that gets notified of changes to the fullscreen state.
@@ -197,7 +196,7 @@ public class ChromeFullscreenManager
             }
 
             @Override
-            public void didSelectTab(Tab tab, TabSelectionType type, int lastId) {
+            public void didSelectTab(Tab tab, @TabSelectionType int type, int lastId) {
                 setTab(modelSelector.getCurrentTab());
             }
 
@@ -214,10 +213,10 @@ public class ChromeFullscreenManager
                 mActivity.getResources().getDimensionPixelSize(resControlContainerHeight);
 
         switch (mControlsPosition) {
-            case CONTROLS_POSITION_TOP:
+            case ControlsPosition.TOP:
                 mTopControlContainerHeight = controlContainerHeight;
                 break;
-            case CONTROLS_POSITION_NONE:
+            case ControlsPosition.NONE:
                 // Treat the case of no controls as controls always being totally offscreen.
                 mControlOffsetRatio = 1.0f;
                 break;
@@ -274,11 +273,7 @@ public class ChromeFullscreenManager
         if (mActivity != activity) return;
         onWindowFocusChanged(hasFocus);
         // {@link ContentVideoView#getContentVideoView} requires native to have been initialized.
-        if (!LibraryLoader.isInitialized()) return;
-        ContentVideoView videoView = ContentVideoView.getInstance();
-        if (videoView != null) {
-            videoView.onFullscreenWindowFocused();
-        }
+        if (!LibraryLoader.getInstance().isInitialized()) return;
     }
 
     @Override
@@ -318,8 +313,8 @@ public class ChromeFullscreenManager
                 // The toast tells user how to leave fullscreen by touching the screen. Since,
                 // there is no touchscreen when browsing in VR, the toast doesn't have any useful
                 // information.
-                return !isOverlayVideoMode() && !VrShellDelegate.isInVr()
-                        && !VrShellDelegate.bootsToVr();
+                return !isOverlayVideoMode() && !VrModuleProvider.getDelegate().isInVr()
+                        && !VrModuleProvider.getDelegate().bootsToVr();
             }
         };
     }
@@ -402,7 +397,7 @@ public class ChromeFullscreenManager
     }
 
     private void updateControlOffset() {
-        if (mControlsPosition == CONTROLS_POSITION_NONE) return;
+        if (mControlsPosition == ControlsPosition.NONE) return;
 
         float rendererControlOffset = Math.abs(mRendererTopControlOffset / getTopControlsHeight());
         final boolean isNaNRendererControlOffset = Float.isNaN(rendererControlOffset);
@@ -493,7 +488,7 @@ public class ChromeFullscreenManager
         TraceEvent.begin("FullscreenManager:updateVisuals");
 
         float offset = 0f;
-        if (mControlsPosition == CONTROLS_POSITION_TOP) {
+        if (mControlsPosition == ControlsPosition.TOP) {
             offset = getTopControlOffset();
         }
 

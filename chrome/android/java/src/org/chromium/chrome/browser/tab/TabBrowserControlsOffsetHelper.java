@@ -11,9 +11,8 @@ import android.animation.ValueAnimator;
 import org.chromium.base.ObserverList;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.tabmodel.TabModelImpl;
-import org.chromium.chrome.browser.util.FeatureUtilities;
-import org.chromium.chrome.browser.vr_shell.VrShellDelegate;
-import org.chromium.chrome.browser.vr_shell.VrShellDelegate.VrModeObserver;
+import org.chromium.chrome.browser.vr.VrModeObserver;
+import org.chromium.chrome.browser.vr.VrModuleProvider;
 
 /**
  * Handles browser controls offset for a Tab.
@@ -62,8 +61,8 @@ public class TabBrowserControlsOffsetHelper implements VrModeObserver {
      */
     TabBrowserControlsOffsetHelper(Tab tab) {
         mTab = tab;
-        VrShellDelegate.registerVrModeObserver(this);
-        if (VrShellDelegate.isInVr()) onEnterVr();
+        VrModuleProvider.registerVrModeObserver(this);
+        if (VrModuleProvider.getDelegate().isInVr()) onEnterVr();
     }
 
     /**
@@ -148,16 +147,13 @@ public class TabBrowserControlsOffsetHelper implements VrModeObserver {
 
         boolean topOffsetsInitialized =
                 !Float.isNaN(mPreviousTopControlsOffsetY) && !Float.isNaN(mPreviousContentOffsetY);
-        boolean bottomOffsetsInitialized = !Float.isNaN(mPreviousBottomControlsOffsetY);
-        boolean isChromeHomeEnabled = FeatureUtilities.isChromeHomeEnabled();
 
         // Make sure the dominant control offsets have been set.
-        if ((!topOffsetsInitialized && !isChromeHomeEnabled)
-                || (!bottomOffsetsInitialized && isChromeHomeEnabled)) {
-            showAndroidControls(false);
-        } else {
+        if (topOffsetsInitialized) {
             updateFullscreenManagerOffsets(false, mPreviousTopControlsOffsetY,
                     mPreviousBottomControlsOffsetY, mPreviousContentOffsetY);
+        } else {
+            showAndroidControls(false);
         }
         mTab.updateFullscreenEnabledState();
     }
@@ -165,7 +161,7 @@ public class TabBrowserControlsOffsetHelper implements VrModeObserver {
     /**
      * Clears the cached browser controls positions.
      */
-    void clearPreviousPositions() {
+    private void clearPreviousPositions() {
         mPreviousTopControlsOffsetY = Float.NaN;
         mPreviousBottomControlsOffsetY = Float.NaN;
         mPreviousContentOffsetY = Float.NaN;
@@ -181,7 +177,7 @@ public class TabBrowserControlsOffsetHelper implements VrModeObserver {
         if (manager == null) return;
 
         if (mIsInVr) {
-            VrShellDelegate.rawTopContentOffsetChanged(topContentOffset);
+            VrModuleProvider.getDelegate().rawTopContentOffsetChanged(topContentOffset);
             // The dip scale of java UI and WebContents are different while in VR, leading to a
             // mismatch in size in pixels when converting from dips. Since we hide the controls in
             // VR anyways, just set the offsets to what they're supposed to be with the controls
@@ -271,6 +267,6 @@ public class TabBrowserControlsOffsetHelper implements VrModeObserver {
      */
     public void destroy() {
         clearPreviousPositions();
-        VrShellDelegate.unregisterVrModeObserver(this);
+        VrModuleProvider.unregisterVrModeObserver(this);
     }
 }

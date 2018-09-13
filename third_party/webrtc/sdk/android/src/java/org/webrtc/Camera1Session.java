@@ -14,13 +14,13 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.view.Surface;
-import android.view.WindowManager;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 import org.webrtc.CameraEnumerationAndroid.CaptureFormat;
+import android.graphics.Matrix;
 
 @SuppressWarnings("deprecation")
 class Camera1Session implements CameraSession {
@@ -174,6 +174,8 @@ class Camera1Session implements CameraSession {
     this.captureFormat = captureFormat;
     this.constructionTimeNs = constructionTimeNs;
 
+    surfaceTextureHelper.setTextureSize(captureFormat.width, captureFormat.height);
+
     startCapturing();
   }
 
@@ -247,39 +249,31 @@ class Camera1Session implements CameraSession {
   }
 
   private void listenForTextureFrames() {
-    surfaceTextureHelper.startListening(new SurfaceTextureHelper.OnTextureFrameAvailableListener() {
-      @Override
-      public void onTextureFrameAvailable(
-          int oesTextureId, float[] transformMatrix, long timestampNs) {
-        checkIsOnCameraThread();
+    surfaceTextureHelper.startListening((VideoFrame frame) -> {
+      checkIsOnCameraThread();
 
-        if (state != SessionState.RUNNING) {
-          Logging.d(TAG, "Texture frame captured but camera is no longer running.");
-          surfaceTextureHelper.returnTextureFrame();
-          return;
-        }
-
-        if (!firstFrameReported) {
-          final int startTimeMs =
-              (int) TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - constructionTimeNs);
-          camera1StartTimeMsHistogram.addSample(startTimeMs);
-          firstFrameReported = true;
-        }
-
-        int rotation = getFrameOrientation();
-        if (info.facing == android.hardware.Camera.CameraInfo.CAMERA_FACING_FRONT) {
-          // Undo the mirror that the OS "helps" us with.
-          // http://developer.android.com/reference/android/hardware/Camera.html#setDisplayOrientation(int)
-          transformMatrix = RendererCommon.multiplyMatrices(
-              transformMatrix, RendererCommon.horizontalFlipMatrix());
-        }
-        final VideoFrame.Buffer buffer =
-            surfaceTextureHelper.createTextureBuffer(captureFormat.width, captureFormat.height,
-                RendererCommon.convertMatrixToAndroidGraphicsMatrix(transformMatrix));
-        final VideoFrame frame = new VideoFrame(buffer, rotation, timestampNs);
-        events.onFrameCaptured(Camera1Session.this, frame);
-        frame.release();
+      if (state != SessionState.RUNNING) {
+        Logging.d(TAG, "Texture frame captured but camera is no longer running.");
+        return;
       }
+
+      if (!firstFrameReported) {
+        final int startTimeMs =
+            (int) TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - constructionTimeNs);
+        camera1StartTimeMsHistogram.addSample(startTimeMs);
+        firstFrameReported = true;
+      }
+
+      // Undo the mirror that the OS "helps" us with.
+      // http://developer.android.com/reference/android/hardware/Camera.html#setDisplayOrientation(int)
+      final VideoFrame modifiedFrame = new VideoFrame(
+          CameraSession.createTextureBufferWithModifiedTransformMatrix(
+              (TextureBufferImpl) frame.getBuffer(),
+              /* mirror= */ info.facing == android.hardware.Camera.CameraInfo.CAMERA_FACING_FRONT,
+              /* rotation= */ 0),
+          /* rotation= */ getFrameOrientation(), frame.getTimestampNs());
+      events.onFrameCaptured(Camera1Session.this, modifiedFrame);
+      modifiedFrame.release();
     });
   }
 
@@ -321,30 +315,8 @@ class Camera1Session implements CameraSession {
     });
   }
 
-  private int getDeviceOrientation() {
-    int orientation = 0;
-
-    WindowManager wm = (WindowManager) applicationContext.getSystemService(Context.WINDOW_SERVICE);
-    switch (wm.getDefaultDisplay().getRotation()) {
-      case Surface.ROTATION_90:
-        orientation = 90;
-        break;
-      case Surface.ROTATION_180:
-        orientation = 180;
-        break;
-      case Surface.ROTATION_270:
-        orientation = 270;
-        break;
-      case Surface.ROTATION_0:
-      default:
-        orientation = 0;
-        break;
-    }
-    return orientation;
-  }
-
   private int getFrameOrientation() {
-    int rotation = getDeviceOrientation();
+    int rotation = CameraSession.getDeviceOrientation(applicationContext);
     if (info.facing == android.hardware.Camera.CameraInfo.CAMERA_FACING_BACK) {
       rotation = 360 - rotation;
     }

@@ -110,7 +110,7 @@ CompositorFrameBuilder& CompositorFrameBuilder::SetDeadline(
 }
 
 CompositorFrameBuilder& CompositorFrameBuilder::SetReferencedSurfaces(
-    std::vector<SurfaceId> referenced_surfaces) {
+    std::vector<SurfaceRange> referenced_surfaces) {
   frame_->metadata.referenced_surfaces = std::move(referenced_surfaces);
   return *this;
 }
@@ -127,17 +127,23 @@ CompositorFrameBuilder& CompositorFrameBuilder::SetContentSourceId(
   return *this;
 }
 
-CompositorFrameBuilder& CompositorFrameBuilder::SetPresentationToken(
-    uint32_t presentation_token) {
-  frame_->metadata.presentation_token = presentation_token;
+CompositorFrameBuilder& CompositorFrameBuilder::SetSendFrameTokenToEmbedder(
+    bool send) {
+  DCHECK(frame_->metadata.frame_token);
+  frame_->metadata.send_frame_token_to_embedder = send;
+  return *this;
+}
+
+CompositorFrameBuilder& CompositorFrameBuilder::SetRequestPresentationFeedback(
+    bool request) {
+  DCHECK(frame_->metadata.frame_token);
+  frame_->metadata.request_presentation_feedback = request;
   return *this;
 }
 
 CompositorFrame CompositorFrameBuilder::MakeInitCompositorFrame() const {
   CompositorFrame frame;
-  frame.metadata.begin_frame_ack =
-      BeginFrameAck(BeginFrameArgs::kManualSourceId,
-                    BeginFrameArgs::kStartingFrameNumber, true);
+  frame.metadata.begin_frame_ack = BeginFrameAck::CreateManualAckWithDamage();
   frame.metadata.device_scale_factor = 1.f;
   return frame;
 }

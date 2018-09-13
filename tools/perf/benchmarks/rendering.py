@@ -9,11 +9,11 @@ from telemetry import benchmark
 from telemetry import story as story_module
 
 
-@benchmark.Owner(emails=['sadrul@chromium.org', 'vmiura@chromium.org'])
+@benchmark.Info(emails=['sadrul@chromium.org', 'vmiura@chromium.org'],
+                documentation_url='https://bit.ly/rendering-benchmarks')
 class RenderingDesktop(perf_benchmark.PerfBenchmark):
 
   test = rendering.Rendering
-  page_set = page_sets.RenderingDesktopPageSet
   SUPPORTED_PLATFORMS = [story_module.expectations.ALL_DESKTOP]
 
   @classmethod
@@ -27,12 +27,15 @@ class RenderingDesktop(perf_benchmark.PerfBenchmark):
                            'This is useful for analysing scrolling behaviour '
                            'with tools such as perf.')
 
+  def CreateStorySet(self, options):
+    return page_sets.RenderingStorySet(platform='desktop')
 
-@benchmark.Owner(emails=['sadrul@chromium.org', 'vmiura@chromium.org'])
+
+@benchmark.Info(emails=['sadrul@chromium.org', 'vmiura@chromium.org'],
+                documentation_url='https://bit.ly/rendering-benchmarks')
 class RenderingMobile(perf_benchmark.PerfBenchmark):
 
   test = rendering.Rendering
-  page_set = page_sets.RenderingMobilePageSet
   SUPPORTED_PLATFORMS = [story_module.expectations.ALL_MOBILE]
 
   @classmethod
@@ -45,3 +48,6 @@ class RenderingMobile(perf_benchmark.PerfBenchmark):
                       help='If set, continuously scroll up and down forever. '
                            'This is useful for analysing scrolling behaviour '
                            'with tools such as perf.')
+
+  def CreateStorySet(self, options):
+    return page_sets.RenderingStorySet(platform='mobile')

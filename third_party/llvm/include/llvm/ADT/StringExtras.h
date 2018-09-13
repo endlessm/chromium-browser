@@ -39,6 +39,16 @@ inline char hexdigit(unsigned X, bool LowerCase = false) {
   return X < 10 ? '0' + X : HexChar + X - 10;
 }
 
+/// Given an array of c-style strings terminated by a null pointer, construct
+/// a vector of StringRefs representing the same strings without the terminating
+/// null string.
+inline std::vector<StringRef> toStringRefArray(const char *const *Strings) {
+  std::vector<StringRef> Result;
+  while (*Strings)
+    Result.push_back(*Strings++);
+  return Result;
+}
+
 /// Construct a string ref from a boolean.
 inline StringRef toStringRef(bool B) { return StringRef(B ? "true" : "false"); }
 
@@ -77,6 +87,17 @@ inline bool isAlpha(char C) {
 /// Checks whether character \p C is either a decimal digit or an uppercase or
 /// lowercase letter as classified by "C" locale.
 inline bool isAlnum(char C) { return isAlpha(C) || isDigit(C); }
+
+/// Checks whether character \p C is valid ASCII (high bit is zero).
+inline bool isASCII(char C) { return static_cast<unsigned char>(C) <= 127; }
+
+/// Checks whether all characters in S are ASCII.
+inline bool isASCII(llvm::StringRef S) {
+  for (char C : S)
+    if (LLVM_UNLIKELY(!isASCII(C)))
+      return false;
+  return true;
+}
 
 /// Returns the corresponding lowercase character if \p x is uppercase.
 inline char toLower(char x) {
@@ -251,9 +272,13 @@ inline StringRef getOrdinalSuffix(unsigned Val) {
   }
 }
 
-/// PrintEscapedString - Print each character of the specified string, escaping
-/// it if it is not printable or if it is an escape char.
-void PrintEscapedString(StringRef Name, raw_ostream &Out);
+/// Print each character of the specified string, escaping it if it is not
+/// printable or if it is an escape char.
+void printEscapedString(StringRef Name, raw_ostream &Out);
+
+/// Print each character of the specified string, escaping HTML special
+/// characters.
+void printHTMLEscaped(StringRef String, raw_ostream &Out);
 
 /// printLowerCase - Print each character as lowercase if it is uppercase.
 void printLowerCase(StringRef String, raw_ostream &Out);

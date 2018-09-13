@@ -19,51 +19,30 @@
 #include <algorithm>
 
 #include "macro.h"
+#include "spirv_constant.h"
+#include "spirv_target_env.h"
 
-#include "operand.kinds-1.0.inc"
-#include "operand.kinds-1.1.inc"
-#include "operand.kinds-1.2.inc"
+// For now, assume unified1 contains up to SPIR-V 1.3 and no later
+// SPIR-V version.
+// TODO(dneto): Make one set of tables, but with version tags on a
+// per-item basis. https://github.com/KhronosGroup/SPIRV-Tools/issues/1195
 
-static const spv_operand_table_t kTable_1_0 = {
-    ARRAY_SIZE(pygen_variable_OperandInfoTable_1_0),
-    pygen_variable_OperandInfoTable_1_0};
-static const spv_operand_table_t kTable_1_1 = {
-    ARRAY_SIZE(pygen_variable_OperandInfoTable_1_1),
-    pygen_variable_OperandInfoTable_1_1};
-static const spv_operand_table_t kTable_1_2 = {
-    ARRAY_SIZE(pygen_variable_OperandInfoTable_1_2),
-    pygen_variable_OperandInfoTable_1_2};
+#include "operand.kinds-unified1.inc"
+
+static const spv_operand_table_t kOperandTable = {
+    ARRAY_SIZE(pygen_variable_OperandInfoTable),
+    pygen_variable_OperandInfoTable};
 
 spv_result_t spvOperandTableGet(spv_operand_table* pOperandTable,
-                                spv_target_env env) {
+                                spv_target_env) {
   if (!pOperandTable) return SPV_ERROR_INVALID_POINTER;
 
-  switch (env) {
-    case SPV_ENV_UNIVERSAL_1_0:
-    case SPV_ENV_VULKAN_1_0:
-    case SPV_ENV_OPENCL_2_1:
-    case SPV_ENV_OPENGL_4_0:
-    case SPV_ENV_OPENGL_4_1:
-    case SPV_ENV_OPENGL_4_2:
-    case SPV_ENV_OPENGL_4_3:
-    case SPV_ENV_OPENGL_4_5:
-      *pOperandTable = &kTable_1_0;
-      return SPV_SUCCESS;
-    case SPV_ENV_UNIVERSAL_1_1:
-      *pOperandTable = &kTable_1_1;
-      return SPV_SUCCESS;
-    case SPV_ENV_UNIVERSAL_1_2:
-    case SPV_ENV_OPENCL_2_2:
-      *pOperandTable = &kTable_1_2;
-      return SPV_SUCCESS;
-  }
-  assert(0 && "Unknown spv_target_env in spvOperandTableGet()");
-  return SPV_ERROR_INVALID_TABLE;
+  *pOperandTable = &kOperandTable;
+  return SPV_SUCCESS;
 }
 
-#undef ARRAY_SIZE
-
-spv_result_t spvOperandTableNameLookup(const spv_operand_table table,
+spv_result_t spvOperandTableNameLookup(spv_target_env env,
+                                       const spv_operand_table table,
                                        const spv_operand_type_t type,
                                        const char* name,
                                        const size_t nameLength,
@@ -76,7 +55,18 @@ spv_result_t spvOperandTableNameLookup(const spv_operand_table table,
     if (type != group.type) continue;
     for (uint64_t index = 0; index < group.count; ++index) {
       const auto& entry = group.entries[index];
-      if (nameLength == strlen(entry.name) &&
+      // We consider the current operand as available as long as
+      // 1. The target environment satisfies the minimal requirement of the
+      //    operand; or
+      // 2. There is at least one extension enabling this operand; or
+      // 3. There is at least one capability enabling this operand.
+      //
+      // Note that the second rule assumes the extension enabling this operand
+      // is indeed requested in the SPIR-V code; checking that should be
+      // validator's work.
+      if ((spvVersionForTargetEnv(env) >= entry.minVersion ||
+           entry.numExtensions > 0u || entry.numCapabilities > 0u) &&
+          nameLength == strlen(entry.name) &&
           !strncmp(entry.name, name, nameLength)) {
         *pEntry = &entry;
         return SPV_SUCCESS;
@@ -87,20 +77,51 @@ spv_result_t spvOperandTableNameLookup(const spv_operand_table table,
   return SPV_ERROR_INVALID_LOOKUP;
 }
 
-spv_result_t spvOperandTableValueLookup(const spv_operand_table table,
+spv_result_t spvOperandTableValueLookup(spv_target_env env,
+                                        const spv_operand_table table,
                                         const spv_operand_type_t type,
                                         const uint32_t value,
                                         spv_operand_desc* pEntry) {
   if (!table) return SPV_ERROR_INVALID_TABLE;
   if (!pEntry) return SPV_ERROR_INVALID_POINTER;
 
+  spv_operand_desc_t needle = {"", value, 0, nullptr, 0, nullptr, {}, ~0u};
+
+  auto comp = [](const spv_operand_desc_t& lhs, const spv_operand_desc_t& rhs) {
+    return lhs.value < rhs.value;
+  };
+
   for (uint64_t typeIndex = 0; typeIndex < table->count; ++typeIndex) {
     const auto& group = table->types[typeIndex];
     if (type != group.type) continue;
-    for (uint64_t index = 0; index < group.count; ++index) {
-      const auto& entry = group.entries[index];
-      if (value == entry.value) {
-        *pEntry = &entry;
+
+    const auto beg = group.entries;
+    const auto end = group.entries + group.count;
+
+    // We need to loop here because there can exist multiple symbols for the
+    // same operand value, and they can be introduced in different target
+    // environments, which means they can have different minimal version
+    // requirements. For example, SubgroupEqMaskKHR can exist in any SPIR-V
+    // version as long as the SPV_KHR_shader_ballot extension is there; but
+    // starting from SPIR-V 1.3, SubgroupEqMask, which has the same numeric
+    // value as SubgroupEqMaskKHR, is available in core SPIR-V without extension
+    // requirements.
+    // Assumes the underlying table is already sorted ascendingly according to
+    // opcode value.
+    for (auto it = std::lower_bound(beg, end, needle, comp);
+         it != end && it->value == value; ++it) {
+      // We consider the current operand as available as long as
+      // 1. The target environment satisfies the minimal requirement of the
+      //    operand; or
+      // 2. There is at least one extension enabling this operand; or
+      // 3. There is at least one capability enabling this operand.
+      //
+      // Note that the second rule assumes the extension enabling this operand
+      // is indeed requested in the SPIR-V code; checking that should be
+      // validator's work.
+      if (spvVersionForTargetEnv(env) >= it->minVersion ||
+          it->numExtensions > 0u || it->numCapabilities > 0u) {
+        *pEntry = it;
         return SPV_SUCCESS;
       }
     }
@@ -194,6 +215,16 @@ const char* spvOperandTypeStr(spv_operand_type_t type) {
       return "image";
     case SPV_OPERAND_TYPE_OPTIONAL_CIV:
       return "context-insensitive value";
+    case SPV_OPERAND_TYPE_DEBUG_INFO_FLAGS:
+      return "debug info flags";
+    case SPV_OPERAND_TYPE_DEBUG_BASE_TYPE_ATTRIBUTE_ENCODING:
+      return "debug base type encoding";
+    case SPV_OPERAND_TYPE_DEBUG_COMPOSITE_TYPE:
+      return "debug composite type";
+    case SPV_OPERAND_TYPE_DEBUG_TYPE_QUALIFIER:
+      return "debug type qualifier";
+    case SPV_OPERAND_TYPE_DEBUG_OPERATION:
+      return "debug operation";
 
     // The next values are for values returned from an instruction, not actually
     // an operand.  So the specific strings don't matter.  But let's add them
@@ -222,7 +253,8 @@ void spvPushOperandTypes(const spv_operand_type_t* types,
   }
 }
 
-void spvPushOperandTypesForMask(const spv_operand_table operandTable,
+void spvPushOperandTypesForMask(spv_target_env env,
+                                const spv_operand_table operandTable,
                                 const spv_operand_type_t type,
                                 const uint32_t mask,
                                 spv_operand_pattern_t* pattern) {
@@ -232,7 +264,7 @@ void spvPushOperandTypesForMask(const spv_operand_table operandTable,
        candidate_bit >>= 1) {
     if (candidate_bit & mask) {
       spv_operand_desc entry = nullptr;
-      if (SPV_SUCCESS == spvOperandTableValueLookup(operandTable, type,
+      if (SPV_SUCCESS == spvOperandTableValueLookup(env, operandTable, type,
                                                     candidate_bit, &entry)) {
         spvPushOperandTypes(entry->operandTypes, pattern);
       }
@@ -240,9 +272,63 @@ void spvPushOperandTypesForMask(const spv_operand_table operandTable,
   }
 }
 
+bool spvOperandIsConcrete(spv_operand_type_t type) {
+  if (spvIsIdType(type) || spvOperandIsConcreteMask(type)) {
+    return true;
+  }
+  switch (type) {
+    case SPV_OPERAND_TYPE_LITERAL_INTEGER:
+    case SPV_OPERAND_TYPE_EXTENSION_INSTRUCTION_NUMBER:
+    case SPV_OPERAND_TYPE_SPEC_CONSTANT_OP_NUMBER:
+    case SPV_OPERAND_TYPE_TYPED_LITERAL_NUMBER:
+    case SPV_OPERAND_TYPE_LITERAL_STRING:
+    case SPV_OPERAND_TYPE_SOURCE_LANGUAGE:
+    case SPV_OPERAND_TYPE_EXECUTION_MODEL:
+    case SPV_OPERAND_TYPE_ADDRESSING_MODEL:
+    case SPV_OPERAND_TYPE_MEMORY_MODEL:
+    case SPV_OPERAND_TYPE_EXECUTION_MODE:
+    case SPV_OPERAND_TYPE_STORAGE_CLASS:
+    case SPV_OPERAND_TYPE_DIMENSIONALITY:
+    case SPV_OPERAND_TYPE_SAMPLER_ADDRESSING_MODE:
+    case SPV_OPERAND_TYPE_SAMPLER_FILTER_MODE:
+    case SPV_OPERAND_TYPE_SAMPLER_IMAGE_FORMAT:
+    case SPV_OPERAND_TYPE_IMAGE_CHANNEL_ORDER:
+    case SPV_OPERAND_TYPE_IMAGE_CHANNEL_DATA_TYPE:
+    case SPV_OPERAND_TYPE_FP_ROUNDING_MODE:
+    case SPV_OPERAND_TYPE_LINKAGE_TYPE:
+    case SPV_OPERAND_TYPE_ACCESS_QUALIFIER:
+    case SPV_OPERAND_TYPE_FUNCTION_PARAMETER_ATTRIBUTE:
+    case SPV_OPERAND_TYPE_DECORATION:
+    case SPV_OPERAND_TYPE_BUILT_IN:
+    case SPV_OPERAND_TYPE_GROUP_OPERATION:
+    case SPV_OPERAND_TYPE_KERNEL_ENQ_FLAGS:
+    case SPV_OPERAND_TYPE_KERNEL_PROFILING_INFO:
+    case SPV_OPERAND_TYPE_CAPABILITY:
+    case SPV_OPERAND_TYPE_DEBUG_BASE_TYPE_ATTRIBUTE_ENCODING:
+    case SPV_OPERAND_TYPE_DEBUG_COMPOSITE_TYPE:
+    case SPV_OPERAND_TYPE_DEBUG_TYPE_QUALIFIER:
+    case SPV_OPERAND_TYPE_DEBUG_OPERATION:
+      return true;
+    default:
+      break;
+  }
+  return false;
+}
+
 bool spvOperandIsConcreteMask(spv_operand_type_t type) {
-  return SPV_OPERAND_TYPE_FIRST_CONCRETE_MASK_TYPE <= type &&
-         type <= SPV_OPERAND_TYPE_LAST_CONCRETE_MASK_TYPE;
+  switch (type) {
+    case SPV_OPERAND_TYPE_IMAGE:
+    case SPV_OPERAND_TYPE_FP_FAST_MATH_MODE:
+    case SPV_OPERAND_TYPE_SELECTION_CONTROL:
+    case SPV_OPERAND_TYPE_LOOP_CONTROL:
+    case SPV_OPERAND_TYPE_FUNCTION_CONTROL:
+    case SPV_OPERAND_TYPE_MEMORY_ACCESS:
+    case SPV_OPERAND_TYPE_DEBUG_INFO_FLAGS:
+      return true;
+    default:
+      break;
+  }
+  return false;
 }
 
 bool spvOperandIsOptional(spv_operand_type_t type) {
@@ -329,12 +415,16 @@ std::function<bool(unsigned)> spvOperandCanBeForwardDeclaredFunction(
   std::function<bool(unsigned index)> out;
   switch (opcode) {
     case SpvOpExecutionMode:
+    case SpvOpExecutionModeId:
     case SpvOpEntryPoint:
     case SpvOpName:
     case SpvOpMemberName:
     case SpvOpSelectionMerge:
     case SpvOpDecorate:
     case SpvOpMemberDecorate:
+    case SpvOpDecorateId:
+    case SpvOpDecorateStringGOOGLE:
+    case SpvOpMemberDecorateStringGOOGLE:
     case SpvOpTypeStruct:
     case SpvOpBranch:
     case SpvOpLoopMerge:

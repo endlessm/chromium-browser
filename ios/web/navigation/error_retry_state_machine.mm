@@ -28,12 +28,20 @@ ErrorRetryState ErrorRetryStateMachine::state() const {
   return state_;
 }
 
-void ErrorRetryStateMachine::ResetState() {
-  state_ = ErrorRetryState::kNewRequest;
-}
-
 void ErrorRetryStateMachine::SetDisplayingNativeError() {
-  DCHECK_EQ(ErrorRetryState::kReadyToDisplayErrorForFailedNavigation, state_);
+  // Native error is displayed in two scenarios:
+  // (1) Placeholder entry for network load error finished loading in web view.
+  //     This is the common case.
+  // (2) Retry of a previously failed load failed in SSL error. This can happen
+  //     when the first navigation failed in offline mode. SSL interstitial does
+  //     not normally trigger ErrorRetryStateMachine because the error page is
+  //     not to become part of the navigation history. This leaves the item
+  //     stuck in the transient kRetryFailedNavigationItem state. So for this
+  //     specific case, treat the SSL interstitial as a native error so that
+  //     error retry works as expected on subsequent back/forward navigations.
+  DCHECK(state_ == ErrorRetryState::kReadyToDisplayErrorForFailedNavigation ||
+         state_ == ErrorRetryState::kRetryFailedNavigationItem)
+      << "Unexpected error retry state: " << static_cast<int>(state_);
   state_ = ErrorRetryState::kDisplayingNativeErrorForFailedNavigation;
 }
 
@@ -108,7 +116,7 @@ ErrorRetryCommand ErrorRetryStateMachine::DidFinishNavigation(
         return ErrorRetryCommand::kLoadErrorView;
       }
       if (wk_navigation_util::IsRestoreSessionUrl(web_view_url)) {
-        // (10) initial load of restore_session.html. Don't change state or
+        // (8) Initial load of restore_session.html. Don't change state or
         // issue command. Wait for the client-side redirect.
       } else {
         // (2) Initial load succeeded.
@@ -116,7 +124,6 @@ ErrorRetryCommand ErrorRetryStateMachine::DidFinishNavigation(
                web_view_url == url_);
         state_ = ErrorRetryState::kNoNavigationError;
       }
-
       break;
 
     case ErrorRetryState::kReadyToDisplayErrorForFailedNavigation:
@@ -126,6 +133,7 @@ ErrorRetryCommand ErrorRetryStateMachine::DidFinishNavigation(
       break;
 
     case ErrorRetryState::kDisplayingNativeErrorForFailedNavigation:
+    case ErrorRetryState::kDisplayingWebErrorForFailedNavigation:
       if (web_view_url ==
           wk_navigation_util::CreatePlaceholderUrlForUrl(url_)) {
         // (4) Back/forward to or reload of placeholder URL. Rewrite WebView URL
@@ -134,8 +142,13 @@ ErrorRetryCommand ErrorRetryStateMachine::DidFinishNavigation(
         return ErrorRetryCommand::kRewriteWebViewURL;
       }
 
-      // (5) Reload of original URL succeeded in WebView (either because it was
-      // already in Page Cache or the network load succeded.
+      // (5) This is either a reload of the original URL that succeeded in
+      // WebView (either because it was already in Page Cache or the network
+      // load succeded), or a back/forward of a previous WebUI error that is
+      // served from Page Cache. It's impossible to distinguish between the two
+      // because in both cases, |web_view_url| is the original URL. This can
+      // lead to network error being displayed even when network condition
+      // is regained. User has to reload explicitly to retry loading online.
       DCHECK_EQ(web_view_url, url_);
       state_ = ErrorRetryState::kNoNavigationError;
       break;
@@ -149,8 +162,6 @@ ErrorRetryCommand ErrorRetryStateMachine::DidFinishNavigation(
 
     // (7) Retry loading succeeded.
     case ErrorRetryState::kRetryFailedNavigationItem:
-    // (8) Back/forward to or reload of a previous WebUI error succeeds.
-    case ErrorRetryState::kDisplayingWebErrorForFailedNavigation:
       DCHECK_EQ(web_view_url, url_);
       state_ = ErrorRetryState::kNoNavigationError;
       break;

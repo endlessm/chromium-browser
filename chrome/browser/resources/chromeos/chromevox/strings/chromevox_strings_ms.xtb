@@ -92,6 +92,7 @@ Jika anda ingin keluar daripada tutorial, gunakan ChromeVox untuk menavigasi ke 
 <translation id="1787176709638001873">Teks edit kata laluan</translation>
 <translation id="1802710350767629429">Paparkan nota kemas kini</translation>
 <translation id="1810107444790159527">Kotak senarai</translation>
+<translation id="1812527064848182527">landskap</translation>
 <translation id="1828385960365606039">Mei</translation>
 <translation id="1834891354138622109">Lajur</translation>
 <translation id="1845944666972354496">Ketik dua kali untuk mengaktifkan</translation>
@@ -146,6 +147,7 @@ Jika anda ingin keluar daripada tutorial, gunakan ChromeVox untuk menavigasi ke 
 <translation id="2416512023405990736">Kotak pilihan tidak ditandai</translation>
 <translation id="2417569100218200841">Maklumat kandungan</translation>
 <translation id="2417948780551741035">Nota hujung</translation>
+<translation id="2421113964388408478">Pemadaman</translation>
 <translation id="2422937916923936891">Kotak pilihan item menu</translation>
 <translation id="2428534162001909979">Menu Perintah</translation>
 <translation id="2429669115401274487">P/M</translation>
@@ -253,6 +255,7 @@ Jika anda ingin keluar daripada tutorial, gunakan ChromeVox untuk menavigasi ke 
 <translation id="3232388865800379423">Butang timbul</translation>
 <translation id="3241052487511142956">Pautan yang dilawati sebelumnya</translation>
 <translation id="3241638166094654466">Sel dalam setiap baris:</translation>
+<translation id="3286372614333682499">potret</translation>
 <translation id="3286390186030710347">Peluncur</translation>
 <translation id="3299925995433437805">Tiada pautan yang dilawati seterusnya.</translation>
 <translation id="3300348286427369683">Sokongan teks beraneka. Kini, ChromeVox menyokong medan teks beraneka termasuk perintah melangkau, penghalaan kursor braille, pemilihan dan pelbagai lagi.</translation>
@@ -426,6 +429,7 @@ Jika anda ingin keluar daripada tutorial, gunakan ChromeVox untuk menavigasi ke 
 <translation id="4476183483923481720">garisan baharu</translation>
 <translation id="4482330759234983253">Jadual sebelumnya</translation>
 <translation id="4491109536499578614">Imej</translation>
+<translation id="4505167975768625962">Penyisipan</translation>
 <translation id="4517854969512651305">Tingkatkan nilai</translation>
 <translation id="4529987814483543472">Peta kekunci klasik</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{garis condong}other{# garis condong}}</translation>
@@ -589,6 +593,7 @@ Jika anda ingin keluar daripada tutorial, gunakan ChromeVox untuk menavigasi ke 
 <translation id="5712338278108304766">Lajur jadual seterusnya</translation>
 <translation id="571866080859340309">Meneroka kumpulan</translation>
 <translation id="5728409797179002635">Tiada jadual dijumpai.</translation>
+<translation id="5729047866208036762">Tekan atas, bawah, kiri atau kanan untuk menerokai matematik.</translation>
 <translation id="5732189279857692565">Ini ialah tajuk kedua. Teruskan, tekan Carian+H atau Carian+Shift+H</translation>
 <translation id="5748623122140342504">Tajuk tahap 5 sebelumnya</translation>
 <translation id="5750633686117194034">Tiada pengubah suai ditekan; sila tekan terus satu atau lebih pengubah suai; angkat jari anda setelah selesai dan anda akan mendengar kekunci ditetapkan. Ketik untuk keluar.</translation>
@@ -744,6 +749,7 @@ Untuk membuka menu penyemak imbas Chrome, tekan Alt+F.</translation>
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">Pilih jadual braille 6 titik:</translation>
 <translation id="72393384879519786">Tajuk</translation>
+<translation id="7240858705033280249">Lompat ke Butiran</translation>
 <translation id="7241683698754534149">Buka huraian panjang dalam tab baharu</translation>
 <translation id="7248671827512403053">Aplikasi</translation>
 <translation id="725969808843520477">Butang radio seterusnya</translation>
@@ -920,6 +926,7 @@ Untuk membuka menu penyemak imbas Chrome, tekan Alt+F.</translation>
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Pilih jadual braille 8 titik:</translation>
 <translation id="9065283790526219006">+pop timbul</translation>
+<translation id="9066023754636984703">Tekan Carian+A, J untuk melangkau ke butiran.</translation>
 <translation id="9067522039955793016">Pemisah halaman</translation>
 <translation id="9077213568694924680">dialih keluar daripada pilihan</translation>
 <translation id="9082874451376019682">Tiada peluncur terdahulu.</translation>

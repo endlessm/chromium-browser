@@ -20,6 +20,7 @@
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
+#include "llvm/Support/Path.h"
 using namespace clang;
 
 
@@ -697,9 +698,8 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
     return nullptr;
   case tok::semi:
     // Either a C++11 empty-declaration or attribute-declaration.
-    SingleDecl = Actions.ActOnEmptyDeclaration(getCurScope(),
-                                               attrs.getList(),
-                                               Tok.getLocation());
+    SingleDecl =
+        Actions.ActOnEmptyDeclaration(getCurScope(), attrs, Tok.getLocation());
     ConsumeExtraSemi(OutsideFunction);
     break;
   case tok::r_brace:
@@ -828,8 +828,8 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
              diag::ext_extern_template) << SourceRange(ExternLoc, TemplateLoc);
       SourceLocation DeclEnd;
       return Actions.ConvertDeclToDeclGroup(
-                  ParseExplicitInstantiation(DeclaratorContext::FileContext,
-                                             ExternLoc, TemplateLoc, DeclEnd));
+          ParseExplicitInstantiation(DeclaratorContext::FileContext, ExternLoc,
+                                     TemplateLoc, DeclEnd, attrs));
     }
     goto dont_know;
 
@@ -1089,15 +1089,10 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   // Check to make sure that any normal attributes are allowed to be on
   // a definition.  Late parsed attributes are checked at the end.
   if (Tok.isNot(tok::equal)) {
-    AttributeList *DtorAttrs = D.getAttributes();
-    while (DtorAttrs) {
-      if (DtorAttrs->isKnownToGCC() &&
-          !DtorAttrs->isCXX11Attribute()) {
-        Diag(DtorAttrs->getLoc(), diag::warn_attribute_on_function_definition)
-          << DtorAttrs->getName();
-      }
-      DtorAttrs = DtorAttrs->getNext();
-    }
+    for (const ParsedAttr &AL : D.getAttributes())
+      if (AL.isKnownToGCC() && !AL.isCXX11Attribute())
+        Diag(AL.getLoc(), diag::warn_attribute_on_function_definition)
+            << AL.getName();
   }
 
   // In delayed template parsing mode, for function template we consume the
@@ -2123,6 +2118,7 @@ Decl *Parser::ParseModuleImport(SourceLocation AtLoc) {
   assert((AtLoc.isInvalid() ? Tok.is(tok::kw_import)
                             : Tok.isObjCAtKeyword(tok::objc_import)) &&
          "Improper start to module import");
+  bool IsObjCAtImport = Tok.isObjCAtKeyword(tok::objc_import);
   SourceLocation ImportLoc = ConsumeToken();
   SourceLocation StartLoc = AtLoc.isInvalid() ? ImportLoc : AtLoc;
   
@@ -2145,6 +2141,16 @@ Decl *Parser::ParseModuleImport(SourceLocation AtLoc) {
   ExpectAndConsumeSemi(diag::err_module_expected_semi);
   if (Import.isInvalid())
     return nullptr;
+
+  // Using '@import' in framework headers requires modules to be enabled so that
+  // the header is parseable. Emit a warning to make the user aware.
+  if (IsObjCAtImport && AtLoc.isValid()) {
+    auto &SrcMgr = PP.getSourceManager();
+    auto *FE = SrcMgr.getFileEntryForID(SrcMgr.getFileID(AtLoc));
+    if (FE && llvm::sys::path::parent_path(FE->getDir()->getName())
+                  .endswith(".framework"))
+      Diags.Report(AtLoc, diag::warn_atimport_in_framework_header);
+  }
 
   return Import.get();
 }

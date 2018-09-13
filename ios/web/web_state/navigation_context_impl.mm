@@ -42,11 +42,13 @@ NavigationContextImpl::CreateNavigationContext(
 
 #ifndef NDEBUG
 NSString* NavigationContextImpl::GetDescription() const {
-  return [NSString stringWithFormat:
-                       @"web::WebState: %ld, url: %s, "
-                        "is_same_document: %@, error: %@",
-                       reinterpret_cast<long>(web_state_), url_.spec().c_str(),
-                       is_same_document_ ? @"true" : @"false", error_];
+  return [NSString
+      stringWithFormat:
+          @"web::WebState: %ld, url: %s, "
+           "is_same_document: %@, error: %@ is_loading_error_page: %@",
+          reinterpret_cast<long>(web_state_), url_.spec().c_str(),
+          is_same_document_ ? @"true" : @"false", error_,
+          is_loading_error_page_ ? @"true" : @"false"];
 }
 #endif  // NDEBUG
 
@@ -146,6 +148,23 @@ void NavigationContextImpl::SetWKNavigationType(
 
 WKNavigationType NavigationContextImpl::GetWKNavigationType() const {
   return wk_navigation_type_;
+}
+
+bool NavigationContextImpl::IsLoadingErrorPage() const {
+  return is_loading_error_page_;
+}
+
+void NavigationContextImpl::SetLoadingErrorPage(bool is_loading_error_page) {
+  is_loading_error_page_ = is_loading_error_page;
+}
+
+bool NavigationContextImpl::IsNativeContentPresented() const {
+  return is_native_content_presented_;
+}
+
+void NavigationContextImpl::SetIsNativeContentPresented(
+    bool is_native_content_presented) {
+  is_native_content_presented_ = is_native_content_presented;
 }
 
 NavigationContextImpl::NavigationContextImpl(WebState* web_state,

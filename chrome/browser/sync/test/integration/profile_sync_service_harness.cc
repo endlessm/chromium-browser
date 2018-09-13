@@ -16,6 +16,8 @@
 #include "base/test/bind_test_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/signin/unified_consent_helper.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/test/integration/quiesce_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
@@ -24,12 +26,16 @@
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/browser/ui/webui/signin/login_ui_test_utils.h"
+#include "chrome/browser/unified_consent/unified_consent_service_factory.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/invalidation/impl/p2p_invalidation_service.h"
+#include "components/signin/core/browser/signin_manager.h"
+#include "components/signin/core/browser/signin_metrics.h"
 #include "components/sync/base/progress_marker_map.h"
 #include "components/sync/driver/about_sync_util.h"
 #include "components/sync/engine/sync_string_conversions.h"
+#include "components/unified_consent/unified_consent_service.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "services/identity/public/cpp/identity_manager.h"
 
@@ -74,16 +80,19 @@ class SyncSetupChecker : public SingleClientStatusChangeChecker {
       : SingleClientStatusChangeChecker(service) {}
 
   bool IsExitConditionSatisfied() override {
-    if (!service()->IsSyncActive())
-      return false;
-    if (service()->ConfigurationDone())
-      return true;
-    // Sync is blocked because a custom passphrase is required.
-    if (service()->passphrase_required_reason() == syncer::REASON_DECRYPTION)
+    syncer::SyncService::State state = service()->GetState();
+    if (state == syncer::SyncService::State::ACTIVE)
       return true;
     // Sync is blocked by an auth error.
     if (HasAuthError(service()))
       return true;
+    if (state != syncer::SyncService::State::CONFIGURING)
+      return false;
+    // Sync is blocked because a custom passphrase is required.
+    if (service()->passphrase_required_reason_for_test() ==
+        syncer::REASON_DECRYPTION) {
+      return true;
+    }
     // Still waiting on sync setup.
     return false;
   }
@@ -189,7 +198,17 @@ bool ProfileSyncServiceHarness::SetupSync(syncer::ModelTypeSet synced_datatypes,
   // Choose the datatypes to be synced. If all datatypes are to be synced,
   // set sync_everything to true; otherwise, set it to false.
   bool sync_everything = (synced_datatypes == syncer::UserSelectableTypes());
-  service()->OnUserChoseDatatypes(sync_everything, synced_datatypes);
+  if (IsUnifiedConsentEnabled(profile_)) {
+    // When unified consent given is set to |true|, the unified consent service
+    // enables syncing all datatypes.
+    UnifiedConsentServiceFactory::GetForProfile(profile_)
+      ->SetUnifiedConsentGiven(sync_everything);
+    if (!sync_everything) {
+      service()->OnUserChoseDatatypes(sync_everything, synced_datatypes);
+    }
+  } else {
+    service()->OnUserChoseDatatypes(sync_everything, synced_datatypes);
+  }
 
   // Notify ProfileSyncService that we are done with configuration.
   if (skip_passphrase_verification) {
@@ -279,10 +298,16 @@ bool ProfileSyncServiceHarness::StartSyncService() {
   return true;
 }
 
+#if !defined(OS_CHROMEOS)
 void ProfileSyncServiceHarness::SignoutSyncService() {
   DCHECK(!username_.empty());
-  service()->OnPrimaryAccountCleared();
+  // TODO(https://crbug.com/806781): This should go through IdentityManager once
+  // that supports sign-out.
+  SigninManagerFactory::GetForProfile(profile_)->SignOutAndRemoveAllAccounts(
+      signin_metrics::SIGNOUT_TEST,
+      signin_metrics::SignoutDelete::IGNORE_METRIC);
 }
+#endif  // !OS_CHROMEOS
 
 bool ProfileSyncServiceHarness::HasUnsyncedItems() {
   base::RunLoop loop;
@@ -337,7 +362,8 @@ bool ProfileSyncServiceHarness::AwaitEngineInitialization(
 
   // Make sure that initial sync wasn't blocked by a missing passphrase.
   if (!skip_passphrase_verification &&
-      service()->passphrase_required_reason() == syncer::REASON_DECRYPTION) {
+      service()->passphrase_required_reason_for_test() ==
+          syncer::REASON_DECRYPTION) {
     LOG(ERROR) << "A passphrase is required for decryption. Sync cannot proceed"
                   " until SetDecryptionPassphrase is called.";
     return false;
@@ -361,7 +387,8 @@ bool ProfileSyncServiceHarness::AwaitSyncSetupCompletion(
   // If passphrase verification is not skipped, make sure that initial sync
   // wasn't blocked by a missing passphrase.
   if (!skip_passphrase_verification &&
-      service()->passphrase_required_reason() == syncer::REASON_DECRYPTION) {
+      service()->passphrase_required_reason_for_test() ==
+          syncer::REASON_DECRYPTION) {
     LOG(ERROR) << "A passphrase is required for decryption. Sync cannot proceed"
                   " until SetDecryptionPassphrase is called.";
     return false;
@@ -464,6 +491,12 @@ bool ProfileSyncServiceHarness::DisableSyncForDatatype(
     return true;
   }
 
+  // Disable unified consent first as otherwise disabling sync is not possible.
+  if (IsUnifiedConsentEnabled(profile_)) {
+    UnifiedConsentServiceFactory::GetForProfile(profile_)
+        ->SetUnifiedConsentGiven(false);
+  }
+
   synced_datatypes.RetainAll(syncer::UserSelectableTypes());
   synced_datatypes.Remove(datatype);
   service()->OnUserChoseDatatypes(false, synced_datatypes);
@@ -537,7 +570,7 @@ std::string ProfileSyncServiceHarness::GetClientInfoString(
        << snap.model_neutral_state().num_updates_downloaded_total
        << ", passphrase_required_reason: "
        << syncer::PassphraseRequiredReasonToString(
-              service()->passphrase_required_reason())
+              service()->passphrase_required_reason_for_test())
        << ", notifications_enabled: " << status.notifications_enabled
        << ", service_is_active: " << service()->IsSyncActive();
   } else {

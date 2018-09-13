@@ -76,7 +76,7 @@ LIST_TESTS_SUBTEST_CACHE_KEY = 'list_tests_get_tests_v2_%s_%s_%s'
 _MAX_STRING_LENGTH = 500
 
 
-class Master(internal_only_model.InternalOnlyModel):
+class Master(ndb.Model):
   """Information about the Buildbot master.
 
   Masters are keyed by name, e.g. 'ChromiumGPU' or 'ChromiumPerf'.
@@ -131,7 +131,7 @@ class TestMetadata(internal_only_model.CreateHookInternalOnlyModel):
   # There is a default anomaly threshold config (in anomaly.py), and it can
   # be overridden for a group of tests by using /edit_sheriffs.
   overridden_anomaly_config = ndb.KeyProperty(
-      kind=anomaly_config.AnomalyConfig, indexed=True)
+      kind=anomaly_config.AnomalyConfig, indexed=False)
 
   # Keep track of what direction is an improvement for this graph so we can
   # filter out alerts on regressions.

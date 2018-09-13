@@ -29,8 +29,9 @@ class AccessorySheetViewBinder
 
     @Override
     public void onInitialInflation(AccessorySheetModel model, ViewPager inflatedView) {
-        if (model.getActiveTabIndex() != -1) inflatedView.setCurrentItem(model.getActiveTabIndex());
-        inflatedView.setAdapter(AccessorySheetCoordinator.createTabViewAdapter(model));
+        inflatedView.setAdapter(
+                AccessorySheetCoordinator.createTabViewAdapter(model, inflatedView));
+        bind(model, inflatedView, PropertyKey.ACTIVE_TAB_INDEX);
     }
 
     @Override

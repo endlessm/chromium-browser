@@ -17,14 +17,19 @@
 #include <cassert>
 #include <cstring>
 
-#include "spirv/1.0/GLSL.std.450.h"
-#include "spirv/1.0/OpenCL.std.h"
+// DebugInfo extended instruction set.
+// See https://www.khronos.org/registry/spir-v/specs/1.0/DebugInfo.html
+// TODO(dneto): DebugInfo.h should probably move to SPIRV-Headers.
+#include "DebugInfo.h"
+
+#include "latest_version_glsl_std_450_header.h"
+#include "latest_version_opencl_std_header.h"
+#include "macro.h"
 #include "spirv_definition.h"
 
-#include "macro.h"
-
-#include "glsl.std.450.insts-1.0.inc"  // defines glsl_entries
-#include "opencl.std.insts-1.0.inc"    // defines opencl_entries
+#include "debuginfo.insts.inc"     // defines opencl_entries
+#include "glsl.std.450.insts.inc"  // defines glsl_entries
+#include "opencl.std.insts.inc"    // defines opencl_entries
 
 #include "spv-amd-gcn-shader.insts.inc"
 #include "spv-amd-shader-ballot.insts.inc"
@@ -44,6 +49,8 @@ static const spv_ext_inst_group_t kGroups_1_0[] = {
      ARRAY_SIZE(spv_amd_gcn_shader_entries), spv_amd_gcn_shader_entries},
     {SPV_EXT_INST_TYPE_SPV_AMD_SHADER_BALLOT,
      ARRAY_SIZE(spv_amd_shader_ballot_entries), spv_amd_shader_ballot_entries},
+    {SPV_EXT_INST_TYPE_DEBUGINFO, ARRAY_SIZE(debuginfo_entries),
+     debuginfo_entries},
 };
 
 static const spv_ext_inst_table_t kTable_1_0 = {ARRAY_SIZE(kGroups_1_0),
@@ -59,13 +66,22 @@ spv_result_t spvExtInstTableGet(spv_ext_inst_table* pExtInstTable,
     case SPV_ENV_VULKAN_1_0:
     case SPV_ENV_UNIVERSAL_1_1:
     case SPV_ENV_UNIVERSAL_1_2:
+    case SPV_ENV_OPENCL_1_2:
+    case SPV_ENV_OPENCL_EMBEDDED_1_2:
+    case SPV_ENV_OPENCL_2_0:
+    case SPV_ENV_OPENCL_EMBEDDED_2_0:
     case SPV_ENV_OPENCL_2_1:
+    case SPV_ENV_OPENCL_EMBEDDED_2_1:
     case SPV_ENV_OPENCL_2_2:
+    case SPV_ENV_OPENCL_EMBEDDED_2_2:
     case SPV_ENV_OPENGL_4_0:
     case SPV_ENV_OPENGL_4_1:
     case SPV_ENV_OPENGL_4_2:
     case SPV_ENV_OPENGL_4_3:
     case SPV_ENV_OPENGL_4_5:
+    case SPV_ENV_UNIVERSAL_1_3:
+    case SPV_ENV_VULKAN_1_1:
+    case SPV_ENV_WEBGPU_0:
       *pExtInstTable = &kTable_1_0;
       return SPV_SUCCESS;
     default:
@@ -94,6 +110,9 @@ spv_ext_inst_type_t spvExtInstImportTypeGet(const char* name) {
   }
   if (!strcmp("SPV_AMD_shader_ballot", name)) {
     return SPV_EXT_INST_TYPE_SPV_AMD_SHADER_BALLOT;
+  }
+  if (!strcmp("DebugInfo", name)) {
+    return SPV_EXT_INST_TYPE_DEBUGINFO;
   }
   return SPV_EXT_INST_TYPE_NONE;
 }

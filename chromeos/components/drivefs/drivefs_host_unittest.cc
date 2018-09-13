@@ -8,10 +8,12 @@
 
 #include "base/logging.h"
 #include "base/run_loop.h"
+#include "base/scoped_observer.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_split.h"
 #include "base/test/bind_test_util.h"
 #include "base/test/scoped_task_environment.h"
+#include "chromeos/components/drivefs/drivefs_host_observer.h"
 #include "chromeos/components/drivefs/pending_connection_manager.h"
 #include "chromeos/disks/mock_disk_mount_manager.h"
 #include "mojo/public/cpp/bindings/binding.h"
@@ -117,6 +119,8 @@ class TestingDriveFsHostDelegate : public DriveFsHost::Delegate {
 
   // DriveFsHost::Delegate:
   MOCK_METHOD1(OnMounted, void(const base::FilePath&));
+  MOCK_METHOD1(OnMountFailed, void(base::Optional<base::TimeDelta>));
+  MOCK_METHOD1(OnUnmounted, void(base::Optional<base::TimeDelta>));
 
  private:
   // DriveFsHost::Delegate:
@@ -186,6 +190,16 @@ class FakeIdentityService
   }
 
   // identity::mojom::IdentityManagerInterceptorForTesting overrides:
+  void GetPrimaryAccountWhenAvailable(
+      GetPrimaryAccountWhenAvailableCallback callback) override {
+    auto account_id = AccountId::FromUserEmailGaiaId("test@example.com", "ID");
+    AccountInfo account_info;
+    account_info.email = account_id.GetUserEmail();
+    account_info.gaia = account_id.GetGaiaId();
+    account_info.account_id = account_id.GetAccountIdKey();
+    std::move(callback).Run(account_info, {});
+  }
+
   void GetAccessToken(const std::string& account_id,
                       const ::identity::ScopeSet& scopes,
                       const std::string& consumer_id,
@@ -207,15 +221,19 @@ class FakeIdentityService
   DISALLOW_COPY_AND_ASSIGN(FakeIdentityService);
 };
 
+class MockDriveFsHostObserver : public DriveFsHostObserver {
+ public:
+  MOCK_METHOD0(OnUnmounted, void());
+  MOCK_METHOD1(OnSyncingStatusUpdate, void(const mojom::SyncingStatus& status));
+};
+
 ACTION_P(RunQuitClosure, quit) {
   std::move(*quit).Run();
 }
 
-class DriveFsHostTest : public ::testing::Test,
-                        public mojom::DriveFsBootstrap,
-                        public mojom::DriveFs {
+class DriveFsHostTest : public ::testing::Test, public mojom::DriveFsBootstrap {
  public:
-  DriveFsHostTest() : bootstrap_binding_(this), binding_(this) {}
+  DriveFsHostTest() : bootstrap_binding_(this) {}
 
  protected:
   void SetUp() override {
@@ -279,7 +297,15 @@ class DriveFsHostTest : public ::testing::Test,
 
   void SendOnMounted() { delegate_ptr_->OnMounted(); }
 
-  void DoMount() {
+  void SendOnUnmounted(base::Optional<base::TimeDelta> delay) {
+    delegate_ptr_->OnUnmounted(std::move(delay));
+  }
+
+  void SendMountFailed(base::Optional<base::TimeDelta> delay) {
+    delegate_ptr_->OnMountFailed(std::move(delay));
+  }
+
+  void EstablishConnection() {
     auto token = StartMount();
     DispatchMountSuccessEvent(token);
 
@@ -289,6 +315,10 @@ class DriveFsHostTest : public ::testing::Test,
       bootstrap_binding_.set_connection_error_handler(run_loop.QuitClosure());
       run_loop.Run();
     }
+  }
+
+  void DoMount() {
+    EstablishConnection();
     base::RunLoop run_loop;
     base::OnceClosure quit_closure = run_loop.QuitClosure();
     EXPECT_CALL(*host_delegate_,
@@ -300,10 +330,10 @@ class DriveFsHostTest : public ::testing::Test,
   }
 
   void Init(mojom::DriveFsConfigurationPtr config,
-            mojom::DriveFsRequest drive_fs,
+            mojom::DriveFsRequest drive_fs_request,
             mojom::DriveFsDelegatePtr delegate) override {
     EXPECT_EQ("test@example.com", config->user_email);
-    binding_.Bind(std::move(drive_fs));
+    drive_fs_request_ = std::move(drive_fs_request);
     mojo::FuseInterface(std::move(pending_delegate_request_),
                         delegate.PassInterface());
   }
@@ -318,7 +348,7 @@ class DriveFsHostTest : public ::testing::Test,
   std::unique_ptr<DriveFsHost> host_;
 
   mojo::Binding<mojom::DriveFsBootstrap> bootstrap_binding_;
-  mojo::Binding<mojom::DriveFs> binding_;
+  mojom::DriveFsRequest drive_fs_request_;
   mojom::DriveFsDelegatePtr delegate_ptr_;
   mojom::DriveFsDelegateRequest pending_delegate_request_;
 
@@ -354,18 +384,61 @@ TEST_F(DriveFsHostTest, OnMountedBeforeMountEvent) {
   EXPECT_EQ(base::FilePath("/media/drivefsroot/g-ID"), host_->GetMountPath());
 }
 
+TEST_F(DriveFsHostTest, OnMountFailedFromMojo) {
+  ASSERT_FALSE(host_->IsMounted());
+
+  ASSERT_NO_FATAL_FAILURE(EstablishConnection());
+  base::RunLoop run_loop;
+  base::OnceClosure quit_closure = run_loop.QuitClosure();
+  EXPECT_CALL(*host_delegate_, OnMountFailed(_))
+      .WillOnce(RunQuitClosure(&quit_closure));
+  SendMountFailed({});
+  run_loop.Run();
+  ASSERT_FALSE(host_->IsMounted());
+}
+
+TEST_F(DriveFsHostTest, OnMountFailedFromDbus) {
+  ASSERT_FALSE(host_->IsMounted());
+
+  auto token = StartMount();
+
+  base::RunLoop run_loop;
+  base::OnceClosure quit_closure = run_loop.QuitClosure();
+  EXPECT_CALL(*host_delegate_, OnMountFailed(_))
+      .WillOnce(RunQuitClosure(&quit_closure));
+  DispatchMountEvent(chromeos::disks::DiskMountManager::MOUNTING,
+                     chromeos::MOUNT_ERROR_INVALID_MOUNT_OPTIONS,
+                     {base::StrCat({"drivefs://", token}),
+                      "/media/drivefsroot/g-ID",
+                      chromeos::MOUNT_TYPE_NETWORK_STORAGE,
+                      {}});
+  run_loop.Run();
+
+  ASSERT_FALSE(host_->IsMounted());
+}
+
 TEST_F(DriveFsHostTest, UnmountAfterMountComplete) {
+  MockDriveFsHostObserver observer;
+  ScopedObserver<DriveFsHost, DriveFsHostObserver> observer_scoper(&observer);
+  observer_scoper.Add(host_.get());
+
   ASSERT_NO_FATAL_FAILURE(DoMount());
 
   EXPECT_CALL(*disk_manager_, UnmountPath("/media/drivefsroot/g-ID",
                                           chromeos::UNMOUNT_OPTIONS_NONE, _));
+  EXPECT_CALL(observer, OnUnmounted());
   base::RunLoop run_loop;
-  binding_.set_connection_error_handler(run_loop.QuitClosure());
+  delegate_ptr_.set_connection_error_handler(run_loop.QuitClosure());
   host_->Unmount();
   run_loop.Run();
 }
 
 TEST_F(DriveFsHostTest, UnmountBeforeMountEvent) {
+  MockDriveFsHostObserver observer;
+  ScopedObserver<DriveFsHost, DriveFsHostObserver> observer_scoper(&observer);
+  observer_scoper.Add(host_.get());
+  EXPECT_CALL(observer, OnUnmounted()).Times(0);
+
   auto token = StartMount();
   EXPECT_FALSE(host_->IsMounted());
   host_->Unmount();
@@ -373,6 +446,11 @@ TEST_F(DriveFsHostTest, UnmountBeforeMountEvent) {
 }
 
 TEST_F(DriveFsHostTest, UnmountBeforeMojoConnection) {
+  MockDriveFsHostObserver observer;
+  ScopedObserver<DriveFsHost, DriveFsHostObserver> observer_scoper(&observer);
+  observer_scoper.Add(host_.get());
+  EXPECT_CALL(observer, OnUnmounted()).Times(0);
+
   auto token = StartMount();
   DispatchMountSuccessEvent(token);
 
@@ -439,6 +517,14 @@ TEST_F(DriveFsHostTest, MountError) {
 TEST_F(DriveFsHostTest, MountWhileAlreadyMounted) {
   DoMount();
   EXPECT_FALSE(host_->Mount());
+}
+
+TEST_F(DriveFsHostTest, UnmountByRemote) {
+  ASSERT_NO_FATAL_FAILURE(DoMount());
+  base::Optional<base::TimeDelta> delay = base::TimeDelta::FromSeconds(5);
+  EXPECT_CALL(*host_delegate_, OnUnmounted(delay));
+  SendOnUnmounted(delay);
+  base::RunLoop().RunUntilIdle();
 }
 
 TEST_F(DriveFsHostTest, UnsupportedAccountTypes) {
@@ -634,6 +720,30 @@ TEST_F(DriveFsHostTest, GetAccessToken_MintTokenFailure_Transient) {
             std::move(quit_closure).Run();
           }));
   run_loop.Run();
+}
+
+ACTION_P(CloneStruct, output) {
+  *output = arg0.Clone();
+}
+
+TEST_F(DriveFsHostTest,
+       GetAccessToken_OnSyncingStatusUpdate_ForwardToObservers) {
+  ASSERT_NO_FATAL_FAILURE(DoMount());
+  MockDriveFsHostObserver observer;
+  ScopedObserver<DriveFsHost, DriveFsHostObserver> observer_scoper(&observer);
+  observer_scoper.Add(host_.get());
+  auto status = mojom::SyncingStatus::New();
+  status->item_events.emplace_back(base::in_place, 12, 34, "filename.txt",
+                                   mojom::ItemEvent::State::kInProgress, 123,
+                                   456);
+  mojom::SyncingStatusPtr observed_status;
+  EXPECT_CALL(observer, OnSyncingStatusUpdate(_))
+      .WillOnce(CloneStruct(&observed_status));
+  delegate_ptr_->OnSyncingStatusUpdate(status.Clone());
+  delegate_ptr_.FlushForTesting();
+  testing::Mock::VerifyAndClear(&observer);
+
+  EXPECT_EQ(status, observed_status);
 }
 
 }  // namespace

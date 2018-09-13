@@ -54,14 +54,14 @@ class ChromeKeyboardUI : public keyboard::KeyboardUI,
   // Requests the audio input from microphone for speech input.
   void RequestAudioInput(content::WebContents* web_contents,
                          const content::MediaStreamRequest& request,
-                         const content::MediaResponseCallback& callback);
+                         content::MediaResponseCallback callback);
 
   // Called when a window being observed changes bounds, to update its insets.
   void UpdateInsetsForWindow(aura::Window* window);
 
   // Overridden from KeyboardUI:
-  aura::Window* GetContentsWindow() override;
-  bool HasContentsWindow() const override;
+  aura::Window* GetKeyboardWindow() override;
+  bool HasKeyboardWindow() const override;
   bool ShouldWindowOverscroll(aura::Window* window) const override;
   void ReloadKeyboardIfNeeded() override;
   void InitInsets(const gfx::Rect& new_bounds) override;
@@ -113,10 +113,11 @@ class ChromeKeyboardUI : public keyboard::KeyboardUI,
   // Overridden from KeyboardUI:
   ui::InputMethod* GetInputMethod() override;
   void SetController(keyboard::KeyboardController* controller) override;
-  void ShowKeyboardContainer(aura::Window* container) override;
 
   // content::WebContentsObserver overrides
   void RenderViewCreated(content::RenderViewHost* render_view_host) override;
+  void DidFinishLoad(content::RenderFrameHost* render_frame_host,
+                     const GURL& validated_url) override;
 
   // The BrowserContext to use for creating the WebContents hosting the
   // keyboard.

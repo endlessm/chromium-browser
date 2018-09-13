@@ -60,7 +60,7 @@ std::vector<autofill::PasswordForm> DeepCopyForms(
   return result;
 }
 
-bool IsSmartLockUser(Profile* profile) {
+bool IsSyncUser(Profile* profile) {
   const browser_sync::ProfileSyncService* sync_service =
       ProfileSyncServiceFactory::GetForProfile(profile);
   return password_bubble_experiment::IsSmartLockUser(sync_service);
@@ -229,11 +229,18 @@ ManagePasswordsBubbleModel::ManagePasswordsBubbleModel(
       are_passwords_revealed_when_bubble_is_opened_ = true;
       delegate_->OnPasswordsRevealed();
     }
+    // The condition for the password reauth:
+    // If the bubble opened after reauth -> no more reauth necessary, otherwise
+    // If a password was autofilled -> require reauth to view it, otherwise
+    // Require reauth iff the user opened the bubble manually and it's not the
+    // manual saving state. The manual saving state as well as automatic prompt
+    // are temporary states, therefore, it's better for the sake of convinience
+    // for the user not to break the UX with the reauth prompt.
     password_revealing_requires_reauth_ =
         !are_passwords_revealed_when_bubble_is_opened_ &&
-        (delegate_->BubbleIsManualFallbackForSaving()
-             ? pending_password_.form_has_autofilled_value
-             : display_reason == USER_ACTION);
+        (pending_password_.form_has_autofilled_value ||
+         (!delegate_->BubbleIsManualFallbackForSaving() &&
+          display_reason == USER_ACTION));
     enable_editing_ = delegate_->GetCredentialSource() !=
                       password_manager::metrics_util::CredentialSourceType::
                           kCredentialManagementAPI;
@@ -255,17 +262,12 @@ ManagePasswordsBubbleModel::ManagePasswordsBubbleModel(
   }
 
   if (state_ == password_manager::ui::CONFIRMATION_STATE) {
-    base::string16 save_confirmation_link = base::UTF8ToUTF16(
-        GURL(base::ASCIIToUTF16(
-                 password_manager::kPasswordManagerAccountDashboardURL))
-            .host());
+    base::string16 link = l10n_util::GetStringUTF16(IDS_MANAGE_PASSWORDS_LINK);
 
     size_t offset;
-    save_confirmation_text_ =
-        l10n_util::GetStringFUTF16(IDS_MANAGE_PASSWORDS_CONFIRM_GENERATED_TEXT,
-                                   save_confirmation_link, &offset);
-    save_confirmation_link_range_ =
-        gfx::Range(offset, offset + save_confirmation_link.length());
+    save_confirmation_text_ = l10n_util::GetStringFUTF16(
+        IDS_MANAGE_PASSWORDS_CONFIRM_GENERATED_TEXT, link, &offset);
+    save_confirmation_link_range_ = gfx::Range(offset, offset + link.length());
   }
 
   password_manager::metrics_util::UIDisplayDisposition display_disposition =
@@ -462,6 +464,14 @@ bool ManagePasswordsBubbleModel::IsCurrentStateUpdate() const {
                      });
 }
 
+bool ManagePasswordsBubbleModel::ShouldShowFooter() const {
+  return (state_ == password_manager::ui::PENDING_PASSWORD_UPDATE_STATE ||
+          state_ == password_manager::ui::PENDING_PASSWORD_STATE) &&
+         IsSyncUser(GetProfile()) &&
+         // TODO(crbug.com/862269): Remove when "Smart Lock" is gone.
+         pending_password_.federation_origin.unique();
+}
+
 const base::string16& ManagePasswordsBubbleModel::GetCurrentUsername() const {
   return pending_password_.username_value;
 }
@@ -526,7 +536,7 @@ void ManagePasswordsBubbleModel::UpdatePendingStateTitle() {
                  ? PasswordTitleType::SAVE_PASSWORD
                  : PasswordTitleType::SAVE_ACCOUNT);
   GetSavePasswordDialogTitleTextAndLinkRange(
-      GetWebContents()->GetVisibleURL(), origin_, IsSmartLockUser(GetProfile()),
+      GetWebContents()->GetVisibleURL(), origin_, IsSyncUser(GetProfile()),
       type, &title_, &title_brand_link_range_);
 }
 

@@ -4,12 +4,11 @@
 
 package org.chromium.chrome.browser.webapps;
 
-import static org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider.CUSTOM_TABS_UI_TYPE_MINIMAL_UI_WEBAPP;
-
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
@@ -31,6 +30,8 @@ import org.chromium.base.ActivityState;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.Log;
+import org.chromium.base.ThreadUtils;
+import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
@@ -39,15 +40,20 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.SingleTabActivity;
 import org.chromium.chrome.browser.TabState;
+import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.appmenu.AppMenuPropertiesDelegate;
+import org.chromium.chrome.browser.browserservices.BrowserServicesMetrics;
 import org.chromium.chrome.browser.browserservices.BrowserSessionContentHandler;
 import org.chromium.chrome.browser.browserservices.BrowserSessionContentUtils;
 import org.chromium.chrome.browser.browserservices.BrowserSessionDataProvider;
 import org.chromium.chrome.browser.browserservices.Origin;
 import org.chromium.chrome.browser.browserservices.OriginVerifier;
 import org.chromium.chrome.browser.browserservices.OriginVerifier.OriginVerificationListener;
+import org.chromium.chrome.browser.browserservices.TrustedWebActivityDisclosure;
+import org.chromium.chrome.browser.browserservices.UkmRecorder;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
 import org.chromium.chrome.browser.customtabs.CustomTabAppMenuPropertiesDelegate;
+import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.CustomTabNavigationEventObserver;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
@@ -62,10 +68,10 @@ import org.chromium.chrome.browser.tabmodel.document.TabDelegate;
 import org.chromium.chrome.browser.toolbar.ToolbarControlContainer;
 import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.browser.widget.TintedDrawable;
-import org.chromium.content.browser.ScreenOrientationProvider;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.NavigationEntry;
+import org.chromium.content_public.browser.ScreenOrientationProvider;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.PageTransition;
 
@@ -81,14 +87,16 @@ import java.util.concurrent.TimeUnit;
  */
 public class WebappActivity extends SingleTabActivity {
     public static final String WEBAPP_SCHEME = "webapp";
+
     // The activity type of WebappActivity.
+    @IntDef({ActivityType.WEBAPP, ActivityType.WEBAPK, ActivityType.TWA})
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef({ACTIVITY_TYPE_WEBAPP, ACTIVITY_TYPE_WEBAPK, ACTIVITY_TYPE_TWA})
-    public @interface ActivityType {}
-    public static final int ACTIVITY_TYPE_OTHER = -1;
-    public static final int ACTIVITY_TYPE_WEBAPP = 0;
-    public static final int ACTIVITY_TYPE_WEBAPK = 1;
-    public static final int ACTIVITY_TYPE_TWA = 2;
+    public @interface ActivityType {
+        int OTHER = -1;
+        int WEBAPP = 0;
+        int WEBAPK = 1;
+        int TWA = 2;
+    }
 
     private static final String TAG = "WebappActivity";
     private static final String HISTOGRAM_NAVIGATION_STATUS = "Webapp.NavigationStatus";
@@ -112,6 +120,7 @@ public class WebappActivity extends SingleTabActivity {
     private WebappSplashScreenController mSplashController;
 
     private boolean mIsInitialized;
+    private long mOnResumeTimestampMs;
     private Integer mBrandColor;
 
     private Bitmap mLargestFavicon;
@@ -126,6 +135,7 @@ public class WebappActivity extends SingleTabActivity {
             implements BrowserSessionContentHandler, OriginVerificationListener {
         private boolean mVerificationFailed;
         private OriginVerifier mOriginVerifier;
+        private final UkmRecorder mUkmRecorder = new UkmRecorder.Bridge();
 
         @Override
         public void loadUrlAndTrackFromTimestamp(LoadUrlParams params, long timestamp) {}
@@ -183,7 +193,20 @@ public class WebappActivity extends SingleTabActivity {
                 Boolean online) {
             mVerificationFailed = !verified;
             mOriginVerifier = null;
-            if (mVerificationFailed) getFullscreenManager().setPositionsForTabToNonFullscreen();
+
+            if (mVerificationFailed) {
+                getFullscreenManager().setPositionsForTabToNonFullscreen();
+                return;
+            }
+
+            BrowserServicesMetrics.recordTwaOpened();
+            TrustedWebActivityDisclosure.showIfNeeded(WebappActivity.this, packageName);
+
+            // When verification occurs instantly (eg the result is cached) then it returns before
+            // there is an active tab.
+            if (areTabModelsInitialized() && getActivityTab() != null) {
+                mUkmRecorder.recordTwaOpened(getActivityTab().getWebContents());
+            }
         }
 
         /**
@@ -214,6 +237,15 @@ public class WebappActivity extends SingleTabActivity {
         mNotificationManager = new WebappActionsNotificationManager(this);
     }
 
+    private static LoadUrlParams createLoadUrlParams(WebappInfo info, Intent intent) {
+        LoadUrlParams params =
+                new LoadUrlParams(info.uri().toString(), PageTransition.AUTO_TOPLEVEL);
+        String headers = IntentHandler.getExtraHeadersFromIntent(intent);
+        if (headers != null) params.setVerbatimHeaders(headers);
+
+        return params;
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         if (intent == null) return;
@@ -229,8 +261,7 @@ public class WebappActivity extends SingleTabActivity {
             Log.e(TAG, "Failed to parse new Intent: " + intent);
             ApiCompatibilityUtils.finishAndRemoveTask(this);
         } else if (newWebappInfo.shouldForceNavigation() && mIsInitialized) {
-            LoadUrlParams params =
-                    new LoadUrlParams(newWebappInfo.uri().toString(), PageTransition.AUTO_TOPLEVEL);
+            LoadUrlParams params = createLoadUrlParams(newWebappInfo, intent);
             params.setShouldClearHistoryList(true);
             getActivityTab().loadUrl(params);
         }
@@ -250,6 +281,43 @@ public class WebappActivity extends SingleTabActivity {
         initializeUI(getSavedInstanceState());
     }
 
+    @Override
+    protected void doLayoutInflation() {
+        // Because we delay the layout inflation, the CompositorSurfaceManager and its
+        // SurfaceView(s) are created and attached late (ie after the first draw). At the time of
+        // the first attach of a SurfaceView to the view hierarchy (regardless of the SurfaceView's
+        // actual opacity), the window transparency hint changes (because the window creates a
+        // transparent hole and attaches the SurfaceView to that hole). This may cause older android
+        // versions to destroy the window and redraw it causing a flicker. This line sets the window
+        // transparency hint early so that when the SurfaceView gets attached later, the
+        // transparency hint need not change and no flickering occurs.
+        getWindow().setFormat(PixelFormat.TRANSLUCENT);
+        // No need to inflate layout synchronously since splash screen is displayed.
+        new Thread() {
+            @Override
+            public void run() {
+                ViewGroup mainView = WarmupManager.inflateViewHierarchy(
+                        WebappActivity.this, getControlContainerLayoutId(), getToolbarLayoutId());
+                if (WebappActivity.this.isActivityFinishing()) return;
+                if (mainView != null) {
+                    ThreadUtils.postOnUiThread(() -> {
+                        if (WebappActivity.this.isActivityFinishing()) return;
+                        onLayoutInflated(mainView);
+                    });
+                } else {
+                    if (WebappActivity.this.isActivityFinishing()) return;
+                    ThreadUtils.postOnUiThread(() -> WebappActivity.super.doLayoutInflation());
+                }
+            }
+        }
+                .start();
+    }
+
+    private void onLayoutInflated(ViewGroup mainView) {
+        mSplashController.setViewHierarchyBelowSplashscreen(mainView);
+        onInitialLayoutInflationComplete();
+    }
+
     protected void initializeUI(Bundle savedInstanceState) {
         Tab tab = getActivityTab();
 
@@ -264,8 +332,8 @@ public class WebappActivity extends SingleTabActivity {
 
         // We do not load URL when restoring from saved instance states.
         if (savedInstanceState == null) {
-            tab.loadUrl(
-                    new LoadUrlParams(mWebappInfo.uri().toString(), PageTransition.AUTO_TOPLEVEL));
+            LoadUrlParams params = createLoadUrlParams(mWebappInfo, getIntent());
+            tab.loadUrl(params);
         } else {
             if (NetworkChangeNotifier.isOnline()) tab.reloadIgnoringCache();
         }
@@ -334,6 +402,7 @@ public class WebappActivity extends SingleTabActivity {
         setTitle(mWebappInfo.shortName());
 
         super.preInflationStartup();
+        initializeWebappData();
     }
 
     @Override
@@ -475,6 +544,8 @@ public class WebappActivity extends SingleTabActivity {
             updateTaskDescription();
         }
         super.onResume();
+
+        mOnResumeTimestampMs = SystemClock.elapsedRealtime();
     }
 
     @Override
@@ -487,6 +558,11 @@ public class WebappActivity extends SingleTabActivity {
     public void onPauseWithNative() {
         mNotificationManager.cancelNotification();
         super.onPauseWithNative();
+
+        if (getBrowserSession() != null && !didVerificationFail()) {
+            BrowserServicesMetrics.recordTwaOpenTime(
+                    SystemClock.elapsedRealtime() - mOnResumeTimestampMs, TimeUnit.MILLISECONDS);
+        }
     }
 
     @Override
@@ -547,7 +623,8 @@ public class WebappActivity extends SingleTabActivity {
 
     @Override
     protected AppMenuPropertiesDelegate createAppMenuPropertiesDelegate() {
-        return new CustomTabAppMenuPropertiesDelegate(this, CUSTOM_TABS_UI_TYPE_MINIMAL_UI_WEBAPP,
+        return new CustomTabAppMenuPropertiesDelegate(this,
+                CustomTabIntentDataProvider.CustomTabsUiType.MINIMAL_UI_WEBAPP,
                 new ArrayList<String>(), true /* is opened by Chrome */,
                 true /* should show share */, false /* should show star (bookmarking) */,
                 false /* should show download */);
@@ -555,7 +632,6 @@ public class WebappActivity extends SingleTabActivity {
 
     @Override
     public void postInflationStartup() {
-        initializeWebappData();
         if (getBrowserSession() != null) mTrustedWebContentProvider.verifyRelationship();
 
         super.postInflationStartup();
@@ -585,12 +661,13 @@ public class WebappActivity extends SingleTabActivity {
     }
 
     private void initializeWebappData() {
-        if (mWebappInfo.displayMode() == WebDisplayMode.FULLSCREEN) {
-            enterImmersiveMode();
+        try (TraceEvent te = TraceEvent.scoped("WebappActivity.initializeWebappData")) {
+            if (mWebappInfo.displayMode() == WebDisplayMode.FULLSCREEN) {
+                enterImmersiveMode();
+            }
+            ViewGroup contentView = (ViewGroup) findViewById(android.R.id.content);
+            mSplashController.showSplashScreen(getActivityType(), contentView, mWebappInfo);
         }
-
-        ViewGroup contentView = (ViewGroup) findViewById(android.R.id.content);
-        mSplashController.showSplashScreen(getActivityType(), contentView, mWebappInfo);
     }
 
     protected void updateStorage(WebappDataStorage storage) {
@@ -628,7 +705,7 @@ public class WebappActivity extends SingleTabActivity {
     @Override
     protected ChromeFullscreenManager createFullscreenManager() {
         // Disable HTML5 fullscreen in PWA fullscreen mode.
-        return new ChromeFullscreenManager(this, ChromeFullscreenManager.CONTROLS_POSITION_TOP) {
+        return new ChromeFullscreenManager(this, ChromeFullscreenManager.ControlsPosition.TOP) {
             @Override
             public void enterPersistentFullscreenMode(FullscreenOptions options) {
                 if (mWebappInfo.displayMode() == WebDisplayMode.FULLSCREEN) return;
@@ -690,8 +767,7 @@ public class WebappActivity extends SingleTabActivity {
             @Override
             public void onFaviconUpdated(Tab tab, Bitmap icon) {
                 // No need to cache the favicon if there is an icon declared in app manifest.
-                if (mWebappInfo.icon() != null) return;
-                if (icon == null) return;
+                if (mWebappInfo.icon() != null || icon == null) return;
                 if (mLargestFavicon == null || icon.getWidth() > mLargestFavicon.getWidth()
                         || icon.getHeight() > mLargestFavicon.getHeight()) {
                     mLargestFavicon = icon;
@@ -739,8 +815,7 @@ public class WebappActivity extends SingleTabActivity {
      *         this is a Trusted Web Activity.
      */
     public CustomTabsSessionToken getBrowserSession() {
-        if (mTrustedWebContentProvider == null) return null;
-        return mTrustedWebContentProvider.getSession();
+        return mTrustedWebContentProvider == null ? null : mTrustedWebContentProvider.getSession();
     }
 
     /**
@@ -752,9 +827,9 @@ public class WebappActivity extends SingleTabActivity {
      * by use-case.
      */
     public @ActivityType int getActivityType() {
-        if (getBrowserSession() != null) return ACTIVITY_TYPE_TWA;
-        if (getNativeClientPackageName() != null) return ACTIVITY_TYPE_WEBAPK;
-        return ACTIVITY_TYPE_WEBAPP;
+        if (getBrowserSession() != null) return ActivityType.TWA;
+        if (getNativeClientPackageName() != null) return ActivityType.WEBAPK;
+        return ActivityType.WEBAPP;
     }
 
     /**
@@ -779,7 +854,7 @@ public class WebappActivity extends SingleTabActivity {
     private void updateToolbarCloseButtonVisibility() {
         if (WebappBrowserControlsDelegate.shouldShowToolbarCloseButton(this)) {
             getToolbarManager().setCloseButtonDrawable(
-                    TintedDrawable.constructTintedDrawable(getResources(), R.drawable.btn_close));
+                    TintedDrawable.constructTintedDrawable(this, R.drawable.btn_close));
             // Applies light or dark tint to icons depending on the theme color.
             getToolbarManager().getToolbarLayout().getLocationBar().updateVisualsForState();
         } else {
@@ -946,5 +1021,19 @@ public class WebappActivity extends SingleTabActivity {
     boolean didVerificationFail() {
         if (!isVerified()) return false;
         return mTrustedWebContentProvider.didVerificationFail();
+    }
+
+    /**
+     * Register an observer to the splashscreen hidden/visible events for this activity.
+     */
+    protected void addSplashscreenObserver(SplashscreenObserver observer) {
+        mSplashController.addObserver(observer);
+    }
+
+    /**
+     * Deregister an observer to the splashscreen hidden/visible events for this activity.
+     */
+    protected void removeSplashscreenObserver(SplashscreenObserver observer) {
+        mSplashController.removeObserver(observer);
     }
 }

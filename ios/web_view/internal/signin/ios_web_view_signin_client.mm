@@ -7,6 +7,7 @@
 #include "components/signin/core/browser/cookie_settings_util.h"
 #include "components/signin/core/browser/signin_cookie_change_subscription.h"
 #include "google_apis/gaia/gaia_auth_fetcher.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -15,6 +16,7 @@
 IOSWebViewSigninClient::IOSWebViewSigninClient(
     PrefService* pref_service,
     net::URLRequestContextGetter* url_request_context,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     SigninErrorController* signin_error_controller,
     scoped_refptr<content_settings::CookieSettings> cookie_settings,
     scoped_refptr<HostContentSettingsMap> host_content_settings_map,
@@ -23,6 +25,7 @@ IOSWebViewSigninClient::IOSWebViewSigninClient(
           std::make_unique<WaitForNetworkCallbackHelper>()),
       pref_service_(pref_service),
       url_request_context_(url_request_context),
+      url_loader_factory_(url_loader_factory),
       signin_error_controller_(signin_error_controller),
       cookie_settings_(cookie_settings),
       host_content_settings_map_(host_content_settings_map),
@@ -62,6 +65,11 @@ net::URLRequestContextGetter* IOSWebViewSigninClient::GetURLRequestContext() {
   return url_request_context_;
 }
 
+scoped_refptr<network::SharedURLLoaderFactory>
+IOSWebViewSigninClient::GetURLLoaderFactory() {
+  return url_loader_factory_;
+}
+
 void IOSWebViewSigninClient::DoFinalInit() {}
 
 bool IOSWebViewSigninClient::CanRevokeCredentials() {
@@ -70,10 +78,6 @@ bool IOSWebViewSigninClient::CanRevokeCredentials() {
 
 std::string IOSWebViewSigninClient::GetSigninScopedDeviceId() {
   return GetOrCreateScopedDeviceIdPref(GetPrefs());
-}
-
-bool IOSWebViewSigninClient::ShouldMergeSigninCredentialsIntoCookieJar() {
-  return false;
 }
 
 bool IOSWebViewSigninClient::IsFirstRun() const {
@@ -113,19 +117,9 @@ void IOSWebViewSigninClient::DelayNetworkCall(const base::Closure& callback) {
 std::unique_ptr<GaiaAuthFetcher> IOSWebViewSigninClient::CreateGaiaAuthFetcher(
     GaiaAuthConsumer* consumer,
     const std::string& source,
-    net::URLRequestContextGetter* getter) {
-  return std::make_unique<GaiaAuthFetcher>(consumer, source, getter);
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
+  return std::make_unique<GaiaAuthFetcher>(consumer, source,
+                                           url_loader_factory);
 }
 
 void IOSWebViewSigninClient::OnErrorChanged() {}
-
-void IOSWebViewSigninClient::SetAuthenticationController(
-    CWVAuthenticationController* authentication_controller) {
-  DCHECK(!authentication_controller || !authentication_controller_);
-  authentication_controller_ = authentication_controller;
-}
-
-CWVAuthenticationController*
-IOSWebViewSigninClient::GetAuthenticationController() {
-  return authentication_controller_;
-}

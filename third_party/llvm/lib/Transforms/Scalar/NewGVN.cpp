@@ -77,7 +77,7 @@
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MemorySSA.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -366,9 +366,8 @@ public:
   // True if this class has no memory members.
   bool definesNoMemory() const { return StoreCount == 0 && memory_empty(); }
 
-  // Return true if two congruence classes are equivalent to each other.  This
-  // means
-  // that every field but the ID number and the dead field are equivalent.
+  // Return true if two congruence classes are equivalent to each other. This
+  // means that every field but the ID number and the dead field are equivalent.
   bool isEquivalentTo(const CongruenceClass *Other) const {
     if (!Other)
       return false;
@@ -383,10 +382,12 @@ public:
       if (!DefiningExpr || !Other->DefiningExpr ||
           *DefiningExpr != *Other->DefiningExpr)
         return false;
-    // We need some ordered set
-    std::set<Value *> AMembers(Members.begin(), Members.end());
-    std::set<Value *> BMembers(Members.begin(), Members.end());
-    return AMembers == BMembers;
+
+    if (Members.size() != Other->Members.size())
+      return false;
+
+    return all_of(Members,
+                  [&](const Value *V) { return Other->Members.count(V); });
   }
 
 private:
@@ -1258,7 +1259,7 @@ bool NewGVN::someEquivalentDominates(const Instruction *Inst,
    // This must be an instruction because we are only called from phi nodes
   // in the case that the value it needs to check against is an instruction.
 
-  // The most likely candiates for dominance are the leader and the next leader.
+  // The most likely candidates for dominance are the leader and the next leader.
   // The leader or nextleader will dominate in all cases where there is an
   // equivalent that is higher up in the dom tree.
   // We can't *only* check them, however, because the
@@ -1585,11 +1586,11 @@ NewGVN::performSymbolicPredicateInfoEvaluation(Instruction *I) const {
       SwappedOps ? Cmp->getSwappedPredicate() : Cmp->getPredicate();
 
   if (isa<PredicateAssume>(PI)) {
-    // If the comparison is true when the operands are equal, then we know the
-    // operands are equal, because assumes must always be true.
-    if (CmpInst::isTrueWhenEqual(Predicate)) {
+    // If we assume the operands are equal, then they are equal.
+    if (Predicate == CmpInst::ICMP_EQ) {
       addPredicateUsers(PI, I);
-      addAdditionalUsers(Cmp->getOperand(0), I);
+      addAdditionalUsers(SwappedOps ? Cmp->getOperand(1) : Cmp->getOperand(0),
+                         I);
       return createVariableOrConstant(FirstOp);
     }
   }
@@ -1623,7 +1624,7 @@ NewGVN::performSymbolicPredicateInfoEvaluation(Instruction *I) const {
 const Expression *NewGVN::performSymbolicCallEvaluation(Instruction *I) const {
   auto *CI = cast<CallInst>(I);
   if (auto *II = dyn_cast<IntrinsicInst>(I)) {
-    // Instrinsics with the returned attribute are copies of arguments.
+    // Intrinsics with the returned attribute are copies of arguments.
     if (auto *ReturnedValue = II->getReturnedArgOperand()) {
       if (II->getIntrinsicID() == Intrinsic::ssa_copy)
         if (const auto *Result = performSymbolicPredicateInfoEvaluation(I))
@@ -2216,7 +2217,7 @@ void NewGVN::moveMemoryToNewCongruenceClass(Instruction *I,
                                             MemoryAccess *InstMA,
                                             CongruenceClass *OldClass,
                                             CongruenceClass *NewClass) {
-  // If the leader is I, and we had a represenative MemoryAccess, it should
+  // If the leader is I, and we had a representative MemoryAccess, it should
   // be the MemoryAccess of OldClass.
   assert((!InstMA || !OldClass->getMemoryLeader() ||
           OldClass->getLeader() != I ||
@@ -4123,7 +4124,7 @@ bool NewGVN::eliminateInstructions(Function &F) {
           // It's about to be alive again.
           if (LeaderUseCount == 0 && isa<Instruction>(DominatingLeader))
             ProbablyDead.erase(cast<Instruction>(DominatingLeader));
-          // Copy instructions, however, are still dead beacuse we use their
+          // Copy instructions, however, are still dead because we use their
           // operand as the leader.
           if (LeaderUseCount == 0 && isSSACopy)
             ProbablyDead.insert(II);

@@ -14,6 +14,7 @@
 #include "ui/base/ime/text_input_type.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/views/notification_background_painter.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/image_button.h"
@@ -72,7 +73,7 @@ void ArcNotificationView::OnContentBlurred() {
 void ArcNotificationView::UpdateWithNotification(
     const message_center::Notification& notification) {
   message_center::MessageView::UpdateWithNotification(notification);
-  content_view_->Update(this, notification);
+  content_view_->Update(notification);
 }
 
 void ArcNotificationView::SetDrawBackgroundAsActive(bool active) {
@@ -81,6 +82,13 @@ void ArcNotificationView::SetDrawBackgroundAsActive(bool active) {
     return;
 
   message_center::MessageView::SetDrawBackgroundAsActive(active);
+}
+
+void ArcNotificationView::UpdateCornerRadius(int top_radius,
+                                             int bottom_radius) {
+  MessageView::UpdateCornerRadius(top_radius, bottom_radius);
+
+  content_view_->UpdateCornerRadius(top_radius, bottom_radius);
 }
 
 void ArcNotificationView::UpdateControlButtonsVisibility() {
@@ -135,6 +143,11 @@ bool ArcNotificationView::IsManuallyExpandedOrCollapsed() const {
 
 void ArcNotificationView::OnContainerAnimationStarted() {
   content_view_->OnContainerAnimationStarted();
+}
+
+void ArcNotificationView::OnSnoozeButtonPressed(const ui::Event& event) {
+  if (item_)
+    return item_->OpenSnooze();
 }
 
 void ArcNotificationView::OnContainerAnimationEnded() {

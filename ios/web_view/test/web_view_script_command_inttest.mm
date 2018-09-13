@@ -5,10 +5,11 @@
 #import <ChromeWebView/ChromeWebView.h>
 #import <Foundation/Foundation.h>
 
-#import "ios/testing/wait_util.h"
-#import "ios/web_view/test/web_view_int_test.h"
+#import "base/test/ios/wait_util.h"
+#import "ios/web_view/test/web_view_inttest_base.h"
 #import "ios/web_view/test/web_view_test_util.h"
 #import "net/base/mac/url_conversions.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest_mac.h"
 #include "url/gurl.h"
 
@@ -21,7 +22,8 @@
 @property(nonatomic) CWVScriptCommand* lastReceivedCommand;
 
 - (BOOL)webView:(CWVWebView*)webView
-    handleScriptCommand:(CWVScriptCommand*)command;
+    handleScriptCommand:(CWVScriptCommand*)command
+          fromMainFrame:(BOOL)fromMainFrame;
 
 @end
 
@@ -30,7 +32,8 @@
 @synthesize lastReceivedCommand = _lastReceivedCommand;
 
 - (BOOL)webView:(CWVWebView*)webView
-    handleScriptCommand:(CWVScriptCommand*)command {
+    handleScriptCommand:(CWVScriptCommand*)command
+          fromMainFrame:(BOOL)fromMainFrame {
   self.lastReceivedCommand = command;
   return YES;
 }
@@ -40,11 +43,12 @@
 namespace ios_web_view {
 
 // Tests the script command feature in CWVWebView.
-using WebViewScriptCommandTest = WebViewIntTest;
+using WebViewScriptCommandTest = WebViewInttestBase;
 
 // Tests that a handler added by -[CWVWebView
 // addScriptCommandHandler:commandPrefix] is invoked by JavaScript.
 TEST_F(WebViewScriptCommandTest, TestScriptCommand) {
+  ASSERT_TRUE(test_server_->Start());
   CWVFakeScriptCommandHandler* handler =
       [[CWVFakeScriptCommandHandler alloc] init];
   [web_view_ addScriptCommandHandler:handler commandPrefix:@"test"];
@@ -63,8 +67,8 @@ TEST_F(WebViewScriptCommandTest, TestScriptCommand) {
   test::EvaluateJavaScript(web_view_, script, &script_error);
   ASSERT_NSEQ(nil, script_error);
 
-  EXPECT_TRUE(testing::WaitUntilConditionOrTimeout(
-      testing::kWaitForJSCompletionTimeout, ^{
+  EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
+      base::test::ios::kWaitForJSCompletionTimeout, ^{
         return handler.lastReceivedCommand != nil;
       }));
 
@@ -81,6 +85,7 @@ TEST_F(WebViewScriptCommandTest, TestScriptCommand) {
 // Tests that added script commands are still valid after state restoration.
 // Tests the same thing as TestScriptCommand() after state restoration.
 TEST_F(WebViewScriptCommandTest, TestScriptCommandAfterStateRestoration) {
+  ASSERT_TRUE(test_server_->Start());
   CWVFakeScriptCommandHandler* handler =
       [[CWVFakeScriptCommandHandler alloc] init];
   [web_view_ addScriptCommandHandler:handler commandPrefix:@"test"];
@@ -102,8 +107,8 @@ TEST_F(WebViewScriptCommandTest, TestScriptCommandAfterStateRestoration) {
   test::EvaluateJavaScript(web_view_, script, &script_error);
   ASSERT_NSEQ(nil, script_error);
 
-  EXPECT_TRUE(testing::WaitUntilConditionOrTimeout(
-      testing::kWaitForJSCompletionTimeout, ^{
+  EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
+      base::test::ios::kWaitForJSCompletionTimeout, ^{
         return handler.lastReceivedCommand != nil;
       }));
 

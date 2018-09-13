@@ -20,15 +20,15 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
-import org.chromium.chrome.browser.widget.FadingBackgroundView;
+import org.chromium.chrome.browser.widget.ScrimView;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.BottomSheetContent;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.ContentPriority;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -69,11 +69,11 @@ public class BottomSheetControllerTest {
                                    .findViewById(org.chromium.chrome.R.id.bottom_sheet);
             mBottomSheet.init(coordinator, activity);
 
-            FadingBackgroundView scrim = coordinator.findViewById(R.id.fading_focus_target);
+            ScrimView scrim = new ScrimView(mActivityTestRule.getActivity(), null, coordinator);
 
             mSheetController = new BottomSheetController(activity, activity.getTabModelSelector(),
-                    activity.getCompositorViewHolder().getLayoutManager(), scrim,
-                    activity.getContextualSearchManager(), mBottomSheet);
+                    activity.getCompositorViewHolder().getLayoutManager(), scrim, mBottomSheet,
+                    activity.getContextualSearchManager(), true);
 
             mLowPriorityContent = new TestBottomSheetContent(
                     mActivityTestRule.getActivity(), ContentPriority.LOW);
@@ -87,7 +87,7 @@ public class BottomSheetControllerTest {
     @Feature({"BottomSheetController"})
     public void testSheetPeek() throws InterruptedException, TimeoutException {
         requestContentInSheet(mLowPriorityContent, true);
-        assertEquals("The bottom sheet should be peeking.", BottomSheet.SHEET_STATE_PEEK,
+        assertEquals("The bottom sheet should be peeking.", BottomSheet.SheetState.PEEK,
                 mBottomSheet.getSheetState());
         assertEquals("The bottom sheet is showing incorrect content.", mLowPriorityContent,
                 mBottomSheet.getCurrentSheetContent());
@@ -120,7 +120,7 @@ public class BottomSheetControllerTest {
     public void testSheetPeekAfterTabSwitcher() throws InterruptedException, TimeoutException {
         requestContentInSheet(mLowPriorityContent, true);
         enterAndExitTabSwitcher();
-        assertEquals("The bottom sheet should be peeking.", BottomSheet.SHEET_STATE_PEEK,
+        assertEquals("The bottom sheet should be peeking.", BottomSheet.SheetState.PEEK,
                 mBottomSheet.getSheetState());
         assertEquals("The bottom sheet is showing incorrect content.", mLowPriorityContent,
                 mBottomSheet.getCurrentSheetContent());
@@ -142,7 +142,7 @@ public class BottomSheetControllerTest {
         ThreadUtils.runOnUiThreadBlocking(() -> {
             mActivityTestRule.getActivity().getLayoutManager().showOverview(false);
             mBottomSheet.endAnimations();
-            assertEquals("The bottom sheet should be hidden.", BottomSheet.SHEET_STATE_HIDDEN,
+            assertEquals("The bottom sheet should be hidden.", BottomSheet.SheetState.HIDDEN,
                     mBottomSheet.getSheetState());
             mActivityTestRule.getActivity().getTabModelSelector().getCurrentModel().setIndex(
                     0, TabSelectionType.FROM_USER);
@@ -150,7 +150,7 @@ public class BottomSheetControllerTest {
             mBottomSheet.endAnimations();
         });
 
-        assertEquals("The bottom sheet still should be hidden.", BottomSheet.SHEET_STATE_HIDDEN,
+        assertEquals("The bottom sheet still should be hidden.", BottomSheet.SheetState.HIDDEN,
                 mBottomSheet.getSheetState());
         assertEquals("The bottom sheet is showing incorrect content.", null,
                 mBottomSheet.getCurrentSheetContent());
@@ -164,7 +164,7 @@ public class BottomSheetControllerTest {
         expandSheet();
         openNewTabInBackground();
 
-        assertEquals("The bottom sheet should be expanded.", BottomSheet.SHEET_STATE_HALF,
+        assertEquals("The bottom sheet should be expanded.", BottomSheet.SheetState.HALF,
                 mBottomSheet.getSheetState());
         assertEquals("The bottom sheet is showing incorrect content.", mLowPriorityContent,
                 mBottomSheet.getCurrentSheetContent());
@@ -176,18 +176,19 @@ public class BottomSheetControllerTest {
     public void testSwitchTabs() throws InterruptedException, TimeoutException {
         requestContentInSheet(mLowPriorityContent, true);
 
-        assertEquals("The bottom sheet should be peeking.", BottomSheet.SHEET_STATE_PEEK,
+        assertEquals("The bottom sheet should be peeking.", BottomSheet.SheetState.PEEK,
                 mBottomSheet.getSheetState());
 
         openNewTabInForeground();
 
-        assertEquals("The bottom sheet should be hidden.", BottomSheet.SHEET_STATE_HIDDEN,
+        assertEquals("The bottom sheet should be hidden.", BottomSheet.SheetState.HIDDEN,
                 mBottomSheet.getSheetState());
         assertEquals("The bottom sheet is showing incorrect content.", null,
                 mBottomSheet.getCurrentSheetContent());
     }
 
     @Test
+    @FlakyTest(message = "https://crbug.com/837809")
     @MediumTest
     @Feature({"BottomSheetController"})
     public void testSwitchTabsMultipleTimes() throws InterruptedException, TimeoutException {
@@ -196,12 +197,12 @@ public class BottomSheetControllerTest {
                 activity.getTabModelSelector().getCurrentModel().indexOf(activity.getActivityTab());
         requestContentInSheet(mLowPriorityContent, true);
 
-        assertEquals("The bottom sheet should be peeking.", BottomSheet.SHEET_STATE_PEEK,
+        assertEquals("The bottom sheet should be peeking.", BottomSheet.SheetState.PEEK,
                 mBottomSheet.getSheetState());
 
         openNewTabInForeground();
 
-        assertEquals("The bottom sheet should be hidden.", BottomSheet.SHEET_STATE_HIDDEN,
+        assertEquals("The bottom sheet should be hidden.", BottomSheet.SheetState.HIDDEN,
                 mBottomSheet.getSheetState());
         assertEquals("The bottom sheet is showing incorrect content.", null,
                 mBottomSheet.getCurrentSheetContent());
@@ -217,7 +218,7 @@ public class BottomSheetControllerTest {
 
         openNewTabInBackground();
 
-        assertEquals("The bottom sheet should be expanded.", BottomSheet.SHEET_STATE_HALF,
+        assertEquals("The bottom sheet should be expanded.", BottomSheet.SheetState.HALF,
                 mBottomSheet.getSheetState());
         assertEquals("The bottom sheet is showing incorrect content.", mLowPriorityContent,
                 mBottomSheet.getCurrentSheetContent());
@@ -252,7 +253,7 @@ public class BottomSheetControllerTest {
      */
     private void expandSheet() {
         ThreadUtils.runOnUiThreadBlocking(
-                () -> mBottomSheet.setSheetState(BottomSheet.SHEET_STATE_HALF, false));
+                () -> mBottomSheet.setSheetState(BottomSheet.SheetState.HALF, false));
     }
 
     /**
@@ -263,7 +264,7 @@ public class BottomSheetControllerTest {
         ThreadUtils.runOnUiThreadBlocking(() -> {
             mActivityTestRule.getActivity().getLayoutManager().showOverview(false);
             mBottomSheet.endAnimations();
-            assertEquals("The bottom sheet should be hidden.", BottomSheet.SHEET_STATE_HIDDEN,
+            assertEquals("The bottom sheet should be hidden.", BottomSheet.SheetState.HIDDEN,
                     mBottomSheet.getSheetState());
             mActivityTestRule.getActivity().getLayoutManager().hideOverview(false);
             mBottomSheet.endAnimations();
@@ -278,7 +279,8 @@ public class BottomSheetControllerTest {
         mActivityTestRule.getActivity().getTabModelSelector().getCurrentModel().addObserver(
                 new EmptyTabModelObserver() {
                     @Override
-                    public void didSelectTab(Tab tab, TabModel.TabSelectionType type, int lastId) {
+                    public void didSelectTab(
+                            Tab tab, @TabModel.TabSelectionType int type, int lastId) {
                         tabSelectedHelper.notifyCalled();
                     }
                 });

@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/optional.h"
@@ -19,9 +18,8 @@
 #include "base/stl_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "chromeos/attestation/attestation.pb.h"
 #include "chromeos/chromeos_paths.h"
-#include "chromeos/chromeos_switches.h"
+#include "chromeos/dbus/attestation/attestation.pb.h"
 #include "chromeos/dbus/cryptohome/key.pb.h"
 #include "chromeos/dbus/cryptohome/rpc.pb.h"
 #include "components/policy/proto/install_attributes.pb.h"
@@ -90,12 +88,12 @@ void FakeCryptohomeClient::Unmount(DBusMethodCallback<bool> callback) {
       FROM_HERE, base::BindOnce(std::move(callback), unmount_result_));
 }
 
-void FakeCryptohomeClient::AsyncMigrateKey(
-    const cryptohome::Identification& cryptohome_id,
-    const std::string& from_key,
-    const std::string& to_key,
-    AsyncMethodCallback callback) {
-  ReturnAsyncMethodResult(std::move(callback));
+void FakeCryptohomeClient::MigrateKeyEx(
+    const cryptohome::AccountIdentifier& account,
+    const cryptohome::AuthorizationRequest& auth_request,
+    const cryptohome::MigrateKeyRequest& migrate_request,
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::AsyncRemove(
@@ -146,8 +144,10 @@ std::string FakeCryptohomeClient::BlockingGetSanitizedUsername(
                                : std::string();
 }
 
-void FakeCryptohomeClient::AsyncMountGuest(AsyncMethodCallback callback) {
-  ReturnAsyncMethodResult(std::move(callback));
+void FakeCryptohomeClient::MountGuestEx(
+    const cryptohome::MountGuestRequest& request,
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::TpmIsReady(DBusMethodCallback<bool> callback) {
@@ -575,9 +575,7 @@ void FakeCryptohomeClient::MountEx(
   cryptohome::MountReply* mount =
       reply.MutableExtension(cryptohome::MountReply::reply);
   mount->set_sanitized_username(GetStubSanitizedUsername(cryptohome_id));
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kTestEncryptionMigrationUI) &&
-      !request.to_migrate_from_ecryptfs() &&
+  if (!request.to_migrate_from_ecryptfs() &&
       request.force_dircrypto_if_available()) {
     error = cryptohome::CRYPTOHOME_ERROR_MOUNT_OLD_ENCRYPTION;
   }
@@ -682,6 +680,17 @@ void FakeCryptohomeClient::GetSupportedKeyPolicies(
   attr_reply->set_low_entropy_credentials(supports_low_entropy_credentials_);
   ReturnProtobufMethodCallback(reply, std::move(callback));
 }
+
+void FakeCryptohomeClient::IsQuotaSupported(DBusMethodCallback<bool> callback) {
+}
+
+void FakeCryptohomeClient::GetCurrentSpaceForUid(
+    uid_t android_uid,
+    DBusMethodCallback<int64_t> callback) {}
+
+void FakeCryptohomeClient::GetCurrentSpaceForGid(
+    gid_t android_gid,
+    DBusMethodCallback<int64_t> callback) {}
 
 void FakeCryptohomeClient::SetServiceIsAvailable(bool is_available) {
   service_is_available_ = is_available;

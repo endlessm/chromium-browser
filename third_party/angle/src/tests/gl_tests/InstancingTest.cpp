@@ -32,25 +32,6 @@ class InstancingTest : public ANGLETest
     {
         ANGLETest::SetUp();
 
-        mVertexAttribDivisorANGLE   = nullptr;
-        mDrawArraysInstancedANGLE   = nullptr;
-        mDrawElementsInstancedANGLE = nullptr;
-
-        const char *extensionString = reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
-        if (strstr(extensionString, "GL_ANGLE_instanced_arrays"))
-        {
-            mVertexAttribDivisorANGLE =
-                (PFNGLVERTEXATTRIBDIVISORANGLEPROC)eglGetProcAddress("glVertexAttribDivisorANGLE");
-            mDrawArraysInstancedANGLE =
-                (PFNGLDRAWARRAYSINSTANCEDANGLEPROC)eglGetProcAddress("glDrawArraysInstancedANGLE");
-            mDrawElementsInstancedANGLE = (PFNGLDRAWELEMENTSINSTANCEDANGLEPROC)eglGetProcAddress(
-                "glDrawElementsInstancedANGLE");
-        }
-
-        ASSERT_NE(nullptr, mVertexAttribDivisorANGLE);
-        ASSERT_NE(nullptr, mDrawArraysInstancedANGLE);
-        ASSERT_NE(nullptr, mDrawElementsInstancedANGLE);
-
         // Initialize the vertex and index vectors
         constexpr GLfloat qvertex1[3] = {-quadRadius, quadRadius, 0.0f};
         constexpr GLfloat qvertex2[3] = {-quadRadius, -quadRadius, 0.0f};
@@ -178,7 +159,7 @@ class InstancingTest : public ANGLETest
         glEnableVertexAttribArray(instancePosLoc);
 
         // Enable instancing
-        mVertexAttribDivisorANGLE(instancePosLoc, 1);
+        glVertexAttribDivisorANGLE(instancePosLoc, 1);
 
         // Offset
         GLint uniformLoc = glGetUniformLocation(mProgram, "u_offset");
@@ -186,7 +167,7 @@ class InstancingTest : public ANGLETest
         glUniform3fv(uniformLoc, 1, offset);
 
         // Do the instanced draw
-        mDrawArraysInstancedANGLE(GL_TRIANGLES, first, count, instanceCount);
+        glDrawArraysInstancedANGLE(GL_TRIANGLES, first, count, instanceCount);
 
         ASSERT_GL_NO_ERROR();
     }
@@ -227,12 +208,12 @@ class InstancingTest : public ANGLETest
         glEnableVertexAttribArray(instancePosLoc);
 
         // Enable instancing
-        mVertexAttribDivisorANGLE(instancePosLoc, 1);
+        glVertexAttribDivisorANGLE(instancePosLoc, 1);
 
         // Do the instanced draw
-        mDrawElementsInstancedANGLE(GL_TRIANGLES, static_cast<GLsizei>(mIndices.size()),
-                                    GL_UNSIGNED_SHORT, mIndices.data(),
-                                    static_cast<GLsizei>(mInstances.size()) / 3);
+        glDrawElementsInstancedANGLE(GL_TRIANGLES, static_cast<GLsizei>(mIndices.size()),
+                                     GL_UNSIGNED_SHORT, mIndices.data(),
+                                     static_cast<GLsizei>(mInstances.size()) / 3);
 
         ASSERT_GL_NO_ERROR();
 
@@ -254,11 +235,6 @@ class InstancingTest : public ANGLETest
             EXPECT_PIXEL_EQ(quadx, quady, 255, 0, 0, 255);
         }
     }
-
-    // Loaded entry points
-    PFNGLVERTEXATTRIBDIVISORANGLEPROC mVertexAttribDivisorANGLE;
-    PFNGLDRAWARRAYSINSTANCEDANGLEPROC mDrawArraysInstancedANGLE;
-    PFNGLDRAWELEMENTSINSTANCEDANGLEPROC mDrawElementsInstancedANGLE;
 
     // Vertex data
     std::vector<GLfloat> mQuadVertices;
@@ -296,6 +272,8 @@ class InstancingTestPoints : public InstancingTest
 // to D3D, to ensure that slot/stream zero of the input layout doesn't contain per-instance data.
 TEST_P(InstancingTestAllConfigs, AttributeZeroInstanced)
 {
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_ANGLE_instanced_arrays"));
+
     const std::string vs =
         "attribute vec3 a_instancePos;\n"
         "attribute vec3 a_position;\n"
@@ -312,6 +290,8 @@ TEST_P(InstancingTestAllConfigs, AttributeZeroInstanced)
 // expected.
 TEST_P(InstancingTestAllConfigs, AttributeZeroNotInstanced)
 {
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_ANGLE_instanced_arrays"));
+
     const std::string vs =
         "attribute vec3 a_position;\n"
         "attribute vec3 a_instancePos;\n"
@@ -327,6 +307,8 @@ TEST_P(InstancingTestAllConfigs, AttributeZeroNotInstanced)
 // the non-instanced vertex attributes.
 TEST_P(InstancingTestNo9_3, DrawArraysWithOffset)
 {
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_ANGLE_instanced_arrays"));
+
     const std::string vs =
         "attribute vec3 a_position;\n"
         "attribute vec3 a_instancePos;\n"
@@ -351,6 +333,8 @@ TEST_P(InstancingTestNo9_3, DrawArraysWithOffset)
 // On D3D11 FL9_3, this triggers a special codepath that emulates instanced points rendering.
 TEST_P(InstancingTestPoints, DrawArrays)
 {
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_ANGLE_instanced_arrays"));
+
     // Disable D3D11 SDK Layers warnings checks, see ANGLE issue 667 for details
     // On Win7, the D3D SDK Layers emits a false warning for these tests.
     // This doesn't occur on Windows 10 (Version 1511) though.
@@ -379,10 +363,10 @@ TEST_P(InstancingTestPoints, DrawArrays)
     glEnableVertexAttribArray(instancePosLoc);
 
     // Enable instancing
-    mVertexAttribDivisorANGLE(instancePosLoc, 1);
+    glVertexAttribDivisorANGLE(instancePosLoc, 1);
 
     // Do the instanced draw
-    mDrawArraysInstancedANGLE(GL_POINTS, 0, 1, static_cast<GLsizei>(mInstances.size()) / 3);
+    glDrawArraysInstancedANGLE(GL_POINTS, 0, 1, static_cast<GLsizei>(mInstances.size()) / 3);
 
     ASSERT_GL_NO_ERROR();
 
@@ -393,6 +377,8 @@ TEST_P(InstancingTestPoints, DrawArrays)
 // On D3D11 FL9_3, this triggers a special codepath that emulates instanced points rendering.
 TEST_P(InstancingTestPoints, DrawElements)
 {
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_ANGLE_instanced_arrays"));
+
     // Disable D3D11 SDK Layers warnings checks, see ANGLE issue 667 for details
     // On Win7, the D3D SDK Layers emits a false warning for these tests.
     // This doesn't occur on Windows 10 (Version 1511) though.
@@ -421,11 +407,12 @@ TEST_P(InstancingTestPoints, DrawElements)
     glEnableVertexAttribArray(instancePosLoc);
 
     // Enable instancing
-    mVertexAttribDivisorANGLE(instancePosLoc, 1);
+    glVertexAttribDivisorANGLE(instancePosLoc, 1);
 
     // Do the instanced draw
-    mDrawElementsInstancedANGLE(GL_POINTS, static_cast<GLsizei>(mIndices.size()), GL_UNSIGNED_SHORT,
-                                mIndices.data(), static_cast<GLsizei>(mInstances.size()) / 3);
+    glDrawElementsInstancedANGLE(GL_POINTS, static_cast<GLsizei>(mIndices.size()),
+                                 GL_UNSIGNED_SHORT, mIndices.data(),
+                                 static_cast<GLsizei>(mInstances.size()) / 3);
 
     ASSERT_GL_NO_ERROR();
 
@@ -441,6 +428,8 @@ class InstancingTestES31 : public InstancingTest
 // Verify that VertexAttribDivisor can update both binding divisor and attribBinding.
 TEST_P(InstancingTestES31, UpdateAttribBindingByVertexAttribDivisor)
 {
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_ANGLE_instanced_arrays"));
+
     const std::string vs =
         "attribute vec3 a_instancePos;\n"
         "attribute vec3 a_position;\n"
@@ -536,13 +525,12 @@ ANGLE_INSTANTIATE_TEST(InstancingTestAllConfigs,
                        ES2_D3D11(),
                        ES2_D3D11_FL9_3(),
                        ES2_OPENGL(),
-                       ES2_OPENGLES());
+                       ES2_OPENGLES(),
+                       ES2_VULKAN());
 
 // TODO(jmadill): Figure out the situation with DrawInstanced on FL 9_3
 ANGLE_INSTANTIATE_TEST(InstancingTestNo9_3, ES2_D3D9(), ES2_D3D11());
 
 ANGLE_INSTANTIATE_TEST(InstancingTestPoints, ES2_D3D11(), ES2_D3D11_FL9_3());
 
-// TODO(jiawei.shao@intel.com): Add D3D11 when Vertex Attrib Binding is supported on D3D11
-// back-ends.
-ANGLE_INSTANTIATE_TEST(InstancingTestES31, ES31_OPENGL(), ES31_OPENGLES());
+ANGLE_INSTANTIATE_TEST(InstancingTestES31, ES31_OPENGL(), ES31_OPENGLES(), ES31_D3D11());

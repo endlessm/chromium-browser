@@ -80,6 +80,7 @@ TEST_F(VideoCaptureServiceDeviceFactoryProviderTest,
           }));
   factory_->AddSharedMemoryVirtualDevice(
       info, std::move(producer_proxy),
+      false /* send_buffer_handles_to_producer_as_raw_file_descriptors */,
       mojo::MakeRequest(&virtual_device_proxy));
   factory_->GetDeviceInfos(device_info_receiver_.Get());
   wait_loop.Run();
@@ -125,52 +126,10 @@ TEST_F(VideoCaptureServiceDeviceFactoryProviderTest,
       .WillOnce(InvokeWithoutArgs([&wait_loop]() { wait_loop.Quit(); }));
   factory_->AddSharedMemoryVirtualDevice(
       info, std::move(producer_proxy),
+      false /* send_buffer_handles_to_producer_as_raw_file_descriptors */,
       mojo::MakeRequest(&virtual_device_proxy));
   factory_->CreateDevice(virtual_device_id, mojo::MakeRequest(&device_proxy),
                          create_device_proxy_callback.Get());
-  wait_loop.Run();
-}
-
-// Tests that the service requests to be closed when the only client disconnects
-// after not having done anything other than obtaining a connection to the
-// fake device factory.
-TEST_F(VideoCaptureServiceDeviceFactoryProviderTest,
-       ServiceQuitsWhenSingleClientDisconnected) {
-  base::RunLoop wait_loop;
-  EXPECT_CALL(*service_state_observer_, OnServiceStopped(_))
-      .WillOnce(Invoke([&wait_loop](const service_manager::Identity& identity) {
-        if (identity.name() == mojom::kServiceName)
-          wait_loop.Quit();
-      }));
-
-  // Exercise: Disconnect from service by discarding our references to it.
-  factory_.reset();
-  factory_provider_.reset();
-
-  wait_loop.Run();
-}
-
-// Tests that the service requests to be closed when the all clients disconnect
-// after not having done anything other than obtaining a connection to the
-// fake device factory.
-TEST_F(VideoCaptureServiceDeviceFactoryProviderTest,
-       ServiceQuitsWhenAllClientsDisconnected) {
-  // Bind another client to the DeviceFactoryProvider interface.
-  mojom::DeviceFactoryProviderPtr unused_provider;
-  connector()->BindInterface(mojom::kServiceName, &unused_provider);
-
-  base::RunLoop wait_loop;
-  EXPECT_CALL(*service_state_observer_, OnServiceStopped(_))
-      .WillOnce(Invoke([&wait_loop](const service_manager::Identity& identity) {
-        if (identity.name() == mojom::kServiceName)
-          wait_loop.Quit();
-      }));
-
-  // Exercise: Disconnect from service by discarding our references to it.
-  factory_.reset();
-  factory_provider_.reset();
-  unused_provider.reset();
-
   wait_loop.Run();
 }
 

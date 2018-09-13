@@ -7,6 +7,7 @@
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/audio/unified_volume_slider_controller.h"
+#include "ash/system/unified/top_shortcut_button.h"
 
 using chromeos::CrasAudioHandler;
 
@@ -19,11 +20,11 @@ const float kSliderIgnoreUpdateThreshold = 0.01;
 
 // References to the icons that correspond to different volume levels.
 const gfx::VectorIcon* const kVolumeLevelIcons[] = {
-    &kSystemMenuVolumeMuteIcon,    // Muted.
-    &kSystemMenuVolumeLowIcon,     // Low volume.
-    &kSystemMenuVolumeMediumIcon,  // Medium volume.
-    &kSystemMenuVolumeHighIcon,    // High volume.
-    &kSystemMenuVolumeHighIcon,    // Full volume.
+    &kUnifiedMenuVolumeMuteIcon,    // Muted.
+    &kUnifiedMenuVolumeLowIcon,     // Low volume.
+    &kUnifiedMenuVolumeMediumIcon,  // Medium volume.
+    &kUnifiedMenuVolumeHighIcon,    // High volume.
+    &kUnifiedMenuVolumeHighIcon,    // Full volume.
 };
 
 // The maximum index of kVolumeLevelIcons.
@@ -42,13 +43,19 @@ const gfx::VectorIcon& GetVolumeIconForLevel(float level) {
 
 }  // namespace
 
-UnifiedVolumeView::UnifiedVolumeView(UnifiedVolumeSliderController* controller)
+UnifiedVolumeView::UnifiedVolumeView(UnifiedVolumeSliderController* controller,
+                                     bool is_main_view)
     : UnifiedSliderView(controller,
                         kSystemMenuVolumeHighIcon,
-                        IDS_ASH_STATUS_TRAY_VOLUME) {
+                        IDS_ASH_STATUS_TRAY_VOLUME),
+      more_button_(new TopShortcutButton(controller,
+                                         kSystemMenuArrowRightIcon,
+                                         IDS_ASH_STATUS_TRAY_AUDIO)),
+      is_main_view_(is_main_view) {
   DCHECK(CrasAudioHandler::IsInitialized());
   CrasAudioHandler::Get()->AddAudioObserver(this);
-  Update();
+  AddChildView(more_button_);
+  Update(false /* by_user */);
 }
 
 UnifiedVolumeView::~UnifiedVolumeView() {
@@ -56,7 +63,7 @@ UnifiedVolumeView::~UnifiedVolumeView() {
   CrasAudioHandler::Get()->RemoveAudioObserver(this);
 }
 
-void UnifiedVolumeView::Update() {
+void UnifiedVolumeView::Update(bool by_user) {
   bool is_muted = CrasAudioHandler::Get()->IsOutputMuted();
   float level = CrasAudioHandler::Get()->GetOutputVolumePercent() / 100.f;
 
@@ -66,6 +73,10 @@ void UnifiedVolumeView::Update() {
   button()->SetToggled(!is_muted);
   button()->SetVectorIcon(GetVolumeIconForLevel(is_muted ? 0.f : level));
 
+  more_button_->SetVisible(is_main_view_ &&
+                           (CrasAudioHandler::Get()->has_alternative_input() ||
+                            CrasAudioHandler::Get()->has_alternative_output()));
+
   // Slider's value is in finer granularity than audio volume level(0.01),
   // there will be a small discrepancy between slider's value and volume level
   // on audio side. To avoid the jittering in slider UI, do not set change
@@ -73,28 +84,32 @@ void UnifiedVolumeView::Update() {
   if (std::abs(level - slider()->value()) < kSliderIgnoreUpdateThreshold)
     return;
 
-  slider()->SetValue(level);
+  SetSliderValue(level, by_user);
 }
 
 void UnifiedVolumeView::OnOutputNodeVolumeChanged(uint64_t node_id,
                                                   int volume) {
-  Update();
+  Update(true /* by_user */);
 }
 
 void UnifiedVolumeView::OnOutputMuteChanged(bool mute_on, bool system_adjust) {
-  Update();
+  Update(true /* by_user */);
 }
 
 void UnifiedVolumeView::OnAudioNodesChanged() {
-  Update();
+  Update(true /* by_user */);
 }
 
 void UnifiedVolumeView::OnActiveOutputNodeChanged() {
-  Update();
+  Update(true /* by_user */);
 }
 
 void UnifiedVolumeView::OnActiveInputNodeChanged() {
-  Update();
+  Update(true /* by_user */);
+}
+
+void UnifiedVolumeView::ChildVisibilityChanged(views::View* child) {
+  Update(true /* by_user */);
 }
 
 }  // namespace ash

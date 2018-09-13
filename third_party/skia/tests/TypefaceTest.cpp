@@ -174,7 +174,7 @@ DEF_TEST(TypefaceAxes, reporter) {
     // Convert to fixed for "almost equal".
     SkFixed fixedRead = SkScalarToFixed(positionRead[0].value);
     SkFixed fixedOriginal = SkScalarToFixed(position[1].value);
-    REPORTER_ASSERT(reporter, fixedRead == fixedOriginal);
+    REPORTER_ASSERT(reporter, SkTAbs(fixedRead - fixedOriginal) < 2);
 }
 
 DEF_TEST(TypefaceVariationIndex, reporter) {
@@ -226,6 +226,43 @@ DEF_TEST(Typeface, reporter) {
     REPORTER_ASSERT(reporter, SkTypeface::Equal(t2.get(), nullptr));
 }
 
+DEF_TEST(TypefaceAxesParameters, reporter) {
+    std::unique_ptr<SkStreamAsset> distortable(GetResourceAsStream("fonts/Distortable.ttf"));
+    if (!distortable) {
+        REPORT_FAILURE(reporter, "distortable", SkString());
+        return;
+    }
+    constexpr int numberOfAxesInDistortable = 1;
+    constexpr SkScalar minAxisInDistortable = 0.5;
+    constexpr SkScalar defAxisInDistortable = 1;
+    constexpr SkScalar maxAxisInDistortable = 2;
+    constexpr bool axisIsHiddenInDistortable = false;
+
+    sk_sp<SkFontMgr> fm = SkFontMgr::RefDefault();
+
+    SkFontArguments params;
+    sk_sp<SkTypeface> typeface = fm->makeFromStream(std::move(distortable), params);
+
+    if (!typeface) {
+        // Not all SkFontMgr can makeFromStream().
+        return;
+    }
+
+    SkFontParameters::Variation::Axis parameter[numberOfAxesInDistortable];
+    int count = typeface->getVariationDesignParameters(parameter, SK_ARRAY_COUNT(parameter));
+    if (count == -1) {
+        return;
+    }
+
+    REPORTER_ASSERT(reporter, count == SK_ARRAY_COUNT(parameter));
+    REPORTER_ASSERT(reporter, parameter[0].min == minAxisInDistortable);
+    REPORTER_ASSERT(reporter, parameter[0].def == defAxisInDistortable);
+    REPORTER_ASSERT(reporter, parameter[0].max == maxAxisInDistortable);
+    REPORTER_ASSERT(reporter, parameter[0].tag == SkSetFourByteTag('w','g','h','t'));
+    REPORTER_ASSERT(reporter, parameter[0].isHidden() == axisIsHiddenInDistortable);
+
+}
+
 namespace {
 
 class EmptyTypeface : public SkTypeface {
@@ -235,6 +272,9 @@ protected:
     EmptyTypeface() : SkTypeface(SkFontStyle(), true) { }
 
     SkStreamAsset* onOpenStream(int* ttcIndex) const override { return nullptr; }
+    sk_sp<SkTypeface> onMakeClone(const SkFontArguments& args) const override {
+        return sk_ref_sp(this);
+    }
     SkScalerContext* onCreateScalerContext(const SkScalerContextEffects&,
                                            const SkDescriptor*) const override {
         return nullptr;
@@ -258,6 +298,11 @@ protected:
     }
     int onGetVariationDesignPosition(SkFontArguments::VariationPosition::Coordinate coordinates[],
                                      int coordinateCount) const override
+    {
+        return 0;
+    }
+    int onGetVariationDesignParameters(SkFontParameters::Variation::Axis parameters[],
+                                       int parameterCount) const override
     {
         return 0;
     }

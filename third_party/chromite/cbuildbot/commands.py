@@ -59,8 +59,12 @@ _SWARMING_ADDITIONAL_TIMEOUT = 60 * 60
 _DEFAULT_HWTEST_TIMEOUT_MINS = 1440
 _SWARMING_EXPIRATION = 20 * 60
 RUN_SUITE_PATH = '/usr/local/autotest/site_utils/run_suite.py'
+SKYLAB_RUN_SUITE_PATH = '/usr/local/autotest/bin/run_suite_skylab'
 _ABORT_SUITE_PATH = '/usr/local/autotest/site_utils/abort_suite.py'
+_SKYLAB_ABORT_SUITE_PATH = '/usr/local/autotest/bin/abort_suite_skylab'
 _MAX_HWTEST_CMD_RETRY = 10
+SKYLAB_SUITE_BOT_POOL = 'ChromeOSSkylab-suite'
+SUITE_BOT_POOL = 'default'
 # Be very careful about retrying suite creation command as
 # it may create multiple suites.
 _MAX_HWTEST_START_CMD_RETRY = 1
@@ -68,6 +72,23 @@ _MAX_HWTEST_START_CMD_RETRY = 1
 JSON_DICT_START = '#JSON_START#'
 JSON_DICT_END = '#JSON_END#'
 
+# Filename for tarball containing Autotest server files needed for Server-Side
+# Packaging.
+AUTOTEST_SERVER_PACKAGE = 'autotest_server_package.tar.bz2'
+
+# Directory within AUTOTEST_SERVER_PACKAGE where Tast files needed to run with
+# Server-Side Packaging are stored.
+_TAST_SSP_SUBDIR = 'tast'
+
+# Tast files and directories to include in AUTOTEST_SERVER_PACKAGE relative to
+# the build root. Public so it can be used by commands_unittest.py.
+TAST_SSP_FILES = [
+    'chroot/usr/bin/tast',                  # Main Tast executable.
+    'chroot/usr/bin/remote_test_runner',    # Runs remote tests.
+    'chroot/usr/libexec/tast/bundles',      # Dir containing test bundles.
+    'chroot/usr/share/tast/data',           # Dir containing test data.
+    'src/platform/tast/tools/run_tast.sh',  # Helper script to run SSP tast.
+]
 
 # =========================== Command Helpers =================================
 
@@ -237,16 +258,6 @@ def RunChrootUpgradeHooks(buildroot, chrome_root=None, extra_env=None):
                  chroot_args=chroot_args, extra_env=extra_env)
 
 
-def SetSharedUserPassword(buildroot, password):
-  """Wrapper around set_shared_user_password.sh"""
-  if password is not None:
-    cmd = ['./set_shared_user_password.sh', password]
-    RunBuildScript(buildroot, cmd, enter_chroot=True)
-  else:
-    passwd_file = os.path.join(buildroot, 'chroot/etc/shared_user_passwd.txt')
-    osutils.SafeUnlink(passwd_file, sudo=True)
-
-
 def UpdateChroot(buildroot, usepkg, toolchain_boards=None, extra_env=None,
                  save_install_plan=None):
   """Wrapper around update_chroot.
@@ -375,16 +386,33 @@ def RunBinhostTest(buildroot, incremental=True):
   RunBuildScript(buildroot, cmd, chromite_cmd=True, enter_chroot=True)
 
 
-def RunBranchUtilTest(buildroot, version):
-  """Tests that branch-util works at the given manifest version."""
+def RunLocalTryjob(buildroot, build_config, args=None, target_buildroot=None):
+  """Run a local tryjob.
+
+  Setting --git-cache-dir (probably to self._run.options.git_cache_dir) can
+  have a huge impact on performance.
+
+  This function will use cbuildbot_launch of the current checkout, which
+  whatever patches are applied, but cbuildbot from the requested build.
+
+  Args:
+    buildroot: The buildroot of the current build.
+    build_config: The name of the build config to build.
+    args: List of strings giving additional command line arguments.
+    target_buildroot: Buildroot for the tryjob. None for a tmpdir.
+  """
   with osutils.TempDir() as tempdir:
+    if not target_buildroot:
+      target_buildroot = tempdir
+
     cmd = [
         'cros', 'tryjob', '--local', '--yes',
-        '--branch-name', 'test_branch',
-        '--version', version,
-        '--buildroot', tempdir,
-        'branch-util-tryjob',
+        '--buildroot', target_buildroot,
+        build_config,
     ]
+    if args:
+      cmd.extend(args)
+
     RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
 
@@ -698,38 +726,6 @@ def BuildImage(buildroot, board, images_to_build, version=None,
   RunBuildScript(buildroot, cmd, extra_env=extra_env, enter_chroot=True)
 
 
-def GenerateAuZip(buildroot, image_dir, extra_env=None):
-  """Run the script which generates au-generator.zip.
-
-  Args:
-    buildroot: The buildroot of the current build.
-    image_dir: The directory in which to store au-generator.zip.
-    extra_env: A dictionary of environmental variables to set during generation.
-
-  Raises:
-    failures_lib.BuildScriptFailure if the called script fails.
-  """
-  chroot_image_dir = path_util.ToChrootPath(image_dir)
-  cmd = ['./build_library/generate_au_zip.py', '-o', chroot_image_dir]
-  RunBuildScript(buildroot, cmd, extra_env=extra_env, enter_chroot=True)
-
-
-def TestAuZip(buildroot, image_dir, extra_env=None):
-  """Run the script which validates an au-generator.zip.
-
-  Args:
-    buildroot: The buildroot of the current build.
-    image_dir: The directory in which to find au-generator.zip.
-    extra_env: A dictionary of environmental variables to set during generation.
-
-  Raises:
-    failures_lib.BuildScriptFailure if the test script fails.
-  """
-  cmd = ['./build_library/test_au_zip.py', '-o', image_dir]
-  RunBuildScript(buildroot, cmd, cwd=constants.CROSUTILS_DIR,
-                 extra_env=extra_env)
-
-
 def BuildVMImageForTesting(buildroot, board, extra_env=None,
                            disk_layout=None):
   cmd = ['./image_to_vm.sh', '--board=%s' % board, '--test_image']
@@ -802,6 +798,7 @@ def BuildAndArchiveTestResultsTarball(src_dir, buildroot):
 
 HWTestSuiteResult = collections.namedtuple('HWTestSuiteResult',
                                            ['to_raise', 'json_dump_result'])
+
 
 @failures_lib.SetFailureType(failures_lib.SuiteTimedOut,
                              timeout_util.TimeoutError)
@@ -991,6 +988,177 @@ def RunHWTestSuite(
 
 
 # pylint: disable=docstring-missing-args
+def _GetRunSkylabSuiteArgs(
+    build, suite, board,
+    model=None,
+    pool=None,
+    priority=None,
+    timeout_mins=None,
+    retry=None,
+    max_retries=None,
+    suite_args=None):
+  """Get a list of args for run_suite.
+
+  TODO (xixuan): Add other features as required, e.g.
+    subsystems
+    test_args
+    skip_duts_check
+    job_keyvals
+    suite_min_duts
+    minimum_duts
+
+  Args:
+    See args of |RunHWTestSuite|.
+
+  Returns:
+    A list of args for SKYLAB_RUN_SUITE_PATH.
+  """
+  # HACK(pwang): Delete this once better solution is out.
+  board = board.replace('-arcnext', '')
+  args = ['--build', build, '--board', board]
+
+  if model:
+    args += ['--model', model]
+
+  args += ['--suite_name', suite]
+
+  # Add optional arguments to command, if present.
+  if pool is not None:
+    args += ['--pool', pool]
+
+  if priority is not None:
+    args += ['--priority', str(priority)]
+
+  if timeout_mins is not None:
+    args += ['--timeout_mins', str(timeout_mins)]
+
+  if retry is not None:
+    args += ['--test_retry']
+
+  if max_retries is not None:
+    args += ['--max_retries', str(max_retries)]
+
+  if suite_args is not None:
+    args += ['--suite_args', repr(suite_args)]
+
+  return args
+# pylint: enable=docstring-missing-args
+
+
+def _SkylabHWTestCreate(swarming_cli_cmd, cmd, **kwargs):
+  """Create HWTest with Skylab.
+
+  Args:
+    swarming_cli_cmd: Either 'run' if waiting for the results,
+      otherwise, its value should be 'trigger'.
+    cmd: A list of args for proxied run_suite_skylab command.
+    kwargs: args to be passed to RunSwarmingCommand.
+
+  Returns:
+    A string swarming task id, which is regarded as the suite_id.
+  """
+  create_cmd = cmd + ['--create_and_return']
+  logging.info('Suite creation command: \n%s',
+               cros_build_lib.CmdToStr(create_cmd))
+  result = swarming_lib.RunSwarmingCommandWithRetries(
+      max_retry=_MAX_HWTEST_START_CMD_RETRY,
+      error_check=swarming_lib.SwarmingRetriableErrorCheck,
+      cmd=create_cmd, swarming_cli_cmd=swarming_cli_cmd, capture_output=True,
+      combine_stdout_stderr=True, **kwargs)
+  # If the command succeeds, result.task_summary_json will have the right
+  # content. So result.GetValue is able to return valid values from its
+  # json summary.
+  for output in result.GetValue('outputs', ''):
+    sys.stdout.write(output)
+  sys.stdout.flush()
+  return result.GetValue('run_id')
+
+
+def _SkylabHWTestWait(swarming_cli_cmd, cmd, suite_id, **kwargs):
+  """Wait for Skylab HWTest to finish.
+
+  Args:
+    swarming_cli_cmd: Either 'run' if waiting for the results,
+      otherwise, its value should be 'trigger'.
+    cmd: Proxied run_suite command.
+    suite_id: The string suite_id to wait for.
+    kwargs: args to be passed to RunSwarmingCommand.
+  """
+  wait_cmd = list(cmd) + ['--suite_id', str(suite_id)]
+  logging.info('RunSkylabHWTestSuite will wait for suite %s: %s',
+               suite_id, cros_build_lib.CmdToStr(wait_cmd))
+  try:
+    result = swarming_lib.RunSwarmingCommandWithRetries(
+        max_retry=_MAX_HWTEST_START_CMD_RETRY,
+        error_check=swarming_lib.SwarmingRetriableErrorCheck,
+        cmd=wait_cmd, swarming_cli_cmd=swarming_cli_cmd,
+        capture_output=True, combine_stdout_stderr=True,
+        **kwargs)
+  except cros_build_lib.RunCommandError as e:
+    result = e.result
+    raise
+  finally:
+    # 'Outputs' only exist when swarming_cli_cmd='run'.
+    # This is required to output buildbot annotations, e.g. 'STEP_LINKS'.
+    sys.stdout.write('######## Output for buildbot annotations ######## \n')
+    for output in result.GetValue('outputs', []):
+      sys.stdout.write(output)
+    sys.stdout.write('######## END Output for buildbot annotations ######## \n')
+    sys.stdout.flush()
+
+
+# pylint: disable=docstring-missing-args
+@failures_lib.SetFailureType(failures_lib.SuiteTimedOut,
+                             timeout_util.TimeoutError)
+def RunSkylabHWTestSuite(
+    build, suite, board,
+    model=None,
+    pool=None,
+    wait_for_results=None,
+    priority=None,
+    timeout_mins=None,
+    retry=None,
+    max_retries=None,
+    suite_args=None):
+  """Run the test suite in the Autotest lab using Skylab.
+
+  Args:
+    See args of RunHWTestSuite.
+
+  Returns:
+    See returns of RunHWTestSuite.
+  """
+  priority_str = priority
+  if priority:
+    priority = constants.HWTEST_PRIORITIES_MAP[str(priority)]
+
+  cmd = [SKYLAB_RUN_SUITE_PATH]
+  cmd += _GetRunSkylabSuiteArgs(
+      build, suite, board,
+      model=model,
+      pool=pool,
+      priority=priority,
+      timeout_mins=timeout_mins,
+      retry=retry,
+      max_retries=max_retries,
+      suite_args=suite_args)
+  swarming_args = _CreateSwarmingArgs(build, suite, board, priority_str,
+                                      timeout_mins, run_skylab=True)
+  try:
+    suite_id = _SkylabHWTestCreate('run', cmd, **swarming_args)
+    if wait_for_results:
+      _SkylabHWTestWait('run', cmd, suite_id, **swarming_args)
+
+    return HWTestSuiteResult(None, None)
+  except cros_build_lib.RunCommandError as e:
+    result = e.result
+    to_raise = failures_lib.TestFailure(
+        '** HWTest failed (code %d) **' % result.returncode)
+    return HWTestSuiteResult(to_raise, None)
+# pylint: enable=docstring-missing-args
+
+
+# pylint: disable=docstring-missing-args
 def _GetRunSuiteArgs(
     build, suite, board,
     model=None,
@@ -1092,9 +1260,11 @@ def _GetRunSuiteArgs(
     args += ['--test_args', repr(test_args)]
 
   return args
+# pylint: enable=docstring-missing-args
 
 
-def _CreateSwarmingArgs(build, suite, board, priority, timeout_mins=None):
+def _CreateSwarmingArgs(build, suite, board, priority,
+                        timeout_mins=None, run_skylab=False):
   """Create args for swarming client.
 
   Args:
@@ -1104,6 +1274,7 @@ def _CreateSwarmingArgs(build, suite, board, priority, timeout_mins=None):
                   timeouts for swarming task.
     board: Name of the board.
     priority: Priority of this call.
+    run_skylab: Indicate whether to create a swarming cmd for Skylab HWTest.
 
   Returns:
     A dictionary of args for swarming client.
@@ -1112,24 +1283,37 @@ def _CreateSwarmingArgs(build, suite, board, priority, timeout_mins=None):
   swarming_timeout = timeout_mins or _DEFAULT_HWTEST_TIMEOUT_MINS
   swarming_timeout = swarming_timeout * 60 + _SWARMING_ADDITIONAL_TIMEOUT
 
+  if run_skylab:
+    swarming_server = topology.topology.get(
+        topology.CHROME_SWARMING_PROXY_HOST_KEY)
+    pool = SKYLAB_SUITE_BOT_POOL
+  else:
+    swarming_server = topology.topology.get(
+        topology.SWARMING_PROXY_HOST_KEY)
+    pool = SUITE_BOT_POOL
+
+  tags = {
+      'task_name': '-'.join([build, suite]),
+      'build': build,
+      'suite': suite,
+      'board': board,
+      'priority': priority,
+  }
+  if run_skylab:
+    tags['luci_project'] = 'chromiumos'
+    tags['skylab'] = 'run_suite'
+
   return {
-      'swarming_server': topology.topology.get(
-          topology.SWARMING_PROXY_HOST_KEY),
+      'swarming_server': swarming_server,
       'task_name': '-'.join([build, suite]),
       'dimensions': [('os', 'Ubuntu-14.04'),
-                     ('pool', 'default')],
+                     ('pool', pool)],
       'print_status_updates': True,
       'timeout_secs': swarming_timeout,
       'io_timeout_secs': swarming_timeout,
       'hard_timeout_secs': swarming_timeout,
       'expiration_secs': _SWARMING_EXPIRATION,
-      'tags': {
-          'task_name': '-'.join([build, suite]),
-          'build': build,
-          'suite': suite,
-          'board': board,
-          'priority': priority,
-      },
+      'tags': tags,
   }
 
 
@@ -1214,12 +1398,13 @@ def _HWTestWait(cmd, job_id, **kwargs):
 
   return pass_hwtest
 
+
 def _HWTestParseJSONDump(dump_output):
   """Parses JSON dump output and returns the parsed JSON dict.
 
   Args:
-    output: The string containing the HWTest result JSON dictionary to parse,
-            marked up with #JSON_START# and #JSON_END# start/end delimiters.
+    dump_output: The string containing the HWTest result JSON dictionary to
+        parse, marked up with #JSON_START# and #JSON_END# start/end delimiters.
 
   Returns:
     Decoded JSON dict. May raise ValueError upon failure to pass the embedded
@@ -1284,6 +1469,47 @@ def AbortHWTests(config_type_or_name, version, debug, suite=''):
         'expiration_secs': _SWARMING_EXPIRATION}
     if debug:
       logging.info('AbortHWTests would run the cmd via '
+                   'swarming, cmd: %s, swarming_args: %s',
+                   cros_build_lib.CmdToStr(cmd), str(swarming_args))
+    else:
+      swarming_lib.RunSwarmingCommand(cmd, **swarming_args)
+  except cros_build_lib.RunCommandError:
+    logging.warning('AbortHWTests failed', exc_info=True)
+
+
+def AbortSkylabHWTests(build, board, debug, suite, pool=None, suite_id=''):
+  """Abort the specified hardware tests for the given bot(s).
+
+  Args:
+    build: A string build name, like 'link-paladin/R18-1655.0.0-rc1'.
+    board: The name of the board.
+    debug: Whether we are in debug mode.
+    suite: Name of the Autotest suite.
+    pool: The name of the pool.
+    suite_id: The ID of this swarming suite task.
+  """
+  abort_args = ['--board', board, '--suite_name', suite, '--build', build,
+                '--abort_limit', str(1)]
+  if suite_id:
+    abort_args += ['--suite_task_ids', suite_id]
+
+  if pool is not None:
+    abort_args += ['--pool', pool]
+
+  try:
+    cmd = [_SKYLAB_ABORT_SUITE_PATH] + abort_args
+    swarming_args = {
+        'swarming_server': topology.topology.get(
+            topology.CHROME_SWARMING_PROXY_HOST_KEY),
+        'task_name': '-'.join(['abort', build, suite]),
+        'dimensions': [('os', 'Ubuntu-14.04'),
+                       ('pool', SKYLAB_SUITE_BOT_POOL)],
+        'print_status_updates': True,
+        'expiration_secs': _SWARMING_EXPIRATION,
+        'tags': {'luci_project':'chromiumos',
+                 'skylab':'abort_suite'}}
+    if debug:
+      logging.info('AbortSkylabHWTests would run the cmd via '
                    'swarming, cmd: %s, swarming_args: %s',
                    cros_build_lib.CmdToStr(cmd), str(swarming_args))
     else:
@@ -1700,7 +1926,7 @@ def GenerateDebugTarball(buildroot, board, archive_path, gdb_symbols,
   compression = cros_build_lib.CompressionExtToType(debug_tarball)
   cros_build_lib.CreateTarball(
       debug_tarball, board_dir, sudo=True, compression=compression,
-      inputs=inputs, extra_args=extra_args)
+      chroot=chroot, inputs=inputs, extra_args=extra_args)
 
   # Fix permissions and ownership on debug tarball.
   cros_build_lib.SudoRunCommand(['chown', str(os.getuid()), debug_tarball])
@@ -1791,7 +2017,7 @@ def GenerateHtmlTimeline(timeline, rows, title):
   """Generate a simple timeline.html file given a list of timings.
 
   Args:
-    index: The file to write the html index to.
+    timeline: The file to write the html index to.
     rows: The list of rows to generate a timeline of.  Each row should be
           tuple of (entry, start_time, end_time)
     title: Title of the timeline.
@@ -2212,9 +2438,42 @@ def BuildAutotestServerPackageTarball(buildroot, cwd, tarball_dir):
       '*', target='autotest', cwd=cwd,
       exclude_dirs=('autotest/packages', 'autotest/client/deps/',
                     'autotest/client/tests', 'autotest/client/site_tests'))
-  tarball = os.path.join(tarball_dir, 'autotest_server_package.tar.bz2')
-  BuildTarball(buildroot, autotest_files, tarball, cwd=cwd, error_code_ok=True)
+
+  tast_files, transforms = _GetTastServerFilesAndTarTransforms(buildroot)
+
+  tarball = os.path.join(tarball_dir, AUTOTEST_SERVER_PACKAGE)
+  BuildTarball(buildroot, autotest_files + tast_files, tarball, cwd=cwd,
+               extra_args=transforms, error_code_ok=True)
   return tarball
+
+
+def _GetTastServerFilesAndTarTransforms(buildroot):
+  """Returns Tast server files and corresponding tar transform flags.
+
+  The returned paths should be included in AUTOTEST_SERVER_PACKAGE. The
+  --transform arguments should be passed to GNU tar to convert the paths to
+  appropriate destinations in the tarball.
+
+  Args:
+    buildroot: Absolute path to root build directory.
+
+  Returns:
+    (files, transforms), where files is a list of absolute paths to Tast server
+        files/directories and transforms is a list of --transform arguments to
+        pass to GNU tar when archiving those files.
+  """
+  files = []
+  transforms = []
+
+  for p in TAST_SSP_FILES:
+    path = os.path.join(buildroot, p)
+    if os.path.exists(path):
+      files.append(path)
+      dest = os.path.join(_TAST_SSP_SUBDIR, os.path.basename(path))
+      transforms.append('--transform=s|^%s|%s|' %
+                        (os.path.relpath(path, '/'), dest))
+
+  return files, transforms
 
 
 def BuildAutotestTarballsForHWTest(buildroot, cwd, tarball_dir):
@@ -2709,18 +2968,6 @@ def SyncChrome(build_root, chrome_root, useflags, tag=None, revision=None):
   cmd += ['--revision', revision] if revision is not None else []
   cmd += [chrome_root]
   retry_util.RunCommandWithRetries(constants.SYNC_RETRIES, cmd, cwd=build_root)
-
-
-def PatchChrome(chrome_root, patch, subdir):
-  """Apply a patch to Chrome.
-
-  Args:
-    chrome_root: The directory where chrome is stored.
-    patch: Rietveld issue number to apply.
-    subdir: Subdirectory to apply patch in.
-  """
-  cmd = ['apply_issue', '-i', patch]
-  cros_build_lib.RunCommand(cmd, cwd=os.path.join(chrome_root, subdir))
 
 
 class ChromeSDK(object):

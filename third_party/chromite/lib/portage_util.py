@@ -117,7 +117,7 @@ def _ListOverlays(board=None, buildroot=constants.SOURCE_ROOT):
   overlays = {}
   for path in paths:
     path = os.path.join(buildroot, path, '*')
-    for overlay in glob.glob(path):
+    for overlay in sorted(glob.glob(path)):
       name = GetOverlayName(overlay)
       if name is None:
         continue
@@ -140,7 +140,7 @@ def _ListOverlays(board=None, buildroot=constants.SOURCE_ROOT):
 
   # Easy enough -- dump them all.
   if board is None:
-    return [x['path'] for x in overlays.values()]
+    return sorted([x['path'] for x in overlays.values()])
 
   # Build up the list of repos we need.
   ret = []
@@ -176,7 +176,7 @@ def _ListOverlays(board=None, buildroot=constants.SOURCE_ROOT):
   _AddRepo('chromeos', optional=True)
   path = os.path.join(buildroot, 'src', 'private-overlays',
                       'chromeos-*-overlay')
-  ret += glob.glob(path)
+  ret += sorted(glob.glob(path))
 
   # Locate the board repo by name.
   # Load the public & private versions if available.
@@ -989,7 +989,8 @@ class EBuild(object):
                    self.pkgname)
       return
 
-    logging.info('Creating new stable ebuild %s' % new_stable_ebuild_path)
+    logging.info('Determining whether to create new ebuild %s' %
+                 new_stable_ebuild_path)
     if not os.path.exists(self._unstable_ebuild_path):
       cros_build_lib.Die('Missing unstable ebuild: %s' %
                          self._unstable_ebuild_path)
@@ -1005,6 +1006,9 @@ class EBuild(object):
       os.unlink(new_stable_ebuild_path)
       return
     else:
+      logging.info('Creating new stable ebuild %s', new_stable_ebuild_path)
+      logging.info('New ebuild commit id: %s',
+                   self.FormatBashArray(commit_ids))
       ebuild_path_to_remove = old_ebuild_path if self.is_stable else None
       return ('%s-%s' % (self.package, new_version),
               new_stable_ebuild_path, ebuild_path_to_remove)

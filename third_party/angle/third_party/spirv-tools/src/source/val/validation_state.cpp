@@ -15,6 +15,7 @@
 #include "val/validation_state.h"
 
 #include <cassert>
+#include <stack>
 
 #include "opcode.h"
 #include "val/basic_block.h"
@@ -28,7 +29,7 @@ using std::string;
 using std::unordered_map;
 using std::vector;
 
-namespace libspirv {
+namespace spvtools {
 
 namespace {
 bool IsInstructionInLayoutSection(ModuleLayoutSection layout, SpvOp op) {
@@ -41,7 +42,9 @@ bool IsInstructionInLayoutSection(ModuleLayoutSection layout, SpvOp op) {
     case kLayoutExtInstImport: out = op == SpvOpExtInstImport; break;
     case kLayoutMemoryModel:   out = op == SpvOpMemoryModel;   break;
     case kLayoutEntryPoint:    out = op == SpvOpEntryPoint;    break;
-    case kLayoutExecutionMode: out = op == SpvOpExecutionMode; break;
+    case kLayoutExecutionMode:
+      out = op == SpvOpExecutionMode || op == SpvOpExecutionModeId;
+      break;
     case kLayoutDebug1:
       switch (op) {
         case SpvOpSourceContinued:
@@ -73,6 +76,9 @@ bool IsInstructionInLayoutSection(ModuleLayoutSection layout, SpvOp op) {
         case SpvOpGroupDecorate:
         case SpvOpGroupMemberDecorate:
         case SpvOpDecorationGroup:
+        case SpvOpDecorateId:
+        case SpvOpDecorateStringGOOGLE:
+        case SpvOpMemberDecorateStringGOOGLE:
           out = true;
           break;
         default: break;
@@ -108,6 +114,7 @@ bool IsInstructionInLayoutSection(ModuleLayoutSection layout, SpvOp op) {
         case SpvOpMemoryModel:
         case SpvOpEntryPoint:
         case SpvOpExecutionMode:
+        case SpvOpExecutionModeId:
         case SpvOpSourceContinued:
         case SpvOpSource:
         case SpvOpSourceExtension:
@@ -135,9 +142,13 @@ bool IsInstructionInLayoutSection(ModuleLayoutSection layout, SpvOp op) {
 }  // anonymous namespace
 
 ValidationState_t::ValidationState_t(const spv_const_context ctx,
-                                     const spv_const_validator_options opt)
+                                     const spv_const_validator_options opt,
+                                     const uint32_t* words,
+                                     const size_t num_words)
     : context_(ctx),
       options_(opt),
+      words_(words),
+      num_words_(num_words),
       instruction_counter_(0),
       unresolved_forward_ids_{},
       operand_names_{},
@@ -151,10 +162,18 @@ ValidationState_t::ValidationState_t(const spv_const_context ctx,
       local_vars_(),
       struct_nesting_depth_(),
       grammar_(ctx),
-      addressing_model_(SpvAddressingModelLogical),
-      memory_model_(SpvMemoryModelSimple),
+      addressing_model_(SpvAddressingModelMax),
+      memory_model_(SpvMemoryModelMax),
       in_function_(false) {
   assert(opt && "Validator options may not be Null.");
+
+  switch (context_->target_env) {
+    case SPV_ENV_WEBGPU_0:
+      features_.bans_op_undef = true;
+      break;
+    default:
+      break;
+  }
 }
 
 spv_result_t ValidationState_t::ForwardDeclareId(uint32_t id) {
@@ -247,9 +266,19 @@ bool ValidationState_t::IsOpcodeInCurrentLayoutSection(SpvOp op) {
 }
 
 DiagnosticStream ValidationState_t::diag(spv_result_t error_code) const {
-  return libspirv::DiagnosticStream(
-      {0, 0, static_cast<size_t>(instruction_counter_)}, context_->consumer,
-      error_code);
+  return diag(error_code, instruction_counter_);
+}
+
+DiagnosticStream ValidationState_t::diag(spv_result_t error_code,
+                                         int instruction_counter) const {
+  std::string disassembly;
+  if (instruction_counter >= 0 && static_cast<size_t>(instruction_counter) <=
+                                      ordered_instructions_.size()) {
+    disassembly = Disassemble(ordered_instructions_[instruction_counter - 1]);
+  }
+  size_t pos = instruction_counter >= 0 ? instruction_counter : 0;
+  return DiagnosticStream({0, 0, pos}, context_->consumer, disassembly,
+                          error_code);
 }
 
 deque<Function>& ValidationState_t::functions() { return module_functions_; }
@@ -295,6 +324,12 @@ void ValidationState_t::RegisterCapability(SpvCapability cap) {
     case SpvCapabilityKernel:
       features_.group_ops_reduce_and_scans = true;
       break;
+    case SpvCapabilityInt8:
+    case SpvCapabilityStorageBuffer8BitAccess:
+    case SpvCapabilityUniformAndStorageBuffer8BitAccess:
+    case SpvCapabilityStoragePushConstant8:
+      features_.declare_int8_type = true;
+      break;
     case SpvCapabilityInt16:
       features_.declare_int16_type = true;
       break;
@@ -328,6 +363,11 @@ void ValidationState_t::RegisterExtension(Extension ext) {
   module_extensions_.Add(ext);
 
   switch (ext) {
+    case kSPV_AMD_gpu_shader_half_float:
+      // SPV_AMD_gpu_shader_half_float enables float16 type.
+      // https://github.com/KhronosGroup/SPIRV-Tools/issues/1375
+      features_.declare_float16_type = true;
+      break;
     case kSPV_AMD_shader_ballot:
       // The grammar doesn't encode the fact that SPV_AMD_shader_ballot
       // enables the use of group operations Reduce, InclusiveScan,
@@ -397,9 +437,16 @@ void ValidationState_t::RegisterInstruction(
   if (in_function_body()) {
     ordered_instructions_.emplace_back(&inst, &current_function(),
                                        current_function().current_block());
+    if (in_block() &&
+        spvOpcodeIsBlockTerminator(static_cast<SpvOp>(inst.opcode))) {
+      current_function().current_block()->set_terminator(
+          &ordered_instructions_.back());
+    }
   } else {
     ordered_instructions_.emplace_back(&inst, nullptr, nullptr);
   }
+  ordered_instructions_.back().SetInstructionPosition(instruction_counter_);
+
   uint32_t id = ordered_instructions_.back().id();
   if (id) {
     all_definitions_.insert(make_pair(id, &ordered_instructions_.back()));
@@ -766,4 +813,69 @@ bool ValidationState_t::GetConstantValUint64(uint32_t id, uint64_t* val) const {
   return true;
 }
 
-}  // namespace libspirv
+std::tuple<bool, bool, uint32_t> ValidationState_t::EvalInt32IfConst(
+    uint32_t id) {
+  const Instruction* const inst = FindDef(id);
+  assert(inst);
+  const uint32_t type = inst->type_id();
+
+  if (!IsIntScalarType(type) || GetBitWidth(type) != 32) {
+    return std::make_tuple(false, false, 0);
+  }
+
+  if (inst->opcode() != SpvOpConstant && inst->opcode() != SpvOpSpecConstant) {
+    return std::make_tuple(true, false, 0);
+  }
+
+  assert(inst->words().size() == 4);
+  return std::make_tuple(true, true, inst->word(3));
+}
+
+void ValidationState_t::ComputeFunctionToEntryPointMapping() {
+  for (const uint32_t entry_point : entry_points()) {
+    std::stack<uint32_t> call_stack;
+    std::set<uint32_t> visited;
+    call_stack.push(entry_point);
+    while (!call_stack.empty()) {
+      const uint32_t called_func_id = call_stack.top();
+      call_stack.pop();
+      if (!visited.insert(called_func_id).second) continue;
+
+      function_to_entry_points_[called_func_id].push_back(entry_point);
+
+      const Function* called_func = function(called_func_id);
+      if (called_func) {
+        // Other checks should error out on this invalid SPIR-V.
+        for (const uint32_t new_call : called_func->function_call_targets()) {
+          call_stack.push(new_call);
+        }
+      }
+    }
+  }
+}
+
+const std::vector<uint32_t>& ValidationState_t::FunctionEntryPoints(
+    uint32_t func) const {
+  auto iter = function_to_entry_points_.find(func);
+  if (iter == function_to_entry_points_.end()) {
+    return empty_ids_;
+  } else {
+    return iter->second;
+  }
+}
+
+std::string ValidationState_t::Disassemble(const Instruction& inst) const {
+  const spv_parsed_instruction_t& c_inst(inst.c_inst());
+  return Disassemble(c_inst.words, c_inst.num_words);
+}
+
+std::string ValidationState_t::Disassemble(const uint32_t* words,
+                                           uint16_t num_words) const {
+  uint32_t disassembly_options = SPV_BINARY_TO_TEXT_OPTION_NO_HEADER |
+                                 SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES;
+
+  return spvInstructionBinaryToText(context()->target_env, words, num_words,
+                                    words_, num_words_, disassembly_options);
+}
+
+}  // namespace spvtools

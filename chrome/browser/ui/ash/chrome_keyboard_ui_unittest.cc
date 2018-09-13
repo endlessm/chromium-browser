@@ -23,7 +23,7 @@ class TestChromeKeyboardUI : public ChromeKeyboardUI {
   ui::InputMethod* GetInputMethod() override { return nullptr; }
   void RequestAudioInput(content::WebContents* web_contents,
                          const content::MediaStreamRequest& request,
-                         const content::MediaResponseCallback& callback) {}
+                         content::MediaResponseCallback callback) {}
 
   std::unique_ptr<content::WebContents> CreateWebContents() override {
     return std::move(contents_);
@@ -38,18 +38,3 @@ class TestChromeKeyboardUI : public ChromeKeyboardUI {
 }  // namespace
 
 using ChromeKeyboardUITest = ChromeRenderViewHostTestHarness;
-
-// A test for crbug.com/734534
-TEST_F(ChromeKeyboardUITest, DoesNotCrashWhenParentDoesNotExist) {
-  std::unique_ptr<content::WebContents> contents = CreateTestWebContents();
-  TestChromeKeyboardUI keyboard_ui(std::move(contents));
-
-  EXPECT_FALSE(keyboard_ui.HasContentsWindow());
-  aura::Window* view = keyboard_ui.GetContentsWindow();
-  EXPECT_TRUE(keyboard_ui.HasContentsWindow());
-
-  EXPECT_FALSE(view->parent());
-
-  // Change window size to trigger OnWindowBoundsChanged.
-  view->SetBounds(gfx::Rect(0, 0, 1200, 800));
-}

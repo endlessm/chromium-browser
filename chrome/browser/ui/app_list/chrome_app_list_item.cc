@@ -24,7 +24,8 @@ ash::mojom::AppListItemMetadataPtr CreateDefaultMetadata(
   return ash::mojom::AppListItemMetadata::New(
       app_id, std::string() /* name */, std::string() /* short_name */,
       std::string() /* folder_id */, syncer::StringOrdinal(),
-      false /* is_folder */, gfx::ImageSkia() /* icon */);
+      false /* is_folder */, gfx::ImageSkia() /* icon */,
+      false /* is_page_break */);
 }
 
 }  // namespace
@@ -90,6 +91,11 @@ ash::mojom::AppListItemMetadataPtr ChromeAppListItem::CloneMetadata() const {
   return metadata_.Clone();
 }
 
+void ChromeAppListItem::PerformActivate(int event_flags) {
+  Activate(event_flags);
+  MaybeDismissAppList();
+}
+
 void ChromeAppListItem::Activate(int event_flags) {}
 
 const char* ChromeAppListItem::GetItemType() const {
@@ -108,6 +114,13 @@ app_list::AppContextMenu* ChromeAppListItem::GetAppContextMenu() {
   return nullptr;
 }
 
+void ChromeAppListItem::MaybeDismissAppList() {
+  // Launching apps can take some time. It looks nicer to dismiss the app list.
+  // Do not close app list for home launcher.
+  if (!GetController()->IsHomeLauncherEnabledInTabletMode())
+    GetController()->DismissView();
+}
+
 void ChromeAppListItem::ContextMenuItemSelected(int command_id,
                                                 int event_flags) {
   if (GetAppContextMenu())
@@ -119,9 +132,8 @@ extensions::AppSorting* ChromeAppListItem::GetAppSorting() {
 }
 
 AppListControllerDelegate* ChromeAppListItem::GetController() {
-  return g_controller_for_test != nullptr
-             ? g_controller_for_test
-             : AppListClientImpl::GetInstance()->GetControllerDelegate();
+  return g_controller_for_test != nullptr ? g_controller_for_test
+                                          : AppListClientImpl::GetInstance();
 }
 
 void ChromeAppListItem::UpdateFromSync(
@@ -186,6 +198,10 @@ void ChromeAppListItem::SetPosition(const syncer::StringOrdinal& position) {
   AppListModelUpdater* updater = model_updater();
   if (updater)
     updater->SetItemPosition(id(), position);
+}
+
+void ChromeAppListItem::SetIsPageBreak(bool is_page_break) {
+  metadata_->is_page_break = is_page_break;
 }
 
 void ChromeAppListItem::SetChromeFolderId(const std::string& folder_id) {

@@ -16,6 +16,7 @@ from google.appengine.runtime import apiproxy_errors
 from dashboard.common import utils
 from dashboard.pinpoint.models import job_state
 from dashboard.pinpoint.models import results2
+from dashboard.services import gerrit_service
 from dashboard.services import issue_tracker_service
 
 
@@ -25,6 +26,7 @@ _TASK_INTERVAL = 60
 
 
 _CRYING_CAT_FACE = u'\U0001f63f'
+_RIGHT_ARROW = u'\u2192'
 _ROUND_PUSHPIN = u'\U0001f4cd'
 
 
@@ -71,13 +73,19 @@ class Job(ndb.Model):
   # Email of the job creator.
   user = ndb.StringProperty()
 
+  # The Gerrit server url and change id of the code review to update upon
+  # completion.
+  gerrit_server = ndb.StringProperty()
+  gerrit_change_id = ndb.StringProperty()
+
   state = ndb.PickleProperty(required=True, compressed=True)
 
   tags = ndb.JsonProperty()
 
   @classmethod
   def New(cls, quests, changes, arguments=None, bug_id=None,
-          comparison_mode=None, pin=None, tags=None, user=None):
+          comparison_mode=None, gerrit_server=None, gerrit_change_id=None,
+          pin=None, tags=None, user=None):
     """Creates a new Job, adds Changes to it, and puts it in the Datstore.
 
     Args:
@@ -88,6 +96,10 @@ class Job(ndb.Model):
       comparison_mode: Either 'functional' or 'performance', which the Job uses
           to figure out whether to perform a functional or performance bisect.
           If None, the Job will not automatically add any Attempts or Changes.
+      gerrit_server: Server of the Gerrit code review to update with job
+          results.
+      gerrit_change_id: Change id of the Gerrit code review to update with job
+          results.
       pin: A Change (Commits + Patch) to apply to every Change in this Job.
       tags: A dict of key-value pairs used to filter the Jobs listings.
       user: The email of the Job creator.
@@ -97,7 +109,8 @@ class Job(ndb.Model):
     """
     state = job_state.JobState(quests, comparison_mode=comparison_mode, pin=pin)
     job = cls(state=state, arguments=arguments or {},
-              bug_id=bug_id, tags=tags, user=user)
+              bug_id=bug_id, gerrit_server=gerrit_server,
+              gerrit_change_id=gerrit_change_id, tags=tags, user=user)
 
     for c in changes:
       job.AddChange(c)
@@ -146,8 +159,10 @@ class Job(ndb.Model):
     except taskqueue.Error:
       pass
 
-    # Format bug comment.
+    self._FormatAndPostBugCommentOnComplete()
+    self._UpdateGerritIfNeeded()
 
+  def _FormatAndPostBugCommentOnComplete(self):
     if not self.state.comparison_mode:
       # There is no comparison metric.
       title = "<b>%s Job complete. See results below.</b>" % _ROUND_PUSHPIN
@@ -166,8 +181,8 @@ class Job(ndb.Model):
     owner = None
     sheriff = None
     cc_list = set()
-    commit_details = []
-    for _, change in differences:
+    difference_details = []
+    for _, change, values_a, values_b in differences:
       if change.patch:
         commit_info = change.patch.AsDict()
       else:
@@ -177,7 +192,9 @@ class Job(ndb.Model):
       owner = commit_info['author']
       sheriff = utils.GetSheriffForAutorollCommit(commit_info)
       cc_list.add(commit_info['author'])
-      commit_details.append(_FormatCommitForBug(commit_info))
+
+      difference = _FormatDifferenceForBug(commit_info, values_a, values_b)
+      difference_details.append(difference)
 
     # Header.
     if len(differences) == 1:
@@ -190,7 +207,7 @@ class Job(ndb.Model):
     header = '\n'.join((title, self.url))
 
     # Body.
-    body = '\n\n'.join(commit_details)
+    body = '\n\n'.join(difference_details)
     if sheriff:
       owner = sheriff
       body += '\n\nAssigning to sheriff %s because "%s" is a roll.' % (
@@ -212,11 +229,18 @@ class Job(ndb.Model):
       # Only update the comment and cc list if this bug is assigned or closed.
       self._PostBugComment(comment, cc_list=sorted(cc_list))
 
+  def _UpdateGerritIfNeeded(self):
+    if self.gerrit_server and self.gerrit_change_id:
+      gerrit_service.PostChangeComment(
+          self.gerrit_server,
+          self.gerrit_change_id,
+          '%s Job complete.\n\nSee results at: %s' % (_ROUND_PUSHPIN, self.url))
+
   def Fail(self):
     self.exception = traceback.format_exc()
 
     title = _CRYING_CAT_FACE + ' Pinpoint job stopped with an error.'
-    comment = '\n'.join((title, self.url, '', sys.exc_value.message))
+    comment = '\n'.join((title, self.url, '', sys.exc_info()[1].message))
     self._PostBugComment(comment)
 
   def _Schedule(self):
@@ -229,7 +253,7 @@ class Job(ndb.Model):
       task = taskqueue.add(
           queue_name='job-queue', url='/api/run/' + self.job_id,
           name=task_name, countdown=_TASK_INTERVAL)
-    except apiproxy_errors.DeadlineExceededError:
+    except (apiproxy_errors.DeadlineExceededError, taskqueue.TransientError):
       task = taskqueue.add(
           queue_name='job-queue', url='/api/run/' + self.job_id,
           name=task_name, countdown=_TASK_INTERVAL)
@@ -292,7 +316,6 @@ class Job(ndb.Model):
 
         'arguments': self.arguments,
         'bug_id': self.bug_id,
-        'comparison_mode': self.state.comparison_mode,
         'user': self.user,
 
         'created': self.created.isoformat(),
@@ -327,6 +350,25 @@ class Job(ndb.Model):
     return issue_data.get('status')
 
 
-def _FormatCommitForBug(commit_info):
+def _FormatDifferenceForBug(commit_info, values_a, values_b):
   subject = '<b>%s</b> by %s' % (commit_info['subject'], commit_info['author'])
-  return '\n'.join((subject, commit_info['url']))
+
+  if values_a:
+    mean_a = float(sum(values_a)) / len(values_a)
+    formatted_a = '%.4g' % mean_a
+  else:
+    mean_a = None
+    formatted_a = 'No values'
+
+  if values_b:
+    mean_b = float(sum(values_b)) / len(values_b)
+    formatted_b = '%.4g' % mean_b
+  else:
+    mean_b = None
+    formatted_b = 'No values'
+
+  difference = '%s %s %s' % (formatted_a, _RIGHT_ARROW, formatted_b)
+  if values_a and values_b:
+    difference += ' (%+.4g)' % (mean_b - mean_a)
+
+  return '\n'.join((subject, commit_info['url'], difference))

@@ -204,15 +204,6 @@ bool ChromeDesktopImpl::IsNetworkConnectionEnabled() const {
 }
 
 Status ChromeDesktopImpl::QuitImpl() {
-  Status status = devtools_websocket_client_->ConnectIfNecessary();
-  if (status.IsOk()) {
-    status = devtools_websocket_client_->SendCommandAndIgnoreResponse(
-        "Browser.close", base::DictionaryValue());
-    if (status.IsOk() && process_.WaitForExitWithTimeout(
-                             base::TimeDelta::FromSeconds(10), nullptr))
-      return status;
-  }
-
   // If the Chrome session uses a custom user data directory, try sending a
   // SIGTERM signal before SIGKILL, so that Chrome has a chance to write
   // everything back out to the user data directory and exit cleanly. If we're
@@ -238,32 +229,6 @@ int ChromeDesktopImpl::GetNetworkConnection() const {
 void ChromeDesktopImpl::SetNetworkConnection(
     int network_connection) {
   network_connection_ = network_connection;
-}
-
-Status ChromeDesktopImpl::GetWindowPosition(const std::string& target_id,
-                                            int* x,
-                                            int* y) {
-  Window window;
-  Status status = GetWindow(target_id, &window);
-  if (status.IsError())
-    return status;
-
-  *x = window.left;
-  *y = window.top;
-  return Status(kOk);
-}
-
-Status ChromeDesktopImpl::GetWindowSize(const std::string& target_id,
-                                        int* width,
-                                        int* height) {
-  Window window;
-  Status status = GetWindow(target_id, &window);
-  if (status.IsError())
-    return status;
-
-  *width = window.width;
-  *height = window.height;
-  return Status(kOk);
 }
 
 Status ChromeDesktopImpl::SetWindowRect(const std::string& target_id,
@@ -416,55 +381,6 @@ Status ChromeDesktopImpl::FullScreenWindow(const std::string& target_id) {
   auto bounds = std::make_unique<base::DictionaryValue>();
   bounds->SetString("windowState", "fullscreen");
   return SetWindowBounds(window.id, std::move(bounds));
-}
-
-Status ChromeDesktopImpl::ParseWindowBounds(
-    std::unique_ptr<base::DictionaryValue> params,
-    Window* window) {
-  const base::Value* value = nullptr;
-  const base::DictionaryValue* bounds_dict = nullptr;
-  if (!params->Get("bounds", &value) || !value->GetAsDictionary(&bounds_dict))
-    return Status(kUnknownError, "no window bounds in response");
-
-  if (!bounds_dict->GetString("windowState", &window->state))
-    return Status(kUnknownError, "no window state in window bounds");
-
-  if (!bounds_dict->GetInteger("left", &window->left))
-    return Status(kUnknownError, "no left offset in window bounds");
-  if (!bounds_dict->GetInteger("top", &window->top))
-    return Status(kUnknownError, "no top offset in window bounds");
-  if (!bounds_dict->GetInteger("width", &window->width))
-    return Status(kUnknownError, "no width in window bounds");
-  if (!bounds_dict->GetInteger("height", &window->height))
-    return Status(kUnknownError, "no height in window bounds");
-
-  return Status(kOk);
-}
-
-Status ChromeDesktopImpl::ParseWindow(
-    std::unique_ptr<base::DictionaryValue> params,
-    Window* window) {
-  if (!params->GetInteger("windowId", &window->id))
-    return Status(kUnknownError, "no window id in response");
-
-  return ParseWindowBounds(std::move(params), window);
-}
-
-Status ChromeDesktopImpl::GetWindow(const std::string& target_id,
-                                    Window* window) {
-  Status status = devtools_websocket_client_->ConnectIfNecessary();
-  if (status.IsError())
-    return status;
-
-  base::DictionaryValue params;
-  params.SetString("targetId", target_id);
-  std::unique_ptr<base::DictionaryValue> result;
-  status = devtools_websocket_client_->SendCommandAndGetResult(
-      "Browser.getWindowForTarget", params, &result);
-  if (status.IsError())
-    return status;
-
-  return ParseWindow(std::move(result), window);
 }
 
 Status ChromeDesktopImpl::GetWindowBounds(int window_id, Window* window) {

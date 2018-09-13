@@ -8,6 +8,9 @@ import static android.support.test.espresso.Espresso.onView;
 import static android.support.test.espresso.action.ViewActions.click;
 import static android.support.test.espresso.matcher.ViewMatchers.withId;
 
+import android.app.Activity;
+import android.app.Instrumentation;
+import android.app.Instrumentation.ActivityMonitor;
 import android.graphics.Canvas;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.LargeTest;
@@ -23,12 +26,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.MethodRule;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.test.params.MethodParamAnnotationRule;
 import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterProvider;
 import org.chromium.base.test.params.ParameterSet;
@@ -38,11 +38,14 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Restriction;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.UrlConstants;
+import org.chromium.chrome.browser.bookmarks.BookmarkActivity;
+import org.chromium.chrome.browser.download.DownloadActivity;
 import org.chromium.chrome.browser.ntp.cards.NewTabPageAdapter;
 import org.chromium.chrome.browser.ntp.cards.NewTabPageRecyclerView;
 import org.chromium.chrome.browser.ntp.cards.SignInPromo;
@@ -53,6 +56,7 @@ import org.chromium.chrome.browser.omnibox.LocationBarLayout;
 import org.chromium.chrome.browser.omnibox.UrlBar;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
+import org.chromium.chrome.browser.search_engines.TemplateUrlServiceTestUtils;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
 import org.chromium.chrome.browser.suggestions.TileSectionType;
 import org.chromium.chrome.browser.suggestions.TileSource;
@@ -66,7 +70,6 @@ import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
 import org.chromium.chrome.test.util.RenderTestRule;
 import org.chromium.chrome.test.util.browser.ChromeModernDesign;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.RecyclerViewTestUtils;
@@ -82,6 +85,7 @@ import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.net.test.util.TestWebServer;
 import org.chromium.policy.test.annotations.Policies;
 import org.chromium.ui.base.PageTransition;
+import org.chromium.ui.test.util.UiRestriction;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -111,15 +115,12 @@ public class NewTabPageTest {
     public RenderTestRule mRenderTestRule =
             new RenderTestRule("chrome/test/data/android/render_tests");
 
-    @Rule
-    public MethodRule mMethodParamAnnotationProcessor = new MethodParamAnnotationRule();
+    // This is only used for directly setting the feature state, therefore not annotated with @Rule.
+    // TODO(bauerb): Refactor so it doesn't use AnnotationRule.
+    private ChromeModernDesign.Processor mChromeModernProcessor =
+            new ChromeModernDesign.Processor();
 
-    @Rule
-    public ChromeModernDesign.Processor mChromeModernProcessor = new ChromeModernDesign.Processor();
-
-    @Rule
-    public TestRule mFeatureRule = new Features.InstrumentationProcessor();
-
+    /** Parameter provider for enabling/disabling Chrome Modern. */
     public static class ModernParams implements ParameterProvider {
         @Override
         public Iterable<ParameterSet> getParameters() {
@@ -201,6 +202,7 @@ public class NewTabPageTest {
     }
 
     @Test
+    @DisabledTest(message = "https://crbug.com/813589")
     @MediumTest
     @Feature({"NewTabPage", "RenderTest"})
     @DisableFeatures({ChromeFeatureList.SIMPLIFIED_NTP})
@@ -217,6 +219,7 @@ public class NewTabPageTest {
     }
 
     @Test
+    @DisabledTest(message = "https://crbug.com/848983")
     @MediumTest
     @Feature({"NewTabPage", "RenderTest"})
     @EnableFeatures({ChromeFeatureList.SIMPLIFIED_NTP})
@@ -225,6 +228,62 @@ public class NewTabPageTest {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
         RenderTestRule.sanitize(mNtp.getView());
         mRenderTestRule.render(mNtp.getView().getRootView(), "simplified_new_tab_page");
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"NewTabPage", "FeedNewTabPage"})
+    @EnableFeatures({ChromeFeatureList.SIMPLIFIED_NTP})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    public void testSimplifiedNtp_BookmarksShortcuts() {
+        ActivityMonitor activityMonitor = InstrumentationRegistry.getInstrumentation().addMonitor(
+                BookmarkActivity.class.getName(),
+                new Instrumentation.ActivityResult(Activity.RESULT_OK, null), true);
+
+        ThreadUtils.runOnUiThreadBlocking(() -> {
+            View button = mNtp.getView().findViewById(R.id.bookmarks_button);
+            button.performClick();
+        });
+
+        Assert.assertEquals(1, activityMonitor.getHits());
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"NewTabPage", "FeedNewTabPage"})
+    @EnableFeatures({ChromeFeatureList.SIMPLIFIED_NTP})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    public void testSimplifiedNtp_DownloadsShortcuts() {
+        ActivityMonitor activityMonitor = InstrumentationRegistry.getInstrumentation().addMonitor(
+                DownloadActivity.class.getName(),
+                new Instrumentation.ActivityResult(Activity.RESULT_OK, null), true);
+
+        ThreadUtils.runOnUiThreadBlocking(() -> {
+            View button = mNtp.getView().findViewById(R.id.downloads_button);
+            button.performClick();
+        });
+
+        Assert.assertEquals(1, activityMonitor.getHits());
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"NewTabPage", "FeedNewTabPage"})
+    @EnableFeatures({ChromeFeatureList.SIMPLIFIED_NTP})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    public void testSimplifiedNtp_DefaultSearchEngineChange() throws Exception {
+        View logo = mNtp.getView().findViewById(R.id.search_provider_logo);
+        View shortcuts = mNtp.getView().findViewById(R.id.shortcuts);
+        Assert.assertEquals(View.VISIBLE, logo.getVisibility());
+        Assert.assertEquals(View.VISIBLE, shortcuts.getVisibility());
+
+        TemplateUrlServiceTestUtils.setSearchEngine("bing.com");
+        Assert.assertEquals(View.GONE, logo.getVisibility());
+        Assert.assertEquals(View.VISIBLE, shortcuts.getVisibility());
+
+        TemplateUrlServiceTestUtils.setSearchEngine("google.com");
+        Assert.assertEquals(View.VISIBLE, logo.getVisibility());
+        Assert.assertEquals(View.VISIBLE, shortcuts.getVisibility());
     }
 
     @Test
@@ -322,7 +381,7 @@ public class NewTabPageTest {
      */
     @Test
     @SmallTest
-    @Feature({"NewTabPage"})
+    @Feature({"NewTabPage", "FeedNewTabPage"})
     public void testClickMostVisitedItem() throws InterruptedException {
         ChromeTabUtils.waitForTabPageLoaded(mTab, new Runnable() {
             @Override
@@ -343,8 +402,8 @@ public class NewTabPageTest {
     @Feature({"NewTabPage"})
     public void testOpenMostVisitedItemInNewTab() throws InterruptedException, ExecutionException {
         ChromeTabUtils.invokeContextMenuAndOpenInANewTab(mActivityTestRule,
-                mTileGridLayout.getChildAt(0), ContextMenuManager.ID_OPEN_IN_NEW_TAB, false,
-                mSiteSuggestions.get(0).url);
+                mTileGridLayout.getChildAt(0), ContextMenuManager.ContextMenuItemId.OPEN_IN_NEW_TAB,
+                false, mSiteSuggestions.get(0).url);
     }
 
     /**
@@ -352,11 +411,12 @@ public class NewTabPageTest {
      */
     @Test
     @SmallTest
-    @Feature({"NewTabPage"})
+    @Feature({"NewTabPage", "FeedNewTabPage"})
     public void testOpenMostVisitedItemInIncognitoTab()
             throws InterruptedException, ExecutionException {
         ChromeTabUtils.invokeContextMenuAndOpenInANewTab(mActivityTestRule,
-                mTileGridLayout.getChildAt(0), ContextMenuManager.ID_OPEN_IN_INCOGNITO_TAB, true,
+                mTileGridLayout.getChildAt(0),
+                ContextMenuManager.ContextMenuItemId.OPEN_IN_INCOGNITO_TAB, true,
                 mSiteSuggestions.get(0).url);
     }
 
@@ -365,7 +425,7 @@ public class NewTabPageTest {
      */
     @Test
     @SmallTest
-    @Feature({"NewTabPage"})
+    @Feature({"NewTabPage", "FeedNewTabPage"})
     public void testRemoveMostVisitedItem() throws ExecutionException {
         SiteSuggestion testSite = mSiteSuggestions.get(0);
         View mostVisitedItem = mTileGridLayout.getChildAt(0);
@@ -376,14 +436,14 @@ public class NewTabPageTest {
         TestTouchUtils.performLongClickOnMainSync(
                 InstrumentationRegistry.getInstrumentation(), mostVisitedItem);
         Assert.assertTrue(InstrumentationRegistry.getInstrumentation().invokeContextMenuAction(
-                mActivityTestRule.getActivity(), ContextMenuManager.ID_REMOVE, 0));
+                mActivityTestRule.getActivity(), ContextMenuManager.ContextMenuItemId.REMOVE, 0));
 
         Assert.assertTrue(mMostVisitedSites.isUrlBlacklisted(testSite.url));
     }
 
     @Test
     @MediumTest
-    @Feature({"NewTabPage"})
+    @Feature({"NewTabPage", "FeedNewTabPage"})
     public void testUrlFocusAnimationsDisabledOnLoad() throws InterruptedException {
         Assert.assertFalse(getUrlFocusAnimationsDisabled());
         ChromeTabUtils.waitForTabPageLoaded(mTab, new Runnable() {
@@ -408,7 +468,7 @@ public class NewTabPageTest {
 
     @Test
     @LargeTest
-    @Feature({"NewTabPage"})
+    @Feature({"NewTabPage", "FeedNewTabPage"})
     public void testUrlFocusAnimationsEnabledOnFailedLoad() throws Exception {
         // TODO(jbudorick): switch this to EmbeddedTestServer.
         TestWebServer webServer = TestWebServer.start();
@@ -475,38 +535,17 @@ public class NewTabPageTest {
      */
     @Test
     @SmallTest
-    @Feature({"NewTabPage"})
+    @Feature({"NewTabPage", "FeedNewTabPage"})
     public void testSetSearchProviderInfo() throws Throwable {
         mActivityTestRule.runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                NewTabPageView ntpView = mNtp.getNewTabPageView();
-                View logoView = ntpView.findViewById(R.id.search_provider_logo);
+                NewTabPageLayout ntpLayout = mNtp.getNewTabPageLayout();
+                View logoView = ntpLayout.findViewById(R.id.search_provider_logo);
                 Assert.assertEquals(View.VISIBLE, logoView.getVisibility());
-                ntpView.setSearchProviderInfo(/* hasLogo = */ false, /* isGoogle */ true);
+                ntpLayout.setSearchProviderInfo(/* hasLogo = */ false, /* isGoogle */ true);
                 Assert.assertEquals(View.GONE, logoView.getVisibility());
-                ntpView.setSearchProviderInfo(/* hasLogo = */ true, /* isGoogle */ true);
-                Assert.assertEquals(View.VISIBLE, logoView.getVisibility());
-            }
-        });
-    }
-
-    /**
-     * Tests setting whether the search provider has a logo when the condensed UI is enabled.
-     */
-    @Test
-    @SmallTest
-    @Feature({"NewTabPage"})
-    public void testSetSearchProviderInfoCondensedUi() throws Throwable {
-        mActivityTestRule.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                NewTabPageView ntpView = mNtp.getNewTabPageView();
-                View logoView = ntpView.findViewById(R.id.search_provider_logo);
-                Assert.assertEquals(View.VISIBLE, logoView.getVisibility());
-                ntpView.setSearchProviderInfo(/* hasLogo = */ false, /* isGoogle */ true);
-                Assert.assertEquals(View.GONE, logoView.getVisibility());
-                ntpView.setSearchProviderInfo(/* hasLogo = */ true, /* isGoogle */ true);
+                ntpLayout.setSearchProviderInfo(/* hasLogo = */ true, /* isGoogle */ true);
                 Assert.assertEquals(View.VISIBLE, logoView.getVisibility());
             }
         });
@@ -518,31 +557,31 @@ public class NewTabPageTest {
      */
     @Test
     @SmallTest
-    @Feature({"NewTabPage"})
+    @Feature({"NewTabPage", "FeedNewTabPage"})
     public void testPlaceholder() {
-        final NewTabPageView ntpView = mNtp.getNewTabPageView();
-        final View logoView = ntpView.findViewById(R.id.search_provider_logo);
-        final View searchBoxView = ntpView.findViewById(R.id.search_box);
+        final NewTabPageLayout ntpLayout = mNtp.getNewTabPageLayout();
+        final View logoView = ntpLayout.findViewById(R.id.search_provider_logo);
+        final View searchBoxView = ntpLayout.findViewById(R.id.search_box);
 
         // Initially, the logo is visible, the search box is visible, there is one tile suggestion,
         // and the placeholder has not been inflated yet.
         Assert.assertEquals(View.VISIBLE, logoView.getVisibility());
         Assert.assertEquals(View.VISIBLE, searchBoxView.getVisibility());
         Assert.assertEquals(8, mTileGridLayout.getChildCount());
-        Assert.assertNull(ntpView.getPlaceholder());
+        Assert.assertNull(ntpLayout.getPlaceholder());
 
         // When the search provider has no logo and there are no tile suggestions, the placeholder
         // is shown.
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                ntpView.setSearchProviderInfo(/* hasLogo = */ false, /* isGoogle */ true);
+                ntpLayout.setSearchProviderInfo(/* hasLogo = */ false, /* isGoogle */ true);
                 Assert.assertEquals(View.GONE, logoView.getVisibility());
                 Assert.assertEquals(View.GONE, searchBoxView.getVisibility());
 
                 mMostVisitedSites.setTileSuggestions(new String[] {});
 
-                ntpView.getTileGroup().onSwitchToForeground(false); // Force tile refresh.
+                ntpLayout.getTileGroup().onSwitchToForeground(false); // Force tile refresh.
             }
         });
         CriteriaHelper.pollUiThread(new Criteria("The tile grid was not updated.") {
@@ -551,18 +590,18 @@ public class NewTabPageTest {
                 return mTileGridLayout.getChildCount() == 0;
             }
         });
-        Assert.assertNotNull(ntpView.getPlaceholder());
-        Assert.assertEquals(View.VISIBLE, ntpView.getPlaceholder().getVisibility());
+        Assert.assertNotNull(ntpLayout.getPlaceholder());
+        Assert.assertEquals(View.VISIBLE, ntpLayout.getPlaceholder().getVisibility());
 
         // Once the search provider has a logo again, the logo and search box are shown again and
         // the placeholder is hidden.
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                ntpView.setSearchProviderInfo(/* hasLogo = */ true, /* isGoogle */ true);
+                ntpLayout.setSearchProviderInfo(/* hasLogo = */ true, /* isGoogle */ true);
                 Assert.assertEquals(View.VISIBLE, logoView.getVisibility());
                 Assert.assertEquals(View.VISIBLE, searchBoxView.getVisibility());
-                Assert.assertEquals(View.GONE, ntpView.getPlaceholder().getVisibility());
+                Assert.assertEquals(View.GONE, ntpLayout.getPlaceholder().getVisibility());
             }
         });
     }
@@ -681,7 +720,7 @@ public class NewTabPageTest {
         return ThreadUtils.runOnUiThreadBlockingNoException(new Callable<Boolean>() {
             @Override
             public Boolean call() throws Exception {
-                return mNtp.getNewTabPageView().urlFocusAnimationsDisabled();
+                return mNtp.getNewTabPageLayout().urlFocusAnimationsDisabled();
             }
         });
     }
@@ -712,7 +751,7 @@ public class NewTabPageTest {
         CriteriaHelper.pollUiThread(Criteria.equals(percent, new Callable<Float>() {
             @Override
             public Float call() {
-                return ntp.getNewTabPageView().getUrlFocusChangeAnimationPercent();
+                return ntp.getNewTabPageLayout().getUrlFocusChangeAnimationPercent();
             }
         }));
     }

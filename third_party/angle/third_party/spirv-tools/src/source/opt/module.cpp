@@ -16,12 +16,13 @@
 
 #include <algorithm>
 #include <cstring>
+#include <ostream>
 
 #include "operand.h"
 #include "reflect.h"
 
 namespace spvtools {
-namespace ir {
+namespace opt {
 
 std::vector<Instruction*> Module::GetTypes() {
   std::vector<Instruction*> type_insts;
@@ -29,7 +30,7 @@ std::vector<Instruction*> Module::GetTypes() {
     if (IsTypeInst(inst.opcode())) type_insts.push_back(&inst);
   }
   return type_insts;
-};
+}
 
 std::vector<const Instruction*> Module::GetTypes() const {
   std::vector<const Instruction*> type_insts;
@@ -37,7 +38,7 @@ std::vector<const Instruction*> Module::GetTypes() const {
     if (IsTypeInst(inst.opcode())) type_insts.push_back(&inst);
   }
   return type_insts;
-};
+}
 
 std::vector<Instruction*> Module::GetConstants() {
   std::vector<Instruction*> const_insts;
@@ -45,7 +46,7 @@ std::vector<Instruction*> Module::GetConstants() {
     if (IsConstantInst(inst.opcode())) const_insts.push_back(&inst);
   }
   return const_insts;
-};
+}
 
 std::vector<const Instruction*> Module::GetConstants() const {
   std::vector<const Instruction*> const_insts;
@@ -53,7 +54,7 @@ std::vector<const Instruction*> Module::GetConstants() const {
     if (IsConstantInst(inst.opcode())) const_insts.push_back(&inst);
   }
   return const_insts;
-};
+}
 
 uint32_t Module::GetGlobalValue(SpvOp opcode) const {
   for (auto& inst : types_values_) {
@@ -64,25 +65,25 @@ uint32_t Module::GetGlobalValue(SpvOp opcode) const {
 
 void Module::AddGlobalValue(SpvOp opcode, uint32_t result_id,
                             uint32_t type_id) {
-  std::unique_ptr<ir::Instruction> newGlobal(
-      new ir::Instruction(context(), opcode, type_id, result_id, {}));
+  std::unique_ptr<opt::Instruction> newGlobal(
+      new opt::Instruction(context(), opcode, type_id, result_id, {}));
   AddGlobalValue(std::move(newGlobal));
 }
 
 void Module::ForEachInst(const std::function<void(Instruction*)>& f,
                          bool run_on_debug_line_insts) {
-#define DELEGATE(i) i.ForEachInst(f, run_on_debug_line_insts)
-  for (auto& i : capabilities_) DELEGATE(i);
-  for (auto& i : extensions_) DELEGATE(i);
-  for (auto& i : ext_inst_imports_) DELEGATE(i);
+#define DELEGATE(list) list.ForEachInst(f, run_on_debug_line_insts)
+  DELEGATE(capabilities_);
+  DELEGATE(extensions_);
+  DELEGATE(ext_inst_imports_);
   if (memory_model_) memory_model_->ForEachInst(f, run_on_debug_line_insts);
-  for (auto& i : entry_points_) DELEGATE(i);
-  for (auto& i : execution_modes_) DELEGATE(i);
-  for (auto& i : debugs1_) DELEGATE(i);
-  for (auto& i : debugs2_) DELEGATE(i);
-  for (auto& i : debugs3_) DELEGATE(i);
-  for (auto& i : annotations_) DELEGATE(i);
-  for (auto& i : types_values_) DELEGATE(i);
+  DELEGATE(entry_points_);
+  DELEGATE(execution_modes_);
+  DELEGATE(debugs1_);
+  DELEGATE(debugs2_);
+  DELEGATE(debugs3_);
+  DELEGATE(annotations_);
+  DELEGATE(types_values_);
   for (auto& i : functions_) i->ForEachInst(f, run_on_debug_line_insts);
 #undef DELEGATE
 }
@@ -140,7 +141,7 @@ uint32_t Module::ComputeIdBound() const {
   return highest + 1;
 }
 
-bool Module::HasCapability(uint32_t cap) {
+bool Module::HasExplicitCapability(uint32_t cap) {
   for (auto& ci : capabilities_) {
     uint32_t tcap = ci.GetSingleWordOperand(0);
     if (tcap == cap) {
@@ -158,5 +159,15 @@ uint32_t Module::GetExtInstImportId(const char* extstr) {
   return 0;
 }
 
-}  // namespace ir
+std::ostream& operator<<(std::ostream& str, const Module& module) {
+  module.ForEachInst([&str](const opt::Instruction* inst) {
+    str << *inst;
+    if (inst->opcode() != SpvOpFunctionEnd) {
+      str << std::endl;
+    }
+  });
+  return str;
+}
+
+}  // namespace opt
 }  // namespace spvtools

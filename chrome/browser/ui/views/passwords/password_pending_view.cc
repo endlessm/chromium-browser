@@ -12,6 +12,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
+#include "chrome/browser/ui/views/harmony/chrome_typography.h"
 #include "chrome/browser/ui/views/passwords/password_items_view.h"
 #include "chrome/browser/ui/views/passwords/password_sign_in_promo_view.h"
 #include "chrome/grit/generated_resources.h"
@@ -40,7 +41,7 @@ namespace {
 // TODO(pbos): Investigate expicitly obfuscating items inside ComboboxModel.
 constexpr base::char16 kBulletChar = gfx::RenderText::kPasswordReplacementChar;
 
-enum ColumnSetType {
+enum PasswordPendingViewColumnSetType {
   // | | (LEADING, FILL) | | (FILL, FILL) | |
   // Used for the username/password line of the bubble, for the pending view.
   DOUBLE_VIEW_COLUMN_SET_USERNAME,
@@ -54,7 +55,8 @@ enum ColumnSetType {
 
 // Construct an appropriate ColumnSet for the given |type|, and add it
 // to |layout|.
-void BuildColumnSet(views::GridLayout* layout, ColumnSetType type) {
+void BuildColumnSet(views::GridLayout* layout,
+                    PasswordPendingViewColumnSetType type) {
   views::ColumnSet* column_set = layout->AddColumnSet(type);
   const int column_divider = ChromeLayoutProvider::Get()->GetDistanceMetric(
       views::DISTANCE_RELATED_CONTROL_HORIZONTAL);
@@ -62,21 +64,26 @@ void BuildColumnSet(views::GridLayout* layout, ColumnSetType type) {
     case DOUBLE_VIEW_COLUMN_SET_USERNAME:
     case DOUBLE_VIEW_COLUMN_SET_PASSWORD:
       column_set->AddColumn(views::GridLayout::LEADING, views::GridLayout::FILL,
-                            0, views::GridLayout::USE_PREF, 0, 0);
-      column_set->AddPaddingColumn(0, column_divider);
-      column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
+                            views::GridLayout::kFixedSize,
                             views::GridLayout::USE_PREF, 0, 0);
+      column_set->AddPaddingColumn(views::GridLayout::kFixedSize,
+                                   column_divider);
+      column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL,
+                            1.0, views::GridLayout::USE_PREF, 0, 0);
       break;
     case TRIPLE_VIEW_COLUMN_SET:
       column_set->AddColumn(views::GridLayout::LEADING, views::GridLayout::FILL,
-                            0, views::GridLayout::USE_PREF, 0, 0);
-      column_set->AddPaddingColumn(0, column_divider);
-      column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
+                            views::GridLayout::kFixedSize,
                             views::GridLayout::USE_PREF, 0, 0);
-      column_set->AddPaddingColumn(0, column_divider);
-      column_set->AddColumn(views::GridLayout::TRAILING,
-                            views::GridLayout::FILL, 0,
-                            views::GridLayout::USE_PREF, 0, 0);
+      column_set->AddPaddingColumn(views::GridLayout::kFixedSize,
+                                   column_divider);
+      column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL,
+                            1.0, views::GridLayout::USE_PREF, 0, 0);
+      column_set->AddPaddingColumn(views::GridLayout::kFixedSize,
+                                   column_divider);
+      column_set->AddColumn(
+          views::GridLayout::TRAILING, views::GridLayout::FILL,
+          views::GridLayout::kFixedSize, views::GridLayout::USE_PREF, 0, 0);
       break;
   }
 }
@@ -250,7 +257,8 @@ void PasswordPendingView::BuildCredentialRows(
     bool show_password_label) {
   // Username row.
   BuildColumnSet(layout, DOUBLE_VIEW_COLUMN_SET_USERNAME);
-  layout->StartRow(0, DOUBLE_VIEW_COLUMN_SET_USERNAME);
+  layout->StartRow(views::GridLayout::kFixedSize,
+                   DOUBLE_VIEW_COLUMN_SET_USERNAME);
   std::unique_ptr<views::Label> username_label(new views::Label(
       l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_USERNAME_LABEL),
       views::style::CONTEXT_LABEL, views::style::STYLE_PRIMARY));
@@ -268,14 +276,16 @@ void PasswordPendingView::BuildCredentialRows(
                   views::GridLayout::FILL, labels_width, 0);
   layout->AddView(username_field);
 
-  layout->AddPaddingRow(0, ChromeLayoutProvider::Get()->GetDistanceMetric(
-                               DISTANCE_CONTROL_LIST_VERTICAL));
+  layout->AddPaddingRow(views::GridLayout::kFixedSize,
+                        ChromeLayoutProvider::Get()->GetDistanceMetric(
+                            DISTANCE_CONTROL_LIST_VERTICAL));
 
   // Password row.
-  ColumnSetType type = password_view_button ? TRIPLE_VIEW_COLUMN_SET
-                                            : DOUBLE_VIEW_COLUMN_SET_PASSWORD;
+  PasswordPendingViewColumnSetType type = password_view_button
+                                              ? TRIPLE_VIEW_COLUMN_SET
+                                              : DOUBLE_VIEW_COLUMN_SET_PASSWORD;
   BuildColumnSet(layout, type);
-  layout->StartRow(0, type);
+  layout->StartRow(views::GridLayout::kFixedSize, type);
   layout->AddView(password_label.release(), 1, 1, views::GridLayout::LEADING,
                   views::GridLayout::FILL, labels_width, 0);
   layout->AddView(password_field);
@@ -345,6 +355,17 @@ void PasswordPendingView::ContentsChanged(views::Textfield* sender,
     DialogModelChanged();
     GetDialogClientView()->Layout();
   }
+}
+
+views::View* PasswordPendingView::CreateFootnoteView() {
+  if (sign_in_promo_ || desktop_ios_promo_ || !model()->ShouldShowFooter())
+    return nullptr;
+  views::Label* label = new views::Label(
+      l10n_util::GetStringUTF16(IDS_SAVE_PASSWORD_FOOTER),
+      ChromeTextContext::CONTEXT_BODY_TEXT_SMALL, STYLE_SECONDARY);
+  label->SetMultiLine(true);
+  label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  return label;
 }
 
 gfx::Size PasswordPendingView::CalculatePreferredSize() const {

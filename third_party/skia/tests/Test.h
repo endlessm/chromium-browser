@@ -12,18 +12,7 @@
 #include "SkString.h"
 #include "SkTraceEvent.h"
 #include "SkTypes.h"
-
-#if SK_SUPPORT_GPU
 #include "GrContextFactory.h"
-#else
-namespace sk_gpu_test {
-class GrContextFactory;
-class ContextInfo;
-class GLTestContext;
-}  // namespace sk_gpu_test
-class GrContext;
-struct GrContextOptions;
-#endif
 
 namespace skiatest {
 
@@ -133,17 +122,14 @@ typedef sk_tools::Registry<Test> TestRegistry;
     }
 */
 
-#if SK_SUPPORT_GPU
 using GrContextFactoryContextType = sk_gpu_test::GrContextFactory::ContextType;
-#else
-using GrContextFactoryContextType = int;
-#endif
 
 typedef void GrContextTestFn(Reporter*, const sk_gpu_test::ContextInfo&);
 typedef bool GrContextTypeFilterFn(GrContextFactoryContextType);
 
 extern bool IsGLContextType(GrContextFactoryContextType);
 extern bool IsVulkanContextType(GrContextFactoryContextType);
+extern bool IsMetalContextType(GrContextFactoryContextType);
 extern bool IsRenderingGLContextType(GrContextFactoryContextType);
 extern bool IsNullGLContextType(GrContextFactoryContextType);
 void RunWithGPUTestContexts(GrContextTestFn*, GrContextTypeFilterFn*, Reporter*,
@@ -227,6 +213,9 @@ private:
                                  reporter, context_info, nullptr)
 #define DEF_GPUTEST_FOR_VULKAN_CONTEXT(name, reporter, context_info)                        \
         DEF_GPUTEST_FOR_CONTEXTS(name, &skiatest::IsVulkanContextType,                      \
+                                 reporter, context_info, nullptr)
+#define DEF_GPUTEST_FOR_METAL_CONTEXT(name, reporter, context_info)                         \
+        DEF_GPUTEST_FOR_CONTEXTS(name, &skiatest::IsMetalContextType,                       \
                                  reporter, context_info, nullptr)
 
 #define REQUIRE_PDF_DOCUMENT(TEST_NAME, REPORTER)                          \

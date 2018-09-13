@@ -86,6 +86,7 @@
 #include "components/startup_metric_utils/common/startup_metric.mojom.h"
 #include "components/subresource_filter/content/renderer/subresource_filter_agent.h"
 #include "components/subresource_filter/content/renderer/unverified_ruleset_dealer.h"
+#include "components/subresource_filter/core/common/common_features.h"
 #include "components/task_scheduler_util/variations_util.h"
 #include "components/variations/variations_switches.h"
 #include "components/version_info/version_info.h"
@@ -282,24 +283,23 @@ bool IsStandaloneExtensionProcess() {
 }
 
 // Defers media player loading in background pages until they're visible.
-// TODO(dalecurtis): Include an idle listener too.  http://crbug.com/509135
 class MediaLoadDeferrer : public content::RenderFrameObserver {
  public:
   MediaLoadDeferrer(content::RenderFrame* render_frame,
-                    const base::Closure& continue_loading_cb)
+                    base::OnceClosure continue_loading_cb)
       : content::RenderFrameObserver(render_frame),
-        continue_loading_cb_(continue_loading_cb) {}
+        continue_loading_cb_(std::move(continue_loading_cb)) {}
   ~MediaLoadDeferrer() override {}
 
  private:
   // content::RenderFrameObserver implementation:
   void WasShown() override {
-    continue_loading_cb_.Run();
+    std::move(continue_loading_cb_).Run();
     delete this;
   }
   void OnDestruct() override { delete this; }
 
-  const base::Closure continue_loading_cb_;
+  base::OnceClosure continue_loading_cb_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaLoadDeferrer);
 };
@@ -389,25 +389,24 @@ void ChromeContentRendererClient::RenderThreadStarted() {
   }
 
 #if defined(OS_WIN)
-  if (base::FeatureList::IsEnabled(features::kModuleDatabase)) {
-    thread->GetConnector()->BindInterface(content::mojom::kBrowserServiceName,
-                                          &module_event_sink_);
+  // Bind the ModuleEventSink interface.
+  thread->GetConnector()->BindInterface(content::mojom::kBrowserServiceName,
+                                        &module_event_sink_);
 
-    // Rebind the ModuleEventSink to the IO task runner.
-    // The use of base::Unretained() is safe here because |module_event_sink_|
-    // is never deleted and is only used on the IO task runner.
-    thread->GetIOTaskRunner()->PostTask(
-        FROM_HERE, base::BindOnce(&BindModuleEventSink,
-                                  base::Unretained(&module_event_sink_),
-                                  module_event_sink_.PassInterface()));
+  // Rebind the ModuleEventSink to the IO task runner.
+  // The use of base::Unretained() is safe here because |module_event_sink_|
+  // is never deleted and is only used on the IO task runner.
+  thread->GetIOTaskRunner()->PostTask(
+      FROM_HERE, base::BindOnce(&BindModuleEventSink,
+                                base::Unretained(&module_event_sink_),
+                                module_event_sink_.PassInterface()));
 
-    // It is safe to pass an unretained pointer to |module_event_sink_|, as it
-    // is owned by the process singleton ChromeContentRendererClient, which is
-    // leaked.
-    module_watcher_ = ModuleWatcher::Create(
-        base::BindRepeating(&OnModuleEvent, thread->GetIOTaskRunner(),
-                            base::ConstRef(module_event_sink_)));
-  }
+  // It is safe to pass an unretained pointer to |module_event_sink_|, as it
+  // is owned by the process singleton ChromeContentRendererClient, which is
+  // leaked.
+  module_watcher_ = ModuleWatcher::Create(
+      base::BindRepeating(&OnModuleEvent, thread->GetIOTaskRunner(),
+                          base::ConstRef(module_event_sink_)));
 #endif
 
   chrome_observer_.reset(new ChromeRenderThreadObserver());
@@ -678,25 +677,23 @@ WebPlugin* ChromeContentRendererClient::CreatePluginReplacement(
   return placeholder->plugin();
 }
 
-void ChromeContentRendererClient::DeferMediaLoad(
+bool ChromeContentRendererClient::DeferMediaLoad(
     content::RenderFrame* render_frame,
     bool has_played_media_before,
-    const base::Closure& closure) {
+    base::OnceClosure closure) {
   // Don't allow autoplay/autoload of media resources in a RenderFrame that is
   // hidden and has never played any media before.  We want to allow future
   // loads even when hidden to allow playlist-like functionality.
   //
   // NOTE: This is also used to defer media loading for prerender.
-  // NOTE: Switch can be used to allow autoplay, unless frame is prerendered.
-  //
-  // TODO(dalecurtis): Include an idle check too.  http://crbug.com/509135
   if ((render_frame->IsHidden() && !has_played_media_before) ||
       prerender::PrerenderHelper::IsPrerendering(render_frame)) {
-    new MediaLoadDeferrer(render_frame, closure);
-    return;
+    new MediaLoadDeferrer(render_frame, std::move(closure));
+    return true;
   }
 
-  closure.Run();
+  std::move(closure).Run();
+  return false;
 }
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -1222,10 +1219,6 @@ bool ChromeContentRendererClient::RunIdleHandlerWhenWidgetsHidden() {
   return !IsStandaloneExtensionProcess();
 }
 
-bool ChromeContentRendererClient::AllowFreezingWhenProcessBackgrounded() {
-  return base::FeatureList::IsEnabled(features::kStopInBackground);
-}
-
 bool ChromeContentRendererClient::AllowPopup() {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   return ChromeExtensionsRendererClient::GetInstance()->AllowPopup();
@@ -1585,6 +1578,9 @@ void ChromeContentRendererClient::
 #if defined(OS_ANDROID)
   blink::WebRuntimeFeatures::EnableWebShare(true);
 #endif
+
+  if (base::FeatureList::IsEnabled(subresource_filter::kAdTagging))
+    blink::WebRuntimeFeatures::EnableAdTagging(true);
 }
 
 void ChromeContentRendererClient::

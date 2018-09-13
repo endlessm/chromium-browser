@@ -164,7 +164,8 @@ InstructionContext RecognizableInstr::insnContext() const {
       llvm_unreachable("Don't support VEX.L if EVEX_L2 is enabled");
     }
     // VEX_L & VEX_W
-    if (!EncodeRC && HasVEX_LPrefix && VEX_WPrefix == X86Local::VEX_W1) {
+    if (!EncodeRC && HasVEX_LPrefix && (VEX_WPrefix == X86Local::VEX_W1 ||
+                                        VEX_WPrefix == X86Local::VEX_W1X)) {
       if (OpPrefix == X86Local::PD)
         insnContext = EVEX_KB(IC_EVEX_L_W_OPSIZE);
       else if (OpPrefix == X86Local::XS)
@@ -192,7 +193,8 @@ InstructionContext RecognizableInstr::insnContext() const {
         llvm_unreachable("Invalid prefix");
       }
     } else if (!EncodeRC && HasEVEX_L2Prefix &&
-               VEX_WPrefix == X86Local::VEX_W1) {
+               (VEX_WPrefix == X86Local::VEX_W1 ||
+                VEX_WPrefix == X86Local::VEX_W1X)) {
       // EVEX_L2 & VEX_W
       if (OpPrefix == X86Local::PD)
         insnContext = EVEX_KB(IC_EVEX_L2_W_OPSIZE);
@@ -221,7 +223,8 @@ InstructionContext RecognizableInstr::insnContext() const {
         llvm_unreachable("Invalid prefix");
       }
     }
-    else if (VEX_WPrefix == X86Local::VEX_W1) {
+    else if (VEX_WPrefix == X86Local::VEX_W1 ||
+             VEX_WPrefix == X86Local::VEX_W1X) {
       // VEX_W
       if (OpPrefix == X86Local::PD)
         insnContext = EVEX_KB(IC_EVEX_W_OPSIZE);
@@ -251,7 +254,8 @@ InstructionContext RecognizableInstr::insnContext() const {
     }
     /// eof EVEX
   } else if (Encoding == X86Local::VEX || Encoding == X86Local::XOP) {
-    if (HasVEX_LPrefix && VEX_WPrefix == X86Local::VEX_W1) {
+    if (HasVEX_LPrefix && (VEX_WPrefix == X86Local::VEX_W1 ||
+                           VEX_WPrefix == X86Local::VEX_W1X)) {
       if (OpPrefix == X86Local::PD)
         insnContext = IC_VEX_L_W_OPSIZE;
       else if (OpPrefix == X86Local::XS)
@@ -266,7 +270,8 @@ InstructionContext RecognizableInstr::insnContext() const {
       }
     } else if (OpPrefix == X86Local::PD && HasVEX_LPrefix)
       insnContext = IC_VEX_L_OPSIZE;
-    else if (OpPrefix == X86Local::PD && VEX_WPrefix == X86Local::VEX_W1)
+    else if (OpPrefix == X86Local::PD && (VEX_WPrefix == X86Local::VEX_W1 ||
+                                          VEX_WPrefix == X86Local::VEX_W1X))
       insnContext = IC_VEX_W_OPSIZE;
     else if (OpPrefix == X86Local::PD)
       insnContext = IC_VEX_OPSIZE;
@@ -274,11 +279,14 @@ InstructionContext RecognizableInstr::insnContext() const {
       insnContext = IC_VEX_L_XS;
     else if (HasVEX_LPrefix && OpPrefix == X86Local::XD)
       insnContext = IC_VEX_L_XD;
-    else if (VEX_WPrefix == X86Local::VEX_W1 && OpPrefix == X86Local::XS)
+    else if ((VEX_WPrefix == X86Local::VEX_W1 ||
+              VEX_WPrefix == X86Local::VEX_W1X) && OpPrefix == X86Local::XS)
       insnContext = IC_VEX_W_XS;
-    else if (VEX_WPrefix == X86Local::VEX_W1 && OpPrefix == X86Local::XD)
+    else if ((VEX_WPrefix == X86Local::VEX_W1 ||
+              VEX_WPrefix == X86Local::VEX_W1X) && OpPrefix == X86Local::XD)
       insnContext = IC_VEX_W_XD;
-    else if (VEX_WPrefix == X86Local::VEX_W1 && OpPrefix == X86Local::PS)
+    else if ((VEX_WPrefix == X86Local::VEX_W1 ||
+              VEX_WPrefix == X86Local::VEX_W1X) && OpPrefix == X86Local::PS)
       insnContext = IC_VEX_W;
     else if (HasVEX_LPrefix && OpPrefix == X86Local::PS)
       insnContext = IC_VEX_L;
@@ -904,8 +912,8 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("vx256xmem",           TYPE_MVSIBX)
   TYPE("vy128xmem",           TYPE_MVSIBY)
   TYPE("vy256xmem",           TYPE_MVSIBY)
-  TYPE("vy512mem",            TYPE_MVSIBY)
-  TYPE("vz256xmem",           TYPE_MVSIBZ)
+  TYPE("vy512xmem",           TYPE_MVSIBY)
+  TYPE("vz256mem",            TYPE_MVSIBZ)
   TYPE("vz512mem",            TYPE_MVSIBZ)
   TYPE("BNDR",                TYPE_BNDR)
   errs() << "Unhandled type string " << s << "\n";
@@ -1097,8 +1105,8 @@ RecognizableInstr::memoryEncodingFromString(const std::string &s,
   ENCODING("vx256xmem",       ENCODING_VSIB)
   ENCODING("vy128xmem",       ENCODING_VSIB)
   ENCODING("vy256xmem",       ENCODING_VSIB)
-  ENCODING("vy512mem",        ENCODING_VSIB)
-  ENCODING("vz256xmem",       ENCODING_VSIB)
+  ENCODING("vy512xmem",       ENCODING_VSIB)
+  ENCODING("vz256mem",        ENCODING_VSIB)
   ENCODING("vz512mem",        ENCODING_VSIB)
   errs() << "Unhandled memory encoding " << s << "\n";
   llvm_unreachable("Unhandled memory encoding");

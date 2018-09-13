@@ -22,6 +22,15 @@ class Profile;
 // uninstalls Crostinin if the user chooses to do so.
 class CrostiniUninstallerView : public views::DialogDelegateView {
  public:
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class UninstallResult {
+    kCancelled = 0,
+    kError = 1,
+    kSuccess = 2,
+    kCount
+  };
+
   static void Show(Profile* profile);
 
   // views::DialogDelegateView:
@@ -33,8 +42,9 @@ class CrostiniUninstallerView : public views::DialogDelegateView {
   bool Cancel() override;
   gfx::Size CalculatePreferredSize() const override;
 
+  static CrostiniUninstallerView* GetActiveViewForTesting();
+
  private:
-  enum class UninstallResult;
   enum class State {
     PROMPT,  // Prompting the user to allow uninstallation.
     ERROR,   // Something unexpected happened.
@@ -53,7 +63,6 @@ class CrostiniUninstallerView : public views::DialogDelegateView {
   views::ProgressBar* progress_bar_ = nullptr;
 
   bool has_logged_result_ = false;
-  base::string16 app_name_;
   Profile* profile_;
 
   base::WeakPtrFactory<CrostiniUninstallerView> weak_ptr_factory_;

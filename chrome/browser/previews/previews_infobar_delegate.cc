@@ -68,11 +68,12 @@ void ReloadWithoutPreviews(previews::PreviewsType previews_type,
   switch (previews_type) {
     case previews::PreviewsType::LITE_PAGE:
     case previews::PreviewsType::OFFLINE:
-    case previews::PreviewsType::AMP_REDIRECTION:
     case previews::PreviewsType::NOSCRIPT:
-      // Prevent previews and lite page modes from showing after reload.
+    case previews::PreviewsType::RESOURCE_LOADING_HINTS:
+      // Previews may cause a redirect, so we should use the original URL. The
+      // black list prevents showing the preview again.
       web_contents->GetController().Reload(
-          content::ReloadType::DISABLE_PREVIEWS, true);
+          content::ReloadType::ORIGINAL_REQUEST_URL, true);
       break;
     case previews::PreviewsType::LOFI:
       web_contents->ReloadLoFiImages();
@@ -80,6 +81,7 @@ void ReloadWithoutPreviews(previews::PreviewsType previews_type,
     case previews::PreviewsType::NONE:
     case previews::PreviewsType::UNSPECIFIED:
     case previews::PreviewsType::LAST:
+    case previews::PreviewsType::DEPRECATED_AMP_REDIRECTION:
       NOTREACHED();
       break;
   }

@@ -32,6 +32,12 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
   // it will not be extended by user activity.
   /** @const */ var VIDEO_LOGIN_TIMEOUT = 90 * 1000;
 
+  // Horizontal padding for the error bubble.
+  /** @const */ var BUBBLE_HORIZONTAL_PADDING = 65;
+
+  // Vertical padding for the error bubble.
+  /** @const */ var BUBBLE_VERTICAL_PADDING = -213;
+
   /**
    * The modes this screen can be in.
    * @enum {integer}
@@ -247,6 +253,8 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       this.gaiaAuthHost_.missingGaiaInfoCallback =
           this.missingGaiaInfo_.bind(this);
       this.gaiaAuthHost_.samlApiUsedCallback = this.samlApiUsed_.bind(this);
+      this.gaiaAuthHost_.getIsSamlUserPasswordlessCallback =
+          this.getIsSamlUserPasswordless_.bind(this);
       this.gaiaAuthHost_.addEventListener(
           'authDomainChange', this.onAuthDomainChange_.bind(this));
       this.gaiaAuthHost_.addEventListener(
@@ -559,7 +567,6 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       this.screenMode = ScreenMode.DEFAULT;
       this.loading = true;
       chrome.send('loginUIStateChanged', ['gaia-signin', true]);
-      $('progress-dots').hidden = true;
       $('login-header-bar').signinUIState = SIGNIN_UI_STATE.GAIA_SIGNIN;
 
       // Ensure that GAIA signin (or loading UI) is actually visible.
@@ -576,6 +583,8 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
 
       this.lastBackMessageValue_ = false;
       this.updateControlsState();
+
+      return $('signin-frame-dialog').onBeforeShow();
     },
 
     get navigationDisabled_() {
@@ -707,14 +716,12 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
         $('signin-frame-container-v2').appendChild($('signin-frame'));
         $('gaia-signin')
             .insertBefore($('offline-gaia'), $('gaia-step-contents'));
-        $('offline-gaia').glifMode = true;
         $('offline-gaia').removeAttribute('not-a-dialog');
         $('offline-gaia').classList.toggle('fit', false);
       } else {
         $('gaia-signin-form-container').appendChild($('signin-frame'));
         $('gaia-signin-form-container')
             .appendChild($('offline-gaia'), $('gaia-step-contents'));
-        $('offline-gaia').glifMode = false;
         $('offline-gaia').setAttribute('not-a-dialog', true);
         $('offline-gaia').classList.toggle('fit', true);
       }
@@ -907,6 +914,20 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
     },
 
     /**
+     * Invoked when the the GAIA host requests whether the specified user is a
+     * user without a password (neither a manually entered one nor one provided
+     * via Credentials Passing API).
+     * @param {string} email
+     * @param {string} gaiaId
+     * @param {function(boolean)} callback
+     * @private
+     */
+    getIsSamlUserPasswordless_: function(email, gaiaId, callback) {
+      cr.sendWithPromise('getIsSamlUserPasswordless', email, gaiaId)
+          .then(callback);
+    },
+
+    /**
      * Invoked when the auth host emits 'backButton' event.
      * @private
      */
@@ -1063,8 +1084,8 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       } else if (credentials.useOffline) {
         this.email = credentials.email;
         chrome.send(
-            'authenticateUser',
-            [credentials.email, credentials.password, false]);
+            'completeOfflineAuthentication',
+            [credentials.email, credentials.password]);
       } else if (credentials.authCode) {
         chrome.send('completeAuthentication', [
           credentials.gaiaId, credentials.email, credentials.password,
@@ -1171,8 +1192,8 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       } else if (!this.loading) {
         // TODO(dzhioev): investigate if this branch ever get hit.
         $('bubble').showContentForElement(
-            $('gaia-signin-form-container'), cr.ui.Bubble.Attachment.LEFT,
-            error);
+            $('gaia-signin-form-container'), cr.ui.Bubble.Attachment.BOTTOM,
+            error, BUBBLE_HORIZONTAL_PADDING, BUBBLE_VERTICAL_PADDING);
       } else {
         // Defer the bubble until the frame has been loaded.
         this.errorBubble_ = [loginAttempts, error];

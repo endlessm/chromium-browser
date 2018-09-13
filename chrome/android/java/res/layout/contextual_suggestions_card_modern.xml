@@ -37,7 +37,7 @@
                 tools:text="Article snippet" />
         </LinearLayout>
 
-        <org.chromium.chrome.browser.widget.TintedImageView
+        <ImageView
             android:id="@+id/article_thumbnail"
             android:layout_marginStart="@dimen/snippets_padding"
             android:layout_width="@dimen/snippets_thumbnail_size_small"
@@ -45,9 +45,8 @@
             android:layout_alignParentTop="true"
             android:layout_alignParentEnd="true"
             android:scaleType="centerCrop"
-            android:contentDescription="@null"
-            android:src="@null"
-            tools:src="@drawable/ic_snippet_thumbnail_placeholder" />
+            tools:ignore="ContentDescription"
+            android:src="@null" />
 
         <LinearLayout
             tools:ignore="UseCompoundDrawables"

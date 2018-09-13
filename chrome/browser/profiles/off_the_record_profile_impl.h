@@ -57,6 +57,7 @@ class OffTheRecordProfileImpl : public Profile {
   PrefService* GetOffTheRecordPrefs() override;
   net::URLRequestContextGetter* GetRequestContext() override;
   net::URLRequestContextGetter* GetRequestContextForExtensions() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   net::URLRequestContextGetter* CreateRequestContext(
       content::ProtocolHandlerMap* protocol_handlers,
       content::URLRequestInterceptorScopedVector request_interceptors) override;
@@ -101,7 +102,8 @@ class OffTheRecordProfileImpl : public Profile {
   storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
   content::PushMessagingService* GetPushMessagingService() override;
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
-  content::PermissionManager* GetPermissionManager() override;
+  content::PermissionControllerDelegate* GetPermissionControllerDelegate()
+      override;
   content::BackgroundFetchDelegate* GetBackgroundFetchDelegate() override;
   content::BackgroundSyncController* GetBackgroundSyncController() override;
   content::BrowsingDataRemoverDelegate* GetBrowsingDataRemoverDelegate()

@@ -32,14 +32,16 @@ namespace ash {
 
 namespace {
 
-// Amount of blur to apply on the wallpaper when we enter or exit overview mode.
-constexpr double kWallpaperBlurSigma = 10.f;
+// Do not blur or unblur the wallpaper when entering or exiting overview mode
+// when this is true.
+bool g_disable_wallpaper_blur_for_tests = false;
+
 constexpr double kWallpaperClearBlurSigma = 0.f;
 constexpr int kBlurSlideDurationMs = 250;
 
 // Returns true if |window| should be hidden when entering overview.
 bool ShouldHideWindowInOverview(const aura::Window* window) {
-  return !window->GetProperty(ash::kShowInOverviewKey);
+  return window->GetProperty(ash::kHideInOverviewKey);
 }
 
 // Returns true if |window| should be excluded from overview.
@@ -62,16 +64,18 @@ bool ShouldExcludeWindowFromOverview(const aura::Window* window) {
     return true;
   }
 
-  // The window that is currently in tab-dragging process should be ignored in
-  // overview grid.
-  if (ash::wm::IsDraggingTabs(window))
+  // The window that currently being dragged should be ignored in overview grid.
+  // e.g, a browser window can be dragged through tabs, or app windows can be
+  // dragged through swiping from the specific top area of the display.
+  if (wm::GetWindowState(window)->is_dragged())
     return true;
 
   return false;
 }
 
 bool IsBlurEnabled() {
-  return Shell::Get()->wallpaper_controller()->IsBlurEnabled();
+  return !g_disable_wallpaper_blur_for_tests &&
+         Shell::Get()->wallpaper_controller()->IsBlurEnabled();
 }
 
 }  // namespace
@@ -157,8 +161,9 @@ class WindowSelectorController::OverviewBlurController
   // |roots_to_animate_| accordingly. Applys blur or unblur immediately if
   // the wallpaper does not need blur animation.
   void OnBlurChange() {
-    bool should_blur = state_ == WallpaperAnimationState::kAddingBlur;
-    double value = should_blur ? kWallpaperBlurSigma : kWallpaperClearBlurSigma;
+    const bool should_blur = state_ == WallpaperAnimationState::kAddingBlur;
+    const double value =
+        should_blur ? kWallpaperBlurSigma : kWallpaperClearBlurSigma;
     for (aura::Window* root : roots_to_animate_)
       root->RemoveObserver(this);
     roots_to_animate_.clear();
@@ -166,16 +171,18 @@ class WindowSelectorController::OverviewBlurController
     WindowSelector* window_selector =
         Shell::Get()->window_selector_controller()->window_selector();
     DCHECK(window_selector);
+
     for (aura::Window* root : Shell::Get()->GetAllRootWindows()) {
-      if (!window_selector->ShouldAnimateWallpaper(root)) {
-        ApplyBlur(root, value);
-      } else {
+      if (!should_blur || window_selector->ShouldAnimateWallpaper(root)) {
         root->AddObserver(this);
         roots_to_animate_.push_back(root);
+      } else {
+        animation_.Reset(should_blur ? 1.0 : 0.0);
+        ApplyBlur(root, value);
       }
     }
 
-    // Run the animation if one of the roots needs to be aniamted.
+    // Run the animation if one of the roots needs to be animated.
     if (roots_to_animate_.empty()) {
       state_ = WallpaperAnimationState::kNormal;
     } else if (should_blur) {
@@ -403,10 +410,10 @@ void WindowSelectorController::OnSelectionEnded() {
     overview_blur_controller_->Unblur();
   is_shutting_down_ = true;
   Shell::Get()->NotifyOverviewModeEnding();
-  window_selector_->Shutdown();
+  auto* window_selector = window_selector_.release();
+  window_selector->Shutdown();
   // Don't delete |window_selector_| yet since the stack is still using it.
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE,
-                                                  window_selector_.release());
+  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, window_selector);
   last_selection_time_ = base::Time::Now();
   Shell::Get()->NotifyOverviewModeEnded();
   is_shutting_down_ = false;
@@ -435,6 +442,11 @@ void WindowSelectorController::RemoveAndDestroyAnimationObserver(
       std::remove_if(delayed_animations_.begin(), delayed_animations_.end(),
                      IsEqual(animation_observer)),
       delayed_animations_.end());
+}
+
+// static
+void WindowSelectorController::SetDoNotChangeWallpaperBlurForTests() {
+  g_disable_wallpaper_blur_for_tests = true;
 }
 
 void WindowSelectorController::OnSelectionStarted() {

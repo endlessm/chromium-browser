@@ -1164,7 +1164,15 @@ TEST_F(FormatTestJS, WrapRespectsAutomaticSemicolonInsertion) {
   verifyFormat("await theReckoning;", getGoogleJSStyleWithColumns(10));
   verifyFormat("some['a']['b']", getGoogleJSStyleWithColumns(10));
   verifyFormat("x = (a['a']\n"
-               "      ['b']);", getGoogleJSStyleWithColumns(10));
+               "      ['b']);",
+               getGoogleJSStyleWithColumns(10));
+  verifyFormat("function f() {\n"
+               "  return foo.bar(\n"
+               "      (param): param is {\n"
+               "        a: SomeType\n"
+               "      }&ABC => 1)\n"
+               "}",
+               getGoogleJSStyleWithColumns(25));
 }
 
 TEST_F(FormatTestJS, AutomaticSemicolonInsertionHeuristic) {
@@ -1530,6 +1538,15 @@ TEST_F(FormatTestJS, ClassDeclarations) {
                "})\n"
                "class SessionListComponent implements OnDestroy, OnInit {\n"
                "}");
+}
+
+TEST_F(FormatTestJS, StrictPropInitWrap) {
+  const FormatStyle &Style = getGoogleJSStyleWithColumns(22);
+  verifyFormat("class X {\n"
+               "  strictPropInitField!:\n"
+               "      string;\n"
+               "}",
+               Style);
 }
 
 TEST_F(FormatTestJS, InterfaceDeclarations) {

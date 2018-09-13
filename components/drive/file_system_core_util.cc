@@ -86,6 +86,10 @@ const base::FilePath& GetDriveTeamDrivesRootPath() {
   return team_drives_root_path;
 }
 
+bool IsTeamDrivesPath(const base::FilePath& file_path) {
+  return GetDriveTeamDrivesRootPath().IsParent(file_path);
+}
+
 std::string EscapeCacheFileName(const std::string& filename) {
   // This is based on net/base/escape.cc: net::(anonymous namespace)::Escape
   std::string escaped;
@@ -150,7 +154,7 @@ bool CreateGDocFile(const base::FilePath& file_path,
                     const GURL& url,
                     const std::string& resource_id) {
   std::string content =
-      base::StringPrintf("{\"url\": \"%s\", \"resource_id\": \"%s\"}",
+      base::StringPrintf(R"({"url": "%s", "resource_id": "%s"})",
                          url.spec().c_str(), resource_id.c_str());
   return base::WriteFile(file_path, content.data(), content.size()) ==
          static_cast<int>(content.size());

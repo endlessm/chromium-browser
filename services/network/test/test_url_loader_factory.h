@@ -6,10 +6,13 @@
 #define SERVICES_NETWORK_TEST_TEST_URL_LOADER_FACTORY_H_
 
 #include <map>
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
+#include "mojo/public/cpp/bindings/binding_set.h"
 #include "net/http/http_status_code.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 
 namespace network {
@@ -19,6 +22,32 @@ namespace network {
 // would prime it with response data for arbitrary URLs.
 class TestURLLoaderFactory : public mojom::URLLoaderFactory {
  public:
+  struct PendingRequest {
+    PendingRequest();
+    ~PendingRequest();
+    PendingRequest(PendingRequest&& other);
+    PendingRequest& operator=(PendingRequest&& other);
+
+    mojom::URLLoaderClientPtr client;
+    ResourceRequest request;
+  };
+
+  // Bitfield that is used with |SimulateResponseForPendingRequest()| to
+  // control which request is selected.
+  enum ResponseMatchFlags : uint32_t {
+    kMatchDefault = 0x0,
+    kUrlMatchPrefix = 0x1,   // Whether URLs are a match if they start with the
+                             // URL passed in to
+                             // SimulateResponseForPendingRequest
+    kMostRecentMatch = 0x2,  // Start with the most recent requests.
+  };
+
+  // Flags used with |AddResponse| to control how it produces a response.
+  enum ResponseProduceFlags : uint32_t {
+    kResponseDefault = 0,
+    kResponseOnlyRedirectsNoDestination = 0x1,
+  };
+
   TestURLLoaderFactory();
   ~TestURLLoaderFactory() override;
 
@@ -34,7 +63,8 @@ class TestURLLoaderFactory : public mojom::URLLoaderFactory {
                    const ResourceResponseHead& head,
                    const std::string& content,
                    const URLLoaderCompletionStatus& status,
-                   const Redirects& redirects = Redirects());
+                   const Redirects& redirects = Redirects(),
+                   ResponseProduceFlags rp_flags = kResponseDefault);
 
   // Simpler version of above for the common case of success or error page.
   void AddResponse(const std::string& url,
@@ -57,6 +87,41 @@ class TestURLLoaderFactory : public mojom::URLLoaderFactory {
   using Interceptor = base::RepeatingCallback<void(const ResourceRequest&)>;
   void SetInterceptor(const Interceptor& interceptor);
 
+  // Returns a mutable list of pending requests, for consumers that need direct
+  // access. It's recommended that consumers use AddResponse() rather than
+  // servicing requests themselves, whenever possible.
+  std::vector<PendingRequest>* pending_requests() { return &pending_requests_; }
+
+  // Sends a response for the first (oldest) pending request with URL |url|.
+  // Returns false if no such pending request exists.
+  // |flags| can be used to change the default behavior:
+  // - if kUrlMatchPrefix is set, the pending request is a match if its URL
+  //   starts with |url| (instead of being equal to |url|).
+  // - if kMostRecentMatch is set, the most recent (instead of oldest) pending
+  //   request matching is used.
+  bool SimulateResponseForPendingRequest(
+      const GURL& url,
+      const network::URLLoaderCompletionStatus& completion_status,
+      const ResourceResponseHead& response_head,
+      const std::string& content,
+      ResponseMatchFlags flags = kMatchDefault);
+
+  // Sends a response for the given request |request|.
+  //
+  // Differently from its variant above, this method does not remove |request|
+  // from |pending_requests_|.
+  //
+  // This method is useful to process requests at a given pre-defined order.
+  void SimulateResponseWithoutRemovingFromPendingList(
+      PendingRequest* request,
+      const ResourceResponseHead& head,
+      std::string content,
+      const URLLoaderCompletionStatus& status);
+
+  // Simpler version of the method above.
+  void SimulateResponseWithoutRemovingFromPendingList(PendingRequest* request,
+                                                      std::string content);
+
   // mojom::URLLoaderFactory implementation.
   void CreateLoaderAndStart(mojom::URLLoaderRequest request,
                             int32_t routing_id,
@@ -72,6 +137,13 @@ class TestURLLoaderFactory : public mojom::URLLoaderFactory {
   bool CreateLoaderAndStartInternal(const GURL& url,
                                     mojom::URLLoaderClient* client);
 
+  static void SimulateResponse(mojom::URLLoaderClient* client,
+                               Redirects redirects,
+                               ResourceResponseHead head,
+                               std::string content,
+                               URLLoaderCompletionStatus status,
+                               ResponseProduceFlags response_flags);
+
   struct Response {
     Response();
     ~Response();
@@ -81,21 +153,14 @@ class TestURLLoaderFactory : public mojom::URLLoaderFactory {
     ResourceResponseHead head;
     std::string content;
     URLLoaderCompletionStatus status;
+    ResponseProduceFlags flags;
   };
   std::map<GURL, Response> responses_;
 
-  struct Pending {
-    Pending();
-    ~Pending();
-    Pending(Pending&& other);
-    Pending& operator=(Pending&& other);
-    GURL url;
-    int load_flags;
-    mojom::URLLoaderClientPtr client;
-  };
-  std::vector<Pending> pending_;
+  std::vector<PendingRequest> pending_requests_;
 
   Interceptor interceptor_;
+  mojo::BindingSet<network::mojom::URLLoaderFactory> bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(TestURLLoaderFactory);
 };

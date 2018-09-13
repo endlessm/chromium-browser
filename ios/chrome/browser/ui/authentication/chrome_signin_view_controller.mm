@@ -11,9 +11,9 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include "base/bind.h"
 #include "base/feature_list.h"
 #import "base/ios/block_types.h"
-#import "base/mac/bind_objc_block.h"
 #include "base/metrics/user_metrics.h"
 #import "base/strings/sys_string_conversions.h"
 #include "base/timer/elapsed_timer.h"
@@ -24,12 +24,12 @@
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/consent_auditor/consent_auditor_factory.h"
 #include "ios/chrome/browser/signin/account_tracker_service_factory.h"
 #import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/chrome_identity_service_observer_bridge.h"
 #include "ios/chrome/browser/signin/signin_util.h"
+#include "ios/chrome/browser/sync/consent_auditor_factory.h"
 #import "ios/chrome/browser/sync/sync_setup_service.h"
 #import "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
@@ -44,6 +44,7 @@
 #import "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/util/label_link_controller.h"
+#include "ios/chrome/browser/unified_consent/feature.h"
 #include "ios/chrome/common/string_util.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
@@ -179,7 +180,7 @@ enum AuthenticationState {
   // Signin pending state.
   AuthenticationState _activityIndicatorNextState;
   std::unique_ptr<base::ElapsedTimer> _pendingStateTimer;
-  std::unique_ptr<base::Timer> _leavingPendingStateTimer;
+  std::unique_ptr<base::OneShotTimer> _leavingPendingStateTimer;
 
   // Identity selected state.
   SigninConfirmationViewController* _confirmationVC;
@@ -198,8 +199,7 @@ enum AuthenticationState {
                           dispatcher:(id<ApplicationCommands>)dispatcher {
   self = [super init];
   if (self) {
-    _unifiedConsentEnabled =
-        base::FeatureList::IsEnabled(signin::kUnifiedConsent);
+    _unifiedConsentEnabled = IsUnifiedConsentEnabled();
     _browserState = browserState;
     _accessPoint = accessPoint;
     _promoAction = promoAction;
@@ -734,18 +734,14 @@ enum AuthenticationState {
       [strongSelf->_activityIndicator stopAnimating];
       strongSelf->_leavingPendingStateTimer.reset();
     };
-    const bool retain_user_task = false;
-    const bool is_repeating = false;
     if (self.timerGenerator) {
-      _leavingPendingStateTimer =
-          self.timerGenerator(retain_user_task, is_repeating);
+      _leavingPendingStateTimer = self.timerGenerator();
       DCHECK(_leavingPendingStateTimer);
     } else {
-      _leavingPendingStateTimer =
-          std::make_unique<base::Timer>(retain_user_task, is_repeating);
+      _leavingPendingStateTimer = std::make_unique<base::OneShotTimer>();
     }
     _leavingPendingStateTimer->Start(FROM_HERE, remainingTime,
-                                     base::BindBlockArc(completionBlock));
+                                     base::BindRepeating(completionBlock));
   }
 }
 
@@ -1149,6 +1145,12 @@ enum AuthenticationState {
   DCHECK_EQ(_unifiedConsentCoordinator, coordinator);
   DCHECK_EQ(IDENTITY_PICKER_STATE, _currentState);
   [self didReachBottom];
+}
+
+- (void)unifiedConsentCoordinatorDidTapOnAddAccount:
+    (UnifiedConsentCoordinator*)coordinator {
+  DCHECK_EQ(_unifiedConsentCoordinator, coordinator);
+  [self openAuthenticationDialogAddIdentity];
 }
 
 @end

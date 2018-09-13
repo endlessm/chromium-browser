@@ -12,6 +12,8 @@
 #include "GrGLFunctions.h"
 #include "SkString.h"
 
+#include <utility>
+
 struct GrGLInterface;
 class SkJSONWriter;
 
@@ -30,8 +32,9 @@ public:
     GrGLExtensions& operator=(const GrGLExtensions&);
 
     void swap(GrGLExtensions* that) {
-        fStrings.swap(&that->fStrings);
-        SkTSwap(fInitialized, that->fInitialized);
+        using std::swap;
+        swap(fStrings, that->fStrings);
+        swap(fInitialized, that->fInitialized);
     }
 
     /**
@@ -40,10 +43,10 @@ public:
      * NULL if on desktop GL with version 3.0 or higher. Otherwise it will fail.
      */
     bool init(GrGLStandard standard,
-              GrGLFunction<GrGLGetStringProc> getString,
-              GrGLFunction<GrGLGetStringiProc> getStringi,
-              GrGLFunction<GrGLGetIntegervProc> getIntegerv,
-              GrGLFunction<GrEGLQueryStringProc> queryString = nullptr,
+              GrGLFunction<GrGLGetStringFn> getString,
+              GrGLFunction<GrGLGetStringiFn> getStringi,
+              GrGLFunction<GrGLGetIntegervFn> getIntegerv,
+              GrGLFunction<GrEGLQueryStringFn> queryString = nullptr,
               GrEGLDisplay eglDisplay = nullptr);
 
     bool isInitialized() const { return fInitialized; }

@@ -10,7 +10,7 @@
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
@@ -27,16 +27,18 @@
 #include "chrome/browser/chromeos/login/screens/device_disabled_screen.h"
 #include "chrome/browser/chromeos/login/screens/error_screen.h"
 #include "chrome/browser/chromeos/login/screens/hid_detection_screen.h"
+#include "chrome/browser/chromeos/login/screens/mock_arc_terms_of_service_screen.h"
+#include "chrome/browser/chromeos/login/screens/mock_demo_preferences_screen.h"
 #include "chrome/browser/chromeos/login/screens/mock_demo_setup_screen.h"
 #include "chrome/browser/chromeos/login/screens/mock_device_disabled_screen_view.h"
 #include "chrome/browser/chromeos/login/screens/mock_enable_debugging_screen.h"
 #include "chrome/browser/chromeos/login/screens/mock_eula_screen.h"
-#include "chrome/browser/chromeos/login/screens/mock_network_screen.h"
 #include "chrome/browser/chromeos/login/screens/mock_update_screen.h"
+#include "chrome/browser/chromeos/login/screens/mock_welcome_screen.h"
 #include "chrome/browser/chromeos/login/screens/mock_wrong_hwid_screen.h"
-#include "chrome/browser/chromeos/login/screens/network_screen.h"
 #include "chrome/browser/chromeos/login/screens/reset_screen.h"
 #include "chrome/browser/chromeos/login/screens/user_image_screen.h"
+#include "chrome/browser/chromeos/login/screens/welcome_screen.h"
 #include "chrome/browser/chromeos/login/screens/wrong_hwid_screen.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/test/wizard_in_process_browser_test.h"
@@ -88,9 +90,13 @@
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/l10n/l10n_util.h"
 
+using ::testing::_;
 using ::testing::Exactly;
 using ::testing::Invoke;
 using ::testing::Mock;
+using ::testing::Not;
+using ::testing::NotNull;
+using ::testing::IsNull;
 using ::testing::Return;
 
 namespace chromeos {
@@ -135,6 +141,47 @@ class PrefStoreStub : public TestingPrefStore {
 
  private:
   ~PrefStoreStub() override {}
+};
+
+// Matches on non-empty DictionaryValue* object.
+MATCHER(NonEmptyConfiguration, "") {
+  return arg && !arg->DictEmpty();
+}
+
+// Class that ensures that OOBE Configuration was loaded before
+// proceeding with checks.
+class OOBEConfigurationWaiter : public OobeConfiguration::Observer {
+ public:
+  OOBEConfigurationWaiter() = default;
+
+  ~OOBEConfigurationWaiter() override {
+    if (callback_) {
+      OobeConfiguration::Get()->RemoveObserver(this);
+    }
+  };
+
+  // OobeConfiguration::Observer override:
+  void OnOobeConfigurationChanged() override {
+    if (OobeConfiguration::Get()->GetConfiguration().DictEmpty()) {
+      return;
+    }
+    OobeConfiguration::Get()->RemoveObserver(this);
+    std::move(callback_).Run();
+  }
+
+  // Wait until configuration is loaded.
+  bool IsConfigurationLoaded(base::OnceClosure callback) {
+    // Assume that configuration is not loaded if it is empty.
+    if (!OobeConfiguration::Get()->GetConfiguration().DictEmpty()) {
+      return true;
+    }
+    OobeConfiguration::Get()->AddObserver(this);
+    callback_ = std::move(callback);
+    return false;
+  }
+
+ private:
+  base::OnceClosure callback_;
 };
 
 // Used to set up a |FakeAutoEnrollmentClientFactory| for the duration of a
@@ -352,11 +399,8 @@ class WizardControllerTest : public WizardInProcessBrowserTest {
   content::WebContents* GetWebContents() {
     LoginDisplayHost* host = LoginDisplayHost::default_host();
     if (!host)
-      return NULL;
-    WebUILoginView* webui_login_view = host->GetWebUILoginView();
-    if (!webui_login_view)
-      return NULL;
-    return webui_login_view->GetWebContents();
+      return nullptr;
+    return host->GetOobeWebContents();
   }
 
   void WaitUntilJSIsReady() {
@@ -405,7 +449,7 @@ class WizardControllerTest : public WizardInProcessBrowserTest {
 IN_PROC_BROWSER_TEST_F(WizardControllerTest, SwitchLanguage) {
   ASSERT_TRUE(WizardController::default_controller() != NULL);
   WizardController::default_controller()->AdvanceToScreen(
-      OobeScreen::SCREEN_OOBE_NETWORK);
+      OobeScreen::SCREEN_OOBE_WELCOME);
 
   // Checking the default locale. Provided that the profile is cleared in SetUp.
   EXPECT_EQ("en-US", g_browser_process->GetApplicationLocale());
@@ -517,15 +561,15 @@ class WizardControllerFlowTest : public WizardControllerTest {
     NetworkHandler::Get()->network_state_handler()->SetCheckPortalList("");
 
     // Set up the mocks for all screens.
-    mock_network_screen_ = new MockNetworkScreen(
+    mock_welcome_screen_ = new MockWelcomeScreen(
         WizardController::default_controller(),
-        WizardController::default_controller(), GetOobeUI()->GetNetworkView());
+        WizardController::default_controller(), GetOobeUI()->GetWelcomeView());
     WizardController::default_controller()
         ->screen_manager()
-        ->screens_[OobeScreen::SCREEN_OOBE_NETWORK]
-        .reset(mock_network_screen_);
-    EXPECT_CALL(*mock_network_screen_, Show()).Times(0);
-    EXPECT_CALL(*mock_network_screen_, Hide()).Times(0);
+        ->screens_[OobeScreen::SCREEN_OOBE_WELCOME]
+        .reset(mock_welcome_screen_);
+    EXPECT_CALL(*mock_welcome_screen_, Show()).Times(0);
+    EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(0);
 
     MOCK(mock_update_screen_, OobeScreen::SCREEN_OOBE_UPDATE, MockUpdateScreen,
          MockUpdateView);
@@ -543,6 +587,12 @@ class WizardControllerFlowTest : public WizardControllerTest {
          MockEnableDebuggingScreenView);
     MOCK(mock_demo_setup_screen_, OobeScreen::SCREEN_OOBE_DEMO_SETUP,
          MockDemoSetupScreen, MockDemoSetupScreenView);
+    MOCK(mock_demo_preferences_screen_,
+         OobeScreen::SCREEN_OOBE_DEMO_PREFERENCES, MockDemoPreferencesScreen,
+         MockDemoPreferencesScreenView);
+    MOCK(mock_arc_terms_of_service_screen_,
+         OobeScreen::SCREEN_ARC_TERMS_OF_SERVICE, MockArcTermsOfServiceScreen,
+         MockArcTermsOfServiceScreenView);
     device_disabled_screen_view_.reset(new MockDeviceDisabledScreenView);
     wizard_controller->screen_manager()
         ->screens_[OobeScreen::SCREEN_DEVICE_DISABLED] =
@@ -552,12 +602,13 @@ class WizardControllerFlowTest : public WizardControllerTest {
 
     // Switch to the initial screen.
     EXPECT_EQ(NULL, wizard_controller->current_screen());
-    EXPECT_CALL(*mock_network_screen_, Show()).Times(1);
-    wizard_controller->AdvanceToScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+    EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(NotNull(), _)).Times(1);
+    EXPECT_CALL(*mock_welcome_screen_, Show()).Times(1);
+    wizard_controller->AdvanceToScreen(OobeScreen::SCREEN_OOBE_WELCOME);
   }
 
   void TearDownOnMainThread() override {
-    mock_network_screen_ = nullptr;
+    mock_welcome_screen_ = nullptr;
     device_disabled_screen_view_.reset();
     WizardControllerTest::TearDownOnMainThread();
   }
@@ -619,16 +670,17 @@ class WizardControllerFlowTest : public WizardControllerTest {
   }
 
   void TestControlFlowMain() {
-    CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+    CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
 
     WaitUntilJSIsReady();
 
     // Check visibility of the header bar.
     ASSERT_FALSE(JSExecuteBooleanExpression("$('login-header-bar').hidden"));
 
-    EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+    EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+    EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
     EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-    OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+    OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
     CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
 
@@ -669,7 +721,7 @@ class WizardControllerFlowTest : public WizardControllerTest {
                               ->GetCurrentTimezoneID()));
   }
 
-  MockNetworkScreen* mock_network_screen_;  // Unowned ptr.
+  MockWelcomeScreen* mock_welcome_screen_;  // Unowned ptr.
   MockOutShowHide<MockUpdateScreen, MockUpdateView>* mock_update_screen_;
   MockOutShowHide<MockEulaScreen, MockEulaView>* mock_eula_screen_;
   MockOutShowHide<MockEnrollmentScreen, MockEnrollmentScreenView>*
@@ -683,6 +735,12 @@ class WizardControllerFlowTest : public WizardControllerTest {
       mock_enable_debugging_screen_;
   MockOutShowHide<MockDemoSetupScreen, MockDemoSetupScreenView>*
       mock_demo_setup_screen_;
+  MockOutShowHide<MockDemoPreferencesScreen, MockDemoPreferencesScreenView>*
+      mock_demo_preferences_screen_;
+
+  MockOutShowHide<MockArcTermsOfServiceScreen, MockArcTermsOfServiceScreenView>*
+      mock_arc_terms_of_service_screen_;
+
   std::unique_ptr<MockDeviceDisabledScreenView> device_disabled_screen_view_;
 
  private:
@@ -706,12 +764,13 @@ IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest, ControlFlowMain) {
 // log in.
 IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest,
                        ControlFlowErrorUpdateNonCriticalUpdate) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
   EXPECT_CALL(*mock_update_screen_, StartNetworkCheck()).Times(0);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
   EXPECT_CALL(*mock_update_screen_, Show()).Times(0);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -741,12 +800,13 @@ IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest,
 // screen and thus prevents the user from proceeding to log in.
 IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest,
                        ControlFlowErrorUpdateCriticalUpdate) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
   EXPECT_CALL(*mock_update_screen_, StartNetworkCheck()).Times(0);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
   EXPECT_CALL(*mock_update_screen_, Show()).Times(0);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -761,20 +821,22 @@ IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest,
   EXPECT_CALL(*mock_update_screen_, Hide()).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(0);
   EXPECT_CALL(*mock_auto_enrollment_check_screen_, Show()).Times(0);
-  EXPECT_CALL(*mock_network_screen_, Show()).Times(1);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(0);  // last transition
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(NotNull(), _)).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Show()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(0);  // last transition
   OnExit(*mock_update_screen_,
          ScreenExitCode::UPDATE_ERROR_UPDATING_CRITICAL_UPDATE);
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
 }
 
 IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest, ControlFlowSkipUpdateEnroll) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
   EXPECT_CALL(*mock_update_screen_, StartNetworkCheck()).Times(0);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
   EXPECT_CALL(*mock_update_screen_, Show()).Times(0);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -805,24 +867,26 @@ IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest, ControlFlowSkipUpdateEnroll) {
 }
 
 IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest, ControlFlowEulaDeclined) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
   EXPECT_CALL(*mock_update_screen_, StartNetworkCheck()).Times(0);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
-  EXPECT_CALL(*mock_network_screen_, Show()).Times(1);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(0);  // last transition
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(NotNull(), _)).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Show()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(0);  // last transition
   OnExit(*mock_eula_screen_, ScreenExitCode::EULA_BACK);
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
 }
 
 IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest,
                        ControlFlowEnrollmentCompleted) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
   EXPECT_CALL(*mock_update_screen_, StartNetworkCheck()).Times(0);
   EXPECT_CALL(*mock_enrollment_screen_->view(),
               SetParameters(
@@ -830,7 +894,8 @@ IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest,
                   EnrollmentModeMatches(policy::EnrollmentConfig::MODE_MANUAL)))
       .Times(1);
   EXPECT_CALL(*mock_enrollment_screen_, Show()).Times(1);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
 
   WizardController::default_controller()->AdvanceToScreen(
       OobeScreen::SCREEN_OOBE_ENROLLMENT);
@@ -843,7 +908,7 @@ IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest,
 
 IN_PROC_BROWSER_TEST_F(WizardControllerFlowTest,
                        ControlFlowWrongHWIDScreenFromLogin) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
 
   LoginDisplayHost::default_host()->StartSignInScreen(LoginScreenContext());
   EXPECT_FALSE(ExistingUserController::current_controller() == NULL);
@@ -881,12 +946,13 @@ class WizardControllerErrorUpdateAfterCompletedOobeTest
 IN_PROC_BROWSER_TEST_P(WizardControllerErrorUpdateAfterCompletedOobeTest,
                        ControlFlowErrorUpdate) {
   const ScreenExitCode update_screen_exit_code = GetParam();
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
   EXPECT_CALL(*mock_update_screen_, StartNetworkCheck()).Times(0);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
   EXPECT_CALL(*mock_update_screen_, Show()).Times(0);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -978,10 +1044,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateTest,
   EXPECT_NE(policy::AUTO_ENROLLMENT_STATE_NO_ENROLLMENT,
             auto_enrollment_controller()->state());
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1005,10 +1072,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateTest,
 
 IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateTest,
                        ControlFlowDeviceDisabled) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1089,10 +1157,11 @@ class WizardControllerDeviceStateExplicitRequirementTest
 // the device should be enrolled.
 IN_PROC_BROWSER_TEST_P(WizardControllerDeviceStateExplicitRequirementTest,
                        ControlFlowForcedReEnrollment) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1172,10 +1241,11 @@ IN_PROC_BROWSER_TEST_P(WizardControllerDeviceStateExplicitRequirementTest,
   ScopedFakeAutoEnrollmentClientFactory fake_auto_enrollment_client_factory(
       auto_enrollment_controller());
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1324,10 +1394,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
   fake_statistics_provider_.SetMachineStatistic(
       system::kRlzEmbargoEndDateKey,
       GenerateEmbargoEndDate(-15 /* days_offset */));
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1393,10 +1464,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
   fake_statistics_provider_.SetMachineStatistic(
       system::kRlzEmbargoEndDateKey,
       GenerateEmbargoEndDate(-15 /* days_offset */));
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1483,10 +1555,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
   EXPECT_NE(policy::AUTO_ENROLLMENT_STATE_NO_ENROLLMENT,
             auto_enrollment_controller()->state());
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1521,10 +1594,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
   EXPECT_NE(policy::AUTO_ENROLLMENT_STATE_NO_ENROLLMENT,
             auto_enrollment_controller()->state());
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1571,10 +1645,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
   EXPECT_NE(policy::AUTO_ENROLLMENT_STATE_NO_ENROLLMENT,
             auto_enrollment_controller()->state());
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1621,10 +1696,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
   EXPECT_NE(policy::AUTO_ENROLLMENT_STATE_NO_ENROLLMENT,
             auto_enrollment_controller()->state());
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1698,10 +1774,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
   EXPECT_NE(policy::AUTO_ENROLLMENT_STATE_NO_ENROLLMENT,
             auto_enrollment_controller()->state());
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1775,7 +1852,6 @@ IN_PROC_BROWSER_TEST_F(WizardControllerBrokenLocalStateTest,
   ASSERT_FALSE(JSExecuteBooleanExpression("$('error-message').hidden"));
   ASSERT_TRUE(JSExecuteBooleanExpression(
       "$('error-message').classList.contains('ui-state-local-state-error')"));
-  ASSERT_TRUE(JSExecuteBooleanExpression("$('progress-dots').hidden"));
   ASSERT_TRUE(JSExecuteBooleanExpression("$('login-header-bar').hidden"));
 
   // Emulates user click on the "Restart and Powerwash" button.
@@ -1801,7 +1877,7 @@ class WizardControllerProxyAuthOnSigninTest : public WizardControllerTest {
   void SetUpOnMainThread() override {
     WizardControllerTest::SetUpOnMainThread();
     WizardController::default_controller()->AdvanceToScreen(
-        OobeScreen::SCREEN_OOBE_NETWORK);
+        OobeScreen::SCREEN_OOBE_WELCOME);
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -1824,7 +1900,7 @@ IN_PROC_BROWSER_TEST_F(WizardControllerProxyAuthOnSigninTest,
       chrome::NOTIFICATION_AUTH_NEEDED,
       content::NotificationService::AllSources());
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
 
   LoginDisplayHost::default_host()->StartSignInScreen(LoginScreenContext());
   auth_needed_waiter.Wait();
@@ -1856,10 +1932,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerKioskFlowTest,
                             EnrollmentModeMatches(
                                 policy::EnrollmentConfig::MODE_LOCAL_FORCED)))
       .Times(1);
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1899,10 +1976,11 @@ IN_PROC_BROWSER_TEST_F(WizardControllerKioskFlowTest,
                                 policy::EnrollmentConfig::MODE_LOCAL_FORCED)))
       .Times(1);
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
-  OnExit(*mock_network_screen_, ScreenExitCode::NETWORK_CONNECTED);
+  OnExit(*mock_welcome_screen_, ScreenExitCode::NETWORK_CONNECTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
   EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
@@ -1952,20 +2030,24 @@ class WizardControllerEnableDebuggingTest : public WizardControllerFlowTest {
 
 IN_PROC_BROWSER_TEST_F(WizardControllerEnableDebuggingTest,
                        ShowAndCancelEnableDebugging) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
   WaitUntilJSIsReady();
 
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
   EXPECT_CALL(*mock_enable_debugging_screen_, Show()).Times(1);
 
-  ASSERT_TRUE(JSExecute("$('connect-debugging-features-link').click()"));
+  ASSERT_TRUE(
+      JSExecute("chrome.send('login.WelcomeScreen.userActed', "
+                "['connect-debugging-features']);"));
 
   // Let update screen smooth time process (time = 0ms).
   content::RunAllPendingInMessageLoop();
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_ENABLE_DEBUGGING);
   EXPECT_CALL(*mock_enable_debugging_screen_, Hide()).Times(1);
-  EXPECT_CALL(*mock_network_screen_, Show()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(NotNull(), _)).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Show()).Times(1);
 
   OnExit(*mock_enable_debugging_screen_,
          ScreenExitCode::ENABLE_DEBUGGING_CANCELED);
@@ -1973,7 +2055,7 @@ IN_PROC_BROWSER_TEST_F(WizardControllerEnableDebuggingTest,
   // Let update screen smooth time process (time = 0ms).
   content::RunAllPendingInMessageLoop();
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
 }
 
 class WizardControllerDemoSetupTest : public WizardControllerFlowTest {
@@ -1986,29 +2068,208 @@ class WizardControllerDemoSetupTest : public WizardControllerFlowTest {
     command_line->AppendSwitch(chromeos::switches::kEnableDemoMode);
   }
 
+  void SetUpOnMainThread() override {
+    WizardControllerFlowTest::SetUpOnMainThread();
+    testing::Mock::VerifyAndClearExpectations(mock_welcome_screen_);
+  }
+
+  bool IsInDemoSetupFlow() const {
+    return WizardController::default_controller()->is_in_demo_setup_flow_;
+  }
+
  private:
   DISALLOW_COPY_AND_ASSIGN(WizardControllerDemoSetupTest);
 };
 
-IN_PROC_BROWSER_TEST_F(WizardControllerDemoSetupTest,
-                       CloseDemoSetupShouldShowSignIn) {
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+IN_PROC_BROWSER_TEST_F(WizardControllerDemoSetupTest, DemoSetupFlowFinished) {
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_FALSE(IsInDemoSetupFlow());
   WaitUntilJSIsReady();
 
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
+  EXPECT_CALL(*mock_demo_preferences_screen_, Show()).Times(1);
+
+  WizardController::default_controller()->StartDemoModeSetup();
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_DEMO_PREFERENCES);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_demo_preferences_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
+
+  OnExit(*mock_demo_preferences_screen_,
+         ScreenExitCode::DEMO_MODE_PREFERENCES_CONTINUED);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_arc_terms_of_service_screen_, Show()).Times(1);
+
+  OnExit(*mock_eula_screen_, ScreenExitCode::EULA_ACCEPTED);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_ARC_TERMS_OF_SERVICE);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_arc_terms_of_service_screen_, Hide()).Times(1);
   EXPECT_CALL(*mock_demo_setup_screen_, Show()).Times(1);
 
-  WizardController::default_controller()->AdvanceToScreen(
-      OobeScreen::SCREEN_OOBE_DEMO_SETUP);
+  OnExit(*mock_arc_terms_of_service_screen_,
+         ScreenExitCode::ARC_TERMS_OF_SERVICE_ACCEPTED);
 
   CheckCurrentScreen(OobeScreen::SCREEN_OOBE_DEMO_SETUP);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  OnExit(*mock_demo_setup_screen_, ScreenExitCode::DEMO_MODE_SETUP_FINISHED);
+
+  EXPECT_TRUE(StartupUtils::IsOobeCompleted());
+  EXPECT_TRUE(ExistingUserController::current_controller());
+  EXPECT_FALSE(IsInDemoSetupFlow());
+}
+
+IN_PROC_BROWSER_TEST_F(WizardControllerDemoSetupTest, DemoSetupCanceled) {
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_FALSE(IsInDemoSetupFlow());
+  WaitUntilJSIsReady();
+
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
+  EXPECT_CALL(*mock_demo_preferences_screen_, Show()).Times(1);
+
+  WizardController::default_controller()->StartDemoModeSetup();
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_DEMO_PREFERENCES);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_demo_preferences_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
+
+  OnExit(*mock_demo_preferences_screen_,
+         ScreenExitCode::DEMO_MODE_PREFERENCES_CONTINUED);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_arc_terms_of_service_screen_, Show()).Times(1);
+
+  OnExit(*mock_eula_screen_, ScreenExitCode::EULA_ACCEPTED);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_ARC_TERMS_OF_SERVICE);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_arc_terms_of_service_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_demo_setup_screen_, Show()).Times(1);
+
+  OnExit(*mock_arc_terms_of_service_screen_,
+         ScreenExitCode::ARC_TERMS_OF_SERVICE_ACCEPTED);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_DEMO_SETUP);
+  EXPECT_TRUE(IsInDemoSetupFlow());
 
   EXPECT_CALL(*mock_demo_setup_screen_, Hide()).Times(1);
-  EXPECT_CALL(*mock_network_screen_, Show()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Show()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(NotNull(), _)).Times(1);
 
-  OnExit(*mock_demo_setup_screen_, ScreenExitCode::DEMO_MODE_SETUP_CLOSED);
+  OnExit(*mock_demo_setup_screen_, ScreenExitCode::DEMO_MODE_SETUP_CANCELED);
 
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_FALSE(IsInDemoSetupFlow());
+}
+
+IN_PROC_BROWSER_TEST_F(WizardControllerDemoSetupTest, DemoPreferencesCanceled) {
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_FALSE(IsInDemoSetupFlow());
+  WaitUntilJSIsReady();
+
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_demo_preferences_screen_, Show()).Times(1);
+
+  WizardController::default_controller()->StartDemoModeSetup();
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_DEMO_PREFERENCES);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_demo_preferences_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Show()).Times(1);
+
+  OnExit(*mock_demo_preferences_screen_,
+         ScreenExitCode::DEMO_MODE_PREFERENCES_CANCELED);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_FALSE(IsInDemoSetupFlow());
+}
+
+IN_PROC_BROWSER_TEST_F(WizardControllerDemoSetupTest, EulaBackPressed) {
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_FALSE(IsInDemoSetupFlow());
+  WaitUntilJSIsReady();
+
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_demo_preferences_screen_, Show()).Times(1);
+
+  WizardController::default_controller()->StartDemoModeSetup();
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_DEMO_PREFERENCES);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_demo_preferences_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
+
+  OnExit(*mock_demo_preferences_screen_,
+         ScreenExitCode::DEMO_MODE_PREFERENCES_CONTINUED);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_demo_preferences_screen_, Show()).Times(1);
+
+  OnExit(*mock_eula_screen_, ScreenExitCode::EULA_BACK);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_DEMO_PREFERENCES);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+}
+
+IN_PROC_BROWSER_TEST_F(WizardControllerDemoSetupTest, ArcTosBackPressed) {
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+  EXPECT_FALSE(IsInDemoSetupFlow());
+  WaitUntilJSIsReady();
+
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_demo_preferences_screen_, Show()).Times(1);
+
+  WizardController::default_controller()->StartDemoModeSetup();
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_DEMO_PREFERENCES);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_demo_preferences_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
+
+  OnExit(*mock_demo_preferences_screen_,
+         ScreenExitCode::DEMO_MODE_PREFERENCES_CONTINUED);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_eula_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_arc_terms_of_service_screen_, Show()).Times(1);
+
+  OnExit(*mock_eula_screen_, ScreenExitCode::EULA_ACCEPTED);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_ARC_TERMS_OF_SERVICE);
+  EXPECT_TRUE(IsInDemoSetupFlow());
+
+  EXPECT_CALL(*mock_arc_terms_of_service_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_eula_screen_, Show()).Times(1);
+
+  OnExit(*mock_arc_terms_of_service_screen_,
+         ScreenExitCode::ARC_TERMS_OF_SERVICE_BACK);
+
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_EULA);
+  EXPECT_TRUE(IsInDemoSetupFlow());
 }
 
 class WizardControllerOobeResumeTest : public WizardControllerTest {
@@ -2025,8 +2286,8 @@ class WizardControllerOobeResumeTest : public WizardControllerTest {
     NetworkHandler::Get()->network_state_handler()->SetCheckPortalList("");
 
     // Set up the mocks for all screens.
-    MOCK_WITH_DELEGATE(mock_network_screen_, OobeScreen::SCREEN_OOBE_NETWORK,
-                       MockNetworkScreen, MockNetworkView);
+    MOCK_WITH_DELEGATE(mock_welcome_screen_, OobeScreen::SCREEN_OOBE_WELCOME,
+                       MockWelcomeScreen, MockWelcomeView);
     MOCK(mock_enrollment_screen_, OobeScreen::SCREEN_OOBE_ENROLLMENT,
          MockEnrollmentScreen, MockEnrollmentScreenView);
   }
@@ -2040,7 +2301,7 @@ class WizardControllerOobeResumeTest : public WizardControllerTest {
     return WizardController::default_controller()->first_screen();
   }
 
-  MockOutShowHide<MockNetworkScreen, MockNetworkView>* mock_network_screen_;
+  MockOutShowHide<MockWelcomeScreen, MockWelcomeView>* mock_welcome_screen_;
   MockOutShowHide<MockEnrollmentScreen, MockEnrollmentScreenView>*
       mock_enrollment_screen_;
 
@@ -2051,17 +2312,19 @@ class WizardControllerOobeResumeTest : public WizardControllerTest {
 IN_PROC_BROWSER_TEST_F(WizardControllerOobeResumeTest,
                        PRE_ControlFlowResumeInterruptedOobe) {
   // Switch to the initial screen.
-  EXPECT_CALL(*mock_network_screen_, Show()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(NotNull(), _)).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Show()).Times(1);
   WizardController::default_controller()->AdvanceToScreen(
-      OobeScreen::SCREEN_OOBE_NETWORK);
-  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_NETWORK);
+      OobeScreen::SCREEN_OOBE_WELCOME);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
   EXPECT_CALL(*mock_enrollment_screen_->view(),
               SetParameters(
                   mock_enrollment_screen_,
                   EnrollmentModeMatches(policy::EnrollmentConfig::MODE_MANUAL)))
       .Times(1);
   EXPECT_CALL(*mock_enrollment_screen_, Show()).Times(1);
-  EXPECT_CALL(*mock_network_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, Hide()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_, SetConfiguration(IsNull(), _)).Times(1);
 
   WizardController::default_controller()->AdvanceToScreen(
       OobeScreen::SCREEN_OOBE_ENROLLMENT);
@@ -2090,6 +2353,64 @@ IN_PROC_BROWSER_TEST_F(WizardControllerCellularFirstTest, CellularFirstFlow) {
   TestControlFlowMain();
 }
 
+class WizardControllerOobeConfigurationTest : public WizardControllerTest {
+ protected:
+  WizardControllerOobeConfigurationTest() {}
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    WizardControllerTest ::SetUpCommandLine(command_line);
+
+    base::FilePath configuration_file;
+    ASSERT_TRUE(chromeos::test_utils::GetTestDataPath(
+        "oobe_configuration", "non_empty_configuration.json",
+        &configuration_file));
+    command_line->AppendSwitchPath(chromeos::switches::kOobeConfiguration,
+                                   configuration_file);
+  }
+
+  // Overriden from InProcessBrowserTest:
+  void SetUpOnMainThread() override {
+    WizardControllerTest::SetUpOnMainThread();
+
+    // Make sure that OOBE is run as an "official" build.
+    WizardController* wizard_controller =
+        WizardController::default_controller();
+    wizard_controller->is_official_build_ = true;
+
+    // Clear portal list (as it is by default in OOBE).
+    NetworkHandler::Get()->network_state_handler()->SetCheckPortalList("");
+
+    MOCK_WITH_DELEGATE(mock_welcome_screen_, OobeScreen::SCREEN_OOBE_WELCOME,
+                       MockWelcomeScreen, MockWelcomeView);
+  }
+
+  void WaitForConfigurationLoaded() {
+    base::RunLoop run_loop;
+    OOBEConfigurationWaiter waiter;
+    const bool ready = waiter.IsConfigurationLoaded(run_loop.QuitClosure());
+    if (!ready)
+      run_loop.Run();
+  }
+
+ protected:
+  MockOutShowHide<MockWelcomeScreen, MockWelcomeView>* mock_welcome_screen_;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(WizardControllerOobeConfigurationTest);
+};
+
+IN_PROC_BROWSER_TEST_F(WizardControllerOobeConfigurationTest,
+                       ConfigurationIsLoaded) {
+  WaitForConfigurationLoaded();
+  EXPECT_CALL(*mock_welcome_screen_, Show()).Times(1);
+  EXPECT_CALL(*mock_welcome_screen_,
+              SetConfiguration(NonEmptyConfiguration(), _))
+      .Times(1);
+  WizardController::default_controller()->AdvanceToScreen(
+      OobeScreen::SCREEN_OOBE_WELCOME);
+  CheckCurrentScreen(OobeScreen::SCREEN_OOBE_WELCOME);
+}
+
 // TODO(dzhioev): Add test emulating device with wrong HWID.
 
 // TODO(nkostylev): Add test for WebUI accelerators http://crosbug.com/22571
@@ -2111,7 +2432,9 @@ IN_PROC_BROWSER_TEST_F(WizardControllerCellularFirstTest, CellularFirstFlow) {
 // TODO(alemate): Add tests for Sync Consent UI.
 
 // TODO(rsgingerrs): Add tests for Recommend Apps UI.
-static_assert(static_cast<int>(ScreenExitCode::EXIT_CODES_COUNT) == 36,
+
+// TODO(alemate): Add tests for Discover UI.
+static_assert(static_cast<int>(ScreenExitCode::EXIT_CODES_COUNT) == 42,
               "tests for new control flow are missing");
 
 }  // namespace chromeos

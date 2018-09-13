@@ -105,7 +105,7 @@ public class TileGroupTest {
         final View tileView = getTileViewFor(siteToDismiss);
 
         // Dismiss the tile using the context menu.
-        invokeContextMenu(tileView, ContextMenuManager.ID_REMOVE);
+        invokeContextMenu(tileView, ContextMenuManager.ContextMenuItemId.REMOVE);
         Assert.assertTrue(mMostVisitedSites.isUrlBlacklisted(mSiteSuggestionUrls[0]));
 
         // Ensure that the removal is reflected in the ui.
@@ -131,7 +131,7 @@ public class TileGroupTest {
         Assert.assertEquals(3, tileContainer.getChildCount());
 
         // Dismiss the tile using the context menu.
-        invokeContextMenu(tileView, ContextMenuManager.ID_REMOVE);
+        invokeContextMenu(tileView, ContextMenuManager.ContextMenuItemId.REMOVE);
 
         // Ensure that the removal update goes through.
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
@@ -171,10 +171,10 @@ public class TileGroupTest {
     }
 
     private TileGridLayout getTileGridLayout() {
-        ViewGroup aboveTheFoldView = getRecyclerView().getAboveTheFoldView();
-        Assert.assertNotNull("Unable to retrieve the AboveTheFold view.", aboveTheFoldView);
+        ViewGroup newTabPageLayout = mNtp.getNewTabPageLayout();
+        Assert.assertNotNull("Unable to retrieve the NewTabPageLayout.", newTabPageLayout);
 
-        TileGridLayout tileGridLayout = aboveTheFoldView.findViewById(R.id.tile_grid_layout);
+        TileGridLayout tileGridLayout = newTabPageLayout.findViewById(R.id.tile_grid_layout);
         Assert.assertNotNull("Unable to retrieve the TileGridLayout.", tileGridLayout);
         return tileGridLayout;
     }

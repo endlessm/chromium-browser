@@ -45,28 +45,6 @@ using namespace llvm::ELF;
 using namespace lld;
 using namespace lld::elf;
 
-// This is for use when debugging LTO.
-static void saveBuffer(StringRef Buffer, const Twine &Path) {
-  std::error_code EC;
-  raw_fd_ostream OS(Path.str(), EC, sys::fs::OpenFlags::F_None);
-  if (EC)
-    error("cannot create " + Path + ": " + EC.message());
-  OS << Buffer;
-}
-
-static void diagnosticHandler(const DiagnosticInfo &DI) {
-  SmallString<128> S;
-  raw_svector_ostream OS(S);
-  DiagnosticPrinterRawOStream DP(OS);
-  DI.print(DP);
-  warn(S);
-}
-
-static void checkError(Error E) {
-  handleAllErrors(std::move(E),
-                  [&](ErrorInfoBase &EIB) { error(EIB.message()); });
-}
-
 // Creates an empty file to store a list of object files for final
 // linking of distributed ThinLTO.
 static std::unique_ptr<raw_fd_ostream> openFile(StringRef File) {
@@ -121,6 +99,7 @@ static lto::Config createConfig() {
   C.SampleProfile = Config->LTOSampleProfile;
   C.UseNewPM = Config->LTONewPassManager;
   C.DebugPassManager = Config->LTODebugPassManager;
+  C.DwoDir = Config->DwoDir;
 
   if (Config->SaveTemps)
     checkError(C.addSaveTemps(Config->OutputFile.str() + ".",
@@ -223,14 +202,11 @@ void BitcodeCompiler::add(BitcodeFile &F) {
 
 static void createEmptyIndex(StringRef ModulePath) {
   std::string Path = replaceThinLTOSuffix(getThinLTOOutputFile(ModulePath));
-  if (Path.empty())
-    return;
-
   std::unique_ptr<raw_fd_ostream> OS = openFile(Path + ".thinlto.bc");
   if (!OS)
     return;
 
-  ModuleSummaryIndex M(false);
+  ModuleSummaryIndex M(/*HaveGVs*/ false);
   M.setSkipModuleByDistributedBackend();
   WriteIndexToFile(M, *OS);
 

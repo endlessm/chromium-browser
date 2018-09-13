@@ -89,7 +89,8 @@ scoped_refptr<RefcountedKeyedService>
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   // These must be registered before before the HostSettings are passed over to
   // the IOThread.  Simplest to do this on construction.
-  ExtensionService::RegisterContentSettings(settings_map.get(), profile);
+  extensions::ExtensionService::RegisterContentSettings(settings_map.get(),
+                                                        profile);
 #endif // BUILDFLAG(ENABLE_EXTENSIONS)
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   SupervisedUserSettingsService* supervised_service =
@@ -108,32 +109,17 @@ scoped_refptr<RefcountedKeyedService>
     auto channels_provider =
         std::make_unique<NotificationChannelsProviderAndroid>();
 
-    if (base::FeatureList::IsEnabled(features::kSiteNotificationChannels)) {
-      channels_provider->MigrateToChannelsIfNecessary(
-          profile->GetPrefs(), settings_map->GetPrefProvider());
+    channels_provider->MigrateToChannelsIfNecessary(
+        profile->GetPrefs(), settings_map->GetPrefProvider());
 
-      // Clear blocked channels *after* migrating in case the pref provider
-      // contained any erroneously-created channels that need deleting.
-      channels_provider->ClearBlockedChannelsIfNecessary(
-          profile->GetPrefs(),
-          TemplateURLServiceFactory::GetForProfile(profile));
+    // Clear blocked channels *after* migrating in case the pref provider
+    // contained any erroneously-created channels that need deleting.
+    channels_provider->ClearBlockedChannelsIfNecessary(
+        profile->GetPrefs(), TemplateURLServiceFactory::GetForProfile(profile));
 
-      settings_map->RegisterUserModifiableProvider(
-          HostContentSettingsMap::NOTIFICATION_ANDROID_PROVIDER,
-          std::move(channels_provider));
-    } else {
-      // TODO(crbug.com/758553): Remove this unmigration code and the feature
-      // flag once we're confident a kill-switch is no longer necessary (M63?).
-
-      // Clear blocked channels *before* un-migrating to avoid persisting any
-      // erroneously-created channels to the PrefProvider.
-      channels_provider->ClearBlockedChannelsIfNecessary(
-          profile->GetPrefs(),
-          TemplateURLServiceFactory::GetForProfile(profile));
-
-      channels_provider->UnmigrateChannelsIfNecessary(
-          profile->GetPrefs(), settings_map->GetPrefProvider());
-    }
+    settings_map->RegisterUserModifiableProvider(
+        HostContentSettingsMap::NOTIFICATION_ANDROID_PROVIDER,
+        std::move(channels_provider));
   }
 #endif  // defined (OS_ANDROID)
   return settings_map;

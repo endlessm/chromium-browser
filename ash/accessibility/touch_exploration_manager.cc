@@ -10,7 +10,6 @@
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/accessibility/accessibility_focus_ring_controller.h"
 #include "ash/accessibility/touch_exploration_controller.h"
-#include "ash/keyboard/keyboard_observer_register.h"
 #include "ash/public/cpp/app_types.h"
 #include "ash/public/interfaces/accessibility_focus_ring_controller.mojom.h"
 #include "ash/root_window_controller.h"
@@ -20,6 +19,7 @@
 #include "chromeos/audio/chromeos_sounds.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/chromeos_switches.h"
+#include "extensions/common/constants.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/keyboard/keyboard_controller.h"
@@ -39,10 +39,11 @@ TouchExplorationManager::TouchExplorationManager(
     RootWindowController* root_window_controller)
     : root_window_controller_(root_window_controller),
       audio_handler_(chromeos::CrasAudioHandler::Get()),
-      keyboard_observer_(this) {
+      observing_window_(nullptr) {
   Shell::Get()->AddShellObserver(this);
   Shell::Get()->accessibility_controller()->AddObserver(this);
   Shell::Get()->activation_client()->AddObserver(this);
+  keyboard::KeyboardController::Get()->AddObserver(this);
   display::Screen::GetScreen()->AddObserver(this);
   UpdateTouchExplorationState();
 }
@@ -52,11 +53,23 @@ TouchExplorationManager::~TouchExplorationManager() {
   if (Shell::Get()->accessibility_controller())
     Shell::Get()->accessibility_controller()->RemoveObserver(this);
   Shell::Get()->activation_client()->RemoveObserver(this);
+  keyboard::KeyboardController::Get()->RemoveObserver(this);
   display::Screen::GetScreen()->RemoveObserver(this);
   Shell::Get()->RemoveShellObserver(this);
+  if (observing_window_)
+    observing_window_->RemoveObserver(this);
 }
 
 void TouchExplorationManager::OnAccessibilityStatusChanged() {
+  UpdateTouchExplorationState();
+}
+
+void TouchExplorationManager::OnWindowPropertyChanged(aura::Window* winodw,
+                                                      const void* key,
+                                                      intptr_t old) {
+  if (key != aura::client::kAccessibilityTouchExplorationPassThrough)
+    return;
+
   UpdateTouchExplorationState();
 }
 
@@ -118,7 +131,10 @@ void TouchExplorationManager::OnTwoFingerTouchStart() {
 }
 
 void TouchExplorationManager::OnTwoFingerTouchStop() {
-  GetA11yController()->OnTwoFingerTouchStop();
+  // Can be null during shutdown.
+  AccessibilityController* controller = GetA11yController();
+  if (controller)
+    controller->OnTwoFingerTouchStop();
 }
 
 void TouchExplorationManager::PlaySpokenFeedbackToggleCountdown(
@@ -151,6 +167,16 @@ void TouchExplorationManager::OnWindowActivated(
     ::wm::ActivationChangeObserver::ActivationReason reason,
     aura::Window* gained_active,
     aura::Window* lost_active) {
+  if (lost_active && lost_active->HasObserver(this)) {
+    lost_active->RemoveObserver(this);
+    observing_window_ = nullptr;
+  }
+
+  if (gained_active && !gained_active->HasObserver(this)) {
+    gained_active->AddObserver(this);
+    observing_window_ = gained_active;
+  }
+
   UpdateTouchExplorationState();
 }
 
@@ -167,17 +193,8 @@ void TouchExplorationManager::OnKeyboardVisibleBoundsChanged(
   UpdateTouchExplorationState();
 }
 
-void TouchExplorationManager::OnKeyboardClosed() {
-  keyboard_observer_.RemoveAll();
+void TouchExplorationManager::OnKeyboardDisabled() {
   UpdateTouchExplorationState();
-}
-
-void TouchExplorationManager::OnVirtualKeyboardStateChanged(
-    bool activated,
-    aura::Window* root_window) {
-  UpdateKeyboardObserverFromStateChanged(
-      activated, root_window, root_window_controller_->GetRootWindow(),
-      &keyboard_observer_);
 }
 
 void TouchExplorationManager::UpdateTouchExplorationState() {
@@ -213,15 +230,15 @@ void TouchExplorationManager::UpdateTouchExplorationState() {
       // Clear the focus highlight.
       Shell::Get()->accessibility_focus_ring_controller()->SetFocusRing(
           std::vector<gfx::Rect>(),
-          mojom::FocusRingBehavior::PERSIST_FOCUS_RING);
+          mojom::FocusRingBehavior::PERSIST_FOCUS_RING,
+          extension_misc::kChromeVoxExtensionId);
     } else {
       touch_exploration_controller_->SetExcludeBounds(gfx::Rect());
     }
 
     // Virtual keyboard.
-    keyboard::KeyboardController* keyboard_controller =
-        keyboard::KeyboardController::GetInstance();
-    if (keyboard_controller) {
+    auto* keyboard_controller = keyboard::KeyboardController::Get();
+    if (keyboard_controller->enabled()) {
       touch_exploration_controller_->SetLiftActivationBounds(
           keyboard_controller->visual_bounds_in_screen());
     }

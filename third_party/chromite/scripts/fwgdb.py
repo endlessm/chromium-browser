@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import errno
+import glob
 import os
 import re
 import socket
@@ -52,6 +53,8 @@ def ParseArgs(argv):
 
   parser.add_argument('-b', '--board',
                       help='The board overlay name (auto-detect by default)')
+  parser.add_argument('-c', '--cgdb', action='store_true',
+                      help='Use cgdb curses interface rather than plain gdb')
   parser.add_argument('-s', '--symbols',
                       help='Root directory or complete path to symbolized ELF '
                            '(defaults to /build/<BOARD>/firmware)')
@@ -94,11 +97,26 @@ def ParseArgs(argv):
 
 def FindSymbols(firmware_dir, board):
   """Find the symbolized depthcharge ELF (may be supplied by -s flag)."""
+
+  # Allow overriding the file directly just in case our detection screws up.
+  if firmware_dir and firmware_dir.endswith('.elf'):
+    return firmware_dir
+
+  if not firmware_dir:
+    # Unified builds have the format
+    # /build/<board|family>/firmware/<build_target|model>/. The board in
+    # depthcharge corresponds to the build_target in unified builds. For this
+    # reason we need to glob all boards to find the correct build_target.
+    unified_build_dirs = glob.glob('/build/*/firmware/%s' % board)
+    if len(unified_build_dirs) == 1:
+      firmware_dir = unified_build_dirs[0]
+    elif len(unified_build_dirs) > 1:
+      raise ValueError(
+          'Multiple boards were found (%s). Use -s to specify manually' %
+          (', '.join(unified_build_dirs)))
+
   if not firmware_dir:
     firmware_dir = os.path.join(cros_build_lib.GetSysroot(board), 'firmware')
-  # Allow overriding the file directly just in case our detection screws up
-  if firmware_dir.endswith('.elf'):
-    return firmware_dir
 
   # Very old firmware you might still find on GoldenEye had dev.ro.elf.
   basenames = ['dev.elf', 'dev.ro.elf']
@@ -227,10 +245,19 @@ def main(argv):
 
     chost = ParsePortage(opts.board)
     logging.info('Launching GDB...')
+
+    gdb_cmd = chost + '-gdb'
+    gdb_args = [
+        '--symbols', FindSymbols(opts.symbols, opts.board),
+        '--directory', _SRC_DC,
+        '--directory', _SRC_VB,
+        '--directory', _SRC_LP,
+    ] + ex_args
+
+    if opts.cgdb:
+      full_cmd = ['cgdb', '-d', gdb_cmd, '--'] + gdb_args
+    else:
+      full_cmd = [gdb_cmd] + gdb_args
+
     cros_build_lib.RunCommand(
-        [chost + '-gdb',
-         '--symbols', FindSymbols(opts.symbols, opts.board),
-         '--directory', _SRC_DC,
-         '--directory', _SRC_VB,
-         '--directory', _SRC_LP] + ex_args,
-        ignore_sigint=True, debug_level=logging.WARNING)
+        full_cmd, ignore_sigint=True, debug_level=logging.WARNING)

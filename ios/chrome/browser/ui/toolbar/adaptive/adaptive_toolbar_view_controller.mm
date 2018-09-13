@@ -6,8 +6,9 @@
 
 #import "base/logging.h"
 #include "base/metrics/user_metrics.h"
+#include "ios/chrome/browser/ui/animation_util.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
-#import "ios/chrome/browser/ui/popup_menu/popup_menu_flags.h"
+#import "ios/chrome/browser/ui/popup_menu/public/popup_menu_long_press_delegate.h"
 #import "ios/chrome/browser/ui/toolbar/adaptive/adaptive_toolbar_view.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
@@ -15,8 +16,11 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/toolbar/public/omnibox_focuser.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
+#import "ios/chrome/browser/ui/uikit_ui_util.h"
+#import "ios/chrome/browser/ui/util/force_touch_long_press_gesture_recognizer.h"
+#import "ios/chrome/common/material_timing.h"
 #import "ios/third_party/material_components_ios/src/components/ProgressView/src/MaterialProgressView.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
 
@@ -24,12 +28,20 @@
 #error "This file requires ARC support."
 #endif
 
+namespace {
+const CGFloat kRotationInRadians = 5.0 / 180 * M_PI;
+// Scale factor for the animation, must be < 1.
+const CGFloat kScaleFactorDiff = 0.25;
+const CGFloat kTabGridAnimationsTotalDuration = 0.5;
+}  // namespace
+
 @interface AdaptiveToolbarViewController ()
 
 // Redefined to be an AdaptiveToolbarView.
 @property(nonatomic, strong) UIView<AdaptiveToolbarView>* view;
 // Whether a page is loading.
 @property(nonatomic, assign, getter=isLoading) BOOL loading;
+@property(nonatomic, assign) BOOL isNTP;
 
 @end
 
@@ -38,7 +50,9 @@
 @dynamic view;
 @synthesize buttonFactory = _buttonFactory;
 @synthesize dispatcher = _dispatcher;
+@synthesize longPressDelegate = _longPressDelegate;
 @synthesize loading = _loading;
+@synthesize isNTP = _isNTP;
 
 #pragma mark - Public
 
@@ -48,8 +62,6 @@
   self.view.blur.hidden = YES;
   self.view.backgroundColor =
       self.buttonFactory.toolbarConfiguration.backgroundColor;
-  // TODO(crbug.com/804850): Have the correct background color for incognito
-  // NTP.
 }
 
 - (void)resetAfterSideSwipeSnapshot {
@@ -69,6 +81,21 @@
   [super viewDidLoad];
   [self addStandardActionsForAllButtons];
 
+  if (@available(iOS 11.0, *)) {
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(voiceOverChanged:)
+               name:UIAccessibilityVoiceOverStatusDidChangeNotification
+             object:nil];
+  } else {
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(voiceOverChanged:)
+               name:UIAccessibilityVoiceOverStatusChanged
+             object:nil];
+  }
+  [self makeViewAccessibilityTraitsContainer];
+
   // Adds the layout guide to the buttons.
   self.view.toolsMenuButton.guideName = kToolsMenuGuide;
   self.view.tabGridButton.guideName = kTabSwitcherGuide;
@@ -87,6 +114,11 @@
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
   [super traitCollectionDidChange:previousTraitCollection];
   [self updateAllButtonsVisibility];
+  if (IsRegularXRegularSizeClass(self)) {
+    [self.view.progressBar setHidden:YES animated:NO completion:nil];
+  } else if (self.loading) {
+    [self.view.progressBar setHidden:NO animated:NO completion:nil];
+  }
 }
 
 #pragma mark - Public
@@ -116,7 +148,8 @@
 
   if (!loading) {
     [self stopProgressBar];
-  } else if (self.view.progressBar.hidden) {
+  } else if (self.view.progressBar.hidden &&
+             !IsRegularXRegularSizeClass(self) && !self.isNTP) {
     [self.view.progressBar setProgress:0];
     [self.view.progressBar setHidden:NO animated:YES completion:nil];
     // Layout if needed the progress bar to avoid having the progress bar going
@@ -129,8 +162,41 @@
   [self.view.progressBar setProgress:progress animated:YES completion:nil];
 }
 
-- (void)setTabCount:(int)tabCount {
-  [self.view.tabGridButton setTabCount:tabCount];
+- (void)setTabCount:(int)tabCount addedInBackground:(BOOL)inBackground {
+  if (self.view.tabGridButton.tabCount == tabCount)
+    return;
+
+  CGFloat scaleSign = tabCount > self.view.tabGridButton.tabCount ? 1 : -1;
+  self.view.tabGridButton.tabCount = tabCount;
+
+  CGFloat scaleFactor = 1 + scaleSign * kScaleFactorDiff;
+
+  CGAffineTransform baseTransform =
+      inBackground ? CGAffineTransformMakeRotation(kRotationInRadians)
+                   : CGAffineTransformIdentity;
+
+  auto animations = ^{
+    [UIView addKeyframeWithRelativeStartTime:0
+                            relativeDuration:0.5
+                                  animations:^{
+                                    self.view.tabGridButton.transform =
+                                        CGAffineTransformScale(baseTransform,
+                                                               scaleFactor,
+                                                               scaleFactor);
+                                  }];
+    [UIView addKeyframeWithRelativeStartTime:0.5
+                            relativeDuration:0.5
+                                  animations:^{
+                                    self.view.tabGridButton.transform =
+                                        CGAffineTransformIdentity;
+                                  }];
+  };
+
+  [UIView animateKeyframesWithDuration:kTabGridAnimationsTotalDuration
+                                 delay:0
+                               options:UIViewAnimationCurveEaseInOut
+                            animations:animations
+                            completion:nil];
 }
 
 - (void)setPageBookmarked:(BOOL)bookmarked {
@@ -146,13 +212,13 @@
 }
 
 - (void)setIsNTP:(BOOL)isNTP {
-  // No-op, should be handled by the primary toolbar.
+  _isNTP = isNTP;
 }
 
 #pragma mark - NewTabPageControllerDelegate
 
 - (void)setToolbarBackgroundToIncognitoNTPColorWithAlpha:(CGFloat)alpha {
-  // TODO(crbug.com/803379): Implement that.
+  // No-op, not needed in UI refresh.
 }
 
 - (void)setScrollProgressForTabletOmnibox:(CGFloat)progress {
@@ -194,6 +260,9 @@
     case PopupMenuTypeToolsMenu:
       selectedButton = self.view.toolsMenuButton;
       break;
+    case PopupMenuTypeTabStripTabGrid:
+      // ignore
+      break;
   }
 
   selectedButton.spotlighted = YES;
@@ -212,6 +281,36 @@
 
   for (ToolbarButton* button in self.view.allButtons) {
     button.dimmed = NO;
+  }
+}
+
+#pragma mark - Accessibility
+
+// Callback called when the voice over value is changed.
+- (void)voiceOverChanged:(NSNotification*)notification {
+  if (!UIAccessibilityIsVoiceOverRunning())
+    return;
+
+  __weak AdaptiveToolbarViewController* weakSelf = self;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)),
+                 dispatch_get_main_queue(), ^{
+                   // The accessibility traits of the UIToolbar is only
+                   // available after a certain amount of time after voice over
+                   // activation.
+                   [weakSelf makeViewAccessibilityTraitsContainer];
+                 });
+}
+
+// Updates the accessibility traits of the view to have it interpreted as a
+// container by voice over.
+- (void)makeViewAccessibilityTraitsContainer {
+  if (self.view.accessibilityTraits == UIAccessibilityTraitNone) {
+    // TODO(crbug.com/857475): Remove this workaround once it is possible to set
+    // elements as voice over container. For now, set the accessibility traits
+    // of the toolbar to the accessibility traits of a UIToolbar allows it to
+    // act as a voice over container.
+    UIToolbar* toolbar = [[UIToolbar alloc] init];
+    self.view.accessibilityTraits = toolbar.accessibilityTraits;
   }
 }
 
@@ -270,29 +369,36 @@
 
 // Adds a LongPressGesture to the |view|, with target on -|handleLongPress:|.
 - (void)addLongPressGestureToView:(UIView*)view {
-  UILongPressGestureRecognizer* navigationHistoryLongPress =
-      [[UILongPressGestureRecognizer alloc]
+  ForceTouchLongPressGestureRecognizer* gestureRecognizer =
+      [[ForceTouchLongPressGestureRecognizer alloc]
           initWithTarget:self
-                  action:@selector(handleLongPress:)];
-  [view addGestureRecognizer:navigationHistoryLongPress];
+                  action:@selector(handleGestureRecognizer:)];
+  gestureRecognizer.forceThreshold = 0.8;
+  [view addGestureRecognizer:gestureRecognizer];
 }
 
-// Handles the long press on the views.
-- (void)handleLongPress:(UILongPressGestureRecognizer*)gesture {
-  if (gesture.state != UIGestureRecognizerStateBegan)
-    return;
-
-  if (gesture.view == self.view.backButton) {
-    [self.dispatcher showNavigationHistoryBackPopupMenu];
-  } else if (gesture.view == self.view.forwardButton) {
-    [self.dispatcher showNavigationHistoryForwardPopupMenu];
-  } else if (gesture.view == self.view.omniboxButton) {
-    [self.dispatcher showSearchButtonPopup];
-  } else if (gesture.view == self.view.tabGridButton) {
-    [self.dispatcher showTabGridButtonPopup];
-  } else if (gesture.view == self.view.toolsMenuButton) {
-    base::RecordAction(base::UserMetricsAction("MobileToolbarShowMenu"));
-    [self.dispatcher showToolsMenuPopup];
+// Handles the gseture recognizer on the views.
+- (void)handleGestureRecognizer:(UILongPressGestureRecognizer*)gesture {
+  if (gesture.state == UIGestureRecognizerStateBegan) {
+    if (gesture.view == self.view.backButton) {
+      [self.dispatcher showNavigationHistoryBackPopupMenu];
+    } else if (gesture.view == self.view.forwardButton) {
+      [self.dispatcher showNavigationHistoryForwardPopupMenu];
+    } else if (gesture.view == self.view.omniboxButton) {
+      [self.dispatcher showSearchButtonPopup];
+    } else if (gesture.view == self.view.tabGridButton) {
+      [self.dispatcher showTabGridButtonPopup];
+    } else if (gesture.view == self.view.toolsMenuButton) {
+      base::RecordAction(base::UserMetricsAction("MobileToolbarShowMenu"));
+      [self.dispatcher showToolsMenuPopup];
+    }
+    TriggerHapticFeedbackForImpact(UIImpactFeedbackStyleHeavy);
+  } else if (gesture.state == UIGestureRecognizerStateEnded) {
+    [self.longPressDelegate
+        longPressEndedAtPoint:[gesture locationOfTouch:0 inView:nil]];
+  } else if (gesture.state == UIGestureRecognizerStateChanged) {
+    [self.longPressDelegate
+        longPressFocusPointChangedTo:[gesture locationOfTouch:0 inView:nil]];
   }
 }
 

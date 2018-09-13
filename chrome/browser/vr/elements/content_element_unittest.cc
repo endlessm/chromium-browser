@@ -17,7 +17,6 @@
 #include "chrome/browser/vr/text_edit_action.h"
 #include "chrome/browser/vr/ui_scene.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/blink/public/platform/web_input_event.h"
 
 using ::testing::_;
 using ::testing::InSequence;
@@ -53,10 +52,8 @@ class TestPlatformInputHandler : public PlatformInputHandler {
   TestPlatformInputHandler() {}
   ~TestPlatformInputHandler() override {}
 
-  void ForwardEventToPlatformUi(
-      std::unique_ptr<blink::WebInputEvent>) override {}
-  void ForwardEventToContent(std::unique_ptr<blink::WebInputEvent>,
-                             int) override {}
+  void ForwardEventToPlatformUi(std::unique_ptr<InputEvent>) override {}
+  void ForwardEventToContent(std::unique_ptr<InputEvent>, int) override {}
 
   void ClearFocusedElement() override { clear_focus_called_ = true; }
   void OnWebInputEdited(const TextEdits& edits) override { edits_ = edits; }
@@ -89,7 +86,6 @@ class ContentElementSceneTest : public UiTest {
     UiTest::SetUp();
 
     UiInitialState state;
-    state.in_cct = false;
     state.in_web_vr = false;
     auto content_input_delegate =
         std::make_unique<testing::NiceMock<TestContentInputDelegate>>();
@@ -100,8 +96,8 @@ class ContentElementSceneTest : public UiTest {
         std::make_unique<StrictMock<MockTextInputDelegate>>();
 
     input_forwarder_ = std::make_unique<TestPlatformInputHandler>();
-    ui_->GetContentInputDelegateForTest()->SetPlatformInputHandlerForTest(
-        input_forwarder_.get());
+    ui_instance_->GetContentInputDelegateForTest()
+        ->SetPlatformInputHandlerForTest(input_forwarder_.get());
 
     auto* content =
         static_cast<ContentElement*>(scene_->GetUiElementByName(kContentQuad));
@@ -137,7 +133,7 @@ TEST_F(ContentElementSceneTest, WebInputFocus) {
   EXPECT_CALL(*kb_delegate, OnBeginFrame());
   EXPECT_CALL(*kb_delegate, SetTransform(_));
   content->OnFocusChanged(true);
-  EXPECT_TRUE(OnBeginFrame());
+  EXPECT_FALSE(OnBeginFrame());
 
   // Updates from the browser should update keyboard state.
   TextInputInfo info(base::ASCIIToUTF16("asdfg"));
@@ -184,7 +180,7 @@ TEST_F(ContentElementSceneTest, ClearWebInputInfoModel) {
   // Initial state gets pushed when the content element is focused.
   EXPECT_CALL(*text_input_delegate_, UpdateInput(info));
   content->OnFocusChanged(true);
-  EXPECT_TRUE(OnBeginFrame());
+  EXPECT_FALSE(OnBeginFrame());
 
   // Unfocus the content element.
   content->OnFocusChanged(false);
@@ -195,7 +191,7 @@ TEST_F(ContentElementSceneTest, ClearWebInputInfoModel) {
   // so we shouldn't be pushing the stale state.
   EXPECT_CALL(*text_input_delegate_, UpdateInput(TextInputInfo()));
   content->OnFocusChanged(true);
-  EXPECT_TRUE(OnBeginFrame());
+  EXPECT_FALSE(OnBeginFrame());
 }
 
 class ContentElementInputEditingTest : public UiTest {
@@ -203,12 +199,12 @@ class ContentElementInputEditingTest : public UiTest {
   void SetUp() override {
     UiTest::SetUp();
 
-    CreateScene(kNotInCct, kNotInWebVr);
+    CreateScene(kNotInWebVr);
 
     text_input_delegate_ =
         std::make_unique<StrictMock<MockTextInputDelegate>>();
     input_forwarder_ = std::make_unique<TestPlatformInputHandler>();
-    content_delegate_ = ui_->GetContentInputDelegateForTest();
+    content_delegate_ = ui_instance_->GetContentInputDelegateForTest();
     content_delegate_->SetPlatformInputHandlerForTest(input_forwarder_.get());
 
     content_ =

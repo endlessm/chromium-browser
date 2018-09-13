@@ -56,6 +56,7 @@ import org.chromium.content.browser.test.util.JavaScriptUtils;
 import org.chromium.content.browser.test.util.RenderProcessLimit;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.base.PageTransition;
 
 import java.lang.reflect.AnnotatedElement;
@@ -342,7 +343,7 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends ActivityTe
      * @param launchType The type of Tab Launch.
      */
     public Tab loadUrlInNewTab(final String url, final boolean incognito,
-            final TabLaunchType launchType) throws InterruptedException {
+            final @TabLaunchType int launchType) throws InterruptedException {
         Tab tab = null;
         try {
             tab = ThreadUtils.runOnUiThreadBlocking(new Callable<Tab>() {
@@ -473,12 +474,12 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends ActivityTe
         TabModel incognitoTabModel = getActivity().getTabModelSelector().getModel(true);
         TabModelObserver observer = new EmptyTabModelObserver() {
             @Override
-            public void didAddTab(Tab tab, TabLaunchType type) {
+            public void didAddTab(Tab tab, @TabLaunchType int type) {
                 createdCallback.notifyCalled();
             }
 
             @Override
-            public void didSelectTab(Tab tab, TabSelectionType type, int lastId) {
+            public void didSelectTab(Tab tab, @TabSelectionType int type, int lastId) {
                 selectedCallback.notifyCalled();
             }
         };
@@ -619,6 +620,13 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends ActivityTe
 
     public String getTestName() {
         return mCurrentTestName;
+    }
+
+    /**
+     * Gets the ChromeActivityTestRule's EmbeddedTestServer instance if it has one.
+     */
+    public EmbeddedTestServer getTestServer() {
+        return null;
     }
 
     /**

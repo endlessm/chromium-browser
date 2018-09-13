@@ -5,7 +5,6 @@
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_row.h"
 
 #include "base/logging.h"
-
 #import "ios/chrome/browser/ui/omnibox/truncating_attributed_label.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
 #include "ios/chrome/browser/ui/ui_util.h"
@@ -18,8 +17,9 @@
 
 namespace {
 const CGFloat kImageDimensionLength = 19.0;
-const CGFloat kLeadingPaddingIpad = 164;
-const CGFloat kLeadingPaddingIpadCompact = 71;
+// Side (w or h) length for the leading image view.
+const CGFloat kImageViewSizeUIRefresh = 28.0;
+const CGFloat kImageViewCornerRadiusUIRefresh = 7.0;
 const CGFloat kAppendButtonTrailingMargin = 4;
 const CGFloat kAppendButtonSize = 48.0;
 }
@@ -80,15 +80,21 @@ const CGFloat kAppendButtonSize = 48.0;
     // The current implementation is from before using a UITableViewCell.
     [self.contentView addSubview:_appendButton];
 
-    // Leading icon is only displayed on iPad.
-    if (IsIPadIdiom()) {
-      _imageView = [[UIImageView alloc] initWithFrame:CGRectZero];
-      _imageView.userInteractionEnabled = NO;
-      _imageView.contentMode = UIViewContentModeCenter;
+    // Before UI Refresh, the leading icon is only displayed on iPad. In UI
+    // Refresh, it's only in Regular x Regular size class.
+    // TODO(justincohen): Consider using the UITableViewCell's image view.
+    // The current implementation is from before using a UITableViewCell.
+    _imageView = [[UIImageView alloc] initWithFrame:CGRectZero];
+    _imageView.userInteractionEnabled = NO;
+    _imageView.contentMode = UIViewContentModeCenter;
 
-      // TODO(justincohen): Consider using the UITableViewCell's image view.
-      // The current implementation is from before using a UITableViewCell.
-      [self.contentView addSubview:_imageView];
+    if (IsUIRefreshPhase1Enabled()) {
+      _imageView.layer.cornerRadius = kImageViewCornerRadiusUIRefresh;
+      _imageView.backgroundColor = incognito
+                                       ? [UIColor colorWithWhite:1 alpha:0.05]
+                                       : [UIColor colorWithWhite:0 alpha:0.03];
+      _imageView.tintColor = incognito ? [UIColor colorWithWhite:1 alpha:0.4]
+                                       : [UIColor colorWithWhite:0 alpha:0.33];
     }
 
     _answerImageView = [[UIImageView alloc] initWithFrame:CGRectZero];
@@ -102,14 +108,28 @@ const CGFloat kAppendButtonSize = 48.0;
 - (void)layoutSubviews {
   [super layoutSubviews];
   [self layoutAccessoryViews];
+  if ([self showsLeadingIcons]) {
+    [self.contentView addSubview:_imageView];
+  } else {
+    [_imageView removeFromSuperview];
+  }
 }
 
 - (void)layoutAccessoryViews {
+  CGFloat kLeadingPaddingIpad = 164;
+  CGFloat kLeadingPaddingIpadCompact = 71;
+  if (IsUIRefreshPhase1Enabled()) {
+    kLeadingPaddingIpad = 183;
+  }
+
+  CGFloat imageViewSize = IsUIRefreshPhase1Enabled() ? kImageViewSizeUIRefresh
+                                                     : kImageDimensionLength;
   LayoutRect imageViewLayout = LayoutRectMake(
-      IsCompactTablet() ? kLeadingPaddingIpadCompact : kLeadingPaddingIpad,
+      ([self showsLeadingIcons] && IsCompactTablet())
+          ? kLeadingPaddingIpadCompact
+          : kLeadingPaddingIpad,
       CGRectGetWidth(self.contentView.bounds),
-      floor((_rowHeight - kImageDimensionLength) / 2), kImageDimensionLength,
-      kImageDimensionLength);
+      floor((_rowHeight - imageViewSize) / 2), imageViewSize, imageViewSize);
   _imageView.frame = LayoutRectGetRect(imageViewLayout);
 
   LayoutRect trailingAccessoryLayout =
@@ -121,15 +141,14 @@ const CGFloat kAppendButtonSize = 48.0;
   _appendButton.frame = LayoutRectGetRect(trailingAccessoryLayout);
 }
 
-- (void)updateLeadingImage:(int)imageID {
-  _imageView.image = NativeImage(imageID);
-
-  _imageView.accessibilityIdentifier =
-      [NSString stringWithFormat:@"leading image id %d", imageID];
+- (void)updateLeadingImage:(UIImage*)image {
+  _imageView.image = image;
 
   // Adjust the vertical position based on the current size of the row.
+  CGFloat imageViewSize = IsUIRefreshPhase1Enabled() ? kImageViewSizeUIRefresh
+                                                     : kImageDimensionLength;
   CGRect frame = _imageView.frame;
-  frame.origin.y = floor((_rowHeight - kImageDimensionLength) / 2);
+  frame.origin.y = floor((_rowHeight - imageViewSize) / 2);
   _imageView.frame = frame;
 }
 
@@ -159,15 +178,22 @@ const CGFloat kAppendButtonSize = 48.0;
                              ? IDR_IOS_OMNIBOX_KEYBOARD_VIEW_APPEND_INCOGNITO
                              : IDR_IOS_OMNIBOX_KEYBOARD_VIEW_APPEND;
   UIImage* appendImage = NativeReversableImage(appendResourceID, YES);
+  if (IsUIRefreshPhase1Enabled()) {
+    appendImage =
+        [appendImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    _appendButton.tintColor = _incognito ? [UIColor colorWithWhite:1 alpha:0.5]
+                                         : [UIColor colorWithWhite:0 alpha:0.3];
+  } else {
+    int appendSelectedResourceID =
+        _incognito ? IDR_IOS_OMNIBOX_KEYBOARD_VIEW_APPEND_INCOGNITO_HIGHLIGHTED
+                   : IDR_IOS_OMNIBOX_KEYBOARD_VIEW_APPEND_HIGHLIGHTED;
+    UIImage* appendImageSelected =
+        NativeReversableImage(appendSelectedResourceID, YES);
+    [_appendButton setImage:appendImageSelected
+                   forState:UIControlStateHighlighted];
+  }
 
   [_appendButton setImage:appendImage forState:UIControlStateNormal];
-  int appendSelectedResourceID =
-      _incognito ? IDR_IOS_OMNIBOX_KEYBOARD_VIEW_APPEND_INCOGNITO_HIGHLIGHTED
-                 : IDR_IOS_OMNIBOX_KEYBOARD_VIEW_APPEND_HIGHLIGHTED;
-  UIImage* appendImageSelected =
-      NativeReversableImage(appendSelectedResourceID, YES);
-  [_appendButton setImage:appendImageSelected
-                 forState:UIControlStateHighlighted];
 }
 
 - (NSString*)accessibilityLabel {
@@ -178,6 +204,14 @@ const CGFloat kAppendButtonSize = 48.0;
   return _detailTruncatingLabel.hidden
              ? _detailAnswerLabel.attributedText.string
              : _detailTruncatingLabel.attributedText.string;
+}
+
+- (BOOL)showsLeadingIcons {
+  if (IsUIRefreshPhase1Enabled()) {
+    return IsRegularXRegularSizeClass();
+  } else {
+    return IsIPadIdiom();
+  }
 }
 
 @end

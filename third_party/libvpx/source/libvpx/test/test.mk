@@ -1,4 +1,6 @@
 LIBVPX_TEST_SRCS-yes += acm_random.h
+LIBVPX_TEST_SRCS-yes += bench.h
+LIBVPX_TEST_SRCS-yes += bench.cc
 LIBVPX_TEST_SRCS-yes += buffer.h
 LIBVPX_TEST_SRCS-yes += clear_system_state.h
 LIBVPX_TEST_SRCS-yes += codec_factory.h
@@ -25,6 +27,9 @@ LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += alt_ref_aq_segment_test.cc
 LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += vp8_datarate_test.cc
 LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += vp9_datarate_test.cc
 LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += svc_datarate_test.cc
+LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += svc_test.cc
+LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += svc_test.h
+LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += svc_end_to_end_test.cc
 LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += encode_api_test.cc
 LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += error_resilience_test.cc
 LIBVPX_TEST_SRCS-$(CONFIG_ENCODERS)    += i420_video_source.h

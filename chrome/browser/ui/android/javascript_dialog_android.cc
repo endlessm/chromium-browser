@@ -21,26 +21,6 @@ using base::android::JavaParamRef;
 using base::android::ScopedJavaGlobalRef;
 using base::android::ScopedJavaLocalRef;
 
-// JavaScriptDialog:
-JavaScriptDialog::JavaScriptDialog(content::WebContents* parent_web_contents) {
-  parent_web_contents->GetDelegate()->ActivateContents(parent_web_contents);
-}
-
-JavaScriptDialog::~JavaScriptDialog() = default;
-
-base::WeakPtr<JavaScriptDialog> JavaScriptDialog::Create(
-    content::WebContents* parent_web_contents,
-    content::WebContents* alerting_web_contents,
-    const base::string16& title,
-    content::JavaScriptDialogType dialog_type,
-    const base::string16& message_text,
-    const base::string16& default_prompt_text,
-    content::JavaScriptDialogManager::DialogClosedCallback dialog_callback) {
-  return JavaScriptDialogAndroid::Create(
-      parent_web_contents, alerting_web_contents, title, dialog_type,
-      message_text, default_prompt_text, std::move(dialog_callback));
-}
-
 // JavaScriptDialogAndroid:
 JavaScriptDialogAndroid::~JavaScriptDialogAndroid() {
   // In case the dialog is still displaying, tell it to close itself.
@@ -106,9 +86,7 @@ JavaScriptDialogAndroid::JavaScriptDialogAndroid(
     const base::string16& message_text,
     const base::string16& default_prompt_text,
     content::JavaScriptDialogManager::DialogClosedCallback dialog_callback)
-    : JavaScriptDialog(parent_web_contents),
-      dialog_callback_(std::move(dialog_callback)),
-      weak_factory_(this) {
+    : dialog_callback_(std::move(dialog_callback)), weak_factory_(this) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   JNIEnv* env = AttachCurrentThread();

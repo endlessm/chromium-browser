@@ -8,7 +8,6 @@
 #include "Test.h"
 
 // This test is specific to the GPU backend.
-#if SK_SUPPORT_GPU
 #include "GrContext.h"
 #include "GrContextPriv.h"
 #include "GrProxyProvider.h"
@@ -19,6 +18,7 @@
 #include "ProxyUtils.h"
 #include "SkCanvas.h"
 #include "SkSurface.h"
+#include "SkTo.h"
 
 // This was made indivisible by 4 to ensure we test setting GL_PACK_ALIGNMENT properly.
 static const int X_SIZE = 13;
@@ -191,12 +191,8 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ReadWriteAlpha, reporter, ctxInfo) {
                 continue;
             }
 
-            sk_sp<SkColorSpace> colorSpace;
-            if (GrPixelConfigIsSRGB(proxy->config())) {
-                colorSpace = SkColorSpace::MakeSRGB();
-            }
             sk_sp<GrSurfaceContext> sContext = context->contextPriv().makeWrappedSurfaceContext(
-                    std::move(proxy), std::move(colorSpace));
+                    std::move(proxy));
 
             for (auto rowBytes : kRowBytes) {
                 size_t nonZeroRowBytes = rowBytes ? rowBytes : X_SIZE;
@@ -218,5 +214,3 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ReadWriteAlpha, reporter, ctxInfo) {
         }
     }
 }
-
-#endif

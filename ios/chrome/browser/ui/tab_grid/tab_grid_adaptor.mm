@@ -7,6 +7,7 @@
 #import "ios/chrome/browser/tabs/tab_model.h"
 #import "ios/chrome/browser/ui/main/view_controller_swapping.h"
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_paging.h"
+#import "ios/chrome/browser/ui/tab_grid/tab_grid_url_loader.h"
 
 #import "ios/web/public/navigation_manager.h"
 
@@ -25,6 +26,7 @@
 @synthesize adaptedDispatcher = _adaptedDispatcher;
 @synthesize tabGridPager = _tabGridPager;
 @synthesize incognitoMediator = _incognitoMediator;
+@synthesize loader = _loader;
 
 #pragma mark - TabSwitcher
 
@@ -47,9 +49,9 @@
   // The only action here is to signal to the tab grid which panel should be
   // active.
   if (activeModel == otrModel) {
-    self.tabGridPager.currentPage = TabGridPageIncognitoTabs;
+    self.tabGridPager.activePage = TabGridPageIncognitoTabs;
   } else {
-    self.tabGridPager.currentPage = TabGridPageRegularTabs;
+    self.tabGridPager.activePage = TabGridPageRegularTabs;
   }
 }
 
@@ -85,7 +87,9 @@
 
   // Tell the delegate to display the tab.
   DCHECK(self.delegate);
-  [self.delegate tabSwitcher:self shouldFinishWithActiveModel:targetModel];
+  [self.delegate tabSwitcher:self
+      shouldFinishWithActiveModel:targetModel
+                     focusOmnibox:NO];
 
   return tab;
 }
@@ -93,6 +97,8 @@
 - (void)setOtrTabModel:(TabModel*)otrModel {
   DCHECK(self.incognitoMediator);
   self.incognitoMediator.tabModel = otrModel;
+  self.loader.incognitoWebStateList = otrModel.webStateList;
+  self.loader.incognitoBrowserState = otrModel.browserState;
 }
 
 - (void)setTransitionContext:(TabSwitcherTransitionContext*)transitionContext {

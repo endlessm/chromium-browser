@@ -34,11 +34,11 @@ import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetObserver;
 public class ContextualSuggestionsCoordinator {
     private static final String FEEDBACK_CONTEXT = "contextual_suggestions";
 
+    private final Profile mProfile = Profile.getLastUsedProfile().getOriginalProfile();
+    private final ContextualSuggestionsModel mModel = new ContextualSuggestionsModel();
     private final ChromeActivity mActivity;
     private final BottomSheetController mBottomSheetController;
     private final TabModelSelector mTabModelSelector;
-    private final Profile mProfile;
-    private final ContextualSuggestionsModel mModel;
     private final ContextualSuggestionsMediator mMediator;
 
     private @Nullable ToolbarCoordinator mToolbarCoordinator;
@@ -56,16 +56,15 @@ public class ContextualSuggestionsCoordinator {
         mActivity = activity;
         mBottomSheetController = bottomSheetController;
         mTabModelSelector = tabModelSelector;
-        mProfile = Profile.getLastUsedProfile().getOriginalProfile();
 
-        mModel = new ContextualSuggestionsModel();
         mMediator = new ContextualSuggestionsMediator(mProfile, tabModelSelector,
                 activity.getFullscreenManager(), this, mModel,
-                mBottomSheetController.getBottomSheet());
+                mBottomSheetController.getBottomSheet(), activity.getToolbarManager());
     }
 
     /** Called when the containing activity is destroyed. */
     public void destroy() {
+        mModel.getClusterList().destroy();
         mMediator.destroy();
 
         if (mToolbarCoordinator != null) mToolbarCoordinator.destroy();
@@ -106,6 +105,13 @@ public class ContextualSuggestionsCoordinator {
      *                          things needed to display suggestions (e.g. favicons, thumbnails).
      */
     void showSuggestions(ContextualSuggestionsSource suggestionsSource) {
+        // If the content coordinator has already been destroyed when this method is called, return
+        // early. See https://crbug.com/873052.
+        if (mContentCoordinator == null) {
+            assert false : "ContentCoordinator false when #showSuggestions was called.";
+            return;
+        }
+
         SuggestionsNavigationDelegate navigationDelegate = new SuggestionsNavigationDelegateImpl(
                 mActivity, mProfile, mBottomSheetController.getBottomSheet(), mTabModelSelector);
         SuggestionsUiDelegateImpl uiDelegate = new SuggestionsUiDelegateImpl(suggestionsSource,
@@ -176,7 +182,7 @@ public class ContextualSuggestionsCoordinator {
 
     /** @return The height of the bottom sheet when it's peeking. */
     float getSheetPeekHeight() {
-        return mActivity.getBottomSheet().getSheetHeightForState(BottomSheet.SHEET_STATE_PEEK);
+        return mActivity.getBottomSheet().getSheetHeightForState(BottomSheet.SheetState.PEEK);
     }
 
     @VisibleForTesting

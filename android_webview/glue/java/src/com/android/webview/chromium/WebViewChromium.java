@@ -175,10 +175,7 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
             //   comes from a single thread. (Note in JB MR2 this exception was in WebView.java).
             if (mAppTargetSdkVersion >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
                 mFactory.startYourEngines(false);
-                try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
-                             "WebViewChromium.checkThreadInsideInit")) {
-                    checkThread();
-                }
+                checkThread();
             } else if (!mFactory.hasStarted()) {
                 if (Looper.myLooper() == Looper.getMainLooper()) {
                     mFactory.startYourEngines(true);
@@ -198,11 +195,8 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
             final boolean doNotUpdateSelectionOnMutatingSelectionRange =
                     mAppTargetSdkVersion <= Build.VERSION_CODES.M;
 
-            try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
-                         "WebViewChromiumFactoryProvider.createWebViewContentsClientAdapter")) {
-                mContentsClientAdapter =
-                        mFactory.createWebViewContentsClientAdapter(mWebView, mContext);
-            }
+            mContentsClientAdapter =
+                    mFactory.createWebViewContentsClientAdapter(mWebView, mContext);
             try (ScopedSysTraceEvent e2 =
                             ScopedSysTraceEvent.scoped("WebViewChromium.ContentSettingsAdapter")) {
                 mWebSettings = new ContentSettingsAdapter(new AwSettings(mContext,
@@ -457,8 +451,8 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
         }
 
         // Make sure that we do not trigger any callbacks after destruction
-        mContentsClientAdapter.setWebChromeClient(null);
-        mContentsClientAdapter.setWebViewClient(null);
+        setWebChromeClient(null);
+        setWebViewClient(null);
         mContentsClientAdapter.setPictureListener(null, true);
         mContentsClientAdapter.setFindListener(null);
         mContentsClientAdapter.setDownloadListener(null);
@@ -1278,12 +1272,13 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
 
     @Override
     public void setWebViewClient(WebViewClient client) {
-        mContentsClientAdapter.setWebViewClient(client);
+        mSharedWebViewChromium.setWebViewClient(client);
+        mContentsClientAdapter.setWebViewClient(mSharedWebViewChromium.getWebViewClient());
     }
 
     @Override
     public WebViewClient getWebViewClient() {
-        return mContentsClientAdapter.getWebViewClient();
+        return mSharedWebViewChromium.getWebViewClient();
     }
 
     @Override
@@ -1294,12 +1289,13 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
     @Override
     public void setWebChromeClient(WebChromeClient client) {
         mWebSettings.getAwSettings().setFullscreenSupported(doesSupportFullscreen(client));
-        mContentsClientAdapter.setWebChromeClient(client);
+        mSharedWebViewChromium.setWebChromeClient(client);
+        mContentsClientAdapter.setWebChromeClient(mSharedWebViewChromium.getWebChromeClient());
     }
 
     @Override
     public WebChromeClient getWebChromeClient() {
-        return mContentsClientAdapter.getWebChromeClient();
+        return mSharedWebViewChromium.getWebChromeClient();
     }
 
     /**
@@ -2169,10 +2165,7 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
         mAwContents.onFinishTemporaryDetach();
     }
 
-    // TODO(changwan): override WebViewProvider.ViewDelegate method once the framework change has
-    // rolled in.
-    // (not called in O-MR1 and below)
-    // @Override
+    @Override
     public boolean onCheckIsTextEditor() {
         mFactory.startYourEngines(false);
         if (checkNeedsPost()) {

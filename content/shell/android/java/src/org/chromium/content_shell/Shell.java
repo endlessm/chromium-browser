@@ -4,7 +4,6 @@
 
 package org.chromium.content_shell;
 
-import android.app.Activity;
 import android.content.Context;
 import android.graphics.drawable.ClipDrawable;
 import android.text.TextUtils;
@@ -27,13 +26,9 @@ import android.widget.TextView.OnEditorActionListener;
 import org.chromium.base.Callback;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.components.content_view.ContentView;
-import org.chromium.content.browser.ActivityContentVideoViewEmbedder;
-import org.chromium.content.browser.ContentViewCoreImpl;
-import org.chromium.content.browser.ContentViewRenderView;
+import org.chromium.components.embedder_support.view.ContentView;
+import org.chromium.components.embedder_support.view.ContentViewRenderView;
 import org.chromium.content_public.browser.ActionModeCallbackHelper;
-import org.chromium.content_public.browser.ContentVideoViewEmbedder;
-import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.SelectionPopupController;
@@ -56,7 +51,6 @@ public class Shell extends LinearLayout {
         }
     };
 
-    private ContentViewCoreImpl mContentViewCore;
     private WebContents mWebContents;
     private NavigationController mNavigationController;
     private EditText mUrlTextView;
@@ -125,7 +119,6 @@ public class Shell extends LinearLayout {
     private void onNativeDestroyed() {
         mWindow = null;
         mNativeShell = 0;
-        mContentViewCore.destroy();
         mWebContents = null;
     }
 
@@ -303,8 +296,7 @@ public class Shell extends LinearLayout {
         Context context = getContext();
         ContentView cv = ContentView.createContentView(context, webContents);
         mViewAndroidDelegate = new ShellViewAndroidDelegate(cv);
-        mContentViewCore = (ContentViewCoreImpl) ContentViewCore.create(
-                context, "", webContents, mViewAndroidDelegate, cv, mWindow);
+        webContents.initialize(context, "", mViewAndroidDelegate, cv, mWindow);
         mWebContents = webContents;
         SelectionPopupController.fromWebContents(webContents)
                 .setActionModeCallback(defaultActionCallback());
@@ -355,27 +347,6 @@ public class Shell extends LinearLayout {
     }
 
     @CalledByNative
-    public ContentVideoViewEmbedder getContentVideoViewEmbedder() {
-        return new ActivityContentVideoViewEmbedder((Activity) getContext()) {
-            @Override
-            public void enterFullscreenVideo(View view, boolean isVideoLoaded) {
-                super.enterFullscreenVideo(view, isVideoLoaded);
-                if (mContentViewRenderView != null) {
-                    mContentViewRenderView.setOverlayVideoMode(true);
-                }
-            }
-
-            @Override
-            public void exitFullscreenVideo() {
-                super.exitFullscreenVideo();
-                if (mContentViewRenderView != null) {
-                    mContentViewRenderView.setOverlayVideoMode(false);
-                }
-            }
-        };
-    }
-
-    @CalledByNative
     public void setOverlayMode(boolean useOverlayMode) {
         mContentViewRenderView.setOverlayVideoMode(useOverlayMode);
         if (mOverlayModeChangedCallbackForTesting != null) {
@@ -413,13 +384,6 @@ public class Shell extends LinearLayout {
     public ViewGroup getContentView() {
         ViewAndroidDelegate viewDelegate = mWebContents.getViewAndroidDelegate();
         return viewDelegate != null ? viewDelegate.getContainerView() : null;
-    }
-
-    /**
-     * @return The {@link ContentViewCore} currently managing the view shown by this Shell.
-     */
-    public ContentViewCore getContentViewCore() {
-        return mContentViewCore;
     }
 
      /**

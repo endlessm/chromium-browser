@@ -18,6 +18,7 @@
 #include "chromeos/components/proximity_auth/screenlock_state.h"
 #include "chromeos/components/proximity_auth/unlock_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
+#include "chromeos/services/secure_channel/public/mojom/secure_channel.mojom.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 
 namespace proximity_auth {
@@ -53,7 +54,7 @@ class UnlockManagerImpl : public UnlockManager,
   // Creates a ProximityMonitor instance for the given |connection|.
   // Exposed for testing.
   virtual std::unique_ptr<ProximityMonitor> CreateProximityMonitor(
-      cryptauth::Connection* connection,
+      RemoteDeviceLifeCycle* life_cycle,
       ProximityAuthPrefManager* pref_manager);
 
  private:
@@ -101,6 +102,12 @@ class UnlockManagerImpl : public UnlockManager,
   // Called when auth is attempted to send the sign-in challenge to the remote
   // device for decryption.
   void SendSignInChallenge();
+
+  // Once the connection metadata is received from a ClientChannel, its channel
+  // binding data can be used to finish a sign-in request.
+  void OnGetConnectionMetadata(
+      chromeos::secure_channel::mojom::ConnectionMetadataPtr
+          connection_metadata_ptr);
 
   // Called with the sign-in |challenge| so we can send it to the remote device
   // for decryption.

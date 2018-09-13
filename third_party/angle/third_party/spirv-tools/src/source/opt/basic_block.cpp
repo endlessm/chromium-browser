@@ -14,13 +14,16 @@
 
 #include "basic_block.h"
 #include "function.h"
+#include "ir_context.h"
 #include "module.h"
+#include "reflect.h"
 
 #include "make_unique.h"
 
-namespace spvtools {
-namespace ir {
+#include <ostream>
 
+namespace spvtools {
+namespace opt {
 namespace {
 
 const uint32_t kLoopMergeContinueBlockIdInIdx = 1;
@@ -31,7 +34,7 @@ const uint32_t kSelectionMergeMergeBlockIdInIdx = 0;
 
 BasicBlock* BasicBlock::Clone(IRContext* context) const {
   BasicBlock* clone = new BasicBlock(
-      std::unique_ptr<Instruction>(GetLabelInst().Clone(context)));
+      std::unique_ptr<Instruction>(GetLabelInst()->Clone(context)));
   for (const auto& inst : insts_)
     // Use the incoming context
     clone->AddInstruction(std::unique_ptr<Instruction>(inst.Clone(context)));
@@ -86,8 +89,16 @@ Instruction* BasicBlock::GetLoopMergeInst() {
   return nullptr;
 }
 
+void BasicBlock::KillAllInsts(bool killLabel) {
+  ForEachInst([killLabel](opt::Instruction* ip) {
+    if (killLabel || ip->opcode() != SpvOpLabel) {
+      ip->context()->KillInst(ip);
+    }
+  });
+}
+
 void BasicBlock::ForEachSuccessorLabel(
-    const std::function<void(const uint32_t)>& f) {
+    const std::function<void(const uint32_t)>& f) const {
   const auto br = &insts_.back();
   switch (br->opcode()) {
     case SpvOpBranch: {
@@ -104,6 +115,37 @@ void BasicBlock::ForEachSuccessorLabel(
     default:
       break;
   }
+}
+
+void BasicBlock::ForEachSuccessorLabel(
+    const std::function<void(uint32_t*)>& f) {
+  auto br = &insts_.back();
+  switch (br->opcode()) {
+    case SpvOpBranch: {
+      uint32_t tmp_id = br->GetOperand(0).words[0];
+      f(&tmp_id);
+      if (tmp_id != br->GetOperand(0).words[0]) br->SetOperand(0, {tmp_id});
+    } break;
+    case SpvOpBranchConditional:
+    case SpvOpSwitch: {
+      bool is_first = true;
+      br->ForEachInId([&is_first, &f](uint32_t* idp) {
+        if (!is_first) f(idp);
+        is_first = false;
+      });
+    } break;
+    default:
+      break;
+  }
+}
+
+bool BasicBlock::IsSuccessor(const opt::BasicBlock* block) const {
+  uint32_t succId = block->id();
+  bool isSuccessor = false;
+  ForEachSuccessorLabel([&isSuccessor, succId](const uint32_t label) {
+    if (label == succId) isSuccessor = true;
+  });
+  return isSuccessor;
 }
 
 void BasicBlock::ForMergeAndContinueLabel(
@@ -146,5 +188,40 @@ uint32_t BasicBlock::ContinueBlockIdIfAny() const {
   return cbid;
 }
 
-}  // namespace ir
+std::ostream& operator<<(std::ostream& str, const BasicBlock& block) {
+  str << block.PrettyPrint();
+  return str;
+}
+
+std::string BasicBlock::PrettyPrint(uint32_t options) const {
+  std::ostringstream str;
+  ForEachInst([&str, options](const opt::Instruction* inst) {
+    str << inst->PrettyPrint(options);
+    if (!IsTerminatorInst(inst->opcode())) {
+      str << std::endl;
+    }
+  });
+  return str.str();
+}
+
+BasicBlock* BasicBlock::SplitBasicBlock(IRContext* context, uint32_t label_id,
+                                        iterator iter) {
+  assert(!insts_.empty());
+
+  BasicBlock* new_block = new BasicBlock(MakeUnique<Instruction>(
+      context, SpvOpLabel, 0, label_id, std::initializer_list<opt::Operand>{}));
+
+  new_block->insts_.Splice(new_block->end(), &insts_, iter, end());
+  new_block->SetParent(GetParent());
+
+  if (context->AreAnalysesValid(opt::IRContext::kAnalysisInstrToBlockMapping)) {
+    new_block->ForEachInst([new_block, context](opt::Instruction* inst) {
+      context->set_instr_block(inst, new_block);
+    });
+  }
+
+  return new_block;
+}
+
+}  // namespace opt
 }  // namespace spvtools

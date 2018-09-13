@@ -9,11 +9,12 @@
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/layout_constants.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
+#include "chrome/browser/ui/views/harmony/chrome_typography.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/material_design/material_design_controller.h"
@@ -27,27 +28,39 @@
 #include "ui/views/style/platform_style.h"
 #include "ui/views/widget/widget.h"
 
-ToolbarButton::ToolbarButton(Profile* profile,
-                             views::ButtonListener* listener,
-                             std::unique_ptr<ui::MenuModel> model)
-    : views::ImageButton(listener),
-      profile_(profile),
+ToolbarButton::ToolbarButton(views::ButtonListener* listener)
+    : ToolbarButton(listener, nullptr, nullptr) {}
+
+ToolbarButton::ToolbarButton(views::ButtonListener* listener,
+                             std::unique_ptr<ui::MenuModel> model,
+                             TabStripModel* tab_strip_model)
+    : views::LabelButton(listener, base::string16(), CONTEXT_TOOLBAR_BUTTON),
       model_(std::move(model)),
+      tab_strip_model_(tab_strip_model),
+      layout_insets_(GetLayoutInsets(TOOLBAR_BUTTON)),
       show_menu_factory_(this) {
   set_has_ink_drop_action_on_click(true);
   set_context_menu_controller(this);
   SetInkDropMode(InkDropMode::ON);
   SetFocusPainter(nullptr);
-  SetLeadingMargin(0);
   SetInstallFocusRingOnFocus(views::PlatformStyle::kPreferFocusRings);
 
-  if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
-    set_ink_drop_visible_opacity(kTouchToolbarInkDropVisibleOpacity);
+  // Make sure icons are flipped by default so that back, forward, etc. follows
+  // UI direction.
+  EnableCanvasFlippingForRTLUI(true);
+
+  set_ink_drop_visible_opacity(kToolbarInkDropVisibleOpacity);
 
   const int size = GetLayoutConstant(LOCATION_BAR_HEIGHT);
   const int radii = ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
-      views::EMPHASIS_HIGH, gfx::Size(size, size));
+      views::EMPHASIS_MAXIMUM, gfx::Size(size, size));
   set_ink_drop_corner_radii(radii, radii);
+
+  SetImageLabelSpacing(ChromeLayoutProvider::Get()->GetDistanceMetric(
+      DISTANCE_RELATED_LABEL_HORIZONTAL_LIST));
+  SetHorizontalAlignment(gfx::ALIGN_RIGHT);
+
+  UpdateHighlightBackgroundAndInsets();
 }
 
 ToolbarButton::~ToolbarButton() {}
@@ -56,10 +69,45 @@ void ToolbarButton::Init() {
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
 }
 
-void ToolbarButton::SetLeadingMargin(int margin) {
-  const gfx::Insets insets =
-      GetLayoutInsets(TOOLBAR_BUTTON) + gfx::Insets(0, margin, 0, 0);
+void ToolbarButton::SetHighlightColor(base::Optional<SkColor> color) {
+  if (highlight_color_ == color)
+    return;
+
+  highlight_color_ = color;
+  UpdateHighlightBackgroundAndInsets();
+}
+
+void ToolbarButton::UpdateHighlightBackgroundAndInsets() {
+  if (!highlight_color_) {
+    SetBackground(nullptr);
+  } else {
+    // ToolbarButtons are always the height the location bar.
+    const gfx::Insets bg_insets(
+        (height() - GetLayoutConstant(LOCATION_BAR_HEIGHT)) / 2);
+    const SkColor bg_color = SkColorSetA(*highlight_color_, 32);
+    SetBackground(views::CreateBackgroundFromPainter(
+        views::Painter::CreateSolidRoundRectPainter(
+            bg_color, ink_drop_large_corner_radius(), bg_insets)));
+    SetEnabledTextColors(*highlight_color_);
+  }
+
+  gfx::Insets insets = layout_insets_ + gfx::Insets(0, leading_margin_, 0, 0);
+  if (highlight_color_)
+    insets += gfx::Insets(0, ink_drop_large_corner_radius() / 2, 0, 0);
+
   SetBorder(views::CreateEmptyBorder(insets));
+}
+
+void ToolbarButton::SetLayoutInsets(const gfx::Insets& insets) {
+  layout_insets_ = insets;
+  UpdateHighlightBackgroundAndInsets();
+}
+
+void ToolbarButton::SetLeadingMargin(int margin) {
+  if (leading_margin_ == margin)
+    return;
+  leading_margin_ = margin;
+  UpdateHighlightBackgroundAndInsets();
 }
 
 void ToolbarButton::ClearPendingMenu() {
@@ -68,6 +116,15 @@ void ToolbarButton::ClearPendingMenu() {
 
 bool ToolbarButton::IsMenuShowing() const {
   return menu_showing_;
+}
+
+void ToolbarButton::OnBoundsChanged(const gfx::Rect& previous_bounds) {
+  if (focus_ring()) {
+    focus_ring()->SetPath(CreateToolbarFocusRingPath(
+        this, gfx::Insets(0, leading_margin_, 0, 0)));
+  }
+  UpdateHighlightBackgroundAndInsets();
+  LabelButton::OnBoundsChanged(previous_bounds);
 }
 
 bool ToolbarButton::OnMousePressed(const ui::MouseEvent& event) {
@@ -88,11 +145,11 @@ bool ToolbarButton::OnMousePressed(const ui::MouseEvent& event) {
         base::TimeDelta::FromMilliseconds(kMenuTimerDelay));
   }
 
-  return ImageButton::OnMousePressed(event);
+  return LabelButton::OnMousePressed(event);
 }
 
 bool ToolbarButton::OnMouseDragged(const ui::MouseEvent& event) {
-  bool result = ImageButton::OnMouseDragged(event);
+  bool result = LabelButton::OnMouseDragged(event);
 
   if (show_menu_factory_.HasWeakPtrs()) {
     // If the mouse is dragged to a y position lower than where it was when
@@ -110,7 +167,7 @@ bool ToolbarButton::OnMouseDragged(const ui::MouseEvent& event) {
 void ToolbarButton::OnMouseReleased(const ui::MouseEvent& event) {
   if (IsTriggerableEvent(event) ||
       (event.IsRightMouseButton() && !HitTestPoint(event.location()))) {
-    ImageButton::OnMouseReleased(event);
+    LabelButton::OnMouseReleased(event);
   }
 
   if (IsTriggerableEvent(event))
@@ -135,7 +192,7 @@ void ToolbarButton::OnGestureEvent(ui::GestureEvent* event) {
     return;
   }
 
-  ImageButton::OnGestureEvent(event);
+  LabelButton::OnGestureEvent(event);
 }
 
 void ToolbarButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
@@ -147,26 +204,41 @@ void ToolbarButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
 }
 
 std::unique_ptr<views::InkDrop> ToolbarButton::CreateInkDrop() {
-  return CreateToolbarInkDrop<ImageButton>(this);
+  return CreateToolbarInkDrop<LabelButton>(this);
 }
 
 std::unique_ptr<views::InkDropRipple> ToolbarButton::CreateInkDropRipple()
     const {
-  return CreateToolbarInkDropRipple<ImageButton>(
-      this, GetInkDropCenterBasedOnLastEvent());
+  return CreateToolbarInkDropRipple<LabelButton>(
+      this, GetInkDropCenterBasedOnLastEvent(),
+      gfx::Insets(0, leading_margin_, 0, 0));
 }
 
 std::unique_ptr<views::InkDropHighlight> ToolbarButton::CreateInkDropHighlight()
     const {
-  return CreateToolbarInkDropHighlight<ImageButton>(
+  if (highlight_color_) {
+    // TODO(pbos): Unify with CreateToolbarInkDropHighlight which currently
+    // assumes a square inkdrop and uses different bounds for the center point.
+    auto highlight = std::make_unique<views::InkDropHighlight>(
+        size(), ink_drop_large_corner_radius(),
+        gfx::PointF(GetMirroredRect(GetLocalBounds()).CenterPoint()),
+        GetInkDropBaseColor());
+    highlight->set_visible_opacity(kToolbarInkDropHighlightVisibleOpacity);
+    return highlight;
+  }
+
+  return CreateToolbarInkDropHighlight<LabelButton>(
       this, GetMirroredRect(GetContentsBounds()).CenterPoint());
 }
 
 std::unique_ptr<views::InkDropMask> ToolbarButton::CreateInkDropMask() const {
-  return CreateToolbarInkDropMask<ImageButton>(this);
+  return CreateToolbarInkDropMask<LabelButton>(
+      this, gfx::Insets(0, leading_margin_, 0, 0));
 }
 
 SkColor ToolbarButton::GetInkDropBaseColor() const {
+  if (highlight_color_)
+    return *highlight_color_;
   return GetToolbarInkDropBaseColor(this);
 }
 
@@ -225,17 +297,21 @@ void ToolbarButton::ShowDropDownMenu(ui::MenuSourceType source_type) {
 
   AnimateInkDrop(views::InkDropState::ACTIVATED, nullptr /* event */);
 
-  // Exit if the model is null.
-  if (!model_.get())
+  // Exit if the model is null. Although ToolbarButton::ShouldShowMenu()
+  // performs the same check, its overrides may not.
+  if (!model_)
+    return;
+
+  if (tab_strip_model_ && !tab_strip_model_->GetActiveWebContents())
     return;
 
   // Create and run menu.
-  menu_model_adapter_.reset(new views::MenuModelAdapter(
-      model_.get(),
-      base::Bind(&ToolbarButton::OnMenuClosed, base::Unretained(this))));
+  menu_model_adapter_ = std::make_unique<views::MenuModelAdapter>(
+      model_.get(), base::BindRepeating(&ToolbarButton::OnMenuClosed,
+                                        base::Unretained(this)));
   menu_model_adapter_->set_triggerable_event_flags(triggerable_event_flags());
-  menu_runner_.reset(new views::MenuRunner(menu_model_adapter_->CreateMenu(),
-                                           views::MenuRunner::HAS_MNEMONICS));
+  menu_runner_ = std::make_unique<views::MenuRunner>(
+      menu_model_adapter_->CreateMenu(), views::MenuRunner::HAS_MNEMONICS);
   menu_runner_->RunMenuAt(GetWidget(), nullptr,
                           gfx::Rect(menu_position, gfx::Size(0, 0)),
                           views::MENU_ANCHOR_TOPLEFT, source_type);

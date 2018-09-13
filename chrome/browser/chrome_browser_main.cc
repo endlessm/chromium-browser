@@ -31,7 +31,6 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
-#include "base/profiler/stack_sampling_profiler.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
@@ -72,6 +71,7 @@
 #include "chrome/browser/component_updater/widevine_cdm_component_installer.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/webrtc/webrtc_log_util.h"
@@ -95,7 +95,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/resource_coordinator/render_process_probe.h"
-#include "chrome/browser/resource_coordinator/tab_manager.h"
 #include "chrome/browser/sessions/chrome_serialized_navigation_driver.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/tracing/background_tracing_field_trial.h"
@@ -133,8 +132,10 @@
 #include "components/flags_ui/pref_service_flags_storage.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/language/content/browser/geo_language_provider.h"
+#include "components/language/core/browser/pref_names.h"
 #include "components/language/core/common/language_experiments.h"
 #include "components/language_usage_metrics/language_usage_metrics.h"
+#include "components/metrics/call_stack_profile_builder.h"
 #include "components/metrics/call_stack_profile_metrics_provider.h"
 #include "components/metrics/call_stack_profile_params.h"
 #include "components/metrics/expired_histogram_util.h"
@@ -163,6 +164,7 @@
 #include "components/variations/variations_http_header_provider.h"
 #include "components/variations/variations_switches.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -187,10 +189,10 @@
 #include "printing/buildflags/buildflags.h"
 #include "rlz/buildflags/buildflags.h"
 #include "services/service_manager/embedder/main_delegate.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "third_party/blink/public/common/experiments/memory_ablation_experiment.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/layout.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_ANDROID)
@@ -204,6 +206,7 @@
 
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 #include "chrome/browser/first_run/upgrade_util.h"
+#include "chrome/browser/policy/machine_level_user_cloud_policy_controller.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -225,6 +228,7 @@
 #include <Security/Security.h>
 
 #include "base/mac/scoped_nsautorelease_pool.h"
+#include "chrome/browser/app_controller_mac.h"
 #include "chrome/browser/mac/keystone_glue.h"
 #endif  // defined(OS_MACOSX)
 
@@ -296,19 +300,32 @@
 #endif  // BUILDFLAG(ENABLE_RLZ)
 
 #if BUILDFLAG(ENABLE_VR)
+#include "chrome/browser/component_updater/vr_assets_component_installer.h"
 #include "chrome/browser/vr/service/vr_service_impl.h"
 #endif
 
 #if defined(USE_AURA)
-#include "chrome/browser/lifetime/application_lifetime.h"
 #include "services/service_manager/runner/common/client_util.h"
 #include "ui/aura/env.h"
 #endif
-#include "services/service_manager/public/cpp/connector.h"
+
+#if BUILDFLAG(ENABLE_SIMPLE_BROWSER_SERVICE)
+#include "services/content/simple_browser/public/mojom/constants.mojom.h"
+#endif
+
+#if !defined(OS_ANDROID)
+#include "chrome/browser/component_updater/intervention_policy_database_component_installer.h"
+#include "chrome/browser/resource_coordinator/tab_manager.h"
+#endif
 
 using content::BrowserThread;
 
 namespace {
+
+#if !defined(OS_ANDROID)
+// Holds the RunLoop for the non-Android MainMessageLoopRun() to Run().
+base::RunLoop* g_run_loop = nullptr;
+#endif
 
 // This function provides some ways to test crash and assertion handling
 // behavior of the program.
@@ -346,7 +363,7 @@ void InitializeLocalState(base::SequencedTaskRunner* local_state_task_runner) {
     // Other platforms obey the system locale.
     base::string16 install_lang;
     if (GoogleUpdateSettings::GetLanguage(&install_lang)) {
-      local_state->SetString(prefs::kApplicationLocale,
+      local_state->SetString(language::prefs::kApplicationLocale,
                              base::UTF16ToASCII(install_lang));
     }
     bool stats_default;
@@ -384,7 +401,8 @@ void InitializeLocalState(base::SequencedTaskRunner* local_state_task_runner) {
           command_line->GetSwitchValuePath(switches::kParentProfile);
       scoped_refptr<PrefRegistrySimple> registry =
           base::MakeRefCounted<PrefRegistrySimple>();
-      registry->RegisterStringPref(prefs::kApplicationLocale, std::string());
+      registry->RegisterStringPref(language::prefs::kApplicationLocale,
+                                   std::string());
       const std::unique_ptr<PrefService> parent_local_state =
           chrome_prefs::CreateLocalState(parent_profile,
                                          local_state_task_runner,
@@ -392,8 +410,8 @@ void InitializeLocalState(base::SequencedTaskRunner* local_state_task_runner) {
                                          std::move(registry), false, nullptr);
       // Right now, we only inherit the locale setting from the parent profile.
       local_state->SetString(
-          prefs::kApplicationLocale,
-          parent_local_state->GetString(prefs::kApplicationLocale));
+          language::prefs::kApplicationLocale,
+          parent_local_state->GetString(language::prefs::kApplicationLocale));
     }
   }
 
@@ -402,9 +420,11 @@ void InitializeLocalState(base::SequencedTaskRunner* local_state_task_runner) {
     std::string owner_locale = local_state->GetString(prefs::kOwnerLocale);
     // Ensure that we start with owner's locale.
     if (!owner_locale.empty() &&
-        local_state->GetString(prefs::kApplicationLocale) != owner_locale &&
-        !local_state->IsManagedPreference(prefs::kApplicationLocale)) {
-      local_state->SetString(prefs::kApplicationLocale, owner_locale);
+        local_state->GetString(language::prefs::kApplicationLocale) !=
+            owner_locale &&
+        !local_state->IsManagedPreference(
+            language::prefs::kApplicationLocale)) {
+      local_state->SetString(language::prefs::kApplicationLocale, owner_locale);
     }
   }
 #endif  // defined(OS_CHROMEOS)
@@ -588,6 +608,17 @@ void RegisterComponentsForUpdate(PrefService* profile_prefs) {
   RegisterThirdPartyModuleListComponent(cus);
 #endif  // defined(GOOGLE_CHROME_BUILD)
 #endif  // defined(OS_WIN)
+
+#if !defined(OS_ANDROID)
+  RegisterInterventionPolicyDatabaseComponent(
+      cus, g_browser_process->GetTabManager()->intervention_policy_database());
+#endif
+
+#if BUILDFLAG(ENABLE_VR)
+  if (component_updater::ShouldRegisterVrAssetsComponentOnStartup()) {
+    component_updater::RegisterVrAssetsComponent(cus);
+  }
+#endif
 }
 
 #if !defined(OS_ANDROID)
@@ -683,8 +714,8 @@ std::string InitResourceBundleAndDetermineLocale(
   // Tests always get en-US.
   std::string locale = params.ui_task ? "en-US" : std::string();
 #else
-  std::string locale =
-      g_browser_process->local_state()->GetString(prefs::kApplicationLocale);
+  std::string locale = g_browser_process->local_state()->GetString(
+      language::prefs::kApplicationLocale);
 #endif
 
   TRACE_EVENT0("startup",
@@ -717,6 +748,33 @@ bool IsSiteIsolationEnterprisePolicyApplicable() {
 #endif
 }
 
+bool WaitUntilMachineLevelUserCloudPolicyEnrollmentFinished(
+    policy::ChromeBrowserPolicyConnector* connector) {
+#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+  using RegisterResult =
+      policy::MachineLevelUserCloudPolicyController::RegisterResult;
+  switch (connector->machine_level_user_cloud_policy_controller()
+              ->WaitUntilPolicyEnrollmentFinished()) {
+    case RegisterResult::kNoEnrollmentNeeded:
+    case RegisterResult::kEnrollmentSuccessBeforeDialogDisplayed:
+      return true;
+    case RegisterResult::kEnrollmentSuccess:
+#if defined(OS_MACOSX)
+      app_controller_mac::EnterpriseStartupDialogClosed();
+#endif
+      return true;
+    case RegisterResult::kRestartDueToFailure:
+      chrome::AttemptRestart();
+      return false;
+    case RegisterResult::kQuitDueToFailure:
+      chrome::AttemptExit();
+      return false;
+  }
+#else
+  return true;
+#endif
+}
+
 }  // namespace
 
 namespace chrome_browser {
@@ -734,133 +792,6 @@ const char kMissingLocaleDataMessage[] =
 #endif  // defined(OS_WIN)
 
 }  // namespace chrome_browser
-
-#if !defined(OS_ANDROID)
-// A TaskRunner that defers tasks until the real task runner is up and running.
-// This is used during early initialization, before the real task runner has
-// been created. DeferringTaskRunner has the following states.
-//
-// . kInstalled: the initial state. Tasks are added to |deferred_runner_|. In
-//   this state this is installed as the active ThreadTaskRunnerHandle.
-// . kWaitingForMainToStart: this is no longer the active
-//   ThreadTaskRunnerHandle, tasks are still deferred though.
-// . kMessageLoopRunning: last state, all deferred tasks are flushed to the
-//   active ThreadTaskRunnerHandle.
-//
-// The state changes by calling AdvanceToNextState(), and state changes in
-// order.
-class ChromeBrowserMainParts::DeferringTaskRunner
-    : public base::SingleThreadTaskRunner {
- public:
-  DeferringTaskRunner() {
-    deferred_runner_ =
-        base::MakeRefCounted<base::DeferredSequencedTaskRunner>();
-    thread_task_runner_handle_ =
-        std::make_unique<base::ThreadTaskRunnerHandle>(this);
-  }
-
-  bool is_at_end_state() const {
-    base::AutoLock lock(lock_);
-    return state_ == State::kMessageLoopRunning;
-  }
-
-  // See description above class for details.
-  void AdvanceToNextState() {
-    std::unique_ptr<base::ThreadTaskRunnerHandle> thread_task_runner_handle;
-    {
-      base::AutoLock lock(lock_);
-      switch (state_) {
-        case State::kInstalled:
-          state_ = State::kWaitingForMainToStart;
-          // ~ThreadTaskRunnerHandle calls back to
-          // RunsTasksInCurrentSequence(), so destruction has to happen when
-          // the lock isn't held.
-          thread_task_runner_handle = std::move(thread_task_runner_handle_);
-          break;
-
-        case State::kWaitingForMainToStart:
-          state_ = State::kMessageLoopRunning;
-          deferred_runner_->StartWithTaskRunner(
-              base::ThreadTaskRunnerHandle::Get());
-          deferred_runner_ = nullptr;
-          main_thread_task_runner_ = base::ThreadTaskRunnerHandle::Get();
-          break;
-
-        case State::kMessageLoopRunning:
-          NOTREACHED();
-      }
-    }
-  }
-
-  // base::SequencedTaskRunner:
-  bool PostDelayedTask(const base::Location& from_here,
-                       base::OnceClosure task,
-                       base::TimeDelta delay) override {
-    base::AutoLock lock(lock_);
-    switch (state_) {
-      case State::kInstalled:
-      case State::kWaitingForMainToStart:
-        return deferred_runner_->PostDelayedTask(from_here, std::move(task),
-                                                 delay);
-
-      case State::kMessageLoopRunning:
-        return main_thread_task_runner_->PostDelayedTask(
-            from_here, std::move(task), delay);
-    }
-    NOTREACHED();
-    return false;
-  }
-  bool RunsTasksInCurrentSequence() const override {
-    base::AutoLock lock(lock_);
-    switch (state_) {
-      case State::kInstalled:
-      case State::kWaitingForMainToStart:
-        return deferred_runner_->RunsTasksInCurrentSequence();
-
-      case State::kMessageLoopRunning:
-        return main_thread_task_runner_->RunsTasksInCurrentSequence();
-    }
-    NOTREACHED();
-    return false;
-  }
-  bool PostNonNestableDelayedTask(const base::Location& from_here,
-                                  base::OnceClosure task,
-                                  base::TimeDelta delay) override {
-    base::AutoLock lock(lock_);
-    switch (state_) {
-      case State::kInstalled:
-      case State::kWaitingForMainToStart:
-        return deferred_runner_->PostNonNestableDelayedTask(
-            from_here, std::move(task), delay);
-
-      case State::kMessageLoopRunning:
-        return main_thread_task_runner_->PostNonNestableDelayedTask(
-            from_here, std::move(task), delay);
-    }
-    NOTREACHED();
-    return false;
-  }
-
- private:
-  // See class description for details on states.
-  enum class State {
-    kInstalled,
-    kWaitingForMainToStart,
-    kMessageLoopRunning,
-  };
-
-  ~DeferringTaskRunner() override = default;
-
-  // |lock_| protects *all* members.
-  mutable base::Lock lock_;
-  scoped_refptr<base::DeferredSequencedTaskRunner> deferred_runner_;
-  scoped_refptr<SingleThreadTaskRunner> main_thread_task_runner_;
-  std::unique_ptr<base::ThreadTaskRunnerHandle> thread_task_runner_handle_;
-  State state_ = State::kInstalled;
-
-  DISALLOW_COPY_AND_ASSIGN(DeferringTaskRunner);
-};
-#endif
 
 // BrowserMainParts ------------------------------------------------------------
 
@@ -888,11 +819,6 @@ ChromeBrowserMainParts::ChromeBrowserMainParts(
 #if !defined(OS_ANDROID)
   startup_watcher_ = std::make_unique<StartupTimeBomb>();
   shutdown_watcher_ = std::make_unique<ShutdownWatcherHelper>();
-
-  // This needs to be created in the constructor as Chrome OS now creates some
-  // classes that depend upon a ThreadTaskRunnerHandle in
-  // PreEarlyInitialization().
-  initial_task_runner_ = base::MakeRefCounted<DeferringTaskRunner>();
 #endif  // !defined(OS_ANDROID)
 }
 
@@ -1114,10 +1040,6 @@ void ChromeBrowserMainParts::ToolkitInitialized() {
 }
 
 void ChromeBrowserMainParts::PreMainMessageLoopStart() {
-#if !defined(OS_ANDROID)
-  initial_task_runner_->AdvanceToNextState();
-#endif
-
   TRACE_EVENT0("startup", "ChromeBrowserMainParts::PreMainMessageLoopStart");
 
   for (size_t i = 0; i < chrome_extra_parts_.size(); ++i)
@@ -1294,11 +1216,6 @@ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
   // Cache first run state early.
   first_run::IsChromeFirstRun();
 
-  // The real ThreadTaskRunnerHandle has been installed. Flush all the tasks
-  // and release the ref to |initial_task_runner_| so that it may be destroyed.
-  initial_task_runner_->AdvanceToNextState();
-  DCHECK(initial_task_runner_->is_at_end_state());
-  initial_task_runner_ = nullptr;
 #endif  // !defined(OS_ANDROID)
 
   PrefService* local_state = browser_process_->local_state();
@@ -1315,17 +1232,18 @@ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
   }
 
 #if !defined(OS_ANDROID)
+  // Create the RunLoop for MainMessageLoopRun() to use, and pass a copy of
+  // its QuitClosure to the BrowserProcessImpl to call when it is time to exit.
+  DCHECK(!g_run_loop);
+  g_run_loop = new base::RunLoop;
+  browser_process_->SetQuitClosure(g_run_loop->QuitWhenIdleClosure());
+
   // These members must be initialized before returning from this function.
   // Android doesn't use StartupBrowserCreator.
   browser_creator_.reset(new StartupBrowserCreator);
   // TODO(yfriedman): Refactor Android to re-use UMABrowsingActivityObserver
   chrome::UMABrowsingActivityObserver::Init();
 #endif  // !defined(OS_ANDROID)
-
-  // The MaterialDesignController needs to look at command line flags, which
-  // are not available until this point. Now that they are, proceed with
-  // initializing the MaterialDesignController.
-  ui::MaterialDesignController::Initialize();
 
 #if defined(OS_WIN)
   // This is needed to enable ETW exporting when requested in about:flags.
@@ -1541,9 +1459,9 @@ void ChromeBrowserMainParts::PreBrowserStart() {
   for (size_t i = 0; i < chrome_extra_parts_.size(); ++i)
     chrome_extra_parts_[i]->PreBrowserStart();
 
-// Start the tab manager here so that we give the most amount of time for the
-// other services to start up before we start adjusting the oom priority.
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
+#if !defined(OS_ANDROID)
+  // Start the tab manager here so that we give the most amount of time for the
+  // other services to start up before we start adjusting the oom priority.
   g_browser_process->GetTabManager()->Start();
 #endif
 
@@ -1623,6 +1541,14 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
   // Do any initializating in the browser process that requires all threads
   // running.
   browser_process_->PreMainMessageLoopRun();
+
+  // Wait for the result of machine level user cloud policy enrollment after
+  // we start the enrollment process in browser_porcess_->PreMainMessageLoopRun.
+  // Abort the launch process if the enrollment is failed.
+  if (!WaitUntilMachineLevelUserCloudPolicyEnrollmentFinished(
+          browser_process_->browser_policy_connector())) {
+    return chrome::RESULT_CODE_CLOUD_POLICY_ENROLLMENT_FAILED;
+  }
 
   // Record last shutdown time into a histogram.
   browser_shutdown::ReadLastShutdownInfo();
@@ -1851,7 +1777,7 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
   if (first_run::IsChromeFirstRun()) {
     first_run::AutoImport(profile_, master_prefs_->import_bookmarks_path);
 
-    // Note: this can pop the first run consent dialog on linux.
+    // Note: This can pop-up the first run consent dialog on Linux & Mac.
     first_run::DoPostImportTasks(profile_,
                                  master_prefs_->make_chrome_default_for_user);
 
@@ -2116,6 +2042,14 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
                       base::TimeTicks::Now() - start_time_step3);
 #endif  // !defined(OS_ANDROID)
 
+#if BUILDFLAG(ENABLE_SIMPLE_BROWSER_SERVICE)
+  const char kLaunchSimpleBrowserSwitch[] = "launch-simple-browser";
+  if (parsed_command_line().HasSwitch(kLaunchSimpleBrowserSwitch)) {
+    content::BrowserContext::GetConnectorFor(profile_)->StartService(
+        service_manager::Identity(simple_browser::mojom::kServiceName));
+  }
+#endif  // BUILDFLAG(ENABLE_SIMPLE_BROWSER_SERVICE)
+
   return result_code_;
 }
 
@@ -2141,7 +2075,6 @@ bool ChromeBrowserMainParts::MainMessageLoopRun(int* result_code) {
   RecordBrowserStartupTime();
 
   DCHECK(base::MessageLoopForUI::IsCurrent());
-  base::RunLoop run_loop;
 
   performance_monitor::PerformanceMonitor::GetInstance()->StartGatherCycle();
 
@@ -2150,7 +2083,7 @@ bool ChromeBrowserMainParts::MainMessageLoopRun(int* result_code) {
   metrics::MetricsService::SetExecutionPhase(
       metrics::ExecutionPhase::MAIN_MESSAGE_LOOP_RUN,
       g_browser_process->local_state());
-  run_loop.Run();
+  g_run_loop->Run();
 
   return true;
 #endif  // defined(OS_ANDROID)
@@ -2197,7 +2130,7 @@ void ChromeBrowserMainParts::PostMainMessageLoopRun() {
 }
 
 void ChromeBrowserMainParts::PreShutdown() {
-  base::StackSamplingProfiler::SetProcessMilestone(
+  metrics::CallStackProfileBuilder::SetProcessMilestone(
       metrics::CallStackProfileMetricsProvider::SHUTDOWN_START);
 }
 
@@ -2247,3 +2180,12 @@ void ChromeBrowserMainParts::PostDestroyThreads() {
 void ChromeBrowserMainParts::AddParts(ChromeBrowserMainExtraParts* parts) {
   chrome_extra_parts_.push_back(parts);
 }
+
+#if !defined(OS_ANDROID)
+// static
+std::unique_ptr<base::RunLoop> ChromeBrowserMainParts::TakeRunLoopForTest() {
+  auto run_loop = base::WrapUnique<base::RunLoop>(g_run_loop);
+  g_run_loop = nullptr;
+  return run_loop;
+}
+#endif

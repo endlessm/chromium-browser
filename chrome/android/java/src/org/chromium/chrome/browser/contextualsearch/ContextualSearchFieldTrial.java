@@ -55,6 +55,7 @@ public class ContextualSearchFieldTrial {
     private static final String SHORT_TEXT_RUN_SUPPRESSION_ENABLED =
             "enable_short_text_run_suppression";
     private static final String SMALL_TEXT_SUPPRESSION_ENABLED = "enable_small_text_suppression";
+    static final String ENGAGEMENT_SUPPRESSION_ENABLED = "enable_engagement_suppression";
     @VisibleForTesting
     static final String NOT_AN_ENTITY_SUPPRESSION_ENABLED = "enable_not_an_entity_suppression";
     // The threshold for tap suppression based on duration.
@@ -99,6 +100,7 @@ public class ContextualSearchFieldTrial {
     private static Boolean sIsShortWordSuppressionEnabled;
     private static Boolean sIsNotLongWordSuppressionEnabled;
     private static Boolean sIsNotAnEntitySuppressionEnabled;
+    private static Boolean sIsEngagementSuppressionEnabled;
     private static Boolean sIsShortTextRunSuppressionEnabled;
     private static Boolean sIsSmallTextSuppressionEnabled;
     private static Integer sMinimumSelectionLength;
@@ -126,16 +128,12 @@ public class ContextualSearchFieldTrial {
      * @return Whether Contextual Search is enabled or not.
      */
     public static boolean isEnabled() {
-        if (sEnabled == null) {
-            sEnabled = detectEnabled();
-        }
+        if (sEnabled == null) sEnabled = detectEnabled();
         return sEnabled.booleanValue();
     }
 
     private static boolean detectEnabled() {
-        if (SysUtils.isLowEndDevice()) {
-            return false;
-        }
+        if (SysUtils.isLowEndDevice()) return false;
 
         // Allow this user-flippable flag to disable the feature.
         if (CommandLine.getInstance().hasSwitch(ChromeSwitches.DISABLE_CONTEXTUAL_SEARCH)) {
@@ -148,9 +146,7 @@ public class ContextualSearchFieldTrial {
         }
 
         // Allow disabling the feature remotely.
-        if (getBooleanParam(DISABLED_PARAM)) {
-            return false;
-        }
+        if (getBooleanParam(DISABLED_PARAM)) return false;
 
         return true;
     }
@@ -278,6 +274,16 @@ public class ContextualSearchFieldTrial {
             sIsNotAnEntitySuppressionEnabled = getBooleanParam(NOT_AN_ENTITY_SUPPRESSION_ENABLED);
         }
         return sIsNotAnEntitySuppressionEnabled.booleanValue();
+    }
+
+    /**
+     * @return Whether triggering is suppressed due to lack of engagement with the feature.
+     */
+    static boolean isEngagementSuppressionEnabled() {
+        if (sIsEngagementSuppressionEnabled == null) {
+            sIsEngagementSuppressionEnabled = getBooleanParam(ENGAGEMENT_SUPPRESSION_ENABLED);
+        }
+        return sIsEngagementSuppressionEnabled.booleanValue();
     }
 
     /**

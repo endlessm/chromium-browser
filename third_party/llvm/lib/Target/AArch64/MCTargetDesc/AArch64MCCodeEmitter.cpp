@@ -163,6 +163,13 @@ public:
                                 SmallVectorImpl<MCFixup> &Fixups,
                                 const MCSubtargetInfo &STI) const;
 
+  uint32_t getImm8OptLsl(const MCInst &MI, unsigned OpIdx,
+                         SmallVectorImpl<MCFixup> &Fixups,
+                         const MCSubtargetInfo &STI) const;
+  uint32_t getSVEIncDecImm(const MCInst &MI, unsigned OpIdx,
+                           SmallVectorImpl<MCFixup> &Fixups,
+                           const MCSubtargetInfo &STI) const;
+
   unsigned fixMOVZ(const MCInst &MI, unsigned EncodedValue,
                    const MCSubtargetInfo &STI) const;
 
@@ -507,6 +514,34 @@ AArch64MCCodeEmitter::getVecShiftL8OpValue(const MCInst &MI, unsigned OpIdx,
   const MCOperand &MO = MI.getOperand(OpIdx);
   assert(MO.isImm() && "Expected an immediate value for the scale amount!");
   return MO.getImm() - 8;
+}
+
+uint32_t
+AArch64MCCodeEmitter::getImm8OptLsl(const MCInst &MI, unsigned OpIdx,
+                                    SmallVectorImpl<MCFixup> &Fixups,
+                                    const MCSubtargetInfo &STI) const {
+  // Test shift
+  auto ShiftOpnd = MI.getOperand(OpIdx + 1).getImm();
+  assert(AArch64_AM::getShiftType(ShiftOpnd) == AArch64_AM::LSL &&
+         "Unexpected shift type for imm8_opt_lsl immediate.");
+
+  unsigned ShiftVal = AArch64_AM::getShiftValue(ShiftOpnd);
+  assert((ShiftVal == 0 || ShiftVal == 8) &&
+         "Unexpected shift value for imm8_opt_lsl immediate.");
+
+  // Test immediate
+  auto Immediate = MI.getOperand(OpIdx).getImm();
+  return (Immediate & 0xff) | (ShiftVal == 0 ? 0 : (1 << ShiftVal));
+}
+
+uint32_t
+AArch64MCCodeEmitter::getSVEIncDecImm(const MCInst &MI, unsigned OpIdx,
+                                           SmallVectorImpl<MCFixup> &Fixups,
+                                           const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpIdx);
+  assert(MO.isImm() && "Expected an immediate value!");
+  // Normalize 1-16 range to 0-15.
+  return MO.getImm() - 1;
 }
 
 /// getMoveVecShifterOpValue - Return the encoded value for the vector move

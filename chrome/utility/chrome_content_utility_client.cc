@@ -81,9 +81,19 @@
 #include "chrome/utility/printing_handler.h"
 #endif
 
+#if BUILDFLAG(ENABLE_PRINTING) && defined(OS_CHROMEOS)
+#include "chrome/services/cups_ipp_validator/cups_ipp_validator_service.h"  // nogncheck
+#include "chrome/services/cups_ipp_validator/public/mojom/constants.mojom.h"  // nogncheck
+#endif
+
 #if defined(FULL_SAFE_BROWSING) || defined(OS_CHROMEOS)
 #include "chrome/services/file_util/file_util_service.h"  // nogncheck
 #include "chrome/services/file_util/public/mojom/constants.mojom.h"  // nogncheck
+#endif
+
+#if BUILDFLAG(ENABLE_SIMPLE_BROWSER_SERVICE)
+#include "services/content/simple_browser/public/mojom/constants.mojom.h"
+#include "services/content/simple_browser/simple_browser_service.h"
 #endif
 
 namespace {
@@ -220,6 +230,16 @@ void ChromeContentUtilityClient::RegisterServices(
   }
 #endif
 
+#if BUILDFLAG(ENABLE_PRINTING) && defined(OS_CHROMEOS)
+  {
+    service_manager::EmbeddedServiceInfo service_info;
+    service_info.factory =
+        base::BindRepeating(&CupsIppValidatorService::CreateService);
+    services->emplace(chrome::mojom::kCupsIppValidatorServiceName,
+                      service_info);
+  }
+#endif
+
 #if defined(FULL_SAFE_BROWSING) || defined(OS_CHROMEOS)
   {
     service_manager::EmbeddedServiceInfo service_info;
@@ -260,6 +280,17 @@ void ChromeContentUtilityClient::RegisterServices(
 #if defined(OS_CHROMEOS)
   // TODO(jamescook): Figure out why we have to do this when not using mash.
   mash_service_factory_->RegisterOutOfProcessServices(services);
+#endif
+
+#if BUILDFLAG(ENABLE_SIMPLE_BROWSER_SERVICE)
+  {
+    service_manager::EmbeddedServiceInfo service_info;
+    service_info.factory =
+        base::BindRepeating([]() -> std::unique_ptr<service_manager::Service> {
+          return std::make_unique<simple_browser::SimpleBrowserService>();
+        });
+    services->emplace(simple_browser::mojom::kServiceName, service_info);
+  }
 #endif
 }
 

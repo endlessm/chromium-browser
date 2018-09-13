@@ -24,16 +24,6 @@ import sys
 # github.com/luci/recipes-py/blob/master/recipe_modules/generator_script/api.py
 _CATAPULT_TESTS = [
     {
-        'name': 'BattOr Smoke Tests',
-        'path': 'common/battor/battor/battor_wrapper_devicetest.py',
-        'disabled': ['android'],
-    },
-    {
-        'name': 'BattOr Unit Tests',
-        'path': 'common/battor/bin/run_py_tests',
-        'disabled': ['android'],
-    },
-    {
         'name': 'Build Python Tests',
         'path': 'catapult_build/bin/run_py_tests',
         'disabled': ['android'],
@@ -179,6 +169,14 @@ _CATAPULT_TESTS = [
         'disabled': ['android'],
     },
     {
+        'name': 'Typ unittest',
+        'path': 'third_party/typ/run',
+        'additional_args': ['tests'],
+        'disabled': [
+            'android',
+            'win'],  # TODO(crbug.com/851498): enable typ unittests on Win
+    },
+    {
         'name': 'Vinn Tests',
         'path': 'third_party/vinn/bin/run_tests',
         'disabled': ['android'],
@@ -253,7 +251,15 @@ def main(args=None):
         'name': test['name'],
         'env': {}
     }
-    step['cmd'] = ['python', os.path.join(args.api_path_checkout, test['path'])]
+
+    # vpython doesn't integrate well with app engine SDK yet
+    if test.get('uses_app_engine_sdk'):
+      executable = 'python'
+    else:
+      executable = 'vpython.bat' if sys.platform == 'win32' else 'vpython'
+
+    step['cmd'] = [
+        executable, os.path.join(args.api_path_checkout, test['path'])]
     if step['name'] == 'Systrace Tests':
       step['cmd'] += ['--device=' + args.platform]
     if test.get('additional_args'):

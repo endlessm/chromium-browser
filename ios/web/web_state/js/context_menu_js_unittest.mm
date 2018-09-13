@@ -12,7 +12,7 @@
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
-#import "ios/testing/wait_util.h"
+#import "base/test/ios/wait_util.h"
 #import "ios/web/public/test/js_test_util.h"
 #include "ios/web/public/test/web_test.h"
 #import "ios/web/public/test/web_test_with_web_state.h"
@@ -32,8 +32,8 @@
 
 // Unit tests for ios/web/web_state/js/resources/context_menu.js.
 
-using testing::kWaitForJSCompletionTimeout;
-using testing::WaitUntilConditionOrTimeout;
+using base::test::ios::kWaitForJSCompletionTimeout;
+using base::test::ios::WaitUntilConditionOrTimeout;
 
 // A class which handles receiving script message responses by implementing the
 // WKScriptMessageHandler protocol.
@@ -551,7 +551,15 @@ TEST_F(ContextMenuJsFindElementAtPointTest,
 
 // Tests that an image link returns details for both the image and the link
 // destination when the image source is a file:// url.
-TEST_F(ContextMenuJsFindElementAtPointTest, FindLinkImageAtPointForFileUrl) {
+// TODO(crbug.com/796418): This test is flaky on devices.
+#if TARGET_IPHONE_SIMULATOR
+#define MAYBE_FindLinkImageAtPointForFileUrl FindLinkImageAtPointForFileUrl
+#else
+#define MAYBE_FindLinkImageAtPointForFileUrl \
+  FLAKY_FindLinkImageAtPointForFileUrl
+#endif
+TEST_F(ContextMenuJsFindElementAtPointTest,
+       MAYBE_FindLinkImageAtPointForFileUrl) {
   NSString* link_image =
       @"<a href='file:///linky'>"
        "<img id='foo' style='width:200;height:200;' src='file:///bogus'/>"

@@ -52,14 +52,17 @@ SynchronousShutdownObjectContainerImpl::Factory::NewInstance(
     NetworkStateHandler* network_state_handler,
     NetworkConnect* network_connect,
     NetworkConnectionHandler* network_connection_handler,
-    session_manager::SessionManager* session_manager) {
+    session_manager::SessionManager* session_manager,
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client) {
   if (!factory_instance_)
     factory_instance_ = new Factory();
 
   return factory_instance_->BuildInstance(
       asychronous_container, notification_presenter,
       gms_core_notifications_state_tracker, pref_service, network_state_handler,
-      network_connect, network_connection_handler, session_manager);
+      network_connect, network_connection_handler, session_manager,
+      device_sync_client, secure_channel_client);
 }
 
 // static
@@ -79,11 +82,14 @@ SynchronousShutdownObjectContainerImpl::Factory::BuildInstance(
     NetworkStateHandler* network_state_handler,
     NetworkConnect* network_connect,
     NetworkConnectionHandler* network_connection_handler,
-    session_manager::SessionManager* session_manager) {
+    session_manager::SessionManager* session_manager,
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client) {
   return base::WrapUnique(new SynchronousShutdownObjectContainerImpl(
       asychronous_container, notification_presenter,
       gms_core_notifications_state_tracker, pref_service, network_state_handler,
-      network_connect, network_connection_handler, session_manager));
+      network_connect, network_connection_handler, session_manager,
+      device_sync_client, secure_channel_client));
 }
 
 SynchronousShutdownObjectContainerImpl::SynchronousShutdownObjectContainerImpl(
@@ -94,7 +100,9 @@ SynchronousShutdownObjectContainerImpl::SynchronousShutdownObjectContainerImpl(
     NetworkStateHandler* network_state_handler,
     NetworkConnect* network_connect,
     NetworkConnectionHandler* network_connection_handler,
-    session_manager::SessionManager* session_manager)
+    session_manager::SessionManager* session_manager,
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client)
     : network_state_handler_(network_state_handler),
       network_list_sorter_(std::make_unique<NetworkListSorter>()),
       tether_host_response_recorder_(
@@ -133,6 +141,8 @@ SynchronousShutdownObjectContainerImpl::SynchronousShutdownObjectContainerImpl(
                                                 master_host_scan_cache_.get(),
                                                 active_host_.get())),
       keep_alive_scheduler_(std::make_unique<KeepAliveScheduler>(
+          device_sync_client,
+          secure_channel_client,
           active_host_.get(),
           asychronous_container->ble_connection_manager(),
           master_host_scan_cache_.get(),
@@ -142,11 +152,15 @@ SynchronousShutdownObjectContainerImpl::SynchronousShutdownObjectContainerImpl(
               active_host_.get(),
               base::DefaultClock::GetInstance())),
       connection_preserver_(std::make_unique<ConnectionPreserverImpl>(
+          device_sync_client,
+          secure_channel_client,
           asychronous_container->ble_connection_manager(),
           network_state_handler_,
           active_host_.get(),
           tether_host_response_recorder_.get())),
       host_scanner_(std::make_unique<HostScannerImpl>(
+          device_sync_client,
+          secure_channel_client,
           network_state_handler_,
           session_manager,
           asychronous_container->tether_host_fetcher(),
@@ -168,6 +182,8 @@ SynchronousShutdownObjectContainerImpl::SynchronousShutdownObjectContainerImpl(
               asychronous_container->ble_connection_manager(),
               active_host_.get())),
       tether_connector_(std::make_unique<TetherConnectorImpl>(
+          device_sync_client,
+          secure_channel_client,
           network_state_handler_,
           wifi_hotspot_connector_.get(),
           active_host_.get(),

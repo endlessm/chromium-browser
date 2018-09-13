@@ -49,10 +49,10 @@ class DeviceInfoSyncBridge : public ModelTypeSyncBridge,
       std::unique_ptr<MetadataChangeList> metadata_change_list,
       EntityChangeList entity_changes) override;
   void GetData(StorageKeyList storage_keys, DataCallback callback) override;
-  void GetAllData(DataCallback callback) override;
+  void GetAllDataForDebugging(DataCallback callback) override;
   std::string GetClientTag(const EntityData& entity_data) override;
   std::string GetStorageKey(const EntityData& entity_data) override;
-  DisableSyncResponse ApplyDisableSyncChanges(
+  StopSyncResponse ApplyStopSyncChanges(
       std::unique_ptr<MetadataChangeList> delete_metadata_change_list) override;
 
   // DeviceInfoTracker implementation.
@@ -144,6 +144,8 @@ class DeviceInfoSyncBridge : public ModelTypeSyncBridge,
 
   // Used to update our local device info once every pulse interval.
   base::OneShotTimer pulse_timer_;
+
+  base::WeakPtrFactory<DeviceInfoSyncBridge> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DeviceInfoSyncBridge);
 };

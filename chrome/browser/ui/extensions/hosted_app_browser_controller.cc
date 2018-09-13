@@ -13,7 +13,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/web_applications/extensions/web_app_extension_helpers.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/api/url_handlers/url_handlers_parser.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
@@ -246,7 +246,15 @@ base::Optional<SkColor> HostedAppBrowserController::GetThemeColor() const {
   ExtensionRegistry* registry = ExtensionRegistry::Get(browser_->profile());
   const Extension* extension =
       registry->GetExtensionById(extension_id_, ExtensionRegistry::EVERYTHING);
-  return AppThemeColorInfo::GetThemeColor(extension);
+  if (extension) {
+    const base::Optional<SkColor> color =
+        AppThemeColorInfo::GetThemeColor(extension);
+    if (color) {
+      // The frame/tabstrip code expects an opaque color.
+      return SkColorSetA(*color, SK_AlphaOPAQUE);
+    }
+  }
+  return base::nullopt;
 }
 
 base::string16 HostedAppBrowserController::GetTitle() const {

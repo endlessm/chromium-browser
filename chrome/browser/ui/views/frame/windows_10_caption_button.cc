@@ -27,26 +27,27 @@ Windows10CaptionButton::Windows10CaptionButton(
 
 int Windows10CaptionButton::GetBetweenButtonSpacing() const {
   constexpr int kCaptionButtonVisualSpacing = 1;
-  // There's no next button after the minimize button, so we don't need to
-  // reserve any space.
-  return button_type_ == VIEW_ID_MINIMIZE_BUTTON ? 0
-                                                 : kCaptionButtonVisualSpacing;
+  const ViewID leftmost_button =
+      base::i18n::IsRTL() ? VIEW_ID_CLOSE_BUTTON : VIEW_ID_MINIMIZE_BUTTON;
+  return button_type_ == leftmost_button ? 0 : kCaptionButtonVisualSpacing;
 }
 
 gfx::Size Windows10CaptionButton::CalculatePreferredSize() const {
   // TODO(bsep): The sizes in this function are for 1x device scale and don't
   // match Windows button sizes at hidpi.
   constexpr int kButtonHeightRestored = 29;
-  int h = kButtonHeightRestored;
+  int height = kButtonHeightRestored;
   if (frame_view_->IsMaximized()) {
-    h = frame_view_->browser_view()->IsTabStripVisible()
+    int maximized_height =
+        frame_view_->browser_view()->IsTabStripVisible()
             ? frame_view_->browser_view()->GetTabStripHeight()
             : frame_view_->TitlebarMaximizedVisualHeight();
     constexpr int kMaximizedBottomMargin = 2;
-    h -= kMaximizedBottomMargin;
+    maximized_height -= kMaximizedBottomMargin;
+    height = std::min(height, maximized_height);
   }
   constexpr int kButtonWidth = 45;
-  return gfx::Size(kButtonWidth + GetBetweenButtonSpacing(), h);
+  return gfx::Size(kButtonWidth + GetBetweenButtonSpacing(), height);
 }
 
 namespace {
@@ -61,11 +62,16 @@ SkColor Windows10CaptionButton::GetBaseColor() const {
       GetThemeProvider()->GetColor(ThemeProperties::COLOR_BUTTON_BACKGROUND);
   const SkAlpha theme_alpha = SkColorGetA(bg_color);
   const SkColor blend_color =
-      theme_alpha > 0
-          ? color_utils::AlphaBlend(bg_color, titlebar_color,
-                                    ButtonBackgroundAlpha(theme_alpha))
-          : titlebar_color;
-  return color_utils::IsDark(blend_color) ? SK_ColorWHITE : SK_ColorBLACK;
+      theme_alpha > 0 ? color_utils::AlphaBlend(
+                            SkColorSetA(bg_color, SK_AlphaOPAQUE),
+                            titlebar_color, ButtonBackgroundAlpha(theme_alpha))
+                      : titlebar_color;
+  // BlendTowardOppositeLuma or IsDark isn't used here because those functions
+  // may use a different value for the dark/light threshold or the upper/lower
+  // bounds to which the color is blended. This will ensure the results of this
+  // function remain unchanged should those other functions behave differently.
+  return color_utils::GetLuma(blend_color) < 128 ? SK_ColorWHITE
+                                                 : SK_ColorBLACK;
 }
 
 void Windows10CaptionButton::OnPaintBackground(gfx::Canvas* canvas) {

@@ -9,19 +9,42 @@
 
 namespace vr {
 
-BrowserXrDevice::BrowserXrDevice(device::VRDevice* device)
-    : device_(device), weak_ptr_factory_(this) {
-  device_->SetVRDeviceEventListener(this);
+BrowserXrDevice::BrowserXrDevice(device::mojom::XRRuntimePtr device,
+                                 device::mojom::VRDisplayInfoPtr display_info)
+    : device_(std::move(device)),
+      display_info_(std::move(display_info)),
+      binding_(this),
+      weak_ptr_factory_(this) {
+  device::mojom::XRRuntimeEventListenerPtr listener;
+  binding_.Bind(mojo::MakeRequest(&listener));
+
+  // Unretained is safe because we are calling through an InterfacePtr we own,
+  // so we won't be called after device_ is destroyed.
+  device_->ListenToDeviceChanges(
+      std::move(listener),
+      base::BindOnce(&BrowserXrDevice::OnInitialDevicePropertiesReceived,
+                     base::Unretained(this)));
 }
 
-BrowserXrDevice::~BrowserXrDevice() {
-  device_->SetVRDeviceEventListener(nullptr);
+void BrowserXrDevice::OnInitialDevicePropertiesReceived(
+    device::mojom::VRDisplayInfoPtr display_info) {
+  OnDisplayInfoChanged(std::move(display_info));
 }
 
-void BrowserXrDevice::OnChanged(
+BrowserXrDevice::~BrowserXrDevice() = default;
+
+void BrowserXrDevice::OnDisplayInfoChanged(
     device::mojom::VRDisplayInfoPtr vr_device_info) {
+  display_info_ = std::move(vr_device_info);
   for (VRDisplayHost* display : displays_) {
-    display->OnChanged(vr_device_info.Clone());
+    display->OnChanged();
+  }
+}
+
+void BrowserXrDevice::StopImmersiveSession() {
+  if (immersive_session_controller_) {
+    immersive_session_controller_ = nullptr;
+    presenting_display_host_ = nullptr;
   }
 }
 
@@ -32,8 +55,9 @@ void BrowserXrDevice::OnExitPresent() {
   }
 }
 
-void BrowserXrDevice::OnActivate(device::mojom::VRDisplayEventReason reason,
-                                 base::OnceCallback<void(bool)> on_handled) {
+void BrowserXrDevice::OnDeviceActivated(
+    device::mojom::VRDisplayEventReason reason,
+    base::OnceCallback<void(bool)> on_handled) {
   if (listening_for_activation_display_host_) {
     listening_for_activation_display_host_->OnActivate(reason,
                                                        std::move(on_handled));
@@ -42,7 +66,7 @@ void BrowserXrDevice::OnActivate(device::mojom::VRDisplayEventReason reason,
   }
 }
 
-void BrowserXrDevice::OnDeactivate(device::mojom::VRDisplayEventReason reason) {
+void BrowserXrDevice::OnDeviceIdle(device::mojom::VRDisplayEventReason reason) {
   for (VRDisplayHost* display : displays_) {
     display->OnDeactivate(reason);
   }
@@ -56,49 +80,57 @@ void BrowserXrDevice::OnDisplayHostRemoved(VRDisplayHost* display) {
   DCHECK(display);
   displays_.erase(display);
   if (display == presenting_display_host_) {
-    GetDevice()->ExitPresent();
+    ExitPresent(display);
     DCHECK(presenting_display_host_ == nullptr);
   }
   if (display == listening_for_activation_display_host_) {
     // Not listening for activation.
     listening_for_activation_display_host_ = nullptr;
-    GetDevice()->SetListeningForActivate(false);
+    device_->SetListeningForActivate(false);
   }
 }
 
 void BrowserXrDevice::ExitPresent(VRDisplayHost* display) {
   if (display == presenting_display_host_) {
-    GetDevice()->ExitPresent();
-    DCHECK(presenting_display_host_ == nullptr);
+    StopImmersiveSession();
   }
 }
 
-void BrowserXrDevice::RequestPresent(
+void BrowserXrDevice::RequestSession(
     VRDisplayHost* display,
-    device::mojom::VRSubmitFrameClientPtr submit_client,
-    device::mojom::VRPresentationProviderRequest request,
-    device::mojom::VRRequestPresentOptionsPtr present_options,
-    device::mojom::VRDisplayHost::RequestPresentCallback callback) {
-  device_->RequestPresent(
-      std::move(submit_client), std::move(request), std::move(present_options),
-      base::BindOnce(&BrowserXrDevice::OnRequestPresentResult,
-                     weak_ptr_factory_.GetWeakPtr(), display,
-                     std::move(callback)));
+    const device::mojom::XRDeviceRuntimeSessionOptionsPtr& options,
+    device::mojom::VRDisplayHost::RequestSessionCallback callback) {
+  // base::Unretained is safe because we won't be called back after device_ is
+  // destroyed.
+  device_->RequestSession(
+      options->Clone(),
+      base::BindOnce(&BrowserXrDevice::OnRequestSessionResult,
+                     base::Unretained(this), display->GetWeakPtr(),
+                     options->Clone(), std::move(callback)));
 }
 
-void BrowserXrDevice::OnRequestPresentResult(
-    VRDisplayHost* display,
-    device::mojom::VRDisplayHost::RequestPresentCallback callback,
-    bool result,
-    device::mojom::VRDisplayFrameTransportOptionsPtr transport_options) {
-  if (result && (displays_.find(display) != displays_.end())) {
-    presenting_display_host_ = display;
-    std::move(callback).Run(result, std::move(transport_options));
+void BrowserXrDevice::OnRequestSessionResult(
+    base::WeakPtr<VRDisplayHost> display,
+    device::mojom::XRDeviceRuntimeSessionOptionsPtr options,
+    device::mojom::VRDisplayHost::RequestSessionCallback callback,
+    device::mojom::XRPresentationConnectionPtr connection,
+    device::mojom::XRSessionControllerPtr immersive_session_controller) {
+  if (connection && display) {
+    if (options->immersive) {
+      presenting_display_host_ = display.get();
+      immersive_session_controller_ = std::move(immersive_session_controller);
+    }
+
+    device::mojom::XRSessionPtr xr_session = device::mojom::XRSession::New();
+    xr_session->connection = std::move(connection);
+    std::move(callback).Run(std::move(xr_session));
   } else {
-    std::move(callback).Run(false, nullptr);
-    if (result) {
-      // Stale request completed, so device thinks we are presenting.
-      GetDevice()->ExitPresent();
+    std::move(callback).Run(nullptr);
+    if (connection) {
+      // The device has been removed, but we still got a connection, so make
+      // sure to clean up this weird state.
+      immersive_session_controller_ = std::move(immersive_session_controller);
+      StopImmersiveSession();
     }
   }
 }

@@ -199,7 +199,6 @@ void TabAndroid::AttachTabHelpers(content::WebContents* web_contents) {
 
 TabAndroid::TabAndroid(JNIEnv* env, const JavaRef<jobject>& obj)
     : weak_java_tab_(env, obj),
-      session_tab_id_(SessionID::NewUnique()),
       session_window_id_(SessionID::InvalidValue()),
       content_layer_(cc::Layer::Create()),
       tab_content_manager_(NULL),
@@ -231,11 +230,6 @@ scoped_refptr<cc::Layer> TabAndroid::GetContentLayer() const {
 int TabAndroid::GetAndroidId() const {
   JNIEnv* env = base::android::AttachCurrentThread();
   return Java_Tab_getId(env, weak_java_tab_.get(env));
-}
-
-int TabAndroid::GetSyncId() const {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  return Java_Tab_getSyncId(env, weak_java_tab_.get(env));
 }
 
 base::string16 TabAndroid::GetTitle() const {
@@ -292,11 +286,6 @@ void TabAndroid::SetWindowSessionID(SessionID window_id) {
   SessionTabHelper* session_tab_helper =
           SessionTabHelper::FromWebContents(web_contents());
   session_tab_helper->SetWindowID(session_window_id_);
-}
-
-void TabAndroid::SetSyncId(int sync_id) {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  Java_Tab_setSyncId(env, weak_java_tab_.get(env), sync_id);
 }
 
 void TabAndroid::HandlePopupNavigation(NavigateParams* params) {
@@ -426,7 +415,7 @@ void TabAndroid::InitWebContents(
     jboolean incognito,
     jboolean is_background_tab,
     const JavaParamRef<jobject>& jweb_contents,
-    const JavaParamRef<jobject>& jparent_web_contents,
+    jint jparent_tab_id,
     const JavaParamRef<jobject>& jweb_contents_delegate,
     const JavaParamRef<jobject>& jcontext_menu_populator) {
   web_contents_.reset(content::WebContents::FromJavaWebContents(jweb_contents));
@@ -437,8 +426,6 @@ void TabAndroid::InitWebContents(
 
   SetWindowSessionID(session_window_id_);
 
-  session_tab_id_ =
-      SessionTabHelper::FromWebContents(web_contents())->session_id();
   ContextMenuHelper::FromWebContents(web_contents())->SetPopulator(
       jcontext_menu_populator);
   ViewAndroidHelper::FromWebContents(web_contents())->
@@ -461,9 +448,7 @@ void TabAndroid::InitWebContents(
   if (favicon_driver)
     favicon_driver->AddObserver(this);
 
-  WebContents* parent_web_contents =
-      content::WebContents::FromJavaWebContents(jparent_web_contents);
-  synced_tab_delegate_->SetWebContents(web_contents(), parent_web_contents);
+  synced_tab_delegate_->SetWebContents(web_contents(), jparent_tab_id);
 
   // Verify that the WebContents this tab represents matches the expected
   // off the record state.
@@ -574,7 +559,6 @@ TabAndroid::TabLoadStatus TabAndroid::LoadUrl(
     jint referrer_policy,
     jboolean is_renderer_initiated,
     jboolean should_replace_current_entry,
-    jlong intent_received_timestamp,
     jboolean has_user_gesture,
     jboolean should_clear_history_list) {
   if (!web_contents())
@@ -637,7 +621,6 @@ TabAndroid::TabLoadStatus TabAndroid::LoadUrl(
     }
     load_params.is_renderer_initiated = is_renderer_initiated;
     load_params.should_replace_current_entry = should_replace_current_entry;
-    load_params.intent_received_timestamp = intent_received_timestamp;
     load_params.has_user_gesture = has_user_gesture;
     load_params.should_clear_history_list = should_clear_history_list;
     web_contents()->GetController().LoadURLWithParams(load_params);
@@ -951,7 +934,7 @@ jint TabAndroid::GetCurrentRenderProcessId(JNIEnv* env,
   DCHECK(host);
   content::RenderProcessHost* render_process = host->GetProcess();
   DCHECK(render_process);
-  if (render_process->HasConnection())
+  if (render_process->IsInitializedAndNotDead())
     return render_process->GetProcess().Handle();
   return 0;
 }

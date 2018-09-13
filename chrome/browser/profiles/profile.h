@@ -12,6 +12,7 @@
 #include "base/containers/hash_tables.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "build/build_config.h"
 #include "components/domain_reliability/clear_mode.h"
 #include "content/public/browser/browser_context.h"
@@ -37,6 +38,10 @@ class Predictor;
 
 namespace content {
 class WebUI;
+}
+
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace user_prefs {
@@ -200,6 +205,10 @@ class Profile : public content::BrowserContext {
   // is only used for a separate cookie store currently.
   virtual net::URLRequestContextGetter* GetRequestContextForExtensions() = 0;
 
+  // Returns the main URLLoaderFactory.
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  GetURLLoaderFactory() = 0;
+
   // Return whether 2 profiles are the same. 2 profiles are the same if they
   // represent the same profile. This can happen if there is pointer equality
   // or if one profile is the incognito version of another profile (or vice
@@ -226,7 +235,7 @@ class Profile : public content::BrowserContext {
     APP_LOCALE_CHANGED_VIA_LOGIN,
     // From login to a public session.
     APP_LOCALE_CHANGED_VIA_PUBLIC_SESSION_LOGIN,
-    // From AllowedLocales policy
+    // From AllowedUILocales policy
     APP_LOCALE_CHANGED_VIA_POLICY,
     // Source unknown.
     APP_LOCALE_CHANGED_VIA_UNKNOWN
@@ -309,7 +318,8 @@ class Profile : public content::BrowserContext {
 
   // Returns whether the profile is new.  A profile is new if the browser has
   // not been shut down since the profile was created.
-  bool IsNewProfile();
+  // This method is virtual in order to be overridden for tests.
+  virtual bool IsNewProfile();
 
   // Checks whether sync is configurable by the user. Returns false if sync is
   // disallowed by the command line or controlled by configuration management.

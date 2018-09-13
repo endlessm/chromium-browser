@@ -9,6 +9,7 @@
 
 #include "components/viz/common/features.h"
 #include "components/viz/common/gl_helper.h"
+#include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "components/viz/test/test_frame_sink_manager.h"
 #include "content/browser/compositor/surface_utils.h"
@@ -61,7 +62,9 @@ TestImageTransportFactory::TestImageTransportFactory()
         std::move(frame_sink_manager_request),
         std::move(frame_sink_manager_client));
   } else {
-    frame_sink_manager_impl_ = std::make_unique<viz::FrameSinkManagerImpl>();
+    shared_bitmap_manager_ = std::make_unique<viz::ServerSharedBitmapManager>();
+    frame_sink_manager_impl_ = std::make_unique<viz::FrameSinkManagerImpl>(
+        shared_bitmap_manager_.get());
     surface_utils::ConnectWithLocalFrameSinkManager(
         &host_frame_sink_manager_, frame_sink_manager_impl_.get());
   }
@@ -71,7 +74,7 @@ TestImageTransportFactory::~TestImageTransportFactory() {
   std::unique_ptr<viz::GLHelper> lost_gl_helper = std::move(gl_helper_);
 
   for (auto& observer : observer_list_)
-    observer.OnLostResources();
+    observer.OnLostSharedContext();
 }
 
 void TestImageTransportFactory::CreateLayerTreeFrameSink(
@@ -121,6 +124,10 @@ void TestImageTransportFactory::RemoveObserver(
   observer_list_.RemoveObserver(observer);
 }
 
+bool TestImageTransportFactory::SyncTokensRequiredForDisplayCompositor() {
+  return true;
+}
+
 std::unique_ptr<ui::Reflector> TestImageTransportFactory::CreateReflector(
     ui::Compositor* source,
     ui::Layer* target) {
@@ -150,6 +157,10 @@ viz::FrameSinkManagerImpl* TestImageTransportFactory::GetFrameSinkManager() {
   }
 
   return frame_sink_manager_impl_.get();
+}
+
+void TestImageTransportFactory::DisableGpuCompositing() {
+  NOTIMPLEMENTED();
 }
 
 bool TestImageTransportFactory::IsGpuCompositingDisabled() {

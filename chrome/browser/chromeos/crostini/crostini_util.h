@@ -8,23 +8,63 @@
 #include <string>
 
 #include "base/optional.h"
+#include "ui/base/resource/scale_factor.h"
+
+namespace base {
+class FilePath;
+class TimeDelta;
+}  // namespace base
+
+namespace gfx {
+class ImageSkia;
+}  // namespace gfx
 
 class Profile;
 
-// Returns true if crostini is allowed to run.
+// Enables/disables overriding IsCrostiniUIAllowedForProfile's normal
+// behaviour and returning true instead.
+void SetCrostiniUIAllowedForTesting(bool enabled);
+
+// Returns true if crostini is allowed to run for |profile|.
 // Otherwise, returns false, e.g. if crostini is not available on the device,
 // or it is in the flow to set up managed account creation.
-bool IsCrostiniAllowed();
+bool IsCrostiniAllowedForProfile(Profile* profile);
 
-// Returns true if crostini UI can be shown. Implies crostini is allowed to run.
+// Returns true if crostini UI can be shown. Implies crostini is allowed to
+// run.
 bool IsCrostiniUIAllowedForProfile(Profile* profile);
 
 // Returns whether if Crostini has been enabled, i.e. the user has launched it
 // at least once and not deleted it.
 bool IsCrostiniEnabled(Profile* profile);
 
-// |app_id| should be a valid Crostini app list id.
-void LaunchCrostiniApp(Profile* profile, const std::string& app_id);
+// Returns whether the default Crostini VM is running for the user.
+bool IsCrostiniRunning(Profile* profile);
+
+// Launches the Crostini app with ID of |app_id| on the display with ID of
+// |display_id|. |app_id| should be a valid Crostini app list id.
+void LaunchCrostiniApp(Profile* profile,
+                       const std::string& app_id,
+                       int64_t display_id);
+
+// Launch a Crostini App with a given set of files, given as absolute paths in
+// the container. For apps which can only be launched with a single file,
+// launch multiple instances.
+void LaunchCrostiniApp(Profile* profile,
+                       const std::string& app_id,
+                       int64_t display_id,
+                       const std::vector<std::string>& files);
+
+// Convenience wrapper around CrostiniAppIconLoader. As requesting icons from
+// the container can be slow, we just use the default (penguin) icons after the
+// timeout elapses. Subsequent calls would get the correct icons once loaded.
+void LoadIcons(Profile* profile,
+               const std::vector<std::string>& app_ids,
+               int resource_size_in_dip,
+               ui::ScaleFactor scale_factor,
+               base::TimeDelta timeout,
+               base::OnceCallback<void(const std::vector<gfx::ImageSkia>&)>
+                   icons_loaded_callback);
 
 // Retrieves cryptohome_id from profile.
 std::string CryptohomeIdForProfile(Profile* profile);
@@ -32,6 +72,9 @@ std::string CryptohomeIdForProfile(Profile* profile);
 // Retrieves username from profile.  This is the text until '@' in
 // profile->GetProfileUserName() email address.
 std::string ContainerUserNameForProfile(Profile* profile);
+
+// Returns the home directory within the container for a given profile.
+base::FilePath HomeDirectoryForProfile(Profile* profile);
 
 // The Terminal opens Crosh but overrides the Browser's app_name so that we can
 // identify it as the Crostini Terminal. In the future, we will also use these
@@ -42,8 +85,13 @@ std::string AppNameFromCrostiniAppId(const std::string& id);
 base::Optional<std::string> CrostiniAppIdFromAppName(
     const std::string& app_name);
 
-void ShowCrostiniInstallerView(Profile* profile);
-void ShowCrostiniUninstallerView(Profile* profile);
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class CrostiniUISurface { kSettings = 0, kAppList = 1, kCount };
+
+void ShowCrostiniInstallerView(Profile* profile, CrostiniUISurface ui_surface);
+void ShowCrostiniUninstallerView(Profile* profile,
+                                 CrostiniUISurface ui_surface);
 
 constexpr char kCrostiniTerminalAppName[] = "Terminal";
 // We can use any arbitrary well-formed extension id for the Terminal app, this

@@ -27,7 +27,6 @@
 #include "base/sys_info.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
-#include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/input_method/candidate_window_controller.h"
 #include "chrome/browser/chromeos/input_method/component_extension_ime_manager_impl.h"
 #include "chrome/browser/chromeos/language_preferences.h"
@@ -47,6 +46,7 @@
 #include "ui/base/ime/chromeos/ime_keyboard_mus.h"
 #include "ui/base/ime/chromeos/input_method_delegate.h"
 #include "ui/base/ime/ime_bridge.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/chromeos/ime/input_method_menu_item.h"
 #include "ui/chromeos/ime/input_method_menu_manager.h"
 #include "ui/keyboard/keyboard_controller.h"
@@ -425,7 +425,8 @@ bool InputMethodManagerImpl::StateImpl::ReplaceEnabledInputMethods(
 }
 
 bool InputMethodManagerImpl::StateImpl::SetAllowedInputMethods(
-    const std::vector<std::string>& new_allowed_input_method_ids) {
+    const std::vector<std::string>& new_allowed_input_method_ids,
+    bool enable_allowed_input_methods) {
   allowed_keyboard_layout_input_method_ids.clear();
   for (auto input_method_id : new_allowed_input_method_ids) {
     std::string migrated_id =
@@ -440,13 +441,29 @@ bool InputMethodManagerImpl::StateImpl::SetAllowedInputMethods(
     return false;
   }
 
-  // Enable all allowed keyboard layout input methods. Leave all non-keyboard
-  // input methods enabled.
-  std::vector<std::string> new_active_input_method_ids(
-      allowed_keyboard_layout_input_method_ids);
-  for (auto active_input_method_id : active_input_method_ids) {
-    if (!manager_->util_.IsKeyboardLayout(active_input_method_id))
-      new_active_input_method_ids.push_back(active_input_method_id);
+  std::vector<std::string> new_active_input_method_ids;
+  if (enable_allowed_input_methods) {
+    // Enable all allowed keyboard layout input methods. Leave all non-keyboard
+    // input methods enabled.
+    new_active_input_method_ids = allowed_keyboard_layout_input_method_ids;
+    for (auto active_input_method_id : active_input_method_ids) {
+      if (!manager_->util_.IsKeyboardLayout(active_input_method_id))
+        new_active_input_method_ids.push_back(active_input_method_id);
+    }
+  } else {
+    // Filter all currently active input methods and leave only non-keyboard or
+    // allowed keyboard layouts. If no input method remains, take a fallback
+    // keyboard layout.
+    bool has_keyboard_layout = false;
+    for (auto active_input_method_id : active_input_method_ids) {
+      if (IsInputMethodAllowed(active_input_method_id)) {
+        new_active_input_method_ids.push_back(active_input_method_id);
+        has_keyboard_layout |=
+            manager_->util_.IsKeyboardLayout(active_input_method_id);
+      }
+    }
+    if (!has_keyboard_layout)
+      new_active_input_method_ids.push_back(GetAllowedFallBackKeyboardLayout());
   }
   return ReplaceEnabledInputMethods(new_active_input_method_ids);
 }
@@ -472,6 +489,16 @@ bool InputMethodManagerImpl::StateImpl::IsInputMethodAllowed(
          base::ContainsValue(
              allowed_keyboard_layout_input_method_ids,
              manager_->util_.MigrateInputMethod(input_method_id));
+}
+
+std::string
+InputMethodManagerImpl::StateImpl::GetAllowedFallBackKeyboardLayout() const {
+  for (const std::string& hardware_id :
+       manager_->util_.GetHardwareInputMethodIds()) {
+    if (IsInputMethodAllowed(hardware_id))
+      return hardware_id;
+  }
+  return allowed_keyboard_layout_input_method_ids[0];
 }
 
 void InputMethodManagerImpl::StateImpl::ChangeInputMethod(
@@ -502,8 +529,8 @@ void InputMethodManagerImpl::StateImpl::ChangeInputMethod(
   // happens after activating the 3rd party IME.
   // So here to record the 3rd party IME to be activated, and activate it
   // when SetEnabledExtensionImes happens later.
-  if (MethodAwaitsExtensionLoad(descriptor->id()))
-    pending_input_method_id = descriptor->id();
+  if (MethodAwaitsExtensionLoad(input_method_id))
+    pending_input_method_id = input_method_id;
 
   if (descriptor->id() != current_input_method.id()) {
     previous_input_method = current_input_method;
@@ -636,8 +663,10 @@ void InputMethodManagerImpl::StateImpl::GetInputMethodExtensions(
   std::map<std::string, InputMethodDescriptor>::iterator iter;
   for (iter = extra_input_methods.begin(); iter != extra_input_methods.end();
        ++iter) {
-    if (extension_ime_util::IsExtensionIME(iter->first))
+    if (extension_ime_util::IsExtensionIME(iter->first) ||
+        extension_ime_util::IsArcIME(iter->first)) {
       result->push_back(iter->second);
+    }
   }
 }
 
@@ -1022,7 +1051,8 @@ const InputMethodDescriptor* InputMethodManagerImpl::LookupInputMethod(
   }
 
   const InputMethodDescriptor* descriptor = NULL;
-  if (extension_ime_util::IsExtensionIME(input_method_id_to_switch)) {
+  if (extension_ime_util::IsExtensionIME(input_method_id_to_switch) ||
+      extension_ime_util::IsArcIME(input_method_id_to_switch)) {
     DCHECK(state->extra_input_methods.find(input_method_id_to_switch) !=
            state->extra_input_methods.end());
     descriptor = &(state->extra_input_methods[input_method_id_to_switch]);
@@ -1090,10 +1120,14 @@ void InputMethodManagerImpl::ChangeInputMethodInternal(
     // If no engine to enable, cancel the virtual keyboard url override so that
     // it can use the fallback system virtual keyboard UI.
     state_->DisableInputView();
-    keyboard::KeyboardController* keyboard_controller =
-        keyboard::KeyboardController::GetInstance();
-    if (keyboard_controller)
-      keyboard_controller->Reload();
+
+    // TODO(mash): Support virtual keyboard under MASH. There is no
+    // KeyboardController in the browser process under MASH.
+    if (features::IsAshInBrowserProcess()) {
+      auto* keyboard_controller = keyboard::KeyboardController::Get();
+      if (keyboard_controller->enabled())
+        keyboard_controller->Reload();
+    }
   }
 
   // Change the keyboard layout to a preferred layout for the input method.
@@ -1293,9 +1327,8 @@ void InputMethodManagerImpl::OverrideKeyboardKeyset(mojom::ImeKeyset keyset) {
     // Resets the url as the input method default url and notify the hash
     // changed to VK.
     state_->input_view_url = state_->current_input_method.input_view_url();
-    keyboard::KeyboardController* keyboard_controller =
-        keyboard::KeyboardController::GetInstance();
-    if (keyboard_controller)
+    auto* keyboard_controller = keyboard::KeyboardController::Get();
+    if (keyboard_controller->enabled())
       keyboard_controller->Reload();
     return;
   }
@@ -1316,9 +1349,8 @@ void InputMethodManagerImpl::OverrideKeyboardKeyset(mojom::ImeKeyset keyset) {
   replacements.SetRefStr(overridden_ref);
   state_->input_view_url = url.ReplaceComponents(replacements);
 
-  keyboard::KeyboardController* keyboard_controller =
-      keyboard::KeyboardController::GetInstance();
-  if (keyboard_controller)
+  auto* keyboard_controller = keyboard::KeyboardController::Get();
+  if (keyboard_controller->enabled())
     keyboard_controller->Reload();
 }
 
@@ -1356,7 +1388,11 @@ void InputMethodManagerImpl::NotifyObserversImeExtraInputStateChange() {
 
 ui::InputMethodKeyboardController*
 InputMethodManagerImpl::GetInputMethodKeyboardController() {
-  return keyboard::KeyboardController::GetInstance();
+  // Callers expect a nullptr when the keyboard is disabled. See
+  // https://crbug.com/850020.
+  return keyboard::KeyboardController::Get()->enabled()
+             ? keyboard::KeyboardController::Get()
+             : nullptr;
 }
 
 }  // namespace input_method

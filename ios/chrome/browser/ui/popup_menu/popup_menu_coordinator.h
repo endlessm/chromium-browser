@@ -8,14 +8,15 @@
 #import <UIKit/UIKit.h>
 
 #import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
+#import "ios/chrome/browser/ui/popup_menu/public/popup_menu_long_press_delegate.h"
 
-@class BubbleViewControllerPresenter;
+@class BubblePresenter;
 @class CommandDispatcher;
 @protocol PopupMenuUIUpdating;
 class WebStateList;
 
 // Coordinator for the popup menu, handling the commands.
-@interface PopupMenuCoordinator : ChromeCoordinator
+@interface PopupMenuCoordinator : ChromeCoordinator<PopupMenuLongPressDelegate>
 
 // Dispatcher used by this coordinator to receive the PopupMenuCommands.
 @property(nonatomic, weak) CommandDispatcher* dispatcher;
@@ -24,8 +25,7 @@ class WebStateList;
 // UI updater.
 @property(nonatomic, weak) id<PopupMenuUIUpdating> UIUpdater;
 // Bubble view presenter for the incognito tip.
-@property(nonatomic, weak)
-    BubbleViewControllerPresenter* incognitoTabTipPresenter;
+@property(nonatomic, weak) BubblePresenter* bubblePresenter;
 
 // Returns whether this coordinator is showing a popup menu.
 - (BOOL)isShowingPopupMenu;

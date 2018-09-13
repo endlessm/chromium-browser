@@ -551,6 +551,7 @@ class TestRunner(object):
           raise
 
       # Retry failed test cases.
+      retry_results = {}
       if self.retries and failed:
         print '%s tests failed and will be retried.' % len(failed)
         print
@@ -558,13 +559,20 @@ class TestRunner(object):
           for test in failed.keys():
             print 'Retry #%s for %s.' % (i + 1, test)
             print
-            result = self._run(self.get_launch_command(test_filter=[test]))
+            retry_result = self._run(self.get_launch_command(
+                test_filter=[test]
+            ))
             # If the test passed on retry, consider it flake instead of failure.
-            if test in result.passed_tests:
+            if test in retry_result.passed_tests:
               flaked[test] = failed.pop(test)
+            # Save the result of the latest run for each test.
+            retry_results[test] = retry_result
 
       # Build test_results.json.
-      self.test_results['interrupted'] = result.crashed
+      # Check if if any of the retries crashed in addition to the original run.
+      interrupted = (result.crashed or
+                     any([r.crashed for r in retry_results.values()]))
+      self.test_results['interrupted'] = interrupted
       self.test_results['num_failures_by_type'] = {
         'FAIL': len(failed) + len(flaked),
         'PASS': len(passed),
@@ -584,7 +592,7 @@ class TestRunner(object):
       for test, log_lines in flaked.iteritems():
         self.logs[test] = log_lines
 
-      return not failed
+      return not failed and not interrupted
     finally:
       self.tear_down()
 
@@ -843,7 +851,7 @@ class SimulatorTestRunner(TestRunner):
     """Removes dynamically created simulator devices."""
     if udid:
       print 'deleting simulator %s' % udid
-      subprocess.check_output(['xcrun', 'simctl', 'delete', udid])
+      subprocess.call(['xcrun', 'simctl', 'delete', udid])
 
   def get_launch_command(self, test_filter=None, invert=False, test_shard=None):
     """Returns the command that can be used to launch the test app.
@@ -962,6 +970,12 @@ class DeviceTestRunner(TestRunner):
     if len(self.udid.splitlines()) != 1:
       raise DeviceDetectionError(self.udid)
     if xctest:
+      xcode_info = get_current_xcode_info()
+      xcode_version = float(xcode_info['version'])
+      inject_path = 'usr/lib/libXCTestBundleInject.dylib'
+      # This can be removed once xcode versions < 10 are deprecated.
+      if 10 > xcode_version:
+        inject_path = 'Library/PrivateFrameworks/IDEBundleInjection.framework/'
       self.xctestrun_file = tempfile.mkstemp()[1]
       self.xctestrun_data = {
         'TestTargetName': {
@@ -970,8 +984,7 @@ class DeviceTestRunner(TestRunner):
           'TestHostPath': '%s' % self.app_path,
           'TestingEnvironmentVariables': {
             'DYLD_INSERT_LIBRARIES':
-              '__PLATFORMS__/iPhoneOS.platform/Developer/Library/'
-            'PrivateFrameworks/IDEBundleInjection.framework/IDEBundleInjection',
+              '__PLATFORMS__/iPhoneOS.platform/Developer/%s' % inject_path,
             'DYLD_LIBRARY_PATH':
               '__PLATFORMS__/iPhoneOS.platform/Developer/Library',
             'DYLD_FRAMEWORK_PATH':

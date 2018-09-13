@@ -11,6 +11,7 @@
 #include "ash/public/cpp/ash_constants.h"
 #include "ash/public/interfaces/accessibility_controller.mojom.h"
 #include "ash/session/session_observer.h"
+#include "ash/wm/tablet_mode/tablet_mode_observer.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
@@ -41,7 +42,8 @@ enum AccessibilityNotificationVisibility {
 // Uses preferences to communicate with chrome to support mash.
 class ASH_EXPORT AccessibilityController
     : public mojom::AccessibilityController,
-      public SessionObserver {
+      public SessionObserver,
+      public TabletModeObserver {
  public:
   explicit AccessibilityController(service_manager::Connector* connector);
   ~AccessibilityController() override;
@@ -54,6 +56,18 @@ class ASH_EXPORT AccessibilityController
 
   // Binds the mojom::AccessibilityController interface to this object.
   void BindRequest(mojom::AccessibilityControllerRequest request);
+
+  // The following functions read and write to their associated preference.
+  // These values are then used to determine whether the accelerator
+  // confirmation dialog for the respective preference has been accepted before.
+  void SetHighContrastAcceleratorDialogAccepted();
+  bool HasHighContrastAcceleratorDialogBeenAccepted() const;
+  void SetScreenMagnifierAcceleratorDialogAccepted();
+  bool HasScreenMagnifierAcceleratorDialogBeenAccepted() const;
+  void SetDockedMagnifierAcceleratorDialogAccepted();
+  bool HasDockedMagnifierAcceleratorDialogBeenAccepted() const;
+  void SetDictationAcceleratorDialogAccepted();
+  bool HasDictationAcceleratorDialogBeenAccepted() const;
 
   void SetAutoclickEnabled(bool enabled);
   bool IsAutoclickEnabled() const;
@@ -69,6 +83,8 @@ class ASH_EXPORT AccessibilityController
 
   void SetFocusHighlightEnabled(bool enabled);
   bool IsFocusHighlightEnabled() const;
+
+  void SetFullscreenMagnifierEnabled(bool enabled);
 
   void SetHighContrastEnabled(bool enabled);
   bool IsHighContrastEnabled() const;
@@ -157,6 +173,10 @@ class ASH_EXPORT AccessibilityController
   void FlushMojoForTest();
 
  private:
+  // TabletModeObserver:
+  void OnTabletModeStarted() override;
+  void OnTabletModeEnded() override;
+
   // Observes either the signin screen prefs or active user prefs and loads
   // initial settings.
   void ObservePrefs(PrefService* prefs);

@@ -29,6 +29,10 @@ namespace device {
 class BluetoothAdapterCast;
 }
 
+namespace media {
+class CdmFactory;
+}
+
 namespace metrics {
 class MetricsService;
 }
@@ -97,7 +101,6 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
   std::unique_ptr<::media::AudioManager> CreateAudioManager(
       ::media::AudioLogFactory* audio_log_factory) override;
   bool OverridesAudioManager() override;
-  std::unique_ptr<::media::CdmFactory> CreateCdmFactory() override;
 #endif  // BUILDFLAG(IS_CAST_USING_CMA_BACKEND)
   media::MediaCapsImpl* media_caps();
 
@@ -134,9 +137,6 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
                            content::WebPreferences* prefs) override;
   void ResourceDispatcherHostCreated() override;
   std::string GetApplicationLocale() override;
-  void GetGeolocationRequestContext(
-      base::OnceCallback<void(scoped_refptr<net::URLRequestContextGetter>)>
-          callback) override;
   content::QuotaPermissionContext* CreateQuotaPermissionContext() override;
   void GetQuotaSettings(
       content::BrowserContext* context,
@@ -196,6 +196,10 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
     return renderer_config_manager_.get();
   }
 
+#if BUILDFLAG(IS_CAST_USING_CMA_BACKEND)
+  virtual std::unique_ptr<::media::CdmFactory> CreateCdmFactory();
+#endif  // BUILDFLAG(IS_CAST_USING_CMA_BACKEND)
+
  protected:
   CastContentBrowserClient();
 
@@ -219,6 +223,7 @@ class CastContentBrowserClient : public content::ContentBrowserClient {
       const base::Callback<void(scoped_refptr<net::X509Certificate>,
                                 scoped_refptr<net::SSLPrivateKey>)>&
           continue_callback);
+
 #if !defined(OS_ANDROID)
   // Returns the crash signal FD corresponding to the current process type.
   int GetCrashSignalFD(const base::CommandLine& command_line);

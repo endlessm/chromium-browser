@@ -5,11 +5,12 @@ vmulps   %xmm0, %xmm1, %xmm2
 vhaddps  %xmm2, %xmm2, %xmm3
 vhaddps  %xmm3, %xmm3, %xmm4
 
-# CHECK:      Iterations:     300
-# CHECK-NEXT: Instructions:   900
-# CHECK-NEXT: Total Cycles:   610
-# CHECK-NEXT: Dispatch Width: 2
-# CHECK-NEXT: IPC:            1.48
+# CHECK:      Iterations:        300
+# CHECK-NEXT: Instructions:      900
+# CHECK-NEXT: Total Cycles:      610
+# CHECK-NEXT: Dispatch Width:    2
+# CHECK-NEXT: IPC:               1.48
+# CHECK-NEXT: Block RThroughput: 2.0
 
 # CHECK:      Instruction Info:
 # CHECK-NEXT: [1]: #uOps
@@ -17,7 +18,7 @@ vhaddps  %xmm3, %xmm3, %xmm4
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      2     1.00                        vmulps	%xmm0, %xmm1, %xmm2
@@ -74,4 +75,3 @@ vhaddps  %xmm3, %xmm3, %xmm4
 # CHECK-NEXT: 0.     3     1.0    1.0    3.3       vmulps	%xmm0, %xmm1, %xmm2
 # CHECK-NEXT: 1.     3     3.3    0.7    1.0       vhaddps	%xmm2, %xmm2, %xmm3
 # CHECK-NEXT: 2.     3     5.7    0.0    0.0       vhaddps	%xmm3, %xmm3, %xmm4
-

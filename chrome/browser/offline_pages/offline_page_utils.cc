@@ -4,6 +4,10 @@
 
 #include "chrome/browser/offline_pages/offline_page_utils.h"
 
+#include <algorithm>
+#include <memory>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
@@ -133,7 +137,7 @@ void CheckDuplicateOngoingDownloads(
 }
 
 void DoCalculateSizeBetween(
-    const offline_pages::SizeInBytesCallback& callback,
+    offline_pages::SizeInBytesCallback callback,
     const base::Time& begin_time,
     const base::Time& end_time,
     const offline_pages::MultipleOfflinePageItemResult& result) {
@@ -142,7 +146,7 @@ void DoCalculateSizeBetween(
     if (begin_time <= page.creation_time && page.creation_time < end_time)
       total_size += page.file_size;
   }
-  callback.Run(total_size);
+  std::move(callback).Run(total_size);
 }
 
 content::WebContents* GetWebContentsByFrameID(int render_process_id,
@@ -367,15 +371,15 @@ bool OfflinePageUtils::CanDownloadAsOfflinePage(
 // static
 bool OfflinePageUtils::GetCachedOfflinePageSizeBetween(
     content::BrowserContext* browser_context,
-    const SizeInBytesCallback& callback,
+    SizeInBytesCallback callback,
     const base::Time& begin_time,
     const base::Time& end_time) {
   OfflinePageModel* offline_page_model =
       OfflinePageModelFactory::GetForBrowserContext(browser_context);
   if (!offline_page_model || begin_time > end_time)
     return false;
-  offline_page_model->GetPagesRemovedOnCacheReset(
-      base::Bind(&DoCalculateSizeBetween, callback, begin_time, end_time));
+  offline_page_model->GetPagesRemovedOnCacheReset(base::BindOnce(
+      &DoCalculateSizeBetween, std::move(callback), begin_time, end_time));
   return true;
 }
 
@@ -411,15 +415,15 @@ bool OfflinePageUtils::IsShowingTrustedOfflinePage(
 // static
 void OfflinePageUtils::AcquireFileAccessPermission(
     content::WebContents* web_contents,
-    const base::Callback<void(bool)>& callback) {
+    base::OnceCallback<void(bool)> callback) {
 #if defined(OS_ANDROID)
   content::ResourceRequestInfo::WebContentsGetter web_contents_getter =
       GetWebContentsGetter(web_contents);
   DownloadControllerBase::Get()->AcquireFileAccessPermission(
-      web_contents_getter, callback);
+      web_contents_getter, std::move(callback));
 #else
   // Not needed in other platforms.
-  callback.Run(true /*granted*/);
+  std::move(callback).Run(true /*granted*/);
 #endif  // defined(OS_ANDROID)
 }
 

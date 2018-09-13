@@ -8,7 +8,6 @@
 #include <initializer_list>
 #include <functional>
 #include "Test.h"
-#if SK_SUPPORT_GPU
 #include "GrShape.h"
 #include "SkCanvas.h"
 #include "SkDashPathEffect.h"
@@ -17,6 +16,8 @@
 #include "SkRectPriv.h"
 #include "SkSurface.h"
 #include "SkClipOpPriv.h"
+
+#include <utility>
 
 uint32_t GrShape::testingOnly_getOriginalGenerationID() const {
     if (const auto* lp = this->originalPathForListeners()) {
@@ -1162,7 +1163,6 @@ void test_path_effect_makes_rrect(skiatest::Reporter* reporter, const Geo& geo) 
         }
         static sk_sp<SkPathEffect> Make() { return sk_sp<SkPathEffect>(new RRectPathEffect); }
         Factory getFactory() const override { return nullptr; }
-        void toString(SkString*) const override {}
     private:
         RRectPathEffect() {}
     };
@@ -1245,7 +1245,6 @@ void test_unknown_path_effect(skiatest::Reporter* reporter, const Geo& geo) {
         }
         static sk_sp<SkPathEffect> Make() { return sk_sp<SkPathEffect>(new AddLineTosPathEffect); }
         Factory getFactory() const override { return nullptr; }
-        void toString(SkString*) const override {}
     private:
         AddLineTosPathEffect() {}
     };
@@ -1282,7 +1281,6 @@ void test_make_hairline_path_effect(skiatest::Reporter* reporter, const Geo& geo
             return sk_sp<SkPathEffect>(new MakeHairlinePathEffect);
         }
         Factory getFactory() const override { return nullptr; }
-        void toString(SkString*) const override {}
     private:
         MakeHairlinePathEffect() {}
     };
@@ -1368,7 +1366,6 @@ void test_path_effect_makes_empty_shape(skiatest::Reporter* reporter, const Geo&
             return sk_sp<SkPathEffect>(new EmptyPathEffect(invert));
         }
         Factory getFactory() const override { return nullptr; }
-        void toString(SkString*) const override {}
     private:
         bool fInvert;
         EmptyPathEffect(bool invert) : fInvert(invert) {}
@@ -1449,7 +1446,6 @@ void test_path_effect_fails(skiatest::Reporter* reporter, const Geo& geo) {
         }
         static sk_sp<SkPathEffect> Make() { return sk_sp<SkPathEffect>(new FailurePathEffect); }
         Factory getFactory() const override { return nullptr; }
-        void toString(SkString*) const override {}
     private:
         FailurePathEffect() {}
     };
@@ -1938,7 +1934,8 @@ DEF_TEST(GrShape_lines, r) {
         canonicalizeAsAB = true;
     } else if (pts[1] == kA && pts[0] == kB) {
         canonicalizeAsAB = false;
-        SkTSwap(canonicalPts[0], canonicalPts[1]);
+        using std::swap;
+        swap(canonicalPts[0], canonicalPts[1]);
     } else {
         ERRORF(r, "Should return pts (a,b) or (b, a)");
         return;
@@ -2328,5 +2325,3 @@ DEF_TEST(GrShape_arcs, reporter) {
         ovalArcWithCenter.compare(reporter, oval, ovalExpectations);
     }
 }
-
-#endif

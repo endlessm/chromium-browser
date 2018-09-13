@@ -10,6 +10,7 @@
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_paging.h"
 #import "ios/chrome/browser/ui/tab_grid/transitions/grid_transition_state_providing.h"
 
+@protocol ApplicationCommands;
 @protocol GridConsumer;
 @protocol GridCommands;
 @protocol GridImageDataSource;
@@ -19,14 +20,17 @@
 // Delegate protocol for an object that can handle presenting ("opening") tabs
 // from the tab grid.
 @protocol TabPresentationDelegate<NSObject>
-// Show the active tab in |page|, presented on top of the tab grid.
-- (void)showActiveTabInPage:(TabGridPage)page;
+// Show the active tab in |page|, presented on top of the tab grid.  The
+// omnibox will be focused after the animation if |focusOmnibox| is YES.
+- (void)showActiveTabInPage:(TabGridPage)page focusOmnibox:(BOOL)focusOmnibox;
 @end
 
 // View controller representing a tab switcher. The tab switcher has an
 // incognito tab grid, regular tab grid, and remote tabs.
 @interface TabGridViewController
     : UIViewController<TabGridPaging, GridTransitionStateProviding>
+
+@property(nonatomic, weak) id<ApplicationCommands> dispatcher;
 
 // Delegate for this view controller to handle presenting tab UI.
 @property(nonatomic, weak) id<TabPresentationDelegate> tabPresentationDelegate;

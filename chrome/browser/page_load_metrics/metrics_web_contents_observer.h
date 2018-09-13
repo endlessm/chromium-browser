@@ -69,6 +69,12 @@ class MetricsWebContentsObserver
     DISALLOW_COPY_AND_ASSIGN(TestingObserver);
   };
 
+  // Record a set of PageLoadFeatures directly from the browser process. This
+  // should only be used for features that were detected browser-side; features
+  // sources from the renderer should go via MetricsRenderFrameObserver.
+  static void RecordFeatureUsage(content::RenderFrameHost* render_frame_host,
+                                 const mojom::PageLoadFeatures& new_features);
+
   // Note that the returned metrics is owned by the web contents.
   static MetricsWebContentsObserver* CreateForWebContents(
       content::WebContents* web_contents,
@@ -139,7 +145,8 @@ class MetricsWebContentsObserver
   void OnTimingUpdated(content::RenderFrameHost* render_frame_host,
                        const mojom::PageLoadTiming& timing,
                        const mojom::PageLoadMetadata& metadata,
-                       const mojom::PageLoadFeatures& new_features);
+                       const mojom::PageLoadFeatures& new_features,
+                       const mojom::PageLoadDataUse& new_data_use);
 
   // Informs the observers of the currently committed load that the event
   // corresponding to |event_key| has occurred. This should not be called within
@@ -151,9 +158,10 @@ class MetricsWebContentsObserver
   friend class content::WebContentsUserData<MetricsWebContentsObserver>;
 
   // page_load_metrics::mojom::PageLoadMetrics implementation.
-  void UpdateTiming(mojom::PageLoadTimingPtr timing,
-                    mojom::PageLoadMetadataPtr metadata,
-                    mojom::PageLoadFeaturesPtr new_features) override;
+  void UpdateTiming(const mojom::PageLoadTimingPtr timing,
+                    const mojom::PageLoadMetadataPtr metadata,
+                    const mojom::PageLoadFeaturesPtr new_features,
+                    const mojom::PageLoadDataUsePtr new_data_use) override;
 
   void HandleFailedNavigationForTrackedLoad(
       content::NavigationHandle* navigation_handle,
@@ -195,6 +203,9 @@ class MetricsWebContentsObserver
 
   bool ShouldTrackNavigation(
       content::NavigationHandle* navigation_handle) const;
+
+  void OnBrowserFeatureUsage(content::RenderFrameHost* render_frame_host,
+                             const mojom::PageLoadFeatures& new_features);
 
   // True if the web contents is currently in the foreground.
   bool in_foreground_;

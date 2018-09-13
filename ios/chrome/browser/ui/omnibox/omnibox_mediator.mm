@@ -4,7 +4,9 @@
 
 #import "ios/chrome/browser/ui/omnibox/omnibox_mediator.h"
 
+#include "base/strings/sys_string_conversions.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_consumer.h"
+#include "ios/chrome/browser/ui/omnibox/omnibox_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -16,8 +18,10 @@
 
 #pragma mark - OmniboxLeftImageConsumer
 
-- (void)setLeftImageId:(int)imageId {
-  UIImage* image = [NativeImage(imageId)
+- (void)setLeftImageForAutocompleteType:(AutocompleteMatchType::Type)type {
+  std::string imageName =
+      GetResourceNameForAutocompleteMatchType(type, /* is_starred */ false);
+  UIImage* image = [[UIImage imageNamed:base::SysUTF8ToNSString(imageName)]
       imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
   [self.consumer updateAutocompleteIcon:image];
 }

@@ -26,7 +26,9 @@
 #include <vector>
 
 namespace llvm {
+namespace objcopy {
 
+class Buffer;
 class SectionBase;
 class Section;
 class OwnedDataSection;
@@ -36,6 +38,7 @@ class RelocationSection;
 class DynamicRelocationSection;
 class GnuDebugLinkSection;
 class GroupSection;
+class SectionIndexSection;
 class Segment;
 class Object;
 struct Symbol;
@@ -53,10 +56,10 @@ public:
   iterator begin() { return iterator(Sections.data()); }
   iterator end() { return iterator(Sections.data() + Sections.size()); }
 
-  SectionBase *getSection(uint16_t Index, Twine ErrMsg);
+  SectionBase *getSection(uint32_t Index, Twine ErrMsg);
 
   template <class T>
-  T *getSectionOfType(uint16_t Index, Twine IndexErrMsg, Twine TypeErrMsg);
+  T *getSectionOfType(uint32_t Index, Twine IndexErrMsg, Twine TypeErrMsg);
 };
 
 enum ElfType { ELFT_ELF32LE, ELFT_ELF64LE, ELFT_ELF32BE, ELFT_ELF64BE };
@@ -73,11 +76,12 @@ public:
   virtual void visit(const DynamicRelocationSection &Sec) = 0;
   virtual void visit(const GnuDebugLinkSection &Sec) = 0;
   virtual void visit(const GroupSection &Sec) = 0;
+  virtual void visit(const SectionIndexSection &Sec) = 0;
 };
 
 class SectionWriter : public SectionVisitor {
 protected:
-  FileOutputBuffer &Out;
+  Buffer &Out;
 
 public:
   virtual ~SectionWriter(){};
@@ -90,8 +94,9 @@ public:
   virtual void visit(const RelocationSection &Sec) override = 0;
   virtual void visit(const GnuDebugLinkSection &Sec) override = 0;
   virtual void visit(const GroupSection &Sec) override = 0;
+  virtual void visit(const SectionIndexSection &Sec) override = 0;
 
-  SectionWriter(FileOutputBuffer &Buf) : Out(Buf) {}
+  explicit SectionWriter(Buffer &Buf) : Out(Buf) {}
 };
 
 template <class ELFT> class ELFSectionWriter : public SectionWriter {
@@ -106,8 +111,9 @@ public:
   void visit(const RelocationSection &Sec) override;
   void visit(const GnuDebugLinkSection &Sec) override;
   void visit(const GroupSection &Sec) override;
+  void visit(const SectionIndexSection &Sec) override;
 
-  ELFSectionWriter(FileOutputBuffer &Buf) : SectionWriter(Buf) {}
+  explicit ELFSectionWriter(Buffer &Buf) : SectionWriter(Buf) {}
 };
 
 #define MAKE_SEC_WRITER_FRIEND                                                 \
@@ -122,25 +128,64 @@ public:
   void visit(const RelocationSection &Sec) override;
   void visit(const GnuDebugLinkSection &Sec) override;
   void visit(const GroupSection &Sec) override;
+  void visit(const SectionIndexSection &Sec) override;
 
-  BinarySectionWriter(FileOutputBuffer &Buf) : SectionWriter(Buf) {}
+  explicit BinarySectionWriter(Buffer &Buf) : SectionWriter(Buf) {}
+};
+
+// The class Buffer abstracts out the common interface of FileOutputBuffer and
+// WritableMemoryBuffer so that the hierarchy of Writers depends on this
+// abstract interface and doesn't depend on a particular implementation.
+// TODO: refactor the buffer classes in LLVM to enable us to use them here
+// directly.
+class Buffer {
+  StringRef Name;
+
+public:
+  virtual ~Buffer();
+  virtual void allocate(size_t Size) = 0;
+  virtual uint8_t *getBufferStart() = 0;
+  virtual Error commit() = 0;
+
+  explicit Buffer(StringRef Name) : Name(Name) {}
+  StringRef getName() const { return Name; }
+};
+
+class FileBuffer : public Buffer {
+  std::unique_ptr<FileOutputBuffer> Buf;
+
+public:
+  void allocate(size_t Size) override;
+  uint8_t *getBufferStart() override;
+  Error commit() override;
+
+  explicit FileBuffer(StringRef FileName) : Buffer(FileName) {}
+};
+
+class MemBuffer : public Buffer {
+  std::unique_ptr<WritableMemoryBuffer> Buf;
+
+public:
+  void allocate(size_t Size) override;
+  uint8_t *getBufferStart() override;
+  Error commit() override;
+
+  explicit MemBuffer(StringRef Name) : Buffer(Name) {}
+
+  std::unique_ptr<WritableMemoryBuffer> releaseMemoryBuffer();
 };
 
 class Writer {
 protected:
-  StringRef File;
   Object &Obj;
-  std::unique_ptr<FileOutputBuffer> BufPtr;
-
-  void createBuffer(uint64_t Size);
+  Buffer &Buf;
 
 public:
   virtual ~Writer();
-
   virtual void finalize() = 0;
   virtual void write() = 0;
 
-  Writer(StringRef File, Object &Obj) : File(File), Obj(Obj) {}
+  Writer(Object &O, Buffer &B) : Obj(O), Buf(B) {}
 };
 
 template <class ELFT> class ELFWriter : public Writer {
@@ -169,8 +214,8 @@ public:
 
   void finalize() override;
   void write() override;
-  ELFWriter(StringRef File, Object &Obj, bool WSH)
-      : Writer(File, Obj), WriteSectionHeaders(WSH) {}
+  ELFWriter(Object &Obj, Buffer &Buf, bool WSH)
+      : Writer(Obj, Buf), WriteSectionHeaders(WSH) {}
 };
 
 class BinaryWriter : public Writer {
@@ -183,7 +228,7 @@ public:
   ~BinaryWriter() {}
   void finalize() override;
   void write() override;
-  BinaryWriter(StringRef File, Object &Obj) : Writer(File, Obj) {}
+  BinaryWriter(Object &Obj, Buffer &Buf) : Writer(Obj, Buf) {}
 };
 
 class SectionBase {
@@ -191,8 +236,9 @@ public:
   StringRef Name;
   Segment *ParentSegment = nullptr;
   uint64_t HeaderOffset;
-  uint64_t OriginalOffset;
+  uint64_t OriginalOffset = std::numeric_limits<uint64_t>::max();
   uint32_t Index;
+  bool HasSymbol = false;
 
   uint64_t Addr = 0;
   uint64_t Align = 1;
@@ -212,6 +258,7 @@ public:
   virtual void removeSectionReferences(const SectionBase *Sec);
   virtual void removeSymbols(function_ref<bool(const Symbol &)> ToRemove);
   virtual void accept(SectionVisitor &Visitor) const = 0;
+  virtual void markSymbols();
 };
 
 class Segment {
@@ -331,6 +378,7 @@ enum SymbolShndxType {
   SYMBOL_HEXAGON_SCOMMON_2 = ELF::SHN_HEXAGON_SCOMMON_2,
   SYMBOL_HEXAGON_SCOMMON_4 = ELF::SHN_HEXAGON_SCOMMON_4,
   SYMBOL_HEXAGON_SCOMMON_8 = ELF::SHN_HEXAGON_SCOMMON_8,
+  SYMBOL_XINDEX = ELF::SHN_XINDEX,
 };
 
 struct Symbol {
@@ -344,8 +392,35 @@ struct Symbol {
   uint8_t Type;
   uint64_t Value;
   uint8_t Visibility;
+  bool Referenced = false;
 
   uint16_t getShndx() const;
+};
+
+class SectionIndexSection : public SectionBase {
+  MAKE_SEC_WRITER_FRIEND
+
+private:
+  std::vector<uint32_t> Indexes;
+  SymbolTableSection *Symbols = nullptr;
+
+public:
+  virtual ~SectionIndexSection() {}
+  void addIndex(uint32_t Index) {
+    Indexes.push_back(Index);
+    Size += 4;
+  }
+  void setSymTab(SymbolTableSection *SymTab) { Symbols = SymTab; }
+  void initialize(SectionTableRef SecTable) override;
+  void finalize() override;
+  void accept(SectionVisitor &Visitor) const override;
+
+  SectionIndexSection() {
+    Name = ".symtab_shndx";
+    Align = 4;
+    EntrySize = 4;
+    Type = ELF::SHT_SYMTAB_SHNDX;
+  }
 };
 
 class SymbolTableSection : public SectionBase {
@@ -357,6 +432,7 @@ class SymbolTableSection : public SectionBase {
 protected:
   std::vector<std::unique_ptr<Symbol>> Symbols;
   StringTableSection *SymbolNames = nullptr;
+  SectionIndexSection *SectionIndexTable = nullptr;
 
   using SymPtr = std::unique_ptr<Symbol>;
 
@@ -364,9 +440,16 @@ public:
   void addSymbol(StringRef Name, uint8_t Bind, uint8_t Type,
                  SectionBase *DefinedIn, uint64_t Value, uint8_t Visibility,
                  uint16_t Shndx, uint64_t Sz);
-  void addSymbolNames();
+  void prepareForLayout();
+  // An 'empty' symbol table still contains a null symbol.
+  bool empty() const { return Symbols.size() == 1; }
+  void setShndxTable(SectionIndexSection *ShndxTable) {
+    SectionIndexTable = ShndxTable;
+  }
+  const SectionIndexSection *getShndxTable() const { return SectionIndexTable; }
   const SectionBase *getStrTab() const { return SymbolNames; }
   const Symbol *getSymbolByIndex(uint32_t Index) const;
+  Symbol *getSymbolByIndex(uint32_t Index);
   void updateSymbols(function_ref<void(Symbol &)> Callable);
 
   void removeSectionReferences(const SectionBase *Sec) override;
@@ -381,7 +464,7 @@ public:
 };
 
 struct Relocation {
-  const Symbol *RelocSymbol = nullptr;
+  Symbol *RelocSymbol = nullptr;
   uint64_t Offset;
   uint64_t Addend;
   uint32_t Type;
@@ -435,6 +518,7 @@ public:
   void addRelocation(Relocation Rel) { Relocations.push_back(Rel); }
   void accept(SectionVisitor &Visitor) const override;
   void removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
+  void markSymbols() override;
 
   static bool classof(const SectionBase *S) {
     if (S->Flags & ELF::SHF_ALLOC)
@@ -449,7 +533,7 @@ public:
 class GroupSection : public SectionBase {
   MAKE_SEC_WRITER_FRIEND
   const SymbolTableSection *SymTab = nullptr;
-  const Symbol *Sym = nullptr;
+  Symbol *Sym = nullptr;
   ELF::Elf32_Word FlagWord;
   SmallVector<SectionBase *, 3> GroupMembers;
 
@@ -461,7 +545,7 @@ public:
   explicit GroupSection(ArrayRef<uint8_t> Data) : Contents(Data) {}
 
   void setSymTab(const SymbolTableSection *SymTabSec) { SymTab = SymTabSec; }
-  void setSymbol(const Symbol *S) { Sym = S; }
+  void setSymbol(Symbol *S) { Sym = S; }
   void setFlagWord(ELF::Elf32_Word W) { FlagWord = W; }
   void addMember(SectionBase *Sec) { GroupMembers.push_back(Sec); }
 
@@ -469,6 +553,7 @@ public:
   void accept(SectionVisitor &) const override;
   void finalize() override;
   void removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
+  void markSymbols() override;
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_GROUP;
@@ -543,6 +628,7 @@ private:
   using Elf_Addr = typename ELFT::Addr;
   using Elf_Shdr = typename ELFT::Shdr;
   using Elf_Ehdr = typename ELFT::Ehdr;
+  using Elf_Word = typename ELFT::Word;
 
   const ELFFile<ELFT> &ElfFile;
   Object &Obj;
@@ -562,14 +648,12 @@ public:
 };
 
 class ELFReader : public Reader {
-private:
-  std::unique_ptr<Binary> Bin;
-  std::shared_ptr<MemoryBuffer> Data;
+  Binary *Bin;
 
 public:
   ElfType getElfType() const;
   std::unique_ptr<Object> create() const override;
-  ELFReader(StringRef File);
+  explicit ELFReader(Binary *B) : Bin(B){};
 };
 
 class Object {
@@ -577,7 +661,6 @@ private:
   using SecPtr = std::unique_ptr<SectionBase>;
   using SegPtr = std::unique_ptr<Segment>;
 
-  std::shared_ptr<MemoryBuffer> OwnedData;
   std::vector<SecPtr> Sections;
   std::vector<SegPtr> Segments;
 
@@ -609,10 +692,7 @@ public:
 
   StringTableSection *SectionNames = nullptr;
   SymbolTableSection *SymbolTable = nullptr;
-
-  explicit Object(std::shared_ptr<MemoryBuffer> Data)
-      : OwnedData(std::move(Data)) {}
-  virtual ~Object() = default;
+  SectionIndexSection *SectionIndexTable = nullptr;
 
   void sortSections();
   SectionTableRef sections() { return SectionTableRef(Sections); }
@@ -635,6 +715,7 @@ public:
     return *Segments.back();
   }
 };
+} // end namespace objcopy
 } // end namespace llvm
 
 #endif // LLVM_TOOLS_OBJCOPY_OBJECT_H

@@ -409,8 +409,16 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
           continue
         for suite_config in self._run.config.hw_tests:
           if not suite_config.async:
-            commands.AbortHWTests(self._run.config.name, old_version,
-                                  debug, suite_config.suite)
+            if self._run.config.enable_skylab_hw_tests:
+              commands.AbortSkylabHWTests(
+                  build='%s/%s' % (self._run.config.name, old_version),
+                  board=self._run.config.boards[0],
+                  debug=False, # For tryjob
+                  suite=suite_config.suite,
+                  pool=suite_config.pool)
+            else:
+              commands.AbortHWTests(self._run.config.name, old_version,
+                                    debug, suite_config.suite)
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
@@ -1156,31 +1164,6 @@ class DetectRelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
 
     return packages_under_test
 
-  def GetSubsystemToTest(self, relevant_changes):
-    """Get subsystems from relevant cls for current board, write to BOARD_ATTRS.
-
-    Args:
-      relevant_changes: A set of changes that are relevant to current board.
-
-    Returns:
-      A set of the subsystems. An empty set indicates that all subsystems should
-      be tested.
-    """
-    # Go through all the relevant changes, collect subsystem info from them. If
-    # there exists a change without subsystem info, we assume it affects all
-    # subsystems. Then set the superset of all the subsystems to be empty, which
-    # means that need to test all subsystems.
-    subsystem_set = set()
-    for change in relevant_changes:
-      sys_lst = triage_lib.GetTestSubsystemForChange(self._build_root, change)
-      if sys_lst:
-        subsystem_set = subsystem_set.union(sys_lst)
-      else:
-        subsystem_set = set()
-        break
-
-    return subsystem_set
-
   def _RecordActionForChanges(self, changes, action):
     """Records |changes| action to the slave build into cidb.
 
@@ -1238,17 +1221,12 @@ class DetectRelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
             relevant_changes, constants.CL_ACTION_RELEVANT_TO_SLAVE)
 
     if relevant_changes:
-      logging.info('Below are the relevant changes for board: %s.',
-                   self._current_board)
       validation_pool.ValidationPool.PrintLinksToChanges(
           list(relevant_changes))
     else:
       logging.info('No changes are relevant for board: %s.',
                    self._current_board)
 
-    subsystem_set = self.GetSubsystemToTest(relevant_changes)
-    logging.info('Subsystems need to be tested: %s. Empty set represents '
-                 'testing all subsystems.', subsystem_set)
     # Record subsystems to metadata
     self._run.attrs.metadata.UpdateBoardDictWithDict(
-        self._current_board, {'subsystems_to_test': list(subsystem_set)})
+        self._current_board, {'subsystems_to_test': []})

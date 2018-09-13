@@ -24,7 +24,6 @@ import urllib
 from chromite.cbuildbot import topology
 from chromite.lib.const import waterfall
 from chromite.lib import auth
-from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import retry_util
@@ -48,7 +47,9 @@ WATERFALL_BUCKET_MAP = {
     waterfall.WATERFALL_EXTERNAL:
         constants.CHROMIUMOS_BUILDBUCKET_BUCKET,
     waterfall.WATERFALL_RELEASE:
-        constants.CHROMEOS_RELEASE_BUILDBUCKET_BUCKET
+        constants.CHROMEOS_RELEASE_BUILDBUCKET_BUCKET,
+    waterfall.WATERFALL_SWARMING:
+        constants.INTERNAL_SWARMING_BUILDBUCKET_BUCKET,
 }
 
 # A running build on a buildbot should determin the buildbucket
@@ -195,13 +196,9 @@ def FetchCurrentSlaveBuilders(config, metadata, builders_array,
       True.
 
   Returns:
-    An updated list of slave build configs for a master build which uses
-    Buildbucket to schedule slaves; or the origin builders_array for other
-    masters.
+    An updated list of slave build configs for a master build.
   """
-  if (config is not None and
-      metadata is not None and
-      config_lib.UseBuildbucketScheduler(config)):
+  if config and metadata:
     scheduled_buildbucket_info_dict = GetBuildInfoDict(
         metadata, exclude_experimental=exclude_experimental)
     return scheduled_buildbucket_info_dict.keys()

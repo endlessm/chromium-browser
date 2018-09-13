@@ -14,8 +14,12 @@
 #include "components/omnibox/browser/autocomplete_provider_client.h"
 #include "components/omnibox/browser/autocomplete_scheme_classifier.h"
 #include "components/omnibox/browser/contextual_suggestions_service.h"
+#include "components/omnibox/browser/document_suggestions_service.h"
 #include "components/search_engines/search_terms_data.h"
 #include "components/search_engines/template_url_service.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/test/test_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 struct AutocompleteMatch;
@@ -27,14 +31,16 @@ class MockAutocompleteProviderClient
   ~MockAutocompleteProviderClient();
 
   // AutocompleteProviderClient:
-  MOCK_METHOD0(GetRequestContext, net::URLRequestContextGetter*());
   MOCK_METHOD0(GetPrefs, PrefService*());
   MOCK_CONST_METHOD0(GetSchemeClassifier,
                      const AutocompleteSchemeClassifier&());
   MOCK_METHOD0(GetAutocompleteClassifier, AutocompleteClassifier*());
   MOCK_METHOD0(GetHistoryService, history::HistoryService*());
 
-  // Can't mock scoped_refptr :\.
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory()
+      override {
+    return shared_factory_;
+  }
   scoped_refptr<history::TopSites> GetTopSites() override { return nullptr; }
 
   MOCK_METHOD0(GetBookmarkModel, bookmarks::BookmarkModel*());
@@ -50,6 +56,10 @@ class MockAutocompleteProviderClient
   ContextualSuggestionsService* GetContextualSuggestionsService(
       bool create_if_necessary) const override {
     return contextual_suggestions_service_.get();
+  }
+  DocumentSuggestionsService* GetDocumentSuggestionsService(
+      bool create_if_necessary) const override {
+    return document_suggestions_service_.get();
   }
 
   MOCK_CONST_METHOD0(GetSearchTermsData, const SearchTermsData&());
@@ -73,7 +83,7 @@ class MockAutocompleteProviderClient
   MOCK_CONST_METHOD0(GetCurrentVisitTimestamp, base::Time());
   MOCK_CONST_METHOD0(IsOffTheRecord, bool());
   MOCK_CONST_METHOD0(SearchSuggestEnabled, bool());
-  MOCK_CONST_METHOD0(IsTabUploadToGoogleActive, bool());
+  MOCK_CONST_METHOD0(IsPersonalizedUrlDataCollectionActive, bool());
   MOCK_CONST_METHOD0(IsAuthenticated, bool());
   MOCK_METHOD6(
       Classify,
@@ -96,8 +106,16 @@ class MockAutocompleteProviderClient
     template_url_service_ = std::move(service);
   }
 
+  network::TestURLLoaderFactory* test_url_loader_factory() {
+    return &test_url_loader_factory_;
+  }
+
  private:
+  network::TestURLLoaderFactory test_url_loader_factory_;
+  scoped_refptr<network::SharedURLLoaderFactory> shared_factory_;
+
   std::unique_ptr<ContextualSuggestionsService> contextual_suggestions_service_;
+  std::unique_ptr<DocumentSuggestionsService> document_suggestions_service_;
   std::unique_ptr<TemplateURLService> template_url_service_;
 
   DISALLOW_COPY_AND_ASSIGN(MockAutocompleteProviderClient);

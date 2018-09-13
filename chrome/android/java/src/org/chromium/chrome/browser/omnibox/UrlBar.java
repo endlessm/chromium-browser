@@ -14,7 +14,6 @@ import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.StrictMode;
-import android.os.SystemClock;
 import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
 import android.support.v4.text.BidiFormatter;
@@ -36,9 +35,11 @@ import android.widget.TextView;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Log;
 import org.chromium.base.SysUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.WindowDelegate;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.toolbar.ToolbarManager;
 import org.chromium.chrome.browser.util.UrlUtilities;
 import org.chromium.ui.UiUtils;
 
@@ -101,6 +102,7 @@ public class UrlBar extends AutocompleteEditText {
     private String mPreviousTldScrollText;
     private int mPreviousTldScrollViewWidth;
     private int mPreviousTldScrollResultXPosition;
+    private float mPreviousFontSize;
 
     private final int mDarkHintColor;
     private final int mDarkDefaultTextColor;
@@ -111,8 +113,6 @@ public class UrlBar extends AutocompleteEditText {
     private final int mLightHighlightColor;
 
     private Boolean mUseDarkColors;
-
-    private long mFirstFocusTimeMs;
 
     // Used as a hint to indicate the text may contain an ellipsize span.  This will be true if an
     // ellispize span was applied the last time the text changed.  A true value here does not
@@ -246,19 +246,23 @@ public class UrlBar extends AutocompleteEditText {
         setFocusable(false);
         setFocusableInTouchMode(false);
 
-        mGestureDetector = new GestureDetector(
-                getContext(), new GestureDetector.SimpleOnGestureListener() {
+        mGestureDetector =
+                new GestureDetector(getContext(), new GestureDetector.SimpleOnGestureListener() {
                     @Override
                     public void onLongPress(MotionEvent e) {
+                        ToolbarManager.recordOmniboxFocusReason(
+                                ToolbarManager.OmniboxFocusReason.OMNIBOX_LONG_PRESS);
                         performLongClick();
                     }
 
                     @Override
                     public boolean onSingleTapUp(MotionEvent e) {
                         requestFocus();
+                        ToolbarManager.recordOmniboxFocusReason(
+                                ToolbarManager.OmniboxFocusReason.OMNIBOX_TAP);
                         return true;
                     }
-                });
+                }, ThreadUtils.getUiThreadHandler());
         mGestureDetector.setOnDoubleTapListener(null);
         mKeyboardHideHelper = new KeyboardHideHelper(this, new Runnable() {
             @Override
@@ -345,23 +349,11 @@ public class UrlBar extends AutocompleteEditText {
         mFocused = focused;
         super.onFocusChanged(focused, direction, previouslyFocusedRect);
 
-        if (focused && mFirstFocusTimeMs == 0) {
-            mFirstFocusTimeMs = SystemClock.elapsedRealtime();
-        }
-
         if (focused) {
             mPendingScroll = false;
         }
 
         fixupTextDirection();
-    }
-
-    /**
-     * @return The elapsed realtime timestamp in ms of the first time the url bar was focused,
-     *         0 if never.
-     */
-    public long getFirstFocusTime() {
-        return mFirstFocusTimeMs;
     }
 
     /**
@@ -828,7 +820,10 @@ public class UrlBar extends AutocompleteEditText {
 
         int measuredWidth = getMeasuredWidth() - (getPaddingLeft() + getPaddingRight());
         if (TextUtils.equals(url, previousTldScrollText)
-                && measuredWidth == previousTldScrollViewWidth) {
+                && measuredWidth == previousTldScrollViewWidth
+                // Font size is float but it changes in discrete range (eg small font, big font),
+                // therefore false negative using regular equality is unlikely.
+                && getTextSize() == mPreviousFontSize) {
             scrollTo(previousTldScrollResultXPosition, getScrollY());
             return;
         }
@@ -857,6 +852,7 @@ public class UrlBar extends AutocompleteEditText {
 
         mPreviousTldScrollText = url.toString();
         mPreviousTldScrollViewWidth = measuredWidth;
+        mPreviousFontSize = getTextSize();
         mPreviousTldScrollResultXPosition = (int) scrollPos;
     }
 

@@ -46,7 +46,7 @@ bool spvParseUniversalLimitsOptions(const char* s, spv_validator_limit* type) {
   return true;
 }
 
-spv_validator_options spvValidatorOptionsCreate() {
+spv_validator_options spvValidatorOptionsCreate(void) {
   return new spv_validator_options_t;
 }
 
@@ -80,4 +80,14 @@ void spvValidatorOptionsSetUniversalLimit(spv_validator_options options,
 void spvValidatorOptionsSetRelaxStoreStruct(spv_validator_options options,
                                             bool val) {
   options->relax_struct_store = val;
+}
+
+void spvValidatorOptionsSetRelaxLogicalPointer(spv_validator_options options,
+                                               bool val) {
+  options->relax_logical_pointer = val;
+}
+
+void spvValidatorOptionsSetRelaxBlockLayout(spv_validator_options options,
+                                            bool val) {
+  options->relax_block_layout = val;
 }

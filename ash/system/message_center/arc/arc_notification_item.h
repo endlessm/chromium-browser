@@ -18,6 +18,14 @@ class ArcNotificationItem {
     // Invoked when the notification data for this item has changed.
     virtual void OnItemDestroying() = 0;
 
+    // Invoked when the type of the shown content is changed.
+    virtual void OnItemContentChanged(
+        arc::mojom::ArcNotificationShownContents content) {}
+
+    // Invoked when the remote input textbox on notification is activated or
+    // deactivated.
+    virtual void OnRemoteInputActivationChanged(bool activated) {}
+
    protected:
     virtual ~Observer() = default;
   };
@@ -42,9 +50,16 @@ class ArcNotificationItem {
   // Called when the user wants to open an intrinsic setting of notification.
   // This is called from ArcNotificationContentView.
   virtual void OpenSettings() = 0;
+  // Called when the user wants to open an intrinsic snooze setting of
+  // notification. This is called from ArcNotificationContentView.
+  virtual void OpenSnooze() = 0;
   // Called when the user wants to toggle expansio of notification. This is
   // called from ArcNotificationContentView.
   virtual void ToggleExpansion() = 0;
+
+  // Called from ArcNotificationManager when the remote input textbox on
+  // notification is activated or deactivated.
+  virtual void OnRemoteInputActivationChanged(bool activate) = 0;
 
   // Adds an observer.
   virtual void AddObserver(Observer* observer) = 0;
@@ -68,8 +83,9 @@ class ArcNotificationItem {
 
   virtual bool IsManuallyExpandedOrCollapsed() const = 0;
 
-  // Returns the current type of shown contents.
-  virtual arc::mojom::ArcNotificationShownContents GetShownContents() const = 0;
+  // Cancel long press operation on Android side.
+  virtual void CancelLongPress() = 0;
+
   // Returns the rect for which Android wants to handle all swipe events.
   // Defaults to the empty rectangle.
   virtual gfx::Rect GetSwipeInputRect() const = 0;

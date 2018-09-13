@@ -24,7 +24,7 @@
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
 #import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_controller.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #include "ios/web/public/features.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -193,6 +193,7 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
       updateMostVisitedForSize:self.collectionView.bounds.size];
   [self.headerSynchronizer
       updateFakeOmniboxOnNewWidth:self.collectionView.bounds.size.width];
+  [self.headerSynchronizer updateConstraints];
   [self.collectionView reloadData];
   if (ShouldCellsBeFullWidth(
           [UIApplication sharedApplication].keyWindow.traitCollection)) {
@@ -285,10 +286,11 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
 }
 
 - (void)updateOverscrollActionsState {
-  if (IsRegularXRegularSizeClass(self)) {
-    [self.overscrollActionsController disableOverscrollActions];
-  } else {
+  if (IsSplitToolbarMode(self) ||
+      (!IsUIRefreshPhase1Enabled() && !IsRegularXRegularSizeClass(self))) {
     [self.overscrollActionsController enableOverscrollActions];
+  } else {
+    [self.overscrollActionsController disableOverscrollActions];
   }
 }
 
@@ -308,6 +310,7 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
   [super viewDidAppear:animated];
   // Resize the collection as it might have been rotated while not being
   // presented (e.g. rotation on stack view).
+  [self correctMissingSafeArea];
   [self updateConstraints];
   // Update the shadow bar.
   [self.audience contentOffsetDidChange];
@@ -352,6 +355,8 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
 - (void)viewSafeAreaInsetsDidChange {
   [super viewSafeAreaInsetsDidChange];
   [self correctMissingSafeArea];
+  [self.headerSynchronizer
+      updateFakeOmniboxOnNewWidth:self.collectionView.bounds.size.width];
 }
 
 #pragma mark - UICollectionViewDelegate

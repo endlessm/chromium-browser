@@ -40,6 +40,10 @@ int GetLayoutConstant(LayoutConstant constant) {
                                       : 39;
     case HOSTED_APP_MENU_BUTTON_SIZE:
       return 24;
+    case HOSTED_APP_PAGE_ACTION_ICON_SIZE:
+      // We must limit the size of icons in the title bar to avoid vertically
+      // stretching the container view.
+      return 16;
     case LOCATION_BAR_BUBBLE_VERTICAL_PADDING:
       return hybrid ? 1 : 3;
     case LOCATION_BAR_BUBBLE_FONT_VERTICAL_PADDING:
@@ -63,8 +67,6 @@ int GetLayoutConstant(LayoutConstant constant) {
     }
     case LOCATION_BAR_ICON_SIZE:
       return touch_optimized_material ? 20 : 16;
-    case LOCATION_BAR_ICON_INTERIOR_PADDING:
-      return touch_optimized_material ? 5 : 4;
     case TAB_AFTER_TITLE_PADDING:
       return touch_optimized_material ? 8 : 4;
     case TAB_ALERT_INDICATOR_CAPTURE_ICON_WIDTH:
@@ -72,17 +74,15 @@ int GetLayoutConstant(LayoutConstant constant) {
     case TAB_ALERT_INDICATOR_ICON_WIDTH:
       return touch_optimized_material ? 12 : 16;
     case TAB_HEIGHT: {
-      constexpr int kTabHeight[] = {29, 33, 41, 36, 41};
-      return kTabHeight[mode];
+      constexpr int kTabHeight[] = {29, 33, 41, 34, 41};
+      return kTabHeight[mode] + GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP);
     }
     case TAB_PRE_TITLE_PADDING:
-      return touch_optimized_material ? 8 : 6;
+      return newer_material ? 8 : 6;
     case TAB_STACK_DISTANCE:
       return touch_optimized_material ? 4 : 6;
-    case TAB_STACK_TAB_WIDTH:
-      return touch_optimized_material ? 160 : 120;
-    case TAB_STANDARD_WIDTH:
-      return touch_optimized_material ? 245 : 193;
+    case TABSTRIP_TOOLBAR_OVERLAP:
+      return ui::MaterialDesignController::IsRefreshUi() ? 1 : 0;
     case TOOLBAR_ELEMENT_PADDING: {
       constexpr int kPadding[] = {0, 8, 0, 4, 0};
       return kPadding[mode];
@@ -100,17 +100,20 @@ int GetLayoutConstant(LayoutConstant constant) {
 
 gfx::Insets GetLayoutInsets(LayoutInset inset) {
   const int mode = ui::MaterialDesignController::GetMode();
+  const bool touch_optimized_material =
+      ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
   switch (inset) {
-    case TAB: {
-      // TODO(pkasting): This should disappear; the horizontal portion should
-      // be computed in tab.cc, and the vertical portion become a standalone
-      // value (that should perhaps be 0 in Refresh).
-      constexpr int kTabHorizontalInset[] = {16, 18, 24, 16, 16};
-      return gfx::Insets(1, kTabHorizontalInset[mode]);
+    case LOCATION_BAR_ICON_INTERIOR_PADDING: {
+      if (ui::MaterialDesignController::IsRefreshUi()) {
+        return touch_optimized_material ? gfx::Insets(5, 10)
+                                        : gfx::Insets(4, 8);
+      }
+
+      return touch_optimized_material ? gfx::Insets(5) : gfx::Insets(4);
     }
+
     case TOOLBAR_BUTTON:
-      return gfx::Insets(
-          ui::MaterialDesignController::IsTouchOptimizedUiEnabled() ? 12 : 6);
+      return gfx::Insets(touch_optimized_material ? 12 : 6);
 
     case TOOLBAR_ACTION_VIEW: {
       // TODO(afakhry): Unify all toolbar button sizes on all platforms.
@@ -121,20 +124,4 @@ gfx::Insets GetLayoutInsets(LayoutInset inset) {
   }
   NOTREACHED();
   return gfx::Insets();
-}
-
-gfx::Size GetLayoutSize(LayoutSize size, bool is_incognito) {
-  const int mode = ui::MaterialDesignController::GetMode();
-  switch (size) {
-    case NEW_TAB_BUTTON: {
-      const gfx::Size sizes[] = {{36, 18},
-                                 {39, 21},
-                                 {(is_incognito ? 42 : 24), 24},
-                                 {28, 28},
-                                 {28, 28}};
-      return sizes[mode];
-    }
-  }
-  NOTREACHED();
-  return gfx::Size();
 }

@@ -110,7 +110,7 @@ class ServiceWorkerPaymentAppFactoryBrowserTest : public InProcessBrowserTest {
     content::BrowserContext* context = web_contents->GetBrowserContext();
     auto downloader = std::make_unique<TestDownloader>(
         content::BrowserContext::GetDefaultStoragePartition(context)
-            ->GetURLRequestContext());
+            ->GetURLLoaderFactoryForBrowserProcess());
     downloader->AddTestServerURL("https://alicepay.com/",
                                  alicepay_.GetURL("alicepay.com", "/"));
     downloader->AddTestServerURL("https://bobpay.com/",
@@ -123,8 +123,10 @@ class ServiceWorkerPaymentAppFactoryBrowserTest : public InProcessBrowserTest {
         ->SetDownloaderAndIgnorePortInAppScopeForTesting(std::move(downloader));
 
     std::vector<mojom::PaymentMethodDataPtr> method_data;
-    method_data.emplace_back(mojom::PaymentMethodData::New());
-    method_data.back()->supported_methods = payment_method_identifiers;
+    for (const auto& identifier : payment_method_identifiers) {
+      method_data.emplace_back(mojom::PaymentMethodData::New());
+      method_data.back()->supported_method = identifier;
+    }
 
     base::RunLoop run_loop;
     ServiceWorkerPaymentAppFactory::GetInstance()->GetAllPaymentApps(
@@ -161,9 +163,7 @@ class ServiceWorkerPaymentAppFactoryBrowserTest : public InProcessBrowserTest {
       }
     }
     ASSERT_NE(nullptr, app) << "No app found in scope " << scope;
-    EXPECT_NE(app->enabled_methods.end(),
-              std::find(app->enabled_methods.begin(),
-                        app->enabled_methods.end(), expected_method))
+    EXPECT_TRUE(base::ContainsValue(app->enabled_methods, expected_method))
         << "Unable to find payment method " << expected_method
         << " in the list of enabled methods for the app installed from "
         << app->scope;

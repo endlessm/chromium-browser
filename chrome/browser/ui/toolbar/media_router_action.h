@@ -48,8 +48,7 @@ class MediaRouterAction : public ToolbarActionViewController,
   std::string GetId() const override;
   void SetDelegate(ToolbarActionViewDelegate* delegate) override;
   gfx::Image GetIcon(content::WebContents* web_contents,
-                     const gfx::Size& size,
-                     ToolbarActionButtonState state) override;
+                     const gfx::Size& size) override;
   base::string16 GetActionName() const override;
   base::string16 GetAccessibleName(content::WebContents* web_contents)
       const override;
@@ -114,6 +113,8 @@ class MediaRouterAction : public ToolbarActionViewController,
   void MaybeUpdateIcon();
 
   const gfx::VectorIcon& GetCurrentIcon() const;
+
+  void DestroyContextMenu();
 
   // The current icon to show. This is updated based on the current issues and
   // routes since |this| is an IssueObserver and MediaRoutesObserver.

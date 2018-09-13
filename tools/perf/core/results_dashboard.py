@@ -17,11 +17,19 @@ import os
 import subprocess
 import sys
 import traceback
+import time
+import tempfile
 import urllib
 import urllib2
+import uuid
 import zlib
 
+from telemetry.internal.util import external_modules
+
+psutil = external_modules.ImportOptionalModule('psutil')
+
 from core import path_util
+
 
 # The paths in the results dashboard URLs for sending results.
 SEND_RESULTS_PATH = '/add_point'
@@ -64,6 +72,7 @@ def SendResults(data, url, tmp_dir,
     send_as_histograms: True if result is to be sent to /add_histograms.
     oauth_token: string; used for flushing oauth uploads from cache.
   """
+  start = time.time()
   results_json = json.dumps({
       'is_histogramset': send_as_histograms,
       'data': data
@@ -77,6 +86,8 @@ def SendResults(data, url, tmp_dir,
   # Send all the results from this run and the previous cache to the dashboard.
   fatal_error, errors = _SendResultsFromCache(cache_file_name, url, oauth_token)
 
+  print 'Time spent sending results to %s: %s' % (url, time.time() - start)
+
   # Print any errors; if there was a fatal error, it should be an exception.
   for error in errors:
     print error
@@ -87,9 +98,10 @@ def SendResults(data, url, tmp_dir,
 
 def _GetCacheFileName(tmp_dir):
   """Gets the cache filename, creating the file if it does not exist."""
-  cache_dir = os.path.join(os.path.abspath(tmp_dir), CACHE_DIR)
+  cache_dir = os.path.join(os.path.abspath(tmp_dir), CACHE_DIR, str(uuid.uuid4()))
   if not os.path.exists(cache_dir):
     os.makedirs(cache_dir)
+  # Since this is multi-processed, add a unique identifier to the cache dir
   cache_filename = os.path.join(cache_dir, CACHE_FILENAME)
   if not os.path.exists(cache_filename):
     # Create the file.
@@ -219,15 +231,22 @@ def MakeHistogramSetWithDiagnostics(histograms_file,
   add_reserved_diagnostics_path = os.path.join(
       path_util.GetChromiumSrcDir(), 'third_party', 'catapult', 'tracing',
       'bin', 'add_reserved_diagnostics')
-  cmd = [sys.executable, add_reserved_diagnostics_path] + add_diagnostics_args
 
-  subprocess.call(cmd)
+  tf = tempfile.NamedTemporaryFile(delete=False)
+  tf.close()
+  temp_histogram_output_file = tf.name
 
-  # TODO: Handle reference builds
-  with open(histograms_file) as f:
-    hs = json.load(f)
+  cmd = ([sys.executable, add_reserved_diagnostics_path] +
+         add_diagnostics_args + ['--output_path', temp_histogram_output_file])
 
-  return hs
+  try:
+    subprocess.check_call(cmd)
+    # TODO: Handle reference builds
+    with open(temp_histogram_output_file) as f:
+      hs = json.load(f)
+    return hs
+  finally:
+    os.remove(temp_histogram_output_file)
 
 
 def MakeListOfPoints(charts, bot, test_name, buildername,

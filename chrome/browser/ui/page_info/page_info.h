@@ -91,7 +91,8 @@ class PageInfo : public TabSpecificContentSettings::SiteDataObserver,
     SITE_IDENTITY_STATUS_MALWARE,
     SITE_IDENTITY_STATUS_SOCIAL_ENGINEERING,
     SITE_IDENTITY_STATUS_UNWANTED_SOFTWARE,
-    SITE_IDENTITY_STATUS_PASSWORD_REUSE,
+    SITE_IDENTITY_STATUS_SIGN_IN_PASSWORD_REUSE,
+    SITE_IDENTITY_STATUS_ENTERPRISE_PASSWORD_REUSE,
   };
 
   // Events for UMA. Do not reorder or change! Exposed in header so enum is
@@ -287,6 +288,9 @@ class PageInfo : public TabSpecificContentSettings::SiteDataObserver,
   // info will include buttons to change corresponding password, and to
   // whitelist current site.
   bool show_change_password_buttons_;
+
+  base::TimeTicks start_time_;
+  bool did_perform_action_;
 
   DISALLOW_COPY_AND_ASSIGN(PageInfo);
 };

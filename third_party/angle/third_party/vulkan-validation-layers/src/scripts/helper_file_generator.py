@@ -162,14 +162,22 @@ class HelperFileOutputGenerator(OutputGenerator):
 
         if self.featureName == 'VK_VERSION_1_0' or self.featureName == 'VK_VERSION_1_1':
             return
+        name = self.featureName
         nameElem = interface[0][1]
-        name = nameElem.get('name')
-        if 'EXTENSION_NAME' not in name:
+        name_define = nameElem.get('name')
+        if 'EXTENSION_NAME' not in name_define:
             print("Error in vk.xml file -- extension name is not available")
-        if interface.get('type') == 'instance':
-            self.instance_extension_info[name] = self.featureExtraProtect
+        requires = interface.get('requires')
+        if requires is not None:
+            required_extensions = requires.split(',')
         else:
-            self.device_extension_info[name] = self.featureExtraProtect
+            required_extensions = list()
+        info = { 'define': name_define, 'ifdef':self.featureExtraProtect, 'reqs':required_extensions }
+        if interface.get('type') == 'instance':
+            self.instance_extension_info[name] = info
+        else:
+            self.device_extension_info[name] = info
+
     #
     # Override parent class to be notified of the end of an extension
     def endFeature(self):
@@ -215,15 +223,6 @@ class HelperFileOutputGenerator(OutputGenerator):
         elif (category == 'struct' or category == 'union'):
             self.structNames.append(name)
             self.genStruct(typeinfo, name, alias)
-    #
-    # Generate a VkStructureType based on a structure typename
-    def genVkStructureType(self, typename):
-        # Add underscore between lowercase then uppercase
-        value = re.sub('([a-z0-9])([A-Z])', r'\1_\2', typename)
-        # Change to uppercase
-        value = value.upper()
-        # Add STRUCTURE_TYPE_
-        return re.sub('VK_', 'VK_STRUCTURE_TYPE_', value)
     #
     # Check if the parameter passed in is a pointer
     def paramIsPointer(self, param):
@@ -343,10 +342,8 @@ class HelperFileOutputGenerator(OutputGenerator):
                 result = re.search(r'VK_STRUCTURE_TYPE_\w+', rawXml)
                 if result:
                     value = result.group(0)
-                else:
-                    value = self.genVkStructureType(typeName)
-                # Store the required type value
-                self.structTypes[typeName] = self.StructType(name=name, value=value)
+                    # Store the required type value
+                    self.structTypes[typeName] = self.StructType(name=name, value=value)
             # Store pointer/array/string info
             isstaticarray = self.paramIsStaticArray(member)
             membersInfo.append(self.CommandParam(type=type,
@@ -367,7 +364,9 @@ class HelperFileOutputGenerator(OutputGenerator):
         outstring += '{\n'
         outstring += '    switch ((%s)input_value)\n' % groupName
         outstring += '    {\n'
-        for item in value_list:
+        # Emit these in a repeatable order so file is generated with the same contents each time.
+        # This helps compiler caching systems like ccache.
+        for item in sorted(value_list):
             outstring += '        case %s:\n' % item
             outstring += '            return "%s";\n' % item
         outstring += '        default:\n'
@@ -464,127 +463,188 @@ class HelperFileOutputGenerator(OutputGenerator):
 
         V_1_0_instance_extensions_promoted_to_core = [
             'vk_khr_device_group_creation',
-            'vk_khr_external_memory_capabilities',
             'vk_khr_external_fence_capabilities',
+            'vk_khr_external_memory_capabilities',
             'vk_khr_external_semaphore_capabilities',
             'vk_khr_get_physical_device_properties_2',
             ]
 
         V_1_0_device_extensions_promoted_to_core = [
+            'vk_khr_16bit_storage',
             'vk_khr_bind_memory_2',
-            'vk_khr_device_group',
+            'vk_khr_dedicated_allocation',
             'vk_khr_descriptor_update_template',
-            'vk_khr_sampler_ycbcr_conversion',
-            'vk_khr_get_memory_requirements_2',
-            'vk_khr_maintenance3',
-            'vk_khr_maintenance1',
-            'vk_khr_multiview',
+            'vk_khr_device_group',
+            'vk_khr_external_fence',
             'vk_khr_external_memory',
             'vk_khr_external_semaphore',
-            'vk_khr_16bit_storage',
-            'vk_khr_external_fence',
+            'vk_khr_get_memory_requirements_2',
+            'vk_khr_maintenance1',
             'vk_khr_maintenance2',
+            'vk_khr_maintenance3',
+            'vk_khr_multiview',
+            'vk_khr_relaxed_block_layout',
+            'vk_khr_sampler_ycbcr_conversion',
+            'vk_khr_shader_draw_parameters',
+            'vk_khr_storage_buffer_storage_class',
             'vk_khr_variable_pointers',
-            'vk_khr_dedicated_allocation',
             ]
 
-        extension_helper_header = '\n'
-        extension_helper_header += '#ifndef VK_EXTENSION_HELPER_H_\n'
-        extension_helper_header += '#define VK_EXTENSION_HELPER_H_\n'
-        struct  = '\n'
-        extension_helper_header += '#include <vulkan/vulkan.h>\n'
-        extension_helper_header += '#include <string.h>\n'
-        extension_helper_header += '#include <utility>\n'
-        extension_helper_header += '\n'
-        extension_helper_header += '\n'
-        extension_dict = dict()
-        promoted_ext_list = []
+        output = [
+            '',
+            '#ifndef VK_EXTENSION_HELPER_H_',
+            '#define VK_EXTENSION_HELPER_H_',
+            '#include <unordered_set>',
+            '#include <string>',
+            '#include <unordered_map>',
+            '#include <utility>',
+            '',
+            '#include <vulkan/vulkan.h>',
+            '']
+
+        def guarded(ifdef, value):
+            if ifdef is not None:
+                return '\n'.join([ '#ifdef %s' % ifdef, value, '#endif' ])
+            else:
+                return value
+
         for type in ['Instance', 'Device']:
+            struct_type = '%sExtensions' % type
             if type == 'Instance':
                 extension_dict = self.instance_extension_info
                 promoted_ext_list = V_1_0_instance_extensions_promoted_to_core
-                struct += 'struct InstanceExtensions { \n'
+                struct_decl = 'struct %s {' % struct_type
+                instance_struct_type = struct_type
             else:
                 extension_dict = self.device_extension_info
                 promoted_ext_list = V_1_0_device_extensions_promoted_to_core
-                struct += 'struct DeviceExtensions : public InstanceExtensions { \n'
-            for ext_name, ifdef in extension_dict.items():
-                bool_name = ext_name.lower()
-                bool_name = re.sub('_extension_name', '', bool_name)
-                struct += '    bool %s{false};\n' % bool_name
-            struct += '\n'
+                struct_decl = 'struct %s : public %s {' % (struct_type, instance_struct_type)
+
+            extension_items = sorted(extension_dict.items())
+
+            field_name = { ext_name: re.sub('_extension_name', '', info['define'].lower()) for ext_name, info in extension_items }
             if type == 'Instance':
-                struct += '    uint32_t NormalizeApiVersion(uint32_t specified_version) {\n'
-                struct += '        uint32_t api_version = (specified_version < VK_API_VERSION_1_1) ? VK_API_VERSION_1_0 : VK_API_VERSION_1_1;\n'
-                struct += '        return api_version;\n'
-                struct += '    }\n'
-                struct += '\n'
-
-                struct += '    uint32_t InitFromInstanceCreateInfo(uint32_t requested_api_version, const VkInstanceCreateInfo *pCreateInfo) {\n'
+                instance_field_name = field_name
+                instance_extension_dict = extension_dict
             else:
-                struct += '    uint32_t InitFromDeviceCreateInfo(const InstanceExtensions *instance_extensions, uint32_t requested_api_version, const VkDeviceCreateInfo *pCreateInfo) {\n'
-            struct += '\n'
+                # Get complete field name and extension data for both Instance and Device extensions
+                field_name.update(instance_field_name)
+                extension_dict = extension_dict.copy()  # Don't modify the self.<dict> we're pointing to
+                extension_dict.update(instance_extension_dict)
 
-            struct += '        static const std::vector<const char *> V_1_0_promoted_%s_extensions = {\n' % type.lower()
-            for ext_name in promoted_ext_list:
-                struct += '            %s_EXTENSION_NAME,\n' % ext_name.upper()
-            struct += '        };\n'
-            struct += '\n'
-            struct += '        static const std::pair<char const *, bool %sExtensions::*> known_extensions[]{\n' % type
-            for ext_name, ifdef in extension_dict.items():
-                if ifdef is not None:
-                    struct += '#ifdef %s\n' % ifdef
-                bool_name = ext_name.lower()
-                bool_name = re.sub('_extension_name', '', bool_name)
-                struct += '            {%s, &%sExtensions::%s},\n' % (ext_name, type, bool_name)
-                if ifdef is not None:
-                    struct += '#endif\n'
-            struct += '        };\n'
-            struct += '\n'
-            struct += '        // Initialize struct data\n'
+            # Output the data member list
+            struct  = [struct_decl]
+            struct.extend([ '    bool %s{false};' % field_name[ext_name] for ext_name, info in extension_items])
 
-            for ext_name, ifdef in self.instance_extension_info.items():
-                bool_name = ext_name.lower()
-                bool_name = re.sub('_extension_name', '', bool_name)
-                if type == 'Device':
-                    struct += '        %s = instance_extensions->%s;\n' % (bool_name, bool_name)
-            struct += '\n'
-            struct += '        for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; i++) {\n'
-            struct += '            for (auto ext : known_extensions) {\n'
-            struct += '                if (!strcmp(ext.first, pCreateInfo->ppEnabledExtensionNames[i])) {\n'
-            struct += '                    this->*(ext.second) = true;\n'
-            struct += '                    break;\n'
-            struct += '                }\n'
-            struct += '            }\n'
-            struct += '        }\n'
-            struct += '        uint32_t api_version = NormalizeApiVersion(requested_api_version);\n'
-            struct += '        if (api_version >= VK_API_VERSION_1_1) {\n'
-            struct += '            for (auto promoted_ext : V_1_0_promoted_%s_extensions) {\n' % type.lower()
-            struct += '                for (auto ext : known_extensions) {\n'
-            struct += '                    if (!strcmp(ext.first, promoted_ext)) {\n'
-            struct += '                        this->*(ext.second) = true;\n'
-            struct += '                        break;\n'
-            struct += '                    }\n'
-            struct += '                }\n'
-            struct += '            }\n'
-            struct += '        }\n'
-            struct += '        return api_version;\n'
-            struct += '    }\n'
-            struct += '};\n'
-            struct += '\n'
+            # Create struct entries for saving extension count and extension list from DeviceCreateInfo
+            struct.extend([
+                '',
+                '    std::unordered_set<std::string> device_extension_set;'])
+
+            # Construct the extension information map -- mapping name to data member (field), and required extensions
+            # The map is contained within a static function member for portability reasons.
+            info_type = '%sInfo' % type
+            info_map_type = '%sMap' % info_type
+            req_type = '%sReq' % type
+            req_vec_type = '%sVec' % req_type
+            struct.extend([
+                '',
+                '    struct %s {' % req_type,
+                '        const bool %s::* enabled;' % struct_type,
+                '        const char *name;',
+                '    };',
+                '    typedef std::vector<%s> %s;' % (req_type, req_vec_type),
+                '    struct %s {' % info_type,
+                '       %s(bool %s::* state_, const %s requires_): state(state_), requires(requires_) {}' % ( info_type, struct_type, req_vec_type),
+                '       bool %s::* state;' % struct_type,
+                '       %s requires;' % req_vec_type,
+                '    };',
+                '',
+                '    typedef std::unordered_map<std::string,%s> %s;' % (info_type, info_map_type),
+                '    static const %s &get_info(const char *name) {' %info_type,
+                '        static const %s info_map = {' % info_map_type ])
+
+            field_format = '&' + struct_type + '::%s'
+            req_format = '{' + field_format+ ', %s}'
+            req_indent = '\n                           '
+            req_join = ',' + req_indent
+            info_format = ('            std::make_pair(%s, ' + info_type + '(' + field_format + ', {%s})),')
+            def format_info(ext_name, info):
+                reqs = req_join.join([req_format % (field_name[req], extension_dict[req]['define']) for req in info['reqs']])
+                return info_format % (info['define'], field_name[ext_name], '{%s}' % (req_indent + reqs) if reqs else '')
+
+            struct.extend([guarded(info['ifdef'], format_info(ext_name, info)) for ext_name, info in extension_items])
+            struct.extend([
+                '        };',
+                '',
+                '        static const %s empty_info {nullptr, %s()};' % (info_type, req_vec_type),
+                '        %s::const_iterator info = info_map.find(name);' % info_map_type,
+                '        if ( info != info_map.cend()) {',
+                '            return info->second;',
+                '        }',
+                '        return empty_info;',
+                '    }',
+                ''])
+
+            if type == 'Instance':
+                struct.extend([
+                    '    uint32_t NormalizeApiVersion(uint32_t specified_version) {',
+                    '        uint32_t api_version = (specified_version < VK_API_VERSION_1_1) ? VK_API_VERSION_1_0 : VK_API_VERSION_1_1;',
+                    '        return api_version;',
+                    '    }',
+                    '',
+                    '    uint32_t InitFromInstanceCreateInfo(uint32_t requested_api_version, const VkInstanceCreateInfo *pCreateInfo) {'])
+            else:
+                struct.extend([
+                    '    %s() = default;' % struct_type,
+                    '    %s(const %s& instance_ext) : %s(instance_ext) {}' % (struct_type, instance_struct_type, instance_struct_type),
+                    '',
+                    '    uint32_t InitFromDeviceCreateInfo(const %s *instance_extensions, uint32_t requested_api_version,' % instance_struct_type,
+                    '                                      const VkDeviceCreateInfo *pCreateInfo) {',
+                    '        // Initialize: this to defaults,  base class fields to input.',
+                    '        assert(instance_extensions);',
+                    '        *this = %s(*instance_extensions);' % struct_type,
+                    '',
+                    '        // Save pCreateInfo device extension list',
+                    '        for (uint32_t extn = 0; extn < pCreateInfo->enabledExtensionCount; extn++) {',
+                    '           device_extension_set.insert(pCreateInfo->ppEnabledExtensionNames[extn]);',
+                    '        }']),
+
+            struct.extend([
+                '',
+                '        static const std::vector<const char *> V_1_0_promoted_%s_extensions = {' % type.lower() ])
+            struct.extend(['            %s_EXTENSION_NAME,' % ext_name.upper() for ext_name in promoted_ext_list])
+            struct.extend([
+                '        };',
+                '',
+                '        // Initialize struct data, robust to invalid pCreateInfo',
+                '        if (pCreateInfo->ppEnabledExtensionNames) {',
+                '            for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; i++) {',
+                '                if (!pCreateInfo->ppEnabledExtensionNames[i]) continue;',
+                '                auto info = get_info(pCreateInfo->ppEnabledExtensionNames[i]);',
+                '                if(info.state) this->*(info.state) = true;',
+                '            }',
+                '        }',
+                '        uint32_t api_version = NormalizeApiVersion(requested_api_version);',
+                '        if (api_version >= VK_API_VERSION_1_1) {',
+                '            for (auto promoted_ext : V_1_0_promoted_%s_extensions) {' % type.lower(),
+                '                auto info = get_info(promoted_ext);',
+                '                assert(info.state);',
+                '                if (info.state) this->*(info.state) = true;',
+                '            }',
+                '        }',
+                '        return api_version;',
+                '    }',
+                '};'])
+
             # Output reference lists of instance/device extension names
-            struct += 'static const char * const k%sExtensionNames = \n' % type
-            for ext_name, ifdef in extension_dict.items():
-                if ifdef is not None:
-                    struct += '#ifdef %s\n' % ifdef
-                struct += '    %s\n' % ext_name
-                if ifdef is not None:
-                    struct += '#endif\n'
-            struct += ';\n\n'
-        extension_helper_header += struct
-        extension_helper_header += '\n'
-        extension_helper_header += '#endif // VK_EXTENSION_HELPER_H_\n'
-        return extension_helper_header
+            struct.extend(['', 'static const char * const k%sExtensionNames = ' % type])
+            struct.extend([guarded(info['ifdef'], '    %s' % info['define']) for ext_name, info in extension_items])
+            struct.extend([';', ''])
+            output.extend(struct)
+
+        output.extend(['', '#endif // VK_EXTENSION_HELPER_H_'])
+        return '\n'.join(output)
     #
     # Combine object types helper header file preamble with body text and return
     def GenerateObjectTypesHelperHeader(self):
@@ -720,12 +780,6 @@ class HelperFileOutputGenerator(OutputGenerator):
         safe_struct_helper_source = '\n'
         safe_struct_helper_source += '#include "vk_safe_struct.h"\n'
         safe_struct_helper_source += '#include <string.h>\n'
-        safe_struct_helper_source += '#ifdef VK_USE_PLATFORM_ANDROID_KHR\n'
-        safe_struct_helper_source += '#if __ANDROID_API__ < __ANDROID_API_O__\n'
-        safe_struct_helper_source += 'struct AHardwareBuffer {};\n'
-        safe_struct_helper_source += '#endif\n'
-        safe_struct_helper_source += '#endif\n'
-
         safe_struct_helper_source += '\n'
         safe_struct_helper_source += self.GenerateSafeStructSource()
         return safe_struct_helper_source
@@ -740,6 +794,12 @@ class HelperFileOutputGenerator(OutputGenerator):
                        'VkAndroidSurfaceCreateInfoKHR',
                        'VkWin32SurfaceCreateInfoKHR'
                        ]
+
+        # For abstract types just want to save the pointer away
+        # since we cannot make a copy.
+        abstract_types = ['AHardwareBuffer',
+                          'ANativeWindow',
+                         ]
         for item in self.structMembers:
             if self.NeedSafeStruct(item) == False:
                 continue
@@ -971,21 +1031,24 @@ class HelperFileOutputGenerator(OutputGenerator):
                     else:
                         default_init_list += '\n    %s(nullptr),' % (member.name)
                         init_list += '\n    %s(nullptr),' % (member.name)
-                        init_func_txt += '    %s = nullptr;\n' % (member.name)
-                        if 'pNext' != member.name and 'void' not in m_type:
-                            if not member.isstaticarray and (member.len is None or '/' in member.len):
-                                construct_txt += '    if (in_struct->%s) {\n' % member.name
-                                construct_txt += '        %s = new %s(*in_struct->%s);\n' % (member.name, m_type, member.name)
-                                construct_txt += '    }\n'
-                                destruct_txt += '    if (%s)\n' % member.name
-                                destruct_txt += '        delete %s;\n' % member.name
-                            else:
-                                construct_txt += '    if (in_struct->%s) {\n' % member.name
-                                construct_txt += '        %s = new %s[in_struct->%s];\n' % (member.name, m_type, member.len)
-                                construct_txt += '        memcpy ((void *)%s, (void *)in_struct->%s, sizeof(%s)*in_struct->%s);\n' % (member.name, member.name, m_type, member.len)
-                                construct_txt += '    }\n'
-                                destruct_txt += '    if (%s)\n' % member.name
-                                destruct_txt += '        delete[] %s;\n' % member.name
+                        if m_type in abstract_types:
+                            construct_txt += '    %s = in_struct->%s;\n' % (member.name, member.name)
+                        else:
+                            init_func_txt += '    %s = nullptr;\n' % (member.name)
+                            if 'pNext' != member.name and 'void' not in m_type:
+                                if not member.isstaticarray and (member.len is None or '/' in member.len):
+                                    construct_txt += '    if (in_struct->%s) {\n' % member.name
+                                    construct_txt += '        %s = new %s(*in_struct->%s);\n' % (member.name, m_type, member.name)
+                                    construct_txt += '    }\n'
+                                    destruct_txt += '    if (%s)\n' % member.name
+                                    destruct_txt += '        delete %s;\n' % member.name
+                                else:
+                                    construct_txt += '    if (in_struct->%s) {\n' % member.name
+                                    construct_txt += '        %s = new %s[in_struct->%s];\n' % (member.name, m_type, member.len)
+                                    construct_txt += '        memcpy ((void *)%s, (void *)in_struct->%s, sizeof(%s)*in_struct->%s);\n' % (member.name, member.name, m_type, member.len)
+                                    construct_txt += '    }\n'
+                                    destruct_txt += '    if (%s)\n' % member.name
+                                    destruct_txt += '        delete[] %s;\n' % member.name
                 elif member.isstaticarray or member.len is not None:
                     if member.len is None:
                         # Extract length of static array by grabbing val between []

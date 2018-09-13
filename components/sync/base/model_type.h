@@ -133,6 +133,8 @@ enum ModelType {
   USER_EVENTS,
   // Shares in project Mountain.
   MOUNTAIN_SHARES,
+  // Commit only user consents.
+  USER_CONSENTS,
 
   // ---- Proxy types ----
   // Proxy types are excluded from the sync protocol, but are still considered
@@ -155,15 +157,6 @@ enum ModelType {
   LAST_CONTROL_MODEL_TYPE = EXPERIMENTS,
   LAST_REAL_MODEL_TYPE = LAST_CONTROL_MODEL_TYPE,
 
-  // If you are adding a new sync datatype that is exposed to the user via the
-  // sync preferences UI, be sure to update the list in
-  // components/sync/driver/user_selectable_sync_type.h so that the UMA
-  // histograms for sync include your new type.  In this case, be sure to also
-  // update the UserSelectableTypes() definition in
-  // sync/syncable/model_type.cc.
-
-  // Additionally, enum SyncModelTypes and suffix SyncModelType need to be
-  // updated in histograms.xml for all new types.
   MODEL_TYPE_COUNT,
 };
 
@@ -203,24 +196,24 @@ constexpr const char* kUserSelectableDataTypeNames[] = {
 #if BUILDFLAG(ENABLE_READING_LIST)
     "readingList",
 #endif
-    "tabs",
-};
+    "userEvents",  "tabs"};
 
 // Protocol types are those types that have actual protocol buffer
 // representations. This distinguishes them from Proxy types, which have no
 // protocol representation and are never sent to the server.
 constexpr ModelTypeSet ProtocolTypes() {
-  return ModelTypeSet(
-      BOOKMARKS, PREFERENCES, PASSWORDS, AUTOFILL_PROFILE, AUTOFILL,
-      AUTOFILL_WALLET_DATA, AUTOFILL_WALLET_METADATA, THEMES, TYPED_URLS,
-      EXTENSIONS, SEARCH_ENGINES, SESSIONS, APPS, APP_SETTINGS,
-      EXTENSION_SETTINGS, APP_NOTIFICATIONS, HISTORY_DELETE_DIRECTIVES,
-      SYNCED_NOTIFICATIONS, SYNCED_NOTIFICATION_APP_INFO, DICTIONARY,
-      FAVICON_IMAGES, FAVICON_TRACKING, DEVICE_INFO, PRIORITY_PREFERENCES,
-      SUPERVISED_USER_SETTINGS, DEPRECATED_SUPERVISED_USERS,
-      DEPRECATED_SUPERVISED_USER_SHARED_SETTINGS, ARTICLES, APP_LIST,
-      WIFI_CREDENTIALS, SUPERVISED_USER_WHITELISTS, ARC_PACKAGE, PRINTERS,
-      READING_LIST, USER_EVENTS, NIGORI, EXPERIMENTS, MOUNTAIN_SHARES);
+  return ModelTypeSet(BOOKMARKS, PREFERENCES, PASSWORDS, AUTOFILL_PROFILE,
+                      AUTOFILL, AUTOFILL_WALLET_DATA, AUTOFILL_WALLET_METADATA,
+                      THEMES, TYPED_URLS, EXTENSIONS, SEARCH_ENGINES, SESSIONS,
+                      APPS, APP_SETTINGS, EXTENSION_SETTINGS, APP_NOTIFICATIONS,
+                      HISTORY_DELETE_DIRECTIVES, SYNCED_NOTIFICATIONS,
+                      SYNCED_NOTIFICATION_APP_INFO, DICTIONARY, FAVICON_IMAGES,
+                      FAVICON_TRACKING, DEVICE_INFO, PRIORITY_PREFERENCES,
+                      SUPERVISED_USER_SETTINGS, DEPRECATED_SUPERVISED_USERS,
+                      DEPRECATED_SUPERVISED_USER_SHARED_SETTINGS, ARTICLES,
+                      APP_LIST, WIFI_CREDENTIALS, SUPERVISED_USER_WHITELISTS,
+                      ARC_PACKAGE, PRINTERS, READING_LIST, USER_EVENTS, NIGORI,
+                      EXPERIMENTS, MOUNTAIN_SHARES, USER_CONSENTS);
 }
 
 // These are the normal user-controlled types. This is to distinguish from
@@ -230,6 +223,11 @@ constexpr ModelTypeSet UserTypes() {
   return ModelTypeSet::FromRange(FIRST_USER_MODEL_TYPE, LAST_USER_MODEL_TYPE);
 }
 
+// User types, which are not user-controlled.
+constexpr ModelTypeSet AlwaysPreferredUserTypes() {
+  return ModelTypeSet(DEVICE_INFO, USER_CONSENTS);
+}
+
 // These are the user-selectable data types.
 constexpr ModelTypeSet UserSelectableTypes() {
   return ModelTypeSet(BOOKMARKS, PREFERENCES, PASSWORDS, AUTOFILL, THEMES,
@@ -237,7 +235,7 @@ constexpr ModelTypeSet UserSelectableTypes() {
 #if BUILDFLAG(ENABLE_READING_LIST)
                       READING_LIST,
 #endif
-                      PROXY_TABS);
+                      USER_EVENTS, PROXY_TABS);
 }
 
 constexpr bool IsUserSelectableType(ModelType model_type) {
@@ -295,7 +293,7 @@ constexpr ModelTypeSet PriorityCoreTypes() {
 
 // Types that may commit data, but should never be included in a GetUpdates.
 constexpr ModelTypeSet CommitOnlyTypes() {
-  return ModelTypeSet(USER_EVENTS);
+  return ModelTypeSet(USER_EVENTS, USER_CONSENTS);
 }
 
 ModelTypeNameMap GetUserSelectableTypeNameMap();
@@ -338,9 +336,13 @@ FullModelTypeSet ToFullModelTypeSet(ModelTypeSet in);
 const char* ModelTypeToString(ModelType model_type);
 
 // Some histograms take an integer parameter that represents a model type.
-// The mapping from ModelType to integer is defined here.  It should match
-// the mapping from integer to labels defined in histograms.xml.
+// The mapping from ModelType to integer is defined here. It should match the
+// mapping from integer to labels defined in histograms.xml.
 int ModelTypeToHistogramInt(ModelType model_type);
+
+// Returns for every model_type a positive unique integer that is stable over
+// time and thus can be used when persisting data.
+int ModelTypeToStableIdentifier(ModelType model_type);
 
 // Handles all model types, and not just real ones.
 std::unique_ptr<base::Value> ModelTypeToValue(ModelType model_type);

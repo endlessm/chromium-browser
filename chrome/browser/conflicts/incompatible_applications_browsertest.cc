@@ -25,6 +25,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
+#include "components/viz/common/features.h"
 
 // This class allows to wait until the kIncompatibleApplications preference is
 // modified. This can only happen if a new incompatible application is found,
@@ -82,21 +83,23 @@ class IncompatibleApplicationsBrowserTest : public InProcessBrowserTest {
   ~IncompatibleApplicationsBrowserTest() override = default;
 
   void SetUp() override {
-    ASSERT_TRUE(scoped_temp_dir_.CreateUniqueTempDir());
+    // TODO(crbug.com/850517): Don't do test-specific setup if the test isn't
+    // going to do anything. It seems to conflict with the VizDisplayCompositor
+    // feature.
+    if (!base::FeatureList::IsEnabled(features::kVizDisplayCompositor)) {
+      ASSERT_TRUE(scoped_temp_dir_.CreateUniqueTempDir());
 
-    ASSERT_NO_FATAL_FAILURE(
-        registry_override_manager_.OverrideRegistry(HKEY_LOCAL_MACHINE));
-    ASSERT_NO_FATAL_FAILURE(
-        registry_override_manager_.OverrideRegistry(HKEY_CURRENT_USER));
+      ASSERT_NO_FATAL_FAILURE(
+          registry_override_manager_.OverrideRegistry(HKEY_LOCAL_MACHINE));
+      ASSERT_NO_FATAL_FAILURE(
+          registry_override_manager_.OverrideRegistry(HKEY_CURRENT_USER));
 
-    scoped_feature_list_.InitWithFeatures(
-        // Enabled features.
-        {features::kModuleDatabase, features::kIncompatibleApplicationsWarning},
-        // Disabled features.
-        {});
+      scoped_feature_list_.InitAndEnableFeature(
+          features::kIncompatibleApplicationsWarning);
 
-    ASSERT_NO_FATAL_FAILURE(CreateModuleList());
-    ASSERT_NO_FATAL_FAILURE(InstallThirdPartyApplication());
+      ASSERT_NO_FATAL_FAILURE(CreateModuleList());
+      ASSERT_NO_FATAL_FAILURE(InstallThirdPartyApplication());
+    }
 
     InProcessBrowserTest::SetUp();
   }
@@ -173,8 +176,7 @@ class IncompatibleApplicationsBrowserTest : public InProcessBrowserTest {
   // pick up real applications on the test machine.
   registry_util::RegistryOverrideManager registry_override_manager_;
 
-  // The third party conflicts code is gated behind the kModuleDatabase and
-  // kIncompatibleApplicationsWarning features.
+  // Enables the IncompatibleApplicationsWarning feature.
   base::test::ScopedFeatureList scoped_feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(IncompatibleApplicationsBrowserTest);
@@ -194,6 +196,10 @@ constexpr wchar_t IncompatibleApplicationsBrowserTest::kApplicationName[];
 IN_PROC_BROWSER_TEST_F(IncompatibleApplicationsBrowserTest,
                        InjectIncompatibleDLL) {
   if (base::win::GetVersion() < base::win::VERSION_WIN10)
+    return;
+
+  // TODO(crbug.com/850517) This fails in viz_browser_tests in official builds.
+  if (base::FeatureList::IsEnabled(features::kVizDisplayCompositor))
     return;
 
   ModuleDatabase* module_database = ModuleDatabase::GetInstance();

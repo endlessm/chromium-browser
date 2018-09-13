@@ -17,7 +17,7 @@ import org.chromium.base.MemoryPressureListener;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
-import org.chromium.content.browser.BrowserStartupController;
+import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.DeviceUtils;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_shell.Shell;
@@ -55,7 +55,7 @@ public class ContentShellActivity extends Activity {
             }
         }
 
-        DeviceUtils.addDeviceSpecificUserAgentSwitch(this);
+        DeviceUtils.addDeviceSpecificUserAgentSwitch();
 
         try {
             LibraryLoader.getInstance().ensureInitialized(LibraryProcessType.PROCESS_BROWSER);
@@ -95,7 +95,7 @@ public class ContentShellActivity extends Activity {
             try {
                 BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
                         .startBrowserProcessesAsync(
-                                true, new BrowserStartupController.StartupCallback() {
+                                true, false, new BrowserStartupController.StartupCallback() {
                                     @Override
                                     public void onSuccess() {
                                         finishInitialization(savedInstanceState);

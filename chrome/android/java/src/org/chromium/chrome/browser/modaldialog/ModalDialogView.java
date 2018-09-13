@@ -95,11 +95,12 @@ public class ModalDialogView implements View.OnClickListener {
         public boolean titleScrollable;
     }
 
-    @IntDef({BUTTON_POSITIVE, BUTTON_NEGATIVE})
+    @IntDef({ButtonType.POSITIVE, ButtonType.NEGATIVE})
     @Retention(RetentionPolicy.SOURCE)
-    public @interface ButtonType {}
-    public static final int BUTTON_POSITIVE = 0;
-    public static final int BUTTON_NEGATIVE = 1;
+    public @interface ButtonType {
+        int POSITIVE = 0;
+        int NEGATIVE = 1;
+    }
 
     private final Controller mController;
     private final Params mParams;
@@ -139,9 +140,9 @@ public class ModalDialogView implements View.OnClickListener {
     @Override
     public void onClick(View view) {
         if (view == mPositiveButton) {
-            mController.onClick(BUTTON_POSITIVE);
+            mController.onClick(ButtonType.POSITIVE);
         } else if (view == mNegativeButton) {
-            mController.onClick(BUTTON_NEGATIVE);
+            mController.onClick(ButtonType.NEGATIVE);
         }
     }
 
@@ -203,7 +204,7 @@ public class ModalDialogView implements View.OnClickListener {
             mCustomView.setLayoutParams(layoutParams);
         } else {
             scrollView.setEdgeVisibility(
-                    FadingEdgeScrollView.DRAW_NO_EDGE, FadingEdgeScrollView.DRAW_NO_EDGE);
+                    FadingEdgeScrollView.EdgeType.NONE, FadingEdgeScrollView.EdgeType.NONE);
         }
     }
 
@@ -212,6 +213,20 @@ public class ModalDialogView implements View.OnClickListener {
      */
     public View getView() {
         return mDialogView;
+    }
+
+    /**
+     * @return The button that was added to the dialog using {@link Params}.
+     * @param button indicates which button should be returned.
+     */
+    public Button getButton(@ButtonType int button) {
+        if (button == ButtonType.POSITIVE) {
+            return mPositiveButton;
+        } else if (button == ButtonType.NEGATIVE) {
+            return mNegativeButton;
+        }
+        assert false;
+        return null;
     }
 
     /**
@@ -226,6 +241,16 @@ public class ModalDialogView implements View.OnClickListener {
      */
     public String getContentDescription() {
         return mParams.title;
+    }
+
+    /**
+     * TODO(huayinz): Should we consider adding a model change processor now that the params are
+     * mutable
+     *
+     * @param title Updates the title string to the new title.
+     */
+    public void setTitle(String title) {
+        mTitleView.setText(title);
     }
 
     /**

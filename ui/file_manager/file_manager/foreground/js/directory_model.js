@@ -327,7 +327,7 @@ DirectoryModel.prototype.getFileFilter = function() {
 };
 
 /**
- * @return {DirectoryEntry|FakeEntry} Current directory.
+ * @return {DirectoryEntry|FakeEntry|FilesAppDirEntry} Current directory.
  */
 DirectoryModel.prototype.getCurrentDirEntry = function() {
   return this.currentDirContents_.getDirectoryEntry();
@@ -554,10 +554,25 @@ DirectoryModel.prototype.clearAndScan_ = function(newDirContents,
     callback(false);
   }.bind(this);
 
-  // Clear the table, and start scanning.
-  this.metadataModel_.clearAllCache();
-  cr.dispatchSimpleEvent(this, 'scan-started');
+  // Clear metadata information for the old (no longer visible) items in the
+  // file list.
   var fileList = this.getFileList();
+  let removedUrls = [];
+  for (var i = 0; i < fileList.length; i++) {
+    removedUrls.push(fileList.item(i).toURL());
+  }
+  this.metadataModel_.notifyEntriesRemoved(removedUrls);
+
+  // Retrieve metadata information for the newly selected directory.
+  const currentEntry = this.currentDirContents_.getDirectoryEntry();
+  if (currentEntry && !util.isFakeEntry(assert(currentEntry))) {
+    this.metadataModel_.get(
+        [currentEntry],
+        constants.LIST_CONTAINER_METADATA_PREFETCH_PROPERTY_NAMES);
+  }
+
+  // Clear the table, and start scanning.
+  cr.dispatchSimpleEvent(this, 'scan-started');
   fileList.splice(0, fileList.length);
   this.scan_(this.currentDirContents_, false,
              onDone, onFailed, onUpdated, onCancelled);
@@ -670,8 +685,9 @@ DirectoryModel.prototype.scan_ = function(
       var locationInfo =
           this.volumeManager_.getLocationInfo(
               assert(dirContents.getDirectoryEntry()));
-      if (locationInfo.volumeInfo.volumeType ===
-          VolumeManagerCommon.VolumeType.DOWNLOADS &&
+      var volumeInfo = locationInfo.volumeInfo;
+      if (volumeInfo &&
+          volumeInfo.volumeType === VolumeManagerCommon.VolumeType.DOWNLOADS &&
           locationInfo.isRootEntry) {
         metrics.recordMediumCount('DownloadsCount',
                                   dirContents.fileList_.length);
@@ -1193,7 +1209,7 @@ DirectoryModel.prototype.onVolumeInfoListUpdated_ = function(event) {
  * Creates directory contents for the entry and query.
  *
  * @param {FileListContext} context File list context.
- * @param {!DirectoryEntry|!FakeEntry} entry Current directory.
+ * @param {!DirectoryEntry|!FakeEntry|!FilesAppEntry} entry Current directory.
  * @param {string=} opt_query Search query string.
  * @return {DirectoryContents} Directory contents.
  * @private
@@ -1214,6 +1230,10 @@ DirectoryModel.prototype.createDirectoryContents_ =
     return DirectoryContents.createForCrostiniMounter(
         context, /** @type {!FakeEntry} */ (entry));
   }
+  if (entry.rootType == VolumeManagerCommon.RootType.MY_FILES) {
+    return DirectoryContents.createForDirectory(
+        context, /** @type {!FilesAppDirEntry} */ (entry));
+  }
   if (query && canUseDriveSearch) {
     // Drive search.
     return DirectoryContents.createForDriveSearch(
@@ -1227,6 +1247,11 @@ DirectoryModel.prototype.createDirectoryContents_ =
 
   if (!locationInfo)
     return null;
+
+  if (locationInfo.rootType == VolumeManagerCommon.RootType.MEDIA_VIEW) {
+    return DirectoryContents.createForMediaView(
+        context, /** @type {!DirectoryEntry} */ (entry));
+  }
 
   if (locationInfo.isSpecialSearchRoot) {
     // Drive special search.

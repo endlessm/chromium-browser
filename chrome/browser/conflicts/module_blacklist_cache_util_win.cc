@@ -12,11 +12,13 @@
 
 #include "base/containers/span.h"
 #include "base/files/file.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
 #include "base/logging.h"
 #include "base/md5.h"
 #include "base/stl_util.h"
+#include "base/time/time.h"
 #include "chrome/browser/conflicts/module_list_filter_win.h"
 #include "chrome_elf/third_party_dlls/packed_list_format.h"
 
@@ -69,7 +71,20 @@ base::MD5Digest CalculateModuleBlacklistCacheMD5(
 
 }  // namespace
 
-bool ReadModuleBlacklistCache(
+const base::FilePath::CharType kModuleListComponentRelativePath[] =
+    FILE_PATH_LITERAL("ThirdPartyModuleList")
+#ifdef _WIN64
+        FILE_PATH_LITERAL("64");
+#else
+        FILE_PATH_LITERAL("32");
+#endif
+
+uint32_t CalculateTimeDateStamp(base::Time time) {
+  const auto delta = time.ToDeltaSinceWindowsEpoch();
+  return delta < base::TimeDelta() ? 0 : static_cast<uint32_t>(delta.InHours());
+}
+
+ReadResult ReadModuleBlacklistCache(
     const base::FilePath& module_blacklist_cache_path,
     third_party_dlls::PackedListMetadata* metadata,
     std::vector<third_party_dlls::PackedListModule>* blacklisted_modules,
@@ -82,48 +97,48 @@ bool ReadModuleBlacklistCache(
                   base::File::FLAG_OPEN | base::File::FLAG_READ |
                       base::File::FLAG_SHARE_DELETE);
   if (!file.IsValid())
-    return false;
+    return ReadResult::kFailOpenFile;
 
   third_party_dlls::PackedListMetadata read_metadata;
   if (!SafeRead(&file, reinterpret_cast<char*>(&read_metadata),
                 sizeof(read_metadata))) {
-    return false;
+    return ReadResult::kFailReadMetadata;
   }
 
   // Make sure the version is supported.
   if (read_metadata.version > third_party_dlls::PackedListVersion::kCurrent)
-    return false;
+    return ReadResult::kFailInvalidVersion;
 
   std::vector<third_party_dlls::PackedListModule> read_blacklisted_modules(
       read_metadata.module_count);
   if (!SafeRead(&file, reinterpret_cast<char*>(read_blacklisted_modules.data()),
                 sizeof(third_party_dlls::PackedListModule) *
                     read_metadata.module_count)) {
-    return false;
+    return ReadResult::kFailReadModules;
   }
 
   // The list should be sorted.
   if (!std::is_sorted(read_blacklisted_modules.begin(),
                       read_blacklisted_modules.end(), internal::ModuleLess())) {
-    return false;
+    return ReadResult::kFailModulesNotSorted;
   }
 
   base::MD5Digest read_md5_digest;
   if (!SafeRead(&file, reinterpret_cast<char*>(&read_md5_digest.a),
                 base::size(read_md5_digest.a))) {
-    return false;
+    return ReadResult::kFailReadMD5;
   }
 
   if (!IsMD5DigestEqual(read_md5_digest,
                         CalculateModuleBlacklistCacheMD5(
                             read_metadata, read_blacklisted_modules))) {
-    return false;
+    return ReadResult::kFailInvalidMD5;
   }
 
   *metadata = read_metadata;
   *blacklisted_modules = std::move(read_blacklisted_modules);
   *md5_digest = read_md5_digest;
-  return true;
+  return ReadResult::kSuccess;
 }
 
 bool WriteModuleBlacklistCache(
@@ -251,8 +266,12 @@ void RemoveWhitelistedEntries(
       *blacklisted_modules,
       [&module_list_filter](const third_party_dlls::PackedListModule& module) {
         return module_list_filter.IsWhitelisted(
-            reinterpret_cast<const char*>(&module.basename_hash[0]),
-            reinterpret_cast<const char*>(&module.code_id_hash[0]));
+            base::StringPiece(
+                reinterpret_cast<const char*>(&module.basename_hash[0]),
+                base::size(module.basename_hash)),
+            base::StringPiece(
+                reinterpret_cast<const char*>(&module.code_id_hash[0]),
+                base::size(module.code_id_hash)));
       });
 }
 

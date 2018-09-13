@@ -16,7 +16,8 @@
 #include "base/run_loop.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/time.h"
-#include "components/sync/engine/activation_context.h"
+#include "components/sync/engine/data_type_activation_response.h"
+#include "components/sync/model/data_type_activation_request.h"
 #include "components/sync/model/fake_model_type_sync_bridge.h"
 #include "components/sync/test/engine/mock_model_type_worker.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -62,6 +63,12 @@ void CaptureCommitRequest(CommitRequestDataList* dst,
   *dst = std::move(src);
 }
 
+void CaptureStatusCounters(StatusCounters* dst,
+                           ModelType model_type,
+                           const StatusCounters& counters) {
+  *dst = counters;
+}
+
 class TestModelTypeSyncBridge : public FakeModelTypeSyncBridge {
  public:
   explicit TestModelTypeSyncBridge(bool commit_only)
@@ -90,13 +97,6 @@ class TestModelTypeSyncBridge : public FakeModelTypeSyncBridge {
   void OnCommitDataLoaded() {
     ASSERT_TRUE(data_callback_);
     std::move(data_callback_).Run();
-  }
-
-  // TODO(mamir) : Check if this is still needed.
-  void InitializeToReadyState() {
-    if (!data_callback_.is_null()) {
-      OnCommitDataLoaded();
-    }
   }
 
   base::OnceClosure GetDataCallback() { return std::move(data_callback_); }
@@ -196,7 +196,6 @@ class ClientTagBasedModelTypeProcessorTest : public ::testing::Test {
   // Initialize to a "ready-to-commit" state.
   void InitializeToReadyState() {
     InitializeToMetadataLoaded();
-    bridge()->InitializeToReadyState();
     OnSyncStarting();
   }
 
@@ -207,10 +206,14 @@ class ClientTagBasedModelTypeProcessorTest : public ::testing::Test {
   void OnCommitDataLoaded() { bridge()->OnCommitDataLoaded(); }
 
   void OnSyncStarting() {
+    DataTypeActivationRequest request;
+    request.error_handler = base::BindRepeating(
+        &ClientTagBasedModelTypeProcessorTest::ErrorReceived,
+        base::Unretained(this));
+    request.cache_guid = "TestCacheGuid";
+    request.authenticated_account_id = "SomeAccountId";
     type_processor()->OnSyncStarting(
-        base::BindRepeating(
-            &ClientTagBasedModelTypeProcessorTest::ErrorReceived,
-            base::Unretained(this)),
+        request,
         base::Bind(&ClientTagBasedModelTypeProcessorTest::OnReadyToConnect,
                    base::Unretained(this)));
   }
@@ -240,6 +243,11 @@ class ClientTagBasedModelTypeProcessorTest : public ::testing::Test {
     worker()->AckOnePendingCommit();
     EXPECT_EQ(0U, worker()->GetNumPendingCommits());
     return;
+  }
+
+  ProcessorEntityTracker* GetEntityForStorageKey(
+      const std::string& storage_key) {
+    return type_processor()->GetEntityForStorageKey(storage_key);
   }
 
   void ResetState(bool keep_db) {
@@ -303,7 +311,7 @@ class ClientTagBasedModelTypeProcessorTest : public ::testing::Test {
  protected:
   void CheckPostConditions() { EXPECT_FALSE(expect_error_); }
 
-  void OnReadyToConnect(std::unique_ptr<ActivationContext> context) {
+  void OnReadyToConnect(std::unique_ptr<DataTypeActivationResponse> context) {
     std::unique_ptr<MockModelTypeWorker> worker(
         new MockModelTypeWorker(context->model_type_state, type_processor()));
     // Keep an unsafe pointer to the commit queue the processor will use.
@@ -322,7 +330,7 @@ class ClientTagBasedModelTypeProcessorTest : public ::testing::Test {
  private:
   std::unique_ptr<TestModelTypeSyncBridge> bridge_;
 
-  // This sets ThreadTaskRunnerHandle on the current thread, which the type
+  // This sets SequencedTaskRunnerHandle on the current thread, which the type
   // processor will pick up as the sync task runner.
   base::MessageLoop sync_loop_;
 
@@ -1192,11 +1200,11 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, Disconnect) {
   EXPECT_TRUE(worker()->HasPendingCommitForHash(kHash3));
 }
 
-// Test proper handling of disable and re-enable.
+// Test proper handling of stop (without disabling sync) and re-enable.
 //
-// Creates items in various states of commit and verifies they re-attempt to
+// Creates items in various states of commit and verifies they do NOT attempt to
 // commit on re-enable.
-TEST_F(ClientTagBasedModelTypeProcessorTest, Disable) {
+TEST_F(ClientTagBasedModelTypeProcessorTest, Stop) {
   InitializeToReadyState();
 
   // The first item is fully committed.
@@ -1206,7 +1214,35 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, Disable) {
   bridge()->WriteItem(kKey2, kValue2);
   EXPECT_TRUE(worker()->HasPendingCommitForHash(kHash2));
 
-  type_processor()->DisableSync();
+  type_processor()->OnSyncStopping(KEEP_METADATA);
+  EXPECT_TRUE(type_processor()->IsTrackingMetadata());
+
+  // The third item is added after disable.
+  bridge()->WriteItem(kKey3, kValue3);
+
+  // Now we re-enable.
+  OnSyncStarting();
+  worker()->UpdateFromServer();
+
+  // Once we're ready to commit, only the newest items should be committed.
+  worker()->VerifyPendingCommits({{kHash3}});
+}
+
+// Test proper handling of disable and re-enable.
+//
+// Creates items in various states of commit and verifies they re-attempt to
+// commit on re-enable.
+TEST_F(ClientTagBasedModelTypeProcessorTest, StopAndClearMetadata) {
+  InitializeToReadyState();
+
+  // The first item is fully committed.
+  WriteItemAndAck(kKey1, kValue1);
+
+  // The second item has a commit request in progress.
+  bridge()->WriteItem(kKey2, kValue2);
+  EXPECT_TRUE(worker()->HasPendingCommitForHash(kHash2));
+
+  type_processor()->OnSyncStopping(CLEAR_METADATA);
   EXPECT_FALSE(type_processor()->IsTrackingMetadata());
 
   // The third item is added after disable.
@@ -1513,6 +1549,55 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, UntrackEntity) {
   EXPECT_EQ(0, bridge()->get_storage_key_call_count());
 }
 
+// Tests that UntrackEntityForStorage won't propagate storage key to
+// ProcessorEntityTracker, and no entity's metadata are added into
+// MetadataChangeList.
+TEST_F(ClientTagBasedModelTypeProcessorTest, UntrackEntityForStorageKey) {
+  InitializeToReadyState();
+  bridge()->WriteItem(kKey1, kValue1);
+  worker()->VerifyPendingCommits({{kHash1}});
+  worker()->AckOnePendingCommit();
+
+  // Check the processor tracks the entity.
+  StatusCounters status_counters;
+  type_processor()->GetStatusCountersForDebugging(
+      base::BindOnce(&CaptureStatusCounters, &status_counters));
+  ASSERT_EQ(1u, status_counters.num_entries);
+  ASSERT_NE(nullptr, GetEntityForStorageKey(kKey1));
+
+  // The bridge deletes the data locally and does not want to sync the deletion.
+  // It only untracks the entity.
+  type_processor()->UntrackEntityForStorageKey(kKey1);
+
+  // The deletion is not synced up.
+  worker()->VerifyPendingCommits({});
+  // The processor tracks no entity any more.
+  type_processor()->GetStatusCountersForDebugging(
+      base::BindOnce(&CaptureStatusCounters, &status_counters));
+  EXPECT_EQ(status_counters.num_entries, 0U);
+  EXPECT_EQ(nullptr, GetEntityForStorageKey(kKey1));
+}
+
+// Tests that UntrackEntityForStorage does not crash if no such entity is being
+// tracked.
+TEST_F(ClientTagBasedModelTypeProcessorTest,
+       UntrackEntityForStorageKeyNonexistent) {
+  InitializeToReadyState();
+
+  // This should not crash for an unknown storage key and simply ignore the
+  // call.
+  type_processor()->UntrackEntityForStorageKey(kKey1);
+
+  // No deletion is not synced up.
+  worker()->VerifyPendingCommits({});
+  // The processor tracks no entity.
+  StatusCounters status_counters;
+  type_processor()->GetStatusCountersForDebugging(
+      base::BindOnce(&CaptureStatusCounters, &status_counters));
+  EXPECT_EQ(status_counters.num_entries, 0U);
+  EXPECT_EQ(nullptr, GetEntityForStorageKey(kKey1));
+}
+
 // Tests that ClientTagBasedModelTypeProcessor can do garbage collection by
 // version. Create 2 entries, one is version 1, another is version 3. Check if
 // sync will delete version 1 entry when server set expired version is 2.
@@ -1616,6 +1701,30 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, GarbageCollectionByItemLimit) {
   EXPECT_EQ(2U, db().metadata_count());
   EXPECT_EQ(3U, db().data_count());
   EXPECT_EQ(0U, worker()->GetNumPendingCommits());
+}
+
+TEST_F(ClientTagBasedModelTypeProcessorTest,
+       ShouldDeleteMetadataWhenCacheGuidMismatch) {
+  // Commit item.
+  InitializeToReadyState();
+  WriteItemAndAck(kKey1, kValue1);
+  // Reset the processor to simulate a restart.
+  ResetState(/*keep_db=*/true);
+
+  // A new processor loads the metadata after changing the cache GUID.
+  bridge()->SetInitialSyncDone(true);
+
+  std::unique_ptr<MetadataBatch> metadata_batch = db().CreateMetadataBatch();
+  sync_pb::ModelTypeState model_type_state(metadata_batch->GetModelTypeState());
+  model_type_state.set_cache_guid("WRONG_CACHE_GUID");
+  metadata_batch->SetModelTypeState(model_type_state);
+
+  type_processor()->ModelReadyToSync(std::move(metadata_batch));
+
+  OnSyncStarting();
+
+  // Upon a mismatch, metadata should have been cleared.
+  EXPECT_EQ(0U, db().metadata_count());
 }
 
 class CommitOnlyClientTagBasedModelTypeProcessorTest

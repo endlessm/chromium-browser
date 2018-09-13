@@ -57,6 +57,7 @@ protected:
                 raw_ostream &O);
   void printImmHex(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
                    raw_ostream &O);
+  template <typename T> void printImmSVE(T Value, raw_ostream &O);
   void printPostIncOperand(const MCInst *MI, unsigned OpNo, unsigned Imm,
                            raw_ostream &O);
   template <int Amount>
@@ -168,11 +169,25 @@ protected:
   void printGPRSeqPairsClassOperand(const MCInst *MI, unsigned OpNum,
                                     const MCSubtargetInfo &STI,
                                     raw_ostream &O);
+  template <typename T>
+  void printImm8OptLsl(const MCInst *MI, unsigned OpNum,
+                       const MCSubtargetInfo &STI, raw_ostream &O);
+  template <typename T>
+  void printSVELogicalImm(const MCInst *MI, unsigned OpNum,
+                          const MCSubtargetInfo &STI, raw_ostream &O);
   void printSVEPattern(const MCInst *MI, unsigned OpNum,
                        const MCSubtargetInfo &STI, raw_ostream &O);
   template <char = 0>
   void printSVERegOp(const MCInst *MI, unsigned OpNum,
                     const MCSubtargetInfo &STI, raw_ostream &O);
+  void printGPR64as32(const MCInst *MI, unsigned OpNum,
+                      const MCSubtargetInfo &STI, raw_ostream &O);
+  template <int Width>
+  void printZPRasFPR(const MCInst *MI, unsigned OpNum,
+                     const MCSubtargetInfo &STI, raw_ostream &O);
+  template <unsigned ImmIs0, unsigned ImmIs1>
+  void printExactFPImm(const MCInst *MI, unsigned OpNum,
+                       const MCSubtargetInfo &STI, raw_ostream &O);
 };
 
 class AArch64AppleInstPrinter : public AArch64InstPrinter {

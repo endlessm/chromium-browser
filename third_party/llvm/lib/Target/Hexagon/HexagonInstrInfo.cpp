@@ -1153,6 +1153,14 @@ bool HexagonInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
       MBB.erase(MI);
       return true;
     }
+    case Hexagon::PS_vdd0: {
+      unsigned Vd = MI.getOperand(0).getReg();
+      BuildMI(MBB, MI, DL, get(Hexagon::V6_vsubw_dv), Vd)
+        .addReg(Vd, RegState::Undef)
+        .addReg(Vd, RegState::Undef);
+      MBB.erase(MI);
+      return true;
+    }
     case Hexagon::PS_vmulw: {
       // Expand a 64-bit vector multiply into 2 32-bit scalar multiplies.
       unsigned DstReg = MI.getOperand(0).getReg();
@@ -1592,7 +1600,7 @@ bool HexagonInstrInfo::isPredicable(const MachineInstr &MI) const {
   }
 
   // HVX loads are not predicable on v60, but are on v62.
-  if (!Subtarget.hasV62TOps()) {
+  if (!Subtarget.hasV62Ops()) {
     switch (MI.getOpcode()) {
       case Hexagon::V6_vL32b_ai:
       case Hexagon::V6_vL32b_pi:
@@ -2980,7 +2988,7 @@ bool HexagonInstrInfo::hasUncondBranch(const MachineBasicBlock *B)
 bool HexagonInstrInfo::mayBeCurLoad(const MachineInstr &MI) const {
   const uint64_t F = MI.getDesc().TSFlags;
   return ((F >> HexagonII::mayCVLoadPos) & HexagonII::mayCVLoadMask) &&
-         Subtarget.hasV60TOps();
+         Subtarget.hasV60Ops();
 }
 
 // Returns true, if a ST insn can be promoted to a new-value store.
@@ -3040,10 +3048,29 @@ bool HexagonInstrInfo::predCanBeUsedAsDotNew(const MachineInstr &MI,
       return false;
   }
 
-  // Hexagon Programmer's Reference says that decbin, memw_locked, and
-  // memd_locked cannot be used as .new as well,
-  // but we don't seem to have these instructions defined.
-  return MI.getOpcode() != Hexagon::A4_tlbmatch;
+  // Instruction that produce late predicate cannot be used as sources of
+  // dot-new.
+  switch (MI.getOpcode()) {
+    case Hexagon::A4_addp_c:
+    case Hexagon::A4_subp_c:
+    case Hexagon::A4_tlbmatch:
+    case Hexagon::A5_ACS:
+    case Hexagon::F2_sfinvsqrta:
+    case Hexagon::F2_sfrecipa:
+    case Hexagon::J2_endloop0:
+    case Hexagon::J2_endloop01:
+    case Hexagon::J2_ploop1si:
+    case Hexagon::J2_ploop1sr:
+    case Hexagon::J2_ploop2si:
+    case Hexagon::J2_ploop2sr:
+    case Hexagon::J2_ploop3si:
+    case Hexagon::J2_ploop3sr:
+    case Hexagon::S2_cabacdecbin:
+    case Hexagon::S2_storew_locked:
+    case Hexagon::S4_stored_locked:
+      return false;
+  }
+  return true;
 }
 
 bool HexagonInstrInfo::PredOpcodeHasJMP_c(unsigned Opcode) const {
@@ -3619,7 +3646,7 @@ int HexagonInstrInfo::getDotOldOp(const MachineInstr &MI) const {
     assert(NewOp >= 0 && "Couldn't change new-value store to its old form.");
   }
 
-  if (Subtarget.hasV60TOps())
+  if (Subtarget.hasV60Ops())
     return NewOp;
 
   // Subtargets prior to V60 didn't support 'taken' forms of predicated jumps.

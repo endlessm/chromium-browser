@@ -47551,26 +47551,26 @@ bool CheckNodePredicate(SDNode *Node, unsigned PredNo) const {
   }
   case 6: { // Predicate_loadi16
     SDNode *N = Node;
-
-  LoadSDNode *LD = cast<LoadSDNode>(N);
-  ISD::LoadExtType ExtType = LD->getExtensionType();
-  if (ExtType == ISD::NON_EXTLOAD)
-    return true;
-  if (ExtType == ISD::EXTLOAD)
-    return LD->getAlignment() >= 2 && !LD->isVolatile();
-  return false;
+
+  LoadSDNode *LD = cast<LoadSDNode>(N);
+  ISD::LoadExtType ExtType = LD->getExtensionType();
+  if (ExtType == ISD::NON_EXTLOAD)
+    return true;
+  if (ExtType == ISD::EXTLOAD)
+    return LD->getAlignment() >= 2 && !LD->isVolatile();
+  return false;
 
   }
   case 7: { // Predicate_loadi32
     SDNode *N = Node;
-
-  LoadSDNode *LD = cast<LoadSDNode>(N);
-  ISD::LoadExtType ExtType = LD->getExtensionType();
-  if (ExtType == ISD::NON_EXTLOAD)
-    return true;
-  if (ExtType == ISD::EXTLOAD)
-    return LD->getAlignment() >= 4 && !LD->isVolatile();
-  return false;
+
+  LoadSDNode *LD = cast<LoadSDNode>(N);
+  ISD::LoadExtType ExtType = LD->getExtensionType();
+  if (ExtType == ISD::NON_EXTLOAD)
+    return true;
+  if (ExtType == ISD::EXTLOAD)
+    return LD->getAlignment() >= 4 && !LD->isVolatile();
+  return false;
 
   }
   case 8: { // Predicate_i16immSExt8
@@ -47603,14 +47603,14 @@ bool CheckNodePredicate(SDNode *Node, unsigned PredNo) const {
   }
   case 14: { // Predicate_srl_su
     SDNode *N = Node;
-
-  return N->hasOneUse();
+
+  return N->hasOneUse();
 
   }
   case 15: { // Predicate_trunc_su
     SDNode *N = Node;
-
-  return N->hasOneUse();
+
+  return N->hasOneUse();
 
   }
   case 16: { // Predicate_truncstore
@@ -47645,8 +47645,8 @@ bool CheckNodePredicate(SDNode *Node, unsigned PredNo) const {
   }
   case 21: { // Predicate_and_su
     SDNode *N = Node;
-
-  return N->hasOneUse();
+
+  return N->hasOneUse();
 
   }
   case 22: { // Predicate_memop64
@@ -47664,12 +47664,12 @@ bool CheckNodePredicate(SDNode *Node, unsigned PredNo) const {
   }
   case 24: { // Predicate_loadi16_anyext
     SDNode *N = Node;
-
-  LoadSDNode *LD = cast<LoadSDNode>(N);
-  ISD::LoadExtType ExtType = LD->getExtensionType();
-  if (ExtType == ISD::EXTLOAD)
-    return LD->getAlignment() >= 2 && !LD->isVolatile();
-  return false;
+
+  LoadSDNode *LD = cast<LoadSDNode>(N);
+  ISD::LoadExtType ExtType = LD->getExtensionType();
+  if (ExtType == ISD::EXTLOAD)
+    return LD->getAlignment() >= 2 && !LD->isVolatile();
+  return false;
 
   }
   case 25: { // Predicate_or_is_add
@@ -47689,8 +47689,8 @@ bool CheckNodePredicate(SDNode *Node, unsigned PredNo) const {
   }
   case 26: { // Predicate_i64immZExt32SExt8
     int64_t Imm = cast<ConstantSDNode>(Node)->getSExtValue();
-
-  return (uint64_t)Imm == (uint32_t)Imm && (int32_t)Imm == (int8_t)Imm;
+
+  return (uint64_t)Imm == (uint32_t)Imm && (int32_t)Imm == (int8_t)Imm;
 
   }
   case 27: { // Predicate_i64immZExt32
@@ -48086,14 +48086,14 @@ bool CheckNodePredicate(SDNode *Node, unsigned PredNo) const {
   }
   case 92: { // Predicate_fpimm0
     ConstantFPSDNode*N = cast<ConstantFPSDNode>(Node);
-
-  return N->isExactlyValue(+0.0);
+
+  return N->isExactlyValue(+0.0);
 
   }
   case 93: { // Predicate_fpimm1
     ConstantFPSDNode*N = cast<ConstantFPSDNode>(Node);
-
-  return N->isExactlyValue(+1.0);
+
+  return N->isExactlyValue(+1.0);
 
   }
   case 94: { // Predicate_fp32imm0
@@ -48104,14 +48104,14 @@ bool CheckNodePredicate(SDNode *Node, unsigned PredNo) const {
   }
   case 95: { // Predicate_fpimmneg0
     ConstantFPSDNode*N = cast<ConstantFPSDNode>(Node);
-
-  return N->isExactlyValue(-0.0);
+
+  return N->isExactlyValue(-0.0);
 
   }
   case 96: { // Predicate_fpimmneg1
     ConstantFPSDNode*N = cast<ConstantFPSDNode>(Node);
-
-  return N->isExactlyValue(-1.0);
+
+  return N->isExactlyValue(-1.0);
 
   }
   case 97: { // Predicate_pshufd

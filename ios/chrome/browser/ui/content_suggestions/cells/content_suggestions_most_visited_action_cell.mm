@@ -5,9 +5,9 @@
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_action_cell.h"
 
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_constants.h"
-#import "ios/chrome/browser/ui/favicon/favicon_view.h"
 #include "ios/chrome/browser/ui/ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/chrome/common/favicon/favicon_view.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -35,8 +35,7 @@ const CGFloat kCountBorderWidth = 24;
   if (self) {
     _titleLabel = [[UILabel alloc] init];
     _titleLabel.textColor = [UIColor colorWithWhite:0 alpha:kTitleAlpha];
-    _titleLabel.font =
-        [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+    _titleLabel.font = [UIFont systemFontOfSize:12];
     _titleLabel.textAlignment = NSTextAlignmentCenter;
     _titleLabel.preferredMaxLayoutWidth = [[self class] defaultSize].width;
     _titleLabel.numberOfLines = kLabelNumLines;

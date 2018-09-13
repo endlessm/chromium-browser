@@ -15,6 +15,7 @@ import android.view.View;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.Callback;
+import org.chromium.base.ContextUtils;
 import org.chromium.ui.UiUtils;
 
 import java.lang.ref.WeakReference;
@@ -32,6 +33,8 @@ public class ActivityWindowAndroid
     private static final int REQUEST_CODE_RANGE_SIZE = 100;
 
     private int mNextRequestCode;
+
+    private boolean mListenToActivityState;
 
     /**
      * Creates an Activity-specific WindowAndroid with associated intent functionality.
@@ -54,6 +57,7 @@ public class ActivityWindowAndroid
         if (activity == null) {
             throw new IllegalArgumentException("Context is not and does not wrap an Activity");
         }
+        mListenToActivityState = listenToActivityState;
         if (listenToActivityState) {
             ApplicationStatus.registerStateListenerForActivity(this, activity);
         }
@@ -162,20 +166,6 @@ public class ActivityWindowAndroid
         return false;
     }
 
-    /**
-     * Responds to a pending permission result.
-     * @param requestCode The unique code for the permission request.
-     * @param permissions The list of permissions in the result.
-     * @param grantResults Whether the permissions were granted.
-     * @return Whether the permission request corresponding to a pending permission request.
-     */
-    public boolean onRequestPermissionsResult(int requestCode, String[] permissions,
-            int[] grantResults) {
-        getAndroidPermissionDelegate().onRequestPermissionsResult(
-                requestCode, permissions, grantResults);
-        return true;
-    }
-
     @Override
     public WeakReference<Activity> getActivity() {
         return new WeakReference<Activity>(activityFromContext(getContext().get()));
@@ -187,7 +177,18 @@ public class ActivityWindowAndroid
             onActivityStopped();
         } else if (newState == ActivityState.STARTED) {
             onActivityStarted();
+        } else if (newState == ActivityState.PAUSED) {
+            onActivityPaused();
+        } else if (newState == ActivityState.RESUMED) {
+            onActivityResumed();
         }
+    }
+
+    @Override
+    @ActivityState
+    public int getActivityState() {
+        return mListenToActivityState ? ApplicationStatus.getStateForActivity(getActivity().get())
+                                      : super.getActivityState();
     }
 
     @Override
@@ -204,7 +205,7 @@ public class ActivityWindowAndroid
 
     private void storeCallbackData(int requestCode, IntentCallback callback, Integer errorId) {
         mOutstandingIntents.put(requestCode, callback);
-        mIntentErrors.put(
-                requestCode, errorId == null ? null : mApplicationContext.getString(errorId));
+        mIntentErrors.put(requestCode,
+                errorId == null ? null : ContextUtils.getApplicationContext().getString(errorId));
     }
 }

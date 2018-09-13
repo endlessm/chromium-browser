@@ -28,7 +28,7 @@
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS \
-  __attribute__((__always_inline__, __nodebug__, __target__("sse3")))
+  __attribute__((__always_inline__, __nodebug__, __target__("sse3"), __min_vector_width__(128)))
 
 /// Loads data from an unaligned memory location to elements in a 128-bit
 ///    vector.
@@ -229,7 +229,7 @@ _mm_hsub_pd(__m128d __a, __m128d __b)
 /// \headerfile <x86intrin.h>
 ///
 /// \code
-/// __m128d _mm_loaddup_pd(double const * dp);
+/// __m128d _mm_loaddup_pd(double const *dp);
 /// \endcode
 ///
 /// This intrinsic corresponds to the <c> VMOVDDUP </c> instruction.

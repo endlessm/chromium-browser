@@ -474,12 +474,7 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
 
     chromeos::LoginDisplayHost* host =
         chromeos::LoginDisplayHost::default_host();
-    ASSERT_TRUE(host);
-    chromeos::WebUILoginView* web_ui_login_view = host->GetWebUILoginView();
-    ASSERT_TRUE(web_ui_login_view);
-    content::WebUI* web_ui = web_ui_login_view->GetWebUI();
-    ASSERT_TRUE(web_ui);
-    contents_ = web_ui->GetWebContents();
+    contents_ = host->GetOobeWebContents();
     ASSERT_TRUE(contents_);
 
     // Wait for the login UI to be ready.
@@ -489,26 +484,6 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
     const bool oobe_ui_ready = oobe_ui->IsJSReady(run_loop.QuitClosure());
     if (!oobe_ui_ready)
       run_loop.Run();
-
-    // The network selection screen changes the application locale on load and
-    // once again on blur. Wait for the screen to load and blur it so that any
-    // locale changes caused by this screen happen now and do not affect any
-    // subsequent parts of the test.
-    bool done = false;
-    ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-        contents_,
-        "var languageSelect = document.getElementById('language-select');"
-        "var blurAndReportSuccess = function() {"
-        "  languageSelect.blur();"
-        "  domAutomationController.send(true);"
-        "};"
-        "var screenLoading = document.getElementById('outer-container')"
-        "    .classList.contains('down');"
-        "if (document.activeElement == languageSelect || !screenLoading)"
-        "  blurAndReportSuccess();"
-        "else"
-        "  languageSelect.addEventListener('focus', blurAndReportSuccess);",
-        &done));
 
     // Skip to the login screen.
     chromeos::WizardController* wizard_controller =
@@ -1118,7 +1093,7 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, ExtensionsUncached) {
   // Verify that the hosted app was installed.
   Profile* profile = GetProfileForTest();
   ASSERT_TRUE(profile);
-  ExtensionService* extension_service =
+  extensions::ExtensionService* extension_service =
       extensions::ExtensionSystem::Get(profile)->extension_service();
   EXPECT_TRUE(extension_service->GetExtensionById(kHostedAppID, true));
 
@@ -1196,7 +1171,7 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, ExtensionsCached) {
   // Verify that the hosted app was installed.
   Profile* profile = GetProfileForTest();
   ASSERT_TRUE(profile);
-  ExtensionService* extension_service =
+  extensions::ExtensionService* extension_service =
       extensions::ExtensionSystem::Get(profile)->extension_service();
   EXPECT_TRUE(extension_service->GetExtensionById(kHostedAppID, true));
 
@@ -2085,7 +2060,10 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest,
   VerifyKeyboardLayoutMatchesLocale();
 }
 
-IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, TermsOfServiceWithLocaleSwitch) {
+// https://crbug.com/865702: Flaky (crashes intermittently) on
+// linux-chromeos-rel builder.
+IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest,
+                       DISABLED_TermsOfServiceWithLocaleSwitch) {
   // Specify Terms of Service URL.
   ASSERT_TRUE(embedded_test_server()->Start());
   device_local_account_policy_.payload().mutable_termsofserviceurl()->set_value(
@@ -2115,7 +2093,8 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, TermsOfServiceWithLocaleSwitch) {
   // Set up an observer that will quit the message loop when login has succeeded
   // and the first wizard screen, if any, is being shown.
   base::RunLoop login_wait_run_loop;
-  chromeos::MockAuthStatusConsumer login_status_consumer;
+  chromeos::MockAuthStatusConsumer login_status_consumer(
+      login_wait_run_loop.QuitClosure());
   EXPECT_CALL(login_status_consumer, OnAuthSuccess(_)).Times(1).WillOnce(
       InvokeWithoutArgs(&login_wait_run_loop, &base::RunLoop::Quit));
   chromeos::ExistingUserController* controller =
@@ -2262,7 +2241,7 @@ IN_PROC_BROWSER_TEST_F(DeviceLocalAccountTest, PolicyForExtensions) {
   // Verify that the app was installed.
   Profile* profile = GetProfileForTest();
   ASSERT_TRUE(profile);
-  ExtensionService* extension_service =
+  extensions::ExtensionService* extension_service =
       extensions::ExtensionSystem::Get(profile)->extension_service();
   EXPECT_TRUE(extension_service->GetExtensionById(kShowManagedStorageID, true));
 
@@ -2333,7 +2312,8 @@ IN_PROC_BROWSER_TEST_P(TermsOfServiceDownloadTest, TermsOfServiceScreen) {
   // Set up an observer that will quit the message loop when login has succeeded
   // and the first wizard screen, if any, is being shown.
   base::RunLoop login_wait_run_loop;
-  chromeos::MockAuthStatusConsumer login_status_consumer;
+  chromeos::MockAuthStatusConsumer login_status_consumer(
+      login_wait_run_loop.QuitClosure());
   EXPECT_CALL(login_status_consumer, OnAuthSuccess(_)).Times(1).WillOnce(
       InvokeWithoutArgs(&login_wait_run_loop, &base::RunLoop::Quit));
 

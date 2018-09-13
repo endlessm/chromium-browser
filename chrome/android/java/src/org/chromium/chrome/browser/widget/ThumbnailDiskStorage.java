@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.widget;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.os.AsyncTask;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.util.AtomicFile;
@@ -16,11 +15,13 @@ import android.text.TextUtils;
 
 import com.google.protobuf.ByteString;
 
+import org.chromium.base.AsyncTask;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.StreamUtil;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.chrome.browser.util.ConversionUtils;
 import org.chromium.chrome.browser.widget.ThumbnailCacheEntry.ContentId;
 import org.chromium.chrome.browser.widget.ThumbnailCacheEntry.ThumbnailEntry;
 
@@ -49,7 +50,8 @@ import java.util.LinkedHashSet;
  */
 public class ThumbnailDiskStorage implements ThumbnailGeneratorCallback {
     private static final String TAG = "ThumbnailStorage";
-    private static final int MAX_CACHE_BYTES = 1024 * 1024; // Max disk cache size is 1MB.
+    private static final int MAX_CACHE_BYTES =
+            ConversionUtils.BYTES_PER_MEGABYTE; // Max disk cache size is 1MB.
 
     // LRU cache of a pair of thumbnail's contentID and size. The order is based on the sequence of
     // add and get with the most recent at the end. The order at initialization (i.e. browser

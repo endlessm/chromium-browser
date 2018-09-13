@@ -159,8 +159,8 @@ class AppMenuControllerTest : public CocoaProfileTest {
   }
 
   void EnableSync() {
-    EXPECT_CALL(*mock_sync_service_, IsSyncActive())
-        .WillRepeatedly(Return(true));
+    EXPECT_CALL(*mock_sync_service_, GetState())
+        .WillRepeatedly(Return(syncer::SyncService::State::ACTIVE));
     EXPECT_CALL(*mock_sync_service_,
                 IsDataTypeControllerRunning(syncer::SESSIONS))
         .WillRepeatedly(Return(true));
@@ -212,7 +212,8 @@ TEST_F(AppMenuControllerTest, RecentTabsFavIcon) {
   recent_tabs_builder.AddTab(0, 0);
   RegisterRecentTabs(&recent_tabs_builder);
 
-  RecentTabsSubMenuModel recent_tabs_sub_menu_model(nullptr, browser());
+  RecentTabsSubMenuModel recent_tabs_sub_menu_model(
+      [controller_ acceleratorProvider], browser());
   fake_model_->AddSubMenuWithStringId(
       IDC_RECENT_TABS_MENU, IDS_RECENT_TABS_MENU,
       &recent_tabs_sub_menu_model);
@@ -254,7 +255,8 @@ TEST_F(AppMenuControllerTest, RecentTabsElideTitle) {
       base::Time::Now() - base::TimeDelta::FromMinutes(10), tab2_long_title);
   RegisterRecentTabs(&recent_tabs_builder);
 
-  RecentTabsSubMenuModel recent_tabs_sub_menu_model(nullptr, browser());
+  RecentTabsSubMenuModel recent_tabs_sub_menu_model(
+      [controller_ acceleratorProvider], browser());
   fake_model_->AddSubMenuWithStringId(
       IDC_RECENT_TABS_MENU, IDS_RECENT_TABS_MENU,
       &recent_tabs_sub_menu_model);

@@ -81,9 +81,6 @@ class ASH_EXPORT HeaderView : public views::View,
 
   void SetWidthInPixels(int width_in_pixels);
 
-  // Called when the target widget show state changed.
-  void OnShowStateChanged(ui::WindowShowState show_state);
-
   // views::View:
   void Layout() override;
   void ChildPreferredSizeChanged(views::View* child) override;
@@ -119,7 +116,7 @@ class ASH_EXPORT HeaderView : public views::View,
   void SetVisibleFraction(double visible_fraction) override;
   std::vector<gfx::Rect> GetVisibleBoundsInScreen() const override;
 
-  FrameHeader* GetFrameHeaderForTest() { return frame_header_.get(); }
+  FrameHeader* GetFrameHeader() { return frame_header_.get(); }
 
  private:
   class HeaderContentView;
@@ -127,6 +124,8 @@ class ASH_EXPORT HeaderView : public views::View,
 
   // Paint the header content.
   void PaintHeaderContent(gfx::Canvas* canvas);
+
+  void UpdateBackButton();
 
   // The widget that the caption buttons act on.
   views::Widget* target_widget_;

@@ -11,6 +11,28 @@
 
 namespace ash {
 
+// CaptionButtonId -------------------------------------------------------------
+
+enum class CaptionButtonId {
+  kBack = 1,
+  kClose,
+  kMinimize,
+};
+
+// CaptionBarDelegate ----------------------------------------------------------
+
+class CaptionBarDelegate {
+ public:
+  // Invoked when the caption button identified by |id| is pressed. Return
+  // |true| to prevent default behavior from being performed, false otherwise.
+  virtual bool OnCaptionButtonPressed(CaptionButtonId id) = 0;
+
+ protected:
+  virtual ~CaptionBarDelegate() = default;
+};
+
+// CaptionBar ------------------------------------------------------------------
+
 class CaptionBar : public views::View, views::ButtonListener {
  public:
   CaptionBar();
@@ -23,8 +45,15 @@ class CaptionBar : public views::View, views::ButtonListener {
   // views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
+  void set_delegate(CaptionBarDelegate* delegate) { delegate_ = delegate; }
+
+  // Sets visibility for the caption button identified by |id|.
+  void SetButtonVisible(CaptionButtonId id, bool visible);
+
  private:
   void InitLayout();
+
+  CaptionBarDelegate* delegate_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(CaptionBar);
 };

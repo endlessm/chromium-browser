@@ -37,7 +37,7 @@
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/CodeGen/TargetSchedule.h"
 #include "llvm/IR/Constants.h"
@@ -588,7 +588,7 @@ bool PPCCTRLoops::convertToCTRLoop(Loop *L) {
 
     // We now have a loop-invariant count of loop iterations (which is not the
     // constant zero) for which we know that this loop will not exit via this
-    // exisiting block.
+    // existing block.
 
     // We need to make sure that this block will run on every loop iteration.
     // For this to be true, we must dominate all blocks with backedges. Such

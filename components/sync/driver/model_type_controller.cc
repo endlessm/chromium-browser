@@ -9,11 +9,15 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "components/signin/core/browser/account_info.h"
 #include "components/sync/base/bind_to_task_runner.h"
 #include "components/sync/base/data_type_histogram.h"
+#include "components/sync/device_info/local_device_info_provider.h"
 #include "components/sync/driver/sync_client.h"
-#include "components/sync/engine/activation_context.h"
+#include "components/sync/driver/sync_service.h"
+#include "components/sync/engine/data_type_activation_response.h"
 #include "components/sync/engine/model_type_configurer.h"
+#include "components/sync/model/data_type_activation_request.h"
 #include "components/sync/model/data_type_error_handler_impl.h"
 #include "components/sync/model/model_type_change_processor.h"
 #include "components/sync/model/sync_merge_result.h"
@@ -26,11 +30,10 @@ using ModelTask = ModelTypeController::ModelTask;
 namespace {
 
 void OnSyncStartingHelperOnModelThread(
-    const ModelErrorHandler& error_handler,
+    const DataTypeActivationRequest& request,
     ModelTypeControllerDelegate::StartCallback callback_bound_to_ui_thread,
     base::WeakPtr<ModelTypeControllerDelegate> delegate) {
-  delegate->OnSyncStarting(std::move(error_handler),
-                           std::move(callback_bound_to_ui_thread));
+  delegate->OnSyncStarting(request, std::move(callback_bound_to_ui_thread));
 }
 
 void GetAllNodesForDebuggingHelperOnModelThread(
@@ -51,9 +54,10 @@ void RecordMemoryUsageHistogramHelperOnModelThread(
   delegate->RecordMemoryUsageHistogram();
 }
 
-void DisableSyncHelperOnModelThread(
+void StopSyncHelperOnModelThread(
+    SyncStopMetadataFate metadata_fate,
     base::WeakPtr<ModelTypeControllerDelegate> delegate) {
-  delegate->DisableSync();
+  delegate->OnSyncStopping(metadata_fate);
 }
 
 void ReportError(ModelType model_type,
@@ -81,6 +85,19 @@ void RunModelTask(DelegateProvider delegate_provider, ModelTask task) {
     std::move(task).Run(delegate);
 }
 
+// Takes the strictest policy for clearing sync metadata.
+SyncStopMetadataFate TakeStrictestMetadataFate(SyncStopMetadataFate fate1,
+                                               SyncStopMetadataFate fate2) {
+  switch (fate1) {
+    case CLEAR_METADATA:
+      return CLEAR_METADATA;
+    case KEEP_METADATA:
+      return fate2;
+  }
+  NOTREACHED();
+  return KEEP_METADATA;
+}
+
 }  // namespace
 
 ModelTypeController::ModelTypeController(
@@ -90,7 +107,6 @@ ModelTypeController::ModelTypeController(
     : DataTypeController(type),
       sync_client_(sync_client),
       model_thread_(model_thread),
-      sync_prefs_(sync_client->GetPrefService()),
       state_(NOT_RUNNING) {}
 
 ModelTypeController::~ModelTypeController() {}
@@ -105,15 +121,11 @@ void ModelTypeController::LoadModels(
     const ModelLoadCallback& model_load_callback) {
   DCHECK(CalledOnValidThread());
   DCHECK(!model_load_callback.is_null());
+  DCHECK_EQ(NOT_RUNNING, state_);
+
   model_load_callback_ = model_load_callback;
 
-  if (state() != NOT_RUNNING) {
-    LoadModelsDone(RUNTIME_ERROR,
-                   SyncError(FROM_HERE, SyncError::DATATYPE_ERROR,
-                             "Model already running", type()));
-    return;
-  }
-
+  DVLOG(1) << "Sync starting for " << ModelTypeToString(type());
   state_ = MODEL_STARTING;
 
   // Callback that posts back to the UI thread.
@@ -121,16 +133,25 @@ void ModelTypeController::LoadModels(
       BindToCurrentSequence(base::BindOnce(
           &ModelTypeController::OnProcessorStarted, base::AsWeakPtr(this)));
 
-  ModelErrorHandler error_handler = base::BindRepeating(
+  DataTypeActivationRequest request;
+  request.error_handler = base::BindRepeating(
       &ReportError, type(), base::SequencedTaskRunnerHandle::Get(),
-      base::Bind(&ModelTypeController::ReportModelError,
-                 base::AsWeakPtr(this)));
+      base::BindRepeating(&ModelTypeController::ReportModelError,
+                          base::AsWeakPtr(this), SyncError::DATATYPE_ERROR));
+  request.authenticated_account_id =
+      sync_client_->GetSyncService()->GetAuthenticatedAccountInfo().account_id;
+  request.cache_guid = sync_client_->GetSyncService()
+                           ->GetLocalDeviceInfoProvider()
+                           ->GetLocalSyncCacheGUID();
+
+  DCHECK(!request.authenticated_account_id.empty());
+  DCHECK(!request.cache_guid.empty());
 
   // Start the type processor on the model thread.
-  PostModelTask(FROM_HERE,
-                base::BindOnce(&OnSyncStartingHelperOnModelThread,
-                               std::move(error_handler),
-                               std::move(callback_bound_to_ui_thread)));
+  PostModelTask(
+      FROM_HERE,
+      base::BindOnce(&OnSyncStartingHelperOnModelThread, std::move(request),
+                     std::move(callback_bound_to_ui_thread)));
 }
 
 void ModelTypeController::BeforeLoadModels(ModelTypeConfigurer* configurer) {}
@@ -138,19 +159,37 @@ void ModelTypeController::BeforeLoadModels(ModelTypeConfigurer* configurer) {}
 void ModelTypeController::LoadModelsDone(ConfigureResult result,
                                          const SyncError& error) {
   DCHECK(CalledOnValidThread());
+  DCHECK_NE(NOT_RUNNING, state_);
 
-  if (state_ == NOT_RUNNING) {
-    // The callback arrived on the UI thread after the type has been already
-    // stopped.
+  if (state_ == STOPPING) {
+    DCHECK(!model_stop_callbacks_.empty());
+    // This reply to OnSyncStarting() has arrived after the type has been
+    // requested to stop.
+    DVLOG(1) << "Sync start completion received late for "
+             << ModelTypeToString(type()) << ", it has been stopped meanwhile";
     RecordStartFailure(ABORTED);
+    PostModelTask(FROM_HERE, base::BindOnce(&StopSyncHelperOnModelThread,
+                                            model_stop_metadata_fate_));
+    state_ = NOT_RUNNING;
+
+    // We make a copy in case running the callbacks has side effects and
+    // modifies the vector, although we don't expect that in practice.
+    std::vector<StopCallback> model_stop_callbacks =
+        std::move(model_stop_callbacks_);
+    DCHECK(model_stop_callbacks_.empty());
+    for (StopCallback& stop_callback : model_stop_callbacks) {
+      std::move(stop_callback).Run();
+    }
     return;
   }
 
   if (IsSuccessfulResult(result)) {
     DCHECK_EQ(MODEL_STARTING, state_);
     state_ = MODEL_LOADED;
+    DVLOG(1) << "Sync start completed for " << ModelTypeToString(type());
   } else {
     RecordStartFailure(result);
+    state_ = FAILED;
   }
 
   if (!model_load_callback_.is_null()) {
@@ -159,11 +198,11 @@ void ModelTypeController::LoadModelsDone(ConfigureResult result,
 }
 
 void ModelTypeController::OnProcessorStarted(
-    std::unique_ptr<ActivationContext> activation_context) {
+    std::unique_ptr<DataTypeActivationResponse> activation_response) {
   DCHECK(CalledOnValidThread());
   // Hold on to the activation context until ActivateDataType is called.
   if (state_ == MODEL_STARTING) {
-    activation_context_ = std::move(activation_context);
+    activation_response_ = std::move(activation_response);
   }
   LoadModelsDone(OK, SyncError());
 }
@@ -175,14 +214,15 @@ void ModelTypeController::RegisterWithBackend(
   if (activated_)
     return;
   DCHECK(configurer);
-  DCHECK(activation_context_);
+  DCHECK(activation_response_);
   DCHECK_EQ(MODEL_LOADED, state_);
   // Inform the DataTypeManager whether our initial download is complete.
-  set_downloaded.Run(activation_context_->model_type_state.initial_sync_done());
+  set_downloaded.Run(
+      activation_response_->model_type_state.initial_sync_done());
   // Pass activation context to ModelTypeRegistry, where ModelTypeWorker gets
   // created and connected with ModelTypeProcessor.
   configurer->ActivateNonBlockingDataType(type(),
-                                          std::move(activation_context_));
+                                          std::move(activation_response_));
   activated_ = true;
 }
 
@@ -193,6 +233,7 @@ void ModelTypeController::StartAssociating(
   DCHECK_EQ(MODEL_LOADED, state_);
 
   state_ = RUNNING;
+  DVLOG(1) << "Sync running for " << ModelTypeToString(type());
 
   // There is no association, just call back promptly.
   SyncMergeResult merge_result(type());
@@ -204,9 +245,9 @@ void ModelTypeController::ActivateDataType(ModelTypeConfigurer* configurer) {
   DCHECK(configurer);
   DCHECK_EQ(RUNNING, state_);
   // In contrast with directory datatypes, non-blocking data types should be
-  // activated in RegisterWithBackend. activation_context_ should be passed
-  // to backend before call to ActivateDataType.
-  DCHECK(!activation_context_);
+  // activated in RegisterWithBackend. activation_response_ should be
+  // passed to backend before call to ActivateDataType.
+  DCHECK(!activation_response_);
 }
 
 void ModelTypeController::DeactivateDataType(ModelTypeConfigurer* configurer) {
@@ -218,23 +259,51 @@ void ModelTypeController::DeactivateDataType(ModelTypeConfigurer* configurer) {
   }
 }
 
-void ModelTypeController::Stop() {
+void ModelTypeController::Stop(SyncStopMetadataFate metadata_fate,
+                               StopCallback callback) {
   DCHECK(CalledOnValidThread());
 
-  if (state() == NOT_RUNNING)
-    return;
+  switch (state()) {
+    case ASSOCIATING:
+      // We don't really use this state in this class.
+      NOTREACHED();
+      break;
 
-  // Check preferences if datatype is not in preferred datatypes. Only call
-  // DisableSync if the delegate is ready to handle it (controller is in loaded
-  // state).
-  ModelTypeSet preferred_types =
-      sync_prefs_.GetPreferredDataTypes(ModelTypeSet(type()));
-  if ((state() == MODEL_LOADED || state() == RUNNING) &&
-      (!sync_prefs_.IsFirstSetupComplete() || !preferred_types.Has(type()))) {
-    PostModelTask(FROM_HERE, base::BindOnce(&DisableSyncHelperOnModelThread));
+    case NOT_RUNNING:
+    case FAILED:
+      // Nothing to stop. |metadata_fate| might require CLEAR_METADATA,
+      // which could lead to leaking sync metadata, but it doesn't seem a
+      // realistic scenario (disable sync during shutdown?).
+      return;
+
+    case STOPPING:
+      DCHECK(!model_stop_callbacks_.empty());
+      model_stop_metadata_fate_ =
+          TakeStrictestMetadataFate(model_stop_metadata_fate_, metadata_fate);
+      model_stop_callbacks_.push_back(std::move(callback));
+      break;
+
+    case MODEL_STARTING:
+      DCHECK(!model_load_callback_.is_null());
+      DCHECK(model_stop_callbacks_.empty());
+      DLOG(WARNING) << "Deferring stop for " << ModelTypeToString(type())
+                    << " because it's still starting";
+      model_stop_metadata_fate_ = metadata_fate;
+      model_stop_callbacks_.push_back(std::move(callback));
+      // The actual stop will be executed in LoadModelsDone(), when the starting
+      // process is finished.
+      state_ = STOPPING;
+      break;
+
+    case MODEL_LOADED:
+    case RUNNING:
+      DVLOG(1) << "Stopping sync for " << ModelTypeToString(type());
+      PostModelTask(FROM_HERE, base::BindOnce(&StopSyncHelperOnModelThread,
+                                              metadata_fate));
+      state_ = NOT_RUNNING;
+      std::move(callback).Run();
+      break;
   }
-
-  state_ = NOT_RUNNING;
 }
 
 DataTypeController::State ModelTypeController::state() const {
@@ -260,11 +329,11 @@ void ModelTypeController::RecordMemoryUsageHistogram() {
                 base::BindOnce(&RecordMemoryUsageHistogramHelperOnModelThread));
 }
 
-void ModelTypeController::ReportModelError(const ModelError& error) {
+void ModelTypeController::ReportModelError(SyncError::ErrorType error_type,
+                                           const ModelError& error) {
   DCHECK(CalledOnValidThread());
-  LoadModelsDone(UNRECOVERABLE_ERROR,
-                 SyncError(error.location(), SyncError::DATATYPE_ERROR,
-                           error.message(), type()));
+  LoadModelsDone(UNRECOVERABLE_ERROR, SyncError(error.location(), error_type,
+                                                error.message(), type()));
 }
 
 void ModelTypeController::RecordStartFailure(ConfigureResult result) const {

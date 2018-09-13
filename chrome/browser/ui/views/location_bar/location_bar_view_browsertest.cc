@@ -14,9 +14,10 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "chrome/browser/ui/views/location_bar/zoom_bubble_view.h"
-#include "chrome/browser/ui/views/location_bar/zoom_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
+#include "chrome/browser/ui/views/page_action/page_action_icon_container_view.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -45,6 +46,13 @@ class LocationBarViewBrowserTest : public InProcessBrowserTest {
     return browser_view->GetLocationBarView();
   }
 
+  PageActionIconView* GetZoomView() {
+    return BrowserView::GetBrowserViewForBrowser(browser())
+        ->toolbar_button_provider()
+        ->GetPageActionIconContainerView()
+        ->GetPageActionIconView(PageActionIconType::kZoom);
+  }
+
  private:
   test::ScopedMacViewsBrowserMode views_mode_{true};
   DISALLOW_COPY_AND_ASSIGN(LocationBarViewBrowserTest);
@@ -57,7 +65,7 @@ IN_PROC_BROWSER_TEST_F(LocationBarViewBrowserTest, LocationBarDecoration) {
       browser()->tab_strip_model()->GetActiveWebContents();
   zoom::ZoomController* zoom_controller =
       zoom::ZoomController::FromWebContents(web_contents);
-  ZoomView* zoom_view = GetLocationBarView()->zoom_view();
+  PageActionIconView* zoom_view = GetZoomView();
 
   ASSERT_TRUE(zoom_view);
   EXPECT_FALSE(zoom_view->visible());
@@ -101,7 +109,7 @@ IN_PROC_BROWSER_TEST_F(LocationBarViewBrowserTest, BubblesCloseOnHide) {
       browser()->tab_strip_model()->GetActiveWebContents();
   zoom::ZoomController* zoom_controller =
       zoom::ZoomController::FromWebContents(web_contents);
-  ZoomView* zoom_view = GetLocationBarView()->zoom_view();
+  PageActionIconView* zoom_view = GetZoomView();
 
   ASSERT_TRUE(zoom_view);
   EXPECT_FALSE(zoom_view->visible());
@@ -226,8 +234,7 @@ class SecurityIndicatorTest : public InProcessBrowserTest {
     network::ResourceResponseHead resource_response;
     resource_response.mime_type = "text/html";
     resource_response.ssl_info = ssl_info;
-    params->client->OnReceiveResponse(resource_response,
-                                      /*downloaded_file=*/nullptr);
+    params->client->OnReceiveResponse(resource_response);
     network::URLLoaderCompletionStatus completion_status;
     completion_status.ssl_info = ssl_info;
     params->client->OnComplete(completion_status);
@@ -255,10 +262,10 @@ IN_PROC_BROWSER_TEST_F(SecurityIndicatorTest, CheckIndicatorText) {
   const std::string kDefaultVariation = std::string();
   const std::string kEvToSecureVariation(
       toolbar::features::kSimplifyHttpsIndicatorParameterEvToSecure);
-  const std::string kSecureToLockVariation(
-      toolbar::features::kSimplifyHttpsIndicatorParameterSecureToLock);
   const std::string kBothToLockVariation(
       toolbar::features::kSimplifyHttpsIndicatorParameterBothToLock);
+  const std::string kKeepSecureChipVariation(
+      toolbar::features::kSimplifyHttpsIndicatorParameterKeepSecureChip);
 
   const struct {
     std::string feature_param;
@@ -270,24 +277,24 @@ IN_PROC_BROWSER_TEST_F(SecurityIndicatorTest, CheckIndicatorText) {
   } cases[]{// Default
             {kDefaultVariation, kMockSecureURL, net::CERT_STATUS_IS_EV,
              security_state::EV_SECURE, true, kEvString},
-            {kDefaultVariation, kMockSecureURL, 0, security_state::SECURE, true,
-             kSecureString},
+            {kDefaultVariation, kMockSecureURL, 0, security_state::SECURE,
+             false, kEmptyString},
             {kDefaultVariation, kMockNonsecureURL, 0, security_state::NONE,
              false, kEmptyString},
             // Variation: EV To Secure
             {kEvToSecureVariation, kMockSecureURL, net::CERT_STATUS_IS_EV,
              security_state::EV_SECURE, true, kSecureString},
             {kEvToSecureVariation, kMockSecureURL, 0, security_state::SECURE,
-             true, kSecureString},
+             false, kEmptyString},
             {kEvToSecureVariation, kMockNonsecureURL, 0, security_state::NONE,
              false, kEmptyString},
-            // Variation: Secure to Lock
-            {kSecureToLockVariation, kMockSecureURL, net::CERT_STATUS_IS_EV,
+            // Variation: Keep Secure chip
+            {kKeepSecureChipVariation, kMockSecureURL, net::CERT_STATUS_IS_EV,
              security_state::EV_SECURE, true, kEvString},
-            {kSecureToLockVariation, kMockSecureURL, 0, security_state::SECURE,
-             false, kEmptyString},
-            {kSecureToLockVariation, kMockNonsecureURL, 0, security_state::NONE,
-             false, kEmptyString},
+            {kKeepSecureChipVariation, kMockSecureURL, 0,
+             security_state::SECURE, true, kSecureString},
+            {kKeepSecureChipVariation, kMockNonsecureURL, 0,
+             security_state::NONE, false, kEmptyString},
             // Variation: Both to Lock
             {kBothToLockVariation, kMockSecureURL, net::CERT_STATUS_IS_EV,
              security_state::EV_SECURE, false, kEmptyString},

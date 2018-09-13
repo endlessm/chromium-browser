@@ -48,7 +48,6 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/system/supervised/tray_supervised_user.h"
 #include "ash/system/tiles/tray_tiles.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/system_tray_item.h"
 #include "ash/system/tray/tray_bubble_wrapper.h"
 #include "ash/system/tray/tray_constants.h"
@@ -94,7 +93,8 @@ namespace {
 // A tray item that just reserves space in the tray.
 class PaddingTrayItem : public SystemTrayItem {
  public:
-  PaddingTrayItem() : SystemTrayItem(nullptr, UMA_NOT_RECORDED) {}
+  PaddingTrayItem()
+      : SystemTrayItem(nullptr, SystemTrayItemUmaType::UMA_NOT_RECORDED) {}
   ~PaddingTrayItem() override = default;
 
   // SystemTrayItem:
@@ -241,7 +241,7 @@ void SystemTray::CreateItems() {
   AddTrayItem(std::make_unique<TrayKeyboardBrightness>(this));
   tray_caps_lock_ = new TrayCapsLock(this);
   AddTrayItem(base::WrapUnique(tray_caps_lock_));
-  if (switches::IsNightLightEnabled()) {
+  if (features::IsNightLightEnabled()) {
     tray_night_light_ = new TrayNightLight(this);
     AddTrayItem(base::WrapUnique(tray_night_light_));
   }
@@ -348,16 +348,21 @@ bool SystemTray::IsSystemBubbleVisible() const {
   return HasSystemBubble() && system_bubble_->bubble()->IsVisible();
 }
 
+void SystemTray::SetTrayEnabled(bool enabled) {
+  // We should close bubble at this point. If it remains opened and interactive,
+  // it can be dangerous (http://crbug.com/497080).
+  if (!enabled && HasSystemBubble())
+    CloseBubble();
+
+  SetEnabled(enabled);
+}
+
 views::View* SystemTray::GetHelpButtonView() const {
   return tray_tiles_->GetHelpButtonView();
 }
 
 TrayAudio* SystemTray::GetTrayAudio() const {
   return tray_audio_;
-}
-
-TrayNetwork* SystemTray::GetTrayNetwork() const {
-  return tray_network_;
 }
 
 TrayBluetooth* SystemTray::GetTrayBluetooth() const {

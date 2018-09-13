@@ -9,6 +9,9 @@
 
 #include "base/callback.h"
 #include "base/logging.h"
+#include "content/public/renderer/render_frame.h"
+#include "mojo/public/cpp/bindings/associated_binding_set.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
 
 namespace chromecast {
 
@@ -16,9 +19,10 @@ CastMediaLoadDeferrer::CastMediaLoadDeferrer(content::RenderFrame* render_frame)
     : content::RenderFrameObserver(render_frame),
       content::RenderFrameObserverTracker<CastMediaLoadDeferrer>(render_frame),
       render_frame_action_blocked_(false) {
-  registry_.AddInterface(
-      base::BindRepeating(&CastMediaLoadDeferrer::OnMediaLoadDeferrerRequest,
-                          base::Unretained(this)));
+  render_frame->GetAssociatedInterfaceRegistry()->AddInterface(
+      base::BindRepeating(
+          &CastMediaLoadDeferrer::OnMediaLoadDeferrerAssociatedRequest,
+          base::Unretained(this)));
 }
 
 CastMediaLoadDeferrer::~CastMediaLoadDeferrer() {
@@ -30,23 +34,17 @@ void CastMediaLoadDeferrer::OnDestruct() {
   delete this;
 }
 
-void CastMediaLoadDeferrer::OnInterfaceRequestForFrame(
-    const std::string& interface_name,
-    mojo::ScopedMessagePipeHandle* interface_pipe) {
-  registry_.TryBindInterface(interface_name, interface_pipe);
-}
 
-// Runs |closure| if the page/frame is switched to foreground.
-void CastMediaLoadDeferrer::RunWhenInForeground(
-    const base::RepeatingClosure& closure) {
+bool CastMediaLoadDeferrer::RunWhenInForeground(base::OnceClosure closure) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!render_frame_action_blocked_) {
-    closure.Run();
-    return;
+    std::move(closure).Run();
+    return false;
   }
 
   LOG(WARNING) << "A render frame action is being blocked.";
-  pending_closures_.push_back(closure);
+  pending_closures_.push_back(std::move(closure));
+  return true;
 }
 
 // MediaLoadDeferrer implementation
@@ -59,16 +57,16 @@ void CastMediaLoadDeferrer::UpdateMediaLoadStatus(bool blocked) {
   }
   // Move callbacks in case OnBlockMediaLoading() is called somehow
   // during iteration.
-  std::vector<base::RepeatingClosure> callbacks;
+  std::vector<base::OnceClosure> callbacks;
   callbacks.swap(pending_closures_);
-  for (const auto& cb : callbacks) {
-    cb.Run();
+  for (auto& cb : callbacks) {
+    std::move(cb).Run();
   }
   LOG(INFO) << "Render frame actions are unblocked.";
 }
 
-void CastMediaLoadDeferrer::OnMediaLoadDeferrerRequest(
-    chromecast::shell::mojom::MediaLoadDeferrerRequest request) {
+void CastMediaLoadDeferrer::OnMediaLoadDeferrerAssociatedRequest(
+    chromecast::shell::mojom::MediaLoadDeferrerAssociatedRequest request) {
   bindings_.AddBinding(this, std::move(request));
 }
 

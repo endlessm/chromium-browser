@@ -23,7 +23,6 @@ from chromite.cbuildbot import topology
 from chromite.lib import auth
 from chromite.lib import buildbucket_lib
 from chromite.lib import builder_status_lib
-from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -312,37 +311,31 @@ class BuilderStage(object):
       An instance of buildbucket_lib.BuildbucketClient if the build is using
       Buildbucket as the scheduler; else, None.
     """
-    buildbucket_client = None
+    if buildbucket_lib.GetServiceAccount(constants.CHROMEOS_SERVICE_ACCOUNT):
+      return buildbucket_lib.BuildbucketClient(
+          auth.GetAccessToken, None,
+          service_account_json=constants.CHROMEOS_SERVICE_ACCOUNT)
 
-    if config_lib.UseBuildbucketScheduler(self._run.config):
-      if buildbucket_lib.GetServiceAccount(constants.CHROMEOS_SERVICE_ACCOUNT):
-        buildbucket_client = buildbucket_lib.BuildbucketClient(
-            auth.GetAccessToken, None,
-            service_account_json=constants.CHROMEOS_SERVICE_ACCOUNT)
+    if self._run.InProduction():
+      # If the build using Buildbucket is running on buildbot and
+      # is in production mode, buildbucket_client cannot be None.
+      raise buildbucket_lib.NoBuildbucketClientException(
+          'Buildbucket_client is None. '
+          'Please check if the buildbot has a valid service account file. '
+          'Please find the service account json file at %s.' %
+          constants.CHROMEOS_SERVICE_ACCOUNT)
 
-      if buildbucket_client is None and self._run.InProduction():
-        # If the build using Buildbucket is running on buildbot and
-        # is in production mode, buildbucket_client cannot be None.
-        raise buildbucket_lib.NoBuildbucketClientException(
-            'Buildbucket_client is None. '
-            'Please check if the buildbot has a valid service account file. '
-            'Please find the service account json file at %s.' %
-            constants.CHROMEOS_SERVICE_ACCOUNT)
-
-    return buildbucket_client
+    return None
 
   def GetScheduledSlaveBuildbucketIds(self):
     """Get buildbucket_ids list of the scheduled slave builds.
 
     Returns:
-      If slaves were scheduled by Buildbucket, return a list of
-      buildbucket_ids (strings) of the slave builds. The list doesn't
+      A list of buildbucket_ids (strings) of the slave builds. The list doesn't
       contain the old builds which were retried in Buildbucket.
-      If slaves were scheduled by git commits, return None.
     """
     buildbucket_ids = None
-    if (config_lib.UseBuildbucketScheduler(self._run.config) and
-        config_lib.IsMasterBuild(self._run.config)):
+    if self._run.config.slave_configs:
       buildbucket_ids = buildbucket_lib.GetBuildbucketIds(
           self._run.attrs.metadata)
 
@@ -629,7 +622,7 @@ class BuilderStage(object):
 
   def HandleSkip(self):
     """Run if the stage is skipped."""
-    pass
+    # This is a hook used by some subclasses.
 
   def _RecordResult(self, *args, **kwargs):
     """Record a successful or failed result."""
@@ -646,7 +639,8 @@ class BuilderStage(object):
     skip_stage = self._ShouldSkipStage()
     previous_record = results_lib.Results.PreviouslyCompletedRecord(self.name)
     if skip_stage:
-      self._BeginStepForBuildbot(' : [SKIPPED]')
+      # We do not log the beginning of a skipped stage.
+      pass
     elif previous_record is not None:
       self._BeginStepForBuildbot(' : [PREVIOUSLY PROCESSED]')
     else:
@@ -663,7 +657,6 @@ class BuilderStage(object):
 
       if skip_stage:
         self._StartBuildStageInCIDB()
-        self._PrintLoudly('Not running Stage %s' % self.name)
         self.HandleSkip()
         result = results_lib.Results.SKIPPED
         return
@@ -984,7 +977,7 @@ class ArchivingStageMixin(object):
   @property
   def archive(self):
     """Retrieve the Archive object to use."""
-    # pylint: disable=W0201
+    # pylint: disable=attribute-defined-outside-init
     if not hasattr(self, '_archive'):
       self._archive = self._run.GetArchive()
 

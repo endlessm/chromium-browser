@@ -375,6 +375,7 @@ NVPTXTargetLowering::NVPTXTargetLowering(const NVPTXTargetMachine &TM,
   setOperationAction(ISD::FP_TO_SINT, MVT::f16, Legal);
   setOperationAction(ISD::BUILD_VECTOR, MVT::v2f16, Custom);
   setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v2f16, Custom);
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v2f16, Expand);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v2f16, Expand);
 
   setFP16OperationAction(ISD::SETCC, MVT::f16, Legal, Promote);
@@ -466,9 +467,6 @@ NVPTXTargetLowering::NVPTXTargetLowering(const NVPTXTargetMachine &TM,
 
   // TRAP can be lowered to PTX trap
   setOperationAction(ISD::TRAP, MVT::Other, Legal);
-
-  setOperationAction(ISD::ADDC, MVT::i64, Expand);
-  setOperationAction(ISD::ADDE, MVT::i64, Expand);
 
   // Register custom handling for vector loads/stores
   for (MVT VT : MVT::vector_valuetypes()) {

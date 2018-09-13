@@ -21,7 +21,6 @@ from chromite.cbuildbot.stages import test_stages
 from chromite.lib import buildbucket_lib
 from chromite.lib import builder_status_lib
 from chromite.lib import build_summary
-from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -94,8 +93,7 @@ class CleanUpStage(generic_stages.BuilderStage):
       # itself because we haven't sync'd yet, and the version of the chromite
       # in there might be broken. Since we've already unmounted everything in
       # there, we can just remove it using rm -rf.
-      cros_sdk_lib.CleanupChrootMount(chroot, delete_image=True)
-      osutils.RmDir(chroot, ignore_missing=True, sudo=True)
+      cros_sdk_lib.CleanupChrootMount(chroot, delete=True)
 
   def _DeleteArchivedTrybotImages(self):
     """Clear all previous archive images to save space."""
@@ -189,6 +187,7 @@ class CleanUpStage(generic_stages.BuilderStage):
 
     buildbucket_client = self.GetBuildbucketClient()
     if not buildbucket_client:
+      logging.info('No buildbucket_client, not cancelling slaves.')
       return
 
     # Find the 3 most recent master buildbucket ids.
@@ -203,7 +202,9 @@ class CleanUpStage(generic_stages.BuilderStage):
     slave_ids = []
 
     # Find the scheduled or started slaves for those master builds.
-    for master_id in buildbucket_lib.ExtractBuildIds(master_builds):
+    master_ids = buildbucket_lib.ExtractBuildIds(master_builds)
+    logging.info('Found Previous Master builds: %s', ', '.join(master_ids))
+    for master_id in master_ids:
       for status in [constants.BUILDBUCKET_BUILDER_STATUS_SCHEDULED,
                      constants.BUILDBUCKET_BUILDER_STATUS_STARTED]:
         builds = buildbucket_client.SearchAllBuilds(
@@ -373,11 +374,8 @@ class CleanUpStage(generic_stages.BuilderStage):
       else:
         tasks.append(self._CleanChroot)
 
-      # Only enable CancelObsoleteSlaveBuilds on the master builds
-      # which use the Buildbucket scheduler, it checks for builds in
-      # ChromiumOs and ChromeOs waterfalls.
-      if (config_lib.UseBuildbucketScheduler(self._run.config) and
-          config_lib.IsMasterBuild(self._run.config)):
+      # CancelObsoleteSlaveBuilds, if there are slave builds to cancel.
+      if self._run.config.slave_configs:
         tasks.append(self.CancelObsoleteSlaveBuilds)
 
       parallel.RunParallelSteps(tasks)
@@ -409,16 +407,7 @@ class InitSDKStage(generic_stages.BuilderStage):
     super(InitSDKStage, self).__init__(builder_run, **kwargs)
     self.force_chroot_replace = chroot_replace
 
-  def DepotToolsEnsureBootstrap(self):
-    """Ensure that depot_tools binaries are populated."""
-    depot_tools_path = constants.DEPOT_TOOLS_DIR
-    ensure_bootstrap_script = os.path.join(depot_tools_path, 'ensure_bootstrap')
-    cros_build_lib.RunCommand([ensure_bootstrap_script], cwd=depot_tools_path)
-
   def PerformStage(self):
-    # This prepares depot_tools in the source tree, in advance.
-    self.DepotToolsEnsureBootstrap()
-
     chroot_path = os.path.join(self._build_root, constants.DEFAULT_CHROOT_DIR)
     replace = self._run.config.chroot_replace or self.force_chroot_replace
     pre_ver = post_ver = None
@@ -449,10 +438,6 @@ class InitSDKStage(generic_stages.BuilderStage):
       logging.PrintBuildbotStepText('%s->%s' % (pre_ver, post_ver))
     else:
       logging.PrintBuildbotStepText(post_ver)
-
-    commands.SetSharedUserPassword(
-        self._build_root,
-        password=self._run.config.shared_user_password)
 
 
 class SetupBoardStage(generic_stages.BoardSpecificBuilderStage, InitSDKStage):
@@ -742,9 +727,7 @@ class BuildImageStage(BuildPackagesStage):
 
     self.board_runattrs.SetParallel('images_generated', True)
 
-    parallel.RunParallelSteps(
-        [self._BuildVMImage, lambda: self._GenerateAuZip(cbuildbot_image_link),
-         self._BuildGceTarballs])
+    parallel.RunParallelSteps([self._BuildVMImage, self._BuildGceTarballs])
 
   def _BuildVMImage(self):
     if self._run.config.vm_tests and not self._afdo_generate_min:
@@ -753,13 +736,6 @@ class BuildImageStage(BuildPackagesStage):
           self._current_board,
           extra_env=self._portage_extra_env,
           disk_layout=self._run.config.disk_layout)
-
-  def _GenerateAuZip(self, image_dir):
-    """Create au-generator.zip."""
-    if not self._afdo_generate_min:
-      commands.GenerateAuZip(self._build_root,
-                             image_dir,
-                             extra_env=self._portage_extra_env)
 
   def _BuildGceTarballs(self):
     """Creates .tar.gz files that can be converted to GCE images.

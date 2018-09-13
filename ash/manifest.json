@@ -16,6 +16,7 @@
           "ash.mojom.AshMessageCenterController",
           "ash.mojom.AssistantController",
           "ash.mojom.CastConfig",
+          "ash.mojom.ClientImageRegistry",
           "ash.mojom.CrosDisplayConfigController",
           "ash.mojom.DockedMagnifierController",
           "ash.mojom.EventRewriterController",
@@ -31,6 +32,7 @@
           "ash.mojom.ProcessCreationTimeRecorder",
           "ash.mojom.SessionController",
           "ash.mojom.ShelfController",
+          "ash.mojom.ShellState",
           "ash.mojom.ShutdownController",
           "ash.mojom.SplitViewController",
           "ash.mojom.SystemTray",
@@ -52,7 +54,10 @@
         "display": [
           "ash.mojom.AshDisplayController"
         ],
-        "mus:window_manager": [ "ui.mojom.AcceleratorRegistrar" ]
+        "mus:window_manager": [ "ui.mojom.AcceleratorRegistrar" ],
+        "service_manager:service_factory": [
+          "service_manager.mojom.ServiceFactory"
+        ]
       },
       "requires": {
         "*": [ "accessibility", "app" ],
@@ -66,7 +71,12 @@
         "multidevice_setup": [ "multidevice_setup" ],
         "quick_launch_app": [ "mash:launchable" ],
         "service_manager": [ "service_manager:singleton" ],
-        "ui": [ "display_dev", "window_manager", "video_detector" ],
+        "ui": [
+          "display_dev",
+          "ozone",
+          "video_detector",
+          "window_manager"
+        ],
         "data_decoder": [ "image_decoder" ]
       }
     }

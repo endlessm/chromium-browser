@@ -4,6 +4,7 @@
 
 package org.chromium.content_public.browser;
 
+import android.content.Context;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Parcelable;
@@ -94,6 +95,17 @@ public interface WebContents extends Parcelable {
     void setInternalsHolder(InternalsHolder holder);
 
     /**
+     * Initialize various content objects of {@link WebContents} lifetime.
+     * @param context The context used to create this object.
+     * @param productVersion Product version for accessibility.
+     * @param viewDelegate Delegate to add/remove anchor views.
+     * @param accessDelegate Handles dispatching all hidden or super methods to the containerView.
+     * @param windowAndroid An instance of the WindowAndroid.
+     */
+    void initialize(Context context, String productVersion, ViewAndroidDelegate viewDelegate,
+            ViewEventSink.InternalAccessDelegate accessDelegate, WindowAndroid windowAndroid);
+
+    /**
      * @return The top level WindowAndroid associated with this WebContents.  This can be null.
      */
     WindowAndroid getTopLevelNativeWindow();
@@ -131,7 +143,7 @@ public interface WebContents extends Parcelable {
      *         not created yet, or {@code userDataFactory} is null, or the internal data
      *         storage is already garbage-collected.
      */
-    public <T> T getOrSetUserData(Class key, UserDataFactory<T> userDataFactory);
+    public <T> T getOrSetUserData(Class<T> key, UserDataFactory<T> userDataFactory);
 
     /**
      * @return The navigation controller associated with this WebContents.
@@ -396,7 +408,7 @@ public interface WebContents extends Parcelable {
     void setOverscrollRefreshHandler(OverscrollRefreshHandler handler);
 
     /**
-     * Requests an image snapshot of the content.
+     * Requests an image snapshot of the content and stores it in the specified folder.
      *
      * @param width The width of the resulting bitmap, or 0 for "auto."
      * @param height The height of the resulting bitmap, or 0 for "auto."
@@ -404,7 +416,8 @@ public interface WebContents extends Parcelable {
      * @param callback May be called synchronously, or at a later point, to deliver the bitmap
      *                 result (or a failure code).
      */
-    void getContentBitmapAsync(int width, int height, String path, Callback<String> callback);
+    void writeContentBitmapToDiskAsync(
+            int width, int height, String path, Callback<String> callback);
 
     /**
      * Reloads all the Lo-Fi images in this WebContents.
@@ -434,24 +447,20 @@ public interface WebContents extends Parcelable {
     /**
      * Whether the WebContents has an active fullscreen video with native or custom controls.
      * The WebContents must be fullscreen when this method is called. Fullscreen videos may take a
-     * moment to register. This should only be called if AppHooks.shouldDetectVideoFullscreen()
-     * returns true.
+     * moment to register.
      */
     boolean hasActiveEffectivelyFullscreenVideo();
 
     /**
      * Whether the WebContents is allowed to enter Picture-in-Picture when it has an active
      * fullscreen video with native or custom controls.
-     * This should only be called if AppHooks.shouldDetectVideoFullscreen()
-     * returns true.
      */
     boolean isPictureInPictureAllowedForFullscreenVideo();
 
     /**
      * Gets a Rect containing the size of the currently playing fullscreen video. The position of
      * the rectangle is meaningless. Will return null if there is no such video. Fullscreen videos
-     * may take a moment to register. This should only be called if
-     * AppHooks.shouldDetectVideoFullscreen() returns true.
+     * may take a moment to register.
      */
     @Nullable
     Rect getFullscreenVideoSize();
@@ -499,4 +508,12 @@ public interface WebContents extends Parcelable {
      * @return The width of the view.
      */
     int getHeight();
+
+    /**
+     * Sets the Display Cutout safe area of the WebContents. These are insets from each edge
+     * in physical pixels
+     *
+     * @param insets The insets stored in a Rect.
+     */
+    void setDisplayCutoutSafeArea(Rect insets);
 }

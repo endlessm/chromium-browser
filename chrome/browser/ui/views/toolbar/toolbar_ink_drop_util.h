@@ -19,9 +19,10 @@
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/ink_drop_mask.h"
 #include "ui/views/animation/ink_drop_ripple.h"
+#include "ui/views/style/platform_style.h"
 
-constexpr float kTouchToolbarInkDropVisibleOpacity = 0.06f;
-constexpr float kTouchToolbarHighlightVisibleOpacity = 0.08f;
+constexpr float kToolbarInkDropVisibleOpacity = 0.06f;
+constexpr float kToolbarInkDropHighlightVisibleOpacity = 0.08f;
 
 // The below utility functions are templated since we have two different types
 // of buttons on the toolbar (ToolbarButton and AppMenuButton) which don't share
@@ -34,18 +35,15 @@ constexpr float kTouchToolbarHighlightVisibleOpacity = 0.08f;
 // Creates insets for a host view so that when insetting from the host view
 // the resulting mask or inkdrop has the desired inkdrop size.
 template <class BaseInkDropHostView>
-gfx::Insets GetInkDropInsets(BaseInkDropHostView* host_view) {
-  gfx::Insets inkdrop_insets;
-  const gfx::Insets host_insets = host_view->GetInsets();
-  // If content is not centered (leftmost or rightmost toolbar button), inset
-  // the inkdrop mask accordingly.
-  if (host_insets.left() > host_insets.right()) {
-    inkdrop_insets +=
-        gfx::Insets(0, host_insets.left() - host_insets.right(), 0, 0);
-  } else if (host_insets.right() > host_insets.left()) {
-    inkdrop_insets +=
-        gfx::Insets(0, 0, 0, host_insets.right() - host_insets.left());
-  }
+gfx::Insets GetInkDropInsets(BaseInkDropHostView* host_view,
+                             const gfx::Insets& margin_insets) {
+  // TODO(pbos): Inkdrop masks and layers should be flipped with RTL. Fix this
+  // and remove RTL handling from here.
+  gfx::Insets inkdrop_insets =
+      base::i18n::IsRTL()
+          ? gfx::Insets(margin_insets.top(), margin_insets.right(),
+                        margin_insets.bottom(), margin_insets.left())
+          : margin_insets;
 
   // Inset the inkdrop insets so that the end result matches the target inkdrop
   // dimensions.
@@ -56,8 +54,26 @@ gfx::Insets GetInkDropInsets(BaseInkDropHostView* host_view) {
   return inkdrop_insets;
 }
 
-// Creates the appropriate ink drop for the calling button. When the touch-
-// optimized UI is not enabled, it uses the default implementation of the
+// Create a SkPath matching the toolbar inkdrops to be used for the focus ring.
+// TODO(pbos): Consolidate inkdrop effects, highlights and ripples along with
+// focus rings so that they are derived  from the same actual SkPath or other
+// shared primitive. That way they would be significantly easier to keep in
+// sync. This method at least reuses GetInkDropInsets.
+template <class BaseInkDropHostView>
+SkPath CreateToolbarFocusRingPath(BaseInkDropHostView* host_view,
+                                  const gfx::Insets& margin_insets) {
+  gfx::Rect rect(host_view->size());
+  rect.Inset(GetInkDropInsets(host_view, margin_insets));
+
+  SkPath path;
+  path.addRoundRect(gfx::RectToSkRect(rect),
+                    host_view->ink_drop_large_corner_radius(),
+                    host_view->ink_drop_large_corner_radius());
+  return path;
+}
+
+// Creates the appropriate ink drop for the calling button. When the newer
+// material UI is not enabled, it uses the default implementation of the
 // calling button's base class (the template argument BaseInkDropHostView).
 // Otherwise, it uses an ink drop that shows a highlight on hover that is kept
 // and combined with the ripple when the ripple is shown.
@@ -72,29 +88,34 @@ std::unique_ptr<views::InkDrop> CreateToolbarInkDrop(
   ink_drop->SetAutoHighlightMode(
       views::InkDropImpl::AutoHighlightMode::SHOW_ON_RIPPLE);
   ink_drop->SetShowHighlightOnHover(true);
+  ink_drop->SetShowHighlightOnFocus(!views::PlatformStyle::kPreferFocusRings);
+
   return ink_drop;
 }
 
 // Creates the appropriate ink drop ripple for the calling button. When the
-// touch-optimized UI is not enabled, it uses the default implementation of the
+// newer material UI is not enabled, it uses the default implementation of the
 // calling button's base class (the template argument BaseInkDropHostView).
 // Otherwise, it uses a |FloodFillInkDropRipple|.
 template <class BaseInkDropHostView>
 std::unique_ptr<views::InkDropRipple> CreateToolbarInkDropRipple(
     const BaseInkDropHostView* host_view,
-    const gfx::Point& center_point) {
+    const gfx::Point& center_point,
+    const gfx::Insets& margin_insets) {
   if (!ui::MaterialDesignController::IsNewerMaterialUi())
     return host_view->BaseInkDropHostView::CreateInkDropRipple();
 
   return std::make_unique<views::FloodFillInkDropRipple>(
-      host_view->size(), GetInkDropInsets(host_view), center_point,
-      host_view->GetInkDropBaseColor(), host_view->ink_drop_visible_opacity());
+      host_view->size(), GetInkDropInsets(host_view, margin_insets),
+      center_point, host_view->GetInkDropBaseColor(),
+      host_view->ink_drop_visible_opacity());
 }
 
 // Creates the appropriate ink drop highlight for the calling button. When the
-// touch-optimized UI is not enabled, it uses the default implementation of the
+// newer material UI is not enabled, it uses the default implementation of the
 // calling button's base class (the template argument BaseInkDropHostView).
-// Otherwise, it uses a kTouchInkDropHighlightSize circular highlight.
+// Otherwise, it uses a circular highlight with the same height as the location
+// bar.
 template <class BaseInkDropHostView>
 std::unique_ptr<views::InkDropHighlight> CreateToolbarInkDropHighlight(
     const BaseInkDropHostView* host_view,
@@ -108,24 +129,25 @@ std::unique_ptr<views::InkDropHighlight> CreateToolbarInkDropHighlight(
   auto highlight = std::make_unique<views::InkDropHighlight>(
       highlight_size, host_view->ink_drop_large_corner_radius(),
       gfx::PointF(center_point), host_view->GetInkDropBaseColor());
-  highlight->set_visible_opacity(kTouchToolbarHighlightVisibleOpacity);
+  highlight->set_visible_opacity(kToolbarInkDropHighlightVisibleOpacity);
   return highlight;
 }
 
 // Creates the appropriate ink drop mask for the calling button. When the
-// touch-optimized UI is not enabled, it uses the default implementation of the
+// newer material UI is not enabled, it uses the default implementation of the
 // calling button's base class (the template argument BaseInkDropHostView).
 // Otherwise, it uses a circular mask that has the same size as that of the
 // highlight, which is needed to make the flood
 // fill ripple fill a circle rather than a default square shape.
 template <class BaseInkDropHostView>
 std::unique_ptr<views::InkDropMask> CreateToolbarInkDropMask(
-    const BaseInkDropHostView* host_view) {
+    const BaseInkDropHostView* host_view,
+    const gfx::Insets& margin_insets) {
   if (!ui::MaterialDesignController::IsNewerMaterialUi())
     return host_view->BaseInkDropHostView::CreateInkDropMask();
 
   return std::make_unique<views::RoundRectInkDropMask>(
-      host_view->size(), GetInkDropInsets(host_view),
+      host_view->size(), GetInkDropInsets(host_view, margin_insets),
       host_view->ink_drop_large_corner_radius());
 }
 

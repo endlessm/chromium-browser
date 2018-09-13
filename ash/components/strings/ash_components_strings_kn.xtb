@@ -5,6 +5,7 @@
 <translation id="1122869341872663659"><ph name="QUERY" /> ಗಾಗಿ <ph name="N" /> ಹುಡುಕಾಟ ಫಲಿತಾಂಶಗಳನ್ನು ಪ್ರದರ್ಶಿಸಲಾಗುತ್ತಿದೆ</translation>
 <translation id="1195667586424773550">ಟ್ಯಾಬ್‌ನ ವಿಳಾಸ ಪಟ್ಟಿಗೆ ಲಿಂಕ್‌ ಅನ್ನು ಡ್ರ್ಯಾಗ್ ಮಾಡಿ</translation>
 <translation id="1204450209689312104">ಅಜ್ಞಾತ ಮೋಡ್‌ನಲ್ಲಿ ಹೊಸ ವಿಂಡೋ ತೆರೆಯಿರಿ</translation>
+<translation id="1251638888133819822">ಪೂರ್ಣಪರದೆ ವರ್ಧಕವನ್ನು ಆನ್ ಅಥವಾ ಆಫ್ ಮಾಡಿ</translation>
 <translation id="1290373024480130896"><ph name="MODIFIER1" /><ph name="SEPARATOR1" /><ph name="MODIFIER2" /><ph name="SEPARATOR2" /><ph name="MODIFIER3" /><ph name="SEPARATOR3" /><ph name="KEY" /></translation>
 <translation id="1293699935367580298">Esc</translation>
 <translation id="1299858300159559687">ನಿಮ್ಮ ಪ್ರಸ್ತುತ ಪುಟವನ್ನು ಮುದ್ರಿಸಿ</translation>
@@ -35,10 +36,11 @@
 <translation id="2397416548179033562">Chrome ಮೆನು ತೋರಿಸು</translation>
 <translation id="2424073332829844142">Caps Lock ಆನ್‌ ಅಥವಾ ಆಫ್‌ ಮಾಡಿ</translation>
 <translation id="2441202986792279177">ವಿಂಡೋಗಳ ನಡುವೆ ತ್ವರಿತವಾಗಿ ಬದಲಿಸಿ</translation>
+<translation id="2454251766545114447">ಡಿಸ್‌ಪ್ಲೇ ಅನ್ನು ಝೂಮ್ ಔಟ್ ಮಾಡಿ</translation>
 <translation id="2478303094958140141">ChromeVox (ಮಾತಿನ ಪ್ರತಿಕ್ರಿಯೆ) ಆನ್‌ ಅಥವಾ ಆಫ್‌ ಮಾಡಿ</translation>
 <translation id="2515586267016047495">Alt</translation>
 <translation id="2530339807289914946">ವೆಬ್‌ ಪುಟವನ್ನು ಸ್ಕ್ರಾಲ್ ಡೌನ್ ಮಾಡಿ</translation>
-<translation id="2568632782096378307">ಪರದೆಯ ರೆಸಲ್ಯೂಷನ್ ಅನ್ನು ಡೀಫಾಲ್ಟ್‌ಗೆ ಮರುಹೊಂದಿಸಿ</translation>
+<translation id="2574014812750545982">ಪುಟದಲ್ಲಿನ ಝೂಮ್ ಮಟ್ಟವನ್ನು ಮರುಹೊಂದಿಸಿ</translation>
 <translation id="2596078834055697711">ವಿಂಡೋ ಸ್ಕ್ರೀನ್‌ಶಾಟ್ ತೆಗೆದುಕೊಳ್ಳಿ</translation>
 <translation id="2685170433750953446"><ph name="SHIFT" /><ph name="SEPARATOR1" /><ph name="ALT" /><ph name="SEPARATOR2" /><ph name="L" />, ನಂತರ <ph name="TAB" /> ಅಥವಾ <ph name="RIGHT" /></translation>
 <translation id="2687057317448262550">ಮುಂದಿನ ಭಾಷೆಯ ಇನ್‌ಪುಟ್‌ ವಿಧಾನಕ್ಕೆ ಬದಲಿಸಿ</translation>
@@ -48,6 +50,7 @@
 <translation id="2789868185375229787">ಪುಟದಲ್ಲಿ ಝೂಮ್ ಔಟ್ ಮಾಡಿ</translation>
 <translation id="2804480015716812239"><ph name="ALT" /> ಅನ್ನು ಒತ್ತಿರಿ ಮತ್ತು ಲಿಂಕ್‌ ಅನ್ನು ಕ್ಲಿಕ್‌ ಮಾಡಿ</translation>
 <translation id="2830827904629746450">ಬಲಭಾಗದಲ್ಲಿ ವಿಂಡೋವನ್ನು ಡಾಕ್‌ ಮಾಡಿ</translation>
+<translation id="2840766858109427815">ಮುಂದಿನ ಪುಟಕ್ಕೆ ಮುಂದುವರಿಯಿರಿ</translation>
 <translation id="2872353916818027657">ಪ್ರಾಥಮಿಕ ಮಾನೀಟರ್ ಸ್ವ್ಯಾಪ್</translation>
 <translation id="2914313326123580426">ಡೆವಲಪರ್ ಪರಿಕರಗಳ ಫಲಕವನ್ನು ತೋರಿಸಿ ಅಥವಾ ಮರೆಮಾಡಿ</translation>
 <translation id="292495055542441795">ಪೂರ್ಣ ಪರದೆಯನ್ನು ಟಾಗಲ್ ಮಾಡಿ</translation>
@@ -62,9 +65,9 @@
 <translation id="3407560819924487926">ಹೊಸ ಕಾರ್ಯ ನಿರ್ವಾಹಕವನ್ನು ತೆರೆಯುತ್ತದೆ</translation>
 <translation id="3422679037938588196">ನಿಮ್ಮ ಹುಡುಕಾಟಕ್ಕೆ ಹೊಂದಿಕೆಯಾಗುವ ಹಿಂದಿನದಕ್ಕೆ ಹೋಗಿ</translation>
 <translation id="344577624355799426"><ph name="ALT" /> ಅಥವಾ <ph name="SEARCH" /><ph name="SEPARATOR" /><ph name="DOWN" /></translation>
-<translation id="346243998268439747">ಝೂಮ್‌ ಮಟ್ಟವನ್ನು ಮರುಹೊಂದಿಸಿ</translation>
 <translation id="353037708190149633">ನಿಮ್ಮ ಪ್ರಸ್ತುತ ವಿಂಡೋದಲ್ಲಿ ತೆರೆದಿರುವ ಎಲ್ಲಾ ಪುಟಗಳನ್ನು ಹೊಸ ಫೋಲ್ಡರ್‌ನಲ್ಲಿ ಬುಕ್‌ಮಾರ್ಕ್‌ಗಳಂತೆ ಉಳಿಸಿ</translation>
 <translation id="355103131818127604">ಹಿನ್ನೆಲೆಯಲ್ಲಿ ಲಿಂಕ್‌ ಅನ್ನು ಹೊಸ ಟ್ಯಾಬ್‌ನಲ್ಲಿ ತೆರೆಯಿರಿ</translation>
+<translation id="3622741593887335780">ಝೂಮ್ ಇನ್ ಮಾಡಿ (ಡಾಕ್ ಆಗಿರುವಾಗ ಅಥವಾ ಪೂರ್ಣಪರದೆ ವರ್ಧಕಗಳು ಸಕ್ರಿಯಗೊಂಡಿರುವಾಗ)</translation>
 <translation id="3649256019230929621">ವಿಂಡೋ ಕಿರಿದಾಗಿಸಿ</translation>
 <translation id="3655154169297074232">ಟ್ಯಾಬ್‌ಗಳು ಮತ್ತು ವಿಂಡೋಗಳು</translation>
 <translation id="3668361878347172356">ನಿಮ್ಮ ಕೊನೆಯ ಕ್ರಿಯೆಯನ್ನು ಪುನಃ ಲೋಡ್‌ ಮಾಡಿ</translation>
@@ -76,6 +79,7 @@
 <translation id="379295446891231126"><ph name="CTRL" /><ph name="SEPARATOR" /> 1 ರಿಂದ 8 ರವರೆಗೆ</translation>
 <translation id="3837047332182291558">ಕೀಬೋರ್ಡ್ ಅನ್ನು ಪ್ರಕಾಶಮಾನವಾಗಿ ಮಾಡಿ (ಬ್ಯಾಕ್‌‌ಲಿಟ್‌‌ ಕೀಬೋರ್ಡ್‌ಗಳಿಗಾಗಿ ಮಾತ್ರ)</translation>
 <translation id="3976863468609830880">ನಿಮ್ಮ ಶೆಲ್ಫ್‌ನಲ್ಲಿರುವ ಕೊನೆಯ ಐಕಾನ್ ಅನ್ನು ಕ್ಲಿಕ್‌ ಮಾಡಿ</translation>
+<translation id="3994783594793697310">ಡಿಸ್‌ಪ್ಲೇ ಝೂಮ್‌ ಮಟ್ಟವನ್ನು ಮರುಹೊಂದಿಸಿ</translation>
 <translation id="4026843240379844265">ಸಕ್ರಿಯ ವಿಂಡೋವನ್ನು ಡಿಸ್‌ಪ್ಲೇಗಳ ನಡುವೆ ಸರಿಸಿ</translation>
 <translation id="4035482366624727273">ಪುಟದಲ್ಲಿರುವ ಎಲ್ಲವನ್ನೂ ಆಯ್ಕೆ ಮಾಡಿ</translation>
 <translation id="4060703249685950734">ನೀವು ಮುಚ್ಚಿದ ಕೊನೆಯ ಟ್ಯಾಬ್‌ ಅಥವಾ ವಿಂಡೋವನ್ನು ಮರುತೆರೆಯಿರಿ</translation>
@@ -86,6 +90,7 @@
 <translation id="4141203561740478845">ವಿಳಾಸ ಪಟ್ಟಿ ಹೊಂದಿರುವ ಸಾಲನ್ನು ಹೈಲೈಟ್ ಮಾಡಿ</translation>
 <translation id="4148761611071495477"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="G" /> ಅಥವಾ <ph name="ENTER" /></translation>
 <translation id="4240486403425279990">ಅವಲೋಕನ ಮೋಡ್‌</translation>
+<translation id="4382340674111381977">ಹಿಂದಿನ ಪುಟಕ್ಕೆ ಹಿಂತಿರುಗಿ</translation>
 <translation id="4472417192667361414">ಸಿಸ್ಟಂ ಮತ್ತು ಡಿಸ್‌ಪ್ಲೇ ಸೆಟ್ಟಿಂಗ್‌ಗಳು</translation>
 <translation id="4556221320735744018">ಕೀಬೋರ್ಡ್‌ ಶಾರ್ಟ್‌ಕಟ್‌ ಸಹಾಯಕವನ್ನು ನೋಡಿ</translation>
 <translation id="4628718545549558538">ಸ್ಥಿತಿ ಪ್ರದೇಶವನ್ನು ತೆರೆಯಿರಿ (ನಿಮ್ಮ ಖಾತೆ ಚಿತ್ರ ಗೋಚರಿಸುವಲ್ಲಿ)</translation>
@@ -102,6 +107,7 @@
 <translation id="5236674127086649162">ಸಂಗ್ರಹಿಸಿದ ವಿಷಯವನ್ನು ಬಳಸದೇ ನಿಮ್ಮ ಪ್ರಸ್ತುತ ಪುಟವನ್ನು ಮರುಲೋಡ್ ಮಾಡಿ</translation>
 <translation id="526651782186312376">ಸಾಲಿನ ಪ್ರಾರಂಭದವರೆಗಿನ ಪಠ್ಯವನ್ನು ಆಯ್ಕೆಮಾಡಿ</translation>
 <translation id="5316716239522500219">ಪ್ರತಿಬಿಂಬಿಸುವ ಮಾನೀಟರ್‌ಗಳು</translation>
+<translation id="539072479502328326">ಡಾಕ್ ಮಾಡಿರುವ ವರ್ಧಕವನ್ನು ಆನ್ ಅಥವಾ ಆಫ್ ಮಾಡಿ</translation>
 <translation id="5487187679583934283">ನೀವು ಹೇಳಿದಂತೆ ಟೈಪ್ ಮಾಡುವುದನ್ನು ಪ್ರಾರಂಭಿಸುತ್ತದೆ ಅಥವಾ ನಿಲ್ಲಿಸುತ್ತದೆ</translation>
 <translation id="5541719484267030947">ಟ್ಯಾಬ್‌ ಅನ್ನು ಡ್ರ್ಯಾಗ್‌ ಮಾಡುವಾಗ, <ph name="ESC" /> ಅನ್ನು ಒತ್ತಿರಿ</translation>
 <translation id="5554139136362089836">ಪ್ರಸ್ತುತ ಪುಟವನ್ನು ಹುಡುಕಿ</translation>
@@ -113,7 +119,6 @@
 <translation id="587531134027443617">ಹಿಂದಿನ ಪದವನ್ನು ಅಳಿಸಿ</translation>
 <translation id="5899919361772749550">ಡೆವಲಪರ್ ಪರಿಕರಗಳ ಕನ್ಸೋಲ್‌ ಅನ್ನು ತೋರಿಸಿ ಅಥವಾ ಮರೆಮಾಡಿ</translation>
 <translation id="5921745308587794300">ವಿಂಡೋ ತಿರುಗಿಸಿ</translation>
-<translation id="5975083100439434680">ಝೂಮ್ ಔಟ್</translation>
 <translation id="6022924867608035986">ಹುಡುಕಾಟ ಬಾಕ್ಸ್ ಪಠ್ಯವನ್ನು ತೆರವುಗೊಳಿಸಿ</translation>
 <translation id="6045998054441862242">ಅಧಿಕ ಕಾಂಟ್ರಾಸ್ಟ್ ಮೋಡ್ ಅನ್ನು ಆನ್‌ ಮಾಡಿ</translation>
 <translation id="6052614013050385269">ಲಿಂಕ್‌ ಅನ್ನು ರೈಟ್ ಕ್ಲಿಕ್ ಮಾಡಿ</translation>
@@ -123,14 +128,15 @@
 <translation id="6185696379715117369">Page up</translation>
 <translation id="6228457605945141550">ಪ್ರಖರತೆ ಕಡಿಮೆ ಮಾಡುವಿಕೆಯನ್ನು ಆನ್‌ ಮಾಡಿ</translation>
 <translation id="6276708887952587684">ಪುಟದ ಮೂಲವನ್ನು ವೀಕ್ಷಿಸಿ</translation>
-<translation id="6296325018964936845">ಪೂರ್ಣಪರದೆ ವರ್ಧಕವನ್ನು ಆನ್ ಅಥವಾ ಆಫ್ ಮಾಡಿ</translation>
 <translation id="6321940490215594447">ಇತಿಹಾಸದ ಪುಟ ತೆರೆಯಿರಿ</translation>
+<translation id="6340769215862220182">ಡಿಸ್‌ಪ್ಲೇ ಅನ್ನು ಝೂಮ್‌ ಇನ್‌ ಮಾಡಿ</translation>
 <translation id="6359811074279051077"><ph name="MODIFIER" /><ph name="SEPARATOR" /><ph name="KEY" /></translation>
 <translation id="6395172954772765143">ಸಾಲಿನ ಕೊನೆಯವರೆಗಿನ ಪಠ್ಯವನ್ನು ಆಯ್ಕೆಮಾಡಿ</translation>
 <translation id="6419237577786823024"><ph name="CTRL1" /><ph name="SEPARATOR1" /><ph name="LEFT" /> ಅಥವಾ <ph name="CTRL2" /><ph name="SEPARATOR2" /><ph name="RIGHT" /></translation>
 <translation id="6425378783626925378">ನಿಮ್ಮ ಶೆಲ್ಫ್‌ನಲ್ಲಿರುವ 1-8 ಐಟಂಗಳನ್ನು ಕ್ಲಿಕ್‌ ಮಾಡಿ</translation>
 <translation id="6435207348963613811">ನಿಮ್ಮ ಶೆಲ್ಫ್‌ನಲ್ಲಿರುವ ಹಿಂದಿನ ಐಟಂ ಅನ್ನು ಹೈಲೈಟ್ ಮಾಡಿ</translation>
 <translation id="6445033640292336367">ಟ್ಯಾಬ್ ಅನ್ನು ಅದರ ಮೂಲ ಸ್ಥಿತಿಗೆ ಹಿಂತಿರುಗಿಸಿ</translation>
+<translation id="6474744297082284761">ಝೂಮ್ ಔಟ್ ಮಾಡಿ (ಡಾಕ್ ಆಗಿರುವಾಗ ಅಥವಾ ಪೂರ್ಣಪರದೆ ವರ್ಧಕಗಳು ಸಕ್ರಿಯಗೊಂಡಿರುವಾಗ)</translation>
 <translation id="649811797655257835">ಫೈಲ್‌ ಆಯ್ಕೆ ಮಾಡಿ, ನಂತರ <ph name="SPACE" /> ಅನ್ನು ಒತ್ತಿರಿ</translation>
 <translation id="6556040137485212400">ದೀರ್ಘಕಾಲದವರೆಗೆ ಬಳಕೆಯಾಗದ ವಿಂಡೋವನ್ನು ತೆರೆಯಿರಿ</translation>
 <translation id="666343722268997814">ಹೈಲೈಟ್ ಮಾಡಿದ ಐಟಂಗಾಗಿ ಬಲ-ಕ್ಲಿಕ್ ಮೆನು ತೆರೆಯಿರಿ</translation>
@@ -160,7 +166,6 @@
 <translation id="7787242579016742662">ಬ್ರೌಸರ್‌ನಲ್ಲಿ ಫೈಲ್ ತೆರೆಯಿರಿ</translation>
 <translation id="7917881398263220094">ನಿಮ್ಮ ಪ್ರಸ್ತುತ ಪುಟದ ಲೋಡ್ ಮಾಡುವಿಕೆಯನ್ನು ನಿಲ್ಲಿಸಿ</translation>
 <translation id="7952165122793773711">1 ರಿಂದ 8 ರವರೆಗಿನ ಟ್ಯಾಬ್‌ಗಳಿಗೆ ಹೋಗಿ</translation>
-<translation id="8025696740288105292"><ph name="CTRL" /><ph name="SEPARATOR1" /><ph name="SHIFT" /><ph name="SEPARATOR2" /><ph name="PLUS" /> ಅಥವಾ <ph name="MINUS" /></translation>
 <translation id="8026334261755873520">ಬ್ರೌಸಿಂಗ್ ಡೇಟಾವನ್ನು ತೆರವುಗೊಳಿಸಿ</translation>
 <translation id="8130528849632411619">ಡಾಕ್ಯುಮೆಂಟ್‌ನ ಪ್ರಾರಂಭಕ್ಕೆ ಹೋಗಿ</translation>
 <translation id="8147954207400281792"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="K" /> ಅಥವಾ <ph name="E" /></translation>
@@ -174,15 +179,12 @@
 <translation id="8537650670971624753">ಹುಡುಕಾಟ ಮೋಡ್‌ನಿಂದ ನಿರ್ಗಮಿಸಿ</translation>
 <translation id="85690795166292698">ಹೊಸ ಟ್ಯಾಬ್‌ನಲ್ಲಿ ಲಿಂಕ್ ತೆರೆಯಿರಿ</translation>
 <translation id="8609384513243082612">ಹೊಸ ಟ್ಯಾಬ್ ತೆರೆಯಿರಿ</translation>
-<translation id="8642453848560580159">ಡಾಕ್ ಮಾಡಿರುವ ವರ್ಧಕವನ್ನು ಆನ್ ಅಥವಾ ಆಫ್ ಮಾಡಿ</translation>
 <translation id="8644639153978066712">ಫೈಲ್‌ಗಳ ಅಪ್ಲಿಕೇಶನ್‌ನಲ್ಲಿ ಮರೆಮಾಡಿದ ಫೈಲ್‌ಗಳನ್ನು ಪ್ರದರ್ಶಿಸಿ</translation>
 <translation id="8717459106217102612">ಹಿಂದಿನ ಪದ ಅಥವಾ ಅಕ್ಷರವನ್ನು ಆಯ್ಕೆ ಮಾಡಿ</translation>
 <translation id="8727232706774971183">ನಿಮ್ಮ ಅಧಿಸೂಚನೆಗಳನ್ನು ನೋಡಿ</translation>
 <translation id="8855885154700222542">ಪೂರ್ಣಪರದೆ ಕೀ</translation>
 <translation id="88986195241502842">Page down</translation>
-<translation id="8903921497873541725">ಝೂಮ್ ಇನ್</translation>
 <translation id="8924883688469390268">ಹಿಂದಿನ ಬಳಕೆದಾರರಿಗೆ ಬದಲಿಸಿ</translation>
-<translation id="8951768610999698672">ಐಟಂಗಳನ್ನು ಪರದೆಯ ಮೇಲೆ ಸಣ್ಣದು ಅಥವಾ ದೊಡ್ಡದು ಮಾಡಿ</translation>
 <translation id="8977648847395357314">ವಿಳಾಸದ ಪಟ್ಟಿಯಲ್ಲಿರುವ ವಿಷಯವನ್ನು ಆಯ್ಕೆ ಮಾಡಿ</translation>
 <translation id="8982190978301344584">ಲಭ್ಯವಿರುವ IME ಗಳ ಪಟ್ಟಿಯನ್ನು ಪ್ರದರ್ಶಿಸುವ ಮೆನುವನ್ನು ತೋರಿಸಿ</translation>
 <translation id="8990356943438003669"><ph name="ALT" /><ph name="SEPARATOR" /> 1 ರಿಂದ 8 ರವರೆಗೆ</translation>

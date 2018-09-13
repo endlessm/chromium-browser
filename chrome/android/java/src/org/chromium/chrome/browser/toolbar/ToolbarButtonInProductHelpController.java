@@ -10,10 +10,13 @@ import android.text.TextUtils;
 import android.view.View;
 
 import org.chromium.base.Callback;
+import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.appmenu.AppMenuHandler;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
+import org.chromium.chrome.browser.ntp.NewTabPage;
+import org.chromium.chrome.browser.preferences.ChromePreferenceManager;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.widget.ViewHighlighter;
@@ -48,21 +51,23 @@ public class ToolbarButtonInProductHelpController {
     private static void maybeShowNTPButtonIPH(ChromeTabbedActivity activity) {
         if (!canShowNTPButtonIPH(activity)) return;
 
-        String variation = ToolbarLayout.getNTPButtonVariation();
-        if (TextUtils.isEmpty(variation)) return;
+        // This method is called after native initialization, at which point the variant should
+        // be pulled from variations associated data and cached.
+        String variant = ChromePreferenceManager.getInstance().getNewTabPageButtonVariant();
+        if (TextUtils.isEmpty(variant)) return;
 
         int iphText = 0;
         int iphTextForAccessibility = 0;
-        switch (variation) {
-            case ToolbarLayout.NTP_BUTTON_HOME_VARIATION:
+        switch (variant) {
+            case ToolbarLayout.NTP_BUTTON_HOME_VARIANT:
                 iphText = R.string.iph_ntp_button_text_home_text;
                 iphTextForAccessibility = R.string.iph_ntp_button_text_home_accessibility_text;
                 break;
-            case ToolbarLayout.NTP_BUTTON_NEWS_FEED_VARIATION:
+            case ToolbarLayout.NTP_BUTTON_NEWS_FEED_VARIANT:
                 iphText = R.string.iph_ntp_button_text_news_feed_text;
                 iphTextForAccessibility = R.string.iph_ntp_button_text_news_feed_accessibility_text;
                 break;
-            case ToolbarLayout.NTP_BUTTON_CHROME_VARIATION:
+            case ToolbarLayout.NTP_BUTTON_CHROME_VARIANT:
                 iphText = R.string.iph_ntp_button_text_chrome_text;
                 iphTextForAccessibility = R.string.iph_ntp_button_text_chrome_accessibility_text;
                 break;
@@ -109,24 +114,36 @@ public class ToolbarButtonInProductHelpController {
         if (activity.isActivityDestroyed()) return;
 
         assert(stringId != 0 && accessibilityStringId != 0);
-        if (!tracker.shouldTriggerHelpUI(featureName)) return;
 
-        ViewRectProvider rectProvider = new ViewRectProvider(anchorView);
+        // Post a request to show the IPH bubble to allow time for a layout pass. Since the bubble
+        // is shown on startup, the anchor view may not have a height initially see
+        // https://crbug.com/871537.
+        ThreadUtils.postOnUiThread(() -> {
+            if (activity.isActivityDestroyed()) return;
 
-        TextBubble textBubble =
-                new TextBubble(activity, anchorView, stringId, accessibilityStringId, rectProvider);
-        textBubble.setDismissOnTouchInteraction(true);
-        textBubble.addOnDismissListener(() -> anchorView.getHandler().postDelayed(() -> {
-            tracker.dismissed(featureName);
-            turnOffHighlightForTextBubble(appMenuHandler, anchorView);
-        }, ViewHighlighter.IPH_MIN_DELAY_BETWEEN_TWO_HIGHLIGHTS));
+            if (TextUtils.equals(featureName, FeatureConstants.NTP_BUTTON_FEATURE)
+                    && !canShowNTPButtonIPH(activity)) {
+                return;
+            }
 
-        turnOnHighlightForTextBubble(appMenuHandler, highlightMenuItemId, anchorView);
+            if (!tracker.shouldTriggerHelpUI(featureName)) return;
+            ViewRectProvider rectProvider = new ViewRectProvider(anchorView);
 
-        int yInsetPx = activity.getResources().getDimensionPixelOffset(
-                R.dimen.text_bubble_menu_anchor_y_inset);
-        rectProvider.setInsetPx(0, 0, 0, yInsetPx);
-        textBubble.show();
+            TextBubble textBubble = new TextBubble(
+                    activity, anchorView, stringId, accessibilityStringId, rectProvider);
+            textBubble.setDismissOnTouchInteraction(true);
+            textBubble.addOnDismissListener(() -> anchorView.getHandler().postDelayed(() -> {
+                tracker.dismissed(featureName);
+                turnOffHighlightForTextBubble(appMenuHandler, anchorView);
+            }, ViewHighlighter.IPH_MIN_DELAY_BETWEEN_TWO_HIGHLIGHTS));
+
+            turnOnHighlightForTextBubble(appMenuHandler, highlightMenuItemId, anchorView);
+
+            int yInsetPx = activity.getResources().getDimensionPixelOffset(
+                    R.dimen.text_bubble_menu_anchor_y_inset);
+            rectProvider.setInsetPx(0, 0, 0, yInsetPx);
+            textBubble.show();
+        });
     }
 
     private static void turnOnHighlightForTextBubble(
@@ -147,8 +164,10 @@ public class ToolbarButtonInProductHelpController {
     }
 
     private static boolean canShowNTPButtonIPH(ChromeTabbedActivity activity) {
+        View homeButton = activity.findViewById(R.id.home_button);
         return FeatureUtilities.isNewTabPageButtonEnabled()
-                && !activity.getCurrentTabModel().isIncognito()
-                && activity.findViewById(R.id.home_button).getVisibility() == View.VISIBLE;
+                && !activity.getCurrentTabModel().isIncognito() && activity.getActivityTab() != null
+                && !NewTabPage.isNTPUrl(activity.getActivityTab().getUrl()) && homeButton != null
+                && homeButton.getVisibility() == View.VISIBLE;
     }
 }

@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check that default _gp value is calculated relative
 # to the GP-relative section with the lowest address.
 
@@ -7,8 +8,6 @@
 # RUN:          .got  : { *(.got) } }" > %t.rel.script
 # RUN: ld.lld %t.o --script %t.rel.script -shared -o %t.so
 # RUN: llvm-readobj -s -t %t.so | FileCheck %s
-
-# REQUIRES: mips
 
   .text
   .global foo
@@ -41,4 +40,4 @@ foo:
 
 # CHECK:      Name: _gp (5)
 # CHECK-NEXT: Value: 0x80E0
-#                    ^-- 0xE0 + 0x7ff0
+#                    ^-- 0xF0 + 0x7ff0

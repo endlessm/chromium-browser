@@ -6,12 +6,11 @@
 
 #include <utility>
 
-#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_context_menu.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_icon_loader.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/app_list/search/search_util.h"
 
 namespace {
@@ -29,12 +28,13 @@ ArcAppResult::ArcAppResult(Profile* profile,
   id += app_id;
   set_id(id);
   icon_loader_.reset(new ArcAppIconLoader(
-      profile, GetPreferredIconDimension(display_type()), this));
+      profile,
+      AppListConfig::instance().GetPreferredIconDimension(display_type()),
+      this));
   icon_loader_->FetchImage(app_id);
 }
 
-ArcAppResult::~ArcAppResult() {
-}
+ArcAppResult::~ArcAppResult() {}
 
 void ArcAppResult::OnAppImageUpdated(const std::string& app_id,
                                      const gfx::ImageSkia& image) {
@@ -42,23 +42,11 @@ void ArcAppResult::OnAppImageUpdated(const std::string& app_id,
 }
 
 void ArcAppResult::ExecuteLaunchCommand(int event_flags) {
-  Open(event_flags);
+  Launch(event_flags, GetContextMenuAppLaunchInteraction());
 }
 
 void ArcAppResult::Open(int event_flags) {
-  // Record the search metric if the result is not a suggested app.
-  if (display_type() != ash::SearchResultDisplayType::kRecommendation)
-    RecordHistogram(APP_SEARCH_RESULT);
-
-  if (!arc::LaunchApp(profile(), app_id(), event_flags,
-                      controller()->GetAppListDisplayId())) {
-    return;
-  }
-
-  // Manually close app_list view because focus is not changed on ARC app start,
-  // and current view remains active. Do not close app list for home launcher.
-  if (!controller()->IsHomeLauncherEnabledInTabletMode())
-    controller()->DismissView();
+  Launch(event_flags, GetAppLaunchInteraction());
 }
 
 void ArcAppResult::GetContextMenuModel(GetMenuModelCallback callback) {
@@ -69,6 +57,30 @@ void ArcAppResult::GetContextMenuModel(GetMenuModelCallback callback) {
 
 AppContextMenu* ArcAppResult::GetAppContextMenu() {
   return context_menu_.get();
+}
+
+void ArcAppResult::Launch(int event_flags,
+                          arc::UserInteractionType interaction) {
+  // Record the search metric if the result is not a suggested app.
+  if (display_type() != ash::SearchResultDisplayType::kRecommendation)
+    RecordHistogram(APP_SEARCH_RESULT);
+
+  arc::LaunchApp(profile(), app_id(), event_flags, interaction,
+                 controller()->GetAppListDisplayId());
+}
+
+arc::UserInteractionType ArcAppResult::GetAppLaunchInteraction() {
+  return display_type() == ash::SearchResultDisplayType::kRecommendation
+             ? arc::UserInteractionType::APP_STARTED_FROM_LAUNCHER_SUGGESTED_APP
+             : arc::UserInteractionType::APP_STARTED_FROM_LAUNCHER_SEARCH;
+}
+
+arc::UserInteractionType ArcAppResult::GetContextMenuAppLaunchInteraction() {
+  return display_type() == ash::SearchResultDisplayType::kRecommendation
+             ? arc::UserInteractionType::
+                   APP_STARTED_FROM_LAUNCHER_SUGGESTED_APP_CONTEXT_MENU
+             : arc::UserInteractionType::
+                   APP_STARTED_FROM_LAUNCHER_SEARCH_CONTEXT_MENU;
 }
 
 }  // namespace app_list

@@ -12,7 +12,6 @@
 
 #include "base/base64.h"
 #include "base/json/json_reader.h"
-#include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -1043,27 +1042,6 @@ NetworkTypePattern NetworkTypePatternFromOncType(const std::string& type) {
   return NetworkTypePattern::Default();
 }
 
-bool IsRecommendedValue(const base::DictionaryValue* onc,
-                        const std::string& property_key) {
-  std::string property_basename, recommended_property_key;
-  size_t pos = property_key.find_last_of('.');
-  if (pos != std::string::npos) {
-    // 'WiFi.AutoConnect' -> 'AutoConnect', 'WiFi.Recommended'
-    property_basename = property_key.substr(pos + 1);
-    recommended_property_key =
-        property_key.substr(0, pos + 1) + ::onc::kRecommended;
-  } else {
-    // 'Name' -> 'Name', 'Recommended'
-    property_basename = property_key;
-    recommended_property_key = ::onc::kRecommended;
-  }
-
-  const base::ListValue* recommended_keys = nullptr;
-  return (onc->GetList(recommended_property_key, &recommended_keys) &&
-          recommended_keys->Find(base::Value(property_basename)) !=
-              recommended_keys->end());
-}
-
 std::unique_ptr<base::DictionaryValue> ConvertOncProxySettingsToProxyConfig(
     const base::DictionaryValue& onc_proxy_settings) {
   std::string type;
@@ -1238,12 +1216,8 @@ void ImportNetworksForUser(const user_manager::User* user,
 
     std::unique_ptr<NetworkUIData> ui_data(
         NetworkUIData::CreateFromONC(::onc::ONC_SOURCE_USER_IMPORT));
-    base::DictionaryValue ui_data_dict;
-    ui_data->FillDictionary(&ui_data_dict);
-    std::string ui_data_json;
-    base::JSONWriter::Write(ui_data_dict, &ui_data_json);
-    shill_dict->SetKey(shill::kUIDataProperty, base::Value(ui_data_json));
-
+    shill_dict->SetKey(shill::kUIDataProperty,
+                       base::Value(ui_data->GetAsJson()));
     shill_dict->SetKey(shill::kProfileProperty, base::Value(profile->path));
 
     std::string type;
@@ -1256,18 +1230,16 @@ void ImportNetworksForUser(const user_manager::User* user,
           NetworkHandler::Get()->network_state_handler()->FirstNetworkByType(
               NetworkTypePattern::Ethernet());
       if (ethernet) {
-        config_handler->SetShillProperties(
-            ethernet->path(), *shill_dict,
-            NetworkConfigurationObserver::SOURCE_USER_ACTION, base::Closure(),
-            network_handler::ErrorCallback());
+        config_handler->SetShillProperties(ethernet->path(), *shill_dict,
+                                           base::Closure(),
+                                           network_handler::ErrorCallback());
       } else {
         ethernet_not_found = true;
       }
 
     } else {
       config_handler->CreateShillConfiguration(
-          *shill_dict, NetworkConfigurationObserver::SOURCE_USER_ACTION,
-          network_handler::ServiceResultCallback(),
+          *shill_dict, network_handler::ServiceResultCallback(),
           network_handler::ErrorCallback());
     }
   }

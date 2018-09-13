@@ -327,8 +327,8 @@ bool StatisticsProviderImpl::WaitForStatisticsLoaded() {
 
   base::TimeDelta dtime = base::Time::Now() - start_time;
   if (statistics_loaded_.IsSignaled()) {
-    LOG(WARNING) << "Statistics loaded after waiting "
-                 << dtime.InMilliseconds() << "ms.";
+    VLOG(1) << "Statistics loaded after waiting " << dtime.InMilliseconds()
+            << "ms.";
     return true;
   }
 
@@ -412,7 +412,7 @@ bool StatisticsProviderImpl::GetMachineStatistic(const std::string& name,
     if (result != nullptr &&
         base::SysInfo::IsRunningOnChromeOS() &&
         (oem_manifest_loaded_ || !HasOemPrefix(name))) {
-      LOG(WARNING) << "Requested statistic not found: " << name;
+      VLOG(1) << "Requested statistic not found: " << name;
     }
     return false;
   }
@@ -434,7 +434,7 @@ bool StatisticsProviderImpl::GetMachineFlag(const std::string& name,
     if (result != nullptr &&
         base::SysInfo::IsRunningOnChromeOS() &&
         (oem_manifest_loaded_ || !HasOemPrefix(name))) {
-      LOG(WARNING) << "Requested machine flag not found: " << name;
+      VLOG(1) << "Requested machine flag not found: " << name;
     }
     return false;
   }
@@ -477,9 +477,11 @@ void StatisticsProviderImpl::StartLoadingMachineStatistics(
   VLOG(1) << "Started loading statistics. Load OEM Manifest: "
           << load_oem_manifest;
 
+  // TaskPriority::USER_BLOCKING because this is on the critical path of
+  // rendering the NTP on startup. https://crbug.com/831835
   base::PostTaskWithTraits(
       FROM_HERE,
-      {base::MayBlock(), base::TaskPriority::BACKGROUND,
+      {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&StatisticsProviderImpl::LoadMachineStatistics,
                      base::Unretained(this), load_oem_manifest));
@@ -524,6 +526,9 @@ void StatisticsProviderImpl::LoadMachineStatistics(bool load_oem_manifest) {
                                             kCrosSystemCommentDelim)) {
       LOG(ERROR) << "Errors parsing output from: " << kCrosSystemTool;
     }
+    // Drop useless "(error)" values so they don't displace valid values
+    // supplied later by other tools: https://crbug.com/844258
+    parser.DeletePairsWithValue(kCrosSystemValueError);
   }
 
   base::FilePath machine_info_path;
@@ -569,11 +574,8 @@ void StatisticsProviderImpl::LoadMachineStatistics(bool load_oem_manifest) {
   // Ensure that the hardware class key is present with the expected
   // key name, and if it couldn't be retrieved, that the value is "unknown".
   std::string hardware_class = machine_info_[kHardwareClassCrosSystemKey];
-  if (hardware_class.empty() || hardware_class == kCrosSystemValueError) {
-    machine_info_[kHardwareClassKey] = kHardwareClassValueUnknown;
-  } else {
-    machine_info_[kHardwareClassKey] = hardware_class;
-  }
+  machine_info_[kHardwareClassKey] =
+      !hardware_class.empty() ? hardware_class : kHardwareClassValueUnknown;
 
   if (base::SysInfo::IsRunningOnChromeOS()) {
     // By default, assume that this is *not* a VM. If crossystem is not present,
@@ -611,7 +613,7 @@ void StatisticsProviderImpl::LoadMachineStatistics(bool load_oem_manifest) {
     region_ =
         command_line->GetSwitchValueASCII(chromeos::switches::kCrosRegion);
     machine_info_[kRegionKey] = region_;
-    LOG(WARNING) << "CrOS region set to '" << region_ << "'";
+    VLOG(1) << "CrOS region set to '" << region_ << "'";
   }
 
   if (regional_data_.get() && !region_.empty() && !GetRegionDictionary())

@@ -9,13 +9,13 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#import "base/mac/bind_objc_block.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#import "ios/testing/wait_util.h"
+#import "base/test/ios/wait_util.h"
 #import "ios/web/net/cookies/wk_cookie_util.h"
 #import "ios/web/public/download/download_task_observer.h"
 #import "ios/web/public/test/fakes/test_web_state.h"
@@ -34,10 +34,10 @@
 #error "This file requires ARC support."
 #endif
 
-using testing::kWaitForDownloadTimeout;
-using testing::kWaitForFileOperationTimeout;
-using testing::WaitUntilConditionOrTimeout;
-using base::BindBlockArc;
+using base::test::ios::kWaitForCookiesTimeout;
+using base::test::ios::kWaitForDownloadTimeout;
+using base::test::ios::kWaitForFileOperationTimeout;
+using base::test::ios::WaitUntilConditionOrTimeout;
 
 namespace web {
 
@@ -168,7 +168,7 @@ class DownloadTaskImplTest : public PlatformTest {
         completionHandler:^{
           cookie_was_set = true;
         }];
-    return WaitUntilConditionOrTimeout(testing::kWaitForCookiesTimeout, ^{
+    return WaitUntilConditionOrTimeout(kWaitForCookiesTimeout, ^{
       return cookie_was_set;
     });
   }
@@ -579,10 +579,11 @@ TEST_F(DownloadTaskImplTest, FileDeletion) {
       std::make_unique<net::URLFetcherFileWriter>(
           base::ThreadTaskRunnerHandle::Get(), temp_file);
   __block bool initialized_file_writer = false;
-  ASSERT_EQ(net::ERR_IO_PENDING, writer->Initialize(BindBlockArc(^(int error) {
-    ASSERT_FALSE(error);
-    initialized_file_writer = true;
-  })));
+  ASSERT_EQ(net::ERR_IO_PENDING,
+            writer->Initialize(base::BindRepeating(^(int error) {
+              ASSERT_FALSE(error);
+              initialized_file_writer = true;
+            })));
   ASSERT_TRUE(WaitUntilConditionOrTimeout(1.0, ^{
     base::RunLoop().RunUntilIdle();
     return initialized_file_writer;

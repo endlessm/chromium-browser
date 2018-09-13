@@ -5,13 +5,14 @@
 #ifndef CHROMEOS_SERVICES_SECURE_CHANNEL_FAKE_CONNECTION_ATTEMPT_H_
 #define CHROMEOS_SERVICES_SECURE_CHANNEL_FAKE_CONNECTION_ATTEMPT_H_
 
-#include <string>
 #include <unordered_map>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/unguessable_token.h"
 #include "chromeos/services/secure_channel/client_connection_parameters.h"
 #include "chromeos/services/secure_channel/connection_attempt.h"
+#include "chromeos/services/secure_channel/connection_attempt_details.h"
 #include "chromeos/services/secure_channel/pending_connection_request.h"
 
 namespace chromeos {
@@ -20,41 +21,68 @@ namespace secure_channel {
 
 class ConnectionAttemptDelegate;
 
-// Fake ConnectionAttempt implementation, whose FailureDetailType is
-// std::string.
-class FakeConnectionAttempt : public ConnectionAttempt<std::string> {
+// Fake ConnectionAttempt implementation.
+template <typename FailureDetailType>
+class FakeConnectionAttempt : public ConnectionAttempt<FailureDetailType> {
  public:
-  FakeConnectionAttempt(ConnectionAttemptDelegate* delegate,
-                        const ConnectionDetails& connection_details);
-  ~FakeConnectionAttempt() override;
+  FakeConnectionAttempt(
+      ConnectionAttemptDelegate* delegate,
+      const ConnectionAttemptDetails& connection_attempt_details,
+      base::OnceClosure destructor_callback = base::OnceClosure())
+      : ConnectionAttempt<FailureDetailType>(delegate,
+                                             connection_attempt_details),
+        destructor_callback_(std::move(destructor_callback)) {}
 
-  using IdToRequestMap =
-      std::unordered_map<base::UnguessableToken,
-                         std::unique_ptr<PendingConnectionRequest<std::string>>,
-                         base::UnguessableTokenHash>;
+  ~FakeConnectionAttempt() override {
+    if (destructor_callback_)
+      std::move(destructor_callback_).Run();
+  }
+
+  using IdToRequestMap = std::unordered_map<
+      base::UnguessableToken,
+      std::unique_ptr<PendingConnectionRequest<FailureDetailType>>,
+      base::UnguessableTokenHash>;
   const IdToRequestMap& id_to_request_map() const { return id_to_request_map_; }
 
   void set_client_data_for_extraction(
-      std::vector<ClientConnectionParameters> client_data_for_extraction) {
+      std::vector<std::unique_ptr<ClientConnectionParameters>>
+          client_data_for_extraction) {
     client_data_for_extraction_ = std::move(client_data_for_extraction);
   }
 
   // Make OnConnectionAttempt{Succeeded|FinishedWithoutConnection}() public for
   // testing.
-  using ConnectionAttempt<std::string>::OnConnectionAttemptSucceeded;
+  using ConnectionAttempt<FailureDetailType>::OnConnectionAttemptSucceeded;
   using ConnectionAttempt<
-      std::string>::OnConnectionAttemptFinishedWithoutConnection;
+      FailureDetailType>::OnConnectionAttemptFinishedWithoutConnection;
 
  private:
-  // ConnectionAttempt<std::string>:
+  // ConnectionAttempt<FailureDetailType>:
   void ProcessAddingNewConnectionRequest(
-      std::unique_ptr<PendingConnectionRequest<std::string>> request) override;
-  std::vector<ClientConnectionParameters> ExtractClientConnectionParameters()
-      override;
+      std::unique_ptr<PendingConnectionRequest<FailureDetailType>> request)
+      override {
+    DCHECK(request);
+    DCHECK(!base::ContainsKey(id_to_request_map_, request->GetRequestId()));
+
+    id_to_request_map_[request->GetRequestId()] = std::move(request);
+  }
+
+  // PendingConnectionRequestDelegate:
+  void OnRequestFinishedWithoutConnection(
+      const base::UnguessableToken& request_id,
+      PendingConnectionRequestDelegate::FailedConnectionReason reason)
+      override {}
+
+  std::vector<std::unique_ptr<ClientConnectionParameters>>
+  ExtractClientConnectionParameters() override {
+    return std::move(client_data_for_extraction_);
+  }
 
   IdToRequestMap id_to_request_map_;
+  base::OnceClosure destructor_callback_;
 
-  std::vector<ClientConnectionParameters> client_data_for_extraction_;
+  std::vector<std::unique_ptr<ClientConnectionParameters>>
+      client_data_for_extraction_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeConnectionAttempt);
 };

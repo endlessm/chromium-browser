@@ -94,9 +94,11 @@ scoped_refptr<RemoteDevice> GattClientManagerImpl::GetDeviceSync(
   return new_device;
 }
 
-size_t GattClientManagerImpl::GetNumConnected() const {
-  DCHECK(io_task_runner_->BelongsToCurrentThread());
-  return connected_devices_.size();
+void GattClientManagerImpl::GetNumConnected(
+    base::OnceCallback<void(size_t)> cb) const {
+  MAKE_SURE_IO_THREAD(GetNumConnected, BindToCurrentSequence(std::move(cb)));
+  DCHECK(cb);
+  std::move(cb).Run(connected_devices_.size());
 }
 
 void GattClientManagerImpl::NotifyConnect(
@@ -115,7 +117,11 @@ void GattClientManagerImpl::OnConnectChanged(
     bool connected) {
   MAKE_SURE_IO_THREAD(OnConnectChanged, addr, status, connected);
   auto it = addr_to_device_.find(addr);
-  CHECK_DEVICE_EXISTS_IT(it);
+
+  // Silently ignore devices we aren't keeping track of.
+  if (it == addr_to_device_.end()) {
+    return;
+  }
 
   it->second->SetConnected(connected);
   if (connected) {
@@ -159,15 +165,7 @@ void GattClientManagerImpl::OnCharacteristicReadResponse(
                       value);
   auto it = addr_to_device_.find(addr);
   CHECK_DEVICE_EXISTS_IT(it);
-  auto characteristic = it->second->CharacteristicFromHandle(handle);
-  if (!characteristic) {
-    LOG(ERROR) << "No such characteristic";
-    return;
-  }
-
-  auto* char_impl =
-      static_cast<RemoteCharacteristicImpl*>(characteristic.get());
-  char_impl->OnReadComplete(status, value);
+  it->second->OnCharacteristicRead(status, handle, value);
 }
 
 void GattClientManagerImpl::OnCharacteristicWriteResponse(
@@ -177,15 +175,7 @@ void GattClientManagerImpl::OnCharacteristicWriteResponse(
   MAKE_SURE_IO_THREAD(OnCharacteristicWriteResponse, addr, status, handle);
   auto it = addr_to_device_.find(addr);
   CHECK_DEVICE_EXISTS_IT(it);
-  auto characteristic = it->second->CharacteristicFromHandle(handle);
-  if (!characteristic) {
-    LOG(ERROR) << "No such characteristic";
-    return;
-  }
-
-  auto* char_impl =
-      static_cast<RemoteCharacteristicImpl*>(characteristic.get());
-  char_impl->OnWriteComplete(status);
+  it->second->OnCharacteristicWrite(status, handle);
 }
 
 void GattClientManagerImpl::OnDescriptorReadResponse(
@@ -196,14 +186,7 @@ void GattClientManagerImpl::OnDescriptorReadResponse(
   MAKE_SURE_IO_THREAD(OnDescriptorReadResponse, addr, status, handle, value);
   auto it = addr_to_device_.find(addr);
   CHECK_DEVICE_EXISTS_IT(it);
-  auto descriptor = it->second->DescriptorFromHandle(handle);
-  if (!descriptor) {
-    LOG(ERROR) << "No such descriptor";
-    return;
-  }
-
-  auto* desc_impl = static_cast<RemoteDescriptorImpl*>(descriptor.get());
-  desc_impl->OnReadComplete(status, value);
+  it->second->OnDescriptorRead(status, handle, value);
 }
 
 void GattClientManagerImpl::OnDescriptorWriteResponse(
@@ -213,14 +196,7 @@ void GattClientManagerImpl::OnDescriptorWriteResponse(
   MAKE_SURE_IO_THREAD(OnDescriptorWriteResponse, addr, status, handle);
   auto it = addr_to_device_.find(addr);
   CHECK_DEVICE_EXISTS_IT(it);
-  auto descriptor = it->second->DescriptorFromHandle(handle);
-  if (!descriptor) {
-    LOG(ERROR) << "No such descriptor";
-    return;
-  }
-
-  auto* desc_impl = static_cast<RemoteDescriptorImpl*>(descriptor.get());
-  desc_impl->OnWriteComplete(status);
+  it->second->OnDescriptorWrite(status, handle);
 }
 
 void GattClientManagerImpl::OnReadRemoteRssi(

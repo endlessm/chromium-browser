@@ -22,7 +22,7 @@
 #import "ios/chrome/browser/ui/reversed_animation.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/common/material_timing.h"
@@ -48,6 +48,11 @@ const CGFloat kClearButtonRightMarginIphone = 7;
 
 const CGFloat kVoiceSearchButtonWidth = 36.0;
 
+// When rendering the same string in a UITextField and a UILabel with the same
+// frame and the same font, the text is slightly offset.
+const CGFloat kUILabelUITextfieldBaselineDeltaInPoints = 1.0;
+const CGFloat kUILabelUITextfieldBaselineDeltaIpadIOS10InPixels = 1.0;
+
 // The default omnibox text color (used while editing).
 UIColor* TextColor() {
   return [UIColor colorWithWhite:(51 / 255.0) alpha:1.0];
@@ -58,6 +63,12 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
 }  // namespace
 
 @interface OmniboxTextFieldIOS ()
+
+// Font to use in regular x regular size class. If not set, the regular font is
+// used instead.
+@property(nonatomic, strong) UIFont* largerFont;
+// Font to use in Compact x Any and Any x Compact size class.
+@property(nonatomic, strong) UIFont* normalFont;
 
 // Gets the bounds of the rect covering the URL.
 - (CGRect)preEditLabelRectForBounds:(CGRect)bounds;
@@ -77,13 +88,14 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
 // value as -|displayedText| but prefer to use this to avoid unnecessary
 // conversion from NSString to base::string16 if possible.
 - (NSString*)nsDisplayedText;
+// Font that should be used in current size class.
+- (UIFont*)currentFont;
 
 @end
 
 @implementation OmniboxTextFieldIOS {
   UILabel* _selection;
   UILabel* _preEditStaticLabel;
-  UIFont* _font;
   UIColor* _displayedTextColor;
   UIColor* _displayedTintColor;
 }
@@ -93,6 +105,8 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
 @synthesize selectedTextBackgroundColor = _selectedTextBackgroundColor;
 @synthesize placeholderTextColor = _placeholderTextColor;
 @synthesize incognito = _incognito;
+@synthesize largerFont = _largerFont;
+@synthesize normalFont = _normalFont;
 @synthesize suggestionCommandsEndpoint = _suggestionCommandsEndpoint;
 
 #pragma mark - Public methods
@@ -106,11 +120,24 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
 
 - (instancetype)initWithFrame:(CGRect)frame
                          font:(UIFont*)font
+                   largerFont:(UIFont*)largerFont
+                    textColor:(UIColor*)textColor
+                    tintColor:(UIColor*)tintColor {
+  self = [self initWithFrame:frame
+                        font:font
+                   textColor:textColor
+                   tintColor:tintColor];
+  _largerFont = largerFont;
+  return self;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame
+                         font:(UIFont*)font
                     textColor:(UIColor*)textColor
                     tintColor:(UIColor*)tintColor {
   self = [super initWithFrame:frame];
   if (self) {
-    _font = font;
+    _normalFont = font;
     _displayedTextColor = textColor;
     if (tintColor) {
       [self setTintColor:tintColor];
@@ -118,7 +145,6 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
     } else {
       _displayedTintColor = self.tintColor;
     }
-    [self setFont:_font];
     [self setTextColor:_displayedTextColor];
     [self setAutocorrectionType:UITextAutocorrectionTypeNo];
     [self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
@@ -130,8 +156,7 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
     [self setKeyboardType:(UIKeyboardType)UIKeyboardTypeWebSearch];
 
     if (IsRefreshLocationBarEnabled()) {
-      [self setClearButtonMode:UITextFieldViewModeWhileEditing];
-      [self setRightViewMode:UITextFieldViewModeNever];
+      // The right view mode is managed by the view controller.
     } else {
       [self setClearButtonMode:UITextFieldViewModeNever];
       [self setRightViewMode:UITextFieldViewModeAlways];
@@ -305,8 +330,8 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
                 completionAnimator:(UIViewPropertyAnimator*)completionAnimator {
   DCHECK(!IsRefreshLocationBarEnabled());
 
-  // Hide the rightView button so its not visibile on its initial layout
-  // while the expan animation is happening.
+  // Hide the rightView button so it's not visible on its initial layout
+  // while the expand animation is happening.
   self.clearButtonView.hidden = YES;
   self.clearButtonView.alpha = 0;
   self.clearButtonView.frame =
@@ -335,6 +360,27 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   }];
 }
 
+#pragma mark - UI Refresh animation public helpers
+
+- (CGFloat)offsetForString:(NSString*)string {
+  // Sometimes |string| is not contained in self.text, for example for
+  // https://en.m.wikipedia.org/foo the |string| might be "en.wikipedia.org" if
+  // the scheme and the "m." trivial subdomain are stripped. In this case,
+  // default to a reasonable prefix string to give a plausible offset.
+  NSString* prefixString = @"https://";
+
+  if ([self.text containsString:string]) {
+    NSRange range = [self.text rangeOfString:string];
+    NSRange prefixRange = NSMakeRange(0, range.location);
+    prefixString = [self.text substringWithRange:prefixRange];
+  }
+
+  return [prefixString
+             sizeWithAttributes:@{NSFontAttributeName : self.currentFont}]
+             .width +
+         self.preEditStaticLabel.frame.origin.x;
+}
+
 #pragma mark pre-edit
 
 // Creates a UILabel based on the current dimension of the text field and
@@ -355,7 +401,7 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   _preEditStaticLabel = [[UILabel alloc] initWithFrame:rect];
   _preEditStaticLabel.backgroundColor = [UIColor clearColor];
   _preEditStaticLabel.opaque = YES;
-  _preEditStaticLabel.font = _font;
+  _preEditStaticLabel.font = self.currentFont;
   _preEditStaticLabel.textColor = _displayedTextColor;
   _preEditStaticLabel.lineBreakMode = NSLineBreakByTruncatingHead;
 
@@ -415,6 +461,14 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   [super setDelegate:delegate];
 }
 
+- (UIFont*)currentFont {
+  if (!self.largerFont) {
+    return self.normalFont;
+  }
+
+  return IsCompactWidth() ? self.normalFont : self.largerFont;
+}
+
 #pragma mark - Private methods
 
 #pragma mark - UITextField
@@ -425,7 +479,9 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   NSRange entireString = NSMakeRange(0, [mutableText length]);
 
   // Set the font.
-  [mutableText addAttribute:NSFontAttributeName value:_font range:entireString];
+  [mutableText addAttribute:NSFontAttributeName
+                      value:self.currentFont
+                      range:entireString];
 
   // When editing, use the default text color for all text.
   if (self.editing) {
@@ -489,37 +545,9 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
 }
 
 - (CGRect)editingRectForBounds:(CGRect)bounds {
-  CGRect newBounds = [super editingRectForBounds:bounds];
-
-  if (!IsRefreshLocationBarEnabled()) {
-    // -editingRectForBounds doesn't account for rightViews that aren't flush
-    // with the right edge, it just looks at the rightView's width.  Account for
-    // the offset here.
-    CGFloat rightViewMaxX = CGRectGetMaxX([self rightViewRectForBounds:bounds]);
-    if (rightViewMaxX)
-      newBounds.size.width -= bounds.size.width - rightViewMaxX;
-
-    LayoutRect editingRectLayout =
-        LayoutRectForRectInBoundingRect(newBounds, bounds);
-    editingRectLayout.size.width -= kEditingRectWidthInset;
-    if (IsIPadIdiom()) {
-      if (!IsCompactTablet() && !self.rightView) {
-        // Normally the clear button shrinks the edit box, but if the rightView
-        // isn't set, shrink behind the mic icons.
-        editingRectLayout.size.width -= kVoiceSearchButtonWidth;
-      }
-    }
-    // Don't let the edit rect extend over the clear button.  The right view
-    // is hidden during animations, so fake its width here.
-    if (self.rightViewMode == UITextFieldViewModeNever)
-      editingRectLayout.size.width -= self.rightView.bounds.size.width;
-
-    newBounds = LayoutRectGetRect(editingRectLayout);
-  }
-
-  // Position the selection view appropriately.
-  [_selection setFrame:newBounds];
-
+  CGRect superBounds = [super editingRectForBounds:bounds];
+  CGRect newBounds = [self adjustedEditingRectForBounds:superBounds];
+  [self layoutSelectionViewWithNewEditingRectBounds:newBounds];
   return newBounds;
 }
 
@@ -549,7 +577,7 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   }
 
   // iOS9 added updated RTL support, but only half implemented it for
-  // UITextField. leftView and rightView were not renamed, but are are correctly
+  // UITextField. leftView and rightView were not renamed, but are correctly
   // swapped and treated as leadingView / trailingView.  However,
   // -leftViewRectForBounds and -rightViewRectForBounds are *not* treated as
   // leading and trailing.  Hence the swapping below.
@@ -581,6 +609,13 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   } else if (!_selection) {
     [self showTextAndCursor];
   }
+
+  if (_selection) {
+    // Trigger a layout of _selection label.
+    CGRect superBounds = [super editingRectForBounds:self.bounds];
+    CGRect newBounds = [self adjustedEditingRectForBounds:superBounds];
+    [self layoutSelectionViewWithNewEditingRectBounds:newBounds];
+  }
 }
 
 - (UIView*)hitTest:(CGPoint)point withEvent:(UIEvent*)event {
@@ -589,6 +624,23 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   if (point.y < 0)
     point.y = 0;
   return [super hitTest:point withEvent:event];
+}
+
+#pragma mark - UITraitCollection
+
+- (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
+  [super traitCollectionDidChange:previousTraitCollection];
+
+  // Reset the fonts to the appropriate ones in this size class.
+  [self setFont:self.currentFont];
+  // Reset the attributed text to apply the new font.
+  [self setAttributedText:self.attributedText];
+  if (_selection) {
+    _selection.font = self.currentFont;
+  }
+  if (_preEditStaticLabel) {
+    _preEditStaticLabel.font = self.currentFont;
+  }
 }
 
 #pragma mark - UIResponder
@@ -637,26 +689,42 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
 }
 
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
-  // Disable the "Define" menu item.  iOS7 implements this with a private
-  // selector.  Avoid using private APIs by instead doing a string comparison.
-  if ([NSStringFromSelector(action) hasSuffix:@"define:"]) {
-    return NO;
+  // If there is selected text, show copy and cut.
+  if ([self textInRange:self.selectedTextRange].length > 0 &&
+      (action == @selector(cut:) || action == @selector(copy:))) {
+    return YES;
   }
 
-  // Disable the RTL arrow menu item. The omnibox sets alignment based on the
-  // text in the field, and should not be overridden.
-  if ([NSStringFromSelector(action) hasPrefix:@"makeTextWritingDirection"]) {
-    return NO;
+  // If there is no selected text, show select and selectAll.
+  if ([self textInRange:self.selectedTextRange].length == 0 &&
+      (action == @selector(select:) || action == @selector(selectAll:))) {
+    return YES;
   }
 
-  if ([self isPreEditing]) {
-    // Allow cut/copy/paste in preedit.
-    if ((action == @selector(copy:)) || (action == @selector(cut:))) {
-      return YES;
-    }
+  // If there is pasteboard content, show paste.
+  if (UIPasteboard.generalPasteboard.string.length > 0 && action == @selector
+                                                              (paste:)) {
+    return YES;
   }
 
-  return [super canPerformAction:action withSender:sender];
+  // Allow key commands to be recognized.
+  if (action == @selector(keyCommandUp) ||
+      action == @selector(keyCommandDown) ||
+      action == @selector(keyCommandLeft) ||
+      action == @selector(keyCommandRight)) {
+    return YES;
+  }
+
+  // Note that this NO does not keep other elements in the responder chain from
+  // adding actions they handle to the menu.
+  // No special handling is necessary for pre-edit and autocomplete states.
+  // In pre-edit, the text in the textfield is selected even though it is not
+  // shown. so the behavior is correct. As an aside, the only way to access the
+  // editing menu without exiting the pre-edit state is via accessibility
+  // features. For inline autocomplete, any action on the textfield first
+  // accepts the autocompletion and unselects the text. It is therefore not
+  // possible to open the editing menu in this state.
+  return NO;
 }
 
 #pragma mark Copy/Paste
@@ -835,7 +903,7 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   // If the pre-edit text is wider than the omnibox, right-align the text so it
   // ends at the same x coord as the blue selection box.
   CGSize textSize =
-      [_preEditStaticLabel.text cr_pixelAlignedSizeWithFont:_font];
+      [_preEditStaticLabel.text cr_pixelAlignedSizeWithFont:self.currentFont];
   // Note, this does not need to support RTL, as URLs are always LTR.
   return textSize.width < _preEditStaticLabel.frame.size.width
              ? NSTextAlignmentLeft
@@ -855,7 +923,7 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
     return;
 
   _selection = [[UILabel alloc] initWithFrame:CGRectZero];
-  [_selection setFont:_font];
+  [_selection setFont:self.currentFont];
   [_selection setTextColor:_displayedTextColor];
   [_selection setOpaque:NO];
   [_selection setBackgroundColor:[UIColor clearColor]];
@@ -920,16 +988,22 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   // are used (e.g. 𝗲𝗺𝗽𝗵𝗮𝘀𝗶𝘀).  Setting the NSFontAttributeName in the
   // attributed string to -systemFontOfSize fixes part of the problem, but the
   // baseline changes so text is out of alignment.
-  [self setFont:_font];
+  [self setFont:self.currentFont];
   [self updateTextDirection];
 }
 
 - (UIColor*)selectedTextBackgroundColor {
-  return _selectedTextBackgroundColor ? _selectedTextBackgroundColor
-                                      : [UIColor colorWithRed:204.0 / 255
-                                                        green:221.0 / 255
-                                                         blue:237.0 / 255
-                                                        alpha:1.0];
+  if (IsUIRefreshPhase1Enabled()) {
+    return [_displayedTintColor colorWithAlphaComponent:0.2];
+  } else {
+    if (!_selectedTextBackgroundColor) {
+      _selectedTextBackgroundColor = [UIColor colorWithRed:204.0 / 255
+                                                     green:221.0 / 255
+                                                      blue:237.0 / 255
+                                                     alpha:1.0];
+    }
+    return _selectedTextBackgroundColor;
+  }
 }
 
 - (BOOL)isColorHidden:(UIColor*)color {
@@ -1021,6 +1095,60 @@ NSString* const kOmniboxFadeAnimationKey = @"OmniboxFadeAnimation";
   } else {
     return -kToolbarButtonAnimationOffset;
   }
+}
+
+// Calculates editing rect from |bounds| rect by adjusting for in-bounds
+// decorations such as left/right view.
+- (CGRect)adjustedEditingRectForBounds:(CGRect)bounds {
+  CGRect newBounds = bounds;
+
+  if (!IsRefreshLocationBarEnabled()) {
+    // -editingRectForBounds doesn't account for rightViews that aren't flush
+    // with the right edge, it just looks at the rightView's width.  Account for
+    // the offset here.
+    CGFloat rightViewMaxX = CGRectGetMaxX([self rightViewRectForBounds:bounds]);
+    if (rightViewMaxX)
+      newBounds.size.width -= bounds.size.width - rightViewMaxX;
+
+    LayoutRect editingRectLayout =
+        LayoutRectForRectInBoundingRect(newBounds, bounds);
+    editingRectLayout.size.width -= kEditingRectWidthInset;
+    if (IsIPadIdiom()) {
+      if (!IsCompactTablet() && !self.rightView) {
+        // Normally the clear button shrinks the edit box, but if the rightView
+        // isn't set, shrink behind the mic icons.
+        editingRectLayout.size.width -= kVoiceSearchButtonWidth;
+      }
+    }
+    // Don't let the edit rect extend over the clear button.  The right view
+    // is hidden during animations, so fake its width here.
+    if (self.rightViewMode == UITextFieldViewModeNever)
+      editingRectLayout.size.width -= self.rightView.bounds.size.width;
+
+    newBounds = LayoutRectGetRect(editingRectLayout);
+  }
+
+  return newBounds;
+}
+
+// Aligns the selection UILabel to match the editing rect bounds. Takes iOS
+// version-specific text rendering differences into account.
+- (void)layoutSelectionViewWithNewEditingRectBounds:(CGRect)newBounds {
+  // The goal is to visually align the _selection label and the |self| textfield
+  // to avoid text jumping when inline autocomplete is shown or hidden.
+  CGFloat baselineDifference = kUILabelUITextfieldBaselineDeltaInPoints;
+  if (IsIPadIdiom() && !base::ios::IsRunningOnIOS11OrLater()) {
+    // On iOS 10, there is a difference between iPad and iPhone rendering.
+    baselineDifference = kUILabelUITextfieldBaselineDeltaIpadIOS10InPixels /
+                         UIScreen.mainScreen.scale;
+  }
+
+  newBounds.origin.y -= baselineDifference;
+
+  // Position the selection view appropriately.
+  [_selection setFrame:newBounds];
+
+  newBounds.origin.y += baselineDifference;
 }
 
 @end

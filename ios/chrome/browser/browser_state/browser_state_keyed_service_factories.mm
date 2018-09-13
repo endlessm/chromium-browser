@@ -12,7 +12,6 @@
 #include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "ios/chrome/browser/bookmarks/startup_task_runner_service_factory.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_remover_factory.h"
-#include "ios/chrome/browser/consent_auditor/consent_auditor_factory.h"
 #include "ios/chrome/browser/content_settings/cookie_settings_factory.h"
 #include "ios/chrome/browser/desktop_promotion/desktop_promotion_sync_service_factory.h"
 #include "ios/chrome/browser/dom_distiller/dom_distiller_service_factory.h"
@@ -29,7 +28,7 @@
 #include "ios/chrome/browser/history/top_sites_factory.h"
 #include "ios/chrome/browser/history/web_history_service_factory.h"
 #include "ios/chrome/browser/invalidation/ios_chrome_profile_invalidation_provider_factory.h"
-#include "ios/chrome/browser/language/language_model_factory.h"
+#include "ios/chrome/browser/language/language_model_manager_factory.h"
 #include "ios/chrome/browser/language/url_language_histogram_factory.h"
 #include "ios/chrome/browser/ntp_snippets/ios_chrome_content_suggestions_service_factory.h"
 #include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
@@ -43,14 +42,16 @@
 #include "ios/chrome/browser/signin/account_tracker_service_factory.h"
 #include "ios/chrome/browser/signin/authentication_service_factory.h"
 #include "ios/chrome/browser/signin/gaia_cookie_manager_service_factory.h"
-#include "ios/chrome/browser/signin/oauth2_token_service_factory.h"
+#include "ios/chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "ios/chrome/browser/signin/signin_client_factory.h"
 #include "ios/chrome/browser/signin/signin_error_controller_factory.h"
 #include "ios/chrome/browser/signin/signin_manager_factory.h"
 #import "ios/chrome/browser/snapshots/snapshot_cache_factory.h"
 #include "ios/chrome/browser/suggestions/suggestions_service_factory.h"
-#include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/consent_auditor_factory.h"
 #include "ios/chrome/browser/sync/ios_user_event_service_factory.h"
+#include "ios/chrome/browser/sync/model_type_store_service_factory.h"
+#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
 #include "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #include "ios/chrome/browser/translate/translate_accept_languages_factory.h"
 #include "ios/chrome/browser/translate/translate_ranker_factory.h"
@@ -58,6 +59,7 @@
 #include "ios/chrome/browser/ui/browser_list/browser_list_session_service_factory.h"
 #include "ios/chrome/browser/ui/fullscreen/fullscreen_controller_factory.h"
 #import "ios/chrome/browser/ui/overlays/overlay_service_factory.h"
+#import "ios/chrome/browser/ui/voice/text_to_speech_playback_controller_factory.h"
 #include "ios/chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "ios/chrome/browser/web_data_service_factory.h"
 
@@ -114,11 +116,12 @@ void EnsureBrowserStateKeyedServiceFactoriesBuilt() {
   IOSChromeContentSuggestionsServiceFactory::GetInstance();
   IOSChromePasswordStoreFactory::GetInstance();
   IOSChromeProfileInvalidationProviderFactory::GetInstance();
-  IOSChromeProfileSyncServiceFactory::GetInstance();
+  ModelTypeStoreServiceFactory::GetInstance();
+  ProfileSyncServiceFactory::GetInstance();
   IOSUserEventServiceFactory::GetInstance();
   GoogleLogoServiceFactory::GetInstance();
-  LanguageModelFactory::GetInstance();
-  OAuth2TokenServiceFactory::GetInstance();
+  LanguageModelManagerFactory::GetInstance();
+  ProfileOAuth2TokenServiceFactory::GetInstance();
   ReadingListModelFactory::GetInstance();
   SigninClientFactory::GetInstance();
   suggestions::SuggestionsServiceFactory::GetInstance();
@@ -130,4 +133,5 @@ void EnsureBrowserStateKeyedServiceFactoriesBuilt() {
   BrowserDownloadServiceFactory::GetInstance();
   FullscreenControllerFactory::GetInstance();
   OverlayServiceFactory::GetInstance();
+  TextToSpeechPlaybackControllerFactory::GetInstance();
 }

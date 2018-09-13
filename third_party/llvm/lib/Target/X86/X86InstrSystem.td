@@ -22,7 +22,7 @@ let Defs = [RAX, RCX, RDX] in
 
 // CPU flow control instructions
 
-let mayLoad = 1, mayStore = 0, hasSideEffects = 1 in {
+let mayLoad = 1, mayStore = 0, hasSideEffects = 1, isTrap = 1 in {
   def TRAP    : I<0x0B, RawFrm, (outs), (ins), "ud2", [(trap)]>, TB;
   def UD2B    : I<0xB9, RawFrm, (outs), (ins), "ud2b", []>, TB;
 }
@@ -194,47 +194,47 @@ def SWAPGS : I<0x01, MRM_F8, (outs), (ins), "swapgs", []>, TB;
 let mayLoad = 1 in
 def LAR16rm : I<0x02, MRMSrcMem, (outs GR16:$dst), (ins i16mem:$src),
                 "lar{w}\t{$src, $dst|$dst, $src}", []>, TB,
-                OpSize16;
+                OpSize16, NotMemoryFoldable;
 def LAR16rr : I<0x02, MRMSrcReg, (outs GR16:$dst), (ins GR16:$src),
                 "lar{w}\t{$src, $dst|$dst, $src}", []>, TB,
-                OpSize16;
+                OpSize16, NotMemoryFoldable;
 
 // i16mem operand in LAR32rm and GR32 operand in LAR32rr is not a typo.
 let mayLoad = 1 in
 def LAR32rm : I<0x02, MRMSrcMem, (outs GR32:$dst), (ins i16mem:$src),
                 "lar{l}\t{$src, $dst|$dst, $src}", []>, TB,
-                OpSize32;
+                OpSize32, NotMemoryFoldable;
 def LAR32rr : I<0x02, MRMSrcReg, (outs GR32:$dst), (ins GR32:$src),
                 "lar{l}\t{$src, $dst|$dst, $src}", []>, TB,
-                OpSize32;
+                OpSize32, NotMemoryFoldable;
 // i16mem operand in LAR64rm and GR32 operand in LAR64rr is not a typo.
 let mayLoad = 1 in
 def LAR64rm : RI<0x02, MRMSrcMem, (outs GR64:$dst), (ins i16mem:$src),
-                 "lar{q}\t{$src, $dst|$dst, $src}", []>, TB;
+                 "lar{q}\t{$src, $dst|$dst, $src}", []>, TB, NotMemoryFoldable;
 def LAR64rr : RI<0x02, MRMSrcReg, (outs GR64:$dst), (ins GR32:$src),
-                 "lar{q}\t{$src, $dst|$dst, $src}", []>, TB;
+                 "lar{q}\t{$src, $dst|$dst, $src}", []>, TB, NotMemoryFoldable;
 
 // i16mem operand in LSL32rm and GR32 operand in LSL32rr is not a typo.
 let mayLoad = 1 in
 def LSL16rm : I<0x03, MRMSrcMem, (outs GR16:$dst), (ins i16mem:$src),
                 "lsl{w}\t{$src, $dst|$dst, $src}", []>, TB,
-                OpSize16;
+                OpSize16, NotMemoryFoldable;
 def LSL16rr : I<0x03, MRMSrcReg, (outs GR16:$dst), (ins GR16:$src),
                 "lsl{w}\t{$src, $dst|$dst, $src}", []>, TB,
-                OpSize16;
+                OpSize16, NotMemoryFoldable;
 // i16mem operand in LSL64rm and GR32 operand in LSL64rr is not a typo.
 let mayLoad = 1 in
 def LSL32rm : I<0x03, MRMSrcMem, (outs GR32:$dst), (ins i16mem:$src),
                 "lsl{l}\t{$src, $dst|$dst, $src}", []>, TB,
-                OpSize32;
+                OpSize32, NotMemoryFoldable;
 def LSL32rr : I<0x03, MRMSrcReg, (outs GR32:$dst), (ins GR32:$src),
                 "lsl{l}\t{$src, $dst|$dst, $src}", []>, TB,
-                OpSize32;
+                OpSize32, NotMemoryFoldable;
 let mayLoad = 1 in
 def LSL64rm : RI<0x03, MRMSrcMem, (outs GR64:$dst), (ins i16mem:$src),
-                 "lsl{q}\t{$src, $dst|$dst, $src}", []>, TB;
+                 "lsl{q}\t{$src, $dst|$dst, $src}", []>, TB, NotMemoryFoldable;
 def LSL64rr : RI<0x03, MRMSrcReg, (outs GR64:$dst), (ins GR32:$src),
-                 "lsl{q}\t{$src, $dst|$dst, $src}", []>, TB;
+                 "lsl{q}\t{$src, $dst|$dst, $src}", []>, TB, NotMemoryFoldable;
 
 def INVLPG : I<0x01, MRM7m, (outs), (ins i8mem:$addr), "invlpg\t$addr", []>, TB;
 
@@ -247,9 +247,9 @@ def STR64r : RI<0x00, MRM1r, (outs GR64:$dst), (ins),
 let mayStore = 1 in
 def STRm   : I<0x00, MRM1m, (outs), (ins i16mem:$dst), "str{w}\t$dst", []>, TB;
 
-def LTRr : I<0x00, MRM3r, (outs), (ins GR16:$src), "ltr{w}\t$src", []>, TB;
+def LTRr : I<0x00, MRM3r, (outs), (ins GR16:$src), "ltr{w}\t$src", []>, TB, NotMemoryFoldable;
 let mayLoad = 1 in
-def LTRm : I<0x00, MRM3m, (outs), (ins i16mem:$src), "ltr{w}\t$src", []>, TB;
+def LTRm : I<0x00, MRM3m, (outs), (ins i16mem:$src), "ltr{w}\t$src", []>, TB, NotMemoryFoldable;
 
 def PUSHCS16 : I<0x0E, RawFrm, (outs), (ins), "push{w}\t{%cs|cs}", []>,
                  OpSize16, Requires<[Not64BitMode]>;
@@ -346,11 +346,11 @@ def LGS32rm : I<0xb5, MRMSrcMem, (outs GR32:$dst), (ins opaquemem:$src),
 def LGS64rm : RI<0xb5, MRMSrcMem, (outs GR64:$dst), (ins opaquemem:$src),
                  "lgs{q}\t{$src, $dst|$dst, $src}", []>, TB;
 
-def VERRr : I<0x00, MRM4r, (outs), (ins GR16:$seg), "verr\t$seg", []>, TB;
-def VERWr : I<0x00, MRM5r, (outs), (ins GR16:$seg), "verw\t$seg", []>, TB;
+def VERRr : I<0x00, MRM4r, (outs), (ins GR16:$seg), "verr\t$seg", []>, TB, NotMemoryFoldable;
+def VERWr : I<0x00, MRM5r, (outs), (ins GR16:$seg), "verw\t$seg", []>, TB, NotMemoryFoldable;
 let mayLoad = 1 in {
-def VERRm : I<0x00, MRM4m, (outs), (ins i16mem:$seg), "verr\t$seg", []>, TB;
-def VERWm : I<0x00, MRM5m, (outs), (ins i16mem:$seg), "verw\t$seg", []>, TB;
+def VERRm : I<0x00, MRM4m, (outs), (ins i16mem:$seg), "verr\t$seg", []>, TB, NotMemoryFoldable;
+def VERWm : I<0x00, MRM5m, (outs), (ins i16mem:$seg), "verw\t$seg", []>, TB, NotMemoryFoldable;
 }
 } // SchedRW
 
@@ -396,10 +396,10 @@ def LIDT32m : I<0x01, MRM3m, (outs), (ins opaquemem:$src),
 def LIDT64m : I<0x01, MRM3m, (outs), (ins opaquemem:$src),
                 "lidt{q}\t$src", []>, TB, Requires<[In64BitMode]>;
 def LLDT16r : I<0x00, MRM2r, (outs), (ins GR16:$src),
-                "lldt{w}\t$src", []>, TB;
+                "lldt{w}\t$src", []>, TB, NotMemoryFoldable;
 let mayLoad = 1 in
 def LLDT16m : I<0x00, MRM2m, (outs), (ins i16mem:$src),
-                "lldt{w}\t$src", []>, TB;
+                "lldt{w}\t$src", []>, TB, NotMemoryFoldable;
 } // SchedRW
 
 //===----------------------------------------------------------------------===//
@@ -426,10 +426,10 @@ def SMSW16m : I<0x01, MRM4m, (outs), (ins i16mem:$dst),
                 "smsw{w}\t$dst", []>, TB;
 
 def LMSW16r : I<0x01, MRM6r, (outs), (ins GR16:$src),
-                "lmsw{w}\t$src", []>, TB;
+                "lmsw{w}\t$src", []>, TB, NotMemoryFoldable;
 let mayLoad = 1 in
 def LMSW16m : I<0x01, MRM6m, (outs), (ins i16mem:$src),
-                "lmsw{w}\t$src", []>, TB;
+                "lmsw{w}\t$src", []>, TB, NotMemoryFoldable;
 
 let Defs = [EAX, EBX, ECX, EDX], Uses = [EAX, ECX] in
   def CPUID : I<0xA2, RawFrm, (outs), (ins), "cpuid", []>, TB;
@@ -635,12 +635,26 @@ let Predicates = [HasFSGSBase, In64BitMode], SchedRW = [WriteSystem] in {
 // INVPCID Instruction
 let SchedRW = [WriteSystem] in {
 def INVPCID32 : I<0x82, MRMSrcMem, (outs), (ins GR32:$src1, i128mem:$src2),
-                  "invpcid\t{$src2, $src1|$src1, $src2}", []>, T8PD,
-                  Requires<[Not64BitMode]>;
+                  "invpcid\t{$src2, $src1|$src1, $src2}",
+                  [(int_x86_invpcid GR32:$src1, addr:$src2)]>, T8PD,
+                  Requires<[Not64BitMode, HasINVPCID]>;
 def INVPCID64 : I<0x82, MRMSrcMem, (outs), (ins GR64:$src1, i128mem:$src2),
                   "invpcid\t{$src2, $src1|$src1, $src2}", []>, T8PD,
-                  Requires<[In64BitMode]>;
+                  Requires<[In64BitMode, HasINVPCID]>;
 } // SchedRW
+
+let Predicates = [In64BitMode, HasINVPCID] in {
+  // The instruction can only use a 64 bit register as the register argument
+  // in 64 bit mode, while the intrinsic only accepts a 32 bit argument
+  // corresponding to it.
+  // The accepted values for now are 0,1,2,3 anyways (see Intel SDM -- INVCPID
+  // type),/ so it doesn't hurt us that one can't supply a 64 bit value here.
+  def : Pat<(int_x86_invpcid GR32:$src1, addr:$src2),
+            (INVPCID64
+              (SUBREG_TO_REG (i64 0), (MOV32rr GR32:$src1), sub_32bit),
+              addr:$src2)>;
+}
+
 
 //===----------------------------------------------------------------------===//
 // SMAP Instruction

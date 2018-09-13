@@ -13,7 +13,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
-#include "chrome/browser/apps/app_window_registry_util.h"
+#include "chrome/browser/apps/platform_apps/app_window_registry_util.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
 #include "chrome/browser/chromeos/file_manager/select_file_dialog_util.h"
@@ -103,15 +103,8 @@ scoped_refptr<SelectFileDialogExtension> PendingDialog::Find(
 #if defined(OS_CHROMEOS)
 // Return the Chrome OS WebUI login WebContents, if applicable.
 content::WebContents* GetLoginWebContents() {
-  chromeos::LoginDisplayHost* const login_display_host =
-      chromeos::LoginDisplayHost::default_host();
-  if (!login_display_host)
-    return nullptr;
-  chromeos::WebUILoginView* const view =
-      login_display_host->GetWebUILoginView();
-  if (!view)
-    return nullptr;
-  return view->GetWebContents();
+  chromeos::LoginDisplayHost* host = chromeos::LoginDisplayHost::default_host();
+  return host ? host->GetOobeWebContents() : nullptr;
 }
 #endif
 
@@ -140,7 +133,6 @@ void FindRuntimeContext(gfx::NativeWindow owner_window,
   }
 
   if (app_window) {
-    DCHECK(!app_window->window_type_is_panel());
     *base_window = app_window->GetBaseWindow();
     *web_contents = app_window->web_contents();
   } else {
@@ -248,7 +240,7 @@ void SelectFileDialogExtension::ExtensionTerminated(
   if (profile_) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
-        base::Bind(&ExtensionService::ReloadExtension,
+        base::Bind(&extensions::ExtensionService::ReloadExtension,
                    base::Unretained(extensions::ExtensionSystem::Get(profile_)
                                         ->extension_service()),
                    extension_id));

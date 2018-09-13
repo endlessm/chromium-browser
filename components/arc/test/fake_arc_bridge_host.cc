@@ -15,6 +15,9 @@ void FakeArcBridgeHost::OnAccessibilityHelperInstanceReady(
 
 void FakeArcBridgeHost::OnAppInstanceReady(mojom::AppInstancePtr app_ptr) {}
 
+void FakeArcBridgeHost::OnAppfuseInstanceReady(
+    mojom::AppfuseInstancePtr app_ptr) {}
+
 void FakeArcBridgeHost::OnAudioInstanceReady(
     mojom::AudioInstancePtr audio_ptr) {}
 
@@ -40,6 +43,9 @@ void FakeArcBridgeHost::OnClipboardInstanceReady(
 
 void FakeArcBridgeHost::OnCrashCollectorInstanceReady(
     mojom::CrashCollectorInstancePtr crash_collector_ptr) {}
+
+void FakeArcBridgeHost::OnDiskQuotaInstanceReady(
+    mojom::DiskQuotaInstancePtr disk_quota_ptr) {}
 
 void FakeArcBridgeHost::OnEnterpriseReportingInstanceReady(
     mojom::EnterpriseReportingInstancePtr enterprise_reporting_ptr) {}

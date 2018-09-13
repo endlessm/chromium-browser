@@ -64,11 +64,10 @@ void netbsd::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-mabi");
     CmdArgs.push_back(mips::getGnuCompatibleMipsABIName(ABIName).data());
 
-    if (getToolChain().getArch() == llvm::Triple::mips ||
-        getToolChain().getArch() == llvm::Triple::mips64)
-      CmdArgs.push_back("-EB");
-    else
+    if (getToolChain().getTriple().isLittleEndian())
       CmdArgs.push_back("-EL");
+    else
+      CmdArgs.push_back("-EB");
 
     AddAssemblerKPIC(getToolChain(), Args, CmdArgs);
     break;
@@ -123,6 +122,10 @@ void netbsd::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back("--eh-frame-hdr");
   if (Args.hasArg(options::OPT_static)) {
     CmdArgs.push_back("-Bstatic");
+    if (Args.hasArg(options::OPT_pie)) {
+      Args.AddAllArgs(CmdArgs, options::OPT_pie);
+      CmdArgs.push_back("--no-dynamic-linker");
+    }
   } else {
     if (Args.hasArg(options::OPT_rdynamic))
       CmdArgs.push_back("-export-dynamic");

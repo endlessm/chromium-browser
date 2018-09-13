@@ -19,7 +19,6 @@
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
@@ -28,7 +27,7 @@
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -5680,7 +5679,7 @@ bool SimplifyCFGOpt::SimplifyIndirectBr(IndirectBrInst *IBI) {
 /// any transform which might inhibit optimization (such as our ability to
 /// specialize a particular handler via tail commoning).  We do this by not
 /// merging any blocks which require us to introduce a phi.  Since the same
-/// values are flowing through both blocks, we don't loose any ability to
+/// values are flowing through both blocks, we don't lose any ability to
 /// specialize.  If anything, we make such specialization more likely.
 ///
 /// TODO - This transformation could remove entries from a phi in the target
@@ -5710,7 +5709,7 @@ static bool TryToMergeLandingPad(LandingPadInst *LPad, BranchInst *BI,
 
     // We've found an identical block.  Update our predecessors to take that
     // path instead and make ourselves dead.
-    SmallSet<BasicBlock *, 16> Preds;
+    SmallPtrSet<BasicBlock *, 16> Preds;
     Preds.insert(pred_begin(BB), pred_end(BB));
     for (BasicBlock *Pred : Preds) {
       InvokeInst *II = cast<InvokeInst>(Pred->getTerminator());
@@ -5728,7 +5727,7 @@ static bool TryToMergeLandingPad(LandingPadInst *LPad, BranchInst *BI,
         Inst.eraseFromParent();
     }
 
-    SmallSet<BasicBlock *, 16> Succs;
+    SmallPtrSet<BasicBlock *, 16> Succs;
     Succs.insert(succ_begin(BB), succ_end(BB));
     for (BasicBlock *Succ : Succs) {
       Succ->removePredecessor(BB);
@@ -5951,17 +5950,20 @@ static bool passingValueIsAlwaysUndefined(Value *V, Instruction *I) {
     // Load from null is undefined.
     if (LoadInst *LI = dyn_cast<LoadInst>(Use))
       if (!LI->isVolatile())
-        return LI->getPointerAddressSpace() == 0;
+        return !NullPointerIsDefined(LI->getFunction(),
+                                     LI->getPointerAddressSpace());
 
     // Store to null is undefined.
     if (StoreInst *SI = dyn_cast<StoreInst>(Use))
       if (!SI->isVolatile())
-        return SI->getPointerAddressSpace() == 0 &&
+        return (!NullPointerIsDefined(SI->getFunction(),
+                                      SI->getPointerAddressSpace())) &&
                SI->getPointerOperand() == I;
 
     // A call to null is undefined.
     if (auto CS = CallSite(Use))
-      return CS.getCalledValue() == I;
+      return !NullPointerIsDefined(CS->getFunction()) &&
+             CS.getCalledValue() == I;
   }
   return false;
 }

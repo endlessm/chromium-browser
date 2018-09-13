@@ -22,9 +22,6 @@ namespace {
 
 const char kUserEmail[] = "testuser@example.com";
 
-const int64_t kPasswordEntryTimestampMs1 = 123456789L;
-const int64_t kPasswordEntryTimestampMs2 = 987654321L;
-
 const int64_t kPromotionCheckTimestampMs1 = 1111111111L;
 const int64_t kPromotionCheckTimestampMs2 = 2222222222L;
 
@@ -69,17 +66,6 @@ TEST_F(ProximityAuthProfilePrefManagerTest, IsEasyUnlockEnabled) {
   EXPECT_FALSE(pref_manager.IsEasyUnlockEnabled());
 }
 
-TEST_F(ProximityAuthProfilePrefManagerTest, LastPasswordEntryTimestamp) {
-  ProximityAuthProfilePrefManager pref_manager(&pref_service_);
-  EXPECT_EQ(0L, pref_manager.GetLastPasswordEntryTimestampMs());
-  pref_manager.SetLastPasswordEntryTimestampMs(kPasswordEntryTimestampMs1);
-  EXPECT_EQ(kPasswordEntryTimestampMs1,
-            pref_manager.GetLastPasswordEntryTimestampMs());
-  pref_manager.SetLastPasswordEntryTimestampMs(kPasswordEntryTimestampMs2);
-  EXPECT_EQ(kPasswordEntryTimestampMs2,
-            pref_manager.GetLastPasswordEntryTimestampMs());
-}
-
 TEST_F(ProximityAuthProfilePrefManagerTest, LastPromotionCheckTimestamp) {
   ProximityAuthProfilePrefManager pref_manager(&pref_service_);
   EXPECT_EQ(0L, pref_manager.GetLastPromotionCheckTimestampMs());
@@ -111,13 +97,13 @@ TEST_F(ProximityAuthProfilePrefManagerTest, ProximityThreshold) {
 
 TEST_F(ProximityAuthProfilePrefManagerTest, IsChromeOSLoginEnabled) {
   ProximityAuthProfilePrefManager pref_manager(&pref_service_);
-  EXPECT_TRUE(pref_manager.IsChromeOSLoginEnabled());
-
-  pref_manager.SetIsChromeOSLoginEnabled(false);
   EXPECT_FALSE(pref_manager.IsChromeOSLoginEnabled());
 
   pref_manager.SetIsChromeOSLoginEnabled(true);
   EXPECT_TRUE(pref_manager.IsChromeOSLoginEnabled());
+
+  pref_manager.SetIsChromeOSLoginEnabled(false);
+  EXPECT_FALSE(pref_manager.IsChromeOSLoginEnabled());
 }
 
 TEST_F(ProximityAuthProfilePrefManagerTest, SyncsToLocalPrefOnChange) {

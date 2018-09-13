@@ -14,6 +14,7 @@ namespace chromecast {
 
 class CastWindowManagerDefault : public CastWindowManager {
  public:
+  CastWindowManagerDefault();
   ~CastWindowManagerDefault() override;
 
   // CastWindowManager implementation:
@@ -23,20 +24,13 @@ class CastWindowManagerDefault : public CastWindowManager {
   gfx::NativeView GetRootWindow() override;
   void InjectEvent(ui::Event* event) override;
 
-  void AddSideSwipeGestureHandler(
-      CastSideSwipeGestureHandlerInterface* handler) override;
+  void AddGestureHandler(CastGestureHandler* handler) override;
 
-  void RemoveSideSwipeGestureHandler(
-      CastSideSwipeGestureHandlerInterface* handler) override;
+  void RemoveGestureHandler(CastGestureHandler* handler) override;
 
   void SetColorInversion(bool enable) override;
 
  private:
-  friend class CastWindowManager;
-
-  // This class should only be instantiated by CastWindowManager::Create.
-  CastWindowManagerDefault();
-
   DISALLOW_COPY_AND_ASSIGN(CastWindowManagerDefault);
 };
 

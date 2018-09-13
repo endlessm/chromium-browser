@@ -116,6 +116,8 @@ class LKGMManager(manifest_version.BuildSpecsManager):
   ANDROID_PFQ_SUBDIR = 'android-LKGM-candidates'
   COMMIT_QUEUE_SUBDIR = 'paladin'
   TOOLCHAIN_SUBDIR = 'toolchain'
+  FULL_SUBDIR = 'full'
+  INCREMENTAL_SUBDIR = 'incremental'
 
   def __init__(self, source_repo, manifest_repo, build_names, build_type,
                incr_type, force, branch, manifest=constants.DEFAULT_MANIFEST,
@@ -160,6 +162,10 @@ class LKGMManager(manifest_version.BuildSpecsManager):
       self.rel_working_dir = self.ANDROID_PFQ_SUBDIR
     elif self.build_type == constants.TOOLCHAIN_TYPE:
       self.rel_working_dir = self.TOOLCHAIN_SUBDIR
+    elif self.build_type == constants.FULL_TYPE:
+      self.rel_working_dir = self.FULL_SUBDIR
+    elif self.build_type == constants.INCREMENTAL_TYPE:
+      self.rel_working_dir = self.INCREMENTAL_SUBDIR
     elif config_lib.IsCQType(self.build_type):
       self.rel_working_dir = self.COMMIT_QUEUE_SUBDIR
     else:

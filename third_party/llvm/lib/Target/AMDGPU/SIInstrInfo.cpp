@@ -14,11 +14,13 @@
 
 #include "SIInstrInfo.h"
 #include "AMDGPU.h"
+#include "AMDGPUIntrinsicInfo.h"
 #include "AMDGPUSubtarget.h"
 #include "GCNHazardRecognizer.h"
 #include "SIDefines.h"
 #include "SIMachineFunctionInfo.h"
 #include "SIRegisterInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "Utils/AMDGPUBaseInfo.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -62,6 +64,19 @@
 
 using namespace llvm;
 
+#define GET_INSTRINFO_CTOR_DTOR
+#include "AMDGPUGenInstrInfo.inc"
+
+namespace llvm {
+namespace AMDGPU {
+#define GET_D16ImageDimIntrinsics_IMPL
+#define GET_ImageDimIntrinsicTable_IMPL
+#define GET_RsrcIntrinsics_IMPL
+#include "AMDGPUGenSearchableTables.inc"
+}
+}
+
+
 // Must be at least 4 to be able to branch over minimum unconditional branch
 // code. This is only for making it possible to write reasonably small tests for
 // long branches.
@@ -69,8 +84,9 @@ static cl::opt<unsigned>
 BranchOffsetBits("amdgpu-s-branch-bits", cl::ReallyHidden, cl::init(16),
                  cl::desc("Restrict range of branch instructions (DEBUG)"));
 
-SIInstrInfo::SIInstrInfo(const SISubtarget &ST)
-  : AMDGPUInstrInfo(ST), RI(ST), ST(ST) {}
+SIInstrInfo::SIInstrInfo(const GCNSubtarget &ST)
+  : AMDGPUGenInstrInfo(AMDGPU::ADJCALLSTACKUP, AMDGPU::ADJCALLSTACKDOWN),
+    RI(ST), ST(ST) {}
 
 //===----------------------------------------------------------------------===//
 // TargetInstrInfo callbacks
@@ -435,6 +451,28 @@ bool SIInstrInfo::shouldClusterMemOps(MachineInstr &FirstLdSt,
   const TargetRegisterClass *DstRC = MRI.getRegClass(FirstDst->getReg());
 
   return (NumLoads * (RI.getRegSizeInBits(*DstRC) / 8)) <= LoadClusterThreshold;
+}
+
+// FIXME: This behaves strangely. If, for example, you have 32 load + stores,
+// the first 16 loads will be interleaved with the stores, and the next 16 will
+// be clustered as expected. It should really split into 2 16 store batches.
+//
+// Loads are clustered until this returns false, rather than trying to schedule
+// groups of stores. This also means we have to deal with saying different
+// address space loads should be clustered, and ones which might cause bank
+// conflicts.
+//
+// This might be deprecated so it might not be worth that much effort to fix.
+bool SIInstrInfo::shouldScheduleLoadsNear(SDNode *Load0, SDNode *Load1,
+                                          int64_t Offset0, int64_t Offset1,
+                                          unsigned NumLoads) const {
+  assert(Offset1 > Offset0 &&
+         "Second offset should be larger than first offset!");
+  // If we have less than 16 loads in a row, and the offsets are within 64
+  // bytes, then schedule together.
+
+  // A cacheline is 64 bytes (for global memory).
+  return (NumLoads <= 16 && (Offset1 - Offset0) < 64);
 }
 
 static void reportIllegalCopy(const SIInstrInfo *TII, MachineBasicBlock &MBB,
@@ -997,7 +1035,7 @@ unsigned SIInstrInfo::calculateLDSSpillAddress(
     unsigned FrameOffset, unsigned Size) const {
   MachineFunction *MF = MBB.getParent();
   SIMachineFunctionInfo *MFI = MF->getInfo<SIMachineFunctionInfo>();
-  const SISubtarget &ST = MF->getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF->getSubtarget<GCNSubtarget>();
   DebugLoc DL = MBB.findDebugLoc(MI);
   unsigned WorkGroupSize = MFI->getMaxFlatWorkGroupSize();
   unsigned WavefrontSize = ST.getWavefrontSize();
@@ -1133,7 +1171,7 @@ bool SIInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   MachineBasicBlock &MBB = *MI.getParent();
   DebugLoc DL = MBB.findDebugLoc(MI);
   switch (MI.getOpcode()) {
-  default: return AMDGPUInstrInfo::expandPostRAPseudo(MI);
+  default: return TargetInstrInfo::expandPostRAPseudo(MI);
   case AMDGPU::S_MOV_B64_term:
     // This is only a terminator to get the correct spill code placement during
     // register allocation.
@@ -1263,6 +1301,22 @@ bool SIInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     // This only gets its own opcode so that SIFixWWMLiveness can tell when WWM
     // is exited.
     MI.setDesc(get(AMDGPU::S_MOV_B64));
+    break;
+  }
+  case TargetOpcode::BUNDLE: {
+    if (!MI.mayLoad())
+      return false;
+
+    // If it is a load it must be a memory clause
+    for (MachineBasicBlock::instr_iterator I = MI.getIterator();
+         I->isBundledWithSucc(); ++I) {
+      I->unbundleFromSucc();
+      for (MachineOperand &MO : I->operands())
+        if (MO.isReg())
+          MO.setIsInternalRead(false);
+    }
+
+    MI.eraseFromParent();
     break;
   }
   }
@@ -1883,16 +1937,16 @@ unsigned SIInstrInfo::getAddressSpaceForPseudoSourceKind(
   switch(Kind) {
   case PseudoSourceValue::Stack:
   case PseudoSourceValue::FixedStack:
-    return AMDGPUASI.PRIVATE_ADDRESS;
+    return ST.getAMDGPUAS().PRIVATE_ADDRESS;
   case PseudoSourceValue::ConstantPool:
   case PseudoSourceValue::GOT:
   case PseudoSourceValue::JumpTable:
   case PseudoSourceValue::GlobalValueCallEntry:
   case PseudoSourceValue::ExternalSymbolCallEntry:
   case PseudoSourceValue::TargetCustom:
-    return AMDGPUASI.CONSTANT_ADDRESS;
+    return ST.getAMDGPUAS().CONSTANT_ADDRESS;
   }
-  return AMDGPUASI.FLAT_ADDRESS;
+  return ST.getAMDGPUAS().FLAT_ADDRESS;
 }
 
 static void removeModOperands(MachineInstr &MI) {
@@ -2861,7 +2915,7 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
     }
   }
 
-  if (isFLAT(MI) && !MF->getSubtarget<SISubtarget>().hasFlatInstOffsets()) {
+  if (isFLAT(MI) && !MF->getSubtarget<GCNSubtarget>().hasFlatInstOffsets()) {
     const MachineOperand *Offset = getNamedOperand(MI, AMDGPU::OpName::offset);
     if (Offset->getImm() != 0) {
       ErrInfo = "subtarget does not support offsets in flat instructions";
@@ -3612,8 +3666,8 @@ void SIInstrInfo::legalizeOperands(MachineInstr &MI) const {
     } else {
       // This instructions is the _OFFSET variant, so we need to convert it to
       // ADDR64.
-      assert(MBB.getParent()->getSubtarget<SISubtarget>().getGeneration()
-             < SISubtarget::VOLCANIC_ISLANDS &&
+      assert(MBB.getParent()->getSubtarget<GCNSubtarget>().getGeneration()
+             < AMDGPUSubtarget::VOLCANIC_ISLANDS &&
              "FIXME: Need to emit flat atomics here");
 
       MachineOperand *VData = getNamedOperand(MI, AMDGPU::OpName::vdata);
@@ -3749,37 +3803,37 @@ void SIInstrInfo::moveToVALU(MachineInstr &TopInst) const {
       continue;
 
     case AMDGPU::S_LSHL_B32:
-      if (ST.getGeneration() >= SISubtarget::VOLCANIC_ISLANDS) {
+      if (ST.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS) {
         NewOpcode = AMDGPU::V_LSHLREV_B32_e64;
         swapOperands(Inst);
       }
       break;
     case AMDGPU::S_ASHR_I32:
-      if (ST.getGeneration() >= SISubtarget::VOLCANIC_ISLANDS) {
+      if (ST.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS) {
         NewOpcode = AMDGPU::V_ASHRREV_I32_e64;
         swapOperands(Inst);
       }
       break;
     case AMDGPU::S_LSHR_B32:
-      if (ST.getGeneration() >= SISubtarget::VOLCANIC_ISLANDS) {
+      if (ST.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS) {
         NewOpcode = AMDGPU::V_LSHRREV_B32_e64;
         swapOperands(Inst);
       }
       break;
     case AMDGPU::S_LSHL_B64:
-      if (ST.getGeneration() >= SISubtarget::VOLCANIC_ISLANDS) {
+      if (ST.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS) {
         NewOpcode = AMDGPU::V_LSHLREV_B64;
         swapOperands(Inst);
       }
       break;
     case AMDGPU::S_ASHR_I64:
-      if (ST.getGeneration() >= SISubtarget::VOLCANIC_ISLANDS) {
+      if (ST.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS) {
         NewOpcode = AMDGPU::V_ASHRREV_I64;
         swapOperands(Inst);
       }
       break;
     case AMDGPU::S_LSHR_B64:
-      if (ST.getGeneration() >= SISubtarget::VOLCANIC_ISLANDS) {
+      if (ST.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS) {
         NewOpcode = AMDGPU::V_LSHRREV_B64;
         swapOperands(Inst);
       }
@@ -4579,12 +4633,12 @@ uint64_t SIInstrInfo::getDefaultRsrcDataFormat() const {
   uint64_t RsrcDataFormat = AMDGPU::RSRC_DATA_FORMAT;
   if (ST.isAmdHsaOS()) {
     // Set ATC = 1. GFX9 doesn't have this bit.
-    if (ST.getGeneration() <= SISubtarget::VOLCANIC_ISLANDS)
+    if (ST.getGeneration() <= AMDGPUSubtarget::VOLCANIC_ISLANDS)
       RsrcDataFormat |= (1ULL << 56);
 
     // Set MTYPE = 2 (MTYPE_UC = uncached). GFX9 doesn't have this.
     // BTW, it disables TC L2 and therefore decreases performance.
-    if (ST.getGeneration() == SISubtarget::VOLCANIC_ISLANDS)
+    if (ST.getGeneration() == AMDGPUSubtarget::VOLCANIC_ISLANDS)
       RsrcDataFormat |= (2ULL << 59);
   }
 
@@ -4597,7 +4651,7 @@ uint64_t SIInstrInfo::getScratchRsrcWords23() const {
                     0xffffffff; // Size;
 
   // GFX9 doesn't have ELEMENT_SIZE.
-  if (ST.getGeneration() <= SISubtarget::VOLCANIC_ISLANDS) {
+  if (ST.getGeneration() <= AMDGPUSubtarget::VOLCANIC_ISLANDS) {
     uint64_t EltSizeValue = Log2_32(ST.getMaxPrivateElementSize()) - 1;
     Rsrc23 |= EltSizeValue << AMDGPU::RSRC_ELEMENT_SIZE_SHIFT;
   }
@@ -4607,7 +4661,7 @@ uint64_t SIInstrInfo::getScratchRsrcWords23() const {
 
   // If TID_ENABLE is set, DATA_FORMAT specifies stride bits [14:17].
   // Clear them unless we want a huge stride.
-  if (ST.getGeneration() >= SISubtarget::VOLCANIC_ISLANDS)
+  if (ST.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS)
     Rsrc23 &= ~AMDGPU::RSRC_DATA_FORMAT;
 
   return Rsrc23;
@@ -4632,7 +4686,7 @@ unsigned SIInstrInfo::isStackAccess(const MachineInstr &MI,
     return AMDGPU::NoRegister;
 
   assert(!MI.memoperands_empty() &&
-         (*MI.memoperands_begin())->getAddrSpace() == AMDGPUASI.PRIVATE_ADDRESS);
+         (*MI.memoperands_begin())->getAddrSpace() == ST.getAMDGPUAS().PRIVATE_ADDRESS);
 
   FrameIndex = Addr->getIndex();
   return getNamedOperand(MI, AMDGPU::OpName::vdata)->getReg();
@@ -4751,7 +4805,7 @@ bool SIInstrInfo::mayAccessFlatAddressSpace(const MachineInstr &MI) const {
     return true;
 
   for (const MachineMemOperand *MMO : MI.memoperands()) {
-    if (MMO->getAddrSpace() == AMDGPUASI.FLAT_ADDRESS)
+    if (MMO->getAddrSpace() == ST.getAMDGPUAS().FLAT_ADDRESS)
       return true;
   }
   return false;
@@ -4917,4 +4971,71 @@ const MCInstrDesc &SIInstrInfo::getKillTerminatorFromPseudo(unsigned Opcode) con
   default:
     llvm_unreachable("invalid opcode, expected SI_KILL_*_PSEUDO");
   }
+}
+
+bool SIInstrInfo::isBufferSMRD(const MachineInstr &MI) const {
+  if (!isSMRD(MI))
+    return false;
+
+  // Check that it is using a buffer resource.
+  int Idx = AMDGPU::getNamedOperandIdx(MI.getOpcode(), AMDGPU::OpName::sbase);
+  if (Idx == -1) // e.g. s_memtime
+    return false;
+
+  const auto RCID = MI.getDesc().OpInfo[Idx].RegClass;
+  return RCID == AMDGPU::SReg_128RegClassID;
+}
+
+// This must be kept in sync with the SIEncodingFamily class in SIInstrInfo.td
+enum SIEncodingFamily {
+  SI = 0,
+  VI = 1,
+  SDWA = 2,
+  SDWA9 = 3,
+  GFX80 = 4,
+  GFX9 = 5
+};
+
+static SIEncodingFamily subtargetEncodingFamily(const GCNSubtarget &ST) {
+  switch (ST.getGeneration()) {
+  default:
+    break;
+  case AMDGPUSubtarget::SOUTHERN_ISLANDS:
+  case AMDGPUSubtarget::SEA_ISLANDS:
+    return SIEncodingFamily::SI;
+  case AMDGPUSubtarget::VOLCANIC_ISLANDS:
+  case AMDGPUSubtarget::GFX9:
+    return SIEncodingFamily::VI;
+  }
+  llvm_unreachable("Unknown subtarget generation!");
+}
+
+int SIInstrInfo::pseudoToMCOpcode(int Opcode) const {
+  SIEncodingFamily Gen = subtargetEncodingFamily(ST);
+
+  if ((get(Opcode).TSFlags & SIInstrFlags::renamedInGFX9) != 0 &&
+    ST.getGeneration() >= AMDGPUSubtarget::GFX9)
+    Gen = SIEncodingFamily::GFX9;
+
+  if (get(Opcode).TSFlags & SIInstrFlags::SDWA)
+    Gen = ST.getGeneration() == AMDGPUSubtarget::GFX9 ? SIEncodingFamily::SDWA9
+                                                      : SIEncodingFamily::SDWA;
+  // Adjust the encoding family to GFX80 for D16 buffer instructions when the
+  // subtarget has UnpackedD16VMem feature.
+  // TODO: remove this when we discard GFX80 encoding.
+  if (ST.hasUnpackedD16VMem() && (get(Opcode).TSFlags & SIInstrFlags::D16Buf))
+    Gen = SIEncodingFamily::GFX80;
+
+  int MCOp = AMDGPU::getMCOpcode(Opcode, Gen);
+
+  // -1 means that Opcode is already a native instruction.
+  if (MCOp == -1)
+    return Opcode;
+
+  // (uint16_t)-1 means that Opcode is a pseudo instruction that has
+  // no encoding in the given subtarget generation.
+  if (MCOp == (uint16_t)-1)
+    return -1;
+
+  return MCOp;
 }

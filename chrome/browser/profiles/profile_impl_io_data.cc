@@ -19,6 +19,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/task_scheduler/post_task.h"
+#include "base/time/default_clock.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -54,7 +55,7 @@
 #include "components/prefs/pref_filter.h"
 #include "components/prefs/pref_member.h"
 #include "components/prefs/pref_service.h"
-#include "components/previews/content/previews_io_data.h"
+#include "components/previews/content/previews_decider_impl.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -76,6 +77,7 @@
 #include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_intercepting_job_factory.h"
 #include "net/url_request/url_request_job_factory_impl.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "storage/browser/quota/special_storage_policy.h"
 
@@ -184,11 +186,13 @@ void ProfileImplIOData::Handle::Init(
   if (io_data_->lazy_params_->domain_reliability_monitor)
     io_data_->lazy_params_->domain_reliability_monitor->MoveToNetworkThread();
 
-  io_data_->set_previews_io_data(std::make_unique<previews::PreviewsIOData>(
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::UI),
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO)));
+  io_data_->set_previews_decider_impl(
+      std::make_unique<previews::PreviewsDeciderImpl>(
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::UI),
+          BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
+          base::DefaultClock::GetInstance()));
   PreviewsServiceFactory::GetForProfile(profile_)->Initialize(
-      io_data_->previews_io_data(),
+      io_data_->previews_decider_impl(),
       g_browser_process->optimization_guide_service(),
       BrowserThread::GetTaskRunnerForThread(BrowserThread::IO), profile_path);
 
@@ -199,18 +203,9 @@ void ProfileImplIOData::Handle::Init(
           BrowserThread::GetTaskRunnerForThread(BrowserThread::UI)));
 
 #if defined(OS_CHROMEOS)
-  // Set a task runner for the get network id call in DataReductionProxyConfig
-  // to work around the bug that recv() in AddressTrackerLinux blocks IO thread
-  // and freezes the screen. Using SingleThreadTaskRunner so that task scheduler
-  // does not create too many worker threads when https://crbug.com/821607
-  // happens.
-  // TODO(https://crbug.com/821607): Remove after the bug is resolved.
   io_data_->data_reduction_proxy_io_data()
       ->config()
-      ->set_get_network_id_task_runner(
-          base::CreateSingleThreadTaskRunnerWithTraits(
-              {base::MayBlock(), base::TaskPriority::BACKGROUND,
-               base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN}));
+      ->EnableGetNetworkIdAsynchronously();
 #endif
 }
 
@@ -250,15 +245,16 @@ ProfileImplIOData::Handle::CreateMainRequestContextGetter(
   DataReductionProxyChromeSettingsFactory::GetForBrowserContext(profile_)
       ->InitDataReductionProxySettings(
           io_data_->data_reduction_proxy_io_data(), profile_->GetPrefs(),
-          main_request_context_getter_.get(), std::move(store),
+          main_request_context_getter_.get(),
+          content::BrowserContext::GetDefaultStoragePartition(profile_)
+              ->GetURLLoaderFactoryForBrowserProcess(),
+          std::move(store),
           BrowserThread::GetTaskRunnerForThread(BrowserThread::UI),
           db_task_runner);
 
-  io_data_->predictor_
-      ->InitNetworkPredictor(profile_->GetPrefs(),
-                             io_thread,
-                             main_request_context_getter_.get(),
-                             io_data_);
+  io_data_->predictor_->InitNetworkPredictor(profile_->GetPrefs(), io_thread,
+                                             main_request_context_getter_.get(),
+                                             io_data_, profile_);
 
   content::NotificationService::current()->Notify(
       chrome::NOTIFICATION_PROFILE_URL_REQUEST_CONTEXT_GETTER_INITIALIZED,
@@ -502,8 +498,7 @@ void ProfileImplIOData::InitializeInternal(
   // Install the Offline Page Interceptor.
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
   request_interceptors.push_back(
-      std::make_unique<offline_pages::OfflinePageRequestInterceptor>(
-          previews_io_data()));
+      std::make_unique<offline_pages::OfflinePageRequestInterceptor>());
 #endif
 
   // The data reduction proxy interceptor should be as close to the network
@@ -513,7 +508,7 @@ void ProfileImplIOData::InitializeInternal(
       data_reduction_proxy_io_data()->CreateInterceptor());
   data_reduction_proxy_io_data()->SetDataUseAscriber(
       io_thread_globals->data_use_ascriber.get());
-  data_reduction_proxy_io_data()->SetPreviewsDecider(previews_io_data());
+  data_reduction_proxy_io_data()->SetPreviewsDecider(previews_decider_impl());
   SetUpJobFactoryDefaultsForBuilder(
       builder, std::move(request_interceptors),
       std::move(profile_params->protocol_handler_interceptor));

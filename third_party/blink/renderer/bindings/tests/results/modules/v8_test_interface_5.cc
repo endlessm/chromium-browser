@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/bindings/tests/results/modules/v8_test_interface_5.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_configuration.h"
@@ -19,6 +18,8 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_test_interface_5.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_void_callback_function_modules.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -970,16 +971,16 @@ static void installV8TestInterface5Template(
   };
   V8DOMConfiguration::InstallConstants(
       isolate, interfaceTemplate, prototypeTemplate,
-      V8TestInterface5Constants, arraysize(V8TestInterface5Constants));
+      V8TestInterface5Constants, base::size(V8TestInterface5Constants));
   V8DOMConfiguration::InstallLazyDataAttributes(
       isolate, world, instanceTemplate, prototypeTemplate,
-      V8TestInterface5LazyDataAttributes, arraysize(V8TestInterface5LazyDataAttributes));
+      V8TestInterface5LazyDataAttributes, base::size(V8TestInterface5LazyDataAttributes));
   V8DOMConfiguration::InstallAccessors(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInterface5Accessors, arraysize(V8TestInterface5Accessors));
+      signature, V8TestInterface5Accessors, base::size(V8TestInterface5Accessors));
   V8DOMConfiguration::InstallMethods(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInterface5Methods, arraysize(V8TestInterface5Methods));
+      signature, V8TestInterface5Methods, base::size(V8TestInterface5Methods));
 
   // Indexed properties
   v8::IndexedPropertyHandlerConfiguration indexedPropertyHandlerConfig(
@@ -1083,7 +1084,7 @@ void V8TestInterface5::InstallConditionalFeatures(
       V8DOMConfiguration::InstallAccessors(
           isolate, world, instanceObject, prototypeObject, interfaceObject,
           signature, accessor_configurations,
-          arraysize(accessor_configurations));
+          base::size(accessor_configurations));
     }
     if (executionContext && (executionContext->IsWorkerGlobalScope())) {
       static const V8DOMConfiguration::AccessorConfiguration accessor_configurations[] = {
@@ -1092,7 +1093,7 @@ void V8TestInterface5::InstallConditionalFeatures(
       V8DOMConfiguration::InstallAccessors(
           isolate, world, instanceObject, prototypeObject, interfaceObject,
           signature, accessor_configurations,
-          arraysize(accessor_configurations));
+          base::size(accessor_configurations));
     }
     if (executionContext && (executionContext->IsWorkerGlobalScope())) {
       const V8DOMConfiguration::MethodConfiguration workerExposedMethodMethodConfiguration[] = {

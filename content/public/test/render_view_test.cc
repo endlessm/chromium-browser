@@ -27,6 +27,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/previews_state.h"
 #include "content/public/common/renderer_preferences.h"
+#include "content/public/common/use_zoom_for_dsf_policy.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/public/renderer/render_view_visitor.h"
 #include "content/public/test/frame_load_waiter.h"
@@ -42,7 +43,7 @@
 #include "net/base/escape.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "third_party/blink/public/mojom/leak_detector/leak_detector.mojom.h"
-#include "third_party/blink/public/platform/scheduler/web_main_thread_scheduler.h"
+#include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_gesture_event.h"
 #include "third_party/blink/public/platform/web_input_event.h"
 #include "third_party/blink/public/platform/web_mouse_event.h"
@@ -131,7 +132,7 @@ class RendererBlinkPlatformImplTestOverrideImpl
     : public RendererBlinkPlatformImpl {
  public:
   explicit RendererBlinkPlatformImplTestOverrideImpl(
-      blink::scheduler::WebMainThreadScheduler* scheduler)
+      blink::scheduler::WebThreadScheduler* scheduler)
       : RendererBlinkPlatformImpl(scheduler) {}
 
   // Get rid of the dependency to the sandbox, which is not available in
@@ -154,7 +155,8 @@ RenderViewTest::RendererBlinkPlatformImplTestOverride::Get() const {
 }
 
 void RenderViewTest::RendererBlinkPlatformImplTestOverride::Initialize() {
-  main_thread_scheduler_ = blink::scheduler::WebMainThreadScheduler::Create();
+  main_thread_scheduler_ =
+      blink::scheduler::WebThreadScheduler::CreateMainThreadScheduler();
   blink_platform_impl_ =
       std::make_unique<RendererBlinkPlatformImplTestOverrideImpl>(
           main_thread_scheduler_.get());
@@ -195,13 +197,28 @@ bool RenderViewTest::ExecuteJavaScriptAndReturnIntValue(
   return true;
 }
 
+bool RenderViewTest::ExecuteJavaScriptAndReturnNumberValue(
+    const base::string16& script,
+    double* number_result) {
+  v8::HandleScope handle_scope(v8::Isolate::GetCurrent());
+  v8::Local<v8::Value> result = GetMainFrame()->ExecuteScriptAndReturnValue(
+      WebScriptSource(blink::WebString::FromUTF16(script)));
+  if (result.IsEmpty() || !result->IsNumber())
+    return false;
+
+  if (number_result)
+    *number_result = result->NumberValue();
+
+  return true;
+}
+
 void RenderViewTest::LoadHTML(const char* html) {
   std::string url_string = "data:text/html;charset=utf-8,";
   url_string.append(net::EscapeQueryParamValue(html, false));
   GURL url(url_string);
   WebURLRequest request(url);
   request.SetCheckForBrowserSideNavigation(false);
-  GetMainFrame()->LoadRequest(request);
+  GetMainFrame()->StartNavigation(request);
   // The load actually happens asynchronously, so we pump messages to process
   // the pending continuation.
   FrameLoadWaiter(view_->GetMainRenderFrame()).Wait();
@@ -244,9 +261,9 @@ void RenderViewTest::SetUp() {
 
   test_io_thread_ =
       std::make_unique<base::TestIOThread>(base::TestIOThread::kAutoStart);
-  ipc_support_ = std::make_unique<mojo::edk::ScopedIPCSupport>(
+  ipc_support_ = std::make_unique<mojo::core::ScopedIPCSupport>(
       test_io_thread_->task_runner(),
-      mojo::edk::ScopedIPCSupport::ShutdownPolicy::FAST);
+      mojo::core::ScopedIPCSupport::ShutdownPolicy::FAST);
 
   // Subclasses can set render_thread_ with their own implementation before
   // calling RenderViewTest::SetUp().
@@ -310,7 +327,7 @@ void RenderViewTest::SetUp() {
         "en-US", nullptr, ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);
   }
 
-  compositor_deps_ = std::make_unique<FakeCompositorDependencies>();
+  compositor_deps_ = CreateCompositorDependencies();
   mock_process_ = std::make_unique<MockRenderProcess>();
 
   mojom::CreateViewParamsPtr view_params = mojom::CreateViewParams::New();
@@ -319,8 +336,8 @@ void RenderViewTest::SetUp() {
   view_params->renderer_preferences = RendererPreferences();
   view_params->web_preferences = WebPreferences();
   view_params->view_id = render_thread_->GetNextRoutingID();
-  // For now these two must be equal. See: https://crbug.com/545684.
-  view_params->main_frame_widget_routing_id = view_params->view_id;
+  view_params->main_frame_widget_routing_id =
+      render_thread_->GetNextRoutingID();
   view_params->main_frame_routing_id = render_thread_->GetNextRoutingID();
   render_thread_->PassInitialInterfaceProviderRequestForFrame(
       view_params->main_frame_routing_id,
@@ -542,10 +559,8 @@ void RenderViewTest::SetFocused(const blink::WebNode& node) {
 void RenderViewTest::Reload(const GURL& url) {
   CommonNavigationParams common_params(
       url, Referrer(), ui::PAGE_TRANSITION_LINK, FrameMsg_Navigate_Type::RELOAD,
-      true, false, base::TimeTicks(),
-      FrameMsg_UILoadMetricsReportType::NO_REPORT, GURL(), GURL(),
-      PREVIEWS_UNSPECIFIED, base::TimeTicks::Now(), "GET", nullptr,
-      base::Optional<SourceLocation>(),
+      true, false, GURL(), GURL(), PREVIEWS_UNSPECIFIED, base::TimeTicks::Now(),
+      "GET", nullptr, base::Optional<SourceLocation>(),
       CSPDisposition::CHECK /* should_check_main_world_csp */,
       false /* started_from_context_menu */, false /* has_user_gesture */,
       std::vector<ContentSecurityPolicy>() /* initiator_csp */,
@@ -673,6 +688,11 @@ std::unique_ptr<VisualProperties> RenderViewTest::InitialVisualProperties() {
   return initial_visual_properties;
 }
 
+std::unique_ptr<CompositorDependencies>
+RenderViewTest::CreateCompositorDependencies() {
+  return std::make_unique<FakeCompositorDependencies>();
+}
+
 void RenderViewTest::GoToOffset(int offset,
                                 const GURL& url,
                                 const PageState& state) {
@@ -684,8 +704,7 @@ void RenderViewTest::GoToOffset(int offset,
 
   CommonNavigationParams common_params(
       url, Referrer(), ui::PAGE_TRANSITION_FORWARD_BACK,
-      FrameMsg_Navigate_Type::HISTORY_DIFFERENT_DOCUMENT, true, false,
-      base::TimeTicks(), FrameMsg_UILoadMetricsReportType::NO_REPORT, GURL(),
+      FrameMsg_Navigate_Type::HISTORY_DIFFERENT_DOCUMENT, true, false, GURL(),
       GURL(), PREVIEWS_UNSPECIFIED, base::TimeTicks::Now(), "GET", nullptr,
       base::Optional<SourceLocation>(),
       CSPDisposition::CHECK /* should_check_main_world_csp */,

@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">ಪಾಸ್‌ವರ್ಡ್ ಎಡಿಟ್ ಪಠ್ಯ</translation>
 <translation id="1802710350767629429">ಅಪ್‌ಡೇಟ್ ಟಿಪ್ಪಣಿಗಳನ್ನು ತೋರಿಸಿ</translation>
 <translation id="1810107444790159527">ಪಟ್ಟಿಯ ಬಾಕ್ಸ್</translation>
+<translation id="1812527064848182527">ಲ್ಯಾಂಡ್‌ಸ್ಕೇಪ್</translation>
 <translation id="1828385960365606039">ಮೇ</translation>
 <translation id="1834891354138622109">ಕಾಲಮ್</translation>
 <translation id="1845944666972354496">ಸಕ್ರಿಯಗೊಳಿಸಲು ಡಬಲ್ ಟ್ಯಾಪ್ ಮಾಡಿ</translation>
@@ -146,6 +147,7 @@
 <translation id="2416512023405990736">ಗುರುತಿಸದೆ ಇರುವ ಚೆಕ್‌ಬಾಕ್ಸ್</translation>
 <translation id="2417569100218200841">ವಿಷಯ ಮಾಹಿತಿ</translation>
 <translation id="2417948780551741035">ಅಂತಿಮ ಟಿಪ್ಪಣಿಗಳು</translation>
+<translation id="2421113964388408478">ಅಳಿಸುವಿಕೆ</translation>
 <translation id="2422937916923936891">ಮೆನು ಐಟಂ ಚೆಕ್‌ಬಾಕ್ಸ್</translation>
 <translation id="2428534162001909979">ಆದೇಶ ಮೆನುಗಳು</translation>
 <translation id="2429669115401274487">ಸಂಜೆ</translation>
@@ -253,6 +255,7 @@
 <translation id="3232388865800379423">ಪಾಪ್-ಅಪ್ ಬಟನ್</translation>
 <translation id="3241052487511142956">ಹಿಂದಿನ ಭೇಟಿ ನೀಡಿದ ಲಿಂಕ್</translation>
 <translation id="3241638166094654466">ಪ್ರತಿಯೊಂದು ಸಾಲಿನಲ್ಲಿರುವ ಸೆಲ್‌ಗಳು:</translation>
+<translation id="3286372614333682499">ಪೋರ್ಟ್ರೇಟ್</translation>
 <translation id="3286390186030710347">ಸ್ಲೈಡರ್</translation>
 <translation id="3299925995433437805">ಮುಂದೆ ಯಾವುದೇ ಭೇಟಿ ನೀಡಿದ ಲಿಂಕ್ ಇಲ್ಲ.</translation>
 <translation id="3300348286427369683">ಸಮೃದ್ಧ ಪಠ್ಯ ಬೆಂಬಲ. ಜಂಪ್ ಕಮಾಂಡ್‌ಗಳು, ಬ್ರೈಲ್ ಕರ್ಸರ್ ರೌಟಿಂಗ್, ಆಯ್ಕೆ, ಮತ್ತು ಹೆಚ್ಚಿನವುಗಳನ್ನು ಒಳಗೊಂಡಂತೆ ಸಮೃದ್ಧ ಪಠ್ಯ ಕ್ಷೇತ್ರಗಳನ್ನು ಇದೀಗ ChromeVox ಬೆಂಬಲಿಸುತ್ತದೆ.</translation>
@@ -426,6 +429,7 @@
 <translation id="4476183483923481720">ಹೊಸ ಸಾಲು</translation>
 <translation id="4482330759234983253">ಹಿಂದಿನ ಕೋಷ್ಟಕ</translation>
 <translation id="4491109536499578614">ಚಿತ್ರ</translation>
+<translation id="4505167975768625962">ಅಳವಡಿಕೆ</translation>
 <translation id="4517854969512651305">ಮೌಲ್ಯವನ್ನು ಹೆಚ್ಚಿಸಿ</translation>
 <translation id="4529987814483543472">ಕ್ಲಾಸಿಕ್ ಕೀಮ್ಯಾಪ್</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{ಸ್ಲ್ಯಾಷ್‌}one{# ಸ್ಲ್ಯಾಷ್‌ಗಳು}other{# ಸ್ಲ್ಯಾಷ್‌ಗಳು}}</translation>
@@ -589,6 +593,7 @@
 <translation id="5712338278108304766">ಮುಂದಿನ ಕೋಷ್ಟಕದ ಕಾಲಮ್</translation>
 <translation id="571866080859340309">ಗುಂಪುಗಳನ್ನು ಪರಿಶೋಧಿಸಲಾಗುತ್ತದೆ</translation>
 <translation id="5728409797179002635">ಯಾವುದೇ ಕೋಷ್ಟಕ ಕಂಡುಬಂದಿಲ್ಲ.</translation>
+<translation id="5729047866208036762">ಗಣಿತದ ವಿಷಯವನ್ನು ಎಕ್ಸ್‌ಪ್ಲೋರ್‌ ಮಾಡಲು ಮೇಲಕ್ಕೆ, ಕೆಳಕ್ಕೆ, ಎಡಕ್ಕೆ ಅಥವಾ ಬಲಕ್ಕೆ ಒತ್ತಿರಿ.</translation>
 <translation id="5732189279857692565">ಇದು ಎರಡನೇ ಶಿರೋನಾಮೆ. ಮುಂದುವರಿಸಿ; ಇಲ್ಲವೇ ಹುಡುಕಾಟ+H ಅಥವಾ ಹುಡುಕಾಡ+Shift+H ಒತ್ತಿ</translation>
 <translation id="5748623122140342504">ಹಿಂದಿನ ಹಂತದ 5 ಶಿರೋನಾಮೆ</translation>
 <translation id="5750633686117194034">ಯಾವುದೇ ಮಾರ್ಪಡಿಸುವಿಕೆಯನ್ನು ಒತ್ತಲಾಗಿಲ್ಲ; ದಯವಿಟ್ಟು ಒಂದು ಅಥವಾ ಇನ್ನಷ್ಟು ಮಾರ್ಪಾಡುಗಳನ್ನು ಒತ್ತಿ ಮತ್ತು ಒತ್ತಿ ಹಿಡಿಯಿರಿ; ಒಮ್ಮೆ ಮುಗಿದ ನಂತರ ನಿಮ್ಮ ಬೆರಳುಗಳನ್ನು ಮೇಲೆಕ್ಕೆತ್ತಿ ಹಾಗೂ ನೀವು ಕೀಲಿಗಳ ಹೊಂದಿಸುವಿಕೆಯನ್ನು ಕೇಳುವಿರಿ. ನಿರ್ಗಮಿಸಲು ಟ್ಯಾಬ್.</translation>
@@ -744,6 +749,7 @@ Chrome ಬ್ರೌಸರ್ ಮೆನು ತೆರೆಯಲು, Alt+F ಒತ್
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">6-ಡಾಟ್ ಬ್ರೈಲ್ ಕೋಷ್ಠಕವನ್ನು ಆಯ್ಕೆ ಮಾಡಿ:</translation>
 <translation id="72393384879519786">ಶೀರ್ಷಿಕೆ</translation>
+<translation id="7240858705033280249">ವಿವರಗಳಿಗೆ ಹೋಗಿ</translation>
 <translation id="7241683698754534149">ಹೊಸ ಟ್ಯಾಬ್‌ನಲ್ಲಿ ದೀರ್ಘ ವಿವರಣೆಯನ್ನು ತೆರೆಯಿರಿ</translation>
 <translation id="7248671827512403053">ಅಪ್ಲಿಕೇಶನ್</translation>
 <translation id="725969808843520477">ಮುಂದಿನ ರೇಡಿಯೊ ಬಟನ್</translation>
@@ -920,6 +926,7 @@ Chrome ಬ್ರೌಸರ್ ಮೆನು ತೆರೆಯಲು, Alt+F ಒತ್
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">8-ಡಾಟ್ ಬ್ರೈಲ್ ಕೋಷ್ಠಕವನ್ನು ಆಯ್ಕೆ ಮಾಡಿ:</translation>
 <translation id="9065283790526219006">+ಪಾಪ್‌ಅಪ್‌</translation>
+<translation id="9066023754636984703">ವಿವರಗಳಿಗೆ ಹೋಗಲು ಹುಡುಕಾಟ+A, J ಒತ್ತಿ.</translation>
 <translation id="9067522039955793016">ಪುಟ ವಿಭಜನೆ</translation>
 <translation id="9077213568694924680">ಆಯ್ಕೆಯಿಂದ ತೆಗೆದುಹಾಕಲಾಗಿದೆ</translation>
 <translation id="9082874451376019682">ಹಿಂದಿನ ಸ್ಲೈಡರ್ ಇಲ್ಲ.</translation>

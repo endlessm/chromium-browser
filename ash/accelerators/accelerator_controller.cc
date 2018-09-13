@@ -10,10 +10,13 @@
 #include <utility>
 
 #include "ash/accelerators/accelerator_commands.h"
+#include "ash/accelerators/accelerator_confirmation_dialog.h"
 #include "ash/accelerators/debug_commands.h"
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/assistant/assistant_controller.h"
+#include "ash/assistant/assistant_ui_controller.h"
+#include "ash/assistant/model/assistant_ui_model.h"
 #include "ash/debug.h"
 #include "ash/display/display_configuration_controller.h"
 #include "ash/display/display_move_window_util.h"
@@ -23,6 +26,7 @@
 #include "ash/magnifier/docked_magnifier_controller.h"
 #include "ash/magnifier/magnification_controller.h"
 #include "ash/media_controller.h"
+#include "ash/metrics/user_metrics_recorder.h"
 #include "ash/multi_profile_uma.h"
 #include "ash/new_window_controller.h"
 #include "ash/public/cpp/app_list/app_list_constants.h"
@@ -92,6 +96,10 @@ const char kNotifierAccelerator[] = "ash.accelerator-controller";
 
 const char kHighContrastToggleAccelNotificationId[] =
     "chrome://settings/accessibility/highcontrast";
+const char kDockedMagnifierToggleAccelNotificationId[] =
+    "chrome://settings/accessibility/dockedmagnifier";
+const char kFullscreenMagnifierToggleAccelNotificationId[] =
+    "chrome://settings/accessibility/fullscreenmagnifier";
 
 namespace {
 
@@ -264,7 +272,8 @@ void HandleMediaPrevTrack() {
 void HandleToggleMirrorMode() {
   base::RecordAction(UserMetricsAction("Accel_Toggle_Mirror_Mode"));
   bool mirror = !Shell::Get()->display_manager()->IsInMirrorMode();
-  Shell::Get()->display_configuration_controller()->SetMirrorMode(mirror);
+  Shell::Get()->display_configuration_controller()->SetMirrorMode(
+      mirror, true /* throttle */);
 }
 
 bool CanHandleNewIncognitoWindow() {
@@ -303,9 +312,9 @@ bool CanHandleCycleMru(const ui::Accelerator& accelerator) {
   // keyboard, but there's no easy way to do so, thus we block Alt+Tab when the
   // virtual keyboard is showing, even if it came from a real keyboard. See
   // http://crbug.com/638269
-  keyboard::KeyboardController* keyboard_controller =
-      keyboard::KeyboardController::GetInstance();
-  return !(keyboard_controller && keyboard_controller->keyboard_visible());
+  auto* keyboard_controller = keyboard::KeyboardController::Get();
+  return !(keyboard_controller->enabled() &&
+           keyboard_controller->IsKeyboardVisible());
 }
 
 void HandleNextIme() {
@@ -422,10 +431,12 @@ void HandleToggleMessageCenterBubble() {
   NotificationTray* notification_tray = status_area_widget->notification_tray();
   if (!notification_tray->visible())
     return;
-  if (notification_tray->IsMessageCenterVisible())
+  if (notification_tray->IsMessageCenterVisible()) {
     notification_tray->CloseBubble();
-  else
+  } else {
     notification_tray->ShowBubble(false /* show_by_click */);
+    notification_tray->ActivateBubble();
+  }
 }
 
 void HandleToggleSystemTrayBubble() {
@@ -435,10 +446,12 @@ void HandleToggleSystemTrayBubble() {
     UnifiedSystemTray* tray = RootWindowController::ForWindow(target_root)
                                   ->GetStatusAreaWidget()
                                   ->unified_system_tray();
-    if (tray->IsBubbleShown())
+    if (tray->IsBubbleShown()) {
       tray->CloseBubble();
-    else
+    } else {
       tray->ShowBubble(false /* show_by_click */);
+      tray->ActivateBubble();
+    }
   } else {
     SystemTray* tray =
         RootWindowController::ForWindow(target_root)->GetSystemTray();
@@ -463,7 +476,8 @@ void HandleSwapPrimaryDisplay() {
   // two screens. Behave the same as mirroring: fail and notify if there are
   // three or more screens.
   Shell::Get()->display_configuration_controller()->SetPrimaryDisplayId(
-      Shell::Get()->display_manager()->GetSecondaryDisplay().id());
+      Shell::Get()->display_manager()->GetSecondaryDisplay().id(),
+      true /* throttle */);
 }
 
 bool CanHandleSwitchIme(const ui::Accelerator& accelerator) {
@@ -663,13 +677,6 @@ void HandleToggleVoiceInteraction(const ui::Accelerator& accelerator) {
         base::UserMetricsAction("VoiceInteraction.Started.Assistant"));
   }
 
-  // TODO(dmblack): Remove. Enabling eligibility check bypass for development
-  // purposes only. We should otherwise respect the eligibility rules below.
-  if (chromeos::switches::IsAssistantEnabled()) {
-    Shell::Get()->assistant_controller()->ToggleInteraction();
-    return;
-  }
-
   switch (Shell::Get()->voice_interaction_controller()->allowed_state()) {
     case mojom::AssistantAllowedState::DISALLOWED_BY_NONPRIMARY_USER:
       // Show a toast if the active user is not primary.
@@ -702,10 +709,12 @@ void HandleToggleVoiceInteraction(const ui::Accelerator& accelerator) {
       break;
   }
 
-  if (!chromeos::switches::IsAssistantEnabled())
+  if (!chromeos::switches::IsAssistantEnabled()) {
     Shell::Get()->app_list_controller()->ToggleVoiceInteractionSession();
-  else
-    Shell::Get()->assistant_controller()->ToggleInteraction();
+  } else {
+    Shell::Get()->assistant_controller()->ui_controller()->ToggleUi(
+        AssistantSource::kHotkey);
+  }
 }
 
 void HandleSuspend() {
@@ -772,22 +781,60 @@ void HandleToggleCapsLock() {
 }
 
 bool CanHandleToggleDictation() {
-  return chromeos::switches::AreExperimentalAccessibilityFeaturesEnabled();
+  return Shell::Get()->accessibility_controller()->IsDictationEnabled();
 }
 
 void HandleToggleDictation() {
   base::RecordAction(UserMetricsAction("Accel_Toggle_Dictation"));
+  UserMetricsRecorder::RecordUserToggleDictation(
+      DictationToggleMethod::kToggleByKeyboard);
   Shell::Get()->accessibility_controller()->ToggleDictation();
 }
 
 bool CanHandleToggleDockedMagnifier() {
-  if (Shell::GetAshConfig() == Config::MASH) {
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED) {
     // TODO: Mash support for the Docked Magnifier https://crbug.com/814481.
     NOTIMPLEMENTED();
     return false;
   }
 
   return features::IsDockedMagnifierEnabled();
+}
+
+void CreateAndShowStickyNotification(const int title_id,
+                                     const int message_id,
+                                     const std::string& notification_id) {
+  std::unique_ptr<Notification> notification =
+      Notification::CreateSystemNotification(
+          message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
+          l10n_util::GetStringUTF16(title_id),
+          l10n_util::GetStringUTF16(message_id), gfx::Image(),
+          base::string16() /* display source */, GURL(),
+          message_center::NotifierId(
+              message_center::NotifierId::SYSTEM_COMPONENT,
+              kNotifierAccelerator),
+          message_center::RichNotificationData(), nullptr,
+          kNotificationAccessibilityIcon,
+          SystemNotificationWarningLevel::NORMAL);
+  notification->set_priority(message_center::SYSTEM_PRIORITY);
+  message_center::MessageCenter::Get()->AddNotification(
+      std::move(notification));
+}
+
+void RemoveStickyNotitification(const std::string& notification_id) {
+  message_center::MessageCenter::Get()->RemoveNotification(notification_id,
+                                                           false /* by_user */);
+}
+
+void SetDockedMagnifierEnabled(bool enabled) {
+  if (enabled) {
+    CreateAndShowStickyNotification(IDS_DOCKED_MAGNIFIER_ACCEL_TITLE,
+                                    IDS_DOCKED_MAGNIFIER_ACCEL_MSG,
+                                    kDockedMagnifierToggleAccelNotificationId);
+  } else {
+    RemoveStickyNotitification(kDockedMagnifierToggleAccelNotificationId);
+  }
+  Shell::Get()->docked_magnifier_controller()->SetEnabled(enabled);
 }
 
 void HandleToggleDockedMagnifier() {
@@ -797,7 +844,52 @@ void HandleToggleDockedMagnifier() {
   DockedMagnifierController* docked_magnifier_controller =
       Shell::Get()->docked_magnifier_controller();
   const bool current_enabled = docked_magnifier_controller->GetEnabled();
-  docked_magnifier_controller->SetEnabled(!current_enabled);
+  const bool dialog_ever_accepted =
+      Shell::Get()
+          ->accessibility_controller()
+          ->HasDockedMagnifierAcceleratorDialogBeenAccepted();
+
+  if (!current_enabled && !dialog_ever_accepted) {
+    Shell::Get()->accelerator_controller()->MaybeShowConfirmationDialog(
+        IDS_ASH_DOCKED_MAGNIFIER_TITLE, IDS_ASH_DOCKED_MAGNIFIER_BODY,
+        base::BindOnce([]() {
+          Shell::Get()
+              ->accessibility_controller()
+              ->SetDockedMagnifierAcceleratorDialogAccepted();
+          SetDockedMagnifierEnabled(true);
+        }));
+  } else {
+    SetDockedMagnifierEnabled(!current_enabled);
+  }
+}
+
+void SetFullscreenMagnifierEnabled(bool enabled) {
+  if (enabled) {
+    CreateAndShowStickyNotification(
+        IDS_FULLSCREEN_MAGNIFIER_ACCEL_TITLE,
+        IDS_FULLSCREEN_MAGNIFIER_ACCEL_MSG,
+        kFullscreenMagnifierToggleAccelNotificationId);
+  } else {
+    RemoveStickyNotitification(kFullscreenMagnifierToggleAccelNotificationId);
+  }
+
+  // TODO (afakhry): Move the below into a single call (crbug/817157).
+  // Necessary to make magnification controller in ash observe changes to the
+  // prefs iteself.
+  Shell* shell = Shell::Get();
+  shell->accessibility_controller()->SetFullscreenMagnifierEnabled(enabled);
+  shell->magnification_controller()->SetEnabled(enabled);
+}
+
+void SetHighContrastEnabled(bool enabled) {
+  if (enabled) {
+    CreateAndShowStickyNotification(IDS_HIGH_CONTRAST_ACCEL_TITLE,
+                                    IDS_HIGH_CONTRAST_ACCEL_MSG,
+                                    kHighContrastToggleAccelNotificationId);
+  } else {
+    RemoveStickyNotitification(kHighContrastToggleAccelNotificationId);
+  }
+  Shell::Get()->accessibility_controller()->SetHighContrastEnabled(enabled);
 }
 
 void HandleToggleHighContrast() {
@@ -805,38 +897,26 @@ void HandleToggleHighContrast() {
 
   AccessibilityController* controller =
       Shell::Get()->accessibility_controller();
-  bool will_be_enabled = !controller->IsHighContrastEnabled();
+  const bool current_enabled = controller->IsHighContrastEnabled();
+  const bool dialog_ever_accepted =
+      controller->HasHighContrastAcceleratorDialogBeenAccepted();
 
-  if (will_be_enabled) {
-    // Show a notification so the user knows that this accelerator toggled
-    // high contrast mode, and that they can press it again to toggle back.
-    // The message center automatically only shows this once per session.
-    std::unique_ptr<Notification> notification =
-        Notification::CreateSystemNotification(
-            message_center::NOTIFICATION_TYPE_SIMPLE,
-            kHighContrastToggleAccelNotificationId,
-            l10n_util::GetStringUTF16(IDS_HIGH_CONTRAST_ACCEL_TITLE),
-            l10n_util::GetStringUTF16(IDS_HIGH_CONTRAST_ACCEL_MSG),
-            gfx::Image(), base::string16() /* display source */, GURL(),
-            message_center::NotifierId(
-                message_center::NotifierId::SYSTEM_COMPONENT,
-                kNotifierAccelerator),
-            message_center::RichNotificationData(), nullptr,
-            kNotificationAccessibilityIcon,
-            SystemNotificationWarningLevel::NORMAL);
-    notification->set_priority(message_center::SYSTEM_PRIORITY);
-    message_center::MessageCenter::Get()->AddNotification(
-        std::move(notification));
+  if (!current_enabled && !dialog_ever_accepted) {
+    Shell::Get()->accelerator_controller()->MaybeShowConfirmationDialog(
+        IDS_ASH_HIGH_CONTRAST_TITLE, IDS_ASH_HIGH_CONTRAST_BODY,
+        base::BindOnce([]() {
+          Shell::Get()
+              ->accessibility_controller()
+              ->SetHighContrastAcceleratorDialogAccepted();
+          SetHighContrastEnabled(true);
+        }));
   } else {
-    message_center::MessageCenter::Get()->RemoveNotification(
-        kHighContrastToggleAccelNotificationId, false /* by_user */);
+    SetHighContrastEnabled(!current_enabled);
   }
-
-  controller->SetHighContrastEnabled(will_be_enabled);
 }
 
 bool CanHandleToggleFullscreenMagnifier() {
-  if (Shell::GetAshConfig() == Config::MASH) {
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED) {
     // TODO: Mash support for the Fullscreen Magnifier
     // https://crbug.com/821551.
     NOTIMPLEMENTED();
@@ -849,10 +929,25 @@ bool CanHandleToggleFullscreenMagnifier() {
 void HandleToggleFullscreenMagnifier() {
   base::RecordAction(UserMetricsAction("Accel_Toggle_Fullscreen_Magnifier"));
 
-  MagnificationController* fullscreen_magnifier_controller =
+  MagnificationController* controller =
       Shell::Get()->magnification_controller();
-  const bool current_enabled = fullscreen_magnifier_controller->IsEnabled();
-  fullscreen_magnifier_controller->SetEnabled(!current_enabled);
+  const bool current_enabled = controller->IsEnabled();
+  const bool dialog_ever_accepted =
+      Shell::Get()
+          ->accessibility_controller()
+          ->HasScreenMagnifierAcceleratorDialogBeenAccepted();
+  if (!current_enabled && !dialog_ever_accepted) {
+    Shell::Get()->accelerator_controller()->MaybeShowConfirmationDialog(
+        IDS_ASH_SCREEN_MAGNIFIER_TITLE, IDS_ASH_SCREEN_MAGNIFIER_BODY,
+        base::BindOnce([]() {
+          Shell::Get()
+              ->accessibility_controller()
+              ->SetScreenMagnifierAcceleratorDialogAccepted();
+          SetFullscreenMagnifierEnabled(true);
+        }));
+  } else {
+    SetFullscreenMagnifierEnabled(!current_enabled);
+  }
 }
 
 void HandleToggleSpokenFeedback() {
@@ -900,7 +995,7 @@ bool CanHandleActiveMagnifierZoom() {
 // Change the scale of the active magnifier.
 void HandleActiveMagnifierZoom(int delta_index) {
   // TODO(crbug.com/612331): Mash support.
-  if (Shell::GetAshConfig() == Config::MASH) {
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED) {
     NOTIMPLEMENTED();
     return;
   }
@@ -919,7 +1014,7 @@ void HandleActiveMagnifierZoom(int delta_index) {
 
 bool CanHandleTouchHud() {
   // TODO(crbug.com/612331): Mash support.
-  if (Shell::GetAshConfig() == Config::MASH)
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED)
     return false;
 
   return RootWindowController::ForTargetRootWindow()->touch_hud_debug();
@@ -927,7 +1022,7 @@ bool CanHandleTouchHud() {
 
 void HandleTouchHudClear() {
   // TODO(crbug.com/612331): Mash support.
-  if (Shell::GetAshConfig() == Config::MASH) {
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED) {
     NOTIMPLEMENTED();
     return;
   }
@@ -936,7 +1031,7 @@ void HandleTouchHudClear() {
 
 void HandleTouchHudModeChange() {
   // TODO(crbug.com/612331): Mash support.
-  if (Shell::GetAshConfig() == Config::MASH) {
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED) {
     NOTIMPLEMENTED();
     return;
   }
@@ -1719,6 +1814,24 @@ AcceleratorController::MaybeDeprecatedAcceleratorPressed(
     return AcceleratorProcessingStatus::STOP;
 
   return AcceleratorProcessingStatus::PROCEED;
+}
+
+void AcceleratorController::MaybeShowConfirmationDialog(
+    int window_title_text_id,
+    int dialog_text_id,
+    base::OnceClosure on_accept_callback) {
+  // An active dialog exists already.
+  if (confirmation_dialog_)
+    return;
+
+  auto* dialog = new AcceleratorConfirmationDialog(
+      window_title_text_id, dialog_text_id, std::move(on_accept_callback));
+  confirmation_dialog_ = dialog->GetWeakPtr();
+}
+
+AcceleratorConfirmationDialog*
+AcceleratorController::confirmation_dialog_for_testing() {
+  return confirmation_dialog_.get();
 }
 
 }  // namespace ash

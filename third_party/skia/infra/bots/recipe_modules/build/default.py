@@ -35,7 +35,7 @@ def compile_swiftshader(api, swiftshader_root, cc, cxx, out):
   api.file.ensure_directory('makedirs swiftshader_out', out)
   with api.context(cwd=out, env=env):
     api.run(api.step, 'swiftshader cmake',
-            cmd=['cmake', swiftshader_root, '-GNinja'])
+            cmd=['cmake', '-DBUILD_TESTS=OFF', swiftshader_root, '-GNinja'])
     api.run(api.step, 'swiftshader ninja',
             cmd=['ninja', '-C', out, 'libEGL.so', 'libGLESv2.so'])
 
@@ -53,7 +53,7 @@ def compile_fn(api, checkout_root, out_dir):
   linux_vulkan_sdk   = str(api.vars.slave_dir.join('linux_vulkan_sdk'))
   win_toolchain = str(api.vars.slave_dir.join(
     't', 'depot_tools', 'win_toolchain', 'vs_files',
-    'a9e1098bba66d2acccc377d5ee81265910f29272'))
+    '5454e45bf3764c03d3fc1024b3bf5bc41e3ab62c'))
   win_vulkan_sdk = str(api.vars.slave_dir.join('win_vulkan_sdk'))
   moltenvk = str(api.vars.slave_dir.join('moltenvk'))
 
@@ -71,7 +71,7 @@ def compile_fn(api, checkout_root, out_dir):
     extra_ldflags.append('-fuse-ld=lld')
     extra_cflags.append('-DDUMMY_clang_linux_version=%s' %
                         api.run.asset_version('clang_linux', skia_dir))
-    if os == 'Ubuntu14':
+    if 'Static' in extra_tokens:
       extra_ldflags.extend(['-static-libstdc++', '-static-libgcc'])
 
   elif compiler == 'Clang':
@@ -146,9 +146,10 @@ def compile_fn(api, checkout_root, out_dir):
     args['skia_use_egl'] = 'true'
     extra_cflags.extend([
         '-DGR_EGL_TRY_GLES3_THEN_GLES2',
-        # TODO(dogben): Use headers from Khronos rather than SwiftShader's
-        # copy.
-        '-I%s' % swiftshader_root.join('include'),
+        '-I%s' % skia_dir.join(
+            'third_party', 'externals', 'egl-registry', 'api'),
+        '-I%s' % skia_dir.join(
+            'third_party', 'externals', 'opengl-registry', 'api'),
     ])
     extra_ldflags.extend([
         '-L%s' % swiftshader_out,
@@ -157,7 +158,6 @@ def compile_fn(api, checkout_root, out_dir):
     chrome_dir = checkout_root
     api.run.run_once(build_command_buffer, api, chrome_dir, skia_dir, out_dir)
   if 'MSAN' in extra_tokens:
-    args['skia_enable_gpu']     = 'false'
     args['skia_use_fontconfig'] = 'false'
   if 'ASAN' in extra_tokens or 'UBSAN' in extra_tokens:
     args['skia_enable_spirv_validation'] = 'false'
@@ -192,8 +192,6 @@ def compile_fn(api, checkout_root, out_dir):
     })
   if 'NoGPU' in extra_tokens:
     args['skia_enable_gpu'] = 'false'
-  if 'EmbededResouces' in extra_tokens:
-    args['skia_embed_resoucres'] = 'true'
   if 'Shared' in extra_tokens:
     args['is_component_build'] = 'true'
   if 'Vulkan' in extra_tokens and not 'Android' in extra_tokens:
@@ -206,6 +204,13 @@ def compile_fn(api, checkout_root, out_dir):
       args['skia_moltenvk_path'] = '"%s"' % moltenvk
   if 'Metal' in extra_tokens:
     args['skia_use_metal'] = 'true'
+  if 'OpenCL' in extra_tokens:
+    args['skia_use_opencl'] = 'true'
+    extra_cflags.append(
+        '-isystem%s' % api.vars.slave_dir.join('opencl_headers'))
+    if api.vars.is_linux:
+      extra_ldflags.append(
+          '-L%s' % api.vars.slave_dir.join('opencl_ocl_icd_linux'))
   if 'iOS' in extra_tokens:
     # Bots use Chromium signing cert.
     args['skia_ios_identity'] = '".*GS9WA.*"'
@@ -278,4 +283,4 @@ def copy_extra_build_products(api, src, dst):
   if 'SwiftShader' in api.vars.extra_tokens:
     util.copy_whitelisted_build_products(api,
         src.join('swiftshader_out'),
-        api.vars.swarming_out_dir.join('out', 'swiftshader_out'))
+        api.vars.swarming_out_dir.join('swiftshader_out'))

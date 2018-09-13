@@ -6,12 +6,12 @@ package org.chromium.chrome.browser.survey;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.os.AsyncTask;
 import android.os.Handler;
 import android.support.annotation.IntDef;
 import android.support.annotation.VisibleForTesting;
 import android.text.TextUtils;
 
+import org.chromium.base.AsyncTask;
 import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
@@ -77,7 +77,8 @@ public class ChromeSurveyController implements InfoBarContainer.InfoBarAnimation
         int MAX_NUMBER_MISSING = 4;
         int ROLLED_NON_ZERO_NUMBER = 5;
         int USER_SELECTED_FOR_SURVEY = 6;
-        int ENUM_BOUNDARY = 7;
+        // Number of entries
+        int NUM_ENTRIES = 7;
     }
 
     /**
@@ -92,7 +93,8 @@ public class ChromeSurveyController implements InfoBarContainer.InfoBarAnimation
         int CLOSE_BUTTON = 1;
         int VISIBLE_INDIRECT = 2;
         int HIDDEN_INDIRECT = 3;
-        int ENUM_BOUNDARY = 4;
+        // Number of entries
+        int NUM_ENTRIES = 4;
     }
 
     private TabModelSelector mTabModelSelector;
@@ -138,8 +140,10 @@ public class ChromeSurveyController implements InfoBarContainer.InfoBarAnimation
             }
         };
 
-        String siteContext = String.format(
-                "Is Modern Design Enabled? %s", FeatureUtilities.isChromeModernDesignEnabled());
+        String siteContext =
+                ChromeFeatureList.isEnabled(ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID)
+                ? "HorizontalTabSwitcher"
+                : "NotHorizontalTabSwitcher";
         surveyController.downloadSurvey(context, siteId, onSuccessRunnable, siteContext);
     }
 
@@ -321,6 +325,20 @@ public class ChromeSurveyController implements InfoBarContainer.InfoBarAnimation
             maxNumber = ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
                     ChromeFeatureList.CHROME_MODERN_DESIGN, MAX_NUMBER, maxNumber);
         }
+
+        int maxForHorizontalTabSwitcher = -1;
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID)) {
+            maxForHorizontalTabSwitcher = ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
+                    ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID, MAX_NUMBER, -1);
+        }
+        if (maxForHorizontalTabSwitcher != -1) {
+            if (maxNumber == -1) {
+                maxNumber = maxForHorizontalTabSwitcher;
+            } else {
+                maxNumber = Math.min(maxNumber, maxForHorizontalTabSwitcher);
+            }
+        }
+
         if (maxNumber == -1) {
             recordSurveyFilteringResult(FilteringResult.MAX_NUMBER_MISSING);
             return false;
@@ -443,12 +461,12 @@ public class ChromeSurveyController implements InfoBarContainer.InfoBarAnimation
 
     private void recordSurveyFilteringResult(@FilteringResult int value) {
         RecordHistogram.recordEnumeratedHistogram(
-                "Android.Survey.SurveyFilteringResults", value, FilteringResult.ENUM_BOUNDARY);
+                "Android.Survey.SurveyFilteringResults", value, FilteringResult.NUM_ENTRIES);
     }
 
     private void recordInfoBarClosingState(@InfoBarClosingState int value) {
         RecordHistogram.recordEnumeratedHistogram(
-                "Android.Survey.InfoBarClosingState", value, InfoBarClosingState.ENUM_BOUNDARY);
+                "Android.Survey.InfoBarClosingState", value, InfoBarClosingState.NUM_ENTRIES);
     }
 
     static class StartDownloadIfEligibleTask extends AsyncTask<Void, Void, Boolean> {

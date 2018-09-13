@@ -5,21 +5,28 @@
 #include "chrome/browser/ui/views/profiles/dice_accounts_menu.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/color_palette.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/controls/menu/menu_config.h"
 #include "ui/views/layout/layout_provider.h"
 #include "ui/views/view.h"
 
 namespace {
 
-constexpr int kAvatarIconSize = 16;
+constexpr int kProfilesAvatarIconSize = 16;
 
 // Used to identify the "Use another account" button.
 constexpr int kUseAnotherAccountCmdId = std::numeric_limits<int>::max();
+
+// Used to identify the "Sign out" button.
+constexpr int kSignOutCmdId = std::numeric_limits<int>::max() - 1;
 
 // Anchor inset used to position the accounts menu.
 constexpr int kAnchorInset = 8;
@@ -29,7 +36,8 @@ constexpr int kHorizontalIconSpacing = 16;
 
 gfx::ImageSkia SizeAndCircleIcon(const gfx::Image& icon) {
   gfx::Image circled_icon = profiles::GetSizedAvatarIcon(
-      icon, true, kAvatarIconSize, kAvatarIconSize, profiles::SHAPE_CIRCLE);
+      icon, true, kProfilesAvatarIconSize, kProfilesAvatarIconSize,
+      profiles::SHAPE_CIRCLE);
   return *circled_icon.ToImageSkia();
 }
 
@@ -68,15 +76,22 @@ void DiceAccountsMenu::Show(views::View* anchor_view,
 
 DiceAccountsMenu::~DiceAccountsMenu() {}
 
+void DiceAccountsMenu::SetSignOutButtonCallback(
+    base::OnceClosure signout_callback) {
+  signout_callback_ = std::move(signout_callback);
+}
+
 views::MenuItemView* DiceAccountsMenu::BuildMenu() {
   views::MenuItemView* menu = new views::MenuItemView(this);
   gfx::Image default_icon =
       ui::ResourceBundle::GetSharedInstance().GetImageNamed(
           profiles::GetPlaceholderAvatarIconResourceID());
+#if !defined(OS_MACOSX)
   // Add spacing at top.
   menu->AppendMenuItemImpl(
       0, base::string16(), base::string16(), base::string16(), nullptr,
       gfx::ImageSkia(), views::MenuItemView::SEPARATOR, ui::SPACING_SEPARATOR);
+#endif
   // Add a menu item for each account.
   for (size_t idx = 0; idx < accounts_.size(); idx++) {
     views::MenuItemView* item = menu->AppendMenuItemWithIcon(
@@ -84,16 +99,26 @@ views::MenuItemView* DiceAccountsMenu::BuildMenu() {
         SizeAndCircleIcon(icons_[idx].IsEmpty() ? default_icon : icons_[idx]));
     item->SetMargins(kVerticalItemMargins, kVerticalItemMargins);
   }
-  // Add the "Use another account" button at the bottom.
+  // Add the "Use another account" button.
   views::MenuItemView* item = menu->AppendMenuItemWithIcon(
       kUseAnotherAccountCmdId,
       l10n_util::GetStringUTF16(IDS_PROFILES_DICE_USE_ANOTHER_ACCOUNT_BUTTON),
       SizeAndCircleIcon(default_icon));
   item->SetMargins(kVerticalItemMargins, kVerticalItemMargins);
+  if (!signout_callback_.is_null()) {
+    // Add the "Sign out" button.
+    item = menu->AppendMenuItemWithIcon(
+        kSignOutCmdId, l10n_util::GetStringUTF16(IDS_SCREEN_LOCK_SIGN_OUT),
+        gfx::CreateVectorIcon(kSignOutIcon, kProfilesAvatarIconSize,
+                              gfx::kGoogleGrey600));
+    item->SetMargins(kVerticalItemMargins, kVerticalItemMargins);
+  }
+#if !defined(OS_MACOSX)
   // Add spacing at bottom.
   menu->AppendMenuItemImpl(
       0, base::string16(), base::string16(), base::string16(), nullptr,
       gfx::ImageSkia(), views::MenuItemView::SEPARATOR, ui::SPACING_SEPARATOR);
+#endif
 
   menu->set_has_icons(true);
   return menu;
@@ -101,7 +126,11 @@ views::MenuItemView* DiceAccountsMenu::BuildMenu() {
 
 void DiceAccountsMenu::ExecuteCommand(int id) {
   DCHECK((0 <= id && static_cast<size_t>(id) < accounts_.size()) ||
-         id == kUseAnotherAccountCmdId);
+         id == kUseAnotherAccountCmdId || id == kSignOutCmdId);
+  if (id == kSignOutCmdId) {
+    std::move(signout_callback_).Run();
+    return;
+  }
   base::Optional<AccountInfo> account;
   if (id != kUseAnotherAccountCmdId)
     account = accounts_[id];
@@ -113,8 +142,8 @@ void DiceAccountsMenu::GetHorizontalIconMargins(int command_id,
                                                 int* left_margin,
                                                 int* right_margin) const {
   const views::MenuConfig& config = views::MenuConfig::instance();
-  *left_margin = kHorizontalIconSpacing - config.item_left_margin;
-  *right_margin = kHorizontalIconSpacing - config.icon_to_label_padding;
+  *left_margin = kHorizontalIconSpacing - config.item_horizontal_padding;
+  *right_margin = kHorizontalIconSpacing - config.item_horizontal_padding;
 }
 
 const gfx::FontList* DiceAccountsMenu::GetLabelFontList(int id) const {

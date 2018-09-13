@@ -47,6 +47,10 @@ class PrefRegistrySimple;
 
 namespace chromeos {
 
+namespace secure_channel {
+class SecureChannelClient;
+}  // namespace secure_channel
+
 class EasyUnlockAppManager;
 class EasyUnlockServiceObserver;
 class UserContext;
@@ -196,7 +200,8 @@ class EasyUnlockService : public KeyedService {
   }
 
  protected:
-  explicit EasyUnlockService(Profile* profile);
+  EasyUnlockService(Profile* profile,
+                    secure_channel::SecureChannelClient* secure_channel_client);
   ~EasyUnlockService() override;
 
   // Does a service type specific initialization.
@@ -224,8 +229,7 @@ class EasyUnlockService : public KeyedService {
   void Shutdown() override;
 
   // Exposes the profile to which the service is attached to subclasses.
-  const Profile* profile() const { return profile_; }
-  Profile* profile() { return profile_; }
+  Profile* profile() const { return profile_; }
 
   // Opens an Easy Unlock Setup app window.
   void OpenSetupApp();
@@ -268,7 +272,8 @@ class EasyUnlockService : public KeyedService {
   // are loaded for |account_id|.
   void SetProximityAuthDevices(
       const AccountId& account_id,
-      const cryptauth::RemoteDeviceRefList& remote_devices);
+      const cryptauth::RemoteDeviceRefList& remote_devices,
+      base::Optional<cryptauth::RemoteDeviceRef> local_device);
 
  private:
   // A class to detect whether a bluetooth adapter is present.
@@ -299,6 +304,7 @@ class EasyUnlockService : public KeyedService {
   void EnsureTpmKeyPresentIfNeeded();
 
   Profile* const profile_;
+  secure_channel::SecureChannelClient* secure_channel_client_;
 
   ChromeProximityAuthClient proximity_auth_client_;
 

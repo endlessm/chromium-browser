@@ -60,7 +60,7 @@ LocationLine.prototype.replaceRootName_ = function(url, newRoot) {
 
 /**
  * Get components for the path of entry.
- * @param {!Entry|!FakeEntry} entry An entry.
+ * @param {!Entry|!FakeEntry|!FilesAppEntry} entry An entry.
  * @return {!Array<!LocationLine.PathComponent>} Components.
  * @private
  */
@@ -81,6 +81,12 @@ LocationLine.prototype.getComponents_ = function(entry) {
   // Add volume component.
   var displayRootUrl = locationInfo.volumeInfo.displayRoot.toURL();
   var displayRootFullPath = locationInfo.volumeInfo.displayRoot.fullPath;
+
+  var prefixEntry = locationInfo.volumeInfo.prefixEntry;
+  if (prefixEntry) {
+    components.push(new LocationLine.PathComponent(
+        prefixEntry.name, prefixEntry.toURL(), prefixEntry));
+  }
   if (locationInfo.rootType === VolumeManagerCommon.RootType.DRIVE_OTHER) {
     // When target path is a shared directory, volume should be shared with me.
     displayRootUrl = this.replaceRootName_(displayRootUrl, '/other');
@@ -144,6 +150,7 @@ LocationLine.prototype.update_ = function(components) {
     // Add a component.
     var component = components[i];
     var button = document.createElement('button');
+    button.id = 'breadcrumb-path-' + i;
     button.classList.add(
         'breadcrumb-path', 'entry-name', 'imitate-paper-button');
     var nameElement = document.createElement('div');
@@ -351,8 +358,8 @@ LocationLine.prototype.onClick_ = function(index, event) {
  * Path component.
  * @param {string} name Name.
  * @param {string} url Url.
- * @param {FakeEntry=} opt_fakeEntry Fake entry should be set when this
- *     component represents fake entry.
+ * @param {FakeEntry|FilesAppEntry=} opt_fakeEntry Fake entry should be set when
+ *     this component represents fake entry.
  * @constructor
  * @struct
  */
@@ -364,12 +371,12 @@ LocationLine.PathComponent = function(name, url, opt_fakeEntry) {
 
 /**
  * Resolve an entry of the component.
- * @return {!Promise<!Entry|!FakeEntry>} A promise which is resolved with an
- *     entry.
+ * @return {!Promise<!Entry|!FakeEntry|!FilesAppEntry>} A promise which is
+ *     resolved with an entry.
  */
 LocationLine.PathComponent.prototype.resolveEntry = function() {
   if (this.fakeEntry_)
-    return /** @type {!Promise<!Entry|!FakeEntry>} */ (
+    return /** @type {!Promise<!Entry|!FakeEntry|!FilesAppEntry>} */ (
         Promise.resolve(this.fakeEntry_));
   else
     return new Promise(

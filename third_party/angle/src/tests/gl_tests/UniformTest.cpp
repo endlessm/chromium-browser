@@ -249,6 +249,37 @@ void main() {
     }
 }
 
+// Test that we can get and set an array of matrices uniform.
+TEST_P(SimpleUniformTest, ArrayOfMat3UniformStateQuery)
+{
+    constexpr char kFragShader[] = R"(
+precision mediump float;
+uniform mat3 umatarray[2];
+void main() {
+    gl_FragColor = vec4(umatarray[1]);
+})";
+
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Zero(), kFragShader);
+    glUseProgram(program);
+    std::vector<std::vector<GLfloat>> expected = {
+        {1.0f, 0.5f, 0.2f, -0.8f, -0.2f, 0.1f, 0.1f, 0.2f, 0.7f},
+        {0.9f, 0.4f, 0.1f, -0.9f, -0.3f, 0.0f, 0.0f, 0.1f, 0.6f}};
+
+    for (size_t i = 0; i < expected.size(); i++)
+    {
+        std::string locationName = "umatarray[" + std::to_string(i) + "]";
+        GLint uniformLocation    = glGetUniformLocation(program, locationName.c_str());
+        glUniformMatrix3fv(uniformLocation, 1, false, expected[i].data());
+        ASSERT_GL_NO_ERROR();
+        ASSERT_NE(uniformLocation, -1);
+
+        std::vector<GLfloat> results(9, 0);
+        glGetUniformfv(program, uniformLocation, results.data());
+        ASSERT_GL_NO_ERROR();
+        ASSERT_EQ(results, expected[i]);
+    }
+}
+
 // Test that we can get and set an int array of uniforms.
 TEST_P(SimpleUniformTest, FloatIntUniformStateQuery)
 {
@@ -778,6 +809,9 @@ TEST_P(UniformTestES3, OverflowArray)
 // Check setting a sampler uniform
 TEST_P(UniformTest, Sampler)
 {
+    // TODO(jmadill): Implement sampler arrays. http://anglebug.com/2462
+    ANGLE_SKIP_TEST_IF(IsVulkan());
+
     const std::string &vertShader =
         "uniform sampler2D tex2D;\n"
         "void main() {\n"
@@ -1016,6 +1050,61 @@ TEST_P(UniformTestES3, ReturnsOnlyOneArrayElement)
     }
 }
 
+// This test reproduces a regression when Intel windows driver upgrades to 4944. In some situation,
+// when a boolean uniform with false value is used as the if and for condtions, the bug will be
+// triggered. It seems that the shader doesn't get a right 'false' value from the uniform.
+TEST_P(UniformTestES3, BooleanUniformAsIfAndForCondition)
+{
+    ANGLE_SKIP_TEST_IF(IsIntel() && IsWindows());
+    const char kFragShader[] =
+        R"(#version 300 es
+        precision mediump float;
+        uniform bool u;
+        out vec4 result;
+        int sideEffectCounter;
+
+        bool foo() {
+          ++sideEffectCounter;
+          return true;
+        }
+
+        void main() {
+          sideEffectCounter = 0;
+          bool condition = u;
+          if (condition)
+          {
+            condition = foo();
+          }
+          for(int iterations = 0; condition;) {
+            ++iterations;
+            if (iterations >= 10) {
+              break;
+            }
+
+            if (condition)
+            {
+              condition = foo();
+            }
+          }
+
+          bool success = (!u && sideEffectCounter == 0);
+          result = (success) ? vec4(0, 1.0, 0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+        })";
+
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFragShader);
+
+    glUseProgram(program.get());
+
+    GLint uniformLocation = glGetUniformLocation(program, "u");
+    ASSERT_NE(uniformLocation, -1);
+
+    glUniform1i(uniformLocation, GL_FALSE);
+
+    drawQuad(program.get(), essl3_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
 class UniformTestES31 : public ANGLETest
 {
   protected:
@@ -1214,7 +1303,8 @@ ANGLE_INSTANTIATE_TEST(UniformTest,
                        ES2_D3D11(),
                        ES2_D3D11_FL9_3(),
                        ES2_OPENGL(),
-                       ES2_OPENGLES());
+                       ES2_OPENGLES(),
+                       ES2_VULKAN());
 ANGLE_INSTANTIATE_TEST(UniformTestES3, ES3_D3D11(), ES3_OPENGL(), ES3_OPENGLES());
 ANGLE_INSTANTIATE_TEST(UniformTestES31, ES31_D3D11(), ES31_OPENGL(), ES31_OPENGLES());
 

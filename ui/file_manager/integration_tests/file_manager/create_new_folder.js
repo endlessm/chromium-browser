@@ -9,14 +9,11 @@
  * When we are not in guest mode, we fill Google Drive with the basic entry set
  * which causes an extra tree-item to be added.
  */
-var TREEITEM_DRIVE = '#directory-tree > div:nth-child(1) ';
-var TREEITEM_DOWNLOADS = '#directory-tree > div:nth-child(2) ';
+var TREEITEM_DRIVE = '#directory-tree [entry-label="My Drive"] ';
+var TREEITEM_DOWNLOADS =
+    '#directory-tree [volume-type-for-testing="downloads"] ';
 var EXPAND_ICON = '> .tree-row > .expand-icon';
 var EXPANDED_SUBTREE = '> .tree-children[expanded]';
-var NEWFOLDER = '#tree-item-autogen-id-9';
-var TESTFOLDER  = '#tree-item-autogen-id-10';
-var NEWFOLDER_GUEST = '#tree-item-autogen-id-7';
-var TESTFOLDER_GUEST  = '#tree-item-autogen-id-8';
 
 /**
  * Selects the first item in the file list.
@@ -56,12 +53,16 @@ function selectFirstListItem(windowId) {
  * @param {string} windowId ID of the target window.
  * @param {string} path Initial path.
  * @param {Array<TestEntryInfo>} initialEntrySet Initial set of entries.
+ * @param {string} rootLabel label path's root.
  * @return {Promise} Promise to be fulfilled on success.
  */
-function createNewFolder(windowId, path, initialEntrySet) {
+function createNewFolder(windowId, path, initialEntrySet, rootLabel) {
   var caller = getCaller();
-  return Promise.resolve(
-  ).then(function() {
+  return Promise.resolve()
+    .then(function() {
+      return navigateWithDirectoryTree(windowId, path, rootLabel);
+    })
+    .then(function() {
     // Push Ctrl + E.
     return remoteCall.callRemoteTestUtil(
         'fakeKeyDown', windowId,
@@ -81,10 +82,10 @@ function createNewFolder(windowId, path, initialEntrySet) {
     chrome.test.assertTrue('renaming' in elements[0].attributes);
   }).then(function() {
     // Check directory tree for new folder.
-    if (chrome.extension.inIncognitoContext)
-      return remoteCall.waitForElement(windowId, NEWFOLDER_GUEST);
-    else
-      return remoteCall.waitForElement(windowId, NEWFOLDER);
+    var expectedRows = [['New Folder', '--', 'Folder', '']].concat(
+        TestEntryInfo.getExpectedRows(initialEntrySet));
+    return remoteCall.waitForFiles(
+        windowId, expectedRows, {ignoreLastModifiedTime: true});
   }).then(function() {
     // Type new folder name.
     return remoteCall.callRemoteTestUtil(
@@ -99,17 +100,11 @@ function createNewFolder(windowId, path, initialEntrySet) {
     // Wait until rename completes.
     return remoteCall.waitForElementLost(windowId, 'input.rename');
   }).then(function() {
-     // Once it is renamed, the original 'New Folder' item is removed.
-     if (chrome.extension.inIncognitoContext)
-       return remoteCall.waitForElementLost(windowId, NEWFOLDER_GUEST);
-     else
-       return remoteCall.waitForElementLost(windowId, NEWFOLDER);
-  }).then(function() {
     // A newer entry is then added for the renamed folder.
-    if (chrome.extension.inIncognitoContext)
-      return remoteCall.waitForElement(windowId, TESTFOLDER_GUEST);
-    else
-      return remoteCall.waitForElement(windowId, TESTFOLDER);
+    var expectedRows = [['Test Folder Name', '--', 'Folder', '']].concat(
+        TestEntryInfo.getExpectedRows(initialEntrySet));
+    return remoteCall.waitForFiles(
+        windowId, expectedRows, {ignoreLastModifiedTime: true});
   }).then(function() {
     var expectedEntryRows = TestEntryInfo.getExpectedRows(initialEntrySet);
     expectedEntryRows.push(['Test Folder Name', '--', 'Folder', '']);
@@ -174,7 +169,7 @@ testcase.selectCreateFolderDownloads = function() {
   }).then(function() {
     return remoteCall.waitForElement(windowId, '#detail-table');
   }).then(function() {
-    return createNewFolder(windowId, PATH, BASIC_LOCAL_ENTRY_SET);
+    return createNewFolder(windowId, '', BASIC_LOCAL_ENTRY_SET, 'Downloads');
   });
 
   testPromise(promise);
@@ -191,7 +186,27 @@ testcase.createFolderDownloads = function() {
   }).then(function() {
     return remoteCall.waitForElement(windowId, '#detail-table');
   }).then(function() {
-    return createNewFolder(windowId, PATH, BASIC_LOCAL_ENTRY_SET);
+    return createNewFolder(windowId, '', BASIC_LOCAL_ENTRY_SET, 'Downloads');
+  });
+
+  testPromise(promise);
+};
+
+testcase.createFolderNestedDownloads = function() {
+  var PATH = RootPath.DOWNLOADS;
+  const expectedPhotosInitialSet = [];
+
+  var windowId = null;
+  var promise = new Promise(function(callback) {
+    setupAndWaitUntilReady(null, PATH, callback);
+  }).then(function(results) {
+    windowId = results.windowId;
+    return expandRoot(windowId, TREEITEM_DOWNLOADS);
+  }).then(function() {
+    return remoteCall.waitForElement(windowId, '#detail-table');
+  }).then(function() {
+    return createNewFolder(
+        windowId, '/photos', expectedPhotosInitialSet, 'Downloads');
   });
 
   testPromise(promise);
@@ -208,7 +223,7 @@ testcase.createFolderDrive = function() {
   }).then(function() {
     return remoteCall.waitForElement(windowId, '#detail-table');
   }).then(function() {
-    return createNewFolder(windowId, PATH, BASIC_DRIVE_ENTRY_SET);
+    return createNewFolder(windowId, '', BASIC_DRIVE_ENTRY_SET, 'My Drive');
   });
 
   testPromise(promise);

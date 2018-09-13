@@ -31,7 +31,7 @@
     "cmd": [
       "ideviceinstaller",
       "-i",
-      "[START_DIR]/build/out/Release/dm.app"
+      "[START_DIR]/build/dm.app"
     ],
     "env": {
       "CHROME_HEADLESS": "1",
@@ -46,7 +46,7 @@
     "cmd": [
       "ideviceinstaller",
       "-i",
-      "[START_DIR]/build/out/Release/nanobench.app"
+      "[START_DIR]/build/nanobench.app"
     ],
     "env": {
       "CHROME_HEADLESS": "1",
@@ -599,7 +599,7 @@
       "ensure-directory",
       "--mode",
       "0777",
-      "[START_DIR]/[SWARM_OUT_DIR]/perfdata/Perf-iOS-Clang-iPadPro-GPU-GT7800-arm64-Release-All"
+      "[START_DIR]/[SWARM_OUT_DIR]"
     ],
     "env": {
       "IOS_BUNDLE_ID": "com.google.nanobench",
@@ -612,7 +612,7 @@
     "cmd": [
       "[START_DIR]/skia/platform_tools/ios/bin/ios_pull_if_needed",
       "perf",
-      "[START_DIR]/[SWARM_OUT_DIR]/perfdata/Perf-iOS-Clang-iPadPro-GPU-GT7800-arm64-Release-All/data"
+      "[START_DIR]/[SWARM_OUT_DIR]"
     ],
     "env": {
       "CHROME_HEADLESS": "1",

@@ -141,7 +141,7 @@ private:
   /// This constructor create a MachineInstr and add the implicit operands.
   /// It reserves space for number of operands specified by
   /// MCInstrDesc.  An explicit DebugLoc is supplied.
-  MachineInstr(MachineFunction &, const MCInstrDesc &MCID, DebugLoc dl,
+  MachineInstr(MachineFunction &, const MCInstrDesc &tid, DebugLoc dl,
                bool NoImp = false);
 
   // MachineInstrs are pool-allocated and owned by MachineFunction.
@@ -189,7 +189,7 @@ public:
   }
 
   /// Return the MI flags bitvector.
-  uint8_t getFlags() const {
+  uint16_t getFlags() const {
     return Flags;
   }
 
@@ -322,6 +322,11 @@ public:
     return Operands[i];
   }
 
+  /// Returns the total number of definitions.
+  unsigned getNumDefs() const {
+    return getNumExplicitDefs() + MCID->getNumImplicitDefs();
+  }
+
   /// Return true if operand \p OpIdx is a subregister index.
   bool isOperandSubregIdx(unsigned OpIdx) const {
     assert(getOperand(OpIdx).getType() == MachineOperand::MO_Immediate &&
@@ -339,6 +344,9 @@ public:
 
   /// Returns the number of non-implicit operands.
   unsigned getNumExplicitOperands() const;
+
+  /// Returns the number of non-implicit definitions.
+  unsigned getNumExplicitDefs() const;
 
   /// iterator/begin/end - Iterate over all operands of a machine instruction.
   using mop_iterator = MachineOperand *;
@@ -374,31 +382,29 @@ public:
   /// Implicit definition are not included!
   iterator_range<mop_iterator> defs() {
     return make_range(operands_begin(),
-                      operands_begin() + getDesc().getNumDefs());
+                      operands_begin() + getNumExplicitDefs());
   }
   /// \copydoc defs()
   iterator_range<const_mop_iterator> defs() const {
     return make_range(operands_begin(),
-                      operands_begin() + getDesc().getNumDefs());
+                      operands_begin() + getNumExplicitDefs());
   }
   /// Returns a range that includes all operands that are register uses.
   /// This may include unrelated operands which are not register uses.
   iterator_range<mop_iterator> uses() {
-    return make_range(operands_begin() + getDesc().getNumDefs(),
-                      operands_end());
+    return make_range(operands_begin() + getNumExplicitDefs(), operands_end());
   }
   /// \copydoc uses()
   iterator_range<const_mop_iterator> uses() const {
-    return make_range(operands_begin() + getDesc().getNumDefs(),
-                      operands_end());
+    return make_range(operands_begin() + getNumExplicitDefs(), operands_end());
   }
   iterator_range<mop_iterator> explicit_uses() {
-    return make_range(operands_begin() + getDesc().getNumDefs(),
-                      operands_begin() + getNumExplicitOperands() );
+    return make_range(operands_begin() + getNumExplicitDefs(),
+                      operands_begin() + getNumExplicitOperands());
   }
   iterator_range<const_mop_iterator> explicit_uses() const {
-    return make_range(operands_begin() + getDesc().getNumDefs(),
-                      operands_begin() + getNumExplicitOperands() );
+    return make_range(operands_begin() + getNumExplicitDefs(),
+                      operands_begin() + getNumExplicitOperands());
   }
 
   /// Returns the number of the operand iterator \p I points to.
@@ -545,6 +551,12 @@ public:
   /// (including conditional moves) instruction.
   bool isMoveImmediate(QueryType Type = IgnoreBundle) const {
     return hasProperty(MCID::MoveImm, Type);
+  }
+
+  /// Return true if this instruction is a register move.
+  /// (including moving values from subreg to reg)
+  bool isMoveReg(QueryType Type = IgnoreBundle) const {
+    return hasProperty(MCID::MoveReg, Type);
   }
 
   /// Return true if this instruction is a bitcast instruction.
@@ -1309,7 +1321,7 @@ public:
 
   /// Erase an operand from an instruction, leaving it with one
   /// fewer operand than it started with.
-  void RemoveOperand(unsigned i);
+  void RemoveOperand(unsigned OpNo);
 
   /// Add a MachineMemOperand to the machine instruction.
   /// This function should be used only occasionally. The setMemRefs function
@@ -1342,7 +1354,7 @@ public:
   /// Return the MIFlags which represent both MachineInstrs. This
   /// should be used when merging two MachineInstrs into one. This routine does
   /// not modify the MIFlags of this MachineInstr.
-  uint8_t mergeFlagsWith(const MachineInstr& Other) const;
+  uint16_t mergeFlagsWith(const MachineInstr& Other) const;
 
   /// Clear this MachineInstr's memory reference descriptor list.  This resets
   /// the memrefs to their most conservative state.  This should be used only

@@ -65,7 +65,7 @@ public final class DownloadForegroundServiceManagerTest {
         void startAndBindServiceInternal(Context context) {}
 
         @Override
-        void stopAndUnbindService(DownloadNotificationService2.DownloadStatus downloadStatus) {
+        void stopAndUnbindService(@DownloadNotificationService2.DownloadStatus int downloadStatus) {
             mIsServiceBound = false;
             super.stopAndUnbindService(downloadStatus);
         }
@@ -119,7 +119,7 @@ public final class DownloadForegroundServiceManagerTest {
         mNotification =
                 NotificationBuilderFactory
                         .createChromeNotificationBuilder(
-                                true /* preferCompat */, ChannelDefinitions.CHANNEL_ID_DOWNLOADS)
+                                true /* preferCompat */, ChannelDefinitions.ChannelId.DOWNLOADS)
                         .setSmallIcon(org.chromium.chrome.R.drawable.ic_file_download_white_24dp)
                         .setContentTitle(FAKE_NOTIFICATION_CHANNEL)
                         .setContentText(FAKE_NOTIFICATION_CHANNEL)

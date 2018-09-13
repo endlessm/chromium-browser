@@ -54,7 +54,10 @@ SurfacesInstance::SurfacesInstance()
   // Webview does not own the surface so should not clear it.
   settings.should_clear_root_render_pass = false;
 
-  frame_sink_manager_ = std::make_unique<viz::FrameSinkManagerImpl>();
+  // The SharedBitmapManager is null as we do not support or use software
+  // compositing on Android.
+  frame_sink_manager_ = std::make_unique<viz::FrameSinkManagerImpl>(
+      /*shared_bitmap_manager=*/nullptr);
   parent_local_surface_id_allocator_.reset(
       new viz::ParentLocalSurfaceIdAllocator());
 
@@ -148,7 +151,7 @@ void SurfacesInstance::DrawAndSwap(const gfx::Size& viewport,
       viz::BeginFrameAck::CreateManualAckWithDamage();
   frame.render_pass_list.push_back(std::move(render_pass));
   frame.metadata.device_scale_factor = device_scale_factor;
-  frame.metadata.referenced_surfaces = child_ids_;
+  frame.metadata.referenced_surfaces = GetChildIdsRanges();
 
   if (!root_id_.is_valid() || viewport != surface_size_ ||
       device_scale_factor != device_scale_factor_) {
@@ -198,7 +201,7 @@ void SurfacesInstance::SetSolidColorRootFrame() {
   // We draw synchronously, so acknowledge a manual BeginFrame.
   frame.metadata.begin_frame_ack =
       viz::BeginFrameAck::CreateManualAckWithDamage();
-  frame.metadata.referenced_surfaces = child_ids_;
+  frame.metadata.referenced_surfaces = GetChildIdsRanges();
   frame.metadata.device_scale_factor = device_scale_factor_;
   support_->SubmitCompositorFrame(root_id_, std::move(frame));
 }
@@ -208,12 +211,12 @@ void SurfacesInstance::DidReceiveCompositorFrameAck(
   ReclaimResources(resources);
 }
 
-void SurfacesInstance::DidPresentCompositorFrame(uint32_t presentation_token,
-                                                 base::TimeTicks time,
-                                                 base::TimeDelta refresh,
-                                                 uint32_t flags) {}
-
-void SurfacesInstance::DidDiscardCompositorFrame(uint32_t presentation_token) {}
+std::vector<viz::SurfaceRange> SurfacesInstance::GetChildIdsRanges() {
+  std::vector<viz::SurfaceRange> child_ranges;
+  for (const viz::SurfaceId& surface_id : child_ids_)
+    child_ranges.emplace_back(surface_id);
+  return child_ranges;
+}
 
 void SurfacesInstance::OnBeginFrame(const viz::BeginFrameArgs& args) {}
 

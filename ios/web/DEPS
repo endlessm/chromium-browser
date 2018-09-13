@@ -6,6 +6,7 @@ include_rules = [
   "+mojo/public",
   "+net",
   "+services/network/network_context.h",
+  "+services/network/public/cpp",
   "+services/network/public/mojom",
   "+ui",
 
@@ -16,5 +17,5 @@ include_rules = [
   # For tests.
   "+ios/testing",
   "+ios/third_party/earl_grey/src",
-  "+mojo/edk/embedder/embedder.h",
+  "+mojo/core/embedder/embedder.h",
 ]

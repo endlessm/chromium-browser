@@ -7,7 +7,7 @@
 #include <memory>
 #include <vector>
 
-#include "ash/content/shell_content_state.h"
+#include "ash/content/screen_orientation_delegate_chromeos.h"
 #include "ash/display/screen_orientation_controller.h"
 #include "ash/display/screen_orientation_controller_test_api.h"
 #include "ash/public/cpp/app_types.h"
@@ -17,7 +17,6 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/test/ash_test_environment_content.h"
 #include "ash/test/ash_test_helper.h"
-#include "ash/test/content/test_shell_content_state.h"
 #include "ash/test_shell_delegate.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
@@ -109,13 +108,7 @@ class ScreenOrientationControllerTest : public AshTestBase {
   ScreenOrientationControllerTest();
   ~ScreenOrientationControllerTest() override;
 
-  content::ScreenOrientationDelegate* delegate() {
-    AshTestEnvironmentContent* test_environment_content =
-        static_cast<AshTestEnvironmentContent*>(
-            ash_test_helper()->ash_test_environment());
-    return test_environment_content->test_shell_content_state()
-        ->screen_orientation_delegate();
-  }
+  content::ScreenOrientationDelegate* delegate() { return &delegate_; }
 
   // Creates and initializes and empty content::WebContents that is backed by a
   // content::BrowserContext and that has an aura::Window.
@@ -156,6 +149,10 @@ class ScreenOrientationControllerTest : public AshTestBase {
   }
 
  private:
+  ScreenOrientationDelegateChromeos delegate_;
+
+  content::TestBrowserContext browser_context_;
+
   // Optional content::BrowserContext used for two window tests.
   std::unique_ptr<content::BrowserContext> secondary_browser_context_;
 
@@ -174,8 +171,8 @@ ScreenOrientationControllerTest::~ScreenOrientationControllerTest() = default;
 
 std::unique_ptr<content::WebContents>
 ScreenOrientationControllerTest::CreateWebContents() {
-  return content::WebContentsTester::CreateTestWebContents(
-      ShellContentState::GetInstance()->GetActiveBrowserContext(), nullptr);
+  return content::WebContentsTester::CreateTestWebContents(&browser_context_,
+                                                           nullptr);
 }
 
 std::unique_ptr<content::WebContents>

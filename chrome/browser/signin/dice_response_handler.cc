@@ -15,6 +15,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/about_signin_internals_factory.h"
+#include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/signin/account_reconcilor_factory.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
@@ -26,7 +27,6 @@
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/signin/core/browser/about_signin_internals.h"
 #include "components/signin/core/browser/account_tracker_service.h"
-#include "components/signin/core/browser/profile_management_switches.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_client.h"
 #include "components/signin/core/browser/signin_header_helper.h"
@@ -133,6 +133,7 @@ class DiceResponseHandlerFactory : public BrowserContextKeyedServiceFactory {
         AccountTrackerServiceFactory::GetForProfile(profile),
         AccountReconcilorFactory::GetForProfile(profile),
         AboutSigninInternalsFactory::GetForProfile(profile),
+        AccountConsistencyModeManager::GetMethodForProfile(profile),
         profile->GetPath());
   }
 };
@@ -180,13 +181,10 @@ DiceResponseHandler::DiceTokenFetcher::DiceTokenFetcher(
                      base::Unretained(this))),
       should_enable_sync_(false) {
   DCHECK(dice_response_handler_);
-  if (signin::IsDicePrepareMigrationEnabled()) {
-    account_reconcilor_lock_ =
-        std::make_unique<AccountReconcilor::Lock>(account_reconcilor);
-  }
+  account_reconcilor_lock_ =
+      std::make_unique<AccountReconcilor::Lock>(account_reconcilor);
   gaia_auth_fetcher_ = signin_client->CreateGaiaAuthFetcher(
-      this, GaiaConstants::kChromeSource,
-      signin_client->GetURLRequestContext());
+      this, GaiaConstants::kChromeSource, signin_client->GetURLLoaderFactory());
   VLOG(1) << "Start fetching token for account: " << email;
   gaia_auth_fetcher_->StartAuthCodeForOAuth2TokenExchange(authorization_code_);
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
@@ -239,6 +237,7 @@ DiceResponseHandler::DiceResponseHandler(
     AccountTrackerService* account_tracker_service,
     AccountReconcilor* account_reconcilor,
     AboutSigninInternals* about_signin_internals,
+    signin::AccountConsistencyMethod account_consistency,
     const base::FilePath& profile_path)
     : signin_manager_(signin_manager),
       signin_client_(signin_client),
@@ -246,6 +245,7 @@ DiceResponseHandler::DiceResponseHandler(
       account_tracker_service_(account_tracker_service),
       account_reconcilor_(account_reconcilor),
       about_signin_internals_(about_signin_internals),
+      account_consistency_(account_consistency),
       profile_path_(profile_path) {
   DCHECK(signin_client_);
   DCHECK(signin_manager_);
@@ -260,7 +260,9 @@ DiceResponseHandler::~DiceResponseHandler() {}
 void DiceResponseHandler::ProcessDiceHeader(
     const signin::DiceResponseParams& dice_params,
     std::unique_ptr<ProcessDiceHeaderDelegate> delegate) {
-  DCHECK(signin::IsDiceFixAuthErrorsEnabled());
+  DCHECK(signin::DiceMethodGreaterOrEqual(
+      account_consistency_,
+      signin::AccountConsistencyMethod::kDiceFixAuthErrors));
   DCHECK(delegate);
   switch (dice_params.user_intention) {
     case signin::DiceAction::SIGNIN: {
@@ -294,13 +296,16 @@ size_t DiceResponseHandler::GetPendingDiceTokenFetchersCountForTesting() const {
 
 bool DiceResponseHandler::CanGetTokenForAccount(const std::string& gaia_id,
                                                 const std::string& email) {
-  if (signin::IsDicePrepareMigrationEnabled())
+  if (signin::DiceMethodGreaterOrEqual(
+          account_consistency_,
+          signin::AccountConsistencyMethod::kDicePrepareMigration)) {
     return true;
+  }
 
   // When using kDiceFixAuthErrors, only get a token if the account matches
   // the current Chrome account.
   DCHECK_EQ(signin::AccountConsistencyMethod::kDiceFixAuthErrors,
-            signin::GetAccountConsistencyMethod());
+            account_consistency_);
   std::string account =
       account_tracker_service_->PickAccountIdForAccount(gaia_id, email);
   std::string chrome_account = signin_manager_->GetAuthenticatedAccountId();
@@ -363,10 +368,9 @@ void DiceResponseHandler::ProcessEnableSyncHeader(
 void DiceResponseHandler::ProcessDiceSignoutHeader(
     const std::vector<signin::DiceResponseParams::AccountInfo>& account_infos) {
   VLOG(1) << "Start processing Dice signout response";
-  if (!signin::IsDicePrepareMigrationEnabled()) {
+  if (account_consistency_ ==
+      signin::AccountConsistencyMethod::kDiceFixAuthErrors) {
     // Ignore signout responses when using kDiceFixAuthErrors.
-    DCHECK_EQ(signin::AccountConsistencyMethod::kDiceFixAuthErrors,
-              signin::GetAccountConsistencyMethod());
     return;
   }
 
@@ -384,7 +388,7 @@ void DiceResponseHandler::ProcessDiceSignoutHeader(
               ? kChromePrimaryAccountIsFirstGaiaAccount
               : kChromePrimaryAccountIsSecondaryGaiaAccount);
 
-      if (signin::IsDiceEnabledForProfile(signin_client_->GetPrefs())) {
+      if (account_consistency_ == signin::AccountConsistencyMethod::kDice) {
         // Put the account in error state.
         token_service_->UpdateCredentials(
             primary_account,

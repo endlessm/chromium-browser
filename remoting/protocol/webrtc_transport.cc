@@ -34,7 +34,7 @@
 #include "third_party/webrtc/api/audio_codecs/audio_encoder_factory_template.h"
 #include "third_party/webrtc/api/audio_codecs/opus/audio_decoder_opus.h"
 #include "third_party/webrtc/api/audio_codecs/opus/audio_encoder_opus.h"
-#include "third_party/webrtc/api/test/fakeconstraints.h"
+#include "third_party/webrtc/api/stats/rtcstats_objects.h"
 
 using buzz::QName;
 using buzz::XmlElement;
@@ -51,6 +51,13 @@ const int kTransportInfoSendDelayMs = 20;
 
 // XML namespace for the transport elements.
 const char kTransportNamespace[] = "google:remoting:webrtc";
+
+// Bitrate cap applied to relay connections. This is done to prevent
+// large amounts of packet loss, since the Google TURN/relay server drops
+// packets to limit the connection to ~10Mbps. The rate-limiting behavior works
+// badly with WebRTC's bandwidth-estimation, which results in the host process
+// trying to send frames too rapidly over the connection.
+constexpr int kMaxBitrateOnRelayKbps = 8000;
 
 #if !defined(NDEBUG)
 // Command line switch used to disable signature verification.
@@ -171,6 +178,34 @@ class SetSessionDescriptionObserver
   DISALLOW_COPY_AND_ASSIGN(SetSessionDescriptionObserver);
 };
 
+class RTCStatsCollectorCallback : public webrtc::RTCStatsCollectorCallback {
+ public:
+  typedef base::RepeatingCallback<void(
+      const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report)>
+      ResultCallback;
+
+  static RTCStatsCollectorCallback* Create(
+      const ResultCallback& result_callback) {
+    return new rtc::RefCountedObject<RTCStatsCollectorCallback>(
+        result_callback);
+  }
+
+  void OnStatsDelivered(
+      const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
+    base::ResetAndReturn(&result_callback_).Run(report);
+  }
+
+ protected:
+  explicit RTCStatsCollectorCallback(const ResultCallback& result_callback)
+      : result_callback_(result_callback) {}
+  ~RTCStatsCollectorCallback() override = default;
+
+ private:
+  ResultCallback result_callback_;
+
+  DISALLOW_COPY_AND_ASSIGN(RTCStatsCollectorCallback);
+};
+
 }  // namespace
 
 class WebrtcTransport::PeerConnectionWrapper
@@ -190,11 +225,8 @@ class WebrtcTransport::PeerConnectionWrapper
         webrtc::CreateAudioDecoderFactory<webrtc::AudioDecoderOpus>(),
         encoder_factory.release(), nullptr);
 
-    webrtc::FakeConstraints constraints;
-    constraints.AddMandatory(webrtc::MediaConstraintsInterface::kEnableDtlsSrtp,
-                             webrtc::MediaConstraintsInterface::kValueTrue);
-
     webrtc::PeerConnectionInterface::RTCConfiguration rtc_config;
+    rtc_config.enable_dtls_srtp = true;
 
     // Set bundle_policy and rtcp_mux_policy to ensure that all channels are
     // multiplexed over a single channel.
@@ -206,7 +238,7 @@ class WebrtcTransport::PeerConnectionWrapper
     rtc_config.media_config.video.periodic_alr_bandwidth_probing = true;
 
     peer_connection_ = peer_connection_factory_->CreatePeerConnection(
-        rtc_config, &constraints, std::move(port_allocator), nullptr, this);
+        rtc_config, std::move(port_allocator), nullptr, this);
   }
 
   ~PeerConnectionWrapper() override {
@@ -563,11 +595,12 @@ void WebrtcTransport::OnRemoteDescriptionSet(bool send_answer,
 
   // Create and send answer on the server.
   if (send_answer) {
+    const webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
     peer_connection()->CreateAnswer(
         CreateSessionDescriptionObserver::Create(
             base::Bind(&WebrtcTransport::OnLocalSessionDescriptionCreated,
                        weak_factory_.GetWeakPtr())),
-        nullptr);
+        options);
   }
 
   AddPendingCandidatesIfPossible();
@@ -629,6 +662,13 @@ void WebrtcTransport::OnIceConnectionChange(
       new_state == webrtc::PeerConnectionInterface::kIceConnectionConnected) {
     connected_ = true;
     event_handler_->OnWebrtcTransportConnected();
+
+    // Request RTC statistics, to determine if the connection is direct or
+    // relayed.
+    peer_connection()->GetStats(
+        RTCStatsCollectorCallback::Create(base::BindRepeating(
+            &WebrtcTransport::OnStatsDelivered, weak_factory_.GetWeakPtr())));
+
   } else if (connected_ &&
              new_state ==
                  webrtc::PeerConnectionInterface::kIceConnectionDisconnected &&
@@ -665,6 +705,78 @@ void WebrtcTransport::OnIceCandidate(
   pending_transport_info_message_->AddElement(candidate_element.release());
 }
 
+void WebrtcTransport::OnStatsDelivered(
+    const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+  auto transport_stats_list =
+      report->GetStatsOfType<webrtc::RTCTransportStats>();
+  if (transport_stats_list.size() != 1) {
+    LOG(ERROR) << "Unexpected number of transport stats: "
+               << transport_stats_list.size();
+    return;
+  }
+  std::string selected_candidate_pair_id =
+      *(transport_stats_list[0]->selected_candidate_pair_id);
+  const webrtc::RTCStats* selected_candidate_pair =
+      report->Get(selected_candidate_pair_id);
+  if (!selected_candidate_pair) {
+    LOG(ERROR) << "Expected to find RTC stats for id: "
+               << selected_candidate_pair;
+    return;
+  }
+  std::string local_candidate_id =
+      *(selected_candidate_pair->cast_to<webrtc::RTCIceCandidatePairStats>()
+            .local_candidate_id);
+  const webrtc::RTCStats* local_candidate = report->Get(local_candidate_id);
+  if (!local_candidate) {
+    LOG(ERROR) << "Expected to find RTC stats for id: " << local_candidate_id;
+    return;
+  }
+  std::string local_candidate_type =
+      *(local_candidate->cast_to<webrtc::RTCLocalIceCandidateStats>()
+            .candidate_type);
+  std::string remote_candidate_id =
+      *(selected_candidate_pair->cast_to<webrtc::RTCIceCandidatePairStats>()
+            .remote_candidate_id);
+  const webrtc::RTCStats* remote_candidate = report->Get(remote_candidate_id);
+  if (!remote_candidate) {
+    LOG(ERROR) << "Expected to find RTC stats for id: " << remote_candidate_id;
+    return;
+  }
+  std::string remote_candidate_type =
+      *(remote_candidate->cast_to<webrtc::RTCRemoteIceCandidateStats>()
+            .candidate_type);
+
+  bool is_relay =
+      local_candidate_type == "relay" || remote_candidate_type == "relay";
+  VLOG(0) << "Relay connection: " << (is_relay ? "true" : "false");
+
+  if (is_relay) {
+    auto senders = peer_connection()->GetSenders();
+    for (rtc::scoped_refptr<webrtc::RtpSenderInterface> sender : senders) {
+      // x-google-max-bitrate is only set for video codecs in the SDP exchange.
+      // So avoid setting a very large bitrate cap on the audio sender.
+      if (sender->media_type() != cricket::MediaType::MEDIA_TYPE_VIDEO) {
+        continue;
+      }
+
+      webrtc::RtpParameters parameters = sender->GetParameters();
+      if (parameters.encodings.empty()) {
+        LOG(ERROR) << "No encodings found for sender " << sender->id();
+        continue;
+      }
+
+      if (parameters.encodings.size() != 1) {
+        LOG(ERROR) << "Unexpected number of encodings ("
+                   << parameters.encodings.size() << ") for sender "
+                   << sender->id();
+      }
+
+      parameters.encodings[0].max_bitrate_bps = kMaxBitrateOnRelayKbps * 1000;
+      sender->SetParameters(parameters);
+    }
+  }
+}
+
 void WebrtcTransport::EnsurePendingTransportInfoMessage() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
@@ -691,25 +803,15 @@ void WebrtcTransport::SendOffer() {
   DCHECK(negotiation_pending_);
   negotiation_pending_ = false;
 
-  webrtc::FakeConstraints offer_config;
-  offer_config.AddMandatory(
-      webrtc::MediaConstraintsInterface::kOfferToReceiveVideo,
-      webrtc::MediaConstraintsInterface::kValueTrue);
-  offer_config.AddMandatory(
-      webrtc::MediaConstraintsInterface::kOfferToReceiveAudio,
-      webrtc::MediaConstraintsInterface::kValueFalse);
-  offer_config.AddMandatory(webrtc::MediaConstraintsInterface::kEnableDtlsSrtp,
-                            webrtc::MediaConstraintsInterface::kValueTrue);
-  if (want_ice_restart_) {
-    offer_config.AddMandatory(webrtc::MediaConstraintsInterface::kIceRestart,
-                              webrtc::MediaConstraintsInterface::kValueTrue);
-    want_ice_restart_ = false;
-  }
+  webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+  options.offer_to_receive_video = true;
+  options.offer_to_receive_audio = false;
+  options.ice_restart = want_ice_restart_;
   peer_connection()->CreateOffer(
       CreateSessionDescriptionObserver::Create(
           base::Bind(&WebrtcTransport::OnLocalSessionDescriptionCreated,
                      weak_factory_.GetWeakPtr())),
-      &offer_config);
+      options);
 }
 
 void WebrtcTransport::SendTransportInfo() {

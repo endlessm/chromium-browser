@@ -131,6 +131,7 @@ void PrerenderURLLoaderThrottle::WillStartRequest(
 #endif  // OS_ANDROID
 
   if (mode_ == PREFETCH_ONLY) {
+    request->headers.SetHeader(kPurposeHeaderName, kPurposeHeaderValue);
     detached_timer_.Start(FROM_HERE,
                           base::TimeDelta::FromMilliseconds(
                               content::kDefaultDetachableCancelDelayMs),
@@ -141,7 +142,8 @@ void PrerenderURLLoaderThrottle::WillStartRequest(
 void PrerenderURLLoaderThrottle::WillRedirectRequest(
     const net::RedirectInfo& redirect_info,
     const network::ResourceResponseHead& response_head,
-    bool* defer) {
+    bool* defer,
+    std::vector<std::string>* to_be_removed_headers) {
   redirect_count_++;
   if (mode_ == PREFETCH_ONLY) {
     RecordPrefetchResponseReceived(

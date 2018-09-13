@@ -31,8 +31,6 @@
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
@@ -54,8 +52,6 @@
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
-#include "components/signin/core/browser/signin_manager.h"
 #include "components/user_manager/user.h"
 #include "components/version_info/version_info.h"
 #include "device/bluetooth/bluetooth_adapter.h"
@@ -219,8 +215,11 @@ class EasyUnlockService::PowerMonitor : public PowerManagerClient::Observer {
   DISALLOW_COPY_AND_ASSIGN(PowerMonitor);
 };
 
-EasyUnlockService::EasyUnlockService(Profile* profile)
+EasyUnlockService::EasyUnlockService(
+    Profile* profile,
+    secure_channel::SecureChannelClient* secure_channel_client)
     : profile_(profile),
+      secure_channel_client_(secure_channel_client),
       proximity_auth_client_(profile),
       bluetooth_detector_(new BluetoothDetector(this)),
       shut_down_(false),
@@ -670,7 +669,8 @@ EasyUnlockAuthEvent EasyUnlockService::GetPasswordAuthEvent() const {
 
 void EasyUnlockService::SetProximityAuthDevices(
     const AccountId& account_id,
-    const cryptauth::RemoteDeviceRefList& remote_devices) {
+    const cryptauth::RemoteDeviceRefList& remote_devices,
+    base::Optional<cryptauth::RemoteDeviceRef> local_device) {
   UMA_HISTOGRAM_COUNTS_100("SmartLock.EnabledDevicesCount",
                            remote_devices.size());
 
@@ -685,10 +685,11 @@ void EasyUnlockService::SetProximityAuthDevices(
         GetType() == TYPE_SIGNIN
             ? proximity_auth::ProximityAuthSystem::SIGN_IN
             : proximity_auth::ProximityAuthSystem::SESSION_LOCK,
-        proximity_auth_client()));
+        proximity_auth_client(), secure_channel_client_));
   }
 
-  proximity_auth_system_->SetRemoteDevicesForUser(account_id, remote_devices);
+  proximity_auth_system_->SetRemoteDevicesForUser(account_id, remote_devices,
+                                                  local_device);
   proximity_auth_system_->Start();
 }
 

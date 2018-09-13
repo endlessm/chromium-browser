@@ -26,11 +26,12 @@ namespace ash {
 namespace {
 
 constexpr gfx::Size kDisplaySize(1024, 768);
-const char kResetGammaAction[] = "*set_color_correction(id=123)";
+const char kResetGammaAction[] = "*set_gamma_correction(id=123)";
 const char kSetGammaAction[] =
-    "set_color_correction(id=123,gamma[0]*gamma[255]=???????????\?)";
+    "*set_gamma_correction(id=123,gamma[0]*gamma[255]=???????????\?)";
 const char kSetFullCTMAction[] =
-    "set_color_correction(id=123,degamma[0]*gamma[0]*ctm[0]*ctm[8]*)";
+    "set_color_matrix(id=123,ctm[0]*ctm[8]*),"
+    "set_gamma_correction(id=123,degamma[0]*gamma[0]*)";
 
 class DisplayColorManagerForTest : public DisplayColorManager {
  public:
@@ -244,8 +245,10 @@ TEST_F(DisplayColorManagerTest, SetDisplayColorMatrixNoCTMSupport) {
   WaitOnColorCalibration();
   // DisplayColorManager::ResetDisplayColorCalibration() will be called since
   // this display has no CTM support.
-  EXPECT_TRUE(
-      base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
+  const std::string& actions = log_->GetActionsAndClear();
+  EXPECT_TRUE(base::MatchPattern(actions, kResetGammaAction));
+  // Hardware doesn't support CTM, so CTM shouldn't be configured.
+  EXPECT_FALSE(base::MatchPattern(actions, "*set_color_matrix*"));
 
   // Attempt to set a color matrix.
   SkMatrix44 matrix(SkMatrix44::kIdentity_Constructor);
@@ -290,7 +293,7 @@ TEST_F(DisplayColorManagerTest,
   // affected. Color matrix is applied as is.
   EXPECT_TRUE(base::MatchPattern(
       log_->GetActionsAndClear(),
-      "set_color_correction(id=123,ctm[0]=1*ctm[4]=0.7*ctm[8]=0.3*)"));
+      "set_color_matrix(id=123,ctm[0]=1*ctm[4]=0.7*ctm[8]=0.3*)"));
 
   // Reconfiguring with the same displays snapshots will reapply the matrix.
   native_display_delegate_->set_outputs(outputs);
@@ -298,7 +301,7 @@ TEST_F(DisplayColorManagerTest,
   EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
   EXPECT_TRUE(base::MatchPattern(
       log_->GetActionsAndClear(),
-      "*set_color_correction(id=123,ctm[0]=1*ctm[4]=0.7*ctm[8]=0.3*)"));
+      "*set_color_matrix(id=123,ctm[0]=1*ctm[4]=0.7*ctm[8]=0.3*)"));
 }
 
 TEST_F(DisplayColorManagerTest, SetDisplayColorMatrixWithMixedCTMSupport) {
@@ -345,7 +348,7 @@ TEST_F(DisplayColorManagerTest, SetDisplayColorMatrixWithMixedCTMSupport) {
   // affected. Color matrix is applied as is.
   EXPECT_TRUE(base::MatchPattern(
       log_->GetActionsAndClear(),
-      "set_color_correction(id=123,ctm[0]=1*ctm[4]=0.7*ctm[8]=0.3*)"));
+      "set_color_matrix(id=123,ctm[0]=1*ctm[4]=0.7*ctm[8]=0.3*)"));
 
   // No matrix will be applied to this display.
   EXPECT_FALSE(color_manager_->SetDisplayColorMatrix(kDisplayNoCtmId, matrix));
@@ -384,17 +387,17 @@ TEST_F(DisplayColorManagerTest,
   // calibration matrix. Gamma/degamma won't be affected.
   EXPECT_TRUE(base::MatchPattern(
       log_->GetActionsAndClear(),
-      "set_color_correction(id=123,ctm[0]=0.01*ctm[4]=0.5*ctm[8]=0.04*)"));
+      "set_color_matrix(id=123,ctm[0]=0.01*ctm[4]=0.5*ctm[8]=0.04*)"));
 
   // Reconfiguring with the same displays snapshots will reapply the same
   // product matrix as well as gamma/degamma from the calibration data.
   native_display_delegate_->set_outputs(outputs);
   configurator_.OnConfigurationChanged();
   EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
-  EXPECT_TRUE(
-      base::MatchPattern(log_->GetActionsAndClear(),
-                         "*set_color_correction(id=123,degamma[0]*gamma[0]*,"
-                         "ctm[0]=0.01*ctm[4]=0.5*ctm[8]=0.04*)"));
+  EXPECT_TRUE(base::MatchPattern(
+      log_->GetActionsAndClear(),
+      "*set_color_matrix(id=123,ctm[0]=0.01*ctm[4]=0.5*ctm[8]=0.04*),"
+      "set_gamma_correction(id=123,degamma[0]*gamma[0]*)"));
 }
 
 TEST_F(DisplayColorManagerTest, FullWithoutPlatformCTM) {

@@ -20,14 +20,58 @@ as many/few checkers as we want in this one module.
 
 from __future__ import print_function
 
+import collections
 import os
+import re
 import sys
 
+from logilab.common.configuration import Configuration
 from pylint.checkers import BaseChecker
 from pylint.interfaces import IAstroidChecker
 
 
 # pylint: disable=too-few-public-methods
+
+
+class DocStringSectionDetails(object):
+  """Object to hold details about a docstring section.
+
+  e.g. This holds the Args: or Returns: data.
+  """
+
+  def __init__(self, name=None, header=None, lines=None, lineno=None):
+    """Initialize.
+
+    Args:
+      name: The name of this section, e.g. "Args".
+      header: The raw header of this section, e.g. "  Args:".
+      lines: The raw lines making up the section.
+      lineno: The first line of the section in the overall docstring.
+        This counts from one and includes the section header line.
+    """
+    self.name = name
+    self.header = header
+    self.lines = [] if lines is None else lines
+    self.lineno = lineno
+
+  def __str__(self):
+    """A human readable string for this object."""
+    return 'DocStringSectionDetails(%r, %r)' % (self.name, self.lineno)
+
+  def __repr__(self):
+    """A string to quickly identify this object."""
+    return 'DocStringSectionDetails(%r, %r, %r, %r)' % (
+        self.name, self.header, self.lines, self.lineno,
+    )
+
+  def __eq__(self, other):
+    """Test whether two DocStringSectionDetails objects are equivalent"""
+    return (
+        self.name == other.name and
+        self.header == other.header and
+        self.lines == other.lines and
+        self.lineno == other.lineno
+    )
 
 
 class DocStringChecker(BaseChecker):
@@ -62,7 +106,10 @@ class DocStringChecker(BaseChecker):
   class _MessageCP017(object): pass
   # pylint: enable=class-missing-docstring,multiple-statements
 
+  # This is the section name in the pylintrc file.
   name = 'doc_string_checker'
+  # Any pylintrc config options we accept.
+  options = ()
   priority = -1
   MSG_ARGS = 'offset:%(offset)i: {%(line)s}'
   msgs = {
@@ -70,19 +117,18 @@ class DocStringChecker(BaseChecker):
                 ('module-missing-docstring'), _MessageCP001),
       'C9002': ('Classes should have docstrings (even a one liner)',
                 ('class-missing-docstring'), _MessageCP002),
-      'C9003': ('Trailing whitespace in docstring'
-                ': %s' % MSG_ARGS,
+      'C9003': ('Trailing whitespace in docstring: ' + MSG_ARGS,
                 ('docstring-trailing-whitespace'), _MessageCP003),
       'C9004': ('Leading whitespace in docstring (excess or missing)'
-                ': %s' % MSG_ARGS,
+                ': ' + MSG_ARGS,
                 ('docstring-leading-whitespace'), _MessageCP004),
       'C9005': ('Closing triple quotes should not be cuddled',
                 ('docstring-cuddled-quotes'), _MessageCP005),
       'C9006': ('Section names should be preceded by one blank line'
-                ': %s' % MSG_ARGS,
+                ': ' + MSG_ARGS,
                 ('docstring-section-newline'), _MessageCP006),
       'C9007': ('Section names should be "Args:", "Returns:", "Yields:", '
-                'and "Raises:": %s' % MSG_ARGS,
+                'and "Raises:": ' + MSG_ARGS,
                 ('docstring-section-name'), _MessageCP007),
       'C9008': ('Sections should be in the order: Args, Returns/Yields, Raises',
                 ('docstring-section-order'), _MessageCP008),
@@ -94,11 +140,12 @@ class DocStringChecker(BaseChecker):
                 ('docstring-misnamed-args'), _MessageCP011),
       'C9012': ('Incorrectly formatted Args section: %(arg)s',
                 ('docstring-arg-spacing'), _MessageCP012),
-      'C9013': ('Too many blank lines in a row: %s' % MSG_ARGS,
+      'C9013': ('Too many blank lines in a row: ' + MSG_ARGS,
                 ('docstring-too-many-newlines'), _MessageCP013),
       'C9014': ('Second line should be blank',
                 ('docstring-second-line-blank'), _MessageCP014),
-      'C9015': ('Section indentation is incorrect: %s' % MSG_ARGS,
+      'C9015': ('Section indentation should be %(want_indent)s spaces, not '
+                '%(curr_indent)s spaces: ' + MSG_ARGS,
                 ('docstring-section-indent'), _MessageCP015),
       'C9016': ('Closing triple quotes should be indented with %(want_indent)s '
                 'spaces, not %(curr_indent)s',
@@ -107,18 +154,37 @@ class DocStringChecker(BaseChecker):
                 '%(line_old)i',
                 ('docstring-duplicate-section'), _MessageCP017),
   }
-  options = ()
 
   # TODO: Should we enforce Examples?
   VALID_SECTIONS = ('Args', 'Returns', 'Yields', 'Raises',)
+
+  def __init__(self, *args, **kwargs):
+    BaseChecker.__init__(self, *args, **kwargs)
+
+    # This is a bit hacky.  The pylint framework doesn't allow us to access
+    # options outside of our own namespace (self.name), and multiple linters
+    # may not have the same name/options values (since they get registered).
+    # So re-read the registered config file and pull out the value we want.
+    # This way we don't force people to set the same value in two places.
+    if self.linter is None:
+      # Unit tests don't set this up.
+      self._indent_string = '  '
+    else:
+      cfg = Configuration(config_file=self.linter.config_file, name='format',
+                          options=(('indent-string', {'default': '    ',
+                                                      'type': 'string'}),))
+      cfg.load_file_configuration()
+      self._indent_string = cfg.option_value('indent-string')
+    self._indent_len = len(self._indent_string)
 
   def visit_function(self, node):
     """Verify function docstrings"""
     if node.doc:
       lines = node.doc.split('\n')
       self._check_common(node, lines)
-      self._check_section_lines(node, lines)
-      self._check_all_args_in_doc(node, lines)
+      sections = self._parse_docstring_sections(node, lines)
+      self._check_section_lines(node, lines, sections)
+      self._check_all_args_in_doc(node, lines, sections)
       self._check_func_signature(node)
     else:
       # This is what C0111 already does for us, so ignore.
@@ -141,13 +207,12 @@ class DocStringChecker(BaseChecker):
     else:
       self.add_message('C9002', node=node, line=node.fromlineno)
 
-  @staticmethod
-  def _docstring_indent(node):
+  def _docstring_indent(self, node):
     """How much a |node|'s docstring should be indented"""
     if node.display_type() == 'Module':
       return 0
     else:
-      return node.col_offset + 2
+      return node.col_offset + self._indent_len
 
   def _check_common(self, node, lines=None):
     """Common checks we enforce on all docstrings"""
@@ -224,9 +289,19 @@ class DocStringChecker(BaseChecker):
         margs = {'offset': len(lines) - 2, 'line': lines[-2]}
         self.add_message('C9003', node=node, line=node.fromlineno, args=margs)
 
-  def _check_section_lines(self, node, lines):
-    """Verify each section (Args/Returns/Yields/Raises) is sane"""
-    lineno_sections = [-1] * len(self.VALID_SECTIONS)
+  def _parse_docstring_sections(self, node, lines):
+    """Find all the sections and return them
+
+    Args:
+      node: The python object we're checking.
+      lines: Parsed docstring lines.
+
+    Returns:
+      An ordered dict of sections and their (start, end) line numbers.
+      The start line does not include the section header itself.
+      {'Args': [start_line_number, end_line_number], ...}
+    """
+    sections = collections.OrderedDict()
     invalid_sections = (
         # Handle common misnamings.
         'arg', 'argument', 'arguments',
@@ -237,14 +312,12 @@ class DocStringChecker(BaseChecker):
     indent_len = self._docstring_indent(node)
 
     in_args_section = False
-    last = lines[0].strip()
-    for i, line in enumerate(lines[1:]):
+    last_section = None
+    for lineno, line in enumerate(lines[1:], start=2):
       line_indent_len = len(line) - len(line.lstrip(' '))
       margs = {
-          'offset': i + 1,
+          'offset': lineno,
           'line': line,
-          'want_indent': indent_len,
-          'curr_indent': line_indent_len,
       }
       l = line.strip()
 
@@ -261,77 +334,106 @@ class DocStringChecker(BaseChecker):
       if in_args_section:
         in_args_section = (indent_len < line_indent_len)
 
-      if (not in_args_section and
-          (section in self.VALID_SECTIONS or
-           section.lower() in invalid_sections)):
-        # Make sure it has some number of leading whitespace.
-        if not line.startswith(' '):
-          self.add_message('C9004', node=node, line=node.fromlineno, args=margs)
-
-        # Make sure it has a single trailing colon.
-        if l != '%s:' % section:
-          self.add_message('C9007', node=node, line=node.fromlineno, args=margs)
-
-        # Make sure it's valid.
+      if not in_args_section:
+        # We only parse known invalid & valid sections here.  This avoids
+        # picking up things that look like sections but aren't (e.g. "Note:"
+        # lines), and avoids running checks on sections we don't yet support.
         if section.lower() in invalid_sections:
           self.add_message('C9007', node=node, line=node.fromlineno, args=margs)
-        else:
-          line_old = lineno_sections[self.VALID_SECTIONS.index(section)]
-          if line_old != -1:
+        elif section in self.VALID_SECTIONS:
+          if section in sections:
             # We got the same section more than once?
             margs_copy = margs.copy()
             margs_copy.update({
-                'line_old': line_old,
+                'line_old': sections[section].lineno,
                 'section': section,
             })
             self.add_message('C9017', node=node, line=node.fromlineno,
                              args=margs_copy)
           else:
             # Gather the order of the sections.
-            lineno_sections[self.VALID_SECTIONS.index(section)] = i
+            sections[section] = last_section = DocStringSectionDetails(
+                name=section, header=line, lineno=lineno)
 
-        # Verify blank line before it.
-        if last != '':
-          self.add_message('C9006', node=node, line=node.fromlineno, args=margs)
-
-      last = l
-
-      # Detect whether we're in the Args section once we've processed the Args
-      # section itself.
-      if not in_args_section:
+        # Detect whether we're in the Args section once we've processed the Args
+        # section itself.
         in_args_section = (section == 'Args')
 
+      if l == '' and last_section:
+        last_section.lines = lines[last_section.lineno:lineno - 1]
+        last_section = None
+
+    return sections
+
+  def _check_section_lines(self, node, lines, sections):
+    """Verify each section (Args/Returns/Yields/Raises) is sane"""
+    indent_len = self._docstring_indent(node)
+
     # Make sure the sections are in the right order.
-    valid_lineno = lambda x: x >= 0
-    lineno_sections = filter(valid_lineno, lineno_sections)
-    if lineno_sections != sorted(lineno_sections):
+    found_sections = [x for x in self.VALID_SECTIONS if x in sections]
+    if found_sections != sections.keys():
       self.add_message('C9008', node=node, line=node.fromlineno)
 
-    # Check the indentation level on all the sections.
-    for lineno in lineno_sections:
-      # First the section header (e.g. Args:).
-      lineno += 1
-      line = lines[lineno]
-      if len(line) - len(line.lstrip(' ')) != indent_len:
-        margs = {'offset': lineno, 'line': line}
+    for section in sections.values():
+      # We're going to check the section line itself.
+      lineno = section.lineno
+      line = section.header
+      want_indent = indent_len + self._indent_len
+      line_indent_len = len(line) - len(line.lstrip(' '))
+      margs = {
+          'offset': lineno,
+          'line': line,
+          'want_indent': want_indent,
+          'curr_indent': line_indent_len,
+      }
+
+      # Make sure it has some number of leading whitespace.
+      if not line.startswith(' '):
+        self.add_message('C9004', node=node, line=node.fromlineno, args=margs)
+
+      # Make sure it has a single trailing colon.
+      if line.strip() != '%s:' % section.name:
+        self.add_message('C9007', node=node, line=node.fromlineno, args=margs)
+
+      # Verify blank line before it.  We use -2 because lineno counts from one,
+      # but lines is a zero-based list.
+      if lines[lineno - 2] != '':
+        self.add_message('C9006', node=node, line=node.fromlineno, args=margs)
+
+      # Check the indentation level on the section header (e.g. Args:).
+      if line_indent_len != indent_len:
         self.add_message('C9015', node=node, line=node.fromlineno, args=margs)
 
-  def _check_all_args_in_doc(self, node, lines):
+      # Now check the indentation of subtext in each section.
+      saw_exact = False
+      for i, line in enumerate(section.lines, start=1):
+        # Every line should be indented at least the minimum.
+        # Always update margs so that if we drop through below, it has
+        # reasonable values when generating the message.
+        line_indent_len = len(line) - len(line.lstrip(' '))
+        margs.update({
+            'line': line,
+            'offset': lineno + i,
+            'curr_indent': line_indent_len,
+        })
+        if line_indent_len == want_indent:
+          saw_exact = True
+        elif line_indent_len < want_indent:
+          self.add_message('C9015', node=node, line=node.fromlineno, args=margs)
+
+      # If none of the lines were indented at the exact level, then something
+      # is amiss like they're all incorrectly offset.
+      if not saw_exact:
+        self.add_message('C9015', node=node, line=node.fromlineno, args=margs)
+
+  def _check_all_args_in_doc(self, node, _lines, sections):
     """All function arguments are mentioned in doc"""
     if not hasattr(node, 'argnames'):
       return
 
-    # Locate the start of the args section.
-    arg_lines = []
-    for l in lines:
-      if arg_lines:
-        if l.strip() in [''] + ['%s:' % x for x in self.VALID_SECTIONS]:
-          break
-      elif l.strip() != 'Args:':
-        continue
-      arg_lines.append(l)
-    else:
-      # If they don't have an Args section, then give it a pass.
+    # If they don't have an Args section, then give it a pass.
+    section = sections.get('Args')
+    if section is None:
       return
 
     # Now verify all args exist.
@@ -346,7 +448,7 @@ class DocStringChecker(BaseChecker):
       if arg.name.startswith('_'):
         continue
 
-      for l in arg_lines:
+      for l in section.lines:
         aline = l.lstrip()
         if aline.startswith('%s:' % arg.name):
           amsg = aline[len(arg.name) + 1:]
@@ -433,6 +535,8 @@ class SourceChecker(BaseChecker):
   class _MessageR9201(object): pass
   class _MessageR9202(object): pass
   class _MessageR9203(object): pass
+  class _MessageR9204(object): pass
+  class _MessageR9205(object): pass
   class _MessageR9210(object): pass
   # pylint: enable=class-missing-docstring,multiple-statements
 
@@ -449,16 +553,25 @@ class SourceChecker(BaseChecker):
                 ('spurious-shebang'), _MessageR9202),
       'R9203': ('Unittest not named xxx_unittest.py',
                 ('unittest-misnamed'), _MessageR9203),
+      'R9204': ('File encoding missing (the first line after the shebang'
+                ' should be "# -*- coding: utf-8 -*-")',
+                ('missing-file-encoding'), _MessageR9204),
+      'R9205': ('File encoding should be "utf-8"',
+                ('bad-file-encoding'), _MessageR9205),
       'R9210': ('Trailing new lines found at end of file',
                 ('excess-trailing-newlines'), _MessageR9210),
   }
   options = ()
+
+  # Taken from PEP-263.
+  _ENCODING_RE = re.compile(r'^[ \t\v]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)')
 
   def visit_module(self, node):
     """Called when the whole file has been read"""
     stream = node.file_stream
     st = os.fstat(stream.fileno())
     self._check_shebang(node, stream, st)
+    self._check_encoding(node, stream, st)
     self._check_module_name(node)
     self._check_trailing_lines(node, stream, st)
 
@@ -480,6 +593,31 @@ class SourceChecker(BaseChecker):
     if shebang.strip() not in (
         '#!/usr/bin/env python2', '#!/usr/bin/env python3'):
       self.add_message('R9200')
+
+  def _check_encoding(self, _node, stream, st):
+    """Verify the file has an encoding set
+
+    See PEP-263 for more details.
+    https://www.python.org/dev/peps/pep-0263/
+    """
+    # Only allow empty files to have no encoding (e.g. __init__.py).
+    if not st.st_size:
+      return
+
+    stream.seek(0)
+    encoding = stream.readline()
+
+    # If the first line is the shebang, then the encoding is the second line.
+    if encoding[0:2] == '#!':
+      encoding = stream.readline()
+
+    # See if the encoding matches the standard.
+    m = self._ENCODING_RE.match(encoding)
+    if m:
+      if m.group(1) != 'utf-8':
+        self.add_message('R9205')
+    else:
+      self.add_message('R9204')
 
   def _check_module_name(self, node):
     """Make sure the module name is sane"""

@@ -15,11 +15,11 @@
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/gpu_utils.h"
 #include "content/public/common/content_switches.h"
-#include "gpu/command_buffer/service/gpu_preferences.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_info.h"
+#include "gpu/config/gpu_preferences.h"
 #include "gpu/config/gpu_util.h"
 #include "ui/gl/gl_share_group.h"
 
@@ -62,10 +62,7 @@ DeferredGpuCommandService::CreateDeferredGpuCommandService() {
   gpu::GpuPreferences gpu_preferences =
       content::GetGpuPreferencesFromCommandLine();
   bool success = gpu::InitializeGLThreadSafe(
-      base::CommandLine::ForCurrentProcess(),
-      gpu_preferences.ignore_gpu_blacklist,
-      gpu_preferences.disable_gpu_driver_bug_workarounds,
-      gpu_preferences.log_gpu_control_list_decisions, &gpu_info,
+      base::CommandLine::ForCurrentProcess(), gpu_preferences, &gpu_info,
       &gpu_feature_info);
   if (!success) {
     LOG(FATAL) << "gpu::InitializeGLThreadSafe() failed.";
@@ -85,11 +82,11 @@ DeferredGpuCommandService::DeferredGpuCommandService(
     const gpu::GpuPreferences& gpu_preferences,
     const gpu::GPUInfo& gpu_info,
     const gpu::GpuFeatureInfo& gpu_feature_info)
-    : gpu::InProcessCommandBuffer::Service(gpu_preferences,
-                                           nullptr,
-                                           nullptr,
-                                           gpu_feature_info),
-      sync_point_manager_(new gpu::SyncPointManager()),
+    : gpu::CommandBufferTaskExecutor(gpu_preferences,
+                                     gpu_feature_info,
+                                     nullptr,
+                                     nullptr),
+      sync_point_manager_(std::make_unique<gpu::SyncPointManager>()),
       gpu_info_(gpu_info) {}
 
 DeferredGpuCommandService::~DeferredGpuCommandService() {
@@ -201,14 +198,6 @@ void DeferredGpuCommandService::RunTasks() {
       has_more_tasks = tasks_.size() > 0;
     }
   }
-}
-
-void DeferredGpuCommandService::AddRef() const {
-  base::RefCountedThreadSafe<DeferredGpuCommandService>::AddRef();
-}
-
-void DeferredGpuCommandService::Release() const {
-  base::RefCountedThreadSafe<DeferredGpuCommandService>::Release();
 }
 
 bool DeferredGpuCommandService::BlockThreadOnWaitSyncToken() const {

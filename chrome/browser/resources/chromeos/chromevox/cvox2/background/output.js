@@ -136,6 +136,10 @@ Output.ROLE_INFO_ = {
   columnHeader: {msgId: 'role_columnheader', inherits: 'cell'},
   comboBoxMenuButton: {msgId: 'role_combobox', earconId: 'LISTBOX'},
   complementary: {msgId: 'role_complementary', inherits: 'abstractContainer'},
+  contentDeletion:
+      {msgId: 'role_content_deletion', inherits: 'abstractContainer'},
+  contentInsertion:
+      {msgId: 'role_content_insertion', inherits: 'abstractContainer'},
   contentInfo: {msgId: 'role_contentinfo', inherits: 'abstractContainer'},
   date: {msgId: 'input_type_date', inherits: 'abstractContainer'},
   definition: {msgId: 'role_definition', inherits: 'abstractContainer'},
@@ -366,10 +370,11 @@ Output.RULES = {
           $description $restriction`
     },
     abstractRange: {
-      speak: `$if($valueForRange, $valueForRange, $value)
+      speak: `$name $node(activeDescendant) $description $role
+          $if($value, $value, $if($valueForRange, $valueForRange))
+          $state $restriction
           $if($minValueForRange, @aria_value_min($minValueForRange))
-          $if($maxValueForRange, @aria_value_max($maxValueForRange))
-          $name $node(activeDescendant) $role $description $state $restriction`
+          $if($maxValueForRange, @aria_value_max($maxValueForRange))`
     },
     alert: {
       enter: `$name $role $state`,
@@ -383,13 +388,13 @@ Output.RULES = {
     },
     cell: {
       enter: {
-        speak: `$cellIndexText $node(tableColumnHeader) $state`,
-        braille: `$state $cellIndexText $node(tableColumnHeader)`,
+        speak: `$cellIndexText $node(tableCellColumnHeaders) $state`,
+        braille: `$state $cellIndexText $node(tableCellColumnHeaders)`,
       },
-      speak: `$name $cellIndexText $node(tableColumnHeader)
+      speak: `$name $cellIndexText $node(tableCellColumnHeaders)
           $state $description`,
       braille: `$state
-          $name $cellIndexText $node(tableColumnHeader) $description
+          $name $cellIndexText $node(tableCellColumnHeaders) $description
           $if($selected, @aria_selected_true)`
     },
     checkBox: {
@@ -533,10 +538,6 @@ Output.RULES = {
           $if($ariaRowCount, $ariaRowCount, $tableRowCount),
           $if($ariaColumnCount, $ariaColumnCount, $tableColumnCount))
           $node(tableHeader)`
-    },
-    tableHeaderContainer: {
-      speak: `$nameOrTextContent $state $roleDescription
-        $description`
     },
     tabList: {
       speak: `$name $node(activeDescendant) $state $restriction $role
@@ -712,6 +713,8 @@ Output.isTruthy = function(node, attrib) {
     // These attributes default to false for empty strings.
     case 'roleDescription':
       return !!node.roleDescription;
+    case 'value':
+      return !!node.value;
     case 'selected':
       return node.selected === true;
     default:
@@ -1158,6 +1161,13 @@ Output.prototype = {
           var earcon = node ? this.findEarcon_(node, opt_prevNode) : null;
           if (earcon)
             options.annotation.push(earcon);
+
+          // Place the selection on the first character of the name if the node
+          // is the active descendant. This ensures the braille window is panned
+          // appropriately.
+          if (node.activeDescendantFor && node.activeDescendantFor.length > 0)
+            options.annotation.push(new Output.SelectionSpan(0, 0));
+
           this.append_(buff, node.name || '', options);
         } else if (token == 'description') {
           if (node.name == node.description)
@@ -1357,36 +1367,38 @@ Output.prototype = {
             return;
 
           var relationName = tree.firstChild.value;
-          if (node[relationName]) {
+          if (relationName == 'tableCellColumnHeaders') {
+            // Skip output when previous position falls on the same column.
+            while (opt_prevNode &&
+                   !AutomationPredicate.cellLike(opt_prevNode)) {
+              opt_prevNode = opt_prevNode.parent;
+            }
+            if (opt_prevNode &&
+                opt_prevNode.tableCellColumnIndex ==
+                    node.tableCellColumnIndex) {
+              return;
+            }
+
+            var headers = node.tableCellColumnHeaders;
+            if (headers) {
+              for (var i = 0; i < headers.length; i++) {
+                var header = headers[i].name;
+                if (header)
+                  this.append_(buff, header, options);
+              }
+            }
+          } else if (relationName == 'tableCellRowHeaders') {
+            var headers = node.tableCellRowHeaders;
+            if (headers) {
+              for (var i = 0; i < headers.length; i++) {
+                var header = headers[i].name;
+                if (header)
+                  this.append_(buff, header, options);
+              }
+            }
+          } else if (node[relationName]) {
             var related = node[relationName];
             this.node_(related, related, Output.EventType.NAVIGATE, buff);
-          } else if (
-              relationName == 'tableColumnHeader' &&
-              node.role == RoleType.CELL) {
-            // Because table columns do not contain cells as descendants, we
-            // must search for the correct column.
-            var columnIndex = node.tableCellColumnIndex;
-            if (opt_prevNode) {
-              // Skip output when previous position falls on the same column.
-              while (opt_prevNode &&
-                     !AutomationPredicate.cellLike(opt_prevNode)) {
-                opt_prevNode = opt_prevNode.parent;
-              }
-
-              if (opt_prevNode &&
-                  opt_prevNode.tableCellColumnIndex == columnIndex)
-                return;
-            }
-            var tableLike = node.parent && node.parent.parent;
-            if (!tableLike || !AutomationPredicate.table(tableLike))
-              return;
-            var column = tableLike.children.find(function(candidate) {
-              return columnIndex === candidate.tableColumnIndex;
-            });
-            if (column && column.tableColumnHeader &&
-                column.tableColumnHeader.name) {
-              this.append_(buff, column.tableColumnHeader.name, options);
-            }
           }
         } else if (token == 'nameOrTextContent') {
           if (node.name && node.nameFrom != 'contents') {
@@ -1854,6 +1866,10 @@ Output.prototype = {
     if (!this.enableHints_ || localStorage['useVerboseMode'] != 'true')
       return;
 
+    // Hints are not yet specialized for braille.
+    if (this.formatOptions_.braille)
+      return;
+
     var node = range.start.node;
     if (!node) {
       this.append_(buff, Msgs.getMsg('warning_no_current_range'));
@@ -1886,8 +1902,9 @@ Output.prototype = {
 
     if (AutomationPredicate.checkable(node))
       this.format_(node, '@hint_checkable', buff);
-    if (AutomationPredicate.clickable(node))
+    else if (AutomationPredicate.clickable(node))
       this.format_(node, '@hint_clickable', buff);
+
     if (node.autoComplete == 'list' || node.autoComplete == 'both')
       this.format_(node, '@hint_autocomplete_list', buff);
     if (node.autoComplete == 'inline' || node.autoComplete == 'both')
@@ -1902,6 +1919,10 @@ Output.prototype = {
     if (uniqueAncestors.find(/** @type {function(?) : boolean} */ (
             AutomationPredicate.roles([RoleType.MENU, RoleType.MENU_BAR]))))
       this.format_(node, '@hint_menu', buff);
+    if (uniqueAncestors.find(/** @type {function(?) : boolean} */ (function(n) {
+          return !!n.details;
+        })))
+      this.format_(node, '@hint_details', buff);
   },
 
   /**

@@ -9,9 +9,7 @@
 
 #import "ios/chrome/browser/ui/location_bar/location_bar_url_loader.h"
 #import "ios/chrome/browser/ui/omnibox/location_bar_delegate.h"
-#include "ios/chrome/browser/ui/qr_scanner/requirements/qr_scanner_result_loading.h"
 #import "ios/chrome/browser/ui/toolbar/public/omnibox_focuser.h"
-#include "ios/public/provider/chrome/browser/voice/voice_search_controller_delegate.h"
 
 namespace ios {
 class ChromeBrowserState;
@@ -20,16 +18,18 @@ class WebStateList;
 @class CommandDispatcher;
 @protocol ApplicationCommands;
 @protocol BrowserCommands;
+@protocol EditViewAnimatee;
+@protocol LocationBarAnimatee;
 @protocol OmniboxPopupPositioner;
 @protocol ToolbarCoordinatorDelegate;
 @protocol UrlLoader;
 
 @protocol LocationBarGenericCoordinator<NSObject,
                                         LocationBarURLLoader,
-                                        OmniboxFocuser,
-                                        VoiceSearchControllerDelegate,
-                                        QRScannerResultLoading>
+                                        OmniboxFocuser>
 
+// Command dispatcher.
+@property(nonatomic, strong) CommandDispatcher* commandDispatcher;
 // View containing the omnibox.
 @property(nonatomic, strong, readonly) UIView* view;
 // Weak reference to ChromeBrowserState;
@@ -59,6 +59,16 @@ class WebStateList;
 
 // Indicates when the omnibox is the first responder.
 - (BOOL)isOmniboxFirstResponder;
+
+// TODO(crbug.com/831506): Once legacy location bar is deleted, remove the
+// @optional label and matching respondsToSelector: calls.
+@optional
+
+// Returns the location bar animatee.
+- (id<LocationBarAnimatee>)locationBarAnimatee;
+
+// Returns the edit view animatee.
+- (id<EditViewAnimatee>)editViewAnimatee;
 
 @end
 

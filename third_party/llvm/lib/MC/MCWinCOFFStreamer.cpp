@@ -63,7 +63,7 @@ void MCWinCOFFStreamer::EmitInstToData(const MCInst &Inst,
     Fixups[i].setOffset(Fixups[i].getOffset() + DF->getContents().size());
     DF->getFixups().push_back(Fixups[i]);
   }
-
+  DF->setHasInstructions(STI);
   DF->getContents().append(Code.begin(), Code.end());
 }
 
@@ -279,7 +279,8 @@ void MCWinCOFFStreamer::EmitLocalCommonSymbol(MCSymbol *S, uint64_t Size,
 }
 
 void MCWinCOFFStreamer::EmitZerofill(MCSection *Section, MCSymbol *Symbol,
-                                     uint64_t Size, unsigned ByteAlignment) {
+                                     uint64_t Size, unsigned ByteAlignment,
+                                     SMLoc Loc) {
   llvm_unreachable("not implemented");
 }
 

@@ -28,7 +28,7 @@ import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.preferences.ChromePreferenceManager;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.content.browser.BrowserStartupController;
+import org.chromium.content_public.browser.BrowserStartupController;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -38,6 +38,7 @@ import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -197,7 +198,7 @@ public class OriginVerifier {
                 || !UrlConstants.HTTPS_SCHEME.equals(scheme.toLowerCase(Locale.US))) {
             Log.i(TAG, "Verification failed for %s as not https.", origin);
             BrowserServicesMetrics.recordVerificationResult(
-                    BrowserServicesMetrics.VERIFICATION_RESULT_HTTPS_FAILURE);
+                    BrowserServicesMetrics.VerificationResult.HTTPS_FAILURE);
             ThreadUtils.runOnUiThread(new VerifiedCallback(false, null));
             return;
         }
@@ -206,7 +207,7 @@ public class OriginVerifier {
         if (isValidOrigin(mPackageName, origin, mRelation)) {
             Log.i(TAG, "Verification succeeded for %s, it was cached.", origin);
             BrowserServicesMetrics.recordVerificationResult(
-                    BrowserServicesMetrics.VERIFICATION_RESULT_CACHED_SUCCESS);
+                    BrowserServicesMetrics.VerificationResult.CACHED_SUCCESS);
             ThreadUtils.runOnUiThread(new VerifiedCallback(true, null));
             return;
         }
@@ -235,7 +236,7 @@ public class OriginVerifier {
                 mSignatureFingerprint, mOrigin.toString(), relationship);
         if (!requestSent) {
             BrowserServicesMetrics.recordVerificationResult(
-                    BrowserServicesMetrics.VERIFICATION_RESULT_REQUEST_FAILURE);
+                    BrowserServicesMetrics.VerificationResult.REQUEST_FAILURE);
             ThreadUtils.runOnUiThread(new VerifiedCallback(false, false));
         }
     }
@@ -312,12 +313,12 @@ public class OriginVerifier {
         switch (result) {
             case RelationshipCheckResult.SUCCESS:
                 BrowserServicesMetrics.recordVerificationResult(
-                        BrowserServicesMetrics.VERIFICATION_RESULT_ONLINE_SUCCESS);
+                        BrowserServicesMetrics.VerificationResult.ONLINE_SUCCESS);
                 originVerified(true, true);
                 break;
             case RelationshipCheckResult.FAILURE:
                 BrowserServicesMetrics.recordVerificationResult(
-                        BrowserServicesMetrics.VERIFICATION_RESULT_ONLINE_FAILURE);
+                        BrowserServicesMetrics.VerificationResult.ONLINE_FAILURE);
                 originVerified(false, true);
                 break;
             case RelationshipCheckResult.NO_CONNECTION:
@@ -374,8 +375,8 @@ public class OriginVerifier {
             boolean verified = savedLinks.contains(link);
 
             BrowserServicesMetrics.recordVerificationResult(verified
-                    ? BrowserServicesMetrics.VERIFICATION_RESULT_OFFLINE_SUCCESS
-                    : BrowserServicesMetrics.VERIFICATION_RESULT_OFFLINE_FAILURE);
+                            ? BrowserServicesMetrics.VerificationResult.OFFLINE_SUCCESS
+                            : BrowserServicesMetrics.VerificationResult.OFFLINE_FAILURE);
 
             originVerified(verified, false);
         }
@@ -384,6 +385,17 @@ public class OriginVerifier {
     private static String relationshipToString(String packageName, Origin origin, int relation) {
         // Neither package names nor origins contain commas.
         return packageName + "," + origin + "," + relation;
+    }
+
+    /**
+     * Removes any data about sites visited from static variables and Android Preferences.
+     */
+    @CalledByNative
+    public static void clearBrowsingData() {
+        ThreadUtils.assertOnUiThread();
+        if (sPackageToCachedOrigins != null) sPackageToCachedOrigins.clear();
+        ChromePreferenceManager.getInstance().setVerifiedDigitalAssetLinks(Collections.emptySet());
+        ChromePreferenceManager.getInstance().clearAllTrustedWebActivityLastDisclosureTimes();
     }
 
     private native long nativeInit(Profile profile);

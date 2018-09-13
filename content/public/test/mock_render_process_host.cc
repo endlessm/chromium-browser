@@ -231,7 +231,7 @@ int MockRenderProcessHost::GetID() const {
   return id_;
 }
 
-bool MockRenderProcessHost::HasConnection() const {
+bool MockRenderProcessHost::IsInitializedAndNotDead() const {
   return has_connection_;
 }
 
@@ -392,6 +392,11 @@ MockRenderProcessHost::GetProcessResourceCoordinator() {
   return process_resource_coordinator_.get();
 }
 
+void MockRenderProcessHost::CreateURLLoaderFactory(
+    network::mojom::URLLoaderFactoryRequest request) {
+  url_loader_factory_->Clone(std::move(request));
+}
+
 void MockRenderProcessHost::SetIsNeverSuitableForReuse() {
   is_never_suitable_for_reuse_ = true;
 }
@@ -410,6 +415,13 @@ void MockRenderProcessHost::SetIsUsed() {
 
 bool MockRenderProcessHost::HostHasNotBeenUsed() {
   return IsUnused() && listeners_.IsEmpty() && GetKeepAliveRefCount() == 0;
+}
+
+void MockRenderProcessHost::LockToOrigin(const GURL& lock_url) {
+  ChildProcessSecurityPolicyImpl::GetInstance()->LockToOrigin(GetID(),
+                                                              lock_url);
+  if (SiteInstanceImpl::IsOriginLockASite(lock_url))
+    is_renderer_locked_to_site_ = true;
 }
 
 void MockRenderProcessHost::BindCacheStorage(
@@ -461,6 +473,11 @@ void MockRenderProcessHost::OverrideRendererInterfaceForTesting(
     std::unique_ptr<mojo::AssociatedInterfacePtr<mojom::Renderer>>
         renderer_interface) {
   renderer_interface_ = std::move(renderer_interface);
+}
+
+void MockRenderProcessHost::OverrideURLLoaderFactory(
+    network::mojom::URLLoaderFactory* factory) {
+  url_loader_factory_ = factory;
 }
 
 MockRenderProcessHostFactory::MockRenderProcessHostFactory() {}

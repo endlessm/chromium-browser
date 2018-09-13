@@ -64,16 +64,24 @@ class CastAudioOutputStream::Backend : public CmaBackend::Decoder::Delegate {
       backend_->Stop();
   }
 
-  void Open(CmaBackendFactory* backend_factory,
+  void Open(CastAudioManager* audio_manager,
             OpenCompletionCallback completion_cb) {
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-    DCHECK(backend_factory);
+    DCHECK(audio_manager);
     DCHECK(backend_ == nullptr);
+
+    CmaBackendFactory* backend_factory = audio_manager->backend_factory();
+    DCHECK(backend_factory);
+
+    MediaPipelineDeviceParams::AudioStreamType stream_type =
+        MediaPipelineDeviceParams::kAudioStreamSoundEffects;
+    if (audio_params_.effects() & ::media::AudioParameters::MULTIZONE) {
+      stream_type = MediaPipelineDeviceParams::kAudioStreamNormal;
+    }
 
     backend_task_runner_.reset(new TaskRunnerImpl());
     MediaPipelineDeviceParams device_params(
-        MediaPipelineDeviceParams::kModeIgnorePts,
-        MediaPipelineDeviceParams::kAudioStreamSoundEffects,
+        MediaPipelineDeviceParams::kModeIgnorePts, stream_type,
         backend_task_runner_.get(), AudioContentType::kMedia,
         ::media::AudioDeviceDescription::kDefaultDeviceId);
     backend_ = backend_factory->CreateBackend(device_params);
@@ -289,8 +297,7 @@ bool CastAudioOutputStream::Open() {
     audio_manager_->backend_task_runner()->PostTask(
         FROM_HERE,
         base::BindOnce(
-            &Backend::Open, base::Unretained(backend_.get()),
-            audio_manager_->backend_factory(),
+            &Backend::Open, base::Unretained(backend_.get()), audio_manager_,
             base::BindOnce(&SignalWaitableEvent, &success, &completion_event)));
     completion_event.Wait();
   }

@@ -12,7 +12,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "services/service_manager/public/cpp/service_context.h"
 #include "services/ui/public/cpp/property_type_converters.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
 #include "ui/aura/mus/property_converter.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -45,11 +45,12 @@ void TapVisualizerApp::Start() {
 }
 
 void TapVisualizerApp::OnStart() {
-  const bool register_path_provider = false;
-  aura_init_ = views::AuraInit::Create(
-      context()->connector(), context()->identity(), "views_mus_resources.pak",
-      std::string(), nullptr, views::AuraInit::Mode::AURA_MUS2,
-      register_path_provider);
+  views::AuraInit::InitParams params;
+  params.connector = context()->connector();
+  params.identity = context()->identity();
+  params.mode = views::AuraInit::Mode::AURA_MUS2;
+  params.register_path_provider = false;
+  aura_init_ = views::AuraInit::Create(params);
   if (!aura_init_) {
     context()->QuitNow();
     return;

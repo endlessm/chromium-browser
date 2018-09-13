@@ -28,6 +28,7 @@
 namespace chromecast {
 namespace media {
 
+class AudioOutputRedirector;
 class FilterGroup;
 class MixerOutputStream;
 class PostProcessingPipelineParser;
@@ -94,6 +95,13 @@ class StreamMixer {
   void RemoveLoopbackAudioObserver(
       CastMediaShlib::LoopbackAudioObserver* observer);
 
+  // Adds/removes an output redirector. Output redirectors take audio from
+  // matching inputs and pass them to secondary output instead of the normal
+  // mixer output.
+  void AddAudioOutputRedirector(
+      std::unique_ptr<AudioOutputRedirector> redirector);
+  void RemoveAudioOutputRedirector(AudioOutputRedirector* redirector);
+
   // Sets the volume multiplier for the given content |type|.
   void SetVolume(AudioContentType type, float level);
 
@@ -109,6 +117,8 @@ class StreamMixer {
   // Sends configuration string |config| to processor |name|.
   void SetPostProcessorConfig(const std::string& name,
                               const std::string& config);
+
+  void ResetPostProcessors();
 
   // Test-only methods.
   StreamMixer(std::unique_ptr<MixerOutputStream> output,
@@ -150,6 +160,7 @@ class StreamMixer {
   };
 
   void CreatePostProcessors(PostProcessingPipelineParser* pipeline_parser);
+  void ResetPostProcessorsOnThread();
   void ValidatePostProcessors();
   void FinalizeOnMixerThread();
   void Start();
@@ -180,6 +191,10 @@ class StreamMixer {
   void RemoveLoopbackAudioObserverOnShimThread(
       CastMediaShlib::LoopbackAudioObserver* observer);
 
+  void AddAudioOutputRedirectorOnThread(
+      std::unique_ptr<AudioOutputRedirector> redirector);
+  void RemoveAudioOutputRedirectorOnThread(AudioOutputRedirector* redirector);
+
   void PostLoopbackData(int64_t expected_playback_time,
                         SampleFormat sample_format,
                         int sample_rate,
@@ -205,6 +220,8 @@ class StreamMixer {
   // Special thread to avoid underruns due to priority inversion.
   std::unique_ptr<base::Thread> shim_thread_;
   scoped_refptr<base::SingleThreadTaskRunner> shim_task_runner_;
+  std::unique_ptr<base::Thread> input_thread_;
+  scoped_refptr<base::SingleThreadTaskRunner> input_task_runner_;
 
   int num_output_channels_;
   const int low_sample_rate_cutoff_;
@@ -234,6 +251,9 @@ class StreamMixer {
   base::flat_set<CastMediaShlib::LoopbackAudioObserver*> loopback_observers_;
 
   base::flat_map<AudioContentType, VolumeInfo> volume_info_;
+
+  base::flat_map<AudioOutputRedirector*, std::unique_ptr<AudioOutputRedirector>>
+      audio_output_redirectors_;
 
   const bool external_audio_pipeline_supported_;
   std::unique_ptr<BaseExternalMediaVolumeChangeRequestObserver>

@@ -18,7 +18,7 @@
 #include "chromeos/chromeos_paths.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_session_manager_client.h"
-#include "chromeos/login/auth/authpolicy_login_helper.h"
+#include "chromeos/dbus/util/tpm_util.h"
 #include "crypto/rsa_private_key.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -59,9 +59,7 @@ void DevicePolicyCrosTestHelper::MarkAsEnterpriseOwnedBy(
 void DevicePolicyCrosTestHelper::MarkAsActiveDirectoryEnterpriseOwned(
     const std::string& realm) {
   OverridePaths();
-  ASSERT_TRUE(
-      chromeos::AuthPolicyLoginHelper::LockDeviceActiveDirectoryForTesting(
-          realm));
+  ASSERT_TRUE(chromeos::tpm_util::LockDeviceActiveDirectoryForTesting(realm));
 }
 
 void DevicePolicyCrosTestHelper::MarkAsEnterpriseOwned() {

@@ -8,11 +8,13 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/timer/mock_timer.h"
+#include "chromeos/chromeos_features.h"
 #include "chromeos/components/tether/fake_host_scanner.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
@@ -73,10 +75,8 @@ class HostScanSchedulerImplTest : public NetworkStateTest {
         network_state_handler(), fake_host_scanner_.get(),
         session_manager_.get());
 
-    mock_host_scan_batch_timer_ = new base::MockTimer(
-        true /* retain_user_task */, false /* is_repeating */);
-    mock_delay_scan_after_unlock_timer_ = new base::MockTimer(
-        true /* retain_user_task */, false /* is_repeating */);
+    mock_host_scan_batch_timer_ = new base::MockOneShotTimer();
+    mock_delay_scan_after_unlock_timer_ = new base::MockOneShotTimer();
 
     // Advance the clock by an arbitrary value to ensure that when Now() is
     // called, the Unix epoch will not be returned.
@@ -94,6 +94,10 @@ class HostScanSchedulerImplTest : public NetworkStateTest {
     ShutdownNetworkState();
     NetworkStateTest::TearDown();
     DBusThreadManager::Shutdown();
+  }
+
+  void SetMultiDeviceApiEnabled() {
+    scoped_feature_list_.InitAndEnableFeature(features::kMultiDeviceApi);
   }
 
   void RequestScan() { host_scan_scheduler_->ScanRequested(); }
@@ -164,14 +168,16 @@ class HostScanSchedulerImplTest : public NetworkStateTest {
   std::unique_ptr<FakeHostScanner> fake_host_scanner_;
   std::unique_ptr<session_manager::SessionManager> session_manager_;
 
-  base::MockTimer* mock_host_scan_batch_timer_;
-  base::MockTimer* mock_delay_scan_after_unlock_timer_;
+  base::MockOneShotTimer* mock_host_scan_batch_timer_;
+  base::MockOneShotTimer* mock_delay_scan_after_unlock_timer_;
   base::SimpleTestClock test_clock_;
   scoped_refptr<base::TestSimpleTaskRunner> test_task_runner_;
 
   std::unique_ptr<base::HistogramTester> histogram_tester_;
 
   std::unique_ptr<HostScanSchedulerImpl> host_scan_scheduler_;
+
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 TEST_F(HostScanSchedulerImplTest, ScheduleScan) {
@@ -212,6 +218,30 @@ TEST_F(HostScanSchedulerImplTest, TestDeviceLockAndUnlock) {
   // Fire the timer; this should start the scan.
   mock_delay_scan_after_unlock_timer_->Fire();
   EXPECT_EQ(1u, fake_host_scanner_->num_scans_started());
+}
+
+TEST_F(HostScanSchedulerImplTest,
+       TestDeviceLockAndUnlock_MultiDeviceApiEnabled) {
+  SetMultiDeviceApiEnabled();
+
+  // Lock the screen. This should not trigger a scan.
+  SetScreenLockedState(true /* is_locked */);
+  EXPECT_EQ(0u, fake_host_scanner_->num_scans_started());
+  EXPECT_FALSE(mock_delay_scan_after_unlock_timer_->IsRunning());
+
+  // Try to start a scan. Even thought the screen is locked, this should cause a
+  // scan to be started.
+  host_scan_scheduler_->ScheduleScan();
+  EXPECT_EQ(1u, fake_host_scanner_->num_scans_started());
+  EXPECT_FALSE(mock_delay_scan_after_unlock_timer_->IsRunning());
+
+  fake_host_scanner_->StopScan();
+
+  // Unlock the screen. A new scan should have started, and the timer should be
+  // untouched.
+  SetScreenLockedState(false /* is_locked */);
+  EXPECT_EQ(2u, fake_host_scanner_->num_scans_started());
+  EXPECT_FALSE(mock_delay_scan_after_unlock_timer_->IsRunning());
 }
 
 TEST_F(HostScanSchedulerImplTest, ScanRequested) {

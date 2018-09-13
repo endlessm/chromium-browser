@@ -34,6 +34,7 @@
 #include "content/public/common/previews_state.h"
 #include "content/public/test/web_contents_tester.h"
 #include "net/http/http_util.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
 #include "chrome/browser/offline_pages/offline_page_tab_helper.h"
@@ -78,6 +79,7 @@ class PreviewsInfoBarTabHelperUnitTest
     data_reduction_proxy_settings->InitDataReductionProxySettings(
         drp_test_context_->io_data(), drp_test_context_->pref_service(),
         drp_test_context_->request_context_getter(),
+        nullptr /* url_loader_factory */,
         base::WrapUnique(new data_reduction_proxy::DataStore()),
         base::ThreadTaskRunnerHandle::Get(),
         base::ThreadTaskRunnerHandle::Get());
@@ -258,6 +260,8 @@ TEST_F(PreviewsInfoBarTabHelperUnitTest, CreateOfflineInfoBar) {
   drp_test_context_->pref_service()->SetBoolean("data_usage_reporting.enabled",
                                                 true);
   base::RunLoop().RunUntilIdle();
+
+  SetCommittedPreviewsType(previews::PreviewsType::OFFLINE);
 
   CallDidFinishNavigation();
 

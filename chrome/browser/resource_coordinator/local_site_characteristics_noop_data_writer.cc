@@ -15,6 +15,9 @@ void LocalSiteCharacteristicsNoopDataWriter::NotifySiteLoaded() {}
 
 void LocalSiteCharacteristicsNoopDataWriter::NotifySiteUnloaded() {}
 
+void LocalSiteCharacteristicsNoopDataWriter::NotifySiteVisibilityChanged(
+    TabVisibility visibility) {}
+
 void LocalSiteCharacteristicsNoopDataWriter::
     NotifyUpdatesFaviconInBackground() {}
 

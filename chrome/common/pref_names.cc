@@ -194,8 +194,6 @@ const char kSupervisedUserWhitelists[] = "profile.managed.whitelists";
 const char kRlzPingDelaySeconds[] = "rlz_ping_delay";
 #endif  // BUILDFLAG(ENABLE_RLZ)
 
-// Important: Refer to header file for how to use this.
-const char kApplicationLocale[] = "intl.app_locale";
 #if defined(OS_CHROMEOS)
 // Locale preference of device' owner.  ChromeOS device appears in this locale
 // after startup/wakeup/signout.
@@ -231,8 +229,9 @@ const char kApplicationLocaleAccepted[] = "intl.app_locale_accepted";
 // Revert                              A        A       -
 const char kApplicationLocaleBackup[] = "intl.app_locale_backup";
 
-// List of allowed locales
-const char kAllowedLocales[] = "intl.allowed_locales";
+// List of locales the UI is allowed to be displayed in by policy. The list is
+// empty if no restriction is being enforced.
+const char kAllowedUILocales[] = "intl.allowed_ui_locales";
 #endif
 
 // The default character encoding to assume for a web page in the
@@ -407,11 +406,14 @@ const char kSearchSuggestEnabled[] = "search.suggest_enabled";
 const char kContextualSearchEnabled[] = "search.contextual_search_enabled";
 #endif  // defined(OS_ANDROID)
 
-#if defined(OS_MACOSX)
+#if defined(OS_MACOSX) || defined(OS_WIN) || \
+    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
 // Boolean that indicates whether the browser should put up a confirmation
-// window when the user is attempting to quit. Mac only.
+// window when the user is attempting to quit. Only on Mac, Windows, and Linux.
 const char kConfirmToQuitEnabled[] = "browser.confirm_to_quit";
+#endif
 
+#if defined(OS_MACOSX)
 // Boolean that indicates whether the browser should show the toolbar when it's
 // in fullscreen. Mac only.
 const char kShowFullscreenToolbar[] = "browser.show_fullscreen_toolbar";
@@ -529,6 +531,11 @@ const char kLanguageCurrentInputMethod[] =
 const char kLanguagePreviousInputMethod[] =
     "settings.language.previous_input_method";
 
+// A list pref set to the allowed input methods (see policy
+// "AllowedInputMethods").
+const char kLanguageAllowedInputMethods[] =
+    "settings.language.allowed_input_methods";
+
 // A string pref (comma-separated list) set to the preferred language IDs
 // (ex. "en-US,fr,ko").
 const char kLanguagePreferredLanguages[] =
@@ -542,10 +549,10 @@ const char kLanguagePreloadEngines[] = "settings.language.preload_engines";
 const char kLanguagePreloadEnginesSyncable[] =
     "settings.language.preload_engines_syncable";
 
-// A string pref (comma-separated list) set to the extension IMEs to be enabled.
-const char kLanguageEnabledExtensionImes[] =
-    "settings.language.enabled_extension_imes";
-const char kLanguageEnabledExtensionImesSyncable[] =
+// A string pref (comma-separated list) set to the extension and ARC IMEs to be
+// enabled.
+const char kLanguageEnabledImes[] = "settings.language.enabled_extension_imes";
+const char kLanguageEnabledImesSyncable[] =
     "settings.language.enabled_extension_imes_syncable";
 
 // A boolean pref set to true if the IME menu is activated.
@@ -907,6 +914,10 @@ const char kForceSessionSync[] = "settings.history_recorded";
 // only using an account that belongs to one of the domains from this pref.
 const char kAllowedDomainsForApps[] = "settings.allowed_domains_for_apps";
 
+// Enum specifying if/how the safesites content filter should be applied.
+// See the SafeSitesFilterBehavior policy for details.
+const char kSafeSitesFilterBehavior[] = "settings.safe_sites_filter_behavior";
+
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
 // Linux specific preference on whether we should match the system theme.
 const char kUsesSystemTheme[] = "extensions.theme.use_system";
@@ -1249,7 +1260,14 @@ const char kHasSeenWelcomePage[] = "browser.has_seen_welcome_page";
 #if defined(OS_WIN)
 // Whether or not this profile has been shown the Win10 promo page.
 const char kHasSeenWin10PromoPage[] = "browser.has_seen_win10_promo_page";
-#endif
+
+#if defined(GOOGLE_CHROME_BUILD)
+// Whether or not this profile has been shown the new user experience promo
+// page.
+const char kHasSeenGoogleAppsPromoPage[] =
+    "browser.has_seen_google_apps_promo_page";
+#endif  // defined(GOOGLE_CHROME_BUILD)
+#endif  // defined(OS_WIN)
 
 // *************** LOCAL STATE ***************
 // These are attached to the machine/installation
@@ -1413,6 +1431,12 @@ const char kShutdownNumProcessesSlow[] = "shutdown.num_processes_slow";
 const char kRestartLastSessionOnShutdown[] = "restart.last.session.on.shutdown";
 
 #if !defined(OS_ANDROID)
+#if !defined(OS_CHROMEOS)
+// Pref name for the policy controlling presentation of full-tab promotional
+// and/or educational content.
+const char kPromotionalTabsEnabled[] = "browser.promotional_tabs_enabled";
+#endif  // !defined(OS_CHROMEOS)
+
 // Boolean that specifies whether or not showing the unsupported OS warning is
 // suppressed. False by default. Controlled by the SuppressUnsupportedOSWarning
 // policy setting.
@@ -1421,7 +1445,8 @@ const char kSuppressUnsupportedOSWarning[] =
 
 // Set before autorestarting Chrome, cleared on clean exit.
 const char kWasRestarted[] = "was.restarted";
-#endif
+
+#endif  // !defined(OS_ANDROID)
 
 // Whether Extensions are enabled.
 const char kDisableExtensions[] = "extensions.disabled";
@@ -1461,6 +1486,9 @@ const char kContentSuggestionsNotificationsSentDay[] =
     "ntp.content_suggestions.notifications.sent_day";
 const char kContentSuggestionsNotificationsSentCount[] =
     "ntp.content_suggestions.notifications.sent_count";
+#else
+// Holds info for New Tab Page custom background
+const char kNtpCustomBackgroundDict[] = "ntp.custom_background_dict";
 #endif  // defined(OS_ANDROID)
 
 // Which page should be visible on the new tab page v4
@@ -1567,6 +1595,11 @@ const char kWebAppCreateOnDesktop[] = "browser.web_app.create_on_desktop";
 const char kWebAppCreateInAppsMenu[] = "browser.web_app.create_in_apps_menu";
 const char kWebAppCreateInQuickLaunchBar[] =
     "browser.web_app.create_in_quick_launch_bar";
+
+// A list of dictionaries for force-installed Web Apps. Each dictionary contains
+// two strings: the URL of the Web App and "tab" or "window" for where the app
+// will be launched.
+const char kWebAppInstallForceList[] = "profile.web_app.install.forcelist";
 
 // Dictionary that maps Geolocation network provider server URLs to
 // corresponding access token.
@@ -1810,9 +1843,6 @@ const char kOobeComplete[] = "OobeComplete";
 // The name of the screen that has to be shown if OOBE has been interrupted.
 const char kOobeScreenPending[] = "OobeScreenPending";
 
-// If material design OOBE should be selected if OOBE has been interrupted.
-const char kOobeMdMode[] = "OobeMdModeEnabled";
-
 // A boolean pref to indicate if an eligible controller (either a Chrome OS
 // device, or an Android device) is detected during bootstrapping or
 // shark/remora setup process. A controller can help the device go through OOBE
@@ -1882,6 +1912,13 @@ const char kReportingUsers[] = "reporting_users";
 // Whether to log events for Android app installs.
 const char kArcAppInstallEventLoggingEnabled[] =
     "arc.app_install_event_logging_enabled";
+
+// Whether we received the remove users remote command, and hence should proceed
+// with removing the users while at the login screen.
+const char kRemoveUsersRemoteCommand[] = "remove_users_remote_command";
+
+// Whether camera-produced media files have been consolidated to one place.
+const char kCameraMediaConsolidated[] = "camera_media_consolidated";
 
 #endif  // defined(OS_CHROMEOS)
 
@@ -2429,6 +2466,11 @@ const char kHistoryPageIOSPromoDismissed[] = "history_page_ios_promo_dismissed";
 // for the Incompatible Applications Warning feature.
 const char kIncompatibleApplications[] = "incompatible_applications";
 
+// Contains the MD5 digest of the current module blacklist cache. Used to detect
+// external tampering.
+const char kModuleBlacklistCacheMD5Digest[] =
+    "module_blacklist_cache_md5_digest";
+
 // Acts as a cache to remember problematic programs through restarts. Used for
 // the Incompatible Applications Warning feature.
 // Note: Deprecated. Renamed to kIncompatibleApplications.
@@ -2561,9 +2603,14 @@ const char kAutoplayAllowed[] = "media.autoplay_allowed";
 
 // Holds URL patterns that specify URLs that will be allowed to autoplay.
 const char kAutoplayWhitelist[] = "media.autoplay_whitelist";
-
-// Holds URL for New Tab Page custom background
-const char kNTPCustomBackgroundURL[] = "new_tab_page.custom_background_url";
 #endif  // !defined(OS_ANDROID)
+
+// Integer that holds the value of the next persistent notification ID to be
+// used.
+const char kNotificationNextPersistentId[] = "persistent_notifications.next_id";
+
+// Preference for controlling whether tab lifecycles
+// (throttling/freezing/discarding) are enabled.
+const char kTabLifecyclesEnabled[] = "tab_lifecycles_enabled";
 
 }  // namespace prefs

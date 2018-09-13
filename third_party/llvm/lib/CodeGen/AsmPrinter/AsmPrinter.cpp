@@ -989,7 +989,8 @@ void AsmPrinter::emitStackSizeSection(const MachineFunction &MF) {
   if (!MF.getTarget().Options.EmitStackSizeSection)
     return;
 
-  MCSection *StackSizeSection = getObjFileLowering().getStackSizesSection();
+  MCSection *StackSizeSection =
+      getObjFileLowering().getStackSizesSection(*getCurrentSection());
   if (!StackSizeSection)
     return;
 
@@ -1526,6 +1527,15 @@ bool AsmPrinter::doFinalization(Module &M) {
         }
       }
     }
+  }
+
+  if (TM.Options.EmitAddrsig) {
+    // Emit address-significance attributes for all globals.
+    OutStreamer->EmitAddrsig();
+    for (const GlobalValue &GV : M.global_values())
+      if (!GV.isThreadLocal() && !GV.getName().startswith("llvm.") &&
+          !GV.hasAtLeastLocalUnnamedAddr())
+        OutStreamer->EmitAddrsigSym(getSymbol(&GV));
   }
 
   // Allow the target to emit any magic that it wants at the end of the file,

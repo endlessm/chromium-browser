@@ -16,15 +16,14 @@
 #define LLVM_LIB_TARGET_AMDGPU_SIREGISTERINFO_H
 
 #include "AMDGPURegisterInfo.h"
-#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "SIDefines.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 
 namespace llvm {
 
+class GCNSubtarget;
 class LiveIntervals;
 class MachineRegisterInfo;
-class SISubtarget;
 class SIMachineFunctionInfo;
 
 class SIRegisterInfo final : public AMDGPURegisterInfo {
@@ -39,7 +38,7 @@ private:
   void classifyPressureSet(unsigned PSetID, unsigned Reg,
                            BitVector &PressureSets) const;
 public:
-  SIRegisterInfo(const SISubtarget &ST);
+  SIRegisterInfo(const GCNSubtarget &ST);
 
   bool spillSGPRToVGPR() const {
     return SpillSGPRToVGPR;
@@ -223,10 +222,8 @@ public:
 
   const int *getRegUnitPressureSets(unsigned RegUnit) const override;
 
-  unsigned getReturnAddressReg(const MachineFunction &MF) const {
-    // Not a callee saved register.
-    return AMDGPU::SGPR30_SGPR31;
-  }
+  unsigned getReturnAddressReg(const MachineFunction &MF) const;
+
   const TargetRegisterClass *
   getConstrainedRegClassForOperand(const MachineOperand &MO,
                                  const MachineRegisterInfo &MRI) const override;

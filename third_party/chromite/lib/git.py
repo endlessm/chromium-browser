@@ -10,6 +10,7 @@ from __future__ import print_function
 import collections
 import datetime
 import errno
+import fnmatch
 import hashlib
 import os
 import re
@@ -141,9 +142,22 @@ def IsSubmoduleCheckoutRoot(path, remote, url):
   return False
 
 
-def IsGitRepo(cwd):
-  """Checks if there's a git repo rooted at a directory."""
-  return os.path.isdir(os.path.join(cwd, '.git'))
+def GetGitGitdir(pwd):
+  """Probes for a git gitdir directory rooted at a directory.
+
+  Args:
+    pwd: Directory to probe. If a checkout, should be the root.
+
+  Returns:
+    Path of the gitdir directory. None if the directory is not a git repo.
+  """
+  if os.path.isdir(os.path.join(pwd, '.git')):
+    return os.path.join(pwd, '.git')
+  # Is this directory a bare repo with no checkout?
+  if os.path.isdir(os.path.join(
+      pwd, 'objects')) and os.path.isdir(os.path.join(pwd, 'refs')):
+    return pwd
+  return None
 
 
 def IsGitRepositoryCorrupted(cwd):
@@ -864,6 +878,15 @@ def ShallowFetch(git_repo, git_url, sparse_checkout=None):
   logging.info('ShallowFetch completed in %s.', utcnow() - start)
 
 
+def FindGitTopLevel(path):
+  """Returns the top-level directory of the given git working tree path."""
+  try:
+    ret = RunGit(path, ['rev-parse', '--show-toplevel'])
+    return ret.output.strip()
+  except cros_build_lib.RunCommandError:
+    return None
+
+
 def GetProjectUserEmail(git_repo):
   """Get the email configured for the project."""
   output = RunGit(git_repo, ['var', 'GIT_COMMITTER_IDENT']).output
@@ -1449,3 +1472,25 @@ def GarbageCollection(git_repo, prune_all=False):
   if prune_all:
     cmd.append('--prune=all')
   RunGit(git_repo, cmd)
+
+
+def DeleteStaleLocks(git_repo):
+  """Clean up stale locks left behind in a git repo.
+
+  This might occur if an earlier git command was killed during an operation.
+  Warning: This is dangerous because these locks are intended to prevent
+  corruption. Only use this if you are sure that no other git process is
+  accessing the repo (such as at the beginning of a fresh build).
+
+  Args"
+    git_repo: Directory of git repository.
+  """
+  git_gitdir = GetGitGitdir(git_repo)
+  if not git_gitdir:
+    raise GitException("Not a valid git repo: %s" % git_repo)
+
+  for root, _, filenames in os.walk(git_gitdir):
+    for filename in fnmatch.filter(filenames, '*.lock'):
+      p = os.path.join(root, filename)
+      logging.info('Found stale git lock, removing: %s', p)
+      os.remove(p)

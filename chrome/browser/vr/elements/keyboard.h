@@ -9,12 +9,13 @@
 #include "chrome/browser/vr/elements/ui_element.h"
 #include "chrome/browser/vr/keyboard_delegate.h"
 #include "chrome/browser/vr/renderers/base_renderer.h"
+#include "chrome/browser/vr/vr_ui_export.h"
 
 namespace vr {
 
 // Represents the virtual keyboard. This element is a proxy to the
 // platform-specific keyboard implementation.
-class Keyboard : public UiElement {
+class VR_UI_EXPORT Keyboard : public UiElement {
  public:
   Keyboard();
   ~Keyboard() override;
@@ -30,11 +31,15 @@ class Keyboard : public UiElement {
                                  int target_property_id,
                                  cc::KeyframeModel* keyframe_model) override;
 
-  void OnHoverEnter(const gfx::PointF& position) override;
-  void OnHoverLeave() override;
-  void OnMove(const gfx::PointF& position) override;
-  void OnButtonDown(const gfx::PointF& position) override;
-  void OnButtonUp(const gfx::PointF& position) override;
+  void OnHoverEnter(const gfx::PointF& position,
+                    base::TimeTicks timestamp) override;
+  void OnHoverLeave(base::TimeTicks timestamp) override;
+  void OnHoverMove(const gfx::PointF& position,
+                   base::TimeTicks timestamp) override;
+  void OnButtonDown(const gfx::PointF& position,
+                    base::TimeTicks timestamp) override;
+  void OnButtonUp(const gfx::PointF& position,
+                  base::TimeTicks timestamp) override;
 
   class Renderer : public BaseRenderer {
    public:

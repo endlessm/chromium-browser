@@ -31,7 +31,6 @@ class PropagatorTest : public testing::Test {
  protected:
   virtual void TearDown() {
     ctx_.reset(nullptr);
-    cfg_.reset(nullptr);
     values_.clear();
     values_vec_.clear();
   }
@@ -40,11 +39,10 @@ class PropagatorTest : public testing::Test {
     ctx_ = BuildModule(SPV_ENV_UNIVERSAL_1_1, nullptr, input);
     ASSERT_NE(nullptr, ctx_) << "Assembling failed for shader:\n"
                              << input << "\n";
-    cfg_.reset(new ir::CFG(ctx_->module()));
   }
 
   bool Propagate(const opt::SSAPropagator::VisitFunction& visit_fn) {
-    opt::SSAPropagator propagator(ctx_.get(), cfg_.get(), visit_fn);
+    opt::SSAPropagator propagator(ctx_.get(), visit_fn);
     bool retval = false;
     for (auto& fn : *ctx_->module()) {
       retval |= propagator.Run(&fn);
@@ -60,8 +58,7 @@ class PropagatorTest : public testing::Test {
     return values_vec_;
   }
 
-  std::unique_ptr<ir::IRContext> ctx_;
-  std::unique_ptr<ir::CFG> cfg_;
+  std::unique_ptr<opt::IRContext> ctx_;
   std::map<uint32_t, uint32_t> values_;
   std::vector<uint32_t> values_vec_;
 };
@@ -104,13 +101,13 @@ TEST_F(PropagatorTest, LocalPropagate) {
                )";
   Assemble(spv_asm);
 
-  const auto visit_fn = [this](ir::Instruction* instr,
-                               ir::BasicBlock** dest_bb) {
+  const auto visit_fn = [this](opt::Instruction* instr,
+                               opt::BasicBlock** dest_bb) {
     *dest_bb = nullptr;
     if (instr->opcode() == SpvOpStore) {
       uint32_t lhs_id = instr->GetSingleWordOperand(0);
       uint32_t rhs_id = instr->GetSingleWordOperand(1);
-      ir::Instruction* rhs_def = ctx_->get_def_use_mgr()->GetDef(rhs_id);
+      opt::Instruction* rhs_def = ctx_->get_def_use_mgr()->GetDef(rhs_id);
       if (rhs_def->opcode() == SpvOpConstant) {
         uint32_t val = rhs_def->GetSingleWordOperand(2);
         values_[lhs_id] = val;
@@ -171,13 +168,13 @@ TEST_F(PropagatorTest, PropagateThroughPhis) {
 
   Assemble(spv_asm);
 
-  ir::Instruction *phi_instr = nullptr;
-  const auto visit_fn = [this, &phi_instr](ir::Instruction* instr,
-                                           ir::BasicBlock** dest_bb) {
+  opt::Instruction* phi_instr = nullptr;
+  const auto visit_fn = [this, &phi_instr](opt::Instruction* instr,
+                                           opt::BasicBlock** dest_bb) {
     *dest_bb = nullptr;
     if (instr->opcode() == SpvOpLoad) {
       uint32_t rhs_id = instr->GetSingleWordOperand(2);
-      ir::Instruction* rhs_def = ctx_->get_def_use_mgr()->GetDef(rhs_id);
+      opt::Instruction* rhs_def = ctx_->get_def_use_mgr()->GetDef(rhs_id);
       if (rhs_def->opcode() == SpvOpConstant) {
         uint32_t val = rhs_def->GetSingleWordOperand(2);
         values_[instr->result_id()] = val;

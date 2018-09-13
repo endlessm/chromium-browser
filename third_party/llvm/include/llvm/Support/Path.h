@@ -20,6 +20,7 @@
 #include "llvm/ADT/iterator.h"
 #include "llvm/Support/DataTypes.h"
 #include <iterator>
+#include <system_error>
 
 namespace llvm {
 namespace sys {
@@ -466,6 +467,10 @@ StringRef remove_leading_dotslash(StringRef path, Style style = Style::native);
 /// @result True if path was changed
 bool remove_dots(SmallVectorImpl<char> &path, bool remove_dot_dot = false,
                  Style style = Style::native);
+
+#if defined(_WIN32)
+std::error_code widenPath(const Twine &Path8, SmallVectorImpl<wchar_t> &Path16);
+#endif
 
 } // end namespace path
 } // end namespace sys

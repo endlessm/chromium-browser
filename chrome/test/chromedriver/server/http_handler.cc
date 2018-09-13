@@ -100,7 +100,7 @@ HttpHandler::HttpHandler(
           WrapToCommand("GetTimeouts", base::Bind(&ExecuteGetTimeouts))),
       CommandMapping(
           kPost, "session/:sessionId/timeouts",
-          WrapToCommand("SetTimeout", base::Bind(&ExecuteSetTimeout))),
+          WrapToCommand("SetTimeouts", base::Bind(&ExecuteSetTimeouts))),
       CommandMapping(kPost, "session/:sessionId/url",
                      WrapToCommand("Navigate", base::Bind(&ExecuteGet))),
       CommandMapping(
@@ -113,6 +113,10 @@ HttpHandler::HttpHandler(
 
       CommandMapping(kPost, "session/:sessionId/refresh",
                      WrapToCommand("Refresh", base::Bind(&ExecuteRefresh))),
+      CommandMapping(kPost, "session/:sessionId/goog/page/freeze",
+                     WrapToCommand("Freeze", base::Bind(&ExecuteFreeze))),
+      CommandMapping(kPost, "session/:sessionId/goog/page/resume",
+                     WrapToCommand("Resume", base::Bind(&ExecuteResume))),
       CommandMapping(kGet, "session/:sessionId/title",
                      WrapToCommand("GetTitle", base::Bind(&ExecuteGetTitle))),
       CommandMapping(kGet, "session/:sessionId/window",
@@ -562,6 +566,9 @@ HttpHandler::HttpHandler(
       CommandMapping(
           kPost, "session/:sessionId/chromium/send_command",
           WrapToCommand("SendCommand", base::Bind(&ExecuteSendCommand))),
+      CommandMapping(
+          kPost, "session/:sessionId/goog/cdp/execute",
+          WrapToCommand("ExecuteCDP", base::Bind(&ExecuteSendCommandAndGetResult))),
       CommandMapping(
           kPost, "session/:sessionId/chromium/send_command_and_get_result",
           WrapToCommand("SendCommandAndGetResult",

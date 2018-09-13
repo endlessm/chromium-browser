@@ -15,6 +15,11 @@ from tracing.value import histogram_set
 from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
 
+
+# TODO(crbug.com/851948): These tests should be moved to
+# timeline_based_measurement_unittest.py
+
+
 class TestTimelinebasedMeasurementPage(page_module.Page):
 
   def __init__(self, ps, base_dir, trigger_animation=False,
@@ -56,7 +61,7 @@ class FailedTimelinebasedMeasurementPage(page_module.Page):
     action_runner.TapElement('#does-not-exist')
 
 
-class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
+class TimelineBasedMeasurementTest(page_test_test_case.PageTestTestCase):
 
   def setUp(self):
     self._options = self.createDefaultRunnerOptions()
@@ -91,6 +96,7 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
 
   # win: crbug.com/520781, chromeos: crbug.com/483212.
   @decorators.Disabled('win', 'chromeos')
+  @decorators.Disabled('mac')  # crbug.com/850012
   @decorators.Isolated  # Needed because of py_trace_event
   def testTimelineBasedMeasurementGestureAdjustmentSmoke(self):
     ps = self.CreateEmptyPageSet()

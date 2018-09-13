@@ -1,4 +1,5 @@
 # Generated from 'DEPS'
+build_with_chromium = true
 checkout_android = false
 checkout_android_native_support = false
 checkout_libaom = false

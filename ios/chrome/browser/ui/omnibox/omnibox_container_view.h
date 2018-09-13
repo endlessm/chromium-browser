@@ -14,12 +14,14 @@
 // right of it.
 @interface OmniboxContainerView : UIView
 
-// Initialize the container view with the given frame, font, text color, and
-// tint color for omnibox.
+// Initialize the container view with the given frame, font, Regular x Regular
+// size class font, text color, and tint color for omnibox.
 - (instancetype)initWithFrame:(CGRect)frame
                          font:(UIFont*)font
+                   largerFont:(UIFont*)largerFont
                     textColor:(UIColor*)textColor
-                    tintColor:(UIColor*)tintColor NS_DESIGNATED_INITIALIZER;
+                textFieldTint:(UIColor*)textFieldTint
+                     iconTint:(UIColor*)iconTint NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)initWithFrame:(CGRect)frame NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder*)aDecoder NS_UNAVAILABLE;
@@ -36,6 +38,9 @@
 
 // Shows or hides the leading button.
 - (void)setLeadingImageHidden:(BOOL)hidden;
+
+// Sets the alpha level of the leading image view.
+- (void)setLeadingImageAlpha:(CGFloat)alpha;
 
 @end
 

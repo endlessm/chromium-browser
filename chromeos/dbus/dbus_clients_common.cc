@@ -5,12 +5,12 @@
 #include "chromeos/dbus/dbus_clients_common.h"
 
 #include "base/command_line.h"
-#include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/biod/biod_client.h"
 #include "chromeos/dbus/cec_service_client.h"
 #include "chromeos/dbus/cras_audio_client.h"
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_client_implementation_type.h"
+#include "chromeos/dbus/dbus_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_cras_audio_client.h"
 #include "chromeos/dbus/fake_cryptohome_client.h"
@@ -29,6 +29,7 @@
 #include "chromeos/dbus/fake_upstart_client.h"
 #include "chromeos/dbus/gsm_sms_client.h"
 #include "chromeos/dbus/hammerd_client.h"
+#include "chromeos/dbus/machine_learning_client.h"
 #include "chromeos/dbus/modem_messaging_client.h"
 #include "chromeos/dbus/permission_broker_client.h"
 #include "chromeos/dbus/power_manager_client.h"
@@ -100,6 +101,8 @@ DBusClientsCommon::DBusClientsCommon(bool use_real_clients) {
     hammerd_client_ = std::make_unique<FakeHammerdClient>();
   }
 
+  machine_learning_client_ = MachineLearningClient::Create(client_impl_type);
+
   if (use_real_clients)
     modem_messaging_client_.reset(ModemMessagingClient::Create());
   else
@@ -143,6 +146,7 @@ void DBusClientsCommon::Initialize(dbus::Bus* system_bus) {
   cryptohome_client_->Init(system_bus);
   gsm_sms_client_->Init(system_bus);
   hammerd_client_->Init(system_bus);
+  machine_learning_client_->Init(system_bus);
   modem_messaging_client_->Init(system_bus);
   permission_broker_client_->Init(system_bus);
   power_manager_client_->Init(system_bus);

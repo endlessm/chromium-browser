@@ -69,7 +69,7 @@ CommandUtil.getCommandEntries = function(element) {
  *
  * @param {EventTarget} element Element which is the command event's target.
  * @param {DirectoryModel} directoryModel
- * @return {DirectoryEntry|FakeEntry} The extracted parent entry.
+ * @return {DirectoryEntry|FakeEntry|FilesAppEntry} The extracted parent entry.
  */
 CommandUtil.getParentEntry = function(element, directoryModel) {
   if (element instanceof DirectoryTree) {
@@ -275,14 +275,38 @@ CommandUtil.shouldShowMenuItemsForEntry = function(volumeManager, entry) {
   if (!volumeManager || !volumeManager.getVolumeInfo(entry))
     return false;
 
-  // If the entry is root entry of its volume, hide context menu entries.
-  if (CommandUtil.isRootEntry(volumeManager, entry))
+  // If the entry is root entry of its volume (but not a team drive root), hide
+  // context menu entries.
+  if (CommandUtil.isRootEntry(volumeManager, entry) &&
+      !util.isTeamDriveRoot(entry))
     return false;
 
-  if (util.isTeamDrivesGrandRoot(entry) || util.isTeamDriveRoot(entry))
+  if (util.isTeamDrivesGrandRoot(entry))
     return false;
 
   return true;
+};
+
+/**
+ * Returns whether all of the given entries have the given capability.
+ *
+ * @param {!Array<Entry>} entries List of entries to check capabilities for.
+ * @param {!string} capability Name of the capability to check for.
+ */
+CommandUtil.hasCapability = function(entries, capability) {
+  if (entries.length == 0) {
+    return false;
+  }
+
+  // Check if the capability is true or undefined, but not false. A capability
+  // can be undefined if the metadata is not fetched from the server yet (e.g.
+  // if we create a new file in offline mode), or if there is a problem with the
+  // cache and we don't have data yet. For this reason, we need to allow the
+  // functionality even if it's not set.
+  // TODO(crbug.com/849999): Store restrictions instead of capabilities.
+  var metadata = fileManager.metadataModel.getCache(entries, [capability]);
+  return metadata.length === entries.length &&
+      metadata.every(item => item[capability] !== false);
 };
 
 /**
@@ -325,6 +349,8 @@ var CommandHandler = function(fileManager, selectionHandler) {
   selectionHandler.addEventListener(
       FileSelectionHandler.EventType.CHANGE_THROTTLED,
       this.updateAvailability.bind(this));
+  fileManager.metadataModel.addEventListener(
+      'update', this.updateAvailability.bind(this));
 
   chrome.commandLinePrivate.hasSwitch(
       'disable-zip-archiver-packer', function(disabled) {
@@ -366,6 +392,8 @@ CommandHandler.MenuCommandsForUMA = {
   MOBILE_DATA_OFF: 'drive-sync-settings-disabled',
   SHOW_GOOGLE_DOCS_FILES_OFF: 'drive-hosted-settings-disabled',
   SHOW_GOOGLE_DOCS_FILES_ON: 'drive-hosted-settings-enabled',
+  HIDDEN_ANDROID_FOLDERS_SHOW: 'toggle-hidden-android-folders-on',
+  HIDDEN_ANDROID_FOLDERS_HIDE: 'toggle-hidden-android-folders-off',
 };
 
 /**
@@ -388,6 +416,8 @@ CommandHandler.ValidMenuCommandsForUMA = [
   CommandHandler.MenuCommandsForUMA.MOBILE_DATA_OFF,
   CommandHandler.MenuCommandsForUMA.SHOW_GOOGLE_DOCS_FILES_ON,
   CommandHandler.MenuCommandsForUMA.SHOW_GOOGLE_DOCS_FILES_OFF,
+  CommandHandler.MenuCommandsForUMA.HIDDEN_ANDROID_FOLDERS_SHOW,
+  CommandHandler.MenuCommandsForUMA.HIDDEN_ANDROID_FOLDERS_HIDE,
 ];
 console.assert(
     Object.keys(CommandHandler.MenuCommandsForUMA).length ===
@@ -689,14 +719,17 @@ CommandHandler.COMMANDS_['new-folder'] = (function() {
       }
 
       var locationInfo = fileManager.volumeManager.getLocationInfo(entry);
-      event.canExecute = locationInfo && !locationInfo.isReadOnly;
+      event.canExecute = locationInfo && !locationInfo.isReadOnly &&
+          CommandUtil.hasCapability([entry], 'canAddChildren');
       event.command.setHidden(
           CommandUtil.isRootEntry(fileManager.volumeManager, entry));
     } else {
       var directoryModel = fileManager.directoryModel;
+      var directoryEntry = fileManager.getCurrentDirectoryEntry();
       event.canExecute = !fileManager.directoryModel.isReadOnly() &&
           !fileManager.namingController.isRenamingInProgress() &&
-          !directoryModel.isSearching() && !directoryModel.isScanning();
+          !directoryModel.isSearching() && !directoryModel.isScanning() &&
+          CommandUtil.hasCapability([directoryEntry], 'canAddChildren');
       event.command.setHidden(false);
     }
   };
@@ -743,7 +776,13 @@ CommandHandler.COMMANDS_['select-all'] = /** @type {Command} */ ({
    * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
    */
   canExecute: function(event, fileManager) {
-    event.canExecute = fileManager.directoryModel.getFileList().length > 0;
+    // Check we are not inside an input element (e.g. the search box).
+    const inputElementActive =
+        document.activeElement instanceof HTMLInputElement ||
+        document.activeElement instanceof HTMLTextAreaElement ||
+        document.activeElement.tagName.toLowerCase() === 'cr-input';
+    event.canExecute = !inputElementActive &&
+        fileManager.directoryModel.getFileList().length > 0;
   }
 });
 
@@ -753,16 +792,12 @@ CommandHandler.COMMANDS_['toggle-hidden-files'] = /** @type {Command} */ ({
    * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
    */
   execute: function(event, fileManager) {
-    var isFilterHiddenOn = !fileManager.fileFilter.isFilterHiddenOn();
-    fileManager.fileFilter.setFilterHidden(isFilterHiddenOn);
-    event.command.checked = /* is show hidden files */!isFilterHiddenOn;
-    if (isFilterHiddenOn) {
-      CommandHandler.recordMenuItemSelected_(
-          CommandHandler.MenuCommandsForUMA.HIDDEN_FILES_SHOW);
-    } else {
-      CommandHandler.recordMenuItemSelected_(
-          CommandHandler.MenuCommandsForUMA.HIDDEN_FILES_HIDE);
-    }
+    var visible = !fileManager.fileFilter.isHiddenFilesVisible();
+    fileManager.fileFilter.setHiddenFilesVisible(visible);
+    event.command.checked = visible;  // Checkmark for "Show hidden files".
+    CommandHandler.recordMenuItemSelected_(
+        visible ? CommandHandler.MenuCommandsForUMA.HIDDEN_FILES_SHOW :
+                  CommandHandler.MenuCommandsForUMA.HIDDEN_FILES_HIDE);
   },
   /**
    * @param {!Event} event Command event.
@@ -770,6 +805,40 @@ CommandHandler.COMMANDS_['toggle-hidden-files'] = /** @type {Command} */ ({
    */
   canExecute: CommandUtil.canExecuteAlways
 });
+
+/**
+ * Toggles visibility of top-level Android folders which are not visible by
+ * default.
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['toggle-hidden-android-folders'] =
+    /** @type {Command} */ ({
+      /**
+       * @param {!Event} event Command event.
+       * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+       */
+      execute: function(event, fileManager) {
+        var visible = !fileManager.fileFilter.isAllAndroidFoldersVisible();
+        fileManager.fileFilter.setAllAndroidFoldersVisible(visible);
+        event.command.checked = visible;
+        CommandHandler.recordMenuItemSelected_(
+            visible ?
+                CommandHandler.MenuCommandsForUMA.HIDDEN_ANDROID_FOLDERS_SHOW :
+                CommandHandler.MenuCommandsForUMA.HIDDEN_ANDROID_FOLDERS_HIDE);
+      },
+      /**
+       * @param {!Event} event Command event.
+       * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+       */
+      canExecute: function(event, fileManager) {
+        event.canExecute =
+            !!fileManager.volumeManager.getCurrentProfileVolumeInfo(
+                VolumeManagerCommon.VolumeType.ANDROID_FILES);
+        event.command.setHidden(!event.canExecute);
+        event.command.checked =
+            fileManager.fileFilter.isAllAndroidFoldersVisible();
+      }
+    });
 
 /**
  * Toggles drive sync settings.
@@ -786,13 +855,10 @@ CommandHandler.COMMANDS_['drive-sync-settings'] = /** @type {Command} */ ({
         fileManager.ui.gearMenu.syncButton.hasAttribute('checked');
     var changeInfo = {cellularDisabled: !nowCellularDisabled};
     chrome.fileManagerPrivate.setPreferences(changeInfo);
-    if (nowCellularDisabled) {
-      CommandHandler.recordMenuItemSelected_(
-          CommandHandler.MenuCommandsForUMA.MOBILE_DATA_OFF);
-    } else {
-      CommandHandler.recordMenuItemSelected_(
-          CommandHandler.MenuCommandsForUMA.MOBILE_DATA_ON);
-    }
+    CommandHandler.recordMenuItemSelected_(
+        nowCellularDisabled ?
+            CommandHandler.MenuCommandsForUMA.MOBILE_DATA_OFF :
+            CommandHandler.MenuCommandsForUMA.MOBILE_DATA_ON);
   },
   /**
    * @param {!Event} event Command event.
@@ -827,13 +893,10 @@ CommandHandler.COMMANDS_['drive-hosted-settings'] = /** @type {Command} */ ({
     var changeInfo = {};
     changeInfo['hostedFilesDisabled'] = !nowHostedFilesDisabled;
     chrome.fileManagerPrivate.setPreferences(changeInfo);
-    if (nowHostedFilesDisabled) {
-      CommandHandler.recordMenuItemSelected_(
-          CommandHandler.MenuCommandsForUMA.SHOW_GOOGLE_DOCS_FILES_OFF);
-    } else {
-      CommandHandler.recordMenuItemSelected_(
-          CommandHandler.MenuCommandsForUMA.SHOW_GOOGLE_DOCS_FILES_ON);
-    }
+    CommandHandler.recordMenuItemSelected_(
+        nowHostedFilesDisabled ?
+            CommandHandler.MenuCommandsForUMA.SHOW_GOOGLE_DOCS_FILES_OFF :
+            CommandHandler.MenuCommandsForUMA.SHOW_GOOGLE_DOCS_FILES_ON);
   },
   /**
    * @param {!Event} event Command event.
@@ -898,7 +961,8 @@ CommandHandler.COMMANDS_['delete'] = (function() {
 
       event.canExecute = entries.length > 0 &&
           !this.containsReadOnlyEntry_(entries, fileManager) &&
-          !fileManager.directoryModel.isReadOnly();
+          !fileManager.directoryModel.isReadOnly() &&
+          CommandUtil.hasCapability(entries, 'canDelete');
       event.command.setHidden(false);
     },
 
@@ -1145,8 +1209,9 @@ CommandHandler.COMMANDS_['rename'] = /** @type {Command} */ ({
         CommandUtil.getParentEntry(renameTarget, fileManager.directoryModel);
     var locationInfo = parentEntry ?
         fileManager.volumeManager.getLocationInfo(parentEntry) : null;
-    event.canExecute =
-        entries.length === 1 && !!locationInfo && !locationInfo.isReadOnly;
+    const volumeIsNotReadOnly = !!locationInfo && !locationInfo.isReadOnly;
+    event.canExecute = entries.length === 1 && volumeIsNotReadOnly &&
+        CommandUtil.hasCapability(entries, 'canRename');
     event.command.setHidden(false);
   }
 });
@@ -1252,7 +1317,7 @@ CommandHandler.COMMANDS_['open-with'] = /** @type {Command} */ ({
           tasks.showTaskPicker(
               fileManager.ui.defaultTaskPicker, str('OPEN_WITH_BUTTON_LABEL'),
               '', function(task) {
-                tasks.execute(task.taskId);
+                tasks.execute(task);
               }, FileTasks.TaskPickerType.OpenWith);
         })
         .catch(function(error) {
@@ -1286,7 +1351,7 @@ CommandHandler.COMMANDS_['more-actions'] = /** @type {Command} */ ({
           tasks.showTaskPicker(
               fileManager.ui.defaultTaskPicker,
               str('MORE_ACTIONS_BUTTON_LABEL'), '', function(task) {
-                tasks.execute(task.taskId);
+                tasks.execute(task);
               }, FileTasks.TaskPickerType.MoreActions);
         })
         .catch(function(error) {
@@ -1350,10 +1415,9 @@ CommandHandler.COMMANDS_['search'] = /** @type {Command} */ ({
     fileManager.directoryModel.clearSelection();
 
     // Focus and unhide the search box.
-    var element = fileManager.document.querySelector('#search-box input');
+    var element = fileManager.document.querySelector('#search-box cr-input');
     element.hidden = false;
-    element.focus();
-    element.select();
+    (/** @type {!CrInputElement} */ (element)).select();
   },
   /**
    * @param {!Event} event Command event.
@@ -1451,9 +1515,11 @@ CommandHandler.COMMANDS_['zip-selection'] = /** @type {Command} */ ({
           .then(function(tasks) {
             if (fileManager.directoryModel.isOnDrive() ||
                 fileManager.directoryModel.isOnMTP()) {
-              tasks.execute(FileTasks.ZIP_ARCHIVER_ZIP_USING_TMP_TASK_ID);
+              tasks.execute(/** @type {chrome.fileManagerPrivate.FileTask} */ (
+                  {taskId: FileTasks.ZIP_ARCHIVER_ZIP_USING_TMP_TASK_ID}));
             } else {
-              tasks.execute(FileTasks.ZIP_ARCHIVER_ZIP_TASK_ID);
+              tasks.execute(/** @type {chrome.fileManagerPrivate.FileTask} */ (
+                  {taskId: FileTasks.ZIP_ARCHIVER_ZIP_TASK_ID}));
             }
           })
           .catch(function(error) {
@@ -1983,4 +2049,44 @@ CommandHandler.COMMANDS_['volume-storage'] = /** @type {Command} */ ({
     chrome.fileManagerPrivate.openSettingsSubpage('storage');
   },
   canExecute: CommandUtil.canExecuteAlways
+});
+
+/**
+ * Opens "providers menu" to allow users to install new providers/FSPs.
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['new-service'] = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  execute: function(event, fileManager) {
+    const menuButton = fileManager.ui.newServiceButton;
+    // Make the button visible because showMenu positions the menu relative to
+    // to this button.
+    menuButton.hidden = false;
+
+    // Fire update event to display services that are already installed.
+    const updateEvent =
+        /** @type {MenuItemUpdateEvent} */ (new Event('update'));
+
+    // Display the menu near gearMenu, since menuButton will be hidden.
+    // The event listener (ProvidersMenu) only uses this menuButton for
+    // positioning.
+    updateEvent.menuButton = fileManager.ui.gearButton;
+    menuButton.menu.dispatchEvent(updateEvent);
+    menuButton.showMenu(false);
+
+    // Hide it back.
+    menuButton.hidden = true;
+  },
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  canExecute: function(event, fileManager) {
+    event.canExecute =
+        (fileManager.dialogType === DialogType.FULL_PAGE &&
+         !chrome.extension.inIncognitoContext);
+  }
 });

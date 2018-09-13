@@ -20,6 +20,7 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.preferences.PreferencesLauncher;
 import org.chromium.chrome.browser.signin.AccountSigninActivity.AccessPoint;
 import org.chromium.chrome.browser.sync.ui.SyncCustomizationFragment;
+import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.components.sync.AndroidSyncSettings;
 import org.chromium.components.sync.AndroidSyncSettings.AndroidSyncSettingsObserver;
 
@@ -91,9 +92,9 @@ public class SyncPromoView extends LinearLayout implements AndroidSyncSettingsOb
 
     private void update() {
         ViewState viewState;
-        if (!AndroidSyncSettings.isMasterSyncEnabled(getContext())) {
+        if (!AndroidSyncSettings.isMasterSyncEnabled()) {
             viewState = getStateForEnableAndroidSync();
-        } else if (!AndroidSyncSettings.isChromeSyncEnabled(getContext())) {
+        } else if (!AndroidSyncSettings.isChromeSyncEnabled()) {
             viewState = getStateForEnableChromeSync();
         } else {
             viewState = getStateForStartUsing();
@@ -160,11 +161,7 @@ public class SyncPromoView extends LinearLayout implements AndroidSyncSettingsOb
         int descId = R.string.recent_tabs_sync_promo_enable_android_sync;
 
         ButtonState positiveButton = new ButtonPresent(R.string.open_settings_button, view -> {
-            // TODO(https://crbug.com/557784): Like AccountManagementFragment, this would also
-            // benefit from going directly to an account.
-            Intent intent = new Intent(Settings.ACTION_SYNC_SETTINGS);
-            intent.putExtra(Settings.EXTRA_ACCOUNT_TYPES, new String[] {"com.google"});
-            getContext().startActivity(intent);
+            IntentUtils.safeStartActivity(getContext(), new Intent(Settings.ACTION_SYNC_SETTINGS));
         });
 
         return new ViewState(descId, positiveButton);
@@ -196,14 +193,14 @@ public class SyncPromoView extends LinearLayout implements AndroidSyncSettingsOb
         assert mInitialized : "init(...) must be called on SyncPromoView before use.";
 
         super.onAttachedToWindow();
-        AndroidSyncSettings.registerObserver(getContext(), this);
+        AndroidSyncSettings.registerObserver(this);
         update();
     }
 
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        AndroidSyncSettings.unregisterObserver(getContext(), this);
+        AndroidSyncSettings.unregisterObserver(this);
     }
 
     // AndroidSyncStateObserver

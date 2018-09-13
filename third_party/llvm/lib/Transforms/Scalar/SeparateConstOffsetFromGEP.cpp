@@ -165,7 +165,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -708,7 +708,7 @@ Value *ConstantOffsetExtractor::removeConstOffset(unsigned ChainIndex) {
   BinaryOperator::BinaryOps NewOp = BO->getOpcode();
   if (BO->getOpcode() == Instruction::Or) {
     // Rebuild "or" as "add", because "or" may be invalid for the new
-    // epxression.
+    // expression.
     //
     // For instance, given
     //   a | (b + 5) where a and b + 5 have no common bits,
@@ -1068,7 +1068,7 @@ bool SeparateConstOffsetFromGEP::splitGEP(GetElementPtrInst *GEP) {
       DL->getTypeAllocSize(GEP->getResultElementType()));
   Type *IntPtrTy = DL->getIntPtrType(GEP->getType());
   if (AccumulativeByteOffset % ElementTypeSizeOfGEP == 0) {
-    // Very likely. As long as %gep is natually aligned, the byte offset we
+    // Very likely. As long as %gep is naturally aligned, the byte offset we
     // extracted should be a multiple of sizeof(*%gep).
     int64_t Index = AccumulativeByteOffset / ElementTypeSizeOfGEP;
     NewGEP = GetElementPtrInst::Create(GEP->getResultElementType(), NewGEP,

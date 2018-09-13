@@ -14,6 +14,7 @@
 #include "LinkerScript.h"
 #include "OutputSections.h"
 #include "Relocations.h"
+#include "SymbolTable.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
@@ -26,7 +27,10 @@
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Threading.h"
 #include "llvm/Support/xxhash.h"
+#include <algorithm>
 #include <mutex>
+#include <set>
+#include <vector>
 
 using namespace llvm;
 using namespace llvm::ELF;
@@ -212,6 +216,17 @@ InputSection *InputSectionBase::getLinkOrderDep() const {
   return cast<InputSection>(File->getSections()[Link]);
 }
 
+// Find a function symbol that encloses a given location.
+template <class ELFT>
+Defined *InputSectionBase::getEnclosingFunction(uint64_t Offset) {
+  for (Symbol *B : File->getSymbols())
+    if (Defined *D = dyn_cast<Defined>(B))
+      if (D->Section == this && D->Type == STT_FUNC &&
+          D->Value <= Offset && Offset < D->Value + D->Size)
+        return D;
+  return nullptr;
+}
+
 // Returns a source location string. Used to construct an error message.
 template <class ELFT>
 std::string InputSectionBase::getLocation(uint64_t Offset) {
@@ -221,9 +236,8 @@ std::string InputSectionBase::getLocation(uint64_t Offset) {
         .str();
 
   // First check if we can get desired values from debugging information.
-  std::string LineInfo = getFile<ELFT>()->getLineInfo(this, Offset);
-  if (!LineInfo.empty())
-    return LineInfo;
+  if (Optional<DILineInfo> Info = getFile<ELFT>()->getDILineInfo(this, Offset))
+    return Info->FileName + ":" + std::to_string(Info->Line);
 
   // File->SourceFile contains STT_FILE symbol that contains a
   // source file name. If it's missing, we use an object file name.
@@ -231,12 +245,8 @@ std::string InputSectionBase::getLocation(uint64_t Offset) {
   if (SrcFile.empty())
     SrcFile = toString(File);
 
-  // Find a function symbol that encloses a given location.
-  for (Symbol *B : File->getSymbols())
-    if (auto *D = dyn_cast<Defined>(B))
-      if (D->Section == this && D->Type == STT_FUNC)
-        if (D->Value <= Offset && Offset < D->Value + D->Size)
-          return SrcFile + ":(function " + toString(*D) + ")";
+  if (Defined *D = getEnclosingFunction<ELFT>(Offset))
+    return SrcFile + ":(function " + toString(*D) + ")";
 
   // If there's no symbol, print out the offset in the section.
   return (SrcFile + ":(" + Name + "+0x" + utohexstr(Offset) + ")").str();
@@ -325,7 +335,7 @@ template <class ELFT> void InputSection::copyShtGroup(uint8_t *Buf) {
     *To++ = Sections[Idx]->getOutputSection()->SectionIndex;
 }
 
-InputSectionBase *InputSection::getRelocatedSection() {
+InputSectionBase *InputSection::getRelocatedSection() const {
   if (!File || (Type != SHT_RELA && Type != SHT_REL))
     return nullptr;
   ArrayRef<InputSectionBase *> Sections = File->getSections();
@@ -477,12 +487,13 @@ static uint64_t getARMStaticBase(const Symbol &Sym) {
   return OS->PtLoad->FirstSec->Addr;
 }
 
-static uint64_t getRelocTargetVA(RelType Type, int64_t A, uint64_t P,
-                                 const Symbol &Sym, RelExpr Expr) {
+static uint64_t getRelocTargetVA(const InputFile *File, RelType Type, int64_t A,
+                                 uint64_t P, const Symbol &Sym, RelExpr Expr) {
   switch (Expr) {
   case R_INVALID:
     return 0;
   case R_ABS:
+  case R_RELAX_TLS_LD_TO_LE_ABS:
   case R_RELAX_GOT_PC_NOPIC:
     return Sym.getVA(A);
   case R_ADDEND:
@@ -503,7 +514,9 @@ static uint64_t getRelocTargetVA(RelType Type, int64_t A, uint64_t P,
   case R_GOT_FROM_END:
   case R_RELAX_TLS_GD_TO_IE_END:
     return Sym.getGotOffset() + A - InX::Got->getSize();
+  case R_TLSLD_GOT_OFF:
   case R_GOT_OFF:
+  case R_RELAX_TLS_GD_TO_IE_GOT_OFF:
     return Sym.getGotOffset() + A;
   case R_GOT_PAGE_PC:
   case R_RELAX_TLS_GD_TO_IE_PAGE_PC:
@@ -514,11 +527,12 @@ static uint64_t getRelocTargetVA(RelType Type, int64_t A, uint64_t P,
   case R_HINT:
   case R_NONE:
   case R_TLSDESC_CALL:
+  case R_TLSLD_HINT:
     llvm_unreachable("cannot relocate hint relocs");
   case R_MIPS_GOTREL:
-    return Sym.getVA(A) - InX::MipsGot->getGp();
+    return Sym.getVA(A) - InX::MipsGot->getGp(File);
   case R_MIPS_GOT_GP:
-    return InX::MipsGot->getGp() + A;
+    return InX::MipsGot->getGp(File) + A;
   case R_MIPS_GOT_GP_PC: {
     // R_MIPS_LO16 expression has R_MIPS_GOT_GP_PC type iif the target
     // is _gp_disp symbol. In that case we should use the following
@@ -527,7 +541,7 @@ static uint64_t getRelocTargetVA(RelType Type, int64_t A, uint64_t P,
     // microMIPS variants of these relocations use slightly different
     // expressions: AHL + GP - P + 3 for %lo() and AHL + GP - P - 1 for %hi()
     // to correctly handle less-sugnificant bit of the microMIPS symbol.
-    uint64_t V = InX::MipsGot->getGp() + A - P;
+    uint64_t V = InX::MipsGot->getGp(File) + A - P;
     if (Type == R_MIPS_LO16 || Type == R_MICROMIPS_LO16)
       V += 4;
     if (Type == R_MICROMIPS_LO16 || Type == R_MICROMIPS_HI16)
@@ -538,21 +552,23 @@ static uint64_t getRelocTargetVA(RelType Type, int64_t A, uint64_t P,
     // If relocation against MIPS local symbol requires GOT entry, this entry
     // should be initialized by 'page address'. This address is high 16-bits
     // of sum the symbol's value and the addend.
-    return InX::MipsGot->getVA() + InX::MipsGot->getPageEntryOffset(Sym, A) -
-           InX::MipsGot->getGp();
+    return InX::MipsGot->getVA() +
+           InX::MipsGot->getPageEntryOffset(File, Sym, A) -
+           InX::MipsGot->getGp(File);
   case R_MIPS_GOT_OFF:
   case R_MIPS_GOT_OFF32:
     // In case of MIPS if a GOT relocation has non-zero addend this addend
     // should be applied to the GOT entry content not to the GOT entry offset.
     // That is why we use separate expression type.
-    return InX::MipsGot->getVA() + InX::MipsGot->getSymEntryOffset(Sym, A) -
-           InX::MipsGot->getGp();
+    return InX::MipsGot->getVA() +
+           InX::MipsGot->getSymEntryOffset(File, Sym, A) -
+           InX::MipsGot->getGp(File);
   case R_MIPS_TLSGD:
-    return InX::MipsGot->getVA() + InX::MipsGot->getTlsOffset() +
-           InX::MipsGot->getGlobalDynOffset(Sym) - InX::MipsGot->getGp();
+    return InX::MipsGot->getVA() + InX::MipsGot->getGlobalDynOffset(File, Sym) -
+           InX::MipsGot->getGp(File);
   case R_MIPS_TLSLD:
-    return InX::MipsGot->getVA() + InX::MipsGot->getTlsOffset() +
-           InX::MipsGot->getTlsIndexOff() - InX::MipsGot->getGp();
+    return InX::MipsGot->getVA() + InX::MipsGot->getTlsIndexOffset(File) -
+           InX::MipsGot->getGp(File);
   case R_PAGE_PC:
   case R_PLT_PAGE_PC: {
     uint64_t Dest;
@@ -618,8 +634,23 @@ static uint64_t getRelocTargetVA(RelType Type, int64_t A, uint64_t P,
     // statically to zero.
     if (Sym.isTls() && Sym.isUndefWeak())
       return 0;
-    if (Target->TcbSize)
+
+    // For TLS variant 1 the TCB is a fixed size, whereas for TLS variant 2 the
+    // TCB is on unspecified size and content. Targets that implement variant 1
+    // should set TcbSize.
+    if (Target->TcbSize) {
+      // PPC64 V2 ABI has the thread pointer offset into the middle of the TLS
+      // storage area by TlsTpOffset for efficient addressing TCB and up to
+      // 4KB – 8 B of other thread library information (placed before the TCB).
+      // Subtracting this offset will get the address of the first TLS block.
+      if (Target->TlsTpOffset)
+        return Sym.getVA(A) - Target->TlsTpOffset;
+
+      // If thread pointer is not offset into the middle, the first thing in the
+      // TLS storage area is the TCB. Add the TcbSize to get the address of the
+      // first TLS block.
       return Sym.getVA(A) + alignTo(Target->TcbSize, Out::TlsPhdr->p_align);
+    }
     return Sym.getVA(A) - Out::TlsPhdr->p_memsz;
   case R_RELAX_TLS_GD_TO_LE_NEG:
   case R_NEG_TLS:
@@ -631,12 +662,16 @@ static uint64_t getRelocTargetVA(RelType Type, int64_t A, uint64_t P,
   case R_TLSDESC_PAGE:
     return getAArch64Page(InX::Got->getGlobalDynAddr(Sym) + A) -
            getAArch64Page(P);
-  case R_TLSGD:
+  case R_TLSGD_GOT:
+    return InX::Got->getGlobalDynOffset(Sym) + A;
+  case R_TLSGD_GOT_FROM_END:
     return InX::Got->getGlobalDynOffset(Sym) + A - InX::Got->getSize();
   case R_TLSGD_PC:
     return InX::Got->getGlobalDynAddr(Sym) + A - P;
-  case R_TLSLD:
+  case R_TLSLD_GOT_FROM_END:
     return InX::Got->getTlsIndexOff() + A - InX::Got->getSize();
+  case R_TLSLD_GOT:
+      return InX::Got->getTlsIndexOff() + A;
   case R_TLSLD_PC:
     return InX::Got->getTlsIndexVA() + A - P;
   }
@@ -704,15 +739,37 @@ void InputSection::relocateNonAlloc(uint8_t *Buf, ArrayRef<RelTy> Rels) {
   }
 }
 
+// This is used when '-r' is given.
+// For REL targets, InputSection::copyRelocations() may store artificial
+// relocations aimed to update addends. They are handled in relocateAlloc()
+// for allocatable sections, and this function does the same for
+// non-allocatable sections, such as sections with debug information.
+static void relocateNonAllocForRelocatable(InputSection *Sec, uint8_t *Buf) {
+  const unsigned Bits = Config->Is64 ? 64 : 32;
+
+  for (const Relocation &Rel : Sec->Relocations) {
+    // InputSection::copyRelocations() adds only R_ABS relocations.
+    assert(Rel.Expr == R_ABS);
+    uint8_t *BufLoc = Buf + Rel.Offset + Sec->OutSecOff;
+    uint64_t TargetVA = SignExtend64(Rel.Sym->getVA(Rel.Addend), Bits);
+    Target->relocateOne(BufLoc, Rel.Type, TargetVA);
+  }
+}
+
 template <class ELFT>
 void InputSectionBase::relocate(uint8_t *Buf, uint8_t *BufEnd) {
+  if (Flags & SHF_EXECINSTR)
+    adjustSplitStackFunctionPrologues<ELFT>(Buf, BufEnd);
+
   if (Flags & SHF_ALLOC) {
     relocateAlloc(Buf, BufEnd);
     return;
   }
 
   auto *Sec = cast<InputSection>(this);
-  if (Sec->AreRelocsRela)
+  if (Config->Relocatable)
+    relocateNonAllocForRelocatable(Sec, Buf);
+  else if (Sec->AreRelocsRela)
     Sec->relocateNonAlloc<ELFT>(Buf, Sec->template relas<ELFT>());
   else
     Sec->relocateNonAlloc<ELFT>(Buf, Sec->template rels<ELFT>());
@@ -732,7 +789,8 @@ void InputSectionBase::relocateAlloc(uint8_t *Buf, uint8_t *BufEnd) {
     uint64_t AddrLoc = getOutputSection()->Addr + Offset;
     RelExpr Expr = Rel.Expr;
     uint64_t TargetVA = SignExtend64(
-        getRelocTargetVA(Type, Rel.Addend, AddrLoc, *Rel.Sym, Expr), Bits);
+        getRelocTargetVA(File, Type, Rel.Addend, AddrLoc, *Rel.Sym, Expr),
+        Bits);
 
     switch (Expr) {
     case R_RELAX_GOT_PC:
@@ -743,6 +801,7 @@ void InputSectionBase::relocateAlloc(uint8_t *Buf, uint8_t *BufEnd) {
       Target->relaxTlsIeToLe(BufLoc, Type, TargetVA);
       break;
     case R_RELAX_TLS_LD_TO_LE:
+    case R_RELAX_TLS_LD_TO_LE_ABS:
       Target->relaxTlsLdToLe(BufLoc, Type, TargetVA);
       break;
     case R_RELAX_TLS_GD_TO_LE:
@@ -751,11 +810,18 @@ void InputSectionBase::relocateAlloc(uint8_t *Buf, uint8_t *BufEnd) {
       break;
     case R_RELAX_TLS_GD_TO_IE:
     case R_RELAX_TLS_GD_TO_IE_ABS:
+    case R_RELAX_TLS_GD_TO_IE_GOT_OFF:
     case R_RELAX_TLS_GD_TO_IE_PAGE_PC:
     case R_RELAX_TLS_GD_TO_IE_END:
       Target->relaxTlsGdToIe(BufLoc, Type, TargetVA);
       break;
     case R_PPC_CALL:
+      // If this is a call to __tls_get_addr, it may be part of a TLS
+      // sequence that has been relaxed and turned into a nop. In this
+      // case, we don't want to handle it as a call.
+      if (read32(BufLoc) == 0x60000000) // nop
+        break;
+
       // Patch a nop (0x60000000) to a ld.
       if (Rel.Sym->NeedsTocRestore) {
         if (BufLoc + 8 > BufEnd || read32(BufLoc + 4) != 0x60000000) {
@@ -771,6 +837,103 @@ void InputSectionBase::relocateAlloc(uint8_t *Buf, uint8_t *BufEnd) {
       break;
     }
   }
+}
+
+// For each function-defining prologue, find any calls to __morestack,
+// and replace them with calls to __morestack_non_split.
+static void switchMorestackCallsToMorestackNonSplit(
+    llvm::DenseSet<Defined *>& Prologues,
+    std::vector<Relocation *>& MorestackCalls) {
+
+  // If the target adjusted a function's prologue, all calls to
+  // __morestack inside that function should be switched to
+  // __morestack_non_split.
+  Symbol *MoreStackNonSplit = Symtab->find("__morestack_non_split");
+
+  // Sort both collections to compare addresses efficiently.
+  llvm::sort(MorestackCalls.begin(), MorestackCalls.end(),
+             [](const Relocation *L, const Relocation *R) {
+               return L->Offset < R->Offset;
+             });
+  std::vector<Defined *> Functions(Prologues.begin(), Prologues.end());
+  llvm::sort(
+      Functions.begin(), Functions.end(),
+      [](const Defined *L, const Defined *R) { return L->Value < R->Value; });
+
+  auto It = MorestackCalls.begin();
+  for (Defined *F : Functions) {
+    // Find the first call to __morestack within the function.
+    while (It != MorestackCalls.end() && (*It)->Offset < F->Value)
+      ++It;
+    // Adjust all calls inside the function.
+    while (It != MorestackCalls.end() && (*It)->Offset < F->Value + F->Size) {
+      (*It)->Sym = MoreStackNonSplit;
+      ++It;
+    }
+  }
+}
+
+static bool
+enclosingPrologueAdjusted(uint64_t Offset,
+                          const llvm::DenseSet<Defined *> &Prologues) {
+  for (Defined *F : Prologues)
+    if (F->Value <= Offset && Offset < F->Value + F->Size)
+      return true;
+  return false;
+}
+
+// If a function compiled for split stack calls a function not
+// compiled for split stack, then the caller needs its prologue
+// adjusted to ensure that the called function will have enough stack
+// available. Find those functions, and adjust their prologues.
+template <class ELFT>
+void InputSectionBase::adjustSplitStackFunctionPrologues(uint8_t *Buf,
+                                                         uint8_t *End) {
+  if (!getFile<ELFT>()->SplitStack)
+    return;
+  llvm::DenseSet<Defined *> AdjustedPrologues;
+  std::vector<Relocation *> MorestackCalls;
+
+  for (Relocation &Rel : Relocations) {
+    // Local symbols can't possibly be cross-calls, and should have been
+    // resolved long before this line.
+    if (Rel.Sym->isLocal())
+      continue;
+
+    Defined *D = dyn_cast<Defined>(Rel.Sym);
+    // A reference to an undefined symbol was an error, and should not
+    // have gotten to this point.
+    if (!D)
+      continue;
+
+    // Ignore calls into the split-stack api.
+    if (D->getName().startswith("__morestack")) {
+      if (D->getName().equals("__morestack"))
+        MorestackCalls.push_back(&Rel);
+      continue;
+    }
+
+    // A relocation to non-function isn't relevant. Sometimes
+    // __morestack is not marked as a function, so this check comes
+    // after the name check.
+    if (D->Type != STT_FUNC)
+      continue;
+
+    if (enclosingPrologueAdjusted(Rel.Offset, AdjustedPrologues))
+      continue;
+
+    if (Defined *F = getEnclosingFunction<ELFT>(Rel.Offset)) {
+      if (Target->adjustPrologueForCrossSplitStack(Buf + F->Value, End)) {
+        AdjustedPrologues.insert(F);
+        continue;
+      }
+    }
+    if (!getFile<ELFT>()->SomeNoSplitStack)
+      error("function call at " + getErrorLocation(Buf + Rel.Offset) +
+            "crosses a split-stack boundary, but unable " +
+            "to adjust the enclosing function's prologue");
+  }
+  switchMorestackCallsToMorestackNonSplit(AdjustedPrologues, MorestackCalls);
 }
 
 template <class ELFT> void InputSection::writeTo(uint8_t *Buf) {

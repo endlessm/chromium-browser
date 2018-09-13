@@ -14,7 +14,6 @@
 #include "content/shell/test_runner/accessibility_controller.h"
 #include "content/shell/test_runner/event_sender.h"
 #include "content/shell/test_runner/mock_screen_orientation_client.h"
-#include "content/shell/test_runner/mock_web_speech_recognizer.h"
 #include "content/shell/test_runner/test_common.h"
 #include "content/shell/test_runner/test_interfaces.h"
 #include "content/shell/test_runner/test_plugin.h"
@@ -172,7 +171,8 @@ WebFrameTestClient::WebFrameTestClient(
     WebFrameTestProxyBase* web_frame_test_proxy_base)
     : delegate_(delegate),
       web_view_test_proxy_base_(web_view_test_proxy_base),
-      web_frame_test_proxy_base_(web_frame_test_proxy_base) {
+      web_frame_test_proxy_base_(web_frame_test_proxy_base),
+      weak_factory_(this) {
   DCHECK(delegate_);
   DCHECK(web_frame_test_proxy_base_);
   DCHECK(web_view_test_proxy_base_);
@@ -250,6 +250,9 @@ void WebFrameTestClient::PostAccessibilityEvent(const blink::WebAXObject& obj,
       break;
     case blink::kWebAXEventDocumentSelectionChanged:
       event_name = "DocumentSelectionChanged";
+      break;
+    case blink::kWebAXEventDocumentTitleChanged:
+      event_name = "DocumentTitleChanged";
       break;
     case blink::kWebAXEventFocus:
       event_name = "Focus";
@@ -369,6 +372,8 @@ void WebFrameTestClient::ShowContextMenu(
 
 void WebFrameTestClient::DownloadURL(
     const blink::WebURLRequest& request,
+    blink::WebLocalFrameClient::CrossOriginRedirects
+        cross_origin_redirect_behavior,
     mojo::ScopedMessagePipeHandle blob_url_token) {
   if (test_runner()->shouldWaitUntilExternalURLLoad()) {
     delegate_->PrintMessage(std::string("Download started\n"));
@@ -404,14 +409,6 @@ void WebFrameTestClient::DidStartProvisionalLoad(
     PrintFrameuserGestureStatus(delegate_,
                                 web_frame_test_proxy_base_->web_frame(),
                                 " - in didStartProvisionalLoadForFrame\n");
-  }
-}
-
-void WebFrameTestClient::DidReceiveServerRedirectForProvisionalLoad() {
-  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
-    PrintFrameDescription(delegate_, web_frame_test_proxy_base_->web_frame());
-    delegate_->PrintMessage(
-        " - didReceiveServerRedirectForProvisionalLoadForFrame\n");
   }
 }
 
@@ -638,7 +635,7 @@ void WebFrameTestClient::DidAddMessageToConsole(
 }
 
 blink::WebNavigationPolicy WebFrameTestClient::DecidePolicyForNavigation(
-    const blink::WebFrameClient::NavigationPolicyInfo& info) {
+    const blink::WebLocalFrameClient::NavigationPolicyInfo& info) {
   // PlzNavigate
   // Navigation requests initiated by the renderer have checked navigation
   // policy when the navigation was sent to the browser. Some layout tests
@@ -687,10 +684,6 @@ void WebFrameTestClient::CheckIfAudioSinkExistsAndIsAuthorized(
     callback->OnError(blink::WebSetSinkIdError::kNotFound);
 }
 
-blink::WebSpeechRecognizer* WebFrameTestClient::SpeechRecognizer() {
-  return test_runner()->getMockWebSpeechRecognizer();
-}
-
 void WebFrameTestClient::DidClearWindowObject() {
   blink::WebLocalFrame* frame = web_frame_test_proxy_base_->web_frame();
   web_view_test_proxy_base_->test_interfaces()->BindTo(frame);
@@ -701,9 +694,48 @@ void WebFrameTestClient::DidClearWindowObject() {
 bool WebFrameTestClient::RunFileChooser(
     const blink::WebFileChooserParams& params,
     blink::WebFileChooserCompletion* completion) {
-  delegate_->PrintMessage("Mock: Opening a file chooser.\n");
-  // FIXME: Add ability to set file names to a file upload control.
-  return false;
+  delegate_->PrintMessage(
+      base::StringPrintf("FileChooser: opened; multiple=%s directory=%s\n",
+                         params.multi_select ? "true" : "false",
+                         params.directory ? "true" : "false"));
+  if (params.directory) {
+    delegate_->PrintMessage(
+        "FileChooser: testRunner doesn't support directory selection yet.\n");
+    return false;
+  }
+  const base::Optional<std::vector<std::string>>& optional_paths =
+      test_runner()->file_chooser_paths();
+  if (!optional_paths) {
+    // setFileChooserPaths() has never been called.
+    return false;
+  }
+  std::vector<std::string> paths(optional_paths.value());
+  if (!params.multi_select && paths.size() > 1)
+    paths.resize(1);
+  delegate_->PostTask(base::BindOnce(&WebFrameTestClient::ChooseFiles,
+                                     weak_factory_.GetWeakPtr(), completion,
+                                     paths));
+  return true;
+}
+
+void WebFrameTestClient::ChooseFiles(
+    blink::WebFileChooserCompletion* completion,
+    std::vector<std::string> paths) {
+  if (!test_runner()->file_chooser_paths()) {
+    // TestRunner was reset. However we need to call DidChooseFile() to
+    // avoid memory leak.
+    completion->DidChooseFile(blink::WebVector<blink::WebString>());
+    return;
+  }
+  if (paths.size() > 0)
+    delegate_->PrintMessage("FileChooser: selected\n");
+  else
+    delegate_->PrintMessage("FileChooser: canceled\n");
+  blink::WebVector<blink::WebString> web_paths(paths.size());
+  for (size_t i = 0; i < paths.size(); ++i)
+    web_paths[i] = delegate_->GetAbsoluteWebStringFromUTF8Path(paths[i]);
+  delegate_->RegisterIsolatedFileSystem(web_paths);
+  completion->DidChooseFile(web_paths);
 }
 
 blink::WebEffectiveConnectionType

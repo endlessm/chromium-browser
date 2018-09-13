@@ -10,44 +10,36 @@
 namespace ash {
 
 RoundedRectView::RoundedRectView(int corner_radius, SkColor background_color)
-    : corner_radius_(corner_radius), background_color_(background_color) {}
+    : RoundedRectView(corner_radius,
+                      corner_radius,
+                      corner_radius,
+                      corner_radius,
+                      background_color) {}
+
+RoundedRectView::RoundedRectView(int top_left_radius,
+                                 int top_right_radius,
+                                 int bottom_right_radius,
+                                 int bottom_left_radius,
+                                 SkColor background_color)
+    : top_left_radius_(top_left_radius),
+      top_right_radius_(top_right_radius),
+      bottom_right_radius_(bottom_right_radius),
+      bottom_left_radius_(bottom_left_radius),
+      background_color_(background_color) {}
 
 RoundedRectView::~RoundedRectView() = default;
 
 void RoundedRectView::OnPaint(gfx::Canvas* canvas) {
   views::View::OnPaint(canvas);
 
-  // Draw a rounded rect. Use 3 rectangles and 4 circles to create a rounded
-  // rect with the least overlap between shapes. SkPath::addRoundRect is not
-  // used as some artifacts show up on intel devices for
-  // SplitViewDragIndicators.
-  // TODO(crbug.com/824564): Once the bug is resolved we should use
-  // SkPath::addRoundRect.
-  const int r = corner_radius_;
-  const int w = size().width();
-  const int h = size().height();
-
+  const SkScalar kRadius[8] = {
+      SkIntToScalar(top_left_radius_),     SkIntToScalar(top_left_radius_),
+      SkIntToScalar(top_right_radius_),    SkIntToScalar(top_right_radius_),
+      SkIntToScalar(bottom_right_radius_), SkIntToScalar(bottom_right_radius_),
+      SkIntToScalar(bottom_left_radius_),  SkIntToScalar(bottom_left_radius_)};
   SkPath path;
-  const int vertical_ext = h - r * 2;
-  const int horizontal_ext = w - r * 2;
-
-  path.addCircle(r, r, r);  // top-left circle
-  if (vertical_ext > 0) {
-    // bottom-left circle
-    path.addCircle(r, h - r, r);
-    // middle rectangle
-    path.addRect(gfx::RectToSkRect(gfx::Rect(0, r, w, vertical_ext)));
-  }
-  if (horizontal_ext > 0) {
-    // top-right circle
-    path.addCircle(w - r, r, r);
-    // top rectangle
-    path.addRect(gfx::RectToSkRect(gfx::Rect(r, 0, horizontal_ext, r)));
-    // bottom rectangle
-    path.addRect(gfx::RectToSkRect(gfx::Rect(r, h - r, horizontal_ext, r)));
-  }
-  if (vertical_ext > 0 && horizontal_ext > 0)
-    path.addCircle(w - r, h - r, r);  // bottom-right circle
+  gfx::Rect bounds(size());
+  path.addRoundRect(gfx::RectToSkRect(bounds), kRadius);
 
   canvas->ClipPath(path, true);
   canvas->DrawColor(background_color_);
@@ -61,12 +53,26 @@ void RoundedRectView::SetBackgroundColor(SkColor background_color) {
   SchedulePaint();
 }
 
-void RoundedRectView::SetCornerRadius(int radius) {
-  if (corner_radius_ == radius)
+void RoundedRectView::SetCornerRadius(int top_left_radius,
+                                      int top_right_radius,
+                                      int bottom_right_radius,
+                                      int bottom_left_radius) {
+  if (top_left_radius_ == top_left_radius &&
+      top_right_radius_ == top_right_radius &&
+      bottom_right_radius_ == bottom_right_radius &&
+      bottom_left_radius_ == bottom_left_radius) {
     return;
+  }
 
-  corner_radius_ = radius;
+  top_left_radius_ = top_left_radius;
+  top_right_radius_ = top_right_radius;
+  bottom_right_radius_ = bottom_right_radius;
+  bottom_left_radius_ = bottom_left_radius;
   SchedulePaint();
+}
+
+void RoundedRectView::SetCornerRadius(int radius) {
+  SetCornerRadius(radius, radius, radius, radius);
 }
 
 }  // namespace ash

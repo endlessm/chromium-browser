@@ -27,13 +27,8 @@ bool ChromeOSLoginMediaAccessHandler::SupportsStreamType(
     const extensions::Extension* extension) {
   if (!web_contents)
     return false;
-  chromeos::LoginDisplayHost* login_display_host =
-      chromeos::LoginDisplayHost::default_host();
-  chromeos::WebUILoginView* webui_login_view =
-      login_display_host ? login_display_host->GetWebUILoginView() : nullptr;
-  content::WebContents* login_web_contents =
-      webui_login_view ? webui_login_view->GetWebContents() : nullptr;
-  return web_contents == login_web_contents;
+  chromeos::LoginDisplayHost* host = chromeos::LoginDisplayHost::default_host();
+  return host && web_contents == host->GetOobeWebContents();
 }
 
 bool ChromeOSLoginMediaAccessHandler::CheckMediaAccessPermission(
@@ -83,7 +78,7 @@ bool ChromeOSLoginMediaAccessHandler::CheckMediaAccessPermission(
 void ChromeOSLoginMediaAccessHandler::HandleRequest(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
-    const content::MediaResponseCallback& callback,
+    content::MediaResponseCallback callback,
     const extensions::Extension* extension) {
   bool audio_allowed = false;
   bool video_allowed =
@@ -94,6 +89,6 @@ void ChromeOSLoginMediaAccessHandler::HandleRequest(
           request.security_origin, content::MEDIA_DEVICE_VIDEO_CAPTURE,
           extension);
 
-  CheckDevicesAndRunCallback(web_contents, request, callback, audio_allowed,
-                             video_allowed);
+  CheckDevicesAndRunCallback(web_contents, request, std::move(callback),
+                             audio_allowed, video_allowed);
 }

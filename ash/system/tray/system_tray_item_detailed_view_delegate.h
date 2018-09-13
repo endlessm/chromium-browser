@@ -24,6 +24,22 @@ class ASH_EXPORT SystemTrayItemDetailedViewDelegate
   // TrayDetailedViewDelegate:
   void TransitionToMainView(bool restore_focus) override;
   void CloseBubble() override;
+  SkColor GetBackgroundColor(ui::NativeTheme* native_theme) override;
+  bool IsOverflowIndicatorEnabled() const override;
+  TriView* CreateTitleRow(int string_id) override;
+  views::View* CreateTitleSeparator() override;
+  void ShowStickyHeaderSeparator(views::View* view,
+                                 bool show_separator) override;
+  views::Separator* CreateListSubHeaderSeparator() override;
+  HoverHighlightView* CreateScrollListItem(ViewClickListener* listener,
+                                           const gfx::VectorIcon& icon,
+                                           const base::string16& text) override;
+  views::Button* CreateBackButton(views::ButtonListener* listener) override;
+  views::Button* CreateInfoButton(views::ButtonListener* listener,
+                                  int info_accessible_name_id) override;
+  views::Button* CreateSettingsButton(views::ButtonListener* listener,
+                                      int setting_accessible_name_id) override;
+  views::Button* CreateHelpButton(views::ButtonListener* listener) override;
 
  private:
   // Actually transitions to the main view. The actual transition is

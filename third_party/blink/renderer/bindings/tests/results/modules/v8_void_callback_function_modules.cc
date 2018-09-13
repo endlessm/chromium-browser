@@ -11,21 +11,28 @@
 
 #include "third_party/blink/renderer/bindings/tests/results/modules/v8_void_callback_function_modules.h"
 
-#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "base/stl_util.h"
 #include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 
 namespace blink {
+
+const char* V8VoidCallbackFunctionModules::NameInHeapSnapshot() const {
+  return "V8VoidCallbackFunctionModules";
+}
 
 v8::Maybe<void> V8VoidCallbackFunctionModules::Invoke(ScriptWrappable* callback_this_value) {
   // This function implements "invoke" algorithm defined in
   // "3.10. Invoking callback functions".
   // https://heycam.github.io/webidl/#es-invoking-callback-functions
 
-  if (!IsCallbackFunctionRunnable(CallbackRelevantScriptState())) {
+  if (!IsCallbackFunctionRunnable(CallbackRelevantScriptState(),
+                                  IncumbentScriptState())) {
     // Wrapper-tracing for the callback function makes the function object and
     // its creation context alive. Thus it's safe to use the creation context
     // of the callback function here.
@@ -56,15 +63,6 @@ v8::Maybe<void> V8VoidCallbackFunctionModules::Invoke(ScriptWrappable* callback_
   ScriptState::Scope callback_relevant_context_scope(
       CallbackRelevantScriptState());
   // step 9. Prepare to run a callback with stored settings.
-  if (IncumbentScriptState()->GetContext().IsEmpty()) {
-    V8ThrowException::ThrowError(
-        GetIsolate(),
-        ExceptionMessages::FailedToExecute(
-            "invoke",
-            "VoidCallbackFunctionModules",
-            "The provided callback is no longer runnable."));
-    return v8::Nothing<void>();
-  }
   v8::Context::BackupIncumbentScope backup_incumbent_scope(
       IncumbentScriptState()->GetContext());
 
@@ -106,13 +104,11 @@ void V8VoidCallbackFunctionModules::InvokeAndReportException(ScriptWrappable* ca
   ALLOW_UNUSED_LOCAL(maybe_result);
 }
 
-MODULES_TEMPLATE_EXPORT
 v8::Maybe<void> V8PersistentCallbackFunction<V8VoidCallbackFunctionModules>::Invoke(ScriptWrappable* callback_this_value) {
   return Proxy()->Invoke(
       callback_this_value);
 }
 
-MODULES_TEMPLATE_EXPORT
 void V8PersistentCallbackFunction<V8VoidCallbackFunctionModules>::InvokeAndReportException(ScriptWrappable* callback_this_value) {
   Proxy()->InvokeAndReportException(
       callback_this_value);

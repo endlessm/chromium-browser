@@ -17,6 +17,7 @@
 
 namespace app_list {
 
+// TODO(crbug.com/854836): Move everything here to app_list_config.h.
 ASH_PUBLIC_EXPORT extern const SkColor kContentsBackgroundColor;
 
 ASH_PUBLIC_EXPORT extern const SkColor kLabelBackgroundColor;
@@ -30,22 +31,6 @@ ASH_PUBLIC_EXPORT extern const SkColor kAnswerCardSelectedColor;
 ASH_PUBLIC_EXPORT extern const SkColor kPagerHoverColor;
 ASH_PUBLIC_EXPORT extern const SkColor kPagerNormalColor;
 ASH_PUBLIC_EXPORT extern const SkColor kPagerSelectedColor;
-
-ASH_PUBLIC_EXPORT extern const SkColor kResultBorderColor;
-ASH_PUBLIC_EXPORT extern const SkColor kResultDefaultTextColor;
-ASH_PUBLIC_EXPORT extern const SkColor kResultDimmedTextColor;
-ASH_PUBLIC_EXPORT extern const SkColor kResultURLTextColor;
-
-ASH_PUBLIC_EXPORT extern const SkColor kGridTitleColor;
-
-ASH_PUBLIC_EXPORT extern const int kGridTileWidth;
-ASH_PUBLIC_EXPORT extern const int kGridTileHeight;
-ASH_PUBLIC_EXPORT extern const int kGridTileSpacing;
-ASH_PUBLIC_EXPORT extern const int kGridIconTopPadding;
-ASH_PUBLIC_EXPORT extern const int kGridTitleSpacing;
-ASH_PUBLIC_EXPORT extern const int kGridTitleHorizontalPadding;
-ASH_PUBLIC_EXPORT extern const int kGridSelectedSize;
-ASH_PUBLIC_EXPORT extern const int kGridSelectedCornerRadius;
 
 ASH_PUBLIC_EXPORT extern const int kHorizontalPagePreferredHeight;
 
@@ -65,28 +50,8 @@ ASH_PUBLIC_EXPORT extern const int kCustomPageCollapsedHeight;
 ASH_PUBLIC_EXPORT extern const gfx::Tween::Type kFolderFadeInTweenType;
 ASH_PUBLIC_EXPORT extern const gfx::Tween::Type kFolderFadeOutTweenType;
 
-ASH_PUBLIC_EXPORT extern const int kPreferredCols;
-ASH_PUBLIC_EXPORT extern const int kPreferredRows;
-ASH_PUBLIC_EXPORT extern const int kGridIconDimension;
-
-ASH_PUBLIC_EXPORT extern const int kAppBadgeIconSize;
-ASH_PUBLIC_EXPORT extern const int kBadgeBackgroundRadius;
-
-ASH_PUBLIC_EXPORT extern const int kListIconSize;
-ASH_PUBLIC_EXPORT extern const int kListBadgeIconSize;
-ASH_PUBLIC_EXPORT extern const int kListBadgeIconOffsetX;
-ASH_PUBLIC_EXPORT extern const int kListBadgeIconOffsetY;
-ASH_PUBLIC_EXPORT extern const int kTileIconSize;
-
-ASH_PUBLIC_EXPORT extern const SkColor kIconColor;
-
-ASH_PUBLIC_EXPORT extern const float kDragDropAppIconScale;
-ASH_PUBLIC_EXPORT extern const int kDragDropAppIconScaleTransitionInMs;
-
 ASH_PUBLIC_EXPORT extern const int kNumStartPageTiles;
 ASH_PUBLIC_EXPORT extern const size_t kMaxSearchResults;
-
-ASH_PUBLIC_EXPORT extern const size_t kExpandArrowTopPadding;
 
 ASH_PUBLIC_EXPORT extern const int kReorderDroppingCircleRadius;
 
@@ -176,9 +141,21 @@ enum AppListPageSwitcherSource {
   kMaxAppListPageSwitcherSource = 7,
 };
 
-ASH_PUBLIC_EXPORT extern const char kAppContextMenuExecuteCommandFromApp[];
+// The different ways to move an app in app list's apps grid. These values are
+// written to logs. New enum values can be added, but existing enums must never
+// be renumbered or deleted and reused.
+enum AppListAppMovingType {
+  kMoveIntoFolder = 0,
+  kMoveOutOfFolder = 1,
+  kMoveIntoAnotherFolder = 2,
+  kReorderInFolder = 3,
+  kReorderInTopLevel = 4,
+  kMaxAppListAppMovingType = 5,
+};
+
 ASH_PUBLIC_EXPORT extern const char kAppListAppLaunched[];
 ASH_PUBLIC_EXPORT extern const char kAppListAppLaunchedFullscreen[];
+ASH_PUBLIC_EXPORT extern const char kAppListAppMovingType[];
 ASH_PUBLIC_EXPORT extern const char kAppListCreationTimeHistogram[];
 ASH_PUBLIC_EXPORT extern const char kAppListStateTransitionSourceHistogram[];
 ASH_PUBLIC_EXPORT extern const char kAppListPageSwitcherSourceHistogram[];
@@ -188,6 +165,8 @@ ASH_PUBLIC_EXPORT extern const char kAppListToggleMethodHistogram[];
 ASH_PUBLIC_EXPORT extern const char kPageOpenedHistogram[];
 ASH_PUBLIC_EXPORT extern const char kNumberOfAppsInFoldersHistogram[];
 ASH_PUBLIC_EXPORT extern const char kNumberOfFoldersHistogram[];
+ASH_PUBLIC_EXPORT extern const char kNumberOfPagesHistogram[];
+ASH_PUBLIC_EXPORT extern const char kNumberOfPagesNotFullHistogram[];
 
 ASH_PUBLIC_EXPORT extern const char kSearchResultOpenDisplayTypeHistogram[];
 ASH_PUBLIC_EXPORT extern const char kSearchQueryLength[];
@@ -197,15 +176,6 @@ ASH_PUBLIC_EXPORT extern const int kSearchTileHeight;
 
 // Returns the shadow values for a view at |z_height|.
 ASH_PUBLIC_EXPORT gfx::ShadowValue GetShadowForZHeight(int z_height);
-
-ASH_PUBLIC_EXPORT const gfx::ShadowValues& IconStartShadows();
-ASH_PUBLIC_EXPORT const gfx::ShadowValues& IconEndShadows();
-
-ASH_PUBLIC_EXPORT const gfx::FontList& AppListAppTitleFont();
-
-// Returns the dimension at which a result's icon should be displayed.
-ASH_PUBLIC_EXPORT int GetPreferredIconDimension(
-    ash::SearchResultDisplayType display_type);
 
 }  // namespace app_list
 

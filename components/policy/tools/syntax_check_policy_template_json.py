@@ -54,6 +54,21 @@ LEGACY_INVERTED_POLARITY_WHITELIST = [
     'SyncDisabled',
 ]
 
+# List of policies where the 'string' part of the schema is actually a JSON
+# string which has its own schema.
+LEGACY_EMBEDDED_JSON_WHITELIST = [
+  'ArcPolicy',
+  'AutoSelectCertificateForUrls',
+  'DefaultPrinterSelection',
+  'DeviceLoginScreenAutoSelectCertificateForUrls',
+  'DeviceOpenNetworkConfiguration',
+  'NativePrinters',
+  'OpenNetworkConfiguration',
+  'RemoteAccessHostDebugOverridePolicies',
+  # NOTE: Do not add any new policies to this list! Do not store policies with
+  # complex schemas using stringified JSON - instead, store them as dicts.
+]
+
 class PolicyTemplateChecker(object):
 
   def __init__(self):
@@ -153,9 +168,21 @@ class PolicyTemplateChecker(object):
     Holes would not be a technical problem, but we want to ensure that nobody
     accidentally omits IDs.
     '''
-    for i in range(len(policy_ids)):
+    policy_count = len(policy_ids) + len(deleted_policy_ids)
+    for i in range(policy_count):
       if (i + 1) not in policy_ids and (i + 1) not in deleted_policy_ids:
         self._Error('No policy with id: %s' % (i + 1))
+
+  def _CheckHighestId(self, policy_ids, highest_id):
+    '''
+    Checks that the 'highest_id_currently_used' value is actually set to the
+    highest id in use by any policy.
+    '''
+    highest_id_in_policies = max(policy_ids)
+    if highest_id != highest_id_in_policies:
+      self._Error(("\'highest_id_currently_used\' must be set to the highest"
+                   "policy id in use, which is currently %s (vs %s).") %
+                  (highest_id_in_policies, highest_id))
 
   def _CheckPolicySchema(self, policy, policy_type):
     '''Checks that the 'schema' field matches the 'type' field.'''
@@ -176,6 +203,35 @@ class PolicyTemplateChecker(object):
                      'new boolean policies follow the XYZEnabled pattern. ' +
                      'See also http://crbug.com/85687') % policy.get('name'))
 
+      # Checks that the policy doesn't have a validation_schema - the whole
+      # schema should be defined in 'schema'- unless whitelisted as legacy.
+      if (policy.has_key('validation_schema') and
+          policy.get('name') not in LEGACY_EMBEDDED_JSON_WHITELIST):
+        self._Error(('"validation_schema" is defined for new policy %s - ' +
+                     'entire schema data should be contained in "schema"') %
+                     policy.get('name'))
+
+      # Try to make sure that any policy with a complex schema is storing it as
+      # a 'dict', not embedding it inside JSON strings - unless whitelisted.
+      if (self._AppearsToContainEmbeddedJson(policy.get('example_value')) and
+          policy.get('name') not in LEGACY_EMBEDDED_JSON_WHITELIST):
+        self._Error(('Example value for new policy %s looks like JSON. Do ' +
+                     'not store complex data as stringified JSON - instead, ' +
+                     'store it in a dict and define it in "schema".') %
+                     policy.get('name'))
+
+  # Returns True if the example value for a policy seems to contain JSON
+  # embedded inside a string. Simply checks if strings start with '{', so it
+  # doesn't flag numbers (which are valid JSON) but it does flag both JSON
+  # objects and python objects (regardless of the type of quotes used).
+  def _AppearsToContainEmbeddedJson(self, example_value):
+    if isinstance(example_value, str):
+      return example_value.strip().startswith('{')
+    elif isinstance(example_value, list):
+      return any(self._AppearsToContainEmbeddedJson(v) for v in example_value)
+    elif isinstance(example_value, dict):
+      return any(self._AppearsToContainEmbeddedJson(v)
+          for v in example_value.itervalues())
 
   def _CheckPolicy(self, policy, is_in_group, policy_ids, deleted_policy_ids):
     if not isinstance(policy, dict):
@@ -187,7 +243,7 @@ class PolicyTemplateChecker(object):
       if key not in ('name', 'type', 'caption', 'desc', 'device_only',
                      'supported_on', 'label', 'policies', 'items',
                      'example_value', 'features', 'deprecated', 'future',
-                     'id', 'schema', 'max_size', 'tags',
+                     'id', 'schema', 'validation_schema', 'max_size', 'tags',
                      'default_for_enterprise_users',
                      'default_for_managed_devices_doc_only',
                      'arc_support', 'supported_chrome_os_management'):
@@ -540,11 +596,17 @@ class PolicyTemplateChecker(object):
                                            parent_element=None,
                                            container_name='The root element',
                                            offending=None)
+    highest_id = self._CheckContains(data, 'highest_id_currently_used', int,
+                                     parent_element=None,
+                                     container_name='The root element',
+                                     offending=None)
     if policy_definitions is not None:
       policy_ids = set()
       for policy in policy_definitions:
         self._CheckPolicy(policy, False, policy_ids, deleted_policy_ids)
       self._CheckPolicyIDs(policy_ids, deleted_policy_ids)
+      if highest_id is not None:
+        self._CheckHighestId(policy_ids, highest_id)
 
 
     # Made it as a dict (policy_name -> True) to reuse _CheckContains.

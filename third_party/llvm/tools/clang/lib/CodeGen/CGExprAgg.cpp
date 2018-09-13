@@ -684,12 +684,12 @@ void AggExprEmitter::VisitCastExpr(CastExpr *E) {
       CGF.EmitDynamicCast(LV.getAddress(), cast<CXXDynamicCastExpr>(E));
     else
       CGF.CGM.ErrorUnsupported(E, "non-simple lvalue dynamic_cast");
-    
+
     if (!Dest.isIgnored())
       CGF.CGM.ErrorUnsupported(E, "lvalue dynamic_cast with a destination");
     break;
   }
-      
+
   case CK_ToUnion: {
     // Evaluate even if the destination is ignored.
     if (Dest.isIgnored()) {
@@ -1673,6 +1673,8 @@ static CharUnits GetNumNonZeroBytesInInit(const Expr *E, CodeGenFunction &CGF) {
   // If this is an initlist expr, sum up the size of sizes of the (present)
   // elements.  If this is something weird, assume the whole thing is non-zero.
   const InitListExpr *ILE = dyn_cast<InitListExpr>(E);
+  while (ILE && ILE->isTransparent())
+    ILE = dyn_cast<InitListExpr>(ILE->getInit(0));
   if (!ILE || !CGF.getTypes().isZeroInitializable(ILE->getType()))
     return CGF.getContext().getTypeSizeInChars(E->getType());
   

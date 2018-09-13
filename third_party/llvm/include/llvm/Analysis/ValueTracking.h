@@ -101,6 +101,9 @@ class Value;
                       const Instruction *CxtI = nullptr,
                       const DominatorTree *DT = nullptr);
 
+  /// Return true if the two given values are negation.
+  bool isKnownNegation(const Value *X, const Value *Y);
+
   /// Returns true if the give value is known to be non-negative.
   bool isKnownNonNegative(const Value *V, const DataLayout &DL,
                           unsigned Depth = 0,
@@ -275,6 +278,22 @@ class Value;
   /// If we can compute the length of the string pointed to by the specified
   /// pointer, return 'len+1'.  If we can't, return 0.
   uint64_t GetStringLength(const Value *V, unsigned CharSize = 8);
+
+  /// This function returns call pointer argument that is considered the same by
+  /// aliasing rules. You CAN'T use it to replace one value with another.
+  const Value *getArgumentAliasingToReturnedPointer(ImmutableCallSite CS);
+  inline Value *getArgumentAliasingToReturnedPointer(CallSite CS) {
+    return const_cast<Value *>(
+        getArgumentAliasingToReturnedPointer(ImmutableCallSite(CS)));
+  }
+
+  // {launder,strip}.invariant.group returns pointer that aliases its argument,
+  // and it only captures pointer by returning it.
+  // These intrinsics are not marked as nocapture, because returning is
+  // considered as capture. The arguments are not marked as returned neither,
+  // because it would make it useless.
+  bool isIntrinsicReturningPointerAliasingArgumentWithoutCapturing(
+      ImmutableCallSite CS);
 
   /// This method strips off any GEP address adjustments and pointer casts from
   /// the specified value, returning the original object being addressed. Note
@@ -516,6 +535,9 @@ class Value;
 
   /// Pattern match integer [SU]MIN, [SU]MAX and ABS idioms, returning the kind
   /// and providing the out parameter results if we successfully match.
+  ///
+  /// For ABS/NABS, LHS will be set to the input to the abs idiom. RHS will be
+  /// the negation instruction from the idiom.
   ///
   /// If CastOp is not nullptr, also match MIN/MAX idioms where the type does
   /// not match that of the original select. If this is the case, the cast

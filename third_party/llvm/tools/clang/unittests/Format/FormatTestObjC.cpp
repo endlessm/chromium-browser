@@ -328,7 +328,14 @@ TEST_F(FormatTestObjC, FormatObjCInterface) {
                "}\n"
                "+ (id)init;\n"
                "@end");
-
+  verifyFormat("@interface Foo\n"
+               "- (void)foo {\n"
+               "}\n"
+               "@end\n"
+               "@implementation Bar\n"
+               "- (void)bar {\n"
+               "}\n"
+               "@end");
   Style.ColumnLimit = 40;
   verifyFormat("@interface ccccccccccccc () <\n"
                "    ccccccccccccc, ccccccccccccc,\n"
@@ -671,6 +678,18 @@ TEST_F(FormatTestObjC, FormatObjCMethodExpr) {
   verifyFormat("[(id)foo bar:(id) ? baz : quux];");
   verifyFormat("4 > 4 ? (id)a : (id)baz;");
 
+  unsigned PreviousColumnLimit = Style.ColumnLimit;
+  Style.ColumnLimit = 50;
+  // Instead of:
+  // bool a =
+  //     ([object a:42] == 0 || [object a:42
+  //                                    b:42] == 0);
+  verifyFormat("bool a = ([object a:42] == 0 ||\n"
+               "          [object a:42 b:42] == 0);");
+  Style.ColumnLimit = PreviousColumnLimit;
+  verifyFormat("bool a = ([aaaaaaaa aaaaa] == aaaaaaaaaaaaaaaaa ||\n"
+               "          [aaaaaaaa aaaaa] == aaaaaaaaaaaaaaaaaaaa);");
+
   // This tests that the formatter doesn't break after "backing" but before ":",
   // which would be at 80 columns.
   verifyFormat(
@@ -747,11 +766,10 @@ TEST_F(FormatTestObjC, FormatObjCMethodExpr) {
       "[self aaaaaaaaaaaaa:aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa,\n"
       "                    aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa,\n"
       "                    aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa];");
+
   verifyFormat("[self // break\n"
                "      a:a\n"
                "    aaa:aaa];");
-  verifyFormat("bool a = ([aaaaaaaa aaaaa] == aaaaaaaaaaaaaaaaa ||\n"
-               "          [aaaaaaaa aaaaa] == aaaaaaaaaaaaaaaaaaaa);");
 
   // Formats pair-parameters.
   verifyFormat("[I drawRectOn:surface ofSize:aa:bbb atOrigin:cc:dd];");
@@ -796,8 +814,13 @@ TEST_F(FormatTestObjC, FormatObjCMethodExpr) {
   verifyFormat("[((Foo *)foo) bar];");
   verifyFormat("[((Foo *)foo) bar:1 blech:2];");
 
-  // Message receiver taking multiple lines.
   Style.ColumnLimit = 20;
+  verifyFormat("aaaaa = [a aa:aa\n"
+               "           aa:aa];");
+  verifyFormat("aaaaaa = [aa aa:aa\n"
+               "             aa:aa];");
+
+  // Message receiver taking multiple lines.
   // Non-corner case.
   verifyFormat("[[object block:^{\n"
                "  return 42;\n"
@@ -811,19 +834,33 @@ TEST_F(FormatTestObjC, FormatObjCMethodExpr) {
                "  return 42;\n"
                "}] aaaaaaa:42\n"
                "        bb:42];");
-  // Non-corner case.
-  verifyFormat("[[object aaa:42\n"
-               "           b:42]\n"
-               "    cc:42 d:42];");
   // Arguments just fit into one line.
-  verifyFormat("[[object aaa:42\n"
+  Style.ColumnLimit = 23;
+  verifyFormat("[[obj a:42\n"
+               "      b:42\n"
+               "      c:42\n"
+               "      d:42] e:42 f:42];");
+
+  // Arguments do not fit into one line with a receiver.
+  Style.ColumnLimit = 20;
+  verifyFormat("[[obj a:42] a:42\n"
+               "            b:42];");
+  verifyFormat("[[obj a:42] a:42\n"
+               "            b:42\n"
+               "            c:42];");
+  verifyFormat("[[obj aaaaaa:42\n"
                "           b:42]\n"
-               "    cccccc:42 d:42];");
-  // Arguments just over a column limit.
-  verifyFormat("[[object aaa:42\n"
-               "           b:42]\n"
-               "    cccccc:42\n"
-               "        dd:42];");
+               "    cc:42\n"
+               "     d:42];");
+
+  // Avoid breaking receiver expression.
+  Style.ColumnLimit = 30;
+  verifyFormat("fooooooo =\n"
+               "    [[obj fooo] aaa:42\n"
+               "                aaa:42];");
+  verifyFormat("[[[obj foo] bar] aa:42\n"
+               "                 bb:42\n"
+               "                 cc:42];");
 
   Style.ColumnLimit = 70;
   verifyFormat(
@@ -945,6 +982,14 @@ TEST_F(FormatTestObjC, ObjCSnippets) {
   verifyFormat("@property(assign, nonatomic) CGFloat hoverAlpha;");
   verifyFormat("@property(assign, getter=isEditable) BOOL editable;");
 
+  Style.ColumnLimit = 50;
+  verifyFormat("@interface Foo\n"
+               "- (void)doStuffWithFoo:(id)name\n"
+               "                   bar:(id)bar\n"
+               "                   baz:(id)baz\n"
+               "    NS_SWIFT_NAME(doStuff(withFoo:bar:baz:));\n"
+               "@end");
+
   Style = getMozillaStyle();
   verifyFormat("@property (assign, getter=isEditable) BOOL editable;");
   verifyFormat("@property BOOL editable;");
@@ -998,6 +1043,59 @@ TEST_F(FormatTestObjC, ObjCCxxKeywords) {
   verifyFormat("MACRO(new:)\n");
   verifyFormat("MACRO(delete:)\n");
   verifyFormat("foo = @{MACRO(new:) : MACRO(delete:)}\n");
+  verifyFormat("@implementation Foo\n"
+               "// Testing\n"
+               "- (Class)class {\n"
+               "}\n"
+               "- (void)foo {\n"
+               "}\n"
+               "@end\n");
+  verifyFormat("@implementation Foo\n"
+               "- (Class)class {\n"
+               "}\n"
+               "- (void)foo {\n"
+               "}\n"
+               "@end");
+  verifyFormat("@implementation Foo\n"
+               "+ (Class)class {\n"
+               "}\n"
+               "- (void)foo {\n"
+               "}\n"
+               "@end");
+  verifyFormat("@implementation Foo\n"
+               "- (Class)class:(Class)klass {\n"
+               "}\n"
+               "- (void)foo {\n"
+               "}\n"
+               "@end");
+  verifyFormat("@implementation Foo\n"
+               "+ (Class)class:(Class)klass {\n"
+               "}\n"
+               "- (void)foo {\n"
+               "}\n"
+               "@end");
+
+  verifyFormat("@interface Foo\n"
+               "// Testing\n"
+               "- (Class)class;\n"
+               "- (void)foo;\n"
+               "@end\n");
+  verifyFormat("@interface Foo\n"
+               "- (Class)class;\n"
+               "- (void)foo;\n"
+               "@end");
+  verifyFormat("@interface Foo\n"
+               "+ (Class)class;\n"
+               "- (void)foo;\n"
+               "@end");
+  verifyFormat("@interface Foo\n"
+               "- (Class)class:(Class)klass;\n"
+               "- (void)foo;\n"
+               "@end");
+  verifyFormat("@interface Foo\n"
+               "+ (Class)class:(Class)klass;\n"
+               "- (void)foo;\n"
+               "@end");
 }
 
 TEST_F(FormatTestObjC, ObjCLiterals) {
@@ -1185,6 +1283,26 @@ TEST_F(FormatTestObjC, BreaksCallStatementWhereSemiJustOverTheLimit) {
                "             ccccccccc:dddddddd\n"
                "                    ee:fddd];\n"
                "}");
+}
+
+TEST_F(FormatTestObjC, AlwaysBreakBeforeMultilineStrings) {
+  Style = getGoogleStyle(FormatStyle::LK_ObjC);
+  Style.ColumnLimit = 40;
+  verifyFormat("aaaa = @\"bbbb\"\n"
+               "       @\"cccc\";");
+  verifyFormat("aaaa(@\"bbbb\"\n"
+               "     @\"cccc\");");
+  verifyFormat("aaaa(qqq, @\"bbbb\"\n"
+               "          @\"cccc\");");
+  verifyFormat("[aaaa qqqq:@\"bbbb\"\n"
+               "           @\"cccc\"];");
+  verifyFormat("aaaa = [aaaa qqqq:@\"bbbb\"\n"
+               "                  @\"cccc\"];");
+  verifyFormat("[aaaa qqqq:@\"bbbb\"\n"
+               "           @\"cccc\"\n"
+               "        rr:42\n"
+               "    ssssss:@\"ee\"\n"
+               "           @\"fffff\"];");
 }
 
 } // end namespace

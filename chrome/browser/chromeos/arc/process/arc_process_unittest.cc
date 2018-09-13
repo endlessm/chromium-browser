@@ -81,9 +81,9 @@ TEST(ArcProcess, TestIsImportant) {
                          mojom::ProcessState::FOREGROUND_SERVICE, kIsNotFocused,
                          0)
                   .IsImportant());
-  EXPECT_TRUE(ArcProcess(0, 0, "process", mojom::ProcessState::TOP_SLEEPING,
-                         kIsNotFocused, 0)
-                  .IsImportant());
+  EXPECT_FALSE(ArcProcess(0, 0, "process", mojom::ProcessState::TOP_SLEEPING,
+                          kIsNotFocused, 0)
+                   .IsImportant());
   EXPECT_TRUE(ArcProcess(0, 0, "process",
                          mojom::ProcessState::IMPORTANT_FOREGROUND,
                          kIsNotFocused, 0)

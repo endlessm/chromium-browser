@@ -92,6 +92,7 @@ Ako ste gotovi s vodičem, pomoću ChromeVoxa dođite do gumba Zatvori i kliknit
 <translation id="1787176709638001873">Tekst uređivanja zaporke</translation>
 <translation id="1802710350767629429">Prikaz napomena o ažuriranju</translation>
 <translation id="1810107444790159527">Okvir s popisom</translation>
+<translation id="1812527064848182527">pejzaž</translation>
 <translation id="1828385960365606039">svibanj</translation>
 <translation id="1834891354138622109">Stupac</translation>
 <translation id="1845944666972354496">Dvaput dodirnite za aktiviranje</translation>
@@ -146,6 +147,7 @@ Ako ste gotovi s vodičem, pomoću ChromeVoxa dođite do gumba Zatvori i kliknit
 <translation id="2416512023405990736">Prazan potvrdni okvir</translation>
 <translation id="2417569100218200841">Informacije o sadržaju</translation>
 <translation id="2417948780551741035">Završne napomene</translation>
+<translation id="2421113964388408478">Brisanje</translation>
 <translation id="2422937916923936891">Potvrdni okvir stavke izbornika</translation>
 <translation id="2428534162001909979">Naredbeni izbornici</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@ Ako ste gotovi s vodičem, pomoću ChromeVoxa dođite do gumba Zatvori i kliknit
 <translation id="3232388865800379423">Gumb skočnog prozora</translation>
 <translation id="3241052487511142956">Prethodna posjećena veza</translation>
 <translation id="3241638166094654466">Ćelije u svakom retku:</translation>
+<translation id="3286372614333682499">portret</translation>
 <translation id="3286390186030710347">Klizač</translation>
 <translation id="3299925995433437805">Nema sljedeće posjećene veze.</translation>
 <translation id="3300348286427369683">Podrška za obogaćeni tekst. ChromeVox sada podržava polja obogaćenog teksta uključujući naredbe preskakanja, usmjeravanje brajičnog pokazivača, odabir i druge značajke.</translation>
@@ -426,6 +429,7 @@ Ako ste gotovi s vodičem, pomoću ChromeVoxa dođite do gumba Zatvori i kliknit
 <translation id="4476183483923481720">novi redak</translation>
 <translation id="4482330759234983253">Prethodna tablica</translation>
 <translation id="4491109536499578614">Slika</translation>
+<translation id="4505167975768625962">Umetanje</translation>
 <translation id="4517854969512651305">Povećavanje vrijednosti</translation>
 <translation id="4529987814483543472">Klasična karta tipkovnice</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{kosa crta}one{# kosa crta}few{# kose crte}other{# kosih crta}}</translation>
@@ -589,6 +593,7 @@ Ako ste gotovi s vodičem, pomoću ChromeVoxa dođite do gumba Zatvori i kliknit
 <translation id="5712338278108304766">Sljedeći stupac tablice</translation>
 <translation id="571866080859340309">Istraživanje grupa</translation>
 <translation id="5728409797179002635">Nije pronađena nijedna tablica.</translation>
+<translation id="5729047866208036762">Pritisnite gore, dolje, lijevo ili desno da biste istražili matematički sadržaj.</translation>
 <translation id="5732189279857692565">Ovo je drugi naslov. Samo nastavite. Pritisnite tipku za pretraživanje + H ili tipku za pretraživanje + Shift + H</translation>
 <translation id="5748623122140342504">Prethodni naslov razine 5</translation>
 <translation id="5750633686117194034">Nije pritisnut nijedan modifikator. Pritisnite i zadržite jedan ili više modifikatora, pustite ih kada završite i čut ćete postavljene tipke. Pritisnite tabulator za izlazak.</translation>
@@ -744,6 +749,7 @@ Za otvaranje izbornika preglednika Chrome pritisnite tipke Alt i F.</translation
 <translation id="7226216518520804442">pops</translation>
 <translation id="7229749224609077523">Odaberite tablicu s 6-točkastom brajicom:</translation>
 <translation id="72393384879519786">Naslov</translation>
+<translation id="7240858705033280249">Preskočite na pojedinosti</translation>
 <translation id="7241683698754534149">Otvaranje dugačkih opisa u novoj kartici</translation>
 <translation id="7248671827512403053">Aplikacija</translation>
 <translation id="725969808843520477">Sljedeći izborni gumb</translation>
@@ -920,6 +926,7 @@ Za otvaranje izbornika preglednika Chrome pritisnite tipke Alt i F.</translation
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Odaberite tablicu s 8-točkastom brajicom:</translation>
 <translation id="9065283790526219006">+ skočni prozor</translation>
+<translation id="9066023754636984703">Pritisnite Search + A, J da biste preskočili na pojedinosti.</translation>
 <translation id="9067522039955793016">Prijelom stranice</translation>
 <translation id="9077213568694924680">uklonjeno iz odabira</translation>
 <translation id="9082874451376019682">Nema prethodnog klizača.</translation>

@@ -5,6 +5,7 @@
 <translation id="1122869341872663659">Εμφάνιση <ph name="N" /> αποτελεσμάτων αναζήτησης για <ph name="QUERY" /></translation>
 <translation id="1195667586424773550">Σύρετε τον σύνδεσμο στη γραμμή διευθύνσεων της καρτέλας</translation>
 <translation id="1204450209689312104">Άνοιγμα νέου παραθύρου σε κατάσταση ανώνυμης περιήγησης</translation>
+<translation id="1251638888133819822">Ενεργοποιήστε ή απενεργοποιήστε τον μεγεθυντικό φακό πλήρους οθόνης</translation>
 <translation id="1290373024480130896"><ph name="MODIFIER1" /><ph name="SEPARATOR1" /><ph name="MODIFIER2" /><ph name="SEPARATOR2" /><ph name="MODIFIER3" /><ph name="SEPARATOR3" /><ph name="KEY" /></translation>
 <translation id="1293699935367580298">Esc</translation>
 <translation id="1299858300159559687">Εκτύπωση της τρέχουσας σελίδας</translation>
@@ -35,10 +36,11 @@
 <translation id="2397416548179033562">Εμφάνιση του μενού του Chrome</translation>
 <translation id="2424073332829844142">Ενεργοποίηση και απενεργοποίηση Caps Lock</translation>
 <translation id="2441202986792279177">Γρήγορη εναλλαγή μεταξύ παραθύρων</translation>
+<translation id="2454251766545114447">Σμίκρυνση οθόνης</translation>
 <translation id="2478303094958140141">Ενεργοποίηση ή απενεργοποίηση του ChromeVox (εκφωνημένα σχόλια)</translation>
 <translation id="2515586267016047495">Alt</translation>
 <translation id="2530339807289914946">Κύλιση στην ιστοσελίδα προς τα κάτω</translation>
-<translation id="2568632782096378307">Επαναφορά ανάλυσης οθόνης στην προεπιλογή</translation>
+<translation id="2574014812750545982">Επαναφορά επιπέδου εστίασης στη σελίδα</translation>
 <translation id="2596078834055697711">Λήψη στιγμιότυπου οθόνης παραθύρου</translation>
 <translation id="2685170433750953446"><ph name="SHIFT" /><ph name="SEPARATOR1" /><ph name="ALT" /><ph name="SEPARATOR2" /><ph name="L" /> και έπειτα <ph name="TAB" /> ή <ph name="RIGHT" /></translation>
 <translation id="2687057317448262550">Εναλλαγή στη μέθοδο εισαγωγής της επόμενης γλώσσας</translation>
@@ -48,6 +50,7 @@
 <translation id="2789868185375229787">Σμίκρυνση της σελίδας</translation>
 <translation id="2804480015716812239">Πατήστε <ph name="ALT" /> και κάντε κλικ σε έναν σύνδεσμο</translation>
 <translation id="2830827904629746450">Αγκύρωση παραθύρου στα δεξιά</translation>
+<translation id="2840766858109427815">Μετάβαση στην επόμενη σελίδα</translation>
 <translation id="2872353916818027657">Αλλαγή κύριας οθόνης</translation>
 <translation id="2914313326123580426">Εμφάνιση ή απόκρυψη του πλαισίου "Εργαλεία για προγραμματιστές"</translation>
 <translation id="292495055542441795">Εναλλαγή πλήρους οθόνης</translation>
@@ -62,9 +65,9 @@
 <translation id="3407560819924487926">Εμφάνιση της Διαχείρισης Εργασιών</translation>
 <translation id="3422679037938588196">Μετάβαση στο προηγούμενο αποτέλεσμα της αναζήτησής σας</translation>
 <translation id="344577624355799426"><ph name="ALT" /> ή <ph name="SEARCH" /><ph name="SEPARATOR" /><ph name="DOWN" /></translation>
-<translation id="346243998268439747">Επαναφορά επιπέδου εστίασης</translation>
 <translation id="353037708190149633">Αποθήκευση όλων των ανοικτών σελίδων στο τρέχον παράθυρο ως σελιδοδείκτες σε έναν νέο φάκελο</translation>
 <translation id="355103131818127604">Άνοιγμα του συνδέσμου σε νέα καρτέλα στο παρασκήνιο</translation>
+<translation id="3622741593887335780">Μεγέθυνση (όταν είναι ενεργοποιημένοι οι μεγεθυντικοί φακοί σε παράθυρο Ή πλήρους οθόνης)</translation>
 <translation id="3649256019230929621">Ελαχιστοποίηση παραθύρου</translation>
 <translation id="3655154169297074232">Καρτέλες και παράθυρα</translation>
 <translation id="3668361878347172356">Επανάληψη της τελευταίας ενέργειας</translation>
@@ -76,6 +79,7 @@
 <translation id="379295446891231126"><ph name="CTRL" /><ph name="SEPARATOR" /> 1 έως 8</translation>
 <translation id="3837047332182291558">Αύξηση φωτεινότητας πληκτρολογίου (μόνο για πληκτρολόγια με οπίσθιο φωτισμό)</translation>
 <translation id="3976863468609830880">Κλικ στο τελευταίο εικονίδιο στο ράφι σας</translation>
+<translation id="3994783594793697310">Επαναφορά επιπέδου εστίασης οθόνης</translation>
 <translation id="4026843240379844265">Μετακίνηση ενεργού παραθύρου μεταξύ οθονών</translation>
 <translation id="4035482366624727273">Επιλογή όλων στη σελίδα</translation>
 <translation id="4060703249685950734">Εκ νέου άνοιγμα της τελευταίας καρτέλας ή του παραθύρου που κλείσατε</translation>
@@ -86,6 +90,7 @@
 <translation id="4141203561740478845">Επισήμανση της σειράς με τη γραμμή διευθύνσεων</translation>
 <translation id="4148761611071495477"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="G" /> ή <ph name="ENTER" /></translation>
 <translation id="4240486403425279990">Λειτουργία επισκόπησης</translation>
+<translation id="4382340674111381977">Επιστροφή στην προηγούμενη σελίδα</translation>
 <translation id="4472417192667361414">Ρυθμίσεις συστήματος και οθόνης</translation>
 <translation id="4556221320735744018">Ανατρέξτε στον Βοηθό συντομεύσεων πληκτρολογίου</translation>
 <translation id="4628718545549558538">Άνοιγμα της περιοχής κατάστασης (εκεί που εμφανίζεται η εικόνα του λογαριασμού σας)</translation>
@@ -102,6 +107,7 @@
 <translation id="5236674127086649162">Επανάληψη φόρτωσης της τρέχουσας σελίδας χωρίς τη χρήση περιεχομένου που έχει αποθηκευτεί στην κρυφή μνήμη</translation>
 <translation id="526651782186312376">Επιλογή κειμένου έως την αρχή της γραμμής</translation>
 <translation id="5316716239522500219">Κατοπτρισμός οθονών</translation>
+<translation id="539072479502328326">Ενεργοποιήστε ή απενεργοποιήστε τον μεγεθυντικό φακό σε παράθυρο</translation>
 <translation id="5487187679583934283">Ξεκινάει ή διακόπτει την πληκτρολόγηση των όσων λέτε</translation>
 <translation id="5541719484267030947">Καθώς σέρνετε την καρτέλα, πατήστε <ph name="ESC" /></translation>
 <translation id="5554139136362089836">Αναζήτηση στην τρέχουσα σελίδα</translation>
@@ -113,7 +119,6 @@
 <translation id="587531134027443617">Διαγραφή προηγούμενης λέξης</translation>
 <translation id="5899919361772749550">Εμφάνιση ή απόκρυψη της κονσόλας "Εργαλεία για προγραμματιστές"</translation>
 <translation id="5921745308587794300">Περιστροφή παραθύρου</translation>
-<translation id="5975083100439434680">Σμίκρυνση</translation>
 <translation id="6022924867608035986">Διαγραφή κειμένου πλαισίου αναζήτησης</translation>
 <translation id="6045998054441862242">Ενεργοποίηση λειτουργίας υψηλής αντίθεσης</translation>
 <translation id="6052614013050385269">Δεξί κλικ σε έναν σύνδεσμο</translation>
@@ -123,14 +128,15 @@
 <translation id="6185696379715117369">Page up</translation>
 <translation id="6228457605945141550">Μείωση φωτεινότητας</translation>
 <translation id="6276708887952587684">Προβολή πηγαίου κώδικα σελίδας</translation>
-<translation id="6296325018964936845">Εναλλαγή ενεργοποίησης ή απενεργοποίησης του Μεγεθυντικού φακού πλήρους οθόνης</translation>
 <translation id="6321940490215594447">Άνοιγμα σελίδας "Ιστορικό"</translation>
+<translation id="6340769215862220182">Μεγέθυνση οθόνης</translation>
 <translation id="6359811074279051077"><ph name="MODIFIER" /><ph name="SEPARATOR" /><ph name="KEY" /></translation>
 <translation id="6395172954772765143">Επιλογή κειμένου έως το τέλος της γραμμής</translation>
 <translation id="6419237577786823024"><ph name="CTRL1" /><ph name="SEPARATOR1" /><ph name="LEFT" /> ή <ph name="CTRL2" /><ph name="SEPARATOR2" /><ph name="RIGHT" /></translation>
 <translation id="6425378783626925378">Κλικ στα εικονίδια 1-8 στο ράφι σας</translation>
 <translation id="6435207348963613811">Επισήμανση του προηγούμενου στοιχείου στο ράφι σας</translation>
 <translation id="6445033640292336367">Επαναφορά της καρτέλας στην αρχική της θέση</translation>
+<translation id="6474744297082284761">Σμίκρυνση (όταν είναι ενεργοποιημένοι οι μεγεθυντικοί φακοί σε παράθυρο Ή πλήρους οθόνης)</translation>
 <translation id="649811797655257835">Επιλέξτε το αρχείο και έπειτα πατήστε <ph name="SPACE" /></translation>
 <translation id="6556040137485212400">Άνοιγμα του παραθύρου που δεν έχει χρησιμοποιηθεί για το μεγαλύτερο χρονικό διάστημα</translation>
 <translation id="666343722268997814">Άνοιγμα του μενού δεξιού κλικ για το στοιχείο που έχετε επισημάνει</translation>
@@ -160,7 +166,6 @@
 <translation id="7787242579016742662">Άνοιγμα αρχείου στο πρόγραμμα περιήγησης</translation>
 <translation id="7917881398263220094">Διακοπή φόρτωσης της τρέχουσας σελίδας</translation>
 <translation id="7952165122793773711">Μετάβαση στις καρτέλες 1 έως 8</translation>
-<translation id="8025696740288105292"><ph name="CTRL" /><ph name="SEPARATOR1" /><ph name="SHIFT" /><ph name="SEPARATOR2" /><ph name="PLUS" /> ή <ph name="MINUS" /></translation>
 <translation id="8026334261755873520">Διαγραφή δεδομένων περιήγησης</translation>
 <translation id="8130528849632411619">Μετάβαση στην αρχή του εγγράφου</translation>
 <translation id="8147954207400281792"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="K" /> ή <ph name="E" /></translation>
@@ -174,15 +179,12 @@
 <translation id="8537650670971624753">Έξοδος από τη λειτουργία αναζήτησης</translation>
 <translation id="85690795166292698">Άνοιγμα του συνδέσμου σε νέα καρτέλα</translation>
 <translation id="8609384513243082612">Άνοιγμα νέας καρτέλας</translation>
-<translation id="8642453848560580159">Εναλλαγή ενεργοποίησης ή απενεργοποίησης του Μεγεθυντικού φακού σε παράθυρο</translation>
 <translation id="8644639153978066712">Εμφάνιση κρυφών αρχείων στην εφαρμογή Αρχεία</translation>
 <translation id="8717459106217102612">Επιλογή προηγούμενης λέξης ή γράμματος</translation>
 <translation id="8727232706774971183">Εμφάνιση όλων των ειδοποιήσεών σας</translation>
 <translation id="8855885154700222542">Πλήκτρο πλήρους οθόνης</translation>
 <translation id="88986195241502842">Page down</translation>
-<translation id="8903921497873541725">Μεγέθυνση</translation>
 <translation id="8924883688469390268">Εναλλαγή στον προηγούμενο χρήστη</translation>
-<translation id="8951768610999698672">Κάντε τα αντικείμενα στην οθόνη μεγαλύτερα ή μικρότερα</translation>
 <translation id="8977648847395357314">Επιλογή του περιεχομένου στη γραμμή διευθύνσεων</translation>
 <translation id="8982190978301344584">Εμφάνιση του μενού με τη λίστα των διαθέσιμων IME</translation>
 <translation id="8990356943438003669"><ph name="ALT" /><ph name="SEPARATOR" /> 1 έως 8</translation>

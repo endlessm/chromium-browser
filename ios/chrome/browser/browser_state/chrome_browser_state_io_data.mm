@@ -34,7 +34,6 @@
 #include "components/prefs/pref_service.h"
 #include "components/proxy_config/ios/proxy_service_factory.h"
 #include "components/signin/core/browser/signin_pref_names.h"
-#include "components/sync/base/pref_names.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
@@ -83,8 +82,6 @@ void NotifyContextGettersOfShutdownOnIO(
         ChromeBrowserStateIOData::IOSChromeURLRequestContextGetterVector>
         getters) {
   DCHECK_CURRENTLY_ON(web::WebThread::IO);
-  ChromeBrowserStateIOData::IOSChromeURLRequestContextGetterVector::iterator
-      iter;
   for (auto& chrome_context_getter : *getters)
     chrome_context_getter->NotifyContextShuttingDown();
 }
@@ -126,12 +123,6 @@ void ChromeBrowserStateIOData::InitializeOnUIThread(
     google_services_user_account_id_.Init(prefs::kGoogleServicesUserAccountId,
                                           pref_service);
     google_services_user_account_id_.MoveToThread(io_task_runner);
-
-    sync_disabled_.Init(syncer::prefs::kSyncManaged, pref_service);
-    sync_disabled_.MoveToThread(io_task_runner);
-
-    signin_allowed_.Init(prefs::kSigninAllowed, pref_service);
-    signin_allowed_.MoveToThread(io_task_runner);
   }
 }
 
@@ -407,7 +398,7 @@ void ChromeBrowserStateIOData::Init(
   host_content_settings_map_ = profile_params_->host_content_settings_map;
 
   main_request_context_->set_ssl_config_service(
-      io_thread_globals->ssl_config_service);
+      io_thread_globals->ssl_config_service.get());
   main_request_context_->set_cert_verifier(
       io_thread_globals->cert_verifier.get());
   main_request_context_->set_ct_policy_enforcer(
@@ -460,8 +451,6 @@ void ChromeBrowserStateIOData::ShutdownOnUIThread(
   enable_referrers_.Destroy();
   enable_do_not_track_.Destroy();
   enable_metrics_.Destroy();
-  sync_disabled_.Destroy();
-  signin_allowed_.Destroy();
   if (chrome_http_user_agent_settings_)
     chrome_http_user_agent_settings_->CleanupOnUIThread();
 

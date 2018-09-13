@@ -104,7 +104,7 @@ class PerfBenchmark(benchmark.Benchmark):
     if target_os == 'darwin':
       return 'mac'
     if target_os.startswith('win'):
-      return 'win'
+      return 'windows'
     if target_os.startswith('linux'):
       return 'linux'
     return target_os
@@ -118,18 +118,33 @@ class PerfBenchmark(benchmark.Benchmark):
 
     return fieldtrial_util.GenerateArgs(
         os.path.join(variations_dir, 'fieldtrial_testing_config.json'),
-        self._FixupTargetOS(possible_browser.target_os))
+        [self._FixupTargetOS(possible_browser.target_os)])
+
+  @staticmethod
+  def _GetPossibleBuildDirectories(chrome_src_dir, browser_type):
+    possible_directories = path_module.GetBuildDirectories(chrome_src_dir)
+    # Special case "android-chromium" and "any" and check all
+    # possible out directories.
+    if browser_type in ("android-chromium", "any"):
+      return possible_directories
+
+    # For all other browser types, just consider directories which match.
+    return (p for p in possible_directories
+            if os.path.basename(p).lower() == browser_type)
 
   def _GetOutDirectoryEstimate(self, options):
+    """Gets an estimate of the output directory for this build
+
+    Note that as an estimate, this may be incorrect. Callers should be aware of
+    this and ensure that in the case that this returns an existing but
+    incorrect directory, nothing should critically break."""
     finder_options = options.finder_options
     if finder_options.chromium_output_dir is not None:
       return finder_options.chromium_output_dir
 
-    for path in path_module.GetBuildDirectories(finder_options.chrome_root):
-      browser_type = os.path.basename(path).lower()
-      if options.browser_type == browser_type and os.path.exists(path):
-        return path
-    return None
+    possible_directories = self._GetPossibleBuildDirectories(
+        finder_options.chrome_root, options.browser_type)
+    return next((p for p in possible_directories if os.path.exists(p)), None)
 
   @staticmethod
   def IsSvelte(possible_browser):

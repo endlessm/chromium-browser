@@ -70,10 +70,11 @@ KeywordHintView::KeywordHintView(views::ButtonListener* listener,
   }
   chip_label_->SetBackgroundColor(tab_bg_color);
 
-  chip_container_->SetBorder(views::CreateEmptyBorder(
-      gfx::Insets(GetLayoutConstant(LOCATION_BAR_BUBBLE_VERTICAL_PADDING), 0)));
-  chip_container_->SetBackground(std::make_unique<BackgroundWith1PxBorder>(
-      tab_bg_color, tab_border_color));
+  chip_container_->SetBackground(views::CreateSolidBackground(tab_bg_color));
+  chip_container_->SetBorder(views::CreateRoundedRectBorder(
+      1, GetLayoutConstant(LOCATION_BAR_BUBBLE_CORNER_RADIUS),
+      tab_border_color));
+
   chip_container_->AddChildView(chip_label_);
   chip_container_->SetLayoutManager(std::make_unique<views::FillLayout>());
   AddChildView(chip_container_);
@@ -161,9 +162,10 @@ void KeywordHintView::SetKeyword(const base::string16& keyword,
 }
 
 gfx::Insets KeywordHintView::GetInsets() const {
-  if (!LocationBarView::IsRounded())
-    return gfx::Insets(0,
-                       GetLayoutConstant(LOCATION_BAR_ICON_INTERIOR_PADDING));
+  if (!LocationBarView::IsRounded()) {
+    return gfx::Insets(
+        0, GetLayoutInsets(LOCATION_BAR_ICON_INTERIOR_PADDING).left());
+  }
 
   // The location bar and keyword hint view chip have rounded ends. Ensure the
   // chip label's corner with the furthest extent from its midpoint is still at
@@ -183,7 +185,8 @@ gfx::Insets KeywordHintView::GetInsets() const {
   // omnibox, but the padding should be symmetrical, so use it on both sides,
   // collapsing into the horizontal padding used by the previous View.
   const int left_margin =
-      horizontal_margin - GetLayoutConstant(LOCATION_BAR_ICON_INTERIOR_PADDING);
+      horizontal_margin -
+      GetLayoutInsets(LOCATION_BAR_ICON_INTERIOR_PADDING).left();
   return gfx::Insets(0, std::max(0, left_margin), 0, horizontal_margin);
 }
 
@@ -204,10 +207,9 @@ void KeywordHintView::Layout() {
   gfx::Size leading_size(leading_label_->GetPreferredSize());
   leading_label_->SetBounds(GetInsets().left(), 0,
                             show_labels ? leading_size.width() : 0, height());
-  const int chip_height = LocationBarView::IsRounded()
-                              ? GetLayoutConstant(LOCATION_BAR_ICON_SIZE) +
-                                    chip_container_->GetInsets().height()
-                              : height();
+  const int chip_height = GetLayoutConstant(LOCATION_BAR_ICON_SIZE) +
+                          chip_container_->GetInsets().height();
+
   const int chip_vertical_padding = std::max(0, height() - chip_height) / 2;
   chip_container_->SetBounds(leading_label_->bounds().right(),
                              chip_vertical_padding, chip_width, chip_height);

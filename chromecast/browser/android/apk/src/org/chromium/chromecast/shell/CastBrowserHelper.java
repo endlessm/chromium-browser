@@ -4,17 +4,16 @@
 
 package org.chromium.chromecast.shell;
 
-import android.app.Activity;
 import android.content.Context;
-import android.content.Intent;
 
 import org.chromium.base.CommandLine;
+import org.chromium.base.CommandLineInitUtil;
 import org.chromium.base.Log;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.chromecast.base.ChromecastConfigAndroid;
-import org.chromium.content.browser.BrowserStartupController;
+import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.DeviceUtils;
 import org.chromium.net.NetworkChangeNotifier;
 
@@ -23,8 +22,7 @@ import org.chromium.net.NetworkChangeNotifier;
  */
 public class CastBrowserHelper {
     private static final String TAG = "CastBrowserHelper";
-
-    public static final String COMMAND_LINE_ARGS_KEY = "commandLineArgs";
+    private static final String COMMAND_LINE_FILE = "castshell-command-line";
 
     private static boolean sIsBrowserInitialized = false;
 
@@ -43,19 +41,12 @@ public class CastBrowserHelper {
         ChromecastConfigAndroid.initializeForBrowser(context);
 
         // Initializing the command line must occur before loading the library.
-        if (!CommandLine.isInitialized()) {
-            ((CastApplication) context.getApplicationContext()).initCommandLine();
+        CastCommandLineHelper.initCommandLineWithSavedArgs(() -> {
+            CommandLineInitUtil.initCommandLine(COMMAND_LINE_FILE);
+            return CommandLine.getInstance();
+        });
 
-            if (context instanceof Activity) {
-                Intent launchingIntent = ((Activity) context).getIntent();
-                String[] commandLineParams = getCommandLineParamsFromIntent(launchingIntent);
-                if (commandLineParams != null) {
-                    CommandLine.getInstance().appendSwitchesAndArguments(commandLineParams);
-                }
-            }
-        }
-
-        DeviceUtils.addDeviceSpecificUserAgentSwitch(context);
+        DeviceUtils.addDeviceSpecificUserAgentSwitch();
 
         try {
             LibraryLoader.getInstance().ensureInitialized(LibraryProcessType.PROCESS_BROWSER);
@@ -72,9 +63,5 @@ public class CastBrowserHelper {
             Log.e(TAG, "Unable to launch browser process.", e);
             return false;
         }
-    }
-
-    private static String[] getCommandLineParamsFromIntent(Intent intent) {
-        return intent != null ? intent.getStringArrayExtra(COMMAND_LINE_ARGS_KEY) : null;
     }
 }

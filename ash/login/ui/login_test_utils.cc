@@ -7,6 +7,21 @@
 #include "base/strings/string_split.h"
 
 namespace ash {
+namespace {
+constexpr char kPrimaryName[] = "primary";
+constexpr char kSecondaryName[] = "secondary";
+}  // namespace
+
+const char* AuthTargetToString(AuthTarget target) {
+  switch (target) {
+    case AuthTarget::kPrimary:
+      return kPrimaryName;
+    case AuthTarget::kSecondary:
+      return kSecondaryName;
+  }
+  NOTREACHED();
+  return "";
+}
 
 LockContentsView::TestApi MakeLockContentsViewTestApi(LockContentsView* view) {
   return LockContentsView::TestApi(view);
@@ -57,6 +72,16 @@ mojom::LoginUserInfoPtr CreatePublicAccountUser(const std::string& email) {
   user->public_account_info = ash::mojom::PublicAccountInfo::New();
   user->public_account_info->enterprise_domain = email_parts[1];
   return user;
+}
+
+bool HasFocusInAnyChildView(views::View* view) {
+  if (view->HasFocus())
+    return true;
+  for (int i = 0; i < view->child_count(); ++i) {
+    if (HasFocusInAnyChildView(view->child_at(i)))
+      return true;
+  }
+  return false;
 }
 
 }  // namespace ash

@@ -29,6 +29,8 @@ class Connector;
 
 namespace drivefs {
 
+class DriveFsHostObserver;
+
 // A host for a DriveFS process. In addition to managing its lifetime via
 // mounting and unmounting, it also bridges between the DriveFS process and the
 // file manager.
@@ -66,6 +68,9 @@ class COMPONENT_EXPORT(DRIVEFS) DriveFsHost
     CreateMojoConnectionDelegate();
 
     virtual void OnMounted(const base::FilePath& mount_path) = 0;
+    virtual void OnUnmounted(base::Optional<base::TimeDelta> remount_delay) = 0;
+    virtual void OnMountFailed(
+        base::Optional<base::TimeDelta> remount_delay) = 0;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(Delegate);
@@ -74,6 +79,9 @@ class COMPONENT_EXPORT(DRIVEFS) DriveFsHost
   DriveFsHost(const base::FilePath& profile_path,
               Delegate* delegate);
   ~DriveFsHost() override;
+
+  void AddObserver(DriveFsHostObserver* observer);
+  void RemoveObserver(DriveFsHostObserver* observer);
 
   // Mount DriveFS.
   bool Mount();
@@ -87,6 +95,8 @@ class COMPONENT_EXPORT(DRIVEFS) DriveFsHost
   // Returns the path where DriveFS is mounted. It is only valid to call when
   // |IsMounted()| returns true.
   const base::FilePath& GetMountPath() const;
+
+  mojom::DriveFs* GetDriveFsInterface() const;
 
  private:
   class MountState;
@@ -112,6 +122,8 @@ class COMPONENT_EXPORT(DRIVEFS) DriveFsHost
 
   // The connection to the identity service. Access via |GetIdentityManager()|.
   identity::mojom::IdentityManagerPtr identity_manager_;
+
+  base::ObserverList<DriveFsHostObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(DriveFsHost);
 };

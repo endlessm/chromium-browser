@@ -22,6 +22,7 @@
 #include "ash/assistant/assistant_controller.h"
 #include "ash/autoclick/autoclick_controller.h"
 #include "ash/cast_config_controller.h"
+#include "ash/client_image_registry.h"
 #include "ash/components/tap_visualizer/public/mojom/constants.mojom.h"
 #include "ash/dbus/ash_dbus_services.h"
 #include "ash/detachable_base/detachable_base_handler.h"
@@ -53,7 +54,9 @@
 #include "ash/highlighter/highlighter_controller.h"
 #include "ash/host/ash_window_tree_host_init_params.h"
 #include "ash/ime/ime_controller.h"
+#include "ash/ime/ime_focus_handler.h"
 #include "ash/keyboard/keyboard_ui.h"
+#include "ash/keyboard/virtual_keyboard_controller.h"
 #include "ash/laser/laser_pointer_controller.h"
 #include "ash/login/login_screen_controller.h"
 #include "ash/login_status.h"
@@ -84,8 +87,10 @@
 #include "ash/shell_observer.h"
 #include "ash/shell_port.h"
 #include "ash/shell_port_classic.h"
+#include "ash/shell_state.h"
 #include "ash/shutdown_controller.h"
 #include "ash/sticky_keys/sticky_keys_controller.h"
+#include "ash/system/audio/display_speaker_controller.h"
 #include "ash/system/bluetooth/bluetooth_notification_controller.h"
 #include "ash/system/bluetooth/bluetooth_power_controller.h"
 #include "ash/system/bluetooth/tray_bluetooth_helper.h"
@@ -115,13 +120,11 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/system/system_notification_controller.h"
 #include "ash/system/toast/toast_manager.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/touch/ash_touch_transform_controller.h"
 #include "ash/touch/touch_devices_controller.h"
 #include "ash/tray_action/tray_action.h"
 #include "ash/utility/screenshot_controller.h"
-#include "ash/virtual_keyboard_controller.h"
 #include "ash/voice_interaction/voice_interaction_controller.h"
 #include "ash/wallpaper/wallpaper_controller.h"
 #include "ash/wayland/wayland_server_controller.h"
@@ -133,7 +136,6 @@
 #include "ash/wm/lock_state_controller.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/native_cursor_manager_ash_classic.h"
-#include "ash/wm/native_cursor_manager_ash_mus.h"
 #include "ash/wm/overlay_event_filter.h"
 #include "ash/wm/overview/window_selector_controller.h"
 #include "ash/wm/resize_shadow_controller.h"
@@ -174,7 +176,7 @@
 #include "services/preferences/public/mojom/preferences.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/ui/public/interfaces/constants.mojom.h"
-#include "services/ui/ws2/gpu_support.h"
+#include "services/ui/ws2/gpu_interface_provider.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
 #include "ui/aura/layout_manager.h"
@@ -183,6 +185,7 @@
 #include "ui/aura/mus/window_tree_client.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/base/user_activity/user_activity_detector.h"
 #include "ui/chromeos/user_activity_power_manager_notifier.h"
@@ -274,10 +277,10 @@ Shell* Shell::CreateInstance(ShellInitParams init_params) {
   CHECK(!instance_);
   instance_ = new Shell(std::move(init_params.delegate),
                         std::move(init_params.shell_port));
-  instance_->Init(init_params.context_factory,
-                  init_params.context_factory_private,
-                  std::move(init_params.initial_display_prefs),
-                  std::move(init_params.gpu_support));
+  instance_->Init(
+      init_params.context_factory, init_params.context_factory_private,
+      std::move(init_params.initial_display_prefs),
+      std::move(init_params.gpu_interface_provider), init_params.connector);
   return instance_;
 }
 
@@ -339,11 +342,7 @@ aura::Window* Shell::GetPrimaryRootWindow() {
 
 // static
 aura::Window* Shell::GetRootWindowForNewWindows() {
-  CHECK(Shell::HasInstance());
-  Shell* shell = Shell::Get();
-  if (shell->scoped_root_window_for_new_windows_)
-    return shell->scoped_root_window_for_new_windows_;
-  return shell->root_window_for_new_windows_;
+  return Shell::Get()->shell_state_->GetRootWindowForNewWindows();
 }
 
 // static
@@ -404,7 +403,8 @@ Config Shell::GetAshConfig() {
 
 // static
 bool Shell::ShouldUseIMEService() {
-  return Shell::GetAshConfig() == Config::MASH;
+  return Shell::GetAshConfig() == Config::MASH_DEPRECATED ||
+         base::FeatureList::IsEnabled(::features::kMash);
 }
 
 // static
@@ -477,35 +477,41 @@ void Shell::OnDictationEnded() {
     observer.OnDictationEnded();
 }
 
-void Shell::CreateKeyboard() {
+void Shell::EnableKeyboard() {
   if (!keyboard::IsKeyboardEnabled())
     return;
 
-  if (keyboard::KeyboardController::GetInstance()) {
-    for (auto* const controller : GetAllRootWindowControllers()) {
-      controller->DeactivateKeyboard(
-          keyboard::KeyboardController::GetInstance());
-    }
+  if (keyboard_controller_->enabled()) {
+    // Disable and re-enable the keyboard, as some callers expect the keyboard
+    // to be reloaded.
+    // TODO(https://crbug.com/731537): Add a separate function for reloading the
+    // keyboard.
+    for (auto* const controller : GetAllRootWindowControllers())
+      controller->DeactivateKeyboard(keyboard_controller_.get());
   }
-  keyboard::KeyboardController::ResetInstance(new keyboard::KeyboardController(
-      shell_delegate_->CreateKeyboardUI(), virtual_keyboard_controller_.get()));
+
+  // TODO(crbug.com/646565): ShellDelegateMash does not support keyboard ui yet.
+  auto keyboard_ui = shell_delegate_->CreateKeyboardUI();
+  if (!keyboard_ui && !::features::IsAshInBrowserProcess())
+    return;
+
+  keyboard_controller_->EnableKeyboard(std::move(keyboard_ui),
+                                       virtual_keyboard_controller_.get());
   for (auto& observer : shell_observers_)
     observer.OnKeyboardControllerCreated();
-
   GetPrimaryRootWindowController()->ActivateKeyboard(
-      keyboard::KeyboardController::GetInstance());
+      keyboard_controller_.get());
 }
 
-void Shell::DestroyKeyboard() {
+void Shell::DisableKeyboard() {
   // TODO(jamescook): Move keyboard create and hide into ShellPort.
   keyboard_ui_->Hide();
-  if (keyboard::KeyboardController::GetInstance()) {
-    for (auto* const controller : GetAllRootWindowControllers()) {
-      controller->DeactivateKeyboard(
-          keyboard::KeyboardController::GetInstance());
-    }
+  if (keyboard_controller_->enabled()) {
+    for (auto* const controller : GetAllRootWindowControllers())
+      controller->DeactivateKeyboard(keyboard_controller_.get());
   }
-  keyboard::KeyboardController::ResetInstance(nullptr);
+
+  keyboard_controller_->DisableKeyboard();
 }
 
 bool Shell::ShouldSaveDisplaySettings() {
@@ -520,7 +526,7 @@ DockedMagnifierController* Shell::docked_magnifier_controller() {
 }
 
 NightLightController* Shell::night_light_controller() {
-  DCHECK(switches::IsNightLightEnabled());
+  DCHECK(features::IsNightLightEnabled());
   return night_light_controller_.get();
 }
 
@@ -563,7 +569,7 @@ void Shell::UpdateCursorCompositingEnabled() {
 }
 
 void Shell::SetCursorCompositingEnabled(bool enabled) {
-  if (GetAshConfig() != Config::MASH) {
+  if (GetAshConfig() != Config::MASH_DEPRECATED) {
     // TODO: needs to work in mash. http://crbug.com/705592.
     CursorWindowController* cursor_window_controller =
         window_tree_host_manager_->cursor_window_controller();
@@ -640,12 +646,6 @@ void Shell::NotifyPinnedStateChanged(aura::Window* pinned_window) {
     observer.OnPinnedStateChanged(pinned_window);
 }
 
-void Shell::NotifyVirtualKeyboardActivated(bool activated,
-                                           aura::Window* root_window) {
-  for (auto& observer : shell_observers_)
-    observer.OnVirtualKeyboardStateChanged(activated, root_window);
-}
-
 void Shell::NotifyShelfCreatedForRootWindow(aura::Window* root_window) {
   for (auto& observer : shell_observers_)
     observer.OnShelfCreatedForRootWindow(root_window);
@@ -688,6 +688,7 @@ Shell::Shell(std::unique_ptr<ShellDelegate> shell_delegate,
       immersive_context_(std::make_unique<ImmersiveContextAsh>()),
       keyboard_brightness_control_delegate_(
           std::make_unique<KeyboardBrightnessController>()),
+      keyboard_controller_(std::make_unique<keyboard::KeyboardController>()),
       locale_notification_controller_(
           std::make_unique<LocaleNotificationController>()),
       login_screen_controller_(std::make_unique<LoginScreenController>()),
@@ -697,8 +698,8 @@ Shell::Shell(std::unique_ptr<ShellDelegate> shell_delegate,
           shell_delegate->GetShellConnector())),
       note_taking_controller_(std::make_unique<NoteTakingController>()),
       shell_delegate_(std::move(shell_delegate)),
+      shell_state_(std::make_unique<ShellState>()),
       shutdown_controller_(std::make_unique<ShutdownController>()),
-      system_tray_controller_(std::make_unique<SystemTrayController>()),
       system_tray_notifier_(std::make_unique<SystemTrayNotifier>()),
       vpn_list_(std::make_unique<VpnList>()),
       window_cycle_controller_(std::make_unique<WindowCycleController>()),
@@ -783,7 +784,7 @@ Shell::~Shell() {
 
   // Destroy the keyboard before closing the shelf, since it will invoke a shelf
   // layout.
-  DestroyKeyboard();
+  DisableKeyboard();
 
   toast_manager_.reset();
 
@@ -819,6 +820,11 @@ Shell::~Shell() {
   // |split_view_controller_| needs to be deleted after
   // |window_selector_controller_|.
   split_view_controller_.reset();
+
+  // Stop dispatching events (e.g. synthesized mouse exits from window close).
+  // https://crbug.com/874156
+  for (RootWindowController* rwc : GetAllRootWindowControllers())
+    rwc->GetHost()->dispatcher()->Shutdown();
 
   // Close all widgets (including the shelf) and destroy all window containers.
   CloseAllRootWindowChildWindows();
@@ -864,6 +870,7 @@ Shell::~Shell() {
   voice_interaction_controller_.reset();
   key_accessibility_enabler_.reset();
 
+  display_speaker_controller_.reset();
   screen_switch_check_controller_.reset();
 
   // This also deletes all RootWindows. Note that we invoke Shutdown() on
@@ -897,6 +904,9 @@ Shell::~Shell() {
   // May own windows and other objects that have indirect hooks into
   // WindowTreeHostManager.
   window_service_owner_.reset();
+
+  // Must be released before |focus_controller_|.
+  ime_focus_handler_.reset();
 
   shell_port_->Shutdown();
   window_tree_host_manager_->Shutdown();
@@ -955,14 +965,15 @@ Shell::~Shell() {
   instance_ = nullptr;
 }
 
-void Shell::Init(ui::ContextFactory* context_factory,
-                 ui::ContextFactoryPrivate* context_factory_private,
-                 std::unique_ptr<base::Value> initial_display_prefs,
-                 std::unique_ptr<ui::ws2::GpuSupport> gpu_support) {
+void Shell::Init(
+    ui::ContextFactory* context_factory,
+    ui::ContextFactoryPrivate* context_factory_private,
+    std::unique_ptr<base::Value> initial_display_prefs,
+    std::unique_ptr<ui::ws2::GpuInterfaceProvider> gpu_interface_provider,
+    service_manager::Connector* connector) {
   const Config config = shell_port_->GetAshConfig();
 
-  // Config::MUS is deprecated. https://crbug.com/841941
-  DCHECK_NE(config, Config::MUS);
+  connector_ = connector;
 
   // This creates the MessageCenter object which is used by some other objects
   // initialized here, so it needs to come early.
@@ -976,6 +987,7 @@ void Shell::Init(ui::ContextFactory* context_factory,
   detachable_base_notification_controller_ =
       std::make_unique<DetachableBaseNotificationController>(
           detachable_base_handler_.get());
+  display_speaker_controller_ = std::make_unique<DisplaySpeakerController>();
   policy_recommendation_restorer_ =
       std::make_unique<PolicyRecommendationRestorer>();
   screen_switch_check_controller_ =
@@ -1004,6 +1016,8 @@ void Shell::Init(ui::ContextFactory* context_factory,
         prefs::mojom::kLocalStateServiceName);
   }
 
+  tablet_mode_controller_ = std::make_unique<TabletModeController>();
+
   // Some delegates access ShellPort during their construction. Create them here
   // instead of the ShellPort constructor.
   accessibility_focus_ring_controller_ =
@@ -1020,7 +1034,7 @@ void Shell::Init(ui::ContextFactory* context_factory,
   wallpaper_controller_ = std::make_unique<WallpaperController>();
 
   // TODO(sky): move creation to ShellPort.
-  if (config != Config::MASH)
+  if (config != Config::MASH_DEPRECATED)
     immersive_handler_factory_ = std::make_unique<ImmersiveHandlerFactoryAsh>();
 
   window_positioner_ = std::make_unique<WindowPositioner>();
@@ -1029,10 +1043,9 @@ void Shell::Init(ui::ContextFactory* context_factory,
     native_cursor_manager_ = new NativeCursorManagerAshClassic;
     cursor_manager_ = std::make_unique<CursorManager>(
         base::WrapUnique(native_cursor_manager_));
-  } else if (config == Config::MUS) {
-    native_cursor_manager_ = new NativeCursorManagerAshMus;
-    cursor_manager_ = std::make_unique<CursorManager>(
-        base::WrapUnique(native_cursor_manager_));
+  } else {
+    // TODO(jamescook|estade): Cursor manager for Config::MASH_DEPRECATED. We
+    // might be able to use most of the classic version after we switch to ws2.
   }
 
   shell_delegate_->PreInit();
@@ -1049,14 +1062,17 @@ void Shell::Init(ui::ContextFactory* context_factory,
   if (config == Config::CLASSIC) {
     // This will initialize aura::Env which requires |display_manager_| to
     // be initialized first.
-    aura::Env::GetInstance()->set_context_factory(context_factory);
-    aura::Env::GetInstance()->set_context_factory_private(
-        context_factory_private);
+    if (context_factory)
+      aura::Env::GetInstance()->set_context_factory(context_factory);
+    if (context_factory_private) {
+      aura::Env::GetInstance()->set_context_factory_private(
+          context_factory_private);
+    }
   }
 
   // Night Light depends on the display manager, the display color manager, and
   // aura::Env, so initialize it after all have been initialized.
-  if (switches::IsNightLightEnabled())
+  if (features::IsNightLightEnabled())
     night_light_controller_ = std::make_unique<NightLightController>();
 
   // The WindowModalityController needs to be at the front of the input event
@@ -1087,7 +1103,7 @@ void Shell::Init(ui::ContextFactory* context_factory,
   time_to_first_present_recorder_ =
       std::make_unique<TimeToFirstPresentRecorder>(GetPrimaryRootWindow());
 
-  root_window_for_new_windows_ = GetPrimaryRootWindow();
+  shell_state_->SetRootWindowForNewWindows(GetPrimaryRootWindow());
 
   resolution_notification_controller_ =
       std::make_unique<ResolutionNotificationController>();
@@ -1098,7 +1114,6 @@ void Shell::Init(ui::ContextFactory* context_factory,
   }
 
   accelerator_controller_ = shell_port_->CreateAcceleratorController();
-  tablet_mode_controller_ = std::make_unique<TabletModeController>();
 
   // |app_list_controller_| is put after |tablet_mode_controller_| as the former
   // uses the latter in constructor.
@@ -1130,10 +1145,8 @@ void Shell::Init(ui::ContextFactory* context_factory,
   toplevel_window_event_handler_ =
       std::make_unique<ToplevelWindowEventHandler>();
 
-  if (config != Config::MASH) {
-    system_gesture_filter_.reset(new SystemGestureEventFilter);
-    AddPreTargetHandler(system_gesture_filter_.get());
-  }
+  system_gesture_filter_ = std::make_unique<SystemGestureEventFilter>();
+  AddPreTargetHandler(system_gesture_filter_.get());
 
   sticky_keys_controller_.reset(new StickyKeysController);
   screen_pinning_controller_ = std::make_unique<ScreenPinningController>();
@@ -1166,9 +1179,10 @@ void Shell::Init(ui::ContextFactory* context_factory,
         std::move(user_activity_monitor), user_activity_detector_.get());
   }
 
-  // In mash drag and drop is handled by mus.
-  if (config != Config::MASH)
-    drag_drop_controller_ = std::make_unique<DragDropController>();
+  if (!::features::IsAshInBrowserProcess())
+    client_image_registry_ = std::make_unique<ClientImageRegistry>();
+
+  drag_drop_controller_ = std::make_unique<DragDropController>();
 
   // |screenshot_controller_| needs to be created (and prepended as a
   // pre-target handler) at this point, because |mouse_cursor_filter_| needs to
@@ -1257,7 +1271,7 @@ void Shell::Init(ui::ContextFactory* context_factory,
 
   // Needs to be created after InitDisplays() since it may cause the virtual
   // keyboard to be deployed.
-  if (config != Config::MASH)
+  if (config != Config::MASH_DEPRECATED)
     virtual_keyboard_controller_.reset(new VirtualKeyboardController);
 
   if (cursor_manager_) {
@@ -1296,9 +1310,13 @@ void Shell::Init(ui::ContextFactory* context_factory,
         tap_visualizer::mojom::kServiceName);
   }
 
-  if (config != Config::MASH) {
+  if (config != Config::MASH_DEPRECATED) {
     window_service_owner_ =
-        std::make_unique<WindowServiceOwner>(std::move(gpu_support));
+        std::make_unique<WindowServiceOwner>(std::move(gpu_interface_provider));
+    if (!ShouldUseIMEService()) {
+      ime_focus_handler_ = std::make_unique<ImeFocusHandler>(
+          focus_controller(), window_tree_host_manager_->input_method());
+    }
   }
 
   for (auto& observer : shell_observers_)
@@ -1391,12 +1409,7 @@ void Shell::InitRootWindow(aura::Window* root_window) {
   ::wm::SetActivationClient(root_window, focus_controller_.get());
   root_window->AddPreTargetHandler(focus_controller_.get());
   aura::client::SetVisibilityClient(root_window, visibility_controller_.get());
-  if (drag_drop_controller_) {
-    DCHECK_NE(Config::MASH, GetAshConfig());
-    aura::client::SetDragDropClient(root_window, drag_drop_controller_.get());
-  } else {
-    DCHECK_EQ(Config::MASH, GetAshConfig());
-  }
+  aura::client::SetDragDropClient(root_window, drag_drop_controller_.get());
   aura::client::SetScreenPositionClient(root_window,
                                         screen_position_controller_.get());
   aura::client::SetCursorClient(root_window, cursor_manager_.get());
@@ -1455,8 +1468,10 @@ void Shell::OnWindowActivated(
     ::wm::ActivationChangeObserver::ActivationReason reason,
     aura::Window* gained_active,
     aura::Window* lost_active) {
-  if (gained_active)
-    root_window_for_new_windows_ = gained_active->GetRootWindow();
+  if (!gained_active)
+    return;
+
+  shell_state_->SetRootWindowForNewWindows(gained_active->GetRootWindow());
 }
 
 void Shell::OnFirstSessionStarted() {
@@ -1487,7 +1502,7 @@ void Shell::OnSessionStateChanged(session_manager::SessionState state) {
         // Ensure that the keyboard controller is activated for the primary
         // window.
         GetPrimaryRootWindowController()->ActivateKeyboard(
-            keyboard::KeyboardController::GetInstance());
+            keyboard_controller_.get());
         break;
       case session_manager::SessionState::LOGGED_IN_NOT_ACTIVE:
       case session_manager::SessionState::ACTIVE:
@@ -1496,7 +1511,7 @@ void Shell::OnSessionStateChanged(session_manager::SessionState state) {
         // proper IME. |LOGGED_IN_NOT_ACTIVE| is needed so that the virtual
         // keyboard works on supervised user creation, http://crbug.com/712873.
         // |ACTIVE| is also needed for guest user workflow.
-        CreateKeyboard();
+        EnableKeyboard();
         break;
       default:
         break;

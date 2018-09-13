@@ -156,7 +156,7 @@ static std::string getMultiarchTriple(const Driver &D,
 }
 
 static StringRef getOSLibDir(const llvm::Triple &Triple, const ArgList &Args) {
-  if (tools::isMipsArch(Triple.getArch())) {
+  if (Triple.isMIPS()) {
     if (Triple.isAndroid()) {
       StringRef CPUName;
       StringRef ABIName;
@@ -238,11 +238,20 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
     ExtraOpts.push_back("relro");
   }
 
+  if (GCCInstallation.getParentLibPath().find("opt/rh/devtoolset") !=
+      StringRef::npos)
+    // With devtoolset on RHEL, we want to add a bin directory that is relative
+    // to the detected gcc install, because if we are using devtoolset gcc then
+    // we want to use other tools from devtoolset (e.g. ld) instead of the
+    // standard system tools.
+    PPaths.push_back(Twine(GCCInstallation.getParentLibPath() +
+                     "/../bin").str());
+
   if (Arch == llvm::Triple::arm || Arch == llvm::Triple::thumb)
     ExtraOpts.push_back("-X");
 
   const bool IsAndroid = Triple.isAndroid();
-  const bool IsMips = tools::isMipsArch(Arch);
+  const bool IsMips = Triple.isMIPS();
   const bool IsHexagon = Arch == llvm::Triple::hexagon;
   const bool IsRISCV =
       Arch == llvm::Triple::riscv32 || Arch == llvm::Triple::riscv64;
@@ -438,7 +447,7 @@ std::string Linux::computeSysRoot() const {
       return AndroidSysRootPath;
   }
 
-  if (!GCCInstallation.isValid() || !tools::isMipsArch(getTriple().getArch()))
+  if (!GCCInstallation.isValid() || !getTriple().isMIPS())
     return std::string();
 
   // Standalone MIPS toolchains use different names for sysroot folder
@@ -530,8 +539,6 @@ std::string Linux::getDynamicLinker(const ArgList &Args) const {
   case llvm::Triple::mipsel:
   case llvm::Triple::mips64:
   case llvm::Triple::mips64el: {
-    bool LE = (Triple.getArch() == llvm::Triple::mipsel) ||
-              (Triple.getArch() == llvm::Triple::mips64el);
     bool IsNaN2008 = tools::mips::isNaN2008(Args, Triple);
 
     LibDir = "lib" + tools::mips::getMipsABILibSuffix(Args, Triple);
@@ -540,7 +547,8 @@ std::string Linux::getDynamicLinker(const ArgList &Args) const {
       Loader = IsNaN2008 ? "ld-uClibc-mipsn8.so.0" : "ld-uClibc.so.0";
     else if (!Triple.hasEnvironment() &&
              Triple.getVendor() == llvm::Triple::VendorType::MipsTechnologies)
-      Loader = LE ? "ld-musl-mipsel.so.1" : "ld-musl-mips.so.1";
+      Loader =
+          Triple.isLittleEndian() ? "ld-musl-mipsel.so.1" : "ld-musl-mips.so.1";
     else
       Loader = IsNaN2008 ? "ld-linux-mipsn8.so.1" : "ld.so.1";
 
@@ -804,6 +812,7 @@ void Linux::addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                                   llvm::opt::ArgStringList &CC1Args) const {
   const std::string& SysRoot = computeSysRoot();
   const std::string LibCXXIncludePathCandidates[] = {
+      DetectLibcxxIncludePath(getDriver().ResourceDir + "/include/c++"),
       DetectLibcxxIncludePath(getDriver().Dir + "/../include/c++"),
       // If this is a development, non-installed, clang, libcxx will
       // not be found at ../include/c++ but it likely to be found at
@@ -894,10 +903,8 @@ bool Linux::isPIEDefault() const {
 SanitizerMask Linux::getSupportedSanitizers() const {
   const bool IsX86 = getTriple().getArch() == llvm::Triple::x86;
   const bool IsX86_64 = getTriple().getArch() == llvm::Triple::x86_64;
-  const bool IsMIPS = getTriple().getArch() == llvm::Triple::mips ||
-                      getTriple().getArch() == llvm::Triple::mipsel;
-  const bool IsMIPS64 = getTriple().getArch() == llvm::Triple::mips64 ||
-                        getTriple().getArch() == llvm::Triple::mips64el;
+  const bool IsMIPS = getTriple().isMIPS32();
+  const bool IsMIPS64 = getTriple().isMIPS64();
   const bool IsPowerPC64 = getTriple().getArch() == llvm::Triple::ppc64 ||
                            getTriple().getArch() == llvm::Triple::ppc64le;
   const bool IsAArch64 = getTriple().getArch() == llvm::Triple::aarch64 ||
@@ -924,7 +931,8 @@ SanitizerMask Linux::getSupportedSanitizers() const {
     Res |= SanitizerKind::Efficiency;
   if (IsX86 || IsX86_64)
     Res |= SanitizerKind::Function;
-  if (IsX86_64 || IsMIPS64 || IsAArch64 || IsX86 || IsMIPS || IsArmArch)
+  if (IsX86_64 || IsMIPS64 || IsAArch64 || IsX86 || IsMIPS || IsArmArch ||
+      IsPowerPC64)
     Res |= SanitizerKind::Scudo;
   if (IsX86_64 || IsAArch64) {
     Res |= SanitizerKind::HWAddress;

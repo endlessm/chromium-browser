@@ -9,12 +9,12 @@
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
-#include "third_party/blink/public/platform/scheduler/web_main_thread_scheduler.h"
+#include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 
 namespace blink {
 namespace scheduler {
 
-class FakeRendererScheduler : public WebMainThreadScheduler {
+class FakeRendererScheduler : public WebThreadScheduler {
  public:
   FakeRendererScheduler();
   ~FakeRendererScheduler() override;
@@ -48,14 +48,14 @@ class FakeRendererScheduler : public WebMainThreadScheduler {
 #endif
   bool IsHighPriorityWorkAnticipated() override;
   void Shutdown() override;
-  void SetFreezingWhenBackgroundedEnabled(bool enabled) override;
   void SetTopLevelBlameContext(
       base::trace_event::BlameContext* blame_context) override;
-  void SetRAILModeObserver(RAILModeObserver* observer) override;
+  void AddRAILModeObserver(RAILModeObserver* observer) override;
   void SetRendererProcessType(RendererProcessType type) override;
   WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser(
       const char* name,
       WebScopedVirtualTimePauser::VirtualTaskDuration duration) override;
+  void OnMainFrameRequestedForInput() override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(FakeRendererScheduler);

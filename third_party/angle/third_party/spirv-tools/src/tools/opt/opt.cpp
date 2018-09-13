@@ -22,6 +22,7 @@
 #include <sstream>
 #include <vector>
 
+#include "opt/loop_peeling.h"
 #include "opt/set_spec_constant_default_value_pass.h"
 #include "spirv-tools/optimizer.hpp"
 
@@ -48,19 +49,28 @@ std::string GetListOfPassesAsString(const spvtools::Optimizer& optimizer) {
   return ss.str();
 }
 
+const auto kDefaultEnvironment = SPV_ENV_UNIVERSAL_1_3;
+
+std::string GetLegalizationPasses() {
+  spvtools::Optimizer optimizer(kDefaultEnvironment);
+  optimizer.RegisterLegalizationPasses();
+  return GetListOfPassesAsString(optimizer);
+}
+
 std::string GetOptimizationPasses() {
-  spvtools::Optimizer optimizer(SPV_ENV_UNIVERSAL_1_2);
+  spvtools::Optimizer optimizer(kDefaultEnvironment);
   optimizer.RegisterPerformancePasses();
   return GetListOfPassesAsString(optimizer);
 }
 
 std::string GetSizePasses() {
-  spvtools::Optimizer optimizer(SPV_ENV_UNIVERSAL_1_2);
+  spvtools::Optimizer optimizer(kDefaultEnvironment);
   optimizer.RegisterSizePasses();
   return GetListOfPassesAsString(optimizer);
 }
 
 void PrintUsage(const char* program) {
+  // NOTE: Please maintain flags in lexicographical order.
   printf(
       R"(%s - Optimize a SPIR-V binary file.
 
@@ -73,53 +83,63 @@ standard output.
 
 NOTE: The optimizer is a work in progress.
 
-Options:
-  --strip-debug
-               Remove all debug instructions.
-  --freeze-spec-const
-               Freeze the values of specialization constants to their default
-               values.
-  --eliminate-dead-const
-               Eliminate dead constants.
-  --fold-spec-const-op-composite
-               Fold the spec constants defined by OpSpecConstantOp or
-               OpSpecConstantComposite instructions to front-end constants
-               when possible.
-  --set-spec-const-default-value "<spec id>:<default value> ..."
-               Set the default values of the specialization constants with
-               <spec id>:<default value> pairs specified in a double-quoted
-               string. <spec id>:<default value> pairs must be separated by
-               blank spaces, and in each pair, spec id and default value must
-               be separated with colon ':' without any blank spaces in between.
-               e.g.: --set-spec-const-default-value "1:100 2:400"
-  --unify-const
-               Remove the duplicated constants.
-  --flatten-decorations
-               Replace decoration groups with repeated OpDecorate and
-               OpMemberDecorate instructions.
-  --compact-ids
-               Remap result ids to a compact range starting from %%1 and without
-               any gaps.
+Options (in lexicographical order):
+  --ccp
+               Apply the conditional constant propagation transform.  This will
+               propagate constant values throughout the program, and simplify
+               expressions and conditional jumps with known predicate
+               values.  Performed on entry point call tree functions and
+               exported functions.
   --cfg-cleanup
                Cleanup the control flow graph. This will remove any unnecessary
                code from the CFG like unreachable code. Performed on entry
                point call tree functions and exported functions.
-  --inline-entry-points-exhaustive
-               Exhaustively inline all function calls in entry point call tree
-               functions. Currently does not inline calls to functions with
-               early return in a loop.
+  --compact-ids
+               Remap result ids to a compact range starting from %%1 and without
+               any gaps.
   --convert-local-access-chains
                Convert constant index access chain loads/stores into
                equivalent load/stores with inserts and extracts. Performed
                on function scope variables referenced only with load, store,
                and constant index access chains in entry point call tree
                functions.
+  --copy-propagate-arrays
+               Does propagation of memory references when an array is a copy of
+               another.  It will only propagate an array if the source is never
+               written to, and the only store to the target is the copy.
   --eliminate-common-uniform
                Perform load/load elimination for duplicate uniform values.
                Converts any constant index access chain uniform loads into
                its equivalent load and extract. Some loads will be moved
                to facilitate sharing. Performed only on entry point
                call tree functions.
+  --eliminate-dead-branches
+               Convert conditional branches with constant condition to the
+               indicated unconditional brranch. Delete all resulting dead
+               code. Performed only on entry point call tree functions.
+  --eliminate-dead-code-aggressive
+               Delete instructions which do not contribute to a function's
+               output. Performed only on entry point call tree functions.
+  --eliminate-dead-const
+               Eliminate dead constants.
+  --eliminate-dead-functions
+               Deletes functions that cannot be reached from entry points or
+               exported functions.
+  --eliminate-dead-insert
+               Deletes unreferenced inserts into composites, most notably
+               unused stores to vector components, that are not removed by
+               aggressive dead code elimination.
+  --eliminate-dead-variables
+               Deletes module scope variables that are not referenced.
+  --eliminate-insert-extract
+               DEPRECATED.  This pass has been replaced by the simplification
+               pass, and that pass will be run instead.
+               See --simplify-instructions.
+  --eliminate-local-multi-store
+               Replace stores and loads of function scope variables that are
+               stored multiple times. Performed on variables referenceed only
+               with loads and stores. Performed only on entry point call tree
+               functions.
   --eliminate-local-single-block
                Perform single-block store/load and load/load elimination.
                Performed only on function scope variables in entry point
@@ -129,46 +149,80 @@ Options:
                only stored once. Performed on variables referenceed only with
                loads and stores. Performed only on entry point call tree
                functions.
-  --eliminate-local-multi-store
-               Replace stores and loads of function scope variables that are
-               stored multiple times. Performed on variables referenceed only
-               with loads and stores. Performed only on entry point call tree
-               functions.
-  --eliminate-insert-extract
-               Replace extract from a sequence of inserts with the
-               corresponding value. Performed only on entry point call tree
-               functions.
-  --eliminate-dead-code-aggressive
-               Delete instructions which do not contribute to a function's
-               output. Performed only on entry point call tree functions.
-  --eliminate-dead-branches
-               Convert conditional branches with constant condition to the
-               indicated unconditional brranch. Delete all resulting dead
-               code. Performed only on entry point call tree functions.
-  --eliminate-dead-functions
-               Deletes functions that cannot be reached from entry points or
-               exported functions.
+  --flatten-decorations
+               Replace decoration groups with repeated OpDecorate and
+               OpMemberDecorate instructions.
+  --fold-spec-const-op-composite
+               Fold the spec constants defined by OpSpecConstantOp or
+               OpSpecConstantComposite instructions to front-end constants
+               when possible.
+  --freeze-spec-const
+               Freeze the values of specialization constants to their default
+               values.
+  --if-conversion
+               Convert if-then-else like assignments into OpSelect.
+  --inline-entry-points-exhaustive
+               Exhaustively inline all function calls in entry point call tree
+               functions. Currently does not inline calls to functions with
+               early return in a loop.
+  --legalize-hlsl
+               Runs a series of optimizations that attempts to take SPIR-V
+               generated by and HLSL front-end and generate legal Vulkan SPIR-V.
+               The optimizations are:
+               %s
+
+               Note this does not guarantee legal code. This option implies
+               --skip-validation.
+  --local-redundancy-elimination
+               Looks for instructions in the same basic block that compute the
+               same value, and deletes the redundant ones.
+  --loop-fission
+               Splits any top level loops in which the register pressure has exceeded
+               a given threshold. The threshold must follow the use of this flag and
+               must be a positive integer value.
+  --loop-fusion
+               Identifies adjacent loops with the same lower and upper bound.
+               If this is legal, then merge the loops into a single loop.
+               Includes heuristics to ensure it does not increase number of
+               registers too much, while reducing the number of loads from
+               memory. Takes an additional positive integer argument to set
+               the maximum number of registers.
+  --loop-unroll
+               Fully unrolls loops marked with the Unroll flag
+  --loop-unroll-partial
+               Partially unrolls loops marked with the Unroll flag. Takes an
+               additional non-0 integer argument to set the unroll factor, or
+               how many times a loop body should be duplicated
+  --loop-peeling
+               Execute few first (respectively last) iterations before
+               (respectively after) the loop if it can elide some branches.
+  --loop-peeling-threshold
+               Takes a non-0 integer argument to set the loop peeling code size
+               growth threshold. The threshold prevents the loop peeling
+               from happening if the code size increase created by
+               the optimization is above the threshold.
   --merge-blocks
                Join two blocks into a single block if the second has the
                first as its only predecessor. Performed only on entry point
                call tree functions.
   --merge-return
-               Replace all return instructions with unconditional branches to
-               a new basic block containing an unified return.
+               Changes functions that have multiple return statements so they
+               have a single return statement.
 
-               This pass does not currently support structured control flow. It
-               makes no changes if the shader capability is detected.
-  --strength-reduction
-               Replaces instructions with equivalent and less expensive ones.
-  --eliminate-dead-variables
-               Deletes module scope variables that are not referenced.
-  --local-redundancy-elimination
-               Looks for instructions in the same basic block that compute the
-               same value, and deletes the redundant ones.
-  --relax-store-struct
-               Allow store from one struct type to a different type with
-               compatible layout and members. This option is forwarded to the
-               validator.
+               For structured control flow it is assumed that the only
+               unreachable blocks in the function are trivial merge and continue
+               blocks.
+
+               A trivial merge block contains the label and an OpUnreachable
+               instructions, nothing else.  A trivial continue block contain a
+               label and an OpBranch to the header, nothing else.
+
+               These conditions are guaranteed to be met after running
+               dead-branch elimination.
+  --loop-unswitch
+               Hoists loop-invariant conditionals out of loops by duplicating
+               the loop on each branch of the conditional and adjusting each
+               copy of the loop.
   -O
                Optimize for performance. Apply a sequence of transformations
                in an attempt to improve the performance of the generated
@@ -212,13 +266,83 @@ Options:
                'spirv-opt --merge-blocks -O ...' applies the transformation
                --merge-blocks followed by all the transformations implied by
                -O.
+  --print-all
+               Print SPIR-V assembly to standard error output before each pass
+               and after the last pass.
+  --private-to-local
+               Change the scope of private variables that are used in a single
+               function to that function.
+  --reduce-load-size
+               Replaces loads of composite objects where not every component is
+               used by loads of just the elements that are used.
+  --redundancy-elimination
+               Looks for instructions in the same function that compute the
+               same value, and deletes the redundant ones.
+  --relax-struct-store
+               Allow store from one struct type to a different type with
+               compatible layout and members. This option is forwarded to the
+               validator.
+  --remove-duplicates
+               Removes duplicate types, decorations, capabilities and extension
+               instructions.
+  --replace-invalid-opcode
+               Replaces instructions whose opcode is valid for shader modules,
+               but not for the current shader stage.  To have an effect, all
+               entry points must have the same execution model.
+  --ssa-rewrite
+               Replace loads and stores to function local variables with
+               operations on SSA IDs.
+  --scalar-replacement[=<n>]
+               Replace aggregate function scope variables that are only accessed
+               via their elements with new function variables representing each
+               element.  <n> is a limit on the size of the aggragates that will
+               be replaced.  0 means there is no limit.  The default value is
+               100.
+  --set-spec-const-default-value "<spec id>:<default value> ..."
+               Set the default values of the specialization constants with
+               <spec id>:<default value> pairs specified in a double-quoted
+               string. <spec id>:<default value> pairs must be separated by
+               blank spaces, and in each pair, spec id and default value must
+               be separated with colon ':' without any blank spaces in between.
+               e.g.: --set-spec-const-default-value "1:100 2:400"
+  --simplify-instructions
+               Will simplify all instructions in the function as much as
+               possible.
+  --skip-validation
+               Will not validate the SPIR-V before optimizing.  If the SPIR-V
+               is invalid, the optimizer may fail or generate incorrect code.
+               This options should be used rarely, and with caution.
+  --strength-reduction
+               Replaces instructions with equivalent and less expensive ones.
+  --strip-debug
+               Remove all debug instructions.
+  --strip-reflect
+               Remove all reflection information.  For now, this covers
+               reflection information defined by SPV_GOOGLE_hlsl_functionality1.
+  --time-report
+               Print the resource utilization of each pass (e.g., CPU time,
+               RSS) to standard error output. Currently it supports only Unix
+               systems. This option is the same as -ftime-report in GCC. It
+               prints CPU/WALL/USR/SYS time (and RSS if possible), but note that
+               USR/SYS time are returned by getrusage() and can have a small
+               error.
+  --vector-dce
+               This pass looks for components of vectors that are unused, and
+               removes them from the vector.  Note this would still leave around
+               lots of dead code that a pass of ADCE will be able to remove.
+  --workaround-1209
+               Rewrites instructions for which there are known driver bugs to
+               avoid triggering those bugs.
+               Current workarounds: Avoid OpUnreachable in loops.
+  --unify-const
+               Remove the duplicated constants.
   -h, --help
                Print this help.
   --version
                Display optimizer version information.
 )",
-      program, program, GetOptimizationPasses().c_str(),
-      GetSizePasses().c_str());
+      program, program, GetLegalizationPasses().c_str(),
+      GetOptimizationPasses().c_str(), GetSizePasses().c_str());
 }
 
 // Reads command-line flags  the file specified in |oconfig_flag|. This string
@@ -257,7 +381,7 @@ bool ReadFlagsFromFile(const char* oconfig_flag,
 
 OptStatus ParseFlags(int argc, const char** argv, Optimizer* optimizer,
                      const char** in_file, const char** out_file,
-                     spv_validator_options options);
+                     spv_validator_options options, bool* skip_validator);
 
 // Parses and handles the -Oconfig flag. |prog_name| contains the name of
 // the spirv-opt binary (used to build a new argv vector for the recursive
@@ -290,8 +414,68 @@ OptStatus ParseOconfigFlag(const char* prog_name, const char* opt_flag,
     new_argv[i] = flags[i].c_str();
   }
 
+  bool skip_validator = false;
   return ParseFlags(static_cast<int>(flags.size()), new_argv, optimizer,
-                    in_file, out_file, nullptr);
+                    in_file, out_file, nullptr, &skip_validator);
+}
+
+OptStatus ParseLoopFissionArg(int argc, const char** argv, int argi,
+                              Optimizer* optimizer) {
+  if (argi < argc) {
+    int register_threshold_to_split = atoi(argv[argi]);
+    optimizer->RegisterPass(CreateLoopFissionPass(
+        static_cast<size_t>(register_threshold_to_split)));
+    return {OPT_CONTINUE, 0};
+  }
+  fprintf(
+      stderr,
+      "error: --loop-fission must be followed by a positive integer value\n");
+  return {OPT_STOP, 1};
+}
+
+OptStatus ParseLoopFusionArg(int argc, const char** argv, int argi,
+                             Optimizer* optimizer) {
+  if (argi < argc) {
+    int max_registers_per_loop = atoi(argv[argi]);
+    if (max_registers_per_loop > 0) {
+      optimizer->RegisterPass(
+          CreateLoopFusionPass(static_cast<size_t>(max_registers_per_loop)));
+      return {OPT_CONTINUE, 0};
+    }
+  }
+  fprintf(stderr,
+          "error: --loop-loop-fusion must be followed by a positive "
+          "integer\n");
+  return {OPT_STOP, 1};
+}
+
+OptStatus ParseLoopUnrollPartialArg(int argc, const char** argv, int argi,
+                                    Optimizer* optimizer) {
+  if (argi < argc) {
+    int factor = atoi(argv[argi]);
+    if (factor != 0) {
+      optimizer->RegisterPass(CreateLoopUnrollPass(false, factor));
+      return {OPT_CONTINUE, 0};
+    }
+  }
+  fprintf(stderr,
+          "error: --loop-unroll-partial must be followed by a non-0 "
+          "integer\n");
+  return {OPT_STOP, 1};
+}
+
+OptStatus ParseLoopPeelingThresholdArg(int argc, const char** argv, int argi) {
+  if (argi < argc) {
+    int factor = atoi(argv[argi]);
+    if (factor > 0) {
+      opt::LoopPeelingPass::SetLoopPeelingThreshold(factor);
+      return {OPT_CONTINUE, 0};
+    }
+  }
+  fprintf(
+      stderr,
+      "error: --loop-peeling-threshold must be followed by a non-0 integer\n");
+  return {OPT_STOP, 1};
 }
 
 // Parses command-line flags. |argc| contains the number of command-line flags.
@@ -304,7 +488,7 @@ OptStatus ParseOconfigFlag(const char* prog_name, const char* opt_flag,
 // success.
 OptStatus ParseFlags(int argc, const char** argv, Optimizer* optimizer,
                      const char** in_file, const char** out_file,
-                     spv_validator_options options) {
+                     spv_validator_options options, bool* skip_validator) {
   for (int argi = 1; argi < argc; ++argi) {
     const char* cur_arg = argv[argi];
     if ('-' == cur_arg[0]) {
@@ -323,6 +507,8 @@ OptStatus ParseFlags(int argc, const char** argv, Optimizer* optimizer,
         }
       } else if (0 == strcmp(cur_arg, "--strip-debug")) {
         optimizer->RegisterPass(CreateStripDebugInfoPass());
+      } else if (0 == strcmp(cur_arg, "--strip-reflect")) {
+        optimizer->RegisterPass(CreateStripReflectInfoPass());
       } else if (0 == strcmp(cur_arg, "--set-spec-const-default-value")) {
         if (++argi < argc) {
           auto spec_ids_vals =
@@ -343,6 +529,8 @@ OptStatus ParseFlags(int argc, const char** argv, Optimizer* optimizer,
               "error: Expected a string of <spec id>:<default value> pairs.");
           return {OPT_STOP, 1};
         }
+      } else if (0 == strcmp(cur_arg, "--if-conversion")) {
+        optimizer->RegisterPass(CreateIfConversionPass());
       } else if (0 == strcmp(cur_arg, "--freeze-spec-const")) {
         optimizer->RegisterPass(CreateFreezeSpecConstantValuePass());
       } else if (0 == strcmp(cur_arg, "--inline-entry-points-exhaustive")) {
@@ -373,10 +561,19 @@ OptStatus ParseFlags(int argc, const char** argv, Optimizer* optimizer,
         optimizer->RegisterPass(CreateCommonUniformElimPass());
       } else if (0 == strcmp(cur_arg, "--eliminate-dead-const")) {
         optimizer->RegisterPass(CreateEliminateDeadConstantPass());
+      } else if (0 == strcmp(cur_arg, "--eliminate-dead-inserts")) {
+        optimizer->RegisterPass(CreateDeadInsertElimPass());
       } else if (0 == strcmp(cur_arg, "--eliminate-dead-variables")) {
         optimizer->RegisterPass(CreateDeadVariableEliminationPass());
       } else if (0 == strcmp(cur_arg, "--fold-spec-const-op-composite")) {
         optimizer->RegisterPass(CreateFoldSpecConstantOpAndCompositePass());
+      } else if (0 == strcmp(cur_arg, "--loop-unswitch")) {
+        optimizer->RegisterPass(CreateLoopUnswitchPass());
+      } else if (0 == strcmp(cur_arg, "--scalar-replacement")) {
+        optimizer->RegisterPass(CreateScalarReplacementPass());
+      } else if (0 == strncmp(cur_arg, "--scalar-replacement=", 21)) {
+        uint32_t limit = atoi(cur_arg + 21);
+        optimizer->RegisterPass(CreateScalarReplacementPass(limit));
       } else if (0 == strcmp(cur_arg, "--strength-reduction")) {
         optimizer->RegisterPass(CreateStrengthReductionPass());
       } else if (0 == strcmp(cur_arg, "--unify-const")) {
@@ -389,18 +586,76 @@ OptStatus ParseFlags(int argc, const char** argv, Optimizer* optimizer,
         optimizer->RegisterPass(CreateCFGCleanupPass());
       } else if (0 == strcmp(cur_arg, "--local-redundancy-elimination")) {
         optimizer->RegisterPass(CreateLocalRedundancyEliminationPass());
-      } else if (0 == strcmp(cur_arg, "--relax-store-struct")) {
+      } else if (0 == strcmp(cur_arg, "--loop-invariant-code-motion")) {
+        optimizer->RegisterPass(CreateLoopInvariantCodeMotionPass());
+      } else if (0 == strcmp(cur_arg, "--reduce-load-size")) {
+        optimizer->RegisterPass(CreateReduceLoadSizePass());
+      } else if (0 == strcmp(cur_arg, "--redundancy-elimination")) {
+        optimizer->RegisterPass(CreateRedundancyEliminationPass());
+      } else if (0 == strcmp(cur_arg, "--private-to-local")) {
+        optimizer->RegisterPass(CreatePrivateToLocalPass());
+      } else if (0 == strcmp(cur_arg, "--remove-duplicates")) {
+        optimizer->RegisterPass(CreateRemoveDuplicatesPass());
+      } else if (0 == strcmp(cur_arg, "--workaround-1209")) {
+        optimizer->RegisterPass(CreateWorkaround1209Pass());
+      } else if (0 == strcmp(cur_arg, "--relax-struct-store")) {
         options->relax_struct_store = true;
+      } else if (0 == strcmp(cur_arg, "--replace-invalid-opcode")) {
+        optimizer->RegisterPass(CreateReplaceInvalidOpcodePass());
+      } else if (0 == strcmp(cur_arg, "--simplify-instructions")) {
+        optimizer->RegisterPass(CreateSimplificationPass());
+      } else if (0 == strcmp(cur_arg, "--ssa-rewrite")) {
+        optimizer->RegisterPass(CreateSSARewritePass());
+      } else if (0 == strcmp(cur_arg, "--copy-propagate-arrays")) {
+        optimizer->RegisterPass(CreateCopyPropagateArraysPass());
+      } else if (0 == strcmp(cur_arg, "--loop-fission")) {
+        OptStatus status = ParseLoopFissionArg(argc, argv, ++argi, optimizer);
+        if (status.action != OPT_CONTINUE) {
+          return status;
+        }
+      } else if (0 == strcmp(cur_arg, "--loop-fusion")) {
+        OptStatus status = ParseLoopFusionArg(argc, argv, ++argi, optimizer);
+        if (status.action != OPT_CONTINUE) {
+          return status;
+        }
+      } else if (0 == strcmp(cur_arg, "--loop-unroll")) {
+        optimizer->RegisterPass(CreateLoopUnrollPass(true));
+      } else if (0 == strcmp(cur_arg, "--vector-dce")) {
+        optimizer->RegisterPass(CreateVectorDCEPass());
+      } else if (0 == strcmp(cur_arg, "--loop-unroll-partial")) {
+        OptStatus status =
+            ParseLoopUnrollPartialArg(argc, argv, ++argi, optimizer);
+        if (status.action != OPT_CONTINUE) {
+          return status;
+        }
+      } else if (0 == strcmp(cur_arg, "--loop-peeling")) {
+        optimizer->RegisterPass(CreateLoopPeelingPass());
+      } else if (0 == strcmp(cur_arg, "--loop-peeling-threshold")) {
+        OptStatus status = ParseLoopPeelingThresholdArg(argc, argv, ++argi);
+        if (status.action != OPT_CONTINUE) {
+          return status;
+        }
+      } else if (0 == strcmp(cur_arg, "--skip-validation")) {
+        *skip_validator = true;
       } else if (0 == strcmp(cur_arg, "-O")) {
         optimizer->RegisterPerformancePasses();
       } else if (0 == strcmp(cur_arg, "-Os")) {
         optimizer->RegisterSizePasses();
+      } else if (0 == strcmp(cur_arg, "--legalize-hlsl")) {
+        *skip_validator = true;
+        optimizer->RegisterLegalizationPasses();
       } else if (0 == strncmp(cur_arg, "-Oconfig=", sizeof("-Oconfig=") - 1)) {
         OptStatus status =
             ParseOconfigFlag(argv[0], cur_arg, optimizer, in_file, out_file);
         if (status.action != OPT_CONTINUE) {
           return status;
         }
+      } else if (0 == strcmp(cur_arg, "--ccp")) {
+        optimizer->RegisterPass(CreateCCPPass());
+      } else if (0 == strcmp(cur_arg, "--print-all")) {
+        optimizer->SetPrintAll(&std::cerr);
+      } else if (0 == strcmp(cur_arg, "--time-report")) {
+        optimizer->SetTimeReport(&std::cerr);
       } else if ('\0' == cur_arg[1]) {
         // Setting a filename of "-" to indicate stdin.
         if (!*in_file) {
@@ -434,8 +689,9 @@ OptStatus ParseFlags(int argc, const char** argv, Optimizer* optimizer,
 int main(int argc, const char** argv) {
   const char* in_file = nullptr;
   const char* out_file = nullptr;
+  bool skip_validator = false;
 
-  spv_target_env target_env = SPV_ENV_UNIVERSAL_1_2;
+  spv_target_env target_env = kDefaultEnvironment;
   spv_validator_options options = spvValidatorOptionsCreate();
 
   spvtools::Optimizer optimizer(target_env);
@@ -446,8 +702,8 @@ int main(int argc, const char** argv) {
               << std::endl;
   });
 
-  OptStatus status =
-      ParseFlags(argc, argv, &optimizer, &in_file, &out_file, options);
+  OptStatus status = ParseFlags(argc, argv, &optimizer, &in_file, &out_file,
+                                options, &skip_validator);
 
   if (status.action == OPT_STOP) {
     return status.code;
@@ -463,22 +719,24 @@ int main(int argc, const char** argv) {
     return 1;
   }
 
-  // Let's do validation first.
-  spv_context context = spvContextCreate(target_env);
-  spv_diagnostic diagnostic = nullptr;
-  spv_const_binary_t binary_struct = {binary.data(), binary.size()};
-  spv_result_t error =
-      spvValidateWithOptions(context, options, &binary_struct, &diagnostic);
-  if (error) {
-    spvDiagnosticPrint(diagnostic);
+  if (!skip_validator) {
+    // Let's do validation first.
+    spv_context context = spvContextCreate(target_env);
+    spv_diagnostic diagnostic = nullptr;
+    spv_const_binary_t binary_struct = {binary.data(), binary.size()};
+    spv_result_t error =
+        spvValidateWithOptions(context, options, &binary_struct, &diagnostic);
+    if (error) {
+      spvDiagnosticPrint(diagnostic);
+      spvDiagnosticDestroy(diagnostic);
+      spvValidatorOptionsDestroy(options);
+      spvContextDestroy(context);
+      return error;
+    }
     spvDiagnosticDestroy(diagnostic);
     spvValidatorOptionsDestroy(options);
     spvContextDestroy(context);
-    return error;
   }
-  spvDiagnosticDestroy(diagnostic);
-  spvValidatorOptionsDestroy(options);
-  spvContextDestroy(context);
 
   // By using the same vector as input and output, we save time in the case
   // that there was no change.

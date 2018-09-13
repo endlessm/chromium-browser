@@ -17,7 +17,10 @@
 
 #include "Instruction.h"
 #include "Support.h"
+#include "llvm/MC/MCInstPrinter.h"
+#include "llvm/MC/MCInstrAnalysis.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 
 namespace mca {
@@ -37,18 +40,29 @@ class DispatchUnit;
 class InstrBuilder {
   const llvm::MCSubtargetInfo &STI;
   const llvm::MCInstrInfo &MCII;
+  const llvm::MCRegisterInfo &MRI;
+  const llvm::MCInstrAnalysis &MCIA;
+  llvm::MCInstPrinter &MCIP;
   llvm::SmallVector<uint64_t, 8> ProcResourceMasks;
 
   llvm::DenseMap<unsigned short, std::unique_ptr<const InstrDesc>> Descriptors;
+  llvm::DenseMap<const llvm::MCInst *, std::unique_ptr<const InstrDesc>>
+      VariantDescriptors;
 
   const InstrDesc &createInstrDescImpl(const llvm::MCInst &MCI);
-
   InstrBuilder(const InstrBuilder &) = delete;
   InstrBuilder &operator=(const InstrBuilder &) = delete;
 
+  void populateWrites(InstrDesc &ID, const llvm::MCInst &MCI,
+                      unsigned SchedClassID);
+  void populateReads(InstrDesc &ID, const llvm::MCInst &MCI,
+                     unsigned SchedClassID);
+
 public:
-  InstrBuilder(const llvm::MCSubtargetInfo &sti, const llvm::MCInstrInfo &mcii)
-      : STI(sti), MCII(mcii),
+  InstrBuilder(const llvm::MCSubtargetInfo &sti, const llvm::MCInstrInfo &mcii,
+               const llvm::MCRegisterInfo &mri,
+               const llvm::MCInstrAnalysis &mcia, llvm::MCInstPrinter &mcip)
+      : STI(sti), MCII(mcii), MRI(mri), MCIA(mcia), MCIP(mcip),
         ProcResourceMasks(STI.getSchedModel().getNumProcResourceKinds()) {
     computeProcResourceMasks(STI.getSchedModel(), ProcResourceMasks);
   }
@@ -61,6 +75,8 @@ public:
   llvm::ArrayRef<uint64_t> getProcResourceMasks() const {
     return ProcResourceMasks;
   }
+
+  void clear() { VariantDescriptors.shrink_and_clear(); }
 
   std::unique_ptr<Instruction> createInstruction(const llvm::MCInst &MCI);
 };

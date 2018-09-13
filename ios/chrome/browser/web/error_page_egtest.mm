@@ -6,13 +6,14 @@
 
 #include <string>
 
+#include "base/bind.h"
 #include "base/feature_list.h"
-#import "base/mac/bind_objc_block.h"
 #include "base/strings/sys_string_conversions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #include "ios/testing/embedded_test_server_handlers.h"
 #include "ios/web/public/features.h"
+#include "ios/web/public/test/element_selector.h"
 #include "net/test/embedded_test_server/default_handlers.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
@@ -127,9 +128,10 @@ NSString* GetNSErrorMessage() {
 }
 
 // Sucessfully loads the page, then loads the URL which fails to load, then
-// sucessfully goes back to the first page.
+// sucessfully goes back to the first page. Back-forward navigations are
+// browser-initiated.
 // TODO(crbug.com/840489): Remove this test.
-- (void)testGoBackFromErrorPage {
+- (void)testGoBackFromErrorPageAndForwardToErrorPage {
   // First page loads sucessfully.
   [ChromeEarlGrey loadURL:self.testServer->GetURL("/echo")];
   [ChromeEarlGrey waitForWebViewContainingText:"Echo"];
@@ -145,6 +147,47 @@ NSString* GetNSErrorMessage() {
   // Going back should sucessfully load the first page.
   [ChromeEarlGrey goBack];
   [ChromeEarlGrey waitForWebViewContainingText:"Echo"];
+
+  // Going forward fails the load.
+  [ChromeEarlGrey goForward];
+  if (base::FeatureList::IsEnabled(web::features::kWebErrorPages)) {
+    [ChromeEarlGrey waitForWebViewContainingText:GetErrorMessage()];
+  } else {
+    [ChromeEarlGrey waitForStaticHTMLViewContainingText:GetNSErrorMessage()];
+  }
+}
+
+// Sucessfully loads the page, then loads the URL which fails to load, then
+// sucessfully goes back to the first page. Back-forward navigations are
+// renderer-initiated.
+// TODO(crbug.com/840489): Remove this test.
+// disable due to flaky: crbug.com/859910
+- (void)FLAKY_testRendererInitiatedGoBackFromErrorPageAndForwardToErrorPage {
+  // First page loads sucessfully.
+  [ChromeEarlGrey loadURL:self.testServer->GetURL("/echo")];
+  [ChromeEarlGrey waitForWebViewContainingText:"Echo"];
+
+  // Second page fails to load.
+  [ChromeEarlGrey loadURL:self.testServer->GetURL("/close-socket")];
+  if (base::FeatureList::IsEnabled(web::features::kWebErrorPages)) {
+    [ChromeEarlGrey waitForWebViewContainingText:GetErrorMessage()];
+  } else {
+    [ChromeEarlGrey waitForStaticHTMLViewContainingText:GetNSErrorMessage()];
+  }
+
+  // Going back should sucessfully load the first page.
+  [ChromeEarlGrey goBack];
+  [ChromeEarlGrey waitForWebViewContainingText:"Echo"];
+
+  // Going forward fails the load.
+  NSError* error = nil;
+  chrome_test_util::ExecuteJavaScript(@"window.history.forward()", &error);
+  GREYAssertTrue(!error, @"Unexpected error when executing JavaScript.");
+  if (base::FeatureList::IsEnabled(web::features::kWebErrorPages)) {
+    [ChromeEarlGrey waitForWebViewContainingText:GetErrorMessage()];
+  } else {
+    [ChromeEarlGrey waitForStaticHTMLViewContainingText:GetNSErrorMessage()];
+  }
 }
 
 // Loads the URL which redirects to unresponsive server.
@@ -166,8 +209,9 @@ NSString* GetNSErrorMessage() {
 // TODO(crbug.com/840489): Remove this test.
 - (void)testErrorPageInIFrame {
   [ChromeEarlGrey loadURL:self.testServer->GetURL("/iframe?echo-query")];
-  [ChromeEarlGrey
-      waitForWebViewContainingCSSSelector:"iframe[src*='echo-query']"];
+  auto selector(web::test::ElementSelector::ElementSelectorCss(
+      "iframe[src*='echo-query']"));
+  [ChromeEarlGrey waitForWebViewContainingElement:selector];
 }
 
 @end

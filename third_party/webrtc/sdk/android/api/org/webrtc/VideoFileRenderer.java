@@ -29,6 +29,8 @@ public class VideoFileRenderer implements VideoSink {
 
   private final HandlerThread renderThread;
   private final Handler renderThreadHandler;
+  private final HandlerThread fileThread;
+  private final Handler fileThreadHandler;
   private final FileOutputStream videoOutFile;
   private final String outputFileName;
   private final int outputFileWidth;
@@ -37,7 +39,7 @@ public class VideoFileRenderer implements VideoSink {
   private final ByteBuffer outputFrameBuffer;
   private EglBase eglBase;
   private YuvConverter yuvConverter;
-  private ArrayList<ByteBuffer> rawFrames = new ArrayList<>();
+  private int frameCount;
 
   public VideoFileRenderer(String outputFile, int outputFileWidth, int outputFileHeight,
       final EglBase.Context sharedContext) throws IOException {
@@ -57,9 +59,13 @@ public class VideoFileRenderer implements VideoSink {
         ("YUV4MPEG2 C420 W" + outputFileWidth + " H" + outputFileHeight + " Ip F30:1 A1:1\n")
             .getBytes(Charset.forName("US-ASCII")));
 
-    renderThread = new HandlerThread(TAG);
+    renderThread = new HandlerThread(TAG + "RenderThread");
     renderThread.start();
     renderThreadHandler = new Handler(renderThread.getLooper());
+
+    fileThread = new HandlerThread(TAG + "FileThread");
+    fileThread.start();
+    fileThreadHandler = new Handler(fileThread.getLooper());
 
     ThreadUtils.invokeAtFrontUninterruptibly(renderThreadHandler, new Runnable() {
       @Override
@@ -108,14 +114,21 @@ public class VideoFileRenderer implements VideoSink {
     final VideoFrame.I420Buffer i420 = scaledBuffer.toI420();
     scaledBuffer.release();
 
-    ByteBuffer byteBuffer = JniCommon.nativeAllocateByteBuffer(outputFrameSize);
-    YuvHelper.I420Rotate(i420.getDataY(), i420.getStrideY(), i420.getDataU(), i420.getStrideU(),
-        i420.getDataV(), i420.getStrideV(), byteBuffer, i420.getWidth(), i420.getHeight(),
-        frame.getRotation());
-    i420.release();
+    fileThreadHandler.post(() -> {
+      YuvHelper.I420Rotate(i420.getDataY(), i420.getStrideY(), i420.getDataU(), i420.getStrideU(),
+          i420.getDataV(), i420.getStrideV(), outputFrameBuffer, i420.getWidth(), i420.getHeight(),
+          frame.getRotation());
+      i420.release();
 
-    byteBuffer.rewind();
-    rawFrames.add(byteBuffer);
+      try {
+        videoOutFile.write("FRAME\n".getBytes(Charset.forName("US-ASCII")));
+        videoOutFile.write(
+            outputFrameBuffer.array(), outputFrameBuffer.arrayOffset(), outputFrameSize);
+      } catch (IOException e) {
+        throw new RuntimeException("Error writing video to disk", e);
+      }
+      frameCount++;
+    });
   }
 
   /**
@@ -130,24 +143,23 @@ public class VideoFileRenderer implements VideoSink {
       cleanupBarrier.countDown();
     });
     ThreadUtils.awaitUninterruptibly(cleanupBarrier);
-    try {
-      for (ByteBuffer buffer : rawFrames) {
-        videoOutFile.write("FRAME\n".getBytes(Charset.forName("US-ASCII")));
-
-        byte[] data = new byte[outputFrameSize];
-        buffer.get(data);
-
-        videoOutFile.write(data);
-
-        JniCommon.nativeFreeByteBuffer(buffer);
+    fileThreadHandler.post(() -> {
+      try {
+        videoOutFile.close();
+        Logging.d(TAG,
+            "Video written to disk as " + outputFileName + ". The number of frames is " + frameCount
+                + " and the dimensions of the frames are " + outputFileWidth + "x"
+                + outputFileHeight + ".");
+      } catch (IOException e) {
+        throw new RuntimeException("Error closing output file", e);
       }
-      videoOutFile.close();
-      Logging.d(TAG,
-          "Video written to disk as " + outputFileName + ". Number frames are " + rawFrames.size()
-              + " and the dimension of the frames are " + outputFileWidth + "x" + outputFileHeight
-              + ".");
-    } catch (IOException e) {
-      Logging.e(TAG, "Error writing video to disk", e);
+      fileThread.quit();
+    });
+    try {
+      fileThread.join();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      Logging.e(TAG, "Interrupted while waiting for the write to disk to complete.", e);
     }
   }
 }

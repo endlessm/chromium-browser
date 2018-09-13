@@ -49,22 +49,31 @@ There is also a non-shader extension
 Building
 --------
 
+Instead of building manually, you can also download the binaries for your
+platform directly from the [master-tot release][master-tot-release] on GitHub.
+Those binaries are automatically uploaded by the buildbots after successful
+testing and they always reflect the current top of the tree of the master
+branch.
+
 ### Dependencies
 
+* A C++11 compiler.
+  (For MSVS: 2015 is recommended, 2013 is fully supported/tested, and 2010 support is attempted, but not tested.)
 * [CMake][cmake]: for generating compilation targets.
+* make: _Linux_, ninja is an alternative, if configured.
 * [Python 2.7][python]: for executing SPIRV-Tools scripts. (Optional if not using SPIRV-Tools.)
 * [bison][bison]: _optional_, but needed when changing the grammar (glslang.y).
 * [googletest][googletest]: _optional_, but should use if making any changes to glslang.
 
 ### Build steps
 
+The following steps assume a Bash shell. On Windows, that could be the Git Bash
+shell or some other shell of your choosing.
+
 #### 1) Check-Out this project 
 
 ```bash
 cd <parent of where you want glslang to be>
-# If using SSH
-git clone git@github.com:KhronosGroup/glslang.git
-# Or if using HTTPS
 git clone https://github.com/KhronosGroup/glslang.git
 ```
 
@@ -83,28 +92,27 @@ spirv-tools with this:
 ./update_glslang_sources.py
 ```
 
-For running the CMake GUI or Visual Studio with python dependencies, you will,
-in addition to python within the cygwin environment, need a Windows [python][python]
-installation, including selecting the `PATH` update.
-
 #### 3) Configure
 
-Assume the source directory is `$SOURCE_DIR` and
-the build directory is `$BUILD_DIR`:
-
-For building on Linux (assuming using the Ninja generator):
+Assume the source directory is `$SOURCE_DIR` and the build directory is
+`$BUILD_DIR`. First ensure the build directory exists, then navigate to it:
 
 ```bash
+mkdir -p $BUILD_DIR
 cd $BUILD_DIR
+```
 
-cmake -GNinja -DCMAKE_BUILD_TYPE={Debug|Release|RelWithDebInfo} \
-      -DCMAKE_INSTALL_PREFIX=`pwd`/install $SOURCE_DIR
+For building on Linux:
+
+```bash
+cmake -DCMAKE_BUILD_TYPE={Debug|Release|RelWithDebInfo} \
+      -DCMAKE_INSTALL_PREFIX="$(pwd)/install" $SOURCE_DIR
 ```
 
 For building on Windows:
 
 ```bash
-cmake $SOURCE_DIR -DCMAKE_INSTALL_PREFIX=`pwd`/install
+cmake $SOURCE_DIR -DCMAKE_INSTALL_PREFIX="$(pwd)/install"
 # The CMAKE_INSTALL_PREFIX part is for testing (explained later).
 ```
 
@@ -114,7 +122,7 @@ The CMake GUI also works for Windows (version 3.4.1 tested).
 
 ```bash
 # for Linux:
-ninja install
+make -j4 install
 
 # for Windows:
 cmake --build . --config {Release|Debug|MinSizeRel|RelWithDebInfo} \
@@ -233,8 +241,11 @@ bool InitializeProcess();
 void FinalizeProcess();
 
 class TShader
+    setStrings(...);
+    setEnvInput(EShSourceHlsl or EShSourceGlsl, stage,  EShClientVulkan or EShClientOpenGL, 100);
+    setEnvClient(EShClientVulkan or EShClientOpenGL, EShTargetVulkan_1_0 or EShTargetVulkan_1_1 or EShTargetOpenGL_450);
+    setEnvTarget(EShTargetSpv, EShTargetSpv_1_0 or EShTargetSpv_1_3);
     bool parse(...);
-    void setStrings(...);
     const char* getInfoLog();
 
 class TProgram
@@ -318,3 +329,4 @@ Basic Internal Operation
 [bison]: https://www.gnu.org/software/bison/
 [googletest]: https://github.com/google/googletest
 [bison-gnu-win32]: http://gnuwin32.sourceforge.net/packages/bison.htm
+[master-tot-release]: https://github.com/KhronosGroup/glslang/releases/tag/master-tot

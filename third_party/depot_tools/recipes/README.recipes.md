@@ -17,6 +17,7 @@
   * [tryserver](#recipe_modules-tryserver)
 
 **[Recipes](#Recipes)**
+  * [bot_update:examples/buildbucket](#recipes-bot_update_examples_buildbucket)
   * [bot_update:examples/full](#recipes-bot_update_examples_full)
   * [cipd:examples/full](#recipes-cipd_examples_full)
   * [cipd:examples/platform_suffix](#recipes-cipd_examples_platform_suffix)
@@ -36,24 +37,24 @@
 
 ### *recipe_modules* / [bot\_update](/recipes/recipe_modules/bot_update)
 
-[DEPS](/recipes/recipe_modules/bot_update/__init__.py#1): [depot\_tools](#recipe_modules-depot_tools), [gclient](#recipe_modules-gclient), [gerrit](#recipe_modules-gerrit), [tryserver](#recipe_modules-tryserver), [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/runtime][recipe_engine/recipe_modules/runtime], [recipe\_engine/source\_manifest][recipe_engine/recipe_modules/source_manifest], [recipe\_engine/step][recipe_engine/recipe_modules/step]
+[DEPS](/recipes/recipe_modules/bot_update/__init__.py#1): [depot\_tools](#recipe_modules-depot_tools), [gclient](#recipe_modules-gclient), [gerrit](#recipe_modules-gerrit), [tryserver](#recipe_modules-tryserver), [recipe\_engine/buildbucket][recipe_engine/recipe_modules/buildbucket], [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/runtime][recipe_engine/recipe_modules/runtime], [recipe\_engine/source\_manifest][recipe_engine/recipe_modules/source_manifest], [recipe\_engine/step][recipe_engine/recipe_modules/step]
 
 Recipe module to ensure a checkout is consistent on a bot.
 
 #### **class [BotUpdateApi](/recipes/recipe_modules/bot_update/api.py#10)([RecipeApi][recipe_engine/wkt/RecipeApi]):**
 
-&mdash; **def [\_\_call\_\_](/recipes/recipe_modules/bot_update/api.py#31)(self, name, cmd, \*\*kwargs):**
+&mdash; **def [\_\_call\_\_](/recipes/recipe_modules/bot_update/api.py#37)(self, name, cmd, \*\*kwargs):**
 
 Wrapper for easy calling of bot_update.
 
-&mdash; **def [apply\_gerrit\_ref](/recipes/recipe_modules/bot_update/api.py#46)(self, root, gerrit_no_reset=False, gerrit_no_rebase_patch_ref=False, gerrit_repo=None, gerrit_ref=None, step_name='apply_gerrit', \*\*kwargs):**
+&mdash; **def [apply\_gerrit\_ref](/recipes/recipe_modules/bot_update/api.py#52)(self, root, gerrit_no_reset=False, gerrit_no_rebase_patch_ref=False, gerrit_repo=None, gerrit_ref=None, step_name='apply_gerrit', \*\*kwargs):**
 
-&mdash; **def [deapply\_patch](/recipes/recipe_modules/bot_update/api.py#410)(self, bot_update_step):**
+&mdash; **def [deapply\_patch](/recipes/recipe_modules/bot_update/api.py#414)(self, bot_update_step):**
 
 Deapplies a patch, taking care of DEPS and solution revisions properly.
     
 
-&mdash; **def [ensure\_checkout](/recipes/recipe_modules/bot_update/api.py#68)(self, gclient_config=None, suffix=None, patch=True, update_presentation=True, patch_root=None, no_shallow=False, with_branch_heads=False, with_tags=False, refs=None, patch_oauth2=None, oauth2_json=None, use_site_config_creds=None, clobber=False, root_solution_revision=None, rietveld=None, issue=None, patchset=None, gerrit_no_reset=False, gerrit_no_rebase_patch_ref=False, disable_syntax_validation=False, manifest_name=None, \*\*kwargs):**
+&mdash; **def [ensure\_checkout](/recipes/recipe_modules/bot_update/api.py#74)(self, gclient_config=None, suffix=None, patch=True, update_presentation=True, patch_root=None, with_branch_heads=False, with_tags=False, refs=None, patch_oauth2=None, oauth2_json=None, use_site_config_creds=None, clobber=False, root_solution_revision=None, rietveld=None, issue=None, patchset=None, gerrit_no_reset=False, gerrit_no_rebase_patch_ref=False, disable_syntax_validation=False, manifest_name=None, \*\*kwargs):**
 
 Args:
   gclient_config: The gclient configuration to use when running bot_update.
@@ -64,7 +65,7 @@ Args:
   manifest_name: The name of the manifest to upload to LogDog.  This must
     be unique for the whole build.
 
-&mdash; **def [get\_project\_revision\_properties](/recipes/recipe_modules/bot_update/api.py#387)(self, project_name, gclient_config=None):**
+&mdash; **def [get\_project\_revision\_properties](/recipes/recipe_modules/bot_update/api.py#391)(self, project_name, gclient_config=None):**
 
 Returns all property names used for storing the checked-out revision of
 a given project.
@@ -78,7 +79,9 @@ Args:
 Returns (list of str): All properties that'll hold the checked-out revision
     of the given project. An empty list if no such properties exist.
 
-&emsp; **@property**<br>&mdash; **def [last\_returned\_properties](/recipes/recipe_modules/bot_update/api.py#40)(self):**
+&mdash; **def [initialize](/recipes/recipe_modules/bot_update/api.py#31)(self):**
+
+&emsp; **@property**<br>&mdash; **def [last\_returned\_properties](/recipes/recipe_modules/bot_update/api.py#46)(self):**
 ### *recipe_modules* / [cipd](/recipes/recipe_modules/cipd)
 
 [DEPS](/recipes/recipe_modules/cipd/__init__.py#1): [infra\_paths](#recipe_modules-infra_paths), [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/step][recipe_engine/recipe_modules/step]
@@ -226,12 +229,12 @@ Returns (Path): The "depot_tools" root directory.
 
 Wrapper for easy calling of gclient steps.
 
-&mdash; **def [break\_locks](/recipes/recipe_modules/gclient/api.py#288)(self):**
+&mdash; **def [break\_locks](/recipes/recipe_modules/gclient/api.py#283)(self):**
 
 Remove all index.lock files. If a previous run of git crashed, bot was
 reset, etc... we might end up with leftover index.lock files.
 
-&mdash; **def [calculate\_patch\_root](/recipes/recipe_modules/gclient/api.py#310)(self, patch_project, gclient_config=None, patch_repo=None):**
+&mdash; **def [calculate\_patch\_root](/recipes/recipe_modules/gclient/api.py#305)(self, patch_project, gclient_config=None, patch_repo=None):**
 
 Returns path where a patch should be applied to based patch_project.
 
@@ -250,15 +253,15 @@ Returns:
   If patch_project is not given or not recognized, it'll be just first
   solution root.
 
-&mdash; **def [checkout](/recipes/recipe_modules/gclient/api.py#235)(self, gclient_config=None, revert=RevertOnTryserver, inject_parent_got_revision=True, extra_sync_flags=None, \*\*kwargs):**
+&mdash; **def [checkout](/recipes/recipe_modules/gclient/api.py#230)(self, gclient_config=None, revert=RevertOnTryserver, inject_parent_got_revision=True, extra_sync_flags=None, \*\*kwargs):**
 
 Return a step generator function for gclient checkouts.
 
-&emsp; **@staticmethod**<br>&mdash; **def [config\_to\_pythonish](/recipes/recipe_modules/gclient/api.py#125)(cfg):**
+&emsp; **@staticmethod**<br>&mdash; **def [config\_to\_pythonish](/recipes/recipe_modules/gclient/api.py#120)(cfg):**
 
-&mdash; **def [get\_config\_defaults](/recipes/recipe_modules/gclient/api.py#119)(self):**
+&mdash; **def [get\_config\_defaults](/recipes/recipe_modules/gclient/api.py#114)(self):**
 
-&emsp; **@staticmethod**<br>&mdash; **def [got\_revision\_reverse\_mapping](/recipes/recipe_modules/gclient/api.py#130)(cfg):**
+&emsp; **@staticmethod**<br>&mdash; **def [got\_revision\_reverse\_mapping](/recipes/recipe_modules/gclient/api.py#125)(cfg):**
 
 Returns the merged got_revision_reverse_mapping.
 
@@ -266,7 +269,7 @@ Returns (dict): A mapping from property name -> project name. It merges the
     values of the deprecated got_revision_mapping and the new
     got_revision_reverse_mapping.
 
-&mdash; **def [inject\_parent\_got\_revision](/recipes/recipe_modules/gclient/api.py#210)(self, gclient_config=None, override=False):**
+&mdash; **def [inject\_parent\_got\_revision](/recipes/recipe_modules/gclient/api.py#205)(self, gclient_config=None, override=False):**
 
 Match gclient config to build revisions obtained from build_properties.
 
@@ -276,7 +279,7 @@ Args:
   override (bool) - If True, will forcibly set revision and custom_vars
     even if the config already contains values for them.
 
-&emsp; **@property**<br>&mdash; **def [is\_blink\_mode](/recipes/recipe_modules/gclient/api.py#275)(self):**
+&emsp; **@property**<br>&mdash; **def [is\_blink\_mode](/recipes/recipe_modules/gclient/api.py#270)(self):**
 
 Indicates wether the caller is to use the Blink config rather than the
 Chromium config. This may happen for one of two reasons:
@@ -285,22 +288,22 @@ Chromium config. This may happen for one of two reasons:
 2. A try job comes in that applies to the Blink tree. (patch_project is
    blink)
 
-&mdash; **def [resolve\_revision](/recipes/recipe_modules/gclient/api.py#147)(self, revision):**
+&mdash; **def [resolve\_revision](/recipes/recipe_modules/gclient/api.py#142)(self, revision):**
 
-&mdash; **def [runhooks](/recipes/recipe_modules/gclient/api.py#269)(self, args=None, name='runhooks', \*\*kwargs):**
+&mdash; **def [runhooks](/recipes/recipe_modules/gclient/api.py#264)(self, args=None, name='runhooks', \*\*kwargs):**
 
-&mdash; **def [set\_patch\_project\_revision](/recipes/recipe_modules/gclient/api.py#342)(self, patch_project, gclient_config=None):**
+&mdash; **def [set\_patch\_project\_revision](/recipes/recipe_modules/gclient/api.py#337)(self, patch_project, gclient_config=None):**
 
 Updates config revision corresponding to patch_project.
 
 Useful for bot_update only, as this is the only consumer of gclient's config
 revision map. This doesn't overwrite the revision if it was already set.
 
-&emsp; **@spec_alias.deleter**<br>&mdash; **def [spec\_alias](/recipes/recipe_modules/gclient/api.py#115)(self):**
+&emsp; **@spec_alias.deleter**<br>&mdash; **def [spec\_alias](/recipes/recipe_modules/gclient/api.py#110)(self):**
 
-&mdash; **def [sync](/recipes/recipe_modules/gclient/api.py#152)(self, cfg, extra_sync_flags=None, \*\*kwargs):**
+&mdash; **def [sync](/recipes/recipe_modules/gclient/api.py#147)(self, cfg, extra_sync_flags=None, \*\*kwargs):**
 
-&emsp; **@use_mirror.setter**<br>&mdash; **def [use\_mirror](/recipes/recipe_modules/gclient/api.py#102)(self, val):**
+&emsp; **@use_mirror.setter**<br>&mdash; **def [use\_mirror](/recipes/recipe_modules/gclient/api.py#97)(self, val):**
 ### *recipe_modules* / [gerrit](/recipes/recipe_modules/gerrit)
 
 [DEPS](/recipes/recipe_modules/gerrit/__init__.py#1): [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/step][recipe_engine/recipe_modules/step]
@@ -516,13 +519,13 @@ DEPRECATED. Consider using gerrit.get_change_description instead.
 &mdash; **def [upload](/recipes/recipe_modules/git_cl/api.py#47)(self, message, upload_args=None, \*\*kwargs):**
 ### *recipe_modules* / [gitiles](/recipes/recipe_modules/gitiles)
 
-[DEPS](/recipes/recipe_modules/gitiles/__init__.py#1): [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/url][recipe_engine/recipe_modules/url]
+[DEPS](/recipes/recipe_modules/gitiles/__init__.py#5): [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/step][recipe_engine/recipe_modules/step], [recipe\_engine/url][recipe_engine/recipe_modules/url]
 
 #### **class [Gitiles](/recipes/recipe_modules/gitiles/api.py#10)([RecipeApi][recipe_engine/wkt/RecipeApi]):**
 
 Module for polling a git repository using the Gitiles web interface.
 
-&mdash; **def [commit\_log](/recipes/recipe_modules/gitiles/api.py#102)(self, url, commit, step_name=None, attempts=None):**
+&mdash; **def [commit\_log](/recipes/recipe_modules/gitiles/api.py#113)(self, url, commit, step_name=None, attempts=None):**
 
 Returns: (dict) the Gitiles commit log structure for a given commit.
 
@@ -532,7 +535,23 @@ Args:
   step_name (str): If not None, override the step name.
   attempts (int): Number of times to try the request before failing.
 
-&mdash; **def [download\_file](/recipes/recipe_modules/gitiles/api.py#118)(self, repository_url, file_path, branch='master', step_name=None, attempts=None, \*\*kwargs):**
+&mdash; **def [download\_archive](/recipes/recipe_modules/gitiles/api.py#155)(self, repository_url, destination, revision='refs/heads/master'):**
+
+Downloads an archive of the repo and extracts it to `destination`.
+
+If the gitiles server attempts to provide a tarball with paths which escape
+`destination`, this function will extract all valid files and then
+raise StepFailure with an attribute `StepFailure.gitiles_skipped_files`
+containing the names of the files that were skipped.
+
+Args:
+  repository_url (str): Full URL to the repository
+  destination (Path): Local path to extract the archive to. Must not exist
+    prior to this call.
+  revision (str): The ref or revision in the repo to download. Defaults to
+    'refs/heads/master'.
+
+&mdash; **def [download\_file](/recipes/recipe_modules/gitiles/api.py#129)(self, repository_url, file_path, branch='master', step_name=None, attempts=None, \*\*kwargs):**
 
 Downloads raw file content from a Gitiles repository.
 
@@ -546,7 +565,7 @@ Args:
 Returns:
   Raw file content.
 
-&mdash; **def [log](/recipes/recipe_modules/gitiles/api.py#56)(self, url, ref, limit=0, cursor=None, step_name=None, attempts=None, \*\*kwargs):**
+&mdash; **def [log](/recipes/recipe_modules/gitiles/api.py#67)(self, url, ref, limit=0, cursor=None, step_name=None, attempts=None, \*\*kwargs):**
 
 Returns the most recent commits under the given ref with properties.
 
@@ -569,7 +588,7 @@ Returns:
   Cursor can be used for subsequent calls to log for paging. If None,
   signals that there are no more commits to fetch.
 
-&mdash; **def [refs](/recipes/recipe_modules/gitiles/api.py#44)(self, url, step_name='refs', attempts=None):**
+&mdash; **def [refs](/recipes/recipe_modules/gitiles/api.py#55)(self, url, step_name='refs', attempts=None):**
 
 Returns a list of refs in the remote repository.
 ### *recipe_modules* / [gsutil](/recipes/recipe_modules/gsutil)
@@ -605,11 +624,11 @@ Arguments:
 
 &emsp; **@property**<br>&mdash; **def [gsutil\_py\_path](/recipes/recipe_modules/gsutil/api.py#10)(self):**
 
-&mdash; **def [list](/recipes/recipe_modules/gsutil/api.py#121)(self, url, args=None, \*\*kwargs):**
+&mdash; **def [list](/recipes/recipe_modules/gsutil/api.py#122)(self, url, args=None, \*\*kwargs):**
 
-&mdash; **def [remove\_url](/recipes/recipe_modules/gsutil/api.py#135)(self, url, args=None, \*\*kwargs):**
+&mdash; **def [remove\_url](/recipes/recipe_modules/gsutil/api.py#136)(self, url, args=None, \*\*kwargs):**
 
-&mdash; **def [signurl](/recipes/recipe_modules/gsutil/api.py#128)(self, private_key_file, bucket, dest, args=None, \*\*kwargs):**
+&mdash; **def [signurl](/recipes/recipe_modules/gsutil/api.py#129)(self, private_key_file, bucket, dest, args=None, \*\*kwargs):**
 
 &mdash; **def [upload](/recipes/recipe_modules/gsutil/api.py#68)(self, source, bucket, dest, args=None, link_name='gsutil.upload', metadata=None, unauthenticated_url=False, \*\*kwargs):**
 ### *recipe_modules* / [infra\_paths](/recipes/recipe_modules/infra_paths)
@@ -726,6 +745,11 @@ This means we started running actual tests (not prerequisite steps
 like checkout or compile), and some of these tests have failed.
 ## Recipes
 
+### *recipes* / [bot\_update:examples/buildbucket](/recipes/recipe_modules/bot_update/examples/buildbucket.py)
+
+[DEPS](/recipes/recipe_modules/bot_update/examples/buildbucket.py#5): [bot\_update](#recipe_modules-bot_update), [gclient](#recipe_modules-gclient), [recipe\_engine/buildbucket][recipe_engine/recipe_modules/buildbucket]
+
+&mdash; **def [RunSteps](/recipes/recipe_modules/bot_update/examples/buildbucket.py#11)(api):**
 ### *recipes* / [bot\_update:examples/full](/recipes/recipe_modules/bot_update/examples/full.py)
 
 [DEPS](/recipes/recipe_modules/bot_update/examples/full.py#5): [bot\_update](#recipe_modules-bot_update), [gclient](#recipe_modules-gclient), [gerrit](#recipe_modules-gerrit), [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/runtime][recipe_engine/recipe_modules/runtime]
@@ -755,7 +779,7 @@ like checkout or compile), and some of these tests have failed.
 
 [DEPS](/recipes/recipe_modules/gclient/examples/full.py#5): [gclient](#recipe_modules-gclient), [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/step][recipe_engine/recipe_modules/step]
 
-&mdash; **def [RunSteps](/recipes/recipe_modules/gclient/examples/full.py#47)(api):**
+&mdash; **def [RunSteps](/recipes/recipe_modules/gclient/examples/full.py#48)(api):**
 ### *recipes* / [gclient:tests/patch\_project](/recipes/recipe_modules/gclient/tests/patch_project.py)
 
 [DEPS](/recipes/recipe_modules/gclient/tests/patch_project.py#9): [gclient](#recipe_modules-gclient), [recipe\_engine/properties][recipe_engine/recipe_modules/properties]
@@ -778,9 +802,9 @@ like checkout or compile), and some of these tests have failed.
 &mdash; **def [RunSteps](/recipes/recipe_modules/git_cl/examples/full.py#17)(api):**
 ### *recipes* / [gitiles:examples/full](/recipes/recipe_modules/gitiles/examples/full.py)
 
-[DEPS](/recipes/recipe_modules/gitiles/examples/full.py#5): [gitiles](#recipe_modules-gitiles), [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/properties][recipe_engine/recipe_modules/properties]
+[DEPS](/recipes/recipe_modules/gitiles/examples/full.py#5): [gitiles](#recipe_modules-gitiles), [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/step][recipe_engine/recipe_modules/step]
 
-&mdash; **def [RunSteps](/recipes/recipe_modules/gitiles/examples/full.py#12)(api):**
+&mdash; **def [RunSteps](/recipes/recipe_modules/gitiles/examples/full.py#14)(api):**
 ### *recipes* / [gsutil:examples/full](/recipes/recipe_modules/gsutil/examples/full.py)
 
 [DEPS](/recipes/recipe_modules/gsutil/examples/full.py#5): [gsutil](#recipe_modules-gsutil), [recipe\_engine/path][recipe_engine/recipe_modules/path]
@@ -804,16 +828,17 @@ Move things around in a loop!
 
 &mdash; **def [RunSteps](/recipes/recipe_modules/tryserver/examples/full.py#17)(api):**
 
-[recipe_engine/recipe_modules/context]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-context
-[recipe_engine/recipe_modules/file]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-file
-[recipe_engine/recipe_modules/json]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-json
-[recipe_engine/recipe_modules/path]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-path
-[recipe_engine/recipe_modules/platform]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-platform
-[recipe_engine/recipe_modules/properties]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-properties
-[recipe_engine/recipe_modules/python]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-python
-[recipe_engine/recipe_modules/raw_io]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-raw_io
-[recipe_engine/recipe_modules/runtime]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-runtime
-[recipe_engine/recipe_modules/source_manifest]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-source_manifest
-[recipe_engine/recipe_modules/step]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-step
-[recipe_engine/recipe_modules/url]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/README.recipes.md#recipe_modules-url
-[recipe_engine/wkt/RecipeApi]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/611cfbdc328b50144e2790ed1e4b9db24adb9eea/recipe_engine/recipe_api.py#997
+[recipe_engine/recipe_modules/buildbucket]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-buildbucket
+[recipe_engine/recipe_modules/context]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-context
+[recipe_engine/recipe_modules/file]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-file
+[recipe_engine/recipe_modules/json]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-json
+[recipe_engine/recipe_modules/path]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-path
+[recipe_engine/recipe_modules/platform]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-platform
+[recipe_engine/recipe_modules/properties]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-properties
+[recipe_engine/recipe_modules/python]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-python
+[recipe_engine/recipe_modules/raw_io]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-raw_io
+[recipe_engine/recipe_modules/runtime]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-runtime
+[recipe_engine/recipe_modules/source_manifest]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-source_manifest
+[recipe_engine/recipe_modules/step]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-step
+[recipe_engine/recipe_modules/url]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-url
+[recipe_engine/wkt/RecipeApi]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/recipe_engine/recipe_api.py#1006

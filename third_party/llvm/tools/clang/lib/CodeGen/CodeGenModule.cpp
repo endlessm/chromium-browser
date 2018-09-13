@@ -404,10 +404,9 @@ void CodeGenModule::Release() {
       AddGlobalCtor(ObjCInitFunction);
   if (Context.getLangOpts().CUDA && !Context.getLangOpts().CUDAIsDevice &&
       CUDARuntime) {
-    if (llvm::Function *CudaCtorFunction = CUDARuntime->makeModuleCtorFunction())
+    if (llvm::Function *CudaCtorFunction =
+            CUDARuntime->makeModuleCtorFunction())
       AddGlobalCtor(CudaCtorFunction);
-    if (llvm::Function *CudaDtorFunction = CUDARuntime->makeModuleDtorFunction())
-      AddGlobalDtor(CudaDtorFunction);
   }
   if (OpenMPRuntime) {
     if (llvm::Function *OpenMPRegistrationFunction =
@@ -1132,6 +1131,34 @@ static bool hasUnwindExceptions(const LangOptions &LangOpts) {
   return true;
 }
 
+static bool requiresMemberFunctionPointerTypeMetadata(CodeGenModule &CGM,
+                                                      const CXXMethodDecl *MD) {
+  // Check that the type metadata can ever actually be used by a call.
+  if (!CGM.getCodeGenOpts().LTOUnit ||
+      !CGM.HasHiddenLTOVisibility(MD->getParent()))
+    return false;
+
+  // Only functions whose address can be taken with a member function pointer
+  // need this sort of type metadata.
+  return !MD->isStatic() && !MD->isVirtual() && !isa<CXXConstructorDecl>(MD) &&
+         !isa<CXXDestructorDecl>(MD);
+}
+
+std::vector<const CXXRecordDecl *>
+CodeGenModule::getMostBaseClasses(const CXXRecordDecl *RD) {
+  llvm::SetVector<const CXXRecordDecl *> MostBases;
+
+  std::function<void (const CXXRecordDecl *)> CollectMostBases;
+  CollectMostBases = [&](const CXXRecordDecl *RD) {
+    if (RD->getNumBases() == 0)
+      MostBases.insert(RD);
+    for (const CXXBaseSpecifier &B : RD->bases())
+      CollectMostBases(B.getType()->getAsCXXRecordDecl());
+  };
+  CollectMostBases(RD);
+  return MostBases.takeVector();
+}
+
 void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
                                                            llvm::Function *F) {
   llvm::AttrBuilder B;
@@ -1257,7 +1284,20 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
   // In the cross-dso CFI mode, we want !type attributes on definitions only.
   if (CodeGenOpts.SanitizeCfiCrossDso)
     if (auto *FD = dyn_cast<FunctionDecl>(D))
-      CreateFunctionTypeMetadata(FD, F);
+      CreateFunctionTypeMetadataForIcall(FD, F);
+
+  // Emit type metadata on member functions for member function pointer checks.
+  // These are only ever necessary on definitions; we're guaranteed that the
+  // definition will be present in the LTO unit as a result of LTO visibility.
+  auto *MD = dyn_cast<CXXMethodDecl>(D);
+  if (MD && requiresMemberFunctionPointerTypeMetadata(*this, MD)) {
+    for (const CXXRecordDecl *Base : getMostBaseClasses(MD->getParent())) {
+      llvm::Metadata *Id =
+          CreateMetadataIdentifierForType(Context.getMemberPointerType(
+              MD->getType(), Context.getRecordType(Base).getTypePtr()));
+      F->addTypeMetadata(0, Id);
+    }
+  }
 }
 
 void CodeGenModule::SetCommonAttributes(GlobalDecl GD, llvm::GlobalValue *GV) {
@@ -1347,8 +1387,10 @@ void CodeGenModule::setNonAliasAttributes(GlobalDecl GD,
         F->addAttributes(llvm::AttributeList::FunctionIndex, Attrs);
       }
     }
-
-    if (const SectionAttr *SA = D->getAttr<SectionAttr>())
+    
+    if (const auto *CSA = D->getAttr<CodeSegAttr>())
+      GO->setSection(CSA->getName());
+    else if (const auto *SA = D->getAttr<SectionAttr>())
       GO->setSection(SA->getName());
   }
 
@@ -1378,13 +1420,14 @@ static void setLinkageForGV(llvm::GlobalValue *GV, const NamedDecl *ND) {
     GV->setLinkage(llvm::GlobalValue::ExternalWeakLinkage);
 }
 
-void CodeGenModule::CreateFunctionTypeMetadata(const FunctionDecl *FD,
-                                               llvm::Function *F) {
+void CodeGenModule::CreateFunctionTypeMetadataForIcall(const FunctionDecl *FD,
+                                                       llvm::Function *F) {
   // Only if we are checking indirect calls.
   if (!LangOpts.Sanitize.has(SanitizerKind::CFIICall))
     return;
 
-  // Non-static class methods are handled via vtable pointer checks elsewhere.
+  // Non-static class methods are handled via vtable or member function pointer
+  // checks elsewhere.
   if (isa<CXXMethodDecl>(FD) && !cast<CXXMethodDecl>(FD)->isStatic())
     return;
 
@@ -1444,12 +1487,10 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
   setLinkageForGV(F, FD);
   setGVProperties(F, FD);
 
-  if (FD->getAttr<PragmaClangTextSectionAttr>()) {
-    F->addFnAttr("implicit-section-name");
-  }
-
-  if (const SectionAttr *SA = FD->getAttr<SectionAttr>())
-    F->setSection(SA->getName());
+  if (const auto *CSA = FD->getAttr<CodeSegAttr>())
+    F->setSection(CSA->getName());
+  else if (const auto *SA = FD->getAttr<SectionAttr>())
+     F->setSection(SA->getName());
 
   if (FD->isReplaceableGlobalAllocationFunction()) {
     // A replaceable global allocation function does not act like a builtin by
@@ -1476,7 +1517,7 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
   // Don't emit entries for function declarations in the cross-DSO mode. This
   // is handled with better precision by the receiving DSO.
   if (!CodeGenOpts.SanitizeCfiCrossDso)
-    CreateFunctionTypeMetadata(FD, F);
+    CreateFunctionTypeMetadataForIcall(FD, F);
 
   if (getLangOpts().OpenMP && FD->hasAttr<OMPDeclareSimdDeclAttr>())
     getOpenMPRuntime().emitDeclareSimdFunction(FD, F);
@@ -1914,7 +1955,8 @@ bool CodeGenModule::MayBeEmittedEagerly(const ValueDecl *Global) {
   // If OpenMP is enabled and threadprivates must be generated like TLS, delay
   // codegen for global variables, because they may be marked as threadprivate.
   if (LangOpts.OpenMP && LangOpts.OpenMPUseTLS &&
-      getContext().getTargetInfo().isTLSSupported() && isa<VarDecl>(Global))
+      getContext().getTargetInfo().isTLSSupported() && isa<VarDecl>(Global) &&
+      !isTypeConstant(Global->getType(), false))
     return false;
 
   return true;
@@ -2445,8 +2487,8 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
           (GD.getCanonicalDecl().getDecl() !=
            OtherGD.getCanonicalDecl().getDecl()) &&
           DiagnosedConflictingDefinitions.insert(GD).second) {
-        getDiags().Report(D->getLocation(),
-                          diag::err_duplicate_mangled_name);
+        getDiags().Report(D->getLocation(), diag::err_duplicate_mangled_name)
+            << MangledName;
         getDiags().Report(OtherGD.getDecl()->getLocation(),
                           diag::note_previous_definition);
       }
@@ -2744,8 +2786,8 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
           (OtherD = dyn_cast<VarDecl>(OtherGD.getDecl())) &&
           OtherD->hasInit() &&
           DiagnosedConflictingDefinitions.insert(D).second) {
-        getDiags().Report(D->getLocation(),
-                          diag::err_duplicate_mangled_name);
+        getDiags().Report(D->getLocation(), diag::err_duplicate_mangled_name)
+            << MangledName;
         getDiags().Report(OtherGD.getDecl()->getLocation(),
                           diag::note_previous_definition);
       }
@@ -3671,8 +3713,6 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
 
   MaybeHandleStaticInExternC(D, Fn);
 
-  if (D->hasAttr<CUDAGlobalAttr>())
-    getTargetCodeGenInfo().setCUDAKernelCallingConvention(Fn);
 
   maybeSetTrivialComdat(*D, *Fn);
 
@@ -3783,7 +3823,8 @@ void CodeGenModule::emitIFuncDefinition(GlobalDecl GD) {
     GlobalDecl OtherGD;
     if (lookupRepresentativeDecl(MangledName, OtherGD) &&
         DiagnosedConflictingDefinitions.insert(GD).second) {
-      Diags.Report(D->getLocation(), diag::err_duplicate_mangled_name);
+      Diags.Report(D->getLocation(), diag::err_duplicate_mangled_name)
+          << MangledName;
       Diags.Report(OtherGD.getDecl()->getLocation(),
                    diag::note_previous_definition);
     }
@@ -4899,7 +4940,7 @@ llvm::Constant *CodeGenModule::GetAddrOfRTTIDescriptor(QualType Ty,
   // Return a bogus pointer if RTTI is disabled, unless it's for EH.
   // FIXME: should we even be calling this method if RTTI is disabled
   // and it's not for EH?
-  if (!ForEH && !getLangOpts().RTTI)
+  if ((!ForEH && !getLangOpts().RTTI) || getLangOpts().CUDAIsDevice)
     return llvm::Constant::getNullValue(Int8PtrTy);
 
   if (ForEH && Ty->isObjCObjectPointerType() &&
@@ -4927,8 +4968,10 @@ void CodeGenModule::EmitOMPThreadPrivateDecl(const OMPThreadPrivateDecl *D) {
   }
 }
 
-llvm::Metadata *CodeGenModule::CreateMetadataIdentifierForType(QualType T) {
-  llvm::Metadata *&InternalId = MetadataIdMap[T.getCanonicalType()];
+llvm::Metadata *
+CodeGenModule::CreateMetadataIdentifierImpl(QualType T, MetadataTypeMap &Map,
+                                            StringRef Suffix) {
+  llvm::Metadata *&InternalId = Map[T.getCanonicalType()];
   if (InternalId)
     return InternalId;
 
@@ -4936,6 +4979,7 @@ llvm::Metadata *CodeGenModule::CreateMetadataIdentifierForType(QualType T) {
     std::string OutName;
     llvm::raw_string_ostream Out(OutName);
     getCXXABI().getMangleContext().mangleTypeName(T, Out);
+    Out << Suffix;
 
     InternalId = llvm::MDString::get(getLLVMContext(), Out.str());
   } else {
@@ -4944,6 +4988,15 @@ llvm::Metadata *CodeGenModule::CreateMetadataIdentifierForType(QualType T) {
   }
 
   return InternalId;
+}
+
+llvm::Metadata *CodeGenModule::CreateMetadataIdentifierForType(QualType T) {
+  return CreateMetadataIdentifierImpl(T, MetadataIdMap, "");
+}
+
+llvm::Metadata *
+CodeGenModule::CreateMetadataIdentifierForVirtualMemPtrType(QualType T) {
+  return CreateMetadataIdentifierImpl(T, VirtualMetadataIdMap, ".virtual");
 }
 
 // Generalize pointer types to a void pointer with the qualifiers of the
@@ -4979,25 +5032,8 @@ static QualType GeneralizeFunctionType(ASTContext &Ctx, QualType Ty) {
 }
 
 llvm::Metadata *CodeGenModule::CreateMetadataIdentifierGeneralized(QualType T) {
-  T = GeneralizeFunctionType(getContext(), T);
-
-  llvm::Metadata *&InternalId = GeneralizedMetadataIdMap[T.getCanonicalType()];
-  if (InternalId)
-    return InternalId;
-
-  if (isExternallyVisible(T->getLinkage())) {
-    std::string OutName;
-    llvm::raw_string_ostream Out(OutName);
-    getCXXABI().getMangleContext().mangleTypeName(T, Out);
-    Out << ".generalized";
-
-    InternalId = llvm::MDString::get(getLLVMContext(), Out.str());
-  } else {
-    InternalId = llvm::MDNode::getDistinct(getLLVMContext(),
-                                           llvm::ArrayRef<llvm::Metadata *>());
-  }
-
-  return InternalId;
+  return CreateMetadataIdentifierImpl(GeneralizeFunctionType(getContext(), T),
+                                      GeneralizedMetadataIdMap, ".generalized");
 }
 
 /// Returns whether this module needs the "all-vtables" type identifier.
@@ -5032,22 +5068,28 @@ void CodeGenModule::AddVTableTypeMetadata(llvm::GlobalVariable *VTable,
   }
 }
 
+TargetAttr::ParsedTargetAttr CodeGenModule::filterFunctionTargetAttrs(const TargetAttr *TD) {
+  assert(TD != nullptr);
+  TargetAttr::ParsedTargetAttr ParsedAttr = TD->parse();
+
+  ParsedAttr.Features.erase(
+      llvm::remove_if(ParsedAttr.Features,
+                      [&](const std::string &Feat) {
+                        return !Target.isValidFeatureName(
+                            StringRef{Feat}.substr(1));
+                      }),
+      ParsedAttr.Features.end());
+  return ParsedAttr;
+}
+
+
 // Fills in the supplied string map with the set of target features for the
 // passed in function.
 void CodeGenModule::getFunctionFeatureMap(llvm::StringMap<bool> &FeatureMap,
                                           const FunctionDecl *FD) {
   StringRef TargetCPU = Target.getTargetOpts().CPU;
   if (const auto *TD = FD->getAttr<TargetAttr>()) {
-    // If we have a TargetAttr build up the feature map based on that.
-    TargetAttr::ParsedTargetAttr ParsedAttr = TD->parse();
-
-    ParsedAttr.Features.erase(
-        llvm::remove_if(ParsedAttr.Features,
-                        [&](const std::string &Feat) {
-                          return !Target.isValidFeatureName(
-                              StringRef{Feat}.substr(1));
-                        }),
-        ParsedAttr.Features.end());
+    TargetAttr::ParsedTargetAttr ParsedAttr = filterFunctionTargetAttrs(TD);
 
     // Make a copy of the features as passed on the command line into the
     // beginning of the additional features from the function to override.

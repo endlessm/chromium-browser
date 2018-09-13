@@ -4,51 +4,65 @@
 
 #import "ios/chrome/browser/ui/tab_grid/transitions/grid_transition_animation.h"
 
+#import "base/logging.h"
+#import "ios/chrome/browser/ui/tab_grid/transitions/grid_to_tab_transition_view.h"
 #import "ios/chrome/browser/ui/tab_grid/transitions/grid_transition_layout.h"
+#include "ios/chrome/browser/ui/ui_util.h"
+#import "ios/chrome/browser/ui/util/property_animator_group.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
+namespace {
+
+// Scale factor for inactive items when a tab is expanded.
+const CGFloat kInactiveItemScale = 0.95;
+
+CGFloat DeviceCornerRadius() {
+  return IsIPhoneX() ? 40.0 : 0.0;
+}
+}
+
 @interface GridTransitionAnimation ()
+// The property animator group backing the public |animator| property.
+@property(nonatomic, readonly) PropertyAnimatorGroup* animations;
 // The layout of the grid for this animation.
 @property(nonatomic, strong) GridTransitionLayout* layout;
-// The delegate for this animation.
-@property(nonatomic, weak) id<GridTransitionAnimationDelegate> delegate;
+// The duration of the animation.
+@property(nonatomic, readonly, assign) NSTimeInterval duration;
 // The direction this animation is in.
 @property(nonatomic, readonly, assign) GridAnimationDirection direction;
-// The x and y scales of the enlarged grid relative to the selected cell in the
-// regular grid.
-@property(nonatomic, assign) CGFloat xScale;
-@property(nonatomic, assign) CGFloat yScale;
-// Convenience properties for getting the size and center of the selected cell
-// in the grid.
-@property(nonatomic, readonly) CGSize selectedSize;
-@property(nonatomic, readonly) CGPoint selectedCenter;
-// Corner radius that the selected cell will have when it is animated into the
+// Corner radius that the active cell will have when it is animated into the
 // regulat grid.
-@property(nonatomic, assign) CGFloat finalSelectedCellCornerRadius;
+@property(nonatomic, assign) CGFloat finalActiveCellCornerRadius;
 @end
 
 @implementation GridTransitionAnimation
+
+@synthesize activeCell = _activeCell;
+
+@synthesize animations = _animations;
 @synthesize layout = _layout;
-@synthesize delegate = _delegate;
+@synthesize duration = _duration;
 @synthesize direction = _direction;
-@synthesize xScale = _xScale;
-@synthesize yScale = _yScale;
-@synthesize finalSelectedCellCornerRadius = _finalSelectedCellCornerRadius;
+@synthesize finalActiveCellCornerRadius = _finalActiveCellCornerRadius;
 
 - (instancetype)initWithLayout:(GridTransitionLayout*)layout
-                      delegate:(id<GridTransitionAnimationDelegate>)delegate
+                      duration:(NSTimeInterval)duration
                      direction:(GridAnimationDirection)direction {
   if (self = [super initWithFrame:CGRectZero]) {
+    _animations = [[PropertyAnimatorGroup alloc] init];
     _layout = layout;
-    _delegate = delegate;
+    _duration = duration;
     _direction = direction;
-    _finalSelectedCellCornerRadius =
-        _layout.selectedItem.cell.contentView.layer.cornerRadius;
+    _finalActiveCellCornerRadius = _layout.activeItem.cell.cornerRadius;
   }
   return self;
+}
+
+- (id<UIViewImplicitlyAnimating>)animator {
+  return self.animations;
 }
 
 #pragma mark - UIView
@@ -61,294 +75,417 @@
 }
 
 - (void)didMoveToSuperview {
+  if (!self.superview)
+    return;
   // Positioning the animating items depends on converting points to this
   // view's coordinate system, so wait until it's in a view hierarchy.
   switch (self.direction) {
     case GridAnimationDirectionContracting:
-      [self positionSelectedItemInExpandedGrid];
-      [self positionUnselectedItemsInExpandedGrid];
+      [self positionExpandedActiveItem];
+      [self prepareInactiveItemsForAppearance];
+      [self buildContractingAnimations];
       break;
     case GridAnimationDirectionExpanding:
-      [self positionSelectedItemInRegularGrid];
-      self.layout.selectedItem.cell.selected = YES;
-      [self positionUnselectedItemsInRegularGrid];
+      [self prepareAllItemsForExpansion];
+      [self buildExpandingAnimations];
       break;
   }
-}
-
-#pragma mark - Private Properties
-
-- (CGSize)selectedSize {
-  return self.layout.selectedItem.attributes.size;
-}
-
-- (CGPoint)selectedCenter {
-  return self.layout.selectedItem.attributes.center;
-}
-
-#pragma mark - Public methods
-
-- (void)animateWithDuration:(NSTimeInterval)duration {
-  switch (self.direction) {
-    case GridAnimationDirectionContracting:
-      [self animateToRegularGridWithDuration:duration];
-      break;
-    case GridAnimationDirectionExpanding:
-      [self animateToExpandedGridWithDuration:duration];
-      break;
-  }
+  // Make sure all of the layout after the view setup is complete before any
+  // animations are run.
+  [self layoutIfNeeded];
 }
 
 #pragma mark - Private methods
 
-- (void)animateToRegularGridWithDuration:(NSTimeInterval)duration {
-  // The transition is structured as two or three separate animations. They are
-  // timed based on |staggeredDuration|, which is a configurable fraction
-  // of the overall animation duration.
-  CGFloat staggeredDuration = duration * 0.7;
+- (void)buildContractingAnimations {
+  // The transition is structured as three or five separate animations. They are
+  // timed based on various sub-durations and delays which are expressed as
+  // fractions of the overall animation duration.
+  CGFloat partialDuration = 0.6;
+  CGFloat briefDuration = partialDuration * 0.5;
+  CGFloat shortDelay = 0.2;
 
-  // If there's only one cell, the animation has two parts:
-  //   (A) Fading in the selected cell highlight indicator.
-  //   (B) Zooming the selected cell into position.
-  // These parts are timed over |duration| like this:
+  // Damping ratio for the resize animation.
+  CGFloat resizeDamping = 0.8;
+
+  // If there's only one cell, the animation has two parts.
+  //   (A) Zooming the active cell into position.
+  //   (B) Crossfading from the tab to cell top view.
+  //   (C) Rounding the corners of the active cell.
   //
-  //           |#|----------[A]--------------------{100%}
-  //  {0%}------------------[B]--------------------{100%}
+  //  {0%}----------------------[A]-------------------{100%}
+  //                            {50%}----[B]----{80%}
+  //  {0%}---[C]---{30%}
+
+  // If there's more than once cell, the animation adds two more parts:
+  //   (D) Scaling up the inactive cells.
+  //   (E) Fading the inactive cells to 100% opacity.
+  // The overall timing is as follows:
   //
-  //  (|#| is |duration| - |staggeredDuration|).
-  // Animation B will call the completion handler in this case.
-
-  // If there's more than once cell, the animation has three parts:
-  //   (A) Fading in the selected cell highlight indicator.
-  //   (B) Zooming the selected cell into position.
-  //   (C) Zooming the unselected cells into position.
-  // The timing is as follows:
+  //  {0%}----------------------[A]-------------------{100%}
+  //                            {50%}----[B]----{80%}
+  //  {0%}---[C]---{30%}
+  //           {20%}--[D]-----------------------------{100%}
+  //           {20%}--[E]-----------------------{80%}
   //
-  //           |#|----------[A]--------------------{100%}
-  //  {0%}------------------[B]------|*|
-  //           |#|----------[C]--------------------{100%}
-  //  (|*| is |staggeredDuration|).
-  //  (|#| is |duration| - |staggeredDuration|).
-  // Animation C will call the completion handler in this case.
+  // (Changing the timing constants above will change the timing % values)
 
-  // TODO(crbug.com/820410): Tune the timing, relative pacing, and curves of
-  // these animations.
+  UIView<GridToTabTransitionView>* activeCell = self.layout.activeItem.cell;
+  // The final cell snapshot exactly matches the main tab view of the cell, so
+  // it can have an alpha of 0 for the whole animation.
+  activeCell.mainTabView.alpha = 0.0;
+  // The final cell header starts at 0 alpha and is cross-faded in.
+  activeCell.topCellView.alpha = 0.0;
 
-  UICollectionViewCell* selectedCell = self.layout.selectedItem.cell;
-
-  // Run animation (A) starting at |1 - staggeredDuration|.
-  [UIView animateWithDuration:staggeredDuration
-                        delay:duration - staggeredDuration
-                      options:UIViewAnimationOptionCurveEaseOut
-                   animations:^{
-                     selectedCell.selected = YES;
-                   }
-                   completion:nil];
-
-  // Completion block to be run when the transition completes.
-  auto completion = ^(BOOL finished) {
-    // Tell the delegate the animation has completed.
-    [self.delegate gridTransitionAnimationDidFinish:finished];
+  // A: Zoom the active cell into position.
+  auto zoomActiveCellAnimation = ^{
+    [self positionAndScaleActiveItemInGrid];
   };
 
-  if (self.layout.items.count == 1) {
-    // Single cell case.
-    // Run animation (B) for the whole duration without delay.
-    [UIView animateWithDuration:duration
-                          delay:0
-                        options:UIViewAnimationOptionCurveEaseOut
-                     animations:^{
-                       [self positionSelectedItemInRegularGrid];
-                     }
-                     completion:completion];
-  } else {
-    // Multiple cell case.
-    // Run animation (B) up to |staggeredDuration|.
-    [UIView animateWithDuration:staggeredDuration
-                          delay:0.0
-                        options:UIViewAnimationOptionCurveEaseOut
-                     animations:^{
-                       [self positionSelectedItemInRegularGrid];
-                     }
-                     completion:nil];
+  UIViewPropertyAnimator* zoomActiveCell =
+      [[UIViewPropertyAnimator alloc] initWithDuration:self.duration
+                                          dampingRatio:resizeDamping
+                                            animations:zoomActiveCellAnimation];
+  [self.animations addAnimator:zoomActiveCell];
 
-    // Run animation (C) for |staggeredDuration| up to the end of the
-    // transition.
-    [UIView animateWithDuration:staggeredDuration
-                          delay:duration - staggeredDuration
-                        options:UIViewAnimationOptionCurveEaseOut
-                     animations:^{
-                       [self positionUnselectedItemsInRegularGrid];
-                     }
-                     completion:completion];
-  }
-}
+  // B: Fade in the active cell top cell view, fade out the active cell's
+  // top tab view.
+  auto fadeInAuxillaryKeyframeAnimation =
+      [self keyframeAnimationFadingView:activeCell.topTabView
+                          throughToView:activeCell.topCellView
+                          relativeStart:0.5
+                       relativeDuration:briefDuration];
 
-- (void)animateToExpandedGridWithDuration:(NSTimeInterval)duration {
-  // The transition is structured as two or three separate animations. They are
-  // timed based on |staggeredDuration|, which is a configurable fraction
-  // of the overall animation duration.
-  CGFloat staggeredDuration = duration * 0.9;
+  UIViewPropertyAnimator* fadeInAuxillary = [[UIViewPropertyAnimator alloc]
+      initWithDuration:self.duration
+                 curve:UIViewAnimationCurveEaseInOut
+            animations:fadeInAuxillaryKeyframeAnimation];
+  [self.animations addAnimator:fadeInAuxillary];
 
-  // If there's only one cell, the animation has two parts:
-  //   (A) Fading out the selected cell highlight indicator.
-  //   (B) Zooming the selected cell out into position.
-  // These parts are timed over |duration| like this:
-  //
-  //  {0%}-----------[A]-------------|*|
-  //  {0%}------------------[B]--------------------{100%}
-  //
-  //  (|#| is |duration| - |staggeredDuration|).
-  // Animation B will call the completion handler in this case.
+  // C: Round the corners of the active cell.
+  UIView<GridToTabTransitionView>* cell = self.layout.activeItem.cell;
+  cell.cornerRadius = DeviceCornerRadius();
+  auto roundCornersAnimation = ^{
+    cell.cornerRadius = self.finalActiveCellCornerRadius;
+  };
+  auto roundCornersKeyframeAnimation =
+      [self keyframeAnimationWithRelativeStart:0
+                              relativeDuration:briefDuration
+                                    animations:roundCornersAnimation];
+  UIViewPropertyAnimator* roundCorners = [[UIViewPropertyAnimator alloc]
+      initWithDuration:self.duration
+                 curve:UIViewAnimationCurveLinear
+            animations:roundCornersKeyframeAnimation];
+  [self.animations addAnimator:roundCorners];
 
-  // If there's more than once cell, the animation has three parts:
-  //   (A) Fading out the selected cell highlight indicator.
-  //   (B) Zooming the selected cell into position.
-  //   (C) Zooming the unselected cells into position.
-  // The timing is as follows:
-  //
-  //  {0%}-----------[A]-------------|*|
-  //  {0%}---------- [C]-------------|*|
-  //                 |#|-------------[B]-----------{100%}
-  //  (|*| is |staggeredDuration|)
-  //  (|#| is |duration| - |staggeredDuration|).
-  // Animation C will call the completion handler in this case.
+  // Single cell case.
+  if (self.layout.inactiveItems.count == 0)
+    return;
 
-  // TODO(crbug.com/820410): Tune the timing, relative pacing, and curves of
-  // these animations.
-
-  UICollectionViewCell* selectedCell = self.layout.selectedItem.cell;
-
-  // Run animation (A) for |staggeredDuration|.
-  [UIView animateWithDuration:staggeredDuration
-                        delay:0
-                      options:UIViewAnimationOptionCurveEaseOut
-                   animations:^{
-                     selectedCell.selected = NO;
-                   }
-                   completion:nil];
-
-  // Completion block to be run when the transition completes.
-  auto completion = ^(BOOL finished) {
-    // Tell the delegate the animation has completed.
-    [self.delegate gridTransitionAnimationDidFinish:finished];
+  // Additional animations for multiple cells.
+  // D: Scale up inactive cells.
+  auto scaleUpCellsAnimation = ^{
+    for (GridTransitionItem* item in self.layout.inactiveItems) {
+      item.cell.transform = CGAffineTransformIdentity;
+    }
   };
 
-  if (self.layout.items.count == 1) {
-    // Single cell case.
-    // Run animation (B) for the whole duration without delay.
-    [UIView animateWithDuration:duration
-                          delay:0
-                        options:UIViewAnimationOptionCurveEaseIn
-                     animations:^{
-                       [self positionSelectedItemInExpandedGrid];
-                     }
-                     completion:completion];
-  } else {
-    // Multiple cell case.
-    // Run animation (C) for |staggeredDuration|.
-    [UIView animateWithDuration:staggeredDuration
-                          delay:0.0
-                        options:UIViewAnimationOptionCurveEaseOut
-                     animations:^{
-                       [self positionUnselectedItemsInExpandedGrid];
-                     }
-                     completion:completion];
+  auto scaleUpCellsKeyframeAnimation =
+      [self keyframeAnimationWithRelativeStart:shortDelay
+                              relativeDuration:1 - shortDelay
+                                    animations:scaleUpCellsAnimation];
+  UIViewPropertyAnimator* scaleUpCells = [[UIViewPropertyAnimator alloc]
+      initWithDuration:self.duration
+                 curve:UIViewAnimationCurveEaseOut
+            animations:scaleUpCellsKeyframeAnimation];
+  [self.animations addAnimator:scaleUpCells];
 
-    // Run animation (B) for |staggeredDuration| up to the end of the
-    // transition.
-    [UIView animateWithDuration:staggeredDuration
-                          delay:duration - staggeredDuration
-                        options:UIViewAnimationOptionCurveEaseOut
-                     animations:^{
-                       [self positionSelectedItemInExpandedGrid];
-                     }
-                     completion:nil];
-  }
+  // E: Fade in inactive cells.
+  auto fadeInCellsAnimation = ^{
+    for (GridTransitionItem* item in self.layout.inactiveItems) {
+      item.cell.alpha = 1.0;
+    }
+  };
+  auto fadeInCellsKeyframeAnimation =
+      [self keyframeAnimationWithRelativeStart:shortDelay
+                              relativeDuration:partialDuration
+                                    animations:fadeInCellsAnimation];
+  UIViewPropertyAnimator* fadeInCells = [[UIViewPropertyAnimator alloc]
+      initWithDuration:self.duration
+                 curve:UIViewAnimationCurveEaseOut
+            animations:fadeInCellsKeyframeAnimation];
+  [self.animations addAnimator:fadeInCells];
 }
 
-// Perfrom the initial setup for the animation, computing scale based on the
+- (void)buildExpandingAnimations {
+  // The transition is structured as four to six separate animations. They are
+  // timed based on two sub-durations which are expressed as fractions of the
+  // overall animation duration.
+  CGFloat partialDuration = 0.66;
+  CGFloat briefDuration = 0.3;
+  CGFloat delay = 0.1;
+
+  // Damping ratio for the resize animation.
+  CGFloat resizeDamping = 0.7;
+
+  // If there's only one cell, the animation has three parts:
+  //   (A) Zooming the active cell out into the expanded position.
+  //   (B) Crossfading the active cell's top views.
+  //   (C) Squaring the corners of the active cell.
+  //   (D) Fading out the main cell view and fading in the main tab view, if
+  //       necessary.
+  // These parts are timed over |duration| like this:
+  //
+  //  {0%}--[A]-----------------------------------{100%}
+  //  {0%}--[B]---{30%}
+  //  {0%}--[C]---{30%}
+  //    {10%}--[D]---{40%}
+
+  // If there's more than once cell, the animation adds:
+  //   (E) Scaling the inactive cells to 95%
+  //   (F) Fading out the inactive cells.
+  // The overall timing is as follows:
+  //
+  //  {0%}--[A]-----------------------------------{100%}
+  //  {0%}--[B]---{30%}
+  //  {0%}--[C]---{30%}
+  //    {10%}--[D]---{40%}
+  //  {0%}--[E]-----------------------------------{100%}
+  //  {0%}--[F]-------------------{66%}
+  //
+  // All animations are timed ease-out (so more motion happens sooner), except
+  // for B, C and D. B is a crossfade and eases in/out. C and D are relatively
+  // short in duration; they have linear timing so they doesn't seem
+  // instantaneous, and D is also linear so that identical views animate
+  // smoothly.
+  //
+  // Animation D is necessary because the cell content and the tab content may
+  // no longer match in aspect ratio; a quick cross-fade in mid-transition
+  // prevents an abrupt jump when the transition ends and the "real" tab content
+  // is shown.
+
+  UIView<GridToTabTransitionView>* activeCell = self.layout.activeItem.cell;
+  // The top tab view starts at zero alpha but is crossfaded in.
+  activeCell.topTabView.alpha = 0.0;
+  // If the active item is appearing, the main tab view is shown. If not, it's
+  // hidden, and may be faded in if it's expected to be different in content
+  // from the existing cell snapshot.
+  if (!self.layout.activeItem.isAppearing)
+    activeCell.mainTabView.alpha = 0.0;
+
+  // A: Zoom the active cell into position.
+  UIViewPropertyAnimator* zoomActiveCell =
+      [[UIViewPropertyAnimator alloc] initWithDuration:self.duration
+                                          dampingRatio:resizeDamping
+                                            animations:^{
+                                              [self positionExpandedActiveItem];
+                                            }];
+  [self.animations addAnimator:zoomActiveCell];
+
+  // B: Crossfade the top views.
+  auto fadeOutAuxilliaryAnimation =
+      [self keyframeAnimationWithRelativeStart:0
+                              relativeDuration:briefDuration
+                                    animations:^{
+                                      activeCell.topCellView.alpha = 0;
+                                      activeCell.topTabView.alpha = 1.0;
+                                    }];
+  UIViewPropertyAnimator* fadeOutAuxilliary = [[UIViewPropertyAnimator alloc]
+      initWithDuration:self.duration
+                 curve:UIViewAnimationCurveEaseInOut
+            animations:fadeOutAuxilliaryAnimation];
+  [self.animations addAnimator:fadeOutAuxilliary];
+
+  // C: Square the active cell's corners.
+  UIView<GridToTabTransitionView>* cell = self.layout.activeItem.cell;
+  auto squareCornersAnimation = ^{
+    cell.cornerRadius = DeviceCornerRadius();
+  };
+  auto squareCornersKeyframeAnimation =
+      [self keyframeAnimationWithRelativeStart:0.0
+                              relativeDuration:briefDuration
+                                    animations:squareCornersAnimation];
+  UIViewPropertyAnimator* squareCorners = [[UIViewPropertyAnimator alloc]
+      initWithDuration:self.duration
+                 curve:UIViewAnimationCurveLinear
+            animations:squareCornersKeyframeAnimation];
+  [self.animations addAnimator:squareCorners];
+
+  // D: crossfade the main cell content, if necessary.
+  // This crossfade is needed if the aspect ratio of the tab being animated
+  // to doesn't match the aspect ratio of the tab that originally generated the
+  // cell content being animated; this happens when the tab grid is exited in a
+  // diffferent orientation than it was entered.
+  // Using a linear animation curve means that the sum of the opacities is
+  // contstant though the animation, which will help it seem less abrupt by
+  // keeping a relatively constant brightness.
+  if (self.layout.frameChanged) {
+    auto crossfadeContentAnimation =
+        [self keyframeAnimationWithRelativeStart:delay
+                                relativeDuration:briefDuration
+                                      animations:^{
+                                        activeCell.mainCellView.alpha = 0;
+                                        activeCell.mainTabView.alpha = 1.0;
+                                      }];
+    UIViewPropertyAnimator* crossfadeContent = [[UIViewPropertyAnimator alloc]
+        initWithDuration:self.duration
+                   curve:UIViewAnimationCurveLinear
+              animations:crossfadeContentAnimation];
+    [self.animations addAnimator:crossfadeContent];
+  }
+  // If there's only a single cell, that's all.
+  if (self.layout.inactiveItems.count == 0)
+    return;
+
+  // Additional animations for multiple cells.
+  // E: Scale down inactive cells.
+  auto scaleDownCellsAnimation = ^{
+    for (GridTransitionItem* item in self.layout.inactiveItems) {
+      item.cell.transform = CGAffineTransformScale(
+          item.cell.transform, kInactiveItemScale, kInactiveItemScale);
+    }
+  };
+  UIViewPropertyAnimator* scaleDownCells = [[UIViewPropertyAnimator alloc]
+      initWithDuration:self.duration
+                 curve:UIViewAnimationCurveEaseOut
+            animations:scaleDownCellsAnimation];
+  [self.animations addAnimator:scaleDownCells];
+
+  // F: Fade out inactive cells.
+  auto fadeOutCellsAnimation = ^{
+    for (GridTransitionItem* item in self.layout.inactiveItems) {
+      item.cell.alpha = 0.0;
+    }
+  };
+  auto fadeOutCellsKeyframeAnimation =
+      [self keyframeAnimationWithRelativeStart:0
+                              relativeDuration:partialDuration
+                                    animations:fadeOutCellsAnimation];
+  UIViewPropertyAnimator* fadeOutCells = [[UIViewPropertyAnimator alloc]
+      initWithDuration:self.duration
+                 curve:UIViewAnimationCurveEaseOut
+            animations:fadeOutCellsKeyframeAnimation];
+  [self.animations addAnimator:fadeOutCells];
+}
+
+// Perfroms the initial setup for the animation, computing scale based on the
 // superview size and adding the transition cells to the view hierarchy.
 - (void)prepareForAnimationInSuperview:(UIView*)newSuperview {
-  // Extract some useful metrics from the animation superview.
-  CGSize animationSize = newSuperview.bounds.size;
+  // Add the selection item first, so it's under ther other views.
+  [self addSubview:self.layout.selectionItem.cell];
 
-  // Compute the scale of the transition grid (which is at the proportional size
-  // of the superview).
-  self.xScale = animationSize.width / self.selectedSize.width;
-  self.yScale = animationSize.height / self.selectedSize.height;
-
-  for (GridTransitionLayoutItem* item in self.layout.items) {
+  for (GridTransitionItem* item in self.layout.inactiveItems) {
     [self addSubview:item.cell];
   }
+
+  // Add the active item last so it's always the top subview.
+  [self addSubview:self.layout.activeItem.cell];
 }
 
-// Positions the selected item in the expanded grid position with a zero corner
-// radius.
-- (void)positionSelectedItemInExpandedGrid {
-  [self positionAndScaleItemInExpandedGrid:self.layout.selectedItem];
-  UICollectionViewCell* cell = self.layout.selectedItem.cell;
-  cell.contentView.layer.cornerRadius = 0.0;
+// Positions the active item in the expanded grid position with a zero corner
+// radius and a 0% opacity auxilliary view.
+- (void)positionExpandedActiveItem {
+  UIView<GridToTabTransitionView>* cell = self.layout.activeItem.cell;
+  cell.frame = self.layout.expandedRect;
+  [cell positionTabViews];
 }
 
-// Positions all of the non-selected items in their expanded grid positions.
-- (void)positionUnselectedItemsInExpandedGrid {
-  // Lay out the transition grid add it as subviews.
-  for (GridTransitionLayoutItem* item in self.layout.items) {
-    if (item == self.layout.selectedItem)
-      continue;
-    [self positionAndScaleItemInExpandedGrid:item];
+// Positions all of the inactive items in their grid positions.
+// Fades and scales each of those items.
+- (void)prepareInactiveItemsForAppearance {
+  for (GridTransitionItem* item in self.layout.inactiveItems) {
+    [self positionItemInGrid:item];
+    item.cell.alpha = 0.2;
+    item.cell.transform = CGAffineTransformScale(
+        item.cell.transform, kInactiveItemScale, kInactiveItemScale);
   }
+  [self positionItemInGrid:self.layout.selectionItem];
 }
 
-// Positions the selected item in the regular grid position with its final
+// Positions the active item in the regular grid position with its final
 // corner radius.
-- (void)positionSelectedItemInRegularGrid {
-  [self positionAndScaleItemInRegularGrid:self.layout.selectedItem];
-  UICollectionViewCell* cell = self.layout.selectedItem.cell;
-  cell.contentView.layer.cornerRadius = self.finalSelectedCellCornerRadius;
-}
-
-// Positions all of the non-selected items in their regular grid positions.
-- (void)positionUnselectedItemsInRegularGrid {
-  for (GridTransitionLayoutItem* item in self.layout.items) {
-    if (item == self.layout.selectedItem)
-      continue;
-    [self positionAndScaleItemInRegularGrid:item];
-  }
-}
-
-// Positions |item| in its regular grid position.
-- (void)positionAndScaleItemInRegularGrid:(GridTransitionLayoutItem*)item {
-  UIView* cell = item.cell;
-  cell.center =
-      [self.superview convertPoint:item.attributes.center fromView:nil];
+- (void)positionAndScaleActiveItemInGrid {
+  UIView<GridToTabTransitionView>* cell = self.layout.activeItem.cell;
   cell.transform = CGAffineTransformIdentity;
+  CGRect frame = cell.frame;
+  frame.size = self.layout.activeItem.size;
+  cell.frame = frame;
+  [self positionItemInGrid:self.layout.activeItem];
+  [cell positionCellViews];
 }
 
-// Positions |item| in its expanded grid position.
-- (void)positionAndScaleItemInExpandedGrid:(GridTransitionLayoutItem*)item {
-  UICollectionViewCell* cell = item.cell;
-  cell.bounds = item.attributes.bounds;
-  // Add a scale transform to the cell so it matches the x-scale of the
-  // open tab. Scaling is only based on the x-scale so that the aspect ratio of
-  // the cell will be preserved.
-  cell.transform =
-      CGAffineTransformScale(cell.transform, self.xScale, self.xScale);
-  cell.center = [self expandedCenterForItem:item];
+// Prepares all of the items for an expansion anumation.
+- (void)prepareAllItemsForExpansion {
+  for (GridTransitionItem* item in self.layout.inactiveItems) {
+    [self positionItemInGrid:item];
+  }
+  [self positionItemInGrid:self.layout.activeItem];
+  [self.layout.activeItem.cell positionCellViews];
+  self.activeCell = self.layout.activeItem.cell;
+  [self positionItemInGrid:self.layout.selectionItem];
 }
 
-// Returns the center point for an item in the expanded grid position. This is
-// computed by scaling its center point relative to the selected item's center
-// point. The scaling factors are the ratios of the animation view's height and
-// width to the selected cell's height and width.
-- (CGPoint)expandedCenterForItem:(GridTransitionLayoutItem*)item {
-  // Convert item center from window coordinates.
-  CGPoint gridCenter = [self convertPoint:item.attributes.center fromView:nil];
-  // Map that to the scale and position of the transition grid.
-  return CGPointMake(
-      self.center.x + ((gridCenter.x - self.selectedCenter.x) * self.xScale),
-      self.center.y + ((gridCenter.y - self.selectedCenter.y) * self.yScale));
+// Positions |item| in it grid position.
+- (void)positionItemInGrid:(GridTransitionItem*)item {
+  UIView* cell = item.cell;
+  CGPoint newCenter = [self.superview convertPoint:item.center fromView:nil];
+  cell.center = newCenter;
+}
+
+// Helper function to construct keyframe animation blocks.
+// Given |start| and |duration| (in the [0.0-1.0] interval), returns an
+// animation block which runs |animations| starting at |start| (relative to
+// |self.duration|) and running for |duration| (likewise).
+- (void (^)(void))keyframeAnimationWithRelativeStart:(double)start
+                                    relativeDuration:(double)duration
+                                          animations:
+                                              (void (^)(void))animations {
+  auto keyframe = ^{
+    [UIView addKeyframeWithRelativeStartTime:start
+                            relativeDuration:duration
+                                  animations:animations];
+  };
+  return ^{
+    [UIView animateKeyframesWithDuration:self.duration
+                                   delay:0
+                                 options:UIViewAnimationOptionLayoutSubviews
+                              animations:keyframe
+                              completion:nil];
+  };
+}
+
+// Returns a cross-fade keyframe animation between two views.
+// |startView| should have an alpha of 1; |endView| should have an alpha of 0.
+// |start| and |duration| are in the [0.0]-[1.0] interval and represent timing
+// relative to |self.duration|.
+// The animation returned by this method will fade |startView| to 0 over the
+// first half of |duration|, and then fade |endView| to 1.0 over the second
+// half, preventing any blurred frames showing both views. For best results, the
+// animation curev should be EaseInEaseOut.
+- (void (^)(void))keyframeAnimationFadingView:(UIView*)startView
+                                throughToView:(UIView*)endView
+                                relativeStart:(double)start
+                             relativeDuration:(double)duration {
+  CGFloat halfDuration = duration / 2;
+  auto keyframes = ^{
+    [UIView addKeyframeWithRelativeStartTime:start
+                            relativeDuration:halfDuration
+                                  animations:^{
+                                    startView.alpha = 0.0;
+                                  }];
+    [UIView addKeyframeWithRelativeStartTime:start + halfDuration
+                            relativeDuration:halfDuration
+                                  animations:^{
+                                    endView.alpha = 1.0;
+                                  }];
+  };
+  return ^{
+    [UIView animateKeyframesWithDuration:self.duration
+                                   delay:0
+                                 options:UIViewAnimationOptionLayoutSubviews
+                              animations:keyframes
+                              completion:nil];
+  };
 }
 
 @end

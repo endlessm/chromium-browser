@@ -258,7 +258,7 @@ class FakeCIDBConnection(object):
       build_reqs: A list of build_requests.BuildRequest instances.
 
     Returns:
-       The number of inserted rows.
+      The number of inserted rows.
     """
     request_id = len(self.buildRequestTable)
     for build_req in build_reqs:
@@ -379,7 +379,7 @@ class FakeCIDBConnection(object):
 
   def GetActionHistory(self, *args, **kwargs):
     """Get all the actions for all changes."""
-    # pylint: disable=W0613
+    # pylint: disable=unused-argument
     values = []
     for item, action_id in zip(self.clActionTable, itertools.count()):
       row = (

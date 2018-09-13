@@ -90,25 +90,6 @@ class CbuildbotLaunchTest(cros_test_lib.MockTestCase):
     self.assertNotIn('LC_MONETARY', os.environ)
 
 
-class RunDepotToolsEnsureBootstrap(cros_test_lib.RunCommandTestCase,
-                                   cros_test_lib.TempDirTestCase):
-  """Test the helper function DepotToolsEnsureBootstrap."""
-
-  def testEnsureBootstrap(self):
-    """Verify that the script is run if present."""
-    script = os.path.join(self.tempdir, 'ensure_bootstrap')
-    osutils.Touch(script, makedirs=True)
-
-    cbuildbot_launch.DepotToolsEnsureBootstrap(self.tempdir)
-    self.assertCommandCalled(
-        [script], extra_env={'PATH': mock.ANY}, cwd=self.tempdir)
-
-  def testEnsureBootstrapMissing(self):
-    """Verify that the script is NOT run if not present."""
-    cbuildbot_launch.DepotToolsEnsureBootstrap(self.tempdir)
-    self.assertEqual(self.rc.call_count, 0)
-
-
 class RunTests(cros_test_lib.RunCommandTestCase):
   """Tests for cbuildbot_launch script."""
 
@@ -204,6 +185,7 @@ class RunTests(cros_test_lib.RunCommandTestCase):
             '/root/repository/chromite/bin/cbuildbot',
             'config',
             '-r', '/root/repository',
+            '--workspace', '/root/workspace',
             '--ts-mon-task-num', '1',
         ],
         extra_env={'PATH': mock.ANY},
@@ -304,6 +286,7 @@ class RunTests(cros_test_lib.RunCommandTestCase):
             'eyJzdGF0dXMiOiAiZmFpbCIsICJtYXN0ZXJfYnVpbGRfaWQiOiAxMjMxMjMxMj'
             'MsICJidWlsZF9udW1iZXIiOiAzMTMsICJidWlsZHJvb3RfbGF5b3V0IjogMiwg'
             'ImJyYW5jaCI6ICJicmFuY2gifQ==',
+            '--workspace', '/root/workspace',
             '--ts-mon-task-num', '1',
         ],
         extra_env={'PATH': mock.ANY},
@@ -335,7 +318,7 @@ class CleanBuildRootTest(cros_test_lib.MockTempDirTestCase):
         self.root, '.cbuildbot_build_state.json')
     self.buildroot = os.path.join(self.root, 'buildroot')
     self.repo = os.path.join(self.buildroot, '.repo/repo')
-    self.chroot = os.path.join(self.buildroot, 'chroot/chroot')
+    self.chroot = os.path.join(self.buildroot, 'chroot')
     self.general = os.path.join(self.buildroot, 'general/general')
     self.cache = os.path.join(self.buildroot, '.cache')
     self.distfiles = os.path.join(self.cache, 'distfiles')
@@ -450,11 +433,10 @@ class CleanBuildRootTest(cros_test_lib.MockTempDirTestCase):
     self.assertEqual(new_summary, build_state)
 
     self.assertExists(self.repo)
-    self.assertNotExists(self.chroot)
     self.assertExists(self.general)
     self.assertNotExists(self.distfiles)
     self.assertExists(self.previous_build_state)
-    m.assert_called()
+    m.assert_called_with(self.chroot, delete=True)
 
   def testBuildrootBranchMatch(self):
     """Test CleanBuildRoot with no change in branch."""

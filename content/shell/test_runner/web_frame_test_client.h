@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/macros.h"
-#include "third_party/blink/public/web/web_frame_client.h"
+#include "third_party/blink/public/web/web_local_frame_client.h"
 
 namespace test_runner {
 
@@ -18,11 +18,12 @@ class WebFrameTestProxyBase;
 class WebTestDelegate;
 class WebViewTestProxyBase;
 
-// WebFrameTestClient implements WebFrameClient interface, providing behavior
-// expected by tests.  WebFrameTestClient ends up used by WebFrameTestProxy
-// which coordinates forwarding WebFrameClient calls either to
-// WebFrameTestClient or to the product code (i.e. to RenderFrameImpl).
-class WebFrameTestClient : public blink::WebFrameClient {
+// WebFrameTestClient implements WebLocalFrameClient interface, providing
+// behavior expected by tests.  WebFrameTestClient ends up used by
+// WebFrameTestProxy which coordinates forwarding WebLocalFrameClient calls
+// either to WebFrameTestClient or to the product code (i.e. to
+// RenderFrameImpl).
+class WebFrameTestClient : public blink::WebLocalFrameClient {
  public:
   // Caller has to ensure that all arguments (|delegate|,
   // |web_view_test_proxy_base_| and so forth) live longer than |this|.
@@ -32,7 +33,7 @@ class WebFrameTestClient : public blink::WebFrameClient {
 
   ~WebFrameTestClient() override;
 
-  // WebFrameClient overrides needed by WebFrameTestProxy.
+  // WebLocalFrameClient overrides needed by WebFrameTestProxy.
   void RunModalAlertDialog(const blink::WebString& message) override;
   bool RunModalConfirmDialog(const blink::WebString& message) override;
   bool RunModalPromptDialog(const blink::WebString& message,
@@ -51,11 +52,12 @@ class WebFrameTestClient : public blink::WebFrameClient {
                               unsigned source_line,
                               const blink::WebString& stack_trace) override;
   void DownloadURL(const blink::WebURLRequest& request,
+                   blink::WebLocalFrameClient::CrossOriginRedirects
+                       cross_origin_redirect_behavior,
                    mojo::ScopedMessagePipeHandle blob_url_token) override;
   void LoadErrorPage(int reason) override;
   void DidStartProvisionalLoad(blink::WebDocumentLoader* loader,
                                blink::WebURLRequest& request) override;
-  void DidReceiveServerRedirectForProvisionalLoad() override;
   void DidFailProvisionalLoad(const blink::WebURLError& error,
                               blink::WebHistoryCommitType commit_type) override;
   void DidCommitProvisionalLoad(const blink::WebHistoryItem& history_item,
@@ -80,11 +82,10 @@ class WebFrameTestClient : public blink::WebFrameClient {
   void WillSendRequest(blink::WebURLRequest& request) override;
   void DidReceiveResponse(const blink::WebURLResponse& response) override;
   blink::WebNavigationPolicy DecidePolicyForNavigation(
-      const blink::WebFrameClient::NavigationPolicyInfo& info) override;
+      const blink::WebLocalFrameClient::NavigationPolicyInfo& info) override;
   void CheckIfAudioSinkExistsAndIsAuthorized(
       const blink::WebString& sink_id,
       blink::WebSetSinkIdCallbacks* web_callbacks) override;
-  blink::WebSpeechRecognizer* SpeechRecognizer() override;
   void DidClearWindowObject() override;
   bool RunFileChooser(const blink::WebFileChooserParams& params,
                       blink::WebFileChooserCompletion* completion) override;
@@ -92,11 +93,15 @@ class WebFrameTestClient : public blink::WebFrameClient {
 
  private:
   TestRunner* test_runner();
+  void ChooseFiles(blink::WebFileChooserCompletion* completion,
+                   std::vector<std::string> paths);
 
   // Borrowed pointers to other parts of Layout Tests state.
   WebTestDelegate* delegate_;
   WebViewTestProxyBase* web_view_test_proxy_base_;
   WebFrameTestProxyBase* web_frame_test_proxy_base_;
+
+  base::WeakPtrFactory<WebFrameTestClient> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(WebFrameTestClient);
 };

@@ -131,7 +131,8 @@ SessionRestoreStatsCollector::~SessionRestoreStatsCollector() {
 
 void SessionRestoreStatsCollector::TrackTabs(
     const std::vector<SessionRestoreDelegate::RestoredTab>& tabs) {
-  DCHECK(!done_tracking_non_deferred_tabs_);
+  // Anytime new tabs are added, they are immediately "non deferred".
+  done_tracking_non_deferred_tabs_ = false;
 
   // If this is the first call to TrackTabs then start observing events.
   if (tab_loader_stats_.tab_count == 0) {

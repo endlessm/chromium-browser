@@ -465,35 +465,6 @@ void Value::replaceUsesOutsideBlock(Value *New, BasicBlock *BB) {
   }
 }
 
-void Value::replaceUsesExceptBlockAddr(Value *New) {
-  SmallSetVector<Constant *, 4> Constants;
-  use_iterator UI = use_begin(), E = use_end();
-  for (; UI != E;) {
-    Use &U = *UI;
-    ++UI;
-
-    if (isa<BlockAddress>(U.getUser()))
-      continue;
-
-    // Must handle Constants specially, we cannot call replaceUsesOfWith on a
-    // constant because they are uniqued.
-    if (auto *C = dyn_cast<Constant>(U.getUser())) {
-      if (!isa<GlobalValue>(C)) {
-        // Save unique users to avoid processing operand replacement
-        // more than once.
-        Constants.insert(C);
-        continue;
-      }
-    }
-
-    U.set(New);
-  }
-
-  // Process operand replacement of saved constants.
-  for (auto *C : Constants)
-    C->handleOperandChange(this, New);
-}
-
 namespace {
 // Various metrics for how much to strip off of pointers.
 enum PointerStripKind {
@@ -550,7 +521,8 @@ static const Value *stripPointerCastsAndOffsets(const Value *V) {
         // but it can't be marked with returned attribute, that's why it needs
         // special case.
         if (StripKind == PSK_ZeroIndicesAndAliasesAndInvariantGroups &&
-            CS.getIntrinsicID() == Intrinsic::launder_invariant_group) {
+            (CS.getIntrinsicID() == Intrinsic::launder_invariant_group ||
+             CS.getIntrinsicID() == Intrinsic::strip_invariant_group)) {
           V = CS.getArgOperand(0);
           continue;
         }

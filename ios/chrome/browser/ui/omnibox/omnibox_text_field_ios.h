@@ -27,6 +27,14 @@ typedef enum {
                     textColor:(UIColor*)textColor
                     tintColor:(UIColor*)tintColor NS_DESIGNATED_INITIALIZER;
 
+// Initializer that allows specifying a larger font to use in Regular x Regular
+// size class.
+- (instancetype)initWithFrame:(CGRect)frame
+                         font:(UIFont*)font
+                   largerFont:(UIFont*)largerFont
+                    textColor:(UIColor*)textColor
+                    tintColor:(UIColor*)tintColor;
+
 - (instancetype)initWithCoder:(NSCoder*)aDecoder NS_UNAVAILABLE;
 
 
@@ -86,6 +94,11 @@ typedef enum {
 - (void)addExpandOmniboxAnimations:(UIViewPropertyAnimator*)animator
                 completionAnimator:(UIViewPropertyAnimator*)completionAnimator;
 - (void)addContractOmniboxAnimations:(UIViewPropertyAnimator*)animator;
+
+// Returns an x offset for a given string. If no such string is found, returns
+// some default offset.
+// Used for focus/defocus animation.
+- (CGFloat)offsetForString:(NSString*)string;
 
 // Initial touch on the Omnibox triggers a "pre-edit" state. The current
 // URL is shown without any insertion point. First character typed replaces

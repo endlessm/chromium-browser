@@ -21,6 +21,7 @@
 #include "third_party/skia/include/pathops/SkPathOps.h"
 #include "ui/base/default_theme_provider.h"
 #include "ui/base/material_design/material_design_controller.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/scoped_canvas.h"
@@ -28,7 +29,6 @@
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/ink_drop_mask.h"
 #include "ui/views/widget/widget.h"
-
 #if defined(OS_WIN)
 #include "ui/display/win/screen_win.h"
 #include "ui/gfx/win/hwnd_util.h"
@@ -46,8 +46,14 @@ using MD = ui::MaterialDesignController;
 namespace {
 
 constexpr int kDistanceBetweenIcons = 6;
-
 constexpr int kStrokeThickness = 1;
+
+// Returns the size of the button without any spacing/padding.
+gfx::Size GetButtonSize(bool is_incognito) {
+  const gfx::Size sizes[] = {
+      {36, 18}, {39, 21}, {(is_incognito ? 42 : 24), 24}, {28, 28}, {28, 28}};
+  return sizes[MD::GetMode()];
+}
 
 sk_sp<SkDrawLooper> CreateShadowDrawLooper(SkColor color) {
   SkLayerDrawLooper::Builder looper_builder;
@@ -67,13 +73,13 @@ sk_sp<SkDrawLooper> CreateShadowDrawLooper(SkColor color) {
 
 // Returns the ID of the resource that should be used for the button fill if
 // any. |has_custom_image| will be set to true if the images of either the
-// tab, the frame background, (or the toolbar if |is_touch_ui| is true) have
-// been customized.
+// tab, the frame background, (or the toolbar if |is_non_refresh_touch_ui| is
+// true) have been customized.
 int GetButtonFillResourceIdIfAny(const TabStrip* tab_strip,
                                  const ui::ThemeProvider* theme_provider,
-                                 bool is_touch_ui,
+                                 bool is_non_refresh_touch_ui,
                                  bool* has_custom_image) {
-  if (!is_touch_ui)
+  if (!is_non_refresh_touch_ui)
     return tab_strip->GetBackgroundResourceId(has_custom_image);
 
   constexpr int kTouchBackgroundId = IDR_THEME_TOOLBAR;
@@ -100,32 +106,30 @@ NewTabButton::NewTabButton(TabStrip* tab_strip, views::ButtonListener* listener)
     ink_drop_container_->SetVisible(false);
 
     SetInkDropMode(InkDropMode::ON_NO_GESTURE_HANDLER);
-    set_ink_drop_visible_opacity(0.14f);
+    set_ink_drop_visible_opacity(0.08f);
+
+    SetFocusPainter(nullptr);
+    focus_ring_ = views::FocusRing::Install(this);
   }
+
+  // In newer material UI, the button is placed vertically exactly in the
+  // center of the tabstrip.  In older UI, the new tab button is placed at a
+  // fixed distance from the bottom of the tabstrip.
+  const int extra_vertical_space = GetLayoutConstant(TAB_HEIGHT) -
+                                   GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP) -
+                                   GetButtonSize(is_incognito_).height();
+  constexpr int kNewTabButtonBottomOffset = 4;
+  const int top = MD::IsNewerMaterialUi()
+                      ? (extra_vertical_space / 2)
+                      : (extra_vertical_space - kNewTabButtonBottomOffset);
+  const int horizontal = MD::IsRefreshUi() ? 8 : 0;
+  SetBorder(
+      views::CreateEmptyBorder(gfx::Insets(top, horizontal, 0, horizontal)));
 }
 
 NewTabButton::~NewTabButton() {
   if (destroyed_)
     *destroyed_ = true;
-}
-
-// static
-int NewTabButton::GetTopOffset() {
-  // We're only interested in the button's height which doesn't change based
-  // on incognito or not, so we used `is_incognito=false`.
-  const int extra_vertical_space =
-      Tab::GetMinimumInactiveSize().height() -
-      GetLayoutSize(NEW_TAB_BUTTON, false /* is_incognito */).height();
-
-  // In newer material UI, the button is placed vertically exactly in the
-  // center of the tabstrip.
-  if (MD::IsNewerMaterialUi())
-    return extra_vertical_space / 2;
-
-  // In the non-touch-optimized UI, the new tab button is placed at a fixed
-  // distance from the bottom of the tabstrip.
-  constexpr int kNewTabButtonBottomOffset = 4;
-  return extra_vertical_space - kNewTabButtonBottomOffset;
 }
 
 // static
@@ -154,6 +158,11 @@ void NewTabButton::ShowPromo() {
 void NewTabButton::CloseBubble() {
   if (new_tab_promo_)
     new_tab_promo_->CloseBubble();
+}
+
+void NewTabButton::FrameColorsChanged() {
+  if (MD::IsRefreshUi())
+    UpdateInkDropBaseColor();
 }
 
 void NewTabButton::AnimateInkDropToStateForTesting(views::InkDropState state) {
@@ -188,8 +197,8 @@ void NewTabButton::OnGestureEvent(ui::GestureEvent* event) {
 }
 
 void NewTabButton::AddInkDropLayer(ui::Layer* ink_drop_layer) {
-  DCHECK(ink_drop_layer->bounds().size() == GetVisibleBounds().size());
-  DCHECK(ink_drop_container_->bounds().size() == GetVisibleBounds().size());
+  DCHECK(ink_drop_layer->bounds().size() == GetContentsBounds().size());
+  DCHECK(ink_drop_container_->bounds().size() == GetContentsBounds().size());
   ink_drop_container_->AddInkDropLayer(ink_drop_layer);
   InstallInkDropMask(ink_drop_layer);
 }
@@ -201,10 +210,20 @@ void NewTabButton::RemoveInkDropLayer(ui::Layer* ink_drop_layer) {
 
 std::unique_ptr<views::InkDropRipple> NewTabButton::CreateInkDropRipple()
     const {
+  const gfx::Rect contents_bounds = GetContentsBounds();
   return std::make_unique<views::FloodFillInkDropRipple>(
-      GetVisibleBounds().size(), gfx::Insets(),
-      GetInkDropCenterBasedOnLastEvent(), GetInkDropBaseColor(),
-      ink_drop_visible_opacity());
+      contents_bounds.size(), gfx::Insets(),
+      GetInkDropCenterBasedOnLastEvent() - contents_bounds.OffsetFromOrigin(),
+      GetInkDropBaseColor(), ink_drop_visible_opacity());
+}
+
+std::unique_ptr<views::InkDropHighlight> NewTabButton::CreateInkDropHighlight()
+    const {
+  const gfx::Rect bounds(GetContentsBounds().size());
+  auto highlight = CreateDefaultInkDropHighlight(
+      gfx::RectF(bounds).CenterPoint(), bounds.size());
+  highlight->set_visible_opacity(0.1f);
+  return highlight;
 }
 
 void NewTabButton::NotifyClick(const ui::Event& event) {
@@ -214,23 +233,22 @@ void NewTabButton::NotifyClick(const ui::Event& event) {
 
 std::unique_ptr<views::InkDrop> NewTabButton::CreateInkDrop() {
   std::unique_ptr<views::InkDropImpl> ink_drop =
-      std::make_unique<views::InkDropImpl>(this, GetVisibleBounds().size());
+      std::make_unique<views::InkDropImpl>(this, GetContentsBounds().size());
   ink_drop->SetAutoHighlightMode(views::InkDropImpl::AutoHighlightMode::NONE);
-  ink_drop->SetShowHighlightOnHover(false);
+  ink_drop->SetShowHighlightOnHover(true);
   UpdateInkDropBaseColor();
   return ink_drop;
 }
 
 std::unique_ptr<views::InkDropMask> NewTabButton::CreateInkDropMask() const {
   return std::make_unique<views::RoundRectInkDropMask>(
-      GetVisibleBounds().size(), gfx::Insets(), GetCornerRadius());
+      GetContentsBounds().size(), gfx::Insets(), GetCornerRadius());
 }
 
 void NewTabButton::PaintButtonContents(gfx::Canvas* canvas) {
   gfx::ScopedCanvas scoped_canvas(canvas);
-  const int visible_height =
-      GetLayoutSize(NEW_TAB_BUTTON, is_incognito_).height();
-  canvas->Translate(gfx::Vector2d(0, height() - visible_height));
+  const gfx::Rect contents_bounds = GetContentsBounds();
+  canvas->Translate(contents_bounds.OffsetFromOrigin());
   const float scale = canvas->image_scale();
   const bool pressed = state() == views::Button::STATE_PRESSED;
   const SkColor stroke_color =
@@ -244,33 +262,37 @@ void NewTabButton::PaintButtonContents(gfx::Canvas* canvas) {
 
   // Fill.
   SkPath fill, stroke;
-  const bool is_touch_ui = MD::IsTouchOptimizedUiEnabled();
-  if (!MD::IsRefreshUi()) {
-    fill = is_touch_ui ? GetTouchOptimizedButtonPath(0, scale, false, true)
-                       : GetNonTouchOptimizedButtonPath(0, visible_height,
-                                                        scale, false, true);
-    PaintFill(pressed, scale, fill, canvas);
+  const bool non_refresh_touch_ui =
+      MD::GetMode() == ui::MaterialDesignController::MATERIAL_TOUCH_OPTIMIZED;
+  fill =
+      MD::IsNewerMaterialUi()
+          ? GetNewerMaterialUiButtonPath(0, scale, false, non_refresh_touch_ui)
+          : GetMaterialUiButtonPath(0, contents_bounds.height(), scale, false,
+                                    true);
+  // The ink drop is used to represent the pressed state under Refresh.
+  PaintFill(!MD::IsRefreshUi() && pressed, scale, fill, canvas);
 
-    // Stroke.
+  // Stroke.
+  if (!MD::IsRefreshUi())
     GetBorderPath(0, scale, false, &stroke);
-  }
 
   if (MD::IsNewerMaterialUi()) {
+    const int plus_icon_size = MD::IsTouchOptimizedUiEnabled() ? 14 : 12;
+    const int plus_icon_offset = GetCornerRadius() - (plus_icon_size / 2);
+
+    PaintPlusIcon(canvas, plus_icon_offset, plus_icon_size);
+
     cc::PaintFlags paint_flags;
     paint_flags.setAntiAlias(true);
-
-    const int plus_icon_offset = GetCornerRadius() - (plus_icon_.width() / 2);
-    canvas->DrawImageInt(plus_icon_, plus_icon_offset, plus_icon_offset,
-                         paint_flags);
     if (ShouldDrawIncognitoIcon()) {
       DCHECK(!incognito_icon_.isNull());
       canvas->DrawImageInt(
           incognito_icon_,
-          plus_icon_offset + plus_icon_.width() + kDistanceBetweenIcons,
+          plus_icon_offset + plus_icon_size + kDistanceBetweenIcons,
           plus_icon_offset, paint_flags);
     }
 
-    if (is_touch_ui) {
+    if (!MD::IsRefreshUi()) {
       // Draw stroke.
       // In the touch-optimized UI design, the new tab button is rendered flat,
       // regardless of whether pressed or not (i.e. we don't emulate a pushed
@@ -313,14 +335,18 @@ void NewTabButton::Layout() {
   ImageButton::Layout();
 
   if (MD::IsNewerMaterialUi()) {
-    // If icons are not initialized, initialize them now. Icons are always
-    // initialized together so it's enough to check the |plus_icon_|.
-    if (plus_icon_.isNull())
-      InitButtonIcons();
+    if (ShouldDrawIncognitoIcon() && incognito_icon_.isNull())
+      InitIncognitoIcon();
 
-    const gfx::Rect ink_drop_bounds(gfx::Point(0, GetTopOffset()),
-                                    GetVisibleBounds().size());
-    ink_drop_container_->SetBoundsRect(ink_drop_bounds);
+    // TODO(pkasting): Instead of setting this bounds rect, maybe have the
+    // container match the view bounds, then undo the coordinate transforms in
+    // the ink drop creation methods above.
+    const gfx::Rect contents_bounds = GetContentsBounds();
+    ink_drop_container_->SetBoundsRect(contents_bounds);
+
+    SkPath path;
+    path.addOval(gfx::RectToSkRect(contents_bounds));
+    focus_ring_->SetPath(path);
   }
 }
 
@@ -330,12 +356,20 @@ void NewTabButton::OnThemeChanged() {
   if (!MD::IsNewerMaterialUi())
     return;
 
-  InitButtonIcons();
+  if (ShouldDrawIncognitoIcon())
+    InitIncognitoIcon();
   UpdateInkDropBaseColor();
 }
 
+gfx::Size NewTabButton::CalculatePreferredSize() const {
+  gfx::Size size = GetButtonSize(is_incognito_);
+  const auto insets = GetInsets();
+  size.Enlarge(insets.width(), insets.height());
+  return size;
+}
+
 void NewTabButton::OnBoundsChanged(const gfx::Rect& previous_bounds) {
-  const gfx::Size ink_drop_size = GetVisibleBounds().size();
+  const gfx::Size ink_drop_size = GetContentsBounds().size();
   GetInkDrop()->HostSizeChanged(ink_drop_size);
   UpdateInkDropMaskLayerSize(ink_drop_size);
 }
@@ -344,9 +378,12 @@ bool NewTabButton::GetHitTestMask(gfx::Path* mask) const {
   DCHECK(mask);
 
   SkPath border;
+  const gfx::Point contents_origin = GetContentsBounds().origin();
   const float scale = GetWidget()->GetCompositor()->device_scale_factor();
-  GetBorderPath(GetTopOffset() * scale, scale,
+  // TODO(pkasting): Fitts' Law horizontally when appropriate.
+  GetBorderPath(contents_origin.y() * scale, scale,
                 tab_strip_->SizeTabButtonToTopOfTabStrip(), &border);
+  border.offset(contents_origin.x(), 0);
   mask->addPath(border, SkMatrix::MakeScale(1 / scale));
   return true;
 }
@@ -365,41 +402,23 @@ void NewTabButton::OnWidgetDestroying(views::Widget* widget) {
 }
 
 bool NewTabButton::ShouldDrawIncognitoIcon() const {
-  return is_incognito_ && MD::IsTouchOptimizedUiEnabled();
-}
-
-gfx::Rect NewTabButton::GetVisibleBounds() const {
-  // TODO(pkasting): This is correct but inefficient for newer material UI.
-  SkPath border;
-  GetBorderPath(GetTopOffset(), 1.0f /* scale */, false, &border);
-  gfx::Rect rect = gfx::ToEnclosingRect(gfx::SkRectToRectF(border.getBounds()));
-  ConvertRectToScreen(this, &rect);
-  return rect;
+  return is_incognito_ && MD::GetMode() == MD::MATERIAL_TOUCH_OPTIMIZED;
 }
 
 int NewTabButton::GetCornerRadius() const {
   return ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
-      views::EMPHASIS_HIGH, GetLayoutSize(NEW_TAB_BUTTON, is_incognito_));
+      views::EMPHASIS_MAXIMUM, GetContentsBounds().size());
 }
 
 void NewTabButton::GetBorderPath(float button_y,
                                  float scale,
                                  bool extend_to_top,
                                  SkPath* path) const {
-  const int button_height =
-      GetLayoutSize(NEW_TAB_BUTTON, is_incognito_).height();
-
-  if (MD::IsRefreshUi()) {
-    path->addRect(0, extend_to_top ? 0 : button_y, width() * scale,
-                  button_y + button_height * scale);
-    return;
-  }
-
   *path =
-      MD::IsTouchOptimizedUiEnabled()
-          ? GetTouchOptimizedButtonPath(button_y, scale, extend_to_top, false)
-          : GetNonTouchOptimizedButtonPath(button_y, button_height, scale,
-                                           extend_to_top, false);
+      MD::IsNewerMaterialUi()
+          ? GetNewerMaterialUiButtonPath(button_y, scale, extend_to_top, false)
+          : GetMaterialUiButtonPath(button_y, GetContentsBounds().height(),
+                                    scale, extend_to_top, false);
 }
 
 void NewTabButton::PaintFill(bool pressed,
@@ -412,56 +431,57 @@ void NewTabButton::PaintFill(bool pressed,
   flags.setAntiAlias(true);
 
   // For unpressed buttons, draw the fill and its shadow.
-  // Note that for touch-optimized UI, we always draw the fill since the button
-  // has a flat design with no hover highlight.
-  const bool is_touch_ui = MD::IsTouchOptimizedUiEnabled();
-  if (is_touch_ui || !pressed) {
+  // Note that for newer UI, we always draw the fill since the button
+  // has a flat design. Hover highlights are handled by the ink drop.
+  const bool is_newer_ui = MD::IsNewerMaterialUi();
+  if (is_newer_ui || !pressed) {
+    const bool non_refresh_touch_ui =
+        MD::GetMode() == ui::MaterialDesignController::MATERIAL_TOUCH_OPTIMIZED;
     // First we compute the background image coordinates and scale, in case we
     // need to draw a custom background image.
     const ui::ThemeProvider* tp = GetThemeProvider();
-    bool custom_image;
-    const int bg_id = GetButtonFillResourceIdIfAny(tab_strip_, tp, is_touch_ui,
-                                                   &custom_image);
-    if (custom_image && !new_tab_promo_observer_.IsObservingSources()) {
-      // For non-touch, the background starts at |background_offset_| unless
-      // there's a custom tab background image, which starts at the top of
-      // the tabstrip (which is also the top of this button, i.e. y = 0).
-      const int non_touch_offset_y =
-          tp->HasCustomImage(bg_id) ? 0 : background_offset_.y();
-      // For touch, the background matches the active tab background
-      // positioning in Tab::PaintTab().
+    bool has_custom_image;
+    const int bg_id = GetButtonFillResourceIdIfAny(
+        tab_strip_, tp, non_refresh_touch_ui, &has_custom_image);
+    if (has_custom_image && !new_tab_promo_observer_.IsObservingSources()) {
+      // For non-refresh touch UI, the background is that of the active tab, so
+      // the positioning must match that in Tab::PaintTab().
       const int offset_y =
-          is_touch_ui ? -GetLayoutInsets(TAB).top() : non_touch_offset_y;
+          non_refresh_touch_ui ? -tab_strip_->GetStrokeThickness() : 0;
       // The new tab background is mirrored in RTL mode, but the theme
       // background should never be mirrored. Mirror it here to compensate.
       float x_scale = 1.0f;
-      int x = GetMirroredX() + background_offset_.x();
-      const gfx::Size size(GetLayoutSize(NEW_TAB_BUTTON, is_incognito_));
+      const gfx::Rect& contents_bounds = GetContentsBounds();
+      int x = GetMirroredX() + contents_bounds.x() + background_offset_;
       if (base::i18n::IsRTL()) {
         x_scale = -1.0f;
         // Offset by |width| such that the same region is painted as if there
         // was no flip.
-        x += size.width();
+        x += contents_bounds.width();
       }
 
       const bool succeeded = canvas->InitPaintFlagsForTiling(
-          *tp->GetImageSkiaNamed(bg_id), x, GetTopOffset() + offset_y,
-          x_scale * scale, scale, 0, 0, &flags);
+          *tp->GetImageSkiaNamed(bg_id), x, contents_bounds.y() + offset_y,
+          x_scale * scale, scale, 0, 0, SkShader::kRepeat_TileMode,
+          SkShader::kRepeat_TileMode, &flags);
       DCHECK(succeeded);
     } else {
-      flags.setColor(GetButtonFillColor());
+      flags.setColor(GetButtonFillColor(false));
     }
 
-    const SkColor stroke_color = tab_strip_->GetToolbarTopSeparatorColor();
-    const SkAlpha alpha =
-        static_cast<SkAlpha>(std::round(SkColorGetA(stroke_color) * 0.59375f));
     cc::PaintFlags shadow_flags = flags;
-    shadow_flags.setLooper(
-        CreateShadowDrawLooper(SkColorSetA(stroke_color, alpha)));
+    // For Refresh, don't draw a shadow.
+    if (!MD::IsRefreshUi()) {
+      const SkColor stroke_color = tab_strip_->GetToolbarTopSeparatorColor();
+      const SkAlpha alpha = static_cast<SkAlpha>(
+          std::round(SkColorGetA(stroke_color) * 0.59375f));
+      shadow_flags.setLooper(
+          CreateShadowDrawLooper(SkColorSetA(stroke_color, alpha)));
+    }
     canvas->DrawPath(fill, shadow_flags);
 
-    if (is_touch_ui) {
-      // We don't have hover/pressed states in the touch-optimized UI design.
+    if (is_newer_ui) {
+      // We don't have hover/pressed states in the newer UI design.
       // Instead we are using an ink drop effect.
       return;
     }
@@ -485,39 +505,55 @@ void NewTabButton::PaintFill(bool pressed,
   }
 }
 
-SkColor NewTabButton::GetButtonFillColor() const {
+void NewTabButton::PaintPlusIcon(gfx::Canvas* canvas, int offset, int size) {
+  constexpr int kStrokeWidth = 2;
+  constexpr int kCapRadius = kStrokeWidth / 2;
+
+  cc::PaintFlags paint_flags;
+  paint_flags.setAntiAlias(true);
+  paint_flags.setColor(GetIconColor());
+  paint_flags.setStrokeCap(cc::PaintFlags::kRound_Cap);
+  paint_flags.setStrokeWidth(kStrokeWidth);
+
+  // With a round end-cap, the apparent line length will extend past the end
+  // points by one radius of the cap. Reduce the specified length to take this
+  // into account.
+  const int start = offset + kCapRadius;
+  const int end = offset + size - kCapRadius;
+  const int center = offset + size / 2;
+  // Draw the horizontal leg of the plus (+) icon
+  canvas->DrawLine(gfx::PointF(start, center), gfx::PointF(end, center),
+                   paint_flags);
+  // Draw the vertical leg of the plus (+) icon
+  canvas->DrawLine(gfx::PointF(center, start), gfx::PointF(center, end),
+                   paint_flags);
+}
+
+SkColor NewTabButton::GetButtonFillColor(bool opaque) const {
   if (new_tab_promo_observer_.IsObservingSources()) {
     return GetNativeTheme()->GetSystemColor(
         ui::NativeTheme::kColorId_ProminentButtonColor);
   }
 
-  const ui::ThemeProvider* theme_provider = GetThemeProvider();
-  DCHECK(theme_provider);
-  return theme_provider->GetColor(
-      ui::MaterialDesignController::IsTouchOptimizedUiEnabled()
-          ? ThemeProperties::COLOR_TOOLBAR
-          : ThemeProperties::COLOR_BACKGROUND_TAB);
+  return tab_strip_->GetTabBackgroundColor(TAB_INACTIVE, opaque);
 }
 
-void NewTabButton::InitButtonIcons() {
+SkColor NewTabButton::GetIconColor() const {
+  return tab_strip_->GetTabForegroundColor(MD::IsRefreshUi() ? TAB_INACTIVE
+                                                             : TAB_ACTIVE);
+}
+
+void NewTabButton::InitIncognitoIcon() {
+  DCHECK(ShouldDrawIncognitoIcon());
+  incognito_icon_ =
+      gfx::CreateVectorIcon(kNewTabButtonIncognitoIcon, GetIconColor());
+}
+
+SkPath NewTabButton::GetNewerMaterialUiButtonPath(float button_y,
+                                                  float scale,
+                                                  bool extend_to_top,
+                                                  bool for_fill) const {
   DCHECK(MD::IsNewerMaterialUi());
-
-  const ui::ThemeProvider* theme_provider = GetThemeProvider();
-  DCHECK(theme_provider);
-  const SkColor icon_color =
-      theme_provider->GetColor(ThemeProperties::COLOR_TAB_TEXT);
-  plus_icon_ = gfx::CreateVectorIcon(kNewTabButtonPlusIcon, icon_color);
-  if (ShouldDrawIncognitoIcon()) {
-    incognito_icon_ =
-        gfx::CreateVectorIcon(kNewTabButtonIncognitoIcon, icon_color);
-  }
-}
-
-SkPath NewTabButton::GetTouchOptimizedButtonPath(float button_y,
-                                                 float scale,
-                                                 bool extend_to_top,
-                                                 bool for_fill) const {
-  DCHECK(MD::IsTouchOptimizedUiEnabled());
 
   const float radius = GetCornerRadius() * scale;
   const float rect_width =
@@ -548,11 +584,11 @@ SkPath NewTabButton::GetTouchOptimizedButtonPath(float button_y,
   return path;
 }
 
-SkPath NewTabButton::GetNonTouchOptimizedButtonPath(int button_y,
-                                                    int button_height,
-                                                    float scale,
-                                                    bool extend_to_top,
-                                                    bool for_fill) const {
+SkPath NewTabButton::GetMaterialUiButtonPath(int button_y,
+                                             int button_height,
+                                             float scale,
+                                             bool extend_to_top,
+                                             bool for_fill) const {
   const float inverse_slope = Tab::GetInverseDiagonalSlope();
   float bottom = (button_height - 2) * scale;
   const float diag_height = bottom - 3.5 * scale;
@@ -608,5 +644,5 @@ void NewTabButton::UpdateInkDropBaseColor() {
   DCHECK(MD::IsNewerMaterialUi());
 
   set_ink_drop_base_color(color_utils::BlendTowardOppositeLuma(
-      GetButtonFillColor(), SK_AlphaOPAQUE));
+      GetButtonFillColor(true), SK_AlphaOPAQUE));
 }

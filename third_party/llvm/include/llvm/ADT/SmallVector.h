@@ -18,6 +18,7 @@
 #include "llvm/Support/AlignOf.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/MemAlloc.h"
 #include "llvm/Support/type_traits.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
@@ -238,9 +239,7 @@ void SmallVectorTemplateBase<T, isPodLike>::grow(size_t MinSize) {
   size_t NewCapacity = size_t(NextPowerOf2(CurCapacity+2));
   if (NewCapacity < MinSize)
     NewCapacity = MinSize;
-  T *NewElts = static_cast<T*>(malloc(NewCapacity*sizeof(T)));
-  if (NewElts == nullptr)
-    report_bad_alloc_error("Allocation of SmallVector element failed.");
+  T *NewElts = static_cast<T*>(llvm::safe_malloc(NewCapacity*sizeof(T)));
 
   // Move the elements over.
   this->uninitialized_move(this->begin(), this->end(), NewElts);
@@ -859,10 +858,7 @@ template <typename T> struct SmallVectorStorage<T, 0> {};
 /// Note that this does not attempt to be exception safe.
 ///
 template <typename T, unsigned N>
-class SmallVector : public SmallVectorImpl<T> {
-  /// Inline space for elements which aren't stored in the base class.
-  SmallVectorStorage<T, N> Storage;
-
+class SmallVector : public SmallVectorImpl<T>, SmallVectorStorage<T, N> {
 public:
   SmallVector() : SmallVectorImpl<T>(N) {}
 

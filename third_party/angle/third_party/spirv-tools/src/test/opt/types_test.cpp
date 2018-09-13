@@ -54,6 +54,9 @@ class SameTypeTest : public ::testing::Test {
         EXPECT_TRUE(types[i]->IsSame(types[j].get()))                     \
             << "expected '" << types[i]->str() << "' is the same as '"    \
             << types[j]->str() << "'";                                    \
+        EXPECT_TRUE(*types[i] == *types[j])                               \
+            << "expected '" << types[i]->str() << "' is the same as '"    \
+            << types[j]->str() << "'";                                    \
       }                                                                   \
     }                                                                     \
   }
@@ -70,8 +73,8 @@ TestMultipleInstancesOfTheSameType(Sampler);
 TestMultipleInstancesOfTheSameType(SampledImage, image_t_.get());
 TestMultipleInstancesOfTheSameType(Array, u32_t_.get(), 10);
 TestMultipleInstancesOfTheSameType(RuntimeArray, u32_t_.get());
-TestMultipleInstancesOfTheSameType(Struct, std::vector<Type*>{u32_t_.get(),
-                                                              f64_t_.get()});
+TestMultipleInstancesOfTheSameType(Struct, std::vector<const Type*>{
+                                               u32_t_.get(), f64_t_.get()});
 TestMultipleInstancesOfTheSameType(Opaque, "testing rocks");
 TestMultipleInstancesOfTheSameType(Pointer, u32_t_.get(), SpvStorageClassInput);
 TestMultipleInstancesOfTheSameType(Function, u32_t_.get(),
@@ -86,7 +89,7 @@ TestMultipleInstancesOfTheSameType(PipeStorage);
 TestMultipleInstancesOfTheSameType(NamedBarrier);
 #undef TestMultipleInstanceOfTheSameType
 
-TEST(Types, AllTypes) {
+std::vector<std::unique_ptr<Type>> GenerateAllTypes() {
   // Types in this test case are only equal to themselves, nothing else.
   std::vector<std::unique_ptr<Type>> types;
 
@@ -157,10 +160,11 @@ TEST(Types, AllTypes) {
   auto* rav3s32 = types.back().get();
 
   // Struct
-  types.emplace_back(new Struct(std::vector<Type*>{s32}));
-  types.emplace_back(new Struct(std::vector<Type*>{s32, f32}));
+  types.emplace_back(new Struct(std::vector<const Type*>{s32}));
+  types.emplace_back(new Struct(std::vector<const Type*>{s32, f32}));
   auto* sts32f32 = types.back().get();
-  types.emplace_back(new Struct(std::vector<Type*>{u64, a42f32, rav3s32}));
+  types.emplace_back(
+      new Struct(std::vector<const Type*>{u64, a42f32, rav3s32}));
 
   // Opaque
   types.emplace_back(new Opaque(""));
@@ -171,6 +175,7 @@ TEST(Types, AllTypes) {
   types.emplace_back(new Pointer(f32, SpvStorageClassInput));
   types.emplace_back(new Pointer(sts32f32, SpvStorageClassFunction));
   types.emplace_back(new Pointer(a42f32, SpvStorageClassFunction));
+  types.emplace_back(new Pointer(voidt, SpvStorageClassFunction));
 
   // Function
   types.emplace_back(new Function(voidt, {}));
@@ -192,6 +197,13 @@ TEST(Types, AllTypes) {
   types.emplace_back(new ForwardPointer(2, SpvStorageClassUniform));
   types.emplace_back(new PipeStorage());
   types.emplace_back(new NamedBarrier());
+
+  return types;
+}
+
+TEST(Types, AllTypes) {
+  // Types in this test case are only equal to themselves, nothing else.
+  std::vector<std::unique_ptr<Type>> types = GenerateAllTypes();
 
   for (size_t i = 0; i < types.size(); ++i) {
     for (size_t j = 0; j < types.size(); ++j) {
@@ -255,6 +267,73 @@ TEST(Types, MatrixElementCount) {
   for (uint32_t c : {1, 2, 3, 4, 10, 100}) {
     auto s32m = MakeUnique<Matrix>(s32v4.get(), c);
     EXPECT_EQ(c, s32m->element_count());
+  }
+}
+
+TEST(Types, IsUniqueType) {
+  std::vector<std::unique_ptr<Type>> types = GenerateAllTypes();
+
+  for (auto& t : types) {
+    bool expectation = true;
+    // Disallowing variable pointers.
+    switch (t->kind()) {
+      case Type::kArray:
+      case Type::kRuntimeArray:
+      case Type::kStruct:
+        expectation = false;
+        break;
+      default:
+        break;
+    }
+    EXPECT_EQ(t->IsUniqueType(false), expectation)
+        << "expected '" << t->str() << "' to be a "
+        << (expectation ? "" : "non-") << "unique type";
+
+    // Allowing variables pointers.
+    if (t->AsPointer()) expectation = false;
+    EXPECT_EQ(t->IsUniqueType(true), expectation)
+        << "expected '" << t->str() << "' to be a "
+        << (expectation ? "" : "non-") << "unique type";
+  }
+}
+
+std::vector<std::unique_ptr<Type>> GenerateAllTypesWithDecorations() {
+  std::vector<std::unique_ptr<Type>> types = GenerateAllTypes();
+  uint32_t elems = 1;
+  uint32_t decs = 1;
+  for (auto& t : types) {
+    for (uint32_t i = 0; i < (decs % 10); ++i) {
+      std::vector<uint32_t> decoration;
+      for (uint32_t j = 0; j < (elems % 4) + 1; ++j) {
+        decoration.push_back(j);
+      }
+      t->AddDecoration(std::move(decoration));
+      ++elems;
+      ++decs;
+    }
+  }
+
+  return types;
+}
+
+TEST(Types, Clone) {
+  std::vector<std::unique_ptr<Type>> types = GenerateAllTypesWithDecorations();
+  for (auto& t : types) {
+    auto clone = t->Clone();
+    EXPECT_TRUE(*t == *clone);
+    EXPECT_TRUE(t->HasSameDecorations(clone.get()));
+    EXPECT_NE(clone.get(), t.get());
+  }
+}
+
+TEST(Types, RemoveDecorations) {
+  std::vector<std::unique_ptr<Type>> types = GenerateAllTypesWithDecorations();
+  for (auto& t : types) {
+    auto decorationless = t->RemoveDecorations();
+    EXPECT_EQ(*t == *decorationless, t->decoration_empty());
+    EXPECT_EQ(t->HasSameDecorations(decorationless.get()),
+              t->decoration_empty());
+    EXPECT_NE(t.get(), decorationless.get());
   }
 }
 

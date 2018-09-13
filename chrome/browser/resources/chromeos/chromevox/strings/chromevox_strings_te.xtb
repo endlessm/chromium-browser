@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">పాస్‌వర్డ్ సవరణ వచనం</translation>
 <translation id="1802710350767629429">నవీకరణ గమనికలను చూపు</translation>
 <translation id="1810107444790159527">జాబితా పెట్టె</translation>
+<translation id="1812527064848182527">ల్యాండ్‌స్కేప్‌లో ఉంది</translation>
 <translation id="1828385960365606039">మే</translation>
 <translation id="1834891354138622109">నిలువు వరుస</translation>
 <translation id="1845944666972354496">యాక్టివేట్ చేయడానికి రెండుసార్లు నొక్కండి</translation>
@@ -146,6 +147,7 @@
 <translation id="2416512023405990736">ఎంచుకున్నట్లు గుర్తు పెట్టని ఎంపిక పెట్టె</translation>
 <translation id="2417569100218200841">కంటెంట్ సమాచారం</translation>
 <translation id="2417948780551741035">ఎండ్‌నోట్‌లు</translation>
+<translation id="2421113964388408478">తొలగింపు</translation>
 <translation id="2422937916923936891">మెను అంశం తనిఖీపెట్టె</translation>
 <translation id="2428534162001909979">ఆదేశ మెనులు</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@
 <translation id="3232388865800379423">పాప్ అప్ బటన్</translation>
 <translation id="3241052487511142956">మునుపు సందర్శించిన లింక్</translation>
 <translation id="3241638166094654466">ప్రతి పంక్తిలో గడులు:</translation>
+<translation id="3286372614333682499">పోర్ట్రెయిట్‌లో ఉంది</translation>
 <translation id="3286390186030710347">స్లయిడర్</translation>
 <translation id="3299925995433437805">తదుపరి సందర్శించిన లింక్ లేదు.</translation>
 <translation id="3300348286427369683">రిచ్ టెక్స్ట్ మద్దతు. ChromeVox ఇప్పుడు దాటవేత ఆదేశాలు, బ్రెయిలీ కర్సర్ రూటింగ్, ఎంపిక మరియు మరిన్నింటితో సహా రిచ్ టెక్స్ట్ ఫీల్డ్‌లకు మద్దతిస్తుంది.</translation>
@@ -426,6 +429,7 @@
 <translation id="4476183483923481720">కొత్త పంక్తి</translation>
 <translation id="4482330759234983253">మునుపటి పట్టిక</translation>
 <translation id="4491109536499578614">చిత్రం</translation>
+<translation id="4505167975768625962">చొప్పించడం</translation>
 <translation id="4517854969512651305">విలువను పెంచుతుంది</translation>
 <translation id="4529987814483543472">క్లాసిక్ కీమ్యాప్</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{స్లాష్ గుర్తు}other{# స్లాష్ గుర్తులు}}</translation>
@@ -589,6 +593,7 @@
 <translation id="5712338278108304766">తదుపరి పట్టిక నిలువు వరుస</translation>
 <translation id="571866080859340309">విశ్లేషణ సమూహాలు</translation>
 <translation id="5728409797179002635">పట్టిక కనుగొనబడలేదు.</translation>
+<translation id="5729047866208036762">గణితాన్ని అన్వేషించడానికి పైకి, కిందకు, ఎడమకు లేదా కుడి చిహ్నాల కీలను నొక్కండి.</translation>
 <translation id="5732189279857692565">ఇది రెండవ ముఖ్యశీర్షిక. కొనసాగించండి; శోధన+H లేదా శోధన+Shift+Hను నొక్కండి</translation>
 <translation id="5748623122140342504">మునుపటి స్థాయి 5 శీర్షిక</translation>
 <translation id="5750633686117194034">మాడిఫైయర్‌ను నొక్కలేదు; దయచేసి ఒకటి లేదా అంతకంటే ఎక్కువ మాడిఫైయర్‌లను నొక్కి ఉంచి; పూర్తయిన తర్వాత మీ వేళ్లను తీసివేయండి మరియు మీరు కీల సెట్‌ను వింటారు. నిష్క్రమించడానికి ట్యాబ్ నొక్కండి.</translation>
@@ -744,8 +749,9 @@ Chrome బ్రౌజర్ మెనూను తెరవడానికి, 
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">6 చుక్కలు ఉన్న బ్రెయిలీ పట్టికను ఎంచుకోండి:</translation>
 <translation id="72393384879519786">శీర్షిక</translation>
+<translation id="7240858705033280249">వివరాలకు వెళ్లండి</translation>
 <translation id="7241683698754534149">పెద్ద వివరణను కొత్త ట్యాబ్‌లో తెరవండి</translation>
-<translation id="7248671827512403053">అనువర్తనం</translation>
+<translation id="7248671827512403053">అప్లికేషన్‌</translation>
 <translation id="725969808843520477">తదుపరి రేడియో బటన్</translation>
 <translation id="7269119382257320590">విరామచిహ్నాలు లేవు</translation>
 <translation id="7273174640290488576">ఖాళీ</translation>
@@ -920,6 +926,7 @@ Chrome బ్రౌజర్ మెనూను తెరవడానికి, 
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">8 చుక్కలు ఉన్న బ్రెయిలీ పట్టికను ఎంచుకోండి:</translation>
 <translation id="9065283790526219006">+పాప్అప్</translation>
+<translation id="9066023754636984703">వివరాలలోకి వెళ్లడం కోసం Search+A, J నొక్కండి.</translation>
 <translation id="9067522039955793016">పేజీ విభజన</translation>
 <translation id="9077213568694924680">ఎంపిక నుండి తీసివేయబడింది</translation>
 <translation id="9082874451376019682">మునుపటి స్లయిడర్ లేదు.</translation>

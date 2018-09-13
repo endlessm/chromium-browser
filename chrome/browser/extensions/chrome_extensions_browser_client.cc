@@ -40,6 +40,7 @@
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/task_manager/web_contents_tags.h"
 #include "chrome/browser/ui/bluetooth/chrome_extension_bluetooth_chooser.h"
+#include "chrome/browser/ui/webui/chrome_web_ui_controller_factory.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -79,8 +80,8 @@ namespace {
 bool g_did_chrome_update_for_testing = false;
 
 bool ExtensionsDisabled(const base::CommandLine& command_line) {
-  return command_line.HasSwitch(switches::kDisableExtensions) ||
-         command_line.HasSwitch(switches::kDisableExtensionsExcept);
+  return command_line.HasSwitch(::switches::kDisableExtensions) ||
+         command_line.HasSwitch(::switches::kDisableExtensionsExcept);
 }
 
 }  // namespace
@@ -261,7 +262,7 @@ bool ChromeExtensionsBrowserClient::DidVersionUpdate(
     return true;
 
   // If we're inside a browser test, then assume prefs are all up to date.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(::switches::kTestType))
     return false;
 
   PrefService* pref_service = extension_prefs->pref_service();
@@ -288,6 +289,15 @@ bool ChromeExtensionsBrowserClient::DidVersionUpdate(
 
 void ChromeExtensionsBrowserClient::PermitExternalProtocolHandler() {
   ExternalProtocolHandler::PermitLaunchUrl();
+}
+
+bool ChromeExtensionsBrowserClient::IsInDemoMode() {
+#if defined(OS_CHROMEOS)
+  // TODO(michaelpg): Implement for real.
+  return false;
+#else
+  return false;
+#endif
 }
 
 bool ChromeExtensionsBrowserClient::IsRunningInForcedAppMode() {
@@ -374,7 +384,7 @@ ExtensionCache* ChromeExtensionsBrowserClient::GetExtensionCache() {
 
 bool ChromeExtensionsBrowserClient::IsBackgroundUpdateAllowed() {
   return !base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kDisableBackgroundNetworking);
+      ::switches::kDisableBackgroundNetworking);
 }
 
 bool ChromeExtensionsBrowserClient::IsMinBrowserVersionSupported(
@@ -424,7 +434,6 @@ void ChromeExtensionsBrowserClient::AttachExtensionTaskManagerTag(
 
     case VIEW_TYPE_BACKGROUND_CONTENTS:
     case VIEW_TYPE_EXTENSION_GUEST:
-    case VIEW_TYPE_PANEL:
     case VIEW_TYPE_TAB_CONTENTS:
       // Those types are tracked by other tags:
       // BACKGROUND_CONTENTS --> task_manager::BackgroundContentsTag.
@@ -522,6 +531,12 @@ bool ChromeExtensionsBrowserClient::IsExtensionEnabled(
     content::BrowserContext* context) const {
   return ExtensionSystem::Get(context)->extension_service()->IsExtensionEnabled(
       extension_id);
+}
+
+bool ChromeExtensionsBrowserClient::IsWebUIAllowedToMakeNetworkRequests(
+    const url::Origin& origin) {
+  return ChromeWebUIControllerFactory::IsWebUIAllowedToMakeNetworkRequests(
+      origin);
 }
 
 // static

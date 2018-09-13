@@ -27,6 +27,7 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.favicon.LargeIconBridge;
@@ -42,6 +43,7 @@ import org.chromium.chrome.browser.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.snackbar.SnackbarManager.SnackbarController;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager.TabCreator;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
+import org.chromium.chrome.browser.util.ConversionUtils;
 import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.chrome.browser.widget.selection.SelectableListLayout;
 import org.chromium.chrome.browser.widget.selection.SelectableListToolbar.SearchDelegate;
@@ -50,6 +52,7 @@ import org.chromium.chrome.browser.widget.selection.SelectionDelegate.SelectionO
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.ui.base.Clipboard;
 import org.chromium.ui.base.DeviceFormFactor;
+import org.chromium.ui.base.PageTransition;
 
 import java.util.List;
 
@@ -59,10 +62,13 @@ import java.util.List;
 public class HistoryManager implements OnMenuItemClickListener, SignInStateObserver,
                                        SelectionObserver<HistoryItem>, SearchDelegate,
                                        SnackbarController, PrefObserver {
-    private static final int FAVICON_MAX_CACHE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-    private static final int MEGABYTES_TO_BYTES =  1024 * 1024;
+    private static final int FAVICON_MAX_CACHE_SIZE_BYTES =
+            10 * ConversionUtils.BYTES_PER_MEGABYTE; // 10MB
     private static final String METRICS_PREFIX = "Android.HistoryPage.";
     private static final String PREF_SHOW_HISTORY_INFO = "history_home_show_info";
+
+    // PageTransition value to use for all URL requests triggered by the history page.
+    private static final int PAGE_TRANSITION_TYPE = PageTransition.AUTO_BOOKMARK;
 
     private static HistoryProvider sProviderForTests;
 
@@ -118,7 +124,7 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
         mToolbar = (HistoryManagerToolbar) mSelectableListLayout.initializeToolbar(
                 R.layout.history_toolbar, mSelectionDelegate, R.string.menu_history, null,
                 R.id.normal_menu_group, R.id.selection_mode_menu_group,
-                R.color.modern_primary_color, this, true);
+                R.color.modern_primary_color, this, true, isSeparateActivity);
         mToolbar.setManager(this);
         mToolbar.initializeSearchView(this, R.string.history_manager_search, R.id.search_menu_id);
         mToolbar.setInfoMenuItem(R.id.info_menu_id);
@@ -137,7 +143,8 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
         mLargeIconBridge = new LargeIconBridge(Profile.getLastUsedProfile().getOriginalProfile());
         ActivityManager activityManager = ((ActivityManager) ContextUtils
                 .getApplicationContext().getSystemService(Context.ACTIVITY_SERVICE));
-        int maxSize = Math.min((activityManager.getMemoryClass() / 4) * MEGABYTES_TO_BYTES,
+        int maxSize = Math.min(
+                (activityManager.getMemoryClass() / 4) * ConversionUtils.BYTES_PER_MEGABYTE,
                 FAVICON_MAX_CACHE_SIZE_BYTES);
         mLargeIconBridge.createCache(maxSize);
 
@@ -257,6 +264,15 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
     }
 
     /**
+     * Called when the user presses the back key. This is only going to be called
+     * when the history UI is shown in a separate activity rather inside a tab.
+     * @return True if manager handles this event, false if it decides to ignore.
+     */
+    public boolean onBackPressed() {
+        return mSelectableListLayout.onBackPressed();
+    }
+
+    /**
      * Removes the HistoryItem from the history backend and the HistoryAdapter.
      * @param item The HistoryItem to remove.
      */
@@ -287,10 +303,10 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
         if (createNewTab) {
             TabCreator tabCreator = (isIncognito == null) ? activity.getCurrentTabCreator()
                                                           : activity.getTabCreator(isIncognito);
-            tabCreator.createNewTab(
-                    new LoadUrlParams(url), TabLaunchType.FROM_LINK, activity.getActivityTab());
+            tabCreator.createNewTab(new LoadUrlParams(url, PAGE_TRANSITION_TYPE),
+                    TabLaunchType.FROM_LINK, activity.getActivityTab());
         } else {
-            activity.getActivityTab().loadUrl(new LoadUrlParams(url));
+            activity.getActivityTab().loadUrl(new LoadUrlParams(url, PAGE_TRANSITION_TYPE));
         }
     }
 
@@ -318,7 +334,7 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
                     mActivity.getIntent(), IntentHandler.EXTRA_PARENT_COMPONENT);
         }
         if (component != null) {
-            viewIntent.setComponent(component);
+            ChromeTabbedActivity.setNonAliasedComponent(viewIntent, component);
         } else {
             viewIntent.setClass(mActivity, ChromeLauncherActivity.class);
         }
@@ -329,6 +345,7 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
         }
         if (createNewTab) viewIntent.putExtra(Browser.EXTRA_CREATE_NEW_TAB, true);
 
+        viewIntent.putExtra(IntentHandler.EXTRA_PAGE_TRANSITION_TYPE, PAGE_TRANSITION_TYPE);
         return viewIntent;
     }
 

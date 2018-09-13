@@ -13,7 +13,6 @@
 
 #include "Test.h"
 
-#if SK_SUPPORT_GPU
 #include "GrContext.h"
 #include "GrContextPriv.h"
 #include "GrProxyProvider.h"
@@ -105,8 +104,8 @@ static void run_test(skiatest::Reporter* reporter, GrContext* context, int array
     readBuffer.setCount(arraySize);
 
     for (int i = 0; i < arraySize; i += 2) {
-        controlPixelData[i] = 0xFF00;
-        controlPixelData[i + 1] = 0xFA62;
+        controlPixelData[i] = 0xF00F;
+        controlPixelData[i + 1] = 0xA62F;
     }
 
     const SkImageInfo dstInfo =
@@ -145,5 +144,3 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(RGBA4444TextureTest, reporter, ctxInfo) {
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(RGB565TextureTest, reporter, ctxInfo) {
     run_test(reporter, ctxInfo.grContext(), CONTROL_ARRAY_SIZE, kRGB_565_SkColorType);
 }
-
-#endif

@@ -242,7 +242,7 @@ std::string GetFilteredJSONPolicies(const policy::PolicyMap& policy_map,
 
   // Keep them sorted by the ARC policy names.
   MapBoolToBool("cameraDisabled", policy::key::kVideoCaptureAllowed, policy_map,
-                true, &filtered_policies);
+                /* invert_bool_value */ true, &filtered_policies);
   // Use the pref for "debuggingFeaturesDisabled" to avoid duplicating the logic
   // of handling DeveloperToolsDisabled / DeveloperToolsAvailability policies.
   MapManagedIntPrefToBool(
@@ -251,15 +251,17 @@ std::string GetFilteredJSONPolicies(const policy::PolicyMap& policy_map,
       static_cast<int>(
           policy::DeveloperToolsPolicyHandler::Availability::kDisallowed),
       &filtered_policies);
+  MapBoolToBool("printingDisabled", policy::key::kPrintingEnabled, policy_map,
+                /* invert_bool_value */ true, &filtered_policies);
   MapBoolToBool("screenCaptureDisabled", policy::key::kDisableScreenshots,
                 policy_map, false, &filtered_policies);
   MapIntToBool("shareLocationDisabled", policy::key::kDefaultGeolocationSetting,
                policy_map, 2 /*BlockGeolocation*/, &filtered_policies);
   MapBoolToBool("unmuteMicrophoneDisabled", policy::key::kAudioCaptureAllowed,
-                policy_map, true, &filtered_policies);
+                policy_map, /* invert_bool_value */ true, &filtered_policies);
   MapBoolToBool("mountPhysicalMediaDisabled",
-                policy::key::kExternalStorageDisabled, policy_map, false,
-                &filtered_policies);
+                policy::key::kExternalStorageDisabled, policy_map,
+                /* invert_bool_value */ false, &filtered_policies);
   MapObjectToPresenceBool("setWallpaperDisabled", policy::key::kWallpaperImage,
                           policy_map, &filtered_policies, {"url", "hash"});
 
@@ -338,24 +340,18 @@ class ArcPolicyBridgeFactory
   ~ArcPolicyBridgeFactory() override = default;
 };
 
-static ArcPolicyBridge* g_testing_arc_policy_bridge = nullptr;
-
 }  // namespace
 
 // static
 ArcPolicyBridge* ArcPolicyBridge::GetForBrowserContext(
     content::BrowserContext* context) {
-  if (g_testing_arc_policy_bridge)
-    return g_testing_arc_policy_bridge;
   return ArcPolicyBridgeFactory::GetForBrowserContext(context);
 }
 
-// TODO(isandrk): Replace with something more sensible in a follow-up CL.
 // static
-void ArcPolicyBridge::SetForTesting(ArcPolicyBridge* arc_policy_bridge) {
-  // Only allow setting an instance, and resetting it to nullptr.
-  CHECK(g_testing_arc_policy_bridge == nullptr || arc_policy_bridge == nullptr);
-  g_testing_arc_policy_bridge = arc_policy_bridge;
+ArcPolicyBridge* ArcPolicyBridge::GetForBrowserContextForTesting(
+    content::BrowserContext* context) {
+  return ArcPolicyBridgeFactory::GetForBrowserContextForTesting(context);
 }
 
 base::WeakPtr<ArcPolicyBridge> ArcPolicyBridge::GetWeakPtr() {
@@ -408,6 +404,10 @@ void ArcPolicyBridge::OnConnectionReady() {
   }
   policy_service_->AddObserver(policy::POLICY_DOMAIN_CHROME, this);
   initial_policies_hash_ = GetPoliciesHash(GetCurrentJSONPolicies());
+
+  if (!on_arc_instance_ready_callback_.is_null()) {
+    std::move(on_arc_instance_ready_callback_).Run();
+  }
 }
 
 void ArcPolicyBridge::OnConnectionClosed() {
@@ -491,8 +491,19 @@ void ArcPolicyBridge::OnCommandReceived(
   VLOG(1) << "ArcPolicyBridge::OnCommandReceived";
   auto* const instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->policy(), OnCommandReceived);
-  if (!instance)
+
+  if (!instance) {
+    VLOG(1) << "ARC not ready yet, will retry remote command once it is ready.";
+    DCHECK(on_arc_instance_ready_callback_.is_null());
+
+    // base::Unretained is safe here since this class owns the callback's
+    // lifetime.
+    on_arc_instance_ready_callback_ =
+        base::BindOnce(&ArcPolicyBridge::OnCommandReceived,
+                       base::Unretained(this), command, std::move(callback));
+
     return;
+  }
 
   instance->OnCommandReceived(command, std::move(callback));
 }

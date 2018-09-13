@@ -29,10 +29,11 @@ class AvSyncVideo : public AvSync {
   ~AvSyncVideo() override;
 
   // AvSync implementation:
-  void NotifyStart(int64_t timestamp) override;
+  void NotifyStart(int64_t timestamp, int64_t pts) override;
   void NotifyStop() override;
   void NotifyPause() override;
   void NotifyResume() override;
+  void NotifyPlaybackRateChange(float rate) override;
 
   class Delegate {
    public:
@@ -58,9 +59,21 @@ class AvSyncVideo : public AvSync {
   void StartAvSync();
   void StopAvSync();
   void GatherPlaybackStatistics();
+  void FlushAudioPts();
+  void FlushVideoPts();
 
-  void SoftCorrection(int64_t now);
-  void InSyncCorrection(int64_t now);
+  void SoftCorrection(int64_t now,
+                      int64_t current_vpts,
+                      int64_t current_apts,
+                      double apts_slope,
+                      double vpts_slope,
+                      int64_t difference);
+  void InSyncCorrection(int64_t now,
+                        int64_t current_vpts,
+                        int64_t current_apts,
+                        double apts_slope,
+                        double vpts_slope,
+                        int64_t difference);
 
   Delegate* delegate_ = nullptr;
 
@@ -81,6 +94,7 @@ class AvSyncVideo : public AvSync {
   std::unique_ptr<WeightedMovingLinearRegression> video_pts_;
   std::unique_ptr<WeightedMovingLinearRegression> error_;
   double current_audio_playback_rate_ = 1.0;
+  double current_video_playback_rate_ = 1.0;
 
   int64_t last_gather_timestamp_us_ = 0;
   int64_t last_repeated_frames_ = 0;
@@ -89,7 +103,13 @@ class AvSyncVideo : public AvSync {
   int64_t number_of_soft_corrections_ = 0;
   int64_t last_vpts_value_recorded_ = 0;
   int64_t last_correction_timestamp_us = INT64_MIN;
-  int64_t av_sync_start_timestamp_ = INT64_MIN;
+  int64_t playback_start_timestamp_us_ = INT64_MIN;
+  int64_t playback_start_pts_us_ = INT64_MIN;
+
+  bool first_audio_pts_received_ = false;
+  bool first_video_pts_received_ = false;
+
+  int spammy_log_count_ = 0;
 
   MediaPipelineBackendForMixer* const backend_;
 };

@@ -12,11 +12,18 @@ FakeTetherService::FakeTetherService(
     Profile* profile,
     chromeos::PowerManagerClient* power_manager_client,
     cryptauth::CryptAuthService* cryptauth_service,
+    chromeos::device_sync::DeviceSyncClient* device_sync_client,
+    chromeos::secure_channel::SecureChannelClient* secure_channel_client,
+    chromeos::multidevice_setup::MultiDeviceSetupClient*
+        multidevice_setup_client,
     chromeos::NetworkStateHandler* network_state_handler,
     session_manager::SessionManager* session_manager)
     : TetherService(profile,
                     power_manager_client,
                     cryptauth_service,
+                    device_sync_client,
+                    secure_channel_client,
+                    multidevice_setup_client,
                     network_state_handler,
                     session_manager) {}
 

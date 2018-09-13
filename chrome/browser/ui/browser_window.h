@@ -41,6 +41,8 @@ class StatusBubble;
 class ToolbarActionsBar;
 
 namespace autofill {
+class LocalCardMigrationBubbleController;
+class LocalCardMigrationBubble;
 class SaveCardBubbleController;
 class SaveCardBubbleView;
 }
@@ -57,7 +59,6 @@ class Extension;
 }
 
 namespace gfx {
-class Rect;
 class Size;
 }
 
@@ -256,6 +257,12 @@ class BrowserWindow : public ui::BaseWindow {
       autofill::SaveCardBubbleController* controller,
       bool is_user_gesture) = 0;
 
+  // Shows the local card migration bubble.
+  virtual autofill::LocalCardMigrationBubble* ShowLocalCardMigrationBubble(
+      content::WebContents* contents,
+      autofill::LocalCardMigrationBubbleController* controller,
+      bool is_user_gesture) = 0;
+
   // Shows the translate bubble.
   //
   // |is_user_gesture| is true when the bubble is shown on the user's deliberate
@@ -314,10 +321,6 @@ class BrowserWindow : public ui::BaseWindow {
 
   // Clipboard commands applied to the whole browser window.
   virtual void CutCopyPaste(int command_id) = 0;
-
-  // Return the correct disposition for a popup window based on |bounds|.
-  virtual WindowOpenDisposition GetDispositionForPopupBounds(
-      const gfx::Rect& bounds) = 0;
 
   // Construct a FindBar implementation for the |browser|.
   virtual FindBar* CreateFindBar() = 0;

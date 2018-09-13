@@ -100,6 +100,7 @@ bool CanBookmarkCurrentPage(const Browser* browser);
 void BookmarkAllTabs(Browser* browser);
 bool CanBookmarkAllTabs(const Browser* browser);
 void SaveCreditCard(Browser* browser);
+void MigrateLocalCards(Browser* browser);
 void Translate(Browser* browser);
 void ManagePasswordsForPage(Browser* browser);
 void SavePage(Browser* browser);
@@ -147,6 +148,9 @@ bool IsDebuggerAttachedToCurrentTab(Browser* browser);
 void CopyURL(Browser* browser);
 void OpenInChrome(Browser* browser);
 bool CanViewSource(const Browser* browser);
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+void ToggleConfirmToQuitOption(Browser* browser);
+#endif
 
 void CreateBookmarkAppFromCurrentWebContents(Browser* browser);
 bool CanCreateBookmarkApp(const Browser* browser);

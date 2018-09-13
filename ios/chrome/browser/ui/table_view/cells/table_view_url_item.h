@@ -10,14 +10,24 @@
 #import "ios/chrome/browser/ui/table_view/cells/table_view_item.h"
 
 class GURL;
+@class FaviconViewNew;
+@class TableViewURLCellFaviconBadgeView;
 
 // TableViewURLItem contains the model data for a TableViewURLCell.
 @interface TableViewURLItem : TableViewItem
 
+// The title of the page at |URL|.
 @property(nonatomic, readwrite, copy) NSString* title;
 // GURL from which the cell will retrieve a favicon and display the host name.
 @property(nonatomic, assign) GURL URL;
+// Supplemental text used to describe the URL.
+@property(nonatomic, readwrite, copy) NSString* supplementalURLText;
+// Delimiter used to separate the URL hostname and the supplemental text.
+@property(nonatomic, readwrite, copy) NSString* supplementalURLTextDelimiter;
+// Metadata text displayed at the trailing edge of the cell.
 @property(nonatomic, readwrite, copy) NSString* metadata;
+// The image for the badge view added over the favicon.
+@property(nonatomic, readwrite, strong) UIImage* badgeImage;
 // Identifier to match a URLItem with its URLCell.
 @property(nonatomic, readonly) NSString* uniqueIdentifier;
 
@@ -30,10 +40,14 @@ class GURL;
 
 // The imageview that is displayed on the leading edge of the cell.  This
 // contains a favicon composited on top of an off-white background.
-@property(nonatomic, readonly, strong) UIImageView* faviconView;
+@property(nonatomic, readonly, strong) FaviconViewNew* faviconView;
 
 // Container View for the faviconView.
 @property(nonatomic, readonly, strong) UIImageView* faviconContainerView;
+
+// The image view used to display the favicon badge.
+@property(nonatomic, readonly, strong)
+    TableViewURLCellFaviconBadgeView* faviconBadgeView;
 
 // The cell title.
 @property(nonatomic, readonly, strong) UILabel* titleLabel;

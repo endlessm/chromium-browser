@@ -7,8 +7,8 @@ package org.chromium.chrome.browser;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.SystemClock;
+import android.support.annotation.IntDef;
 import android.view.ContextThemeWrapper;
 import android.view.InflateException;
 import android.view.LayoutInflater;
@@ -17,6 +17,7 @@ import android.view.ViewGroup;
 import android.view.ViewStub;
 import android.widget.FrameLayout;
 
+import org.chromium.base.AsyncTask;
 import org.chromium.base.Log;
 import org.chromium.base.StrictModeContext;
 import org.chromium.base.SysUtils;
@@ -32,6 +33,8 @@ import org.chromium.chrome.browser.widget.ControlContainer;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -55,15 +58,20 @@ public final class WarmupManager {
     static final String WEBCONTENTS_STATUS_HISTOGRAM = "CustomTabs.SpareWebContents.Status";
 
     // See CustomTabs.SpareWebContentsStatus histogram. Append-only.
-    @VisibleForTesting
-    static final int WEBCONTENTS_STATUS_CREATED = 0;
-    @VisibleForTesting
-    static final int WEBCONTENTS_STATUS_USED = 1;
-    @VisibleForTesting
-    static final int WEBCONTENTS_STATUS_KILLED = 2;
-    @VisibleForTesting
-    static final int WEBCONTENTS_STATUS_DESTROYED = 3;
-    private static final int WEBCONTENTS_STATUS_COUNT = 4;
+    @IntDef({WebContentsStatus.CREATED, WebContentsStatus.USED, WebContentsStatus.KILLED,
+            WebContentsStatus.DESTROYED})
+    @Retention(RetentionPolicy.SOURCE)
+    @interface WebContentsStatus {
+        @VisibleForTesting
+        int CREATED = 0;
+        @VisibleForTesting
+        int USED = 1;
+        @VisibleForTesting
+        int KILLED = 2;
+        @VisibleForTesting
+        int DESTROYED = 3;
+        int NUM_ENTRIES = 4;
+    }
 
     /**
      * Observes spare WebContents deaths. In case of death, records stats, and cleanup the objects.
@@ -74,7 +82,7 @@ public final class WarmupManager {
             long elapsed = SystemClock.elapsedRealtime() - mWebContentsCreationTimeMs;
             RecordHistogram.recordLongTimesHistogram(
                     "CustomTabs.SpareWebContents.TimeBeforeDeath", elapsed, TimeUnit.MILLISECONDS);
-            recordWebContentsStatus(WEBCONTENTS_STATUS_KILLED);
+            recordWebContentsStatus(WebContentsStatus.KILLED);
             destroySpareWebContentsInternal();
         }
     };
@@ -114,34 +122,55 @@ public final class WarmupManager {
      */
     public void initializeViewHierarchy(Context baseContext, int toolbarContainerId,
             int toolbarId) {
+        ThreadUtils.assertOnUiThread();
+        if (mMainView != null && mToolbarContainerId == toolbarContainerId) return;
+        mMainView = inflateViewHierarchy(baseContext, toolbarContainerId, toolbarId);
+        mToolbarContainerId = toolbarContainerId;
+    }
+
+    /**
+     * Inflates and constructs the view hierarchy that the app will use.
+     * Calls to this are not restricted to the UI thread.
+     * @param baseContext The base context to use for creating the ContextWrapper.
+     * @param toolbarContainerId Id of the toolbar container.
+     * @param toolbarId The toolbar's layout ID.
+     */
+    public static ViewGroup inflateViewHierarchy(
+            Context baseContext, int toolbarContainerId, int toolbarId) {
         // Inflating the view hierarchy causes StrictMode violations on some
         // devices. Since layout inflation should happen on the UI thread, allow
         // the disk reads. crbug.com/644243.
-        try (TraceEvent e = TraceEvent.scoped("WarmupManager.initializeViewHierarchy");
+        try (TraceEvent e = TraceEvent.scoped("WarmupManager.inflateViewHierarchy");
                 StrictModeContext c = StrictModeContext.allowDiskReads()) {
-            ThreadUtils.assertOnUiThread();
-            if (mMainView != null && mToolbarContainerId == toolbarContainerId) return;
             ContextThemeWrapper context =
                     new ContextThemeWrapper(baseContext, ChromeActivity.getThemeId());
             FrameLayout contentHolder = new FrameLayout(context);
-            mMainView = (ViewGroup) LayoutInflater.from(context).inflate(
-                    R.layout.main, contentHolder);
-            mToolbarContainerId = toolbarContainerId;
+            ViewGroup mainView =
+                    (ViewGroup) LayoutInflater.from(context).inflate(R.layout.main, contentHolder);
             if (toolbarContainerId != ChromeActivity.NO_CONTROL_CONTAINER) {
-                ViewStub stub = (ViewStub) mMainView.findViewById(R.id.control_container_stub);
+                ViewStub stub = (ViewStub) mainView.findViewById(R.id.control_container_stub);
                 stub.setLayoutResource(toolbarContainerId);
-                ControlContainer controlContainer = (ControlContainer) stub.inflate();
+                stub.inflate();
+            }
+            // It cannot be assumed that the result of toolbarContainerStub.inflate() will be
+            // the control container since it may be wrapped in another view.
+            ControlContainer controlContainer =
+                    (ControlContainer) mainView.findViewById(R.id.control_container);
+
+            if (toolbarId != ChromeActivity.NO_TOOLBAR_LAYOUT && controlContainer != null) {
                 controlContainer.initWithToolbar(toolbarId);
             }
+            return mainView;
         } catch (InflateException e) {
-            // See crbug.com/606715.
+            // See https://crbug.com/606715.
             Log.e(TAG, "Inflation exception.", e);
-            mMainView = null;
+            return null;
         }
     }
 
     /**
-     * Transfers all the children in the view hierarchy to the giving ViewGroup as child.
+     * Transfers all the children in the local view hierarchy {@link #mMainView} to the given
+     * ViewGroup {@param contentView} as child.
      * @param contentView The parent ViewGroup to use for the transfer.
      */
     public void transferViewHierarchyTo(ViewGroup contentView) {
@@ -149,10 +178,19 @@ public final class WarmupManager {
         ViewGroup viewHierarchy = mMainView;
         mMainView = null;
         if (viewHierarchy == null) return;
-        while (viewHierarchy.getChildCount() > 0) {
-            View currentChild = viewHierarchy.getChildAt(0);
-            viewHierarchy.removeView(currentChild);
-            contentView.addView(currentChild);
+        transferViewHeirarchy(viewHierarchy, contentView);
+    }
+
+    /**
+     * Transfers all the children in one view hierarchy {@param from} to another {@param to}.
+     * @param from The parent ViewGroup to transfer children from.
+     * @param to The parent ViewGroup to transfer children to.
+     */
+    public static void transferViewHeirarchy(ViewGroup from, ViewGroup to) {
+        while (from.getChildCount() > 0) {
+            View currentChild = from.getChildAt(0);
+            from.removeView(currentChild);
+            to.addView(currentChild);
         }
     }
 
@@ -280,7 +318,7 @@ public final class WarmupManager {
      */
     public void createSpareRenderProcessHost(Profile profile) {
         ThreadUtils.assertOnUiThread();
-        if (!LibraryLoader.isInitialized()) return;
+        if (!LibraryLoader.getInstance().isInitialized()) return;
         if (ChromeFeatureList.isEnabled(ChromeFeatureList.OMNIBOX_SPARE_RENDERER)) {
             // Spare WebContents should not be used with spare RenderProcessHosts, but if one
             // has been created, destroy it in order not to consume too many processes.
@@ -298,14 +336,16 @@ public final class WarmupManager {
      */
     public void createSpareWebContents() {
         ThreadUtils.assertOnUiThread();
-        if (!LibraryLoader.isInitialized()) return;
-        if (mSpareWebContents != null || SysUtils.isLowEndDevice()) return;
+        if (!LibraryLoader.getInstance().isInitialized() || mSpareWebContents != null
+                || SysUtils.isLowEndDevice()) {
+            return;
+        }
         mSpareWebContents = WebContentsFactory.createWebContentsWithWarmRenderer(
                 false /* incognito */, true /* initiallyHidden */);
         mObserver = new RenderProcessGoneObserver();
         mSpareWebContents.addObserver(mObserver);
         mWebContentsCreationTimeMs = SystemClock.elapsedRealtime();
-        recordWebContentsStatus(WEBCONTENTS_STATUS_CREATED);
+        recordWebContentsStatus(WebContentsStatus.CREATED);
     }
 
     /**
@@ -314,7 +354,7 @@ public final class WarmupManager {
     public void destroySpareWebContents() {
         ThreadUtils.assertOnUiThread();
         if (mSpareWebContents == null) return;
-        recordWebContentsStatus(WEBCONTENTS_STATUS_DESTROYED);
+        recordWebContentsStatus(WebContentsStatus.DESTROYED);
         destroySpareWebContentsInternal();
     }
 
@@ -334,7 +374,7 @@ public final class WarmupManager {
         result.removeObserver(mObserver);
         mObserver = null;
         if (!initiallyHidden) result.onShow();
-        recordWebContentsStatus(WEBCONTENTS_STATUS_USED);
+        recordWebContentsStatus(WebContentsStatus.USED);
         return result;
     }
 
@@ -352,9 +392,9 @@ public final class WarmupManager {
         mObserver = null;
     }
 
-    private static void recordWebContentsStatus(int status) {
+    private static void recordWebContentsStatus(@WebContentsStatus int status) {
         RecordHistogram.recordEnumeratedHistogram(
-                WEBCONTENTS_STATUS_HISTOGRAM, status, WEBCONTENTS_STATUS_COUNT);
+                WEBCONTENTS_STATUS_HISTOGRAM, status, WebContentsStatus.NUM_ENTRIES);
     }
 
     private static native void nativeStartPreconnectPredictorInitialization(Profile profile);

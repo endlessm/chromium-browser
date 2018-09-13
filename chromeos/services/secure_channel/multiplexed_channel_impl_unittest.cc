@@ -12,10 +12,10 @@
 
 #include "base/stl_util.h"
 #include "base/test/scoped_task_environment.h"
-#include "chromeos/services/secure_channel/client_connection_parameters.h"
 #include "chromeos/services/secure_channel/connection_details.h"
 #include "chromeos/services/secure_channel/connection_medium.h"
 #include "chromeos/services/secure_channel/fake_authenticated_channel.h"
+#include "chromeos/services/secure_channel/fake_client_connection_parameters.h"
 #include "chromeos/services/secure_channel/fake_connection_delegate.h"
 #include "chromeos/services/secure_channel/fake_multiplexed_channel.h"
 #include "chromeos/services/secure_channel/fake_single_client_message_proxy.h"
@@ -53,9 +53,10 @@ class FakeSingleClientMessageProxyImplFactory
  private:
   std::unique_ptr<SingleClientMessageProxy> BuildInstance(
       SingleClientMessageProxy::Delegate* delegate,
-      ClientConnectionParameters client_connection_parameters) override {
-    EXPECT_EQ(kTestFeature, client_connection_parameters.feature());
-    EXPECT_TRUE(client_connection_parameters.connection_delegate_ptr());
+      std::unique_ptr<ClientConnectionParameters> client_connection_parameters)
+      override {
+    EXPECT_EQ(kTestFeature, client_connection_parameters->feature());
+    EXPECT_TRUE(client_connection_parameters->IsClientWaitingForResponse());
 
     if (!expected_delegate_)
       expected_delegate_ = delegate;
@@ -106,11 +107,8 @@ class SecureChannelMultiplexedChannelImplTest : public testing::Test {
     fake_delegate_ = std::make_unique<FakeMultiplexedChannelDelegate>();
 
     // The default list contains one client.
-    initial_fake_connection_delegate_ =
-        std::make_unique<FakeConnectionDelegate>();
-    initial_client_list_.push_back(ClientConnectionParameters(
-        kTestFeature,
-        initial_fake_connection_delegate_->GenerateInterfacePtr()));
+    initial_client_list_.push_back(
+        std::make_unique<FakeClientConnectionParameters>(kTestFeature));
   }
 
   void TearDown() override {
@@ -252,16 +250,26 @@ class SecureChannelMultiplexedChannelImplTest : public testing::Test {
       EXPECT_TRUE(map_entry.second->was_remote_device_disconnection_handled());
   }
 
-  void AddClientToChannel(
-      const std::string& feature,
-      mojom::ConnectionDelegatePtr connection_delegate_ptr) {
-    bool success =
-        multiplexed_channel_->AddClientToChannel(ClientConnectionParameters(
-            feature, std::move(connection_delegate_ptr)));
+  void AddClientToChannel(const std::string& feature) {
+    bool success = multiplexed_channel_->AddClientToChannel(
+        std::make_unique<FakeClientConnectionParameters>(feature));
     EXPECT_TRUE(success);
   }
 
-  std::vector<ClientConnectionParameters>& initial_client_list() {
+  void CallGetConnectionMetadataFromDelegate(
+      FakeSingleClientMessageProxy* proxy) {
+    proxy->GetConnectionMetadataFromDelegate(base::BindOnce(
+        &SecureChannelMultiplexedChannelImplTest::OnGetConnectionMetadata,
+        base::Unretained(this)));
+  }
+
+  void OnGetConnectionMetadata(
+      mojom::ConnectionMetadataPtr connection_metadata) {
+    connection_metadata_ = std::move(connection_metadata);
+  }
+
+  std::vector<std::unique_ptr<ClientConnectionParameters>>&
+  initial_client_list() {
     return initial_client_list_;
   }
 
@@ -281,6 +289,8 @@ class SecureChannelMultiplexedChannelImplTest : public testing::Test {
     return fake_authenticated_channel_;
   }
 
+  mojom::ConnectionMetadataPtr connection_metadata_;
+
  private:
   void OnMessageSent(int message_counter) {
     sent_message_counters_.insert(message_counter);
@@ -293,8 +303,7 @@ class SecureChannelMultiplexedChannelImplTest : public testing::Test {
 
   std::unique_ptr<FakeSingleClientMessageProxyImplFactory> fake_proxy_factory_;
 
-  std::vector<ClientConnectionParameters> initial_client_list_;
-  std::unique_ptr<FakeConnectionDelegate> initial_fake_connection_delegate_;
+  std::vector<std::unique_ptr<ClientConnectionParameters>> initial_client_list_;
 
   FakeAuthenticatedChannel* fake_authenticated_channel_ = nullptr;
   std::unique_ptr<FakeMultiplexedChannelDelegate> fake_delegate_;
@@ -308,43 +317,46 @@ TEST_F(SecureChannelMultiplexedChannelImplTest, ConnectionMetadata) {
   CreateChannel();
   EXPECT_EQ(1u, id_to_active_proxy_map().size());
 
-  // Set connection metadata on |fake_authenticated_channel_|.
-  std::vector<mojom::ConnectionCreationDetail> details{
+  std::vector<mojom::ConnectionCreationDetail> creation_details{
       mojom::ConnectionCreationDetail::
           REMOTE_DEVICE_USED_BACKGROUND_BLE_ADVERTISING};
-  mojom::ConnectionMetadata connection_metadata(
-      details, mojom::ConnectionMetadata::kNoRssiAvailable);
-  fake_authenticated_channel()->set_connection_metadata(connection_metadata);
+
+  // Set connection metadata on |fake_authenticated_channel_|.
+  mojom::ConnectionMetadataPtr metadata = mojom::ConnectionMetadata::New(
+      creation_details,
+      mojom::BluetoothConnectionMetadata::New(-24 /* current_rssi */),
+      "channel_binding_data_1");
+  fake_authenticated_channel()->set_connection_metadata_for_next_call(
+      std::move(metadata));
 
   // Retrieving the metadata through the proxy should cause
   // |fake_authenticated_channel_|'s metadata to be passed through
   // |multiplexed_channel_|.
-  EXPECT_EQ(details, id_to_active_proxy_map()
-                         .begin()
-                         ->second->GetConnectionMetadataFromDelegate()
-                         .creation_details);
-  EXPECT_EQ(mojom::ConnectionMetadata::kNoRssiAvailable,
-            id_to_active_proxy_map()
-                .begin()
-                ->second->GetConnectionMetadataFromDelegate()
-                .rssi_rolling_average);
+  CallGetConnectionMetadataFromDelegate(
+      id_to_active_proxy_map().begin()->second);
+  EXPECT_EQ(creation_details, connection_metadata_->creation_details);
+  EXPECT_EQ(-24,
+            connection_metadata_->bluetooth_connection_metadata->current_rssi);
+  EXPECT_EQ("channel_binding_data_1",
+            connection_metadata_->channel_binding_data);
 
   // Now, change the values and set them on |fake_authenticated_channel_|.
-  connection_metadata.creation_details =
-      std::vector<mojom::ConnectionCreationDetail>();
-  connection_metadata.rssi_rolling_average = -5.5f;
-  fake_authenticated_channel()->set_connection_metadata(connection_metadata);
+  creation_details.clear();
+  metadata = mojom::ConnectionMetadata::New(
+      creation_details,
+      mojom::BluetoothConnectionMetadata::New(-8 /* current_rssi */),
+      "channel_binding_data_2");
+  fake_authenticated_channel()->set_connection_metadata_for_next_call(
+      std::move(metadata));
 
   // The new updates should be available.
-  EXPECT_EQ(std::vector<mojom::ConnectionCreationDetail>(),
-            id_to_active_proxy_map()
-                .begin()
-                ->second->GetConnectionMetadataFromDelegate()
-                .creation_details);
-  EXPECT_EQ(-5.5f, id_to_active_proxy_map()
-                       .begin()
-                       ->second->GetConnectionMetadataFromDelegate()
-                       .rssi_rolling_average);
+  CallGetConnectionMetadataFromDelegate(
+      id_to_active_proxy_map().begin()->second);
+  EXPECT_EQ(creation_details, connection_metadata_->creation_details);
+  EXPECT_EQ(-8,
+            connection_metadata_->bluetooth_connection_metadata->current_rssi);
+  EXPECT_EQ("channel_binding_data_2",
+            connection_metadata_->channel_binding_data);
 
   DisconnectClientAndVerifyState(id_to_active_proxy_map().begin()->second,
                                  true /* expected_to_be_last_client */);
@@ -392,10 +404,8 @@ TEST_F(SecureChannelMultiplexedChannelImplTest,
 TEST_F(SecureChannelMultiplexedChannelImplTest,
        TwoInitialClient_OneAdded_DisconnectFromClient) {
   // Add a second initial client.
-  std::unique_ptr<FakeConnectionDelegate> fake_connection_delegate_2 =
-      std::make_unique<FakeConnectionDelegate>();
-  initial_client_list().push_back(ClientConnectionParameters(
-      kTestFeature, fake_connection_delegate_2->GenerateInterfacePtr()));
+  initial_client_list().push_back(
+      std::make_unique<FakeClientConnectionParameters>(kTestFeature));
 
   CreateChannel();
   EXPECT_EQ(2u, id_to_active_proxy_map().size());
@@ -418,10 +428,7 @@ TEST_F(SecureChannelMultiplexedChannelImplTest,
   ReceiveMessageAndVerifyState("feature4", "payload4");
 
   // Create a third client and add it to the channel.
-  std::unique_ptr<FakeConnectionDelegate> fake_connection_delegate_3 =
-      std::make_unique<FakeConnectionDelegate>();
-  AddClientToChannel(kTestFeature,
-                     fake_connection_delegate_3->GenerateInterfacePtr());
+  AddClientToChannel(kTestFeature);
   EXPECT_EQ(3u, id_to_active_proxy_map().size());
 
   // Send a message from the third client.

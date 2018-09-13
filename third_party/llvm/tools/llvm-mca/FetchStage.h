@@ -34,9 +34,10 @@ public:
   FetchStage(const FetchStage &Other) = delete;
   FetchStage &operator=(const FetchStage &Other) = delete;
 
-  bool isReady() const override final;
+  bool hasWorkToComplete() const override final;
   bool execute(InstRef &IR) override final;
-  void postExecute(const InstRef &IR) override final;
+  void postExecute() override final;
+  void cycleEnd() override final;
 };
 
 } // namespace mca

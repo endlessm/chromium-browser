@@ -14,7 +14,6 @@ import org.chromium.chrome.browser.autofill.keyboard_accessory.KeyboardAccessory
 import org.chromium.chrome.browser.autofill.keyboard_accessory.KeyboardAccessoryModel.PropertyKey;
 import org.chromium.chrome.browser.modelutil.LazyViewBinderAdapter;
 import org.chromium.chrome.browser.modelutil.ListModelChangeProcessor;
-import org.chromium.chrome.browser.modelutil.RecyclerViewAdapter;
 import org.chromium.chrome.browser.modelutil.SimpleListObservable;
 import org.chromium.ui.widget.ButtonCompat;
 
@@ -25,33 +24,25 @@ import org.chromium.ui.widget.ButtonCompat;
 class KeyboardAccessoryViewBinder
         implements LazyViewBinderAdapter.SimpleViewBinder<KeyboardAccessoryModel,
                 KeyboardAccessoryView, PropertyKey> {
-    static class ActionViewBinder
-            implements RecyclerViewAdapter.ViewBinder<SimpleListObservable<Action>,
-                    ActionViewBinder.ViewHolder> {
-        static class ViewHolder extends RecyclerView.ViewHolder {
-            public ViewHolder(ButtonCompat actionView) {
-                super(actionView);
-            }
-
-            ButtonCompat getActionView() {
-                return (ButtonCompat) super.itemView;
-            }
+    static class ActionViewHolder extends RecyclerView.ViewHolder {
+        public ActionViewHolder(ButtonCompat actionView) {
+            super(actionView);
         }
 
-        @Override
-        public ActionViewBinder.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            return new ViewHolder(
+        public static ActionViewHolder create(ViewGroup parent, int viewType) {
+            assert viewType == 0;
+            return new ActionViewHolder(
                     (ButtonCompat) LayoutInflater.from(parent.getContext())
                             .inflate(R.layout.keyboard_accessory_action, parent, false));
         }
 
-        @Override
-        public void onBindViewHolder(
-                SimpleListObservable<Action> actions, ViewHolder holder, int position) {
-            final Action action = actions.get(position);
-            holder.getActionView().setText(action.getCaption());
-            holder.getActionView().setOnClickListener(
-                    view -> action.getDelegate().onActionTriggered(action));
+        public void bind(Action action) {
+            getActionView().setText(action.getCaption());
+            getActionView().setOnClickListener(view -> action.getCallback().onResult(action));
+        }
+
+        private ButtonCompat getActionView() {
+            return (ButtonCompat) super.itemView;
         }
     }
 
@@ -87,9 +78,10 @@ class KeyboardAccessoryViewBinder
 
         void updateAllTabs(KeyboardAccessoryView view, SimpleListObservable<Tab> model) {
             view.clearTabs();
-            for (int i = 0; i < model.getItemCount(); ++i) {
+            for (int i = 0; i < model.size(); ++i) {
                 Tab tab = model.get(i);
-                view.addTabAt(i, tab.getIcon(), tab.getContentDescription());
+                // Mutate tab icons so we can apply color filters.
+                view.addTabAt(i, tab.getIcon().mutate(), tab.getContentDescription());
             }
         }
     }
@@ -121,6 +113,16 @@ class KeyboardAccessoryViewBinder
             KeyboardAccessoryModel model, KeyboardAccessoryView view, PropertyKey propertyKey) {
         if (propertyKey == PropertyKey.VISIBLE) {
             view.setVisible(model.isVisible());
+            return;
+        }
+        if (propertyKey == PropertyKey.ACTIVE_TAB) {
+            view.setActiveTabColor(model.activeTab());
+            return;
+        }
+        if (propertyKey == PropertyKey.TAB_SELECTION_CALLBACKS) {
+            // Don't add null as listener. It's a valid state but an invalid argument.
+            if (model.getTabSelectionCallbacks() == null) return;
+            view.setTabSelectionAdapter(model.getTabSelectionCallbacks());
             return;
         }
         if (propertyKey == PropertyKey.SUGGESTIONS) {

@@ -11,11 +11,11 @@
 // file does not yet support:
 //   - C++ modules TS
 
+#include "Compiler.h"
+#include "StringView.h"
+#include "Utility.h"
 #include "llvm/Demangle/Demangle.h"
 
-#include "llvm/Demangle/Compiler.h"
-
-#include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <cstdio>
@@ -24,134 +24,9 @@
 #include <numeric>
 #include <vector>
 
-#ifdef _MSC_VER
-// snprintf is implemented in VS 2015
-#if _MSC_VER < 1900
-#define snprintf _snprintf_s
-#endif
-#endif
 
 namespace {
 
-class StringView {
-  const char *First;
-  const char *Last;
-
-public:
-  template <size_t N>
-  StringView(const char (&Str)[N]) : First(Str), Last(Str + N - 1) {}
-  StringView(const char *First_, const char *Last_) : First(First_), Last(Last_) {}
-  StringView() : First(nullptr), Last(nullptr) {}
-
-  StringView substr(size_t From, size_t To) {
-    if (To >= size())
-      To = size() - 1;
-    if (From >= size())
-      From = size() - 1;
-    return StringView(First + From, First + To);
-  }
-
-  StringView dropFront(size_t N) const {
-    if (N >= size())
-      N = size() - 1;
-    return StringView(First + N, Last);
-  }
-
-  bool startsWith(StringView Str) const {
-    if (Str.size() > size())
-      return false;
-    return std::equal(Str.begin(), Str.end(), begin());
-  }
-
-  const char &operator[](size_t Idx) const { return *(begin() + Idx); }
-
-  const char *begin() const { return First; }
-  const char *end() const { return Last; }
-  size_t size() const { return static_cast<size_t>(Last - First); }
-  bool empty() const { return First == Last; }
-};
-
-bool operator==(const StringView &LHS, const StringView &RHS) {
-  return LHS.size() == RHS.size() &&
-         std::equal(LHS.begin(), LHS.end(), RHS.begin());
-}
-
-// Stream that AST nodes write their string representation into after the AST
-// has been parsed.
-class OutputStream {
-  char *Buffer;
-  size_t CurrentPosition;
-  size_t BufferCapacity;
-
-  // Ensure there is at least n more positions in buffer.
-  void grow(size_t N) {
-    if (N + CurrentPosition >= BufferCapacity) {
-      BufferCapacity *= 2;
-      if (BufferCapacity < N + CurrentPosition)
-        BufferCapacity = N + CurrentPosition;
-      Buffer = static_cast<char *>(std::realloc(Buffer, BufferCapacity));
-    }
-  }
-
-public:
-  OutputStream(char *StartBuf, size_t Size)
-      : Buffer(StartBuf), CurrentPosition(0), BufferCapacity(Size) {}
-  OutputStream() = default;
-  void reset(char *Buffer_, size_t BufferCapacity_) {
-    CurrentPosition = 0;
-    Buffer = Buffer_;
-    BufferCapacity = BufferCapacity_;
-  }
-
-  /// If a ParameterPackExpansion (or similar type) is encountered, the offset
-  /// into the pack that we're currently printing.
-  unsigned CurrentPackIndex = std::numeric_limits<unsigned>::max();
-  unsigned CurrentPackMax = std::numeric_limits<unsigned>::max();
-
-  OutputStream &operator+=(StringView R) {
-    size_t Size = R.size();
-    if (Size == 0)
-      return *this;
-    grow(Size);
-    memmove(Buffer + CurrentPosition, R.begin(), Size);
-    CurrentPosition += Size;
-    return *this;
-  }
-
-  OutputStream &operator+=(char C) {
-    grow(1);
-    Buffer[CurrentPosition++] = C;
-    return *this;
-  }
-
-  size_t getCurrentPosition() const { return CurrentPosition; }
-  void setCurrentPosition(size_t NewPos) { CurrentPosition = NewPos; }
-
-  char back() const {
-    return CurrentPosition ? Buffer[CurrentPosition - 1] : '\0';
-  }
-
-  bool empty() const { return CurrentPosition == 0; }
-
-  char *getBuffer() { return Buffer; }
-  char *getBufferEnd() { return Buffer + CurrentPosition - 1; }
-  size_t getBufferCapacity() { return BufferCapacity; }
-};
-
-template <class T>
-class SwapAndRestore {
-  T &Restore;
-  T OriginalValue;
-public:
-  SwapAndRestore(T& Restore_, T NewVal)
-      : Restore(Restore_), OriginalValue(Restore) {
-    Restore = std::move(NewVal);
-  }
-  ~SwapAndRestore() { Restore = std::move(OriginalValue); }
-
-  SwapAndRestore(const SwapAndRestore &) = delete;
-  SwapAndRestore &operator=(const SwapAndRestore &) = delete;
-};
 
 // Base class of all AST nodes. The AST is built by the parser, then is
 // traversed by the printLeft/Right functions to produce a demangled string.
@@ -264,7 +139,7 @@ public:
   // Print the "right". This distinction is necessary to represent C++ types
   // that appear on the RHS of their subtype, such as arrays or functions.
   // Since most types don't have such a component, provide a default
-  // implemenation.
+  // implementation.
   virtual void printRight(OutputStream &) const {}
 
   virtual StringView getBaseName() const { return StringView(); }
@@ -740,7 +615,7 @@ public:
   bool hasRHSComponentSlow(OutputStream &) const override { return true; }
   bool hasFunctionSlow(OutputStream &) const override { return true; }
 
-  // Handle C++'s ... quirky decl grammer by using the left & right
+  // Handle C++'s ... quirky decl grammar by using the left & right
   // distinction. Consider:
   //   int (*f(float))(char) {}
   // f is a function that takes a float and returns a pointer to a function
@@ -1049,7 +924,7 @@ public:
   }
 };
 
-/// A variadic template argument. This node represents an occurance of
+/// A variadic template argument. This node represents an occurrence of
 /// J<something>E in some <template-args>. It isn't itself unexpanded, unless
 /// one of it's Elements is. The parser inserts a ParameterPack into the
 /// TemplateParams table if the <template-args> this pack belongs to apply to an
@@ -1882,7 +1757,7 @@ class BumpPointerAllocator {
   static constexpr size_t AllocSize = 4096;
   static constexpr size_t UsableAllocSize = AllocSize - sizeof(BlockMeta);
 
-  alignas(16) char InitialBuffer[AllocSize];
+  alignas(long double) char InitialBuffer[AllocSize];
   BlockMeta* BlockList = nullptr;
 
   void grow() {
@@ -2045,7 +1920,7 @@ struct Db {
   const char *Last;
 
   // Name stack, this is used by the parser to hold temporary names that were
-  // parsed. The parser colapses multiple names into new nodes to construct
+  // parsed. The parser collapses multiple names into new nodes to construct
   // the AST. Once the parser is finished, names.size() == 1.
   PODSmallVector<Node *, 32> Names;
 
@@ -2919,7 +2794,7 @@ Node *Db::parseBaseUnresolvedName() {
 // <unresolved-name>
 //  extension        ::= srN <unresolved-type> [<template-args>] <unresolved-qualifier-level>* E <base-unresolved-name>
 //                   ::= [gs] <base-unresolved-name>                     # x or (with "gs") ::x
-//                   ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>  
+//                   ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
 //                                                                       # A::x, N::y, A<T>::z; "gs" means leading "::"
 //                   ::= sr <unresolved-type> <base-unresolved-name>     # T::x / decltype(p)::x
 //  extension        ::= sr <unresolved-type> <template-args> <base-unresolved-name>
@@ -2969,7 +2844,7 @@ Node *Db::parseUnresolvedName() {
     return SoFar;
   }
 
-  // [gs] sr <unresolved-qualifier-level>+ E   <base-unresolved-name>  
+  // [gs] sr <unresolved-qualifier-level>+ E   <base-unresolved-name>
   if (std::isdigit(look())) {
     do {
       Node *Qual = parseSimpleId();
@@ -5050,32 +4925,24 @@ bool initializeOutputStream(char *Buf, size_t *N, OutputStream &S,
 
 }  // unnamed namespace
 
-enum {
-  unknown_error = -4,
-  invalid_args = -3,
-  invalid_mangled_name = -2,
-  memory_alloc_failure = -1,
-  success = 0,
-};
-
 char *llvm::itaniumDemangle(const char *MangledName, char *Buf,
                             size_t *N, int *Status) {
   if (MangledName == nullptr || (Buf != nullptr && N == nullptr)) {
     if (Status)
-      *Status = invalid_args;
+      *Status = demangle_invalid_args;
     return nullptr;
   }
 
-  int InternalStatus = success;
+  int InternalStatus = demangle_success;
   Db Parser(MangledName, MangledName + std::strlen(MangledName));
   OutputStream S;
 
   Node *AST = Parser.parse();
 
   if (AST == nullptr)
-    InternalStatus = invalid_mangled_name;
+    InternalStatus = demangle_invalid_mangled_name;
   else if (initializeOutputStream(Buf, N, S, 1024))
-    InternalStatus = memory_alloc_failure;
+    InternalStatus = demangle_memory_alloc_failure;
   else {
     assert(Parser.ForwardTemplateRefs.empty());
     AST->print(S);
@@ -5087,7 +4954,7 @@ char *llvm::itaniumDemangle(const char *MangledName, char *Buf,
 
   if (Status)
     *Status = InternalStatus;
-  return InternalStatus == success ? Buf : nullptr;
+  return InternalStatus == demangle_success ? Buf : nullptr;
 }
 
 namespace llvm {
@@ -5262,6 +5129,38 @@ bool ItaniumPartialDemangler::hasFunctionQualifiers() const {
     return false;
   auto *E = static_cast<FunctionEncoding *>(RootNode);
   return E->getCVQuals() != QualNone || E->getRefQual() != FrefQualNone;
+}
+
+bool ItaniumPartialDemangler::isCtorOrDtor() const {
+  Node *N = static_cast<Node *>(RootNode);
+  while (N) {
+    switch (N->getKind()) {
+    default:
+      return false;
+    case Node::KCtorDtorName:
+      return true;
+
+    case Node::KAbiTagAttr:
+      N = static_cast<AbiTagAttr *>(N)->Base;
+      break;
+    case Node::KFunctionEncoding:
+      N = static_cast<FunctionEncoding *>(N)->getName();
+      break;
+    case Node::KLocalName:
+      N = static_cast<LocalName *>(N)->Entity;
+      break;
+    case Node::KNameWithTemplateArgs:
+      N = static_cast<NameWithTemplateArgs *>(N)->Name;
+      break;
+    case Node::KNestedName:
+      N = static_cast<NestedName *>(N)->Name;
+      break;
+    case Node::KStdQualifiedName:
+      N = static_cast<StdQualifiedName *>(N)->Child;
+      break;
+    }
+  }
+  return false;
 }
 
 bool ItaniumPartialDemangler::isFunction() const {

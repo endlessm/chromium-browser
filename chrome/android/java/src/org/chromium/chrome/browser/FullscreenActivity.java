@@ -21,7 +21,7 @@ import org.chromium.chrome.browser.fullscreen.FullscreenOptions;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.chrome.browser.widget.ControlContainer;
-import org.chromium.content.browser.ScreenOrientationProvider;
+import org.chromium.content_public.browser.ScreenOrientationProvider;
 import org.chromium.content_public.browser.WebContentsObserver;
 
 /**
@@ -97,8 +97,8 @@ public class FullscreenActivity extends SingleTabActivity {
     protected ChromeFullscreenManager createFullscreenManager() {
         // Create a Fullscreen manager that won't change the Tab's fullscreen state when the
         // Activity ends - we handle leaving fullscreen ourselves.
-        return new ChromeFullscreenManager(this,
-                ChromeFullscreenManager.CONTROLS_POSITION_NONE, false);
+        return new ChromeFullscreenManager(
+                this, ChromeFullscreenManager.ControlsPosition.NONE, false);
     }
 
     @Override

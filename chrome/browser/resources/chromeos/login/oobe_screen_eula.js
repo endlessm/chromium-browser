@@ -149,43 +149,13 @@ login.createScreen('EulaScreen', 'eula', function() {
   PendingLoad.ATTACHED_PROPERTY_NAME = 'pendingLoad';
 
   return {
-    /**
-     * Tracks OEM Eula url so that it could be properly reloaded.
-     * @type {?string}
-     */
-    oemEulaUrl_: null,
-
     /** @override */
     decorate: function() {
-      $('eula-chrome-credits-link').hidden = true;
-      $('eula-chromeos-credits-link').hidden = true;
-      $('stats-help-link').addEventListener('click', function(event) {
-        chrome.send('eulaOnLearnMore');
-      });
-      $('installation-settings-link')
-          .addEventListener('click', function(event) {
-            chrome.send('eulaOnInstallationSettingsPopupOpened');
-            $('popup-overlay').hidden = false;
-            $('installation-settings-ok-button').focus();
-          });
-      $('installation-settings-ok-button')
-          .addEventListener('click', function(event) {
-            $('popup-overlay').hidden = true;
-          });
-
-      $('cros-eula-frame')
-          .addEventListener('contentload', this.onFrameLoad.bind(this));
-
-      var self = this;
-      $('usage-stats').addEventListener('click', function(event) {
-        self.onUsageStatsClicked_($('usage-stats').checked);
-        event.stopPropagation();
-      });
       $('oobe-eula-md').screen = this;
     },
 
     /**
-     * Event handler for $('usage-stats') click event.
+     * Called from $('oobe-eula-md') onUsageChanged handler.
      * @param {boolean} value $('usage-stats').checked value.
      */
     onUsageStatsClicked_: function(value) {
@@ -197,14 +167,7 @@ login.createScreen('EulaScreen', 'eula', function() {
      * Event handler that is invoked when 'chrome://terms' is loaded.
      */
     onFrameLoad: function() {
-      $('accept-button').disabled = false;
       $('eula').classList.remove('eula-loading');
-      // Initially, the back button is focused and the accept button is
-      // disabled.
-      // Move the focus to the accept button now but only if the user has not
-      // moved the focus anywhere in the meantime.
-      if (!$('back-button').blurred)
-        $('accept-button').focus();
     },
 
     /**
@@ -213,7 +176,6 @@ login.createScreen('EulaScreen', 'eula', function() {
      */
     onBeforeShow: function() {
       $('eula').classList.add('eula-loading');
-      $('accept-button').disabled = true;
       this.updateLocalizedContent();
     },
 
@@ -226,93 +188,20 @@ login.createScreen('EulaScreen', 'eula', function() {
     },
 
     /**
-     * Buttons in oobe wizard's button strip.
-     * @type {Array} Array of Buttons.
-     */
-    get buttons() {
-      var buttons = [];
-
-      var backButton = this.declareButton('back-button');
-      backButton.textContent = loadTimeData.getString('back');
-      buttons.push(backButton);
-
-      var acceptButton = this.declareButton('accept-button');
-      acceptButton.disabled = true;
-      acceptButton.classList.add('preserve-disabled-state');
-      acceptButton.textContent = loadTimeData.getString('acceptAgreement');
-      acceptButton.addEventListener('click', function(e) {
-        $('eula').classList.add('loading');  // Mark EULA screen busy.
-        Oobe.clearErrors();
-        e.stopPropagation();
-      });
-      buttons.push(acceptButton);
-
-      return buttons;
-    },
-
-    /**
      * Returns a control which should receive an initial focus.
      */
     get defaultControl() {
-      if (loadTimeData.getString('newOobeUI') == 'on')
-        return $('oobe-eula-md');
-
-      return $('accept-button').disabled ? $('back-button') :
-                                           $('accept-button');
+      return $('oobe-eula-md');
     },
 
-    enableKeyboardFlow: function() {
-      $('eula-chrome-credits-link').hidden = false;
-      $('eula-chromeos-credits-link').hidden = false;
-      $('eula-chrome-credits-link').addEventListener('click', function(event) {
-        chrome.send('eulaOnChromeCredits');
-      });
-      $('eula-chromeos-credits-link')
-          .addEventListener('click', function(event) {
-            chrome.send('eulaOnChromeOSCredits');
-          });
-    },
-
-    /**
-     * This method takes care of switching to material-design OOBE.
-     * @private
-     */
-    setMDMode_: function() {
-      var useMDOobe = (loadTimeData.getString('newOobeUI') == 'on');
-      $('oobe-eula-md').hidden = !useMDOobe;
-      $('oobe-eula').hidden = useMDOobe;
-    },
+    enableKeyboardFlow: function() {},
 
     /**
      * Updates localized content of the screen that is not updated via template.
      */
     updateLocalizedContent: function() {
-      this.setMDMode_();
-
       // Reload the terms contents.
-      if (!$('oobe-eula-md').hidden)
-        $('oobe-eula-md').updateLocalizedContent();
-
-      if (!$('oobe-eula').hidden) {
-        this.loadEulaToWebview_($('cros-eula-frame'));
-        if (this.oemEulaUrl_)
-          loadUrlToWebview($('oem-eula-frame'), this.oemEulaUrl_);
-      }
-    },
-
-    /**
-     * Sets url for OEM Eula. Oem Eula UI is hidden if the url is null or empty.
-     * @param {?string} oemEulaUrl The URL for OEM Eula.
-     */
-    setOemEulaUrl: function(oemEulaUrl) {
-      this.oemEulaUrl_ = oemEulaUrl;
-
-      if (this.oemEulaUrl_) {
-        loadUrlToWebview($('oem-eula-frame'), this.oemEulaUrl_);
-        $('eulas').classList.remove('one-column');
-      } else {
-        $('eulas').classList.add('one-column');
-      }
+      $('oobe-eula-md').updateLocalizedContent();
     },
 
     /**
@@ -320,18 +209,7 @@ login.createScreen('EulaScreen', 'eula', function() {
      * @param {text} password TPM password to be shown.
      */
     setTpmPassword: function(password) {
-      if (loadTimeData.getString('newOobeUI') == 'on') {
-        $('oobe-eula-md').password = password;
-      } else {
-        $('tpm-busy').hidden = true;
-        if (password.length) {
-          $('tpm-password').textContent = password;
-          $('tpm-password').hidden = false;
-        } else {
-          $('tpm-desc').hidden = true;
-          $('tpm-desc-powerwash').hidden = false;
-        }
-      }
+      $('oobe-eula-md').password = password;
     },
 
     /**
@@ -389,11 +267,7 @@ login.createScreen('EulaScreen', 'eula', function() {
      * Called when focus is returned.
      */
     onFocusReturned: function() {
-      if ($('oobe-eula') && !$('oobe-eula').hidden) {
-        $('oobe-eula').focus();
-      } else if ($('oobe-eula-md') && !$('oobe-eula-md').hidden) {
-        $('oobe-eula-md').focus();
-      }
+      $('oobe-eula-md').focus();
     },
   };
 });

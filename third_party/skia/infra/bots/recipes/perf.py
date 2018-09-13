@@ -11,7 +11,6 @@ import os
 
 
 DEPS = [
-  'core',
   'env',
   'flavor',
   'recipe_engine/file',
@@ -61,12 +60,14 @@ def nanobench_flags(api, bot):
     args.append('--nogpu')
     configs.extend(['8888', 'nonrendering'])
 
-    if '-arm-' not in bot:
-      # For Android CPU tests, these take too long and cause the task to time
-      # out.
-      configs += [ 'f16', 'srgb' ]
     if '-GCE-' in bot:
-      configs += [ '565' ]
+      configs += [
+          'f16',
+          'srgb',
+          'esrgb',
+          'narrow',
+          'enarrow',
+      ]
 
   elif api.vars.builder_cfg.get('cpu_or_gpu') == 'GPU':
     args.append('--nocpu')
@@ -105,22 +106,10 @@ def nanobench_flags(api, bot):
     if 'Intel' in bot and api.vars.is_linux:
       configs.extend(['gles', 'glessrgb'])
 
-    # The following devices do not support glessrgb.
-    if 'glessrgb' in configs:
-      if ('IntelHD405'    in bot or
-          'IntelIris640'  in bot or
-          'IntelBayTrail' in bot or
-          'IntelHD2000'   in bot or
-          'AndroidOne'    in bot or
-          'Nexus7'        in bot or
-          'NexusPlayer'   in bot):
-        configs.remove('glessrgb')
-
     if 'CommandBuffer' in bot:
       configs = ['commandbuffer']
     if 'Vulkan' in bot:
-      # skbug.com/7961
-      configs = ['vk' if not 'MoltenVK' in bot else 'vknostencils']
+      configs = ['vk']
 
     if 'ANGLE' in bot:
       # Test only ANGLE configs.
@@ -140,9 +129,9 @@ def nanobench_flags(api, bot):
   args.append('--config')
   args.extend(configs)
 
-  # By default, we test with GPU threading enabled. Leave PixelC devices
-  # running without threads, just to get some coverage of that code path.
-  if 'PixelC' in bot:
+  # By default, we test with GPU threading enabled, unless specifically
+  # disabled.
+  if 'NoGPUThreads' in bot:
     args.extend(['--gpuThreads', '0'])
 
   if 'Valgrind' in bot:
@@ -343,7 +332,7 @@ def perf_steps(api):
   if upload_perf_results(b):
     api.file.ensure_directory(
         'makedirs perf_dir',
-        api.path.dirname(api.flavor.host_dirs.perf_data_dir))
+        api.flavor.host_dirs.perf_data_dir)
     api.flavor.copy_directory_contents_to_host(
         api.flavor.device_dirs.perf_data_dir,
         api.flavor.host_dirs.perf_data_dir)
@@ -372,11 +361,12 @@ def RunSteps(api):
 
 TEST_BUILDERS = [
   'Perf-Android-Clang-Nexus5-GPU-Adreno330-arm-Debug-All-Android',
+  ('Perf-Android-Clang-Nexus5x-GPU-Adreno418-arm64-Release-All-'
+   'Android_NoGPUThreads'),
   'Perf-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Release-All-Android_Vulkan',
-  'Perf-Android-Clang-PixelC-GPU-TegraX1-arm64-Release-All-Android_Skpbench',
   'Perf-ChromeOS-Clang-ASUSChromebookFlipC100-GPU-MaliT764-arm-Release-All',
-  'Perf-Chromecast-GCC-Chorizo-CPU-Cortex_A7-arm-Debug-All',
-  'Perf-Chromecast-GCC-Chorizo-GPU-Cortex_A7-arm-Release-All',
+  'Perf-Chromecast-Clang-Chorizo-CPU-Cortex_A7-arm-Debug-All',
+  'Perf-Chromecast-Clang-Chorizo-GPU-Cortex_A7-arm-Release-All',
   'Perf-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-All-ASAN',
   'Perf-Debian9-Clang-NUC5PPYH-GPU-IntelHD405-x86_64-Debug-All-Vulkan',
   'Perf-Debian9-Clang-NUC7i5BNK-GPU-IntelIris640-x86_64-Release-All',

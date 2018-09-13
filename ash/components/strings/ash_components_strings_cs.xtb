@@ -5,6 +5,7 @@
 <translation id="1122869341872663659">Zobrazují se výsledky vyhledávání (<ph name="N" />) na téma <ph name="QUERY" /></translation>
 <translation id="1195667586424773550">Přetáhněte odkaz na adresní řádek na kartě</translation>
 <translation id="1204450209689312104">Otevřít nové okno v anonymním režimu</translation>
+<translation id="1251638888133819822">Zapnout nebo vypnout lupu celé obrazovky</translation>
 <translation id="1290373024480130896"><ph name="MODIFIER1" /><ph name="SEPARATOR1" /><ph name="MODIFIER2" /><ph name="SEPARATOR2" /><ph name="MODIFIER3" /><ph name="SEPARATOR3" /><ph name="KEY" /></translation>
 <translation id="1293699935367580298">Klávesa Esc</translation>
 <translation id="1299858300159559687">Vytisknout aktuální stránku</translation>
@@ -35,10 +36,11 @@
 <translation id="2397416548179033562">Zobrazit nabídku Chrome</translation>
 <translation id="2424073332829844142">Zapnout nebo vypnout režim Caps Lock</translation>
 <translation id="2441202986792279177">Rychle přepnout mezi okny</translation>
+<translation id="2454251766545114447">Oddálit zobrazení</translation>
 <translation id="2478303094958140141">Zapnout nebo vypnout ChromeVox (hlasovou zpětnou vazbu)</translation>
 <translation id="2515586267016047495">Alt</translation>
 <translation id="2530339807289914946">Posunout webovou stránku dolů</translation>
-<translation id="2568632782096378307">Obnovit výchozí rozlišení obrazovky</translation>
+<translation id="2574014812750545982">Resetovat úroveň přiblížení na stránce</translation>
 <translation id="2596078834055697711">Pořídit snímek obrazovky okna</translation>
 <translation id="2685170433750953446"><ph name="SHIFT" /><ph name="SEPARATOR1" /><ph name="ALT" /><ph name="SEPARATOR2" /><ph name="L" /> a poté <ph name="TAB" /> nebo <ph name="RIGHT" /></translation>
 <translation id="2687057317448262550">Přepnout na metodu zadávání dalšího jazyka</translation>
@@ -48,6 +50,7 @@
 <translation id="2789868185375229787">Oddálit stránku</translation>
 <translation id="2804480015716812239">Stiskněte klávesu <ph name="ALT" /> a klikněte na odkaz</translation>
 <translation id="2830827904629746450">Ukotvit okno vpravo</translation>
+<translation id="2840766858109427815">Přejít na další stránku</translation>
 <translation id="2872353916818027657">Změnit primární monitor</translation>
 <translation id="2914313326123580426">Zobrazit nebo skrýt panel Nástroje pro vývojáře</translation>
 <translation id="292495055542441795">Přepnout zobrazení na celou obrazovku</translation>
@@ -62,9 +65,9 @@
 <translation id="3407560819924487926">Otevřít správce úloh</translation>
 <translation id="3422679037938588196">Přejít na předchozí výskyt hledaného výrazu</translation>
 <translation id="344577624355799426"><ph name="ALT" /> nebo <ph name="SEARCH" /><ph name="SEPARATOR" /><ph name="DOWN" /></translation>
-<translation id="346243998268439747">Resetovat úroveň přiblížení</translation>
 <translation id="353037708190149633">Uložit všechny otevřené stránky v aktuálním okně jako záložky do nové složky</translation>
 <translation id="355103131818127604">Otevřít odkaz na nové kartě na pozadí</translation>
+<translation id="3622741593887335780">Přiblížit (když je zapnutá zadokovaná lupa nebo lupa celé obrazovky)</translation>
 <translation id="3649256019230929621">Minimalizovat okno</translation>
 <translation id="3655154169297074232">Karty a okna</translation>
 <translation id="3668361878347172356">Zopakovat poslední akci</translation>
@@ -76,6 +79,7 @@
 <translation id="379295446891231126"><ph name="CTRL" /><ph name="SEPARATOR" /> 1 až 8</translation>
 <translation id="3837047332182291558">Zvýšit jas klávesnice (pouze u podsvícených klávesnic)</translation>
 <translation id="3976863468609830880">Kliknout na poslední ikonu na poličce</translation>
+<translation id="3994783594793697310">Resetovat úroveň přiblížení zobrazení</translation>
 <translation id="4026843240379844265">Přesunout aktivní okno mezi obrazovkami</translation>
 <translation id="4035482366624727273">Vybrat veškerý obsah stránky</translation>
 <translation id="4060703249685950734">Znovu otevřít naposledy zavřenou kartu</translation>
@@ -86,6 +90,7 @@
 <translation id="4141203561740478845">Zvýraznit adresní řádek</translation>
 <translation id="4148761611071495477"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="G" /> nebo <ph name="ENTER" /></translation>
 <translation id="4240486403425279990">Režim přehledu</translation>
+<translation id="4382340674111381977">Vrátit se na předchozí stránku</translation>
 <translation id="4472417192667361414">Nastavení systému a zobrazení</translation>
 <translation id="4556221320735744018">Zobrazit nápovědu ke klávesovým zkratkám</translation>
 <translation id="4628718545549558538">Otevřít stavovou oblast (kde se zobrazuje obrázek účtu)</translation>
@@ -102,6 +107,7 @@
 <translation id="5236674127086649162">Znovu načíst aktuální stránku bez použití obsahu z mezipaměti</translation>
 <translation id="526651782186312376">Vybrat text k začátku řádku</translation>
 <translation id="5316716239522500219">Zrcadlit monitory</translation>
+<translation id="539072479502328326">Zapnout nebo vypnout zadokovanou lupu</translation>
 <translation id="5487187679583934283">Zahájí nebo zastaví psaní hlasově zadávaného textu</translation>
 <translation id="5541719484267030947">Při přetahování karty stiskněte <ph name="ESC" /></translation>
 <translation id="5554139136362089836">Vyhledávat na aktuální stránce</translation>
@@ -113,7 +119,6 @@
 <translation id="587531134027443617">Vymazat předchozí slovo</translation>
 <translation id="5899919361772749550">Zobrazit nebo skrýt panel Nástroje pro vývojáře</translation>
 <translation id="5921745308587794300">Otočit okno</translation>
-<translation id="5975083100439434680">Oddálit</translation>
 <translation id="6022924867608035986">Vymazat text z vyhledávacího pole</translation>
 <translation id="6045998054441862242">Zapnout režim vysokého kontrastu</translation>
 <translation id="6052614013050385269">Kliknout na odkaz pravým tlačítkem</translation>
@@ -123,14 +128,15 @@
 <translation id="6185696379715117369">O stránku nahoru</translation>
 <translation id="6228457605945141550">Snížit jas</translation>
 <translation id="6276708887952587684">Zobrazit zdrojový kód stránky</translation>
-<translation id="6296325018964936845">Zapnout nebo vypnout lupu celé obrazovky</translation>
 <translation id="6321940490215594447">Otevřít stránku Historie</translation>
+<translation id="6340769215862220182">Přiblížit zobrazení</translation>
 <translation id="6359811074279051077"><ph name="MODIFIER" /><ph name="SEPARATOR" /><ph name="KEY" /></translation>
 <translation id="6395172954772765143">Vybrat text až do konce řádku</translation>
 <translation id="6419237577786823024"><ph name="CTRL1" /><ph name="SEPARATOR1" /><ph name="LEFT" /> nebo <ph name="CTRL2" /><ph name="SEPARATOR2" /><ph name="RIGHT" /></translation>
 <translation id="6425378783626925378">Kliknout na položky 1–8 na poličce</translation>
 <translation id="6435207348963613811">Zvýraznit předchozí položku na poličce</translation>
 <translation id="6445033640292336367">Vrátit kartu na původní pozici</translation>
+<translation id="6474744297082284761">Oddálit (když je zapnutá zadokovaná lupa nebo lupa celé obrazovky)</translation>
 <translation id="649811797655257835">Vyberte soubor a stiskněte <ph name="SPACE" /></translation>
 <translation id="6556040137485212400">Otevřít okno, které nebylo nejdéle používáno</translation>
 <translation id="666343722268997814">Otevřít pro zvýrazněnou položku kontextovou nabídku</translation>
@@ -160,7 +166,6 @@
 <translation id="7787242579016742662">Otevřít soubor v prohlížeči</translation>
 <translation id="7917881398263220094">Zastavit načítání aktuální stránky.</translation>
 <translation id="7952165122793773711">Přejít na karty 1 až 8</translation>
-<translation id="8025696740288105292"><ph name="CTRL" /><ph name="SEPARATOR1" /><ph name="SHIFT" /><ph name="SEPARATOR2" /><ph name="PLUS" /> nebo <ph name="MINUS" /></translation>
 <translation id="8026334261755873520">Vymazat údaje o prohlížení</translation>
 <translation id="8130528849632411619">Přejít na začátek dokumentu</translation>
 <translation id="8147954207400281792"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="K" /> nebo <ph name="E" /></translation>
@@ -174,15 +179,12 @@
 <translation id="8537650670971624753">Opustit režim vyhledávání</translation>
 <translation id="85690795166292698">Otevřít odkaz na nové kartě</translation>
 <translation id="8609384513243082612">Otevřít novou kartu</translation>
-<translation id="8642453848560580159">Zapnout nebo vypnout zadokovanou lupu</translation>
 <translation id="8644639153978066712">Zobrazit v aplikaci Soubory skryté soubory</translation>
 <translation id="8717459106217102612">Vybrat předchozí slovo nebo písmeno.</translation>
 <translation id="8727232706774971183">Zobrazit oznámení</translation>
 <translation id="8855885154700222542">Tlačítko celé obrazovky</translation>
 <translation id="88986195241502842">O stránku dolů</translation>
-<translation id="8903921497873541725">Přiblížit</translation>
 <translation id="8924883688469390268">Přepnout na předchozího uživatele</translation>
-<translation id="8951768610999698672">Zvětšit nebo zmenšit položky na obrazovce</translation>
 <translation id="8977648847395357314">Vybrat obsah adresního řádku</translation>
 <translation id="8982190978301344584">Zobrazit nabídku se seznamem dostupných editorů IME</translation>
 <translation id="8990356943438003669"><ph name="ALT" /><ph name="SEPARATOR" /> 1 až 8</translation>

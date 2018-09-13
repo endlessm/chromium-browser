@@ -96,6 +96,11 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
 
   [ChromeEarlGrey loadURL:URL];
 
+  if (IsRefreshLocationBarEnabled()) {
+    [[EarlGrey
+        selectElementWithMatcher:chrome_test_util::DefocusedLocationView()]
+        performAction:grey_tap()];
+  }
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       assertWithMatcher:chrome_test_util::OmniboxText(URL.GetContent())];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
@@ -163,8 +168,7 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       assertWithMatcher:chrome_test_util::OmniboxText(URL.GetContent())];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
-      performAction:grey_typeText(@"foo")];
+  [ChromeEarlGreyUI focusOmniboxAndType:@"foo"];
 
   id<GREYMatcher> typingShield = grey_accessibilityID(@"Typing Shield");
   [[EarlGrey selectElementWithMatcher:typingShield] performAction:grey_tap()];
@@ -279,6 +283,12 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
 
 // Verifies that copying and pasting a URL includes the hidden protocol prefix.
 - (void)testCopyPasteURL {
+  if (IsRefreshLocationBarEnabled()) {
+    // TODO(crbug.com/834345): Enable this test when long press on the steady
+    // location bar is supported.
+    EARL_GREY_TEST_SKIPPED(@"Test not supported yet in UI Refresh.");
+  }
+
   // Clear generalPasteboard before and after the test.
   [UIPasteboard generalPasteboard].string = @"";
   [self setTearDownHandler:^{
@@ -338,13 +348,6 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
   }
 
   [ChromeEarlGrey loadURL:secondURL];
-
-  if (IsRefreshLocationBarEnabled()) {
-    // Tap on the steady location view to expose omnibox for pasting.
-    [[EarlGrey
-        selectElementWithMatcher:chrome_test_util::DefocusedLocationView()]
-        performAction:grey_tap()];
-  }
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_longPress()];
 
@@ -382,6 +385,7 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
       assertWithMatcher:chrome_test_util::OmniboxText("foo")];
 
   id<GREYMatcher> cancelButton = grey_accessibilityLabel(@"Clear Text");
+
   [[EarlGrey selectElementWithMatcher:cancelButton] performAction:grey_tap()];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
@@ -401,11 +405,7 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
   web::test::SetUpSimpleHttpServer(responses);
   [ChromeEarlGrey loadURL:GURL(URL)];
 
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
-      performAction:grey_typeText(@"javascript:alert('Hello');")];
-
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Go")]
-      performAction:grey_tap()];
+  [ChromeEarlGreyUI focusOmniboxAndType:@"javascript:alert('Hello');\n"];
 
   [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"Hello")]
       assertWithMatcher:grey_notNil()];
@@ -420,11 +420,7 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
     EARL_GREY_TEST_DISABLED(@"Disabled for iPad due to a typing bug.");
   }
   [ChromeEarlGrey loadURL:GURL("chrome://version")];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
-      performAction:grey_typeText(@"javascript:alert('Hello');")];
-
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Go")]
-      performAction:grey_tap()];
+  [ChromeEarlGreyUI focusOmniboxAndType:@"javascript:alert('Hello');\n"];
 
   [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"Hello")]
       assertWithMatcher:grey_nil()];
@@ -540,6 +536,8 @@ using chrome_test_util::SystemSelectionCalloutCopyButton;
       grey_minimumVisiblePercent(0.2), nil);
   [[EarlGrey selectElementWithMatcher:locationbarButton]
       performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForElementWithMatcherSufficientlyVisible:chrome_test_util::Omnibox()];
 
   // Tap the "/" keyboard accessory button.
   id<GREYMatcher> slashButtonMatcher = grey_allOf(

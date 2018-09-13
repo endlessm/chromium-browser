@@ -4,6 +4,7 @@
 
 #include "remoting/protocol/webrtc_video_stream.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -20,7 +21,6 @@
 #include "remoting/protocol/webrtc_transport.h"
 #include "third_party/webrtc/api/mediastreaminterface.h"
 #include "third_party/webrtc/api/peerconnectioninterface.h"
-#include "third_party/webrtc/api/test/fakeconstraints.h"
 #include "third_party/webrtc/media/base/videocapturer.h"
 
 #if defined(USE_H264_ENCODER)
@@ -118,14 +118,9 @@ void WebrtcVideoStream::Start(
 
   capturer_->Start(this);
 
-  // Set video stream constraints.
-  webrtc::FakeConstraints video_constraints;
-  video_constraints.AddMandatory(
-      webrtc::MediaConstraintsInterface::kMinFrameRate, 5);
-
   rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> src =
-      peer_connection_factory->CreateVideoSource(new WebrtcDummyVideoCapturer(),
-                                                 &video_constraints);
+      peer_connection_factory->CreateVideoSource(
+          std::make_unique<WebrtcDummyVideoCapturer>());
   rtc::scoped_refptr<webrtc::VideoTrackInterface> video_track =
       peer_connection_factory->CreateVideoTrack(kVideoLabel, src);
 

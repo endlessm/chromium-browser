@@ -6,6 +6,9 @@
 /adobe/flash/binaries
 /adobe/flash/symbols
 /amd/
+/android_build_tools/aapt2/aapt2
+/android_build_tools/aapt2/lib64/*.so
+/android_build_tools/bundletool/*.jar
 /android_ndk/
 /android_sdk/public/
 /android_sdk/sources/
@@ -71,11 +74,13 @@
 /gles2_conform
 /glslang/src
 /glslang-angle/src
+/gn/
 /gnu_binutils/
 /google_appengine_cloudstorage
 /google_toolbox_for_mac/src
 /googlemac
 /googletest/src
+/grpc
 /gson/lib/
 /gvr-android-sdk/common_library.aar
 /gvr-android-sdk/test-libraries/controller_test_api.aar
@@ -172,6 +177,8 @@
 /python_26
 /pywebsocket/src
 /pywebsocket/src
+/quic_trace/src
+/r8/lib
 /re2/src
 /requests/src
 /robolectric/lib/
@@ -183,6 +190,7 @@
 /skia
 /smhasher/src
 /snappy/src
+/speex
 /spirv-headers/src
 /SPIRV-Tools/src
 /spirv-tools-angle/src

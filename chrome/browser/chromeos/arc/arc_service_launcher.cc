@@ -21,7 +21,7 @@
 #include "chrome/browser/chromeos/arc/enterprise/arc_enterprise_reporting_service.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_file_system_bridge.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_file_system_mounter.h"
-#include "chrome/browser/chromeos/arc/input_method_manager/arc_input_method_manager_bridge.h"
+#include "chrome/browser/chromeos/arc/input_method_manager/arc_input_method_manager_service.h"
 #include "chrome/browser/chromeos/arc/intent_helper/arc_settings_service.h"
 #include "chrome/browser/chromeos/arc/kiosk/arc_kiosk_bridge.h"
 #include "chrome/browser/chromeos/arc/notification/arc_boot_error_notification.h"
@@ -42,12 +42,14 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_usb_host_permission_manager.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
+#include "components/arc/appfuse/arc_appfuse_bridge.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_session.h"
 #include "components/arc/arc_session_runner.h"
 #include "components/arc/audio/arc_audio_bridge.h"
 #include "components/arc/clipboard/arc_clipboard_bridge.h"
 #include "components/arc/crash_collector/arc_crash_collector_bridge.h"
+#include "components/arc/disk_quota/arc_disk_quota_bridge.h"
 #include "components/arc/ime/arc_ime_service.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
 #include "components/arc/lock_screen/arc_lock_screen_bridge.h"
@@ -136,6 +138,7 @@ void ArcServiceLauncher::OnPrimaryUserProfilePrepared(Profile* profile) {
   // Those services will be initialized lazily.
   // List in lexicographical order.
   ArcAccessibilityHelperBridge::GetForBrowserContext(profile);
+  ArcAppfuseBridge::GetForBrowserContext(profile);
   ArcAudioBridge::GetForBrowserContext(profile);
   ArcAuthService::GetForBrowserContext(profile);
   ArcBluetoothBridge::GetForBrowserContext(profile);
@@ -145,12 +148,13 @@ void ArcServiceLauncher::OnPrimaryUserProfilePrepared(Profile* profile) {
   ArcCertStoreBridge::GetForBrowserContext(profile);
   ArcClipboardBridge::GetForBrowserContext(profile);
   ArcCrashCollectorBridge::GetForBrowserContext(profile);
+  ArcDiskQuotaBridge::GetForBrowserContext(profile);
   ArcDownloadsWatcherService::GetForBrowserContext(profile);
   ArcEnterpriseReportingService::GetForBrowserContext(profile);
   ArcFileSystemBridge::GetForBrowserContext(profile);
   ArcFileSystemMounter::GetForBrowserContext(profile);
   ArcImeService::GetForBrowserContext(profile);
-  ArcInputMethodManagerBridge::GetForBrowserContext(profile);
+  ArcInputMethodManagerService::GetForBrowserContext(profile);
   ArcIntentHelperBridge::GetForBrowserContext(profile);
   ArcKioskBridge::GetForBrowserContext(profile);
   ArcLockScreenBridge::GetForBrowserContext(profile);

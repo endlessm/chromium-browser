@@ -16,6 +16,7 @@ TESTS = \
 	tests/hangul-jamo.tests \
 	tests/hyphens.tests \
 	tests/indic-consonant-with-stacker.tests \
+	tests/indic-decompose.tests \
 	tests/indic-init.tests \
 	tests/indic-joiner-candrabindu.tests \
 	tests/indic-joiners.tests \
@@ -30,8 +31,10 @@ TESTS = \
 	tests/mark-filtering-sets.tests \
 	tests/mongolian-variation-selector.tests \
 	tests/myanmar-syllable.tests \
+	tests/none-directional.tests \
 	tests/spaces.tests \
 	tests/simple.tests \
+	tests/sinhala.tests \
 	tests/tibetan-contractions-1.tests \
 	tests/tibetan-contractions-2.tests \
 	tests/tibetan-vowels.tests \

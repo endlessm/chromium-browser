@@ -45,9 +45,6 @@ const char kAshEnableCursorMotionBlur[] = "ash-enable-cursor-motion-blur";
 const char kAshEnableMagnifierKeyScroller[] =
     "ash-enable-magnifier-key-scroller";
 
-// Enable the Night Light feature.
-const char kAshEnableNightLight[] = "ash-enable-night-light";
-
 // Enables the palette on every display, instead of only the internal one.
 const char kAshEnablePaletteOnAllDisplays[] =
     "ash-enable-palette-on-all-displays";
@@ -125,10 +122,6 @@ const char kAuraLegacyPowerButton[] = "aura-legacy-power-button";
 // Whether this device has an internal stylus.
 const char kHasInternalStylus[] = "has-internal-stylus";
 
-// Uses a mojo app to implement the Keyboard Shortcut Viewer feature. Exists so
-// the mojo app version can be tested independently from the classic version.
-const char kKeyboardShortcutViewerApp[] = "keyboard-shortcut-viewer-app";
-
 // Draws a circle at each touch point, similar to the Android OS developer
 // option "Show taps".
 const char kShowTaps[] = "show-taps";
@@ -150,11 +143,6 @@ const char kTouchscreenUsableWhileScreenOff[] =
 
 // Hides all Message Center notification popups (toasts). Used for testing.
 const char kSuppressMessageCenterPopups[] = "suppress-message-center-popups";
-
-bool IsNightLightEnabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      kAshEnableNightLight);
-}
 
 bool IsSidebarEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(

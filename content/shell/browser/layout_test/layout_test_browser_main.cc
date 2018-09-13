@@ -29,6 +29,7 @@
 #include "content/shell/common/layout_test/layout_test_switches.h"
 #include "content/shell/common/shell_switches.h"
 #include "content/shell/renderer/layout_test/blink_test_helpers.h"
+#include "gpu/config/gpu_switches.h"
 #include "net/base/filename_util.h"
 
 #if defined(OS_ANDROID)
@@ -98,8 +99,9 @@ int RunTests(const std::unique_ptr<content::BrowserMainRunner>& main_runner) {
     }
   }
   if (!ran_at_least_once) {
+    // CloseAllWindows will cause the |main_runner| loop to quit.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
+        FROM_HERE, base::BindOnce(&content::Shell::CloseAllWindows));
     main_runner->Run();
   }
 
@@ -130,6 +132,12 @@ int LayoutTestBrowserMain(
       switches::kContentShellDataPath,
       browser_context_path_for_layout_tests.GetPath().MaybeAsASCII());
 
+  // Always disable the unsandbox GPU process for DX12 and Vulkan Info
+  // collection to avoid interference. This GPU process is launched 15
+  // seconds after chrome starts.
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kDisableGpuProcessForDX12VulkanInfoCollection);
+
 #if defined(OS_ANDROID)
   content::ScopedAndroidConfiguration android_configuration;
 #endif
@@ -149,9 +157,8 @@ int LayoutTestBrowserMain(
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kCheckLayoutTestSysDeps)) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
+        FROM_HERE, base::BindOnce(&content::Shell::CloseAllWindows));
     main_runner->Run();
-    content::Shell::CloseAllWindows();
     main_runner->Shutdown();
     return 0;
   }

@@ -121,6 +121,25 @@ void RecordKeyErrorAndResolve(const base::WeakPtr<AuthAttemptState>& attempt,
   resolver->Resolve();
 }
 
+// Callback invoked when cryptohome's GetSantiziedUsername() method has
+// finished.
+void OnGetSanitizedUsername(
+    base::OnceCallback<void(bool, const std::string&)> callback,
+    base::Optional<std::string> result) {
+  std::move(callback).Run(result.has_value(), result.value_or(std::string()));
+}
+
+// Callback invoked when a crypotyhome *Ex method, which only returns a
+// base::Reply, finishes.
+void OnBaseReplyMethod(const base::WeakPtr<AuthAttemptState>& attempt,
+                       scoped_refptr<CryptohomeAuthenticator> resolver,
+                       const std::string& time_marker,
+                       base::Optional<cryptohome::BaseReply> reply) {
+  chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker(time_marker, false);
+  attempt->RecordCryptohomeStatus(BaseReplyToMountError(reply));
+  resolver->Resolve();
+}
+
 // Callback invoked when cryptohome's MountEx() method has finished.
 void OnMount(const base::WeakPtr<AuthAttemptState>& attempt,
              scoped_refptr<CryptohomeAuthenticator> resolver,
@@ -402,15 +421,19 @@ void StartMount(const base::WeakPtr<AuthAttemptState>& attempt,
 // cryptohome.
 void MountGuestAndGetHash(const base::WeakPtr<AuthAttemptState>& attempt,
                           scoped_refptr<CryptohomeAuthenticator> resolver) {
+  chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker(
+      "CryptohomeMountGuest-Start", false);
   attempt->UsernameHashRequested();
-  cryptohome::AsyncMethodCaller::GetInstance()->AsyncMountGuest(
-      base::Bind(&TriggerResolveWithLoginTimeMarker,
-                 "CryptohomeMount-End",
-                 attempt,
-                 resolver));
-  cryptohome::AsyncMethodCaller::GetInstance()->AsyncGetSanitizedUsername(
+
+  DBusThreadManager::Get()->GetCryptohomeClient()->MountGuestEx(
+      cryptohome::MountGuestRequest(),
+      base::BindOnce(&OnBaseReplyMethod, attempt, resolver,
+                     "CryptohomeMountGuest-End"));
+
+  DBusThreadManager::Get()->GetCryptohomeClient()->GetSanitizedUsername(
       cryptohome::Identification(attempt->user_context.GetAccountId()),
-      base::Bind(&TriggerResolveHash, attempt, resolver));
+      base::BindOnce(&OnGetSanitizedUsername,
+                     base::BindOnce(&TriggerResolveHash, attempt, resolver)));
 }
 
 // Calls cryptohome's MountEx method with the public_mount option.
@@ -446,9 +469,13 @@ void Migrate(const base::WeakPtr<AuthAttemptState>& attempt,
              const std::string& system_salt) {
   chromeos::LoginEventRecorder::Get()->AddLoginTimeMarker(
       "CryptohomeMigrate-Start", false);
-  cryptohome::AsyncMethodCaller* caller =
-      cryptohome::AsyncMethodCaller::GetInstance();
 
+  cryptohome::AccountIdentifier account_id;
+  account_id.set_account_id(
+      cryptohome::Identification(attempt->user_context.GetAccountId()).id());
+
+  cryptohome::AuthorizationRequest auth_request;
+  cryptohome::MigrateKeyRequest migrate_request;
   // TODO(bartfab): Retrieve the hashing algorithm and salt to use for |old_key|
   // from cryptohomed.
   std::unique_ptr<Key> old_key =
@@ -456,18 +483,17 @@ void Migrate(const base::WeakPtr<AuthAttemptState>& attempt,
   std::unique_ptr<Key> new_key =
       TransformKeyIfNeeded(*attempt->user_context.GetKey(), system_salt);
   if (passing_old_hash) {
-    caller->AsyncMigrateKey(
-        cryptohome::Identification(attempt->user_context.GetAccountId()),
-        old_key->GetSecret(), new_key->GetSecret(),
-        base::Bind(&TriggerResolveWithLoginTimeMarker, "CryptohomeMount-End",
-                   attempt, resolver));
+    auth_request.mutable_key()->set_secret(old_key->GetSecret());
+    migrate_request.set_secret(new_key->GetSecret());
   } else {
-    caller->AsyncMigrateKey(
-        cryptohome::Identification(attempt->user_context.GetAccountId()),
-        new_key->GetSecret(), old_key->GetSecret(),
-        base::Bind(&TriggerResolveWithLoginTimeMarker, "CryptohomeMount-End",
-                   attempt, resolver));
+    auth_request.mutable_key()->set_secret(new_key->GetSecret());
+    migrate_request.set_secret(old_key->GetSecret());
   }
+
+  DBusThreadManager::Get()->GetCryptohomeClient()->MigrateKeyEx(
+      account_id, auth_request, migrate_request,
+      base::BindOnce(&OnBaseReplyMethod, attempt, resolver,
+                     "CryptohomeMigrate-End"));
 }
 
 // Calls cryptohome's remove method.

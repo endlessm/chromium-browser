@@ -43,6 +43,11 @@ namespace content {
 class NetworkConnectionTracker;
 }
 
+namespace network {
+class NetworkQualityTracker;
+class SharedURLLoaderFactory;
+}
+
 namespace safe_browsing {
 class SafeBrowsingService;
 }
@@ -150,6 +155,8 @@ class BrowserProcess {
   virtual ProfileManager* profile_manager() = 0;
   virtual PrefService* local_state() = 0;
   virtual net::URLRequestContextGetter* system_request_context() = 0;
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  shared_url_loader_factory() = 0;
   virtual variations::VariationsService* variations_service() = 0;
 
   virtual BrowserProcessPlatformPart* platform_part() = 0;
@@ -182,6 +189,10 @@ class BrowserProcess {
   // Returns a NetworkConnectionTracker that can be used to subscribe for
   // network change events.
   virtual content::NetworkConnectionTracker* network_connection_tracker() = 0;
+
+  // Returns a NetworkQualityTracker that can be used to subscribe for
+  // network quality change events.
+  virtual network::NetworkQualityTracker* network_quality_tracker() = 0;
 
   // Returns the thread that is used for health check of all browser threads.
   virtual WatchDogThread* watchdog_thread() = 0;

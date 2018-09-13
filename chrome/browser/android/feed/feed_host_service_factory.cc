@@ -9,11 +9,17 @@
 #include <utility>
 
 #include "base/files/file_path.h"
+#include "base/time/default_clock.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/suggestions/image_decoder_impl.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/common/channel_info.h"
 #include "components/feed/core/feed_host_service.h"
+#include "components/feed/core/feed_image_manager.h"
+#include "components/feed/core/feed_networking_host.h"
+#include "components/feed/core/feed_scheduler_host.h"
+#include "components/feed/core/feed_storage_database.h"
 #include "components/image_fetcher/core/image_fetcher_impl.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/version_info/version_info.h"
@@ -67,11 +73,10 @@ KeyedService* FeedHostServiceFactory::BuildServiceInstanceFor(
       identity_manager, api_key,
       storage_partition->GetURLLoaderFactoryForBrowserProcess());
 
-  scoped_refptr<net::URLRequestContextGetter> request_context =
-      profile->GetRequestContext();
-
   auto image_fetcher = std::make_unique<image_fetcher::ImageFetcherImpl>(
-      std::make_unique<suggestions::ImageDecoderImpl>(), request_context.get());
+      std::make_unique<suggestions::ImageDecoderImpl>(),
+      content::BrowserContext::GetDefaultStoragePartition(profile)
+          ->GetURLLoaderFactoryForBrowserProcess());
 
   base::FilePath feed_dir(profile->GetPath().Append(kFeedFolder));
   auto image_database = std::make_unique<FeedImageDatabase>(feed_dir);
@@ -79,8 +84,15 @@ KeyedService* FeedHostServiceFactory::BuildServiceInstanceFor(
   auto image_manager = std::make_unique<FeedImageManager>(
       std::move(image_fetcher), std::move(image_database));
 
-  return new FeedHostService(std::move(image_manager),
-                             std::move(networking_host));
+  auto scheduler_host = std::make_unique<FeedSchedulerHost>(
+      profile->GetPrefs(), g_browser_process->local_state(),
+      base::DefaultClock::GetInstance());
+
+  auto storage_database = std::make_unique<FeedStorageDatabase>(feed_dir);
+
+  return new FeedHostService(
+      std::move(image_manager), std::move(networking_host),
+      std::move(scheduler_host), std::move(storage_database));
 }
 
 content::BrowserContext* FeedHostServiceFactory::GetBrowserContextToUse(

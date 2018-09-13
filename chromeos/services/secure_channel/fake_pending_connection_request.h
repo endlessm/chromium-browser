@@ -5,12 +5,10 @@
 #ifndef CHROMEOS_SERVICES_SECURE_CHANNEL_FAKE_PENDING_CONNECTION_REQUEST_H_
 #define CHROMEOS_SERVICES_SECURE_CHANNEL_FAKE_PENDING_CONNECTION_REQUEST_H_
 
-#include <string>
 #include <utility>
 #include <vector>
 
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/unguessable_token.h"
 #include "chromeos/services/secure_channel/client_connection_parameters.h"
 #include "chromeos/services/secure_channel/pending_connection_request.h"
@@ -22,40 +20,52 @@ namespace secure_channel {
 
 class PendingConnectionRequestDelegate;
 
-// Fake PendingConnectionRequest implementation, whose FailureDetailType is
-// std::string.
+// Fake PendingConnectionRequest implementation.
+template <typename FailureDetailType>
 class FakePendingConnectionRequest
-    : public PendingConnectionRequest<std::string> {
+    : public PendingConnectionRequest<FailureDetailType> {
  public:
-  FakePendingConnectionRequest(PendingConnectionRequestDelegate* delegate);
-  ~FakePendingConnectionRequest() override;
+  FakePendingConnectionRequest(PendingConnectionRequestDelegate* delegate,
+                               ConnectionPriority connection_priority)
+      : PendingConnectionRequest<FailureDetailType>(delegate,
+                                                    connection_priority),
+        id_(base::UnguessableToken::Create()) {}
 
-  const std::vector<std::string>& handled_failure_details() const {
+  ~FakePendingConnectionRequest() override = default;
+
+  const std::vector<FailureDetailType>& handled_failure_details() const {
     return handled_failure_details_;
   }
 
   void set_client_data_for_extraction(
-      ClientConnectionParameters client_data_for_extraction) {
+      std::unique_ptr<ClientConnectionParameters> client_data_for_extraction) {
     client_data_for_extraction_ = std::move(client_data_for_extraction);
   }
 
-  // PendingConnectionRequest<std::string>:
-  const base::UnguessableToken& GetRequestId() const override;
+  // PendingConnectionRequest<FailureDetailType>:
+  const base::UnguessableToken& GetRequestId() const override { return id_; }
 
   // Make NotifyRequestFinishedWithoutConnection() public for testing.
   using PendingConnectionRequest<
-      std::string>::NotifyRequestFinishedWithoutConnection;
+      FailureDetailType>::NotifyRequestFinishedWithoutConnection;
 
  private:
-  // PendingConnectionRequest<std::string>:
-  void HandleConnectionFailure(std::string failure_detail) override;
-  ClientConnectionParameters ExtractClientConnectionParameters() override;
+  // PendingConnectionRequest<FailureDetailType>:
+  void HandleConnectionFailure(FailureDetailType failure_detail) override {
+    handled_failure_details_.push_back(failure_detail);
+  }
+
+  std::unique_ptr<ClientConnectionParameters>
+  ExtractClientConnectionParameters() override {
+    DCHECK(client_data_for_extraction_);
+    return std::move(client_data_for_extraction_);
+  }
 
   const base::UnguessableToken id_;
 
-  std::vector<std::string> handled_failure_details_;
+  std::vector<FailureDetailType> handled_failure_details_;
 
-  base::Optional<ClientConnectionParameters> client_data_for_extraction_;
+  std::unique_ptr<ClientConnectionParameters> client_data_for_extraction_;
 
   DISALLOW_COPY_AND_ASSIGN(FakePendingConnectionRequest);
 };

@@ -86,7 +86,6 @@ class BluetoothTestWin : public BluetoothTestBase,
   scoped_refptr<base::TestSimpleTaskRunner> ui_task_runner_;
   scoped_refptr<base::TestSimpleTaskRunner> bluetooth_task_runner_;
 
-  win::BluetoothClassicWrapperFake* fake_bt_classic_wrapper_;
   win::BluetoothLowEnergyWrapperFake* fake_bt_le_wrapper_;
 
   // This is used for retaining access to a single deleted device.
@@ -115,7 +114,28 @@ class BluetoothTestWinrt : public BluetoothTestWin,
                            public ::testing::WithParamInterface<bool> {
  public:
   BluetoothTestWinrt();
-  ~BluetoothTestWinrt();
+  ~BluetoothTestWinrt() override;
+
+  // BluetoothTestBase:
+  bool PlatformSupportsLowEnergy() override;
+  void InitWithDefaultAdapter() override;
+  void InitWithoutDefaultAdapter() override;
+  void InitWithFakeAdapter() override;
+  BluetoothDevice* SimulateLowEnergyDevice(int device_ordinal) override;
+  void SimulateGattConnection(BluetoothDevice* device) override;
+  void SimulateGattConnectionError(
+      BluetoothDevice* device,
+      BluetoothDevice::ConnectErrorCode error_code) override;
+  void SimulateGattDisconnection(BluetoothDevice* device) override;
+  void SimulateGattServicesDiscovered(
+      BluetoothDevice* device,
+      const std::vector<std::string>& uuids) override;
+  void SimulateGattServicesChanged(BluetoothDevice* device) override;
+  void SimulateGattServicesDiscoveryError(BluetoothDevice* device) override;
+  void DeleteDevice(BluetoothDevice* device) override;
+
+  void OnFakeBluetoothDeviceConnectGattCalled();
+  void OnFakeBluetoothGattDisconnect();
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -123,6 +143,8 @@ class BluetoothTestWinrt : public BluetoothTestWin,
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothTestWinrt);
 };
+
+using BluetoothTestWinrtOnly = BluetoothTestWinrt;
 
 }  // namespace device
 

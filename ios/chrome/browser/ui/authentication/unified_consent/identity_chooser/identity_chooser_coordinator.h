@@ -10,16 +10,7 @@
 #import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
 
 @class ChromeIdentity;
-@class IdentityChooserCoordinator;
-
-// Delegate protocol for IdentityChooserCoordinator.
-@protocol IdentityChooserCoordinatorDelegate<NSObject>
-
-// Called when the view controller is closed.
-- (void)identityChooserCoordinatorDidClose:
-    (IdentityChooserCoordinator*)coordinator;
-
-@end
+@protocol IdentityChooserCoordinatorDelegate;
 
 // Coordinator to display the identity chooser view controller.
 @interface IdentityChooserCoordinator : ChromeCoordinator

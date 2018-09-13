@@ -7,14 +7,15 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/json/json_writer.h"
-#include "base/mac/bind_objc_block.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "components/autofill/ios/browser/autofill_agent.h"
 #import "components/autofill/ios/browser/js_autofill_manager.h"
 #import "components/autofill/ios/browser/js_suggestion_manager.h"
 #include "google_apis/google_api_keys.h"
+#include "ios/web/public/favicon_url.h"
 #include "ios/web/public/load_committed_details.h"
 #import "ios/web/public/navigation_manager.h"
 #include "ios/web/public/referrer.h"
@@ -30,6 +31,7 @@
 #import "ios/web/public/web_state/web_state_observer_bridge.h"
 #include "ios/web_view/cwv_web_view_features.h"
 #import "ios/web_view/internal/autofill/cwv_autofill_controller_internal.h"
+#import "ios/web_view/internal/cwv_favicon_internal.h"
 #import "ios/web_view/internal/cwv_html_element_internal.h"
 #import "ios/web_view/internal/cwv_navigation_action_internal.h"
 #import "ios/web_view/internal/cwv_script_command_internal.h"
@@ -250,6 +252,10 @@ static NSString* gUserAgentProduct = nil;
 - (void)webStateDestroyed:(web::WebState*)webState {
   webState->RemoveObserver(_webStateObserver.get());
   _webStateObserver.reset();
+  for (const auto& pair : _scriptCommandCallbacks) {
+    webState->RemoveScriptCommandCallback(pair.first);
+  }
+  _scriptCommandCallbacks.clear();
 }
 
 - (void)webState:(web::WebState*)webState
@@ -417,18 +423,29 @@ static NSString* gUserAgentProduct = nil;
   }
 }
 
+- (void)webState:(web::WebState*)webState
+    didUpdateFaviconURLCandidates:
+        (const std::vector<web::FaviconURL>&)candidates {
+  if ([_UIDelegate respondsToSelector:@selector(webView:didLoadFavicons:)]) {
+    [_UIDelegate webView:self
+         didLoadFavicons:[CWVFavicon faviconsFromFaviconURLs:candidates]];
+  }
+}
+
 - (void)addScriptCommandHandler:(id<CWVScriptCommandHandler>)handler
                   commandPrefix:(NSString*)commandPrefix {
   CWVWebView* __weak weakSelf = self;
-  const web::WebState::ScriptCommandCallback callback = base::BindBlockArc(
+  const web::WebState::ScriptCommandCallback callback = base::BindRepeating(
       ^bool(const base::DictionaryValue& content, const GURL& mainDocumentURL,
-            bool userInteracting) {
+            bool userInteracting, bool isMainFrame) {
         NSDictionary* nsContent = NSDictionaryFromDictionaryValue(content);
         CWVScriptCommand* command = [[CWVScriptCommand alloc]
             initWithContent:nsContent
             mainDocumentURL:net::NSURLWithGURL(mainDocumentURL)
             userInteracting:userInteracting];
-        return [handler webView:weakSelf handleScriptCommand:command];
+        return [handler webView:weakSelf
+            handleScriptCommand:command
+                  fromMainFrame:isMainFrame];
       });
 
   std::string stdCommandPrefix = base::SysNSStringToUTF8(commandPrefix);

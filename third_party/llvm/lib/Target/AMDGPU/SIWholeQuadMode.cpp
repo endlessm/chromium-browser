@@ -60,6 +60,7 @@
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "SIMachineFunctionInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SmallVector.h"
@@ -452,6 +453,11 @@ void SIWholeQuadMode::propagateInstruction(MachineInstr &MI,
 
   if (II.Needs != 0)
     markInstructionUses(MI, II.Needs, Worklist);
+
+  // Ensure we process a block containing WWM, even if it does not require any
+  // WQM transitions.
+  if (II.Needs & StateWWM)
+    BI.Needs |= StateWWM;
 }
 
 void SIWholeQuadMode::propagateBlock(MachineBasicBlock &MBB,
@@ -843,7 +849,7 @@ bool SIWholeQuadMode::runOnMachineFunction(MachineFunction &MF) {
   LowerToCopyInstrs.clear();
   CallingConv = MF.getFunction().getCallingConv();
 
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
 
   TII = ST.getInstrInfo();
   TRI = &TII->getRegisterInfo();

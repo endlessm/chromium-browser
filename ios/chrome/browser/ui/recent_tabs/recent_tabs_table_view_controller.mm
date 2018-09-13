@@ -19,7 +19,7 @@
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
 #include "ios/chrome/browser/sessions/tab_restore_service_delegate_impl_ios.h"
 #include "ios/chrome/browser/sessions/tab_restore_service_delegate_impl_ios_factory.h"
-#include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view_configurator.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view_consumer.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view_mediator.h"
@@ -45,6 +45,8 @@
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/url_loader.h"
 #import "ios/chrome/browser/ui/util/top_view_controller.h"
+#import "ios/chrome/common/favicon/favicon_attributes.h"
+#import "ios/chrome/common/favicon/favicon_view.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/web_state/context_menu_params.h"
@@ -85,19 +87,27 @@ NSString* const kRecentlyClosedCollapsedKey = @"RecentlyClosedCollapsed";
 int const kNumberOfSectionsBeforeSessions = 1;
 // Estimated Table Row height.
 const CGFloat kEstimatedRowHeight = 56;
+// Separation space between sections.
+const CGFloat kSeparationSpaceBetweenSections = 9;
 // The UI displays relative time for up to this number of hours and then
 // switches to absolute values.
 const int kRelativeTimeMaxHours = 4;
+// Section index for recently closed tabs.
+const int kRecentlyClosedTabsSectionIndex = 0;
 
 }  // namespace
 
 @interface RecentTabsTableViewController ()<SigninPromoViewConsumer,
                                             SigninPresenter,
                                             SyncPresenter,
-                                            TextButtonItemDelegate,
                                             UIGestureRecognizerDelegate> {
   std::unique_ptr<synced_sessions::SyncedSessions> _syncedSessions;
 }
+// There is no need to update the table view when other view controllers
+// are obscuring the table view. Bookkeeping is based on |-viewWillAppear:|
+// and |-viewWillDisappear methods. Note that the |Did| methods are not reliably
+// called (e.g., edge case in multitasking).
+@property(nonatomic, assign) BOOL updatesTableView;
 // The service that manages the recently closed tabs
 @property(nonatomic, assign) sessions::TabRestoreService* tabRestoreService;
 // The sync state.
@@ -105,8 +115,6 @@ const int kRelativeTimeMaxHours = 4;
 // Handles displaying the context menu for all form factors.
 @property(nonatomic, strong) ContextMenuCoordinator* contextMenuCoordinator;
 @property(nonatomic, strong) SigninPromoViewMediator* signinPromoViewMediator;
-// The sectionIdentifier for the last tapped header, 0 if no header was tapped.
-@property(nonatomic, assign) NSInteger lastTappedHeaderSectionIdentifier;
 @end
 
 @implementation RecentTabsTableViewController : ChromeTableViewController
@@ -114,13 +122,12 @@ const int kRelativeTimeMaxHours = 4;
 @synthesize contextMenuCoordinator = _contextMenuCoordinator;
 @synthesize delegate = delegate_;
 @synthesize dispatcher = _dispatcher;
-@synthesize handsetCommandHandler = _handsetCommandHandler;
+@synthesize presentationDelegate = _presentationDelegate;
 @synthesize imageDataSource = _imageDataSource;
-@synthesize lastTappedHeaderSectionIdentifier =
-    _lastTappedHeaderSectionIdentifier;
 @synthesize loader = _loader;
 @synthesize sessionState = _sessionState;
 @synthesize signinPromoViewMediator = _signinPromoViewMediator;
+@synthesize updatesTableView = _updatesTableView;
 @synthesize tabRestoreService = _tabRestoreService;
 
 #pragma mark - Public Interface
@@ -131,7 +138,6 @@ const int kRelativeTimeMaxHours = 4;
   if (self) {
     _sessionState = SessionsSyncUserState::USER_SIGNED_OUT;
     _syncedSessions.reset(new synced_sessions::SyncedSessions());
-    _lastTappedHeaderSectionIdentifier = 0;
   }
   return self;
 }
@@ -142,33 +148,30 @@ const int kRelativeTimeMaxHours = 4;
 
 - (void)viewDidLoad {
   [super viewDidLoad];
-  [self loadModel];
   self.view.accessibilityIdentifier =
       kRecentTabsTableViewControllerAccessibilityIdentifier;
   [self.tableView setDelegate:self];
+  self.tableView.cellLayoutMarginsFollowReadableWidth = NO;
   self.tableView.estimatedRowHeight = kEstimatedRowHeight;
+  if (@available(iOS 11.0, *))
+    self.tableView.estimatedSectionHeaderHeight = kEstimatedRowHeight;
   self.tableView.rowHeight = UITableViewAutomaticDimension;
-  self.tableView.estimatedSectionHeaderHeight = kEstimatedRowHeight;
   self.tableView.sectionFooterHeight = 0.0;
-  // Gesture recognizer for long press context menu on Session Headers.
-  UILongPressGestureRecognizer* longPress =
-      [[UILongPressGestureRecognizer alloc]
-          initWithTarget:self
-                  action:@selector(handleLongPress:)];
-  longPress.delegate = self;
-  [self.tableView addGestureRecognizer:longPress];
-  // Gesture recognizer for header collapsing/expanding.
-  UITapGestureRecognizer* tapGesture =
-      [[UITapGestureRecognizer alloc] initWithTarget:self
-                                              action:@selector(handleTap:)];
-  tapGesture.delegate = self;
-  [self.tableView addGestureRecognizer:tapGesture];
-
-  // If the NavigationBar is not translucent, set
-  // |self.extendedLayoutIncludesOpaqueBars| to YES in order to avoid a top
-  // margin inset on the |_tableViewController| subview.
-  self.extendedLayoutIncludesOpaqueBars = YES;
   self.title = l10n_util::GetNSString(IDS_IOS_CONTENT_SUGGESTIONS_RECENT_TABS);
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+  [super viewWillAppear:animated];
+  self.updatesTableView = YES;
+  // The table view might get stale while hidden, so we need to forcibly refresh
+  // it here.
+  [self loadModel];
+  [self.tableView reloadData];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+  self.updatesTableView = NO;
+  [super viewWillDisappear:animated];
 }
 
 #pragma mark - TableViewModel
@@ -191,7 +194,8 @@ const int kRelativeTimeMaxHours = 4;
   TableViewModel* model = self.tableViewModel;
 
   // Recently Closed Section.
-  [model addSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
+  [model insertSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs
+                             atIndex:kRecentlyClosedTabsSectionIndex];
   [model setSectionIdentifier:SectionIdentifierRecentlyClosedTabs
                  collapsedKey:kRecentlyClosedCollapsedKey];
   TableViewDisclosureHeaderFooterItem* header =
@@ -215,6 +219,8 @@ const int kRelativeTimeMaxHours = 4;
       toSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
 }
 
+// Iterates through all the TabRestoreService entries and adds items to the
+// recently closed tabs section. This method performs no UITableView operations.
 - (void)addRecentlyClosedTabItems {
   if (!self.tabRestoreService)
     return;
@@ -236,6 +242,19 @@ const int kRelativeTimeMaxHours = 4;
     [self.tableViewModel addItem:recentlyClosedTab
          toSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
   }
+}
+
+// Updates the recently closed tabs section by clobbering and reinserting
+// section. Needs to be called inside a [UITableView beginUpdates] block on
+// iOS10, or performBatchUpdates on iOS11+.
+- (void)updateRecentlyClosedSection {
+  [self.tableViewModel
+      removeSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
+  [self addRecentlyClosedSection];
+  NSUInteger index = [self.tableViewModel
+      sectionForSectionIdentifier:SectionIdentifierRecentlyClosedTabs];
+  [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:index]
+                withRowAnimation:UITableViewRowAnimationNone];
 }
 
 #pragma mark Sessions Section
@@ -309,13 +328,13 @@ const int kRelativeTimeMaxHours = 4;
 // performBatchUpdates on iOS11+.
 - (void)removeSessionSections {
   // |_syncedSessions| has been updated by now, that means that
-  // |self.tableViewModel| does not reflect |_syncedSessions| data. A
-  // SectionIdentifier could've been deleted previously, do not rely on these
-  // being in sequential order at this point.
+  // |self.tableViewModel| does not reflect |_syncedSessions| data.
   NSInteger sectionIdentifierToRemove = kFirstSessionSectionIdentifier;
   NSInteger sectionToDelete = kNumberOfSectionsBeforeSessions;
   while ([self.tableViewModel numberOfSections] >
          kNumberOfSectionsBeforeSessions) {
+    // A SectionIdentifier could've been deleted previously, do not rely on
+    // these being in sequential order at this point.
     if ([self.tableViewModel
             hasSectionForSectionIdentifier:sectionIdentifierToRemove]) {
       [self.tableView
@@ -335,25 +354,25 @@ const int kRelativeTimeMaxHours = 4;
 // called inside a [UITableView beginUpdates] block on iOS10, or
 // performBatchUpdates on iOS11+.
 - (void)updateOtherDevicesSectionForState:(SessionsSyncUserState)newState {
-  DCHECK(newState !=
-         SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_WITH_SESSIONS);
+  DCHECK_NE(newState,
+            SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_WITH_SESSIONS);
   TableViewModel* model = self.tableViewModel;
   SessionsSyncUserState previousState = self.sessionState;
-  switch (previousState) {
-    case SessionsSyncUserState::USER_SIGNED_IN_SYNC_OFF:
-    case SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_NO_SESSIONS:
-    case SessionsSyncUserState::USER_SIGNED_OUT:
-    case SessionsSyncUserState::USER_SIGNED_IN_SYNC_IN_PROGRESS:
-      // The OtherDevices section will be updated, remove it in order to clean
-      // it up.
-      [model removeSectionWithIdentifier:SectionIdentifierOtherDevices];
-      break;
-    case SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_WITH_SESSIONS:
-      // The Sessions Section exists, remove it.
-      [self removeSessionSections];
-      break;
+  if (previousState ==
+      SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_WITH_SESSIONS) {
+    // There were previously one or more session sections, but now they will be
+    // removed and replaced with a single OtherDevices section.
+    [self removeSessionSections];
+    [self addOtherDevicesSectionForState:newState];
+    // This is a special situation where the tableview operation is an insert
+    // rather than reload because the section was deleted.
+    [self.tableView insertSections:[self otherDevicesSectionIndexSet]
+                  withRowAnimation:UITableViewRowAnimationNone];
+    return;
   }
-  // Add an updated OtherDevices Section and then reload the TableView section.
+  // For all other previous states, the tableview operation is a reload since
+  // there is already an OtherDevices section that can be updated.
+  [model removeSectionWithIdentifier:SectionIdentifierOtherDevices];
   [self addOtherDevicesSectionForState:newState];
   [self.tableView reloadSections:[self otherDevicesSectionIndexSet]
                 withRowAnimation:UITableViewRowAnimationNone];
@@ -384,8 +403,8 @@ const int kRelativeTimeMaxHours = 4;
     header.text = l10n_util::GetNSString(IDS_IOS_RECENT_TABS_OTHER_DEVICES);
     [model setHeader:header
         forSectionWithIdentifier:SectionIdentifierOtherDevices];
-    header.collapsed = [self.tableViewModel
-        sectionIsCollapsed:SectionIdentifierRecentlyClosedTabs];
+    header.collapsed =
+        [self.tableViewModel sectionIsCollapsed:SectionIdentifierOtherDevices];
   }
 
   // Adds Other Devices item for |state|.
@@ -423,7 +442,6 @@ const int kRelativeTimeMaxHours = 4;
       l10n_util::GetNSString(IDS_IOS_OPEN_TABS_SYNC_IS_OFF_MOBILE);
   signinSyncOffItem.buttonText =
       l10n_util::GetNSString(IDS_IOS_OPEN_TABS_ENABLE_SYNC_MOBILE);
-  signinSyncOffItem.delegate = self;
   [self.tableViewModel addItem:signinSyncOffItem
        toSectionWithIdentifier:SectionIdentifierOtherDevices];
 }
@@ -515,48 +533,65 @@ const int kRelativeTimeMaxHours = 4;
     return;
   }
   syncer::SyncService* syncService =
-      IOSChromeProfileSyncServiceFactory::GetForBrowserState(self.browserState);
+      ProfileSyncServiceFactory::GetForBrowserState(self.browserState);
   _syncedSessions.reset(new synced_sessions::SyncedSessions(syncService));
 
-  // Update the TableView and TableViewModel sections to match the new
-  // sessionState.
-  // Turn Off animations since UITableViewRowAnimationNone still animates.
-  [UIView setAnimationsEnabled:NO];
-  // If iOS11+ use performBatchUpdates: instead of begin/endUpdates.
-  if (@available(iOS 11, *)) {
-    if (newSessionState ==
-        SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_WITH_SESSIONS) {
-      [self.tableView performBatchUpdates:^{
-        [self updateSessionSections];
+  if (self.updatesTableView) {
+    // Update the TableView and TableViewModel sections to match the new
+    // sessionState.
+    // Turn Off animations since UITableViewRowAnimationNone still animates.
+    [UIView setAnimationsEnabled:NO];
+    // If iOS11+ use performBatchUpdates: instead of begin/endUpdates.
+    if (@available(iOS 11, *)) {
+      if (newSessionState ==
+          SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_WITH_SESSIONS) {
+        [self.tableView performBatchUpdates:^{
+          [self updateSessionSections];
+        }
+                                 completion:nil];
+      } else {
+        [self.tableView performBatchUpdates:^{
+          [self updateOtherDevicesSectionForState:newSessionState];
+        }
+                                 completion:nil];
       }
-                               completion:nil];
     } else {
-      [self.tableView performBatchUpdates:^{
+      [self.tableView beginUpdates];
+      if (newSessionState ==
+          SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_WITH_SESSIONS) {
+        [self updateSessionSections];
+      } else {
         [self updateOtherDevicesSectionForState:newSessionState];
       }
-                               completion:nil];
+      [self.tableView endUpdates];
     }
-  } else {
-    [self.tableView beginUpdates];
-    if (newSessionState ==
-        SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_WITH_SESSIONS) {
-      [self updateSessionSections];
-    } else {
-      [self updateOtherDevicesSectionForState:newSessionState];
-    }
-    [self.tableView endUpdates];
+    [UIView setAnimationsEnabled:YES];
   }
-  [UIView setAnimationsEnabled:YES];
 
+  // Table updates must happen before |sessionState| gets updated, since some
+  // table updates rely on knowing the previous state.
   self.sessionState = newSessionState;
   if (self.sessionState != SessionsSyncUserState::USER_SIGNED_OUT) {
     [self.signinPromoViewMediator signinPromoViewRemoved];
+    self.signinPromoViewMediator.consumer = nil;
     self.signinPromoViewMediator = nil;
   }
 }
 
 - (void)refreshRecentlyClosedTabs {
-  [self.tableView reloadData];
+  if (!self.updatesTableView)
+    return;
+
+  if (@available(iOS 11, *)) {
+    [self.tableView performBatchUpdates:^{
+      [self updateRecentlyClosedSection];
+    }
+                             completion:nil];
+  } else {
+    [self.tableView beginUpdates];
+    [self updateRecentlyClosedSection];
+    [self.tableView endUpdates];
+  }
 }
 
 - (void)setTabRestoreService:(sessions::TabRestoreService*)tabRestoreService {
@@ -588,13 +623,37 @@ const int kRelativeTimeMaxHours = 4;
       break;
     case ItemTypeShowFullHistory:
       [tableView deselectRowAtIndexPath:indexPath animated:NO];
-      [self showFullHistory];
+      [self.presentationDelegate showHistoryFromRecentTabs];
       break;
     case ItemTypeOtherDevicesSyncOff:
     case ItemTypeOtherDevicesNoSessions:
     case ItemTypeOtherDevicesSigninPromo:
       break;
   }
+}
+
+// TODO(crbug.com/850814): Use only dynamic sizing once we stop supporting
+// iOS10.
+- (CGFloat)tableView:(UITableView*)tableView
+    heightForHeaderInSection:(NSInteger)section {
+  DCHECK_EQ(tableView, self.tableView);
+  if (@available(iOS 11, *)) {
+    return UITableViewAutomaticDimension;
+  } else {
+    TableViewHeaderFooterItem* header =
+        [self.tableViewModel headerForSection:section];
+    return [header headerHeightForWidth:self.view.bounds.size.width];
+  }
+}
+
+- (CGFloat)tableView:(UITableView*)tableView
+    heightForFooterInSection:(NSInteger)section {
+  // If section is collapsed there's no need to add a separation space.
+  return [self.tableViewModel
+             sectionIsCollapsed:[self.tableViewModel
+                                    sectionIdentifierForSection:section]]
+             ? 1.0
+             : kSeparationSpaceBetweenSections;
 }
 
 #pragma mark - UITableViewDataSource
@@ -615,8 +674,44 @@ const int kRelativeTimeMaxHours = 4;
       itemTypeSelected == ItemTypeSessionTabData) {
     [self loadFaviconForCell:cell indexPath:indexPath];
   }
+  // ItemTypeOtherDevicesNoSessions should not be selectable.
+  if (itemTypeSelected == ItemTypeOtherDevicesNoSessions) {
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+  }
+  // Set button action method for ItemTypeOtherDevicesSyncOff.
+  if (itemTypeSelected == ItemTypeOtherDevicesSyncOff) {
+    TableViewTextButtonCell* tableViewTextButtonCell =
+        base::mac::ObjCCastStrict<TableViewTextButtonCell>(cell);
+    [tableViewTextButtonCell.button addTarget:self
+                                       action:@selector(updateSyncState)
+                             forControlEvents:UIControlEventTouchUpInside];
+  }
 
   return cell;
+}
+
+- (UIView*)tableView:(UITableView*)tableView
+    viewForHeaderInSection:(NSInteger)section {
+  UIView* header = [super tableView:tableView viewForHeaderInSection:section];
+  // Set the header tag as the sectionIdentifer in order to recognize which
+  // header was tapped.
+  header.tag = [self.tableViewModel sectionIdentifierForSection:section];
+  // Remove all existing gestureRecognizers since the header might be reused.
+  for (UIGestureRecognizer* recognizer in header.gestureRecognizers) {
+    [header removeGestureRecognizer:recognizer];
+  }
+  // Gesture recognizer for long press context menu.
+  UILongPressGestureRecognizer* longPress =
+      [[UILongPressGestureRecognizer alloc]
+          initWithTarget:self
+                  action:@selector(handleLongPress:)];
+  [header addGestureRecognizer:longPress];
+  // Gesture recognizer for header collapsing/expanding.
+  UITapGestureRecognizer* tapGesture =
+      [[UITapGestureRecognizer alloc] initWithTarget:self
+                                              action:@selector(handleTap:)];
+  [header addGestureRecognizer:tapGesture];
+  return header;
 }
 
 #pragma mark - Recently closed tab helpers
@@ -648,12 +743,6 @@ const int kRelativeTimeMaxHours = 4;
   return iter->get();
 }
 
-// TO IMPLEMENT. Remove this depending on which TableStyle we'll use.
-- (CGFloat)tableView:(UITableView*)tableView
-    heightForFooterInSection:(NSInteger)section {
-  return 1.0;
-}
-
 // Retrieves favicon from FaviconLoader and sets image in URLCell.
 - (void)loadFaviconForCell:(UITableViewCell*)cell
                  indexPath:(NSIndexPath*)indexPath {
@@ -665,17 +754,17 @@ const int kRelativeTimeMaxHours = 4;
   TableViewURLCell* URLCell = base::mac::ObjCCastStrict<TableViewURLCell>(cell);
 
   NSString* itemIdentifier = URLItem.uniqueIdentifier;
-  UIImage* cachedFavicon = [self.imageDataSource
+  FaviconAttributes* cachedAttributes = [self.imageDataSource
       faviconForURL:URLItem.URL
-         completion:^(UIImage* favicon) {
+         completion:^(FaviconAttributes* attributes) {
            // Only set favicon if the cell hasn't been reused.
            if ([URLCell.cellUniqueIdentifier isEqualToString:itemIdentifier]) {
-             DCHECK(favicon);
-             URLCell.faviconView.image = favicon;
+             DCHECK(attributes);
+             [URLCell.faviconView configureWithAttributes:attributes];
            }
          }];
-  DCHECK(cachedFavicon);
-  URLCell.faviconView.image = cachedFavicon;
+  DCHECK(cachedAttributes);
+  [URLCell.faviconView configureWithAttributes:cachedAttributes];
 }
 
 #pragma mark - Distant Sessions helpers
@@ -763,17 +852,12 @@ const int kRelativeTimeMaxHours = 4;
 
 #pragma mark - Navigation helpers
 
-- (void)dismissRecentTabsModal {
-  [self.handsetCommandHandler dismissRecentTabsWithCompletion:nil];
-}
-
 - (void)openTabWithContentOfDistantTab:
     (synced_sessions::DistantTab const*)distantTab {
   sync_sessions::OpenTabsUIDelegate* openTabs =
-      IOSChromeProfileSyncServiceFactory::GetForBrowserState(self.browserState)
+      ProfileSyncServiceFactory::GetForBrowserState(self.browserState)
           ->GetOpenTabsUIDelegate();
   const sessions::SessionTab* toLoad = nullptr;
-  [self dismissRecentTabsModal];
   if (openTabs->GetForeignTab(distantTab->session_tag, distantTab->tab_id,
                               &toLoad)) {
     base::RecordAction(base::UserMetricsAction(
@@ -782,46 +866,32 @@ const int kRelativeTimeMaxHours = 4;
         self.browserState, new_tab_page_uma::ACTION_OPENED_FOREIGN_SESSION);
     [self.loader loadSessionTab:toLoad];
   }
+  [self.presentationDelegate showActiveRegularTabFromRecentTabs];
 }
 
 - (void)openTabWithTabRestoreEntry:
     (const sessions::TabRestoreService::Entry*)entry {
-  DCHECK(entry);
-  if (!entry)
-    return;
   // Only TAB type is handled.
-  if (entry->type != sessions::TabRestoreService::TAB)
-    return;
-  TabRestoreServiceDelegateImplIOS* delegate =
-      TabRestoreServiceDelegateImplIOSFactory::GetForBrowserState(
-          self.browserState);
-  [self dismissRecentTabsModal];
+  DCHECK_EQ(entry->type, sessions::TabRestoreService::TAB);
   base::RecordAction(
       base::UserMetricsAction("MobileRecentTabManagerRecentTabOpened"));
   new_tab_page_uma::RecordAction(
       self.browserState, new_tab_page_uma::ACTION_OPENED_RECENTLY_CLOSED_ENTRY);
-  self.tabRestoreService->RestoreEntryById(delegate, entry->id,
-                                           WindowOpenDisposition::CURRENT_TAB);
-}
-
-- (void)showFullHistory {
-  __weak RecentTabsTableViewController* weakSelf = self;
-  ProceduralBlock openHistory = ^{
-    [weakSelf.dispatcher showHistory];
-  };
-  [self.handsetCommandHandler dismissRecentTabsWithCompletion:openHistory];
+  [self.loader restoreTabWithSessionID:entry->id];
+  [self.presentationDelegate showActiveRegularTabFromRecentTabs];
 }
 
 #pragma mark - Collapse/Expand sections
 
-- (void)handleTap:(UITapGestureRecognizer*)tapGesture {
-  DCHECK_EQ(self.tableView, tapGesture.view);
-  if (tapGesture.state == UIGestureRecognizerStateEnded) {
-    [self toggleExpansionOfSectionIdentifier:
-              self.lastTappedHeaderSectionIdentifier];
+- (void)handleTap:(UITapGestureRecognizer*)sender {
+  UIView* headerTapped = sender.view;
+  NSInteger tappedHeaderSectionIdentifier = headerTapped.tag;
+
+  if (sender.state == UIGestureRecognizerStateEnded) {
+    [self toggleExpansionOfSectionIdentifier:tappedHeaderSectionIdentifier];
 
     NSInteger section = [self.tableViewModel
-        sectionForSectionIdentifier:self.lastTappedHeaderSectionIdentifier];
+        sectionForSectionIdentifier:tappedHeaderSectionIdentifier];
     UITableViewHeaderFooterView* headerView =
         [self.tableView headerViewForSection:section];
     ListItem* headerItem = [self.tableViewModel headerForSection:section];
@@ -883,18 +953,19 @@ const int kRelativeTimeMaxHours = 4;
 
 #pragma mark - Long press and context menus
 
-- (void)handleLongPress:(UILongPressGestureRecognizer*)longPressGesture {
-  DCHECK_EQ(self.tableView, longPressGesture.view);
-  if (longPressGesture.state != UIGestureRecognizerStateBegan)
+- (void)handleLongPress:(UILongPressGestureRecognizer*)sender {
+  if (sender.state != UIGestureRecognizerStateBegan)
     return;
-  NSInteger sectionIdentifier = self.lastTappedHeaderSectionIdentifier;
+  UIView* headerTapped = sender.view;
+  NSInteger tappedHeaderSectionIdentifier = headerTapped.tag;
+  NSInteger sectionIdentifier = tappedHeaderSectionIdentifier;
   // Only handle LongPress for SessionHeaders.
   if (![self isSessionSectionIdentifier:sectionIdentifier])
     return;
 
   // Highlight the section header being long pressed.
   NSInteger section = [self.tableViewModel
-      sectionForSectionIdentifier:self.lastTappedHeaderSectionIdentifier];
+      sectionForSectionIdentifier:tappedHeaderSectionIdentifier];
   ListItem* headerItem = [self.tableViewModel headerForSection:section];
   UITableViewHeaderFooterView* headerView =
       [self.tableView headerViewForSection:section];
@@ -908,7 +979,7 @@ const int kRelativeTimeMaxHours = 4;
 
   web::ContextMenuParams params;
   // Get view coordinates in local space.
-  CGPoint viewCoordinate = [longPressGesture locationInView:self.tableView];
+  CGPoint viewCoordinate = [sender locationInView:self.tableView];
   params.location = viewCoordinate;
   params.view = self.tableView;
 
@@ -952,13 +1023,14 @@ const int kRelativeTimeMaxHours = 4;
       [self.tableViewModel sectionForSectionIdentifier:sectionIdentifier];
   synced_sessions::DistantSession const* session =
       [self sessionForSection:section];
-  [self dismissRecentTabsModal];
   for (auto const& tab : session->tabs) {
     [self.loader webPageOrderedOpen:tab->virtual_url
                            referrer:web::Referrer()
                        inBackground:YES
+                        originPoint:CGPointZero
                            appendTo:kLastTab];
   }
+  [self.presentationDelegate showActiveRegularTabFromRecentTabs];
 }
 
 - (void)removeSessionAtSessionSectionIdentifier:(NSInteger)sectionIdentifier {
@@ -969,14 +1041,13 @@ const int kRelativeTimeMaxHours = 4;
       [self sessionForSection:section];
   std::string sessionTagCopy = session->tag;
   syncer::SyncService* syncService =
-      IOSChromeProfileSyncServiceFactory::GetForBrowserState(self.browserState);
+      ProfileSyncServiceFactory::GetForBrowserState(self.browserState);
   sync_sessions::OpenTabsUIDelegate* openTabs =
       syncService->GetOpenTabsUIDelegate();
 
-  [self.tableViewModel removeSectionWithIdentifier:sectionIdentifier];
-  _syncedSessions->EraseSession(section - kNumberOfSectionsBeforeSessions);
-
   void (^tableUpdates)(void) = ^{
+    [self.tableViewModel removeSectionWithIdentifier:sectionIdentifier];
+    _syncedSessions->EraseSession(section - kNumberOfSectionsBeforeSessions);
     [self.tableView deleteSections:[NSIndexSet indexSetWithIndex:section]
                   withRowAnimation:UITableViewRowAnimationLeft];
   };
@@ -996,24 +1067,6 @@ const int kRelativeTimeMaxHours = 4;
     openTabs->DeleteForeignSession(sessionTagCopy);
     [self.tableView endUpdates];
   }
-}
-
-#pragma mark - UIGestureRecognizerDelegate
-
-- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer*)gestureRecognizer {
-  CGPoint point = [gestureRecognizer locationInView:self.tableView];
-  // Context menus can be opened on a Session section header.
-  for (NSInteger section = 0; section < [self.tableViewModel numberOfSections];
-       section++) {
-    NSInteger itemType =
-        [self.tableViewModel sectionIdentifierForSection:section];
-    if (CGRectContainsPoint([self.tableView rectForHeaderInSection:section],
-                            point)) {
-      self.lastTappedHeaderSectionIdentifier = itemType;
-      return YES;
-    }
-  }
-  return NO;
 }
 
 #pragma mark - SigninPromoViewConsumer
@@ -1068,9 +1121,22 @@ const int kRelativeTimeMaxHours = 4;
   [self.dispatcher showSyncPassphraseSettingsFromViewController:self];
 }
 
-#pragma mark - TextButtonItemDelegate
+#pragma mark - SigninPresenter
 
-- (void)performButtonAction {
+- (void)showSignin:(ShowSigninCommand*)command {
+  [self.dispatcher showSignin:command baseViewController:self];
+}
+
+#pragma mark - Accessibility
+
+- (BOOL)accessibilityPerformEscape {
+  [self.presentationDelegate showActiveRegularTabFromRecentTabs];
+  return YES;
+}
+
+#pragma mark - Private Helpers
+
+- (void)updateSyncState {
   SyncSetupService::SyncServiceState syncState =
       GetSyncStateForBrowserState(_browserState);
   if (ShouldShowSyncSignin(syncState)) {
@@ -1080,12 +1146,6 @@ const int kRelativeTimeMaxHours = 4;
   } else if (ShouldShowSyncPassphraseSettings(syncState)) {
     [self showSyncPassphraseSettings];
   }
-}
-
-#pragma mark - SigninPresenter
-
-- (void)showSignin:(ShowSigninCommand*)command {
-  [self.dispatcher showSignin:command baseViewController:self];
 }
 
 @end

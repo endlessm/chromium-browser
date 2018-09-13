@@ -270,10 +270,17 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   GREYAssertNotEqual(collectionWidth, collectionWidthAfterRotation,
                      @"The collection width has not changed.");
 
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          FakeOmniboxAccessibilityID())]
-      assertWithMatcher:OmniboxWidthBetween(collectionWidthAfterRotation + 1,
-                                            2)];
+  if (IsUIRefreshPhase1Enabled()) {
+    // In UI refresh, scrolled, landscape, the fake omnibox is hidden.
+    [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                            FakeOmniboxAccessibilityID())]
+        assertWithMatcher:grey_not(grey_sufficientlyVisible())];
+  } else {
+    [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                            FakeOmniboxAccessibilityID())]
+        assertWithMatcher:OmniboxWidthBetween(collectionWidthAfterRotation + 1,
+                                              2)];
+  }
 }
 
 // Tests that the promo is correctly displayed and removed once tapped.
@@ -365,6 +372,8 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           FakeOmniboxAccessibilityID())]
       performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForElementWithMatcherSufficientlyVisible:chrome_test_util::Omnibox()];
 
   // Navigate and come back.
   [[EarlGrey selectElementWithMatcher:
@@ -394,9 +403,14 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   const GURL pageURL = self.testServer->GetURL(kPageURL);
 
   NSString* URL = base::SysUTF8ToNSString(pageURL.spec());
-  // Type the URL in the fake omnibox and navigate to the page.
+  // Tap the fake omnibox, type the URL in the real omnibox and navigate to the
+  // page.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           FakeOmniboxAccessibilityID())]
+      performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForElementWithMatcherSufficientlyVisible:chrome_test_util::Omnibox()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText([URL stringByAppendingString:@"\n"])];
 
   // Check that the page is loaded.
@@ -425,6 +439,8 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           FakeOmniboxAccessibilityID())]
       performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForElementWithMatcherSufficientlyVisible:chrome_test_util::Omnibox()];
 
   // Check that the page is loaded.
   GREYAssertTrue(tapped, @"The tap on the fakebox was not correctly logged.");
@@ -484,6 +500,8 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           FakeOmniboxAccessibilityID())]
       performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForElementWithMatcherSufficientlyVisible:chrome_test_util::Omnibox()];
 
   // Offset after the fake omnibox has been tapped.
   CGPoint offsetAfterTap = collectionView.contentOffset;
@@ -535,6 +553,8 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           FakeOmniboxAccessibilityID())]
       performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForElementWithMatcherSufficientlyVisible:chrome_test_util::Omnibox()];
 
   // Unfocus the omnibox.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::
@@ -552,6 +572,25 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
       collectionView.contentOffset.y >= origin.y &&
           collectionView.contentOffset.y <= origin.y + 6,
       @"The collection is not scrolled back to its previous position");
+}
+
+// Tests tapping the search button when the fake omnibox is scrolled.
+- (void)testTapSearchButtonFakeOmniboxScrolled {
+  if (!IsUIRefreshPhase1Enabled() ||
+      content_suggestions::IsRegularXRegularSizeClass()) {
+    // This only happens on iPhone, since on iPad there's no secondary toolbar.
+    return;
+  }
+
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          ContentSuggestionCollectionView()]
+      performAction:grey_swipeFastInDirection(kGREYDirectionUp)];
+  // Tap the search button.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kToolbarOmniboxButtonIdentifier)]
+      performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForElementWithMatcherSufficientlyVisible:chrome_test_util::Omnibox()];
 }
 
 #pragma mark - Helpers

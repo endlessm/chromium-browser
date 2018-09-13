@@ -554,7 +554,7 @@ public:
   unsigned getShuffleCost(TTI::ShuffleKind Kind, Type *Tp, int Index,
                           Type *SubTp) {
     switch (Kind) {
-    case TTI::SK_Alternate:
+    case TTI::SK_Select:
     case TTI::SK_Transpose:
     case TTI::SK_PermuteSingleSrc:
     case TTI::SK_PermuteTwoSrc:
@@ -1379,7 +1379,7 @@ class BasicTTIImpl : public BasicTTIImplBase<BasicTTIImpl> {
   const TargetLoweringBase *getTLI() const { return TLI; }
 
 public:
-  explicit BasicTTIImpl(const TargetMachine *ST, const Function &F);
+  explicit BasicTTIImpl(const TargetMachine *TM, const Function &F);
 };
 
 } // end namespace llvm

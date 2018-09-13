@@ -1,4 +1,4 @@
-//===-- hwasan.cc -----------------------------------------------------------===//
+//===-- hwasan.cc ---------------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -14,8 +14,9 @@
 
 #include "hwasan.h"
 #include "hwasan_mapping.h"
-#include "hwasan_thread.h"
 #include "hwasan_poisoning.h"
+#include "hwasan_report.h"
+#include "hwasan_thread.h"
 #include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_flags.h"
@@ -176,10 +177,6 @@ void __hwasan_init() {
 
   __sanitizer_set_report_path(common_flags()->log_path);
 
-  InitializeInterceptors();
-  InstallDeadlySignalHandlers(HwasanOnDeadlySignal);
-  InstallAtExitHandler(); // Needs __cxa_atexit interceptor.
-
   DisableCoreDumperIfNecessary();
   if (!InitShadow()) {
     Printf("FATAL: HWAddressSanitizer cannot mmap the shadow memory.\n");
@@ -192,6 +189,10 @@ void __hwasan_init() {
     DumpProcessMap();
     Die();
   }
+
+  InitializeInterceptors();
+  InstallDeadlySignalHandlers(HwasanOnDeadlySignal);
+  InstallAtExitHandler(); // Needs __cxa_atexit interceptor.
 
   Symbolizer::GetOrInit()->AddHooks(EnterSymbolizer, ExitSymbolizer);
 

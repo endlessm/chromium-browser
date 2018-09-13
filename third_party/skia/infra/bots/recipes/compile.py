@@ -8,7 +8,7 @@
 
 DEPS = [
   'build',
-  'core',
+  'checkout',
   'recipe_engine/context',
   'recipe_engine/file',
   'recipe_engine/json',
@@ -26,14 +26,37 @@ def RunSteps(api):
   api.vars.setup()
 
   # Check out code.
+  bot_update = True
+  checkout_root = api.checkout.default_checkout_root
+  checkout_chromium = False
+  checkout_flutter = False
+  extra_gclient_env = {}
+  flutter_android = False
+  parent_rev = False
+
   if 'NoDEPS' in api.properties['buildername']:
+    bot_update = False
     checkout_root = api.path['start_dir']
-    api.core.checkout_git(checkout_root=checkout_root)
+  if 'CommandBuffer' in api.vars.builder_name:
+    checkout_chromium = True
+  if 'Flutter' in api.vars.builder_name:
+    checkout_root = checkout_root.join('flutter')
+    checkout_flutter = True
+    if 'Android' in api.vars.builder_name:
+      flutter_android = True
+  if 'ParentRevision' in api.vars.builder_name:
+    parent_rev = True
+
+  if bot_update:
+    api.checkout.bot_update(
+        checkout_root=checkout_root,
+        checkout_chromium=checkout_chromium,
+        checkout_flutter=checkout_flutter,
+        extra_gclient_env=extra_gclient_env,
+        flutter_android=flutter_android,
+        parent_rev=parent_rev)
   else:
-    checkout_root = api.core.default_checkout_root
-    if 'Flutter' in api.vars.builder_name:
-      checkout_root = checkout_root.join('flutter')
-    api.core.checkout_bot_update(checkout_root=checkout_root)
+    api.checkout.git(checkout_root=checkout_root)
 
   api.file.ensure_directory('makedirs tmp_dir', api.vars.tmp_dir)
 
@@ -46,16 +69,14 @@ def RunSteps(api):
     api.build(checkout_root=checkout_root, out_dir=out_dir)
 
     # TODO(borenet): Move this out of the try/finally.
-    dst = api.vars.swarming_out_dir.join('out', api.vars.configuration)
+    dst = api.vars.swarming_out_dir
     if 'ParentRevision' in api.vars.builder_name:
-      dst = api.vars.swarming_out_dir.join(
-          'ParentRevision', 'out', api.vars.configuration)
+      dst = api.vars.swarming_out_dir.join('ParentRevision')
     api.build.copy_build_products(out_dir=out_dir, dst=dst)
     if 'SKQP' in api.vars.extra_tokens:
       wlist = checkout_root.join(
           'skia', 'infra','cts', 'whitelist_devices.json')
       api.file.copy('copy whitelist', wlist, dst)
-
   finally:
     if 'Win' in api.vars.builder_cfg.get('os', ''):
       api.python.inline(
@@ -78,6 +99,7 @@ TEST_BUILDERS = [
   'Build-Debian9-Clang-x86_64-Release-NoDEPS',
   'Build-Debian9-Clang-x86_64-Release-ParentRevision',
   'Build-Debian9-GCC-x86_64-Release-Flutter_Android',
+  'Build-Mac-Clang-x86_64-Debug-CommandBuffer',
   'Build-Win-Clang-x86-Debug',
 ]
 

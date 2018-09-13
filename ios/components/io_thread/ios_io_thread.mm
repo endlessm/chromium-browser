@@ -300,9 +300,6 @@ void IOSIOThread::Init() {
   // logging the network change before other IO thread consumers respond to it.
   network_change_observer_.reset(new LoggingNetworkChangeObserver(net_log_));
 
-  // Setup the HistogramWatcher to run on the IO thread.
-  net::NetworkChangeNotifier::InitHistogramWatcher();
-
   globals_->system_network_delegate = CreateSystemNetworkDelegate();
   globals_->host_resolver = CreateGlobalHostResolver(net_log_);
 
@@ -313,7 +310,7 @@ void IOSIOThread::Init() {
   globals_->cert_transparency_verifier.reset(new net::MultiLogCTVerifier());
   globals_->ct_policy_enforcer.reset(new net::DefaultCTPolicyEnforcer());
 
-  globals_->ssl_config_service = new net::SSLConfigServiceDefaults();
+  globals_->ssl_config_service.reset(new net::SSLConfigServiceDefaults());
 
   CreateDefaultAuthHandlerFactory();
   globals_->http_server_properties.reset(new net::HttpServerPropertiesImpl());
@@ -361,9 +358,6 @@ void IOSIOThread::CleanUp() {
   // Release objects that the net::URLRequestContext could have been pointing
   // to.
 
-  // Shutdown the HistogramWatcher on the IO thread.
-  net::NetworkChangeNotifier::ShutdownHistogramWatcher();
-
   // This must be reset before the ChromeNetLog is destroyed.
   network_change_observer_.reset();
 
@@ -379,11 +373,12 @@ void IOSIOThread::CreateDefaultAuthHandlerFactory() {
   std::vector<std::string> supported_schemes =
       base::SplitString(kSupportedAuthSchemes, ",", base::TRIM_WHITESPACE,
                         base::SPLIT_WANT_NONEMPTY);
-  globals_->http_auth_preferences.reset(
-      new net::HttpAuthPreferences(supported_schemes, std::string()));
+  globals_->http_auth_preferences =
+      std::make_unique<net::HttpAuthPreferences>();
   globals_->http_auth_handler_factory =
       net::HttpAuthHandlerRegistryFactory::Create(
-          globals_->http_auth_preferences.get(), globals_->host_resolver.get());
+          globals_->host_resolver.get(), globals_->http_auth_preferences.get(),
+          supported_schemes);
 }
 
 void IOSIOThread::ClearHostCache() {

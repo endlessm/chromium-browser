@@ -1078,6 +1078,12 @@ static void computeKnownBitsFromOperator(const Operator *I, KnownBits &Known,
       // leading zero bits.
       MaxHighZeros =
           std::max(Known.countMinLeadingZeros(), Known2.countMinLeadingZeros());
+    } else if (SPF == SPF_ABS) {
+      // RHS from matchSelectPattern returns the negation part of abs pattern.
+      // If the negate has an NSW flag we can assume the sign bit of the result
+      // will be 0 because that makes abs(INT_MIN) undefined.
+      if (cast<Instruction>(RHS)->hasNoSignedWrap())
+        MaxHighZeros = 1;
     }
 
     // Only known if known in both the LHS and RHS.
@@ -1123,7 +1129,7 @@ static void computeKnownBitsFromOperator(const Operator *I, KnownBits &Known,
   }
   case Instruction::BitCast: {
     Type *SrcTy = I->getOperand(0)->getType();
-    if ((SrcTy->isIntegerTy() || SrcTy->isPointerTy()) &&
+    if (SrcTy->isIntOrPtrTy() &&
         // TODO: For now, not handling conversions like:
         // (bitcast i64 %x to <2 x i32>)
         !I->getType()->isVectorTy()) {
@@ -1763,7 +1769,12 @@ bool isKnownToBeAPowerOfTwo(const Value *V, bool OrZero, unsigned Depth,
 /// Currently this routine does not support vector GEPs.
 static bool isGEPKnownNonNull(const GEPOperator *GEP, unsigned Depth,
                               const Query &Q) {
-  if (!GEP->isInBounds() || GEP->getPointerAddressSpace() != 0)
+  const Function *F = nullptr;
+  if (const Instruction *I = dyn_cast<Instruction>(GEP))
+    F = I->getFunction();
+
+  if (!GEP->isInBounds() ||
+      NullPointerIsDefined(F, GEP->getPointerAddressSpace()))
     return false;
 
   // FIXME: Support vector-GEPs.
@@ -1937,6 +1948,10 @@ bool isKnownNonZero(const Value *V, unsigned Depth, const Query &Q) {
     }
   }
 
+  // Some of the tests below are recursive, so bail out if we hit the limit.
+  if (Depth++ >= MaxDepth)
+    return false;
+
   // Check for pointer simplifications.
   if (V->getType()->isPointerTy()) {
     // Alloca never returns null, malloc might.
@@ -1956,14 +1971,11 @@ bool isKnownNonZero(const Value *V, unsigned Depth, const Query &Q) {
     if (auto CS = ImmutableCallSite(V)) {
       if (CS.isReturnNonNull())
         return true;
-      if (CS.getIntrinsicID() == Intrinsic::ID::launder_invariant_group)
-        return isKnownNonZero(CS->getOperand(0), Depth + 1, Q);
+      if (const auto *RP = getArgumentAliasingToReturnedPointer(CS))
+        return isKnownNonZero(RP, Depth, Q);
     }
   }
 
-  // The remaining tests are all recursive, so bail out if we hit the limit.
-  if (Depth++ >= MaxDepth)
-    return false;
 
   // Check for recursive pointer simplifications.
   if (V->getType()->isPointerTy()) {
@@ -3375,13 +3387,31 @@ static uint64_t GetStringLengthH(const Value *V,
 /// If we can compute the length of the string pointed to by
 /// the specified pointer, return 'len+1'.  If we can't, return 0.
 uint64_t llvm::GetStringLength(const Value *V, unsigned CharSize) {
-  if (!V->getType()->isPointerTy()) return 0;
+  if (!V->getType()->isPointerTy())
+    return 0;
 
   SmallPtrSet<const PHINode*, 32> PHIs;
   uint64_t Len = GetStringLengthH(V, PHIs, CharSize);
   // If Len is ~0ULL, we had an infinite phi cycle: this is dead code, so return
   // an empty string as a length.
   return Len == ~0ULL ? 1 : Len;
+}
+
+const Value *llvm::getArgumentAliasingToReturnedPointer(ImmutableCallSite CS) {
+  assert(CS &&
+         "getArgumentAliasingToReturnedPointer only works on nonnull CallSite");
+  if (const Value *RV = CS.getReturnedArgOperand())
+    return RV;
+  // This can be used only as a aliasing property.
+  if (isIntrinsicReturningPointerAliasingArgumentWithoutCapturing(CS))
+    return CS.getArgOperand(0);
+  return nullptr;
+}
+
+bool llvm::isIntrinsicReturningPointerAliasingArgumentWithoutCapturing(
+    ImmutableCallSite CS) {
+  return CS.getIntrinsicID() == Intrinsic::launder_invariant_group ||
+         CS.getIntrinsicID() == Intrinsic::strip_invariant_group;
 }
 
 /// \p PN defines a loop-variant pointer to an object.  Check if the
@@ -3429,11 +3459,21 @@ Value *llvm::GetUnderlyingObject(Value *V, const DataLayout &DL,
       // An alloca can't be further simplified.
       return V;
     } else {
-      if (auto CS = CallSite(V))
-        if (Value *RV = CS.getReturnedArgOperand()) {
-          V = RV;
+      if (auto CS = CallSite(V)) {
+        // CaptureTracking can know about special capturing properties of some
+        // intrinsics like launder.invariant.group, that can't be expressed with
+        // the attributes, but have properties like returning aliasing pointer.
+        // Because some analysis may assume that nocaptured pointer is not
+        // returned from some special intrinsic (because function would have to
+        // be marked with returns attribute), it is crucial to use this function
+        // because it should be in sync with CaptureTracking. Not using it may
+        // cause weird miscompilations where 2 aliasing pointers are assumed to
+        // noalias.
+        if (auto *RP = getArgumentAliasingToReturnedPointer(CS)) {
+          V = RP;
           continue;
         }
+      }
 
       // See if InstructionSimplify knows any relevant tricks.
       if (Instruction *I = dyn_cast<Instruction>(V))
@@ -4471,6 +4511,23 @@ static SelectPatternResult matchMinMax(CmpInst::Predicate Pred,
   return {SPF_UNKNOWN, SPNB_NA, false};
 }
 
+bool llvm::isKnownNegation(const Value *X, const Value *Y) {
+  assert(X && Y && "Invalid operand");
+
+  // X = sub (0, Y)
+  if (match(X, m_Neg(m_Specific(Y))))
+    return true;
+
+  // Y = sub (0, X)
+  if (match(Y, m_Neg(m_Specific(X))))
+    return true;
+
+  // X = sub (A, B), Y = sub (B, A)
+  Value *A, *B;
+  return match(X, m_Sub(m_Value(A), m_Value(B))) &&
+         match(Y, m_Sub(m_Specific(B), m_Specific(A)));
+}
+
 static SelectPatternResult matchSelectPattern(CmpInst::Predicate Pred,
                                               FastMathFlags FMF,
                                               Value *CmpLHS, Value *CmpRHS,
@@ -4569,25 +4626,49 @@ static SelectPatternResult matchSelectPattern(CmpInst::Predicate Pred,
     case FCmpInst::FCMP_OLE: return {SPF_FMINNUM, NaNBehavior, Ordered};
     }
   }
+  
+  if (isKnownNegation(TrueVal, FalseVal)) {
+    // Sign-extending LHS does not change its sign, so TrueVal/FalseVal can
+    // match against either LHS or sext(LHS).
+    auto MaybeSExtCmpLHS =
+        m_CombineOr(m_Specific(CmpLHS), m_SExt(m_Specific(CmpLHS)));
+    auto ZeroOrAllOnes = m_CombineOr(m_ZeroInt(), m_AllOnes());
+    auto ZeroOrOne = m_CombineOr(m_ZeroInt(), m_One());
+    if (match(TrueVal, MaybeSExtCmpLHS)) {
+      // Set the return values. If the compare uses the negated value (-X >s 0),
+      // swap the return values because the negated value is always 'RHS'.
+      LHS = TrueVal;
+      RHS = FalseVal;
+      if (match(CmpLHS, m_Neg(m_Specific(FalseVal))))
+        std::swap(LHS, RHS);
 
-  const APInt *C1;
-  if (match(CmpRHS, m_APInt(C1))) {
-    if ((CmpLHS == TrueVal && match(FalseVal, m_Neg(m_Specific(CmpLHS)))) ||
-        (CmpLHS == FalseVal && match(TrueVal, m_Neg(m_Specific(CmpLHS))))) {
+      // (X >s 0) ? X : -X or (X >s -1) ? X : -X --> ABS(X)
+      // (-X >s 0) ? -X : X or (-X >s -1) ? -X : X --> ABS(X)
+      if (Pred == ICmpInst::ICMP_SGT && match(CmpRHS, ZeroOrAllOnes))
+        return {SPF_ABS, SPNB_NA, false};
 
-      // ABS(X) ==> (X >s 0) ? X : -X and (X >s -1) ? X : -X
-      // NABS(X) ==> (X >s 0) ? -X : X and (X >s -1) ? -X : X
-      if (Pred == ICmpInst::ICMP_SGT &&
-          (C1->isNullValue() || C1->isAllOnesValue())) {
-        return {(CmpLHS == TrueVal) ? SPF_ABS : SPF_NABS, SPNB_NA, false};
-      }
+      // (X <s 0) ? X : -X or (X <s 1) ? X : -X --> NABS(X)
+      // (-X <s 0) ? -X : X or (-X <s 1) ? -X : X --> NABS(X)
+      if (Pred == ICmpInst::ICMP_SLT && match(CmpRHS, ZeroOrOne))
+        return {SPF_NABS, SPNB_NA, false};
+    }
+    else if (match(FalseVal, MaybeSExtCmpLHS)) {
+      // Set the return values. If the compare uses the negated value (-X >s 0),
+      // swap the return values because the negated value is always 'RHS'.
+      LHS = FalseVal;
+      RHS = TrueVal;
+      if (match(CmpLHS, m_Neg(m_Specific(TrueVal))))
+        std::swap(LHS, RHS);
 
-      // ABS(X) ==> (X <s 0) ? -X : X and (X <s 1) ? -X : X
-      // NABS(X) ==> (X <s 0) ? X : -X and (X <s 1) ? X : -X
-      if (Pred == ICmpInst::ICMP_SLT &&
-          (C1->isNullValue() || C1->isOneValue())) {
-        return {(CmpLHS == FalseVal) ? SPF_ABS : SPF_NABS, SPNB_NA, false};
-      }
+      // (X >s 0) ? -X : X or (X >s -1) ? -X : X --> NABS(X)
+      // (-X >s 0) ? X : -X or (-X >s -1) ? X : -X --> NABS(X)
+      if (Pred == ICmpInst::ICMP_SGT && match(CmpRHS, ZeroOrAllOnes))
+        return {SPF_NABS, SPNB_NA, false};
+
+      // (X <s 0) ? -X : X or (X <s 1) ? -X : X --> ABS(X)
+      // (-X <s 0) ? X : -X or (-X <s 1) ? X : -X --> ABS(X)
+      if (Pred == ICmpInst::ICMP_SLT && match(CmpRHS, ZeroOrOne))
+        return {SPF_ABS, SPNB_NA, false};
     }
   }
 

@@ -32,14 +32,14 @@
 
 namespace {
 
-constexpr SkColor kButtonHoverColor = SkColorSetARGB(20, 0, 0, 0);
-constexpr SkColor kButtonPressedColor = SkColorSetARGB(31, 0, 0, 0);
+constexpr SkColor kAvatarButtonHoverColor = SkColorSetARGB(20, 0, 0, 0);
+constexpr SkColor kAvatarButtonPressedColor = SkColorSetARGB(31, 0, 0, 0);
 
-const CGFloat kButtonHeight = 24;
+const CGFloat kAvatarButtonHeight = 24;
 
 // NSButtons have a default padding of 5px. Buttons should have a padding of
 // 6px.
-const CGFloat kButtonExtraPadding = 6 - 5;
+const CGFloat kAvatarButtonExtraPadding = 6 - 5;
 
 // Extra padding for the signed out avatar button.
 const CGFloat kSignedOutWidthPadding = 2;
@@ -80,15 +80,15 @@ const CGFloat kFrameColorDarkUpperBound = 0.33;
   // is square. Otherwise, we are displaying the profile's name and an
   // optional authentication error icon.
   if ([self image] && !hasError_)
-    buttonSize.width = kButtonHeight + kSignedOutWidthPadding;
+    buttonSize.width = kAvatarButtonHeight + kSignedOutWidthPadding;
   else
-    buttonSize.width += 2 * kButtonExtraPadding;
-  buttonSize.height = kButtonHeight;
+    buttonSize.width += 2 * kAvatarButtonExtraPadding;
+  buttonSize.height = kAvatarButtonHeight;
   return buttonSize;
 }
 
 - (void)drawInteriorWithFrame:(NSRect)frame inView:(NSView*)controlView {
-  NSRect frameAfterPadding = NSInsetRect(frame, kButtonExtraPadding, 0);
+  NSRect frameAfterPadding = NSInsetRect(frame, kAvatarButtonExtraPadding, 0);
   [super drawInteriorWithFrame:frameAfterPadding inView:controlView];
 }
 
@@ -104,14 +104,15 @@ const CGFloat kFrameColorDarkUpperBound = 0.33;
 
 - (void)drawBezelWithFrame:(NSRect)frame
                     inView:(NSView*)controlView {
-  AvatarButton* button = base::mac::ObjCCastStrict<AvatarButton>(controlView);
-  HoverState hoverState = [button hoverState];
+  AvatarButtonCocoa* button =
+      base::mac::ObjCCastStrict<AvatarButtonCocoa>(controlView);
+  CloseButtonHoverState hoverState = [button hoverState];
 
   NSColor* backgroundColor = nil;
   if (hoverState == kHoverStateMouseDown || [button isActive]) {
-    backgroundColor = skia::SkColorToSRGBNSColor(kButtonPressedColor);
+    backgroundColor = skia::SkColorToSRGBNSColor(kAvatarButtonPressedColor);
   } else if (hoverState == kHoverStateMouseOver) {
-    backgroundColor = skia::SkColorToSRGBNSColor(kButtonHoverColor);
+    backgroundColor = skia::SkColorToSRGBNSColor(kAvatarButtonHoverColor);
   }
 
   if (backgroundColor) {
@@ -165,8 +166,8 @@ const CGFloat kFrameColorDarkUpperBound = 0.33;
         ThemeServiceFactory::GetForProfile(browser->profile());
     isThemedWindow_ = !themeService->UsingSystemTheme();
 
-    AvatarButton* avatarButton =
-        [[AvatarButton alloc] initWithFrame:NSZeroRect];
+    AvatarButtonCocoa* avatarButton =
+        [[AvatarButtonCocoa alloc] initWithFrame:NSZeroRect];
     avatarButton.sendActionOnMouseDown = YES;
     button_.reset(avatarButton);
 
@@ -244,8 +245,8 @@ const CGFloat kFrameColorDarkUpperBound = 0.33;
       profiles::GetAvatarButtonTextForProfile(browser_->profile()));
   [[button_ cell] setHasError:hasError_ withTitle:buttonTitle];
 
-  AvatarButton* button =
-      base::mac::ObjCCastStrict<AvatarButton>(button_);
+  AvatarButtonCocoa* button =
+      base::mac::ObjCCastStrict<AvatarButtonCocoa>(button_);
 
   if (useGenericButton) {
     NSImage* avatarIcon = NSImageFromImageSkia(gfx::CreateVectorIcon(
@@ -336,14 +337,16 @@ const CGFloat kFrameColorDarkUpperBound = 0.33;
                     withServiceType:serviceType
                     fromAccessPoint:accessPoint];
 
-  AvatarButton* button = base::mac::ObjCCastStrict<AvatarButton>(button_);
+  AvatarButtonCocoa* button =
+      base::mac::ObjCCastStrict<AvatarButtonCocoa>(button_);
   // When the user clicks a second time on the button, the menu closes.
   [button setIsActive:[self isMenuOpened]];
 }
 
 // AvatarBaseController overrides:
 - (void)bubbleWillClose {
-  AvatarButton* button = base::mac::ObjCCastStrict<AvatarButton>(button_);
+  AvatarButtonCocoa* button =
+      base::mac::ObjCCastStrict<AvatarButtonCocoa>(button_);
   [button setIsActive:NO];
   [self updateAvatarButtonAndLayoutParent:NO];
   [super bubbleWillClose];

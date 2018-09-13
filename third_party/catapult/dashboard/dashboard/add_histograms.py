@@ -18,6 +18,7 @@ from dashboard.api import api_request_handler
 from dashboard.common import datastore_hooks
 from dashboard.common import histogram_helpers
 from dashboard.common import stored_object
+from dashboard.common import timing
 from dashboard.common import utils
 from dashboard.models import histogram
 from tracing.value import histogram_set
@@ -30,6 +31,7 @@ SUITE_LEVEL_SPARSE_DIAGNOSTIC_NAMES = set([
     reserved_infos.BENCHMARK_DESCRIPTIONS.name,
     reserved_infos.BOTS.name,
     reserved_infos.BUG_COMPONENTS.name,
+    reserved_infos.DOCUMENTATION_URLS.name,
     reserved_infos.GPUS.name,
     reserved_infos.MASTERS.name,
     reserved_infos.MEMORY_AMOUNTS.name,
@@ -65,18 +67,20 @@ class AddHistogramsHandler(api_request_handler.ApiRequestHandler):
   def AuthorizedPost(self):
     datastore_hooks.SetPrivilegedRequest()
 
-    try:
-      data_str = zlib.decompress(self.request.body)
-      logging.info('Recieved compressed data.')
-    except zlib.error:
-      data_str = self.request.get('data')
-      logging.info('Recieved uncompressed data.')
+    with timing.WallTimeLogger('decompress'):
+      try:
+        data_str = zlib.decompress(self.request.body)
+        logging.info('Recieved compressed data.')
+      except zlib.error:
+        data_str = self.request.get('data')
+        logging.info('Recieved uncompressed data.')
     if not data_str:
       raise api_request_handler.BadRequestError('Missing "data" parameter')
 
     logging.info('Received data: %s', data_str[:200])
 
-    histogram_dicts = json.loads(data_str)
+    with timing.WallTimeLogger('json.loads'):
+      histogram_dicts = json.loads(data_str)
     ProcessHistogramSet(histogram_dicts)
 
 
@@ -103,61 +107,78 @@ def ProcessHistogramSet(histogram_dicts):
       add_point_queue.BOT_WHITELIST_KEY)
 
   histograms = histogram_set.HistogramSet()
-  histograms.ImportDicts(histogram_dicts)
-  histograms.ResolveRelatedHistograms()
-  histograms.DeduplicateDiagnostics()
+
+  with timing.WallTimeLogger('hs.ImportDicts'):
+    histograms.ImportDicts(histogram_dicts)
+
+  with timing.WallTimeLogger('hs.ResolveRelatedHistograms'):
+    histograms.ResolveRelatedHistograms()
+
+  with timing.WallTimeLogger('hs.DeduplicateDiagnostics'):
+    histograms.DeduplicateDiagnostics()
 
   if len(histograms) == 0:
     raise api_request_handler.BadRequestError(
         'HistogramSet JSON must contain at least one histogram.')
 
-  _LogDebugInfo(histograms)
+  with timing.WallTimeLogger('hs._LogDebugInfo'):
+    _LogDebugInfo(histograms)
 
-  InlineDenseSharedDiagnostics(histograms)
+  with timing.WallTimeLogger('InlineDenseSharedDiagnostics'):
+    InlineDenseSharedDiagnostics(histograms)
 
   # TODO(eakuefner): Get rid of this.
   # https://github.com/catapult-project/catapult/issues/4242
-  _PurgeHistogramBinData(histograms)
+  with timing.WallTimeLogger('_PurgeHistogramBinData'):
+    _PurgeHistogramBinData(histograms)
 
-  master = _GetDiagnosticValue(
-      reserved_infos.MASTERS.name, histograms.GetFirstHistogram())
-  bot = _GetDiagnosticValue(
-      reserved_infos.BOTS.name, histograms.GetFirstHistogram())
-  benchmark = _GetDiagnosticValue(
-      reserved_infos.BENCHMARKS.name, histograms.GetFirstHistogram())
-  benchmark_description = _GetDiagnosticValue(
-      reserved_infos.BENCHMARK_DESCRIPTIONS.name,
-      histograms.GetFirstHistogram(), optional=True)
+  with timing.WallTimeLogger('_GetDiagnosticValue calls'):
+    master = _GetDiagnosticValue(
+        reserved_infos.MASTERS.name, histograms.GetFirstHistogram())
+    bot = _GetDiagnosticValue(
+        reserved_infos.BOTS.name, histograms.GetFirstHistogram())
+    benchmark = _GetDiagnosticValue(
+        reserved_infos.BENCHMARKS.name, histograms.GetFirstHistogram())
+    benchmark_description = _GetDiagnosticValue(
+        reserved_infos.BENCHMARK_DESCRIPTIONS.name,
+        histograms.GetFirstHistogram(), optional=True)
 
-  _ValidateMasterBotBenchmarkName(master, bot, benchmark)
+  with timing.WallTimeLogger('_ValidateMasterBotBenchmarkName'):
+    _ValidateMasterBotBenchmarkName(master, bot, benchmark)
 
-  suite_key = utils.TestKey('%s/%s/%s' % (master, bot, benchmark))
+  with timing.WallTimeLogger('ComputeRevision'):
+    suite_key = utils.TestKey('%s/%s/%s' % (master, bot, benchmark))
 
-  logging.info('Suite: %s', suite_key.id())
+    logging.info('Suite: %s', suite_key.id())
 
-  revision = ComputeRevision(histograms)
+    revision = ComputeRevision(histograms)
 
-  bot_whitelist = bot_whitelist_future.get_result()
-  internal_only = add_point_queue.BotInternalOnly(bot, bot_whitelist)
+    bot_whitelist = bot_whitelist_future.get_result()
+    internal_only = add_point_queue.BotInternalOnly(bot, bot_whitelist)
 
   # We'll skip the histogram-level sparse diagnostics because we need to
   # handle those with the histograms, below, so that we can properly assign
   # test paths.
-  suite_level_sparse_diagnostic_entities = FindSuiteLevelSparseDiagnostics(
-      histograms, suite_key, revision, internal_only)
+  with timing.WallTimeLogger('FindSuiteLevelSparseDiagnostics'):
+    suite_level_sparse_diagnostic_entities = FindSuiteLevelSparseDiagnostics(
+        histograms, suite_key, revision, internal_only)
 
   # TODO(eakuefner): Refactor master/bot computation to happen above this line
   # so that we can replace with a DiagnosticRef rather than a full diagnostic.
-  new_guids_to_old_diagnostics = DeduplicateAndPut(
-      suite_level_sparse_diagnostic_entities, suite_key, revision)
-  for new_guid, old_diagnostic in new_guids_to_old_diagnostics.iteritems():
-    histograms.ReplaceSharedDiagnostic(
-        new_guid, diagnostic.Diagnostic.FromDict(old_diagnostic))
+  with timing.WallTimeLogger('DeduplicateAndPut'):
+    new_guids_to_old_diagnostics = DeduplicateAndPut(
+        suite_level_sparse_diagnostic_entities, suite_key, revision)
+  with timing.WallTimeLogger('ReplaceSharedDiagnostic calls'):
+    for new_guid, old_diagnostic in new_guids_to_old_diagnostics.iteritems():
+      histograms.ReplaceSharedDiagnostic(
+          new_guid, diagnostic.Diagnostic.FromDict(old_diagnostic))
 
-  tasks = _BatchHistogramsIntoTasks(
-      suite_key.id(), histograms, revision, benchmark_description)
+  with timing.WallTimeLogger('_BatchHistogramsIntoTasks'):
+    tasks = _BatchHistogramsIntoTasks(
+        suite_key.id(), histograms, revision, benchmark_description)
 
-  _QueueHistogramTasks(tasks)
+  with timing.WallTimeLogger('_QueueHistogramTasks'):
+    _QueueHistogramTasks(tasks)
 
 
 def _ValidateMasterBotBenchmarkName(master, bot, benchmark):
@@ -183,14 +204,15 @@ def _BatchHistogramsIntoTasks(
   duplicate_check = set()
 
   for hist in histograms:
-    diagnostics = FindHistogramLevelSparseDiagnostics(hist.guid, histograms)
+    diagnostics = FindHistogramLevelSparseDiagnostics(hist)
 
     # TODO(eakuefner): Don't compute full diagnostics, because we need anyway to
     # call GetOrCreate here and in the queue.
-    test_path = ComputeTestPath(suite_path, hist.guid, histograms)
+    test_path = ComputeTestPath(suite_path, hist)
 
     if test_path in duplicate_check:
-      logging.warning('Duplicate histogram detected: %s', test_path)
+      raise api_request_handler.BadRequestError(
+          'Duplicate histogram detected: %s' % test_path)
     duplicate_check.add(test_path)
 
     # TODO(eakuefner): Batch these better than one per task.
@@ -320,8 +342,7 @@ def FindSuiteLevelSparseDiagnostics(
   return diagnostics.values()
 
 
-def FindHistogramLevelSparseDiagnostics(guid, histograms):
-  hist = histograms.LookupHistogram(guid)
+def FindHistogramLevelSparseDiagnostics(hist):
   diagnostics = {}
   for name, diag in hist.diagnostics.iteritems():
     if name in HISTOGRAM_LEVEL_SPARSE_DIAGNOSTIC_NAMES:
@@ -329,8 +350,7 @@ def FindHistogramLevelSparseDiagnostics(guid, histograms):
   return diagnostics
 
 
-def ComputeTestPath(suite_path, guid, histograms):
-  hist = histograms.LookupHistogram(guid)
+def ComputeTestPath(suite_path, hist):
   path = '%s/%s' % (suite_path, hist.name)
 
   # If a Histogram represents a summary across multiple stories, then its
@@ -378,17 +398,20 @@ def _GetDiagnosticValue(name, hist, optional=False):
 
 def ComputeRevision(histograms):
   _CheckRequest(len(histograms) > 0, 'Must upload at least one histogram')
-  commit_position = _GetDiagnosticValue(
-      reserved_infos.CHROMIUM_COMMIT_POSITIONS.name,
-      histograms.GetFirstHistogram())
+  rev = _GetDiagnosticValue(
+      reserved_infos.POINT_ID.name,
+      histograms.GetFirstHistogram(), optional=True)
 
-  # TODO(eakuefner): Allow users to specify other types of revisions to be used
-  # for computing revisions of dashboard points. See
-  # https://github.com/catapult-project/catapult/issues/3623.
-  if not type(commit_position) in (long, int):
+  if rev is None:
+    rev = _GetDiagnosticValue(
+        reserved_infos.CHROMIUM_COMMIT_POSITIONS.name,
+        histograms.GetFirstHistogram())
+
+  if not isinstance(rev, (long, int)):
     raise api_request_handler.BadRequestError(
-        'Commit Position must be an integer.')
-  return commit_position
+        'Point ID must be an integer.')
+
+  return rev
 
 
 def InlineDenseSharedDiagnostics(histograms):

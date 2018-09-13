@@ -99,11 +99,9 @@ class TestLayerTreeFrameSink : public cc::LayerTreeFrameSink,
   // mojom::CompositorFrameSinkClient implementation.
   void DidReceiveCompositorFrameAck(
       const std::vector<ReturnedResource>& resources) override;
-  void DidPresentCompositorFrame(uint32_t presentation_token,
-                                 base::TimeTicks time,
-                                 base::TimeDelta refresh,
-                                 uint32_t flags) override;
-  void DidDiscardCompositorFrame(uint32_t presentation_token) override;
+  void DidPresentCompositorFrame(
+      uint32_t presentation_token,
+      const gfx::PresentationFeedback& feedback) override;
   void OnBeginFrame(const BeginFrameArgs& args) override;
   void ReclaimResources(
       const std::vector<ReturnedResource>& resources) override;
@@ -116,6 +114,7 @@ class TestLayerTreeFrameSink : public cc::LayerTreeFrameSink,
   void DisplayDidDrawAndSwap() override;
   void DisplayDidReceiveCALayerParams(
       const gfx::CALayerParams& ca_layer_params) override;
+  void DisplayDidCompleteSwapWithSize(const gfx::Size& pixel_size) override;
   void DidSwapAfterSnapshotRequestReceived(
       const std::vector<ui::LatencyInfo>& latency_info) override {}
 
@@ -137,6 +136,7 @@ class TestLayerTreeFrameSink : public cc::LayerTreeFrameSink,
   FrameSinkId frame_sink_id_;
   // TODO(danakj): These don't need to be stored in unique_ptrs when
   // LayerTreeFrameSink is owned/destroyed on the compositor thread.
+  std::unique_ptr<TestSharedBitmapManager> shared_bitmap_manager_;
   std::unique_ptr<FrameSinkManagerImpl> frame_sink_manager_;
   std::unique_ptr<ParentLocalSurfaceIdAllocator>
       parent_local_surface_id_allocator_;
@@ -152,8 +152,6 @@ class TestLayerTreeFrameSink : public cc::LayerTreeFrameSink,
   BeginFrameSource* client_provided_begin_frame_source_;    // Not owned.
   BeginFrameSource* display_begin_frame_source_ = nullptr;  // Not owned.
   ExternalBeginFrameSource external_begin_frame_source_;
-
-  TestSharedBitmapManager shared_bitmap_manager_;
 
   // Uses surface_manager_, begin_frame_source_, shared_bitmap_manager_.
   std::unique_ptr<Display> display_;

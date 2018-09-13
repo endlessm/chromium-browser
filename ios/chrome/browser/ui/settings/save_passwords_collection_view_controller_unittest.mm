@@ -9,6 +9,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/strings/utf_string_conversions.h"
+#import "base/test/ios/wait_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/keyed_service/core/service_access_type.h"
@@ -17,11 +18,10 @@
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
-#import "ios/chrome/browser/ui/collection_view/cells/collection_view_text_item.h"
 #import "ios/chrome/browser/ui/collection_view/collection_view_controller_test.h"
+#import "ios/chrome/browser/ui/settings/cells/settings_text_item.h"
 #import "ios/chrome/browser/ui/settings/password_details_collection_view_controller.h"
 #include "ios/chrome/grit/ios_strings.h"
-#import "ios/testing/wait_util.h"
 #import "ios/third_party/material_components_ios/src/components/Palettes/src/MaterialPalettes.h"
 #include "ios/web/public/test/test_web_thread_bundle.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -263,8 +263,8 @@ TEST_P(SavePasswordsCollectionViewControllerTest, DeleteItems) {
     this->DeleteItem(i, j, ^{
       completionCalled = YES;
     });
-    EXPECT_TRUE(testing::WaitUntilConditionOrTimeout(
-        testing::kWaitForUIElementTimeout, ^bool() {
+    EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
+        base::test::ios::kWaitForUIElementTimeout, ^bool() {
           return completionCalled;
         }));
   };
@@ -300,8 +300,8 @@ TEST_P(SavePasswordsCollectionViewControllerTest, DeleteItemsWithDuplicates) {
     this->DeleteItem(i, j, ^{
       completionCalled = YES;
     });
-    EXPECT_TRUE(testing::WaitUntilConditionOrTimeout(
-        testing::kWaitForUIElementTimeout, ^bool() {
+    EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
+        base::test::ios::kWaitForUIElementTimeout, ^bool() {
           return completionCalled;
         }));
   };
@@ -328,7 +328,7 @@ TEST_P(SavePasswordsCollectionViewControllerTest,
   if (!GetParam().export_enabled)
     return;
 
-  CollectionViewTextItem* exportButton = GetCollectionViewItem(2, 0);
+  SettingsTextItem* exportButton = GetCollectionViewItem(2, 0);
   CheckTextCellTitleWithId(IDS_IOS_EXPORT_PASSWORDS, 2, 0);
 
   UIColor* disabledColor = [[MDCPalette greyPalette] tint500];
@@ -350,7 +350,7 @@ TEST_P(SavePasswordsCollectionViewControllerTest,
   if (!GetParam().export_enabled)
     return;
   AddSavedForm1();
-  CollectionViewTextItem* exportButton = GetCollectionViewItem(3, 0);
+  SettingsTextItem* exportButton = GetCollectionViewItem(3, 0);
 
   CheckTextCellTitleWithId(IDS_IOS_EXPORT_PASSWORDS, 3, 0);
   EXPECT_NSEQ([[MDCPalette greyPalette] tint900], exportButton.textColor);
@@ -365,7 +365,7 @@ TEST_P(SavePasswordsCollectionViewControllerTest,
     return;
   AddSavedForm1();
 
-  CollectionViewTextItem* exportButton = GetCollectionViewItem(3, 0);
+  SettingsTextItem* exportButton = GetCollectionViewItem(3, 0);
   CheckTextCellTitleWithId(IDS_IOS_EXPORT_PASSWORDS, 3, 0);
 
   SavePasswordsCollectionViewController* save_passwords_controller =
@@ -386,7 +386,7 @@ TEST_P(SavePasswordsCollectionViewControllerTest,
     return;
   AddSavedForm1();
 
-  CollectionViewTextItem* exportButton = GetCollectionViewItem(3, 0);
+  SettingsTextItem* exportButton = GetCollectionViewItem(3, 0);
   CheckTextCellTitleWithId(IDS_IOS_EXPORT_PASSWORDS, 3, 0);
 
   SavePasswordsCollectionViewController* save_passwords_controller =

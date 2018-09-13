@@ -141,7 +141,8 @@ typedef base::Callback<void(FileError error,
                             const GURL& share_url)> GetShareUrlCallback;
 
 // Used to get filesystem metadata.
-typedef base::Callback<void(const FileSystemMetadata&)>
+typedef base::Callback<void(const FileSystemMetadata&,
+                            const std::map<std::string, FileSystemMetadata>&)>
     GetFilesystemMetadataCallback;
 
 // Used to mark cached files mounted.
@@ -194,7 +195,7 @@ enum SearchMetadataOptions {
 // The interface is defined to make FileSystem mockable.
 class FileSystemInterface {
  public:
-  virtual ~FileSystemInterface() {}
+  virtual ~FileSystemInterface() = default;
 
   // Adds and removes the observer.
   virtual void AddObserver(FileSystemObserver* observer) = 0;

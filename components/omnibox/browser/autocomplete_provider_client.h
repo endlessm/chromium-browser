@@ -22,6 +22,7 @@ struct AutocompleteMatch;
 class AutocompleteClassifier;
 class AutocompleteSchemeClassifier;
 class ContextualSuggestionsService;
+class DocumentSuggestionsService;
 class GURL;
 class InMemoryURLIndex;
 class KeywordProvider;
@@ -37,8 +38,8 @@ class HistoryService;
 class URLDatabase;
 }
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 class SearchTermsData;
@@ -48,7 +49,8 @@ class AutocompleteProviderClient {
  public:
   virtual ~AutocompleteProviderClient() {}
 
-  virtual net::URLRequestContextGetter* GetRequestContext() = 0;
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  GetURLLoaderFactory() = 0;
   virtual PrefService* GetPrefs() = 0;
   virtual const AutocompleteSchemeClassifier& GetSchemeClassifier() const = 0;
   virtual AutocompleteClassifier* GetAutocompleteClassifier() = 0;
@@ -60,6 +62,8 @@ class AutocompleteProviderClient {
   virtual TemplateURLService* GetTemplateURLService() = 0;
   virtual const TemplateURLService* GetTemplateURLService() const = 0;
   virtual ContextualSuggestionsService* GetContextualSuggestionsService(
+      bool create_if_necessary) const = 0;
+  virtual DocumentSuggestionsService* GetDocumentSuggestionsService(
       bool create_if_necessary) const = 0;
   virtual const SearchTermsData& GetSearchTermsData() const = 0;
   virtual scoped_refptr<ShortcutsBackend> GetShortcutsBackend() = 0;
@@ -94,14 +98,12 @@ class AutocompleteProviderClient {
   virtual bool IsOffTheRecord() const = 0;
   virtual bool SearchSuggestEnabled() const = 0;
 
-  // Returns whether tab sync meets all of the criteria to be considered in an
-  // active upload to Google state. This means that the user is logged in, sync
-  // is running and in a good auth state, the user has tab sync enabled, and
-  // they do not have their sync data protected by a secondary passphrase.
+  // Returns whether personalized URL data collection is enabled.  I.e.,
+  // the user has consented to have URLs recorded keyed by their Google account.
   // In this case, the user has agreed to share browsing data with Google and so
-  // this state can be used to govern similar features (e.g. sending the current
-  // page URL with omnibox suggest requests).
-  virtual bool IsTabUploadToGoogleActive() const = 0;
+  // this state can be used to govern features such as sending the current page
+  // URL with omnibox suggest requests.
+  virtual bool IsPersonalizedUrlDataCollectionActive() const = 0;
 
   // This function returns true if the user is signed in.
   virtual bool IsAuthenticated() const = 0;

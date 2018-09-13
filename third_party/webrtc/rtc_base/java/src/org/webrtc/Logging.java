@@ -118,6 +118,9 @@ public class Logging {
   }
 
   public static void log(Severity severity, String tag, String message) {
+    if (tag == null || message == null) {
+      throw new IllegalArgumentException("Logging tag or message may not be null.");
+    }
     if (loggable != null) {
       // Filter log messages below loggableSeverity.
       if (severity.ordinal() < loggableSeverity.ordinal()) {

@@ -29,6 +29,7 @@
 #include "components/omnibox/browser/omnibox_popup_model.h"
 #include "content/public/test/test_utils.h"
 #include "ui/base/ui_base_switches.h"
+#include "ui/compositor/layer_animator.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
@@ -36,7 +37,9 @@
 #include "ui/views/widget/widget.h"
 
 #if defined(USE_AURA)
+#include "ui/aura/window.h"
 #include "ui/native_theme/native_theme_dark_aura.h"
+#include "ui/wm/core/window_properties.h"
 #endif
 
 #if defined(USE_X11)
@@ -169,12 +172,19 @@ views::Widget* OmniboxPopupContentsViewTest::CreatePopupForTestQuery() {
 IN_PROC_BROWSER_TEST_P(OmniboxPopupContentsViewTest, PopupAlignment) {
   views::Widget* popup = CreatePopupForTestQuery();
 
+#if defined(USE_AURA)
+  popup_view()->UpdatePopupAppearance();
+  EXPECT_TRUE(
+      popup->GetNativeWindow()->GetProperty(wm::kSnapChildrenToPixelBoundary));
+#endif  // defined(USE_AURA)
+
   if (GetParam() == WIDE) {
     EXPECT_EQ(toolbar()->width(), popup->GetRestoredBounds().width());
   } else {
     gfx::Rect alignment_rect = location_bar()->GetBoundsInScreen();
     alignment_rect.Inset(
-        -RoundedOmniboxResultsFrame::kLocationBarAlignmentInsets);
+        -RoundedOmniboxResultsFrame::GetLocationBarAlignmentInsets());
+    alignment_rect.Inset(-RoundedOmniboxResultsFrame::GetShadowInsets());
     // Top, left and right should align. Bottom depends on the results.
     gfx::Rect popup_rect = popup->GetRestoredBounds();
     EXPECT_EQ(popup_rect.y(), alignment_rect.y());
@@ -412,6 +422,9 @@ IN_PROC_BROWSER_TEST_P(RoundedOmniboxPopupContentsViewTest,
 
   generator.ClickLeftButton();
   ASSERT_TRUE(GetPopupWidget());
+
+  // Instantly finish all queued animations.
+  GetPopupWidget()->GetLayer()->GetAnimator()->StopAnimating();
   EXPECT_TRUE(GetPopupWidget()->IsClosed());
 }
 

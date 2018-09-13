@@ -60,6 +60,7 @@ extern const CGFloat kBackButtonImageInset;
 extern const CGFloat kForwardButtonImageInset;
 extern const CGFloat kLeadingLocationBarButtonImageInset;
 extern const CGFloat kCancelButtonHorizontalInset;
+extern const CGFloat kToolbarDimmedButtonAlpha;
 
 // Background color of the blur view.
 extern const CGFloat kBlurBackgroundGrayscaleComponent;
@@ -87,7 +88,11 @@ extern const CGFloat kContractedLocationBarHorizontalMargin;
 // Adaptive Location bar constants.
 extern const CGFloat kAdaptiveLocationBarCornerRadius;
 extern const CGFloat kAdaptiveLocationBarBackgroundAlpha;
+extern const CGFloat kAdaptiveLocationBarBackgroundAlphaIncognito;
 extern const CGFloat kAdaptiveLocationBarVerticalMargin;
+extern const CGFloat kAdaptiveLocationBarVerticalMarginFullscreen;
+// Extra margin for the location bar vertical margin.
+extern const CGFloat kAdaptiveLocationBarExtraVerticalMargin;
 
 // Height of the toolbar.
 extern const CGFloat kToolbarHeight;
@@ -134,5 +139,13 @@ enum ToolbarControllerStyle {
   ToolbarControllerStyleIncognitoMode,
   ToolbarControllerStyleMaxStyles
 };
+
+// Tint color for location bar and omnibox.
+extern const CGFloat kLocationBarTintBlue;
+
+// Font sizes used in omnibox and location bar.
+extern const CGFloat kLocationBarFontSize;
+extern const CGFloat kLocationBarRegularRegularFontSize;
+extern const CGFloat kLocationBarSteadyFontSize;
 
 #endif  // IOS_CHROME_BROWSER_UI_TOOLBAR_BUTTONS_TOOLBAR_CONSTANTS_H_

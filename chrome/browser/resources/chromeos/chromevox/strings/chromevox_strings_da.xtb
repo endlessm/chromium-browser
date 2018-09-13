@@ -92,6 +92,7 @@ Hvis du er færdig med selvstudiet, kan du gå til knappen Luk via ChromeVox og 
 <translation id="1787176709638001873">Tekst om redigering af adgangskode</translation>
 <translation id="1802710350767629429">Vis bemærkninger om opdateringer</translation>
 <translation id="1810107444790159527">Listefelt</translation>
+<translation id="1812527064848182527">landskab</translation>
 <translation id="1828385960365606039">Maj</translation>
 <translation id="1834891354138622109">Kolonne</translation>
 <translation id="1845944666972354496">Tryk to gange for at aktivere</translation>
@@ -146,6 +147,7 @@ Hvis du er færdig med selvstudiet, kan du gå til knappen Luk via ChromeVox og 
 <translation id="2416512023405990736">Et afkrydsningsfelt uden markering</translation>
 <translation id="2417569100218200841">Indholdsoplysninger</translation>
 <translation id="2417948780551741035">Slutnoter</translation>
+<translation id="2421113964388408478">Sletning</translation>
 <translation id="2422937916923936891">Afkrydsningsfelt til menupunkt</translation>
 <translation id="2428534162001909979">Kommandomenuer</translation>
 <translation id="2429669115401274487">e.m.</translation>
@@ -253,6 +255,7 @@ Hvis du er færdig med selvstudiet, kan du gå til knappen Luk via ChromeVox og 
 <translation id="3232388865800379423">En pop op-knap</translation>
 <translation id="3241052487511142956">Tidligere besøgt link</translation>
 <translation id="3241638166094654466">Celler i hver linje:</translation>
+<translation id="3286372614333682499">portræt</translation>
 <translation id="3286390186030710347">Skyder</translation>
 <translation id="3299925995433437805">Intet næste besøgte link.</translation>
 <translation id="3300348286427369683">Understøttelse af RTF. ChromeVox understøtter nu RTF-felter, bl.a. hoppekommandoer, markørstyring til brailletekst, valg og meget mere.</translation>
@@ -426,6 +429,7 @@ Hvis du er færdig med selvstudiet, kan du gå til knappen Luk via ChromeVox og 
 <translation id="4476183483923481720">ny linje</translation>
 <translation id="4482330759234983253">Forrige tabel</translation>
 <translation id="4491109536499578614">Billede</translation>
+<translation id="4505167975768625962">Indsættelse</translation>
 <translation id="4517854969512651305">Hæv værdien</translation>
 <translation id="4529987814483543472">Klassisk tastaturoversigt</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{skråstreg}one{# skråstreger}other{# skråstreger}}</translation>
@@ -589,6 +593,7 @@ Hvis du er færdig med selvstudiet, kan du gå til knappen Luk via ChromeVox og 
 <translation id="5712338278108304766">Næste tabelkolonne</translation>
 <translation id="571866080859340309">Udforsker grupper</translation>
 <translation id="5728409797179002635">Ingen tabel fundet.</translation>
+<translation id="5729047866208036762">Tryk opad, nedad, til venstre eller til højre for at bruge matematikfunktioner</translation>
 <translation id="5732189279857692565">Dette er den anden overskrift. Fortsæt ved at trykke på enten søgetasten+H eller søgetasten+Shift+H</translation>
 <translation id="5748623122140342504">Forrige niveau 5-overskrift</translation>
 <translation id="5750633686117194034">Der er ikke trykket på nogen ændringstast. Tryk på én eller flere ændringstaster, og hold dem nede. Når du er færdig, skal du løfte fingrene. Du vil nu høre, hvilke taster der er blevet indstillet. Tryk for at afslutte.</translation>
@@ -744,6 +749,7 @@ Tryk på Alt+F for at åbne browsermenuen i Chrome.</translation>
 <translation id="7226216518520804442">ovs</translation>
 <translation id="7229749224609077523">Vælg en 6-punkts brailletabel:</translation>
 <translation id="72393384879519786">Overskrift</translation>
+<translation id="7240858705033280249">Gå til oplysninger</translation>
 <translation id="7241683698754534149">Åbn lang beskrivelse i en ny fane</translation>
 <translation id="7248671827512403053">Applikation</translation>
 <translation id="725969808843520477">Næste alternativknap</translation>
@@ -920,6 +926,7 @@ Tryk på Alt+F for at åbne browsermenuen i Chrome.</translation>
 <translation id="9043969572162476692"><ph name="NUM" /> %</translation>
 <translation id="9061884144798498064">Vælg en 8-punkts brailletabel:</translation>
 <translation id="9065283790526219006">+pop op-vindue</translation>
+<translation id="9066023754636984703">Tryk på søgetasten+A, J for at gå til oplysningerne.</translation>
 <translation id="9067522039955793016">Sideskift</translation>
 <translation id="9077213568694924680">fjernet fra det valgte</translation>
 <translation id="9082874451376019682">Ingen tidligere skydere.</translation>

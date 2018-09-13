@@ -5,7 +5,7 @@
 
 """Client tool to trigger tasks or retrieve results from a Swarming server."""
 
-__version__ = '0.12'
+__version__ = '0.13'
 
 import collections
 import datetime
@@ -37,6 +37,8 @@ from utils import tools
 import auth
 import cipd
 import isolateserver
+import isolated_format
+import local_caching
 import run_isolated
 
 
@@ -126,6 +128,16 @@ TaskProperties = collections.namedtuple(
 
 
 # See ../appengine/swarming/swarming_rpcs.py.
+TaskSlice = collections.namedtuple(
+    'TaskSlice',
+    [
+      'expiration_secs',
+      'properties',
+      'wait_for_capacity',
+    ])
+
+
+# See ../appengine/swarming/swarming_rpcs.py.
 NewTaskRequest = collections.namedtuple(
     'NewTaskRequest',
     [
@@ -136,6 +148,7 @@ NewTaskRequest = collections.namedtuple(
       'service_account',
       'tags',
       'user',
+      'pool_task_template',
     ])
 
 
@@ -190,7 +203,7 @@ def swarming_trigger(swarming, raw_request):
   logging.info('Triggering: %s', raw_request['name'])
 
   result = net.url_read_json(
-      swarming + '/api/swarming/v1/tasks/new', data=raw_request)
+      swarming + '/_ah/api/swarming/v1/tasks/new', data=raw_request)
   if not result:
     on_error.report('Failed to trigger task %s' % raw_request['name'])
     return None
@@ -410,12 +423,12 @@ class TaskOutputCollector(object):
           result['outputs_ref']['namespace'])
       if storage:
         # Output files are supposed to be small and they are not reused across
-        # tasks. So use MemoryCache for them instead of on-disk cache. Make
-        # files writable, so that calling script can delete them.
+        # tasks. So use MemoryContentAddressedCache for them instead of on-disk
+        # cache. Make files writable, so that calling script can delete them.
         isolateserver.fetch_isolated(
             result['outputs_ref']['isolated'],
             storage,
-            isolateserver.MemoryCache(file_mode_mask=0700),
+            local_caching.MemoryContentAddressedCache(file_mode_mask=0700),
             os.path.join(self.task_output_dir, str(shard_index)),
             False)
 
@@ -498,10 +511,10 @@ def retrieve_results(
     None on failure.
   """
   assert timeout is None or isinstance(timeout, float), timeout
-  result_url = '%s/api/swarming/v1/task/%s/result' % (base_url, task_id)
+  result_url = '%s/_ah/api/swarming/v1/task/%s/result' % (base_url, task_id)
   if include_perf:
     result_url += '?include_performance_stats=true'
-  output_url = '%s/api/swarming/v1/task/%s/stdout' % (base_url, task_id)
+  output_url = '%s/_ah/api/swarming/v1/task/%s/stdout' % (base_url, task_id)
   started = now()
   deadline = started + timeout if timeout > 0 else None
   attempt = 0
@@ -948,7 +961,7 @@ def add_trigger_options(parser):
   isolateserver.add_isolate_server_options(parser)
   add_filter_options(parser)
 
-  group = optparse.OptionGroup(parser, 'Task properties')
+  group = optparse.OptionGroup(parser, 'TaskSlice properties')
   group.add_option(
       '-s', '--isolated', metavar='HASH',
       help='Hash of the .isolated to grab from the isolate server')
@@ -998,13 +1011,26 @@ def add_trigger_options(parser):
            'bot itself is using to authenticate to Swarming. Don\'t use task '
            'service accounts if not given (default).')
   group.add_option(
+      '--pool-task-template',
+      choices=('AUTO', 'CANARY_PREFER', 'CANARY_NEVER', 'SKIP'),
+      default='AUTO',
+      help='Set how you want swarming to apply the pool\'s TaskTemplate. '
+           'By default, the pool\'s TaskTemplate is automatically selected, '
+           'according the pool configuration on the server. Choices are: '
+           'AUTO, CANARY_PREFER, CANARY_NEVER, and SKIP (default: AUTO).')
+  group.add_option(
       '-o', '--output', action='append', default=[], metavar='PATH',
       help='A list of files to return in addition to those written to '
            '${ISOLATED_OUTDIR}. An error will occur if a file specified by'
            'this option is also written directly to ${ISOLATED_OUTDIR}.')
+  group.add_option(
+      '--wait-for-capacity', action='store_true', default=False,
+      help='Instructs to leave the task PENDING even if there\'s no known bot '
+           'that could run this task, otherwise the task will be denied with '
+           'NO_RESOURCE')
   parser.add_option_group(group)
 
-  group = optparse.OptionGroup(parser, 'Task request')
+  group = optparse.OptionGroup(parser, 'TaskRequest details')
   group.add_option(
       '--priority', type='int', default=100,
       help='The lower value, the more important the task is')
@@ -1104,7 +1130,7 @@ def process_trigger_options(parser, options, args):
   # Secrets
   secret_bytes = None
   if options.secret_bytes_path:
-    with open(options.secret_bytes_path, 'r') as f:
+    with open(options.secret_bytes_path, 'rb') as f:
       secret_bytes = f.read().encode('base64')
 
   # Named caches
@@ -1133,20 +1159,19 @@ def process_trigger_options(parser, options, args):
       io_timeout_secs=options.io_timeout,
       outputs=options.output,
       secret_bytes=secret_bytes)
-
+  task_slice = TaskSlice(
+      expiration_secs=options.expiration,
+      properties=properties,
+      wait_for_capacity=options.wait_for_capacity)
   return NewTaskRequest(
       name=default_task_name(options),
       parent_task_id=os.environ.get('SWARMING_TASK_ID', ''),
       priority=options.priority,
-      task_slices=[
-        {
-          'expiration_secs': options.expiration,
-          'properties': properties,
-        },
-      ],
+      task_slices=[task_slice],
       service_account=options.service_account,
       tags=options.tags,
-      user=options.user)
+      user=options.user,
+      pool_task_template=options.pool_task_template)
 
 
 class TaskOutputStdoutOption(optparse.Option):
@@ -1240,7 +1265,7 @@ def CMDbot_delete(parser, args):
 
   result = 0
   for bot in bots:
-    url = '%s/api/swarming/v1/bot/%s/delete' % (options.swarming, bot)
+    url = '%s/_ah/api/swarming/v1/bot/%s/delete' % (options.swarming, bot)
     if net.url_read_json(url, data={}, method='POST') is None:
       print('Deleting %s failed. Probably already gone' % bot)
       result = 1
@@ -1279,7 +1304,7 @@ def CMDbots(parser, args):
   if options.mp and options.non_mp:
     parser.error('Use only one of --mp or --non-mp')
 
-  url = options.swarming + '/api/swarming/v1/bots/list?'
+  url = options.swarming + '/_ah/api/swarming/v1/bots/list?'
   values = []
   if options.dead_only:
     values.append(('is_dead', 'TRUE'))
@@ -1335,7 +1360,7 @@ def CMDcancel(parser, args):
     parser.error('Please specify the task to cancel')
   data = {'kill_running': options.kill_running}
   for task_id in args:
-    url = '%s/api/swarming/v1/task/%s/cancel' % (options.swarming, task_id)
+    url = '%s/_ah/api/swarming/v1/task/%s/cancel' % (options.swarming, task_id)
     resp = net.url_read_json(url, data=data, method='POST')
     if resp is None:
       print('Deleting %s failed. Probably already gone' % task_id)
@@ -1417,7 +1442,7 @@ def CMDpost(parser, args):
   options, args = parser.parse_args(args)
   if len(args) != 1:
     parser.error('Must specify only API name')
-  url = options.swarming + '/api/swarming/v1/' + args[0]
+  url = options.swarming + '/_ah/api/swarming/v1/' + args[0]
   data = sys.stdin.read()
   try:
     resp = net.url_read(url, data=data, method='POST')
@@ -1466,7 +1491,7 @@ def CMDquery(parser, args):
     parser.error(
         'Must specify only method name and optionally query args properly '
         'escaped.')
-  base_url = options.swarming + '/api/swarming/v1/' + args[0]
+  base_url = options.swarming + '/_ah/api/swarming/v1/' + args[0]
   try:
     data, yielder = get_yielder(base_url, options.limit)
     for items in yielder():
@@ -1580,11 +1605,11 @@ def CMDrun(parser, args):
   if not options.timeout:
     offset = 0
     for s in task_request.task_slices:
-      m = (offset + s['properties'].execution_timeout_secs +
-            s['expiration_secs'])
+      m = (offset + s.properties.execution_timeout_secs +
+            s.expiration_secs)
       if m > options.timeout:
         options.timeout = m
-      offset += s['expiration_secs']
+      offset += s.expiration_secs
     options.timeout += 10.
   try:
     return collect(
@@ -1614,8 +1639,17 @@ def CMDreproduce(parser, args):
   them after --.
   """
   parser.add_option(
-      '--output-dir', metavar='DIR', default='out',
+      '--output', metavar='DIR', default='out',
       help='Directory that will have results stored into')
+  parser.add_option(
+      '--work', metavar='DIR', default='work',
+      help='Directory to map the task input files into')
+  parser.add_option(
+      '--cache', metavar='DIR', default='cache',
+      help='Directory that contains the input cache')
+  parser.add_option(
+      '--leak', action='store_true',
+      help='Do not delete the working directory after execution')
   options, args = parser.parse_args(args)
   extra_args = []
   if not args:
@@ -1627,15 +1661,15 @@ def CMDreproduce(parser, args):
     else:
       extra_args = args[1:]
 
-  url = options.swarming + '/api/swarming/v1/task/%s/request' % args[0]
+  url = options.swarming + '/_ah/api/swarming/v1/task/%s/request' % args[0]
   request = net.url_read_json(url)
   if not request:
     print >> sys.stderr, 'Failed to retrieve request data for the task'
     return 1
 
-  workdir = unicode(os.path.abspath('work'))
+  workdir = unicode(os.path.abspath(options.work))
   if fs.isdir(workdir):
-    parser.error('Please delete the directory \'work\' first')
+    parser.error('Please delete the directory %r first' % options.work)
   fs.mkdir(workdir)
   cachedir = unicode(os.path.abspath('cipd_cache'))
   if not fs.exists(cachedir):
@@ -1671,12 +1705,16 @@ def CMDreproduce(parser, args):
     with isolateserver.get_storage(
           properties['inputs_ref']['isolatedserver'],
           properties['inputs_ref']['namespace']) as storage:
+      # Do not use MemoryContentAddressedCache here, as on 32-bits python,
+      # inputs larger than ~1GiB will not fit in memory. This is effectively a
+      # leak.
+      policies = local_caching.CachePolicies(0, 0, 0, 0)
+      algo = isolated_format.get_hash_algo(
+          properties['inputs_ref']['namespace'])
+      cache = local_caching.DiskContentAddressedCache(
+          unicode(os.path.abspath(options.cache)), policies, algo, False)
       bundle = isolateserver.fetch_isolated(
-          properties['inputs_ref']['isolated'],
-          storage,
-          isolateserver.MemoryCache(file_mode_mask=0700),
-          workdir,
-          False)
+          properties['inputs_ref']['isolated'], storage, cache, workdir, False)
       command = bundle.command
       if bundle.relative_cwd:
         workdir = os.path.join(workdir, bundle.relative_cwd)
@@ -1685,19 +1723,19 @@ def CMDreproduce(parser, args):
   if properties.get('command'):
     command.extend(properties['command'])
 
-  # https://github.com/luci/luci-py/blob/master/appengine/swarming/doc/Magic-Values.md
+  # https://chromium.googlesource.com/infra/luci/luci-py.git/+/master/appengine/swarming/doc/Magic-Values.md
   command = tools.fix_python_cmd(command, env)
-  if not options.output_dir:
+  if not options.output:
     new_command = run_isolated.process_command(command, 'invalid', None)
     if new_command != command:
       parser.error('The task has outputs, you must use --output-dir')
   else:
     # Make the path absolute, as the process will run from a subdirectory.
-    options.output_dir = os.path.abspath(options.output_dir)
+    options.output = os.path.abspath(options.output)
     new_command = run_isolated.process_command(
-        command, options.output_dir, None)
-    if not os.path.isdir(options.output_dir):
-      os.makedirs(options.output_dir)
+        command, options.output, None)
+    if not os.path.isdir(options.output):
+      os.makedirs(options.output)
   command = new_command
   file_path.ensure_command_has_abs_path(command, workdir)
 
@@ -1723,6 +1761,10 @@ def CMDreproduce(parser, args):
     print >> sys.stderr, 'Failed to run: %s' % ' '.join(command)
     print >> sys.stderr, str(e)
     return 1
+  finally:
+    # Do not delete options.cache.
+    if not options.leak:
+      file_path.rmtree(workdir)
 
 
 @subcommand.usage('bot_id')
@@ -1737,7 +1779,7 @@ def CMDterminate(parser, args):
   options, args = parser.parse_args(args)
   if len(args) != 1:
     parser.error('Please provide the bot id')
-  url = options.swarming + '/api/swarming/v1/bot/%s/terminate' % args[0]
+  url = options.swarming + '/_ah/api/swarming/v1/bot/%s/terminate' % args[0]
   request = net.url_read_json(url, data={})
   if not request:
     print >> sys.stderr, 'Failed to ask for termination'

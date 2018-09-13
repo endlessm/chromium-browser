@@ -10,6 +10,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/vr/mode.h"
 #include "chrome/browser/vr/ui_browser_interface.h"
+#include "chrome/browser/vr/vr_export.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
@@ -21,7 +22,7 @@ namespace vr {
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
 // Ensure that this stays in sync with VRSessionStartAction in enums.xml
-// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr_shell
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.vr
 enum class VrStartAction : int {
   // The user activated a headset. For example, inserted phone in Daydream, or
   // put on an Occulus or Vive.
@@ -146,7 +147,7 @@ class SessionTracker {
 // metrics that require state monitoring, such as durations, but also tracks
 // data we want attached to that, such as number of videos watched and how the
 // session was started.
-class SessionMetricsHelper : public content::WebContentsObserver {
+class VR_EXPORT SessionMetricsHelper : public content::WebContentsObserver {
  public:
   // Returns the SessionMetricsHelper singleton if it has been created for the
   // WebContents.

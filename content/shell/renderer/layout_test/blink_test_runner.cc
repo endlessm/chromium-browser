@@ -84,6 +84,7 @@
 #include "third_party/blink/public/web/web_frame_widget.h"
 #include "third_party/blink/public/web/web_history_item.h"
 #include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_navigation_timings.h"
 #include "third_party/blink/public/web/web_script_source.h"
 #include "third_party/blink/public/web/web_testing_support.h"
 #include "third_party/blink/public/web/web_view.h"
@@ -92,8 +93,6 @@
 
 using blink::Platform;
 using blink::WebContextMenuData;
-using device::MotionData;
-using device::OrientationData;
 using blink::WebElement;
 using blink::WebLocalFrame;
 using blink::WebHistoryItem;
@@ -128,31 +127,6 @@ class UseSynchronousResizeModeVisitor : public RenderViewVisitor {
 
  private:
   bool enable_;
-};
-
-class MockGamepadProvider : public RendererGamepadProvider {
- public:
-  explicit MockGamepadProvider(test_runner::GamepadController* controller)
-      : RendererGamepadProvider(nullptr), controller_(controller) {}
-  ~MockGamepadProvider() override {
-    StopIfObserving();
-  }
-
-  // RendererGamepadProvider implementation.
-  void SampleGamepads(device::Gamepads& gamepads) override {
-    controller_->SampleGamepads(gamepads);
-  }
-  void Start(blink::WebPlatformEventListener* listener) override {
-    controller_->SetListener(static_cast<blink::WebGamepadListener*>(listener));
-    RendererGamepadProvider::Start(listener);
-  }
-  void SendStartMessage() override {}
-  void SendStopMessage() override {}
-
- private:
-  std::unique_ptr<test_runner::GamepadController> controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockGamepadProvider);
 };
 
 class MockVideoCapturerSource : public media::VideoCapturerSource {
@@ -214,21 +188,6 @@ void BlinkTestRunner::ClearEditCommand() {
 void BlinkTestRunner::SetEditCommand(const std::string& name,
                                      const std::string& value) {
   render_view()->SetEditCommandForNextKeyEvent(name, value);
-}
-
-void BlinkTestRunner::SetGamepadProvider(
-    test_runner::GamepadController* controller) {
-  std::unique_ptr<MockGamepadProvider> provider(
-      new MockGamepadProvider(controller));
-  SetMockGamepadProvider(std::move(provider));
-}
-
-void BlinkTestRunner::SetDeviceMotionData(const MotionData& data) {
-  SetMockDeviceMotionData(data);
-}
-
-void BlinkTestRunner::SetDeviceOrientationData(const OrientationData& data) {
-  SetMockDeviceOrientationData(data);
 }
 
 void BlinkTestRunner::PrintMessageToStderr(const std::string& message) {
@@ -873,7 +832,8 @@ void BlinkTestRunner::OnSetTestConfiguration(
 
   // Tests should always start with the browser controls hidden.
   render_view()->GetWebView()->UpdateBrowserControlsState(
-      blink::kWebBrowserControlsBoth, blink::kWebBrowserControlsHidden, false);
+      cc::BrowserControlsState::kBoth, cc::BrowserControlsState::kHidden,
+      false);
 
   LayoutTestRenderThreadObserver::GetInstance()
       ->test_interfaces()
@@ -891,7 +851,11 @@ void BlinkTestRunner::OnReset() {
   Reset(true /* for_new_test */);
   // Navigating to about:blank will make sure that no new loads are initiated
   // by the renderer.
-  main_frame->LoadRequest(WebURLRequest(GURL(url::kAboutBlankURL)));
+  main_frame->CommitNavigation(
+      WebURLRequest(GURL(url::kAboutBlankURL)),
+      blink::WebFrameLoadType::kStandard, blink::WebHistoryItem(), false,
+      base::UnguessableToken::Create(), nullptr /* extra_data */,
+      blink::WebNavigationTimings());
   Send(new ShellViewHostMsg_ResetDone(routing_id()));
 }
 

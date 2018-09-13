@@ -40,13 +40,16 @@ constexpr char kTimeLimitNotificationId[] = "time-limit-notification";
 // The notifier id representing the app.
 constexpr char kTimeLimitNotifierId[] = "family-link";
 
-// Dictionary keys for prefs::kScreenTimeLastState. Time relavant states are
-// not saved because processor should not count on them as they could become
-// invalid easiliy.
+// Dictionary keys for prefs::kScreenTimeLastState.
 constexpr char kScreenStateLocked[] = "locked";
 constexpr char kScreenStateCurrentPolicyType[] = "active_policy";
 constexpr char kScreenStateTimeUsageLimitEnabled[] = "time_usage_limit_enabled";
+constexpr char kScreenStateRemainingUsage[] = "remaining_usage";
+constexpr char kScreenStateUsageLimitStarted[] = "usage_limit_started";
+constexpr char kScreenStateNextStateChangeTime[] = "next_state_change_time";
 constexpr char kScreenStateNextPolicyType[] = "next_active_policy";
+constexpr char kScreenStateNextUnlockTime[] = "next_unlock_time";
+constexpr char kScreenStateLastStateChanged[] = "last_state_changed";
 
 }  // namespace
 
@@ -63,6 +66,7 @@ ScreenTimeController::ScreenTimeController(content::BrowserContext* context)
     : context_(context),
       pref_service_(Profile::FromBrowserContext(context)->GetPrefs()) {
   session_manager::SessionManager::Get()->AddObserver(this);
+  system::TimezoneSettings::GetInstance()->AddObserver(this);
   pref_change_registrar_.Init(pref_service_);
   pref_change_registrar_.Add(
       prefs::kUsageTimeLimit,
@@ -72,6 +76,7 @@ ScreenTimeController::ScreenTimeController(content::BrowserContext* context)
 
 ScreenTimeController::~ScreenTimeController() {
   session_manager::SessionManager::Get()->RemoveObserver(this);
+  system::TimezoneSettings::GetInstance()->RemoveObserver(this);
   SaveScreenTimeProgressBeforeExit();
 }
 
@@ -86,86 +91,127 @@ base::TimeDelta ScreenTimeController::GetScreenTimeDuration() const {
   return current_screen_duration + previous_duration;
 }
 
-void ScreenTimeController::CheckTimeLimit() {
-  // Stop any currently running timer.
-  ResetTimers();
+void ScreenTimeController::CheckTimeLimit(const std::string& source) {
+  VLOG(1) << "Checking time limits (source=" << source << ")";
+
+  // Stop all timers. They will be rescheduled below.
+  ResetStateTimers();
+  ResetInSessionTimers();
 
   base::Time now = base::Time::Now();
+  const icu::TimeZone& time_zone =
+      system::TimezoneSettings::GetInstance()->GetTimezone();
+  base::Optional<usage_time_limit::State> last_state = GetLastStateFromPref();
+  // Used time should be 0 when time usage limit is disabled.
+  base::TimeDelta used_time = base::TimeDelta::FromMinutes(0);
+  if (last_state && last_state->is_time_usage_limit_enabled)
+    used_time = GetScreenTimeDuration();
   const base::DictionaryValue* time_limit =
       pref_service_->GetDictionary(prefs::kUsageTimeLimit);
   usage_time_limit::State state = usage_time_limit::GetState(
-      time_limit->CreateDeepCopy(), GetScreenTimeDuration(),
-      first_screen_start_time_, now, GetLastStateFromPref());
+      time_limit->CreateDeepCopy(), used_time, first_screen_start_time_, now,
+      &time_zone, last_state);
   SaveCurrentStateToPref(state);
 
+  // Show/hide time limits message based on the policy enforcement.
+  UpdateTimeLimitsMessage(
+      state.is_locked, state.is_locked ? state.next_unlock_time : base::Time());
+
   if (state.is_locked) {
-    base::Time reset_time = usage_time_limit::GetExpectedResetTime(
-        time_limit->CreateDeepCopy(), now);
-    LockScreen(true /*force_lock_by_policy*/, reset_time);
+    DCHECK(!state.next_unlock_time.is_null());
+    if (!session_manager::SessionManager::Get()->IsScreenLocked())
+      ForceScreenLockByPolicy(state.next_unlock_time);
   } else {
-    usage_time_limit::ActivePolicies active_policy = state.active_policy;
-    if (active_policy == usage_time_limit::ActivePolicies::kNoActivePolicy)
-      RefreshScreenLimit();
-    LockScreen(false /*force_lock_by_policy*/, base::Time() /*come_back_time*/);
+    base::Optional<TimeLimitNotificationType> notification_type;
+    switch (state.next_state_active_policy) {
+      case usage_time_limit::ActivePolicies::kFixedLimit:
+        notification_type = kBedTime;
+        break;
+      case usage_time_limit::ActivePolicies::kUsageLimit:
+        notification_type = kScreenTime;
+        break;
+      case usage_time_limit::ActivePolicies::kNoActivePolicy:
+      case usage_time_limit::ActivePolicies::kOverride:
+        break;
+      default:
+        NOTREACHED();
+    }
 
-    if (!state.next_state_change_time.is_null() &&
-        (active_policy == usage_time_limit::ActivePolicies::kFixedLimit ||
-         active_policy == usage_time_limit::ActivePolicies::kUsageLimit)) {
-      // Schedule notification based on the remaining screen time.
-      const base::TimeDelta remaining_usage = state.remaining_usage;
-      const TimeLimitNotificationType notification_type =
-          active_policy == usage_time_limit::ActivePolicies::kFixedLimit
-              ? kBedTime
-              : kScreenTime;
-
-      if (remaining_usage >= kWarningNotificationTimeout) {
+    if (notification_type.has_value()) {
+      // Schedule notification based on the remaining screen time until lock.
+      const base::TimeDelta remaining_time = state.next_state_change_time - now;
+      if (remaining_time >= kWarningNotificationTimeout) {
         warning_notification_timer_.Start(
-            FROM_HERE, remaining_usage - kWarningNotificationTimeout,
-            base::BindRepeating(&ScreenTimeController::ShowNotification,
-                                base::Unretained(this), notification_type,
-                                kWarningNotificationTimeout));
+            FROM_HERE, remaining_time - kWarningNotificationTimeout,
+            base::BindRepeating(
+                &ScreenTimeController::ShowNotification, base::Unretained(this),
+                notification_type.value(), kWarningNotificationTimeout));
       }
-
-      if (remaining_usage >= kExitNotificationTimeout) {
+      if (remaining_time >= kExitNotificationTimeout) {
         exit_notification_timer_.Start(
-            FROM_HERE, remaining_usage - kExitNotificationTimeout,
-            base::BindRepeating(&ScreenTimeController::ShowNotification,
-                                base::Unretained(this), notification_type,
-                                kExitNotificationTimeout));
+            FROM_HERE, remaining_time - kExitNotificationTimeout,
+            base::BindRepeating(
+                &ScreenTimeController::ShowNotification, base::Unretained(this),
+                notification_type.value(), kExitNotificationTimeout));
       }
+    }
+
+    // The screen limit should start counting only when the time usage limit is
+    // set, ignoring the amount of time that the device was used before.
+    if (state.is_time_usage_limit_enabled &&
+        (!last_state || !last_state->is_time_usage_limit_enabled)) {
+      RefreshScreenLimit();
     }
   }
 
   if (!state.next_state_change_time.is_null()) {
+    VLOG(1) << "Scheduling state change timer in "
+            << state.next_state_change_time - now;
     next_state_timer_.Start(
-        FROM_HERE, state.next_state_change_time - base::Time::Now(),
+        FROM_HERE, state.next_state_change_time - now,
         base::BindRepeating(&ScreenTimeController::CheckTimeLimit,
+                            base::Unretained(this), "next_state_timer_"));
+  }
+
+  // Schedule timer to refresh the screen time usage.
+  base::Time reset_time = usage_time_limit::GetExpectedResetTime(
+      time_limit->CreateDeepCopy(), now, &time_zone);
+  if (reset_time <= now) {
+    RefreshScreenLimit();
+  } else {
+    VLOG(1) << "Scheduling screen reset timer in " << reset_time - now;
+    reset_screen_time_timer_.Start(
+        FROM_HERE, reset_time - now,
+        base::BindRepeating(&ScreenTimeController::RefreshScreenLimit,
                             base::Unretained(this)));
   }
 }
 
-void ScreenTimeController::LockScreen(bool force_lock_by_policy,
-                                      base::Time come_back_time) {
-  bool is_locked = session_manager::SessionManager::Get()->IsScreenLocked();
-  // No-op if the screen is currently not locked and policy does not force the
-  // lock.
-  if (!is_locked && !force_lock_by_policy)
-    return;
+void ScreenTimeController::ForceScreenLockByPolicy(
+    base::Time next_unlock_time) {
+  DCHECK(!session_manager::SessionManager::Get()->IsScreenLocked());
+  chromeos::DBusThreadManager::Get()
+      ->GetSessionManagerClient()
+      ->RequestLockScreen();
 
-  // Request to show lock screen.
-  if (!is_locked && force_lock_by_policy) {
-    chromeos::DBusThreadManager::Get()
-        ->GetSessionManagerClient()
-        ->RequestLockScreen();
-  }
+  // Update the time limits message when the lock screen UI is ready.
+  next_unlock_time_ = next_unlock_time;
+}
+
+void ScreenTimeController::UpdateTimeLimitsMessage(
+    bool visible,
+    base::Time next_unlock_time) {
+  DCHECK(visible || next_unlock_time.is_null());
+  if (!session_manager::SessionManager::Get()->IsScreenLocked())
+    return;
 
   AccountId account_id =
       chromeos::ProfileHelper::Get()
           ->GetUserByProfile(Profile::FromBrowserContext(context_))
           ->GetAccountId();
   LoginScreenClient::Get()->login_screen()->SetAuthEnabledForUser(
-      account_id, !force_lock_by_policy,
-      force_lock_by_policy ? come_back_time : base::Optional<base::Time>());
+      account_id, !visible,
+      visible ? next_unlock_time : base::Optional<base::Time>());
 }
 
 void ScreenTimeController::ShowNotification(
@@ -207,23 +253,30 @@ void ScreenTimeController::RefreshScreenLimit() {
 }
 
 void ScreenTimeController::OnPolicyChanged() {
-  CheckTimeLimit();
+  CheckTimeLimit("OnPolicyChanged");
 }
 
-void ScreenTimeController::ResetTimers() {
+void ScreenTimeController::ResetStateTimers() {
+  VLOG(1) << "Stopping state timers";
   next_state_timer_.Stop();
+  reset_screen_time_timer_.Stop();
+}
+
+void ScreenTimeController::ResetInSessionTimers() {
+  VLOG(1) << "Stopping in-session timers";
   warning_notification_timer_.Stop();
   exit_notification_timer_.Stop();
   save_screen_time_timer_.Stop();
 }
 
 void ScreenTimeController::SaveScreenTimeProgressBeforeExit() {
+  VLOG(1) << "Saving screen time progress before exiting";
   pref_service_->SetInteger(prefs::kScreenTimeMinutesUsed,
                             GetScreenTimeDuration().InMinutes());
   pref_service_->ClearPref(prefs::kCurrentScreenStartTime);
   pref_service_->CommitPendingWrite();
   current_screen_start_time_ = base::Time();
-  ResetTimers();
+  ResetInSessionTimers();
 }
 
 void ScreenTimeController::SaveScreenTimeProgressPeriodically() {
@@ -245,9 +298,19 @@ void ScreenTimeController::SaveCurrentStateToPref(
                      base::Value(static_cast<int>(state.active_policy)));
   state_dict->SetKey(kScreenStateTimeUsageLimitEnabled,
                      base::Value(state.is_time_usage_limit_enabled));
+  state_dict->SetKey(kScreenStateRemainingUsage,
+                     base::Value(state.remaining_usage.InMinutes()));
+  state_dict->SetKey(kScreenStateUsageLimitStarted,
+                     base::Value(state.time_usage_limit_started.ToDoubleT()));
+  state_dict->SetKey(kScreenStateNextStateChangeTime,
+                     base::Value(state.next_state_change_time.ToDoubleT()));
   state_dict->SetKey(
       kScreenStateNextPolicyType,
       base::Value(static_cast<int>(state.next_state_active_policy)));
+  state_dict->SetKey(kScreenStateNextUnlockTime,
+                     base::Value(state.next_unlock_time.ToDoubleT()));
+  state_dict->SetKey(kScreenStateLastStateChanged,
+                     base::Value(state.last_state_changed.ToDoubleT()));
 
   pref_service_->Set(prefs::kScreenTimeLastState, *state_dict);
   pref_service_->CommitPendingWrite();
@@ -288,6 +351,30 @@ ScreenTimeController::GetLastStateFromPref() {
     return base::nullopt;
   result.is_time_usage_limit_enabled = time_usage_limit_enabled->GetBool();
 
+  // Verify remaining_usage from the pref is a int value.
+  const base::Value* remaining_usage =
+      last_state->FindKey(kScreenStateRemainingUsage);
+  if (!remaining_usage || !remaining_usage->is_int())
+    return base::nullopt;
+  result.remaining_usage =
+      base::TimeDelta::FromMinutes(remaining_usage->GetInt());
+
+  // Verify time_usage_limit_started from the pref is a double value.
+  const base::Value* time_usage_limit_started =
+      last_state->FindKey(kScreenStateUsageLimitStarted);
+  if (!time_usage_limit_started || !time_usage_limit_started->is_double())
+    return base::nullopt;
+  result.time_usage_limit_started =
+      base::Time::FromDoubleT(time_usage_limit_started->GetDouble());
+
+  // Verify next_state_change_time from the pref is a double value.
+  const base::Value* next_state_change_time =
+      last_state->FindKey(kScreenStateNextStateChangeTime);
+  if (!next_state_change_time || !next_state_change_time->is_double())
+    return base::nullopt;
+  result.next_state_change_time =
+      base::Time::FromDoubleT(next_state_change_time->GetDouble());
+
   // Verify next policy type is a value of usage_time_limit::ActivePolicies.
   const base::Value* next_active_policy =
       last_state->FindKey(kScreenStateNextPolicyType);
@@ -300,6 +387,22 @@ ScreenTimeController::GetLastStateFromPref() {
   result.next_state_active_policy =
       static_cast<usage_time_limit::ActivePolicies>(
           next_active_policy->GetInt());
+
+  // Verify next_unlock_time from the pref is a double value.
+  const base::Value* next_unlock_time =
+      last_state->FindKey(kScreenStateNextUnlockTime);
+  if (!next_unlock_time || !next_unlock_time->is_double())
+    return base::nullopt;
+  result.next_unlock_time =
+      base::Time::FromDoubleT(next_unlock_time->GetDouble());
+
+  // Verify last_state_changed from the pref is a double value.
+  const base::Value* last_state_changed =
+      last_state->FindKey(kScreenStateLastStateChanged);
+  if (!last_state_changed || !last_state_changed->is_double())
+    return base::nullopt;
+  result.last_state_changed =
+      base::Time::FromDoubleT(last_state_changed->GetDouble());
   return result;
 }
 
@@ -307,6 +410,10 @@ void ScreenTimeController::OnSessionStateChanged() {
   session_manager::SessionState session_state =
       session_manager::SessionManager::Get()->session_state();
   if (session_state == session_manager::SessionState::LOCKED) {
+    if (next_unlock_time_) {
+      UpdateTimeLimitsMessage(true /*visible*/, next_unlock_time_.value());
+      next_unlock_time_.reset();
+    }
     SaveScreenTimeProgressBeforeExit();
   } else if (session_state == session_manager::SessionState::ACTIVE) {
     base::Time now = base::Time::Now();
@@ -334,7 +441,7 @@ void ScreenTimeController::OnSessionStateChanged() {
     pref_service_->SetTime(prefs::kCurrentScreenStartTime,
                            current_screen_start_time_);
     pref_service_->CommitPendingWrite();
-    CheckTimeLimit();
+    CheckTimeLimit("OnSessionStateChanged");
 
     save_screen_time_timer_.Start(
         FROM_HERE, kScreenTimeUsageUpdateFrequency,
@@ -342,6 +449,10 @@ void ScreenTimeController::OnSessionStateChanged() {
             &ScreenTimeController::SaveScreenTimeProgressPeriodically,
             base::Unretained(this)));
   }
+}
+
+void ScreenTimeController::TimezoneChanged(const icu::TimeZone& timezone) {
+  CheckTimeLimit("TimezoneChanged");
 }
 
 }  // namespace chromeos

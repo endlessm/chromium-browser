@@ -4,6 +4,7 @@
 
 #include "ash/system/unified/unified_system_info_view.h"
 
+#include "ash/public/cpp/ash_view_ids.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
@@ -15,7 +16,6 @@
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/power/power_status.h"
 #include "ash/system/supervised/supervised_icon_string.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_popup_utils.h"
@@ -24,6 +24,9 @@
 #include "base/time/time.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/animation/ink_drop_highlight.h"
+#include "ui/views/animation/ink_drop_impl.h"
+#include "ui/views/animation/ink_drop_ripple.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -48,13 +51,24 @@ base::string16 FormatDayOfWeek(const base::Time& time) {
 
 // A view that shows current date in short format e.g. "Mon, Mar 12". It updates
 // by observing ClockObserver.
-class DateView : public views::View, public ClockObserver {
+class DateView : public views::Button,
+                 public views::ButtonListener,
+                 public ClockObserver {
  public:
-  DateView();
+  explicit DateView(UnifiedSystemTrayController* controller);
   ~DateView() override;
 
  private:
   void Update();
+
+  // views::Button:
+  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
+  std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
+  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
+      const override;
+
+  // views::ButtonListener:
+  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // ClockObserver:
   void OnDateFormatChanged() override;
@@ -62,12 +76,14 @@ class DateView : public views::View, public ClockObserver {
   void OnSystemClockCanSetTimeChanged(bool can_set_time) override;
   void Refresh() override;
 
+  UnifiedSystemTrayController* const controller_;
   views::Label* label_;
 
   DISALLOW_COPY_AND_ASSIGN(DateView);
 };
 
-DateView::DateView() : label_(new views::Label) {
+DateView::DateView(UnifiedSystemTrayController* controller)
+    : Button(this), controller_(controller), label_(new views::Label) {
   SetLayoutManager(std::make_unique<views::FillLayout>());
   AddChildView(label_);
 
@@ -77,16 +93,39 @@ DateView::DateView() : label_(new views::Label) {
   Update();
 
   Shell::Get()->system_tray_model()->clock()->AddObserver(this);
+  TrayPopupUtils::ConfigureTrayPopupButton(this);
 }
 
 DateView::~DateView() {
   Shell::Get()->system_tray_model()->clock()->RemoveObserver(this);
 }
 
+void DateView::ButtonPressed(views::Button* sender, const ui::Event& event) {
+  controller_->HandleOpenDateTimeSettingsAction();
+}
+
 void DateView::Update() {
   base::Time now = base::Time::Now();
   label_->SetText(l10n_util::GetStringFUTF16(
       IDS_ASH_STATUS_TRAY_DATE, FormatDayOfWeek(now), FormatDate(now)));
+  SetAccessibleName(TimeFormatFriendlyDateAndTime(now));
+  NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
+}
+
+std::unique_ptr<views::InkDrop> DateView::CreateInkDrop() {
+  return TrayPopupUtils::CreateInkDrop(this);
+}
+
+std::unique_ptr<views::InkDropRipple> DateView::CreateInkDropRipple() const {
+  return TrayPopupUtils::CreateInkDropRipple(
+      TrayPopupInkDropStyle::FILL_BOUNDS, this,
+      GetInkDropCenterBasedOnLastEvent());
+}
+
+std::unique_ptr<views::InkDropHighlight> DateView::CreateInkDropHighlight()
+    const {
+  return TrayPopupUtils::CreateInkDropHighlight(
+      TrayPopupInkDropStyle::FILL_BOUNDS, this);
 }
 
 void DateView::OnDateFormatChanged() {}
@@ -190,6 +229,12 @@ class ManagedStateView : public views::Button {
  public:
   ~ManagedStateView() override = default;
 
+  // views::Button:
+  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
+  std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
+  std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
+      const override;
+
  protected:
   ManagedStateView(views::ButtonListener* listener,
                    int label_id,
@@ -222,13 +267,30 @@ ManagedStateView::ManagedStateView(views::ButtonListener* listener,
   TrayPopupUtils::ConfigureTrayPopupButton(this);
 }
 
+std::unique_ptr<views::InkDrop> ManagedStateView::CreateInkDrop() {
+  return TrayPopupUtils::CreateInkDrop(this);
+}
+
+std::unique_ptr<views::InkDropRipple> ManagedStateView::CreateInkDropRipple()
+    const {
+  return TrayPopupUtils::CreateInkDropRipple(
+      TrayPopupInkDropStyle::FILL_BOUNDS, this,
+      GetInkDropCenterBasedOnLastEvent());
+}
+
+std::unique_ptr<views::InkDropHighlight>
+ManagedStateView::CreateInkDropHighlight() const {
+  return TrayPopupUtils::CreateInkDropHighlight(
+      TrayPopupInkDropStyle::FILL_BOUNDS, this);
+}
+
 // A view that shows whether the device is enterprise managed or not. It updates
 // by observing EnterpriseDomainModel.
 class EnterpriseManagedView : public ManagedStateView,
                               public views::ButtonListener,
                               public EnterpriseDomainObserver {
  public:
-  EnterpriseManagedView();
+  explicit EnterpriseManagedView(UnifiedSystemTrayController* controller);
   ~EnterpriseManagedView() override;
 
   // views::ButtonListener:
@@ -237,21 +299,22 @@ class EnterpriseManagedView : public ManagedStateView,
   // EnterpriseDomainObserver:
   void OnEnterpriseDomainChanged() override;
 
-  // views::View:
-  bool GetTooltipText(const gfx::Point& p,
-                      base::string16* tooltip) const override;
-
  private:
   void Update();
+
+  UnifiedSystemTrayController* const controller_;
 
   DISALLOW_COPY_AND_ASSIGN(EnterpriseManagedView);
 };
 
-EnterpriseManagedView::EnterpriseManagedView()
+EnterpriseManagedView::EnterpriseManagedView(
+    UnifiedSystemTrayController* controller)
     : ManagedStateView(this,
                        IDS_ASH_ENTERPRISE_DEVICE_MANAGED_SHORT,
-                       kSystemMenuBusinessIcon) {
+                       kUnifiedMenuManagedIcon),
+      controller_(controller) {
   DCHECK(Shell::Get());
+  set_id(VIEW_ID_TRAY_ENTERPRISE);
   Shell::Get()->system_tray_model()->enterprise_domain()->AddObserver(this);
   Update();
 }
@@ -260,26 +323,9 @@ EnterpriseManagedView::~EnterpriseManagedView() {
   Shell::Get()->system_tray_model()->enterprise_domain()->RemoveObserver(this);
 }
 
-bool EnterpriseManagedView::GetTooltipText(const gfx::Point& p,
-                                           base::string16* tooltip) const {
-  EnterpriseDomainModel* model =
-      Shell::Get()->system_tray_model()->enterprise_domain();
-  if (model->active_directory_managed()) {
-    *tooltip = l10n_util::GetStringUTF16(IDS_ASH_ENTERPRISE_DEVICE_MANAGED);
-    return true;
-  } else if (!model->enterprise_display_domain().empty()) {
-    *tooltip = l10n_util::GetStringFUTF16(
-        IDS_ASH_ENTERPRISE_DEVICE_MANAGED_BY,
-        base::UTF8ToUTF16(model->enterprise_display_domain()));
-    return true;
-  } else {
-    return false;
-  }
-}
-
 void EnterpriseManagedView::ButtonPressed(views::Button* sender,
                                           const ui::Event& event) {
-  Shell::Get()->system_tray_controller()->ShowEnterpriseInfo();
+  controller_->HandleEnterpriseInfoAction();
 }
 
 void EnterpriseManagedView::OnEnterpriseDomainChanged() {
@@ -291,6 +337,15 @@ void EnterpriseManagedView::Update() {
       Shell::Get()->system_tray_model()->enterprise_domain();
   SetVisible(model->active_directory_managed() ||
              !model->enterprise_display_domain().empty());
+
+  if (model->active_directory_managed()) {
+    SetTooltipText(
+        l10n_util::GetStringUTF16(IDS_ASH_ENTERPRISE_DEVICE_MANAGED));
+  } else if (!model->enterprise_display_domain().empty()) {
+    SetTooltipText(l10n_util::GetStringFUTF16(
+        IDS_ASH_ENTERPRISE_DEVICE_MANAGED_BY,
+        base::UTF8ToUTF16(model->enterprise_display_domain())));
+  }
 }
 
 // A view that shows whether the user is supervised or a child.
@@ -298,10 +353,6 @@ class SupervisedUserView : public ManagedStateView {
  public:
   SupervisedUserView();
   ~SupervisedUserView() override = default;
-
-  // views::View:
-  bool GetTooltipText(const gfx::Point& p,
-                      base::string16* tooltip) const override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SupervisedUserView);
@@ -312,26 +363,21 @@ SupervisedUserView::SupervisedUserView()
                        IDS_ASH_STATUS_TRAY_SUPERVISED_LABEL,
                        GetSupervisedUserIcon()) {
   SetVisible(Shell::Get()->session_controller()->IsUserSupervised());
-}
-
-bool SupervisedUserView::GetTooltipText(const gfx::Point& p,
-                                        base::string16* tooltip) const {
   if (Shell::Get()->session_controller()->IsUserSupervised())
-    return false;
-  *tooltip = GetSupervisedUserMessage();
-  return true;
+    SetTooltipText(GetSupervisedUserMessage());
 }
 
 }  // namespace
 
-UnifiedSystemInfoView::UnifiedSystemInfoView()
-    : enterprise_managed_(new EnterpriseManagedView()),
+UnifiedSystemInfoView::UnifiedSystemInfoView(
+    UnifiedSystemTrayController* controller)
+    : enterprise_managed_(new EnterpriseManagedView(controller)),
       supervised_(new SupervisedUserView()) {
   auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::kHorizontal, kUnifiedMenuItemPadding,
       kUnifiedSystemInfoSpacing));
 
-  AddChildView(new DateView());
+  AddChildView(new DateView(controller));
 
   if (PowerStatus::Get()->IsBatteryPresent()) {
     auto* separator = new views::Separator();

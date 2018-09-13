@@ -77,8 +77,25 @@ class ClearTestBase : public ANGLETest
     std::vector<GLuint> mTextures;
 };
 
-class ClearTest : public ClearTestBase {};
-class ClearTestES3 : public ClearTestBase {};
+class ClearTest : public ClearTestBase
+{
+};
+class ClearTestES3 : public ClearTestBase
+{
+};
+
+class ClearTestRGB : public ANGLETest
+{
+  protected:
+    ClearTestRGB()
+    {
+        setWindowWidth(128);
+        setWindowHeight(128);
+        setConfigRedBits(8);
+        setConfigGreenBits(8);
+        setConfigBlueBits(8);
+    }
+};
 
 // Test clearing the default framebuffer
 TEST_P(ClearTest, DefaultFramebuffer)
@@ -86,6 +103,14 @@ TEST_P(ClearTest, DefaultFramebuffer)
     glClearColor(0.25f, 0.5f, 0.5f, 0.5f);
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_NEAR(0, 0, 64, 128, 128, 128, 1.0);
+}
+
+// Test clearing the RGB default framebuffer and verify that the alpha channel is not cleared
+TEST_P(ClearTestRGB, DefaultFramebufferRGB)
+{
+    glClearColor(0.25f, 0.5f, 0.5f, 0.5f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_NEAR(0, 0, 64, 128, 128, 255, 1.0);
 }
 
 // Test clearing a RGBA8 Framebuffer
@@ -104,6 +129,90 @@ TEST_P(ClearTest, RGBA8Framebuffer)
     glClear(GL_COLOR_BUFFER_BIT);
 
     EXPECT_PIXEL_NEAR(0, 0, 128, 128, 128, 128, 1.0);
+}
+
+// Test to validate that we can go from an RGBA framebuffer attachment, to an RGB one and still
+// have a correct behavior after.
+TEST_P(ClearTest, ChangeFramebufferAttachmentFromRGBAtoRGB)
+{
+    // TODO(lucferron): Diagnose and fix this on D3D9 and 11.
+    // http://anglebug.com/2689
+    ANGLE_SKIP_TEST_IF(IsD3D9() || IsD3D11() || (IsOzone() && IsOpenGLES()));
+    ANGLE_SKIP_TEST_IF(IsOSX() && (IsNVIDIA() || IsIntel()) && IsDesktopOpenGL());
+
+    ANGLE_GL_PROGRAM(program, angle::essl1_shaders::vs::Simple(),
+                     angle::essl1_shaders::fs::UniformColor());
+    setupQuadVertexBuffer(0.5f, 1.0f);
+    glUseProgram(program);
+    GLint positionLocation = glGetAttribLocation(program, angle::essl1_shaders::PositionAttrib());
+    ASSERT_NE(positionLocation, -1);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(positionLocation);
+
+    GLint colorUniformLocation =
+        glGetUniformLocation(program, angle::essl1_shaders::ColorUniform());
+    ASSERT_NE(colorUniformLocation, -1);
+
+    glUniform4f(colorUniformLocation, 1.0f, 1.0f, 1.0f, 0.5f);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[0]);
+
+    GLTexture texture;
+    glColorMask(GL_TRUE, GL_FALSE, GL_TRUE, GL_TRUE);
+
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, getWindowWidth(), getWindowHeight(), 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+    glClearColor(0.5f, 0.5f, 0.5f, 0.5f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    ASSERT_GL_NO_ERROR();
+
+    // So far so good, we have an RGBA framebuffer that we've cleared to 0.5 everywhere.
+    EXPECT_PIXEL_NEAR(0, 0, 128, 0, 128, 128, 1.0);
+
+    // In the Vulkan backend, RGB textures are emulated with an RGBA texture format
+    // underneath and we keep a special mask to know that we shouldn't touch the alpha
+    // channel when we have that emulated texture. This test exists to validate that
+    // this mask gets updated correctly when the framebuffer attachment changes.
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, getWindowWidth(), getWindowHeight(), 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    ASSERT_GL_NO_ERROR();
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::magenta);
+}
+
+// Test clearing a RGB8 Framebuffer with a color mask.
+TEST_P(ClearTest, RGB8WithMaskFramebuffer)
+{
+    // TODO(fjhenigman): Diagnose and fix http://anglebug.com/2681
+    ANGLE_SKIP_TEST_IF(IsOzone() && IsOpenGLES());
+
+    // TODO(lucferron): Figure out why this test fails on OSX / OpenGL.
+    // http://anglebug.com/2674
+    ANGLE_SKIP_TEST_IF(IsOSX() && IsDesktopOpenGL());
+    glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[0]);
+
+    GLTexture texture;
+
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, getWindowWidth(), getWindowHeight(), 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+    glColorMask(GL_TRUE, GL_TRUE, GL_FALSE, GL_TRUE);
+
+    // alpha shouldn't really be taken into account and we should find 255 as a result since we
+    // are writing to a RGB8 texture. Also, the
+    glClearColor(0.5f, 0.5f, 0.5f, 0.2f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    EXPECT_PIXEL_NEAR(0, 0, 128, 128, 0, 255, 1.0);
 }
 
 TEST_P(ClearTest, ClearIssue)
@@ -149,7 +258,7 @@ TEST_P(ClearTest, ClearIssue)
 // mistakenly clear every channel (including the masked-out ones)
 TEST_P(ClearTestES3, MaskedClearBufferBug)
 {
-    unsigned char pixelData[] = { 255, 255, 255, 255 };
+    unsigned char pixelData[] = {255, 255, 255, 255};
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[0]);
 
@@ -166,8 +275,8 @@ TEST_P(ClearTestES3, MaskedClearBufferBug)
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_EQ(0, 0, 255, 255, 255, 255);
 
-    float clearValue[] = { 0, 0.5f, 0.5f, 1.0f };
-    GLenum drawBuffers[] = { GL_NONE, GL_COLOR_ATTACHMENT1 };
+    float clearValue[]   = {0, 0.5f, 0.5f, 1.0f};
+    GLenum drawBuffers[] = {GL_NONE, GL_COLOR_ATTACHMENT1};
     glDrawBuffers(2, drawBuffers);
     glColorMask(GL_TRUE, GL_TRUE, GL_FALSE, GL_TRUE);
     glClearBufferfv(GL_COLOR, 1, clearValue);
@@ -192,10 +301,10 @@ TEST_P(ClearTestES3, BadFBOSerialBug)
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, getWindowWidth(), getWindowHeight());
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[0], 0);
 
-    GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0 };
+    GLenum drawBuffers[] = {GL_COLOR_ATTACHMENT0};
     glDrawBuffers(1, drawBuffers);
 
-    float clearValues1[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    float clearValues1[] = {0.0f, 1.0f, 0.0f, 1.0f};
     glClearBufferfv(GL_COLOR, 0, clearValues1);
 
     ASSERT_GL_NO_ERROR();
@@ -376,7 +485,7 @@ TEST_P(ClearTestES3, RepeatedClear)
             const Vector4 color   = RandomVec4(seed, fmtValueMin, fmtValueMax);
             GLColor expectedColor = Vec4ToColor(color);
 
-            int testN           = cellX * cellSize + cellY * backFBOSize * cellSize + backFBOSize + 1;
+            int testN = cellX * cellSize + cellY * backFBOSize * cellSize + backFBOSize + 1;
             GLColor actualColor = pixelData[testN];
             EXPECT_NEAR(expectedColor.R, actualColor.R, 1);
             EXPECT_NEAR(expectedColor.G, actualColor.G, 1);
@@ -519,8 +628,8 @@ TEST_P(ClearTest, MaskedColorAndDepthClear)
     ASSERT_GL_NO_ERROR();
 }
 
-// Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.
-// Vulkan support disabled because of incomplete implementation.
+// Use this to select which configurations (e.g. which renderer, which GLES major version) these
+// tests should be run against. Vulkan support disabled because of incomplete implementation.
 ANGLE_INSTANTIATE_TEST(ClearTest,
                        ES2_D3D9(),
                        ES2_D3D11(),
@@ -532,5 +641,8 @@ ANGLE_INSTANTIATE_TEST(ClearTest,
                        ES2_VULKAN());
 ANGLE_INSTANTIATE_TEST(ClearTestES3, ES3_D3D11(), ES3_OPENGL(), ES3_OPENGLES());
 ANGLE_INSTANTIATE_TEST(ScissoredClearTest, ES2_D3D11(), ES2_OPENGL(), ES2_VULKAN());
+
+// Not all ANGLE backends support RGB backbuffers
+ANGLE_INSTANTIATE_TEST(ClearTestRGB, ES2_D3D11(), ES3_D3D11(), ES2_VULKAN());
 
 }  // anonymous namespace

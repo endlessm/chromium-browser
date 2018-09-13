@@ -28,7 +28,6 @@
 #include "clang/Basic/OpenCLOptions.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/Version.h"
-#include "clang/Basic/VersionTuple.h"
 #include "clang/Lex/ExternalPreprocessorSource.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/PreprocessingRecord.h"
@@ -62,6 +61,7 @@
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/VersionTuple.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -546,7 +546,7 @@ private:
 
   /// Mergeable declaration contexts that have anonymous declarations
   /// within them, and those anonymous declarations.
-  llvm::DenseMap<DeclContext*, llvm::SmallVector<NamedDecl*, 2>>
+  llvm::DenseMap<Decl*, llvm::SmallVector<NamedDecl*, 2>>
     AnonymousDeclarationsForMerging;
 
   struct FileDeclsInfo {
@@ -1771,6 +1771,10 @@ public:
   TypeSourceInfo *GetTypeSourceInfo(ModuleFile &F,
                                     const RecordData &Record, unsigned &Idx);
 
+  /// Raad the type locations for the given TInfo.
+  void ReadTypeLoc(ModuleFile &F, const RecordData &Record, unsigned &Idx,
+                   TypeLoc TL);
+
   /// Resolve a type ID into a type, potentially building a new
   /// type.
   QualType GetType(serialization::TypeID ID);
@@ -2070,6 +2074,8 @@ public:
   ///
   /// Note: overrides method in ExternalASTSource
   Module *getModule(unsigned ID) override;
+
+  bool DeclIsFromPCHWithObjectFile(const Decl *D) override;
 
   /// Retrieve the module file with a given local ID within the specified
   /// ModuleFile.
@@ -2456,6 +2462,11 @@ public:
   /// Reads a declarator info from the given record, advancing Idx.
   TypeSourceInfo *getTypeSourceInfo() {
     return Reader->GetTypeSourceInfo(*F, Record, Idx);
+  }
+
+  /// Reads the location information for a type.
+  void readTypeLoc(TypeLoc TL) {
+    return Reader->ReadTypeLoc(*F, Record, Idx, TL);
   }
 
   /// Map a local type ID within a given AST file to a global type ID.

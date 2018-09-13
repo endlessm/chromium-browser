@@ -220,8 +220,8 @@ GLManager::~GLManager() {
   --use_count_;
   if (!use_count_) {
     if (base_share_group_) {
-      delete base_context_;
-      base_context_ = NULL;
+      delete base_share_group_;
+      base_share_group_ = NULL;
     }
     if (base_surface_) {
       delete base_surface_;
@@ -326,15 +326,16 @@ void GLManager::InitializeWithWorkaroundsImpl(
       std::make_unique<gles2::ShaderTranslatorCache>(gpu_preferences_);
 
   if (!context_group) {
+    GpuFeatureInfo gpu_feature_info;
     scoped_refptr<gles2::FeatureInfo> feature_info =
-        new gles2::FeatureInfo(workarounds);
+        new gles2::FeatureInfo(workarounds, gpu_feature_info);
     // Always mark the passthrough command decoder as supported so that tests do
     // not unexpectedly use the wrong command decoder
     context_group = new gles2::ContextGroup(
         gpu_preferences_, true, mailbox_manager_, nullptr /* memory_tracker */,
         translator_cache_.get(), &completeness_cache_, feature_info,
         options.bind_generates_resource, &image_manager_, options.image_factory,
-        nullptr /* progress_reporter */, GpuFeatureInfo(),
+        nullptr /* progress_reporter */, gpu_feature_info,
         &discardable_manager_);
   }
 
@@ -514,7 +515,7 @@ int32_t GLManager::CreateImage(ClientBuffer buffer,
       gl_image = gpu_memory_buffer_factory_->AsImageFactory()
                      ->CreateImageForGpuMemoryBuffer(
                          handle, size, format, internalformat,
-                         gpu::InProcessCommandBuffer::kGpuMemoryBufferClientId,
+                         gpu::InProcessCommandBuffer::kGpuClientId,
                          gpu::kNullSurfaceHandle);
       if (!gl_image)
         return -1;
@@ -597,8 +598,6 @@ void GLManager::WaitSyncTokenHint(const gpu::SyncToken& sync_token) {}
 bool GLManager::CanWaitUnverifiedSyncToken(const gpu::SyncToken& sync_token) {
   return false;
 }
-
-void GLManager::SetSnapshotRequested() {}
 
 ContextType GLManager::GetContextType() const {
   return context_type_;

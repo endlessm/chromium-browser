@@ -21,7 +21,6 @@
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/SparseBitVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -389,13 +388,17 @@ CodeGenRegister::computeSubRegs(CodeGenRegBank &RegBank) {
   // user already specified.
   for (unsigned i = 0, e = ExplicitSubRegs.size(); i != e; ++i) {
     CodeGenRegister *SR = ExplicitSubRegs[i];
-    if (!SR->CoveredBySubRegs || SR->ExplicitSubRegs.size() <= 1)
+    if (!SR->CoveredBySubRegs || SR->ExplicitSubRegs.size() <= 1 ||
+        SR->Artificial)
       continue;
 
     // SR is composed of multiple sub-regs. Find their names in this register.
     SmallVector<CodeGenSubRegIndex*, 8> Parts;
-    for (unsigned j = 0, e = SR->ExplicitSubRegs.size(); j != e; ++j)
-      Parts.push_back(getSubRegIndex(SR->ExplicitSubRegs[j]));
+    for (unsigned j = 0, e = SR->ExplicitSubRegs.size(); j != e; ++j) {
+      CodeGenSubRegIndex &I = *SR->ExplicitSubRegIndices[j];
+      if (!I.Artificial)
+        Parts.push_back(getSubRegIndex(SR->ExplicitSubRegs[j]));
+    }
 
     // Offer this as an existing spelling for the concatenation of Parts.
     CodeGenSubRegIndex &Idx = *ExplicitSubRegIndices[i];
@@ -605,6 +608,13 @@ unsigned CodeGenRegister::getWeight(const CodeGenRegBank &RegBank) const {
 namespace {
 
 struct TupleExpander : SetTheory::Expander {
+  // Reference to SynthDefs in the containing CodeGenRegBank, to keep track of
+  // the synthesized definitions for their lifetime.
+  std::vector<std::unique_ptr<Record>> &SynthDefs;
+
+  TupleExpander(std::vector<std::unique_ptr<Record>> &SynthDefs)
+      : SynthDefs(SynthDefs) {}
+
   void expand(SetTheory &ST, Record *Def, SetTheory::RecSet &Elts) override {
     std::vector<Record*> Indices = Def->getValueAsListOfDefs("SubRegIndices");
     unsigned Dim = Indices.size();
@@ -649,7 +659,9 @@ struct TupleExpander : SetTheory::Expander {
       // Create a new Record representing the synthesized register. This record
       // is only for consumption by CodeGenRegister, it is not added to the
       // RecordKeeper.
-      Record *NewReg = new Record(Name, Def->getLoc(), Def->getRecords());
+      SynthDefs.emplace_back(
+          llvm::make_unique<Record>(Name, Def->getLoc(), Def->getRecords()));
+      Record *NewReg = SynthDefs.back().get();
       Elts.insert(NewReg);
 
       // Copy Proto super-classes.
@@ -1075,7 +1087,8 @@ CodeGenRegBank::CodeGenRegBank(RecordKeeper &Records,
   // Configure register Sets to understand register classes and tuples.
   Sets.addFieldExpander("RegisterClass", "MemberList");
   Sets.addFieldExpander("CalleeSavedRegs", "SaveList");
-  Sets.addExpander("RegisterTuples", llvm::make_unique<TupleExpander>());
+  Sets.addExpander("RegisterTuples",
+                   llvm::make_unique<TupleExpander>(SynthDefs));
 
   // Read in the user-defined (named) sub-register indices.
   // More indices will be synthesized later.
@@ -1625,9 +1638,10 @@ static void computeUberWeights(std::vector<UberRegSet> &UberSets,
 static bool normalizeWeight(CodeGenRegister *Reg,
                             std::vector<UberRegSet> &UberSets,
                             std::vector<UberRegSet*> &RegSets,
-                            SparseBitVector<> &NormalRegs,
+                            BitVector &NormalRegs,
                             CodeGenRegister::RegUnitList &NormalUnits,
                             CodeGenRegBank &RegBank) {
+  NormalRegs.resize(std::max(Reg->EnumValue + 1, NormalRegs.size()));
   if (NormalRegs.test(Reg->EnumValue))
     return false;
   NormalRegs.set(Reg->EnumValue);
@@ -1701,7 +1715,7 @@ void CodeGenRegBank::computeRegUnitWeights() {
     Changed = false;
     for (auto &Reg : Registers) {
       CodeGenRegister::RegUnitList NormalUnits;
-      SparseBitVector<> NormalRegs;
+      BitVector NormalRegs;
       Changed |= normalizeWeight(&Reg, UberSets, RegSets, NormalRegs,
                                  NormalUnits, *this);
     }
@@ -2170,6 +2184,8 @@ void CodeGenRegBank::inferMatchingSuperRegClass(CodeGenRegisterClass *RC,
     for (auto I = FirstSubRegRC, E = std::prev(RegClasses.end());
          I != std::next(E); ++I) {
       CodeGenRegisterClass &SubRC = *I;
+      if (SubRC.Artificial)
+        continue;
       // Topological shortcut: SubRC members have the wrong shape.
       if (!TopoSigs.anyCommon(SubRC.getTopoSigs()))
         continue;

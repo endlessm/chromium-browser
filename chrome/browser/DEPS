@@ -7,6 +7,7 @@ include_rules = [
   "+chrome/install_static",
   "+chrome/installer/util",
   "+chrome/notification_helper/notification_helper_constants.h",
+  "+chrome/services/cups_ipp_validator/public",
   "+chrome/services/file_util/public",
   "+chrome/services/media_gallery_util/public",
   "+chrome/services/printing/public",
@@ -25,7 +26,7 @@ include_rules = [
   "+device/base",
   "+device/bluetooth",
   "+device/fido",
-  "+device/geolocation",
+  "+device/gamepad/public/cpp",
   "+device/usb",
   "+device/vr/buildflags/buildflags.h",
   "+extensions/browser",
@@ -42,6 +43,7 @@ include_rules = [
   "+mash/public/mojom",
   "+media/audio", # For media audio hang monitor.
   "+media/base",  # For media switches
+  "+media/capabilities", # For InMemoryVideoDecodeStatsDB
   "+media/cdm/cdm_paths.h",
   "+media/capture",
   "+media/midi",  # For midi switches
@@ -54,6 +56,7 @@ include_rules = [
   "+rlz",
   "+sandbox/win/src",  # The path doesn't say it, but this is the Windows sandbox.
   "+services/audio/public",
+  "+services/content/simple_browser/public",
   "+services/data_decoder/public",
   "+services/device/public",
   "+services/identity/public",
@@ -84,11 +87,14 @@ include_rules = [
   "+third_party/cros_system_api",
   "+third_party/libaom/av1_buildflags.h",
   "+third_party/metrics_proto",
+  "+third_party/widevine/cdm/widevine_cdm_common.h",
 
   # Code under //ash runs out-of-process in mash so it must be accessed via mojo
   # interfaces in //ash/public/interfaces. See //ash/README.md.
   "-ash",
   "+ash/public",
+  # Ash string IDs can be used in src/chrome.
+  "+ash/strings/grit/ash_strings.h",
   "+ash/components/quick_launch/public/mojom",
   "+ash/components/shortcut_viewer/public/mojom",
   "+ash/components/tap_visualizer/public/mojom",
@@ -150,6 +156,7 @@ include_rules = [
   "+third_party/blink/public/platform/web_input_event.h",
   "+third_party/blink/public/platform/web_mouse_event.h",
   "+third_party/blink/public/platform/web_mouse_wheel_event.h",
+  "+third_party/blink/public/platform/web_touch_event.h",
   "+third_party/blink/public/platform/web_referrer_policy.h",
   "+third_party/blink/public/platform/web_security_style.h",
   "+third_party/blink/public/platform/web_speech_synthesis_constants.h",
@@ -214,13 +221,11 @@ specific_include_rules = {
     # Once Ash runs out of process no longer needed.
     "+ash/shell.h",
     "+ash/strings/grit/ash_strings.h",
-    "+ash/ws/window_service_owner.h",
-    "+services/ui/ws2/window_service.h",
 
     # Needed for classic mode.
     "+ash/ash_service.h",
   ],
-  # TODO(mash): see bugs 768439 and 768395.
+  # TODO(mash): Fix. https://crbug.com/768439, https://crbug.com/768395.
   "exo_parts\.cc": [
     "+ash/shell.h",
   ],
@@ -228,9 +233,6 @@ specific_include_rules = {
   "fullscreen_chromeos\.cc": [
     "+ash/root_window_controller.h",
     "+ash/shell.h",
-  ],
-  "display_info_provider_chromeos_unittest.cc": [
-    "+ui/events/devices/touch_device_transform.h"
   ],
   # TODO(estade): the message center is initialized and shut down here, but it
   # should be the responsibility of code in chrome/browser/notifications/

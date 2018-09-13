@@ -406,8 +406,9 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeAppTabChanges) {
   ShowTaskManager();
 
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("packaged_app")));
-  ExtensionService* service = extensions::ExtensionSystem::Get(
-                                  browser()->profile())->extension_service();
+  extensions::ExtensionService* service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
   const extensions::Extension* extension =
       service->GetExtensionById(last_loaded_extension_id(), false);
 
@@ -448,8 +449,9 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeAppTabChanges) {
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeAppTab) {
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("packaged_app")));
-  ExtensionService* service = extensions::ExtensionSystem::Get(
-      browser()->profile())->extension_service();
+  extensions::ExtensionService* service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
   const extensions::Extension* extension =
       service->GetExtensionById(last_loaded_extension_id(), false);
 
@@ -980,8 +982,7 @@ IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest, SubframeHistoryNavigation) {
       MatchSubframe("http://e.com/"), ColumnSpecifier::MEMORY_FOOTPRINT, 1000));
 }
 
-// Flaky, see https://crbug.com/797860.
-IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest, DISABLED_KillSubframe) {
+IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest, KillSubframe) {
   ShowTaskManager();
 
   content::TestNavigationObserver navigation_observer(

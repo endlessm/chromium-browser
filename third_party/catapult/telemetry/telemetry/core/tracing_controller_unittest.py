@@ -2,20 +2,38 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import time
 import unittest
 
-from battor import battor_wrapper
 from telemetry import decorators
+from telemetry.util import trace_runner
 from telemetry.internal.browser import browser_finder
 from telemetry.testing import options_for_unittests
 from telemetry.testing import tab_test_case
 from telemetry.timeline import model as model_module
 from telemetry.timeline import tracing_config
-from tracing.trace_data import trace_data as trace_data_module
+
+
+def ReadMarkerEvents(trace_data):
+  # Parse the trace and extract all test markers & trace-flushing markers
+  return trace_runner.ExecuteMappingCodeOnTraceData(
+      trace_data, """
+function processTrace(results, model) {
+    var markers = [];
+    for (const thread of model.getAllThreads()) {
+        for (const event of thread.asyncSliceGroup.slices) {
+            if (event.title.startsWith('test-marker-') ||
+                event.title === 'flush-tracing') {
+                markers.push({'title': event.title, 'start': event.start});
+           }
+       }
+   }
+   results.addPair('markers', markers);
+};
+       """)['markers']
 
 
 class TracingControllerTest(tab_test_case.TabTestCase):
+  """Tests that start tracing when a browser tab is already active."""
 
   @decorators.Isolated
   def testExceptionRaisedInStopTracing(self):
@@ -74,11 +92,6 @@ class TracingControllerTest(tab_test_case.TabTestCase):
 
     tab = self._browser.tabs[0]
 
-    def InjectMarker(index):
-      marker = 'test-marker-%d' % index
-      tab.EvaluateJavaScript('console.time({{ marker }});', marker=marker)
-      tab.EvaluateJavaScript('console.timeEnd({{ marker }});', marker=marker)
-
     # Set up the tracing config.
     tracing_controller = self._browser.platform.tracing_controller
     config = tracing_config.TracingConfig()
@@ -87,102 +100,97 @@ class TracingControllerTest(tab_test_case.TabTestCase):
     # Start tracing and inject a unique marker into the sub-trace.
     tracing_controller.StartTracing(config)
     self.assertTrue(tracing_controller.is_tracing_running)
-    InjectMarker(0)
+    tab.AddTimelineMarker('test-marker-0')
 
     # Flush tracing |subtrace_count - 1| times and inject a unique marker into
     # the sub-trace each time.
     for i in xrange(1, subtrace_count):
       tracing_controller.FlushTracing()
       self.assertTrue(tracing_controller.is_tracing_running)
-      InjectMarker(i)
+      tab.AddTimelineMarker('test-marker-%d' % i)
 
     # Stop tracing.
     trace_data, errors = tracing_controller.StopTracing()
     self.assertEqual(errors, [])
     self.assertFalse(tracing_controller.is_tracing_running)
 
-    # Test that trace data is parsable
-    model = model_module.TimelineModel(trace_data)
-
-    # Check that the markers 'test-marker-0', 'flush-tracing', 'test-marker-1',
-    # ..., 'flush-tracing', 'test-marker-|subtrace_count - 1|' are monotonic.
-    custom_markers = [
-        marker
-        for i in xrange(subtrace_count)
-        for marker in model.FindTimelineMarkers('test-marker-%d' % i)
-    ]
-    flush_markers = model.FindTimelineMarkers(['flush-tracing'] *
-                                              (subtrace_count - 1))
-    markers = [
-        marker for group in zip(custom_markers, flush_markers)
-        for marker in group
-    ] + custom_markers[-1:]
-
-    self.assertEquals(len(custom_markers), subtrace_count)
-    self.assertEquals(len(flush_markers), subtrace_count - 1)
-    self.assertEquals(len(markers), 2 * subtrace_count - 1)
-
-    for i in xrange(1, len(markers)):
-      self.assertLess(markers[i - 1].end, markers[i].start)
-
-  @decorators.Disabled('linux')  # crbug.com/673761
-  def testBattOrTracing(self):
-    test_platform = self._browser.platform.GetOSName()
-    device = (self._browser.platform._platform_backend.device
-              if test_platform == 'android' else None)
-    if (not battor_wrapper.IsBattOrConnected(
-        test_platform, android_device=device)):
-      return  # Do not run the test if no BattOr is connected.
-
-    tracing_controller = self._browser.platform.tracing_controller
-    config = tracing_config.TracingConfig()
-    config.enable_battor_trace = True
-    tracing_controller.StartTracing(config)
-    # We wait 1s before starting and stopping tracing to avoid crbug.com/602266,
-    # which would cause a crash otherwise.
-    time.sleep(1)
-    trace_data, errors = tracing_controller.StopTracing()
-    self.assertEqual(errors, [])
-    self.assertTrue(
-        trace_data.HasTracesFor(trace_data_module.BATTOR_TRACE_PART))
+    # Check that the markers 'test-marker-0', 'flush-tracing',
+    # 'test-marker-1', ..., 'flush-tracing',
+    # 'test-marker-|subtrace_count - 1|' are monotonic.
+    markers = ReadMarkerEvents(trace_data)
+    self.assertEquals(2 * subtrace_count - 1, len(markers))
+    for i in xrange(0, len(markers) - 2):
+      if i % 2 == 0:
+        expected_title = 'test-marker-%d' % (i/2)
+      else:
+        expected_title = 'flush-tracing'
+      self.assertEquals(expected_title, markers[i]['title'])
+      self.assertLess(markers[i]['start'], markers[i + 1]['start'])
 
 
 class StartupTracingTest(unittest.TestCase):
-  # https://github.com/catapult-project/catapult/issues/3099 (Android)
-  @decorators.Disabled('android')
-  @decorators.Isolated
-  def testStartupTracing(self):
+  """Tests that start tracing before the browser is created."""
+
+  def setUp(self):
     finder_options = options_for_unittests.GetCopy()
-    possible_browser = browser_finder.FindBrowser(finder_options)
-    if not possible_browser:
+    self.possible_browser = browser_finder.FindBrowser(finder_options)
+    if not self.possible_browser:
       raise Exception('No browser found, cannot continue test.')
-    platform = possible_browser.platform
+    self.browser_options = finder_options.browser_options
+    self.config = tracing_config.TracingConfig()
+    self.config.enable_chrome_trace = True
 
-    # Start tracing
-    self.assertFalse(platform.tracing_controller.is_tracing_running)
-    config = tracing_config.TracingConfig()
-    config.enable_chrome_trace = True
-    platform.tracing_controller.StartTracing(config)
-    self.assertTrue(platform.tracing_controller.is_tracing_running)
+  def tearDown(self):
+    if self.possible_browser and self.tracing_controller.is_tracing_running:
+      self.tracing_controller.StopTracing()
 
+  @property
+  def tracing_controller(self):
+    return self.possible_browser.platform.tracing_controller
+
+  def StopTracingAndGetTestMarkers(self):
+    self.assertTrue(self.tracing_controller.is_tracing_running)
+    trace_data, errors = self.tracing_controller.StopTracing()
+    self.assertFalse(self.tracing_controller.is_tracing_running)
+    self.assertEqual(errors, [])
+    return [
+        e['title']
+        for e in ReadMarkerEvents(trace_data)
+        if e['title'].startswith('test-marker-')]
+
+  @decorators.Isolated
+  def testStopTracingWhileBrowserIsRunning(self):
+    self.tracing_controller.StartTracing(self.config)
+    with self.possible_browser.BrowserSession(self.browser_options) as browser:
+      browser.tabs[0].Navigate('about:blank')
+      browser.tabs[0].WaitForDocumentReadyStateToBeInteractiveOrBetter()
+      browser.tabs[0].AddTimelineMarker('test-marker-foo')
+      markers = self.StopTracingAndGetTestMarkers()
+    self.assertEquals(markers, ['test-marker-foo'])
+
+  @decorators.Isolated
+  def testCloseBrowserBeforeTracingIsStopped(self):
+    self.tracing_controller.StartTracing(self.config)
+    with self.possible_browser.BrowserSession(self.browser_options) as browser:
+      browser.tabs[0].Navigate('about:blank')
+      browser.tabs[0].WaitForDocumentReadyStateToBeInteractiveOrBetter()
+      browser.tabs[0].AddTimelineMarker('test-marker-bar')
+    markers = self.StopTracingAndGetTestMarkers()
+    self.assertEquals(markers, ['test-marker-bar'])
+
+  @decorators.Isolated
+  def testRestartBrowserWhileTracing(self):
+    expected_markers = ['test-marker-%i' % i for i in xrange(4)]
+    self.tracing_controller.StartTracing(self.config)
     try:
-      # Start browser
-      with possible_browser.BrowserSession(
-          finder_options.browser_options) as browser:
-        browser.tabs[0].Navigate('about:blank')
-        browser.tabs[0].WaitForDocumentReadyStateToBeInteractiveOrBetter()
-
-        # Calling start tracing again will return False
-        self.assertFalse(platform.tracing_controller.StartTracing(config))
-
-        trace_data, errors = platform.tracing_controller.StopTracing()
-        self.assertEqual(errors, [])
-        # Test that trace data is parseable
-        model_module.TimelineModel(trace_data)
-        self.assertFalse(platform.tracing_controller.is_tracing_running)
-        # Calling stop tracing again will raise exception
-        with self.assertRaises(Exception):
-          platform.tracing_controller.StopTracing()
+      self.possible_browser.SetUpEnvironment(self.browser_options)
+      for marker in expected_markers:
+        with self.possible_browser.Create() as browser:
+          browser.tabs[0].Navigate('about:blank')
+          browser.tabs[0].WaitForDocumentReadyStateToBeInteractiveOrBetter()
+          browser.tabs[0].AddTimelineMarker(marker)
     finally:
-      if platform.tracing_controller.is_tracing_running:
-        platform.tracing_controller.StopTracing()
+      self.possible_browser.CleanUpEnvironment()
+    markers = self.StopTracingAndGetTestMarkers()
+    # Markers may be out of order.
+    self.assertItemsEqual(markers, expected_markers)

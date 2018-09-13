@@ -93,6 +93,10 @@ const char kHistogramFirstInputDelay[] =
     "PageLoad.InteractiveTiming.FirstInputDelay";
 const char kHistogramFirstInputTimestamp[] =
     "PageLoad.InteractiveTiming.FirstInputTimestamp";
+const char kHistogramLongestInputDelay[] =
+    "PageLoad.InteractiveTiming.LongestInputDelay";
+const char kHistogramLongestInputTimestamp[] =
+    "PageLoad.InteractiveTiming.LongestInputTimestamp";
 const char kHistogramParseStartToFirstMeaningfulPaint[] =
     "PageLoad.Experimental.PaintTiming.ParseStartToFirstMeaningfulPaint";
 const char kHistogramParseStartToFirstContentfulPaint[] =
@@ -372,30 +376,6 @@ void CorePageLoadMetricsObserver::OnFirstContentfulPaintInPage(
         info.user_initiated_info.user_gesture) {
       PAGE_LOAD_HISTOGRAM(internal::kHistogramFirstContentfulPaintUserInitiated,
                           timing.paint_timing->first_contentful_paint.value());
-    }
-
-    if (timing.style_sheet_timing
-            ->author_style_sheet_parse_duration_before_fcp) {
-      PAGE_LOAD_HISTOGRAM(
-          "PageLoad.CSSTiming.Parse.BeforeFirstContentfulPaint",
-          timing.style_sheet_timing
-              ->author_style_sheet_parse_duration_before_fcp.value());
-    }
-    if (timing.style_sheet_timing->update_style_duration_before_fcp) {
-      PAGE_LOAD_HISTOGRAM(
-          "PageLoad.CSSTiming.Update.BeforeFirstContentfulPaint",
-          timing.style_sheet_timing->update_style_duration_before_fcp.value());
-    }
-    if (timing.style_sheet_timing
-            ->author_style_sheet_parse_duration_before_fcp ||
-        timing.style_sheet_timing->update_style_duration_before_fcp) {
-      PAGE_LOAD_HISTOGRAM(
-          "PageLoad.CSSTiming.ParseAndUpdate.BeforeFirstContentfulPaint",
-          timing.style_sheet_timing
-                  ->author_style_sheet_parse_duration_before_fcp.value_or(
-                      base::TimeDelta()) +
-              timing.style_sheet_timing->update_style_duration_before_fcp
-                  .value_or(base::TimeDelta()));
     }
 
     switch (GetPageLoadType(transition_)) {
@@ -716,6 +696,18 @@ void CorePageLoadMetricsObserver::RecordTimingHistograms(
             ? internal::TIME_TO_INTERACTIVE_DID_NOT_REACH_QUIESCENCE
             : internal::
                   TIME_TO_INTERACTIVE_DID_NOT_REACH_FIRST_MEANINGFUL_PAINT);
+  }
+
+  if (timing.interactive_timing->longest_input_timestamp) {
+    DCHECK(timing.interactive_timing->longest_input_delay);
+    UMA_HISTOGRAM_CUSTOM_TIMES(
+        internal::kHistogramLongestInputDelay,
+        timing.interactive_timing->longest_input_delay.value(),
+        base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromSeconds(60),
+        50);
+    PAGE_LOAD_HISTOGRAM(
+        internal::kHistogramLongestInputTimestamp,
+        timing.interactive_timing->longest_input_timestamp.value());
   }
 }
 

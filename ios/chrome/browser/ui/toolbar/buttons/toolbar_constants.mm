@@ -46,6 +46,7 @@ const CGFloat kBackButtonImageInset = -9;
 const CGFloat kForwardButtonImageInset = -7;
 const CGFloat kLeadingLocationBarButtonImageInset = 15;
 const CGFloat kCancelButtonHorizontalInset = 8;
+const CGFloat kToolbarDimmedButtonAlpha = 0.5;
 
 const CGFloat kBlurBackgroundGrayscaleComponent = 0.98;
 const CGFloat kBlurBackgroundAlpha = 0.4;
@@ -63,9 +64,12 @@ const LayoutOffset kToolbarButtonAnimationOffset = -10.0;
 const CGFloat kExpandedLocationBarHorizontalMargin = 8;
 const CGFloat kContractedLocationBarHorizontalMargin = 19;
 
-const CGFloat kAdaptiveLocationBarCornerRadius = 11;
-const CGFloat kAdaptiveLocationBarBackgroundAlpha = 0.12;
+const CGFloat kAdaptiveLocationBarCornerRadius = 18;
+const CGFloat kAdaptiveLocationBarBackgroundAlpha = 0.09;
+const CGFloat kAdaptiveLocationBarBackgroundAlphaIncognito = 0.12;
 const CGFloat kAdaptiveLocationBarVerticalMargin = 6.0f;
+const CGFloat kAdaptiveLocationBarVerticalMarginFullscreen = 3.0f;
+const CGFloat kAdaptiveLocationBarExtraVerticalMargin = 1.0f;
 
 const CGFloat kToolbarHeight = 56;
 const CGFloat kTopToolbarUnsplitMargin = 2;
@@ -92,3 +96,8 @@ const NSInteger kFontSizeTenTabsOrMore = 9;
 
 const CGFloat kToolbarShadowHeight = 2;
 const CGFloat kToolbarFullBleedShadowHeight = 10;
+
+const CGFloat kLocationBarTintBlue = 0x1A73E8;
+const CGFloat kLocationBarFontSize = 15.0f;
+const CGFloat kLocationBarRegularRegularFontSize = 17.0f;
+const CGFloat kLocationBarSteadyFontSize = 17.0f;

@@ -27,7 +27,7 @@
 #include "llvm/Analysis/MemorySSAUpdater.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -155,10 +155,13 @@ unsigned DenseMapInfo<SimpleValue>::getHashValue(SimpleValue Val) {
   SelectPatternFlavor SPF = matchSelectPattern(Inst, A, B).Flavor;
   // TODO: We should also detect FP min/max.
   if (SPF == SPF_SMIN || SPF == SPF_SMAX ||
-      SPF == SPF_UMIN || SPF == SPF_UMAX ||
-      SPF == SPF_ABS || SPF == SPF_NABS) {
+      SPF == SPF_UMIN || SPF == SPF_UMAX) {
     if (A > B)
       std::swap(A, B);
+    return hash_combine(Inst->getOpcode(), SPF, A, B);
+  }
+  if (SPF == SPF_ABS || SPF == SPF_NABS) {
+    // ABS/NABS always puts the input in A and its negation in B.
     return hash_combine(Inst->getOpcode(), SPF, A, B);
   }
 
@@ -230,8 +233,13 @@ bool DenseMapInfo<SimpleValue>::isEqual(SimpleValue LHS, SimpleValue RHS) {
       LSPF == SPF_ABS || LSPF == SPF_NABS) {
     Value *RHSA, *RHSB;
     SelectPatternFlavor RSPF = matchSelectPattern(RHSI, RHSA, RHSB).Flavor;
-    return (LSPF == RSPF && ((LHSA == RHSA && LHSB == RHSB) ||
-                             (LHSA == RHSB && LHSB == RHSA)));
+    if (LSPF == RSPF) {
+      // Abs results are placed in a defined order by matchSelectPattern.
+      if (LSPF == SPF_ABS || LSPF == SPF_NABS)
+        return LHSA == RHSA && LHSB == RHSB;
+      return ((LHSA == RHSA && LHSB == RHSB) ||
+              (LHSA == RHSB && LHSB == RHSA));
+    }
   }
 
   return false;
@@ -341,8 +349,8 @@ public:
   /// that dominated values can succeed in their lookup.
   ScopedHTType AvailableValues;
 
-  /// A scoped hash table of the current values of previously encounted memory
-  /// locations.
+  /// A scoped hash table of the current values of previously encountered
+  /// memory locations.
   ///
   /// This allows us to get efficient access to dominating loads or stores when
   /// we have a fully redundant load.  In addition to the most recent load, we
@@ -571,6 +579,9 @@ private:
 
   bool processNode(DomTreeNode *Node);
 
+  bool handleBranchCondition(Instruction *CondInst, const BranchInst *BI,
+                             const BasicBlock *BB, const BasicBlock *Pred);
+
   Value *getOrCreateResult(Value *Inst, Type *ExpectedType) const {
     if (auto *LI = dyn_cast<LoadInst>(Inst))
       return LI;
@@ -699,6 +710,58 @@ bool EarlyCSE::isOperatingOnInvariantMemAt(Instruction *I, unsigned GenAt) {
   return AvailableInvariants.lookup(MemLoc) <= GenAt;
 }
 
+bool EarlyCSE::handleBranchCondition(Instruction *CondInst,
+                                     const BranchInst *BI, const BasicBlock *BB,
+                                     const BasicBlock *Pred) {
+  assert(BI->isConditional() && "Should be a conditional branch!");
+  assert(BI->getCondition() == CondInst && "Wrong condition?");
+  assert(BI->getSuccessor(0) == BB || BI->getSuccessor(1) == BB);
+  auto *TorF = (BI->getSuccessor(0) == BB)
+                   ? ConstantInt::getTrue(BB->getContext())
+                   : ConstantInt::getFalse(BB->getContext());
+  auto MatchBinOp = [](Instruction *I, unsigned Opcode) {
+    if (BinaryOperator *BOp = dyn_cast<BinaryOperator>(I))
+      return BOp->getOpcode() == Opcode;
+    return false;
+  };
+  // If the condition is AND operation, we can propagate its operands into the
+  // true branch. If it is OR operation, we can propagate them into the false
+  // branch.
+  unsigned PropagateOpcode =
+      (BI->getSuccessor(0) == BB) ? Instruction::And : Instruction::Or;
+
+  bool MadeChanges = false;
+  SmallVector<Instruction *, 4> WorkList;
+  SmallPtrSet<Instruction *, 4> Visited;
+  WorkList.push_back(CondInst);
+  while (!WorkList.empty()) {
+    Instruction *Curr = WorkList.pop_back_val();
+
+    AvailableValues.insert(Curr, TorF);
+    LLVM_DEBUG(dbgs() << "EarlyCSE CVP: Add conditional value for '"
+                      << Curr->getName() << "' as " << *TorF << " in "
+                      << BB->getName() << "\n");
+    if (!DebugCounter::shouldExecute(CSECounter)) {
+      LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
+    } else {
+      // Replace all dominated uses with the known value.
+      if (unsigned Count = replaceDominatedUsesWith(Curr, TorF, DT,
+                                                    BasicBlockEdge(Pred, BB))) {
+        NumCSECVP += Count;
+        MadeChanges = true;
+      }
+    }
+
+    if (MatchBinOp(Curr, PropagateOpcode))
+      for (auto &Op : cast<BinaryOperator>(Curr)->operands())
+        if (Instruction *OPI = dyn_cast<Instruction>(Op))
+          if (SimpleValue::canHandle(OPI) && Visited.insert(OPI).second)
+            WorkList.push_back(OPI);
+  }
+
+  return MadeChanges;
+}
+
 bool EarlyCSE::processNode(DomTreeNode *Node) {
   bool Changed = false;
   BasicBlock *BB = Node->getBlock();
@@ -722,26 +785,8 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
     auto *BI = dyn_cast<BranchInst>(Pred->getTerminator());
     if (BI && BI->isConditional()) {
       auto *CondInst = dyn_cast<Instruction>(BI->getCondition());
-      if (CondInst && SimpleValue::canHandle(CondInst)) {
-        assert(BI->getSuccessor(0) == BB || BI->getSuccessor(1) == BB);
-        auto *TorF = (BI->getSuccessor(0) == BB)
-                         ? ConstantInt::getTrue(BB->getContext())
-                         : ConstantInt::getFalse(BB->getContext());
-        AvailableValues.insert(CondInst, TorF);
-        LLVM_DEBUG(dbgs() << "EarlyCSE CVP: Add conditional value for '"
-                          << CondInst->getName() << "' as " << *TorF << " in "
-                          << BB->getName() << "\n");
-        if (!DebugCounter::shouldExecute(CSECounter)) {
-          LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
-        } else {
-          // Replace all dominated uses with the known value.
-          if (unsigned Count = replaceDominatedUsesWith(
-                  CondInst, TorF, DT, BasicBlockEdge(Pred, BB))) {
-            Changed = true;
-            NumCSECVP += Count;
-          }
-        }
-      }
+      if (CondInst && SimpleValue::canHandle(CondInst))
+        Changed |= handleBranchCondition(CondInst, BI, BB, Pred);
     }
   }
 

@@ -11,21 +11,23 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/timer/mock_timer.h"
 #include "components/consent_auditor/consent_auditor.h"
+#include "components/consent_auditor/fake_consent_auditor.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/profile_management_switches.h"
+#include "components/unified_consent/feature.h"
+#include "components/unified_consent/scoped_unified_consent.h"
 #include "components/version_info/version_info.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/consent_auditor/consent_auditor_factory.h"
 #include "ios/chrome/browser/signin/account_tracker_service_factory.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/authentication_service_fake.h"
+#include "ios/chrome/browser/sync/consent_auditor_factory.h"
 #include "ios/chrome/browser/sync/ios_user_event_service_factory.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
-#import "ios/testing/wait_util.h"
 #include "ios/web/public/test/test_web_thread_bundle.h"
 #import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
@@ -80,58 +82,10 @@ const bool kUnifiedConsentParam[] = {
     false, true,
 };
 
-// Fake consent auditor used for the tests.
-class FakeConsentAuditor : public consent_auditor::ConsentAuditor {
- public:
-  static std::unique_ptr<KeyedService> CreateInstance(
-      web::BrowserState* context) {
-    ios::ChromeBrowserState* ios_context =
-        ios::ChromeBrowserState::FromBrowserState(context);
-    syncer::UserEventService* const user_event_service =
-        IOSUserEventServiceFactory::GetForBrowserState(ios_context);
-    return std::make_unique<FakeConsentAuditor>(
-        ios_context->GetPrefs(), user_event_service,
-        version_info::GetVersionNumber(),
-        GetApplicationContext()->GetApplicationLocale());
-  }
-
-  FakeConsentAuditor(PrefService* pref_service,
-                     syncer::UserEventService* user_event_service,
-                     const std::string& app_version,
-                     const std::string& app_locale)
-      : ConsentAuditor(pref_service,
-                       user_event_service,
-                       app_version,
-                       app_locale) {}
-  ~FakeConsentAuditor() override {}
-
-  void RecordGaiaConsent(const std::string& account_id,
-                         consent_auditor::Feature feature,
-                         const std::vector<int>& description_grd_ids,
-                         int confirmation_string_id,
-                         consent_auditor::ConsentStatus status) override {
-    account_id_ = account_id;
-    feature_ = feature;
-    recorded_ids_ = description_grd_ids;
-    confirmation_string_id_ = confirmation_string_id;
-    status_ = status;
-  }
-
-  const std::string& account_id() const { return account_id_; }
-  consent_auditor::Feature feature() const { return feature_; }
-  const std::vector<int>& recorded_ids() const { return recorded_ids_; }
-  int confirmation_string_id() const { return confirmation_string_id_; }
-  consent_auditor::ConsentStatus status() const { return status_; }
-
- private:
-  std::string account_id_;
-  consent_auditor::Feature feature_;
-  std::vector<int> recorded_ids_;
-  int confirmation_string_id_ = -1;
-  consent_auditor::ConsentStatus status_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeConsentAuditor);
-};
+static std::unique_ptr<KeyedService> CreateFakeConsentAuditor(
+    web::BrowserState* context) {
+  return std::make_unique<consent_auditor::FakeConsentAuditor>();
+}
 
 // These tests verify that Chrome correctly records user's consent to Chrome
 // Sync, which is a GDPR requirement. None of those tests should be turned off.
@@ -142,15 +96,17 @@ class FakeConsentAuditor : public consent_auditor::ConsentAuditor {
 class ChromeSigninViewControllerTest
     : public PlatformTest,
       public ::testing::WithParamInterface<bool> {
+ public:
+  ChromeSigninViewControllerTest()
+      : unified_consent_enabled_(GetParam()),
+        scoped_unified_consent_(
+            unified_consent_enabled_
+                ? unified_consent::UnifiedConsentFeatureState::kEnabledNoBump
+                : unified_consent::UnifiedConsentFeatureState::kDisabled) {}
+
  protected:
   void SetUp() override {
     PlatformTest::SetUp();
-    if (GetParam()) {
-      unified_consent_enabled_ = true;
-      scoped_feature_list_.InitAndEnableFeature(signin::kUnifiedConsent);
-    } else {
-      unified_consent_enabled_ = false;
-    }
     identity_ = [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
                                                gaiaID:@"foo1ID"
                                                  name:@"Fake Foo 1"];
@@ -159,16 +115,19 @@ class ChromeSigninViewControllerTest
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
         AuthenticationServiceFake::CreateAuthenticationService);
+
     builder.AddTestingFactory(ConsentAuditorFactory::GetInstance(),
-                              FakeConsentAuditor::CreateInstance);
+                              &CreateFakeConsentAuditor);
     context_ = builder.Build();
     ios::FakeChromeIdentityService* identity_service =
         ios::FakeChromeIdentityService::GetInstanceFromChromeProvider();
     identity_service->AddIdentity(identity_);
     account_tracker_service_ =
         ios::AccountTrackerServiceFactory::GetForBrowserState(context_.get());
-    fake_consent_auditor_ = static_cast<FakeConsentAuditor*>(
+
+    fake_consent_auditor_ = static_cast<consent_auditor::FakeConsentAuditor*>(
         ConsentAuditorFactory::GetForBrowserState(context_.get()));
+
     // Setup view controller.
     vc_ = [[ChromeSigninViewController alloc]
         initWithBrowserState:context_.get()
@@ -179,12 +138,10 @@ class ChromeSigninViewControllerTest
                   dispatcher:nil];
     vc_delegate_ = [[FakeChromeSigninViewControllerDelegate alloc] init];
     vc_.delegate = vc_delegate_;
-    __block base::MockTimer* mock_timer_ptr = nullptr;
+    __block base::MockOneShotTimer* mock_timer_ptr = nullptr;
     if (!unified_consent_enabled_) {
-      vc_.timerGenerator = ^std::unique_ptr<base::Timer>(bool retain_user_task,
-                                                         bool is_repeating) {
-        auto mock_timer =
-            std::make_unique<base::MockTimer>(retain_user_task, is_repeating);
+      vc_.timerGenerator = ^std::unique_ptr<base::OneShotTimer>() {
+        auto mock_timer = std::make_unique<base::MockOneShotTimer>();
         mock_timer_ptr = mock_timer.get();
         return mock_timer;
       };
@@ -351,7 +308,7 @@ class ChromeSigninViewControllerTest
   // Scrolls to the bottom if needed and returns once the primary button is
   // found with the confirmation title (based on ConfirmationStringId()).
   // The scroll is done without animation. Otherwise, the scroll view doesn't
-  // scroll correctly inside testing::WaitUntilConditionOrTimeout().
+  // scroll correctly inside base::test::ios::WaitUntilConditionOrTimeout().
   void ScrollConsentViewToBottom() {
     ConditionBlock condition = ^bool() {
       if (IsPrimaryButtonVisibleWithTitle(
@@ -365,7 +322,8 @@ class ChromeSigninViewControllerTest
       }
       return IsPrimaryButtonVisibleWithTitle(ConfirmationStringId());
     };
-    bool condition_met = testing::WaitUntilConditionOrTimeout(10, condition);
+    bool condition_met =
+        base::test::ios::WaitUntilConditionOrTimeout(10, condition);
     EXPECT_TRUE(condition_met);
   }
 
@@ -389,7 +347,8 @@ class ChromeSigninViewControllerTest
           }];
       return [found_strings isEqual:expected_strings];
     };
-    bool condition_met = testing::WaitUntilConditionOrTimeout(10, condition);
+    bool condition_met =
+        base::test::ios::WaitUntilConditionOrTimeout(10, condition);
     NSString* failureExplaination = [NSString
         stringWithFormat:@"Strings not found: %@, Strings not expected: %@",
                          not_found_strings, not_expected_strings];
@@ -397,15 +356,15 @@ class ChromeSigninViewControllerTest
   }
 
   bool unified_consent_enabled_;
+  unified_consent::ScopedUnifiedConsent scoped_unified_consent_;
   web::TestWebThreadBundle thread_bundle_;
   std::unique_ptr<TestChromeBrowserState> context_;
   FakeChromeIdentity* identity_;
   UIWindow* window_;
   ChromeSigninViewController* vc_;
-  FakeConsentAuditor* fake_consent_auditor_;
+  consent_auditor::FakeConsentAuditor* fake_consent_auditor_;
   AccountTrackerService* account_tracker_service_;
-  base::test::ScopedFeatureList scoped_feature_list_;
-  base::MockTimer* mock_timer_ptr_ = nullptr;
+  base::MockOneShotTimer* mock_timer_ptr_ = nullptr;
   FakeChromeSigninViewControllerDelegate* vc_delegate_;
 };
 
@@ -429,15 +388,16 @@ TEST_P(ChromeSigninViewControllerTest, TestConsentWithOKGOTIT) {
   ConditionBlock condition = ^bool() {
     return this->vc_delegate_.didSigninCalled;
   };
-  EXPECT_TRUE(testing::WaitUntilConditionOrTimeout(10, condition));
-  const std::vector<int>& recorded_ids = fake_consent_auditor_->recorded_ids();
+  EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(10, condition));
+  const std::vector<int>& recorded_ids =
+      fake_consent_auditor_->recorded_id_vectors().at(0);
   EXPECT_EQ(ExpectedConsentStringIds(), recorded_ids);
   EXPECT_EQ(ConfirmationStringId(),
-            fake_consent_auditor_->confirmation_string_id());
+            fake_consent_auditor_->recorded_confirmation_ids().at(0));
   EXPECT_EQ(consent_auditor::ConsentStatus::GIVEN,
-            fake_consent_auditor_->status());
+            fake_consent_auditor_->recorded_statuses().at(0));
   EXPECT_EQ(consent_auditor::Feature::CHROME_SYNC,
-            fake_consent_auditor_->feature());
+            fake_consent_auditor_->recorded_features().at(0));
   EXPECT_EQ(account_tracker_service_->PickAccountIdForAccount(
                 base::SysNSStringToUTF8([identity_ gaiaID]),
                 base::SysNSStringToUTF8([identity_ userEmail])),
@@ -448,9 +408,8 @@ TEST_P(ChromeSigninViewControllerTest, TestConsentWithOKGOTIT) {
 TEST_P(ChromeSigninViewControllerTest, TestRefusingConsent) {
   WaitAndExpectAllStringsOnScreen();
   [vc_.secondaryButton sendActionsForControlEvents:UIControlEventTouchUpInside];
-  const std::vector<int>& recorded_ids = fake_consent_auditor_->recorded_ids();
-  EXPECT_EQ(0ul, recorded_ids.size());
-  EXPECT_EQ(-1, fake_consent_auditor_->confirmation_string_id());
+  EXPECT_EQ(0ul, fake_consent_auditor_->recorded_id_vectors().size());
+  EXPECT_EQ(0ul, fake_consent_auditor_->recorded_confirmation_ids().size());
 }
 
 // Tests that RecordGaiaConsent() is called with the expected list of string
@@ -458,14 +417,15 @@ TEST_P(ChromeSigninViewControllerTest, TestRefusingConsent) {
 TEST_P(ChromeSigninViewControllerTest, TestConsentWithSettings) {
   WaitAndExpectAllStringsOnScreen();
   [vc_ signinConfirmationControllerDidTapSettingsLink:vc_.confirmationVC];
-  const std::vector<int>& recorded_ids = fake_consent_auditor_->recorded_ids();
+  const std::vector<int>& recorded_ids =
+      fake_consent_auditor_->recorded_id_vectors().at(0);
   EXPECT_EQ(ExpectedConsentStringIds(), recorded_ids);
   EXPECT_EQ(SettingsConfirmationStringId(),
-            fake_consent_auditor_->confirmation_string_id());
+            fake_consent_auditor_->recorded_confirmation_ids().at(0));
   EXPECT_EQ(consent_auditor::ConsentStatus::GIVEN,
-            fake_consent_auditor_->status());
+            fake_consent_auditor_->recorded_statuses().at(0));
   EXPECT_EQ(consent_auditor::Feature::CHROME_SYNC,
-            fake_consent_auditor_->feature());
+            fake_consent_auditor_->recorded_features().at(0));
   EXPECT_EQ(account_tracker_service_->PickAccountIdForAccount(
                 base::SysNSStringToUTF8([identity_ gaiaID]),
                 base::SysNSStringToUTF8([identity_ userEmail])),

@@ -181,8 +181,7 @@ class VisitedLinkTest : public testing::Test {
   // May be called multiple times (some tests will do this to clear things,
   // and TearDown will do this to make sure eveything is shiny before quitting.
   void ClearDB() {
-    if (master_.get())
-      master_.reset(nullptr);
+    master_.reset(nullptr);
 
     // Wait for all pending file I/O to be completed.
     content::RunAllTasksUntilIdle();
@@ -668,7 +667,7 @@ class VisitedLinkEventsTest : public content::RenderViewHostTestHarness {
 
  protected:
   void CreateVisitedLinkMaster(content::BrowserContext* browser_context) {
-    timer_.reset(new base::MockTimer(false, false));
+    timer_.reset(new base::MockOneShotTimer());
     master_.reset(new VisitedLinkMaster(browser_context, &delegate_, true));
     static_cast<VisitedLinkEventListener*>(master_->GetListener())
         ->SetCoalesceTimerForTest(timer_.get());
@@ -678,7 +677,7 @@ class VisitedLinkEventsTest : public content::RenderViewHostTestHarness {
   VisitedLinkRenderProcessHostFactory vc_rph_factory_;
 
   TestVisitedLinkDelegate delegate_;
-  std::unique_ptr<base::MockTimer> timer_;
+  std::unique_ptr<base::MockOneShotTimer> timer_;
   std::unique_ptr<VisitedLinkMaster> master_;
 };
 

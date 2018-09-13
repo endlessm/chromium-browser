@@ -68,7 +68,8 @@ void TextInput::SetTextInputDelegate(TextInputDelegate* text_input_delegate) {
   delegate_ = text_input_delegate;
 }
 
-void TextInput::OnButtonDown(const gfx::PointF& position) {
+void TextInput::OnButtonDown(const gfx::PointF& position,
+                             base::TimeTicks timestamp) {
   // Reposition the cursor based on click position.
   int cursor_position = text_element_->GetCursorPositionFromPoint(position);
 
@@ -79,11 +80,33 @@ void TextInput::OnButtonDown(const gfx::PointF& position) {
     EditedText new_edited_text(edited_text_);
     new_edited_text.Update(new_info);
     UpdateInput(new_edited_text);
-    ResetCursorBlinkCycle();
   }
 }
 
-void TextInput::OnButtonUp(const gfx::PointF& position) {
+void TextInput::OnTouchMove(const gfx::PointF& position,
+                            base::TimeTicks timestamp) {
+  int cursor_position = text_element_->GetCursorPositionFromPoint(position);
+
+  TextInputInfo new_info(edited_text_.current);
+  new_info.selection_end = cursor_position;
+  if (new_info != edited_text_.current) {
+    EditedText new_edited_text(edited_text_);
+    new_edited_text.Update(new_info);
+    UpdateInput(new_edited_text);
+  }
+}
+
+void TextInput::OnButtonUp(const gfx::PointF& position,
+                           base::TimeTicks timestamp) {
+  if (edited_text_.current.selection_start >
+      edited_text_.current.selection_end) {
+    TextInputInfo new_info(edited_text_.current);
+    std::swap(new_info.selection_start, new_info.selection_end);
+    EditedText new_edited_text(edited_text_);
+    new_edited_text.Update(new_info);
+    UpdateInput(new_edited_text);
+  }
+  ResetCursorBlinkCycle();
   RequestFocus();
 }
 

@@ -52,7 +52,7 @@ METRIC_CLOBBER = 'chromeos/chromite/cbuildbot_launch/clobber'
 METRIC_BRANCH_CLEANUP = 'chromeos/chromite/cbuildbot_launch/branch_cleanup'
 METRIC_DISTFILES_CLEANUP = (
     'chromeos/chromite/cbuildbot_launch/distfiles_cleanup')
-METRIC_DEPOT_TOOLS = 'chromeos/chromite/cbuildbot_launch/depot_tools_prep'
+METRIC_CHROOT_CLEANUP = 'chromeos/chromite/cbuildbot_launch/chroot_cleanup'
 
 # Builder state
 BUILDER_STATE_FILENAME = '.cbuildbot_build_state.json'
@@ -210,9 +210,9 @@ def _MaybeCleanDistfiles(repo, distfiles_ts, metrics_fields):
   Returns:
     The new distfiles_ts to persist in state.
   """
-
+  # distfiles_ts can be None for a fresh environment, which means clean.
   if distfiles_ts is None:
-    return None
+    return time.time()
 
   distfiles_age = (time.time() - distfiles_ts) / 3600.0
   if distfiles_age < _DISTFILES_CACHE_EXPIRY_HOURS:
@@ -224,8 +224,9 @@ def _MaybeCleanDistfiles(repo, distfiles_ts, metrics_fields):
                 ignore_missing=True, sudo=True)
   metrics.Counter(METRIC_DISTFILES_CLEANUP).increment(
       field(metrics_fields, reason='cache_expired'))
+
   # Cleaned cache, so reset distfiles_ts
-  return None
+  return time.time()
 
 
 @StageDecorator
@@ -254,7 +255,7 @@ def CleanBuildRoot(root, repo, metrics_fields, build_state):
         field(metrics_fields, reason='layout_change'))
     chroot_dir = os.path.join(root, constants.DEFAULT_CHROOT_DIR)
     if os.path.exists(chroot_dir) or os.path.exists(chroot_dir + '.img'):
-      cros_sdk_lib.CleanupChrootMount(chroot_dir, delete_image=True)
+      cros_sdk_lib.CleanupChrootMount(chroot_dir, delete=True)
     osutils.RmDir(root, ignore_missing=True, sudo=True)
   else:
     if previous_state.branch != repo.branch:
@@ -267,8 +268,7 @@ def CleanBuildRoot(root, repo, metrics_fields, build_state):
       logging.info('Remove Chroot.')
       chroot_dir = os.path.join(repo.directory, constants.DEFAULT_CHROOT_DIR)
       if os.path.exists(chroot_dir) or os.path.exists(chroot_dir + '.img'):
-        cros_sdk_lib.CleanupChrootMount(chroot_dir, delete_image=True)
-      osutils.RmDir(chroot_dir, ignore_missing=True, sudo=True)
+        cros_sdk_lib.CleanupChrootMount(chroot_dir, delete=True)
 
       logging.info('Remove Chrome checkout.')
       osutils.RmDir(os.path.join(repo.directory, '.cache', 'distfiles'),
@@ -276,6 +276,9 @@ def CleanBuildRoot(root, repo, metrics_fields, build_state):
 
     try:
       # If there is any failure doing the cleanup, wipe everything.
+      # The previous run might have been killed in the middle leaving stale git
+      # locks. Clean those up, first.
+      repo.CleanStaleLocks()
       repo.BuildRootGitCleanup(prune_all=True)
     except Exception:
       logging.info('Checkout cleanup failed, wiping buildroot:', exc_info=True)
@@ -285,8 +288,6 @@ def CleanBuildRoot(root, repo, metrics_fields, build_state):
 
   # Ensure buildroot exists. Save the state we are prepped for.
   osutils.SafeMakedirs(repo.directory)
-  if not build_state.distfiles_ts:
-    build_state.distfiles_ts = time.time()
   SetLastBuildState(root, build_state)
 
 
@@ -310,29 +311,6 @@ def InitialCheckout(repo):
   logging.info('Bootstrap script starting initial sync on branch: %s',
                repo.branch)
   repo.Sync(detach=True)
-
-
-@StageDecorator
-def DepotToolsEnsureBootstrap(depot_tools_path):
-  """Start cbuildbot in specified directory with all arguments.
-
-  Args:
-    buildroot: Directory to be passed to cbuildbot with --buildroot.
-    depot_tools_path: Directory for depot_tools to be used by cbuildbot.
-    argv: Command line options passed to cbuildbot_launch.
-
-  Returns:
-    Return code of cbuildbot as an integer.
-  """
-  ensure_bootstrap_script = os.path.join(depot_tools_path, 'ensure_bootstrap')
-  if os.path.exists(ensure_bootstrap_script):
-    extra_env = {'PATH': PrependPath(depot_tools_path)}
-    cros_build_lib.RunCommand(
-        [ensure_bootstrap_script], extra_env=extra_env, cwd=depot_tools_path)
-  else:
-    # This is normal when checking out branches older than this script.
-    logging.warn('ensure_bootstrap not found, skipping: %s',
-                 ensure_bootstrap_script)
 
 
 def ShouldFixBotoCerts(options):
@@ -410,7 +388,7 @@ def CleanupChroot(buildroot):
   chroot_dir = os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR)
   logging.info('Cleaning up chroot at %s', chroot_dir)
   if os.path.exists(chroot_dir) or os.path.exists(chroot_dir + '.img'):
-    cros_sdk_lib.CleanupChrootMount(chroot_dir, delete_image=False)
+    cros_sdk_lib.CleanupChrootMount(chroot_dir, delete=False)
 
 
 def ConfigureGlobalEnvironment():
@@ -445,6 +423,7 @@ def _main(argv):
   branchname = options.branch or 'master'
   root = options.buildroot
   buildroot = os.path.join(root, 'repository')
+  workspace = os.path.join(root, 'workspace')
   depot_tools_path = os.path.join(buildroot, constants.DEPOT_TOOLS_SUBPATH)
 
   metrics_fields = {
@@ -482,15 +461,12 @@ def _main(argv):
         with metrics.SecondsTimer(METRIC_INITIAL, fields=metrics_fields):
           InitialCheckout(repo)
 
-      # Get a checkout close enough to the branch that cbuildbot can handle it.
-      with metrics.SecondsTimer(METRIC_DEPOT_TOOLS, fields=metrics_fields):
-        DepotToolsEnsureBootstrap(depot_tools_path)
-
     # Run cbuildbot inside the full ChromeOS checkout, on the specified branch.
     with metrics.SecondsTimer(METRIC_CBUILDBOT, fields=metrics_fields):
       if previous_build_state.is_valid():
         argv.append('--previous-build-state')
         argv.append(base64.b64encode(previous_build_state.to_json()))
+      argv.extend(['--workspace', workspace])
 
       result = Cbuildbot(buildroot, depot_tools_path, argv)
       s_fields['success'] = (result == 0)
@@ -500,7 +476,9 @@ def _main(argv):
           if result == 0 else constants.BUILDER_STATUS_FAILED)
       SetLastBuildState(root, build_state)
 
-      CleanupChroot(buildroot)
+      with metrics.SecondsTimer(METRIC_CHROOT_CLEANUP, fields=metrics_fields):
+        CleanupChroot(buildroot)
+
       return result
 
 

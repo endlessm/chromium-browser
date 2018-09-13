@@ -16,6 +16,7 @@
 #include "base/scoped_observer.h"
 #include "build/build_config.h"
 #include "components/omnibox/browser/omnibox_view.h"
+#include "components/search_engines/template_url_service_observer.h"
 #include "components/security_state/core/security_state.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/compositor/compositor.h"
@@ -52,7 +53,8 @@ class OmniboxViewViews : public OmniboxView,
                              CandidateWindowObserver,
 #endif
                          public views::TextfieldController,
-                         public ui::CompositorObserver {
+                         public ui::CompositorObserver,
+                         public TemplateURLServiceObserver {
  public:
   // The internal view class name.
   static const char kViewClassName[];
@@ -83,6 +85,11 @@ class OmniboxViewViews : public OmniboxView,
 
   // Called to clear the saved state for |web_contents|.
   void ResetTabState(content::WebContents* web_contents);
+
+  // Installs the placeholder text with the name of the current default search
+  // provider. For example, if Google is the default search provider, this shows
+  // "Search Google or type a URL" when the Omnibox is empty and unfocused.
+  void InstallPlaceholderText();
 
   // OmniboxView:
   void EmphasizeURLComponents() override;
@@ -115,6 +122,9 @@ class OmniboxViewViews : public OmniboxView,
     return popup_view_.get();
   }
 
+  // views::Textfield:
+  bool IsDropCursorForInsertion() const override;
+
  private:
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, CloseOmniboxPopupOnTextDrag);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, FriendlyAccessibleLabel);
@@ -122,6 +132,8 @@ class OmniboxViewViews : public OmniboxView,
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, MaintainCursorAfterFocusCycle);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, OnBlur);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest, DoNotNavigateOnDrop);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsTest,
+                           MouseMoveAndExitSetsHoveredState);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsSteadyStateElisionsTest,
                            FirstMouseClickFocusesOnly);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsSteadyStateElisionsTest,
@@ -198,7 +210,7 @@ class OmniboxViewViews : public OmniboxView,
   gfx::NativeView GetRelativeWindowForPopup() const override;
   int GetWidth() const override;
   bool IsImeShowingPopup() const override;
-  void ShowImeIfNeeded() override;
+  void ShowVirtualKeyboardIfEnabled() override;
   void HideImeIfNeeded() override;
   int GetOmniboxTextLength() const override;
   void SetEmphasis(bool emphasize, const gfx::Range& range) override;
@@ -223,6 +235,7 @@ class OmniboxViewViews : public OmniboxView,
   void DoInsertChar(base::char16 ch) override;
   bool IsTextEditCommandEnabled(ui::TextEditCommand command) const override;
   void ExecuteTextEditCommand(ui::TextEditCommand command) override;
+  bool ShouldShowPlaceholderText() const override;
 
   // chromeos::input_method::InputMethodManager::CandidateWindowObserver:
 #if defined(OS_CHROMEOS)
@@ -256,6 +269,9 @@ class OmniboxViewViews : public OmniboxView,
   void OnCompositingLockStateChanged(ui::Compositor* compositor) override;
   void OnCompositingChildResizing(ui::Compositor* compositor) override;
   void OnCompositingShuttingDown(ui::Compositor* compositor) override;
+
+  // TemplateURLServiceObserver:
+  void OnTemplateURLServiceChanged() override;
 
   // When true, the location bar view is read only and also is has a slightly
   // different presentation (smaller font size). This is used for popups.
@@ -323,7 +339,10 @@ class OmniboxViewViews : public OmniboxView,
   // this is set to 7 (the length of "Google ").
   int friendly_suggestion_text_prefix_length_;
 
-  ScopedObserver<ui::Compositor, ui::CompositorObserver> scoped_observer_;
+  ScopedObserver<ui::Compositor, ui::CompositorObserver>
+      scoped_compositor_observer_;
+  ScopedObserver<TemplateURLService, TemplateURLServiceObserver>
+      scoped_template_url_service_observer_;
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxViewViews);
 };

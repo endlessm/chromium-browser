@@ -58,7 +58,7 @@ private:
 public:
   void addNodeToList(MachineInstr *N);
   void removeNodeFromList(MachineInstr *N);
-  void transferNodesFromList(ilist_traits &OldList, instr_iterator First,
+  void transferNodesFromList(ilist_traits &FromList, instr_iterator First,
                              instr_iterator Last);
   void deleteNode(MachineInstr *MI);
 };
@@ -114,6 +114,11 @@ private:
   /// Indicate that this basic block is potentially the target of an indirect
   /// branch.
   bool AddressTaken = false;
+
+  /// Indicate that this basic block is the entry block of an EH scope, i.e.,
+  /// the block that used to have a catchpad or cleanuppad instruction in the
+  /// LLVM IR.
+  bool IsEHScopeEntry = false;
 
   /// Indicate that this basic block is the entry block of an EH funclet.
   bool IsEHFuncletEntry = false;
@@ -375,6 +380,14 @@ public:
 
   bool hasEHPadSuccessor() const;
 
+  /// Returns true if this is the entry block of an EH scope, i.e., the block
+  /// that used to have a catchpad or cleanuppad instruction in the LLVM IR.
+  bool isEHScopeEntry() const { return IsEHScopeEntry; }
+
+  /// Indicates if this is the entry block of an EH scope, i.e., the block that
+  /// that used to have a catchpad or cleanuppad instruction in the LLVM IR.
+  void setIsEHScopeEntry(bool V = true) { IsEHScopeEntry = V; }
+
   /// Returns true if this is the entry block of an EH funclet.
   bool isEHFuncletEntry() const { return IsEHFuncletEntry; }
 
@@ -463,6 +476,11 @@ public:
   /// This is useful when doing a partial clone of successors. Afterward, the
   /// probabilities may need to be normalized.
   void copySuccessor(MachineBasicBlock *Orig, succ_iterator I);
+
+  /// Split the old successor into old plus new and updates the probability
+  /// info.
+  void splitSuccessor(MachineBasicBlock *Old, MachineBasicBlock *New,
+                      bool NormalizeSuccProbs = false);
 
   /// Transfers all the successors from MBB to this machine basic block (i.e.,
   /// copies all the successors FromMBB and remove all the successors from

@@ -10,6 +10,7 @@
 #include "ash/shell.h"
 #include "ash/wm/overview/overview_utils.h"
 #include "ash/wm/overview/scoped_transform_overview_window.h"
+#include "ash/wm/overview/window_grid.h"
 #include "ash/wm/overview/window_selector.h"
 #include "ash/wm/overview/window_selector_item.h"
 #include "ash/wm/splitview/split_view_constants.h"
@@ -31,8 +32,20 @@ constexpr float kDragWindowScale = 0.04f;
 // vertically for it to be closed on release.
 constexpr float kDragToCloseDistanceThresholdDp = 160.f;
 
+// The minimum distance that will be considered as a drag event.
+constexpr int kMinimumDragDistanceDp = 5;
+// Items dragged to within |kDistanceFromEdgeDp| of the screen will get snapped
+// even if they have not moved by |kMinimumDragDistanceDp|.
+constexpr int kDistanceFromEdgeDp = 16;
+// The minimum distance that an item must be moved before it is snapped. This
+// prevents accidental snaps.
+constexpr int kMinimumDragToSnapDistanceDp = 96;
+// The minimum distance that an item must be moved before it is considered a
+// drag event, if the drag starts in one of the snap regions.
+constexpr int kMinimumDragDistanceAlreadyInSnapRegionDp = 48;
+
 // Flings with less velocity than this will not close the dragged item.
-constexpr float kFlingToCloseVelocityThreshold = 3000.f;
+constexpr float kFlingToCloseVelocityThreshold = 2000.f;
 constexpr float kItemMinOpacity = 0.4f;
 
 }  // namespace
@@ -59,9 +72,9 @@ void OverviewWindowDragController::Drag(const gfx::Point& location_in_screen) {
   if (!did_move_) {
     gfx::Vector2d distance = location_in_screen - previous_event_location_;
     // Do not start dragging if the distance from |location_in_screen| to
-    // |previous_event_location_| is not greater than |kMinimumDragOffset|.
-    if (std::abs(distance.x()) < kMinimumDragOffset &&
-        std::abs(distance.y()) < kMinimumDragOffset) {
+    // |previous_event_location_| is not greater than |kMinimumDragDistanceDp|.
+    if (std::abs(distance.x()) < kMinimumDragDistanceDp &&
+        std::abs(distance.y()) < kMinimumDragDistanceDp) {
       return;
     }
 
@@ -69,6 +82,8 @@ void OverviewWindowDragController::Drag(const gfx::Point& location_in_screen) {
         std::abs(distance.x()) < std::abs(distance.y())) {
       current_drag_behavior_ = DragBehavior::kDragToClose;
       original_opacity_ = item_->GetOpacity();
+      window_selector_->GetGridWithRootWindow(item_->root_window())
+          ->StartNudge(item_);
       did_move_ = true;
     } else {
       StartSplitViewDragMode(location_in_screen);
@@ -83,6 +98,8 @@ void OverviewWindowDragController::Drag(const gfx::Point& location_in_screen) {
     float val = std::abs(static_cast<float>(location_in_screen.y()) -
                          initial_event_location_.y()) /
                 kDragToCloseDistanceThresholdDp;
+    window_selector_->GetGridWithRootWindow(item_->root_window())
+        ->UpdateNudge(item_, val);
     val = base::ClampToRange(val, 0.f, 1.f);
     float opacity = original_opacity_;
     if (opacity > kItemMinOpacity) {
@@ -118,6 +135,7 @@ void OverviewWindowDragController::CompleteDrag(
     // If we are in drag to close mode close the window if it has been dragged
     // enough, otherwise reposition it and set its opacity back to its original
     // value.
+    window_selector_->GetGridWithRootWindow(item_->root_window())->EndNudge();
     if (std::abs((location_in_screen - initial_event_location_).y()) >
         kDragToCloseDistanceThresholdDp) {
       item_->AnimateAndCloseWindow(
@@ -168,6 +186,9 @@ void OverviewWindowDragController::Fling(const gfx::Point& location_in_screen,
     if (std::abs(velocity_y) > kFlingToCloseVelocityThreshold) {
       item_->AnimateAndCloseWindow(
           (location_in_screen - initial_event_location_).y() < 0);
+      did_move_ = false;
+      item_ = nullptr;
+      current_drag_behavior_ = DragBehavior::kNoDrag;
       return;
     }
   }
@@ -272,10 +293,43 @@ void OverviewWindowDragController::UpdateDragIndicatorsAndWindowGrid(
 
 bool OverviewWindowDragController::ShouldUpdateDragIndicatorsOrSnap(
     const gfx::Point& event_location) {
-  if (!started_in_snap_region_)
-    return true;
-
   auto snap_position = GetSnapPosition(event_location);
+  const bool inverted =
+      !split_view_controller_->IsCurrentScreenOrientationPrimary();
+  // Note: in some orientations SplitViewController::LEFT is not physically on
+  // the left/top.
+  const bool on_the_left_or_top =
+      (!inverted && snap_position == SplitViewController::LEFT) ||
+      (inverted && snap_position == SplitViewController::RIGHT);
+
+  // Snap the window if it is less than |kDistanceFromEdgeDp| from the edge.
+  const bool landscape =
+      split_view_controller_->IsCurrentScreenOrientationLandscape();
+  gfx::Rect area(
+      screen_util::GetDisplayWorkAreaBoundsInParent(item_->GetWindow()));
+  ::wm::ConvertRectToScreen(item_->GetWindow()->GetRootWindow(), &area);
+  area.Inset(kDistanceFromEdgeDp, kDistanceFromEdgeDp);
+  if ((landscape &&
+       (event_location.x() < area.x() || event_location.x() > area.right())) ||
+      (!landscape &&
+       (event_location.y() < area.y() || event_location.y() > area.bottom()))) {
+    return true;
+  }
+
+  // The drag indicators can update or the item can snap even if the drag events
+  // are in the snap region, if the event has travelled past the threshold in
+  // the direction of the attempted snap region.
+  const gfx::Vector2d distance = event_location - initial_event_location_;
+  // Check the x-axis distance for landscape, y-axis distance for portrait.
+  const int distance_scalar = landscape ? distance.x() : distance.y();
+
+  // If not started in a snap region, snap if the item has been dragged
+  // |kMinimumDragDistanceDp|. This prevents accidental snaps.
+  if (!started_in_snap_region_ &&
+      std::abs(distance_scalar) > kMinimumDragToSnapDistanceDp) {
+    return true;
+  }
+
   if (snap_position == SplitViewController::NONE) {
     // If the event started in a snap region, but has since moved out set
     // |started_in_snap_region_| to false. |event_location| is guarenteed to not
@@ -285,31 +339,15 @@ bool OverviewWindowDragController::ShouldUpdateDragIndicatorsOrSnap(
     return true;
   }
 
-  // The drag indicators can update or the item can snap even if the drag events
-  // are in the snap region, if the event has travelled past the threshold in
-  // the direction of the attempted snap region.
-  const gfx::Vector2d distance = event_location - initial_event_location_;
-  // Check the x-axis distance for landscape, y-axis distance for portrait.
-  int distance_scalar =
-      split_view_controller_->IsCurrentScreenOrientationLandscape()
-          ? distance.x()
-          : distance.y();
-
   // If the snap region is physically on the left/top side of the device, check
-  // that |distance_scalar| is less than -|threshold|. If the snap region is
+  // that |distance_scalar| is less than
+  // -|kMinimumDragDistanceAlreadyInSnapRegionDp|. If the snap region is
   // physically on the right/bottom side of the device, check that
-  // |distance_scalar| is greater than |threshold|. Note: in some orientations
-  // SplitViewController::LEFT is not physically on the left/top.
-  const int threshold =
-      OverviewWindowDragController::kMinimumDragOffsetAlreadyInSnapRegionDp;
-  const bool inverted =
-      !split_view_controller_->IsCurrentScreenOrientationPrimary();
-  const bool on_the_left_or_top =
-      (!inverted && snap_position == SplitViewController::LEFT) ||
-      (inverted && snap_position == SplitViewController::RIGHT);
-
-  return on_the_left_or_top ? distance_scalar <= -threshold
-                            : distance_scalar >= threshold;
+  // |distance_scalar| is greater than
+  // |kMinimumDragDistanceAlreadyInSnapRegionDp|.
+  return on_the_left_or_top
+             ? distance_scalar <= -kMinimumDragDistanceAlreadyInSnapRegionDp
+             : distance_scalar >= kMinimumDragDistanceAlreadyInSnapRegionDp;
 }
 
 SplitViewController::SnapPosition OverviewWindowDragController::GetSnapPosition(

@@ -17,6 +17,7 @@
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "SIMachineFunctionInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
@@ -55,7 +56,7 @@ static cl::opt<bool> EnableSpillSGPRToVGPR(
   cl::ReallyHidden,
   cl::init(true));
 
-SIRegisterInfo::SIRegisterInfo(const SISubtarget &ST) :
+SIRegisterInfo::SIRegisterInfo(const GCNSubtarget &ST) :
   AMDGPURegisterInfo(),
   SGPRPressureSets(getNumRegPressureSets()),
   VGPRPressureSets(getNumRegPressureSets()),
@@ -105,7 +106,7 @@ SIRegisterInfo::SIRegisterInfo(const SISubtarget &ST) :
 unsigned SIRegisterInfo::reservedPrivateSegmentBufferReg(
   const MachineFunction &MF) const {
 
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   unsigned BaseIdx = alignDown(ST.getMaxNumSGPRs(MF), 4) - 4;
   unsigned BaseReg(AMDGPU::SGPR_32RegClass.getRegister(BaseIdx));
   return getMatchingSuperReg(BaseReg, AMDGPU::sub0, &AMDGPU::SReg_128RegClass);
@@ -130,7 +131,7 @@ static unsigned findPrivateSegmentWaveByteOffsetRegIndex(unsigned RegCount) {
 
 unsigned SIRegisterInfo::reservedPrivateSegmentWaveByteOffsetReg(
   const MachineFunction &MF) const {
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   unsigned Reg = findPrivateSegmentWaveByteOffsetRegIndex(ST.getMaxNumSGPRs(MF));
   return AMDGPU::SGPR_32RegClass.getRegister(Reg);
 }
@@ -172,7 +173,7 @@ BitVector SIRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   reserveRegisterTuples(Reserved, AMDGPU::TTMP12_TTMP13);
   reserveRegisterTuples(Reserved, AMDGPU::TTMP14_TTMP15);
 
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
 
   unsigned MaxNumSGPRs = ST.getMaxNumSGPRs(MF);
   unsigned TotalNumSGPRs = AMDGPU::SGPR_32RegClass.getNumRegs();
@@ -252,7 +253,7 @@ bool SIRegisterInfo::requiresFrameIndexReplacementScavenging(
   // create a virtual register for it during frame index elimination, so the
   // scavenger is directly needed.
   return MF.getFrameInfo().hasStackObjects() &&
-         MF.getSubtarget<SISubtarget>().hasScalarStores() &&
+         MF.getSubtarget<GCNSubtarget>().hasScalarStores() &&
          MF.getInfo<SIMachineFunctionInfo>()->hasSpilledSGPRs();
 }
 
@@ -307,7 +308,7 @@ void SIRegisterInfo::materializeFrameBaseRegister(MachineBasicBlock *MBB,
     DL = Ins->getDebugLoc();
 
   MachineFunction *MF = MBB->getParent();
-  const SISubtarget &Subtarget = MF->getSubtarget<SISubtarget>();
+  const GCNSubtarget &Subtarget = MF->getSubtarget<GCNSubtarget>();
   const SIInstrInfo *TII = Subtarget.getInstrInfo();
 
   if (Offset == 0) {
@@ -336,7 +337,7 @@ void SIRegisterInfo::resolveFrameIndex(MachineInstr &MI, unsigned BaseReg,
 
   MachineBasicBlock *MBB = MI.getParent();
   MachineFunction *MF = MBB->getParent();
-  const SISubtarget &Subtarget = MF->getSubtarget<SISubtarget>();
+  const GCNSubtarget &Subtarget = MF->getSubtarget<GCNSubtarget>();
   const SIInstrInfo *TII = Subtarget.getInstrInfo();
 
 #ifndef NDEBUG
@@ -523,7 +524,7 @@ void SIRegisterInfo::buildSpillLoadStore(MachineBasicBlock::iterator MI,
                                          RegScavenger *RS) const {
   MachineBasicBlock *MBB = MI->getParent();
   MachineFunction *MF = MI->getParent()->getParent();
-  const SISubtarget &ST =  MF->getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST =  MF->getSubtarget<GCNSubtarget>();
   const SIInstrInfo *TII = ST.getInstrInfo();
   const MachineFrameInfo &MFI = MF->getFrameInfo();
 
@@ -646,7 +647,7 @@ bool SIRegisterInfo::spillSGPR(MachineBasicBlock::iterator MI,
     return false;
 
   MachineRegisterInfo &MRI = MF->getRegInfo();
-  const SISubtarget &ST =  MF->getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST =  MF->getSubtarget<GCNSubtarget>();
   const SIInstrInfo *TII = ST.getInstrInfo();
 
   unsigned SuperReg = MI->getOperand(0).getReg();
@@ -824,7 +825,7 @@ bool SIRegisterInfo::restoreSGPR(MachineBasicBlock::iterator MI,
     return false;
 
   MachineFrameInfo &FrameInfo = MF->getFrameInfo();
-  const SISubtarget &ST =  MF->getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST =  MF->getSubtarget<GCNSubtarget>();
   const SIInstrInfo *TII = ST.getInstrInfo();
   const DebugLoc &DL = MI->getDebugLoc();
 
@@ -984,7 +985,7 @@ void SIRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
   MachineBasicBlock *MBB = MI->getParent();
   SIMachineFunctionInfo *MFI = MF->getInfo<SIMachineFunctionInfo>();
   MachineFrameInfo &FrameInfo = MF->getFrameInfo();
-  const SISubtarget &ST =  MF->getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST =  MF->getSubtarget<GCNSubtarget>();
   const SIInstrInfo *TII = ST.getInstrInfo();
   DebugLoc DL = MI->getDebugLoc();
 
@@ -1231,8 +1232,6 @@ const TargetRegisterClass *SIRegisterInfo::getPhysRegClass(unsigned Reg) const {
     &AMDGPU::VReg_512RegClass,
     &AMDGPU::SReg_512RegClass,
     &AMDGPU::SCC_CLASSRegClass,
-    &AMDGPU::R600_Reg32RegClass,
-    &AMDGPU::R600_PredicateRegClass,
     &AMDGPU::Pseudo_SReg_32RegClass,
     &AMDGPU::Pseudo_SReg_128RegClass,
   };
@@ -1528,7 +1527,7 @@ bool SIRegisterInfo::shouldCoalesce(MachineInstr *MI,
 unsigned SIRegisterInfo::getRegPressureLimit(const TargetRegisterClass *RC,
                                              MachineFunction &MF) const {
 
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
 
   unsigned Occupancy = ST.getOccupancyWithLocalMemSize(MFI->getLDSSize(),
@@ -1562,6 +1561,11 @@ const int *SIRegisterInfo::getRegUnitPressureSets(unsigned RegUnit) const {
   if (hasRegUnit(AMDGPU::M0, RegUnit))
     return Empty;
   return AMDGPURegisterInfo::getRegUnitPressureSets(RegUnit);
+}
+
+unsigned SIRegisterInfo::getReturnAddressReg(const MachineFunction &MF) const {
+  // Not a callee saved register.
+  return AMDGPU::SGPR30_SGPR31;
 }
 
 const TargetRegisterClass *

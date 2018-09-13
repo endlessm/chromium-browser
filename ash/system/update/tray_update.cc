@@ -4,16 +4,15 @@
 
 #include "ash/system/update/tray_update.h"
 
-#include "ash/ash_view_ids.h"
 #include "ash/metrics/user_metrics_action.h"
 #include "ash/metrics/user_metrics_recorder.h"
+#include "ash/public/cpp/ash_view_ids.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/tray/system_tray.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_popup_item_style.h"
 #include "ash/system/tray/tray_popup_utils.h"
@@ -115,13 +114,16 @@ class TrayUpdate::UpdateView : public ActionableView {
     DCHECK(model_->update_required() ||
            model_->update_over_cellular_available());
     if (model_->update_required()) {
-      Shell::Get()->system_tray_controller()->RequestRestartForUpdate();
+      Shell::Get()
+          ->system_tray_model()
+          ->client_ptr()
+          ->RequestRestartForUpdate();
       Shell::Get()->metrics()->RecordUserMetricsAction(
           UMA_STATUS_AREA_OS_UPDATE_DEFAULT_SELECTED);
     } else {
       // Shows the about chrome OS page and checks for update after the page is
       // loaded.
-      Shell::Get()->system_tray_controller()->ShowAboutChromeOS();
+      Shell::Get()->system_tray_model()->client_ptr()->ShowAboutChromeOS();
     }
     CloseSystemBubble();
     return true;
@@ -131,7 +133,9 @@ class TrayUpdate::UpdateView : public ActionableView {
 };
 
 TrayUpdate::TrayUpdate(SystemTray* system_tray)
-    : TrayImageItem(system_tray, kSystemTrayUpdateIcon, UMA_UPDATE),
+    : TrayImageItem(system_tray,
+                    kSystemTrayUpdateIcon,
+                    SystemTrayItemUmaType::UMA_UPDATE),
       model_(Shell::Get()->system_tray_model()->update_model()) {
   model_->AddObserver(this);
 }

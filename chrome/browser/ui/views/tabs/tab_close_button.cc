@@ -15,21 +15,28 @@
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab_controller.h"
+#include "chrome/common/chrome_features.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/color_palette.h"
+#include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/rect_based_targeting_utils.h"
+#include "ui/views/style/platform_style.h"
 
 #if defined(USE_AURA)
 #include "ui/aura/env.h"
 #endif
 
 using MD = ui::MaterialDesignController;
+
+namespace {
+constexpr int kGlyphWidth = 16;
+constexpr int kTouchGlyphWidth = 24;
+}  //  namespace
 
 TabCloseButton::TabCloseButton(views::ButtonListener* listener,
                                MouseEventCallback mouse_event_callback)
@@ -40,30 +47,29 @@ TabCloseButton::TabCloseButton(views::ButtonListener* listener,
   // Disable animation so that the red danger sign shows up immediately
   // to help avoid mis-clicks.
   SetAnimationDuration(0);
+  SetInstallFocusRingOnFocus(views::PlatformStyle::kPreferFocusRings);
+
+  if (focus_ring())
+    SetFocusPainter(nullptr);
 }
 
 TabCloseButton::~TabCloseButton() {}
 
-void TabCloseButton::SetTabColor(SkColor color, bool tab_color_is_dark) {
-  SkColor hover_color = SkColorSetRGB(0xDB, 0x44, 0x37);
-  SkColor pressed_color = SkColorSetRGB(0xA8, 0x35, 0x2A);
-  SkColor icon_color = SK_ColorWHITE;
-  if (MD::IsRefreshUi()) {
-    hover_color = tab_color_is_dark ? gfx::kGoogleGrey700 : gfx::kGoogleGrey200;
-    pressed_color =
-        tab_color_is_dark ? gfx::kGoogleGrey600 : gfx::kGoogleGrey300;
-    icon_color = color;
-  }
-  GenerateImages(false, color, icon_color, hover_color, pressed_color);
+// static
+int TabCloseButton::GetWidth() {
+  return MD::IsTouchOptimizedUiEnabled() ? kTouchGlyphWidth : kGlyphWidth;
 }
 
-void TabCloseButton::ActiveStateChanged(const Tab* parent_tab) {
-  SkColor icon_color =
-      parent_tab->GetCloseTabButtonColor(views::Button::STATE_NORMAL);
-  GenerateImages(
-      true, icon_color, icon_color,
-      parent_tab->GetCloseTabButtonColor(views::Button::STATE_HOVERED),
-      parent_tab->GetCloseTabButtonColor(views::Button::STATE_PRESSED));
+void TabCloseButton::SetIconColors(SkColor icon_color,
+                                   SkColor hovered_icon_color,
+                                   SkColor pressed_icon_color,
+                                   SkColor hovered_color,
+                                   SkColor pressed_color) {
+  icon_colors_[views::Button::STATE_NORMAL] = icon_color;
+  icon_colors_[views::Button::STATE_HOVERED] = hovered_icon_color;
+  icon_colors_[views::Button::STATE_PRESSED] = pressed_icon_color;
+  highlight_colors_[views::Button::STATE_HOVERED] = hovered_color;
+  highlight_colors_[views::Button::STATE_PRESSED] = pressed_color;
 }
 
 views::View* TabCloseButton::GetTooltipHandlerForPoint(
@@ -106,9 +112,30 @@ const char* TabCloseButton::GetClassName() const {
   return "TabCloseButton";
 }
 
+void TabCloseButton::Layout() {
+  ImageButton::Layout();
+  if (focus_ring()) {
+    SkPath path;
+    path.addOval(gfx::RectToSkRect(GetMirroredRect(GetContentsBounds())));
+    focus_ring()->SetPath(path);
+  }
+}
+
+gfx::Size TabCloseButton::CalculatePreferredSize() const {
+  int width = GetWidth();
+  gfx::Size size(width, width);
+  gfx::Insets insets = GetInsets();
+  size.Enlarge(insets.width(), insets.height());
+  return size;
+}
+
 void TabCloseButton::PaintButtonContents(gfx::Canvas* canvas) {
   canvas->SaveLayerAlpha(GetOpacity());
-  views::ImageButton::PaintButtonContents(canvas);
+  ButtonState button_state = state();
+  // Draw the background circle highlight.
+  if (button_state != views::Button::STATE_NORMAL)
+    DrawHighlight(canvas, button_state);
+  DrawCloseGlyph(canvas, button_state);
   canvas->Restore();
 }
 
@@ -145,42 +172,38 @@ bool TabCloseButton::GetHitTestMask(gfx::Path* mask) const {
   return true;
 }
 
-SkAlpha TabCloseButton::GetOpacity() {
-  Tab* tab = static_cast<Tab*>(parent());
-  if (!MD::IsRefreshUi() || IsMouseHovered() || tab->IsActive())
-    return SK_AlphaOPAQUE;
-  const double animation_value = tab->hover_controller()->GetAnimationValue();
-  return gfx::Tween::IntValueBetween(animation_value, 0, 255);
+void TabCloseButton::DrawHighlight(gfx::Canvas* canvas, ButtonState state) {
+  gfx::Path path;
+  gfx::Point center = GetContentsBounds().CenterPoint();
+  path.setFillType(SkPath::kEvenOdd_FillType);
+  path.addCircle(center.x(), center.y(), GetWidth() / 2);
+  cc::PaintFlags flags;
+  flags.setAntiAlias(true);
+  flags.setColor(highlight_colors_[state]);
+  canvas->DrawPath(path, flags);
 }
 
-void TabCloseButton::GenerateImages(bool is_touch,
-                                    SkColor normal_icon_color,
-                                    SkColor hover_pressed_icon_color,
-                                    SkColor hover_highlight_color,
-                                    SkColor pressed_highlight_color) {
-  const gfx::VectorIcon& button_icon =
-      is_touch ? kTabCloseButtonTouchIcon : kTabCloseNormalIcon;
-  const gfx::VectorIcon& highlight = is_touch
-                                         ? kTabCloseButtonTouchHighlightIcon
-                                         : kTabCloseButtonHighlightIcon;
-  const gfx::ImageSkia& normal =
-      gfx::CreateVectorIcon(button_icon, normal_icon_color);
-  const gfx::ImageSkia& hover_pressed =
-      normal_icon_color != hover_pressed_icon_color
-          ? gfx::CreateVectorIcon(button_icon, hover_pressed_icon_color)
-          : normal;
+void TabCloseButton::DrawCloseGlyph(gfx::Canvas* canvas, ButtonState state) {
+  cc::PaintFlags flags;
+  constexpr float kStrokeWidth = 1.5f;
+  float touch_scale = float{GetWidth()} / kGlyphWidth;
+  float size = (kGlyphWidth - 8) * touch_scale - kStrokeWidth;
+  gfx::RectF glyph_bounds(GetContentsBounds());
+  glyph_bounds.ClampToCenteredSize(gfx::SizeF(size, size));
+  flags.setAntiAlias(true);
+  flags.setStrokeWidth(kStrokeWidth);
+  flags.setStrokeCap(cc::PaintFlags::kRound_Cap);
+  flags.setColor(icon_colors_[state]);
+  canvas->DrawLine(glyph_bounds.origin(), glyph_bounds.bottom_right(), flags);
+  canvas->DrawLine(glyph_bounds.bottom_left(), glyph_bounds.top_right(), flags);
+}
 
-  const gfx::ImageSkia& hover_highlight =
-      gfx::CreateVectorIcon(highlight, hover_highlight_color);
-  const gfx::ImageSkia& pressed_highlight =
-      gfx::CreateVectorIcon(highlight, pressed_highlight_color);
-  const gfx::ImageSkia& hover =
-      gfx::ImageSkiaOperations::CreateSuperimposedImage(hover_highlight,
-                                                        hover_pressed);
-  const gfx::ImageSkia& pressed =
-      gfx::ImageSkiaOperations::CreateSuperimposedImage(pressed_highlight,
-                                                        hover_pressed);
-  SetImage(views::Button::STATE_NORMAL, normal);
-  SetImage(views::Button::STATE_HOVERED, hover);
-  SetImage(views::Button::STATE_PRESSED, pressed);
+SkAlpha TabCloseButton::GetOpacity() {
+  Tab* tab = static_cast<Tab*>(parent());
+  if (base::FeatureList::IsEnabled(features::kCloseButtonsInactiveTabs) ||
+      IsMouseHovered() || tab->IsActive())
+    return SK_AlphaOPAQUE;
+  const double animation_value = tab->hover_controller()->GetAnimationValue();
+  return gfx::Tween::IntValueBetween(animation_value, SK_AlphaTRANSPARENT,
+                                     SK_AlphaOPAQUE);
 }

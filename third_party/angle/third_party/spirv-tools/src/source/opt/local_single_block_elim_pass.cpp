@@ -29,67 +29,90 @@ const uint32_t kStoreValIdInIdx = 1;
 
 bool LocalSingleBlockLoadStoreElimPass::HasOnlySupportedRefs(uint32_t ptrId) {
   if (supported_ref_ptrs_.find(ptrId) != supported_ref_ptrs_.end()) return true;
-  bool hasOnlySupportedRefs = true;
-  get_def_use_mgr()->ForEachUser(
-      ptrId, [this, &hasOnlySupportedRefs](ir::Instruction* user) {
+  if (get_def_use_mgr()->WhileEachUser(ptrId, [this](opt::Instruction* user) {
         SpvOp op = user->opcode();
         if (IsNonPtrAccessChain(op) || op == SpvOpCopyObject) {
           if (!HasOnlySupportedRefs(user->result_id())) {
-            hasOnlySupportedRefs = false;
+            return false;
           }
         } else if (op != SpvOpStore && op != SpvOpLoad && op != SpvOpName &&
-                   !this->IsNonTypeDecorate(op)) {
-          hasOnlySupportedRefs = false;
+                   !IsNonTypeDecorate(op)) {
+          return false;
         }
-      });
-  if (hasOnlySupportedRefs) {
+        return true;
+      })) {
     supported_ref_ptrs_.insert(ptrId);
+    return true;
   }
-  return hasOnlySupportedRefs;
+  return false;
 }
 
 bool LocalSingleBlockLoadStoreElimPass::LocalSingleBlockLoadStoreElim(
-    ir::Function* func) {
-  // Perform local store/load and load/load elimination on each block
+    opt::Function* func) {
+  // Perform local store/load, load/load and store/store elimination
+  // on each block
   bool modified = false;
+  std::vector<opt::Instruction*> instructions_to_kill;
+  std::unordered_set<opt::Instruction*> instructions_to_save;
   for (auto bi = func->begin(); bi != func->end(); ++bi) {
     var2store_.clear();
     var2load_.clear();
-    pinned_vars_.clear();
-    for (auto ii = bi->begin(); ii != bi->end(); ++ii) {
+    auto next = bi->begin();
+    for (auto ii = next; ii != bi->end(); ii = next) {
+      ++next;
       switch (ii->opcode()) {
         case SpvOpStore: {
           // Verify store variable is target type
           uint32_t varId;
-          ir::Instruction* ptrInst = GetPtr(&*ii, &varId);
+          opt::Instruction* ptrInst = GetPtr(&*ii, &varId);
           if (!IsTargetVar(varId)) continue;
           if (!HasOnlySupportedRefs(varId)) continue;
-          // Register the store
+          // If a store to the whole variable, remember it for succeeding
+          // loads and stores. Otherwise forget any previous store to that
+          // variable.
           if (ptrInst->opcode() == SpvOpVariable) {
-            // if not pinned, look for WAW
-            if (pinned_vars_.find(varId) == pinned_vars_.end()) {
-              auto si = var2store_.find(varId);
-              if (si != var2store_.end()) {
-                context()->KillInst(si->second);
+            // If a previous store to same variable, mark the store
+            // for deletion if not still used.
+            auto prev_store = var2store_.find(varId);
+            if (prev_store != var2store_.end() &&
+                instructions_to_save.count(prev_store->second) == 0) {
+              instructions_to_kill.push_back(prev_store->second);
+            }
+
+            bool kill_store = false;
+            auto li = var2load_.find(varId);
+            if (li != var2load_.end()) {
+              if (ii->GetSingleWordInOperand(kStoreValIdInIdx) ==
+                  li->second->result_id()) {
+                // We are storing the same value that already exists in the
+                // memory location.  The store does nothing.
+                kill_store = true;
               }
             }
-            var2store_[varId] = &*ii;
+
+            if (!kill_store) {
+              var2store_[varId] = &*ii;
+              var2load_.erase(varId);
+            } else {
+              instructions_to_kill.push_back(&*ii);
+              modified = true;
+            }
           } else {
             assert(IsNonPtrAccessChain(ptrInst->opcode()));
             var2store_.erase(varId);
+            var2load_.erase(varId);
           }
-          pinned_vars_.erase(varId);
-          var2load_.erase(varId);
         } break;
         case SpvOpLoad: {
           // Verify store variable is target type
           uint32_t varId;
-          ir::Instruction* ptrInst = GetPtr(&*ii, &varId);
+          opt::Instruction* ptrInst = GetPtr(&*ii, &varId);
           if (!IsTargetVar(varId)) continue;
           if (!HasOnlySupportedRefs(varId)) continue;
-          // Look for previous store or load
           uint32_t replId = 0;
           if (ptrInst->opcode() == SpvOpVariable) {
+            // If a load from a variable, look for a previous store or
+            // load from that variable and use its value.
             auto si = var2store_.find(varId);
             if (si != var2store_.end()) {
               replId = si->second->GetSingleWordInOperand(kStoreValIdInIdx);
@@ -99,15 +122,21 @@ bool LocalSingleBlockLoadStoreElimPass::LocalSingleBlockLoadStoreElim(
                 replId = li->second->result_id();
               }
             }
+          } else {
+            // If a partial load of a previously seen store, remember
+            // not to delete the store.
+            auto si = var2store_.find(varId);
+            if (si != var2store_.end()) instructions_to_save.insert(si->second);
           }
           if (replId != 0) {
             // replace load's result id and delete load
-            ReplaceAndDeleteLoad(&*ii, replId);
+            context()->KillNamesAndDecorates(&*ii);
+            context()->ReplaceAllUsesWith(ii->result_id(), replId);
+            instructions_to_kill.push_back(&*ii);
             modified = true;
           } else {
             if (ptrInst->opcode() == SpvOpVariable)
               var2load_[varId] = &*ii;  // register load
-            pinned_vars_.insert(varId);
           }
         } break;
         case SpvOpFunctionCall: {
@@ -115,24 +144,21 @@ bool LocalSingleBlockLoadStoreElimPass::LocalSingleBlockLoadStoreElim(
           // TODO(): Handle more optimally
           var2store_.clear();
           var2load_.clear();
-          pinned_vars_.clear();
         } break;
         default:
           break;
       }
     }
-    // Go back and delete useless stores in block
-    // TODO(greg-lunarg): Consider moving DCE into separate pass
-    for (auto ii = bi->begin(); ii != bi->end(); ++ii) {
-      if (ii->opcode() != SpvOpStore) continue;
-      if (IsLiveStore(&*ii)) continue;
-      DCEInst(&*ii);
-    }
   }
+
+  for (opt::Instruction* inst : instructions_to_kill) {
+    context()->KillInst(inst);
+  }
+
   return modified;
 }
 
-void LocalSingleBlockLoadStoreElimPass::Initialize(ir::IRContext* c) {
+void LocalSingleBlockLoadStoreElimPass::Initialize(opt::IRContext* c) {
   InitializeProcessing(c);
 
   // Initialize Target Type Caches
@@ -144,7 +170,7 @@ void LocalSingleBlockLoadStoreElimPass::Initialize(ir::IRContext* c) {
 
   // Initialize extensions whitelist
   InitExtensions();
-};
+}
 
 bool LocalSingleBlockLoadStoreElimPass::AllExtensionsSupported() const {
   // If any extension not in whitelist, return false
@@ -158,8 +184,8 @@ bool LocalSingleBlockLoadStoreElimPass::AllExtensionsSupported() const {
 }
 
 Pass::Status LocalSingleBlockLoadStoreElimPass::ProcessImpl() {
-  // Assumes logical addressing only
-  if (get_module()->HasCapability(SpvCapabilityAddresses))
+  // Assumes relaxed logical addressing only (see instruction.h).
+  if (context()->get_feature_mgr()->HasCapability(SpvCapabilityAddresses))
     return Status::SuccessWithoutChange;
   // Do not process if module contains OpGroupDecorate. Additional
   // support required in KillNamesAndDecorates().
@@ -170,16 +196,17 @@ Pass::Status LocalSingleBlockLoadStoreElimPass::ProcessImpl() {
   // return unmodified.
   if (!AllExtensionsSupported()) return Status::SuccessWithoutChange;
   // Process all entry point functions
-  ProcessFunction pfn = [this](ir::Function* fp) {
+  ProcessFunction pfn = [this](opt::Function* fp) {
     return LocalSingleBlockLoadStoreElim(fp);
   };
+
   bool modified = ProcessEntryPointCallTree(pfn, get_module());
   return modified ? Status::SuccessWithChange : Status::SuccessWithoutChange;
 }
 
 LocalSingleBlockLoadStoreElimPass::LocalSingleBlockLoadStoreElimPass() {}
 
-Pass::Status LocalSingleBlockLoadStoreElimPass::Process(ir::IRContext* c) {
+Pass::Status LocalSingleBlockLoadStoreElimPass::Process(opt::IRContext* c) {
   Initialize(c);
   return ProcessImpl();
 }
@@ -210,6 +237,16 @@ void LocalSingleBlockLoadStoreElimPass::InitExtensions() {
       "SPV_AMD_gpu_shader_int16",
       "SPV_KHR_post_depth_coverage",
       "SPV_KHR_shader_atomic_counter_ops",
+      "SPV_EXT_shader_stencil_export",
+      "SPV_EXT_shader_viewport_index_layer",
+      "SPV_AMD_shader_image_load_store_lod",
+      "SPV_AMD_shader_fragment_mask",
+      "SPV_EXT_fragment_fully_covered",
+      "SPV_AMD_gpu_shader_half_float_fetch",
+      "SPV_GOOGLE_decorate_string",
+      "SPV_GOOGLE_hlsl_functionality1",
+      "SPV_NV_shader_subgroup_partitioned",
+      "SPV_EXT_descriptor_indexing",
   });
 }
 

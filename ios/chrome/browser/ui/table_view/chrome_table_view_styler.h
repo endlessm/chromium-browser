@@ -9,10 +9,17 @@
 
 @interface ChromeTableViewStyler : NSObject
 
+// The BlurEffect used on the UITableView section headers.
+@property(nonatomic, readwrite, strong)
+    UIBlurEffect* tableViewSectionHeaderBlurEffect;
+
 // The background color for the table view and its cells. If this is set to an
 // opaque color, cells can choose to make themselves opaque and draw their own
 // background as a performance optimization.
 @property(nonatomic, readwrite, strong) UIColor* tableViewBackgroundColor;
+// Text colors.
+@property(nonatomic, readwrite, strong) UIColor* cellTitleColor;
+@property(nonatomic, readwrite, strong) UIColor* headerFooterTitleColor;
 
 @end
 

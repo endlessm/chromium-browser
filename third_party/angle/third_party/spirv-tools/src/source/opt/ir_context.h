@@ -15,10 +15,20 @@
 #ifndef SPIRV_TOOLS_IR_CONTEXT_H
 #define SPIRV_TOOLS_IR_CONTEXT_H
 
+#include "assembly_grammar.h"
 #include "cfg.h"
+#include "constants.h"
 #include "decoration_manager.h"
 #include "def_use_manager.h"
+#include "dominator_analysis.h"
+#include "feature_manager.h"
+#include "fold.h"
+#include "loop_descriptor.h"
 #include "module.h"
+#include "register_pressure.h"
+#include "scalar_analysis.h"
+#include "type_manager.h"
+#include "value_number_table.h"
 
 #include <algorithm>
 #include <iostream>
@@ -26,7 +36,7 @@
 #include <unordered_set>
 
 namespace spvtools {
-namespace ir {
+namespace opt {
 
 class IRContext {
  public:
@@ -49,7 +59,13 @@ class IRContext {
     kAnalysisDecorations = 1 << 2,
     kAnalysisCombinators = 1 << 3,
     kAnalysisCFG = 1 << 4,
-    kAnalysisEnd = 1 << 5
+    kAnalysisDominatorAnalysis = 1 << 5,
+    kAnalysisLoopAnalysis = 1 << 6,
+    kAnalysisNameMap = 1 << 7,
+    kAnalysisScalarEvolution = 1 << 8,
+    kAnalysisRegisterPressure = 1 << 9,
+    kAnalysisValueNumberTable = 1 << 10,
+    kAnalysisEnd = 1 << 11
   };
 
   friend inline Analysis operator|(Analysis lhs, Analysis rhs);
@@ -57,29 +73,40 @@ class IRContext {
   friend inline Analysis operator<<(Analysis a, int shift);
   friend inline Analysis& operator<<=(Analysis& a, int shift);
 
-  // Create an |IRContext| that contains an owned |Module|
-  IRContext(spvtools::MessageConsumer c)
-      : unique_id_(0),
+  // Creates an |IRContext| that contains an owned |Module|
+  IRContext(spv_target_env env, MessageConsumer c)
+      : syntax_context_(spvContextCreate(env)),
+        grammar_(syntax_context_),
+        unique_id_(0),
         module_(new Module()),
         consumer_(std::move(c)),
         def_use_mgr_(nullptr),
-        valid_analyses_(kAnalysisNone) {
+        valid_analyses_(kAnalysisNone),
+        constant_mgr_(nullptr),
+        type_mgr_(nullptr),
+        id_to_name_(nullptr) {
+    SetContextMessageConsumer(syntax_context_, consumer_);
     module_->SetContext(this);
   }
 
-  IRContext(std::unique_ptr<Module>&& m, spvtools::MessageConsumer c)
-      : unique_id_(0),
+  IRContext(spv_target_env env, std::unique_ptr<Module>&& m, MessageConsumer c)
+      : syntax_context_(spvContextCreate(env)),
+        grammar_(syntax_context_),
+        unique_id_(0),
         module_(std::move(m)),
         consumer_(std::move(c)),
         def_use_mgr_(nullptr),
-        valid_analyses_(kAnalysisNone) {
+        valid_analyses_(kAnalysisNone),
+        type_mgr_(nullptr),
+        id_to_name_(nullptr) {
+    SetContextMessageConsumer(syntax_context_, consumer_);
     module_->SetContext(this);
     InitializeCombinators();
   }
-  Module* module() const { return module_.get(); }
 
-  inline void SetIdBound(uint32_t i);
-  inline uint32_t IdBound() const;
+  ~IRContext() { spvContextDestroy(syntax_context_); }
+
+  Module* module() const { return module_.get(); }
 
   // Returns a vector of pointers to constant-creation instructions in this
   // context.
@@ -99,14 +126,16 @@ class IRContext {
   inline IteratorRange<Module::const_inst_iterator> capabilities() const;
 
   // Iterators for types, constants and global variables instructions.
-  inline ir::Module::inst_iterator types_values_begin();
-  inline ir::Module::inst_iterator types_values_end();
+  inline opt::Module::inst_iterator types_values_begin();
+  inline opt::Module::inst_iterator types_values_end();
   inline IteratorRange<Module::inst_iterator> types_values();
   inline IteratorRange<Module::const_inst_iterator> types_values() const;
 
   // Iterators for extension instructions contained in this module.
   inline Module::inst_iterator ext_inst_import_begin();
   inline Module::inst_iterator ext_inst_import_end();
+  inline IteratorRange<Module::inst_iterator> ext_inst_imports();
+  inline IteratorRange<Module::const_inst_iterator> ext_inst_imports() const;
 
   // There are several kinds of debug instructions, according to where they can
   // appear in the logical layout of a module:
@@ -181,14 +210,49 @@ class IRContext {
     return def_use_mgr_.get();
   }
 
+  // Returns a pointer to a value number table.  If the liveness analysis is
+  // invalid, it is rebuilt first.
+  opt::ValueNumberTable* GetValueNumberTable() {
+    if (!AreAnalysesValid(kAnalysisValueNumberTable)) {
+      BuildValueNumberTable();
+    }
+    return vn_table_.get();
+  }
+
+  // Returns a pointer to a liveness analysis.  If the liveness analysis is
+  // invalid, it is rebuilt first.
+  opt::LivenessAnalysis* GetLivenessAnalysis() {
+    if (!AreAnalysesValid(kAnalysisRegisterPressure)) {
+      BuildRegPressureAnalysis();
+    }
+    return reg_pressure_.get();
+  }
+
   // Returns the basic block for instruction |instr|. Re-builds the instruction
   // block map, if needed.
-  ir::BasicBlock* get_instr_block(ir::Instruction* instr) {
+  opt::BasicBlock* get_instr_block(opt::Instruction* instr) {
     if (!AreAnalysesValid(kAnalysisInstrToBlockMapping)) {
       BuildInstrToBlockMapping();
     }
     auto entry = instr_to_block_.find(instr);
     return (entry != instr_to_block_.end()) ? entry->second : nullptr;
+  }
+
+  // Returns the basic block for |id|. Re-builds the instruction block map, if
+  // needed.
+  //
+  // |id| must be a registered definition.
+  opt::BasicBlock* get_instr_block(uint32_t id) {
+    opt::Instruction* def = get_def_use_mgr()->GetDef(id);
+    return get_instr_block(def);
+  }
+
+  // Sets the basic block for |inst|. Re-builds the mapping if it has become
+  // invalid.
+  void set_instr_block(opt::Instruction* inst, opt::BasicBlock* block) {
+    if (AreAnalysesValid(kAnalysisInstrToBlockMapping)) {
+      instr_to_block_[inst] = block;
+    }
   }
 
   // Returns a pointer the decoration manager.  If the decoration manger is
@@ -200,14 +264,48 @@ class IRContext {
     return decoration_mgr_.get();
   };
 
-  // Sets the message consumer to the given |consumer|. |consumer| which will be
-  // invoked every time there is a message to be communicated to the outside.
-  void SetMessageConsumer(spvtools::MessageConsumer c) {
-    consumer_ = std::move(c);
+  // Returns a pointer to the constant manager.  If no constant manager has been
+  // created yet, it creates one.  NOTE: Once created, the constant manager
+  // remains active and it is never re-built.
+  opt::analysis::ConstantManager* get_constant_mgr() {
+    if (!constant_mgr_)
+      constant_mgr_.reset(new opt::analysis::ConstantManager(this));
+    return constant_mgr_.get();
   }
 
+  // Returns a pointer to the type manager.  If no type manager has been created
+  // yet, it creates one. NOTE: Once created, the type manager remains active it
+  // is never re-built.
+  opt::analysis::TypeManager* get_type_mgr() {
+    if (!type_mgr_)
+      type_mgr_.reset(new opt::analysis::TypeManager(consumer(), this));
+    return type_mgr_.get();
+  }
+
+  // Returns a pointer to the scalar evolution analysis. If it is invalid it
+  // will be rebuilt first.
+  opt::ScalarEvolutionAnalysis* GetScalarEvolutionAnalysis() {
+    if (!AreAnalysesValid(kAnalysisScalarEvolution)) {
+      BuildScalarEvolutionAnalysis();
+    }
+    return scalar_evolution_analysis_.get();
+  }
+
+  // Build the map from the ids to the OpName and OpMemberName instruction
+  // associated with it.
+  inline void BuildIdToNameMap();
+
+  // Returns a range of instrucions that contain all of the OpName and
+  // OpMemberNames associated with the given id.
+  inline IteratorRange<std::multimap<uint32_t, Instruction*>::iterator>
+  GetNames(uint32_t id);
+
+  // Sets the message consumer to the given |consumer|. |consumer| which will be
+  // invoked every time there is a message to be communicated to the outside.
+  void SetMessageConsumer(MessageConsumer c) { consumer_ = std::move(c); }
+
   // Returns the reference to the message consumer for this pass.
-  const spvtools::MessageConsumer& consumer() const { return consumer_; }
+  const MessageConsumer& consumer() const { return consumer_; }
 
   // Rebuilds the analyses in |set| that are invalid.
   void BuildInvalidAnalyses(Analysis set);
@@ -218,16 +316,28 @@ class IRContext {
   // Invalidates the analyses marked in |analyses_to_invalidate|.
   void InvalidateAnalyses(Analysis analyses_to_invalidate);
 
-  // Turns the instruction defining the given |id| into a Nop. Returns true on
+  // Deletes the instruction defining the given |id|. Returns true on
   // success, false if the given |id| is not defined at all. This method also
-  // erases both the uses of |id| and the information of this |id|-generating
-  // instruction's uses of its operands.
+  // erases the name, decorations, and defintion of |id|.
+  //
+  // Pointers and iterators pointing to the deleted instructions become invalid.
+  // However other pointers and iterators are still valid.
   bool KillDef(uint32_t id);
 
-  // Turns the given instruction |inst| to a Nop. This method erases the
+  // Deletes the given instruction |inst|. This method erases the
   // information of the given instruction's uses of its operands. If |inst|
-  // defines an result id, the uses of the result id will also be erased.
-  void KillInst(ir::Instruction* inst);
+  // defines a result id, its name and decorations will also be deleted.
+  //
+  // Pointer and iterator pointing to the deleted instructions become invalid.
+  // However other pointers and iterators are still valid.
+  //
+  // Note that if an instruction is not in an instruction list, the memory may
+  // not be safe to delete, so the instruction is turned into a OpNop instead.
+  // This can happen with OpLabel.
+  //
+  // Returns a pointer to the instruction after |inst| or |nullptr| if no such
+  // instruction exists.
+  Instruction* KillInst(opt::Instruction* inst);
 
   // Returns true if all of the given analyses are valid.
   bool AreAnalysesValid(Analysis set) { return (set & valid_analyses_) == set; }
@@ -244,6 +354,10 @@ class IRContext {
   // actually valid.
   bool IsConsistent();
 
+  // The IRContext will look at the def and uses of |inst| and update any valid
+  // analyses will be updated accordingly.
+  inline void AnalyzeDefUse(Instruction* inst);
+
   // Informs the IRContext that the uses of |inst| are going to change, and that
   // is should forget everything it know about the current uses.  Any valid
   // analyses will be updated accordingly.
@@ -257,7 +371,7 @@ class IRContext {
   void KillNamesAndDecorates(uint32_t id);
 
   // Kill all name and decorate ops targeting the result id of |inst|.
-  void KillNamesAndDecorates(ir::Instruction* inst);
+  void KillNamesAndDecorates(opt::Instruction* inst);
 
   // Returns the next unique id for use by an instruction.
   inline uint32_t TakeNextUniqueId() {
@@ -269,7 +383,7 @@ class IRContext {
 
   // Returns true if |inst| is a combinator in the current context.
   // |combinator_ops_| is built if it has not been already.
-  inline bool IsCombinatorInstruction(ir::Instruction* inst) {
+  inline bool IsCombinatorInstruction(const Instruction* inst) {
     if (!AreAnalysesValid(kAnalysisCombinators)) {
       InitializeCombinators();
     }
@@ -286,11 +400,54 @@ class IRContext {
   }
 
   // Returns a pointer to the CFG for all the functions in |module_|.
-  ir::CFG* cfg() {
+  opt::CFG* cfg() {
     if (!AreAnalysesValid(kAnalysisCFG)) {
       BuildCFG();
     }
     return cfg_.get();
+  }
+
+  // Gets the loop descriptor for function |f|.
+  opt::LoopDescriptor* GetLoopDescriptor(const opt::Function* f);
+
+  // Gets the dominator analysis for function |f|.
+  opt::DominatorAnalysis* GetDominatorAnalysis(const opt::Function* f);
+
+  // Gets the postdominator analysis for function |f|.
+  opt::PostDominatorAnalysis* GetPostDominatorAnalysis(const opt::Function* f);
+
+  // Remove the dominator tree of |f| from the cache.
+  inline void RemoveDominatorAnalysis(const opt::Function* f) {
+    dominator_trees_.erase(f);
+  }
+
+  // Remove the postdominator tree of |f| from the cache.
+  inline void RemovePostDominatorAnalysis(const opt::Function* f) {
+    post_dominator_trees_.erase(f);
+  }
+
+  // Return the next available SSA id and increment it.
+  inline uint32_t TakeNextId() { return module()->TakeNextIdBound(); }
+
+  opt::FeatureManager* get_feature_mgr() {
+    if (!feature_mgr_.get()) {
+      AnalyzeFeatures();
+    }
+    return feature_mgr_.get();
+  }
+
+  // Returns the grammar for this context.
+  const AssemblyGrammar& grammar() const { return grammar_; }
+
+  // If |inst| has not yet been analysed by the def-use manager, then analyse
+  // its definitions and uses.
+  inline void UpdateDefUse(Instruction* inst);
+
+  const opt::InstructionFolder& get_instruction_folder() {
+    if (!inst_folder_) {
+      inst_folder_.reset(new opt::InstructionFolder());
+    }
+    return *inst_folder_;
   }
 
  private:
@@ -305,7 +462,7 @@ class IRContext {
     instr_to_block_.clear();
     for (auto& fn : *module_) {
       for (auto& block : fn) {
-        block.ForEachInst([this, &block](ir::Instruction* inst) {
+        block.ForEachInst([this, &block](opt::Instruction* inst) {
           instr_to_block_[inst] = &block;
         });
       }
@@ -319,8 +476,48 @@ class IRContext {
   }
 
   void BuildCFG() {
-    cfg_.reset(new ir::CFG(module()));
+    cfg_.reset(new opt::CFG(module()));
     valid_analyses_ = valid_analyses_ | kAnalysisCFG;
+  }
+
+  void BuildScalarEvolutionAnalysis() {
+    scalar_evolution_analysis_.reset(new opt::ScalarEvolutionAnalysis(this));
+    valid_analyses_ = valid_analyses_ | kAnalysisScalarEvolution;
+  }
+
+  // Builds the liveness analysis from scratch, even if it was already valid.
+  void BuildRegPressureAnalysis() {
+    reg_pressure_.reset(new opt::LivenessAnalysis(this));
+    valid_analyses_ = valid_analyses_ | kAnalysisRegisterPressure;
+  }
+
+  // Builds the value number table analysis from scratch, even if it was already
+  // valid.
+  void BuildValueNumberTable() {
+    vn_table_.reset(new opt::ValueNumberTable(this));
+    valid_analyses_ = valid_analyses_ | kAnalysisValueNumberTable;
+  }
+
+  // Removes all computed dominator and post-dominator trees. This will force
+  // the context to rebuild the trees on demand.
+  void ResetDominatorAnalysis() {
+    // Clear the cache.
+    dominator_trees_.clear();
+    post_dominator_trees_.clear();
+    valid_analyses_ = valid_analyses_ | kAnalysisDominatorAnalysis;
+  }
+
+  // Removes all computed loop descriptors.
+  void ResetLoopAnalysis() {
+    // Clear the cache.
+    loop_descriptors_.clear();
+    valid_analyses_ = valid_analyses_ | kAnalysisLoopAnalysis;
+  }
+
+  // Analyzes the features in the owned module. Builds the manager if required.
+  void AnalyzeFeatures() {
+    feature_mgr_.reset(new opt::FeatureManager(grammar_));
+    feature_mgr_->Analyze(module());
   }
 
   // Scans a module looking for it capabilities, and initializes combinator_ops_
@@ -331,26 +528,48 @@ class IRContext {
   void AddCombinatorsForCapability(uint32_t capability);
 
   // Add the combinator opcode for the given extension to combinator_ops_.
-  void AddCombinatorsForExtension(ir::Instruction* extension);
+  void AddCombinatorsForExtension(opt::Instruction* extension);
 
-  // An unique identifier for this instruction. Can be used to order
+  // Remove |inst| from |id_to_name_| if it is in map.
+  void RemoveFromIdToName(const Instruction* inst);
+
+  // Returns true if it is suppose to be valid but it is incorrect.  Returns
+  // true if the cfg is invalidated.
+  bool CheckCFG();
+
+  // The SPIR-V syntax context containing grammar tables for opcodes and
+  // operands.
+  spv_context syntax_context_;
+
+  // Auxiliary object for querying SPIR-V grammar facts.
+  AssemblyGrammar grammar_;
+
+  // An unique identifier for instructions in |module_|. Can be used to order
   // instructions in a container.
   //
   // This member is initialized to 0, but always issues this value plus one.
   // Therefore, 0 is not a valid unique id for an instruction.
   uint32_t unique_id_;
 
+  // The module being processed within this IR context.
   std::unique_ptr<Module> module_;
-  spvtools::MessageConsumer consumer_;
+
+  // A message consumer for diagnostics.
+  MessageConsumer consumer_;
+
+  // The def-use manager for |module_|.
   std::unique_ptr<opt::analysis::DefUseManager> def_use_mgr_;
+
+  // The instruction decoration manager for |module_|.
   std::unique_ptr<opt::analysis::DecorationManager> decoration_mgr_;
+  std::unique_ptr<opt::FeatureManager> feature_mgr_;
 
   // A map from instructions the the basic block they belong to. This mapping is
   // built on-demand when get_instr_block() is called.
   //
   // NOTE: Do not traverse this map. Ever. Use the function and basic block
   // iterators to traverse instructions.
-  std::unordered_map<ir::Instruction*, ir::BasicBlock*> instr_to_block_;
+  std::unordered_map<opt::Instruction*, opt::BasicBlock*> instr_to_block_;
 
   // A bitset indicating which analyes are currently valid.
   Analysis valid_analyses_;
@@ -360,38 +579,63 @@ class IRContext {
   std::unordered_map<uint32_t, std::unordered_set<uint32_t>> combinator_ops_;
 
   // The CFG for all the functions in |module_|.
-  std::unique_ptr<ir::CFG> cfg_;
+  std::unique_ptr<opt::CFG> cfg_;
+
+  // Each function in the module will create its own dominator tree. We cache
+  // the result so it doesn't need to be rebuilt each time.
+  std::map<const opt::Function*, opt::DominatorAnalysis> dominator_trees_;
+  std::map<const opt::Function*, opt::PostDominatorAnalysis>
+      post_dominator_trees_;
+
+  // Cache of loop descriptors for each function.
+  std::unordered_map<const opt::Function*, opt::LoopDescriptor>
+      loop_descriptors_;
+
+  // Constant manager for |module_|.
+  std::unique_ptr<opt::analysis::ConstantManager> constant_mgr_;
+
+  // Type manager for |module_|.
+  std::unique_ptr<opt::analysis::TypeManager> type_mgr_;
+
+  // A map from an id to its corresponding OpName and OpMemberName instructions.
+  std::unique_ptr<std::multimap<uint32_t, Instruction*>> id_to_name_;
+
+  // The cache scalar evolution analysis node.
+  std::unique_ptr<opt::ScalarEvolutionAnalysis> scalar_evolution_analysis_;
+
+  // The liveness analysis |module_|.
+  std::unique_ptr<opt::LivenessAnalysis> reg_pressure_;
+
+  std::unique_ptr<opt::ValueNumberTable> vn_table_;
+
+  std::unique_ptr<opt::InstructionFolder> inst_folder_;
 };
 
-inline ir::IRContext::Analysis operator|(ir::IRContext::Analysis lhs,
-                                         ir::IRContext::Analysis rhs) {
-  return static_cast<ir::IRContext::Analysis>(static_cast<int>(lhs) |
-                                              static_cast<int>(rhs));
+inline opt::IRContext::Analysis operator|(opt::IRContext::Analysis lhs,
+                                          opt::IRContext::Analysis rhs) {
+  return static_cast<opt::IRContext::Analysis>(static_cast<int>(lhs) |
+                                               static_cast<int>(rhs));
 }
 
-inline ir::IRContext::Analysis& operator|=(ir::IRContext::Analysis& lhs,
-                                           ir::IRContext::Analysis rhs) {
-  lhs = static_cast<ir::IRContext::Analysis>(static_cast<int>(lhs) |
-                                             static_cast<int>(rhs));
+inline opt::IRContext::Analysis& operator|=(opt::IRContext::Analysis& lhs,
+                                            opt::IRContext::Analysis rhs) {
+  lhs = static_cast<opt::IRContext::Analysis>(static_cast<int>(lhs) |
+                                              static_cast<int>(rhs));
   return lhs;
 }
 
-inline ir::IRContext::Analysis operator<<(ir::IRContext::Analysis a,
-                                          int shift) {
-  return static_cast<ir::IRContext::Analysis>(static_cast<int>(a) << shift);
+inline opt::IRContext::Analysis operator<<(opt::IRContext::Analysis a,
+                                           int shift) {
+  return static_cast<opt::IRContext::Analysis>(static_cast<int>(a) << shift);
 }
 
-inline ir::IRContext::Analysis& operator<<=(ir::IRContext::Analysis& a,
-                                            int shift) {
-  a = static_cast<ir::IRContext::Analysis>(static_cast<int>(a) << shift);
+inline opt::IRContext::Analysis& operator<<=(opt::IRContext::Analysis& a,
+                                             int shift) {
+  a = static_cast<opt::IRContext::Analysis>(static_cast<int>(a) << shift);
   return a;
 }
 
-void IRContext::SetIdBound(uint32_t i) { module_->SetIdBound(i); }
-
-uint32_t IRContext::IdBound() const { return module()->IdBound(); }
-
-std::vector<Instruction*> spvtools::ir::IRContext::GetConstants() {
+std::vector<Instruction*> IRContext::GetConstants() {
   return module()->GetConstants();
 }
 
@@ -431,11 +675,11 @@ IteratorRange<Module::const_inst_iterator> IRContext::capabilities() const {
   return ((const Module*)module())->capabilities();
 }
 
-ir::Module::inst_iterator IRContext::types_values_begin() {
+opt::Module::inst_iterator IRContext::types_values_begin() {
   return module()->types_values_begin();
 }
 
-ir::Module::inst_iterator IRContext::types_values_end() {
+opt::Module::inst_iterator IRContext::types_values_end() {
   return module()->types_values_end();
 }
 
@@ -453,6 +697,14 @@ Module::inst_iterator IRContext::ext_inst_import_begin() {
 
 Module::inst_iterator IRContext::ext_inst_import_end() {
   return module()->ext_inst_import_end();
+}
+
+IteratorRange<Module::inst_iterator> IRContext::ext_inst_imports() {
+  return module()->ext_inst_imports();
+}
+
+IteratorRange<Module::const_inst_iterator> IRContext::ext_inst_imports() const {
+  return ((const Module*)module_.get())->ext_inst_imports();
 }
 
 Module::inst_iterator IRContext::debug1_begin() {
@@ -529,6 +781,11 @@ void IRContext::AddDebug1Inst(std::unique_ptr<Instruction>&& d) {
 }
 
 void IRContext::AddDebug2Inst(std::unique_ptr<Instruction>&& d) {
+  if (AreAnalysesValid(kAnalysisNameMap)) {
+    if (d->opcode() == SpvOpName || d->opcode() == SpvOpMemberName) {
+      id_to_name_->insert({d->result_id(), d.get()});
+    }
+  }
   module()->AddDebug2Inst(std::move(d));
 }
 
@@ -545,16 +802,55 @@ void IRContext::AddAnnotationInst(std::unique_ptr<Instruction>&& a) {
 
 void IRContext::AddType(std::unique_ptr<Instruction>&& t) {
   module()->AddType(std::move(t));
+  if (AreAnalysesValid(kAnalysisDefUse)) {
+    get_def_use_mgr()->AnalyzeInstDefUse(&*(--types_values_end()));
+  }
 }
 
 void IRContext::AddGlobalValue(std::unique_ptr<Instruction>&& v) {
   module()->AddGlobalValue(std::move(v));
+  if (AreAnalysesValid(kAnalysisDefUse)) {
+    get_def_use_mgr()->AnalyzeInstDef(&*(--types_values_end()));
+  }
 }
 
 void IRContext::AddFunction(std::unique_ptr<Function>&& f) {
   module()->AddFunction(std::move(f));
 }
 
-}  // namespace ir
+void IRContext::AnalyzeDefUse(Instruction* inst) {
+  if (AreAnalysesValid(kAnalysisDefUse)) {
+    get_def_use_mgr()->AnalyzeInstDefUse(inst);
+  }
+}
+
+void IRContext::UpdateDefUse(Instruction* inst) {
+  if (AreAnalysesValid(kAnalysisDefUse)) {
+    get_def_use_mgr()->UpdateDefUse(inst);
+  }
+}
+
+void IRContext::BuildIdToNameMap() {
+  id_to_name_.reset(new std::multimap<uint32_t, Instruction*>());
+  for (Instruction& debug_inst : debugs2()) {
+    if (debug_inst.opcode() == SpvOpMemberName ||
+        debug_inst.opcode() == SpvOpName) {
+      id_to_name_->insert({debug_inst.GetSingleWordInOperand(0), &debug_inst});
+    }
+  }
+  valid_analyses_ = valid_analyses_ | kAnalysisNameMap;
+}
+
+IteratorRange<std::multimap<uint32_t, Instruction*>::iterator>
+IRContext::GetNames(uint32_t id) {
+  if (!AreAnalysesValid(kAnalysisNameMap)) {
+    BuildIdToNameMap();
+  }
+  auto result = id_to_name_->equal_range(id);
+  return make_range(std::move(result.first), std::move(result.second));
+}
+
+}  // namespace opt
 }  // namespace spvtools
+
 #endif  // SPIRV_TOOLS_IR_CONTEXT_H

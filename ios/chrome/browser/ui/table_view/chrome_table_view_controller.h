@@ -7,6 +7,7 @@
 
 #import <UIKit/UIKit.h>
 
+#include "base/ios/block_types.h"
 #import "ios/chrome/browser/ui/material_components/app_bar_presenting.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_consumer.h"
 #import "ios/chrome/browser/ui/table_view/table_view_model.h"
@@ -30,7 +31,7 @@ typedef NS_ENUM(NSInteger, ChromeTableViewControllerStyle) {
 // The styler that controls how this table view and its cells are
 // displayed. Styler changes should be made before viewDidLoad is called; any
 // changes made afterwards are not guaranteed to take effect.
-@property(nonatomic, readonly, strong) ChromeTableViewStyler* styler;
+@property(nonatomic, readwrite, strong) ChromeTableViewStyler* styler;
 
 // Initializes the view controller, configured with |style|, |appBarStyle|. The
 // default ChromeTableViewStyler will be used.
@@ -38,12 +39,6 @@ typedef NS_ENUM(NSInteger, ChromeTableViewControllerStyle) {
                            appBarStyle:
                                (ChromeTableViewControllerStyle)appBarStyle
     NS_DESIGNATED_INITIALIZER;
-// Initializes the view controller, configured with |style|, |appBarStyle|, and
-// |styler|. |styler| can't be nil.
-- (instancetype)initWithTableViewStyle:(UITableViewStyle)style
-                           appBarStyle:
-                               (ChromeTableViewControllerStyle)appBarStyle
-                                styler:(ChromeTableViewStyler*)styler;
 // Unavailable initializers.
 - (instancetype)initWithStyle:(UITableViewStyle)style NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder*)aDecoder NS_UNAVAILABLE;
@@ -55,10 +50,46 @@ typedef NS_ENUM(NSInteger, ChromeTableViewControllerStyle) {
 // override this method in order to get a clean tableViewModel.
 - (void)loadModel NS_REQUIRES_SUPER;
 
+// Adds and starts a loading indicator in the center of the
+// ChromeTableViewController, if one is not already present. This will remove
+// any existing table view background views.
+- (void)startLoadingIndicatorWithLoadingMessage:(NSString*)loadingMessage;
+
+// Removes and stops the loading indicator, if one is present.
+- (void)stopLoadingIndicatorWithCompletion:(ProceduralBlock)completion;
+
+// Adds an empty table view in the center of the ChromeTableViewController which
+// displays |message| with |image| on top.  |message| will be rendered using
+// default styling.  This will remove any existing table view background views.
+- (void)addEmptyTableViewWithMessage:(NSString*)message image:(UIImage*)image;
+
+// Adds an empty table view in the center of the ChromeTableViewController which
+// displays |attributedMessage| with |image| on top.  This will remove any
+// existing table view background views.
+- (void)addEmptyTableViewWithAttributedMessage:
+            (NSAttributedString*)attributedMessage
+                                         image:(UIImage*)image;
+
+// Removes the empty table view, if one is present.
+- (void)removeEmptyTableView;
+
+// Performs batch table view updates described by |updates|, using |completion|
+// as the completion block.
+- (void)performBatchTableViewUpdates:(void (^)(void))updates
+                          completion:(void (^)(BOOL finished))completion;
+
 // Methods for reconfiguring and reloading the table view are provided by
 // ChromeTableViewConsumer.
 
-#pragma mark UIScrollViewDelegate
+#pragma mark - Presentation Controller integration
+
+// Returns YES if this view controller should be dismissed when the user touches
+// outside the bounds of the table view.  Defaults to YES.  Subclasses should
+// override this to return NO if they allow the user to edit data, so that
+// accidental touches outside the table view cannot lose user data.
+- (BOOL)shouldBeDismissedOnTouchOutside;
+
+#pragma mark - UIScrollViewDelegate
 
 // Updates the MDCFlexibleHeader with changes to the table view scroll
 // state. Must be called by subclasses if they override this method in order to

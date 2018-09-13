@@ -10,14 +10,16 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/optional.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
-#include "chromeos/components/tether/ble_constants.h"
 #include "chromeos/components/tether/fake_ble_connection_manager.h"
 #include "chromeos/components/tether/message_wrapper.h"
 #include "chromeos/components/tether/mock_tether_host_response_recorder.h"
 #include "chromeos/components/tether/proto/tether.pb.h"
 #include "chromeos/components/tether/proto_test_util.h"
+#include "chromeos/services/device_sync/public/cpp/fake_device_sync_client.h"
+#include "chromeos/services/secure_channel/ble_constants.h"
+#include "chromeos/services/secure_channel/public/cpp/client/fake_secure_channel_client.h"
 #include "components/cryptauth/remote_device_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -120,13 +122,18 @@ class ConnectTetheringOperationTest : public testing::Test {
         test_device_(cryptauth::CreateRemoteDeviceRefListForTest(1)[0]) {}
 
   void SetUp() override {
+    fake_device_sync_client_ =
+        std::make_unique<device_sync::FakeDeviceSyncClient>();
+    fake_secure_channel_client_ =
+        std::make_unique<secure_channel::FakeSecureChannelClient>();
     fake_ble_connection_manager_ = std::make_unique<FakeBleConnectionManager>();
     mock_tether_host_response_recorder_ =
         std::make_unique<StrictMock<MockTetherHostResponseRecorder>>();
     test_observer_ = base::WrapUnique(new TestObserver());
 
     operation_ = base::WrapUnique(new ConnectTetheringOperation(
-        test_device_, fake_ble_connection_manager_.get(),
+        test_device_, fake_device_sync_client_.get(),
+        fake_secure_channel_client_.get(), fake_ble_connection_manager_.get(),
         mock_tether_host_response_recorder_.get(), false /* setup_required */));
     operation_->AddObserver(test_observer_.get());
 
@@ -206,12 +213,15 @@ class ConnectTetheringOperationTest : public testing::Test {
                   kSetupNotRequiredResponseTimeoutSeconds;
 
     EXPECT_EQ(expected_response_timeout_seconds,
-              operation_->GetTimeoutSeconds());
+              operation_->GetMessageTimeoutSeconds());
   }
 
   const std::string connect_tethering_request_string_;
   const cryptauth::RemoteDeviceRef test_device_;
 
+  std::unique_ptr<device_sync::FakeDeviceSyncClient> fake_device_sync_client_;
+  std::unique_ptr<secure_channel::SecureChannelClient>
+      fake_secure_channel_client_;
   std::unique_ptr<FakeBleConnectionManager> fake_ble_connection_manager_;
   std::unique_ptr<StrictMock<MockTetherHostResponseRecorder>>
       mock_tether_host_response_recorder_;
@@ -298,11 +308,12 @@ TEST_F(ConnectTetheringOperationTest, TestCannotConnect) {
 
 TEST_F(ConnectTetheringOperationTest, TestOperation_SetupRequired) {
   operation_ = base::WrapUnique(new ConnectTetheringOperation(
-      test_device_, fake_ble_connection_manager_.get(),
+      test_device_, fake_device_sync_client_.get(),
+      fake_secure_channel_client_.get(), fake_ble_connection_manager_.get(),
       mock_tether_host_response_recorder_.get(), true /* setup_required */));
   VerifyResponseTimeoutSeconds(true /* setup_required */);
 }
 
 }  // namespace tether
 
-}  // namespace cryptauth
+}  // namespace chromeos

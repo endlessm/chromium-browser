@@ -21,32 +21,32 @@
 
 using bookmarks_helper::AddURL;
 
-const char kShortLivedOAuth2Token[] =
-    "{"
-    "  \"refresh_token\": \"short_lived_refresh_token\","
-    "  \"access_token\": \"short_lived_access_token\","
-    "  \"expires_in\": 5,"  // 5 seconds.
-    "  \"token_type\": \"Bearer\""
-    "}";
+constexpr char kShortLivedOAuth2Token[] = R"(
+    {
+      "refresh_token": "short_lived_refresh_token",
+      "access_token": "short_lived_access_token",
+      "expires_in": 5,  // 5 seconds.
+      "token_type": "Bearer"
+    })";
 
-const char kValidOAuth2Token[] = "{"
-                                 "  \"refresh_token\": \"new_refresh_token\","
-                                 "  \"access_token\": \"new_access_token\","
-                                 "  \"expires_in\": 3600,"  // 1 hour.
-                                 "  \"token_type\": \"Bearer\""
-                                 "}";
+constexpr char kValidOAuth2Token[] = R"({
+                                   "refresh_token": "new_refresh_token",
+                                   "access_token": "new_access_token",
+                                   "expires_in": 3600,  // 1 hour.
+                                   "token_type": "Bearer"
+                                 })";
 
-const char kInvalidGrantOAuth2Token[] = "{"
-                                        "  \"error\": \"invalid_grant\""
-                                        "}";
+constexpr char kInvalidGrantOAuth2Token[] = R"({
+                                           "error": "invalid_grant"
+                                        })";
 
-const char kInvalidClientOAuth2Token[] = "{"
-                                         "  \"error\": \"invalid_client\""
-                                         "}";
+constexpr char kInvalidClientOAuth2Token[] = R"({
+                                           "error": "invalid_client"
+                                         })";
 
-const char kEmptyOAuth2Token[] = "";
+constexpr char kEmptyOAuth2Token[] = "";
 
-const char kMalformedOAuth2Token[] = "{ \"foo\": ";
+constexpr char kMalformedOAuth2Token[] = R"({ "foo": )";
 
 // Waits until local changes are committed or an auth error is encountered.
 class TestForAuthError : public UpdatedProgressMarkerChecker {
@@ -105,7 +105,6 @@ class SyncAuthTest : public SyncTest {
     ProfileOAuth2TokenServiceFactory::GetForProfile(GetProfile(0))->
         set_max_authorization_token_fetch_retries_for_testing(0);
   }
-
 
  private:
   int GetNextBookmarkIndex() {
@@ -265,7 +264,8 @@ IN_PROC_BROWSER_TEST_F(SyncAuthTest, RetryInitialSetupWithTransientError) {
 }
 
 // Verify that ProfileSyncService fetches a new token when an old token expires.
-IN_PROC_BROWSER_TEST_F(SyncAuthTest, TokenExpiry) {
+// Disabled due to flakiness: https://crbug.com/860200
+IN_PROC_BROWSER_TEST_F(SyncAuthTest, DISABLED_TokenExpiry) {
   // Initial sync succeeds with a short lived OAuth2 Token.
   ASSERT_TRUE(SetupClients());
   GetFakeServer()->SetAuthenticated();

@@ -15,13 +15,38 @@
 #define LLVM_EXECUTIONENGINE_ORC_IRTRANSFORMLAYER_H
 
 #include "llvm/ExecutionEngine/JITSymbol.h"
-#include "llvm/ExecutionEngine/Orc/Core.h"
+#include "llvm/ExecutionEngine/Orc/Layer.h"
 #include <memory>
 #include <string>
 
 namespace llvm {
 class Module;
 namespace orc {
+
+class IRTransformLayer2 : public IRLayer {
+public:
+
+  using TransformFunction =
+    std::function<Expected<std::unique_ptr<Module>>(std::unique_ptr<Module>)>;
+
+  IRTransformLayer2(ExecutionSession &ES, IRLayer &BaseLayer,
+                    TransformFunction Transform = identityTransform);
+
+  void setTransform(TransformFunction Transform) {
+    this->Transform = std::move(Transform);
+  }
+
+  void emit(MaterializationResponsibility R, VModuleKey K,
+            std::unique_ptr<Module> M) override;
+
+  static std::unique_ptr<Module> identityTransform(std::unique_ptr<Module> M) {
+    return M;
+  }
+
+private:
+  IRLayer &BaseLayer;
+  TransformFunction Transform;
+};
 
 /// IR mutating layer.
 ///

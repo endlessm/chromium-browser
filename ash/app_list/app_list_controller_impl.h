@@ -9,11 +9,12 @@
 #include <string>
 #include <vector>
 
-#include "ash/app_list/app_list_presenter_impl.h"
+#include "ash/app_list/app_list_view_delegate.h"
 #include "ash/app_list/model/app_list_model.h"
 #include "ash/app_list/model/app_list_model_observer.h"
 #include "ash/app_list/model/app_list_view_state.h"
 #include "ash/app_list/model/search/search_model.h"
+#include "ash/app_list/presenter/app_list_presenter_impl.h"
 #include "ash/ash_export.h"
 #include "ash/public/cpp/app_list/app_list_constants.h"
 #include "ash/public/interfaces/app_list.mojom.h"
@@ -21,11 +22,9 @@
 #include "ash/shell_observer.h"
 #include "ash/wallpaper/wallpaper_controller_observer.h"
 #include "ash/wm/tablet_mode/tablet_mode_observer.h"
-#include "base/scoped_observer.h"
 #include "components/sync/model/string_ordinal.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/bindings/interface_ptr_set.h"
-#include "ui/app_list/app_list_view_delegate.h"
 #include "ui/keyboard/keyboard_controller_observer.h"
 
 namespace ui {
@@ -171,8 +170,6 @@ class ASH_EXPORT AppListControllerImpl
   void FlushForTesting();
 
   // ShellObserver:
-  void OnVirtualKeyboardStateChanged(bool activated,
-                                     aura::Window* root_window) override;
   void OnOverviewModeStarting() override;
   void OnOverviewModeEnding() override;
 
@@ -181,7 +178,7 @@ class ASH_EXPORT AppListControllerImpl
   void OnTabletModeEnded() override;
 
   // KeyboardControllerObserver:
-  void OnKeyboardAvailabilityChanged(const bool is_available) override;
+  void OnKeyboardVisibilityStateChanged(bool is_visible) override;
 
   // WallpaperControllerObserver:
   void OnWallpaperColorsChanged() override;
@@ -220,10 +217,6 @@ class ASH_EXPORT AppListControllerImpl
   // Token to view map for classic/mus ash (i.e. non-mash).
   std::unique_ptr<app_list::AnswerCardContentsRegistry>
       answer_card_contents_registry_;
-
-  ScopedObserver<keyboard::KeyboardController,
-                 keyboard::KeyboardControllerObserver>
-      keyboard_observer_;
 
   // Whether the on-screen keyboard is shown.
   bool onscreen_keyboard_shown_ = false;

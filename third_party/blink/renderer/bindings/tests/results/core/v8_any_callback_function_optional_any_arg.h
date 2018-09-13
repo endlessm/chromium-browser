@@ -27,6 +27,9 @@ class CORE_EXPORT V8AnyCallbackFunctionOptionalAnyArg final : public CallbackFun
 
   ~V8AnyCallbackFunctionOptionalAnyArg() override = default;
 
+  // NameClient overrides:
+  const char* NameInHeapSnapshot() const override;
+
   // Performs "invoke".
   // https://heycam.github.io/webidl/#es-invoking-callback-functions
   v8::Maybe<ScriptValue> Invoke(ScriptWrappable* callback_this_value, ScriptValue optionalAnyArg) WARN_UNUSED_RESULT;
@@ -37,7 +40,7 @@ class CORE_EXPORT V8AnyCallbackFunctionOptionalAnyArg final : public CallbackFun
 };
 
 template <>
-class CORE_TEMPLATE_CLASS_EXPORT V8PersistentCallbackFunction<V8AnyCallbackFunctionOptionalAnyArg> final : public V8PersistentCallbackFunctionBase {
+class V8PersistentCallbackFunction<V8AnyCallbackFunctionOptionalAnyArg> final : public V8PersistentCallbackFunctionBase {
   using V8CallbackFunction = V8AnyCallbackFunctionOptionalAnyArg;
 
  public:
@@ -46,7 +49,6 @@ class CORE_TEMPLATE_CLASS_EXPORT V8PersistentCallbackFunction<V8AnyCallbackFunct
   // Returns a wrapper-tracing version of this callback function.
   V8CallbackFunction* ToNonV8Persistent() { return Proxy(); }
 
-  CORE_EXTERN_TEMPLATE_EXPORT
   v8::Maybe<ScriptValue> Invoke(ScriptWrappable* callback_this_value, ScriptValue optionalAnyArg) WARN_UNUSED_RESULT;
 
  private:

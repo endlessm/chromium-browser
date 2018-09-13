@@ -34,8 +34,6 @@
 #include "ui/gl/gl_surface.h"
 #include "ui/gl/init/gl_factory.h"
 
-namespace device {
-
 namespace {
 // Input display coordinates (range 0..1) used with ARCore's
 // transformDisplayUvCoords to calculate the output matrix.
@@ -79,6 +77,18 @@ gfx::Transform ConvertUvsToTransformMatrix(const std::vector<float>& uvs) {
 
 }  // namespace
 
+namespace device {
+
+struct ARCoreHitTestRequest {
+  ARCoreHitTestRequest() = default;
+  ~ARCoreHitTestRequest() = default;
+  mojom::XRRayPtr ray;
+  mojom::VRMagicWindowProvider::RequestHitTestCallback callback;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ARCoreHitTestRequest);
+};
+
 ARCoreGl::ARCoreGl(std::unique_ptr<vr::MailboxToSurfaceBridge> mailbox_bridge)
     : gl_thread_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       arcore_(std::make_unique<ARCoreImpl>()),
@@ -88,7 +98,41 @@ ARCoreGl::ARCoreGl(std::unique_ptr<vr::MailboxToSurfaceBridge> mailbox_bridge)
 
 ARCoreGl::~ARCoreGl() {}
 
-bool ARCoreGl::Initialize() {
+void ARCoreGl::Initialize(base::OnceCallback<void(bool)> callback) {
+  DCHECK(IsOnGlThread());
+
+  // Do not DCHECK !is_initialized to allow multiple calls to correctly
+  // proceed. This method may be called multiple times if a subsequent session
+  // request occurs before the first one completes and the callback is called.
+  // TODO(https://crbug.com/849568): This may not be necessary after
+  // addressing this issue.
+  if (is_initialized_) {
+    std::move(callback).Run(true);
+    return;
+  }
+
+  if (!InitializeGl()) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  if (!arcore_->Initialize()) {
+    DLOG(ERROR) << "ARCore failed to initialize";
+    std::move(callback).Run(false);
+    return;
+  }
+
+  // Set the texture on ARCore to render the camera.
+  arcore_->SetCameraTexture(ar_image_transport_->GetCameraTextureId());
+  // Set the Geometry to ensure consistent behaviour.
+  arcore_->SetDisplayGeometry(gfx::Size(0, 0), display::Display::ROTATE_0);
+
+  is_initialized_ = true;
+
+  std::move(callback).Run(true);
+}
+
+bool ARCoreGl::InitializeGl() {
   DCHECK(IsOnGlThread());
   DCHECK(!is_initialized_);
 
@@ -116,25 +160,16 @@ bool ARCoreGl::Initialize() {
     return false;
   }
 
-  if (!arcore_->Initialize()) {
-    DLOG(ERROR) << "ARCore failed to initialize";
-
-    return false;
-  }
-
   if (!ar_image_transport_->Initialize()) {
     DLOG(ERROR) << "ARImageTransport failed to initialize";
     return false;
   }
-  // Set the texture on ARCore to render the camera.
-  arcore_->SetCameraTexture(ar_image_transport_->GetCameraTextureId());
 
   // Assign the surface and context members now that initialization has
   // succeeded.
   surface_ = std::move(surface);
   context_ = std::move(context);
 
-  is_initialized_ = true;
   return true;
 }
 
@@ -146,56 +181,138 @@ void ARCoreGl::ProduceFrame(
   DCHECK(IsOnGlThread());
   DCHECK(is_initialized_);
 
-  // Set display geometry before calling Update. It's a pending request that
-  // applies to the next frame.
-  // TODO(klausw): Only call if there was a change, this may be an expensive
-  // operation. If there was no change, the previous projection matrix and UV
-  // transform remain valid.
-  gfx::Size transfer_size = frame_size;
-  arcore_->SetDisplayGeometry(transfer_size, display_rotation);
+  // Check if the frame_size and display_rotation updated last frame.
+  if (should_recalculate_uvs_) {
+    // Get the UV transform matrix from ARCore's UV transform.
+    std::vector<float> uvs_transformed =
+        arcore_->TransformDisplayUvCoords(kDisplayCoordinatesForTransform);
+    uv_transform_ = ConvertUvsToTransformMatrix(uvs_transformed);
+
+    // We need near/far distances to make a projection matrix. The actual
+    // values don't matter, the Renderer will recalculate dependent values
+    // based on the application's near/far settngs.
+    constexpr float depth_near = 0.1f;
+    constexpr float depth_far = 1000.f;
+    projection_ = arcore_->GetProjectionMatrix(depth_near, depth_far);
+    should_recalculate_uvs_ = false;
+  }
+
+  if (transfer_size_ != frame_size || display_rotation_ != display_rotation) {
+    // Set display geometry before calling Update. It's a pending request that
+    // applies to the next frame.
+    arcore_->SetDisplayGeometry(frame_size, display_rotation);
+
+    // Store the passed in values to ensure that we can update them only if they
+    // change.
+    transfer_size_ = frame_size;
+    display_rotation_ = display_rotation;
+
+    // Tell the uvs to recalculate on the next animation frame, by which time
+    // SetDisplayGeometry will have set the new values in arcore_.
+    should_recalculate_uvs_ = true;
+  }
 
   TRACE_EVENT_BEGIN0("gpu", "ARCore Update");
-  mojom::VRPosePtr ar_pose = arcore_->Update();
+  bool camera_updated = false;
+  mojom::VRPosePtr pose = arcore_->Update(&camera_updated);
   TRACE_EVENT_END0("gpu", "ARCore Update");
-  if (!ar_pose) {
-    DLOG(ERROR) << "Failed get pose from arcore_->Update()!";
+  if (!camera_updated) {
+    DVLOG(1) << "arcore_->Update() failed";
     std::move(callback).Run(nullptr);
     return;
   }
 
-  // Get the UV transform matrix from ARCore's UV transform. TODO(klausw): do
-  // this only on changes, not every frame.
-  std::vector<float> uvs_transformed =
-      arcore_->TransformDisplayUvCoords(kDisplayCoordinatesForTransform);
-  gfx::Transform uv_transform = ConvertUvsToTransformMatrix(uvs_transformed);
-
   // Transfer the camera image texture to a MailboxHolder for transport to
   // the renderer process.
   gpu::MailboxHolder buffer_holder =
-      ar_image_transport_->TransferFrame(transfer_size, uv_transform);
+      ar_image_transport_->TransferFrame(transfer_size_, uv_transform_);
 
   // Create the frame data to return to the renderer.
-  mojom::VRMagicWindowFrameDataPtr frame_data =
-      mojom::VRMagicWindowFrameData::New();
-  frame_data->pose = std::move(ar_pose);
+  mojom::XRFrameDataPtr frame_data = mojom::XRFrameData::New();
+  frame_data->pose = std::move(pose);
   frame_data->buffer_holder = buffer_holder;
-  frame_data->buffer_size = transfer_size;
+  frame_data->buffer_size = transfer_size_;
   frame_data->time_delta = base::TimeTicks::Now() - base::TimeTicks();
-  // We need near/far distances to make a projection matrix. The actual
-  // values don't matter, the Renderer will recalculate dependent values
-  // based on the application's near/far settngs.
-  constexpr float depth_near = 0.1f;
-  constexpr float depth_far = 1000.f;
-  gfx::Transform projection =
-      arcore_->GetProjectionMatrix(depth_near, depth_far);
   // Convert the Transform's 4x4 matrix to 16 floats in column-major order.
-  frame_data->projection_matrix.resize(16);
-  projection.matrix().asColMajorf(&frame_data->projection_matrix[0]);
+  frame_data->projection_matrix.emplace(16);
+  projection_.matrix().asColMajorf(frame_data->projection_matrix->data());
 
   fps_meter_.AddFrame(base::TimeTicks::Now());
   TRACE_COUNTER1("gpu", "WebXR FPS", fps_meter_.GetFPS());
 
+  // Post a task to finish processing the frame so any calls to
+  // RequestHitTest() that were made during this function, which can block
+  // on the arcore_->Update() call above, can be processed in this frame.
+  gl_thread_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&ARCoreGl::ProcessFrame, weak_ptr_factory_.GetWeakPtr(),
+                     base::Passed(&frame_data), frame_size,
+                     base::Passed(&callback)));
+}
+
+void ARCoreGl::RequestHitTest(
+    mojom::XRRayPtr ray,
+    mojom::VRMagicWindowProvider::RequestHitTestCallback callback) {
+  DCHECK(IsOnGlThread());
+  DCHECK(is_initialized_);
+
+  std::unique_ptr<ARCoreHitTestRequest> request =
+      std::make_unique<ARCoreHitTestRequest>();
+  request->ray = std::move(ray);
+  request->callback = std::move(callback);
+  hit_test_requests_.push_back(std::move(request));
+}
+
+void ARCoreGl::ProcessFrame(
+    mojom::XRFrameDataPtr frame_data,
+    const gfx::Size& frame_size,
+    mojom::VRMagicWindowProvider::GetFrameDataCallback callback) {
+  DCHECK(IsOnGlThread());
+  DCHECK(is_initialized_);
+
+  // The timing requirements for hit-test are documented here:
+  // https://github.com/immersive-web/hit-test/blob/master/explainer.md#timing
+  // The current implementation of frame generation on the renderer side is
+  // 1:1 with calls to this method, so it is safe to fire off the hit-test
+  // results here, one at a time, in the order they were enqueued prior to
+  // running the GetFrameDataCallback.
+  // Since mojo callbacks are processed in order, this will result in the
+  // correct sequence of hit-test callbacks / promise resolutions. If
+  // the implementation of the renderer processing were to change, this
+  // code is fragile and could break depending on the new implementation.
+  // TODO(https://crbug.com/844174): In order to be more correct by design,
+  // hit results should be bundled with the frame data - that way it would be
+  // obvious how the timing between the results and the frame should go.
+  for (auto& request : hit_test_requests_) {
+    std::vector<mojom::XRHitResultPtr> results;
+    if (arcore_->RequestHitTest(request->ray, frame_size, &results)) {
+      std::move(request->callback).Run(std::move(results));
+    } else {
+      // Hit test failed, i.e. unprojected location was offscreen.
+      std::move(request->callback).Run(base::nullopt);
+    }
+  }
+  hit_test_requests_.clear();
+
+  // Running this callback after resolving all the hit-test requests ensures
+  // that we satisfy the guarantee of the WebXR hit-test spec - that the
+  // hit-test promise resolves immediately prior to the frame for which it is
+  // valid.
   std::move(callback).Run(std::move(frame_data));
+}
+
+void ARCoreGl::Pause() {
+  DCHECK(IsOnGlThread());
+  DCHECK(is_initialized_);
+
+  arcore_->Pause();
+}
+
+void ARCoreGl::Resume() {
+  DCHECK(IsOnGlThread());
+  DCHECK(is_initialized_);
+
+  arcore_->Resume();
 }
 
 bool ARCoreGl::IsOnGlThread() const {

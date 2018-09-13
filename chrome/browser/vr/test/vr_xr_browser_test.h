@@ -23,7 +23,7 @@ namespace vr {
 
 // Base browser test class for running VR/XR-related tests.
 // This is essentially a C++ port of the way Android does similar tests in
-// //chrome/android/javatests/src/.../browser/vr_shell/TestFramework.java
+// //chrome/android/javatests/src/.../browser/vr/TestFramework.java
 // This must be subclassed for VR or XR in order to handle the few differences
 // between WebVR and WebXR.
 class VrXrBrowserTestBase : public InProcessBrowserTest {
@@ -114,7 +114,7 @@ class VrXrBrowserTestBase : public InProcessBrowserTest {
       const std::string& js_expression,
       content::WebContents* web_contents);
 
-  // Enters either WebVR presentation or WebXR presentation (exclusive session).
+  // Enters either WebVR presentation or WebXR presentation (immersive session).
   virtual void EnterPresentation(content::WebContents* web_contents) = 0;
 
   // Enters either WebVR presentation or WebXR presentation and waits for the
@@ -125,7 +125,7 @@ class VrXrBrowserTestBase : public InProcessBrowserTest {
   // it is not able to.
   virtual void EnterPresentationOrFail(content::WebContents* web_contents) = 0;
 
-  // Exits either WebVR presentation or WebXR presentation (exclusive session).
+  // Exits either WebVR presentation or WebXR presentation (immersive session).
   virtual void ExitPresentation(content::WebContents* web_contents) = 0;
 
   // Exits either WebVR presentation or WebXR presentation and waits for the

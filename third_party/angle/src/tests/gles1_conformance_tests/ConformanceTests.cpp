@@ -137,37 +137,31 @@ class GLES1ConformanceTest : public ANGLETest
 
 TEST_P(GLES1ConformanceTest, AmbLight)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, AmbLightExec());
 }
 
 TEST_P(GLES1ConformanceTest, AmbMat)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, AmbMatExec());
 }
 
 TEST_P(GLES1ConformanceTest, AmbScene)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, AmbSceneExec());
 }
 
 TEST_P(GLES1ConformanceTest, APFunc)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, APFuncExec());
 }
 
 TEST_P(GLES1ConformanceTest, AtnConst)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, AtnConstExec());
 }
 
 TEST_P(GLES1ConformanceTest, AtnPos)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, AtnPosExec());
 }
 
@@ -193,7 +187,6 @@ TEST_P(GLES1ConformanceTest, Blend)
 
 TEST_P(GLES1ConformanceTest, Clip)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, ClipExec());
 }
 
@@ -204,31 +197,26 @@ TEST_P(GLES1ConformanceTest, ColRamp)
 
 TEST_P(GLES1ConformanceTest, CopyTex)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, CopyTexExec());
 }
 
 TEST_P(GLES1ConformanceTest, DifLight)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, DifLightExec());
 }
 
 TEST_P(GLES1ConformanceTest, DifMat)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, DifMatExec());
 }
 
 TEST_P(GLES1ConformanceTest, DifMatNorm)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, DifMatNormExec());
 }
 
 TEST_P(GLES1ConformanceTest, DifMatPos)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, DifMatPosExec());
 }
 
@@ -239,25 +227,21 @@ TEST_P(GLES1ConformanceTest, Dither)
 
 TEST_P(GLES1ConformanceTest, DivZero)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, DivZeroExec());
 }
 
 TEST_P(GLES1ConformanceTest, EmitMat)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, EmitMatExec());
 }
 
 TEST_P(GLES1ConformanceTest, FogExp)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, FogExpExec());
 }
 
 TEST_P(GLES1ConformanceTest, FogLin)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, FogLinExec());
 }
 
@@ -285,7 +269,6 @@ TEST_P(GLES1ConformanceTest, LogicOp)
 
 TEST_P(GLES1ConformanceTest, Mip)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, MipExec());
 }
 
@@ -297,13 +280,11 @@ TEST_P(GLES1ConformanceTest, MipLevels)
 
 TEST_P(GLES1ConformanceTest, MipLin)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, MipLinExec());
 }
 
 TEST_P(GLES1ConformanceTest, MipSelect)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, MipSelectExec());
 }
 
@@ -319,7 +300,6 @@ TEST_P(GLES1ConformanceTest, MatrixStack)
 
 TEST_P(GLES1ConformanceTest, MultiTex)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, MultiTexExec());
 }
 
@@ -331,7 +311,6 @@ TEST_P(GLES1ConformanceTest, MustPass)
 
 TEST_P(GLES1ConformanceTest, PackedPixels)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, PackedPixelsExec());
 }
 
@@ -343,7 +322,6 @@ TEST_P(GLES1ConformanceTest, PointAntiAlias)
 
 TEST_P(GLES1ConformanceTest, PointRaster)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, PointRasterExec());
 }
 
@@ -380,31 +358,26 @@ TEST_P(GLES1ConformanceTest, SPCorner)
 
 TEST_P(GLES1ConformanceTest, SpecExp)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, SpecExpExec());
 }
 
 TEST_P(GLES1ConformanceTest, SpecExpNorm)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, SpecExpNormExec());
 }
 
 TEST_P(GLES1ConformanceTest, SpecLight)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, SpecLightExec());
 }
 
 TEST_P(GLES1ConformanceTest, SpecMat)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, SpecMatExec());
 }
 
 TEST_P(GLES1ConformanceTest, SpecNorm)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, SpecNormExec());
 }
 
@@ -420,25 +393,21 @@ TEST_P(GLES1ConformanceTest, SPOp)
 
 TEST_P(GLES1ConformanceTest, SpotPos)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, SpotPosExec());
 }
 
 TEST_P(GLES1ConformanceTest, SpotExpPos)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, SpotExpPosExec());
 }
 
 TEST_P(GLES1ConformanceTest, SpotExpDir)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, SpotExpDirExec());
 }
 
 TEST_P(GLES1ConformanceTest, TexDecal)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, TexDecalExec());
 }
 
@@ -450,7 +419,6 @@ TEST_P(GLES1ConformanceTest, TexPalet)
 
 TEST_P(GLES1ConformanceTest, TextureEdgeClamp)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, TextureEdgeClampExec());
 }
 
@@ -476,7 +444,6 @@ TEST_P(GLES1ConformanceTest, ViewportClamp)
 
 TEST_P(GLES1ConformanceTest, XForm)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, XFormExec());
 }
 
@@ -487,19 +454,16 @@ TEST_P(GLES1ConformanceTest, XFormMix)
 
 TEST_P(GLES1ConformanceTest, XFormNormal)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, XFormNormalExec());
 }
 
 TEST_P(GLES1ConformanceTest, XFormViewport)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, XFormViewportExec());
 }
 
 TEST_P(GLES1ConformanceTest, XFormHomogenous)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, XFormHomogenousExec());
 }
 
@@ -525,24 +489,39 @@ TEST_P(GLES1ConformanceTest, MatrixQuery)
 
 TEST_P(GLES1ConformanceTest, BufferObject)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, BufferObjectExec());
 }
 
 TEST_P(GLES1ConformanceTest, PointSizeArray)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, PointSizeArrayExec());
 }
 
 TEST_P(GLES1ConformanceTest, PointSprite)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, PointSpriteExec());
 }
 
 TEST_P(GLES1ConformanceTest, UserClip)
 {
+    // "2.11 Clipping" describes the complementarity criterion, where a
+    // primitive drawn once with a particular clip plane and again with the
+    // negated version of the clip plane must not overdraw for pixels where the
+    // plane equation evaluates exactly to zero; that is, we would need to
+    // detect previously drawn fragments from one clip plane that lie exactly
+    // on the half space boundary, and avoid drawing them if the same primitive
+    // is issued next draw with a negated version of the clip plane.
+    //
+    // TODO(lfy@google.com)
+    // We can skip the test for now, or seed the test with a sufficiently nice
+    // random number so that it still test clip planes, but doesn't have any
+    // pixels exactly on half space boundaries.
+    //
+    // Proper fix would either involve a more complex scheme to track fragments
+    // on the half space boundary and discard or not next draw based on whether
+    // they are hit again, or to pass through to a hardware clip plane
+    // implementation (available in desktop GL or Vulkan)
+
     ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, UserClipExec());
 }
@@ -560,7 +539,6 @@ TEST_P(GLES1ConformanceTest, Gets)
 
 TEST_P(GLES1ConformanceTest, TexCombine)
 {
-    ANGLE_SKIP_TEST_IF(true);
     ASSERT_NE(CONFORMANCE_TEST_ERROR, TexCombineExec());
 }
 

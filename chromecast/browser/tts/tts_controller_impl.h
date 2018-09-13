@@ -30,8 +30,8 @@ class BrowserContext;
 // track of all state.
 class TtsControllerImpl : public TtsController {
  public:
-  // Get the single instance of this class.
-  static TtsControllerImpl* GetInstance();
+  explicit TtsControllerImpl(std::unique_ptr<TtsPlatformImpl> platform_impl);
+  ~TtsControllerImpl() override;
 
   // TtsController methods
   bool IsSpeaking() override;
@@ -49,16 +49,10 @@ class TtsControllerImpl : public TtsController {
   void AddVoicesChangedDelegate(VoicesChangedDelegate* delegate) override;
   void RemoveVoicesChangedDelegate(VoicesChangedDelegate* delegate) override;
   void RemoveUtteranceEventDelegate(UtteranceEventDelegate* delegate) override;
-  void SetTtsEngineDelegate(TtsEngineDelegate* delegate) override;
-  TtsEngineDelegate* GetTtsEngineDelegate() override;
-  void SetPlatformImpl(TtsPlatformImpl* platform_impl) override;
+  void SetPlatformImpl(std::unique_ptr<TtsPlatformImpl> platform_impl) override;
   int QueueSize() override;
 
   std::string GetApplicationLocale() const;
-
- protected:
-  TtsControllerImpl();
-  ~TtsControllerImpl() override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(TtsControllerTest, TestGetMatchingVoice);
@@ -106,12 +100,8 @@ class TtsControllerImpl : public TtsController {
   // A set of delegates that want to be notified when the voices change.
   std::set<VoicesChangedDelegate*> voices_changed_delegates_;
 
-  // A pointer to the platform implementation of text-to-speech, for
-  // dependency injection.
-  TtsPlatformImpl* platform_impl_;
-
-  // The delegate that processes TTS requests with user-installed extensions.
-  TtsEngineDelegate* tts_engine_delegate_;
+  // A pointer to the platform implementation of text-to-speech.
+  std::unique_ptr<TtsPlatformImpl> platform_impl_;
 
   DISALLOW_COPY_AND_ASSIGN(TtsControllerImpl);
 };

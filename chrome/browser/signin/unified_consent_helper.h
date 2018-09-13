@@ -5,13 +5,9 @@
 #ifndef CHROME_BROWSER_SIGNIN_UNIFIED_CONSENT_HELPER_H_
 #define CHROME_BROWSER_SIGNIN_UNIFIED_CONSENT_HELPER_H_
 
-#include "components/signin/core/browser/profile_management_switches.h"
+// TODO(msarda): Move this file in chrome/browser/unified_consent/feature.h
 
 class Profile;
-
-// Returns the state of the "Unified Consent" feature for |profile|.
-signin::UnifiedConsentFeatureState GetUnifiedConsentFeatureState(
-    Profile* profile);
 
 // Returns true if the unified consent feature state is kEnabledNoBump or
 // kEnabledWithBump. Note that the bump may not be enabled, even if this returns

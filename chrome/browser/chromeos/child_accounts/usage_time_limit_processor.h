@@ -9,25 +9,113 @@
 #ifndef CHROME_BROWSER_CHROMEOS_CHILD_ACCOUNTS_USAGE_TIME_LIMIT_PROCESSOR_H_
 #define CHROME_BROWSER_CHROMEOS_CHILD_ACCOUNTS_USAGE_TIME_LIMIT_PROCESSOR_H_
 
-#include <vector>
-
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "chromeos/settings/timezone_settings.h"
 
 namespace chromeos {
 namespace usage_time_limit {
+namespace internal {
+
+enum class Weekday {
+  kSunday = 0,
+  kMonday,
+  kTuesday,
+  kWednesday,
+  kThursday,
+  kFriday,
+  kSaturday,
+  kCount,
+};
+
+struct TimeWindowLimitBoundaries {
+  base::Time starts;
+  base::Time ends;
+};
+
+struct TimeWindowLimitEntry {
+  TimeWindowLimitEntry();
+
+  // Whether the time window limit entry ends on the following day from its
+  // start.
+  bool IsOvernight() const;
+
+  // Returns a pair containing the timestamps for the start and end of a time
+  // window limit. The input parameter is the UTC midnight on of the start day.
+  TimeWindowLimitBoundaries GetLimits(base::Time start_day_midnight);
+
+  // Start time of time window limit. This is the distance from midnight.
+  base::TimeDelta starts_at;
+  // End time of time window limit. This is the distance from midnight.
+  base::TimeDelta ends_at;
+  // Last time this entry was updated.
+  base::Time last_updated;
+};
+
+class TimeWindowLimit {
+ public:
+  TimeWindowLimit(const base::Value& window_limit_dict);
+  ~TimeWindowLimit();
+  TimeWindowLimit(TimeWindowLimit&&);
+  TimeWindowLimit& operator=(TimeWindowLimit&&);
+
+  std::unordered_map<Weekday, base::Optional<TimeWindowLimitEntry>> entries;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(TimeWindowLimit);
+};
+
+struct TimeUsageLimitEntry {
+  TimeUsageLimitEntry();
+
+  base::TimeDelta usage_quota;
+  base::Time last_updated;
+};
+
+class TimeUsageLimit {
+ public:
+  TimeUsageLimit(const base::Value& usage_limit_dict);
+  ~TimeUsageLimit();
+  TimeUsageLimit(TimeUsageLimit&&);
+  TimeUsageLimit& operator=(TimeUsageLimit&&);
+
+  std::unordered_map<Weekday, base::Optional<TimeUsageLimitEntry>> entries;
+  base::TimeDelta resets_at;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(TimeUsageLimit);
+};
+
+class Override {
+ public:
+  enum class Action { kLock, kUnlock };
+
+  Override(const base::Value& override_dict);
+  ~Override();
+  Override(Override&&);
+  Override& operator=(Override&&);
+
+  Action action;
+  base::Time created_at;
+  base::Optional<base::TimeDelta> duration;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(Override);
+};
+
+}  // namespace internal
 
 enum class ActivePolicies {
   kNoActivePolicy,
   kOverride,
-  kFixedLimit,
-  kUsageLimit
+  kFixedLimit,  // Past bed time (ie, 9pm)
+  kUsageLimit   // Too much time on screen (ie, 30 minutes per day)
 };
 
 struct State {
   // Whether the device is currently locked.
-  bool is_locked;
+  bool is_locked = false;
 
   // Which policy is responsible for the current state.
   // If it is locked, one of [ override, fixed_limit, usage_limit ]
@@ -35,11 +123,17 @@ struct State {
   ActivePolicies active_policy;
 
   // Whether time_usage_limit is currently active.
-  bool is_time_usage_limit_enabled;
+  bool is_time_usage_limit_enabled = false;
 
   // Remaining screen usage quota. Only available if
   // is_time_limit_enabled = true
   base::TimeDelta remaining_usage;
+
+  // When the time usage limit started being enforced. Only available when
+  // is_time_usage_limit_enabled = true and remaining_usage is 0, which means
+  // that the time usage limit is enforced, and therefore should have a start
+  // time.
+  base::Time time_usage_limit_started;
 
   // Next epoch time that time limit state could change. This could be the
   // start time of the next fixed window limit, the end time of the current
@@ -49,6 +143,10 @@ struct State {
 
   // The policy that will be active in the next state.
   ActivePolicies next_state_active_policy;
+
+  // This is the next time that the user's session will be unlocked. This is
+  // only set when is_locked=true;
+  base::Time next_unlock_time;
 
   // Last time the state changed.
   base::Time last_state_changed;
@@ -60,12 +158,19 @@ State GetState(const std::unique_ptr<base::DictionaryValue>& time_limit,
                const base::TimeDelta& used_time,
                const base::Time& usage_timestamp,
                const base::Time& current_time,
+               const icu::TimeZone* const time_zone,
                const base::Optional<State>& previous_state);
 
 // Ruturns the expected time that the used time stored should be reseted.
 base::Time GetExpectedResetTime(
     const std::unique_ptr<base::DictionaryValue>& time_limit,
-    base::Time current_time);
+    base::Time current_time,
+    const icu::TimeZone* const time_zone);
+
+// Returns time of the day when TimeUsageLimit policy is reset, represented by
+// the distance from midnight.
+base::TimeDelta GetTimeUsageLimitResetTime(
+    const std::unique_ptr<base::DictionaryValue>& time_limit);
 
 }  // namespace usage_time_limit
 }  // namespace chromeos

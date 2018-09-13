@@ -31,9 +31,9 @@ class SequencedTaskRunner;
 class ImportantFileWriter;
 }  // namespace base
 
-namespace net {
-class URLRequestContextGetter;
-}  // namespace net
+namespace network {
+class SharedURLLoaderFactory;
+}
 
 namespace chromeos {
 
@@ -58,6 +58,9 @@ class CHROMEOS_EXPORT AccountManager {
   // A callback for list of |AccountKey|s.
   using AccountListCallback = base::OnceCallback<void(std::vector<AccountKey>)>;
 
+  using DelayNetworkCallRunner =
+      base::RepeatingCallback<void(const base::RepeatingClosure&)>;
+
   class Observer {
    public:
     Observer();
@@ -73,20 +76,43 @@ class CHROMEOS_EXPORT AccountManager {
     // notification-on-registration.
     virtual void OnTokenUpserted(const AccountKey& account_key) = 0;
 
+    // Called when an account has been removed from AccountManager.
+    // Observers that may have cached access tokens (fetched via
+    // |AccountManager::CreateAccessTokenFetcher|), must clear their cache entry
+    // for this |account_key| on receiving this callback.
+    virtual void OnAccountRemoved(const AccountKey& account_key) = 0;
+
    private:
     DISALLOW_COPY_AND_ASSIGN(Observer);
   };
 
   // Note: |Initialize| MUST be called at least once on this object.
   AccountManager();
-  ~AccountManager();
+  virtual ~AccountManager();
 
   // |home_dir| is the path of the Device Account's home directory (root of the
-  // user's cryptohome). This method MUST be called at least once.
-  void Initialize(const base::FilePath& home_dir);
+  // user's cryptohome).
+  // |request_context| is a non-owning pointer.
+  // |delay_network_call_runner| is basically a wrapper for
+  // |chromeos::DelayNetworkCall|. Cannot use |chromeos::DelayNetworkCall| due
+  // to linking/dependency constraints.
+  // This method MUST be called at least once in the lifetime of AccountManager.
+  void Initialize(
+      const base::FilePath& home_dir,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      DelayNetworkCallRunner delay_network_call_runner);
 
   // Gets (async) a list of account keys known to |AccountManager|.
   void GetAccounts(AccountListCallback callback);
+
+  // Removes an account. Does not do anything if |account_key| is not known by
+  // |AccountManager|.
+  // Observers are notified about an account removal through
+  // |Observer::OnAccountRemoved|.
+  // If the account being removed is a GAIA account, a token revocation with
+  // GAIA is also attempted, on a best effort basis. Even if token revocation
+  // with GAIA fails, AccountManager will forget the account.
+  void RemoveAccount(const AccountKey& account_key);
 
   // Updates or inserts a token, for the account corresponding to the given
   // |account_key|. |account_key| must be valid (|AccountKey::IsValid|).
@@ -99,12 +125,15 @@ class CHROMEOS_EXPORT AccountManager {
   // not in the list of known observers.
   void RemoveObserver(Observer* observer);
 
+  // Gets AccountManager's URL Loader Factory.
+  scoped_refptr<network::SharedURLLoaderFactory> GetUrlLoaderFactory();
+
   // Creates and returns an |OAuth2AccessTokenFetcher| using the refresh token
   // stored for |account_key|. |IsTokenAvailable| should be |true| for
   // |account_key|, otherwise a |nullptr| is returned.
   std::unique_ptr<OAuth2AccessTokenFetcher> CreateAccessTokenFetcher(
       const AccountKey& account_key,
-      net::URLRequestContextGetter* getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       OAuth2AccessTokenConsumer* consumer) const;
 
   // Returns |true| if an LST is available for |account_key|.
@@ -121,14 +150,19 @@ class CHROMEOS_EXPORT AccountManager {
     kInitialized,  // Initialization was successfully completed
   };
 
+  // A util class to revoke Gaia tokens on server. This class is meant to be
+  // used for a single request.
+  class GaiaTokenRevocationRequest;
+
   friend class AccountManagerTest;
   FRIEND_TEST_ALL_PREFIXES(AccountManagerTest, TestInitialization);
-  FRIEND_TEST_ALL_PREFIXES(AccountManagerTest, TestPersistence);
 
-  // Initializes |AccountManager| with the provided |task_runner| and location
-  // of the user's home directory.
-  void Initialize(const base::FilePath& home_dir,
-                  scoped_refptr<base::SequencedTaskRunner> task_runner);
+  // Same as the public |Initialize| except for a |task_runner|.
+  void Initialize(
+      const base::FilePath& home_dir,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      DelayNetworkCallRunner delay_network_call_runner,
+      scoped_refptr<base::SequencedTaskRunner> task_runner);
 
   // Reads tokens from |tokens| and inserts them in |tokens_| and runs all
   // callbacks waiting on |AccountManager| initialization.
@@ -143,6 +177,10 @@ class CHROMEOS_EXPORT AccountManager {
   // |AccountManager| initialization (|init_state_|) is complete.
   void GetAccountsInternal(AccountListCallback callback);
 
+  // Does the actual work of removing an account. Assumes that
+  // |AccountManager| initialization (|init_state_|) is complete.
+  void RemoveAccountInternal(const AccountKey& account_key);
+
   // Does the actual work of updating or inserting tokens. Assumes that
   // |AccountManager| initialization (|init_state_|) is complete.
   void UpsertTokenInternal(const AccountKey& account_key,
@@ -155,8 +193,34 @@ class CHROMEOS_EXPORT AccountManager {
   // Notify |Observer|s about a token update.
   void NotifyTokenObservers(const AccountKey& account_key);
 
+  // Notify |Observer|s about an account removal.
+  void NotifyAccountRemovalObservers(const AccountKey& account_key);
+
+  // Revokes |account_key|'s token on the relevant backend.
+  // Note: Does not do anything if the |account_manager::AccountType|
+  // of |account_key| does not support server token revocation.
+  // Note: Does not do anything if |account_key| is not present in |tokens_|.
+  // Hence, call this method before actually modifying or deleting old tokens
+  // from |tokens_|.
+  void MaybeRevokeTokenOnServer(const AccountKey& account_key);
+
+  // Revokes |refresh_token| with GAIA. Virtual for testing.
+  virtual void RevokeGaiaTokenOnServer(const std::string& refresh_token);
+
+  // Called by |GaiaTokenRevocationRequest| to notify its request completion.
+  // Deletes |request| from |pending_token_revocation_requests_|, if present.
+  void DeletePendingTokenRevocationRequest(GaiaTokenRevocationRequest* request);
+
   // Status of this object's initialization.
   InitializationState init_state_ = InitializationState::kNotStarted;
+
+  // All tokens, if channel bound, are bound to |url_loader_factory_|.
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
+
+  // An indirect way to access |chromeos::DelayNetworkCall|. We cannot use
+  // |chromeos::DelayNetworkCall| directly here due to linking/dependency
+  // issues.
+  DelayNetworkCallRunner delay_network_call_runner_;
 
   // A task runner for disk I/O.
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
@@ -171,6 +235,13 @@ class CHROMEOS_EXPORT AccountManager {
   // A list of |AccountManager| observers.
   // Verifies that the list is empty on destruction.
   base::ObserverList<Observer, true /* check_empty */> observers_;
+
+  // A list of pending token revocation requests.
+  // |AccountManager| is a long living object in general and these requests are
+  // basically one shot fire-and-forget requests but for ASAN tests, we do not
+  // want to have dangling pointers to pending requests.
+  std::vector<std::unique_ptr<GaiaTokenRevocationRequest>>
+      pending_token_revocation_requests_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

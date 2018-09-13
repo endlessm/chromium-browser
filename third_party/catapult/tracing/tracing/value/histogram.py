@@ -233,6 +233,8 @@ class RunningStatistics(object):
   def sum(self):
     return self._sum
 
+  # This returns the variance of the samples after Bessel's correction has
+  # been applied.
   @property
   def variance(self):
     if self.count == 0:
@@ -241,6 +243,8 @@ class RunningStatistics(object):
       return 0
     return self._variance / (self.count - 1)
 
+  # This returns the standard deviation of the samples after Bessel's
+  # correction has been applied.
   @property
   def stddev(self):
     if self.count == 0:
@@ -776,6 +780,7 @@ class HistogramBin(object):
 # TODO(#3814) Presubmit to compare with unit.html.
 UNIT_NAMES = [
     'ms',
+    'msBestFitFormat',
     'tsMs',
     'n%',
     'sizeInBytes',
@@ -1384,9 +1389,42 @@ class HistogramBinBoundaries(object):
 HistogramBinBoundaries.SINGULAR = HistogramBinBoundaries(JS_MAX_VALUE)
 
 
+# The JS version computes these values using tr.b.convertUnit, which is
+# not implemented in Python, so we write them out here.
+def _CreateMsAutoFormatBins():
+  bins = [
+      2000,
+      5000,
+      10000,
+      30000,
+      60000,
+      120000,
+      300000,
+      600000,
+      1800000,
+      3600000,
+      7200000,
+      21600000,
+      43200000,
+      86400000,
+      604800000,
+      2629743840,
+      31556926080
+  ]
+
+  boundaries = HistogramBinBoundaries(0).AddBinBoundary(1).AddExponentialBins(
+      1e3, 3)
+
+  for b in bins:
+    boundaries.AddBinBoundary(b)
+
+  return boundaries
+
+
 DEFAULT_BOUNDARIES_FOR_UNIT = {
     'ms': HistogramBinBoundaries.CreateExponential(1e-3, 1e6, 100),
     'tsMs': HistogramBinBoundaries.CreateLinear(0, 1e10, 1000),
+    'msBestFitFormat': _CreateMsAutoFormatBins(),
     'n%': HistogramBinBoundaries.CreateLinear(0, 1.0, 20),
     'sizeInBytes': HistogramBinBoundaries.CreateExponential(1, 1e12, 100),
     'J': HistogramBinBoundaries.CreateExponential(1e-3, 1e3, 50),

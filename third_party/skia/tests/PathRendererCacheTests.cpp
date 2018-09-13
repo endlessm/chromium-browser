@@ -7,14 +7,14 @@
 
 #include "Test.h"
 
-#include "SkPath.h"
-
-#if SK_SUPPORT_GPU
 #include "GrClip.h"
 #include "GrContext.h"
 #include "GrContextPriv.h"
 #include "GrResourceCache.h"
+#include "GrShape.h"
 #include "GrSoftwarePathRenderer.h"
+#include "GrStyle.h"
+#include "SkPath.h"
 #include "effects/GrPorterDuffXferProcessor.h"
 #include "ops/GrTessellatingPathRenderer.h"
 
@@ -150,5 +150,3 @@ DEF_GPUTEST(SoftwarePathRendererCacheTest, reporter, /* options */) {
     test_path(reporter, create_concave_path, createPR, kExpectedResources, GrAAType::kCoverage,
               style);
 }
-
-#endif

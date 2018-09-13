@@ -7,9 +7,9 @@
 #include <algorithm>
 
 #import "ios/chrome/browser/ui/image_util/image_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
-
 #include "ios/chrome/browser/ui/rtl_geometry.h"
+#import "ios/chrome/browser/ui/table_view/table_view_presentation_controller_delegate.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -58,23 +58,42 @@ const CGFloat kTableViewMaxWidth = 414.0;
 
 @implementation TableViewPresentationController
 @synthesize dimmingShield = _dimmingShield;
+@synthesize modalDelegate = _modalDelegate;
 @synthesize shadowContainer = _shadowContainer;
 @synthesize shadowImage = _shadowImage;
 @synthesize tableViewContainer = _tableViewContainer;
 
 - (CGRect)frameOfPresentedViewInContainerView {
-  // The tableview container should be pinned to the top, bottom, and trailing
-  // edges of the screen, with a fixed margin on those sides.
-  CGFloat containerWidth = CGRectGetWidth(self.containerView.bounds);
-  CGFloat containerHeight = CGRectGetHeight(self.containerView.bounds);
+  CGRect safeAreaBounds = self.containerView.bounds;
+  UIEdgeInsets safeAreaInsets = UIEdgeInsetsZero;
+  if (@available(iOS 11, *)) {
+    safeAreaBounds = self.containerView.safeAreaLayoutGuide.layoutFrame;
+    safeAreaInsets = self.containerView.safeAreaInsets;
+  }
 
-  CGFloat maxAvailableWidth = containerWidth - 2 * kTableViewEdgeMargin;
+  CGFloat safeAreaWidth = CGRectGetWidth(safeAreaBounds);
+  CGFloat safeAreaHeight = CGRectGetHeight(safeAreaBounds);
+
+  CGFloat maxAvailableWidth = safeAreaWidth - 2 * kTableViewEdgeMargin;
   CGFloat tableWidth = std::min(maxAvailableWidth, kTableViewMaxWidth);
 
+  // The leading edge of the bubble, in direction-independent coordinates, is
+  // equal to the width of the containerView's bounds minus:
+  // 1) The width of the safe area on the trailing edge.
+  // 2) The table view edge margin.
+  // 3) The width of the table view itself.
+  CGFloat tableLeadingX = CGRectGetWidth(self.containerView.bounds) -
+                          UIEdgeInsetsGetTrailing(safeAreaInsets) -
+                          kTableViewEdgeMargin - tableWidth;
+  CGFloat containerWidth = CGRectGetWidth(self.containerView.bounds);
+  CGFloat tableOriginY = CGRectGetMinY(safeAreaBounds) + kTableViewTopMargin;
+  CGFloat tableHeight =
+      safeAreaHeight - kTableViewTopMargin - kTableViewEdgeMargin;
+
+  // The tableview container should be pinned to the top, bottom, and trailing
+  // edges of the safe area, with a fixed margin on those sides.
   LayoutRect tableLayoutRect = LayoutRectMake(
-      containerWidth - tableWidth - kTableViewEdgeMargin, containerWidth,
-      kTableViewTopMargin, tableWidth,
-      containerHeight - kTableViewTopMargin - kTableViewEdgeMargin);
+      tableLeadingX, containerWidth, tableOriginY, tableWidth, tableHeight);
   return LayoutRectGetRect(tableLayoutRect);
 }
 
@@ -85,6 +104,10 @@ const CGFloat kTableViewMaxWidth = 414.0;
 - (void)presentationTransitionWillBegin {
   // The dimming view is added first, so that all other views are layered on top
   // of it.
+  BOOL shieldIsModal =
+      self.modalDelegate &&
+      ![self.modalDelegate
+          presentationControllerShouldDismissOnTouchOutside:self];
   self.dimmingShield = [[UIView alloc] init];
   self.dimmingShield.backgroundColor = [UIColor clearColor];
   self.dimmingShield.frame = self.containerView.bounds;
@@ -98,6 +121,7 @@ const CGFloat kTableViewMaxWidth = 414.0;
   self.shadowImage =
       [[UIImageView alloc] initWithImage:StretchableImageNamed(@"menu_shadow")];
   self.shadowImage.translatesAutoresizingMaskIntoConstraints = NO;
+  self.shadowImage.alpha = 0.0;
   [self.shadowContainer addSubview:self.shadowImage];
   AddSameConstraintsToSidesWithInsets(
       self.shadowContainer, self.shadowImage,
@@ -131,10 +155,12 @@ const CGFloat kTableViewMaxWidth = 414.0;
   BOOL animationQueued = [self.presentedViewController.transitionCoordinator
       animateAlongsideTransition:^(
           id<UIViewControllerTransitionCoordinatorContext> _Nonnull context) {
-        self.shadowImage.alpha = 1.0;
+        [self updateDimmingShieldForModal:shieldIsModal];
       }
                       completion:nil];
-  self.shadowImage.alpha = animationQueued ? 0.0 : 1.0;
+  if (!animationQueued) {
+    [self updateDimmingShieldForModal:shieldIsModal];
+  }
 }
 
 - (void)presentationTransitionDidEnd:(BOOL)completed {
@@ -148,6 +174,7 @@ const CGFloat kTableViewMaxWidth = 414.0;
       animateAlongsideTransition:^(
           id<UIViewControllerTransitionCoordinatorContext> _Nonnull context) {
         self.shadowImage.alpha = 0.0;
+        self.dimmingShield.backgroundColor = [UIColor clearColor];
       }
                       completion:nil];
 }
@@ -169,6 +196,25 @@ const CGFloat kTableViewMaxWidth = 414.0;
   self.presentedViewController.view.frame = self.tableViewContainer.bounds;
 }
 
+#pragma mark - TableViewModalPresenting
+
+- (void)setShouldDismissOnTouchOutside:(BOOL)shouldDismiss
+             withTransitionCoordinator:
+                 (id<UIViewControllerTransitionCoordinator>)
+                     transitionCoordinator {
+  if (transitionCoordinator) {
+    auto animation =
+        ^(id<UIViewControllerTransitionCoordinatorContext> context) {
+          [self updateDimmingShieldForModal:!shouldDismiss];
+        };
+    [transitionCoordinator animateAlongsideTransitionInView:self.containerView
+                                                  animation:animation
+                                                 completion:nil];
+  } else {
+    [self updateDimmingShieldForModal:!shouldDismiss];
+  }
+}
+
 #pragma mark - Private Methods
 
 - (void)cleanUpPresentationContainerViews {
@@ -182,11 +228,34 @@ const CGFloat kTableViewMaxWidth = 414.0;
   self.dimmingShield = nil;
 }
 
+// Updates |self.shadowImage.alpha| and |self.dimmingShield.backgroundColor| as
+// appropriate for the given |modal| mode.  This method will animate the changes
+// if it is called from within an animation block.
+- (void)updateDimmingShieldForModal:(BOOL)modal {
+  if (modal) {
+    self.dimmingShield.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.4];
+    self.shadowImage.alpha = 0.0;
+  } else {
+    self.dimmingShield.backgroundColor = [UIColor clearColor];
+    self.shadowImage.alpha = 1.0;
+  }
+}
+
 #pragma mark - Actions
 
 - (void)handleShieldTap {
-  [self.presentedViewController dismissViewControllerAnimated:YES
-                                                   completion:nil];
+  if (self.modalDelegate) {
+    // If a delegate is set, ask it for permission to dismiss, then ask it to
+    // handle the dismissal.
+    if ([self.modalDelegate
+            presentationControllerShouldDismissOnTouchOutside:self]) {
+      [self.modalDelegate presentationControllerWillDismiss:self];
+    }
+  } else {
+    // If no delegate is set, handle the dismissal directly.
+    [self.presentedViewController dismissViewControllerAnimated:YES
+                                                     completion:nil];
+  }
 }
 
 #pragma mark - Adaptivity

@@ -18,6 +18,10 @@
 #include <string>
 #include <vector>
 
+#include <openssl/base.h>
+#include <openssl/x509.h>
+
+#include "test_state.h"
 
 struct TestConfig {
   int port = 0;
@@ -45,7 +49,6 @@ struct TestConfig {
   bool no_tls12 = false;
   bool no_tls11 = false;
   bool no_tls1 = false;
-  bool no_ssl3 = false;
   std::string expected_channel_id;
   bool enable_channel_id = false;
   std::string send_channel_id;
@@ -80,7 +83,6 @@ struct TestConfig {
   bool fail_early_callback = false;
   bool install_ddos_callback = false;
   bool fail_ddos_callback = false;
-  bool fail_second_ddos_callback = false;
   bool fail_cert_callback = false;
   std::string cipher;
   bool handshake_never_done = false;
@@ -161,10 +163,28 @@ struct TestConfig {
   bool set_ocsp_in_callback = false;
   bool decline_ocsp_callback = false;
   bool fail_ocsp_callback = false;
+  bool install_cert_compression_algs = false;
+
+  bssl::UniquePtr<SSL_CTX> SetupCtx(SSL_CTX *old_ctx) const;
+
+  bssl::UniquePtr<SSL> NewSSL(SSL_CTX *ssl_ctx, SSL_SESSION *session,
+                              bool is_resume,
+                              std::unique_ptr<TestState> test_state) const;
 };
 
 bool ParseConfig(int argc, char **argv, TestConfig *out_initial,
                  TestConfig *out_resume, TestConfig *out_retry);
 
+bool SetTestConfig(SSL *ssl, const TestConfig *config);
+
+const TestConfig *GetTestConfig(const SSL *ssl);
+
+bool MoveTestConfig(SSL *dest, SSL *src);
+
+bool LoadCertificate(bssl::UniquePtr<X509> *out_x509,
+                     bssl::UniquePtr<STACK_OF(X509)> *out_chain,
+                     const std::string &file);
+
+bssl::UniquePtr<EVP_PKEY> LoadPrivateKey(const std::string &file);
 
 #endif  // HEADER_TEST_CONFIG

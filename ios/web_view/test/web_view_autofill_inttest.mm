@@ -7,10 +7,11 @@
 
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
-#import "ios/testing/wait_util.h"
-#import "ios/web_view/test/web_view_int_test.h"
+#import "base/test/ios/wait_util.h"
+#import "ios/web_view/test/web_view_inttest_base.h"
 #import "ios/web_view/test/web_view_test_util.h"
 #import "net/base/mac/url_conversions.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest_mac.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 #include "url/gurl.h"
@@ -19,8 +20,8 @@
 #error "This file requires ARC support."
 #endif
 
-using testing::kWaitForActionTimeout;
-using testing::WaitUntilConditionOrTimeout;
+using base::test::ios::kWaitForActionTimeout;
+using base::test::ios::WaitUntilConditionOrTimeout;
 
 namespace ios_web_view {
 
@@ -46,7 +47,7 @@ NSString* const kTestFormHtml =
 }  // namespace
 
 // Tests autofill features in CWVWebViews.
-class WebViewAutofillTest : public WebViewIntTest {
+class WebViewAutofillTest : public WebViewInttestBase {
  protected:
   WebViewAutofillTest() : autofill_controller_(web_view_.autofillController) {}
 
@@ -97,6 +98,7 @@ class WebViewAutofillTest : public WebViewIntTest {
 
 // Tests that CWVAutofillControllerDelegate receives callbacks.
 TEST_F(WebViewAutofillTest, TestDelegateCallbacks) {
+  ASSERT_TRUE(test_server_->Start());
   ASSERT_TRUE(LoadTestPage());
   ASSERT_TRUE(SetFormFieldValue(kTestFieldValue));
 
@@ -166,6 +168,7 @@ TEST_F(WebViewAutofillTest, TestDelegateCallbacks) {
 
 // Tests that CWVAutofillController can fetch, fill, and clear suggestions.
 TEST_F(WebViewAutofillTest, TestSuggestionFetchFillClear) {
+  ASSERT_TRUE(test_server_->Start());
   ASSERT_TRUE(LoadTestPage());
   ASSERT_TRUE(SetFormFieldValue(kTestFieldValue));
   ASSERT_TRUE(SubmitForm());
@@ -199,7 +202,9 @@ TEST_F(WebViewAutofillTest, TestSuggestionFetchFillClear) {
     return [fetched_suggestion.value isEqualToString:filled_value];
   }));
   ASSERT_NSEQ(nil, filled_error);
-  [autofill_controller_ clearFormWithName:kTestFormName completionHandler:nil];
+  [autofill_controller_ clearFormWithName:kTestFormName
+                          fieldIdentifier:kTestFieldID
+                        completionHandler:nil];
   NSString* cleared_script = [NSString
       stringWithFormat:@"document.getElementById('%@').value", kTestFieldID];
   __block NSError* cleared_error = nil;
@@ -216,6 +221,7 @@ TEST_F(WebViewAutofillTest, TestSuggestionFetchFillClear) {
 
 // Tests that CWVAutofillController can remove a suggestion.
 TEST_F(WebViewAutofillTest, TestSuggestionFetchRemoveFetch) {
+  ASSERT_TRUE(test_server_->Start());
   ASSERT_TRUE(LoadTestPage());
   ASSERT_TRUE(SetFormFieldValue(kTestFieldValue));
   ASSERT_TRUE(SubmitForm());

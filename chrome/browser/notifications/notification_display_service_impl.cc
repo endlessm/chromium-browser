@@ -71,10 +71,7 @@ NotificationPlatformBridge* GetNativeNotificationPlatformBridge() {
   if (NotificationPlatformBridgeWin::NativeNotificationEnabled())
     return g_browser_process->notification_platform_bridge();
 #elif defined(OS_CHROMEOS)
-  if (base::FeatureList::IsEnabled(features::kNativeNotifications) ||
-      base::FeatureList::IsEnabled(features::kMash)) {
-    return g_browser_process->notification_platform_bridge();
-  }
+  return g_browser_process->notification_platform_bridge();
 #else
   if (base::FeatureList::IsEnabled(features::kNativeNotifications) &&
       g_browser_process->notification_platform_bridge()) {
@@ -161,19 +158,19 @@ void NotificationDisplayServiceImpl::ProcessNotificationOperation(
   base::OnceClosure completed_closure = base::BindOnce(&OperationCompleted);
 
   switch (operation) {
-    case NotificationCommon::CLICK:
+    case NotificationCommon::OPERATION_CLICK:
       handler->OnClick(profile_, origin, notification_id, action_index, reply,
                        std::move(completed_closure));
       break;
-    case NotificationCommon::CLOSE:
+    case NotificationCommon::OPERATION_CLOSE:
       DCHECK(by_user.has_value());
       handler->OnClose(profile_, origin, notification_id, by_user.value(),
                        std::move(completed_closure));
       break;
-    case NotificationCommon::DISABLE_PERMISSION:
+    case NotificationCommon::OPERATION_DISABLE_PERMISSION:
       handler->DisableNotifications(profile_, origin);
       break;
-    case NotificationCommon::SETTINGS:
+    case NotificationCommon::OPERATION_SETTINGS:
       handler->OpenSettings(profile_, origin);
       break;
   }
@@ -287,7 +284,7 @@ void NotificationDisplayServiceImpl::ProfileLoadedCallback(
 void NotificationDisplayServiceImpl::OnNotificationPlatformBridgeReady(
     bool success) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-#if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
+#if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS) && !defined(OS_CHROMEOS)
   if (base::FeatureList::IsEnabled(features::kNativeNotifications)) {
     UMA_HISTOGRAM_BOOLEAN("Notifications.UsingNativeNotificationCenter",
                           success);

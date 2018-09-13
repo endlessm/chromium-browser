@@ -51,11 +51,16 @@ from dashboard import short_uri
 from dashboard import speed_releasing
 from dashboard import start_try_job
 from dashboard import update_bug_with_results
+from dashboard import update_dashboard_stats
+from dashboard import update_test_suite_descriptors
 from dashboard import update_test_suites
 from dashboard.api import alerts as api_alerts
 from dashboard.api import bugs
+from dashboard.api import describe
 from dashboard.api import list_timeseries
+from dashboard.api import test_suites
 from dashboard.api import timeseries
+from dashboard.api import timeseries2
 
 
 _URL_MAPPING = [
@@ -64,10 +69,14 @@ _URL_MAPPING = [
     ('/add_point', add_point.AddPointHandler),
     ('/add_point_queue', add_point_queue.AddPointQueueHandler),
     ('/alerts', alerts.AlertsHandler),
+    (r'/api/alerts', api_alerts.AlertsHandler),
     (r'/api/alerts/(.*)', api_alerts.AlertsHandler),
     (r'/api/bugs/(.*)', bugs.BugsHandler),
+    (r'/api/describe/(.*)', describe.DescribeHandler),
     (r'/api/list_timeseries/(.*)', list_timeseries.ListTimeseriesHandler),
+    (r'/api/test_suites', test_suites.TestSuitesHandler),
     (r'/api/timeseries/(.*)', timeseries.TimeseriesHandler),
+    (r'/api/timeseries2', timeseries2.Timeseries2Handler),
     ('/associate_alerts', associate_alerts.AssociateAlertsHandler),
     ('/bug_details', bug_details.BugDetailsHandler),
     (r'/buildbucket_job_status/(\d+)',
@@ -117,7 +126,11 @@ _URL_MAPPING = [
     ('/start_try_job', start_try_job.StartBisectHandler),
     ('/update_bug_with_results',
      update_bug_with_results.UpdateBugWithResultsHandler),
+    ('/update_dashboard_stats',
+     update_dashboard_stats.UpdateDashboardStatsHandler),
     ('/update_test_suites', update_test_suites.UpdateTestSuitesHandler),
+    ('/update_test_suite_descriptors',
+     update_test_suite_descriptors.UpdateTestSuiteDescriptorsHandler),
     (oauth2_decorator.DECORATOR.callback_path,
      oauth2_decorator.DECORATOR.callback_handler())
 ]

@@ -1269,6 +1269,12 @@ are listed below.
    devirtualization and virtual constant propagation, for classes with
    :doc:`hidden LTO visibility <LTOVisibility>`. Requires ``-flto``.
 
+.. option:: -fforce-emit-vtables
+
+   In order to improve devirtualization, forces emitting of vtables even in
+   modules where it isn't necessary. It causes more inline virtual functions
+   to be emitted.
+
 .. option:: -fno-assume-sane-operator-new
 
    Don't assume that the C++'s new operator is sane.
@@ -1376,6 +1382,15 @@ are listed below.
         // value of -fmax-type-align.
       }
 
+.. option:: -faddrsig, -fno-addrsig
+
+   Controls whether Clang emits an address-significance table into the object
+   file. Address-significance tables allow linkers to implement `safe ICF
+   <https://research.google.com/pubs/archive/36912.pdf>`_ without the false
+   positives that can result from other implementation techniques such as
+   relocation scanning. Address-significance tables are enabled by default
+   on ELF targets when using the integrated assembler. This flag currently
+   only has an effect on ELF targets.
 
 Profile Guided Optimization
 ---------------------------
@@ -2110,10 +2125,15 @@ Controlling implementation limits
   Sets the limit for recursive constexpr function invocations to N.  The
   default is 512.
 
+.. option:: -fconstexpr-steps=N
+
+  Sets the limit for the number of full-expressions evaluated in a single
+  constant expression evaluation.  The default is 1048576.
+
 .. option:: -ftemplate-depth=N
 
   Sets the limit for recursively nested template instantiations to N.  The
-  default is 256.
+  default is 1024.
 
 .. option:: -foperator-arrow-depth=N
 

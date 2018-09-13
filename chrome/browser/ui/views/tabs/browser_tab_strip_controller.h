@@ -17,6 +17,7 @@
 #include "components/prefs/pref_change_registrar.h"
 
 class Browser;
+class BrowserNonClientFrameView;
 class Tab;
 struct TabRendererData;
 
@@ -66,13 +67,24 @@ class BrowserTabStripController : public TabStripController,
   int HasAvailableDragActions() const override;
   void OnDropIndexUpdate(int index, bool drop_before) override;
   bool IsCompatibleWith(TabStrip* other) const override;
+  NewTabButtonPosition GetNewTabButtonPosition() const override;
   void CreateNewTab() override;
   void CreateNewTabWithLocation(const base::string16& loc) override;
   bool IsIncognito() override;
   void StackedLayoutMaybeChanged() override;
+  bool IsSingleTabModeAvailable() override;
+  bool ShouldDrawStrokes() const override;
   void OnStartedDraggingTabs() override;
   void OnStoppedDraggingTabs() override;
+  bool HasVisibleBackgroundTabShapes() const override;
+  bool EverHasVisibleBackgroundTabShapes() const override;
+  SkColor GetFrameColor() const override;
   SkColor GetToolbarTopSeparatorColor() const override;
+  SkColor GetTabBackgroundColor(TabState active, bool opaque) const override;
+  SkColor GetTabForegroundColor(TabState state) const override;
+  int GetTabBackgroundResourceId(
+      BrowserNonClientFrameView::ActiveState active_state,
+      bool* has_custom_image) const override;
   base::string16 GetAccessibleTabName(const Tab* tab) const override;
   Profile* GetProfile() const override;
 
@@ -117,6 +129,9 @@ class BrowserTabStripController : public TabStripController,
     NEW_TAB,
     EXISTING_TAB
   };
+
+  BrowserNonClientFrameView* GetFrameView();
+  const BrowserNonClientFrameView* GetFrameView() const;
 
   // Returns the TabRendererData for the specified tab.
   TabRendererData TabRendererDataFromModel(content::WebContents* contents,

@@ -7,6 +7,7 @@
 
 from __future__ import print_function
 
+import errno
 import os
 
 from chromite.lib import cros_sdk_lib
@@ -22,20 +23,66 @@ class TestGetChrootVersion(cros_test_lib.MockTestCase):
     """Verify buildroot arg works"""
     read_mock = self.PatchObject(osutils, 'ReadFile', return_value='12\n')
     ret = cros_sdk_lib.GetChrootVersion(buildroot='/build/root')
-    self.assertEqual(ret, '12')
+    self.assertEqual(ret, 12)
     read_mock.assert_called_with('/build/root/chroot/etc/cros_chroot_version')
 
   def testSimpleChroot(self):
     """Verify chroot arg works"""
     read_mock = self.PatchObject(osutils, 'ReadFile', return_value='70')
     ret = cros_sdk_lib.GetChrootVersion(chroot='/ch/root')
-    self.assertEqual(ret, '70')
+    self.assertEqual(ret, 70)
     read_mock.assert_called_with('/ch/root/etc/cros_chroot_version')
 
   def testNoChroot(self):
     """Verify we don't blow up when there is no chroot yet"""
     ret = cros_sdk_lib.GetChrootVersion(chroot='/.$om3/place/nowhere')
     self.assertEqual(ret, None)
+
+  def testInvalidVersion(self):
+    """Verify chroot with non-integer version returns None."""
+    self.PatchObject(osutils, 'ReadFile', return_value='1dog')
+    self.assertIsNone(cros_sdk_lib.GetChrootVersion(chroot='/some/chroot'))
+
+
+class TestIsChrootReady(cros_test_lib.MockTestCase):
+  """Tests IsChrootReady functionality."""
+
+  def testBuildrootArgGoodVersion(self):
+    """Verify buildroot arg works."""
+    read_mock = self.PatchObject(osutils, 'ReadFile', return_value='100\n')
+    self.assertTrue(cros_sdk_lib.IsChrootReady(buildroot='/build/root'))
+    read_mock.assert_called_with('/build/root/chroot/etc/cros_chroot_version')
+
+  def testChrootArgGoodVersion(self):
+    """Verify chroot arg works."""
+    read_mock = self.PatchObject(osutils, 'ReadFile', return_value='100\n')
+    self.assertTrue(cros_sdk_lib.IsChrootReady(chroot='/some/chroot'))
+    read_mock.assert_called_with('/some/chroot/etc/cros_chroot_version')
+
+  def testMissingChroot(self):
+    """Verify missing chroot isn't considered ready."""
+    self.assertFalse(cros_sdk_lib.IsChrootReady('/no/such/chroot'))
+
+  def testMissingVersion(self):
+    """Verify chroot without version file isn't considered ready."""
+    self.PatchObject(osutils, 'ReadFile',
+                     side_effect=IOError(errno.ENOENT, 'No such file'))
+    self.assertFalse(cros_sdk_lib.IsChrootReady(chroot='/some/chroot'))
+
+  def testEmptyVersion(self):
+    """Verify chroot with empty version file isn't considered ready."""
+    self.PatchObject(osutils, 'ReadFile', return_value='')
+    self.assertFalse(cros_sdk_lib.IsChrootReady(chroot='/some/chroot'))
+
+  def testInvalidVersion(self):
+    """Verify chroot with non-integer version isn't considered ready."""
+    self.PatchObject(osutils, 'ReadFile', return_value='1dog')
+    self.assertFalse(cros_sdk_lib.IsChrootReady(chroot='/some/chroot'))
+
+  def testZeroVersion(self):
+    """Verify chroot with version 0 isn't considered ready."""
+    self.PatchObject(osutils, 'ReadFile', return_value='0\n')
+    self.assertFalse(cros_sdk_lib.IsChrootReady(chroot='/some/chroot'))
 
 
 class TestFindVolumeGroupForDevice(cros_test_lib.MockTempDirTestCase):
@@ -452,7 +499,8 @@ class TestCleanupChrootMount(cros_test_lib.MockTempDirTestCase):
   def testMountedCleanupWithDelete(self):
     m = self.PatchObject(osutils, 'UmountTree')
     m2 = self.PatchObject(osutils, 'SafeUnlink')
-    m3 = self.PatchObject(cros_sdk_lib, '_RescanDeviceLvmMetadata')
+    m3 = self.PatchObject(osutils, 'RmDir')
+    m4 = self.PatchObject(cros_sdk_lib, '_RescanDeviceLvmMetadata')
 
     proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
     with open(proc_mounts, 'w') as f:
@@ -465,11 +513,12 @@ class TestCleanupChrootMount(cros_test_lib.MockTempDirTestCase):
       rc_mock.AddCmdResult(self._LOSETUP_DETACH)
 
       cros_sdk_lib.CleanupChrootMount(
-          self.chroot_path, None, delete_image=True, proc_mounts=proc_mounts)
+          self.chroot_path, None, delete=True, proc_mounts=proc_mounts)
 
     m.assert_called_with(self.chroot_path)
     m2.assert_called_with(self.chroot_img)
-    m3.assert_called_with('/dev/loop0')
+    m3.assert_called_with(self.chroot_path, ignore_missing=True, sudo=True)
+    m4.assert_called_with('/dev/loop0')
 
   def testUnmountedCleanup(self):
     m = self.PatchObject(osutils, 'UmountTree')
@@ -543,6 +592,7 @@ class TestCleanupChrootMount(cros_test_lib.MockTempDirTestCase):
     m2 = self.PatchObject(cros_sdk_lib, 'FindVolumeGroupForDevice')
     m2.return_value = 'cros_chroot_001'
     m3 = self.PatchObject(osutils, 'SafeUnlink')
+    m4 = self.PatchObject(osutils, 'RmDir')
 
     proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
     with open(proc_mounts, 'w') as f:
@@ -554,8 +604,9 @@ class TestCleanupChrootMount(cros_test_lib.MockTempDirTestCase):
                            returncode=self._LVM_FAILURE_CODE)
 
       cros_sdk_lib.CleanupChrootMount(
-          self.chroot_path, None, delete_image=True, proc_mounts=proc_mounts)
+          self.chroot_path, None, delete=True, proc_mounts=proc_mounts)
 
     m.assert_called_with(self.chroot_path)
     m2.assert_called_with(self.chroot_path, None)
     m3.assert_called_with(self.chroot_img)
+    m4.assert_called_with(self.chroot_path, ignore_missing=True, sudo=True)

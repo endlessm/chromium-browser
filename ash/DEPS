@@ -1,9 +1,12 @@
 include_rules = [
+  "+device/base/features.h",
   "+device/bluetooth",
   "+cc/debug",
   "+cc/output",
   "+chromeos/cryptohome",
   "+components/account_id",
+  "+components/discardable_memory/public",
+  "+components/discardable_memory/service/discardable_shared_memory_manager.h",
   "+components/exo",
   "+components/pref_registry",
   "+components/prefs",
@@ -28,6 +31,8 @@ include_rules = [
   "+services/service_manager/embedder",
   "+services/service_manager/public",
   "+services/ui/common",
+  "+services/ui/gpu_host/gpu_host.h",
+  "+services/ui/gpu_host/gpu_host_delegate.h",
   "+services/ui/public",
   "+services/ui/ws2",
   "+services/viz/public",
@@ -80,17 +85,13 @@ include_rules = [
   "+chromeos/network",
   "+chromeos/services/assistant/public" ,
   "+chromeos/services/assistant/test_support",
-  "+chromeos/services/multidevice_setup/public/mojom",
+  "+chromeos/services/multidevice_setup/public",
   # TODO(jamescook): Eliminate this. http://crbug.com/644361
   "+chromeos/settings/timezone_settings.h",
   "+chromeos/system",
 
   # InputMethodManager lives in the browser process. Use ImeController.
   "-ui/base/ime/chromeos/input_method_manager.h"
-
-  # Ozone does not run in process in mus/mash.
-  "-ui/events/ozone",
-  "-ui/ozone",
 
   # ui/events/devices is tied with ozone, which is controlled by mus, and
   # shouldn't be used by ash.
@@ -115,6 +116,9 @@ specific_include_rules = {
   "app_launch_unittest.cc": [
     "+ash/components/quick_launch/public",
   ],
+  "ash_service\.*": [
+    "+chromeos/cryptohome",
+  ],
   "message_center_controller\.*": [
     "+components/arc/common/notifications.mojom.h"
   ],
@@ -132,16 +136,18 @@ specific_include_rules = {
     "+ash/host/ash_window_tree_host_init_params.h",
     "+ui/ozone/public"
   ],
-  "shell_port_mus\.cc": [
+  "shell_port_mash\.cc": [
     "+ash/host/ash_window_tree_host_init_params.h",
     "+ash/host/ash_window_tree_host_mus.h",
-    "+ash/host/ash_window_tree_host_mus_mirroring_unified.h",
-    "+ash/host/ash_window_tree_host_mus_unified.h",
   ],
   "window_manager.cc": [
     "+ash/host/ash_window_tree_host.h"
   ],
+  "window_service_delegate_impl.cc": [
+    "+ash/host/ash_window_tree_host.h"
+  ],
   "window_manager_service.cc": [
-    "+chromeos/cryptohome"
+    "+chromeos/cryptohome",
+    "+services/ui/service.h"
   ],
 }

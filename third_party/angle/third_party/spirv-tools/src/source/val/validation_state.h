@@ -18,6 +18,7 @@
 #include <deque>
 #include <set>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -25,14 +26,15 @@
 #include "assembly_grammar.h"
 #include "decoration.h"
 #include "diagnostic.h"
+#include "disassemble.h"
 #include "enum_set.h"
+#include "latest_version_spirv_header.h"
 #include "spirv-tools/libspirv.h"
-#include "spirv/1.2/spirv.h"
 #include "spirv_definition.h"
 #include "val/function.h"
 #include "val/instruction.h"
 
-namespace libspirv {
+namespace spvtools {
 
 /// This enum represents the sections of a SPIRV module. See section 2.4
 /// of the SPIRV spec for additional details of the order. The enumerant values
@@ -56,7 +58,7 @@ enum ModuleLayoutSection {
 /// This class manages the state of the SPIR-V validation as it is being parsed.
 class ValidationState_t {
  public:
-  // Features that can optionally be turned on by a capability.
+  // Features that can optionally be turned on by a capability or environment.
   struct Feature {
     bool declare_int16_type = false;     // Allow OpTypeInt with 16 bit width?
     bool declare_float16_type = false;   // Allow OpTypeFloat with 16 bit width?
@@ -72,10 +74,17 @@ class ValidationState_t {
 
     // Permit group oerations Reduce, InclusiveScan, ExclusiveScan
     bool group_ops_reduce_and_scans = false;
+
+    // Disallows the use of OpUndef
+    bool bans_op_undef = false;
+
+    // Allow OpTypeInt with 8 bit width?
+    bool declare_int8_type = false;
   };
 
   ValidationState_t(const spv_const_context context,
-                    const spv_const_validator_options opt);
+                    const spv_const_validator_options opt,
+                    const uint32_t* words, const size_t num_words);
 
   /// Returns the context
   spv_const_context context() const { return context_; }
@@ -134,7 +143,8 @@ class ValidationState_t {
   /// Determines if the op instruction is part of the current section
   bool IsOpcodeInCurrentLayoutSection(SpvOp op);
 
-  libspirv::DiagnosticStream diag(spv_result_t error_code) const;
+  DiagnosticStream diag(spv_result_t error_code) const;
+  DiagnosticStream diag(spv_result_t error_code, int instruction_counter) const;
 
   /// Returns the function states
   std::deque<Function>& functions();
@@ -154,27 +164,63 @@ class ValidationState_t {
   /// instruction
   bool in_block() const;
 
-  /// Registers the given <id> as an Entry Point.
-  void RegisterEntryPointId(const uint32_t id) {
+  struct EntryPointDescription {
+    std::string name;
+    std::vector<uint32_t> interfaces;
+  };
+
+  /// Registers |id| as an entry point with |execution_model| and |interfaces|.
+  void RegisterEntryPoint(const uint32_t id, SpvExecutionModel execution_model,
+                          EntryPointDescription&& desc) {
     entry_points_.push_back(id);
-    entry_point_interfaces_.insert(std::make_pair(id, std::vector<uint32_t>()));
+    entry_point_to_execution_models_[id].insert(execution_model);
+    entry_point_descriptions_[id].emplace_back(desc);
   }
 
   /// Returns a list of entry point function ids
   const std::vector<uint32_t>& entry_points() const { return entry_points_; }
 
-  /// Adds a new interface id to the interfaces of the given entry point.
-  void RegisterInterfaceForEntryPoint(uint32_t entry_point,
-                                      uint32_t interface) {
-    entry_point_interfaces_[entry_point].push_back(interface);
+  /// Registers execution mode for the given entry point.
+  void RegisterExecutionModeForEntryPoint(uint32_t entry_point,
+                                          SpvExecutionMode execution_mode) {
+    entry_point_to_execution_modes_[entry_point].insert(execution_mode);
   }
 
-  /// Returns the interfaces of a given entry point. If the given id is not a
-  /// valid Entry Point id, std::out_of_range exception is thrown.
-  const std::vector<uint32_t>& entry_point_interfaces(
-      uint32_t entry_point) const {
-    return entry_point_interfaces_.at(entry_point);
+  /// Returns the interface descriptions of a given entry point.
+  const std::vector<EntryPointDescription>& entry_point_descriptions(
+      uint32_t entry_point) {
+    return entry_point_descriptions_.at(entry_point);
   }
+
+  /// Returns Execution Models for the given Entry Point.
+  /// Returns nullptr if none found (would trigger assertion).
+  const std::set<SpvExecutionModel>* GetExecutionModels(
+      uint32_t entry_point) const {
+    const auto it = entry_point_to_execution_models_.find(entry_point);
+    if (it == entry_point_to_execution_models_.end()) {
+      assert(0);
+      return nullptr;
+    }
+    return &it->second;
+  }
+
+  /// Returns Execution Modes for the given Entry Point.
+  /// Returns nullptr if none found.
+  const std::set<SpvExecutionMode>* GetExecutionModes(
+      uint32_t entry_point) const {
+    const auto it = entry_point_to_execution_modes_.find(entry_point);
+    if (it == entry_point_to_execution_modes_.end()) {
+      return nullptr;
+    }
+    return &it->second;
+  }
+
+  /// Traverses call tree and computes function_to_entry_points_.
+  /// Note: called after fully parsing the binary.
+  void ComputeFunctionToEntryPointMapping();
+
+  /// Returns all the entry points that can call |func|.
+  const std::vector<uint32_t>& FunctionEntryPoints(uint32_t func) const;
 
   /// Inserts an <id> to the set of functions that are target of OpFunctionCall.
   void AddFunctionCallTarget(const uint32_t id) {
@@ -214,14 +260,20 @@ class ValidationState_t {
 
   /// Returns true if any of the capabilities is enabled, or if |capabilities|
   /// is an empty set.
-  bool HasAnyOfCapabilities(const libspirv::CapabilitySet& capabilities) const;
+  bool HasAnyOfCapabilities(const CapabilitySet& capabilities) const;
 
   /// Returns true if any of the extensions is enabled, or if |extensions|
   /// is an empty set.
-  bool HasAnyOfExtensions(const libspirv::ExtensionSet& extensions) const;
+  bool HasAnyOfExtensions(const ExtensionSet& extensions) const;
 
   /// Sets the addressing model of this module (logical/physical).
   void set_addressing_model(SpvAddressingModel am);
+
+  /// Returns true if the OpMemoryModel was found.
+  bool has_memory_model_specified() const {
+    return addressing_model_ != SpvAddressingModelMax &&
+           memory_model_ != SpvMemoryModelMax;
+  }
 
   /// Returns the addressing model of this module, or Logical if uninitialized.
   SpvAddressingModel addressing_model() const;
@@ -268,7 +320,14 @@ class ValidationState_t {
     return id_decorations_[id];
   }
   const std::vector<Decoration>& id_decorations(uint32_t id) const {
+    // TODO: This would throw or generate SIGABRT if id has no
+    // decorations. Remove/refactor this function.
     return id_decorations_.at(id);
+  }
+
+  // Returns const pointer to the internal decoration container.
+  const std::map<uint32_t, std::vector<Decoration>>& id_decorations() const {
+    return id_decorations_;
   }
 
   /// Finds id's def, if it exists.  If found, returns the definition otherwise
@@ -413,6 +472,16 @@ class ValidationState_t {
   bool GetPointerTypeInfo(uint32_t id, uint32_t* data_type,
                           uint32_t* storage_class) const;
 
+  // Tries to evaluate a 32-bit signed or unsigned scalar integer constant.
+  // Returns tuple <is_int32, is_const_int32, value>.
+  std::tuple<bool, bool, uint32_t> EvalInt32IfConst(uint32_t id);
+
+  // Returns the disassembly string for the given instruction.
+  std::string Disassemble(const Instruction& inst) const;
+
+  // Returns the disassembly string for the given instruction.
+  std::string Disassemble(const uint32_t* words, uint16_t num_words) const;
+
  private:
   ValidationState_t(const ValidationState_t&);
 
@@ -420,6 +489,10 @@ class ValidationState_t {
 
   /// Stores the Validator command line options. Must be a valid options object.
   const spv_const_validator_options options_;
+
+  /// The SPIR-V binary module we're validating.
+  const uint32_t* words_;
+  const size_t num_words_;
 
   /// Tracks the number of instructions evaluated by the validator
   int instruction_counter_;
@@ -446,10 +519,10 @@ class ValidationState_t {
   std::deque<Function> module_functions_;
 
   /// Capabilities declared in the module
-  libspirv::CapabilitySet module_capabilities_;
+  CapabilitySet module_capabilities_;
 
   /// Extensions declared in the module
-  libspirv::ExtensionSet module_extensions_;
+  ExtensionSet module_extensions_;
 
   /// List of all instructions in the order they appear in the binary
   /// Pointers to objects in this container are guaranteed to be stable and
@@ -462,8 +535,9 @@ class ValidationState_t {
   /// IDs that are entry points, ie, arguments to OpEntryPoint.
   std::vector<uint32_t> entry_points_;
 
-  /// Maps an entry point id to its interfaces.
-  std::unordered_map<uint32_t, std::vector<uint32_t>> entry_point_interfaces_;
+  /// Maps an entry point id to its desciptions.
+  std::unordered_map<uint32_t, std::vector<EntryPointDescription>>
+      entry_point_descriptions_;
 
   /// Functions IDs that are target of OpFunctionCall.
   std::unordered_set<uint32_t> function_call_targets_;
@@ -484,7 +558,7 @@ class ValidationState_t {
   std::unordered_map<uint32_t, uint32_t> struct_nesting_depth_;
 
   /// Stores the list of decorations for a given <id>
-  std::unordered_map<uint32_t, std::vector<Decoration>> id_decorations_;
+  std::map<uint32_t, std::vector<Decoration>> id_decorations_;
 
   /// Stores type declarations which need to be unique (i.e. non-aggregates),
   /// in the form [opcode, operand words], result_id is not stored.
@@ -501,13 +575,28 @@ class ValidationState_t {
   bool in_function_;
 
   /// The state of optional features.  These are determined by capabilities
-  /// declared by the module.
+  /// declared by the module and the environment.
   Feature features_;
 
   /// Maps function ids to function stat objects.
   std::unordered_map<uint32_t, Function*> id_to_function_;
+
+  /// Mapping entry point -> execution models. It is presumed that the same
+  /// function could theoretically be used as 'main' by multiple OpEntryPoint
+  /// instructions.
+  std::unordered_map<uint32_t, std::set<SpvExecutionModel>>
+      entry_point_to_execution_models_;
+
+  /// Mapping entry point -> execution modes.
+  std::unordered_map<uint32_t, std::set<SpvExecutionMode>>
+      entry_point_to_execution_modes_;
+
+  /// Mapping function -> array of entry points inside this
+  /// module which can (indirectly) call the function.
+  std::unordered_map<uint32_t, std::vector<uint32_t>> function_to_entry_points_;
+  const std::vector<uint32_t> empty_ids_;
 };
 
-}  // namespace libspirv
+}  // namespace spvtools
 
 #endif  /// LIBSPIRV_VAL_VALIDATIONSTATE_H_

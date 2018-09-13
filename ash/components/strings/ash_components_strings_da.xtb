@@ -5,6 +5,7 @@
 <translation id="1122869341872663659">Viser <ph name="N" /> søgeresultater for <ph name="QUERY" /></translation>
 <translation id="1195667586424773550">Træk linket til adresselinjen på fanen</translation>
 <translation id="1204450209689312104">Åbn et nyt vindue i inkognitotilstand</translation>
+<translation id="1251638888133819822">Aktivér eller deaktiver forstørrelse af fuld skærm</translation>
 <translation id="1290373024480130896"><ph name="MODIFIER1" /><ph name="SEPARATOR1" /><ph name="MODIFIER2" /><ph name="SEPARATOR2" /><ph name="MODIFIER3" /><ph name="SEPARATOR3" /><ph name="KEY" /></translation>
 <translation id="1293699935367580298">Esc</translation>
 <translation id="1299858300159559687">Udskriv den aktuelle side</translation>
@@ -35,10 +36,11 @@
 <translation id="2397416548179033562">Vis Chrome-menuen</translation>
 <translation id="2424073332829844142">Slå Caps Lock til og fra</translation>
 <translation id="2441202986792279177">Skift hurtigt mellem vinduer</translation>
+<translation id="2454251766545114447">Zoom ud på skærmen</translation>
 <translation id="2478303094958140141">Slå ChromeVox (oplæsning) til eller fra</translation>
 <translation id="2515586267016047495">Alt</translation>
 <translation id="2530339807289914946">Rul ned på websiden</translation>
-<translation id="2568632782096378307">Nulstil skærmopløsningen til standardindstillingen</translation>
+<translation id="2574014812750545982">Nulstil zoomniveauet på siden</translation>
 <translation id="2596078834055697711">Tag screenshot af vinduet</translation>
 <translation id="2685170433750953446"><ph name="SHIFT" /><ph name="SEPARATOR1" /><ph name="ALT" /><ph name="SEPARATOR2" /><ph name="L" /> og derefter <ph name="TAB" /> eller <ph name="RIGHT" /></translation>
 <translation id="2687057317448262550">Skift til næste sprogs indtastningsmetode</translation>
@@ -48,6 +50,7 @@
 <translation id="2789868185375229787">Zoom ud fra siden</translation>
 <translation id="2804480015716812239">Tryk på <ph name="ALT" />, og klik på et link</translation>
 <translation id="2830827904629746450">Fastgør et vindue i højre side</translation>
+<translation id="2840766858109427815">Gå videre til næste side</translation>
 <translation id="2872353916818027657">Skift primær skærm</translation>
 <translation id="2914313326123580426">Vis eller skjul panelet med udviklerværktøj</translation>
 <translation id="292495055542441795">Slå fuld skærm til eller fra</translation>
@@ -62,9 +65,9 @@
 <translation id="3407560819924487926">Se Jobliste</translation>
 <translation id="3422679037938588196">Gå til det forrige match for din søgning</translation>
 <translation id="344577624355799426"><ph name="ALT" /> eller <ph name="SEARCH" /><ph name="SEPARATOR" /><ph name="DOWN" /></translation>
-<translation id="346243998268439747">Nulstil zoomniveauet</translation>
 <translation id="353037708190149633">Gem alle åbne sider i dit nuværende vindue som bogmærker i en ny mappe</translation>
 <translation id="355103131818127604">Åbn linket på en ny fane i baggrunden</translation>
+<translation id="3622741593887335780">Zoom ind (når lupvinduet er fastgjort, ELLER forstørrelse af fuld skærm er aktiveret)</translation>
 <translation id="3649256019230929621">Minimer vinduet</translation>
 <translation id="3655154169297074232">Faner og vinduer</translation>
 <translation id="3668361878347172356">Gentag den sidste handling</translation>
@@ -76,6 +79,7 @@
 <translation id="379295446891231126"><ph name="CTRL" /><ph name="SEPARATOR" /> 1 til 8</translation>
 <translation id="3837047332182291558">Skru op for tastaturets lys (gælder kun for tastaturer med bagbelyste taster)</translation>
 <translation id="3976863468609830880">Klik på det sidste ikon på din hylde</translation>
+<translation id="3994783594793697310">Nulstil zoomniveauet på skærmen</translation>
 <translation id="4026843240379844265">Flyt det aktive vindue fra skærm til skærm</translation>
 <translation id="4035482366624727273">Markér alt på siden</translation>
 <translation id="4060703249685950734">Genåbn den sidste fane eller det sidste vindue, du lukkede</translation>
@@ -86,6 +90,7 @@
 <translation id="4141203561740478845">Fremhæv rækken med adresselinjen</translation>
 <translation id="4148761611071495477"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="G" /> eller <ph name="ENTER" /></translation>
 <translation id="4240486403425279990">Oversigt</translation>
+<translation id="4382340674111381977">Gå tilbage til den forrige side</translation>
 <translation id="4472417192667361414">System- og visningsindstillinger</translation>
 <translation id="4556221320735744018">Se Hjælp til tastaturgenveje</translation>
 <translation id="4628718545549558538">Åbn statusområdet (hvor dit kontobillede vises)</translation>
@@ -102,6 +107,7 @@
 <translation id="5236674127086649162">Genindlæs den aktuelle side uden at bruge cachelagret indhold</translation>
 <translation id="526651782186312376">Markér teksten til begyndelsen af linjen</translation>
 <translation id="5316716239522500219">Spejlvend skærmene</translation>
+<translation id="539072479502328326">Aktivér eller deaktiver fastgjort lupvindue</translation>
 <translation id="5487187679583934283">Starter eller stopper med at indtaste det, du siger</translation>
 <translation id="5541719484267030947">Tryk på <ph name="ESC" />, mens du trækker fanen</translation>
 <translation id="5554139136362089836">Søg på den aktuelle side</translation>
@@ -113,7 +119,6 @@
 <translation id="587531134027443617">Slet det forrige ord</translation>
 <translation id="5899919361772749550">Vis eller skjul konsollen med udviklerværktøjer</translation>
 <translation id="5921745308587794300">Rotér vindue</translation>
-<translation id="5975083100439434680">Zoom ud</translation>
 <translation id="6022924867608035986">Ryd teksten i søgefeltet</translation>
 <translation id="6045998054441862242">Aktivér tilstanden Høj kontrast</translation>
 <translation id="6052614013050385269">Højreklik på et link</translation>
@@ -123,14 +128,15 @@
 <translation id="6185696379715117369">Gå en side op</translation>
 <translation id="6228457605945141550">Skru ned for lysstyrken</translation>
 <translation id="6276708887952587684">Se sidekilden</translation>
-<translation id="6296325018964936845">Slå forstørrelse af fuld skærm til eller fra</translation>
 <translation id="6321940490215594447">Åbn siden Historik</translation>
+<translation id="6340769215862220182">Zoom ind på skærmen</translation>
 <translation id="6359811074279051077"><ph name="MODIFIER" /><ph name="SEPARATOR" /><ph name="KEY" /></translation>
 <translation id="6395172954772765143">Markér teksten til slutningen af linjen</translation>
 <translation id="6419237577786823024"><ph name="CTRL1" /><ph name="SEPARATOR1" /><ph name="LEFT" /> eller <ph name="CTRL2" /><ph name="SEPARATOR2" /><ph name="RIGHT" /></translation>
 <translation id="6425378783626925378">Klik på ikon 1-8 på din hylde</translation>
 <translation id="6435207348963613811">Fremhæv det forrige element på din hylde</translation>
 <translation id="6445033640292336367">Flyt fanen tilbage til sin udgangsposition</translation>
+<translation id="6474744297082284761">Zoom ud (når lupvinduet er fastgjort, ELLER forstørrelse af fuld skærm er aktiveret)</translation>
 <translation id="649811797655257835">Vælg filen, og tryk på <ph name="SPACE" /></translation>
 <translation id="6556040137485212400">Åbn det vindue, der ikke har været brugt i længst tid</translation>
 <translation id="666343722268997814">Åbn højrekliksmenuen for det fremhævede element</translation>
@@ -160,7 +166,6 @@
 <translation id="7787242579016742662">Åbn en fil i browseren</translation>
 <translation id="7917881398263220094">Stop indlæsningen af den aktuelle side</translation>
 <translation id="7952165122793773711">Gå til fane 1 til 8</translation>
-<translation id="8025696740288105292"><ph name="CTRL" /><ph name="SEPARATOR1" /><ph name="SHIFT" /><ph name="SEPARATOR2" /><ph name="PLUS" /> eller <ph name="MINUS" /></translation>
 <translation id="8026334261755873520">Ryd browserdata</translation>
 <translation id="8130528849632411619">Gå til begyndelsen af dokumentet</translation>
 <translation id="8147954207400281792"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="K" /> eller <ph name="E" /></translation>
@@ -174,15 +179,12 @@
 <translation id="8537650670971624753">Afslut søgetilstand</translation>
 <translation id="85690795166292698">Åbn linket på en ny fane</translation>
 <translation id="8609384513243082612">Åbn en ny fane</translation>
-<translation id="8642453848560580159">Slå fastgjort lupvindue til eller fra</translation>
 <translation id="8644639153978066712">Vis skjulte filer i appen Filer</translation>
 <translation id="8717459106217102612">Markér det forrige ord eller bogstav</translation>
 <translation id="8727232706774971183">Se dine underretninger</translation>
 <translation id="8855885154700222542">Tast til fuld skærm</translation>
 <translation id="88986195241502842">Gå en side ned</translation>
-<translation id="8903921497873541725">Zoom ind</translation>
 <translation id="8924883688469390268">Skift til forrige bruger</translation>
-<translation id="8951768610999698672">Gør elementer på skærmen større eller mindre</translation>
 <translation id="8977648847395357314">Markér indholdet i adresselinjen</translation>
 <translation id="8982190978301344584">Se menuen med en liste over tilgængelige IME'er</translation>
 <translation id="8990356943438003669"><ph name="ALT" /><ph name="SEPARATOR" /> 1 til 8</translation>

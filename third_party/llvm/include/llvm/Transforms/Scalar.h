@@ -176,6 +176,12 @@ Pass *createLoopUnswitchPass(bool OptimizeForSize = false,
 
 //===----------------------------------------------------------------------===//
 //
+// LoopInstSimplify - This pass simplifies instructions in a loop's body.
+//
+Pass *createLoopInstSimplifyPass();
+
+//===----------------------------------------------------------------------===//
+//
 // LoopUnroll - This pass is a simple loop unrolling pass.
 //
 Pass *createLoopUnrollPass(int OptLevel = 2, int Threshold = -1, int Count = -1,
@@ -183,6 +189,12 @@ Pass *createLoopUnrollPass(int OptLevel = 2, int Threshold = -1, int Count = -1,
                            int UpperBound = -1, int AllowPeeling = -1);
 // Create an unrolling pass for full unrolling that uses exact trip count only.
 Pass *createSimpleLoopUnrollPass(int OptLevel = 2);
+
+//===----------------------------------------------------------------------===//
+//
+// LoopUnrollAndJam - This pass is a simple loop unroll and jam pass.
+//
+Pass *createLoopUnrollAndJamPass(int OptLevel = 2);
 
 //===----------------------------------------------------------------------===//
 //

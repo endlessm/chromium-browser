@@ -17,6 +17,7 @@
 #include "base/metrics/user_metrics.h"
 #include "base/task_scheduler/post_task.h"
 #include "build/build_config.h"
+#include "chrome/browser/android/feed/feed_host_service_factory.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
@@ -26,6 +27,9 @@
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
+#include "chrome/browser/data_use_measurement/page_load_capping/page_load_capping_blacklist.h"
+#include "chrome/browser/data_use_measurement/page_load_capping/page_load_capping_service.h"
+#include "chrome/browser/data_use_measurement/page_load_capping/page_load_capping_service_factory.h"
 #include "chrome/browser/domain_reliability/service_factory.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
@@ -53,6 +57,7 @@
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/web_data_service_factory.h"
+#include "chrome/browser/webauthn/chrome_authenticator_request_delegate.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -69,6 +74,8 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/device_event_log/device_event_log.h"
 #include "components/domain_reliability/service.h"
+#include "components/feed/core/feed_host_service.h"
+#include "components/feed/core/feed_scheduler_host.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/language/core/browser/url_language_histogram.h"
 #include "components/nacl/browser/nacl_browser.h"
@@ -95,11 +102,13 @@
 #include "net/http/http_transaction_factory.h"
 
 #if defined(OS_ANDROID)
+#include "chrome/browser/android/customtabs/origin_verifier.h"
 #include "chrome/browser/android/oom_intervention/oom_intervention_decider.h"
 #include "chrome/browser/android/search_permissions/search_permissions_service.h"
 #include "chrome/browser/android/webapps/webapp_registry.h"
 #include "chrome/browser/media/android/cdm/media_drm_license_manager.h"
 #include "chrome/browser/offline_pages/offline_page_model_factory.h"
+#include "components/feed/buildflags.h"
 #include "components/offline_pages/core/offline_page_feature.h"
 #include "components/offline_pages/core/offline_page_model.h"
 #include "sql/connection.h"
@@ -118,12 +127,16 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chromeos/attestation/attestation_constants.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
+#include "chromeos/dbus/attestation_constants.h"
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/user_manager/user.h"
 #endif  // defined(OS_CHROMEOS)
+
+#if defined(OS_MACOSX)
+#include "device/fido/mac/browsing_data_deletion.h"
+#endif  // defined(OS_MACOSX)
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 #include "chrome/browser/browsing_data/browsing_data_flash_lso_helper.h"
@@ -204,14 +217,6 @@ void ClearNetworkPredictorOnIOThread(chrome_browser_net::Predictor* predictor) {
 
   predictor->DiscardInitialNavigationHistory();
   predictor->DiscardAllResults();
-}
-
-void ClearHostnameResolutionCacheOnIOThread(
-    IOThread* io_thread,
-    base::RepeatingCallback<bool(const std::string&)> host_filter) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-  io_thread->ClearHostCache(host_filter);
 }
 
 #if defined(OS_ANDROID)
@@ -407,6 +412,16 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
                                                   filter, bookmark_model);
     }
 
+#if defined(OS_ANDROID)
+#if BUILDFLAG(ENABLE_FEED_IN_CHROME)
+    feed::FeedHostService* feed_host_service =
+        feed::FeedHostServiceFactory::GetForBrowserContext(profile_);
+    if (feed_host_service) {
+      feed_host_service->GetSchedulerHost()->OnHistoryCleared();
+    }
+#endif  // BUILDFLAG(ENABLE_FEED_IN_CHROME)
+#endif  // defined(OS_ANDROID)
+
     language::UrlLanguageHistogram* language_histogram =
         UrlLanguageHistogramFactory::GetForBrowserContext(profile_);
     if (language_histogram) {
@@ -436,17 +451,11 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     // Need to clear the host cache and accumulated speculative data, as it also
     // reveals some history. We have no mechanism to track when these items were
     // created, so we'll not honor the time range.
-    // TODO(msramek): We can use the plugin filter here because plugins, same
-    // as the hostname resolution cache, key their entries by hostname. Rename
-    // BuildPluginFilter() to something more general to reflect this use.
-    if (g_browser_process->io_thread()) {
-      BrowserThread::PostTaskAndReply(
-          BrowserThread::IO, FROM_HERE,
-          base::BindOnce(&ClearHostnameResolutionCacheOnIOThread,
-                         g_browser_process->io_thread(),
-                         filter_builder.BuildPluginFilter()),
-          CreatePendingTaskCompletionClosure());
-    }
+    BrowserContext::GetDefaultStoragePartition(profile_)
+        ->GetNetworkContext()
+        ->ClearHostCache(filter_builder.BuildNetworkServiceFilter(),
+                         CreatePendingTaskCompletionClosureForMojo());
+
     if (profile_->GetNetworkPredictor()) {
       // TODO(dmurph): Support all backends with filter (crbug.com/113621).
       BrowserThread::PostTaskAndReply(
@@ -553,6 +562,10 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     // Clear the history information (last launch time and origin URL) of any
     // registered webapps.
     webapp_registry_->ClearWebappHistoryForUrls(filter);
+
+    // The OriginVerifier caches origins for Trusted Web Activities that have
+    // been verified and stores them in Android Preferences.
+    customtabs::OriginVerifier::ClearBrowsingData();
 #endif
 
     data_reduction_proxy::DataReductionProxySettings*
@@ -576,6 +589,15 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     if (previews_service && previews_service->previews_ui_service()) {
       previews_service->previews_ui_service()->ClearBlackList(delete_begin_,
                                                               delete_end_);
+    }
+
+    // |previews_service| is null if |profile_| is off the record.
+    PageLoadCappingService* page_load_capping_service =
+        PageLoadCappingServiceFactory::GetForBrowserContext(profile_);
+    if (page_load_capping_service &&
+        page_load_capping_service->page_load_capping_blacklist()) {
+      page_load_capping_service->page_load_capping_blacklist()->ClearBlackList(
+          delete_begin_, delete_end_);
     }
 
 #if defined(OS_ANDROID)
@@ -683,6 +705,10 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
           HostContentSettingsMap::PatternSourcePredicate());
     }
 
+    host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
+        CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA, delete_begin_, delete_end_,
+        HostContentSettingsMap::PatternSourcePredicate());
+
     auto* handler_registry =
         ProtocolHandlerRegistryFactory::GetForBrowserContext(profile_);
     if (handler_registry)
@@ -775,6 +801,14 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
         ->GetNetworkContext()
         ->ClearHttpAuthCache(delete_begin_,
                              CreatePendingTaskCompletionClosureForMojo());
+
+#if defined(OS_MACOSX)
+    auto authenticator_config = ChromeAuthenticatorRequestDelegate::
+        TouchIdAuthenticatorConfigForProfile(profile_);
+    device::fido::mac::DeleteWebAuthnCredentials(
+        authenticator_config.keychain_access_group,
+        authenticator_config.metadata_secret, delete_begin_, delete_end_);
+#endif  // defined(OS_MACOSX)
   }
 
   if (remove_mask & content::BrowsingDataRemover::DATA_TYPE_COOKIES) {

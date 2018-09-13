@@ -102,7 +102,8 @@ public:
   void EmitLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                              unsigned ByteAlignment) override;
   void EmitZerofill(MCSection *Section, MCSymbol *Symbol = nullptr,
-                    uint64_t Size = 0, unsigned ByteAlignment = 0) override;
+                    uint64_t Size = 0, unsigned ByteAlignment = 0,
+                    SMLoc Loc = SMLoc()) override;
   void EmitTBSSSymbol(MCSection *Section, MCSymbol *Symbol, uint64_t Size,
                       unsigned ByteAlignment = 0) override;
 
@@ -413,9 +414,18 @@ void MCMachOStreamer::EmitLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
 }
 
 void MCMachOStreamer::EmitZerofill(MCSection *Section, MCSymbol *Symbol,
-                                   uint64_t Size, unsigned ByteAlignment) {
-  // On darwin all virtual sections have zerofill type.
-  assert(Section->isVirtualSection() && "Section does not have zerofill type!");
+                                   uint64_t Size, unsigned ByteAlignment,
+                                   SMLoc Loc) {
+  // On darwin all virtual sections have zerofill type. Disallow the usage of
+  // .zerofill in non-virtual functions. If something similar is needed, use
+  // .space or .zero.
+  if (!Section->isVirtualSection()) {
+    getContext().reportError(
+        Loc, "The usage of .zerofill is restricted to sections of "
+             "ZEROFILL type. Use .zero or .space instead.");
+    return; // Early returning here shouldn't harm. EmitZeros should work on any
+            // section.
+  }
 
   PushSection();
   SwitchSection(Section);
@@ -450,6 +460,7 @@ void MCMachOStreamer::EmitInstToData(const MCInst &Inst,
     Fixup.setOffset(Fixup.getOffset() + DF->getContents().size());
     DF->getFixups().push_back(Fixup);
   }
+  DF->setHasInstructions(STI);
   DF->getContents().append(Code.begin(), Code.end());
 }
 
@@ -458,7 +469,30 @@ void MCMachOStreamer::FinishImpl() {
 
   // We have to set the fragment atom associations so we can relax properly for
   // Mach-O.
-  addFragmentAtoms();
+
+  // First, scan the symbol table to build a lookup table from fragments to
+  // defining symbols.
+  DenseMap<const MCFragment *, const MCSymbol *> DefiningSymbolMap;
+  for (const MCSymbol &Symbol : getAssembler().symbols()) {
+    if (getAssembler().isSymbolLinkerVisible(Symbol) && Symbol.isInSection() &&
+        !Symbol.isVariable()) {
+      // An atom defining symbol should never be internal to a fragment.
+      assert(Symbol.getOffset() == 0 &&
+             "Invalid offset in atom defining symbol!");
+      DefiningSymbolMap[Symbol.getFragment()] = &Symbol;
+    }
+  }
+
+  // Set the fragment atom associations by tracking the last seen atom defining
+  // symbol.
+  for (MCSection &Sec : getAssembler()) {
+    const MCSymbol *CurrentAtom = nullptr;
+    for (MCFragment &Frag : Sec) {
+      if (const MCSymbol *Symbol = DefiningSymbolMap.lookup(&Frag))
+        CurrentAtom = Symbol;
+      Frag.setAtom(CurrentAtom);
+    }
+  }
 
   this->MCObjectStreamer::FinishImpl();
 }

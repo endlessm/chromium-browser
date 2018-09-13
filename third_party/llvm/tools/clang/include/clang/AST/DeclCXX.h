@@ -751,6 +751,21 @@ public:
     return const_cast<CXXRecordDecl*>(this)->getMostRecentDecl();
   }
 
+  CXXRecordDecl *getMostRecentNonInjectedDecl() {
+    CXXRecordDecl *Recent =
+        static_cast<CXXRecordDecl *>(this)->getMostRecentDecl();
+    while (Recent->isInjectedClassName()) {
+      // FIXME: Does injected class name need to be in the redeclarations chain?
+      assert(Recent->getPreviousDecl());
+      Recent = Recent->getPreviousDecl();
+    }
+    return Recent;
+  }
+
+  const CXXRecordDecl *getMostRecentNonInjectedDecl() const {
+    return const_cast<CXXRecordDecl*>(this)->getMostRecentNonInjectedDecl();
+  }
+
   CXXRecordDecl *getDefinition() const {
     // We only need an update if we don't already know which
     // declaration is the definition.
@@ -773,6 +788,18 @@ public:
 
   bool isDynamicClass() const {
     return data().Polymorphic || data().NumVBases != 0;
+  }
+
+  /// @returns true if class is dynamic or might be dynamic because the
+  /// definition is incomplete of dependent.
+  bool mayBeDynamicClass() const {
+    return !hasDefinition() || isDynamicClass() || hasAnyDependentBases();
+  }
+
+  /// @returns true if class is non dynamic or might be non dynamic because the
+  /// definition is incomplete of dependent.
+  bool mayBeNonDynamicClass() const {
+    return !hasDefinition() || !isDynamicClass() || hasAnyDependentBases();
   }
 
   void setIsParsingBaseSpecifiers() { data().IsParsingBaseSpecifiers = true; }

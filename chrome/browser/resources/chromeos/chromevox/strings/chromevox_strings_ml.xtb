@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">പാസ്‌വേഡിനായി വാചകം എഡിറ്റുചെയ്യുക</translation>
 <translation id="1802710350767629429">അപ്‌ഡേറ്റ് കുറിപ്പുകൾ കാണിക്കുക</translation>
 <translation id="1810107444790159527">പട്ടിക ബോക്സ്</translation>
+<translation id="1812527064848182527">ലാൻഡ്‌സ്‌കേപ്പ്</translation>
 <translation id="1828385960365606039">മേയ്</translation>
 <translation id="1834891354138622109">നിര</translation>
 <translation id="1845944666972354496">സജ്ജീവമാക്കാൻ രണ്ട് തവണ ടാപ്പ് ചെയ്യുക</translation>
@@ -145,6 +146,7 @@
 <translation id="2416512023405990736">അൺചെക്കുചെയ്‌ത ഒരു ചെക്ക്‌ ബോക്‌സ്</translation>
 <translation id="2417569100218200841">ഉള്ളടക്ക വിവരം</translation>
 <translation id="2417948780551741035">അന്തിമ കുറിപ്പുകൾ</translation>
+<translation id="2421113964388408478">ഇല്ലാതാക്കൽ</translation>
 <translation id="2422937916923936891">മെനു ഇനം ചെക്ക് ബോക്‌സ്</translation>
 <translation id="2428534162001909979">കമാൻഡ് മെനുകൾ</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -252,6 +254,7 @@
 <translation id="3232388865800379423">ഒരു പോപ്പ് അപ്പ് ബട്ടൺ</translation>
 <translation id="3241052487511142956">സന്ദർശിച്ച മുമ്പത്തെ ലിങ്ക്</translation>
 <translation id="3241638166094654466">ഓരോ വരിയിലെയും കളങ്ങൾ:</translation>
+<translation id="3286372614333682499">പോർട്രെയ്‌റ്റ്</translation>
 <translation id="3286390186030710347">സ്ലൈഡർ</translation>
 <translation id="3299925995433437805">സന്ദർശിച്ച അടുത്ത ലിങ്കൊന്നുമില്ല.</translation>
 <translation id="3300348286427369683">റിച്ച് ടെക്‌സ്റ്റ് പിന്തുണ. ജംബ് കമാൻഡുകളും ബ്രെയിലി കഴ്‌സർ റൂട്ടിംഗും തിരഞ്ഞെടുപ്പും മറ്റും ഉൾപ്പെടെ, റിച്ച് ടെക്‌സ്റ്റ് ഫീൽഡുകളെ ChromeVox ഇപ്പോൾ പിന്തുണയ്ക്കുന്നു.</translation>
@@ -425,6 +428,7 @@
 <translation id="4476183483923481720">പുതിയ വരി</translation>
 <translation id="4482330759234983253">മുൻ പട്ടിക</translation>
 <translation id="4491109536499578614">ചിത്രം</translation>
+<translation id="4505167975768625962">ചേർക്കൽ</translation>
 <translation id="4517854969512651305">മൂല്യം കൂട്ടുക</translation>
 <translation id="4529987814483543472">ക്ലാസിക്ക് കീമാപ്പ്</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{സ്ലാഷ്}other{# സ്ലാഷുകൾ}}</translation>
@@ -588,6 +592,7 @@
 <translation id="5712338278108304766">അടുത്ത പട്ടിക നിര</translation>
 <translation id="571866080859340309">പര്യവേക്ഷണ ഗ്രൂപ്പുകൾ</translation>
 <translation id="5728409797179002635">പട്ടികയൊന്നും കണ്ടെത്തിയില്ല.</translation>
+<translation id="5729047866208036762">ഗണിതം അടുത്തറിയാൻ മുകളിലേക്കോ താഴേക്കോ ഇടത്തോട്ടോ വലത്തോട്ടോ അമർത്തുക.</translation>
 <translation id="5732189279857692565">ഇത് രണ്ടാമത്തെ തലക്കെട്ടാണ്. തുടരൂ; തിരയൽ+H അല്ലെങ്കിൽ തിരയൽ+Shift+H അമർത്തുക</translation>
 <translation id="5748623122140342504">മുൻ നില 5 ശീർഷകം</translation>
 <translation id="5750633686117194034">മോഡിഫയർ ഒന്നും അമർത്തിയില്ല; ഒന്നോ അതിലധികമോ മോഡിഫയറുകൾ അമർത്തിപ്പിടിക്കുക; പൂർത്തിയാക്കിക്കഴിഞ്ഞാൽ വിരലുകൾ എടുക്കുക, തുടർന്ന് നിങ്ങൾ സജ്ജമാക്കിയ കീകൾ കേൾക്കും. പുറത്തുകടക്കാൻ ടാബ് അമർത്തുക.</translation>
@@ -743,6 +748,7 @@ Chrome ബ്രൗസർ മെനു തുറക്കാൻ, ആൾട്ട
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">6 ഡോട്ട് ബ്രെയ്‌ലി പട്ടിക തിരഞ്ഞെടുക്കുക:</translation>
 <translation id="72393384879519786">ശീർഷകം</translation>
+<translation id="7240858705033280249">വിശദാംശങ്ങളിലേക്ക് പോവുക</translation>
 <translation id="7241683698754534149">ദൈർഘ്യമേറിയ വിവരണം പുതിയ ടാബിൽ തുറക്കുക</translation>
 <translation id="7248671827512403053">അപ്ലിക്കേഷന്‍</translation>
 <translation id="725969808843520477">അടുത്ത റേഡിയോ ബട്ടൺ</translation>
@@ -919,6 +925,7 @@ Chrome ബ്രൗസർ മെനു തുറക്കാൻ, ആൾട്ട
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">8 ഡോട്ട് ബ്രെയ്‌ലി പട്ടിക തിരഞ്ഞെടുക്കുക:</translation>
 <translation id="9065283790526219006">+പോപ്പ്അപ്പ്</translation>
+<translation id="9066023754636984703">വിശദാംശങ്ങളിലേക്ക് പോകാൻ Search+A, J അമർത്തുക.</translation>
 <translation id="9067522039955793016">പേജ് ബ്രേക്ക്</translation>
 <translation id="9077213568694924680">തിരഞ്ഞെടുത്തതിൽ നിന്നും നീക്കംചെയ്‌തു</translation>
 <translation id="9082874451376019682">മുൻ സ്ലൈഡർ ഒന്നുമില്ല.</translation>

@@ -21,7 +21,6 @@ from telemetry.internal.backends.chrome_inspector import window_manager_backend
 from telemetry.internal.platform.tracing_agent import chrome_tracing_agent
 from telemetry.internal.platform.tracing_agent import (
     chrome_tracing_devtools_manager)
-from tracing.trace_data import trace_data as trace_data_module
 
 import py_utils
 
@@ -169,7 +168,6 @@ class DevToolsClientBackend(object):
     self._memory_backend = None
     self._system_info_backend = None
     self._wm_backend = None
-    self._tab_ids = None
 
     self._devtools_http = devtools_http.DevToolsHttp(
         self._devtools_config.local_port)
@@ -433,33 +431,37 @@ class DevToolsClientBackend(object):
 
   def StopChromeTracing(self):
     assert self.is_tracing_running
-    self._tab_ids = []
     try:
-      context_map = self.GetUpdatedInspectableContexts()
-      for context in context_map.contexts:
-        if context['type'] not in ['iframe', 'page', 'webview']:
-          continue
-        context_id = context['id']
-        backend = context_map.GetInspectorBackend(context_id)
-        backend.EvaluateJavaScript(
-            """
-            console.time({{ backend_id }});
-            console.timeEnd({{ backend_id }});
-            console.time.toString().indexOf('[native code]') != -1;
-            """,
-            backend_id=backend.id)
-        self._tab_ids.append(backend.id)
+      backend = self.FirstTabBackend()
+      if backend is not None:
+        backend.AddTimelineMarker('first-renderer-thread')
+        backend.AddTimelineMarker(backend.id)
+      else:
+        logging.warning('No page inspector backend found.')
     finally:
       self._tracing_backend.StopTracing()
 
+  def _IterInspectorBackends(self, types):
+    """Iterate over inspector backends from this client.
+
+    Note: The devtools client might list contexts which, howerver, do not yet
+    have a live DevTools instance to connect to (e.g. background tabs which may
+    have been discarded or not yet created). In such case this method will hang
+    and eventually timeout when trying to create an inspector backend to
+    communicate with such contexts.
+    """
+    context_map = self.GetUpdatedInspectableContexts()
+    for context in context_map.contexts:
+      if context['type'] in types:
+        yield context_map.GetInspectorBackend(context['id'])
+
+  def FirstTabBackend(self):
+    """Obtain the inspector backend for the firstly created tab."""
+    return next(self._IterInspectorBackends(['page']), None)
+
   def CollectChromeTracingData(self, trace_data_builder, timeout=60):
     self._CreateTracingBackendIfNeeded()
-    try:
-      trace_data_builder.AddTraceFor(
-          trace_data_module.TAB_ID_PART, self._tab_ids[:])
-      self._tab_ids = None
-    finally:
-      self._tracing_backend.CollectTraceData(trace_data_builder, timeout)
+    self._tracing_backend.CollectTraceData(trace_data_builder, timeout)
 
   # This call may be made early during browser bringup and may cause the
   # GPU process to launch, which takes a long time in Debug builds and

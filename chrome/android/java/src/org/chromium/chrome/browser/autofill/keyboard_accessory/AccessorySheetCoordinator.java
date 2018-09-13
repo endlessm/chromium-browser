@@ -9,8 +9,10 @@ import android.support.v4.view.PagerAdapter;
 import android.support.v4.view.ViewPager;
 import android.view.ViewStub;
 
+import org.chromium.base.Supplier;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.browser.modelutil.LazyViewBinderAdapter;
+import org.chromium.chrome.browser.modelutil.ListModelChangeProcessor;
 import org.chromium.chrome.browser.modelutil.PropertyModelChangeProcessor;
 
 /**
@@ -21,31 +23,47 @@ import org.chromium.chrome.browser.modelutil.PropertyModelChangeProcessor;
  */
 public class AccessorySheetCoordinator {
     private final AccessorySheetMediator mMediator;
+    private final Supplier<ViewPager.OnPageChangeListener> mProvider;
 
     /**
      * Creates the sheet component by instantiating Model, View and Controller before wiring these
      * parts up.
      * @param viewStub The view stub that can be inflated into the accessory layout.
+     * @param provider The provider of a {@link ViewPager.OnPageChangeListener} used for navigation.
      */
-    public AccessorySheetCoordinator(ViewStub viewStub) {
+    public AccessorySheetCoordinator(
+            ViewStub viewStub, Supplier<ViewPager.OnPageChangeListener> provider) {
+        mProvider = provider;
         LazyViewBinderAdapter.StubHolder<ViewPager> stubHolder =
                 new LazyViewBinderAdapter.StubHolder<>(viewStub);
         AccessorySheetModel model = new AccessorySheetModel();
-        model.addObserver(new PropertyModelChangeProcessor<>(
-                model, stubHolder, new LazyViewBinderAdapter<>(new AccessorySheetViewBinder())));
+        model.addObserver(new PropertyModelChangeProcessor<>(model, stubHolder,
+                new LazyViewBinderAdapter<>(
+                        new AccessorySheetViewBinder(), this::onViewInflated)));
+        KeyboardAccessoryMetricsRecorder.recordModelChanges(model);
         mMediator = new AccessorySheetMediator(model);
     }
 
     /**
      * Creates the {@link PagerAdapter} for the newly inflated {@link ViewPager}.
-     * If any ListModelChangeProcessor<> is needed, it would be created here. Currently, connecting
-     * the model.getTabList() to the tabViewBinder would have no effect as only the change of
-     * ACTIVE_TAB affects the view.
+     * The created adapter observes the given model for item changes and updates the view pager.
      * @param model The model containing the list of tabs to be displayed.
      * @return A fully initialized {@link PagerAdapter}.
      */
-    static PagerAdapter createTabViewAdapter(AccessorySheetModel model) {
-        return new AccessoryPagerAdapter(model.getTabList());
+    static PagerAdapter createTabViewAdapter(AccessorySheetModel model, ViewPager inflatedView) {
+        AccessoryPagerAdapter adapter = new AccessoryPagerAdapter(model.getTabList());
+        model.getTabList().addObserver(
+                new ListModelChangeProcessor<>(model.getTabList(), inflatedView, adapter));
+        return adapter;
+    }
+
+    /**
+     * Called by the {@link LazyViewBinderAdapter} as soon as the view is inflated so it can be
+     * initialized. This call happens before the {@link AccessorySheetViewBinder} is called for the
+     * first time.
+     */
+    private void onViewInflated(ViewPager view) {
+        view.addOnPageChangeListener(mProvider.get());
     }
 
     /**
@@ -59,6 +77,14 @@ public class AccessorySheetCoordinator {
         mMediator.addTab(tab);
     }
 
+    void removeTab(KeyboardAccessoryData.Tab tab) {
+        mMediator.removeTab(tab);
+    }
+
+    void setTabs(KeyboardAccessoryData.Tab[] tabs) {
+        mMediator.setTabs(tabs);
+    }
+
     /**
      * Returns a {@link KeyboardAccessoryData.Tab} object that is used to display this bottom sheet.
      * @return Returns a {@link KeyboardAccessoryData.Tab}.
@@ -68,8 +94,38 @@ public class AccessorySheetCoordinator {
         return mMediator.getTab();
     }
 
+    /**
+     * Shows the Accessory Sheet.
+     */
+    public void show() {
+        mMediator.show();
+    }
+
+    /**
+     * Hides the Accessory Sheet.
+     */
+    public void hide() {
+        mMediator.hide();
+    }
+
+    /**
+     * Returns whether the accessory sheet is currently visible.
+     * @return True, if the accessory sheet is visible.
+     */
+    public boolean isShown() {
+        return mMediator.isShown();
+    }
+
     @VisibleForTesting
     AccessorySheetMediator getMediatorForTesting() {
         return mMediator;
+    }
+
+    /**
+     * Calling this function changes the active tab to the tab at the given |position|.
+     * @param position The index of the tab (starting with 0) that should be set active.
+     */
+    public void setActiveTab(int position) {
+        mMediator.setActiveTab(position);
     }
 }

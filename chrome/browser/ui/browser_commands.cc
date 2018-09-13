@@ -30,6 +30,7 @@
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/accelerator_utils.h"
+#include "chrome/browser/ui/autofill/local_card_migration_bubble_controller_impl.h"
 #include "chrome/browser/ui/autofill/save_card_bubble_controller_impl.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils_desktop.h"
@@ -100,7 +101,7 @@
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/ui/extensions/settings_api_bubble_helpers.h"
-#include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/web_applications/extensions/web_app_extension_helpers.h"
 #include "chrome/common/extensions/extension_metrics.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "extensions/browser/extension_registry.h"
@@ -841,6 +842,15 @@ void SaveCreditCard(Browser* browser) {
   controller->ReshowBubble();
 }
 
+void MigrateLocalCards(Browser* browser) {
+  WebContents* web_contents =
+      browser->tab_strip_model()->GetActiveWebContents();
+  autofill::LocalCardMigrationBubbleControllerImpl* controller =
+      autofill::LocalCardMigrationBubbleControllerImpl::FromWebContents(
+          web_contents);
+  controller->ReshowBubble();
+}
+
 void Translate(Browser* browser) {
   if (!browser->window()->IsActive())
     return;
@@ -1217,6 +1227,14 @@ bool CanViewSource(const Browser* browser) {
       browser->tab_strip_model()->GetActiveWebContents()->GetController().
           CanViewSource();
 }
+
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+void ToggleConfirmToQuitOption(Browser* browser) {
+  PrefService* pref_service = browser->profile()->GetPrefs();
+  bool enabled = pref_service->GetBoolean(prefs::kConfirmToQuitEnabled);
+  pref_service->SetBoolean(prefs::kConfirmToQuitEnabled, !enabled);
+}
+#endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 void CreateBookmarkAppFromCurrentWebContents(Browser* browser) {

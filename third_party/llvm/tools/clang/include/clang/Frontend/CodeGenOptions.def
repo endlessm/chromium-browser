@@ -110,7 +110,7 @@ CODEGENOPT(LessPreciseFPMAD  , 1, 0) ///< Enable less precise MAD instructions t
                                      ///< be generated.
 CODEGENOPT(PrepareForLTO     , 1, 0) ///< Set when -flto is enabled on the
                                      ///< compile step.
-CODEGENOPT(EmitSummaryIndex, 1, 0)   ///< Set when -flto=thin is enabled on the
+CODEGENOPT(PrepareForThinLTO , 1, 0) ///< Set when -flto=thin is enabled on the
                                      ///< compile step.
 CODEGENOPT(LTOUnit, 1, 0) ///< Emit IR to support LTO unit features (CFI, whole
                           ///< program vtable opt).
@@ -130,6 +130,7 @@ CODEGENOPT(EnableSegmentedStacks , 1, 0) ///< Set when -fsplit-stack is enabled.
 CODEGENOPT(NoImplicitFloat   , 1, 0) ///< Set when -mno-implicit-float is enabled.
 CODEGENOPT(NoInfsFPMath      , 1, 0) ///< Assume FP arguments, results not +-Inf.
 CODEGENOPT(NoSignedZeros     , 1, 0) ///< Allow ignoring the signedness of FP zero
+CODEGENOPT(NullPointerIsValid , 1, 0) ///< Assume Null pointer deference is defined.
 CODEGENOPT(Reassociate       , 1, 0) ///< Allow reassociation of FP math ops
 CODEGENOPT(ReciprocalMath    , 1, 0) ///< Allow FP divisions to be reassociated.
 CODEGENOPT(NoTrappingMath    , 1, 0) ///< Set when -fno-trapping-math is enabled.
@@ -331,6 +332,13 @@ CODEGENOPT(NoPLT, 1, 0)
 
 /// Whether to embed source in DWARF debug line section.
 CODEGENOPT(EmbedSource, 1, 0)
+
+/// Whether to emit all vtables
+CODEGENOPT(ForceEmitVTables, 1, 0)
+
+/// Whether to emit an address-significance table into the object file.
+CODEGENOPT(Addrsig, 1, 0)
+
 
 #undef CODEGENOPT
 #undef ENUM_CODEGENOPT

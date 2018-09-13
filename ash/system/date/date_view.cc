@@ -4,10 +4,11 @@
 
 #include "ash/system/date/date_view.h"
 
+#include "ash/session/session_controller.h"
+#include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/model/clock_model.h"
 #include "ash/system/model/system_tray_model.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_popup_item_style.h"
 #include "ash/system/tray/tray_popup_utils.h"
@@ -293,6 +294,17 @@ void TimeView::UpdateClockLayout(ClockLayout clock_layout) {
         0, kTrayImageItemPadding + kVerticalClockMinutesTopOffset);
   }
   Layout();
+}
+
+void TimeView::SetTextColorBasedOnSession(
+    session_manager::SessionState session_state) {
+  auto set_color = [&](std::unique_ptr<views::Label>& label) {
+    label->SetEnabledColor(TrayIconColor(session_state));
+  };
+
+  set_color(horizontal_label_);
+  set_color(vertical_label_hours_);
+  set_color(vertical_label_minutes_);
 }
 
 void TimeView::Refresh() {

@@ -6,8 +6,10 @@
 #define CHROMEOS_SERVICES_SECURE_CHANNEL_CONNECT_TO_DEVICE_OPERATION_H_
 
 #include "base/callback.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "chromeos/components/proximity_auth/logging/logging.h"
+#include "chromeos/services/secure_channel/public/cpp/shared/connection_priority.h"
 
 namespace chromeos {
 
@@ -24,69 +26,85 @@ class ConnectToDeviceOperation {
  public:
   using ConnectionSuccessCallback =
       base::OnceCallback<void(std::unique_ptr<AuthenticatedChannel>)>;
-  using ConnectionFailedCallback = base::OnceCallback<void(FailureDetailType)>;
+  using ConnectionFailedCallback =
+      base::RepeatingCallback<void(FailureDetailType)>;
 
   virtual ~ConnectToDeviceOperation() {
-    if (!is_active_)
+    if (has_finished_)
       return;
 
     PA_LOG(ERROR) << "ConnectToDeviceOperation::~ConnectToDeviceOperation(): "
                   << "Operation deleted before it finished or was canceled.";
+    NOTREACHED();
+  }
+
+  // Updates the priority for this operation.
+  void UpdateConnectionPriority(ConnectionPriority connection_priority) {
+    if (has_finished_) {
+      PA_LOG(ERROR) << "ConnectToDeviceOperation::UpdateConnectionPriority(): "
+                    << "Connection priority update requested, but the "
+                    << "operation was no longer active.";
+      NOTREACHED();
+      return;
+    }
+
+    connection_priority_ = connection_priority;
+    PerformUpdateConnectionPriority(connection_priority);
   }
 
   // Note: Canceling an ongoing connection attempt will not cause either of the
   // success/failure callbacks passed to the constructor to be invoked.
   void Cancel() {
-    if (!is_active_) {
+    if (has_finished_) {
       PA_LOG(ERROR) << "ConnectToDeviceOperation::Cancel(): Tried to cancel "
                     << "operation after it had already finished.";
+      NOTREACHED();
       return;
     }
 
-    is_active_ = false;
+    has_finished_ = true;
     PerformCancellation();
+  }
+
+  ConnectionPriority connection_priority() const {
+    return connection_priority_;
   }
 
  protected:
   ConnectToDeviceOperation(ConnectionSuccessCallback success_callback,
-                           ConnectionFailedCallback failure_callback)
+                           const ConnectionFailedCallback& failure_callback,
+                           ConnectionPriority connection_priority)
       : success_callback_(std::move(success_callback)),
-        failure_callback_(std::move(failure_callback)) {}
+        failure_callback_(failure_callback),
+        connection_priority_(connection_priority) {}
 
-  // Derived types should implement this function to perform the actual
-  // cancellation logic.
   virtual void PerformCancellation() = 0;
+  virtual void PerformUpdateConnectionPriority(
+      ConnectionPriority connection_priority) = 0;
 
   void OnSuccessfulConnectionAttempt(
       std::unique_ptr<AuthenticatedChannel> authenticated_channel) {
-    if (!is_active_) {
+    if (has_finished_) {
       PA_LOG(ERROR) << "ConnectToDeviceOperation::"
                     << "OnSuccessfulConnectionAttempt(): Tried to "
                     << "complete operation after it had already finished.";
       return;
     }
 
-    is_active_ = false;
+    has_finished_ = true;
     std::move(success_callback_).Run(std::move(authenticated_channel));
   }
 
   void OnFailedConnectionAttempt(FailureDetailType failure_detail) {
-    if (!is_active_) {
-      PA_LOG(ERROR) << "ConnectToDeviceOperation::"
-                    << "OnFailedConnectionAttempt(): Tried to "
-                    << "complete operation after it had already finished.";
-      return;
-    }
-
-    is_active_ = false;
-    std::move(failure_callback_).Run(failure_detail);
+    failure_callback_.Run(failure_detail);
   }
 
  private:
-  bool is_active_ = true;
+  bool has_finished_ = false;
 
   ConnectionSuccessCallback success_callback_;
   ConnectionFailedCallback failure_callback_;
+  ConnectionPriority connection_priority_;
 
   DISALLOW_COPY_AND_ASSIGN(ConnectToDeviceOperation);
 };

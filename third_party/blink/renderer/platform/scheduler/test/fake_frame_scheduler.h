@@ -7,9 +7,10 @@
 
 #include <deque>
 
-#include "third_party/blink/renderer/platform/scheduler/child/worker_scheduler_proxy.h"
+#include "third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/main_thread_task_queue.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
+#include "third_party/blink/renderer/platform/scheduler/worker/worker_scheduler_proxy.h"
 
 namespace blink {
 namespace scheduler {
@@ -28,7 +29,7 @@ class MainThreadTaskQueueForTest : public MainThreadTaskQueue {
 };
 
 // A dummy FrameScheduler for tests.
-class FakeFrameScheduler : public FrameScheduler {
+class FakeFrameScheduler : public FrameSchedulerImpl {
  public:
   FakeFrameScheduler()
       : page_scheduler_(nullptr),
@@ -104,11 +105,6 @@ class FakeFrameScheduler : public FrameScheduler {
   };
 
   // FrameScheduler implementation:
-  std::unique_ptr<ThrottlingObserverHandle> AddThrottlingObserver(
-      ObserverType,
-      Observer*) override {
-    return nullptr;
-  }
   void SetFrameVisible(bool) override {}
   bool IsFrameVisible() const override { return is_frame_visible_; }
   bool IsPageVisible() const override { return is_page_visible_; }
@@ -140,6 +136,10 @@ class FakeFrameScheduler : public FrameScheduler {
     return is_exempt_from_throttling_;
   }
   std::unique_ptr<WorkerSchedulerProxy> CreateWorkerSchedulerProxy() {
+    return nullptr;
+  }
+  std::unique_ptr<blink::mojom::blink::PauseSubresourceLoadingHandle>
+  GetPauseSubresourceLoadingHandle() override {
     return nullptr;
   }
 

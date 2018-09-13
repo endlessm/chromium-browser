@@ -243,20 +243,18 @@ void RecentTabHelper::DidFinishNavigation(
   // Always reset so that posted tasks get canceled.
   snapshot_controller_->Reset();
 
-  // Check for conditions that should stop last_n from creating snapshots of
+  // Check for conditions that should stop us from creating snapshots of
   // this page:
   // - It is an error page.
-  // - The navigation is a POST as offline pages are never loaded for them.
   // - The navigated URL is not supported.
   // - The page being loaded is already an offline page.
   bool can_save =
-      !navigation_handle->IsErrorPage() && !navigation_handle->IsPost() &&
+      !navigation_handle->IsErrorPage() &&
       OfflinePageModel::CanSaveURL(web_contents()->GetLastCommittedURL()) &&
       current_offline_page == nullptr;
   DVLOG_IF(1, !can_save)
       << " - Page can not be saved for offline usage (reasons: "
       << !navigation_handle->IsErrorPage() << ", "
-      << !navigation_handle->IsPost() << ", "
       << OfflinePageModel::CanSaveURL(web_contents()->GetLastCommittedURL())
       << ", " << (current_offline_page == nullptr) << ")";
 
@@ -264,7 +262,12 @@ void RecentTabHelper::DidFinishNavigation(
 
   if (!can_save)
     snapshot_controller_->Stop();
+  // Last N should be disabled when:
+  // - Running on low end devices.
+  // - Viewing POST content for privacy considerations.
+  // - Disabled by flag.
   last_n_listen_to_tab_hidden_ = can_save && !delegate_->IsLowEndDevice() &&
+                                 !navigation_handle->IsPost() &&
                                  IsOffliningRecentPagesEnabled();
   DVLOG_IF(1, can_save && !last_n_listen_to_tab_hidden_)
       << " - Page can not be saved by last_n";
@@ -339,6 +342,24 @@ void RecentTabHelper::WebContentsWasHidden() {
       base::Bind(&RecentTabHelper::ContinueSnapshotWithIdsToPurge,
                  weak_ptr_factory_.GetWeakPtr(),
                  last_n_ongoing_snapshot_info_.get()));
+
+  IsSavingSamePageEnum saving_same_page_value = IsSavingSamePageEnum::kNewPage;
+  if (last_n_latest_saved_snapshot_info_) {
+    // If there was a previously saved snapshot for the current page we are
+    // saving a new one for the same page.
+    // Note: there might be a difference in page quality between here and when
+    // it's assessed again in ContinueSnapshotAfterPurge but this is not
+    // expected to happen often.
+    if (last_n_latest_saved_snapshot_info_->expected_page_quality ==
+        snapshot_controller_->current_page_quality()) {
+      saving_same_page_value = IsSavingSamePageEnum::kSamePageSameQuality;
+    } else {
+      saving_same_page_value = IsSavingSamePageEnum::kSamePageBetterQuality;
+    }
+  }
+  UMA_HISTOGRAM_ENUMERATION("OfflinePages.LastN.IsSavingSamePage",
+                            saving_same_page_value);
+
   last_n_latest_saved_snapshot_info_.reset();
 }
 
@@ -467,7 +488,10 @@ void RecentTabHelper::SavePageCallback(SnapshotProgressInfo* snapshot_info,
                                        int64_t offline_id) {
   DCHECK((snapshot_info->IsForLastN() &&
           snapshot_info->request_id == OfflinePageModel::kInvalidOfflineId) ||
-         snapshot_info->request_id == offline_id);
+         snapshot_info->request_id == offline_id)
+      << "SnapshotProgressInfo(client_id=" << snapshot_info->client_id
+      << ", request_id=" << snapshot_info->request_id
+      << ", origin=" << snapshot_info->origin << "), offline_id=" << offline_id;
   // Store the assigned offline_id (for downloads case it will already contain
   // the same value).
   snapshot_info->request_id = offline_id;

@@ -31,7 +31,12 @@ public class RendererCommon {
     public void onFrameResolutionChanged(int videoWidth, int videoHeight, int rotation);
   }
 
-  /** Interface for rendering frames on an EGLSurface. */
+  /**
+   * Interface for rendering frames on an EGLSurface with specified viewport location. Rotation,
+   * mirror, and cropping is specified using a 4x4 texture coordinate transform matrix. The frame
+   * input can either be an OES texture, RGB texture, or YUV textures in I420 format. The function
+   * release() must be called manually to free the resources held by this object.
+   */
   public static interface GlDrawer {
     /**
      * Functions for drawing frames with different sources. The rendering surface target is
@@ -114,6 +119,7 @@ public class RendererCommon {
   // This limits excessive cropping when adjusting display size.
   private static float BALANCED_VISIBLE_FRACTION = 0.5625f;
   // clang-format off
+  @Deprecated
   public static final float[] identityMatrix() {
     return new float[] {
         1, 0, 0, 0,
@@ -122,6 +128,7 @@ public class RendererCommon {
         0, 0, 0, 1};
   }
   // Matrix with transform y' = 1 - y.
+  @Deprecated
   public static final float[] verticalFlipMatrix() {
     return new float[] {
         1,  0, 0, 0,
@@ -131,6 +138,7 @@ public class RendererCommon {
   }
 
   // Matrix with transform x' = 1 - x.
+  @Deprecated
   public static final float[] horizontalFlipMatrix() {
     return new float[] {
         -1, 0, 0, 0,
@@ -144,6 +152,7 @@ public class RendererCommon {
    * Returns texture matrix that will have the effect of rotating the frame |rotationDegree|
    * clockwise when rendered.
    */
+  @Deprecated
   public static float[] rotateTextureMatrix(float[] textureMatrix, float rotationDegree) {
     final float[] rotationMatrix = new float[16];
     Matrix.setRotateM(rotationMatrix, 0, rotationDegree, 0, 0, 1);
@@ -154,6 +163,7 @@ public class RendererCommon {
   /**
    * Returns new matrix with the result of a * b.
    */
+  @Deprecated
   public static float[] multiplyMatrices(float[] a, float[] b) {
     final float[] resultMatrix = new float[16];
     Matrix.multiplyMM(resultMatrix, 0, a, 0, b, 0);

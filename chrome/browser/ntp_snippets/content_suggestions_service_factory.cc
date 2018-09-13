@@ -64,6 +64,7 @@
 #include "google_apis/google_api_keys.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "services/data_decoder/public/cpp/safe_json_parser.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if defined(OS_ANDROID)
 #include "chrome/browser/android/chrome_feature_list.h"
@@ -227,9 +228,9 @@ MakeBreakingNewsGCMAppHandlerIfEnabled(
   identity::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
 
-  scoped_refptr<net::URLRequestContextGetter> request_context =
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
       content::BrowserContext::GetDefaultStoragePartition(profile)
-          ->GetURLRequestContext();
+          ->GetURLLoaderFactoryForBrowserProcess();
 
   std::string api_key;
   // The API is private. If we don't have the official API key, don't even try.
@@ -241,7 +242,7 @@ MakeBreakingNewsGCMAppHandlerIfEnabled(
   }
 
   auto subscription_manager = std::make_unique<SubscriptionManagerImpl>(
-      request_context, pref_service, variations_service, identity_manager,
+      url_loader_factory, pref_service, variations_service, identity_manager,
       api_key, locale, GetPushUpdatesSubscriptionEndpoint(chrome::GetChannel()),
       GetPushUpdatesUnsubscriptionEndpoint(chrome::GetChannel()));
 
@@ -290,6 +291,9 @@ void RegisterArticleProviderIfEnabled(ContentSuggestionsService* service,
   scoped_refptr<net::URLRequestContextGetter> request_context =
       content::BrowserContext::GetDefaultStoragePartition(profile)
           ->GetURLRequestContext();
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
+      content::BrowserContext::GetDefaultStoragePartition(profile)
+          ->GetURLLoaderFactoryForBrowserProcess();
 
   base::FilePath database_dir(
       profile->GetPath().Append(ntp_snippets::kDatabaseFolder));
@@ -323,7 +327,7 @@ void RegisterArticleProviderIfEnabled(ContentSuggestionsService* service,
   }
 #endif  // BUILDFLAG(ENABLE_OFFLINE_PAGES)
   auto suggestions_fetcher = std::make_unique<RemoteSuggestionsFetcherImpl>(
-      identity_manager, request_context, pref_service, language_histogram,
+      identity_manager, url_loader_factory, pref_service, language_histogram,
       base::Bind(
           &data_decoder::SafeJsonParser::Parse,
           content::ServiceManagerConnection::GetForProcess()->GetConnector()),
@@ -341,7 +345,7 @@ void RegisterArticleProviderIfEnabled(ContentSuggestionsService* service,
       service->category_ranker(), service->remote_suggestions_scheduler(),
       std::move(suggestions_fetcher),
       std::make_unique<ImageFetcherImpl>(std::make_unique<ImageDecoderImpl>(),
-                                         request_context.get()),
+                                         url_loader_factory),
       std::make_unique<RemoteSuggestionsDatabase>(database_dir),
       std::make_unique<RemoteSuggestionsStatusServiceImpl>(
           identity_manager->HasPrimaryAccount(), pref_service,

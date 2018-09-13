@@ -165,9 +165,11 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
   // Needs to happen before InitializeResourceBundle() and before
   // BlinkTestPlatformInitialize() are called.
   OverrideFrameworkBundlePath();
+  OverrideOuterBundlePath();
   OverrideChildProcessPath();
   OverrideSourceRootPath();
   EnsureCorrectResolutionSettings();
+  OverrideBundleID();
 #endif  // OS_MACOSX
 
   InitLogging(command_line);
@@ -241,7 +243,6 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
       command_line.AppendSwitch(cc::switches::kDisableCheckerImaging);
     }
 
-    command_line.AppendSwitch(switches::kEnableInbandTextTracks);
     command_line.AppendSwitch(switches::kMuteAudio);
 
     command_line.AppendSwitch(switches::kEnablePreciseMemoryInfo);
@@ -269,6 +270,12 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     // Always run with fake media devices.
     command_line.AppendSwitch(switches::kUseFakeUIForMediaStream);
     command_line.AppendSwitch(switches::kUseFakeDeviceForMediaStream);
+
+    // Always disable the unsandbox GPU process for DX12 and Vulkan Info
+    // collection to avoid interference. This GPU process is launched 15
+    // seconds after chrome starts.
+    command_line.AppendSwitch(
+        switches::kDisableGpuProcessForDX12VulkanInfoCollection);
 
     if (!BlinkTestPlatformInitialize()) {
       *exit_code = 1;
@@ -396,6 +403,12 @@ void ShellMainDelegate::InitializeResourceBundle() {
   DCHECK(r);
   pak_file = pak_file.Append(FILE_PATH_LITERAL("content_shell.pak"));
   ui::ResourceBundle::InitSharedInstanceWithPakPath(pak_file);
+#endif
+}
+
+void ShellMainDelegate::PreContentInitialization() {
+#if defined(OS_MACOSX)
+  RegisterShellCrApp();
 #endif
 }
 

@@ -23,6 +23,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/win/shortcut.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/shell_integration.h"
 #include "chrome/browser/shell_integration_win.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/installer/util/browser_distribution.h"
@@ -30,6 +31,7 @@
 #include "chrome/installer/util/util_constants.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/common/extension.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/win/shell.h"
 #include "ui/gfx/icon_util.h"
 #include "ui/gfx/image/image.h"
@@ -371,7 +373,7 @@ void OnShortcutInfoLoadedForSetRelaunchDetails(
   base::FilePath icon_file =
       web_app::internals::GetIconFilePath(web_app_path, shortcut_info->title);
 
-  web_app::ShortcutInfo::PostIOTask(
+  web_app::internals::PostShortcutIOTask(
       base::BindOnce(&CreateIconAndSetRelaunchDetails, web_app_path, icon_file,
                      hwnd),
       std::move(shortcut_info));
@@ -409,12 +411,11 @@ void UpdateRelaunchDetailsForApp(Profile* profile,
   web_app::GetShortcutInfoForApp(
       extension,
       profile,
-      base::Bind(&OnShortcutInfoLoadedForSetRelaunchDetails, hwnd));
+      base::BindOnce(&OnShortcutInfoLoadedForSetRelaunchDetails, hwnd));
 }
 
-void UpdateShortcutsForAllApps(Profile* profile,
-                               const base::Closure& callback) {
-  callback.Run();
+void UpdateShortcutsForAllApps(Profile* profile, base::OnceClosure callback) {
+  std::move(callback).Run();
 }
 
 namespace internals {

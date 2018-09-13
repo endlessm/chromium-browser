@@ -50,8 +50,20 @@ void ApplyCommonFontStyles(int context,
                            int* size_delta,
                            gfx::Font::Weight* weight) {
   switch (context) {
+    case CONTEXT_TOOLBAR_BUTTON: {
+      // TODO(pbos): Instead of fixing the toolbar button height this way
+      // consider dynamically resizing all of the toolbar based on the actual
+      // final item height.
+      static const int fixed_height =
+          ui::MaterialDesignController::IsTouchOptimizedUiEnabled() ? 22 : 17;
+      static const int toolbar_button_delta =
+          GetFontSizeDeltaBoundedByAvailableHeight(fixed_height, fixed_height);
+      *size_delta = toolbar_button_delta;
+      break;
+    }
 #if !defined(OS_MACOSX) || BUILDFLAG(MAC_VIEWS_BROWSER)
-    case CONTEXT_OMNIBOX_PRIMARY: {
+    case CONTEXT_OMNIBOX_PRIMARY:
+    case CONTEXT_OMNIBOX_DEEMPHASIZED: {
       constexpr int kDesiredFontSizeRegular = 14;
       constexpr int kDesiredFontSizeTouchable = 15;
       static const int omnibox_primary_delta =
@@ -61,6 +73,9 @@ void ApplyCommonFontStyles(int context,
                   ? kDesiredFontSizeTouchable
                   : kDesiredFontSizeRegular);
       *size_delta = omnibox_primary_delta;
+      if (context == CONTEXT_OMNIBOX_DEEMPHASIZED) {
+        (*size_delta)--;
+      }
       break;
     }
     case CONTEXT_OMNIBOX_DECORATION: {

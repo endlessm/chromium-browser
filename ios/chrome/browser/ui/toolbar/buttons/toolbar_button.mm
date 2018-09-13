@@ -6,8 +6,9 @@
 
 #include "base/logging.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_constants.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -16,12 +17,7 @@
 namespace {
 const CGFloat kSpotlightSize = 38;
 const CGFloat kSpotlightCornerRadius = 7;
-const CGFloat kDimmedAlpha = 0.5;
 }  // namespace
-
-@interface ToolbarButton ()
-@property(nonatomic, strong) UIView* spotlightView;
-@end
 
 @implementation ToolbarButton
 @synthesize visibilityMask = _visibilityMask;
@@ -51,6 +47,7 @@ const CGFloat kDimmedAlpha = 0.5;
   [button setImage:image forState:UIControlStateNormal];
   button.titleLabel.textAlignment = NSTextAlignmentCenter;
   button.translatesAutoresizingMaskIntoConstraints = NO;
+  [button configureSpotlightView];
   return button;
 }
 
@@ -61,7 +58,7 @@ const CGFloat kDimmedAlpha = 0.5;
   // If the UIButton title has text it will center it on top of the image,
   // this is currently used for the TabStripButton which displays the
   // total number of tabs.
-  if (self.titleLabel.text) {
+  if (!IsUIRefreshPhase1Enabled() && self.titleLabel.text) {
     CGSize size = self.bounds.size;
     CGPoint center = CGPointMake(size.width / 2, size.height / 2);
     self.imageView.center = center;
@@ -107,10 +104,10 @@ const CGFloat kDimmedAlpha = 0.5;
     newHiddenValue = !self.enabled;
   }
 
-  // Update the hidden property of the buttons even if it is the same to
-  // prevent: https://crbug.com/828767.
-  self.hiddenInCurrentSizeClass = newHiddenValue;
-  [self setHiddenForCurrentStateAndSizeClass];
+  if (self.hiddenInCurrentSizeClass != newHiddenValue) {
+    self.hiddenInCurrentSizeClass = newHiddenValue;
+    [self setHiddenForCurrentStateAndSizeClass];
+  }
 }
 
 - (void)setHiddenInCurrentState:(BOOL)hiddenInCurrentState {
@@ -136,7 +133,7 @@ const CGFloat kDimmedAlpha = 0.5;
     return;
 
   if (dimmed) {
-    self.alpha = kDimmedAlpha;
+    self.alpha = kToolbarDimmedButtonAlpha;
     if (_spotlightView) {
       self.spotlightView.backgroundColor =
           self.configuration.dimmedButtonsSpotlightColor;
@@ -167,22 +164,22 @@ const CGFloat kDimmedAlpha = 0.5;
   _spotlightView.backgroundColor = self.configuration.buttonsSpotlightColor;
 }
 
-- (UIView*)spotlightView {
-  if (!_spotlightView) {
-    _spotlightView = [[UIView alloc] init];
-    _spotlightView.translatesAutoresizingMaskIntoConstraints = NO;
-    _spotlightView.hidden = YES;
-    _spotlightView.userInteractionEnabled = NO;
-    _spotlightView.layer.cornerRadius = kSpotlightCornerRadius;
-    _spotlightView.backgroundColor = self.configuration.buttonsSpotlightColor;
-    [self addSubview:_spotlightView];
-    AddSameCenterConstraints(self, _spotlightView);
-    [_spotlightView.widthAnchor constraintEqualToConstant:kSpotlightSize]
-        .active = YES;
-    [_spotlightView.heightAnchor constraintEqualToConstant:kSpotlightSize]
-        .active = YES;
-  }
-  return _spotlightView;
+#pragma mark - Subclassing
+
+- (void)configureSpotlightView {
+  UIView* spotlightView = [[UIView alloc] init];
+  spotlightView.translatesAutoresizingMaskIntoConstraints = NO;
+  spotlightView.hidden = YES;
+  spotlightView.userInteractionEnabled = NO;
+  spotlightView.layer.cornerRadius = kSpotlightCornerRadius;
+  spotlightView.backgroundColor = self.configuration.buttonsSpotlightColor;
+  [self addSubview:spotlightView];
+  AddSameCenterConstraints(self, spotlightView);
+  [spotlightView.widthAnchor constraintEqualToConstant:kSpotlightSize].active =
+      YES;
+  [spotlightView.heightAnchor constraintEqualToConstant:kSpotlightSize].active =
+      YES;
+  self.spotlightView = spotlightView;
 }
 
 #pragma mark - Private

@@ -17,6 +17,7 @@
 #include "base/memory/linked_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/timer/elapsed_timer.h"
 #include "chrome/browser/chromeos/file_system_provider/abort_callback.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_info.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_interface.h"
@@ -192,12 +193,25 @@ class SmbFileSystem : public file_system_provider::ProvidedFileSystemInterface,
 
   file_system_provider::AbortCallback CreateAbortCallback();
 
+  // Starts a copy operation to copy |source_path| to |target_path| with the
+  // OperationId |operation_id|.
+  void StartCopy(const base::FilePath& source_path,
+                 const base::FilePath& target_path,
+                 OperationId operation_id,
+                 storage::AsyncFileUtil::StatusCallback callback);
+
+  // Continues a copy corresponding to |operation_id| and |copy_token|.
+  void ContinueCopy(OperationId operation_id,
+                    int32_t copy_token,
+                    storage::AsyncFileUtil::StatusCallback callback);
+
   void HandleRequestUnmountCallback(
       storage::AsyncFileUtil::StatusCallback callback,
       smbprovider::ErrorType error);
 
   void HandleRequestReadDirectoryCallback(
       storage::AsyncFileUtil::ReadDirectoryCallback callback,
+      const base::ElapsedTimer& metrics_timer,
       smbprovider::ErrorType error,
       const smbprovider::DirectoryEntryListProto& entries) const;
 
@@ -235,6 +249,17 @@ class SmbFileSystem : public file_system_provider::ProvidedFileSystemInterface,
       smbprovider::ErrorType list_error,
       bool is_last_entry,
       smbprovider::ErrorType delete_error) const;
+
+  void HandleStartCopyCallback(storage::AsyncFileUtil::StatusCallback callback,
+                               OperationId operation_id,
+                               smbprovider::ErrorType error,
+                               int32_t copy_token);
+
+  void HandleContinueCopyCallback(
+      storage::AsyncFileUtil::StatusCallback callback,
+      OperationId operation_id,
+      int32_t copy_token,
+      smbprovider::ErrorType error);
 
   int32_t GetMountId() const;
 

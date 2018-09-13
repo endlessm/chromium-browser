@@ -5,11 +5,8 @@
 package org.chromium.chrome.browser.compositor.layouts.phone.stack;
 
 import static org.chromium.chrome.browser.compositor.layouts.ChromeAnimation.AnimatableAnimation.addAnimation;
-import static org.chromium.chrome.browser.compositor.layouts.components.LayoutTab.Property.MAX_CONTENT_HEIGHT;
-import static org.chromium.chrome.browser.compositor.layouts.phone.stack.StackTab.Property.DISCARD_AMOUNT;
-import static org.chromium.chrome.browser.compositor.layouts.phone.stack.StackTab.Property.SCALE;
-import static org.chromium.chrome.browser.compositor.layouts.phone.stack.StackTab.Property.SCROLL_OFFSET;
 
+import android.support.annotation.IntDef;
 import android.view.animation.Interpolator;
 
 import org.chromium.chrome.browser.ChromeFeatureList;
@@ -19,26 +16,36 @@ import org.chromium.chrome.browser.compositor.layouts.Layout.Orientation;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
 import org.chromium.ui.interpolators.BakedBezierInterpolator;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
 /**
  * A factory that builds animations for the tab stack.
  */
 public abstract class StackAnimation {
-    public enum OverviewAnimationType {
-        ENTER_STACK,
-        NEW_TAB_OPENED,
-        TAB_FOCUSED,
-        VIEW_MORE,
-        REACH_TOP,
+    @IntDef({OverviewAnimationType.ENTER_STACK, OverviewAnimationType.NEW_TAB_OPENED,
+            OverviewAnimationType.TAB_FOCUSED, OverviewAnimationType.VIEW_MORE,
+            OverviewAnimationType.REACH_TOP, OverviewAnimationType.DISCARD,
+            OverviewAnimationType.DISCARD_ALL, OverviewAnimationType.UNDISCARD,
+            OverviewAnimationType.START_PINCH, OverviewAnimationType.FULL_ROLL,
+            OverviewAnimationType.NONE})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface OverviewAnimationType {
+        int ENTER_STACK = 0;
+        int NEW_TAB_OPENED = 1;
+        int TAB_FOCUSED = 2;
+        int VIEW_MORE = 3;
+        int REACH_TOP = 4;
         // Commit/uncommit tab discard animations
-        DISCARD,
-        DISCARD_ALL,
-        UNDISCARD,
+        int DISCARD = 5;
+        int DISCARD_ALL = 6;
+        int UNDISCARD = 7;
         // Start pinch animation un-tilt all the tabs.
-        START_PINCH,
+        int START_PINCH = 8;
         // Special animation
-        FULL_ROLL,
+        int FULL_ROLL = 9;
         // Used for when the current state of the system is not animating
-        NONE,
+        int NONE = 10;
     }
 
     protected static final int ENTER_STACK_TOOLBAR_ALPHA_DURATION = 100;
@@ -156,53 +163,41 @@ public abstract class StackAnimation {
      * @param discardRange  The range of the discard amount value.
      * @return              The resulting TabSwitcherAnimation that will animate the tabs.
      */
-    public ChromeAnimation<?> createAnimatorSetForType(OverviewAnimationType type, Stack stack,
+    public ChromeAnimation<?> createAnimatorSetForType(@OverviewAnimationType int type, Stack stack,
             StackTab[] tabs, int focusIndex, int sourceIndex, int spacing, float discardRange) {
-        ChromeAnimation<?> set = null;
-
-        if (tabs != null) {
-            switch (type) {
-                case ENTER_STACK:
-                    set = createEnterStackAnimatorSet(tabs, focusIndex, spacing);
-                    break;
-                case TAB_FOCUSED:
-                    set = createTabFocusedAnimatorSet(tabs, focusIndex, spacing);
-                    break;
-                case VIEW_MORE:
-                    set = createViewMoreAnimatorSet(tabs, sourceIndex);
-                    break;
-                case REACH_TOP:
-                    set = createReachTopAnimatorSet(tabs);
-                    break;
-                case DISCARD:
-                // Purposeful fall through
-                case DISCARD_ALL:
-                // Purposeful fall through
-                case UNDISCARD:
-                    set = createUpdateDiscardAnimatorSet(stack, tabs, spacing, discardRange);
-                    break;
-                case NEW_TAB_OPENED:
-                    set = createNewTabOpenedAnimatorSet(tabs, focusIndex, discardRange);
-                    break;
-                case START_PINCH:
-                    set = createStartPinchAnimatorSet(tabs);
-                    break;
-                case FULL_ROLL:
-                    set = createFullRollAnimatorSet(tabs);
-                    break;
-                case NONE:
-                    break;
-            }
+        if (tabs == null) return null;
+        switch (type) {
+            case OverviewAnimationType.ENTER_STACK:
+                return createEnterStackAnimatorSet(tabs, focusIndex, spacing);
+            case OverviewAnimationType.TAB_FOCUSED:
+                return createTabFocusedAnimatorSet(tabs, focusIndex, spacing);
+            case OverviewAnimationType.VIEW_MORE:
+                return createViewMoreAnimatorSet(tabs, sourceIndex);
+            case OverviewAnimationType.REACH_TOP:
+                return createReachTopAnimatorSet(tabs);
+            case OverviewAnimationType.DISCARD:
+            // Purposeful fall through
+            case OverviewAnimationType.DISCARD_ALL:
+            // Purposeful fall through
+            case OverviewAnimationType.UNDISCARD:
+                return createUpdateDiscardAnimatorSet(stack, tabs, spacing, discardRange);
+            case OverviewAnimationType.NEW_TAB_OPENED:
+                return createNewTabOpenedAnimatorSet(tabs, focusIndex, discardRange);
+            case OverviewAnimationType.START_PINCH:
+                return createStartPinchAnimatorSet(tabs);
+            case OverviewAnimationType.FULL_ROLL:
+                return createFullRollAnimatorSet(tabs);
+            default:
+                return null;
         }
-        return set;
     }
 
     protected abstract float getScreenSizeInScrollDirection();
 
     protected abstract float getScreenPositionInScrollDirection(StackTab tab);
 
-    protected abstract void addTiltScrollAnimation(ChromeAnimation<Animatable<?>> set,
-            LayoutTab tab, float end, int duration, int startTime);
+    protected abstract void addTiltScrollAnimation(
+            ChromeAnimation<Animatable> set, LayoutTab tab, float end, int duration, int startTime);
 
     // If this flag is enabled, we're using the non-overlapping tab switcher.
     protected boolean isHorizontalTabSwitcherFlagEnabled() {
@@ -277,7 +272,7 @@ public abstract class StackAnimation {
      */
     protected ChromeAnimation<?> createUpdateDiscardAnimatorSet(
             Stack stack, StackTab[] tabs, int spacing, float discardRange) {
-        ChromeAnimation<Animatable<?>> set = new ChromeAnimation<Animatable<?>>();
+        ChromeAnimation<Animatable> set = new ChromeAnimation<Animatable>();
 
         int dyingTabsCount = 0;
         int firstDyingTabIndex = -1;
@@ -316,17 +311,17 @@ public abstract class StackAnimation {
                 float s = Math.copySign(1.0f, discard);
                 long duration = (long) (DISCARD_ANIMATION_DURATION
                         * (1.0f - Math.abs(discard / discardRange)));
-                addAnimation(set, tab, DISCARD_AMOUNT, discard, discardRange * s, duration, 0,
-                        false, interpolator);
+                addAnimation(set, tab, StackTab.Property.DISCARD_AMOUNT, discard, discardRange * s,
+                        duration, 0, false, interpolator);
             } else {
                 if (tab.getDiscardAmount() != 0.f) {
-                    addAnimation(set, tab, DISCARD_AMOUNT, tab.getDiscardAmount(), 0.0f,
-                            UNDISCARD_ANIMATION_DURATION, 0);
+                    addAnimation(set, tab, StackTab.Property.DISCARD_AMOUNT, tab.getDiscardAmount(),
+                            0.0f, UNDISCARD_ANIMATION_DURATION, 0);
                 }
-                addAnimation(set, tab, SCALE, tab.getScale(), mStack.getScaleAmount(),
-                        DISCARD_ANIMATION_DURATION, 0);
+                addAnimation(set, tab, StackTab.Property.SCALE, tab.getScale(),
+                        mStack.getScaleAmount(), DISCARD_ANIMATION_DURATION, 0);
 
-                addAnimation(set, tab.getLayoutTab(), MAX_CONTENT_HEIGHT,
+                addAnimation(set, tab.getLayoutTab(), LayoutTab.Property.MAX_CONTENT_HEIGHT,
                         tab.getLayoutTab().getMaxContentHeight(), mStack.getMaxTabHeight(),
                         DISCARD_ANIMATION_DURATION, 0);
 
@@ -341,8 +336,8 @@ public abstract class StackAnimation {
                 } else {
                     float start = tab.getScrollOffset();
                     if (start != newScrollOffset) {
-                        addAnimation(set, tab, SCROLL_OFFSET, start, newScrollOffset,
-                                TAB_REORDER_DURATION, 0);
+                        addAnimation(set, tab, StackTab.Property.SCROLL_OFFSET, start,
+                                newScrollOffset, TAB_REORDER_DURATION, 0);
                     }
                 }
                 newIndex++;
@@ -406,7 +401,7 @@ public abstract class StackAnimation {
      */
     protected ChromeAnimation<?> createNewTabOpenedAnimatorSet(
             StackTab[] tabs, int focusIndex, float discardRange) {
-        ChromeAnimation<Animatable<?>> set = new ChromeAnimation<>();
+        ChromeAnimation<Animatable> set = new ChromeAnimation<>();
 
         for (int i = 0; i < tabs.length; i++) {
             addAnimation(set, tabs[i], StackTab.Property.SCROLL_OFFSET, tabs[i].getScrollOffset(),
@@ -426,7 +421,7 @@ public abstract class StackAnimation {
      *             create the appropriate animation.
      */
     protected ChromeAnimation<?> createStartPinchAnimatorSet(StackTab[] tabs) {
-        ChromeAnimation<Animatable<?>> set = new ChromeAnimation<Animatable<?>>();
+        ChromeAnimation<Animatable> set = new ChromeAnimation<Animatable>();
 
         for (int i = 0; i < tabs.length; ++i) {
             addTiltScrollAnimation(
@@ -445,7 +440,7 @@ public abstract class StackAnimation {
      *             appropriate animation.
      */
     protected ChromeAnimation<?> createFullRollAnimatorSet(StackTab[] tabs) {
-        ChromeAnimation<Animatable<?>> set = new ChromeAnimation<Animatable<?>>();
+        ChromeAnimation<Animatable> set = new ChromeAnimation<Animatable>();
 
         for (int i = 0; i < tabs.length; ++i) {
             LayoutTab layoutTab = tabs[i].getLayoutTab();

@@ -6,11 +6,13 @@
 
 #include <memory>
 
+#include "base/no_destructor.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/autofill/autofill_popup_controller.h"
 #include "chrome/browser/ui/autofill/autofill_popup_layout_model.h"
 #include "chrome/browser/ui/views/autofill/autofill_popup_view_native_views.h"
+#include "chrome/test/views/chrome_views_test_base.h"
 #include "components/autofill/core/browser/popup_item_ids.h"
 #include "components/autofill/core/browser/suggestion.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -19,7 +21,6 @@
 #include "ui/aura/test/aura_test_base.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/test/event_generator.h"
-#include "ui/views/test/views_test_base.h"
 
 namespace {
 
@@ -30,7 +31,7 @@ struct TypeClicks {
 
 const struct TypeClicks kClickTestCase[] = {
     {autofill::POPUP_ITEM_ID_AUTOCOMPLETE_ENTRY, 1},
-    {autofill::POPUP_ITEM_ID_INSECURE_CONTEXT_PAYMENT_DISABLED_MESSAGE, 1},
+    {autofill::POPUP_ITEM_ID_INSECURE_CONTEXT_PAYMENT_DISABLED_MESSAGE, 0},
     {autofill::POPUP_ITEM_ID_PASSWORD_ENTRY, 1},
     {autofill::POPUP_ITEM_ID_SEPARATOR, 0},
     {autofill::POPUP_ITEM_ID_CLEAR_FORM, 1},
@@ -42,7 +43,6 @@ const struct TypeClicks kClickTestCase[] = {
     {autofill::POPUP_ITEM_ID_USERNAME_ENTRY, 1},
     {autofill::POPUP_ITEM_ID_CREATE_HINT, 1},
     {autofill::POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY, 1},
-    {autofill::POPUP_ITEM_ID_GENERATE_PASSWORD_ENTRY, 1},
 };
 
 class MockAutofillPopupController : public autofill::AutofillPopupController {
@@ -62,7 +62,10 @@ class MockAutofillPopupController : public autofill::AutofillPopupController {
   MOCK_CONST_METHOD0(HasSelection, bool());
   MOCK_CONST_METHOD0(popup_bounds, gfx::Rect());
   MOCK_METHOD0(container_view, gfx::NativeView());
-  MOCK_CONST_METHOD0(element_bounds, const gfx::RectF&());
+  const gfx::RectF& element_bounds() const override {
+    static base::NoDestructor<gfx::RectF> bounds({100, 100, 250, 50});
+    return *bounds;
+  }
   MOCK_CONST_METHOD0(IsRTL, bool());
   const std::vector<autofill::Suggestion> GetSuggestions() override {
     return suggestions_;
@@ -112,13 +115,13 @@ class MockAutofillPopupController : public autofill::AutofillPopupController {
   std::vector<autofill::Suggestion> suggestions_;
 };
 
-class AutofillPopupViewNativeViewsTest : public views::ViewsTestBase {
+class AutofillPopupViewNativeViewsTest : public ChromeViewsTestBase {
  public:
   AutofillPopupViewNativeViewsTest() = default;
   ~AutofillPopupViewNativeViewsTest() override = default;
 
   void SetUp() override {
-    views::ViewsTestBase::SetUp();
+    ChromeViewsTestBase::SetUp();
 
     CreateWidget();
     generator_.reset(new ui::test::EventGenerator(widget_.GetNativeWindow()));
@@ -129,7 +132,7 @@ class AutofillPopupViewNativeViewsTest : public views::ViewsTestBase {
     if (!widget_.IsClosed())
       widget_.Close();
     view_.reset();
-    views::ViewsTestBase::TearDown();
+    ChromeViewsTestBase::TearDown();
   }
 
   void CreateAndShowView(const std::vector<int>& ids) {
@@ -226,7 +229,12 @@ TEST_P(AutofillPopupViewNativeViewsForEveryTypeTest, ShowClickTest) {
   EXPECT_CALL(autofill_popup_controller_, AcceptSuggestion(::testing::_))
       .Times(click.click);
   gfx::Point center =
-      view()->GetRowsForTesting()[0]->GetLocalBounds().CenterPoint();
+      view()->GetRowsForTesting()[0]->GetBoundsInScreen().CenterPoint();
+
+  // Because we use GetBoundsInScreen above, and because macOS may reposition
+  // the window, we need to turn this bit off or the clicks will miss their
+  // targets.
+  generator_->set_assume_window_at_origin(false);
   generator_->set_current_location(center);
   generator_->ClickLeftButton();
   view()->RemoveAllChildViews(true /* delete_children */);

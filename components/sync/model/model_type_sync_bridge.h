@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "components/sync/model/entity_change.h"
 #include "components/sync/model/model_type_change_processor.h"
@@ -19,6 +18,7 @@ namespace syncer {
 
 class ConflictResolution;
 class DataBatch;
+struct DataTypeActivationRequest;
 struct EntityData;
 class MetadataChangeList;
 class ModelError;
@@ -31,13 +31,12 @@ class ModelError;
 // immediately begin locally tracking changes and can start syncing with the
 // server soon afterward. If an error occurs during startup, the processor's
 // ReportError() method should be called instead of ModelReadyToSync().
-// TODO(jkrcal): Remove all uses of AsWeakPtr and remove the inheritance here.
-class ModelTypeSyncBridge : public base::SupportsWeakPtr<ModelTypeSyncBridge> {
+class ModelTypeSyncBridge {
  public:
   using DataCallback = base::OnceCallback<void(std::unique_ptr<DataBatch>)>;
   using StorageKeyList = std::vector<std::string>;
 
-  enum class DisableSyncResponse {
+  enum class StopSyncResponse {
     kModelStillReadyToSync,
     kModelNoLongerReadyToSync
   };
@@ -49,7 +48,7 @@ class ModelTypeSyncBridge : public base::SupportsWeakPtr<ModelTypeSyncBridge> {
 
   // Called by the processor as a notification that sync has been started by the
   // ModelTypeController.
-  virtual void OnSyncStarting();
+  virtual void OnSyncStarting(const DataTypeActivationRequest& request);
 
   // Creates an object used to communicate changes in the sync metadata to the
   // model type store.
@@ -92,7 +91,8 @@ class ModelTypeSyncBridge : public base::SupportsWeakPtr<ModelTypeSyncBridge> {
   // Asynchronously retrieve all of the local sync data. |callback| should be
   // invoked if the operation is successful, otherwise the processor's
   // ReportError method should be called.
-  virtual void GetAllData(DataCallback callback) = 0;
+  // Used for getting all data in Sync Node Browser of chrome://sync-internals.
+  virtual void GetAllDataForDebugging(DataCallback callback) = 0;
 
   // Get or generate a client tag for |entity_data|. This must be the same tag
   // that was/would have been generated in the SyncableService/Directory world
@@ -134,10 +134,12 @@ class ModelTypeSyncBridge : public base::SupportsWeakPtr<ModelTypeSyncBridge> {
       const EntityData& remote_data) const;
 
   // Similar to ApplySyncChanges() but called by the processor when sync
-  // is in the process of being disabled. |delete_metadata_change_list| contains
-  // a change list to remove all metadata that the processor knows about, but
-  // the bridge may decide to implement deletion by other means.
-  virtual DisableSyncResponse ApplyDisableSyncChanges(
+  // is in the process of being stopped. If |delete_metadata_change_list| is not
+  // null, it indicates that sync metadata must be deleted (i.e. the datatype
+  // was disabled), and |*delete_metadata_change_list| contains a change list to
+  // remove all metadata that the processor knows about (the bridge may decide
+  // to implement deletion by other means).
+  virtual StopSyncResponse ApplyStopSyncChanges(
       std::unique_ptr<MetadataChangeList> delete_metadata_change_list);
 
   // Needs to be informed about any model change occurring via Delete() and

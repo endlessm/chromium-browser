@@ -544,17 +544,24 @@ void Writer::createImportTables() {
     if (Config->DLLOrder.count(DLL) == 0)
       Config->DLLOrder[DLL] = Config->DLLOrder.size();
 
-    if (DefinedImportThunk *Thunk = File->ThunkSym)
+    if (File->ThunkSym) {
+      if (!isa<DefinedImportThunk>(File->ThunkSym))
+        fatal(toString(*File->ThunkSym) + " was replaced");
+      DefinedImportThunk *Thunk = cast<DefinedImportThunk>(File->ThunkSym);
       if (File->ThunkLive)
         TextSec->addChunk(Thunk->getChunk());
+    }
 
+    if (File->ImpSym && !isa<DefinedImportData>(File->ImpSym))
+      fatal(toString(*File->ImpSym) + " was replaced");
+    DefinedImportData *ImpSym = cast_or_null<DefinedImportData>(File->ImpSym);
     if (Config->DelayLoads.count(StringRef(File->DLLName).lower())) {
       if (!File->ThunkSym)
         fatal("cannot delay-load " + toString(File) +
-              " due to import of data: " + toString(*File->ImpSym));
-      DelayIdata.add(File->ImpSym);
+              " due to import of data: " + toString(*ImpSym));
+      DelayIdata.add(ImpSym);
     } else {
-      Idata.add(File->ImpSym);
+      Idata.add(ImpSym);
     }
   }
 
@@ -602,19 +609,31 @@ size_t Writer::addEntryToStringTable(StringRef Str) {
 }
 
 Optional<coff_symbol16> Writer::createSymbol(Defined *Def) {
-  // Relative symbols are unrepresentable in a COFF symbol table.
-  if (isa<DefinedSynthetic>(Def))
+  coff_symbol16 Sym;
+  switch (Def->kind()) {
+  case Symbol::DefinedAbsoluteKind:
+    Sym.Value = Def->getRVA();
+    Sym.SectionNumber = IMAGE_SYM_ABSOLUTE;
+    break;
+  case Symbol::DefinedSyntheticKind:
+    // Relative symbols are unrepresentable in a COFF symbol table.
     return None;
-
-  // Don't write dead symbols or symbols in codeview sections to the symbol
-  // table.
-  if (!Def->isLive())
-    return None;
-  if (auto *D = dyn_cast<DefinedRegular>(Def))
-    if (D->getChunk()->isCodeView())
+  default: {
+    // Don't write symbols that won't be written to the output to the symbol
+    // table.
+    Chunk *C = Def->getChunk();
+    if (!C)
+      return None;
+    OutputSection *OS = C->getOutputSection();
+    if (!OS)
       return None;
 
-  coff_symbol16 Sym;
+    Sym.Value = Def->getRVA() - OS->getRVA();
+    Sym.SectionNumber = OS->SectionIndex;
+    break;
+  }
+  }
+
   StringRef Name = Def->getName();
   if (Name.size() > COFF::NameSize) {
     Sym.Name.Offset.Zeroes = 0;
@@ -633,25 +652,6 @@ Optional<coff_symbol16> Writer::createSymbol(Defined *Def) {
     Sym.StorageClass = IMAGE_SYM_CLASS_EXTERNAL;
   }
   Sym.NumberOfAuxSymbols = 0;
-
-  switch (Def->kind()) {
-  case Symbol::DefinedAbsoluteKind:
-    Sym.Value = Def->getRVA();
-    Sym.SectionNumber = IMAGE_SYM_ABSOLUTE;
-    break;
-  default: {
-    uint64_t RVA = Def->getRVA();
-    OutputSection *Sec = nullptr;
-    for (OutputSection *S : OutputSections) {
-      if (S->getRVA() > RVA)
-        break;
-      Sec = S;
-    }
-    Sym.Value = RVA - Sec->getRVA();
-    Sym.SectionNumber = Sec->SectionIndex;
-    break;
-  }
-  }
   return Sym;
 }
 
@@ -672,7 +672,7 @@ void Writer::createSymbolAndStringTable() {
     Sec->setStringTableOff(addEntryToStringTable(Sec->Name));
   }
 
-  if (Config->DebugDwarf) {
+  if (Config->DebugDwarf || Config->DebugSymtab) {
     for (ObjFile *File : ObjFile::Instances) {
       for (Symbol *B : File->getSymbols()) {
         auto *D = dyn_cast_or_null<Defined>(B);
@@ -859,6 +859,8 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_NO_ISOLATION;
   if (Config->GuardCF != GuardCFLevel::Off)
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_GUARD_CF;
+  if (Config->IntegrityCheck)
+    PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_FORCE_INTEGRITY;
   if (SetNoSEHCharacteristic)
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_NO_SEH;
   if (Config->TerminalServerAware)
@@ -1049,6 +1051,11 @@ void Writer::createGuardCFTables() {
   // Mark the image entry as address-taken.
   if (Config->Entry)
     addSymbolToRVASet(AddressTakenSyms, cast<Defined>(Config->Entry));
+
+  // Ensure sections referenced in the gfid table are 16-byte aligned.
+  for (const ChunkAndOffset &C : AddressTakenSyms)
+    if (C.InputChunk->Alignment < 16)
+      C.InputChunk->Alignment = 16;
 
   maybeAddRVATable(std::move(AddressTakenSyms), "__guard_fids_table",
                    "__guard_fids_count");
@@ -1253,7 +1260,7 @@ void Writer::addBaserels() {
     return;
   std::vector<Baserel> V;
   for (OutputSection *Sec : OutputSections) {
-    if (Sec == RelocSec)
+    if (Sec->Header.Characteristics & IMAGE_SCN_MEM_DISCARDABLE)
       continue;
     // Collect all locations for base relocations.
     for (Chunk *C : Sec->getChunks())

@@ -199,11 +199,21 @@ const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type,
                                                            bool is_bookmark,
                                                            bool is_tab_match) {
 #if (!defined(OS_ANDROID) || BUILDFLAG(ENABLE_VR)) && !defined(OS_IOS)
+#if !defined(OS_ANDROID)
+  const bool is_refresh_ui = ui::MaterialDesignController::IsRefreshUi();
   const bool is_touch_ui =
       ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
+#else
+  const bool is_refresh_ui = false;
+  const bool is_touch_ui = false;
+#endif
 
-  if (is_bookmark)
-    return is_touch_ui ? omnibox::kTouchableBookmarkIcon : omnibox::kStarIcon;
+  if (is_bookmark) {
+    if (is_refresh_ui || is_touch_ui)
+      return omnibox::kTouchableBookmarkIcon;
+    else
+      return omnibox::kStarIcon;
+  }
 
   switch (type) {
     case Type::URL_WHAT_YOU_TYPED:
@@ -218,7 +228,13 @@ const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type,
     case Type::PHYSICAL_WEB_DEPRECATED:
     case Type::PHYSICAL_WEB_OVERFLOW_DEPRECATED:
     case Type::TAB_SEARCH_DEPRECATED:
-      return is_touch_ui ? omnibox::kTouchablePageIcon : omnibox::kHttpIcon;
+    case Type::DOCUMENT_SUGGESTION:
+      if (is_refresh_ui)
+        return omnibox::kMdPageIcon;
+      else if (is_touch_ui)
+        return omnibox::kTouchablePageIcon;
+      else
+        return omnibox::kHttpIcon;
 
     case Type::SEARCH_WHAT_YOU_TYPED:
     case Type::SEARCH_HISTORY:
@@ -229,8 +245,10 @@ const gfx::VectorIcon& AutocompleteMatch::TypeToVectorIcon(Type type,
     case Type::SEARCH_OTHER_ENGINE:
     case Type::CONTACT_DEPRECATED:
     case Type::VOICE_SUGGEST:
-      return is_touch_ui ? omnibox::kTouchableSearchIcon
-                         : vector_icons::kSearchIcon;
+      if (is_touch_ui && !is_refresh_ui)
+        return omnibox::kTouchableSearchIcon;
+      else
+        return vector_icons::kSearchIcon;
 
     case Type::EXTENSION_APP_DEPRECATED:
       return omnibox::kExtensionAppIcon;
@@ -761,6 +779,14 @@ size_t AutocompleteMatch::EstimateMemoryUsage() const {
   res += base::trace_event::EstimateMemoryUsage(duplicate_matches);
 
   return res;
+}
+
+bool AutocompleteMatch::IsExceptedFromLineReversal() const {
+  return !!answer && answer->type() == SuggestionAnswer::ANSWER_TYPE_DICTIONARY;
+}
+
+bool AutocompleteMatch::ShouldShowTabMatch() const {
+  return has_tab_match && !associated_keyword;
 }
 
 #if DCHECK_IS_ON()

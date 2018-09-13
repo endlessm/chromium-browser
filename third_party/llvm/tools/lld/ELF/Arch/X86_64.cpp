@@ -43,6 +43,8 @@ public:
   void relaxTlsGdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
   void relaxTlsIeToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
   void relaxTlsLdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
+  bool adjustPrologueForCrossSplitStack(uint8_t *Loc,
+                                        uint8_t *End) const override;
 
 private:
   void relaxGotNoPic(uint8_t *Loc, uint64_t Val, uint8_t Op,
@@ -105,6 +107,11 @@ RelExpr X86_64<ELFT>::getRelExpr(RelType Type, const Symbol &S,
   case R_X86_64_REX_GOTPCRELX:
   case R_X86_64_GOTTPOFF:
     return R_GOT_PC;
+  case R_X86_64_GOTOFF64:
+    return R_GOTREL_FROM_END;
+  case R_X86_64_GOTPC32:
+  case R_X86_64_GOTPC64:
+    return R_GOTONLY_PC_FROM_END;
   case R_X86_64_NONE:
     return R_NONE;
   default:
@@ -123,7 +130,7 @@ template <class ELFT> void X86_64<ELFT>::writeGotPltHeader(uint8_t *Buf) const {
 template <class ELFT>
 void X86_64<ELFT>::writeGotPlt(uint8_t *Buf, const Symbol &S) const {
   // See comments in X86::writeGotPlt.
-  write32le(Buf, S.getPltVA() + 6);
+  write64le(Buf, S.getPltVA() + 6);
 }
 
 template <class ELFT> void X86_64<ELFT>::writePltHeader(uint8_t *Buf) const {
@@ -300,6 +307,7 @@ void X86_64<ELFT>::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   case R_X86_64_32S:
   case R_X86_64_TPOFF32:
   case R_X86_64_GOT32:
+  case R_X86_64_GOTPC32:
   case R_X86_64_GOTPCREL:
   case R_X86_64_GOTPCRELX:
   case R_X86_64_REX_GOTPCRELX:
@@ -319,6 +327,8 @@ void X86_64<ELFT>::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   case R_X86_64_PC64:
   case R_X86_64_SIZE64:
   case R_X86_64_GOT64:
+  case R_X86_64_GOTOFF64:
+  case R_X86_64_GOTPC64:
     write64le(Loc, Val);
     break;
   default:
@@ -461,6 +471,55 @@ void X86_64<ELFT>::relaxGot(uint8_t *Loc, uint64_t Val) const {
   write32le(Loc - 1, Val + 1);
 }
 
+// This anonymous namespace works around a warning bug in
+// old versions of gcc. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=56480
+namespace {
+
+// A split-stack prologue starts by checking the amount of stack remaining
+// in one of two ways:
+// A) Comparing of the stack pointer to a field in the tcb.
+// B) Or a load of a stack pointer offset with an lea to r10 or r11.
+template <>
+bool X86_64<ELF64LE>::adjustPrologueForCrossSplitStack(uint8_t *Loc,
+                                                       uint8_t *End) const {
+  // Replace "cmp %fs:0x70,%rsp" and subsequent branch
+  // with "stc, nopl 0x0(%rax,%rax,1)"
+  if (Loc + 8 < End && memcmp(Loc, "\x64\x48\x3b\x24\x25", 4) == 0) {
+    memcpy(Loc, "\xf9\x0f\x1f\x84\x00\x00\x00\x00", 8);
+    return true;
+  }
+
+  // Adjust "lea -0x200(%rsp),%r10" to lea "-0x4200(%rsp),%r10"
+  if (Loc + 7 < End && memcmp(Loc, "\x4c\x8d\x94\x24\x00\xfe\xff", 7) == 0) {
+    memcpy(Loc, "\x4c\x8d\x94\x24\x00\xbe\xff", 7);
+    return true;
+  }
+
+  // Adjust "lea -0x200(%rsp),%r11" to lea "-0x4200(%rsp),%r11"
+  if (Loc + 7 < End && memcmp(Loc, "\x4c\x8d\x9c\x24\x00\xfe\xff", 7) == 0) {
+    memcpy(Loc, "\x4c\x8d\x9c\x24\x00\xbe\xff", 7);
+    return true;
+  }
+  return false;
+}
+
+template <>
+bool X86_64<ELF32LE>::adjustPrologueForCrossSplitStack(uint8_t *Loc,
+                                                       uint8_t *End) const {
+  llvm_unreachable("Target doesn't support split stacks.");
+}
+
+} // namespace
+
+// These nonstandard PLT entries are to migtigate Spectre v2 security
+// vulnerability. In order to mitigate Spectre v2, we want to avoid indirect
+// branch instructions such as `jmp *GOTPLT(%rip)`. So, in the following PLT
+// entries, we use a CALL followed by MOV and RET to do the same thing as an
+// indirect jump. That instruction sequence is so-called "retpoline".
+//
+// We have two types of retpoline PLTs as a size optimization. If `-z now`
+// is specified, all dynamic symbols are resolved at load-time. Thus, when
+// that option is given, we can omit code for symbol lazy resolution.
 namespace {
 template <class ELFT> class Retpoline : public X86_64<ELFT> {
 public:
@@ -488,7 +547,7 @@ template <class ELFT> Retpoline<ELFT>::Retpoline() {
 
 template <class ELFT>
 void Retpoline<ELFT>::writeGotPlt(uint8_t *Buf, const Symbol &S) const {
-  write32le(Buf, S.getPltVA() + 17);
+  write64le(Buf, S.getPltVA() + 17);
 }
 
 template <class ELFT> void Retpoline<ELFT>::writePltHeader(uint8_t *Buf) const {

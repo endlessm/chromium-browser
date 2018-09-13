@@ -5,6 +5,7 @@
 #ifndef ASH_WM_SPLITSVIEW_SPLIT_VIEW_CONTROLLER_H_
 #define ASH_WM_SPLITSVIEW_SPLIT_VIEW_CONTROLLER_H_
 
+#include "ash/accessibility/accessibility_observer.h"
 #include "ash/ash_export.h"
 #include "ash/display/screen_orientation_controller.h"
 #include "ash/public/interfaces/split_view.mojom.h"
@@ -44,7 +45,8 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
                                        public ::wm::ActivationChangeObserver,
                                        public ShellObserver,
                                        public display::DisplayObserver,
-                                       public TabletModeObserver {
+                                       public TabletModeObserver,
+                                       public AccessibilityObserver {
  public:
   enum State { NO_SNAP, LEFT_SNAPPED, RIGHT_SNAPPED, BOTH_SNAPPED };
 
@@ -152,7 +154,7 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
   void AddObserver(mojom::SplitViewObserverPtr observer) override;
 
   // aura::WindowObserver:
-  void OnWindowDestroying(aura::Window* window) override;
+  void OnWindowDestroyed(aura::Window* window) override;
   void OnWindowPropertyChanged(aura::Window* window,
                                const void* key,
                                intptr_t old) override;
@@ -177,6 +179,9 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
 
   // TabletModeObserver:
   void OnTabletModeEnding() override;
+
+  // AccessibilityObserver:
+  void OnAccessibilityStatusChanged() override;
 
   aura::Window* left_window() { return left_window_; }
   aura::Window* right_window() { return right_window_; }
@@ -327,8 +332,22 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
   void StartOverview();
   void EndOverview();
 
-  // Finalizes and cleans up after a drag or resize is finished for a window.
-  void FinishWindowDrag(aura::Window* window);
+  // Finalizes and cleans up after stopping dragging the divider bar to resize
+  // snapped windows.
+  void FinishWindowResizing(aura::Window* window);
+
+  // Called by OnWindowDragEnded to do the actual work of finishing the window
+  // dragging.
+  void EndWindowDragImpl(aura::Window* window,
+                         SnapPosition desired_snap_position,
+                         const gfx::Point& last_location_in_screen);
+
+  // Gets the snap position of |window| according to last mouse/gesture event
+  // location on |window|. Used when |desired_snap_position_| was NONE but
+  // SplitViewController needs to snap the |window| after dragging.
+  SplitViewController::SnapPosition GetSnapPosition(
+      aura::Window* window,
+      const gfx::Point& last_location_in_screen);
 
   // Bindings for the SplitViewController interface.
   mojo::BindingSet<mojom::SplitViewController> bindings_;

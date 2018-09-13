@@ -280,6 +280,9 @@ private:
   /// \sa shouldSuppressFromCXXStandardLibrary
   Optional<bool> SuppressFromCXXStandardLibrary;
 
+  /// \sa shouldCrosscheckWithZ3
+  Optional<bool> CrosscheckWithZ3;
+
   /// \sa reportIssuesInMainSourceFile
   Optional<bool> ReportIssuesInMainSourceFile;
 
@@ -290,6 +293,9 @@ private:
 
   /// \sa getGraphTrimInterval
   Optional<unsigned> GraphTrimInterval;
+
+  /// \sa getMaxSymbolComplexity
+  Optional<unsigned> MaxSymbolComplexity;
 
   /// \sa getMaxTimesInlineLarge
   Optional<unsigned> MaxTimesInlineLarge;
@@ -323,6 +329,9 @@ private:
 
   /// \sa naiveCTUEnabled
   Optional<bool> NaiveCTU;
+
+  /// \sa shouldElideConstructors
+  Optional<bool> ElideConstructors;
 
 
   /// A helper function that retrieves option for a given full-qualified
@@ -575,6 +584,13 @@ public:
   /// which accepts the values "true" and "false".
   bool shouldSuppressFromCXXStandardLibrary();
 
+  /// Returns whether bug reports should be crosschecked with the Z3
+  /// constraint manager backend.
+  ///
+  /// This is controlled by the 'crosscheck-with-z3' config option,
+  /// which accepts the values "true" and "false".
+  bool shouldCrosscheckWithZ3();
+
   /// Returns whether or not the diagnostic report should be always reported
   /// in the main source file and not the headers.
   ///
@@ -629,6 +645,11 @@ public:
   /// This is controlled by the 'graph-trim-interval' config option. To disable
   /// node reclamation, set the option to "0".
   unsigned getGraphTrimInterval();
+
+  /// Returns the maximum complexity of symbolic constraint (50 by default).
+  ///
+  /// This is controlled by "-analyzer-config max-symbol-complexity" option.
+  unsigned getMaxSymbolComplexity();
 
   /// Returns the maximum times a large function could be inlined.
   ///
@@ -693,6 +714,13 @@ public:
   /// This is an experimental feature to inline functions from another
   /// translation units.
   bool naiveCTUEnabled();
+
+  /// Returns true if elidable C++ copy-constructors and move-constructors
+  /// should be actually elided during analysis. Both behaviors are allowed
+  /// by the C++ standard, and the analyzer, like CodeGen, defaults to eliding.
+  /// Starting with C++17 some elisions become mandatory, and in these cases
+  /// the option will be ignored.
+  bool shouldElideConstructors();
 };
   
 using AnalyzerOptionsRef = IntrusiveRefCntPtr<AnalyzerOptions>;

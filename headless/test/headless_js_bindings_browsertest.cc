@@ -21,7 +21,6 @@
 #include "headless/public/headless_browser.h"
 #include "headless/public/headless_devtools_client.h"
 #include "headless/public/headless_web_contents.h"
-#include "headless/public/util/testing/test_in_memory_protocol_handler.h"
 #include "headless/test/headless_browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -49,7 +48,6 @@ window.TabSocket.send = (json) => console.debug(json);
 class HeadlessJsBindingsTest
     : public HeadlessAsyncDevTooledBrowserTest,
       public HeadlessDevToolsClient::RawProtocolListener,
-      public TestInMemoryProtocolHandler::RequestDeferrer,
       public headless::runtime::Observer,
       public page::ExperimentalObserver {
  public:
@@ -68,34 +66,18 @@ class HeadlessJsBindingsTest
         pak_path, ui::SCALE_FACTOR_NONE);
   }
 
-  void CustomizeHeadlessBrowserContext(
-      HeadlessBrowserContext::Builder& builder) override {
-    builder.EnableUnsafeNetworkAccessWithMojoBindings(true);
-  }
-
   void CustomizeHeadlessWebContents(
       HeadlessWebContents::Builder& builder) override {
     builder.SetWindowSize(gfx::Size(0, 0));
     builder.SetInitialURL(GURL("http://test.com/index.html"));
-
-    http_handler_->SetHeadlessBrowserContext(browser_context_);
-  }
-
-  ProtocolHandlerMap GetProtocolHandlers() override {
-    ProtocolHandlerMap protocol_handlers;
-    std::unique_ptr<TestInMemoryProtocolHandler> http_handler(
-        new TestInMemoryProtocolHandler(browser()->BrowserIOThread(), this));
-    http_handler_ = http_handler.get();
-    bindings_js_ = ui::ResourceBundle::GetSharedInstance()
-                       .GetRawDataResource(DEVTOOLS_BINDINGS_TEST)
-                       .as_string();
-    http_handler->InsertResponse("http://test.com/index.html",
+    interceptor_->InsertResponse("http://test.com/index.html",
                                  {kIndexHtml, "text/html"});
-    http_handler->InsertResponse(
+    std::string bindings_js = ui::ResourceBundle::GetSharedInstance()
+                                  .GetRawDataResource(DEVTOOLS_BINDINGS_TEST)
+                                  .as_string();
+    interceptor_->InsertResponse(
         "http://test.com/bindings.js",
-        {bindings_js_.c_str(), "application/javascript"});
-    protocol_handlers[url::kHttpScheme] = std::move(http_handler);
-    return protocol_handlers;
+        {bindings_js.c_str(), "application/javascript"});
   }
 
   void RunDevTooledTest() override {
@@ -112,17 +94,8 @@ class HeadlessJsBindingsTest
     devtools_client_->SetRawProtocolListener(this);
   }
 
-  void OnRequest(const GURL& url,
-                 base::RepeatingClosure complete_request) override {
-    complete_request.Run();
-  }
-
   void ConnectionEstablished(std::unique_ptr<EvaluateResult>) {
     connection_established_ = true;
-    if (complete_request_) {
-      browser()->BrowserIOThread()->PostTask(FROM_HERE, complete_request_);
-      complete_request_ = base::RepeatingClosure();
-    }
   }
 
   virtual void RunJsBindingsTest() = 0;
@@ -201,8 +174,7 @@ class HeadlessJsBindingsTest
     devtools_client_->SendRawDevToolsMessage(json_message);
   }
 
-  bool OnProtocolMessage(const std::string& devtools_agent_host_id,
-                         const std::string& json_message,
+  bool OnProtocolMessage(const std::string& json_message,
                          const base::DictionaryValue& parsed_message) override {
     if (!connection_established_)
       return false;
@@ -243,9 +215,6 @@ class HeadlessJsBindingsTest
   }
 
  protected:
-  TestInMemoryProtocolHandler* http_handler_;  // NOT OWNED
-  std::string bindings_js_;
-  base::RepeatingClosure complete_request_;
   bool connection_established_ = false;
   base::WeakPtrFactory<HeadlessJsBindingsTest> weak_factory_;
 };
@@ -300,69 +269,5 @@ class SimpleEventJsBindingsTest : public HeadlessJsBindingsTest {
 };
 
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(SimpleEventJsBindingsTest);
-
-/*
- * Like SimpleCommandJsBindingsTest except it's run twice. On the first run
- * metadata is produced by v8 for http://test.com/bindings.js. On the second run
- * the metadata is used used leading to substantially faster execution time.
- */
-class CachedJsBindingsTest : public HeadlessJsBindingsTest,
-                             public HeadlessBrowserContext::Observer {
- public:
-  void CustomizeHeadlessBrowserContext(
-      HeadlessBrowserContext::Builder& builder) override {
-    builder.SetCaptureResourceMetadata(true);
-    builder.SetOverrideWebPreferencesCallback(base::BindRepeating(
-        &CachedJsBindingsTest::OverrideWebPreferences, base::Unretained(this)));
-    HeadlessJsBindingsTest::CustomizeHeadlessBrowserContext(builder);
-  }
-
-  void OverrideWebPreferences(WebPreferences* preferences) {
-    // Request eager code compilation.
-    preferences->v8_cache_options =
-        content::V8_CACHE_OPTIONS_FULLCODE_WITHOUT_HEAT_CHECK;
-  }
-
-  void RunDevTooledTest() override {
-    browser_context_->AddObserver(this);
-    HeadlessJsBindingsTest::RunDevTooledTest();
-  }
-
-  void RunJsBindingsTest() override {
-    devtools_client_->GetRuntime()->Evaluate(
-        "new chromium.BindingsTest().evalOneAddOne();",
-        base::BindRepeating(&HeadlessJsBindingsTest::FailOnJsEvaluateException,
-                            base::Unretained(this)));
-  }
-
-  void OnResult(const std::string& result) override {
-    EXPECT_EQ("2", result);
-
-    if (first_result) {
-      devtools_client_->GetPage()->Reload();
-    } else {
-      EXPECT_TRUE(metadata_received_);
-      FinishAsynchronousTest();
-    }
-    first_result = false;
-  }
-
-  void OnMetadataForResource(const GURL& url,
-                             net::IOBuffer* buf,
-                             int buf_len) override {
-    ASSERT_FALSE(metadata_received_);
-    metadata_received_ = true;
-
-    scoped_refptr<net::IOBufferWithSize> metadata(
-        new net::IOBufferWithSize(buf_len));
-    memcpy(metadata->data(), buf->data(), buf_len);
-    http_handler_->SetResponseMetadata(url.spec(), metadata);
-  }
-
-  bool metadata_received_ = false;
-  bool first_result = true;
-};
-
-HEADLESS_ASYNC_DEVTOOLED_TEST_F(CachedJsBindingsTest);
 
 }  // namespace headless

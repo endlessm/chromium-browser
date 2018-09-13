@@ -13,7 +13,10 @@ function(check_linker_flag flag out_var)
 endfunction()
 
 check_library_exists(c fopen "" COMPILER_RT_HAS_LIBC)
-if (NOT SANITIZER_USE_COMPILER_RT)
+if (COMPILER_RT_USE_BUILTINS_LIBRARY)
+  include(HandleCompilerRT)
+  find_compiler_rt_library(builtins COMPILER_RT_BUILTINS_LIBRARY)
+else()
   if (ANDROID)
     check_library_exists(gcc __gcc_personality_v0 "" COMPILER_RT_HAS_GCC_LIB)
   else()
@@ -27,9 +30,7 @@ if (COMPILER_RT_HAS_NODEFAULTLIBS_FLAG)
   if (COMPILER_RT_HAS_LIBC)
     list(APPEND CMAKE_REQUIRED_LIBRARIES c)
   endif ()
-  if (SANITIZER_USE_COMPILER_RT)
-    list(APPEND CMAKE_REQUIRED_FLAGS -rtlib=compiler-rt)
-    find_compiler_rt_library(builtins COMPILER_RT_BUILTINS_LIBRARY)
+  if (COMPILER_RT_USE_BUILTINS_LIBRARY)
     list(APPEND CMAKE_REQUIRED_LIBRARIES "${COMPILER_RT_BUILTINS_LIBRARY}")
   elseif (COMPILER_RT_HAS_GCC_S_LIB)
     list(APPEND CMAKE_REQUIRED_LIBRARIES gcc_s)
@@ -108,6 +109,7 @@ if (ANDROID AND COMPILER_RT_HAS_LIBDL)
   # Android's libstdc++ has a dependency on libdl.
   list(APPEND CMAKE_REQUIRED_LIBRARIES dl)
 endif()
+check_library_exists(c++ __cxa_throw "" COMPILER_RT_HAS_LIBCXX)
 check_library_exists(stdc++ __cxa_throw "" COMPILER_RT_HAS_LIBSTDCXX)
 
 # Linker flags.
@@ -125,7 +127,7 @@ set(COMPILER_RT_SUPPORTED_ARCH)
 # platform. We use the results of these tests to build only the various target
 # runtime libraries supported by our current compilers cross-compiling
 # abilities.
-set(SIMPLE_SOURCE ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/simple.c)
+set(SIMPLE_SOURCE ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/simple.cc)
 file(WRITE ${SIMPLE_SOURCE} "#include <stdlib.h>\n#include <stdio.h>\nint main() { printf(\"hello, world\"); }\n")
 
 # Detect whether the current target platform is 32-bit or 64-bit, and setup
@@ -197,7 +199,7 @@ set(ALL_SANITIZER_COMMON_SUPPORTED_ARCH ${X86} ${X86_64} ${PPC64}
 set(ALL_ASAN_SUPPORTED_ARCH ${X86} ${X86_64} ${ARM32} ${ARM64}
     ${MIPS32} ${MIPS64} ${PPC64} ${S390X})
 set(ALL_DFSAN_SUPPORTED_ARCH ${X86_64} ${MIPS64} ${ARM64})
-set(ALL_FUZZER_SUPPORTED_ARCH x86_64)
+set(ALL_FUZZER_SUPPORTED_ARCH ${X86_64} ${ARM64})
 
 if(APPLE)
   set(ALL_LSAN_SUPPORTED_ARCH ${X86} ${X86_64} ${MIPS64} ${ARM64})
@@ -214,7 +216,7 @@ set(ALL_UBSAN_SUPPORTED_ARCH ${X86} ${X86_64} ${ARM32} ${ARM64}
 set(ALL_SAFESTACK_SUPPORTED_ARCH ${X86} ${X86_64} ${ARM64} ${MIPS32} ${MIPS64})
 set(ALL_CFI_SUPPORTED_ARCH ${X86} ${X86_64} ${ARM32} ${ARM64} ${MIPS64})
 set(ALL_ESAN_SUPPORTED_ARCH ${X86_64} ${MIPS64})
-set(ALL_SCUDO_SUPPORTED_ARCH ${X86} ${X86_64} ${ARM32} ${ARM64} ${MIPS32} ${MIPS64})
+set(ALL_SCUDO_SUPPORTED_ARCH ${X86} ${X86_64} ${ARM32} ${ARM64} ${MIPS32} ${MIPS64} ${PPC64})
 if(APPLE)
 set(ALL_XRAY_SUPPORTED_ARCH ${X86_64})
 else()
@@ -369,7 +371,11 @@ if(APPLE)
         if(DARWIN_${platform}_ARCHS)
           list(APPEND SANITIZER_COMMON_SUPPORTED_OS ${platform})
           list(APPEND PROFILE_SUPPORTED_OS ${platform})
-          list(APPEND TSAN_SUPPORTED_OS ${platform})
+
+          list_intersect(DARWIN_${platform}_TSAN_ARCHS DARWIN_${platform}_ARCHS ALL_TSAN_SUPPORTED_ARCH)
+          if(DARWIN_${platform}_TSAN_ARCHS)
+            list(APPEND TSAN_SUPPORTED_OS ${platform})
+          endif()
         endif()
         foreach(arch ${DARWIN_${platform}_ARCHS})
           list(APPEND COMPILER_RT_SUPPORTED_ARCH ${arch})
@@ -381,7 +387,6 @@ if(APPLE)
 
   # for list_intersect
   include(CompilerRTUtils)
-
 
   list_intersect(SANITIZER_COMMON_SUPPORTED_ARCH
     ALL_SANITIZER_COMMON_SUPPORTED_ARCH
@@ -427,7 +432,7 @@ if(APPLE)
     SANITIZER_COMMON_SUPPORTED_ARCH)
   list_intersect(FUZZER_SUPPORTED_ARCH
     ALL_FUZZER_SUPPORTED_ARCH
-    ALL_SANITIZER_COMMON_SUPPORTED_ARCH)
+    SANITIZER_COMMON_SUPPORTED_ARCH)
   list_intersect(XRAY_SUPPORTED_ARCH
     ALL_XRAY_SUPPORTED_ARCH
     SANITIZER_COMMON_SUPPORTED_ARCH)

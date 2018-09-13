@@ -21,13 +21,14 @@
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar.h"
-#include "chrome/browser/ui/bookmarks/bookmark_tab_helper_delegate.h"
+#include "chrome/browser/ui/bookmarks/bookmark_tab_helper_observer.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/chrome_bubble_manager.h"
 #include "chrome/browser/ui/chrome_web_modal_dialog_manager_delegate.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/profile_chooser_constants.h"
+#include "chrome/browser/ui/signin_view_controller.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "components/content_settings/core/common/content_settings.h"
@@ -49,10 +50,6 @@
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
-
-#if !defined(OS_CHROMEOS)
-#include "chrome/browser/ui/signin_view_controller.h"
-#endif
 
 #if !defined(OS_ANDROID)
 #include "components/zoom/zoom_observer.h"
@@ -82,15 +79,14 @@ class BrowserCommandController;
 }
 
 namespace content {
-class PictureInPictureWindowController;
 class SessionStorageNamespace;
 }
 
 namespace extensions {
+class BrowserExtensionWindowController;
 class HostedAppBrowserController;
 class Extension;
 class ExtensionRegistry;
-class WindowController;
 }
 
 namespace gfx {
@@ -113,7 +109,7 @@ class Browser : public TabStripModelObserver,
                 public content::WebContentsDelegate,
                 public CoreTabHelperDelegate,
                 public ChromeWebModalDialogManagerDelegate,
-                public BookmarkTabHelperDelegate,
+                public BookmarkTabHelperObserver,
 #if !defined(OS_ANDROID)
                 public zoom::ZoomObserver,
 #endif  // !defined(OS_ANDROID)
@@ -287,11 +283,9 @@ class Browser : public TabStripModelObserver,
     return hosted_app_controller_.get();
   }
 
-#if !defined(OS_CHROMEOS)
   SigninViewController* signin_view_controller() {
     return &signin_view_controller_;
   }
-#endif
 
   // Will lazy create the bubble manager.
   ChromeBubbleManager* GetBubbleManager();
@@ -391,11 +385,13 @@ class Browser : public TabStripModelObserver,
 
   // External state change handling ////////////////////////////////////////////
 
-  // BrowserWindow::EnterFullscreen invokes WindowFullscreenStateWillChange at
-  // the beginning of a fullscreen transition, and WindowFullscreenStateChanged
-  // at the end.
+  // WindowFullscreenStateWillChange is invoked at the beginning of a fullscreen
+  // transition, and WindowFullscreenStateChanged is at the end.
   void WindowFullscreenStateWillChange();
   void WindowFullscreenStateChanged();
+  // Only used on Mac. Called when the top ui style has been changed since this
+  // may trigger bookmark bar state change.
+  void FullscreenTopUIStateChanged();
 
   // Assorted browser commands ////////////////////////////////////////////////
 
@@ -520,7 +516,8 @@ class Browser : public TabStripModelObserver,
     return exclusive_access_manager_.get();
   }
 
-  extensions::WindowController* extension_window_controller() const {
+  extensions::BrowserExtensionWindowController* extension_window_controller()
+      const {
     return extension_window_controller_.get();
   }
 
@@ -577,6 +574,10 @@ class Browser : public TabStripModelObserver,
 
     // Change is the result of window toggling in/out of fullscreen mode.
     BOOKMARK_BAR_STATE_CHANGE_TOGGLE_FULLSCREEN,
+
+    // Change is the result of switching the option of showing toolbar in full
+    // screen. Only used on Mac.
+    BOOKMARK_BAR_STATE_CHANGE_TOOLBAR_OPTION_CHANGE,
   };
 
   // Overridden from content::WebContentsDelegate:
@@ -596,9 +597,8 @@ class Browser : public TabStripModelObserver,
   void LoadingStateChanged(content::WebContents* source,
                            bool to_different_document) override;
   void CloseContents(content::WebContents* source) override;
-  void MoveContents(content::WebContents* source,
-                    const gfx::Rect& pos) override;
-  bool IsPopupOrPanel(const content::WebContents* source) const override;
+  void SetContentsBounds(content::WebContents* source,
+                         const gfx::Rect& bounds) override;
   void UpdateTargetURL(content::WebContents* source, const GURL& url) override;
   void ContentsMouseEvent(content::WebContents* source,
                           bool motion,
@@ -631,7 +631,8 @@ class Browser : public TabStripModelObserver,
                           content::WebContents* new_contents) override;
   void RendererUnresponsive(
       content::WebContents* source,
-      content::RenderWidgetHost* render_widget_host) override;
+      content::RenderWidgetHost* render_widget_host,
+      base::RepeatingClosure hang_monitor_restarter) override;
   void RendererResponsive(
       content::WebContents* source,
       content::RenderWidgetHost* render_widget_host) override;
@@ -683,7 +684,7 @@ class Browser : public TabStripModelObserver,
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
-      const content::MediaResponseCallback& callback) override;
+      content::MediaResponseCallback callback) override;
   bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
                                   content::MediaStreamType type) override;
@@ -720,7 +721,7 @@ class Browser : public TabStripModelObserver,
   web_modal::WebContentsModalDialogHost* GetWebContentsModalDialogHost()
       override;
 
-  // Overridden from BookmarkTabHelperDelegate:
+  // Overridden from BookmarkTabHelperObserver:
   void URLStarredChanged(content::WebContents* web_contents,
                          bool starred) override;
 
@@ -997,23 +998,15 @@ class Browser : public TabStripModelObserver,
 
   std::unique_ptr<ExclusiveAccessManager> exclusive_access_manager_;
 
-  std::unique_ptr<extensions::WindowController> extension_window_controller_;
+  std::unique_ptr<extensions::BrowserExtensionWindowController>
+      extension_window_controller_;
 
   std::unique_ptr<chrome::BrowserCommandController> command_controller_;
-
-  // |pip_window_controller_| is held as a SupportsUserData attachment on the
-  // content::WebContents, and thus scoped to the lifetime of the initiator
-  // content::WebContents.
-  // The current active Picture-in-Picture controller is held in case of
-  // updates to the relevant viz::SurfaceId.
-  content::PictureInPictureWindowController* pip_window_controller_ = nullptr;
 
   // True if the browser window has been shown at least once.
   bool window_has_shown_;
 
-#if !defined(OS_CHROMEOS)
   SigninViewController signin_view_controller_;
-#endif
 
   std::unique_ptr<ScopedKeepAlive> keep_alive_;
 

@@ -9,6 +9,7 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/feature_engagement/public/feature_constants.h"
 #include "components/feature_engagement/public/tracker.h"
+#include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/find_in_page/find_tab_helper.h"
 #import "ios/chrome/browser/ui/activity_services/canonical_url_retriever.h"
 #include "ios/chrome/browser/ui/bookmarks/bookmark_model_bridge_observer.h"
@@ -104,7 +105,8 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
 @property(nonatomic, strong) PopupMenuToolsItem* requestMobileSiteItem;
 @property(nonatomic, strong) PopupMenuToolsItem* readingListItem;
 // Array containing all the nonnull items/
-@property(nonatomic, strong) NSArray<TableViewItem*>* specificItems;
+@property(nonatomic, strong)
+    NSArray<TableViewItem<PopupMenuItem>*>* specificItems;
 
 @end
 
@@ -306,15 +308,6 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
 - (void)setPopupMenu:(PopupMenuTableViewController*)popupMenu {
   _popupMenu = popupMenu;
 
-  if (self.type == PopupMenuTypeToolsMenu) {
-    _popupMenu.tableView.accessibilityIdentifier =
-        kPopupMenuToolsMenuTableViewId;
-  } else if (self.type == PopupMenuTypeNavigationBackward ||
-             self.type == PopupMenuTypeNavigationForward) {
-    _popupMenu.tableView.accessibilityIdentifier =
-        kPopupMenuNavigationTableViewId;
-  }
-
   [_popupMenu setPopupMenuItems:self.items];
   if (self.triggerNewIncognitoTabTip) {
     _popupMenu.itemToHighlight = self.openNewIncognitoTabItem;
@@ -334,7 +327,7 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
           feature_engagement::kIPHBadgedReadingListFeature)) {
     self.readingListItem.badgeText = l10n_util::GetNSStringWithFixup(
         IDS_IOS_READING_LIST_CELL_NEW_FEATURE_BADGE);
-    [self.popupMenu reconfigureCellsForItems:@[ self.readingListItem ]];
+    [self.popupMenu itemsHaveChanged:@[ self.readingListItem ]];
   }
 }
 
@@ -364,6 +357,9 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
         [self createNavigationItemsForType:PopupMenuTypeNavigationBackward];
         break;
       case PopupMenuTypeTabGrid:
+        [self createTabGridMenuItems];
+        break;
+      case PopupMenuTypeTabStripTabGrid:
         [self createTabGridMenuItems];
         break;
       case PopupMenuTypeSearch:
@@ -432,7 +428,7 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
     return;
 
   self.readingListItem.badgeNumber = unreadCount;
-  [self.popupMenu reconfigureCellsForItems:@[ self.readingListItem ]];
+  [self.popupMenu itemsHaveChanged:@[ self.readingListItem ]];
 }
 
 - (void)unseenStateChanged:(BOOL)unseenItemsExist {
@@ -448,14 +444,14 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
   self.readLaterItem.enabled = [self isCurrentURLWebURL];
   [self updateBookmarkItem];
   self.findInPageItem.enabled = [self isFindInPageEnabled];
-  self.siteInformationItem.enabled = [self isCurrentURLWebURL];
+  self.siteInformationItem.enabled = [self currentWebPageSupportsSiteInfo];
   self.requestDesktopSiteItem.enabled =
       [self userAgentType] == web::UserAgentType::MOBILE;
   self.requestMobileSiteItem.enabled =
       [self userAgentType] == web::UserAgentType::DESKTOP;
 
   // Reload the items.
-  [self.popupMenu reconfigureCellsForItems:self.specificItems];
+  [self.popupMenu itemsHaveChanged:self.specificItems];
 }
 
 // Updates the |bookmark| item to match the bookmarked status of the page.
@@ -480,7 +476,7 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
         imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
   }
 
-  [self.popupMenu reconfigureCellsForItems:@[ self.bookmarkItem ]];
+  [self.popupMenu itemsHaveChanged:@[ self.bookmarkItem ]];
 }
 
 // Updates the |reloadStopItem| item to match the current behavior.
@@ -501,6 +497,23 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
     self.reloadStopItem.image = [[UIImage imageNamed:@"popup_menu_reload"]
         imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
   }
+}
+
+// Whether the current web page has available site info.
+- (BOOL)currentWebPageSupportsSiteInfo {
+  if (!self.webState)
+    return NO;
+  web::NavigationItem* navItem =
+      self.webState->GetNavigationManager()->GetVisibleItem();
+  if (!navItem) {
+    return NO;
+  }
+  const GURL& URL = navItem->GetURL();
+  // Show site info for offline pages.
+  if (URL.SchemeIs(kChromeUIScheme) && URL.host() == kChromeUIOfflineHost) {
+    return YES;
+  }
+  return URL.is_valid() && !web::GetWebClient()->IsAppSpecificURL(URL);
 }
 
 // Whether the current page is a web page.
@@ -561,23 +574,11 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
 
 // Creates the menu items for the tab grid menu.
 - (void)createTabGridMenuItems {
-  NSMutableArray* closeItems = [NSMutableArray array];
-  if (self.isIncognito) {
-    PopupMenuToolsItem* closeAllIncognitoTabs = CreateTableViewItem(
-        IDS_IOS_TOOLS_MENU_CLOSE_ALL_INCOGNITO_TABS,
-        PopupMenuActionCloseAllIncognitoTabs, @"popup_menu_new_incognito_tab",
-        kToolsMenuCloseAllIncognitoTabsId);
-    closeAllIncognitoTabs.destructiveAction = YES;
-    [closeItems addObject:closeAllIncognitoTabs];
-  }
-
   PopupMenuToolsItem* closeTab =
       CreateTableViewItem(IDS_IOS_TOOLS_MENU_CLOSE_TAB, PopupMenuActionCloseTab,
                           @"popup_menu_close_tab", kToolsMenuCloseTabId);
   closeTab.destructiveAction = YES;
-  [closeItems addObject:closeTab];
-
-  self.items = @[ [self itemsForNewTab], closeItems ];
+  self.items = @[ [self itemsForNewTab], @[ closeTab ] ];
 }
 
 // Creates the menu items for the search menu.
@@ -586,18 +587,18 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
   NSString* pasteboardString = [UIPasteboard generalPasteboard].string;
   if (pasteboardString) {
     PopupMenuToolsItem* pasteAndGo = CreateTableViewItem(
-        IDS_IOS_TOOLS_MENU_PASTE_AND_GO, PopupMenuActionPasteAndGo, nil,
-        kToolsMenuPasteAndGo);
+        IDS_IOS_TOOLS_MENU_PASTE_AND_GO, PopupMenuActionPasteAndGo,
+        @"popup_menu_paste_and_go", kToolsMenuPasteAndGo);
     [items addObject:pasteAndGo];
   }
 
   PopupMenuToolsItem* QRCodeSearch = CreateTableViewItem(
-      IDS_IOS_TOOLS_MENU_QR_SCANNER, PopupMenuActionQRCodeSearch, nil,
-      kToolsMenuQRCodeSearch);
+      IDS_IOS_TOOLS_MENU_QR_SCANNER, PopupMenuActionQRCodeSearch,
+      @"popup_menu_qr_scanner", kToolsMenuQRCodeSearch);
   [items addObject:QRCodeSearch];
   PopupMenuToolsItem* voiceSearch = CreateTableViewItem(
-      IDS_IOS_TOOLS_MENU_VOICE_SEARCH, PopupMenuActionVoiceSearch, nil,
-      kToolsMenuVoiceSearch);
+      IDS_IOS_TOOLS_MENU_VOICE_SEARCH, PopupMenuActionVoiceSearch,
+      @"popup_menu_voice_search", kToolsMenuVoiceSearch);
   [items addObject:voiceSearch];
 
   self.items = @[ items ];

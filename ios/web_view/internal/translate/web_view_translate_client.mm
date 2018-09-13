@@ -8,6 +8,7 @@
 
 #include "base/logging.h"
 #include "components/infobars/core/infobar.h"
+#include "components/language/core/browser/language_model_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/translate/core/browser/page_translated_details.h"
 #include "components/translate/core/browser/translate_accept_languages.h"
@@ -18,7 +19,7 @@
 #include "components/translate/core/common/language_detection_details.h"
 #include "ios/web/public/browser_state.h"
 #import "ios/web/public/web_state/web_state.h"
-#include "ios/web_view/internal/language/web_view_language_model_factory.h"
+#include "ios/web_view/internal/language/web_view_language_model_manager_factory.h"
 #import "ios/web_view/internal/language/web_view_url_language_histogram_factory.h"
 #include "ios/web_view/internal/pref_names.h"
 #import "ios/web_view/internal/translate/cwv_translation_controller_internal.h"
@@ -41,7 +42,8 @@ WebViewTranslateClient::WebViewTranslateClient(web::WebState* web_state)
       translate_manager_(std::make_unique<translate::TranslateManager>(
           this,
           WebViewTranslateRankerFactory::GetForBrowserState(browser_state_),
-          WebViewLanguageModelFactory::GetForBrowserState(browser_state_))),
+          WebViewLanguageModelManagerFactory::GetForBrowserState(browser_state_)
+              ->GetDefaultModel())),
       translate_driver_(web_state,
                         web_state->GetNavigationManager(),
                         translate_manager_.get()) {
@@ -76,7 +78,7 @@ std::unique_ptr<infobars::InfoBar> WebViewTranslateClient::CreateInfoBar(
   return nullptr;
 }
 
-void WebViewTranslateClient::ShowTranslateUI(
+bool WebViewTranslateClient::ShowTranslateUI(
     translate::TranslateStep step,
     const std::string& source_language,
     const std::string& target_language,
@@ -87,6 +89,7 @@ void WebViewTranslateClient::ShowTranslateUI(
                                 targetLanguage:target_language
                                      errorType:error_type
                              triggeredFromMenu:triggered_from_menu];
+  return true;
 }
 
 translate::IOSTranslateDriver* WebViewTranslateClient::GetTranslateDriver() {

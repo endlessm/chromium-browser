@@ -8,8 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "chrome/browser/ui/ash/assistant/assistant_context.h"
-#include "chrome/browser/ui/ash/assistant/platform_audio_input_host.h"
+#include "chrome/browser/ui/ash/assistant/device_actions.h"
 #include "chromeos/services/assistant/public/mojom/assistant.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
@@ -17,8 +16,9 @@ namespace service_manager {
 class Connector;
 }  // namespace service_manager
 
-class AssistantCardRenderer;
 class AssistantImageDownloader;
+class WebContentsManager;
+class AssistantSetup;
 
 // Class to handle all assistant in-browser-process functionalities.
 class AssistantClient : chromeos::assistant::mojom::Client {
@@ -32,21 +32,21 @@ class AssistantClient : chromeos::assistant::mojom::Client {
 
   // assistant::mojom::Client overrides:
   void OnAssistantStatusChanged(bool running) override;
+  void RequestAssistantStructure(
+      RequestAssistantStructureCallback callback) override;
 
  private:
   mojo::Binding<chromeos::assistant::mojom::Client> client_binding_;
-
+  mojo::Binding<chromeos::assistant::mojom::DeviceActions>
+      device_actions_binding_;
   chromeos::assistant::mojom::AssistantPlatformPtr assistant_connection_;
-  mojo::Binding<chromeos::assistant::mojom::AudioInput> audio_input_binding_;
 
-  mojo::Binding<chromeos::assistant::mojom::Context> context_binding_;
+  DeviceActions device_actions_;
 
-  PlatformAudioInputHost audio_input_;
-
-  AssistantContext context_;
-
-  std::unique_ptr<AssistantCardRenderer> assistant_card_renderer_;
   std::unique_ptr<AssistantImageDownloader> assistant_image_downloader_;
+  std::unique_ptr<AssistantSetup> assistant_setup_;
+
+  std::unique_ptr<WebContentsManager> web_contents_manager_;
 
   bool initialized_ = false;
 

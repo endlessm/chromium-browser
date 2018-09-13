@@ -11,22 +11,23 @@
 #include "base/version.h"
 #include "build/build_config.h"
 #include "chrome/browser/chromeos/cryptauth/chrome_cryptauth_service_factory.h"
+#include "chrome/browser/chromeos/device_sync/device_sync_client_factory.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service_regular.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service_signin_chromeos.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_window.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
+#include "chromeos/chromeos_features.h"
 #include "chromeos/components/proximity_auth/logging/logging.h"
+#include "chromeos/services/device_sync/public/cpp/device_sync_client.h"
 #include "components/cryptauth/cryptauth_client_impl.h"
 #include "components/cryptauth/cryptauth_device_manager.h"
 #include "components/cryptauth/cryptauth_enrollment_manager.h"
 #include "components/cryptauth/local_device_data_provider.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
-#include "components/signin/core/browser/signin_manager_base.h"
 #include "components/version_info/version_info.h"
+#include "services/identity/public/cpp/identity_manager.h"
 
 using proximity_auth::ScreenlockState;
 
@@ -38,12 +39,12 @@ ChromeProximityAuthClient::ChromeProximityAuthClient(Profile* profile)
 ChromeProximityAuthClient::~ChromeProximityAuthClient() {}
 
 std::string ChromeProximityAuthClient::GetAuthenticatedUsername() const {
-  const SigninManagerBase* signin_manager =
-      SigninManagerFactory::GetForProfileIfExists(profile_);
-  // |profile_| has to be a signed-in profile with SigninManager already
+  const identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfileIfExists(profile_);
+  // |profile_| has to be a signed-in profile with IdentityManager already
   // created. Otherwise, just crash to collect stack.
-  DCHECK(signin_manager);
-  return signin_manager->GetAuthenticatedAccountInfo().email;
+  DCHECK(identity_manager);
+  return identity_manager->GetPrimaryAccountInfo().email;
 }
 
 void ChromeProximityAuthClient::UpdateScreenlockState(ScreenlockState state) {
@@ -72,7 +73,7 @@ void ChromeProximityAuthClient::GetChallengeForUserAndDevice(
   EasyUnlockService* easy_unlock_service = EasyUnlockService::Get(profile_);
   if (easy_unlock_service->GetType() == EasyUnlockService::TYPE_REGULAR) {
     PA_LOG(ERROR) << "Unable to get challenge when user is logged in.";
-    callback.Run(std::string());
+    callback.Run(std::string() /* challenge */);
     return;
   }
 
@@ -92,37 +93,53 @@ ChromeProximityAuthClient::GetPrefManager() {
 
 std::unique_ptr<cryptauth::CryptAuthClientFactory>
 ChromeProximityAuthClient::CreateCryptAuthClientFactory() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
   return GetCryptAuthService()->CreateCryptAuthClientFactory();
 }
 
 cryptauth::DeviceClassifier ChromeProximityAuthClient::GetDeviceClassifier() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
   return GetCryptAuthService()->GetDeviceClassifier();
 }
 
 std::string ChromeProximityAuthClient::GetAccountId() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
   return GetCryptAuthService()->GetAccountId();
 }
 
 cryptauth::CryptAuthEnrollmentManager*
 ChromeProximityAuthClient::GetCryptAuthEnrollmentManager() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
   return GetCryptAuthService()->GetCryptAuthEnrollmentManager();
 }
 
 cryptauth::CryptAuthDeviceManager*
 ChromeProximityAuthClient::GetCryptAuthDeviceManager() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
   return GetCryptAuthService()->GetCryptAuthDeviceManager();
 }
 
+std::string ChromeProximityAuthClient::GetLocalDevicePublicKey() {
+  if (base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi)) {
+    return GetDeviceSyncClient()->GetLocalDeviceMetadata()->public_key();
+  } else {
+    cryptauth::LocalDeviceDataProvider provider(GetCryptAuthService());
+    std::string local_public_key;
+    provider.GetLocalDeviceData(&local_public_key, nullptr);
+    return local_public_key;
+  }
+}
+
 cryptauth::CryptAuthService* ChromeProximityAuthClient::GetCryptAuthService() {
+  DCHECK(!base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
   return ChromeCryptAuthServiceFactory::GetInstance()->GetForBrowserContext(
       profile_);
 }
 
-std::string ChromeProximityAuthClient::GetLocalDevicePublicKey() {
-  cryptauth::LocalDeviceDataProvider provider(GetCryptAuthService());
-  std::string local_public_key;
-  provider.GetLocalDeviceData(&local_public_key, nullptr);
-  return local_public_key;
+device_sync::DeviceSyncClient*
+ChromeProximityAuthClient::GetDeviceSyncClient() {
+  DCHECK(base::FeatureList::IsEnabled(chromeos::features::kMultiDeviceApi));
+  return device_sync::DeviceSyncClientFactory::GetForProfile(profile_);
 }
 
 }  // namespace chromeos

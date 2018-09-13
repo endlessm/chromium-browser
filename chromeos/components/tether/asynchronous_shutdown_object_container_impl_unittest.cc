@@ -9,11 +9,13 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/scoped_task_environment.h"
-#include "chromeos/components/tether/fake_ad_hoc_ble_advertiser.h"
 #include "chromeos/components/tether/fake_ble_advertiser.h"
 #include "chromeos/components/tether/fake_ble_scanner.h"
 #include "chromeos/components/tether/fake_disconnect_tethering_request_sender.h"
+#include "chromeos/components/tether/fake_tether_host_fetcher.h"
 #include "chromeos/components/tether/tether_component_impl.h"
+#include "chromeos/services/device_sync/public/cpp/fake_device_sync_client.h"
+#include "chromeos/services/secure_channel/public/cpp/client/fake_secure_channel_client.h"
 #include "components/cryptauth/fake_cryptauth_service.h"
 #include "components/cryptauth/fake_remote_device_provider.h"
 #include "components/cryptauth/remote_device_provider_impl.h"
@@ -72,6 +74,11 @@ class AsynchronousShutdownObjectContainerImplTest : public testing::Test {
 
     fake_cryptauth_service_ =
         std::make_unique<cryptauth::FakeCryptAuthService>();
+    fake_device_sync_client_ =
+        std::make_unique<device_sync::FakeDeviceSyncClient>();
+    fake_secure_channel_client_ =
+        std::make_unique<secure_channel::FakeSecureChannelClient>();
+    fake_tether_host_fetcher_ = std::make_unique<FakeTetherHostFetcher>();
 
     test_pref_service_ =
         std::make_unique<sync_preferences::TestingPrefServiceSyncable>();
@@ -82,7 +89,9 @@ class AsynchronousShutdownObjectContainerImplTest : public testing::Test {
     // of objects created by the container.
     container_ = base::WrapUnique(new AsynchronousShutdownObjectContainerImpl(
         mock_adapter_, fake_cryptauth_service_.get(),
-        nullptr /* tether_host_fetcher */, nullptr /* network_state_handler */,
+        fake_device_sync_client_.get(), fake_secure_channel_client_.get(),
+        fake_tether_host_fetcher_.get() /* tether_host_fetcher */,
+        nullptr /* network_state_handler */,
         nullptr /* managed_network_configuration_handler */,
         nullptr /* network_connection_handler */,
         test_pref_service_.get() /* pref_service */));
@@ -93,13 +102,11 @@ class AsynchronousShutdownObjectContainerImplTest : public testing::Test {
         new FakeBleScanner(false /* automatically_update_discovery_session */);
     fake_disconnect_tethering_request_sender_ =
         new FakeDisconnectTetheringRequestSender();
-    fake_ad_hoc_ble_advertisement_ = new FakeAdHocBleAdvertiser();
 
     container_->SetTestDoubles(
         base::WrapUnique(fake_ble_advertiser_),
         base::WrapUnique(fake_ble_scanner_),
-        base::WrapUnique(fake_disconnect_tethering_request_sender_),
-        base::WrapUnique(fake_ad_hoc_ble_advertisement_));
+        base::WrapUnique(fake_disconnect_tethering_request_sender_));
   }
 
   bool MockIsAdapterPowered() { return is_adapter_powered_; }
@@ -117,6 +124,10 @@ class AsynchronousShutdownObjectContainerImplTest : public testing::Test {
 
   scoped_refptr<NiceMock<device::MockBluetoothAdapter>> mock_adapter_;
   std::unique_ptr<cryptauth::FakeCryptAuthService> fake_cryptauth_service_;
+  std::unique_ptr<device_sync::FakeDeviceSyncClient> fake_device_sync_client_;
+  std::unique_ptr<secure_channel::FakeSecureChannelClient>
+      fake_secure_channel_client_;
+  std::unique_ptr<FakeTetherHostFetcher> fake_tether_host_fetcher_;
   std::unique_ptr<sync_preferences::TestingPrefServiceSyncable>
       test_pref_service_;
   std::unique_ptr<FakeRemoteDeviceProviderFactory>
@@ -125,7 +136,6 @@ class AsynchronousShutdownObjectContainerImplTest : public testing::Test {
   FakeBleScanner* fake_ble_scanner_;
   FakeDisconnectTetheringRequestSender*
       fake_disconnect_tethering_request_sender_;
-  FakeAdHocBleAdvertiser* fake_ad_hoc_ble_advertisement_;
 
   bool was_shutdown_callback_invoked_;
   bool is_adapter_powered_;
@@ -197,23 +207,6 @@ TEST_F(AsynchronousShutdownObjectContainerImplTest,
 }
 
 TEST_F(AsynchronousShutdownObjectContainerImplTest,
-       TestShutdown_AsyncAdHocBleAdvertiserShutdown) {
-  fake_ad_hoc_ble_advertisement_->set_has_pending_requests(true);
-  EXPECT_TRUE(fake_ad_hoc_ble_advertisement_->HasPendingRequests());
-
-  // Start the shutdown; it should not yet succeed since there are pending
-  // requests.
-  CallShutdown();
-  EXPECT_FALSE(was_shutdown_callback_invoked_);
-
-  // Now, finish the pending requests; this should cause the shutdown to
-  // complete.
-  fake_ad_hoc_ble_advertisement_->set_has_pending_requests(false);
-  fake_ad_hoc_ble_advertisement_->NotifyAsynchronousShutdownComplete();
-  EXPECT_TRUE(was_shutdown_callback_invoked_);
-}
-
-TEST_F(AsynchronousShutdownObjectContainerImplTest,
        TestShutdown_MultipleSimultaneousAsyncShutdowns) {
   fake_ble_advertiser_->set_are_advertisements_registered(true);
   EXPECT_TRUE(fake_ble_advertiser_->AreAdvertisementsRegistered());
@@ -225,9 +218,6 @@ TEST_F(AsynchronousShutdownObjectContainerImplTest,
   fake_disconnect_tethering_request_sender_->set_has_pending_requests(true);
   EXPECT_TRUE(fake_disconnect_tethering_request_sender_->HasPendingRequests());
 
-  fake_ad_hoc_ble_advertisement_->set_has_pending_requests(true);
-  EXPECT_TRUE(fake_ad_hoc_ble_advertisement_->HasPendingRequests());
-
   // Start the shutdown; it should not yet succeed since there are pending
   // requests.
   CallShutdown();
@@ -238,12 +228,6 @@ TEST_F(AsynchronousShutdownObjectContainerImplTest,
   // requests.
   fake_ble_advertiser_->set_are_advertisements_registered(false);
   fake_ble_advertiser_->NotifyAllAdvertisementsUnregistered();
-  EXPECT_FALSE(was_shutdown_callback_invoked_);
-
-  // Now, finish GATT services workaround shutdown; this should not cause the
-  // shutdown to complete since there are still pending requests
-  fake_ad_hoc_ble_advertisement_->set_has_pending_requests(false);
-  fake_ad_hoc_ble_advertisement_->NotifyAsynchronousShutdownComplete();
   EXPECT_FALSE(was_shutdown_callback_invoked_);
 
   // Now, remove the discovery session; this should not cause the shutdown to

@@ -16,11 +16,14 @@ class UnifiedVolumeSliderController;
 class UnifiedVolumeView : public UnifiedSliderView,
                           public chromeos::CrasAudioHandler::AudioObserver {
  public:
-  explicit UnifiedVolumeView(UnifiedVolumeSliderController* controller);
+  UnifiedVolumeView(UnifiedVolumeSliderController* controller,
+                    bool is_main_view);
   ~UnifiedVolumeView() override;
 
+  views::Button* more_button() { return more_button_; }
+
  private:
-  void Update();
+  void Update(bool by_user);
 
   // CrasAudioHandler::AudioObserver:
   void OnOutputNodeVolumeChanged(uint64_t node_id, int volume) override;
@@ -28,6 +31,12 @@ class UnifiedVolumeView : public UnifiedSliderView,
   void OnAudioNodesChanged() override;
   void OnActiveOutputNodeChanged() override;
   void OnActiveInputNodeChanged() override;
+
+  // UnifiedSliderView:
+  void ChildVisibilityChanged(views::View* child) override;
+
+  TopShortcutButton* const more_button_;
+  const bool is_main_view_;
 
   DISALLOW_COPY_AND_ASSIGN(UnifiedVolumeView);
 };

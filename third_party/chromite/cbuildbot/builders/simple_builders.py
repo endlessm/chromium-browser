@@ -154,6 +154,11 @@ class SimpleBuilder(generic_builders.Builder):
       else:
         stage_class = test_stages.HWTestStage
 
+      # TODO (xixuan): Add AsyncSkylabHWTestStage here at
+      # the end of launch testing.
+      if builder_run.config.enable_skylab_hw_tests:
+        stage_class = test_stages.SkylabHWTestStage
+
       result = self._GetStageInstance(stage_class,
                                       board,
                                       model.name,
@@ -324,9 +329,8 @@ class SimpleBuilder(generic_builders.Builder):
 
   def _RunMasterPaladinOrPFQBuild(self):
     """Runs through the stages of the paladin or chrome PFQ master build."""
-    # If this master build uses Buildbucket scheduler, run
-    # scheduler_stages.ScheduleSlavesStage to schedule slaves.
-    if config_lib.UseBuildbucketScheduler(self._run.config):
+    # If there are slave builders, schedule them.
+    if self._run.config.slave_configs:
       self._RunStage(scheduler_stages.ScheduleSlavesStage, self.sync_stage)
     self._RunStage(build_stages.UprevStage)
     self._RunStage(build_stages.InitSDKStage)
@@ -342,10 +346,8 @@ class SimpleBuilder(generic_builders.Builder):
 
   def RunEarlySyncAndSetupStages(self):
     """Runs through the early sync and board setup stages."""
-    # If this build is master and uses Buildbucket scheduler, run
-    # scheduler_stages.ScheduleSlavesStage to schedule slaves.
-    if (config_lib.UseBuildbucketScheduler(self._run.config) and
-        config_lib.IsMasterBuild(self._run.config)):
+    # If there are slave builders, schedule them.
+    if self._run.config.slave_configs:
       self._RunStage(scheduler_stages.ScheduleSlavesStage, self.sync_stage)
     self._RunStage(build_stages.UprevStage)
     self._RunStage(build_stages.InitSDKStage)
@@ -488,6 +490,14 @@ class DistributedBuilder(SimpleBuilder):
       self.completion_stage_class = (
           completion_stages.CanaryCompletionStage)
     elif self._run.config.build_type == constants.TOOLCHAIN_TYPE:
+      sync_stage = self._GetStageInstance(sync_stages.MasterSlaveLKGMSyncStage)
+      self.completion_stage_class = (
+          completion_stages.MasterSlaveSyncCompletionStage)
+    elif self._run.config.build_type == constants.FULL_TYPE:
+      sync_stage = self._GetStageInstance(sync_stages.MasterSlaveLKGMSyncStage)
+      self.completion_stage_class = (
+          completion_stages.MasterSlaveSyncCompletionStage)
+    elif self._run.config.build_type == constants.INCREMENTAL_TYPE:
       sync_stage = self._GetStageInstance(sync_stages.MasterSlaveLKGMSyncStage)
       self.completion_stage_class = (
           completion_stages.MasterSlaveSyncCompletionStage)

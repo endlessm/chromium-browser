@@ -26,11 +26,12 @@
 #include "ash/wm/window_state_delegate.h"
 #include "ash/wm/wm_event.h"
 #include "base/containers/flat_set.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_targeter.h"
 #include "ui/base/accelerators/accelerator.h"
+#include "ui/base/accelerators/test_accelerator_target.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image_skia.h"
@@ -404,27 +405,6 @@ TEST_F(CustomFrameViewAshTest, HeaderVisibilityInSplitview) {
 
 namespace {
 
-class TestTarget : public ui::AcceleratorTarget {
- public:
-  TestTarget() = default;
-  ~TestTarget() override = default;
-
-  size_t count() const { return count_; }
-
-  // Overridden from ui::AcceleratorTarget:
-  bool AcceleratorPressed(const ui::Accelerator& accelerator) override {
-    ++count_;
-    return true;
-  }
-
-  bool CanHandleAccelerators() const override { return true; }
-
- private:
-  size_t count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(TestTarget);
-};
-
 class TestButtonModel : public CaptionButtonModel {
  public:
   TestButtonModel() = default;
@@ -477,12 +457,12 @@ TEST_F(CustomFrameViewAshTest, BackButton) {
 
   ui::Accelerator accelerator_back_press(ui::VKEY_BROWSER_BACK, ui::EF_NONE);
   accelerator_back_press.set_key_state(ui::Accelerator::KeyState::PRESSED);
-  TestTarget target_back_press;
+  ui::TestAcceleratorTarget target_back_press;
   controller->Register({accelerator_back_press}, &target_back_press);
 
   ui::Accelerator accelerator_back_release(ui::VKEY_BROWSER_BACK, ui::EF_NONE);
   accelerator_back_release.set_key_state(ui::Accelerator::KeyState::RELEASED);
-  TestTarget target_back_release;
+  ui::TestAcceleratorTarget target_back_release;
   controller->Register({accelerator_back_release}, &target_back_release);
 
   CustomFrameViewAsh* custom_frame_view = delegate->custom_frame_view();
@@ -498,12 +478,12 @@ TEST_F(CustomFrameViewAshTest, BackButton) {
 
   // Back button is disabled, so clicking on it should not should
   // generate back key sequence.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.MoveMouseTo(
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(
       header_view->GetBackButton()->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
-  EXPECT_EQ(0u, target_back_press.count());
-  EXPECT_EQ(0u, target_back_release.count());
+  generator->ClickLeftButton();
+  EXPECT_EQ(0, target_back_press.accelerator_count());
+  EXPECT_EQ(0, target_back_release.accelerator_count());
 
   model_ptr->SetEnabled(CAPTION_BUTTON_ICON_BACK, true);
   custom_frame_view->SizeConstraintsChanged();
@@ -512,11 +492,11 @@ TEST_F(CustomFrameViewAshTest, BackButton) {
 
   // Back button is now enabled, so clicking on it should generate
   // back key sequence.
-  generator.MoveMouseTo(
+  generator->MoveMouseTo(
       header_view->GetBackButton()->GetBoundsInScreen().CenterPoint());
-  generator.ClickLeftButton();
-  EXPECT_EQ(1u, target_back_press.count());
-  EXPECT_EQ(1u, target_back_release.count());
+  generator->ClickLeftButton();
+  EXPECT_EQ(1, target_back_press.accelerator_count());
+  EXPECT_EQ(1, target_back_release.accelerator_count());
 
   model_ptr->SetVisible(CAPTION_BUTTON_ICON_BACK, false);
   custom_frame_view->SizeConstraintsChanged();
@@ -637,8 +617,10 @@ TEST_F(CustomFrameViewAshTest, WideFrame) {
   CustomFrameViewAsh* custom_frame_view = delegate->custom_frame_view();
   HeaderView* header_view =
       static_cast<HeaderView*>(custom_frame_view->GetHeaderView());
+  widget->Maximize();
 
-  WideFrameView* wide_frame_view = WideFrameView::Create(widget.get());
+  std::unique_ptr<WideFrameView> wide_frame_view =
+      std::make_unique<WideFrameView>(widget.get());
   wide_frame_view->GetWidget()->Show();
 
   HeaderView* wide_header_view = wide_frame_view->header_view();
@@ -673,19 +655,19 @@ TEST_F(CustomFrameViewAshTest, WideFrame) {
   // Make sure the frame can be revaled outside of the target window.
   EXPECT_FALSE(ImmersiveFullscreenControllerTestApi(&controller)
                    .IsTopEdgeHoverTimerRunning());
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.MoveMouseTo(gfx::Point(10, 0));
-  generator.MoveMouseBy(1, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(gfx::Point(10, 0));
+  generator->MoveMouseBy(1, 0);
   EXPECT_TRUE(ImmersiveFullscreenControllerTestApi(&controller)
                   .IsTopEdgeHoverTimerRunning());
 
-  generator.MoveMouseTo(gfx::Point(10, 10));
-  generator.MoveMouseBy(1, 0);
+  generator->MoveMouseTo(gfx::Point(10, 10));
+  generator->MoveMouseBy(1, 0);
   EXPECT_FALSE(ImmersiveFullscreenControllerTestApi(&controller)
                    .IsTopEdgeHoverTimerRunning());
 
-  generator.MoveMouseTo(gfx::Point(600, 0));
-  generator.MoveMouseBy(1, 0);
+  generator->MoveMouseTo(gfx::Point(600, 0));
+  generator->MoveMouseBy(1, 0);
   EXPECT_TRUE(ImmersiveFullscreenControllerTestApi(&controller)
                   .IsTopEdgeHoverTimerRunning());
 
@@ -700,6 +682,13 @@ TEST_F(CustomFrameViewAshTest, WideFrame) {
   UpdateDisplay("1234x800");
   EXPECT_EQ(1234,
             wide_frame_view->GetWidget()->GetWindowBoundsInScreen().width());
+
+  // Double Click
+  EXPECT_TRUE(widget->IsMaximized());
+  generator->MoveMouseToCenterOf(
+      wide_header_view->GetWidget()->GetNativeWindow());
+  generator->DoubleClickLeftButton();
+  EXPECT_FALSE(widget->IsMaximized());
 }
 
 TEST_F(CustomFrameViewAshTest, WideFrameButton) {
@@ -707,7 +696,8 @@ TEST_F(CustomFrameViewAshTest, WideFrameButton) {
   std::unique_ptr<views::Widget> widget = CreateTestWidget(
       delegate, kShellWindowId_DefaultContainer, gfx::Rect(100, 0, 400, 500));
 
-  WideFrameView* wide_frame_view = WideFrameView::Create(widget.get());
+  std::unique_ptr<WideFrameView> wide_frame_view =
+      std::make_unique<WideFrameView>(widget.get());
   wide_frame_view->GetWidget()->Show();
   HeaderView* header_view = wide_frame_view->header_view();
   FrameCaptionButtonContainerView::TestApi test_api(
@@ -827,10 +817,11 @@ TEST_P(CustomFrameViewAshFrameColorTest, WideFrameInitialColor) {
   window->SetProperty(ash::kFrameActiveColorKey, new_active_color);
   window->SetProperty(ash::kFrameInactiveColorKey, new_inactive_color);
 
-  WideFrameView* wide_frame_view = WideFrameView::Create(widget.get());
+  std::unique_ptr<WideFrameView> wide_frame_view =
+      std::make_unique<WideFrameView>(widget.get());
   HeaderView* wide_header_view = wide_frame_view->header_view();
-  DefaultFrameHeader* header = static_cast<DefaultFrameHeader*>(
-      wide_header_view->GetFrameHeaderForTest());
+  DefaultFrameHeader* header =
+      static_cast<DefaultFrameHeader*>(wide_header_view->GetFrameHeader());
   EXPECT_EQ(new_active_color, header->active_frame_color_for_testing());
   EXPECT_EQ(new_inactive_color, header->inactive_frame_color_for_testing());
 }

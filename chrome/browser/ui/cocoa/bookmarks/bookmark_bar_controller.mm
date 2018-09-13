@@ -33,6 +33,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_folder_controller.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_folder_window.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_toolbar_view.h"
+#import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_util.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_view_cocoa.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button_cell.h"
@@ -79,6 +80,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 
 using base::UserMetricsAction;
+using bookmarks::bookmark_bar_util::ValueInRangeInclusive;
 using bookmarks::BookmarkBarLayout;
 using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
@@ -333,7 +335,7 @@ bool operator!=(const BookmarkBarLayout& lhs, const BookmarkBarLayout& rhs) {
   [[self controlledView] setController:self];
   [[self controlledView] setDelegate:self];
 
-  buttonView_.reset([[BookmarkBarView alloc]
+  buttonView_.reset([[BookmarkBarViewCocoa alloc]
       initWithController:self
                    frame:NSMakeRect(0, -2, 584, 144)]);
   [buttonView_ setAutoresizingMask:NSViewWidthSizable | NSViewMaxXMargin];
@@ -500,7 +502,7 @@ bool operator!=(const BookmarkBarLayout& lhs, const BookmarkBarLayout& rhs) {
                                       bookmarkModel_));
 }
 
-// Called by our main view (a BookmarkBarView) when it gets moved to a
+// Called by our main view (a BookmarkBarViewCocoa) when it gets moved to a
 // window.  We perform operations which need to know the relevant
 // window (e.g. watch for a window close) so they can't be performed
 // earlier (such as in awakeFromNib).
@@ -1381,7 +1383,7 @@ bool operator!=(const BookmarkBarLayout& lhs, const BookmarkBarLayout& rhs) {
 
 #pragma mark Private Methods Exposed for Testing
 
-- (BookmarkBarView*)buttonView {
+- (BookmarkBarViewCocoa*)buttonView {
   return buttonView_;
 }
 
@@ -1528,11 +1530,6 @@ bool operator!=(const BookmarkBarLayout& lhs, const BookmarkBarLayout& rhs) {
 }
 
 #pragma mark Drag & Drop
-
-// Find something like std::is_between<T>?  I can't believe one doesn't exist.
-static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
-  return ((value >= low) && (value <= high));
-}
 
 // Return the proposed drop target for a hover open button from the
 // given array, or nil if none.  We use this for distinguishing
@@ -2046,7 +2043,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   // Make sure there are no stale pointers in the pasteboard.  This
   // can be important if a bookmark is deleted (via bookmark sync)
   // while in the middle of a drag.  The "drag completed" code
-  // (e.g. [BookmarkBarView performDragOperationForBookmarkButton:]) is
+  // (e.g. [BookmarkBarViewCocoa performDragOperationForBookmarkButton:]) is
   // careful enough to bail if there is no data found at "drop" time.
   [[NSPasteboard pasteboardWithName:NSDragPboard] clearContents];
 

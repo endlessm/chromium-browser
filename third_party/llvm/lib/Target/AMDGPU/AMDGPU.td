@@ -7,23 +7,13 @@
 //
 //===------------------------------------------------------------===//
 
+include "llvm/TableGen/SearchableTable.td"
 include "llvm/Target/Target.td"
+include "AMDGPUFeatures.td"
 
 //===------------------------------------------------------------===//
 // Subtarget Features (device properties)
 //===------------------------------------------------------------===//
-
-def FeatureFP64 : SubtargetFeature<"fp64",
-  "FP64",
-  "true",
-  "Enable double precision operations"
->;
-
-def FeatureFMA : SubtargetFeature<"fmaf",
-  "FMA",
-  "true",
-  "Enable single precision FMA (not as fast as mul+add, but fused)"
->;
 
 def FeatureFastFMAF32 : SubtargetFeature<"fast-fmaf",
   "FastFMAF32",
@@ -41,30 +31,6 @@ def HalfRate64Ops : SubtargetFeature<"half-rate-64-ops",
   "HalfRate64Ops",
   "true",
   "Most fp64 instructions are half rate instead of quarter"
->;
-
-def FeatureR600ALUInst : SubtargetFeature<"R600ALUInst",
-  "R600ALUInst",
-  "false",
-  "Older version of ALU instructions encoding"
->;
-
-def FeatureVertexCache : SubtargetFeature<"HasVertexCache",
-  "HasVertexCache",
-  "true",
-  "Specify use of dedicated vertex cache"
->;
-
-def FeatureCaymanISA : SubtargetFeature<"caymanISA",
-  "CaymanISA",
-  "true",
-  "Use Cayman ISA"
->;
-
-def FeatureCFALUBug : SubtargetFeature<"cfalubug",
-  "CFALUBug",
-  "true",
-  "GPU has CF_ALU bug"
 >;
 
 def FeatureFlatAddressSpace : SubtargetFeature<"flat-address-space",
@@ -152,27 +118,6 @@ def FeatureSGPRInitBug : SubtargetFeature<"sgpr-init-bug",
   "VI SGPR initialization bug requiring a fixed SGPR allocation size"
 >;
 
-class SubtargetFeatureFetchLimit <string Value> :
-                          SubtargetFeature <"fetch"#Value,
-  "TexVTXClauseSize",
-  Value,
-  "Limit the maximum number of fetches in a clause to "#Value
->;
-
-def FeatureFetchLimit8 : SubtargetFeatureFetchLimit <"8">;
-def FeatureFetchLimit16 : SubtargetFeatureFetchLimit <"16">;
-
-class SubtargetFeatureWavefrontSize <int Value> : SubtargetFeature<
-  "wavefrontsize"#Value,
-  "WavefrontSize",
-  !cast<string>(Value),
-  "The number of threads per wavefront"
->;
-
-def FeatureWavefrontSize16 : SubtargetFeatureWavefrontSize<16>;
-def FeatureWavefrontSize32 : SubtargetFeatureWavefrontSize<32>;
-def FeatureWavefrontSize64 : SubtargetFeatureWavefrontSize<64>;
-
 class SubtargetFeatureLDSBankCount <int Value> : SubtargetFeature <
   "ldsbankcount"#Value,
   "LDSBankCount",
@@ -182,19 +127,6 @@ class SubtargetFeatureLDSBankCount <int Value> : SubtargetFeature <
 
 def FeatureLDSBankCount16 : SubtargetFeatureLDSBankCount<16>;
 def FeatureLDSBankCount32 : SubtargetFeatureLDSBankCount<32>;
-
-class SubtargetFeatureLocalMemorySize <int Value> : SubtargetFeature<
-  "localmemorysize"#Value,
-  "LocalMemorySize",
-  !cast<string>(Value),
-  "The size of local memory in bytes"
->;
-
-def FeatureGCN : SubtargetFeature<"gcn",
-  "IsGCN",
-  "true",
-  "GCN or newer GPU"
->;
 
 def FeatureGCN3Encoding : SubtargetFeature<"gcn3-encoding",
   "GCN3Encoding",
@@ -368,12 +300,6 @@ def FeatureFP16Denormals : SubtargetFeature<"fp16-denormals",
   [FeatureFP64FP16Denormals]
 >;
 
-def FeatureDX10Clamp : SubtargetFeature<"dx10-clamp",
-  "DX10Clamp",
-  "true",
-  "clamp modifier clamps NaNs to 0.0"
->;
-
 def FeatureFPExceptions : SubtargetFeature<"fp-exceptions",
   "FPExceptions",
   "true",
@@ -414,12 +340,6 @@ def FeatureDumpCodeLower : SubtargetFeature <"dumpcode",
   "DumpCode",
   "true",
   "Dump MachineInstrs in the CodeEmitter"
->;
-
-def FeaturePromoteAlloca : SubtargetFeature <"promote-alloca",
-  "EnablePromoteAlloca",
-  "true",
-  "Enable promote alloca pass"
 >;
 
 // XXX - This should probably be removed once enabled by default
@@ -485,45 +405,29 @@ def FeatureDisable : SubtargetFeature<"",
   "Dummy feature to disable assembler instructions"
 >;
 
-class SubtargetFeatureGeneration <string Value,
+def FeatureGCN : SubtargetFeature<"gcn",
+  "IsGCN",
+  "true",
+  "GCN or newer GPU"
+>;
+
+class GCNSubtargetFeatureGeneration <string Value,
                                   list<SubtargetFeature> Implies> :
-        SubtargetFeature <Value, "Gen", "AMDGPUSubtarget::"#Value,
-                          Value#" GPU generation", Implies>;
+        SubtargetFeatureGeneration <Value, "GCNSubtarget", Implies>;
 
-def FeatureLocalMemorySize0 : SubtargetFeatureLocalMemorySize<0>;
-def FeatureLocalMemorySize32768 : SubtargetFeatureLocalMemorySize<32768>;
-def FeatureLocalMemorySize65536 : SubtargetFeatureLocalMemorySize<65536>;
-
-def FeatureR600 : SubtargetFeatureGeneration<"R600",
-  [FeatureR600ALUInst, FeatureFetchLimit8, FeatureLocalMemorySize0]
->;
-
-def FeatureR700 : SubtargetFeatureGeneration<"R700",
-  [FeatureFetchLimit16, FeatureLocalMemorySize0]
->;
-
-def FeatureEvergreen : SubtargetFeatureGeneration<"EVERGREEN",
-  [FeatureFetchLimit16, FeatureLocalMemorySize32768]
->;
-
-def FeatureNorthernIslands : SubtargetFeatureGeneration<"NORTHERN_ISLANDS",
-  [FeatureFetchLimit16, FeatureWavefrontSize64,
-   FeatureLocalMemorySize32768]
->;
-
-def FeatureSouthernIslands : SubtargetFeatureGeneration<"SOUTHERN_ISLANDS",
+def FeatureSouthernIslands : GCNSubtargetFeatureGeneration<"SOUTHERN_ISLANDS",
   [FeatureFP64, FeatureLocalMemorySize32768, FeatureMIMG_R128,
   FeatureWavefrontSize64, FeatureGCN,
   FeatureLDSBankCount32, FeatureMovrel]
 >;
 
-def FeatureSeaIslands : SubtargetFeatureGeneration<"SEA_ISLANDS",
+def FeatureSeaIslands : GCNSubtargetFeatureGeneration<"SEA_ISLANDS",
   [FeatureFP64, FeatureLocalMemorySize65536, FeatureMIMG_R128,
   FeatureWavefrontSize64, FeatureGCN, FeatureFlatAddressSpace,
   FeatureCIInsts, FeatureMovrel]
 >;
 
-def FeatureVolcanicIslands : SubtargetFeatureGeneration<"VOLCANIC_ISLANDS",
+def FeatureVolcanicIslands : GCNSubtargetFeatureGeneration<"VOLCANIC_ISLANDS",
   [FeatureFP64, FeatureLocalMemorySize65536, FeatureMIMG_R128,
    FeatureWavefrontSize64, FeatureFlatAddressSpace, FeatureGCN,
    FeatureGCN3Encoding, FeatureCIInsts, Feature16BitInsts,
@@ -534,7 +438,7 @@ def FeatureVolcanicIslands : SubtargetFeatureGeneration<"VOLCANIC_ISLANDS",
   ]
 >;
 
-def FeatureGFX9 : SubtargetFeatureGeneration<"GFX9",
+def FeatureGFX9 : GCNSubtargetFeatureGeneration<"GFX9",
   [FeatureFP64, FeatureLocalMemorySize65536,
    FeatureWavefrontSize64, FeatureFlatAddressSpace, FeatureGCN,
    FeatureGCN3Encoding, FeatureCIInsts, Feature16BitInsts,
@@ -651,13 +555,6 @@ def FeatureDebuggerInsertNops : SubtargetFeature<
   "Insert one nop instruction for each high level source statement"
 >;
 
-def FeatureDebuggerReserveRegs : SubtargetFeature<
-  "amdgpu-debugger-reserve-regs",
-  "DebuggerReserveRegs",
-  "true",
-  "Reserve registers for debugger usage"
->;
-
 def FeatureDebuggerEmitPrologue : SubtargetFeature<
   "amdgpu-debugger-emit-prologue",
   "DebuggerEmitPrologue",
@@ -744,8 +641,6 @@ def NullALU : InstrItinClass;
 // Predicate helper class
 //===----------------------------------------------------------------------===//
 
-def TruePredicate : Predicate<"true">;
-
 def isSICI : Predicate<
   "Subtarget->getGeneration() == AMDGPUSubtarget::SOUTHERN_ISLANDS ||"
   "Subtarget->getGeneration() == AMDGPUSubtarget::SEA_ISLANDS"
@@ -799,6 +694,9 @@ def Has16BitInsts : Predicate<"Subtarget->has16BitInsts()">,
 def HasVOP3PInsts : Predicate<"Subtarget->hasVOP3PInsts()">,
   AssemblerPredicate<"FeatureVOP3P">;
 
+def NotHasVOP3PInsts : Predicate<"!Subtarget->hasVOP3PInsts()">,
+  AssemblerPredicate<"!FeatureVOP3P">;
+
 def HasSDWA : Predicate<"Subtarget->hasSDWA()">,
   AssemblerPredicate<"FeatureSDWA,FeatureVolcanicIslands">;
 
@@ -834,36 +732,15 @@ def HasDLInsts : Predicate<"Subtarget->hasDLInsts()">,
 def EnableLateCFGStructurize : Predicate<
   "EnableLateStructurizeCFG">;
 
-// Exists to help track down where SubtargetPredicate isn't set rather
-// than letting tablegen crash with an unhelpful error.
-def InvalidPred : Predicate<"predicate not set on instruction or pattern">;
-
-class PredicateControl {
-  Predicate SubtargetPredicate = InvalidPred;
-  Predicate SIAssemblerPredicate = isSICI;
-  Predicate VIAssemblerPredicate = isVI;
-  list<Predicate> AssemblerPredicates = [];
-  Predicate AssemblerPredicate = TruePredicate;
-  list<Predicate> OtherPredicates = [];
-  list<Predicate> Predicates = !listconcat([SubtargetPredicate,
-                                            AssemblerPredicate],
-                                            AssemblerPredicates,
-                                            OtherPredicates);
-}
-
-class AMDGPUPat<dag pattern, dag result> : Pat<pattern, result>,
-  PredicateControl;
-
-
 // Include AMDGPU TD files
-include "R600Schedule.td"
-include "R600Processors.td"
 include "SISchedule.td"
 include "GCNProcessors.td"
 include "AMDGPUInstrInfo.td"
 include "AMDGPUIntrinsics.td"
+include "SIIntrinsics.td"
 include "AMDGPURegisterInfo.td"
 include "AMDGPURegisterBanks.td"
 include "AMDGPUInstructions.td"
+include "SIInstrInfo.td"
 include "AMDGPUCallingConv.td"
 include "AMDGPUSearchableTables.td"

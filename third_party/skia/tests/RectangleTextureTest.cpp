@@ -8,7 +8,6 @@
 #include "Test.h"
 #include "TestUtils.h"
 
-#if SK_SUPPORT_GPU
 #include "GrClip.h"
 #include "GrContext.h"
 #include "GrContextPriv.h"
@@ -16,6 +15,7 @@
 #include "GrRenderTargetContext.h"
 #include "GrSurfacePriv.h"
 #include "GrTest.h"
+#include "GrTexturePriv.h"
 #include "GrTextureProxyPriv.h"
 #include "gl/GLTestContext.h"
 #include "gl/GrGLGpu.h"
@@ -55,7 +55,7 @@ static void test_clear(skiatest::Reporter* reporter, GrSurfaceContext* rectConte
 
         // The clear color is a GrColor, our readback is to kRGBA_8888, which may be different.
         uint32_t expectedColor0 = 0;
-        uint8_t* expectedBytes0 = SkTCast<uint8_t*>(&expectedColor0);
+        uint8_t* expectedBytes0 = reinterpret_cast<uint8_t*>(&expectedColor0);
         expectedBytes0[0] = GrColorUnpackR(color0);
         expectedBytes0[1] = GrColorUnpackG(color0);
         expectedBytes0[2] = GrColorUnpackB(color0);
@@ -70,7 +70,7 @@ static void test_clear(skiatest::Reporter* reporter, GrSurfaceContext* rectConte
         rtc->clear(&rect, color1, GrRenderTargetContext::CanClearFullscreen::kNo);
 
         uint32_t expectedColor1 = 0;
-        uint8_t* expectedBytes1 = SkTCast<uint8_t*>(&expectedColor1);
+        uint8_t* expectedBytes1 = reinterpret_cast<uint8_t*>(&expectedColor1);
         expectedBytes1[0] = GrColorUnpackR(color1);
         expectedBytes1[1] = GrColorUnpackG(color1);
         expectedBytes1[2] = GrColorUnpackB(color1);
@@ -119,7 +119,8 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(RectangleTexture, reporter, ctxInfo) {
         rectangleInfo.fID = rectTexID;
         rectangleInfo.fTarget = GR_GL_TEXTURE_RECTANGLE;
 
-        GrBackendTexture rectangleTex(kWidth, kHeight, kRGBA_8888_GrPixelConfig, rectangleInfo);
+        GrBackendTexture rectangleTex(kWidth, kHeight, GrMipMapped::kNo, rectangleInfo);
+        rectangleTex.setPixelConfig(kRGBA_8888_GrPixelConfig);
 
         GrColor refPixels[kWidth * kHeight];
         for (int y = 0; y < kHeight; ++y) {
@@ -137,8 +138,8 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(RectangleTexture, reporter, ctxInfo) {
             continue;
         }
 
-        SkASSERT(rectProxy->texPriv().doesNotSupportMipMaps());
-        SkASSERT(rectProxy->priv().peekTexture()->surfacePriv().doesNotSupportMipMaps());
+        SkASSERT(rectProxy->mipMapped() == GrMipMapped::kNo);
+        SkASSERT(rectProxy->priv().peekTexture()->texturePriv().mipMapped() == GrMipMapped::kNo);
 
         SkASSERT(rectProxy->texPriv().isGLTextureRectangleOrExternal());
         SkASSERT(rectProxy->priv().peekTexture()->surfacePriv().isGLTextureRectangleOrExternal());
@@ -167,5 +168,3 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(RectangleTexture, reporter, ctxInfo) {
         GR_GL_CALL(glContext->gl(), DeleteTextures(1, &rectTexID));
     }
 }
-
-#endif

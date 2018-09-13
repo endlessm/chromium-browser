@@ -6,7 +6,7 @@
 
 #import <Foundation/Foundation.h>
 
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/store_kit/store_kit_tab_helper.h"
 #import "ios/chrome/test/fakes/fake_store_kit_launcher.h"
@@ -42,9 +42,13 @@ class ITunesUrlsHandlerTabHelperTest : public PlatformTest {
   bool VerifyStoreKitLaunched(NSString* url_string, bool main_frame) {
     fake_launcher_.launchedProductID = nil;
     fake_launcher_.launchedProductParams = nil;
+    web::WebStatePolicyDecider::RequestInfo request_info(
+        ui::PageTransition::PAGE_TRANSITION_LINK,
+        /*source_url=*/GURL::EmptyGURL(), main_frame,
+        /*has_user_gesture=*/false);
     bool request_allowed = web_state_.ShouldAllowRequest(
         [NSURLRequest requestWithURL:[NSURL URLWithString:url_string]],
-        ui::PageTransition::PAGE_TRANSITION_LINK, main_frame);
+        request_info);
     return !request_allowed && (fake_launcher_.launchedProductID != nil ||
                                 fake_launcher_.launchedProductParams != nil);
   }

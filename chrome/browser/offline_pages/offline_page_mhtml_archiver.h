@@ -41,6 +41,8 @@ namespace offline_pages {
 //     // Callback is of type OfflinePageModel::SavePageCallback.
 //     model->SavePage(url, std::move(archiver), callback);
 //   }
+//
+// TODO(https://crbug.com/849424): turn this into a singleton.
 class OfflinePageMHTMLArchiver : public OfflinePageArchiver {
  public:
   OfflinePageMHTMLArchiver();
@@ -50,7 +52,7 @@ class OfflinePageMHTMLArchiver : public OfflinePageArchiver {
   void CreateArchive(const base::FilePath& archives_dir,
                      const CreateArchiveParams& create_archive_params,
                      content::WebContents* web_contents,
-                     const CreateArchiveCallback& callback) override;
+                     CreateArchiveCallback callback) override;
 
  protected:
   // Try to generate MHTML.

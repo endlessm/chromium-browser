@@ -282,10 +282,6 @@ class TargetRegisterClass;
 
     /// Return the register type for a given MVT, ensuring vectors are treated
     /// as a series of gpr sized integers.
-    MVT getRegisterTypeForCallingConv(MVT VT) const override;
-
-    /// Return the register type for a given MVT, ensuring vectors are treated
-    /// as a series of gpr sized integers.
     MVT getRegisterTypeForCallingConv(LLVMContext &Context,
                                       EVT VT) const override;
 
@@ -683,17 +679,13 @@ class TargetRegisterClass;
                                                 unsigned Size, unsigned DstReg,
                                                 unsigned SrcRec) const;
 
-    MachineBasicBlock *emitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
-                                        unsigned Size, unsigned BinOpcode,
-                                        bool Nand = false) const;
+    MachineBasicBlock *emitAtomicBinary(MachineInstr &MI,
+                                        MachineBasicBlock *BB) const;
     MachineBasicBlock *emitAtomicBinaryPartword(MachineInstr &MI,
                                                 MachineBasicBlock *BB,
-                                                unsigned Size,
-                                                unsigned BinOpcode,
-                                                bool Nand = false) const;
+                                                unsigned Size) const;
     MachineBasicBlock *emitAtomicCmpSwap(MachineInstr &MI,
-                                         MachineBasicBlock *BB,
-                                         unsigned Size) const;
+                                         MachineBasicBlock *BB) const;
     MachineBasicBlock *emitAtomicCmpSwapPartword(MachineInstr &MI,
                                                  MachineBasicBlock *BB,
                                                  unsigned Size) const;

@@ -53,10 +53,9 @@ class _PaygenPayload(object):
   BASE_IMAGE_NAME = 'chromiumos_base_image.bin'
 
   _KERNEL = 'kernel'
-  _ROOTFS = 'rootfs'
+  _ROOTFS = 'root'
 
-  def __init__(self, payload, cache, work_dir, sign, verify,
-               au_generator_uri_override, dry_run=False):
+  def __init__(self, payload, cache, work_dir, sign, verify, dry_run=False):
     """Init for _PaygenPayload.
 
     Args:
@@ -66,18 +65,14 @@ class _PaygenPayload(object):
       work_dir: A working directory for output files. Can NOT be shared.
       sign: Boolean saying if the payload should be signed (normally, you do).
       verify: whether the payload should be verified after being generated
-      au_generator_uri_override: URI to override standard au_generator.zip
-          rules.
       dry_run: do not do any actual work
     """
     self.payload = payload
     self.cache = cache
     self.work_dir = work_dir
     self._verify = verify
-    self._au_generator_uri_override = au_generator_uri_override
     self._drm = dryrun_lib.DryRunMgr(dry_run)
 
-    self.generator_dir = os.path.join(work_dir, 'au-generator')
     self.src_image_file = os.path.join(work_dir, 'src_image.bin')
     self.tgt_image_file = os.path.join(work_dir, 'tgt_image.bin')
 
@@ -122,60 +117,32 @@ class _PaygenPayload(object):
     """Given a payload uri, find the uri for the json payload description."""
     return uri + '.json'
 
-  def _PrepareGenerator(self):
-    """Download, and extract au-generator.zip into self.generator_dir."""
-    if self._au_generator_uri_override:
-      generator_uri = self._au_generator_uri_override
-    else:
-      generator_uri = gspaths.ChromeosReleases.GeneratorUri(
-          self.payload.tgt_image.channel,
-          self.payload.tgt_image.board,
-          self.payload.tgt_image.version,
-          self.payload.tgt_image.bucket)
-
-    logging.info('Preparing au-generator.zip from %s.', generator_uri)
-
-    # Extract zipped delta generator files to the expected directory.
-    tmp_zip = self.cache.GetFileInTempFile(generator_uri)
-    cros_build_lib.RunCommand(
-        ['unzip', '-o', '-d', self.generator_dir, tmp_zip.name],
-        redirect_stdout=True, redirect_stderr=True)
-    tmp_zip.close()
-
   def _RunGeneratorCmd(self, cmd):
-    """Wrapper for RunCommand for programs in self.generator_dir.
+    """Wrapper for RunCommand in chroot.
 
-    Adjusts the program name for the current self.au_generator directory, and
-    sets up the special requirements needed for these 'out of chroot'
-    programs. Will automatically log the command output if execution resulted
-    in a nonzero exit code. Note that the command's stdout and stderr are
-    combined into a single string. This also sets the TMPDIR variable
-    accordingly in the spawned process' environment.
+    Run the given command inside the chroot. It will automatically log the
+    command output. Note that the command's stdout and stderr are combined into
+    a single string.
 
     Args:
       cmd: Program and argument list in a list. ['delta_generator', '--help']
-
-    Returns:
-      The output of the executed command.
 
     Raises:
       cros_build_lib.RunCommandError if the command exited with a nonzero code.
     """
 
-    # Run the command.
-    result = cros_build_lib.RunCommand(
-        cmd,
-        redirect_stdout=True,
-        enter_chroot=True,
-        combine_stdout_stderr=True,
-        error_code_ok=True)
-
-    # Dump error output and raise an exception if things went awry.
-    if result.returncode:
+    try:
+      # Run the command.
+      result = cros_build_lib.RunCommand(
+          cmd,
+          redirect_stdout=True,
+          enter_chroot=True,
+          combine_stdout_stderr=True)
+    except cros_build_lib.RunCommandError as e:
+      # Dump error output and re-raise the exception.
       logging.error('Nonzero exit code (%d), dumping command output:\n%s',
-                    result.returncode, result.output)
-      raise cros_build_lib.RunCommandError(
-          'Command failed: %s (cwd=%s)' % ' '.join(cmd), result)
+                    e.result.returncode, e.result.output)
+      raise
 
     self._StoreLog('Output of command: ' + ' '.join(cmd))
     self._StoreLog(result.output)
@@ -333,13 +300,13 @@ class _PaygenPayload(object):
          tempfile.NamedTemporaryFile(dir=self.work_dir) as \
          metadata_hash_file:
 
-      cmd = ['brillo_update_payload', 'hash',
-             '--unsigned_payload', path_util.ToChrootPath(self.payload_file),
-             '--payload_hash_file',
+      cmd = ['delta_generator',
+             '--in_file=' + path_util.ToChrootPath(self.payload_file),
+             '--signature_size=' + ':'.join(signature_sizes),
+             '--out_hash_file=' +
              path_util.ToChrootPath(payload_hash_file.name),
-             '--metadata_hash_file',
-             path_util.ToChrootPath(metadata_hash_file.name),
-             '--signature_size', ':'.join(signature_sizes)]
+             '--out_metadata_hash_file=' +
+             path_util.ToChrootPath(metadata_hash_file.name)]
 
       self._RunGeneratorCmd(cmd)
       return payload_hash_file.read(), metadata_hash_file.read()
@@ -431,10 +398,10 @@ class _PaygenPayload(object):
                             for f in signature_files]
 
     cmd = ['delta_generator',
-           '-in_file=' + path_util.ToChrootPath(self.payload_file),
-           '-signature_file=' + ':'.join(signature_file_names),
-           '-out_file=' + path_util.ToChrootPath(self.signed_payload_file),
-           '-out_metadata_size_file=' +
+           '--in_file=' + path_util.ToChrootPath(self.payload_file),
+           '--payload_signature_file=' + ':'.join(signature_file_names),
+           '--out_file=' + path_util.ToChrootPath(self.signed_payload_file),
+           '--out_metadata_size_file=' +
            path_util.ToChrootPath(self.metadata_size_file)]
 
     self._RunGeneratorCmd(cmd)
@@ -557,9 +524,6 @@ class _PaygenPayload(object):
     logging.info('Generating %s payload %s',
                  'delta' if self.payload.src_image else 'full', self.payload)
 
-    # Fetch and extract the delta generator.
-    self._PrepareGenerator()
-
     # Fetch and prepare the tgt image.
     self._PrepareImage(self.payload.tgt_image, self.tgt_image_file)
 
@@ -598,12 +562,12 @@ class _PaygenPayload(object):
 
     # This command checks both the payload integrity and applies the payload
     # to source and target partitions.
-    cmd = ['check_update_payload', '--check',
-           '--type', 'delta' if is_delta else 'full',
+    cmd = ['check_update_payload', path_util.ToChrootPath(payload_file_name),
+           '--check', '--type', 'delta' if is_delta else 'full',
            '--disabled_tests', 'move-same-src-dst-block',
-           '--dst_kern',
+           '--part_names', self._KERNEL, self._ROOTFS,
+           '--dst_part_paths',
            path_util.ToChrootPath(self.tgt_partitions[self._KERNEL]),
-           '--dst_root',
            path_util.ToChrootPath(self.tgt_partitions[self._ROOTFS])]
     if metadata_sig_file_name:
       cmd += ['--meta-sig', path_util.ToChrootPath(metadata_sig_file_name)]
@@ -611,11 +575,9 @@ class _PaygenPayload(object):
     cmd += ['--metadata-size', str(self.metadata_size)]
 
     if is_delta:
-      cmd += ['--src_kern',
+      cmd += ['--src_part_paths',
               path_util.ToChrootPath(self.src_partitions[self._KERNEL]),
-              '--src_root',
               path_util.ToChrootPath(self.src_partitions[self._ROOTFS])]
-    cmd += [path_util.ToChrootPath(payload_file_name)]
 
     self._RunGeneratorCmd(cmd)
 
@@ -741,19 +703,16 @@ def FindCacheDir():
   return os.path.join(path_util.GetCacheDir(), 'paygen_cache')
 
 
-def CreateAndUploadPayload(payload, cache, work_dir, sign=True, verify=True,
-                           dry_run=False, au_generator_uri=None):
+def CreateAndUploadPayload(payload, cache, sign=True, verify=True,
+                           dry_run=False):
   """Helper to create a PaygenPayloadLib instance and use it.
 
   Args:
     payload: An instance of utils.Payload describing the payload to generate.
     cache: An instance of DownloadCache for retrieving files.
-    work_dir: A working directory that can hold scratch files. Will be cleaned
-              up when done, and won't interfere with other users. None for /tmp.
     sign: Boolean saying if the payload should be signed (normally, you do).
     verify: whether the payload should be verified (default: True)
     dry_run: don't perform actual work
-    au_generator_uri: URI to override standard au_generator.zip rules.
   """
   # We need to create a temp directory inside the chroot so be able to access
   # from both inside and outside the chroot.
@@ -762,11 +721,11 @@ def CreateAndUploadPayload(payload, cache, work_dir, sign=True, verify=True,
       capture_output=True,
       enter_chroot=True).output.strip())
 
-  with osutils.TempDir(prefix='paygen_payload.', base_dir=temp_dir) as gen_dir:
+  with osutils.TempDir(prefix='paygen_payload.', base_dir=temp_dir) as work_dir:
     logging.info('* Starting payload generation')
     start_time = datetime.datetime.now()
 
-    _PaygenPayload(payload, cache, gen_dir, sign, verify, au_generator_uri,
+    _PaygenPayload(payload, cache, work_dir, sign, verify,
                    dry_run=dry_run).Run()
 
     end_time = datetime.datetime.now()

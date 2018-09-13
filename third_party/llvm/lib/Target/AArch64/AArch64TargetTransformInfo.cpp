@@ -634,14 +634,22 @@ int AArch64TTIImpl::getMemoryOpCost(unsigned Opcode, Type *Ty,
     return LT.first * 2 * AmortizationCost;
   }
 
-  if (Ty->isVectorTy() && Ty->getVectorElementType()->isIntegerTy(8) &&
-      Ty->getVectorNumElements() < 8) {
-    // We scalarize the loads/stores because there is not v.4b register and we
-    // have to promote the elements to v.4h.
-    unsigned NumVecElts = Ty->getVectorNumElements();
-    unsigned NumVectorizableInstsToAmortize = NumVecElts * 2;
-    // We generate 2 instructions per vector element.
-    return NumVectorizableInstsToAmortize * NumVecElts * 2;
+  if (Ty->isVectorTy() && Ty->getVectorElementType()->isIntegerTy(8)) {
+    unsigned ProfitableNumElements;
+    if (Opcode == Instruction::Store)
+      // We use a custom trunc store lowering so v.4b should be profitable.
+      ProfitableNumElements = 4;
+    else
+      // We scalarize the loads because there is not v.4b register and we
+      // have to promote the elements to v.2.
+      ProfitableNumElements = 8;
+
+    if (Ty->getVectorNumElements() < ProfitableNumElements) {
+      unsigned NumVecElts = Ty->getVectorNumElements();
+      unsigned NumVectorizableInstsToAmortize = NumVecElts * 2;
+      // We generate 2 instructions per vector element.
+      return NumVectorizableInstsToAmortize * NumVecElts * 2;
+    }
   }
 
   return LT.first;
@@ -937,25 +945,40 @@ int AArch64TTIImpl::getArithmeticReductionCost(unsigned Opcode, Type *ValTy,
 
 int AArch64TTIImpl::getShuffleCost(TTI::ShuffleKind Kind, Type *Tp, int Index,
                                    Type *SubTp) {
-
-  // Transpose shuffle kinds can be performed with 'trn1/trn2' and 'zip1/zip2'
-  // instructions.
-  if (Kind == TTI::SK_Transpose) {
-    static const CostTblEntry TransposeTbl[] = {
-        {ISD::VECTOR_SHUFFLE, MVT::v8i8,  1},
-        {ISD::VECTOR_SHUFFLE, MVT::v16i8, 1},
-        {ISD::VECTOR_SHUFFLE, MVT::v4i16, 1},
-        {ISD::VECTOR_SHUFFLE, MVT::v8i16, 1},
-        {ISD::VECTOR_SHUFFLE, MVT::v2i32, 1},
-        {ISD::VECTOR_SHUFFLE, MVT::v4i32, 1},
-        {ISD::VECTOR_SHUFFLE, MVT::v2i64, 1},
-        {ISD::VECTOR_SHUFFLE, MVT::v2f32, 1},
-        {ISD::VECTOR_SHUFFLE, MVT::v4f32, 1},
-        {ISD::VECTOR_SHUFFLE, MVT::v2f64, 1},
+  if (Kind == TTI::SK_Transpose || Kind == TTI::SK_Select ||
+      Kind == TTI::SK_PermuteSingleSrc) {
+    static const CostTblEntry ShuffleTbl[] = {
+      // Transpose shuffle kinds can be performed with 'trn1/trn2' and
+      // 'zip1/zip2' instructions.
+      { TTI::SK_Transpose, MVT::v8i8,  1 },
+      { TTI::SK_Transpose, MVT::v16i8, 1 },
+      { TTI::SK_Transpose, MVT::v4i16, 1 },
+      { TTI::SK_Transpose, MVT::v8i16, 1 },
+      { TTI::SK_Transpose, MVT::v2i32, 1 },
+      { TTI::SK_Transpose, MVT::v4i32, 1 },
+      { TTI::SK_Transpose, MVT::v2i64, 1 },
+      { TTI::SK_Transpose, MVT::v2f32, 1 },
+      { TTI::SK_Transpose, MVT::v4f32, 1 },
+      { TTI::SK_Transpose, MVT::v2f64, 1 },
+      // Select shuffle kinds.
+      // TODO: handle vXi8/vXi16.
+      { TTI::SK_Select, MVT::v2i32, 1 }, // mov.
+      { TTI::SK_Select, MVT::v4i32, 2 }, // rev+trn (or similar).
+      { TTI::SK_Select, MVT::v2i64, 1 }, // mov.
+      { TTI::SK_Select, MVT::v2f32, 1 }, // mov.
+      { TTI::SK_Select, MVT::v4f32, 2 }, // rev+trn (or similar).
+      { TTI::SK_Select, MVT::v2f64, 1 }, // mov.
+      // PermuteSingleSrc shuffle kinds.
+      // TODO: handle vXi8/vXi16.
+      { TTI::SK_PermuteSingleSrc, MVT::v2i32, 1 }, // mov.
+      { TTI::SK_PermuteSingleSrc, MVT::v4i32, 3 }, // perfectshuffle worst case.
+      { TTI::SK_PermuteSingleSrc, MVT::v2i64, 1 }, // mov.
+      { TTI::SK_PermuteSingleSrc, MVT::v2f32, 1 }, // mov.
+      { TTI::SK_PermuteSingleSrc, MVT::v4f32, 3 }, // perfectshuffle worst case.
+      { TTI::SK_PermuteSingleSrc, MVT::v2f64, 1 }, // mov.
     };
     std::pair<int, MVT> LT = TLI->getTypeLegalizationCost(DL, Tp);
-    if (const auto *Entry =
-            CostTableLookup(TransposeTbl, ISD::VECTOR_SHUFFLE, LT.second))
+    if (const auto *Entry = CostTableLookup(ShuffleTbl, Kind, LT.second))
       return LT.first * Entry->Cost;
   }
 

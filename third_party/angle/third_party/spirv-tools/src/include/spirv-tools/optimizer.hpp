@@ -16,6 +16,7 @@
 #define SPIRV_TOOLS_OPTIMIZER_HPP_
 
 #include <memory>
+#include <ostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -23,6 +24,10 @@
 #include "libspirv.hpp"
 
 namespace spvtools {
+
+namespace opt {
+class Pass;
+}
 
 // C++ interface for SPIR-V optimization functionalities. It wraps the context
 // (including target environment and the corresponding SPIR-V grammar) and
@@ -39,6 +44,12 @@ class Optimizer {
     struct Impl;  // Opaque struct for holding inernal data.
 
     PassToken(std::unique_ptr<Impl>);
+
+    // Tokens for built-in passes should be created using Create*Pass functions
+    // below; for out-of-tree passes, use this constructor instead.
+    // Note that this API isn't guaranteed to be stable and may change without
+    // preserving source or binary compatibility in the future.
+    PassToken(std::unique_ptr<opt::Pass>&& pass);
 
     // Tokens can only be moved. Copying is disabled.
     PassToken(const PassToken&) = delete;
@@ -113,6 +124,16 @@ class Optimizer {
   // pass manager is destroyed.
   std::vector<const char*> GetPassNames() const;
 
+  // Sets the option to print the disassembly before each pass and after the
+  // last pass.  If |out| is null, then no output is generated.  Otherwise,
+  // output is sent to the |out| output stream.
+  Optimizer& SetPrintAll(std::ostream* out);
+
+  // Sets the option to print the resource utilization of each pass. If |out|
+  // is null, then no output is generated. Otherwise, output is sent to the
+  // |out| output stream.
+  Optimizer& SetTimeReport(std::ostream* out);
+
  private:
   struct Impl;                  // Opaque struct for holding internal data.
   std::unique_ptr<Impl> impl_;  // Unique pointer to internal data.
@@ -126,6 +147,13 @@ Optimizer::PassToken CreateNullPass();
 // A strip-debug-info pass removes all debug instructions (as documented in
 // Section 3.32.2 of the SPIR-V spec) of the SPIR-V module to be optimized.
 Optimizer::PassToken CreateStripDebugInfoPass();
+
+// Creates a strip-reflect-info pass.
+// A strip-reflect-info pass removes all reflections instructions.
+// For now, this is limited to removing decorations defined in
+// SPV_GOOGLE_hlsl_functionality1.  The coverage may expand in
+// the future.
+Optimizer::PassToken CreateStripReflectInfoPass();
 
 // Creates an eliminate-dead-functions pass.
 // An eliminate-dead-functions pass will remove all functions that are not in
@@ -271,7 +299,8 @@ Optimizer::PassToken CreateInlineOpaquePass();
 // The presence of access chain references and function calls can inhibit
 // the above optimization.
 //
-// Only modules with logical addressing are currently processed.
+// Only modules with relaxed logical addressing (see opt/instruction.h) are
+// currently processed.
 //
 // This pass is most effective if preceeded by Inlining and
 // LocalAccessChainConvert. This pass will reduce the work needed to be done
@@ -288,9 +317,8 @@ Optimizer::PassToken CreateLocalSingleBlockLoadStoreElimPass();
 // For all phi functions in merge block, replace all uses with the id
 // corresponding to the living predecessor.
 //
-// This pass only works on shaders (guaranteed to have structured control
-// flow). Note that some such branches and blocks may be left to avoid
-// creating invalid control flow. Improving this is left to future work.
+// Note that some branches and blocks may be left to avoid creating invalid
+// control flow. Improving this is left to future work.
 //
 // This pass is most effective when preceeded by passes which eliminate
 // local loads and stores, effectively propagating constant values where
@@ -305,9 +333,9 @@ Optimizer::PassToken CreateDeadBranchElimPass();
 // The presence of access chain references and function calls can inhibit
 // the above optimization.
 //
-// Only shader modules with logical addressing are currently processed.
-// Currently modules with any extensions enabled are not processed. This
-// is left for future work.
+// Only shader modules with relaxed logical addressing (see opt/instruction.h)
+// are currently processed. Currently modules with any extensions enabled are
+// not processed. This is left for future work.
 //
 // This pass is most effective if preceeded by Inlining and
 // LocalAccessChainConvert. LocalSingleStoreElim and LocalSingleBlockElim
@@ -344,6 +372,9 @@ Optimizer::PassToken CreateLocalAccessChainConvertPass();
 // not supported and will prohibit optimization of a function. Support of
 // these operations are future work.
 //
+// Only shader modules with relaxed logical addressing (see opt/instruction.h)
+// are currently processed.
+//
 // This pass will reduce the work needed to be done by LocalSingleBlockElim
 // and LocalMultiStoreElim and can improve the effectiveness of other passes
 // such as DeadBranchElimination which depend on values for their analysis.
@@ -361,6 +392,21 @@ Optimizer::PassToken CreateLocalSingleStoreElimPass();
 // converted to inserts and extracts and local loads and stores are eliminated.
 Optimizer::PassToken CreateInsertExtractElimPass();
 
+// Creates a dead insert elimination pass.
+// This pass processes each entry point function in the module, searching for
+// unreferenced inserts into composite types. These are most often unused
+// stores to vector components. They are unused because they are never
+// referenced, or because there is another insert to the same component between
+// the insert and the reference. After removing the inserts, dead code
+// elimination is attempted on the inserted values.
+//
+// This pass performs best after access chains are converted to inserts and
+// extracts and local loads and stores are eliminated. While executing this
+// pass can be advantageous on its own, it is also advantageous to execute
+// this pass after CreateInsertExtractPass() as it will remove any unused
+// inserts created by that pass.
+Optimizer::PassToken CreateDeadInsertElimPass();
+
 // Creates a pass to consolidate uniform references.
 // For each entry point function in the module, first change all constant index
 // access chain loads into equivalent composite extracts. Then consolidate
@@ -376,7 +422,7 @@ Optimizer::PassToken CreateInsertExtractElimPass();
 Optimizer::PassToken CreateCommonUniformElimPass();
 
 // Create aggressive dead code elimination pass
-// This pass eliminates unused code from functions. In addition,
+// This pass eliminates unused code from the module. In addition,
 // it detects and eliminates code which may have spurious uses but which do
 // not contribute to the output of the function. The most common cause of
 // such code sequences is summations in loops whose result is no longer used
@@ -384,8 +430,9 @@ Optimizer::PassToken CreateCommonUniformElimPass();
 // time cost over standard dead code elimination.
 //
 // This pass only processes entry point functions. It also only processes
-// shaders with logical addressing. It currently will not process functions
-// with function calls.
+// shaders with relaxed logical addressing (see opt/instruction.h). It
+// currently will not process functions with function calls. Unreachable
+// functions are deleted.
 //
 // This pass will be made more effective by first running passes that remove
 // dead control flow and inlines function calls.
@@ -400,7 +447,12 @@ Optimizer::PassToken CreateAggressiveDCEPass();
 // The pass remaps result ids to a compact and gapless range starting from %1.
 Optimizer::PassToken CreateCompactIdsPass();
 
-// Creates a remove duplicate capabilities pass.
+// Creates a remove duplicate pass.
+// This pass removes various duplicates:
+// * duplicate capabilities;
+// * duplicate extended instruction imports;
+// * duplicate types;
+// * duplicate decorations.
 Optimizer::PassToken CreateRemoveDuplicatesPass();
 
 // Creates a CFG cleanup pass.
@@ -416,22 +468,134 @@ Optimizer::PassToken CreateCFGCleanupPass();
 // that are not referenced.
 Optimizer::PassToken CreateDeadVariableEliminationPass();
 
-// Create merge return pass.
-// This pass replaces all returns with unconditional branches to a new block
-// containing a return. If necessary, this new block will contain a PHI node to
-// select the correct return value.
+// create merge return pass.
+// changes functions that have multiple return statements so they have a single
+// return statement.
 //
-// This pass does not consider unreachable code, nor does it perform any other
-// optimizations.
+// for structured control flow it is assumed that the only unreachable blocks in
+// the function are trivial merge and continue blocks.
 //
-// This pass does not currently support structured control flow. It bails out if
-// the shader capability is detected.
+// a trivial merge block contains the label and an opunreachable instructions,
+// nothing else.  a trivial continue block contain a label and an opbranch to
+// the header, nothing else.
+//
+// these conditions are guaranteed to be met after running dead-branch
+// elimination.
 Optimizer::PassToken CreateMergeReturnPass();
 
 // Create value numbering pass.
 // This pass will look for instructions in the same basic block that compute the
 // same value, and remove the redundant ones.
 Optimizer::PassToken CreateLocalRedundancyEliminationPass();
+
+// Create LICM pass.
+// This pass will look for invariant instructions inside loops and hoist them to
+// the loops preheader.
+Optimizer::PassToken CreateLoopInvariantCodeMotionPass();
+
+// Creates a loop fission pass.
+// This pass will split all top level loops whose register pressure exceedes the
+// given |threshold|.
+Optimizer::PassToken CreateLoopFissionPass(size_t threshold);
+
+// Creates a loop fusion pass.
+// This pass will look for adjacent loops that are compatible and legal to be
+// fused. The fuse all such loops as long as the register usage for the fused
+// loop stays under the threshold defined by |max_registers_per_loop|.
+Optimizer::PassToken CreateLoopFusionPass(size_t max_registers_per_loop);
+
+// Creates a loop peeling pass.
+// This pass will look for conditions inside a loop that are true or false only
+// for the N first or last iteration. For loop with such condition, those N
+// iterations of the loop will be executed outside of the main loop.
+// To limit code size explosion, the loop peeling can only happen if the code
+// size growth for each loop is under |code_growth_threshold|.
+Optimizer::PassToken CreateLoopPeelingPass();
+
+// Creates a loop unswitch pass.
+// This pass will look for loop independent branch conditions and move the
+// condition out of the loop and version the loop based on the taken branch.
+// Works best after LICM and local multi store elimination pass.
+Optimizer::PassToken CreateLoopUnswitchPass();
+
+// Create global value numbering pass.
+// This pass will look for instructions where the same value is computed on all
+// paths leading to the instruction.  Those instructions are deleted.
+Optimizer::PassToken CreateRedundancyEliminationPass();
+
+// Create scalar replacement pass.
+// This pass replaces composite function scope variables with variables for each
+// element if those elements are accessed individually.  The parameter is a
+// limit on the number of members in the composite variable that the pass will
+// consider replacing.
+Optimizer::PassToken CreateScalarReplacementPass(uint32_t size_limit = 100);
+
+// Create a private to local pass.
+// This pass looks for variables delcared in the private storage class that are
+// used in only one function.  Those variables are moved to the function storage
+// class in the function that they are used.
+Optimizer::PassToken CreatePrivateToLocalPass();
+
+// Creates a conditional constant propagation (CCP) pass.
+// This pass implements the SSA-CCP algorithm in
+//
+//      Constant propagation with conditional branches,
+//      Wegman and Zadeck, ACM TOPLAS 13(2):181-210.
+//
+// Constant values in expressions and conditional jumps are folded and
+// simplified. This may reduce code size by removing never executed jump targets
+// and computations with constant operands.
+Optimizer::PassToken CreateCCPPass();
+
+// Creates a workaround driver bugs pass.  This pass attempts to work around
+// a known driver bug (issue #1209) by identifying the bad code sequences and
+// rewriting them.
+//
+// Current workaround: Avoid OpUnreachable instructions in loops.
+Optimizer::PassToken CreateWorkaround1209Pass();
+
+// Creates a pass that converts if-then-else like assignments into OpSelect.
+Optimizer::PassToken CreateIfConversionPass();
+
+// Creates a pass that will replace instructions that are not valid for the
+// current shader stage by constants.  Has no effect on non-shader modules.
+Optimizer::PassToken CreateReplaceInvalidOpcodePass();
+
+// Creates a pass that simplifies instructions using the instruction folder.
+Optimizer::PassToken CreateSimplificationPass();
+
+// Create loop unroller pass.
+// Creates a pass to unroll loops which have the "Unroll" loop control
+// mask set. The loops must meet a specific criteria in order to be unrolled
+// safely this criteria is checked before doing the unroll by the
+// LoopUtils::CanPerformUnroll method. Any loop that does not meet the criteria
+// won't be unrolled. See CanPerformUnroll LoopUtils.h for more information.
+Optimizer::PassToken CreateLoopUnrollPass(bool fully_unroll, int factor = 0);
+
+// Create the SSA rewrite pass.
+// This pass converts load/store operations on function local variables into
+// operations on SSA IDs.  This allows SSA optimizers to act on these variables.
+// Only variables that are local to the function and of supported types are
+// processed (see IsSSATargetVar for details).
+Optimizer::PassToken CreateSSARewritePass();
+
+// Create copy propagate arrays pass.
+// This pass looks to copy propagate memory references for arrays.  It looks
+// for specific code patterns to recognize array copies.
+Optimizer::PassToken CreateCopyPropagateArraysPass();
+
+// Create a vector dce pass.
+// This pass looks for components of vectors that are unused, and removes them
+// from the vector.  Note this would still leave around lots of dead code that
+// a pass of ADCE will be able to remove.
+Optimizer::PassToken CreateVectorDCEPass();
+
+// Create a pass to reduce the size of loads.
+// This pass looks for loads of structures where only a few of its members are
+// used.  It replaces the loads feeding an OpExtract with an OpAccessChain and
+// a load of the specific elements.
+Optimizer::PassToken CreateReduceLoadSizePass();
+
 }  // namespace spvtools
 
 #endif  // SPIRV_TOOLS_OPTIMIZER_HPP_

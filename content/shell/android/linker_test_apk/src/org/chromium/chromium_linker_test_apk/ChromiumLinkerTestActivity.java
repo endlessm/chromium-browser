@@ -17,7 +17,7 @@ import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.Linker;
 import org.chromium.base.library_loader.ProcessInitException;
-import org.chromium.content.browser.BrowserStartupController;
+import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_shell.Shell;
 import org.chromium.content_shell.ShellManager;
@@ -80,6 +80,9 @@ public class ChromiumLinkerTestActivity extends Activity {
         Linker linker = Linker.getInstance();
         linker.setMemoryDeviceConfigForTesting(memoryDeviceConfig);
 
+        // Setup the TestRunner class name.
+        Linker.setupForTesting("org.chromium.chromium_linker_test_apk.LinkerTests");
+
         // Load the library in the browser process, this will also run the test
         // runner in this process.
         try {
@@ -98,7 +101,7 @@ public class ChromiumLinkerTestActivity extends Activity {
                 (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
         View view = inflater.inflate(R.layout.test_activity, null);
         mShellManager = (ShellManager) view.findViewById(R.id.shell_container);
-        mWindowAndroid = new ActivityWindowAndroid(this);
+        mWindowAndroid = new ActivityWindowAndroid(this, false);
         mShellManager.setWindow(mWindowAndroid);
 
         mShellManager.setStartupUrl("about:blank");
@@ -106,7 +109,7 @@ public class ChromiumLinkerTestActivity extends Activity {
         try {
             BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
                     .startBrowserProcessesAsync(
-                            true, new BrowserStartupController.StartupCallback() {
+                            true, false, new BrowserStartupController.StartupCallback() {
                                 @Override
                                 public void onSuccess() {
                                     finishInitialization(savedInstanceState);

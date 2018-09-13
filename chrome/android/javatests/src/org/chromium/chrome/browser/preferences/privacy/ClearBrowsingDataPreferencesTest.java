@@ -27,7 +27,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ThreadUtils;
@@ -45,14 +44,13 @@ import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.preferences.Preferences;
 import org.chromium.chrome.browser.preferences.privacy.ClearBrowsingDataPreferences.DialogOption;
 import org.chromium.chrome.browser.preferences.website.ContentSetting;
-import org.chromium.chrome.browser.preferences.website.NotificationInfo;
+import org.chromium.chrome.browser.preferences.website.PermissionInfo;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.webapps.TestFetchStorageCallback;
 import org.chromium.chrome.browser.webapps.WebappDataStorage;
 import org.chromium.chrome.browser.webapps.WebappRegistry;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.signin.SigninTestUtil;
 import org.chromium.content.browser.test.util.Criteria;
@@ -78,8 +76,6 @@ public class ClearBrowsingDataPreferencesTest {
     @Rule
     public ChromeActivityTestRule<ChromeActivity> mActivityTestRule =
             new ChromeActivityTestRule<>(ChromeActivity.class);
-    @Rule
-    public TestRule mProcessor = new Features.InstrumentationProcessor();
 
     private EmbeddedTestServer mTestServer;
 
@@ -92,8 +88,8 @@ public class ClearBrowsingDataPreferencesTest {
 
         // Disable notifications for the default search engine so that it doesn't interfere with
         // important sites tests.
-        NotificationInfo notificationSettings =
-                new NotificationInfo("https://www.google.com", null, false);
+        PermissionInfo notificationSettings = new PermissionInfo(
+                PermissionInfo.Type.NOTIFICATION, "https://www.google.com", null, false);
         // Due to Android notification channels we need to delete the existing content setting in
         // in order to change it to block.
         ThreadUtils.runOnUiThread(
@@ -391,13 +387,11 @@ public class ClearBrowsingDataPreferencesTest {
      * correctly clear everything.
      */
     @Test
-    @CommandLineFlags.Add({"enable-features=ImportantSitesInCBD", "enable-site-engagement"})
     @MediumTest
     @Feature({"SiteEngagement"})
     public void testImportantSitesDialogNoFiltering() throws Exception {
         // Sign in.
         SigninTestUtil.addAndSignInTestAccount();
-        Assert.assertTrue(ChromeFeatureList.isEnabled(ChromeFeatureList.IMPORTANT_SITES_IN_CBD));
 
         final String testUrl =
                 mTestServer.getURL("/chrome/test/data/android/storage_persistance.html");
@@ -443,14 +437,12 @@ public class ClearBrowsingDataPreferencesTest {
      * http://crbug.com/727310
      */
     @Test
-    @CommandLineFlags.Add({"enable-features=ImportantSitesInCBD", "enable-site-engagement"})
     @MediumTest
     @Feature({"SiteEngagement"})
     @DisabledTest(message = "crbug.com/727310")
     public void testImportantSitesDialogNoopOnCancel() throws Exception {
         // Sign in.
         SigninTestUtil.addAndSignInTestAccount();
-        Assert.assertTrue(ChromeFeatureList.isEnabled(ChromeFeatureList.IMPORTANT_SITES_IN_CBD));
 
         final String testUrl =
                 mTestServer.getURL("/chrome/test/data/android/storage_persistance.html");
@@ -487,13 +479,11 @@ public class ClearBrowsingDataPreferencesTest {
      * clicking clear doesn't clear the protected domain.
      */
     @Test
-    @CommandLineFlags.Add({"enable-features=ImportantSitesInCBD", "enable-site-engagement"})
     @MediumTest
     @Feature({"SiteEngagement"})
     public void testImportantSitesDialog() throws Exception {
         // Sign in.
         SigninTestUtil.addAndSignInTestAccount();
-        Assert.assertTrue(ChromeFeatureList.isEnabled(ChromeFeatureList.IMPORTANT_SITES_IN_CBD));
 
         final String testUrl =
                 mTestServer.getURL("/chrome/test/data/android/storage_persistance.html");

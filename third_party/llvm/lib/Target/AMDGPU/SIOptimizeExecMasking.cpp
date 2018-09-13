@@ -10,6 +10,7 @@
 #include "AMDGPU.h"
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -208,7 +209,7 @@ bool SIOptimizeExecMasking::runOnMachineFunction(MachineFunction &MF) {
   if (skipFunction(MF.getFunction()))
     return false;
 
-  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   const SIRegisterInfo *TRI = ST.getRegisterInfo();
   const SIInstrInfo *TII = ST.getInstrInfo();
 

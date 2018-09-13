@@ -7,10 +7,13 @@
 
 #import <UIKit/UIKit.h>
 
+// The minimum height for a TableViewHeaderFooterView.
+extern const CGFloat kTableViewHeaderFooterViewHeight;
+
 // The horizontal spacing between views and the container view of a cell.
 extern const CGFloat kTableViewHorizontalSpacing;
 
-// The vertical spacing between views and the container view of a cell
+// The vertical spacing between views and the container view of a cell.
 extern const CGFloat kTableViewVerticalSpacing;
 
 // The horizontal spacing between subviews within the container view.
@@ -29,6 +32,9 @@ extern const CGFloat kTableViewHighlightedCellColorAlpha;
 extern const CGFloat kUseDefaultFontSize;
 
 // Spacing between text label and cell contentView.
-extern const CGFloat kTableViewLabelVerticalSpacing;
+extern const CGFloat kTableViewLabelVerticalTopSpacing;
+
+// Hex Value for light gray label text color.
+extern const CGFloat kTableViewTextLabelColorLightGrey;
 
 #endif  // IOS_CHROME_BROWSER_UI_TABLE_VIEW_CELLS_TABLE_VIEW_CELLS_CONSTANTS_H_

@@ -16,7 +16,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/Loads.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -437,7 +437,7 @@ Instruction *InstCombiner::visitAllocaInst(AllocaInst &AI) {
 
 // Are we allowed to form a atomic load or store of this type?
 static bool isSupportedAtomicType(Type *Ty) {
-  return Ty->isIntegerTy() || Ty->isPointerTy() || Ty->isFloatingPointTy();
+  return Ty->isIntOrPtrTy() || Ty->isFloatingPointTy();
 }
 
 /// Helper to combine a load to a new type.
@@ -453,15 +453,20 @@ static LoadInst *combineLoadToNewType(InstCombiner &IC, LoadInst &LI, Type *NewT
                                       const Twine &Suffix = "") {
   assert((!LI.isAtomic() || isSupportedAtomicType(NewTy)) &&
          "can't fold an atomic load to requested type");
-  
+
   Value *Ptr = LI.getPointerOperand();
   unsigned AS = LI.getPointerAddressSpace();
   SmallVector<std::pair<unsigned, MDNode *>, 8> MD;
   LI.getAllMetadata(MD);
 
+  Value *NewPtr = nullptr;
+  if (!(match(Ptr, m_BitCast(m_Value(NewPtr))) &&
+        NewPtr->getType()->getPointerElementType() == NewTy &&
+        NewPtr->getType()->getPointerAddressSpace() == AS))
+    NewPtr = IC.Builder.CreateBitCast(Ptr, NewTy->getPointerTo(AS));
+
   LoadInst *NewLoad = IC.Builder.CreateAlignedLoad(
-      IC.Builder.CreateBitCast(Ptr, NewTy->getPointerTo(AS)),
-      LI.getAlignment(), LI.isVolatile(), LI.getName() + Suffix);
+      NewPtr, LI.getAlignment(), LI.isVolatile(), LI.getName() + Suffix);
   NewLoad->setAtomic(LI.getOrdering(), LI.getSyncScopeID());
   MDBuilder MDB(NewLoad->getContext());
   for (const auto &MDPair : MD) {
@@ -959,23 +964,26 @@ static Instruction *replaceGEPIdxWithZero(InstCombiner &IC, Value *Ptr,
 }
 
 static bool canSimplifyNullStoreOrGEP(StoreInst &SI) {
-  if (SI.getPointerAddressSpace() != 0)
+  if (NullPointerIsDefined(SI.getFunction(), SI.getPointerAddressSpace()))
     return false;
 
   auto *Ptr = SI.getPointerOperand();
   if (GetElementPtrInst *GEPI = dyn_cast<GetElementPtrInst>(Ptr))
     Ptr = GEPI->getOperand(0);
-  return isa<ConstantPointerNull>(Ptr);
+  return (isa<ConstantPointerNull>(Ptr) &&
+          !NullPointerIsDefined(SI.getFunction(), SI.getPointerAddressSpace()));
 }
 
 static bool canSimplifyNullLoadOrGEP(LoadInst &LI, Value *Op) {
   if (GetElementPtrInst *GEPI = dyn_cast<GetElementPtrInst>(Op)) {
     const Value *GEPI0 = GEPI->getOperand(0);
-    if (isa<ConstantPointerNull>(GEPI0) && GEPI->getPointerAddressSpace() == 0)
+    if (isa<ConstantPointerNull>(GEPI0) &&
+        !NullPointerIsDefined(LI.getFunction(), GEPI->getPointerAddressSpace()))
       return true;
   }
   if (isa<UndefValue>(Op) ||
-      (isa<ConstantPointerNull>(Op) && LI.getPointerAddressSpace() == 0))
+      (isa<ConstantPointerNull>(Op) &&
+       !NullPointerIsDefined(LI.getFunction(), LI.getPointerAddressSpace())))
     return true;
   return false;
 }
@@ -1071,14 +1079,16 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
 
       // load (select (cond, null, P)) -> load P
       if (isa<ConstantPointerNull>(SI->getOperand(1)) &&
-          LI.getPointerAddressSpace() == 0) {
+          !NullPointerIsDefined(SI->getFunction(),
+                                LI.getPointerAddressSpace())) {
         LI.setOperand(0, SI->getOperand(2));
         return &LI;
       }
 
       // load (select (cond, P, null)) -> load P
       if (isa<ConstantPointerNull>(SI->getOperand(2)) &&
-          LI.getPointerAddressSpace() == 0) {
+          !NullPointerIsDefined(SI->getFunction(),
+                                LI.getPointerAddressSpace())) {
         LI.setOperand(0, SI->getOperand(1));
         return &LI;
       }

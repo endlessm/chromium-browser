@@ -12,15 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+add_subdirectory(dominator_tree)
+add_subdirectory(loop_optimizations)
+
 add_spvtools_unittest(TARGET instruction
   SRCS instruction_test.cpp
   LIBS SPIRV-Tools-opt
 )
 
 add_spvtools_unittest(TARGET instruction_list
-        SRCS instruction_list_test.cpp
-        LIBS SPIRV-Tools-opt
-        )
+  SRCS instruction_list_test.cpp
+  LIBS SPIRV-Tools-opt
+)
 
 add_spvtools_unittest(TARGET ir_loader
   SRCS ir_loader_test.cpp
@@ -40,6 +43,11 @@ add_spvtools_unittest(TARGET optimizer
 
 add_spvtools_unittest(TARGET pass_strip_debug_info
   SRCS strip_debug_info_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET pass_strip_reflect_info
+  SRCS strip_reflect_info_test.cpp pass_utils.cpp
   LIBS SPIRV-Tools-opt
 )
 
@@ -78,6 +86,11 @@ add_spvtools_unittest(TARGET pass_insert_extract_elim
   LIBS SPIRV-Tools-opt
 )
 
+add_spvtools_unittest(TARGET pass_dead_insert_elim
+  SRCS dead_insert_elim_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
 add_spvtools_unittest(TARGET pass_local_ssa_elim
   SRCS local_ssa_elim_test.cpp pass_utils.cpp
   LIBS SPIRV-Tools-opt
@@ -104,9 +117,9 @@ add_spvtools_unittest(TARGET pass_dead_branch_elim
 )
 
 add_spvtools_unittest(TARGET pass_dead_variable_elim
-        SRCS dead_variable_elim_test.cpp pass_utils.cpp
-        LIBS SPIRV-Tools-opt
-        )
+  SRCS dead_variable_elim_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
 
 add_spvtools_unittest(TARGET pass_aggressive_dce
   SRCS aggressive_dead_code_elim_test.cpp pass_utils.cpp
@@ -194,6 +207,11 @@ add_spvtools_unittest(TARGET pass_strength_reduction
   LIBS SPIRV-Tools-opt
 )
 
+add_spvtools_unittest(TARGET pass_scalar_replacement
+  SRCS scalar_replacement_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
 add_spvtools_unittest(TARGET cfg_cleanup
   SRCS cfg_cleanup_test.cpp pass_utils.cpp
   LIBS SPIRV-Tools-opt
@@ -201,6 +219,11 @@ add_spvtools_unittest(TARGET cfg_cleanup
 
 add_spvtools_unittest(TARGET ir_context
   SRCS ir_context_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET feature_manager
+  SRCS feature_manager_test.cpp
   LIBS SPIRV-Tools-opt
 )
 
@@ -223,3 +246,89 @@ add_spvtools_unittest(TARGET propagator
   SRCS propagator_test.cpp
   LIBS SPIRV-Tools-opt
 )
+
+add_spvtools_unittest(TARGET redundancy_elimination
+  SRCS redundancy_elimination_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET private_to_local
+  SRCS private_to_local_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET decoration_manager
+  SRCS decoration_manager_test.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET pass_remove_duplicates
+  SRCS pass_remove_duplicates_test.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET ccp
+  SRCS ccp_test.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET pass_workaround1209
+  SRCS workaround1209_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET pass_if_conversion
+  SRCS if_conversion_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET ir_builder
+  SRCS ir_builder.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET instruction_folding
+  SRCS fold_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET replace_invalid_opc
+  SRCS replace_invalid_opc_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET register_liveness
+  SRCS register_liveness.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET simplification
+  SRCS simplification_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET copy_prop_array
+  SRCS copy_prop_array_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET scalar_analysis
+  SRCS scalar_analysis.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET vector_dce
+  SRCS vector_dce_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET reduce_load_size
+  SRCS reduce_load_size_test.cpp pass_utils.cpp
+  LIBS SPIRV-Tools-opt
+)
+
+add_spvtools_unittest(TARGET constant_manager
+  SRCS constant_manager_test.cpp
+  LIBS SPIRV-Tools-opt
+)
+

@@ -42,7 +42,7 @@
 #include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/PtrUseVisitor.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -4029,6 +4029,8 @@ AllocaInst *SROA::rewritePartition(AllocaInst &AI, AllocaSlices &AS,
     NewAI = new AllocaInst(
       SliceTy, AI.getType()->getAddressSpace(), nullptr, Alignment,
         AI.getName() + ".sroa." + Twine(P.begin() - AS.begin()), &AI);
+    // Copy the old AI debug location over to the new one.
+    NewAI->setDebugLoc(AI.getDebugLoc());
     ++NumNewAllocas;
   }
 

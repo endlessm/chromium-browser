@@ -13,7 +13,7 @@
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
@@ -288,7 +288,7 @@ class BrowserWindowControllerTest : public InProcessBrowserTest {
     scoped_refptr<content::MessageLoopRunner> runner =
         new content::MessageLoopRunner;
 
-    base::Timer timer(false, true);
+    base::RepeatingTimer timer;
     timer.Start(
         FROM_HERE,
         base::TimeDelta::FromMilliseconds(15),

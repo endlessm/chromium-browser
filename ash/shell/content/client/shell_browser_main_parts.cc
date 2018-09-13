@@ -8,14 +8,12 @@
 #include <utility>
 
 #include "ash/components/quick_launch/public/mojom/constants.mojom.h"
-#include "ash/components/shortcut_viewer/public/mojom/constants.mojom.h"
+#include "ash/components/shortcut_viewer/public/mojom/shortcut_viewer.mojom.h"
 #include "ash/components/tap_visualizer/public/mojom/constants.mojom.h"
-#include "ash/content/content_gpu_support.h"
-#include "ash/content/shell_content_state.h"
+#include "ash/content/content_gpu_interface_provider.h"
 #include "ash/login_status.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/shell.h"
-#include "ash/shell/content/shell_content_state_impl.h"
 #include "ash/shell/example_session_controller_client.h"
 #include "ash/shell/shell_delegate_impl.h"
 #include "ash/shell/shell_views_delegate.h"
@@ -30,6 +28,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/time/time.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_policy_controller.h"
@@ -88,15 +87,14 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
   chromeos::PowerPolicyController::Initialize(
       chromeos::DBusThreadManager::Get()->GetPowerManagerClient());
 
-  ShellContentState::SetInstance(
-      new ShellContentStateImpl(browser_context_.get()));
   ui::MaterialDesignController::Initialize();
   ash::ShellInitParams init_params;
   init_params.shell_port = std::make_unique<ash::ShellPortClassic>();
   init_params.delegate = std::make_unique<ash::shell::ShellDelegateImpl>();
   init_params.context_factory = content::GetContextFactory();
   init_params.context_factory_private = content::GetContextFactoryPrivate();
-  init_params.gpu_support = std::make_unique<ContentGpuSupport>();
+  init_params.gpu_interface_provider =
+      std::make_unique<ContentGpuInterfaceProvider>();
   ash::Shell::CreateInstance(std::move(init_params));
 
   // Initialize session controller client and create fake user sessions. The
@@ -110,8 +108,7 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
 
   ash::shell::InitWindowTypeLauncher(base::Bind(
       &views::examples::ShowExamplesWindowWithContent,
-      views::examples::DO_NOTHING_ON_CLOSE,
-      ShellContentState::GetInstance()->GetActiveBrowserContext(), nullptr));
+      views::examples::DO_NOTHING_ON_CLOSE, browser_context_.get(), nullptr));
 
   ash::Shell::GetPrimaryRootWindow()->GetHost()->Show();
 
@@ -126,16 +123,17 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
         ->GetConnector()
         ->StartService(tap_visualizer::mojom::kServiceName);
   }
+  shortcut_viewer::mojom::ShortcutViewerPtr shortcut_viewer;
   content::ServiceManagerConnection::GetForProcess()
       ->GetConnector()
-      ->StartService(shortcut_viewer::mojom::kServiceName);
+      ->BindInterface(shortcut_viewer::mojom::kServiceName, &shortcut_viewer);
+  shortcut_viewer->Toggle(base::TimeTicks::Now());
   ash::Shell::Get()->InitWaylandServer(nullptr);
 }
 
 void ShellBrowserMainParts::PostMainMessageLoopRun() {
   window_watcher_.reset();
   ash::Shell::DeleteInstance();
-  ShellContentState::DestroyInstance();
 
   chromeos::CrasAudioHandler::Shutdown();
 

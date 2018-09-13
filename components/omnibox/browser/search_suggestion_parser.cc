@@ -23,12 +23,15 @@
 #include "base/values.h"
 #include "components/omnibox/browser/autocomplete_i18n.h"
 #include "components/omnibox/browser/autocomplete_input.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/url_prefix.h"
 #include "components/url_formatter/url_fixer.h"
 #include "components/url_formatter/url_formatter.h"
 #include "net/http/http_response_headers.h"
-#include "net/url_request/url_fetcher.h"
+#include "services/network/public/cpp/resource_response.h"
+#include "services/network/public/cpp/simple_url_loader.h"
 #include "ui/base/device_form_factor.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "url/url_constants.h"
 
 namespace {
@@ -365,11 +368,15 @@ bool SearchSuggestionParser::Results::HasServerProvidedScores() const {
 
 // static
 std::string SearchSuggestionParser::ExtractJsonData(
-    const net::URLFetcher* source) {
-  const net::HttpResponseHeaders* const response_headers =
-      source->GetResponseHeaders();
-  std::string json_data;
-  source->GetResponseAsString(&json_data);
+    const network::SimpleURLLoader* source,
+    std::unique_ptr<std::string> response_body) {
+  const net::HttpResponseHeaders* response_headers = nullptr;
+  if (source->ResponseInfo())
+    response_headers = source->ResponseInfo()->headers.get();
+  if (!response_body)
+    return std::string();
+
+  std::string json_data = std::move(*response_body);
 
   // JSON is supposed to be UTF-8, but some suggest service providers send
   // JSON files in non-UTF-8 encodings.  The actual encoding is usually
@@ -380,8 +387,7 @@ std::string SearchSuggestionParser::ExtractJsonData(
       base::string16 data_16;
       // TODO(jungshik): Switch to CodePageToUTF8 after it's added.
       if (base::CodepageToUTF16(json_data, charset.c_str(),
-                                base::OnStringConversionError::FAIL,
-                                &data_16))
+                                base::OnStringConversionError::FAIL, &data_16))
         json_data = base::UTF16ToUTF8(data_16);
     }
   }
@@ -480,7 +486,6 @@ bool SearchSuggestionParser::ParseSuggestResults(
   // Clear the previous results now that new results are available.
   results->suggest_results.clear();
   results->navigation_results.clear();
-  results->prefetch_image_urls.clear();
 
   base::string16 suggestion;
   std::string type;
@@ -527,21 +532,28 @@ bool SearchSuggestionParser::ParseSuggestResults(
             input.text()));
       }
     } else {
+      base::string16 annotation;
       base::string16 match_contents = suggestion;
-      if ((match_type == AutocompleteMatchType::CALCULATOR) &&
-          !suggestion.compare(0, 2, base::UTF8ToUTF16("= "))) {
-        // Calculator results include a "= " prefix but we don't want to include
-        // this in the search terms.
-        suggestion.erase(0, 2);
-        // Additionally, on larger (non-phone) form factors, we don't want to
-        // display it in the suggestion contents either, because those devices
-        // display a suggestion type icon that looks like a '='.
-        if (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_PHONE)
-          match_contents.erase(0, 2);
+      if (match_type == AutocompleteMatchType::CALCULATOR) {
+        if (!suggestion.compare(0, 2, base::UTF8ToUTF16("= "))) {
+          // Calculator results include a "= " prefix but we don't want to
+          // include this in the search terms.
+          suggestion.erase(0, 2);
+          // Additionally, on larger (non-phone) form factors, we don't want to
+          // display it in the suggestion contents either, because those devices
+          // display a suggestion type icon that looks like a '='.
+          if (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_PHONE &&
+              !OmniboxFieldTrial::IsNewAnswerLayoutEnabled())
+            match_contents.erase(0, 2);
+        }
+        if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_DESKTOP &&
+            OmniboxFieldTrial::IsNewAnswerLayoutEnabled()) {
+          annotation = match_contents;
+          match_contents = query;
+        }
       }
 
       base::string16 match_contents_prefix;
-      base::string16 annotation;
       base::string16 answer_contents;
       base::string16 answer_type_str;
       std::unique_ptr<SuggestionAnswer> answer;
@@ -562,10 +574,6 @@ bool SearchSuggestionParser::ParseSuggestResults(
           suggestion_detail->GetString("i", &image_url);
           suggestion_detail->GetString("q", &suggest_query_params);
 
-          if (!image_url.empty()) {
-            results->prefetch_image_urls.push_back(GURL(image_url));
-          }
-
           // Extract the Answer, if provided.
           const base::DictionaryValue* answer_json = nullptr;
           if (suggestion_detail->GetDictionary("ansa", &answer_json) &&
@@ -578,7 +586,6 @@ bool SearchSuggestionParser::ParseSuggestResults(
               answer_parsed_successfully = true;
 
               answer->set_type(answer_type);
-              answer->AddImageURLsTo(&results->prefetch_image_urls);
 
               std::string contents;
               base::JSONWriter::Write(*answer_json, &contents);

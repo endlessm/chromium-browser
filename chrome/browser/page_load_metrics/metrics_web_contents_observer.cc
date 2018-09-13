@@ -63,6 +63,18 @@ UserInitiatedInfo CreateUserInitiatedInfo(
 
 }  // namespace
 
+// static
+void MetricsWebContentsObserver::RecordFeatureUsage(
+    content::RenderFrameHost* render_frame_host,
+    const mojom::PageLoadFeatures& new_features) {
+  content::WebContents* web_contents =
+      content::WebContents::FromRenderFrameHost(render_frame_host);
+  MetricsWebContentsObserver* observer =
+      MetricsWebContentsObserver::FromWebContents(web_contents);
+  if (observer)
+    observer->OnBrowserFeatureUsage(render_frame_host, new_features);
+}
+
 MetricsWebContentsObserver::MetricsWebContentsObserver(
     content::WebContents* web_contents,
     std::unique_ptr<PageLoadMetricsEmbedderInterface> embedder_interface)
@@ -141,15 +153,14 @@ void MetricsWebContentsObserver::RenderViewHostChanged(
 void MetricsWebContentsObserver::MediaStartedPlaying(
     const content::WebContentsObserver::MediaPlayerInfo& video_type,
     const content::WebContentsObserver::MediaPlayerId& id) {
-  content::RenderFrameHost* render_frame_host = id.first;
-  if (GetMainFrame(render_frame_host) != web_contents()->GetMainFrame()) {
+  if (GetMainFrame(id.render_frame_host) != web_contents()->GetMainFrame()) {
     // Ignore media that starts playing in a document that was navigated away
     // from.
     return;
   }
   if (committed_load_)
     committed_load_->MediaStartedPlaying(
-        video_type, render_frame_host == web_contents()->GetMainFrame());
+        video_type, id.render_frame_host == web_contents()->GetMainFrame());
 }
 
 void MetricsWebContentsObserver::WillStartNavigationRequest(
@@ -590,7 +601,8 @@ void MetricsWebContentsObserver::OnTimingUpdated(
     content::RenderFrameHost* render_frame_host,
     const mojom::PageLoadTiming& timing,
     const mojom::PageLoadMetadata& metadata,
-    const mojom::PageLoadFeatures& new_features) {
+    const mojom::PageLoadFeatures& new_features,
+    const mojom::PageLoadDataUse& new_data_use) {
   // We may receive notifications from frames that have been navigated away
   // from. We simply ignore them.
   if (GetMainFrame(render_frame_host) != web_contents()->GetMainFrame()) {
@@ -623,17 +635,19 @@ void MetricsWebContentsObserver::OnTimingUpdated(
 
   if (committed_load_) {
     committed_load_->metrics_update_dispatcher()->UpdateMetrics(
-        render_frame_host, timing, metadata, new_features);
+        render_frame_host, timing, metadata, new_features, new_data_use);
   }
 }
 
 void MetricsWebContentsObserver::UpdateTiming(
     const mojom::PageLoadTimingPtr timing,
     const mojom::PageLoadMetadataPtr metadata,
-    const mojom::PageLoadFeaturesPtr new_features) {
+    const mojom::PageLoadFeaturesPtr new_features,
+    const mojom::PageLoadDataUsePtr new_data_use) {
   content::RenderFrameHost* render_frame_host =
       page_load_metrics_binding_.GetCurrentTargetFrame();
-  OnTimingUpdated(render_frame_host, *timing, *metadata, *new_features);
+  OnTimingUpdated(render_frame_host, *timing, *metadata, *new_features,
+                  *new_data_use);
 }
 
 bool MetricsWebContentsObserver::ShouldTrackNavigation(
@@ -644,6 +658,22 @@ bool MetricsWebContentsObserver::ShouldTrackNavigation(
 
   return BrowserPageTrackDecider(embedder_interface_.get(), navigation_handle)
       .ShouldTrack();
+}
+
+void MetricsWebContentsObserver::OnBrowserFeatureUsage(
+    content::RenderFrameHost* render_frame_host,
+    const mojom::PageLoadFeatures& new_features) {
+  // Since this call is coming directly from the browser, it should not pass us
+  // data from frames that have already been navigated away from.
+  DCHECK_EQ(GetMainFrame(render_frame_host), web_contents()->GetMainFrame());
+
+  if (!committed_load_) {
+    RecordInternalError(ERR_BROWSER_USAGE_WITH_NO_RELEVANT_LOAD);
+    return;
+  }
+
+  committed_load_->metrics_update_dispatcher()->UpdateFeatures(
+      render_frame_host, new_features);
 }
 
 void MetricsWebContentsObserver::AddTestingObserver(TestingObserver* observer) {

@@ -22,7 +22,7 @@
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
-#include "chromeos/login/auth/authpolicy_login_helper.h"
+#include "chromeos/dbus/util/tpm_util.h"
 #include "components/account_id/account_id.h"
 #include "components/policy/proto/cloud_policy.pb.h"
 #include "dbus/message.h"
@@ -34,6 +34,8 @@ namespace {
 
 constexpr size_t kMaxMachineNameLength = 15;
 constexpr char kInvalidMachineNameCharacters[] = "\\/:*?\"<>|";
+constexpr char kDefaultKerberosCreds[] = "credentials";
+constexpr char kDefaultKerberosConf[] = "configuration";
 
 void OnStorePolicy(chromeos::AuthPolicyClient::RefreshPolicyCallback callback,
                    bool success) {
@@ -94,7 +96,7 @@ void FakeAuthPolicyClient::JoinAdDomain(
     const authpolicy::JoinDomainRequest& request,
     int password_fd,
     JoinCallback callback) {
-  DCHECK(!AuthPolicyLoginHelper::IsAdLocked());
+  DCHECK(!tpm_util::IsActiveDirectoryLocked());
   authpolicy::ErrorType error = authpolicy::ERROR_NONE;
   std::string machine_domain;
   if (!started_) {
@@ -135,7 +137,7 @@ void FakeAuthPolicyClient::AuthenticateUser(
     const authpolicy::AuthenticateUserRequest& request,
     int password_fd,
     AuthCallback callback) {
-  DCHECK(AuthPolicyLoginHelper::IsAdLocked());
+  DCHECK(tpm_util::IsActiveDirectoryLocked());
   authpolicy::ErrorType error = authpolicy::ERROR_NONE;
   authpolicy::ActiveDirectoryAccountInfo account_info;
   if (!started_) {
@@ -151,6 +153,8 @@ void FakeAuthPolicyClient::AuthenticateUser(
     }
     error = auth_error_;
   }
+  if (error == authpolicy::ERROR_NONE)
+    SetUserKerberosFiles(kDefaultKerberosCreds, kDefaultKerberosConf);
   PostDelayedClosure(base::BindOnce(std::move(callback), error, account_info),
                      dbus_operation_delay_);
 }
@@ -182,8 +186,8 @@ void FakeAuthPolicyClient::GetUserKerberosFiles(
     const std::string& object_guid,
     GetUserKerberosFilesCallback callback) {
   authpolicy::KerberosFiles files;
-  files.set_krb5cc("credentials");
-  files.set_krb5conf("configuration");
+  files.set_krb5cc(user_kerberos_creds());
+  files.set_krb5conf(user_kerberos_conf());
   PostDelayedClosure(
       base::BindOnce(std::move(callback), authpolicy::ERROR_NONE, files),
       dbus_operation_delay_);
@@ -196,7 +200,7 @@ void FakeAuthPolicyClient::RefreshDevicePolicy(RefreshPolicyCallback callback) {
     return;
   }
 
-  if (!AuthPolicyLoginHelper::IsAdLocked()) {
+  if (!tpm_util::IsActiveDirectoryLocked()) {
     // Pretend that policy was fetched and cached inside authpolicyd.
     std::move(callback).Run(
         authpolicy::ERROR_DEVICE_POLICY_CACHED_BUT_NOT_SENT);
@@ -221,7 +225,7 @@ void FakeAuthPolicyClient::RefreshDevicePolicy(RefreshPolicyCallback callback) {
 
 void FakeAuthPolicyClient::RefreshUserPolicy(const AccountId& account_id,
                                              RefreshPolicyCallback callback) {
-  DCHECK(AuthPolicyLoginHelper::IsAdLocked());
+  DCHECK(tpm_util::IsActiveDirectoryLocked());
   if (!started_) {
     LOG(ERROR) << "authpolicyd not started";
     std::move(callback).Run(authpolicy::ERROR_DBUS_FAILURE);
@@ -252,12 +256,48 @@ void FakeAuthPolicyClient::ConnectToSignal(
     const std::string& signal_name,
     dbus::ObjectProxy::SignalCallback signal_callback,
     dbus::ObjectProxy::OnConnectedCallback on_connected_callback) {
+  DCHECK_EQ(authpolicy::kUserKerberosFilesChangedSignal, signal_name);
+  DCHECK(!user_kerberos_files_changed_callback_);
+  user_kerberos_files_changed_callback_ = signal_callback;
   std::move(on_connected_callback)
       .Run(authpolicy::kAuthPolicyInterface, signal_name, true /* success */);
-  PostDelayedClosure(
-      base::BindOnce(RunSignalCallback, authpolicy::kAuthPolicyInterface,
-                     signal_name, signal_callback),
-      dbus_operation_delay_);
+}
+
+void FakeAuthPolicyClient::WaitForServiceToBeAvailable(
+    dbus::ObjectProxy::WaitForServiceToBeAvailableCallback callback) {
+  if (started_) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(callback), true /* service_is_available */));
+    return;
+  }
+  wait_for_service_to_be_available_callbacks_.push_back(std::move(callback));
+}
+
+void FakeAuthPolicyClient::SetUserKerberosFiles(const std::string& creds,
+                                                const std::string& conf) {
+  const bool run_signal =
+      user_kerberos_files_changed_callback_ &&
+      (creds != user_kerberos_creds_ || conf != user_kerberos_conf_);
+  user_kerberos_creds_ = creds;
+  user_kerberos_conf_ = conf;
+  if (run_signal) {
+    PostDelayedClosure(
+        base::BindOnce(RunSignalCallback, authpolicy::kAuthPolicyInterface,
+                       authpolicy::kUserKerberosFilesChangedSignal,
+                       user_kerberos_files_changed_callback_),
+        dbus_operation_delay_);
+  }
+}
+
+void FakeAuthPolicyClient::SetStarted(bool started) {
+  started_ = started;
+  if (started_) {
+    std::vector<WaitForServiceToBeAvailableCallback> callbacks;
+    callbacks.swap(wait_for_service_to_be_available_callbacks_);
+    for (size_t i = 0; i < callbacks.size(); ++i)
+      std::move(callbacks[i]).Run(true /* service_is_available*/);
+  }
 }
 
 void FakeAuthPolicyClient::OnDevicePolicyRetrieved(

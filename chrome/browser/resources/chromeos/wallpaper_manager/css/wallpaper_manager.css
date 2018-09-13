@@ -8,12 +8,15 @@ html {
 
 body {
   -webkit-app-region: drag;
-  background-color: rgba(20, 20, 20, 0.93);
   color: #999;
   font-size: 80%;
   height: 100%;
   margin: 0;
   padding: 0;
+}
+
+body.v1 {
+  background-color: rgba(20, 20, 20, 0.93);
 }
 
 /* Click events are not received in draggable area. Making all clickable areas
@@ -380,7 +383,8 @@ body:not([surprise-me-disabled]) [visibleif~='surprise-me-disabled'] {
 #dialog-header,
 #no-images-message,
 #current-wallpaper-info-bar,
-#set-successfully-message {
+#message-container,
+#preview-canvas {
   display: none;
 }
 
@@ -419,13 +423,14 @@ body.v2 {
   display: none;
 }
 
-.v2 .image-picker {
-  height: 100%;
+.v2 #category-container {
+  overflow-y: hidden;
 }
 
 .v2 #categories-list {
   display: block;
   height: 100%;
+  pointer-events: none;
 }
 
 .v2 #categories-list > li {
@@ -433,6 +438,11 @@ body.v2 {
   height: 32px;
   margin-bottom: 8px;
   margin-top: 8px;
+  pointer-events: auto;
+}
+
+.v2.preview-animation #categories-list > li {
+  pointer-events: none;
 }
 
 .v2 #categories-list > li > div {
@@ -448,8 +458,12 @@ body.v2 {
   border-radius: 0 20px 20px 0;
 }
 
+.v2 #categories-list:focus > li[selected] {
+  background-color: rgb(210, 227, 252);
+}
+
 .v2 #categories-list > li[selected] > div {
-  color: rgb(66, 133, 244);
+  color: rgb(26, 115, 232);
   font-weight: 700;
 }
 
@@ -460,6 +474,7 @@ body.v2 {
 .v2 .image-picker {
   -webkit-padding-end: unset;
   -webkit-padding-start: unset;
+  height: 100%;
   padding-bottom: unset;
   padding-top: unset;
 }
@@ -470,19 +485,26 @@ body.v2 {
   border-radius: 4px;
   height: 160px;
   margin-bottom: 8px;
+  outline: none;
   width: 160px;
 }
 
-.v2 .image-picker [role=listitem].daily-refresh-item {
-  pointer-events: none;
+.v2 .image-picker [role=listitem].first-row {
+  margin-top: 132px;
 }
 
-.v2 .image-picker [role=listitem][selected]:not(.daily-refresh-item) {
-  border-radius: none;
+.v2 .image-picker [role=listitem][selected] {
+  background-color: rgba(26, 115, 232, 0.08);
+}
+
+.v2 .image-picker [role=listitem]:not([selected]):focus {
+  border: 2px solid rgba(26, 115, 232, 0.4);
+  box-sizing: border-box;
 }
 
 .v2 .image-picker:not([disabled]) [role=listitem]:hover {
   outline: none;
+  z-index: unset;
 }
 
 .v2 .image-picker img {
@@ -495,19 +517,31 @@ body.v2 {
   animation: fade-in 250ms;
 }
 
+.v2 .image-picker [role=listitem][selected]:not(.daily-refresh-item) img {
+  border-radius: 4px;
+  box-shadow: 0 4px 8px rgba(32, 33, 36, 0.17);
+  transform: scale(0.8);
+}
+
 .v2 .image-picker .check {
+  display: none;
+}
+
+.v2 .image-picker [role=listitem][selected] .check {
   background-image: url(../images/ui/selected_wallpaper_checkmark.svg);
   background-repeat: no-repeat;
+  display: block;
   left: 128px;
   top: 8px;
 }
 
-.v2 .image-picker .selected-grid-border {
-  border: solid 16px #fff;
-  box-sizing: border-box;
-  height: 100%;
-  position: absolute;
-  width: 100%;
+.v2 .image-picker::-webkit-scrollbar-thumb {
+  background: #888;
+  display: none;
+}
+
+.v2 .image-picker.show-scroll-bar::-webkit-scrollbar-thumb {
+  display: block;
 }
 
 .v2 #window-close-button {
@@ -519,17 +553,18 @@ body.v2 {
   display: block;
   height: 24px;
   position: absolute;
+  top: 4px;
   width: 24px;
 }
 
 .v2 #minimize-button {
   background-image: url(../images/ui/button_minimize.png);
-  right: 38px;
+  right: 52px;
 }
 
 .v2 #close-button {
   background-image: url(../images/ui/button_close.png);
-  right: 8px;
+  right: 12px;
 }
 
 .v2 .bottom-bar {
@@ -539,7 +574,8 @@ body.v2 {
 .v2 #top-header {
   -webkit-app-region: no-drag;
   background-color: #fff;
-  border-radius: 0 0 48px 48px;
+  border-radius: 0 0 24px 24px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.24), 0 0 24px rgba(0, 0, 0, 0.12);
   display: flex;
   height: 48px;
   position: absolute;
@@ -568,20 +604,26 @@ body.v2 {
 }
 
 .v2 .top-header-contents #cancel-preview-wallpaper {
-  -webkit-margin-start: 32px;
+  -webkit-margin-start: 16px;
   -webkit-padding-start: 32px;
   background-image: url(../images/ui/left_arrow.svg);
   background-repeat: no-repeat;
   background-size: 20px 20px;
+  height: 4px;
   margin-top: 12px;
+}
+
+.v2 .top-header-contents #cancel-preview-wallpaper:focus {
+  outline-color: rgba(26, 115, 232, 0.4);
 }
 
 .v2 .top-header-contents #image-title {
   -webkit-padding-end: 8px;
-  -webkit-padding-start: 8px;
   color: rgb(32, 33, 36);
-  max-width: 360px;
+  max-width: 148px;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .v2 .top-header-contents .divider {
@@ -590,32 +632,57 @@ body.v2 {
   margin-top: 8px;
 }
 
-.v2 .top-header-contents #collection-name {
+.v2 .top-header-contents #wallpaper-description {
   -webkit-padding-start: 8px;
   color: rgb(128, 134, 139);
+  max-width: 312px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.v2.custom-wallpaper .top-header-contents #collection-name {
+.v2.daily-wallpaper .top-header-contents #wallpaper-description {
+  max-width: 196px;
+}
+
+.v2.custom-wallpaper .top-header-contents #wallpaper-description {
   color: rgb(32, 33, 36);
+}
+
+.v2.daily-wallpaper .top-header-contents #wallpaper-description {
+  max-width: 226px;
 }
 
 .v2 .top-header-contents .more-options {
   display: flex;
   position: absolute;
-  /* TODO(wzang): Change this to be RTL-friendly. */
-  right: 32px;
+  right: 8px;
+}
+
+html[dir='rtl'] .v2 .top-header-contents .more-options {
+  -webkit-padding-start: 96px;
+  position: unset;
+}
+
+.v2 .top-header-contents .more-options > div,
+.v2 #current-wallpaper-more-options > div {
+  border: 1px solid rgb(218, 220, 224);
+  border-radius: 16px;
+}
+
+.v2 .top-header-contents .more-options > div:focus,
+.v2 #current-wallpaper-more-options > div:focus {
+  border: 2px solid rgba(26, 115, 232, 0.4);
+  box-sizing: border-box;
+  outline: none;
 }
 
 .v2 .top-header-contents .more-options > div {
-  -webkit-padding-end: 16px;
-  -webkit-padding-start: 16px;
-  color: rgb(66, 133, 244);
+  background-color: #fff;
+  color: rgb(26, 115, 232);
   display: none;
-}
-
-.v2 .top-header-contents .more-options > div.disabled {
-  color: rgb(128, 134, 139);
-  pointer-events: none;
+  margin-top: -8px;
+  padding: 8px 24px;
 }
 
 .v2 .top-header-contents .icon {
@@ -624,12 +691,37 @@ body.v2 {
   width: 16px;
 }
 
+.v2 .top-header-contents .more-options .center-button,
+.v2 .top-header-contents .more-options .center-cropped-button {
+  -webkit-padding-start: 28px;
+  background-color: #fff;
+  color: rgb(128, 134, 139);
+  z-index: 0;
+}
+
+.v2 .top-header-contents .more-options .center-button.disabled,
+.v2 .top-header-contents .more-options .center-cropped-button.disabled {
+  background-color: rgb(232, 240, 254);
+  color: rgb(26, 115, 232);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.v2 .top-header-contents .more-options .center-button {
+  -webkit-padding-end: 36px;
+}
+
+.v2 .top-header-contents .more-options .center-cropped-button {
+  -webkit-margin-start: -24px;
+}
+
 .v2 .top-header-contents .center-button .icon,
 .v2 #current-wallpaper-more-options #center .icon {
   background-image: url(../images/ui/center_layout.svg);
 }
 
-.v2 .top-header-contents .center-button.disabled .icon {
+.v2 .top-header-contents .center-button.disabled .icon,
+.v2 #current-wallpaper-more-options #center.disabled .icon {
   background-image: url(../images/ui/center_layout_disabled.svg);
 }
 
@@ -638,16 +730,26 @@ body.v2 {
   background-image: url(../images/ui/center_cropped_layout.svg);
 }
 
-.v2 .top-header-contents .center-cropped-button.disabled .icon {
+.v2 .top-header-contents .center-cropped-button.disabled .icon,
+.v2 #current-wallpaper-more-options #center-cropped.disabled .icon {
   background-image: url(../images/ui/center_cropped_layout_disabled.svg);
 }
 
 .v2 .top-header-contents #confirm-preview-wallpaper {
-  -webkit-padding-start: 96px;
+  -webkit-margin-start: 96px;
+}
+
+.v2.daily-wallpaper .top-header-contents #confirm-preview-wallpaper {
+  -webkit-margin-start: 8px;
+}
+
+.v2 .top-header-contents #refresh-wallpaper {
+  -webkit-margin-start: 16px;
 }
 
 .v2.preview-mode.custom-wallpaper .more-options .custom-option,
-.v2.preview-mode:not(.custom-wallpaper) .more-options :not(.custom-option) {
+.v2.preview-mode.daily-wallpaper .more-options .daily-option,
+.v2.preview-mode:not(.custom-wallpaper):not(.daily-option) .more-options :not(.custom-option):not(.daily-option) {
   display: flex;
 }
 
@@ -660,6 +762,13 @@ body.v2 {
 
 .v2.preview-mode .more-options .preview-option {
   display: flex;
+}
+
+.v2.preview-mode:not(.wallpaper-set-successfully) #preview-canvas {
+  -webkit-app-region: no-drag;
+  display: block;
+  height: 100%;
+  width: 100%;
 }
 
 .v2 #no-images-message {
@@ -707,6 +816,18 @@ body.v2 {
   width: 30px;
 }
 
+.v2 .daily-refresh-slider:focus {
+  outline: none;
+}
+
+.v2 .image-picker-offline .daily-refresh-slider {
+  pointer-events: none;
+}
+
+.v2 .image-picker-offline img.slide-show {
+  -webkit-filter: grayscale(1);
+}
+
 .v2 .daily-refresh-slider::before {
   background-color: #fff;
   border-radius: 50%;
@@ -719,17 +840,43 @@ body.v2 {
   width: 16px;
 }
 
-.v2 .daily-refresh-slider.checked  {
-  background-color: rgb(66, 133, 244, 0.6);
+.v2 .daily-refresh-item.checked .daily-refresh-slider  {
+  background-color: rgb(26, 115, 232, 0.6);
 }
 
-.v2 .daily-refresh-slider.checked::before {
-  background-color: rgb(66, 133, 244);
+.v2 .daily-refresh-item.checked .daily-refresh-slider::before {
+  background-color: rgb(26, 115, 232);
   transform: translateX(16px);
 }
 
-.v2 #daily-refresh-label {
-  color: rgb(66, 133, 244);
+.v2 .daily-refresh-item .daily-refresh-slider .ripple-circle {
+  background: #000;
+  border-radius: 50%;
+  height: 36px;
+  left: -12px;
+  opacity: 0.18;
+  position: absolute;
+  top: -12px;
+  transform: scale(0);
+  width: 36px;
+}
+
+.v2 .daily-refresh-item.checked .daily-refresh-slider .ripple-circle {
+  background-color: rgb(30, 144, 255);
+  left: 4px;
+}
+
+.v2 .daily-refresh-item.ripple-animation .daily-refresh-slider .ripple-circle {
+  animation: ripple 240ms;
+  animation-delay: 120ms;
+}
+
+.v2 .daily-refresh-item:not(.ripple-animation) .daily-refresh-slider:focus .ripple-circle {
+  transform: scale(1);
+}
+
+.v2 .daily-refresh-label {
+  color: rgb(26, 115, 232);
   font-family: 'Roboto';
   font-size: 13px;
   font-weight: 500;
@@ -740,24 +887,19 @@ body.v2 {
 
 .v2 #current-wallpaper-info-bar {
   background-color: #fff;
-  border-radius: 4px;
-  bottom: 8px;
-  box-shadow: 0 0 60px;
+  border-bottom: 1px solid rgb(218, 220, 224);
   display: flex;
   flex-direction: row;
   font-family: 'Roboto';
   font-weight: 500;
-  height: 128px;
-  opacity: 0;
+  height: 100px;
+  padding-bottom: 16px;
   position: absolute;
-  transition: opacity 250ms;
-  width: 704px;
-  z-index: -1;
+  visibility: hidden;  /* Need this for correct positioning. */
 }
 
-.v2:not(.preview-animation):not(.preview-mode) #current-wallpaper-info-bar.show-info-bar {
-  opacity: 1;
-  z-index: 4;
+.v2:not(.preview-mode) #current-wallpaper-info-bar.show-info-bar {
+  visibility: visible;
 }
 
 .v2.preview-animation {
@@ -767,67 +909,74 @@ body.v2 {
 
 .v2 #current-wallpaper-image {
   -webkit-margin-end: 16px;
-  -webkit-margin-start: 8px;
-  margin-bottom: 8px;
-  margin-top: 8px;
-  width: 160px;
+  border-radius: 4px;
+  height: 100px;
+  width: 100px;
 }
 
 .v2 #currently-set-message {
-  color: rgb(66, 133, 244);
+  color: rgb(128, 134, 139);
   font-size: 13px;
-  padding-top: 18px;
 }
 
 .v2 #current-wallpaper-title {
   color: rgb(32, 33, 36);
   font-size: 14px;
-  padding-top: 16px;
+  padding-top: 9px;
 }
 
 .v2 #current-wallpaper-description {
   color: rgb(32, 33, 36);
   font-size: 12px;
   font-weight: 400;
+  line-height: 14px;
   padding-top: 14px;
-  width: 320px;
 }
 
 .v2 #current-wallpaper-description.small-font {
   font-size: 11px;
+  padding-top: 4px;
+}
+
+.v2 #current-wallpaper-more-info {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .v2 #current-wallpaper-more-options {
-  -webkit-margin-end: 32px;
-  color: rgb(66, 133, 244);
+  color: rgb(26, 115, 232);
   display: flex;
   flex-direction: column;
   font-size: 12px;
+  position: absolute;
+  right: 0;
 }
 
-.v2 #current-wallpaper-more-options.online-wallpaper {
-  -webkit-margin-start: 54px;
+html[dir='rtl'] .v2 #current-wallpaper-more-options {
+  right: 420px;
 }
 
 .v2 #current-wallpaper-more-options > div {
-  border: 1px solid;
-  border-radius: 32px;
   display: flex;
-  padding: 8px 4px;
+  padding: 8px 0;
 }
 
-.v2 #current-wallpaper-more-options a {
-  color: rgb(66, 133, 244);
-  text-decoration: none;
+.v2 #current-wallpaper-more-options #center,
+.v2 #current-wallpaper-more-options #center-cropped {
+  color: rgb(128, 134, 139);
+}
+
+.v2 #current-wallpaper-more-options #center.disabled,
+.v2 #current-wallpaper-more-options #center-cropped.disabled {
+  color: rgb(26, 115, 232);
+  pointer-events: none;
 }
 
 .v2 #current-wallpaper-more-options .text {
-  -webkit-margin-end: 16px;
   padding-top: 1px;
 }
 
 .v2 #current-wallpaper-more-options .icon {
-  -webkit-margin-start: 16px;
   -webkit-padding-end: 8px;
   background-repeat: no-repeat;
   height: 16px;
@@ -842,24 +991,48 @@ body.v2 {
   background-image: url(../images/ui/current_wallpaper_explore.svg);
 }
 
-.v2 #set-successfully-message {
-  background-color: #000;
-  border-radius: 18px;
+.v2 #message-container {
+  background-color: rgba(0, 0, 0, 0.7);
+  border-radius: 16px;
   bottom: 12px;
   color: #fff;
   display: block;
   padding: 8px 28px;
   position: absolute;
   visibility: hidden;  /* Need this for correct positioning. */
-}
-
-.v2.wallpaper-set-successfully #set-successfully-message {
-  visibility: visible;
+  z-index: 4;
 }
 
 .v2 .progress-bar {
   bottom: 0;
+  height: 4px;
   top: unset;
+}
+
+.v2 .image-picker-offline .progress-bar {
+  display: none;
+}
+
+.v2 .progress-track {
+  border-radius: 4px;
+}
+
+.v2 #preview-spinner,
+.v2 #current-wallpaper-spinner {
+  background: url(chrome://resources/images/throbber_medium.svg) no-repeat;
+  position: absolute;
+}
+
+.v2 #preview-spinner {
+  height: 32px;
+  width: 32px;
+}
+
+.v2 #current-wallpaper-spinner {
+  height: 24px;
+  left: 38px;
+  top: 38px;
+  width: 24px;
 }
 
 @keyframes fade-in {
@@ -869,4 +1042,12 @@ body.v2 {
   to { filter: none;
        opacity: 1;
      }
+}
+
+@keyframes ripple {
+  0%, 100% { transform: scale(0);
+           }
+  90% { opacity: 0.06;
+        transform: scale(1);
+      }
 }

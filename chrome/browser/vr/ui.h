@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_VR_UI_H_
 
 #include <memory>
+#include <queue>
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -16,7 +17,12 @@
 #include "chrome/browser/vr/model/tab_model.h"
 #include "chrome/browser/vr/platform_controller.h"
 #include "chrome/browser/vr/ui_element_renderer.h"
+#include "chrome/browser/vr/ui_initial_state.h"
+#include "chrome/browser/vr/ui_interface.h"
+#include "chrome/browser/vr/ui_renderer.h"
+#include "chrome/browser/vr/ui_scene.h"
 #include "chrome/browser/vr/ui_test_input.h"
+#include "chrome/browser/vr/vr_ui_export.h"
 
 namespace vr {
 
@@ -32,32 +38,15 @@ class TextInputDelegate;
 class UiBrowserInterface;
 class UiInputManager;
 class UiRenderer;
-class UiScene;
 struct Assets;
 struct ControllerModel;
 struct Model;
 struct OmniboxSuggestions;
 struct ReticleModel;
 
-struct UiInitialState {
-  UiInitialState();
-  UiInitialState(const UiInitialState& other);
-  bool in_cct = false;
-  bool in_web_vr = false;
-  bool web_vr_autopresentation_expected = false;
-  bool browsing_disabled = false;
-  bool has_or_can_request_audio_permission = true;
-  bool skips_redraw_when_not_dirty = false;
-  bool assets_supported = false;
-  bool supports_selection = true;
-  bool needs_keyboard_update = false;
-  bool is_standalone_vr_device = false;
-  bool create_tabs_view = false;
-};
-
 // This class manages all GLThread owned objects and GL rendering for VrShell.
 // It is not threadsafe and must only be used on the GL thread.
-class Ui : public BrowserUiInterface, public KeyboardUiInterface {
+class VR_EXPORT Ui : public UiInterface, public KeyboardUiInterface {
  public:
   Ui(UiBrowserInterface* browser,
      PlatformInputHandler* content_input_forwarder,
@@ -75,6 +64,14 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
 
   ~Ui() override;
 
+  void OnUiRequestedNavigation();
+
+  void ReinitializeForTest(const UiInitialState& ui_initial_state);
+  ContentInputDelegate* GetContentInputDelegateForTest() {
+    return content_input_delegate_.get();
+  }
+
+  void Dump(bool include_bindings);
   // TODO(crbug.com/767957): Refactor to hide these behind the UI interface.
   UiScene* scene() { return scene_.get(); }
   UiElementRenderer* ui_element_renderer() {
@@ -82,9 +79,9 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   }
   UiRenderer* ui_renderer() { return ui_renderer_.get(); }
   UiInputManager* input_manager() { return input_manager_.get(); }
+  Model* model_for_test() { return model_.get(); }
 
-  base::WeakPtr<BrowserUiInterface> GetBrowserUiWeakPtr();
-
+ private:
   // BrowserUiInterface
   void SetWebVrMode(bool enabled) override;
   void SetFullscreen(bool enabled) override;
@@ -118,78 +115,89 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   void RemoveTab(int id, bool incognito) override;
   void RemoveAllTabs() override;
 
-  // TODO(ymalik): We expose this to stop sending VSync to the WebVR page until
-  // the splash screen has been visible for its minimum duration. The visibility
-  // logic currently lives in the UI, and it'd be much cleaner if the UI didn't
-  // have to worry about this, and if it were told to hide the splash screen
-  // like other WebVR phases (e.g. OnWebVrFrameAvailable below).
-  bool CanSendWebVrVSync();
-
+  // UiInterface
+  base::WeakPtr<BrowserUiInterface> GetBrowserUiWeakPtr() override;
+  bool CanSendWebVrVSync() override;
   void SetAlertDialogEnabled(bool enabled,
                              PlatformUiInputDelegate* delegate,
                              float width,
-                             float height);
+                             float height) override;
   void SetContentOverlayAlertDialogEnabled(bool enabled,
                                            PlatformUiInputDelegate* delegate,
                                            float width_percentage,
-                                           float height_percentage);
-  void SetAlertDialogSize(float width, float height);
+                                           float height_percentage) override;
+  void SetAlertDialogSize(float width, float height) override;
   void SetContentOverlayAlertDialogSize(float width_percentage,
-                                        float height_percentage);
-  void SetDialogLocation(float x, float y);
-  void SetDialogFloating(bool floating);
-  void ShowPlatformToast(const base::string16& text);
-  void CancelPlatformToast();
-  bool ShouldRenderWebVr();
-
+                                        float height_percentage) override;
+  void SetDialogLocation(float x, float y) override;
+  void SetDialogFloating(bool floating) override;
+  void ShowPlatformToast(const base::string16& text) override;
+  void CancelPlatformToast() override;
+  bool ShouldRenderWebVr() override;
   void OnGlInitialized(
       unsigned int content_texture_id,
       UiElementRenderer::TextureLocation content_location,
       unsigned int content_overlay_texture_id,
       UiElementRenderer::TextureLocation content_overlay_location,
-      unsigned int ui_texture_id,
-      bool use_ganesh);
+      unsigned int ui_texture_id) override;
 
-  void OnAppButtonClicked();
-  void OnAppButtonSwipePerformed(PlatformController::SwipeDirection direction);
+  void OnPause() override;
+  void OnAppButtonClicked() override;
+  void OnAppButtonSwipePerformed(
+      PlatformController::SwipeDirection direction) override;
   void OnControllerUpdated(const ControllerModel& controller_model,
-                           const ReticleModel& reticle_model);
-  void OnProjMatrixChanged(const gfx::Transform& proj_matrix);
-  void OnWebVrFrameAvailable();
-  void OnWebVrTimedOut();
-  void OnWebVrTimeoutImminent();
-  bool IsControllerVisible() const;
-  bool IsAppButtonLongPressed() const;
-  bool SkipsRedrawWhenNotDirty() const;
-  void OnSwapContents(int new_content_id);
-  void OnContentBoundsChanged(int width, int height);
-  void OnPlatformControllerInitialized(PlatformController* controller);
-  void OnUiRequestedNavigation();
-  void SetFloorHeight(float floor_height);
+                           const ReticleModel& reticle_model) override;
+  void OnProjMatrixChanged(const gfx::Transform& proj_matrix) override;
+  void OnWebVrFrameAvailable() override;
+  void OnWebVrTimedOut() override;
+  void OnWebVrTimeoutImminent() override;
+  bool IsControllerVisible() const override;
+  bool IsAppButtonLongPressed() const override;
+  bool SkipsRedrawWhenNotDirty() const override;
+  void OnSwapContents(int new_content_id) override;
+  void OnContentBoundsChanged(int width, int height) override;
 
-  Model* model_for_test() { return model_.get(); }
+  void AcceptDoffPromptForTesting() override;
+  void PerformControllerActionForTesting(
+      ControllerTestInput controller_input,
+      std::queue<ControllerModel>& controller_model_queue) override;
 
-  void ReinitializeForTest(const UiInitialState& ui_initial_state);
-  ContentInputDelegate* GetContentInputDelegateForTest() {
-    return content_input_delegate_.get();
-  }
+  bool IsContentVisibleAndOpaque() override;
+  bool IsContentOverlayTextureEmpty() override;
+  void SetContentUsesQuadLayer(bool uses_quad_buffers) override;
+  gfx::Transform GetContentWorldSpaceTransform() override;
 
-  void Dump(bool include_bindings);
+  bool OnBeginFrame(const base::TimeTicks&, const gfx::Transform&) override;
+  bool SceneHasDirtyTextures() const override;
+  void UpdateSceneTextures() override;
+  void Draw(const RenderInfo& render_info) override;
+  void DrawWebVr(int texture_data_handle,
+                 const float (&uv_transform)[16],
+                 float xborder,
+                 float yborder) override;
+  void DrawWebVrOverlayForeground(const RenderInfo& render_info) override;
+  UiScene::Elements GetWebVrOverlayElementsToDraw() override;
+  gfx::Rect CalculatePixelSpaceRect(const gfx::Size& texture_size,
+                                    const gfx::RectF& texture_rect) override;
 
-  // Keyboard input related.
-  void RequestFocus(int element_id);
-  void RequestUnfocus(int element_id);
+  void HandleInput(base::TimeTicks current_time,
+                   const RenderInfo& render_info,
+                   const ControllerModel& controller_model,
+                   ReticleModel* reticle_model,
+                   InputEventList* input_event_list) override;
+
+  FovRectangle GetMinimalFov(const gfx::Transform& view_matrix,
+                             const std::vector<const UiElement*>& elements,
+                             const FovRectangle& fov_recommended,
+                             float z_near) override;
+
+  void RequestFocus(int element_id) override;
+  void RequestUnfocus(int element_id) override;
+
+  // KeyboardUiInterface
   void OnInputEdited(const EditedText& info) override;
   void OnInputCommitted(const EditedText& info) override;
   void OnKeyboardHidden() override;
-
-  void AcceptDoffPromptForTesting();
-  void PerformUiActionForTesting(UiTestInput test_input);
-
-  bool IsContentVisibleAndOpaque();
-  bool IsContentOverlayTextureEmpty();
-  void SetContentUsesQuadLayer(bool uses_quad_buffers);
-  gfx::Transform GetContentWorldSpaceTransform();
 
  private:
   void OnSpeechRecognitionEnded();

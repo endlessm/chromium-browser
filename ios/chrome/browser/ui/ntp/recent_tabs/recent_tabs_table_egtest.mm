@@ -10,9 +10,11 @@
 
 #include "base/test/scoped_feature_list.h"
 #include "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/authentication/signin_earlgrey_utils.h"
 #import "ios/chrome/browser/ui/history/history_ui_constants.h"
 #import "ios/chrome/browser/ui/ntp/recent_tabs/recent_tabs_constants.h"
+#import "ios/chrome/browser/ui/table_view/table_view_model.h"
 #import "ios/chrome/browser/ui/table_view/table_view_navigation_controller_constants.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
@@ -72,8 +74,13 @@ id<GREYMatcher> TitleOfTestPage() {
       web::test::HttpServer::MakeUrl(kURLOfTestPage),
       std::string(kHTMLOfTestPage),
   }});
-  [NSUserDefaults.standardUserDefaults setObject:@{}
-                                          forKey:kCollapsedSectionsKey];
+  if (IsUIRefreshPhase1Enabled()) {
+    [NSUserDefaults.standardUserDefaults setObject:@{}
+                                            forKey:kListModelCollapsedKey];
+  } else {
+    [NSUserDefaults.standardUserDefaults setObject:@{}
+                                            forKey:kCollapsedSectionsKey];
+  }
 }
 
 // Closes the recent tabs panel.
@@ -169,16 +176,14 @@ id<GREYMatcher> TitleOfTestPage() {
 - (void)testRecentTabSigninPromoReloaded {
   OpenRecentTabsPanel();
   // Sign-in promo should be visible with cold state.
-  [SigninEarlGreyUtils
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState
-                          closeButton:NO];
+  [SigninEarlGreyUI checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState
+                                        closeButton:NO];
   ChromeIdentity* identity = [SigninEarlGreyUtils fakeIdentity1];
   ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()->AddIdentity(
       identity);
   // Sign-in promo should be visible with warm state.
-  [SigninEarlGreyUtils
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeWarmState
-                          closeButton:NO];
+  [SigninEarlGreyUI checkSigninPromoVisibleWithMode:SigninPromoViewModeWarmState
+                                        closeButton:NO];
   [self closeRecentTabs];
   ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()
       ->RemoveIdentity(identity);
@@ -188,20 +193,20 @@ id<GREYMatcher> TitleOfTestPage() {
 // crbug.com/776939
 - (void)testRecentTabSigninPromoReloadedWhileHidden {
   OpenRecentTabsPanel();
-  [SigninEarlGreyUtils
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState
-                          closeButton:NO];
+  [SigninEarlGreyUI checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState
+                                        closeButton:NO];
 
   // Tap on "Other Devices", to hide the sign-in promo.
   NSString* otherDevicesLabel =
       l10n_util::GetNSString(IDS_IOS_RECENT_TABS_OTHER_DEVICES);
   id<GREYMatcher> otherDevicesMatcher =
       IsUIRefreshPhase1Enabled()
-          ? grey_accessibilityLabel(otherDevicesLabel)
+          ? grey_allOf(grey_accessibilityLabel(otherDevicesLabel),
+                       grey_sufficientlyVisible(), nil)
           : chrome_test_util::ButtonWithAccessibilityLabel(otherDevicesLabel);
   [[EarlGrey selectElementWithMatcher:otherDevicesMatcher]
       performAction:grey_tap()];
-  [SigninEarlGreyUtils checkSigninPromoNotVisible];
+  [SigninEarlGreyUI checkSigninPromoNotVisible];
 
   // Add an account.
   ChromeIdentity* identity = [SigninEarlGreyUtils fakeIdentity1];
@@ -211,9 +216,8 @@ id<GREYMatcher> TitleOfTestPage() {
   // Tap on "Other Devices", to show the sign-in promo.
   [[EarlGrey selectElementWithMatcher:otherDevicesMatcher]
       performAction:grey_tap()];
-  [SigninEarlGreyUtils
-      checkSigninPromoVisibleWithMode:SigninPromoViewModeWarmState
-                          closeButton:NO];
+  [SigninEarlGreyUI checkSigninPromoVisibleWithMode:SigninPromoViewModeWarmState
+                                        closeButton:NO];
   [self closeRecentTabs];
   ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()
       ->RemoveIdentity(identity);

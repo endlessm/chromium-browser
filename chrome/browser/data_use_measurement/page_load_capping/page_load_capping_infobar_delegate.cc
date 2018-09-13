@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
 #include "chrome/browser/android/android_theme_resources.h"
 #include "chrome/browser/infobars/infobar_service.h"
@@ -17,10 +18,18 @@
 
 namespace {
 
+void RecordInteractionUMA(
+    PageLoadCappingInfoBarDelegate::InfoBarInteraction interaction) {
+  UMA_HISTOGRAM_ENUMERATION("HeavyPageCapping.InfoBarInteraction", interaction);
+}
+
 // The infobar that allows the user to resume resource loading on the page.
 class ResumeDelegate : public PageLoadCappingInfoBarDelegate {
  public:
-  ResumeDelegate() = default;
+  // |pause_callback| will either pause subresource loading or resume it based
+  // on the passed in bool.
+  explicit ResumeDelegate(const PauseCallback& pause_callback)
+      : pause_callback_(pause_callback) {}
   ~ResumeDelegate() override = default;
 
  private:
@@ -28,15 +37,21 @@ class ResumeDelegate : public PageLoadCappingInfoBarDelegate {
   base::string16 GetMessageText() const override {
     return l10n_util::GetStringUTF16(IDS_PAGE_CAPPING_STOPPED_TITLE);
   }
-  base::string16 GetButtonLabel(InfoBarButton button) const override {
-    DCHECK_EQ(ConfirmInfoBarDelegate::BUTTON_OK, button);
+  base::string16 GetLinkText() const override {
     return l10n_util::GetStringUTF16(IDS_PAGE_CAPPING_CONTINUE_MESSAGE);
   }
-  bool Accept() override {
-    // TODO(ryansturm): Add functionality to resume page loads.
-    // https://crbug.com/797979
+  bool LinkClicked(WindowOpenDisposition disposition) override {
+    RecordInteractionUMA(InfoBarInteraction::kResumedPage);
+    if (pause_callback_.is_null())
+      return true;
+    // Pass false to resume subresource loading.
+    pause_callback_.Run(false);
     return true;
   }
+
+  // |pause_callback| will either pause subresource loading or resume it based
+  // on the passed in bool.
+  PauseCallback pause_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(ResumeDelegate);
 };
@@ -44,8 +59,14 @@ class ResumeDelegate : public PageLoadCappingInfoBarDelegate {
 // The infobar that allows the user to pause resoruce loading on the page.
 class PauseDelegate : public PageLoadCappingInfoBarDelegate {
  public:
-  explicit PauseDelegate(int64_t bytes_threshold)
-      : bytes_threshold_(bytes_threshold) {}
+  // This object is destroyed wqhen the page is terminated, and methods related
+  // to functionality of the infobar (E.g., LinkClicked()), are not called from
+  // page destructors. This object is also destroyed on all non-same page
+  // navigations.
+  // |pause_callback| is a callback that will pause subresource loading on the
+  // page.
+  PauseDelegate(int64_t bytes_threshold, const PauseCallback& pause_callback)
+      : bytes_threshold_(bytes_threshold), pause_callback_(pause_callback) {}
   ~PauseDelegate() override = default;
 
  private:
@@ -56,20 +77,22 @@ class PauseDelegate : public PageLoadCappingInfoBarDelegate {
         static_cast<int>(bytes_threshold_ / 1024 / 1024));
   }
 
-  base::string16 GetButtonLabel(InfoBarButton button) const override {
-    DCHECK_EQ(ConfirmInfoBarDelegate::BUTTON_OK, button);
+  base::string16 GetLinkText() const override {
     return l10n_util::GetStringUTF16(IDS_PAGE_CAPPING_STOP_MESSAGE);
   }
 
-  bool Accept() override {
-    // TODO(ryansturm): Add functionality to pause page loads.
-    // https://crbug.com/797979
+  bool LinkClicked(WindowOpenDisposition disposition) override {
+    RecordInteractionUMA(InfoBarInteraction::kPausedPage);
+    if (!pause_callback_.is_null()) {
+      // Pause subresouce loading on the page.
+      pause_callback_.Run(true);
+    }
 
     auto* infobar_manager = infobar()->owner();
     // |this| will be gone after this call.
-    infobar_manager->ReplaceInfoBar(infobar(),
-                                    infobar_manager->CreateConfirmInfoBar(
-                                        std::make_unique<ResumeDelegate>()));
+    infobar_manager->ReplaceInfoBar(
+        infobar(), infobar_manager->CreateConfirmInfoBar(
+                       std::make_unique<ResumeDelegate>(pause_callback_)));
 
     return false;
   }
@@ -77,6 +100,10 @@ class PauseDelegate : public PageLoadCappingInfoBarDelegate {
  private:
   // The amount of bytes that was exceeded to trigger this infobar.
   int64_t bytes_threshold_;
+
+  // |pause_callback| will either pause subresource loading or resume it based
+  // on the passed in bool.
+  PauseCallback pause_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(PauseDelegate);
 };
@@ -86,12 +113,13 @@ class PauseDelegate : public PageLoadCappingInfoBarDelegate {
 // static
 bool PageLoadCappingInfoBarDelegate::Create(
     int64_t bytes_threshold,
-    content::WebContents* web_contents) {
+    content::WebContents* web_contents,
+    const PauseCallback& pause_callback) {
   auto* infobar_service = InfoBarService::FromWebContents(web_contents);
-
+  RecordInteractionUMA(InfoBarInteraction::kShowedInfoBar);
   // WrapUnique is used to allow for a private constructor.
   return infobar_service->AddInfoBar(infobar_service->CreateConfirmInfoBar(
-      std::make_unique<PauseDelegate>(bytes_threshold)));
+      std::make_unique<PauseDelegate>(bytes_threshold, pause_callback)));
 }
 
 PageLoadCappingInfoBarDelegate::~PageLoadCappingInfoBarDelegate() = default;
@@ -115,9 +143,9 @@ int PageLoadCappingInfoBarDelegate::GetIconId() const {
 
 bool PageLoadCappingInfoBarDelegate::ShouldExpire(
     const NavigationDetails& details) const {
-  return true;
+  return details.is_navigation_to_different_page;
 }
 
 int PageLoadCappingInfoBarDelegate::GetButtons() const {
-  return ConfirmInfoBarDelegate::BUTTON_OK;
+  return BUTTON_NONE;
 }

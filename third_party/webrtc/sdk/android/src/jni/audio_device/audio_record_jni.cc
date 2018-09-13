@@ -95,13 +95,17 @@ int32_t AudioRecordJni::Terminate() {
   RTC_LOG(INFO) << "Terminate";
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
   StopRecording();
+  thread_checker_.DetachFromThread();
   return 0;
 }
 
 int32_t AudioRecordJni::InitRecording() {
   RTC_LOG(INFO) << "InitRecording";
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
-  RTC_DCHECK(!initialized_);
+  if (initialized_) {
+    // Already initialized.
+    return 0;
+  }
   RTC_DCHECK(!recording_);
   ScopedHistogramTimer timer("WebRTC.Audio.InitRecordingDurationMs");
 
@@ -130,7 +134,10 @@ bool AudioRecordJni::RecordingIsInitialized() const {
 int32_t AudioRecordJni::StartRecording() {
   RTC_LOG(INFO) << "StartRecording";
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
-  RTC_DCHECK(!recording_);
+  if (recording_) {
+    // Already recording.
+    return 0;
+  }
   if (!initialized_) {
     RTC_DLOG(LS_WARNING)
         << "Recording can not start since InitRecording must succeed first";

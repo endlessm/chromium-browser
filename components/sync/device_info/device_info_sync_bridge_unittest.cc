@@ -17,7 +17,6 @@
 #include "components/sync/model/data_batch.h"
 #include "components/sync/model/data_type_error_handler_mock.h"
 #include "components/sync/model/entity_data.h"
-#include "components/sync/model/fake_model_type_change_processor.h"
 #include "components/sync/model/metadata_batch.h"
 #include "components/sync/model/mock_model_type_change_processor.h"
 #include "components/sync/model/model_type_store_test_util.h"
@@ -288,7 +287,7 @@ class DeviceInfoSyncBridgeTest : public testing::Test,
   std::map<std::string, sync_pb::EntitySpecifics> GetAllData() {
     base::RunLoop loop;
     std::unique_ptr<DataBatch> batch;
-    bridge_->GetAllData(base::BindOnce(
+    bridge_->GetAllDataForDebugging(base::BindOnce(
         [](base::RunLoop* loop, std::unique_ptr<DataBatch>* out_batch,
            std::unique_ptr<DataBatch> batch) {
           *out_batch = std::move(batch);
@@ -787,7 +786,7 @@ TEST_F(DeviceInfoSyncBridgeTest, SendLocalData) {
   EXPECT_EQ(2, change_count());
 }
 
-TEST_F(DeviceInfoSyncBridgeTest, ApplyDisableSyncChanges) {
+TEST_F(DeviceInfoSyncBridgeTest, ApplyStopSyncChanges) {
   InitializeAndPump();
   EXPECT_EQ(1u, bridge()->GetAllDeviceInfo().size());
   EXPECT_EQ(1, change_count());
@@ -801,7 +800,7 @@ TEST_F(DeviceInfoSyncBridgeTest, ApplyDisableSyncChanges) {
   EXPECT_EQ(2, change_count());
 
   // Should clear out all local data and notify observers.
-  bridge()->ApplyDisableSyncChanges({});
+  bridge()->ApplyStopSyncChanges(bridge()->CreateMetadataChangeList());
   EXPECT_EQ(0u, bridge()->GetAllDeviceInfo().size());
   EXPECT_EQ(3, change_count());
 

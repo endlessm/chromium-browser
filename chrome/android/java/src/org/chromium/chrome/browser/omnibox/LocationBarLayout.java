@@ -20,6 +20,8 @@ import android.os.SystemClock;
 import android.provider.Settings;
 import android.support.annotation.DrawableRes;
 import android.support.annotation.IntDef;
+import android.support.v4.view.MarginLayoutParamsCompat;
+import android.support.v7.content.res.AppCompatResources;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -42,6 +44,7 @@ import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.CommandLine;
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
+import org.chromium.base.StrictModeContext;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
@@ -66,11 +69,13 @@ import org.chromium.chrome.browser.search_engines.TemplateUrlService;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.toolbar.ToolbarActionModeCallback;
 import org.chromium.chrome.browser.toolbar.ToolbarDataProvider;
+import org.chromium.chrome.browser.toolbar.ToolbarManager;
 import org.chromium.chrome.browser.toolbar.ToolbarPhone;
 import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.util.KeyNavigationUtil;
-import org.chromium.chrome.browser.widget.FadingBackgroundView;
+import org.chromium.chrome.browser.widget.ScrimView;
+import org.chromium.chrome.browser.widget.ScrimView.ScrimParams;
 import org.chromium.chrome.browser.widget.TintedDrawable;
 import org.chromium.chrome.browser.widget.TintedImageButton;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
@@ -90,15 +95,19 @@ import java.util.List;
  * This class represents the location bar where the user types in URLs and
  * search terms.
  */
-public class LocationBarLayout
-        extends FrameLayout implements OnClickListener, OnSuggestionsReceivedListener, LocationBar,
-                                       FakeboxDelegate, FadingBackgroundView.FadingViewObserver,
-                                       LocationBarVoiceRecognitionHandler.Delegate {
+public class LocationBarLayout extends FrameLayout
+        implements OnClickListener, OnSuggestionsReceivedListener, LocationBar, FakeboxDelegate,
+                   ScrimView.ScrimObserver, LocationBarVoiceRecognitionHandler.Delegate {
     private static final String TAG = "cr_LocationBar";
 
     // Delay triggering the omnibox results upon key press to allow the location bar to repaint
     // with the new characters.
     private static final long OMNIBOX_SUGGESTION_START_DELAY_MS = 30;
+
+    private final int mLightScrimColor;
+
+    /** Params that control how the location bar interacts with the scrim. */
+    private ScrimParams mScrimParams;
 
     protected ImageView mNavigationButton;
     protected TintedImageButton mSecurityButton;
@@ -121,7 +130,7 @@ public class LocationBarLayout
     private final List<Runnable> mDeferredNativeRunnables = new ArrayList<Runnable>();
 
     // The type of the navigation button currently showing.
-    private NavigationButtonType mNavigationButtonType;
+    private @NavigationButtonType int mNavigationButtonType;
 
     // The type of the security icon currently active.
     @DrawableRes
@@ -149,7 +158,7 @@ public class LocationBarLayout
     private Runnable mRequestSuggestions;
 
     private ViewGroup mOmniboxResultsContainer;
-    protected FadingBackgroundView mFadingView;
+    private ScrimView mScrim;
 
     private boolean mSuggestionsShown;
     private boolean mUrlHasFocus;
@@ -349,10 +358,12 @@ public class LocationBarLayout
     /**
      * Specifies the types of buttons shown to signify different types of navigation elements.
      */
-    protected enum NavigationButtonType {
-        PAGE,
-        MAGNIFIER,
-        EMPTY,
+    @IntDef({NavigationButtonType.PAGE, NavigationButtonType.MAGNIFIER, NavigationButtonType.EMPTY})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface NavigationButtonType {
+        int PAGE = 0;
+        int MAGNIFIER = 1;
+        int EMPTY = 2;
     }
 
     /** Specifies which button should be shown in location bar, if any. */
@@ -375,6 +386,8 @@ public class LocationBarLayout
 
         LayoutInflater.from(context).inflate(layoutId, this, true);
 
+        mLightScrimColor = ApiCompatibilityUtils.getColor(
+                context.getResources(), R.color.omnibox_focused_fading_background_color_light);
         mNavigationButton = (ImageView) findViewById(R.id.navigation_button);
         assert mNavigationButton != null : "Missing navigation type view.";
         mIsTablet = DeviceFormFactor.isNonMultiDisplayContextOnTablet(context);
@@ -709,11 +722,6 @@ public class LocationBarLayout
         }
     }
 
-    @Override
-    public long getFirstUrlBarFocusTime() {
-        return mUrlBar.getFirstFocusTime();
-    }
-
     /**
      * @return Whether the URL focus change is taking place, e.g. a focus animation is running on
      *         a phone device.
@@ -729,21 +737,6 @@ public class LocationBarLayout
         mUrlFocusChangeInProgress = inProgress;
         if (!inProgress) {
             updateButtonVisibility();
-        }
-    }
-
-    /**
-     * Updates the omnibox text selection when focused. When displaying a query in the omnibox,
-     * we want to move the cursor to the end of the search terms to more easily refine the search,
-     * and when displaying a URL we select all.
-     */
-    private void updateFocusedUrlBarSelection() {
-        if (!mUrlBar.hasFocus()) return;
-
-        if (mToolbarDataProvider.shouldDisplaySearchTerms()) {
-            mUrlBar.setSelection(mUrlBar.getText().length());
-        } else {
-            selectAll();
         }
     }
 
@@ -797,7 +790,7 @@ public class LocationBarLayout
         changeLocationBarIcon();
         updateVerboseStatusVisibility();
         updateLocationBarIconContainerVisibility();
-        updateFocusedUrlBarSelection();
+        if (hasFocus) selectAll();
         mUrlBar.setCursorVisible(hasFocus);
 
         if (!mUrlFocusedWithoutAnimations) handleUrlFocusAnimation(hasFocus);
@@ -847,8 +840,8 @@ public class LocationBarLayout
             listener.onUrlFocusChange(hasFocus);
         }
 
-        updateOmniboxResultsContainer();
-        if (hasFocus) updateFadingBackgroundView(true);
+        maybeShowOmniboxResultsContainer();
+        updateFadingBackgroundView(hasFocus, false);
     }
 
     /**
@@ -950,9 +943,13 @@ public class LocationBarLayout
         }
 
         if (pastedText != null) {
+            ToolbarManager.recordOmniboxFocusReason(
+                    ToolbarManager.OmniboxFocusReason.FAKE_BOX_LONG_PRESS);
             // This must be happen after requestUrlFocus(), which changes the selection.
             mUrlBar.setUrl(UrlBarData.forNonUrlText(pastedText));
             mUrlBar.setSelection(mUrlBar.getText().length());
+        } else {
+            ToolbarManager.recordOmniboxFocusReason(ToolbarManager.OmniboxFocusReason.FAKE_BOX_TAP);
         }
     }
 
@@ -1007,7 +1004,7 @@ public class LocationBarLayout
         return mToolbarDataProvider;
     }
 
-    private static NavigationButtonType suggestionTypeToNavigationButtonType(
+    private static @NavigationButtonType int suggestionTypeToNavigationButtonType(
             OmniboxSuggestion suggestion) {
         if (suggestion.isUrlSuggestion()) {
             return NavigationButtonType.PAGE;
@@ -1018,7 +1015,8 @@ public class LocationBarLayout
 
     // Updates the navigation button based on the URL string
     private void updateNavigationButton() {
-        NavigationButtonType type = NavigationButtonType.EMPTY;
+        @NavigationButtonType
+        int type = NavigationButtonType.EMPTY;
         if (mIsTablet && !mSuggestionItems.isEmpty()) {
             // If there are suggestions showing, show the icon for the default suggestion.
             type = suggestionTypeToNavigationButtonType(
@@ -1100,19 +1098,19 @@ public class LocationBarLayout
      * Sets the type of the current navigation type and updates the UI to match it.
      * @param buttonType The type of navigation button to be shown.
      */
-    private void setNavigationButtonType(NavigationButtonType buttonType) {
+    private void setNavigationButtonType(@NavigationButtonType int buttonType) {
         if (!mIsTablet) return;
         switch (buttonType) {
-            case PAGE:
-                Drawable page = TintedDrawable.constructTintedDrawable(getResources(),
+            case NavigationButtonType.PAGE:
+                Drawable page = TintedDrawable.constructTintedDrawable(getContext(),
                         R.drawable.ic_omnibox_page,
                         mUseDarkColors ? R.color.dark_mode_tint : R.color.light_mode_tint);
                 mNavigationButton.setImageDrawable(page);
                 break;
-            case MAGNIFIER:
+            case NavigationButtonType.MAGNIFIER:
                 mNavigationButton.setImageResource(R.drawable.ic_omnibox_magnifier);
                 break;
-            case EMPTY:
+            case NavigationButtonType.EMPTY:
                 mNavigationButton.setImageDrawable(null);
                 break;
             default:
@@ -1180,8 +1178,8 @@ public class LocationBarLayout
                 ViewGroup.MarginLayoutParams childLayoutParams =
                         (ViewGroup.MarginLayoutParams) childView.getLayoutParams();
                 urlContainerMarginEnd += childLayoutParams.width
-                        + ApiCompatibilityUtils.getMarginStart(childLayoutParams)
-                        + ApiCompatibilityUtils.getMarginEnd(childLayoutParams);
+                        + MarginLayoutParamsCompat.getMarginStart(childLayoutParams)
+                        + MarginLayoutParamsCompat.getMarginEnd(childLayoutParams);
             }
         }
         return urlContainerMarginEnd;
@@ -1196,8 +1194,8 @@ public class LocationBarLayout
             View childView = getChildAt(i);
             if (childView.getVisibility() != GONE) {
                 LayoutParams childLayoutParams = (LayoutParams) childView.getLayoutParams();
-                if (ApiCompatibilityUtils.getMarginStart(childLayoutParams) != startMargin) {
-                    ApiCompatibilityUtils.setMarginStart(childLayoutParams, startMargin);
+                if (MarginLayoutParamsCompat.getMarginStart(childLayoutParams) != startMargin) {
+                    MarginLayoutParamsCompat.setMarginStart(childLayoutParams, startMargin);
                     childView.setLayoutParams(childLayoutParams);
                 }
                 if (childView == mUrlBar) break;
@@ -1231,8 +1229,8 @@ public class LocationBarLayout
 
         int urlContainerMarginEnd = getUrlContainerMarginEnd();
         LayoutParams urlLayoutParams = (LayoutParams) mUrlBar.getLayoutParams();
-        if (ApiCompatibilityUtils.getMarginEnd(urlLayoutParams) != urlContainerMarginEnd) {
-            ApiCompatibilityUtils.setMarginEnd(urlLayoutParams, urlContainerMarginEnd);
+        if (MarginLayoutParamsCompat.getMarginEnd(urlLayoutParams) != urlContainerMarginEnd) {
+            MarginLayoutParamsCompat.setMarginEnd(urlLayoutParams, urlContainerMarginEnd);
             mUrlBar.setLayoutParams(urlLayoutParams);
         }
     }
@@ -1346,11 +1344,13 @@ public class LocationBarLayout
                         return getRootView().findViewById(R.id.toolbar);
                     }
                 };
-        mSuggestionList = new OmniboxSuggestionsList(getContext(), embedder);
+        // TODO(tedchoc): Investigate lazily building the suggestion list off of the UI thread.
+        try (StrictModeContext unused = StrictModeContext.allowDiskReads()) {
+            mSuggestionList = new OmniboxSuggestionsList(getContext(), embedder);
+        }
 
         // Ensure the results container is initialized and add the suggestion list to it.
         initOmniboxResultsContainer();
-        mOmniboxResultsContainer.addView(mSuggestionList);
 
         // Start with visibility GONE to ensure that show() is called. http://crbug.com/517438
         mSuggestionList.setVisibility(GONE);
@@ -1439,17 +1439,25 @@ public class LocationBarLayout
      * @param visible Whether the suggestions list should be visible.
      */
     protected void setSuggestionsListVisibility(final boolean visible) {
+        if (mSuggestionsShown == visible) return;
         mSuggestionsShown = visible;
         if (mSuggestionList != null) {
             final boolean isShowing = mSuggestionList.isShown();
             if (visible && !isShowing) {
                 mIgnoreOmniboxItemSelection = true; // Reset to default value.
+
+                if (mSuggestionList.getParent() == null) {
+                    mOmniboxResultsContainer.addView(mSuggestionList);
+                }
+
                 mSuggestionList.show();
             } else if (!visible && isShowing) {
                 mSuggestionList.setVisibility(GONE);
+
+                UiUtils.removeViewFromParent(mSuggestionList);
             }
         }
-        updateOmniboxResultsContainer();
+        maybeShowOmniboxResultsContainer();
     }
 
     /**
@@ -1646,7 +1654,7 @@ public class LocationBarLayout
                 Activity activity = mWindowAndroid.getActivity().get();
                 if (activity != null) {
                     PageInfoController.show(activity, getCurrentTab(), null,
-                            PageInfoController.OPENED_FROM_TOOLBAR);
+                            PageInfoController.OpenedFromSource.TOOLBAR);
                 }
             }
         } else if (v == mMicButton && mVoiceRecognitionHandler != null) {
@@ -1708,7 +1716,11 @@ public class LocationBarLayout
         }
 
         if (mSuggestionItems.isEmpty()) {
-            if (mSuggestionsShown) hideSuggestions();
+            if (mSuggestionsShown) {
+                hideSuggestions();
+            } else {
+                mSuggestionListAdapter.notifySuggestionsChanged();
+            }
             return;
         }
 
@@ -1729,7 +1741,8 @@ public class LocationBarLayout
         if (itemsChanged) mSuggestionListAdapter.notifySuggestionsChanged();
 
         if (mUrlBar.hasFocus()) {
-            final boolean updateLayoutParams = itemCountChanged;
+            final boolean updateLayoutParams = itemCountChanged || mShowSuggestions != null;
+            if (mShowSuggestions != null) removeCallbacks(mShowSuggestions);
             mShowSuggestions = new Runnable() {
                 @Override
                 public void run() {
@@ -1964,14 +1977,15 @@ public class LocationBarLayout
         ViewStub overlayStub =
                 (ViewStub) getRootView().findViewById(R.id.omnibox_results_container_stub);
         mOmniboxResultsContainer = (ViewGroup) overlayStub.inflate();
+
+        int topMargin = getResources().getDimensionPixelSize(R.dimen.tab_strip_height);
+        mScrimParams = new ScrimParams(mOmniboxResultsContainer, false, false, topMargin, this);
     }
 
-    private void updateOmniboxResultsContainer() {
+    private void maybeShowOmniboxResultsContainer() {
         if (mSuggestionsShown || mUrlHasFocus) {
             initOmniboxResultsContainer();
             updateOmniboxResultsContainerVisibility(true);
-        } else if (mOmniboxResultsContainer != null) {
-            updateFadingBackgroundView(false);
         }
     }
 
@@ -1988,58 +2002,59 @@ public class LocationBarLayout
         }
     }
 
-    /**
-     * Initialize the fading background for when the omnibox is focused.
-     */
-    protected void initFadingOverlayView() {
-        mFadingView =
-                (FadingBackgroundView) getRootView().findViewById(R.id.fading_focus_target);
-        mFadingView.addObserver(this);
-    }
-
     @Override
-    public void onFadingViewClick() {
+    public void onScrimClick() {
         setUrlBarFocus(false);
-
-        // If the bottom sheet is used, it will control the fading view.
-        if (mBottomSheet == null) updateFadingBackgroundView(false);
+        updateFadingBackgroundView(false, false);
     }
 
     @Override
-    public void onFadingViewVisibilityChanged(boolean visible) {
+    public void onScrimVisibilityChanged(boolean visible) {
         Activity activity = mWindowAndroid.getActivity().get();
         if (!(activity instanceof ChromeActivity)) return;
         ChromeActivity chromeActivity = (ChromeActivity) activity;
 
         if (visible) {
-            chromeActivity.addViewObscuringAllTabs(mFadingView);
+            chromeActivity.addViewObscuringAllTabs(mScrim);
         } else {
-            chromeActivity.removeViewObscuringAllTabs(mFadingView);
+            chromeActivity.removeViewObscuringAllTabs(mScrim);
             updateOmniboxResultsContainerVisibility(false);
         }
+    }
+
+    @Override
+    public void setScrim(ScrimView scrim) {
+        mScrim = scrim;
+
+        // In some cases, users can start chrome and immediately start tapping the omnibox. In that
+        // case, the omnibox will focus, but there is no scrim. This checks if the scrim needs to
+        // be visible and updates it accordingly.
+        updateFadingBackgroundView(isUrlBarFocused(), true);
     }
 
     /**
      * Update the fading background view that shows when the omnibox is focused. If Chrome Home is
      * enabled, this method is a no-op.
      * @param visible Whether the background should be made visible.
+     * @param ignoreNtpChecks Whether the checks for the ntp should be considered when updating the
+     *                        scrim.
      */
-    private void updateFadingBackgroundView(boolean visible) {
-        if (mFadingView == null) initFadingOverlayView();
-
-        // If Chrome Home is enabled (the bottom sheet is not null), it will be controlling the
-        // fading view, so block any updating here.
-        if (mToolbarDataProvider == null || mBottomSheet != null) return;
-
+    protected void updateFadingBackgroundView(boolean visible, boolean ignoreNtpChecks) {
+        if (mScrim == null || mScrimParams == null) return;
         NewTabPage ntp = mToolbarDataProvider.getNewTabPageForCurrentTab();
         boolean locationBarShownInNTP = ntp != null && ntp.isLocationBarShownInNTP();
 
-        if (visible && !locationBarShownInNTP) {
+        if (visible && (!locationBarShownInNTP || ignoreNtpChecks)) {
+            mScrimParams.backgroundColor =
+                    useModernDesign() && !mIsTablet && !mToolbarDataProvider.isIncognito()
+                    ? mLightScrimColor
+                    : null;
+
             // If the location bar is shown in the NTP, the toolbar will eventually trigger a
             // fade in.
-            mFadingView.showFadingOverlay();
+            mScrim.showScrim(mScrimParams);
         } else {
-            mFadingView.hideFadingOverlay(!locationBarShownInNTP);
+            mScrim.hideScrim(!locationBarShownInNTP);
         }
     }
 
@@ -2104,8 +2119,8 @@ public class LocationBarLayout
         if (updateUseDarkColors() || mIsEmphasizingHttpsScheme != shouldEmphasizeHttpsScheme()) {
             updateSecurityIcon();
         }
-        ColorStateList colorStateList = ApiCompatibilityUtils.getColorStateList(getResources(),
-                mUseDarkColors ? R.color.dark_mode_tint : R.color.light_mode_tint);
+        int id = mUseDarkColors ? R.color.dark_mode_tint : R.color.light_mode_tint;
+        ColorStateList colorStateList = AppCompatResources.getColorStateList(getContext(), id);
         mMicButton.setTint(colorStateList);
         mDeleteButton.setTint(colorStateList);
 

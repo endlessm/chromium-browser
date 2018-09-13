@@ -210,6 +210,12 @@ void ArcAppWindowLauncherController::AttachControllerToWindowsIfNeeded() {
 void ArcAppWindowLauncherController::AttachControllerToWindowIfNeeded(
     aura::Window* window) {
   const int task_id = GetWindowTaskId(window);
+  if (task_id >= 0) {
+    // System windows are also arc apps.
+    window->SetProperty(aura::client::kAppType,
+                        static_cast<int>(ash::AppType::ARC_APP));
+  }
+
   if (task_id <= 0)
     return;
 
@@ -220,8 +226,6 @@ void ArcAppWindowLauncherController::AttachControllerToWindowIfNeeded(
   // TODO(msw): Set shelf item types earlier to avoid ShelfWindowWatcher races.
   // (maybe use Widget::InitParams::mus_properties in cash too crbug.com/750334)
   window->SetProperty<int>(ash::kShelfItemTypeKey, ash::TYPE_APP);
-  window->SetProperty(aura::client::kAppType,
-                      static_cast<int>(ash::AppType::ARC_APP));
 
   // Create controller if we have task info.
   AppWindowInfo* info = GetAppWindowInfoForTask(task_id);
@@ -242,11 +246,11 @@ void ArcAppWindowLauncherController::AttachControllerToWindowIfNeeded(
   window->SetProperty(ash::kShelfIDKey, new std::string(shelf_id.Serialize()));
 }
 
-void ArcAppWindowLauncherController::OnAppReadyChanged(
-    const std::string& arc_app_id,
-    bool ready) {
-  if (!ready)
-    OnAppRemoved(arc_app_id);
+void ArcAppWindowLauncherController::OnAppStatesChanged(
+    const std::string& app_id,
+    const ArcAppListPrefs::AppInfo& app_info) {
+  if (!app_info.ready)
+    OnAppRemoved(app_id);
 }
 
 std::vector<int> ArcAppWindowLauncherController::GetTaskIdsForApp(
@@ -493,7 +497,7 @@ void ArcAppWindowLauncherController::RegisterApp(
     arc::Intent intent;
     if (arc::ParseIntent(app_window_info->launch_intent(), &intent) &&
         intent.HasExtraParam(arc::kInitialStartParam)) {
-      DCHECK(!arc::IsRobotAccountMode());
+      DCHECK(!arc::IsRobotOrOfflineDemoAccountMode());
       arc::UpdatePlayStoreShowTime(
           base::Time::Now() - opt_in_management_check_start_time_,
           owner()->profile());

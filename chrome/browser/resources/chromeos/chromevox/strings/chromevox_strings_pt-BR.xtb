@@ -92,6 +92,7 @@ Se você não quer mais ver o tutorial, use o ChromeVox para navegar até o bot�
 <translation id="1787176709638001873">Texto de alteração de senha</translation>
 <translation id="1802710350767629429">Mostrar notas de atualização</translation>
 <translation id="1810107444790159527">Caixa de listagem</translation>
+<translation id="1812527064848182527">paisagem</translation>
 <translation id="1828385960365606039">Maio</translation>
 <translation id="1834891354138622109">Coluna</translation>
 <translation id="1845944666972354496">Toque duas vezes para ativar</translation>
@@ -146,6 +147,7 @@ Se você não quer mais ver o tutorial, use o ChromeVox para navegar até o bot�
 <translation id="2416512023405990736">Uma caixa de seleção desmarcada</translation>
 <translation id="2417569100218200841">Informações sobre o conteúdo</translation>
 <translation id="2417948780551741035">Notas finais</translation>
+<translation id="2421113964388408478">Exclusão</translation>
 <translation id="2422937916923936891">Caixa de seleção de item de menu</translation>
 <translation id="2428534162001909979">Menus de comando</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@ Se você não quer mais ver o tutorial, use o ChromeVox para navegar até o bot�
 <translation id="3232388865800379423">Um botão pop-up</translation>
 <translation id="3241052487511142956">Link anterior visitado</translation>
 <translation id="3241638166094654466">Células em cada linha:</translation>
+<translation id="3286372614333682499">retrato</translation>
 <translation id="3286390186030710347">Slide</translation>
 <translation id="3299925995433437805">Não há próximo link visitado.</translation>
 <translation id="3300348286427369683">Compatibilidade com rich text. O ChromeVox agora é compatível com campos rich text, incluindo comandos jump, roteamento de cursor braille, seleção e muito mais.</translation>
@@ -426,6 +429,7 @@ Se você não quer mais ver o tutorial, use o ChromeVox para navegar até o bot�
 <translation id="4476183483923481720">linha nova</translation>
 <translation id="4482330759234983253">Tabela anterior</translation>
 <translation id="4491109536499578614">Imagem</translation>
+<translation id="4505167975768625962">Inserção</translation>
 <translation id="4517854969512651305">Aumentar valor</translation>
 <translation id="4529987814483543472">Mapa de teclado clássico</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{barra}one{# barras}other{# barras}}</translation>
@@ -589,6 +593,7 @@ Se você não quer mais ver o tutorial, use o ChromeVox para navegar até o bot�
 <translation id="5712338278108304766">Próxima coluna da tabela</translation>
 <translation id="571866080859340309">Explorando grupos</translation>
 <translation id="5728409797179002635">Nenhuma tabela encontrada.</translation>
+<translation id="5729047866208036762">Pressione a seta para cima, para baixo, para a esquerda ou para a direita para ver o cálculo.</translation>
 <translation id="5732189279857692565">Este é o segundo título. Continue pressionando a tecla de pesquisa+H ou a tecla de pesquisa+Shift+H</translation>
 <translation id="5748623122140342504">Cabeçalho de nível 5 anterior</translation>
 <translation id="5750633686117194034">Nenhum modificador foi pressionado. Pressione e mantenha pressionado um ou mais modificadores. Levante os dedos uma vez e você ouvirá as teclas definidas. Pressione "Tab" para sair.</translation>
@@ -744,6 +749,7 @@ Para abrir o menu do navegador Chrome, pressione Alt+F.</translation>
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">Selecione uma tabela em braille de seis pontos:</translation>
 <translation id="72393384879519786">Cabeçalho</translation>
+<translation id="7240858705033280249">Ir para "Detalhes"</translation>
 <translation id="7241683698754534149">Abrir descrição longa em uma nova página</translation>
 <translation id="7248671827512403053">Aplicativo</translation>
 <translation id="725969808843520477">Próximo botão de opção</translation>
@@ -920,6 +926,7 @@ Para abrir o menu do navegador Chrome, pressione Alt+F.</translation>
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Selecione uma tabela em braille de oito pontos:</translation>
 <translation id="9065283790526219006">+popup</translation>
+<translation id="9066023754636984703">Pressione Pesquisar+A, J para ir direto para os detalhes.</translation>
 <translation id="9067522039955793016">Quebra de página</translation>
 <translation id="9077213568694924680">removido da seleção</translation>
 <translation id="9082874451376019682">Nenhum controle deslizante anterior.</translation>

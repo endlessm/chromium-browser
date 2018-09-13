@@ -41,14 +41,15 @@ class ResourceMetadata;
 // This object is copyable.
 class DirectoryFetchInfo {
  public:
-  DirectoryFetchInfo() = default;
+  DirectoryFetchInfo();
+  ~DirectoryFetchInfo();
 
   DirectoryFetchInfo(const std::string& local_id,
                      const std::string& resource_id,
-                     const std::string& start_page_token)
-      : local_id_(local_id),
-        resource_id_(resource_id),
-        start_page_token_(start_page_token) {}
+                     const std::string& start_page_token,
+                     const base::FilePath& root_entry_path);
+
+  DirectoryFetchInfo(const DirectoryFetchInfo& other);
 
   // Returns true if the object is empty.
   bool empty() const { return local_id_.empty(); }
@@ -63,6 +64,9 @@ class DirectoryFetchInfo {
   // determine if the directory contents should be fetched.
   const std::string& start_page_token() const { return start_page_token_; }
 
+  // The root path of the directory being fetched.
+  const base::FilePath& root_entry_path() const { return root_entry_path_; }
+
   // Returns a string representation of this object.
   std::string ToString() const;
 
@@ -70,6 +74,7 @@ class DirectoryFetchInfo {
   const std::string local_id_;
   const std::string resource_id_;
   const std::string start_page_token_;
+  const base::FilePath root_entry_path_;
 };
 
 // Class to represent a change list.
@@ -113,7 +118,9 @@ class ChangeList {
 // updates the resource metadata stored locally.
 class ChangeListProcessor {
  public:
-  ChangeListProcessor(ResourceMetadata* resource_metadata,
+  ChangeListProcessor(const std::string& team_drive_id,
+                      const base::FilePath& root_entry_path,
+                      ResourceMetadata* resource_metadata,
                       base::CancellationFlag* in_shutdown);
   ~ChangeListProcessor();
 
@@ -124,6 +131,10 @@ class ChangeListProcessor {
   // it is full resource lists (false) or change lists (true).
   //
   // Must be run on the same task runner as |resource_metadata_| uses.
+  // |start_page_token| is the start page token used to retrieve the change
+  // list.
+  // |root_resource_id| is the resource id to lookup the root folder of the
+  // changeslists in resource metadata.
   FileError ApplyUserChangeList(
       const std::string& start_page_token,
       const std::string& root_resource_id,
@@ -132,6 +143,13 @@ class ChangeListProcessor {
 
   // The set of changed files as a result of change list processing.
   const FileChange& changed_files() const { return *changed_files_; }
+
+  // The set of team drives changes as a result of change list processing.
+  // Note that a team drive change will appear in both changed_files() and
+  // changed_team_drives()
+  const FileChange& changed_team_drives() const {
+    return *changed_team_drives_;
+  }
 
   // Adds or refreshes the child entries from |change_list| to the directory.
   static FileError RefreshDirectory(
@@ -185,6 +203,9 @@ class ChangeListProcessor {
   ResourceEntryMap entry_map_;
   ParentResourceIdMap parent_resource_id_map_;
   std::unique_ptr<FileChange> changed_files_;
+  std::unique_ptr<FileChange> changed_team_drives_;
+  const std::string team_drive_id_;
+  const base::FilePath& root_entry_path_;
 
   DISALLOW_COPY_AND_ASSIGN(ChangeListProcessor);
 };

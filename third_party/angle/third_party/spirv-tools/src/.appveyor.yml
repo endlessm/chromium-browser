@@ -4,10 +4,11 @@
 # version format
 version: "{build}"
 
+# The most recent compiler gives the most interesting new results.
+# Put it first so we get its feedback first.
 os:
-  - Visual Studio 2013
-  - Visual Studio 2015
   - Visual Studio 2017
+  - Visual Studio 2013
 
 platform:
   - x64
@@ -34,8 +35,6 @@ matrix:
   exclude:
     - os: Visual Studio 2013
       configuration: Debug
-    - os: Visual Studio 2015
-      configuration: Debug
 
 # scripts that run after cloning repository
 install:
@@ -52,7 +51,6 @@ before_build:
   - git clone --depth=1 https://github.com/google/re2.git external/re2
   # Set path and environment variables for the current Visual Studio version
   - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2013" (call "C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\vcvarsall.bat" x86_amd64)
-  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2015" (call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86_amd64)
   - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2017" (call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvarsall.bat" x86_amd64)
 
 build:
@@ -61,7 +59,7 @@ build:
 
 build_script:
   - mkdir build && cd build
-  - cmake -GNinja -DSPIRV_BUILD_COMPRESSION=ON -DCMAKE_INSTALL_PREFIX=install ..
+  - cmake -GNinja -DSPIRV_BUILD_COMPRESSION=ON -DCMAKE_BUILD_TYPE=%CONFIGURATION% -DCMAKE_INSTALL_PREFIX=install -DRE2_BUILD_TESTING=OFF ..
   - ninja install
 
 test_script:

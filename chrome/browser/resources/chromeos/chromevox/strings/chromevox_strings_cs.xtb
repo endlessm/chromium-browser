@@ -92,6 +92,7 @@ Chcete-li výukový program ukončit, přejděte pomocí nástroje ChromeVox na 
 <translation id="1787176709638001873">Úprava hesla – text</translation>
 <translation id="1802710350767629429">Zobrazit poznámky k aktualizaci</translation>
 <translation id="1810107444790159527">Seznam</translation>
+<translation id="1812527064848182527">na šířku</translation>
 <translation id="1828385960365606039">Květen</translation>
 <translation id="1834891354138622109">Sloupec</translation>
 <translation id="1845944666972354496">Aktivujte dvojitým klepnutím</translation>
@@ -145,6 +146,7 @@ Chcete-li výukový program ukončit, přejděte pomocí nástroje ChromeVox na 
 <translation id="2416512023405990736">Nezaškrtnuté zaškrtávací políčko</translation>
 <translation id="2417569100218200841">Informace o obsahu</translation>
 <translation id="2417948780551741035">Koncové poznámky</translation>
+<translation id="2421113964388408478">Smazání</translation>
 <translation id="2422937916923936891">Položka nabídky – zaškrtávací políčko</translation>
 <translation id="2428534162001909979">Příkazové nabídky</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -252,6 +254,7 @@ Chcete-li výukový program ukončit, přejděte pomocí nástroje ChromeVox na 
 <translation id="3232388865800379423">Tlačítko s vyskakovacím oknem</translation>
 <translation id="3241052487511142956">Předchozí navštívený odkaz</translation>
 <translation id="3241638166094654466">Buňky na každém řádku:</translation>
+<translation id="3286372614333682499">na výšku</translation>
 <translation id="3286390186030710347">Posuvník</translation>
 <translation id="3299925995433437805">Žádný další navštívený odkaz není.</translation>
 <translation id="3300348286427369683">Podpora formátovaného textu. ChromeVox teď podporuje pole s formátovaným textem, včetně příkazů přeskočení, ovládání kurzoru pomocí tlačítek braillského řádku, výběru a dalších funkcí.</translation>
@@ -425,6 +428,7 @@ Chcete-li výukový program ukončit, přejděte pomocí nástroje ChromeVox na 
 <translation id="4476183483923481720">nový řádek</translation>
 <translation id="4482330759234983253">Předchozí tabulka</translation>
 <translation id="4491109536499578614">Obrázek</translation>
+<translation id="4505167975768625962">Vložení</translation>
 <translation id="4517854969512651305">Zvýšit hodnotu</translation>
 <translation id="4529987814483543472">Klasická mapa kláves</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{lomítko}few{# lomítka}many{# slashes}other{# lomítek}}</translation>
@@ -588,6 +592,7 @@ Chcete-li výukový program ukončit, přejděte pomocí nástroje ChromeVox na 
 <translation id="5712338278108304766">Další sloupec tabulky</translation>
 <translation id="571866080859340309">Průzkum skupin</translation>
 <translation id="5728409797179002635">Nebyla nalezena žádná tabulka.</translation>
+<translation id="5729047866208036762">Matematický obsah prozkoumáte stisknutím šipek nahoru, dolů, vlevo či vpravo.</translation>
 <translation id="5732189279857692565">Toto je druhý nadpis. Pokračujte stisknutím kláves Hledat+H nebo Hledat+Shift+H.</translation>
 <translation id="5748623122140342504">Předchozí nadpis 5. úrovně</translation>
 <translation id="5750633686117194034">Nestiskli jste žádný modifikátor. Stiskněte a podržte jeden nebo více modifikátorů. Po dokončení zvedněte prsty. Uslyšíte, které klávesy byly nastaveny. Klávesou Tabulátor tuto akci ukončíte.</translation>
@@ -743,6 +748,7 @@ Chcete-li otevřít nabídku prohlížeče Chrome, stiskněte Alt + F.</translat
 <translation id="7226216518520804442">sezn</translation>
 <translation id="7229749224609077523">Vyberte šestibodovou Braillovu tabulku:</translation>
 <translation id="72393384879519786">Nadpis</translation>
+<translation id="7240858705033280249">Přejít na podrobnosti</translation>
 <translation id="7241683698754534149">Otevřít dlouhý popis na nové kartě</translation>
 <translation id="7248671827512403053">Aplikace</translation>
 <translation id="725969808843520477">Další přepínač</translation>
@@ -919,6 +925,7 @@ Chcete-li otevřít nabídku prohlížeče Chrome, stiskněte Alt + F.</translat
 <translation id="9043969572162476692"><ph name="NUM" /> %</translation>
 <translation id="9061884144798498064">Vyberte osmibodovou Braillovu tabulku:</translation>
 <translation id="9065283790526219006">+vyskakovací okno</translation>
+<translation id="9066023754636984703">Stisknutím kombinace kláves Hledat+A, J přejdete na podrobnosti.</translation>
 <translation id="9067522039955793016">Konec stránky</translation>
 <translation id="9077213568694924680">odebráno z výběru</translation>
 <translation id="9082874451376019682">Žádný předchozí posuvník.</translation>

@@ -26,7 +26,7 @@ import org.chromium.base.library_loader.Linker;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.base.memory.MemoryPressureUma;
 import org.chromium.base.process_launcher.ChildProcessServiceDelegate;
-import org.chromium.content.browser.ChildProcessCreationParams;
+import org.chromium.content.browser.ChildProcessCreationParamsImpl;
 import org.chromium.content.browser.ContentChildProcessConstants;
 import org.chromium.content.common.IGpuProcessCallback;
 import org.chromium.content.common.SurfaceWrapper;
@@ -69,7 +69,8 @@ public class ContentChildProcessServiceDelegate implements ChildProcessServiceDe
     @Override
     public void onServiceBound(Intent intent) {
         mLinkerParams = ChromiumLinkerParams.create(intent.getExtras());
-        mLibraryProcessType = ChildProcessCreationParams.getLibraryProcessType(intent.getExtras());
+        mLibraryProcessType =
+                ChildProcessCreationParamsImpl.getLibraryProcessType(intent.getExtras());
     }
 
     @Override
@@ -82,10 +83,11 @@ public class ContentChildProcessServiceDelegate implements ChildProcessServiceDe
         mCpuFeatures = connectionBundle.getLong(ContentChildProcessConstants.EXTRA_CPU_FEATURES);
         assert mCpuCount > 0;
 
-        Bundle sharedRelros = connectionBundle.getBundle(Linker.EXTRA_LINKER_SHARED_RELROS);
-        if (sharedRelros != null) {
-            getLinker().useSharedRelros(sharedRelros);
-            sharedRelros = null;
+        if (LibraryLoader.useCrazyLinker()) {
+            Bundle sharedRelros = connectionBundle.getBundle(Linker.EXTRA_LINKER_SHARED_RELROS);
+            if (sharedRelros != null) {
+                getLinker().useSharedRelros(sharedRelros);
+            }
         }
     }
 
@@ -108,7 +110,7 @@ public class ContentChildProcessServiceDelegate implements ChildProcessServiceDe
 
         Linker linker = null;
         boolean requestedSharedRelro = false;
-        if (Linker.isUsed()) {
+        if (LibraryLoader.useCrazyLinker()) {
             assert mLinkerParams != null;
             linker = getLinker();
             if (mLinkerParams.mWaitForSharedRelro) {
@@ -183,7 +185,7 @@ public class ContentChildProcessServiceDelegate implements ChildProcessServiceDe
 
     @Override
     public void runMain() {
-        ContentMain.start();
+        ContentMain.start(false);
     }
 
     // Return a Linker instance. If testing, the Linker needs special setup.

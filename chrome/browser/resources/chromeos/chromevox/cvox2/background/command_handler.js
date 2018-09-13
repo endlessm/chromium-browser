@@ -243,6 +243,9 @@ CommandHandler.onCommand = function(command) {
 
   var current = ChromeVoxState.instance.currentRange;
 
+  // If true, will check if the predicate matches the current node.
+  var matchCurrent = false;
+
   // Allow edit commands first.
   if (!CommandHandler.onEditCommand_(command))
     return false;
@@ -250,7 +253,7 @@ CommandHandler.onCommand = function(command) {
   var dir = Dir.FORWARD;
   var pred = null;
   var predErrorMsg = undefined;
-  var rootPred = AutomationPredicate.editableRoot;
+  var rootPred = AutomationPredicate.rootOrEditableRoot;
   var shouldWrap = true;
   var speechProps = {};
   var skipSync = false;
@@ -501,6 +504,13 @@ CommandHandler.onCommand = function(command) {
       // Skip all other processing; if focus changes, we should get an event
       // for that.
       return false;
+    case 'jumpToDetails':
+      var node = current.start.node;
+      while (node && !node.details)
+        node = node.parent;
+      if (node)
+        current = cursors.Range.fromNode(node.details);
+      break;
     case 'readFromHere':
       ChromeVoxState.isReadingContinuously = true;
       var continueReading = function() {
@@ -695,7 +705,16 @@ CommandHandler.onCommand = function(command) {
       var tableOpts = {col: true, dir: dir, end: true};
       pred = AutomationPredicate.makeTableCellPredicate(
           current.start.node, tableOpts);
-      current = cursors.Range.fromNode(node.lastChild);
+
+      // Try to start on the last cell of the table and allow
+      // matching that node.
+      var startNode = node.lastChild;
+      while (startNode.lastChild &&
+             !AutomationPredicate.cellLike(startNode.role))
+        startNode = startNode.lastChild;
+      current = cursors.Range.fromNode(startNode);
+      matchCurrent = true;
+
       // Should not be outputted.
       predErrorMsg = 'no_cell_below';
       rootPred = AutomationPredicate.table;
@@ -715,10 +734,24 @@ CommandHandler.onCommand = function(command) {
         current = cursors.Range.fromNode(end);
       break;
     case 'scrollBackward':
-      current.start.node.scrollBackward();
+      var node = current.start.node;
+      while (node &&
+             !node.standardActions.includes(
+                 chrome.automation.ActionType.SCROLL_BACKWARD))
+        node = node.parent;
+
+      if (node)
+        node.scrollBackward();
       break;
     case 'scrollForward':
-      current.start.node.scrollForward();
+      var node = current.start.node;
+      while (node &&
+             !node.standardActions.includes(
+                 chrome.automation.ActionType.SCROLL_FORWARD))
+        node = node.parent;
+
+      if (node)
+        node.scrollForward();
       break;
     default:
       return true;
@@ -732,8 +765,15 @@ CommandHandler.onCommand = function(command) {
 
     var bound = current.getBound(dir).node;
     if (bound) {
-      var node = AutomationUtil.findNextNode(
-          bound, dir, pred, {skipInitialAncestry: true, root: rootPred});
+      var node = null;
+
+      if (matchCurrent && pred(bound))
+        node = bound;
+
+      if (!node) {
+        node = AutomationUtil.findNextNode(
+            bound, dir, pred, {skipInitialAncestry: true, root: rootPred});
+      }
 
       if (node && !skipSync) {
         node = AutomationUtil.findNodePre(
@@ -756,7 +796,7 @@ CommandHandler.onCommand = function(command) {
         }
 
         var root = bound;
-        while (root && !AutomationPredicate.editableRoot(root))
+        while (root && !AutomationPredicate.rootOrEditableRoot(root))
           root = root.parent;
 
         if (!root)
@@ -963,6 +1003,16 @@ CommandHandler.onEditCommand_ = function(command) {
 
   var textEditHandler = DesktopAutomationHandler.instance.textEditHandler;
   if (!textEditHandler)
+    return true;
+
+  // Skip customized keys for read only text fields.
+  if (textEditHandler.node.restriction ==
+      chrome.automation.Restriction.READ_ONLY)
+    return true;
+
+  // Skips customized keys if they get suppressed in speech.
+  if (AutomationPredicate.shouldOnlyOutputSelectionChangeInBraille(
+          textEditHandler.node))
     return true;
 
   var isMultiline = AutomationPredicate.multiline(current.start.node);

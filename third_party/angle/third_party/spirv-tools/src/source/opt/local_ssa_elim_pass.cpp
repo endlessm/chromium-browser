@@ -18,37 +18,17 @@
 
 #include "cfa.h"
 #include "iterator.h"
+#include "ssa_rewrite_pass.h"
 
 namespace spvtools {
 namespace opt {
 
-bool LocalMultiStoreElimPass::EliminateMultiStoreLocal(ir::Function* func) {
-  // Add Phi instructions to the function.
-  if (InsertPhiInstructions(func) == Status::SuccessWithoutChange) return false;
-
-  // Remove all target variable stores.
-  bool modified = false;
-  for (auto bi = func->begin(); bi != func->end(); ++bi) {
-    for (auto ii = bi->begin(); ii != bi->end(); ++ii) {
-      if (ii->opcode() != SpvOpStore) continue;
-      uint32_t varId;
-      (void)GetPtr(&*ii, &varId);
-      if (!IsTargetVar(varId)) continue;
-      assert(!HasLoads(varId));
-      DCEInst(&*ii);
-      modified = true;
-    }
-  }
-
-  return modified;
-}
-
-void LocalMultiStoreElimPass::Initialize(ir::IRContext* c) {
+void LocalMultiStoreElimPass::Initialize(opt::IRContext* c) {
   InitializeProcessing(c);
 
   // Initialize extension whitelist
   InitExtensions();
-};
+}
 
 bool LocalMultiStoreElimPass::AllExtensionsSupported() const {
   // If any extension not in whitelist, return false
@@ -62,13 +42,9 @@ bool LocalMultiStoreElimPass::AllExtensionsSupported() const {
 }
 
 Pass::Status LocalMultiStoreElimPass::ProcessImpl() {
-  // Assumes all control flow structured.
-  // TODO(greg-lunarg): Do SSA rewrite for non-structured control flow
-  if (!get_module()->HasCapability(SpvCapabilityShader))
-    return Status::SuccessWithoutChange;
-  // Assumes logical addressing only
+  // Assumes relaxed logical addressing only (see instruction.h)
   // TODO(greg-lunarg): Add support for physical addressing
-  if (get_module()->HasCapability(SpvCapabilityAddresses))
+  if (context()->get_feature_mgr()->HasCapability(SpvCapabilityAddresses))
     return Status::SuccessWithoutChange;
   // Do not process if module contains OpGroupDecorate. Additional
   // support required in KillNamesAndDecorates().
@@ -78,8 +54,8 @@ Pass::Status LocalMultiStoreElimPass::ProcessImpl() {
   // Do not process if any disallowed extensions are enabled
   if (!AllExtensionsSupported()) return Status::SuccessWithoutChange;
   // Process functions
-  ProcessFunction pfn = [this](ir::Function* fp) {
-    return EliminateMultiStoreLocal(fp);
+  ProcessFunction pfn = [this](opt::Function* fp) {
+    return SSARewriter(this).RewriteFunctionIntoSSA(fp);
   };
   bool modified = ProcessEntryPointCallTree(pfn, get_module());
   return modified ? Status::SuccessWithChange : Status::SuccessWithoutChange;
@@ -87,7 +63,7 @@ Pass::Status LocalMultiStoreElimPass::ProcessImpl() {
 
 LocalMultiStoreElimPass::LocalMultiStoreElimPass() {}
 
-Pass::Status LocalMultiStoreElimPass::Process(ir::IRContext* c) {
+Pass::Status LocalMultiStoreElimPass::Process(opt::IRContext* c) {
   Initialize(c);
   return ProcessImpl();
 }
@@ -118,6 +94,16 @@ void LocalMultiStoreElimPass::InitExtensions() {
       "SPV_AMD_gpu_shader_int16",
       "SPV_KHR_post_depth_coverage",
       "SPV_KHR_shader_atomic_counter_ops",
+      "SPV_EXT_shader_stencil_export",
+      "SPV_EXT_shader_viewport_index_layer",
+      "SPV_AMD_shader_image_load_store_lod",
+      "SPV_AMD_shader_fragment_mask",
+      "SPV_EXT_fragment_fully_covered",
+      "SPV_AMD_gpu_shader_half_float_fetch",
+      "SPV_GOOGLE_decorate_string",
+      "SPV_GOOGLE_hlsl_functionality1",
+      "SPV_NV_shader_subgroup_partitioned",
+      "SPV_EXT_descriptor_indexing",
   });
 }
 

@@ -31,6 +31,7 @@ class ArcOemCryptoClient;
 class AuthPolicyClient;
 class BiodClient;
 class CecServiceClient;
+class CiceroneClient;
 class ConciergeClient;
 class CrasAudioClient;
 class CrosDisksClient;
@@ -45,11 +46,11 @@ class HammerdClient;
 class ImageBurnerClient;
 class ImageLoaderClient;
 class LorgnetteManagerClient;
+class MachineLearningClient;
 class MediaAnalyticsClient;
 class ModemMessagingClient;
 class PermissionBrokerClient;
 class PowerManagerClient;
-class SMSClient;
 class SessionManagerClient;
 class ShillDeviceClient;
 class ShillIPConfigClient;
@@ -58,6 +59,7 @@ class ShillProfileClient;
 class ShillServiceClient;
 class ShillThirdPartyVpnDriverClient;
 class SmbProviderClient;
+class SMSClient;
 class SystemClockClient;
 class UpdateEngineClient;
 class UpstartClient;
@@ -99,8 +101,7 @@ class CHROMEOS_EXPORT DBusThreadManager {
   // making it a Singleton, to ensure clean startup and shutdown.
   // This will initialize real or fake DBusClients depending on command-line
   // arguments and whether this process runs in a ChromeOS environment.
-  // Only D-Bus clients available in the processes in |process_mask| will be
-  // created.
+  // Only D-Bus clients specified in |client_set| will be created.
   static void Initialize(ClientSet client_set);
 
   // Equivalent to Initialize(kAll).
@@ -138,6 +139,7 @@ class CHROMEOS_EXPORT DBusThreadManager {
   AuthPolicyClient* GetAuthPolicyClient();
   BiodClient* GetBiodClient();
   CecServiceClient* GetCecServiceClient();
+  CiceroneClient* GetCiceroneClient();
   ConciergeClient* GetConciergeClient();
   CrasAudioClient* GetCrasAudioClient();
   CrosDisksClient* GetCrosDisksClient();
@@ -148,8 +150,9 @@ class CHROMEOS_EXPORT DBusThreadManager {
   HammerdClient* GetHammerdClient();
   ImageBurnerClient* GetImageBurnerClient();
   ImageLoaderClient* GetImageLoaderClient();
-  MediaAnalyticsClient* GetMediaAnalyticsClient();
   LorgnetteManagerClient* GetLorgnetteManagerClient();
+  MachineLearningClient* GetMachineLearningClient();
+  MediaAnalyticsClient* GetMediaAnalyticsClient();
   ModemMessagingClient* GetModemMessagingClient();
   PermissionBrokerClient* GetPermissionBrokerClient();
   PowerManagerClient* GetPowerManagerClient();
@@ -157,8 +160,8 @@ class CHROMEOS_EXPORT DBusThreadManager {
   ShillDeviceClient* GetShillDeviceClient();
   ShillIPConfigClient* GetShillIPConfigClient();
   ShillManagerClient* GetShillManagerClient();
-  ShillServiceClient* GetShillServiceClient();
   ShillProfileClient* GetShillProfileClient();
+  ShillServiceClient* GetShillServiceClient();
   ShillThirdPartyVpnDriverClient* GetShillThirdPartyVpnDriverClient();
   SmbProviderClient* GetSmbProviderClient();
   SMSClient* GetSMSClient();
@@ -201,6 +204,7 @@ class CHROMEOS_EXPORT DBusThreadManagerSetter {
 
   void SetAuthPolicyClient(std::unique_ptr<AuthPolicyClient> client);
   void SetBiodClient(std::unique_ptr<BiodClient> client);
+  void SetCiceroneClient(std::unique_ptr<CiceroneClient> client);
   void SetConciergeClient(std::unique_ptr<ConciergeClient> client);
   void SetCrasAudioClient(std::unique_ptr<CrasAudioClient> client);
   void SetCrosDisksClient(std::unique_ptr<CrosDisksClient> client);

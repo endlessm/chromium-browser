@@ -52,9 +52,17 @@ harness_script = r"""
 
 class ContextLostIntegrationTest(gpu_integration_test.GpuIntegrationTest):
 
+  _is_asan = False
+
   @classmethod
   def Name(cls):
     return 'context_lost'
+
+  @classmethod
+  def AddCommandlineArgs(cls, parser):
+    parser.add_option('--is-asan',
+        help='Indicates whether currently running an ASAN build',
+        action='store_true')
 
   @staticmethod
   def _AddDefaultArgs(browser_args):
@@ -66,6 +74,7 @@ class ContextLostIntegrationTest(gpu_integration_test.GpuIntegrationTest):
 
   @classmethod
   def GenerateGpuTests(cls, options):
+    cls._is_asan = options.is_asan
     tests = (('GpuCrash_GPUProcessCrashesExactlyOncePerVisitToAboutGpuCrash',
               'gpu_process_crash.html'),
              ('ContextLost_WebGLContextLostFromGPUProcessExit',
@@ -94,7 +103,8 @@ class ContextLostIntegrationTest(gpu_integration_test.GpuIntegrationTest):
 
   @classmethod
   def _CreateExpectations(cls):
-    return context_lost_expectations.ContextLostExpectations()
+    return context_lost_expectations.ContextLostExpectations(
+      is_asan=cls._is_asan)
 
   @classmethod
   def SetUpProcess(cls):
@@ -162,7 +172,8 @@ class ContextLostIntegrationTest(gpu_integration_test.GpuIntegrationTest):
         self.fail('Test failed (context not restored properly?)')
 
   def _CheckCrashCount(self, tab, expected_kills):
-    if not tab.browser.supports_system_info:
+    system_info = tab.browser.GetSystemInfo()
+    if not system_info:
       self.fail('Browser must support system info')
 
     if not tab.EvaluateJavaScript(

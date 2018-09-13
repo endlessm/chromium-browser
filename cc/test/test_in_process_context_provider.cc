@@ -9,6 +9,7 @@
 
 #include "base/lazy_instance.h"
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/viz/common/gpu/context_cache_controller.h"
 #include "components/viz/common/resources/platform_color.h"
@@ -17,6 +18,7 @@
 #include "gpu/command_buffer/client/raster_implementation_gles.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
 #include "gpu/command_buffer/common/context_creation_attribs.h"
+#include "gpu/command_buffer/common/skia_utils.h"
 #include "gpu/ipc/gl_in_process_context.h"
 #include "gpu/ipc/raster_in_process_context.h"
 #include "gpu/skia_bindings/grcontext_for_gles2_interface.h"
@@ -45,7 +47,7 @@ std::unique_ptr<gpu::GLInProcessContext> CreateGLInProcessContext(
   attribs.bind_generates_resource = false;
   attribs.enable_oop_rasterization = oop_raster;
 
-  auto context = gpu::GLInProcessContext::CreateWithoutInit();
+  auto context = std::make_unique<gpu::GLInProcessContext>();
   auto result = context->Initialize(
       nullptr, nullptr, is_offscreen, gpu::kNullSurfaceHandle, attribs,
       gpu::SharedMemoryLimits(), gpu_memory_buffer_manager, image_factory,
@@ -63,7 +65,11 @@ std::unique_ptr<gpu::GLInProcessContext> CreateTestInProcessContext() {
 }
 
 TestInProcessContextProvider::TestInProcessContextProvider(
-    bool enable_oop_rasterization) {
+    bool enable_oop_rasterization,
+    bool support_locking) {
+  if (support_locking)
+    context_lock_.emplace();
+
   if (enable_oop_rasterization) {
     gpu::ContextCreationAttribs attribs;
     attribs.bind_generates_resource = false;
@@ -75,8 +81,7 @@ TestInProcessContextProvider::TestInProcessContextProvider(
     auto result = raster_context_->Initialize(
         /*service=*/nullptr, attribs, gpu::SharedMemoryLimits(),
         &gpu_memory_buffer_manager_, &image_factory_,
-        /*gpu_channel_manager_delegate=*/nullptr,
-        base::ThreadTaskRunnerHandle::Get());
+        /*gpu_channel_manager_delegate=*/nullptr);
     DCHECK_EQ(result, gpu::ContextResult::kSuccess);
 
     cache_controller_.reset(
@@ -95,6 +100,8 @@ TestInProcessContextProvider::TestInProcessContextProvider(
             gles2_context_->GetImplementation()->command_buffer(),
             gles2_context_->GetCapabilities());
   }
+
+  cache_controller_->SetLock(GetLock());
 }
 
 TestInProcessContextProvider::~TestInProcessContextProvider() = default;
@@ -141,8 +148,8 @@ class GrContext* TestInProcessContextProvider::GrContext() {
 
   size_t max_resource_cache_bytes;
   size_t max_glyph_cache_texture_bytes;
-  skia_bindings::GrContextForGLES2Interface::DefaultCacheLimitsForTests(
-      &max_resource_cache_bytes, &max_glyph_cache_texture_bytes);
+  gpu::raster::DefaultGrCacheLimitsForTests(&max_resource_cache_bytes,
+                                            &max_glyph_cache_texture_bytes);
   gr_context_.reset(new skia_bindings::GrContextForGLES2Interface(
       ContextGL(), ContextSupport(), ContextCapabilities(),
       max_resource_cache_bytes, max_glyph_cache_texture_bytes));
@@ -155,7 +162,7 @@ viz::ContextCacheController* TestInProcessContextProvider::CacheController() {
 }
 
 base::Lock* TestInProcessContextProvider::GetLock() {
-  return &context_lock_;
+  return base::OptionalOrNullptr(context_lock_);
 }
 
 const gpu::Capabilities& TestInProcessContextProvider::ContextCapabilities()
@@ -170,6 +177,13 @@ const gpu::Capabilities& TestInProcessContextProvider::ContextCapabilities()
 const gpu::GpuFeatureInfo& TestInProcessContextProvider::GetGpuFeatureInfo()
     const {
   return gpu_feature_info_;
+}
+
+void TestInProcessContextProvider::ExecuteOnGpuThread(base::OnceClosure task) {
+  DCHECK(raster_context_);
+  raster_context_->GetCommandBufferForTest()
+      ->service_for_testing()
+      ->ScheduleTask(std::move(task));
 }
 
 }  // namespace cc

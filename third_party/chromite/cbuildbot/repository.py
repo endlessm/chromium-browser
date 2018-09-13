@@ -32,9 +32,6 @@ from chromite.lib import rewrite_git_alternates
 site_config = config_lib.GetConfig()
 
 
-# File that marks a buildroot as being used by a trybot
-_TRYBOT_MARKER = '.trybot'
-
 # Default sleep time(second) between retries
 DEFAULT_SLEEP_TIME = 5
 
@@ -44,6 +41,7 @@ REPO_INIT_RETRY_LIMIT = 2
 SELFUPDATE_WARNING = r'Skipped upgrade to unverified version'
 
 SELFUPDATE_WARNING_RE = re.compile(SELFUPDATE_WARNING, re.IGNORECASE)
+
 
 class SrcCheckOutException(Exception):
   """Exception gets thrown for failure to sync sources"""
@@ -135,6 +133,7 @@ def CloneWorkingRepo(dest, url, reference, branch=None, single_branch=False):
     shutil.copyfile(name, newname)
     shutil.copystat(name, newname)
 
+
 def UpdateGitRepo(working_dir, repo_url, **kwargs):
   """Update the given git repo, blowing away any local changes.
 
@@ -157,19 +156,13 @@ def UpdateGitRepo(working_dir, repo_url, **kwargs):
     CloneGitRepo(working_dir, repo_url, **kwargs)
 
 
-def GetTrybotMarkerPath(buildroot):
-  """Get path to trybot marker file given the buildroot."""
-  return os.path.join(buildroot, _TRYBOT_MARKER)
-
-
-def CreateTrybotMarker(buildroot):
-  """Create the file that identifies a buildroot as being used by a trybot."""
-  osutils.WriteFile(GetTrybotMarkerPath(buildroot), '')
-
-
 def ClearBuildRoot(buildroot, preserve_paths=()):
-  """Remove and recreate the buildroot while preserving the trybot marker."""
-  trybot_root = os.path.exists(GetTrybotMarkerPath(buildroot))
+  """Remove all files in the buildroot not preserved.
+
+  Args:
+    buildroot: buildroot to clear.
+      preserve_paths: paths need to be preserved during clean.
+  """
   if os.path.exists(buildroot):
     cmd = ['find', buildroot, '-mindepth', '1', '-maxdepth', '1']
 
@@ -182,10 +175,8 @@ def ClearBuildRoot(buildroot, preserve_paths=()):
 
     cmd += ['-exec', 'rm', '-rf', '{}', '+']
     cros_build_lib.SudoRunCommand(cmd)
-  else:
-    os.makedirs(buildroot)
-  if trybot_root:
-    CreateTrybotMarker(buildroot)
+
+  osutils.SafeMakedirs(buildroot)
 
 
 def PrepManifestForRepo(git_repo, manifest):
@@ -208,7 +199,7 @@ def PrepManifestForRepo(git_repo, manifest):
     manifest: Path to existing manifest file to copy into the new git
               repository.
   """
-  if not git.IsGitRepo(git_repo):
+  if not git.GetGitGitdir(git_repo):
     git.Init(git_repo)
 
   new_manifest = os.path.join(git_repo, constants.DEFAULT_MANIFEST)
@@ -343,6 +334,41 @@ class RepoRepository(object):
       self._CleanUpRepoManifest(self.directory)
       raise e
 
+  def CleanStaleLocks(self):
+    """Clean up stale locks left behind in any git repos.
+
+    This might occur if earlier git commands were killed during an operation.
+    Warning: This is dangerous because these locks are intended to prevent
+    corruption. Only use this if you are sure that no other git process is
+    accessing the repo (such as at the beginning of a fresh build).
+    """
+    logging.info('Removing stale git locks from: %s', self.directory)
+    for attrs in git.ManifestCheckout.Cached(self.directory).ListCheckouts():
+      d = os.path.join(self.directory, attrs['path'])
+      repo_git_store = self.CalculateGitRepoLocations(attrs['name'], d)[0]
+      logging.debug('Found repo directory to clean: %s', repo_git_store)
+      git.DeleteStaleLocks(repo_git_store)
+
+  def CalculateGitRepoLocations(self, project, path):
+    """Calculate the directory locations for git and object stores.
+
+    These are stored separately from the git checkout location.
+
+    Args:
+      project: String name of the manifest project to locate.
+      path: String path where the manifest checks out the project.
+
+    Returns:
+      A tuple containing the string directory paths: (git dir, objects dir).
+    """
+    relpath = os.path.relpath(path, self.directory)
+    projects_dir = os.path.join(self.directory, '.repo', 'projects')
+    project_objects_dir = os.path.join(
+        self.directory, '.repo', 'project-objects')
+    repo_git_store = '%s.git' % os.path.join(projects_dir, relpath)
+    repo_obj_store = '%s.git' % os.path.join(project_objects_dir, project)
+    return repo_git_store, repo_obj_store
+
   def BuildRootGitCleanup(self, prune_all=False):
     """Put buildroot onto manifest branch. Delete branches created on last run.
 
@@ -352,22 +378,18 @@ class RepoRepository(object):
     Raises:
       A variety of exceptions if the buildroot is missing/corrupt.
     """
+    logging.info('Resetting all repo branches: %s', self.directory)
     lock_path = os.path.join(self.directory, '.clean_lock')
     deleted_objdirs = multiprocessing.Event()
 
-    def RunCleanupCommands(project, cwd):
+    def RunCleanupCommands(project, path):
       with locking.FileLock(lock_path, verbose=False).read_lock() as lock:
-        # Calculate where the git repository is stored.
-        relpath = os.path.relpath(cwd, self.directory)
-        projects_dir = os.path.join(self.directory, '.repo', 'projects')
-        project_objects_dir = os.path.join(
-            self.directory, '.repo', 'project-objects')
-        repo_git_store = '%s.git' % os.path.join(projects_dir, relpath)
-        repo_obj_store = '%s.git' % os.path.join(project_objects_dir, project)
+        repo_git_store, repo_obj_store = self.CalculateGitRepoLocations(
+            project, path)
 
         try:
-          if os.path.isdir(cwd):
-            git.CleanAndDetachHead(cwd)
+          if os.path.isdir(path):
+            git.CleanAndDetachHead(path)
 
           if os.path.isdir(repo_git_store):
             git.GarbageCollection(repo_git_store, prune_all=prune_all)
@@ -379,8 +401,8 @@ class RepoRepository(object):
           # If there's no repository corruption, just delete the index.
           corrupted = git.IsGitRepositoryCorrupted(repo_git_store)
           lock.write_lock()
-          logging.warning('Deleting %s because %s failed', cwd, result.cmd)
-          osutils.RmDir(cwd, ignore_missing=True, sudo=True)
+          logging.warning('Deleting %s because %s failed', path, result.cmd)
+          osutils.RmDir(path, ignore_missing=True, sudo=True)
           if corrupted:
             # Looks like the object dir is corrupted. Delete it.
             deleted_objdirs.set()
@@ -397,14 +419,13 @@ class RepoRepository(object):
           # Ignore errors, since we delete branches without checking existence.
           git.RunGit(repo_git_store, cmd, error_code_ok=True)
 
-        if os.path.isdir(cwd):
-          # Above we deleted refs/heads/<branch> for each created branch, now we
-          # need to delete the bare ref <branch> if it was created somehow.
+        if os.path.isdir(path):
+          # Above we deleted refs/heads/<branch> for each created branch, now
+          # we need to delete the bare ref <branch> if it was created somehow.
           for ref in constants.CREATED_BRANCHES:
             # Ignore errors, since we delete branches without checking
             # existence.
-            git.RunGit(cwd, ['update-ref', '-d', ref], error_code_ok=True)
-
+            git.RunGit(path, ['update-ref', '-d', ref], error_code_ok=True)
 
     # Cleanup all of the directories.
     dirs = [[attrs['name'], os.path.join(self.directory, attrs['path'])]
@@ -739,7 +760,7 @@ class RepoRepository(object):
       cmd += ['-r']
     output = cros_build_lib.RunCommand(
         cmd, cwd=self.directory, print_cmd=False, capture_output=True,
-        extra_env={'PAGER':'cat'}).output
+        extra_env={'PAGER': 'cat'}).output
 
     if not mark_revision:
       return output

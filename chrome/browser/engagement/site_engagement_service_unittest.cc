@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "base/values.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -64,10 +64,11 @@ class SiteEngagementChangeWaiter : public content_settings::Observer {
   }
 
   // Overridden from content_settings::Observer:
-  void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
-                               const ContentSettingsPattern& secondary_pattern,
-                               ContentSettingsType content_type,
-                               std::string resource_identifier) override {
+  void OnContentSettingChanged(
+      const ContentSettingsPattern& primary_pattern,
+      const ContentSettingsPattern& secondary_pattern,
+      ContentSettingsType content_type,
+      const std::string& resource_identifier) override {
     if (content_type == CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT)
       Proceed();
   }

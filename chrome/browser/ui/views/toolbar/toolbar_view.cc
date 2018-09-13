@@ -35,6 +35,7 @@
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/star_view.h"
+#include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "chrome/browser/ui/views/toolbar/browser_app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/home_button.h"
@@ -46,6 +47,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/prefs/pref_service.h"
 #include "components/strings/grit/components_strings.h"
@@ -61,6 +63,7 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/gfx/scoped_canvas.h"
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/native_theme/native_theme_aura.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -73,7 +76,6 @@
 #endif
 
 #if defined(OS_WIN)
-#include "chrome/browser/ui/views/conflicting_module_view_win.h"
 #include "chrome/browser/ui/views/critical_notification_bubble_view.h"
 #endif
 
@@ -107,8 +109,9 @@ const char ToolbarView::kViewClassName[] = "ToolbarView";
 ////////////////////////////////////////////////////////////////////////////////
 // ToolbarView, public:
 
-ToolbarView::ToolbarView(Browser* browser)
+ToolbarView::ToolbarView(Browser* browser, BrowserView* browser_view)
     : browser_(browser),
+      browser_view_(browser_view),
       app_menu_icon_controller_(browser->profile(), this),
       display_mode_(browser->SupportsWindowFeature(Browser::FEATURE_TABSTRIP)
                         ? DISPLAYMODE_NORMAL
@@ -149,9 +152,10 @@ void ToolbarView::Init() {
   }
 
   back_ = new ToolbarButton(
-      browser_->profile(), this,
+      this,
       std::make_unique<BackForwardMenuModel>(
-          browser_, BackForwardMenuModel::ModelType::kBackward));
+          browser_, BackForwardMenuModel::ModelType::kBackward),
+      browser_->tab_strip_model());
   back_->set_hide_ink_drop_when_showing_context_menu(false);
   back_->set_triggerable_event_flags(
       ui::EF_LEFT_MOUSE_BUTTON | ui::EF_MIDDLE_MOUSE_BUTTON);
@@ -164,9 +168,10 @@ void ToolbarView::Init() {
   back_->Init();
 
   forward_ = new ToolbarButton(
-      browser_->profile(), this,
+      this,
       std::make_unique<BackForwardMenuModel>(
-          browser_, BackForwardMenuModel::ModelType::kForward));
+          browser_, BackForwardMenuModel::ModelType::kForward),
+      browser_->tab_strip_model());
   forward_->set_hide_ink_drop_when_showing_context_menu(false);
   forward_->set_triggerable_event_flags(
       ui::EF_LEFT_MOUSE_BUTTON | ui::EF_MIDDLE_MOUSE_BUTTON);
@@ -178,8 +183,7 @@ void ToolbarView::Init() {
   forward_->set_id(VIEW_ID_FORWARD_BUTTON);
   forward_->Init();
 
-  reload_ =
-      new ReloadButton(browser_->profile(), browser_->command_controller());
+  reload_ = new ReloadButton(browser_->command_controller());
   reload_->set_triggerable_event_flags(
       ui::EF_LEFT_MOUSE_BUTTON | ui::EF_MIDDLE_MOUSE_BUTTON);
   reload_->set_tag(IDC_RELOAD);
@@ -201,11 +205,16 @@ void ToolbarView::Init() {
   browser_actions_ =
       new BrowserActionsContainer(browser_, main_container, this);
 
-// ChromeOS never shows a profile icon in the browser window.
-#if !defined(OS_CHROMEOS)
-  if (ui::MaterialDesignController::IsNewerMaterialUi())
-    avatar_ = new AvatarToolbarButton(browser_->profile(), this);
+  if (ui::MaterialDesignController::IsRefreshUi()) {
+    bool show_avatar_toolbar_button = true;
+#if defined(OS_CHROMEOS)
+    // ChromeOS only badges Incognito and Guest icons in the browser window.
+    show_avatar_toolbar_button = browser_->profile()->IsOffTheRecord() ||
+                                 browser_->profile()->IsGuestSession();
 #endif  // !defined(OS_CHROMEOS)
+    if (show_avatar_toolbar_button)
+      avatar_ = new AvatarToolbarButton(browser_);
+  }
 
   app_menu_button_ = new BrowserAppMenuButton(this);
   app_menu_button_->EnableCanvasFlippingForRTLUI(true);
@@ -517,19 +526,19 @@ void ToolbarView::Layout() {
                      toolbar_button_height);
   next_element_x = reload_->bounds().right();
 
+  home_->SetSize(
+      gfx::Size(home_->GetPreferredSize().width(), toolbar_button_height));
   if (show_home_button_.GetValue() ||
       (browser_->is_app() && extensions::util::IsNewBookmarkAppsEnabled())) {
-    next_element_x += element_padding;
     home_->SetVisible(true);
-    home_->SetBounds(next_element_x, toolbar_button_y,
-                     home_->GetPreferredSize().width(), toolbar_button_height);
+    next_element_x += element_padding;
+    home_->SetPosition(gfx::Point(next_element_x, toolbar_button_y));
+    next_element_x += home_->width();
   } else {
     home_->SetVisible(false);
-    home_->SetBounds(next_element_x, toolbar_button_y, 0,
-                     toolbar_button_height);
   }
-  next_element_x =
-      home_->bounds().right() + GetLayoutConstant(TOOLBAR_STANDARD_SPACING);
+
+  next_element_x += GetLayoutConstant(TOOLBAR_STANDARD_SPACING);
 
   int app_menu_width = app_menu_button_->GetPreferredSize().width();
   const int right_padding = GetLayoutConstant(TOOLBAR_STANDARD_SPACING);
@@ -592,9 +601,37 @@ void ToolbarView::Layout() {
   if (maximized)
     app_menu_width += end_padding;
 
+  // Set trailing margin before updating the bounds so OnBoundsChange can use
+  // the trailing margin.
+  app_menu_button_->SetTrailingMargin(maximized ? end_padding : 0);
   app_menu_button_->SetBounds(next_element_x, toolbar_button_y, app_menu_width,
                               toolbar_button_height);
-  app_menu_button_->SetTrailingMargin(maximized ? end_padding : 0);
+}
+
+void ToolbarView::OnPaintBackground(gfx::Canvas* canvas) {
+  if (!is_display_mode_normal())
+    return;
+
+  const ui::ThemeProvider* tp = GetThemeProvider();
+
+  if (tp->HasCustomImage(IDR_THEME_TOOLBAR)) {
+    const int x_offset =
+        GetMirroredX() + browser_view_->GetMirroredX() +
+        browser_view_->frame()->GetFrameView()->GetThemeBackgroundXInset();
+    const int y_offset = GetLayoutConstant(TAB_HEIGHT) -
+                         browser_view_->tabstrip()->GetStrokeThickness() -
+                         GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP);
+    canvas->TileImageInt(*tp->GetImageSkiaNamed(IDR_THEME_TOOLBAR), x_offset,
+                         y_offset, 0, 0, width(), height());
+  } else {
+    canvas->FillRect(GetLocalBounds(),
+                     tp->GetColor(ThemeProperties::COLOR_TOOLBAR));
+  }
+
+  // Toolbar/content separator.
+  BrowserView::Paint1pxHorizontalLine(
+      canvas, tp->GetColor(ThemeProperties::COLOR_TOOLBAR_BOTTOM_SEPARATOR),
+      GetLocalBounds(), true);
 }
 
 void ToolbarView::OnThemeChanged() {
@@ -652,10 +689,6 @@ void ToolbarView::UpdateSeverity(AppMenuIconController::IconType type,
   if (!app_menu_button_)
     return;
 
-  // Showing the bubble requires |app_menu_button_| to be in a widget. See
-  // comment in ConflictingModuleView for details.
-  DCHECK(app_menu_button_->GetWidget());
-
   base::string16 accname_app = l10n_util::GetStringUTF16(IDS_ACCNAME_APP);
   if (type == AppMenuIconController::IconType::UPGRADE_NOTIFICATION) {
     accname_app = l10n_util::GetStringFUTF16(
@@ -663,25 +696,6 @@ void ToolbarView::UpdateSeverity(AppMenuIconController::IconType type,
   }
   app_menu_button_->SetAccessibleName(accname_app);
   app_menu_button_->SetSeverity(type, severity, animate);
-
-  // Keep track of whether we were showing the incompatibility icon before,
-  // so we don't send multiple UMA events for example when multiple Chrome
-  // windows are open.
-  static bool incompatibility_warning_showing = false;
-  // Save the old value before resetting it.
-  bool was_showing = incompatibility_warning_showing;
-  incompatibility_warning_showing = false;
-
-  if (type == AppMenuIconController::IconType::INCOMPATIBILITY_WARNING) {
-    if (!was_showing) {
-      base::RecordAction(UserMetricsAction("ConflictBadge"));
-#if defined(OS_WIN)
-      ConflictingModuleView::MaybeShow(browser_, app_menu_button_);
-#endif
-    }
-    incompatibility_warning_showing = true;
-    return;
-  }
 }
 
 // ToolbarButtonProvider:
@@ -695,6 +709,19 @@ PageActionIconContainerView* ToolbarView::GetPageActionIconContainerView() {
 
 AppMenuButton* ToolbarView::GetAppMenuButton() {
   return app_menu_button_;
+}
+
+gfx::Rect ToolbarView::GetFindBarBoundingBox(int contents_height) const {
+  if (!browser_->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR))
+    return gfx::Rect();
+
+  if (!location_bar_->IsDrawn())
+    return gfx::Rect();
+
+  gfx::Rect bounds =
+      location_bar_->ConvertRectToWidget(location_bar_->GetLocalBounds());
+  return gfx::Rect(bounds.x(), bounds.bottom(), bounds.width(),
+                   contents_height);
 }
 
 void ToolbarView::FocusToolbar() {
@@ -786,10 +813,8 @@ void ToolbarView::LoadImages() {
   home_->SetImage(views::Button::STATE_NORMAL,
                   gfx::CreateVectorIcon(home_image, normal_color));
 
-#if !defined(OS_CHROMEOS)
   if (avatar_)
     avatar_->UpdateIcon();
-#endif  // !defined(OS_CHROMEOS)
 
   app_menu_button_->UpdateIcon(false);
 

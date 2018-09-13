@@ -10,7 +10,6 @@ import android.widget.FrameLayout;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ThreadUtils;
@@ -40,9 +39,6 @@ public class AllDismissedItemTest {
 
     @Rule
     public RenderTestRule mRenderTestRule = new RenderTestRule();
-
-    @Rule
-    public TestRule mChromeModernDesignStateRule = new ChromeModernDesign.Processor();
 
     private FrameLayout mContentView;
 
@@ -96,7 +92,7 @@ public class AllDismissedItemTest {
         // TODO(peconn): Extract common code between this and ArticleSnippetsTest for rendering
         // views in isolation.
         ThreadUtils.runOnUiThreadBlocking(() -> {
-            viewHolder.onBindViewHolder(hour, null);
+            viewHolder.onBindViewHolder(hour);
             mContentView.addView(viewHolder.itemView);
         });
         mRenderTestRule.render(viewHolder.itemView, renderId);

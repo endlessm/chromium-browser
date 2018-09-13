@@ -27,6 +27,7 @@
 #include "chrome/common/safe_browsing/file_type_policies.h"
 #include "components/history/core/browser/download_constants.h"
 #include "components/history/core/browser/history_service.h"
+#include "components/language/core/browser/pref_names.h"
 #include "components/language/core/common/locale_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/proto/csd.pb.h"
@@ -61,7 +62,7 @@ bool IsBinaryDownloadForCurrentOS(
   // should also be updated so that the IsBinaryDownloadForCurrentOS() will
   // return true for that DownloadType as appropriate.
   static_assert(ClientDownloadRequest::DownloadType_MAX ==
-                    ClientDownloadRequest::SAMPLED_UNSUPPORTED_FILE,
+                    ClientDownloadRequest::INVALID_RAR,
                 "Update logic below");
 
 // Platform-specific types are relevant only for their own platforms.
@@ -83,6 +84,9 @@ bool IsBinaryDownloadForCurrentOS(
   if (download_type == ClientDownloadRequest::ZIPPED_EXECUTABLE ||
       download_type == ClientDownloadRequest::ZIPPED_ARCHIVE ||
       download_type == ClientDownloadRequest::INVALID_ZIP ||
+      download_type == ClientDownloadRequest::RAR_COMPRESSED_EXECUTABLE ||
+      download_type == ClientDownloadRequest::RAR_COMPRESSED_ARCHIVE ||
+      download_type == ClientDownloadRequest::INVALID_RAR ||
       download_type == ClientDownloadRequest::ARCHIVE ||
       download_type == ClientDownloadRequest::PPAPI_SAVE_REQUEST) {
     return true;
@@ -206,8 +210,8 @@ void PopulateDetailsFromRow(const history::DownloadRow& download,
       download.target_path.BaseName().AsUTF8Unsafe());
   download_request->set_download_type(
       download_protection_util::GetDownloadType(download.target_path));
-  std::string pref_locale =
-      g_browser_process->local_state()->GetString(prefs::kApplicationLocale);
+  std::string pref_locale = g_browser_process->local_state()->GetString(
+      language::prefs::kApplicationLocale);
   language::ConvertToActualUILocale(&pref_locale);
   download_request->set_locale(pref_locale);
 

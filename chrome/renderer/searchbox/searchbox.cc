@@ -314,16 +314,74 @@ void SearchBox::UndoAllMostVisitedDeletions() {
   embedded_search_service_->UndoAllMostVisitedDeletions(page_seq_no_);
 }
 
-void SearchBox::SetCustomBackgroundURL(const GURL& background_url) {
-  embedded_search_service_->SetCustomBackgroundURL(background_url);
-}
-
 void SearchBox::UndoMostVisitedDeletion(
     InstantRestrictedID most_visited_item_id) {
   GURL url = GetURLForMostVisitedItem(most_visited_item_id);
   if (!url.is_valid())
     return;
   embedded_search_service_->UndoMostVisitedDeletion(page_seq_no_, url);
+}
+
+void SearchBox::AddCustomLink(const GURL& url, const std::string& title) {
+  if (!url.is_valid()) {
+    AddCustomLinkResult(false);
+    return;
+  }
+  embedded_search_service_->AddCustomLink(
+      page_seq_no_, url, title,
+      base::BindOnce(&SearchBox::AddCustomLinkResult,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void SearchBox::UpdateCustomLink(InstantRestrictedID link_id,
+                                 const GURL& new_url,
+                                 const std::string& new_title) {
+  GURL url = GetURLForMostVisitedItem(link_id);
+  if (!url.is_valid()) {
+    UpdateCustomLinkResult(false);
+    return;
+  }
+  embedded_search_service_->UpdateCustomLink(
+      page_seq_no_, url, new_url, new_title,
+      base::BindOnce(&SearchBox::UpdateCustomLinkResult,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void SearchBox::DeleteCustomLink(InstantRestrictedID most_visited_item_id) {
+  GURL url = GetURLForMostVisitedItem(most_visited_item_id);
+  if (!url.is_valid()) {
+    DeleteCustomLinkResult(false);
+    return;
+  }
+  embedded_search_service_->DeleteCustomLink(
+      page_seq_no_, url,
+      base::BindOnce(&SearchBox::DeleteCustomLinkResult,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void SearchBox::UndoCustomLinkAction() {
+  embedded_search_service_->UndoCustomLinkAction(page_seq_no_);
+}
+
+void SearchBox::ResetCustomLinks() {
+  embedded_search_service_->ResetCustomLinks(page_seq_no_);
+}
+
+void SearchBox::SetCustomBackgroundURL(const GURL& background_url) {
+  embedded_search_service_->SetCustomBackgroundURL(background_url);
+}
+
+void SearchBox::SetCustomBackgroundURLWithAttributions(
+    const GURL& background_url,
+    const std::string& attribution_line_1,
+    const std::string& attribution_line_2,
+    const GURL& action_url) {
+  embedded_search_service_->SetCustomBackgroundURLWithAttributions(
+      background_url, attribution_line_1, attribution_line_2, action_url);
+}
+
+void SearchBox::SelectLocalBackgroundImage() {
+  embedded_search_service_->SelectLocalBackgroundImage();
 }
 
 void SearchBox::SetPageSequenceNumber(int page_seq_no) {
@@ -372,6 +430,27 @@ void SearchBox::HistorySyncCheckResult(bool sync_history) {
   if (can_run_js_in_renderframe_) {
     SearchBoxExtension::DispatchHistorySyncCheckResult(
         render_frame()->GetWebFrame(), sync_history);
+  }
+}
+
+void SearchBox::AddCustomLinkResult(bool success) {
+  if (can_run_js_in_renderframe_) {
+    SearchBoxExtension::DispatchAddCustomLinkResult(
+        render_frame()->GetWebFrame(), success);
+  }
+}
+
+void SearchBox::UpdateCustomLinkResult(bool success) {
+  if (can_run_js_in_renderframe_) {
+    SearchBoxExtension::DispatchUpdateCustomLinkResult(
+        render_frame()->GetWebFrame(), success);
+  }
+}
+
+void SearchBox::DeleteCustomLinkResult(bool success) {
+  if (can_run_js_in_renderframe_) {
+    SearchBoxExtension::DispatchDeleteCustomLinkResult(
+        render_frame()->GetWebFrame(), success);
   }
 }
 

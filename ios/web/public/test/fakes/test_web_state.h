@@ -16,6 +16,7 @@
 #include "ios/web/public/web_state/url_verification_constants.h"
 #import "ios/web/public/web_state/web_state.h"
 #include "ios/web/public/web_state/web_state_observer.h"
+#import "ios/web/public/web_state/web_state_policy_decider.h"
 #include "url/gurl.h"
 
 @class NSURLRequest;
@@ -85,7 +86,7 @@ class TestWebState : public WebState {
   void DidChangeVisibleSecurityState() override {}
   bool HasOpener() const override;
   void SetHasOpener(bool has_opener) override;
-  void TakeSnapshot(const SnapshotCallback& callback,
+  void TakeSnapshot(SnapshotCallback callback,
                     CGSize target_size) const override;
 
   // Setters for test data.
@@ -102,27 +103,25 @@ class TestWebState : public WebState {
   void SetIsCrashed(bool value);
   void SetIsEvicted(bool value);
   void SetWebViewProxy(CRWWebViewProxyType web_view_proxy);
+  void ClearLastExecutedJavascript();
 
   // Getters for test data.
   CRWContentView* GetTransientContentView();
   // Uses |policy_deciders| to return whether the navigation corresponding to
   // |request| should be allowed. Defaults to true.
-  bool ShouldAllowRequest(NSURLRequest* request,
-                          ui::PageTransition transition,
-                          bool from_main_frame);
+  bool ShouldAllowRequest(
+      NSURLRequest* request,
+      const WebStatePolicyDecider::RequestInfo& request_info);
   // Uses |policy_deciders| to return whether the navigation corresponding to
   // |response| should be allowed. Defaults to true.
   bool ShouldAllowResponse(NSURLResponse* response, bool for_main_frame);
+  base::string16 GetLastExecutedJavascript() const;
 
   // Notifier for tests.
   void OnPageLoaded(PageLoadCompletionStatus load_completion_status);
   void OnNavigationStarted(NavigationContext* navigation_context);
   void OnNavigationFinished(NavigationContext* navigation_context);
   void OnRenderProcessGone();
-  void OnFormActivity(const FormActivityParams& params);
-  void OnDocumentSubmitted(const std::string& form_name,
-                           bool user_initiated,
-                           bool is_main_frame);
   void OnBackForwardStateChanged();
   void OnVisibleSecurityStateChanged();
 
@@ -138,6 +137,7 @@ class TestWebState : public WebState {
   CRWContentView* transient_content_view_;
   GURL url_;
   base::string16 title_;
+  base::string16 last_executed_javascript_;
   URLVerificationTrustLevel trust_level_;
   bool content_is_html_;
   std::string mime_type_;

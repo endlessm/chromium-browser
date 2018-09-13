@@ -447,6 +447,9 @@ locale.  The strings in this file are specific to iOS.
       <message name="IDS_IOS_BOOKMARK_URL_FIELD_VALIDATION_FAILED" desc="Error message shown below URL input field when the URL is incorrect. [Length: 20em]">
         Invalid URL
       </message>
+      <message name="IDS_IOS_BOTTOM_TOOLBAR_IPH_PROMOTION_TEXT" desc="Text for the Bottom Toolbar Tip in-product help promotion, explaining that the bottom toolbar can be used to focus the Search Bar, instead of having to reach to the top toolbar. [iOS only]">
+        Search bar is now easier to reach
+      </message>
       <message name="IDS_IOS_CAMERA_USAGE_DESCRIPTION" desc="Specifies the reason for accessing the user's camera while the app is in use [Length: unlimited] [iOS only].">
         This lets you take and upload photos.
       </message>
@@ -507,6 +510,9 @@ locale.  The strings in this file are specific to iOS.
       <message name="IDS_IOS_CLEAR_BUTTON" desc="Title for the button used to clear data. [Length: 20em] [iOS only]">
         Clear Browsing Data
       </message>
+      <message name="IDS_IOS_CONFIRM_CLEAR_BUTTON_TITLE" desc="Title for the UIAlertController indicating browsing data selected will be removed. [Length: 20em] [iOS only]">
+        The items you selected will be removed
+      </message>
       <message name="IDS_IOS_CONFIRM_CLEAR_BUTTON" desc="Accessibility label for the button used to confirm clearing data. [iOS only]">
         Confirm Clear Browsing Data
       </message>
@@ -524,6 +530,12 @@ locale.  The strings in this file are specific to iOS.
       </message>
       <message name="IDS_IOS_CONTENT_CONTEXT_COPY" desc="The iOS menu item for copying a link's URL into the pasteboard. Shorter than the desktop version [iOS only]">
         Copy Link URL
+      </message>
+      <message name="IDS_IOS_CONTENT_CONTEXT_COPYIMAGE" desc="The name of the Copy Image command in the content area context menu.">
+        Copy Image
+      </message>
+      <message name="IDS_IOS_CONTENT_COPYIMAGE_ALERT_COPYING" desc="The title of the alert while the image to be copied is being downloaded.">
+        Copying...
       </message>
       <message name="IDS_IOS_CONTENT_CONTEXT_OPEN" desc="The iOS menu item for opening a link. Shorter than the desktop version [Length: 25em] [iOS only]">
         Open
@@ -560,6 +572,12 @@ locale.  The strings in this file are specific to iOS.
       </message>
       <message name="IDS_IOS_CONTENT_SUGGESTIONS_READING_LIST" desc="The Reading List title on the new tab page [Length: 10em]">
         Reading List
+      </message>
+      <message name="IDS_IOS_CONTENT_SUGGESTIONS_READING_LIST_ACCESSIBILITY_LABEL_ONE_UNREAD" desc="The accessibility label to use for the reading list content suggestion cell when there is only a single unread article [Length: unlimited]">
+        1 unread Reading List article.
+      </message>
+      <message name="IDS_IOS_CONTENT_SUGGESTIONS_READING_LIST_ACCESSIBILITY_LABEL" desc="The accessibility label to use for the reading list content suggestion cell when there are multiple unread articles [Length: unlimited]">
+        <ph name="UNREAD_COUNT">$1<ex>4</ex></ph> unread Reading List articles.
       </message>
       <message name="IDS_IOS_CONTENT_SUGGESTIONS_RECENT_TABS" desc="The Recent Tabs title on the new tab page [Length: 10em]">
         Recent Tabs
@@ -690,6 +708,78 @@ locale.  The strings in this file are specific to iOS.
       <message name="IDS_IOS_GOOGLE_APPS_SM_SETTINGS" desc="Title for the view in Settings for managing Google apps specific settings. Translate 'Google Apps'. [Length: 15em] [iOS only]">
         Google Apps
       </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_ACTIVITY_AND_INTERACTIONS_DETAIL" desc="Detail text for a feature in the settings for the user to enable/disable, to personalize the user experience. Related to 'Activity and interactions'. [iOS only]">
+        Uses content on sites you visit and browser activity and interactions for personalization
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_ACTIVITY_AND_INTERACTIONS_TEXT" desc="Title for a feature in the settings for the user to enable/disable, to personalize the user experience. Related to 'Uses content on sites you visit and browser activity and interactions for personalization'. [iOS only]">
+        Activity and interactions
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_AUTOCOMPLETE_SEARCHES_AND_URLS_DETAIL" desc="Feature detail text in the settings for the user to enable/disable, to have autocomplete searches and URLs. Text related to 'Autocomplete Searches and URLs' [iOS only]">
+        Sends searches from the address bar and search box, and some cookies to your default search engine
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_AUTOCOMPLETE_SEARCHES_AND_URLS_TEXT" desc="Feature title in the settings for the user to enable/disable, to have autocomplete searches and URLs. Text related to 'Sends searches from the address bar and search box, and some cookies to your default search engine' [iOS only]">
+        Autocomplete Searches and URLs
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_AUTOFILL_TEXT" desc="Feature in the settings for the user to enable/disable, to sync autofill data between devices. [iOS only]">
+        Autofill
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_BETTER_SEARCH_AND_BROWSING_DETAIL" desc="Detail text for a feature in the settings for the user to enable/disable, to make searches andn browsing better. Related to 'Make searches and browsing better'. [iOS only]">
+        Sends URLs of pages you visit to Google
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_BETTER_SEARCH_AND_BROWSING_TEXT" desc="Title for a feature in the settings for the user to enable/disable, to make searches andn browsing better. Related to 'Sends URLs of pages you visit to Google'. [iOS only]">
+        Make searches and browsing better
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_BOOKMARKS_TEXT" desc="Feature in the settings for the user to enable/disable, to sync Bookmarks between devices. [iOS only]">
+        Bookmarks
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_ENCRYPTION_TEXT" desc="Opens the encryption settings screen. [iOS only]">
+        Encryption
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_GOOGLE_ACTIVITY_CONTROL_DETAIL" desc="Detail text to open the Google activity screen. Related to 'Google activity controls'. [iOS only]">
+        Control how your browsing history is used to personalize Search, ads, and more
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_GOOGLE_ACTIVITY_CONTROL_TEXT" desc="Title to open the Google activity screen. Related to 'Control how your browsing history is used to personalize Search, ads, and more'. [iOS only]">
+        Google activity controls
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_HISTORY_TEXT" desc="Feature in the settings for the user to enable/disable, to sync browsing history between devices. [iOS only]">
+        History
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_IMPROVE_CHROME_DETAIL" desc="Feature detail text in the settings for the user enable or disable. Related with 'Help improve Chrome's features and performance' feature. [iOS only]">
+        Automatically sends usage statistics and crash reports to Google
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_MANAGED_SYNC_DATA_TEXT" desc="Opens the sync data screen for the user to manage their synced data. [iOS only]">
+        Manage Synced Data…
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_OPENTABS_TEXT" desc="Feature in the settings for the user to enable/disable, to sync passwords between devices. [iOS only]">
+        Open tabs
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_PASSWORD_TEXT" desc="Feature in the settings for the user to enable/disable, to sync passwords between devices. [iOS only]">
+        Passwords
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_PRELOAD_PAGES_DETAIL" desc="Detail text for a feature in the settings for the user to enable/disable, to preload pages. Related to 'Preload pages for faster browsing and searching'. [iOS only]">
+        Uses cookies to remember your preferences, even if you don't visit those pages
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_PRELOAD_PAGES_TEXT" desc="Title for a feature in the settings for the user to enable/disable, to preload pages. Related to 'Uses cookies to remember your preferences, even if you don't visit those pages'. [iOS only]">
+        Preload pages for faster browsing and searching
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_READING_LIST_TEXT" desc="Feature in the settings for the user to enable/disable, to sync reading list links between devices. [iOS only]">
+        Reading List
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_SYNC_EVERYTHING" desc="Feature in the settings for the user enable or disable all the Google sync features. [iOS only]">
+        Use sync and all services
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_SYNC_PERSONALIZATION_DETAIL" desc="Section detail text for the list of all the personalized features to enable/disable in the settings. Related to 'Sync and Personalization'. [iOS only]">
+        Your browsing data and activity, synced to your Google Account
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_SYNC_PERSONALIZATION_TEXT" desc="Section title for the list of all the personalized features to enable/disable in the settings. Related to 'Your browsing data and activity, synced to your Google Account'. [iOS only]">
+        Sync and Personalization
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_NON_PERSONALIZED_SERVICES_TEXT" desc="Section title for the list of all the non-personalized features to enable/disable in the settings. Related to 'Communicates with Google to improve browsing and Chrome'. [iOS only]">
+        Non-personalized Services
+      </message>
+      <message name="IDS_IOS_GOOGLE_SERVICES_SETTINGS_TITLE" desc="Title for the view in the Settings for enabling/disabling Sync and all the Google services. [Length: 26em] [iOS only]">
+        Sync and Google Services
+      </message>
       <message name="IDS_IOS_HISTORY_OTHER_FORMS_OF_HISTORY" desc="The notification at the top of the history page indicating that deleting Chrome browsing history will not delete other forms of history stored at Google My Activity.">
         Your Google Account may have other forms of browsing history at <ph name="BEGIN_LINK">BEGIN_LINK</ph>history.google.com<ph name="END_LINK">END_LINK</ph>.
       </message>
@@ -734,6 +824,9 @@ locale.  The strings in this file are specific to iOS.
       </message>
       <message name="IDS_IOS_KEYBOARD_REOPEN_CLOSED_TAB" desc="Title of the keyboard shortcut to reopen a recently closed tab. [Length: 20 em] [iOS only]">
         Reopen Closed Tab
+      </message>
+      <message name="IDS_IOS_LONG_PRESS_TOOLBAR_IPH_PROMOTION_TEXT" desc="Text for the LongPress Toolbar Tip in-product help promotion, explaining that the user can long press on the toolbar's button to display more options. [iOS only]">
+        Press and hold for more tab options
       </message>
       <message name="IDS_IOS_MANAGED_DISCONNECT_DIALOG_ACCEPT" desc="Label on the button to proceed with signout and clear all Chrome data.[Length: 30em].">
         Accept and sign out
@@ -934,8 +1027,8 @@ Handoff must also be enabled in the General section of Settings, and your device
       <message name="IDS_IOS_OVERSCROLL_CLOSE_TAB_LABEL" desc="The text to use for the tooltip for the overscroll close tab action. [Length: 20em] [iOS only]">
         Close Tab
       </message>
-      <message name="IDS_IOS_OVERSCROLL_REFRESH_LABEL" desc="The text to use for the tooltip for the overscroll refresh action. [Length: 20em] [iOS only]">
-        Refresh
+      <message name="IDS_IOS_OVERSCROLL_RELOAD_LABEL" desc="The text to use for the tooltip for the overscroll reload action. [Length: 20em] [iOS only]">
+        Reload
       </message>
       <message name="IDS_IOS_PAGE_INFO_OFFLINE_PAGE" desc="Message to display in the page info bubble when the page you are on is an offline page.">
         This page has been saved to your Reading List.
@@ -1076,6 +1169,9 @@ Handoff must also be enabled in the General section of Settings, and your device
         Edit
       </message>
       <message name="IDS_IOS_READING_LIST_EMPTY_MESSAGE" desc="Message to explain to the user how to add entries to the reading list" meaning="[Length: unlimited]">
+        Your reading list is available offline. To add a page to your reading list, tap  <ph name="SHARE_OPENING_ICON">SHARE_OPENING_ICON<ex>(menu icon)</ex></ph>  then <ph name="READ_LATER_TEXT">READ_LATER_TEXT<ex>Read Later</ex></ph>.
+      </message>
+      <message name="IDS_IOS_READING_LIST_EMPTY_MESSAGE_LEGACY" desc="Message to explain to the user how to add entries to the reading list" meaning="[Length: unlimited]">
         Your reading list is available offline. To add a page to your reading list, tap <ph name="SHARE_OPENING_ICON">SHARE_OPENING_ICON<ex>Menu > Share > Read Later</ex></ph>.
       </message>
       <message name="IDS_IOS_READING_LIST_JUST_NOW" desc="String indicating that an event (adding item, distillation) happened less than one minute ago. [Length: 25em]">
@@ -1273,11 +1369,20 @@ Handoff must also be enabled in the General section of Settings, and your device
       <message name="IDS_IOS_SHARE_GPLUS_COMPLETE" desc="Message shown when Google+ share has been posted. [Length: Unknown. Keep it short.] [iOS only]">
         Google+ post completed.
       </message>
+      <message name="IDS_IOS_SHARE_MENU_FIND_IN_PAGE" desc="Text label to the Find in Page action in the extension menu that open the 'Find in Page' menu. [iOS only]">
+        Find in Page
+      </message>
       <message name="IDS_IOS_SHARE_MENU_PRINT_ACTION" desc="The text label of the Print action in the extension menu that starts the printing process. [Length: 13em] [iOS only]">
         Print
       </message>
       <message name="IDS_IOS_SHARE_MENU_READING_LIST_ACTION" desc="The text label of the Add To Reading List action in the extension menu that adds the current page to the reading list. [Length: 25em] [iOS only]">
         Read Later
+      </message>
+      <message name="IDS_IOS_SHARE_MENU_REQUEST_DESKTOP_SITE" desc="Text label to the Request Desktop Site action in the extension menu that request the desktop version of the current page. [iOS only]">
+        Request Desktop Site
+      </message>
+      <message name="IDS_IOS_SHARE_MENU_REQUEST_MOBILE_SITE" desc="Text label to the Request Desktop Site action in the extension menu that request the desktop version of the current page. [iOS only]">
+        Request Mobile Site
       </message>
       <message name="IDS_IOS_SHARE_MESSAGES_COMPLETE" desc="Message shown when message share has been sent. [Length: Unknown. Keep it short.] [iOS only]">
         Message sent.
@@ -1750,6 +1855,9 @@ Your data was encrypted with your sync passphrase on <ph name="TIME">$2<ex>Sept 
       </message>
       <message name="IDS_IOS_OPEN_REPEATEDLY_ANOTHER_APP_BLOCK" desc="Text on the button, when tapped will block opening an external application for this browsing session. [iOS only]">
           Block
+      </message>
+      <message name="IDS_IOS_PASTE_AND_GO" desc="Text in the editing menu shown when long-pressing the omnibox. Enables pasting the current contents of the clipboard and searching the text or navigating to the url. [iOS only]">
+          Paste and Go
       </message>
    </messages>
   </release>

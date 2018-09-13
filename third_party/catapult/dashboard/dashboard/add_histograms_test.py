@@ -10,8 +10,6 @@ import webapp2
 import webtest
 import zlib
 
-from google.appengine.api import users
-
 from dashboard import add_point_queue
 from dashboard import add_histograms
 from dashboard import add_histograms_queue
@@ -32,12 +30,8 @@ from tracing.value.diagnostics import reserved_infos
 # pylint: disable=too-many-lines
 
 
-GOOGLER_USER = users.User(email='authorized@chromium.org',
-                          _auth_domain='google.com')
-
-
 def SetGooglerOAuth(mock_oauth):
-  mock_oauth.get_current_user.return_value = GOOGLER_USER
+  mock_oauth.get_current_user.return_value = testing_common.INTERNAL_USER
   mock_oauth.get_client_id.return_value = api_auth.OAUTH_CLIENT_ID_WHITELIST[0]
 
 
@@ -45,7 +39,8 @@ def _CreateHistogram(
     name='hist', master=None, bot=None, benchmark=None,
     device=None, owner=None, stories=None, story_tags=None,
     benchmark_description=None, commit_position=None,
-    samples=None, max_samples=None, is_ref=False, is_summary=None):
+    samples=None, max_samples=None, is_ref=False, is_summary=None,
+    point_id=None):
   hists = [histogram_module.Histogram(name, 'count')]
   if max_samples:
     hists[0].max_num_sample_values = max_samples
@@ -98,6 +93,10 @@ def _CreateHistogram(
     histograms.AddSharedDiagnostic(
         reserved_infos.SUMMARY_KEYS.name,
         generic_set.GenericSet(is_summary))
+  if point_id is not None:
+    histograms.AddSharedDiagnostic(
+        reserved_infos.POINT_ID.name,
+        generic_set.GenericSet([point_id]))
   return histograms
 
 
@@ -249,6 +248,17 @@ class AddHistogramsEndToEndTest(testing_common.TestCase):
 
     response = self.testapp.post('/add_histograms', {'data': data}, status=400)
     self.assertIn('Illegal slash', response.body)
+
+  def testPost_DuplicateHistogram_Fails(self):
+    hs1 = _CreateHistogram(
+        master='m', bot='b', benchmark='s', commit_position=1, samples=[1])
+    hs = _CreateHistogram(
+        master='m', bot='b', benchmark='s', commit_position=1, samples=[1])
+    hs.ImportDicts(hs1.AsDicts())
+    data = json.dumps(hs.AsDicts())
+
+    response = self.testapp.post('/add_histograms', {'data': data}, status=400)
+    self.assertIn('Duplicate histogram detected', response.body)
 
   @mock.patch.object(
       add_histograms_queue.graph_revisions, 'AddRowsToCacheAsync')
@@ -1227,8 +1237,7 @@ class AddHistogramsTest(testing_common.TestCase):
     histograms.AddSharedDiagnostic(
         reserved_infos.DEVICE_IDS.name,
         generic_set.GenericSet([]))
-    diagnostics = add_histograms.FindHistogramLevelSparseDiagnostics(
-        hist.guid, histograms)
+    diagnostics = add_histograms.FindHistogramLevelSparseDiagnostics(hist)
 
     self.assertEqual(1, len(diagnostics))
     self.assertIsInstance(
@@ -1267,7 +1276,7 @@ class AddHistogramsTest(testing_common.TestCase):
         generic_set.GenericSet(['http://story']))
     hist = histograms.GetFirstHistogram()
     test_path = add_histograms.ComputeTestPath(
-        'master/bot/benchmark', hist.guid, histograms)
+        'master/bot/benchmark', hist)
     self.assertEqual('master/bot/benchmark/hist/http___story', test_path)
 
   def testComputeTestPathWithTIRLabel(self):
@@ -1291,7 +1300,7 @@ class AddHistogramsTest(testing_common.TestCase):
             ['group:media', 'ignored_tag', 'case:browse']))
     hist = histograms.GetFirstHistogram()
     test_path = add_histograms.ComputeTestPath(
-        'master/bot/benchmark', hist.guid, histograms)
+        'master/bot/benchmark', hist)
     self.assertEqual(
         'master/bot/benchmark/hist/browse_media/http___story', test_path)
 
@@ -1309,7 +1318,7 @@ class AddHistogramsTest(testing_common.TestCase):
         generic_set.GenericSet(['benchmark']))
     hist = histograms.GetFirstHistogram()
     test_path = add_histograms.ComputeTestPath(
-        'master/bot/benchmark', hist.guid, histograms)
+        'master/bot/benchmark', hist)
     self.assertEqual('master/bot/benchmark/hist', test_path)
 
   def testComputeTestPathWithIsRefWithoutStory(self):
@@ -1329,7 +1338,7 @@ class AddHistogramsTest(testing_common.TestCase):
         generic_set.GenericSet([True]))
     hist = histograms.GetFirstHistogram()
     test_path = add_histograms.ComputeTestPath(
-        'master/bot/benchmark', hist.guid, histograms)
+        'master/bot/benchmark', hist)
     self.assertEqual('master/bot/benchmark/hist/ref', test_path)
 
   def testComputeTestPathWithIsRefAndStory(self):
@@ -1352,7 +1361,7 @@ class AddHistogramsTest(testing_common.TestCase):
         generic_set.GenericSet([True]))
     hist = histograms.GetFirstHistogram()
     test_path = add_histograms.ComputeTestPath(
-        'master/bot/benchmark', hist.guid, histograms)
+        'master/bot/benchmark', hist)
     self.assertEqual('master/bot/benchmark/hist/http___story_ref', test_path)
 
   def testComputeRevision(self):
@@ -1380,6 +1389,16 @@ class AddHistogramsTest(testing_common.TestCase):
         reserved_infos.CHROMIUM_COMMIT_POSITIONS.name, chromium_commit)
     with self.assertRaises(api_request_handler.BadRequestError):
       add_histograms.ComputeRevision(histograms)
+
+  def testComputeRevision_UsesPointIdIfPresent(self):
+    hs = _CreateHistogram(name='foo', commit_position=123456, point_id=234567)
+    rev = add_histograms.ComputeRevision(hs)
+    self.assertEqual(rev, 234567)
+
+  def testComputeRevision_PointIdNotInteger_Raises(self):
+    hs = _CreateHistogram(name='foo', commit_position=123456, point_id='abc')
+    with self.assertRaises(api_request_handler.BadRequestError):
+      add_histograms.ComputeRevision(hs)
 
   def testSparseDiagnosticsAreNotInlined(self):
     hist = histogram_module.Histogram('hist', 'count')

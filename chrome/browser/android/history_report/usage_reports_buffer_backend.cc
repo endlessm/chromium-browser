@@ -15,6 +15,7 @@
 #include "chrome/browser/android/history_report/usage_report_util.h"
 #include "chrome/browser/android/proto/delta_file.pb.h"
 #include "third_party/leveldatabase/env_chromium.h"
+#include "third_party/leveldatabase/leveldb_chrome.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
 #include "third_party/leveldatabase/src/include/leveldb/iterator.h"
 #include "third_party/leveldatabase/src/include/leveldb/options.h"
@@ -46,16 +47,25 @@ bool UsageReportsBufferBackend::Init() {
                             leveldb_env::LEVELDB_STATUS_MAX);
   if (status.IsCorruption()) {
     LOG(ERROR) << "Deleting corrupt database";
-    base::DeleteFile(db_file_name_, true);
+    status = leveldb_chrome::DeleteDB(db_file_name_, options);
+    if (!status.ok()) {
+      LOG(ERROR) << "Unable to delete " << db_file_name_
+                 << ", error: " << status.ToString();
+      return false;
+    }
     status = leveldb_env::OpenDB(options, path, &db_);
   }
-  if (status.ok()) {
-    CHECK(db_);
-    return true;
+  if (!status.ok()) {
+    LOG(WARNING) << "Unable to open " << path << ": " << status.ToString();
+    return false;
   }
-  LOG(WARNING) << "Unable to open " << path << ": "
-               << status.ToString();
-  return false;
+  CHECK(db_);
+
+  UMA_HISTOGRAM_COUNTS_1M(
+      "Search.HistoryReport.UsageReportsBuffer.LevelDBEntries",
+      usage_report_util::DatabaseEntries(db_.get()));
+
+  return true;
 }
 
 void UsageReportsBufferBackend::AddVisit(const std::string& id,
@@ -93,7 +103,7 @@ UsageReportsBufferBackend::GetUsageReportsBatch(int batch_size) {
     history_report::UsageReport last_report;
     leveldb::Slice value_slice = db_iter->value();
     if (last_report.ParseFromArray(value_slice.data(), value_slice.size())) {
-      reports->push_back(last_report);
+      reports->emplace_back(std::move(last_report));
       --batch_size;
     }
     db_iter->Next();
@@ -109,10 +119,8 @@ void UsageReportsBufferBackend::Remove(
   // TODO(haaawk): investigate if it's worth sorting the keys here to improve
   // performance.
   leveldb::WriteBatch updates;
-  for (std::vector<std::string>::const_iterator it = reports.begin();
-       it != reports.end();
-       ++it) {
-    updates.Delete(leveldb::Slice(*it));
+  for (const auto& report : reports) {
+    updates.Delete(leveldb::Slice(report));
   }
 
   leveldb::WriteOptions write_options;
@@ -124,7 +132,7 @@ void UsageReportsBufferBackend::Remove(
 
 void UsageReportsBufferBackend::Clear() {
   db_.reset();
-  base::DeleteFile(db_file_name_, true);
+  leveldb_chrome::DeleteDB(db_file_name_, leveldb_env::Options());
   Init();
 }
 
@@ -135,11 +143,7 @@ std::string UsageReportsBufferBackend::Dump() {
     return dump;
   }
   dump.append("num pending entries=");
-  leveldb::ReadOptions options;
-  int num_entries = 0;
-  std::unique_ptr<leveldb::Iterator> db_it(db_->NewIterator(options));
-  for (db_it->SeekToFirst(); db_it->Valid(); db_it->Next()) num_entries++;
-  dump.append(base::IntToString(num_entries));
+  dump.append(base::IntToString(usage_report_util::DatabaseEntries(db_.get())));
   dump.append("]");
   return dump;
 }
@@ -168,4 +172,3 @@ bool UsageReportsBufferBackend::OnMemoryDump(
 }
 
 }  // namespace history_report
-

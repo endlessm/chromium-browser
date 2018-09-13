@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">Поле для ввода пароля</translation>
 <translation id="1802710350767629429">Показать сведения об обновлении</translation>
 <translation id="1810107444790159527">Список</translation>
+<translation id="1812527064848182527">горизонтальная ориентация</translation>
 <translation id="1828385960365606039">май</translation>
 <translation id="1834891354138622109">Столбец.</translation>
 <translation id="1845944666972354496">Нажмите дважды, чтобы активировать.</translation>
@@ -146,6 +147,7 @@
 <translation id="2416512023405990736">Снятый флажок</translation>
 <translation id="2417569100218200841">Сведения о контенте</translation>
 <translation id="2417948780551741035">Концевые сноски</translation>
+<translation id="2421113964388408478">Удаление</translation>
 <translation id="2422937916923936891">Элемент меню: флажок</translation>
 <translation id="2428534162001909979">Меню</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@
 <translation id="3232388865800379423">Всплывающая кнопка</translation>
 <translation id="3241052487511142956">Перейти к предыдущей открытой ссылке</translation>
 <translation id="3241638166094654466">Ячеек в каждой строке:</translation>
+<translation id="3286372614333682499">вертикальная ориентация</translation>
 <translation id="3286390186030710347">Ползунок</translation>
 <translation id="3299925995433437805">Следующей открытой ссылки нет.</translation>
 <translation id="3300348286427369683">В ChromeVox появилось больше возможностей для редактирования текста, например команды для ускоренной навигации, перемещение курсора с помощью дисплея Брайля, выбор и не только.</translation>
@@ -426,6 +429,7 @@
 <translation id="4476183483923481720">Новая строка.</translation>
 <translation id="4482330759234983253">Перейти к предыдущей таблице</translation>
 <translation id="4491109536499578614">Изображение</translation>
+<translation id="4505167975768625962">Вставка</translation>
 <translation id="4517854969512651305">Увеличить значение.</translation>
 <translation id="4529987814483543472">Классическая раскладка</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{косая черта}one{# косая черта}few{# косые черты}many{# косых черт}other{# slashes}}</translation>
@@ -589,6 +593,7 @@
 <translation id="5712338278108304766">Перейти к следующему столбцу</translation>
 <translation id="571866080859340309">Переход по группам.</translation>
 <translation id="5728409797179002635">Таблицы не найдены.</translation>
+<translation id="5729047866208036762">Для работы с математическим контентом используйте клавиши со стрелками.</translation>
 <translation id="5732189279857692565">Это второй заголовок. Чтобы продолжить, нажмите SEARCH + Р или SEARCH + SHIFT + Р.</translation>
 <translation id="5748623122140342504">Перейти к предыдущему заголовку пятого уровня</translation>
 <translation id="5750633686117194034">Модификаторы не нажаты. Нажмите и удерживайте один или несколько модификаторов, а затем отпустите. Вы услышите, какие клавиши заданы. Чтобы выйти, нажмите клавишу табуляции.</translation>
@@ -744,6 +749,7 @@
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">6-точечный шрифт:</translation>
 <translation id="72393384879519786">Заголовок</translation>
+<translation id="7240858705033280249">Посмотреть подробную информацию</translation>
 <translation id="7241683698754534149">Открыть подробное описание в новой вкладке</translation>
 <translation id="7248671827512403053">Приложение</translation>
 <translation id="725969808843520477">Перейти к следующему переключателю</translation>
@@ -920,6 +926,7 @@
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">8-точечный шрифт:</translation>
 <translation id="9065283790526219006">+popup</translation>
+<translation id="9066023754636984703">Чтобы перейти к дополнительным сведениям, нажмите Поиск + A, затем J.</translation>
 <translation id="9067522039955793016">Разрыв страницы</translation>
 <translation id="9077213568694924680">Удалено из выбранного фрагмента.</translation>
 <translation id="9082874451376019682">Предыдущего ползунка нет.</translation>

@@ -6,7 +6,7 @@
 
 #include "ash/components/quick_launch/public/mojom/constants.mojom.h"
 #include "ash/components/quick_launch/quick_launch_application.h"
-#include "ash/components/shortcut_viewer/public/mojom/constants.mojom.h"
+#include "ash/components/shortcut_viewer/public/mojom/shortcut_viewer.mojom.h"
 #include "ash/components/shortcut_viewer/shortcut_viewer_application.h"
 #include "ash/components/tap_visualizer/public/mojom/constants.mojom.h"
 #include "ash/components/tap_visualizer/tap_visualizer_app.h"
@@ -14,9 +14,6 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
-#include "components/services/font/font_service_app.h"
-#include "components/services/font/public/interfaces/constants.mojom.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/utility/content_utility_client.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "services/ui/ime/test_ime_driver/public/mojom/constants.mojom.h"
@@ -27,10 +24,6 @@
 namespace ash {
 namespace shell {
 namespace {
-
-std::unique_ptr<service_manager::Service> CreateFontService() {
-  return std::make_unique<font_service::FontServiceApp>();
-}
 
 std::unique_ptr<service_manager::Service> CreateQuickLaunch() {
   return std::make_unique<quick_launch::QuickLaunchApplication>();
@@ -56,11 +49,6 @@ class ShellContentUtilityClient : public content::ContentUtilityClient {
 
   // ContentUtilityClient:
   void RegisterServices(StaticServiceMap* services) override {
-    {
-      service_manager::EmbeddedServiceInfo info;
-      info.factory = base::BindRepeating(&CreateFontService);
-      (*services)[font_service::mojom::kServiceName] = info;
-    }
     {
       service_manager::EmbeddedServiceInfo info;
       info.factory = base::BindRepeating(&CreateQuickLaunch);
@@ -94,13 +82,7 @@ ShellMainDelegate::ShellMainDelegate() = default;
 ShellMainDelegate::~ShellMainDelegate() = default;
 
 bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  std::string process_type =
-      command_line.GetSwitchValueASCII(switches::kProcessType);
-
   content::SetContentClient(&content_client_);
-
   return false;
 }
 

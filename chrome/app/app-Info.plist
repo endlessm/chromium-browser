@@ -355,5 +355,7 @@
 	</array>
         <key>NSUserNotificationAlertStyle</key>
         <string>banner</string>
+        <key>NSRequiresAquaSystemAppearance</key>
+        <true/>
 </dict>
 </plist>

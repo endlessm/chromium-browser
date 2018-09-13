@@ -23,7 +23,9 @@
 <translation id="3605252743693911722">Пријавите се у Chromium да би вам обележивачи, лозинке и други садржај били доступни на свим уређајима.</translation>
 <translation id="3805899903892079518">Chromium не може да приступа сликама или видео снимцима. Омогућите приступ у iOS Settings (Подешавања iOS-а) &gt; Privacy (Приватност) &gt; Photos (Слике).</translation>
 <translation id="4024541897090868497">Да би вам картице биле доступне на свим уређајима, пријавите се у Chromium.</translation>
+<translation id="4157467675761413638">Савет за Chromium. Ако желите више опција за картице, притисните и задржите дугме Прикажи картице на траци с алаткама, која се налази у дну или у врху екрана.</translation>
 <translation id="4241912885070669028">Одјављујете се са налога којим управља <ph name="SIGNOUT_MANAGED_DOMAIN" />. То ће избрисати Chromium податке са овог уређаја, али ће подаци остати на Google налогу.</translation>
+<translation id="4272892696084633551">Помозите нам да побољшамо Chromium-ове функције и учинак</translation>
 <translation id="4555020257205549924">Када је ова функција укључена, Chromium ће нудити да преводи странице написане на другим језицима помоћу Google преводиоца. <ph name="BEGIN_LINK" />Сазнајте више<ph name="END_LINK" /></translation>
 <translation id="4787850887676698916">Овде ће се приказати картице које сте отворили у Chromium-у на другим уређајима.</translation>
 <translation id="495292094137889840">Почните да користите Chromium QR скенер</translation>
@@ -33,6 +35,7 @@
 <translation id="5945387852661427312">Пријављујете се помоћу налога којим управља <ph name="DOMAIN" /> и дајете његовом администратору контролу над својим Chromium подацима. Подаци ће постати трајно повезани са тим налогом. Одјављивањем из Chromium-а ћете избрисати податке са овог уређаја, али ће они остати сачувани на Google налогу.</translation>
 <translation id="6068866989048414399">Chromium услови коришћења услуге</translation>
 <translation id="6268381023930128611">Желите ли да се одјавите из Chromium-а?</translation>
+<translation id="641451971369018375">Комуницира са Google-ом ради побољшања прегледања и Chromium-а</translation>
 <translation id="6424492062988593837">Chromium је управо постао бољи! Доступна је нова верзија.</translation>
 <translation id="6604711459180487467">Побољшајте доживљај у Chromium-у на основу локације.</translation>
 <translation id="6626296268883197964">Ако користите ову апликацију, прихватате Chromium <ph name="BEGIN_LINK_TOS" />услове коришћења услуге<ph name="END_LINK_TOS" /> и <ph name="BEGIN_LINK_PRIVACY" />Обавештење о приватности<ph name="END_LINK_PRIVACY" />.</translation>
@@ -43,6 +46,7 @@
 <translation id="7357211569052832586">Изабрани подаци су уклоњени из Chromium-а и са синхронизованих уређаја. Google налог можда има друге облике историје прегледања, попут претрага и активности у другим Google услугама на history.google.com.</translation>
 <translation id="7400689562045506105">Користите Chromium свуда</translation>
 <translation id="7674213385180944843">Отворите Подешавања &gt; Приватност &gt; Камера &gt; Chromium и укључите камеру.</translation>
+<translation id="7746854981345936341">Савет за Chromium. Нека дугмад се сада налазе у дну екрана, попут дугмади Назад, Напред и Претражи.</translation>
 <translation id="786327964234957808">Мењате налог за синхронизацију из <ph name="USER_EMAIL1" /> у <ph name="USER_EMAIL2" />. Постојећим Chromium подацима управља <ph name="DOMAIN" />. На овај начин бришете податке са овог уређаја, али подаци остају на <ph name="USER_EMAIL1" />.</translation>
 <translation id="8175055321229419309">Савет: <ph name="BEGIN_LINK" />Преместите Chromium на док<ph name="END_LINK" /></translation>
 <translation id="8252885722420466166">Побољшајте Google доживљај у Chromium-у на основу локације.</translation>

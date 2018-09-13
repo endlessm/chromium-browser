@@ -48,6 +48,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "blink_heap_unittests"
       },
       {
@@ -67,13 +73,6 @@
           "can_use_on_swarming_builders": true
         },
         "test": "boringssl_ssl_tests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "shards": 10
-        },
-        "test": "browser_tests"
       },
       {
         "swarming": {
@@ -130,6 +129,29 @@
         "test": "content_browsertests"
       },
       {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_browsertests.filter"
+        ],
+        "name": "viz_content_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 2
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "content_unittests"
+      },
+      {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_unittests.filter"
+        ],
+        "name": "viz_content_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -175,7 +197,25 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "events_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "extensions_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "extensions_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "filesystem_service_unittests"
       },
       {
         "swarming": {
@@ -193,7 +233,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gn_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
@@ -221,7 +261,8 @@
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": false
+          "can_use_on_swarming_builders": true,
+          "shards": 3
         },
         "test": "interactive_ui_tests"
       },
@@ -236,6 +277,18 @@
           "can_use_on_swarming_builders": true
         },
         "test": "jingle_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "latency_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "leveldb_service_unittests"
       },
       {
         "swarming": {
@@ -266,6 +319,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "media_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "message_center_unittests"
       },
       {
         "swarming": {
@@ -331,7 +390,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "service_manager_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "services_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "shell_dialogs_unittests"
       },
       {
         "swarming": {
@@ -367,7 +438,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "traffic_annotation_auditor_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "ui_base_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ui_touch_selection_unittests"
       },
       {
         "swarming": {
@@ -420,6 +503,13 @@
       {
         "isolate_name": "components_perftests",
         "name": "components_perftests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        }
+      },
+      {
+        "isolate_name": "content_shell_crash_test",
+        "name": "content_shell_crash_test",
         "swarming": {
           "can_use_on_swarming_builders": true
         }
@@ -541,6 +631,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "blink_heap_unittests"
       },
       {
@@ -563,10 +659,17 @@
       },
       {
         "args": [
-          "--test-launcher-filter-file=../../testing/buildbot/filters/mac_window_server_killers.browser_tests.filter"
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mac_window_server_killers.browser_tests.filter",
+          "--gtest_shuffle"
         ],
         "swarming": {
           "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "none",
+              "pool": "Chrome-quarantine"
+            }
+          ],
           "shards": 10
         },
         "test": "browser_tests"
@@ -626,6 +729,29 @@
         "test": "content_browsertests"
       },
       {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_browsertests.filter"
+        ],
+        "name": "viz_content_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 2
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "content_unittests"
+      },
+      {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_unittests.filter"
+        ],
+        "name": "viz_content_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -671,7 +797,25 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "events_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "extensions_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "extensions_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "filesystem_service_unittests"
       },
       {
         "swarming": {
@@ -689,7 +833,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gn_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
@@ -707,6 +851,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "headless_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "headless_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 3
+        },
         "test": "interactive_ui_tests"
       },
       {
@@ -720,6 +877,18 @@
           "can_use_on_swarming_builders": true
         },
         "test": "jingle_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "latency_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "leveldb_service_unittests"
       },
       {
         "swarming": {
@@ -750,6 +919,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "media_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "message_center_unittests"
       },
       {
         "swarming": {
@@ -815,7 +990,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "service_manager_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "services_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "shell_dialogs_unittests"
       },
       {
         "swarming": {
@@ -851,7 +1038,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "traffic_annotation_auditor_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "ui_base_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ui_touch_selection_unittests"
       },
       {
         "swarming": {
@@ -904,6 +1103,13 @@
       {
         "isolate_name": "components_perftests",
         "name": "components_perftests",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        }
+      },
+      {
+        "isolate_name": "content_shell_crash_test",
+        "name": "content_shell_crash_test",
         "swarming": {
           "can_use_on_swarming_builders": true
         }
@@ -987,389 +1193,967 @@
     "gtest_tests": [
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "accessibility_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "angle_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "app_shell_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "base_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "battor_agent_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "blink_common_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "blink_heap_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "blink_platform_unittests"
       },
       {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "boringssl_crypto_tests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "boringssl_ssl_tests"
+      },
+      {
         "args": [
-          "--test-launcher-filter-file=../../testing/buildbot/filters/mac_window_server_killers.browser_tests.filter"
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mac_window_server_killers.browser_tests.filter",
+          "--gtest_shuffle"
         ],
         "swarming": {
           "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "none",
+              "os": "Mac-10.12.6",
+              "pool": "Chrome-quarantine"
+            }
+          ],
           "shards": 10
         },
         "test": "browser_tests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "cacheinvalidation_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "capture_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "cast_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "cc_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "chrome_app_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "chromedriver_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "components_browsertests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "components_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_browsertests.filter"
+        ],
+        "name": "viz_content_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ],
+          "shards": 2
         },
         "test": "content_browsertests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "content_unittests"
+      },
+      {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_unittests.filter"
+        ],
+        "name": "viz_content_unittests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "content_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "crashpad_tests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "cronet_tests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "cronet_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "crypto_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "device_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "display_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "events_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "extensions_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "extensions_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "filesystem_service_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "gcm_unit_tests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "gfx_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
-        "test": "gn_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "google_apis_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "gpu_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "headless_browsertests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "headless_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ],
+          "shards": 3
         },
         "test": "interactive_ui_tests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "ipc_tests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "jingle_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "latency_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "leveldb_service_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "libjingle_xmpp_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "mac_installer_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "media_blink_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "media_service_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "media_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "message_center_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "midi_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "mojo_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "nacl_loader_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "native_theme_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "net_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "pdf_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "ppapi_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "printing_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "remoting_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "sandbox_mac_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "service_manager_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "services_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "shell_dialogs_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "skia_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "snapshot_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "sql_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "storage_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "sync_integration_tests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "traffic_annotation_auditor_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "ui_base_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        },
+        "test": "ui_touch_selection_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "unit_tests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "url_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "views_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "viz_unittests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "webkit_unit_tests"
       },
       {
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         },
         "test": "wtf_unittests"
       }
@@ -1382,28 +2166,65 @@
         "isolate_name": "chromedriver_py_tests",
         "name": "chromedriver_py_tests",
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         }
       },
       {
         "isolate_name": "components_perftests",
         "name": "components_perftests",
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
+        }
+      },
+      {
+        "isolate_name": "content_shell_crash_test",
+        "name": "content_shell_crash_test",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         }
       },
       {
         "isolate_name": "metrics_python_tests",
         "name": "metrics_python_tests",
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         }
       },
       {
         "isolate_name": "telemetry_gpu_unittests",
         "name": "telemetry_gpu_unittests",
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         }
       },
       {
@@ -1414,6 +2235,12 @@
         "name": "telemetry_perf_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ],
           "hard_timeout": 960,
           "shards": 12
         }
@@ -1426,6 +2253,12 @@
         "name": "telemetry_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ],
           "shards": 4
         }
       },
@@ -1433,7 +2266,13 @@
         "isolate_name": "views_perftests",
         "name": "views_perftests",
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         }
       },
       {
@@ -1463,7 +2302,13 @@
         "isolate_name": "webkit_python_tests",
         "name": "webkit_python_tests",
         "swarming": {
-          "can_use_on_swarming_builders": true
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "8086:0a2e",
+              "os": "Mac-10.12.6"
+            }
+          ]
         }
       }
     ]
@@ -1510,6 +2355,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "blink_heap_unittests"
       },
       {
@@ -1531,8 +2382,19 @@
         "test": "boringssl_ssl_tests"
       },
       {
+        "args": [
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mac_window_server_killers.browser_tests.filter",
+          "--gtest_shuffle"
+        ],
+        "experiment_percentage": 50,
         "swarming": {
           "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "none",
+              "pool": "Chrome-quarantine"
+            }
+          ],
           "shards": 10
         },
         "test": "browser_tests"
@@ -1592,6 +2454,29 @@
         "test": "content_browsertests"
       },
       {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_browsertests.filter"
+        ],
+        "name": "viz_content_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 2
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "content_unittests"
+      },
+      {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_unittests.filter"
+        ],
+        "name": "viz_content_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -1637,7 +2522,25 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "events_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "extensions_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "extensions_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "filesystem_service_unittests"
       },
       {
         "swarming": {
@@ -1655,7 +2558,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gn_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
@@ -1684,7 +2587,7 @@
       {
         "swarming": {
           "can_use_on_swarming_builders": true,
-          "shards": 2
+          "shards": 3
         },
         "test": "interactive_ui_tests"
       },
@@ -1699,6 +2602,18 @@
           "can_use_on_swarming_builders": true
         },
         "test": "jingle_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "latency_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "leveldb_service_unittests"
       },
       {
         "swarming": {
@@ -1729,6 +2644,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "media_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "message_center_unittests"
       },
       {
         "swarming": {
@@ -1794,7 +2715,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "service_manager_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "services_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "shell_dialogs_unittests"
       },
       {
         "swarming": {
@@ -1830,7 +2763,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "traffic_annotation_auditor_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "ui_base_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ui_touch_selection_unittests"
       },
       {
         "swarming": {
@@ -1888,7 +2833,6 @@
         }
       },
       {
-        "experiment_percentage": 100,
         "isolate_name": "content_shell_crash_test",
         "name": "content_shell_crash_test",
         "swarming": {
@@ -2007,6 +2951,12 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "blink_fuzzer_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "blink_heap_unittests"
       },
       {
@@ -2028,8 +2978,18 @@
         "test": "boringssl_ssl_tests"
       },
       {
+        "args": [
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mac_window_server_killers.browser_tests.filter",
+          "--gtest_shuffle"
+        ],
         "swarming": {
           "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "none",
+              "pool": "Chrome-quarantine"
+            }
+          ],
           "shards": 10
         },
         "test": "browser_tests"
@@ -2089,6 +3049,29 @@
         "test": "content_browsertests"
       },
       {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_browsertests.filter"
+        ],
+        "name": "viz_content_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 2
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "content_unittests"
+      },
+      {
+        "args": [
+          "--enable-features=VizDisplayCompositor",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_unittests.filter"
+        ],
+        "name": "viz_content_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -2134,7 +3117,25 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "events_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "extensions_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "extensions_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "filesystem_service_unittests"
       },
       {
         "swarming": {
@@ -2152,7 +3153,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "gn_unittests"
+        "test": "gin_unittests"
       },
       {
         "swarming": {
@@ -2181,7 +3182,7 @@
       {
         "swarming": {
           "can_use_on_swarming_builders": true,
-          "shards": 2
+          "shards": 3
         },
         "test": "interactive_ui_tests"
       },
@@ -2196,6 +3197,18 @@
           "can_use_on_swarming_builders": true
         },
         "test": "jingle_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "latency_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "leveldb_service_unittests"
       },
       {
         "swarming": {
@@ -2226,6 +3239,12 @@
           "can_use_on_swarming_builders": true
         },
         "test": "media_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "message_center_unittests"
       },
       {
         "swarming": {
@@ -2291,7 +3310,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "service_manager_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "services_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "shell_dialogs_unittests"
       },
       {
         "swarming": {
@@ -2327,7 +3358,19 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
+        "test": "traffic_annotation_auditor_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
         "test": "ui_base_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        },
+        "test": "ui_touch_selection_unittests"
       },
       {
         "swarming": {
@@ -2368,10 +3411,37 @@
     ],
     "isolated_scripts": [
       {
+        "isolate_name": "content_shell_crash_test",
+        "name": "content_shell_crash_test",
+        "swarming": {
+          "can_use_on_swarming_builders": true
+        }
+      },
+      {
         "isolate_name": "metrics_python_tests",
         "name": "metrics_python_tests",
         "swarming": {
           "can_use_on_swarming_builders": true
+        }
+      },
+      {
+        "args": [
+          "--smoke-test-mode",
+          "--test-shard-map-filename=smoke_test_benchmark_shard_map.json",
+          "--browser=debug"
+        ],
+        "isolate_name": "performance_test_suite",
+        "merge": {
+          "args": [
+            "--smoke-test-mode"
+          ],
+          "script": "//tools/perf/process_perf_results.py"
+        },
+        "name": "performance_test_suite",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "hard_timeout": 960,
+          "shards": 2
         }
       },
       {
@@ -2400,11 +3470,96 @@
         }
       },
       {
+        "args": [
+          "--debug"
+        ],
+        "isolate_name": "webkit_layout_tests_exparchive",
+        "merge": {
+          "args": [
+            "--verbose"
+          ],
+          "script": "//third_party/blink/tools/merge_web_test_results.py"
+        },
+        "name": "webkit_layout_tests",
+        "only_retry_failed_tests": true,
+        "results_handler": "layout tests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 12
+        }
+      },
+      {
         "isolate_name": "webkit_python_tests",
         "name": "webkit_python_tests",
         "swarming": {
           "can_use_on_swarming_builders": true
         }
+      }
+    ]
+  },
+  "mac-cocoa-rel": {
+    "gtest_tests": [
+      {
+        "args": [
+          "--disable-features=ViewsBrowserWindows",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/mac_window_server_killers.browser_tests.filter",
+          "--gtest_shuffle"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "gpu": "none",
+              "os": "Mac-10.13",
+              "pool": "Chrome-quarantine"
+            }
+          ],
+          "shards": 10
+        },
+        "test": "browser_tests"
+      },
+      {
+        "args": [
+          "--disable-features=ViewsBrowserWindows"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "os": "Mac-10.13"
+            }
+          ]
+        },
+        "test": "components_browsertests"
+      },
+      {
+        "args": [
+          "--disable-features=ViewsBrowserWindows"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "os": "Mac-10.13"
+            }
+          ]
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "args": [
+          "--disable-features=ViewsBrowserWindows"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "os": "Mac-10.13"
+            }
+          ],
+          "shards": 3
+        },
+        "test": "interactive_ui_tests"
       }
     ]
   },

@@ -56,6 +56,8 @@
 
 #include "llvm/Transforms/Vectorize/LoopVectorize.h"
 #include "LoopVectorizationPlanner.h"
+#include "VPRecipeBuilder.h"
+#include "VPlanHCFGBuilder.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
@@ -67,7 +69,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
@@ -243,6 +244,17 @@ static cl::opt<bool> EnableVPlanNativePath(
     "enable-vplan-native-path", cl::init(false), cl::Hidden,
     cl::desc("Enable VPlan-native vectorization path with "
              "support for outer loop vectorization."));
+
+// This flag enables the stress testing of the VPlan H-CFG construction in the
+// VPlan-native vectorization path. It must be used in conjuction with
+// -enable-vplan-native-path. -vplan-verify-hcfg can also be used to enable the
+// verification of the H-CFGs built.
+static cl::opt<bool> VPlanBuildStressTest(
+    "vplan-build-stress-test", cl::init(false), cl::Hidden,
+    cl::desc(
+        "Build VPlan for every supported loop nest in the function and bail "
+        "out right after the build (stress test the VPlan H-CFG construction "
+        "in the VPlan-native vectorization path)."));
 
 /// A helper function for converting Scalar types to vector types.
 /// If the incoming type is void, we return void. If the VF is 1, we return
@@ -945,7 +957,7 @@ public:
     : PSE(PSE), TheLoop(L), DT(DT), LI(LI), LAI(LAI) {}
 
   ~InterleavedAccessInfo() {
-    SmallSet<InterleaveGroup *, 4> DelSet;
+    SmallPtrSet<InterleaveGroup *, 4> DelSet;
     // Avoid releasing a pointer twice.
     for (auto &I : InterleaveGroupMap)
       DelSet.insert(I.second);
@@ -1653,8 +1665,11 @@ static void collectSupportedLoops(Loop &L, LoopInfo *LI,
                                   OptimizationRemarkEmitter *ORE,
                                   SmallVectorImpl<Loop *> &V) {
   // Collect inner loops and outer loops without irreducible control flow. For
-  // now, only collect outer loops that have explicit vectorization hints.
-  if (L.empty() || (EnableVPlanNativePath && isExplicitVecOuterLoop(&L, ORE))) {
+  // now, only collect outer loops that have explicit vectorization hints. If we
+  // are stress testing the VPlan H-CFG construction, we collect the outermost
+  // loop of every loop nest.
+  if (L.empty() || VPlanBuildStressTest ||
+      (EnableVPlanNativePath && isExplicitVecOuterLoop(&L, ORE))) {
     LoopBlocksRPO RPOT(&L);
     RPOT.perform(LI);
     if (!containsIrreducibleCFG<const BasicBlock *>(RPOT, *LI)) {
@@ -1806,6 +1821,7 @@ void InnerLoopVectorizer::createVectorIntOrFpInductionPHI(
   // factor. The last of those goes into the PHI.
   PHINode *VecInd = PHINode::Create(SteppedStart->getType(), 2, "vec.ind",
                                     &*LoopVectorBody->getFirstInsertionPt());
+  VecInd->setDebugLoc(EntryVal->getDebugLoc());
   Instruction *LastInduction = VecInd;
   for (unsigned Part = 0; Part < UF; ++Part) {
     VectorLoopValueMap.setVectorValue(EntryVal, Part, LastInduction);
@@ -1816,6 +1832,7 @@ void InnerLoopVectorizer::createVectorIntOrFpInductionPHI(
 
     LastInduction = cast<Instruction>(addFastMathFlag(
         Builder.CreateBinOp(AddOp, LastInduction, SplatVF, "step.add")));
+    LastInduction->setDebugLoc(EntryVal->getDebugLoc());
   }
 
   // Move the last step to the end of the latch block. This ensures consistent
@@ -2897,6 +2914,8 @@ BasicBlock *InnerLoopVectorizer::createVectorizedLoopSkeleton() {
     // Create phi nodes to merge from the  backedge-taken check block.
     PHINode *BCResumeVal = PHINode::Create(
         OrigPhi->getType(), 3, "bc.resume.val", ScalarPH->getTerminator());
+    // Copy original phi DL over to the new one.
+    BCResumeVal->setDebugLoc(OrigPhi->getDebugLoc());
     Value *&EndValue = IVEndValues[OrigPhi];
     if (OrigPhi == OldInduction) {
       // We know what the end value is.
@@ -3515,12 +3534,11 @@ void InnerLoopVectorizer::fixFirstOrderRecurrence(PHINode *Phi) {
   // Finally, fix users of the recurrence outside the loop. The users will need
   // either the last value of the scalar recurrence or the last value of the
   // vector recurrence we extracted in the middle block. Since the loop is in
-  // LCSSA form, we just need to find the phi node for the original scalar
+  // LCSSA form, we just need to find all the phi nodes for the original scalar
   // recurrence in the exit block, and then add an edge for the middle block.
   for (PHINode &LCSSAPhi : LoopExitBlock->phis()) {
     if (LCSSAPhi.getIncomingValue(0) == Phi) {
       LCSSAPhi.addIncoming(ExtractForPhiUsedOutsideLoop, LoopMiddleBlock);
-      break;
     }
   }
 }
@@ -5008,10 +5026,11 @@ LoopVectorizationCostModel::selectVectorizationFactor(unsigned MaxVF) {
   LLVM_DEBUG(dbgs() << "LV: Scalar loop costs: " << (int)ScalarCost << ".\n");
 
   bool ForceVectorization = Hints->getForce() == LoopVectorizeHints::FK_Enabled;
-  // Ignore scalar width, because the user explicitly wants vectorization.
   if (ForceVectorization && MaxVF > 1) {
-    Width = 2;
-    Cost = expectedCost(Width).first / (float)Width;
+    // Ignore scalar width, because the user explicitly wants vectorization.
+    // Initialize cost to max so that VF = 2 is, at least, chosen during cost
+    // evaluation.
+    Cost = std::numeric_limits<float>::max();
   }
 
   for (unsigned i = 2; i <= MaxVF; i *= 2) {
@@ -5291,7 +5310,7 @@ LoopVectorizationCostModel::calculateRegisterUsage(ArrayRef<unsigned> VFs) {
   // Marks the end of each interval.
   IntervalMap EndPoint;
   // Saves the list of instruction indices that are used in the loop.
-  SmallSet<Instruction *, 8> Ends;
+  SmallPtrSet<Instruction *, 8> Ends;
   // Saves the list of values that are used in the loop but are
   // defined outside the loop, such as arguments and constants.
   SmallPtrSet<Value *, 8> LoopInvariants;
@@ -5330,7 +5349,7 @@ LoopVectorizationCostModel::calculateRegisterUsage(ArrayRef<unsigned> VFs) {
   for (auto &Interval : EndPoint)
     TransposeEnds[Interval.second].push_back(Interval.first);
 
-  SmallSet<Instruction *, 8> OpenIntervals;
+  SmallPtrSet<Instruction *, 8> OpenIntervals;
 
   // Get the size of the widest register.
   unsigned MaxSafeDepDist = -1U;
@@ -6254,7 +6273,7 @@ void LoopVectorizationCostModel::collectValuesToIgnore() {
 VectorizationFactor
 LoopVectorizationPlanner::planInVPlanNativePath(bool OptForSize,
                                                 unsigned UserVF) {
-  // Width 1 means no vectorize, cost 0 means uncomputed cost.
+  // Width 1 means no vectorization, cost 0 means uncomputed cost.
   const VectorizationFactor NoVectorization = {1U, 0U};
 
   // Outer loop handling: They may require CFG and instruction level
@@ -6262,11 +6281,21 @@ LoopVectorizationPlanner::planInVPlanNativePath(bool OptForSize,
   // Since we cannot modify the incoming IR, we need to build VPlan upfront in
   // the vectorization pipeline.
   if (!OrigLoop->empty()) {
+    // TODO: If UserVF is not provided, we set UserVF to 4 for stress testing.
+    // This won't be necessary when UserVF is not required in the VPlan-native
+    // path.
+    if (VPlanBuildStressTest && !UserVF)
+      UserVF = 4;
+
     assert(EnableVPlanNativePath && "VPlan-native path is not enabled.");
     assert(UserVF && "Expected UserVF for outer loop vectorization.");
     assert(isPowerOf2_32(UserVF) && "VF needs to be a power of two");
     LLVM_DEBUG(dbgs() << "LV: Using user VF " << UserVF << ".\n");
     buildVPlans(UserVF, UserVF);
+
+    // For VPlan build stress testing, we bail out after VPlan construction.
+    if (VPlanBuildStressTest)
+      return NoVectorization;
 
     return {UserVF, 0};
   }
@@ -6280,7 +6309,7 @@ LoopVectorizationPlanner::planInVPlanNativePath(bool OptForSize,
 VectorizationFactor
 LoopVectorizationPlanner::plan(bool OptForSize, unsigned UserVF) {
   assert(OrigLoop->empty() && "Inner loop expected.");
-  // Width 1 means no vectorize, cost 0 means uncomputed cost.
+  // Width 1 means no vectorization, cost 0 means uncomputed cost.
   const VectorizationFactor NoVectorization = {1U, 0U};
   Optional<unsigned> MaybeMaxVF = CM.computeMaxVF(OptForSize);
   if (!MaybeMaxVF.hasValue()) // Cases considered too costly to vectorize.
@@ -6292,7 +6321,7 @@ LoopVectorizationPlanner::plan(bool OptForSize, unsigned UserVF) {
     // Collect the instructions (and their associated costs) that will be more
     // profitable to scalarize.
     CM.selectUserVectorizationFactor(UserVF);
-    buildVPlans(UserVF, UserVF);
+    buildVPlansWithVPRecipes(UserVF, UserVF);
     LLVM_DEBUG(printPlans(dbgs()));
     return {UserVF, 0};
   }
@@ -6310,7 +6339,7 @@ LoopVectorizationPlanner::plan(bool OptForSize, unsigned UserVF) {
       CM.collectInstsToScalarize(VF);
   }
 
-  buildVPlans(1, MaxVF);
+  buildVPlansWithVPRecipes(1, MaxVF);
   LLVM_DEBUG(printPlans(dbgs()));
   if (MaxVF == 1)
     return NoVectorization;
@@ -6471,30 +6500,15 @@ bool LoopVectorizationPlanner::getDecisionAndClampRange(
 /// vectorization decision can potentially shorten this sub-range during
 /// buildVPlan().
 void LoopVectorizationPlanner::buildVPlans(unsigned MinVF, unsigned MaxVF) {
-
-  // Collect conditions feeding internal conditional branches; they need to be
-  // represented in VPlan for it to model masking.
-  SmallPtrSet<Value *, 1> NeedDef;
-
-  auto *Latch = OrigLoop->getLoopLatch();
-  for (BasicBlock *BB : OrigLoop->blocks()) {
-    if (BB == Latch)
-      continue;
-    BranchInst *Branch = dyn_cast<BranchInst>(BB->getTerminator());
-    if (Branch && Branch->isConditional())
-      NeedDef.insert(Branch->getCondition());
-  }
-
   for (unsigned VF = MinVF; VF < MaxVF + 1;) {
     VFRange SubRange = {VF, MaxVF + 1};
-    VPlans.push_back(buildVPlan(SubRange, NeedDef));
+    VPlans.push_back(buildVPlan(SubRange));
     VF = SubRange.End;
   }
 }
 
-VPValue *LoopVectorizationPlanner::createEdgeMask(BasicBlock *Src,
-                                                  BasicBlock *Dst,
-                                                  VPlanPtr &Plan) {
+VPValue *VPRecipeBuilder::createEdgeMask(BasicBlock *Src, BasicBlock *Dst,
+                                         VPlanPtr &Plan) {
   assert(is_contained(predecessors(Dst), Src) && "Invalid edge");
 
   // Look for cached value.
@@ -6524,8 +6538,7 @@ VPValue *LoopVectorizationPlanner::createEdgeMask(BasicBlock *Src,
   return EdgeMaskCache[Edge] = EdgeMask;
 }
 
-VPValue *LoopVectorizationPlanner::createBlockInMask(BasicBlock *BB,
-                                                     VPlanPtr &Plan) {
+VPValue *VPRecipeBuilder::createBlockInMask(BasicBlock *BB, VPlanPtr &Plan) {
   assert(OrigLoop->contains(BB) && "Block is not a part of a loop");
 
   // Look for cached value.
@@ -6558,9 +6571,8 @@ VPValue *LoopVectorizationPlanner::createBlockInMask(BasicBlock *BB,
   return BlockMaskCache[BB] = BlockMask;
 }
 
-VPInterleaveRecipe *
-LoopVectorizationPlanner::tryToInterleaveMemory(Instruction *I,
-                                                VFRange &Range) {
+VPInterleaveRecipe *VPRecipeBuilder::tryToInterleaveMemory(Instruction *I,
+                                                           VFRange &Range) {
   const InterleaveGroup *IG = CM.getInterleavedAccessGroup(I);
   if (!IG)
     return nullptr;
@@ -6573,7 +6585,7 @@ LoopVectorizationPlanner::tryToInterleaveMemory(Instruction *I,
                   LoopVectorizationCostModel::CM_Interleave);
     };
   };
-  if (!getDecisionAndClampRange(isIGMember(I), Range))
+  if (!LoopVectorizationPlanner::getDecisionAndClampRange(isIGMember(I), Range))
     return nullptr;
 
   // I is a member of an InterleaveGroup for VF's in the (possibly trimmed)
@@ -6586,8 +6598,8 @@ LoopVectorizationPlanner::tryToInterleaveMemory(Instruction *I,
 }
 
 VPWidenMemoryInstructionRecipe *
-LoopVectorizationPlanner::tryToWidenMemory(Instruction *I, VFRange &Range,
-                                           VPlanPtr &Plan) {
+VPRecipeBuilder::tryToWidenMemory(Instruction *I, VFRange &Range,
+                                  VPlanPtr &Plan) {
   if (!isa<LoadInst>(I) && !isa<StoreInst>(I))
     return nullptr;
 
@@ -6606,7 +6618,7 @@ LoopVectorizationPlanner::tryToWidenMemory(Instruction *I, VFRange &Range,
     return Decision != LoopVectorizationCostModel::CM_Scalarize;
   };
 
-  if (!getDecisionAndClampRange(willWiden, Range))
+  if (!LoopVectorizationPlanner::getDecisionAndClampRange(willWiden, Range))
     return nullptr;
 
   VPValue *Mask = nullptr;
@@ -6617,8 +6629,7 @@ LoopVectorizationPlanner::tryToWidenMemory(Instruction *I, VFRange &Range,
 }
 
 VPWidenIntOrFpInductionRecipe *
-LoopVectorizationPlanner::tryToOptimizeInduction(Instruction *I,
-                                                 VFRange &Range) {
+VPRecipeBuilder::tryToOptimizeInduction(Instruction *I, VFRange &Range) {
   if (PHINode *Phi = dyn_cast<PHINode>(I)) {
     // Check if this is an integer or fp induction. If so, build the recipe that
     // produces its scalar and vector values.
@@ -6643,15 +6654,14 @@ LoopVectorizationPlanner::tryToOptimizeInduction(Instruction *I,
         [=](unsigned VF) -> bool { return CM.isOptimizableIVTruncate(K, VF); };
   };
 
-  if (isa<TruncInst>(I) &&
-      getDecisionAndClampRange(isOptimizableIVTruncate(I), Range))
+  if (isa<TruncInst>(I) && LoopVectorizationPlanner::getDecisionAndClampRange(
+                               isOptimizableIVTruncate(I), Range))
     return new VPWidenIntOrFpInductionRecipe(cast<PHINode>(I->getOperand(0)),
                                              cast<TruncInst>(I));
   return nullptr;
 }
 
-VPBlendRecipe *
-LoopVectorizationPlanner::tryToBlend(Instruction *I, VPlanPtr &Plan) {
+VPBlendRecipe *VPRecipeBuilder::tryToBlend(Instruction *I, VPlanPtr &Plan) {
   PHINode *Phi = dyn_cast<PHINode>(I);
   if (!Phi || Phi->getParent() == OrigLoop->getHeader())
     return nullptr;
@@ -6675,8 +6685,8 @@ LoopVectorizationPlanner::tryToBlend(Instruction *I, VPlanPtr &Plan) {
   return new VPBlendRecipe(Phi, Masks);
 }
 
-bool LoopVectorizationPlanner::tryToWiden(Instruction *I, VPBasicBlock *VPBB,
-                                          VFRange &Range) {
+bool VPRecipeBuilder::tryToWiden(Instruction *I, VPBasicBlock *VPBB,
+                                 VFRange &Range) {
   if (CM.isScalarWithPredication(I))
     return false;
 
@@ -6761,7 +6771,7 @@ bool LoopVectorizationPlanner::tryToWiden(Instruction *I, VPBasicBlock *VPBB,
     return true;
   };
 
-  if (!getDecisionAndClampRange(willWiden, Range))
+  if (!LoopVectorizationPlanner::getDecisionAndClampRange(willWiden, Range))
     return false;
 
   // Success: widen this instruction. We optimize the common case where
@@ -6776,11 +6786,11 @@ bool LoopVectorizationPlanner::tryToWiden(Instruction *I, VPBasicBlock *VPBB,
   return true;
 }
 
-VPBasicBlock *LoopVectorizationPlanner::handleReplication(
+VPBasicBlock *VPRecipeBuilder::handleReplication(
     Instruction *I, VFRange &Range, VPBasicBlock *VPBB,
     DenseMap<Instruction *, VPReplicateRecipe *> &PredInst2Recipe,
     VPlanPtr &Plan) {
-  bool IsUniform = getDecisionAndClampRange(
+  bool IsUniform = LoopVectorizationPlanner::getDecisionAndClampRange(
       [&](unsigned VF) { return CM.isUniformAfterVectorization(I, VF); },
       Range);
 
@@ -6806,15 +6816,16 @@ VPBasicBlock *LoopVectorizationPlanner::handleReplication(
          "VPBB has successors when handling predicated replication.");
   // Record predicated instructions for above packing optimizations.
   PredInst2Recipe[I] = Recipe;
-  VPBlockBase *Region =
-    VPBB->setOneSuccessor(createReplicateRegion(I, Recipe, Plan));
-  return cast<VPBasicBlock>(Region->setOneSuccessor(new VPBasicBlock()));
+  VPBlockBase *Region = createReplicateRegion(I, Recipe, Plan);
+  VPBlockUtils::insertBlockAfter(Region, VPBB);
+  auto *RegSucc = new VPBasicBlock();
+  VPBlockUtils::insertBlockAfter(RegSucc, Region);
+  return RegSucc;
 }
 
-VPRegionBlock *
-LoopVectorizationPlanner::createReplicateRegion(Instruction *Instr,
-                                                VPRecipeBase *PredRecipe,
-                                                VPlanPtr &Plan) {
+VPRegionBlock *VPRecipeBuilder::createReplicateRegion(Instruction *Instr,
+                                                      VPRecipeBase *PredRecipe,
+                                                      VPlanPtr &Plan) {
   // Instructions marked for predication are replicated and placed under an
   // if-then construct to prevent side-effects.
 
@@ -6834,32 +6845,67 @@ LoopVectorizationPlanner::createReplicateRegion(Instruction *Instr,
 
   // Note: first set Entry as region entry and then connect successors starting
   // from it in order, to propagate the "parent" of each VPBasicBlock.
-  Entry->setTwoSuccessors(Pred, Exit);
-  Pred->setOneSuccessor(Exit);
+  VPBlockUtils::insertTwoBlocksAfter(Pred, Exit, BlockInMask, Entry);
+  VPBlockUtils::connectBlocks(Pred, Exit);
 
   return Region;
 }
 
-LoopVectorizationPlanner::VPlanPtr
-LoopVectorizationPlanner::buildVPlan(VFRange &Range,
-                                     const SmallPtrSetImpl<Value *> &NeedDef) {
-  // Outer loop handling: They may require CFG and instruction level
-  // transformations before even evaluating whether vectorization is profitable.
-  // Since we cannot modify the incoming IR, we need to build VPlan upfront in
-  // the vectorization pipeline.
-  if (!OrigLoop->empty()) {
-    assert(EnableVPlanNativePath && "VPlan-native path is not enabled.");
-
-    // Create new empty VPlan
-    auto Plan = llvm::make_unique<VPlan>();
-    return Plan;
+bool VPRecipeBuilder::tryToCreateRecipe(Instruction *Instr, VFRange &Range,
+                                        VPlanPtr &Plan, VPBasicBlock *VPBB) {
+  VPRecipeBase *Recipe = nullptr;
+  // Check if Instr should belong to an interleave memory recipe, or already
+  // does. In the latter case Instr is irrelevant.
+  if ((Recipe = tryToInterleaveMemory(Instr, Range))) {
+    VPBB->appendRecipe(Recipe);
+    return true;
   }
 
+  // Check if Instr is a memory operation that should be widened.
+  if ((Recipe = tryToWidenMemory(Instr, Range, Plan))) {
+    VPBB->appendRecipe(Recipe);
+    return true;
+  }
+
+  // Check if Instr should form some PHI recipe.
+  if ((Recipe = tryToOptimizeInduction(Instr, Range))) {
+    VPBB->appendRecipe(Recipe);
+    return true;
+  }
+  if ((Recipe = tryToBlend(Instr, Plan))) {
+    VPBB->appendRecipe(Recipe);
+    return true;
+  }
+  if (PHINode *Phi = dyn_cast<PHINode>(Instr)) {
+    VPBB->appendRecipe(new VPWidenPHIRecipe(Phi));
+    return true;
+  }
+
+  // Check if Instr is to be widened by a general VPWidenRecipe, after
+  // having first checked for specific widening recipes that deal with
+  // Interleave Groups, Inductions and Phi nodes.
+  if (tryToWiden(Instr, VPBB, Range))
+    return true;
+
+  return false;
+}
+
+void LoopVectorizationPlanner::buildVPlansWithVPRecipes(unsigned MinVF,
+                                                        unsigned MaxVF) {
   assert(OrigLoop->empty() && "Inner loop expected.");
-  EdgeMaskCache.clear();
-  BlockMaskCache.clear();
-  DenseMap<Instruction *, Instruction *> &SinkAfter = Legal->getSinkAfter();
-  DenseMap<Instruction *, Instruction *> SinkAfterInverse;
+
+  // Collect conditions feeding internal conditional branches; they need to be
+  // represented in VPlan for it to model masking.
+  SmallPtrSet<Value *, 1> NeedDef;
+
+  auto *Latch = OrigLoop->getLoopLatch();
+  for (BasicBlock *BB : OrigLoop->blocks()) {
+    if (BB == Latch)
+      continue;
+    BranchInst *Branch = dyn_cast<BranchInst>(BB->getTerminator());
+    if (Branch && Branch->isConditional())
+      NeedDef.insert(Branch->getCondition());
+  }
 
   // Collect instructions from the original loop that will become trivially dead
   // in the vectorized loop. We don't need to vectorize these instructions. For
@@ -6870,15 +6916,31 @@ LoopVectorizationPlanner::buildVPlan(VFRange &Range,
   SmallPtrSet<Instruction *, 4> DeadInstructions;
   collectTriviallyDeadInstructions(DeadInstructions);
 
+  for (unsigned VF = MinVF; VF < MaxVF + 1;) {
+    VFRange SubRange = {VF, MaxVF + 1};
+    VPlans.push_back(
+        buildVPlanWithVPRecipes(SubRange, NeedDef, DeadInstructions));
+    VF = SubRange.End;
+  }
+}
+
+LoopVectorizationPlanner::VPlanPtr
+LoopVectorizationPlanner::buildVPlanWithVPRecipes(
+    VFRange &Range, SmallPtrSetImpl<Value *> &NeedDef,
+    SmallPtrSetImpl<Instruction *> &DeadInstructions) {
   // Hold a mapping from predicated instructions to their recipes, in order to
   // fix their AlsoPack behavior if a user is determined to replicate and use a
   // scalar instead of vector value.
   DenseMap<Instruction *, VPReplicateRecipe *> PredInst2Recipe;
 
+  DenseMap<Instruction *, Instruction *> &SinkAfter = Legal->getSinkAfter();
+  DenseMap<Instruction *, Instruction *> SinkAfterInverse;
+
   // Create a dummy pre-entry VPBasicBlock to start building the VPlan.
   VPBasicBlock *VPBB = new VPBasicBlock("Pre-Entry");
   auto Plan = llvm::make_unique<VPlan>(VPBB);
 
+  VPRecipeBuilder RecipeBuilder(OrigLoop, TLI, TTI, Legal, CM, Builder);
   // Represent values that will have defs inside VPlan.
   for (Value *V : NeedDef)
     Plan->addVPValue(V);
@@ -6893,7 +6955,7 @@ LoopVectorizationPlanner::buildVPlan(VFRange &Range,
     // ingredients and fill a new VPBasicBlock.
     unsigned VPBBsForBB = 0;
     auto *FirstVPBBForBB = new VPBasicBlock(BB->getName());
-    VPBB->setOneSuccessor(FirstVPBBForBB);
+    VPBlockUtils::insertBlockAfter(FirstVPBBForBB, VPBB);
     VPBB = FirstVPBBForBB;
     Builder.setInsertPoint(VPBB);
 
@@ -6944,45 +7006,13 @@ LoopVectorizationPlanner::buildVPlan(VFRange &Range,
 
     // Introduce each ingredient into VPlan.
     for (Instruction *Instr : Ingredients) {
-      VPRecipeBase *Recipe = nullptr;
-
-      // Check if Instr should belong to an interleave memory recipe, or already
-      // does. In the latter case Instr is irrelevant.
-      if ((Recipe = tryToInterleaveMemory(Instr, Range))) {
-        VPBB->appendRecipe(Recipe);
-        continue;
-      }
-
-      // Check if Instr is a memory operation that should be widened.
-      if ((Recipe = tryToWidenMemory(Instr, Range, Plan))) {
-        VPBB->appendRecipe(Recipe);
-        continue;
-      }
-
-      // Check if Instr should form some PHI recipe.
-      if ((Recipe = tryToOptimizeInduction(Instr, Range))) {
-        VPBB->appendRecipe(Recipe);
-        continue;
-      }
-      if ((Recipe = tryToBlend(Instr, Plan))) {
-        VPBB->appendRecipe(Recipe);
-        continue;
-      }
-      if (PHINode *Phi = dyn_cast<PHINode>(Instr)) {
-        VPBB->appendRecipe(new VPWidenPHIRecipe(Phi));
-        continue;
-      }
-
-      // Check if Instr is to be widened by a general VPWidenRecipe, after
-      // having first checked for specific widening recipes that deal with
-      // Interleave Groups, Inductions and Phi nodes.
-      if (tryToWiden(Instr, VPBB, Range))
+      if (RecipeBuilder.tryToCreateRecipe(Instr, Range, Plan, VPBB))
         continue;
 
       // Otherwise, if all widening options failed, Instruction is to be
       // replicated. This may create a successor for VPBB.
-      VPBasicBlock *NextVPBB =
-        handleReplication(Instr, Range, VPBB, PredInst2Recipe, Plan);
+      VPBasicBlock *NextVPBB = RecipeBuilder.handleReplication(
+          Instr, Range, VPBB, PredInst2Recipe, Plan);
       if (NextVPBB != VPBB) {
         VPBB = NextVPBB;
         VPBB->setName(BB->hasName() ? BB->getName() + "." + Twine(VPBBsForBB++)
@@ -6997,7 +7027,7 @@ LoopVectorizationPlanner::buildVPlan(VFRange &Range,
   VPBasicBlock *PreEntry = cast<VPBasicBlock>(Plan->getEntry());
   assert(PreEntry->empty() && "Expecting empty pre-entry block.");
   VPBlockBase *Entry = Plan->setEntry(PreEntry->getSingleSuccessor());
-  PreEntry->disconnectSuccessor(Entry);
+  VPBlockUtils::disconnectBlocks(PreEntry, Entry);
   delete PreEntry;
 
   std::string PlanName;
@@ -7012,6 +7042,25 @@ LoopVectorizationPlanner::buildVPlan(VFRange &Range,
   RSO << "},UF>=1";
   RSO.flush();
   Plan->setName(PlanName);
+
+  return Plan;
+}
+
+LoopVectorizationPlanner::VPlanPtr
+LoopVectorizationPlanner::buildVPlan(VFRange &Range) {
+  // Outer loop handling: They may require CFG and instruction level
+  // transformations before even evaluating whether vectorization is profitable.
+  // Since we cannot modify the incoming IR, we need to build VPlan upfront in
+  // the vectorization pipeline.
+  assert(!OrigLoop->empty());
+  assert(EnableVPlanNativePath && "VPlan-native path is not enabled.");
+
+  // Create new empty VPlan
+  auto Plan = llvm::make_unique<VPlan>();
+
+  // Build hierarchical CFG
+  VPlanHCFGBuilder HCFGBuilder(OrigLoop, LI);
+  HCFGBuilder.buildHierarchicalCFG(*Plan.get());
 
   return Plan;
 }

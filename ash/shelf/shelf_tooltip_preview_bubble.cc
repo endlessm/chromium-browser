@@ -4,53 +4,88 @@
 
 #include "ash/shelf/shelf_tooltip_preview_bubble.h"
 
+#include "base/strings/utf_string_conversions.h"
+
 namespace ash {
 
-constexpr int kTooltipMaxDimension = 250;
-constexpr int kTooltipMargin = 1;
+
+// The padding inside the tooltip.
+constexpr int kTooltipPaddingTop = 8;
+constexpr int kTooltipPaddingBottom = 16;
+constexpr int kTooltipPaddingLeftRight = 16;
+
+// The padding between individual previews.
+constexpr int kPreviewPadding = 22;
 
 ShelfTooltipPreviewBubble::ShelfTooltipPreviewBubble(
     views::View* anchor,
     views::BubbleBorder::Arrow arrow,
-    aura::Window* window)
-    : views::BubbleDialogDelegateView(anchor, arrow) {
-  preview_ =
-      new wm::WindowMirrorView(window, /* trilinear_filtering_on_init */ false);
-
-  gfx::Size preview_size = preview_->CalculatePreferredSize();
-  float preview_ratio = static_cast<float>(preview_size.width()) /
-                        static_cast<float>(preview_size.height());
-  int preview_height = kTooltipMaxDimension;
-  int preview_width = kTooltipMaxDimension;
-  if (preview_ratio > 1) {
-    preview_height = kTooltipMaxDimension / preview_ratio;
-  } else {
-    preview_width = kTooltipMaxDimension * preview_ratio;
+    const std::vector<aura::Window*>& windows,
+    ShelfTooltipManager* manager)
+    : ShelfTooltipBubbleBase(anchor, arrow), manager_(manager) {
+  const ui::NativeTheme* theme = anchor_widget()->GetNativeTheme();
+  for (auto* window : windows) {
+    WindowPreview* preview = new WindowPreview(window, this, theme);
+    AddChildView(preview);
+    previews_.push_back(preview);
   }
-  preview_->SetBoundsRect(gfx::Rect(gfx::Size(preview_width, preview_height)));
 
-  AddChildView(preview_);
-
-  // Place the bubble in the same display as the anchor.
-  set_parent_window(
-      anchor_widget()->GetNativeWindow()->GetRootWindow()->GetChildById(
-          kShellWindowId_SettingBubbleContainer));
-  set_margins(gfx::Insets(kTooltipMargin, kTooltipMargin));
-
+  set_margins(gfx::Insets(kTooltipPaddingTop, kTooltipPaddingLeftRight,
+                          kTooltipPaddingBottom, kTooltipPaddingLeftRight));
   views::BubbleDialogDelegateView::CreateBubble(this);
+  // This must be done after creating the bubble (a segmentation fault happens
+  // otherwise).
+  SetArrowPaintType(views::BubbleBorder::PAINT_TRANSPARENT);
+}
+
+ShelfTooltipPreviewBubble::~ShelfTooltipPreviewBubble() = default;
+
+void ShelfTooltipPreviewBubble::Layout() {
+  width_ = 0;
+  height_ = 0;
+  for (WindowPreview* preview : previews_) {
+    preview->Layout();
+    gfx::Size size = preview->CalculatePreferredSize();
+    preview->SetBoundsRect(gfx::Rect(width_, 0, size.width(), size.height()));
+    height_ = std::max(height_, size.height());
+    width_ += size.width() + kPreviewPadding;
+  }
+
+  // We've counted one too many paddings at the end.
+  width_ -= kPreviewPadding;
+}
+
+void ShelfTooltipPreviewBubble::RemovePreview(WindowPreview* to_remove) {
+  base::Erase(previews_, to_remove);
+  RemoveChildView(to_remove);
+  // If we don't have any previews left, close the tooltip.
+  if (previews_.empty()) {
+    manager_->Close();
+  }
 }
 
 gfx::Size ShelfTooltipPreviewBubble::CalculatePreferredSize() const {
-  if (preview_ == nullptr) {
+  if (previews_.empty()) {
     return BubbleDialogDelegateView::CalculatePreferredSize();
   }
-  // TODO: This is mostly a placeholder for a very first version. Compute this
-  // properly.
-  return gfx::Size(kTooltipMaxDimension, kTooltipMaxDimension);
+  return gfx::Size(width_, height_);
 }
 
-int ShelfTooltipPreviewBubble::GetDialogButtons() const {
-  return ui::DIALOG_BUTTON_NONE;
+bool ShelfTooltipPreviewBubble::ShouldCloseOnPressDown() {
+  return false;
+}
+
+bool ShelfTooltipPreviewBubble::ShouldCloseOnMouseExit() {
+  return false;
+}
+
+void ShelfTooltipPreviewBubble::OnPreviewDismissed(WindowPreview* preview) {
+  RemovePreview(preview);
+}
+
+void ShelfTooltipPreviewBubble::OnPreviewActivated(WindowPreview* preview) {
+  // Always close the tooltip when a window has been focused.
+  manager_->Close();
 }
 
 }  // namespace ash

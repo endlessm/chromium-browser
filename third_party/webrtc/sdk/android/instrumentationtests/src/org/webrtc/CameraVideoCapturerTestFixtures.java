@@ -101,7 +101,7 @@ class CameraVideoCapturerTestFixtures {
     }
   }
 
-  static private class FakeCapturerObserver implements CameraVideoCapturer.CapturerObserver {
+  static private class FakeCapturerObserver implements CapturerObserver {
     private int framesCaptured = 0;
     private @Nullable VideoFrame videoFrame;
     final private Object frameLock = new Object();
@@ -272,6 +272,7 @@ class CameraVideoCapturerTestFixtures {
    * is used for testing local rendering from a capturer.
    */
   static private class VideoTrackWithRenderer {
+    public SurfaceTextureHelper surfaceTextureHelper;
     public VideoSource source;
     public VideoTrack track;
     public RendererCallbacks rendererCallbacks;
@@ -334,6 +335,7 @@ class CameraVideoCapturerTestFixtures {
   CameraVideoCapturerTestFixtures(TestObjectFactory testObjectFactory) {
     PeerConnectionFactory.initialize(
         PeerConnectionFactory.InitializationOptions.builder(testObjectFactory.getAppContext())
+            .setNativeLibraryName(TestConstants.NATIVE_LIBRARY)
             .createInitializationOptions());
 
     this.peerConnectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory();
@@ -388,7 +390,12 @@ class CameraVideoCapturerTestFixtures {
   private VideoTrackWithRenderer createVideoTrackWithRenderer(
       CameraVideoCapturer capturer, VideoSink rendererCallbacks) {
     VideoTrackWithRenderer videoTrackWithRenderer = new VideoTrackWithRenderer();
-    videoTrackWithRenderer.source = peerConnectionFactory.createVideoSource(capturer);
+    videoTrackWithRenderer.surfaceTextureHelper = SurfaceTextureHelper.create(
+        "SurfaceTextureHelper test" /* threadName */, null /* sharedContext */);
+    videoTrackWithRenderer.source =
+        peerConnectionFactory.createVideoSource(/* isScreencast= */ false);
+    capturer.initialize(videoTrackWithRenderer.surfaceTextureHelper,
+        testObjectFactory.getAppContext(), videoTrackWithRenderer.source.getCapturerObserver());
     capturer.startCapture(DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS);
     videoTrackWithRenderer.track =
         peerConnectionFactory.createVideoTrack("dummy", videoTrackWithRenderer.source);

@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/files/file_util.h"
@@ -155,8 +156,8 @@ void CollectCopyHistogramSample(const std::string& histogram_name,
 
 // Metadata jobs are cheap, so we run them concurrently. File jobs run serially.
 const int JobScheduler::kMaxJobCount[] = {
-  5,  // METADATA_QUEUE
-  1,  // FILE_QUEUE
+    20,  // METADATA_QUEUE
+    1,   // FILE_QUEUE
 };
 
 JobScheduler::JobEntry::JobEntry(JobType type)
@@ -193,8 +194,8 @@ JobScheduler::JobScheduler(
       pref_service_(pref_service),
       weak_ptr_factory_(this) {
   for (int i = 0; i < NUM_QUEUES; ++i)
-    queue_[i].reset(new JobQueue(kMaxJobCount[i], NUM_CONTEXT_TYPES,
-                                 kMaxBatchCount, kMaxBatchSize));
+    queue_[i] = std::make_unique<JobQueue>(kMaxJobCount[i], NUM_CONTEXT_TYPES,
+                                           kMaxBatchCount, kMaxBatchSize);
 
   net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
 }
@@ -319,18 +320,17 @@ void JobScheduler::GetAllTeamDriveList(
 }
 
 void JobScheduler::GetAllFileList(
+    const std::string& team_drive_id,
     const google_apis::FileListCallback& callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   JobEntry* new_job = CreateNewJob(TYPE_GET_ALL_RESOURCE_LIST);
-  new_job->task = base::Bind(
-      &DriveServiceInterface::GetAllFileList,
-      base::Unretained(drive_service_),
-      base::Bind(&JobScheduler::OnGetFileListJobDone,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 new_job->job_info.job_id,
-                 callback));
+  new_job->task = base::Bind(&DriveServiceInterface::GetAllFileList,
+                             base::Unretained(drive_service_), team_drive_id,
+                             base::Bind(&JobScheduler::OnGetFileListJobDone,
+                                        weak_ptr_factory_.GetWeakPtr(),
+                                        new_job->job_info.job_id, callback));
   new_job->abort_callback = CreateErrorRunCallback(callback);
   StartJob(new_job);
 }

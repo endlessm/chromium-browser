@@ -203,6 +203,11 @@ class OmniboxViewViewsTest : public ChromeViewsTestBase {
   void SetUp() override;
   void TearDown() override;
 
+  ui::MouseEvent CreateEvent(ui::EventType type, int flags) {
+    return ui::MouseEvent(type, gfx::Point(0, 0), gfx::Point(),
+                          ui::EventTimeForNow(), flags, 0);
+  }
+
  private:
   content::TestBrowserThreadBundle thread_bundle_;
   TestingProfile profile_;

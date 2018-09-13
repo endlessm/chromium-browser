@@ -92,6 +92,7 @@ Dacă ai terminat tutorialul, folosește ChromeVox pentru a naviga la butonul Î
 <translation id="1787176709638001873">Câmp text de editare a parolei</translation>
 <translation id="1802710350767629429">Afișează notele privind actualizarea</translation>
 <translation id="1810107444790159527">Casetă listă</translation>
+<translation id="1812527064848182527">peisaj</translation>
 <translation id="1828385960365606039">Mai</translation>
 <translation id="1834891354138622109">Coloană</translation>
 <translation id="1845944666972354496">Atinge de două ori pentru a activa</translation>
@@ -146,6 +147,7 @@ Dacă ai terminat tutorialul, folosește ChromeVox pentru a naviga la butonul Î
 <translation id="2416512023405990736">O casetă de selectare nebifată</translation>
 <translation id="2417569100218200841">Informații privind conținutul</translation>
 <translation id="2417948780551741035">Note de final</translation>
+<translation id="2421113964388408478">Ștergere</translation>
 <translation id="2422937916923936891">Casetă de selectare pentru element de meniu</translation>
 <translation id="2428534162001909979">Meniuri de comenzi</translation>
 <translation id="2429669115401274487">p.m.</translation>
@@ -253,6 +255,7 @@ Dacă ai terminat tutorialul, folosește ChromeVox pentru a naviga la butonul Î
 <translation id="3232388865800379423">Un buton pop-up</translation>
 <translation id="3241052487511142956">Link accesat anterior</translation>
 <translation id="3241638166094654466">Celule pe fiecare rând:</translation>
+<translation id="3286372614333682499">portret</translation>
 <translation id="3286390186030710347">Glisor</translation>
 <translation id="3299925995433437805">Nu există un link accesat următor.</translation>
 <translation id="3300348286427369683">Compatibilitate cu textul îmbogățit. ChromeVox acceptă acum câmpuri de text îmbogățit, inclusiv comenzi de accesare, orientarea cursorului pentru textul braille, selectarea și altele.</translation>
@@ -426,6 +429,7 @@ Dacă ai terminat tutorialul, folosește ChromeVox pentru a naviga la butonul Î
 <translation id="4476183483923481720">rând nou</translation>
 <translation id="4482330759234983253">Tabelul anterior</translation>
 <translation id="4491109536499578614">Imagine</translation>
+<translation id="4505167975768625962">Inserare</translation>
 <translation id="4517854969512651305">Mărește valoarea</translation>
 <translation id="4529987814483543472">Harta clasică a tastelor</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{bară oblică spre dreapta}few{# bare oblice spre dreapta}other{# de bare oblice spre dreapta}}</translation>
@@ -589,6 +593,7 @@ Dacă ai terminat tutorialul, folosește ChromeVox pentru a naviga la butonul Î
 <translation id="5712338278108304766">Coloana următoare din tabel</translation>
 <translation id="571866080859340309">Explorarea grupurilor</translation>
 <translation id="5728409797179002635">Nu a fost găsit niciun tabel.</translation>
+<translation id="5729047866208036762">Atinge tasta săgeată în sus, în jos, spre stânga sau spre dreapta pentru a explora funcțiile matematice.</translation>
 <translation id="5732189279857692565">Acesta este al doilea titlu. Continuă; apasă pe tasta de căutare + H sau pe tasta de căutare + Shift + H</translation>
 <translation id="5748623122140342504">Titlul de nivel 5 anterior</translation>
 <translation id="5750633686117194034">Nu a fost apăsat niciun modificator; apăsați și mențineți apăsat pe unul sau mai mulți modificatori; după efectuare, ridicați degetele și veți auzi tastele setate. Apăsați pe tasta Tab pentru a ieși.</translation>
@@ -744,6 +749,7 @@ Pentru a deschide meniul browserului Chrome, apasă pe Alt + F.</translation>
 <translation id="7226216518520804442">listă</translation>
 <translation id="7229749224609077523">Selectează un tabel braille cu 6 puncte:</translation>
 <translation id="72393384879519786">Titlu</translation>
+<translation id="7240858705033280249">Accesează Detaliile</translation>
 <translation id="7241683698754534149">Deschideți descrierea lungă într-o filă nouă</translation>
 <translation id="7248671827512403053">Aplicație</translation>
 <translation id="725969808843520477">Butonul radio următor</translation>
@@ -920,6 +926,7 @@ Pentru a deschide meniul browserului Chrome, apasă pe Alt + F.</translation>
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Selectează un tabel braille cu 8 puncte:</translation>
 <translation id="9065283790526219006">+fereastră pop-up</translation>
+<translation id="9066023754636984703">Apasă tasta de căutare + A, J pentru a accesa detaliile.</translation>
 <translation id="9067522039955793016">Sfârșit de pagină</translation>
 <translation id="9077213568694924680">eliminate din selecție</translation>
 <translation id="9082874451376019682">Nu există un glisor anterior.</translation>

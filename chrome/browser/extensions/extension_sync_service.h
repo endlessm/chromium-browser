@@ -18,11 +18,11 @@
 #include "extensions/browser/extension_prefs_observer.h"
 #include "extensions/browser/extension_registry_observer.h"
 
-class ExtensionService;
 class Profile;
 
 namespace extensions {
 class Extension;
+class ExtensionService;
 class ExtensionSet;
 class ExtensionSyncData;
 }  // namespace extensions
@@ -70,7 +70,7 @@ class ExtensionSyncService : public syncer::SyncableService,
   // Special hack: There was a bug where themes incorrectly ended up in the
   // syncer::EXTENSIONS type. This is for cleaning up the data. crbug.com/558299
   // DO NOT USE FOR ANYTHING ELSE!
-  // TODO(treib,devlin): Remove this after M52 or so.
+  // TODO(crbug.com/862665): This *should* be safe to remove now, but it's not.
   void DeleteThemeDoNotUse(const extensions::Extension& theme);
 
  private:
@@ -78,7 +78,7 @@ class ExtensionSyncService : public syncer::SyncableService,
   FRIEND_TEST_ALL_PREFIXES(ExtensionDisabledGlobalErrorTest,
                            HigherPermissionsFromSync);
 
-  ExtensionService* extension_service() const;
+  extensions::ExtensionService* extension_service() const;
 
   // extensions::ExtensionRegistryObserver:
   void OnExtensionInstalled(content::BrowserContext* browser_context,

@@ -10,20 +10,24 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
+#include "chromecast/common/cast_redirect_manifest_handler.h"
 #include "chromecast/common/extensions_api/cast_aliases.h"
 #include "chromecast/common/extensions_api/cast_api_features.h"
 #include "chromecast/common/extensions_api/cast_api_permissions.h"
-#include "chromecast/common/extensions_api/cast_behavior_features.h"
 #include "chromecast/common/extensions_api/cast_manifest_features.h"
 #include "chromecast/common/extensions_api/cast_permission_features.h"
 #include "chromecast/common/extensions_api/generated_schemas.h"
-#include "chromecast/common/extensions_api/tts/tts_engine_manifest_handler.h"
 #include "components/version_info/version_info.h"
 #include "content/public/common/user_agent.h"
+#include "extensions/common/api/api_features.h"
+#include "extensions/common/api/behavior_features.h"
 #include "extensions/common/api/generated_schemas.h"
+#include "extensions/common/api/manifest_features.h"
+#include "extensions/common/api/permission_features.h"
 #include "extensions/common/common_manifest_handlers.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/extensions_aliases.h"
+#include "extensions/common/features/feature_provider.h"
 #include "extensions/common/features/json_feature_provider_source.h"
 #include "extensions/common/features/manifest_feature.h"
 #include "extensions/common/features/simple_feature.h"
@@ -44,8 +48,8 @@ namespace {
 void RegisterCastManifestHandlers() {
   DCHECK(!ManifestHandler::IsRegistrationFinalized());
   (new AutomationHandler)->Register();  // TODO(crbug/837773) De-dupe later.
+  (new chromecast::CastRedirectHandler)->Register();
   (new ContentScriptsHandler)->Register();
-  (new TtsEngineManifestHandler)->Register();
 }
 
 // TODO(jamescook): Refactor ChromePermissionsMessageProvider so we can share
@@ -117,15 +121,19 @@ const std::string CastExtensionsClient::GetProductName() {
 
 std::unique_ptr<FeatureProvider> CastExtensionsClient::CreateFeatureProvider(
     const std::string& name) const {
-  std::unique_ptr<FeatureProvider> provider;
+  auto provider = std::make_unique<FeatureProvider>();
   if (name == "api") {
-    provider = std::make_unique<CastAPIFeatureProvider>();
+    AddCoreAPIFeatures(provider.get());
+    AddCastAPIFeatures(provider.get());
   } else if (name == "manifest") {
-    provider = std::make_unique<CastManifestFeatureProvider>();
+    AddCoreManifestFeatures(provider.get());
+    AddCastManifestFeatures(provider.get());
   } else if (name == "permission") {
-    provider = std::make_unique<CastPermissionFeatureProvider>();
+    AddCorePermissionFeatures(provider.get());
+    AddCastPermissionFeatures(provider.get());
   } else if (name == "behavior") {
-    provider = std::make_unique<CastBehaviorFeatureProvider>();
+    // Note: There are no cast-specific behavior features.
+    AddCoreBehaviorFeatures(provider.get());
   } else {
     NOTREACHED();
   }

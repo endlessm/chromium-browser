@@ -16,7 +16,7 @@ env:
   matrix:
     # Each line is a set of environment variables set before a build.
     # Thus each line represents a different build configuration.
-    - BUILD_TYPE=Release
+    - BUILD_TYPE=RelWithDebInfo
     - BUILD_TYPE=Debug
 
 compiler:
@@ -24,14 +24,14 @@ compiler:
   - gcc
 
 matrix:
-  allow_failures:
-    - os: osx
   fast_finish: true
   include:
     # Additional build using Android NDK with android-cmake
     - env: BUILD_ANDROID_CMAKE=ON
     # Additional build using Android NDK with Android.mk
     - env: BUILD_ANDROID_MK=ON
+    # Additional check over format
+    - env: CHECK_FORMAT=ON
   exclude:
     # Skip GCC builds on macOS.
     - os: osx
@@ -54,6 +54,9 @@ before_install:
       git clone --depth=1 https://github.com/taka-no-me/android-cmake.git $HOME/android-cmake;
       export TOOLCHAIN_PATH=$HOME/android-cmake/android.toolchain.cmake;
     fi
+  - if [[ "$CHECK_FORMAT" == "ON" ]]; then
+      curl -L http://llvm.org/svn/llvm-project/cfe/trunk/tools/clang-format/clang-format-diff.py -o utils/clang-format-diff.py;
+    fi
 
 before_script:
   - git clone --depth=1 https://github.com/KhronosGroup/SPIRV-Headers external/spirv-headers
@@ -65,8 +68,8 @@ script:
   # Due to the limitation of Travis platform, we cannot start too many concurrent jobs.
   # Otherwise GCC will panic with internal error, possibility because of memory issues.
   # ctest with the current tests doesn't profit from using more than 4 threads.
-  - export NPROC=4;
-  - mkdir build && cd build;
+  - export NPROC=4
+  - mkdir build && cd build
   - if [[ "$BUILD_ANDROID_MK" == "ON" ]]; then
       export BUILD_DIR=$(pwd);
       mkdir ${BUILD_DIR}/libs;
@@ -82,6 +85,9 @@ script:
             -DSPIRV_BUILD_COMPRESSION=ON
             -DSPIRV_SKIP_TESTS=ON ..;
       make -j${NPROC};
+    elif [[ "$CHECK_FORMAT" == "ON" ]]; then
+      cd ..;
+      ./utils/check_code_format.sh;
     else
       cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DSPIRV_BUILD_COMPRESSION=ON -DCMAKE_INSTALL_PREFIX=install ..;
       make -j${NPROC} install;
@@ -90,7 +96,7 @@ script:
 
 after_success:
   # Create tarball for deployment
-  - if [[ "${CC}" == "clang" && "${BUILD_ANDROID_MK}" != "ON" && "${BUILD_ANDROID_CMAKE}" != "ON" ]]; then
+  - if [[ "${CC}" == "clang" && "${BUILD_ANDROID_MK}" != "ON" && "${BUILD_ANDROID_CMAKE}" != "ON" && "${CHECK_FORMAT}" != "ON" ]]; then
       cd install;
       export TARBALL=SPIRV-Tools-master-${TRAVIS_OS_NAME}-${BUILD_TYPE}.zip;
       find . -print | zip -@ ${TARBALL};
@@ -109,19 +115,7 @@ deploy:
   api_key: ${spirvtoken}
   on:
     branch: master
-    condition: ${CC} == clang && ${BUILD_ANDROID_MK} != ON && ${BUILD_ANDROID_CMAKE} != ON
+    condition: ${CC} == clang && ${BUILD_ANDROID_MK} != ON && ${BUILD_ANDROID_CMAKE} != ON && ${CHECK_FORMAT} != ON
   file: ${TARBALL}
   skip_cleanup: true
   overwrite: true
-
-notifications:
-  email:
-    recipients:
-      - andreyt@google.com
-      - antiagainst@google.com
-      - awoloszyn@google.com
-      - dneto@google.com
-      - ehsann@google.com
-      - qining@google.com
-    on_success: change
-    on_failure: always

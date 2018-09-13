@@ -85,13 +85,13 @@ MCCodeEmitter *llvm::createRISCVMCCodeEmitter(const MCInstrInfo &MCII,
   return new RISCVMCCodeEmitter(Ctx, MCII);
 }
 
-// Expand PseudoCALL to AUIPC and JALR with relocation types.
-// We expand PseudoCALL while encoding, meaning AUIPC and JALR won't go through
-// RISCV MC to MC compressed instruction transformation. This is acceptable
-// because AUIPC has no 16-bit form and C_JALR have no immediate operand field.
-// We let linker relaxation deal with it. When linker relaxation enabled,
-// AUIPC and JALR have chance relax to JAL. If C extension is enabled,
-// JAL has chance relax to C_JAL.
+// Expand PseudoCALL and PseudoTAIL to AUIPC and JALR with relocation types.
+// We expand PseudoCALL and PseudoTAIL while encoding, meaning AUIPC and JALR
+// won't go through RISCV MC to MC compressed instruction transformation. This
+// is acceptable because AUIPC has no 16-bit form and C_JALR have no immediate
+// operand field.  We let linker relaxation deal with it. When linker
+// relaxation enabled, AUIPC and JALR have chance relax to JAL. If C extension
+// is enabled, JAL has chance relax to C_JAL.
 void RISCVMCCodeEmitter::expandFunctionCall(const MCInst &MI, raw_ostream &OS,
                                             SmallVectorImpl<MCFixup> &Fixups,
                                             const MCSubtargetInfo &STI) const {
@@ -115,8 +115,12 @@ void RISCVMCCodeEmitter::expandFunctionCall(const MCInst &MI, raw_ostream &OS,
   Binary = getBinaryCodeForInstr(TmpInst, Fixups, STI);
   support::endian::write(OS, Binary, support::little);
 
-  // Emit JALR Ra, Ra, 0
-  TmpInst = MCInstBuilder(RISCV::JALR).addReg(Ra).addReg(Ra).addImm(0);
+  if (MI.getOpcode() == RISCV::PseudoTAIL)
+    // Emit JALR X0, X6, 0
+    TmpInst = MCInstBuilder(RISCV::JALR).addReg(RISCV::X0).addReg(Ra).addImm(0);
+  else
+    // Emit JALR X1, X1, 0
+    TmpInst = MCInstBuilder(RISCV::JALR).addReg(Ra).addReg(Ra).addImm(0);
   Binary = getBinaryCodeForInstr(TmpInst, Fixups, STI);
   support::endian::write(OS, Binary, support::little);
 }
@@ -186,7 +190,7 @@ RISCVMCCodeEmitter::getImmOpValueAsr1(const MCInst &MI, unsigned OpNo,
 unsigned RISCVMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
-
+  bool EnableRelax = STI.getFeatureBits()[RISCV::FeatureRelax];
   const MCOperand &MO = MI.getOperand(OpNo);
 
   MCInstrDesc const &Desc = MCII.get(MI.getOpcode());
@@ -253,6 +257,15 @@ unsigned RISCVMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
   Fixups.push_back(
       MCFixup::create(0, Expr, MCFixupKind(FixupKind), MI.getLoc()));
   ++MCNumFixups;
+
+  if (EnableRelax) {
+    if (FixupKind == RISCV::fixup_riscv_call) {
+      Fixups.push_back(
+      MCFixup::create(0, Expr, MCFixupKind(RISCV::fixup_riscv_relax),
+                      MI.getLoc()));
+      ++MCNumFixups;
+    }
+  }
 
   return 0;
 }

@@ -11,30 +11,31 @@
 
 namespace aura {
 class Window;
-}
+}  // namespace aura
 
 namespace base {
 class TimeDelta;
-}
+}  // namespace base
 
 namespace gfx {
 class Vector2d;
-}
+}  // namespace gfx
 
 namespace app_list {
 
+class AppListPresenterImpl;
 class AppListView;
 class AppListViewDelegate;
 
 // Delegate of the app list presenter which allows customizing its behavior.
 // The design of this interface was heavily influenced by the needs of Ash's
-// app list implementation (see ash::AppListPresenterDelegate).
+// app list implementation (see ash::AppListPresenterDelegateImpl).
 class APP_LIST_PRESENTER_EXPORT AppListPresenterDelegate {
  public:
   virtual ~AppListPresenterDelegate() {}
 
-  // Returns the delegate for the app list view, possibly creating one.
-  virtual AppListViewDelegate* GetViewDelegate() = 0;
+  // Sets the owner presenter of this delegate
+  virtual void SetPresenter(AppListPresenterImpl* presenter) = 0;
 
   // Called to initialize the layout of the app list.
   virtual void Init(AppListView* view,
@@ -58,10 +59,27 @@ class APP_LIST_PRESENTER_EXPORT AppListPresenterDelegate {
       aura::Window* root_window,
       bool is_visible) = 0;
 
- protected:
-  // Gets the duration for the show/hide animation in Ms.
-  static base::TimeDelta animation_duration();
+  // Returns true if the home launcher is enabled in tablet mode.
+  virtual bool IsHomeLauncherEnabledInTabletMode() = 0;
 
+  // Returns the view delegate, which will be passed into views so that views
+  // can get access to Ash.
+  virtual AppListViewDelegate* GetAppListViewDelegate() = 0;
+
+  // Returns whether the on-screen keyboard is shown.
+  virtual bool GetOnScreenKeyboardShown() = 0;
+
+  // Returns the root Window for the given display id. If there is no display
+  // for |display_id| null is returned.
+  virtual aura::Window* GetRootWindowForDisplayId(int64_t display_id) = 0;
+
+  // Called when the app list visibility changes.
+  virtual void OnVisibilityChanged(bool visible, aura::Window* root_window) = 0;
+
+  // Called when the app list target visibility changes.
+  virtual void OnTargetVisibilityChanged(bool visible) = 0;
+
+ protected:
   // Gets the duration for the hide animation for the fullscreen version of
   // the app list in Ms.
   static base::TimeDelta GetAnimationDurationFullscreen(bool is_side_shelf,
@@ -72,8 +90,6 @@ class APP_LIST_PRESENTER_EXPORT AppListPresenterDelegate {
 
   // Offset for the hide animation for the fullscreen app list in DIPs.
   static const int kAnimationOffsetFullscreen = 400;
-
-  int GetMinimumBoundsHeightForAppList(const app_list::AppListView* app_list);
 };
 
 }  // namespace app_list

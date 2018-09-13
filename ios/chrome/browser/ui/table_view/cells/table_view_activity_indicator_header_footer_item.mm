@@ -29,15 +29,32 @@
 - (void)configureHeaderFooterView:(UITableViewHeaderFooterView*)headerFooter
                        withStyler:(ChromeTableViewStyler*)styler {
   [super configureHeaderFooterView:headerFooter withStyler:styler];
-
-  // Set the contentView backgroundColor, not the header's.
-  headerFooter.contentView.backgroundColor = styler.tableViewBackgroundColor;
-
   TableViewActivityIndicatorHeaderFooterView* header =
       base::mac::ObjCCastStrict<TableViewActivityIndicatorHeaderFooterView>(
           headerFooter);
   header.titleLabel.text = self.text;
   header.subtitleLabel.text = self.subtitleText;
+  // Use colors from styler if available.
+  if (styler.tableViewBackgroundColor)
+    header.contentView.backgroundColor = styler.tableViewBackgroundColor;
+  if (styler.headerFooterTitleColor)
+    header.titleLabel.textColor = styler.headerFooterTitleColor;
+}
+
+- (CGFloat)headerHeightForWidth:(CGFloat)width {
+  static TableViewActivityIndicatorHeaderFooterView* header;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    header = [[TableViewActivityIndicatorHeaderFooterView alloc] init];
+  });
+
+  [self configureHeaderFooterView:header
+                       withStyler:[[ChromeTableViewStyler alloc] init]];
+  header.frame = CGRectMake(0, 0, width, 0);
+  [header setNeedsLayout];
+  [header layoutIfNeeded];
+  return
+      [header systemLayoutSizeFittingSize:UILayoutFittingCompressedSize].height;
 }
 
 @end
@@ -55,10 +72,16 @@
     self.titleLabel = [[UILabel alloc] init];
     self.titleLabel.font =
         [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+    [self.titleLabel
+        setContentCompressionResistancePriority:UILayoutPriorityRequired
+                                        forAxis:UILayoutConstraintAxisVertical];
     self.subtitleLabel = [[UILabel alloc] init];
     self.subtitleLabel.font =
         [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
     self.subtitleLabel.textColor = [UIColor lightGrayColor];
+    [self.subtitleLabel
+        setContentCompressionResistancePriority:UILayoutPriorityRequired
+                                        forAxis:UILayoutConstraintAxisVertical];
 
     // Vertical StackView.
     UIStackView* verticalStack = [[UIStackView alloc]
@@ -85,20 +108,31 @@
     // Add subviews to View Hierarchy.
     [self.contentView addSubview:horizontalStack];
 
+    // Lower the padding constraints priority. UITableView might try to set
+    // the header view height/width to 0 breaking the constraints. See
+    // https://crbug.com/854117 for more information.
+    NSLayoutConstraint* topAnchorConstraint = [horizontalStack.topAnchor
+        constraintGreaterThanOrEqualToAnchor:self.contentView.topAnchor
+                                    constant:kTableViewVerticalSpacing];
+    topAnchorConstraint.priority = UILayoutPriorityDefaultHigh;
+    NSLayoutConstraint* bottomAnchorConstraint = [horizontalStack.bottomAnchor
+        constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor
+                                 constant:-kTableViewVerticalSpacing];
+    bottomAnchorConstraint.priority = UILayoutPriorityDefaultHigh;
+    NSLayoutConstraint* leadingAnchorConstraint = [horizontalStack.leadingAnchor
+        constraintEqualToAnchor:self.contentView.leadingAnchor
+                       constant:kTableViewHorizontalSpacing];
+    leadingAnchorConstraint.priority = UILayoutPriorityDefaultHigh;
+    NSLayoutConstraint* trailingAnchorConstraint =
+        [horizontalStack.trailingAnchor
+            constraintEqualToAnchor:self.contentView.trailingAnchor
+                           constant:-kTableViewHorizontalSpacing];
+    trailingAnchorConstraint.priority = UILayoutPriorityDefaultHigh;
+
     // Set and activate constraints.
     [NSLayoutConstraint activateConstraints:@[
-      [horizontalStack.leadingAnchor
-          constraintEqualToAnchor:self.contentView.leadingAnchor
-                         constant:kTableViewHorizontalSpacing],
-      [horizontalStack.trailingAnchor
-          constraintEqualToAnchor:self.contentView.trailingAnchor
-                         constant:-kTableViewHorizontalSpacing],
-      [horizontalStack.topAnchor
-          constraintGreaterThanOrEqualToAnchor:self.contentView.topAnchor
-                                      constant:kTableViewVerticalSpacing],
-      [horizontalStack.bottomAnchor
-          constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor
-                                   constant:-kTableViewVerticalSpacing],
+      topAnchorConstraint, bottomAnchorConstraint, leadingAnchorConstraint,
+      trailingAnchorConstraint,
       [horizontalStack.centerYAnchor
           constraintEqualToAnchor:self.contentView.centerYAnchor]
     ]];

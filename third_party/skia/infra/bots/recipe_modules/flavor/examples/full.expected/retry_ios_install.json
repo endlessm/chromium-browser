@@ -79,7 +79,7 @@
     "cmd": [
       "ideviceinstaller",
       "-i",
-      "[START_DIR]/build/out/Release/dm.app"
+      "[START_DIR]/build/dm.app"
     ],
     "env": {
       "CHROME_HEADLESS": "1",
@@ -109,7 +109,7 @@
     "cmd": [
       "ideviceinstaller",
       "-i",
-      "[START_DIR]/build/out/Release/dm.app"
+      "[START_DIR]/build/dm.app"
     ],
     "env": {
       "CHROME_HEADLESS": "1",
@@ -122,7 +122,7 @@
     "cmd": [
       "ideviceinstaller",
       "-i",
-      "[START_DIR]/build/out/Release/nanobench.app"
+      "[START_DIR]/build/nanobench.app"
     ],
     "env": {
       "CHROME_HEADLESS": "1",
@@ -471,7 +471,7 @@
     "cmd": [
       "[START_DIR]/skia/platform_tools/ios/bin/ios_pull_if_needed",
       "dm",
-      "[START_DIR]/[SWARM_OUT_DIR]/dm"
+      "[START_DIR]/[SWARM_OUT_DIR]"
     ],
     "env": {
       "CHROME_HEADLESS": "1",

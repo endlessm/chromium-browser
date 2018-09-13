@@ -295,7 +295,7 @@ vfnmsub231ss (%rax), %xmm1, %xmm2
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      5     0.50                        vfmadd132pd	%xmm0, %xmm1, %xmm2
@@ -701,4 +701,3 @@ vfnmsub231ss (%rax), %xmm1, %xmm2
 # CHECK-NEXT:  -      -     0.50   0.50   0.50   0.50    -      -      -      -     vfnmsub213ss	(%rax), %xmm1, %xmm2
 # CHECK-NEXT:  -      -     0.50   0.50    -      -      -      -      -      -     vfnmsub231ss	%xmm0, %xmm1, %xmm2
 # CHECK-NEXT:  -      -     0.50   0.50   0.50   0.50    -      -      -      -     vfnmsub231ss	(%rax), %xmm1, %xmm2
-

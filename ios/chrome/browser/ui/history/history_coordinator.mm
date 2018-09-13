@@ -4,21 +4,21 @@
 
 #include "ios/chrome/browser/ui/history/history_coordinator.h"
 
-#include <memory>
-
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/history/core/browser/browsing_history_service.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "ios/chrome/browser/experimental_flags.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
-#include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
+#import "ios/chrome/browser/ui/history/history_clear_browsing_data_coordinator.h"
 #include "ios/chrome/browser/ui/history/history_local_commands.h"
+#import "ios/chrome/browser/ui/history/history_mediator.h"
 #include "ios/chrome/browser/ui/history/history_table_view_controller.h"
 #import "ios/chrome/browser/ui/history/history_transitioning_delegate.h"
 #include "ios/chrome/browser/ui/history/ios_browsing_history_driver.h"
-#import "ios/chrome/browser/ui/settings/clear_browsing_data_coordinator.h"
 #import "ios/chrome/browser/ui/table_view/table_view_navigation_controller.h"
+#include "ios/chrome/browser/ui/ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -34,21 +34,27 @@
 @property(nonatomic, strong)
     TableViewNavigationController* historyNavigationController;
 
+// Mediator being managed by this Coordinator.
+@property(nonatomic, strong) HistoryMediator* mediator;
+
 // The transitioning delegate used by the history view controller.
 @property(nonatomic, strong)
     HistoryTransitioningDelegate* historyTransitioningDelegate;
 
 // The coordinator that will present Clear Browsing Data.
 @property(nonatomic, strong)
-    ClearBrowsingDataCoordinator* clearBrowsingDataCoordinator;
+    HistoryClearBrowsingDataCoordinator* historyClearBrowsingDataCoordinator;
 @end
 
 @implementation HistoryCoordinator
 @synthesize dispatcher = _dispatcher;
+@synthesize historyClearBrowsingDataCoordinator =
+    _historyClearBrowsingDataCoordinator;
 @synthesize historyNavigationController = _historyNavigationController;
 @synthesize historyTransitioningDelegate = _historyTransitioningDelegate;
 @synthesize loader = _loader;
-@synthesize clearBrowsingDataCoordinator = _clearBrowsingDataCoordinator;
+@synthesize mediator = _mediator;
+@synthesize presentationDelegate = _presentationDelegate;
 
 - (void)start {
   // Initialize and configure HistoryTableViewController.
@@ -57,6 +63,11 @@
   historyTableViewController.browserState = self.browserState;
   historyTableViewController.loader = self.loader;
 
+  // Initialize and set HistoryMediator
+  self.mediator =
+      [[HistoryMediator alloc] initWithBrowserState:self.browserState];
+  historyTableViewController.imageDataSource = self.mediator;
+
   // Initialize and configure HistoryServices.
   _browsingHistoryDriver = std::make_unique<IOSBrowsingHistoryDriver>(
       self.browserState, historyTableViewController);
@@ -64,8 +75,7 @@
       _browsingHistoryDriver.get(),
       ios::HistoryServiceFactory::GetForBrowserState(
           self.browserState, ServiceAccessType::EXPLICIT_ACCESS),
-      IOSChromeProfileSyncServiceFactory::GetForBrowserState(
-          self.browserState));
+      ProfileSyncServiceFactory::GetForBrowserState(self.browserState));
   historyTableViewController.historyService = _browsingHistoryService.get();
 
   // Configure and present HistoryNavigationController.
@@ -73,6 +83,7 @@
       initWithTable:historyTableViewController];
   self.historyNavigationController.toolbarHidden = NO;
   historyTableViewController.localDispatcher = self;
+  historyTableViewController.presentationDelegate = self.presentationDelegate;
   self.historyTransitioningDelegate =
       [[HistoryTransitioningDelegate alloc] init];
   self.historyNavigationController.transitioningDelegate =
@@ -89,11 +100,27 @@
   [self stopWithCompletion:nil];
 }
 
+// This method should always execute the |completionHandler|.
 - (void)stopWithCompletion:(ProceduralBlock)completionHandler {
-  [self.historyNavigationController
-      dismissViewControllerAnimated:YES
-                         completion:completionHandler];
-  self.historyNavigationController = nil;
+  if (self.historyNavigationController) {
+    void (^dismissHistoryNavigation)(void) = ^void() {
+      [self.historyNavigationController
+          dismissViewControllerAnimated:YES
+                             completion:completionHandler];
+      self.historyNavigationController = nil;
+    };
+    if (self.historyClearBrowsingDataCoordinator) {
+      [self.historyClearBrowsingDataCoordinator stopWithCompletion:^() {
+        dismissHistoryNavigation();
+        self.historyClearBrowsingDataCoordinator = nil;
+      }];
+
+    } else {
+      dismissHistoryNavigation();
+    }
+  } else if (completionHandler) {
+    completionHandler();
+  }
 }
 
 #pragma mark - HistoryLocalCommands
@@ -103,11 +130,17 @@
 }
 
 - (void)displayPrivacySettings {
-  if (experimental_flags::IsCollectionsUIRebootEnabled()) {
-    self.clearBrowsingDataCoordinator = [[ClearBrowsingDataCoordinator alloc]
-        initWithBaseViewController:self.historyNavigationController
-                      browserState:self.browserState];
-    [self.clearBrowsingDataCoordinator start];
+  if (IsUIRefreshPhase1Enabled()) {
+    self.historyClearBrowsingDataCoordinator =
+        [[HistoryClearBrowsingDataCoordinator alloc]
+            initWithBaseViewController:self.historyNavigationController
+                          browserState:self.browserState];
+    self.historyClearBrowsingDataCoordinator.localDispatcher = self;
+    self.historyClearBrowsingDataCoordinator.presentationDelegate =
+        self.presentationDelegate;
+    self.historyClearBrowsingDataCoordinator.loader = self.loader;
+    self.historyClearBrowsingDataCoordinator.dispatcher = self.dispatcher;
+    [self.historyClearBrowsingDataCoordinator start];
   } else {
     [self.dispatcher showClearBrowsingDataSettingsFromViewController:
                          self.historyNavigationController];

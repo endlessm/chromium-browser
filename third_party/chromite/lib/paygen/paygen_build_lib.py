@@ -48,10 +48,9 @@ sys.path.insert(0, AUTOTEST_DIR)
 # will fail. We quietly ignore the failure, but leave bombs around that will
 # explode if people try to really use this library.
 try:
-  # pylint: disable=F0401
+  # pylint: disable=import-error
   from site_utils.autoupdate.lib import test_params
   from site_utils.autoupdate.lib import test_control
-  # pylint: enable=F0401
 
 except ImportError:
   test_params = None
@@ -219,14 +218,13 @@ def _FilterForTest(artifacts):
           if i.image_type == 'test']
 
 
-def _GenerateSinglePayload(payload, work_dir, sign, dry_run):
+def _GenerateSinglePayload(payload, sign, dry_run):
   """Generate a single payload.
 
   This is intended to be safe to call inside a new process.
 
   Args:
     payload: gspath.Payload object defining the payloads to generate.
-    work_dir: Working directory for payload generation.
     sign: boolean to decide if payload should be signed.
     dry_run: boolean saying if this is a dry run.
   """
@@ -239,7 +237,6 @@ def _GenerateSinglePayload(payload, work_dir, sign, dry_run):
     paygen_payload_lib.CreateAndUploadPayload(
         payload,
         cache,
-        work_dir=work_dir,
         sign=sign,
         dry_run=dry_run)
 
@@ -683,7 +680,6 @@ class PaygenBuild(object):
       Any arbitrary exception raised by CreateAndUploadPayload.
     """
     payloads_args = [(payload,
-                      self._work_dir,
                       isinstance(payload.tgt_image, gspaths.Image),
                       bool(self._drm))
                      for payload in payloads]
@@ -955,13 +951,13 @@ def ScheduleAutotestTests(suite_name, board, model, build, skip_duts_check,
   """Run the appropriate command to schedule the Autotests we have prepped.
 
   Args:
-  suite_name: The name of the test suite.
-  board: A string representing the name of the archive board.
-  model: The model that will be tested against.
-  build: A string representing the name of the archive build.
-  skip_duts_check: A boolean indicating to not check minimum available DUTs.
-  debug: A boolean indicating whether or not we are in debug mode.
-  job_keyvals: A dict of job keyvals to be injected to suite control file.
+    suite_name: The name of the test suite.
+    board: A string representing the name of the archive board.
+    model: The model that will be tested against.
+    build: A string representing the name of the archive build.
+    skip_duts_check: A boolean indicating to not check minimum available DUTs.
+    debug: A boolean indicating whether or not we are in debug mode.
+    job_keyvals: A dict of job keyvals to be injected to suite control file.
   """
   timeout_mins = config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT / 60
   cmd_result = commands.RunHWTestSuite(

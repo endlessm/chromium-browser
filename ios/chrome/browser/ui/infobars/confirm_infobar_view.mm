@@ -14,6 +14,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/colors/MDCPalette+CrAdditions.h"
+#import "ios/chrome/browser/ui/infobars/infobar_constants.h"
 #import "ios/chrome/browser/ui/infobars/infobar_view_sizing_delegate.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
@@ -721,9 +722,10 @@ UIImage* InfoBarCloseImage() {
   CGFloat bottomSafeAreaInset = SafeAreaInsetsForView(self).bottom;
   requiredHeight += bottomSafeAreaInset;
 
-  UILayoutGuide* guide = [NamedGuide guideWithName:kSecondaryToolbar view:self];
+  UILayoutGuide* guide =
+      [NamedGuide guideWithName:kSecondaryToolbarGuide view:self];
   UILayoutGuide* guideNoFullscreen =
-      [NamedGuide guideWithName:kSecondaryToolbarNoFullscreen view:self];
+      [NamedGuide guideWithName:kSecondaryToolbarNoFullscreenGuide view:self];
   if (guide && guideNoFullscreen) {
     CGFloat toolbarHeightCurrent = guide.layoutFrame.size.height;
     CGFloat toolbarHeightMax = guideNoFullscreen.layoutFrame.size.height;
@@ -758,8 +760,11 @@ UIImage* InfoBarCloseImage() {
 }
 
 - (void)resetBackground {
-  UIColor* color = [UIColor whiteColor];
-  [self setBackgroundColor:color];
+  if (IsUIRefreshPhase1Enabled()) {
+    self.backgroundColor = UIColorFromRGB(kInfobarBackgroundColor);
+  } else {
+    self.backgroundColor = [UIColor whiteColor];
+  }
   CGFloat shadowY = 0;
   shadowY = -[shadow_ image].size.height;  // Shadow above the infobar.
   [shadow_ setFrame:CGRectMake(0, shadowY, self.bounds.size.width,
@@ -780,7 +785,7 @@ UIImage* InfoBarCloseImage() {
          forControlEvents:UIControlEventTouchUpInside];
   [closeButton_ setTag:tag];
   [closeButton_ setAccessibilityLabel:l10n_util::GetNSString(IDS_CLOSE)];
-  if (IsUIRefreshPhase1Enabled()) {
+  if (IsRefreshInfobarEnabled()) {
     closeButton_.tintColor = [UIColor blackColor];
     closeButton_.alpha = 0.20;
   }

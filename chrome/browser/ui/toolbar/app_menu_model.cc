@@ -27,8 +27,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/search/search.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/browser/signin/signin_ui_util.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -45,6 +43,7 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/profiling.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
@@ -52,8 +51,6 @@
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/profile_management_switches.h"
-#include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/zoom/zoom_controller.h"
@@ -83,7 +80,6 @@
 #if defined(OS_WIN)
 #include "base/win/shortcut.h"
 #include "base/win/windows_version.h"
-#include "chrome/browser/win/enumerate_modules_model.h"
 #include "content/public/browser/gpu_data_manager.h"
 #endif
 
@@ -633,11 +629,17 @@ bool AppMenuModel::IsCommandIdChecked(int command_id) const {
   if (command_id == IDC_SHOW_BOOKMARK_BAR) {
     return browser_->profile()->GetPrefs()->GetBoolean(
         bookmarks::prefs::kShowBookmarkBar);
-  } else if (command_id == IDC_PROFILING_ENABLED) {
-    return Profiling::BeingProfiled();
-  } else if (command_id == IDC_TOGGLE_REQUEST_TABLET_SITE) {
-    return chrome::IsRequestingTabletSite(browser_);
   }
+  if (command_id == IDC_PROFILING_ENABLED)
+    return Profiling::BeingProfiled();
+  if (command_id == IDC_TOGGLE_REQUEST_TABLET_SITE)
+    return chrome::IsRequestingTabletSite(browser_);
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+  if (command_id == IDC_TOGGLE_CONFIRM_TO_QUIT_OPTION) {
+    return browser_->profile()->GetPrefs()->GetBoolean(
+        prefs::kConfirmToQuitEnabled);
+  }
+#endif
 
   return false;
 }
@@ -656,12 +658,6 @@ bool AppMenuModel::IsCommandIdVisible(int command_id) const {
 #if defined(OS_MACOSX)
     case kEmptyMenuItemCommand:
       return false;  // Always hidden (see CreateActionToolbarOverflowMenu).
-#endif
-    case IDC_VIEW_INCOMPATIBILITIES:
-#if defined(OS_WIN)
-      return EnumerateModulesModel::GetInstance()->ShouldShowConflictWarning();
-#else
-      return false;
 #endif
     case IDC_PIN_TO_START_SCREEN:
       return false;
@@ -729,15 +725,9 @@ void AppMenuModel::Build() {
   if (CreateActionToolbarOverflowMenu())
     AddSeparator(ui::UPPER_SEPARATOR);
 
-  AddItem(IDC_VIEW_INCOMPATIBILITIES,
-      l10n_util::GetStringUTF16(IDS_VIEW_INCOMPATIBILITIES));
-  SetIcon(GetIndexOfCommandId(IDC_VIEW_INCOMPATIBILITIES),
-          ui::ResourceBundle::GetSharedInstance().
-              GetNativeImageNamed(IDR_INPUT_ALERT_MENU));
   if (IsCommandIdVisible(IDC_UPGRADE_DIALOG))
     AddItem(IDC_UPGRADE_DIALOG, GetUpgradeDialogMenuItemName());
   if (AddGlobalErrorMenuItems() ||
-      IsCommandIdVisible(IDC_VIEW_INCOMPATIBILITIES) ||
       IsCommandIdVisible(IDC_UPGRADE_DIALOG))
     AddSeparator(ui::NORMAL_SEPARATOR);
 
@@ -817,6 +807,16 @@ void AppMenuModel::Build() {
 
   if (browser_defaults::kShowExitMenuItem) {
     AddSeparator(ui::NORMAL_SEPARATOR);
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+    if (base::FeatureList::IsEnabled(features::kWarnBeforeQuitting)) {
+      AddCheckItem(IDC_TOGGLE_CONFIRM_TO_QUIT_OPTION,
+                   l10n_util::GetStringFUTF16(
+                       IDS_CONFIRM_TO_QUIT_OPTION,
+                       ui::Accelerator(ui::VKEY_Q,
+                                       ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN)
+                           .GetShortcutText()));
+    }
+#endif
     AddItemWithStringId(IDC_EXIT, IDS_EXIT);
   }
   uma_action_recorded_ = false;

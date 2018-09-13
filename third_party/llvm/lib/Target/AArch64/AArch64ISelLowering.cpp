@@ -469,6 +469,8 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
 
   setOperationAction(ISD::PREFETCH, MVT::Other, Custom);
 
+  setOperationAction(ISD::FLT_ROUNDS_, MVT::i32, Custom);
+
   setOperationAction(ISD::ATOMIC_CMP_SWAP, MVT::i128, Custom);
   setOperationAction(ISD::ATOMIC_LOAD_SUB, MVT::i32, Custom);
   setOperationAction(ISD::ATOMIC_LOAD_SUB, MVT::i64, Custom);
@@ -579,11 +581,17 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
 
   setTargetDAGCombine(ISD::GlobalAddress);
 
-  MaxStoresPerMemset = MaxStoresPerMemsetOptSize = 8;
-  MaxGluedStoresPerMemcpy = 4;
+  // In case of strict alignment, avoid an excessive number of byte wide stores.
+  MaxStoresPerMemsetOptSize = 8;
+  MaxStoresPerMemset = Subtarget->requiresStrictAlign()
+                       ? MaxStoresPerMemsetOptSize : 32;
 
-  MaxStoresPerMemcpy = MaxStoresPerMemcpyOptSize = 4;
-  MaxStoresPerMemmove = MaxStoresPerMemmoveOptSize = 4;
+  MaxGluedStoresPerMemcpy = 4;
+  MaxStoresPerMemcpyOptSize = 4;
+  MaxStoresPerMemcpy = Subtarget->requiresStrictAlign()
+                       ? MaxStoresPerMemcpyOptSize : 16;
+
+  MaxStoresPerMemmoveOptSize = MaxStoresPerMemmove = 4;
 
   setStackPointerRegisterToSaveRestore(AArch64::SP);
 
@@ -734,6 +742,8 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
       setOperationAction(ISD::FTRUNC, Ty, Legal);
       setOperationAction(ISD::FROUND, Ty, Legal);
     }
+
+    setTruncStoreAction(MVT::v4i16, MVT::v4i8, Custom);
   }
 
   PredictableSelectIsExpensive = Subtarget->predictableSelectIsExpensive();
@@ -2488,6 +2498,26 @@ static bool isAddSubZExt(SDNode *N, SelectionDAG &DAG) {
   return false;
 }
 
+SDValue AArch64TargetLowering::LowerFLT_ROUNDS_(SDValue Op,
+                                                SelectionDAG &DAG) const {
+  // The rounding mode is in bits 23:22 of the FPSCR.
+  // The ARM rounding mode value to FLT_ROUNDS mapping is 0->1, 1->2, 2->3, 3->0
+  // The formula we use to implement this is (((FPSCR + 1 << 22) >> 22) & 3)
+  // so that the shift + and get folded into a bitfield extract.
+  SDLoc dl(Op);
+
+  SDValue FPCR_64 = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, dl, MVT::i64,
+                                DAG.getConstant(Intrinsic::aarch64_get_fpcr, dl,
+                                                MVT::i64));
+  SDValue FPCR_32 = DAG.getNode(ISD::TRUNCATE, dl, MVT::i32, FPCR_64);
+  SDValue FltRounds = DAG.getNode(ISD::ADD, dl, MVT::i32, FPCR_32,
+                                  DAG.getConstant(1U << 22, dl, MVT::i32));
+  SDValue RMODE = DAG.getNode(ISD::SRL, dl, MVT::i32, FltRounds,
+                              DAG.getConstant(22, dl, MVT::i32));
+  return DAG.getNode(ISD::AND, dl, MVT::i32, RMODE,
+                     DAG.getConstant(3, dl, MVT::i32));
+}
+
 static SDValue LowerMUL(SDValue Op, SelectionDAG &DAG) {
   // Multiplications are only custom-lowered for 128-bit vectors so that
   // VMULL can be detected.  Otherwise v2i64 multiplications are not legal.
@@ -2645,6 +2675,68 @@ SDValue AArch64TargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
   }
 }
 
+// Custom lower trunc store for v4i8 vectors, since it is promoted to v4i16.
+static SDValue LowerTruncateVectorStore(SDLoc DL, StoreSDNode *ST,
+                                        EVT VT, EVT MemVT,
+                                        SelectionDAG &DAG) {
+  assert(VT.isVector() && "VT should be a vector type");
+  assert(MemVT == MVT::v4i8 && VT == MVT::v4i16);
+
+  SDValue Value = ST->getValue();
+
+  // It first extend the promoted v4i16 to v8i16, truncate to v8i8, and extract
+  // the word lane which represent the v4i8 subvector.  It optimizes the store
+  // to:
+  //
+  //   xtn  v0.8b, v0.8h
+  //   str  s0, [x0]
+
+  SDValue Undef = DAG.getUNDEF(MVT::i16);
+  SDValue UndefVec = DAG.getBuildVector(MVT::v4i16, DL,
+                                        {Undef, Undef, Undef, Undef});
+
+  SDValue TruncExt = DAG.getNode(ISD::CONCAT_VECTORS, DL, MVT::v8i16,
+                                 Value, UndefVec);
+  SDValue Trunc = DAG.getNode(ISD::TRUNCATE, DL, MVT::v8i8, TruncExt);
+
+  Trunc = DAG.getNode(ISD::BITCAST, DL, MVT::v2i32, Trunc);
+  SDValue ExtractTrunc = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i32,
+                                     Trunc, DAG.getConstant(0, DL, MVT::i64));
+
+  return DAG.getStore(ST->getChain(), DL, ExtractTrunc,
+                      ST->getBasePtr(), ST->getMemOperand());
+}
+
+// Custom lowering for any store, vector or scalar and/or default or with
+// a truncate operations.  Currently only custom lower truncate operation
+// from vector v4i16 to v4i8.
+SDValue AArch64TargetLowering::LowerSTORE(SDValue Op,
+                                          SelectionDAG &DAG) const {
+  SDLoc Dl(Op);
+  StoreSDNode *StoreNode = cast<StoreSDNode>(Op);
+  assert (StoreNode && "Can only custom lower store nodes");
+
+  SDValue Value = StoreNode->getValue();
+
+  EVT VT = Value.getValueType();
+  EVT MemVT = StoreNode->getMemoryVT();
+
+  assert (VT.isVector() && "Can only custom lower vector store types");
+
+  unsigned AS = StoreNode->getAddressSpace();
+  unsigned Align = StoreNode->getAlignment();
+  if (Align < MemVT.getStoreSize() &&
+      !allowsMisalignedMemoryAccesses(MemVT, AS, Align, nullptr)) {
+    return scalarizeVectorStore(StoreNode, DAG);
+  }
+
+  if (StoreNode->isTruncatingStore()) {
+    return LowerTruncateVectorStore(Dl, StoreNode, VT, MemVT, DAG);
+  }
+
+  return SDValue();
+}
+
 SDValue AArch64TargetLowering::LowerOperation(SDValue Op,
                                               SelectionDAG &DAG) const {
   LLVM_DEBUG(dbgs() << "Custom lowering: ");
@@ -2747,6 +2839,8 @@ SDValue AArch64TargetLowering::LowerOperation(SDValue Op,
     return LowerFP_TO_INT(Op, DAG);
   case ISD::FSINCOS:
     return LowerFSINCOS(Op, DAG);
+  case ISD::FLT_ROUNDS_:
+    return LowerFLT_ROUNDS_(Op, DAG);
   case ISD::MUL:
     return LowerMUL(Op, DAG);
   case ISD::MULHS:
@@ -2754,6 +2848,8 @@ SDValue AArch64TargetLowering::LowerOperation(SDValue Op,
     return LowerMULH(Op, DAG);
   case ISD::INTRINSIC_WO_CHAIN:
     return LowerINTRINSIC_WO_CHAIN(Op, DAG);
+  case ISD::STORE:
+    return LowerSTORE(Op, DAG);
   case ISD::VECREDUCE_ADD:
   case ISD::VECREDUCE_SMAX:
   case ISD::VECREDUCE_SMIN:
@@ -4924,9 +5020,13 @@ unsigned AArch64TargetLowering::getRegisterByName(const char* RegName, EVT VT,
                        .Case("sp", AArch64::SP)
                        .Case("x18", AArch64::X18)
                        .Case("w18", AArch64::W18)
+                       .Case("x20", AArch64::X20)
+                       .Case("w20", AArch64::W20)
                        .Default(0);
-  if ((Reg == AArch64::X18 || Reg == AArch64::W18) &&
-      !Subtarget->isX18Reserved())
+  if (((Reg == AArch64::X18 || Reg == AArch64::W18) &&
+      !Subtarget->isX18Reserved()) ||
+      ((Reg == AArch64::X20 || Reg == AArch64::W20) &&
+      !Subtarget->isX20Reserved()))
     Reg = 0;
   if (Reg)
     return Reg;

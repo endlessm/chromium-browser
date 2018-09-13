@@ -6,12 +6,14 @@
 
 #include "base/macros.h"
 #include "base/observer_list.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
+#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/download/download_shelf_view.h"
 #include "chrome/browser/ui/views/exclusive_access_bubble_views.h"
@@ -21,7 +23,6 @@
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/infobars/infobar_container_view.h"
-#include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
@@ -187,8 +188,14 @@ gfx::Size BrowserViewLayout::GetMinimumSize() {
   // TODO: Adjust the minimum height for the find bar.
 
   gfx::Size contents_size(contents_container_->GetMinimumSize());
+  // Prevent having a 0x0 sized-contents as this can allow the window to be
+  // resized down such that it's invisible and can no longer accept events.
+  // Use a very small 1x1 size to allow the user and the web contents to be able
+  // to resize the window as small as possible without introducing bugs.
+  // https://crbug.com/847179.
+  contents_size.SetToMax(gfx::Size(1, 1));
 
-  int min_height = delegate_->GetTopInsetInBrowserView(false) +
+  int min_height = delegate_->GetTopInsetInBrowserView() +
       tabstrip_size.height() + toolbar_size.height() +
       bookmark_bar_size.height() + infobar_container_size.height() +
       contents_size.height();
@@ -215,26 +222,16 @@ gfx::Rect BrowserViewLayout::GetFindBarBoundingBox() const {
   // to the Toolbar.
 
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser_);
-  LocationBarView* location_bar_view = browser_view->GetLocationBarView();
-
-  // Check for the presence of a visible OmniBox/location bar.
-  const bool has_location_bar =
-      browser_->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR) &&
-      location_bar_view && location_bar_view->visible() &&
-      (!immersive_mode_controller_->IsEnabled() ||
-       immersive_mode_controller_->IsRevealed());
 
   gfx::Rect bounding_box;
-  // If the OmniBox/location bar is visible, anchor the find bar bounding box
-  // to its bottom edge.
-  if (has_location_bar) {
-    // The bounding box should be the area right below the OmniBox/location bar.
-    bounding_box = location_bar_view->ConvertRectToWidget(
-        location_bar_view->GetLocalBounds());
-    bounding_box.Inset(0, location_bar_view->height(), 0,
-                       -contents_container_->height());
-    return bounding_box;
+  if (!immersive_mode_controller_->IsEnabled() ||
+      immersive_mode_controller_->IsRevealed()) {
+    bounding_box =
+        browser_view->toolbar_button_provider()->GetFindBarBoundingBox(
+            contents_container_->height());
   }
+  if (!bounding_box.IsEmpty())
+    return bounding_box;
 
   // Otherwise, use the contents container minus any infobars and detached
   // bookmark bar from the top and a scrollbar width from the appropriate edge.
@@ -324,21 +321,12 @@ int BrowserViewLayout::NonClientHitTest(const gfx::Point& point) {
 
 void BrowserViewLayout::Layout(views::View* browser_view) {
   vertical_layout_rect_ = browser_view->GetLocalBounds();
-  int top = LayoutTabStripRegion(delegate_->GetTopInsetInBrowserView(false));
+  int top_inset = delegate_->GetTopInsetInBrowserView();
+  int top = LayoutTabStripRegion(top_inset);
   if (delegate_->IsTabStripVisible()) {
-    // By passing true to GetTopInsetInBrowserView(), we position the tab
-    // background to vertically align with the frame background image of a
-    // restored-mode frame, even in a maximized window.  Then in the frame code,
-    // we position the frame so the portion of the image that's behind the
-    // restored-mode tabstrip is always behind the tabstrip.  Together these
-    // ensure that the tab and frame images are always aligned, and that their
-    // relative alignment with the toolbar image is always the same, so themes
-    // which try to align all three will look correct in both restored and
-    // maximized windows.
-    tab_strip_->SetBackgroundOffset(gfx::Point(
+    tab_strip_->SetBackgroundOffset(
         tab_strip_->GetMirroredX() + browser_view_->GetMirroredX() +
-            delegate_->GetThemeBackgroundXInset(),
-        browser_view_->y() + delegate_->GetTopInsetInBrowserView(true)));
+            delegate_->GetThemeBackgroundXInset());
   }
   top = LayoutToolbar(top);
 
@@ -403,7 +391,7 @@ int BrowserViewLayout::LayoutTabStripRegion(int top) {
   tab_strip_->SetVisible(true);
   tab_strip_->SetBoundsRect(tabstrip_bounds);
 
-  return tabstrip_bounds.bottom();
+  return tabstrip_bounds.bottom() - GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP);
 }
 
 int BrowserViewLayout::LayoutToolbar(int top) {
@@ -503,7 +491,7 @@ void BrowserViewLayout::UpdateTopContainerBounds() {
   // Ensure that the top container view reaches the topmost view in the
   // ClientView because the bounds of the top container view are used in
   // layout and we assume that this is the case.
-  height = std::max(height, delegate_->GetTopInsetInBrowserView(false));
+  height = std::max(height, delegate_->GetTopInsetInBrowserView());
 
   gfx::Rect top_container_bounds(vertical_layout_rect_.width(), height);
 

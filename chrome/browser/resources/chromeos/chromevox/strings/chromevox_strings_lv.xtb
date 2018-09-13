@@ -92,6 +92,7 @@ Ja esat beidzis darbu ar pamācību, izmantojiet ChromeVox, lai pārietu uz aizv
 <translation id="1787176709638001873">Rediģējams teksts: parole</translation>
 <translation id="1802710350767629429">Rādīt piezīmes par atjauninājumu</translation>
 <translation id="1810107444790159527">Sarakstlodziņš</translation>
+<translation id="1812527064848182527">ainava</translation>
 <translation id="1828385960365606039">Maijs</translation>
 <translation id="1834891354138622109">Sleja</translation>
 <translation id="1845944666972354496">Veiciet dubultskārienu, lai aktivizētu</translation>
@@ -146,6 +147,7 @@ Ja esat beidzis darbu ar pamācību, izmantojiet ChromeVox, lai pārietu uz aizv
 <translation id="2416512023405990736">Neatzīmēta izvēles rūtiņa</translation>
 <translation id="2417569100218200841">Satura informācija</translation>
 <translation id="2417948780551741035">Beigu vēres</translation>
+<translation id="2421113964388408478">Dzēšana</translation>
 <translation id="2422937916923936891">Izvēlnes vienuma izvēles rūtiņa</translation>
 <translation id="2428534162001909979">Komandu izvēlnes</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@ Ja esat beidzis darbu ar pamācību, izmantojiet ChromeVox, lai pārietu uz aizv
 <translation id="3232388865800379423">Uznirstoša poga</translation>
 <translation id="3241052487511142956">Iepriekšējā apmeklētā saite</translation>
 <translation id="3241638166094654466">Šūnas katrā rindā:</translation>
+<translation id="3286372614333682499">portrets</translation>
 <translation id="3286390186030710347">Slīdnis</translation>
 <translation id="3299925995433437805">Tālāk nav nevienas apmeklētās saites.</translation>
 <translation id="3300348286427369683">Bagātināta teksta atbalsts. Tagad ChromeVox tiek atbalstīti bagātināta teksta lauki, tostarp pārejas komandas, Braila raksta kursora maršrutēšana, atlasīšana un citas darbības.</translation>
@@ -426,6 +429,7 @@ Ja esat beidzis darbu ar pamācību, izmantojiet ChromeVox, lai pārietu uz aizv
 <translation id="4476183483923481720">jauna rindiņa</translation>
 <translation id="4482330759234983253">Iepriekšējā tabula</translation>
 <translation id="4491109536499578614">Attēls</translation>
+<translation id="4505167975768625962">Ievietošana</translation>
 <translation id="4517854969512651305">Palielināt vērtību</translation>
 <translation id="4529987814483543472">Klasiskā taustiņu piesaiste</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{slīpsvītra}zero{# slīpsvītru}one{# slīpsvītra}other{# slīpsvītras}}</translation>
@@ -589,6 +593,7 @@ Ja esat beidzis darbu ar pamācību, izmantojiet ChromeVox, lai pārietu uz aizv
 <translation id="5712338278108304766">Nākamā tabulas sleja</translation>
 <translation id="571866080859340309">Tiek sākta grupu izpēte.</translation>
 <translation id="5728409797179002635">Neviena tabula nav atrasta.</translation>
+<translation id="5729047866208036762">Lai skatītu matemātisko aprēķinu iespējas, nospiediet augšupvērsto, lejupvērsto bultiņu vai bultiņu pa kreisi/pa labi.</translation>
 <translation id="5732189279857692565">Šis ir otrais virsraksts. Turpiniet pārlūkošanu; nospiediet Search+H vai Search+Shift+H.</translation>
 <translation id="5748623122140342504">Iepriekšējais 5. līmeņa virsraksts</translation>
 <translation id="5750633686117194034">Nav nospiests neviens modificētājtaustiņš. Lūdzu, turiet nospiestu vienu vai vairākus modificētājtaustiņus, pēc tam atlaidiet pirkstus, un tiks paziņots, ka taustiņi ir iestatīti. Lai izietu, nospiediet tabulēšanas taustiņu.</translation>
@@ -744,6 +749,7 @@ Lai atvērtu Chrome pārlūka izvēlni, vienlaikus nospiediet alternēšanas tau
 <translation id="7226216518520804442">saraksts</translation>
 <translation id="7229749224609077523">Atlasiet 6 punktu Braila raksta tabulu:</translation>
 <translation id="72393384879519786">Virsraksts</translation>
+<translation id="7240858705033280249">Pāriet uz informāciju</translation>
 <translation id="7241683698754534149">Atvērt garo aprakstu jaunā cilnē</translation>
 <translation id="7248671827512403053">Lietojumprogramma</translation>
 <translation id="725969808843520477">Nākamā radiopoga</translation>
@@ -920,6 +926,7 @@ Lai atvērtu Chrome pārlūka izvēlni, vienlaikus nospiediet alternēšanas tau
 <translation id="9043969572162476692"><ph name="NUM" />%</translation>
 <translation id="9061884144798498064">Atlasiet 8 punktu Braila raksta tabulu:</translation>
 <translation id="9065283790526219006">ietver uznirstošu elementu</translation>
+<translation id="9066023754636984703">Lai pārietu pie detalizētās informācijas, nospiediet meklēšanas taustiņu un A, pēc tam — J.</translation>
 <translation id="9067522039955793016">Lappuses pārtraukums</translation>
 <translation id="9077213568694924680">noņemti no atlases</translation>
 <translation id="9082874451376019682">Iepriekš nav neviena slīdņa.</translation>

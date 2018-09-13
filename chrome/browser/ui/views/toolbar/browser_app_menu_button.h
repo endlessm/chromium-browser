@@ -46,6 +46,7 @@ class BrowserAppMenuButton : public AppMenuButton,
   void SetIsProminent(bool is_prominent);
 
   // views::MenuButton:
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   gfx::Size CalculatePreferredSize() const override;
   void Layout() override;
   void OnThemeChanged() override;
@@ -109,7 +110,7 @@ class BrowserAppMenuButton : public AppMenuButton,
 
   // Used to delay the animation. Not used if |should_delay_animation_| is
   // false.
-  base::Timer animation_delay_timer_;
+  base::OneShotTimer animation_delay_timer_;
 
   // True if the app menu should use the new animated icon.
   bool should_use_new_icon_ = false;

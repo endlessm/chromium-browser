@@ -10,7 +10,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
-#include "chromeos/system/version_loader.h"
 
 namespace chromeos {
 namespace assistant {
@@ -61,6 +60,10 @@ void SystemProviderImpl::OnBatteryStatus(
   // updates. This query will only return when a status changes.
   battery_monitor_->QueryNextStatus(base::BindOnce(
       &SystemProviderImpl::OnBatteryStatus, base::Unretained(this)));
+}
+
+void SystemProviderImpl::FlushForTesting() {
+  battery_monitor_.FlushForTesting();
 }
 
 }  // namespace assistant

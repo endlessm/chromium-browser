@@ -30,6 +30,7 @@
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/Visibility.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/None.h"
@@ -809,6 +810,13 @@ public:
   /// Return true if this is a trivially copyable type (C++0x [basic.types]p9)
   bool isTriviallyCopyableType(const ASTContext &Context) const;
 
+
+  /// Returns true if it is a class and it might be dynamic.
+  bool mayBeDynamicClass() const;
+
+  /// Returns true if it is not a class or if the class might not be dynamic.
+  bool mayBeNotDynamicClass() const;
+
   // Don't promise in the API that anything besides 'const' can be
   // easily added.
 
@@ -1582,6 +1590,7 @@ protected:
 
   class VectorTypeBitfields {
     friend class VectorType;
+    friend class DependentVectorType;
 
     unsigned : NumTypeBits;
 
@@ -1799,6 +1808,7 @@ public:
   bool isFloatingType() const;     // C99 6.2.5p11 (real floating + complex)
   bool isHalfType() const;         // OpenCL 6.1.1.1, NEON (IEEE 754-2008 half)
   bool isFloat16Type() const;      // C11 extension ISO/IEC TS 18661
+  bool isFloat128Type() const;
   bool isRealType() const;         // C99 6.2.5p17 (real floating + integer)
   bool isArithmeticType() const;   // C99 6.2.5p18 (integer + floating)
   bool isVoidType() const;         // C99 6.2.5p19
@@ -2108,6 +2118,26 @@ public:
   /// enumeration types whose underlying type is a unsigned integer type.
   bool isUnsignedIntegerOrEnumerationType() const;
 
+  /// Return true if this is a fixed point type according to
+  /// ISO/IEC JTC1 SC22 WG14 N1169.
+  bool isFixedPointType() const;
+
+  /// Return true if this is a saturated fixed point type according to
+  /// ISO/IEC JTC1 SC22 WG14 N1169. This type can be signed or unsigned.
+  bool isSaturatedFixedPointType() const;
+
+  /// Return true if this is a saturated fixed point type according to
+  /// ISO/IEC JTC1 SC22 WG14 N1169. This type can be signed or unsigned.
+  bool isUnsaturatedFixedPointType() const;
+
+  /// Return true if this is a fixed point type that is signed according
+  /// to ISO/IEC JTC1 SC22 WG14 N1169. This type can also be saturated.
+  bool isSignedFixedPointType() const;
+
+  /// Return true if this is a fixed point type that is unsigned according
+  /// to ISO/IEC JTC1 SC22 WG14 N1169. This type can also be saturated.
+  bool isUnsignedFixedPointType() const;
+
   /// Return true if this is not a variable sized type,
   /// according to the rules of C99 6.7.5p3.  It is not legal to call this on
   /// incomplete types.
@@ -2223,7 +2253,9 @@ public:
 #include "clang/AST/BuiltinTypes.def"
   };
 
-public:
+private:
+  friend class ASTContext; // ASTContext creates these.
+
   BuiltinType(Kind K)
       : Type(Builtin, QualType(), /*Dependent=*/(K == Dependent),
              /*InstantiationDependent=*/(K == Dependent),
@@ -2232,6 +2264,7 @@ public:
     BuiltinTypeBits.Kind = K;
   }
 
+public:
   Kind getKind() const { return static_cast<Kind>(BuiltinTypeBits.Kind); }
   StringRef getName(const PrintingPolicy &Policy) const;
 
@@ -3048,6 +3081,51 @@ public:
   static bool classof(const Type *T) {
     return T->getTypeClass() == Vector || T->getTypeClass() == ExtVector;
   }
+};
+
+/// Represents a vector type where either the type or size is dependent.
+////
+/// For example:
+/// \code
+/// template<typename T, int Size>
+/// class vector {
+///   typedef T __attribute__((vector_size(Size))) type;
+/// }
+/// \endcode
+class DependentVectorType : public Type, public llvm::FoldingSetNode {
+  friend class ASTContext;
+
+  const ASTContext &Context;
+  QualType ElementType;
+  Expr *SizeExpr;
+  SourceLocation Loc;
+
+  DependentVectorType(const ASTContext &Context, QualType ElementType,
+                           QualType CanonType, Expr *SizeExpr,
+                           SourceLocation Loc, VectorType::VectorKind vecKind);
+
+public:
+  Expr *getSizeExpr() const { return SizeExpr; }
+  QualType getElementType() const { return ElementType; }
+  SourceLocation getAttributeLoc() const { return Loc; }
+  VectorType::VectorKind getVectorKind() const {
+    return VectorType::VectorKind(VectorTypeBits.VecKind);
+  }
+
+  bool isSugared() const { return false; }
+  QualType desugar() const { return QualType(this, 0); }
+
+  static bool classof(const Type *T) {
+    return T->getTypeClass() == DependentVector;
+  }
+
+  void Profile(llvm::FoldingSetNodeID &ID) {
+    Profile(ID, Context, getElementType(), getSizeExpr(), getVectorKind());
+  }
+
+  static void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context,
+                      QualType ElementType, const Expr *SizeExpr,
+                      VectorType::VectorKind VecKind);
 };
 
 /// ExtVectorType - Extended vector type. This type is created using
@@ -4566,7 +4644,7 @@ public:
 /// TemplateArguments, followed by a QualType representing the
 /// non-canonical aliased type when the template is a type alias
 /// template.
-class LLVM_ALIGNAS(/*alignof(uint64_t)*/ 8) TemplateSpecializationType
+class alignas(8) TemplateSpecializationType
     : public Type,
       public llvm::FoldingSetNode {
   friend class ASTContext; // ASTContext creates these
@@ -4984,7 +5062,7 @@ public:
 /// Represents a template specialization type whose template cannot be
 /// resolved, e.g.
 ///   A<T>::template B<T>
-class LLVM_ALIGNAS(/*alignof(uint64_t)*/ 8) DependentTemplateSpecializationType
+class alignas(8) DependentTemplateSpecializationType
     : public TypeWithKeyword,
       public llvm::FoldingSetNode {
   friend class ASTContext; // ASTContext creates these
@@ -6271,6 +6349,12 @@ inline bool Type::isFloat16Type() const {
   return false;
 }
 
+inline bool Type::isFloat128Type() const {
+  if (const auto *BT = dyn_cast<BuiltinType>(CanonicalType))
+    return BT->getKind() == BuiltinType::Float128;
+  return false;
+}
+
 inline bool Type::isNullPtrType() const {
   if (const auto *BT = getAs<BuiltinType>())
     return BT->getKind() == BuiltinType::NullPtr;
@@ -6291,6 +6375,44 @@ inline bool Type::isIntegerType() const {
       !IsEnumDeclScoped(ET->getDecl());
   }
   return false;
+}
+
+inline bool Type::isFixedPointType() const {
+  if (const auto *BT = dyn_cast<BuiltinType>(CanonicalType)) {
+    return BT->getKind() >= BuiltinType::ShortAccum &&
+           BT->getKind() <= BuiltinType::SatULongFract;
+  }
+  return false;
+}
+
+inline bool Type::isSaturatedFixedPointType() const {
+  if (const auto *BT = dyn_cast<BuiltinType>(CanonicalType)) {
+    return BT->getKind() >= BuiltinType::SatShortAccum &&
+           BT->getKind() <= BuiltinType::SatULongFract;
+  }
+  return false;
+}
+
+inline bool Type::isUnsaturatedFixedPointType() const {
+  return isFixedPointType() && !isSaturatedFixedPointType();
+}
+
+inline bool Type::isSignedFixedPointType() const {
+  if (const auto *BT = dyn_cast<BuiltinType>(CanonicalType)) {
+    return ((BT->getKind() >= BuiltinType::ShortAccum &&
+             BT->getKind() <= BuiltinType::LongAccum) ||
+            (BT->getKind() >= BuiltinType::ShortFract &&
+             BT->getKind() <= BuiltinType::LongFract) ||
+            (BT->getKind() >= BuiltinType::SatShortAccum &&
+             BT->getKind() <= BuiltinType::SatLongAccum) ||
+            (BT->getKind() >= BuiltinType::SatShortFract &&
+             BT->getKind() <= BuiltinType::SatLongFract));
+  }
+  return false;
+}
+
+inline bool Type::isUnsignedFixedPointType() const {
+  return isFixedPointType() && !isSignedFixedPointType();
 }
 
 inline bool Type::isScalarType() const {
@@ -6487,6 +6609,12 @@ QualType DecayedType::getPointeeType() const {
   (void)AttributedType::stripOuterNullability(Decayed);
   return cast<PointerType>(Decayed)->getPointeeType();
 }
+
+// Get the decimal string representation of a fixed point type, represented
+// as a scaled integer.
+void FixedPointValueToString(SmallVectorImpl<char> &Str,
+                             const llvm::APSInt &Val,
+                             unsigned Scale, unsigned Radix);
 
 } // namespace clang
 

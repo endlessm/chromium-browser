@@ -24,13 +24,14 @@
 #include "android_webview/browser/tracing/aw_tracing_delegate.h"
 #include "android_webview/common/aw_descriptors.h"
 #include "android_webview/common/aw_switches.h"
-#include "android_webview/common/crash_reporter/aw_microdump_crash_reporter.h"
+#include "android_webview/common/crash_reporter/aw_crash_reporter_client.h"
 #include "android_webview/common/render_view_messages.h"
 #include "android_webview/common/url_constants.h"
 #include "android_webview/grit/aw_resources.h"
 #include "base/android/locale_utils.h"
 #include "base/base_paths_android.h"
 #include "base/base_switches.h"
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/scoped_file.h"
@@ -40,7 +41,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/cdm/browser/cdm_message_filter_android.h"
-#include "components/crash/content/browser/crash_dump_observer_android.h"
+#include "components/crash/content/browser/child_exit_observer_android.h"
 #include "components/navigation_interception/intercept_navigation_delegate.h"
 #include "components/policy/content/policy_blacklist_navigation_throttle.h"
 #include "components/safe_browsing/browser/browser_url_loader_throttle.h"
@@ -240,13 +241,17 @@ void AwContentBrowserClient::RenderProcessWillLaunch(
   // Grant content: scheme access to the whole renderer process, since we impose
   // per-view access checks, and access is granted by default (see
   // AwSettings.mAllowContentUrlAccess).
-  content::ChildProcessSecurityPolicy::GetInstance()->GrantScheme(
+  content::ChildProcessSecurityPolicy::GetInstance()->GrantRequestScheme(
       host->GetID(), url::kContentScheme);
 
   host->AddFilter(new AwContentsMessageFilter(host->GetID()));
   // WebView always allows persisting data.
   host->AddFilter(new cdm::CdmMessageFilterAndroid(true, false));
   host->AddFilter(new AwPrintingMessageFilter(host->GetID()));
+}
+
+bool AwContentBrowserClient::ShouldUseMobileFlingCurve() const {
+  return true;
 }
 
 bool AwContentBrowserClient::IsHandledURL(const GURL& url) {
@@ -343,11 +348,9 @@ bool AwContentBrowserClient::AllowSetCookie(const GURL& url,
                                             const net::CanonicalCookie& cookie,
                                             content::ResourceContext* context,
                                             int render_process_id,
-                                            int render_frame_id,
-                                            const net::CookieOptions& options) {
+                                            int render_frame_id) {
   return AwCookieAccessPolicy::GetInstance()->AllowSetCookie(
-      url, first_party, cookie, context, render_process_id, render_frame_id,
-      options);
+      url, first_party, cookie, context, render_process_id, render_frame_id);
 }
 
 void AwContentBrowserClient::AllowWorkerFileSystem(
@@ -507,8 +510,8 @@ void AwContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
   fd = ui::GetLocalePackFd(&region);
   mappings->ShareWithRegion(kAndroidWebViewLocalePakDescriptor, fd, region);
 
-  breakpad::CrashDumpObserver::GetInstance()->BrowserChildProcessStarted(
-      child_process_id, mappings);
+  ::crash_reporter::ChildExitObserver::GetInstance()
+      ->BrowserChildProcessStarted(child_process_id, mappings);
 }
 
 void AwContentBrowserClient::OverrideWebkitPrefs(
@@ -693,8 +696,10 @@ scoped_refptr<content::LoginDelegate>
 AwContentBrowserClient::CreateLoginDelegate(
     net::AuthChallengeInfo* auth_info,
     content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+    const content::GlobalRequestID& request_id,
     bool is_main_frame,
     const GURL& url,
+    scoped_refptr<net::HttpResponseHeaders> response_headers,
     bool first_auth_attempt,
     LoginAuthRequiredCallback auth_required_callback) {
   return base::MakeRefCounted<AwLoginDelegate>(
@@ -719,7 +724,7 @@ bool AwContentBrowserClient::HandleExternalProtocol(
 void AwContentBrowserClient::RegisterOutOfProcessServices(
     OutOfProcessServiceMap* services) {
   (*services)[heap_profiling::mojom::kServiceName] =
-      base::ASCIIToUTF16("Heap Profiling Service");
+      base::BindRepeating(&base::ASCIIToUTF16, "Heap Profiling Service");
 }
 
 // static

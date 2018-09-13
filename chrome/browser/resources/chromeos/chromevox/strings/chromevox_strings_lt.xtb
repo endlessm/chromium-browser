@@ -92,6 +92,7 @@ Kai peržiūrėsite visą mokymo programą, naudodami „ChromeVox“ pereikite 
 <translation id="1787176709638001873">Redaguoti slaptažodžio tekstą</translation>
 <translation id="1802710350767629429">Rodyti naujinių pastabas</translation>
 <translation id="1810107444790159527">Sąrašo laukelis</translation>
+<translation id="1812527064848182527">gulsčia</translation>
 <translation id="1828385960365606039">Geg.</translation>
 <translation id="1834891354138622109">Stulpelis</translation>
 <translation id="1845944666972354496">Dukart palieskite, kad suaktyvintumėte</translation>
@@ -146,6 +147,7 @@ Kai peržiūrėsite visą mokymo programą, naudodami „ChromeVox“ pereikite 
 <translation id="2416512023405990736">Nepažymėtas žymimasis laukelis</translation>
 <translation id="2417569100218200841">Turinio informacija</translation>
 <translation id="2417948780551741035">Išnašos</translation>
+<translation id="2421113964388408478">Trynimas</translation>
 <translation id="2422937916923936891">Meniu elemento žymimasis laukelis</translation>
 <translation id="2428534162001909979">Komandų meniu</translation>
 <translation id="2429669115401274487">popiet</translation>
@@ -253,6 +255,7 @@ Kai peržiūrėsite visą mokymo programą, naudodami „ChromeVox“ pereikite 
 <translation id="3232388865800379423">Iššokantysis mygtukas</translation>
 <translation id="3241052487511142956">Ankstesnė aplankyta nuoroda</translation>
 <translation id="3241638166094654466">Langelių kiekvienoje eilutėje:</translation>
+<translation id="3286372614333682499">stačia</translation>
 <translation id="3286390186030710347">Šliaužiklis</translation>
 <translation id="3299925995433437805">Nėra kitos aplankytos nuorodos.</translation>
 <translation id="3300348286427369683">Raiškiojo teksto palaikymas. „ChromeVox“ dabar palaiko raiškiojo teksto laukus, įskaitant perėjimo komandas, Brailio žymeklio nukreipimą, pasirinkimą ir daugiau.</translation>
@@ -426,6 +429,7 @@ Kai peržiūrėsite visą mokymo programą, naudodami „ChromeVox“ pereikite 
 <translation id="4476183483923481720">nauja eilutė</translation>
 <translation id="4482330759234983253">Ankstesnė lentelė</translation>
 <translation id="4491109536499578614">Vaizdas</translation>
+<translation id="4505167975768625962">Įterpimas</translation>
 <translation id="4517854969512651305">Padidinti vertę</translation>
 <translation id="4529987814483543472">Klasikinis klavišų žemėlapis</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{pasvirasis brūkšnys}one{# pasvirasis brūkšnys}few{# pasvirieji brūkšniai}many{# slashes}other{# pasvirųjų brūkšnių}}</translation>
@@ -589,6 +593,7 @@ Kai peržiūrėsite visą mokymo programą, naudodami „ChromeVox“ pereikite 
 <translation id="5712338278108304766">Kitas lentelės stulpelis</translation>
 <translation id="571866080859340309">Tyrinėjamos grupės</translation>
 <translation id="5728409797179002635">Nerasta jokia lentelė.</translation>
+<translation id="5729047866208036762">Jei norite naršyti matematines funkcijas, paspauskite aukštyn, žemyn, kairėn arba dešinėn.</translation>
 <translation id="5732189279857692565">Tai yra antroji antraštė. Tęskite: paspauskite „Search“ + H arba „Search“ + „Shift“ + H</translation>
 <translation id="5748623122140342504">Ankstesnė 5 lygio antraštė</translation>
 <translation id="5750633686117194034">Nepaspausta jokių modifikatorių; paspauskite ir palaikykite vieną ar daugiau modifikatorių; pakelkite pirštus, kai bus atlikta, ir išgirsite klavišų rinkinį. Paspauskite tabuliavimo klavišą, kad išeitumėte.</translation>
@@ -744,6 +749,7 @@ Jei norite atidaryti „Chrome“ naršyklės meniu, paspauskite „Alt“ ir F.
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">Pasirinkti 6 taškų Brailio rašmenų lentelę:</translation>
 <translation id="72393384879519786">Antraštė</translation>
+<translation id="7240858705033280249">Pereiti į išsamios informacijos skiltį</translation>
 <translation id="7241683698754534149">Atidaryti ilgą aprašą naujame skirtuke</translation>
 <translation id="7248671827512403053">Programa</translation>
 <translation id="725969808843520477">Kita akutė</translation>
@@ -920,6 +926,7 @@ Jei norite atidaryti „Chrome“ naršyklės meniu, paspauskite „Alt“ ir F.
 <translation id="9043969572162476692"><ph name="NUM" /> %</translation>
 <translation id="9061884144798498064">Pasirinkti 8 taškų Brailio rašmenų lentelę:</translation>
 <translation id="9065283790526219006">+iššokantysis langas</translation>
+<translation id="9066023754636984703">Paspauskite „Search“ + A ir J, kad pereitumėte į išsamios informacijos skiltį.</translation>
 <translation id="9067522039955793016">Puslapio lūžis</translation>
 <translation id="9077213568694924680">pašalinta iš pasirinkimo srities</translation>
 <translation id="9082874451376019682">Nėra ankstesnio šliaužiklio.</translation>

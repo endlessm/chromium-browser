@@ -12,7 +12,7 @@
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/banners/app_banner_manager.h"
@@ -591,37 +591,6 @@ IN_PROC_BROWSER_TEST_F(AppBannerManagerBrowserTest,
   histograms.ExpectTotalCount(banners::kMinutesHistogram, 0);
   histograms.ExpectUniqueSample(banners::kInstallableStatusCodeHistogram,
                                 RENDERER_CANCELLED, 1);
-}
-
-IN_PROC_BROWSER_TEST_F(AppBannerManagerBrowserTest,
-                       ExperimentalFlowWebAppBannerPromptNeedsGesture) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(features::kExperimentalAppBanners);
-  std::unique_ptr<AppBannerManagerTest> manager(
-      CreateAppBannerManager(browser()));
-  base::HistogramTester histograms;
-
-  SiteEngagementService* service =
-      SiteEngagementService::Get(browser()->profile());
-  GURL test_url = GetBannerURLWithAction("stash_event");
-  service->ResetBaseScoreForURL(test_url, 10);
-
-  // Navigate to page and get the pipeline started.
-  TriggerBannerFlowWithNavigation(browser(), manager.get(), test_url,
-                                  false /* expected_will_show */,
-                                  State::PENDING_PROMPT);
-
-  // Now let the page call prompt without a gesture, an error should be
-  // generated.
-  TriggerBannerFlow(
-      browser(), manager.get(),
-      base::BindOnce(&ExecuteScript, browser(), "callStashedPrompt();",
-                     false /* with_gesture */),
-      false /* expected_will_show */, State::COMPLETE);
-
-  histograms.ExpectTotalCount(banners::kMinutesHistogram, 0);
-  histograms.ExpectUniqueSample(banners::kInstallableStatusCodeHistogram,
-                                NO_GESTURE, 1);
 }
 
 IN_PROC_BROWSER_TEST_F(AppBannerManagerBrowserTest,

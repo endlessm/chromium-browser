@@ -14,7 +14,9 @@
 #include "chrome/browser/vr/content_input_delegate.h"
 #include "chrome/browser/vr/model/controller_model.h"
 #include "chrome/browser/vr/ui_browser_interface.h"
+#include "chrome/browser/vr/ui_interface.h"
 #include "chrome/browser/vr/ui_renderer.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/transform.h"
 
 namespace ui {
@@ -23,6 +25,7 @@ class Event;
 
 namespace vr {
 
+class GraphicsDelegate;
 class TextInputDelegate;
 class TestKeyboardDelegate;
 class Ui;
@@ -35,7 +38,7 @@ class VrTestContext : public vr::UiBrowserInterface {
   VrTestContext();
   ~VrTestContext() override;
 
-  void OnGlInitialized();
+  void OnGlInitialized(std::unique_ptr<GraphicsDelegate> graphics_delegate);
   // TODO(vollick): we should refactor VrShellGl's rendering logic and use it
   // directly. crbug.com/767282
   void DrawFrame();
@@ -59,7 +62,6 @@ class VrTestContext : public vr::UiBrowserInterface {
   void CloseAllTabs() override;
   void CloseAllIncognitoTabs() override;
   void OpenFeedback() override;
-  void ExitCct() override;
   void CloseHostedDialog() override;
   void OnUnsupportedMode(vr::UiUnsupportedMode mode) override;
   void OnExitVrPromptResult(vr::ExitVrPromptChoice choice,
@@ -74,7 +76,7 @@ class VrTestContext : public vr::UiBrowserInterface {
   void set_window_size(const gfx::Size& size) { window_size_ = size; }
 
  private:
-  unsigned int CreateFakeContentTexture();
+  unsigned int CreateTexture(SkColor color);
   void CreateFakeVoiceSearchResult();
   void CycleWebVrModes();
   void ToggleSplashScreen();
@@ -88,7 +90,8 @@ class VrTestContext : public vr::UiBrowserInterface {
   gfx::Point3F LaserOrigin() const;
   void LoadAssets();
 
-  std::unique_ptr<Ui> ui_;
+  std::unique_ptr<Ui> ui_instance_;
+  UiInterface* ui_;
   gfx::Size window_size_;
 
   gfx::Transform head_pose_;
@@ -115,13 +118,15 @@ class VrTestContext : public vr::UiBrowserInterface {
   bool recentered_ = false;
   base::TimeTicks page_load_start_;
   int tab_id_ = 0;
+  bool hosted_ui_enabled_ = false;
 
   std::unique_ptr<TextInputDelegate> text_input_delegate_;
   std::unique_ptr<TestKeyboardDelegate> keyboard_delegate_;
+  std::unique_ptr<GraphicsDelegate> graphics_delegate_;
 
   PlatformController::Handedness handedness_ = PlatformController::kRightHanded;
 
-  std::queue<GestureList> gesture_lists_;
+  std::queue<InputEventList> input_event_lists_;
 
   DISALLOW_COPY_AND_ASSIGN(VrTestContext);
 };

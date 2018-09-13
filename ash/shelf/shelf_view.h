@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "ash/app_list/views/app_list_drag_and_drop_host.h"
 #include "ash/public/cpp/shelf_model_observer.h"
 #include "ash/public/interfaces/shelf.mojom.h"
 #include "ash/shelf/ink_drop_button_listener.h"
@@ -19,7 +20,6 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/app_list/views/app_list_drag_and_drop_host.h"
 #include "ui/views/animation/bounds_animator_observer.h"
 #include "ui/views/animation/ink_drop_state.h"
 #include "ui/views/context_menu_controller.h"
@@ -30,7 +30,7 @@
 #include "ui/views/view_model.h"
 
 namespace ui {
-class MenuModel;
+class SimpleMenuModel;
 }
 
 namespace views {
@@ -49,6 +49,7 @@ class Shelf;
 class ShelfButton;
 class ShelfModel;
 struct ShelfItem;
+class ShelfMenuModelAdapter;
 class ShelfWidget;
 
 enum ShelfAlignmentUmaEnumValue {
@@ -173,8 +174,17 @@ class ASH_EXPORT ShelfView : public views::View,
                                Pointer pointer,
                                bool canceled);
 
+  // Enumerates the shelf items that are centered in the new UI and returns
+  // the total size they occupy.
+  int GetDimensionOfCenteredShelfItemsInNewUi() const;
+
   // Updates the background for the shelf items.
   void UpdateShelfItemBackground(SkColor color);
+
+  // Update the layout when entering or exiting tablet mode. Have the owning
+  // widget call this instead of observing changes ourselves to ensure this
+  // happens after the tablet related changes in ShelfController.
+  void OnTabletModeChanged();
 
   // True if the current |drag_view_| is the given |drag_view|.
   bool IsDraggedView(const ShelfButton* drag_view) const;
@@ -195,6 +205,20 @@ class ASH_EXPORT ShelfView : public views::View,
 
   const ShelfButton* drag_view() const { return drag_view_; }
 
+  // Returns true when this ShelfView is used for Overflow Bubble.
+  // In this mode, it does not show app list, panel and overflow button.
+  // Note:
+  //   * When Shelf can contain only one item (overflow button) due to very
+  //     small resolution screen, overflow bubble can show app list and panel
+  //     button.
+  bool is_overflow_mode() const { return overflow_mode_; }
+
+  int first_visible_index() const { return first_visible_index_; }
+  int last_visible_index() const { return last_visible_index_; }
+  ShelfWidget* shelf_widget() const { return shelf_widget_; }
+  OverflowBubble* overflow_bubble() { return overflow_bubble_.get(); }
+  views::ViewModel* view_model() { return view_model_.get(); }
+
  private:
   friend class ShelfViewTestAPI;
 
@@ -209,14 +233,6 @@ class ASH_EXPORT ShelfView : public views::View,
 
   // Minimum distance before drag starts.
   static const int kMinimumDragDistance;
-
-  // Returns true when this ShelfView is used for Overflow Bubble.
-  // In this mode, it does not show app list, panel and overflow button.
-  // Note:
-  //   * When Shelf can contain only one item (overflow button) due to very
-  //     small resolution screen, overflow bubble can show app list and panel
-  //     button.
-  bool is_overflow_mode() const { return overflow_mode_; }
 
   bool dragging() const { return drag_pointer_ != NONE; }
 
@@ -305,19 +321,11 @@ class ASH_EXPORT ShelfView : public views::View,
   void UpdateOverflowRange(ShelfView* overflow_view) const;
 
   // Gets the menu anchor rect for menus. |source| is the view that is
-  // asking for a menu, |location| is the location of the event,
-  // |source_type| is the type of event that asked for the menu, and
-  // |context_menu| is whether the menu is for a context or app menu.
-  gfx::Rect GetMenuAnchorRect(const views::View* source,
+  // asking for a menu, |location| is the location of the event, |context_menu|
+  // is whether the menu is for a context or application menu.
+  gfx::Rect GetMenuAnchorRect(const views::View& source,
                               const gfx::Point& location,
-                              ui::MenuSourceType source_type,
                               bool context_menu) const;
-
-  // Gets the menu anchor rect that aligns the menu to the edge of the
-  // shelf for touch events. |source| is the view that is asking for the
-  // menu, |location| is the location of the event.
-  gfx::Rect GetTouchMenuAnchorRect(const views::View* source,
-                                   const gfx::Point& location) const;
 
   // Gets the menu anchor position for a menu. |for_item| is true if the menu is
   // for an item on the shelf, or false if the menu is for the shelf view
@@ -375,7 +383,7 @@ class ASH_EXPORT ShelfView : public views::View,
   // If |context_menu| is set, the displayed menu is a context menu and not
   // a menu listing one or more running applications.
   // The |click_point| is only used for |context_menu|'s.
-  void ShowMenu(std::unique_ptr<ui::MenuModel> menu_model,
+  void ShowMenu(std::unique_ptr<ui::SimpleMenuModel> menu_model,
                 views::View* source,
                 const gfx::Point& click_point,
                 bool context_menu,
@@ -462,9 +470,8 @@ class ASH_EXPORT ShelfView : public views::View,
 
   std::unique_ptr<views::FocusSearch> focus_search_;
 
-  // Manages the context menu, and the list menu.
-  std::unique_ptr<ui::MenuModel> menu_model_;
-  std::unique_ptr<views::MenuRunner> launcher_menu_runner_;
+  // Responsible for building and running all menus.
+  std::unique_ptr<ShelfMenuModelAdapter> shelf_menu_model_adapter_;
   std::unique_ptr<ScopedRootWindowForNewWindows>
       scoped_root_window_for_new_windows_;
 
@@ -477,10 +484,6 @@ class ASH_EXPORT ShelfView : public views::View,
 
   // The timestamp of the event which closed the last menu - or 0.
   base::TimeTicks closing_event_time_;
-
-  // The timestamp of the event which opened the last context menu on a
-  // ShelfButton. Used in metrics.
-  base::TimeTicks shelf_button_context_menu_time_;
 
   // True if a drag and drop operation created/pinned the item in the launcher
   // and it needs to be deleted/unpinned again if the operation gets cancelled.

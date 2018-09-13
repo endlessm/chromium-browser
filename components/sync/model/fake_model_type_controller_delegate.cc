@@ -17,14 +17,15 @@ FakeModelTypeControllerDelegate::FakeModelTypeControllerDelegate(ModelType type)
 FakeModelTypeControllerDelegate::~FakeModelTypeControllerDelegate() {}
 
 void FakeModelTypeControllerDelegate::OnSyncStarting(
-    const ModelErrorHandler& error_handler,
+    const DataTypeActivationRequest& request,
     StartCallback callback) {
   if (!callback.is_null()) {
     std::move(callback).Run(nullptr);
   }
 }
 
-void FakeModelTypeControllerDelegate::DisableSync() {}
+void FakeModelTypeControllerDelegate::OnSyncStopping(
+    SyncStopMetadataFate metadata_fate) {}
 
 void FakeModelTypeControllerDelegate::GetAllNodesForDebugging(
     ModelTypeControllerDelegate::AllNodesCallback callback) {

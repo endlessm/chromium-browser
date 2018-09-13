@@ -67,6 +67,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_guest.h"
 #include "extensions/browser/guest_view/mime_handler_view/test_mime_handler_view_guest.h"
+#include "media/base/media_switches.h"
 #include "net/base/load_flags.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
@@ -145,7 +146,7 @@ class ContextMenuBrowserTest : public InProcessBrowserTest {
     params.link_url = url;
     params.src_url = url;
     params.link_text = link_text;
-    params.page_url = web_contents->GetController().GetActiveEntry()->GetURL();
+    params.page_url = web_contents->GetVisibleURL();
     params.source_type = source_type;
 #if defined(OS_MACOSX)
     params.writing_direction_default = 0;
@@ -962,9 +963,6 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, OpenLinkInProfile) {
     }
   }
 
-  ui_test_utils::WindowedTabAddedNotificationObserver tab_observer(
-      content::NotificationService::AllSources());
-
   ASSERT_TRUE(embedded_test_server()->Start());
   GURL url(embedded_test_server()->GetURL("/"));
 
@@ -981,6 +979,8 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, OpenLinkInProfile) {
   // Open the menu items. They should match their corresponding profiles in
   // |profiles_in_menu|.
   for (Profile* profile : profiles_in_menu) {
+    ui_test_utils::WindowedTabAddedNotificationObserver tab_observer(
+        content::NotificationService::AllSources());
     int command_id = menu->GetCommandIDByProfilePath(profile->GetPath());
     ASSERT_NE(-1, command_id);
     menu->ExecuteCommand(command_id, 0);
@@ -1211,6 +1211,43 @@ IN_PROC_BROWSER_TEST_F(LoadImageBrowserTest, LoadImage) {
   LoadImageRequestObserver observer(web_contents, kValidImage);
   AttemptLoadImage();
   observer.WaitForRequest();
+}
+
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
+                       ContextMenuForVideoNotInPictureInPicture) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(media::kPictureInPicture);
+
+  content::ContextMenuParams params;
+  params.media_type = blink::WebContextMenuData::kMediaTypeVideo;
+  params.media_flags |= blink::WebContextMenuData::kMediaCanPictureInPicture;
+
+  TestRenderViewContextMenu menu(
+      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
+      params);
+  menu.Init();
+
+  EXPECT_TRUE(menu.IsItemPresent(IDC_CONTENT_CONTEXT_PICTUREINPICTURE));
+  EXPECT_FALSE(menu.IsItemChecked(IDC_CONTENT_CONTEXT_PICTUREINPICTURE));
+}
+
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
+                       ContextMenuForVideoInPictureInPicture) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(media::kPictureInPicture);
+
+  content::ContextMenuParams params;
+  params.media_type = blink::WebContextMenuData::kMediaTypeVideo;
+  params.media_flags |= blink::WebContextMenuData::kMediaCanPictureInPicture;
+  params.media_flags |= blink::WebContextMenuData::kMediaPictureInPicture;
+
+  TestRenderViewContextMenu menu(
+      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
+      params);
+  menu.Init();
+
+  EXPECT_TRUE(menu.IsItemPresent(IDC_CONTENT_CONTEXT_PICTUREINPICTURE));
+  EXPECT_TRUE(menu.IsItemChecked(IDC_CONTENT_CONTEXT_PICTUREINPICTURE));
 }
 
 }  // namespace

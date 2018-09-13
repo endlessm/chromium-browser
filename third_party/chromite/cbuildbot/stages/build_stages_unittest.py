@@ -13,7 +13,6 @@ import os
 import tempfile
 
 from chromite.cbuildbot import cbuildbot_unittest
-from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import commands
 from chromite.cbuildbot.stages import build_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
@@ -23,6 +22,7 @@ from chromite.lib import buildbucket_lib
 from chromite.lib import build_summary
 from chromite.lib import builder_status_lib
 from chromite.lib import cidb
+from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_sdk_lib
@@ -32,7 +32,6 @@ from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import parallel_unittest
 from chromite.lib import partial_mock
-from chromite.lib import path_util
 from chromite.lib import portage_util
 
 from chromite.cbuildbot.stages.generic_stages_unittest import patch
@@ -213,7 +212,7 @@ class AllConfigsTestCase(generic_stages_unittest.AbstractStageTestCase,
   def RunAllConfigs(self, task, skip_missing=False, site_config=None):
     """Run |task| against all major configurations"""
     if site_config is None:
-      site_config = chromeos_config.GetConfig()
+      site_config = config_lib.GetConfig()
 
     boards = ('samus', 'arm-generic')
 
@@ -473,18 +472,13 @@ class BuildImageStageMock(partial_mock.PartialMock):
   """Partial mock for BuildImageStage."""
 
   TARGET = 'chromite.cbuildbot.stages.build_stages.BuildImageStage'
-  ATTRS = ('_BuildImages', '_GenerateAuZip')
+  ATTRS = ('_BuildImages',)
 
   def _BuildImages(self, *args, **kwargs):
     with patches(
         patch(os, 'symlink'),
         patch(os, 'readlink', return_value='foo.txt')):
       self.backup['_BuildImages'](*args, **kwargs)
-
-  def _GenerateAuZip(self, *args, **kwargs):
-    with patch(path_util, 'ToChrootPath',
-               return_value='/chroot/path'):
-      self.backup['_GenerateAuZip'](*args, **kwargs)
 
 
 class BuildImageStageTest(BuildPackagesStageTest):
@@ -506,8 +500,6 @@ class BuildImageStageTest(BuildPackagesStageTest):
         rc.assertCommandContains(cmd, expected=cfg['images'])
         rc.assertCommandContains(['./image_to_vm.sh'],
                                  expected=cfg['vm_tests'])
-        cmd = ['./build_library/generate_au_zip.py', '-o', '/chroot/path']
-        rc.assertCommandContains(cmd, expected=cfg['images'])
 
   def RunTestsWithBotId(self, bot_id, options_tests=True):
     """Test with the config for the specified bot_id."""

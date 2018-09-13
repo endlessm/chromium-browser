@@ -41,13 +41,10 @@ class _CommonSystemHealthBenchmark(perf_benchmark.PerfBenchmark):
     cat_filter.AddIncludedCategory('accessibility')
 
     options = timeline_based_measurement.Options(cat_filter)
-    options.config.enable_battor_trace = True
     options.config.enable_chrome_trace = True
     options.config.enable_cpu_trace = True
     options.SetTimelineBasedMetrics([
-        'clockSyncLatencyMetric',
         'cpuTimeMetric',
-        'powerMetric',
         'tracingMetric',
         'accessibilityMetric',
         'limitedCpuTimeMetric'
@@ -61,7 +58,11 @@ class _CommonSystemHealthBenchmark(perf_benchmark.PerfBenchmark):
     return page_sets.SystemHealthStorySet(platform=self.PLATFORM)
 
 
-@benchmark.Owner(emails=['charliea@chromium.org', 'nednguyen@chromium.org'])
+@benchmark.Info(emails=['charliea@chromium.org', 'sullivan@chromium.org',
+                        'tdresser@chromium.org',
+                        'chrome-speed-metrics-dev@chromium.org'],
+                component='Speed>Metrics>SystemHealthRegressions',
+                documentation_url='https://bit.ly/system-health-benchmarks')
 class DesktopCommonSystemHealth(_CommonSystemHealthBenchmark):
   """Desktop Chrome Energy System Health Benchmark."""
   PLATFORM = 'desktop'
@@ -72,8 +73,11 @@ class DesktopCommonSystemHealth(_CommonSystemHealthBenchmark):
     return 'system_health.common_desktop'
 
 
-@benchmark.Owner(emails=['charliea@chromium.org', 'nednguyen@chromium.org',
-                         'perezju@chromium.org'])
+@benchmark.Info(emails=['charliea@chromium.org', 'sullivan@chromium.org',
+                        'tdresser@chromium.org', 'perezju@chromium.org',
+                        'chrome-speed-metrics-dev@chromium.org'],
+                component='Speed>Metrics>SystemHealthRegressions',
+                documentation_url='https://bit.ly/system-health-benchmarks')
 class MobileCommonSystemHealth(_CommonSystemHealthBenchmark):
   """Mobile Chrome Energy System Health Benchmark."""
   PLATFORM = 'mobile'
@@ -117,7 +121,8 @@ class _MemorySystemHealthBenchmark(perf_benchmark.PerfBenchmark):
     return not _IGNORED_STATS_RE.search(name)
 
 
-@benchmark.Owner(emails=['perezju@chromium.org'])
+@benchmark.Info(emails=['perezju@chromium.org'],
+                documentation_url='https://bit.ly/system-health-benchmarks')
 class DesktopMemorySystemHealth(_MemorySystemHealthBenchmark):
   """Desktop Chrome Memory System Health Benchmark."""
   PLATFORM = 'desktop'
@@ -128,7 +133,8 @@ class DesktopMemorySystemHealth(_MemorySystemHealthBenchmark):
     return 'system_health.memory_desktop'
 
 
-@benchmark.Owner(emails=['perezju@chromium.org'])
+@benchmark.Info(emails=['perezju@chromium.org'],
+                documentation_url='https://bit.ly/system-health-benchmarks')
 class MobileMemorySystemHealth(_MemorySystemHealthBenchmark):
   """Mobile Chrome Memory System Health Benchmark."""
   PLATFORM = 'mobile'
@@ -148,7 +154,7 @@ class MobileMemorySystemHealth(_MemorySystemHealthBenchmark):
     return 'system_health.memory_mobile'
 
 
-@benchmark.Owner(emails=['perezju@chromium.org', 'torne@chromium.org',
+@benchmark.Info(emails=['perezju@chromium.org', 'torne@chromium.org',
                          'changwan@chromium.org'],
                  component='Mobile>WebView>Perf')
 class WebviewStartupSystemHealthBenchmark(perf_benchmark.PerfBenchmark):

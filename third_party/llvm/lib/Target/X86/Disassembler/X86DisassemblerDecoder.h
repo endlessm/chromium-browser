@@ -563,6 +563,8 @@ struct InternalInstruction {
   bool hasAdSize;
   // Operand-size override
   bool hasOpSize;
+  // Lock prefix
+  bool hasLockPrefix;
   // The repeat prefix if any
   uint8_t repeatPrefix;
 
@@ -627,7 +629,6 @@ struct InternalInstruction {
 
   // These fields determine the allowable values for the ModR/M fields, which
   // depend on operand and address widths.
-  EABase                        eaBaseBase;
   EABase                        eaRegBase;
   Reg                           regBase;
 

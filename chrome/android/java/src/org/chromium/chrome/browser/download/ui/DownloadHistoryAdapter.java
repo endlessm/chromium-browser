@@ -21,12 +21,12 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.download.DownloadItem;
+import org.chromium.chrome.browser.download.DownloadManagerService.DownloadObserver;
 import org.chromium.chrome.browser.download.DownloadSharedPreferenceHelper;
 import org.chromium.chrome.browser.download.DownloadUtils;
 import org.chromium.chrome.browser.download.ui.BackendProvider.DownloadDelegate;
 import org.chromium.chrome.browser.download.ui.DownloadHistoryItemWrapper.DownloadItemWrapper;
 import org.chromium.chrome.browser.download.ui.DownloadHistoryItemWrapper.OfflineItemWrapper;
-import org.chromium.chrome.browser.download.ui.DownloadManagerUi.DownloadUiObserver;
 import org.chromium.chrome.browser.widget.DateDividedAdapter;
 import org.chromium.chrome.browser.widget.displaystyle.UiConfig;
 import org.chromium.chrome.browser.widget.selection.SelectionDelegate;
@@ -47,9 +47,9 @@ import java.util.Locale;
 import java.util.Set;
 
 /** Bridges the user's download history and the UI used to display it. */
-public class DownloadHistoryAdapter extends DateDividedAdapter
-        implements DownloadUiObserver, DownloadSharedPreferenceHelper.Observer,
-                   OfflineContentProvider.Observer {
+public class DownloadHistoryAdapter
+        extends DateDividedAdapter implements DownloadSharedPreferenceHelper.Observer,
+                                              OfflineContentProvider.Observer, DownloadObserver {
     private static final String TAG = "DownloadAdapter";
 
     /** Alerted about changes to internal state. */
@@ -153,13 +153,13 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
     /** An item group containing the prefetched items. */
     private static class PrefetchItemGroup extends ItemGroup {
         @Override
-        public int priority() {
-            return GROUP_PRIORITY_ELEVATED_CONTENT;
+        public @GroupPriority int priority() {
+            return GroupPriority.ELEVATED_CONTENT;
         }
 
         @Override
-        public int getItemViewType(int index) {
-            return index == 0 ? TYPE_SUBSECTION_HEADER : TYPE_NORMAL;
+        public @ItemViewType int getItemViewType(int index) {
+            return index == 0 ? ItemViewType.SUBSECTION_HEADER : ItemViewType.NORMAL;
         }
 
         @Override
@@ -204,7 +204,7 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
     private final List<DownloadItemView> mViews = new ArrayList<>();
 
     private BackendProvider mBackendProvider;
-    private @DownloadFilter.Type int mFilter = DownloadFilter.FILTER_ALL;
+    private @DownloadFilter.Type int mFilter = DownloadFilter.Type.ALL;
     private String mSearchQuery = EMPTY_QUERY;
     // TODO(xingliu): Remove deprecated storage info. See https://crbug/853260.
     private SpaceDisplay mSpaceDisplay;
@@ -248,7 +248,7 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
 
         // Get all regular and (if necessary) off the record downloads.
         DownloadDelegate downloadManager = getDownloadDelegate();
-        downloadManager.addDownloadHistoryAdapter(this);
+        downloadManager.addDownloadObserver(this);
         downloadManager.getAllDownloads(false);
         if (mShowOffTheRecord) downloadManager.getAllDownloads(true);
 
@@ -268,7 +268,7 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
         return mBackendProvider.getOfflineContentProvider();
     }
 
-    /** Called when the user's regular or incognito download history has been loaded. */
+    @Override
     public void onAllDownloadsRetrieved(List<DownloadItem> result, boolean isOffTheRecord) {
         if (isOffTheRecord && !mShowOffTheRecord) return;
 
@@ -276,22 +276,22 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
         if (list.isInitialized()) return;
         assert list.size() == 0;
 
-        int[] itemCounts = new int[DownloadFilter.FILTER_BOUNDARY];
-        int[] viewedItemCounts = new int[DownloadFilter.FILTER_BOUNDARY];
+        int[] itemCounts = new int[DownloadFilter.Type.NUM_ENTRIES];
+        int[] viewedItemCounts = new int[DownloadFilter.Type.NUM_ENTRIES];
 
         for (DownloadItem item : result) {
             DownloadItemWrapper wrapper = createDownloadItemWrapper(item);
             if (addDownloadHistoryItemWrapper(wrapper)
-                    && wrapper.isVisibleToUser(DownloadFilter.FILTER_ALL)) {
+                    && wrapper.isVisibleToUser(DownloadFilter.Type.ALL)) {
                 itemCounts[wrapper.getFilterType()]++;
 
                 if (DownloadUtils.isDownloadViewed(wrapper.getItem()))
                     viewedItemCounts[wrapper.getFilterType()]++;
-                if (!isOffTheRecord && wrapper.getFilterType() == DownloadFilter.FILTER_OTHER) {
+                if (!isOffTheRecord && wrapper.getFilterType() == DownloadFilter.Type.OTHER) {
                     RecordHistogram.recordEnumeratedHistogram(
                             "Android.DownloadManager.OtherExtensions.InitialCount",
                             wrapper.getFileExtensionType(),
-                            DownloadHistoryItemWrapper.FILE_EXTENSION_BOUNDARY);
+                            DownloadHistoryItemWrapper.FileExtension.NUM_ENTRIES);
                 }
             }
         }
@@ -426,6 +426,7 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
     }
 
     /** Called when a new DownloadItem has been created by the native DownloadManager. */
+    @Override
     public void onDownloadItemCreated(DownloadItem item) {
         boolean isOffTheRecord = item.getDownloadInfo().isOffTheRecord();
         if (isOffTheRecord && !mShowOffTheRecord) return;
@@ -441,6 +442,7 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
     }
 
     /** Updates the list when new information about a download comes in. */
+    @Override
     public void onDownloadItemUpdated(DownloadItem item) {
         DownloadItemWrapper newWrapper = createDownloadItemWrapper(item);
         if (newWrapper.isOffTheRecord() && !mShowOffTheRecord) return;
@@ -504,6 +506,7 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
      * @param guid           ID of the DownloadItem that has been removed.
      * @param isOffTheRecord True if off the record, false otherwise.
      */
+    @Override
     public void onDownloadItemRemoved(String guid, boolean isOffTheRecord) {
         if (isOffTheRecord && !mShowOffTheRecord) return;
         if (getDownloadItemList(isOffTheRecord).removeItem(guid) != null) {
@@ -511,8 +514,8 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
         }
     }
 
-    @Override
-    public void onFilterChanged(int filter) {
+    /** Called when the filter representing which items can show has changed. */
+    public void onFilterChanged(@DownloadFilter.Type int filter) {
         if (mLoadingDelegate.isLoaded()) {
             filter(filter);
         } else {
@@ -521,9 +524,9 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
         }
     }
 
-    @Override
-    public void onManagerDestroyed() {
-        getDownloadDelegate().removeDownloadHistoryAdapter(this);
+    /** Called when this object should be destroyed. */
+    public void destroy() {
+        getDownloadDelegate().removeDownloadObserver(this);
         getOfflineContentProvider().removeObserver(this);
         sDeletedFileTracker.decrementInstanceCount();
         if (mSpaceDisplay != null) unregisterAdapterDataObserver(mSpaceDisplay);
@@ -757,26 +760,26 @@ public class DownloadHistoryAdapter extends DateDividedAdapter
 
     private void recordDownloadCountHistograms(int[] itemCounts, int[] viewedItemCounts) {
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Audio",
-                itemCounts[DownloadFilter.FILTER_AUDIO]);
+                itemCounts[DownloadFilter.Type.AUDIO]);
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Document",
-                itemCounts[DownloadFilter.FILTER_DOCUMENT]);
+                itemCounts[DownloadFilter.Type.DOCUMENT]);
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Image",
-                itemCounts[DownloadFilter.FILTER_IMAGE]);
+                itemCounts[DownloadFilter.Type.IMAGE]);
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Other",
-                itemCounts[DownloadFilter.FILTER_OTHER]);
+                itemCounts[DownloadFilter.Type.OTHER]);
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Video",
-                itemCounts[DownloadFilter.FILTER_VIDEO]);
+                itemCounts[DownloadFilter.Type.VIDEO]);
 
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Viewed.Audio",
-                viewedItemCounts[DownloadFilter.FILTER_AUDIO]);
+                viewedItemCounts[DownloadFilter.Type.AUDIO]);
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Viewed.Document",
-                viewedItemCounts[DownloadFilter.FILTER_DOCUMENT]);
+                viewedItemCounts[DownloadFilter.Type.DOCUMENT]);
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Viewed.Image",
-                viewedItemCounts[DownloadFilter.FILTER_IMAGE]);
+                viewedItemCounts[DownloadFilter.Type.IMAGE]);
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Viewed.Other",
-                viewedItemCounts[DownloadFilter.FILTER_OTHER]);
+                viewedItemCounts[DownloadFilter.Type.OTHER]);
         RecordHistogram.recordCountHistogram("Android.DownloadManager.InitialCount.Viewed.Video",
-                viewedItemCounts[DownloadFilter.FILTER_VIDEO]);
+                viewedItemCounts[DownloadFilter.Type.VIDEO]);
     }
 
     private void recordTotalDownloadCountHistogram() {

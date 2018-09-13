@@ -40,6 +40,11 @@ class TestOptionsProvider : public ImageProvider,
   SkStrikeClient* strike_client() { return &strike_client_; }
   SkColorSpace* color_space() { return color_space_.get(); }
   bool can_use_lcd_text() const { return can_use_lcd_text_; }
+  bool context_supports_distance_field_text() const {
+    return context_supports_distance_field_text_;
+  }
+  int max_texture_size() const { return max_texture_size_; }
+  size_t max_texture_bytes() const { return max_texture_bytes_; }
 
   const std::vector<DrawImage>& decoded_images() const {
     return decoded_images_;
@@ -61,6 +66,9 @@ class TestOptionsProvider : public ImageProvider,
   SkStrikeClient strike_client_;
   sk_sp<SkColorSpace> color_space_;
   bool can_use_lcd_text_ = true;
+  bool context_supports_distance_field_text_ = true;
+  int max_texture_size_ = 1024;
+  size_t max_texture_bytes_ = 4 * 1024 * 1024;
 
   PaintOp::SerializeOptions serialize_options_;
   PaintOp::DeserializeOptions deserialize_options_;

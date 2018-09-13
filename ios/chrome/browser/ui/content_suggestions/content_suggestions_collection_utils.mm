@@ -45,7 +45,7 @@ const CGFloat kMaxSearchFieldFrameMargin = 200;
 
 // Top margin for the doodle.
 const CGFloat kDoodleTopMarginRegularXRegular = 162;
-const CGFloat kDoodleTopMarginOther = 48;
+const CGFloat kDoodleTopMarginOther = 58;
 const CGFloat kDoodleTopMarginIPadLegacy = 82;
 
 // Top margin for the search field
@@ -86,7 +86,7 @@ namespace content_suggestions {
 
 const CGFloat kSearchFieldHeight = 50;
 const int kSearchFieldBackgroundColor = 0xF1F3F4;
-const CGFloat kHintTextScale = 0.85;
+const CGFloat kHintTextScale = 0.15;
 
 const NSUInteger kMostVisitedItemsPerLine = 4;
 
@@ -204,27 +204,25 @@ CGFloat heightForLogoHeader(BOOL logoIsShowing,
 }
 
 void configureSearchHintLabel(UILabel* searchHintLabel,
-                              UIView* hintLabelContainer,
                               UIButton* searchTapTarget) {
-  // searchHintLabel is intentionally not using autolayout because it will need
-  // to use a CGAffineScale transform that will not work correctly with
-  // autolayout.  Instead, |hintLabelContainer| will use autolayout and will
-  // contain |searchHintLabel|.
-  searchHintLabel.autoresizingMask =
-      UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-  [hintLabelContainer setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [searchTapTarget addSubview:hintLabelContainer];
-  [hintLabelContainer addSubview:searchHintLabel];
+  [searchHintLabel setTranslatesAutoresizingMaskIntoConstraints:NO];
+  [searchTapTarget addSubview:searchHintLabel];
 
   CGFloat centerYOffsetConstant =
       IsUIRefreshPhase1Enabled() ? 0 : kSearchHintVerticalOffset;
   [NSLayoutConstraint activateConstraints:@[
-    [hintLabelContainer.centerYAnchor
+    [searchHintLabel.centerYAnchor
         constraintEqualToAnchor:searchTapTarget.centerYAnchor
                        constant:centerYOffsetConstant],
-    [hintLabelContainer.heightAnchor
+    [searchHintLabel.heightAnchor
         constraintEqualToConstant:kSearchFieldHeight - 2 * kSearchHintMargin],
   ]];
+
+  if (IsUIRefreshPhase1Enabled()) {
+    [searchHintLabel.centerXAnchor
+        constraintEqualToAnchor:searchTapTarget.centerXAnchor]
+        .active = YES;
+  }
 
   [searchHintLabel setText:l10n_util::GetNSString(IDS_OMNIBOX_EMPTY_HINT)];
   if (base::i18n::IsRTL()) {
@@ -232,8 +230,8 @@ void configureSearchHintLabel(UILabel* searchHintLabel,
   }
   if (IsUIRefreshPhase1Enabled()) {
     [searchHintLabel setTextColor:[UIColor colorWithWhite:0 alpha:kHintAlpha]];
-    searchHintLabel.font =
-        [UIFont preferredFontForTextStyle:UIFontTextStyleTitle3];
+    searchHintLabel.font = [UIFont systemFontOfSize:17];
+    searchHintLabel.textAlignment = NSTextAlignmentCenter;
   } else {
     [searchHintLabel
         setTextColor:
@@ -245,7 +243,6 @@ void configureSearchHintLabel(UILabel* searchHintLabel,
 
 void configureVoiceSearchButton(UIButton* voiceSearchButton,
                                 UIButton* searchTapTarget) {
-  UIImage* micImage = [UIImage imageNamed:@"voice_icon"];
   [voiceSearchButton setTranslatesAutoresizingMaskIntoConstraints:NO];
   [searchTapTarget addSubview:voiceSearchButton];
 
@@ -259,7 +256,16 @@ void configureVoiceSearchButton(UIButton* voiceSearchButton,
   ]];
 
   [voiceSearchButton setAdjustsImageWhenHighlighted:NO];
+
+  UIImage* micImage =
+      IsUIRefreshPhase1Enabled()
+          ? [[UIImage imageNamed:@"location_bar_voice"]
+                imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]
+          : [UIImage imageNamed:@"voice_icon"];
   [voiceSearchButton setImage:micImage forState:UIControlStateNormal];
+  if (IsUIRefreshPhase1Enabled()) {
+    voiceSearchButton.tintColor = [UIColor colorWithWhite:0 alpha:0.7];
+  }
   [voiceSearchButton setAccessibilityLabel:l10n_util::GetNSString(
                                                IDS_IOS_ACCNAME_VOICE_SEARCH)];
   [voiceSearchButton setAccessibilityIdentifier:@"Voice Search"];

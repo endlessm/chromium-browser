@@ -85,8 +85,6 @@ _REVISION_NEGATIVE_FILTER['HEAD'] = [
     'WindowTest.testCanMaximizeTheWindow',
     # Flaky: https://bugs.chromium.org/p/chromedriver/issues/detail?id=528
     'PageLoadingTest.testShouldDoNothingIfThereIsNothingToGoBackTo',
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1117
-    'PageLoadingTest.testShouldBeAbleToAccessPagesWithAnInsecureSslCertificate',
     # Flaky: https://bugs.chromium.org/p/chromedriver/issues/detail?id=1113
     'FrameSwitchingTest.testShouldNotSwitchMagicallyToTheTopWindow',
     # Flaky: https://bugs.chromium.org/p/chromedriver/issues/detail?id=1151
@@ -104,8 +102,6 @@ _REVISION_NEGATIVE_FILTER['HEAD'] = [
     'AlertsTest.testPromptShouldUseDefaultValueIfNoKeysSent',
     'UnexpectedAlertBehaviorTest.canAcceptUnhandledAlert',
     'UnexpectedAlertBehaviorTest.canSpecifyUnhandledAlertBehaviourUsingCapabilities',
-    # https://bugs.chromium.org/p/chromium/issues/detail?id=764519
-    'FrameSwitchingTest.testShouldBeAbleToClickInAFrameThatRewritesTopWindowLocation',
 ]
 
 _OS_NEGATIVE_FILTER = {}
@@ -146,6 +142,8 @@ _OS_NEGATIVE_FILTER['android:chrome'] = [
     'TakesScreenshotTest.testShouldCaptureScreenshotAtFramePage',
     'TakesScreenshotTest.testShouldCaptureScreenshotAtFramePageAfterSwitching',
     'TakesScreenshotTest.testShouldCaptureScreenshotAtIFramePageAfterSwitching',
+    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2376
+    'ImplicitWaitTest.testShouldImplicitlyWaitForASingleElement',
 
     # Alerts are not yet supported on Android.
     'AlertsTest.*',
@@ -216,9 +214,6 @@ _OS_NEGATIVE_FILTER['android:chrome'] = [
     'BasicMouseInterfaceTest.testMoveAndClick',
     'BasicMouseInterfaceTest.testShouldClickElementInIFrame',
     'CombinedInputActionsTest.testCanClickOnLinks',
-
-     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=998
-    'ImplicitWaitTest.testShouldImplicitlyWaitForASingleElement',
 ]
 _OS_NEGATIVE_FILTER['android:chrome_stable'] = (
     _OS_NEGATIVE_FILTER['android:chrome'] + [

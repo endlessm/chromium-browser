@@ -10,9 +10,10 @@
 // clang-format off
 #include "third_party/blink/renderer/bindings/tests/results/core/v8_test_permissive_dictionary.h"
 
-#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "base/stl_util.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 
 namespace blink {
 
@@ -21,7 +22,7 @@ static const v8::Eternal<v8::Name>* eternalV8TestPermissiveDictionaryKeys(v8::Is
     "booleanMember",
   };
   return V8PerIsolateData::From(isolate)->FindOrCreateEternalNameCache(
-      kKeys, kKeys, arraysize(kKeys));
+      kKeys, kKeys, base::size(kKeys));
 }
 
 void V8TestPermissiveDictionary::ToImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, TestPermissiveDictionary& impl, ExceptionState& exceptionState) {

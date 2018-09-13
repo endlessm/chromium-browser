@@ -9,6 +9,7 @@
 
 #include "base/macros.h"
 
+#include "chrome/browser/vr/vr_export.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "device/vr/public/mojom/vr_service.mojom.h"
 #include "device/vr/vr_device.h"
@@ -25,8 +26,8 @@ class BrowserXrDevice;
 // It instantiates a VRDisplayImpl for each newly connected VRDisplay and sends
 // the display's info to the render process through its connected
 // mojom::VRServiceClient.
-class VRServiceImpl : public device::mojom::VRService,
-                      content::WebContentsObserver {
+class VR_EXPORT VRServiceImpl : public device::mojom::VRService,
+                                content::WebContentsObserver {
  public:
   explicit VRServiceImpl(content::RenderFrameHost* render_frame_host);
   ~VRServiceImpl() override;
@@ -51,8 +52,6 @@ class VRServiceImpl : public device::mojom::VRService,
   // Constructor for tests.
   VRServiceImpl();
 
-  int NumberOfConnectedDisplayHosts() { return displays_.size(); }
-
  private:
   void SetBinding(mojo::StrongBindingPtr<VRService> binding);
 
@@ -66,7 +65,7 @@ class VRServiceImpl : public device::mojom::VRService,
 
   void OnWebContentsFocusChanged(content::RenderWidgetHost* host, bool focused);
 
-  std::map<BrowserXrDevice*, std::unique_ptr<VRDisplayHost>> displays_;
+  std::unique_ptr<VRDisplayHost> display_;
   SetClientCallback set_client_callback_;
   device::mojom::VRServiceClientPtr client_;
   content::RenderFrameHost* render_frame_host_;

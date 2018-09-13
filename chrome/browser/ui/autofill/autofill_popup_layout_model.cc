@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/autofill/autofill_popup_view.h"
@@ -17,6 +18,7 @@
 #include "components/autofill/core/browser/suggestion.h"
 #include "components/autofill/core/common/autofill_util.h"
 #include "components/grit/components_scaled_resources.h"
+#include "components/strings/grit/components_strings.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/color_palette.h"
@@ -46,27 +48,34 @@ const size_t kSeparatorHeight = 1;
 const int kSmallerFontSizeDelta = -1;
 #endif
 
+// Used in the IDS_ space as a placeholder for resources that don't exist.
+constexpr int kResourceNotFoundId = 0;
+
 const struct {
   const char* name;
-  int id;
+  int icon_id;
+  int accessible_string_id;
 } kDataResources[] = {
-    {autofill::kAmericanExpressCard, IDR_AUTOFILL_CC_AMEX},
-    {autofill::kDinersCard, IDR_AUTOFILL_CC_DINERS},
-    {autofill::kDiscoverCard, IDR_AUTOFILL_CC_DISCOVER},
-    {autofill::kEloCard, IDR_AUTOFILL_CC_ELO},
-    {autofill::kGenericCard, IDR_AUTOFILL_CC_GENERIC},
-    {autofill::kJCBCard, IDR_AUTOFILL_CC_JCB},
-    {autofill::kMasterCard, IDR_AUTOFILL_CC_MASTERCARD},
-    {autofill::kMirCard, IDR_AUTOFILL_CC_MIR},
-    {autofill::kUnionPay, IDR_AUTOFILL_CC_UNIONPAY},
-    {autofill::kVisaCard, IDR_AUTOFILL_CC_VISA},
-    {"googlePay", IDR_AUTOFILL_GOOGLE_PAY},
+    {autofill::kAmericanExpressCard, IDR_AUTOFILL_CC_AMEX,
+     IDS_AUTOFILL_CC_AMEX},
+    {autofill::kDinersCard, IDR_AUTOFILL_CC_DINERS, IDS_AUTOFILL_CC_DINERS},
+    {autofill::kDiscoverCard, IDR_AUTOFILL_CC_DISCOVER,
+     IDS_AUTOFILL_CC_DISCOVER},
+    {autofill::kEloCard, IDR_AUTOFILL_CC_ELO, IDS_AUTOFILL_CC_ELO},
+    {autofill::kGenericCard, IDR_AUTOFILL_CC_GENERIC, kResourceNotFoundId},
+    {autofill::kJCBCard, IDR_AUTOFILL_CC_JCB, IDS_AUTOFILL_CC_JCB},
+    {autofill::kMasterCard, IDR_AUTOFILL_CC_MASTERCARD,
+     IDS_AUTOFILL_CC_MASTERCARD},
+    {autofill::kMirCard, IDR_AUTOFILL_CC_MIR, IDS_AUTOFILL_CC_MIR},
+    {autofill::kUnionPay, IDR_AUTOFILL_CC_UNIONPAY, IDS_AUTOFILL_CC_UNION_PAY},
+    {autofill::kVisaCard, IDR_AUTOFILL_CC_VISA, IDS_AUTOFILL_CC_VISA},
+    {"googlePay", IDR_AUTOFILL_GOOGLE_PAY, kResourceNotFoundId},
 #if defined(OS_ANDROID)
-    {"httpWarning", IDR_AUTOFILL_HTTP_WARNING},
-    {"httpsInvalid", IDR_AUTOFILL_HTTPS_INVALID_WARNING},
-    {"scanCreditCardIcon", IDR_AUTOFILL_CC_SCAN_NEW},
-    {"settings", IDR_AUTOFILL_SETTINGS},
-    {"create", IDR_AUTOFILL_CREATE},
+    {"httpWarning", IDR_AUTOFILL_HTTP_WARNING, kResourceNotFoundId},
+    {"httpsInvalid", IDR_AUTOFILL_HTTPS_INVALID_WARNING, kResourceNotFoundId},
+    {"scanCreditCardIcon", IDR_AUTOFILL_CC_SCAN_NEW, kResourceNotFoundId},
+    {"settings", IDR_AUTOFILL_SETTINGS, kResourceNotFoundId},
+    {"create", IDR_AUTOFILL_CREATE, kResourceNotFoundId},
 #endif
 };
 
@@ -86,6 +95,7 @@ AutofillPopupLayoutModel::AutofillPopupLayoutModel(
   smaller_font_list_ =
       normal_font_list_.DeriveWithSizeDelta(kSmallerFontSizeDelta);
   bold_font_list_ = normal_font_list_.DeriveWithWeight(gfx::Font::Weight::BOLD);
+  view_common_ = std::make_unique<PopupViewCommon>();
 #endif
 }
 
@@ -143,7 +153,7 @@ void AutofillPopupLayoutModel::UpdatePopupBounds() {
   int popup_width = GetDesiredPopupWidth();
   int popup_height = GetDesiredPopupHeight();
 
-  popup_bounds_ = view_common_.CalculatePopupBounds(
+  popup_bounds_ = view_common_->CalculatePopupBounds(
       popup_width, popup_height, RoundedElementBounds(),
       delegate_->container_view(), delegate_->IsRTL());
 }
@@ -170,6 +180,7 @@ const gfx::FontList& AutofillPopupLayoutModel::GetValueFontListForRow(
     case POPUP_ITEM_ID_PASSWORD_ENTRY:
     case POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY:
     case POPUP_ITEM_ID_GENERATE_PASSWORD_ENTRY:
+    case POPUP_ITEM_ID_GOOGLE_PAY_BRANDING:
       return normal_font_list_;
     case POPUP_ITEM_ID_AUTOCOMPLETE_ENTRY:
     case POPUP_ITEM_ID_DATALIST_ENTRY:
@@ -198,6 +209,9 @@ ui::NativeTheme::ColorId AutofillPopupLayoutModel::GetValueFontColorIDForRow(
 
 gfx::ImageSkia AutofillPopupLayoutModel::GetIconImage(size_t index) const {
   std::vector<autofill::Suggestion> suggestions = delegate_->GetSuggestions();
+  if (!suggestions[index].custom_icon.IsEmpty())
+    return suggestions[index].custom_icon.AsImageSkia();
+
   const base::string16& icon_str = suggestions[index].icon;
   if (icon_str.empty())
     return gfx::ImageSkia();
@@ -214,10 +228,14 @@ gfx::ImageSkia AutofillPopupLayoutModel::GetIconImage(size_t index) const {
     return gfx::CreateVectorIcon(toolbar::kHttpsInvalidIcon, kIconSize,
                                  gfx::kGoogleRed700);
   }
+  if (icon_str == base::ASCIIToUTF16("keyIcon"))
+    return gfx::CreateVectorIcon(kKeyIcon, kIconSize, gfx::kChromeIconGrey);
+  if (icon_str == base::ASCIIToUTF16("globeIcon"))
+    return gfx::CreateVectorIcon(kGlobeIcon, kIconSize, gfx::kChromeIconGrey);
 
   // For other suggestion entries, get icon from PNG files.
   int icon_id = GetIconResourceID(icon_str);
-  DCHECK_NE(-1, icon_id);
+  DCHECK_NE(kResourceNotFoundId, icon_id);
   return *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(icon_id);
 }
 #endif  // !defined(OS_ANDROID)
@@ -252,10 +270,10 @@ gfx::Rect AutofillPopupLayoutModel::GetRowBounds(size_t index) const {
 
 int AutofillPopupLayoutModel::GetIconResourceID(
     const base::string16& resource_name) const {
-  int result = -1;
-  for (size_t i = 0; i < arraysize(kDataResources); ++i) {
+  int result = kResourceNotFoundId;
+  for (size_t i = 0; i < base::size(kDataResources); ++i) {
     if (resource_name == base::ASCIIToUTF16(kDataResources[i].name)) {
-      result = kDataResources[i].id;
+      result = kDataResources[i].icon_id;
       break;
     }
   }
@@ -263,35 +281,24 @@ int AutofillPopupLayoutModel::GetIconResourceID(
   return result;
 }
 
+int AutofillPopupLayoutModel::GetIconAccessibleNameResourceId(
+    const base::string16& resource_name) const {
+  for (size_t i = 0; i < base::size(kDataResources); ++i) {
+    // TODO(crbug.com/850597): Remove UTF conversion once AutofillSuggestion
+    // no longer stores the resource name as a string16.
+    if (resource_name == base::ASCIIToUTF16(kDataResources[i].name))
+      return kDataResources[i].accessible_string_id;
+  }
+  return kResourceNotFoundId;
+}
+
+void AutofillPopupLayoutModel::SetUpForTesting(
+    std::unique_ptr<PopupViewCommon> view_common) {
+  view_common_ = std::move(view_common);
+}
+
 const gfx::Rect AutofillPopupLayoutModel::RoundedElementBounds() const {
   return gfx::ToEnclosingRect(delegate_->element_bounds());
-}
-
-bool AutofillPopupLayoutModel::IsPopupLayoutExperimentEnabled() const {
-  return is_credit_card_popup_ &&
-      IsAutofillCreditCardPopupLayoutExperimentEnabled();
-}
-
-SkColor AutofillPopupLayoutModel::GetBackgroundColor() const {
-  return is_credit_card_popup_ ?
-      GetCreditCardPopupBackgroundColor() : SK_ColorTRANSPARENT;
-}
-
-SkColor AutofillPopupLayoutModel::GetDividerColor() const {
-  return is_credit_card_popup_ ?
-      GetCreditCardPopupDividerColor() : SK_ColorTRANSPARENT;
-}
-
-unsigned int AutofillPopupLayoutModel::GetDropdownItemHeight() const {
-  return GetPopupDropdownItemHeight();
-}
-
-bool AutofillPopupLayoutModel::IsIconAtStart(int frontend_id) const {
-  return (is_credit_card_popup_ && IsIconInCreditCardPopupAtStart());
-}
-
-unsigned int AutofillPopupLayoutModel::GetMargin() const {
-  return GetPopupMargin();
 }
 
 }  // namespace autofill

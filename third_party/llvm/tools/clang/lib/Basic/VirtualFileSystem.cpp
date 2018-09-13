@@ -258,7 +258,8 @@ ErrorOr<std::unique_ptr<File>>
 RealFileSystem::openFileForRead(const Twine &Name) {
   int FD;
   SmallString<256> RealName;
-  if (std::error_code EC = sys::fs::openFileForRead(Name, FD, &RealName))
+  if (std::error_code EC =
+          sys::fs::openFileForRead(Name, FD, sys::fs::OF_None, &RealName))
     return EC;
   return std::unique_ptr<File>(new RealFile(FD, Name.str(), RealName.str()));
 }
@@ -785,6 +786,19 @@ std::error_code InMemoryFileSystem::setCurrentWorkingDirectory(const Twine &P) {
 
   if (!Path.empty())
     WorkingDirectory = Path.str();
+  return {};
+}
+
+std::error_code
+InMemoryFileSystem::getRealPath(const Twine &Path,
+                                SmallVectorImpl<char> &Output) const {
+  auto CWD = getCurrentWorkingDirectory();
+  if (!CWD || CWD->empty())
+    return errc::operation_not_permitted;
+  Path.toVector(Output);
+  if (auto EC = makeAbsolute(Output))
+    return EC;
+  llvm::sys::path::remove_dots(Output, /*remove_dot_dot=*/true);
   return {};
 }
 

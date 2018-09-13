@@ -235,48 +235,6 @@ public class AwSettingsTest {
         }
     }
 
-    class AwSettingsPluginsTestHelper extends AwSettingsTestHelper<Boolean> {
-        private static final String PLUGINS_ENABLED_STRING = "Embed";
-        private static final String PLUGINS_DISABLED_STRING = "NoEmbed";
-
-        AwSettingsPluginsTestHelper(AwTestContainerView containerView,
-                                    TestAwContentsClient contentViewClient) throws Throwable {
-            super(containerView, contentViewClient, true);
-        }
-
-        @Override
-        protected Boolean getAlteredValue() {
-            return ENABLED;
-        }
-
-        @Override
-        protected Boolean getInitialValue() {
-            return DISABLED;
-        }
-
-        @Override
-        protected Boolean getCurrentValue() {
-            return mAwSettings.getPluginsEnabled();
-        }
-
-        @Override
-        protected void setCurrentValue(Boolean value) {
-            mAwSettings.setPluginsEnabled(value);
-        }
-
-        @Override
-        protected void doEnsureSettingHasValue(Boolean value) throws Throwable {
-            loadDataSync(getData());
-            Assert.assertEquals(value == ENABLED ? PLUGINS_ENABLED_STRING : PLUGINS_DISABLED_STRING,
-                    getTitleOnUiThread());
-        }
-
-        private String getData() {
-            return "<html><body onload=\"document.title = document.body.innerText;\">"
-                    + "<noembed>No</noembed><span>Embed</span></body></html>";
-        }
-    }
-
     class AwSettingsStandardFontFamilyTestHelper extends AwSettingsTestHelper<String> {
         AwSettingsStandardFontFamilyTestHelper(
                 AwTestContainerView containerView,
@@ -1562,16 +1520,6 @@ public class AwSettingsTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
-    public void testPluginsEnabledWithTwoViews() throws Throwable {
-        ViewPair views = createViews();
-        runPerViewSettingsTest(
-                new AwSettingsPluginsTestHelper(views.getContainer0(), views.getClient0()),
-                new AwSettingsPluginsTestHelper(views.getContainer1(), views.getClient1()));
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"AndroidWebView", "Preferences"})
     public void testStandardFontFamilyWithTwoViews() throws Throwable {
         ViewPair views = createViews();
         runPerViewSettingsTest(
@@ -2407,6 +2355,7 @@ public class AwSettingsTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
+    @DisabledTest(message = "crbug.com/860556")
     public void testCacheModeWithTwoViews() throws Throwable {
         ViewPair views = createViews();
         TestWebServer webServer = TestWebServer.start();

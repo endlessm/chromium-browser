@@ -247,7 +247,7 @@ class FakeReposBase(object):
       return False
     for repo in ['repo_%d' % r for r in range(1, self.NB_GIT_REPOS + 1)]:
       subprocess2.check_call(['git', 'init', '-q', join(self.git_root, repo)])
-      self.git_hashes[repo] = [None]
+      self.git_hashes[repo] = [(None, None)]
     self.git_port = find_free_port(self.host, 20000)
     self.git_base = 'git://%s:%d/git/' % (self.host, self.git_port)
     # Start the daemon.
@@ -275,16 +275,27 @@ class FakeReposBase(object):
     return subprocess2.check_output(
         ['git', 'rev-parse', 'HEAD'], cwd=path).strip()
 
-  def _commit_git(self, repo, tree):
+  def _commit_git(self, repo, tree, base=None):
     repo_root = join(self.git_root, repo)
+    if base:
+      base_commit = self.git_hashes[repo][base][0]
+      subprocess2.check_call(
+          ['git', 'checkout', base_commit], cwd=repo_root)
     self._genTree(repo_root, tree)
     commit_hash = commit_git(repo_root)
-    if self.git_hashes[repo][-1]:
-      new_tree = self.git_hashes[repo][-1][1].copy()
+    base = base or -1
+    if self.git_hashes[repo][base][1]:
+      new_tree = self.git_hashes[repo][base][1].copy()
       new_tree.update(tree)
     else:
       new_tree = tree.copy()
     self.git_hashes[repo].append((commit_hash, new_tree))
+
+  def _create_ref(self, repo, ref, revision):
+    repo_root = join(self.git_root, repo)
+    subprocess2.check_call(
+        ['git', 'update-ref', ref, self.git_hashes[repo][revision][0]],
+        cwd=repo_root)
 
   def _fast_import_git(self, repo, data):
     repo_root = join(self.git_root, repo)
@@ -412,6 +423,10 @@ deps = {
 deps = {
   'src/repo2': '%(git_base)srepo_2@%(hash)s',
   'src/repo2/repo_renamed': '/repo_3',
+  'src/should_not_process': {
+    'url': '/repo_4',
+    'condition': 'False',
+  }
 }
 # I think this is wrong to have the hooks run from the base of the gclient
 # checkout. It's maybe a bit too late to change that behavior.
@@ -726,12 +741,35 @@ deps = {
 
     self._commit_git('repo_14', {
       'DEPS': textwrap.dedent("""\
+        vars = {}
         deps = {
           'src/cipd_dep': {
             'packages': [
               {
                 'package': 'package0',
                 'version': '0.1',
+              },
+            ],
+            'dep_type': 'cipd',
+          },
+          'src/another_cipd_dep': {
+            'packages': [
+              {
+                'package': 'package1',
+                'version': '1.1-cr0',
+              },
+              {
+                'package': 'package2',
+                'version': '1.13',
+              },
+            ],
+            'dep_type': 'cipd',
+          },
+          'src/cipd_dep_with_cipd_variable': {
+            'packages': [
+              {
+                'package': 'package3/${{platform}}',
+                'version': '1.2',
               },
             ],
             'dep_type': 'cipd',

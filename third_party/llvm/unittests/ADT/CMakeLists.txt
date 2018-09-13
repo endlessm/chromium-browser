@@ -18,6 +18,7 @@ add_llvm_unittest(ADTTests
   DepthFirstIteratorTest.cpp
   EquivalenceClassesTest.cpp
   FoldingSet.cpp
+  FunctionExtrasTest.cpp
   FunctionRefTest.cpp
   HashingTest.cpp
   IListBaseTest.cpp
@@ -51,6 +52,7 @@ add_llvm_unittest(ADTTests
   SetVectorTest.cpp
   SimpleIListTest.cpp
   SmallPtrSetTest.cpp
+  SmallSetTest.cpp
   SmallStringTest.cpp
   SmallVectorTest.cpp
   SparseBitVectorTest.cpp

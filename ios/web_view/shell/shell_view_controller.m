@@ -444,6 +444,11 @@ NSString* const kWebViewShellJavaScriptDialogTextFieldAccessibiltyIdentifier =
   [self presentViewController:alert animated:YES completion:nil];
 }
 
+- (void)webView:(CWVWebView*)webView
+    didLoadFavicons:(NSArray<CWVFavicon*>*)favIcons {
+  NSLog(@"%@", NSStringFromSelector(_cmd));
+}
+
 #pragma mark CWVNavigationDelegate methods
 
 - (BOOL)webView:(CWVWebView*)webView
@@ -507,7 +512,8 @@ NSString* const kWebViewShellJavaScriptDialogTextFieldAccessibiltyIdentifier =
 #pragma mark CWVScriptCommandHandler
 
 - (BOOL)webView:(CWVWebView*)webView
-    handleScriptCommand:(nonnull CWVScriptCommand*)command {
+    handleScriptCommand:(nonnull CWVScriptCommand*)command
+          fromMainFrame:(BOOL)fromMainFrame {
   NSLog(@"%@ command.content=%@", NSStringFromSelector(_cmd), command.content);
   return YES;
 }

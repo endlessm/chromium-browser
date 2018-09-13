@@ -12,7 +12,7 @@ import android.widget.FrameLayout;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.content.browser.ContentViewRenderView;
+import org.chromium.components.embedder_support.view.ContentViewRenderView;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
 
@@ -126,12 +126,19 @@ public class ShellManager extends FrameLayout {
 
     /**
      * Destroys the Shell manager and associated components.
+     * Always called at activity exit, and potentially called by native in cases where we need to
+     * control the timing of mContentViewRenderView destruction. Must handle being called twice.
      */
+    @CalledByNative
     public void destroy() {
         // Remove active shell (Currently single shell support only available).
-        removeShell(mActiveShell);
-        mContentViewRenderView.destroy();
-        mContentViewRenderView = null;
+        if (mActiveShell != null) {
+            removeShell(mActiveShell);
+        }
+        if (mContentViewRenderView != null) {
+            mContentViewRenderView.destroy();
+            mContentViewRenderView = null;
+        }
     }
 
     private static native void nativeInit(Object shellManagerInstance);

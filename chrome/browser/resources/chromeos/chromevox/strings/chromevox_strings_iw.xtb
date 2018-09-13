@@ -92,6 +92,7 @@
 <translation id="1787176709638001873">טקסט לעריכת סיסמה</translation>
 <translation id="1802710350767629429">הצג הערות על עדכונים</translation>
 <translation id="1810107444790159527">תיבת רשימה</translation>
+<translation id="1812527064848182527">לרוחב</translation>
 <translation id="1828385960365606039">מאי</translation>
 <translation id="1834891354138622109">עמודה</translation>
 <translation id="1845944666972354496">אפשר להפעיל באמצעות לחיצה פעמיים</translation>
@@ -146,6 +147,7 @@
 <translation id="2416512023405990736">תיבת סימון שלא סומנה</translation>
 <translation id="2417569100218200841">פרטי תוכן</translation>
 <translation id="2417948780551741035">הערות סיום</translation>
+<translation id="2421113964388408478">מחיקה</translation>
 <translation id="2422937916923936891">תיבת סימון של פריט תפריט</translation>
 <translation id="2428534162001909979">תפריטי פקודות</translation>
 <translation id="2429669115401274487">PM</translation>
@@ -253,6 +255,7 @@
 <translation id="3232388865800379423">לחצן קופץ</translation>
 <translation id="3241052487511142956">הקישור הקודם שבו ביקרת</translation>
 <translation id="3241638166094654466">תאים בכל שורה:</translation>
+<translation id="3286372614333682499">לאורך</translation>
 <translation id="3286390186030710347">מחוון</translation>
 <translation id="3299925995433437805">אין עוד קישורים שבהם ביקרת.</translation>
 <translation id="3300348286427369683">‏תמיכה בטקסט עשיר. ChromeVox תומך עכשיו בשדות טקסט עשיר, כולל פקודות דילוג, ניתוב סמן ברייל, בחירה ועוד.</translation>
@@ -426,6 +429,7 @@
 <translation id="4476183483923481720">שורה חדשה</translation>
 <translation id="4482330759234983253">הטבלה הקודמת</translation>
 <translation id="4491109536499578614">תמונה</translation>
+<translation id="4505167975768625962">הוספה</translation>
 <translation id="4517854969512651305">הגדלת ערך</translation>
 <translation id="4529987814483543472">מפת מקשים קלאסית</translation>
 <translation id="4532633738839459153">{COUNT,plural, =1{קו נטוי}two{# סימני קו נטוי}many{# סימני קו נטוי}other{# סימני קו נטוי}}</translation>
@@ -589,6 +593,7 @@
 <translation id="5712338278108304766">העמודה הבאה בטבלה</translation>
 <translation id="571866080859340309">סקירת קבוצות</translation>
 <translation id="5728409797179002635">לא נמצאה טבלה.</translation>
+<translation id="5729047866208036762">כדי לעיין בחישובים צריך ללחוץ על החיצים מעלה, מטה, שמאלה או ימינה.</translation>
 <translation id="5732189279857692565">‏זו הכותרת השנייה. המשך במדריך; הקש על מקש החיפוש ועל H או על מקש החיפוש, על Shift ועל H</translation>
 <translation id="5748623122140342504">הכותרת הקודמת של רמה 5</translation>
 <translation id="5750633686117194034">‏לא הוקש מקש צירוף. הקש ממושכות על מקש צירוף אחד או יותר. הרם את האצבע לאחר שתסיים ותשמע את המקשים שהוגדרו. הקש על Tab כדי לצאת.</translation>
@@ -744,6 +749,7 @@
 <translation id="7226216518520804442">lst</translation>
 <translation id="7229749224609077523">בחר טבלת ברייל 6 נקודות:</translation>
 <translation id="72393384879519786">כותרת</translation>
+<translation id="7240858705033280249">מעבר אל הפרטים</translation>
 <translation id="7241683698754534149">פתח תיאור ארוך בכרטיסייה חדשה</translation>
 <translation id="7248671827512403053">יישום</translation>
 <translation id="725969808843520477">לחצן הבחירה הבא</translation>
@@ -920,6 +926,7 @@
 <translation id="9043969572162476692">%<ph name="NUM" /></translation>
 <translation id="9061884144798498064">בחר טבלת ברייל 8 נקודות:</translation>
 <translation id="9065283790526219006">‎+popup‎</translation>
+<translation id="9066023754636984703">‏כדי לעבור אל הפרטים צריך להקיש על מקש החיפוש, A ו-J.</translation>
 <translation id="9067522039955793016">מעבר דף</translation>
 <translation id="9077213568694924680">הוסר מהבחירה</translation>
 <translation id="9082874451376019682">אין מחוון קודם.</translation>

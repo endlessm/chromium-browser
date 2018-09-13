@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/bindings/tests/results/modules/v8_test_interface_partial.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
@@ -24,9 +23,12 @@
 #include "third_party/blink/renderer/bindings/tests/idls/modules/test_interface_partial_4.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/origin_trials/origin_trials.h"
+#include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
+#include "third_party/blink/renderer/platform/bindings/v8_per_context_data.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/get_ptr.h"
 
@@ -294,7 +296,7 @@ static void partialVoidTestEnumModulesArgMethodMethod(const v8::FunctionCallback
       "EnumModulesValue1",
       "EnumModulesValue2",
   };
-  if (!IsValidEnum(arg, validArgValues, arraysize(validArgValues), "TestEnumModules", exceptionState)) {
+  if (!IsValidEnum(arg, validArgValues, base::size(validArgValues), "TestEnumModules", exceptionState)) {
     return;
   }
 
@@ -467,10 +469,10 @@ void V8TestInterfacePartial::installV8TestInterfaceTemplate(
   };
   V8DOMConfiguration::InstallConstants(
       isolate, interfaceTemplate, prototypeTemplate,
-      V8TestInterfaceConstants, arraysize(V8TestInterfaceConstants));
+      V8TestInterfaceConstants, base::size(V8TestInterfaceConstants));
   V8DOMConfiguration::InstallMethods(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInterfaceMethods, arraysize(V8TestInterfaceMethods));
+      signature, V8TestInterfaceMethods, base::size(V8TestInterfaceMethods));
 
   // Custom signature
 
@@ -568,7 +570,12 @@ void V8TestInterfacePartial::InstallConditionalFeatures(
     if (prototypeObject->HasOwnProperty(context, unscopablesSymbol).To(&has_unscopables) && has_unscopables) {
       unscopables = prototypeObject->Get(context, unscopablesSymbol).ToLocalChecked().As<v8::Object>();
     } else {
+      // Web IDL 3.6.3. Interface prototype object
+      // https://heycam.github.io/webidl/#create-an-interface-prototype-object
+      // step 8.1. Let unscopableObject be the result of performing
+      //   ! ObjectCreate(null).
       unscopables = v8::Object::New(isolate);
+      unscopables->SetPrototype(context, v8::Null(isolate)).ToChecked();
     }
     unscopables->CreateDataProperty(
         context, V8AtomicString(isolate, "unscopableVoidMethod"), v8::True(isolate))

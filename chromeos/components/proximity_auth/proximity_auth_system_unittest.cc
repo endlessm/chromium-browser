@@ -5,9 +5,10 @@
 #include "chromeos/components/proximity_auth/proximity_auth_system.h"
 
 #include "base/command_line.h"
-#include "base/test/simple_test_clock.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chromeos/chromeos_features.h"
 #include "chromeos/components/proximity_auth/fake_lock_handler.h"
 #include "chromeos/components/proximity_auth/fake_remote_device_life_cycle.h"
 #include "chromeos/components/proximity_auth/logging/logging.h"
@@ -15,6 +16,7 @@
 #include "chromeos/components/proximity_auth/proximity_auth_profile_pref_manager.h"
 #include "chromeos/components/proximity_auth/switches.h"
 #include "chromeos/components/proximity_auth/unlock_manager.h"
+#include "chromeos/services/secure_channel/public/cpp/client/fake_secure_channel_client.h"
 #include "components/cryptauth/remote_device_ref.h"
 #include "components/cryptauth/remote_device_test_util.h"
 #include "components/cryptauth/software_feature_state.h"
@@ -38,10 +40,6 @@ namespace {
 
 const char kUser1[] = "user1";
 const char kUser2[] = "user2";
-
-const int64_t kLastPasswordEntryTimestampMs = 123456L;
-const int64_t kTimestampBeforeReauthMs = 123457L;
-const int64_t kTimestampAfterReauthMs = 123457890123L;
 
 void CompareRemoteDeviceRefLists(const RemoteDeviceRefList& list1,
                                  const RemoteDeviceRefList& list2) {
@@ -90,15 +88,16 @@ class MockProximityAuthPrefManager : public ProximityAuthProfilePrefManager {
 // Harness for ProximityAuthSystem to make it testable.
 class TestableProximityAuthSystem : public ProximityAuthSystem {
  public:
-  TestableProximityAuthSystem(ScreenlockType screenlock_type,
-                              ProximityAuthClient* proximity_auth_client,
-                              std::unique_ptr<UnlockManager> unlock_manager,
-                              base::Clock* clock,
-                              ProximityAuthPrefManager* pref_manager)
+  TestableProximityAuthSystem(
+      ScreenlockType screenlock_type,
+      ProximityAuthClient* proximity_auth_client,
+      chromeos::secure_channel::SecureChannelClient* secure_channel_client,
+      std::unique_ptr<UnlockManager> unlock_manager,
+      ProximityAuthPrefManager* pref_manager)
       : ProximityAuthSystem(screenlock_type,
                             proximity_auth_client,
+                            secure_channel_client,
                             std::move(unlock_manager),
-                            clock,
                             pref_manager),
         life_cycle_(nullptr) {}
   ~TestableProximityAuthSystem() override {}
@@ -107,9 +106,10 @@ class TestableProximityAuthSystem : public ProximityAuthSystem {
 
  private:
   std::unique_ptr<RemoteDeviceLifeCycle> CreateRemoteDeviceLifeCycle(
-      cryptauth::RemoteDeviceRef remote_device) override {
+      cryptauth::RemoteDeviceRef remote_device,
+      base::Optional<cryptauth::RemoteDeviceRef> local_device) override {
     std::unique_ptr<FakeRemoteDeviceLifeCycle> life_cycle(
-        new FakeRemoteDeviceLifeCycle(remote_device));
+        new FakeRemoteDeviceLifeCycle(remote_device, local_device));
     life_cycle_ = life_cycle.get();
     return std::move(life_cycle);
   }
@@ -125,6 +125,8 @@ class ProximityAuthSystemTest : public testing::Test {
  protected:
   ProximityAuthSystemTest()
       : pref_manager_(new NiceMock<MockProximityAuthPrefManager>()),
+        user1_local_device_(CreateRemoteDevice(kUser1, "user1_local_device")),
+        user2_local_device_(CreateRemoteDevice(kUser2, "user2_local_device")),
         task_runner_(new base::TestSimpleTaskRunner()),
         thread_task_runner_handle_(task_runner_) {}
 
@@ -143,25 +145,30 @@ class ProximityAuthSystemTest : public testing::Test {
 
     InitProximityAuthSystem(ProximityAuthSystem::SESSION_LOCK);
     proximity_auth_system_->SetRemoteDevicesForUser(
-        AccountId::FromUserEmail(kUser1), user1_remote_devices_);
+        AccountId::FromUserEmail(kUser1), user1_remote_devices_,
+        user1_local_device_);
     proximity_auth_system_->Start();
     LockScreen();
   }
 
   void TearDown() override { UnlockScreen(); }
 
+  void SetMultiDeviceApiEnabled() {
+    scoped_feature_list_.InitAndEnableFeature(
+        chromeos::features::kMultiDeviceApi);
+  }
+
   void InitProximityAuthSystem(ProximityAuthSystem::ScreenlockType type) {
     std::unique_ptr<MockUnlockManager> unlock_manager(
         new NiceMock<MockUnlockManager>());
     unlock_manager_ = unlock_manager.get();
 
-    clock_.SetNow(base::Time::FromJavaTime(kTimestampBeforeReauthMs));
-    ON_CALL(*pref_manager_, GetLastPasswordEntryTimestampMs())
-        .WillByDefault(Return(kLastPasswordEntryTimestampMs));
+    fake_secure_channel_client_ =
+        std::make_unique<chromeos::secure_channel::FakeSecureChannelClient>();
 
     proximity_auth_system_.reset(new TestableProximityAuthSystem(
-        type, &proximity_auth_client_, std::move(unlock_manager), &clock_,
-        pref_manager_.get()));
+        type, &proximity_auth_client_, fake_secure_channel_client_.get(),
+        std::move(unlock_manager), pref_manager_.get()));
   }
 
   void LockScreen() {
@@ -187,19 +194,24 @@ class ProximityAuthSystemTest : public testing::Test {
 
   FakeLockHandler lock_handler_;
   NiceMock<MockProximityAuthClient> proximity_auth_client_;
+  std::unique_ptr<chromeos::secure_channel::FakeSecureChannelClient>
+      fake_secure_channel_client_;
   std::unique_ptr<TestableProximityAuthSystem> proximity_auth_system_;
   MockUnlockManager* unlock_manager_;
-  base::SimpleTestClock clock_;
   std::unique_ptr<MockProximityAuthPrefManager> pref_manager_;
 
-  RemoteDeviceRefList user1_remote_devices_;
-  RemoteDeviceRefList user2_remote_devices_;
+  cryptauth::RemoteDeviceRef user1_local_device_;
+  cryptauth::RemoteDeviceRef user2_local_device_;
+
+  cryptauth::RemoteDeviceRefList user1_remote_devices_;
+  cryptauth::RemoteDeviceRefList user2_remote_devices_;
 
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
   base::ThreadTaskRunnerHandle thread_task_runner_handle_;
 
  private:
   ScopedDisableLoggingForTesting disable_logging_;
+  base::test::ScopedFeatureList scoped_feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(ProximityAuthSystemTest);
 };
@@ -209,10 +221,10 @@ TEST_F(ProximityAuthSystemTest, SetRemoteDevicesForUser_NotStarted) {
 
   AccountId account1 = AccountId::FromUserEmail(kUser1);
   AccountId account2 = AccountId::FromUserEmail(kUser2);
-  proximity_auth_system_->SetRemoteDevicesForUser(account1,
-                                                  user1_remote_devices_);
-  proximity_auth_system_->SetRemoteDevicesForUser(account2,
-                                                  user2_remote_devices_);
+  proximity_auth_system_->SetRemoteDevicesForUser(
+      account1, user1_remote_devices_, user1_local_device_);
+  proximity_auth_system_->SetRemoteDevicesForUser(
+      account2, user2_remote_devices_, user1_local_device_);
 
   CompareRemoteDeviceRefLists(
       user1_remote_devices_,
@@ -232,11 +244,11 @@ TEST_F(ProximityAuthSystemTest, SetRemoteDevicesForUser_Started) {
   InitProximityAuthSystem(ProximityAuthSystem::SESSION_LOCK);
   AccountId account1 = AccountId::FromUserEmail(kUser1);
   AccountId account2 = AccountId::FromUserEmail(kUser2);
-  proximity_auth_system_->SetRemoteDevicesForUser(account1,
-                                                  user1_remote_devices_);
+  proximity_auth_system_->SetRemoteDevicesForUser(
+      account1, user1_remote_devices_, user1_local_device_);
   proximity_auth_system_->Start();
-  proximity_auth_system_->SetRemoteDevicesForUser(account2,
-                                                  user2_remote_devices_);
+  proximity_auth_system_->SetRemoteDevicesForUser(
+      account2, user2_remote_devices_, user2_local_device_);
 
   CompareRemoteDeviceRefLists(
       user1_remote_devices_,
@@ -278,7 +290,8 @@ TEST_F(ProximityAuthSystemTest, FocusUnregisteredUser) {
 
 TEST_F(ProximityAuthSystemTest, ToggleFocus_RegisteredUsers) {
   proximity_auth_system_->SetRemoteDevicesForUser(
-      AccountId::FromUserEmail(kUser2), user2_remote_devices_);
+      AccountId::FromUserEmail(kUser2), user2_remote_devices_,
+      user2_local_device_);
 
   RemoteDeviceLifeCycle* life_cycle1 = nullptr;
   EXPECT_CALL(*unlock_manager_, SetRemoteDeviceLifeCycle(_))
@@ -296,6 +309,40 @@ TEST_F(ProximityAuthSystemTest, ToggleFocus_RegisteredUsers) {
   }
   FocusUser(kUser2);
   EXPECT_EQ(kUser2, life_cycle2->GetRemoteDevice().user_id());
+
+  EXPECT_CALL(*unlock_manager_, SetRemoteDeviceLifeCycle(nullptr))
+      .Times(AtLeast(1));
+}
+
+TEST_F(ProximityAuthSystemTest,
+       ToggleFocus_RegisteredUsers_MultiDeviceApiEnabled) {
+  SetMultiDeviceApiEnabled();
+
+  proximity_auth_system_->SetRemoteDevicesForUser(
+      AccountId::FromUserEmail(kUser1), user1_remote_devices_,
+      user1_local_device_);
+  proximity_auth_system_->SetRemoteDevicesForUser(
+      AccountId::FromUserEmail(kUser2), user2_remote_devices_,
+      user2_local_device_);
+
+  RemoteDeviceLifeCycle* life_cycle1 = nullptr;
+  EXPECT_CALL(*unlock_manager_, SetRemoteDeviceLifeCycle(_))
+      .WillOnce(SaveArg<0>(&life_cycle1));
+  FocusUser(kUser1);
+  EXPECT_EQ(kUser1, life_cycle1->GetRemoteDevice().user_id());
+  EXPECT_EQ(user1_local_device_, life_cycle()->local_device());
+
+  RemoteDeviceLifeCycle* life_cycle2 = nullptr;
+  {
+    InSequence sequence;
+    EXPECT_CALL(*unlock_manager_, SetRemoteDeviceLifeCycle(nullptr))
+        .Times(AtLeast(1));
+    EXPECT_CALL(*unlock_manager_, SetRemoteDeviceLifeCycle(_))
+        .WillOnce(SaveArg<0>(&life_cycle2));
+  }
+  FocusUser(kUser2);
+  EXPECT_EQ(kUser2, life_cycle2->GetRemoteDevice().user_id());
+  EXPECT_EQ(user2_local_device_, life_cycle()->local_device());
 
   EXPECT_CALL(*unlock_manager_, SetRemoteDeviceLifeCycle(nullptr))
       .Times(AtLeast(1));
@@ -425,17 +472,6 @@ TEST_F(ProximityAuthSystemTest, Suspend_RegisteredUserFocused) {
 
   EXPECT_CALL(*unlock_manager_, SetRemoteDeviceLifeCycle(nullptr))
       .Times(AtLeast(1));
-}
-
-TEST_F(ProximityAuthSystemTest, ForcePasswordReauth) {
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      proximity_auth::switches::kEnableForcePasswordReauth);
-  ON_CALL(*pref_manager_, GetLastPasswordEntryTimestampMs())
-      .WillByDefault(Return(kTimestampAfterReauthMs));
-  EXPECT_CALL(proximity_auth_client_,
-              UpdateScreenlockState(ScreenlockState::PASSWORD_REAUTH));
-  FocusUser(kUser1);
-  EXPECT_FALSE(life_cycle());
 }
 
 }  // namespace proximity_auth

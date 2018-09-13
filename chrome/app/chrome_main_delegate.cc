@@ -82,6 +82,7 @@
 #if defined(OS_MACOSX)
 #include "base/mac/foundation_util.h"
 #include "chrome/app/chrome_main_mac.h"
+#include "chrome/browser/chrome_browser_application_mac.h"
 #include "chrome/browser/mac/relauncher.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/common/mac/cfbundle_blocker.h"
@@ -540,7 +541,7 @@ bool ChromeMainDelegate::BasicStartupComplete(int* exit_code) {
 #if defined(OS_WIN) && !defined(CHROME_MULTIPLE_DLL_BROWSER)
   v8_breakpad_support::SetUp();
 #endif
-#if defined(OS_LINUX) && !defined(OS_ANDROID)
+#if defined(OS_LINUX)
   breakpad::SetFirstChanceExceptionHandler(v8::V8::TryHandleSignal);
 #endif
 
@@ -760,12 +761,6 @@ void ChromeMainDelegate::PreSandboxStartup() {
 #endif
 
 #if defined(OS_MACOSX)
-  // On the Mac, the child executable lives at a predefined location within
-  // the app bundle's versioned directory.
-  base::PathService::Override(content::CHILD_PROCESS_EXE,
-                              chrome::GetVersionedDirectory().Append(
-                                  chrome::kHelperProcessExecutablePath));
-
   InitMacCrashReporter(command_line, process_type);
   SetUpInstallerPreferences(command_line);
 #endif
@@ -1137,4 +1132,19 @@ service_manager::ProcessType ChromeMainDelegate::OverrideProcessType() {
     return service_manager::ProcessType::kDefault;
   }
   return service_manager::ProcessType::kDefault;
+}
+
+void ChromeMainDelegate::PreContentInitialization() {
+#if defined(OS_MACOSX)
+  // Tell Cocoa to finish its initialization, which we want to do manually
+  // instead of calling NSApplicationMain(). The primary reason is that NSAM()
+  // never returns, which would leave all the objects currently on the stack
+  // in scoped_ptrs hanging and never cleaned up. We then load the main nib
+  // directly. The main event loop is run from common code using the
+  // MessageLoop API, which works out ok for us because it's a wrapper around
+  // CFRunLoop.
+
+  // Initialize NSApplication using the custom subclass.
+  chrome_browser_application_mac::RegisterBrowserCrApp();
+#endif
 }

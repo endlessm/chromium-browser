@@ -14,6 +14,7 @@ class TestTimeSeries(unittest.TestCase):
         'test_path': (
             'ChromiumPerf/android-nexus5/loading.mobile'
             '/timeToFirstInteractive/PageSet/Google'),
+        'improvement_direction': 1,
         'timeseries': [
             ['revision', 'value', 'timestamp', 'r_commit_pos', 'r_chromium'],
             [547397, 2300.3, '2018-04-01T14:16:32.000', '547397', 'adb123'],
@@ -25,6 +26,8 @@ class TestTimeSeries(unittest.TestCase):
     }
 
     timeseries = tables.timeseries.DataFrameFromJson(data)
+    # Check the integrity of the index: there should be no duplicates.
+    self.assertFalse(timeseries.index.duplicated().any())
     self.assertEqual(len(timeseries), 4)
 
     # Check values on the first point of the series.
@@ -33,6 +36,7 @@ class TestTimeSeries(unittest.TestCase):
     self.assertEqual(point['measurement'], 'timeToFirstInteractive')
     self.assertEqual(point['bot'], 'ChromiumPerf/android-nexus5')
     self.assertEqual(point['test_case'], 'PageSet/Google')
+    self.assertEqual(point['improvement_direction'], 'down')
     self.assertEqual(point['point_id'], 547397)
     self.assertEqual(point['value'], 2300.3)
     self.assertEqual(point['timestamp'], datetime.datetime(
@@ -45,11 +49,12 @@ class TestTimeSeries(unittest.TestCase):
     data = {
         'test_path':
             'ChromiumPerf/android-nexus5/loading.mobile/timeToFirstInteractive',
+        'improvement_direction': 1,
         'timeseries': [
             ['revision', 'value', 'timestamp', 'r_commit_pos', 'r_chromium'],
             [547397, 2300.3, '2018-04-01T14:16:32.000', '547397', 'adb123'],
             [547398, 2750.9, '2018-04-01T18:24:04.000', '547398', 'cde456'],
-        ]
+        ],
     }
 
     timeseries = tables.timeseries.DataFrameFromJson(data).reset_index()

@@ -6,11 +6,17 @@
 
 #include "ash/public/cpp/ash_features.h"
 #include "ash/shell.h"
-#include "ash/system/tray/system_tray_controller.h"
+#include "ash/system/model/system_tray_model.h"
 #include "ash/test/ash_test_base.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "ui/message_center/message_center.h"
+
+#if defined(GOOGLE_CHROME_BUILD)
+#define SYSTEM_APP_NAME "Chrome OS"
+#else
+#define SYSTEM_APP_NAME "Chromium OS"
+#endif
 
 namespace ash {
 
@@ -38,6 +44,32 @@ class UpdateNotificationControllerTest : public AshTestBase {
             ->title());
   }
 
+  std::string GetNotificationMessage() {
+    return base::UTF16ToUTF8(
+        message_center::MessageCenter::Get()
+            ->FindVisibleNotificationById(
+                UpdateNotificationController::kNotificationId)
+            ->message());
+  }
+
+  std::string GetNotificationButton(int index) {
+    return base::UTF16ToUTF8(
+        message_center::MessageCenter::Get()
+            ->FindVisibleNotificationById(
+                UpdateNotificationController::kNotificationId)
+            ->buttons()
+            .at(index)
+            .title);
+  }
+
+  int GetNotificationButtonCount() {
+    return message_center::MessageCenter::Get()
+        ->FindVisibleNotificationById(
+            UpdateNotificationController::kNotificationId)
+        ->buttons()
+        .size();
+  }
+
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
 
@@ -52,27 +84,35 @@ TEST_F(UpdateNotificationControllerTest, VisibilityAfterUpdate) {
   EXPECT_FALSE(HasNotification());
 
   // Simulate an update.
-  Shell::Get()->system_tray_controller()->ShowUpdateIcon(
-      mojom::UpdateSeverity::LOW, false, mojom::UpdateType::SYSTEM);
+  Shell::Get()->system_tray_model()->ShowUpdateIcon(
+      mojom::UpdateSeverity::LOW, false, false, mojom::UpdateType::SYSTEM);
 
   // The notification is now visible.
   ASSERT_TRUE(HasNotification());
-  EXPECT_EQ("Restart to update", GetNotificationTitle());
+  EXPECT_EQ("Update available", GetNotificationTitle());
+  EXPECT_EQ("Learn more about the latest " SYSTEM_APP_NAME " update",
+            GetNotificationMessage());
+  EXPECT_EQ("Restart to update", GetNotificationButton(0));
 }
 
+#if defined(GOOGLE_CHROME_BUILD)
 TEST_F(UpdateNotificationControllerTest, VisibilityAfterFlashUpdate) {
   // The system starts with no update pending, so the notification isn't
   // visible.
   EXPECT_FALSE(HasNotification());
 
   // Simulate an update.
-  Shell::Get()->system_tray_controller()->ShowUpdateIcon(
-      mojom::UpdateSeverity::LOW, false, mojom::UpdateType::FLASH);
+  Shell::Get()->system_tray_model()->ShowUpdateIcon(
+      mojom::UpdateSeverity::LOW, false, false, mojom::UpdateType::FLASH);
 
   // The notification is now visible.
   ASSERT_TRUE(HasNotification());
-  EXPECT_EQ("Restart to update Adobe Flash Player", GetNotificationTitle());
+  EXPECT_EQ("Adobe Flash Player update available", GetNotificationTitle());
+  EXPECT_EQ("Learn more about the latest " SYSTEM_APP_NAME " update",
+            GetNotificationMessage());
+  EXPECT_EQ("Restart to update", GetNotificationButton(0));
 }
+#endif
 
 // Tests that the update icon's visibility after an update becomes
 // available for downloading over cellular connection.
@@ -83,22 +123,62 @@ TEST_F(UpdateNotificationControllerTest,
   EXPECT_FALSE(HasNotification());
 
   // Simulate an update available for downloading over cellular connection.
-  Shell::Get()
-      ->system_tray_controller()
-      ->SetUpdateOverCellularAvailableIconVisible(true);
+  Shell::Get()->system_tray_model()->SetUpdateOverCellularAvailableIconVisible(
+      true);
 
   // The notification is now visible.
   ASSERT_TRUE(HasNotification());
-  EXPECT_EQ("Click to view update details", GetNotificationTitle());
+  EXPECT_EQ("Update available", GetNotificationTitle());
+  EXPECT_EQ("Learn more about the latest " SYSTEM_APP_NAME " update",
+            GetNotificationMessage());
+  EXPECT_EQ(0, GetNotificationButtonCount());
 
   // Simulate the user's one time permission on downloading the update is
   // granted.
-  Shell::Get()
-      ->system_tray_controller()
-      ->SetUpdateOverCellularAvailableIconVisible(false);
+  Shell::Get()->system_tray_model()->SetUpdateOverCellularAvailableIconVisible(
+      false);
 
   // The notification disappears.
   EXPECT_FALSE(HasNotification());
+}
+
+TEST_F(UpdateNotificationControllerTest,
+       VisibilityAfterUpdateRequiringFactoryReset) {
+  // The system starts with no update pending, so the notification isn't
+  // visible.
+  EXPECT_FALSE(HasNotification());
+
+  // Simulate an update that requires factory reset.
+  Shell::Get()->system_tray_model()->ShowUpdateIcon(
+      mojom::UpdateSeverity::LOW, true, false, mojom::UpdateType::SYSTEM);
+
+  // The notification is now visible.
+  ASSERT_TRUE(HasNotification());
+  EXPECT_EQ("Update available", GetNotificationTitle());
+  EXPECT_EQ(
+      "This update requires powerwashing your device."
+      " Learn more about the latest " SYSTEM_APP_NAME " update.",
+      GetNotificationMessage());
+  EXPECT_EQ("Restart to update", GetNotificationButton(0));
+}
+
+TEST_F(UpdateNotificationControllerTest, VisibilityAfterRollback) {
+  // The system starts with no update pending, so the notification isn't
+  // visible.
+  EXPECT_FALSE(HasNotification());
+
+  // Simulate a rollback.
+  Shell::Get()->system_tray_model()->ShowUpdateIcon(
+      mojom::UpdateSeverity::LOW, false, true, mojom::UpdateType::SYSTEM);
+
+  // The notification is now visible.
+  ASSERT_TRUE(HasNotification());
+  EXPECT_EQ("Device will be rolled back", GetNotificationTitle());
+  EXPECT_EQ(
+      "Your administrator is rolling back your device. All data will"
+      " be deleted when the device is restarted.",
+      GetNotificationMessage());
+  EXPECT_EQ("Restart and reset", GetNotificationButton(0));
 }
 
 }  // namespace ash

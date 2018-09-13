@@ -8,19 +8,28 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/win/registry.h"
+#include "base/win/windows_version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/conflicts/module_database_win.h"
 #include "chrome/browser/conflicts/module_info_util_win.h"
+#include "chrome/browser/conflicts/module_info_win.h"
 #include "chrome/browser/conflicts/module_list_filter_win.h"
 #include "chrome/browser/conflicts/third_party_metrics_recorder_win.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/browser/browser_thread.h"
+
+#if !defined(OFFICIAL_BUILD)
+#include "base/base_paths.h"
+#include "base/path_service.h"
+#endif
 
 namespace {
 
@@ -203,16 +212,21 @@ IncompatibleApplicationsUpdater::IncompatibleApplication::operator=(
 // IncompatibleApplicationsUpdater
 
 IncompatibleApplicationsUpdater::IncompatibleApplicationsUpdater(
+    ModuleDatabaseEventSource* module_database_event_source,
     const CertificateInfo& exe_certificate_info,
-    const ModuleListFilter& module_list_filter,
+    scoped_refptr<ModuleListFilter> module_list_filter,
     const InstalledApplications& installed_applications)
-    : exe_certificate_info_(exe_certificate_info),
-      module_list_filter_(module_list_filter),
+    : module_database_event_source_(module_database_event_source),
+      exe_certificate_info_(exe_certificate_info),
+      module_list_filter_(std::move(module_list_filter)),
       installed_applications_(installed_applications) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  module_database_event_source_->AddObserver(this);
 }
 
-IncompatibleApplicationsUpdater::~IncompatibleApplicationsUpdater() = default;
+IncompatibleApplicationsUpdater::~IncompatibleApplicationsUpdater() {
+  module_database_event_source_->RemoveObserver(this);
+}
 
 // static
 void IncompatibleApplicationsUpdater::RegisterLocalStatePrefs(
@@ -223,8 +237,10 @@ void IncompatibleApplicationsUpdater::RegisterLocalStatePrefs(
 
 // static
 bool IncompatibleApplicationsUpdater::IsWarningEnabled() {
-  return ModuleDatabase::GetInstance() &&
-         ModuleDatabase::GetInstance()->third_party_conflicts_manager();
+  return base::win::GetVersion() >= base::win::VERSION_WIN10 &&
+         ModuleDatabase::IsThirdPartyBlockingPolicyEnabled() &&
+         base::FeatureList::IsEnabled(
+             features::kIncompatibleApplicationsWarning);
 }
 
 // static
@@ -269,14 +285,19 @@ void IncompatibleApplicationsUpdater::OnNewModuleFound(
     const ModuleInfoData& module_data) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  // Only consider loaded modules that are not shell extensions or IMEs.
-  static constexpr uint32_t kModuleTypesBitmask =
-      ModuleInfoData::kTypeLoadedModule | ModuleInfoData::kTypeShellExtension |
-      ModuleInfoData::kTypeIme;
-  if ((module_data.module_types & kModuleTypesBitmask) !=
-      ModuleInfoData::kTypeLoadedModule) {
+  // The module id is always positive.
+  if (module_key.module_id + 1 > module_warning_decisions_.size())
+    module_warning_decisions_.resize(module_key.module_id + 1);
+
+  // Only consider loaded modules.
+  if ((module_data.module_properties & ModuleInfoData::kPropertyLoadedModule) ==
+      0) {
+    module_warning_decisions_[module_key.module_id] =
+        ModuleWarningDecision::kNotLoaded;
     return;
   }
+
+  // First check if this module is a part of Chrome.
 
   // Explicitly whitelist modules whose signing cert's Subject field matches the
   // one in the current executable. No attempt is made to check the validity of
@@ -284,23 +305,78 @@ void IncompatibleApplicationsUpdater::OnNewModuleFound(
   if (exe_certificate_info_.type != CertificateType::NO_CERTIFICATE &&
       exe_certificate_info_.subject ==
           module_data.inspection_result->certificate_info.subject) {
+    module_warning_decisions_[module_key.module_id] =
+        ModuleWarningDecision::kAllowedSameCertificate;
+    return;
+  }
+
+// For developer builds only, whitelist modules in the same directory as the
+// executable.
+#if !defined(OFFICIAL_BUILD)
+  base::FilePath exe_path;
+  if (base::PathService::Get(base::DIR_EXE, &exe_path) &&
+      exe_path.DirName().IsParent(module_key.module_path)) {
+    module_warning_decisions_[module_key.module_id] =
+        ModuleWarningDecision::kAllowedSameDirectory;
+    return;
+  }
+#endif
+
+  // Second, check if the module is seemingly signed by Microsoft. Again, no
+  // attempt is made to check the validity of the certificate.
+  if (IsMicrosoftModule(
+          module_data.inspection_result->certificate_info.subject)) {
+    module_warning_decisions_[module_key.module_id] =
+        ModuleWarningDecision::kAllowedMicrosoft;
     return;
   }
 
   // Skip modules whitelisted by the Module List component.
-  if (module_list_filter_.IsWhitelisted(module_key, module_data))
-    return;
-
-  // Also skip a module if it cannot be associated with an installed application
-  // on the user's computer.
-  std::vector<InstalledApplications::ApplicationInfo> associated_applications;
-  if (!installed_applications_.GetInstalledApplications(
-          module_key.module_path, &associated_applications)) {
+  if (module_list_filter_->IsWhitelisted(module_key, module_data)) {
+    module_warning_decisions_[module_key.module_id] =
+        ModuleWarningDecision::kAllowedWhitelisted;
     return;
   }
 
+  // It is preferable to mark a whitelisted shell extension as allowed because
+  // it is whitelisted, not because it's a shell extension. Thus, check for the
+  // module type after.
+  if (module_data.module_properties & ModuleInfoData::kPropertyShellExtension) {
+    module_warning_decisions_[module_key.module_id] =
+        ModuleWarningDecision::kAllowedShellExtension;
+    return;
+  }
+
+  if (module_data.module_properties & ModuleInfoData::kPropertyIme) {
+    module_warning_decisions_[module_key.module_id] =
+        ModuleWarningDecision::kAllowedIME;
+    return;
+  }
+
+  // Now it has been determined that the module is unwanted. First check if it
+  // is going to be blocked on the next Chrome launch.
+  if (module_data.module_properties &
+      ModuleInfoData::kPropertyAddedToBlacklist) {
+    module_warning_decisions_[module_key.module_id] =
+        ModuleWarningDecision::kAddedToBlacklist;
+    return;
+  }
+
+  // Then check if it can be tied to an installed application on the user's
+  // computer.
+  std::vector<InstalledApplications::ApplicationInfo> associated_applications;
+  if (!installed_applications_.GetInstalledApplications(
+          module_key.module_path, &associated_applications)) {
+    module_warning_decisions_[module_key.module_id] =
+        ModuleWarningDecision::kNoTiedApplication;
+    return;
+  }
+
+  module_warning_decisions_[module_key.module_id] =
+      ModuleWarningDecision::kIncompatible;
+
   std::unique_ptr<chrome::conflicts::BlacklistAction> blacklist_action =
-      module_list_filter_.IsBlacklisted(module_key, module_data);
+      module_list_filter_->IsBlacklisted(module_key, module_data);
   if (!blacklist_action) {
     // The default behavior is to suggest to uninstall.
     blacklist_action = std::make_unique<chrome::conflicts::BlacklistAction>();
@@ -316,6 +392,13 @@ void IncompatibleApplicationsUpdater::OnNewModuleFound(
         std::make_unique<chrome::conflicts::BlacklistAction>(
             *blacklist_action));
   }
+}
+
+void IncompatibleApplicationsUpdater::OnKnownModuleLoaded(
+    const ModuleInfoKey& module_key,
+    const ModuleInfoData& module_data) {
+  // Analyze the module again.
+  OnNewModuleFound(module_key, module_data);
 }
 
 void IncompatibleApplicationsUpdater::OnModuleDatabaseIdle() {
@@ -346,4 +429,13 @@ void IncompatibleApplicationsUpdater::OnModuleDatabaseIdle() {
     existing_applications->SetKey(std::move(element.first),
                                   std::move(element.second));
   }
+}
+
+IncompatibleApplicationsUpdater::ModuleWarningDecision
+IncompatibleApplicationsUpdater::GetModuleWarningDecision(
+    ModuleInfoKey module_key) const {
+  DCHECK(module_warning_decisions_.size() > module_key.module_id);
+  DCHECK_NE(module_warning_decisions_[module_key.module_id],
+            ModuleWarningDecision::kUnknown);
+  return module_warning_decisions_[module_key.module_id];
 }

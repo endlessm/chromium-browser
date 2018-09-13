@@ -210,7 +210,7 @@ private:
 
   /// Translate an LLVM string intrinsic (memcpy, memset, ...).
   bool translateMemfunc(const CallInst &CI, MachineIRBuilder &MIRBuilder,
-                        unsigned Intrinsic);
+                        unsigned ID);
 
   void getStackGuard(unsigned DstReg, MachineIRBuilder &MIRBuilder);
 
@@ -399,6 +399,9 @@ private:
 
   bool translateShuffleVector(const User &U, MachineIRBuilder &MIRBuilder);
 
+  bool translateAtomicCmpXchg(const User &U, MachineIRBuilder &MIRBuilder);
+  bool translateAtomicRMW(const User &U, MachineIRBuilder &MIRBuilder);
+
   // Stubs to keep the compiler happy while we implement the rest of the
   // translation.
   bool translateResume(const User &U, MachineIRBuilder &MIRBuilder) {
@@ -416,14 +419,8 @@ private:
   bool translateFence(const User &U, MachineIRBuilder &MIRBuilder) {
     return false;
   }
-  bool translateAtomicCmpXchg(const User &U, MachineIRBuilder &MIRBuilder) {
-    return false;
-  }
-  bool translateAtomicRMW(const User &U, MachineIRBuilder &MIRBuilder) {
-    return false;
-  }
   bool translateAddrSpaceCast(const User &U, MachineIRBuilder &MIRBuilder) {
-    return false;
+    return translateCast(TargetOpcode::G_ADDRSPACE_CAST, U, MIRBuilder);
   }
   bool translateCleanupPad(const User &U, MachineIRBuilder &MIRBuilder) {
     return false;

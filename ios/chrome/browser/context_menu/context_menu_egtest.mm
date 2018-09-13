@@ -6,6 +6,7 @@
 #import <UIKit/UIKit.h>
 #import <XCTest/XCTest.h>
 
+#import "base/test/ios/wait_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
@@ -20,9 +21,9 @@
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/disabled_test_macros.h"
-#import "ios/testing/wait_util.h"
 #import "ios/web/public/features.h"
 #import "ios/web/public/test/earl_grey/web_view_matchers.h"
+#include "ios/web/public/test/element_selector.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "url/gurl.h"
@@ -37,6 +38,7 @@ using chrome_test_util::OmniboxText;
 using chrome_test_util::OpenLinkInNewTabButton;
 using chrome_test_util::SystemSelectionCallout;
 using chrome_test_util::SystemSelectionCalloutCopyButton;
+using web::test::ElementSelector;
 
 namespace {
 // Directory containing the |kLogoPagePath| and |kLogoPageImageSourcePath|
@@ -115,8 +117,8 @@ void WaitForContextMenuItemDisappeared(
                     error:&error];
     return error == nil;
   };
-  GREYAssert(testing::WaitUntilConditionOrTimeout(
-                 testing::kWaitForUIElementTimeout, condition),
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(
+                 base::test::ios::kWaitForUIElementTimeout, condition),
              @"Waiting for matcher %@ failed.", context_menu_item_button);
 }
 
@@ -126,7 +128,8 @@ void LongPressElement(const char* element_id) {
       web::WebViewInWebState(chrome_test_util::GetCurrentWebState());
   [[EarlGrey selectElementWithMatcher:web_view_matcher]
       performAction:chrome_test_util::LongPressElementForContextMenu(
-                        element_id, true /* menu should appear */)];
+                        ElementSelector::ElementSelectorId(element_id),
+                        true /* menu should appear */)];
 }
 
 //  Tap on |context_menu_item_button| context menu item.

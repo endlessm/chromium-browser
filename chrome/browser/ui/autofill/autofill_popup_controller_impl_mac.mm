@@ -7,7 +7,7 @@
 #include "base/mac/availability.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/tab_contents/tab_contents_controller.h"
-#import "chrome/browser/ui/cocoa/web_textfield_touch_bar_controller.h"
+#import "chrome/browser/ui/cocoa/touchbar/web_textfield_touch_bar_controller.h"
 #include "components/autofill/core/browser/autofill_popup_delegate.h"
 #include "components/autofill/core/browser/popup_item_ids.h"
 
@@ -56,8 +56,9 @@ AutofillPopupControllerImplMac::AutofillPopupControllerImplMac(
 AutofillPopupControllerImplMac::~AutofillPopupControllerImplMac() {}
 
 void AutofillPopupControllerImplMac::Show(
-    const std::vector<autofill::Suggestion>& suggestions) {
-  AutofillPopupControllerImpl::Show(suggestions);
+    const std::vector<autofill::Suggestion>& suggestions,
+    bool autoselect_first_suggestion) {
+  AutofillPopupControllerImpl::Show(suggestions, autoselect_first_suggestion);
 
   if (suggestions.empty() || !is_credit_card_popup_)
     return;

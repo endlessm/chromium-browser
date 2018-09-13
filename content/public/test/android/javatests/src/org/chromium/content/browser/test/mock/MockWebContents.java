@@ -5,6 +5,7 @@
 package org.chromium.content.browser.test.mock;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Parcel;
@@ -16,6 +17,7 @@ import org.chromium.content_public.browser.JavaScriptCallback;
 import org.chromium.content_public.browser.MessagePort;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.RenderFrameHost;
+import org.chromium.content_public.browser.ViewEventSink;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContents.UserDataFactory;
 import org.chromium.content_public.browser.WebContentsObserver;
@@ -30,6 +32,10 @@ import org.chromium.ui.base.WindowAndroid;
 @SuppressLint("ParcelCreator")
 public class MockWebContents implements WebContents {
     public RenderFrameHost renderFrameHost;
+
+    @Override
+    public void initialize(Context context, String productVersion, ViewAndroidDelegate viewDelegate,
+            ViewEventSink.InternalAccessDelegate accessDelegate, WindowAndroid windowAndroid) {}
 
     @Override
     public int describeContents() {
@@ -64,7 +70,7 @@ public class MockWebContents implements WebContents {
     }
 
     @Override
-    public <T> T getOrSetUserData(Class key, UserDataFactory<T> userDataFactory) {
+    public <T> T getOrSetUserData(Class<T> key, UserDataFactory<T> userDataFactory) {
         return null;
     }
 
@@ -219,7 +225,7 @@ public class MockWebContents implements WebContents {
     public void setOverscrollRefreshHandler(OverscrollRefreshHandler handler) {}
 
     @Override
-    public void getContentBitmapAsync(
+    public void writeContentBitmapToDiskAsync(
             int width, int height, String path, Callback<String> callback) {}
 
     @Override
@@ -269,4 +275,7 @@ public class MockWebContents implements WebContents {
     public int getHeight() {
         return 0;
     }
+
+    @Override
+    public void setDisplayCutoutSafeArea(Rect insets) {}
 }

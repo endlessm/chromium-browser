@@ -382,7 +382,7 @@ MachineInstr::mergeMemRefsWith(const MachineInstr& Other) {
   return std::make_pair(MemBegin, CombinedNumMemRefs);
 }
 
-uint8_t MachineInstr::mergeFlagsWith(const MachineInstr &Other) const {
+uint16_t MachineInstr::mergeFlagsWith(const MachineInstr &Other) const {
   // For now, the just return the union of the flags. If the flags get more
   // complicated over time, we might need more logic here.
   return getFlags() | Other.getFlags();
@@ -519,19 +519,37 @@ void MachineInstr::eraseFromBundle() {
   getParent()->erase_instr(this);
 }
 
-/// getNumExplicitOperands - Returns the number of non-implicit operands.
-///
 unsigned MachineInstr::getNumExplicitOperands() const {
   unsigned NumOperands = MCID->getNumOperands();
   if (!MCID->isVariadic())
     return NumOperands;
 
-  for (unsigned i = NumOperands, e = getNumOperands(); i != e; ++i) {
-    const MachineOperand &MO = getOperand(i);
-    if (!MO.isReg() || !MO.isImplicit())
-      NumOperands++;
+  for (unsigned I = NumOperands, E = getNumOperands(); I != E; ++I) {
+    const MachineOperand &MO = getOperand(I);
+    // The operands must always be in the following order:
+    // - explicit reg defs,
+    // - other explicit operands (reg uses, immediates, etc.),
+    // - implicit reg defs
+    // - implicit reg uses
+    if (MO.isReg() && MO.isImplicit())
+      break;
+    ++NumOperands;
   }
   return NumOperands;
+}
+
+unsigned MachineInstr::getNumExplicitDefs() const {
+  unsigned NumDefs = MCID->getNumDefs();
+  if (!MCID->isVariadic())
+    return NumDefs;
+
+  for (unsigned I = NumDefs, E = getNumOperands(); I != E; ++I) {
+    const MachineOperand &MO = getOperand(I);
+    if (!MO.isReg() || !MO.isDef() || MO.isImplicit())
+      break;
+    ++NumDefs;
+  }
+  return NumDefs;
 }
 
 void MachineInstr::bundleWithPred() {
@@ -1776,31 +1794,53 @@ MachineInstrBuilder llvm::BuildMI(MachineFunction &MF, const DebugLoc &DL,
   assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
   assert(cast<DILocalVariable>(Variable)->isValidLocationForIntrinsic(DL) &&
          "Expected inlined-at fields to agree");
+  auto MIB = BuildMI(MF, DL, MCID).addReg(Reg, RegState::Debug);
   if (IsIndirect)
-    return BuildMI(MF, DL, MCID)
-        .addReg(Reg, RegState::Debug)
-        .addImm(0U)
-        .addMetadata(Variable)
-        .addMetadata(Expr);
+    MIB.addImm(0U);
   else
-    return BuildMI(MF, DL, MCID)
-        .addReg(Reg, RegState::Debug)
-        .addReg(0U, RegState::Debug)
-        .addMetadata(Variable)
-        .addMetadata(Expr);
+    MIB.addReg(0U, RegState::Debug);
+  return MIB.addMetadata(Variable).addMetadata(Expr);
 }
+
+MachineInstrBuilder llvm::BuildMI(MachineFunction &MF, const DebugLoc &DL,
+                                  const MCInstrDesc &MCID, bool IsIndirect,
+                                  MachineOperand &MO, const MDNode *Variable,
+                                  const MDNode *Expr) {
+  assert(isa<DILocalVariable>(Variable) && "not a variable");
+  assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
+  assert(cast<DILocalVariable>(Variable)->isValidLocationForIntrinsic(DL) &&
+         "Expected inlined-at fields to agree");
+  if (MO.isReg())
+    return BuildMI(MF, DL, MCID, IsIndirect, MO.getReg(), Variable, Expr);
+
+  auto MIB = BuildMI(MF, DL, MCID).add(MO);
+  if (IsIndirect)
+    MIB.addImm(0U);
+  else
+    MIB.addReg(0U, RegState::Debug);
+  return MIB.addMetadata(Variable).addMetadata(Expr);
+ }
 
 MachineInstrBuilder llvm::BuildMI(MachineBasicBlock &BB,
                                   MachineBasicBlock::iterator I,
                                   const DebugLoc &DL, const MCInstrDesc &MCID,
                                   bool IsIndirect, unsigned Reg,
                                   const MDNode *Variable, const MDNode *Expr) {
-  assert(isa<DILocalVariable>(Variable) && "not a variable");
-  assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
   MachineFunction &MF = *BB.getParent();
   MachineInstr *MI = BuildMI(MF, DL, MCID, IsIndirect, Reg, Variable, Expr);
   BB.insert(I, MI);
   return MachineInstrBuilder(MF, MI);
+}
+
+MachineInstrBuilder llvm::BuildMI(MachineBasicBlock &BB,
+                                  MachineBasicBlock::iterator I,
+                                  const DebugLoc &DL, const MCInstrDesc &MCID,
+                                  bool IsIndirect, MachineOperand &MO,
+                                  const MDNode *Variable, const MDNode *Expr) {
+  MachineFunction &MF = *BB.getParent();
+  MachineInstr *MI = BuildMI(MF, DL, MCID, IsIndirect, MO, Variable, Expr);
+  BB.insert(I, MI);
+  return MachineInstrBuilder(MF, *MI);
 }
 
 /// Compute the new DIExpression to use with a DBG_VALUE for a spill slot.

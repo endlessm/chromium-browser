@@ -763,6 +763,8 @@ public:
   /// Prints the full selector name (e.g. "foo:bar:").
   void print(llvm::raw_ostream &OS) const;
 
+  void dump() const;
+
   /// Derive the conventional family of this method.
   ObjCMethodFamily getMethodFamily() const {
     return getMethodFamilyImpl(*this);
@@ -825,6 +827,9 @@ public:
   static Selector constructSetterSelector(IdentifierTable &Idents,
                                           SelectorTable &SelTable,
                                           const IdentifierInfo *Name);
+
+  /// Return the property name for the given setter selector.
+  static std::string getPropertyNameFromSetterSelector(Selector Sel);
 };
 
 /// DeclarationNameExtra - Common base of the MultiKeywordSelector,

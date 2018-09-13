@@ -37,6 +37,7 @@
 #include "llvm/Analysis/InlineCost.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/BasicBlock.h"
@@ -109,6 +110,11 @@ static cl::opt<unsigned> SampleProfileSampleCoverage(
     "sample-profile-check-sample-coverage", cl::init(0), cl::value_desc("N"),
     cl::desc("Emit a warning if less than N% of samples in the input profile "
              "are matched to the IR."));
+
+static cl::opt<bool> NoWarnSampleUnused(
+    "no-warn-sample-unused", cl::init(false), cl::Hidden,
+    cl::desc("Use this option to turn off/on warnings about function with "
+             "samples but without debug information to use those samples. "));
 
 namespace {
 
@@ -253,7 +259,7 @@ protected:
 
   /// Dominance, post-dominance and loop information.
   std::unique_ptr<DominatorTree> DT;
-  std::unique_ptr<PostDomTreeBase<BasicBlock>> PDT;
+  std::unique_ptr<PostDominatorTree> PDT;
   std::unique_ptr<LoopInfo> LI;
 
   std::function<AssumptionCache &(Function &)> GetAC;
@@ -637,6 +643,8 @@ SampleProfileLoader::findCalleeFunctionSamples(const Instruction &Inst) const {
   if (FS == nullptr)
     return nullptr;
 
+  std::string CalleeGUID;
+  CalleeName = getRepInFormat(CalleeName, Reader->getFormat(), CalleeGUID);
   return FS->findFunctionSamplesAt(LineLocation(FunctionSamples::getOffset(DIL),
                                                 DIL->getBaseDiscriminator()),
                                    CalleeName);
@@ -752,6 +760,7 @@ bool SampleProfileLoader::inlineHotFunctions(
     Function &F, DenseSet<GlobalValue::GUID> &InlinedGUIDs) {
   DenseSet<Instruction *> PromotedInsns;
   bool Changed = false;
+  bool isCompact = (Reader->getFormat() == SPF_Compact_Binary);
   while (true) {
     bool LocalChanged = false;
     SmallVector<Instruction *, 10> CIS;
@@ -783,7 +792,8 @@ bool SampleProfileLoader::inlineHotFunctions(
         for (const auto *FS : findIndirectCallFunctionSamples(*I, Sum)) {
           if (IsThinLTOPreLink) {
             FS->findInlinedFunctions(InlinedGUIDs, F.getParent(),
-                                     PSI->getOrCompHotCountThreshold());
+                                     PSI->getOrCompHotCountThreshold(),
+                                     isCompact);
             continue;
           }
           auto CalleeFunctionName = FS->getName();
@@ -792,7 +802,9 @@ bool SampleProfileLoader::inlineHotFunctions(
           // clone the caller first, and inline the cloned caller if it is
           // recursive. As llvm does not inline recursive calls, we will
           // simply ignore it instead of handling it explicitly.
-          if (CalleeFunctionName == F.getName())
+          std::string FGUID;
+          auto Fname = getRepInFormat(F.getName(), Reader->getFormat(), FGUID);
+          if (CalleeFunctionName == Fname)
             continue;
 
           const char *Reason = "Callee function not available";
@@ -822,7 +834,8 @@ bool SampleProfileLoader::inlineHotFunctions(
           LocalChanged = true;
       } else if (IsThinLTOPreLink) {
         findCalleeFunctionSamples(*I)->findInlinedFunctions(
-            InlinedGUIDs, F.getParent(), PSI->getOrCompHotCountThreshold());
+            InlinedGUIDs, F.getParent(), PSI->getOrCompHotCountThreshold(),
+            isCompact);
       }
     }
     if (LocalChanged) {
@@ -1352,6 +1365,9 @@ unsigned SampleProfileLoader::getFunctionLoc(Function &F) {
   if (DISubprogram *S = F.getSubprogram())
     return S->getLine();
 
+  if (NoWarnSampleUnused)
+    return 0;
+
   // If the start of \p F is missing, emit a diagnostic to inform the user
   // about the missed opportunity.
   F.getContext().diagnose(DiagnosticInfoSampleProfile(
@@ -1365,8 +1381,7 @@ void SampleProfileLoader::computeDominanceAndLoopInfo(Function &F) {
   DT.reset(new DominatorTree);
   DT->recalculate(F);
 
-  PDT.reset(new PostDomTreeBase<BasicBlock>());
-  PDT->recalculate(F);
+  PDT.reset(new PostDominatorTree(F));
 
   LI.reset(new LoopInfo);
   LI->analyze(*DT);

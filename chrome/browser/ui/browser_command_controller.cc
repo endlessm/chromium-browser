@@ -18,10 +18,10 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/defaults.h"
+#include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/policy/developer_tools_policy_handler.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -491,6 +491,9 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_SAVE_CREDIT_CARD_FOR_PAGE:
       SaveCreditCard(browser_);
       break;
+    case IDC_MIGRATE_LOCAL_CREDIT_CARD_FOR_PAGE:
+      MigrateLocalCards(browser_);
+      break;
     case IDC_TRANSLATE_PAGE:
       Translate(browser_);
       break;
@@ -642,9 +645,6 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_UPGRADE_DIALOG:
       OpenUpdateChromeDialog(browser_);
       break;
-    case IDC_VIEW_INCOMPATIBILITIES:
-      ShowConflicts(browser_);
-      break;
     case IDC_HELP_PAGE_VIA_KEYBOARD:
       ShowHelp(browser_, HELP_SOURCE_KEYBOARD);
       break;
@@ -687,6 +687,11 @@ bool BrowserCommandController::ExecuteCommandWithDisposition(
       ShowPageInfoDialog(browser_->tab_strip_model()->GetActiveWebContents(),
                          bubble_anchor_util::kAppMenuButton);
       break;
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+    case IDC_TOGGLE_CONFIRM_TO_QUIT_OPTION:
+      ToggleConfirmToQuitOption(browser_);
+      break;
+#endif
 
     default:
       LOG(WARNING) << "Received Unimplemented Command: " << id;
@@ -874,6 +879,8 @@ void BrowserCommandController::InitCommandState() {
                                         !profile()->IsOffTheRecord());
   command_updater_.UpdateCommandEnabled(IDC_CLEAR_BROWSING_DATA,
                                         !guest_session);
+  command_updater_.UpdateCommandEnabled(IDC_TOGGLE_CONFIRM_TO_QUIT_OPTION,
+                                        true);
 #if defined(OS_CHROMEOS)
   command_updater_.UpdateCommandEnabled(IDC_TAKE_SCREENSHOT, true);
 #else
@@ -922,7 +929,6 @@ void BrowserCommandController::InitCommandState() {
 
   // These are always enabled; the menu determines their menu item visibility.
   command_updater_.UpdateCommandEnabled(IDC_UPGRADE_DIALOG, true);
-  command_updater_.UpdateCommandEnabled(IDC_VIEW_INCOMPATIBILITIES, true);
 
   // Distill current page.
   command_updater_.UpdateCommandEnabled(
@@ -960,7 +966,7 @@ void BrowserCommandController::UpdateSharedCommandsForIncognitoAvailability(
   command_updater->UpdateCommandEnabled(
       IDC_SHOW_BOOKMARK_MANAGER,
       browser_defaults::bookmarks_enabled && !forced_incognito);
-  ExtensionService* extension_service =
+  extensions::ExtensionService* extension_service =
       extensions::ExtensionSystem::Get(profile)->extension_service();
   const bool enable_extensions =
       extension_service && extension_service->extensions_enabled();
@@ -1072,13 +1078,8 @@ void BrowserCommandController::UpdateCommandsForDevTools() {
   if (is_locked_fullscreen_)
     return;
 
-  using DTPH = policy::DeveloperToolsPolicyHandler;
-  // TODO(pfeldman): Possibly implement handling for
-  // Availability::kDisallowedForForceInstalledExtensions
-  // (https://crbug.com/838146).
-  bool dev_tools_enabled =
-      DTPH::GetDevToolsAvailability(profile()->GetPrefs()) !=
-      DTPH::Availability::kDisallowed;
+  bool dev_tools_enabled = DevToolsWindow::AllowDevToolsFor(
+      profile(), browser_->tab_strip_model()->GetActiveWebContents());
   command_updater_.UpdateCommandEnabled(IDC_DEV_TOOLS,
                                         dev_tools_enabled);
   command_updater_.UpdateCommandEnabled(IDC_DEV_TOOLS_CONSOLE,

@@ -10,8 +10,13 @@
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/path_service.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "cc/base/switches.h"
+#include "components/viz/common/features.h"
+#include "components/viz/common/switches.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "headless/public/devtools/domains/runtime.h"
 #include "headless/public/headless_browser.h"
@@ -50,12 +55,6 @@ class HeadlessProtocolBrowserTest
     browser_devtools_client_->SetRawProtocolListener(this);
   }
 
-  std::string EncodeQuery(const std::string& query) {
-    url::RawCanonOutputT<char> buffer;
-    url::EncodeURIComponent(query.data(), query.size(), &buffer);
-    return std::string(buffer.data(), buffer.length());
-  }
-
   void RunDevTooledTest() override {
     base::ScopedAllowBlockingForTesting allow_blocking;
     base::FilePath src_dir;
@@ -70,10 +69,13 @@ class HeadlessProtocolBrowserTest
       FinishTest();
       return;
     }
-    GURL test_url = embedded_test_server()->GetURL("/protocol/" + script_name_);
+    GURL test_url = embedded_test_server()->GetURL("harness.test",
+                                                   "/protocol/" + script_name_);
+    GURL target_url = embedded_test_server()->GetURL(
+        "127.0.0.1", "/protocol/" + script_name_);
     GURL page_url = embedded_test_server()->GetURL(
         "harness.test", "/protocol/inspector-protocol-test.html?test=" +
-                            test_url.spec() + "&script=" + EncodeQuery(script));
+                            test_url.spec() + "&target=" + target_url.spec());
     devtools_client_->GetPage()->Navigate(page_url.spec());
   }
 
@@ -145,8 +147,7 @@ class HeadlessProtocolBrowserTest
   }
 
   // HeadlessDevToolsClient::RawProtocolListener
-  bool OnProtocolMessage(const std::string& devtools_agent_host_id,
-                         const std::string& json_message,
+  bool OnProtocolMessage(const std::string& json_message,
                          const base::DictionaryValue& parsed_message) override {
     SendMessageToJS(json_message);
     return true;
@@ -202,15 +203,13 @@ HEADLESS_PROTOCOL_TEST(VirtualTimeCrossProcessNavigation,
                        "emulation/virtual-time-cross-process-navigation.js");
 HEADLESS_PROTOCOL_TEST(VirtualTimeDetachFrame,
                        "emulation/virtual-time-detach-frame.js");
-HEADLESS_PROTOCOL_TEST(VirtualTimeErrorLoop,
-                       "emulation/virtual-time-error-loop.js");
-HEADLESS_PROTOCOL_TEST(VirtualTimeHistoryNavigation,
-                       "emulation/virtual-time-history-navigation.js");
 HEADLESS_PROTOCOL_TEST(VirtualTimeNoBlock404, "emulation/virtual-time-404.js");
 HEADLESS_PROTOCOL_TEST(VirtualTimeLocalStorage,
                        "emulation/virtual-time-local-storage.js");
 HEADLESS_PROTOCOL_TEST(VirtualTimePendingScript,
                        "emulation/virtual-time-pending-script.js");
+HEADLESS_PROTOCOL_TEST(VirtualTimeHtmlImport,
+                       "emulation/virtual-time-html-import.js");
 HEADLESS_PROTOCOL_TEST(VirtualTimeRedirect,
                        "emulation/virtual-time-redirect.js");
 HEADLESS_PROTOCOL_TEST(VirtualTimeSessionStorage,
@@ -218,6 +217,12 @@ HEADLESS_PROTOCOL_TEST(VirtualTimeSessionStorage,
 HEADLESS_PROTOCOL_TEST(VirtualTimeStarvation,
                        "emulation/virtual-time-starvation.js");
 HEADLESS_PROTOCOL_TEST(VirtualTimeVideo, "emulation/virtual-time-video.js");
+HEADLESS_PROTOCOL_TEST(VirtualTimeErrorLoop,
+                       "emulation/virtual-time-error-loop.js");
+
+// Flaky Test crbug.com/859382
+HEADLESS_PROTOCOL_TEST(DISABLED_VirtualTimeHistoryNavigation,
+                       "emulation/virtual-time-history-navigation.js");
 
 // http://crbug.com/633321
 #if defined(OS_ANDROID)
@@ -233,5 +238,84 @@ HEADLESS_PROTOCOL_TEST(MAYBE_VirtualTimeTimerSuspend,
                        "emulation/virtual-time-timer-suspended.js");
 #undef MAYBE_VirtualTimeTimerOrder
 #undef MAYBE_VirtualTimeTimerSuspend
+
+class HeadlessProtocolCompositorBrowserTest
+    : public HeadlessProtocolBrowserTest {
+ public:
+  HeadlessProtocolCompositorBrowserTest() = default;
+
+ private:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    HeadlessProtocolBrowserTest::SetUpCommandLine(command_line);
+    // The following switches are recommended for BeginFrameControl required by
+    // compositor tests, see https://goo.gl/3zHXhB for details
+    static const char* const compositor_switches[] = {
+        // We control BeginFrames ourselves and need all compositing stages to
+        // run.
+        switches::kRunAllCompositorStagesBeforeDraw,
+        switches::kDisableNewContentRenderingTimeout,
+
+        // Animtion-only BeginFrames are only supported when updates from the
+        // impl-thread are disabled, see go/headless-rendering.
+        cc::switches::kDisableThreadedAnimation,
+        cc::switches::kDisableCheckerImaging,
+        switches::kDisableThreadedScrolling,
+
+        // Ensure that image animations don't resync their animation timestamps
+        // when looping back around.
+        switches::kDisableImageAnimationResync,
+    };
+
+    for (auto* compositor_switch : compositor_switches) {
+      command_line->AppendSwitch(compositor_switch);
+    }
+
+    // In surface synchronization, child surface IDs are allocated by
+    // parents and new CompositorFrames only activate once all their child
+    // surfaces exist. In --run-all-compositor-stages-before-draw mode, this
+    // means that child surface initialization and resize fully propagates
+    // within a single BeginFrame.
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kEnableSurfaceSynchronization);
+  }
+
+ protected:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+#define HEADLESS_PROTOCOL_COMPOSITOR_TEST(TEST_NAME, SCRIPT_NAME)            \
+  IN_PROC_BROWSER_TEST_F(HeadlessProtocolCompositorBrowserTest, TEST_NAME) { \
+    test_folder_ = "/protocol/";                                             \
+    script_name_ = SCRIPT_NAME;                                              \
+    RunTest();                                                               \
+  }
+
+// BeginFrameControl is not supported on MacOS yet, see: https://cs.chromium.org
+// chromium/src/headless/lib/browser/protocol/target_handler.cc?
+// rcl=5811aa08e60ba5ac7622f029163213cfbdb682f7&l=32
+#if defined(OS_MACOSX)
+#define MAYBE_CompositorBasicRaf DISABLED_CompositorBasicRaf
+#define MAYBE_CompositorImageAnimation DISABLED_CompositorImageAnimation
+#define MAYBE_CompositorCssAnimation DISABLED_CompositorCssAnimation
+#define MAYBE_VirtualTimeControllerTest DISABLED_VirtualTimeControllerTest
+#else
+#define MAYBE_CompositorBasicRaf CompositorBasicRaf
+#define MAYBE_CompositorImageAnimation CompositorImageAnimation
+#define MAYBE_CompositorCssAnimation CompositorCssAnimation
+#define MAYBE_VirtualTimeControllerTest VirtualTimeControllerTest
+#endif
+HEADLESS_PROTOCOL_COMPOSITOR_TEST(MAYBE_CompositorBasicRaf,
+                                  "emulation/compositor-basic-raf.js");
+HEADLESS_PROTOCOL_COMPOSITOR_TEST(
+    MAYBE_CompositorImageAnimation,
+    "emulation/compositor-image-animation-test.js");
+HEADLESS_PROTOCOL_COMPOSITOR_TEST(MAYBE_CompositorCssAnimation,
+                                  "emulation/compositor-css-animation-test.js");
+HEADLESS_PROTOCOL_TEST(MAYBE_VirtualTimeControllerTest,
+                       "helpers/virtual-time-controller-test.js");
+#undef MAYBE_CompositorBasicRaf
+#undef MAYBE_CompositorImageAnimation
+#undef MAYBE_CompositorCssAnimation
+#undef MAYBE_VirtualTimeControllerTest
 
 }  // namespace headless

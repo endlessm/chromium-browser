@@ -61,6 +61,7 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "url/gurl.h"
@@ -233,6 +234,25 @@ gfx::Image ChromeOmniboxClient::GetSizedIcon(
       vector_icon_color));
 }
 
+gfx::Image ChromeOmniboxClient::GetSizedIcon(const gfx::Image& icon) const {
+  if (icon.IsEmpty())
+    return icon;
+
+  const int icon_size = GetLayoutConstant(LOCATION_BAR_ICON_SIZE);
+  // In touch mode, icons are 20x20. FaviconCache and ExtensionIconManager both
+  // guarantee favicons and extension icons will be 16x16, so add extra padding
+  // around them to align them vertically with the other vector icons.
+  DCHECK_GE(icon_size, icon.Height());
+  DCHECK_GE(icon_size, icon.Width());
+  gfx::Insets padding_border((icon_size - icon.Height()) / 2,
+                             (icon_size - icon.Width()) / 2);
+  if (!padding_border.IsEmpty()) {
+    return gfx::Image(gfx::CanvasImageSource::CreatePadded(*icon.ToImageSkia(),
+                                                           padding_border));
+  }
+  return icon;
+}
+
 bool ChromeOmniboxClient::ProcessExtensionKeyword(
     const TemplateURL* template_url,
     const AutocompleteMatch& match,
@@ -353,15 +373,18 @@ gfx::Image ChromeOmniboxClient::GetFaviconForPageUrl(
 
 gfx::Image ChromeOmniboxClient::GetFaviconForDefaultSearchProvider(
     FaviconFetchedCallback on_favicon_fetched) {
-  const GURL& favicon_url =
-      GetTemplateURLService()->GetDefaultSearchProvider()->favicon_url();
-  return favicon_cache_.GetFaviconForIconUrl(favicon_url,
+  const TemplateURL* const default_provider =
+      GetTemplateURLService()->GetDefaultSearchProvider();
+  if (!default_provider)
+    return gfx::Image();
+
+  return favicon_cache_.GetFaviconForIconUrl(default_provider->favicon_url(),
                                              std::move(on_favicon_fetched));
 }
 
 void ChromeOmniboxClient::OnCurrentMatchChanged(
     const AutocompleteMatch& match) {
-  if (!prerender::IsOmniboxEnabled(profile_))
+  if (!prerender::IsNoStatePrefetchEnabled())
     DoPreconnect(match);
 }
 

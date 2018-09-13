@@ -49,7 +49,6 @@
 #import "chrome/browser/ui/cocoa/browser_window_command_handler.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller_private.h"
 #import "chrome/browser/ui/cocoa/browser_window_layout.h"
-#import "chrome/browser/ui/cocoa/browser_window_touch_bar.h"
 #import "chrome/browser/ui/cocoa/browser_window_utils.h"
 #import "chrome/browser/ui/cocoa/dev_tools_controller.h"
 #import "chrome/browser/ui/cocoa/download/download_shelf_controller.h"
@@ -58,7 +57,7 @@
 #import "chrome/browser/ui/cocoa/find_bar/find_bar_bridge.h"
 #import "chrome/browser/ui/cocoa/find_bar/find_bar_cocoa_controller.h"
 #import "chrome/browser/ui/cocoa/framed_browser_window.h"
-#import "chrome/browser/ui/cocoa/fullscreen/fullscreen_toolbar_controller.h"
+#import "chrome/browser/ui/cocoa/fullscreen/fullscreen_toolbar_controller_cocoa.h"
 #import "chrome/browser/ui/cocoa/fullscreen/fullscreen_toolbar_visibility_lock_controller.h"
 #include "chrome/browser/ui/cocoa/fullscreen_placeholder_view.h"
 #import "chrome/browser/ui/cocoa/fullscreen_window.h"
@@ -78,6 +77,7 @@
 #import "chrome/browser/ui/cocoa/tabs/tab_view.h"
 #import "chrome/browser/ui/cocoa/toolbar/app_toolbar_button.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
+#import "chrome/browser/ui/cocoa/touchbar/browser_window_touch_bar_controller.h"
 #include "chrome/browser/ui/cocoa/translate/translate_bubble_bridge_views.h"
 #import "chrome/browser/ui/cocoa/translate/translate_bubble_controller.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
@@ -311,7 +311,7 @@ bool IsTabDetachingInFullscreenEnabled() {
     [[self tabContentArea] addSubview:[devToolsController_ view]];
 
     // Create the overlayable contents controller.  This provides the switch
-    // view that TabStripController needs.
+    // view that TabStripControllerCocoa needs.
     overlayableContentsController_.reset(
         [[OverlayableContentsController alloc] init]);
     [[overlayableContentsController_ view]
@@ -489,7 +489,7 @@ bool IsTabDetachingInFullscreenEnabled() {
   return toolbarController_.get();
 }
 
-- (TabStripController*)tabStripController {
+- (TabStripControllerCocoa*)tabStripController {
   return tabStripController_.get();
 }
 
@@ -1021,11 +1021,6 @@ bool IsTabDetachingInFullscreenEnabled() {
 
 - (void)setStarredState:(BOOL)isStarred {
   [toolbarController_ setStarredState:isStarred];
-
-  if ([touchBar_ isStarred] != isStarred) {
-    [touchBar_ setIsStarred:isStarred];
-    [self invalidateTouchBar];
-  }
 }
 
 - (void)setCurrentPageIsTranslated:(BOOL)on {
@@ -1038,7 +1033,6 @@ bool IsTabDetachingInFullscreenEnabled() {
     [[self fullscreenToolbarController] revealToolbarForWebContents:newContents
                                                        inForeground:YES];
   }
-  [self invalidateTouchBar];
 }
 
 - (void)zoomChangedForActiveTab:(BOOL)canShowBubble {
@@ -1156,7 +1150,6 @@ bool IsTabDetachingInFullscreenEnabled() {
 
 - (void)setIsLoading:(BOOL)isLoading force:(BOOL)force {
   [toolbarController_ setIsLoading:isLoading force:force];
-  [touchBar_ setIsPageLoading:isLoading];
 }
 
 - (void)firstResponderUpdated:(NSResponder*)responder {
@@ -1224,7 +1217,7 @@ bool IsTabDetachingInFullscreenEnabled() {
   std::vector<TabStripModelDelegate::NewStripContents> contentses;
   TabStripModel* model = browser_->tab_strip_model();
 
-  for (TabView* tabView in tabViews) {
+  for (TabViewCocoa* tabView in tabViews) {
     // Fetch the tab contents for the tab being dragged.
     int index = [tabStripController_ modelIndexForTabView:tabView];
     bool isPinned = model->IsTabPinned(index);
@@ -1262,7 +1255,7 @@ bool IsTabDetachingInFullscreenEnabled() {
   }
 
   // And make sure we use the correct frame in the new view.
-  TabStripController* tabStripController = [controller tabStripController];
+  TabStripControllerCocoa* tabStripController = [controller tabStripController];
   NSView* tabStrip = [self tabStripView];
   NSEnumerator* tabEnumerator = [tabViews objectEnumerator];
   for (NSView* newView in [tabStripController tabViews]) {
@@ -1276,7 +1269,7 @@ bool IsTabDetachingInFullscreenEnabled() {
       NSRect tabRect =
           NSOffsetRect(sourceTabRect, -tabOverflow.width, -tabOverflow.height);
       // Force the added tab to the right size (remove stretching.)
-      tabRect.size.height = [TabStripController defaultTabHeight];
+      tabRect.size.height = [TabStripControllerCocoa defaultTabHeight];
 
       [tabStripController setFrame:tabRect ofTabView:newView];
     }
@@ -1304,8 +1297,7 @@ bool IsTabDetachingInFullscreenEnabled() {
   }
 }
 
-- (void)insertPlaceholderForTab:(TabView*)tab
-                          frame:(NSRect)frame {
+- (void)insertPlaceholderForTab:(TabViewCocoa*)tab frame:(NSRect)frame {
   [super insertPlaceholderForTab:tab frame:frame];
   [tabStripController_ insertPlaceholderForTab:tab frame:frame];
 }
@@ -1334,7 +1326,7 @@ bool IsTabDetachingInFullscreenEnabled() {
   return ![self isInAnyFullscreenMode] || [self overlayWindow];
 }
 
-- (BOOL)isTabFullyVisible:(TabView*)tab {
+- (BOOL)isTabFullyVisible:(TabViewCocoa*)tab {
   return [tabStripController_ isTabFullyVisible:tab];
 }
 
@@ -1680,7 +1672,7 @@ bool IsTabDetachingInFullscreenEnabled() {
 - (void)installAvatar {
   // Install the image into the badge view. Hide it for now; positioning and
   // sizing will be done by the layout code. The AvatarIcon will choose which
-  // image to display based on the browser. The AvatarButton will display
+  // image to display based on the browser. The AvatarButtonCocoa will display
   // the browser profile's name unless the browser is incognito.
   NSView* view;
   if ([self shouldUseNewAvatarButton]) {
@@ -1871,17 +1863,18 @@ willAnimateFromState:(BookmarkBar::State)oldState
   [sheet orderOut:self];
 }
 
-- (FullscreenToolbarController*)fullscreenToolbarController {
+- (FullscreenToolbarControllerCocoa*)fullscreenToolbarController {
   return fullscreenToolbarController_.get();
 }
 
 - (void)setFullscreenToolbarController:
-    (FullscreenToolbarController*)controller {
+    (FullscreenToolbarControllerCocoa*)controller {
   fullscreenToolbarController_.reset([controller retain]);
 }
 
-- (void)setBrowserWindowTouchBar:(BrowserWindowTouchBar*)touchBar {
-  touchBar_.reset(touchBar);
+- (void)setBrowserWindowTouchBarController:
+    (BrowserWindowTouchBarController*)touchBarController {
+  touchBarController_.reset([touchBarController retain]);
 }
 
 - (void)executeExtensionCommand:(const std::string&)extension_id
@@ -1902,19 +1895,14 @@ willAnimateFromState:(BookmarkBar::State)oldState
   return static_cast<BrowserWindowCocoa*>([self browserWindow])->alert_state();
 }
 
-- (BrowserWindowTouchBar*)browserWindowTouchBar {
-  if (!touchBar_) {
-    touchBar_.reset([[BrowserWindowTouchBar alloc]
-                initWithBrowser:browser_.get()
-        browserWindowController:self]);
+- (BrowserWindowTouchBarController*)browserWindowTouchBarController {
+  if (!touchBarController_) {
+    touchBarController_.reset([[BrowserWindowTouchBarController alloc]
+        initWithBrowser:browser_.get()
+                 window:[self window]]);
   }
 
-  return touchBar_.get();
-}
-
-- (void)invalidateTouchBar {
-  if ([[self window] respondsToSelector:@selector(setTouchBar:)])
-    [[self window] performSelector:@selector(setTouchBar:) withObject:nil];
+  return touchBarController_.get();
 }
 
 - (BOOL)isToolbarShowing {
@@ -1931,7 +1919,9 @@ willAnimateFromState:(BookmarkBar::State)oldState
 
 - (void)updateUIForTabFullscreen:
     (ExclusiveAccessContext::TabFullscreenState)state {
-  DCHECK([self isInAnyFullscreenMode]);
+  // Only need to update and layout toolbar in fullscreen mode.
+  if (![self isInAnyFullscreenMode])
+    return;
   [fullscreenToolbarController_
       layoutToolbarStyleIsExitingTabFullscreen:
           state == ExclusiveAccessContext::STATE_EXIT_TAB_FULLSCREEN];

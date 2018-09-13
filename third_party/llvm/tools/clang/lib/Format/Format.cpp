@@ -31,7 +31,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/VirtualFileSystem.h"
 #include "clang/Lex/Lexer.h"
-#include "clang/Tooling/Core/HeaderIncludes.h"
+#include "clang/Tooling/Inclusions/HeaderIncludes.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Allocator.h"
@@ -145,6 +145,16 @@ struct ScalarEnumerationTraits<FormatStyle::BreakConstructorInitializersStyle> {
     IO.enumCase(Value, "BeforeColon", FormatStyle::BCIS_BeforeColon);
     IO.enumCase(Value, "BeforeComma", FormatStyle::BCIS_BeforeComma);
     IO.enumCase(Value, "AfterColon", FormatStyle::BCIS_AfterColon);
+  }
+};
+
+template <>
+struct ScalarEnumerationTraits<FormatStyle::BreakInheritanceListStyle> {
+  static void
+  enumeration(IO &IO, FormatStyle::BreakInheritanceListStyle &Value) {
+    IO.enumCase(Value, "BeforeColon", FormatStyle::BILS_BeforeColon);
+    IO.enumCase(Value, "BeforeComma", FormatStyle::BILS_BeforeComma);
+    IO.enumCase(Value, "AfterColon", FormatStyle::BILS_AfterColon);
   }
 };
 
@@ -350,8 +360,19 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("BreakBeforeBinaryOperators",
                    Style.BreakBeforeBinaryOperators);
     IO.mapOptional("BreakBeforeBraces", Style.BreakBeforeBraces);
+
+    bool BreakBeforeInheritanceComma = false;
     IO.mapOptional("BreakBeforeInheritanceComma",
-                   Style.BreakBeforeInheritanceComma);
+                   BreakBeforeInheritanceComma);
+    IO.mapOptional("BreakInheritanceList",
+                   Style.BreakInheritanceList);
+    // If BreakBeforeInheritanceComma was specified but
+    // BreakInheritance was not, initialize the latter from the
+    // former for backwards compatibility.
+    if (BreakBeforeInheritanceComma &&
+        Style.BreakInheritanceList == FormatStyle::BILS_BeforeColon)
+      Style.BreakInheritanceList = FormatStyle::BILS_BeforeComma;
+
     IO.mapOptional("BreakBeforeTernaryOperators",
                    Style.BreakBeforeTernaryOperators);
 
@@ -428,6 +449,8 @@ template <> struct MappingTraits<FormatStyle> {
                    Style.SpaceAfterTemplateKeyword);
     IO.mapOptional("SpaceBeforeAssignmentOperators",
                    Style.SpaceBeforeAssignmentOperators);
+    IO.mapOptional("SpaceBeforeCpp11BracedList",
+                   Style.SpaceBeforeCpp11BracedList);
     IO.mapOptional("SpaceBeforeCtorInitializerColon",
                    Style.SpaceBeforeCtorInitializerColon);
     IO.mapOptional("SpaceBeforeInheritanceColon",
@@ -624,7 +647,7 @@ FormatStyle getLLVMStyle() {
                              false, false, true,  true,  true};
   LLVMStyle.BreakAfterJavaFieldAnnotations = false;
   LLVMStyle.BreakConstructorInitializers = FormatStyle::BCIS_BeforeColon;
-  LLVMStyle.BreakBeforeInheritanceComma = false;
+  LLVMStyle.BreakInheritanceList = FormatStyle::BILS_BeforeColon;
   LLVMStyle.BreakStringLiterals = true;
   LLVMStyle.ColumnLimit = 80;
   LLVMStyle.CommentPragmas = "^ IWYU pragma:";
@@ -676,6 +699,7 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.SpaceBeforeParens = FormatStyle::SBPO_ControlStatements;
   LLVMStyle.SpaceBeforeRangeBasedForLoopColon = true;
   LLVMStyle.SpaceBeforeAssignmentOperators = true;
+  LLVMStyle.SpaceBeforeCpp11BracedList = false;
   LLVMStyle.SpacesInAngles = false;
 
   LLVMStyle.PenaltyBreakAssignment = prec::Assignment;
@@ -750,7 +774,13 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
               "PROTO",
           },
           /*EnclosingFunctionNames=*/
-          {},
+          {
+              "EqualsProto",
+              "EquivToProto",
+              "PARSE_TEST_PROTO",
+              "PARSE_TEXT_PROTO",
+              "ParseTextOrDie",
+          },
           /*CanonicalDelimiter=*/"",
           /*BasedOnStyle=*/"google",
       },
@@ -799,6 +829,7 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
     // has been implemented.
     GoogleStyle.BreakStringLiterals = false;
   } else if (Language == FormatStyle::LK_ObjC) {
+    GoogleStyle.AlwaysBreakBeforeMultilineStrings = false;
     GoogleStyle.ColumnLimit = 100;
   }
 
@@ -840,7 +871,7 @@ FormatStyle getMozillaStyle() {
   MozillaStyle.BinPackArguments = false;
   MozillaStyle.BreakBeforeBraces = FormatStyle::BS_Mozilla;
   MozillaStyle.BreakConstructorInitializers = FormatStyle::BCIS_BeforeComma;
-  MozillaStyle.BreakBeforeInheritanceComma = true;
+  MozillaStyle.BreakInheritanceList = FormatStyle::BILS_BeforeComma;
   MozillaStyle.ConstructorInitializerIndentWidth = 2;
   MozillaStyle.ContinuationIndentWidth = 2;
   MozillaStyle.Cpp11BracedListStyle = false;
@@ -871,6 +902,7 @@ FormatStyle getWebKitStyle() {
   Style.ObjCBlockIndentWidth = 4;
   Style.ObjCSpaceAfterProperty = true;
   Style.PointerAlignment = FormatStyle::PAS_Left;
+  Style.SpaceBeforeCpp11BracedList = true;
   return Style;
 }
 
@@ -2117,6 +2149,10 @@ FormatStyle::LanguageKind guessLanguage(StringRef FileName, StringRef Code) {
   }
   return GuessedLanguage;
 }
+
+const char *DefaultFormatStyle = "file";
+
+const char *DefaultFallbackStyle = "LLVM";
 
 llvm::Expected<FormatStyle> getStyle(StringRef StyleName, StringRef FileName,
                                      StringRef FallbackStyleName,

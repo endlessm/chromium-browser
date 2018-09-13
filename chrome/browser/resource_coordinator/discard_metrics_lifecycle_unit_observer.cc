@@ -5,12 +5,25 @@
 #include "chrome/browser/resource_coordinator/discard_metrics_lifecycle_unit_observer.h"
 
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/string_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit.h"
 #include "chrome/browser/resource_coordinator/time.h"
+#include "net/base/network_change_notifier.h"
 
 namespace resource_coordinator {
+
+namespace {
+
+void RecordReloadAfterDiscardHistograms(const char* reason) {
+  base::UmaHistogramBoolean(
+      base::JoinString({"Discarding.OnlineOnReload", reason}, "."),
+      !net::NetworkChangeNotifier::IsOffline());
+}
+
+}  // namespace
 
 DiscardMetricsLifecycleUnitObserver::DiscardMetricsLifecycleUnitObserver() =
     default;
@@ -19,10 +32,11 @@ DiscardMetricsLifecycleUnitObserver::~DiscardMetricsLifecycleUnitObserver() =
 
 void DiscardMetricsLifecycleUnitObserver::OnLifecycleUnitStateChanged(
     LifecycleUnit* lifecycle_unit,
-    LifecycleState last_state) {
-  if (lifecycle_unit->GetState() == LifecycleState::DISCARDED)
-    OnDiscard(lifecycle_unit);
-  else if (last_state == LifecycleState::DISCARDED)
+    LifecycleUnitState last_state,
+    LifecycleUnitStateChangeReason reason) {
+  if (lifecycle_unit->GetState() == LifecycleUnitState::DISCARDED)
+    OnDiscard(lifecycle_unit, reason);
+  else if (last_state == LifecycleUnitState::DISCARDED)
     OnReload();
 }
 
@@ -31,7 +45,7 @@ void DiscardMetricsLifecycleUnitObserver::OnLifecycleUnitDestroyed(
   // If the browser is not shutting down and the tab is loaded after
   // being discarded, record TabManager.Discarding.ReloadToCloseTime.
   if (g_browser_process && !g_browser_process->IsShuttingDown() &&
-      lifecycle_unit->GetState() != LifecycleState::DISCARDED &&
+      lifecycle_unit->GetState() != LifecycleUnitState::DISCARDED &&
       !reload_time_.is_null()) {
     auto reload_to_close_time = NowTicks() - reload_time_;
     UMA_HISTOGRAM_CUSTOM_TIMES(
@@ -46,8 +60,10 @@ void DiscardMetricsLifecycleUnitObserver::OnLifecycleUnitDestroyed(
 }
 
 void DiscardMetricsLifecycleUnitObserver::OnDiscard(
-    LifecycleUnit* lifecycle_unit) {
+    LifecycleUnit* lifecycle_unit,
+    LifecycleUnitStateChangeReason reason) {
   discard_time_ = NowTicks();
+  discard_reason_ = reason;
   last_focused_time_before_discard_ = lifecycle_unit->GetLastFocusedTime();
 
   static int discard_count = 0;
@@ -71,6 +87,22 @@ void DiscardMetricsLifecycleUnitObserver::OnReload() {
   UMA_HISTOGRAM_CUSTOM_TIMES(
       "TabManager.Discarding.InactiveToReloadTime", inactive_to_reload_time,
       base::TimeDelta::FromSeconds(1), base::TimeDelta::FromDays(1), 100);
+
+  // TODO(fdoray): All discard histograms should have a reason suffix.
+  switch (discard_reason_) {
+    case LifecycleUnitStateChangeReason::BROWSER_INITIATED:
+      RecordReloadAfterDiscardHistograms("Proactive");
+      break;
+    case LifecycleUnitStateChangeReason::SYSTEM_MEMORY_PRESSURE:
+      RecordReloadAfterDiscardHistograms("Urgent");
+      break;
+    case LifecycleUnitStateChangeReason::EXTENSION_INITIATED:
+      RecordReloadAfterDiscardHistograms("Extension");
+      break;
+    default:
+      NOTREACHED();
+      break;
+  }
 }
 
 }  // namespace resource_coordinator

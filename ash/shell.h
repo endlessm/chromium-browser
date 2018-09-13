@@ -52,13 +52,21 @@ namespace gfx {
 class Insets;
 }
 
+namespace keyboard {
+class KeyboardController;
+}  // namespace keyboard
+
+namespace service_manager {
+class Connector;
+}
+
 namespace ui {
 class ContextFactory;
 class ContextFactoryPrivate;
 class UserActivityDetector;
 class UserActivityPowerManagerNotifier;
 namespace ws2 {
-class GpuSupport;
+class GpuInterfaceProvider;
 }
 }  // namespace ui
 
@@ -98,6 +106,7 @@ class BluetoothNotificationController;
 class BluetoothPowerController;
 class BrightnessControlDelegate;
 class CastConfigController;
+class ClientImageRegistry;
 class CrosDisplayConfig;
 class DetachableBaseHandler;
 class DetachableBaseNotificationController;
@@ -107,6 +116,7 @@ class DisplayConfigurationObserver;
 class DisplayErrorObserver;
 class DisplayPrefs;
 class DisplayShutdownObserver;
+class DisplaySpeakerController;
 class DockedMagnifierController;
 class DragDropController;
 class EventClientImpl;
@@ -117,6 +127,7 @@ class FocusCycler;
 class HighContrastController;
 class HighlighterController;
 class ImeController;
+class ImeFocusHandler;
 class ImmersiveContextAsh;
 class ImmersiveHandlerFactoryAsh;
 class KeyAccessibilityEnabler;
@@ -164,6 +175,7 @@ class ShelfWindowWatcher;
 class ShellDelegate;
 struct ShellInitParams;
 class ShellObserver;
+class ShellState;
 class ShutdownController;
 class SmsObserver;
 class SplitViewController;
@@ -172,7 +184,6 @@ class SystemGestureEventFilter;
 class SystemModalContainerEventFilter;
 class SystemNotificationController;
 class SystemTray;
-class SystemTrayController;
 class SystemTrayModel;
 class SystemTrayNotifier;
 class TimeToFirstPresentRecorder;
@@ -321,12 +332,12 @@ class ASH_EXPORT Shell : public SessionObserver,
   // Called when dictation is ended.
   void OnDictationEnded();
 
-  // Creates a keyboard controller and associate it with the primary root window
-  // controller. Destroys the old keyboard controller if it already exists.
-  void CreateKeyboard();
+  // Enables the keyboard and associate it with the primary root window
+  // controller.
+  void EnableKeyboard();
 
-  // Destroys the virtual keyboard.
-  void DestroyKeyboard();
+  // Hides and disables the virtual keyboard.
+  void DisableKeyboard();
 
   // Test if TabletModeWindowManager is not enabled, and if
   // TabletModeController is not currently setting a display rotation. Or if
@@ -370,6 +381,10 @@ class ASH_EXPORT Shell : public SessionObserver,
     return brightness_control_delegate_.get();
   }
   CastConfigController* cast_config() { return cast_config_.get(); }
+  ClientImageRegistry* client_image_registry() {
+    return client_image_registry_.get();
+  }
+  service_manager::Connector* connector() { return connector_; }
   CrosDisplayConfig* cros_display_config() {
     return cros_display_config_.get();
   }
@@ -498,6 +513,7 @@ class ASH_EXPORT Shell : public SessionObserver,
   ShelfController* shelf_controller() { return shelf_controller_.get(); }
   ShelfModel* shelf_model();
   ShellDelegate* shell_delegate() { return shell_delegate_.get(); }
+  ShellState* shell_state() { return shell_state_.get(); }
   ShutdownController* shutdown_controller() {
     return shutdown_controller_.get();
   }
@@ -507,8 +523,8 @@ class ASH_EXPORT Shell : public SessionObserver,
   StickyKeysController* sticky_keys_controller() {
     return sticky_keys_controller_.get();
   }
-  SystemTrayController* system_tray_controller() {
-    return system_tray_controller_.get();
+  SystemNotificationController* system_notification_controller() {
+    return system_notification_controller_.get();
   }
   SystemTrayModel* system_tray_model() { return system_tray_model_.get(); }
   SystemTrayNotifier* system_tray_notifier() {
@@ -553,7 +569,6 @@ class ASH_EXPORT Shell : public SessionObserver,
   WindowSelectorController* window_selector_controller() {
     return window_selector_controller_.get();
   }
-  // WindowServiceOwner is null in mash.
   WindowServiceOwner* window_service_owner() {
     return window_service_owner_.get();
   }
@@ -580,11 +595,6 @@ class ASH_EXPORT Shell : public SessionObserver,
 
   // Starts the animation that occurs on first login.
   void DoInitialWorkspaceAnimation();
-
-  // NOTE: Prefer ScopedRootWindowForNewWindows when setting temporarily.
-  void set_root_window_for_new_windows(aura::Window* root) {
-    root_window_for_new_windows_ = root;
-  }
 
   void SetLargeCursorSizeInDip(int large_cursor_size_in_dip);
 
@@ -633,11 +643,6 @@ class ASH_EXPORT Shell : public SessionObserver,
   // Notifies observers that |pinned_window| changed its pinned window state.
   void NotifyPinnedStateChanged(aura::Window* pinned_window);
 
-  // Notifies observers that the virtual keyboard has been
-  // activated/deactivated for |root_window|.
-  void NotifyVirtualKeyboardActivated(bool activated,
-                                      aura::Window* root_window);
-
   // Notifies observers that the shelf was created for |root_window|.
   // TODO(jamescook): Move to Shelf.
   void NotifyShelfCreatedForRootWindow(aura::Window* root_window);
@@ -670,10 +675,12 @@ class ASH_EXPORT Shell : public SessionObserver,
         std::unique_ptr<ShellPort> shell_port);
   ~Shell() override;
 
-  void Init(ui::ContextFactory* context_factory,
-            ui::ContextFactoryPrivate* context_factory_private,
-            std::unique_ptr<base::Value> initial_display_prefs,
-            std::unique_ptr<ui::ws2::GpuSupport> gpu_support);
+  void Init(
+      ui::ContextFactory* context_factory,
+      ui::ContextFactoryPrivate* context_factory_private,
+      std::unique_ptr<base::Value> initial_display_prefs,
+      std::unique_ptr<ui::ws2::GpuInterfaceProvider> gpu_interface_provider,
+      service_manager::Connector* connector);
 
   // Initializes the display manager and related components.
   void InitializeDisplayManager();
@@ -736,18 +743,23 @@ class ASH_EXPORT Shell : public SessionObserver,
   std::unique_ptr<BacklightsForcedOffSetter> backlights_forced_off_setter_;
   std::unique_ptr<BrightnessControlDelegate> brightness_control_delegate_;
   std::unique_ptr<CastConfigController> cast_config_;
+  std::unique_ptr<ClientImageRegistry> client_image_registry_;
   std::unique_ptr<CrosDisplayConfig> cros_display_config_;
+  service_manager::Connector* connector_ = nullptr;
   std::unique_ptr<DetachableBaseHandler> detachable_base_handler_;
   std::unique_ptr<DetachableBaseNotificationController>
       detachable_base_notification_controller_;
+  std::unique_ptr<DisplaySpeakerController> display_speaker_controller_;
   std::unique_ptr<DragDropController> drag_drop_controller_;
   std::unique_ptr<FirstRunHelper> first_run_helper_;
   std::unique_ptr<FocusCycler> focus_cycler_;
   std::unique_ptr<ImeController> ime_controller_;
+  std::unique_ptr<ImeFocusHandler> ime_focus_handler_;
   std::unique_ptr<ImmersiveContextAsh> immersive_context_;
   std::unique_ptr<KeyboardBrightnessControlDelegate>
       keyboard_brightness_control_delegate_;
   std::unique_ptr<KeyboardUI> keyboard_ui_;
+  std::unique_ptr<keyboard::KeyboardController> keyboard_controller_;
   std::unique_ptr<LocaleNotificationController> locale_notification_controller_;
   std::unique_ptr<LoginScreenController> login_screen_controller_;
   std::unique_ptr<LogoutConfirmationController> logout_confirmation_controller_;
@@ -766,9 +778,9 @@ class ASH_EXPORT Shell : public SessionObserver,
   std::unique_ptr<ShelfController> shelf_controller_;
   std::unique_ptr<ShelfWindowWatcher> shelf_window_watcher_;
   std::unique_ptr<ShellDelegate> shell_delegate_;
+  std::unique_ptr<ShellState> shell_state_;
   std::unique_ptr<ShutdownController> shutdown_controller_;
   std::unique_ptr<SystemNotificationController> system_notification_controller_;
-  std::unique_ptr<SystemTrayController> system_tray_controller_;
   std::unique_ptr<SystemTrayModel> system_tray_model_;
   std::unique_ptr<SystemTrayNotifier> system_tray_notifier_;
   std::unique_ptr<ToastManager> toast_manager_;
@@ -891,10 +903,6 @@ class ASH_EXPORT Shell : public SessionObserver,
 
   // For testing only: simulate that a modal window is open
   bool simulate_modal_window_open_for_test_ = false;
-
-  // See comment for GetRootWindowForNewWindows().
-  aura::Window* root_window_for_new_windows_ = nullptr;
-  aura::Window* scoped_root_window_for_new_windows_ = nullptr;
 
   std::unique_ptr<ImmersiveHandlerFactoryAsh> immersive_handler_factory_;
 

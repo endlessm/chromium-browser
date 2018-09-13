@@ -110,10 +110,11 @@ void LoginScreenClient::FocusLockScreenApps(bool reverse) {
 }
 
 void LoginScreenClient::ShowGaiaSignin(
-    const base::Optional<AccountId>& account_id) {
+    bool can_close,
+    const base::Optional<AccountId>& prefilled_account) {
   if (chromeos::LoginDisplayHost::default_host()) {
-    chromeos::LoginDisplayHost::default_host()->UpdateGaiaDialogVisibility(
-        true /*visible*/, account_id);
+    chromeos::LoginDisplayHost::default_host()->ShowGaiaDialog(
+        can_close, prefilled_account);
   }
 }
 
@@ -127,6 +128,8 @@ void LoginScreenClient::RemoveUser(const AccountId& account_id) {
       ProfileMetrics::DELETE_PROFILE_USER_MANAGER);
   user_manager::UserManager::Get()->RemoveUser(account_id,
                                                nullptr /*delegate*/);
+  if (chromeos::LoginDisplayHost::default_host())
+    chromeos::LoginDisplayHost::default_host()->UpdateAddUserButtonStatus();
 }
 
 void LoginScreenClient::LaunchPublicSession(const AccountId& account_id,
@@ -143,6 +146,25 @@ void LoginScreenClient::RequestPublicSessionKeyboardLayouts(
       base::BindRepeating(&LoginScreenClient::SetPublicSessionKeyboardLayout,
                           weak_ptr_factory_.GetWeakPtr(), account_id, locale),
       locale);
+}
+
+void LoginScreenClient::ShowFeedback() {
+  if (chromeos::LoginDisplayHost::default_host())
+    chromeos::LoginDisplayHost::default_host()->ShowFeedback();
+}
+
+void LoginScreenClient::LaunchKioskApp(const std::string& app_id) {
+  chromeos::LoginDisplayHost::default_host()->StartAppLaunch(app_id, false,
+                                                             false);
+}
+
+void LoginScreenClient::LaunchArcKioskApp(const AccountId& account_id) {
+  chromeos::LoginDisplayHost::default_host()->StartArcKiosk(account_id);
+}
+
+void LoginScreenClient::ShowResetScreen() {
+  chromeos::LoginDisplayHost::default_host()->StartWizard(
+      chromeos::OobeScreen::SCREEN_OOBE_RESET);
 }
 
 void LoginScreenClient::LoadWallpaper(const AccountId& account_id) {

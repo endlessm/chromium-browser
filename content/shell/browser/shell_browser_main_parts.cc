@@ -36,8 +36,8 @@
 #include "url/gurl.h"
 
 #if defined(OS_ANDROID)
+#include "components/crash/content/browser/child_exit_observer_android.h"
 #include "components/crash/content/browser/child_process_crash_observer_android.h"
-#include "components/crash/content/browser/crash_dump_observer_android.h"
 #include "net/android/network_change_notifier_factory_android.h"
 #include "net/base/network_change_notifier.h"
 #endif
@@ -114,10 +114,6 @@ void ShellBrowserMainParts::PreMainMessageLoopStart() {
 #endif
 
 void ShellBrowserMainParts::PostMainMessageLoopStart() {
-#if defined(OS_ANDROID)
-  base::MessageLoopCurrentForUI::Get()->Start();
-#endif
-
 #if defined(OS_CHROMEOS)
   chromeos::DBusThreadManager::Initialize();
   bluez::BluezDBusManager::Initialize(
@@ -178,12 +174,12 @@ int ShellBrowserMainParts::PreCreateThreads() {
 #if defined(OS_ANDROID)
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
-  breakpad::CrashDumpObserver::Create();
+  crash_reporter::ChildExitObserver::Create();
   if (command_line->HasSwitch(switches::kEnableCrashReporter)) {
     base::FilePath crash_dumps_dir =
         command_line->GetSwitchValuePath(switches::kCrashDumpsDir);
-    breakpad::CrashDumpObserver::GetInstance()->RegisterClient(
-        std::make_unique<breakpad::ChildProcessCrashObserver>(
+    crash_reporter::ChildExitObserver::GetInstance()->RegisterClient(
+        std::make_unique<crash_reporter::ChildProcessCrashObserver>(
             crash_dumps_dir, kAndroidMinidumpDescriptor));
   }
 #endif
@@ -214,6 +210,11 @@ void ShellBrowserMainParts::PostMainMessageLoopRun() {
   ShellDevToolsManagerDelegate::StopHttpHandler();
   browser_context_.reset();
   off_the_record_browser_context_.reset();
+}
+
+void ShellBrowserMainParts::PreDefaultMainMessageLoopRun(
+    base::OnceClosure quit_closure) {
+  Shell::SetMainMessageLoopQuitClosure(std::move(quit_closure));
 }
 
 void ShellBrowserMainParts::PostDestroyThreads() {

@@ -384,6 +384,11 @@ class DwarfRegAlias<Register reg> {
 }
 
 //===----------------------------------------------------------------------===//
+// Pull in the common support for MCPredicate (portable scheduling predicates).
+//
+include "llvm/Target/TargetInstrPredicate.td"
+
+//===----------------------------------------------------------------------===//
 // Pull in the common support for scheduling
 //
 include "llvm/Target/TargetSchedule.td"
@@ -437,11 +442,13 @@ class Instruction {
   bit isIndirectBranch = 0; // Is this instruction an indirect branch?
   bit isCompare    = 0;     // Is this instruction a comparison instruction?
   bit isMoveImm    = 0;     // Is this instruction a move immediate instruction?
+  bit isMoveReg    = 0;     // Is this instruction a move register instruction?
   bit isBitcast    = 0;     // Is this instruction a bitcast instruction?
   bit isSelect     = 0;     // Is this instruction a select instruction?
   bit isBarrier    = 0;     // Can control flow fall through this instruction?
   bit isCall       = 0;     // Is this instruction a call instruction?
   bit isAdd        = 0;     // Is this instruction an add instruction?
+  bit isTrap       = 0;     // Is this instruction a trap instruction?
   bit canFoldAsLoad = 0;    // Can this be folded as a simple memory operand?
   bit mayLoad      = ?;     // Is it possible for this inst to read memory?
   bit mayStore     = ?;     // Is it possible for this inst to write memory?
@@ -568,6 +575,12 @@ class Instruction {
   /// can be queried via the getNamedOperandIdx() function which is generated
   /// by TableGen.
   bit UseNamedOperandTable = 0;
+
+  /// Should FastISel ignore this instruction. For certain ISAs, they have
+  /// instructions which map to the same ISD Opcode, value type operands and
+  /// instruction selection predicates. FastISel cannot handle such cases, but
+  /// SelectionDAG can.
+  bit FastISelShouldIgnore = 0;
 }
 
 /// PseudoInstExpansion - Expansion information for a pseudo-instruction.
@@ -1105,7 +1118,7 @@ def PATCHABLE_FUNCTION_ENTER : StandardPseudoInstruction {
   let hasSideEffects = 0;
 }
 def PATCHABLE_RET : StandardPseudoInstruction {
-  let OutOperandList = (outs unknown:$dst);
+  let OutOperandList = (outs);
   let InOperandList = (ins variable_ops);
   let AsmString = "# XRay Function Patchable RET.";
   let usesCustomInserter = 1;
@@ -1122,7 +1135,7 @@ def PATCHABLE_FUNCTION_EXIT : StandardPseudoInstruction {
   let isReturn = 0; // Original return instruction will follow
 }
 def PATCHABLE_TAIL_CALL : StandardPseudoInstruction {
-  let OutOperandList = (outs unknown:$dst);
+  let OutOperandList = (outs);
   let InOperandList = (ins variable_ops);
   let AsmString = "# XRay Tail Call Exit.";
   let usesCustomInserter = 1;

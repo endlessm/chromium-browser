@@ -30,15 +30,29 @@ class WebContents;
 // Create().
 class PageLoadCappingInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
+  // A callback that triggers the page to have its subresource loading paused or
+  // unpaused based on |pause|.
+  using PauseCallback = base::RepeatingCallback<void(bool pause)>;
+
   // Creates an InfoBar for page load capping. Returns whether the infobar was
   // created. |bytes_threshold| is the amount of bytes used to determine if the
   // page was large enough to cap. It will be truncated to megabytes and shown
   // on the InfoBar. |web_contents| is the WebContents that caused the data
   // usage.
   static bool Create(int64_t bytes_threshold,
-                     content::WebContents* web_contents);
+                     content::WebContents* web_contents,
+                     const PauseCallback& set_handles_callback);
 
   ~PageLoadCappingInfoBarDelegate() override;
+
+  // Used to record UMA on user interaction with the capping heavy pages
+  // InfoBar.
+  enum class InfoBarInteraction {
+    kShowedInfoBar = 0,
+    kPausedPage = 1,
+    kResumedPage = 2,
+    kMaxValue = kResumedPage,
+  };
 
  protected:
   PageLoadCappingInfoBarDelegate();
@@ -50,8 +64,8 @@ class PageLoadCappingInfoBarDelegate : public ConfirmInfoBarDelegate {
   int GetButtons() const override;
   bool ShouldExpire(const NavigationDetails& details) const override;
   base::string16 GetMessageText() const override = 0;
-  base::string16 GetButtonLabel(InfoBarButton button) const override = 0;
-  bool Accept() override = 0;
+  bool LinkClicked(WindowOpenDisposition disposition) override = 0;
+  base::string16 GetLinkText() const override = 0;
 
   DISALLOW_COPY_AND_ASSIGN(PageLoadCappingInfoBarDelegate);
 };

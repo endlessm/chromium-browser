@@ -27,7 +27,7 @@
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow.h"
-#include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/web_applications/extensions/web_app_extension_helpers.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "components/arc/arc_util.h"
 #include "content/public/browser/navigation_entry.h"
@@ -44,7 +44,7 @@ namespace {
 
 const extensions::Extension* GetExtensionForTab(Profile* profile,
                                                 content::WebContents* tab) {
-  ExtensionService* extension_service =
+  extensions::ExtensionService* extension_service =
       extensions::ExtensionSystem::Get(profile)->extension_service();
   if (!extension_service || !extension_service->extensions_enabled())
     return nullptr;
@@ -128,11 +128,11 @@ base::string16 LauncherControllerHelper::GetAppTitle(
   crostini::CrostiniRegistryService* registry_service =
       crostini::CrostiniRegistryServiceFactory::GetForProfile(profile);
   if (registry_service && registry_service->IsCrostiniShelfAppId(app_id)) {
-    std::unique_ptr<crostini::CrostiniRegistryService::Registration>
+    base::Optional<crostini::CrostiniRegistryService::Registration>
         registration = registry_service->GetRegistration(app_id);
     if (!registration)
       return base::string16();
-    return base::UTF8ToUTF16(registration->Localize(registration->name));
+    return base::UTF8ToUTF16(registration->Name());
   }
 
   const extensions::Extension* extension = GetExtensionByID(profile, app_id);
@@ -173,7 +173,7 @@ bool LauncherControllerHelper::IsValidIDForCurrentUser(
   crostini::CrostiniRegistryService* registry_service =
       crostini::CrostiniRegistryServiceFactory::GetForProfile(profile_);
   if (registry_service && registry_service->IsCrostiniShelfAppId(id))
-    return registry_service->GetRegistration(id) != nullptr;
+    return registry_service->GetRegistration(id).has_value();
 
   if (app_list::IsInternalApp(id))
     return true;
@@ -203,7 +203,9 @@ void LauncherControllerHelper::LaunchApp(const ash::ShelfID& id,
   const std::string& app_id = id.app_id;
   const ArcAppListPrefs* arc_prefs = GetArcAppListPrefs();
   if (arc_prefs && arc_prefs->IsRegistered(app_id)) {
-    arc::LaunchApp(profile_, app_id, event_flags, display_id);
+    arc::LaunchApp(profile_, app_id, event_flags,
+                   arc::UserInteractionType::APP_STARTED_FROM_SHELF,
+                   display_id);
     return;
   }
 
@@ -213,12 +215,12 @@ void LauncherControllerHelper::LaunchApp(const ash::ShelfID& id,
     // This expects a valid app list id, which is fine as we only get here for
     // shelf entries associated with an actual app and not arbitrary Crostini
     // windows.
-    LaunchCrostiniApp(profile_, app_id);
+    LaunchCrostiniApp(profile_, app_id, display_id);
     return;
   }
 
   if (app_list::IsInternalApp(app_id)) {
-    app_list::OpenInternalApp(app_id, profile_);
+    app_list::OpenInternalApp(app_id, profile_, event_flags);
     return;
   }
 

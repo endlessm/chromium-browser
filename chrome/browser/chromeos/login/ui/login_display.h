@@ -36,17 +36,6 @@ class LoginDisplay {
 
   class Delegate {
    public:
-    // Cancels current password changed flow.
-    virtual void CancelPasswordChangedFlow() = 0;
-
-    // Ignore password change, remove existing cryptohome and
-    // force full sync of user data.
-    virtual void ResyncUserData() = 0;
-
-    // Decrypt cryptohome using user provided |old_password|
-    // and migrate to new password.
-    virtual void MigrateUserData(const std::string& old_password) = 0;
-
     // Sign in using |username| and |password| specified.
     // Used for known users only.
     virtual void Login(const UserContext& user_context,
@@ -90,7 +79,7 @@ class LoginDisplay {
     virtual ~Delegate();
   };
 
-  explicit LoginDisplay(Delegate* delegate);
+  LoginDisplay();
   virtual ~LoginDisplay();
 
   // Clears and enables fields on user pod or GAIA frame.
@@ -146,7 +135,7 @@ class LoginDisplay {
 
  protected:
   // Login UI delegate (controller).
-  Delegate* delegate_;
+  Delegate* delegate_ = nullptr;
 
   // Parent window, might be used to create dialog windows.
   gfx::NativeWindow parent_window_ = nullptr;

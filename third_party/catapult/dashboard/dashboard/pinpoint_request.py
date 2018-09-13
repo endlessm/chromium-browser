@@ -10,20 +10,16 @@ from google.appengine.api import users
 from google.appengine.ext import ndb
 
 from dashboard import start_try_job
+from dashboard.common import descriptor
 from dashboard.common import request_handler
 from dashboard.common import utils
 from dashboard.services import crrev_service
 from dashboard.services import pinpoint_service
 
-_PINPOINT_REPOSITORIES = 'repositories'
 _ISOLATE_TARGETS = [
     'angle_perftests', 'cc_perftests', 'gpu_perftests',
     'load_library_perf_tests', 'media_perftests', 'net_perftests',
-    'performance_browser_tests', 'telemetry_perf_tests',
-    'telemetry_perf_webview_tests', 'tracing_perftests']
-_BOTS_USING_PERFORMANCE_TEST_SUITES = [
-    'linux-perf', 'mac-10_12_laptop_low_end-perf'
-]
+    'performance_browser_tests', 'tracing_perftests']
 
 
 class InvalidParamsError(Exception):
@@ -113,22 +109,29 @@ def ResolveToGitHash(commit_position):
   return commit_position
 
 
-def _GetIsolateTarget(bot_name, suite, only_telemetry=False):
-  target = 'telemetry_perf_tests'
-
-  # TODO(simonhatch): Remove this once the waterfall has fully migrated to
-  # the new isolate target.
-  if bot_name in _BOTS_USING_PERFORMANCE_TEST_SUITES:
-    target = 'performance_test_suite'
-
+def _GetIsolateTarget(bot_name, suite, start_commit,
+                      end_commit, only_telemetry=False):
   if suite in _ISOLATE_TARGETS:
     if only_telemetry:
       raise InvalidParamsError('Only telemetry is supported at the moment.')
-    else:
-      target = suite
-  elif 'webview' in bot_name:
-    target = 'telemetry_perf_webview_tests'
-  return target
+    return suite
+
+  try:
+    # TODO: Remove this code path in 2019.
+    average_commit = (int(start_commit) + int(end_commit)) / 2
+    if 'android' in bot_name and average_commit < 572268:
+      if 'webview' in bot_name.lower():
+        return 'telemetry_perf_webview_tests'
+      return 'telemetry_perf_tests'
+
+    if 'win' in bot_name and average_commit < 571917:
+      return 'telemetry_perf_tests'
+  except ValueError:
+    pass
+
+  if 'webview' in bot_name.lower():
+    return 'performance_webview_test_suite'
+  return 'performance_test_suite'
 
 
 def ParseTIRLabelChartNameAndTraceName(test_path_parts):
@@ -142,14 +145,10 @@ def ParseTIRLabelChartNameAndTraceName(test_path_parts):
 
 
 def ParseStatisticNameFromChart(chart_name):
-  statistic_types = [
-      'avg', 'min', 'max', 'sum', 'std', 'count'
-  ]
-
   chart_name_parts = chart_name.split('_')
   statistic_name = ''
 
-  if chart_name_parts[-1] in statistic_types:
+  if chart_name_parts[-1] in descriptor.STATISTICS:
     chart_name = '_'.join(chart_name_parts[:-1])
     statistic_name = chart_name_parts[-1]
   return chart_name, statistic_name
@@ -181,15 +180,16 @@ def PinpointParamsFromPerfTryParams(params):
   bot_name = test_path_parts[1]
   suite = test_path_parts[2]
 
-  # Pinpoint also requires you specify which isolate target to run the
-  # test, so we derive that from the suite name. Eventually, this would
-  # ideally be stored in a SparesDiagnostic but for now we can guess.
-  target = _GetIsolateTarget(bot_name, suite, only_telemetry=True)
-
   start_commit = params['start_commit']
   end_commit = params['end_commit']
   start_git_hash = ResolveToGitHash(start_commit)
   end_git_hash = ResolveToGitHash(end_commit)
+
+  # Pinpoint also requires you specify which isolate target to run the
+  # test, so we derive that from the suite name. Eventually, this would
+  # ideally be stored in a SparesDiagnostic but for now we can guess.
+  target = _GetIsolateTarget(bot_name, suite, start_commit,
+                             end_commit, only_telemetry=True)
 
   extra_test_args = params['extra_test_args']
 
@@ -249,15 +249,15 @@ def PinpointParamsFromBisectParams(params):
     tir_label, chart_name, trace_name = ParseTIRLabelChartNameAndTraceName(
         test_path_parts)
 
-  # Pinpoint also requires you specify which isolate target to run the
-  # test, so we derive that from the suite name. Eventually, this would
-  # ideally be stored in a SparesDiagnostic but for now we can guess.
-  target = _GetIsolateTarget(bot_name, suite)
-
   start_commit = params['start_commit']
   end_commit = params['end_commit']
   start_git_hash = ResolveToGitHash(start_commit)
   end_git_hash = ResolveToGitHash(end_commit)
+
+  # Pinpoint also requires you specify which isolate target to run the
+  # test, so we derive that from the suite name. Eventually, this would
+  # ideally be stored in a SparesDiagnostic but for now we can guess.
+  target = _GetIsolateTarget(bot_name, suite, start_commit, end_commit)
 
   email = users.get_current_user().email()
   job_name = 'Job on [%s/%s/%s] for [%s]' % (bot_name, suite, chart_name, email)
@@ -271,6 +271,11 @@ def PinpointParamsFromBisectParams(params):
     if alert_keys:
       alert_key = alert_keys[0]
 
+  alert_magnitude = None
+  if alert_key:
+    alert = ndb.Key(urlsafe=alert_key).get()
+    alert_magnitude = alert.median_after_anomaly - alert.median_before_anomaly
+
   pinpoint_params = {
       'configuration': bot_name,
       'benchmark': suite,
@@ -279,6 +284,7 @@ def PinpointParamsFromBisectParams(params):
       'end_git_hash': end_git_hash,
       'bug_id': params['bug_id'],
       'comparison_mode': bisect_mode,
+      'comparison_magnitude': alert_magnitude,
       'target': target,
       'user': email,
       'name': job_name,

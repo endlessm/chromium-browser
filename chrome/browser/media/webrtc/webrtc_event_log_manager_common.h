@@ -14,6 +14,10 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 
+namespace content {
+class BrowserContext;
+}  // namespace content
+
 // This file is intended for:
 // 1. Code shared between WebRtcEventLogManager, WebRtcLocalEventLogManager
 //    and WebRtcRemoteEventLogManager.
@@ -25,7 +29,6 @@ extern const size_t kWebRtcEventLogManagerUnlimitedFileSize;
 extern const size_t kDefaultMaxLocalLogFileSizeBytes;
 extern const size_t kMaxNumberLocalWebRtcEventLogFiles;
 
-extern const size_t kMaxRemoteLogFileMetadataSizeBytes;
 extern const size_t kMaxRemoteLogFileSizeBytes;
 
 // Limit over the number of concurrently active (currently being written to
@@ -41,20 +44,13 @@ extern const size_t kMaxActiveRemoteBoundWebRtcEventLogs;
 // limit is applied per browser context.
 extern const size_t kMaxPendingRemoteBoundWebRtcEventLogs;
 
-// The file extension to be associated with remote-bound logs while they are
-// kept on local disk.
-extern const base::FilePath::CharType kRemoteBoundLogExtension[];
-
-// Version of the remote-bound log. Refers to the version of the event logs'
-// encoding, method for separation of metadata from the WebRTC event log, etc.
-extern const uint8_t kRemoteBoundWebRtcEventLogFileVersion;
-
-// Remote-bound log headers are composed of:
-// * One byte for the version (for the encoding, metadata format, etc.)
-// * Three bytes encoding the length of the metadata, in bytes.
-// The metadata, which immediately follows the header, is not counted as part
-// of the header size.
-extern const size_t kRemoteBoundLogFileHeaderSizeBytes;
+// Remote-bound log files' names will be of the format [prefix]_[log_id].[ext],
+// where |prefix| is equal to kRemoteBoundWebRtcEventLogFileNamePrefix,
+// |log_id| is composed of 32 random characters from '0'-'9' and 'A'-'F',
+// and |ext| is kRemoteBoundWebRtcEventLogExtension.
+extern const base::FilePath::CharType
+    kRemoteBoundWebRtcEventLogFileNamePrefix[];
+extern const base::FilePath::CharType kRemoteBoundWebRtcEventLogExtension[];
 
 // Remote-bound event logs will not be uploaded if the time since their last
 // modification (meaning the time when they were completed) exceeds this value.
@@ -70,7 +66,6 @@ extern const base::TimeDelta kRemoteBoundWebRtcEventLogsMaxRetention;
 extern const char kStartRemoteLoggingFailureFeatureDisabled[];
 extern const char kStartRemoteLoggingFailureUnlimitedSizeDisallowed[];
 extern const char kStartRemoteLoggingFailureMaxSizeTooLarge[];
-extern const char kStartRemoteLoggingFailureMetadaTooLong[];
 extern const char kStartRemoteLoggingFailureMaxSizeTooSmall[];
 extern const char kStartRemoteLoggingFailureUnknownOrInactivePeerConnection[];
 extern const char kStartRemoteLoggingFailureAlreadyLogging[];
@@ -125,6 +120,43 @@ struct WebRtcEventLogPeerConnectionKey {
   BrowserContextId browser_context_id;
 };
 
+// Sentinel value for an unknown BrowserContext.
+extern const WebRtcEventLogPeerConnectionKey::BrowserContextId
+    kNullBrowserContextId;
+
+// Holds housekeeping information about log files.
+struct WebRtcLogFileInfo {
+  WebRtcLogFileInfo(
+      WebRtcEventLogPeerConnectionKey::BrowserContextId browser_context_id,
+      const base::FilePath& path,
+      base::Time last_modified)
+      : browser_context_id(browser_context_id),
+        path(path),
+        last_modified(last_modified) {}
+
+  WebRtcLogFileInfo(const WebRtcLogFileInfo& other)
+      : browser_context_id(other.browser_context_id),
+        path(other.path),
+        last_modified(other.last_modified) {}
+
+  bool operator<(const WebRtcLogFileInfo& other) const {
+    if (last_modified != other.last_modified) {
+      return last_modified < other.last_modified;
+    }
+    return path < other.path;  // Break ties arbitrarily, but consistently.
+  }
+
+  // The BrowserContext which produced this file.
+  const WebRtcEventLogPeerConnectionKey::BrowserContextId browser_context_id;
+
+  // The path to the log file itself.
+  const base::FilePath path;
+
+  // |last_modified| recorded at BrowserContext initialization. Chrome will
+  // not modify it afterwards, and neither should the user.
+  const base::Time last_modified;
+};
+
 // An observer for notifications of local log files being started/stopped, and
 // the paths which will be used for these logs.
 class WebRtcLocalEventLogsObserver {
@@ -156,45 +188,56 @@ class WebRtcRemoteEventLogsObserver {
   virtual ~WebRtcRemoteEventLogsObserver() = default;
 };
 
-struct LogFile {
+class LogFile {
+ public:
   LogFile(const base::FilePath& path,
           base::File file,
-          size_t max_file_size_bytes,
-          size_t file_size_bytes = 0)
-      : path(path),
-        file(std::move(file)),
-        max_file_size_bytes(max_file_size_bytes),
-        file_size_bytes(file_size_bytes) {}
-  const base::FilePath path;
-  base::File file;
-  const size_t max_file_size_bytes;
-  size_t file_size_bytes;
+          size_t max_file_size_bytes);
+
+  LogFile(LogFile&& other);
+
+  ~LogFile();
+
+  bool MaxSizeReached() const;
+
+  // Writes to the log file, while respecting the file's size limit.
+  // True is returned if and only if the message was written to the file in
+  // it entirety.
+  // The function does *not* close the file, neither on errors nor when the
+  // maximum size is reached.
+  bool Write(const std::string& message);
+
+  void Close();
+
+  void Delete();
+
+  const base::FilePath& path() const { return path_; }
+
+ private:
+  const base::FilePath path_;
+  base::File file_;
+  const size_t max_file_size_bytes_;
+  size_t file_size_bytes_;
 };
 
-// WebRtcLocalEventLogManager and WebRtcRemoteEventLogManager share some logic
-// when it comes to handling of files on disk.
-class LogFileWriter {
- protected:
-  using PeerConnectionKey = WebRtcEventLogPeerConnectionKey;
-  using BrowserContextId = PeerConnectionKey::BrowserContextId;
-  using LogFilesMap = std::map<PeerConnectionKey, LogFile>;
+// Translate a BrowserContext into an ID. This lets us associate PeerConnections
+// with BrowserContexts, while making sure that we never call the
+// BrowserContext's methods outside of the UI thread (because we can't call them
+// at all without a cast that would alert us to the danger).
+WebRtcEventLogPeerConnectionKey::BrowserContextId GetBrowserContextId(
+    const content::BrowserContext* browser_context);
 
-  virtual ~LogFileWriter() = default;
+// Fetches the BrowserContext associated with the render process ID, then
+// returns its BrowserContextId. (If the render process has already died,
+// it would have no BrowserContext associated, so the ID associated with a
+// null BrowserContext will be returned.)
+WebRtcEventLogPeerConnectionKey::BrowserContextId GetBrowserContextId(
+    int render_process_id);
 
-  // Given a peer connection and its associated log file, and given a log
-  // fragment that should be written to the log file, attempt to write to
-  // the log file (return value indicates success/failure).
-  // If an error occurs, or if the file reaches its capacity, CloseLogFile()
-  // will be called, closing the file.
-  bool WriteToLogFile(LogFilesMap::iterator it, const std::string& message);
-
-  // Called when WriteToLogFile() either encounters an error, or if the file's
-  // intended capacity is reached. It indicates to the inheriting class that
-  // the file should also be purged from its set of active log files.
-  // The function should return an iterator to the next element in the set
-  // of active logs. This makes the function more useful, allowing it to be
-  // used when iterating and closing several log files.
-  virtual LogFilesMap::iterator CloseLogFile(LogFilesMap::iterator it) = 0;
-};
+// Given a BrowserContext's directory, return the path to the directory where
+// we store the pending remote-bound logs associated with this BrowserContext.
+// This function may be called on any task queue.
+base::FilePath GetRemoteBoundWebRtcEventLogsDir(
+    const base::FilePath& browser_context_dir);
 
 #endif  // CHROME_BROWSER_MEDIA_WEBRTC_WEBRTC_EVENT_LOG_MANAGER_COMMON_H_

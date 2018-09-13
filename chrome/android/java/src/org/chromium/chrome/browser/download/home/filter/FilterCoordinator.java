@@ -18,11 +18,12 @@ import java.lang.annotation.RetentionPolicy;
 
 /** A Coordinator responsible for showing the tab filter selection UI for downloads home. */
 public class FilterCoordinator {
+    @IntDef({TabType.FILES, TabType.PREFETCH})
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef({TAB_FILES, TAB_PREFETCH})
-    public @interface TabType {}
-    public static final int TAB_FILES = 0;
-    public static final int TAB_PREFETCH = 1;
+    public @interface TabType {
+        int FILES = 0;
+        int PREFETCH = 1;
+    }
 
     /** An Observer to notify when the selected tab has changed. */
     public interface Observer {
@@ -52,7 +53,7 @@ public class FilterCoordinator {
         mModel.addObserver(new PropertyModelChangeProcessor<>(mModel, mView, mViewBinder));
 
         mModel.setChangeListener(selectedTab -> handleTabSelected(selectedTab));
-        selectTab(TAB_FILES);
+        selectTab(TabType.FILES);
     }
 
     /** @return The {@link View} representing this widget. */
@@ -70,13 +71,25 @@ public class FilterCoordinator {
         mObserverList.removeObserver(observer);
     }
 
-    /** Selects the tab identified by {@code selectedTab}. */
-    public void selectTab(@TabType int selectedTab) {
+    /**
+     * Pushes a selected filter onto this {@link FilterCoordinator}.  This is used when external
+     * components might need to update the UI state.
+     */
+    public void setSelectedFilter(@FilterType int filter) {
+        if (filter == Filters.FilterType.PREFETCHED) {
+            selectTab(TabType.PREFETCH);
+        } else {
+            mChipsProvider.setFilterSelected(filter);
+            selectTab(TabType.FILES);
+        }
+    }
+
+    private void selectTab(@TabType int selectedTab) {
         mModel.setSelectedTab(selectedTab);
 
-        if (selectedTab == TAB_FILES) {
+        if (selectedTab == TabType.FILES) {
             mModel.setContentView(mChipsCoordinator.getView());
-        } else if (selectedTab == TAB_PREFETCH) {
+        } else if (selectedTab == TabType.PREFETCH) {
             mModel.setContentView(null);
         }
     }
@@ -86,10 +99,10 @@ public class FilterCoordinator {
 
         @FilterType
         int filterType;
-        if (selectedTab == TAB_FILES) {
+        if (selectedTab == TabType.FILES) {
             filterType = mChipsProvider.getSelectedFilter();
         } else {
-            filterType = Filters.PREFETCHED;
+            filterType = Filters.FilterType.PREFETCHED;
         }
 
         for (Observer observer : mObserverList) observer.onFilterChanged(filterType);

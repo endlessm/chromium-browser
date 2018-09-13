@@ -22,6 +22,7 @@
 #include "base/sys_info.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/common/autofill_features.h"
+#include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/ios/browser/autofill_switches.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
 #include "components/feature_engagement/public/feature_constants.h"
@@ -36,9 +37,10 @@
 #include "components/payments/core/features.h"
 #include "components/search_provider_logos/switches.h"
 #include "components/security_state/core/features.h"
-#include "components/signin/core/browser/profile_management_switches.h"
 #include "components/signin/core/browser/signin_switches.h"
 #include "components/strings/grit/components_strings.h"
+#include "components/sync/driver/sync_driver_switches.h"
+#include "components/unified_consent/feature.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_features.h"
 #include "ios/chrome/browser/chrome_switches.h"
 #include "ios/chrome/browser/drag_and_drop/drag_and_drop_flag.h"
@@ -48,12 +50,11 @@
 #include "ios/chrome/browser/ssl/captive_portal_features.h"
 #include "ios/chrome/browser/ui/external_search/features.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
-#import "ios/chrome/browser/ui/history/history_base_feature.h"
+#import "ios/chrome/browser/ui/history/features.h"
 #include "ios/chrome/browser/ui/main/main_feature_flags.h"
-#import "ios/chrome/browser/ui/popup_menu/popup_menu_flags.h"
-#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/browser/ui/user_feedback_features.h"
+#include "ios/chrome/browser/web/features.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #include "ios/web/public/features.h"
@@ -224,6 +225,12 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kAutofillCreditCardUploadName,
      flag_descriptions::kAutofillCreditCardUploadDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(autofill::kAutofillUpstream)},
+    {"enable-autofill-credit-card-downstream-google-pay-branding",
+     flag_descriptions::kAutofillDownstreamUseGooglePayBrandingOniOSName,
+     flag_descriptions::kAutofillDownstreamUseGooglePayBrandingOniOSDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(
+         autofill::features::kAutofillDownstreamUseGooglePayBrandingOniOS)},
     {"enable-autofill-credit-card-upload-google-pay-branding",
      flag_descriptions::kAutofillUpstreamUseGooglePayBrandingOnMobileName,
      flag_descriptions::
@@ -238,6 +245,19 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
          kEnableAutofillCreditCardUploadUpdatePromptExplanationDescription,
      flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(autofill::kAutofillUpstreamUpdatePromptExplanation)},
+    {"use-sync-sandbox", flag_descriptions::kSyncSandboxName,
+     flag_descriptions::kSyncSandboxDescription, flags_ui::kOsIos,
+     SINGLE_VALUE_TYPE_AND_VALUE(
+         switches::kSyncServiceURL,
+         "https://chrome-sync.sandbox.google.com/chrome-sync/alpha")},
+    {"wallet-service-use-sandbox",
+     flag_descriptions::kWalletServiceUseSandboxName,
+     flag_descriptions::kWalletServiceUseSandboxDescription, flags_ui::kOsIos,
+     ENABLE_DISABLE_VALUE_TYPE_AND_VALUE(
+         autofill::switches::kWalletServiceUseSandbox,
+         "1",
+         autofill::switches::kWalletServiceUseSandbox,
+         "0")},
     {"show-autofill-type-predictions",
      flag_descriptions::kShowAutofillTypePredictionsName,
      flag_descriptions::kShowAutofillTypePredictionsDescription,
@@ -265,30 +285,30 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kMailtoHandlingWithGoogleUIName,
      flag_descriptions::kMailtoHandlingWithGoogleUIDescription,
      flags_ui::kOsIos, FEATURE_VALUE_TYPE(kMailtoHandledWithGoogleUI)},
-    {"feedback-kit-v2", flag_descriptions::kFeedbackKitV2Name,
-     flag_descriptions::kFeedbackKitV2Description, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(kFeedbackKitV2)},
-    {"feedback-kit-v2-sso-service",
-     flag_descriptions::kFeedbackKitV2WithSSOServiceName,
-     flag_descriptions::kFeedbackKitV2WithSSOServiceDescription,
-     flags_ui::kOsIos, FEATURE_VALUE_TYPE(kFeedbackKitV2WithSSOService)},
     {"new-clear-browsing-data-ui",
      flag_descriptions::kNewClearBrowsingDataUIName,
      flag_descriptions::kNewClearBrowsingDataUIDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(kNewClearBrowsingDataUI)},
-    {"new-tools_menu", flag_descriptions::kNewToolsMenuName,
-     flag_descriptions::kNewToolsMenuDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(kNewToolsMenu)},
     {"itunes-urls-store-kit-handling",
      flag_descriptions::kITunesUrlsStoreKitHandlingName,
      flag_descriptions::kITunesUrlsStoreKitHandlingDescription,
      flags_ui::kOsIos, FEATURE_VALUE_TYPE(kITunesUrlsStoreKitHandling)},
     {"unified-consent", flag_descriptions::kUnifiedConsentName,
      flag_descriptions::kUnifiedConsentDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(signin::kUnifiedConsent)},
+     FEATURE_VALUE_TYPE(unified_consent::kUnifiedConsent)},
     {"autofill-dynamic-forms", flag_descriptions::kAutofillDynamicFormsName,
      flag_descriptions::kAutofillDynamicFormsDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(autofill::features::kAutofillDynamicForms)},
+    {"autofill-prefilled-fields",
+     flag_descriptions::kAutofillPrefilledFieldsName,
+     flag_descriptions::kAutofillPrefilledFieldsDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(autofill::features::kAutofillPrefilledFields)},
+    {"autofill-show-all-profiles-on-prefilled-forms",
+     flag_descriptions::kAutofillShowAllSuggestionsOnPrefilledFormsName,
+     flag_descriptions::kAutofillShowAllSuggestionsOnPrefilledFormsDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(
+         autofill::features::kAutofillShowAllSuggestionsOnPrefilledForms)},
     {"autofill-restrict-formless-form-extraction",
      flag_descriptions::kAutofillRestrictUnownedFieldsToFormlessCheckoutName,
      flag_descriptions::
@@ -334,6 +354,23 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kAutofillCacheQueryResponsesDescription,
      flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(autofill::features::kAutofillCacheQueryResponses)},
+    {"autofill-manual-fallback", flag_descriptions::kAutofillManualFallbackName,
+     flag_descriptions::kAutofillManualFallbackDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(autofill::features::kAutofillManualFallback)},
+    {"webpage-text-accessibility",
+     flag_descriptions::kWebPageTextAccessibilityName,
+     flag_descriptions::kWebPageTextAccessibilityDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(web::kWebPageTextAccessibility)},
+    {"web-frame-messaging", flag_descriptions::kWebFrameMessagingName,
+     flag_descriptions::kWebFrameMessagingDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(web::features::kWebFrameMessaging)},
+    {"copy-image", flag_descriptions::kCopyImageName,
+     flag_descriptions::kCopyImageDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kCopyImage)},
+    {"new-password-form-parsing",
+     flag_descriptions::kNewPasswordFormParsingName,
+     flag_descriptions::kNewPasswordFormParsingDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(password_manager::features::kNewPasswordFormParsing)},
 };
 
 // Add all switches from experimental flags to |command_line|.

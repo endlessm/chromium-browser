@@ -28,12 +28,15 @@ const CGFloat buttonTitleHorizontalContentInset = 40.0;
 const CGFloat buttonTitleVerticalContentInset = 8.0;
 // Button corner radius.
 const CGFloat buttonCornerRadius = 8;
+// Font Size for Button Title Label.
+const CGFloat buttonTitleFontSize = 17.0;
 }  // namespace
 
 @implementation TableViewTextButtonItem
-@synthesize delegate = _delegate;
-@synthesize text = _text;
+@synthesize buttonAccessibilityIdentifier = _buttonAccessibilityIdentifier;
+@synthesize buttonBackgroundColor = _buttonBackgroundColor;
 @synthesize buttonText = _buttonText;
+@synthesize text = _text;
 
 - (instancetype)initWithType:(NSInteger)type {
   self = [super initWithType:type];
@@ -48,16 +51,18 @@ const CGFloat buttonCornerRadius = 8;
   [super configureCell:tableCell withStyler:styler];
   TableViewTextButtonCell* cell =
       base::mac::ObjCCastStrict<TableViewTextButtonCell>(tableCell);
-  cell.delegate = self.delegate;
   cell.textLabel.text = self.text;
   [cell.button setTitle:self.buttonText forState:UIControlStateNormal];
+  cell.button.accessibilityIdentifier = self.buttonAccessibilityIdentifier;
+  cell.button.backgroundColor = self.buttonBackgroundColor
+                                    ? self.buttonBackgroundColor
+                                    : UIColorFromRGB(blueHexColor);
   [cell setSelectionStyle:UITableViewCellSelectionStyleNone];
 }
 
 @end
 
 @implementation TableViewTextButtonCell
-@synthesize delegate = _delegate;
 @synthesize textLabel = _textLabel;
 @synthesize button = _button;
 
@@ -76,20 +81,16 @@ const CGFloat buttonCornerRadius = 8;
 
     // Create button.
     self.button = [[UIButton alloc] init];
-    self.button.backgroundColor = UIColorFromRGB(blueHexColor);
     [self.button setTitleColor:[UIColor whiteColor]
                       forState:UIControlStateNormal];
     self.button.translatesAutoresizingMaskIntoConstraints = NO;
     [self.button.titleLabel
-        setFont:[UIFont preferredFontForTextStyle:UIFontTextStyleHeadline]];
+        setFont:[UIFont boldSystemFontOfSize:buttonTitleFontSize]];
     self.button.layer.cornerRadius = buttonCornerRadius;
     self.button.clipsToBounds = YES;
     self.button.contentEdgeInsets = UIEdgeInsetsMake(
         buttonTitleVerticalContentInset, buttonTitleHorizontalContentInset,
         buttonTitleVerticalContentInset, buttonTitleHorizontalContentInset);
-    [self.button addTarget:self
-                    action:@selector(performButtonAction)
-          forControlEvents:UIControlEventTouchUpInside];
 
     // Vertical stackView to hold label and button.
     UIStackView* verticalStackView = [[UIStackView alloc]
@@ -118,12 +119,6 @@ const CGFloat buttonCornerRadius = 8;
     ]];
   }
   return self;
-}
-
-#pragma mark - TextButtonItemDelegate
-
-- (void)performButtonAction {
-  [self.delegate performButtonAction];
 }
 
 @end

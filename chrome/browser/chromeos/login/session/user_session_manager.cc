@@ -37,7 +37,9 @@
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/base/locale_util.h"
 #include "chrome/browser/chromeos/boot_times_recorder.h"
+#include "chrome/browser/chromeos/child_accounts/consumer_status_reporting_service_factory.h"
 #include "chrome/browser/chromeos/child_accounts/screen_time_controller_factory.h"
+#include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/chromeos/first_run/first_run.h"
 #include "chrome/browser/chromeos/first_run/goodies_displayer.h"
 #include "chrome/browser/chromeos/lock_screen_apps/state_controller.h"
@@ -45,6 +47,7 @@
 #include "chrome/browser/chromeos/login/auth/chrome_cryptohome_authenticator.h"
 #include "chrome/browser/chromeos/login/chrome_restart_request.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_app_launcher.h"
+#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_key_manager.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
@@ -96,10 +99,10 @@
 #include "chromeos/cert_loader.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
-#include "chromeos/cryptohome/tpm_util.h"
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
+#include "chromeos/dbus/util/tpm_util.h"
 #include "chromeos/login/auth/stub_authenticator.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "chromeos/network/portal_detector/network_portal_detector_strategy.h"
@@ -107,6 +110,7 @@
 #include "components/account_id/account_id.h"
 #include "components/component_updater/component_updater_service.h"
 #include "components/flags_ui/pref_service_flags_storage.h"
+#include "components/language/core/browser/pref_names.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -161,7 +165,7 @@ void InitLocaleAndInputMethodsForNewUser(
     // If this is a public session and the user chose a |public_session_locale|,
     // write it to |prefs| so that the UI switches to it.
     locale = public_session_locale;
-    prefs->SetString(prefs::kApplicationLocale, locale);
+    prefs->SetString(language::prefs::kApplicationLocale, locale);
 
     // Suppress the locale change dialog.
     prefs->SetString(prefs::kApplicationLocaleAccepted, locale);
@@ -583,10 +587,9 @@ void UserSessionManager::StartSession(const UserContext& user_context,
                                           user_context.GetDeviceId());
   }
 
-  arc::UpdateArcFileSystemCompatibilityPrefIfNeeded(
-      user_context_.GetAccountId(),
-      ProfileHelper::GetProfilePathByUserIdHash(user_context_.GetUserIDHash()),
-      base::Bind(&UserSessionManager::PrepareProfile, AsWeakPtr()));
+  InitDemoSessionIfNeeded(base::BindOnce(
+      &UserSessionManager::UpdateArcFileSystemCompatibilityAndPrepareProfile,
+      AsWeakPtr()));
 }
 
 void UserSessionManager::DelegateDeleted(UserSessionManagerDelegate* delegate) {
@@ -776,7 +779,7 @@ bool UserSessionManager::RespectLocalePreference(
 
   std::string pref_locale;
   const std::string pref_app_locale =
-      prefs->GetString(prefs::kApplicationLocale);
+      prefs->GetString(language::prefs::kApplicationLocale);
   const std::string pref_bkup_locale =
       prefs->GetString(prefs::kApplicationLocaleBackup);
 
@@ -786,7 +789,7 @@ bool UserSessionManager::RespectLocalePreference(
 
   const std::string* account_locale = NULL;
   if (pref_locale.empty() && user->has_gaia_account() &&
-      prefs->GetList(prefs::kAllowedLocales)->GetList().empty()) {
+      prefs->GetList(prefs::kAllowedUILocales)->GetList().empty()) {
     if (user->GetAccountLocale() == NULL)
       return false;  // wait until Account profile is loaded.
     account_locale = user->GetAccountLocale();
@@ -811,9 +814,9 @@ bool UserSessionManager::RespectLocalePreference(
           ? Profile::APP_LOCALE_CHANGED_VIA_PUBLIC_SESSION_LOGIN
           : Profile::APP_LOCALE_CHANGED_VIA_LOGIN;
 
-  // check if pref_locale is allowed by policy (AllowedLocales)
-  if (!chromeos::locale_util::IsAllowedLocale(pref_locale, prefs)) {
-    pref_locale = chromeos::locale_util::GetAllowedFallbackLocale(prefs);
+  // check if pref_locale is allowed by policy (AllowedUILocales)
+  if (!chromeos::locale_util::IsAllowedUILocale(pref_locale, prefs)) {
+    pref_locale = chromeos::locale_util::GetAllowedFallbackUILocale(prefs);
     app_locale_changed_via = Profile::APP_LOCALE_CHANGED_VIA_POLICY;
   }
 
@@ -1093,6 +1096,24 @@ void UserSessionManager::OnUserNetworkPolicyParsed(bool send_password) {
   }
 
   user_context_.GetMutablePasswordKey()->ClearSecret();
+}
+
+void UserSessionManager::InitDemoSessionIfNeeded(base::OnceClosure callback) {
+  chromeos::DemoSession* demo_session =
+      chromeos::DemoSession::StartIfInDemoMode();
+  if (!demo_session || !demo_session->started()) {
+    std::move(callback).Run();
+    return;
+  }
+
+  demo_session->EnsureOfflineResourcesLoaded(std::move(callback));
+}
+
+void UserSessionManager::UpdateArcFileSystemCompatibilityAndPrepareProfile() {
+  arc::UpdateArcFileSystemCompatibilityPrefIfNeeded(
+      user_context_.GetAccountId(),
+      ProfileHelper::GetProfilePathByUserIdHash(user_context_.GetUserIDHash()),
+      base::BindOnce(&UserSessionManager::PrepareProfile, AsWeakPtr()));
 }
 
 void UserSessionManager::PrepareProfile() {
@@ -1394,13 +1415,16 @@ void UserSessionManager::FinalizePrepareProfile(Profile* profile) {
       policy::AppInstallEventLogManagerWrapper::CreateForProfile(profile);
     }
     arc::ArcServiceLauncher::Get()->OnPrimaryUserProfilePrepared(profile);
+    crostini::CrostiniManager::GetInstance()->MaybeUpgradeCrostini(profile);
 
     TetherService* tether_service = TetherService::Get(profile);
     if (tether_service)
       tether_service->StartTetherIfPossible();
 
-    if (user->GetType() == user_manager::USER_TYPE_CHILD)
+    if (user->GetType() == user_manager::USER_TYPE_CHILD) {
       ScreenTimeControllerFactory::GetForBrowserContext(profile);
+      ConsumerStatusReportingServiceFactory::GetForBrowserContext(profile);
+    }
   }
 
   UpdateEasyUnlockKeys(user_context_);
@@ -1487,8 +1511,8 @@ bool UserSessionManager::InitializeUserSession(Profile* profile) {
   ChildAccountService* child_service =
       ChildAccountServiceFactory::GetForProfile(profile);
   child_service->AddChildStatusReceivedCallback(
-      base::Bind(&UserSessionManager::ChildAccountStatusReceivedCallback,
-                 weak_factory_.GetWeakPtr(), profile));
+      base::BindOnce(&UserSessionManager::ChildAccountStatusReceivedCallback,
+                     weak_factory_.GetWeakPtr(), profile));
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&UserSessionManager::StopChildStatusObserving,
@@ -1502,6 +1526,8 @@ bool UserSessionManager::InitializeUserSession(Profile* profile) {
       user_manager->IsLoggedInAsArcKioskApp()) {
     return false;
   }
+
+  ProfileHelper::Get()->ProfileStartup(profile);
 
   if (start_session_type_ == PRIMARY_USER_SESSION) {
     UserFlow* user_flow = ChromeUserManager::Get()->GetCurrentUserFlow();
@@ -1586,25 +1612,27 @@ void UserSessionManager::RestoreAuthSessionImpl(
       OAuth2LoginManagerFactory::GetInstance()->GetForProfile(profile);
   login_manager->AddObserver(this);
 
-  net::URLRequestContextGetter* auth_request_context = GetAuthRequestContext();
+  scoped_refptr<network::SharedURLLoaderFactory> auth_url_loader_factory =
+      GetAuthURLLoaderFactory();
 
-  // Authentication request context may not be available if user was not
+  // Authentication URLLoaderFactory may not be available if user was not
   // signing in with GAIA webview (i.e. webview instance hasn't been
-  // initialized at all). Use fallback request context if authenticator was
+  // initialized at all). Use fallback URLLoaderFactory if authenticator was
   // provided.
   // Authenticator instance may not be initialized for session
   // restore case when Chrome is restarting after crash or to apply custom user
-  // flags. In that case auth_request_context will be nullptr which is accepted
-  // by RestoreSession() for session restore case.
-  if (!auth_request_context &&
+  // flags. In that case auth_url_loader_factory will be nullptr which is
+  // accepted by RestoreSession() for session restore case.
+  if (!auth_url_loader_factory &&
       (authenticator_.get() && authenticator_->authentication_context())) {
-    auth_request_context = content::BrowserContext::GetDefaultStoragePartition(
-                               authenticator_->authentication_context())
-                               ->GetURLRequestContext();
+    auth_url_loader_factory =
+        content::BrowserContext::GetDefaultStoragePartition(
+            authenticator_->authentication_context())
+            ->GetURLLoaderFactoryForBrowserProcess();
   }
-  login_manager->RestoreSession(auth_request_context, session_restore_strategy_,
-                                user_context_.GetRefreshToken(),
-                                user_context_.GetAccessToken());
+  login_manager->RestoreSession(
+      auth_url_loader_factory, session_restore_strategy_,
+      user_context_.GetRefreshToken(), user_context_.GetAccessToken());
 }
 
 void UserSessionManager::InitRlzImpl(Profile* profile,
@@ -1825,6 +1853,15 @@ net::URLRequestContextGetter* UserSessionManager::GetAuthRequestContext()
     return nullptr;
 
   return signin_partition->GetURLRequestContext();
+}
+
+scoped_refptr<network::SharedURLLoaderFactory>
+UserSessionManager::GetAuthURLLoaderFactory() const {
+  content::StoragePartition* signin_partition = login::GetSigninPartition();
+  if (!signin_partition)
+    return nullptr;
+
+  return signin_partition->GetURLLoaderFactoryForBrowserProcess();
 }
 
 void UserSessionManager::OnEasyUnlockKeyOpsFinished(const std::string& user_id,

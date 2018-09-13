@@ -160,10 +160,9 @@ static void QueryCallee(const MachineInstr &MI, unsigned CalleeOpNo, bool &Read,
 // and/or uses the stack pointer value.
 static void Query(const MachineInstr &MI, AliasAnalysis &AA, bool &Read,
                   bool &Write, bool &Effects, bool &StackPointer) {
-  assert(!MI.isPosition());
   assert(!MI.isTerminator());
 
-  if (MI.isDebugInstr())
+  if (MI.isDebugInstr() || MI.isPosition())
     return;
 
   // Check for loads.
@@ -750,14 +749,6 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
   MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
   LiveIntervals &LIS = getAnalysis<LiveIntervals>();
 
-  // Disable the TEE optimization if we aren't doing direct wasm object
-  // emission, because lowering TEE to TEE_LOCAL is done in the ExplicitLocals
-  // pass, which is also disabled.
-  bool UseTee = true;
-  if (MF.getSubtarget<WebAssemblySubtarget>()
-        .getTargetTriple().isOSBinFormatELF())
-    UseTee = false;
-
   // Walk the instructions from the bottom up. Currently we don't look past
   // block boundaries, and the blocks aren't ordered so the block visitation
   // order isn't significant, but we may want to change this in the future.
@@ -823,7 +814,7 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
           Insert =
               RematerializeCheapDef(Reg, Op, *Def, MBB, Insert->getIterator(),
                                     LIS, MFI, MRI, TII, TRI);
-        } else if (UseTee && CanMove &&
+        } else if (CanMove &&
                    OneUseDominatesOtherUses(Reg, Op, MBB, MRI, MDT, LIS, MFI)) {
           Insert = MoveAndTeeForMultiUse(Reg, Op, Def, MBB, Insert, LIS, MFI,
                                          MRI, TII);

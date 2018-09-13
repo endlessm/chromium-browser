@@ -30,7 +30,6 @@
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller_audience.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_consumer.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_metrics.h"
-#import "ios/chrome/browser/ui/favicon/favicon_attributes.h"
 #import "ios/chrome/browser/ui/location_bar_notification_names.h"
 #include "ios/chrome/browser/ui/ntp/metrics.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
@@ -39,6 +38,7 @@
 #import "ios/chrome/browser/ui/url_loader.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
+#import "ios/chrome/common/favicon/favicon_attributes.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/third_party/material_components_ios/src/components/Snackbar/src/MaterialSnackbar.h"
 #import "ios/web/public/navigation_item.h"
@@ -345,6 +345,7 @@ const char kRateThisAppCommand[] = "ratethisapp";
     [self.dispatcher webPageOrderedOpen:notificationPromo->url()
                                referrer:web::Referrer()
                            inBackground:NO
+                            originPoint:CGPointZero
                                appendTo:kCurrentTab];
     return;
   }
@@ -394,7 +395,8 @@ const char kRateThisAppCommand[] = "ratethisapp";
                    withAction:disposition];
   }
 
-  [self openNewTabWithURL:item.URL incognito:incognito];
+  CGPoint cellCenter = [self cellCenterForItem:item];
+  [self openNewTabWithURL:item.URL incognito:incognito originPoint:cellCenter];
 }
 
 - (void)addItemToReadingList:(ContentSuggestionsItem*)item {
@@ -434,7 +436,8 @@ const char kRateThisAppCommand[] = "ratethisapp";
                             incognito:(BOOL)incognito
                               atIndex:(NSInteger)index {
   [self logMostVisitedOpening:item atIndex:index];
-  [self openNewTabWithURL:item.URL incognito:incognito];
+  CGPoint cellCenter = [self cellCenterForItem:item];
+  [self openNewTabWithURL:item.URL incognito:incognito originPoint:cellCenter];
 }
 
 - (void)openNewTabWithMostVisitedItem:(ContentSuggestionsMostVisitedItem*)item
@@ -510,13 +513,31 @@ const char kRateThisAppCommand[] = "ratethisapp";
 
 #pragma mark - Private
 
-// Opens the |URL| in a new tab |incognito| or not.
-- (void)openNewTabWithURL:(const GURL&)URL incognito:(BOOL)incognito {
+// Returns the center of the cell associated with |item| in the window
+// coordinates. Returns CGPointZero is the cell isn't visible.
+- (CGPoint)cellCenterForItem:(CollectionViewItem<SuggestedContent>*)item {
+  NSIndexPath* indexPath = [self.suggestionsViewController.collectionViewModel
+      indexPathForItem:item];
+  if (!indexPath)
+    return CGPointZero;
+
+  UIView* cell = [self.suggestionsViewController.collectionView
+      cellForItemAtIndexPath:indexPath];
+  return [cell.superview convertPoint:cell.center toView:nil];
+}
+
+// Opens the |URL| in a new tab |incognito| or not. |originPoint| is the origin
+// of the new tab animation if the tab is opened in background, in window
+// coordinates.
+- (void)openNewTabWithURL:(const GURL&)URL
+                incognito:(BOOL)incognito
+              originPoint:(CGPoint)originPoint {
   // Open the tab in background if it is non-incognito only.
   [self.dispatcher webPageOrderedOpen:URL
                              referrer:web::Referrer()
                           inIncognito:incognito
                          inBackground:!incognito
+                          originPoint:originPoint
                              appendTo:kCurrentTab];
 }
 

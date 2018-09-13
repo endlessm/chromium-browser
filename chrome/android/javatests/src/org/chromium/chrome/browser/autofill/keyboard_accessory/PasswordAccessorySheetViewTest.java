@@ -8,10 +8,12 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
-import android.graphics.drawable.Drawable;
 import android.support.annotation.LayoutRes;
 import android.support.test.filters.MediumTest;
+import android.support.v4.view.ViewPager;
 import android.support.v7.widget.RecyclerView;
+import android.text.method.PasswordTransformationMethod;
+import android.view.ViewGroup;
 import android.widget.TextView;
 
 import org.junit.After;
@@ -25,6 +27,8 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.autofill.keyboard_accessory.KeyboardAccessoryData.Item;
+import org.chromium.chrome.browser.modelutil.SimpleListObservable;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.content.browser.test.util.Criteria;
@@ -39,7 +43,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class PasswordAccessorySheetViewTest {
-    private PasswordAccessorySheetModel mModel;
+    private SimpleListObservable<Item> mModel;
     private AtomicReference<RecyclerView> mView = new AtomicReference<>();
 
     @Rule
@@ -54,50 +58,39 @@ public class PasswordAccessorySheetViewTest {
      */
     private void openLayoutInAccessorySheet(
             @LayoutRes int layout, KeyboardAccessoryData.Tab.Listener listener) {
-        mActivityTestRule.getActivity()
-                .getManualFillingController()
-                .getAccessorySheetForTesting()
-                .addTab(new KeyboardAccessoryData.Tab() {
+        AccessorySheetCoordinator accessorySheet = new AccessorySheetCoordinator(
+                mActivityTestRule.getActivity().findViewById(R.id.keyboard_accessory_sheet_stub),
+                () -> new ViewPager.OnPageChangeListener() {
                     @Override
-                    public Drawable getIcon() {
-                        return null;
-                    }
-
+                    public void onPageScrolled(int i, float v, int i1) {}
                     @Override
-                    public String getContentDescription() {
-                        return null;
-                    }
-
+                    public void onPageSelected(int i) {}
                     @Override
-                    public @LayoutRes int getTabLayout() {
-                        return layout;
-                    }
-
-                    @Override
-                    public Listener getListener() {
-                        return listener;
-                    }
+                    public void onPageScrollStateChanged(int i) {}
                 });
-        ThreadUtils.runOnUiThreadBlocking(() -> {
-            mActivityTestRule.getActivity()
-                    .getManualFillingController()
-                    .getAccessorySheetForTesting()
-                    .getMediatorForTesting()
-                    .show();
-        });
+        accessorySheet.addTab(
+                new KeyboardAccessoryData.Tab(null, null, layout, AccessoryTabType.ALL, listener));
+        ThreadUtils.runOnUiThreadBlocking(accessorySheet::show);
     }
 
     @Before
     public void setUp() throws InterruptedException {
-        mModel = new PasswordAccessorySheetModel();
+        mModel = new SimpleListObservable<>();
         mActivityTestRule.startMainActivityOnBlankPage();
-        openLayoutInAccessorySheet(R.layout.password_accessory_sheet, view -> {
-            mView.set((RecyclerView) view);
-            final PasswordAccessorySheetViewBinder binder = new PasswordAccessorySheetViewBinder();
-            // Reuse coordinator code to create and wire the adapter. No mediator involved.
-            binder.initializeView(
-                    mView.get(), PasswordAccessorySheetCoordinator.createAdapter(mModel, binder));
-        });
+        openLayoutInAccessorySheet(
+                R.layout.password_accessory_sheet, new KeyboardAccessoryData.Tab.Listener() {
+                    @Override
+                    public void onTabCreated(ViewGroup view) {
+                        mView.set((RecyclerView) view);
+                        // Reuse coordinator code to create and wire the adapter. No mediator
+                        // involved.
+                        PasswordAccessorySheetViewBinder.initializeView(mView.get(),
+                                PasswordAccessorySheetCoordinator.createAdapter(mModel));
+                    }
+
+                    @Override
+                    public void onTabShown() {}
+                });
         CriteriaHelper.pollUiThread(Criteria.equals(true, () -> mView.get() != null));
     }
 
@@ -111,7 +104,7 @@ public class PasswordAccessorySheetViewTest {
     public void testAddingCaptionsToTheModelRendersThem() {
         assertThat(mView.get().getChildCount(), is(0));
 
-        ThreadUtils.runOnUiThreadBlocking(() -> mModel.addLabel("Passwords"));
+        ThreadUtils.runOnUiThreadBlocking(() -> mModel.add(Item.createLabel("Passwords", null)));
 
         CriteriaHelper.pollUiThread(Criteria.equals(1, () -> mView.get().getChildCount()));
         assertThat(mView.get().getChildAt(0), instanceOf(TextView.class));
@@ -122,28 +115,44 @@ public class PasswordAccessorySheetViewTest {
     @MediumTest
     public void testAddingSuggestionsToTheModelRendersClickableActions() throws ExecutionException {
         final AtomicReference<Boolean> clicked = new AtomicReference<>(false);
-        final KeyboardAccessoryData.Action testSuggestion = new KeyboardAccessoryData.Action() {
-            @Override
-            public String getCaption() {
-                return "Password Suggestion";
-            }
-
-            @Override
-            public Delegate getDelegate() {
-                return action -> clicked.set(true);
-            }
-        };
         assertThat(mView.get().getChildCount(), is(0));
 
-        ThreadUtils.runOnUiThreadBlocking(() -> mModel.addSuggestion(testSuggestion));
+        ThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> mModel.add(Item.createSuggestion(
+                                "Name Suggestion", null, false, item -> clicked.set(true), null)));
 
         CriteriaHelper.pollUiThread(Criteria.equals(1, () -> mView.get().getChildCount()));
-        assertThat(mView.get().getChildAt(0), instanceOf(TextView.class));
 
-        TextView suggestion = (TextView) mView.get().getChildAt(0);
-        assertThat(suggestion.getText(), is("Password Suggestion"));
+        assertThat(getFirstSuggestion().getText(), is("Name Suggestion"));
 
-        ThreadUtils.runOnUiThreadBlocking(suggestion::performClick);
+        ThreadUtils.runOnUiThreadBlocking(getFirstSuggestion()::performClick);
         assertThat(clicked.get(), is(true));
+    }
+
+    @Test
+    @MediumTest
+    public void testAddingPasswordsToTheModelRendersThemHidden() throws ExecutionException {
+        final AtomicReference<Boolean> clicked = new AtomicReference<>(false);
+        assertThat(mView.get().getChildCount(), is(0));
+
+        ThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> mModel.add(Item.createSuggestion("Password Suggestion", null, true,
+                                item -> clicked.set(true), null)));
+
+        CriteriaHelper.pollUiThread(Criteria.equals(1, () -> mView.get().getChildCount()));
+
+        assertThat(getFirstSuggestion().getText(), is("Password Suggestion"));
+        assertThat(getFirstSuggestion().getTransformationMethod(),
+                instanceOf(PasswordTransformationMethod.class));
+
+        ThreadUtils.runOnUiThreadBlocking(getFirstSuggestion()::performClick);
+        assertThat(clicked.get(), is(true));
+    }
+
+    private TextView getFirstSuggestion() {
+        assertThat(mView.get().getChildAt(0), instanceOf(TextView.class));
+        return (TextView) mView.get().getChildAt(0);
     }
 }

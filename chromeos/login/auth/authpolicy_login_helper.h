@@ -23,6 +23,8 @@ class CHROMEOS_EXPORT AuthPolicyLoginHelper {
  public:
   using AuthCallback = AuthPolicyClient::AuthCallback;
   using JoinCallback = AuthPolicyClient::JoinCallback;
+  using OnDecryptedCallback =
+      base::OnceCallback<void(std::string decrypted_data)>;
 
   AuthPolicyLoginHelper();
   ~AuthPolicyLoginHelper();
@@ -37,12 +39,12 @@ class CHROMEOS_EXPORT AuthPolicyLoginHelper {
   // Restarts AuthPolicy service.
   static void Restart();
 
-  // Checks if device is locked for Active Directory management.
-  static bool IsAdLocked();
-
-  // Sets install attributes for Active Directory managed device. Persists it on
-  // disk.
-  static bool LockDeviceActiveDirectoryForTesting(const std::string& realm);
+  // Decrypts |blob| with |password| on a separate thread. Calls |callback| on
+  // the orginal thread. If decryption failed |callback| called with an empty
+  // string.
+  static void DecryptConfiguration(const std::string& blob,
+                                   const std::string& password,
+                                   OnDecryptedCallback callback);
 
   // Packs arguments and calls AuthPolicyClient::JoinAdDomain. Joins machine to
   // Active directory domain. Then it calls RefreshDevicePolicy to cache the

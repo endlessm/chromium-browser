@@ -17,12 +17,16 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
+import org.chromium.blink.mojom.AuthenticatorStatus;
+import org.chromium.blink.mojom.PublicKeyCredentialCreationOptions;
+import org.chromium.blink.mojom.PublicKeyCredentialRequestOptions;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.common.ContentSwitches;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.net.test.ServerCertificate;
@@ -43,6 +47,21 @@ public class AuthenticatorTest {
     private String mUrl;
     private Tab mTab;
     private AuthenticatorUpdateWaiter mUpdateWaiter;
+    private MockFido2ApiHandler mMockHandler;
+
+    private class MockFido2ApiHandler extends Fido2ApiHandler {
+        @Override
+        protected void makeCredential(PublicKeyCredentialCreationOptions options,
+                RenderFrameHost frameHost, HandlerResponseCallback callback) {
+            callback.onError(AuthenticatorStatus.NOT_IMPLEMENTED);
+        }
+
+        @Override
+        protected void getAssertion(PublicKeyCredentialRequestOptions options,
+                RenderFrameHost frameHost, HandlerResponseCallback callback) {
+            callback.onError(AuthenticatorStatus.NOT_IMPLEMENTED);
+        }
+    }
 
     /** Waits until the JavaScript code supplies a result. */
     private class AuthenticatorUpdateWaiter extends EmptyTabObserver {
@@ -79,6 +98,7 @@ public class AuthenticatorTest {
         mTab = mActivityTestRule.getActivity().getActivityTab();
         mUpdateWaiter = new AuthenticatorUpdateWaiter();
         mTab.addObserver(mUpdateWaiter);
+        mMockHandler = new MockFido2ApiHandler();
     }
 
     @After
@@ -98,13 +118,14 @@ public class AuthenticatorTest {
     @Feature({"WebAuth"})
     public void testCreatePublicKeyCredential() throws Exception {
         mActivityTestRule.loadUrl(mUrl);
+        Fido2ApiHandler.overrideInstanceForTesting(mMockHandler);
         mActivityTestRule.runJavaScriptCodeInCurrentTab("doCreatePublicKeyCredential()");
         Assert.assertEquals("Success", mUpdateWaiter.waitForUpdate());
     }
 
     /**
      * Verify that the Mojo bridge between Blink and Java is working for
-     * navigator.credentials.create. This test currently expects a
+     * navigator.credentials.get. This test currently expects a
      * "Not Implemented" response. Testing any real response would require
      * setting up or mocking a real APK.
      */
@@ -113,7 +134,23 @@ public class AuthenticatorTest {
     @Feature({"WebAuth"})
     public void testGetPublicKeyCredential() throws Exception {
         mActivityTestRule.loadUrl(mUrl);
+        Fido2ApiHandler.overrideInstanceForTesting(mMockHandler);
         mActivityTestRule.runJavaScriptCodeInCurrentTab("doGetPublicKeyCredential()");
+        Assert.assertEquals("Success", mUpdateWaiter.waitForUpdate());
+    }
+
+    /**
+     * Verify that the Mojo bridge between Blink and Java is working for
+     * PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable.
+     * This test currently expects a "false" response.
+     */
+    @Test
+    @MediumTest
+    @Feature({"WebAuth"})
+    public void testIsUserVerifyingPlatformAuthenticatorAvailable() throws Exception {
+        mActivityTestRule.loadUrl(mUrl);
+        mActivityTestRule.runJavaScriptCodeInCurrentTab(
+                "doIsUserVerifyingPlatformAuthenticatorAvailable()");
         Assert.assertEquals("Success", mUpdateWaiter.waitForUpdate());
     }
 }

@@ -14,30 +14,30 @@
 
 #include "function.h"
 
-#include "make_unique.h"
+#include <ostream>
+#include <sstream>
 
 namespace spvtools {
-namespace ir {
+namespace opt {
 
-Function* Function::Clone(IRContext* context) const {
+Function* Function::Clone(IRContext* ctx) const {
   Function* clone =
-      new Function(std::unique_ptr<Instruction>(DefInst().Clone(context)));
+      new Function(std::unique_ptr<Instruction>(DefInst().Clone(ctx)));
   clone->params_.reserve(params_.size());
   ForEachParam(
-      [clone, context](const Instruction* inst) {
-        clone->AddParameter(std::unique_ptr<Instruction>(inst->Clone(context)));
+      [clone, ctx](const Instruction* inst) {
+        clone->AddParameter(std::unique_ptr<Instruction>(inst->Clone(ctx)));
       },
       true);
 
   clone->blocks_.reserve(blocks_.size());
   for (const auto& b : blocks_) {
-    std::unique_ptr<BasicBlock> bb(b->Clone(context));
+    std::unique_ptr<BasicBlock> bb(b->Clone(ctx));
     bb->SetParent(clone);
     clone->AddBasicBlock(std::move(bb));
   }
 
-  clone->SetFunctionEnd(
-      std::unique_ptr<Instruction>(function_end().Clone(context)));
+  clone->SetFunctionEnd(std::unique_ptr<Instruction>(EndInst()->Clone(ctx)));
   return clone;
 }
 
@@ -75,5 +75,35 @@ void Function::ForEachParam(const std::function<void(const Instruction*)>& f,
         ->ForEachInst(f, run_on_debug_line_insts);
 }
 
-}  // namespace ir
+BasicBlock* Function::InsertBasicBlockAfter(
+    std::unique_ptr<BasicBlock>&& new_block, BasicBlock* position) {
+  for (auto bb_iter = begin(); bb_iter != end(); ++bb_iter) {
+    if (&*bb_iter == position) {
+      new_block->SetParent(this);
+      ++bb_iter;
+      bb_iter = bb_iter.InsertBefore(std::move(new_block));
+      return &*bb_iter;
+    }
+  }
+  assert(false && "Could not find insertion point.");
+  return nullptr;
+}
+
+std::ostream& operator<<(std::ostream& str, const Function& func) {
+  str << func.PrettyPrint();
+  return str;
+}
+
+std::string Function::PrettyPrint(uint32_t options) const {
+  std::ostringstream str;
+  ForEachInst([&str, options](const opt::Instruction* inst) {
+    str << inst->PrettyPrint(options);
+    if (inst->opcode() != SpvOpFunctionEnd) {
+      str << std::endl;
+    }
+  });
+  return str.str();
+}
+
+}  // namespace opt
 }  // namespace spvtools

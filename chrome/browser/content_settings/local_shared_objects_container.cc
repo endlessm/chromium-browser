@@ -38,8 +38,8 @@ bool SameDomainOrHost(const GURL& gurl1, const GURL& gurl2) {
 LocalSharedObjectsContainer::LocalSharedObjectsContainer(Profile* profile)
     : appcaches_(new CannedBrowsingDataAppCacheHelper(profile)),
       channel_ids_(new CannedBrowsingDataChannelIDHelper()),
-      cookies_(
-          new CannedBrowsingDataCookieHelper(profile->GetRequestContext())),
+      cookies_(new CannedBrowsingDataCookieHelper(
+          content::BrowserContext::GetDefaultStoragePartition(profile))),
       databases_(new CannedBrowsingDataDatabaseHelper(profile)),
       file_systems_(new CannedBrowsingDataFileSystemHelper(profile)),
       indexed_dbs_(new CannedBrowsingDataIndexedDBHelper(
@@ -231,10 +231,10 @@ void LocalSharedObjectsContainer::Reset() {
 
 std::unique_ptr<CookiesTreeModel>
 LocalSharedObjectsContainer::CreateCookiesTreeModel() const {
-  LocalDataContainer* container = new LocalDataContainer(
+  auto container = std::make_unique<LocalDataContainer>(
       cookies_, databases_, local_storages_, session_storages_, appcaches_,
       indexed_dbs_, file_systems_, nullptr, channel_ids_, service_workers_,
       shared_workers_, cache_storages_, nullptr, nullptr);
 
-  return std::make_unique<CookiesTreeModel>(container, nullptr);
+  return std::make_unique<CookiesTreeModel>(std::move(container), nullptr);
 }

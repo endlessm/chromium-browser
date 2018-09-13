@@ -23,7 +23,9 @@
 <translation id="3605252743693911722">Inicia la sessió a Chromium per accedir a les teves adreces d'interès, les contrasenyes i altres continguts des de tots els teus dispositius.</translation>
 <translation id="3805899903892079518">Chromium no té accés als vostres vídeos o fotos. Permeteu-li l'accés a iOS, a Configuració &gt; Privadesa &gt; Fotos.</translation>
 <translation id="4024541897090868497">Per veure les teves pestanyes en tots els dispositius, inicia la sessió a Chromium.</translation>
+<translation id="4157467675761413638">Consell de Chromium. Per accedir a més opcions de pestanyes, mantén premut el botó Mostra pestanyes a la barra d'eines, que és a la part inferior o superior de la pantalla.</translation>
 <translation id="4241912885070669028">Estàs tancant la sessió d'un compte gestionat per <ph name="SIGNOUT_MANAGED_DOMAIN" />. Se suprimiran les teves dades de Chromium d'aquest dispositiu, però continuaran al teu compte de Google.</translation>
+<translation id="4272892696084633551">Ajuda a millorar les funcions i el rendiment de Chromium</translation>
 <translation id="4555020257205549924">Quan aquesta funció està activada, Chromium ofereix la possibilitat de traduir pàgines escrites en altres idiomes mitjançant el Traductor de Google. <ph name="BEGIN_LINK" />Més informació<ph name="END_LINK" /></translation>
 <translation id="4787850887676698916">Les pestanyes que tinguis obertes a Chromium als altres dispositius es mostraran aquí.</translation>
 <translation id="495292094137889840">Comença a utilitzar l'escàner QR de Chromium</translation>
@@ -33,6 +35,7 @@
 <translation id="5945387852661427312">Estàs iniciant la sessió amb un compte gestionat per <ph name="DOMAIN" /> i estàs donant a l'administrador el control de les teves dades de Chromium. Les dades passaran a estar vinculades a aquest compte permanentment. Si tanques la sessió de Chromium, se suprimiran les teves dades d'aquest dispositiu, però continuaran emmagatzemades al teu compte de Google.</translation>
 <translation id="6068866989048414399">Condicions del servei de Chromium</translation>
 <translation id="6268381023930128611">Voleu tancar la sessió de Chromium?</translation>
+<translation id="641451971369018375">Es comunica amb Google per millorar Chromium i la navegació</translation>
 <translation id="6424492062988593837">Chrome ara és millor. Hi ha una versió nova disponible.</translation>
 <translation id="6604711459180487467">Comparteix la teva ubicació per gaudir dels avantatges de Chromium.</translation>
 <translation id="6626296268883197964">En fer servir aquesta aplicació, acceptes les <ph name="BEGIN_LINK_TOS" />condicions del servei<ph name="END_LINK_TOS" /> i l'<ph name="BEGIN_LINK_PRIVACY" />avís de privadesa<ph name="END_LINK_PRIVACY" /> de Chromium.</translation>
@@ -43,6 +46,7 @@
 <translation id="7357211569052832586">Les dades seleccionades s'han suprimit de Chromium i dels dispositius sincronitzats. És possible que el teu compte de Google tingui altres formes de l'historial de navegació a history.google.com, com ara les cerques i l'activitat d'altres serveis de Google.</translation>
 <translation id="7400689562045506105">Utilitza Chromium a tot arreu</translation>
 <translation id="7674213385180944843">Obre Configuració &gt; Privacitat &gt; Càmera &gt; Chromium i activa la càmera.</translation>
+<translation id="7746854981345936341">Consell de Chromium. Ara alguns botons són a la part inferior de la pantalla, per exemple, Enrere, Endavant i Cerca.</translation>
 <translation id="786327964234957808">Estàs canviant el compte de sincronització de <ph name="USER_EMAIL1" /> a <ph name="USER_EMAIL2" />. <ph name="DOMAIN" /> gestiona les teves dades de Chromium. Se suprimiran les teves dades d'aquest dispositiu, però continuaran estant disponibles a <ph name="USER_EMAIL1" />.</translation>
 <translation id="8175055321229419309">Consell: <ph name="BEGIN_LINK" />mou Chromium al Dock<ph name="END_LINK" /></translation>
 <translation id="8252885722420466166">Compartiu la vostra ubicació per tal de gaudir dels avantatges de Chromium.</translation>

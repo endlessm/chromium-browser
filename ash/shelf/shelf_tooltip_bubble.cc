@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "ash/shelf/shelf_tooltip_bubble.h"
-#include "ash/public/cpp/shell_window_ids.h"
+
 #include "ash/system/tray/tray_constants.h"
 #include "ui/aura/window.h"
 #include "ui/base/material_design/material_design_controller.h"
@@ -37,7 +37,7 @@ const int kBorderInteriorThickness = kTooltipHeight / 2;
 ShelfTooltipBubble::ShelfTooltipBubble(views::View* anchor,
                                        views::BubbleBorder::Arrow arrow,
                                        const base::string16& text)
-    : views::BubbleDialogDelegateView(anchor, arrow) {
+    : ShelfTooltipBubbleBase(anchor, arrow) {
   set_close_on_deactivate(false);
   set_can_activate(false);
   set_accept_events(false);
@@ -51,7 +51,6 @@ ShelfTooltipBubble::ShelfTooltipBubble(views::View* anchor,
       theme->GetSystemColor(ui::NativeTheme::kColorId_TooltipText));
   SkColor background_color =
       theme->GetSystemColor(ui::NativeTheme::kColorId_TooltipBackground);
-  set_color(background_color);
   label->SetBackgroundColor(background_color);
   // The background is not opaque, so we can't do subpixel rendering.
   label->SetSubpixelRenderingEnabled(false);
@@ -64,11 +63,6 @@ ShelfTooltipBubble::ShelfTooltipBubble(views::View* anchor,
   if (ui::MaterialDesignController::IsSecondaryUiMaterial())
     insets += gfx::Insets(-kBubblePaddingHorizontalBottom);
   set_anchor_view_insets(insets);
-
-  // Place the bubble in the same display as the anchor.
-  set_parent_window(
-      anchor_widget()->GetNativeWindow()->GetRootWindow()->GetChildById(
-          kShellWindowId_SettingBubbleContainer));
 
   views::BubbleDialogDelegateView::CreateBubble(this);
   if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
@@ -85,8 +79,13 @@ gfx::Size ShelfTooltipBubble::CalculatePreferredSize() const {
                    std::max(size.height(), kTooltipMinHeight));
 }
 
-int ShelfTooltipBubble::GetDialogButtons() const {
-  return ui::DIALOG_BUTTON_NONE;
+bool ShelfTooltipBubble::ShouldCloseOnPressDown() {
+  // Let the manager close us.
+  return true;
+}
+
+bool ShelfTooltipBubble::ShouldCloseOnMouseExit() {
+  return true;
 }
 
 }  // namespace ash

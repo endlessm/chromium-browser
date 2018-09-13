@@ -4,10 +4,12 @@
 
 #import "ios/chrome/browser/ui/bookmarks/cells/bookmark_folder_item.h"
 
+#include "base/i18n/rtl.h"
 #include "base/mac/foundation_util.h"
 #import "ios/chrome/browser/experimental_flags.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_ui_constants.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_utils_ios.h"
+#import "ios/chrome/browser/ui/bookmarks/cells/bookmark_table_cell_title_edit_delegate.h"
 #import "ios/chrome/browser/ui/rtl_geometry.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
@@ -61,19 +63,22 @@ const CGFloat kFolderCellHorizonalInset = 17.0;
         base::mac::ObjCCastStrict<TableViewBookmarkFolderCell>(cell);
     switch (self.style) {
       case BookmarkFolderStyleNewFolder: {
-        folderCell.folderTitleLabel.text =
+        folderCell.folderTitleTextField.text =
             l10n_util::GetNSString(IDS_IOS_BOOKMARK_CREATE_GROUP);
         folderCell.folderImageView.image =
             [UIImage imageNamed:@"bookmark_blue_new_folder"];
         folderCell.accessibilityIdentifier =
             kBookmarkCreateNewFolderCellIdentifier;
+        folderCell.accessibilityTraits |= UIAccessibilityTraitButton;
         break;
       }
       case BookmarkFolderStyleFolderEntry: {
-        folderCell.folderTitleLabel.text = self.title;
+        folderCell.folderTitleTextField.text = self.title;
         folderCell.accessibilityIdentifier = self.title;
-        folderCell.accessibilityLabel = self.title;
-        folderCell.checked = self.isCurrentFolder;
+        folderCell.accessibilityTraits |= UIAccessibilityTraitButton;
+        if (self.isCurrentFolder)
+          folderCell.bookmarkAccessoryType =
+              TableViewBookmarkFolderAccessoryTypeCheckmark;
         // In order to indent the cell's content we need to modify its
         // indentation constraint.
         folderCell.indentationConstraint.constant =
@@ -93,7 +98,8 @@ const CGFloat kFolderCellHorizonalInset = 17.0;
             l10n_util::GetNSString(IDS_IOS_BOOKMARK_CREATE_GROUP);
         folderCell.imageView.image =
             [UIImage imageNamed:@"bookmark_gray_new_folder"];
-        folderCell.accessibilityIdentifier = @"Create New Folder";
+        folderCell.accessibilityIdentifier =
+            kBookmarkCreateNewFolderCellIdentifier;
         break;
       }
       case BookmarkFolderStyleFolderEntry: {
@@ -115,23 +121,28 @@ const CGFloat kFolderCellHorizonalInset = 17.0;
 
 #pragma mark - TableViewBookmarkFolderCell
 
-@interface TableViewBookmarkFolderCell ()
+@interface TableViewBookmarkFolderCell ()<UITextFieldDelegate>
+// Re-declare as readwrite.
 @property(nonatomic, strong, readwrite)
     NSLayoutConstraint* indentationConstraint;
+// True when title text has ended editing and committed.
+@property(nonatomic, assign) BOOL isTextCommitted;
 @end
 
 @implementation TableViewBookmarkFolderCell
-@synthesize checked = _checked;
+@synthesize bookmarkAccessoryType = _bookmarkAccessoryType;
 @synthesize folderImageView = _folderImageView;
-@synthesize folderTitleLabel = _folderTitleLabel;
+@synthesize folderTitleTextField = _folderTitleTextFieldl;
 @synthesize indentationConstraint = _indentationConstraint;
+@synthesize isTextCommitted = _isTextCommitted;
+@synthesize textDelegate = _textDelegate;
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style
               reuseIdentifier:(NSString*)reuseIdentifier {
   self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
   if (self) {
     self.selectionStyle = UITableViewCellSelectionStyleGray;
-    self.accessibilityTraits |= UIAccessibilityTraitButton;
+    self.isAccessibilityElement = YES;
 
     self.folderImageView = [[UIImageView alloc] init];
     self.folderImageView.contentMode = UIViewContentModeScaleAspectFit;
@@ -143,18 +154,19 @@ const CGFloat kFolderCellHorizonalInset = 17.0;
                                         forAxis:
                                             UILayoutConstraintAxisHorizontal];
 
-    self.folderTitleLabel = [[UILabel alloc] init];
-    self.folderTitleLabel.font =
+    self.folderTitleTextField = [[UITextField alloc] initWithFrame:CGRectZero];
+    self.folderTitleTextField.font =
         [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    self.folderTitleLabel.adjustsFontForContentSizeCategory = YES;
-    [self.folderTitleLabel
+    self.folderTitleTextField.userInteractionEnabled = NO;
+    self.folderTitleTextField.adjustsFontForContentSizeCategory = YES;
+    [self.folderTitleTextField
         setContentHuggingPriority:UILayoutPriorityDefaultLow
                           forAxis:UILayoutConstraintAxisHorizontal];
 
     // Container StackView.
     UIStackView* horizontalStack =
         [[UIStackView alloc] initWithArrangedSubviews:@[
-          self.folderImageView, self.folderTitleLabel
+          self.folderImageView, self.folderTitleTextField
         ]];
     horizontalStack.axis = UILayoutConstraintAxisHorizontal;
     horizontalStack.spacing = kBookmarkCellViewSpacing;
@@ -183,23 +195,92 @@ const CGFloat kFolderCellHorizonalInset = 17.0;
   return self;
 }
 
-- (void)setChecked:(BOOL)checked {
-  if (checked != _checked) {
-    _checked = checked;
-    UIImageView* checkImageView =
-        checked ? [[UIImageView alloc]
-                      initWithImage:[UIImage imageNamed:@"bookmark_blue_check"]]
-                : nil;
-    self.accessoryView = checkImageView;
+- (void)setBookmarkAccessoryType:
+    (TableViewBookmarkFolderAccessoryType)bookmarkAccessoryType {
+  _bookmarkAccessoryType = bookmarkAccessoryType;
+  switch (_bookmarkAccessoryType) {
+    case TableViewBookmarkFolderAccessoryTypeCheckmark:
+      self.accessoryView = [[UIImageView alloc]
+          initWithImage:[UIImage imageNamed:@"bookmark_blue_check"]];
+      break;
+    case TableViewBookmarkFolderAccessoryTypeDisclosureIndicator: {
+      self.accessoryView = [[UIImageView alloc]
+          initWithImage:[UIImage imageNamed:@"table_view_cell_chevron"]];
+      // TODO(crbug.com/870841): Use default accessory type.
+      if (base::i18n::IsRTL())
+        self.accessoryView.transform = CGAffineTransformMakeRotation(M_PI);
+      break;
+    }
+    case TableViewBookmarkFolderAccessoryTypeNone:
+      self.accessoryView = nil;
+      break;
   }
 }
 
 - (void)prepareForReuse {
   [super prepareForReuse];
-  self.checked = NO;
+  self.bookmarkAccessoryType = TableViewBookmarkFolderAccessoryTypeNone;
   self.indentationWidth = 0;
   self.imageView.image = nil;
   self.indentationConstraint.constant = kFolderCellHorizonalInset;
+  self.folderTitleTextField.userInteractionEnabled = NO;
+  self.textDelegate = nil;
+  self.folderTitleTextField.accessibilityIdentifier = nil;
+  self.accessoryType = UITableViewCellAccessoryNone;
+  self.isAccessibilityElement = YES;
+}
+
+#pragma mark BookmarkTableCellTitleEditing
+
+- (void)startEdit {
+  self.isAccessibilityElement = NO;
+  self.isTextCommitted = NO;
+  self.folderTitleTextField.userInteractionEnabled = YES;
+  self.folderTitleTextField.enablesReturnKeyAutomatically = YES;
+  self.folderTitleTextField.keyboardType = UIKeyboardTypeDefault;
+  self.folderTitleTextField.returnKeyType = UIReturnKeyDone;
+  self.folderTitleTextField.accessibilityIdentifier = @"bookmark_editing_text";
+  [self.folderTitleTextField becomeFirstResponder];
+  // selectAll doesn't work immediately after calling becomeFirstResponder.
+  // Do selectAll on the next run loop.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if ([self.folderTitleTextField isFirstResponder]) {
+      [self.folderTitleTextField selectAll:nil];
+    }
+  });
+  self.folderTitleTextField.delegate = self;
+}
+
+- (void)stopEdit {
+  if (self.isTextCommitted) {
+    return;
+  }
+  self.isTextCommitted = YES;
+  self.isAccessibilityElement = YES;
+  [self.textDelegate textDidChangeTo:self.folderTitleTextField.text];
+  self.folderTitleTextField.userInteractionEnabled = NO;
+  [self.folderTitleTextField endEditing:YES];
+}
+
+#pragma mark UITextFieldDelegate
+
+// This method hides the keyboard when the return key is pressed.
+- (BOOL)textFieldShouldReturn:(UITextField*)textField {
+  [self stopEdit];
+  return YES;
+}
+
+// This method is called when titleText resigns its first responder status.
+// (when return/dimiss key is pressed, or when navigating away.)
+- (void)textFieldDidEndEditing:(UITextField*)textField
+                        reason:(UITextFieldDidEndEditingReason)reason {
+  [self stopEdit];
+}
+
+#pragma mark Accessibility
+
+- (NSString*)accessibilityLabel {
+  return self.folderTitleTextField.text;
 }
 
 @end

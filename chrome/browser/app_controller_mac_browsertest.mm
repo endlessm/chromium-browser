@@ -20,7 +20,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "chrome/app/chrome_command_ids.h"
 #import "chrome/browser/app_controller_mac.h"
-#include "chrome/browser/apps/app_browsertest_util.h"
+#include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -630,6 +630,11 @@ IN_PROC_BROWSER_TEST_F(AppControllerMainMenuBrowserTest,
   Profile* profile2 = profile_manager->GetProfileByPath(profile2_path);
   ASSERT_TRUE(profile2);
 
+  // Load profile1's History Service backend so it will be assigned to the
+  // HistoryMenuBridge when windowChangedToProfile is called, or else this test
+  // will fail flaky.
+  ui_test_utils::WaitForHistoryToLoad(HistoryServiceFactory::GetForProfile(
+      profile1, ServiceAccessType::EXPLICIT_ACCESS));
   // Switch the controller to profile1.
   [ac windowChangedToProfile:profile1];
   base::RunLoop().RunUntilIdle();

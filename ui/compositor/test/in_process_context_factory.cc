@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/threading/thread.h"
+#include "build/build_config.h"
 #include "cc/base/switches.h"
 #include "cc/test/pixel_test_output_surface.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
@@ -39,15 +40,19 @@
 #include "ui/gl/gl_utils.h"
 #include "ui/gl/test/gl_surface_test_support.h"
 
+#if defined(OS_MACOSX)
+#include "ui/accelerated_widget_mac/ca_transaction_observer.h"
+#endif
+
 #if !defined(GPU_SURFACE_HANDLE_IS_ACCELERATED_WINDOW)
 #include "gpu/ipc/common/gpu_surface_tracker.h"
 #endif
 
 namespace ui {
 namespace {
-// The client_id used here should not conflict with the client_id generated
-// from RenderWidgetHostImpl and client_id(0) used by aura::WindowPortMus.
-constexpr uint32_t kDefaultClientId = std::numeric_limits<uint32_t>::max();
+
+// This should not conflict with ids from RenderWidgetHostImpl or WindowService.
+constexpr uint32_t kDefaultClientId = std::numeric_limits<uint32_t>::max() / 2;
 
 class FakeReflector : public Reflector {
  public:
@@ -163,11 +168,12 @@ InProcessContextFactory::InProcessContextFactory(
   DCHECK_NE(gl::GetGLImplementation(), gl::kGLImplementationNone)
       << "If running tests, ensure that main() is calling "
       << "gl::GLSurfaceTestSupport::InitializeOneOff()";
-
 #if defined(OS_WIN)
   renderer_settings_.finish_rendering_on_resize = true;
 #elif defined(OS_MACOSX)
   renderer_settings_.release_overlay_resources_after_gpu_query = true;
+  // Ensure that tests don't wait for frames that will never come.
+  ui::CATransactionCoordinator::Get().DisableForTesting();
 #endif
 }
 
@@ -175,9 +181,9 @@ InProcessContextFactory::~InProcessContextFactory() {
   DCHECK(per_compositor_data_.empty());
 }
 
-void InProcessContextFactory::SendOnLostResources() {
+void InProcessContextFactory::SendOnLostSharedContext() {
   for (auto& observer : observer_list_)
-    observer.OnLostResources();
+    observer.OnLostSharedContext();
 }
 
 void InProcessContextFactory::SetUseFastRefreshRateForTests() {
@@ -286,6 +292,12 @@ std::unique_ptr<Reflector> InProcessContextFactory::CreateReflector(
 void InProcessContextFactory::RemoveReflector(Reflector* reflector) {
 }
 
+bool InProcessContextFactory::SyncTokensRequiredForDisplayCompositor() {
+  // Display and DirectLayerTreeFrameSink share a GL context, so sync
+  // points aren't needed when passing resources between them.
+  return false;
+}
+
 scoped_refptr<viz::ContextProvider>
 InProcessContextFactory::SharedMainThreadContextProvider() {
   if (shared_main_thread_contexts_ &&
@@ -351,6 +363,13 @@ void InProcessContextFactory::ResizeDisplay(ui::Compositor* compositor,
   if (!per_compositor_data_.count(compositor))
     return;
   per_compositor_data_[compositor]->display->Resize(size);
+}
+
+void InProcessContextFactory::DisableSwapUntilResize(
+    ui::Compositor* compositor) {
+  if (!per_compositor_data_.count(compositor))
+    return;
+  per_compositor_data_[compositor]->display->Resize(gfx::Size());
 }
 
 void InProcessContextFactory::SetDisplayColorMatrix(ui::Compositor* compositor,

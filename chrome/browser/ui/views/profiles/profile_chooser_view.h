@@ -143,6 +143,7 @@ class ProfileChooserView : public content::WebContentsDelegate,
   views::View* CreateGuestProfileView();
   views::View* CreateOptionsView(bool display_lock, AvatarMenu* avatar_menu);
   views::View* CreateSupervisedUserDisclaimerView();
+  views::View* CreateAutofillHomeView();
 
   // Account Management view for the profile |avatar_item|.
   views::View* CreateCurrentProfileAccountsView(
@@ -174,11 +175,16 @@ class ProfileChooserView : public content::WebContentsDelegate,
 
   bool ShouldShowGoIncognito() const;
 
+  // Return maximal height for the view after which it becomes scrollable.
+  // TODO(crbug.com/870303): remove when a general solution is available.
+  int GetMaxHeight() const;
+
   // Clean-up done after an action was performed in the ProfileChooser.
   void PostActionPerformed(ProfileMetrics::ProfileDesktopMenu action_performed);
 
-  // Callback for DiceAccountsMenu.
+  // Callbacks for DiceAccountsMenu.
   void EnableSync(const base::Optional<AccountInfo>& account);
+  void SignOutAllWebAccounts();
 
   // Methods to keep track of the number of times the Dice sign-in promo has
   // been shown.
@@ -218,6 +224,9 @@ class ProfileChooserView : public content::WebContentsDelegate,
   views::LabelButton* lock_button_;
   views::LabelButton* close_all_windows_button_;
   views::Link* add_account_link_;
+  views::LabelButton* passwords_button_;
+  views::LabelButton* credit_cards_button_;
+  views::LabelButton* addresses_button_;
 
   // Buttons displayed in the gaia signin view.
   views::ImageButton* gaia_signin_cancel_button_;

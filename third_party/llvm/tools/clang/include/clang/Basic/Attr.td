@@ -509,7 +509,7 @@ class TargetSpecificAttr<TargetSpec target> {
   // "exists" for a given target. So two target-specific attributes can share
   // the same name when they exist in different targets. To support this, a
   // Kind can be explicitly specified for a target-specific attribute. This
-  // corresponds to the AttributeList::AT_* enum that is generated and it
+  // corresponds to the ParsedAttr::AT_* enum that is generated and it
   // should contain a shared value between the attributes.
   //
   // Target-specific attributes which use this feature should ensure that the
@@ -1770,6 +1770,13 @@ def Section : InheritableAttr {
   let Documentation = [SectionDocs];
 }
 
+def CodeSeg : InheritableAttr {
+  let Spellings = [Declspec<"code_seg">];
+  let Args = [StringArgument<"Name">];
+  let Subjects = SubjectList<[Function, CXXRecord], ErrorDiag>;
+  let Documentation = [CodeSegDocs];
+}
+
 def PragmaClangBSSSection : InheritableAttr {
   // This attribute has no spellings as it is only ever created implicitly.
   let Spellings = [];
@@ -1941,6 +1948,13 @@ def Target : InheritableAttr {
       return Ret;
     }
   }];
+}
+
+def MinVectorWidth : InheritableAttr {
+  let Spellings = [Clang<"min_vector_width">];
+  let Args = [UnsignedArgument<"VectorWidth">];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
+  let Documentation = [MinVectorWidthDocs];
 }
 
 def TransparentUnion : InheritableAttr {

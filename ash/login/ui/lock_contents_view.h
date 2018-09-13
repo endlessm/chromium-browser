@@ -5,6 +5,7 @@
 #ifndef ASH_LOGIN_UI_LOCK_CONTENTS_VIEW_H_
 #define ASH_LOGIN_UI_LOCK_CONTENTS_VIEW_H_
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,17 +13,20 @@
 #include "ash/ash_export.h"
 #include "ash/login/login_screen_controller.h"
 #include "ash/login/login_screen_controller_observer.h"
+#include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_data_dispatcher.h"
 #include "ash/login/ui/login_display_style.h"
 #include "ash/login/ui/non_accessible_view.h"
 #include "ash/session/session_observer.h"
-#include "ash/shell_observer.h"
 #include "ash/system/system_tray_focus_observer.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/scoped_observer.h"
+#include "chromeos/dbus/power_manager/power_supply_properties.pb.h"
+#include "chromeos/dbus/power_manager_client.h"
 #include "ui/display/display_observer.h"
 #include "ui/display/screen.h"
+#include "ui/keyboard/keyboard_controller.h"
 #include "ui/keyboard/keyboard_controller_observer.h"
 #include "ui/views/controls/styled_label_listener.h"
 #include "ui/views/view.h"
@@ -56,15 +60,16 @@ enum class TrayActionState;
 // screen views are embedded within this one. LockContentsView is per-display,
 // but it is always shown on the primary display. There is only one instance
 // at a time.
-class ASH_EXPORT LockContentsView : public NonAccessibleView,
-                                    public LoginScreenControllerObserver,
-                                    public LoginDataDispatcher::Observer,
-                                    public SystemTrayFocusObserver,
-                                    public display::DisplayObserver,
-                                    public views::StyledLabelListener,
-                                    public SessionObserver,
-                                    public keyboard::KeyboardControllerObserver,
-                                    public ShellObserver {
+class ASH_EXPORT LockContentsView
+    : public NonAccessibleView,
+      public LoginScreenControllerObserver,
+      public LoginDataDispatcher::Observer,
+      public SystemTrayFocusObserver,
+      public display::DisplayObserver,
+      public views::StyledLabelListener,
+      public SessionObserver,
+      public keyboard::KeyboardControllerObserver,
+      public chromeos::PowerManagerClient::Observer {
  public:
   // TestApi is used for tests to get internal implementation details.
   class ASH_EXPORT TestApi {
@@ -95,11 +100,27 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
     kExclusivePublicAccountExpandedView,
   };
 
+  enum class AcceleratorAction {
+    kShowFeedback,
+    kFocusNextUser,
+    kFocusPreviousUser,
+  };
+
+  // Number of login attempts before a login dialog is shown. For example, if
+  // this value is 4 then the user can submit their password 4 times, and on the
+  // 4th bad attempt the login dialog is shown. This only applies to the login
+  // screen.
+  static const int kLoginAttemptsBeforeGaiaDialog;
+
   LockContentsView(
       mojom::TrayActionState initial_note_action_state,
+      LockScreen::ScreenType screen_type,
       LoginDataDispatcher* data_dispatcher,
       std::unique_ptr<LoginDetachableBaseModel> detachable_base_model);
   ~LockContentsView() override;
+
+  void FocusNextUser();
+  void FocusPreviousUser();
 
   // views::View:
   void Layout() override;
@@ -107,6 +128,7 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   void OnFocus() override;
   void AboutToRequestFocusFromTabTraversal(bool reverse) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
 
   // LoginScreenController::Observer:
   void SetAvatarForUser(const AccountId& account_id,
@@ -163,17 +185,16 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   // SessionObserver:
   void OnLockStateChanged(bool locked) override;
 
-  // ash::ShellObserver:
-  void OnVirtualKeyboardStateChanged(bool activated,
-                                     aura::Window* root_window) override;
-
   // keyboard::KeyboardControllerObserver:
   void OnStateChanged(const keyboard::KeyboardControllerState state) override;
+
+  // chromeos::PowerManagerClient::Observer:
+  void SuspendImminent(power_manager::SuspendImminent::Reason reason) override;
 
  private:
   class UserState {
    public:
-    explicit UserState(AccountId account_id);
+    explicit UserState(const mojom::LoginUserInfoPtr& user_info);
     UserState(UserState&&);
     ~UserState();
 
@@ -281,7 +302,7 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   keyboard::KeyboardController* GetKeyboardController() const;
 
   // Called when the public account is tapped.
-  void OnPublicAccountTapped();
+  void OnPublicAccountTapped(bool is_primary);
 
   // Helper method to allocate a LoginBigUserView instance.
   LoginBigUserView* AllocateLoginBigUserView(
@@ -321,6 +342,14 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   // All the subsequent calls of |OnLockScreenNoteStateChanged| will be ignored.
   void DisableLockScreenNote();
 
+  // Register accelerators used in login screen.
+  void RegisterAccelerators();
+
+  // Performs the specified accelerator action.
+  void PerformAction(AcceleratorAction action);
+
+  const LockScreen::ScreenType screen_type_;
+
   std::vector<UserState> users_;
 
   LoginDataDispatcher* const data_dispatcher_;  // Unowned.
@@ -353,9 +382,6 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
 
   ScopedObserver<display::Screen, display::DisplayObserver> display_observer_;
   ScopedSessionObserver session_observer_;
-  ScopedObserver<keyboard::KeyboardController,
-                 keyboard::KeyboardControllerObserver>
-      keyboard_observer_;
 
   // Bubbles for displaying authentication error.
   std::unique_ptr<LoginBubble> auth_error_bubble_;
@@ -377,6 +403,14 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
 
   // Expanded view for public account user to select language and keyboard.
   LoginExpandedPublicAccountView* expanded_view_ = nullptr;
+
+  // Whether the virtual keyboard is currently shown. Only changes when the
+  // keyboard state changes to KeyboardControllerState::SHOWN or to
+  // KeyboardControllerState::HIDDEN.
+  bool keyboard_shown_ = false;
+
+  // Accelerators handled by login screen.
+  std::map<ui::Accelerator, AcceleratorAction> accel_map_;
 
   DISALLOW_COPY_AND_ASSIGN(LockContentsView);
 };

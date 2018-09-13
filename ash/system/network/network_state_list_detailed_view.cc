@@ -10,9 +10,9 @@
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/system/model/system_tray_model.h"
 #include "ash/system/tray/system_menu_button.h"
 #include "ash/system/tray/system_tray.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/tri_view.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -52,6 +52,12 @@ constexpr int kBubbleMargin = 8;
 
 // Elevation used for the bubble shadow effect (tiny).
 constexpr int kBubbleShadowElevation = 2;
+
+bool IsSecondaryUser() {
+  SessionController* session_controller = Shell::Get()->session_controller();
+  return session_controller->IsActiveUserSessionStarted() &&
+         !session_controller->IsUserPrimary();
+}
 
 }  // namespace
 
@@ -232,24 +238,27 @@ void NetworkStateListDetailedView::HandleViewClicked(views::View* view) {
   const NetworkState* network =
       NetworkHandler::Get()->network_state_handler()->GetNetworkStateFromGuid(
           guid);
-  // TODO(stevenjb): Test network->connectable() here instead of
-  // IsDefaultCellular once network configuration is integrated into Settings.
-  // crbug.com/380937.
-  if (!network || network->IsConnectingOrConnected() ||
-      network->IsDefaultCellular()) {
-    Shell::Get()->metrics()->RecordUserMetricsAction(
-        list_type_ == LIST_TYPE_VPN
-            ? UMA_STATUS_AREA_SHOW_VPN_CONNECTION_DETAILS
-            : UMA_STATUS_AREA_SHOW_NETWORK_CONNECTION_DETAILS);
-    Shell::Get()->system_tray_controller()->ShowNetworkSettings(
-        network ? network->guid() : std::string());
-  } else {
+  bool can_connect = network && !network->IsConnectingOrConnected();
+  if (network->IsDefaultCellular())
+    can_connect = false;  // Default Cellular network is not connectable.
+  if (!network->connectable() && IsSecondaryUser()) {
+    // Secondary users can only connect to fully configured networks.
+    can_connect = false;
+  }
+  if (can_connect) {
     Shell::Get()->metrics()->RecordUserMetricsAction(
         list_type_ == LIST_TYPE_VPN
             ? UMA_STATUS_AREA_CONNECT_TO_VPN
             : UMA_STATUS_AREA_CONNECT_TO_CONFIGURED_NETWORK);
     chromeos::NetworkConnect::Get()->ConnectToNetworkId(network->guid());
+    return;
   }
+  Shell::Get()->metrics()->RecordUserMetricsAction(
+      list_type_ == LIST_TYPE_VPN
+          ? UMA_STATUS_AREA_SHOW_VPN_CONNECTION_DETAILS
+          : UMA_STATUS_AREA_SHOW_NETWORK_CONNECTION_DETAILS);
+  Shell::Get()->system_tray_model()->client_ptr()->ShowNetworkSettings(
+      network ? network->guid() : std::string());
 }
 
 void NetworkStateListDetailedView::CreateExtraTitleRowButtons() {
@@ -259,13 +268,11 @@ void NetworkStateListDetailedView::CreateExtraTitleRowButtons() {
   DCHECK(!info_button_);
   tri_view()->SetContainerVisible(TriView::Container::END, true);
 
-  info_button_ = new SystemMenuButton(this, kSystemMenuInfoIcon,
-                                      IDS_ASH_STATUS_TRAY_NETWORK_INFO);
+  info_button_ = CreateInfoButton(IDS_ASH_STATUS_TRAY_NETWORK_INFO);
   tri_view()->AddView(TriView::Container::END, info_button_);
 
   DCHECK(!settings_button_);
-  settings_button_ = new SystemMenuButton(this, kSystemMenuSettingsIcon,
-                                          IDS_ASH_STATUS_TRAY_NETWORK_SETTINGS);
+  settings_button_ = CreateSettingsButton(IDS_ASH_STATUS_TRAY_NETWORK_SETTINGS);
   tri_view()->AddView(TriView::Container::END, settings_button_);
 }
 
@@ -273,7 +280,8 @@ void NetworkStateListDetailedView::ShowSettings() {
   Shell::Get()->metrics()->RecordUserMetricsAction(
       list_type_ == LIST_TYPE_VPN ? UMA_STATUS_AREA_VPN_SETTINGS_OPENED
                                   : UMA_STATUS_AREA_NETWORK_SETTINGS_OPENED);
-  Shell::Get()->system_tray_controller()->ShowNetworkSettings(std::string());
+  Shell::Get()->system_tray_model()->client_ptr()->ShowNetworkSettings(
+      std::string());
 }
 
 void NetworkStateListDetailedView::UpdateHeaderButtons() {

@@ -447,27 +447,80 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, Title) {
   EXPECT_EQ(test_title, tab_title);
 }
 
-// TODO(avi): confirm() is the only dialog type left that activates. Remove this
-// test when activation is removed from it.
-IN_PROC_BROWSER_TEST_F(BrowserTest, JavascriptConfirmActivatesTab) {
+namespace {
+
+class DialogPlusConsoleObserverDelegate
+    : public content::ConsoleObserverDelegate {
+ public:
+  DialogPlusConsoleObserverDelegate(
+      content::WebContentsDelegate* original_delegate,
+      WebContents* web_contents,
+      const std::string& filter)
+      : content::ConsoleObserverDelegate(web_contents, filter),
+        web_contents_(web_contents),
+        original_delegate_(original_delegate) {}
+
+  // WebContentsDelegate method:
+  content::JavaScriptDialogManager* GetJavaScriptDialogManager(
+      WebContents* source) override {
+    return original_delegate_->GetJavaScriptDialogManager(web_contents_);
+  }
+
+ private:
+  content::WebContents* web_contents_;
+  content::WebContentsDelegate* original_delegate_;
+};
+
+}  // namespace
+
+IN_PROC_BROWSER_TEST_F(BrowserTest, NoJavaScriptDialogsActivateTab) {
+  // Set up two tabs, with the tab at index 0 active.
   GURL url(ui_test_utils::GetTestUrl(base::FilePath(
       base::FilePath::kCurrentDirectory), base::FilePath(kTitle1File)));
   ui_test_utils::NavigateToURL(browser(), url);
   AddTabAtIndex(0, url, ui::PAGE_TRANSITION_TYPED);
   EXPECT_EQ(2, browser()->tab_strip_model()->count());
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
+
   WebContents* second_tab = browser()->tab_strip_model()->GetWebContentsAt(1);
   ASSERT_TRUE(second_tab);
-  JavaScriptDialogTabHelper* js_helper =
-      JavaScriptDialogTabHelper::FromWebContents(second_tab);
-  base::RunLoop dialog_wait;
-  js_helper->SetDialogShownCallbackForTesting(dialog_wait.QuitClosure());
+  content::WebContentsDelegate* original_delegate = second_tab->GetDelegate();
+
+  // Show a confirm() dialog from the tab at index 1. The active index shouldn't
+  // budge.
+  DialogPlusConsoleObserverDelegate confirm_observer(
+      original_delegate, second_tab, "*confirm*suppressed*");
+  second_tab->SetDelegate(&confirm_observer);
   second_tab->GetMainFrame()->ExecuteJavaScriptForTests(
       ASCIIToUTF16("confirm('Activate!');"));
-  dialog_wait.Run();
-  js_helper->HandleJavaScriptDialog(second_tab, true, nullptr);
+  confirm_observer.Wait();
   EXPECT_EQ(2, browser()->tab_strip_model()->count());
-  EXPECT_EQ(1, browser()->tab_strip_model()->active_index());
+  EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
+
+  // Show a prompt() dialog from the tab at index 1. The active index shouldn't
+  // budge.
+  DialogPlusConsoleObserverDelegate prompt_observer(
+      original_delegate, second_tab, "*prompt*suppressed*");
+  second_tab->SetDelegate(&prompt_observer);
+  second_tab->GetMainFrame()->ExecuteJavaScriptForTests(
+      ASCIIToUTF16("prompt('Activate!');"));
+  prompt_observer.Wait();
+  EXPECT_EQ(2, browser()->tab_strip_model()->count());
+  EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
+
+  second_tab->SetDelegate(original_delegate);
+
+  // Show an alert() dialog from the tab at index 1. The active index shouldn't
+  // budge.
+  JavaScriptDialogTabHelper* js_helper =
+      JavaScriptDialogTabHelper::FromWebContents(second_tab);
+  base::RunLoop alert_wait;
+  js_helper->SetDialogShownCallbackForTesting(alert_wait.QuitClosure());
+  second_tab->GetMainFrame()->ExecuteJavaScriptForTests(
+      ASCIIToUTF16("alert('Activate!');"));
+  alert_wait.Run();
+  EXPECT_EQ(2, browser()->tab_strip_model()->count());
+  EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
 }
 
 #if defined(OS_WIN) && !defined(NDEBUG)
@@ -1101,8 +1154,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_TabClosingWhenRemovingExtension) {
   model->AddObserver(&observer);
 
   // Uninstall the extension and make sure TabClosing is sent.
-  ExtensionService* service = extensions::ExtensionSystem::Get(
-      browser()->profile())->extension_service();
+  extensions::ExtensionService* service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
   service->UninstallExtension(GetExtension()->id(),
                               extensions::UNINSTALL_REASON_FOR_TESTING,
                               NULL);
@@ -1199,7 +1253,13 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ShouldShowLocationBar) {
 }
 
 // Regression test for crbug.com/702505.
-IN_PROC_BROWSER_TEST_F(BrowserTest, ReattachDevToolsWindow) {
+// Fails occasionally on Mac. http://crbug.com/852697
+#if defined(OS_MACOSX)
+#define MAYBE_ReattachDevToolsWindow DISABLED_ReattachDevToolsWindow
+#else
+#define MAYBE_ReattachDevToolsWindow ReattachDevToolsWindow
+#endif
+IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_ReattachDevToolsWindow) {
   ASSERT_TRUE(embedded_test_server()->Start());
   WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -1714,53 +1774,6 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, InterstitialCloseTab) {
   content::RunTaskAndWaitForInterstitialDetach(
       contents, base::Bind(&chrome::CloseTab, browser()));
   // interstitial is deleted now.
-}
-
-class MockWebContentsObserver : public WebContentsObserver {
- public:
-  explicit MockWebContentsObserver(WebContents* web_contents)
-      : WebContentsObserver(web_contents),
-        got_user_gesture_(false) {
-  }
-
-  void DidGetUserInteraction(const blink::WebInputEvent::Type type) override {
-    // We expect the only interaction here to be a browser-initiated navigation,
-    // which is sent with the Undefined event type.
-    EXPECT_EQ(blink::WebInputEvent::kUndefined, type);
-    got_user_gesture_ = true;
-  }
-
-  bool got_user_gesture() const {
-    return got_user_gesture_;
-  }
-
-  void set_got_user_gesture(bool got_it) {
-    got_user_gesture_ = got_it;
-  }
-
- private:
-  bool got_user_gesture_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockWebContentsObserver);
-};
-
-IN_PROC_BROWSER_TEST_F(BrowserTest, UserGesturesReported) {
-  // Regression test for http://crbug.com/110707.  Also tests that a user
-  // gesture is sent when a normal navigation (via e.g. the omnibox) is
-  // performed.
-  WebContents* web_contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
-  MockWebContentsObserver mock_observer(web_contents);
-
-  ASSERT_TRUE(embedded_test_server()->Start());
-  GURL url(embedded_test_server()->GetURL("/empty.html"));
-
-  ui_test_utils::NavigateToURL(browser(), url);
-  EXPECT_TRUE(mock_observer.got_user_gesture());
-
-  mock_observer.set_got_user_gesture(false);
-  chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
-  EXPECT_TRUE(mock_observer.got_user_gesture());
 }
 
 // TODO(ben): this test was never enabled. It has bit-rotted since being added.

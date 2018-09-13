@@ -241,9 +241,10 @@ class BuilderStatusManager(object):
       build_id: The build ID (int) of the build to get status of
       master_build_id: The build ID (int) of the master build which may
         have aborted it.
+
     Retuns:
-      A boolean for whether the build was canceled by master
-        during self-destruction.
+      A boolean for whether the build was canceled by master during
+      self-destruction.
     """
     if master_build_id is None:
       # Builds without master_build_id can't be aborted by self-destruction.
@@ -335,12 +336,12 @@ class SlaveBuilderStatus(object):
     """Get slaves aborted by self-destruction of the master.
 
     Args:
-    cidb_info_dict: A dict mapping slave build config names (strings) to their
+      cidb_info_dict: A dict mapping slave build config names (strings) to their
         cidb infos (in the format of CIDBStatusInfo).
 
     Returns:
       A set of build config names (strings) of slaves aborted by
-    self-destruction.
+      self-destruction.
     """
     return set(build_config
                for build_config, cidb_info in cidb_info_dict.iteritems()
@@ -349,13 +350,12 @@ class SlaveBuilderStatus(object):
 
   def _InitSlaveInfo(self):
     """Init slave info including buildbucket info, cidb info and failures."""
-    if config_lib.UseBuildbucketScheduler(self.config):
-      scheduled_buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
-          self.metadata, exclude_experimental=self.exclude_experimental)
-      self.buildbucket_info_dict = self.GetAllSlaveBuildbucketInfo(
-          self.buildbucket_client, scheduled_buildbucket_info_dict,
-          dry_run=self.dry_run)
-      self.builders_array = self.buildbucket_info_dict.keys()
+    scheduled_buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
+        self.metadata, exclude_experimental=self.exclude_experimental)
+    self.buildbucket_info_dict = self.GetAllSlaveBuildbucketInfo(
+        self.buildbucket_client, scheduled_buildbucket_info_dict,
+        dry_run=self.dry_run)
+    self.builders_array = self.buildbucket_info_dict.keys()
 
     self.cidb_info_dict = self.GetAllSlaveCIDBStatusInfo(
         self.db, self.master_build_id, self.buildbucket_info_dict)

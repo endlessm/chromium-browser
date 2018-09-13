@@ -1824,6 +1824,7 @@ enum UNIQUE_VALIDATION_ERROR_CODE {
     VALIDATION_ERROR_18600022 = 0x18600022,
     VALIDATION_ERROR_18600024 = 0x18600024,
     VALIDATION_ERROR_18600e1b = 0x18600e1b,
+    VALIDATION_ERROR_18600f1c = 0x18600f1c,
     VALIDATION_ERROR_18602401 = 0x18602401,
     VALIDATION_ERROR_18602413 = 0x18602413,
     VALIDATION_ERROR_18602415 = 0x18602415,
@@ -3964,7 +3965,8 @@ enum UNIQUE_VALIDATION_ERROR_CODE {
 };
 
 // Mapping from unique validation error enum to the corresponding spec text
-static std::unordered_map<int, char const *const> validation_error_map{
+#ifdef VALIDATION_ERROR_MAP_IMPL
+std::unordered_map<int, char const *const> validation_error_map {
     {VALIDATION_ERROR_00000009, "The spec valid usage text states 'Each of fence, semaphore, and swapchain that are valid handles must have been created, allocated, or retrieved from the same VkInstance' (https://www.khronos.org/registry/vulkan/specs/1.0-extensions/html/vkspec.html#VUID-VkAcquireNextImageInfoKHR-commonparent)"},
     {VALIDATION_ERROR_00000a10, "The spec valid usage text states 'If semaphore is not VK_NULL_HANDLE it must be unsignaled' (https://www.khronos.org/registry/vulkan/specs/1.0-extensions/html/vkspec.html#VUID-VkAcquireNextImageInfoKHR-semaphore-01288)"},
     {VALIDATION_ERROR_00000a12, "The spec valid usage text states 'If fence is not VK_NULL_HANDLE it must be unsignaled and must not be associated with any other queue command that has not yet completed execution on that queue' (https://www.khronos.org/registry/vulkan/specs/1.0-extensions/html/vkspec.html#VUID-VkAcquireNextImageInfoKHR-fence-01289)"},
@@ -5754,6 +5756,7 @@ static std::unordered_map<int, char const *const> validation_error_map{
     {VALIDATION_ERROR_18600022, "The spec valid usage text states 'The layers specified by each element of pRects must be contained within every attachment that pAttachments refers to' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdClearAttachments-pRects-00017)"},
     {VALIDATION_ERROR_18600024, "The spec valid usage text states 'If the render pass instance this is recorded in uses multiview, then baseArrayLayer must be zero and layerCount must be one.' (https://www.khronos.org/registry/vulkan/specs/1.0-extensions/html/vkspec.html#VUID-vkCmdClearAttachments-baseArrayLayer-00018)"},
     {VALIDATION_ERROR_18600e1b, "The spec valid usage text states 'attachmentCount must be greater than 0' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdClearAttachments-attachmentCount-arraylength)"},
+    {VALIDATION_ERROR_18600f1c, "The spec valid usage text states 'The layerCount member of each element of pRects must not be 0' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdClearAttachments-layerCount-01934)"},
     {VALIDATION_ERROR_18602401, "The spec valid usage text states 'commandBuffer must be a valid VkCommandBuffer handle' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdClearAttachments-commandBuffer-parameter)"},
     {VALIDATION_ERROR_18602413, "The spec valid usage text states 'commandBuffer must be in the recording state' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdClearAttachments-commandBuffer-recording)"},
     {VALIDATION_ERROR_18602415, "The spec valid usage text states 'The VkCommandPool that commandBuffer was allocated from must support graphics operations' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdClearAttachments-commandBuffer-cmdpool)"},
@@ -5830,7 +5833,7 @@ static std::unordered_map<int, char const *const> validation_error_map{
     {VALIDATION_ERROR_18c2c801, "The spec valid usage text states 'srcBuffer must be a valid VkBuffer handle' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyBuffer-srcBuffer-parameter)"},
     {VALIDATION_ERROR_18e00009, "The spec valid usage text states 'Each of commandBuffer, dstImage, and srcBuffer must have been created, allocated, or retrieved from the same VkDevice' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyBufferToImage-commonparent)"},
     {VALIDATION_ERROR_18e00017, "The spec valid usage text states 'This command must only be called outside of a render pass instance' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyBufferToImage-renderpass)"},
-    {VALIDATION_ERROR_18e00156, "The spec valid usage text states 'The buffer region specified by each element of pRegions must be a region that is contained within srcBuffer' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyBufferToImage-pRegions-00171)"},
+    {VALIDATION_ERROR_18e00156, "The spec valid usage text states 'srcBuffer must be large enough to contain all buffer locations that are accessed according to Buffer and Image Addressing, for each element of pRegions' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyBufferToImage-pRegions-00171)"},
     {VALIDATION_ERROR_18e00158, "The spec valid usage text states 'The image region specified by each element of pRegions must be a region that is contained within dstImage' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyBufferToImage-pRegions-00172)"},
     {VALIDATION_ERROR_18e0015a, "The spec valid usage text states 'The union of all source regions, and the union of all destination regions, specified by the elements of pRegions, must not overlap in memory' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyBufferToImage-pRegions-00173)"},
     {VALIDATION_ERROR_18e0015c, "The spec valid usage text states 'srcBuffer must have been created with VK_BUFFER_USAGE_TRANSFER_SRC_BIT usage flag' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyBufferToImage-srcBuffer-00174)"},
@@ -5901,7 +5904,7 @@ static std::unordered_map<int, char const *const> validation_error_map{
     {VALIDATION_ERROR_19200009, "The spec valid usage text states 'Each of commandBuffer, dstBuffer, and srcImage must have been created, allocated, or retrieved from the same VkDevice' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyImageToBuffer-commonparent)"},
     {VALIDATION_ERROR_19200017, "The spec valid usage text states 'This command must only be called outside of a render pass instance' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyImageToBuffer-renderpass)"},
     {VALIDATION_ERROR_1920016c, "The spec valid usage text states 'The image region specified by each element of pRegions must be a region that is contained within srcImage' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyImageToBuffer-pRegions-00182)"},
-    {VALIDATION_ERROR_1920016e, "The spec valid usage text states 'The buffer region specified by each element of pRegions must be a region that is contained within dstBuffer' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyImageToBuffer-pRegions-00183)"},
+    {VALIDATION_ERROR_1920016e, "The spec valid usage text states 'dstBuffer must be large enough to contain all buffer locations that are accessed according to Buffer and Image Addressing, for each element of pRegions' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyImageToBuffer-pRegions-00183)"},
     {VALIDATION_ERROR_19200170, "The spec valid usage text states 'The union of all source regions, and the union of all destination regions, specified by the elements of pRegions, must not overlap in memory' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyImageToBuffer-pRegions-00184)"},
     {VALIDATION_ERROR_19200172, "The spec valid usage text states 'srcImage must use a format that supports VK_FORMAT_FEATURE_TRANSFER_SRC_BIT, which is indicated by VkFormatProperties::linearTilingFeatures (for linearly tiled images) or VkFormatProperties::optimalTilingFeatures (for optimally tiled images) - as returned by vkGetPhysicalDeviceFormatProperties' (https://www.khronos.org/registry/vulkan/specs/1.0-extensions/html/vkspec.html#VUID-vkCmdCopyImageToBuffer-srcImage-00185)"},
     {VALIDATION_ERROR_19200174, "The spec valid usage text states 'srcImage must have been created with VK_IMAGE_USAGE_TRANSFER_SRC_BIT usage flag' (https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#VUID-vkCmdCopyImageToBuffer-srcImage-00186)"},
@@ -7891,10 +7894,14 @@ static std::unordered_map<int, char const *const> validation_error_map{
     {VALIDATION_ERROR_47600e9c, "The spec valid usage text states 'divisor must be a value between 0 and VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT::maxVertexAttribDivisor, inclusive.' (https://www.khronos.org/registry/vulkan/specs/1.0-extensions/html/vkspec.html#VUID-VkVertexInputBindingDivisorDescriptionEXT-divisor-01870)"},
     {VALIDATION_ERROR_47600e9e, "The spec valid usage text states 'VkVertexInputBindingDescription::inputRate must be of type VK_VERTEX_INPUT_RATE_INSTANCE for this binding.' (https://www.khronos.org/registry/vulkan/specs/1.0-extensions/html/vkspec.html#VUID-VkVertexInputBindingDivisorDescriptionEXT-inputRate-01871)"},
 };
+#else
+extern std::unordered_map<int, char const *const> validation_error_map;
+#endif
 
 
 // Mapping from spec validation error text string to unique validation error enum
-static std::unordered_map<std::string, int> validation_error_text_map{
+#ifdef VALIDATION_ERROR_MAP_IMPL
+std::unordered_map<std::string, int> validation_error_text_map {
     {"VUID-VkAcquireNextImageInfoKHR-commonparent", VALIDATION_ERROR_00000009},
     {"VUID-VkAcquireNextImageInfoKHR-semaphore-01288", VALIDATION_ERROR_00000a10},
     {"VUID-VkAcquireNextImageInfoKHR-fence-01289", VALIDATION_ERROR_00000a12},
@@ -9684,6 +9691,7 @@ static std::unordered_map<std::string, int> validation_error_text_map{
     {"VUID-vkCmdClearAttachments-pRects-00017", VALIDATION_ERROR_18600022},
     {"VUID-vkCmdClearAttachments-baseArrayLayer-00018", VALIDATION_ERROR_18600024},
     {"VUID-vkCmdClearAttachments-attachmentCount-arraylength", VALIDATION_ERROR_18600e1b},
+    {"VUID-vkCmdClearAttachments-layerCount-01934", VALIDATION_ERROR_18600f1c},
     {"VUID-vkCmdClearAttachments-commandBuffer-parameter", VALIDATION_ERROR_18602401},
     {"VUID-vkCmdClearAttachments-commandBuffer-recording", VALIDATION_ERROR_18602413},
     {"VUID-vkCmdClearAttachments-commandBuffer-cmdpool", VALIDATION_ERROR_18602415},
@@ -11821,3 +11829,6 @@ static std::unordered_map<std::string, int> validation_error_text_map{
     {"VUID-VkVertexInputBindingDivisorDescriptionEXT-divisor-01870", VALIDATION_ERROR_47600e9c},
     {"VUID-VkVertexInputBindingDivisorDescriptionEXT-inputRate-01871", VALIDATION_ERROR_47600e9e},
 };
+#else
+extern std::unordered_map<std::string, int> validation_error_text_map;
+#endif

@@ -48,7 +48,6 @@ OpDecorate %outf4 Location 0
 
   const std::string body_before = R"(%main = OpFunction %void None %6
 %14 = OpLabel
-OpSelectionMerge %17 None
 OpBranch %18
 %19 = OpLabel
 %20 = OpLoad %float %inf
@@ -68,15 +67,14 @@ OpFunctionEnd
 
   const std::string body_after = R"(%main = OpFunction %void None %6
 %14 = OpLabel
-OpSelectionMerge %15 None
-OpBranch %16
-%16 = OpLabel
+OpBranch %15
+%15 = OpLabel
 %20 = OpLoad %float %inf
 %21 = OpFAdd %float %20 %float_n0_5
 %22 = OpCompositeConstruct %v4float %21 %21 %21 %21
 OpStore %outf4 %22
-OpBranch %15
-%15 = OpLabel
+OpBranch %19
+%19 = OpLabel
 OpReturn
 OpFunctionEnd
 )";
@@ -106,7 +104,6 @@ TEST_F(CFGCleanupTest, RemoveDecorations) {
                %main = OpFunction %void None %6
                  %14 = OpLabel
                   %x = OpVariable %_ptr_Function_float Function
-                       OpSelectionMerge %17 None
                        OpBranch %18
                  %19 = OpLabel
                %dead = OpVariable %_ptr_Function_float Function
@@ -136,12 +133,11 @@ OpDecorate %x RelaxedPrecision
 %main = OpFunction %void None %6
 %11 = OpLabel
 %x = OpVariable %_ptr_Function_float Function
-OpSelectionMerge %12 None
-OpBranch %13
-%13 = OpLabel
-OpStore %x %float_4
 OpBranch %12
 %12 = OpLabel
+OpStore %x %float_4
+OpBranch %14
+%14 = OpLabel
 OpReturn
 OpFunctionEnd
 )";
@@ -311,7 +307,7 @@ TEST_F(CFGCleanupTest, RemovePhiArgsFromFarBlocks) {
                OpStore %outparm %int_15
                OpBranch %16
          %16 = OpLabel
-         %30 = OpPhi %int %11 %41 %int_42 %13 %11 %14 %11 %15
+         %30 = OpPhi %int %11 %40 %int_42 %13 %11 %14 %11 %15
          %28 = OpIAdd %int %30 %int_5
                OpStore %outparm %28
                OpReturn
@@ -356,7 +352,7 @@ OpBranch %20
 OpStore %outparm %int_15
 OpBranch %20
 %20 = OpLabel
-%24 = OpPhi %int %int_42 %21 %26 %22 %26 %23
+%24 = OpPhi %int %26 %16 %int_42 %21 %26 %22 %26 %23
 %25 = OpIAdd %int %24 %int_5
 OpStore %outparm %25
 OpReturn

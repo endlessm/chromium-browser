@@ -78,20 +78,20 @@
 
 - (void)webState:(web::WebState*)webState didLoadPageWithSuccess:(BOOL)success {
   DCHECK_EQ(_webState, webState);
-  [self.consumer updateLocationText:[self currentLocationString]];
+  [self notifyConsumerOfChangedLocation];
 }
 
 - (void)webState:(web::WebState*)webState
     didStartNavigation:(web::NavigationContext*)navigation {
   DCHECK_EQ(_webState, webState);
-  [self.consumer updateLocationText:[self currentLocationString]];
+  [self notifyConsumerOfChangedLocation];
   [self notifyConsumerOfChangedSecurityIcon];
 }
 
 - (void)webState:(web::WebState*)webState
     didFinishNavigation:(web::NavigationContext*)navigation {
   DCHECK_EQ(_webState, webState);
-  [self.consumer updateLocationText:[self currentLocationString]];
+  [self notifyConsumerOfChangedLocation];
   [self notifyConsumerOfChangedSecurityIcon];
 }
 
@@ -102,18 +102,25 @@
 
 - (void)webStateDidStartLoading:(web::WebState*)webState {
   DCHECK_EQ(_webState, webState);
-  [self.consumer updateLocationText:[self currentLocationString]];
+  [self notifyConsumerOfChangedLocation];
   [self notifyConsumerOfChangedSecurityIcon];
 }
 
 - (void)webStateDidStopLoading:(web::WebState*)webState {
   DCHECK_EQ(_webState, webState);
-  [self.consumer updateLocationText:[self currentLocationString]];
+  [self notifyConsumerOfChangedLocation];
   [self notifyConsumerOfChangedSecurityIcon];
 }
 
 - (void)webStateDidChangeVisibleSecurityState:(web::WebState*)webState {
   DCHECK_EQ(_webState, webState);
+  // Currently, because of https://crbug.com/448486 , interstitials are not
+  // commited navigations. This means that if a security interstitial (e.g. for
+  // broken HTTPS) is shown, didFinishNavigation: is not called, and
+  // didChangeVisibleSecurityState: is the only chance to update the URL.
+  // Otherwise it would be preferable to only update the icon here.
+  [self notifyConsumerOfChangedLocation];
+
   [self notifyConsumerOfChangedSecurityIcon];
 }
 
@@ -148,7 +155,7 @@
     _webState->AddObserver(_webStateObserver.get());
 
     if (self.consumer) {
-      [self.consumer updateLocationText:[self currentLocationString]];
+      [self notifyConsumerOfChangedLocation];
       [self notifyConsumerOfChangedSecurityIcon];
     }
   }
@@ -157,7 +164,7 @@
 - (void)setConsumer:(id<LocationBarConsumer>)consumer {
   _consumer = consumer;
   if (self.webState) {
-    [self.consumer updateLocationText:[self currentLocationString]];
+    [self notifyConsumerOfChangedLocation];
     [self notifyConsumerOfChangedSecurityIcon];
   }
 }
@@ -174,8 +181,21 @@
 
 #pragma mark - private
 
+- (void)notifyConsumerOfChangedLocation {
+  [self.consumer updateLocationText:[self currentLocationString]];
+  GURL URL = self.webState->GetVisibleURL();
+  BOOL isNTP = URL.GetOrigin() == kChromeUINewTabURL;
+  if (isNTP) {
+    [self.consumer updateAfterNavigatingToNTP];
+  }
+  [self.consumer updateLocationShareable:[self isCurrentPageShareable]];
+}
+
 - (void)notifyConsumerOfChangedSecurityIcon {
-  [self.consumer updateLocationIcon:[self currentLocationIcon]];
+  [self.consumer
+      updateLocationIcon:[self currentLocationIcon]
+      securityStatusText:base::SysUTF16ToNSString(
+                             self.toolbarModel->GetSecureAccessibilityText())];
 }
 
 #pragma mark Location helpers
@@ -188,13 +208,32 @@
 #pragma mark Security status icon helpers
 
 - (UIImage*)currentLocationIcon {
+  if (!self.toolbarModel->ShouldDisplayURL()) {
+    return nil;
+  }
+
+  if (self.toolbarModel->IsOfflinePage()) {
+    return [self imageForOfflinePage];
+  }
+
   return [self imageForSecurityLevel:self.toolbarModel->GetSecurityLevel(true)];
 }
 
 - (UIImage*)imageForSecurityLevel:(security_state::SecurityLevel)level {
-  int iconID = GetIconForSecurityState(level);
-  return [NativeImage(iconID)
-      imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  base::string16 iconName = GetUIRefreshIconNameForSecurityState(level);
+  return [UIImage imageNamed:base::SysUTF16ToNSString(iconName)];
+}
+
+// Returns a location icon for offline pages.
+- (UIImage*)imageForOfflinePage {
+  return [UIImage imageNamed:@"location_bar_offline"];
+}
+
+#pragma mark Shareability helpers
+
+- (BOOL)isCurrentPageShareable {
+  const GURL& URL = self.webState->GetLastCommittedURL();
+  return URL.is_valid() && !web::GetWebClient()->IsAppSpecificURL(URL);
 }
 
 @end

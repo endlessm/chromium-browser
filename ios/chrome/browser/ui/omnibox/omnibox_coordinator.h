@@ -12,8 +12,10 @@ class ChromeBrowserState;
 }
 class WebOmniboxEditController;
 @class CommandDispatcher;
+@protocol EditViewAnimatee;
 @class OmniboxPopupCoordinator;
 @class OmniboxTextFieldIOS;
+@protocol LocationBarOffsetProvider;
 @protocol OmniboxPopupPositioner;
 
 // The coordinator for the omnibox.
@@ -25,10 +27,15 @@ class WebOmniboxEditController;
 @property(nonatomic, assign) ios::ChromeBrowserState* browserState;
 // The dispatcher for this view controller.
 @property(nonatomic, weak) CommandDispatcher* dispatcher;
+// Returns the animatee for the omnibox focus orchestrator.
+@property(nonatomic, strong, readonly) id<EditViewAnimatee> animatee;
 
 // The view controller managed by this coordinator. The parent of this
 // coordinator is expected to add it to the responder chain.
 - (UIViewController*)managedViewController;
+
+// Offset provider for location bar animations.
+- (id<LocationBarOffsetProvider>)offsetProvider;
 
 // Start this coordinator. When it starts, it expects to have |textField| and
 // |editController|.

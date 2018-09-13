@@ -981,15 +981,14 @@ var drawUnitQuad = function(gl) {
   gl.drawArrays(gl.TRIANGLES, 0, 6);
 };
 
-var dummyProgram = null;
 var dummySetProgramAndDrawNothing = function(gl) {
-  if (!dummyProgram) {
-    dummyProgram = setupProgram(gl, [
+  if (!gl._wtuDummyProgram) {
+    gl._wtuDummyProgram = setupProgram(gl, [
       "void main() { gl_Position = vec4(0.0); }",
       "void main() { gl_FragColor = vec4(0.0); }"
     ], [], []);
   }
-  gl.useProgram(dummyProgram);
+  gl.useProgram(gl._wtuDummyProgram);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 };
 
@@ -2866,6 +2865,35 @@ var waitForComposite = function(callback) {
   countDown();
 };
 
+var setZeroTimeout = (function() {
+  // See https://dbaron.org/log/20100309-faster-timeouts
+
+  var timeouts = [];
+  var messageName = "zero-timeout-message";
+
+  // Like setTimeout, but only takes a function argument.  There's
+  // no time argument (always zero) and no arguments (you have to
+  // use a closure).
+  function setZeroTimeout(fn) {
+      timeouts.push(fn);
+      window.postMessage(messageName, "*");
+  }
+
+  function handleMessage(event) {
+      if (event.source == window && event.data == messageName) {
+          event.stopPropagation();
+          if (timeouts.length > 0) {
+              var fn = timeouts.shift();
+              fn();
+          }
+      }
+  }
+
+  window.addEventListener("message", handleMessage, true);
+
+  return setZeroTimeout;
+})();
+
 /**
  * Runs an array of functions, yielding to the browser between each step.
  * If you want to know when all the steps are finished add a last step.
@@ -3140,6 +3168,7 @@ var API = {
   clearAndDrawUnitQuad: clearAndDrawUnitQuad,
   clearAndDrawIndexedQuad: clearAndDrawIndexedQuad,
   comparePixels: comparePixels,
+  dispatchTask: setZeroTimeout,
   displayImageDiff: displayImageDiff,
   drawUnitQuad: drawUnitQuad,
   drawIndexedQuad: drawIndexedQuad,

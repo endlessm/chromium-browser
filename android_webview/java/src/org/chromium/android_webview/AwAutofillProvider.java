@@ -255,6 +255,10 @@ public class AwAutofillProvider extends AutofillProvider {
         // return.
         if (mRequest == null) return;
         mRequest.fillViewStructure(structure);
+        if (AwAutofillManager.isLoggable()) {
+            AwAutofillManager.log(
+                    "onProvideAutoFillVirtualStructure fields:" + structure.getChildCount());
+        }
         mAutofillUMA.onVirtualStructureProvided();
     }
 
@@ -262,6 +266,9 @@ public class AwAutofillProvider extends AutofillProvider {
     public void autofill(final SparseArray<AutofillValue> values) {
         if (mNativeAutofillProvider != 0 && mRequest != null && mRequest.autofill((values))) {
             autofill(mNativeAutofillProvider, mRequest.mFormData);
+            if (AwAutofillManager.isLoggable()) {
+                AwAutofillManager.log("autofill values:" + values.size());
+            }
             mAutofillUMA.onAutofill();
         }
     }
@@ -290,6 +297,7 @@ public class AwAutofillProvider extends AutofillProvider {
         if (!BuildInfo.isAtLeastP()) {
             mAutofillManager.cancel();
         }
+        mAutofillManager.notifyNewSessionStarted();
         Rect absBound = transformToWindowBounds(new RectF(x, y, x + width, y + height));
         mRequest = new AutofillRequest(formData, new FocusField((short) focus, absBound));
         int virtualId = mRequest.getVirtualId((short) focus);

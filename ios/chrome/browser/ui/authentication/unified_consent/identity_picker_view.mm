@@ -7,12 +7,15 @@
 #include "base/logging.h"
 #import "ios/chrome/browser/ui/authentication/unified_consent/identity_chooser/identity_view.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #import "ios/third_party/material_components_ios/src/components/Ink/src/MaterialInk.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+NSString* const kIdentityPickerViewIdentifier =
+    @"kIdentityPickerViewIdentifier";
 
 namespace {
 
@@ -43,6 +46,7 @@ const int kHeaderBackgroundColor = 0xf1f3f4;
 - (instancetype)initWithFrame:(CGRect)frame {
   self = [super initWithFrame:frame];
   if (self) {
+    self.accessibilityIdentifier = kIdentityPickerViewIdentifier;
     self.layer.cornerRadius = kIdentityPickerViewRadius;
     self.backgroundColor = UIColorFromRGB(kHeaderBackgroundColor);
     // Adding view elements inside.

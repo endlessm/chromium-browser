@@ -12,12 +12,21 @@ namespace ui {
 class MouseEvent;
 }
 
+namespace views {
+class InkDrop;
+}
+
 namespace media_router {
 
 // A button representing a sink in the Cast dialog. It is highlighted when
 // hovered or selected.
 class CastDialogSinkButton : public HoverButton {
  public:
+  // Icon sizes in DIP. These values are also used by the "no devices" view for
+  // consistency.
+  static int kPrimaryIconSize;
+  static int kSecondaryIconSize;
+
   CastDialogSinkButton(views::ButtonListener* button_listener,
                        const UIMediaSink& sink);
   ~CastDialogSinkButton() override;
@@ -27,7 +36,9 @@ class CastDialogSinkButton : public HoverButton {
 
   // views::View:
   bool OnMousePressed(const ui::MouseEvent& event) override;
-  void OnBlur() override;
+  void OnMouseReleased(const ui::MouseEvent& event) override;
+  bool OnKeyPressed(const ui::KeyEvent& event) override;
+  std::unique_ptr<views::InkDrop> CreateInkDrop() override;
 
   // Returns the text that should be shown on the main action button of the Cast
   // dialog when this button is selected.

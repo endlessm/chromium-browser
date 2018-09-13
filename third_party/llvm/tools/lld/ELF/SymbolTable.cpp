@@ -38,7 +38,7 @@ static InputFile *getFirstElf() {
     return ObjectFiles[0];
   if (!SharedFiles.empty())
     return SharedFiles[0];
-  return nullptr;
+  return BitcodeFiles[0];
 }
 
 // All input object files must be for the same architecture
@@ -158,6 +158,12 @@ template <class ELFT> void SymbolTable::addSymbolWrap(StringRef Name) {
   Symbol *Sym = find(Name);
   if (!Sym)
     return;
+
+  // Do not wrap the same symbol twice.
+  for (const WrappedSymbol &S : WrappedSymbols)
+    if (S.Sym == Sym)
+      return;
+
   Symbol *Real = addUndefined<ELFT>(Saver.save("__real_" + Name));
   Symbol *Wrap = addUndefined<ELFT>(Saver.save("__wrap_" + Name));
   WrappedSymbols.push_back({Sym, Real, Wrap});
@@ -373,8 +379,9 @@ Symbol *SymbolTable::addUndefined(StringRef Name, uint8_t Binding,
     bool Backref =
         Config->WarnBackrefs && File && S->File->GroupId < File->GroupId;
     fetchLazy<ELFT>(S);
+
     // We don't report backward references to weak symbols as they can be
-    // overriden later.
+    // overridden later.
     if (Backref && S->Binding != STB_WEAK)
       warn("backward reference detected: " + Name + " in " + toString(File) +
            " refers to " + toString(S->File));

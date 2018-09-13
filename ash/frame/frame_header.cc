@@ -9,6 +9,7 @@
 #include "ash/frame/frame_header_util.h"
 #include "ash/public/cpp/ash_layout_constants.h"
 #include "ash/public/cpp/vector_icons/vector_icons.h"
+#include "ash/public/cpp/window_properties.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "base/logging.h"  // DCHECK
 #include "ui/gfx/canvas.h"
@@ -86,7 +87,7 @@ void FrameHeader::SetHeaderHeightForPainting(int height) {
 }
 
 void FrameHeader::SchedulePaintForTitle() {
-  view_->SchedulePaintInRect(GetTitleBounds());
+  view_->SchedulePaintInRect(view_->GetMirroredRect(GetTitleBounds()));
 }
 
 void FrameHeader::SetPaintAsActive(bool paint_as_active) {
@@ -114,7 +115,7 @@ void FrameHeader::SetLeftHeaderView(views::View* left_header_view) {
 void FrameHeader::SetBackButton(FrameCaptionButton* back_button) {
   back_button_ = back_button;
   if (back_button_) {
-    back_button_->SetColorMode(button_color_mode_);
+    back_button_->SetColorMode(GetButtonColorMode());
     back_button_->SetBackgroundColor(GetCurrentFrameColor());
     back_button_->SetImage(CAPTION_BUTTON_ICON_BACK,
                            FrameCaptionButton::ANIMATE_NO,
@@ -129,6 +130,12 @@ FrameCaptionButton* FrameHeader::GetBackButton() const {
 void FrameHeader::SetFrameColors(SkColor active_frame_color,
                                  SkColor inactive_frame_color) {
   DoSetFrameColors(active_frame_color, inactive_frame_color);
+}
+
+void FrameHeader::SetFrameTextOverride(
+    const base::string16& frame_text_override) {
+  frame_text_override_ = frame_text_override;
+  SchedulePaintForTitle();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -152,24 +159,30 @@ gfx::Rect FrameHeader::GetPaintedBounds() const {
 }
 
 void FrameHeader::UpdateCaptionButtonColors() {
-  caption_button_container_->SetColorMode(button_color_mode_);
+  auto button_color_mode = GetButtonColorMode();
+
+  caption_button_container_->SetColorMode(button_color_mode);
   caption_button_container_->SetBackgroundColor(GetCurrentFrameColor());
   if (back_button_) {
-    back_button_->SetColorMode(button_color_mode_);
+    back_button_->SetColorMode(button_color_mode);
     back_button_->SetBackgroundColor(GetCurrentFrameColor());
   }
 }
 
 void FrameHeader::PaintTitleBar(gfx::Canvas* canvas) {
+  base::string16 text = frame_text_override_;
   views::WidgetDelegate* target_widget_delegate =
       target_widget_->widget_delegate();
-  if (target_widget_delegate &&
-      target_widget_delegate->ShouldShowWindowTitle() &&
-      !target_widget_delegate->GetWindowTitle().empty()) {
+  if (text.empty() && target_widget_delegate &&
+      target_widget_delegate->ShouldShowWindowTitle()) {
+    text = target_widget_delegate->GetWindowTitle();
+  }
+
+  if (!text.empty()) {
     canvas->DrawStringRectWithFlags(
-        target_widget_delegate->GetWindowTitle(),
-        views::NativeWidgetAura::GetWindowTitleFontList(), GetTitleColor(),
-        GetTitleBounds(), gfx::Canvas::NO_SUBPIXEL_RENDERING);
+        text, views::NativeWidgetAura::GetWindowTitleFontList(),
+        GetTitleColor(), view_->GetMirroredRect(GetTitleBounds()),
+        gfx::Canvas::NO_SUBPIXEL_RENDERING);
   }
 }
 
@@ -237,8 +250,15 @@ void FrameHeader::LayoutHeaderInternal() {
 
 gfx::Rect FrameHeader::GetTitleBounds() const {
   views::View* left_view = left_header_view_ ? left_header_view_ : back_button_;
-  return view_->GetMirroredRect(FrameHeaderUtil::GetAvailableTitleBounds(
-      left_view, caption_button_container_, GetHeaderHeight()));
+  return FrameHeaderUtil::GetAvailableTitleBounds(
+      left_view, caption_button_container_, GetHeaderHeight());
+}
+
+FrameCaptionButton::ColorMode FrameHeader::GetButtonColorMode() {
+  return target_widget()->GetNativeWindow()->GetProperty(
+             ash::kFrameIsThemedByHostedAppKey)
+             ? FrameCaptionButton::ColorMode::kThemed
+             : FrameCaptionButton::ColorMode::kDefault;
 }
 
 }  // namespace ash

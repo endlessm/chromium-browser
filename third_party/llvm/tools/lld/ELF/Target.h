@@ -59,6 +59,13 @@ public:
   virtual bool needsThunk(RelExpr Expr, RelType RelocType,
                           const InputFile *File, uint64_t BranchAddr,
                           const Symbol &S) const;
+
+  // The function with a prologue starting at Loc was compiled with
+  // -fsplit-stack and it calls a function compiled without. Adjust the prologue
+  // to do the right thing. See https://gcc.gnu.org/wiki/SplitStacks.
+  virtual bool adjustPrologueForCrossSplitStack(uint8_t *Loc,
+                                                uint8_t *End) const;
+
   // Return true if we can reach Dst from Src with Relocation RelocType
   virtual bool inBranchRange(RelType Type, uint64_t Src,
                              uint64_t Dst) const;
@@ -105,8 +112,14 @@ public:
   // On PPC ELF V2 abi, the first entry in the .got is the .TOC.
   unsigned GotHeaderEntriesNum = 0;
 
-  // Set to 0 for variant 2
+  // For TLS variant 1, the TCB is a fixed size specified by the Target.
+  // For variant 2, the TCB is an unspecified size.
+  // Set to 0 for variant 2.
   unsigned TcbSize = 0;
+
+  // Set to the offset (in bytes) that the thread pointer is initialized to
+  // point to, relative to the start of the thread local storage.
+  unsigned TlsTpOffset = 0;
 
   bool NeedsThunks = false;
 
@@ -134,6 +147,7 @@ TargetInfo *getAArch64TargetInfo();
 TargetInfo *getAMDGPUTargetInfo();
 TargetInfo *getARMTargetInfo();
 TargetInfo *getAVRTargetInfo();
+TargetInfo *getHexagonTargetInfo();
 TargetInfo *getPPC64TargetInfo();
 TargetInfo *getPPCTargetInfo();
 TargetInfo *getSPARCV9TargetInfo();

@@ -40,6 +40,9 @@ enum class BuildIdKind { None, Fast, Md5, Sha1, Hexstring, Uuid };
 // For --discard-{all,locals,none}.
 enum class DiscardPolicy { Default, All, Locals, None };
 
+// For --icf={none,safe,all}.
+enum class ICFLevel { None, Safe, All };
+
 // For --strip-{all,debug}.
 enum class StripPolicy { None, All, Debug };
 
@@ -80,6 +83,7 @@ struct Configuration {
   llvm::StringMap<uint64_t> SectionStartMap;
   llvm::StringRef Chroot;
   llvm::StringRef DynamicLinker;
+  llvm::StringRef DwoDir;
   llvm::StringRef Entry;
   llvm::StringRef Emulation;
   llvm::StringRef Fini;
@@ -113,7 +117,7 @@ struct Configuration {
                   uint64_t>
       CallGraphProfile;
   bool AllowMultipleDefinition;
-  bool AndroidPackDynRelocs = false;
+  bool AndroidPackDynRelocs;
   bool ARMHasBlx = false;
   bool ARMHasMovtMovw = false;
   bool ARMJ1J2BranchEncoding = false;
@@ -137,7 +141,6 @@ struct Configuration {
   bool GnuUnique;
   bool HasDynamicList = false;
   bool HasDynSymTab;
-  bool ICF;
   bool IgnoreDataAddressEquality;
   bool IgnoreFunctionAddressEquality;
   bool LTODebugPassManager;
@@ -153,6 +156,7 @@ struct Configuration {
   bool PrintGcSections;
   bool PrintIcfSections;
   bool Relocatable;
+  bool RelrPackDynRelocs;
   bool SaveTemps;
   bool SingleRoRx;
   bool Shared;
@@ -163,6 +167,7 @@ struct Configuration {
   bool ThinLTOEmitImportsFiles;
   bool ThinLTOIndexOnly;
   bool UndefinedVersion;
+  bool UseAndroidRelrTags = false;
   bool WarnBackrefs;
   bool WarnCommon;
   bool WarnMissingEntry;
@@ -172,6 +177,7 @@ struct Configuration {
   bool ZCopyreloc;
   bool ZExecstack;
   bool ZHazardplt;
+  bool ZInitfirst;
   bool ZKeepTextSectionPrefix;
   bool ZNodelete;
   bool ZNodlopen;
@@ -183,6 +189,7 @@ struct Configuration {
   bool ZRetpolineplt;
   bool ZWxneeded;
   DiscardPolicy Discard;
+  ICFLevel ICF;
   OrphanHandlingPolicy OrphanHandling;
   SortSectionPolicy SortSection;
   StripPolicy Strip;
@@ -194,6 +201,7 @@ struct Configuration {
   uint16_t EMachine = llvm::ELF::EM_NONE;
   llvm::Optional<uint64_t> ImageBase;
   uint64_t MaxPageSize;
+  uint64_t MipsGotSize;
   uint64_t ZStackSize;
   unsigned LTOPartitions;
   unsigned LTOO;

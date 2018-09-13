@@ -55,6 +55,8 @@ const SkColor kMobileNotConnectedXIconColor = SkColorSetRGB(0xb2, 0xb2, 0xb2);
 
 const int kTrayIconSize = 16;
 const SkColor kTrayIconColor = SK_ColorWHITE;
+const SkColor kOobeTrayIconColor = gfx::kGoogleGrey600;
+
 const int kMenuIconSize = 20;
 const SkColor kMenuIconColor = gfx::kChromeIconGrey;
 const SkColor kMenuIconColorDisabled = SkColorSetA(gfx::kChromeIconGrey, 0x61);
@@ -76,5 +78,12 @@ const int kTrayPopupInkDropInset = 4;
 const int kTrayPopupInkDropCornerRadius = 2;
 
 const int kTrayPopupSystemInfoRowHeight = 40;
+
+static_assert(kTrayMenuWidth == kUnifiedFeaturePodHorizontalSidePadding * 2 +
+                                    kUnifiedFeaturePodHorizontalMiddlePadding *
+                                        (kUnifiedFeaturePodItemsInRow - 1) +
+                                    kUnifiedFeaturePodSize.width() *
+                                        kUnifiedFeaturePodItemsInRow,
+              "Total feature pod width does not match kTrayMenuWidth");
 
 }  // namespace ash

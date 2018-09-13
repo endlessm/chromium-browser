@@ -84,7 +84,7 @@ static void PrintZoneForPointer(uptr ptr, uptr zone_ptr,
 bool ParseFrameDescription(const char *frame_descr,
                            InternalMmapVector<StackVarDescr> *vars) {
   CHECK(frame_descr);
-  char *p;
+  const char *p;
   // This string is created by the compiler and has the following form:
   // "n alloc_1 alloc_2 ... alloc_n"
   // where alloc_i looks like "offset size len ObjectName"
@@ -206,7 +206,7 @@ class ScopedInErrorReport {
   bool halt_on_error_;
 };
 
-ErrorDescription ScopedInErrorReport::current_error_;
+ErrorDescription ScopedInErrorReport::current_error_(LINKER_INITIALIZED);
 
 void ReportDeadlySignal(const SignalContext &sig) {
   ScopedInErrorReport in_report(/*fatal*/ true);
@@ -275,6 +275,14 @@ void ReportInvalidAllocationAlignment(uptr alignment,
   ScopedInErrorReport in_report(/*fatal*/ true);
   ErrorInvalidAllocationAlignment error(GetCurrentTidOrInvalid(), stack,
                                         alignment);
+  in_report.ReportError(error);
+}
+
+void ReportInvalidAlignedAllocAlignment(uptr size, uptr alignment,
+                                        BufferedStackTrace *stack) {
+  ScopedInErrorReport in_report(/*fatal*/ true);
+  ErrorInvalidAlignedAllocAlignment error(GetCurrentTidOrInvalid(), stack,
+                                          size, alignment);
   in_report.ReportError(error);
 }
 

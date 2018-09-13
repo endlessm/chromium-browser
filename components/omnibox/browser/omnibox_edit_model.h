@@ -81,6 +81,11 @@ class OmniboxEditModel {
     const AutocompleteInput autocomplete_input;
   };
 
+  // This is a mirror of content::kMaxURLDisplayChars because ios cannot depend
+  // on content. If clipboard contains more than kMaxPasteAndGoTextLength
+  // characters, then the paste & go option will be disabled.
+  static const size_t kMaxPasteAndGoTextLength = 32 * 1024;
+
   OmniboxEditModel(OmniboxView* view,
                    OmniboxEditController* controller,
                    std::unique_ptr<OmniboxClient> client);
@@ -130,9 +135,6 @@ class OmniboxEditModel {
   // Returns true if the current edit contents will be treated as a
   // URL/navigation, as opposed to a search.
   bool CurrentTextIsURL() const;
-
-  // Returns the match type for the current edit contents.
-  AutocompleteMatch::Type CurrentTextType() const;
 
   // Invoked to adjust the text before writting to the clipboard for a copy
   // (e.g. by adding 'http' to the front). |sel_min| gives the minimum position
@@ -228,6 +230,8 @@ class OmniboxEditModel {
 
   OmniboxFocusState focus_state() const { return focus_state_; }
   bool has_focus() const { return focus_state_ != OMNIBOX_FOCUS_NONE; }
+
+  // This is the same as when the Omnibox is visibly focused.
   bool is_caret_visible() const {
     return focus_state_ == OMNIBOX_FOCUS_VISIBLE;
   }

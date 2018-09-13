@@ -65,7 +65,9 @@ class ChangeListLoader {
                    JobScheduler* scheduler,
                    RootFolderIdLoader* root_folder_id_loader,
                    StartPageTokenLoader* start_page_token_loader,
-                   LoaderController* apply_task_controller);
+                   LoaderController* apply_task_controller,
+                   const std::string& team_drive_id,
+                   const base::FilePath& root_entry_path);
   ~ChangeListLoader();
 
   // Indicates whether there is a request for full resource list or change
@@ -129,12 +131,9 @@ class ChangeListLoader {
   // TODO(sashab): Currently, team_drives_change_lists always contains all of
   // the team drives. Update this so team_drives_change_lists is only filled
   // when the TD flag is newly turned on or local data cleared. crbug.com/829154
-  void LoadChangeListFromServer(
-      const std::string& remote_start_page_token,
-      const std::string& local_start_page_token,
-      const std::string& root_resource_id,
-      FileError error,
-      std::vector<std::unique_ptr<ChangeList>> team_drives_change_lists);
+  void LoadChangeListFromServer(const std::string& remote_start_page_token,
+                                const std::string& local_start_page_token,
+                                const std::string& root_resource_id);
 
   // Part of LoadChangeListFromServer().
   // Called when the entire change list is loaded.
@@ -142,7 +141,6 @@ class ChangeListLoader {
       const std::string& start_page_token,
       const std::string& root_resource_id,
       bool is_delta_update,
-      std::vector<std::unique_ptr<ChangeList>> team_drives_change_lists,
       FileError error,
       std::vector<std::unique_ptr<ChangeList>> change_lists);
 
@@ -174,6 +172,17 @@ class ChangeListLoader {
   // True if the full resource list is loaded (i.e. the resource metadata is
   // stored locally).
   bool loaded_;
+
+  // The team drive id for the changes being loaded by this change list loader.
+  const std::string team_drive_id_;
+
+  // The formatted team drive id message used for logging.
+  const std::string team_drive_msg_;
+
+  // The root entry path for changes being loaded by this change list loader.
+  // Can be a team drive root entry or for the users default corpus will be the
+  // drive root entry.
+  const base::FilePath root_entry_path_;
 
   THREAD_CHECKER(thread_checker_);
 

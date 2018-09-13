@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "ash/message_center/message_center_view.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/shell.h"
 #include "ash/system/message_center/arc/arc_notification_content_view.h"
 #include "ash/system/message_center/arc/arc_notification_delegate.h"
@@ -21,6 +22,7 @@
 #include "ash/system/message_center/notification_tray.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/status_area_widget_test_helper.h"
+#include "ash/system/unified/unified_system_tray.h"
 #include "ash/test/ash_test_base.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -61,7 +63,8 @@ class MockKeyboardDelegate : public exo::KeyboardDelegate {
   MOCK_METHOD1(OnKeyboardDestroying, void(exo::Keyboard*));
   MOCK_CONST_METHOD1(CanAcceptKeyboardEventsForSurface, bool(exo::Surface*));
   MOCK_METHOD2(OnKeyboardEnter,
-               void(exo::Surface*, const base::flat_set<ui::DomCode>&));
+               void(exo::Surface*,
+                    const base::flat_map<ui::DomCode, ui::DomCode>&));
   MOCK_METHOD1(OnKeyboardLeave, void(exo::Surface*));
   MOCK_METHOD3(OnKeyboardKey, uint32_t(base::TimeTicks, ui::DomCode, bool));
   MOCK_METHOD1(OnKeyboardModifiers, void(int));
@@ -236,8 +239,9 @@ class ArcNotificationContentViewTest : public AshTestBase {
   ArcNotificationContentView* GetArcNotificationContentView() const {
     return notification_view_->content_view_;
   }
+
   void ActivateArcNotification() {
-    GetArcNotificationContentView()->Activate();
+    GetArcNotificationContentView()->ActivateWidget(true);
   }
 
  private:
@@ -341,14 +345,22 @@ TEST_F(ArcNotificationContentViewTest, CloseButtonInMessageCenterView) {
           }));
 
   // Show MessageCenterView and activate its widget.
-  auto* notification_tray =
-      StatusAreaWidgetTestHelper::GetStatusAreaWidget()->notification_tray();
-  notification_tray->ShowBubble(false /* show_by_click */);
-  notification_tray->GetBubbleView()
-      ->GetWidget()
-      ->widget_delegate()
-      ->set_can_activate(true);
-  notification_tray->GetBubbleView()->GetWidget()->Activate();
+  if (features::IsSystemTrayUnifiedEnabled()) {
+    auto* unified_system_tray =
+        StatusAreaWidgetTestHelper::GetStatusAreaWidget()
+            ->unified_system_tray();
+    unified_system_tray->ShowBubble(false /* show_by_click */);
+    unified_system_tray->ActivateBubble();
+  } else {
+    auto* notification_tray =
+        StatusAreaWidgetTestHelper::GetStatusAreaWidget()->notification_tray();
+    notification_tray->ShowBubble(false /* show_by_click */);
+    notification_tray->GetBubbleView()
+        ->GetWidget()
+        ->widget_delegate()
+        ->set_can_activate(true);
+    notification_tray->GetBubbleView()->GetWidget()->Activate();
+  }
 
   auto notification_item =
       std::make_unique<MockArcNotificationItem>(notification_key);
@@ -464,7 +476,7 @@ TEST_F(ArcNotificationContentViewTest, Activate) {
   CloseNotificationView();
 }
 
-TEST_F(ArcNotificationContentViewTest, ActivateOnClick) {
+TEST_F(ArcNotificationContentViewTest, NotActivateOnClick) {
   std::string key("notification id");
   auto notification_item = std::make_unique<MockArcNotificationItem>(key);
   auto notification = CreateNotification(notification_item.get());
@@ -476,7 +488,24 @@ TEST_F(ArcNotificationContentViewTest, ActivateOnClick) {
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow(),
                                      kNotificationSurfaceBounds.CenterPoint());
   generator.PressLeftButton();
+  EXPECT_EQ(nullptr, GetFocusedWindow());
+
+  CloseNotificationView();
+}
+
+TEST_F(ArcNotificationContentViewTest, ActivateWhenRemoteInputOpens) {
+  std::string key("notification id");
+  auto notification_item = std::make_unique<MockArcNotificationItem>(key);
+  auto notification = CreateNotification(notification_item.get());
+
+  PrepareSurface(key);
+  CreateAndShowNotificationView(notification);
+
+  EXPECT_EQ(nullptr, GetFocusedWindow());
+  GetArcNotificationContentView()->OnRemoteInputActivationChanged(true);
   EXPECT_EQ(surface()->window(), GetFocusedWindow());
+  GetArcNotificationContentView()->OnRemoteInputActivationChanged(false);
+  EXPECT_NE(surface()->window(), GetFocusedWindow());
 
   CloseNotificationView();
 }
@@ -501,6 +530,8 @@ TEST_F(ArcNotificationContentViewTest, AcceptInputTextWithActivate) {
 
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
   EXPECT_CALL(delegate, OnKeyboardKey(testing::_, ui::DomCode::US_A, true));
+  seat.set_physical_code_for_currently_processing_event_for_testing(
+      ui::DomCode::US_A);
   generator.PressKey(ui::VKEY_A, 0);
 
   keyboard.reset();
@@ -525,6 +556,8 @@ TEST_F(ArcNotificationContentViewTest, NotAcceptInputTextWithoutActivate) {
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
   EXPECT_CALL(delegate, OnKeyboardKey(testing::_, testing::_, testing::_))
       .Times(0);
+  seat.set_physical_code_for_currently_processing_event_for_testing(
+      ui::DomCode::US_A);
   generator.PressKey(ui::VKEY_A, 0);
 
   keyboard.reset();

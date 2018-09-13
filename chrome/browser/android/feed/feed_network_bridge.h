@@ -5,7 +5,10 @@
 #ifndef CHROME_BROWSER_ANDROID_FEED_FEED_NETWORK_BRIDGE_H_
 #define CHROME_BROWSER_ANDROID_FEED_FEED_NETWORK_BRIDGE_H_
 
+#include <jni.h>
+
 #include "base/android/scoped_java_ref.h"
+#include "base/macros.h"
 
 namespace feed {
 
@@ -13,8 +16,8 @@ class FeedNetworkingHost;
 
 // Native counterpart of FeedNetworkBridge.java. Holds non-owning pointers to
 // native implementation, to which operations are delegated. Results are passed
-// back by a single argument callback so base::android::RunCallbackAndroid() can
-// be used. This bridge is instantiated, owned, and destroyed from Java.
+// back by a single argument callback so base::android::RunObjectCallbackAndroid
+// can be used. This bridge is instantiated, owned, and destroyed from Java.
 class FeedNetworkBridge {
  public:
   explicit FeedNetworkBridge(

@@ -87,7 +87,6 @@ public class OfflineContentAggregatorNotificationBridgeUi
 
     @Override
     public void onItemUpdated(OfflineItem item) {
-        // Assume that any item sending updates should have them reflected in the UI.
         getVisualsAndUpdateItem(item);
     }
 
@@ -148,7 +147,9 @@ public class OfflineContentAggregatorNotificationBridgeUi
     }
 
     private void pushItemToUi(OfflineItem item, OfflineItemVisuals visuals) {
-        if (!shouldShowNotification(item)) return;
+        // TODO(http://crbug.com/855141): Find a cleaner way to hide unimportant UI updates.
+        // If it's a suggested page, do not add it to the notification UI.
+        if (LegacyHelpers.isLegacyOfflinePage(item.id) && item.isSuggested) return;
 
         DownloadInfo info = DownloadInfo.fromOfflineItem(item, visuals);
         switch (item.state) {
@@ -156,7 +157,7 @@ public class OfflineContentAggregatorNotificationBridgeUi
                 mUi.notifyDownloadProgress(info, item.creationTimeMs, item.allowMetered);
                 break;
             case OfflineItemState.COMPLETE:
-                mUi.notifyDownloadSuccessful(info, -1L, false, false);
+                mUi.notifyDownloadSuccessful(info, -1L, false, item.isOpenable);
                 break;
             case OfflineItemState.CANCELLED:
                 mUi.notifyDownloadCanceled(item.id);
@@ -172,7 +173,7 @@ public class OfflineContentAggregatorNotificationBridgeUi
                 mUi.notifyDownloadFailed(info, item.failState);
                 break;
             case OfflineItemState.PENDING:
-                // Not Implemented.
+                mUi.notifyDownloadPaused(info);
                 break;
             default:
                 assert false : "Unexpected OfflineItem state.";
@@ -188,7 +189,7 @@ public class OfflineContentAggregatorNotificationBridgeUi
             case OfflineItemState.FAILED:
             case OfflineItemState.PAUSED:
                 return true;
-            case OfflineItemState.CANCELLED:
+            // OfflineItemState.CANCELLED
             default:
                 return false;
         }
@@ -197,13 +198,11 @@ public class OfflineContentAggregatorNotificationBridgeUi
     private boolean shouldPushNewItemToUi(OfflineItem item) {
         switch (item.state) {
             case OfflineItemState.IN_PROGRESS:
-                return true;
             case OfflineItemState.PENDING:
-            case OfflineItemState.COMPLETE:
-            case OfflineItemState.INTERRUPTED:
-            case OfflineItemState.FAILED:
-            case OfflineItemState.PAUSED:
-            case OfflineItemState.CANCELLED:
+                return true;
+            // OfflineItemState.COMPLETE, OfflineItemState.INTERRUPTED,
+            // OfflineItemState.FAILED, OfflineItemState.PAUSED,
+            // OfflineItemState.CANCELLED
             default:
                 return false;
         }
@@ -216,17 +215,10 @@ public class OfflineContentAggregatorNotificationBridgeUi
             case OfflineItemState.INTERRUPTED:
             case OfflineItemState.PAUSED:
                 return true;
-            case OfflineItemState.FAILED:
-            case OfflineItemState.COMPLETE:
-            case OfflineItemState.CANCELLED:
+            // OfflineItemState.FAILED, OfflineItemState.COMPLETE,
+            // OfflineItemState.CANCELLED
             default:
                 return false;
         }
-    }
-
-    private boolean shouldShowNotification(OfflineItem item) {
-        // Temporarily return immediately to prevent unnecessary notifications for offline pages
-        // until https://crbug.com/831083 and https://crbug.com/832282 are fixed.
-        return !LegacyHelpers.isLegacyOfflinePage(item.id);
     }
 }

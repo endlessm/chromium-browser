@@ -14,37 +14,11 @@ FeaturePodsContainerView::FeaturePodsContainerView(bool initially_expanded)
 
 FeaturePodsContainerView::~FeaturePodsContainerView() = default;
 
-gfx::Size FeaturePodsContainerView::CalculatePreferredSize() const {
-  const int collapsed_height = 2 * kUnifiedFeaturePodCollapsedVerticalPadding +
-                               kUnifiedFeaturePodCollapsedSize.height();
-
-  int visible_count = 0;
-  for (int i = 0; i < child_count(); ++i) {
-    if (static_cast<const FeaturePodButton*>(child_at(i))->visible_preferred())
-      ++visible_count;
-  }
-
-  // floor(visible_count / kUnifiedFeaturePodItemsInRow)
-  int number_of_lines = (visible_count + kUnifiedFeaturePodItemsInRow - 1) /
-                        kUnifiedFeaturePodItemsInRow;
-  const int expanded_height =
-      kUnifiedFeaturePodVerticalPadding +
-      (kUnifiedFeaturePodVerticalPadding + kUnifiedFeaturePodSize.height()) *
-          number_of_lines;
-
-  return gfx::Size(
-      kTrayMenuWidth,
-      static_cast<int>(collapsed_height * (1.0 - expanded_amount_) +
-                       expanded_height * expanded_amount_));
-}
-
 void FeaturePodsContainerView::SetExpandedAmount(double expanded_amount) {
   DCHECK(0.0 <= expanded_amount && expanded_amount <= 1.0);
   if (expanded_amount_ == expanded_amount)
     return;
   expanded_amount_ = expanded_amount;
-
-  PreferredSizeChanged();
 
   for (int i = 0; i < child_count(); ++i) {
     auto* child = static_cast<FeaturePodButton*>(child_at(i));
@@ -55,15 +29,64 @@ void FeaturePodsContainerView::SetExpandedAmount(double expanded_amount) {
   Layout();
 }
 
+int FeaturePodsContainerView::GetExpandedHeight() const {
+  int visible_count = 0;
+  for (int i = 0; i < child_count(); ++i) {
+    if (static_cast<const FeaturePodButton*>(child_at(i))->visible_preferred())
+      ++visible_count;
+  }
+
+  // floor(visible_count / kUnifiedFeaturePodItemsInRow)
+  int number_of_lines = (visible_count + kUnifiedFeaturePodItemsInRow - 1) /
+                        kUnifiedFeaturePodItemsInRow;
+  return kUnifiedFeaturePodVerticalPadding +
+         (kUnifiedFeaturePodVerticalPadding + kUnifiedFeaturePodSize.height()) *
+             number_of_lines;
+}
+
+void FeaturePodsContainerView::SaveFocus() {
+  focused_button_ = nullptr;
+  for (int i = 0; i < child_count(); ++i) {
+    auto* child = child_at(i);
+    if (child->HasFocus()) {
+      focused_button_ = child;
+      break;
+    }
+  }
+}
+
+void FeaturePodsContainerView::RestoreFocus() {
+  if (focused_button_)
+    focused_button_->RequestFocus();
+}
+
+gfx::Size FeaturePodsContainerView::CalculatePreferredSize() const {
+  const int collapsed_height = 2 * kUnifiedFeaturePodCollapsedVerticalPadding +
+                               kUnifiedFeaturePodCollapsedSize.height();
+  return gfx::Size(
+      kTrayMenuWidth,
+      static_cast<int>(collapsed_height * (1.0 - expanded_amount_) +
+                       GetExpandedHeight() * expanded_amount_));
+}
+
 void FeaturePodsContainerView::ChildVisibilityChanged(View* child) {
-  // ChildVisibilityChanged can change child visibility in
-  // UpdateChildVisibility(), so we have to prevent this.
+  // ChildVisibilityChanged can change child visibility using
+  // SetVisibleByContainer() in UpdateChildVisibility(), so we have to prevent
+  // reentrancy.
   if (changing_visibility_)
     return;
 
+  // Visibility change is caused by the child's SetVisible(), so update actual
+  // visibility and propagate the container size change to the parent.
   UpdateChildVisibility();
+  PreferredSizeChanged();
   Layout();
   SchedulePaint();
+}
+
+void FeaturePodsContainerView::ViewHierarchyChanged(
+    const ViewHierarchyChangedDetails& details) {
+  UpdateChildVisibility();
 }
 
 void FeaturePodsContainerView::Layout() {
@@ -75,10 +98,20 @@ void FeaturePodsContainerView::Layout() {
     if (!child->visible())
       continue;
 
-    child->SetBoundsRect(gfx::Rect(GetButtonPosition(visible_count++),
-                                   expanded_amount_ > 0.0
-                                       ? kUnifiedFeaturePodSize
-                                       : kUnifiedFeaturePodCollapsedSize));
+    gfx::Size child_size;
+    if (expanded_amount_ > 0.0) {
+      child_size = kUnifiedFeaturePodSize;
+
+      // Flexibly give more height if the child view doesn't fit into the
+      // default height, so that label texts won't be broken up in the middle.
+      child_size.set_height(std::max(
+          child_size.height(), child->GetHeightForWidth(child_size.height())));
+    } else {
+      child_size = kUnifiedFeaturePodCollapsedSize;
+    }
+
+    child->SetBoundsRect(
+        gfx::Rect(GetButtonPosition(visible_count++), child_size));
     child->Layout();
   }
 }

@@ -43,7 +43,8 @@ class MultiplexedChannelImpl : public MultiplexedChannel,
         std::unique_ptr<AuthenticatedChannel> authenticated_channel,
         MultiplexedChannel::Delegate* delegate,
         ConnectionDetails connection_details,
-        std::vector<ClientConnectionParameters>* initial_clients);
+        std::vector<std::unique_ptr<ClientConnectionParameters>>*
+            initial_clients);
 
    private:
     static Factory* test_factory_;
@@ -60,8 +61,8 @@ class MultiplexedChannelImpl : public MultiplexedChannel,
   // MultiplexedChannel:
   bool IsDisconnecting() const override;
   bool IsDisconnected() const override;
-  void PerformAddClientToChannel(
-      ClientConnectionParameters client_connection_parameters) override;
+  void PerformAddClientToChannel(std::unique_ptr<ClientConnectionParameters>
+                                     client_connection_parameters) override;
 
   // AuthenticatedChannel::Observer:
   void OnDisconnected() override;
@@ -72,7 +73,8 @@ class MultiplexedChannelImpl : public MultiplexedChannel,
   void OnSendMessageRequested(const std::string& message_feaure,
                               const std::string& message_payload,
                               base::OnceClosure on_sent_callback) override;
-  const mojom::ConnectionMetadata& GetConnectionMetadata() override;
+  void GetConnectionMetadata(
+      base::OnceCallback<void(mojom::ConnectionMetadataPtr)> callback) override;
   void OnClientDisconnected(const base::UnguessableToken& proxy_id) override;
 
   std::unique_ptr<AuthenticatedChannel> authenticated_channel_;

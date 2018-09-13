@@ -67,7 +67,7 @@ static void updatePHIs(MachineBasicBlock *Successor, MachineBasicBlock *OrigMBB,
     for (unsigned i = 2, e = MI.getNumOperands() + 1; i != e; i += 2) {
       MachineOperand &MO = MI.getOperand(i);
       if (MO.getMBB() == OrigMBB) {
-        // Check if the instruction is actualy defined in NewMBB.
+        // Check if the instruction is actually defined in NewMBB.
         if (MI.getOperand(i - 1).isReg()) {
           MachineInstr *DefMI = MRI->getVRegDef(MI.getOperand(i - 1).getReg());
           if (DefMI->getParent() == NewMBB ||
@@ -91,7 +91,7 @@ static void addIncomingValuesToPHIs(MachineBasicBlock *Successor,
                                     MachineBasicBlock *NewMBB,
                                     MachineRegisterInfo *MRI) {
   assert(OrigMBB->isSuccessor(NewMBB) &&
-         "NewMBB must be a sucessor of OrigMBB");
+         "NewMBB must be a successor of OrigMBB");
   for (auto &MI : Successor->instrs()) {
     if (!MI.isPHI())
       continue;
@@ -152,7 +152,7 @@ static bool splitMBB(BlockSplitInfo &BSI) {
   if (ThisMBB->succ_size() != 2) {
     LLVM_DEBUG(
         dbgs() << "Don't know how to handle blocks that don't have exactly"
-               << " two succesors.\n");
+               << " two successors.\n");
     return false;
   }
 
@@ -501,7 +501,7 @@ PPCReduceCRLogicals::createCRLogicalOpInfo(MachineInstr &MIParam) {
   return Ret;
 }
 
-/// Looks trhough a COPY instruction to the actual definition of the CR-bit
+/// Looks through a COPY instruction to the actual definition of the CR-bit
 /// register and returns the instruction that defines it.
 /// FIXME: This currently handles what is by-far the most common case:
 /// an instruction that defines a CR field followed by a single copy of a bit
@@ -699,7 +699,7 @@ void PPCReduceCRLogicals::collectCRLogicals() {
   }
 }
 
-} // end annonymous namespace
+} // end anonymous namespace
 
 INITIALIZE_PASS_BEGIN(PPCReduceCRLogicals, DEBUG_TYPE,
                       "PowerPC Reduce CR logical Operation", false, false)

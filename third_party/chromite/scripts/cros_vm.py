@@ -19,6 +19,7 @@ from chromite.lib import commandline
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import memoize
 from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import remote_access
@@ -90,7 +91,14 @@ class VM(object):
     # moblab, etc.
 
   def _RunCommand(self, *args, **kwargs):
-    """Use SudoRunCommand or RunCommand as necessary."""
+    """Use SudoRunCommand or RunCommand as necessary.
+
+    Args:
+      args and kwargs: positional and optional args to RunCommand.
+
+    Returns:
+      cros_build_lib.CommandResult object.
+    """
     if self.use_sudo:
       return cros_build_lib.SudoRunCommand(*args, **kwargs)
     else:
@@ -125,7 +133,7 @@ class VM(object):
                         cros_chrome_sdk.COMMAND_NAME,
                         cache_name)
 
-  @cros_build_lib.MemoizedSingleCall
+  @memoize.MemoizedSingleCall
   def _SDKVersion(self):
     """Determine SDK version.
 
@@ -159,7 +167,7 @@ class VM(object):
           return ref.path
     return None
 
-  @cros_build_lib.MemoizedSingleCall
+  @memoize.MemoizedSingleCall
   def QemuVersion(self):
     """Determine QEMU version.
 
@@ -247,18 +255,16 @@ class VM(object):
     logging.debug('VM image path: %s', self.image_path)
 
   def Run(self):
-    """Performs an action, one of start, stop, or run a command in the VM.
-
-    Returns:
-      cmd output.
-    """
-
+    """Performs an action, one of start, stop, or run a command in the VM."""
     if not self.start and not self.stop and not self.cmd:
       raise VMError('Must specify one of start, stop, or cmd.')
+
     if self.start:
       self.Start()
     if self.cmd:
-      return self.RemoteCommand(self.cmd)
+      if not self.IsRunning():
+        raise VMError('VM not running.')
+      self.RemoteCommand(self.cmd, stream_output=True)
     if self.stop:
       self.Stop()
 
@@ -409,19 +415,25 @@ class VM(object):
     if not self.enable_kvm:
       self._WaitForProcs()
 
-  def RemoteCommand(self, cmd, **kwargs):
+  def RemoteCommand(self, cmd, stream_output=False, **kwargs):
     """Run a remote command in the VM.
 
     Args:
       cmd: command to run.
+      stream_output: Stream output of long-running commands.
       kwargs: additional args (see documentation for RemoteDevice.RunCommand).
+
+    Returns:
+      cros_build_lib.CommandResult object.
     """
     if not self.dry_run:
-      return self.remote.RunCommand(cmd, debug_level=logging.INFO,
-                                    combine_stdout_stderr=True,
-                                    log_output=True,
-                                    error_code_ok=True,
-                                    **kwargs)
+      kwargs.setdefault('error_code_ok', True)
+      if stream_output:
+        kwargs.setdefault('capture_output', False)
+      else:
+        kwargs.setdefault('combine_stdout_stderr', True)
+        kwargs.setdefault('log_output', True)
+      return self.remote.RunCommand(cmd, debug_level=logging.INFO, **kwargs)
 
   @staticmethod
   def GetParser():

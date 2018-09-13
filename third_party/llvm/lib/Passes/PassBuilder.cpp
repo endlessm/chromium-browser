@@ -41,6 +41,7 @@
 #include "llvm/Analysis/MemorySSA.h"
 #include "llvm/Analysis/ModuleSummaryAnalysis.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/Analysis/PhiValues.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/RegionInfo.h"
@@ -60,7 +61,7 @@
 #include "llvm/Support/Regex.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
-#include "llvm/Transforms/Instrumentation/GCOVProfiler.h"
+#include "llvm/Transforms/Instrumentation/CGProfile.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/IPO/ArgumentPromotion.h"
 #include "llvm/Transforms/IPO/CalledValuePropagation.h"
@@ -85,8 +86,9 @@
 #include "llvm/Transforms/IPO/SyntheticCountsPropagation.h"
 #include "llvm/Transforms/IPO/WholeProgramDevirt.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
-#include "llvm/Transforms/Instrumentation/InstrProfiling.h"
 #include "llvm/Transforms/Instrumentation/BoundsChecking.h"
+#include "llvm/Transforms/Instrumentation/GCOVProfiler.h"
+#include "llvm/Transforms/Instrumentation/InstrProfiling.h"
 #include "llvm/Transforms/Instrumentation/PGOInstrumentation.h"
 #include "llvm/Transforms/Scalar/ADCE.h"
 #include "llvm/Transforms/Scalar/AlignmentFromAssumptions.h"
@@ -104,6 +106,7 @@
 #include "llvm/Transforms/Scalar/IVUsersPrinter.h"
 #include "llvm/Transforms/Scalar/IndVarSimplify.h"
 #include "llvm/Transforms/Scalar/InductiveRangeCheckElimination.h"
+#include "llvm/Transforms/Scalar/InstSimplifyPass.h"
 #include "llvm/Transforms/Scalar/JumpThreading.h"
 #include "llvm/Transforms/Scalar/LICM.h"
 #include "llvm/Transforms/Scalar/LoopAccessAnalysisPrinter.h"
@@ -111,6 +114,7 @@
 #include "llvm/Transforms/Scalar/LoopDeletion.h"
 #include "llvm/Transforms/Scalar/LoopDistribute.h"
 #include "llvm/Transforms/Scalar/LoopIdiomRecognize.h"
+#include "llvm/Transforms/Scalar/LoopInstSimplify.h"
 #include "llvm/Transforms/Scalar/LoopLoadElimination.h"
 #include "llvm/Transforms/Scalar/LoopPassManager.h"
 #include "llvm/Transforms/Scalar/LoopPredication.h"
@@ -118,6 +122,7 @@
 #include "llvm/Transforms/Scalar/LoopSimplifyCFG.h"
 #include "llvm/Transforms/Scalar/LoopSink.h"
 #include "llvm/Transforms/Scalar/LoopStrengthReduce.h"
+#include "llvm/Transforms/Scalar/LoopUnrollAndJamPass.h"
 #include "llvm/Transforms/Scalar/LoopUnrollPass.h"
 #include "llvm/Transforms/Scalar/LowerAtomic.h"
 #include "llvm/Transforms/Scalar/LowerExpectIntrinsic.h"
@@ -146,7 +151,6 @@
 #include "llvm/Transforms/Utils/LowerInvoke.h"
 #include "llvm/Transforms/Utils/Mem2Reg.h"
 #include "llvm/Transforms/Utils/NameAnonGlobals.h"
-#include "llvm/Transforms/Utils/SimplifyInstructions.h"
 #include "llvm/Transforms/Utils/SymbolRewriter.h"
 #include "llvm/Transforms/Vectorize/LoopVectorize.h"
 #include "llvm/Transforms/Vectorize/SLPVectorizer.h"
@@ -176,6 +180,10 @@ static cl::opt<bool> EnableGVNHoist(
 static cl::opt<bool> EnableGVNSink(
     "enable-npm-gvn-sink", cl::init(false), cl::Hidden,
     cl::desc("Enable the GVN hoisting pass for the new PM (default = off)"));
+
+static cl::opt<bool> EnableUnrollAndJam(
+    "enable-npm-unroll-and-jam", cl::init(false), cl::Hidden,
+    cl::desc("Enable the Unroll and Jam pass for the new PM (default = off)"));
 
 static cl::opt<bool> EnableSyntheticCounts(
     "enable-npm-synthetic-counts", cl::init(false), cl::Hidden, cl::ZeroOrMore,
@@ -389,11 +397,20 @@ PassBuilder::buildFunctionSimplificationPipeline(OptimizationLevel Level,
 
   // Add the primary loop simplification pipeline.
   // FIXME: Currently this is split into two loop pass pipelines because we run
-  // some function passes in between them. These can and should be replaced by
-  // loop pass equivalenst but those aren't ready yet. Specifically,
-  // `SimplifyCFGPass` and `InstCombinePass` are used. We just have
-  // `LoopSimplifyCFGPass` which isn't yet powerful enough.
+  // some function passes in between them. These can and should be removed
+  // and/or replaced by scheduling the loop pass equivalents in the correct
+  // positions. But those equivalent passes aren't powerful enough yet.
+  // Specifically, `SimplifyCFGPass` and `InstCombinePass` are currently still
+  // used. We have `LoopSimplifyCFGPass` which isn't yet powerful enough yet to
+  // fully replace `SimplifyCFGPass`, and the closest to the other we have is
+  // `LoopInstSimplify`.
   LoopPassManager LPM1(DebugLogging), LPM2(DebugLogging);
+
+  // Simplify the loop body. We do this initially to clean up after other loop
+  // passes run, either when iterating on a loop or on inner loops with
+  // implications on the outer loop.
+  LPM1.addPass(LoopInstSimplifyPass());
+  LPM1.addPass(LoopSimplifyCFGPass());
 
   // Rotate Loop - disable header duplication at -Oz
   LPM1.addPass(LoopRotatePass(Level != Oz));
@@ -787,6 +804,11 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
   // FIXME: It would be really good to use a loop-integrated instruction
   // combiner for cleanup here so that the unrolling and LICM can be pipelined
   // across the loop nests.
+  // We do UnrollAndJam in a separate LPM to ensure it happens before unroll
+  if (EnableUnrollAndJam) {
+    OptimizePM.addPass(
+        createFunctionToLoopPassAdaptor(LoopUnrollAndJamPass(Level)));
+  }
   OptimizePM.addPass(LoopUnrollPass(Level));
   OptimizePM.addPass(InstCombinePass());
   OptimizePM.addPass(RequireAnalysisPass<OptimizationRemarkEmitterAnalysis, Function>());
@@ -803,7 +825,7 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
   OptimizePM.addPass(LoopSinkPass());
 
   // And finally clean up LCSSA form before generating code.
-  OptimizePM.addPass(InstSimplifierPass());
+  OptimizePM.addPass(InstSimplifyPass());
 
   // This hoists/decomposes div/rem ops. It should run after other sink/hoist
   // passes to avoid re-sinking, but before SimplifyCFG because it can allow
@@ -821,6 +843,8 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
 
   // Add the core optimizing pipeline.
   MPM.addPass(createModuleToFunctionPassAdaptor(std::move(OptimizePM)));
+
+  MPM.addPass(CGProfilePass());
 
   // Now we need to do some global optimization transforms.
   // FIXME: It would seem like these should come first in the optimization

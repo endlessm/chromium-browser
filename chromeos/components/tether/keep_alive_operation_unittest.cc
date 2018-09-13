@@ -9,12 +9,14 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/optional.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "chromeos/components/tether/fake_ble_connection_manager.h"
 #include "chromeos/components/tether/message_wrapper.h"
 #include "chromeos/components/tether/proto/tether.pb.h"
 #include "chromeos/components/tether/proto_test_util.h"
+#include "chromeos/services/device_sync/public/cpp/fake_device_sync_client.h"
+#include "chromeos/services/secure_channel/public/cpp/client/fake_secure_channel_client.h"
 #include "components/cryptauth/remote_device_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -78,10 +80,15 @@ class KeepAliveOperationTest : public testing::Test {
         test_device_(cryptauth::CreateRemoteDeviceRefListForTest(1)[0]) {}
 
   void SetUp() override {
+    fake_device_sync_client_ =
+        std::make_unique<device_sync::FakeDeviceSyncClient>();
+    fake_secure_channel_client_ =
+        std::make_unique<secure_channel::FakeSecureChannelClient>();
     fake_ble_connection_manager_ = std::make_unique<FakeBleConnectionManager>();
 
     operation_ = base::WrapUnique(new KeepAliveOperation(
-        test_device_, fake_ble_connection_manager_.get()));
+        test_device_, fake_device_sync_client_.get(),
+        fake_secure_channel_client_.get(), fake_ble_connection_manager_.get()));
 
     test_observer_ = base::WrapUnique(new TestObserver());
     operation_->AddObserver(test_observer_.get());
@@ -106,6 +113,9 @@ class KeepAliveOperationTest : public testing::Test {
   const std::string keep_alive_tickle_string_;
   const cryptauth::RemoteDeviceRef test_device_;
 
+  std::unique_ptr<device_sync::FakeDeviceSyncClient> fake_device_sync_client_;
+  std::unique_ptr<secure_channel::SecureChannelClient>
+      fake_secure_channel_client_;
   std::unique_ptr<FakeBleConnectionManager> fake_ble_connection_manager_;
   base::SimpleTestClock test_clock_;
   std::unique_ptr<TestObserver> test_observer_;
@@ -157,4 +167,4 @@ TEST_F(KeepAliveOperationTest, TestCannotConnect) {
 
 }  // namespace tether
 
-}  // namespace cryptauth
+}  // namespace chromeos

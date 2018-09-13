@@ -313,7 +313,7 @@ static MDNode *stripDebugLocFromLoopID(MDNode *N) {
 
 bool llvm::stripDebugInfo(Function &F) {
   bool Changed = false;
-  if (F.getMetadata(LLVMContext::MD_dbg)) {
+  if (F.hasMetadata(LLVMContext::MD_dbg)) {
     Changed = true;
     F.setSubprogram(nullptr);
   }
@@ -369,12 +369,7 @@ bool llvm::StripDebugInfo(Module &M) {
     Changed |= stripDebugInfo(F);
 
   for (auto &GV : M.globals()) {
-    SmallVector<MDNode *, 1> MDs;
-    GV.getMetadata(LLVMContext::MD_dbg, MDs);
-    if (!MDs.empty()) {
-      GV.eraseMetadata(LLVMContext::MD_dbg);
-      Changed = true;
-    }
+    Changed |= GV.eraseMetadata(LLVMContext::MD_dbg);
   }
 
   if (GVMaterializer *Materializer = M.getMaterializer())
@@ -674,10 +669,10 @@ bool llvm::stripNonLineTableDebugInfo(Module &M) {
     SmallVector<MDNode *, 8> Ops;
     for (MDNode *Op : NMD.operands())
       Ops.push_back(remap(Op));
- 
+
     if (!Changed)
       continue;
- 
+
     NMD.clearOperands();
     for (auto *Op : Ops)
       if (Op)
@@ -1013,6 +1008,34 @@ LLVMDIBuilderCreateStaticMemberType(
 }
 
 LLVMMetadataRef
+LLVMDIBuilderCreateObjCIVar(LLVMDIBuilderRef Builder,
+                            const char *Name, size_t NameLen,
+                            LLVMMetadataRef File, unsigned LineNo,
+                            uint64_t SizeInBits, uint32_t AlignInBits,
+                            uint64_t OffsetInBits, LLVMDIFlags Flags,
+                            LLVMMetadataRef Ty, LLVMMetadataRef PropertyNode) {
+  return wrap(unwrap(Builder)->createObjCIVar(
+                  {Name, NameLen}, unwrapDI<DIFile>(File), LineNo,
+                  SizeInBits, AlignInBits, OffsetInBits,
+                  map_from_llvmDIFlags(Flags), unwrapDI<DIType>(Ty),
+                  unwrapDI<MDNode>(PropertyNode)));
+}
+
+LLVMMetadataRef
+LLVMDIBuilderCreateObjCProperty(LLVMDIBuilderRef Builder,
+                                const char *Name, size_t NameLen,
+                                LLVMMetadataRef File, unsigned LineNo,
+                                const char *GetterName, size_t GetterNameLen,
+                                const char *SetterName, size_t SetterNameLen,
+                                unsigned PropertyAttributes,
+                                LLVMMetadataRef Ty) {
+  return wrap(unwrap(Builder)->createObjCProperty(
+                  {Name, NameLen}, unwrapDI<DIFile>(File), LineNo,
+                  {GetterName, GetterNameLen}, {SetterName, SetterNameLen},
+                  PropertyAttributes, unwrapDI<DIType>(Ty)));
+}
+
+LLVMMetadataRef
 LLVMDIBuilderCreateObjectPointerType(LLVMDIBuilderRef Builder,
                                      LLVMMetadataRef Type) {
   return wrap(unwrap(Builder)->createObjectPointerType(unwrapDI<DIType>(Type)));
@@ -1027,6 +1050,16 @@ LLVMDIBuilderCreateTypedef(LLVMDIBuilderRef Builder, LLVMMetadataRef Type,
                   unwrapDI<DIType>(Type), {Name, NameLen},
                   unwrapDI<DIFile>(File), LineNo,
                   unwrapDI<DIScope>(Scope)));
+}
+
+LLVMMetadataRef
+LLVMDIBuilderCreateInheritance(LLVMDIBuilderRef Builder,
+                               LLVMMetadataRef Ty, LLVMMetadataRef BaseTy,
+                               uint64_t BaseOffset, uint32_t VBPtrOffset,
+                               LLVMDIFlags Flags) {
+  return wrap(unwrap(Builder)->createInheritance(
+                  unwrapDI<DIType>(Ty), unwrapDI<DIType>(BaseTy),
+                  BaseOffset, VBPtrOffset, map_from_llvmDIFlags(Flags)));
 }
 
 LLVMMetadataRef

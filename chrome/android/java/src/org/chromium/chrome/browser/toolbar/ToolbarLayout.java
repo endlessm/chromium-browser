@@ -13,7 +13,11 @@ import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
+import android.support.annotation.DrawableRes;
 import android.support.annotation.Nullable;
+import android.support.annotation.StringRes;
+import android.support.v4.view.ViewCompat;
+import android.support.v7.content.res.AppCompatResources;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.InputDevice;
@@ -24,7 +28,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.appmenu.AppMenuButtonHelper;
@@ -35,16 +38,18 @@ import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.omaha.UpdateMenuItemHelper;
 import org.chromium.chrome.browser.omnibox.LocationBar;
 import org.chromium.chrome.browser.omnibox.UrlBarData;
+import org.chromium.chrome.browser.preferences.ChromePreferenceManager;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.util.ViewUtils;
 import org.chromium.chrome.browser.widget.PulseDrawable;
+import org.chromium.chrome.browser.widget.ScrimView;
 import org.chromium.chrome.browser.widget.TintedImageButton;
 import org.chromium.chrome.browser.widget.ToolbarProgressBar;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
 import org.chromium.components.security_state.ConnectionSecurityLevel;
-import org.chromium.components.variations.VariationsAssociatedData;
 import org.chromium.ui.UiUtils;
 
 /**
@@ -53,11 +58,9 @@ import org.chromium.ui.UiUtils;
  * through {@link Toolbar} rather than using this class directly.
  */
 public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
-    private static final String NTP_BUTTON_TRIAL_NAME = "NewTabPage";
-    private static final String NTP_BUTTON_VARIATION_PARAM_NAME = "variation";
-    public static final String NTP_BUTTON_NEWS_FEED_VARIATION = "news_feed";
-    public static final String NTP_BUTTON_HOME_VARIATION = "home";
-    public static final String NTP_BUTTON_CHROME_VARIATION = "chrome";
+    public static final String NTP_BUTTON_NEWS_FEED_VARIANT = "news_feed";
+    public static final String NTP_BUTTON_HOME_VARIANT = "home";
+    public static final String NTP_BUTTON_CHROME_VARIANT = "chrome";
 
     private Invalidator mInvalidator;
 
@@ -66,10 +69,10 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
     /**
      * The ImageButton view that represents the menu button.
      */
-    protected TintedImageButton mMenuButton;
-    protected ImageView mMenuBadge;
-    protected View mMenuButtonWrapper;
-    protected AppMenuButtonHelper mAppMenuButtonHelper;
+    private TintedImageButton mMenuButton;
+    private ImageView mMenuBadge;
+    private View mMenuButtonWrapper;
+    private AppMenuButtonHelper mAppMenuButtonHelper;
 
     protected final ColorStateList mDarkModeTint;
     protected final ColorStateList mLightModeTint;
@@ -98,10 +101,9 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
      */
     public ToolbarLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mDarkModeTint =
-                ApiCompatibilityUtils.getColorStateList(getResources(), R.color.dark_mode_tint);
+        mDarkModeTint = AppCompatResources.getColorStateList(getContext(), R.color.dark_mode_tint);
         mLightModeTint =
-                ApiCompatibilityUtils.getColorStateList(getResources(), R.color.light_mode_tint);
+                AppCompatResources.getColorStateList(getContext(), R.color.light_mode_tint);
         mProgressBar = createProgressBar();
 
         addOnLayoutChangeListener(new OnLayoutChangeListener() {
@@ -143,6 +145,17 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
     protected ToolbarProgressBar createProgressBar() {
         return new ToolbarProgressBar(
                 getContext(), getProgressBarHeight(), getProgressBarTopMargin(), false);
+    }
+
+    /**
+     * Disable the menu button. This removes the view from the hierarchy and nulls the related
+     * instance vars.
+     */
+    public void disableMenuButton() {
+        UiUtils.removeViewFromParent(getMenuButtonWrapper());
+        mMenuButtonWrapper = null;
+        mMenuButton = null;
+        mMenuBadge = null;
     }
 
     @Override
@@ -268,8 +281,10 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
 
         mAppMenuButtonHelper = appMenuButtonHelper;
 
-        mMenuButton.setOnTouchListener(mAppMenuButtonHelper);
-        mMenuButton.setAccessibilityDelegate(mAppMenuButtonHelper);
+        if (mMenuButton != null) {
+            mMenuButton.setOnTouchListener(mAppMenuButtonHelper);
+            mMenuButton.setAccessibilityDelegate(mAppMenuButtonHelper);
+        }
     }
 
     /** Notified that the menu was shown. */
@@ -297,10 +312,17 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
     }
 
     /**
-     * @return The view containing the menu button.
+     * @return The {@link TintedImageButton} containing the menu button.
      */
-    protected View getMenuButton() {
+    protected TintedImageButton getMenuButton() {
         return mMenuButton;
+    }
+
+    /**
+     * @return The view containing the menu badge.
+     */
+    protected View getMenuBadge() {
+        return mMenuBadge;
     }
 
     /**
@@ -808,6 +830,7 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
 
     @Override
     public void removeAppMenuUpdateBadge(boolean animate) {
+        if (mMenuBadge == null) return;
         boolean wasShowingMenuBadge = mShowMenuBadge;
         mShowMenuBadge = false;
         setMenuButtonContentDescription(false);
@@ -848,10 +871,25 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
     }
 
     /**
+     * Enable the experimental toolbar button.
+     * @param onClickListener The {@link OnClickListener} to be called when the button is clicked.
+     * @param drawableResId The resource id of the drawable to display for the button.
+     * @param contentDescriptionResId The resource id of the content description for the button.
+     */
+    public void enableExperimentalButton(OnClickListener onClickListener,
+            @DrawableRes int drawableResId, @StringRes int contentDescriptionResId) {}
+
+    /**
+     * Disable the experimental toolbar button.
+     */
+    public void disableExperimentalButton() {}
+
+    /**
      * Sets the update badge visibility to VISIBLE and sets the menu button image to the badged
      * bitmap.
      */
     protected void setAppMenuUpdateBadgeToVisible(boolean animate) {
+        if (mMenuBadge == null || mMenuButton == null) return;
         setMenuButtonContentDescription(true);
         if (!animate || mIsMenuBadgeAnimationRunning) {
             mMenuBadge.setVisibility(View.VISIBLE);
@@ -896,6 +934,7 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
      * @param useLightDrawable Whether the light drawable should be used.
      */
     protected void setAppMenuUpdateBadgeDrawable(boolean useLightDrawable) {
+        if (mMenuBadge == null) return;
         mMenuBadge.setImageResource(useLightDrawable ? R.drawable.badge_update_light
                 : R.drawable.badge_update_dark);
     }
@@ -907,14 +946,13 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
      */
     protected void setMenuButtonHighlightDrawable(boolean highlighting) {
         // Return if onFinishInflate didn't finish
-        if (mMenuButtonWrapper == null) return;
+        if (mMenuButtonWrapper == null || mMenuButton == null) return;
 
         if (highlighting) {
             if (mHighlightDrawable == null) {
                 mHighlightDrawable = PulseDrawable.createCircle(getContext());
-                mHighlightDrawable.setInset(ApiCompatibilityUtils.getPaddingStart(mMenuButton),
-                        mMenuButton.getPaddingTop(),
-                        ApiCompatibilityUtils.getPaddingEnd(mMenuButton),
+                mHighlightDrawable.setInset(ViewCompat.getPaddingStart(mMenuButton),
+                        mMenuButton.getPaddingTop(), ViewCompat.getPaddingEnd(mMenuButton),
                         mMenuButton.getPaddingBottom());
             }
             mHighlightDrawable.setUseLightPulseColor(useLightDrawables());
@@ -930,6 +968,7 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
      * @param isUpdateBadgeVisible Whether the update menu badge is visible.
      */
     protected void setMenuButtonContentDescription(boolean isUpdateBadgeVisible) {
+        if (mMenuButton == null) return;
         if (isUpdateBadgeVisible) {
             mMenuButton.setContentDescription(getResources().getString(
                     R.string.accessibility_toolbar_btn_menu_update));
@@ -949,27 +988,39 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
     public void setTabModelSelector(TabModelSelector selector) {}
 
     /**
-     * Gets the variation of the NTP button based on finch config.
-     * @return The NTP button variation.
+     * Sets the icon drawable for the ntp button if the ntp button feature is enabled.
+     * Note: This method is called twice in ToolbarLayout's children - once in
+     * #onNativeLibraryReady() & once in #onFinishInflate() (see https://crbug.com/862887).
+     * As a result, for users who have a shared preference enabling the NTP button but don't yet
+     * have a shared preference for the icon variant, the old home button icon will appear until
+     * #onNativeLibraryReady(). After a cold start, the icon variant will be cached and the old home
+     * button icon will not appear.
+     * @param ntpButton The button that needs to be changed.
      */
-    public static String getNTPButtonVariation() {
-        return VariationsAssociatedData.getVariationParamValue(
-                NTP_BUTTON_TRIAL_NAME, NTP_BUTTON_VARIATION_PARAM_NAME);
-    }
-
     protected void changeIconToNTPIcon(TintedImageButton ntpButton) {
-        String variation = getNTPButtonVariation();
-        if (TextUtils.isEmpty(variation)) return;
+        if (!FeatureUtilities.isNewTabPageButtonEnabled() || ntpButton == null) return;
+
+        // Check for a cached icon variant in shared preferences.
+        String iconVariant = ChromePreferenceManager.getInstance().getNewTabPageButtonVariant();
+
+        // If there is no cached icon variant and the native library is ready, try to retrieve the
+        // icon variant from variations associated data.
+        if (TextUtils.isEmpty(iconVariant) && isNativeLibraryReady()) {
+            iconVariant = FeatureUtilities.getNTPButtonVariant();
+        }
+
+        // Return if no icon variant is found.
+        if (TextUtils.isEmpty(iconVariant)) return;
 
         int iconResId = 0;
-        switch (variation) {
-            case NTP_BUTTON_HOME_VARIATION:
+        switch (iconVariant) {
+            case NTP_BUTTON_HOME_VARIANT:
                 iconResId = R.drawable.ic_home;
                 break;
-            case NTP_BUTTON_NEWS_FEED_VARIATION:
+            case NTP_BUTTON_NEWS_FEED_VARIANT:
                 iconResId = R.drawable.ic_library_news_feed;
                 break;
-            case NTP_BUTTON_CHROME_VARIATION:
+            case NTP_BUTTON_CHROME_VARIANT:
                 iconResId = R.drawable.ic_chrome;
                 break;
             default:
@@ -978,5 +1029,10 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
         assert iconResId != 0;
 
         ntpButton.setImageResource(iconResId);
+    }
+
+    @Override
+    public void setScrim(ScrimView scrim) {
+        getLocationBar().setScrim(scrim);
     }
 }

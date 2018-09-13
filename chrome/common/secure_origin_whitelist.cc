@@ -133,6 +133,14 @@ std::vector<std::string> ParseWhitelist(const std::string& origins_str) {
   UMA_HISTOGRAM_COUNTS_100("Security.TreatInsecureOriginAsSecure",
                            origin_patterns.size());
 
+#if defined(OS_CHROMEOS)
+  // For Crostini, we allow access to the default VM/container as a secure
+  // origin via the hostname penguin.linux.test. We are required to use a
+  // wildcard for the prefix because we do not know what the port number is.
+  // https://chromium.googlesource.com/chromiumos/docs/+/master/containers_and_vms.md
+  origin_patterns.push_back("*.linux.test");
+#endif
+
   return origin_patterns;
 }
 

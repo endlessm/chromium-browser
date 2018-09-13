@@ -214,7 +214,7 @@ public:
   const Decl *CurCodeDecl;
   const CGFunctionInfo *CurFnInfo;
   QualType FnRetTy;
-  llvm::Function *CurFn;
+  llvm::Function *CurFn = nullptr;
 
   // Holds coroutine data if the current function is a coroutine. We use a
   // wrapper to manage its lifetime, so that we don't have to define CGCoroData
@@ -242,7 +242,7 @@ public:
 
   /// ReturnValue - The temporary alloca to hold the return
   /// value. This is invalid iff the function has no return value.
-  Address ReturnValue;
+  Address ReturnValue = Address::invalid();
 
   /// Return true if a label was seen in the current scope.
   bool hasLabelBeenSeenInCurrentScope() const {
@@ -321,7 +321,7 @@ public:
     /// Captured 'this' type.
     FieldDecl *CXXThisFieldDecl;
   };
-  CGCapturedStmtInfo *CapturedStmtInfo;
+  CGCapturedStmtInfo *CapturedStmtInfo = nullptr;
 
   /// RAII for correct setting/restoring of CapturedStmtInfo.
   class CGCapturedStmtRAII {
@@ -366,7 +366,7 @@ public:
   SanitizerSet SanOpts;
 
   /// True if CodeGen currently emits code implementing sanitizer checks.
-  bool IsSanitizerScope;
+  bool IsSanitizerScope = false;
 
   /// RAII object to set/unset CodeGenFunction::IsSanitizerScope.
   class SanitizerScope {
@@ -378,26 +378,26 @@ public:
 
   /// In C++, whether we are code generating a thunk.  This controls whether we
   /// should emit cleanups.
-  bool CurFuncIsThunk;
+  bool CurFuncIsThunk = false;
 
   /// In ARC, whether we should autorelease the return value.
-  bool AutoreleaseResult;
+  bool AutoreleaseResult = false;
 
   /// Whether we processed a Microsoft-style asm block during CodeGen. These can
   /// potentially set the return value.
-  bool SawAsmBlock;
+  bool SawAsmBlock = false;
 
   const FunctionDecl *CurSEHParent = nullptr;
 
   /// True if the current function is an outlined SEH helper. This can be a
   /// finally block or filter expression.
-  bool IsOutlinedSEHHelper;
+  bool IsOutlinedSEHHelper = false;
 
-  const CodeGen::CGBlockInfo *BlockInfo;
-  llvm::Value *BlockPointer;
+  const CodeGen::CGBlockInfo *BlockInfo = nullptr;
+  llvm::Value *BlockPointer = nullptr;
 
   llvm::DenseMap<const VarDecl *, FieldDecl *> LambdaCaptureFields;
-  FieldDecl *LambdaThisCaptureField;
+  FieldDecl *LambdaThisCaptureField = nullptr;
 
   /// A mapping from NRVO variables to the flags used to indicate
   /// when the NRVO has been applied to this variable.
@@ -434,23 +434,23 @@ public:
   };
 
   /// i32s containing the indexes of the cleanup destinations.
-  Address NormalCleanupDest;
+  Address NormalCleanupDest = Address::invalid();
 
-  unsigned NextCleanupDestIndex;
+  unsigned NextCleanupDestIndex = 1;
 
   /// FirstBlockInfo - The head of a singly-linked-list of block layouts.
-  CGBlockInfo *FirstBlockInfo;
+  CGBlockInfo *FirstBlockInfo = nullptr;
 
   /// EHResumeBlock - Unified block containing a call to llvm.eh.resume.
-  llvm::BasicBlock *EHResumeBlock;
+  llvm::BasicBlock *EHResumeBlock = nullptr;
 
   /// The exception slot.  All landing pads write the current exception pointer
   /// into this alloca.
-  llvm::Value *ExceptionSlot;
+  llvm::Value *ExceptionSlot = nullptr;
 
   /// The selector slot.  Under the MandatoryCleanup model, all landing pads
   /// write the current selector value into this alloca.
-  llvm::AllocaInst *EHSelectorSlot;
+  llvm::AllocaInst *EHSelectorSlot = nullptr;
 
   /// A stack of exception code slots. Entering an __except block pushes a slot
   /// on the stack and leaving pops one. The __exception_code() intrinsic loads
@@ -877,7 +877,8 @@ public:
 
   llvm::BasicBlock *getEHResumeBlock(bool isCleanup);
   llvm::BasicBlock *getEHDispatchBlock(EHScopeStack::stable_iterator scope);
-  llvm::BasicBlock *getMSVCDispatchBlock(EHScopeStack::stable_iterator scope);
+  llvm::BasicBlock *
+  getFuncletEHDispatchBlock(EHScopeStack::stable_iterator scope);
 
   /// An object to manage conditionally-evaluated expressions.
   class ConditionalEvaluation {
@@ -1086,17 +1087,17 @@ public:
 
 private:
   CGDebugInfo *DebugInfo;
-  bool DisableDebugInfo;
+  bool DisableDebugInfo = false;
 
   /// DidCallStackSave - Whether llvm.stacksave has been called. Used to avoid
   /// calling llvm.stacksave for multiple VLAs in the same scope.
-  bool DidCallStackSave;
+  bool DidCallStackSave = false;
 
   /// IndirectBranch - The first time an indirect goto is seen we create a block
   /// with an indirect branch.  Every time we see the address of a label taken,
   /// we add the label to the indirect goto.  Every subsequent indirect goto is
   /// codegen'd as a jump to the IndirectBranch's basic block.
-  llvm::IndirectBrInst *IndirectBranch;
+  llvm::IndirectBrInst *IndirectBranch = nullptr;
 
   /// LocalDeclMap - This keeps track of the LLVM allocas or globals for local C
   /// decls.
@@ -1246,13 +1247,13 @@ private:
 
   /// SwitchInsn - This is nearest current switch instruction. It is null if
   /// current context is not in a switch.
-  llvm::SwitchInst *SwitchInsn;
+  llvm::SwitchInst *SwitchInsn = nullptr;
   /// The branch weights of SwitchInsn when doing instrumentation based PGO.
-  SmallVector<uint64_t, 16> *SwitchWeights;
+  SmallVector<uint64_t, 16> *SwitchWeights = nullptr;
 
   /// CaseRangeBlock - This block holds if condition check for last case
   /// statement range in current switch instruction.
-  llvm::BasicBlock *CaseRangeBlock;
+  llvm::BasicBlock *CaseRangeBlock = nullptr;
 
   /// OpaqueLValues - Keeps track of the current set of opaque value
   /// expressions.
@@ -1269,13 +1270,13 @@ private:
 
   /// A block containing a single 'unreachable' instruction.  Created
   /// lazily by getUnreachableBlock().
-  llvm::BasicBlock *UnreachableBlock;
+  llvm::BasicBlock *UnreachableBlock = nullptr;
 
   /// Counts of the number return expressions in the function.
-  unsigned NumReturnExprs;
+  unsigned NumReturnExprs = 0;
 
   /// Count the number of simple (constant) return expressions in the function.
-  unsigned NumSimpleReturnExprs;
+  unsigned NumSimpleReturnExprs = 0;
 
   /// The last regular (non-return) debug location (breakpoint) in the function.
   SourceLocation LastStopPoint;
@@ -1395,9 +1396,9 @@ public:
 private:
   /// CXXThisDecl - When generating code for a C++ member function,
   /// this will hold the implicit 'this' declaration.
-  ImplicitParamDecl *CXXABIThisDecl;
-  llvm::Value *CXXABIThisValue;
-  llvm::Value *CXXThisValue;
+  ImplicitParamDecl *CXXABIThisDecl = nullptr;
+  llvm::Value *CXXABIThisValue = nullptr;
+  llvm::Value *CXXThisValue = nullptr;
   CharUnits CXXABIThisAlignment;
   CharUnits CXXThisAlignment;
 
@@ -1415,16 +1416,16 @@ private:
 
   /// CXXStructorImplicitParamDecl - When generating code for a constructor or
   /// destructor, this will hold the implicit argument (e.g. VTT).
-  ImplicitParamDecl *CXXStructorImplicitParamDecl;
-  llvm::Value *CXXStructorImplicitParamValue;
+  ImplicitParamDecl *CXXStructorImplicitParamDecl = nullptr;
+  llvm::Value *CXXStructorImplicitParamValue = nullptr;
 
   /// OutermostConditional - Points to the outermost active
   /// conditional control.  This is used so that we know if a
   /// temporary should be destroyed conditionally.
-  ConditionalEvaluation *OutermostConditional;
+  ConditionalEvaluation *OutermostConditional = nullptr;
 
   /// The current lexical scope.
-  LexicalScope *CurLexicalScope;
+  LexicalScope *CurLexicalScope = nullptr;
 
   /// The current source location that should be used for exception
   /// handling code.
@@ -1455,12 +1456,16 @@ private:
             CurCodeDecl && CurCodeDecl->getAttr<ReturnsNonNullAttr>());
   }
 
-  llvm::BasicBlock *TerminateLandingPad;
-  llvm::BasicBlock *TerminateHandler;
-  llvm::BasicBlock *TrapBB;
+  llvm::BasicBlock *TerminateLandingPad = nullptr;
+  llvm::BasicBlock *TerminateHandler = nullptr;
+  llvm::BasicBlock *TrapBB = nullptr;
 
   /// Terminate funclets keyed by parent funclet pad.
   llvm::MapVector<llvm::Value *, llvm::BasicBlock *> TerminateFunclets;
+
+  /// Largest vector width used in ths function. Will be used to create a
+  /// function attribute.
+  unsigned LargestVectorWidth = 0;
 
   /// True if we need emit the life-time markers.
   const bool ShouldEmitLifetimeMarkers;
@@ -1764,6 +1769,8 @@ public:
     CFITCK_DerivedCast,
     CFITCK_UnrelatedCast,
     CFITCK_ICall,
+    CFITCK_NVMFCall,
+    CFITCK_VMFCall,
   };
 
   /// Derived is the presumed address of an object of type T after a
@@ -2020,18 +2027,20 @@ public:
   /// to the stack.
   ///
   /// Because the address of a temporary is often exposed to the program in
-  /// various ways, this function will perform the cast by default. The cast
-  /// may be avoided by passing false as \p CastToDefaultAddrSpace; this is
+  /// various ways, this function will perform the cast. The original alloca
+  /// instruction is returned through \p Alloca if it is not nullptr.
+  ///
+  /// The cast is not performaed in CreateTempAllocaWithoutCast. This is
   /// more efficient if the caller knows that the address will not be exposed.
-  /// The original alloca instruction is returned through \p Alloca if it is
-  /// not nullptr.
   llvm::AllocaInst *CreateTempAlloca(llvm::Type *Ty, const Twine &Name = "tmp",
                                      llvm::Value *ArraySize = nullptr);
   Address CreateTempAlloca(llvm::Type *Ty, CharUnits align,
                            const Twine &Name = "tmp",
                            llvm::Value *ArraySize = nullptr,
-                           Address *Alloca = nullptr,
-                           bool CastToDefaultAddrSpace = true);
+                           Address *Alloca = nullptr);
+  Address CreateTempAllocaWithoutCast(llvm::Type *Ty, CharUnits align,
+                                      const Twine &Name = "tmp",
+                                      llvm::Value *ArraySize = nullptr);
 
   /// CreateDefaultAlignedTempAlloca - This creates an alloca with the
   /// default ABI alignment of the given LLVM type.
@@ -2066,15 +2075,18 @@ public:
   Address CreateIRTemp(QualType T, const Twine &Name = "tmp");
 
   /// CreateMemTemp - Create a temporary memory object of the given type, with
-  /// appropriate alignment. Cast it to the default address space if
-  /// \p CastToDefaultAddrSpace is true. Returns the original alloca
-  /// instruction by \p Alloca if it is not nullptr.
+  /// appropriate alignmen and cast it to the default address space. Returns
+  /// the original alloca instruction by \p Alloca if it is not nullptr.
   Address CreateMemTemp(QualType T, const Twine &Name = "tmp",
-                        Address *Alloca = nullptr,
-                        bool CastToDefaultAddrSpace = true);
+                        Address *Alloca = nullptr);
   Address CreateMemTemp(QualType T, CharUnits Align, const Twine &Name = "tmp",
-                        Address *Alloca = nullptr,
-                        bool CastToDefaultAddrSpace = true);
+                        Address *Alloca = nullptr);
+
+  /// CreateMemTemp - Create a temporary memory object of the given type, with
+  /// appropriate alignmen without casting it to the default address space.
+  Address CreateMemTempWithoutCast(QualType T, const Twine &Name = "tmp");
+  Address CreateMemTempWithoutCast(QualType T, CharUnits Align,
+                                   const Twine &Name = "tmp");
 
   /// CreateAggTemp - Create a temporary memory object for the given
   /// aggregate type.
@@ -2356,7 +2368,8 @@ public:
   void EmitCXXConstructorCall(const CXXConstructorDecl *D, CXXCtorType Type,
                               bool ForVirtualBase, bool Delegating,
                               Address This, CallArgList &Args,
-                              AggValueSlot::Overlap_t Overlap);
+                              AggValueSlot::Overlap_t Overlap,
+                              SourceLocation Loc);
 
   /// Emit assumption load for all bases. Requires to be be called only on
   /// most-derived class and not under construction of the object.
@@ -3541,6 +3554,10 @@ public:
                                          SmallVectorImpl<llvm::Value *> &Ops,
                                          Address PtrOp0, Address PtrOp1,
                                          llvm::Triple::ArchType Arch);
+
+  llvm::Value *EmitISOVolatileLoad(const CallExpr *E);
+  llvm::Value *EmitISOVolatileStore(const CallExpr *E);
+
   llvm::Function *LookupNeonLLVMIntrinsic(unsigned IntrinsicID,
                                           unsigned Modifier, llvm::Type *ArgTy,
                                           const CallExpr *E);

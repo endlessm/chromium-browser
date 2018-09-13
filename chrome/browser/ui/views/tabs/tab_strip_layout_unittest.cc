@@ -33,7 +33,7 @@ TEST(TabStripLayoutTest, Tests) {
   tab_size_info.pinned_tab_width = 10;
   tab_size_info.min_active_width = 20;
   tab_size_info.min_inactive_width = 14;
-  tab_size_info.max_size = gfx::Size(100, 10);
+  tab_size_info.standard_size = gfx::Size(100, 10);
   tab_size_info.tab_overlap = 4;
   tab_size_info.pinned_to_normal_offset = 6;
 
@@ -104,13 +104,13 @@ TEST(TabStripLayoutTest, Tests) {
         tab_size_info, test_cases[i].num_pinned_tabs, test_cases[i].num_tabs,
         test_cases[i].active_index, test_cases[i].start_x, test_cases[i].width,
         &active_width, &inactive_width);
-    EXPECT_EQ(test_cases[i].expected_sizes, TabsBoundsToString(tabs_bounds))
-        << i;
-    EXPECT_EQ(test_cases[i].expected_active_width, active_width) << i;
-    EXPECT_EQ(test_cases[i].expected_inactive_width, inactive_width) << i;
+    SCOPED_TRACE(i);
+    EXPECT_EQ(test_cases[i].expected_sizes, TabsBoundsToString(tabs_bounds));
+    EXPECT_EQ(test_cases[i].expected_active_width, active_width);
+    EXPECT_EQ(test_cases[i].expected_inactive_width, inactive_width);
     for (const auto& bounds : tabs_bounds) {
-      EXPECT_EQ(0, bounds.y()) << i;
-      EXPECT_EQ(tab_size_info.max_size.height(), bounds.height()) << i;
+      EXPECT_EQ(0, bounds.y());
+      EXPECT_EQ(tab_size_info.standard_size.height(), bounds.height());
     }
   }
 }

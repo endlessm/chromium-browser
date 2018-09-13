@@ -175,7 +175,7 @@ void Writer::createImportSection() {
     Import.Field = Sym->getName();
     if (auto *FunctionSym = dyn_cast<FunctionSymbol>(Sym)) {
       Import.Kind = WASM_EXTERNAL_FUNCTION;
-      Import.SigIndex = lookupType(*FunctionSym->getFunctionType());
+      Import.SigIndex = lookupType(*FunctionSym->FunctionType);
     } else {
       auto *GlobalSym = cast<GlobalSymbol>(Sym);
       Import.Kind = WASM_EXTERNAL_GLOBAL;
@@ -715,6 +715,8 @@ void Writer::calculateImports() {
       continue;
     if (!Sym->isLive())
       continue;
+    if (!Sym->IsUsedInRegularObj)
+      continue;
 
     LLVM_DEBUG(dbgs() << "import: " << Sym->getName() << "\n");
     ImportedSymbols.emplace_back(Sym);
@@ -738,9 +740,7 @@ void Writer::calculateExports() {
   unsigned FakeGlobalIndex = NumImportedGlobals + InputGlobals.size();
 
   for (Symbol *Sym : Symtab->getSymbols()) {
-    if (!Sym->isDefined())
-      continue;
-    if (Sym->isHidden() || Sym->isLocal())
+    if (!Sym->isExported())
       continue;
     if (!Sym->isLive())
       continue;
@@ -750,6 +750,14 @@ void Writer::calculateExports() {
     if (auto *F = dyn_cast<DefinedFunction>(Sym)) {
       Export = {Name, WASM_EXTERNAL_FUNCTION, F->getFunctionIndex()};
     } else if (auto *G = dyn_cast<DefinedGlobal>(Sym)) {
+      // TODO(sbc): Remove this check once to mutable global proposal is
+      // implement in all major browsers.
+      // See: https://github.com/WebAssembly/mutable-global
+      if (G->getGlobalType()->Mutable) {
+        // Only the __stack_pointer should ever be create as mutable.
+        assert(G == WasmSym::StackPointer);
+        continue;
+      }
       Export = {Name, WASM_EXTERNAL_GLOBAL, G->getGlobalIndex()};
     } else {
       auto *D = cast<DefinedData>(Sym);
@@ -838,7 +846,7 @@ void Writer::calculateTypes() {
 
   for (const Symbol *Sym : ImportedSymbols)
     if (auto *F = dyn_cast<FunctionSymbol>(Sym))
-      registerType(*F->getFunctionType());
+      registerType(*F->FunctionType);
 
   for (const InputFunction *F : InputFunctions)
     registerType(F->Signature);
@@ -981,7 +989,7 @@ void Writer::calculateInitFunctions() {
     const WasmLinkingData &L = File->getWasmObj()->linkingData();
     for (const WasmInitFunc &F : L.InitFunctions) {
       FunctionSymbol *Sym = File->getFunctionSymbol(F.Symbol);
-      if (*Sym->getFunctionType() != WasmSignature{{}, WASM_TYPE_NORESULT})
+      if (*Sym->FunctionType != WasmSignature{{}, WASM_TYPE_NORESULT})
         error("invalid signature for init func: " + toString(*Sym));
       InitFunctions.emplace_back(WasmInitEntry{Sym, F.Priority});
     }

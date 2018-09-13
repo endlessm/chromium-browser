@@ -129,6 +129,8 @@
 ; CHECK-O-NEXT: Running analysis: ScalarEvolutionAnalysis
 ; CHECK-O-NEXT: Running analysis: InnerAnalysisManagerProxy
 ; CHECK-O-NEXT: Starting Loop pass manager run.
+; CHECK-O-NEXT: Running pass: LoopInstSimplifyPass
+; CHECK-O-NEXT: Running pass: LoopSimplifyCFGPass
 ; CHECK-O-NEXT: Running pass: LoopRotatePass
 ; CHECK-O-NEXT: Running pass: LICM
 ; CHECK-O-NEXT: Running analysis: OuterAnalysisManagerProxy
@@ -217,11 +219,12 @@
 ; CHECK-POSTLINK-O-NEXT: Finished llvm::Function pass manager run
 ; CHECK-POSTLINK-O-NEXT: Running pass: AlignmentFromAssumptionsPass
 ; CHECK-POSTLINK-O-NEXT: Running pass: LoopSinkPass
-; CHECK-POSTLINK-O-NEXT: Running pass: InstSimplifierPass
+; CHECK-POSTLINK-O-NEXT: Running pass: InstSimplifyPass
 ; CHECK-POSTLINK-O-NEXT: Running pass: DivRemPairsPass
 ; CHECK-POSTLINK-O-NEXT: Running pass: SimplifyCFGPass
 ; CHECK-POSTLINK-O-NEXT: Running pass: SpeculateAroundPHIsPass
 ; CHECK-POSTLINK-O-NEXT: Finished llvm::Function pass manager run.
+; CHECK-POSTLINK-O-NEXT: Running pass: CGProfilePass
 ; CHECK-POSTLINK-O-NEXT: Running pass: GlobalDCEPass
 ; CHECK-POSTLINK-O-NEXT: Running pass: ConstantMergePass
 ; CHECK-POSTLINK-O-NEXT: Finished llvm::Module pass manager run.

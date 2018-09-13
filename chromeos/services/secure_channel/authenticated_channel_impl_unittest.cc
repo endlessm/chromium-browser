@@ -29,6 +29,9 @@ const mojom::ConnectionCreationDetail kTestConnectionCreationDetails[] = {
     mojom::ConnectionCreationDetail::
         REMOTE_DEVICE_USED_BACKGROUND_BLE_ADVERTISING};
 
+const int32_t kTestRssi = -24;
+const std::string kTestChannelBindingData = "channel_binding_data";
+
 class SecureChannelAuthenticatedChannelImplTest : public testing::Test {
  protected:
   SecureChannelAuthenticatedChannelImplTest()
@@ -38,10 +41,11 @@ class SecureChannelAuthenticatedChannelImplTest : public testing::Test {
 
   void SetUp() override {
     auto fake_secure_channel = std::make_unique<cryptauth::FakeSecureChannel>(
-        std::make_unique<cryptauth::FakeConnection>(test_device_),
-        nullptr /* cryptauth_service */);
+        std::make_unique<cryptauth::FakeConnection>(test_device_));
     fake_secure_channel->ChangeStatus(
         cryptauth::SecureChannel::Status::AUTHENTICATED);
+    fake_secure_channel->set_rssi_to_return(kTestRssi);
+    fake_secure_channel->set_channel_binding_data(kTestChannelBindingData);
     fake_secure_channel_ = fake_secure_channel.get();
 
     channel_ = AuthenticatedChannelImpl::Factory::Get()->BuildInstance(
@@ -95,6 +99,17 @@ class SecureChannelAuthenticatedChannelImplTest : public testing::Test {
     return base::ContainsKey(sent_sequence_numbers_, sequence_number);
   }
 
+  void CallGetConnectionMetadata() {
+    channel()->GetConnectionMetadata(base::BindOnce(
+        &SecureChannelAuthenticatedChannelImplTest::OnGetConnectionMetadata,
+        base::Unretained(this)));
+  }
+
+  void OnGetConnectionMetadata(
+      mojom::ConnectionMetadataPtr connection_metadata) {
+    connection_metadata_ = std::move(connection_metadata);
+  }
+
   cryptauth::FakeSecureChannel* fake_secure_channel() {
     return fake_secure_channel_;
   }
@@ -104,6 +119,8 @@ class SecureChannelAuthenticatedChannelImplTest : public testing::Test {
   }
 
   AuthenticatedChannel* channel() { return channel_.get(); }
+
+  mojom::ConnectionMetadataPtr connection_metadata_;
 
  private:
   void OnMessageSent(int sequence_number) {
@@ -126,15 +143,16 @@ class SecureChannelAuthenticatedChannelImplTest : public testing::Test {
 };
 
 TEST_F(SecureChannelAuthenticatedChannelImplTest, ConnectionMetadata) {
-  const auto& connection_metadata = channel()->GetConnectionMetadata();
+  CallGetConnectionMetadata();
+
   EXPECT_EQ(std::vector<mojom::ConnectionCreationDetail>(
                 std::begin(kTestConnectionCreationDetails),
                 std::end(kTestConnectionCreationDetails)),
-            connection_metadata.creation_details);
-  // TODO(khorimoto): Update test to test RSSI rolling average when implemented.
-  // https://crbug.com/844759.
-  EXPECT_EQ(mojom::ConnectionMetadata::kNoRssiAvailable,
-            connection_metadata.rssi_rolling_average);
+            connection_metadata_->creation_details);
+  EXPECT_EQ(kTestRssi,
+            connection_metadata_->bluetooth_connection_metadata->current_rssi);
+  EXPECT_EQ(kTestChannelBindingData,
+            connection_metadata_->channel_binding_data);
 }
 
 TEST_F(SecureChannelAuthenticatedChannelImplTest, DisconnectRequestFromClient) {

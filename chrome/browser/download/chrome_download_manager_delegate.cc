@@ -51,7 +51,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/safe_browsing/file_type_policies.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/download/downloader/in_progress/in_progress_cache_impl.h"
+#include "components/download/database/in_progress/in_progress_cache_impl.h"
 #include "components/download/public/common/download_interrupt_reasons.h"
 #include "components/download/public/common/download_item.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -639,6 +639,15 @@ void ChromeDownloadManagerDelegate::OpenDownload(DownloadItem* download) {
 
   MaybeSendDangerousDownloadOpenedReport(download,
                                          false /* show_download_in_folder */);
+
+#if defined(OS_ANDROID)
+  // TODO(shaktisahu@): Pull out to static helper method once
+  // DownloadManagerService goes away.  Put the helper method in the download
+  // component.
+  DownloadManagerService::GetInstance()->OpenDownload(download,
+                                                      0 /* download source */);
+  return;
+#endif
 
   if (!DownloadItemModel(download).ShouldPreferOpeningInBrowser()) {
     RecordDownloadOpenMethod(DOWNLOAD_OPEN_METHOD_DEFAULT_PLATFORM);

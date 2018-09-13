@@ -193,11 +193,8 @@ static unsigned writeCompressedReloc(uint8_t *Buf, const WasmRelocation &Rel,
   case R_WEBASSEMBLY_TABLE_INDEX_SLEB:
   case R_WEBASSEMBLY_MEMORY_ADDR_SLEB:
     return encodeSLEB128(static_cast<int32_t>(Value), Buf);
-  case R_WEBASSEMBLY_TABLE_INDEX_I32:
-  case R_WEBASSEMBLY_MEMORY_ADDR_I32:
-    return 4;
   default:
-    llvm_unreachable("unknown relocation type");
+    llvm_unreachable("unexpected relocation type");
   }
 }
 
@@ -210,11 +207,8 @@ static unsigned getRelocWidthPadded(const WasmRelocation &Rel) {
   case R_WEBASSEMBLY_TABLE_INDEX_SLEB:
   case R_WEBASSEMBLY_MEMORY_ADDR_SLEB:
     return 5;
-  case R_WEBASSEMBLY_TABLE_INDEX_I32:
-  case R_WEBASSEMBLY_MEMORY_ADDR_I32:
-    return 4;
   default:
-    llvm_unreachable("unknown relocation type");
+    llvm_unreachable("unexpected relocation type");
   }
 }
 
@@ -237,7 +231,7 @@ void InputFunction::calculateSize() {
   if (!File || !Config->CompressRelocTargets)
     return;
 
-  DEBUG(dbgs() << "calculateSize: " << getName() << "\n");
+  LLVM_DEBUG(dbgs() << "calculateSize: " << getName() << "\n");
 
   const uint8_t *SecStart = File->CodeSection->Content.data();
   const uint8_t *FuncStart = SecStart + getInputSectionOffset();
@@ -249,12 +243,12 @@ void InputFunction::calculateSize() {
 
   uint32_t LastRelocEnd = Start + FunctionSizeLength;
   for (WasmRelocation &Rel : Relocations) {
-    DEBUG(dbgs() << "  region: " << (Rel.Offset - LastRelocEnd) << "\n");
+    LLVM_DEBUG(dbgs() << "  region: " << (Rel.Offset - LastRelocEnd) << "\n");
     CompressedFuncSize += Rel.Offset - LastRelocEnd;
     CompressedFuncSize += getRelocWidth(Rel, File->calcNewValue(Rel));
     LastRelocEnd = Rel.Offset + getRelocWidthPadded(Rel);
   }
-  DEBUG(dbgs() << "  final region: " << (End - LastRelocEnd) << "\n");
+  LLVM_DEBUG(dbgs() << "  final region: " << (End - LastRelocEnd) << "\n");
   CompressedFuncSize += End - LastRelocEnd;
 
   // Now we know how long the resulting function is we can add the encoding
@@ -262,8 +256,8 @@ void InputFunction::calculateSize() {
   uint8_t Buf[5];
   CompressedSize = CompressedFuncSize + encodeULEB128(CompressedFuncSize, Buf);
 
-  DEBUG(dbgs() << "  calculateSize orig: " << Function->Size << "\n");
-  DEBUG(dbgs() << "  calculateSize  new: " << CompressedSize << "\n");
+  LLVM_DEBUG(dbgs() << "  calculateSize orig: " << Function->Size << "\n");
+  LLVM_DEBUG(dbgs() << "  calculateSize  new: " << CompressedSize << "\n");
 }
 
 // Override the default writeTo method so that we can (optionally) write the
@@ -279,15 +273,15 @@ void InputFunction::writeTo(uint8_t *Buf) const {
   const uint8_t *FuncStart = SecStart + getInputSectionOffset();
   const uint8_t *End = FuncStart + Function->Size;
   uint32_t Count;
-  decodeULEB128(Buf, &Count);
+  decodeULEB128(FuncStart, &Count);
   FuncStart += Count;
 
-  DEBUG(dbgs() << "write func: " << getName() << "\n");
+  LLVM_DEBUG(dbgs() << "write func: " << getName() << "\n");
   Buf += encodeULEB128(CompressedFuncSize, Buf);
   const uint8_t *LastRelocEnd = FuncStart;
   for (const WasmRelocation &Rel : Relocations) {
     unsigned ChunkSize = (SecStart + Rel.Offset) - LastRelocEnd;
-    DEBUG(dbgs() << "  write chunk: " << ChunkSize << "\n");
+    LLVM_DEBUG(dbgs() << "  write chunk: " << ChunkSize << "\n");
     memcpy(Buf, LastRelocEnd, ChunkSize);
     Buf += ChunkSize;
     Buf += writeCompressedReloc(Buf, Rel, File->calcNewValue(Rel));
@@ -295,7 +289,7 @@ void InputFunction::writeTo(uint8_t *Buf) const {
   }
 
   unsigned ChunkSize = End - LastRelocEnd;
-  DEBUG(dbgs() << "  write final chunk: " << ChunkSize << "\n");
+  LLVM_DEBUG(dbgs() << "  write final chunk: " << ChunkSize << "\n");
   memcpy(Buf, LastRelocEnd, ChunkSize);
-  DEBUG(dbgs() << "  total: " << (Buf + ChunkSize - Orig) << "\n");
+  LLVM_DEBUG(dbgs() << "  total: " << (Buf + ChunkSize - Orig) << "\n");
 }

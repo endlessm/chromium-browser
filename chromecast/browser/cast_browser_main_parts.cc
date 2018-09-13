@@ -41,6 +41,8 @@
 #include "chromecast/browser/metrics/cast_metrics_prefs.h"
 #include "chromecast/browser/metrics/cast_metrics_service_client.h"
 #include "chromecast/browser/pref_service_helper.h"
+#include "chromecast/browser/tts/tts_controller_impl.h"
+#include "chromecast/browser/tts/tts_platform_stub.h"
 #include "chromecast/browser/url_request_context_factory.h"
 #include "chromecast/chromecast_buildflags.h"
 #include "chromecast/common/global_descriptors.h"
@@ -74,8 +76,8 @@
 
 #if defined(OS_ANDROID)
 #include "chromecast/app/android/crash_handler.h"
+#include "components/crash/content/browser/child_exit_observer_android.h"
 #include "components/crash/content/browser/child_process_crash_observer_android.h"
-#include "components/crash/content/browser/crash_dump_observer_android.h"
 #include "net/android/network_change_notifier_factory_android.h"
 #else
 #include "chromecast/net/network_change_notifier_factory_cast.h"
@@ -89,10 +91,14 @@
 // gn check ignored on OverlayManagerCast as it's not a public ozone
 // header, but is exported to allow injecting the overlay-composited
 // callback.
+#include "chromecast/browser/accessibility/accessibility_manager.h"
 #include "chromecast/browser/cast_display_configurator.h"
 #include "chromecast/graphics/cast_screen.h"
+#include "chromecast/graphics/cast_window_manager_aura.h"
 #include "components/viz/service/display/overlay_strategy_underlay_cast.h"  // nogncheck
 #include "ui/display/screen.h"
+#else
+#include "chromecast/graphics/cast_window_manager_default.h"
 #endif
 
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
@@ -390,10 +396,6 @@ void CastBrowserMainParts::PreMainMessageLoopStart() {
 void CastBrowserMainParts::PostMainMessageLoopStart() {
   // Ensure CastMetricsHelper initialized on UI thread.
   metrics::CastMetricsHelper::GetInstance();
-
-#if defined(OS_ANDROID)
-  base::MessageLoopCurrentForUI::Get()->Start();
-#endif  // defined(OS_ANDROID)
 }
 
 void CastBrowserMainParts::ToolkitInitialized() {
@@ -427,9 +429,9 @@ int CastBrowserMainParts::PreCreateThreads() {
   if (!chromecast::CrashHandler::GetCrashDumpLocation(&crash_dumps_dir)) {
     LOG(ERROR) << "Could not find crash dump location.";
   }
-  breakpad::CrashDumpObserver::Create();
-  breakpad::CrashDumpObserver::GetInstance()->RegisterClient(
-      std::make_unique<breakpad::ChildProcessCrashObserver>(
+  crash_reporter::ChildExitObserver::Create();
+  crash_reporter::ChildExitObserver::GetInstance()->RegisterClient(
+      std::make_unique<crash_reporter::ChildProcessCrashObserver>(
           crash_dumps_dir, kAndroidMinidumpDescriptor));
 #else
   base::FilePath home_dir;
@@ -459,11 +461,12 @@ int CastBrowserMainParts::PreCreateThreads() {
       command_line->GetSwitchValueASCII(switches::kDisableFeatures));
 
 #if defined(USE_AURA)
-  cast_browser_process_->SetCastScreen(base::WrapUnique(new CastScreen()));
+  cast_browser_process_->SetCastScreen(std::make_unique<CastScreen>());
   DCHECK(!display::Screen::GetScreen());
   display::Screen::SetScreenInstance(cast_browser_process_->cast_screen());
-  display_configurator_ = std::make_unique<CastDisplayConfigurator>(
-      cast_browser_process_->cast_screen());
+  cast_browser_process_->SetDisplayConfigurator(
+      std::make_unique<CastDisplayConfigurator>(
+          cast_browser_process_->cast_screen()));
 #endif  // defined(USE_AURA)
 
   content::ChildProcessSecurityPolicy::GetInstance()->RegisterWebSafeScheme(
@@ -524,9 +527,21 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
                           base::Unretained(video_plane_controller_.get())));
 #endif
 
-  window_manager_ = CastWindowManager::Create(
+#if defined(USE_AURA)
+  window_manager_ = std::make_unique<CastWindowManagerAura>(
       CAST_IS_DEBUG_BUILD() ||
       GetSwitchValueBoolean(switches::kEnableInput, false));
+  window_manager_->Setup();
+
+#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
+  cast_browser_process_->SetAccessibilityManager(
+      std::make_unique<AccessibilityManager>(
+          window_manager_->window_tree_host()));
+#endif  // BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
+
+#else   // defined(USE_AURA)
+  window_manager_ = std::make_unique<CastWindowManagerDefault>();
+#endif  // defined(USE_AURA)
 
   cast_browser_process_->SetCastService(
       cast_browser_process_->browser_client()->CreateCastService(
@@ -541,6 +556,9 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
 #endif
   ::media::InitializeMediaLibrary();
   media_caps_->Initialize();
+
+  cast_browser_process_->SetTtsController(std::make_unique<TtsControllerImpl>(
+      std::make_unique<TtsPlatformImplStub>()));
 
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
   user_pref_service_ = extensions::cast_prefs::CreateUserPrefService(
@@ -628,6 +646,7 @@ void CastBrowserMainParts::PostMainMessageLoopRun() {
   extensions::ExtensionsBrowserClient::Set(nullptr);
   extensions_browser_client_.reset();
   user_pref_service_.reset();
+  cast_browser_process_->ClearAccessibilityManager();
 #endif
 
 #if defined(OS_ANDROID)
@@ -635,8 +654,6 @@ void CastBrowserMainParts::PostMainMessageLoopRun() {
   NOTREACHED();
 #else
   window_manager_.reset();
-
-  display_configurator_.reset();
 
   cast_browser_process_->cast_service()->Finalize();
   cast_browser_process_->metrics_service_client()->Finalize();

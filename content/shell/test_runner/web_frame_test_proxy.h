@@ -17,8 +17,8 @@
 #include "content/shell/test_runner/web_frame_test_client.h"
 #include "third_party/blink/public/platform/web_effective_connection_type.h"
 #include "third_party/blink/public/platform/web_string.h"
-#include "third_party/blink/public/web/web_frame_client.h"
 #include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_local_frame_client.h"
 
 namespace test_runner {
 
@@ -40,7 +40,7 @@ class TEST_RUNNER_EXPORT WebFrameTestProxyBase {
  protected:
   WebFrameTestProxyBase();
   ~WebFrameTestProxyBase();
-  blink::WebFrameClient* test_client() { return test_client_.get(); }
+  blink::WebLocalFrameClient* test_client() { return test_client_.get(); }
 
  private:
   std::unique_ptr<WebFrameTestClient> test_client_;
@@ -52,14 +52,16 @@ class TEST_RUNNER_EXPORT WebFrameTestProxyBase {
 // WebFrameTestProxy is used during LayoutTests and always instantiated, at time
 // of writing with Base=RenderFrameImpl. It does not directly inherit from it
 // for layering purposes.
-template <class Base, typename P>
+template <class Base>
 class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
  public:
-  explicit WebFrameTestProxy(P p) : Base(std::move(p)) {}
+  template <typename... Args>
+  explicit WebFrameTestProxy(Args&&... args)
+      : Base(std::forward<Args>(args)...) {}
 
   virtual ~WebFrameTestProxy() {}
 
-  // WebFrameClient implementation.
+  // WebLocalFrameClient implementation.
   blink::WebPlugin* CreatePlugin(
       const blink::WebPluginParams& params) override {
     blink::WebPlugin* plugin = test_client()->CreatePlugin(params);
@@ -79,9 +81,13 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
   }
 
   void DownloadURL(const blink::WebURLRequest& request,
+                   blink::WebLocalFrameClient::CrossOriginRedirects
+                       cross_origin_redirect_behavior,
                    mojo::ScopedMessagePipeHandle blob_url_token) override {
-    test_client()->DownloadURL(request, mojo::ScopedMessagePipeHandle());
-    Base::DownloadURL(request, std::move(blob_url_token));
+    test_client()->DownloadURL(request, cross_origin_redirect_behavior,
+                               mojo::ScopedMessagePipeHandle());
+    Base::DownloadURL(request, cross_origin_redirect_behavior,
+                      std::move(blob_url_token));
   }
 
 
@@ -89,11 +95,6 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
                                blink::WebURLRequest& request) override {
     test_client()->DidStartProvisionalLoad(document_loader, request);
     Base::DidStartProvisionalLoad(document_loader, request);
-  }
-
-  void DidReceiveServerRedirectForProvisionalLoad() override {
-    test_client()->DidReceiveServerRedirectForProvisionalLoad();
-    Base::DidReceiveServerRedirectForProvisionalLoad();
   }
 
   void DidFailProvisionalLoad(
@@ -231,7 +232,7 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
   }
 
   blink::WebNavigationPolicy DecidePolicyForNavigation(
-      const blink::WebFrameClient::NavigationPolicyInfo& info) override {
+      const blink::WebLocalFrameClient::NavigationPolicyInfo& info) override {
     blink::WebNavigationPolicy policy =
         test_client()->DecidePolicyForNavigation(info);
     if (policy == blink::kWebNavigationPolicyIgnore)
@@ -243,6 +244,11 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
   void PostAccessibilityEvent(const blink::WebAXObject& object,
                               blink::WebAXEvent event) override {
     test_client()->PostAccessibilityEvent(object, event);
+    // Guard against the case where |this| was deleted as a result of an
+    // accessibility listener detaching a frame. If that occurs, the
+    // WebAXObject will be detached.
+    if (object.IsDetached())
+      return;  // |this| is invalid.
     Base::PostAccessibilityEvent(object, event);
   }
 
@@ -251,10 +257,6 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
       blink::WebSetSinkIdCallbacks* web_callbacks) override {
     test_client()->CheckIfAudioSinkExistsAndIsAuthorized(sink_id,
                                                          web_callbacks);
-  }
-
-  blink::WebSpeechRecognizer* SpeechRecognizer() override {
-    return test_client()->SpeechRecognizer();
   }
 
   void DidClearWindowObject() override {

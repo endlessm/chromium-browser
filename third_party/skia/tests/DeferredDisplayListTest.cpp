@@ -7,7 +7,6 @@
 
 #include "SkTypes.h"
 
-#if SK_SUPPORT_GPU
 #include "GrBackendSurface.h"
 #include "GrCaps.h"
 #include "GrContext.h"
@@ -133,6 +132,8 @@ static GrBackendFormat create_backend_format(GrContext* context,
                     return GrBackendFormat::MakeGL(GR_GL_RGBA16F, GR_GL_TEXTURE_2D);
                 }
                 break;
+            case kRGBA_F32_SkColorType:
+                return GrBackendFormat();
         }
     }
     break;
@@ -200,6 +201,8 @@ static GrBackendFormat create_backend_format(GrContext* context,
                     return  GrBackendFormat::MakeVk(VK_FORMAT_R16G16B16A16_SFLOAT);
                 }
                 break;
+            case kRGBA_F32_SkColorType:
+                return GrBackendFormat();
         }
         break;
 #endif
@@ -268,6 +271,8 @@ static GrBackendFormat create_backend_format(GrContext* context,
                     return  GrBackendFormat::MakeMock(config);
                 }
                 break;
+            case kRGBA_F32_SkColorType:
+                return GrBackendFormat();
         }
         break;
     default:
@@ -847,26 +852,31 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLTextureFlagsTest, reporter, ctxInfo) {
     SkDeferredDisplayListRecorder recorder(characterization);
 
     for (GrGLenum target : { GR_GL_TEXTURE_EXTERNAL, GR_GL_TEXTURE_RECTANGLE, GR_GL_TEXTURE_2D } ) {
-        GrBackendFormat format = GrBackendFormat::MakeGL(GR_GL_RGBA8, target);
+        for (auto mipMapped : { GrMipMapped::kNo, GrMipMapped::kYes }) {
+            GrBackendFormat format = GrBackendFormat::MakeGL(GR_GL_RGBA8, target);
 
-        sk_sp<SkImage> image = recorder.makePromiseTexture(format, 32, 32, GrMipMapped::kYes,
-                                                           kTopLeft_GrSurfaceOrigin,
-                                                           kRGBA_8888_SkColorType,
-                                                           kPremul_SkAlphaType, nullptr,
-                                                           dummy_fulfill_proc,
-                                                           dummy_release_proc,
-                                                           dummy_done_proc,
-                                                           nullptr);
-        REPORTER_ASSERT(reporter, image);
+            sk_sp<SkImage> image = recorder.makePromiseTexture(format, 32, 32, mipMapped,
+                                                               kTopLeft_GrSurfaceOrigin,
+                                                               kRGBA_8888_SkColorType,
+                                                               kPremul_SkAlphaType, nullptr,
+                                                               dummy_fulfill_proc,
+                                                               dummy_release_proc,
+                                                               dummy_done_proc,
+                                                               nullptr);
+            if (GR_GL_TEXTURE_2D != target && mipMapped == GrMipMapped::kYes) {
+                REPORTER_ASSERT(reporter, !image);
+                continue;
+            }
+            REPORTER_ASSERT(reporter, image);
 
-        GrTextureProxy* backingProxy = ((SkImage_Gpu*) image.get())->peekProxy();
+            GrTextureProxy* backingProxy = ((SkImage_Gpu*) image.get())->peekProxy();
 
-        if (GR_GL_TEXTURE_2D == target) {
-            REPORTER_ASSERT(reporter, !backingProxy->texPriv().doesNotSupportMipMaps());
-            REPORTER_ASSERT(reporter, !backingProxy->texPriv().isClampOnly());
-        } else {
-            REPORTER_ASSERT(reporter, backingProxy->texPriv().doesNotSupportMipMaps());
-            REPORTER_ASSERT(reporter, backingProxy->texPriv().isClampOnly());
+            REPORTER_ASSERT(reporter, backingProxy->mipMapped() == mipMapped);
+            if (GR_GL_TEXTURE_2D == target) {
+                REPORTER_ASSERT(reporter, !backingProxy->texPriv().isClampOnly());
+            } else {
+                REPORTER_ASSERT(reporter, backingProxy->texPriv().isClampOnly());
+            }
         }
     }
 }
@@ -939,5 +949,3 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLCompatibilityTest, reporter, ctxInfo) {
     }
 
 }
-
-#endif

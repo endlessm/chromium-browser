@@ -64,6 +64,7 @@ public class VideoCaptureCamera2 extends VideoCapture {
 
         @Override
         public void onDisconnected(CameraDevice cameraDevice) {
+            Log.e(TAG, "cameraDevice was closed unexpectedly");
             cameraDevice.close();
             mCameraDevice = null;
             changeCameraStateAndNotify(CameraState.STOPPED);
@@ -71,6 +72,7 @@ public class VideoCaptureCamera2 extends VideoCapture {
 
         @Override
         public void onError(CameraDevice cameraDevice, int error) {
+            Log.e(TAG, "cameraDevice encountered an error");
             cameraDevice.close();
             mCameraDevice = null;
             changeCameraStateAndNotify(CameraState.STOPPED);
@@ -184,8 +186,12 @@ public class VideoCaptureCamera2 extends VideoCapture {
                 // will get notified via a CrPhotoSessionListener. Since |handler| is null, we'll
                 // work on the current Thread Looper.
                 session.capture(mPhotoRequest, null, null);
-            } catch (CameraAccessException e) {
-                Log.e(TAG, "capture() error");
+            } catch (CameraAccessException ex) {
+                Log.e(TAG, "capture() CameraAccessException", ex);
+                notifyTakePhotoError(mCallbackId);
+                return;
+            } catch (IllegalStateException ex) {
+                Log.e(TAG, "capture() IllegalStateException", ex);
                 notifyTakePhotoError(mCallbackId);
                 return;
             }

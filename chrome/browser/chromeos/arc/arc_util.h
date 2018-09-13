@@ -142,13 +142,16 @@ bool IsArcTermsOfServiceOobeNegotiationNeeded();
 // Returns true if stats reporting is enabled. Otherwise false.
 bool IsArcStatsReportingEnabled();
 
+// Returns whether ARC opt-in in demo mode setup flow is in progress.
+bool IsArcDemoModeSetupFlow();
+
 // Checks and updates the preference value whether the underlying filesystem
 // for the profile is compatible with ARC, when necessary. After it's done (or
 // skipped), |callback| is run either synchronously or asynchronously.
 void UpdateArcFileSystemCompatibilityPrefIfNeeded(
     const AccountId& account_id,
     const base::FilePath& profile_path,
-    const base::Closure& callback);
+    base::OnceClosure callback);
 
 // Returns whether Google Assistant feature is allowed for given |profile|.
 ash::mojom::AssistantAllowedState IsAssistantAllowedForProfile(

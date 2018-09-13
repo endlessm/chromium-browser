@@ -58,7 +58,7 @@ TEST_BUILDERS = [
   'Perf-Android-Clang-GalaxyS7_G930FD-GPU-MaliT880-arm64-Debug-All-Android',
   'Perf-Android-Clang-Nexus5x-GPU-Adreno418-arm64-Debug-All-Android',
   'Perf-ChromeOS-Clang-SamsungChromebookPlus-GPU-MaliT860-arm-Release-All',
-  'Perf-Chromecast-GCC-Chorizo-CPU-Cortex_A7-arm-Release-All',
+  'Perf-Chromecast-Clang-Chorizo-CPU-Cortex_A7-arm-Release-All',
   'Perf-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-All-MSAN',
   'Perf-Debian9-Clang-GCE-CPU-AVX2-x86_64-Release-All-ASAN',
   'Test-Android-Clang-AndroidOne-GPU-Mali400MP2-arm-Release-All-Android',
@@ -69,6 +69,7 @@ TEST_BUILDERS = [
   'Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-All-Coverage',
   'Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Release-All-TSAN',
   'Test-Debian9-Clang-GCE-GPU-SwiftShader-x86_64-Debug-All-SwiftShader',
+  'Test-Debian9-Clang-NUC7i5BNK-GPU-IntelIris640-x86_64-Debug-All-OpenCL',
   'Test-Debian9-Clang-NUC7i5BNK-GPU-IntelIris640-x86_64-Debug-All-Vulkan',
   'Test-Mac-Clang-MacMini7.1-CPU-AVX-x86_64-Debug-All-ASAN',
   ('Test-Ubuntu17-GCC-Golo-GPU-QuadroP400-x86_64-Release-All'

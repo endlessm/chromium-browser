@@ -724,21 +724,21 @@
 // AARCH64-NETBSD:#define __INT32_FMTi__ "i"
 // AARCH64-NETBSD:#define __INT32_MAX__ 2147483647
 // AARCH64-NETBSD:#define __INT32_TYPE__ int
-// AARCH64-NETBSD:#define __INT64_C_SUFFIX__ LL
-// AARCH64-NETBSD:#define __INT64_FMTd__ "lld"
-// AARCH64-NETBSD:#define __INT64_FMTi__ "lli"
-// AARCH64-NETBSD:#define __INT64_MAX__ 9223372036854775807LL
-// AARCH64-NETBSD:#define __INT64_TYPE__ long long int
+// AARCH64-NETBSD:#define __INT64_C_SUFFIX__ L
+// AARCH64-NETBSD:#define __INT64_FMTd__ "ld"
+// AARCH64-NETBSD:#define __INT64_FMTi__ "li"
+// AARCH64-NETBSD:#define __INT64_MAX__ 9223372036854775807L
+// AARCH64-NETBSD:#define __INT64_TYPE__ long int
 // AARCH64-NETBSD:#define __INT8_C_SUFFIX__
 // AARCH64-NETBSD:#define __INT8_FMTd__ "hhd"
 // AARCH64-NETBSD:#define __INT8_FMTi__ "hhi"
 // AARCH64-NETBSD:#define __INT8_MAX__ 127
 // AARCH64-NETBSD:#define __INT8_TYPE__ signed char
-// AARCH64-NETBSD:#define __INTMAX_C_SUFFIX__ LL
-// AARCH64-NETBSD:#define __INTMAX_FMTd__ "lld"
-// AARCH64-NETBSD:#define __INTMAX_FMTi__ "lli"
-// AARCH64-NETBSD:#define __INTMAX_MAX__ 9223372036854775807LL
-// AARCH64-NETBSD:#define __INTMAX_TYPE__ long long int
+// AARCH64-NETBSD:#define __INTMAX_C_SUFFIX__ L
+// AARCH64-NETBSD:#define __INTMAX_FMTd__ "ld"
+// AARCH64-NETBSD:#define __INTMAX_FMTi__ "li"
+// AARCH64-NETBSD:#define __INTMAX_MAX__ 9223372036854775807L
+// AARCH64-NETBSD:#define __INTMAX_TYPE__ long int
 // AARCH64-NETBSD:#define __INTMAX_WIDTH__ 64
 // AARCH64-NETBSD:#define __INTPTR_FMTd__ "ld"
 // AARCH64-NETBSD:#define __INTPTR_FMTi__ "li"
@@ -824,15 +824,15 @@
 // AARCH64-NETBSD:#define __UINT32_C_SUFFIX__ U
 // AARCH64-NETBSD:#define __UINT32_MAX__ 4294967295U
 // AARCH64-NETBSD:#define __UINT32_TYPE__ unsigned int
-// AARCH64-NETBSD:#define __UINT64_C_SUFFIX__ ULL
-// AARCH64-NETBSD:#define __UINT64_MAX__ 18446744073709551615ULL
-// AARCH64-NETBSD:#define __UINT64_TYPE__ long long unsigned int
+// AARCH64-NETBSD:#define __UINT64_C_SUFFIX__ UL
+// AARCH64-NETBSD:#define __UINT64_MAX__ 18446744073709551615UL
+// AARCH64-NETBSD:#define __UINT64_TYPE__ long unsigned int
 // AARCH64-NETBSD:#define __UINT8_C_SUFFIX__
 // AARCH64-NETBSD:#define __UINT8_MAX__ 255
 // AARCH64-NETBSD:#define __UINT8_TYPE__ unsigned char
-// AARCH64-NETBSD:#define __UINTMAX_C_SUFFIX__ ULL
-// AARCH64-NETBSD:#define __UINTMAX_MAX__ 18446744073709551615ULL
-// AARCH64-NETBSD:#define __UINTMAX_TYPE__ long long unsigned int
+// AARCH64-NETBSD:#define __UINTMAX_C_SUFFIX__ UL
+// AARCH64-NETBSD:#define __UINTMAX_MAX__ 18446744073709551615UL
+// AARCH64-NETBSD:#define __UINTMAX_TYPE__ long unsigned int
 // AARCH64-NETBSD:#define __UINTMAX_WIDTH__ 64
 // AARCH64-NETBSD:#define __UINTPTR_MAX__ 18446744073709551615UL
 // AARCH64-NETBSD:#define __UINTPTR_TYPE__ long unsigned int
@@ -6370,7 +6370,7 @@
 // PPCPOWER9:#define _ARCH_PWR7 1
 // PPCPOWER9:#define _ARCH_PWR9 1
 //
-// RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-feature +float128 -target-cpu power8 -fno-signed-char < /dev/null | FileCheck -check-prefix PPC-FLOAT128 %s
+// RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-feature +float128 -target-cpu power9 -fno-signed-char < /dev/null | FileCheck -check-prefix PPC-FLOAT128 %s
 // PPC-FLOAT128:#define __FLOAT128__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-unknown-linux-gnu -fno-signed-char < /dev/null | FileCheck -match-full-lines -check-prefix PPC64-LINUX %s
@@ -9001,6 +9001,13 @@
 // RUN: %clang_cc1 -x c++ -triple i686-pc-linux-gnu -fobjc-runtime=gcc -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix GNUSOURCE %s
 // RUN: %clang_cc1 -x c++ -triple sparc-rtems-elf -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix GNUSOURCE %s
 // GNUSOURCE:#define _GNU_SOURCE 1
+//
+// Check that the GNUstep Objective-C ABI defines exist and are clamped at the
+// highest supported version.
+// RUN: %clang_cc1 -x objective-c -triple i386-unknown-freebsd -fobjc-runtime=gnustep-1.9 -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix GNUSTEP1 %s
+// GNUSTEP1:#define __OBJC_GNUSTEP_RUNTIME_ABI__ 18
+// RUN: %clang_cc1 -x objective-c -triple i386-unknown-freebsd -fobjc-runtime=gnustep-2.5 -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix GNUSTEP2 %s
+// GNUSTEP2:#define __OBJC_GNUSTEP_RUNTIME_ABI__ 20
 //
 // RUN: %clang_cc1 -x c++ -std=c++98 -fno-rtti -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix NORTTI %s
 // NORTTI: #define __GXX_ABI_VERSION {{.*}}

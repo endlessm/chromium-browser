@@ -75,8 +75,7 @@ FileSystemBackendDelegate::FileSystemBackendDelegate()
     : async_file_util_(new internal::AsyncFileUtil) {
 }
 
-FileSystemBackendDelegate::~FileSystemBackendDelegate() {
-}
+FileSystemBackendDelegate::~FileSystemBackendDelegate() = default;
 
 storage::AsyncFileUtil* FileSystemBackendDelegate::GetAsyncFileUtil(
     storage::FileSystemType type) {
@@ -128,7 +127,7 @@ FileSystemBackendDelegate::CreateFileStreamWriter(
 storage::WatcherManager* FileSystemBackendDelegate::GetWatcherManager(
     storage::FileSystemType type) {
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 }
 
 void FileSystemBackendDelegate::GetRedirectURLForContents(

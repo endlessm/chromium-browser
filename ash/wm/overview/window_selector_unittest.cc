@@ -25,6 +25,7 @@
 #include "ash/shell.h"
 #include "ash/shell_test_api.h"
 #include "ash/system/tray/system_tray.h"
+#include "ash/system/unified/unified_system_tray.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/overview/overview_utils.h"
 #include "ash/wm/overview/overview_window_drag_controller.h"
@@ -47,8 +48,8 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/user_action_tester.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/client/window_types.h"
@@ -132,6 +133,7 @@ class WindowSelectorTest : public AshTestBase {
         GetPrimaryShelf()->GetShelfViewForTesting());
     shelf_view_test_api_->SetAnimationDuration(1);
     ScopedTransformOverviewWindow::SetImmediateCloseForTests();
+    WindowSelectorController::SetDoNotChangeWallpaperBlurForTests();
   }
 
   aura::Window* CreateWindow(const gfx::Rect& bounds) {
@@ -459,7 +461,7 @@ TEST_F(WindowSelectorTest, Basic) {
   EXPECT_TRUE(wm::IsActiveWindow(window2.get()));
   EXPECT_EQ(window2.get(), wm::GetFocusedWindow());
   // TODO: mash doesn't support CursorClient. http://crbug.com/637853.
-  if (Shell::GetAshConfig() != Config::MASH) {
+  if (Shell::GetAshConfig() != Config::MASH_DEPRECATED) {
     // Hide the cursor before entering overview to test that it will be shown.
     aura::client::GetCursorClient(root_window)->HideCursor();
   }
@@ -479,7 +481,7 @@ TEST_F(WindowSelectorTest, Basic) {
   EXPECT_EQ(window1.get(), wm::GetFocusedWindow());
 
   // TODO: mash doesn't support CursorClient. http://crbug.com/637853.
-  if (Shell::GetAshConfig() != Config::MASH) {
+  if (Shell::GetAshConfig() != Config::MASH_DEPRECATED) {
     // Cursor should have been unlocked.
     EXPECT_FALSE(aura::client::GetCursorClient(root_window)->IsCursorLocked());
   }
@@ -928,7 +930,7 @@ TEST_F(WindowSelectorTest, SkipOverviewWindow) {
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
   std::unique_ptr<aura::Window> window2(CreateWindow(bounds));
 
-  window2->SetProperty(ash::kShowInOverviewKey, false);
+  window2->SetProperty(ash::kHideInOverviewKey, true);
 
   // Enter overview.
   ToggleOverview();
@@ -947,6 +949,7 @@ TEST_F(WindowSelectorTest, SkipOverviewWindow) {
 // mode correctly applies the transformations to the window and correctly
 // updates the window bounds on exiting overview mode: http://crbug.com/401664.
 TEST_F(WindowSelectorTest, FullscreenWindowTabletMode) {
+  UpdateDisplay("800x600");
   const gfx::Rect bounds(400, 400);
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
   std::unique_ptr<aura::Window> window2(CreateWindow(bounds));
@@ -959,13 +962,24 @@ TEST_F(WindowSelectorTest, FullscreenWindowTabletMode) {
   gfx::Rect fullscreen_window_bounds(window1->bounds());
   EXPECT_NE(normal_window_bounds, fullscreen_window_bounds);
   EXPECT_EQ(fullscreen_window_bounds, window2->GetTargetBounds());
+
+  const gfx::Rect fullscreen(800, 600);
+  const gfx::Rect normal_work_area(800, 552);
+  display::Screen* screen = display::Screen::GetScreen();
+  EXPECT_EQ(gfx::Rect(800, 600),
+            screen->GetDisplayNearestWindow(window1.get()).work_area());
+
   ToggleOverview();
+  EXPECT_EQ(fullscreen,
+            screen->GetDisplayNearestWindow(window1.get()).work_area());
+
   // Window 2 would normally resize to normal window bounds on showing the shelf
   // for overview but this is deferred until overview is exited.
   EXPECT_EQ(fullscreen_window_bounds, window2->GetTargetBounds());
   EXPECT_FALSE(WindowsOverlapping(window1.get(), window2.get()));
   ToggleOverview();
-
+  EXPECT_EQ(fullscreen,
+            screen->GetDisplayNearestWindow(window1.get()).work_area());
   // Since the fullscreen window is still active, window2 will still have the
   // larger bounds.
   EXPECT_EQ(fullscreen_window_bounds, window2->GetTargetBounds());
@@ -974,7 +988,19 @@ TEST_F(WindowSelectorTest, FullscreenWindowTabletMode) {
   // the shelf bringing window2 back to the normal bounds.
   ToggleOverview();
   ClickWindow(window2.get());
+  // Selecting non fullscreen window should set the work area back to normal.
+  EXPECT_EQ(normal_work_area,
+            screen->GetDisplayNearestWindow(window1.get()).work_area());
   EXPECT_EQ(normal_window_bounds, window2->GetTargetBounds());
+
+  ToggleOverview();
+  EXPECT_EQ(normal_work_area,
+            screen->GetDisplayNearestWindow(window1.get()).work_area());
+  ClickWindow(window1.get());
+  // Selecting fullscreen. The work area should be updated to fullscreen as
+  // well.
+  EXPECT_EQ(fullscreen,
+            screen->GetDisplayNearestWindow(window1.get()).work_area());
 }
 
 // Tests that beginning window selection hides the app list.
@@ -1738,8 +1764,13 @@ TEST_F(WindowSelectorTest, ShowTextFilterMenu) {
   EXPECT_TRUE(showing_filter_widget());
 
   // Open system bubble shifting focus from the text filter.
-  SystemTray* tray = GetPrimarySystemTray();
-  tray->ShowDefaultView(BUBBLE_CREATE_NEW, false /* show_by_click */);
+  if (features::IsSystemTrayUnifiedEnabled()) {
+    GetPrimaryUnifiedSystemTray()->ShowBubble(false /* show_by_click */);
+  } else {
+    SystemTray* tray = GetPrimarySystemTray();
+    tray->ShowDefaultView(BUBBLE_CREATE_NEW, false /* show_by_click */);
+  }
+
   RunAllPendingInMessageLoop();
 
   // This should not cancel overview mode.
@@ -1748,11 +1779,11 @@ TEST_F(WindowSelectorTest, ShowTextFilterMenu) {
   EXPECT_TRUE(showing_filter_widget());
 
   // Click text filter to bring focus back.
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   gfx::Point point_in_text_filter =
       text_filter_widget()->GetWindowBoundsInScreen().CenterPoint();
-  generator.MoveMouseTo(point_in_text_filter);
-  generator.ClickLeftButton();
+  generator->MoveMouseTo(point_in_text_filter);
+  generator->ClickLeftButton();
   EXPECT_TRUE(IsSelecting());
 
   // Cancel overview mode.
@@ -1771,14 +1802,14 @@ TEST_F(WindowSelectorTest, CancelOverviewOnMouseClick) {
   gfx::Point point_in_background_page(0, 0);
   gfx::Rect bounds(10, 10, 100, 100);
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
   // Move mouse to point in the background page. Sending an event here will pass
   // it to the WallpaperController in both regular and overview mode.
-  generator.MoveMouseTo(point_in_background_page);
+  generator->MoveMouseTo(point_in_background_page);
 
   // Clicking on the background page while not in overview should not toggle
   // overview.
-  generator.ClickLeftButton();
+  generator->ClickLeftButton();
   EXPECT_FALSE(IsSelecting());
 
   // Switch to overview mode.
@@ -1786,7 +1817,7 @@ TEST_F(WindowSelectorTest, CancelOverviewOnMouseClick) {
   ASSERT_TRUE(IsSelecting());
 
   // Click should now exit overview mode.
-  generator.ClickLeftButton();
+  generator->ClickLeftButton();
   EXPECT_FALSE(IsSelecting());
 }
 
@@ -1801,11 +1832,11 @@ TEST_F(WindowSelectorTest, CancelOverviewOnTap) {
   gfx::Point point_in_background_page(0, 0);
   gfx::Rect bounds(10, 10, 100, 100);
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   // Tapping on the background page while not in overview should not toggle
   // overview.
-  generator.GestureTapAt(point_in_background_page);
+  generator->GestureTapAt(point_in_background_page);
   EXPECT_FALSE(IsSelecting());
 
   // Switch to overview mode.
@@ -1813,7 +1844,7 @@ TEST_F(WindowSelectorTest, CancelOverviewOnTap) {
   ASSERT_TRUE(IsSelecting());
 
   // Tap should now exit overview mode.
-  generator.GestureTapAt(point_in_background_page);
+  generator->GestureTapAt(point_in_background_page);
   EXPECT_FALSE(IsSelecting());
 }
 
@@ -2568,14 +2599,15 @@ TEST_F(WindowSelectorTest, WindowItemCanAnimateOnDragRelease) {
   ToggleOverview();
   WindowSelectorItem* item2 = GetWindowItemForWindow(0, window2.get());
   // Drag |item2| in a way so that |window2| does not get activated.
-  GetEventGenerator().MoveMouseTo(item2->target_bounds().CenterPoint());
-  GetEventGenerator().PressLeftButton();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(item2->target_bounds().CenterPoint());
+  generator->PressLeftButton();
   RunAllPendingInMessageLoop();
 
-  GetEventGenerator().MoveMouseTo(gfx::Point(200, 200));
+  generator->MoveMouseTo(gfx::Point(200, 200));
   ui::ScopedAnimationDurationScaleMode test_duration_mode(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
-  GetEventGenerator().ReleaseLeftButton();
+  generator->ReleaseLeftButton();
   EXPECT_TRUE(window2->layer()->GetAnimator()->IsAnimatingProperty(
       ui::LayerAnimationElement::AnimatableProperty::TRANSFORM));
   RunAllPendingInMessageLoop();
@@ -2599,8 +2631,9 @@ TEST_F(WindowSelectorTest, WindowItemTitleCloseVisibilityOnDrag) {
   // Start the drag on |item1|. Verify the dragged item, |item1| has both the
   // close button and titlebar hidden. All other items, |item2| should only have
   // the close button hidden.
-  GetEventGenerator().MoveMouseTo(item1->target_bounds().CenterPoint());
-  GetEventGenerator().PressLeftButton();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(item1->target_bounds().CenterPoint());
+  generator->PressLeftButton();
   RunAllPendingInMessageLoop();
   EXPECT_EQ(0.f, item1->GetTitlebarOpacityForTesting());
   EXPECT_EQ(0.f, item1->GetCloseButtonOpacityForTesting());
@@ -2610,8 +2643,8 @@ TEST_F(WindowSelectorTest, WindowItemTitleCloseVisibilityOnDrag) {
   // Drag |item1| in a way so that |window1| does not get activated (drags
   // within a certain threshold count as clicks). Verify the close button and
   // titlebar is visible for all items.
-  GetEventGenerator().MoveMouseTo(gfx::Point(200, 200));
-  GetEventGenerator().ReleaseLeftButton();
+  generator->MoveMouseTo(gfx::Point(200, 200));
+  generator->ReleaseLeftButton();
   RunAllPendingInMessageLoop();
   EXPECT_EQ(1.f, item1->GetTitlebarOpacityForTesting());
   EXPECT_EQ(1.f, item1->GetCloseButtonOpacityForTesting());
@@ -2682,8 +2715,9 @@ TEST_F(WindowSelectorTest, OverviewWidgetStackingOrder) {
   // Drag the first window. Verify that it's item widget is not stacked above
   // the other two.
   const gfx::Point start_drag = item1->target_bounds().CenterPoint();
-  GetEventGenerator().MoveMouseTo(start_drag);
-  GetEventGenerator().PressLeftButton();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(start_drag);
+  generator->PressLeftButton();
   EXPECT_GT(IndexOf(widget1->GetNativeWindow(), parent),
             IndexOf(widget2->GetNativeWindow(), parent));
   EXPECT_GT(IndexOf(widget1->GetNativeWindow(), parent),
@@ -2691,9 +2725,9 @@ TEST_F(WindowSelectorTest, OverviewWidgetStackingOrder) {
 
   // Drag to origin and then back to the start to avoid activating the window or
   // entering splitview.
-  GetEventGenerator().MoveMouseTo(gfx::Point());
-  GetEventGenerator().MoveMouseTo(start_drag);
-  GetEventGenerator().ReleaseLeftButton();
+  generator->MoveMouseTo(gfx::Point());
+  generator->MoveMouseTo(start_drag);
+  generator->ReleaseLeftButton();
 
   // Verify the stacking order is same as before dragging started.
   EXPECT_GT(IndexOf(widget2->GetNativeWindow(), parent),
@@ -2732,17 +2766,18 @@ TEST_F(WindowSelectorTest, OverviewWidgetStackingOrderWithDragging) {
   // Verify that during drag the dragged item widget is stacked above the other
   // two.
   const gfx::Point start_drag = item1->target_bounds().CenterPoint();
-  GetEventGenerator().MoveMouseTo(start_drag);
-  GetEventGenerator().PressLeftButton();
-  GetEventGenerator().MoveMouseTo(gfx::Point());
-  GetEventGenerator().MoveMouseTo(start_drag);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(start_drag);
+  generator->PressLeftButton();
+  generator->MoveMouseTo(gfx::Point());
+  generator->MoveMouseTo(start_drag);
   EXPECT_GT(IndexOf(widget1->GetNativeWindow(), parent),
             IndexOf(widget3->GetNativeWindow(), parent));
   EXPECT_GT(IndexOf(widget1->GetNativeWindow(), parent),
             IndexOf(widget2->GetNativeWindow(), parent));
 
   // Verify that after release the ordering is the same as before dragging.
-  GetEventGenerator().ReleaseLeftButton();
+  generator->ReleaseLeftButton();
   RunAllPendingInMessageLoop();
   EXPECT_GT(IndexOf(widget3->GetNativeWindow(), parent),
             IndexOf(widget2->GetNativeWindow(), parent));
@@ -2802,11 +2837,11 @@ TEST_F(WindowSelectorTest, RoundedEdgeMaskVisibility) {
   wm::ActivateWindow(window1.get());
 
   // Dragging is only allowed in tablet mode.
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
 
   ToggleOverview();
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   WindowSelectorItem* item1 = GetWindowItemForWindow(0, window1.get());
   WindowSelectorItem* item2 = GetWindowItemForWindow(0, window2.get());
   EXPECT_TRUE(HasMaskForItem(item1));
@@ -2818,20 +2853,21 @@ TEST_F(WindowSelectorTest, RoundedEdgeMaskVisibility) {
   // Drag the first window. Verify that the mask still exists for both items as
   // we do not apply any animation to the window items at this point.
   const gfx::Point start_drag = item1->target_bounds().CenterPoint();
-  GetEventGenerator().MoveMouseTo(start_drag);
-  GetEventGenerator().PressLeftButton();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(start_drag);
+  generator->PressLeftButton();
   EXPECT_FALSE(window1->layer()->GetAnimator()->is_animating());
   EXPECT_FALSE(window2->layer()->GetAnimator()->is_animating());
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(HasMaskForItem(item1));
   EXPECT_TRUE(HasMaskForItem(item2));
 
-  // Drag to origin and then back to the start to avoid activating the window or
-  // entering splitview. Verify that the mask is invisible on both items during
-  // animation.
-  GetEventGenerator().MoveMouseTo(gfx::Point());
-  GetEventGenerator().MoveMouseTo(start_drag);
-  GetEventGenerator().ReleaseLeftButton();
+  // Drag to horizontally and then back to the start to avoid activating the
+  // window, drag to close or entering splitview. Verify that the mask is
+  // invisible on both items during animation.
+  generator->MoveMouseTo(gfx::Point(0, start_drag.y()));
+  generator->MoveMouseTo(start_drag);
+  generator->ReleaseLeftButton();
   EXPECT_TRUE(window1->layer()->GetAnimator()->is_animating());
   EXPECT_TRUE(window2->layer()->GetAnimator()->is_animating());
   EXPECT_FALSE(HasMaskForItem(item1));
@@ -2840,7 +2876,7 @@ TEST_F(WindowSelectorTest, RoundedEdgeMaskVisibility) {
   // Verify that the mask is visble again after animation is finished.
   window1->layer()->GetAnimator()->StopAnimating();
   window2->layer()->GetAnimator()->StopAnimating();
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(HasMaskForItem(item1));
   EXPECT_TRUE(HasMaskForItem(item2));
 
@@ -2876,10 +2912,9 @@ TEST_F(WindowSelectorTest, ExitInUnderlineMode) {
 
   // Enter underline mode on the text selector by generating CTRL+SHIFT+U
   // sequence.
-  GetEventGenerator().PressKey(ui::VKEY_U,
-                               ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
-  GetEventGenerator().ReleaseKey(ui::VKEY_U,
-                                 ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::VKEY_U, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  generator->ReleaseKey(ui::VKEY_U, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
 
   // Test that leaving overview mode cleans up properly.
   ToggleOverview();
@@ -2981,16 +3016,16 @@ TEST_F(WindowSelectorTest, DISABLED_DraggingWithTwoFingers) {
   // Long press is one way to start dragging in splitview.
   auto dispatch_long_press = [this]() {
     ui::GestureEventDetails event_details(ui::ET_GESTURE_LONG_PRESS);
-    const gfx::Point location = GetEventGenerator().current_location();
+    const gfx::Point location = GetEventGenerator()->current_location();
     ui::GestureEvent long_press(location.x(), location.y(), 0,
                                 ui::EventTimeForNow(), event_details);
-    GetEventGenerator().Dispatch(&long_press);
+    GetEventGenerator()->Dispatch(&long_press);
   };
 
   // Verify that the bounds of the tapped window expand when touched.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.set_current_location(original_bounds1.CenterPoint());
-  generator.PressTouchId(kTouchId1);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->set_current_location(original_bounds1.CenterPoint());
+  generator->PressTouchId(kTouchId1);
   dispatch_long_press();
   EXPECT_GT(item1->target_bounds().width(), original_bounds1.width());
   EXPECT_GT(item1->target_bounds().height(), original_bounds1.height());
@@ -2998,8 +3033,8 @@ TEST_F(WindowSelectorTest, DISABLED_DraggingWithTwoFingers) {
   // Verify that attempting to touch the second window with a second finger does
   // nothing to the second window. The first window remains the window to be
   // dragged.
-  generator.set_current_location(original_bounds2.CenterPoint());
-  generator.PressTouchId(kTouchId2);
+  generator->set_current_location(original_bounds2.CenterPoint());
+  generator->PressTouchId(kTouchId2);
   dispatch_long_press();
   EXPECT_GT(item1->target_bounds().width(), original_bounds1.width());
   EXPECT_GT(item1->target_bounds().height(), original_bounds1.height());
@@ -3007,7 +3042,7 @@ TEST_F(WindowSelectorTest, DISABLED_DraggingWithTwoFingers) {
 
   // Verify the first window moves on drag.
   gfx::Point last_center_point = item1->target_bounds().CenterPoint();
-  generator.MoveTouchIdBy(kTouchId1, 40, 40);
+  generator->MoveTouchIdBy(kTouchId1, 40, 40);
   EXPECT_NE(last_center_point, item1->target_bounds().CenterPoint());
   EXPECT_EQ(original_bounds2.CenterPoint(),
             item2->target_bounds().CenterPoint());
@@ -3015,10 +3050,10 @@ TEST_F(WindowSelectorTest, DISABLED_DraggingWithTwoFingers) {
   // Verify the first window moves on drag, even if we switch to a second
   // finger.
   last_center_point = item1->target_bounds().CenterPoint();
-  generator.ReleaseTouchId(kTouchId2);
-  generator.PressTouchId(kTouchId2);
+  generator->ReleaseTouchId(kTouchId2);
+  generator->PressTouchId(kTouchId2);
   dispatch_long_press();
-  generator.MoveTouchIdBy(kTouchId2, 40, 40);
+  generator->MoveTouchIdBy(kTouchId2, 40, 40);
   EXPECT_NE(last_center_point, item1->target_bounds().CenterPoint());
   EXPECT_EQ(original_bounds2.CenterPoint(),
             item2->target_bounds().CenterPoint());
@@ -3068,6 +3103,18 @@ TEST_F(WindowSelectorTest, PositionWindows) {
   window_selector()->PositionWindows(/*animate=*/false, item1);
   EXPECT_EQ(bounds1, item1->target_bounds());
   EXPECT_NE(bounds2, item2->target_bounds());
+  EXPECT_NE(bounds3, item3->target_bounds());
+
+  // Return the windows to their original bounds.
+  window_selector()->PositionWindows(/*animate=*/false);
+
+  // Verify that items that are animating before closing are ignored by
+  // PositionWindows.
+  item1->set_animating_to_close(true);
+  item2->set_animating_to_close(true);
+  window_selector()->PositionWindows(/*animate=*/false);
+  EXPECT_EQ(bounds1, item1->target_bounds());
+  EXPECT_EQ(bounds2, item2->target_bounds());
   EXPECT_NE(bounds3, item3->target_bounds());
 }
 
@@ -3135,10 +3182,14 @@ class SplitViewWindowSelectorTest : public WindowSelectorTest {
   // to |end_location|. This should be used over
   // DragWindowTo(WindowSelectorItem*, gfx::Point) when testing snapping a
   // window, but the windows centerpoint may be inside a snap region, thus the
-  // window will not snapped.
+  // window will not snapped. This function is mostly used to test splitview so
+  // |long_press| is default to true. Set |long_press| to false if we do not
+  // want to long press after every press, which enables dragging vertically to
+  // close an item.
   void DragWindowTo(WindowSelectorItem* item,
                     const gfx::Point& end_location,
-                    SelectorItemLocation location) {
+                    SelectorItemLocation location,
+                    bool long_press = true) {
     // Start drag in the middle of the seletor item.
     gfx::Point start_location;
     switch (location) {
@@ -3162,6 +3213,8 @@ class SplitViewWindowSelectorTest : public WindowSelectorTest {
         break;
     }
     window_selector()->InitiateDrag(item, start_location);
+    if (long_press)
+      window_selector()->StartSplitViewDragMode(start_location);
     window_selector()->Drag(item, end_location);
     window_selector()->CompleteDrag(item, end_location);
   }
@@ -3169,7 +3222,7 @@ class SplitViewWindowSelectorTest : public WindowSelectorTest {
   // Drags a window selector item |item| from its center point to
   // |end_location|.
   void DragWindowTo(WindowSelectorItem* item, const gfx::Point& end_location) {
-    DragWindowTo(item, end_location, SelectorItemLocation::CENTER);
+    DragWindowTo(item, end_location, SelectorItemLocation::CENTER, true);
   }
 
   // Creates a window which cannot be snapped by splitview.
@@ -3268,7 +3321,7 @@ TEST_F(SplitViewWindowSelectorTest, DragOverviewWindowToSnap) {
 TEST_F(SplitViewWindowSelectorTest, Dragging) {
   aura::Env::GetInstance()->set_throttle_input_on_resize_for_testing(false);
 
-  ui::test::EventGenerator& generator = GetEventGenerator();
+  ui::test::EventGenerator* generator = GetEventGenerator();
 
   std::unique_ptr<aura::Window> right_window = CreateTestWindow();
   std::unique_ptr<aura::Window> left_window = CreateTestWindow();
@@ -3283,9 +3336,9 @@ TEST_F(SplitViewWindowSelectorTest, Dragging) {
 
   // The inset on each side of the screen which is a snap region. Items dragged
   // to and released under this region will get snapped.
-  const int drag_offset = OverviewWindowDragController::kMinimumDragOffset;
-  const int drag_offset_snap_region =
-      OverviewWindowDragController::kMinimumDragOffsetAlreadyInSnapRegionDp;
+  const int drag_offset = 5;
+  const int drag_offset_snap_region = 48;
+  const int minimum_drag_offset = 96;
   const int screen_width =
       screen_util::GetDisplayWorkAreaBoundsInParent(left_window.get()).width();
   const int edge_inset = GetEdgeInset(screen_width);
@@ -3307,45 +3360,47 @@ TEST_F(SplitViewWindowSelectorTest, Dragging) {
   // Verify if the drag is not started in either snap region, the drag still
   // must move by |drag_offset| before split view acknowledges the drag (ie.
   // starts moving the selector item).
-  generator.set_current_location(
+  generator->set_current_location(
       left_selector_item->target_bounds().CenterPoint());
-  generator.PressLeftButton();
+  generator->PressLeftButton();
   const gfx::Rect left_original_bounds = left_selector_item->target_bounds();
-  generator.MoveMouseBy(drag_offset - 1, 0);
+  generator->MoveMouseBy(drag_offset - 1, 0);
   EXPECT_EQ(left_original_bounds, left_selector_item->target_bounds());
-  generator.MoveMouseBy(1, 0);
+  generator->MoveMouseBy(1, 0);
   EXPECT_NE(left_original_bounds, left_selector_item->target_bounds());
-  generator.ReleaseLeftButton();
+  generator->ReleaseLeftButton();
 
   // Verify if the drag is started in the left snap region, the drag needs to
-  // move by |drag_offset_snap_region| towards the left side of the screen
+  // move by |drag_offset_snap_region| towards the right side of the screen
   // before split view acknowledges the drag (shows the preview area).
   ASSERT_TRUE(window_selector_controller()->IsSelecting());
-  generator.set_current_location(gfx::Point(
+  generator->set_current_location(gfx::Point(
       left_selector_item->target_bounds().origin().x() + selector_item_inset,
       left_selector_item->target_bounds().CenterPoint().y()));
-  generator.PressLeftButton();
-  generator.MoveMouseBy(-drag_offset_snap_region + 1, 0);
+  generator->PressLeftButton();
+  generator->MoveMouseBy(-drag_offset, 0);
   EXPECT_FALSE(IsPreviewAreaShowing());
-  generator.MoveMouseBy(-1, 0);
+  generator->MoveMouseBy(drag_offset_snap_region, 0);
+  generator->MoveMouseBy(-minimum_drag_offset, 0);
   EXPECT_TRUE(IsPreviewAreaShowing());
   // Drag back to the middle before releasing so that we stay in overview mode
   // on release.
-  generator.MoveMouseTo(left_original_bounds.CenterPoint());
-  generator.ReleaseLeftButton();
+  generator->MoveMouseTo(left_original_bounds.CenterPoint());
+  generator->ReleaseLeftButton();
 
   // Verify if the drag is started in the right snap region, the drag needs to
-  // move by |drag_offset_snap_region| towards the right side of the screen
+  // move by |drag_offset_snap_region| towards the left side of the screen
   // before split view acknowledges the drag.
   ASSERT_TRUE(window_selector_controller()->IsSelecting());
-  generator.set_current_location(
+  generator->set_current_location(
       gfx::Point(right_selector_item->target_bounds().top_right().x() -
                      selector_item_inset,
                  right_selector_item->target_bounds().CenterPoint().y()));
-  generator.PressLeftButton();
-  generator.MoveMouseBy(drag_offset_snap_region - 1, 0);
+  generator->PressLeftButton();
+  generator->MoveMouseBy(drag_offset, 0);
   EXPECT_FALSE(IsPreviewAreaShowing());
-  generator.MoveMouseBy(1, 0);
+  generator->MoveMouseBy(-drag_offset_snap_region, 0);
+  generator->MoveMouseBy(minimum_drag_offset, 0);
   EXPECT_TRUE(IsPreviewAreaShowing());
 }
 
@@ -3368,28 +3423,28 @@ TEST_F(SplitViewWindowSelectorTest, OverviewDragControllerBehavior) {
   // Verify that if a drag is orginally horizontal, the drag behavior is drag to
   // snap.
   using DragBehavior = OverviewWindowDragController::DragBehavior;
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  generator.set_current_location(window_item1->target_bounds().CenterPoint());
-  generator.PressTouch();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->set_current_location(window_item1->target_bounds().CenterPoint());
+  generator->PressTouch();
   OverviewWindowDragController* drag_controller =
       window_selector()->window_drag_controller();
   EXPECT_EQ(DragBehavior::kUndefined, drag_controller->current_drag_behavior());
-  generator.MoveTouchBy(20, 0);
+  generator->MoveTouchBy(20, 0);
   EXPECT_EQ(DragBehavior::kDragToSnap,
             drag_controller->current_drag_behavior());
-  generator.ReleaseTouch();
+  generator->ReleaseTouch();
   EXPECT_EQ(DragBehavior::kNoDrag, drag_controller->current_drag_behavior());
 
   // Verify that if a drag is orginally vertical, the drag behavior is drag to
   // close.
-  generator.set_current_location(window_item2->target_bounds().CenterPoint());
-  generator.PressTouch();
+  generator->set_current_location(window_item2->target_bounds().CenterPoint());
+  generator->PressTouch();
   drag_controller = window_selector()->window_drag_controller();
   EXPECT_EQ(DragBehavior::kUndefined, drag_controller->current_drag_behavior());
 
   // Use small increments otherwise a fling event will be fired.
   for (int j = 0; j < 20; ++j)
-    generator.MoveTouchBy(0, 1);
+    generator->MoveTouchBy(0, 1);
   EXPECT_EQ(DragBehavior::kDragToClose,
             drag_controller->current_drag_behavior());
 }
@@ -3407,24 +3462,23 @@ TEST_F(SplitViewWindowSelectorTest, DragToClose) {
   ToggleOverview();
   ASSERT_TRUE(window_selector_controller()->IsSelecting());
 
-  WindowSelectorItem* window_item1 =
+  WindowSelectorItem* item =
       GetWindowItemForWindow(0, widget1->GetNativeWindow());
-  ASSERT_TRUE(window_item1);
+  const gfx::Point start = item->target_bounds().CenterPoint();
+  ASSERT_TRUE(item);
 
   // This drag has not covered enough distance, so the widget is not closed and
-  // we remain in overview mode. Use scroll sequences with large time and steps
-  // to avoid triggering a fling event.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  const gfx::Point start = window_item1->target_bounds().CenterPoint();
-  generator.GestureScrollSequence(start, start + gfx::Vector2d(0, 100),
-                                  base::TimeDelta::FromMilliseconds(100), 100);
-  RunAllPendingInMessageLoop();
+  // we remain in overview mode.
+  window_selector()->InitiateDrag(item, start);
+  window_selector()->Drag(item, start + gfx::Vector2d(0, 80));
+  window_selector()->CompleteDrag(item, start + gfx::Vector2d(0, 80));
   ASSERT_TRUE(window_selector());
 
   // Verify that the second drag has enough vertical distance, so the widget
   // will be closed and overview mode will be exited.
-  generator.GestureScrollSequence(start, start + gfx::Vector2d(0, 300),
-                                  base::TimeDelta::FromMilliseconds(100), 100);
+  window_selector()->InitiateDrag(item, start);
+  window_selector()->Drag(item, start + gfx::Vector2d(0, 180));
+  window_selector()->CompleteDrag(item, start + gfx::Vector2d(0, 180));
   RunAllPendingInMessageLoop();
   EXPECT_FALSE(window_selector());
 }
@@ -3443,18 +3497,174 @@ TEST_F(SplitViewWindowSelectorTest, FlingToClose) {
   ASSERT_TRUE(window_selector_controller()->IsSelecting());
   EXPECT_EQ(1u, window_selector()->grid_list_for_testing()[0]->size());
 
-  WindowSelectorItem* window_item1 =
+  WindowSelectorItem* item =
       GetWindowItemForWindow(0, widget1->GetNativeWindow());
-  ASSERT_TRUE(window_item1);
+  const gfx::Point start = item->target_bounds().CenterPoint();
+  ASSERT_TRUE(item);
+
+  // Verify that items flung horizontally do not close the item.
+  window_selector()->InitiateDrag(item, start);
+  window_selector()->Drag(item, start + gfx::Vector2d(0, 50));
+  window_selector()->Fling(item, start, 2500, 0);
+  ASSERT_TRUE(window_selector());
+
+  // Verify that items flung vertically, but without enough velocity do not
+  // close the item.
+  window_selector()->InitiateDrag(item, start);
+  window_selector()->Drag(item, start + gfx::Vector2d(0, 50));
+  window_selector()->Fling(item, start, 0, 1500);
+  ASSERT_TRUE(window_selector());
 
   // Verify that flinging the item closes it, and since it is the last item in
   // overview mode, overview mode is exited.
-  ui::test::EventGenerator& generator = GetEventGenerator();
-  const gfx::Point start = window_item1->target_bounds().CenterPoint();
-  generator.GestureScrollSequence(start, start + gfx::Vector2d(0, 200),
-                                  base::TimeDelta::FromMilliseconds(10), 5);
+  window_selector()->InitiateDrag(item, start);
+  window_selector()->Drag(item, start + gfx::Vector2d(0, 50));
+  window_selector()->Fling(item, start, 0, 2500);
   RunAllPendingInMessageLoop();
   EXPECT_FALSE(window_selector());
+}
+
+// Tests that nudging occurs in the most basic case, which is we have one row
+// and one item which is about to be deleted by dragging. If the item is deleted
+// we still only have one row, so the other items should nudge while the item is
+// being dragged.
+TEST_F(SplitViewWindowSelectorTest, BasicNudging) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kOverviewSwipeToClose);
+
+  // Set up three equal windows, which take up one row on the overview grid.
+  // When one of them is deleted we are still left with all the windows on one
+  // row.
+  std::unique_ptr<aura::Window> window1 = CreateTestWindow();
+  std::unique_ptr<aura::Window> window2 = CreateTestWindow();
+  std::unique_ptr<aura::Window> window3 = CreateTestWindow();
+
+  ToggleOverview();
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+
+  WindowSelectorItem* item1 = GetWindowItemForWindow(0, window1.get());
+  WindowSelectorItem* item2 = GetWindowItemForWindow(0, window2.get());
+  WindowSelectorItem* item3 = GetWindowItemForWindow(0, window3.get());
+
+  const gfx::Rect item1_bounds = item1->target_bounds();
+  const gfx::Rect item2_bounds = item2->target_bounds();
+  const gfx::Rect item3_bounds = item3->target_bounds();
+
+  // Drag |item1| vertically. |item2| and |item3| bounds should change as they
+  // should be nudging towards their final bounds.
+  window_selector()->InitiateDrag(item1, item1_bounds.CenterPoint());
+  window_selector()->Drag(item1,
+                          item1_bounds.CenterPoint() + gfx::Vector2d(0, 160));
+  EXPECT_NE(item2_bounds, item2->target_bounds());
+  EXPECT_NE(item3_bounds, item3->target_bounds());
+
+  // Drag |item1| back to its start drag location and release, so that it does
+  // not get deleted.
+  window_selector()->Drag(item1, item1_bounds.CenterPoint());
+  window_selector()->CompleteDrag(item1, item1_bounds.CenterPoint());
+
+  // Drag |item3| vertically. |item1| and |item2| bounds should change as they
+  // should be nudging towards their final bounds.
+  window_selector()->InitiateDrag(item3, item3_bounds.CenterPoint());
+  window_selector()->Drag(item3,
+                          item3_bounds.CenterPoint() + gfx::Vector2d(0, 160));
+  EXPECT_NE(item1_bounds, item1->target_bounds());
+  EXPECT_NE(item2_bounds, item2->target_bounds());
+}
+
+// Tests that no nudging occurs when the number of rows in overview mode change
+// if the item to be deleted results in the overview grid to change number of
+// rows.
+TEST_F(SplitViewWindowSelectorTest, NoNudgingWhenNumRowsChange) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kOverviewSwipeToClose);
+
+  // Set up four equal windows, which would split into two rows in overview
+  // mode. Removing one window would leave us with three windows, which only
+  // takes a single row in overview.
+  std::unique_ptr<aura::Window> window1 = CreateTestWindow();
+  std::unique_ptr<aura::Window> window2 = CreateTestWindow();
+  std::unique_ptr<aura::Window> window3 = CreateTestWindow();
+  std::unique_ptr<aura::Window> window4 = CreateTestWindow();
+
+  ToggleOverview();
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+
+  WindowSelectorItem* item1 = GetWindowItemForWindow(0, window1.get());
+  WindowSelectorItem* item2 = GetWindowItemForWindow(0, window2.get());
+  WindowSelectorItem* item3 = GetWindowItemForWindow(0, window3.get());
+  WindowSelectorItem* item4 = GetWindowItemForWindow(0, window4.get());
+
+  const gfx::Rect item1_bounds = item1->target_bounds();
+  const gfx::Rect item2_bounds = item2->target_bounds();
+  const gfx::Rect item3_bounds = item3->target_bounds();
+  const gfx::Rect item4_bounds = item4->target_bounds();
+
+  // Drag |item1| past the drag to swipe threshold. None of the other window
+  // bounds should change, as none of them should be nudged.
+  window_selector()->InitiateDrag(item1, item1_bounds.CenterPoint());
+  window_selector()->Drag(item1,
+                          item1_bounds.CenterPoint() + gfx::Vector2d(0, 160));
+  EXPECT_EQ(item2_bounds, item2->target_bounds());
+  EXPECT_EQ(item3_bounds, item3->target_bounds());
+  EXPECT_EQ(item4_bounds, item4->target_bounds());
+}
+
+// Tests that no nudging occurs when the item to be deleted results in an item
+// from the previous row to drop down to the current row, thus causing the items
+// to the right of the item to be shifted right, which is visually unacceptable.
+TEST_F(SplitViewWindowSelectorTest, NoNudgingWhenLastItemOnPreviousRowDrops) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kOverviewSwipeToClose);
+
+  // Set up five equal windows, which would split into two rows in overview
+  // mode. Removing one window would cause the rows to rearrange, with the third
+  // item dropping down from the first row to the second row. Create the windows
+  // backward so the the window indexs match the order seen in overview, as
+  // overview windows are ordered by MRU.
+  const int kWindows = 5;
+  std::unique_ptr<aura::Window> windows[kWindows];
+  for (int i = kWindows - 1; i >= 0; --i)
+    windows[i] = CreateTestWindow();
+
+  ToggleOverview();
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+
+  WindowSelectorItem* items[kWindows];
+  gfx::Rect item_bounds[kWindows];
+  for (int i = 0; i < kWindows; ++i) {
+    items[i] = GetWindowItemForWindow(0, windows[i].get());
+    item_bounds[i] = items[i]->target_bounds();
+  }
+
+  // Drag the forth item past the drag to swipe threshold. None of the other
+  // window bounds should change, as none of them should be nudged, because
+  // deleting the fourth item will cause the third item to drop down from the
+  // first row to the second.
+  window_selector()->InitiateDrag(items[3], item_bounds[3].CenterPoint());
+  window_selector()->Drag(items[3],
+                          item_bounds[3].CenterPoint() + gfx::Vector2d(0, 160));
+  EXPECT_EQ(item_bounds[0], items[0]->target_bounds());
+  EXPECT_EQ(item_bounds[1], items[1]->target_bounds());
+  EXPECT_EQ(item_bounds[2], items[2]->target_bounds());
+  EXPECT_EQ(item_bounds[4], items[4]->target_bounds());
+
+  // Drag the fourth item back to its start drag location and release, so that
+  // it does not get deleted.
+  window_selector()->Drag(items[3], item_bounds[3].CenterPoint());
+  window_selector()->CompleteDrag(items[3], item_bounds[3].CenterPoint());
+
+  // Drag the first item past the drag to swipe threshold. The second and third
+  // items should nudge as expected as there is no item dropping down to their
+  // row. The fourth and fifth items should not nudge as they are in a different
+  // row than the first item.
+  window_selector()->InitiateDrag(items[0], item_bounds[0].CenterPoint());
+  window_selector()->Drag(items[0],
+                          item_bounds[0].CenterPoint() + gfx::Vector2d(0, 160));
+  EXPECT_NE(item_bounds[1], items[1]->target_bounds());
+  EXPECT_NE(item_bounds[2], items[2]->target_bounds());
+  EXPECT_EQ(item_bounds[3], items[3]->target_bounds());
+  EXPECT_EQ(item_bounds[4], items[4]->target_bounds());
 }
 
 // Verify the window grid size changes as expected when dragging items around in
@@ -3655,18 +3865,20 @@ TEST_F(SplitViewWindowSelectorTest, PreviewAreaVisibility) {
   WindowSelectorItem* selector_item =
       GetWindowItemForWindow(grid_index, window.get());
   const gfx::Point start_location(selector_item->target_bounds().CenterPoint());
+  // Drag horizontally to avoid activating drag to close.
+  const int y = start_location.y();
   window_selector()->InitiateDrag(selector_item, start_location);
   EXPECT_FALSE(IsPreviewAreaShowing());
-  window_selector()->Drag(selector_item, gfx::Point(edge_inset + 1, 1));
+  window_selector()->Drag(selector_item, gfx::Point(edge_inset + 1, y));
   EXPECT_FALSE(IsPreviewAreaShowing());
-  window_selector()->Drag(selector_item, gfx::Point(edge_inset, 1));
+  window_selector()->Drag(selector_item, gfx::Point(edge_inset, y));
   EXPECT_TRUE(IsPreviewAreaShowing());
 
   window_selector()->Drag(selector_item,
-                          gfx::Point(screen_width - edge_inset - 2, 1));
+                          gfx::Point(screen_width - edge_inset - 2, y));
   EXPECT_FALSE(IsPreviewAreaShowing());
   window_selector()->Drag(selector_item,
-                          gfx::Point(screen_width - edge_inset - 1, 1));
+                          gfx::Point(screen_width - edge_inset - 1, y));
   EXPECT_TRUE(IsPreviewAreaShowing());
 
   // Drag back to |start_location| before compeleting the drag, otherwise
@@ -3731,16 +3943,20 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewDragIndicatorsState) {
   window_selector()->ResetDraggedWindowGesture();
 
   // Verify the indicator is visible once the item starts moving, and becomes a
-  // preview area once we reach the left edge of the screen.
+  // preview area once we reach the left edge of the screen. Drag horizontal to
+  // avoid activating drag to close.
+  const int y_position = start_location.y();
   window_selector()->InitiateDrag(selector_item, start_location);
   EXPECT_EQ(IndicatorState::kNone, indicator_state());
-  window_selector()->Drag(selector_item, gfx::Point(edge_inset + 1, 0));
+  window_selector()->Drag(selector_item,
+                          gfx::Point(edge_inset + 1, y_position));
   EXPECT_EQ(IndicatorState::kDragArea, indicator_state());
-  window_selector()->Drag(selector_item, gfx::Point(edge_inset, 0));
+  window_selector()->Drag(selector_item, gfx::Point(edge_inset, y_position));
   EXPECT_EQ(IndicatorState::kPreviewAreaLeft, indicator_state());
 
   // Snap window to the left.
-  window_selector()->CompleteDrag(selector_item, gfx::Point(edge_inset, 0));
+  window_selector()->CompleteDrag(selector_item,
+                                  gfx::Point(edge_inset, y_position));
   ASSERT_TRUE(split_view_controller()->IsSplitViewModeActive());
   ASSERT_EQ(SplitViewController::LEFT_SNAPPED,
             split_view_controller()->state());
@@ -3751,7 +3967,8 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewDragIndicatorsState) {
   start_location = selector_item->target_bounds().CenterPoint();
   window_selector()->InitiateDrag(selector_item, start_location);
   EXPECT_EQ(IndicatorState::kNone, indicator_state());
-  window_selector()->Drag(selector_item, gfx::Point(screen_width - 1, 0));
+  window_selector()->Drag(selector_item,
+                          gfx::Point(screen_width - 1, y_position));
   EXPECT_EQ(IndicatorState::kPreviewAreaRight, indicator_state());
   window_selector()->CompleteDrag(selector_item, start_location);
 }
@@ -3852,7 +4069,7 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewDragIndicatorsWidgetReparenting) {
       GetWindowItemForWindow(0, primary_screen_window.get());
   gfx::Point start_location(selector_item->target_bounds().CenterPoint());
   window_selector()->InitiateDrag(selector_item, start_location);
-  window_selector()->Drag(selector_item, gfx::Point(100, 100));
+  window_selector()->Drag(selector_item, gfx::Point(100, start_location.y()));
   EXPECT_EQ(IndicatorState::kDragArea, indicator_state());
   EXPECT_EQ(root_windows[0], window_selector()
                                  ->split_view_drag_indicators()
@@ -3871,7 +4088,7 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewDragIndicatorsWidgetReparenting) {
   selector_item = GetWindowItemForWindow(1, secondary_screen_window.get());
   start_location = gfx::Point(selector_item->target_bounds().CenterPoint());
   window_selector()->InitiateDrag(selector_item, start_location);
-  window_selector()->Drag(selector_item, gfx::Point(800, 200));
+  window_selector()->Drag(selector_item, gfx::Point(800, start_location.y()));
   EXPECT_EQ(IndicatorState::kDragArea, indicator_state());
   EXPECT_EQ(root_windows[1], window_selector()
                                  ->split_view_drag_indicators()
@@ -4086,9 +4303,9 @@ TEST_F(SplitViewWindowSelectorTest, SelectUnsnappableWindowInSplitView) {
   const int grid_index = 0;
   WindowSelectorItem* selector_item =
       GetWindowItemForWindow(grid_index, unsnappable_window.get());
-  GetEventGenerator().set_current_location(
-      selector_item->target_bounds().CenterPoint());
-  GetEventGenerator().ClickLeftButton();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->set_current_location(selector_item->target_bounds().CenterPoint());
+  generator->ClickLeftButton();
 
   // Verify that we are out of split view and overview mode, and that the active
   // window is the unsnappable window.
@@ -4116,9 +4333,8 @@ TEST_F(SplitViewWindowSelectorTest, SelectUnsnappableWindowInSplitView) {
 
   // Now select the unsnappable window.
   selector_item = GetWindowItemForWindow(grid_index, unsnappable_window.get());
-  GetEventGenerator().set_current_location(
-      selector_item->target_bounds().CenterPoint());
-  GetEventGenerator().ClickLeftButton();
+  generator->set_current_location(selector_item->target_bounds().CenterPoint());
+  generator->ClickLeftButton();
 
   // Split view mode should be ended. And the unsnappable window should be the
   // active window now.
@@ -4345,8 +4561,9 @@ TEST_F(SplitViewWindowSelectorTest,
   // Drag the divider to the left edge.
   const gfx::Rect divider_bounds =
       GetSplitViewDividerBounds(/*is_dragging=*/false);
-  GetEventGenerator().set_current_location(divider_bounds.CenterPoint());
-  GetEventGenerator().DragMouseTo(0, 0);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->set_current_location(divider_bounds.CenterPoint());
+  generator->DragMouseTo(0, 0);
 
   // Verify that it is still in overview mode and that |window1| is returned to
   // the overview list.

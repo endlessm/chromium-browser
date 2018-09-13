@@ -65,7 +65,9 @@ public class SigninPromoController {
     private final @Nullable String mImpressionsTilDismissHistogramName;
     private final @Nullable String mImpressionsTilSigninButtonsHistogramName;
     private final @Nullable String mImpressionsTilXButtonHistogramName;
+    private final @StringRes int mDescriptionStringIdLegacy;
     private final @StringRes int mDescriptionStringId;
+    private final @StringRes int mDescriptionStringIdNoAccount;
     private boolean mWasDisplayed;
     private boolean mWasUsed;
 
@@ -111,14 +113,20 @@ public class SigninPromoController {
                         "Signin_ImpressionWithNoAccount_FromBookmarkManager";
                 mSigninWithDefaultUserActionName = "Signin_SigninWithDefault_FromBookmarkManager";
                 mSigninNotDefaultUserActionName = "Signin_SigninNotDefault_FromBookmarkManager";
-                mSigninNewAccountUserActionName = "Signin_SigninNewAccount_FromBookmarkManager";
+                // On Android, the promo does not have a button to add and account when there is
+                // already an account on the device. Always use the NoExistingAccount variant.
+                mSigninNewAccountUserActionName =
+                        "Signin_SigninNewAccountNoExistingAccount_FromBookmarkManager";
                 mImpressionsTilDismissHistogramName =
                         "MobileSignInPromo.BookmarkManager.ImpressionsTilDismiss";
                 mImpressionsTilSigninButtonsHistogramName =
                         "MobileSignInPromo.BookmarkManager.ImpressionsTilSigninButtons";
                 mImpressionsTilXButtonHistogramName =
                         "MobileSignInPromo.BookmarkManager.ImpressionsTilXButton";
+                mDescriptionStringIdLegacy = R.string.signin_promo_description_bookmarks_legacy;
                 mDescriptionStringId = R.string.signin_promo_description_bookmarks;
+                mDescriptionStringIdNoAccount =
+                        R.string.signin_promo_description_bookmarks_no_account;
                 break;
             case SigninAccessPoint.NTP_CONTENT_SUGGESTIONS:
                 // There is no impression limit for NTP content suggestions.
@@ -132,12 +140,18 @@ public class SigninPromoController {
                         "Signin_SigninWithDefault_FromNTPContentSuggestions";
                 mSigninNotDefaultUserActionName =
                         "Signin_SigninNotDefault_FromNTPContentSuggestions";
+                // On Android, the promo does not have a button to add and account when there is
+                // already an account on the device. Always use the NoExistingAccount variant.
                 mSigninNewAccountUserActionName =
-                        "Signin_SigninNewAccount_FromNTPContentSuggestions";
+                        "Signin_SigninNewAccountNoExistingAccount_FromNTPContentSuggestions";
                 mImpressionsTilDismissHistogramName = null;
                 mImpressionsTilSigninButtonsHistogramName = null;
                 mImpressionsTilXButtonHistogramName = null;
+                mDescriptionStringIdLegacy =
+                        R.string.signin_promo_description_ntp_content_suggestions_legacy;
                 mDescriptionStringId = R.string.signin_promo_description_ntp_content_suggestions;
+                mDescriptionStringIdNoAccount =
+                        R.string.signin_promo_description_ntp_content_suggestions_no_account;
                 break;
             case SigninAccessPoint.RECENT_TABS:
                 // There is no impression limit for Recent Tabs.
@@ -149,11 +163,17 @@ public class SigninPromoController {
                         "Signin_ImpressionWithNoAccount_FromRecentTabs";
                 mSigninWithDefaultUserActionName = "Signin_SigninWithDefault_FromRecentTabs";
                 mSigninNotDefaultUserActionName = "Signin_SigninNotDefault_FromRecentTabs";
-                mSigninNewAccountUserActionName = "Signin_SigninNewAccount_FromRecentTabs";
+                // On Android, the promo does not have a button to add and account when there is
+                // already an account on the device. Always use the NoExistingAccount variant.
+                mSigninNewAccountUserActionName =
+                        "Signin_SigninNewAccountNoExistingAccount_FromRecentTabs";
                 mImpressionsTilDismissHistogramName = null;
                 mImpressionsTilSigninButtonsHistogramName = null;
                 mImpressionsTilXButtonHistogramName = null;
+                mDescriptionStringIdLegacy = R.string.signin_promo_description_recent_tabs_legacy;
                 mDescriptionStringId = R.string.signin_promo_description_recent_tabs;
+                mDescriptionStringIdNoAccount =
+                        R.string.signin_promo_description_recent_tabs_no_account;
                 break;
             case SigninAccessPoint.SETTINGS:
                 mImpressionCountName = SIGNIN_PROMO_IMPRESSIONS_COUNT_SETTINGS;
@@ -161,7 +181,10 @@ public class SigninPromoController {
                 mImpressionWithAccountUserActionName = "Signin_ImpressionWithAccount_FromSettings";
                 mSigninWithDefaultUserActionName = "Signin_SigninWithDefault_FromSettings";
                 mSigninNotDefaultUserActionName = "Signin_SigninNotDefault_FromSettings";
-                mSigninNewAccountUserActionName = "Signin_SigninNewAccount_FromSettings";
+                // On Android, the promo does not have a button to add and account when there is
+                // already an account on the device. Always use the NoExistingAccount variant.
+                mSigninNewAccountUserActionName =
+                        "Signin_SigninNewAccountNoExistingAccount_FromSettings";
                 mImpressionWithNoAccountUserActionName =
                         "Signin_ImpressionWithNoAccount_FromSettings";
                 mImpressionsTilDismissHistogramName =
@@ -170,7 +193,10 @@ public class SigninPromoController {
                         "MobileSignInPromo.SettingsManager.ImpressionsTilSigninButtons";
                 mImpressionsTilXButtonHistogramName =
                         "MobileSignInPromo.SettingsManager.ImpressionsTilXButton";
+                mDescriptionStringIdLegacy = R.string.signin_promo_description_settings_legacy;
                 mDescriptionStringId = R.string.signin_promo_description_settings;
+                mDescriptionStringIdNoAccount =
+                        R.string.signin_promo_description_settings_no_account;
                 break;
             default:
                 throw new IllegalArgumentException(
@@ -211,8 +237,6 @@ public class SigninPromoController {
         mImpressionTracker = new ImpressionTracker(view);
         mImpressionTracker.setListener(mImpressionFilter);
 
-        view.getDescription().setText(mDescriptionStringId);
-
         if (mProfileData == null) {
             setupColdState(context, view);
         } else {
@@ -245,12 +269,17 @@ public class SigninPromoController {
 
     /** @return the resource used for the text displayed as promo description. */
     public @StringRes int getDescriptionStringId() {
-        return mDescriptionStringId;
+        if (!isUnifiedConsent()) return mDescriptionStringIdLegacy;
+        return mProfileData == null ? mDescriptionStringIdNoAccount : mDescriptionStringId;
     }
 
     private void setupColdState(final Context context, PersonalizedSigninPromoView view) {
         view.getImage().setImageResource(R.drawable.chrome_sync_logo);
         setImageSize(context, view, R.dimen.signin_promo_cold_state_image_size);
+
+        @StringRes int descriptionTextId =
+                isUnifiedConsent() ? mDescriptionStringIdNoAccount : mDescriptionStringIdLegacy;
+        view.getDescription().setText(descriptionTextId);
 
         view.getSigninButton().setText(R.string.sign_in_to_chrome);
         view.getSigninButton().setOnClickListener(v -> signinWithNewAccount(context));
@@ -259,23 +288,29 @@ public class SigninPromoController {
     }
 
     private void setupHotState(final Context context, PersonalizedSigninPromoView view) {
+        final @StringRes int descriptionTextId;
+        final String chooseAccountButtonText;
+        if (isUnifiedConsent()) {
+            descriptionTextId = mDescriptionStringId;
+            chooseAccountButtonText =
+                    context.getString(R.string.signin_promo_choose_another_account);
+        } else {
+            descriptionTextId = mDescriptionStringIdLegacy;
+            chooseAccountButtonText = context.getString(
+                    R.string.signin_promo_choose_account, mProfileData.getAccountName());
+        }
+
         Drawable accountImage = mProfileData.getImage();
         view.getImage().setImageDrawable(accountImage);
         setImageSize(context, view, R.dimen.signin_promo_account_image_size);
+
+        view.getDescription().setText(descriptionTextId);
 
         String signinButtonText = context.getString(
                 R.string.signin_promo_continue_as, mProfileData.getFullNameOrEmail());
         view.getSigninButton().setText(signinButtonText);
         view.getSigninButton().setOnClickListener(v -> signinWithDefaultAccount(context));
 
-        final String chooseAccountButtonText;
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.UNIFIED_CONSENT)) {
-            chooseAccountButtonText =
-                    context.getString(R.string.signin_promo_choose_another_account);
-        } else {
-            chooseAccountButtonText = context.getString(
-                    R.string.signin_promo_choose_account, mProfileData.getAccountName());
-        }
         view.getChooseAccountButton().setText(chooseAccountButtonText);
         view.getChooseAccountButton().setOnClickListener(v -> signinWithNotDefaultAccount(context));
         view.getChooseAccountButton().setVisibility(View.VISIBLE);
@@ -290,7 +325,7 @@ public class SigninPromoController {
         recordSigninButtonUsed();
         RecordUserAction.record(mSigninNewAccountUserActionName);
         final Intent intent;
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.UNIFIED_CONSENT)) {
+        if (isUnifiedConsent()) {
             intent = SigninActivity.createIntentForPromoAddAccountFlow(context, mAccessPoint);
         } else {
             intent = AccountSigninActivity.createIntentForAddAccountSigninFlow(
@@ -303,7 +338,7 @@ public class SigninPromoController {
         recordSigninButtonUsed();
         RecordUserAction.record(mSigninWithDefaultUserActionName);
         final Intent intent;
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.UNIFIED_CONSENT)) {
+        if (isUnifiedConsent()) {
             intent = SigninActivity.createIntentForPromoDefaultFlow(
                     context, mAccessPoint, mProfileData.getAccountName());
         } else {
@@ -317,7 +352,7 @@ public class SigninPromoController {
         recordSigninButtonUsed();
         RecordUserAction.record(mSigninNotDefaultUserActionName);
         final Intent intent;
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.UNIFIED_CONSENT)) {
+        if (isUnifiedConsent()) {
             intent = SigninActivity.createIntentForPromoChooseAccountFlow(
                     context, mAccessPoint, mProfileData.getAccountName());
         } else {
@@ -357,6 +392,10 @@ public class SigninPromoController {
             int numImpressions = preferences.getInt(mImpressionCountName, 0) + 1;
             preferences.edit().putInt(mImpressionCountName, numImpressions).apply();
         }
+    }
+
+    private static boolean isUnifiedConsent() {
+        return ChromeFeatureList.isEnabled(ChromeFeatureList.UNIFIED_CONSENT);
     }
 
     @VisibleForTesting

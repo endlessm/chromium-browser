@@ -5,6 +5,8 @@
 #ifndef ASH_SYSTEM_UNIFIED_QUIET_MODE_FEATURE_POD_CONTROLLER_H_
 #define ASH_SYSTEM_UNIFIED_QUIET_MODE_FEATURE_POD_CONTROLLER_H_
 
+#include "ash/ash_export.h"
+#include "ash/message_center/message_center_controller.h"
 #include "ash/system/unified/feature_pod_controller_base.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
@@ -12,24 +14,40 @@
 
 namespace ash {
 
+class UnifiedSystemTrayController;
+
 // Controller of a feature pod button that toggles do-not-disturb mode.
 // If the do-not-disturb mode is enabled, the button indicates it by bright
 // background color and different icon.
-class QuietModeFeaturePodController
+class ASH_EXPORT QuietModeFeaturePodController
     : public FeaturePodControllerBase,
-      public message_center::MessageCenterObserver {
+      public message_center::MessageCenterObserver,
+      public MessageCenterController::NotifierSettingsListener {
  public:
-  QuietModeFeaturePodController();
+  explicit QuietModeFeaturePodController(
+      UnifiedSystemTrayController* tray_controller);
   ~QuietModeFeaturePodController() override;
 
   // FeaturePodControllerBase:
   FeaturePodButton* CreateButton() override;
   void OnIconPressed() override;
+  void OnLabelPressed() override;
+  SystemTrayItemUmaType GetUmaType() const override;
 
   // message_center::MessageCenterObserver:
   void OnQuietModeChanged(bool in_quiet_mode) override;
 
+  // MessageCenterController::NotifierSettingsListener:
+  void OnNotifierListUpdated(
+      const std::vector<mojom::NotifierUiDataPtr>& ui_data) override;
+  void UpdateNotifierIcon(const message_center::NotifierId& notifier_id,
+                          const gfx::ImageSkia& icon) override;
+
  private:
+  void Update();
+
+  UnifiedSystemTrayController* const tray_controller_;
+
   FeaturePodButton* button_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(QuietModeFeaturePodController);

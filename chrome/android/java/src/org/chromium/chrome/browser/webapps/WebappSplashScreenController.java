@@ -17,9 +17,11 @@ import android.widget.TextView;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.ObserverList;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.compositor.CompositorViewHolder;
 import org.chromium.chrome.browser.metrics.WebApkUma;
 import org.chromium.chrome.browser.metrics.WebappUma;
@@ -62,8 +64,12 @@ class WebappSplashScreenController extends EmptyTabObserver {
 
     private @ActivityType int mActivityType;
 
+    private ObserverList<SplashscreenObserver> mObservers;
+
     public WebappSplashScreenController() {
         mWebappUma = new WebappUma();
+        mObservers = new ObserverList<>();
+        addObserver(mWebappUma);
     }
 
     /** Shows the splash screen. */
@@ -82,13 +88,13 @@ class WebappSplashScreenController extends EmptyTabObserver {
         mParentView.addView(mSplashScreen);
         startSplashscreenTraceEvents();
 
-        mWebappUma.splashscreenVisible();
+        notifySplashscreenVisible();
         mWebappUma.recordSplashscreenBackgroundColor(webappInfo.hasValidBackgroundColor()
-                        ? WebappUma.SPLASHSCREEN_COLOR_STATUS_CUSTOM
-                        : WebappUma.SPLASHSCREEN_COLOR_STATUS_DEFAULT);
+                        ? WebappUma.SplashScreenColorStatus.CUSTOM
+                        : WebappUma.SplashScreenColorStatus.DEFAULT);
         mWebappUma.recordSplashscreenThemeColor(webappInfo.hasValidThemeColor()
-                        ? WebappUma.SPLASHSCREEN_COLOR_STATUS_CUSTOM
-                        : WebappUma.SPLASHSCREEN_COLOR_STATUS_DEFAULT);
+                        ? WebappUma.SplashScreenColorStatus.CUSTOM
+                        : WebappUma.SplashScreenColorStatus.DEFAULT);
 
         WebappDataStorage storage =
                 WebappRegistry.getInstance().getWebappDataStorage(webappInfo.id());
@@ -105,14 +111,21 @@ class WebappSplashScreenController extends EmptyTabObserver {
         });
     }
 
+    /**
+     * Transfers a {@param viewHierarchy} to the splashscreen's parent view while keeping the
+     * splashscreen on top.
+     */
+    public void setViewHierarchyBelowSplashscreen(ViewGroup viewHierarchy) {
+        WarmupManager.transferViewHeirarchy(viewHierarchy, mParentView);
+        mParentView.bringChildToFront(mSplashScreen);
+    }
+
     /** Should be called once native has loaded. */
     public void onFinishedNativeInit(Tab tab, CompositorViewHolder compositorViewHolder) {
         mNativeLoaded = true;
         mCompositorViewHolder = compositorViewHolder;
         tab.addObserver(this);
-        if (mInitializedLayout) {
-            mWebappUma.commitMetrics();
-        }
+        if (mInitializedLayout) mWebappUma.commitMetrics();
     }
 
     @VisibleForTesting
@@ -123,28 +136,27 @@ class WebappSplashScreenController extends EmptyTabObserver {
     @Override
     public void didFirstVisuallyNonEmptyPaint(Tab tab) {
         if (canHideSplashScreen()) {
-            hideSplashScreenOnDrawingFinished(tab, WebappUma.SPLASHSCREEN_HIDES_REASON_PAINT);
+            hideSplashScreenOnDrawingFinished(tab, WebappUma.SplashScreenHidesReason.PAINT);
         }
     }
 
     @Override
     public void onPageLoadFinished(Tab tab) {
         if (canHideSplashScreen()) {
-            hideSplashScreenOnDrawingFinished(
-                    tab, WebappUma.SPLASHSCREEN_HIDES_REASON_LOAD_FINISHED);
+            hideSplashScreenOnDrawingFinished(tab, WebappUma.SplashScreenHidesReason.LOAD_FINISHED);
         }
     }
 
     @Override
     public void onPageLoadFailed(Tab tab, int errorCode) {
         if (canHideSplashScreen()) {
-            animateHidingSplashScreen(tab, WebappUma.SPLASHSCREEN_HIDES_REASON_LOAD_FAILED);
+            animateHidingSplashScreen(tab, WebappUma.SplashScreenHidesReason.LOAD_FAILED);
         }
     }
 
     @Override
     public void onCrash(Tab tab, boolean sadTabShown) {
-        animateHidingSplashScreen(tab, WebappUma.SPLASHSCREEN_HIDES_REASON_CRASH);
+        animateHidingSplashScreen(tab, WebappUma.SplashScreenHidesReason.CRASH);
     }
 
     @Override
@@ -152,7 +164,7 @@ class WebappSplashScreenController extends EmptyTabObserver {
             boolean isErrorPage, boolean hasCommitted, boolean isSameDocument,
             boolean isFragmentNavigation, Integer pageTransition, int errorCode,
             int httpStatusCode) {
-        if (mActivityType == WebappActivity.ACTIVITY_TYPE_WEBAPP || !isInMainFrame) return;
+        if (mActivityType == WebappActivity.ActivityType.WEBAPP || !isInMainFrame) return;
 
         mErrorCode = errorCode;
         switch (mErrorCode) {
@@ -173,7 +185,7 @@ class WebappSplashScreenController extends EmptyTabObserver {
     }
 
     protected boolean canHideSplashScreen() {
-        if (mActivityType == WebappActivity.ACTIVITY_TYPE_WEBAPP) return true;
+        if (mActivityType == WebappActivity.ActivityType.WEBAPP) return true;
         return mErrorCode != NetError.ERR_INTERNET_DISCONNECTED
                 && mErrorCode != NetError.ERR_NETWORK_CHANGED;
     }
@@ -208,7 +220,7 @@ class WebappSplashScreenController extends EmptyTabObserver {
         NetworkChangeNotifier.addConnectionTypeObserver(observer);
         mOfflineDialog = new WebappOfflineDialog();
         mOfflineDialog.show(tab.getActivity(), mAppName,
-                mActivityType == WebappActivity.ACTIVITY_TYPE_WEBAPK, errorCode);
+                mActivityType == WebappActivity.ActivityType.WEBAPK, errorCode);
     }
 
     /** Sets the splash screen layout and sets the splash screen's title and icon. */
@@ -227,7 +239,7 @@ class WebappSplashScreenController extends EmptyTabObserver {
         int layoutId;
         if (displayIcon == null || displayIcon.getWidth() < minimiumSizeThreshold
                 || (displayIcon == webappInfo.icon() && webappInfo.isIconGenerated())) {
-            mWebappUma.recordSplashscreenIconType(WebappUma.SPLASHSCREEN_ICON_TYPE_NONE);
+            mWebappUma.recordSplashscreenIconType(WebappUma.SplashScreenIconType.NONE);
             layoutId = R.layout.webapp_splash_screen_no_icon;
         } else {
             // The size of the splash screen image determines which layout to use.
@@ -240,13 +252,14 @@ class WebappSplashScreenController extends EmptyTabObserver {
             }
 
             // Record stats about the splash screen.
+            @WebappUma.SplashScreenIconType
             int splashScreenIconType;
             if (splashImage == null) {
-                splashScreenIconType = WebappUma.SPLASHSCREEN_ICON_TYPE_FALLBACK;
+                splashScreenIconType = WebappUma.SplashScreenIconType.FALLBACK;
             } else if (isUsingSmallSplashImage) {
-                splashScreenIconType = WebappUma.SPLASHSCREEN_ICON_TYPE_CUSTOM_SMALL;
+                splashScreenIconType = WebappUma.SplashScreenIconType.CUSTOM_SMALL;
             } else {
-                splashScreenIconType = WebappUma.SPLASHSCREEN_ICON_TYPE_CUSTOM;
+                splashScreenIconType = WebappUma.SplashScreenIconType.CUSTOM;
             }
             mWebappUma.recordSplashscreenIconType(splashScreenIconType);
             mWebappUma.recordSplashscreenIconSize(
@@ -268,9 +281,7 @@ class WebappSplashScreenController extends EmptyTabObserver {
                     ApiCompatibilityUtils.getColor(resources, R.color.webapp_splash_title_light));
         }
 
-        if (mNativeLoaded) {
-            mWebappUma.commitMetrics();
-        }
+        if (mNativeLoaded) mWebappUma.commitMetrics();
     }
 
     /**
@@ -304,7 +315,7 @@ class WebappSplashScreenController extends EmptyTabObserver {
                 tab.removeObserver(WebappSplashScreenController.this);
                 mSplashScreen = null;
                 mCompositorViewHolder = null;
-                mWebappUma.splashscreenHidden(reason);
+                notifySplashscreenHidden(reason);
             }
         });
     }
@@ -344,5 +355,32 @@ class WebappSplashScreenController extends EmptyTabObserver {
         TraceEvent.finishAsync("WebappSplashScreen", hashCode());
         SingleShotOnDrawListener.install(mParentView,
                 () -> { TraceEvent.finishAsync("WebappSplashScreen.visible", hashCode()); });
+    }
+
+    /**
+     * Register an observer for the splashscreen hidden/visible events.
+     */
+    public void addObserver(SplashscreenObserver observer) {
+        mObservers.addObserver(observer);
+    }
+
+    /**
+     * Deegister an observer for the splashscreen hidden/visible events.
+     */
+    public void removeObserver(SplashscreenObserver observer) {
+        mObservers.removeObserver(observer);
+    }
+
+    private void notifySplashscreenVisible() {
+        for (SplashscreenObserver observer : mObservers) {
+            observer.onSplashscreenShown();
+        }
+    }
+
+    private void notifySplashscreenHidden(int reason) {
+        for (SplashscreenObserver observer : mObservers) {
+            observer.onSplashscreenHidden(reason);
+        }
+        mObservers.clear();
     }
 }

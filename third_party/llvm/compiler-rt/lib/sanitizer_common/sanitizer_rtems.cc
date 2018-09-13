@@ -96,6 +96,7 @@ void GetThreadStackAndTls(bool main, uptr *stk_addr, uptr *stk_size,
 }
 
 void MaybeReexec() {}
+void CheckASLR() {}
 void DisableCoreDumperIfNecessary() {}
 void InstallDeadlySignalHandlers(SignalHandlerType handler) {}
 void SetAlternateSignalStack() {}
@@ -192,7 +193,7 @@ fd_t OpenFile(const char *filename, FileAccessMode mode, error_t *errno_p) {
   int flags;
   switch (mode) {
     case RdOnly: flags = O_RDONLY; break;
-    case WrOnly: flags = O_WRONLY | O_CREAT; break;
+    case WrOnly: flags = O_WRONLY | O_CREAT | O_TRUNC; break;
     case RdWr: flags = O_RDWR | O_CREAT; break;
   }
   fd_t res = open(filename, flags, 0660);
@@ -238,8 +239,11 @@ bool IsAccessibleMemoryRange(uptr beg, uptr size) {
   return true;
 }
 
-char **GetArgv() { return NULL; }
-const char *GetEnv(const char *name) { return NULL; }
+char **GetArgv() { return nullptr; }
+
+const char *GetEnv(const char *name) {
+  return getenv(name);
+}
 
 uptr ReadBinaryName(/*out*/char *buf, uptr buf_len) {
   internal_strncpy(buf, "StubBinaryName", buf_len);
@@ -274,15 +278,5 @@ uptr MainThreadStackBase, MainThreadStackSize;
 uptr MainThreadTlsBase, MainThreadTlsSize;
 
 } // namespace __sanitizer
-
-extern "C" {
-void __sanitizer_startup_hook(void *stack_base, size_t stack_size,
-                              void *tls_base, size_t tls_size) {
-  __sanitizer::MainThreadStackBase = reinterpret_cast<uintptr_t>(stack_base);
-  __sanitizer::MainThreadStackSize = stack_size;
-  __sanitizer::MainThreadTlsBase = reinterpret_cast<uintptr_t>(tls_base);
-  __sanitizer::MainThreadTlsSize = tls_size;
-}
-}  // extern "C"
 
 #endif  // SANITIZER_RTEMS

@@ -22,6 +22,8 @@
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_documents_provider_util.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_media_view_util.h"
+#include "chrome/browser/chromeos/crostini/crostini_manager.h"
+#include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/file_manager/path_util.h"
@@ -52,8 +54,6 @@ const char kFileManagerMTPMountNamePrefix[] = "fileman-mtp-";
 const char kMtpVolumeIdPrefix[] = "mtp:";
 const char kRootPath[] = "/";
 const char kAndroidFilesMountPointName[] = "android_files";
-const base::FilePath::CharType kAndroidFilesPath[] =
-    FILE_PATH_LITERAL("/run/arc/sdcard/write/emulated/0");
 
 // Registers |path| as the "Downloads" folder to the FileSystem API backend.
 // If another folder is already mounted. It revokes and overrides the old one.
@@ -76,21 +76,21 @@ bool RegisterDownloadsMountPoint(Profile* profile, const base::FilePath& path) {
                                           path);
 }
 
-// Returns true if the flag to show Android files
-// (--show-android-files-in-files-app) is enabled.
+// Returns true if the "Play files" root should be shown based on the current
+// flag settings (chrome://flags/#android-files-in-files-app).
 bool IsShowAndroidFilesEnabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      chromeos::switches::kShowAndroidFilesInFilesApp);
+  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
+      chromeos::switches::kHideAndroidFilesInFilesApp);
 }
 
 // Registers a mount point for Android files to ExternalMountPoints.
 bool RegisterAndroidFilesMountPoint() {
   storage::ExternalMountPoints* const mount_points =
       storage::ExternalMountPoints::GetSystemInstance();
-  return mount_points->RegisterFileSystem(kAndroidFilesMountPointName,
-                                          storage::kFileSystemTypeNativeLocal,
-                                          storage::FileSystemMountOption(),
-                                          base::FilePath(kAndroidFilesPath));
+  return mount_points->RegisterFileSystem(
+      kAndroidFilesMountPointName, storage::kFileSystemTypeNativeLocal,
+      storage::FileSystemMountOption(),
+      base::FilePath(util::kAndroidFilesPath));
 }
 
 // Finds the path register as the "Downloads" folder to FileSystem API backend.
@@ -347,7 +347,7 @@ std::unique_ptr<Volume> Volume::CreateForAndroidFiles() {
   volume->device_type_ = chromeos::DEVICE_TYPE_UNKNOWN;
   // Keep source_path empty.
   volume->source_ = SOURCE_SYSTEM;
-  volume->mount_path_ = base::FilePath(kAndroidFilesPath);
+  volume->mount_path_ = base::FilePath(util::kAndroidFilesPath);
   volume->mount_condition_ = chromeos::disks::MOUNT_CONDITION_NONE;
   volume->volume_id_ = GenerateVolumeId(*volume);
   volume->watchable_ = true;
@@ -546,6 +546,22 @@ void VolumeManager::AddSshfsCrostiniVolume(
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DoMountEvent(chromeos::MOUNT_ERROR_NONE,
                Volume::CreateForSshfsCrostini(sshfs_mount_path));
+
+  // Listen for crostini container shutdown and remove volume.
+  crostini::CrostiniManager::GetInstance()->AddShutdownContainerCallback(
+      profile_, kCrostiniDefaultVmName, kCrostiniDefaultContainerName,
+      base::BindOnce(&VolumeManager::RemoveSshfsCrostiniVolume,
+                     weak_ptr_factory_.GetWeakPtr(), sshfs_mount_path));
+}
+
+void VolumeManager::RemoveSshfsCrostiniVolume(
+    const base::FilePath& sshfs_mount_path) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DoUnmountEvent(chromeos::MOUNT_ERROR_NONE,
+                 *Volume::CreateForSshfsCrostini(sshfs_mount_path));
+  disk_mount_manager_->UnmountPath(
+      sshfs_mount_path.value(), chromeos::UNMOUNT_OPTIONS_NONE,
+      chromeos::disks::DiskMountManager::UnmountPathCallback());
 }
 
 bool VolumeManager::RegisterDownloadsDirectoryForTesting(
@@ -563,6 +579,21 @@ bool VolumeManager::RegisterDownloadsDirectoryForTesting(
       success ? chromeos::MOUNT_ERROR_NONE : chromeos::MOUNT_ERROR_INVALID_PATH,
       Volume::CreateForDownloads(path));
   return success;
+}
+
+bool VolumeManager::RegisterCrostiniDirectoryForTesting(
+    const base::FilePath& path) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  bool success =
+      storage::ExternalMountPoints::GetSystemInstance()->RegisterFileSystem(
+          file_manager::util::GetCrostiniMountPointName(profile_),
+          storage::kFileSystemTypeNativeLocal, storage::FileSystemMountOption(),
+          path);
+  DoMountEvent(
+      success ? chromeos::MOUNT_ERROR_NONE : chromeos::MOUNT_ERROR_INVALID_PATH,
+      Volume::CreateForSshfsCrostini(path));
+  return true;
 }
 
 void VolumeManager::AddVolumeForTesting(const base::FilePath& path,

@@ -16,8 +16,8 @@
 #define LIBSPIRV_OPCODE_H_
 
 #include "instruction.h"
+#include "latest_version_spirv_header.h"
 #include "spirv-tools/libspirv.h"
-#include "spirv/1.2/spirv.h"
 #include "table.h"
 
 // Returns the name of a registered SPIR-V generator as a null-terminated
@@ -37,12 +37,14 @@ void spvOpcodeSplit(const uint32_t word, uint16_t* word_count,
 
 // Finds the named opcode in the given opcode table. On success, returns
 // SPV_SUCCESS and writes a handle of the table entry into *entry.
-spv_result_t spvOpcodeTableNameLookup(const spv_opcode_table table,
+spv_result_t spvOpcodeTableNameLookup(spv_target_env,
+                                      const spv_opcode_table table,
                                       const char* name, spv_opcode_desc* entry);
 
 // Finds the opcode by enumerant in the given opcode table. On success, returns
 // SPV_SUCCESS and writes a handle of the table entry into *entry.
-spv_result_t spvOpcodeTableValueLookup(const spv_opcode_table table,
+spv_result_t spvOpcodeTableValueLookup(spv_target_env,
+                                       const spv_opcode_table table,
                                        const SpvOp opcode,
                                        spv_opcode_desc* entry);
 
@@ -60,6 +62,10 @@ const char* spvOpcodeString(const SpvOp opcode);
 // Determine if the given opcode is a scalar type. Returns zero if false,
 // non-zero otherwise.
 int32_t spvOpcodeIsScalarType(const SpvOp opcode);
+
+// Determines if the given opcode is a specialization constant. Returns zero if
+// false, non-zero otherwise.
+int32_t spvOpcodeIsSpecConstant(const SpvOp opcode);
 
 // Determines if the given opcode is a constant. Returns zero if false, non-zero
 // otherwise.
@@ -103,7 +109,20 @@ bool spvOpcodeIsBranch(SpvOp opcode);
 // Returns true if the given opcode is a return instruction.
 bool spvOpcodeIsReturn(SpvOp opcode);
 
+// Returns true if the given opcode is a return instruction or it aborts
+// execution.
+bool spvOpcodeIsReturnOrAbort(SpvOp opcode);
+
 // Returns true if the given opcode is a basic block terminator.
 bool spvOpcodeIsBlockTerminator(SpvOp opcode);
 
+// Returns true if the given opcode always defines an opaque type.
+bool spvOpcodeIsBaseOpaqueType(SpvOp opcode);
+
+// Returns true if the given opcode is a non-uniform group operation.
+bool spvOpcodeIsNonUniformGroupOperation(SpvOp opcode);
+
+// Returns true if the opcode with vector inputs could be divided into a series
+// of independent scalar operations that would give the same result.
+bool spvOpcodeIsScalarizable(SpvOp opcode);
 #endif  // LIBSPIRV_OPCODE_H_

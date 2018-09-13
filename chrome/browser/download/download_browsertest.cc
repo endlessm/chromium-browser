@@ -31,7 +31,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_info.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_file_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -2249,8 +2249,9 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxDenyInstall) {
   EXPECT_TRUE(VerifyNoDownloads());
 
   // Check that the CRX is not installed.
-  ExtensionService* extension_service = extensions::ExtensionSystem::Get(
-      browser()->profile())->extension_service();
+  extensions::ExtensionService* extension_service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
   ASSERT_FALSE(extension_service->GetExtensionById(kGoodCrxId, false));
 }
 
@@ -2285,8 +2286,9 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxInstallDenysPermissions) {
       downloads[0], base::Bind(&WasAutoOpened)).WaitForEvent();
 
   // Check that the extension was not installed.
-  ExtensionService* extension_service = extensions::ExtensionSystem::Get(
-      browser()->profile())->extension_service();
+  extensions::ExtensionService* extension_service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
   ASSERT_FALSE(extension_service->GetExtensionById(kGoodCrxId, false));
 }
 
@@ -2324,8 +2326,9 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxInstallAcceptPermissions) {
       downloads[0], base::Bind(&WasAutoOpened)).WaitForEvent();
 
   // Check that the extension was installed.
-  ExtensionService* extension_service = extensions::ExtensionSystem::Get(
-      browser()->profile())->extension_service();
+  extensions::ExtensionService* extension_service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
   ASSERT_TRUE(extension_service->GetExtensionById(kGoodCrxId, false));
 }
 
@@ -2351,8 +2354,9 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxInvalid) {
   CheckDownloadStates(1, DownloadItem::COMPLETE);
 
   // Check that the extension was not installed.
-  ExtensionService* extension_service = extensions::ExtensionSystem::Get(
-      browser()->profile())->extension_service();
+  extensions::ExtensionService* extension_service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
   ASSERT_FALSE(extension_service->GetExtensionById(kGoodCrxId, false));
 }
 
@@ -2389,8 +2393,9 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxLargeTheme) {
       downloads[0], base::Bind(&WasAutoOpened)).WaitForEvent();
 
   // Check that the extension was installed.
-  ExtensionService* extension_service = extensions::ExtensionSystem::Get(
-      browser()->profile())->extension_service();
+  extensions::ExtensionService* extension_service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
   ASSERT_TRUE(extension_service->GetExtensionById(kLargeThemeCrxId, false));
 }
 
@@ -2884,6 +2889,7 @@ EchoReferrerRequestHandler(const net::test_server::HttpRequest& request) {
       new net::test_server::BasicHttpResponse());
   response->set_code(net::HTTP_OK);
   response->set_content_type("text/plain");
+  response->AddCustomHeader("Content-Disposition", "attachment");
   auto referrer_header = request.headers.find(kReferrerHeader);
   if (referrer_header != request.headers.end())
     response->set_content(referrer_header->second);

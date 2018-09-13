@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -57,11 +58,13 @@ void LogBackgroundTabForegroundedOrClosed(
     ukm::SourceId ukm_source_id,
     base::TimeDelta inactive_duration,
     const tab_ranker::MRUFeatures& mru_features,
-    bool is_foregrounded) {
+    bool is_foregrounded,
+    int sequence_id) {
   if (!ukm_source_id)
     return;
 
   ukm::builders::TabManager_Background_ForegroundedOrClosed(ukm_source_id)
+      .SetSequenceId(sequence_id)
       .SetIsForegrounded(is_foregrounded)
       .SetMRUIndex(mru_features.index)
       .SetTimeFromBackgrounded(inactive_duration.InMilliseconds())
@@ -151,7 +154,8 @@ tab_ranker::TabFeatures TabMetricsLogger::GetTabFeatures(
 
   // This checks if the tab was audible within the past two seconds, same as the
   // audio indicator in the tab strip.
-  tab.was_recently_audible = web_contents->WasRecentlyAudible();
+  auto* audible_helper = RecentlyAudibleHelper::FromWebContents(web_contents);
+  tab.was_recently_audible = audible_helper->WasRecentlyAudible();
   return tab;
 }
 
@@ -215,7 +219,8 @@ void TabMetricsLogger::LogBackgroundTabShown(
     base::TimeDelta inactive_duration,
     const tab_ranker::MRUFeatures& mru_features) {
   LogBackgroundTabForegroundedOrClosed(ukm_source_id, inactive_duration,
-                                       mru_features, true /* is_shown */);
+                                       mru_features, true /* is_shown */,
+                                       ++sequence_id_);
 }
 
 void TabMetricsLogger::LogBackgroundTabClosed(
@@ -223,7 +228,8 @@ void TabMetricsLogger::LogBackgroundTabClosed(
     base::TimeDelta inactive_duration,
     const tab_ranker::MRUFeatures& mru_features) {
   LogBackgroundTabForegroundedOrClosed(ukm_source_id, inactive_duration,
-                                       mru_features, false /* is_shown */);
+                                       mru_features, false /* is_shown */,
+                                       ++sequence_id_);
 }
 
 void TabMetricsLogger::LogTabLifetime(ukm::SourceId ukm_source_id,

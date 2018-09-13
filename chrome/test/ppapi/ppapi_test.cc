@@ -36,7 +36,6 @@
 #include "net/base/filename_util.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "net/test/test_data_directory.h"
-#include "ppapi/shared_impl/ppapi_features.h"
 #include "ppapi/shared_impl/ppapi_switches.h"
 #include "ui/gl/gl_switches.h"
 
@@ -135,13 +134,6 @@ PPAPITestBase::PPAPITestBase() {
 }
 
 void PPAPITestBase::SetUp() {
-  // TODO(mek): Migrate the FileRef tests to no longer depend on StreamToFile.
-  if (base::StartsWith(
-          ::testing::UnitTest::GetInstance()->current_test_info()->name(),
-          "FileRef", base::CompareCase::SENSITIVE)) {
-    scoped_feature_list_.InitAndEnableFeature(ppapi::features::kStreamToFile);
-  }
-
   EnablePixelOutput();
   InProcessBrowserTest::SetUp();
 }

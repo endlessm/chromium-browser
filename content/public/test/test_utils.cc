@@ -233,15 +233,10 @@ namespace {
 // supplying a BrowserPluginGuestDelegate; however, the oopif architecture
 // doesn't really require it. Refactor this so that we can create an inner
 // contents without any of the guest machinery.
-class InnerWebContentsHelper : public WebContentsObserver,
-                               public BrowserPluginGuestDelegate {
+class InnerWebContentsHelper : public WebContentsObserver {
  public:
-  explicit InnerWebContentsHelper(WebContents* outer_contents)
-      : WebContentsObserver(), outer_contents_(outer_contents) {}
+  explicit InnerWebContentsHelper() : WebContentsObserver() {}
   ~InnerWebContentsHelper() override = default;
-
-  // BrowserPluginGuestDelegate:
-  WebContents* GetOwnerWebContents() const override { return outer_contents_; }
 
   // WebContentsObserver:
   void WebContentsDestroyed() override { delete this; }
@@ -251,7 +246,6 @@ class InnerWebContentsHelper : public WebContentsObserver,
   }
 
  private:
-  WebContents* outer_contents_;
   DISALLOW_COPY_AND_ASSIGN(InnerWebContentsHelper);
 };
 
@@ -263,11 +257,9 @@ WebContents* CreateAndAttachInnerContents(RenderFrameHost* rfh) {
   if (!outer_contents)
     return nullptr;
 
-  auto guest_delegate =
-      std::make_unique<InnerWebContentsHelper>(outer_contents);
+  auto guest_delegate = std::make_unique<InnerWebContentsHelper>();
 
   WebContents::CreateParams inner_params(outer_contents->GetBrowserContext());
-  inner_params.guest_delegate = guest_delegate.get();
 
   // TODO(erikchen): Fix ownership semantics for guest views.
   // https://crbug.com/832879.
@@ -466,6 +458,28 @@ void WebContentsDestroyedWatcher::Wait() {
 
 void WebContentsDestroyedWatcher::WebContentsDestroyed() {
   run_loop_.Quit();
+}
+
+TestPageScaleObserver::TestPageScaleObserver(WebContents* web_contents)
+    : WebContentsObserver(web_contents) {}
+
+TestPageScaleObserver::~TestPageScaleObserver() {}
+
+void TestPageScaleObserver::OnPageScaleFactorChanged(float page_scale_factor) {
+  last_scale_ = page_scale_factor;
+  seen_page_scale_change_ = true;
+  if (done_callback_)
+    std::move(done_callback_).Run();
+}
+
+float TestPageScaleObserver::WaitForPageScaleUpdate() {
+  if (!seen_page_scale_change_) {
+    base::RunLoop run_loop;
+    done_callback_ = run_loop.QuitClosure();
+    run_loop.Run();
+  }
+  seen_page_scale_change_ = false;
+  return last_scale_;
 }
 
 GURL EffectiveURLContentBrowserClient::GetEffectiveURL(

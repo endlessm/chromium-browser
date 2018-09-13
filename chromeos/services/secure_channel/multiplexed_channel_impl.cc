@@ -40,7 +40,7 @@ MultiplexedChannelImpl::Factory::BuildInstance(
     std::unique_ptr<AuthenticatedChannel> authenticated_channel,
     MultiplexedChannel::Delegate* delegate,
     ConnectionDetails connection_details,
-    std::vector<ClientConnectionParameters>* initial_clients) {
+    std::vector<std::unique_ptr<ClientConnectionParameters>>* initial_clients) {
   DCHECK(authenticated_channel);
   DCHECK(!authenticated_channel->is_disconnected());
   DCHECK(delegate);
@@ -84,9 +84,8 @@ bool MultiplexedChannelImpl::IsDisconnected() const {
 }
 
 void MultiplexedChannelImpl::PerformAddClientToChannel(
-    ClientConnectionParameters client_connection_parameters) {
-  DCHECK(!client_connection_parameters.feature().empty());
-  DCHECK(client_connection_parameters.connection_delegate_ptr());
+    std::unique_ptr<ClientConnectionParameters> client_connection_parameters) {
+  DCHECK(client_connection_parameters->IsClientWaitingForResponse());
 
   auto proxy = SingleClientMessageProxyImpl::Factory::Get()->BuildInstance(
       this /* delegate */, std::move(client_connection_parameters));
@@ -118,9 +117,9 @@ void MultiplexedChannelImpl::OnSendMessageRequested(
                                       std::move(on_sent_callback));
 }
 
-const mojom::ConnectionMetadata&
-MultiplexedChannelImpl::GetConnectionMetadata() {
-  return authenticated_channel_->GetConnectionMetadata();
+void MultiplexedChannelImpl::GetConnectionMetadata(
+    base::OnceCallback<void(mojom::ConnectionMetadataPtr)> callback) {
+  authenticated_channel_->GetConnectionMetadata(std::move(callback));
 }
 
 void MultiplexedChannelImpl::OnClientDisconnected(

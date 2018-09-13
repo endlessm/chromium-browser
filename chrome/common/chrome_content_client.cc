@@ -130,11 +130,8 @@ content::PepperPluginInfo::PPP_ShutdownModuleFunc g_nacl_shutdown_module;
 #endif
 
 #if defined(WIDEVINE_CDM_AVAILABLE_NOT_COMPONENT)
-bool IsWidevineAvailable(
-    base::FilePath* cdm_path,
-    std::vector<media::VideoCodec>* codecs_supported,
-    bool* supports_persistent_license,
-    base::flat_set<media::EncryptionMode>* modes_supported) {
+bool IsWidevineAvailable(base::FilePath* cdm_path,
+                         content::CdmCapability* capability) {
   static enum {
     NOT_CHECKED,
     FOUND,
@@ -148,23 +145,26 @@ bool IsWidevineAvailable(
     if (widevine_cdm_file_check == FOUND) {
       // Add the supported codecs as if they came from the component manifest.
       // This list must match the CDM that is being bundled with Chrome.
-      codecs_supported->push_back(media::VideoCodec::kCodecVP8);
-      codecs_supported->push_back(media::VideoCodec::kCodecVP9);
+      capability->video_codecs.push_back(media::VideoCodec::kCodecVP8);
+      capability->video_codecs.push_back(media::VideoCodec::kCodecVP9);
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
-      codecs_supported->push_back(media::VideoCodec::kCodecH264);
+      capability->video_codecs.push_back(media::VideoCodec::kCodecH264);
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 
-// TODO(crbug.com/767941): Push persistent-license support info here once
-// we check in a new CDM that supports it on Linux.
-#if defined(OS_CHROMEOS)
-      *supports_persistent_license = true;
-#else
-      *supports_persistent_license = false;
-#endif  // defined(OS_CHROMEOS)
+      // Add the supported encryption schemes as if they came from the
+      // component manifest. This list must match the CDM that is being
+      // bundled with Chrome.
+      capability->encryption_schemes.insert(media::EncryptionMode::kCenc);
+      capability->encryption_schemes.insert(media::EncryptionMode::kCbcs);
 
-      // TODO(crbug.com/835009): Update once Widevine on Linux supports more
-      // encryption schemes.
-      modes_supported->insert(media::EncryptionMode::kCenc);
+      // Temporary session is always supported.
+      capability->session_types.insert(media::CdmSessionType::kTemporary);
+#if defined(OS_CHROMEOS)
+      // TODO(crbug.com/767941): Push persistent-license support info here once
+      // we check in a new CDM that supports it on Linux.
+      capability->session_types.insert(
+          media::CdmSessionType::kPersistentLicense);
+#endif  // defined(OS_CHROMEOS)
 
       return true;
     }
@@ -530,20 +530,15 @@ void ChromeContentClient::AddContentDecryptionModules(
   if (cdms) {
 #if defined(WIDEVINE_CDM_AVAILABLE_NOT_COMPONENT)
     base::FilePath cdm_path;
-    std::vector<media::VideoCodec> video_codecs_supported;
-    bool supports_persistent_license = false;
-    base::flat_set<media::EncryptionMode> encryption_modes_supported;
-    if (IsWidevineAvailable(&cdm_path, &video_codecs_supported,
-                            &supports_persistent_license,
-                            &encryption_modes_supported)) {
+    content::CdmCapability capability;
+    if (IsWidevineAvailable(&cdm_path, &capability)) {
       const base::Version version(WIDEVINE_CDM_VERSION_STRING);
       DCHECK(version.IsValid());
 
-      cdms->push_back(content::CdmInfo(
-          kWidevineCdmDisplayName, kWidevineCdmGuid, version, cdm_path,
-          kWidevineCdmFileSystemId, video_codecs_supported,
-          supports_persistent_license, encryption_modes_supported,
-          kWidevineKeySystem, false));
+      cdms->push_back(
+          content::CdmInfo(kWidevineCdmDisplayName, kWidevineCdmGuid, version,
+                           cdm_path, kWidevineCdmFileSystemId,
+                           std::move(capability), kWidevineKeySystem, false));
     }
 #endif  // defined(WIDEVINE_CDM_AVAILABLE_NOT_COMPONENT)
 
@@ -560,8 +555,13 @@ void ChromeContentClient::AddContentDecryptionModules(
       // A variant of ECK key system that has a different GUID.
       const char kExternalClearKeyDifferentGuidTestKeySystem[] =
           "org.chromium.externalclearkey.differentguid";
-      // ECK implementation supports persistent licenses.
-      constexpr bool supports_persistent_license = true;
+
+      // Supported codecs are hard-coded in ExternalClearKeyProperties.
+      content::CdmCapability capability(
+          {}, {media::EncryptionMode::kCenc, media::EncryptionMode::kCbcs},
+          {media::CdmSessionType::kTemporary,
+           media::CdmSessionType::kPersistentLicense},
+          {});
 
       // Register kExternalClearKeyDifferentGuidTestKeySystem first separately.
       // Otherwise, it'll be treated as a sub-key-system of normal
@@ -570,17 +570,14 @@ void ChromeContentClient::AddContentDecryptionModules(
       cdms->push_back(content::CdmInfo(
           media::kClearKeyCdmDisplayName, media::kClearKeyCdmDifferentGuid,
           base::Version("0.1.0.0"), clear_key_cdm_path,
-          media::kClearKeyCdmFileSystemId, {}, supports_persistent_license,
-          {media::EncryptionMode::kCenc, media::EncryptionMode::kCbcs},
+          media::kClearKeyCdmFileSystemId, capability,
           kExternalClearKeyDifferentGuidTestKeySystem, false));
 
-      // Supported codecs are hard-coded in ExternalClearKeyProperties.
-      cdms->push_back(content::CdmInfo(
-          media::kClearKeyCdmDisplayName, media::kClearKeyCdmGuid,
-          base::Version("0.1.0.0"), clear_key_cdm_path,
-          media::kClearKeyCdmFileSystemId, {}, supports_persistent_license,
-          {media::EncryptionMode::kCenc, media::EncryptionMode::kCbcs},
-          kExternalClearKeyKeySystem, true));
+      cdms->push_back(
+          content::CdmInfo(media::kClearKeyCdmDisplayName,
+                           media::kClearKeyCdmGuid, base::Version("0.1.0.0"),
+                           clear_key_cdm_path, media::kClearKeyCdmFileSystemId,
+                           capability, kExternalClearKeyKeySystem, true));
     }
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
   }

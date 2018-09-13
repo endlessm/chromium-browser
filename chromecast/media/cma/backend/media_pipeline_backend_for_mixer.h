@@ -46,12 +46,20 @@ class MediaPipelineBackendForMixer : public MediaPipelineBackend {
   bool Primary() const;
   std::string DeviceId() const;
   AudioContentType ContentType() const;
+  AudioChannel AudioChannel() const;
   const scoped_refptr<base::SingleThreadTaskRunner>& GetTaskRunner() const;
   VideoDecoderForMixer* video_decoder() const { return video_decoder_.get(); }
   AudioDecoderForMixer* audio_decoder() const { return audio_decoder_.get(); }
 
   // Gets current time on the same clock as the rendering delay timestamp.
   virtual int64_t MonotonicClockNow() const;
+
+  int64_t GetPlaybackStartTimeForTesting() const {
+    return start_playback_timestamp_us_;
+  }
+  int64_t GetPlaybackStartPtsForTesting() const {
+    return start_playback_pts_us_;
+  }
 
  protected:
   std::unique_ptr<VideoDecoderForMixer> video_decoder_;
@@ -67,9 +75,13 @@ class MediaPipelineBackendForMixer : public MediaPipelineBackend {
   };
   State state_;
 
+  bool IsIgnorePtsMode() const;
+
   const MediaPipelineDeviceParams params_;
 
   std::unique_ptr<AvSync> av_sync_;
+  int64_t start_playback_timestamp_us_ = INT64_MIN;
+  int64_t start_playback_pts_us_ = INT64_MIN;
 
   DISALLOW_COPY_AND_ASSIGN(MediaPipelineBackendForMixer);
 };

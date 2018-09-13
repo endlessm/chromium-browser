@@ -29,8 +29,11 @@ FakeLoginDisplayHost::FakeLoginDisplayHost()
 
 FakeLoginDisplayHost::~FakeLoginDisplayHost() = default;
 
-LoginDisplay* FakeLoginDisplayHost::CreateLoginDisplay(
-    LoginDisplay::Delegate* delegate) {
+LoginDisplay* FakeLoginDisplayHost::GetLoginDisplay() {
+  return nullptr;
+}
+
+ExistingUserController* FakeLoginDisplayHost::GetExistingUserController() {
   return nullptr;
 }
 
@@ -39,6 +42,10 @@ gfx::NativeWindow FakeLoginDisplayHost::GetNativeWindow() const {
 }
 
 OobeUI* FakeLoginDisplayHost::GetOobeUI() const {
+  return nullptr;
+}
+
+content::WebContents* FakeLoginDisplayHost::GetOobeWebContents() const {
   return nullptr;
 }
 
@@ -53,10 +60,7 @@ void FakeLoginDisplayHost::Finalize(base::OnceClosure) {}
 void FakeLoginDisplayHost::SetStatusAreaVisible(bool visible) {}
 
 void FakeLoginDisplayHost::StartWizard(OobeScreen first_screen) {
-  // Reset the controller first since there could only be one wizard
-  // controller at any time.
-  wizard_controller_.reset();
-  wizard_controller_ = std::make_unique<WizardController>(nullptr, nullptr);
+  wizard_controller_ = std::make_unique<WizardController>();
 
   fake_screen_ = std::make_unique<FakeBaseScreen>(first_screen);
   wizard_controller_->SetCurrentScreenForTesting(fake_screen_.get());
@@ -116,14 +120,30 @@ bool FakeLoginDisplayHost::IsUserWhitelisted(const AccountId& account_id) {
   return false;
 }
 
-void FakeLoginDisplayHost::UpdateGaiaDialogVisibility(
-    bool visible,
-    const base::Optional<AccountId>& account) {}
+void FakeLoginDisplayHost::ShowGaiaDialog(
+    bool can_close,
+    const base::Optional<AccountId>& prefilled_account) {}
 
-void FakeLoginDisplayHost::UpdateGaiaDialogSize(int width, int height) {}
+void FakeLoginDisplayHost::HideOobeDialog() {}
+
+void FakeLoginDisplayHost::UpdateOobeDialogSize(int width, int height) {}
 
 const user_manager::UserList FakeLoginDisplayHost::GetUsers() {
   return user_manager::UserList();
 }
+
+void FakeLoginDisplayHost::CancelPasswordChangedFlow() {}
+
+void FakeLoginDisplayHost::MigrateUserData(const std::string& old_password) {}
+
+void FakeLoginDisplayHost::ResyncUserData() {}
+
+void FakeLoginDisplayHost::ShowFeedback() {}
+
+void FakeLoginDisplayHost::ShowDialogForCaptivePortal() {}
+
+void FakeLoginDisplayHost::HideDialogForCaptivePortal() {}
+
+void FakeLoginDisplayHost::UpdateAddUserButtonStatus() {}
 
 }  // namespace chromeos

@@ -9,7 +9,34 @@ for examples of how to access the API.
 ## Alerts
 URL patterns for accessing alerts:
 
+ * `/api/alerts?<params>`: Get matching alerts. Supported query parameters:
+    * `key`: Urlsafe alert entity key.
+    * `sheriff`: String. If unspecified, alerts for any sheriff will be
+      returned.
+    * `bug_id`: Set to `''` in order to select untriaged alerts.
+    * `is_improvement`: When omitted, both improvements and regressions are
+      returned. When set to `true`, only improvements are returned. When set to
+      `false`, only regressions are returned.
+    * `recovered`: When omitted, both recovered and unrecovered alerts are
+      returned. When set to `true`, only recovered alerts are returned. When set to
+      `false`, only unrecovered alerts are returned.
+    * `test`: Full slash-separated test path string like
+      `master/bot/test_suite/measurement/test_case`.
+    * `master`, `bot`, `test_suite`: Optional strings.
+    * `limit`: Positive integer. Default 100.
+    * `cursor`: Set to the `next_cursor` returned from a previous request in
+      order to page through results for queries that match more than `limit`
+      alerts.
+    * `min_start_revision`, `max_start_revision`: Integers. If unspecified,
+      alerts at any revisions will be returned.
+    * `min_end_revision`, `max_end_revision`: Integers. If unspecified, alerts
+      at any revisions will be returned.
+    * `min_timestamp`, `max_timestamp`: Datetimes in ISO format.
+
  * `/api/alerts/bug_id/id`: Get all the alerts associated with bug `id`.
+    * `include_comments`: When omitted or set to `false` only bug metadata
+      will be returned. When set to `true` the text of all bug comments
+      is also included in the response.
  * `/api/alerts/keys/comma_sep_list`: Get the alerts with the given list of
    keys, separated by commas.
  * `/api/alerts/rev/revision`: Get all the alerts with `revision` in the
@@ -89,7 +116,7 @@ The bugs API returns the following JSON about the bug:
  * `status`: Status of work on the issue (Assigned, Fixed, etc)
  * `summary`: The issue summary/title text.
 
- ## Timeseries
+## Timeseries
 
  URL patterns for accessing timeseries:
 
@@ -102,3 +129,34 @@ The bugs API returns the following JSON about the bug:
   * `/api/timeseries/test_path`: Return the timeseries data for the given
     `test_path` as JSON. Can specify `num_days` param in postdata, defaults to
     30.
+  * `/api/test_suites`: Return an array of names of test suites.
+  * `/api/describe/test_suite`: Return an object containing `measurements`,
+    `bots`, and `cases`, all of which are sorted arrays of strings.
+  * `/api/timeseries2?<params>`: Get timeseries data, alerts, Histograms, and
+    SparseDiagnostics. Post body parameters may include the following:
+     * `test_suite`, `measurement`, `bot`: Required strings from
+       `/api/test_suites` and `/api/describe`.
+     * `test_case`: Optional string from `/api/describe`.
+     * `build_type`: Optional enum `test` (default) or `ref`.
+     * `min_revision`, `max_revision`: Optional point id revision numbers.
+     * `min_timestamp`, `max_timestamp`: Optional ISO 8601 strings.
+     * `columns`: Required comma-separated list of strings. May contain
+        * `revision` produces point ID numbers.
+        * `avg`, `std`, `count`, `max`, `min`, `sum` produce float numbers.
+        * `revisions` produces an object whose keys are names like `r_webkit`
+          and `r_chromium`, and whose values are numbers or strings.
+        * `timestamp` records when the data was uploaded, and produces ISO 8601
+          strings like "2018-07-09T09:58:20.210539"
+        * `alert` produces objects as specified in the Alerts section above.
+        * `histogram` produces [Histogram
+          JSON](https://chromium.googlesource.com/catapult/+/master/docs/histogram-set-json-format.md).
+        * `diagnostics` produces an object whose keys are names (which may be
+          [reserved
+          names](https://chromium.googlesource.com/catapult/+/master/tracing/tracing/value/diagnostics/reserved_infos.py)),
+          and whose values are [Diagnostic
+          JSON](https://chromium.googlesource.com/catapult/+/master/docs/histogram-set-json-format.md#diagnostics).
+    Returns a JSON object containing `units`, `improvement_direction` ("down" or
+    "up"), and "data", which is an array. Elements of the data array are arrays
+    of values corresponding to the `columns` parameter. For example, if
+    `columns=revision,avg,timestamp`, then elements of the data array will be
+    3-tuples like `[123456,42.42,"2018-07-09T09:58:20.210539"]`.

@@ -47,8 +47,6 @@ ChromeLayoutProvider::CreateLayoutProvider() {
 
 gfx::Insets ChromeLayoutProvider::GetInsetsMetric(int metric) const {
   switch (metric) {
-    case ChromeInsetsMetric::INSETS_OMNIBOX:
-      return gfx::Insets(3);
     case ChromeInsetsMetric::INSETS_TOAST:
       return gfx::Insets(0, 8);
     case INSETS_BOOKMARKS_BAR_BUTTON:

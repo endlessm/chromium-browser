@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "ash/accelerators/accelerator_controller.h"
 #include "ash/accessibility/accessibility_highlight_controller.h"
 #include "ash/accessibility/accessibility_observer.h"
 #include "ash/accessibility/accessibility_panel_layout_manager.h"
@@ -41,6 +42,7 @@
 #include "ui/aura/window.h"
 #include "ui/base/cursor/cursor_type.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/keyboard/keyboard_util.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/public/cpp/notifier_id.h"
@@ -85,6 +87,10 @@ constexpr const char* const kCopiedOnSigninAccessibilityPrefs[]{
     prefs::kAccessibilityVirtualKeyboardEnabled,
     prefs::kDockedMagnifierEnabled,
     prefs::kDockedMagnifierScale,
+    prefs::kHighContrastAcceleratorDialogHasBeenAccepted,
+    prefs::kScreenMagnifierAcceleratorDialogHasBeenAccepted,
+    prefs::kDockedMagnifierAcceleratorDialogHasBeenAccepted,
+    prefs::kDictationAcceleratorDialogHasBeenAccepted,
 };
 
 // Returns true if |pref_service| is the one used for the signin screen.
@@ -226,9 +232,12 @@ AccessibilityController::AccessibilityController(
     : connector_(connector),
       autoclick_delay_(AutoclickController::GetDefaultAutoclickDelay()) {
   Shell::Get()->session_controller()->AddObserver(this);
+  Shell::Get()->tablet_mode_controller()->AddObserver(this);
 }
 
 AccessibilityController::~AccessibilityController() {
+  if (Shell::Get()->tablet_mode_controller())
+    Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
   Shell::Get()->session_controller()->RemoveObserver(this);
 }
 
@@ -268,6 +277,14 @@ void AccessibilityController::RegisterProfilePrefs(PrefRegistrySimple* registry,
                                   false);
     registry->RegisterBooleanPref(prefs::kAccessibilityVirtualKeyboardEnabled,
                                   false);
+    registry->RegisterBooleanPref(
+        prefs::kHighContrastAcceleratorDialogHasBeenAccepted, false);
+    registry->RegisterBooleanPref(
+        prefs::kScreenMagnifierAcceleratorDialogHasBeenAccepted, false);
+    registry->RegisterBooleanPref(
+        prefs::kDockedMagnifierAcceleratorDialogHasBeenAccepted, false);
+    registry->RegisterBooleanPref(
+        prefs::kDictationAcceleratorDialogHasBeenAccepted, false);
     return;
   }
 
@@ -289,6 +306,74 @@ void AccessibilityController::RegisterProfilePrefs(PrefRegistrySimple* registry,
   registry->RegisterForeignPref(prefs::kAccessibilitySelectToSpeakEnabled);
   registry->RegisterForeignPref(prefs::kAccessibilityStickyKeysEnabled);
   registry->RegisterForeignPref(prefs::kAccessibilityVirtualKeyboardEnabled);
+  registry->RegisterForeignPref(
+      prefs::kHighContrastAcceleratorDialogHasBeenAccepted);
+  registry->RegisterForeignPref(
+      prefs::kScreenMagnifierAcceleratorDialogHasBeenAccepted);
+  registry->RegisterForeignPref(
+      prefs::kDockedMagnifierAcceleratorDialogHasBeenAccepted);
+  registry->RegisterForeignPref(
+      prefs::kDictationAcceleratorDialogHasBeenAccepted);
+}
+
+void AccessibilityController::SetHighContrastAcceleratorDialogAccepted() {
+  if (!active_user_prefs_)
+    return;
+  active_user_prefs_->SetBoolean(
+      prefs::kHighContrastAcceleratorDialogHasBeenAccepted, true);
+  active_user_prefs_->CommitPendingWrite();
+}
+
+bool AccessibilityController::HasHighContrastAcceleratorDialogBeenAccepted()
+    const {
+  return active_user_prefs_ &&
+         active_user_prefs_->GetBoolean(
+             prefs::kHighContrastAcceleratorDialogHasBeenAccepted);
+}
+
+void AccessibilityController::SetScreenMagnifierAcceleratorDialogAccepted() {
+  if (!active_user_prefs_)
+    return;
+  active_user_prefs_->SetBoolean(
+      prefs::kScreenMagnifierAcceleratorDialogHasBeenAccepted, true);
+  active_user_prefs_->CommitPendingWrite();
+}
+
+bool AccessibilityController::HasScreenMagnifierAcceleratorDialogBeenAccepted()
+    const {
+  return active_user_prefs_ &&
+         active_user_prefs_->GetBoolean(
+             prefs::kScreenMagnifierAcceleratorDialogHasBeenAccepted);
+}
+
+void AccessibilityController::SetDockedMagnifierAcceleratorDialogAccepted() {
+  if (!active_user_prefs_)
+    return;
+  active_user_prefs_->SetBoolean(
+      prefs::kDockedMagnifierAcceleratorDialogHasBeenAccepted, true);
+  active_user_prefs_->CommitPendingWrite();
+}
+
+bool AccessibilityController::HasDockedMagnifierAcceleratorDialogBeenAccepted()
+    const {
+  return active_user_prefs_ &&
+         active_user_prefs_->GetBoolean(
+             prefs::kDockedMagnifierAcceleratorDialogHasBeenAccepted);
+}
+
+void AccessibilityController::SetDictationAcceleratorDialogAccepted() {
+  if (!active_user_prefs_)
+    return;
+  active_user_prefs_->SetBoolean(
+      prefs::kDictationAcceleratorDialogHasBeenAccepted, true);
+  active_user_prefs_->CommitPendingWrite();
+}
+
+bool AccessibilityController::HasDictationAcceleratorDialogBeenAccepted()
+    const {
+  return active_user_prefs_ &&
+         active_user_prefs_->GetBoolean(
+             prefs::kDictationAcceleratorDialogHasBeenAccepted);
 }
 
 void AccessibilityController::AddObserver(AccessibilityObserver* observer) {
@@ -343,11 +428,23 @@ bool AccessibilityController::IsCursorHighlightEnabled() const {
 void AccessibilityController::SetDictationEnabled(bool enabled) {
   if (!active_user_prefs_)
     return;
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kEnableExperimentalAccessibilityFeatures)) {
+
+  const bool dialog_ever_accepted = HasDictationAcceleratorDialogBeenAccepted();
+
+  if (enabled && !dialog_ever_accepted) {
+    Shell::Get()->accelerator_controller()->MaybeShowConfirmationDialog(
+        IDS_ASH_DICTATION_CONFIRMATION_TITLE,
+        IDS_ASH_DICTATION_CONFIRMATION_BODY,
+        // Callback for if the user accepts the dialog
+        base::BindOnce([]() {
+          AccessibilityController* controller =
+              Shell::Get()->accessibility_controller();
+          controller->SetDictationAcceleratorDialogAccepted();
+          // If they accept, try again to set dictation_enabled to true
+          controller->SetDictationEnabled(true);
+        }));
     return;
   }
-
   active_user_prefs_->SetBoolean(prefs::kAccessibilityDictationEnabled,
                                  enabled);
   active_user_prefs_->CommitPendingWrite();
@@ -367,6 +464,14 @@ void AccessibilityController::SetFocusHighlightEnabled(bool enabled) {
 
 bool AccessibilityController::IsFocusHighlightEnabled() const {
   return focus_highlight_enabled_;
+}
+
+void AccessibilityController::SetFullscreenMagnifierEnabled(bool enabled) {
+  if (!active_user_prefs_)
+    return;
+  active_user_prefs_->SetBoolean(prefs::kAccessibilityScreenMagnifierEnabled,
+                                 enabled);
+  active_user_prefs_->CommitPendingWrite();
 }
 
 void AccessibilityController::SetHighContrastEnabled(bool enabled) {
@@ -630,6 +735,16 @@ void AccessibilityController::FlushMojoForTest() {
   client_.FlushForTesting();
 }
 
+void AccessibilityController::OnTabletModeStarted() {
+  if (IsSpokenFeedbackEnabled())
+    ShowAccessibilityNotification(A11yNotificationType::kSpokenFeedbackEnabled);
+}
+
+void AccessibilityController::OnTabletModeEnded() {
+  if (IsSpokenFeedbackEnabled())
+    ShowAccessibilityNotification(A11yNotificationType::kSpokenFeedbackEnabled);
+}
+
 void AccessibilityController::ObservePrefs(PrefService* prefs) {
   DCHECK(prefs);
 
@@ -706,6 +821,7 @@ void AccessibilityController::ObservePrefs(PrefService* prefs) {
   UpdateAutoclickDelayFromPref();
   UpdateCaretHighlightFromPref();
   UpdateCursorHighlightFromPref();
+  UpdateDictationFromPref();
   UpdateFocusHighlightFromPref();
   UpdateHighContrastFromPref();
   UpdateLargeCursorFromPref();
@@ -728,7 +844,7 @@ void AccessibilityController::UpdateAutoclickFromPref() {
 
   NotifyAccessibilityStatusChanged();
 
-  if (Shell::GetAshConfig() == Config::MASH) {
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED) {
     if (!connector_)  // Null in tests.
       return;
     mash::mojom::LaunchablePtr launchable;
@@ -749,7 +865,7 @@ void AccessibilityController::UpdateAutoclickDelayFromPref() {
     return;
   autoclick_delay_ = autoclick_delay;
 
-  if (Shell::GetAshConfig() == Config::MASH) {
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED) {
     if (!connector_)  // Null in tests.
       return;
     autoclick::mojom::AutoclickControllerPtr autoclick_controller;
@@ -834,7 +950,7 @@ void AccessibilityController::UpdateHighContrastFromPref() {
   NotifyAccessibilityStatusChanged();
 
   // Under mash the UI service (window server) handles high contrast mode.
-  if (Shell::GetAshConfig() == Config::MASH) {
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED) {
     if (!connector_)  // Null in tests.
       return;
     ui::mojom::AccessibilityManagerPtr accessibility_ptr;
@@ -967,7 +1083,7 @@ void AccessibilityController::UpdateVirtualKeyboardFromPref() {
 
   keyboard::SetAccessibilityKeyboardEnabled(enabled);
 
-  if (Shell::GetAshConfig() == Config::MASH) {
+  if (!features::IsAshInBrowserProcess()) {
     // TODO(mash): Support on-screen keyboard. See https://crbug.com/646565.
     NOTIMPLEMENTED();
     return;
@@ -980,9 +1096,9 @@ void AccessibilityController::UpdateVirtualKeyboardFromPref() {
   // that the a11y keyboard is being disabled, an on-screen keyboard might still
   // be enabled and a forced reset is required to pick up the layout change.
   if (keyboard::IsKeyboardEnabled())
-    Shell::Get()->CreateKeyboard();
+    Shell::Get()->EnableKeyboard();
   else
-    Shell::Get()->DestroyKeyboard();
+    Shell::Get()->DisableKeyboard();
 }
 
 }  // namespace ash

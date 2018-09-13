@@ -5,6 +5,7 @@
 #include "ash/system/accessibility/dictation_button_tray.h"
 
 #include "ash/accessibility/accessibility_controller.h"
+#include "ash/metrics/user_metrics_recorder.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shelf/shelf_constants.h"
 #include "ash/shell.h"
@@ -31,6 +32,8 @@ DictationButtonTray::DictationButtonTray(Shelf* shelf)
   const int horizontal_padding = (kTrayItemSize - off_image_.width()) / 2;
   icon_->SetBorder(views::CreateEmptyBorder(
       gfx::Insets(vertical_padding, horizontal_padding)));
+  icon_->SetTooltipText(
+      l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_ACCESSIBILITY_DICTATION));
   tray_container()->AddChildView(icon_);
   Shell::Get()->AddShellObserver(this);
   Shell::Get()->accessibility_controller()->AddObserver(this);
@@ -42,6 +45,9 @@ DictationButtonTray::~DictationButtonTray() {
 }
 
 bool DictationButtonTray::PerformAction(const ui::Event& event) {
+  UserMetricsRecorder::RecordUserToggleDictation(
+      DictationToggleMethod::kToggleByButton);
+
   Shell::Get()->accelerator_controller()->PerformActionIfEnabled(
       AcceleratorAction::TOGGLE_DICTATION);
   CheckDictationStatusAndUpdateIcon();

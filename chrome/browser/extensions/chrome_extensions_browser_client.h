@@ -100,6 +100,7 @@ class ChromeExtensionsBrowserClient : public ExtensionsBrowserClient {
   std::unique_ptr<ExtensionHostDelegate> CreateExtensionHostDelegate() override;
   bool DidVersionUpdate(content::BrowserContext* context) override;
   void PermitExternalProtocolHandler() override;
+  bool IsInDemoMode() override;
   bool IsRunningInForcedAppMode() override;
   bool IsAppModeForcedForApp(const ExtensionId& extension_id) override;
   bool IsLoggedInAsPublicAccount() override;
@@ -150,6 +151,7 @@ class ChromeExtensionsBrowserClient : public ExtensionsBrowserClient {
   std::string GetApplicationLocale() override;
   bool IsExtensionEnabled(const std::string& extension_id,
                           content::BrowserContext* context) const override;
+  bool IsWebUIAllowedToMakeNetworkRequests(const url::Origin& origin) override;
 
   static void set_did_chrome_update_for_testing(bool did_update);
 

@@ -11,16 +11,21 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
+#include "chrome/browser/chromeos/login/ui/kiosk_app_menu_updater.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_common.h"
+#include "chrome/browser/chromeos/login/ui/oobe_ui_dialog_delegate.h"
 #include "chrome/browser/ui/ash/login_screen_client.h"
 #include "chromeos/login/auth/auth_status_consumer.h"
 
 namespace chromeos {
 
 class ExistingUserController;
-class GaiaDialogDelegate;
+class LoginDisplayMojo;
+class OobeUIDialogDelegate;
 class UserBoardViewMojo;
 class UserSelectionScreen;
+class MojoVersionInfoDispatcher;
 
 // A LoginDisplayHost instance that sends requests to the views-based signin
 // screen.
@@ -32,19 +37,39 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
   ~LoginDisplayHostMojo() override;
 
   // Called when the gaia dialog is destroyed.
-  void OnDialogDestroyed(const GaiaDialogDelegate* dialog);
+  void OnDialogDestroyed(const OobeUIDialogDelegate* dialog);
 
   // Set the users in the views login screen.
   void SetUsers(const user_manager::UserList& users);
+
+  // Show password changed dialog. If |show_password_error| is true, user
+  // already tried to enter old password but it turned out to be incorrect.
+  void ShowPasswordChangedDialog(bool show_password_error,
+                                 const std::string& email);
+
+  // Show whitelist check failed error. Happens after user completes online
+  // signin but whitelist check fails.
+  void ShowWhitelistCheckFailedError();
+
+  // Show unrecoverable cryptohome error dialog.
+  void ShowUnrecoverableCrypthomeErrorDialog();
+
+  // Displays detailed error screen for error with ID |error_id|.
+  void ShowErrorScreen(LoginDisplay::SigninError error_id);
+
+  // Shows signin UI with specified email.
+  void ShowSigninUI(const std::string& email);
 
   UserSelectionScreen* user_selection_screen() {
     return user_selection_screen_.get();
   }
 
   // LoginDisplayHost:
-  LoginDisplay* CreateLoginDisplay(LoginDisplay::Delegate* delegate) override;
+  LoginDisplay* GetLoginDisplay() override;
+  ExistingUserController* GetExistingUserController() override;
   gfx::NativeWindow GetNativeWindow() const override;
   OobeUI* GetOobeUI() const override;
+  content::WebContents* GetOobeWebContents() const override;
   WebUILoginView* GetWebUILoginView() const override;
   void OnFinalize() override;
   void SetStatusAreaVisible(bool visible) override;
@@ -59,11 +84,17 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
   void OnBrowserCreated() override;
   void StartVoiceInteractionOobe() override;
   bool IsVoiceInteractionOobe() override;
-  void UpdateGaiaDialogVisibility(
-      bool visible,
-      const base::Optional<AccountId>& account) override;
-  void UpdateGaiaDialogSize(int width, int height) override;
+  void ShowGaiaDialog(
+      bool can_close,
+      const base::Optional<AccountId>& prefilled_account) override;
+  void HideOobeDialog() override;
+  void UpdateOobeDialogSize(int width, int height) override;
   const user_manager::UserList GetUsers() override;
+  void OnCancelPasswordChangedFlow() override;
+  void ShowFeedback() override;
+  void ShowDialogForCaptivePortal() override;
+  void HideDialogForCaptivePortal() override;
+  void UpdateAddUserButtonStatus() override;
 
   // LoginScreenClient::Delegate:
   void HandleAuthenticateUser(const AccountId& account_id,
@@ -86,11 +117,21 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
   void OnAuthSuccess(const UserContext& user_context) override;
 
  private:
-  // Initialize the dialog widget for webui (for gaia and post login screens).
-  void InitWidgetAndView();
+  void LoadOobeDialog();
 
-  // Callback that should be executed the authentication result is available.
-  AuthenticateUserCallback on_authenticated_;
+  // State associated with a pending authentication attempt.
+  struct AuthState {
+    AuthState(AccountId account_id, AuthenticateUserCallback callback);
+    ~AuthState();
+
+    // Account that is being authenticated.
+    AccountId account_id;
+    // Callback that should be executed the authentication result is available.
+    AuthenticateUserCallback callback;
+  };
+  std::unique_ptr<AuthState> pending_auth_state_;
+
+  std::unique_ptr<LoginDisplayMojo> login_display_;
 
   std::unique_ptr<UserBoardViewMojo> user_board_view_mojo_;
   std::unique_ptr<UserSelectionScreen> user_selection_screen_;
@@ -99,7 +140,8 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
 
   // Called after host deletion.
   std::vector<base::OnceClosure> completion_callbacks_;
-  GaiaDialogDelegate* dialog_ = nullptr;
+  OobeUIDialogDelegate* dialog_ = nullptr;
+  bool can_close_dialog_ = true;
   std::unique_ptr<WizardController> wizard_controller_;
 
   // Users that are visible in the views login screen.
@@ -108,6 +150,11 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
 
   // The account id of the user pod that's being focused.
   AccountId focused_pod_account_id_;
+
+  KioskAppMenuUpdater kiosk_updater_;
+
+  // Updates UI when version info is changed.
+  std::unique_ptr<MojoVersionInfoDispatcher> version_info_updater_;
 
   base::WeakPtrFactory<LoginDisplayHostMojo> weak_factory_;
 

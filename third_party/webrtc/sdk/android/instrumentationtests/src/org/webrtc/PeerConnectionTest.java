@@ -15,6 +15,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.MediumTest;
@@ -55,6 +56,7 @@ public class PeerConnectionTest {
   public void setUp() {
     PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions
                                          .builder(InstrumentationRegistry.getTargetContext())
+                                         .setNativeLibraryName(TestConstants.NATIVE_LIBRARY)
                                          .createInitializationOptions());
   }
 
@@ -696,7 +698,11 @@ public class PeerConnectionTest {
     final CameraEnumerator enumerator = new Camera1Enumerator(false /* captureToTexture */);
     final VideoCapturer videoCapturer =
         enumerator.createCapturer(enumerator.getDeviceNames()[0], null /* eventsHandler */);
-    final VideoSource videoSource = factory.createVideoSource(videoCapturer);
+    final SurfaceTextureHelper surfaceTextureHelper =
+        SurfaceTextureHelper.create("SurfaceTextureHelper", /* sharedContext= */ null);
+    final VideoSource videoSource = factory.createVideoSource(/* isScreencast= */ false);
+    videoCapturer.initialize(surfaceTextureHelper, InstrumentationRegistry.getTargetContext(),
+        videoSource.getCapturerObserver());
     videoCapturer.startCapture(640, 480, 30);
 
     offeringExpectations.expectRenegotiationNeeded();
@@ -844,8 +850,10 @@ public class PeerConnectionTest {
     assertNotNull(rtpParameters);
     assertEquals(1, rtpParameters.encodings.size());
     assertNull(rtpParameters.encodings.get(0).maxBitrateBps);
+    assertNull(rtpParameters.encodings.get(0).minBitrateBps);
 
     rtpParameters.encodings.get(0).maxBitrateBps = 300000;
+    rtpParameters.encodings.get(0).minBitrateBps = 100000;
     assertTrue(videoSender.setParameters(rtpParameters));
 
     // Create a DTMF sender.
@@ -857,6 +865,7 @@ public class PeerConnectionTest {
     // Verify that we can read back the updated value.
     rtpParameters = videoSender.getParameters();
     assertEquals(300000, (int) rtpParameters.encodings.get(0).maxBitrateBps);
+    assertEquals(100000, (int) rtpParameters.encodings.get(0).minBitrateBps);
 
     // Test send & receive UTF-8 text.
     answeringExpectations.expectMessage(
@@ -884,6 +893,8 @@ public class PeerConnectionTest {
     answeringExpectations.expectStateChange(DataChannel.State.CLOSED);
     answeringExpectations.dataChannel.close();
     offeringExpectations.dataChannel.close();
+    assertTrue(offeringExpectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
+    assertTrue(answeringExpectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
 
     // Test SetBitrate.
     assertTrue(offeringPC.setBitrate(100000, 5000000, 500000000));
@@ -898,6 +909,7 @@ public class PeerConnectionTest {
     videoCapturer.stopCapture();
     videoCapturer.dispose();
     videoSource.dispose();
+    surfaceTextureHelper.dispose();
     factory.dispose();
     System.gc();
   }
@@ -1045,6 +1057,8 @@ public class PeerConnectionTest {
     answeringExpectations.expectStateChange(DataChannel.State.CLOSED);
     answeringExpectations.dataChannel.close();
     offeringExpectations.dataChannel.close();
+    assertTrue(offeringExpectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
+    assertTrue(answeringExpectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
 
     // Free the Java-land objects and collect them.
     shutdownPC(offeringPC, offeringExpectations);
@@ -1085,7 +1099,11 @@ public class PeerConnectionTest {
     final CameraEnumerator enumerator = new Camera1Enumerator(false /* captureToTexture */);
     final VideoCapturer videoCapturer =
         enumerator.createCapturer(enumerator.getDeviceNames()[0], null /* eventsHandler */);
-    final VideoSource videoSource = factory.createVideoSource(videoCapturer);
+    final SurfaceTextureHelper surfaceTextureHelper =
+        SurfaceTextureHelper.create("SurfaceTextureHelper", /* sharedContext= */ null);
+    final VideoSource videoSource = factory.createVideoSource(/* isScreencast= */ false);
+    videoCapturer.initialize(surfaceTextureHelper, InstrumentationRegistry.getTargetContext(),
+        videoSource.getCapturerObserver());
     videoCapturer.startCapture(640, 480, 30);
 
     // Add offerer media stream.
@@ -1236,6 +1254,7 @@ public class PeerConnectionTest {
     videoCapturer.stopCapture();
     videoCapturer.dispose();
     videoSource.dispose();
+    surfaceTextureHelper.dispose();
     factory.dispose();
     System.gc();
   }
@@ -1309,7 +1328,11 @@ public class PeerConnectionTest {
     final CameraEnumerator enumerator = new Camera1Enumerator(false /* captureToTexture */);
     final VideoCapturer videoCapturer =
         enumerator.createCapturer(enumerator.getDeviceNames()[0], null /* eventsHandler */);
-    final VideoSource videoSource = factory.createVideoSource(videoCapturer);
+    final SurfaceTextureHelper surfaceTextureHelper =
+        SurfaceTextureHelper.create("SurfaceTextureHelper", /* sharedContext= */ null);
+    final VideoSource videoSource = factory.createVideoSource(/* isScreencast= */ false);
+    videoCapturer.initialize(surfaceTextureHelper, InstrumentationRegistry.getTargetContext(),
+        videoSource.getCapturerObserver());
     VideoTrack videoTrack = factory.createVideoTrack("video", videoSource);
     offeringExpectations.expectRenegotiationNeeded();
     localStream.addTrack(videoTrack);
@@ -1360,7 +1383,103 @@ public class PeerConnectionTest {
     pcUnderTest.dispose();
     videoCapturer.dispose();
     videoSource.dispose();
+    surfaceTextureHelper.dispose();
     factory.dispose();
+  }
+
+  @Test
+  @MediumTest
+  public void testAddingNullVideoSink() {
+    final PeerConnectionFactory factory =
+        PeerConnectionFactory.builder().createPeerConnectionFactory();
+    final VideoSource videoSource = factory.createVideoSource(/* isScreencast= */ false);
+    final VideoTrack videoTrack = factory.createVideoTrack("video", videoSource);
+    try {
+      videoTrack.addSink(/* sink= */ null);
+      fail("Should have thrown an IllegalArgumentException.");
+    } catch (IllegalArgumentException e) {
+      // Expected path.
+    }
+  }
+
+  @Test
+  @MediumTest
+  public void testRemovingNullVideoSink() {
+    final PeerConnectionFactory factory =
+        PeerConnectionFactory.builder().createPeerConnectionFactory();
+    final VideoSource videoSource = factory.createVideoSource(/* isScreencast= */ false);
+    final VideoTrack videoTrack = factory.createVideoTrack("video", videoSource);
+    videoTrack.removeSink(/* sink= */ null);
+  }
+
+  @Test
+  @MediumTest
+  public void testRemovingNonExistantVideoSink() {
+    final PeerConnectionFactory factory =
+        PeerConnectionFactory.builder().createPeerConnectionFactory();
+    final VideoSource videoSource = factory.createVideoSource(/* isScreencast= */ false);
+    final VideoTrack videoTrack = factory.createVideoTrack("video", videoSource);
+    final VideoSink videoSink = new VideoSink() {
+      @Override
+      public void onFrame(VideoFrame frame) {}
+    };
+    videoTrack.removeSink(videoSink);
+  }
+
+  @Test
+  @MediumTest
+  public void testAddingSameVideoSinkMultipleTimes() {
+    final PeerConnectionFactory factory =
+        PeerConnectionFactory.builder().createPeerConnectionFactory();
+    final VideoSource videoSource = factory.createVideoSource(/* isScreencast= */ false);
+    final VideoTrack videoTrack = factory.createVideoTrack("video", videoSource);
+
+    class FrameCounter implements VideoSink {
+      private int count = 0;
+
+      public int getCount() {
+        return count;
+      }
+
+      @Override
+      public void onFrame(VideoFrame frame) {
+        count += 1;
+      }
+    }
+    final FrameCounter frameCounter = new FrameCounter();
+
+    final VideoFrame videoFrame = new VideoFrame(
+        JavaI420Buffer.allocate(/* width= */ 32, /* height= */ 32), /* rotation= */ 0,
+        /* timestampNs= */ 0);
+
+    videoTrack.addSink(frameCounter);
+    videoTrack.addSink(frameCounter);
+    videoSource.getCapturerObserver().onFrameCaptured(videoFrame);
+
+    // Even though we called addSink() multiple times, we should only get one frame out.
+    assertEquals(1, frameCounter.count);
+  }
+
+  @Test
+  @MediumTest
+  public void testAddingAndRemovingVideoSink() {
+    final PeerConnectionFactory factory =
+        PeerConnectionFactory.builder().createPeerConnectionFactory();
+    final VideoSource videoSource = factory.createVideoSource(/* isScreencast= */ false);
+    final VideoTrack videoTrack = factory.createVideoTrack("video", videoSource);
+    final VideoFrame videoFrame = new VideoFrame(
+        JavaI420Buffer.allocate(/* width= */ 32, /* height= */ 32), /* rotation= */ 0,
+        /* timestampNs= */ 0);
+
+    final VideoSink failSink = new VideoSink() {
+      @Override
+      public void onFrame(VideoFrame frame) {
+        fail("onFrame() should not be called on removed sink");
+      }
+    };
+    videoTrack.addSink(failSink);
+    videoTrack.removeSink(failSink);
+    videoSource.getCapturerObserver().onFrameCaptured(videoFrame);
   }
 
   private static void negotiate(PeerConnection offeringPC,

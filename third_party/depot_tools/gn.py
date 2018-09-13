@@ -18,7 +18,40 @@ import subprocess
 import sys
 
 
+def PruneVirtualEnv():
+  # Set by VirtualEnv, no need to keep it.
+  os.environ.pop('VIRTUAL_ENV', None)
+
+  # Set by VPython, if scripts want it back they have to set it explicitly.
+  os.environ.pop('PYTHONNOUSERSITE', None)
+
+  # Look for "activate_this.py" in this path, which is installed by VirtualEnv.
+  # This mechanism is used by vpython as well to sanitize VirtualEnvs from
+  # $PATH.
+  os.environ['PATH'] = os.pathsep.join([
+    p for p in os.environ.get('PATH', '').split(os.pathsep)
+    if not os.path.isfile(os.path.join(p, 'activate_this.py'))
+  ])
+
+
 def main(args):
+  # Prune all evidence of VPython/VirtualEnv out of the environment. This means
+  # that we 'unwrap' vpython VirtualEnv path/env manipulation. Invocations of
+  # `python` from GN should never inherit the gn.py's own VirtualEnv. This also
+  # helps to ensure that generated ninja files do not reference python.exe from
+  # the VirtualEnv generated from depot_tools' own .vpython file (or lack
+  # thereof), but instead reference the default python from the PATH.
+  PruneVirtualEnv()
+
+  # Try in primary solution location first, with the gn binary having been
+  # downloaded by cipd in the projects DEPS.
+  gn_path = os.path.join(gclient_utils.GetPrimarySolutionPath(), 'third_party',
+                         'gn', 'gn' + gclient_utils.GetExeSuffix())
+  if os.path.exists(gn_path):
+    return subprocess.call([gn_path] + args[1:])
+
+  # Otherwise try the old .sha1 and download_from_google_storage locations
+  # inside of buildtools.
   bin_path = gclient_utils.GetBuildtoolsPlatformBinaryPath()
   if not bin_path:
     print >> sys.stderr, ('gn.py: Could not find checkout in any parent of '

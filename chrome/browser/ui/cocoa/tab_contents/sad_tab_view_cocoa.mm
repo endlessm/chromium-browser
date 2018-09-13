@@ -43,10 +43,10 @@ const CGFloat kMaxTopMargin = 130;
 }
 @end
 
-@interface SadTabView ()<NSTextViewDelegate>
+@interface SadTabViewCocoa ()<NSTextViewDelegate>
 @end
 
-@implementation SadTabView {
+@implementation SadTabViewCocoa {
   NSView* container_;
   NSTextView* message_;
   HyperlinkTextView* help_;
@@ -106,7 +106,7 @@ const CGFloat kMaxTopMargin = 130;
     [message_.textStorage
         appendAttributedString:[[[NSAttributedString alloc]
                                    initWithString:l10n_util::GetNSString(
-                                                      sadTab->GetMessage())
+                                                      sadTab->GetInfoMessage())
                                        attributes:@{
                                          NSFontAttributeName : messageFont,
                                          NSForegroundColorAttributeName :

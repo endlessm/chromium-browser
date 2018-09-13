@@ -285,6 +285,8 @@ struct SysAlias {
 struct SysAliasReg : SysAlias {
   bool NeedsReg;
   SysAliasReg(const char *N, uint16_t E, bool R) : SysAlias(N, E), NeedsReg(R) {};
+  SysAliasReg(const char *N, uint16_t E, bool R, FeatureBitset F) : SysAlias(N, E, F),
+    NeedsReg(R) {};
 };
 
 namespace AArch64AT{
@@ -327,6 +329,14 @@ namespace  AArch64ISB {
   #include "AArch64GenSystemOperands.inc"
 }
 
+namespace  AArch64TSB {
+  struct TSB : SysAlias {
+    using SysAlias::SysAlias;
+  };
+  #define GET_TSB_DECL
+  #include "AArch64GenSystemOperands.inc"
+}
+
 namespace AArch64PRFM {
   struct PRFM : SysAlias {
     using SysAlias::SysAlias;
@@ -349,6 +359,16 @@ namespace AArch64SVEPredPattern {
     uint16_t Encoding;
   };
 #define GET_SVEPREDPAT_DECL
+#include "AArch64GenSystemOperands.inc"
+}
+
+namespace AArch64ExactFPImm {
+  struct ExactFPImm {
+    const char *Name;
+    int Enum;
+    const char *Repr;
+  };
+#define GET_EXACTFPIMM_DECL
 #include "AArch64GenSystemOperands.inc"
 }
 

@@ -114,6 +114,13 @@ class CanonicalizeURLTest(cros_test_lib.TestCase):
     self._checkit(
         'https://storage.cloud.google.com/releases/some/file/t.gz',
         'gs://releases/some/file/t.gz')
+    self._checkit(
+        'https://pantheon.corp.google.com/storage/browser/releases/some/'
+        'file/t.gz',
+        'gs://releases/some/file/t.gz')
+    self._checkit(
+        'https://stainless.corp.google.com/browse/releases/some/file/t.gz',
+        'gs://releases/some/file/t.gz')
 
   def testDuplicateBase(self):
     """Test multiple prefixes in a single URL."""
@@ -125,7 +132,7 @@ class CanonicalizeURLTest(cros_test_lib.TestCase):
 
 
 class GsUrlToHttpTest(cros_test_lib.TestCase):
-  """Tests for the CanonicalizeURL function."""
+  """Tests for the GsUrlToHttp function."""
 
   def setUp(self):
     self.testUrls = [
@@ -151,12 +158,12 @@ class GsUrlToHttpTest(cros_test_lib.TestCase):
       self.assertEqual(gs.GsUrlToHttp(gs_url, directory=True), http_url)
 
   def testPrivateUrls(self):
-    """Test public https URLs."""
+    """Test private https URLs."""
     expected = [
         'https://storage.cloud.google.com/releases',
-        'https://pantheon.corp.google.com/storage/browser/releases/',
+        'https://stainless.corp.google.com/browse/releases/',
         'https://storage.cloud.google.com/releases/path',
-        'https://pantheon.corp.google.com/storage/browser/releases/path/',
+        'https://stainless.corp.google.com/browse/releases/path/',
         'https://storage.cloud.google.com/releases/path/file',
     ]
 
@@ -164,13 +171,13 @@ class GsUrlToHttpTest(cros_test_lib.TestCase):
       self.assertEqual(gs.GsUrlToHttp(gs_url, public=False), http_url)
 
   def testPrivateDirectoryUrls(self):
-    """Test public https URLs."""
+    """Test private https directory URLs."""
     expected = [
-        'https://pantheon.corp.google.com/storage/browser/releases',
-        'https://pantheon.corp.google.com/storage/browser/releases/',
-        'https://pantheon.corp.google.com/storage/browser/releases/path',
-        'https://pantheon.corp.google.com/storage/browser/releases/path/',
-        'https://pantheon.corp.google.com/storage/browser/releases/path/file',
+        'https://stainless.corp.google.com/browse/releases',
+        'https://stainless.corp.google.com/browse/releases/',
+        'https://stainless.corp.google.com/browse/releases/path',
+        'https://stainless.corp.google.com/browse/releases/path/',
+        'https://stainless.corp.google.com/browse/releases/path/file',
     ]
 
     for gs_url, http_url in zip(self.testUrls, expected):
@@ -953,7 +960,7 @@ class GSRetryFilterTest(cros_test_lib.TestCase):
     cmd = ['gsutil', 'ls', self.REMOTE_PATH]
     e = self._getException(cmd, self.ctx.RESUMABLE_DOWNLOAD_ERROR)
 
-    with mock.MagicMock() as self.ctx.GetTrackerFilenames:
+    with mock.patch.object(gs.GSContext, 'GetTrackerFilenames'):
       self.ctx._RetryFilter(e)
       self.assertFalse(self.ctx.GetTrackerFilenames.called)
 
@@ -962,7 +969,7 @@ class GSRetryFilterTest(cros_test_lib.TestCase):
     cmd = ['gsutil', 'cp', self.REMOTE_PATH, self.LOCAL_PATH]
     e = self._getException(cmd, 'One or more URLs matched no objects')
 
-    with mock.MagicMock() as self.ctx.GetTrackerFilenames:
+    with mock.patch.object(gs.GSContext, 'GetTrackerFilenames'):
       self.assertRaises(gs.GSNoSuchKey, self.ctx._RetryFilter, e)
       self.assertFalse(self.ctx.GetTrackerFilenames.called)
 

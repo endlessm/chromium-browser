@@ -60,7 +60,6 @@ public class ContentViewCoreSelectionTest {
             + "<input id=\"disabled_text\" type=\"text\" disabled value=\"Sample Text\" />"
             + "<div id=\"rich_div\" contentEditable=\"true\" >Rich Editor</div>"
             + "</form></body></html>");
-    private ContentViewCoreImpl mContentViewCore;
     private WebContents mWebContents;
     private SelectionPopupControllerImpl mSelectionPopupController;
 
@@ -107,7 +106,6 @@ public class ContentViewCoreSelectionTest {
         mActivityTestRule.launchContentShellWithUrl(DATA_URL);
         mActivityTestRule.waitForActiveShellToBeDoneLoading();
 
-        mContentViewCore = mActivityTestRule.getContentViewCore();
         mWebContents = mActivityTestRule.getWebContents();
         mSelectionPopupController =
                 SelectionPopupControllerImpl.fromWebContents(mActivityTestRule.getWebContents());
@@ -404,7 +402,7 @@ public class ContentViewCoreSelectionTest {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                mContentViewCore.destroy();
+                mWebContents.destroy();
             }
         });
         waitForPastePopupStatus(false);
@@ -878,25 +876,27 @@ public class ContentViewCoreSelectionTest {
     }
 
     private void setAttachedOnUiThread(final boolean attached) {
-        final ContentViewCoreImpl contentViewCore = mContentViewCore;
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
+                ViewEventSinkImpl viewEventSink =
+                        ViewEventSinkImpl.from(mActivityTestRule.getWebContents());
                 if (attached) {
-                    contentViewCore.onAttachedToWindow();
+                    viewEventSink.onAttachedToWindow();
                 } else {
-                    contentViewCore.onDetachedFromWindow();
+                    viewEventSink.onDetachedFromWindow();
                 }
             }
         });
     }
 
     private void requestFocusOnUiThread(final boolean gainFocus) {
-        final ContentViewCoreImpl contentViewCore = mContentViewCore;
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                contentViewCore.onViewFocusChanged(gainFocus);
+                ViewEventSinkImpl viewEventSink =
+                        ViewEventSinkImpl.from(mActivityTestRule.getWebContents());
+                viewEventSink.onViewFocusChanged(gainFocus);
             }
         });
     }

@@ -8,6 +8,7 @@
 #include "third_party/skia/include/core/SkSurface.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrContextOptions.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_version_info.h"
@@ -21,10 +22,11 @@ GaneshSurfaceProvider::GaneshSurfaceProvider() {
   const char* renderer_str =
       reinterpret_cast<const char*>(glGetString(GL_RENDERER));
   std::string extensions_string(gl::GetGLExtensionsFromCurrentContext());
-  gl::ExtensionSet extensions(gl::MakeExtensionSet(extensions_string));
+  gfx::ExtensionSet extensions(gfx::MakeExtensionSet(extensions_string));
   gl::GLVersionInfo gl_version_info(version_str, renderer_str, extensions);
+  const bool use_version_es2 = false;
   sk_sp<const GrGLInterface> gr_interface =
-      gl::init::CreateGrGLInterface(gl_version_info);
+      gl::init::CreateGrGLInterface(gl_version_info, use_version_es2);
   DCHECK(gr_interface.get());
   gr_context_ = GrContext::MakeGL(std::move(gr_interface));
   DCHECK(gr_context_.get());

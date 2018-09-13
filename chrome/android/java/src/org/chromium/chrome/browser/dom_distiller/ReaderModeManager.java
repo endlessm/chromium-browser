@@ -267,7 +267,7 @@ public class ReaderModeManager extends TabModelSelectorTabObserver {
     /**
      * Notify the manager that the panel has completely closed.
      */
-    public void onClosed(StateChangeReason reason) {
+    public void onClosed(@StateChangeReason int reason) {
         if (mTabModelSelector == null) return;
 
         RecordHistogram.recordBooleanHistogram("DomDistiller.InfoBarUsage", false);
@@ -497,10 +497,7 @@ public class ReaderModeManager extends TabModelSelectorTabObserver {
         if (mTabModelSelector == null) return;
 
         Tab currentTab = mTabModelSelector.getTabById(tabId);
-        if (currentTab == null || currentTab.getWebContents() == null
-                || currentTab.getContentViewCore() == null) {
-            return;
-        }
+        if (currentTab == null || currentTab.getWebContents() == null) return;
 
         DistillablePageUtils.setDelegate(
                 currentTab.getWebContents(), (isDistillable, isLast, isMobileOptimized) -> {

@@ -45,11 +45,10 @@ public class WebappTabDelegate extends TabDelegate {
     }
 
     @Override
-    public void createNewTab(AsyncTabCreationParams asyncParams, TabLaunchType type, int parentId) {
+    public void createNewTab(
+            AsyncTabCreationParams asyncParams, @TabLaunchType int type, int parentId) {
         String url = asyncParams.getLoadUrlParams().getUrl();
-        if (maybeStartExternalActivity(url)) {
-            return;
-        }
+        if (maybeStartExternalActivity(url)) return;
 
         int assignedTabId = TabIdManager.getInstance().generateValidId(Tab.INVALID_TAB_ID);
         AsyncTabParamsManager.add(assignedTabId, asyncParams);
@@ -84,7 +83,7 @@ public class WebappTabDelegate extends TabDelegate {
             boolean foundSpecializedHandler = false;
 
             for (String result : ExternalNavigationDelegateImpl.getSpecializedHandlersWithFilter(
-                         handlers, null)) {
+                         handlers, null, null)) {
                 if (result.equals(mApkPackageName)) {
                     // Current webapk matches, don't intercept so that we can launch a cct. See
                     // http://crbug.com/831806 for more context.

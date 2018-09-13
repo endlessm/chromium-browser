@@ -185,6 +185,16 @@ SkColor GetLegacyColor(OmniboxPart part,
 }
 
 SkColor GetSecurityChipColor(OmniboxTint tint, OmniboxPartState state) {
+  if (ui::MaterialDesignController::IsNewerMaterialUi()) {
+    if (tint == OmniboxTint::DARK)
+      return gfx::kGoogleGrey200;
+
+    if (state == OmniboxPartState::CHIP_DANGEROUS)
+      return gfx::kGoogleRed600;
+
+    return gfx::kChromeIconGrey;
+  }
+
   if (tint == OmniboxTint::DARK)
     return gfx::kGoogleGrey100;
 
@@ -212,11 +222,23 @@ SkColor GetOmniboxColor(OmniboxPart part,
 
   // Note this will use LIGHT for OmniboxTint::NATIVE.
   // TODO(https://crbug.com/819452): Determine the role GTK should play in this.
-  const bool dark = tint == OmniboxTint::DARK;
+  bool dark = tint == OmniboxTint::DARK;
+
+  // For high contrast, selected rows use inverted colors to stand out more.
+  ui::NativeTheme* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
+  bool high_contrast = native_theme && native_theme->UsesHighContrastColors();
+  bool selected = state == OmniboxPartState::SELECTED ||
+                  state == OmniboxPartState::HOVERED_AND_SELECTED;
+  if (high_contrast && selected)
+    dark = !dark;
 
   switch (part) {
-    case OmniboxPart::LOCATION_BAR_BACKGROUND:
-      return dark ? SkColorSetRGB(0x28, 0x2C, 0x2F) : gfx::kGoogleGrey100;
+    case OmniboxPart::LOCATION_BAR_BACKGROUND: {
+      const bool hovered = state == OmniboxPartState::HOVERED;
+      return dark ? (hovered ? SkColorSetRGB(0x2F, 0x33, 0x36)
+                             : SkColorSetRGB(0x28, 0x2C, 0x2F))
+                  : (hovered ? gfx::kGoogleGrey200 : gfx::kGoogleGrey100);
+    }
     case OmniboxPart::LOCATION_BAR_SECURITY_CHIP:
       return GetSecurityChipColor(tint, state);
     case OmniboxPart::LOCATION_BAR_SELECTED_KEYWORD:
@@ -232,9 +254,10 @@ SkColor GetOmniboxColor(OmniboxPart part,
           gfx::ToRoundedInt(GetOmniboxStateAlpha(state) * 0xff));
     case OmniboxPart::LOCATION_BAR_TEXT_DEFAULT:
     case OmniboxPart::RESULTS_TEXT_DEFAULT:
-      return dark ? gfx::kGoogleGrey100 : gfx::kGoogleGrey800;
+      return dark ? gfx::kGoogleGrey100 : gfx::kGoogleGrey900;
 
     case OmniboxPart::LOCATION_BAR_TEXT_DIMMED:
+      return dark ? gfx::kGoogleGrey500 : gfx::kGoogleGrey600;
     case OmniboxPart::RESULTS_ICON:
     case OmniboxPart::RESULTS_TEXT_DIMMED:
       // This is a pre-lightened (or darkened) variant of the base text color.

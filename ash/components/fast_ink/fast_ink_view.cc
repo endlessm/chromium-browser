@@ -221,14 +221,12 @@ class FastInkView::LayerTreeFrameSinkHolder
     if (view_)
       view_->DidReceiveCompositorFrameAck();
   }
-  void DidPresentCompositorFrame(uint32_t presentation_token,
-                                 base::TimeTicks time,
-                                 base::TimeDelta refresh,
-                                 uint32_t flags) override {
+  void DidPresentCompositorFrame(
+      uint32_t presentation_token,
+      const gfx::PresentationFeedback& feedback) override {
     if (view_)
-      view_->DidPresentCompositorFrame(time, refresh, flags);
+      view_->DidPresentCompositorFrame(feedback);
   }
-  void DidDiscardCompositorFrame(uint32_t presentation_token) override {}
   void DidLoseLayerTreeFrameSink() override {
     exported_resources_.clear();
     if (root_window_)
@@ -236,7 +234,8 @@ class FastInkView::LayerTreeFrameSinkHolder
   }
   void OnDraw(const gfx::Transform& transform,
               const gfx::Rect& viewport,
-              bool resourceless_software_draw) override {}
+              bool resourceless_software_draw,
+              bool skip_draw) override {}
   void SetMemoryPolicy(const cc::ManagedMemoryPolicy& policy) override {}
   void SetExternalTilePriorityConstraints(
       const gfx::Rect& viewport_rect,
@@ -423,7 +422,6 @@ void FastInkView::SubmitCompositorFrame() {
       gles2->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
       gles2->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
       gles2->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-      gles2->GenMailboxCHROMIUM(resource->mailbox.name);
       gles2->ProduceTextureDirectCHROMIUM(resource->texture,
                                           resource->mailbox.name);
     }
@@ -489,7 +487,8 @@ void FastInkView::SubmitCompositorFrame() {
     // If overflow happens, we increase it again.
     if (!++presentation_token_)
       ++presentation_token_;
-    frame.metadata.presentation_token = presentation_token_;
+    frame.metadata.frame_token = presentation_token_;
+    frame.metadata.request_presentation_feedback = true;
   }
 
   viz::TextureDrawQuad* texture_quad =
@@ -530,11 +529,10 @@ void FastInkView::DidReceiveCompositorFrameAck() {
   }
 }
 
-void FastInkView::DidPresentCompositorFrame(base::TimeTicks time,
-                                            base::TimeDelta refresh,
-                                            uint32_t flags) {
+void FastInkView::DidPresentCompositorFrame(
+    const gfx::PresentationFeedback& feedback) {
   DCHECK(!presentation_callback_.is_null());
-  presentation_callback_.Run(time, refresh, flags);
+  presentation_callback_.Run(feedback);
 }
 
 void FastInkView::ReclaimResource(std::unique_ptr<Resource> resource) {

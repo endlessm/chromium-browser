@@ -19,6 +19,10 @@
 
 namespace content {
 
+// See OnScreenReaderHoneyPotQueried, below.
+bool g_screen_reader_honeypot_queried = false;
+bool g_acc_name_called = false;
+
 // static
 BrowserAccessibilityManager* BrowserAccessibilityManager::Create(
     const ui::AXTreeUpdate& initial_tree,
@@ -78,6 +82,30 @@ void BrowserAccessibilityManagerWin::OnIAccessible2Used() {
   // detected later when specific more advanced APIs are accessed.)
   BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
       ui::AXMode::kNativeAPIs | ui::AXMode::kWebContents);
+}
+
+void BrowserAccessibilityManagerWin::OnScreenReaderHoneyPotQueried() {
+  // We used to trust this as a signal that a screen reader is running,
+  // but it's been abused. Now only enable accessibility if we also
+  // detect a call to get_accName.
+  if (g_screen_reader_honeypot_queried)
+    return;
+  g_screen_reader_honeypot_queried = true;
+  if (g_acc_name_called) {
+    BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
+        ui::AXMode::kNativeAPIs | ui::AXMode::kWebContents);
+  }
+}
+
+void BrowserAccessibilityManagerWin::OnAccNameCalled() {
+  // See OnScreenReaderHoneyPotQueried, above.
+  if (g_acc_name_called)
+    return;
+  g_acc_name_called = true;
+  if (g_screen_reader_honeypot_queried) {
+    BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
+        ui::AXMode::kNativeAPIs | ui::AXMode::kWebContents);
+  }
 }
 
 void BrowserAccessibilityManagerWin::UserIsReloading() {
@@ -151,7 +179,10 @@ void BrowserAccessibilityManagerWin::FireGeneratedEvent(
       FireWinAccessibilityEvent(EVENT_OBJECT_REORDER, node);
       break;
     case Event::LIVE_REGION_CHANGED:
-      FireWinAccessibilityEvent(EVENT_OBJECT_LIVEREGIONCHANGED, node);
+      // NVDA and JAWS are inconsistent about speaking this event in content.
+      // Because of this, and because Firefox does not currently fire it, we
+      // are avoiding this event for now.
+      // FireWinAccessibilityEvent(EVENT_OBJECT_LIVEREGIONCHANGED, node);
       break;
     case Event::LOAD_COMPLETE:
       FireWinAccessibilityEvent(IA2_EVENT_DOCUMENT_LOAD_COMPLETE, node);

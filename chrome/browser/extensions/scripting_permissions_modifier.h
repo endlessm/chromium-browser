@@ -31,18 +31,16 @@ class ScriptingPermissionsModifier {
                                const scoped_refptr<const Extension>& extension);
   ~ScriptingPermissionsModifier();
 
-  // Sets whether the extension should be allowed to execute on all urls without
-  // explicit user consent. Used when the features::kRuntimeHostPermissions
-  // feature is enabled.
+  // Sets whether Chrome should withhold host permissions from the extension.
+  // Used when the features::kRuntimeHostPermissions feature is enabled.
   // This may only be called for extensions that can be affected (i.e., for
   // which CanAffectExtension() returns true). Anything else will DCHECK.
-  void SetAllowedOnAllUrls(bool allowed);
+  void SetWithholdHostPermissions(bool withhold);
 
-  // Returns whether the extension is allowed to execute scripts on all urls
-  // without user consent.
+  // Returns whether Chrome has withheld host permissions from the extension.
   // This may only be called for extensions that can be affected (i.e., for
   // which CanAffectExtension() returns true). Anything else will DCHECK.
-  bool IsAllowedOnAllUrls() const;
+  bool HasWithheldHostPermissions() const;
 
   // Returns true if the associated extension can be affected by
   // features::kRuntimeHostPermissions.
@@ -54,7 +52,9 @@ class ScriptingPermissionsModifier {
   void GrantHostPermission(const GURL& url);
 
   // Returns true if the extension has been explicitly granted permission to run
-  // on the origin of |url|.
+  // on the origin of |url|. Note: This checks any runtime-granted permissions,
+  // which includes both granted optional permissions and permissions granted
+  // through the runtime host permissions feature.
   // This may only be called for extensions that can be affected (i.e., for
   // which CanAffectExtension() returns true). Anything else will DCHECK.
   bool HasGrantedHostPermission(const GURL& url) const;
@@ -64,6 +64,13 @@ class ScriptingPermissionsModifier {
   // This may only be called for extensions that can be affected (i.e., for
   // which CanAffectExtension() returns true). Anything else will DCHECK.
   void RemoveGrantedHostPermission(const GURL& url);
+
+  // Revokes all host permissions granted to the extension. Note that this will
+  // only withhold hosts explicitly granted to the extension; this will not
+  // implicitly change the value of HasWithheldHostPermissions().
+  // This may only be called for extensions that can be affected (i.e., for
+  // which CanAffectExtension() returns true). Anything else will DCHECK.
+  void RemoveAllGrantedHostPermissions();
 
   // Takes in a set of permissions and withholds any permissions that should not
   // be granted for the given |extension|, populating |granted_permissions_out|
@@ -83,11 +90,11 @@ class ScriptingPermissionsModifier {
   std::unique_ptr<const PermissionSet> GetRevokablePermissions() const;
 
  private:
-  // Grants any withheld all-hosts (or all-hosts-like) permissions.
-  void GrantWithheldImpliedAllHosts();
+  // Grants any withheld host permissions.
+  void GrantWithheldHostPermissions();
 
-  // Revokes any granted all-hosts (or all-hosts-like) permissions.
-  void WithholdImpliedAllHosts();
+  // Revokes any granted host permissions.
+  void WithholdHostPermissions();
 
   content::BrowserContext* browser_context_;
 

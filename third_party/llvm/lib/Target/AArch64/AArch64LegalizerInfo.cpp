@@ -212,9 +212,7 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
 
   // Extensions
   getActionDefinitionsBuilder({G_ZEXT, G_SEXT, G_ANYEXT})
-      .legalFor({s1, s8, s16, s32, s64})
-      .maxScalar(0, s64)
-      .widenScalarToNextPow2(0);
+      .legalForCartesianProduct({s8, s16, s32, s64}, {s1, s8, s16, s32});
 
   // FP conversions
   getActionDefinitionsBuilder(G_FPTRUNC).legalFor(
@@ -260,7 +258,7 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
       .unsupportedIf([&](const LegalityQuery &Query) {
         return Query.Types[0].getSizeInBits() != Query.Types[1].getSizeInBits();
       })
-      .legalFor({s64, p0});
+      .legalFor({{p0, s64}});
 
   // Casts for 32 and 64-bit width type are just copies.
   // Same for 128-bit width type, except they are on the FPR bank.
@@ -281,19 +279,18 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
       .widenScalarToNextPow2(0, /*Min*/ 8);
 
   if (ST.hasLSE()) {
-    getActionDefinitionsBuilder(G_ATOMIC_CMPXCHG)
-        .legalForCartesianProduct({s8, s16, s32, s64}, {p0});
-  }
-
-  if (ST.hasLSE()) {
     getActionDefinitionsBuilder(G_ATOMIC_CMPXCHG_WITH_SUCCESS)
-        .lowerFor({s8, s16, s32, s64});
+        .lowerIf(all(
+            typeInSet(0, {s8, s16, s32, s64}), typeIs(1, s1), typeIs(2, p0),
+            atomicOrderingAtLeastOrStrongerThan(0, AtomicOrdering::Monotonic)));
 
     getActionDefinitionsBuilder(
         {G_ATOMICRMW_XCHG, G_ATOMICRMW_ADD, G_ATOMICRMW_SUB, G_ATOMICRMW_AND,
          G_ATOMICRMW_OR, G_ATOMICRMW_XOR, G_ATOMICRMW_MIN, G_ATOMICRMW_MAX,
-         G_ATOMICRMW_UMIN, G_ATOMICRMW_UMAX})
-        .legalForCartesianProduct({s8, s16, s32, s64}, {p0});
+         G_ATOMICRMW_UMIN, G_ATOMICRMW_UMAX, G_ATOMIC_CMPXCHG})
+        .legalIf(all(
+            typeInSet(0, {s8, s16, s32, s64}), typeIs(1, p0),
+            atomicOrderingAtLeastOrStrongerThan(0, AtomicOrdering::Monotonic)));
   }
 
   // Merge/Unmerge
@@ -387,6 +384,7 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
   }
 
   computeTables();
+  verify(*ST.getInstrInfo());
 }
 
 bool AArch64LegalizerInfo::legalizeCustom(MachineInstr &MI,

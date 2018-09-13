@@ -5,7 +5,6 @@
 #include "content/public/test/content_browser_test.h"
 
 #include "base/command_line.h"
-#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
@@ -26,6 +25,10 @@
 #include "content/shell/app/shell_main_delegate.h"
 #endif
 
+#if defined(OS_MACOSX)
+#include "base/mac/foundation_util.h"
+#endif
+
 #if !defined(OS_CHROMEOS) && defined(OS_LINUX)
 #include "ui/base/ime/input_method_initializer.h"
 #endif
@@ -38,6 +41,8 @@ namespace content {
 
 ContentBrowserTest::ContentBrowserTest() {
 #if defined(OS_MACOSX)
+  base::mac::SetOverrideAmIBundled(true);
+
   // See comment in InProcessBrowserTest::InProcessBrowserTest().
   base::FilePath content_shell_path;
   CHECK(base::PathService::Get(base::FILE_EXE, &content_shell_path));
@@ -46,8 +51,7 @@ ContentBrowserTest::ContentBrowserTest() {
       FILE_PATH_LITERAL("Content Shell.app/Contents/MacOS/Content Shell"));
   CHECK(base::PathService::Override(base::FILE_EXE, content_shell_path));
 #endif
-  base::FilePath content_test_data(FILE_PATH_LITERAL("content/test/data"));
-  CreateTestServer(content_test_data);
+  CreateTestServer(GetTestDataFilePath());
 }
 
 ContentBrowserTest::~ContentBrowserTest() {
@@ -163,6 +167,10 @@ Shell* ContentBrowserTest::CreateOffTheRecordBrowser() {
   return Shell::CreateNewWindow(
       ShellContentBrowserClient::Get()->off_the_record_browser_context(),
       GURL(url::kAboutBlankURL), nullptr, gfx::Size());
+}
+
+base::FilePath ContentBrowserTest::GetTestDataFilePath() {
+  return base::FilePath(FILE_PATH_LITERAL("content/test/data"));
 }
 
 }  // namespace content

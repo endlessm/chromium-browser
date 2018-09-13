@@ -113,6 +113,7 @@
 1143 MAC : dEQP-GLES2.functional.shaders.scoping.valid.local_struct_variable_hides_struct_type_* = FAIL
 1143 MAC : dEQP-GLES2.functional.shaders.scoping.valid.function_parameter_hides_struct_type_* = FAIL
 1143 MAC : dEQP-GLES2.functional.shaders.random.trigonometric.vertex.65 = FAIL
+2631 MAC : dEQP-GLES2.functional.shaders.operator.sequence.side_effects.affect_* = FAIL
 
 // Mac Intel specific
 2137 MAC INTEL : dEQP-GLES2.functional.color_clear.complex_rgb = FAIL
@@ -178,9 +179,78 @@
 1489 GLES ANDROID : dEQP-GLES2.functional.texture.mipmap.cube.generate.l8_nicest = FAIL
 1489 GLES ANDROID : dEQP-GLES2.functional.texture.mipmap.cube.generate.la88_fastest = FAIL
 1489 GLES ANDROID : dEQP-GLES2.functional.texture.mipmap.cube.generate.la88_nicest = FAIL
+2631 GLES ANDROID : dEQP-GLES2.functional.shaders.operator.sequence.side_effects.affect_* = FAIL
+2630 GLES ANDROID : dEQP-GLES2.functional.shaders.struct.uniform.sampler_in_array_function_arg_* = FAIL
+2630 GLES ANDROID : dEQP-GLES2.functional.shaders.struct.uniform.sampler_in_function_arg_* = FAIL
+
 // Android Vulkan backend only failures
 2549 VULKAN ANDROID : dEQP-GLES2.functional.fragment_ops.depth_stencil.* = SKIP
 2550 VULKAN ANDROID : dEQP-GLES2.functional.rasterization.interpolation.* = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.completeness.attachment_combinations.none_none_none_rbo = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.completeness.attachment_combinations.none_none_rbo_rbo = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.completeness.attachment_combinations.rbo_none_none_rbo = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.completeness.attachment_combinations.rbo_none_rbo_rbo = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.completeness.attachment_combinations.tex_none_none_rbo = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.completeness.attachment_combinations.tex_none_rbo_rbo = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.completeness.renderable.renderbuffer.color0.stencil_index8 = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.completeness.renderable.renderbuffer.stencil.stencil_index8 = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.recreate_colorbuffer.no_rebind_rbo_rgb565_stencil_index8 = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.recreate_colorbuffer.no_rebind_rbo_rgba4_stencil_index8 = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.recreate_stencilbuffer.* = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.resize.rbo_rgb565_stencil_index8 = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.resize.rbo_rgba4_stencil_index8 = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.stencil.* = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.stencil_clear.* = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.color_clear.rbo_rgb565_depth_component16_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.color_clear.rbo_rgb565_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.color_clear.rbo_rgb5_a1_depth_component16_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.color_clear.tex2d_rgb_depth_component16_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.color_clear.tex2d_rgb_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.color_clear.tex2d_rgba_depth_component16_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.color_clear.tex2d_rgba_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.resize.tex2d_rgb_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.resize.tex2d_rgba_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.recreate_colorbuffer.no_rebind_rbo_rgb5_a1_stencil_index8 = SKIP
+2597 VULKAN ANDROID : dEQP-GLES2.functional.fbo.render.resize.rbo_rgb5_a1_stencil_index8 = SKIP
+2605 VULKAN ANDROID : dEQP-GLES2.functional.state_query.rbo.renderbuffer_component_size_depth = SKIP
+2606 VULKAN ANDROID : dEQP-GLES2.functional.debug_marker.random = SKIP
+2606 VULKAN ANDROID : dEQP-GLES2.functional.debug_marker.supported = SKIP
+2609 VULKAN ANDROID : dEQP-GLES2.functional.texture.mipmap.cube.generate.* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.first.byte_first* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_1_17_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_1_2_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_1_32_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_17_17_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_17_2_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_17_32_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_32_17_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_32_2_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_32_32_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_4_17_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_4_2_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_4_32_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_17_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_2_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_32_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_32_short* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_3_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_4_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_4_short* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_6_short* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_8_short* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_0_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_0_short* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_17_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_2_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_32_byte* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_32_short* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_4_short* = SKIP
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_8_short* = SKIP
+
+2567 GLES ANDROID : dEQP-GLES2.functional.fbo.completeness.renderable.texture.depth.red_unsigned_byte = FAIL
+2567 GLES ANDROID : dEQP-GLES2.functional.fbo.completeness.renderable.texture.depth.rg_unsigned_byte = FAIL
+2567 GLES ANDROID : dEQP-GLES2.functional.fbo.completeness.renderable.texture.stencil.red_unsigned_byte = FAIL
+2567 GLES ANDROID : dEQP-GLES2.functional.fbo.completeness.renderable.texture.stencil.rg_unsigned_byte = FAIL
 
 // Windows Linux and Mac failures
 1028 WIN LINUX MAC : dEQP-GLES2.functional.fbo.completeness.renderable.texture.color0.srgb8 = FAIL
@@ -188,119 +258,105 @@
 1028 WIN LINUX MAC : dEQP-GLES2.functional.fbo.completeness.renderable.texture.depth.srgb8 = FAIL
 
 // Vulkan failures
-2161 VULKAN : dEQP-GLES2.functional.prerequisite.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.implementation_limits.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.buffer.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.light_amount.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.shaders.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.texture.mipmap.2d.generate.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.texture.mipmap.cube.generate.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.texture.completeness.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.texture.vertex.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.fragment_ops.random.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.fragment_ops.interaction.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.fbo.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.vertex_arrays.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.shader_api.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.negative_api.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.rasterization.primitives.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.rasterization.limits.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.attribute_location.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.multisample.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.info_query.basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.info_query.basic_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.info_query.struct_in_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.info_query.array_in_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.info_query.nested_structs_arrays.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.info_query.multiple_basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.info_query.multiple_nested_structs_arrays.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.info_query.unused_uniforms.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.basic.sampler* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.basic_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.struct_in_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.array_in_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.nested_structs_arrays.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.multiple_basic.vertex = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.multiple_basic.fragment = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.multiple_basic.both = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.multiple_basic_array.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.get_uniform.multiple_nested_structs_arrays.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.render.basic.samplerCube_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.render.basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.render.basic_struct.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.render.struct_in_array.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.render.array_in_struct.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.render.multiple_basic_array.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.render.multiple_nested_structs_arrays.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.initial.render.nested_structs_arrays.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.basic.sampler* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.basic_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.basic_struct.bool_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.struct_in_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.struct_in_array.bool_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.array_in_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.nested_structs_arrays.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.basic_array_first_elem_without_brackets.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.multiple_basic.vertex = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.multiple_basic.fragment = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.multiple_basic.both = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.multiple_basic_array.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.get_uniform.multiple_nested_structs_arrays.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.render.basic.mat2_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.render.basic.mat3_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.render.basic.samplerCube* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.render.basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.render.basic_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.render.struct_in_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.render.array_in_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.render.multiple_basic.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_pointer.render.nested_structs_arrays.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.get_uniform.basic.sampler* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.get_uniform.basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.get_uniform.basic_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.get_uniform.struct_in_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.get_uniform.array_in_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.get_uniform.nested_structs_arrays.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.get_uniform.multiple_basic_array.vertex = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.get_uniform.multiple_nested_structs_arrays.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.get_uniform.basic_array_first_elem_without_brackets.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.render.basic.samplerCube* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.render.basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.render.basic_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.render.struct_in_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.render.array_in_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.by_value.render.nested_structs_arrays.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.basic_array_assign_full.array_in_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.basic_array_assign_full.basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.basic_array_assign_full.multiple_basic_array.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.basic_array_assign_partial.basic_array.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.basic_array_assign_partial.array_in_struct.sampler2D_* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.basic_array_assign_partial.multiple_basic_array.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.value.assigned.unused_uniforms.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.uniform_api.random.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.dither.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.state_query.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.clipping.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.polygon_offset.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_arrays.points.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_arrays.triangles.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_arrays.triangle_fan.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_arrays.triangle_strip.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_arrays.lines.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_arrays.line_strip.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_arrays.line_loop.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_elements.indices.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_elements.indices.buffer.*  = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_elements.points.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_elements.triangles.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_elements.triangle_fan.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_elements.triangle_strip.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_elements.lines.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_elements.line_strip.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.draw_elements.line_loop.default_attribute = SKIP
-2161 VULKAN : dEQP-GLES2.functional.draw.random.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.default_vertex_attrib.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.lifetime.* = SKIP
-2161 VULKAN : dEQP-GLES2.functional.debug_marker.* = SKIP
+2598 VULKAN : dEQP-GLES2.functional.rasterization.primitives.line* = SKIP
+2599 VULKAN : dEQP-GLES2.functional.rasterization.limits.points = SKIP
+2601 VULKAN : dEQP-GLES2.functional.clipping.* = SKIP
+2353 VULKAN : dEQP-GLES2.functional.polygon_offset.* = SKIP
+
+// Random draw tests often require non-float vertex data.
+2405 VULKAN : dEQP-GLES2.functional.draw.random.* = SKIP
+
+// fixed format vertex data
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_byte2_vec2_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_byte2_vec2_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_byte2_vec2_unsigned_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_byte2_vec2_unsigned_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_short2_vec2_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_short2_vec2_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_short2_vec2_unsigned_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_short2_vec2_unsigned_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_byte2_vec2_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_byte2_vec2_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_byte2_vec2_unsigned_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_byte2_vec2_unsigned_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_short2_vec2_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_short2_vec2_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_short2_vec2_unsigned_byte2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.input_types.3_unsigned_short2_vec2_unsigned_short2_vec2_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.first.fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.normalize.user_ptr_0_0_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_32_32_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_32_8_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_4_32_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_4_8_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.output_types.user_ptr_0_0_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_12_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_16_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_32_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_8_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_0_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_32_fixed* = SKIP
+2405 VULKAN : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_8_fixed* = SKIP
+
+// Vulkan AMD Windows specific failures
+2602 VULKAN WIN AMD : dEQP-GLES2.functional.buffer.write.* = SKIP
+
+// TODO(fjhenigman): Try these again once vertex format support is farther along.
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_32_float* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_32_float* = SKIP
+
+// TODO(fjhenigman): Try these again once vertex format support is farther along.
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.first.float_first24* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.first.float_first6* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_32* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_4* = SKIP
+
+// AMD is known to require proper alignment which is probably why 17 is a bad number for it
+// TODO(fjhenigman): Implement realigning.
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_0_float2_0_float2_17 = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_0_float2_17* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_0_float2_32_float2_17 = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_0_float2_8_float2_17 = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_17* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_32_float2_0_float2_17 = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_32_float2_17* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_32_float2_32_float2_17 = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_32_float2_8_float2_17 = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_8_float2_0_float2_17 = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_8_float2_17* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_8_float2_32_float2_17 = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.multiple_attributes.stride.3_float2_8_float2_8_float2_17 = SKIP
+
+// TODO(fjhenigman): Try these again once vertex format support is farther along.
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.first.byte_first* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_1_17_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_1_2_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_1_32_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_17_17_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_17_2_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.offset.buffer_17_32_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_17_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_32_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_32_short* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_3_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.strides.buffer_0_6_short* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_0_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_0_short* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_17_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_32_byte* = SKIP
+2405 VULKAN WIN AMD : dEQP-GLES2.functional.vertex_arrays.single_attribute.usages.buffer_0_32_short* = SKIP
+
+// Failures because of unsupported vertex formats on Android.
+2405 VULKAN ANDROID : dEQP-GLES2.functional.buffer.write.* = FAIL
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.normalize.user_ptr_0_0_byte3_normalized_vec4_dynamic_draw_quads_1 = FAIL
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.normalize.user_ptr_0_0_byte3_normalized_vec4_dynamic_draw_quads_256 = FAIL
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.normalize.user_ptr_0_0_unsigned_byte3_normalized_vec4_dynamic_draw_quads_1 = FAIL
+2405 VULKAN ANDROID : dEQP-GLES2.functional.vertex_arrays.single_attribute.normalize.user_ptr_0_0_unsigned_byte3_normalized_vec4_dynamic_draw_quads_256 = FAIL
+
+// Failing on the Pixel 2.
+2727 VULKAN ANDROID : dEQP-GLES2.functional.shaders.builtin_variable.pointcoord = FAIL

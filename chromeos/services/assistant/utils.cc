@@ -9,12 +9,12 @@
 #include "base/sys_info.h"
 #include "base/values.h"
 #include "chromeos/assistant/internal/internal_constants.h"
-#include "chromeos/system/version_loader.h"
+#include "chromeos/dbus/util/version_loader.h"
 
 namespace chromeos {
 namespace assistant {
 
-std::string CreateLibAssistantConfig() {
+std::string CreateLibAssistantConfig(bool disable_hotword) {
   using Value = base::Value;
   using Type = base::Value::Type;
 
@@ -37,6 +37,14 @@ std::string CreateLibAssistantConfig() {
   Value internal(Type::DICTIONARY);
   internal.SetKey("disable_log_files", Value(true));
   config.SetKey("internal", std::move(internal));
+
+  Value audio_input(Type::DICTIONARY);
+  Value sources(Type::LIST);
+  Value dict(Type::DICTIONARY);
+  dict.SetKey("disable_hotword", Value(disable_hotword));
+  sources.GetList().push_back(std::move(dict));
+  audio_input.SetKey("sources", std::move(sources));
+  config.SetKey("audio_input", std::move(audio_input));
 
   std::string json;
   base::JSONWriter::Write(config, &json);

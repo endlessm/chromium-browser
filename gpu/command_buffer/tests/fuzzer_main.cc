@@ -28,6 +28,7 @@
 #include "gpu/command_buffer/service/logger.h"
 #include "gpu/command_buffer/service/mailbox_manager_impl.h"
 #include "gpu/command_buffer/service/raster_decoder.h"
+#include "gpu/command_buffer/service/raster_decoder_context_state.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/command_buffer/service/transfer_buffer_manager.h"
@@ -252,11 +253,25 @@ struct Config {
     GPU_DRIVER_BUG_WORKAROUNDS(GPU_OP)
 #undef GPU_OP
 
+#if defined(GPU_FUZZER_USE_PASSTHROUGH_CMD_DECODER)
+    gl_context_attribs.bind_generates_resource =
+        attrib_helper.bind_generates_resource;
+    gl_context_attribs.webgl_compatibility_context =
+        IsWebGLContextType(attrib_helper.context_type);
+    gl_context_attribs.global_texture_share_group = true;
+    gl_context_attribs.robust_resource_initialization = true;
+    gl_context_attribs.robust_buffer_access = true;
+    gl_context_attribs.client_major_es_version =
+        IsWebGL2OrES3ContextType(attrib_helper.context_type) ? 3 : 2;
+    gl_context_attribs.client_minor_es_version = 0;
+#endif
+
     return it.consumed_bytes();
   }
 
   GpuDriverBugWorkarounds workarounds;
   ContextCreationAttribs attrib_helper;
+  gl::GLContextAttribs gl_context_attribs;
 #if defined(GPU_FUZZER_USE_STUB)
   const char* version;
   std::string extensions;
@@ -283,12 +298,6 @@ class CommandBufferSetup {
 
     auto* command_line = base::CommandLine::ForCurrentProcess();
     ALLOW_UNUSED_LOCAL(command_line);
-
-#if defined(GPU_FUZZER_USE_RASTER_DECODER)
-    // TODO(backer): Remove this. Currently used to set
-    // |chromium_raster_transport| features flag (https://crbug.com/786591).
-    command_line->AppendSwitch(switches::kEnableOOPRasterization);
-#endif
 
 #if defined(GPU_FUZZER_USE_ANGLE)
     command_line->AppendSwitchASCII(switches::kUseGL,
@@ -327,21 +336,33 @@ class CommandBufferSetup {
     }
 
     context_->MakeCurrent(surface_.get());
+    GpuFeatureInfo gpu_feature_info;
+#if defined(GPU_FUZZER_USE_RASTER_DECODER)
+    // Cause feature_info's |chromium_raster_transport| to be enabled.
+    gpu_feature_info.status_values[GPU_FEATURE_TYPE_OOP_RASTERIZATION] =
+        kGpuFeatureStatusEnabled;
+#endif
     scoped_refptr<gles2::FeatureInfo> feature_info =
-        new gles2::FeatureInfo(config_.workarounds);
+        new gles2::FeatureInfo(config_.workarounds, gpu_feature_info);
     scoped_refptr<gles2::ContextGroup> context_group = new gles2::ContextGroup(
         gpu_preferences_, true, &mailbox_manager_, nullptr /* memory_tracker */,
         &translator_cache_, &completeness_cache_, feature_info,
         config_.attrib_helper.bind_generates_resource, &image_manager_,
         nullptr /* image_factory */, nullptr /* progress_reporter */,
-        GpuFeatureInfo(), discardable_manager_.get());
+        gpu_feature_info, discardable_manager_.get());
     command_buffer_.reset(new CommandBufferDirect(
         context_group->transfer_buffer_manager(), &sync_point_manager_));
 
 #if defined(GPU_FUZZER_USE_RASTER_DECODER)
+    CHECK(feature_info->feature_flags().chromium_raster_transport);
+    scoped_refptr<raster::RasterDecoderContextState> context_state =
+        new raster::RasterDecoderContextState(
+            share_group_, surface_, context_,
+            config_.workarounds.use_virtualized_gl_contexts);
+    context_state->InitializeGrContext(config_.workarounds);
     decoder_.reset(raster::RasterDecoder::Create(
         command_buffer_.get(), command_buffer_->service(), &outputter_,
-        context_group.get()));
+        context_group.get(), std::move(context_state)));
 #else
     decoder_.reset(gles2::GLES2Decoder::Create(
         command_buffer_.get(), command_buffer_->service(), &outputter_,
@@ -439,7 +460,7 @@ class CommandBufferSetup {
   void InitContext() {
 #if !defined(GPU_FUZZER_USE_STUB)
     context_ = new gl::GLContextEGL(share_group_.get());
-    context_->Initialize(surface_.get(), gl::GLContextAttribs());
+    context_->Initialize(surface_.get(), config_.gl_context_attribs);
 #else
     scoped_refptr<gl::GLContextStub> context_stub =
         new gl::GLContextStub(share_group_.get());

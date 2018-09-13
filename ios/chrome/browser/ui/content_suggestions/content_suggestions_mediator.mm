@@ -4,7 +4,7 @@
 
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_mediator.h"
 
-#include "base/mac/bind_objc_block.h"
+#include "base/bind.h"
 #include "base/mac/foundation_util.h"
 #include "base/optional.h"
 #include "base/strings/sys_string_conversions.h"
@@ -218,7 +218,9 @@ initWithContentService:(ntp_snippets::ContentSuggestionsService*)contentService
     [sectionsInfo addObject:self.promoSectionInfo];
   }
 
-  if (self.mostVisitedItems.count > 0) {
+  // Since action items are always visible in UI Refresh, always add
+  // |mostVisitedSectionInfo| in UI Refresh.
+  if (self.mostVisitedItems.count > 0 || IsUIRefreshPhase1Enabled()) {
     [sectionsInfo addObject:self.mostVisitedSectionInfo];
   }
 
@@ -334,15 +336,13 @@ initWithContentService:(ntp_snippets::ContentSuggestionsService*)contentService
       }
 
       __weak ContentSuggestionsMediator* weakSelf = self;
-      ntp_snippets::FetchDoneCallback serviceCallback = base::Bind(
-          &BindWrapper,
-          base::BindBlockArc(^void(
-              ntp_snippets::Status status,
-              const std::vector<ntp_snippets::ContentSuggestion>& suggestions) {
+      ntp_snippets::FetchDoneCallback serviceCallback = base::BindOnce(
+          ^void(ntp_snippets::Status status,
+                std::vector<ntp_snippets::ContentSuggestion> suggestions) {
             [weakSelf didFetchMoreSuggestions:suggestions
                                withStatusCode:status
                                      callback:callback];
-          }));
+          });
 
       self.contentService->Fetch([wrapper category], known_suggestion_ids,
                                  std::move(serviceCallback));
@@ -378,8 +378,11 @@ initWithContentService:(ntp_snippets::ContentSuggestionsService*)contentService
       self.sectionInformationByCategory[wrapper];
   sectionInfo.expanded = [self.contentArticlesExpanded value];
 
-  // Reload the data model.
-  [self.dataSink reloadAllData];
+  // Reloading the section with animations looks bad because the section
+  // border with the new collapsed height draws before the elements collapse.
+  [UIView setAnimationsEnabled:NO];
+  [self.dataSink reloadSection:sectionInfo];
+  [UIView setAnimationsEnabled:YES];
 }
 
 #pragma mark - ContentSuggestionsServiceObserver
@@ -469,7 +472,7 @@ initWithContentService:(ntp_snippets::ContentSuggestionsService*)contentService
                                               .sectionInfo],
       suggestedItem.suggestionIdentifier.IDInSection);
   self.contentService->FetchSuggestionImage(
-      suggestionID, base::BindBlockArc(^(const gfx::Image& image) {
+      suggestionID, base::BindOnce(^(const gfx::Image& image) {
         if (image.IsEmpty()) {
           return;
         }

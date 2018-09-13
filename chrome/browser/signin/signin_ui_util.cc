@@ -99,18 +99,6 @@ void ShowSigninErrorLearnMorePage(Profile* profile) {
   Navigate(&params);
 }
 
-std::string GetDisplayEmail(Profile* profile, const std::string& account_id) {
-  AccountTrackerService* account_tracker =
-      AccountTrackerServiceFactory::GetForProfile(profile);
-  std::string email = account_tracker->GetAccountInfo(account_id).email;
-  if (email.empty()) {
-    DCHECK_EQ(AccountTrackerService::MIGRATION_NOT_STARTED,
-              account_tracker->GetMigrationState());
-    return account_id;
-  }
-  return email;
-}
-
 void EnableSyncFromPromo(Browser* browser,
                          const AccountInfo& account,
                          signin_metrics::AccessPoint access_point,
@@ -206,7 +194,19 @@ void EnableSyncFromPromo(
 }  // namespace internal
 
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
-// TODO(tangltom): Add a unit test for this function.
+
+std::string GetDisplayEmail(Profile* profile, const std::string& account_id) {
+  AccountTrackerService* account_tracker =
+      AccountTrackerServiceFactory::GetForProfile(profile);
+  std::string email = account_tracker->GetAccountInfo(account_id).email;
+  if (email.empty()) {
+    DCHECK_EQ(AccountTrackerService::MIGRATION_NOT_STARTED,
+              account_tracker->GetMigrationState());
+    return account_id;
+  }
+  return email;
+}
+
 std::vector<AccountInfo> GetAccountsForDicePromos(Profile* profile) {
   // Fetch account ids for accounts that have a token.
   ProfileOAuth2TokenService* token_service =
@@ -223,11 +223,11 @@ std::vector<AccountInfo> GetAccountsForDicePromos(Profile* profile) {
     GaiaCookieManagerService* cookie_manager_service =
         GaiaCookieManagerServiceFactory::GetForProfile(profile);
     std::vector<gaia::ListedAccount> cookie_accounts;
-    bool gaia_accounts_stale = !cookie_manager_service->ListAccounts(
+    bool cookie_accounts_valid = cookie_manager_service->ListAccounts(
         &cookie_accounts, nullptr, "ProfileChooserView");
     UMA_HISTOGRAM_BOOLEAN("Profile.DiceUI.GaiaAccountsStale",
-                          gaia_accounts_stale);
-    if (!cookie_accounts.empty())
+                          !cookie_accounts_valid);
+    if (cookie_accounts_valid && !cookie_accounts.empty())
       default_account_id = cookie_accounts[0].id;
   }
 

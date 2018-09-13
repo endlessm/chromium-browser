@@ -46,12 +46,6 @@ CastExtensionsDispatcherDelegate::CastExtensionsDispatcherDelegate() {
 CastExtensionsDispatcherDelegate::~CastExtensionsDispatcherDelegate() {
 }
 
-void CastExtensionsDispatcherDelegate::InitOriginPermissions(
-    const extensions::Extension* extension,
-    bool is_extension_active) {
-  // TODO(rmrossi): Stub
-}
-
 void CastExtensionsDispatcherDelegate::RegisterNativeHandlers(
     extensions::Dispatcher* dispatcher,
     extensions::ModuleSystem* module_system,
@@ -72,6 +66,7 @@ void CastExtensionsDispatcherDelegate::PopulateSourceMap(
   source_map->RegisterSource("automation", IDR_AUTOMATION_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("automationEvent", IDR_AUTOMATION_EVENT_JS);
   source_map->RegisterSource("automationNode", IDR_AUTOMATION_NODE_JS);
+  source_map->RegisterSource("tabs", IDR_TABS_CUSTOM_BINDINGS_JS);
 }
 
 void CastExtensionsDispatcherDelegate::RequireAdditionalModules(

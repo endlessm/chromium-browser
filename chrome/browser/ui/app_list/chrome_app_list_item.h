@@ -59,6 +59,7 @@ class ChromeAppListItem {
   const std::string& name() const { return metadata_->name; }
   bool is_folder() const { return metadata_->is_folder; }
   const gfx::ImageSkia& icon() const { return metadata_->icon; }
+  bool is_page_break() const { return metadata_->is_page_break; }
 
   void SetIsInstalling(bool is_installing);
   void SetPercentDownloaded(int32_t percent_downloaded);
@@ -74,6 +75,7 @@ class ChromeAppListItem {
                            const std::string& short_name);
   void SetFolderId(const std::string& folder_id);
   void SetPosition(const syncer::StringOrdinal& position);
+  void SetIsPageBreak(bool is_page_break);
 
   // The following methods won't make changes to Ash and it should be called
   // by this item itself or the model updater.
@@ -81,6 +83,9 @@ class ChromeAppListItem {
   void SetChromeIsFolder(bool is_folder);
   void SetChromeName(const std::string& name);
   void SetChromePosition(const syncer::StringOrdinal& position);
+
+  // Call |Activate()| and dismiss launcher if necessary.
+  void PerformActivate(int event_flags);
 
   // Activates (opens) the item. Does nothing by default.
   virtual void Activate(int event_flags);
@@ -131,6 +136,8 @@ class ChromeAppListItem {
   // Get the context menu of a certain app. This could be different for
   // different kinds of items.
   virtual app_list::AppContextMenu* GetAppContextMenu();
+
+  void MaybeDismissAppList();
 
  private:
   ash::mojom::AppListItemMetadataPtr metadata_;

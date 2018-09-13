@@ -4,11 +4,11 @@
 
 #import "ios/web/public/test/web_view_interaction_test_util.h"
 
-#import "base/mac/bind_objc_block.h"
+#include "base/bind.h"
+#include "base/json/string_escape.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#import "ios/testing/wait_util.h"
 #import "ios/web/public/web_state/ui/crw_web_view_scroll_view_proxy.h"
 #import "ios/web/web_state/ui/crw_web_controller.h"
 #import "ios/web/web_state/ui/crw_web_view_proxy_impl.h"
@@ -19,9 +19,9 @@
 #endif
 
 using web::NavigationManager;
-using testing::WaitUntilConditionOrTimeout;
-using testing::kWaitForUIElementTimeout;
-using testing::kWaitForJSCompletionTimeout;
+using base::test::ios::WaitUntilConditionOrTimeout;
+using base::test::ios::kWaitForUIElementTimeout;
+using base::test::ios::kWaitForJSCompletionTimeout;
 
 namespace web {
 namespace test {
@@ -37,7 +37,7 @@ std::unique_ptr<base::Value> ExecuteJavaScript(web::WebState* web_state,
   __block std::unique_ptr<base::Value> result;
   __block bool did_finish = false;
   web_state->ExecuteJavaScript(base::UTF8ToUTF16(script),
-                               base::BindBlockArc(^(const base::Value* value) {
+                               base::BindOnce(^(const base::Value* value) {
                                  if (value)
                                    result = value->CreateDeepCopy();
                                  did_finish = true;
@@ -66,17 +66,28 @@ std::unique_ptr<base::Value> ExecuteJavaScript(web::WebState* web_state,
   return stack_result;
 }
 
-CGRect GetBoundingRectOfElementWithId(web::WebState* web_state,
-                                      const std::string& element_id) {
+CGRect GetBoundingRectOfElement(web::WebState* web_state,
+                                const web::test::ElementSelector& selector) {
+  std::string quoted_description;
+  bool success =
+      base::EscapeJSONString(selector.GetSelectorDescription(),
+                             true /* put_in_quotes */, &quoted_description);
+  if (!success) {
+    DLOG(ERROR) << "Error quoting description: "
+                << selector.GetSelectorDescription();
+  }
+
   std::string kGetBoundsScript =
       "(function() {"
-      "  var element = document.getElementById('" +
-      element_id +
-      "');"
-      "  if (!element)"
-      "    return {'error': 'Element " +
-      element_id +
-      " not found'};"
+      "  var element = " +
+      selector.GetSelectorScript() +
+      ";"
+      "  if (!element) {"
+      "    var description = " +
+      quoted_description +
+      ";"
+      "    return {'error': 'Element ' + description + ' not found'};"
+      "  }"
       "  var rect = element.getBoundingClientRect();"
       "  return {"
       "      'left': rect.left,"

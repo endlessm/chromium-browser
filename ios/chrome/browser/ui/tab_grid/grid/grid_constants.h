@@ -48,6 +48,12 @@ extern const CGFloat kGridLayoutLineSpacingCompactRegularLimitedWidth;
 extern const CGFloat kGridLayoutLineSpacingRegularCompact;
 extern const CGFloat kGridLayoutLineSpacingRegularRegular;
 
+// GridReorderingLayout.
+// Opacity for cells that aren't being moved.
+extern const CGFloat kReorderingInactiveCellOpacity;
+// Scale for the cell that is being moved.
+extern const CGFloat kReorderingActiveCellScale;
+
 // GridCell styling.
 // Common colors.
 extern const int kGridCellIconBackgroundColor;
@@ -72,7 +78,9 @@ extern const CGFloat kGridCellIconCornerRadius;
 // The cell header contains the icon, title, and close button.
 extern const CGFloat kGridCellHeaderHeight;
 extern const CGFloat kGridCellHeaderLeadingInset;
+extern const CGFloat kGridCellCloseTapTargetWidthHeight;
 extern const CGFloat kGridCellCloseButtonContentInset;
+extern const CGFloat kGridCellTitleLabelContentInset;
 extern const CGFloat kGridCellIconDiameter;
 extern const CGFloat kGridCellSelectionRingGapWidth;
 extern const CGFloat kGridCellSelectionRingTintWidth;

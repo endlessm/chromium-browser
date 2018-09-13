@@ -152,9 +152,9 @@ define <2 x double> @test_cvtpi2pd(x86_mmx %a0, x86_mmx* %a1) optsize {
 ;
 ; SKX-LABEL: test_cvtpi2pd:
 ; SKX:       # %bb.0:
-; SKX-NEXT:    cvtpi2pd %mm0, %xmm0 # sched: [5:1.00]
-; SKX-NEXT:    cvtpi2pd (%rdi), %xmm1 # sched: [10:1.00]
-; SKX-NEXT:    vaddpd %xmm1, %xmm0, %xmm0 # sched: [4:0.33]
+; SKX-NEXT:    cvtpi2pd %mm0, %xmm0 # sched: [4:0.50]
+; SKX-NEXT:    cvtpi2pd (%rdi), %xmm1 # sched: [9:0.50]
+; SKX-NEXT:    vaddpd %xmm1, %xmm0, %xmm0 # sched: [4:0.50]
 ; SKX-NEXT:    retq # sched: [7:1.00]
 ;
 ; BTVER2-LABEL: test_cvtpi2pd:
@@ -232,7 +232,7 @@ define <4 x float> @test_cvtpi2ps(x86_mmx %a0, x86_mmx* %a1, <4 x float> %a2, <4
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    cvtpi2ps %mm0, %xmm0 # sched: [6:2.00]
 ; SKX-NEXT:    cvtpi2ps (%rdi), %xmm1 # sched: [9:1.00]
-; SKX-NEXT:    vaddps %xmm1, %xmm0, %xmm0 # sched: [4:0.33]
+; SKX-NEXT:    vaddps %xmm1, %xmm0, %xmm0 # sched: [4:0.50]
 ; SKX-NEXT:    retq # sched: [7:1.00]
 ;
 ; BTVER2-LABEL: test_cvtpi2ps:
@@ -626,7 +626,7 @@ define void @test_maskmovq(x86_mmx %a0, x86_mmx %a1, i8* %a2) optsize {
 ;
 ; ZNVER1-LABEL: test_maskmovq:
 ; ZNVER1:       # %bb.0:
-; ZNVER1-NEXT:    maskmovq %mm1, %mm0 # sched: [100:?]
+; ZNVER1-NEXT:    maskmovq %mm1, %mm0 # sched: [100:0.25]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
   call void @llvm.x86.mmx.maskmovq(x86_mmx %a0, x86_mmx %a1, i8* %a2)
   ret void
@@ -3096,8 +3096,8 @@ define i64 @test_phaddd(x86_mmx %a0, x86_mmx %a1, x86_mmx* %a2) optsize {
 ;
 ; ZNVER1-LABEL: test_phaddd:
 ; ZNVER1:       # %bb.0:
-; ZNVER1-NEXT:    phaddd %mm1, %mm0 # sched: [100:?]
-; ZNVER1-NEXT:    phaddd (%rdi), %mm0 # sched: [100:?]
+; ZNVER1-NEXT:    phaddd %mm1, %mm0 # sched: [100:0.25]
+; ZNVER1-NEXT:    phaddd (%rdi), %mm0 # sched: [100:0.25]
 ; ZNVER1-NEXT:    movq %mm0, %rax # sched: [2:1.00]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
   %1 = call x86_mmx @llvm.x86.ssse3.phadd.d(x86_mmx %a0, x86_mmx %a1)
@@ -3174,8 +3174,8 @@ define i64 @test_phaddsw(x86_mmx %a0, x86_mmx %a1, x86_mmx* %a2) optsize {
 ;
 ; ZNVER1-LABEL: test_phaddsw:
 ; ZNVER1:       # %bb.0:
-; ZNVER1-NEXT:    phaddsw %mm1, %mm0 # sched: [100:?]
-; ZNVER1-NEXT:    phaddsw (%rdi), %mm0 # sched: [100:?]
+; ZNVER1-NEXT:    phaddsw %mm1, %mm0 # sched: [100:0.25]
+; ZNVER1-NEXT:    phaddsw (%rdi), %mm0 # sched: [100:0.25]
 ; ZNVER1-NEXT:    movq %mm0, %rax # sched: [2:1.00]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
   %1 = call x86_mmx @llvm.x86.ssse3.phadd.sw(x86_mmx %a0, x86_mmx %a1)
@@ -3252,8 +3252,8 @@ define i64 @test_phaddw(x86_mmx %a0, x86_mmx %a1, x86_mmx* %a2) optsize {
 ;
 ; ZNVER1-LABEL: test_phaddw:
 ; ZNVER1:       # %bb.0:
-; ZNVER1-NEXT:    phaddw %mm1, %mm0 # sched: [100:?]
-; ZNVER1-NEXT:    phaddw (%rdi), %mm0 # sched: [100:?]
+; ZNVER1-NEXT:    phaddw %mm1, %mm0 # sched: [100:0.25]
+; ZNVER1-NEXT:    phaddw (%rdi), %mm0 # sched: [100:0.25]
 ; ZNVER1-NEXT:    movq %mm0, %rax # sched: [2:1.00]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
   %1 = call x86_mmx @llvm.x86.ssse3.phadd.w(x86_mmx %a0, x86_mmx %a1)
@@ -3330,8 +3330,8 @@ define i64 @test_phsubd(x86_mmx %a0, x86_mmx %a1, x86_mmx* %a2) optsize {
 ;
 ; ZNVER1-LABEL: test_phsubd:
 ; ZNVER1:       # %bb.0:
-; ZNVER1-NEXT:    phsubd %mm1, %mm0 # sched: [100:?]
-; ZNVER1-NEXT:    phsubd (%rdi), %mm0 # sched: [100:?]
+; ZNVER1-NEXT:    phsubd %mm1, %mm0 # sched: [100:0.25]
+; ZNVER1-NEXT:    phsubd (%rdi), %mm0 # sched: [100:0.25]
 ; ZNVER1-NEXT:    movq %mm0, %rax # sched: [2:1.00]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
   %1 = call x86_mmx @llvm.x86.ssse3.phsub.d(x86_mmx %a0, x86_mmx %a1)
@@ -3408,8 +3408,8 @@ define i64 @test_phsubsw(x86_mmx %a0, x86_mmx %a1, x86_mmx* %a2) optsize {
 ;
 ; ZNVER1-LABEL: test_phsubsw:
 ; ZNVER1:       # %bb.0:
-; ZNVER1-NEXT:    phsubsw %mm1, %mm0 # sched: [100:?]
-; ZNVER1-NEXT:    phsubsw (%rdi), %mm0 # sched: [100:?]
+; ZNVER1-NEXT:    phsubsw %mm1, %mm0 # sched: [100:0.25]
+; ZNVER1-NEXT:    phsubsw (%rdi), %mm0 # sched: [100:0.25]
 ; ZNVER1-NEXT:    movq %mm0, %rax # sched: [2:1.00]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
   %1 = call x86_mmx @llvm.x86.ssse3.phsub.sw(x86_mmx %a0, x86_mmx %a1)
@@ -3486,8 +3486,8 @@ define i64 @test_phsubw(x86_mmx %a0, x86_mmx %a1, x86_mmx* %a2) optsize {
 ;
 ; ZNVER1-LABEL: test_phsubw:
 ; ZNVER1:       # %bb.0:
-; ZNVER1-NEXT:    phsubw %mm1, %mm0 # sched: [100:?]
-; ZNVER1-NEXT:    phsubw (%rdi), %mm0 # sched: [100:?]
+; ZNVER1-NEXT:    phsubw %mm1, %mm0 # sched: [100:0.25]
+; ZNVER1-NEXT:    phsubw (%rdi), %mm0 # sched: [100:0.25]
 ; ZNVER1-NEXT:    movq %mm0, %rax # sched: [2:1.00]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
   %1 = call x86_mmx @llvm.x86.ssse3.phsub.w(x86_mmx %a0, x86_mmx %a1)

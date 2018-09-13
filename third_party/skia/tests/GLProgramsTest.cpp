@@ -9,7 +9,7 @@
 
 #include "SkTypes.h"
 
-#if SK_SUPPORT_GPU && SK_ALLOW_STATIC_GLOBAL_INITIALIZERS
+#if SK_ALLOW_STATIC_GLOBAL_INITIALIZERS
 
 #include "GrAutoLocaleSetter.h"
 #include "GrContextFactory.h"
@@ -248,15 +248,6 @@ static void set_random_color_coverage_stages(GrPaint* paint,
     }
 }
 
-static void set_random_state(GrPaint* paint, SkRandom* random) {
-    if (random->nextBool()) {
-        paint->setDisableOutputConversionToSRGB(true);
-    }
-    if (random->nextBool()) {
-        paint->setAllowSRGBInputs(true);
-    }
-}
-
 #endif
 
 #if !GR_TEST_UTILS
@@ -276,7 +267,8 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
         dummyDesc.fHeight = 18;
         dummyDesc.fConfig = kRGBA_8888_GrPixelConfig;
         proxies[0] = proxyProvider->createProxy(dummyDesc, kBottomLeft_GrSurfaceOrigin,
-                                                SkBackingFit::kExact, SkBudgeted::kNo);
+                                                GrMipMapped::kYes, SkBackingFit::kExact,
+                                                SkBudgeted::kNo, GrInternalSurfaceFlags::kNone);
     }
     {
         GrSurfaceDesc dummyDesc;
@@ -285,7 +277,8 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
         dummyDesc.fHeight = 22;
         dummyDesc.fConfig = kAlpha_8_GrPixelConfig;
         proxies[1] = proxyProvider->createProxy(dummyDesc, kTopLeft_GrSurfaceOrigin,
-                                                SkBackingFit::kExact, SkBudgeted::kNo);
+                                                GrMipMapped::kYes, SkBackingFit::kExact,
+                                                SkBudgeted::kNo, GrInternalSurfaceFlags::kNone);
     }
 
     if (!proxies[0] || !proxies[1]) {
@@ -311,7 +304,6 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
         GrProcessorTestData ptd(&random, context, renderTargetContext.get(), proxies);
         set_random_color_coverage_stages(&paint, &ptd, maxStages, maxLevels);
         set_random_xpf(&paint, &ptd);
-        set_random_state(&paint, &random);
         GrDrawRandomOp(&random, renderTargetContext.get(), std::move(paint));
     }
     // Flush everything, test passes if flush is successful(ie, no asserts are hit, no crashes)

@@ -154,6 +154,7 @@ COMPATIBLE_LANGOPT(ModulesTS  , 1, 0, "C++ Modules TS")
 BENIGN_ENUM_LANGOPT(CompilingModule, CompilingModuleKind, 2, CMK_None,
                     "compiling a module interface")
 BENIGN_LANGOPT(CompilingPCH, 1, 0, "building a pch")
+BENIGN_LANGOPT(BuildingPCHWithObjectFile, 1, 0, "building a pch which has a corresponding object file")
 COMPATIBLE_LANGOPT(ModulesDeclUse    , 1, 0, "require declaration of module uses")
 BENIGN_LANGOPT(ModulesSearchAll  , 1, 1, "searching even non-imported modules to find unresolved references")
 COMPATIBLE_LANGOPT(ModulesStrictDeclUse, 1, 0, "requiring declaration of module uses and all headers to be in modules")
@@ -247,6 +248,10 @@ ENUM_LANGOPT(AddressSpaceMapMangling , AddrSpaceMapMangling, 2, ASMM_Target, "Op
 LANGOPT(IncludeDefaultHeader, 1, 0, "Include default header file for OpenCL")
 BENIGN_LANGOPT(DelayedTemplateParsing , 1, 0, "delayed template parsing")
 LANGOPT(BlocksRuntimeOptional , 1, 0, "optional blocks runtime")
+LANGOPT(
+    CompleteMemberPointers, 1, 0,
+    "Require member pointer base types to be complete at the point where the "
+    "type's inheritance model would be determined under the Microsoft ABI")
 
 ENUM_LANGOPT(GC, GCMode, 2, NonGC, "Objective-C Garbage Collection mode")
 ENUM_LANGOPT(ValueVisibilityMode, Visibility, 3, DefaultVisibility,
@@ -289,6 +294,8 @@ LANGOPT(XRayAlwaysEmitTypedEvents, 1, 0,
         "controls whether to always emit intrinsic calls to "
         "__xray_typedevent(...) builtin.")
 
+LANGOPT(ForceEmitVTables, 1, 0, "whether to emit all vtables")
+
 BENIGN_LANGOPT(AllowEditorPlaceholders, 1, 0,
                "allow editor placeholders in source")
 
@@ -297,6 +304,10 @@ ENUM_LANGOPT(ClangABICompat, ClangABI, 4, ClangABI::Latest,
              "with")
 
 COMPATIBLE_VALUE_LANGOPT(FunctionAlignment, 5, 0, "Default alignment for functions")
+
+LANGOPT(FixedPoint, 1, 0, "fixed point types")
+LANGOPT(PaddingOnUnsignedFixedPoint, 1, 0,
+        "unsigned fixed point types having one extra padding bit")
 
 #undef LANGOPT
 #undef COMPATIBLE_LANGOPT

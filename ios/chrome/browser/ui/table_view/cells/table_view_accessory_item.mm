@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/ui/table_view/cells/table_view_accessory_item.h"
 
+#include "base/i18n/rtl.h"
 #include "base/mac/foundation_util.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
@@ -11,11 +12,6 @@
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
-
-namespace {
-// The width and height of the ImageView.
-const float kImageWidth = 28.0f;
-}
 
 @implementation TableViewAccessoryItem
 
@@ -48,6 +44,8 @@ const float kImageWidth = 28.0f;
 
   cell.imageView.backgroundColor = styler.tableViewBackgroundColor;
   cell.titleLabel.backgroundColor = styler.tableViewBackgroundColor;
+  if (styler.cellTitleColor)
+    cell.titleLabel.textColor = styler.cellTitleColor;
 }
 
 @end
@@ -66,6 +64,8 @@ const float kImageWidth = 28.0f;
     // The favicon image is smaller than its UIImageView's bounds, so center
     // it.
     _imageView.contentMode = UIViewContentModeCenter;
+    [_imageView setContentHuggingPriority:UILayoutPriorityRequired
+                                  forAxis:UILayoutConstraintAxisHorizontal];
 
     // Set font size using dynamic type.
     _titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
@@ -77,8 +77,11 @@ const float kImageWidth = 28.0f;
     [disclosureImageView
         setContentHuggingPriority:UILayoutPriorityDefaultHigh
                           forAxis:UILayoutConstraintAxisHorizontal];
+    // TODO(crbug.com/870841): Use default accessory type.
+    if (base::i18n::IsRTL())
+      disclosureImageView.transform = CGAffineTransformMakeRotation(M_PI);
 
-    // Horizontal stack view holds favicon, title, and disclosureView.
+    // Horizontal stack view holds imageView, title, and disclosureView.
     UIStackView* horizontalStack =
         [[UIStackView alloc] initWithArrangedSubviews:@[
           _imageView, _titleLabel, disclosureImageView
@@ -92,9 +95,6 @@ const float kImageWidth = 28.0f;
     [self.contentView addSubview:horizontalStack];
 
     [NSLayoutConstraint activateConstraints:@[
-      // The favicon view is a fixed size.
-      [_imageView.heightAnchor constraintEqualToConstant:kImageWidth],
-      [_imageView.widthAnchor constraintEqualToConstant:kImageWidth],
       // Horizontal Stack constraints.
       [horizontalStack.leadingAnchor
           constraintEqualToAnchor:self.contentView.leadingAnchor

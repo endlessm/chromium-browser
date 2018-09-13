@@ -33,15 +33,27 @@ class LevelDBSiteCharacteristicsDatabase
 
   // LocalSiteCharacteristicDatabase:
   void ReadSiteCharacteristicsFromDB(
-      const std::string& site_origin,
+      const url::Origin& origin,
       LocalSiteCharacteristicsDatabase::ReadSiteCharacteristicsFromDBCallback
           callback) override;
   void WriteSiteCharacteristicsIntoDB(
-      const std::string& site_origin,
+      const url::Origin& origin,
       const SiteCharacteristicsProto& site_characteristic_proto) override;
   void RemoveSiteCharacteristicsFromDB(
-      const std::vector<std::string>& site_origins) override;
+      const std::vector<url::Origin>& site_origins) override;
   void ClearDatabase() override;
+
+  bool DatabaseIsInitializedForTesting();
+
+  // Returns a raw pointer to the database for testing purposes. Note that as
+  // the DB operations are made on a separate sequence it's recommended to call
+  // ScopedTaskEnvironment::RunUntilIdle before calling this function to ensure
+  // that the database has been fully initialized. The LevelDB implementation is
+  // thread safe.
+  leveldb::DB* GetDBForTesting();
+
+  static const size_t kDbVersion;
+  static const char kDbMetadataKey[];
 
  private:
   class AsyncHelper;

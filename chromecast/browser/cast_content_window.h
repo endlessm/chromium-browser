@@ -17,34 +17,60 @@
 namespace chromecast {
 namespace shell {
 
+// Describes visual context of the window within the UI.
 enum class VisibilityType {
+  // Unknown visibility state.
   UNKNOWN = 0,
+
+  // Window is occupying the entire screen and can be interacted with.
   FULL_SCREEN = 1,
+
+  // Window occupies a portion of the screen, supporting user interaction.
   PARTIAL_OUT = 2,
-  HIDDEN = 3
+
+  // Window is hidden, and cannot be interacted with via touch.
+  HIDDEN = 3,
+
+  // Window is being displayed as a small visible tile.
+  TILE = 4
 };
 
+// Represents requested activity windowing behavior. Behavior includes:
+// 1. How long the activity should show
+// 2. Whether the window should become immediately visible
+// 3. How much screen space the window should occupy
+// 4. What state to return to when the activity is completed
 enum class VisibilityPriority {
   // Default priority. It is up to system to decide how to show the activity.
   DEFAULT = 0,
 
   // The activity wants to occupy the full screen for some period of time and
-  // then become hidden after a timeout.
-  TRANSIENT_ACTIVITY = 1,
+  // then become hidden after a timeout. When timeout, it returns to the
+  // previous activity.
+  TRANSIENT_TIMEOUTABLE = 1,
 
   // A high priority interruption occupies half of the screen if a sticky
   // activity is showing on the screen. Otherwise, it occupies the full screen.
   HIGH_PRIORITY_INTERRUPTION = 2,
 
-  // The activity wants to be persistently visible. Unlike TRANSIENT_ACTIVITY,
-  // there should be no timeout.
+  // The activity takes place of other activity and won't be timeout.
   STICKY_ACTIVITY = 3,
 
+  // The activity stays on top of others (transient) but won't be timeout.
+  // When the activity finishes, it returns to the previous one.
+  TRANSIENT_STICKY = 4,
+
   // The activity should not be visible.
-  HIDDEN = 4,
+  HIDDEN = 5,
 };
 
-enum class GestureType { NO_GESTURE = 0, GO_BACK = 1 };
+enum class GestureType {
+  NO_GESTURE = 0,
+  GO_BACK = 1,
+  TAP = 2,
+  TAP_DOWN = 3,
+  TOP_DRAG = 4,
+};
 
 // Class that represents the "window" a WebContents is displayed in cast_shell.
 // For Linux, this represents an Aura window. For Android, this is a Activity.
@@ -63,8 +89,17 @@ class CastContentWindow {
     // called prior to ConsumeGesture().
     virtual bool CanHandleGesture(GestureType gesture_type) = 0;
 
-    // Consume and handle a UI gesture. Returns whether the gesture was
-    // handled or not.
+    // Called while a system UI gesture is in progress.
+    virtual void GestureProgress(GestureType gesture_type,
+                                 const gfx::Point& touch_location){};
+
+    // Called when an in-progress system UI gesture is cancelled (for example
+    // when the finger is lifted before the completion of the gesture.)
+    virtual void CancelGesture(GestureType gesture_type,
+                               const gfx::Point& touch_location){};
+
+    // Consume and handle a completed UI gesture. Returns whether the gesture
+    // was handled or not.
     virtual bool ConsumeGesture(GestureType gesture_type) = 0;
 
     // Notify visibility change for this window.
@@ -105,6 +140,11 @@ class CastContentWindow {
   // Cast activity or application calls it to request for a visibility priority
   // change.
   virtual void RequestVisibility(VisibilityPriority visibility_priority) = 0;
+
+  // Notify the window that its visibility type has changed. This should only
+  // ever be called by the window manager.
+  // TODO(seantopping): Make this private to the window manager.
+  virtual void NotifyVisibilityChange(VisibilityType visibility_type) = 0;
 
   // Cast activity or application calls it to request for moving out of the
   // screen.

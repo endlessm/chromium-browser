@@ -14,6 +14,7 @@ import android.os.Environment;
 import android.os.StrictMode;
 import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
+import android.support.v7.content.res.AppCompatResources;
 import android.text.TextUtils;
 
 import org.chromium.base.ApiCompatibilityUtils;
@@ -30,11 +31,10 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.FileProviderHelper;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.download.items.OfflineContentAggregatorFactory;
-import org.chromium.chrome.browser.download.ui.BackendProvider;
-import org.chromium.chrome.browser.download.ui.BackendProvider.DownloadDelegate;
 import org.chromium.chrome.browser.download.ui.DownloadFilter;
 import org.chromium.chrome.browser.download.ui.DownloadHistoryItemWrapper;
 import org.chromium.chrome.browser.download.ui.DownloadHistoryItemWrapper.OfflineItemWrapper;
@@ -63,7 +63,7 @@ import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
 import org.chromium.components.offline_items_collection.OfflineItemState;
 import org.chromium.components.offline_items_collection.PendingState;
 import org.chromium.components.offlinepages.SavePageResult;
-import org.chromium.content.browser.BrowserStartupController;
+import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.widget.Toast;
@@ -249,20 +249,18 @@ public class DownloadUtils {
     }
 
     /**
-     * Issues a request to the {@link DownloadDelegate} associated with backendProvider to check
-     * for externally removed downloads.
+     * Issues a request to the {@link DownloadManagerService} associated to check for externally
+     * removed downloads.
      * See {@link DownloadManagerService#checkForExternallyRemovedDownloads}.
-     *
-     * @param backendProvider The {@link BackendProvider} associated with the DownloadDelegate used
-     *                        to check for externally removed downloads.
      * @param isOffTheRecord  Whether to check downloads for the off the record profile.
      */
-    public static void checkForExternallyRemovedDownloads(BackendProvider backendProvider,
-            boolean isOffTheRecord) {
+    public static void checkForExternallyRemovedDownloads(boolean isOffTheRecord) {
         if (isOffTheRecord) {
-            backendProvider.getDownloadDelegate().checkForExternallyRemovedDownloads(true);
+            DownloadManagerService.getDownloadManagerService().checkForExternallyRemovedDownloads(
+                    true);
         }
-        backendProvider.getDownloadDelegate().checkForExternallyRemovedDownloads(false);
+        DownloadManagerService.getDownloadManagerService().checkForExternallyRemovedDownloads(
+                false);
         RecordUserAction.record(
                 "Android.DownloadManager.CheckForExternallyRemovedItems");
     }
@@ -345,53 +343,38 @@ public class DownloadUtils {
 
         for (int i = 0; i < items.size(); i++) {
             DownloadHistoryItemWrapper wrappedItem  = items.get(i);
+            String mimeType = Intent.normalizeMimeType(wrappedItem.getMimeType());
 
-            boolean shareUrl = false;
-            File file = null;
             if (wrappedItem.isOfflinePage()) {
-                if (OfflinePageBridge.isPageSharingEnabled()) {
-                    if (newOfflineFilePathMap != null) {
-                        OfflineItemWrapper wrappedOfflineItem = (OfflineItemWrapper) wrappedItem;
-                        String newFilePath = newOfflineFilePathMap.get(wrappedOfflineItem.getId());
-                        if (newFilePath != null) {
-                            file = new File(newFilePath);
-                        }
-                        RecordUserAction.record("OfflinePages.Sharing.SharePageFromDownloadHome");
-                    }
-                } else {
-                    // Share the URL, instead of the file, when the offline page sharing is
-                    // disabled.
-                    shareUrl = true;
-                }
-            }
+                // Attempt to share the mhtml file.  If that fails, share by URL.
+                OfflineItemWrapper wrappedOfflineItem = (OfflineItemWrapper) wrappedItem;
+                Uri uriToShare =
+                        getUriToShareOfflinePage(wrappedOfflineItem, newOfflineFilePathMap);
 
-            if (shareUrl) {
-                if (offlinePagesString.length() != 0) {
-                    offlinePagesString.append("\n");
+                if (uriToShare == null) {
+                    // Share the URL, instead of the file, if publishing the file failed.
+                    if (offlinePagesString.length() != 0) {
+                        offlinePagesString.append("\n");
+                    }
+                    offlinePagesString.append(wrappedItem.getUrl());
+                    mimeType = MIME_TYPE_SHARING_URL;
+                } else {
+                    itemUris.add(uriToShare);
+                    RecordUserAction.record("OfflinePages.Sharing.SharePageFromDownloadHome");
                 }
-                offlinePagesString.append(wrappedItem.getUrl());
             } else {
-                if (file == null) {
-                    file = wrappedItem.getFile();
-                }
-                itemUris.add(getUriForItem(file));
+                // If not sharing an offline page, generate the URI for the file being shared.
+                itemUris.add(getUriForItem(wrappedItem.getFile()));
             }
 
             if (selectedItemsFilterType != wrappedItem.getFilterType()) {
-                selectedItemsFilterType = DownloadFilter.FILTER_ALL;
+                selectedItemsFilterType = DownloadFilter.Type.ALL;
             }
-            if (wrappedItem.getFilterType() == DownloadFilter.FILTER_OTHER) {
+            if (wrappedItem.getFilterType() == DownloadFilter.Type.OTHER) {
                 RecordHistogram.recordEnumeratedHistogram(
                         "Android.DownloadManager.OtherExtensions.Share",
                         wrappedItem.getFileExtensionType(),
-                        DownloadHistoryItemWrapper.FILE_EXTENSION_BOUNDARY);
-            }
-
-            String mimeType;
-            if (shareUrl) {
-                mimeType = MIME_TYPE_SHARING_URL;
-            } else {
-                mimeType = Intent.normalizeMimeType(wrappedItem.getMimeType());
+                        DownloadHistoryItemWrapper.FileExtension.NUM_ENTRIES);
             }
 
             // If a mime type was not retrieved from the backend or could not be normalized,
@@ -447,9 +430,9 @@ public class DownloadUtils {
             shareIntent.putExtra(Intent.EXTRA_TEXT, offlinePagesString.toString());
         }
 
+        // If there is exactly one item shared, set the mail title.
         if (items.size() == 1) {
-            shareIntent.putExtra(
-                    Intent.EXTRA_SUBJECT, new File(items.get(0).getFilePath()).getName());
+            shareIntent.putExtra(Intent.EXTRA_SUBJECT, items.get(0).getDisplayFileName());
         }
 
         shareIntent.setAction(intentAction);
@@ -459,6 +442,46 @@ public class DownloadUtils {
         recordShareHistograms(items.size(), selectedItemsFilterType);
 
         return shareIntent;
+    }
+
+    /**
+     * Compute the URI to use for sharing this page.
+     * @param wrappedOfflineItem OfflineItem to be shared.
+     * @param newOfflineFilePathMap map of offline id to the file path now that publishing is done.
+     * @return Uri to use for sharing this offline page, or null if we cannot build one.
+     */
+    private static Uri getUriToShareOfflinePage(
+            OfflineItemWrapper wrappedOfflineItem, Map<String, String> newOfflineFilePathMap) {
+        if (!OfflinePageBridge.isPageSharingEnabled()) {
+            return null;
+        }
+        String newFilePath = wrappedOfflineItem.getFilePath();
+
+        if (wrappedOfflineItem.isSuggested()) {
+            // If we have a temporary page, share it by content URI.  Today this only
+            // supports suggested pages, since they are the only type of temporary pages
+            // shown in DownloadsHome.  If we support other types of pages someday,
+            // we'll need to add support for them here too.
+            try {
+                return (new FileProviderHelper()).getContentUriFromFile(new File(newFilePath));
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        if (newOfflineFilePathMap == null) {
+            // If the file was already in the public directory, use the existing file path.
+            return getUriForItem(wrappedOfflineItem.getFile());
+        }
+
+        String publishedFilePath = newOfflineFilePathMap.get(wrappedOfflineItem.getId());
+        if (!TextUtils.isEmpty(publishedFilePath)) {
+            // If we moved the file to publish it, use the new path.
+            return getUriForItem(new File(publishedFilePath));
+        }
+
+        // If publishing failed, return null, and we will share by original URL.
+        return null;
     }
 
     /**
@@ -478,13 +501,15 @@ public class DownloadUtils {
                 OfflinePageBridge.getForProfile(Profile.getLastUsedProfile().getOriginalProfile());
 
         // If the sharing of offline pages is enabled, we need to publish the archive files if they
-        // are still located in the internal directory.
+        // are still located in the internal directory, and not temporary pages.
         List<OfflineItemWrapper> offlinePagesToPublish = new ArrayList<OfflineItemWrapper>();
         for (int i = 0; i < items.size(); i++) {
             DownloadHistoryItemWrapper wrappedItem = items.get(i);
             if (wrappedItem.isOfflinePage()) {
                 OfflineItemWrapper wrappedOfflineItem = (OfflineItemWrapper) wrappedItem;
-                if (offlinePageBridge.isInPrivateDirectory(wrappedOfflineItem.getFilePath())) {
+                if (!wrappedOfflineItem.isSuggested()
+                        && offlinePageBridge.isInPrivateDirectory(
+                                   wrappedOfflineItem.getFilePath())) {
                     offlinePagesToPublish.add(wrappedOfflineItem);
                 }
             }
@@ -614,7 +639,7 @@ public class DownloadUtils {
             return true;
         } catch (ActivityNotFoundException e) {
             // Can't launch the Intent.
-            if (source != DownloadMetrics.DOWNLOAD_PROGRESS_INFO_BAR) {
+            if (source != DownloadMetrics.DownloadOpenSource.DOWNLOAD_PROGRESS_INFO_BAR) {
                 Toast.makeText(context, context.getString(R.string.download_cant_open_file),
                              Toast.LENGTH_SHORT)
                         .show();
@@ -625,7 +650,7 @@ public class DownloadUtils {
 
     private static void recordShareHistograms(int count, int filterType) {
         RecordHistogram.recordEnumeratedHistogram("Android.DownloadManager.Share.FileTypes",
-                filterType, DownloadFilter.FILTER_BOUNDARY);
+                filterType, DownloadFilter.Type.NUM_ENTRIES);
 
         RecordHistogram.recordLinearCountHistogram("Android.DownloadManager.Share.Count",
                 count, 1, 20, 20);
@@ -670,11 +695,9 @@ public class DownloadUtils {
 
         switch (progress.unit) {
             case OfflineItemProgressUnit.PERCENTAGE:
-                if (progress.isIndeterminate()) {
-                    return context.getResources().getString(R.string.download_started);
-                } else {
-                    return getPercentageString(progress.getPercentage());
-                }
+                return progress.isIndeterminate()
+                        ? context.getResources().getString(R.string.download_started)
+                        : getPercentageString(progress.getPercentage());
             case OfflineItemProgressUnit.BYTES:
                 String bytes = getStringForBytes(context, progress.value);
                 if (progress.isIndeterminate()) {
@@ -719,11 +742,9 @@ public class DownloadUtils {
      */
     public static String getTimeOrFilesLeftString(
             Context context, Progress progress, long timeRemainingInMillis) {
-        if (progress.unit == OfflineItemProgressUnit.FILES) {
-            return formatRemainingFiles(context, progress);
-        } else {
-            return formatRemainingTime(context, timeRemainingInMillis);
-        }
+        return progress.unit == OfflineItemProgressUnit.FILES
+                ? formatRemainingFiles(context, progress)
+                : formatRemainingTime(context, timeRemainingInMillis);
     }
 
     /**
@@ -733,11 +754,8 @@ public class DownloadUtils {
      */
     public static String formatRemainingFiles(Context context, Progress progress) {
         int filesLeft = (int) (progress.max - progress.value);
-        if (filesLeft == 1) {
-            return context.getResources().getString(R.string.one_file_left);
-        } else {
-            return context.getResources().getString(R.string.files_left, filesLeft);
-        }
+        return filesLeft == 1 ? context.getResources().getString(R.string.one_file_left)
+                              : context.getResources().getString(R.string.files_left, filesLeft);
     }
 
     /**
@@ -811,7 +829,7 @@ public class DownloadUtils {
             case OfflineItemState.INTERRUPTED: // intentional fall through
             case OfflineItemState.FAILED:
                 break;
-            case OfflineItemState.MAX_DOWNLOAD_STATE:
+            // case OfflineItemState.MAX_DOWNLOAD_STATE:
             default:
                 assert false : "Unexpected OfflineItemState: " + item.state;
         }
@@ -870,20 +888,21 @@ public class DownloadUtils {
      */
     public static String getFailStatusString(@FailState int failState) {
         Context context = ContextUtils.getApplicationContext();
-        if (BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
-                        .isStartupSuccessfullyCompleted()
-                && ChromeFeatureList.isEnabled(
-                           ChromeFeatureList.OFFLINE_PAGES_DESCRIPTIVE_FAIL_STATUS)) {
-            switch (failState) {
-                // TODO(cmsy): Return correct status for failure reasons once strings are finalized.
-                case FailState.CANNOT_DOWNLOAD:
-                case FailState.NETWORK_INSTABILITY:
-                default:
-                    return context.getString(R.string.download_notification_failed);
-            }
-        } else {
-            return context.getString(R.string.download_notification_failed);
-        }
+
+        // TODO(cmsy): Return correct status for failure reasons once strings are finalized.
+        // if (BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
+        //                .isStartupSuccessfullyCompleted()
+        //        && ChromeFeatureList.isEnabled(
+        //                   ChromeFeatureList.OFFLINE_PAGES_DESCRIPTIVE_FAIL_STATUS)) {
+        //    switch (failState) {
+        //        case FailState.CANNOT_DOWNLOAD:
+        //        case FailState.NETWORK_INSTABILITY:
+        //        default:
+        //          return context.getString(R.string.download_notification_failed);
+        //    }
+        // }
+
+        return context.getString(R.string.download_notification_failed);
     }
 
     /**
@@ -1023,9 +1042,7 @@ public class DownloadUtils {
     public static String getAbbreviatedFileName(String fileName, int limit) {
         assert limit >= 1;  // Abbreviated file name should at least be 1 characters (a...)
 
-        if (TextUtils.isEmpty(fileName)) return fileName;
-
-        if (fileName.length() <= limit) return fileName;
+        if (TextUtils.isEmpty(fileName) || fileName.length() <= limit) return fileName;
 
         // Find the file name extension
         int index = fileName.lastIndexOf(".");
@@ -1048,19 +1065,19 @@ public class DownloadUtils {
     public static int getIconResId(int fileType, @IconSize int iconSize) {
         // TODO(huayinz): Make image view size same as icon size so that 36dp icons can be removed.
         switch (fileType) {
-            case DownloadFilter.FILTER_PAGE:
+            case DownloadFilter.Type.PAGE:
                 return iconSize == ICON_SIZE_24_DP ? R.drawable.ic_globe_24dp
                                                    : R.drawable.ic_globe_36dp;
-            case DownloadFilter.FILTER_VIDEO:
+            case DownloadFilter.Type.VIDEO:
                 return iconSize == ICON_SIZE_24_DP ? R.drawable.ic_videocam_24dp
                                                    : R.drawable.ic_videocam_36dp;
-            case DownloadFilter.FILTER_AUDIO:
+            case DownloadFilter.Type.AUDIO:
                 return iconSize == ICON_SIZE_24_DP ? R.drawable.ic_music_note_24dp
                                                    : R.drawable.ic_music_note_36dp;
-            case DownloadFilter.FILTER_IMAGE:
+            case DownloadFilter.Type.IMAGE:
                 return iconSize == ICON_SIZE_24_DP ? R.drawable.ic_drive_image_24dp
                                                    : R.drawable.ic_drive_image_36dp;
-            case DownloadFilter.FILTER_DOCUMENT:
+            case DownloadFilter.Type.DOCUMENT:
                 return iconSize == ICON_SIZE_24_DP ? R.drawable.ic_drive_document_24dp
                                                    : R.drawable.ic_drive_document_36dp;
             default:
@@ -1084,8 +1101,7 @@ public class DownloadUtils {
      * @return a foreground color list.
      */
     public static ColorStateList getIconForegroundColorList(Context context) {
-        return ApiCompatibilityUtils.getColorStateList(
-                context.getResources(), R.color.white_mode_tint);
+        return AppCompatResources.getColorStateList(context, R.color.white_mode_tint);
     }
 
     /**
@@ -1132,7 +1148,6 @@ public class DownloadUtils {
         }
         if (primaryDir == null || path == null) return false;
         String primaryPath = primaryDir.getAbsolutePath();
-        if (primaryPath == null) return false;
-        return path.contains(primaryPath);
+        return primaryPath == null ? false : path.contains(primaryPath);
     }
 }

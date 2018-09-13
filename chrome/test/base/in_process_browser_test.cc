@@ -21,6 +21,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/after_startup_task_utils.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/devtools/devtools_window.h"
@@ -28,6 +29,7 @@
 #include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/browser/net/net_error_tab_helper.h"
+#include "chrome/browser/predictors/loading_predictor_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
@@ -65,6 +67,7 @@
 #include "ui/display/display_switches.h"
 
 #if defined(OS_MACOSX)
+#include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "chrome/test/base/scoped_bundle_swizzler_mac.h"
 #endif
@@ -121,6 +124,8 @@ InProcessBrowserTest::InProcessBrowserTest()
 #endif  // OS_MACOSX
 {
 #if defined(OS_MACOSX)
+  base::mac::SetOverrideAmIBundled(true);
+
   // TODO(phajdan.jr): Make browser_tests self-contained on Mac, remove this.
   // Before we run the browser, we have to hack the path to the exe to match
   // what it would be if Chrome was running, because it is used to fork renderer
@@ -171,9 +176,12 @@ void InProcessBrowserTest::SetUp() {
   // here.
   command_line->AppendSwitch(switches::kDisableOfflineAutoReload);
 
-  // Turn off preconnects because they break the brittle python webserver;
-  // see http://crbug.com/60035.
-  scoped_feature_list_.InitAndDisableFeature(features::kNetworkPrediction);
+  // Turn off preconnects because it breaks some browser tests, see
+  // http://crbug.com/60035.
+  std::vector<base::Feature> enabled_features = {};
+  std::vector<base::Feature> disabled_features = {
+      features::kNetworkPrediction, predictors::kSpeculativePreconnectFeature};
+  scoped_feature_list_.InitWithFeatures(enabled_features, disabled_features);
 
   // Allow subclasses to change the command line before running any tests.
   SetUpCommandLine(command_line);
@@ -340,6 +348,10 @@ void InProcessBrowserTest::CloseAllBrowsers() {
 #endif
 }
 
+void InProcessBrowserTest::RunUntilBrowserProcessQuits() {
+  std::move(run_loop_)->Run();
+}
+
 // TODO(alexmos): This function should expose success of the underlying
 // navigation to tests, which should make sure navigations succeed when
 // appropriate. See https://crbug.com/425335
@@ -466,6 +478,10 @@ base::CommandLine InProcessBrowserTest::GetCommandLineForRelaunch() {
 void InProcessBrowserTest::PreRunTestOnMainThread() {
   AfterStartupTaskUtils::SetBrowserStartupIsCompleteForTesting();
 
+  // Take the ChromeBrowserMainParts' RunLoop to run ourself, when we
+  // want to wait for the browser to exit.
+  run_loop_ = ChromeBrowserMainParts::TakeRunLoopForTest();
+
   // Pump startup related events.
   content::RunAllPendingInMessageLoop();
 
@@ -527,6 +543,7 @@ void InProcessBrowserTest::PostRunTestOnMainThread() {
   content::RunAllPendingInMessageLoop();
 
   QuitBrowsers();
+
   // BrowserList should be empty at this point.
   CHECK(BrowserList::GetInstance()->empty());
 }
@@ -550,7 +567,7 @@ void InProcessBrowserTest::QuitBrowsers() {
   // shut down properly.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::Bind(&chrome::AttemptExit));
-  content::RunMessageLoop();
+  RunUntilBrowserProcessQuits();
 
 #if defined(OS_MACOSX)
   // chrome::AttemptExit() will attempt to close all browsers by deleting

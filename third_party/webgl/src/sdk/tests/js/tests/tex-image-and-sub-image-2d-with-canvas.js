@@ -444,7 +444,7 @@ function generateTest(internalFormat, pixelFormat, pixelType, prologue, resource
                     }
                     texture = runOneIteration(canvas, c.sub, c.flipY, c.semiTransparent, program, bindingTarget, texture, c.font);
                     // for the first 2 iterations always make a new texture.
-                    if (count > 2) {
+                    if (count < 2) {
                       gl.deleteTexture(texture);
                       texture = undefined;
                     }
@@ -457,7 +457,11 @@ function generateTest(internalFormat, pixelFormat, pixelType, prologue, resource
                             return;
                         }
                     }
-                    wtu.waitForComposite(runNextTest);
+                    // While we are working with Canvases, it's really unlikely that
+                    // waiting for composition will change anything here, and it's much
+                    // slower, so just dispatchTask. If we want to test with composites,
+                    // we should test a more narrow subset of tests.
+                    wtu.dispatchTask(runNextTest);
                 }
                 runNextTest();
             });

@@ -10,16 +10,16 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/window_state.h"
 #include "base/command_line.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/keyboard/keyboard_switches.h"
-#include "ui/keyboard/keyboard_test_util.h"
 #include "ui/keyboard/keyboard_ui.h"
 #include "ui/keyboard/keyboard_util.h"
+#include "ui/keyboard/test/keyboard_test_util.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 
@@ -58,12 +58,12 @@ class LockLayoutManagerTest : public AshTestBase {
         keyboard::switches::kEnableVirtualKeyboard);
     AshTestBase::SetUp();
     Shell::GetPrimaryRootWindowController()->ActivateKeyboard(
-        keyboard::KeyboardController::GetInstance());
+        keyboard::KeyboardController::Get());
   }
 
   void TearDown() override {
     Shell::GetPrimaryRootWindowController()->DeactivateKeyboard(
-        keyboard::KeyboardController::GetInstance());
+        keyboard::KeyboardController::Get());
     AshTestBase::TearDown();
   }
 
@@ -84,25 +84,25 @@ class LockLayoutManagerTest : public AshTestBase {
 
   // Show or hide the keyboard.
   void ShowKeyboard(bool show) {
-    keyboard::KeyboardController* keyboard =
-        keyboard::KeyboardController::GetInstance();
-    ASSERT_TRUE(keyboard);
-    if (show == keyboard->keyboard_visible())
+    auto* keyboard = keyboard::KeyboardController::Get();
+    ASSERT_TRUE(keyboard->enabled());
+    if (show == keyboard->IsKeyboardVisible())
       return;
 
     if (show) {
       keyboard->ShowKeyboard(false);
-      if (keyboard->ui()->GetContentsWindow()->bounds().height() == 0) {
-        keyboard->ui()->GetContentsWindow()->SetBounds(
+      if (keyboard->ui()->GetKeyboardWindow()->bounds().height() == 0) {
+        keyboard->ui()->GetKeyboardWindow()->SetBounds(
             keyboard::KeyboardBoundsFromRootBounds(
                 Shell::GetPrimaryRootWindow()->bounds(),
                 kVirtualKeyboardHeight));
+        keyboard->NotifyKeyboardWindowLoaded();
       }
     } else {
-      keyboard->HideKeyboard(keyboard::KeyboardController::HIDE_REASON_MANUAL);
+      keyboard->HideKeyboardByUser();
     }
 
-    DCHECK_EQ(show, keyboard->keyboard_visible());
+    DCHECK_EQ(show, keyboard->IsKeyboardVisible());
   }
 };
 
@@ -236,7 +236,7 @@ TEST_F(LockLayoutManagerTest, KeyboardBounds) {
   ShowKeyboard(true);
   EXPECT_EQ(screen_bounds.ToString(), window->GetBoundsInScreen().ToString());
   gfx::Rect keyboard_bounds =
-      keyboard::KeyboardController::GetInstance()->visual_bounds_in_screen();
+      keyboard::KeyboardController::Get()->visual_bounds_in_screen();
   EXPECT_NE(keyboard_bounds, gfx::Rect());
   ShowKeyboard(false);
 
@@ -264,14 +264,13 @@ TEST_F(LockLayoutManagerTest, KeyboardBounds) {
   keyboard::SetKeyboardOverscrollOverride(
       keyboard::KEYBOARD_OVERSCROLL_OVERRIDE_DISABLED);
   ShowKeyboard(true);
-  keyboard::KeyboardController* keyboard =
-      keyboard::KeyboardController::GetInstance();
+  keyboard::KeyboardController* keyboard = keyboard::KeyboardController::Get();
   primary_display = display::Screen::GetScreen()->GetPrimaryDisplay();
   screen_bounds = primary_display.bounds();
   gfx::Rect target_bounds(screen_bounds);
   target_bounds.set_height(
       target_bounds.height() -
-      keyboard->ui()->GetContentsWindow()->bounds().height());
+      keyboard->ui()->GetKeyboardWindow()->bounds().height());
   EXPECT_EQ(target_bounds.ToString(), window->GetBoundsInScreen().ToString());
   ShowKeyboard(false);
 

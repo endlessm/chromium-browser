@@ -493,15 +493,18 @@ class WallpaperControllerTest : public AshTestBase {
   // A helper to test the behavior of setting online wallpaper after the image
   // is decoded. This is needed because image decoding is not supported in unit
   // tests (the connector for the mojo service manager is null).
-  void SetOnlineWallpaperFromImage(const AccountId& account_id,
-                                   const gfx::ImageSkia& image,
-                                   const std::string& url,
-                                   WallpaperLayout layout,
-                                   bool save_file,
-                                   bool preview_mode) {
+  void SetOnlineWallpaperFromImage(
+      const AccountId& account_id,
+      const gfx::ImageSkia& image,
+      const std::string& url,
+      WallpaperLayout layout,
+      bool save_file,
+      bool preview_mode,
+      WallpaperController::SetOnlineWallpaperFromDataCallback callback) {
     const WallpaperController::OnlineWallpaperParams params = {
         account_id, false /*is_ephemeral=*/, url, layout, preview_mode};
-    controller_->OnOnlineWallpaperDecoded(params, save_file, image);
+    controller_->OnOnlineWallpaperDecoded(params, save_file,
+                                          std::move(callback), image);
   }
 
   // Returns color of the current wallpaper. Note: this function assumes the
@@ -967,7 +970,8 @@ TEST_F(WallpaperControllerTest, SetOnlineWallpaper) {
   // successfully.
   controller_->SetOnlineWallpaperFromData(
       InitializeUser(account_id_1), std::string() /*image_data=*/, kDummyUrl,
-      layout, false /*preview_mode=*/);
+      layout, false /*preview_mode=*/,
+      WallpaperController::SetOnlineWallpaperFromDataCallback());
   RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetWallpaperCount());
   EXPECT_EQ(controller_->GetWallpaperType(), ONLINE);
@@ -1020,7 +1024,8 @@ TEST_F(WallpaperControllerTest, SetOnlineWallpaper) {
   SimulateUserLogin(kUser2);
   controller_->SetOnlineWallpaperFromData(
       InitializeUser(account_id_1), std::string() /*image_data=*/, kDummyUrl2,
-      layout, false /*preview_mode=*/);
+      layout, false /*preview_mode=*/,
+      WallpaperController::SetOnlineWallpaperFromDataCallback());
   RunAllTasksUntilIdle();
   EXPECT_EQ(0, GetWallpaperCount());
   EXPECT_TRUE(controller_->GetUserWallpaperInfo(account_id_1, &wallpaper_info,
@@ -1382,10 +1387,15 @@ TEST_F(WallpaperControllerTest, IgnoreWallpaperRequestInKioskMode) {
 
   // Verify that |SetOnlineWallpaperFromData| doesn't set wallpaper in kiosk
   // mode, and |account_id|'s wallpaper info is not updated.
+  std::unique_ptr<base::RunLoop> run_loop = std::make_unique<base::RunLoop>();
   controller_->SetOnlineWallpaperFromData(
       InitializeUser(account_id_1), std::string() /*image_data=*/, kDummyUrl,
-      WALLPAPER_LAYOUT_CENTER, false /*preview_mode=*/);
-  RunAllTasksUntilIdle();
+      WALLPAPER_LAYOUT_CENTER, false /*preview_mode=*/,
+      base::BindLambdaForTesting([&run_loop](bool success) {
+        EXPECT_FALSE(success);
+        run_loop->Quit();
+      }));
+  run_loop->Run();
   EXPECT_EQ(0, GetWallpaperCount());
   EXPECT_FALSE(controller_->GetUserWallpaperInfo(account_id_1, &wallpaper_info,
                                                  false /*is_ephemeral=*/));
@@ -1433,10 +1443,15 @@ TEST_F(WallpaperControllerTest, IgnoreWallpaperRequestWhenPolicyIsEnforced) {
 
   // Verify that |SetOnlineWallpaperFromData| doesn't set wallpaper when policy
   // is enforced, and the user wallpaper info is not updated.
+  std::unique_ptr<base::RunLoop> run_loop = std::make_unique<base::RunLoop>();
   controller_->SetOnlineWallpaperFromData(
       InitializeUser(account_id_1), std::string() /*image_data=*/, kDummyUrl,
-      WALLPAPER_LAYOUT_CENTER_CROPPED, false /*preview_mode=*/);
-  RunAllTasksUntilIdle();
+      WALLPAPER_LAYOUT_CENTER_CROPPED, false /*preview_mode=*/,
+      base::BindLambdaForTesting([&run_loop](bool success) {
+        EXPECT_FALSE(success);
+        run_loop->Quit();
+      }));
+  run_loop->Run();
   EXPECT_EQ(0, GetWallpaperCount());
   EXPECT_TRUE(controller_->GetUserWallpaperInfo(account_id_1, &wallpaper_info,
                                                 false /*is_ephemeral=*/));
@@ -1469,7 +1484,8 @@ TEST_F(WallpaperControllerTest, VerifyWallpaperCache) {
   // Verify |SetOnlineWallpaperFromData| updates wallpaper cache for |user1|.
   controller_->SetOnlineWallpaperFromData(
       InitializeUser(account_id_1), std::string() /*image_data=*/, kDummyUrl,
-      WALLPAPER_LAYOUT_CENTER, false /*preview_mode=*/);
+      WALLPAPER_LAYOUT_CENTER, false /*preview_mode=*/,
+      WallpaperController::SetOnlineWallpaperFromDataCallback());
   RunAllTasksUntilIdle();
   EXPECT_TRUE(
       controller_->GetWallpaperFromCache(account_id_1, &cached_wallpaper));
@@ -1678,7 +1694,8 @@ TEST_F(WallpaperControllerTest, UpdateCustomWallpaperLayout) {
   image = CreateImage(640, 480, kWallpaperColor);
   controller_->SetOnlineWallpaperFromData(
       InitializeUser(account_id_1), std::string() /*image_data=*/, kDummyUrl,
-      layout, false /*preview_mode=*/);
+      layout, false /*preview_mode=*/,
+      WallpaperController::SetOnlineWallpaperFromDataCallback());
   RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetWallpaperCount());
   EXPECT_EQ(controller_->GetWallpaperType(), ONLINE);
@@ -2004,16 +2021,34 @@ TEST_F(WallpaperControllerTest, ConfirmPreviewWallpaper) {
       account_id_1, &user_wallpaper_info, false /*is_ephemeral=*/));
   EXPECT_EQ(user_wallpaper_info, custom_wallpaper_info);
 
-  // Now set an online wallpaper for the user and enable preview. Verify that
-  // the wallpaper is changed to the expected color.
+  // Set an empty online wallpaper for the user, verify it fails.
+  ClearWallpaperCount();
+  std::unique_ptr<base::RunLoop> run_loop = std::make_unique<base::RunLoop>();
+  SetOnlineWallpaperFromImage(
+      account_id_1, gfx::ImageSkia(), kDummyUrl, layout, false /*save_file=*/,
+      true /*preview_mode=*/,
+      base::BindLambdaForTesting([&run_loop](bool success) {
+        EXPECT_FALSE(success);
+        run_loop->Quit();
+      }));
+  run_loop->Run();
+  EXPECT_EQ(0, GetWallpaperCount());
+
+  // Now set a valid online wallpaper for the user and enable preview. Verify
+  // that the wallpaper is changed to the expected color.
   const SkColor online_wallpaper_color = SK_ColorCYAN;
   gfx::ImageSkia online_wallpaper =
       CreateImage(640, 480, online_wallpaper_color);
   EXPECT_NE(online_wallpaper_color, GetWallpaperColor());
-  ClearWallpaperCount();
-  SetOnlineWallpaperFromImage(account_id_1, online_wallpaper, kDummyUrl, layout,
-                              false /*save_file=*/, true /*preview_mode=*/);
-  RunAllTasksUntilIdle();
+  run_loop.reset(new base::RunLoop());
+  SetOnlineWallpaperFromImage(
+      account_id_1, online_wallpaper, kDummyUrl, layout, false /*save_file=*/,
+      true /*preview_mode=*/,
+      base::BindLambdaForTesting([&run_loop](bool success) {
+        EXPECT_TRUE(success);
+        run_loop->Quit();
+      }));
+  run_loop->Run();
   EXPECT_EQ(1, GetWallpaperCount());
   EXPECT_EQ(online_wallpaper_color, GetWallpaperColor());
   // Verify that the user wallpaper info remains unchanged during the preview.
@@ -2090,8 +2125,10 @@ TEST_F(WallpaperControllerTest, CancelPreviewWallpaper) {
       CreateImage(640, 480, online_wallpaper_color);
   EXPECT_NE(online_wallpaper_color, GetWallpaperColor());
   ClearWallpaperCount();
-  SetOnlineWallpaperFromImage(account_id_1, online_wallpaper, kDummyUrl, layout,
-                              false /*save_file=*/, true /*preview_mode=*/);
+  SetOnlineWallpaperFromImage(
+      account_id_1, online_wallpaper, kDummyUrl, layout, false /*save_file=*/,
+      true /*preview_mode=*/,
+      WallpaperController::SetOnlineWallpaperFromDataCallback());
   RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetWallpaperCount());
   EXPECT_EQ(online_wallpaper_color, GetWallpaperColor());
@@ -2188,8 +2225,10 @@ TEST_F(WallpaperControllerTest, WallpaperSyncedDuringPreview) {
   EXPECT_NE(kWallpaperColor, GetWallpaperColor());
 
   ClearWallpaperCount();
-  SetOnlineWallpaperFromImage(account_id_1, online_wallpaper, kDummyUrl, layout,
-                              false /*save_file=*/, true /*preview_mode=*/);
+  SetOnlineWallpaperFromImage(
+      account_id_1, online_wallpaper, kDummyUrl, layout, false /*save_file=*/,
+      true /*preview_mode=*/,
+      WallpaperController::SetOnlineWallpaperFromDataCallback());
   RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetWallpaperCount());
   EXPECT_EQ(kWallpaperColor, GetWallpaperColor());
@@ -2204,9 +2243,10 @@ TEST_F(WallpaperControllerTest, WallpaperSyncedDuringPreview) {
   gfx::ImageSkia synced_online_wallpaper =
       CreateImage(640, 480, synced_online_wallpaper_color);
   ClearWallpaperCount();
-  SetOnlineWallpaperFromImage(account_id_1, synced_online_wallpaper, kDummyUrl2,
-                              layout, false /*save_file=*/,
-                              false /*preview_mode=*/);
+  SetOnlineWallpaperFromImage(
+      account_id_1, synced_online_wallpaper, kDummyUrl2, layout,
+      false /*save_file=*/, false /*preview_mode=*/,
+      WallpaperController::SetOnlineWallpaperFromDataCallback());
   RunAllTasksUntilIdle();
   EXPECT_EQ(0, GetWallpaperCount());
   EXPECT_EQ(kWallpaperColor, GetWallpaperColor());
@@ -2228,6 +2268,95 @@ TEST_F(WallpaperControllerTest, WallpaperSyncedDuringPreview) {
   EXPECT_TRUE(controller_->GetUserWallpaperInfo(
       account_id_1, &user_wallpaper_info, false /*is_ephemeral=*/));
   EXPECT_EQ(user_wallpaper_info, synced_online_wallpaper_info);
+}
+
+TEST_F(WallpaperControllerTest, AddFirstWallpaperAnimationEndCallback) {
+  ui::ScopedAnimationDurationScaleMode test_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  std::unique_ptr<aura::Window> test_window(
+      CreateTestWindow(gfx::Rect(0, 0, 100, 100)));
+
+  bool is_first_callback_run = false;
+  controller_->AddFirstWallpaperAnimationEndCallback(
+      base::BindLambdaForTesting(
+          [&is_first_callback_run]() { is_first_callback_run = true; }),
+      test_window.get());
+  // The callback is not run because the first wallpaper hasn't been set.
+  RunAllTasksUntilIdle();
+  EXPECT_FALSE(is_first_callback_run);
+
+  // Set the first wallpaper.
+  controller_->ShowDefaultWallpaperForTesting();
+  bool is_second_callback_run = false;
+  controller_->AddFirstWallpaperAnimationEndCallback(
+      base::BindLambdaForTesting(
+          [&is_second_callback_run]() { is_second_callback_run = true; }),
+      test_window.get());
+  // Neither callback is run because the animation of the first wallpaper
+  // hasn't finished yet.
+  RunAllTasksUntilIdle();
+  EXPECT_FALSE(is_first_callback_run);
+  EXPECT_FALSE(is_second_callback_run);
+
+  // Force the animation to complete. The two callbacks are both run.
+  RunDesktopControllerAnimation();
+  EXPECT_TRUE(is_first_callback_run);
+  EXPECT_TRUE(is_second_callback_run);
+
+  // The callback added after the first wallpaper animation is run right away.
+  bool is_third_callback_run = false;
+  controller_->AddFirstWallpaperAnimationEndCallback(
+      base::BindLambdaForTesting(
+          [&is_third_callback_run]() { is_third_callback_run = true; }),
+      test_window.get());
+  EXPECT_TRUE(is_third_callback_run);
+}
+
+TEST_F(WallpaperControllerTest, ShowOneShotWallpaper) {
+  gfx::ImageSkia custom_wallpaper = CreateImage(640, 480, kWallpaperColor);
+  WallpaperLayout layout = WALLPAPER_LAYOUT_CENTER;
+  SimulateUserLogin(kUser1);
+  // First, set a custom wallpaper for |kUser1|. Verify the wallpaper is shown
+  // successfully and the user wallpaper info is updated.
+  controller_->SetCustomWallpaper(InitializeUser(account_id_1),
+                                  wallpaper_files_id_1, file_name_1, layout,
+                                  custom_wallpaper, false /*preview_mode=*/);
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(1, GetWallpaperCount());
+  EXPECT_EQ(kWallpaperColor, GetWallpaperColor());
+  EXPECT_EQ(WallpaperType::CUSTOMIZED, controller_->GetWallpaperType());
+  const WallpaperInfo expected_wallpaper_info(
+      base::FilePath(wallpaper_files_id_1).Append(file_name_1).value(), layout,
+      WallpaperType::CUSTOMIZED, base::Time::Now().LocalMidnight());
+  WallpaperInfo wallpaper_info;
+  EXPECT_TRUE(controller_->GetUserWallpaperInfo(account_id_1, &wallpaper_info,
+                                                false /*is_ephemeral=*/));
+  EXPECT_EQ(expected_wallpaper_info, wallpaper_info);
+
+  // Show a one-shot wallpaper. Verify it is shown successfully.
+  ClearWallpaperCount();
+  constexpr SkColor kOneShotWallpaperColor = SK_ColorWHITE;
+  gfx::ImageSkia one_shot_wallpaper =
+      CreateImage(640, 480, kOneShotWallpaperColor);
+  controller_->ShowOneShotWallpaper(one_shot_wallpaper);
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(1, GetWallpaperCount());
+  EXPECT_EQ(kOneShotWallpaperColor, GetWallpaperColor());
+  EXPECT_EQ(WallpaperType::ONE_SHOT, controller_->GetWallpaperType());
+  EXPECT_FALSE(controller_->IsBlurAllowed());
+  EXPECT_FALSE(controller_->ShouldApplyDimming());
+
+  // Verify the user wallpaper info is unaffected, and the one-shot wallpaper
+  // can be replaced by the user wallpaper.
+  EXPECT_TRUE(controller_->GetUserWallpaperInfo(account_id_1, &wallpaper_info,
+                                                false /*is_ephemeral=*/));
+  EXPECT_EQ(expected_wallpaper_info, wallpaper_info);
+  ClearWallpaperCount();
+  controller_->ShowUserWallpaper(InitializeUser(account_id_1));
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(1, GetWallpaperCount());
+  EXPECT_EQ(kWallpaperColor, GetWallpaperColor());
+  EXPECT_EQ(WallpaperType::CUSTOMIZED, controller_->GetWallpaperType());
 }
 
 // A test wallpaper controller client class.

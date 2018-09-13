@@ -2452,6 +2452,9 @@ static bool mergeDeclAttribute(Sema &S, NamedDecl *D,
   else if (const auto *SA = dyn_cast<SectionAttr>(Attr))
     NewAttr = S.mergeSectionAttr(D, SA->getRange(), SA->getName(),
                                  AttrSpellingListIndex);
+  else if (const auto *CSA = dyn_cast<CodeSegAttr>(Attr))
+    NewAttr = S.mergeCodeSegAttr(D, CSA->getRange(), CSA->getName(),
+                                 AttrSpellingListIndex);
   else if (const auto *IA = dyn_cast<MSInheritanceAttr>(Attr))
     NewAttr = S.mergeMSInheritanceAttr(D, IA->getRange(), IA->getBestCase(),
                                        AttrSpellingListIndex,
@@ -2668,6 +2671,15 @@ void Sema::mergeDeclAttributes(NamedDecl *New, Decl *Old,
         Diag(Old->getLocation(), diag::note_previous_declaration);
       }
     }
+  }
+
+  // Redeclaration adds code-seg attribute.
+  const auto *NewCSA = New->getAttr<CodeSegAttr>();
+  if (NewCSA && !Old->hasAttr<CodeSegAttr>() &&
+      !NewCSA->isImplicit() && isa<CXXMethodDecl>(New)) {
+    Diag(New->getLocation(), diag::warn_mismatched_section)
+         << 0 /*codeseg*/;
+    Diag(Old->getLocation(), diag::note_previous_declaration);
   }
 
   if (!Old->hasAttrs())
@@ -4447,10 +4459,9 @@ Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS, DeclSpec &DS,
         TypeSpecType == DeclSpec::TST_interface ||
         TypeSpecType == DeclSpec::TST_union ||
         TypeSpecType == DeclSpec::TST_enum) {
-      for (AttributeList* attrs = DS.getAttributes().getList(); attrs;
-           attrs = attrs->getNext())
-        Diag(attrs->getLoc(), diag::warn_declspec_attribute_ignored)
-            << attrs->getName() << GetDiagnosticTypeSpecifierID(TypeSpecType);
+      for (const ParsedAttr &AL : DS.getAttributes())
+        Diag(AL.getLoc(), diag::warn_declspec_attribute_ignored)
+            << AL.getName() << GetDiagnosticTypeSpecifierID(TypeSpecType);
     }
   }
 
@@ -4642,12 +4653,14 @@ Decl *Sema::BuildAnonymousStructOrUnion(Scope *S, DeclSpec &DS,
     unsigned DiagID;
     if (Record->isUnion()) {
       // C++ [class.union]p6:
+      // C++17 [class.union.anon]p2:
       //   Anonymous unions declared in a named namespace or in the
       //   global namespace shall be declared static.
+      DeclContext *OwnerScope = Owner->getRedeclContext();
       if (DS.getStorageClassSpec() != DeclSpec::SCS_static &&
-          (isa<TranslationUnitDecl>(Owner) ||
-           (isa<NamespaceDecl>(Owner) &&
-            cast<NamespaceDecl>(Owner)->getDeclName()))) {
+          (OwnerScope->isTranslationUnit() ||
+           (OwnerScope->isNamespace() &&
+            !cast<NamespaceDecl>(OwnerScope)->isAnonymousNamespace()))) {
         Diag(Record->getLocation(), diag::err_anonymous_union_not_static)
           << FixItHint::CreateInsertion(Record->getLocation(), "static ");
 
@@ -6202,29 +6215,21 @@ static bool shouldConsiderLinkage(const FunctionDecl *FD) {
   llvm_unreachable("Unexpected context");
 }
 
-static bool hasParsedAttr(Scope *S, const AttributeList *AttrList,
-                          AttributeList::Kind Kind) {
-  for (const AttributeList *L = AttrList; L; L = L->getNext())
-    if (L->getKind() == Kind)
-      return true;
-  return false;
-}
-
 static bool hasParsedAttr(Scope *S, const Declarator &PD,
-                          AttributeList::Kind Kind) {
+                          ParsedAttr::Kind Kind) {
   // Check decl attributes on the DeclSpec.
-  if (hasParsedAttr(S, PD.getDeclSpec().getAttributes().getList(), Kind))
+  if (PD.getDeclSpec().getAttributes().hasAttribute(Kind))
     return true;
 
   // Walk the declarator structure, checking decl attributes that were in a type
   // position to the decl itself.
   for (unsigned I = 0, E = PD.getNumTypeObjects(); I != E; ++I) {
-    if (hasParsedAttr(S, PD.getTypeObject(I).getAttrs(), Kind))
+    if (PD.getTypeObject(I).getAttrs().hasAttribute(Kind))
       return true;
   }
 
   // Finally, check attributes on the decl itself.
-  return hasParsedAttr(S, PD.getAttributes(), Kind);
+  return PD.getAttributes().hasAttribute(Kind);
 }
 
 /// Adjust the \c DeclContext for a function or variable that might be a
@@ -6379,8 +6384,8 @@ NamedDecl *Sema::ActOnVariableDeclarator(
   // dllimport globals without explicit storage class are treated as extern. We
   // have to change the storage class this early to get the right DeclContext.
   if (SC == SC_None && !DC->isRecord() &&
-      hasParsedAttr(S, D, AttributeList::AT_DLLImport) &&
-      !hasParsedAttr(S, D, AttributeList::AT_DLLExport))
+      hasParsedAttr(S, D, ParsedAttr::AT_DLLImport) &&
+      !hasParsedAttr(S, D, ParsedAttr::AT_DLLExport))
     SC = SC_Extern;
 
   DeclContext *OriginalDC = DC;
@@ -8251,7 +8256,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
                               bool &AddToScope) {
   QualType R = TInfo->getType();
 
-  assert(R.getTypePtr()->isFunctionType());
+  assert(R->isFunctionType());
 
   // TODO: consider using NameInfo for diagnostic.
   DeclarationNameInfo NameInfo = GetNameForDeclarator(D);
@@ -8730,6 +8735,15 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
       NewFD->dropAttr<SectionAttr>();
   }
 
+  // Apply an implicit CodeSegAttr from class declspec or
+  // apply an implicit SectionAttr from #pragma code_seg if active.
+  if (!NewFD->hasAttr<CodeSegAttr>()) {
+    if (Attr *SAttr = getImplicitCodeSegOrSectionAttrForFunction(NewFD,
+                                                                 D.isFunctionDefinition())) {
+      NewFD->addAttr(SAttr);
+    }
+  }
+
   // Handle attributes.
   ProcessDeclAttributes(S, NewFD, D);
 
@@ -9177,6 +9191,64 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   return NewFD;
 }
 
+/// Return a CodeSegAttr from a containing class.  The Microsoft docs say
+/// when __declspec(code_seg) "is applied to a class, all member functions of
+/// the class and nested classes -- this includes compiler-generated special
+/// member functions -- are put in the specified segment."
+/// The actual behavior is a little more complicated. The Microsoft compiler
+/// won't check outer classes if there is an active value from #pragma code_seg.
+/// The CodeSeg is always applied from the direct parent but only from outer
+/// classes when the #pragma code_seg stack is empty. See:
+/// https://reviews.llvm.org/D22931, the Microsoft feedback page is no longer
+/// available since MS has removed the page.
+static Attr *getImplicitCodeSegAttrFromClass(Sema &S, const FunctionDecl *FD) {
+  const auto *Method = dyn_cast<CXXMethodDecl>(FD);
+  if (!Method)
+    return nullptr;
+  const CXXRecordDecl *Parent = Method->getParent();
+  if (const auto *SAttr = Parent->getAttr<CodeSegAttr>()) {
+    Attr *NewAttr = SAttr->clone(S.getASTContext());
+    NewAttr->setImplicit(true);
+    return NewAttr;
+  }
+
+  // The Microsoft compiler won't check outer classes for the CodeSeg
+  // when the #pragma code_seg stack is active.
+  if (S.CodeSegStack.CurrentValue)
+   return nullptr;
+
+  while ((Parent = dyn_cast<CXXRecordDecl>(Parent->getParent()))) {
+    if (const auto *SAttr = Parent->getAttr<CodeSegAttr>()) {
+      Attr *NewAttr = SAttr->clone(S.getASTContext());
+      NewAttr->setImplicit(true);
+      return NewAttr;
+    }
+  }
+  return nullptr;
+}
+
+/// Returns an implicit CodeSegAttr if a __declspec(code_seg) is found on a
+/// containing class. Otherwise it will return implicit SectionAttr if the
+/// function is a definition and there is an active value on CodeSegStack
+/// (from the current #pragma code-seg value).
+///
+/// \param FD Function being declared.
+/// \param IsDefinition Whether it is a definition or just a declarartion.
+/// \returns A CodeSegAttr or SectionAttr to apply to the function or
+///          nullptr if no attribute should be added.
+Attr *Sema::getImplicitCodeSegOrSectionAttrForFunction(const FunctionDecl *FD,
+                                                       bool IsDefinition) {
+  if (Attr *A = getImplicitCodeSegAttrFromClass(*this, FD))
+    return A;
+  if (!FD->hasAttr<SectionAttr>() && IsDefinition &&
+      CodeSegStack.CurrentValue) {
+    return SectionAttr::CreateImplicit(getASTContext(),
+                                       SectionAttr::Declspec_allocate,
+                                       CodeSegStack.CurrentValue->getString(),
+                                       CodeSegStack.CurrentPragmaLocation);
+  }
+  return nullptr;
+}
 /// Checks if the new declaration declared in dependent context must be
 /// put in the same redeclaration chain as the specified declaration.
 ///
@@ -10799,11 +10871,12 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
     // we do not warn to warn spuriously when 'x' and 'y' are on separate
     // paths through the function. This should be revisited if
     // -Wrepeated-use-of-weak is made flow-sensitive.
-    if ((VDecl->getType().getObjCLifetime() == Qualifiers::OCL_Strong ||
-         VDecl->getType().isNonWeakInMRRWithObjCWeak(Context)) &&
-        !Diags.isIgnored(diag::warn_arc_repeated_use_of_weak,
-                         Init->getLocStart()))
-      getCurFunction()->markSafeWeakUse(Init);
+    if (FunctionScopeInfo *FSI = getCurFunction())
+      if ((VDecl->getType().getObjCLifetime() == Qualifiers::OCL_Strong ||
+           VDecl->getType().isNonWeakInMRRWithObjCWeak(Context)) &&
+          !Diags.isIgnored(diag::warn_arc_repeated_use_of_weak,
+                           Init->getLocStart()))
+        FSI->markSafeWeakUse(Init);
   }
 
   // The initialization is usually a full-expression.
@@ -11337,8 +11410,8 @@ Sema::ActOnCXXForRangeIdentifier(Scope *S, SourceLocation IdentLoc,
   D.takeAttributes(Attrs, AttrEnd);
 
   ParsedAttributes EmptyAttrs(Attrs.getPool().getFactory());
-  D.AddTypeInfo(DeclaratorChunk::getReference(0, IdentLoc, /*lvalue*/false),
-                EmptyAttrs, IdentLoc);
+  D.AddTypeInfo(DeclaratorChunk::getReference(0, IdentLoc, /*lvalue*/ false),
+                IdentLoc);
   Decl *Var = ActOnDeclarator(S, D);
   cast<VarDecl>(Var)->setCXXForRangeDecl(true);
   FinalizeDeclaration(Var);
@@ -11672,58 +11745,8 @@ void Sema::FinalizeDeclaration(Decl *ThisDecl) {
   // 7.5). We must also apply the same checks to all __shared__
   // variables whether they are local or not. CUDA also allows
   // constant initializers for __constant__ and __device__ variables.
-  if (getLangOpts().CUDA) {
-    const Expr *Init = VD->getInit();
-    if (Init && VD->hasGlobalStorage()) {
-      if (VD->hasAttr<CUDADeviceAttr>() || VD->hasAttr<CUDAConstantAttr>() ||
-          VD->hasAttr<CUDASharedAttr>()) {
-        assert(!VD->isStaticLocal() || VD->hasAttr<CUDASharedAttr>());
-        bool AllowedInit = false;
-        if (const CXXConstructExpr *CE = dyn_cast<CXXConstructExpr>(Init))
-          AllowedInit =
-              isEmptyCudaConstructor(VD->getLocation(), CE->getConstructor());
-        // We'll allow constant initializers even if it's a non-empty
-        // constructor according to CUDA rules. This deviates from NVCC,
-        // but allows us to handle things like constexpr constructors.
-        if (!AllowedInit &&
-            (VD->hasAttr<CUDADeviceAttr>() || VD->hasAttr<CUDAConstantAttr>()))
-          AllowedInit = VD->getInit()->isConstantInitializer(
-              Context, VD->getType()->isReferenceType());
-
-        // Also make sure that destructor, if there is one, is empty.
-        if (AllowedInit)
-          if (CXXRecordDecl *RD = VD->getType()->getAsCXXRecordDecl())
-            AllowedInit =
-                isEmptyCudaDestructor(VD->getLocation(), RD->getDestructor());
-
-        if (!AllowedInit) {
-          Diag(VD->getLocation(), VD->hasAttr<CUDASharedAttr>()
-                                      ? diag::err_shared_var_init
-                                      : diag::err_dynamic_var_init)
-              << Init->getSourceRange();
-          VD->setInvalidDecl();
-        }
-      } else {
-        // This is a host-side global variable.  Check that the initializer is
-        // callable from the host side.
-        const FunctionDecl *InitFn = nullptr;
-        if (const CXXConstructExpr *CE = dyn_cast<CXXConstructExpr>(Init)) {
-          InitFn = CE->getConstructor();
-        } else if (const CallExpr *CE = dyn_cast<CallExpr>(Init)) {
-          InitFn = CE->getDirectCallee();
-        }
-        if (InitFn) {
-          CUDAFunctionTarget InitFnTarget = IdentifyCUDATarget(InitFn);
-          if (InitFnTarget != CFT_Host && InitFnTarget != CFT_HostDevice) {
-            Diag(VD->getLocation(), diag::err_ref_bad_target_global_initializer)
-                << InitFnTarget << InitFn;
-            Diag(InitFn->getLocation(), diag::note_previous_decl) << InitFn;
-            VD->setInvalidDecl();
-          }
-        }
-      }
-    }
-  }
+  if (getLangOpts().CUDA)
+    checkAllowedCUDAInitializer(VD);
 
   // Grab the dllimport or dllexport attribute off of the VarDecl.
   const InheritableAttr *DLLAttr = getDLLAttr(VD);
@@ -12658,9 +12681,15 @@ bool Sema::canSkipFunctionBody(Decl *D) {
   // rest of the file.
   // We cannot skip the body of a function with an undeduced return type,
   // because any callers of that function need to know the type.
-  if (const FunctionDecl *FD = D->getAsFunction())
-    if (FD->isConstexpr() || FD->getReturnType()->isUndeducedType())
+  if (const FunctionDecl *FD = D->getAsFunction()) {
+    if (FD->isConstexpr())
       return false;
+    // We can't simply call Type::isUndeducedType here, because inside template
+    // auto can be deduced to a dependent type, which is not considered
+    // "undeduced".
+    if (FD->getReturnType()->getContainedDeducedType())
+      return false;
+  }
   return Consumer.shouldSkipFunctionBody(D);
 }
 
@@ -12985,7 +13014,7 @@ void Sema::ActOnFinishDelayedAttribute(Scope *S, Decl *D,
   // Always attach attributes to the underlying decl.
   if (TemplateDecl *TD = dyn_cast<TemplateDecl>(D))
     D = TD->getTemplatedDecl();
-  ProcessDeclAttributeList(S, D, Attrs.getList());
+  ProcessDeclAttributeList(S, D, Attrs);
 
   if (CXXMethodDecl *Method = dyn_cast_or_null<CXXMethodDecl>(D))
     if (Method->isStatic())
@@ -13087,18 +13116,16 @@ NamedDecl *Sema::ImplicitlyDefineFunction(SourceLocation Loc,
                                              /*ConstQualifierLoc=*/NoLoc,
                                              /*VolatileQualifierLoc=*/NoLoc,
                                              /*RestrictQualifierLoc=*/NoLoc,
-                                             /*MutableLoc=*/NoLoc,
-                                             EST_None,
+                                             /*MutableLoc=*/NoLoc, EST_None,
                                              /*ESpecRange=*/SourceRange(),
                                              /*Exceptions=*/nullptr,
                                              /*ExceptionRanges=*/nullptr,
                                              /*NumExceptions=*/0,
                                              /*NoexceptExpr=*/nullptr,
                                              /*ExceptionSpecTokens=*/nullptr,
-                                             /*DeclsInPrototype=*/None,
-                                             Loc, Loc, D),
-                DS.getAttributes(),
-                SourceLocation());
+                                             /*DeclsInPrototype=*/None, Loc,
+                                             Loc, D),
+                std::move(DS.getAttributes()), SourceLocation());
   D.SetIdentifier(&II, Loc);
 
   // Insert this function into the enclosing block scope.
@@ -13570,13 +13597,12 @@ static bool isAcceptableTagRedeclContext(Sema &S, DeclContext *OldDC,
 Decl *Sema::ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
                      SourceLocation KWLoc, CXXScopeSpec &SS,
                      IdentifierInfo *Name, SourceLocation NameLoc,
-                     AttributeList *Attr, AccessSpecifier AS,
+                     const ParsedAttributesView &Attrs, AccessSpecifier AS,
                      SourceLocation ModulePrivateLoc,
                      MultiTemplateParamsArg TemplateParameterLists,
                      bool &OwnedDecl, bool &IsDependent,
                      SourceLocation ScopedEnumKWLoc,
-                     bool ScopedEnumUsesClassTag,
-                     TypeResult UnderlyingType,
+                     bool ScopedEnumUsesClassTag, TypeResult UnderlyingType,
                      bool IsTypeSpecifier, bool IsTemplateParamOrArg,
                      SkipBodyInfo *SkipBody) {
   // If this is not a definition, it must have a name.
@@ -13615,14 +13641,11 @@ Decl *Sema::ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
           return nullptr;
 
         OwnedDecl = false;
-        DeclResult Result = CheckClassTemplate(S, TagSpec, TUK, KWLoc,
-                                               SS, Name, NameLoc, Attr,
-                                               TemplateParams, AS,
-                                               ModulePrivateLoc,
-                                               /*FriendLoc*/SourceLocation(),
-                                               TemplateParameterLists.size()-1,
-                                               TemplateParameterLists.data(),
-                                               SkipBody);
+        DeclResult Result = CheckClassTemplate(
+            S, TagSpec, TUK, KWLoc, SS, Name, NameLoc, Attrs, TemplateParams,
+            AS, ModulePrivateLoc,
+            /*FriendLoc*/ SourceLocation(), TemplateParameterLists.size() - 1,
+            TemplateParameterLists.data(), SkipBody);
         return Result.get();
       } else {
         // The "template<>" header is extraneous.
@@ -14088,7 +14111,7 @@ Decl *Sema::ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
           // If this is a use, just return the declaration we found, unless
           // we have attributes.
           if (TUK == TUK_Reference || TUK == TUK_Friend) {
-            if (Attr) {
+            if (!Attrs.empty()) {
               // FIXME: Diagnose these attributes. For now, we create a new
               // declaration to hold them.
             } else if (TUK == TUK_Reference &&
@@ -14280,7 +14303,6 @@ CreateNewDecl:
   // PrevDecl.
   TagDecl *New;
 
-  bool IsForwardReference = false;
   if (Kind == TTK_Enum) {
     // FIXME: Tag decls should be chained to any simultaneous vardecls, e.g.:
     // enum X { A, B, C } D;    D should chain to X.
@@ -14310,12 +14332,6 @@ CreateNewDecl:
         else if (getLangOpts().CPlusPlus)
           DiagID = diag::err_forward_ref_enum;
         Diag(Loc, DiagID);
-
-        // If this is a forward-declared reference to an enumeration, make a
-        // note of it; we won't actually be introducing the declaration into
-        // the declaration context.
-        if (TUK == TUK_Reference)
-          IsForwardReference = true;
       }
     }
 
@@ -14455,8 +14471,7 @@ CreateNewDecl:
   if (TUK == TUK_Definition)
     New->startDefinition();
 
-  if (Attr)
-    ProcessDeclAttributeList(S, New, Attr);
+  ProcessDeclAttributeList(S, New, Attrs);
   AddPragmaAttributes(S, New);
 
   // If this has an identifier, add it to the scope stack.
@@ -14473,9 +14488,7 @@ CreateNewDecl:
         PushOnScopeChains(New, EnclosingScope, /* AddToContext = */ false);
   } else if (Name) {
     S = getNonFieldDeclScope(S);
-    PushOnScopeChains(New, S, !IsForwardReference);
-    if (IsForwardReference)
-      SearchDC->makeDeclVisibleInContext(New);
+    PushOnScopeChains(New, S, true);
   } else {
     CurContext->addDecl(New);
   }
@@ -15277,7 +15290,8 @@ void Sema::ActOnLastBitfield(SourceLocation DeclLoc,
 
 void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
                        ArrayRef<Decl *> Fields, SourceLocation LBrac,
-                       SourceLocation RBrac, AttributeList *Attr) {
+                       SourceLocation RBrac,
+                       const ParsedAttributesView &Attrs) {
   assert(EnclosingDecl && "missing record or interface decl");
 
   // If this is an Objective-C @implementation or category and we have
@@ -15594,6 +15608,9 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
     if (!Completed)
       Record->completeDefinition();
 
+    // Handle attributes before checking the layout.
+    ProcessDeclAttributeList(S, Record, Attrs);
+
     // We may have deferred checking for a deleted destructor. Check now.
     if (CXXRecordDecl *CXXRecord = dyn_cast<CXXRecordDecl>(Record)) {
       auto *Dtor = CXXRecord->getDestructor();
@@ -15724,9 +15741,6 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
       CDecl->setIvarRBraceLoc(RBrac);
     }
   }
-
-  if (Attr)
-    ProcessDeclAttributeList(S, Record, Attr);
 }
 
 /// Determine whether the given integral value is representable within
@@ -15973,7 +15987,7 @@ Sema::SkipBodyInfo Sema::shouldSkipAnonEnumBody(Scope *S, IdentifierInfo *II,
 
 Decl *Sema::ActOnEnumConstant(Scope *S, Decl *theEnumDecl, Decl *lastEnumConst,
                               SourceLocation IdLoc, IdentifierInfo *Id,
-                              AttributeList *Attr,
+                              const ParsedAttributesView &Attrs,
                               SourceLocation EqualLoc, Expr *Val) {
   EnumDecl *TheEnumDecl = cast<EnumDecl>(theEnumDecl);
   EnumConstantDecl *LastEnumConst =
@@ -16024,7 +16038,7 @@ Decl *Sema::ActOnEnumConstant(Scope *S, Decl *theEnumDecl, Decl *lastEnumConst,
   }
 
   // Process attributes.
-  if (Attr) ProcessDeclAttributeList(S, New, Attr);
+  ProcessDeclAttributeList(S, New, Attrs);
   AddPragmaAttributes(S, New);
 
   // Register this decl in the current scope stack.
@@ -16216,14 +16230,12 @@ bool Sema::IsValueInFlagEnum(const EnumDecl *ED, const llvm::APInt &Val,
 }
 
 void Sema::ActOnEnumBody(SourceLocation EnumLoc, SourceRange BraceRange,
-                         Decl *EnumDeclX,
-                         ArrayRef<Decl *> Elements,
-                         Scope *S, AttributeList *Attr) {
+                         Decl *EnumDeclX, ArrayRef<Decl *> Elements, Scope *S,
+                         const ParsedAttributesView &Attrs) {
   EnumDecl *Enum = cast<EnumDecl>(EnumDeclX);
   QualType EnumType = Context.getTypeDeclType(Enum);
 
-  if (Attr)
-    ProcessDeclAttributeList(S, Enum, Attr);
+  ProcessDeclAttributeList(S, Enum, Attrs);
 
   if (Enum->isDependentType()) {
     for (unsigned i = 0, e = Elements.size(); i != e; ++i) {

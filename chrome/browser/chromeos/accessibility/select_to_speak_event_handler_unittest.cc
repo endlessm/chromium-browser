@@ -11,7 +11,6 @@
 #include "ash/test/ash_test_helper.h"
 #include "ash/test/ash_test_views_delegate.h"
 #include "base/macros.h"
-#include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/ui/aura/accessibility/automation_manager_aura.h"
 #include "chrome/test/base/testing_profile.h"
 #include "ui/aura/test/aura_test_base.h"
@@ -103,7 +102,7 @@ class SelectToSpeakEventHandlerTest : public ash::AshTestBase {
     mouse_event_delegate_.reset(new SelectToSpeakMouseEventDelegate());
     select_to_speak_event_handler_->CaptureForwardedEventsForTesting(
         mouse_event_delegate_.get());
-    generator_ = &AshTestBase::GetEventGenerator();
+    generator_ = AshTestBase::GetEventGenerator();
     CurrentContext()->AddPreTargetHandler(&event_capturer_);
     AutomationManagerAura::GetInstance()->Enable(&profile_);
   }

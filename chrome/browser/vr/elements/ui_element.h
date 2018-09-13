@@ -26,6 +26,7 @@
 #include "chrome/browser/vr/model/reticle_model.h"
 #include "chrome/browser/vr/model/sounds.h"
 #include "chrome/browser/vr/target_property.h"
+#include "chrome/browser/vr/vr_ui_export.h"
 #include "ui/gfx/geometry/point3_f.h"
 #include "ui/gfx/geometry/quaternion.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -37,15 +38,12 @@ namespace base {
 class TimeTicks;
 }
 
-namespace blink {
-class WebGestureEvent;
-}
-
 namespace vr {
 
 class KeyframeModel;
 class SkiaSurfaceProvider;
 class UiElementRenderer;
+class InputEvent;
 struct CameraModel;
 struct EditedText;
 
@@ -57,7 +55,7 @@ enum LayoutAlignment {
   BOTTOM,
 };
 
-struct EventHandlers {
+struct VR_UI_EXPORT EventHandlers {
   EventHandlers();
   EventHandlers(const EventHandlers& other);
   ~EventHandlers();
@@ -66,6 +64,7 @@ struct EventHandlers {
   base::RepeatingCallback<void(const gfx::PointF&)> hover_move;
   base::RepeatingCallback<void()> button_down;
   base::RepeatingCallback<void()> button_up;
+  base::RepeatingCallback<void(const gfx::PointF&)> touch_move;
   base::RepeatingCallback<void(bool)> focus_change;
 };
 
@@ -97,7 +96,7 @@ struct HitTestResult {
   float distance_to_plane;
 };
 
-class UiElement : public cc::AnimationTarget {
+class VR_UI_EXPORT UiElement : public cc::AnimationTarget {
  public:
   UiElement();
   ~UiElement() override;
@@ -137,7 +136,9 @@ class UiElement : public cc::AnimationTarget {
   virtual bool PrepareToDraw();
 
   // Returns true if the element updated its texture.
-  virtual bool UpdateTexture();
+  virtual bool HasDirtyTexture() const;
+
+  virtual void UpdateTexture();
 
   bool IsHitTestable() const;
 
@@ -147,18 +148,24 @@ class UiElement : public cc::AnimationTarget {
   virtual void Initialize(SkiaSurfaceProvider* provider);
 
   // Controller interaction methods.
-  virtual void OnHoverEnter(const gfx::PointF& position);
-  virtual void OnHoverLeave();
-  virtual void OnMove(const gfx::PointF& position);
-  virtual void OnButtonDown(const gfx::PointF& position);
-  virtual void OnButtonUp(const gfx::PointF& position);
-  virtual void OnFlingCancel(std::unique_ptr<blink::WebGestureEvent> gesture,
+  virtual void OnHoverEnter(const gfx::PointF& position,
+                            base::TimeTicks timestamp);
+  virtual void OnHoverLeave(base::TimeTicks timestamp);
+  virtual void OnHoverMove(const gfx::PointF& position,
+                           base::TimeTicks timestamp);
+  virtual void OnButtonDown(const gfx::PointF& position,
+                            base::TimeTicks timestamp);
+  virtual void OnButtonUp(const gfx::PointF& position,
+                          base::TimeTicks timestamp);
+  virtual void OnTouchMove(const gfx::PointF& position,
+                           base::TimeTicks timestamp);
+  virtual void OnFlingCancel(std::unique_ptr<InputEvent> gesture,
                              const gfx::PointF& position);
-  virtual void OnScrollBegin(std::unique_ptr<blink::WebGestureEvent> gesture,
+  virtual void OnScrollBegin(std::unique_ptr<InputEvent> gesture,
                              const gfx::PointF& position);
-  virtual void OnScrollUpdate(std::unique_ptr<blink::WebGestureEvent> gesture,
+  virtual void OnScrollUpdate(std::unique_ptr<InputEvent> gesture,
                               const gfx::PointF& position);
-  virtual void OnScrollEnd(std::unique_ptr<blink::WebGestureEvent> gesture,
+  virtual void OnScrollEnd(std::unique_ptr<InputEvent> gesture,
                            const gfx::PointF& position);
 
   // Whether the point (relative to the origin of the element), should be
@@ -535,7 +542,7 @@ class UiElement : public cc::AnimationTarget {
   // A signal to the input routing machinery that this element accepts scrolls.
   bool scrollable_ = false;
 
-  // If true, events such as OnButtonDown, OnBubbleUp, etc, get bubbled up the
+  // If true, events such as OnButtonDown, OnHoverEnter, etc, get bubbled up the
   // parent chain.
   bool bubble_events_ = false;
 

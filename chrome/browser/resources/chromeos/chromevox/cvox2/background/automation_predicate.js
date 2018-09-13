@@ -192,10 +192,12 @@ AutomationPredicate.leaf = function(node) {
        !hasActionableDescendant(node)) ||
       (!!node.descriptionFor && node.descriptionFor.length > 0 &&
        !hasActionableDescendant(node)) ||
+      (node.activeDescendantFor && node.activeDescendantFor.length > 0) ||
       (node.role == Role.MENU_ITEM && !hasActionableDescendant(node)) ||
       node.state[State.INVISIBLE] || node.children.every(function(n) {
         return n.state[State.INVISIBLE];
-      });
+      }) ||
+      !!AutomationPredicate.math(node);
 };
 
 /**
@@ -320,6 +322,10 @@ AutomationPredicate.linebreak = function(first, second) {
  * @return {boolean}
  */
 AutomationPredicate.container = function(node) {
+  // Math is never a container.
+  if (AutomationPredicate.math(node))
+    return false;
+
   return AutomationPredicate.match({
     anyRole: [
       Role.GENERIC_CONTAINER, Role.DOCUMENT, Role.GROUP, Role.LIST,
@@ -395,9 +401,10 @@ AutomationPredicate.root = function(node) {
  * @param {AutomationNode} node
  * @return {boolean}
  */
-AutomationPredicate.editableRoot = function(node) {
+AutomationPredicate.rootOrEditableRoot = function(node) {
   return AutomationPredicate.root(node) ||
-      node.state.richlyEditable && node.state.focused;
+      (node.state.richlyEditable && node.state.focused &&
+       node.children.length > 0);
 };
 
 /**
@@ -431,6 +438,10 @@ AutomationPredicate.shouldIgnoreNode = function(node) {
   if (node.name || node.value || node.description || node.url)
     return false;
 
+  // Don't ignore math nodes.
+  if (AutomationPredicate.math(node))
+    return false;
+
   // Ignore some roles.
   return AutomationPredicate.leaf(node) && (AutomationPredicate.roles([
            Role.CLIENT, Role.COLUMN, Role.GENERIC_CONTAINER, Role.GROUP,
@@ -446,7 +457,7 @@ AutomationPredicate.shouldIgnoreNode = function(node) {
  */
 AutomationPredicate.checkable = AutomationPredicate.roles([
   Role.CHECK_BOX, Role.RADIO_BUTTON, Role.MENU_ITEM_CHECK_BOX,
-  Role.MENU_ITEM_RADIO, Role.TREE_ITEM
+  Role.MENU_ITEM_RADIO, Role.TOGGLE_BUTTON, Role.TREE_ITEM
 ]);
 
 /**
@@ -588,6 +599,26 @@ AutomationPredicate.autoScrollable = function(node) {
   return node.scrollable &&
       (node.role == Role.GRID || node.role == Role.LIST ||
        node.role == Role.POP_UP_BUTTON || node.role == Role.SCROLL_VIEW);
+};
+
+/**
+ * @param {!AutomationNode} node
+ * @return {boolean}
+ */
+AutomationPredicate.math = function(node) {
+  return node.role == Role.MATH || !!node.htmlAttributes['data-mathml'];
+};
+
+/**
+ * Matches against editable nodes, that should not be treated in the usual
+ * fashion.
+ * Instead, only output the contents around the selection in braille.
+ * @param {!AutomationNode} node
+ * @return {boolean}
+ */
+AutomationPredicate.shouldOnlyOutputSelectionChangeInBraille = function(node) {
+  return node.state[State.RICHLY_EDITABLE] && node.state[State.FOCUSED] &&
+      node.role == Role.LOG;
 };
 
 });  // goog.scope

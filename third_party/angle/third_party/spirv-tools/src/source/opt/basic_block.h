@@ -19,7 +19,9 @@
 #define LIBSPIRV_OPT_BASIC_BLOCK_H_
 
 #include <functional>
+#include <iterator>
 #include <memory>
+#include <ostream>
 #include <utility>
 #include <vector>
 
@@ -28,7 +30,7 @@
 #include "iterator.h"
 
 namespace spvtools {
-namespace ir {
+namespace opt {
 
 class Function;
 class IRContext;
@@ -38,6 +40,9 @@ class BasicBlock {
  public:
   using iterator = InstructionList::iterator;
   using const_iterator = InstructionList::const_iterator;
+  using reverse_iterator = std::reverse_iterator<InstructionList::iterator>;
+  using const_reverse_iterator =
+      std::reverse_iterator<InstructionList::const_iterator>;
 
   // Creates a basic block with the given starting |label|.
   inline explicit BasicBlock(std::unique_ptr<Instruction> label);
@@ -64,7 +69,7 @@ class BasicBlock {
 
   // The label starting this basic block.
   Instruction* GetLabelInst() { return label_.get(); }
-  const Instruction& GetLabelInst() const { return *label_; }
+  const Instruction* GetLabelInst() const { return label_.get(); }
 
   // Returns the merge instruction in this basic block, if it exists.
   // Otherwise return null.  May be used whenever tail() can be used.
@@ -81,8 +86,25 @@ class BasicBlock {
 
   iterator begin() { return insts_.begin(); }
   iterator end() { return insts_.end(); }
+  const_iterator begin() const { return insts_.cbegin(); }
+  const_iterator end() const { return insts_.cend(); }
   const_iterator cbegin() const { return insts_.cbegin(); }
   const_iterator cend() const { return insts_.cend(); }
+
+  reverse_iterator rbegin() { return reverse_iterator(end()); }
+  reverse_iterator rend() { return reverse_iterator(begin()); }
+  const_reverse_iterator rbegin() const {
+    return const_reverse_iterator(cend());
+  }
+  const_reverse_iterator rend() const {
+    return const_reverse_iterator(cbegin());
+  }
+  const_reverse_iterator crbegin() const {
+    return const_reverse_iterator(cend());
+  }
+  const_reverse_iterator crend() const {
+    return const_reverse_iterator(cbegin());
+  }
 
   // Returns an iterator pointing to the last instruction.  This may only
   // be used if this block has an instruction other than the OpLabel
@@ -98,6 +120,9 @@ class BasicBlock {
     return --insts_.cend();
   }
 
+  // Returns true if the basic block has at least one successor.
+  inline bool hasSuccessor() const { return ctail()->IsBranch(); }
+
   // Runs the given function |f| on each instruction in this basic block, and
   // optionally on the debug line instructions that might precede them.
   inline void ForEachInst(const std::function<void(Instruction*)>& f,
@@ -105,42 +130,83 @@ class BasicBlock {
   inline void ForEachInst(const std::function<void(const Instruction*)>& f,
                           bool run_on_debug_line_insts = false) const;
 
+  // Runs the given function |f| on each instruction in this basic block, and
+  // optionally on the debug line instructions that might precede them. If |f|
+  // returns false, iteration is terminated and this function returns false.
+  inline bool WhileEachInst(const std::function<bool(Instruction*)>& f,
+                            bool run_on_debug_line_insts = false);
+  inline bool WhileEachInst(const std::function<bool(const Instruction*)>& f,
+                            bool run_on_debug_line_insts = false) const;
+
   // Runs the given function |f| on each Phi instruction in this basic block,
   // and optionally on the debug line instructions that might precede them.
   inline void ForEachPhiInst(const std::function<void(Instruction*)>& f,
                              bool run_on_debug_line_insts = false);
 
+  // Runs the given function |f| on each Phi instruction in this basic block,
+  // and optionally on the debug line instructions that might precede them. If
+  // |f| returns false, iteration is terminated and this function return false.
+  inline bool WhileEachPhiInst(const std::function<bool(Instruction*)>& f,
+                               bool run_on_debug_line_insts = false);
+
   // Runs the given function |f| on each label id of each successor block
-  void ForEachSuccessorLabel(const std::function<void(const uint32_t)>& f);
+  void ForEachSuccessorLabel(
+      const std::function<void(const uint32_t)>& f) const;
+
+  // Runs the given function |f| on each label id of each successor block.
+  // Modifying the pointed value will change the branch taken by the basic
+  // block. It is the caller responsibility to update or invalidate the CFG.
+  void ForEachSuccessorLabel(const std::function<void(uint32_t*)>& f);
+
+  // Returns true if |block| is a direct successor of |this|.
+  bool IsSuccessor(const opt::BasicBlock* block) const;
 
   // Runs the given function |f| on the merge and continue label, if any
   void ForMergeAndContinueLabel(const std::function<void(const uint32_t)>& f);
 
   // Returns true if this basic block has any Phi instructions.
   bool HasPhiInstructions() {
-    int count = 0;
-    ForEachPhiInst([&count](ir::Instruction*) {
-      ++count;
-      return;
-    });
-    return count > 0;
+    return !WhileEachPhiInst([](opt::Instruction*) { return false; });
   }
 
   // Return true if this block is a loop header block.
   bool IsLoopHeader() const { return GetLoopMergeInst() != nullptr; }
 
   // Returns the ID of the merge block declared by a merge instruction in this
-  // block, if any.  If none, returns zero.  If |cbid| is not nullptr, the ID of
-  // the continue block in the merge instruction is set in |*cbid|.
+  // block, if any.  If none, returns zero.
   uint32_t MergeBlockIdIfAny() const;
 
   // Returns the ID of the continue block declared by a merge instruction in
   // this block, if any.  If none, returns zero.
   uint32_t ContinueBlockIdIfAny() const;
 
+  // Returns the terminator instruction.  Assumes the terminator exists.
+  Instruction* terminator() { return &*tail(); }
+  const Instruction* terminator() const { return &*ctail(); }
+
   // Returns true if this basic block exits this function and returns to its
   // caller.
   bool IsReturn() const { return ctail()->IsReturn(); }
+
+  // Returns true if this basic block exits this function or aborts execution.
+  bool IsReturnOrAbort() const { return ctail()->IsReturnOrAbort(); }
+
+  // Kill all instructions in this block. Whether or not to kill the label is
+  // indicated by |killLabel|.
+  void KillAllInsts(bool killLabel);
+
+  // Splits this basic block into two. Returns a new basic block with label
+  // |labelId| containing the instructions from |iter| onwards. Instructions
+  // prior to |iter| remain in this basic block.
+  BasicBlock* SplitBasicBlock(IRContext* context, uint32_t label_id,
+                              iterator iter);
+
+  // Pretty-prints this basic block into a std::string by printing every
+  // instruction in it.
+  //
+  // |options| are the disassembly options. SPV_BINARY_TO_TEXT_OPTION_NO_HEADER
+  // is always added to |options|.
+  std::string PrettyPrint(uint32_t options = 0u) const;
 
  private:
   // The enclosing function.
@@ -150,6 +216,9 @@ class BasicBlock {
   // Instructions inside this basic block, but not the OpLabel.
   InstructionList insts_;
 };
+
+// Pretty-prints |block| to |str|. Returns |str|.
+std::ostream& operator<<(std::ostream& str, const BasicBlock& block);
 
 inline BasicBlock::BasicBlock(std::unique_ptr<Instruction> label)
     : function_(nullptr), label_(std::move(label)) {}
@@ -163,32 +232,88 @@ inline void BasicBlock::AddInstructions(BasicBlock* bp) {
   (void)bEnd.MoveBefore(&bp->insts_);
 }
 
+inline bool BasicBlock::WhileEachInst(
+    const std::function<bool(Instruction*)>& f, bool run_on_debug_line_insts) {
+  if (label_) {
+    if (!label_->WhileEachInst(f, run_on_debug_line_insts)) return false;
+  }
+  if (insts_.empty()) {
+    return true;
+  }
+
+  Instruction* inst = &insts_.front();
+  while (inst != nullptr) {
+    Instruction* next_instruction = inst->NextNode();
+    if (!inst->WhileEachInst(f, run_on_debug_line_insts)) return false;
+    inst = next_instruction;
+  }
+  return true;
+}
+
+inline bool BasicBlock::WhileEachInst(
+    const std::function<bool(const Instruction*)>& f,
+    bool run_on_debug_line_insts) const {
+  if (label_) {
+    if (!static_cast<const Instruction*>(label_.get())
+             ->WhileEachInst(f, run_on_debug_line_insts))
+      return false;
+  }
+  for (const auto& inst : insts_) {
+    if (!static_cast<const Instruction*>(&inst)->WhileEachInst(
+            f, run_on_debug_line_insts))
+      return false;
+  }
+  return true;
+}
+
 inline void BasicBlock::ForEachInst(const std::function<void(Instruction*)>& f,
                                     bool run_on_debug_line_insts) {
-  if (label_) label_->ForEachInst(f, run_on_debug_line_insts);
-  for (auto& inst : insts_) inst.ForEachInst(f, run_on_debug_line_insts);
+  WhileEachInst(
+      [&f](Instruction* inst) {
+        f(inst);
+        return true;
+      },
+      run_on_debug_line_insts);
 }
 
 inline void BasicBlock::ForEachInst(
     const std::function<void(const Instruction*)>& f,
     bool run_on_debug_line_insts) const {
-  if (label_)
-    static_cast<const Instruction*>(label_.get())
-        ->ForEachInst(f, run_on_debug_line_insts);
-  for (const auto& inst : insts_)
-    static_cast<const Instruction*>(&inst)->ForEachInst(
-        f, run_on_debug_line_insts);
+  WhileEachInst(
+      [&f](const Instruction* inst) {
+        f(inst);
+        return true;
+      },
+      run_on_debug_line_insts);
+}
+
+inline bool BasicBlock::WhileEachPhiInst(
+    const std::function<bool(Instruction*)>& f, bool run_on_debug_line_insts) {
+  if (insts_.empty()) {
+    return true;
+  }
+
+  Instruction* inst = &insts_.front();
+  while (inst != nullptr) {
+    Instruction* next_instruction = inst->NextNode();
+    if (inst->opcode() != SpvOpPhi) break;
+    if (!inst->WhileEachInst(f, run_on_debug_line_insts)) return false;
+    inst = next_instruction;
+  }
+  return true;
 }
 
 inline void BasicBlock::ForEachPhiInst(
     const std::function<void(Instruction*)>& f, bool run_on_debug_line_insts) {
-  for (auto& inst : insts_) {
-    if (inst.opcode() != SpvOpPhi) break;
-    inst.ForEachInst(f, run_on_debug_line_insts);
-  }
+  WhileEachPhiInst(
+      [&f](Instruction* inst) {
+        f(inst);
+        return true;
+      },
+      run_on_debug_line_insts);
 }
 
-}  // namespace ir
+}  // namespace opt
 }  // namespace spvtools
 
 #endif  // LIBSPIRV_OPT_BASIC_BLOCK_H_

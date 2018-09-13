@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/bindings/tests/results/core/v8_test_interface_node.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_abstract_event_listener.h"
@@ -21,6 +20,8 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/html/custom/v0_custom_element_processing_stack.h"
 #include "third_party/blink/renderer/core/html_names.h"
+#include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
 #include "third_party/blink/renderer/platform/wtf/get_ptr.h"
@@ -132,7 +133,7 @@ static void eventHandlerAttributeAttributeGetter(const v8::FunctionCallbackInfo<
 
   EventListener* cppValue(WTF::GetPtr(impl->eventHandlerAttribute()));
 
-  V8SetReturnValue(info, cppValue ? V8AbstractEventListener::Cast(cppValue)->GetListenerOrNull(info.GetIsolate(), impl->GetExecutionContext()) : v8::Null(info.GetIsolate()).As<v8::Value>());
+  V8SetReturnValue(info, V8AbstractEventListener::GetListenerOrNull(info.GetIsolate(), impl, cppValue));
 }
 
 static void eventHandlerAttributeAttributeSetter(v8::Local<v8::Value> v8Value, const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -439,10 +440,10 @@ static void installV8TestInterfaceNodeTemplate(
   // Register IDL constants, attributes and operations.
   V8DOMConfiguration::InstallAccessors(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInterfaceNodeAccessors, arraysize(V8TestInterfaceNodeAccessors));
+      signature, V8TestInterfaceNodeAccessors, base::size(V8TestInterfaceNodeAccessors));
   V8DOMConfiguration::InstallMethods(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInterfaceNodeMethods, arraysize(V8TestInterfaceNodeMethods));
+      signature, V8TestInterfaceNodeMethods, base::size(V8TestInterfaceNodeMethods));
 
   // Custom signature
 

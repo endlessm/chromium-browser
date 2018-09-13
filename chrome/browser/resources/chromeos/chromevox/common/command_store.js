@@ -347,6 +347,9 @@ cvox.CommandStore.CMD_WHITELIST = {
   'moveToStartOfLine': {forward: true, announce: true},
   'moveToEndOfLine': {backward: true, announce: true},
 
+  'jumpToDetails':
+      {announce: false, msgId: 'jump_to_details', category: 'navigation'},
+
   'readFromHere': {
     forward: true,
     announce: false,
@@ -811,8 +814,8 @@ cvox.CommandStore.CMD_WHITELIST = {
       {announce: false, msgId: 'pause_all_media', category: 'information'},
 
   // Scrolling actions.
-  'scrollBackward': {msgId: 'action_scroll_backward'},
-  'scrollForward': {msgId: 'action_scroll_forward'},
+  'scrollBackward': {msgId: 'action_scroll_backward_description'},
+  'scrollForward': {msgId: 'action_scroll_forward_description'},
 
   // Math specific commands.
   'toggleSemantics':

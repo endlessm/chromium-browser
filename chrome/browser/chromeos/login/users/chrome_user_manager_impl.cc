@@ -70,6 +70,8 @@
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/cryptohome/async_method_caller.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/upstart_client.h"
 #include "chromeos/login/login_state.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/timezone/timezone_resolver.h"
@@ -114,6 +116,8 @@ const char kDeviceLocalAccounts[] = "PublicAccounts";
 // be removed after logout.
 const char kDeviceLocalAccountPendingDataRemoval[] =
     "PublicAccountPendingDataRemoval";
+
+constexpr char kGoogleDotCom[] = "@google.com";
 
 bool FakeOwnership() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -183,6 +187,24 @@ policy::MinimumVersionPolicyHandler* GetMinimumVersionPolicyHandler() {
 base::WeakPtr<ExternalPrinters> GetExternalPrinters(
     const AccountId& account_id) {
   return ExternalPrintersFactory::Get()->GetForAccountId(account_id);
+}
+
+// Starts bluetooth logging service for accounts ending with |kGoogleDotCom|
+// and certain devices.
+void MaybeStartBluetoothLogging(const AccountId& account_id) {
+  if (!base::EndsWith(account_id.GetUserEmail(), kGoogleDotCom,
+                      base::CompareCase::INSENSITIVE_ASCII)) {
+    return;
+  }
+  const std::vector<std::string> board =
+      base::SplitString(base::SysInfo::GetLsbReleaseBoard(), "-",
+                        base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  const std::string board_name = board[0];
+  if (board_name != "eve" && board_name != "nocturne")
+    return;
+  chromeos::DBusThreadManager::Get()
+      ->GetUpstartClient()
+      ->StartBluetoothLogging();
 }
 
 }  // namespace
@@ -775,7 +797,9 @@ void ChromeUserManagerImpl::RetrieveTrustedDevicePolicies() {
 
   std::string owner_email;
   cros_settings_->GetString(kDeviceOwner, &owner_email);
-  SetOwnerId(AccountId::FromUserEmail(owner_email));
+  const AccountId owner_account_id = user_manager::known_user::GetAccountId(
+      owner_email, std::string() /* id */, AccountType::UNKNOWN);
+  SetOwnerId(owner_account_id);
 
   EnsureUsersLoaded();
 
@@ -830,6 +854,8 @@ void ChromeUserManagerImpl::RegularUserLoggedIn(
     const user_manager::UserType user_type) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   ChromeUserManager::RegularUserLoggedIn(account_id, user_type);
+
+  MaybeStartBluetoothLogging(account_id);
 
   if (FakeOwnership()) {
     std::string owner_email;

@@ -50,15 +50,16 @@ public class LanguagesPreferences
             public boolean onPreferenceChange(Preference preference, Object newValue) {
                 boolean enabled = (boolean) newValue;
                 PrefServiceBridge.getInstance().setTranslateEnabled(enabled);
-                LanguagesManager.recordAction(enabled
-                                ? LanguagesManager.ACTION_ENABLE_TRANSLATE_GLOBALLY
-                                : LanguagesManager.ACTION_DISABLE_TRANSLATE_GLOBALLY);
+                LanguagesManager.recordAction(enabled ? LanguagesManager.LanguageSettingsActionType
+                                                                .ENABLE_TRANSLATE_GLOBALLY
+                                                      : LanguagesManager.LanguageSettingsActionType
+                                                                .DISABLE_TRANSLATE_GLOBALLY);
                 return true;
             }
         });
         translateSwitch.setManagedPreferenceDelegate(
                 preference -> PrefServiceBridge.getInstance().isTranslateManaged());
-        LanguagesManager.recordImpression(LanguagesManager.PAGE_MAIN);
+        LanguagesManager.recordImpression(LanguagesManager.LanguageSettingsPageType.PAGE_MAIN);
     }
 
     @Override
@@ -71,9 +72,10 @@ public class LanguagesPreferences
     public void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CODE_ADD_LANGUAGES && resultCode == getActivity().RESULT_OK) {
-            String code = data.getStringExtra(AddLanguageFragment.INTENT_NEW_ACCEPT_LANGAUGE);
+            String code = data.getStringExtra(AddLanguageFragment.INTENT_NEW_ACCEPT_LANGUAGE);
             LanguagesManager.getInstance().addToAcceptLanguages(code);
-            LanguagesManager.recordAction(LanguagesManager.ACTION_LANGUAGE_ADDED);
+            LanguagesManager.recordAction(
+                    LanguagesManager.LanguageSettingsActionType.LANGUAGE_ADDED);
         }
     }
 

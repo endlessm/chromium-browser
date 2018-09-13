@@ -20,6 +20,7 @@ import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.ServiceWorkerController;
 import android.webkit.TokenBindingService;
+import android.webkit.TracingController;
 import android.webkit.ValueCallback;
 import android.webkit.WebStorage;
 import android.webkit.WebView;
@@ -66,6 +67,9 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
     private static final String CHROMIUM_PREFS_NAME = "WebViewChromiumPrefs";
     private static final String VERSION_CODE_PREF = "lastVersionCodeUsed";
 
+    private static final String SUPPORT_LIB_GLUE_AND_BOUNDARY_INTERFACE_PREFIX =
+            "org.chromium.support_lib_";
+
     private final static Object sSingletonLock = new Object();
     private static WebViewChromiumFactoryProvider sSingleton;
 
@@ -99,6 +103,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
 
     private SharedPreferences mWebViewPrefs;
     private WebViewDelegate mWebViewDelegate;
+    private TracingController mTracingController;
 
     boolean mShouldDisableThreadChecking;
 
@@ -161,7 +166,10 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
 
     // Protected to allow downstream to override.
     protected WebViewChromiumAwInit createAwInit() {
-        return new WebViewChromiumAwInit(this);
+        try (ScopedSysTraceEvent e2 =
+                        ScopedSysTraceEvent.scoped("WebViewChromiumFactoryProvider.createAwInit")) {
+            return new WebViewChromiumAwInit(this);
+        }
     }
 
     private void deleteContentsOnPackageDowngrade(PackageInfo packageInfo) {
@@ -194,10 +202,14 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         long startTime = SystemClock.elapsedRealtime();
         try (ScopedSysTraceEvent e1 =
                         ScopedSysTraceEvent.scoped("WebViewChromiumFactoryProvider.initialize")) {
-            // The package is used to locate the services for copying crash minidumps and requesting
-            // variations seeds. So it must be set before initializing variations and before a
-            // renderer has a chance to crash.
-            PackageInfo packageInfo = WebViewFactory.getLoadedPackageInfo();
+            PackageInfo packageInfo;
+            try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
+                         "WebViewChromiumFactoryProvider.getLoadedPackageInfo")) {
+                // The package is used to locate the services for copying crash minidumps and
+                // requesting variations seeds. So it must be set before initializing variations and
+                // before a renderer has a chance to crash.
+                packageInfo = WebViewFactory.getLoadedPackageInfo();
+            }
             AwBrowserProcess.setWebViewPackageName(packageInfo.packageName);
 
             mAwInit = createAwInit();
@@ -250,7 +262,11 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
             try (StrictModeContext smc = StrictModeContext.allowDiskWrites()) {
                 try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
                              "WebViewChromiumFactoryProvider.loadChromiumLibrary")) {
-                    AwBrowserProcess.loadLibrary(mWebViewDelegate.getDataDirectorySuffix());
+                    String dataDirectorySuffix = null;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        dataDirectorySuffix = mWebViewDelegate.getDataDirectorySuffix();
+                    }
+                    AwBrowserProcess.loadLibrary(dataDirectorySuffix);
                 }
 
                 try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
@@ -458,7 +474,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         synchronized (mAwInit.getLock()) {
             if (mServiceWorkerControllerAdapter == null) {
                 mServiceWorkerControllerAdapter =
-                        new ServiceWorkerControllerAdapter(mAwInit.getServiceWorkerController());
+                        ApiHelperForN.createServiceWorkerControllerAdapter(mAwInit);
             }
         }
         return (ServiceWorkerController) mServiceWorkerControllerAdapter;
@@ -519,5 +535,51 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
 
     WebViewChromiumAwInit getAwInit() {
         return mAwInit;
+    }
+
+    @Override
+    public TracingController getTracingController() {
+        synchronized (mAwInit.getLock()) {
+            mAwInit.ensureChromiumStartedLocked(true);
+            // ensureChromiumStartedLocked() can release the lock on first call while
+            // waiting for startup. Hence check the mTracingControler here to ensure
+            // the singleton property.
+            if (mTracingController == null) {
+                mTracingController =
+                        new TracingControllerAdapter(this, mAwInit.getAwTracingController());
+            }
+        }
+        return mTracingController;
+    }
+
+    private static class FilteredClassLoader extends ClassLoader {
+        FilteredClassLoader(ClassLoader delegate) {
+            super(delegate);
+        }
+
+        @Override
+        protected Class<?> findClass(String name) throws ClassNotFoundException {
+            final String message =
+                    "This ClassLoader should only be used for the androidx.webkit support library";
+
+            if (name == null) {
+                throw new ClassNotFoundException(message);
+            }
+
+            // We only permit this ClassLoader to load classes required for support library
+            // reflection, as applications should not use this for any other purpose. So, we permit
+            // anything in the support_lib_glue and support_lib_boundary packages (and their
+            // subpackages).
+            if (name.startsWith(SUPPORT_LIB_GLUE_AND_BOUNDARY_INTERFACE_PREFIX)) {
+                return super.findClass(name);
+            }
+
+            throw new ClassNotFoundException(message);
+        }
+    }
+
+    @Override
+    public ClassLoader getWebViewClassLoader() {
+        return new FilteredClassLoader(WebViewChromiumFactoryProvider.class.getClassLoader());
     }
 }

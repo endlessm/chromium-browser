@@ -31,10 +31,12 @@ ui::InputMethod* GetInputMethod(aura::Window* root_window) {
 
 }  // namespace
 
+const std::string kHighlightCallerId = "HighlightController";
+
 AccessibilityHighlightController::AccessibilityHighlightController() {
   Shell::Get()->AddPreTargetHandler(this);
   // TODO: CursorManager not created in mash. https://crbug.com/631103.
-  if (Shell::GetAshConfig() != Config::MASH)
+  if (Shell::GetAshConfig() != Config::MASH_DEPRECATED)
     Shell::Get()->cursor_manager()->AddObserver(this);
   aura::Window* root_window = Shell::GetPrimaryRootWindow();
   ui::InputMethod* input_method = GetInputMethod(root_window);
@@ -45,7 +47,8 @@ AccessibilityHighlightController::~AccessibilityHighlightController() {
   AccessibilityFocusRingController* controller =
       Shell::Get()->accessibility_focus_ring_controller();
   controller->SetFocusRing(std::vector<gfx::Rect>(),
-                           mojom::FocusRingBehavior::FADE_OUT_FOCUS_RING);
+                           mojom::FocusRingBehavior::FADE_OUT_FOCUS_RING,
+                           kHighlightCallerId);
   controller->HideCaretRing();
   controller->HideCursorRing();
 
@@ -53,7 +56,7 @@ AccessibilityHighlightController::~AccessibilityHighlightController() {
   ui::InputMethod* input_method = GetInputMethod(root_window);
   input_method->RemoveObserver(this);
   // TODO: CursorManager not created in mash. https://crbug.com/631103.
-  if (Shell::GetAshConfig() != Config::MASH)
+  if (Shell::GetAshConfig() != Config::MASH_DEPRECATED)
     Shell::Get()->cursor_manager()->RemoveObserver(this);
   Shell::Get()->RemovePreTargetHandler(this);
 }
@@ -80,7 +83,8 @@ void AccessibilityHighlightController::SetFocusHighlightRect(
 }
 
 void AccessibilityHighlightController::OnMouseEvent(ui::MouseEvent* event) {
-  if (event->type() == ui::ET_MOUSE_MOVED) {
+  if (event->type() == ui::ET_MOUSE_MOVED ||
+      event->type() == ui::ET_MOUSE_DRAGGED) {
     cursor_point_ = event->location();
     if (event->target()) {
       ::wm::ConvertPointToScreen(static_cast<aura::Window*>(event->target()),
@@ -126,7 +130,7 @@ void AccessibilityHighlightController::OnCursorVisibilityChanged(
 
 bool AccessibilityHighlightController::IsCursorVisible() {
   // TODO: CursorManager not created in mash. https://crbug.com/631103.
-  if (Shell::GetAshConfig() == Config::MASH)
+  if (Shell::GetAshConfig() == Config::MASH_DEPRECATED)
     return false;
   return Shell::Get()->cursor_manager()->IsCursorVisible();
 }
@@ -151,18 +155,21 @@ void AccessibilityHighlightController::UpdateFocusAndCaretHighlights() {
   if (caret_ && caret_visible_) {
     controller->SetCaretRing(caret_point_);
     controller->SetFocusRing(std::vector<gfx::Rect>(),
-                             mojom::FocusRingBehavior::FADE_OUT_FOCUS_RING);
+                             mojom::FocusRingBehavior::FADE_OUT_FOCUS_RING,
+                             kHighlightCallerId);
   } else if (focus_) {
     controller->HideCaretRing();
     std::vector<gfx::Rect> rects;
     if (!focus_rect_.IsEmpty())
       rects.push_back(focus_rect_);
     controller->SetFocusRing(rects,
-                             mojom::FocusRingBehavior::FADE_OUT_FOCUS_RING);
+                             mojom::FocusRingBehavior::FADE_OUT_FOCUS_RING,
+                             kHighlightCallerId);
   } else {
     controller->HideCaretRing();
     controller->SetFocusRing(std::vector<gfx::Rect>(),
-                             mojom::FocusRingBehavior::FADE_OUT_FOCUS_RING);
+                             mojom::FocusRingBehavior::FADE_OUT_FOCUS_RING,
+                             kHighlightCallerId);
   }
 }
 

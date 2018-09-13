@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "cc/resources/layer_tree_resource_provider.h"
+#include "components/viz/client/client_resource_provider.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
 #include "components/viz/common/quads/render_pass_draw_quad.h"
 #include "components/viz/common/quads/shared_quad_state.h"
@@ -30,7 +30,7 @@ namespace cc {
 namespace {
 
 viz::ResourceId CreateAndImportResource(
-    LayerTreeResourceProvider* resource_provider,
+    viz::ClientResourceProvider* resource_provider,
     const gpu::SyncToken& sync_token,
     gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB()) {
   auto transfer_resource = viz::TransferableResource::MakeGL(
@@ -135,9 +135,10 @@ void AddRenderPassQuad(viz::RenderPass* to_pass,
                gfx::RectF(), false);
 }
 
-void AddOneOfEveryQuadType(viz::RenderPass* to_pass,
-                           LayerTreeResourceProvider* resource_provider,
-                           viz::RenderPassId child_pass_id) {
+std::vector<viz::ResourceId> AddOneOfEveryQuadType(
+    viz::RenderPass* to_pass,
+    viz::ClientResourceProvider* resource_provider,
+    viz::RenderPassId child_pass_id) {
   gfx::Rect rect(0, 0, 100, 100);
   gfx::Rect visible_rect(0, 0, 100, 100);
   bool needs_blending = true;
@@ -161,6 +162,12 @@ void AddOneOfEveryQuadType(viz::RenderPass* to_pass,
       CreateAndImportResource(resource_provider, kSyncToken);
   viz::ResourceId resource8 =
       CreateAndImportResource(resource_provider, kSyncToken);
+
+  viz::ResourceId plane_resources[4];
+  for (int i = 0; i < 4; ++i) {
+    plane_resources[i] = CreateAndImportResource(
+        resource_provider, kSyncToken, gfx::ColorSpace::CreateREC601());
+  }
 
   viz::SharedQuadState* shared_state =
       to_pass->CreateAndAppendSharedQuadState();
@@ -233,12 +240,6 @@ void AddOneOfEveryQuadType(viz::RenderPass* to_pass,
                     resource4, gfx::RectF(0, 0, 100, 100), gfx::Size(100, 100),
                     false, false, false, false);
 
-  viz::ResourceId plane_resources[4];
-  for (int i = 0; i < 4; ++i) {
-    plane_resources[i] = CreateAndImportResource(
-        resource_provider, kSyncToken, gfx::ColorSpace::CreateREC601());
-  }
-
   auto* yuv_quad = to_pass->CreateAndAppendDrawQuad<viz::YUVVideoDrawQuad>();
   yuv_quad->SetNew(shared_state2, rect, visible_rect, needs_blending,
                    gfx::RectF(.0f, .0f, 100.0f, 100.0f),
@@ -246,6 +247,11 @@ void AddOneOfEveryQuadType(viz::RenderPass* to_pass,
                    gfx::Size(50, 50), plane_resources[0], plane_resources[1],
                    plane_resources[2], plane_resources[3],
                    gfx::ColorSpace::CreateREC601(), 0.0, 1.0, 8);
+
+  return {resource1,          resource2,          resource3,
+          resource4,          resource5,          resource6,
+          resource8,          plane_resources[0], plane_resources[1],
+          plane_resources[2], plane_resources[3]};
 }
 
 static void CollectResources(
@@ -255,7 +261,7 @@ static void CollectResources(
 void AddOneOfEveryQuadTypeInDisplayResourceProvider(
     viz::RenderPass* to_pass,
     viz::DisplayResourceProvider* resource_provider,
-    LayerTreeResourceProvider* child_resource_provider,
+    viz::ClientResourceProvider* child_resource_provider,
     viz::ContextProvider* child_context_provider,
     viz::RenderPassId child_pass_id,
     gpu::SyncToken* sync_token_for_mailbox_tebxture) {
@@ -317,6 +323,12 @@ void AddOneOfEveryQuadTypeInDisplayResourceProvider(
   child_resource_provider->PrepareSendToParent(resource_ids_to_transfer, &list,
                                                child_context_provider);
   resource_provider->ReceiveFromChild(child_id, list);
+
+  // Delete them in the child so they won't be leaked, and will be released once
+  // returned from the parent. This assumes they won't need to be sent to the
+  // parent again.
+  for (viz::ResourceId id : resource_ids_to_transfer)
+    child_resource_provider->RemoveImportedResource(id);
 
   // Before create DrawQuad in viz::DisplayResourceProvider's namespace, get the
   // mapped resource id first.

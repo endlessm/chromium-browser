@@ -214,7 +214,6 @@ class ValidationPool(object):
       builder_name: Builder name on buildbot dashboard.
       is_master: True if this is the master builder for the Commit Queue.
       dryrun: If set to True, do not submit anything to Gerrit.
-    Optional Args:
       candidates: List of changes to consider validating.
       non_os_changes: List of changes that are part of this validation
         pool but aren't part of the cros checkout.
@@ -402,6 +401,15 @@ class ValidationPool(object):
       logging.info('Queried changes: %s', cros_patch.GetChangesAsString(
           changes))
 
+      # Tell users to publish drafts/privates before marking them commit ready.
+      # Do this before we filter out via the ready function below.
+      for change in changes:
+        if change.HasApproval('COMR', ('1', '2')):
+          if change.IsDraft():
+            self.HandleDraftChange(change)
+          elif change.IsPrivate():
+            self.HandlePrivateChange(change)
+
       if ready_fn:
         # The query passed in may include a dictionary of flags to use for
         # revalidating the query results. We need to do this because Gerrit
@@ -409,11 +417,6 @@ class ValidationPool(object):
         changes = [x for x in changes if ready_fn(x)]
         logging.info('Ready changes: %s', cros_patch.GetChangesAsString(
             changes))
-
-      # Tell users to publish drafts before marking them commit ready.
-      for change in changes:
-        if change.HasApproval('COMR', ('1', '2')) and change.IsDraft():
-          self.HandleDraftChange(change)
 
       changes, non_manifest_changes = ValidationPool._FilterNonCrosProjects(
           changes, git.ManifestCheckout.Cached(self.build_root))
@@ -831,7 +834,7 @@ class ValidationPool(object):
         candidates = [c for c in self.candidates if
                       c not in self.applied and filter_fn(c)]
 
-        # pylint: disable=E1123
+        # pylint: disable=unexpected-keyword-arg
         applied, failed_tot, failed_inflight = self.applied_patches.Apply(
             candidates, manifest=manifest)
       except (KeyboardInterrupt, RuntimeError, SystemExit):
@@ -870,7 +873,7 @@ class ValidationPool(object):
       self.applied_patches.FetchChanges(self.candidates, manifest=manifest)
       for change in self.candidates:
         try:
-          # pylint: disable=E1123
+          # pylint: disable=unexpected-keyword-arg
           self.applied_patches.ApplyChange(change, manifest=manifest)
         except cros_patch.PatchException as e:
           # Fail if any patch cannot be applied.
@@ -1650,8 +1653,8 @@ class ValidationPool(object):
       self._HandleApplyFailure(self.changes_that_failed_to_apply_earlier)
 
   def SubmitPartialPool(self, changes, messages, changes_by_config,
-                        subsys_by_config, passed_in_history_slaves_by_change,
-                        failing, inflight, no_stat):
+                        passed_in_history_slaves_by_change, failing,
+                        inflight, no_stat):
     """If the build failed, push any CLs that don't care about the failure.
 
     In this function we calculate what CLs are definitely innocent and submit
@@ -1668,8 +1671,6 @@ class ValidationPool(object):
         objects from the failed slaves.
       changes_by_config: A dictionary of relevant changes indexed by the
         config names.
-      subsys_by_config: A dictionary of pass/fail HWTest subsystems indexed
-        by the config names.
       passed_in_history_slaves_by_change: A dict mapping changes to their
         relevant slaves (build config name strings) which passed in history.
       failing: Names of the builders that failed.
@@ -1680,9 +1681,8 @@ class ValidationPool(object):
       A set of the non-submittable changes.
     """
     fully_verified = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
-        changes, changes_by_config, subsys_by_config,
-        passed_in_history_slaves_by_change, failing, inflight, no_stat,
-        messages, self.build_root)
+        changes, changes_by_config, passed_in_history_slaves_by_change,
+        failing, inflight, no_stat, messages, self.build_root)
     fully_verified_cls = fully_verified.keys()
     if fully_verified_cls:
       logging.info('The following changes will be submitted using '
@@ -1737,6 +1737,20 @@ class ValidationPool(object):
     msg = ('%(queue)s could not apply your change because the latest patch '
            'set is not published. Please publish your draft patch set before '
            'marking your commit as ready.')
+    self.SendNotification(change, msg)
+    self.RemoveReady(change)
+
+  def HandlePrivateChange(self, change):
+    """Handler for when the latest patch set of |change| is not public.
+
+    This handler removes the commit ready bit from the specified changes and
+    sends the developer a message explaining why.
+
+    Args:
+      change: GerritPatch instance to operate upon.
+    """
+    msg = ('%(queue)s could not apply your change because the CL is private. '
+           'Please make your CL public before marking your commit as ready.')
     self.SendNotification(change, msg)
     self.RemoveReady(change)
 

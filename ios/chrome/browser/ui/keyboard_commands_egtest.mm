@@ -7,6 +7,7 @@
 
 #include "base/test/scoped_feature_list.h"
 #include "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_ui_constants.h"
 #import "ios/chrome/browser/ui/browser_view_controller.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_controller.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
@@ -29,7 +30,7 @@
 #error "This file requires ARC support."
 #endif
 
-using chrome_test_util::NavigationBarDoneButton;
+using chrome_test_util::BookmarksNavigationBarDoneButton;
 using chrome_test_util::RecentTabsMenuButton;
 using chrome_test_util::SettingsDoneButton;
 
@@ -81,7 +82,7 @@ using chrome_test_util::SettingsDoneButton;
   () = ^BOOL {
     NSError* error = nil;
     id<GREYMatcher> singleBookmarkEditor =
-        grey_accessibilityLabel(@"Single Bookmark Editor");
+        grey_accessibilityLabel(kBookmarkEditViewContainerIdentifier);
     [[EarlGrey selectElementWithMatcher:singleBookmarkEditor]
         assertWithMatcher:grey_sufficientlyVisible()
                     error:&error];
@@ -174,7 +175,7 @@ using chrome_test_util::SettingsDoneButton;
 
   [self verifyNoKeyboardCommandsAreRegistered];
 
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+  [[EarlGrey selectElementWithMatcher:BookmarksNavigationBarDoneButton()]
       performAction:grey_tap()];
 }
 
@@ -210,16 +211,10 @@ using chrome_test_util::SettingsDoneButton;
   [self verifyKeyboardCommandsAreRegistered];
 
   UIResponder* firstResponder = GetFirstResponder();
-  if (@available(iOS 11.3, *)) {
-    GREYAssert([firstResponder isKindOfClass:NSClassFromString(@"WKWebView")],
-               @"Expected first responder to be a WKWebView. Instead, is a %@",
-               NSStringFromClass([firstResponder class]));
-  } else {
-    GREYAssert(
-        [firstResponder isKindOfClass:NSClassFromString(@"WKContentView")],
-        @"Expected first responder to be a WKContentView. Instead, is a %@",
-        NSStringFromClass([firstResponder class]));
-  }
+  GREYAssert(
+      [firstResponder isKindOfClass:NSClassFromString(@"WKContentView")],
+      @"Expected first responder to be a WKContentView. Instead, is a %@",
+      NSStringFromClass([firstResponder class]));
 }
 
 @end

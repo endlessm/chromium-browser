@@ -188,6 +188,64 @@ void SearchIPCRouter::UndoAllMostVisitedDeletions(int page_seq_no) {
   delegate_->OnUndoAllMostVisitedDeletions();
 }
 
+void SearchIPCRouter::AddCustomLink(int page_seq_no,
+                                    const GURL& url,
+                                    const std::string& title,
+                                    AddCustomLinkCallback callback) {
+  bool result = false;
+  if (page_seq_no == commit_counter_ && policy_->ShouldProcessAddCustomLink()) {
+    result = delegate_->OnAddCustomLink(url, title);
+  }
+
+  std::move(callback).Run(result);
+}
+
+void SearchIPCRouter::UpdateCustomLink(int page_seq_no,
+                                       const GURL& url,
+                                       const GURL& new_url,
+                                       const std::string& new_title,
+                                       UpdateCustomLinkCallback callback) {
+  bool result = false;
+  if (page_seq_no == commit_counter_ &&
+      policy_->ShouldProcessUpdateCustomLink()) {
+    result = delegate_->OnUpdateCustomLink(url, new_url, new_title);
+  }
+
+  std::move(callback).Run(result);
+}
+
+void SearchIPCRouter::DeleteCustomLink(int page_seq_no,
+                                       const GURL& url,
+                                       DeleteCustomLinkCallback callback) {
+  bool result = false;
+  if (page_seq_no == commit_counter_ &&
+      policy_->ShouldProcessDeleteCustomLink()) {
+    result = delegate_->OnDeleteCustomLink(url);
+  }
+
+  std::move(callback).Run(result);
+}
+
+void SearchIPCRouter::UndoCustomLinkAction(int page_seq_no) {
+  if (page_seq_no != commit_counter_)
+    return;
+
+  if (!policy_->ShouldProcessUndoCustomLinkAction())
+    return;
+
+  delegate_->OnUndoCustomLinkAction();
+}
+
+void SearchIPCRouter::ResetCustomLinks(int page_seq_no) {
+  if (page_seq_no != commit_counter_)
+    return;
+
+  if (!policy_->ShouldProcessResetCustomLinks())
+    return;
+
+  delegate_->OnResetCustomLinks();
+}
+
 void SearchIPCRouter::LogEvent(int page_seq_no,
                                NTPLoggingEventType event,
                                base::TimeDelta time) {
@@ -266,6 +324,25 @@ void SearchIPCRouter::SetCustomBackgroundURL(const GURL& url) {
     return;
 
   delegate_->OnSetCustomBackgroundURL(url);
+}
+
+void SearchIPCRouter::SetCustomBackgroundURLWithAttributions(
+    const GURL& background_url,
+    const std::string& attribution_line_1,
+    const std::string& attribution_line_2,
+    const GURL& action_url) {
+  if (!policy_->ShouldProcessSetCustomBackgroundURLWithAttributions())
+    return;
+
+  delegate_->OnSetCustomBackgroundURLWithAttributions(
+      background_url, attribution_line_1, attribution_line_2, action_url);
+}
+
+void SearchIPCRouter::SelectLocalBackgroundImage() {
+  if (!policy_->ShouldProcessSelectLocalBackgroundImage())
+    return;
+
+  delegate_->OnSelectLocalBackgroundImage();
 }
 
 void SearchIPCRouter::set_delegate_for_testing(Delegate* delegate) {

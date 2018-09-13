@@ -4,7 +4,6 @@
 
 package org.chromium.chrome.browser.ntp.cards;
 
-import android.support.annotation.CallSuper;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
@@ -12,6 +11,7 @@ import android.text.TextUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.modelutil.ListObservable;
 import org.chromium.chrome.browser.ntp.NewTabPageUma;
 import org.chromium.chrome.browser.ntp.snippets.CategoryInt;
 import org.chromium.chrome.browser.ntp.snippets.CategoryStatus;
@@ -28,7 +28,6 @@ import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.suggestions.SuggestionsOfflineModelObserver;
 import org.chromium.chrome.browser.suggestions.SuggestionsRanker;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegate;
-import org.chromium.chrome.browser.util.FeatureUtilities;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -36,6 +35,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -53,7 +53,7 @@ public class SuggestionsSection extends InnerNode {
     // Children
     private final SectionHeader mHeader;
     private final SuggestionsList mSuggestionsList;
-    private final @Nullable StatusItem mStatus;
+    private final StatusItem mStatus;
     private final ActionItem mMoreButton;
 
     /**
@@ -69,8 +69,10 @@ public class SuggestionsSection extends InnerNode {
      */
     private boolean mIsDataStale;
 
-    /** Whether content has been recently inserted. We reset this flag upon reading its value. */
-    private boolean mHasInsertedContent;
+    /**
+     * Whether the section has been destroyed.
+     */
+    private boolean mIsDestroyed;
 
     /**
      * Delegate interface that allows dismissing this section without introducing
@@ -82,9 +84,6 @@ public class SuggestionsSection extends InnerNode {
          * @param section The section to be dismissed.
          */
         void dismissSection(SuggestionsSection section);
-
-        /** Returns whether the UI surface is in a state that allows the suggestions to be reset. */
-        boolean isResetAllowed();
     }
 
     public SuggestionsSection(Delegate delegate, SuggestionsUiDelegate uiDelegate,
@@ -105,21 +104,13 @@ public class SuggestionsSection extends InnerNode {
         mSuggestionsList = new SuggestionsList(mSuggestionsSource, ranker, info);
         mMoreButton = new ActionItem(this, ranker);
 
-        boolean isChromeHomeEnabled = FeatureUtilities.isChromeHomeEnabled();
-        if (isChromeHomeEnabled) {
-            mStatus = null;
-            addChildren(mHeader, mSuggestionsList, mMoreButton);
-        } else {
-            mStatus = StatusItem.createNoSuggestionsItem(info);
-            addChildren(mHeader, mSuggestionsList, mStatus, mMoreButton);
-        }
+        mStatus = StatusItem.createNoSuggestionsItem(info);
+        mStatus.setVisible(shouldShowStatusItem());
+        addChildren(mHeader, mSuggestionsList, mStatus, mMoreButton);
 
         mOfflineModelObserver = new OfflineModelObserver(offlinePageBridge);
         uiDelegate.addDestructionObserver(mOfflineModelObserver);
 
-        if (!isChromeHomeEnabled) {
-            mStatus.setVisible(shouldShowStatusItem());
-        }
     }
 
     private static class SuggestionsList extends ChildNode implements Iterable<SnippetArticle> {
@@ -128,6 +119,8 @@ public class SuggestionsSection extends InnerNode {
         private final SuggestionsSource mSuggestionsSource;
         private final SuggestionsRanker mSuggestionsRanker;
         private final SuggestionsCategoryInfo mCategoryInfo;
+
+        private boolean mIsDestroyed;
 
         public SuggestionsList(SuggestionsSource suggestionsSource, SuggestionsRanker ranker,
                 SuggestionsCategoryInfo categoryInfo) {
@@ -200,10 +193,9 @@ public class SuggestionsSection extends InnerNode {
         }
 
         @Override
-        public void visitItems(NodeVisitor visitor) {
-            for (SnippetArticle suggestion : mSuggestions) {
-                visitor.visitSuggestion(suggestion);
-            }
+        public String describeItemForTesting(int position) {
+            return String.format(
+                    Locale.US, "SUGGESTION(%1.42s)", mSuggestions.get(position).mTitle);
         }
 
         @Override
@@ -214,7 +206,7 @@ public class SuggestionsSection extends InnerNode {
         @Override
         public void dismissItem(int position, Callback<String> itemRemovedCallback) {
             checkIndex(position);
-            if (!isAttached()) {
+            if (mIsDestroyed) {
                 // It is possible for this method to be called after the NewTabPage has had
                 // destroy() called. This can happen when
                 // NewTabPageRecyclerView.dismissWithAnimation() is called and the animation ends
@@ -241,38 +233,29 @@ public class SuggestionsSection extends InnerNode {
             if ((oldId == null) == (newId == null)) return;
             notifyItemChanged(index, SnippetArticleViewHolder::refreshOfflineBadgeVisibility);
         }
+
+        public void destroy() {
+            assert !mIsDestroyed;
+            mIsDestroyed = true;
+        }
     }
 
-    @Override
-    @CallSuper
-    public void detach() {
+    public void destroy() {
+        assert !mIsDestroyed;
         mOfflineModelObserver.onDestroy();
-        super.detach();
+        mSuggestionsList.destroy();
+        mIsDestroyed = true;
     }
 
     private void onSuggestionsListCountChanged(int oldSuggestionsCount) {
         int newSuggestionsCount = getSuggestionsCount();
         if ((newSuggestionsCount == 0) == (oldSuggestionsCount == 0)) return;
 
-        // We should be able to check here whether Chrome Home is enabled or not, however because
-        // of https://crbug.com/778004, we check whether mStatus is null. That crash is caused by
-        // the SuggestionsSection being created when Chrome Home was enabled (and so mStatus is
-        // null) and then this method being called when Chrome Home is disabled.
-        // When Chrome Home is disabled while Chrome is running the Activity is restarted, the
-        // SnippetsBridge is destroyed and things should be kept consistent, however the crash
-        // reports suggest otherwise.
-        // We put an assert in here to cause a crash in debug builds only - so hopefully we can
-        // track down what's going wrong.
-        assert (mStatus == null) == FeatureUtilities.isChromeHomeEnabled();
-        if (mStatus != null) {
-            mStatus.setVisible(shouldShowStatusItem());
-        }
+        mStatus.setVisible(shouldShowStatusItem());
 
         // When the ActionItem stops being dismissable, it is possible that it was being
         // interacted with. We need to reset the view's related property changes.
-        if (mMoreButton.isVisible()) {
-            mMoreButton.notifyItemChanged(0, NewTabPageRecyclerView::resetForDismissCallback);
-        }
+        mMoreButton.maybeResetForDismiss();
     }
 
     @Override
@@ -286,16 +269,15 @@ public class SuggestionsSection extends InnerNode {
     }
 
     @Override
-    public void onItemRangeRemoved(TreeNode child, int index, int count) {
+    public void onItemRangeRemoved(ListObservable child, int index, int count) {
         super.onItemRangeRemoved(child, index, count);
         if (child == mSuggestionsList) onSuggestionsListCountChanged(getSuggestionsCount() + count);
     }
 
     @Override
-    public void onItemRangeInserted(TreeNode child, int index, int count) {
+    public void onItemRangeInserted(ListObservable child, int index, int count) {
         super.onItemRangeInserted(child, index, count);
         if (child == mSuggestionsList) {
-            mHasInsertedContent = true;
             onSuggestionsListCountChanged(getSuggestionsCount() - count);
         }
     }
@@ -360,6 +342,10 @@ public class SuggestionsSection extends InnerNode {
         return mSuggestionsList.getItemCount();
     }
 
+    public SnippetArticle getSuggestionForTesting(int index) {
+        return mSuggestionsList.getSuggestionAt(index);
+    }
+
     public boolean isDataStale() {
         return mIsDataStale;
     }
@@ -375,16 +361,6 @@ public class SuggestionsSection extends InnerNode {
      */
     public boolean hasCards() {
         return hasSuggestions();
-    }
-
-    /**
-     * Returns whether content has been inserted in the section since last time this method was
-     * called.
-     */
-    public boolean hasRecentlyInsertedContent() {
-        boolean value = mHasInsertedContent;
-        mHasInsertedContent = false;
-        return value;
     }
 
     private String[] getDisplayedSuggestionIds() {
@@ -406,8 +382,6 @@ public class SuggestionsSection extends InnerNode {
      * reasons; e.g. a user clearing their history).
      */
     public void updateSuggestions() {
-        if (mDelegate.isResetAllowed()) clearData();
-
         int numberOfSuggestionsExposed = getNumberOfSuggestionsExposed();
         if (!canUpdateSuggestions(numberOfSuggestionsExposed)) {
             mIsDataStale = true;
@@ -464,12 +438,14 @@ public class SuggestionsSection extends InnerNode {
                 reportPrefetchedSuggestionsCount);
 
         if (!keepSectionSize) {
-            NewTabPageUma.recordUIUpdateResult(NewTabPageUma.UI_UPDATE_SUCCESS_APPENDED);
+            NewTabPageUma.recordUIUpdateResult(
+                    NewTabPageUma.ContentSuggestionsUIUpdateResult.SUCCESS_APPENDED);
             mHasAppended = true;
         } else {
             NewTabPageUma.recordNumberOfSuggestionsSeenBeforeUIUpdateSuccess(
                     numberOfSuggestionsExposed);
-            NewTabPageUma.recordUIUpdateResult(NewTabPageUma.UI_UPDATE_SUCCESS_REPLACED);
+            NewTabPageUma.recordUIUpdateResult(
+                    NewTabPageUma.ContentSuggestionsUIUpdateResult.SUCCESS_REPLACED);
         }
     }
 
@@ -499,7 +475,8 @@ public class SuggestionsSection extends InnerNode {
 
         if (CardsVariationParameters.ignoreUpdatesForExistingSuggestions()) {
             Log.d(TAG, "updateSuggestions: replacing existing suggestion disabled");
-            NewTabPageUma.recordUIUpdateResult(NewTabPageUma.UI_UPDATE_FAIL_DISABLED);
+            NewTabPageUma.recordUIUpdateResult(
+                    NewTabPageUma.ContentSuggestionsUIUpdateResult.FAIL_DISABLED);
             return false;
         }
 
@@ -507,7 +484,8 @@ public class SuggestionsSection extends InnerNode {
             // In case that suggestions got removed, we assume they already were seen. This might
             // be over-simplifying things, but given the rare occurences it should be good enough.
             Log.d(TAG, "updateSuggestions: replacing existing suggestion not possible, all seen");
-            NewTabPageUma.recordUIUpdateResult(NewTabPageUma.UI_UPDATE_FAIL_ALL_SEEN);
+            NewTabPageUma.recordUIUpdateResult(
+                    NewTabPageUma.ContentSuggestionsUIUpdateResult.FAIL_ALL_SEEN);
             return false;
         }
 
@@ -533,9 +511,8 @@ public class SuggestionsSection extends InnerNode {
 
         mMoreButton.updateState(ActionItem.State.LOADING);
         mSuggestionsSource.fetchSuggestions(mCategoryInfo.getCategory(),
-                getDisplayedSuggestionIds(),
-                suggestions -> {  /* successCallback */
-                    if (!isAttached()) return; // The section has been dismissed.
+                getDisplayedSuggestionIds(), suggestions -> { /* successCallback */
+                    if (mIsDestroyed) return; // The section has been dismissed.
 
                     mMoreButton.updateState(ActionItem.State.BUTTON);
 
@@ -544,9 +521,8 @@ public class SuggestionsSection extends InnerNode {
                     if (onNoNewSuggestions != null && suggestions.size() == 0) {
                         onNoNewSuggestions.run();
                     }
-                },
-                () -> {  /* failureRunnable */
-                    if (!isAttached()) return; // The section has been dismissed.
+                }, () -> { /* failureRunnable */
+                    if (mIsDestroyed) return; // The section has been dismissed.
 
                     mMoreButton.updateState(ActionItem.State.BUTTON);
                     if (onFailure != null) onFailure.run();
@@ -571,17 +547,6 @@ public class SuggestionsSection extends InnerNode {
         mSuggestionsList.clear();
         mHasAppended = false;
         mIsDataStale = false;
-    }
-
-    /**
-     * Drops all but the first {@code n} thumbnails on suggestions.
-     * @param n The number of thumbnails to keep.
-     */
-    public void dropAllButFirstNThumbnails(int n) {
-        for (SnippetArticle suggestion : mSuggestionsList) {
-            if (n-- > 0) continue;
-            suggestion.clearThumbnail();
-        }
     }
 
     @CategoryInt
@@ -623,9 +588,7 @@ public class SuggestionsSection extends InnerNode {
      * (as opposed to individual items in it).
      */
     private Set<Integer> getSectionDismissalRange() {
-        if (hasSuggestions() || FeatureUtilities.isChromeHomeEnabled()) {
-            return Collections.emptySet();
-        }
+        if (hasSuggestions()) return Collections.emptySet();
 
         int statusCardIndex = getStartingOffsetForChild(mStatus);
         if (!mMoreButton.isVisible()) return Collections.singleton(statusCardIndex);

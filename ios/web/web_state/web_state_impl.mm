@@ -199,7 +199,8 @@ void WebStateImpl::OnRenderProcessGone() {
 bool WebStateImpl::OnScriptCommandReceived(const std::string& command,
                                            const base::DictionaryValue& value,
                                            const GURL& url,
-                                           bool user_is_interacting) {
+                                           bool user_is_interacting,
+                                           bool is_main_frame) {
   size_t dot_position = command.find_first_of('.');
   if (dot_position == 0 || dot_position == std::string::npos)
     return false;
@@ -209,7 +210,7 @@ bool WebStateImpl::OnScriptCommandReceived(const std::string& command,
   if (it == script_command_callbacks_.end())
     return false;
 
-  return it->second.Run(value, url, user_is_interacting);
+  return it->second.Run(value, url, user_is_interacting, is_main_frame);
 }
 
 void WebStateImpl::SetIsLoading(bool is_loading) {
@@ -265,24 +266,11 @@ void WebStateImpl::OnPageLoaded(const GURL& url, bool load_success) {
     observer.PageLoaded(this, load_completion_status);
 }
 
-void WebStateImpl::OnFormActivityRegistered(const FormActivityParams& params) {
-  for (auto& observer : observers_) {
-    observer.FormActivityRegistered(this, params);
-  }
-}
-
 void WebStateImpl::OnFaviconUrlUpdated(
     const std::vector<FaviconURL>& candidates) {
   cached_favicon_urls_ = candidates;
   for (auto& observer : observers_)
     observer.FaviconUrlUpdated(this, candidates);
-}
-
-void WebStateImpl::OnDocumentSubmitted(const std::string& form_name,
-                                       bool user_initiated,
-                                       bool is_main_frame) {
-  for (auto& observer : observers_)
-    observer.DocumentSubmitted(this, form_name, user_initiated, is_main_frame);
 }
 
 NavigationManagerImpl& WebStateImpl::GetNavigationManagerImpl() {
@@ -418,11 +406,11 @@ void WebStateImpl::HandleContextMenu(const web::ContextMenuParams& params) {
 }
 
 void WebStateImpl::ShowRepostFormWarningDialog(
-    const base::Callback<void(bool)>& callback) {
+    base::OnceCallback<void(bool)> callback) {
   if (delegate_) {
-    delegate_->ShowRepostFormWarningDialog(this, callback);
+    delegate_->ShowRepostFormWarningDialog(this, std::move(callback));
   } else {
-    callback.Run(true);
+    std::move(callback).Run(true);
   }
 }
 
@@ -431,15 +419,16 @@ void WebStateImpl::RunJavaScriptDialog(
     JavaScriptDialogType javascript_dialog_type,
     NSString* message_text,
     NSString* default_prompt_text,
-    const DialogClosedCallback& callback) {
+    DialogClosedCallback callback) {
   JavaScriptDialogPresenter* presenter =
       delegate_ ? delegate_->GetJavaScriptDialogPresenter(this) : nullptr;
   if (!presenter) {
-    callback.Run(false, nil);
+    std::move(callback).Run(false, nil);
     return;
   }
   presenter->RunJavaScriptDialog(this, origin_url, javascript_dialog_type,
-                                 message_text, default_prompt_text, callback);
+                                 message_text, default_prompt_text,
+                                 std::move(callback));
 }
 
 WebState* WebStateImpl::CreateNewWebState(const GURL& url,
@@ -470,6 +459,12 @@ void WebStateImpl::OnAuthRequired(
   }
 }
 
+bool WebStateImpl::ShouldAllowAppLaunching() {
+  if (delegate_)
+    return delegate_->ShouldAllowAppLaunching(this);
+  return false;
+}
+
 void WebStateImpl::CancelDialogs() {
   if (delegate_) {
     JavaScriptDialogPresenter* presenter =
@@ -498,12 +493,11 @@ void WebStateImpl::SetContentsMimeType(const std::string& mime_type) {
   mime_type_ = mime_type;
 }
 
-bool WebStateImpl::ShouldAllowRequest(NSURLRequest* request,
-                                      ui::PageTransition transition,
-                                      bool from_main_frame) {
+bool WebStateImpl::ShouldAllowRequest(
+    NSURLRequest* request,
+    const WebStatePolicyDecider::RequestInfo& request_info) {
   for (auto& policy_decider : policy_deciders_) {
-    if (!policy_decider.ShouldAllowRequest(request, transition,
-                                           from_main_frame))
+    if (!policy_decider.ShouldAllowRequest(request, request_info))
       return false;
   }
   return true;
@@ -567,6 +561,11 @@ bool WebStateImpl::IsWebUsageEnabled() const {
 }
 
 void WebStateImpl::SetWebUsageEnabled(bool enabled) {
+  // This must be called before RestoreSessionStorage() because the latter
+  // creates a web view under WKBasedNavigationManager, and expects
+  // _webUsageEnabled to be true.
+  [web_controller_ setWebUsageEnabled:enabled];
+
   // SetWebUsageEnabled(false) will cause the WKWebView to be removed and this
   // is the only way to clear browser data. Cache the session history in this
   // WebState so that when web usage is re-enabled, history can be restored into
@@ -582,8 +581,6 @@ void WebStateImpl::SetWebUsageEnabled(bool enabled) {
       cached_session_storage_ = BuildSessionStorage();
     }
   }
-
-  [web_controller_ setWebUsageEnabled:enabled];
 }
 
 bool WebStateImpl::ShouldSuppressDialogs() const {
@@ -744,7 +741,7 @@ void WebStateImpl::SetHasOpener(bool has_opener) {
   created_with_opener_ = has_opener;
 }
 
-void WebStateImpl::TakeSnapshot(const SnapshotCallback& callback,
+void WebStateImpl::TakeSnapshot(SnapshotCallback callback,
                                 CGSize target_size) const {
   UIView* view = [web_controller_ view];
   UIImage* snapshot = nil;
@@ -758,7 +755,7 @@ void WebStateImpl::TakeSnapshot(const SnapshotCallback& callback,
     UIGraphicsEndImageContext();
   }
   base::SequencedTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, gfx::Image(snapshot)));
+      FROM_HERE, base::BindOnce(std::move(callback), gfx::Image(snapshot)));
 }
 
 void WebStateImpl::OnNavigationStarted(web::NavigationContext* context) {
@@ -800,6 +797,10 @@ void WebStateImpl::OnNavigationFinished(web::NavigationContext* context) {
 
 void WebStateImpl::ClearTransientContent() {
   if (interstitial_) {
+    // |visible_item| can be null if non-committed entries where discarded.
+    NavigationItem* visible_item = navigation_manager_->GetVisibleItem();
+    const SSLStatus* old_status =
+        visible_item ? &(visible_item->GetSSL()) : nullptr;
     // Store the currently displayed interstitial in a local variable and reset
     // |interstitial_| early.  This is to prevent an infinite loop, as
     // |DontProceed()| internally calls |ClearTransientContent()|.
@@ -808,6 +809,12 @@ void WebStateImpl::ClearTransientContent() {
     interstitial->DontProceed();
     // Don't access |interstitial| after calling |DontProceed()|, as it triggers
     // deletion.
+
+    const web::NavigationItem* new_item = navigation_manager_->GetVisibleItem();
+    if (!new_item || !old_status || !new_item->GetSSL().Equals(*old_status)) {
+      // Visible SSL state has actually changed after interstitial dismissal.
+      DidChangeVisibleSecurityState();
+    }
   }
   [web_controller_ clearTransientContentView];
 }

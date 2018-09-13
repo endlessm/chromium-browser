@@ -25,6 +25,11 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chromecast/base/task_runner_impl.h"
+#if defined(ENABLE_VIDEO_WITH_MIXED_AUDIO)
+#include "chromecast/media/cma/backend/audio_decoder_for_mixer.h"  // nogncheck
+#include "chromecast/media/cma/backend/media_pipeline_backend_for_mixer.h"  // nogncheck
+#include "chromecast/media/cma/backend/video_decoder_for_mixer.h"  // nogncheck
+#endif
 #include "chromecast/media/cma/base/decoder_buffer_adapter.h"
 #include "chromecast/media/cma/base/decoder_config_adapter.h"
 #include "chromecast/media/cma/test/frame_segmenter_for_test.h"
@@ -51,10 +56,16 @@ class AudioVideoPipelineDeviceTest;
 namespace {
 
 const base::TimeDelta kMonitorLoopDelay = base::TimeDelta::FromMilliseconds(20);
+#if defined(ENABLE_VIDEO_WITH_MIXED_AUDIO)
+// TODO(almasrymina): enable these tests to work with non-zero starting PTS.
+const int64_t kStartPts = 0;
+#else
 // Call Start() with an initial PTS of 1 second, to test the behaviour if
 // we push buffers with a PTS before the start PTS. In this case the backend
 // should report the PTS as no later than the last pushed buffers.
 const int64_t kStartPts = 1000 * 1000;
+#endif
+
 // Amount that PTS is allowed to progress past the time that Pause() was called.
 const int kPausePtsSlackMs = 75;
 // Number of effects streams to open simultaneously when also playing a
@@ -87,8 +98,9 @@ base::FilePath GetTestDataFilePath(const std::string& name) {
   CHECK(base::PathService::Get(base::DIR_SOURCE_ROOT, &file_path));
 
   file_path = file_path.Append(FILE_PATH_LITERAL("media"))
-      .Append(FILE_PATH_LITERAL("test")).Append(FILE_PATH_LITERAL("data"))
-      .AppendASCII(name);
+                  .Append(FILE_PATH_LITERAL("test"))
+                  .Append(FILE_PATH_LITERAL("data"))
+                  .AppendASCII(name);
   return file_path;
 }
 
@@ -259,7 +271,7 @@ class AudioVideoPipelineDeviceTest : public testing::Test {
 
   // Pause settings
   std::vector<PauseInfo> pause_pattern_;
-  int pause_pattern_idx_;
+  size_t pause_pattern_idx_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioVideoPipelineDeviceTest);
 };
@@ -318,6 +330,13 @@ void BufferFeeder::Stop() {
 }
 
 void BufferFeeder::ScheduleConfigTest() {
+#if defined(ENABLE_VIDEO_WITH_MIXED_AUDIO)
+  // On mixer backends, the config test causes the mixer to remove/add the
+  // mixer input, which causes it to return invalid PTS to AV sync. Disable for
+  // now.
+  // TODO(almasrymina): re-enable this. b/110961816.
+  return;
+#endif
   if (expecting_buffer_complete_) {
     test_config_after_next_push_ = true;
   } else {
@@ -806,7 +825,48 @@ void AudioVideoPipelineDeviceTest::MonitorLoop() {
     last_pts_ = pts;
   }
 
-  if (!pause_pattern_.empty() &&
+#if defined(ENABLE_VIDEO_WITH_MIXED_AUDIO)
+  // Do AV sync checks.
+  MediaPipelineBackendForMixer* backend_for_mixer =
+      static_cast<MediaPipelineBackendForMixer*>(backend_.get());
+  DCHECK(backend_for_mixer);
+
+  int64_t playback_start_time =
+      backend_for_mixer->GetPlaybackStartTimeForTesting();
+
+  int64_t playback_start_pts =
+      backend_for_mixer->GetPlaybackStartPtsForTesting();
+
+  if (backend_for_mixer->audio_decoder() &&
+      backend_for_mixer->video_decoder() &&
+      backend_for_mixer->MonotonicClockNow() > playback_start_time + 50000) {
+    int64_t vpts = 0;
+    int64_t vpts_timestamp = 0;
+    EXPECT_TRUE(backend_for_mixer->video_decoder()->GetCurrentPts(
+        &vpts_timestamp, &vpts))
+        << "Getting VPTS failed at current time="
+        << backend_for_mixer->MonotonicClockNow()
+        << " playback should have started at=" << playback_start_time;
+
+    // Check video started at the correct time.
+    EXPECT_LT(abs((vpts_timestamp - vpts) -
+                  (playback_start_time - playback_start_pts)),
+              16000);
+
+    // Check AV sync.
+    int64_t apts = 0;
+    int64_t apts_timestamp = 0;
+    EXPECT_TRUE(backend_for_mixer->audio_decoder()->GetTimestampedPts(
+        &apts_timestamp, &apts));
+
+    int64_t av_sync_difference =
+        (apts - apts_timestamp) - (vpts - vpts_timestamp);
+
+    EXPECT_LT(abs(av_sync_difference), 16000);
+  }
+#endif
+
+  if (!pause_pattern_.empty() && pause_pattern_idx_ < pause_pattern_.size() &&
       pause_pattern_[pause_pattern_idx_].delay >= base::TimeDelta() &&
       media_time >= pause_time_ + pause_pattern_[pause_pattern_idx_].delay) {
     // Do Pause
@@ -843,8 +903,42 @@ void AudioVideoPipelineDeviceTest::OnPauseCompleted() {
   EXPECT_LT(media_time,
             pause_time_ + base::TimeDelta::FromMilliseconds(kPausePtsSlackMs));
 
+#if defined(ENABLE_VIDEO_WITH_MIXED_AUDIO)
+  // Do AV sync checks.
+  MediaPipelineBackendForMixer* backend_for_mixer =
+      static_cast<MediaPipelineBackendForMixer*>(backend_.get());
+  DCHECK(backend_for_mixer);
+
+  int64_t playback_start_time =
+      backend_for_mixer->GetPlaybackStartTimeForTesting();
+
+  if (backend_for_mixer->audio_decoder() &&
+      backend_for_mixer->video_decoder() &&
+      backend_for_mixer->MonotonicClockNow() > playback_start_time + 50000) {
+    // Check the audio time.
+    base::TimeDelta audio_time = base::TimeDelta::FromMicroseconds(
+        backend_for_mixer->audio_decoder()->GetCurrentPts());
+    EXPECT_LT(audio_time, pause_time_ + base::TimeDelta::FromMilliseconds(
+                                            kPausePtsSlackMs));
+
+    // Check the video time.
+    int64_t timestamp = 0;
+    int64_t pts = 0;
+    EXPECT_TRUE(
+        backend_for_mixer->video_decoder()->GetCurrentPts(&timestamp, &pts))
+        << "Getting VPTS failed at current time="
+        << backend_for_mixer->MonotonicClockNow()
+        << " playback should have started at=" << playback_start_time;
+
+    base::TimeDelta video_time = base::TimeDelta::FromMicroseconds(pts);
+
+    EXPECT_LT(video_time, pause_time_ + base::TimeDelta::FromMilliseconds(
+                                            kPausePtsSlackMs));
+  }
+#endif
+
   pause_time_ = media_time;
-  pause_pattern_idx_ = (pause_pattern_idx_ + 1) % pause_pattern_.size();
+  ++pause_pattern_idx_;
 
   VLOG(2) << "Pause complete, restarting media clock";
   RunPlaybackChecks();
@@ -1145,6 +1239,22 @@ TEST_F(AudioVideoPipelineDeviceTest, WebmPlayback_WithEffectsStreams) {
   ConfigureForFile("bear-640x360.webm");
   PauseBeforeEos();
   AddEffectsStreams();
+  Start();
+  base::RunLoop().Run();
+}
+
+TEST_F(AudioVideoPipelineDeviceTest, Mp4Playback) {
+  set_sync_type(MediaPipelineDeviceParams::kModeSyncPts);
+  ConfigureForFile("bear.mp4");
+  Start();
+  base::RunLoop().Run();
+}
+
+TEST_F(AudioVideoPipelineDeviceTest, Mp4PlaybackStartsPaused) {
+  set_sync_type(MediaPipelineDeviceParams::kModeSyncPts);
+  AddPause(base::TimeDelta(), base::TimeDelta::FromSeconds(1));
+
+  ConfigureForFile("bear.mp4");
   Start();
   base::RunLoop().Run();
 }

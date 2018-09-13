@@ -15,7 +15,16 @@
 #include "chrome/browser/search/background/ntp_background_data.h"
 #include "chrome/browser/search/background/ntp_background_service_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "net/base/url_util.h"
+#include "services/identity/public/cpp/access_token_info.h"
 #include "url/gurl.h"
+
+class GoogleServiceAuthError;
+
+namespace identity {
+class IdentityManager;
+class PrimaryAccountAccessTokenFetcher;
+}  // namespace identity
 
 namespace network {
 class SimpleURLLoader;
@@ -27,9 +36,12 @@ class SharedURLLoaderFactory;
 class NtpBackgroundService : public KeyedService {
  public:
   NtpBackgroundService(
+      identity::IdentityManager* const identity_manager,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const base::Optional<GURL>& collections_api_url_override,
       const base::Optional<GURL>& collection_images_api_url_override,
+      const base::Optional<GURL>& albums_api_url_override,
+      const base::Optional<GURL>& photos_api_base_url_override,
       const base::Optional<std::string>& image_options_override);
   ~NtpBackgroundService() override;
 
@@ -46,6 +58,19 @@ class NtpBackgroundService : public KeyedService {
   // is in progress will be dropped until the currently active loader completes.
   void FetchCollectionImageInfo(const std::string& collection_id);
 
+  // Initially requests an access token for the signed-in user, and then
+  // requests an asynchronous fetch of album information using the access token,
+  // if it is available. After the fetch completes, OnAlbumInfoAvailable will be
+  // called on the observers.
+  void FetchAlbumInfo();
+
+  // Initially requests an access token for the signed-in user, and then
+  // requests an asynchronous fetch of photos using the access token, if it is
+  // available. After the fetch completes, OnAlbumPhotosAvailable will be called
+  // on the observers.
+  void FetchAlbumPhotos(const std::string& album_id,
+                        const std::string& photo_container_id);
+
   // Add/remove observers. All observers must unregister themselves before the
   // NtpBackgroundService is destroyed.
   void AddObserver(NtpBackgroundServiceObserver* observer);
@@ -61,18 +86,54 @@ class NtpBackgroundService : public KeyedService {
     return collection_images_;
   }
 
+  // Returns the error info associated with the collections request.
+  const ErrorInfo& collection_error_info() const {
+    return collection_error_info_;
+  }
+
+  // Returns the error info associated with the collection images request.
+  const ErrorInfo& collection_images_error_info() const {
+    return collection_images_error_info_;
+  }
+
+  // Returns the error info associated with the albums request.
+  const ErrorInfo& album_error_info() const { return album_error_info_; }
+
+  // Returns the error info associated with the album photos request.
+  const ErrorInfo& album_photos_error_info() const {
+    return album_photos_error_info_;
+  }
+
+  // Returns the currently cached AlbumInfo, if any.
+  const std::vector<AlbumInfo>& album_info() const { return album_info_; }
+
+  // Returns the currently cached AlbumPhotos, if any.
+  const std::vector<AlbumPhoto>& album_photos() const { return album_photos_; }
+
   GURL GetCollectionsLoadURLForTesting() const;
   GURL GetImagesURLForTesting() const;
+  GURL GetAlbumsURLForTesting() const;
+  GURL GetAlbumPhotosApiUrlForTesting(
+      const std::string& album_id,
+      const std::string& photo_container_id) const;
 
  private:
   GURL collections_api_url_;
   GURL collection_images_api_url_;
+  GURL albums_api_url_;
+  GURL photos_api_base_url_;
   std::string image_options_;
 
   // Used to download the proto from the Backdrop service.
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   std::unique_ptr<network::SimpleURLLoader> collections_loader_;
-  std::unique_ptr<network::SimpleURLLoader> image_info_loader_;
+  std::unique_ptr<network::SimpleURLLoader> collections_image_info_loader_;
+  std::unique_ptr<network::SimpleURLLoader> albums_loader_;
+  std::unique_ptr<network::SimpleURLLoader> albums_photo_info_loader_;
+
+  identity::IdentityManager* const identity_manager_;
+  // The current OAuth2 token fetcher.
+  std::unique_ptr<identity::PrimaryAccountAccessTokenFetcher> token_fetcher_;
 
   base::ObserverList<NtpBackgroundServiceObserver, true> observers_;
 
@@ -87,18 +148,55 @@ class NtpBackgroundService : public KeyedService {
   void OnCollectionImageInfoFetchComplete(
       const std::unique_ptr<std::string> response_body);
 
+  void GetAccessTokenForAlbumCallback(
+      GoogleServiceAuthError error,
+      identity::AccessTokenInfo access_token_info);
+
+  // Callback that processes the response from the FetchAlbumInfo request,
+  // refreshing the contents of album_info_ with server-provided data.
+  void OnAlbumInfoFetchComplete(
+      const std::unique_ptr<std::string> response_body);
+
+  void GetAccessTokenForPhotosCallback(
+      GoogleServiceAuthError error,
+      identity::AccessTokenInfo access_token_info);
+
+  // Callback that processes the response from SettingPreviewRequest, refreshing
+  // the contents of album_photos_ with server-provided data.
+  void OnAlbumPhotosFetchComplete(
+      const std::unique_ptr<std::string> response_body);
+
   enum class FetchComplete {
     // Indicates that asynchronous fetch of CollectionInfo has completed.
     COLLECTION_INFO,
     // Indicates that asynchronous fetch of CollectionImages has completed.
-    COLLECTION_IMAGE_INFO
+    COLLECTION_IMAGE_INFO,
+    // Indicates that asynchronous fetch of AlbumInfo has completed.
+    ALBUM_INFO,
+    // Indicates that asynchronous fetch of AlbumPhotos has completed.
+    ALBUM_PHOTOS
   };
+
   void NotifyObservers(FetchComplete fetch_complete);
+  GURL GetAlbumPhotosApiUrl() const;
+  GURL FormatAlbumPhotosBaseApiUrl(const std::string& album_id,
+                                   const std::string& photo_container_id) const;
 
   std::vector<CollectionInfo> collection_info_;
 
   std::vector<CollectionImage> collection_images_;
   std::string requested_collection_id_;
+
+  std::vector<AlbumInfo> album_info_;
+
+  std::vector<AlbumPhoto> album_photos_;
+  std::string requested_album_id_;
+  std::string requested_photo_container_id_;
+
+  ErrorInfo album_error_info_;
+  ErrorInfo album_photos_error_info_;
+  ErrorInfo collection_error_info_;
+  ErrorInfo collection_images_error_info_;
 
   DISALLOW_COPY_AND_ASSIGN(NtpBackgroundService);
 };

@@ -25,7 +25,7 @@
 #import "ios/chrome/browser/ui/settings/sync_settings_collection_view_controller.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
-#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/chrome/common/ui_util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #import "ios/public/provider/chrome/browser/user_feedback/user_feedback_provider.h"
@@ -158,18 +158,14 @@ newUserFeedbackController:(ios::ChromeBrowserState*)browserState
   DCHECK(ios::GetChromeBrowserProvider()
              ->GetUserFeedbackProvider()
              ->IsUserFeedbackEnabled());
-  UIViewController* controller =
-      ios::GetChromeBrowserProvider()
-          ->GetUserFeedbackProvider()
-          ->CreateViewController(dataSource, [delegate dispatcherForSettings]);
+  UIViewController* controller = ios::GetChromeBrowserProvider()
+                                     ->GetUserFeedbackProvider()
+                                     ->CreateViewController(dataSource);
   DCHECK(controller);
   SettingsNavigationController* nc = [[SettingsNavigationController alloc]
       initWithRootViewController:controller
                     browserState:browserState
                         delegate:delegate];
-  if (!experimental_flags::IsNewFeedbackKitEnabled()) {
-    [controller navigationItem].rightBarButtonItem = [nc cancelButton];
-  }
   return nc;
 }
 
@@ -541,6 +537,13 @@ initWithRootViewController:(UIViewController*)rootViewController
     // Configure the style.
     appBarContainer.view.backgroundColor = [UIColor whiteColor];
     ConfigureAppBarWithCardStyle(appBarContainer.appBar);
+
+    // Override the header view's background color if the UIRefresh experiment
+    // is enabled.
+    if (experimental_flags::IsSettingsUIRebootEnabled()) {
+      appBarContainer.appBar.headerViewController.headerView.backgroundColor =
+          [UIColor groupTableViewBackgroundColor];
+    }
 
     // Register the app bar container and return it.
     [self registerAppBarContainer:appBarContainer];

@@ -14,6 +14,10 @@ namespace ios {
 class ChromeBrowserState;
 }
 
+namespace unified_consent {
+class UrlKeyedDataCollectionConsentHelper;
+}
+
 // AutocompleteProviderClientImpl provides iOS-specific implementation of
 // AutocompleteProviderClient interface.
 class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
@@ -23,7 +27,7 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   ~AutocompleteProviderClientImpl() override;
 
   // AutocompleteProviderClient implementation.
-  net::URLRequestContextGetter* GetRequestContext() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   PrefService* GetPrefs() override;
   const AutocompleteSchemeClassifier& GetSchemeClassifier() const override;
   AutocompleteClassifier* GetAutocompleteClassifier() override;
@@ -35,6 +39,8 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   TemplateURLService* GetTemplateURLService() override;
   const TemplateURLService* GetTemplateURLService() const override;
   ContextualSuggestionsService* GetContextualSuggestionsService(
+      bool create_if_necessary) const override;
+  DocumentSuggestionsService* GetDocumentSuggestionsService(
       bool create_if_necessary) const override;
   const SearchTermsData& GetSearchTermsData() const override;
   scoped_refptr<ShortcutsBackend> GetShortcutsBackend() override;
@@ -50,7 +56,7 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   base::Time GetCurrentVisitTimestamp() const override;
   bool IsOffTheRecord() const override;
   bool SearchSuggestEnabled() const override;
-  bool IsTabUploadToGoogleActive() const override;
+  bool IsPersonalizedUrlDataCollectionActive() const override;
   bool IsAuthenticated() const override;
   void Classify(
       const base::string16& text,
@@ -72,6 +78,8 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   ios::ChromeBrowserState* browser_state_;
   AutocompleteSchemeClassifierImpl scheme_classifier_;
   ios::UIThreadSearchTermsData search_terms_data_;
+  std::unique_ptr<unified_consent::UrlKeyedDataCollectionConsentHelper>
+      url_consent_helper_;
 
   DISALLOW_COPY_AND_ASSIGN(AutocompleteProviderClientImpl);
 };

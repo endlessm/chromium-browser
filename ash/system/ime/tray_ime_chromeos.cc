@@ -10,10 +10,11 @@
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/ime/ime_controller.h"
 #include "ash/resources/vector_icons/vector_icons.h"
+#include "ash/session/session_observer.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/system/model/system_tray_model.h"
 #include "ash/system/tray/system_tray.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/system_tray_item_detailed_view_delegate.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/system/tray/tray_constants.h"
@@ -41,6 +42,28 @@
 #include "ui/views/widget/widget.h"
 
 namespace ash {
+
+namespace {
+class IMETrayItemView : public TrayItemView, public SessionObserver {
+ public:
+  explicit IMETrayItemView(SystemTrayItem* owner) : TrayItemView(owner) {
+    CreateLabel();
+    SetupLabelForTray(label());
+  }
+  ~IMETrayItemView() override = default;
+
+  // SessionObserver:
+  void OnSessionStateChanged(session_manager::SessionState state) override {
+    label()->SetEnabledColor(TrayIconColor(state));
+  }
+
+ private:
+  ScopedSessionObserver session_observer_{this};
+
+  DISALLOW_COPY_AND_ASSIGN(IMETrayItemView);
+};
+}  // namespace
+
 namespace tray {
 
 class IMEDefaultView : public TrayItemMore {
@@ -72,84 +95,62 @@ class IMEDefaultView : public TrayItemMore {
   DISALLOW_COPY_AND_ASSIGN(IMEDefaultView);
 };
 
-// A list of available IMEs shown in the IME detailed view of the system menu,
-// along with other items in the title row (a settings button and optional
-// enterprise-controlled icon).
-class IMEDetailedView : public ImeListView {
- public:
-  IMEDetailedView(DetailedViewDelegate* delegate, ImeController* ime_controller)
-      : ImeListView(delegate), ime_controller_(ime_controller) {
-    DCHECK(ime_controller_);
+IMEDetailedView::IMEDetailedView(DetailedViewDelegate* delegate,
+                                 ImeController* ime_controller)
+    : ImeListView(delegate), ime_controller_(ime_controller) {
+  DCHECK(ime_controller_);
+}
+
+void IMEDetailedView::Update(
+    const std::string& current_ime_id,
+    const std::vector<mojom::ImeInfo>& list,
+    const std::vector<mojom::ImeMenuItem>& property_list,
+    bool show_keyboard_toggle,
+    SingleImeBehavior single_ime_behavior) {
+  ImeListView::Update(current_ime_id, list, property_list, show_keyboard_toggle,
+                      single_ime_behavior);
+  CreateTitleRow(IDS_ASH_STATUS_TRAY_IME);
+}
+
+void IMEDetailedView::ResetImeListView() {
+  ImeListView::ResetImeListView();
+  settings_button_ = nullptr;
+  controlled_setting_icon_ = nullptr;
+}
+
+void IMEDetailedView::HandleButtonPressed(views::Button* sender,
+                                          const ui::Event& event) {
+  if (sender == settings_button_)
+    ShowSettings();
+  else
+    ImeListView::HandleButtonPressed(sender, event);
+}
+
+void IMEDetailedView::CreateExtraTitleRowButtons() {
+  if (ime_controller_->managed_by_policy()) {
+    controlled_setting_icon_ = TrayPopupUtils::CreateMainImageView();
+    controlled_setting_icon_->SetImage(
+        gfx::CreateVectorIcon(kSystemMenuBusinessIcon, kMenuIconColor));
+    controlled_setting_icon_->SetTooltipText(
+        l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_IME_MANAGED));
+    tri_view()->AddView(TriView::Container::END, controlled_setting_icon_);
   }
 
-  ~IMEDetailedView() override = default;
+  tri_view()->SetContainerVisible(TriView::Container::END, true);
+  settings_button_ = CreateSettingsButton(IDS_ASH_STATUS_TRAY_IME_SETTINGS);
+  tri_view()->AddView(TriView::Container::END, settings_button_);
+}
 
-  views::ImageView* controlled_setting_icon() {
-    return controlled_setting_icon_;
-  }
-
-  void Update(const std::string& current_ime_id,
-              const std::vector<mojom::ImeInfo>& list,
-              const std::vector<mojom::ImeMenuItem>& property_list,
-              bool show_keyboard_toggle,
-              SingleImeBehavior single_ime_behavior) override {
-    ImeListView::Update(current_ime_id, list, property_list,
-                        show_keyboard_toggle, single_ime_behavior);
-    CreateTitleRow(IDS_ASH_STATUS_TRAY_IME);
-  }
-
- private:
-  // ImeListView:
-  void ResetImeListView() override {
-    ImeListView::ResetImeListView();
-    settings_button_ = nullptr;
-    controlled_setting_icon_ = nullptr;
-  }
-
-  void HandleButtonPressed(views::Button* sender,
-                           const ui::Event& event) override {
-    if (sender == settings_button_)
-      ShowSettings();
-    else
-      ImeListView::HandleButtonPressed(sender, event);
-  }
-
-  void CreateExtraTitleRowButtons() override {
-    if (ime_controller_->managed_by_policy()) {
-      controlled_setting_icon_ = TrayPopupUtils::CreateMainImageView();
-      controlled_setting_icon_->SetImage(
-          gfx::CreateVectorIcon(kSystemMenuBusinessIcon, kMenuIconColor));
-      controlled_setting_icon_->SetTooltipText(
-          l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_IME_MANAGED));
-      tri_view()->AddView(TriView::Container::END, controlled_setting_icon_);
-    }
-
-    tri_view()->SetContainerVisible(TriView::Container::END, true);
-    settings_button_ = CreateSettingsButton(IDS_ASH_STATUS_TRAY_IME_SETTINGS);
-    tri_view()->AddView(TriView::Container::END, settings_button_);
-  }
-
-  void ShowSettings() {
-    base::RecordAction(base::UserMetricsAction("StatusArea_IME_Detailed"));
-    Shell::Get()->system_tray_controller()->ShowIMESettings();
-    CloseBubble();
-  }
-
-  ImeController* const ime_controller_;
-
-  // Gear icon that takes the user to IME settings.
-  views::Button* settings_button_ = nullptr;
-
-  // This icon says that the IMEs are managed by policy.
-  views::ImageView* controlled_setting_icon_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(IMEDetailedView);
-};
+void IMEDetailedView::ShowSettings() {
+  base::RecordAction(base::UserMetricsAction("StatusArea_IME_Detailed"));
+  Shell::Get()->system_tray_model()->client_ptr()->ShowIMESettings();
+  CloseBubble();
+}
 
 }  // namespace tray
 
 TrayIME::TrayIME(SystemTray* system_tray)
-    : SystemTrayItem(system_tray, UMA_IME),
+    : SystemTrayItem(system_tray, SystemTrayItemUmaType::UMA_IME),
       ime_controller_(Shell::Get()->ime_controller()),
       tray_label_(nullptr),
       default_(nullptr),
@@ -232,9 +233,7 @@ base::string16 TrayIME::GetDefaultViewLabel(bool show_ime_label) {
 
 views::View* TrayIME::CreateTrayView(LoginStatus status) {
   CHECK(tray_label_ == nullptr);
-  tray_label_ = new TrayItemView(this);
-  tray_label_->CreateLabel();
-  SetupLabelForTray(tray_label_->label());
+  tray_label_ = new IMETrayItemView(this);
   // Hide IME tray when it is created, it will be updated when it is notified
   // of the IME refresh event.
   tray_label_->SetVisible(false);
