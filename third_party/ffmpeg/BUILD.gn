@@ -395,23 +395,6 @@ if (is_component_ffmpeg) {
         "-L",
         rebase_path(target_gen_dir, root_build_dir),
       ]
-
-      # Need to link against the system's libfdk-aac.
-      if (current_cpu == "arm") {
-        ldflags += [
-          "-L",
-          "/usr/lib/arm-linux-gnueabihf/",
-        ]
-      } else {
-        ldflags += [
-          "-L",
-          "/usr/lib/x86_64-linux-gnu/",
-        ]
-      }
-      libs = [
-        "fdk-aac",
-      ]
-
     } else if (is_win) {
       # Windows component build needs the .def file to export ffmpeg symbols.
       deps += [ ":ffmpeg_generate_def" ]
