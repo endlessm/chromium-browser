@@ -178,7 +178,7 @@ std::string AdaptUserAgentForURL(const std::string& user_agent, const GURL& url)
       (host.find("google.com") != std::string::npos && url.path().find("/calendar") == 0) ||
       url.DomainIs("netflix.com") ||
       url.DomainIs("nflxvideo.net")) {
-    std::string::size_type start_pos = user_agent.find('(');
+    std::string::size_type start_pos = user_agent.find('(') + 1;
     std::string::size_type end_pos = user_agent.find(')');
     result.replace(start_pos, end_pos - start_pos, std::string("X11; CrOS armv7l 10575.54.0"));
   }
