@@ -152,7 +152,6 @@ public:
   void printDynamicTable() override;
   void printNeededLibraries() override;
   void printProgramHeaders() override;
-  void printSectionAsHex(StringRef StringName) override;
   void printHashTable() override;
   void printGnuHashTable() override;
   void printLoadName() override;
@@ -284,23 +283,6 @@ public:
   const Elf_Hash *getHashTable() const { return HashTable; }
   const Elf_GnuHash *getGnuHashTable() const { return GnuHashTable; }
 };
-
-template <class ELFT>
-void ELFDumper<ELFT>::printSectionAsHex(StringRef SectionName) {
-  char *StrPtr;
-  long SectionIndex = strtol(SectionName.data(), &StrPtr, 10);
-  const Elf_Shdr *Sec;
-  if (*StrPtr)
-    Sec = unwrapOrError(Obj->getSection(SectionName));
-  else
-    Sec = unwrapOrError(Obj->getSection((unsigned int)SectionIndex));
-
-  StringRef SecName = unwrapOrError(Obj->getSectionName(Sec));
-  const uint8_t *SecContent =
-      reinterpret_cast<const uint8_t *>(Obj->base() + Sec->sh_offset);
-
-  SectionHexDump(SecName, SecContent, Sec->sh_size);
-}
 
 template <class ELFT>
 void ELFDumper<ELFT>::printSymbolsHelper(bool IsDynamic) const {
@@ -2904,7 +2886,9 @@ template <class ELFT> void GNUStyle<ELFT>::printSections(const ELFO *Obj) {
     Bias = 8;
     Width = 8;
   }
-  OS << "There are " << to_string(Obj->getHeader()->e_shnum)
+
+  ArrayRef<Elf_Shdr> Sections = unwrapOrError(Obj->sections());
+  OS << "There are " << to_string(Sections.size())
      << " section headers, starting at offset "
      << "0x" << to_hexString(Obj->getHeader()->e_shoff, false) << ":\n\n";
   OS << "Section Headers:\n";
@@ -2923,7 +2907,7 @@ template <class ELFT> void GNUStyle<ELFT>::printSections(const ELFO *Obj) {
     printField(f);
   OS << "\n";
 
-  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
+  for (const Elf_Shdr &Sec : Sections) {
     Number = to_string(SectionIndex);
     Fields[0].Str = Number;
     Fields[1].Str = unwrapOrError(Obj->getSectionName(&Sec));
@@ -4395,7 +4379,7 @@ void LLVMStyle<ELFT>::printAddrsig(const ELFFile<ELFT> *Obj) {
   while (Cur != End) {
     unsigned Size;
     const char *Err;
-    uint64_t SymIndex = decodeULEB128(Cur, &Size, Contents.end(), &Err);
+    uint64_t SymIndex = decodeULEB128(Cur, &Size, End, &Err);
     if (Err)
       reportError(Err);
     W.printNumber("Sym", this->dumper()->getStaticSymbolName(SymIndex),

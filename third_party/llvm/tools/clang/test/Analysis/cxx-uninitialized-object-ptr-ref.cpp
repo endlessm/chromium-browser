@@ -1,6 +1,11 @@
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,alpha.cplusplus.UninitializedObject -analyzer-config alpha.cplusplus.UninitializedObject:Pedantic=true -std=c++11 -DPEDANTIC -verify %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,alpha.cplusplus.UninitializedObject \
+// RUN:   -analyzer-config alpha.cplusplus.UninitializedObject:Pedantic=true -DPEDANTIC \
+// RUN:   -analyzer-config alpha.cplusplus.UninitializedObject:CheckPointeeInitialization=true \
+// RUN:   -std=c++11 -verify  %s
 
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,alpha.cplusplus.UninitializedObject -std=c++11 -verify %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,alpha.cplusplus.UninitializedObject \
+// RUN:   -analyzer-config alpha.cplusplus.UninitializedObject:CheckPointeeInitialization=true \
+// RUN:   -std=c++11 -verify  %s
 
 //===----------------------------------------------------------------------===//
 // Concrete location tests.
@@ -189,14 +194,27 @@ void fCharPointerTest() {
   CharPointerTest();
 }
 
-struct CyclicPointerTest {
+struct CyclicPointerTest1 {
   int *ptr;
-  CyclicPointerTest() : ptr(reinterpret_cast<int*>(&ptr)) {}
+  CyclicPointerTest1() : ptr(reinterpret_cast<int *>(&ptr)) {}
 };
 
-void fCyclicPointerTest() {
-  CyclicPointerTest();
+void fCyclicPointerTest1() {
+  CyclicPointerTest1();
 }
+
+// TODO: Currently, the checker ends up in an infinite loop for the following
+// test case.
+/*
+struct CyclicPointerTest2 {
+  int **pptr;
+  CyclicPointerTest2() : pptr(reinterpret_cast<int **>(&pptr)) {}
+};
+
+void fCyclicPointerTest2() {
+  CyclicPointerTest2();
+}
+*/
 
 //===----------------------------------------------------------------------===//
 // Void pointer tests.
@@ -235,10 +253,10 @@ void fVoidPointerTest2() {
 }
 
 class VoidPointerRRefTest1 {
-  void *&&vptrrref;
+  void *&&vptrrref; // expected-note {{here}}
 
 public:
-  VoidPointerRRefTest1(void *vptr, char) : vptrrref(static_cast<void *&&>(vptr)) {
+  VoidPointerRRefTest1(void *vptr, char) : vptrrref(static_cast<void *&&>(vptr)) { // expected-warning {{binding reference member 'vptrrref' to stack allocated parameter 'vptr'}}
     // All good!
   }
 };
@@ -249,10 +267,10 @@ void fVoidPointerRRefTest1() {
 }
 
 class VoidPointerRRefTest2 {
-  void **&&vpptrrref;
+  void **&&vpptrrref; // expected-note {{here}}
 
 public:
-  VoidPointerRRefTest2(void **vptr, char) : vpptrrref(static_cast<void **&&>(vptr)) {
+  VoidPointerRRefTest2(void **vptr, char) : vpptrrref(static_cast<void **&&>(vptr)) { // expected-warning {{binding reference member 'vpptrrref' to stack allocated parameter 'vptr'}}
     // All good!
   }
 };
@@ -263,10 +281,10 @@ void fVoidPointerRRefTest2() {
 }
 
 class VoidPointerLRefTest {
-  void *&vptrrref;
+  void *&vptrrref; // expected-note {{here}}
 
 public:
-  VoidPointerLRefTest(void *vptr, char) : vptrrref(static_cast<void *&>(vptr)) {
+  VoidPointerLRefTest(void *vptr, char) : vptrrref(static_cast<void *&>(vptr)) { // expected-warning {{binding reference member 'vptrrref' to stack allocated parameter 'vptr'}}
     // All good!
   }
 };
@@ -280,11 +298,60 @@ struct CyclicVoidPointerTest {
   void *vptr; // no-crash
 
   CyclicVoidPointerTest() : vptr(&vptr) {}
-
 };
 
 void fCyclicVoidPointerTest() {
   CyclicVoidPointerTest();
+}
+
+struct IntDynTypedVoidPointerTest1 {
+  void *vptr; // expected-note{{uninitialized pointee 'static_cast<int *>(this->vptr)'}}
+  int dontGetFilteredByNonPedanticMode = 0;
+
+  IntDynTypedVoidPointerTest1(void *vptr) : vptr(vptr) {} // expected-warning{{1 uninitialized field}}
+};
+
+void fIntDynTypedVoidPointerTest1() {
+  int a;
+  IntDynTypedVoidPointerTest1 tmp(&a);
+}
+
+struct RecordDynTypedVoidPointerTest {
+  struct RecordType {
+    int x; // expected-note{{uninitialized field 'static_cast<struct RecordDynTypedVoidPointerTest::RecordType *>(this->vptr)->x'}}
+    int y; // expected-note{{uninitialized field 'static_cast<struct RecordDynTypedVoidPointerTest::RecordType *>(this->vptr)->y'}}
+  };
+
+  void *vptr;
+  int dontGetFilteredByNonPedanticMode = 0;
+
+  RecordDynTypedVoidPointerTest(void *vptr) : vptr(vptr) {} // expected-warning{{2 uninitialized fields}}
+};
+
+void fRecordDynTypedVoidPointerTest() {
+  RecordDynTypedVoidPointerTest::RecordType a;
+  RecordDynTypedVoidPointerTest tmp(&a);
+}
+
+struct NestedNonVoidDynTypedVoidPointerTest {
+  struct RecordType {
+    int x;      // expected-note{{uninitialized field 'static_cast<struct NestedNonVoidDynTypedVoidPointerTest::RecordType *>(this->vptr)->x'}}
+    int y;      // expected-note{{uninitialized field 'static_cast<struct NestedNonVoidDynTypedVoidPointerTest::RecordType *>(this->vptr)->y'}}
+    void *vptr; // expected-note{{uninitialized pointee 'static_cast<char *>(static_cast<struct NestedNonVoidDynTypedVoidPointerTest::RecordType *>(this->vptr)->vptr)'}}
+  };
+
+  void *vptr;
+  int dontGetFilteredByNonPedanticMode = 0;
+
+  NestedNonVoidDynTypedVoidPointerTest(void *vptr, void *c) : vptr(vptr) {
+    static_cast<RecordType *>(vptr)->vptr = c; // expected-warning{{3 uninitialized fields}}
+  }
+};
+
+void fNestedNonVoidDynTypedVoidPointerTest() {
+  NestedNonVoidDynTypedVoidPointerTest::RecordType a;
+  char c;
+  NestedNonVoidDynTypedVoidPointerTest tmp(&a, &c);
 }
 
 //===----------------------------------------------------------------------===//

@@ -20,6 +20,7 @@
 #include "llvm/IR/LegacyPassManagers.h"
 #include "llvm/IR/LegacyPassNameParser.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/PassTimingInfo.h"
 #include "llvm/Support/Chrono.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -137,17 +138,11 @@ bool PMDataManager::isPassDebuggingExecutionsOrMore() const {
 
 unsigned PMDataManager::initSizeRemarkInfo(Module &M) {
   // Only calculate getInstructionCount if the size-info remark is requested.
-  if (M.getContext().getDiagHandlerPtr()->isAnalysisRemarkEnabled("size-info"))
-    return M.getInstructionCount();
-  return 0;
+  return M.getInstructionCount();
 }
 
 void PMDataManager::emitInstrCountChangedRemark(Pass *P, Module &M,
                                                 unsigned CountBefore) {
-  // Did the user request the remark? If not, quit.
-  if (!M.getContext().getDiagHandlerPtr()->isAnalysisRemarkEnabled("size-info"))
-    return;
-
   // We need a function containing at least one basic block in order to output
   // remarks. Since it's possible that the first function in the module doesn't
   // actually contain a basic block, we have to go and find one that's suitable
@@ -500,65 +495,6 @@ char PassManagerImpl::ID = 0;
 } // End of legacy namespace
 } // End of llvm namespace
 
-namespace {
-
-//===----------------------------------------------------------------------===//
-/// TimingInfo Class - This class is used to calculate information about the
-/// amount of time each pass takes to execute.  This only happens when
-/// -time-passes is enabled on the command line.
-///
-
-static ManagedStatic<sys::SmartMutex<true> > TimingInfoMutex;
-
-class TimingInfo {
-  DenseMap<Pass*, Timer*> TimingData;
-  TimerGroup TG;
-public:
-  // Use 'create' member to get this.
-  TimingInfo() : TG("pass", "... Pass execution timing report ...") {}
-
-  // TimingDtor - Print out information about timing information
-  ~TimingInfo() {
-    // Delete all of the timers, which accumulate their info into the
-    // TimerGroup.
-    for (auto &I : TimingData)
-      delete I.second;
-    // TimerGroup is deleted next, printing the report.
-  }
-
-  // createTheTimeInfo - This method either initializes the TheTimeInfo pointer
-  // to a non-null value (if the -time-passes option is enabled) or it leaves it
-  // null.  It may be called multiple times.
-  static void createTheTimeInfo();
-
-  // print - Prints out timing information and then resets the timers.
-  void print() {
-    TG.print(*CreateInfoOutputFile());
-  }
-
-  /// getPassTimer - Return the timer for the specified pass if it exists.
-  Timer *getPassTimer(Pass *P) {
-    if (P->getAsPMDataManager())
-      return nullptr;
-
-    sys::SmartScopedLock<true> Lock(*TimingInfoMutex);
-    Timer *&T = TimingData[P];
-    if (!T) {
-      StringRef PassName = P->getPassName();
-      StringRef PassArgument;
-      if (const PassInfo *PI = Pass::lookupPassInfo(P->getPassID()))
-        PassArgument = PI->getPassArgument();
-      T = new Timer(PassArgument.empty() ? PassName : PassArgument, PassName,
-                    TG);
-    }
-    return T;
-  }
-};
-
-} // End of anon namespace
-
-static TimingInfo *TheTimeInfo;
-
 //===----------------------------------------------------------------------===//
 // PMTopLevelManager implementation
 
@@ -683,6 +619,8 @@ void PMTopLevelManager::schedulePass(Pass *P) {
   // available at this point.
   const PassInfo *PI = findAnalysisPassInfo(P->getPassID());
   if (PI && PI->isAnalysis() && findAnalysisPass(P->getPassID())) {
+    // Remove any cached AnalysisUsage information.
+    AnUsageMap.erase(P);
     delete P;
     return;
   }
@@ -1349,6 +1287,8 @@ bool BBPassManager::runOnFunction(Function &F) {
   bool Changed = doInitialization(F);
   Module &M = *F.getParent();
 
+  unsigned InstrCount = 0;
+  bool EmitICRemark = M.shouldEmitInstrCountChangedRemark();
   for (BasicBlock &BB : F)
     for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
       BasicBlockPass *BP = getContainedPass(Index);
@@ -1363,9 +1303,11 @@ bool BBPassManager::runOnFunction(Function &F) {
         // If the pass crashes, remember this.
         PassManagerPrettyStackEntry X(BP, BB);
         TimeRegion PassTimer(getPassTimer(BP));
-        unsigned InstrCount = initSizeRemarkInfo(M);
+        if (EmitICRemark)
+          InstrCount = initSizeRemarkInfo(M);
         LocalChanged |= BP->runOnBasicBlock(BB);
-        emitInstrCountChangedRemark(BP, M, InstrCount);
+        if (EmitICRemark)
+          emitInstrCountChangedRemark(BP, M, InstrCount);
       }
 
       Changed |= LocalChanged;
@@ -1527,7 +1469,6 @@ void FunctionPassManagerImpl::releaseMemoryOnTheFly() {
 // Return true if any function is modified by a pass.
 bool FunctionPassManagerImpl::run(Function &F) {
   bool Changed = false;
-  TimingInfo::createTheTimeInfo();
 
   initializeAllAnalysisInfo();
   for (unsigned Index = 0; Index < getNumContainedManagers(); ++Index) {
@@ -1569,6 +1510,8 @@ bool FPPassManager::runOnFunction(Function &F) {
   // Collect inherited analysis from Module level pass manager.
   populateInheritedAnalysis(TPM->activeStack);
 
+  unsigned InstrCount = 0;
+  bool EmitICRemark = M.shouldEmitInstrCountChangedRemark();
   for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
     FunctionPass *FP = getContainedPass(Index);
     bool LocalChanged = false;
@@ -1581,9 +1524,11 @@ bool FPPassManager::runOnFunction(Function &F) {
     {
       PassManagerPrettyStackEntry X(FP, F);
       TimeRegion PassTimer(getPassTimer(FP));
-      unsigned InstrCount = initSizeRemarkInfo(M);
+      if (EmitICRemark)
+        InstrCount = initSizeRemarkInfo(M);
       LocalChanged |= FP->runOnFunction(F);
-      emitInstrCountChangedRemark(FP, M, InstrCount);
+      if (EmitICRemark)
+        emitInstrCountChangedRemark(FP, M, InstrCount);
     }
 
     Changed |= LocalChanged;
@@ -1647,6 +1592,8 @@ MPPassManager::runOnModule(Module &M) {
   for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index)
     Changed |= getContainedPass(Index)->doInitialization(M);
 
+  unsigned InstrCount = 0;
+  bool EmitICRemark = M.shouldEmitInstrCountChangedRemark();
   for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
     ModulePass *MP = getContainedPass(Index);
     bool LocalChanged = false;
@@ -1660,9 +1607,11 @@ MPPassManager::runOnModule(Module &M) {
       PassManagerPrettyStackEntry X(MP, M);
       TimeRegion PassTimer(getPassTimer(MP));
 
-      unsigned InstrCount = initSizeRemarkInfo(M);
+      if (EmitICRemark)
+        InstrCount = initSizeRemarkInfo(M);
       LocalChanged |= MP->runOnModule(M);
-      emitInstrCountChangedRemark(MP, M, InstrCount);
+      if (EmitICRemark)
+        emitInstrCountChangedRemark(MP, M, InstrCount);
     }
 
     Changed |= LocalChanged;
@@ -1755,7 +1704,6 @@ Pass* MPPassManager::getOnTheFlyPass(Pass *MP, AnalysisID PI, Function &F){
 /// whether any of the passes modifies the module, and if so, return true.
 bool PassManagerImpl::run(Module &M) {
   bool Changed = false;
-  TimingInfo::createTheTimeInfo();
 
   dumpArguments();
   dumpPasses();
@@ -1797,41 +1745,6 @@ void PassManager::add(Pass *P) {
 /// whether any of the passes modifies the module, and if so, return true.
 bool PassManager::run(Module &M) {
   return PM->run(M);
-}
-
-//===----------------------------------------------------------------------===//
-// TimingInfo implementation
-
-bool llvm::TimePassesIsEnabled = false;
-static cl::opt<bool, true> EnableTiming(
-    "time-passes", cl::location(TimePassesIsEnabled), cl::Hidden,
-    cl::desc("Time each pass, printing elapsed time for each on exit"));
-
-// createTheTimeInfo - This method either initializes the TheTimeInfo pointer to
-// a non-null value (if the -time-passes option is enabled) or it leaves it
-// null.  It may be called multiple times.
-void TimingInfo::createTheTimeInfo() {
-  if (!TimePassesIsEnabled || TheTimeInfo) return;
-
-  // Constructed the first time this is called, iff -time-passes is enabled.
-  // This guarantees that the object will be constructed before static globals,
-  // thus it will be destroyed before them.
-  static ManagedStatic<TimingInfo> TTI;
-  TheTimeInfo = &*TTI;
-}
-
-/// If TimingInfo is enabled then start pass timer.
-Timer *llvm::getPassTimer(Pass *P) {
-  if (TheTimeInfo)
-    return TheTimeInfo->getPassTimer(P);
-  return nullptr;
-}
-
-/// If timing is enabled, report the times collected up to now and then reset
-/// them.
-void llvm::reportAndResetTimings() {
-  if (TheTimeInfo)
-    TheTimeInfo->print();
 }
 
 //===----------------------------------------------------------------------===//

@@ -14,10 +14,13 @@ from google.appengine.ext import ndb
 from google.appengine.runtime import apiproxy_errors
 
 from dashboard.common import utils
+from dashboard.models import histogram
 from dashboard.pinpoint.models import job_state
 from dashboard.pinpoint.models import results2
 from dashboard.services import gerrit_service
 from dashboard.services import issue_tracker_service
+
+from tracing.value.diagnostics import reserved_infos
 
 
 # We want this to be fast to minimize overhead while waiting for tasks to
@@ -70,6 +73,9 @@ class Job(ndb.Model):
   # completes. This probably should not be the responsibility of Pinpoint.
   bug_id = ndb.IntegerProperty()
 
+  # User-provided name of the job.
+  name = ndb.StringProperty()
+
   # Email of the job creator.
   user = ndb.StringProperty()
 
@@ -84,8 +90,8 @@ class Job(ndb.Model):
 
   @classmethod
   def New(cls, quests, changes, arguments=None, bug_id=None,
-          comparison_mode=None, gerrit_server=None, gerrit_change_id=None,
-          pin=None, tags=None, user=None):
+          comparison_mode=None, comparison_magnitude=None, gerrit_server=None,
+          gerrit_change_id=None, name=None, pin=None, tags=None, user=None):
     """Creates a new Job, adds Changes to it, and puts it in the Datstore.
 
     Args:
@@ -96,10 +102,13 @@ class Job(ndb.Model):
       comparison_mode: Either 'functional' or 'performance', which the Job uses
           to figure out whether to perform a functional or performance bisect.
           If None, the Job will not automatically add any Attempts or Changes.
+      comparison_magnitude: The estimated size of the regression or improvement
+          to look for. Smaller magnitudes require more repeats.
       gerrit_server: Server of the Gerrit code review to update with job
           results.
       gerrit_change_id: Change id of the Gerrit code review to update with job
           results.
+      name: The user-provided name of the Job.
       pin: A Change (Commits + Patch) to apply to every Change in this Job.
       tags: A dict of key-value pairs used to filter the Jobs listings.
       user: The email of the Job creator.
@@ -107,10 +116,13 @@ class Job(ndb.Model):
     Returns:
       A Job object.
     """
-    state = job_state.JobState(quests, comparison_mode=comparison_mode, pin=pin)
+    state = job_state.JobState(
+        quests, comparison_mode=comparison_mode,
+        comparison_magnitude=comparison_magnitude, pin=pin)
     job = cls(state=state, arguments=arguments or {},
               bug_id=bug_id, gerrit_server=gerrit_server,
-              gerrit_change_id=gerrit_change_id, tags=tags, user=user)
+              gerrit_change_id=gerrit_change_id,
+              name=name, tags=tags, user=user)
 
     for c in changes:
       job.AddChange(c)
@@ -217,6 +229,9 @@ class Job(ndb.Model):
     footer = ('Understanding performance regressions:\n'
               '  http://g.co/ChromePerformanceRegressions')
 
+    if differences:
+      footer += self._FormatDocumentationUrls()
+
     # Bring it all together.
     comment = '\n\n'.join((header, body, footer))
     current_bug_status = self._GetBugStatus()
@@ -228,6 +243,32 @@ class Job(ndb.Model):
     else:
       # Only update the comment and cc list if this bug is assigned or closed.
       self._PostBugComment(comment, cc_list=sorted(cc_list))
+
+  def _FormatDocumentationUrls(self):
+    if not self.tags:
+      return ''
+
+    # TODO(simonhatch): Tags isn't the best way to get at this, but wait until
+    # we move this back into the dashboard so we have a better way of getting
+    # at the test path.
+    # crbug.com/876899
+    test_path = self.tags.get('test_path')
+    if not test_path:
+      return ''
+
+    test_suite = utils.TestKey('/'.join(test_path.split('/')[:3]))
+
+    docs = histogram.SparseDiagnostic.GetMostRecentDataByNamesSync(
+        test_suite, [reserved_infos.DOCUMENTATION_URLS.name])
+
+    if not docs:
+      return ''
+
+    docs = docs[reserved_infos.DOCUMENTATION_URLS.name].get('values')
+
+    footer = '\n\n%s:\n  %s' % (docs[0][0], docs[0][1])
+
+    return footer
 
   def _UpdateGerritIfNeeded(self):
     if self.gerrit_server and self.gerrit_change_id:
@@ -316,6 +357,7 @@ class Job(ndb.Model):
 
         'arguments': self.arguments,
         'bug_id': self.bug_id,
+        'name': self.name,
         'user': self.user,
 
         'created': self.created.isoformat(),

@@ -182,8 +182,7 @@ class ProcResourceKind;
 //
 // SchedModel ties these units to a processor for any stand-alone defs
 // of this class.
-class ProcResourceUnits<ProcResourceKind kind, int num,
-                        list<string> pfmCounters> {
+class ProcResourceUnits<ProcResourceKind kind, int num> {
   ProcResourceKind Kind = kind;
   int NumUnits = num;
   ProcResourceKind Super = ?;
@@ -198,8 +197,8 @@ def EponymousProcResourceKind : ProcResourceKind;
 
 // Subtargets typically define processor resource kind and number of
 // units in one place.
-class ProcResource<int num, list<string> pfmCounters = []> : ProcResourceKind,
-  ProcResourceUnits<EponymousProcResourceKind, num, pfmCounters>;
+class ProcResource<int num> : ProcResourceKind,
+  ProcResourceUnits<EponymousProcResourceKind, num>;
 
 class ProcResGroup<list<ProcResource> resources> : ProcResourceKind {
   list<ProcResource> Resources = resources;
@@ -374,7 +373,7 @@ class SchedPredicate<code pred> : SchedPredicateBase {
   SchedMachineModel SchedModel = ?;
   code Predicate = pred;
 }
-def NoSchedPred : SchedPredicate<[{true}]>;
+def NoSchedPred : MCSchedPredicate<TruePred>;
 
 // Associate a predicate with a list of SchedReadWrites. By default,
 // the selected SchedReadWrites are still associated with a single

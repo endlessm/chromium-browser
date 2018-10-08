@@ -26,16 +26,13 @@
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #include "ios/chrome/browser/signin/signin_manager_factory.h"
 #include "ios/chrome/browser/sync/profile_sync_service_factory.h"
-#include "ios/chrome/browser/unified_consent/feature.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 AutocompleteProviderClientImpl::AutocompleteProviderClientImpl(
     ios::ChromeBrowserState* browser_state)
     : browser_state_(browser_state),
-      search_terms_data_(browser_state_),
       url_consent_helper_(unified_consent::UrlKeyedDataCollectionConsentHelper::
                               NewPersonalizedDataCollectionConsentHelper(
-                                  IsUnifiedConsentEnabled(),
                                   ProfileSyncServiceFactory::GetForBrowserState(
                                       browser_state_))) {}
 
@@ -105,11 +102,6 @@ AutocompleteProviderClientImpl::GetDocumentSuggestionsService(
   return nullptr;
 }
 
-const SearchTermsData& AutocompleteProviderClientImpl::GetSearchTermsData()
-    const {
-  return search_terms_data_;
-}
-
 scoped_refptr<ShortcutsBackend>
 AutocompleteProviderClientImpl::GetShortcutsBackend() {
   return ios::ShortcutsBackendFactory::GetForBrowserState(browser_state_);
@@ -132,7 +124,7 @@ std::string AutocompleteProviderClientImpl::GetAcceptLanguages() const {
 }
 
 std::string
-AutocompleteProviderClientImpl::GetEmbedderRepresentationOfAboutScheme() {
+AutocompleteProviderClientImpl::GetEmbedderRepresentationOfAboutScheme() const {
   return kChromeUIScheme;
 }
 

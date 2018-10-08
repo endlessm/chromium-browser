@@ -33,8 +33,7 @@ def go_get_fiddlecli(api):
         api.step,
         'go get fiddlecli',
         5,  # Update attempts.
-        cmd=[api.infra.go_exe, 'get', '-u', '-t',
-             'go.skia.org/infra/fiddlek/go/fiddlecli'])
+        cmd=[api.infra.go_exe, 'get', 'go.skia.org/infra/fiddlek/go/fiddlecli'])
 
 
 def RunSteps(api):
@@ -77,6 +76,10 @@ def RunSteps(api):
              '-e', fiddlecli_input,  # Fiddle cli input.
              ]
       api.run(api.step, 'Extract all fiddles out of md files', cmd=cmd)
+
+      # Output fiddle.json for easy debugging.
+      api.run(api.step, 'Output fiddle.json',
+              cmd=['cat', fiddlecli_input])
 
       # Step 2: Forces fiddle.skia.org to compile all fiddles extracted out of
       #         markdown files and get output in JSON.

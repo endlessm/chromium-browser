@@ -203,11 +203,17 @@ class TracingBackend(object):
       timeout = 1200  # 20 minutes.
     try:
       response = self._inspector_websocket.SyncRequest(request, timeout)
-    except websocket.WebSocketTimeoutException:
-      raise TracingTimeoutException(
-          'Exception raised while sending a Tracing.requestMemoryDump '
-          'request:\n' + traceback.format_exc())
-    except (socket.error, websocket.WebSocketException,
+    except inspector_websocket.WebsocketException as err:
+      if issubclass(
+          err.websocket_error_type, websocket.WebSocketTimeoutException):
+        raise TracingTimeoutException(
+            'Exception raised while sending a Tracing.requestMemoryDump '
+            'request:\n' + traceback.format_exc())
+      else:
+        raise TracingUnrecoverableException(
+            'Exception raised while sending a Tracing.requestMemoryDump '
+            'request:\n' + traceback.format_exc())
+    except (socket.error,
             inspector_websocket.WebSocketDisconnected):
       raise TracingUnrecoverableException(
           'Exception raised while sending a Tracing.requestMemoryDump '
@@ -251,9 +257,13 @@ class TracingBackend(object):
         try:
           self._inspector_websocket.DispatchNotifications(timeout)
           start_time = time.time()
-        except websocket.WebSocketTimeoutException:
-          pass
-        except (socket.error, websocket.WebSocketException):
+        except inspector_websocket.WebSocketException as err:
+          if not issubclass(
+              err.websocket_error_type, websocket.WebSocketTimeoutException):
+            raise TracingUnrecoverableException(
+                'Exception raised while collecting tracing data:\n' +
+                traceback.format_exc())
+        except socket.error:
           raise TracingUnrecoverableException(
               'Exception raised while collecting tracing data:\n' +
               traceback.format_exc())
@@ -271,11 +281,11 @@ class TracingBackend(object):
       self._trace_data_builder = None
 
   def _NotificationHandler(self, res):
-    if 'Tracing.dataCollected' == res.get('method'):
+    if res.get('method') == 'Tracing.dataCollected':
       value = res.get('params', {}).get('value')
       self._trace_data_builder.AddTraceFor(trace_data_module.CHROME_TRACE_PART,
                                            value)
-    elif 'Tracing.tracingComplete' == res.get('method'):
+    elif res.get('method') == 'Tracing.tracingComplete':
       stream_handle = res.get('params', {}).get('stream')
       if not stream_handle:
         self._has_received_all_tracing_data = True

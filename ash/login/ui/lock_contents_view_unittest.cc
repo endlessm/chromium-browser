@@ -27,7 +27,9 @@
 #include "ash/login/ui/scrollable_users_list_view.h"
 #include "ash/login/ui/views_utils.h"
 #include "ash/public/interfaces/tray_action.mojom.h"
+#include "ash/root_window_controller.h"
 #include "ash/shell.h"
+#include "ash/system/status_area_widget.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_power_manager_client.h"
@@ -138,6 +140,65 @@ TEST_F(LockContentsViewUnitTest, SingleUserCenteredNoteActionEnabled) {
   EXPECT_EQ(expected_margin, auth_bounds.x());
   EXPECT_EQ(expected_margin,
             widget_bounds.width() - (auth_bounds.x() + auth_bounds.width()));
+}
+
+// Verifies that any top-level spacing views go down to width zero in small
+// screen sizes.
+TEST_F(LockContentsViewUnitTest, LayoutInSmallScreenSize) {
+  // Build lock screen.
+  auto* contents = new LockContentsView(
+      mojom::TrayActionState::kNotAvailable, LockScreen::ScreenType::kLock,
+      data_dispatcher(),
+      std::make_unique<FakeLoginDetachableBaseModel>(data_dispatcher()));
+  LockContentsView::TestApi lock_contents(contents);
+  std::unique_ptr<views::Widget> widget = CreateWidgetWithContent(contents);
+  display::test::DisplayManagerTestApi display_manager_test_api(
+      display_manager());
+
+  auto get_left_view = [&]() -> views::View* {
+    return lock_contents.primary_big_view();
+  };
+  auto get_right_view = [&]() -> views::View* {
+    if (lock_contents.opt_secondary_big_view())
+      return lock_contents.opt_secondary_big_view();
+    return lock_contents.users_list();
+  };
+
+  for (int i = 2; i < 10; ++i) {
+    SetUserCount(i);
+    views::View* left_view = get_left_view();
+    views::View* right_view = get_right_view();
+
+    // Determine the full-sized widths when there is plenty of spacing available
+    display_manager_test_api.UpdateDisplay("2000x1000");
+    int left_width = left_view->width();
+    int right_width = right_view->width();
+
+    int left_x = left_view->x();
+    int right_x = right_view->x();
+
+    // Resize to the minimum width that will fit both the left and right views
+    int display_width = left_width + right_width;
+    display_manager_test_api.UpdateDisplay(std::to_string(display_width) +
+                                           "x400");
+
+    // Verify the views moved, ie, a layout was performed
+    EXPECT_NE(left_view->x(), left_x);
+    EXPECT_NE(right_view->x(), right_x);
+
+    // Left and right views still have their full widths
+    EXPECT_EQ(left_width, left_view->width());
+    EXPECT_EQ(right_width, right_view->width());
+
+    // Left edge of |left_view| should be at start of the screen.
+    EXPECT_EQ(left_view->GetBoundsInScreen().x(), 0);
+    // Left edge of |right_view| should immediately follow |left_view| with no
+    // gap.
+    EXPECT_EQ(left_view->GetBoundsInScreen().right(),
+              right_view->GetBoundsInScreen().x());
+    // Right edge of |right_view| should be at the end of the screen.
+    EXPECT_EQ(right_view->GetBoundsInScreen().right(), display_width);
+  }
 }
 
 // Verifies that layout dynamically updates after a rotation by checking the
@@ -1079,7 +1140,7 @@ TEST_F(LockContentsViewKeyboardUnitTest, SwitchPinAndVirtualKeyboard) {
       LockScreen::TestApi(LockScreen::Get()).contents_view();
   ASSERT_NE(nullptr, contents);
 
-  // Add user with enabled pin method of authentication.
+  // Add user who can use pin authentication.
   const std::string email = "user@domain.com";
   LoadUser(email);
   contents->OnPinEnabledForUserChanged(AccountId::FromUserEmail(email), true);
@@ -1146,6 +1207,44 @@ TEST_F(LockContentsViewKeyboardUnitTest, SwitchUserWhileKeyboardShown) {
   EXPECT_FALSE(LoginPasswordView::TestApi(secondary_user.password_view())
                    .textfield()
                    ->HasFocus());
+}
+
+TEST_F(LockContentsViewKeyboardUnitTest, PinSubmitWithVirtualKeyboardShown) {
+  ASSERT_NO_FATAL_FAILURE(ShowLockScreen());
+  LockContentsView* contents =
+      LockScreen::TestApi(LockScreen::Get()).contents_view();
+
+  // Add user who can use pin authentication.
+  const std::string email = "user@domain.com";
+  LoadUser(email);
+  contents->OnPinEnabledForUserChanged(AccountId::FromUserEmail(email), true);
+  LoginBigUserView* big_view =
+      LockContentsView::TestApi(contents).primary_big_view();
+
+  // Require that AuthenticateUser is called with authenticated_by_pin set to
+  // true.
+  auto client = BindMockLoginScreenClient();
+  EXPECT_CALL(*client,
+              AuthenticateUser_(_, "1111", true /*authenticated_by_pin*/, _));
+
+  // Hide the PIN keyboard.
+  LoginPinView* pin_view =
+      LoginAuthUserView::TestApi(big_view->auth_user()).pin_view();
+  EXPECT_TRUE(pin_view->visible());
+  ASSERT_NO_FATAL_FAILURE(ShowKeyboard());
+  EXPECT_FALSE(pin_view->visible());
+
+  // Submit a password.
+  LoginAuthUserView::TestApi(big_view->auth_user())
+      .password_view()
+      ->RequestFocus();
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_1, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_1, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_1, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_1, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
+  base::RunLoop().RunUntilIdle();
 }
 
 // Verify that swapping works in two user layout between one regular auth user
@@ -1572,6 +1671,45 @@ TEST_F(LockContentsViewUnitTest, OnUnlockAllowedForUserChanged) {
   EXPECT_FALSE(disabled_auth_message->visible());
 }
 
+TEST_F(LockContentsViewUnitTest, DisabledAuthMessageFocusBehavior) {
+  auto* contents = new LockContentsView(
+      mojom::TrayActionState::kAvailable, LockScreen::ScreenType::kLock,
+      data_dispatcher(),
+      std::make_unique<FakeLoginDetachableBaseModel>(data_dispatcher()));
+  SetUserCount(1);
+  SetWidget(CreateWidgetWithContent(contents));
+
+  const AccountId& kFirstUserAccountId =
+      users()[0]->basic_user_info->account_id;
+  LockContentsView::TestApi contents_test_api(contents);
+  LoginAuthUserView::TestApi auth_test_api(
+      contents_test_api.primary_big_view()->auth_user());
+  views::View* disabled_auth_message = auth_test_api.disabled_auth_message();
+  LoginUserView* user_view = auth_test_api.user_view();
+
+  // The message is visible after disabling auth and it receives initial focus.
+  data_dispatcher()->SetAuthEnabledForUser(
+      kFirstUserAccountId, false,
+      base::Time::Now() + base::TimeDelta::FromHours(8));
+  EXPECT_TRUE(disabled_auth_message->visible());
+  EXPECT_TRUE(HasFocusInAnyChildView(disabled_auth_message));
+  // Tabbing from the message will move focus to the user view.
+  ASSERT_TRUE(TabThroughView(GetEventGenerator(), disabled_auth_message,
+                             false /*reverse*/));
+  EXPECT_TRUE(HasFocusInAnyChildView(user_view));
+  // Shift-tabbing from the user view will move focus back to the message.
+  ASSERT_TRUE(TabThroughView(GetEventGenerator(), user_view, true /*reverse*/));
+  EXPECT_TRUE(HasFocusInAnyChildView(disabled_auth_message));
+  // Additional shift-tabbing will eventually move focus to the status area.
+  ASSERT_TRUE(TabThroughView(GetEventGenerator(), disabled_auth_message,
+                             true /*reverse*/));
+  views::View* status_area =
+      RootWindowController::ForWindow(contents->GetWidget()->GetNativeWindow())
+          ->GetStatusAreaWidget()
+          ->GetContentsView();
+  EXPECT_TRUE(HasFocusInAnyChildView(status_area));
+}
+
 class LockContentsViewPowerManagerUnitTest
     : public LockContentsViewKeyboardUnitTest {
  public:
@@ -1720,6 +1858,131 @@ TEST_F(LockContentsViewKeyboardUnitTest, UserSwapFocusesBigView) {
   ui::test::EventGenerator* generator = GetEventGenerator();
   generator->PressKey(ui::VKEY_RETURN, 0);
   EXPECT_TRUE(login_views_utils::HasFocusInAnyChildView(primary_password_view));
+}
+
+TEST_F(LockContentsViewUnitTest, PowerwashShortcutSendsMojoCall) {
+  auto* contents = new LockContentsView(
+      mojom::TrayActionState::kNotAvailable, LockScreen::ScreenType::kLogin,
+      data_dispatcher(),
+      std::make_unique<FakeLoginDetachableBaseModel>(data_dispatcher()));
+  SetUserCount(1);
+  SetWidget(CreateWidgetWithContent(contents));
+
+  std::unique_ptr<MockLoginScreenClient> client = BindMockLoginScreenClient();
+  EXPECT_CALL(*client, ShowResetScreen());
+
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->PressKey(ui::KeyboardCode::VKEY_R, ui::EF_CONTROL_DOWN |
+                                                    ui::EF_ALT_DOWN |
+                                                    ui::EF_SHIFT_DOWN);
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(LockContentsViewUnitTest, UsersChangedRetainsExistingState) {
+  auto* contents = new LockContentsView(
+      mojom::TrayActionState::kNotAvailable, LockScreen::ScreenType::kLock,
+      data_dispatcher(),
+      std::make_unique<FakeLoginDetachableBaseModel>(data_dispatcher()));
+  SetUserCount(2);
+  SetWidget(CreateWidgetWithContent(contents));
+
+  LockContentsView::TestApi test_api(contents);
+
+  AccountId primary_user = test_api.primary_big_view()
+                               ->GetCurrentUser()
+                               ->basic_user_info->account_id;
+  data_dispatcher()->SetPinEnabledForUser(primary_user, true);
+
+  // This user should be identical to the user we enabled PIN for.
+  SetUserCount(1);
+
+  EXPECT_TRUE(
+      LoginAuthUserView::TestApi(test_api.primary_big_view()->auth_user())
+          .pin_view()
+          ->visible());
+}
+
+TEST_F(LockContentsViewUnitTest, ShowHideWarningBannerBubble) {
+  // Build lock screen with a single user.
+  auto* lock = new LockContentsView(
+      mojom::TrayActionState::kNotAvailable, LockScreen::ScreenType::kLock,
+      data_dispatcher(),
+      std::make_unique<FakeLoginDetachableBaseModel>(data_dispatcher()));
+  SetUserCount(1);
+  SetWidget(CreateWidgetWithContent(lock));
+
+  const AccountId& kUserAccountId = users()[0]->basic_user_info->account_id;
+
+  LockContentsView::TestApi test_api(lock);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+
+  // Creating lock screen does not show warning banner bubble.
+  EXPECT_FALSE(test_api.warning_banner_bubble()->IsVisible());
+
+  // Verifies that a warning banner is shown by giving a non-empty message.
+  data_dispatcher()->ShowWarningBanner(base::ASCIIToUTF16("foo"));
+  EXPECT_TRUE(test_api.warning_banner_bubble()->IsVisible());
+
+  // Verifies that a warning banner is hidden by HideWarningBanner().
+  data_dispatcher()->HideWarningBanner();
+  EXPECT_FALSE(test_api.warning_banner_bubble()->IsVisible());
+
+  // Shows a warning banner again.
+  data_dispatcher()->ShowWarningBanner(base::ASCIIToUTF16("foo"));
+  EXPECT_TRUE(test_api.warning_banner_bubble()->IsVisible());
+
+  // Attempt and fail user auth - an auth error is expected to be shown.
+  // The warning banner should not be hidden.
+  std::unique_ptr<MockLoginScreenClient> client = BindMockLoginScreenClient();
+  client->set_authenticate_user_callback_result(false);
+  EXPECT_CALL(*client, AuthenticateUser_(kUserAccountId, _, false, _));
+
+  // Submit password.
+  LoginAuthUserView::TestApi(test_api.primary_big_view()->auth_user())
+      .password_view()
+      ->RequestFocus();
+  generator->PressKey(ui::KeyboardCode::VKEY_A, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_TRUE(test_api.auth_error_bubble()->IsVisible());
+  EXPECT_TRUE(test_api.warning_banner_bubble()->IsVisible());
+}
+
+TEST_F(LockContentsViewUnitTest, RemoveUserFocusMovesBackToPrimaryUser) {
+  // Build lock screen with one public account and one normal user.
+  auto* lock = new LockContentsView(
+      mojom::TrayActionState::kNotAvailable, LockScreen::ScreenType::kLock,
+      data_dispatcher(),
+      std::make_unique<FakeLoginDetachableBaseModel>(data_dispatcher()));
+  AddPublicAccountUsers(1);
+  AddUsers(1);
+  users()[1]->can_remove = true;
+  data_dispatcher()->NotifyUsers(users());
+  SetWidget(CreateWidgetWithContent(lock));
+
+  LockContentsView::TestApi test_api(lock);
+  LoginAuthUserView::TestApi secondary_test_api(
+      test_api.opt_secondary_big_view()->auth_user());
+  LoginUserView::TestApi user_test_api(secondary_test_api.user_view());
+
+  // Remove the user.
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  // Focus the dropdown to raise the bubble.
+  user_test_api.dropdown()->RequestFocus();
+  generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
+  base::RunLoop().RunUntilIdle();
+  // Focus the remove user bubble, tap twice to remove the user.
+  user_test_api.menu()->bubble_view()->RequestFocus();
+  generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
+  base::RunLoop().RunUntilIdle();
+  generator->PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
+  base::RunLoop().RunUntilIdle();
+
+  // Secondary user was removed.
+  EXPECT_EQ(nullptr, test_api.opt_secondary_big_view());
+  // Primary user has focus.
+  EXPECT_TRUE(HasFocusInAnyChildView(test_api.primary_big_view()));
 }
 
 }  // namespace ash

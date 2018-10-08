@@ -62,7 +62,10 @@ class VM(object):
     self.image_format = opts.image_format
     self.board = opts.board
     self.ssh_port = opts.ssh_port
+    self.private_key = opts.private_key
     self.dry_run = opts.dry_run
+    # log_level is only set if --log-level or --debug is specified.
+    self.log_level = getattr(opts, 'log_level', None)
 
     self.start = opts.start
     self.stop = opts.stop
@@ -84,7 +87,8 @@ class VM(object):
     self.kvm_serial = '%s.serial' % self.kvm_monitor
 
     self.remote = remote_access.RemoteDevice(remote_access.LOCALHOST,
-                                             port=self.ssh_port)
+                                             port=self.ssh_port,
+                                             private_key=self.private_key)
     self.device_addr = 'ssh://%s:%d' % (remote_access.LOCALHOST, self.ssh_port)
 
     # TODO(achuith): support nographics, snapshot, mem_path, usb_passthrough,
@@ -282,7 +286,7 @@ class VM(object):
     # Make sure we can read these files later on by creating them as ourselves.
     osutils.Touch(self.kvm_serial)
     for pipe in [self.kvm_pipe_in, self.kvm_pipe_out]:
-      os.mkfifo(pipe, 0600)
+      os.mkfifo(pipe, 0o600)
     osutils.Touch(self.pidfile)
 
     qemu_args = [self.qemu_path]
@@ -476,6 +480,7 @@ class VM(object):
                         help='Do not display video output.')
     parser.add_argument('--ssh-port', type=int, default=VM.SSH_PORT,
                         help='ssh port to communicate with VM.')
+    parser.add_argument('--private-key', help='Path to ssh private key.')
     sdk_board_env = os.environ.get(cros_chrome_sdk.SDKFetcher.SDK_BOARD_ENV)
     parser.add_argument('--board', default=sdk_board_env, help='Board to use.')
     parser.add_argument('--cache-dir', type=str,

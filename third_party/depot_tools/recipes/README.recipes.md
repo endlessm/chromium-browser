@@ -4,7 +4,7 @@
 
 **[Recipe Modules](#Recipe-Modules)**
   * [bot_update](#recipe_modules-bot_update) &mdash; Recipe module to ensure a checkout is consistent on a bot.
-  * [cipd](#recipe_modules-cipd)
+  * [cipd](#recipe_modules-cipd) &mdash; API for interacting with CIPD.
   * [depot_tools](#recipe_modules-depot_tools) &mdash; The `depot_tools` module provides safe functions to access paths within the depot_tools repo.
   * [gclient](#recipe_modules-gclient)
   * [gerrit](#recipe_modules-gerrit)
@@ -13,8 +13,10 @@
   * [gitiles](#recipe_modules-gitiles)
   * [gsutil](#recipe_modules-gsutil)
   * [infra_paths](#recipe_modules-infra_paths)
+  * [osx_sdk](#recipe_modules-osx_sdk) &mdash; The `osx_sdk` module provides safe functions to access a semi-hermetic XCode installation.
   * [presubmit](#recipe_modules-presubmit)
   * [tryserver](#recipe_modules-tryserver)
+  * [windows_sdk](#recipe_modules-windows_sdk) &mdash; The `windows_sdk` module provides safe functions to access a hermetic Microsoft Visual Studio installation.
 
 **[Recipes](#Recipes)**
   * [bot_update:examples/buildbucket](#recipes-bot_update_examples_buildbucket)
@@ -31,8 +33,10 @@
   * [gitiles:examples/full](#recipes-gitiles_examples_full)
   * [gsutil:examples/full](#recipes-gsutil_examples_full)
   * [infra_paths:examples/full](#recipes-infra_paths_examples_full)
+  * [osx_sdk:examples/full](#recipes-osx_sdk_examples_full)
   * [presubmit:examples/full](#recipes-presubmit_examples_full)
   * [tryserver:examples/full](#recipes-tryserver_examples_full)
+  * [windows_sdk:examples/full](#recipes-windows_sdk_examples_full)
 ## Recipe Modules
 
 ### *recipe_modules* / [bot\_update](/recipes/recipe_modules/bot_update)
@@ -47,14 +51,12 @@ Recipe module to ensure a checkout is consistent on a bot.
 
 Wrapper for easy calling of bot_update.
 
-&mdash; **def [apply\_gerrit\_ref](/recipes/recipe_modules/bot_update/api.py#52)(self, root, gerrit_no_reset=False, gerrit_no_rebase_patch_ref=False, gerrit_repo=None, gerrit_ref=None, step_name='apply_gerrit', \*\*kwargs):**
-
-&mdash; **def [deapply\_patch](/recipes/recipe_modules/bot_update/api.py#414)(self, bot_update_step):**
+&mdash; **def [deapply\_patch](/recipes/recipe_modules/bot_update/api.py#387)(self, bot_update_step):**
 
 Deapplies a patch, taking care of DEPS and solution revisions properly.
     
 
-&mdash; **def [ensure\_checkout](/recipes/recipe_modules/bot_update/api.py#74)(self, gclient_config=None, suffix=None, patch=True, update_presentation=True, patch_root=None, with_branch_heads=False, with_tags=False, refs=None, patch_oauth2=None, oauth2_json=None, use_site_config_creds=None, clobber=False, root_solution_revision=None, rietveld=None, issue=None, patchset=None, gerrit_no_reset=False, gerrit_no_rebase_patch_ref=False, disable_syntax_validation=False, manifest_name=None, \*\*kwargs):**
+&mdash; **def [ensure\_checkout](/recipes/recipe_modules/bot_update/api.py#50)(self, gclient_config=None, suffix=None, patch=True, update_presentation=True, patch_root=None, with_branch_heads=False, with_tags=False, refs=None, patch_oauth2=None, oauth2_json=None, use_site_config_creds=None, clobber=False, root_solution_revision=None, rietveld=None, issue=None, patchset=None, gerrit_no_reset=False, gerrit_no_rebase_patch_ref=False, disable_syntax_validation=False, manifest_name=None, patch_refs=None, \*\*kwargs):**
 
 Args:
   gclient_config: The gclient configuration to use when running bot_update.
@@ -65,7 +67,7 @@ Args:
   manifest_name: The name of the manifest to upload to LogDog.  This must
     be unique for the whole build.
 
-&mdash; **def [get\_project\_revision\_properties](/recipes/recipe_modules/bot_update/api.py#391)(self, project_name, gclient_config=None):**
+&mdash; **def [get\_project\_revision\_properties](/recipes/recipe_modules/bot_update/api.py#364)(self, project_name, gclient_config=None):**
 
 Returns all property names used for storing the checked-out revision of
 a given project.
@@ -86,7 +88,18 @@ Returns (list of str): All properties that'll hold the checked-out revision
 
 [DEPS](/recipes/recipe_modules/cipd/__init__.py#1): [infra\_paths](#recipe_modules-infra_paths), [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/step][recipe_engine/recipe_modules/step]
 
-#### **class [CIPDApi](/recipes/recipe_modules/cipd/api.py#148)([RecipeApi][recipe_engine/wkt/RecipeApi]):**
+API for interacting with CIPD.
+
+Depends on 'cipd' binary available in PATH:
+https://godoc.org/go.chromium.org/luci/cipd/client/cmd/cipd
+
+WARNING: There is an alternative cipd recipe_module in recipes-py.git:
+https://codesearch.chromium.org/chromium/infra/recipes-py/recipe_modules/cipd/
+
+Consider using that one instead.
+TODO(crbug.com/875523): Delete this module.
+
+#### **class [CIPDApi](/recipes/recipe_modules/cipd/api.py#160)([RecipeApi][recipe_engine/wkt/RecipeApi]):**
 
 CIPDApi provides basic support for CIPD.
 
@@ -95,7 +108,7 @@ installed somewhere in $PATH. This will be true if you use depot_tools, or if
 your recipe is running inside of chrome-infrastructure's systems (buildbot,
 swarming).
 
-&mdash; **def [build](/recipes/recipe_modules/cipd/api.py#221)(self, input_dir, output_package, package_name, install_mode=None):**
+&mdash; **def [build](/recipes/recipe_modules/cipd/api.py#233)(self, input_dir, output_package, package_name, install_mode=None):**
 
 Builds, but does not upload, a cipd package from a directory.
 
@@ -108,7 +121,7 @@ Args:
     should use when installing this package. If None, defaults to the
     platform default ('copy' on windows, 'symlink' on everything else).
 
-&mdash; **def [create\_from\_pkg](/recipes/recipe_modules/cipd/api.py#317)(self, pkg_def, refs=None, tags=None):**
+&mdash; **def [create\_from\_pkg](/recipes/recipe_modules/cipd/api.py#329)(self, pkg_def, refs=None, tags=None):**
 
 Builds and uploads a package based on a PackageDefinition object.
 
@@ -126,7 +139,7 @@ Returns the JSON 'result' section, e.g.: {
   "instance_id": "433bfdf86c0bb82d1eee2d1a0473d3709c25d2c4"
 }
 
-&mdash; **def [create\_from\_yaml](/recipes/recipe_modules/cipd/api.py#297)(self, pkg_def, refs=None, tags=None):**
+&mdash; **def [create\_from\_yaml](/recipes/recipe_modules/cipd/api.py#309)(self, pkg_def, refs=None, tags=None):**
 
 Builds and uploads a package based on on-disk YAML package definition
 file.
@@ -144,11 +157,11 @@ Returns the JSON 'result' section, e.g.: {
   "instance_id": "433bfdf86c0bb82d1eee2d1a0473d3709c25d2c4"
 }
 
-&emsp; **@property**<br>&mdash; **def [default\_bot\_service\_account\_credentials](/recipes/recipe_modules/cipd/api.py#185)(self):**
+&emsp; **@property**<br>&mdash; **def [default\_bot\_service\_account\_credentials](/recipes/recipe_modules/cipd/api.py#197)(self):**
 
-&mdash; **def [describe](/recipes/recipe_modules/cipd/api.py#424)(self, package_name, version, test_data_refs=None, test_data_tags=None):**
+&mdash; **def [describe](/recipes/recipe_modules/cipd/api.py#436)(self, package_name, version, test_data_refs=None, test_data_tags=None):**
 
-&mdash; **def [ensure](/recipes/recipe_modules/cipd/api.py#339)(self, root, packages):**
+&mdash; **def [ensure](/recipes/recipe_modules/cipd/api.py#351)(self, root, packages):**
 
 Ensures that packages are installed in a given root dir.
 
@@ -159,11 +172,11 @@ packages must be a mapping from package name to its version, where
 If installing a package requires credentials, call
 ``set_service_account_credentials`` before calling this function.
 
-&emsp; **@property**<br>&mdash; **def [executable](/recipes/recipe_modules/cipd/api.py#181)(self):**
+&emsp; **@property**<br>&mdash; **def [executable](/recipes/recipe_modules/cipd/api.py#193)(self):**
 
-&mdash; **def [initialize](/recipes/recipe_modules/cipd/api.py#175)(self):**
+&mdash; **def [initialize](/recipes/recipe_modules/cipd/api.py#187)(self):**
 
-&mdash; **def [platform\_suffix](/recipes/recipe_modules/cipd/api.py#194)(self, name=None, arch=None, bits=None):**
+&mdash; **def [platform\_suffix](/recipes/recipe_modules/cipd/api.py#206)(self, name=None, arch=None, bits=None):**
 
 Use to get full package name that is platform indepdent.
 
@@ -175,15 +188,15 @@ Optional platform bits and architecture may be supplied to generate CIPD
 suffixes for other platforms. If any are omitted, the current platform
 parameters will be used.
 
-&mdash; **def [register](/recipes/recipe_modules/cipd/api.py#249)(self, package_name, package_path, refs=None, tags=None):**
+&mdash; **def [register](/recipes/recipe_modules/cipd/api.py#261)(self, package_name, package_path, refs=None, tags=None):**
 
-&mdash; **def [search](/recipes/recipe_modules/cipd/api.py#406)(self, package_name, tag):**
+&mdash; **def [search](/recipes/recipe_modules/cipd/api.py#418)(self, package_name, tag):**
 
-&mdash; **def [set\_ref](/recipes/recipe_modules/cipd/api.py#386)(self, package_name, version, refs):**
+&mdash; **def [set\_ref](/recipes/recipe_modules/cipd/api.py#398)(self, package_name, version, refs):**
 
-&mdash; **def [set\_service\_account\_credentials](/recipes/recipe_modules/cipd/api.py#178)(self, path):**
+&mdash; **def [set\_service\_account\_credentials](/recipes/recipe_modules/cipd/api.py#190)(self, path):**
 
-&mdash; **def [set\_tag](/recipes/recipe_modules/cipd/api.py#366)(self, package_name, version, tags):**
+&mdash; **def [set\_tag](/recipes/recipe_modules/cipd/api.py#378)(self, package_name, version, tags):**
 ### *recipe_modules* / [depot\_tools](/recipes/recipe_modules/depot_tools)
 
 [DEPS](/recipes/recipe_modules/depot_tools/__init__.py#5): [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/runtime][recipe_engine/recipe_modules/runtime]
@@ -649,6 +662,66 @@ It returns git_cache path if it is defined (Buildbot world), otherwise
 uses the more generic [CACHE]/git path (LUCI world).
 
 &mdash; **def [initialize](/recipes/recipe_modules/infra_paths/api.py#11)(self):**
+### *recipe_modules* / [osx\_sdk](/recipes/recipe_modules/osx_sdk)
+
+[DEPS](/recipes/recipe_modules/osx_sdk/__init__.py#5): [recipe\_engine/cipd][recipe_engine/recipe_modules/cipd], [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/step][recipe_engine/recipe_modules/step]
+
+The `osx_sdk` module provides safe functions to access a semi-hermetic
+XCode installation.
+
+Available only to Google-run bots.
+
+#### **class [OSXSDKApi](/recipes/recipe_modules/osx_sdk/api.py#15)([RecipeApi][recipe_engine/wkt/RecipeApi]):**
+
+API for using OS X SDK distributed via CIPD.
+
+&emsp; **@contextmanager**<br>&mdash; **def [\_\_call\_\_](/recipes/recipe_modules/osx_sdk/api.py#25)(self, kind):**
+
+Sets up the XCode SDK environment.
+
+Is a no-op on non-mac platforms.
+
+This will deploy the helper tool and the XCode.app bundle at
+`[START_DIR]/cache/osx_sdk`.
+
+To avoid machines rebuilding these on every run, set up a named cache in
+your cr-buildbucket.cfg file like:
+
+    caches: {
+      # Cache for mac_toolchain tool and XCode.app
+      name: "osx_sdk"
+      path: "osx_sdk"
+    }
+
+If you have builders which e.g. use a non-current SDK, you can give them
+a uniqely named cache:
+
+    caches: {
+      # Cache for N-1 version mac_toolchain tool and XCode.app
+      name: "osx_sdk_old"
+      path: "osx_sdk"
+    }
+
+Similarly, if you have mac and iOS builders you may want to distinguish the
+cache name by adding '_ios' to it. However, if you're sharing the same bots
+for both mac and iOS, consider having a single cache and just always
+fetching the iOS version. This will lead to lower overall disk utilization
+and should help to reduce cache thrashing.
+
+Usage:
+  with api.osx_sdk('mac'):
+    # sdk with mac build bits
+
+  with api.osx_sdk('ios'):
+    # sdk with mac+iOS build bits
+
+Args:
+  kind ('mac'|'ios'): How the SDK should be configured. iOS includes the
+    base XCode distribution, as well as the iOS simulators (which can be
+    quite large).
+
+Raises:
+    StepFailure or InfraFailure.
 ### *recipe_modules* / [presubmit](/recipes/recipe_modules/presubmit)
 
 [DEPS](/recipes/recipe_modules/presubmit/__init__.py#1): [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/step][recipe_engine/recipe_modules/step]
@@ -743,6 +816,32 @@ Mark the tryjob result as a test failure.
 
 This means we started running actual tests (not prerequisite steps
 like checkout or compile), and some of these tests have failed.
+### *recipe_modules* / [windows\_sdk](/recipes/recipe_modules/windows_sdk)
+
+[DEPS](/recipes/recipe_modules/windows_sdk/__init__.py#5): [recipe\_engine/cipd][recipe_engine/recipe_modules/cipd], [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/step][recipe_engine/recipe_modules/step]
+
+The `windows_sdk` module provides safe functions to access a hermetic
+Microsoft Visual Studio installation.
+
+Available only to Google-run bots.
+
+#### **class [WindowsSDKApi](/recipes/recipe_modules/windows_sdk/api.py#15)([RecipeApi][recipe_engine/wkt/RecipeApi]):**
+
+API for using Windows SDK distributed via CIPD.
+
+&emsp; **@contextmanager**<br>&mdash; **def [\_\_call\_\_](/recipes/recipe_modules/windows_sdk/api.py#23)(self, path=None, version=None, enabled=True):**
+
+Setups the SDK environment when enabled.
+
+Args:
+  path (path): Path to a directory where to install the SDK
+    (default is '[start_dir]/windows_sdk')
+  version (str): CIPD version of the SDK
+    (default is set via $infra/windows_sdk.version property)
+  enabled (bool): Whether the SDK should be used or not.
+
+Raises:
+    StepFailure or InfraFailure.
 ## Recipes
 
 ### *recipes* / [bot\_update:examples/buildbucket](/recipes/recipe_modules/bot_update/examples/buildbucket.py)
@@ -779,7 +878,7 @@ like checkout or compile), and some of these tests have failed.
 
 [DEPS](/recipes/recipe_modules/gclient/examples/full.py#5): [gclient](#recipe_modules-gclient), [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/step][recipe_engine/recipe_modules/step]
 
-&mdash; **def [RunSteps](/recipes/recipe_modules/gclient/examples/full.py#48)(api):**
+&mdash; **def [RunSteps](/recipes/recipe_modules/gclient/examples/full.py#50)(api):**
 ### *recipes* / [gclient:tests/patch\_project](/recipes/recipe_modules/gclient/tests/patch_project.py)
 
 [DEPS](/recipes/recipe_modules/gclient/tests/patch_project.py#9): [gclient](#recipe_modules-gclient), [recipe\_engine/properties][recipe_engine/recipe_modules/properties]
@@ -817,6 +916,11 @@ Move things around in a loop!
 [DEPS](/recipes/recipe_modules/infra_paths/examples/full.py#7): [infra\_paths](#recipe_modules-infra_paths), [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/step][recipe_engine/recipe_modules/step]
 
 &mdash; **def [RunSteps](/recipes/recipe_modules/infra_paths/examples/full.py#16)(api):**
+### *recipes* / [osx\_sdk:examples/full](/recipes/recipe_modules/osx_sdk/examples/full.py)
+
+[DEPS](/recipes/recipe_modules/osx_sdk/examples/full.py#5): [osx\_sdk](#recipe_modules-osx_sdk), [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/step][recipe_engine/recipe_modules/step]
+
+&mdash; **def [RunSteps](/recipes/recipe_modules/osx_sdk/examples/full.py#13)(api):**
 ### *recipes* / [presubmit:examples/full](/recipes/recipe_modules/presubmit/examples/full.py)
 
 [DEPS](/recipes/recipe_modules/presubmit/examples/full.py#5): [presubmit](#recipe_modules-presubmit)
@@ -827,18 +931,24 @@ Move things around in a loop!
 [DEPS](/recipes/recipe_modules/tryserver/examples/full.py#5): [tryserver](#recipe_modules-tryserver), [recipe\_engine/json][recipe_engine/recipe_modules/json], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/step][recipe_engine/recipe_modules/step]
 
 &mdash; **def [RunSteps](/recipes/recipe_modules/tryserver/examples/full.py#17)(api):**
+### *recipes* / [windows\_sdk:examples/full](/recipes/recipe_modules/windows_sdk/examples/full.py)
 
-[recipe_engine/recipe_modules/buildbucket]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-buildbucket
-[recipe_engine/recipe_modules/context]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-context
-[recipe_engine/recipe_modules/file]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-file
-[recipe_engine/recipe_modules/json]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-json
-[recipe_engine/recipe_modules/path]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-path
-[recipe_engine/recipe_modules/platform]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-platform
-[recipe_engine/recipe_modules/properties]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-properties
-[recipe_engine/recipe_modules/python]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-python
-[recipe_engine/recipe_modules/raw_io]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-raw_io
-[recipe_engine/recipe_modules/runtime]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-runtime
-[recipe_engine/recipe_modules/source_manifest]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-source_manifest
-[recipe_engine/recipe_modules/step]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-step
-[recipe_engine/recipe_modules/url]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/README.recipes.md#recipe_modules-url
-[recipe_engine/wkt/RecipeApi]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/e396449f8434e3faf4151c36b5ad3f2377b80608/recipe_engine/recipe_api.py#1006
+[DEPS](/recipes/recipe_modules/windows_sdk/examples/full.py#5): [windows\_sdk](#recipe_modules-windows_sdk), [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/step][recipe_engine/recipe_modules/step]
+
+&mdash; **def [RunSteps](/recipes/recipe_modules/windows_sdk/examples/full.py#13)(api):**
+
+[recipe_engine/recipe_modules/buildbucket]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-buildbucket
+[recipe_engine/recipe_modules/cipd]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-cipd
+[recipe_engine/recipe_modules/context]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-context
+[recipe_engine/recipe_modules/file]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-file
+[recipe_engine/recipe_modules/json]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-json
+[recipe_engine/recipe_modules/path]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-path
+[recipe_engine/recipe_modules/platform]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-platform
+[recipe_engine/recipe_modules/properties]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-properties
+[recipe_engine/recipe_modules/python]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-python
+[recipe_engine/recipe_modules/raw_io]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-raw_io
+[recipe_engine/recipe_modules/runtime]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-runtime
+[recipe_engine/recipe_modules/source_manifest]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-source_manifest
+[recipe_engine/recipe_modules/step]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-step
+[recipe_engine/recipe_modules/url]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/README.recipes.md#recipe_modules-url
+[recipe_engine/wkt/RecipeApi]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/27ee9b58f15dadaa02370b4f6f1fa61496af554b/recipe_engine/recipe_api.py#1006

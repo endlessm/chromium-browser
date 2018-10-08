@@ -715,10 +715,10 @@ func CheckByteLayout(fail func(string, ...interface{})) {
 	b.PrependBoolSlot(0, false, false)
 	b.EndObject()
 	check([]byte{
-		6, 0, // vtable bytes
+		4, 0, // vtable bytes
 		4, 0, // end of object from here
-		0, 0, // entry 1 is zero
-		6, 0, 0, 0, // offset for start of vtable (int32)
+		// entry 1 is zero and not stored.
+		4, 0, 0, 0, // offset for start of vtable (int32)
 	})
 
 	// test 10: vtable with one int16
@@ -1356,31 +1356,28 @@ func CheckFinishedBytesError(fail func(string, ...interface{})) {
 
 // CheckEnumNames checks that the generated enum names are correct.
 func CheckEnumNames(fail func(string, ...interface{})) {
-	type testEnumNames struct {
-		EnumNames map[int]string
-		Expected  map[int]string
+	{
+
+		want := map[example.Any]string{
+			example.AnyNONE:                    "NONE",
+			example.AnyMonster:                 "Monster",
+			example.AnyTestSimpleTableWithEnum: "TestSimpleTableWithEnum",
+			example.AnyMyGame_Example2_Monster: "MyGame_Example2_Monster",
+		}
+		got := example.EnumNamesAny
+		if !reflect.DeepEqual(got, want) {
+			fail("enum name is not equal")
+		}
 	}
-	data := [...]testEnumNames{
-		{example.EnumNamesAny,
-			map[int]string{
-				example.AnyNONE:                    "NONE",
-				example.AnyMonster:                 "Monster",
-				example.AnyTestSimpleTableWithEnum: "TestSimpleTableWithEnum",
-			},
-		},
-		{example.EnumNamesColor,
-			map[int]string{
-				example.ColorRed:   "Red",
-				example.ColorGreen: "Green",
-				example.ColorBlue:  "Blue",
-			},
-		},
-	}
-	for _, t := range data {
-		for val, name := range t.Expected {
-			if name != t.EnumNames[val] {
-				fail("enum name is not equal")
-			}
+	{
+		want := map[example.Color]string{
+			example.ColorRed:   "Red",
+			example.ColorGreen: "Green",
+			example.ColorBlue:  "Blue",
+		}
+		got := example.EnumNamesColor
+		if !reflect.DeepEqual(got, want) {
+			fail("enum name is not equal")
 		}
 	}
 }

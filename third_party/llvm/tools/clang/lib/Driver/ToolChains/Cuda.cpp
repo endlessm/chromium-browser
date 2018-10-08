@@ -621,7 +621,7 @@ void CudaToolChain::addClangTargetOptions(
     return;
   }
 
-  CC1Args.push_back("-mlink-cuda-bitcode");
+  CC1Args.push_back("-mlink-builtin-bitcode");
   CC1Args.push_back(DriverArgs.MakeArgString(LibDeviceFile));
 
   // Libdevice in CUDA-7.0 requires PTX version that's more recent than LLVM
@@ -667,7 +667,7 @@ void CudaToolChain::addClangTargetOptions(
       SmallString<128> LibOmpTargetFile(LibraryPath);
       llvm::sys::path::append(LibOmpTargetFile, LibOmpTargetName);
       if (llvm::sys::fs::exists(LibOmpTargetFile)) {
-        CC1Args.push_back("-mlink-cuda-bitcode");
+        CC1Args.push_back("-mlink-builtin-bitcode");
         CC1Args.push_back(DriverArgs.MakeArgString(LibOmpTargetFile));
         FoundBCLibrary = true;
         break;
@@ -677,6 +677,18 @@ void CudaToolChain::addClangTargetOptions(
       getDriver().Diag(diag::warn_drv_omp_offload_target_missingbcruntime)
           << LibOmpTargetName;
   }
+}
+
+bool CudaToolChain::supportsDebugInfoOption(const llvm::opt::Arg *A) const {
+  const Option &O = A->getOption();
+  return (O.matches(options::OPT_gN_Group) &&
+          !O.matches(options::OPT_gmodules)) ||
+         O.matches(options::OPT_g_Flag) ||
+         O.matches(options::OPT_ggdbN_Group) || O.matches(options::OPT_ggdb) ||
+         O.matches(options::OPT_gdwarf) || O.matches(options::OPT_gdwarf_2) ||
+         O.matches(options::OPT_gdwarf_3) || O.matches(options::OPT_gdwarf_4) ||
+         O.matches(options::OPT_gdwarf_5) ||
+         O.matches(options::OPT_gcolumn_info);
 }
 
 void CudaToolChain::AddCudaIncludeArgs(const ArgList &DriverArgs,

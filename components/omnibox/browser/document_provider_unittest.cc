@@ -13,6 +13,7 @@
 #include "components/omnibox/browser/mock_autocomplete_provider_client.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_pref_names.h"
+#include "components/omnibox/browser/test_scheme_classifier.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -185,12 +186,41 @@ TEST_F(DocumentProviderTest, CheckFeaturePrerequisiteServerBackoff) {
   provider_->backoff_for_session_ = false;
 }
 
+TEST_F(DocumentProviderTest, IsInputLikelyURL) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(omnibox::kDocumentProvider);
+
+  auto IsInputLikelyURL_Wrapper = [](const std::string& input_ascii) {
+    const AutocompleteInput autocomplete_input(
+        base::ASCIIToUTF16(input_ascii), metrics::OmniboxEventProto::OTHER,
+        TestSchemeClassifier());
+    return DocumentProvider::IsInputLikelyURL(autocomplete_input);
+  };
+
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("htt"));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("http"));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("https"));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("https://"));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("http://web.site"));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("https://web.site"));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("https://web.site"));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("w"));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("www."));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("www.web.site"));
+  EXPECT_TRUE(IsInputLikelyURL_Wrapper("chrome://extensions"));
+  EXPECT_FALSE(IsInputLikelyURL_Wrapper("https certificate"));
+  EXPECT_FALSE(IsInputLikelyURL_Wrapper("www website hosting"));
+  EXPECT_FALSE(IsInputLikelyURL_Wrapper("text query"));
+}
+
 TEST_F(DocumentProviderTest, ParseDocumentSearchResults) {
   const char kGoodJSONResponse[] = R"({
       "results": [
         {
           "title": "Document 1",
-          "url": "https://documentprovider.tld/doc?id=1"
+          "url": "https://documentprovider.tld/doc?id=1",
+          "score": 1234,
+          "originalUrl": "https://shortened.url"
         },
         {
           "title": "Document 2",
@@ -206,12 +236,19 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResults) {
   ACMatches matches;
   provider_->ParseDocumentSearchResults(*response, &matches);
   EXPECT_EQ(matches.size(), 2u);
+
   EXPECT_EQ(matches[0].contents, base::ASCIIToUTF16("Document 1"));
   EXPECT_EQ(matches[0].destination_url,
             GURL("https://documentprovider.tld/doc?id=1"));
+  EXPECT_EQ(matches[0].relevance, 1234);  // Server-specified.
+  EXPECT_EQ(matches[0].stripped_destination_url, GURL("https://shortened.url"));
+
   EXPECT_EQ(matches[1].contents, base::ASCIIToUTF16("Document 2"));
   EXPECT_EQ(matches[1].destination_url,
             GURL("https://documentprovider.tld/doc?id=2"));
+  EXPECT_EQ(matches[1].relevance, 700);  // From study default.
+  EXPECT_TRUE(matches[1].stripped_destination_url.is_empty());
+
   ASSERT_FALSE(provider_->backoff_for_session_);
 }
 

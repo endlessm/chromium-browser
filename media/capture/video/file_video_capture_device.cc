@@ -393,7 +393,9 @@ void FileVideoCaptureDevice::OnAllocateAndStart(
   DCHECK(!file_parser_);
   file_parser_ = GetVideoFileParser(file_path_, &capture_format_);
   if (!file_parser_) {
-    client_->OnError(FROM_HERE, "Could not open Video file");
+    client_->OnError(
+        VideoCaptureError::kFileVideoCaptureDeviceCouldNotOpenVideoFile,
+        FROM_HERE, "Could not open Video file");
     return;
   }
 
@@ -435,7 +437,8 @@ void FileVideoCaptureDevice::OnCaptureTask() {
     auto cb = std::move(take_photo_callbacks_.front());
     take_photo_callbacks_.pop();
 
-    mojom::BlobPtr blob = Blobify(frame_ptr, frame_size, capture_format_);
+    mojom::BlobPtr blob =
+        RotateAndBlobify(frame_ptr, frame_size, capture_format_, 0);
     if (!blob)
       continue;
 

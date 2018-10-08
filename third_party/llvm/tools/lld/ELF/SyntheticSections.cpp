@@ -335,7 +335,7 @@ void BuildIdSection::writeBuildId(ArrayRef<uint8_t> Buf) {
   switch (Config->BuildId) {
   case BuildIdKind::Fast:
     computeHash(Buf, [](uint8_t *Dest, ArrayRef<uint8_t> Arr) {
-      write64le(Dest, xxHash64(toStringRef(Arr)));
+      write64le(Dest, xxHash64(Arr));
     });
     break;
   case BuildIdKind::Md5:
@@ -502,16 +502,31 @@ std::vector<EhFrameSection::FdeData> EhFrameSection::getFdeData() const {
   uint8_t *Buf = getParent()->Loc + OutSecOff;
   std::vector<FdeData> Ret;
 
+  uint64_t VA = InX::EhFrameHdr->getVA();
   for (CieRecord *Rec : CieRecords) {
     uint8_t Enc = getFdeEncoding(Rec->Cie);
     for (EhSectionPiece *Fde : Rec->Fdes) {
       uint64_t Pc = getFdePc(Buf, Fde->OutputOff, Enc);
-      if (Pc > UINT32_MAX)
-        fatal(toString(Fde->Sec) + ": PC address is too large: " + Twine(Pc));
-      uint32_t FdeVA = getParent()->Addr + Fde->OutputOff;
-      Ret.push_back({(uint32_t)Pc, FdeVA});
+      uint64_t FdeVA = getParent()->Addr + Fde->OutputOff;
+      if (!isInt<32>(Pc - VA))
+        fatal(toString(Fde->Sec) + ": PC offset is too large: 0x" +
+              Twine::utohexstr(Pc - VA));
+      Ret.push_back({uint32_t(Pc - VA), uint32_t(FdeVA - VA)});
     }
   }
+
+  // Sort the FDE list by their PC and uniqueify. Usually there is only
+  // one FDE for a PC (i.e. function), but if ICF merges two functions
+  // into one, there can be more than one FDEs pointing to the address.
+  auto Less = [](const FdeData &A, const FdeData &B) {
+    return A.PcRel < B.PcRel;
+  };
+  std::stable_sort(Ret.begin(), Ret.end(), Less);
+  auto Eq = [](const FdeData &A, const FdeData &B) {
+    return A.PcRel == B.PcRel;
+  };
+  Ret.erase(std::unique(Ret.begin(), Ret.end(), Eq), Ret.end());
+
   return Ret;
 }
 
@@ -519,9 +534,14 @@ static uint64_t readFdeAddr(uint8_t *Buf, int Size) {
   switch (Size) {
   case DW_EH_PE_udata2:
     return read16(Buf);
+  case DW_EH_PE_sdata2:
+    return (int16_t)read16(Buf);
   case DW_EH_PE_udata4:
     return read32(Buf);
+  case DW_EH_PE_sdata4:
+    return (int32_t)read32(Buf);
   case DW_EH_PE_udata8:
+  case DW_EH_PE_sdata8:
     return read64(Buf);
   case DW_EH_PE_absptr:
     return readUint(Buf);
@@ -536,7 +556,7 @@ uint64_t EhFrameSection::getFdePc(uint8_t *Buf, size_t FdeOff,
   // The starting address to which this FDE applies is
   // stored at FDE + 8 byte.
   size_t Off = FdeOff + 8;
-  uint64_t Addr = readFdeAddr(Buf + Off, Enc & 0x7);
+  uint64_t Addr = readFdeAddr(Buf + Off, Enc & 0xf);
   if ((Enc & 0x70) == DW_EH_PE_absptr)
     return Addr;
   if ((Enc & 0x70) == DW_EH_PE_pcrel)
@@ -852,7 +872,13 @@ template <class ELFT> void MipsGotSection::build() {
     if (tryMergeGots(MergedGots.front(), SrcGot, true)) {
       File->MipsGotIndex = 0;
     } else {
-      if (!tryMergeGots(MergedGots.back(), SrcGot, false)) {
+      // If this is the first time we failed to merge with the primary GOT,
+      // MergedGots.back() will also be the primary GOT. We must make sure not
+      // to try to merge again with IsPrimary=false, as otherwise, if the
+      // inputs are just right, we could allow the primary GOT to become 1 or 2
+      // words too big due to ignoring the header size.
+      if (MergedGots.size() == 1 ||
+          !tryMergeGots(MergedGots.back(), SrcGot, false)) {
         MergedGots.emplace_back();
         std::swap(MergedGots.back(), SrcGot);
       }
@@ -1238,6 +1264,8 @@ template <class ELFT> void DynamicSection<ELFT>::finalizeContents() {
   uint32_t DtFlags1 = 0;
   if (Config->Bsymbolic)
     DtFlags |= DF_SYMBOLIC;
+  if (Config->ZGlobal)
+    DtFlags1 |= DF_1_GLOBAL;
   if (Config->ZInitfirst)
     DtFlags1 |= DF_1_INITFIRST;
   if (Config->ZNodelete)
@@ -1819,8 +1847,10 @@ static bool sortMipsSymbols(const SymbolTableEntry &L,
 void SymbolTableBaseSection::finalizeContents() {
   getParent()->Link = StrTabSec.getParent()->SectionIndex;
 
-  if (this->Type != SHT_DYNSYM)
+  if (this->Type != SHT_DYNSYM) {
+    sortSymTabSymbols();
     return;
+  }
 
   // If it is a .dynsym, there should be no local symbols, but we need
   // to do a few things for the dynamic linker.
@@ -1848,10 +1878,7 @@ void SymbolTableBaseSection::finalizeContents() {
 // Aside from above, we put local symbols in groups starting with the STT_FILE
 // symbol. That is convenient for purpose of identifying where are local symbols
 // coming from.
-void SymbolTableBaseSection::postThunkContents() {
-  if (this->Type == SHT_DYNSYM)
-    return;
-
+void SymbolTableBaseSection::sortSymTabSymbols() {
   // Move all local symbols before global symbols.
   auto E = std::stable_partition(
       Symbols.begin(), Symbols.end(), [](const SymbolTableEntry &S) {
@@ -1910,6 +1937,24 @@ SymbolTableSection<ELFT>::SymbolTableSection(StringTableSection &StrTabSec)
   this->Entsize = sizeof(Elf_Sym);
 }
 
+static BssSection *getCommonSec(Symbol *Sym) {
+  if (!Config->DefineCommon)
+    if (auto *D = dyn_cast<Defined>(Sym))
+      return dyn_cast_or_null<BssSection>(D->Section);
+  return nullptr;
+}
+
+static uint32_t getSymSectionIndex(Symbol *Sym) {
+  if (getCommonSec(Sym))
+    return SHN_COMMON;
+  if (!isa<Defined>(Sym) || Sym->NeedsPltAddr)
+    return SHN_UNDEF;
+  if (const OutputSection *OS = Sym->getOutputSection())
+    return OS->SectionIndex >= SHN_LORESERVE ? (uint32_t)SHN_XINDEX
+                                             : OS->SectionIndex;
+  return SHN_ABS;
+}
+
 // Write the internal symbol table contents to the output symbol table.
 template <class ELFT> void SymbolTableSection<ELFT>::writeTo(uint8_t *Buf) {
   // The first entry is a null entry as per the ELF spec.
@@ -1931,22 +1976,7 @@ template <class ELFT> void SymbolTableSection<ELFT>::writeTo(uint8_t *Buf) {
     }
 
     ESym->st_name = Ent.StrTabOffset;
-
-    // Set a section index.
-    BssSection *CommonSec = nullptr;
-    if (!Config->DefineCommon)
-      if (auto *D = dyn_cast<Defined>(Sym))
-        CommonSec = dyn_cast_or_null<BssSection>(D->Section);
-    if (CommonSec)
-      ESym->st_shndx = SHN_COMMON;
-    else if (Sym->NeedsPltAddr)
-      ESym->st_shndx = SHN_UNDEF;
-    else if (const OutputSection *OutSec = Sym->getOutputSection())
-      ESym->st_shndx = OutSec->SectionIndex;
-    else if (isa<Defined>(Sym))
-      ESym->st_shndx = SHN_ABS;
-    else
-      ESym->st_shndx = SHN_UNDEF;
+    ESym->st_shndx = getSymSectionIndex(Ent.Sym);
 
     // Copy symbol size if it is a defined symbol. st_size is not significant
     // for undefined symbols, so whether copying it or not is up to us if that's
@@ -1961,7 +1991,7 @@ template <class ELFT> void SymbolTableSection<ELFT>::writeTo(uint8_t *Buf) {
     // st_value is usually an address of a symbol, but that has a
     // special meaining for uninstantiated common symbols (this can
     // occur if -r is given).
-    if (CommonSec)
+    if (BssSection *CommonSec = getCommonSec(Ent.Sym))
       ESym->st_value = CommonSec->Alignment;
     else
       ESym->st_value = Sym->getVA();
@@ -1999,6 +2029,44 @@ template <class ELFT> void SymbolTableSection<ELFT>::writeTo(uint8_t *Buf) {
       ++ESym;
     }
   }
+}
+
+SymtabShndxSection::SymtabShndxSection()
+    : SyntheticSection(0, SHT_SYMTAB_SHNDX, 4, ".symtab_shndxr") {
+  this->Entsize = 4;
+}
+
+void SymtabShndxSection::writeTo(uint8_t *Buf) {
+  // We write an array of 32 bit values, where each value has 1:1 association
+  // with an entry in .symtab. If the corresponding entry contains SHN_XINDEX,
+  // we need to write actual index, otherwise, we must write SHN_UNDEF(0).
+  Buf += 4; // Ignore .symtab[0] entry.
+  for (const SymbolTableEntry &Entry : InX::SymTab->getSymbols()) {
+    if (getSymSectionIndex(Entry.Sym) == SHN_XINDEX)
+      write32(Buf, Entry.Sym->getOutputSection()->SectionIndex);
+    Buf += 4;
+  }
+}
+
+bool SymtabShndxSection::empty() const {
+  // SHT_SYMTAB can hold symbols with section indices values up to
+  // SHN_LORESERVE. If we need more, we want to use extension SHT_SYMTAB_SHNDX
+  // section. Problem is that we reveal the final section indices a bit too
+  // late, and we do not know them here. For simplicity, we just always create
+  // a .symtab_shndxr section when the amount of output sections is huge.
+  size_t Size = 0;
+  for (BaseCommand *Base : Script->SectionCommands)
+    if (isa<OutputSection>(Base))
+      ++Size;
+  return Size < SHN_LORESERVE;
+}
+
+void SymtabShndxSection::finalizeContents() {
+  getParent()->Link = InX::SymTab->getParent()->SectionIndex;
+}
+
+size_t SymtabShndxSection::getSize() const {
+  return InX::SymTab->getNumSymbols() * 4;
 }
 
 // .hash and .gnu.hash sections contain on-disk hash tables that map
@@ -2306,7 +2374,7 @@ static std::vector<InputSection *> getDebugInfoSections() {
 
 static std::vector<GdbIndexSection::CuEntry> readCuList(DWARFContext &Dwarf) {
   std::vector<GdbIndexSection::CuEntry> Ret;
-  for (std::unique_ptr<DWARFCompileUnit> &Cu : Dwarf.compile_units())
+  for (std::unique_ptr<DWARFUnit> &Cu : Dwarf.compile_units())
     Ret.push_back({Cu->getOffset(), Cu->getLength() + 4});
   return Ret;
 }
@@ -2316,7 +2384,7 @@ readAddressAreas(DWARFContext &Dwarf, InputSection *Sec) {
   std::vector<GdbIndexSection::AddressEntry> Ret;
 
   uint32_t CuIdx = 0;
-  for (std::unique_ptr<DWARFCompileUnit> &Cu : Dwarf.compile_units()) {
+  for (std::unique_ptr<DWARFUnit> &Cu : Dwarf.compile_units()) {
     DWARFAddressRangesVector Ranges;
     Cu->collectAddressRanges(Ranges);
 
@@ -2533,14 +2601,6 @@ void EhFrameHeader::writeTo(uint8_t *Buf) {
 
   std::vector<FdeData> Fdes = InX::EhFrame->getFdeData();
 
-  // Sort the FDE list by their PC and uniqueify. Usually there is only
-  // one FDE for a PC (i.e. function), but if ICF merges two functions
-  // into one, there can be more than one FDEs pointing to the address.
-  auto Less = [](const FdeData &A, const FdeData &B) { return A.Pc < B.Pc; };
-  std::stable_sort(Fdes.begin(), Fdes.end(), Less);
-  auto Eq = [](const FdeData &A, const FdeData &B) { return A.Pc == B.Pc; };
-  Fdes.erase(std::unique(Fdes.begin(), Fdes.end(), Eq), Fdes.end());
-
   Buf[0] = 1;
   Buf[1] = DW_EH_PE_pcrel | DW_EH_PE_sdata4;
   Buf[2] = DW_EH_PE_udata4;
@@ -2549,10 +2609,9 @@ void EhFrameHeader::writeTo(uint8_t *Buf) {
   write32(Buf + 8, Fdes.size());
   Buf += 12;
 
-  uint64_t VA = this->getVA();
   for (FdeData &Fde : Fdes) {
-    write32(Buf, Fde.Pc - VA);
-    write32(Buf + 4, Fde.FdeVA - VA);
+    write32(Buf, Fde.PcRel);
+    write32(Buf + 4, Fde.FdeVARel);
     Buf += 8;
   }
 }
@@ -2873,8 +2932,10 @@ void elf::mergeSections() {
 
     // We do not want to handle sections that are not alive, so just remove
     // them instead of trying to merge.
-    if (!MS->Live)
+    if (!MS->Live) {
+      S = nullptr;
       continue;
+    }
 
     StringRef OutsecName = getOutputSectionName(MS);
     uint32_t Alignment = std::max<uint32_t>(MS->Alignment, MS->Entsize);
@@ -3009,6 +3070,7 @@ RelocationBaseSection *InX::RelaIplt;
 StringTableSection *InX::ShStrTab;
 StringTableSection *InX::StrTab;
 SymbolTableBaseSection *InX::SymTab;
+SymtabShndxSection *InX::SymTabShndx;
 
 template GdbIndexSection *GdbIndexSection::create<ELF32LE>();
 template GdbIndexSection *GdbIndexSection::create<ELF32BE>();

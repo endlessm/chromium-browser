@@ -184,6 +184,17 @@ var simpleVertexShader = [
   '}'].join('\n');
 
 /**
+ * A vertex shader for a uniform color.
+ * @type {string}
+ */
+var simpleVertexShaderESSL300 = [
+  '#version 300 es',
+  'in vec4 vPosition;',
+  'void main() {',
+  '    gl_Position = vPosition;',
+  '}'].join('\n');
+
+/**
  * A fragment shader for a uniform color.
  * @type {string}
  */
@@ -2923,35 +2934,15 @@ var runSteps = function(steps) {
  *        video is ready.
  */
 var startPlayingAndWaitForVideo = function(video, callback) {
-  var gotPlaying = false;
-  var gotTimeUpdate = false;
-
-  var maybeCallCallback = function() {
-    if (gotPlaying && gotTimeUpdate && callback) {
+  var timeWatcher = function() {
+    if (video.currentTime > 0) {
       callback(video);
-      callback = undefined;
-      video.removeEventListener('playing', playingListener, true);
-      video.removeEventListener('timeupdate', timeupdateListener, true);
+    } else {
+      requestAnimFrame.call(window, timeWatcher);
     }
   };
 
-  var playingListener = function() {
-    gotPlaying = true;
-    maybeCallCallback();
-  };
-
-  var timeupdateListener = function() {
-    // Checking to make sure the current time has advanced beyond
-    // the start time seems to be a reliable heuristic that the
-    // video element has data that can be consumed.
-    if (video.currentTime > 0.0) {
-      gotTimeUpdate = true;
-      maybeCallCallback();
-    }
-  };
-
-  video.addEventListener('playing', playingListener, true);
-  video.addEventListener('timeupdate', timeupdateListener, true);
+  requestAnimFrame.call(window, timeWatcher);
   video.loop = true;
   video.play();
 };
@@ -3098,10 +3089,12 @@ function comparePixels(cmp, ref, tolerance, diff) {
 
     var count = 0;
     for (var i = 0; i < cmp.length; i++) {
-        diff[i * 4] = 0;
-        diff[i * 4 + 1] = 255;
-        diff[i * 4 + 2] = 0;
-        diff[i * 4 + 3] = 255;
+        if (diff) {
+            diff[i * 4] = 0;
+            diff[i * 4 + 1] = 255;
+            diff[i * 4 + 2] = 0;
+            diff[i * 4 + 3] = 255;
+        }
         if (Math.abs(cmp[i * 4] - ref[i * 4]) > tolerance ||
             Math.abs(cmp[i * 4 + 1] - ref[i * 4 + 1]) > tolerance ||
             Math.abs(cmp[i * 4 + 2] - ref[i * 4 + 2]) > tolerance ||
@@ -3112,8 +3105,10 @@ function comparePixels(cmp, ref, tolerance, diff) {
                 [cmp[i * 4], cmp[i * 4 + 1], cmp[i * 4 + 2], cmp[i * 4 + 3]] + ")");
             }
             count++;
-            diff[i * 4] = 255;
-            diff[i * 4 + 1] = 0;
+            if (diff) {
+                diff[i * 4] = 255;
+                diff[i * 4 + 1] = 0;
+            }
         }
     }
 
@@ -3278,6 +3273,7 @@ Object.defineProperties(API, {
   simpleColorFragmentShader: { value: simpleColorFragmentShader, writable: false },
   simpleColorFragmentShaderESSL300: { value: simpleColorFragmentShaderESSL300, writable: false },
   simpleVertexShader: { value: simpleVertexShader, writable: false },
+  simpleVertexShaderESSL300: { value: simpleVertexShaderESSL300, writable: false },
   simpleTextureFragmentShader: { value: simpleTextureFragmentShader, writable: false },
   simpleCubeMapTextureFragmentShader: { value: simpleCubeMapTextureFragmentShader, writable: false },
   simpleVertexColorFragmentShader: { value: simpleVertexColorFragmentShader, writable: false },

@@ -336,7 +336,7 @@ def SummarizeHistory(build, db):
 
   # Look for transition from most recent passing build.
   if build['status'] != constants.BUILDER_STATUS_PASSED:
-    failure = None
+    failure = {}
     for h in history:
       if h['status'] == constants.BUILDER_STATUS_PASSED:
         # Generate diff link from h .. failure
@@ -543,7 +543,7 @@ def GenerateAlertsSummary(db, builds=None,
         logging.warn('Could not locate build %s %s', wfall, build_config)
         continue
     else:
-      logging.error('Invalid build tuple: %s' % str(build_tuple))
+      logging.error('Invalid build tuple: %s', build_tuple)
       continue
 
     statuses = [master]

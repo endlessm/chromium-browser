@@ -129,6 +129,18 @@ Polymer({
       },
       readOnly: true,
     },
+
+    /**
+     * True if Chrome OS Account Manager is enabled.
+     * @private
+     */
+    isAccountManagerEnabled_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('isAccountManagerEnabled');
+      },
+      readOnly: true,
+    },
     // </if>
 
     /** @private {!Map<string, string>} */
@@ -147,7 +159,10 @@ Polymer({
               settings.routes.MANAGE_PASSWORDS.path, '#passwordManagerButton');
         }
         if (settings.routes.AUTOFILL) {
-          map.set(settings.routes.AUTOFILL.path, '#paymentManagerButton');
+          map.set(settings.routes.AUTOFILL.path, '#addressesManagerButton');
+        }
+        if (settings.routes.PAYMENTS) {
+          map.set(settings.routes.PAYMENTS.path, '#paymentManagerButton');
         }
         // <if expr="not chromeos">
         if (settings.routes.MANAGE_PROFILE) {
@@ -171,6 +186,11 @@ Polymer({
           map.set(
               settings.routes.ACCOUNTS.path,
               '#manage-other-people-subpage-trigger .subpage-arrow button');
+        }
+        if (settings.routes.ACCOUNT_MANAGER) {
+          map.set(
+              settings.routes.ACCOUNT_MANAGER.path,
+              '#account-manager-subpage-trigger .subpage-arrow button');
         }
         // </if>
         return map;
@@ -281,16 +301,14 @@ Polymer({
    * @private
    */
   handleProfileStatsCount_: function(count) {
+    const username = this.syncStatus.signedInUsername || '';
     this.deleteProfileWarning_ = (count > 0) ?
-        (count == 1) ? loadTimeData.getStringF(
-                           'deleteProfileWarningWithCountsSingular',
-                           this.syncStatus.signedInUsername) :
-                       loadTimeData.getStringF(
-                           'deleteProfileWarningWithCountsPlural', count,
-                           this.syncStatus.signedInUsername) :
+        (count == 1) ?
         loadTimeData.getStringF(
-            'deleteProfileWarningWithoutCounts',
-            this.syncStatus.signedInUsername);
+            'deleteProfileWarningWithCountsSingular', username) :
+        loadTimeData.getStringF(
+            'deleteProfileWarningWithCountsPlural', count, username) :
+        loadTimeData.getStringF('deleteProfileWarningWithoutCounts', username);
   },
 
   /**
@@ -341,12 +359,21 @@ Polymer({
   },
 
   /**
-   * Shows the manage autofill sub page.
+   * Shows the manage autofill addresses sub page.
    * @param {!Event} event
    * @private
    */
   onAutofillTap_: function(event) {
     settings.navigateTo(settings.routes.AUTOFILL);
+  },
+
+  /**
+   * Shows the manage payment information sub page.
+   * @param {!Event} event
+   * @private
+   */
+  onPaymentsTap_: function(event) {
+    settings.navigateTo(settings.routes.PAYMENTS);
   },
 
   /** @private */
@@ -452,6 +479,14 @@ Polymer({
     // it, which takes focus from the dialog.
     e.preventDefault();
     settings.navigateTo(settings.routes.LOCK_SCREEN);
+  },
+
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onAccountManagerTap_: function(e) {
+    settings.navigateTo(settings.routes.ACCOUNT_MANAGER);
   },
   // </if>
 

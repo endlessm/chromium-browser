@@ -30,6 +30,10 @@
 # define HWASAN_CONTAINS_UBSAN CAN_SANITIZE_UB
 #endif
 
+#ifndef HWASAN_WITH_INTERCEPTORS
+#define HWASAN_WITH_INTERCEPTORS 0
+#endif
+
 typedef u8 tag_t;
 
 // TBI (Top Byte Ignore) feature of AArch64: bits [63:56] are ignored in address
@@ -61,6 +65,7 @@ extern int hwasan_report_count;
 
 bool ProtectRange(uptr beg, uptr end);
 bool InitShadow();
+void MadviseShadow();
 char *GetProcSelfMaps();
 void InitializeInterceptors();
 
@@ -135,10 +140,7 @@ class ScopedThreadLocalStateBackup {
   u64 va_arg_overflow_size_tls;
 };
 
-void HwasanTSDInit(void (*destructor)(void *tsd));
-void *HwasanTSDGet();
-void HwasanTSDSet(void *tsd);
-void HwasanTSDDtor(void *tsd);
+void HwasanTSDInit();
 
 void HwasanOnDeadlySignal(int signo, void *info, void *context);
 

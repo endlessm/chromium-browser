@@ -105,6 +105,7 @@ import gclient_scm
 import gclient_utils
 import git_cache
 import metrics
+import metrics_utils
 from third_party.repo.progress import Progress
 import subcommand
 import subprocess2
@@ -847,7 +848,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
   # Arguments number differs from overridden method
   # pylint: disable=arguments-differ
   def run(self, revision_overrides, command, args, work_queue, options,
-          patch_refs):
+          patch_refs, target_branches):
     """Runs |command| then parse the DEPS file."""
     logging.info('Dependency(%s).run()' % self.name)
     assert self._file_list == []
@@ -874,9 +875,11 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
 
       patch_repo = self.url.split('@')[0]
       patch_ref = patch_refs.pop(self.FuzzyMatchUrl(patch_refs), None)
+      target_branch = target_branches.pop(
+          self.FuzzyMatchUrl(target_branches), None)
       if command == 'update' and patch_ref is not None:
-        self._used_scm.apply_patch_ref(patch_repo, patch_ref, options,
-                                       file_list)
+        self._used_scm.apply_patch_ref(patch_repo, patch_ref, target_branch,
+                                       options, file_list)
 
       if file_list:
         file_list = [os.path.join(self.name, f.strip()) for f in file_list]
@@ -1184,6 +1187,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
         'checkout_arm64': 'arm64' in self.target_cpu,
         'checkout_x86': 'x86' in self.target_cpu,
         'checkout_mips': 'mips' in self.target_cpu,
+        'checkout_mips64': 'mips64' in self.target_cpu,
         'checkout_ppc': 'ppc' in self.target_cpu,
         'checkout_s390': 's390' in self.target_cpu,
         'checkout_x64': 'x64' in self.target_cpu,
@@ -1399,6 +1403,15 @@ it or fix the checkout.
       except KeyError:
         raise gclient_utils.Error('Invalid .gclient file. Solution is '
                                   'incomplete: %s' % s)
+    metrics.collector.add(
+        'project_urls',
+        [
+            dep.url if not dep.url.endswith('.git') else dep.url[:-len('.git')]
+            for dep in deps_to_add
+            if dep.FuzzyMatchUrl(metrics_utils.KNOWN_PROJECT_URLS)
+        ]
+    )
+
     self.add_dependencies_and_close(deps_to_add, config_dict.get('hooks', []))
     logging.info('SetConfig() done')
 
@@ -1509,19 +1522,23 @@ it or fix the checkout.
       index += 1
     return revision_overrides
 
-  def _EnforcePatchRefs(self):
+  def _EnforcePatchRefsAndBranches(self):
     """Checks for patch refs."""
     patch_refs = {}
+    target_branches = {}
     if not self._options.patch_refs:
-      return patch_refs
+      return patch_refs, target_branches
     for given_patch_ref in self._options.patch_refs:
       patch_repo, _, patch_ref = given_patch_ref.partition('@')
       if not patch_repo or not patch_ref:
         raise gclient_utils.Error(
             'Wrong revision format: %s should be of the form '
-            'patch_repo@patch_ref.' % given_patch_ref)
+            'patch_repo@[target_branch:]patch_ref.' % given_patch_ref)
+      if ':' in patch_ref:
+        target_branch, _, patch_ref = patch_ref.partition(':')
+        target_branches[patch_repo] = target_branch
       patch_refs[patch_repo] = patch_ref
-    return patch_refs
+    return patch_refs, target_branches
 
   def RunOnDeps(self, command, args, ignore_requirements=False, progress=True):
     """Runs a command on each dependency in a client and its dependencies.
@@ -1535,6 +1552,7 @@ it or fix the checkout.
 
     revision_overrides = {}
     patch_refs = {}
+    target_branches = {}
     # It's unnecessary to check for revision overrides for 'recurse'.
     # Save a few seconds by not calling _EnforceRevisions() in that case.
     if command not in ('diff', 'recurse', 'runhooks', 'status', 'revert',
@@ -1543,7 +1561,7 @@ it or fix the checkout.
       revision_overrides = self._EnforceRevisions()
 
     if command == 'update':
-      patch_refs = self._EnforcePatchRefs()
+      patch_refs, target_branches = self._EnforcePatchRefsAndBranches()
     # Disable progress for non-tty stdout.
     should_show_progress = (
         setup_color.IS_TTY and not self._options.verbose and progress)
@@ -1560,7 +1578,7 @@ it or fix the checkout.
       if s.should_process:
         work_queue.enqueue(s)
     work_queue.flush(revision_overrides, command, args, options=self._options,
-                     patch_refs=patch_refs)
+                     patch_refs=patch_refs, target_branches=target_branches)
 
     if revision_overrides:
       print('Please fix your script, having invalid --revision flags will soon '
@@ -1694,7 +1712,8 @@ it or fix the checkout.
     for s in self.dependencies:
       if s.should_process:
         work_queue.enqueue(s)
-    work_queue.flush({}, None, [], options=self._options, patch_refs=None)
+    work_queue.flush({}, None, [], options=self._options, patch_refs=None,
+                     target_branches=None)
 
     def ShouldPrintRevision(dep):
       return (not self._options.filter
@@ -1834,14 +1853,15 @@ class CipdDependency(Dependency):
 
   #override
   def run(self, revision_overrides, command, args, work_queue, options,
-          patch_refs):
+          patch_refs, target_branches):
     """Runs |command| then parse the DEPS file."""
     logging.info('CipdDependency(%s).run()' % self.name)
     if not self.should_process:
       return
     self._CreatePackageIfNecessary()
     super(CipdDependency, self).run(revision_overrides, command, args,
-                                    work_queue, options, patch_refs)
+                                    work_queue, options, patch_refs,
+                                    target_branches)
 
   def _CreatePackageIfNecessary(self):
     # We lazily create the CIPD package to make sure that only packages
@@ -2509,13 +2529,21 @@ def CMDsync(parser, args):
                          'work even if the src@ part is skipped.')
   parser.add_option('--patch-ref', action='append',
                     dest='patch_refs', metavar='GERRIT_REF', default=[],
-                    help='Patches the given reference with the format dep@ref. '
-                         'For dep, you can specify URLs as well as paths, with '
-                         'URLs taking preference. The reference will be '
-                         'applied to the necessary path, will be rebased on '
-                         'top what the dep was synced to, and then will do a '
-                         'soft reset. Use --no-rebase-patch-ref and '
-                         '--reset-patch-ref to disable this behavior.')
+                    help='Patches the given reference with the format '
+                         'dep@[target-ref:]patch-ref. '
+                         'For |dep|, you can specify URLs as well as paths, '
+                         'with URLs taking preference. '
+                         '|patch-ref| will be applied to |dep|, rebased on top '
+                         'of what |dep| was synced to, and a soft reset will '
+                         'be done. Use --no-rebase-patch-ref and '
+                         '--no-reset-patch-ref to disable this behavior. '
+                         '|target-ref| is the target branch against which a '
+                         'patch was created, it is used to determine which '
+                         'commits from the |patch-ref| actually constitute a '
+                         'patch. If not given, we will iterate over all remote '
+                         'branches and select one that contains the revision '
+                         '|dep| is synced at. '
+                         'WARNING: |target-ref| will be mandatory soon.')
   parser.add_option('--with_branch_heads', action='store_true',
                     help='Clone git "branch_heads" refspecs in addition to '
                          'the default refspecs. This adds about 1/2GB to a '
@@ -3015,10 +3043,7 @@ def main(argv):
 
 
 if '__main__' == __name__:
-  try:
+  with metrics.collector.print_notice_and_exit():
     sys.exit(main(sys.argv[1:]))
-  except KeyboardInterrupt:
-    sys.stderr.write('interrupted\n')
-    sys.exit(1)
 
 # vim: ts=2:sw=2:tw=80:et:

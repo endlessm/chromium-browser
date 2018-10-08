@@ -16,6 +16,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/omnibox/browser/autocomplete_input.h"
@@ -135,6 +136,28 @@ bool DocumentProvider::IsDocumentProviderAllowed(
              template_url_service->search_terms_data()) == SEARCH_ENGINE_GOOGLE;
 }
 
+// static
+bool DocumentProvider::IsInputLikelyURL(const AutocompleteInput& input) {
+  if (input.type() == metrics::OmniboxInputType::URL)
+    return true;
+
+  // Special cases when the user might be starting to type the most common URL
+  // prefixes, but the SchemeClassifier won't have classified them as URLs yet.
+  // Note these checks are of the form "(string constant) starts with input."
+  if (input.text().length() <= 8) {
+    if (StartsWith(base::ASCIIToUTF16("https://"), input.text(),
+                   base::CompareCase::INSENSITIVE_ASCII) ||
+        StartsWith(base::ASCIIToUTF16("http://"), input.text(),
+                   base::CompareCase::INSENSITIVE_ASCII) ||
+        StartsWith(base::ASCIIToUTF16("www."), input.text(),
+                   base::CompareCase::INSENSITIVE_ASCII)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 void DocumentProvider::Start(const AutocompleteInput& input,
                              bool minimal_changes) {
   TRACE_EVENT0("omnibox", "DocumentProvider::Start");
@@ -151,6 +174,11 @@ void DocumentProvider::Start(const AutocompleteInput& input,
       static_cast<size_t>(base::GetFieldTrialParamByFeatureAsInt(
           omnibox::kDocumentProvider, "DocumentProviderMinQueryLength", 4));
   if (input.text().length() < min_query_length) {
+    return;
+  }
+
+  // Don't issue queries for input likely to be a URL.
+  if (IsInputLikelyURL(input)) {
     return;
   }
 
@@ -276,7 +304,7 @@ bool DocumentProvider::ParseDocumentSearchResults(const base::Value& root_val,
   size_t num_results = results_list->GetSize();
   UMA_HISTOGRAM_COUNTS("Omnibox.DocumentSuggest.ResultCount", num_results);
 
-  // Create a synthetic score. Eventually we'll have signals from the API.
+  // Create a synthetic score, for when there's no signal from the API.
   // For now, allow setting of each of three scores from Finch.
   int score0 = base::GetFieldTrialParamByFeatureAsInt(
       omnibox::kDocumentProvider, "DocumentScoreResult1", 1100);
@@ -316,14 +344,38 @@ bool DocumentProvider::ParseDocumentSearchResults(const base::Value& root_val,
       default:
         break;
     }
+    int server_score;
+    if (result->GetInteger("score", &server_score)) {
+      relevance = server_score;
+    }
     AutocompleteMatch match(this, relevance, false,
                             AutocompleteMatchType::DOCUMENT_SUGGESTION);
+    // Use full URL for displayed text and navigation. Use "originalUrl" for
+    // deduping if present.
+    match.fill_into_edit = url;
+    match.destination_url = GURL(url);
     base::string16 original_url;
-    result->GetString("originalUrl", &original_url);  // optional.
-    match.destination_url = GURL(!original_url.empty() ? original_url : url);
+    if (result->GetString("originalUrl", &original_url)) {
+      match.stripped_destination_url = GURL(original_url);
+    }
     match.contents = AutocompleteMatch::SanitizeString(title);
     AutocompleteMatch::AddLastClassificationIfNecessary(
         &match.contents_class, 0, ACMatchClassification::NONE);
+    const base::DictionaryValue* metadata = nullptr;
+    if (result->GetDictionary("metadata", &metadata)) {
+      std::string mimetype;
+      if (metadata->GetString("mimeType", &mimetype)) {
+        if (mimetype == "application/vnd.google-apps.document") {
+          match.document_type = AutocompleteMatch::DocumentType::DRIVE_DOCS;
+        } else if (mimetype == "application/vnd.google-apps.spreadsheet") {
+          match.document_type = AutocompleteMatch::DocumentType::DRIVE_SHEETS;
+        } else if (mimetype == "application/vnd.google-apps.presentation") {
+          match.document_type = AutocompleteMatch::DocumentType::DRIVE_SLIDES;
+        } else {
+          match.document_type = AutocompleteMatch::DocumentType::DRIVE_OTHER;
+        }
+      }
+    }
     match.transition = ui::PAGE_TRANSITION_GENERATED;
     matches->push_back(match);
   }

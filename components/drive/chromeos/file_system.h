@@ -7,7 +7,9 @@
 
 #include <stdint.h>
 
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -17,6 +19,7 @@
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
 #include "components/drive/chromeos/change_list_loader_observer.h"
+#include "components/drive/chromeos/drive_operation_queue.h"
 #include "components/drive/chromeos/file_system/operation_delegate.h"
 #include "components/drive/chromeos/file_system_interface.h"
 #include "components/drive/chromeos/team_drive_change_list_loader.h"
@@ -81,16 +84,17 @@ class FileSystem : public FileSystemInterface,
   void AddObserver(FileSystemObserver* observer) override;
   void RemoveObserver(FileSystemObserver* observer) override;
   void CheckForUpdates() override;
+  void CheckForUpdates(const std::set<std::string>& ids) override;
   void Search(const std::string& search_query,
               const GURL& next_link,
-              const SearchCallback& callback) override;
+              SearchCallback callback) override;
   void SearchMetadata(const std::string& query,
                       int options,
                       int at_most_num_matches,
                       MetadataSearchOrder order,
-                      const SearchMetadataCallback& callback) override;
+                      SearchMetadataCallback callback) override;
   void SearchByHashes(const std::set<std::string>& hashes,
-                      const SearchByHashesCallback& callback) override;
+                      SearchByHashesCallback callback) override;
   void TransferFileFromLocalToRemote(
       const base::FilePath& local_src_file_path,
       const base::FilePath& remote_dest_file_path,
@@ -98,7 +102,7 @@ class FileSystem : public FileSystemInterface,
   void OpenFile(const base::FilePath& file_path,
                 OpenMode open_mode,
                 const std::string& mime_type,
-                const OpenFileCallback& callback) override;
+                OpenFileCallback callback) override;
   void Copy(const base::FilePath& src_file_path,
             const base::FilePath& dest_file_path,
             bool preserve_last_modified,
@@ -129,24 +133,24 @@ class FileSystem : public FileSystemInterface,
   void Unpin(const base::FilePath& file_path,
              const FileOperationCallback& callback) override;
   void GetFile(const base::FilePath& file_path,
-               const GetFileCallback& callback) override;
+               GetFileCallback callback) override;
   void GetFileForSaving(const base::FilePath& file_path,
-                        const GetFileCallback& callback) override;
+                        GetFileCallback callback) override;
   base::Closure GetFileContent(
       const base::FilePath& file_path,
-      const GetFileContentInitializedCallback& initialized_callback,
+      GetFileContentInitializedCallback initialized_callback,
       const google_apis::GetContentCallback& get_content_callback,
       const FileOperationCallback& completion_callback) override;
   void GetResourceEntry(const base::FilePath& file_path,
-                        const GetResourceEntryCallback& callback) override;
+                        GetResourceEntryCallback callback) override;
   void ReadDirectory(const base::FilePath& directory_path,
-                     const ReadDirectoryEntriesCallback& entries_callback,
+                     ReadDirectoryEntriesCallback entries_callback,
                      const FileOperationCallback& completion_callback) override;
   void GetAvailableSpace(const GetAvailableSpaceCallback& callback) override;
   void GetShareUrl(const base::FilePath& file_path,
                    const GURL& embed_origin,
                    const GetShareUrlCallback& callback) override;
-  void GetMetadata(const GetFilesystemMetadataCallback& callback) override;
+  void GetMetadata(GetFilesystemMetadataCallback callback) override;
   void MarkCacheFileAsMounted(const base::FilePath& drive_file_path,
                               const MarkMountedCallback& callback) override;
   void IsCacheFileMarkedAsMounted(const base::FilePath& drive_file_path,
@@ -199,6 +203,11 @@ class FileSystem : public FileSystemInterface,
   }
   internal::SyncClient* sync_client_for_testing() { return sync_client_.get(); }
 
+  internal::DriveBackgroundOperationQueue<internal::TeamDriveChangeListLoader>*
+  team_drive_operation_queue_for_testing() {
+    return team_drive_operation_queue_.get();
+  }
+
  private:
   struct CreateDirectoryParams;
 
@@ -237,7 +246,7 @@ class FileSystem : public FileSystemInterface,
   // Part of GetResourceEntry().
   // Called when ReadDirectory() is complete.
   void GetResourceEntryAfterRead(const base::FilePath& file_path,
-                                 const GetResourceEntryCallback& callback,
+                                 GetResourceEntryCallback callback,
                                  FileError error);
 
   // Part of GetShareUrl. Resolves the resource entry to get the resource it,
@@ -252,7 +261,7 @@ class FileSystem : public FileSystemInterface,
                                         const GURL& share_url);
 
   void OnGetMetadata(
-      const GetFilesystemMetadataCallback& callback,
+      GetFilesystemMetadataCallback callback,
       drive::FileSystemMetadata* default_corpus_metadata,
       std::map<std::string, drive::FileSystemMetadata>* team_drive_metadata);
 
@@ -289,6 +298,10 @@ class FileSystem : public FileSystemInterface,
   std::unique_ptr<internal::DriveChangeListLoader>
       default_corpus_change_list_loader_;
 
+  std::unique_ptr<internal::DriveBackgroundOperationQueue<
+      internal::TeamDriveChangeListLoader>>
+      team_drive_operation_queue_;
+
   // Used to retrieve changelists for team drives. The key for the map is the
   // team_drive_id.
   std::map<std::string, std::unique_ptr<internal::TeamDriveChangeListLoader>>
@@ -296,7 +309,7 @@ class FileSystem : public FileSystemInterface,
 
   std::unique_ptr<internal::SyncClient> sync_client_;
 
-  base::ObserverList<FileSystemObserver> observers_;
+  base::ObserverList<FileSystemObserver>::Unchecked observers_;
 
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
 

@@ -7,7 +7,7 @@
 #include "base/files/file_enumerator.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/path_service.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
@@ -33,8 +33,8 @@ bool use_test_apps_directory = false;
 
 std::unique_ptr<ArcDefaultAppList::AppInfoMap>
 ReadAppsFromFileThread() {
-  std::unique_ptr<ArcDefaultAppList::AppInfoMap> apps(
-      new ArcDefaultAppList::AppInfoMap);
+  std::unique_ptr<ArcDefaultAppList::AppInfoMap> apps =
+      std::make_unique<ArcDefaultAppList::AppInfoMap>();
 
   base::FilePath base_path;
   if (!use_test_apps_directory) {
@@ -95,12 +95,12 @@ ReadAppsFromFileThread() {
 
       const std::string app_id = ArcAppListPrefs::GetAppId(
           package_name, activity);
-      std::unique_ptr<ArcDefaultAppList::AppInfo> app(
-          new ArcDefaultAppList::AppInfo(name,
+      std::unique_ptr<ArcDefaultAppList::AppInfo> app =
+          std::make_unique<ArcDefaultAppList::AppInfo>(name,
                                          package_name,
                                          activity,
                                          oem,
-                                         base_path.Append(app_path)));
+                                         base_path.Append(app_path));
       apps.get()->insert(
           std::pair<std::string,
                     std::unique_ptr<ArcDefaultAppList::AppInfo>>(
@@ -129,7 +129,7 @@ ArcDefaultAppList::ArcDefaultAppList(Delegate* delegate,
 
   // Once ready OnAppsReady is called.
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::Bind(&ReadAppsFromFileThread),
       base::Bind(&ArcDefaultAppList::OnAppsReady,
                  weak_ptr_factory_.GetWeakPtr()));
@@ -149,12 +149,12 @@ void ArcDefaultAppList::OnAppsReady(std::unique_ptr<AppInfoMap> apps) {
   const extensions::Extension* arc_host =
       service ? service->GetInstalledExtension(arc::kPlayStoreAppId) : nullptr;
   if (arc_host && arc::IsPlayStoreAvailable()) {
-    std::unique_ptr<ArcDefaultAppList::AppInfo> play_store_app(
-        new ArcDefaultAppList::AppInfo(arc_host->name(),
+    std::unique_ptr<ArcDefaultAppList::AppInfo> play_store_app =
+        std::make_unique<ArcDefaultAppList::AppInfo>(arc_host->name(),
                                        arc::kPlayStorePackage,
                                        arc::kPlayStoreActivity,
                                        false /* oem */,
-                                       base::FilePath() /* app_path */));
+                                       base::FilePath() /* app_path */);
     apps_.insert(
         std::pair<std::string,
                   std::unique_ptr<ArcDefaultAppList::AppInfo>>(

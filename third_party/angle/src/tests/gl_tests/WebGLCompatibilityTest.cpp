@@ -1470,6 +1470,51 @@ TEST_P(WebGLCompatibilityTest, DrawArraysBufferOutOfBoundsNonInstanced)
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
 }
 
+// Test that index values outside of the 32-bit integer range do not read out of bounds
+TEST_P(WebGLCompatibilityTest, LargeIndexRange)
+{
+    ANGLE_SKIP_TEST_IF(!ensureExtensionEnabled("GL_OES_element_index_uint"));
+
+    const std::string &vert =
+        "attribute vec4 a_Position;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = a_Position;\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, vert, essl1_shaders::fs::Red());
+    glUseProgram(program.get());
+
+    glEnableVertexAttribArray(glGetAttribLocation(program, "a_Position"));
+
+    constexpr float kVertexData[] = {
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+    };
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(kVertexData), kVertexData, GL_STREAM_DRAW);
+
+    constexpr GLuint kMaxIntAsGLuint = static_cast<GLuint>(std::numeric_limits<GLint>::max());
+    constexpr GLuint kIndexData[]    = {
+        kMaxIntAsGLuint, kMaxIntAsGLuint + 1, kMaxIntAsGLuint + 2, kMaxIntAsGLuint + 3,
+    };
+
+    GLBuffer indexBuffer;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kIndexData), kIndexData, GL_DYNAMIC_DRAW);
+
+    EXPECT_GL_NO_ERROR();
+
+    // First index is representable as 32-bit int but second is not
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_INT, 0);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Neither index is representable as 32-bit int
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_INT, reinterpret_cast<void *>(sizeof(GLuint) * 2));
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
 // Test for drawing with a null index buffer
 TEST_P(WebGLCompatibilityTest, NullIndexBuffer)
 {
@@ -1590,32 +1635,32 @@ TEST_P(WebGLCompatibilityTest, DrawArraysBufferOutOfBoundsInstancedANGLE)
     // Test touching the last element is valid.
     glVertexAttribPointer(wLocation, 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, zeroOffset + 12);
     glDrawArraysInstancedANGLE(GL_POINTS, 0, 1, 4);
-    ASSERT_GL_NO_ERROR();
+    ASSERT_GL_NO_ERROR() << "touching the last element.";
 
     // Test touching the last element + 1 is invalid.
     glVertexAttribPointer(wLocation, 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, zeroOffset + 13);
     glDrawArraysInstancedANGLE(GL_POINTS, 0, 1, 4);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION) << "touching the last element + 1.";
 
     // Test touching the last element is valid, using a stride.
     glVertexAttribPointer(wLocation, 1, GL_UNSIGNED_BYTE, GL_FALSE, 2, zeroOffset + 9);
     glDrawArraysInstancedANGLE(GL_POINTS, 0, 1, 4);
-    ASSERT_GL_NO_ERROR();
+    ASSERT_GL_NO_ERROR() << "touching the last element using a stride.";
 
     // Test touching the last element + 1 is invalid, using a stride.
     glVertexAttribPointer(wLocation, 1, GL_UNSIGNED_BYTE, GL_FALSE, 2, zeroOffset + 10);
     glDrawArraysInstancedANGLE(GL_POINTS, 0, 1, 4);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION) << "touching the last element + 1 using a stride.";
 
     // Test any offset is valid if no vertices are drawn.
     glVertexAttribPointer(wLocation, 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, zeroOffset + 32);
     glDrawArraysInstancedANGLE(GL_POINTS, 0, 0, 1);
-    ASSERT_GL_NO_ERROR();
+    ASSERT_GL_NO_ERROR() << "any offset with no vertices.";
 
     // Test any offset is valid if no primitives are drawn.
     glVertexAttribPointer(wLocation, 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, zeroOffset + 32);
     glDrawArraysInstancedANGLE(GL_POINTS, 0, 1, 0);
-    ASSERT_GL_NO_ERROR();
+    ASSERT_GL_NO_ERROR() << "any offset with primitives.";
 }
 
 // Test the checks for OOB reads in the index buffer
@@ -4163,13 +4208,34 @@ TEST_P(WebGL2CompatibilityTest, TransformFeedbackCheckNullDeref)
     ANGLE_GL_PROGRAM(program, kVS, kFS);
     glUseProgram(program);
 
-    GLBuffer buffer;
-    glBindBuffer(GL_ARRAY_BUFFER, buffer);
     glEnableVertexAttribArray(0);
     glDrawArrays(GL_POINTS, 0, 1);
 
-    // This should fail because it is trying to pull one vertex from an empty buffer.
+    // This should fail because it is trying to pull a vertex with no buffer.
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+    // This should fail because it is trying to pull a vertex from an empty buffer.
+    glDrawArrays(GL_POINTS, 0, 1);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Check the return type of a given parameter upon getting the active uniforms.
+TEST_P(WebGL2CompatibilityTest, UniformVariablesReturnTypes)
+{
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+
+    std::vector<GLuint> validUniformIndices = {0};
+    std::vector<GLint> uniformNameLengthBuf(validUniformIndices.size());
+
+    // This should fail because GL_UNIFORM_NAME_LENGTH cannot be used in WebGL2.
+    glGetActiveUniformsiv(program, static_cast<GLsizei>(validUniformIndices.size()),
+                          &validUniformIndices[0], GL_UNIFORM_NAME_LENGTH,
+                          &uniformNameLengthBuf[0]);
+    EXPECT_GL_ERROR(GL_INVALID_ENUM);
 }
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these

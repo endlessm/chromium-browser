@@ -116,6 +116,9 @@ private:
 
   const RTTIMode CachedRTTIMode;
 
+  /// The list of toolchain specific path prefixes to search for libraries.
+  path_list LibraryPaths;
+
   /// The list of toolchain specific path prefixes to search for files.
   path_list FilePaths;
 
@@ -212,6 +215,9 @@ public:
     assert(!EffectiveTriple.getTriple().empty() && "No effective triple");
     return EffectiveTriple;
   }
+
+  path_list &getLibraryPaths() { return LibraryPaths; }
+  const path_list &getLibraryPaths() const { return LibraryPaths; }
 
   path_list &getFilePaths() { return FilePaths; }
   const path_list &getFilePaths() const { return FilePaths; }
@@ -411,6 +417,11 @@ public:
   // Return the default debugger "tuning."
   virtual llvm::DebuggerKind getDefaultDebuggerTuning() const {
     return llvm::DebuggerKind::GDB;
+  }
+
+  /// Does this toolchain supports given debug info option or not.
+  virtual bool supportsDebugInfoOption(const llvm::opt::Arg *) const {
+    return true;
   }
 
   /// GetExceptionModel - Return the tool chain exception model.

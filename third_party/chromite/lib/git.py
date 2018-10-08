@@ -24,65 +24,6 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 
 
-# Retry a git operation if git returns a error response with any of these
-# messages. It's all observed 'bad' GoB responses so far.
-GIT_TRANSIENT_ERRORS = (
-    # crbug.com/285832
-    r'! \[remote rejected\].*\(error in hook\)',
-
-    # crbug.com/289932
-    r'! \[remote rejected\].*\(failed to lock\)',
-
-    # crbug.com/307156
-    r'! \[remote rejected\].*\(error in Gerrit backend\)',
-
-    # crbug.com/285832
-    r'remote error: Internal Server Error',
-
-    # crbug.com/294449
-    r'fatal: Couldn\'t find remote ref ',
-
-    # crbug.com/220543
-    r'git fetch_pack: expected ACK/NAK, got',
-
-    # crbug.com/189455
-    r'protocol error: bad pack header',
-
-    # crbug.com/202807
-    r'The remote end hung up unexpectedly',
-
-    # crbug.com/298189
-    r'TLS packet with unexpected length was received',
-
-    # crbug.com/187444
-    r'RPC failed; result=\d+, HTTP code = \d+',
-
-    # crbug.com/315421, b2/18249316
-    r'The requested URL returned error: 5',
-
-    # crbug.com/388876
-    r'Connection timed out',
-
-    # crbug.com/451458, b/19202011
-    r'repository cannot accept new pushes; contact support',
-
-    # crbug.com/535306
-    r'Service Temporarily Unavailable',
-
-    # crbug.com/675262
-    r'Connection refused',
-
-    # crbug.com/725233
-    r'Operation too slow',
-)
-
-GIT_TRANSIENT_ERRORS_RE = re.compile('|'.join(GIT_TRANSIENT_ERRORS),
-                                     re.IGNORECASE)
-
-DEFAULT_RETRY_INTERVAL = 3
-DEFAULT_RETRIES = 10
-
-
 class GitException(Exception):
   """An exception related to git."""
 
@@ -326,11 +267,11 @@ class ProjectCheckout(dict):
       return False
 
     # Old heuristic.
-    site_config = config_lib.GetConfig()
-    if (self['remote'] not in site_config.params.CROS_REMOTES or
-        self['remote'] not in site_config.params.BRANCHABLE_PROJECTS):
+    site_params = config_lib.GetSiteParams()
+    if (self['remote'] not in site_params.CROS_REMOTES or
+        self['remote'] not in site_params.BRANCHABLE_PROJECTS):
       return False
-    return re.match(site_config.params.BRANCHABLE_PROJECTS[self['remote']],
+    return re.match(site_params.BRANCHABLE_PROJECTS[self['remote']],
                     self['name'])
 
   def IsPinnableProject(self):
@@ -504,11 +445,11 @@ class Manifest(object):
         remote_name, StripRefs(upstream),
     )
 
-    site_config = config_lib.GetConfig()
-    attrs['pushable'] = remote in site_config.params.GIT_REMOTES
+    site_params = config_lib.GetSiteParams()
+    attrs['pushable'] = remote in site_params.GIT_REMOTES
     if attrs['pushable']:
       attrs['push_remote'] = remote
-      attrs['push_remote_url'] = site_config.params.GIT_REMOTES[remote]
+      attrs['push_remote_url'] = site_params.GIT_REMOTES[remote]
       attrs['push_url'] = '%s/%s' % (attrs['push_remote_url'], attrs['name'])
     groups = set(attrs.get('groups', 'default').replace(',', ' ').split())
     groups.add('default')
@@ -815,7 +756,6 @@ def RunGit(git_repo, cmd, **kwargs):
   Returns:
     A CommandResult object.
   """
-
   kwargs.setdefault('print_cmd', False)
   kwargs.setdefault('cwd', git_repo)
   kwargs.setdefault('capture_output', True)
@@ -833,21 +773,33 @@ def Init(git_repo):
   RunGit(git_repo, ['init'])
 
 
-def Clone(git_repo, git_url, branch=None):
+def Clone(dest_path, git_url, reference=None, depth=None, branch=None,
+          single_branch=False):
   """Clone a git repository, into the given directory.
 
   Args:
-    git_repo: Path for where to create a git repo. Directory will be created if
-              it doesnt exist.
-    git_url: Url to clone the git repository from.
-    branch: Branch to checkout ('stabilize.5978.51.B'), or None.
+    dest_path: Path to clone into. Will be created if it doesn't exist.
+    git_url: Git URL to clone from.
+    reference: Path to a git repositry to reference in the clone. See
+      documentation for `git clone --reference`.
+    depth: Create a shallow clone with the given history depth. Cannot be used
+      with 'reference'.
+    branch: Branch to use for the initial HEAD. Defaults to the remote's HEAD.
+    single_branch: Clone only the requested branch.
   """
-  osutils.SafeMakedirs(git_repo)
-
-  cmd = ['clone', git_url, git_repo]
+  if reference and depth:
+    raise ValueError('reference and depth are mutually exclusive')
+  osutils.SafeMakedirs(dest_path)
+  cmd = ['clone', git_url, dest_path]
+  if reference:
+    cmd += ['--reference', reference]
+  if depth:
+    cmd += ['--depth', str(int(depth))]
   if branch:
-    cmd += ['-b', branch]
-  RunGit(git_repo, cmd)
+    cmd += ['--branch', branch]
+  if single_branch:
+    cmd += ['--single-branch']
+  RunGit(dest_path, cmd, print_cmd=True)
 
 
 def ShallowFetch(git_repo, git_url, sparse_checkout=None):

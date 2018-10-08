@@ -23,6 +23,7 @@
 
 namespace blink {
 enum class WebFullscreenVideoStatus;
+struct PictureInPictureControlInfo;
 }  // namespace blink
 
 namespace media {
@@ -79,6 +80,7 @@ class CONTENT_EXPORT MediaWebContentsObserver : public WebContentsObserver {
   bool OnMessageReceived(const IPC::Message& message,
                          RenderFrameHost* render_frame_host) override;
   void OnVisibilityChanged(content::Visibility visibility) override;
+  void DidUpdateAudioMutingState(bool muted) override;
 
   // TODO(zqzhang): this method is temporarily in MediaWebContentsObserver as
   // the effectively fullscreen video code is also here. We need to consider
@@ -134,6 +136,10 @@ class CONTENT_EXPORT MediaWebContentsObserver : public WebContentsObserver {
   void OnPictureInPictureModeEnded(RenderFrameHost* render_frame_host,
                                    int delegate_id,
                                    int request_id);
+  void OnSetPictureInPictureCustomControls(
+      RenderFrameHost* render_frame_host,
+      int delegate_id,
+      const std::vector<blink::PictureInPictureControlInfo>& controls);
   void OnPictureInPictureSurfaceChanged(RenderFrameHost*,
                                         int delegate_id,
                                         const viz::SurfaceId&,

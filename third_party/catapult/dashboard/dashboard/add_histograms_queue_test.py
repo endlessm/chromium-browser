@@ -11,8 +11,6 @@ import webtest
 from google.appengine.ext import ndb
 
 from dashboard import add_histograms_queue
-from dashboard import add_point_queue
-from dashboard.common import stored_object
 from dashboard.common import testing_common
 from dashboard.common import utils
 from dashboard.models import anomaly
@@ -78,9 +76,8 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     self.SetCurrentUser('foo@bar.com', is_admin=True)
 
   def testPostHistogram(self):
-    stored_object.Set(
-        add_point_queue.BOT_WHITELIST_KEY, ['win7'])
-
+    graph_data.Bot(key=ndb.Key('Master', 'Chromium', 'Bot', 'win7'),
+                   internal_only=False).put()
     test_path = 'Chromium/win7/suite/metric'
     params = [{
         'data': TEST_HISTOGRAM,
@@ -121,9 +118,6 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     self.assertFalse(h.internal_only)
 
   def testPostHistogram_Internal(self):
-    stored_object.Set(
-        add_point_queue.BOT_WHITELIST_KEY, ['mac'])
-
     test_path = 'Chromium/win7/suite/metric'
     params = [{
         'data': TEST_HISTOGRAM,
@@ -155,9 +149,11 @@ class AddHistogramsQueueTest(testing_common.TestCase):
     self.assertEqual(7, len(rows))
 
   def testPostHistogram_WithFreshDiagnostics(self):
-    stored_object.Set(
-        add_point_queue.BOT_WHITELIST_KEY, ['win7'])
+    graph_data.Bot(key=ndb.Key('Master', 'Chromium', 'Bot', 'win7'),
+                   internal_only=False).put()
     test_path = 'Chromium/win7/suite/metric'
+    histogram.HistogramRevisionRecord.GetOrCreate(
+        utils.TestKey('Chromium/win7/suite'), 1).put()
     params = [{
         'data': TEST_HISTOGRAM,
         'test_path': test_path,
@@ -196,8 +192,8 @@ class AddHistogramsQueueTest(testing_common.TestCase):
         data=diag_dict, start_revision=1, end_revision=sys.maxint,
         test=utils.TestKey('Chromium/win7/suite/metric'))
     diag.put()
-    stored_object.Set(
-        add_point_queue.BOT_WHITELIST_KEY, ['win7'])
+    histogram.HistogramRevisionRecord.GetOrCreate(
+        utils.TestKey('Chromium/win7/suite'), 1).put()
     test_path = 'Chromium/win7/suite/metric'
     params = [{
         'data': TEST_HISTOGRAM,
@@ -229,8 +225,8 @@ class AddHistogramsQueueTest(testing_common.TestCase):
         start_revision=1, end_revision=sys.maxint,
         test=utils.TestKey('Chromium/win7/suite/metric'))
     diag.put()
-    stored_object.Set(
-        add_point_queue.BOT_WHITELIST_KEY, ['win7'])
+    histogram.HistogramRevisionRecord.GetOrCreate(
+        utils.TestKey('Chromium/win7/suite'), 1).put()
     test_path = 'Chromium/win7/suite/metric'
     params = [{
         'data': TEST_HISTOGRAM,

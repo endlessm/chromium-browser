@@ -54,6 +54,11 @@ typedef enum {
   LLVMDIFlagMainSubprogram = 1 << 21,
   LLVMDIFlagTypePassByValue = 1 << 22,
   LLVMDIFlagTypePassByReference = 1 << 23,
+  LLVMDIFlagFixedEnum = 1 << 24,
+  LLVMDIFlagThunk = 1 << 25,
+  LLVMDIFlagTrivial = 1 << 26,
+  LLVMDIFlagBigEndian = 1 << 27,
+  LLVMDIFlagLittleEndian = 1 << 28,
   LLVMDIFlagIndirectVirtualBase = (1 << 2) | (1 << 5),
   LLVMDIFlagAccessibility = LLVMDIFlagPrivate | LLVMDIFlagProtected |
                             LLVMDIFlagPublic,
@@ -528,11 +533,13 @@ LLVMDIBuilderCreateUnspecifiedType(LLVMDIBuilderRef Builder, const char *Name,
  * \param NameLen     Length of type name.
  * \param SizeInBits  Size of the type.
  * \param Encoding    DWARF encoding code, e.g. \c LLVMDWARFTypeEncoding_float.
+ * \param Flags       Flags to encode optional attribute like endianity
  */
 LLVMMetadataRef
 LLVMDIBuilderCreateBasicType(LLVMDIBuilderRef Builder, const char *Name,
                              size_t NameLen, uint64_t SizeInBits,
-                             LLVMDWARFTypeEncoding Encoding);
+                             LLVMDWARFTypeEncoding Encoding,
+                             LLVMDIFlags Flags);
 
 /**
  * Create debugging information entry for a pointer.

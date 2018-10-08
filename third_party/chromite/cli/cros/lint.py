@@ -25,8 +25,8 @@ import os
 import re
 import sys
 
-from logilab.common.configuration import Configuration
 from pylint.checkers import BaseChecker
+from pylint.config import ConfigurationMixIn
 from pylint.interfaces import IAstroidChecker
 
 
@@ -74,11 +74,45 @@ class DocStringSectionDetails(object):
     )
 
 
+def _PylintrcConfig(config_file, section, opts):
+  """Read specific pylintrc settings.
+
+  This is a bit hacky.  The pylint framework doesn't allow us to access options
+  outside of a Checker's own namespace (self.name), and multiple linters may not
+  have the same name/options values (since they get globally registered).  So we
+  have to re-read the registered config file and pull out the value we want.
+
+  The other option would be to force people to duplicate settings in the config
+  files and that's worse.  e.g.
+  [format]
+  indent-string = '  '
+  [doc_string_checker]
+  indent-string = '  '
+
+  Args:
+    config_file: Path to the pylintrc file to read.
+    section: The section to read.
+    opts: The specific settings to return.
+
+  Returns:
+    A pylint configuration object.  Use option_value('...') to read.
+  """
+  class ConfigReader(ConfigurationMixIn):
+    """Dynamic config file reader."""
+    name = section
+    options = opts
+
+  cfg = ConfigReader(config_file=config_file)
+  cfg.read_config_file()
+  cfg.load_config_file()
+  return cfg
+
+
 class DocStringChecker(BaseChecker):
   """PyLint AST based checker to verify PEP 257 compliance
 
   See our style guide for more info:
-  http://dev.chromium.org/chromium-os/python-style-guidelines#TOC-Describing-arguments-in-docstrings
+  https://dev.chromium.org/chromium-os/python-style-guidelines#TOC-Describing-arguments-in-docstrings
   """
 
   # TODO: See about merging with the pep257 project:
@@ -106,6 +140,9 @@ class DocStringChecker(BaseChecker):
   class _MessageCP017(object): pass
   # pylint: enable=class-missing-docstring,multiple-statements
 
+  # All the sections we recognize (and in this order).
+  VALID_SECTIONS = ('Examples', 'Args', 'Returns', 'Yields', 'Raises')
+
   # This is the section name in the pylintrc file.
   name = 'doc_string_checker'
   # Any pylintrc config options we accept.
@@ -127,10 +164,11 @@ class DocStringChecker(BaseChecker):
       'C9006': ('Section names should be preceded by one blank line'
                 ': ' + MSG_ARGS,
                 ('docstring-section-newline'), _MessageCP006),
-      'C9007': ('Section names should be "Args:", "Returns:", "Yields:", '
-                'and "Raises:": ' + MSG_ARGS,
+      'C9007': ('Section names should be one of "%s": %s' %
+                (', '.join(VALID_SECTIONS), MSG_ARGS),
                 ('docstring-section-name'), _MessageCP007),
-      'C9008': ('Sections should be in the order: Args, Returns/Yields, Raises',
+      'C9008': ('Sections should be in the order: %s' %
+                (' '.join(VALID_SECTIONS),),
                 ('docstring-section-order'), _MessageCP008),
       'C9009': ('First line should be a short summary',
                 ('docstring-first-line'), _MessageCP009),
@@ -155,25 +193,16 @@ class DocStringChecker(BaseChecker):
                 ('docstring-duplicate-section'), _MessageCP017),
   }
 
-  # TODO: Should we enforce Examples?
-  VALID_SECTIONS = ('Args', 'Returns', 'Yields', 'Raises',)
-
   def __init__(self, *args, **kwargs):
     BaseChecker.__init__(self, *args, **kwargs)
 
-    # This is a bit hacky.  The pylint framework doesn't allow us to access
-    # options outside of our own namespace (self.name), and multiple linters
-    # may not have the same name/options values (since they get registered).
-    # So re-read the registered config file and pull out the value we want.
-    # This way we don't force people to set the same value in two places.
     if self.linter is None:
       # Unit tests don't set this up.
       self._indent_string = '  '
     else:
-      cfg = Configuration(config_file=self.linter.config_file, name='format',
-                          options=(('indent-string', {'default': '    ',
-                                                      'type': 'string'}),))
-      cfg.load_file_configuration()
+      cfg = _PylintrcConfig(self.linter.config_file, 'format',
+                            (('indent-string', {'default': '    ',
+                                                'type': 'string'}),))
       self._indent_string = cfg.option_value('indent-string')
     self._indent_len = len(self._indent_string)
 
@@ -304,6 +333,7 @@ class DocStringChecker(BaseChecker):
     sections = collections.OrderedDict()
     invalid_sections = (
         # Handle common misnamings.
+        'example', 'usage', 'example usage',
         'arg', 'argument', 'arguments',
         'ret', 'rets', 'return', 'retrun', 'retruns', 'result', 'results',
         'yield', 'yeild', 'yeilds',

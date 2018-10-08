@@ -1435,8 +1435,6 @@ public:
 
   TypeSourceInfo *GetTypeForDeclarator(Declarator &D, Scope *S);
   TypeSourceInfo *GetTypeForDeclaratorCast(Declarator &D, QualType FromTy);
-  TypeSourceInfo *GetTypeSourceInfoForDeclarator(Declarator &D, QualType T,
-                                               TypeSourceInfo *ReturnTypeInfo);
 
   /// Package the given type and TSI into a ParsedType.
   ParsedType CreateParsedType(QualType T, TypeSourceInfo *TInfo);
@@ -2456,11 +2454,11 @@ public:
                                 unsigned AttrSpellingListIndex);
   OptimizeNoneAttr *mergeOptimizeNoneAttr(Decl *D, SourceRange Range,
                                           unsigned AttrSpellingListIndex);
-  InternalLinkageAttr *mergeInternalLinkageAttr(Decl *D, SourceRange Range,
-                                                IdentifierInfo *Ident,
-                                                unsigned AttrSpellingListIndex);
-  CommonAttr *mergeCommonAttr(Decl *D, SourceRange Range, IdentifierInfo *Ident,
-                              unsigned AttrSpellingListIndex);
+  InternalLinkageAttr *mergeInternalLinkageAttr(Decl *D, const ParsedAttr &AL);
+  InternalLinkageAttr *mergeInternalLinkageAttr(Decl *D,
+                                                const InternalLinkageAttr &AL);
+  CommonAttr *mergeCommonAttr(Decl *D, const ParsedAttr &AL);
+  CommonAttr *mergeCommonAttr(Decl *D, const CommonAttr &AL);
 
   void mergeDeclAttributes(NamedDecl *New, Decl *Old,
                            AvailabilityMergeKind AMK = AMK_Redeclaration);
@@ -3378,30 +3376,6 @@ public:
   /// Valid types should not have multiple attributes with different CCs.
   const AttributedType *getCallingConvAttributedType(QualType T) const;
 
-  /// Check whether a nullability type specifier can be added to the given
-  /// type.
-  ///
-  /// \param type The type to which the nullability specifier will be
-  /// added. On success, this type will be updated appropriately.
-  ///
-  /// \param nullability The nullability specifier to add.
-  ///
-  /// \param nullabilityLoc The location of the nullability specifier.
-  ///
-  /// \param isContextSensitive Whether this nullability specifier was
-  /// written as a context-sensitive keyword (in an Objective-C
-  /// method) or an Objective-C property attribute, rather than as an
-  /// underscored type specifier.
-  ///
-  /// \param allowArrayTypes Whether to accept nullability specifiers on an
-  /// array type (e.g., because it will decay to a pointer).
-  ///
-  /// \returns true if nullability cannot be applied, false otherwise.
-  bool checkNullabilityTypeSpecifier(QualType &type, NullabilityKind nullability,
-                                     SourceLocation nullabilityLoc,
-                                     bool isContextSensitive,
-                                     bool allowArrayTypes);
-
   /// Stmt attributes - this routine is the top level dispatcher.
   StmtResult ProcessStmtAttributes(Stmt *Stmt,
                                    const ParsedAttributesView &Attrs,
@@ -3727,9 +3701,10 @@ public:
                                    SourceLocation EndLoc);
   void ActOnForEachDeclStmt(DeclGroupPtrTy Decl);
   StmtResult ActOnForEachLValueExpr(Expr *E);
-  StmtResult ActOnCaseStmt(SourceLocation CaseLoc, Expr *LHSVal,
-                                   SourceLocation DotDotDotLoc, Expr *RHSVal,
-                                   SourceLocation ColonLoc);
+  ExprResult ActOnCaseExpr(SourceLocation CaseLoc, ExprResult Val);
+  StmtResult ActOnCaseStmt(SourceLocation CaseLoc, ExprResult LHS,
+                           SourceLocation DotDotDotLoc, ExprResult RHS,
+                           SourceLocation ColonLoc);
   void ActOnCaseStmtBody(Stmt *CaseStmt, Stmt *SubStmt);
 
   StmtResult ActOnDefaultStmt(SourceLocation DefaultLoc,
@@ -4262,6 +4237,7 @@ public:
   ExprResult ActOnUnaryOp(Scope *S, SourceLocation OpLoc,
                           tok::TokenKind Op, Expr *Input);
 
+  bool isQualifiedMemberAccess(Expr *E);
   QualType CheckAddressOfOperand(ExprResult &Operand, SourceLocation OpLoc);
 
   ExprResult CreateUnaryExprOrTypeTraitExpr(TypeSourceInfo *TInfo,
@@ -6911,6 +6887,9 @@ public:
     /// Template argument deduction did not deduce a value
     /// for every template parameter.
     TDK_Incomplete,
+    /// Template argument deduction did not deduce a value for every
+    /// expansion of an expanded template parameter pack.
+    TDK_IncompletePack,
     /// Template argument deduction produced inconsistent
     /// deduced values for the given template parameter.
     TDK_Inconsistent,
@@ -8066,10 +8045,6 @@ public:
                                SourceLocation ProtocolRAngleLoc,
                                bool FailOnError = false);
 
-  /// Check the application of the Objective-C '__kindof' qualifier to
-  /// the given type.
-  bool checkObjCKindOfType(QualType &type, SourceLocation loc);
-
   /// Ensure attributes are consistent with type.
   /// \param [in, out] Attributes The attributes to check; they will
   /// be modified to be consistent with \p PropertyTy.
@@ -8429,6 +8404,10 @@ public:
   /// \#pragma clang fp contract
   void ActOnPragmaFPContract(LangOptions::FPContractModeKind FPC);
 
+  /// ActOnPragmaFenvAccess - Called on well formed
+  /// \#pragma STDC FENV_ACCESS
+  void ActOnPragmaFEnvAccess(LangOptions::FEnvAccessModeKind FPC);
+
   /// AddAlignmentAttributesForRecord - Adds any needed alignment attributes to
   /// a the record decl, to handle '\#pragma pack' and '\#pragma options align'.
   void AddAlignmentAttributesForRecord(RecordDecl *RD);
@@ -8657,7 +8636,7 @@ public:
   /// Check if the specified variable is used in one of the private
   /// clauses (private, firstprivate, lastprivate, reduction etc.) in OpenMP
   /// constructs.
-  VarDecl *isOpenMPCapturedDecl(ValueDecl *D) const;
+  VarDecl *isOpenMPCapturedDecl(ValueDecl *D);
   ExprResult getOpenMPCapturedExpr(VarDecl *Capture, ExprValueKind VK,
                                    ExprObjectKind OK, SourceLocation Loc);
 
@@ -8741,8 +8720,9 @@ public:
                                     OMPDeclareTargetDeclAttr::MapTypeTy MT,
                                     NamedDeclSetType &SameDirectiveDecls);
   /// Check declaration inside target region.
-  void checkDeclIsAllowedInOpenMPTarget(Expr *E, Decl *D,
-                                        SourceLocation IdLoc = SourceLocation());
+  void
+  checkDeclIsAllowedInOpenMPTarget(Expr *E, Decl *D,
+                                   SourceLocation IdLoc = SourceLocation());
   /// Return true inside OpenMP declare target region.
   bool isInOpenMPDeclareTargetContext() const {
     return IsInOpenMPDeclareTargetContext;

@@ -796,8 +796,6 @@ bool X86TargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
       HasCLDEMOTE = true;
     } else if (Feature == "+rdpid") {
       HasRDPID = true;
-    } else if (Feature == "+retpoline") {
-      HasRetpoline = true;
     } else if (Feature == "+retpoline-external-thunk") {
       HasRetpolineExternalThunk = true;
     } else if (Feature == "+sahf") {
@@ -1397,7 +1395,6 @@ bool X86TargetInfo::hasFeature(StringRef Feature) const {
       .Case("rdpid", HasRDPID)
       .Case("rdrnd", HasRDRND)
       .Case("rdseed", HasRDSEED)
-      .Case("retpoline", HasRetpoline)
       .Case("retpoline-external-thunk", HasRetpolineExternalThunk)
       .Case("rtm", HasRTM)
       .Case("sahf", HasLAHFSAHF)
@@ -1482,6 +1479,38 @@ unsigned X86TargetInfo::multiVersionSortPriority(StringRef Name) const {
   // Now we know we have a feature, so get its priority and shift it a few so
   // that we have sufficient room for the CPUs (above).
   return getFeaturePriority(getFeature(Name)) << 1;
+}
+
+bool X86TargetInfo::validateCPUSpecificCPUDispatch(StringRef Name) const {
+  return llvm::StringSwitch<bool>(Name)
+#define CPU_SPECIFIC(NAME, MANGLING, FEATURES) .Case(NAME, true)
+#define CPU_SPECIFIC_ALIAS(NEW_NAME, NAME) .Case(NEW_NAME, true)
+#include "clang/Basic/X86Target.def"
+      .Default(false);
+}
+
+static StringRef CPUSpecificCPUDispatchNameDealias(StringRef Name) {
+  return llvm::StringSwitch<StringRef>(Name)
+#define CPU_SPECIFIC_ALIAS(NEW_NAME, NAME) .Case(NEW_NAME, NAME)
+#include "clang/Basic/X86Target.def"
+      .Default(Name);
+}
+
+char X86TargetInfo::CPUSpecificManglingCharacter(StringRef Name) const {
+  return llvm::StringSwitch<char>(CPUSpecificCPUDispatchNameDealias(Name))
+#define CPU_SPECIFIC(NAME, MANGLING, FEATURES) .Case(NAME, MANGLING)
+#include "clang/Basic/X86Target.def"
+      .Default(0);
+}
+
+void X86TargetInfo::getCPUSpecificCPUDispatchFeatures(
+    StringRef Name, llvm::SmallVectorImpl<StringRef> &Features) const {
+  StringRef WholeList =
+      llvm::StringSwitch<StringRef>(CPUSpecificCPUDispatchNameDealias(Name))
+#define CPU_SPECIFIC(NAME, MANGLING, FEATURES) .Case(NAME, FEATURES)
+#include "clang/Basic/X86Target.def"
+          .Default("");
+  WholeList.split(Features, ',', /*MaxSplit=*/-1, /*KeepEmpty=*/false);
 }
 
 std::string X86TargetInfo::getCPUKindCanonicalName(CPUKind Kind) const {
@@ -1725,7 +1754,7 @@ void X86TargetInfo::fillValidCPUList(SmallVectorImpl<StringRef> &Values) const {
 #define PROC(ENUM, STRING, IS64BIT)                                            \
   if (IS64BIT || getTriple().getArch() == llvm::Triple::x86)                   \
     Values.emplace_back(STRING);
-  // Go through CPUKind checking to ensure that the alias is de-aliased and 
+  // Go through CPUKind checking to ensure that the alias is de-aliased and
   // 64 bit-ness is checked.
 #define PROC_ALIAS(ENUM, ALIAS)                                                \
   if (checkCPUKind(getCPUKind(ALIAS)))                                         \

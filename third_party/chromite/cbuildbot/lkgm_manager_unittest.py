@@ -26,8 +26,6 @@ from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 
-site_config = config_lib.GetConfig()
-
 
 FAKE_VERSION_STRING = '1.2.4-rc3'
 FAKE_VERSION_STRING_NEXT = '1.2.4-rc4'
@@ -201,7 +199,7 @@ class LKGMManagerTest(cros_test_lib.MockTempDirTestCase):
         has_chump_cls=False)
 
     # For _AdjustRepoCheckoutToLocalManifest.
-    self.PatchObject(repository, 'CloneGitRepo')
+    self.PatchObject(git, 'Clone')
     self.PatchObject(git, 'CreateBranch')
 
     # Publish new candidate.
@@ -232,6 +230,7 @@ class LKGMManagerTest(cros_test_lib.MockTempDirTestCase):
 
     build_id = 20162
 
+    site_params = config_lib.GetSiteParams()
     # Patch out our RepoRepository to make sure we don't corrupt real repo.
     self.PatchObject(self.manager, 'cros_source')
     filter_mock = self.PatchObject(manifest_version, 'FilterManifest',
@@ -253,7 +252,7 @@ class LKGMManagerTest(cros_test_lib.MockTempDirTestCase):
     self.assertEqual(self.manager.current_version, version)
 
     filter_mock.assert_called_once_with(
-        manifest, whitelisted_remotes=site_config.params.EXTERNAL_REMOTES)
+        manifest, whitelisted_remotes=site_params.EXTERNAL_REMOTES)
     publish_mock.assert_called_once_with(new_manifest, version,
                                          build_id=build_id)
     init_mock.assert_called_once_with(my_info)
@@ -281,7 +280,7 @@ class LKGMManagerTest(cros_test_lib.MockTempDirTestCase):
                      return_value=True)
 
     # For _AdjustRepoCheckoutToLocalManifest.
-    self.PatchObject(repository, 'CloneGitRepo')
+    self.PatchObject(git, 'Clone')
     self.PatchObject(git, 'CreateBranch')
 
     candidate = self.manager.CreateNewCandidate()

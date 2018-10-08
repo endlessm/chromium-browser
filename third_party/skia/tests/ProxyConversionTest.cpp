@@ -28,15 +28,14 @@ static sk_sp<GrSurfaceProxy> make_wrapped_rt(GrProxyProvider* provider,
     SkASSERT(1 == desc.fSampleCnt);
     GrSRGBEncoded srgbEncoded;
     auto ct = GrPixelConfigToColorTypeAndEncoding(desc.fConfig, &srgbEncoded);
-    auto backendRT = gpu->createTestingOnlyBackendRenderTarget(desc.fWidth, desc.fHeight, ct,
-                                                               GrSRGBEncoded::kNo);
+    auto backendRT = gpu->createTestingOnlyBackendRenderTarget(desc.fWidth, desc.fHeight, ct);
     return provider->wrapBackendRenderTarget(backendRT, origin);
 }
 
 void clean_up_wrapped_rt(GrGpu* gpu, sk_sp<GrSurfaceProxy> proxy) {
     SkASSERT(proxy->isUnique_debugOnly());
-    SkASSERT(proxy->priv().peekRenderTarget());
-    GrBackendRenderTarget rt = proxy->priv().peekRenderTarget()->getBackendRenderTarget();
+    SkASSERT(proxy->peekRenderTarget());
+    GrBackendRenderTarget rt = proxy->peekRenderTarget()->getBackendRenderTarget();
     proxy.reset();
     gpu->deleteTestingOnlyBackendRenderTarget(rt);
 }

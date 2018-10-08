@@ -3,12 +3,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
 import scm
 import subprocess2
 import sys
 
 from third_party import colorama
 
+
+APP_URL = 'https://cit-cli-metrics.appspot.com'
 
 NOTICE_COUNTDOWN_HEADER = (
   '*****************************************************\n'
@@ -25,6 +29,27 @@ NOTICE_FOOTER = (
   '* depot_tools checkout.                             *\n'
   '*****************************************************\n'
 )
+
+KNOWN_PROJECT_URLS = {
+  'https://chrome-internal.googlesource.com/chrome/ios_internal',
+  'https://chrome-internal.googlesource.com/infra/infra_internal',
+  'https://chromium.googlesource.com/breakpad/breakpad',
+  'https://chromium.googlesource.com/chromium/src',
+  'https://chromium.googlesource.com/chromium/tools/depot_tools',
+  'https://chromium.googlesource.com/crashpad/crashpad',
+  'https://chromium.googlesource.com/external/gyp',
+  'https://chromium.googlesource.com/external/naclports',
+  'https://chromium.googlesource.com/infra/goma/client',
+  'https://chromium.googlesource.com/infra/infra',
+  'https://chromium.googlesource.com/native_client/',
+  'https://chromium.googlesource.com/syzygy',
+  'https://chromium.googlesource.com/v8/v8',
+  'https://dart.googlesource.com/sdk',
+  'https://pdfium.googlesource.com/pdfium',
+  'https://skia.googlesource.com/buildbot',
+  'https://skia.googlesource.com/skia',
+  'https://webrtc.googlesource.com/src',
+}
 
 
 def get_python_version():
@@ -80,9 +105,9 @@ def get_repo_timestamp(path_to_repo):
 def print_notice(countdown):
   """Print a notice to let the user know the status of metrics collection."""
   colorama.init()
-  print colorama.Fore.RED + '\033[1m'
+  print(colorama.Fore.RED + '\033[1m', file=sys.stderr)
   if countdown:
-    print NOTICE_COUNTDOWN_HEADER % countdown
+    print(NOTICE_COUNTDOWN_HEADER % countdown, file=sys.stderr)
   else:
-    print NOTICE_COLLECTION_HEADER
-  print NOTICE_FOOTER + colorama.Style.RESET_ALL
+    print(NOTICE_COLLECTION_HEADER, file=sys.stderr)
+  print(NOTICE_FOOTER + colorama.Style.RESET_ALL, file=sys.stderr)

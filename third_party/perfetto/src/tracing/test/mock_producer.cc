@@ -56,9 +56,10 @@ void MockProducer::Connect(TracingService* svc,
   task_runner_->RunUntilCheckpoint(checkpoint_name);
 }
 
-void MockProducer::RegisterDataSource(const std::string& name) {
+void MockProducer::RegisterDataSource(const std::string& name, bool ack_stop) {
   DataSourceDescriptor ds_desc;
   ds_desc.set_name(name);
+  ds_desc.set_will_notify_on_stop(ack_stop);
   service_endpoint_->RegisterDataSource(ds_desc);
 }
 
@@ -85,8 +86,10 @@ void MockProducer::WaitForDataSourceStart(const std::string& name) {
                                            const DataSourceConfig& cfg) {
         EXPECT_FALSE(data_source_instances_.count(cfg.name()));
         auto target_buffer = static_cast<BufferID>(cfg.target_buffer());
-        data_source_instances_.emplace(cfg.name(),
-                                       EnabledDataSource{ds_id, target_buffer});
+        auto session_id =
+            static_cast<TracingSessionID>(cfg.tracing_session_id());
+        data_source_instances_.emplace(
+            cfg.name(), EnabledDataSource{ds_id, target_buffer, session_id});
         on_ds_start();
       }));
   task_runner_->RunUntilCheckpoint(checkpoint_name);
@@ -121,6 +124,18 @@ void MockProducer::WaitForFlush(TraceWriter* writer_to_flush) {
         writer_to_flush->Flush();
         service_endpoint_->NotifyFlushComplete(flush_req_id);
       }));
+}
+
+DataSourceInstanceID MockProducer::GetDataSourceInstanceId(
+    const std::string& name) {
+  auto it = data_source_instances_.find(name);
+  return it == data_source_instances_.end() ? 0 : it->second.id;
+}
+
+const MockProducer::EnabledDataSource* MockProducer::GetDataSourceInstance(
+    const std::string& name) {
+  auto it = data_source_instances_.find(name);
+  return it == data_source_instances_.end() ? nullptr : &it->second;
 }
 
 }  // namespace perfetto

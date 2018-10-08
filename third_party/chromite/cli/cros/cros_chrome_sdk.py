@@ -117,6 +117,7 @@ class SDKFetcher(object):
     if clear_cache:
       logging.warning('Clearing the SDK cache.')
       osutils.RmDir(self.cache_base, ignore_missing=True)
+      self._RemoveOldCacheDir()
     self.tarball_cache = cache.TarballCache(
         os.path.join(self.cache_base, self.TARBALL_CACHE))
     self.misc_cache = cache.DiskCache(
@@ -141,6 +142,13 @@ class SDKFetcher(object):
 
     if self.toolchain_path is None:
       self.toolchain_path = 'gs://%s' % constants.SDK_GS_BUCKET
+
+  def _RemoveOldCacheDir(self):
+    """Deletes old cache directory."""
+    checkout = path_util.DetermineCheckout(os.getcwd())
+    if checkout.type == path_util.CHECKOUT_TYPE_GCLIENT:
+      old_path = os.path.join(checkout.root, path_util.OLD_CHROME_CACHE_DIR)
+      osutils.RmDir(old_path, ignore_missing=True)
 
   def _UpdateTarball(self, url, ref):
     """Worker function to fetch tarballs"""
@@ -938,13 +946,19 @@ class ChromeSDKCommand(command.CliCommand):
     # is done with 'use_debug_fission'.
 
     # Enable goma if requested.
-    if goma_dir:
-      gn_args['use_goma'] = True
-      gn_args['goma_dir'] = goma_dir
-    elif not options.goma:
+    if not options.goma:
       # If --nogoma option is explicitly set, disable goma, even if it is
       # used in the original GN_ARGS.
       gn_args['use_goma'] = False
+    elif goma_dir:
+      gn_args['use_goma'] = True
+
+      # Disable automatic gomacc handling in gn since we handle it ourselves.
+      gn_args['has_gomacc_path'] = True
+      env['GOMACC_PATH'] = os.path.join(goma_dir, 'gomacc')
+
+      # This is used to invoke host compiler via gomacc (e.g. v8_snapshot).
+      gn_args['goma_dir'] = goma_dir
 
     gn_args.pop('internal_khronos_glcts_tests', None)  # crbug.com/588080
 

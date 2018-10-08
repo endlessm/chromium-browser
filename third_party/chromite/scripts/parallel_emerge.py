@@ -669,7 +669,7 @@ class DepGraphGenerator(object):
           # package to another, which requires editing the CONTENTS files of
           # both packages. To avoid race conditions while editing this file,
           # the two packages must not be installed in parallel, so we can't
-          # safely ignore dependencies. See http://crosbug.com/19328
+          # safely ignore dependencies. See https://crbug.com/202428.
           if "blocker" in dep_types:
             this_pkg["nodeps"] = False
 
@@ -1143,7 +1143,7 @@ def EmergeWorker(task_queue, job_queue, emerge, package_db, fetch_only=False,
     install_list = [db_pkg]
     pkgname = db_pkg.pf
     output = tempfile.NamedTemporaryFile(prefix=pkgname + "-", delete=False)
-    os.chmod(output.name, 644)
+    os.chmod(output.name, 0o644)
     start_timestamp = time.time()
     job = EmergeJobState(target, pkgname, False, output.name, start_timestamp,
                          fetch_only=fetch_only, unpack_only=unpack_only)

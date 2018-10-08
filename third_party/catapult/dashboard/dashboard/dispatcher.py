@@ -4,6 +4,7 @@
 
 """Dispatches requests to request handler classes."""
 
+import gae_ts_mon
 import webapp2
 
 from dashboard import add_histograms
@@ -14,7 +15,6 @@ from dashboard import alerts
 from dashboard import associate_alerts
 from dashboard import bug_details
 from dashboard import buildbucket_job_status
-from dashboard import change_internal_only
 from dashboard import create_health_report
 from dashboard import debug_alert
 from dashboard import delete_test_data
@@ -33,7 +33,7 @@ from dashboard import graph_csv
 from dashboard import graph_json
 from dashboard import graph_revisions
 from dashboard import group_report
-from dashboard import layered_cache
+from dashboard import layered_cache_delete_expired
 from dashboard import list_monitored_tests
 from dashboard import list_tests
 from dashboard import load_from_prod
@@ -58,6 +58,9 @@ from dashboard.api import alerts as api_alerts
 from dashboard.api import bugs
 from dashboard.api import describe
 from dashboard.api import list_timeseries
+from dashboard.api import report_template
+from dashboard.api import report_generate
+from dashboard.api import report_names
 from dashboard.api import test_suites
 from dashboard.api import timeseries
 from dashboard.api import timeseries2
@@ -65,6 +68,7 @@ from dashboard.api import timeseries2
 
 _URL_MAPPING = [
     ('/add_histograms', add_histograms.AddHistogramsHandler),
+    ('/add_histograms/process', add_histograms.AddHistogramsProcessHandler),
     ('/add_histograms_queue', add_histograms_queue.AddHistogramsQueueHandler),
     ('/add_point', add_point.AddPointHandler),
     ('/add_point_queue', add_point_queue.AddPointQueueHandler),
@@ -74,6 +78,9 @@ _URL_MAPPING = [
     (r'/api/bugs/(.*)', bugs.BugsHandler),
     (r'/api/describe/(.*)', describe.DescribeHandler),
     (r'/api/list_timeseries/(.*)', list_timeseries.ListTimeseriesHandler),
+    (r'/api/report/generate', report_generate.ReportGenerateHandler),
+    (r'/api/report/names', report_names.ReportNamesHandler),
+    (r'/api/report/template', report_template.ReportTemplateHandler),
     (r'/api/test_suites', test_suites.TestSuitesHandler),
     (r'/api/timeseries/(.*)', timeseries.TimeseriesHandler),
     (r'/api/timeseries2', timeseries2.Timeseries2Handler),
@@ -81,10 +88,10 @@ _URL_MAPPING = [
     ('/bug_details', bug_details.BugDetailsHandler),
     (r'/buildbucket_job_status/(\d+)',
      buildbucket_job_status.BuildbucketJobStatusHandler),
-    ('/change_internal_only', change_internal_only.ChangeInternalOnlyHandler),
     ('/create_health_report', create_health_report.CreateHealthReportHandler),
     ('/debug_alert', debug_alert.DebugAlertHandler),
-    ('/delete_expired_entities', layered_cache.DeleteExpiredEntitiesHandler),
+    ('/delete_expired_entities',
+     layered_cache_delete_expired.LayeredCacheDeleteExpiredHandler),
     ('/delete_test_data', delete_test_data.DeleteTestDataHandler),
     ('/dump_graph_json', dump_graph_json.DumpGraphJsonHandler),
     ('/edit_anomalies', edit_anomalies.EditAnomaliesHandler),
@@ -136,3 +143,4 @@ _URL_MAPPING = [
 ]
 
 APP = webapp2.WSGIApplication(_URL_MAPPING, debug=False)
+gae_ts_mon.initialize(APP)

@@ -40,7 +40,8 @@ DefaultCorpusChangeListLoader::DefaultCorpusChangeListLoader(
   directory_loader_ = std::make_unique<DirectoryLoader>(
       logger_, blocking_task_runner_.get(), resource_metadata_, scheduler_,
       root_folder_id_loader_.get(), start_page_token_loader_.get(),
-      loader_controller_, util::GetDriveMyDriveRootPath());
+      loader_controller_, util::GetDriveMyDriveRootPath(),
+      util::kTeamDriveIdDefaultCorpus);
 
   team_drive_list_loader_ = std::make_unique<TeamDriveListLoader>(
       logger_, blocking_task_runner_.get(), resource_metadata, scheduler_,
@@ -104,11 +105,11 @@ void DefaultCorpusChangeListLoader::OnChangeListLoadIfNeeded(
 
 void DefaultCorpusChangeListLoader::ReadDirectory(
     const base::FilePath& directory_path,
-    const ReadDirectoryEntriesCallback& entries_callback,
+    ReadDirectoryEntriesCallback entries_callback,
     const FileOperationCallback& completion_callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  directory_loader_->ReadDirectory(directory_path, entries_callback,
+  directory_loader_->ReadDirectory(directory_path, std::move(entries_callback),
                                    completion_callback);
 
   // Also start loading all of the user's contents.

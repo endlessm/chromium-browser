@@ -34,9 +34,8 @@
 #include "content/renderer/media/stream/media_stream_video_track.h"
 #include "content/renderer/media/webrtc/audio_codec_factory.h"
 #include "content/renderer/media/webrtc/rtc_peer_connection_handler.h"
-#include "content/renderer/media/webrtc/rtc_video_decoder_factory.h"
-#include "content/renderer/media/webrtc/rtc_video_encoder_factory.h"
 #include "content/renderer/media/webrtc/stun_field_trial.h"
+#include "content/renderer/media/webrtc/video_codec_factory.h"
 #include "content/renderer/media/webrtc/webrtc_audio_device_impl.h"
 #include "content/renderer/media/webrtc/webrtc_uma_histograms.h"
 #include "content/renderer/media/webrtc/webrtc_video_capturer_adapter.h"
@@ -62,18 +61,11 @@
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/webrtc/api/mediaconstraintsinterface.h"
-#include "third_party/webrtc/api/video_codecs/video_decoder_factory.h"
-#include "third_party/webrtc/api/video_codecs/video_encoder_factory.h"
 #include "third_party/webrtc/api/videosourceproxy.h"
-#include "third_party/webrtc/media/engine/convert_legacy_video_factory.h"
 #include "third_party/webrtc/media/engine/multiplexcodecfactory.h"
 #include "third_party/webrtc/modules/video_coding/codecs/h264/include/h264.h"
 #include "third_party/webrtc/rtc_base/refcountedobject.h"
 #include "third_party/webrtc/rtc_base/ssladapter.h"
-
-#if defined(OS_ANDROID)
-#include "media/base/android/media_codec_util.h"
-#endif
 
 namespace content {
 
@@ -271,31 +263,12 @@ void PeerConnectionDependencyFactory::InitializeSignalingThread(
   socket_factory_.reset(new IpcPacketSocketFactory(p2p_socket_dispatcher_.get(),
                                                    traffic_annotation));
 
-  std::unique_ptr<cricket::WebRtcVideoDecoderFactory> decoder_factory;
-  std::unique_ptr<cricket::WebRtcVideoEncoderFactory> encoder_factory;
-
   const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
-  if (gpu_factories && gpu_factories->IsGpuVideoAcceleratorEnabled()) {
-    if (!cmd_line->HasSwitch(switches::kDisableWebRtcHWDecoding))
-      decoder_factory.reset(new RTCVideoDecoderFactory(gpu_factories));
 
-    if (!cmd_line->HasSwitch(switches::kDisableWebRtcHWEncoding))
-      encoder_factory.reset(new RTCVideoEncoderFactory(gpu_factories));
-  }
-
-#if defined(OS_ANDROID)
-  if (!media::MediaCodecUtil::SupportsSetParameters())
-    encoder_factory.reset();
-#endif
-
-  // TODO(magjed): Update RTCVideoEncoderFactory/RTCVideoDecoderFactory to new
-  // interface and let Chromium be responsible in what order video codecs are
-  // listed, instead of using
-  // cricket::ConvertVideoEncoderFactory/cricket::ConvertVideoDecoderFactory.
   std::unique_ptr<webrtc::VideoEncoderFactory> webrtc_encoder_factory =
-      ConvertVideoEncoderFactory(std::move(encoder_factory));
+      CreateWebrtcVideoEncoderFactory(gpu_factories);
   std::unique_ptr<webrtc::VideoDecoderFactory> webrtc_decoder_factory =
-      ConvertVideoDecoderFactory(std::move(decoder_factory));
+      CreateWebrtcVideoDecoderFactory(gpu_factories);
 
   // Enable Multiplex codec in SDP optionally.
   if (base::FeatureList::IsEnabled(features::kWebRtcMultiplexCodec)) {
@@ -339,6 +312,19 @@ PeerConnectionDependencyFactory::CreatePeerConnection(
   CHECK(observer);
   if (!GetPcFactory().get())
     return nullptr;
+
+  std::unique_ptr<P2PPortAllocator> port_allocator =
+      CreatePortAllocator(web_frame);
+  return GetPcFactory()
+      ->CreatePeerConnection(config, std::move(port_allocator), nullptr,
+                             observer)
+      .get();
+}
+
+std::unique_ptr<P2PPortAllocator>
+PeerConnectionDependencyFactory::CreatePortAllocator(
+    blink::WebLocalFrame* web_frame) {
+  DCHECK(web_frame);
 
   // Copy the flag from Preference associated with this WebLocalFrame.
   P2PPortAllocator::Config port_config;
@@ -444,16 +430,13 @@ PeerConnectionDependencyFactory::CreatePeerConnection(
   } else {
     network_manager.reset(new EmptyNetworkManager(network_manager_));
   }
-  std::unique_ptr<P2PPortAllocator> port_allocator(new P2PPortAllocator(
+  auto port_allocator = std::make_unique<P2PPortAllocator>(
       p2p_socket_dispatcher_, std::move(network_manager), socket_factory_.get(),
-      port_config, requesting_origin));
+      port_config, requesting_origin);
   if (IsValidPortRange(min_port, max_port))
     port_allocator->SetPortRange(min_port, max_port);
 
-  return GetPcFactory()
-      ->CreatePeerConnection(config, std::move(port_allocator),
-                             nullptr, observer)
-      .get();
+  return port_allocator;
 }
 
 scoped_refptr<webrtc::MediaStreamInterface>
@@ -520,22 +503,6 @@ void PeerConnectionDependencyFactory::TryScheduleStunProbeTrial() {
   if (!cmd_line->HasSwitch(switches::kWebRtcStunProbeTrialParameter))
     return;
 
-  // The underneath IPC channel has to be connected before sending any IPC
-  // message.
-  if (!p2p_socket_dispatcher_->connected()) {
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE,
-        base::BindOnce(
-            &PeerConnectionDependencyFactory::TryScheduleStunProbeTrial,
-            base::Unretained(this)),
-        base::TimeDelta::FromSeconds(1));
-    return;
-  }
-
-  // GetPcFactory could trigger an IPC message. If done before
-  // |p2p_socket_dispatcher_| is connected, that'll put the
-  // |p2p_socket_dispatcher_| in a bad state such that no other IPC message can
-  // be processed.
   GetPcFactory();
 
   const std::string params =
@@ -602,6 +569,12 @@ PeerConnectionDependencyFactory::GetWebRtcWorkerThread() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return chrome_worker_thread_.IsRunning() ? chrome_worker_thread_.task_runner()
                                            : nullptr;
+}
+
+rtc::Thread* PeerConnectionDependencyFactory::GetWebRtcWorkerThreadRtcThread()
+    const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return chrome_worker_thread_.IsRunning() ? worker_thread_ : nullptr;
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>

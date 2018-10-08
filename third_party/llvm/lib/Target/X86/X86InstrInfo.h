@@ -359,8 +359,7 @@ public:
   void storeRegToAddr(MachineFunction &MF, unsigned SrcReg, bool isKill,
                       SmallVectorImpl<MachineOperand> &Addr,
                       const TargetRegisterClass *RC,
-                      MachineInstr::mmo_iterator MMOBegin,
-                      MachineInstr::mmo_iterator MMOEnd,
+                      ArrayRef<MachineMemOperand *> MMOs,
                       SmallVectorImpl<MachineInstr *> &NewMIs) const;
 
   void loadRegFromStackSlot(MachineBasicBlock &MBB,
@@ -371,8 +370,7 @@ public:
   void loadRegFromAddr(MachineFunction &MF, unsigned DestReg,
                        SmallVectorImpl<MachineOperand> &Addr,
                        const TargetRegisterClass *RC,
-                       MachineInstr::mmo_iterator MMOBegin,
-                       MachineInstr::mmo_iterator MMOEnd,
+                       ArrayRef<MachineMemOperand *> MMOs,
                        SmallVectorImpl<MachineInstr *> &NewMIs) const;
 
   bool expandPostRAPseudo(MachineInstr &MI) const override;
@@ -544,7 +542,7 @@ public:
   ArrayRef<std::pair<unsigned, const char *>>
   getSerializableDirectMachineOperandTargetFlags() const override;
 
-  virtual outliner::TargetCostInfo getOutliningCandidateInfo(
+  virtual outliner::OutlinedFunction getOutliningCandidateInfo(
       std::vector<outliner::Candidate> &RepeatedSequenceLocs) const override;
 
   bool isFunctionSafeToOutlineFrom(MachineFunction &MF,
@@ -554,12 +552,12 @@ public:
   getOutliningType(MachineBasicBlock::iterator &MIT, unsigned Flags) const override;
 
   void buildOutlinedFrame(MachineBasicBlock &MBB, MachineFunction &MF,
-                            const outliner::TargetCostInfo &TCI) const override;
+                          const outliner::OutlinedFunction &OF) const override;
 
   MachineBasicBlock::iterator
   insertOutlinedCall(Module &M, MachineBasicBlock &MBB,
                      MachineBasicBlock::iterator &It, MachineFunction &MF,
-                     const outliner::TargetCostInfo &TCI) const override;
+                     const outliner::Candidate &C) const override;
 
 protected:
   /// Commutes the operands in the given instruction by changing the operands

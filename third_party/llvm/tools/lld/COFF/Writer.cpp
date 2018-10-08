@@ -158,6 +158,7 @@ private:
   void openFile(StringRef OutputPath);
   template <typename PEHeaderTy> void writeHeader();
   void createSEHTable();
+  void createRuntimePseudoRelocs();
   void createGuardCFTables();
   void markSymbolsForRVATable(ObjFile *File,
                               ArrayRef<SectionChunk *> SymIdxChunks,
@@ -201,6 +202,7 @@ private:
 
   OutputSection *TextSec;
   OutputSection *RdataSec;
+  OutputSection *BuildidSec;
   OutputSection *DataSec;
   OutputSection *PdataSec;
   OutputSection *IdataSec;
@@ -420,6 +422,7 @@ void Writer::createSections() {
   TextSec = CreateSection(".text", CODE | R | X);
   CreateSection(".bss", BSS | R | W);
   RdataSec = CreateSection(".rdata", DATA | R);
+  BuildidSec = CreateSection(".buildid", DATA | R);
   DataSec = CreateSection(".data", DATA | R | W);
   PdataSec = CreateSection(".pdata", DATA | R);
   IdataSec = CreateSection(".idata", DATA | R);
@@ -468,12 +471,9 @@ void Writer::createSections() {
 
   // Finally, move some output sections to the end.
   auto SectionOrder = [&](OutputSection *S) {
-    // .reloc should come last of all since it refers to RVAs of data in the
-    // previous sections.
-    if (S == RelocSec)
-      return 3;
     // Move DISCARDABLE (or non-memory-mapped) sections to the end of file because
-    // the loader cannot handle holes.
+    // the loader cannot handle holes. Stripping can remove other discardable ones
+    // than .reloc, which is first of them (created early).
     if (S->Header.Characteristics & IMAGE_SCN_MEM_DISCARDABLE)
       return 2;
     // .rsrc should come at the end of the non-discardable sections because its
@@ -503,6 +503,8 @@ void Writer::createMiscChunks() {
   if (Config->Debug) {
     DebugDirectory = make<DebugDirectoryChunk>(DebugRecords);
 
+    OutputSection *DebugInfoSec = Config->MinGW ? BuildidSec : RdataSec;
+
     // Make a CVDebugRecordChunk even when /DEBUG:CV is not specified.  We
     // output a PDB no matter what, and this chunk provides the only means of
     // allowing a debugger to match a PDB and an executable.  So we need it even
@@ -511,9 +513,9 @@ void Writer::createMiscChunks() {
     BuildId = CVChunk;
     DebugRecords.push_back(CVChunk);
 
-    RdataSec->addChunk(DebugDirectory);
+    DebugInfoSec->addChunk(DebugDirectory);
     for (Chunk *C : DebugRecords)
-      RdataSec->addChunk(C);
+      DebugInfoSec->addChunk(C);
   }
 
   // Create SEH table. x86-only.
@@ -523,6 +525,9 @@ void Writer::createMiscChunks() {
   // Create /guard:cf tables if requested.
   if (Config->GuardCF != GuardCFLevel::Off)
     createGuardCFTables();
+
+  if (Config->MinGW)
+    createRuntimePseudoRelocs();
 }
 
 // Create .idata section for the DLL-imported symbol table.
@@ -1012,13 +1017,19 @@ static void markSymbolsWithRelocations(ObjFile *File,
     if (!SC || !SC->isLive())
       continue;
 
-    // Look for relocations in this section against symbols in executable output
-    // sections.
-    for (Symbol *Ref : SC->symbols()) {
-      // FIXME: Do further testing to see if the relocation type matters,
-      // especially for 32-bit where taking the address of something usually
-      // uses an absolute relocation instead of a relative one.
-      if (auto *D = dyn_cast_or_null<Defined>(Ref)) {
+    for (const coff_relocation &Reloc : SC->Relocs) {
+      if (Config->Machine == I386 && Reloc.Type == COFF::IMAGE_REL_I386_REL32)
+        // Ignore relative relocations on x86. On x86_64 they can't be ignored
+        // since they're also used to compute absolute addresses.
+        continue;
+
+      Symbol *Ref = SC->File->getSymbol(Reloc.SymbolTableIndex);
+      if (auto *D = dyn_cast_or_null<DefinedCOFF>(Ref)) {
+        if (D->getCOFFSymbol().getComplexType() != COFF::IMAGE_SYM_DTYPE_FUNCTION)
+          // Ignore relocations against non-functions (e.g. labels).
+          continue;
+
+        // Mark the symbol if it's in an executable section.
         Chunk *RefChunk = D->getChunk();
         OutputSection *OS = RefChunk ? RefChunk->getOutputSection() : nullptr;
         if (OS && OS->Header.Characteristics & IMAGE_SCN_MEM_EXECUTE)
@@ -1131,6 +1142,33 @@ void Writer::maybeAddRVATable(SymbolRVASet TableSymbols, StringRef TableSym,
   Symbol *C = Symtab->findUnderscore(CountSym);
   replaceSymbol<DefinedSynthetic>(T, T->getName(), TableChunk);
   cast<DefinedAbsolute>(C)->setVA(TableChunk->getSize() / 4);
+}
+
+// MinGW specific. Gather all relocations that are imported from a DLL even
+// though the code didn't expect it to, produce the table that the runtime
+// uses for fixing them up, and provide the synthetic symbols that the
+// runtime uses for finding the table.
+void Writer::createRuntimePseudoRelocs() {
+  std::vector<RuntimePseudoReloc> Rels;
+
+  for (Chunk *C : Symtab->getChunks()) {
+    auto *SC = dyn_cast<SectionChunk>(C);
+    if (!SC || !SC->isLive())
+      continue;
+    SC->getRuntimePseudoRelocs(Rels);
+  }
+
+  if (!Rels.empty())
+    log("Writing " + Twine(Rels.size()) + " runtime pseudo relocations");
+  PseudoRelocTableChunk *Table = make<PseudoRelocTableChunk>(Rels);
+  RdataSec->addChunk(Table);
+  EmptyChunk *EndOfList = make<EmptyChunk>();
+  RdataSec->addChunk(EndOfList);
+
+  Symbol *HeadSym = Symtab->findUnderscore("__RUNTIME_PSEUDO_RELOC_LIST__");
+  Symbol *EndSym = Symtab->findUnderscore("__RUNTIME_PSEUDO_RELOC_LIST_END__");
+  replaceSymbol<DefinedSynthetic>(HeadSym, HeadSym->getName(), Table);
+  replaceSymbol<DefinedSynthetic>(EndSym, EndSym->getName(), EndOfList);
 }
 
 // Handles /section options to allow users to overwrite

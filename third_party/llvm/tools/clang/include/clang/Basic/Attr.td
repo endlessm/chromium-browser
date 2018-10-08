@@ -90,6 +90,11 @@ def NonBitField : SubsetSubject<Field,
                                 [{!S->isBitField()}],
                                 "non-bit-field non-static data members">;
 
+def NonStaticNonConstCXXMethod
+    : SubsetSubject<CXXMethod,
+                    [{!S->isStatic() && !S->isConst()}],
+                    "non-static non-const member functions">;
+
 def ObjCInstanceMethod : SubsetSubject<ObjCMethod,
                                        [{S->isInstanceMethod()}],
                                        "Objective-C instance methods">;
@@ -141,6 +146,14 @@ def HasFunctionProto : SubsetSubject<DeclBase,
                                        isa<BlockDecl>(S)}],
                                      "non-K&R-style functions">;
 
+// A subject that matches the implicit object parameter of a non-static member
+// function. Accepted as a function type attribute on the type of such a
+// member function.
+// FIXME: This does not actually ever match currently.
+def ImplicitObjectParameter
+    : SubsetSubject<Function, [{static_cast<void>(S), false}],
+                    "implicit object parameters">;
+
 // A single argument to an attribute
 class Argument<string name, bit optional, bit fake = 0> {
   string Name = name;
@@ -168,6 +181,7 @@ class UnsignedArgument<string name, bit opt = 0> : Argument<name, opt>;
 class VariadicUnsignedArgument<string name> : Argument<name, 1>;
 class VariadicExprArgument<string name> : Argument<name, 1>;
 class VariadicStringArgument<string name> : Argument<name, 1>;
+class VariadicIdentifierArgument<string name> : Argument<name, 1>;
 
 // Like VariadicUnsignedArgument except values are ParamIdx.
 class VariadicParamIdxArgument<string name> : Argument<name, 1>;
@@ -307,6 +321,7 @@ def TargetAVR : TargetArch<["avr"]>;
 def TargetMips32 : TargetArch<["mips", "mipsel"]>;
 def TargetAnyMips : TargetArch<["mips", "mipsel", "mips64", "mips64el"]>;
 def TargetMSP430 : TargetArch<["msp430"]>;
+def TargetRISCV : TargetArch<["riscv32", "riscv64"]>;
 def TargetX86 : TargetArch<["x86"]>;
 def TargetAnyX86 : TargetArch<["x86", "x86_64"]>;
 def TargetWindows : TargetArch<["x86", "x86_64", "arm", "thumb", "aarch64"]> {
@@ -454,7 +469,7 @@ class Attr {
   // Set to true if all of the attribute's arguments should be parsed in an
   // unevaluated context.
   bit ParseArgumentsAsUnevaluated = 0;
-  // Set to true if this attribute meaningful when applied to or inherited 
+  // Set to true if this attribute meaningful when applied to or inherited
   // in a class template definition.
   bit MeaningfulToClassTemplateDefinition = 0;
   // Set to true if this attribute can be used with '#pragma clang attribute'.
@@ -479,10 +494,7 @@ class Attr {
 }
 
 /// A type attribute is not processed on a declaration or a statement.
-class TypeAttr : Attr {
-  // By default, type attributes do not get an AST node.
-  let ASTNode = 0;
-}
+class TypeAttr : Attr;
 
 /// A stmt attribute is not processed on a declaration or a type.
 class StmtAttr : Attr;
@@ -581,7 +593,7 @@ def AlignValue : Attr {
     // the future (and a corresponding C++ attribute), but this can be done
     // later once we decide if we also want them to have slightly-different
     // semantics than Intel's align_value.
-    // 
+    //
     // Does not get a [[]] spelling because the attribute is not exposed as such
     // by Intel.
     GNU<"align_value">
@@ -843,6 +855,27 @@ def Constructor : InheritableAttr {
   let Args = [DefaultIntArgument<"Priority", 65535>];
   let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
+}
+
+def CPUSpecific : InheritableAttr {
+  let Spellings = [Clang<"cpu_specific">];
+  let Args = [VariadicIdentifierArgument<"Cpus">];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [CPUSpecificCPUDispatchDocs];
+  let AdditionalMembers = [{
+    unsigned ActiveArgIndex = 0;
+
+    IdentifierInfo *getCurCPUName() const {
+      return *(cpus_begin() + ActiveArgIndex);
+    }
+  }];
+}
+
+def CPUDispatch : InheritableAttr {
+  let Spellings = [Clang<"cpu_dispatch">];
+  let Args = [VariadicIdentifierArgument<"Cpus">];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [CPUSpecificCPUDispatchDocs];
 }
 
 // CUDA attributes are spelled __attribute__((attr)) or __declspec(__attr__),
@@ -1188,6 +1221,13 @@ def LayoutVersion : InheritableAttr, TargetSpecificAttr<TargetMicrosoftCXXABI> {
   let Documentation = [LayoutVersionDocs];
 }
 
+def LifetimeBound : DeclOrTypeAttr {
+  let Spellings = [Clang<"lifetimebound", 0>];
+  let Subjects = SubjectList<[ParmVar, ImplicitObjectParameter], ErrorDiag>;
+  let Documentation = [LifetimeBoundDocs];
+  let LangOpts = [CPlusPlus];
+}
+
 def TrivialABI : InheritableAttr {
   // This attribute does not have a C [[]] spelling because it requires the
   // CPlusPlus language option.
@@ -1284,12 +1324,16 @@ def NeonPolyVectorType : TypeAttr {
   let Spellings = [Clang<"neon_polyvector_type">];
   let Args = [IntArgument<"NumElements">];
   let Documentation = [Undocumented];
+  // Represented as VectorType instead.
+  let ASTNode = 0;
 }
 
 def NeonVectorType : TypeAttr {
   let Spellings = [Clang<"neon_vector_type">];
   let Args = [IntArgument<"NumElements">];
   let Documentation = [Undocumented];
+  // Represented as VectorType instead.
+  let ASTNode = 0;
 }
 
 def ReturnsTwice : InheritableAttr {
@@ -1350,6 +1394,17 @@ def NoMicroMips : InheritableAttr, TargetSpecificAttr<TargetMips32> {
   let Spellings = [GCC<"nomicromips">];
   let Subjects = SubjectList<[Function], ErrorDiag>;
   let Documentation = [MicroMipsDocs];
+}
+
+def RISCVInterrupt : InheritableAttr, TargetSpecificAttr<TargetRISCV> {
+  let Spellings = [GCC<"interrupt">];
+  let Subjects = SubjectList<[Function]>;
+  let Args = [EnumArgument<"Interrupt", "InterruptType",
+                           ["user", "supervisor", "machine"],
+                           ["user", "supervisor", "machine"],
+                           1>];
+  let ParseKind = "Interrupt";
+  let Documentation = [RISCVInterruptDocs];
 }
 
 // This is not a TargetSpecificAttr so that is silently accepted and
@@ -1453,6 +1508,14 @@ def TypeNullUnspecified : TypeAttr {
   let Documentation = [TypeNullUnspecifiedDocs];
 }
 
+// This is a marker used to indicate that an __unsafe_unretained qualifier was
+// ignored because ARC is not enabled. The usual representation for this
+// qualifier is as an ObjCOwnership attribute with Kind == "none".
+def ObjCInertUnsafeUnretained : TypeAttr {
+  let Spellings = [Keyword<"__unsafe_unretained">];
+  let Documentation = [Undocumented];
+}
+
 def ObjCKindOf : TypeAttr {
   let Spellings = [Keyword<"__kindof">];
   let Documentation = [Undocumented];
@@ -1540,7 +1603,7 @@ def ObjCBridgeRelated : InheritableAttr {
   let Documentation = [Undocumented];
 }
 
-def NSReturnsRetained : InheritableAttr {
+def NSReturnsRetained : DeclOrTypeAttr {
   let Spellings = [Clang<"ns_returns_retained">];
 //  let Subjects = SubjectList<[ObjCMethod, ObjCProperty, Function]>;
   let Documentation = [Undocumented];
@@ -1669,7 +1732,7 @@ def Overloadable : Attr {
   let Documentation = [OverloadableDocs];
 }
 
-def Override : InheritableAttr { 
+def Override : InheritableAttr {
   let Spellings = [Keyword<"override">];
   let SemaHandler = 0;
   let Documentation = [Undocumented];
@@ -1725,6 +1788,8 @@ def Regparm : TypeAttr {
   let Spellings = [GCC<"regparm">];
   let Args = [UnsignedArgument<"NumParams">];
   let Documentation = [RegparmDocs];
+  // Represented as part of the enclosing function type.
+  let ASTNode = 0;
 }
 
 def ReqdWorkGroupSize : InheritableAttr {
@@ -1748,7 +1813,7 @@ def RequireConstantInit : InheritableAttr {
 def WorkGroupSizeHint :  InheritableAttr {
   // Does not have a [[]] spelling because it is an OpenCL-related attribute.
   let Spellings = [GNU<"work_group_size_hint">];
-  let Args = [UnsignedArgument<"XDim">, 
+  let Args = [UnsignedArgument<"XDim">,
               UnsignedArgument<"YDim">,
               UnsignedArgument<"ZDim">];
   let Subjects = SubjectList<[Function], ErrorDiag>;
@@ -1932,7 +1997,7 @@ def Target : InheritableAttr {
         // overall feature validity for the function with the rest of the
         // attributes on the function.
         if (Feature.startswith("fpmath=") || Feature.startswith("tune="))
-	  continue;
+          continue;
 
         // While we're here iterating check for a different target cpu.
         if (Feature.startswith("arch=")) {
@@ -2013,10 +2078,9 @@ def ObjCGC : TypeAttr {
   let Documentation = [Undocumented];
 }
 
-def ObjCOwnership : InheritableAttr {
+def ObjCOwnership : DeclOrTypeAttr {
   let Spellings = [Clang<"objc_ownership">];
   let Args = [IdentifierArgument<"Kind">];
-  let ASTNode = 0;
   let Documentation = [Undocumented];
 }
 
@@ -2054,6 +2118,8 @@ def VectorSize : TypeAttr {
   let Spellings = [GCC<"vector_size">];
   let Args = [ExprArgument<"NumBytes">];
   let Documentation = [Undocumented];
+  // Represented as VectorType instead.
+  let ASTNode = 0;
 }
 
 def VecTypeHint : InheritableAttr {
@@ -2148,7 +2214,7 @@ def AnyX86NoCallerSavedRegisters : InheritableAttr,
   let Documentation = [AnyX86NoCallerSavedRegistersDocs];
 }
 
-def AnyX86NoCfCheck : InheritableAttr, TargetSpecificAttr<TargetAnyX86>{
+def AnyX86NoCfCheck : DeclOrTypeAttr, TargetSpecificAttr<TargetAnyX86>{
   let Spellings = [GCC<"nocf_check">];
   let Subjects = SubjectList<[FunctionLike]>;
   let Documentation = [AnyX86NoCfCheckDocs];
@@ -2700,6 +2766,8 @@ def LoopHint : Attr {
   /// interleave_count: interleaves 'Value' loop iterations.
   /// unroll: fully unroll loop if State == Enable.
   /// unroll_count: unrolls loop 'Value' times.
+  /// unroll_and_jam: attempt to unroll and jam loop if State == Enable.
+  /// unroll_and_jam_count: unroll and jams loop 'Value' times.
   /// distribute: attempt to distribute loop if State == Enable
 
   /// #pragma unroll <argument> directive
@@ -2708,14 +2776,17 @@ def LoopHint : Attr {
   /// expression: unrolls loop 'Value' times.
 
   let Spellings = [Pragma<"clang", "loop">, Pragma<"", "unroll">,
-                   Pragma<"", "nounroll">];
+                   Pragma<"", "nounroll">, Pragma<"", "unroll_and_jam">,
+                   Pragma<"", "nounroll_and_jam">];
 
   /// State of the loop optimization specified by the spelling.
   let Args = [EnumArgument<"Option", "OptionType",
                           ["vectorize", "vectorize_width", "interleave", "interleave_count",
-                           "unroll", "unroll_count", "distribute"],
+                           "unroll", "unroll_count", "unroll_and_jam", "unroll_and_jam_count",
+                           "distribute"],
                           ["Vectorize", "VectorizeWidth", "Interleave", "InterleaveCount",
-                           "Unroll", "UnrollCount", "Distribute"]>,
+                           "Unroll", "UnrollCount", "UnrollAndJam", "UnrollAndJamCount",
+                           "Distribute"]>,
               EnumArgument<"State", "LoopHintState",
                            ["enable", "disable", "numeric", "assume_safety", "full"],
                            ["Enable", "Disable", "Numeric", "AssumeSafety", "Full"]>,
@@ -2730,6 +2801,8 @@ def LoopHint : Attr {
     case InterleaveCount: return "interleave_count";
     case Unroll: return "unroll";
     case UnrollCount: return "unroll_count";
+    case UnrollAndJam: return "unroll_and_jam";
+    case UnrollAndJamCount: return "unroll_and_jam_count";
     case Distribute: return "distribute";
     }
     llvm_unreachable("Unhandled LoopHint option.");
@@ -2739,9 +2812,9 @@ def LoopHint : Attr {
     unsigned SpellingIndex = getSpellingListIndex();
     // For "#pragma unroll" and "#pragma nounroll" the string "unroll" or
     // "nounroll" is already emitted as the pragma name.
-    if (SpellingIndex == Pragma_nounroll)
+    if (SpellingIndex == Pragma_nounroll || SpellingIndex == Pragma_nounroll_and_jam)
       return;
-    else if (SpellingIndex == Pragma_unroll) {
+    else if (SpellingIndex == Pragma_unroll || SpellingIndex == Pragma_unroll_and_jam) {
       OS << ' ' << getValueString(Policy);
       return;
     }
@@ -2777,6 +2850,11 @@ def LoopHint : Attr {
       return "#pragma nounroll";
     else if (SpellingIndex == Pragma_unroll)
       return "#pragma unroll" + (option == UnrollCount ? getValueString(Policy) : "");
+    else if (SpellingIndex == Pragma_nounroll_and_jam)
+      return "#pragma nounroll_and_jam";
+    else if (SpellingIndex == Pragma_unroll_and_jam)
+      return "#pragma unroll_and_jam" +
+        (option == UnrollAndJamCount ? getValueString(Policy) : "");
 
     assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
     return getOptionName(option) + getValueString(Policy);
@@ -2890,9 +2968,10 @@ def OMPDeclareSimdDecl : Attr {
   }];
 }
 
-def OMPDeclareTargetDecl : Attr {
+def OMPDeclareTargetDecl : InheritableAttr {
   let Spellings = [Pragma<"omp", "declare target">];
   let SemaHandler = 0;
+  let Subjects = SubjectList<[Function, SharedVar]>;
   let Documentation = [OMPDeclareTargetDocs];
   let Args = [
     EnumArgument<"MapType", "MapTypeTy",
@@ -2905,6 +2984,15 @@ def OMPDeclareTargetDecl : Attr {
       if (getMapType() != MT_To)
         OS << ' ' << ConvertMapTypeTyToStr(getMapType());
     }
+    static llvm::Optional<MapTypeTy>
+    isDeclareTargetDeclaration(const ValueDecl *VD) {
+      if (!VD->hasAttrs())
+        return llvm::None;
+      if (const auto *Attr = VD->getAttr<OMPDeclareTargetDeclAttr>())
+        return Attr->getMapType();
+
+      return llvm::None;
+    }
   }];
 }
 
@@ -2912,4 +3000,22 @@ def InternalLinkage : InheritableAttr {
   let Spellings = [Clang<"internal_linkage">];
   let Subjects = SubjectList<[Var, Function, CXXRecord]>;
   let Documentation = [InternalLinkageDocs];
+}
+
+def Reinitializes : InheritableAttr {
+  let Spellings = [Clang<"reinitializes", 0>];
+  let Subjects = SubjectList<[NonStaticNonConstCXXMethod], ErrorDiag>;
+  let Documentation = [ReinitializesDocs];
+}
+
+def NoDestroy : InheritableAttr {
+  let Spellings = [Clang<"no_destroy", 0>];
+  let Subjects = SubjectList<[Var]>;
+  let Documentation = [NoDestroyDocs];
+}
+
+def AlwaysDestroy : InheritableAttr {
+  let Spellings = [Clang<"always_destroy", 0>];
+  let Subjects = SubjectList<[Var]>;
+  let Documentation = [AlwaysDestroyDocs];
 }

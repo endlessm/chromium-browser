@@ -255,7 +255,7 @@ class Preprocessor {
   /// with this preprocessor.
   std::vector<CommentHandler *> CommentHandlers;
 
-  /// True if we want to ignore EOF token and continue later on (thus 
+  /// True if we want to ignore EOF token and continue later on (thus
   /// avoid tearing the Lexer and etc. down).
   bool IncrementalProcessing = false;
 
@@ -281,7 +281,7 @@ class Preprocessor {
   /// for preprocessing.
   SourceLocation CodeCompletionFileLoc;
 
-  /// The source location of the \c import contextual keyword we just 
+  /// The source location of the \c import contextual keyword we just
   /// lexed, if any.
   SourceLocation ModuleImportLoc;
 
@@ -294,7 +294,7 @@ class Preprocessor {
   /// Whether the module import expects an identifier next. Otherwise,
   /// it expects a '.' or ';'.
   bool ModuleImportExpectsIdentifier = false;
-  
+
   /// The source location of the currently-active
   /// \#pragma clang arc_cf_code_audited begin.
   SourceLocation PragmaARCCFCodeAuditedLoc;
@@ -309,6 +309,9 @@ class Preprocessor {
   /// The code completion token containing the information
   /// on the stem that is to be code completed.
   IdentifierInfo *CodeCompletionII = nullptr;
+
+  /// Range for the code completion token.
+  SourceRange CodeCompletionTokenRange;
 
   /// The directory that the main file should be considered to occupy,
   /// if it does not correspond to a real file (as happens when building a
@@ -814,7 +817,7 @@ public:
   /// Retrieve the preprocessor options used to initialize this
   /// preprocessor.
   PreprocessorOptions &getPreprocessorOpts() const { return *PPOpts; }
-  
+
   DiagnosticsEngine &getDiagnostics() const { return *Diags; }
   void setDiagnostics(DiagnosticsEngine &D) { Diags = &D; }
 
@@ -852,7 +855,7 @@ public:
   }
 
   /// True if we are currently preprocessing a #if or #elif directive
-  bool isParsingIfOrElifDirective() const { 
+  bool isParsingIfOrElifDirective() const {
     return ParsingIfOrElifDirective;
   }
 
@@ -1131,6 +1134,16 @@ public:
     CodeCompletionII = Filter;
   }
 
+  /// Set the code completion token range for detecting replacement range later
+  /// on.
+  void setCodeCompletionTokenRange(const SourceLocation Start,
+                                   const SourceLocation End) {
+    CodeCompletionTokenRange = {Start, End};
+  }
+  SourceRange getCodeCompletionTokenRange() const {
+    return CodeCompletionTokenRange;
+  }
+
   /// Get the code completion token for filtering purposes.
   StringRef getCodeCompletionFilter() {
     if (CodeCompletionII)
@@ -1147,7 +1160,7 @@ public:
   void createPreprocessingRecord();
 
   /// Returns true if the FileEntry is the PCH through header.
-  bool isPCHThroughHeader(const FileEntry *File);
+  bool isPCHThroughHeader(const FileEntry *FE);
 
   /// True if creating a PCH with a through header.
   bool creatingPCHWithThroughHeader();
@@ -1173,7 +1186,7 @@ public:
   /// start lexing tokens from it instead of the current buffer.
   ///
   /// Emits a diagnostic, doesn't enter the file, and returns true on error.
-  bool EnterSourceFile(FileID CurFileID, const DirectoryLookup *Dir,
+  bool EnterSourceFile(FileID FID, const DirectoryLookup *Dir,
                        SourceLocation Loc);
 
   /// Add a Macro to the top of the include stack and start lexing
@@ -1182,7 +1195,7 @@ public:
   /// \param Args specifies the tokens input to a function-like macro.
   /// \param ILEnd specifies the location of the ')' for a function-like macro
   /// or the identifier for an object-like macro.
-  void EnterMacro(Token &Identifier, SourceLocation ILEnd, MacroInfo *Macro,
+  void EnterMacro(Token &Tok, SourceLocation ILEnd, MacroInfo *Macro,
                   MacroArgs *Args);
 
   /// Add a "macro" context to the top of the include stack,
@@ -1439,7 +1452,7 @@ public:
   void enableIncrementalProcessing(bool value = true) {
     IncrementalProcessing = value;
   }
-  
+
   /// Specify the point at which code-completion will be performed.
   ///
   /// \param File the file in which code completion should occur. If
@@ -1630,7 +1643,7 @@ public:
   }
 
   /// Plop the specified string into a scratch buffer and set the
-  /// specified token's location and length to it. 
+  /// specified token's location and length to it.
   ///
   /// If specified, the source location provides a location of the expansion
   /// point of the token.
@@ -1736,7 +1749,7 @@ public:
   void SetPoisonReason(IdentifierInfo *II, unsigned DiagID);
 
   /// Display reason for poisoned identifier.
-  void HandlePoisonedIdentifier(Token & Tok);
+  void HandlePoisonedIdentifier(Token & Identifier);
 
   void MaybeHandlePoisonedIdentifier(Token & Identifier) {
     if(IdentifierInfo * II = Identifier.getIdentifierInfo()) {
@@ -1769,7 +1782,7 @@ public:
   void PoisonSEHIdentifiers(bool Poison = true); // Borland
 
   /// Callback invoked when the lexer reads an identifier and has
-  /// filled in the tokens IdentifierInfo member. 
+  /// filled in the tokens IdentifierInfo member.
   ///
   /// This callback potentially macro expands it or turns it into a named
   /// token (like 'for').
@@ -1801,7 +1814,7 @@ public:
   /// If not, emit a diagnostic and consume up until the eod.
   /// If \p EnableMacros is true, then we consider macros that expand to zero
   /// tokens as being ok.
-  void CheckEndOfDirective(const char *Directive, bool EnableMacros = false);
+  void CheckEndOfDirective(const char *DirType, bool EnableMacros = false);
 
   /// Read and discard all tokens remaining on the current line until
   /// the tok::eod token is found.
@@ -1817,12 +1830,12 @@ public:
 
   /// Retrieves the module that we're currently building, if any.
   Module *getCurrentModule();
-  
+
   /// Allocate a new MacroInfo object with the provided SourceLocation.
   MacroInfo *AllocateMacroInfo(SourceLocation L);
 
   /// Turn the specified lexer token into a fully checked and spelled
-  /// filename, e.g. as an operand of \#include. 
+  /// filename, e.g. as an operand of \#include.
   ///
   /// The caller is expected to provide a buffer that is large enough to hold
   /// the spelling of the filename, but is also expected to handle the case
@@ -1830,7 +1843,7 @@ public:
   ///
   /// \returns true if the input filename was in <>'s or false if it was
   /// in ""'s.
-  bool GetIncludeFilenameSpelling(SourceLocation Loc,StringRef &Filename);
+  bool GetIncludeFilenameSpelling(SourceLocation Loc,StringRef &Buffer);
 
   /// Given a "foo" or \<foo> reference, look up the indicated file.
   ///
@@ -1846,7 +1859,7 @@ public:
                               bool *IsMapped, bool SkipCache = false);
 
   /// Get the DirectoryLookup structure used to find the current
-  /// FileEntry, if CurLexer is non-null and if applicable. 
+  /// FileEntry, if CurLexer is non-null and if applicable.
   ///
   /// This allows us to implement \#include_next and find directory-specific
   /// properties.
@@ -1856,7 +1869,7 @@ public:
   bool isInPrimaryFile() const;
 
   /// Handle cases where the \#include name is expanded
-  /// from a macro as multiple tokens, which need to be glued together. 
+  /// from a macro as multiple tokens, which need to be glued together.
   ///
   /// This occurs for code like:
   /// \code
@@ -1873,7 +1886,7 @@ public:
 
   /// Lex an on-off-switch (C99 6.10.6p2) and verify that it is
   /// followed by EOD.  Return true if the token is not a valid on-off-switch.
-  bool LexOnOffSwitch(tok::OnOffSwitch &OOS);
+  bool LexOnOffSwitch(tok::OnOffSwitch &Result);
 
   bool CheckMacroName(Token &MacroNameTok, MacroUse isDefineUndef,
                       bool *ShadowFlag = nullptr);
@@ -1939,7 +1952,7 @@ private:
   ///   - # (stringization) is followed by a macro parameter
   /// \param MacroNameTok - Token that represents the macro name
   /// \param ImmediatelyAfterHeaderGuard - Macro follows an #ifdef header guard
-  /// 
+  ///
   ///  Either returns a pointer to a MacroInfo object OR emits a diagnostic and
   ///  returns a nullptr if an invalid sequence of tokens is encountered.
   MacroInfo *ReadOptionalMacroParameterListAndBody(
@@ -1993,7 +2006,7 @@ private:
   /// If an identifier token is read that is to be expanded as a macro, handle
   /// it and return the next token as 'Tok'.  If we lexed a token, return true;
   /// otherwise the caller should lex again.
-  bool HandleMacroExpandedIdentifier(Token &Tok, const MacroDefinition &MD);
+  bool HandleMacroExpandedIdentifier(Token &Identifier, const MacroDefinition &MD);
 
   /// Cache macro expanded tokens for TokenLexers.
   //
@@ -2013,7 +2026,7 @@ private:
   /// After reading "MACRO(", this method is invoked to read all of the formal
   /// arguments specified for the macro invocation.  Returns null on error.
   MacroArgs *ReadMacroCallArgumentList(Token &MacroName, MacroInfo *MI,
-                                       SourceLocation &ExpansionEnd);
+                                       SourceLocation &MacroEnd);
 
   /// If an identifier token is read that is to be expanded
   /// as a builtin macro, handle it and return the next token as 'Tok'.
@@ -2164,17 +2177,17 @@ private:
   void replayPreambleConditionalStack();
 
   // Macro handling.
-  void HandleDefineDirective(Token &Tok, bool ImmediatelyAfterTopLevelIfndef);
+  void HandleDefineDirective(Token &Tok, bool ImmediatelyAfterHeaderGuard);
   void HandleUndefDirective();
 
   // Conditional Inclusion.
-  void HandleIfdefDirective(Token &Tok, const Token &HashToken,
+  void HandleIfdefDirective(Token &Result, const Token &HashToken,
                             bool isIfndef, bool ReadAnyTokensBeforeDirective);
-  void HandleIfDirective(Token &Tok, const Token &HashToken,
+  void HandleIfDirective(Token &IfToken, const Token &HashToken,
                          bool ReadAnyTokensBeforeDirective);
-  void HandleEndifDirective(Token &Tok);
-  void HandleElseDirective(Token &Tok, const Token &HashToken);
-  void HandleElifDirective(Token &Tok, const Token &HashToken);
+  void HandleEndifDirective(Token &EndifToken);
+  void HandleElseDirective(Token &Result, const Token &HashToken);
+  void HandleElifDirective(Token &ElifToken, const Token &HashToken);
 
   // Pragmas.
   void HandlePragmaDirective(SourceLocation IntroducerLoc,
@@ -2194,7 +2207,7 @@ public:
 
   // Return true and store the first token only if any CommentHandler
   // has inserted some tokens and getCommentRetentionState() is false.
-  bool HandleComment(Token &Token, SourceRange Comment);
+  bool HandleComment(Token &result, SourceRange Comment);
 
   /// A macro is used, update information about macros that need unused
   /// warnings.

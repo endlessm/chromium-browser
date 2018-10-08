@@ -10,7 +10,6 @@ from __future__ import print_function
 import filecmp
 import fnmatch
 import os
-import parallel_emerge
 import portage  # pylint: disable=import-error
 import re
 import shutil
@@ -24,9 +23,7 @@ from chromite.lib import osutils
 from chromite.lib import operation
 from chromite.lib import upgrade_table as utable
 from chromite.scripts import merge_package_status as mps
-
-
-site_config = config_lib.GetConfig()
+from chromite.scripts import parallel_emerge
 
 
 oper = operation.Operation('cros_portage_upgrade')
@@ -100,7 +97,7 @@ class Upgrader(object):
   """A class to perform various tasks related to updating Portage packages."""
 
   PORTAGE_GIT_URL = '%s/external/github.com/gentoo/gentoo.git' % (
-      site_config.params.EXTERNAL_GOB_URL)
+      config_lib.GetSiteParams().EXTERNAL_GOB_URL)
   GIT_REMOTE = 'origin'
   GIT_BRANCH = 'master'
   GIT_REMOTE_BRANCH = '%s/%s' % (GIT_REMOTE, GIT_BRANCH)
@@ -1392,7 +1389,7 @@ class Upgrader(object):
       dbapi = self._GetPortageDBAPI()
       ebuild_path = dbapi.findname2(pinfo.cpv)[0]
       if not ebuild_path:
-        # This has only happened once.  See crosbug.com/26385.
+        # This has only happened once.  See https://crbug.com/209254.
         # In that case, this meant the package, while in the deps graph,
         # was actually to be uninstalled.  How is that possible?  The
         # package was newly added to package.provided.  So skip it.

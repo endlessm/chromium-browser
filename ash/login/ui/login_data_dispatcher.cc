@@ -20,7 +20,7 @@ void LoginDataDispatcher::Observer::OnAuthEnabledForUserChanged(
     bool enabled,
     const base::Optional<base::Time>& auth_reenabled_time) {}
 
-void LoginDataDispatcher::Observer::OnClickToUnlockEnabledForUserChanged(
+void LoginDataDispatcher::Observer::OnTapToUnlockEnabledForUserChanged(
     const AccountId& user,
     bool enabled) {}
 
@@ -33,6 +33,11 @@ void LoginDataDispatcher::Observer::OnLockScreenNoteStateChanged(
 void LoginDataDispatcher::Observer::OnShowEasyUnlockIcon(
     const AccountId& user,
     const mojom::EasyUnlockIconOptionsPtr& icon) {}
+
+void LoginDataDispatcher::Observer::OnShowWarningBanner(
+    const base::string16& message) {}
+
+void LoginDataDispatcher::Observer::OnHideWarningBanner() {}
 
 void LoginDataDispatcher::Observer::OnDevChannelInfoChanged(
     const std::string& os_version_label_text,
@@ -95,10 +100,10 @@ void LoginDataDispatcher::SetAuthEnabledForUser(
   }
 }
 
-void LoginDataDispatcher::SetClickToUnlockEnabledForUser(const AccountId& user,
-                                                         bool enabled) {
+void LoginDataDispatcher::SetTapToUnlockEnabledForUser(const AccountId& user,
+                                                       bool enabled) {
   for (auto& observer : observers_)
-    observer.OnClickToUnlockEnabledForUserChanged(user, enabled);
+    observer.OnTapToUnlockEnabledForUserChanged(user, enabled);
 }
 
 void LoginDataDispatcher::SetForceOnlineSignInForUser(const AccountId& user) {
@@ -116,6 +121,16 @@ void LoginDataDispatcher::ShowEasyUnlockIcon(
     const mojom::EasyUnlockIconOptionsPtr& icon) {
   for (auto& observer : observers_)
     observer.OnShowEasyUnlockIcon(user, icon);
+}
+
+void LoginDataDispatcher::ShowWarningBanner(const base::string16& message) {
+  for (auto& observer : observers_)
+    observer.OnShowWarningBanner(message);
+}
+
+void LoginDataDispatcher::HideWarningBanner() {
+  for (auto& observer : observers_)
+    observer.OnHideWarningBanner();
 }
 
 void LoginDataDispatcher::SetDevChannelInfo(

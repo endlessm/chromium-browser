@@ -21,6 +21,7 @@
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/TemplateName.h"
 #include "clang/Basic/AddressSpaces.h"
+#include "clang/Basic/AttrKinds.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/ExceptionSpecificationType.h"
 #include "clang/Basic/LLVM.h"
@@ -45,6 +46,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/PointerLikeTypeTraits.h"
 #include "llvm/Support/type_traits.h"
+#include "llvm/Support/TrailingObjects.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -100,48 +102,33 @@ namespace llvm {
 
 namespace clang {
 
-class ArrayType;
 class ASTContext;
-class AttributedType;
-class AutoType;
-class BuiltinType;
 template <typename> class CanQual;
-class ComplexType;
 class CXXRecordDecl;
 class DeclContext;
-class DeducedType;
 class EnumDecl;
 class Expr;
 class ExtQualsTypeCommonBase;
 class FunctionDecl;
-class FunctionNoProtoType;
-class FunctionProtoType;
 class IdentifierInfo;
-class InjectedClassNameType;
 class NamedDecl;
 class ObjCInterfaceDecl;
-class ObjCObjectPointerType;
-class ObjCObjectType;
 class ObjCProtocolDecl;
 class ObjCTypeParamDecl;
-class ParenType;
 struct PrintingPolicy;
 class RecordDecl;
-class RecordType;
 class Stmt;
 class TagDecl;
 class TemplateArgument;
 class TemplateArgumentListInfo;
 class TemplateArgumentLoc;
-class TemplateSpecializationType;
 class TemplateTypeParmDecl;
 class TypedefNameDecl;
-class TypedefType;
 class UnresolvedUsingTypenameDecl;
 
 using CanQualType = CanQual<Type>;
 
-  // Provide forward declarations for all of the *Type classes
+// Provide forward declarations for all of the *Type classes.
 #define TYPE(Class, Base) class Class##Type;
 #include "clang/AST/TypeNodes.def"
 
@@ -992,7 +979,7 @@ public:
   static std::string getAsString(const Type *ty, Qualifiers qs,
                                  const PrintingPolicy &Policy);
 
-  std::string getAsString() const; 
+  std::string getAsString() const;
   std::string getAsString(const PrintingPolicy &Policy) const;
 
   void print(raw_ostream &OS, const PrintingPolicy &Policy,
@@ -1554,8 +1541,6 @@ protected:
     unsigned IsKindOf : 1;
   };
 
-  static_assert(NumTypeBits + 7 + 6 + 1 <= 32, "Does not fit in an unsigned");
-
   class ReferenceTypeBitfields {
     friend class ReferenceType;
 
@@ -1586,6 +1571,18 @@ protected:
 
     /// An ElaboratedTypeKeyword.  8 bits for efficient access.
     unsigned Keyword : 8;
+  };
+
+  enum { NumTypeWithKeywordBits = 8 };
+
+  class ElaboratedTypeBitfields {
+    friend class ElaboratedType;
+
+    unsigned : NumTypeBits;
+    unsigned : NumTypeWithKeywordBits;
+
+    /// Whether the ElaboratedType has a trailing OwnedTagDecl.
+    unsigned HasOwnedTagDecl : 1;
   };
 
   class VectorTypeBitfields {
@@ -1623,6 +1620,74 @@ protected:
     unsigned Keyword : 2;
   };
 
+  class SubstTemplateTypeParmPackTypeBitfields {
+    friend class SubstTemplateTypeParmPackType;
+
+    unsigned : NumTypeBits;
+
+    /// The number of template arguments in \c Arguments, which is
+    /// expected to be able to hold at least 1024 according to [implimits].
+    /// However as this limit is somewhat easy to hit with template
+    /// metaprogramming we'd prefer to keep it as large as possible.
+    /// At the moment it has been left as a non-bitfield since this type
+    /// safely fits in 64 bits as an unsigned, so there is no reason to
+    /// introduce the performance impact of a bitfield.
+    unsigned NumArgs;
+  };
+
+  class TemplateSpecializationTypeBitfields {
+    friend class TemplateSpecializationType;
+
+    unsigned : NumTypeBits;
+
+    /// Whether this template specialization type is a substituted type alias.
+    unsigned TypeAlias : 1;
+
+    /// The number of template arguments named in this class template
+    /// specialization, which is expected to be able to hold at least 1024
+    /// according to [implimits]. However, as this limit is somewhat easy to
+    /// hit with template metaprogramming we'd prefer to keep it as large
+    /// as possible. At the moment it has been left as a non-bitfield since
+    /// this type safely fits in 64 bits as an unsigned, so there is no reason
+    /// to introduce the performance impact of a bitfield.
+    unsigned NumArgs;
+  };
+
+  class DependentTemplateSpecializationTypeBitfields {
+    friend class DependentTemplateSpecializationType;
+
+    unsigned : NumTypeBits;
+    unsigned : NumTypeWithKeywordBits;
+
+    /// The number of template arguments named in this class template
+    /// specialization, which is expected to be able to hold at least 1024
+    /// according to [implimits]. However, as this limit is somewhat easy to
+    /// hit with template metaprogramming we'd prefer to keep it as large
+    /// as possible. At the moment it has been left as a non-bitfield since
+    /// this type safely fits in 64 bits as an unsigned, so there is no reason
+    /// to introduce the performance impact of a bitfield.
+    unsigned NumArgs;
+  };
+
+  class PackExpansionTypeBitfields {
+    friend class PackExpansionType;
+
+    unsigned : NumTypeBits;
+
+    /// The number of expansions that this pack expansion will
+    /// generate when substituted (+1), which is expected to be able to
+    /// hold at least 1024 according to [implimits]. However, as this limit
+    /// is somewhat easy to hit with template metaprogramming we'd prefer to
+    /// keep it as large as possible. At the moment it has been left as a
+    /// non-bitfield since this type safely fits in 64 bits as an unsigned, so
+    /// there is no reason to introduce the performance impact of a bitfield.
+    ///
+    /// This field will only have a non-zero value when some of the parameter
+    /// packs that occur within the pattern have been substituted but others
+    /// have not.
+    unsigned NumExpansions;
+  };
+
   union {
     TypeBitfields TypeBits;
     ArrayTypeBitfields ArrayTypeBits;
@@ -1633,7 +1698,47 @@ protected:
     ObjCObjectTypeBitfields ObjCObjectTypeBits;
     ReferenceTypeBitfields ReferenceTypeBits;
     TypeWithKeywordBitfields TypeWithKeywordBits;
+    ElaboratedTypeBitfields ElaboratedTypeBits;
     VectorTypeBitfields VectorTypeBits;
+    SubstTemplateTypeParmPackTypeBitfields SubstTemplateTypeParmPackTypeBits;
+    TemplateSpecializationTypeBitfields TemplateSpecializationTypeBits;
+    DependentTemplateSpecializationTypeBitfields
+      DependentTemplateSpecializationTypeBits;
+    PackExpansionTypeBitfields PackExpansionTypeBits;
+
+    static_assert(sizeof(TypeBitfields) <= 8,
+                  "TypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(ArrayTypeBitfields) <= 8,
+                  "ArrayTypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(AttributedTypeBitfields) <= 8,
+                  "AttributedTypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(AutoTypeBitfields) <= 8,
+                  "AutoTypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(BuiltinTypeBitfields) <= 8,
+                  "BuiltinTypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(FunctionTypeBitfields) <= 8,
+                  "FunctionTypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(ObjCObjectTypeBitfields) <= 8,
+                  "ObjCObjectTypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(ReferenceTypeBitfields) <= 8,
+                  "ReferenceTypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(TypeWithKeywordBitfields) <= 8,
+                  "TypeWithKeywordBitfields is larger than 8 bytes!");
+    static_assert(sizeof(ElaboratedTypeBitfields) <= 8,
+                  "ElaboratedTypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(VectorTypeBitfields) <= 8,
+                  "VectorTypeBitfields is larger than 8 bytes!");
+    static_assert(sizeof(SubstTemplateTypeParmPackTypeBitfields) <= 8,
+                  "SubstTemplateTypeParmPackTypeBitfields is larger"
+                  " than 8 bytes!");
+    static_assert(sizeof(TemplateSpecializationTypeBitfields) <= 8,
+                  "TemplateSpecializationTypeBitfields is larger"
+                  " than 8 bytes!");
+    static_assert(sizeof(DependentTemplateSpecializationTypeBitfields) <= 8,
+                  "DependentTemplateSpecializationTypeBitfields is larger"
+                  " than 8 bytes!");
+    static_assert(sizeof(PackExpansionTypeBitfields) <= 8,
+                  "PackExpansionTypeBitfields is larger than 8 bytes");
   };
 
 private:
@@ -1784,6 +1889,9 @@ public:
   /// isComplexIntegerType() can be used to test for complex integers.
   bool isIntegerType() const;     // C99 6.2.5p17 (int, char, bool, enum)
   bool isEnumeralType() const;
+
+  /// Determine whether this type is a scoped enumeration type.
+  bool isScopedEnumeralType() const;
   bool isBooleanType() const;
   bool isCharType() const;
   bool isWideCharType() const;
@@ -1863,7 +1971,16 @@ public:
   bool isObjCQualifiedClassType() const;        // Class<foo>
   bool isObjCObjectOrInterfaceType() const;
   bool isObjCIdType() const;                    // id
-  bool isObjCInertUnsafeUnretainedType() const;
+
+  /// Was this type written with the special inert-in-ARC __unsafe_unretained
+  /// qualifier?
+  ///
+  /// This approximates the answer to the following question: if this
+  /// translation unit were compiled in ARC, would this type be qualified
+  /// with __unsafe_unretained?
+  bool isObjCInertUnsafeUnretainedType() const {
+    return hasAttr(attr::ObjCInertUnsafeUnretained);
+  }
 
   /// Whether the type is Objective-C 'id' or a __kindof type of an
   /// object type, e.g., __kindof NSView * or __kindof id
@@ -2014,6 +2131,9 @@ public:
   /// type of a class template or class template partial specialization.
   CXXRecordDecl *getAsCXXRecordDecl() const;
 
+  /// Retrieves the RecordDecl this type refers to.
+  RecordDecl *getAsRecordDecl() const;
+
   /// Retrieves the TagDecl that this type refers to, either
   /// because the type is a TagType or because it is the injected-class-name
   /// type of a class template or class template partial specialization.
@@ -2073,6 +2193,10 @@ public:
   /// A variant of castAs<> for array type which silently discards
   /// qualifiers from the outermost type.
   const ArrayType *castAsArrayTypeUnsafe() const;
+
+  /// Determine whether this type had the specified attribute applied to it
+  /// (looking through top-level type sugar).
+  bool hasAttr(attr::Kind AK) const;
 
   /// Get the base element type of this type, potentially discarding type
   /// qualifiers.  This should never be used when type qualifiers
@@ -2923,7 +3047,7 @@ public:
 };
 
 /// Represents an extended address space qualifier where the input address space
-/// value is dependent. Non-dependent address spaces are not represented with a 
+/// value is dependent. Non-dependent address spaces are not represented with a
 /// special Type subclass; they are stored on an ExtQuals node as part of a QualType.
 ///
 /// For example:
@@ -2942,7 +3066,7 @@ class DependentAddressSpaceType : public Type, public llvm::FoldingSetNode {
   SourceLocation loc;
 
   DependentAddressSpaceType(const ASTContext &Context, QualType PointeeType,
-                            QualType can, Expr *AddrSpaceExpr, 
+                            QualType can, Expr *AddrSpaceExpr,
                             SourceLocation loc);
 
 public:
@@ -3261,7 +3385,7 @@ public:
        Bits = ((unsigned)cc) | (noReturn ? NoReturnMask : 0) |
               (producesResult ? ProducesResultMask : 0) |
               (noCallerSavedRegs ? NoCallerSavedRegsMask : 0) |
-              (hasRegParm ? ((regParm + 1) << RegParmOffset) : 0) | 
+              (hasRegParm ? ((regParm + 1) << RegParmOffset) : 0) |
               (NoCfCheck ? NoCfCheckMask : 0);
     }
 
@@ -4183,55 +4307,7 @@ public:
 ///   - the canonical type is VectorType(16, int)
 class AttributedType : public Type, public llvm::FoldingSetNode {
 public:
-  // It is really silly to have yet another attribute-kind enum, but
-  // clang::attr::Kind doesn't currently cover the pure type attrs.
-  enum Kind {
-    // Expression operand.
-    attr_address_space,
-    attr_regparm,
-    attr_vector_size,
-    attr_neon_vector_type,
-    attr_neon_polyvector_type,
-
-    FirstExprOperandKind = attr_address_space,
-    LastExprOperandKind = attr_neon_polyvector_type,
-
-    // Enumerated operand (string or keyword).
-    attr_objc_gc,
-    attr_objc_ownership,
-    attr_pcs,
-    attr_pcs_vfp,
-
-    FirstEnumOperandKind = attr_objc_gc,
-    LastEnumOperandKind = attr_pcs_vfp,
-
-    // No operand.
-    attr_noreturn,
-    attr_nocf_check,
-    attr_cdecl,
-    attr_fastcall,
-    attr_stdcall,
-    attr_thiscall,
-    attr_regcall,
-    attr_pascal,
-    attr_swiftcall,
-    attr_vectorcall,
-    attr_inteloclbicc,
-    attr_ms_abi,
-    attr_sysv_abi,
-    attr_preserve_most,
-    attr_preserve_all,
-    attr_ptr32,
-    attr_ptr64,
-    attr_sptr,
-    attr_uptr,
-    attr_nonnull,
-    attr_ns_returns_retained,
-    attr_nullable,
-    attr_null_unspecified,
-    attr_objc_kindof,
-    attr_objc_inert_unsafe_unretained,
-  };
+  using Kind = attr::Kind;
 
 private:
   friend class ASTContext; // ASTContext creates these
@@ -4239,7 +4315,7 @@ private:
   QualType ModifiedType;
   QualType EquivalentType;
 
-  AttributedType(QualType canon, Kind attrKind, QualType modified,
+  AttributedType(QualType canon, attr::Kind attrKind, QualType modified,
                  QualType equivalent)
       : Type(Attributed, canon, equivalent->isDependentType(),
              equivalent->isInstantiationDependentType(),
@@ -4288,13 +4364,13 @@ public:
   static Kind getNullabilityAttrKind(NullabilityKind kind) {
     switch (kind) {
     case NullabilityKind::NonNull:
-      return attr_nonnull;
+      return attr::TypeNonNull;
 
     case NullabilityKind::Nullable:
-      return attr_nullable;
+      return attr::TypeNullable;
 
     case NullabilityKind::Unspecified:
-      return attr_null_unspecified;
+      return attr::TypeNullUnspecified;
     }
     llvm_unreachable("Unknown nullability kind.");
   }
@@ -4473,9 +4549,6 @@ class SubstTemplateTypeParmPackType : public Type, public llvm::FoldingSetNode {
   /// parameter pack is instantiated with.
   const TemplateArgument *Arguments;
 
-  /// The number of template arguments in \c Arguments.
-  unsigned NumArguments;
-
   SubstTemplateTypeParmPackType(const TemplateTypeParmType *Param,
                                 QualType Canon,
                                 const TemplateArgument &ArgPack);
@@ -4486,6 +4559,10 @@ public:
   /// Gets the template parameter that was substituted for.
   const TemplateTypeParmType *getReplacedParameter() const {
     return Replaced;
+  }
+
+  unsigned getNumArgs() const {
+    return SubstTemplateTypeParmPackTypeBits.NumArgs;
   }
 
   bool isSugared() const { return false; }
@@ -4658,13 +4735,6 @@ class alignas(8) TemplateSpecializationType
   /// replacement must, recursively, be one of these).
   TemplateName Template;
 
-  /// The number of template arguments named in this class template
-  /// specialization.
-  unsigned NumArgs : 31;
-
-  /// Whether this template specialization type is a substituted type alias.
-  unsigned TypeAlias : 1;
-
   TemplateSpecializationType(TemplateName T,
                              ArrayRef<TemplateArgument> Args,
                              QualType Canon,
@@ -4699,7 +4769,7 @@ public:
   ///   typedef A<Ts...> type; // not a type alias
   /// };
   /// \endcode
-  bool isTypeAlias() const { return TypeAlias; }
+  bool isTypeAlias() const { return TemplateSpecializationTypeBits.TypeAlias; }
 
   /// Get the aliased type, if this is a specialization of a type alias
   /// template.
@@ -4722,14 +4792,16 @@ public:
   }
 
   /// Retrieve the number of template arguments.
-  unsigned getNumArgs() const { return NumArgs; }
+  unsigned getNumArgs() const {
+    return TemplateSpecializationTypeBits.NumArgs;
+  }
 
   /// Retrieve a specific template argument as a type.
   /// \pre \c isArgType(Arg)
   const TemplateArgument &getArg(unsigned Idx) const; // in TemplateBase.h
 
   ArrayRef<TemplateArgument> template_arguments() const {
-    return {getArgs(), NumArgs};
+    return {getArgs(), getNumArgs()};
   }
 
   bool isSugared() const {
@@ -4935,8 +5007,12 @@ public:
 /// source code, including tag keywords and any nested-name-specifiers.
 /// The type itself is always "sugar", used to express what was written
 /// in the source code but containing no additional semantic information.
-class ElaboratedType : public TypeWithKeyword, public llvm::FoldingSetNode {
+class ElaboratedType final
+    : public TypeWithKeyword,
+      public llvm::FoldingSetNode,
+      private llvm::TrailingObjects<ElaboratedType, TagDecl *> {
   friend class ASTContext; // ASTContext creates these
+  friend TrailingObjects;
 
   /// The nested name specifier containing the qualifier.
   NestedNameSpecifier *NNS;
@@ -4944,26 +5020,29 @@ class ElaboratedType : public TypeWithKeyword, public llvm::FoldingSetNode {
   /// The type that this qualified name refers to.
   QualType NamedType;
 
-  /// The (re)declaration of this tag type owned by this occurrence, or nullptr
-  /// if none.
-  TagDecl *OwnedTagDecl;
+  /// The (re)declaration of this tag type owned by this occurrence is stored
+  /// as a trailing object if there is one. Use getOwnedTagDecl to obtain
+  /// it, or obtain a null pointer if there is none.
 
   ElaboratedType(ElaboratedTypeKeyword Keyword, NestedNameSpecifier *NNS,
                  QualType NamedType, QualType CanonType, TagDecl *OwnedTagDecl)
-    : TypeWithKeyword(Keyword, Elaborated, CanonType,
-                      NamedType->isDependentType(),
-                      NamedType->isInstantiationDependentType(),
-                      NamedType->isVariablyModifiedType(),
-                      NamedType->containsUnexpandedParameterPack()),
-      NNS(NNS), NamedType(NamedType), OwnedTagDecl(OwnedTagDecl) {
+      : TypeWithKeyword(Keyword, Elaborated, CanonType,
+                        NamedType->isDependentType(),
+                        NamedType->isInstantiationDependentType(),
+                        NamedType->isVariablyModifiedType(),
+                        NamedType->containsUnexpandedParameterPack()),
+        NNS(NNS), NamedType(NamedType) {
+    ElaboratedTypeBits.HasOwnedTagDecl = false;
+    if (OwnedTagDecl) {
+      ElaboratedTypeBits.HasOwnedTagDecl = true;
+      *getTrailingObjects<TagDecl *>() = OwnedTagDecl;
+    }
     assert(!(Keyword == ETK_None && NNS == nullptr) &&
            "ElaboratedType cannot have elaborated type keyword "
            "and name qualifier both null.");
   }
 
 public:
-  ~ElaboratedType();
-
   /// Retrieve the qualification on this type.
   NestedNameSpecifier *getQualifier() const { return NNS; }
 
@@ -4977,11 +5056,14 @@ public:
   bool isSugared() const { return true; }
 
   /// Return the (re)declaration of this type owned by this occurrence of this
-  /// type, or nullptr if none.
-  TagDecl *getOwnedTagDecl() const { return OwnedTagDecl; }
+  /// type, or nullptr if there is none.
+  TagDecl *getOwnedTagDecl() const {
+    return ElaboratedTypeBits.HasOwnedTagDecl ? *getTrailingObjects<TagDecl *>()
+                                              : nullptr;
+  }
 
   void Profile(llvm::FoldingSetNodeID &ID) {
-    Profile(ID, getKeyword(), NNS, NamedType, OwnedTagDecl);
+    Profile(ID, getKeyword(), NNS, NamedType, getOwnedTagDecl());
   }
 
   static void Profile(llvm::FoldingSetNodeID &ID, ElaboratedTypeKeyword Keyword,
@@ -4993,9 +5075,7 @@ public:
     ID.AddPointer(OwnedTagDecl);
   }
 
-  static bool classof(const Type *T) {
-    return T->getTypeClass() == Elaborated;
-  }
+  static bool classof(const Type *T) { return T->getTypeClass() == Elaborated; }
 };
 
 /// Represents a qualified type name for which the type name is
@@ -5073,10 +5153,6 @@ class alignas(8) DependentTemplateSpecializationType
   /// The identifier of the template.
   const IdentifierInfo *Name;
 
-  /// The number of template arguments named in this class template
-  /// specialization.
-  unsigned NumArgs;
-
   DependentTemplateSpecializationType(ElaboratedTypeKeyword Keyword,
                                       NestedNameSpecifier *NNS,
                                       const IdentifierInfo *Name,
@@ -5101,12 +5177,14 @@ public:
   }
 
   /// Retrieve the number of template arguments.
-  unsigned getNumArgs() const { return NumArgs; }
+  unsigned getNumArgs() const {
+    return DependentTemplateSpecializationTypeBits.NumArgs;
+  }
 
   const TemplateArgument &getArg(unsigned Idx) const; // in TemplateBase.h
 
   ArrayRef<TemplateArgument> template_arguments() const {
-    return {getArgs(), NumArgs};
+    return {getArgs(), getNumArgs()};
   }
 
   using iterator = const TemplateArgument *;
@@ -5118,7 +5196,7 @@ public:
   QualType desugar() const { return QualType(this, 0); }
 
   void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context) {
-    Profile(ID, Context, getKeyword(), NNS, Name, {getArgs(), NumArgs});
+    Profile(ID, Context, getKeyword(), NNS, Name, {getArgs(), getNumArgs()});
   }
 
   static void Profile(llvm::FoldingSetNodeID &ID,
@@ -5161,22 +5239,16 @@ class PackExpansionType : public Type, public llvm::FoldingSetNode {
   /// The pattern of the pack expansion.
   QualType Pattern;
 
-  /// The number of expansions that this pack expansion will
-  /// generate when substituted (+1), or indicates that
-  ///
-  /// This field will only have a non-zero value when some of the parameter
-  /// packs that occur within the pattern have been substituted but others have
-  /// not.
-  unsigned NumExpansions;
-
   PackExpansionType(QualType Pattern, QualType Canon,
                     Optional<unsigned> NumExpansions)
       : Type(PackExpansion, Canon, /*Dependent=*/Pattern->isDependentType(),
              /*InstantiationDependent=*/true,
              /*VariablyModified=*/Pattern->isVariablyModifiedType(),
              /*ContainsUnexpandedParameterPack=*/false),
-        Pattern(Pattern),
-        NumExpansions(NumExpansions ? *NumExpansions + 1 : 0) {}
+        Pattern(Pattern) {
+    PackExpansionTypeBits.NumExpansions =
+        NumExpansions ? *NumExpansions + 1 : 0;
+  }
 
 public:
   /// Retrieve the pattern of this pack expansion, which is the
@@ -5187,9 +5259,8 @@ public:
   /// Retrieve the number of expansions that this pack expansion will
   /// generate, if known.
   Optional<unsigned> getNumExpansions() const {
-    if (NumExpansions)
-      return NumExpansions - 1;
-
+    if (PackExpansionTypeBits.NumExpansions)
+      return PackExpansionTypeBits.NumExpansions - 1;
     return None;
   }
 
@@ -5333,7 +5404,7 @@ public:
 /// with base C and no protocols.
 ///
 /// 'C<P>' is an unspecialized ObjCObjectType with base C and protocol list [P].
-/// 'C<C*>' is a specialized ObjCObjectType with type arguments 'C*' and no 
+/// 'C<C*>' is a specialized ObjCObjectType with type arguments 'C*' and no
 /// protocol list.
 /// 'C<C*><P>' is a specialized ObjCObjectType with base C, type arguments 'C*',
 /// and protocol list [P].
@@ -5965,7 +6036,7 @@ inline QualType QualType::getUnqualifiedType() const {
 
   return QualType(getSplitUnqualifiedTypeImpl(*this).Ty, 0);
 }
-  
+
 inline SplitQualType QualType::getSplitUnqualifiedType() const {
   if (!getTypePtr()->getCanonicalTypeInternal().hasLocalQualifiers())
     return split();
@@ -6440,7 +6511,7 @@ inline bool Type::isIntegralOrEnumerationType() const {
   if (const auto *ET = dyn_cast<EnumType>(CanonicalType))
     return IsEnumDeclComplete(ET->getDecl());
 
-  return false;  
+  return false;
 }
 
 inline bool Type::isBooleanType() const {
@@ -6612,9 +6683,8 @@ QualType DecayedType::getPointeeType() const {
 
 // Get the decimal string representation of a fixed point type, represented
 // as a scaled integer.
-void FixedPointValueToString(SmallVectorImpl<char> &Str,
-                             const llvm::APSInt &Val,
-                             unsigned Scale, unsigned Radix);
+void FixedPointValueToString(SmallVectorImpl<char> &Str, llvm::APSInt Val,
+                             unsigned Scale);
 
 } // namespace clang
 

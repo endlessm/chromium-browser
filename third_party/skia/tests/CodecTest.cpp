@@ -281,6 +281,11 @@ static void check(skiatest::Reporter* r,
                   bool supportsSubsetDecoding,
                   bool supportsIncomplete,
                   bool supportsNewScanlineDecoding = false) {
+    // If we're testing incomplete decodes, let's run the same test on full decodes.
+    if (supportsIncomplete) {
+        check(r, path, size, supportsScanlineDecoding, supportsSubsetDecoding, false,
+              supportsNewScanlineDecoding);
+    }
 
     std::unique_ptr<SkStream> stream(GetResourceAsStream(path));
     if (!stream) {
@@ -288,8 +293,7 @@ static void check(skiatest::Reporter* r,
     }
 
     std::unique_ptr<SkCodec> codec(nullptr);
-    bool isIncomplete = supportsIncomplete;
-    if (isIncomplete) {
+    if (supportsIncomplete) {
         size_t size = stream->getLength();
         codec = SkCodec::MakeFromData(SkData::MakeFromStream(stream.get(), 2 * size / 3));
     } else {
@@ -304,12 +308,13 @@ static void check(skiatest::Reporter* r,
     SkMD5::Digest codecDigest;
     const SkImageInfo info = codec->getInfo().makeColorType(kN32_SkColorType);
     SkBitmap bm;
-    SkCodec::Result expectedResult = isIncomplete ? SkCodec::kIncompleteInput : SkCodec::kSuccess;
+    SkCodec::Result expectedResult =
+        supportsIncomplete ? SkCodec::kIncompleteInput : SkCodec::kSuccess;
     test_codec(r, codec.get(), bm, info, size, expectedResult, &codecDigest, nullptr);
 
     // Scanline decoding follows.
 
-    if (supportsNewScanlineDecoding && !isIncomplete) {
+    if (supportsNewScanlineDecoding && !supportsIncomplete) {
         test_incremental_decode(r, codec.get(), info, codecDigest);
         // This is only supported by codecs that use incremental decoding to
         // support subset decodes - png and jpeg (once SkJpegCodec is
@@ -330,7 +335,7 @@ static void check(skiatest::Reporter* r,
 
         for (int y = 0; y < info.height(); y++) {
             const int lines = codec->getScanlines(bm.getAddr(0, y), 1, 0);
-            if (!isIncomplete) {
+            if (!supportsIncomplete) {
                 REPORTER_ASSERT(r, 1 == lines);
             }
         }
@@ -347,7 +352,7 @@ static void check(skiatest::Reporter* r,
         // scratch
         REPORTER_ASSERT(r, codec->startScanlineDecode(info) == SkCodec::kSuccess);
         const int lines = codec->getScanlines(bm.getAddr(0, 0), 1, 0);
-        if (!isIncomplete) {
+        if (!supportsIncomplete) {
             REPORTER_ASSERT(r, lines == 1);
         }
         REPORTER_ASSERT(r, codec->getPixels(bm.info(), bm.getPixels(), bm.rowBytes())
@@ -370,7 +375,7 @@ static void check(skiatest::Reporter* r,
 
             for (int y = 0; y < height; y++) {
                 const int lines = codec->getScanlines(bm.getAddr(0, y), 1, 0);
-                if (!isIncomplete) {
+                if (!supportsIncomplete) {
                     REPORTER_ASSERT(r, 1 == lines);
                 }
             }
@@ -435,7 +440,7 @@ static void check(skiatest::Reporter* r,
                    &codecDigest);
     }
 
-    if (!isIncomplete) {
+    if (!supportsIncomplete) {
         // Test SkCodecImageGenerator
         std::unique_ptr<SkStream> stream(GetResourceAsStream(path));
         sk_sp<SkData> fullData(SkData::MakeFromStream(stream.get(), stream->getLength()));
@@ -457,12 +462,6 @@ static void check(skiatest::Reporter* r,
             test_info(r, codec.get(), info, SkCodec::kSuccess, &codecDigest);
         }
 #endif
-    }
-
-    // If we've just tested incomplete decodes, let's run the same test again on full decodes.
-    if (isIncomplete) {
-        check(r, path, size, supportsScanlineDecoding, supportsSubsetDecoding, false,
-              supportsNewScanlineDecoding);
     }
 }
 
@@ -1444,7 +1443,7 @@ DEF_TEST(Codec_InvalidAnimated, r) {
     for (int i = 0; static_cast<size_t>(i) < frameInfos.size(); i++) {
         opts.fFrameIndex = i;
         const auto reqFrame = frameInfos[i].fRequiredFrame;
-        opts.fPriorFrame = reqFrame == i - 1 ? reqFrame : SkCodec::kNone;
+        opts.fPriorFrame = reqFrame == i - 1 ? reqFrame : SkCodec::kNoFrame;
         auto result = codec->startIncrementalDecode(info, bm.getPixels(), bm.rowBytes(), &opts);
         if (result != SkCodec::kSuccess) {
             ERRORF(r, "Failed to start decoding frame %i (out of %i) with error %i\n", i,
@@ -1486,7 +1485,7 @@ static void test_encode_icc(skiatest::Reporter* r, SkEncodedImageFormat format) 
     encode_format(&srgbBuf, pixmap, format);
     sk_sp<SkData> srgbData = srgbBuf.detachAsData();
     std::unique_ptr<SkCodec> srgbCodec(SkCodec::MakeFromData(srgbData));
-    REPORTER_ASSERT(r, srgbCodec->getInfo().colorSpace() == SkColorSpace::MakeSRGB().get());
+    REPORTER_ASSERT(r, srgbCodec->getInfo().colorSpace() == sk_srgb_singleton());
 
     // Test with P3 color space.
     SkDynamicMemoryWStream p3Buf;
@@ -1607,6 +1606,25 @@ DEF_TEST(Codec_78329453, r) {
     if (result != SkCodec::kSuccess) {
         ERRORF(r, "failed to decode with error %s", SkCodec::ResultToString(result));
     }
+}
+
+DEF_TEST(Codec_A8, r) {
+    if (GetResourcePath().isEmpty()) {
+        return;
+    }
+
+    const char* file = "images/mandrill_cmyk.jpg";
+    auto data = GetResourceAsData(file);
+    if (!data) {
+        ERRORF(r, "missing %s", file);
+        return;
+    }
+
+    auto codec = SkCodec::MakeFromData(std::move(data));
+    auto info = codec->getInfo().makeColorType(kAlpha_8_SkColorType);
+    SkBitmap bm;
+    bm.allocPixels(info);
+    REPORTER_ASSERT(r, codec->getPixels(bm.pixmap()) == SkCodec::kInvalidConversion);
 }
 
 DEF_TEST(Codec_crbug807324, r) {

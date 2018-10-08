@@ -80,7 +80,7 @@ static constexpr float g_sRGB_G[]{ 0.3853f, 0.7170f, 0.0971f };
 static constexpr float g_sRGB_B[]{ 0.1430f, 0.0606f, 0.7139f };
 
 DEF_TEST(ColorSpace_sRGB, r) {
-    test_space(r, SkColorSpace::MakeSRGB().get(),
+    test_space(r, sk_srgb_singleton(),
                g_sRGB_R, g_sRGB_G, g_sRGB_B, kSRGB_SkGammaNamed);
 
 }
@@ -423,4 +423,11 @@ DEF_TEST(ColorSpace_IsSRGB, r) {
 DEF_TEST(ColorSpace_skcms_IsSRGB, r) {
     sk_sp<SkColorSpace> srgb = SkColorSpace::Make(*skcms_sRGB_profile());
     REPORTER_ASSERT(r, srgb->isSRGB());
+}
+
+DEF_TEST(ColorSpace_skcms_sRGB_exact, r) {
+    skcms_ICCProfile profile;
+    sk_srgb_singleton()->toProfile(&profile);
+
+    REPORTER_ASSERT(r, 0 == memcmp(&profile, skcms_sRGB_profile(), sizeof(skcms_ICCProfile)));
 }

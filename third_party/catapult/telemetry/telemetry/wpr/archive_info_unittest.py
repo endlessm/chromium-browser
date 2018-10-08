@@ -2,11 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 import json
-import mock
 import os
 import shutil
 import tempfile
 import unittest
+
+import mock
 
 from py_utils import cloud_storage  # pylint: disable=import-error
 
@@ -113,6 +114,19 @@ class WprArchiveInfoTest(unittest.TestCase):
         for r in expected_recordings
     ]
     get_mock.assert_has_calls(expected_calls, any_order=True)
+
+  @mock.patch('telemetry.wpr.archive_info.cloud_storage.GetIfChanged')
+  def testDownloadArchivesIfNeededWithStoryNames(self, get_mock):
+    test_archive_info = self.createArchiveInfo()
+    story_names = ['Foo', 'Bar', 'Not_used']
+
+    test_archive_info.DownloadArchivesIfNeeded(story_names=story_names)
+    expected_calls = [
+        mock.call(os.path.join(self.tmp_dir, r), cloud_storage.PUBLIC_BUCKET)
+        for r in (recording1, recording2)
+    ]
+    get_mock.assert_has_calls(expected_calls, any_order=True)
+    self.assertEqual(get_mock.call_count, 2)
 
   @mock.patch('telemetry.wpr.archive_info.cloud_storage.GetIfChanged')
   def testDownloadArchivesIfNeededNonDefault(self, get_mock):

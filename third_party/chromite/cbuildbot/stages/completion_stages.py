@@ -20,6 +20,7 @@ from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import metrics
+from chromite.lib import portage_util
 from chromite.lib import tree_status
 
 
@@ -60,6 +61,7 @@ class ManifestVersionedSyncCompletionStage(
   """Stage that records board specific results for a unique manifest file."""
 
   option_name = 'sync'
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, sync_stage, success, **kwargs):
     super(ManifestVersionedSyncCompletionStage, self).__init__(
@@ -89,6 +91,8 @@ class ImportantBuilderFailedException(failures_lib.StepFailure):
 
 class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
   """Stage that records whether we passed or failed to build/test manifest."""
+
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, *args, **kwargs):
     super(MasterSlaveSyncCompletionStage, self).__init__(*args, **kwargs)
@@ -482,6 +486,8 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
 class CanaryCompletionStage(MasterSlaveSyncCompletionStage):
   """Collect build slave statuses and handle the failures."""
 
+  category = constants.CI_INFRA_STAGE
+
   def HandleFailure(self, failing, inflight, no_stat, self_destructed):
     """Handle a build failure or timeout in the Canary builders.
 
@@ -528,37 +534,6 @@ class CanaryCompletionStage(MasterSlaveSyncCompletionStage):
     tree_status.SendHealthAlert(self._run, 'Canary builder failures', msg,
                                 extra_fields=extra_fields)
 
-  def _ComposeTreeStatusMessage(self, failing, inflight, no_stat):
-    """Composes a tres status message.
-
-    Args:
-      failing: Names of the builders that failed.
-      inflight: Names of the builders that timed out.
-      no_stat: Set of builder names of slave builders that had status None.
-
-    Returns:
-      A string.
-    """
-    slave_status_list = [
-        ('did not start', list(no_stat)),
-        ('timed out', list(inflight)),
-        ('failed', list(failing)),]
-    # Print maximum 2 slaves for each category to not clutter the
-    # message.
-    max_num = 2
-    messages = []
-    for status, slaves in slave_status_list:
-      if not slaves:
-        continue
-      slaves_str = ','.join(slaves[:max_num])
-      if len(slaves) <= max_num:
-        messages.append('%s %s' % (slaves_str, status))
-      else:
-        messages.append('%s and %d others %s' % (slaves_str,
-                                                 len(slaves) - max_num,
-                                                 status))
-    return '; '.join(messages)
-
   def CanaryMasterHandleFailure(self, failing, inflight, no_stat):
     """Handles the failure by sending out an alert email.
 
@@ -589,6 +564,8 @@ class CanaryCompletionStage(MasterSlaveSyncCompletionStage):
 
 class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
   """Commits or reports errors to CL's that failed to be validated."""
+
+  category = constants.CI_INFRA_STAGE
 
   def _IsFailureFatal(self, failing, inflight, no_stat, self_destructed=False):
     """Returns a boolean indicating whether the build should fail.
@@ -715,6 +692,8 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
 class PreCQCompletionStage(generic_stages.BuilderStage):
   """Reports the status of a trybot run to Google Storage and Gerrit."""
 
+  category = constants.CI_INFRA_STAGE
+
   def __init__(self, builder_run, sync_stage, success, **kwargs):
     super(PreCQCompletionStage, self).__init__(builder_run, **kwargs)
     self.sync_stage = sync_stage
@@ -735,6 +714,8 @@ class PreCQCompletionStage(generic_stages.BuilderStage):
 
 class UpdateChromeosLKGMStage(generic_stages.BuilderStage):
   """Update the CHROMEOS_LKGM file in the chromium repository."""
+
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, **kwargs):
     """Constructor.
@@ -764,6 +745,8 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
   repos, but rejected others based on CQ repo settings). There might also be
   commits pushed independently (chumped by sheriffs or the precq submitted).
   """
+
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, sync_stage, success, stage_push=False,
                **kwargs):
@@ -800,24 +783,24 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
       # No stages found. BinhostTest stage didn't start or got skipped,
       # in both case we don't need to push commits to the temp pfq branch.
       if not stages:
-        logging.warning('no %s stage found in build %s' % (
-            stage_name, build_id))
+        logging.warning('no %s stage found in build %s',
+                        stage_name, build_id)
         return False
 
       stage_status = [s for s in stages if (
           s['name'] == stage_name and
           s['status'] == constants.BUILDER_STATUS_PASSED)]
       if stage_status:
-        logging.info('build %s passed stage %s with %s' % (
-            build_id, stage_name, stage_status))
+        logging.info('build %s passed stage %s with %s',
+                     build_id, stage_name, stage_status)
         return True
       else:
-        logging.warning('build %s stage %s result %s' % (
-            build_id, stage_name, stage_status))
+        logging.warning('build %s stage %s result %s',
+                        build_id, stage_name, stage_status)
         return False
 
-    logging.warning('Not valid build_stage_id %s or db %s or no %s found' % (
-        self._build_stage_id, db, stage_name))
+    logging.warning('Not valid build_stage_id %s or db %s or no %s found',
+                    self._build_stage_id, db, stage_name)
     return False
 
   def CheckSlaveUploadPrebuiltsTest(self, db, build_id):
@@ -860,16 +843,16 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
           s['status'] == constants.BUILDER_STATUS_PASSED)])
 
       if passed_set.issuperset(important_set):
-        logging.info('All the important slaves passed %s' % stage_name)
+        logging.info('All the important slaves passed %s', stage_name)
         return True
       else:
         remaining_set = important_set.difference(passed_set)
-        logging.warning('slave %s didn\'t pass %s' % (
-            remaining_set, stage_name))
+        logging.warning("slave %s didn't pass %s",
+                        remaining_set, stage_name)
         return False
     else:
-      logging.warning('Not valid build_stage_id %s or db %s ' % (
-          self._build_stage_id, db))
+      logging.warning('Not valid build_stage_id %s or db %s',
+                      self._build_stage_id, db)
       return False
 
   def PerformStage(self):
@@ -879,7 +862,16 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
                    'scheduled in this run. Will not publish uprevs.')
       return
 
-    overlays, push_overlays = self._ExtractOverlays()
+    overlays = portage_util.FindOverlays(
+        self._run.config.overlays, buildroot=self._build_root)
+    push_overlays = portage_util.FindOverlays(
+        self._run.config.push_overlays, buildroot=self._build_root)
+
+    # Sanity checks.
+    # We cannot push to overlays that we don't rev.
+    assert set(push_overlays).issubset(set(overlays))
+    # Either has to be a master or not have any push overlays.
+    assert self._run.config.master or not push_overlays
 
     staging_branch = None
     if self.stage_push:

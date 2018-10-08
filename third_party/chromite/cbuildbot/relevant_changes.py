@@ -14,7 +14,7 @@ from chromite.lib import builder_status_lib
 from chromite.lib import clactions
 from chromite.lib import constants
 from chromite.lib import config_lib
-from chromite.lib import cros_build_lib
+from chromite.lib import cros_collections
 from chromite.lib import cros_logging as logging
 from chromite.lib import patch as cros_patch
 from chromite.lib import triage_lib
@@ -23,9 +23,6 @@ from chromite.lib import triage_lib
 # Limit (hours) for looking back cl actions in the history for history-aware
 # submission.
 CQ_HISTORY_LOOKBACK_LIMIT_HOUR = 48
-
-
-site_config = config_lib.GetConfig()
 
 
 class RelevantChanges(object):
@@ -288,7 +285,7 @@ class TriageRelevantChanges(object):
         self.master_build_id, self.db, self.buildbucket_info_dict)
     self.slave_changes_dict = self._GetRelevantChanges(
         self.slave_stages_dict)
-    self.change_relevant_slaves_dict = cros_build_lib.InvertDictionary(
+    self.change_relevant_slaves_dict = cros_collections.InvertDictionary(
         self.slave_changes_dict)
     self.change_passed_slaves_dict = (
         RelevantChanges.GetPreviouslyPassedSlavesForChanges(
@@ -671,6 +668,7 @@ class TriageRelevantChanges(object):
 
   def _AllCompletedSlavesPassedUploadPrebuiltsStage(self):
     """Check if all completed slaves have passed the UploadPrebuiltsStage."""
+    site_config = config_lib.GetConfig()
     for build_config in self.completed_builds:
       # compilecheck builds don't run UploadPrebuiltsStage
       if (not site_config[build_config].compilecheck and
@@ -685,6 +683,7 @@ class TriageRelevantChanges(object):
 
   def _AllUncompletedSlavesPassedUploadPrebuiltsStage(self):
     """Check if all uncompleted slaves have passed the UploadPrebuiltsStage."""
+    site_config = config_lib.GetConfig()
     for build_config in set(self.builders_array) - self.completed_builds:
       # compilecheck builds don't run UploadPrebuiltsStage
       if (not site_config[build_config].compilecheck and

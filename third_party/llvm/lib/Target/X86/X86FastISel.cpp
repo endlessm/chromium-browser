@@ -738,6 +738,10 @@ bool X86FastISel::handleConstantAddresses(const Value *V, X86AddressMode &AM) {
     if (GV->isThreadLocal())
       return false;
 
+    // Can't handle !absolute_symbol references yet.
+    if (GV->isAbsoluteSymbolRef())
+      return false;
+
     // RIP-relative addresses can't have additional register operands, so if
     // we've already folded stuff into the addressing mode, just force the
     // global value into its own register, which we can use as the basereg.
@@ -1195,7 +1199,7 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
 
   if (Ret->getNumOperands() > 0) {
     SmallVector<ISD::OutputArg, 4> Outs;
-    GetReturnInfo(F.getReturnType(), F.getAttributes(), Outs, TLI, DL);
+    GetReturnInfo(CC, F.getReturnType(), F.getAttributes(), Outs, TLI, DL);
 
     // Analyze operands of the call, assigning locations to each operand.
     SmallVector<CCValAssign, 16> ValLocs;
@@ -2649,7 +2653,7 @@ bool X86FastISel::fastLowerIntrinsicCall(const IntrinsicInst *II) {
       BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
               TII.get(X86::VMOVPDI2DIrr), ResultReg)
           .addReg(InputReg, RegState::Kill);
-      
+
       // The result value is in the lower 16-bits of ResultReg.
       unsigned RegIdx = X86::sub_16bit;
       ResultReg = fastEmitInst_extractsubreg(MVT::i16, ResultReg, true, RegIdx);
@@ -3218,8 +3222,8 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
       (CalledFn && CalledFn->hasFnAttribute("no_caller_saved_registers")))
     return false;
 
-  // Functions using retpoline should use SDISel for calls.
-  if (Subtarget->useRetpoline())
+  // Functions using retpoline for indirect calls need to use SDISel.
+  if (Subtarget->useRetpolineIndirectCalls())
     return false;
 
   // Handle only C, fastcc, and webkit_js calling conventions for now.
@@ -3687,7 +3691,7 @@ X86FastISel::fastSelectInstruction(const Instruction *I)  {
     unsigned Reg = getRegForValue(I->getOperand(0));
     if (Reg == 0)
       return false;
-      
+
     // No instruction is needed for conversion. Reuse the register used by
     // the fist operand.
     updateValueMap(I, Reg);

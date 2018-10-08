@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "usage_time_limit_processor.h"
+#include "chrome/browser/chromeos/child_accounts/usage_time_limit_processor.h"
 
 #include <memory>
+#include <string>
+#include <utility>
 
 #include "base/values.h"
 #include "chromeos/settings/timezone_settings.h"
@@ -199,10 +201,10 @@ TEST_F(UsageTimeLimitProcessorInternalTest, OverrideValid) {
   overrides.GetList().push_back(std::move(override_two));
 
   // Call tested functions.
-  Override override_struct(overrides);
+  TimeLimitOverride override_struct(overrides);
 
   // Assert right fields are set.
-  ASSERT_EQ(override_struct.action, Override::Action::kUnlock);
+  ASSERT_EQ(override_struct.action, TimeLimitOverride::Action::kUnlock);
   ASSERT_EQ(override_struct.created_at, TimeFromString("1 Jan 2018 10:00:00"));
   ASSERT_FALSE(override_struct.duration);
 }

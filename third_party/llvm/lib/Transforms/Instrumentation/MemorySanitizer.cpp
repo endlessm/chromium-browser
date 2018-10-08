@@ -917,9 +917,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
       StoreInst *NewSI = IRB.CreateAlignedStore(Shadow, ShadowPtr, Alignment);
       LLVM_DEBUG(dbgs() << "  STORE: " << *NewSI << "\n");
-
-      if (ClCheckAccessAddress)
-        insertShadowCheck(Addr, NewSI);
+      (void)NewSI;
 
       if (SI->isAtomic())
         SI->setOrdering(addReleaseOrdering(SI->getOrdering()));
@@ -1024,12 +1022,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                                InstrumentationList.size() + StoreList.size() >
                                    (unsigned)ClInstrumentationWithCallThreshold;
 
-    // Delayed instrumentation of StoreInst.
-    // This may add new checks to be inserted later.
-    materializeStores(InstrumentWithCalls);
-
     // Insert shadow value checks.
     materializeChecks(InstrumentWithCalls);
+
+    // Delayed instrumentation of StoreInst.
+    // This may not add new address checks.
+    materializeStores(InstrumentWithCalls);
 
     return true;
   }
@@ -1490,6 +1488,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// Optionally, checks that the store address is fully defined.
   void visitStoreInst(StoreInst &I) {
     StoreList.push_back(&I);
+    if (ClCheckAccessAddress)
+      insertShadowCheck(I.getPointerOperand(), &I);
   }
 
   void handleCASOrRMW(Instruction &I) {
@@ -3249,8 +3249,11 @@ struct VarArgAMD64Helper : public VarArgHelper {
   // An unfortunate workaround for asymmetric lowering of va_arg stuff.
   // See a comment in visitCallSite for more details.
   static const unsigned AMD64GpEndOffset = 48;  // AMD64 ABI Draft 0.99.6 p3.5.7
-  static const unsigned AMD64FpEndOffset = 176;
+  static const unsigned AMD64FpEndOffsetSSE = 176;
+  // If SSE is disabled, fp_offset in va_list is zero.
+  static const unsigned AMD64FpEndOffsetNoSSE = AMD64GpEndOffset;
 
+  unsigned AMD64FpEndOffset;
   Function &F;
   MemorySanitizer &MS;
   MemorySanitizerVisitor &MSV;
@@ -3262,7 +3265,18 @@ struct VarArgAMD64Helper : public VarArgHelper {
   enum ArgKind { AK_GeneralPurpose, AK_FloatingPoint, AK_Memory };
 
   VarArgAMD64Helper(Function &F, MemorySanitizer &MS,
-                    MemorySanitizerVisitor &MSV) : F(F), MS(MS), MSV(MSV) {}
+                    MemorySanitizerVisitor &MSV)
+      : F(F), MS(MS), MSV(MSV) {
+    AMD64FpEndOffset = AMD64FpEndOffsetSSE;
+    for (const auto &Attr : F.getAttributes().getFnAttributes()) {
+      if (Attr.isStringAttribute() &&
+          (Attr.getKindAsString() == "target-features")) {
+        if (Attr.getValueAsString().contains("-sse"))
+          AMD64FpEndOffset = AMD64FpEndOffsetNoSSE;
+        break;
+      }
+    }
+  }
 
   ArgKind classifyArgument(Value* arg) {
     // A very rough approximation of X86_64 argument classification rules.

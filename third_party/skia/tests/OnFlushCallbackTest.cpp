@@ -89,8 +89,6 @@ protected:
     SkRect  fRect;
 
 private:
-    bool onCombineIfPossible(GrOp*, const GrCaps&) override { return false; }
-
     void onPrepareDraws(Target* target) override {
         using namespace GrDefaultGeoProcFactory;
 
@@ -159,12 +157,12 @@ private:
             }
         }
 
-        GrMesh mesh(GrPrimitiveType::kTriangles);
-        mesh.setIndexed(indexBuffer, 6, firstIndex, 0, 3, GrPrimitiveRestart::kNo);
-        mesh.setVertexData(vertexBuffer, firstVertex);
+        GrMesh* mesh = target->allocMesh(GrPrimitiveType::kTriangles);
+        mesh->setIndexed(indexBuffer, 6, firstIndex, 0, 3, GrPrimitiveRestart::kNo);
+        mesh->setVertexData(vertexBuffer, firstVertex);
 
         auto pipe = fHelper.makePipeline(target);
-        target->draw(gp.get(), pipe.fPipeline, pipe.fFixedDynamicState, mesh);
+        target->draw(std::move(gp), pipe.fPipeline, pipe.fFixedDynamicState, mesh);
     }
 
     Helper fHelper;
@@ -283,7 +281,7 @@ public:
         }
 
         if (!header) {
-            fOps.push({opListID, nullptr});
+            fOps.push_back({opListID, nullptr});
             header = &(fOps[fOps.count()-1]);
         }
 
@@ -336,7 +334,7 @@ public:
         SkTDArray<LinkedListHeader*> lists;
         for (int i = 0; i < numOpListIDs; ++i) {
             if (LinkedListHeader* list = this->getList(opListIDs[i])) {
-                lists.push(list);
+                lists.push_back(list);
             }
         }
 

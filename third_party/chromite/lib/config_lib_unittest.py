@@ -238,6 +238,7 @@ class BuildConfigClassTest(cros_test_lib.TestCase):
 
     if isinstance(obj1, (tuple, list)):
       # Copy tuples and lists item by item.
+      # pylint: disable=consider-using-enumerate
       for i in range(len(obj1)):
         self.AssertDeepCopy(obj1[i], obj2[i], obj3[i])
     elif isinstance(obj1, set):
@@ -285,6 +286,13 @@ class BuildConfigClassTest(cros_test_lib.TestCase):
       if not isinstance(x, set):
         self.assertRaises(AssertionError, self.AssertDeepCopy, x,
                           copy_x, copy.copy(x))
+
+  def testPickle(self):
+    bc1 = MockBuildConfig()
+    bc2 = cPickle.loads(cPickle.dumps(bc1))
+
+    self.assertEquals(bc1.boards, bc2.boards)
+    self.assertEquals(bc1.name, bc2.name)
 
 
 class SiteParametersClassTest(cros_test_lib.TestCase):

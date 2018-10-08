@@ -4,11 +4,12 @@
 
 import optparse
 import platform
-import py_utils
 import re
 import sys
 import threading
 import zlib
+
+import py_utils
 
 from devil.android import device_utils
 from devil.android.sdk import version_codes
@@ -138,6 +139,11 @@ def _construct_atrace_args(config, categories):
 
   if (config.trace_buf_size is not None) and (config.trace_buf_size > 0):
     atrace_args.extend(['-b', str(config.trace_buf_size)])
+
+  elif 'webview' in categories and 'sched' in categories:
+    # https://crbug.com/814330: webview_startup sometimes exceeds the buffer
+    # limit, so doubling this.
+    atrace_args.extend(['-b', '8192'])
 
   elif 'sched' in categories:
     # 'sched' is a high-volume tag, double the default buffer size

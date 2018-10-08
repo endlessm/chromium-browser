@@ -556,7 +556,6 @@ class NonvolatileLoad<SDPatternOperator load>
   auto *Load = cast<LoadSDNode>(N);
   return !Load->isVolatile();
 }]>;
-def nonvolatile_load          : NonvolatileLoad<load>;
 def nonvolatile_anyextloadi8  : NonvolatileLoad<anyextloadi8>;
 def nonvolatile_anyextloadi16 : NonvolatileLoad<anyextloadi16>;
 def nonvolatile_anyextloadi32 : NonvolatileLoad<anyextloadi32>;
@@ -567,7 +566,6 @@ class NonvolatileStore<SDPatternOperator store>
   auto *Store = cast<StoreSDNode>(N);
   return !Store->isVolatile();
 }]>;
-def nonvolatile_store         : NonvolatileStore<store>;
 def nonvolatile_truncstorei8  : NonvolatileStore<truncstorei8>;
 def nonvolatile_truncstorei16 : NonvolatileStore<truncstorei16>;
 def nonvolatile_truncstorei32 : NonvolatileStore<truncstorei32>;
@@ -696,6 +694,16 @@ class storeu<SDPatternOperator operator, SDPatternOperator store = store>
 class storei<SDPatternOperator operator, SDPatternOperator store = store>
   : PatFrag<(ops node:$addr),
             (store (operator), node:$addr)>;
+
+// Create a shift operator that optionally ignores an AND of the
+// shift count with an immediate if the bottom 6 bits are all set.
+def imm32bottom6set : PatLeaf<(i32 imm), [{
+  return (N->getZExtValue() & 0x3f) == 0x3f;
+}]>;
+class shiftop<SDPatternOperator operator>
+  : PatFrags<(ops node:$val, node:$count),
+             [(operator node:$val, node:$count),
+              (operator node:$val, (and node:$count, imm32bottom6set))]>;
 
 // Vector representation of all-zeros and all-ones.
 def z_vzero : PatFrag<(ops), (bitconvert (v16i8 (z_byte_mask (i32 0))))>;

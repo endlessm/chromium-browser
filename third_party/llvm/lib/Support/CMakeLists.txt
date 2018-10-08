@@ -71,6 +71,7 @@ add_llvm_library(LLVMSupport
   DJB.cpp
   Error.cpp
   ErrorHandling.cpp
+  FileCheck.cpp
   FileUtilities.cpp
   FileOutputBuffer.cpp
   FoldingSet.cpp
@@ -82,6 +83,7 @@ add_llvm_library(LLVMSupport
   InitLLVM.cpp
   IntEqClasses.cpp
   IntervalMap.cpp
+  ItaniumManglingCanonicalizer.cpp
   JamCRC.cpp
   JSON.cpp
   KnownBits.cpp

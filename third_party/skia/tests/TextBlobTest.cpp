@@ -7,7 +7,8 @@
 
 #include "SkPaint.h"
 #include "SkPoint.h"
-#include "SkTextBlobRunIterator.h"
+#include "SkSerialProcs.h"
+#include "SkTextBlobPriv.h"
 #include "SkTo.h"
 #include "SkTypeface.h"
 
@@ -25,74 +26,74 @@ public:
         RunBuilderTest(reporter, builder, nullptr, 0, nullptr, 0);
 
         RunDef set1[] = {
-            { 128, SkTextBlob::kDefault_Positioning, 100, 100 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 100 },
         };
         RunBuilderTest(reporter, builder, set1, SK_ARRAY_COUNT(set1), set1, SK_ARRAY_COUNT(set1));
 
         RunDef set2[] = {
-            { 128, SkTextBlob::kHorizontal_Positioning, 100, 100 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 100, 100 },
         };
         RunBuilderTest(reporter, builder, set2, SK_ARRAY_COUNT(set2), set2, SK_ARRAY_COUNT(set2));
 
         RunDef set3[] = {
-            { 128, SkTextBlob::kFull_Positioning, 100, 100 },
+            { 128, SkTextBlobRunIterator::kFull_Positioning, 100, 100 },
         };
         RunBuilderTest(reporter, builder, set3, SK_ARRAY_COUNT(set3), set3, SK_ARRAY_COUNT(set3));
 
         RunDef set4[] = {
-            { 128, SkTextBlob::kDefault_Positioning, 100, 150 },
-            { 128, SkTextBlob::kDefault_Positioning, 100, 150 },
-            { 128, SkTextBlob::kDefault_Positioning, 100, 150 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
         };
         RunBuilderTest(reporter, builder, set4, SK_ARRAY_COUNT(set4), set4, SK_ARRAY_COUNT(set4));
 
         RunDef set5[] = {
-            { 128, SkTextBlob::kHorizontal_Positioning, 100, 150 },
-            { 128, SkTextBlob::kHorizontal_Positioning, 200, 150 },
-            { 128, SkTextBlob::kHorizontal_Positioning, 300, 250 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 100, 150 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 200, 150 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 300, 250 },
         };
         RunDef mergedSet5[] = {
-            { 256, SkTextBlob::kHorizontal_Positioning, 0, 150 },
-            { 128, SkTextBlob::kHorizontal_Positioning, 0, 250 },
+            { 256, SkTextBlobRunIterator::kHorizontal_Positioning, 0, 150 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 0, 250 },
         };
         RunBuilderTest(reporter, builder, set5, SK_ARRAY_COUNT(set5), mergedSet5,
                        SK_ARRAY_COUNT(mergedSet5));
 
         RunDef set6[] = {
-            { 128, SkTextBlob::kFull_Positioning, 100, 100 },
-            { 128, SkTextBlob::kFull_Positioning, 200, 200 },
-            { 128, SkTextBlob::kFull_Positioning, 300, 300 },
+            { 128, SkTextBlobRunIterator::kFull_Positioning, 100, 100 },
+            { 128, SkTextBlobRunIterator::kFull_Positioning, 200, 200 },
+            { 128, SkTextBlobRunIterator::kFull_Positioning, 300, 300 },
         };
         RunDef mergedSet6[] = {
-            { 384, SkTextBlob::kFull_Positioning, 0, 0 },
+            { 384, SkTextBlobRunIterator::kFull_Positioning, 0, 0 },
         };
         RunBuilderTest(reporter, builder, set6, SK_ARRAY_COUNT(set6), mergedSet6,
                        SK_ARRAY_COUNT(mergedSet6));
 
         RunDef set7[] = {
-            { 128, SkTextBlob::kDefault_Positioning, 100, 150 },
-            { 128, SkTextBlob::kDefault_Positioning, 100, 150 },
-            { 128, SkTextBlob::kHorizontal_Positioning, 100, 150 },
-            { 128, SkTextBlob::kHorizontal_Positioning, 200, 150 },
-            { 128, SkTextBlob::kFull_Positioning, 400, 350 },
-            { 128, SkTextBlob::kFull_Positioning, 400, 350 },
-            { 128, SkTextBlob::kDefault_Positioning, 100, 450 },
-            { 128, SkTextBlob::kDefault_Positioning, 100, 450 },
-            { 128, SkTextBlob::kHorizontal_Positioning, 100, 550 },
-            { 128, SkTextBlob::kHorizontal_Positioning, 200, 650 },
-            { 128, SkTextBlob::kFull_Positioning, 400, 750 },
-            { 128, SkTextBlob::kFull_Positioning, 400, 850 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 100, 150 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 200, 150 },
+            { 128, SkTextBlobRunIterator::kFull_Positioning, 400, 350 },
+            { 128, SkTextBlobRunIterator::kFull_Positioning, 400, 350 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 450 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 450 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 100, 550 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 200, 650 },
+            { 128, SkTextBlobRunIterator::kFull_Positioning, 400, 750 },
+            { 128, SkTextBlobRunIterator::kFull_Positioning, 400, 850 },
         };
         RunDef mergedSet7[] = {
-            { 128, SkTextBlob::kDefault_Positioning, 100, 150 },
-            { 128, SkTextBlob::kDefault_Positioning, 100, 150 },
-            { 256, SkTextBlob::kHorizontal_Positioning, 0, 150 },
-            { 256, SkTextBlob::kFull_Positioning, 0, 0 },
-            { 128, SkTextBlob::kDefault_Positioning, 100, 450 },
-            { 128, SkTextBlob::kDefault_Positioning, 100, 450 },
-            { 128, SkTextBlob::kHorizontal_Positioning, 0, 550 },
-            { 128, SkTextBlob::kHorizontal_Positioning, 0, 650 },
-            { 256, SkTextBlob::kFull_Positioning, 0, 0 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
+            { 256, SkTextBlobRunIterator::kHorizontal_Positioning, 0, 150 },
+            { 256, SkTextBlobRunIterator::kFull_Positioning, 0, 0 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 450 },
+            { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 450 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 0, 550 },
+            { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 0, 650 },
+            { 256, SkTextBlobRunIterator::kFull_Positioning, 0, 0 },
         };
         RunBuilderTest(reporter, builder, set7, SK_ARRAY_COUNT(set7), mergedSet7,
                        SK_ARRAY_COUNT(mergedSet7));
@@ -209,14 +210,16 @@ public:
         REPORTER_ASSERT(reporter, defaultPaint.isLinearText() != font.isLinearText());
         REPORTER_ASSERT(reporter, defaultPaint.isSubpixelText() != font.isSubpixelText());
         REPORTER_ASSERT(reporter, defaultPaint.isLCDRenderText() != font.isLCDRenderText());
-        REPORTER_ASSERT(reporter, defaultPaint.isEmbeddedBitmapText() != font.isEmbeddedBitmapText());
+        REPORTER_ASSERT(reporter,
+                        defaultPaint.isEmbeddedBitmapText() != font.isEmbeddedBitmapText());
         REPORTER_ASSERT(reporter, defaultPaint.isAutohinted() != font.isAutohinted());
         REPORTER_ASSERT(reporter, defaultPaint.isVerticalText() != font.isVerticalText());
 
         SkTextBlobBuilder builder;
-        AddRun(font, 1, SkTextBlob::kDefault_Positioning, SkPoint::Make(0, 0), builder);
-        AddRun(font, 1, SkTextBlob::kHorizontal_Positioning, SkPoint::Make(0, 0), builder);
-        AddRun(font, 1, SkTextBlob::kFull_Positioning, SkPoint::Make(0, 0), builder);
+        AddRun(font, 1, SkTextBlobRunIterator::kDefault_Positioning, SkPoint::Make(0, 0), builder);
+        AddRun(font, 1, SkTextBlobRunIterator::kHorizontal_Positioning, SkPoint::Make(0, 0),
+               builder);
+        AddRun(font, 1, SkTextBlobRunIterator::kFull_Positioning, SkPoint::Make(0, 0), builder);
         sk_sp<SkTextBlob> blob(builder.make());
 
         SkTextBlobRunIterator it(blob.get());
@@ -246,9 +249,9 @@ public:
 
 private:
     struct RunDef {
-        unsigned                     count;
-        SkTextBlob::GlyphPositioning pos;
-        SkScalar                     x, y;
+        unsigned                                count;
+        SkTextBlobRunIterator::GlyphPositioning pos;
+        SkScalar                                x, y;
     };
 
     static void RunBuilderTest(skiatest::Reporter* reporter, SkTextBlobBuilder& builder,
@@ -277,18 +280,18 @@ private:
             REPORTER_ASSERT(reporter, !it.done());
             REPORTER_ASSERT(reporter, out[i].pos == it.positioning());
             REPORTER_ASSERT(reporter, out[i].count == it.glyphCount());
-            if (SkTextBlob::kDefault_Positioning == out[i].pos) {
+            if (SkTextBlobRunIterator::kDefault_Positioning == out[i].pos) {
                 REPORTER_ASSERT(reporter, out[i].x == it.offset().x());
                 REPORTER_ASSERT(reporter, out[i].y == it.offset().y());
-            } else if (SkTextBlob::kHorizontal_Positioning == out[i].pos) {
+            } else if (SkTextBlobRunIterator::kHorizontal_Positioning == out[i].pos) {
                 REPORTER_ASSERT(reporter, out[i].y == it.offset().y());
             }
 
             for (unsigned k = 0; k < it.glyphCount(); ++k) {
                 REPORTER_ASSERT(reporter, k % 128 == it.glyphs()[k]);
-                if (SkTextBlob::kHorizontal_Positioning == it.positioning()) {
+                if (SkTextBlobRunIterator::kHorizontal_Positioning == it.positioning()) {
                     REPORTER_ASSERT(reporter, SkIntToScalar(k % 128) == it.pos()[k]);
-                } else if (SkTextBlob::kFull_Positioning == it.positioning()) {
+                } else if (SkTextBlobRunIterator::kFull_Positioning == it.positioning()) {
                     REPORTER_ASSERT(reporter, SkIntToScalar(k % 128) == it.pos()[k * 2]);
                     REPORTER_ASSERT(reporter, -SkIntToScalar(k % 128) == it.pos()[k * 2 + 1]);
                 }
@@ -300,18 +303,18 @@ private:
         REPORTER_ASSERT(reporter, it.done());
     }
 
-    static void AddRun(const SkPaint& font, int count, SkTextBlob::GlyphPositioning pos,
+    static void AddRun(const SkPaint& font, int count, SkTextBlobRunIterator::GlyphPositioning pos,
                        const SkPoint& offset, SkTextBlobBuilder& builder,
                        const SkRect* bounds = nullptr) {
         switch (pos) {
-        case SkTextBlob::kDefault_Positioning: {
+        case SkTextBlobRunIterator::kDefault_Positioning: {
             const SkTextBlobBuilder::RunBuffer& rb = builder.allocRun(font, count, offset.x(),
                                                                       offset.y(), bounds);
             for (int i = 0; i < count; ++i) {
                 rb.glyphs[i] = i;
             }
         } break;
-        case SkTextBlob::kHorizontal_Positioning: {
+        case SkTextBlobRunIterator::kHorizontal_Positioning: {
             const SkTextBlobBuilder::RunBuffer& rb = builder.allocRunPosH(font, count, offset.y(),
                                                                           bounds);
             for (int i = 0; i < count; ++i) {
@@ -319,7 +322,7 @@ private:
                 rb.pos[i] = SkIntToScalar(i);
             }
         } break;
-        case SkTextBlob::kFull_Positioning: {
+        case SkTextBlobRunIterator::kFull_Positioning: {
             const SkTextBlobBuilder::RunBuffer& rb = builder.allocRunPos(font, count, bounds);
             for (int i = 0; i < count; ++i) {
                 rb.glyphs[i] = i;
@@ -353,7 +356,7 @@ DEF_TEST(TextBlob_extended, reporter) {
     (void)paint.textToGlyphs(text1, strlen(text1), glyphs.get());
     paint.setTextEncoding(SkPaint::kGlyphID_TextEncoding);
 
-    auto run = textBlobBuilder.allocRunText(
+    auto run = SkTextBlobBuilderPriv::AllocRunText(&textBlobBuilder,
             paint, glyphCount, 0, 0, SkToInt(strlen(text2)), SkString(), nullptr);
     memcpy(run.glyphs, glyphs.get(), sizeof(uint16_t) * glyphCount);
     memcpy(run.utf8text, text2, strlen(text2));
@@ -368,7 +371,7 @@ DEF_TEST(TextBlob_extended, reporter) {
         for (uint32_t i = 0; i < it.glyphCount(); ++i) {
             REPORTER_ASSERT(reporter, it.glyphs()[i] == glyphs[i]);
         }
-        REPORTER_ASSERT(reporter, SkTextBlob::kDefault_Positioning == it.positioning());
+        REPORTER_ASSERT(reporter, SkTextBlobRunIterator::kDefault_Positioning == it.positioning());
         REPORTER_ASSERT(reporter, (SkPoint{0.0f, 0.0f}) == it.offset());
         REPORTER_ASSERT(reporter, it.textSize() > 0);
         REPORTER_ASSERT(reporter, it.clusters());
@@ -412,6 +415,25 @@ static sk_sp<SkImage> render(const SkTextBlob* blob) {
     return surf->makeImageSnapshot();
 }
 
+static sk_sp<SkData> SerializeTypeface(SkTypeface* tf, void* ctx) {
+    auto array = (SkTDArray<SkTypeface*>*)ctx;
+    *array->append() = tf;
+    return sk_sp<SkData>(nullptr);
+}
+
+static sk_sp<SkTypeface> DeserializeTypeface(const void* data, size_t length, void* ctx) {
+    auto array = (SkTDArray<SkTypeface*>*)ctx;
+    for (int i = 0; i < array->count(); ++i) {
+        auto result = (*array)[i];
+        if (result) {
+            (*array)[i] = nullptr;
+            return sk_ref_sp(result);
+        }
+    }
+    SkASSERT(false);
+    return sk_sp<SkTypeface>(nullptr);
+}
+
 /*
  *  Build a blob with more than one typeface.
  *  Draw it into an offscreen,
@@ -429,26 +451,15 @@ DEF_TEST(TextBlob_serialize, reporter) {
     }();
 
     SkTDArray<SkTypeface*> array;
-    sk_sp<SkData> data = blob0->serialize([](SkTypeface* tf, void* ctx) {
-        auto array = (SkTDArray<SkTypeface*>*)ctx;
-        if (array->find(tf) < 0) {
-            *array->append() = tf;
-        }
-    }, &array);
-    // we only expect 1, since null would not have been serialized, but the default would
-    REPORTER_ASSERT(reporter, array.count() == 1);
-
-    sk_sp<SkTextBlob> blob1 = SkTextBlob::Deserialize(data->data(), data->size(),
-                                                      [](uint32_t uniqueID, void* ctx) {
-        auto array = (SkTDArray<SkTypeface*>*)ctx;
-        for (int i = 0; i < array->count(); ++i) {
-            if ((*array)[i]->uniqueID() == uniqueID) {
-                return sk_ref_sp((*array)[i]);
-            }
-        }
-        SkASSERT(false);
-        return sk_sp<SkTypeface>(nullptr);
-    }, &array);
+    SkSerialProcs serializeProcs;
+    serializeProcs.fTypefaceProc = &SerializeTypeface;
+    serializeProcs.fTypefaceCtx = (void*) &array;
+    sk_sp<SkData> data = blob0->serialize(serializeProcs);
+    REPORTER_ASSERT(reporter, array.count() == 2);
+    SkDeserialProcs deserializeProcs;
+    deserializeProcs.fTypefaceProc = &DeserializeTypeface;
+    deserializeProcs.fTypefaceCtx = (void*) &array;
+    sk_sp<SkTextBlob> blob1 = SkTextBlob::Deserialize(data->data(), data->size(), deserializeProcs);
 
     sk_sp<SkImage> img0 = render(blob0.get());
     sk_sp<SkImage> img1 = render(blob1.get());
@@ -461,12 +472,12 @@ DEF_TEST(TextBlob_MakeAsDrawText, reporter) {
     SkPaint paint;
     paint.setTextEncoding(SkPaint::kUTF8_TextEncoding);
     const char text[] = "Hello";
-    auto blob = SkTextBlob::MakeAsDrawText(text, strlen(text), paint);
+    auto blob = SkTextBlob::MakeFromText(text, strlen(text), paint);
 
     int runs = 0;
     for(SkTextBlobRunIterator it(blob.get()); !it.done(); it.next()) {
         REPORTER_ASSERT(reporter, it.glyphCount() == strlen(text));
-        REPORTER_ASSERT(reporter, it.positioning() == SkTextBlob::kFull_Positioning);
+        REPORTER_ASSERT(reporter, it.positioning() == SkTextBlobRunIterator::kFull_Positioning);
         runs += 1;
     }
     REPORTER_ASSERT(reporter, runs == 1);

@@ -657,8 +657,8 @@ public:
          TargetLibraryInfo *TLI, AliasAnalysis *AA, MemorySSA *MSSA,
          const DataLayout &DL)
       : F(F), DT(DT), TLI(TLI), AA(AA), MSSA(MSSA), DL(DL),
-        PredInfo(make_unique<PredicateInfo>(F, *DT, *AC)), SQ(DL, TLI, DT, AC) {
-  }
+        PredInfo(make_unique<PredicateInfo>(F, *DT, *AC)),
+        SQ(DL, TLI, DT, AC, /*CtxI=*/nullptr, /*UseInstrInfo=*/false) {}
 
   bool runGVN();
 
@@ -861,7 +861,7 @@ private:
 
   // Debug counter info.  When verifying, we have to reset the value numbering
   // debug counter to the same state it started in to get the same results.
-  std::pair<int, int> StartingVNCounter;
+  int64_t StartingVNCounter;
 };
 
 } // end anonymous namespace
@@ -2007,7 +2007,7 @@ NewGVN::performSymbolicEvaluation(Value *V,
     case Instruction::Load:
       E = performSymbolicLoadEvaluation(I);
       break;
-    case Instruction::BitCast: 
+    case Instruction::BitCast:
       E = createExpression(I);
       break;
     case Instruction::ICmp:
@@ -2925,7 +2925,7 @@ void NewGVN::initializeCongruenceClasses(Function &F) {
               PHINodeUses.insert(UInst);
       // Don't insert void terminators into the class. We don't value number
       // them, and they just end up sitting in TOP.
-      if (isa<TerminatorInst>(I) && I.getType()->isVoidTy())
+      if (I.isTerminator() && I.getType()->isVoidTy())
         continue;
       TOPClass->insert(&I);
       ValueToClass[&I] = TOPClass;
@@ -3174,10 +3174,7 @@ bool NewGVN::singleReachablePHIPath(
   SmallVector<const Value *, 32> OperandList;
   std::copy(FilteredPhiArgs.begin(), FilteredPhiArgs.end(),
             std::back_inserter(OperandList));
-  bool Okay = OperandList.size() == 1;
-  if (!Okay)
-    Okay =
-        std::equal(OperandList.begin(), OperandList.end(), OperandList.begin());
+  bool Okay = is_splat(OperandList);
   if (Okay)
     return singleReachablePHIPath(Visited, cast<MemoryAccess>(OperandList[0]),
                                   Second);
@@ -3272,8 +3269,7 @@ void NewGVN::verifyMemoryCongruency() const {
                        const MemoryDef *MD = cast<MemoryDef>(U);
                        return ValueToClass.lookup(MD->getMemoryInst());
                      });
-      assert(std::equal(PhiOpClasses.begin(), PhiOpClasses.end(),
-                        PhiOpClasses.begin()) &&
+      assert(is_splat(PhiOpClasses) &&
              "All MemoryPhi arguments should be in the same class");
     }
   }
@@ -3695,37 +3691,6 @@ void NewGVN::convertClassToLoadsAndStores(
 
     LoadsAndStores.emplace_back(VD);
   }
-}
-
-static void patchReplacementInstruction(Instruction *I, Value *Repl) {
-  auto *ReplInst = dyn_cast<Instruction>(Repl);
-  if (!ReplInst)
-    return;
-
-  // Patch the replacement so that it is not more restrictive than the value
-  // being replaced.
-  // Note that if 'I' is a load being replaced by some operation,
-  // for example, by an arithmetic operation, then andIRFlags()
-  // would just erase all math flags from the original arithmetic
-  // operation, which is clearly not wanted and not needed.
-  if (!isa<LoadInst>(I))
-    ReplInst->andIRFlags(I);
-
-  // FIXME: If both the original and replacement value are part of the
-  // same control-flow region (meaning that the execution of one
-  // guarantees the execution of the other), then we can combine the
-  // noalias scopes here and do better than the general conservative
-  // answer used in combineMetadata().
-
-  // In general, GVN unifies expressions over different control-flow
-  // regions, and so we need a conservative combination of the noalias
-  // scopes.
-  static const unsigned KnownIDs[] = {
-      LLVMContext::MD_tbaa,           LLVMContext::MD_alias_scope,
-      LLVMContext::MD_noalias,        LLVMContext::MD_range,
-      LLVMContext::MD_fpmath,         LLVMContext::MD_invariant_load,
-      LLVMContext::MD_invariant_group};
-  combineMetadata(ReplInst, I, KnownIDs);
 }
 
 static void patchAndReplaceAllUsesWith(Instruction *I, Value *Repl) {

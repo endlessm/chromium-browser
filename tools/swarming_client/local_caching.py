@@ -977,7 +977,7 @@ class NamedCache(Cache):
         for unexpected in (actual - set(expected)):
           try:
             p = os.path.join(self.cache_dir, unexpected)
-            if fs.isdir(p):
+            if fs.isdir(p) and not fs.islink(p):
               file_path.rmtree(p)
             else:
               fs.remove(p)
@@ -995,6 +995,11 @@ class NamedCache(Cache):
             p = os.path.join(self.cache_dir, self.NAMED_DIR, name)
             expected_link = os.path.join(self.cache_dir, self._lru[name][0])
             if fs.islink(p):
+              if sys.platform == 'win32':
+                # TODO(maruel): Implement readlink() on Windows in fs.py, then
+                # remove this condition.
+                # https://crbug.com/853721
+                continue
               link = fs.readlink(p)
               if expected_link == link:
                 continue
@@ -1003,7 +1008,7 @@ class NamedCache(Cache):
                   name, link, expected_link)
             else:
               logging.warning('Unexpected non symlink for cache %s', name)
-            if fs.isdir(p):
+            if fs.isdir(p) and not fs.islink(p):
               file_path.rmtree(p)
             else:
               fs.remove(p)

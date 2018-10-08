@@ -14,6 +14,7 @@
 
 #include "region_data_constants.h"
 
+#include <algorithm>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -29,7 +30,7 @@ class RegionCodeTest : public testing::TestWithParam<std::string> {
   RegionCodeTest& operator=(const RegionCodeTest&) = delete;
 
  protected:
-  RegionCodeTest() {}
+  RegionCodeTest() = default;
 };
 
 // Verifies that a region code consists of two characters, for example "ZA".
@@ -68,9 +69,9 @@ class RegionDataTest : public testing::TestWithParam<std::string> {
   RegionDataTest& operator=(const RegionDataTest&) = delete;
 
  protected:
-  RegionDataTest() {}
+  RegionDataTest() = default;
 
-  const std::string& GetData() const {
+  std::string GetData() const {
     return RegionDataConstants::GetRegionData(GetParam());
   }
 };
@@ -91,6 +92,13 @@ TEST(RegionDataConstantsTest, GetMaxLookupKeyDepth) {
   EXPECT_EQ(1, RegionDataConstants::GetMaxLookupKeyDepth("KY"));
   EXPECT_EQ(2, RegionDataConstants::GetMaxLookupKeyDepth("US"));
   EXPECT_EQ(3, RegionDataConstants::GetMaxLookupKeyDepth("CN"));
+}
+
+// Verifies that region codes are sorted alphabetically, which is required for
+// the binary search in GetRegionData() and IsSupported().
+TEST(RegionDataConstantsTest, RegionCodesSorted) {
+  EXPECT_TRUE(std::is_sorted(RegionDataConstants::GetRegionCodes().begin(),
+                             RegionDataConstants::GetRegionCodes().end()));
 }
 
 }  // namespace

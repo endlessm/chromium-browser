@@ -42,6 +42,7 @@
 #include "llvm/Object/COFFImportFile.h"
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/MachO.h"
+#include "llvm/Object/MachOUniversal.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Object/Wasm.h"
 #include "llvm/Support/Casting.h"
@@ -55,6 +56,7 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/StringSaver.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
@@ -91,12 +93,11 @@ static cl::alias
 DisassembleAlld("D", cl::desc("Alias for --disassemble-all"),
              cl::aliasopt(DisassembleAll));
 
-cl::opt<std::string> llvm::Demangle("demangle",
-                                    cl::desc("Demangle symbols names"),
-                                    cl::ValueOptional, cl::init("none"));
+cl::opt<bool> llvm::Demangle("demangle", cl::desc("Demangle symbols names"),
+                             cl::init(false));
 
 static cl::alias DemangleShort("C", cl::desc("Alias for --demangle"),
-                               cl::aliasopt(Demangle));
+                               cl::aliasopt(llvm::Demangle));
 
 static cl::list<std::string>
 DisassembleFunctions("df",
@@ -1235,6 +1236,37 @@ addDynamicElfSymbols(const ObjectFile *Obj,
     llvm_unreachable("Unsupported binary format");
 }
 
+static void addPltEntries(const ObjectFile *Obj,
+                          std::map<SectionRef, SectionSymbolsTy> &AllSymbols,
+                          StringSaver &Saver) {
+  Optional<SectionRef> Plt = None;
+  for (const SectionRef &Section : Obj->sections()) {
+    StringRef Name;
+    if (Section.getName(Name))
+      continue;
+    if (Name == ".plt")
+      Plt = Section;
+  }
+  if (!Plt)
+    return;
+  if (auto *ElfObj = dyn_cast<ELFObjectFileBase>(Obj)) {
+    for (auto PltEntry : ElfObj->getPltAddresses()) {
+      SymbolRef Symbol(PltEntry.first, ElfObj);
+
+      uint8_t SymbolType = getElfSymbolType(Obj, Symbol);
+
+      Expected<StringRef> NameOrErr = Symbol.getName();
+      if (!NameOrErr)
+        report_error(Obj->getFileName(), NameOrErr.takeError());
+      if (NameOrErr->empty())
+        continue;
+      StringRef Name = Saver.save((*NameOrErr + "@plt").str());
+
+      AllSymbols[*Plt].emplace_back(PltEntry.second, Name, SymbolType);
+    }
+  }
+}
+
 static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
   if (StartAddress > StopAddress)
     error("Start address should be less than stop address");
@@ -1341,6 +1373,10 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
   }
   if (AllSymbols.empty() && Obj->isELF())
     addDynamicElfSymbols(Obj, AllSymbols);
+
+  BumpPtrAllocator A;
+  StringSaver Saver(A);
+  addPltEntries(Obj, AllSymbols, Saver);
 
   // Create a mapping from virtual address to section.
   std::vector<std::pair<uint64_t, SectionRef>> SectionAddresses;
@@ -1528,18 +1564,23 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
         outs() << '\n' << Name << ":\n";
       };
       StringRef SymbolName = std::get<1>(Symbols[si]);
-      if (Demangle.getValue() == "" || Demangle.getValue() == "itanium") {
+      if (Demangle) {
         char *DemangledSymbol = nullptr;
         size_t Size = 0;
-        int Status;
-        DemangledSymbol =
-            itaniumDemangle(SymbolName.data(), DemangledSymbol, &Size, &Status);
-        if (Status == 0)
+        int Status = -1;
+        if (SymbolName.startswith("_Z"))
+          DemangledSymbol = itaniumDemangle(SymbolName.data(), DemangledSymbol,
+                                            &Size, &Status);
+        else if (SymbolName.startswith("?"))
+          DemangledSymbol = microsoftDemangle(SymbolName.data(),
+                                              DemangledSymbol, &Size, &Status);
+
+        if (Status == 0 && DemangledSymbol)
           PrintSymbol(StringRef(DemangledSymbol));
         else
           PrintSymbol(SymbolName);
 
-        if (Size != 0)
+        if (DemangledSymbol)
           free(DemangledSymbol);
       } else
         PrintSymbol(SymbolName);
@@ -1651,7 +1692,7 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
             }
             Byte = Bytes.slice(Index)[0];
             outs() << format(" %02x", Byte);
-            AsciiData[NumBytes] = isprint(Byte) ? Byte : '.';
+            AsciiData[NumBytes] = isPrint(Byte) ? Byte : '.';
 
             uint8_t IndentOffset = 0;
             NumBytes++;
@@ -1899,7 +1940,7 @@ void llvm::PrintSectionContents(const ObjectFile *Obj) {
       // Print ascii.
       outs() << "  ";
       for (std::size_t i = 0; i < 16 && addr + i < end; ++i) {
-        if (std::isprint(static_cast<unsigned char>(Contents[addr + i]) & 0xFF))
+        if (isPrint(static_cast<unsigned char>(Contents[addr + i]) & 0xFF))
           outs() << Contents[addr + i];
         else
           outs() << ".";
@@ -2153,8 +2194,10 @@ static void printFaultMaps(const ObjectFile *Obj) {
 }
 
 static void printPrivateFileHeaders(const ObjectFile *o, bool onlyFirst) {
-  if (o->isELF())
-    return printELFFileHeader(o);
+  if (o->isELF()) {
+    printELFFileHeader(o);
+    return printELFDynamicSection(o);
+  }
   if (o->isCOFF())
     return printCOFFFileHeader(o);
   if (o->isWasm())
@@ -2361,6 +2404,8 @@ static void DumpInput(StringRef file) {
     DumpArchive(a);
   else if (ObjectFile *o = dyn_cast<ObjectFile>(&Binary))
     DumpObject(o);
+  else if (MachOUniversalBinary *UB = dyn_cast<MachOUniversalBinary>(&Binary))
+    ParseInputMachO(UB);
   else
     report_error(file, object_error::invalid_file_type);
 }
@@ -2377,7 +2422,6 @@ int main(int argc, char **argv) {
   cl::AddExtraVersionPrinter(TargetRegistry::printRegisteredTargetsForVersion);
 
   cl::ParseCommandLineOptions(argc, argv, "llvm object file dumper\n");
-  TripleName = Triple::normalize(TripleName);
 
   ToolName = argv[0];
 
@@ -2390,10 +2434,6 @@ int main(int argc, char **argv) {
 
   if (DisassembleAll || PrintSource || PrintLines)
     Disassemble = true;
-
-  if (Demangle.getValue() != "none" && Demangle.getValue() != "" &&
-      Demangle.getValue() != "itanium")
-    warn("Unsupported demangling style");
 
   if (!Disassemble
       && !Relocations

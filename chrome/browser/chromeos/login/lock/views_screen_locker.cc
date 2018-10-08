@@ -42,14 +42,16 @@ constexpr char kLockDisplay[] = "lock";
 ash::mojom::FingerprintUnlockState ConvertFromFingerprintState(
     ScreenLocker::FingerprintState state) {
   switch (state) {
-    case ScreenLocker::FingerprintState::kRemoved:
     case ScreenLocker::FingerprintState::kHidden:
-    case ScreenLocker::FingerprintState::kDefault:
       return ash::mojom::FingerprintUnlockState::UNAVAILABLE;
+    case ScreenLocker::FingerprintState::kDefault:
+      return ash::mojom::FingerprintUnlockState::AVAILABLE;
     case ScreenLocker::FingerprintState::kSignin:
       return ash::mojom::FingerprintUnlockState::AUTH_SUCCESS;
     case ScreenLocker::FingerprintState::kFailed:
       return ash::mojom::FingerprintUnlockState::AUTH_FAILED;
+    case ScreenLocker::FingerprintState::kRemoved:
+      return ash::mojom::FingerprintUnlockState::AUTH_DISABLED;
   }
 }
 
@@ -81,9 +83,10 @@ ViewsScreenLocker::~ViewsScreenLocker() {
 void ViewsScreenLocker::Init() {
   lock_time_ = base::TimeTicks::Now();
   user_selection_screen_->Init(screen_locker_->users());
-  LoginScreenClient::Get()->login_screen()->LoadUsers(
-      user_selection_screen_->UpdateAndReturnUserListForMojo(),
-      false /* show_guests */);
+  LoginScreenClient::Get()->login_screen()->SetUserList(
+      user_selection_screen_->UpdateAndReturnUserListForMojo());
+  LoginScreenClient::Get()->login_screen()->SetAllowLoginAsGuest(
+      false /*show_guest*/);
   if (!ime_state_.get())
     ime_state_ = input_method::InputMethodManager::Get()->GetActiveIMEState();
 

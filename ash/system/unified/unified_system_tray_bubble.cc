@@ -78,6 +78,8 @@ UnifiedSystemTrayBubble::UnifiedSystemTrayBubble(UnifiedSystemTray* tray,
   init_params.parent_window = tray->GetBubbleWindowContainer();
   init_params.anchor_view =
       tray->shelf()->GetSystemTrayAnchor()->GetBubbleAnchor();
+  init_params.anchor_mode = views::TrayBubbleView::AnchorMode::kRect;
+  init_params.anchor_rect = tray->shelf()->GetSystemTrayAnchorRect();
   init_params.corner_radius = kUnifiedTrayCornerRadius;
   init_params.has_shadow = false;
   init_params.show_by_click = show_by_click;
@@ -102,7 +104,6 @@ UnifiedSystemTrayBubble::UnifiedSystemTrayBubble(UnifiedSystemTray* tray,
 
   TrayBackgroundView::InitializeBubbleAnimations(bubble_widget_);
   bubble_view_->InitializeAndShowBubble();
-  unified_view_->Init();
 
   if (app_list::features::IsBackgroundBlurEnabled()) {
     bubble_widget_->client_view()->layer()->SetBackgroundBlur(
@@ -138,18 +139,10 @@ void UnifiedSystemTrayBubble::ActivateBubble() {
   DCHECK(unified_view_);
   DCHECK(bubble_widget_);
 
-  views::Widget* bubble_widget = bubble_widget_;
-  // RequestInitFocus() may cause UnifiedSystemTrayBubble to destruct through
-  // Shell::NotifyFullscreenStateChanged, MessageCenter::OnBlockingStateChanged,
-  // and UiDelegate::HideMessageCenter().  https://crbug.com/853434
-  unified_view_->RequestInitFocus();
-
-  // |bubble_widget| is destructed asynchronously, so the instance is still
-  // alive here.
-  if (bubble_widget->IsClosed())
+  if (bubble_widget_->IsClosed())
     return;
-  bubble_widget->widget_delegate()->set_can_activate(true);
-  bubble_widget->Activate();
+  bubble_widget_->widget_delegate()->set_can_activate(true);
+  bubble_widget_->Activate();
 }
 
 void UnifiedSystemTrayBubble::CloseNow() {
@@ -168,6 +161,23 @@ void UnifiedSystemTrayBubble::EnsureExpanded() {
   DCHECK(unified_view_);
   DCHECK(controller_);
   controller_->EnsureExpanded();
+}
+
+void UnifiedSystemTrayBubble::ShowAudioDetailedView() {
+  if (!bubble_widget_)
+    return;
+
+  DCHECK(unified_view_);
+  DCHECK(controller_);
+  controller_->ShowAudioDetailedView();
+}
+
+void UnifiedSystemTrayBubble::UpdateBubble() {
+  if (!bubble_widget_)
+    return;
+  DCHECK(bubble_view_);
+
+  bubble_view_->UpdateBubble();
 }
 
 void UnifiedSystemTrayBubble::UpdateTransform() {
@@ -217,9 +227,12 @@ int UnifiedSystemTrayBubble::CalculateMaxHeight() const {
   // TODO(yamaguchi): Reconsider this formula. The y-position of the top edge
   // still differes by few pixels between the horizontal and vertical shelf
   // modes.
+  gfx::Rect anchor_bounds =
+      tray_->shelf()->GetSystemTrayAnchor()->GetBoundsInScreen();
+  int bottom = tray_->shelf()->IsHorizontalAlignment() ? anchor_bounds.y()
+                                                       : anchor_bounds.bottom();
   int free_space_height_above_anchor =
-      tray_->shelf()->GetSystemTrayAnchor()->GetBoundsInScreen().y() -
-      tray_->shelf()->GetUserWorkAreaBounds().y();
+      bottom - tray_->shelf()->GetUserWorkAreaBounds().y();
   return free_space_height_above_anchor - kPaddingFromScreenTop -
          bubble_view_->GetBorderInsets().height();
 }
@@ -277,22 +290,8 @@ void UnifiedSystemTrayBubble::UpdateBubbleBounds() {
   int max_height = CalculateMaxHeight();
   unified_view_->SetMaxHeight(max_height);
   bubble_view_->SetMaxHeight(max_height);
-  // If the bubble is open while switching to and from tablet mode, change the
-  // bubble anchor if needed. The new anchor view may also have a translation
-  // applied to it so shift the bubble bounds so that it appears in the correct
-  // location.
-  bubble_view_->ChangeAnchorView(
-      tray_->shelf()->GetSystemTrayAnchor()->GetBubbleAnchor());
-  gfx::Rect bounds =
-      bubble_view_->GetWidget()->GetNativeWindow()->GetBoundsInScreen();
-  const gfx::Vector2dF translation = tray_->shelf()
-                                         ->GetSystemTrayAnchor()
-                                         ->layer()
-                                         ->transform()
-                                         .To2dTranslation();
-  bounds.set_x(bounds.x() - translation.x());
-  bounds.set_y(bounds.y() - translation.y());
-  bubble_view_->GetWidget()->GetNativeWindow()->SetBounds(bounds);
+  bubble_view_->ChangeAnchorAlignment(tray_->GetAnchorAlignment());
+  bubble_view_->ChangeAnchorRect(tray_->shelf()->GetSystemTrayAnchorRect());
 }
 
 void UnifiedSystemTrayBubble::CreateBlurLayerForAnimation() {

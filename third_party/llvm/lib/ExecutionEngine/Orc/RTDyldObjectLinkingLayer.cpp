@@ -9,15 +9,67 @@
 
 #include "llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h"
 
+namespace {
+
+using namespace llvm;
+using namespace llvm::orc;
+
+class JITDylibSearchOrderResolver : public JITSymbolResolver {
+public:
+  JITDylibSearchOrderResolver(MaterializationResponsibility &MR) : MR(MR) {}
+
+  Expected<LookupResult> lookup(const LookupSet &Symbols) {
+    auto &ES = MR.getTargetJITDylib().getExecutionSession();
+    SymbolNameSet InternedSymbols;
+
+    for (auto &S : Symbols)
+      InternedSymbols.insert(ES.getSymbolStringPool().intern(S));
+
+    auto RegisterDependencies = [&](const SymbolDependenceMap &Deps) {
+      MR.addDependenciesForAll(Deps);
+    };
+
+    auto InternedResult =
+        MR.getTargetJITDylib().withSearchOrderDo([&](const JITDylibList &JDs) {
+          return ES.lookup(JDs, InternedSymbols, RegisterDependencies, false);
+        });
+
+    if (!InternedResult)
+      return InternedResult.takeError();
+
+    LookupResult Result;
+    for (auto &KV : *InternedResult)
+      Result[*KV.first] = std::move(KV.second);
+
+    return Result;
+  }
+
+  Expected<LookupSet> getResponsibilitySet(const LookupSet &Symbols) {
+    LookupSet Result;
+
+    for (auto &KV : MR.getSymbols()) {
+      if (Symbols.count(*KV.first))
+        Result.insert(*KV.first);
+    }
+
+    return Result;
+  }
+
+private:
+  MaterializationResponsibility &MR;
+};
+
+} // end anonymous namespace
+
 namespace llvm {
 namespace orc {
 
 RTDyldObjectLinkingLayer2::RTDyldObjectLinkingLayer2(
-    ExecutionSession &ES, ResourcesGetterFunction GetResources,
-    NotifyLoadedFunction NotifyLoaded, NotifyFinalizedFunction NotifyFinalized)
-    : ObjectLayer(ES), GetResources(std::move(GetResources)),
+    ExecutionSession &ES, GetMemoryManagerFunction GetMemoryManager,
+    NotifyLoadedFunction NotifyLoaded, NotifyEmittedFunction NotifyEmitted)
+    : ObjectLayer(ES), GetMemoryManager(GetMemoryManager),
       NotifyLoaded(std::move(NotifyLoaded)),
-      NotifyFinalized(std::move(NotifyFinalized)), ProcessAllSections(false) {}
+      NotifyEmitted(std::move(NotifyEmitted)), ProcessAllSections(false) {}
 
 void RTDyldObjectLinkingLayer2::emit(MaterializationResponsibility R,
                                      VModuleKey K,
@@ -32,11 +84,10 @@ void RTDyldObjectLinkingLayer2::emit(MaterializationResponsibility R,
     R.failMaterialization();
   }
 
-  auto Resources = GetResources(K);
+  auto MemoryManager = GetMemoryManager(K);
 
-  JITSymbolResolverAdapter ResolverAdapter(ES, *Resources.Resolver, &R);
-  auto RTDyld =
-      llvm::make_unique<RuntimeDyld>(*Resources.MemMgr, ResolverAdapter);
+  JITDylibSearchOrderResolver Resolver(R);
+  auto RTDyld = llvm::make_unique<RuntimeDyld>(*MemoryManager, Resolver);
   RTDyld->setProcessAllSections(ProcessAllSections);
 
   {
@@ -48,7 +99,7 @@ void RTDyldObjectLinkingLayer2::emit(MaterializationResponsibility R,
 
     assert(!MemMgrs.count(K) &&
            "A memory manager already exists for this key?");
-    MemMgrs[K] = Resources.MemMgr;
+    MemMgrs[K] = std::move(MemoryManager);
   }
 
   auto Info = RTDyld->loadObject(**ObjFile);
@@ -92,10 +143,10 @@ void RTDyldObjectLinkingLayer2::emit(MaterializationResponsibility R,
     return;
   }
 
-  R.finalize();
+  R.emit();
 
-  if (NotifyFinalized)
-    NotifyFinalized(K);
+  if (NotifyEmitted)
+    NotifyEmitted(K);
 }
 
 void RTDyldObjectLinkingLayer2::mapSectionAddress(

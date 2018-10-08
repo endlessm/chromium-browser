@@ -420,8 +420,6 @@
 // RUN:     /Gr \
 // RUN:     /GS \
 // RUN:     /GT \
-// RUN:     /guard:cf \
-// RUN:     /guard:cf- \
 // RUN:     /GX \
 // RUN:     /Gv \
 // RUN:     /Gz \
@@ -429,6 +427,7 @@
 // RUN:     /H \
 // RUN:     /homeparams \
 // RUN:     /hotpatch \
+// RUN:     /JMC \
 // RUN:     /kernel \
 // RUN:     /LN \
 // RUN:     /MP \
@@ -561,10 +560,29 @@
 // RUN: %clang_cl -### -Fe%t.exe -entry:main -flto -- %s 2>&1 | FileCheck -check-prefix=LTO-WITHOUT-LLD %s
 // LTO-WITHOUT-LLD: LTO requires -fuse-ld=lld
 
+// RUN: %clang_cl  -### -- %s 2>&1 | FileCheck -check-prefix=NOCFGUARD %s
+// RUN: %clang_cl /guard:cf- -### -- %s 2>&1 | FileCheck -check-prefix=NOCFGUARD %s
+// NOCFGUARD-NOT: -guardcf
+
+// RUN: %clang_cl /guard:cf -### -- %s 2>&1 | FileCheck -check-prefix=CFGUARD %s
+// RUN: %clang_cl /guard:cf,nochecks -### -- %s 2>&1 | FileCheck -check-prefix=CFGUARD %s
+// RUN: %clang_cl /guard:nochecks -### -- %s 2>&1 | FileCheck -check-prefix=CFGUARD %s
+// CFGUARD: -cfguard
+
+// RUN: %clang_cl /guard:foo -### -- %s 2>&1 | FileCheck -check-prefix=CFGUARDINVALID %s
+// CFGUARDINVALID: invalid value 'foo' in '/guard:'
+
 // Accept "core" clang options.
 // (/Zs is for syntax-only, -Werror makes it fail hard on unknown options)
 // RUN: %clang_cl \
 // RUN:     --driver-mode=cl \
+// RUN:     -fblocks \
+// RUN:     -fcrash-diagnostics-dir=/foo \
+// RUN:     -fno-crash-diagnostics \
+// RUN:     -fno-blocks \
+// RUN:     -fbuiltin \
+// RUN:     -fno-builtin \
+// RUN:     -fno-builtin-strcpy \
 // RUN:     -fcolor-diagnostics \
 // RUN:     -fno-color-diagnostics \
 // RUN:     -fcoverage-mapping \

@@ -18,13 +18,13 @@ package com.google.flatbuffers;
 
 import static com.google.flatbuffers.Constants.*;
 
-import java.nio.CharBuffer;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.*;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
 import java.util.Arrays;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.charset.Charset;
 
 /// @file
@@ -52,7 +52,21 @@ public class FlatBufferBuilder {
     boolean force_defaults = false; // False omits default values from the serialized data.
     CharsetEncoder encoder = utf8charset.newEncoder();
     ByteBuffer dst;
+    ByteBufferFactory bb_factory;   // Factory for allocating the internal buffer
     /// @endcond
+
+    /**
+     * Start with a buffer of size `initial_size`, then grow as required.
+     *
+     * @param initial_size The initial size of the internal buffer to use.
+     * @param bb_factory The factory to be used for allocating the internal buffer
+     */
+    public FlatBufferBuilder(int initial_size, ByteBufferFactory bb_factory) {
+        if (initial_size <= 0) initial_size = 1;
+        space = initial_size;
+        this.bb_factory = bb_factory;
+        bb = bb_factory.newByteBuffer(initial_size);
+    }
 
    /**
     * Start with a buffer of size `initial_size`, then grow as required.
@@ -60,14 +74,12 @@ public class FlatBufferBuilder {
     * @param initial_size The initial size of the internal buffer to use.
     */
     public FlatBufferBuilder(int initial_size) {
-        if (initial_size <= 0) initial_size = 1;
-        space = initial_size;
-        bb = newByteBuffer(initial_size);
+        this(initial_size, new HeapByteBufferFactory());
     }
 
-   /**
-    * Start with a buffer of 1KiB, then grow as required.
-    */
+    /**
+     * Start with a buffer of 1KiB, then grow as required.
+     */
     public FlatBufferBuilder() {
         this(1024);
     }
@@ -78,9 +90,22 @@ public class FlatBufferBuilder {
      * to call {@link #dataBuffer()} to obtain the resulting encoded message.
      *
      * @param existing_bb The byte buffer to reuse.
+     * @param bb_factory The factory to be used for allocating a new internal buffer if
+     *                   the existing buffer needs to grow
+     */
+    public FlatBufferBuilder(ByteBuffer existing_bb, ByteBufferFactory bb_factory) {
+        init(existing_bb, bb_factory);
+    }
+
+    /**
+     * Alternative constructor allowing reuse of {@link ByteBuffer}s.  The builder
+     * can still grow the buffer as necessary.  User classes should make sure
+     * to call {@link #dataBuffer()} to obtain the resulting encoded message.
+     *
+     * @param existing_bb The byte buffer to reuse.
      */
     public FlatBufferBuilder(ByteBuffer existing_bb) {
-        init(existing_bb);
+        init(existing_bb, new HeapByteBufferFactory());
     }
 
     /**
@@ -89,9 +114,12 @@ public class FlatBufferBuilder {
      * objects that have been allocated for temporary storage.
      *
      * @param existing_bb The byte buffer to reuse.
+     * @param bb_factory The factory to be used for allocating a new internal buffer if
+     *                   the existing buffer needs to grow
      * @return Returns `this`.
      */
-    public FlatBufferBuilder init(ByteBuffer existing_bb){
+    public FlatBufferBuilder init(ByteBuffer existing_bb, ByteBufferFactory bb_factory){
+        this.bb_factory = bb_factory;
         bb = existing_bb;
         bb.clear();
         bb.order(ByteOrder.LITTLE_ENDIAN);
@@ -104,6 +132,39 @@ public class FlatBufferBuilder {
         num_vtables = 0;
         vector_num_elems = 0;
         return this;
+    }
+
+    /**
+     * An interface that provides a user of the FlatBufferBuilder class the ability to specify
+     * the method in which the internal buffer gets allocated. This allows for alternatives
+     * to the default behavior, which is to allocate memory for a new byte-array
+     * backed `ByteBuffer` array inside the JVM.
+     *
+     * The FlatBufferBuilder class contains the HeapByteBufferFactory class to
+     * preserve the default behavior in the event that the user does not provide
+     * their own implementation of this interface.
+     */
+    public interface ByteBufferFactory {
+        /**
+         * Create a `ByteBuffer` with a given capacity.
+         *
+         * @param capacity The size of the `ByteBuffer` to allocate.
+         * @return Returns the new `ByteBuffer` that was allocated.
+         */
+        ByteBuffer newByteBuffer(int capacity);
+    }
+
+    /**
+     * An implementation of the ByteBufferFactory interface that is used when
+     * one is not provided by the user.
+     *
+     * Allocate memory for a new byte-array backed `ByteBuffer` array inside the JVM.
+     */
+    public static final class HeapByteBufferFactory implements ByteBufferFactory {
+        @Override
+        public ByteBuffer newByteBuffer(int capacity) {
+            return ByteBuffer.allocate(capacity).order(ByteOrder.LITTLE_ENDIAN);
+        }
     }
 
     /**
@@ -122,34 +183,22 @@ public class FlatBufferBuilder {
         vector_num_elems = 0;
     }
 
-    /// @cond FLATBUFFERS_INTERNAL
-    /**
-     * Create a `ByteBuffer` with a given capacity.
-     *
-     * @param capacity The size of the `ByteBuffer` to allocate.
-     * @return Returns the new `ByteBuffer` that was allocated.
-     */
-    static ByteBuffer newByteBuffer(int capacity) {
-        ByteBuffer newbb = ByteBuffer.allocate(capacity);
-        newbb.order(ByteOrder.LITTLE_ENDIAN);
-        return newbb;
-    }
-
     /**
      * Doubles the size of the backing {@link ByteBuffer} and copies the old data towards the
      * end of the new buffer (since we build the buffer backwards).
      *
      * @param bb The current buffer with the existing data.
+     * @param bb_factory The factory to be used for allocating the new internal buffer
      * @return A new byte buffer with the old data copied copied to it.  The data is
      * located at the end of the buffer.
      */
-    static ByteBuffer growByteBuffer(ByteBuffer bb) {
+    static ByteBuffer growByteBuffer(ByteBuffer bb, ByteBufferFactory bb_factory) {
         int old_buf_size = bb.capacity();
         if ((old_buf_size & 0xC0000000) != 0)  // Ensure we don't grow beyond what fits in an int.
             throw new AssertionError("FlatBuffers: cannot grow buffer beyond 2 gigabytes.");
-        int new_buf_size = old_buf_size << 1;
+        int new_buf_size = old_buf_size == 0 ? 1 : old_buf_size << 1;
         bb.position(0);
-        ByteBuffer nbb = newByteBuffer(new_buf_size);
+        ByteBuffer nbb = bb_factory.newByteBuffer(new_buf_size);
         nbb.position(new_buf_size - old_buf_size);
         nbb.put(bb);
         return nbb;
@@ -192,7 +241,7 @@ public class FlatBufferBuilder {
         // Reallocate the buffer if needed.
         while (space < align_size + size + additional_bytes) {
             int old_buf_size = bb.capacity();
-            bb = growByteBuffer(bb);
+            bb = growByteBuffer(bb, bb_factory);
             space += bb.capacity() - old_buf_size;
         }
         pad(align_size);
@@ -429,7 +478,7 @@ public class FlatBufferBuilder {
         obj.sortTables(offsets, bb);
         return createVectorOfTables(offsets);
     }
-	
+
    /**
     * Encode the string `s` in the buffer using UTF-8.  If {@code s} is
     * already a {@link CharBuffer}, this method is allocation free.
@@ -695,7 +744,11 @@ public class FlatBufferBuilder {
         addInt(0);
         int vtableloc = offset();
         // Write out the current vtable.
-        for (int i = vtable_in_use - 1; i >= 0 ; i--) {
+        int i = vtable_in_use - 1;
+        // Trim trailing zeroes.
+        for (; i >= 0 && vtable[i] == 0; i--) {}
+        int trimmed_size = i + 1;
+        for (; i >= 0 ; i--) {
             // Offset relative to the start of the table.
             short off = (short)(vtable[i] != 0 ? vtableloc - vtable[i] : 0);
             addShort(off);
@@ -703,12 +756,12 @@ public class FlatBufferBuilder {
 
         final int standard_fields = 2; // The fields below:
         addShort((short)(vtableloc - object_start));
-        addShort((short)((vtable_in_use + standard_fields) * SIZEOF_SHORT));
+        addShort((short)((trimmed_size + standard_fields) * SIZEOF_SHORT));
 
         // Search for an existing vtable that matches the current one.
         int existing_vtable = 0;
         outer_loop:
-        for (int i = 0; i < num_vtables; i++) {
+        for (i = 0; i < num_vtables; i++) {
             int vt1 = bb.capacity() - vtables[i];
             int vt2 = space;
             short len = bb.getShort(vt1);
@@ -763,12 +816,53 @@ public class FlatBufferBuilder {
      * Finalize a buffer, pointing to the given `root_table`.
      *
      * @param root_table An offset to be added to the buffer.
+     * @param size_prefix Whether to prefix the size to the buffer.
      */
-    public void finish(int root_table) {
-        prep(minalign, SIZEOF_INT);
+    protected void finish(int root_table, boolean size_prefix) {
+        prep(minalign, SIZEOF_INT + (size_prefix ? SIZEOF_INT : 0));
         addOffset(root_table);
+        if (size_prefix) {
+            addInt(bb.capacity() - space);
+        }
         bb.position(space);
         finished = true;
+    }
+
+    /**
+     * Finalize a buffer, pointing to the given `root_table`.
+     *
+     * @param root_table An offset to be added to the buffer.
+     */
+    public void finish(int root_table) {
+        finish(root_table, false);
+    }
+
+    /**
+     * Finalize a buffer, pointing to the given `root_table`, with the size prefixed.
+     *
+     * @param root_table An offset to be added to the buffer.
+     */
+    public void finishSizePrefixed(int root_table) {
+        finish(root_table, true);
+    }
+
+    /**
+     * Finalize a buffer, pointing to the given `root_table`.
+     *
+     * @param root_table An offset to be added to the buffer.
+     * @param file_identifier A FlatBuffer file identifier to be added to the buffer before
+     * `root_table`.
+     * @param size_prefix Whether to prefix the size to the buffer.
+     */
+    protected void finish(int root_table, String file_identifier, boolean size_prefix) {
+        prep(minalign, SIZEOF_INT + FILE_IDENTIFIER_LENGTH + (size_prefix ? SIZEOF_INT : 0));
+        if (file_identifier.length() != FILE_IDENTIFIER_LENGTH)
+            throw new AssertionError("FlatBuffers: file identifier must be length " +
+                                     FILE_IDENTIFIER_LENGTH);
+        for (int i = FILE_IDENTIFIER_LENGTH - 1; i >= 0; i--) {
+            addByte((byte)file_identifier.charAt(i));
+        }
+        finish(root_table, size_prefix);
     }
 
     /**
@@ -779,14 +873,18 @@ public class FlatBufferBuilder {
      * `root_table`.
      */
     public void finish(int root_table, String file_identifier) {
-        prep(minalign, SIZEOF_INT + FILE_IDENTIFIER_LENGTH);
-        if (file_identifier.length() != FILE_IDENTIFIER_LENGTH)
-            throw new AssertionError("FlatBuffers: file identifier must be length " +
-                                     FILE_IDENTIFIER_LENGTH);
-        for (int i = FILE_IDENTIFIER_LENGTH - 1; i >= 0; i--) {
-            addByte((byte)file_identifier.charAt(i));
-        }
-        finish(root_table);
+        finish(root_table, file_identifier, false);
+    }
+
+    /**
+     * Finalize a buffer, pointing to the given `root_table`, with the size prefixed.
+     *
+     * @param root_table An offset to be added to the buffer.
+     * @param file_identifier A FlatBuffer file identifier to be added to the buffer before
+     * `root_table`.
+     */
+    public void finishSizePrefixed(int root_table, String file_identifier) {
+        finish(root_table, file_identifier, true);
     }
 
     /**
@@ -853,6 +951,41 @@ public class FlatBufferBuilder {
     public byte[] sizedByteArray() {
         return sizedByteArray(space, bb.capacity() - space);
     }
+
+    /**
+     * A utility function to return an InputStream to the ByteBuffer data
+     *
+     * @return An InputStream that starts at the beginning of the ByteBuffer data
+     *         and can read to the end of it.
+     */
+    public InputStream sizedInputStream() {
+        finished();
+        ByteBuffer duplicate = bb.duplicate();
+        duplicate.position(space);
+        duplicate.limit(bb.capacity());
+        return new ByteBufferBackedInputStream(duplicate);
+    }
+
+    /**
+     * A class that allows a user to create an InputStream from a ByteBuffer.
+     */
+    static class ByteBufferBackedInputStream extends InputStream {
+
+        ByteBuffer buf;
+
+        public ByteBufferBackedInputStream(ByteBuffer buf) {
+            this.buf = buf;
+        }
+
+        public int read() throws IOException {
+            try {
+                return buf.get() & 0xFF;
+            } catch(BufferUnderflowException e) {
+                return -1;
+            }
+        }
+    }
+
 }
 
 /// @}

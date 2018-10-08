@@ -719,7 +719,7 @@ an optional ``unnamed_addr`` attribute, a return type, an optional
 :ref:`parameter attribute <paramattrs>` for the return type, a function
 name, a (possibly empty) argument list (each with optional :ref:`parameter
 attributes <paramattrs>`), optional :ref:`function attributes <fnattrs>`,
-an optional section, an optional alignment,
+an optional address space, an optional section, an optional alignment,
 an optional :ref:`comdat <langref_comdats>`,
 an optional :ref:`garbage collector name <gc>`, an optional :ref:`prefix <prefixdata>`,
 an optional :ref:`prologue <prologuedata>`,
@@ -731,8 +731,8 @@ LLVM function declarations consist of the "``declare``" keyword, an
 optional :ref:`linkage type <linkage>`, an optional :ref:`visibility style
 <visibility>`, an optional :ref:`DLL storage class <dllstorageclass>`, an
 optional :ref:`calling convention <callingconv>`, an optional ``unnamed_addr``
-or ``local_unnamed_addr`` attribute, a return type, an optional :ref:`parameter
-attribute <paramattrs>` for the return type, a function name, a possibly
+or ``local_unnamed_addr`` attribute, an optional address space, a return type,
+an optional :ref:`parameter attribute <paramattrs>` for the return type, a function name, a possibly
 empty list of arguments, an optional alignment, an optional :ref:`garbage
 collector name <gc>`, an optional :ref:`prefix <prefixdata>`, and an optional
 :ref:`prologue <prologuedata>`.
@@ -769,13 +769,16 @@ be significant and two identical functions can be merged.
 If the ``local_unnamed_addr`` attribute is given, the address is known to
 not be significant within the module.
 
+If an explicit address space is not given, it will default to the program
+address space from the :ref:`datalayout string<langref_datalayout>`.
+
 Syntax::
 
     define [linkage] [PreemptionSpecifier] [visibility] [DLLStorageClass]
            [cconv] [ret attrs]
            <ResultType> @<FunctionName> ([argument list])
-           [(unnamed_addr|local_unnamed_addr)] [fn Attrs] [section "name"]
-           [comdat [($name)]] [align N] [gc] [prefix Constant]
+           [(unnamed_addr|local_unnamed_addr)] [AddrSpace] [fn Attrs]
+           [section "name"] [comdat [($name)]] [align N] [gc] [prefix Constant]
            [prologue Constant] [personality Constant] (!name !N)* { ... }
 
 The argument list is a comma separated sequence of arguments where each
@@ -1048,7 +1051,7 @@ Currently, only the following parameter attributes are defined:
 
     When the call site is reached, the argument allocation must have
     been the most recent stack allocation that is still live, or the
-    results are undefined. It is possible to allocate additional stack
+    behavior is undefined. It is possible to allocate additional stack
     space after an argument allocation and before its call site, but it
     must be cleared off with :ref:`llvm.stackrestore
     <int_stackrestore>`.
@@ -1122,9 +1125,8 @@ Currently, only the following parameter attributes are defined:
 ``nonnull``
     This indicates that the parameter or return pointer is not null. This
     attribute may only be applied to pointer typed parameters. This is not
-    checked or enforced by LLVM, the caller must ensure that the pointer
-    passed in is non-null, or the callee must ensure that the returned pointer
-    is non-null.
+    checked or enforced by LLVM; if the parameter or return pointer is null,
+    the behavior is undefined.
 
 ``dereferenceable(<n>)``
     This indicates that the parameter or return pointer is dereferenceable. This
@@ -1387,11 +1389,13 @@ example:
 ``inaccessiblememonly``
     This attribute indicates that the function may only access memory that
     is not accessible by the module being compiled. This is a weaker form
-    of ``readnone``.
+    of ``readnone``. If the function reads or writes other memory, the
+    behavior is undefined.
 ``inaccessiblemem_or_argmemonly``
     This attribute indicates that the function may only access memory that is
     either not accessible by the module being compiled, or is pointed to
-    by its pointer arguments. This is a weaker form of  ``argmemonly``
+    by its pointer arguments. This is a weaker form of  ``argmemonly``. If the
+    function reads or writes other memory, the behavior is undefined.
 ``inlinehint``
     This attribute indicates that the source code contained a hint that
     inlining this function is desirable (such as the "inline" keyword in
@@ -1542,6 +1546,10 @@ example:
     On an argument, this attribute indicates that the function does not
     dereference that pointer argument, even though it may read or write the
     memory that the pointer points to if accessed through other pointers.
+
+    If a readnone function reads or writes memory visible to the program, or
+    has other side-effects, the behavior is undefined. If a function reads from
+    or writes to a readnone pointer argument, the behavior is undefined.
 ``readonly``
     On a function, this attribute indicates that the function does not write
     through any pointer arguments (including ``byval`` arguments) or otherwise
@@ -1557,6 +1565,10 @@ example:
     On an argument, this attribute indicates that the function does not write
     through this pointer argument, even though it may write to the memory that
     the pointer points to.
+
+    If a readonly function writes memory visible to the program, or
+    has other side-effects, the behavior is undefined. If a function writes to
+    a readonly pointer argument, the behavior is undefined.
 ``"stack-probe-size"``
     This attribute controls the behavior of stack probes: either
     the ``"probe-stack"`` attribute, or ABI-required stack probes, if any.
@@ -1581,14 +1593,22 @@ example:
     On an argument, this attribute indicates that the function may write to but
     does not read through this pointer argument (even though it may read from
     the memory that the pointer points to).
+
+    If a writeonly function reads memory visible to the program, or
+    has other side-effects, the behavior is undefined. If a function reads
+    from a writeonly pointer argument, the behavior is undefined.
 ``argmemonly``
     This attribute indicates that the only memory accesses inside function are
     loads and stores from objects pointed to by its pointer-typed arguments,
     with arbitrary offsets. Or in other words, all memory operations in the
     function can refer to memory only using pointers based on its function
     arguments.
+
     Note that ``argmemonly`` can be used together with ``readonly`` attribute
     in order to specify that function reads only from its arguments.
+
+    If an argmemonly function reads or writes memory other than the pointer
+    arguments, or has other side-effects, the behavior is undefined.
 ``returns_twice``
     This attribute indicates that this function can return twice. The C
     ``setjmp`` is an example of such a function. The compiler disables
@@ -2320,15 +2340,7 @@ The default LLVM floating-point environment assumes that floating-point
 instructions do not have side effects. Results assume the round-to-nearest
 rounding mode. No floating-point exception state is maintained in this
 environment. Therefore, there is no attempt to create or preserve invalid
-operation (SNaN) or division-by-zero exceptions in these examples:
-
-.. code-block:: llvm
-
-      %A = fdiv 0x7ff0000000000001, %X  ; 64-bit SNaN hex value 
-      %B = fdiv %X, 0.0
-    Safe:
-      %A = NaN
-      %B = NaN
+operation (SNaN) or division-by-zero exceptions.
 
 The benefit of this exception-free assumption is that floating-point
 operations may be speculated freely without any other fast-math relaxations
@@ -4383,7 +4395,7 @@ DISubrange
 - ``count: !9`` describes the count with a :ref:`DILocalVariable`.
 - ``count: !11`` describes the count with a :ref:`DIGlobalVariable`.
 
-.. code-block:: llvm
+.. code-block:: text
 
     !0 = !DISubrange(count: 5, lowerBound: 0) ; array counting from 0
     !1 = !DISubrange(count: 5, lowerBound: 1) ; array counting from 1
@@ -4391,17 +4403,17 @@ DISubrange
 
     ; Scopes used in rest of example
     !6 = !DIFile(filename: "vla.c", directory: "/path/to/file")
-    !7 = distinct !DICompileUnit(language: DW_LANG_C99, ...
-    !8 = distinct !DISubprogram(name: "foo", scope: !7, file: !6, line: 5, ...
+    !7 = distinct !DICompileUnit(language: DW_LANG_C99, file: !6)
+    !8 = distinct !DISubprogram(name: "foo", scope: !7, file: !6, line: 5)
 
     ; Use of local variable as count value
     !9 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
     !10 = !DILocalVariable(name: "count", scope: !8, file: !6, line: 42, type: !9)
-    !11 = !DISubrange(count !10, lowerBound: 0)
+    !11 = !DISubrange(count: !10, lowerBound: 0)
 
     ; Use of global variable as count value
     !12 = !DIGlobalVariable(name: "count", scope: !8, file: !6, line: 22, type: !9)
-    !13 = !DISubrange(count !12, lowerBound: 0)
+    !13 = !DISubrange(count: !12, lowerBound: 0)
 
 .. _DIEnumerator:
 
@@ -4411,7 +4423,7 @@ DIEnumerator
 ``DIEnumerator`` nodes are the elements for ``DW_TAG_enumeration_type``
 variants of :ref:`DICompositeType`.
 
-.. code-block:: llvm
+.. code-block:: text
 
     !0 = !DIEnumerator(name: "SixKind", value: 7)
     !1 = !DIEnumerator(name: "SevenKind", value: 7)
@@ -4424,7 +4436,7 @@ DITemplateTypeParameter
 language constructs. They are used (optionally) in :ref:`DICompositeType` and
 :ref:`DISubprogram` ``templateParams:`` fields.
 
-.. code-block:: llvm
+.. code-block:: text
 
     !0 = !DITemplateTypeParameter(name: "Ty", type: !1)
 
@@ -4437,7 +4449,7 @@ but if specified can also be set to ``DW_TAG_GNU_template_template_param`` or
 ``DW_TAG_GNU_template_param_pack``. They are used (optionally) in
 :ref:`DICompositeType` and :ref:`DISubprogram` ``templateParams:`` fields.
 
-.. code-block:: llvm
+.. code-block:: text
 
     !0 = !DITemplateValueParameter(name: "Ty", type: !1, value: i32 7)
 
@@ -4446,7 +4458,7 @@ DINamespace
 
 ``DINamespace`` nodes represent namespaces in the source language.
 
-.. code-block:: llvm
+.. code-block:: text
 
     !0 = !DINamespace(name: "myawesomeproject", scope: !1, file: !2, line: 7)
 
@@ -4457,7 +4469,7 @@ DIGlobalVariable
 
 ``DIGlobalVariable`` nodes represent global variables in the source language.
 
-.. code-block:: llvm
+.. code-block:: text
 
     !0 = !DIGlobalVariable(name: "foo", linkageName: "foo", scope: !1,
                            file: !2, line: 7, type: !3, isLocal: true,
@@ -4528,7 +4540,7 @@ DILexicalBlockFile
 indicate textual inclusion, or the ``discriminator:`` field can be used to
 discriminate between control flow within a single block in the source language.
 
-.. code-block:: llvm
+.. code-block:: text
 
     !0 = !DILexicalBlock(scope: !3, file: !4, line: 7, column: 35)
     !1 = !DILexicalBlockFile(scope: !0, file: !4, discriminator: 0)
@@ -4543,7 +4555,7 @@ DILocation
 mandatory, and points at an :ref:`DILexicalBlockFile`, an
 :ref:`DILexicalBlock`, or an :ref:`DISubprogram`.
 
-.. code-block:: llvm
+.. code-block:: text
 
     !0 = !DILocation(line: 2900, column: 42, scope: !1, inlinedAt: !2)
 
@@ -4571,9 +4583,12 @@ DIExpression
 ``DIExpression`` nodes represent expressions that are inspired by the DWARF
 expression language. They are used in :ref:`debug intrinsics<dbg_intrinsics>`
 (such as ``llvm.dbg.declare`` and ``llvm.dbg.value``) to describe how the
-referenced LLVM variable relates to the source language variable.
+referenced LLVM variable relates to the source language variable. Debug
+intrinsics are interpreted left-to-right: start by pushing the value/address
+operand of the intrinsic onto a stack, then repeatedly push and evaluate
+opcodes from the DIExpression until the final variable description is produced.
 
-The current supported vocabulary is limited:
+The current supported opcode vocabulary is limited:
 
 - ``DW_OP_deref`` dereferences the top of the expression stack.
 - ``DW_OP_plus`` pops the last two entries from the expression stack, adds
@@ -4593,12 +4608,30 @@ The current supported vocabulary is limited:
 - ``DW_OP_stack_value`` marks a constant value.
 
 DWARF specifies three kinds of simple location descriptions: Register, memory,
-and implicit location descriptions. Register and memory location descriptions
-describe the *location* of a source variable (in the sense that a debugger might
-modify its value), whereas implicit locations describe merely the *value* of a
-source variable. DIExpressions also follow this model: A DIExpression that
-doesn't have a trailing ``DW_OP_stack_value`` will describe an *address* when
-combined with a concrete location.
+and implicit location descriptions.  Note that a location description is
+defined over certain ranges of a program, i.e the location of a variable may
+change over the course of the program. Register and memory location
+descriptions describe the *concrete location* of a source variable (in the
+sense that a debugger might modify its value), whereas *implicit locations*
+describe merely the actual *value* of a source variable which might not exist
+in registers or in memory (see ``DW_OP_stack_value``).
+
+A ``llvm.dbg.addr`` or ``llvm.dbg.declare`` intrinsic describes an indirect
+value (the address) of a source variable. The first operand of the intrinsic
+must be an address of some kind. A DIExpression attached to the intrinsic
+refines this address to produce a concrete location for the source variable.
+
+A ``llvm.dbg.value`` intrinsic describes the direct value of a source variable.
+The first operand of the intrinsic may be a direct or indirect value. A
+DIExpresion attached to the intrinsic refines the first operand to produce a
+direct value. For example, if the first operand is an indirect value, it may be
+necessary to insert ``DW_OP_deref`` into the DIExpresion in order to produce a
+valid debug intrinsic.
+
+.. note::
+
+   A DIExpression is interpreted in the same way regardless of which kind of
+   debug intrinsic it's attached to.
 
 .. code-block:: text
 
@@ -4615,7 +4648,7 @@ DIObjCProperty
 
 ``DIObjCProperty`` nodes represent Objective-C property nodes.
 
-.. code-block:: llvm
+.. code-block:: text
 
     !3 = !DIObjCProperty(name: "foo", file: !1, line: 7, setter: "setFoo",
                          getter: "getFoo", attributes: 7, type: !2)
@@ -5179,6 +5212,59 @@ For example:
 .. code-block:: llvm
 
    !0 = !{!"llvm.loop.unroll.full"}
+
+'``llvm.loop.unroll_and_jam``'
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata is treated very similarly to the ``llvm.loop.unroll`` metadata
+above, but affect the unroll and jam pass. In addition any loop with
+``llvm.loop.unroll`` metadata but no ``llvm.loop.unroll_and_jam`` metadata will
+disable unroll and jam (so ``llvm.loop.unroll`` metadata will be left to the
+unroller, plus ``llvm.loop.unroll.disable`` metadata will disable unroll and jam
+too.)
+
+The metadata for unroll and jam otherwise is the same as for ``unroll``.
+``llvm.loop.unroll_and_jam.enable``, ``llvm.loop.unroll_and_jam.disable`` and
+``llvm.loop.unroll_and_jam.count`` do the same as for unroll.
+``llvm.loop.unroll_and_jam.full`` is not supported. Again these are only hints
+and the normal safety checks will still be performed.
+
+'``llvm.loop.unroll_and_jam.count``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata suggests an unroll and jam factor to use, similarly to
+``llvm.loop.unroll.count``. The first operand is the string
+``llvm.loop.unroll_and_jam.count`` and the second operand is a positive integer
+specifying the unroll factor. For example:
+
+.. code-block:: llvm
+
+   !0 = !{!"llvm.loop.unroll_and_jam.count", i32 4}
+
+If the trip count of the loop is less than the unroll count the loop
+will be partially unroll and jammed.
+
+'``llvm.loop.unroll_and_jam.disable``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata disables loop unroll and jamming. The metadata has a single
+operand which is the string ``llvm.loop.unroll_and_jam.disable``. For example:
+
+.. code-block:: llvm
+
+   !0 = !{!"llvm.loop.unroll_and_jam.disable"}
+
+'``llvm.loop.unroll_and_jam.enable``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata suggests that the loop should be fully unroll and jammed if the
+trip count is known at compile time and partially unrolled if the trip count is
+not known at compile time. The metadata has a single operand which is the
+string ``llvm.loop.unroll_and_jam.enable``.  For example:
+
+.. code-block:: llvm
+
+   !0 = !{!"llvm.loop.unroll_and_jam.enable"}
 
 '``llvm.loop.licm_versioning.disable``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -5750,7 +5836,7 @@ one module path entry per linked module with summary.
 
 Example:
 
-.. code-block:: llvm
+.. code-block:: text
 
     ^0 = module: (path: "/path/to/file.o", hash: (2468601609, 1329373163, 1565878005, 638838075, 3148790418))
 
@@ -5768,7 +5854,7 @@ referenced by a summarized module.
 
 Example:
 
-.. code-block:: llvm
+.. code-block:: text
 
     ^4 = gv: (name: "f"[, summaries: (Summary)[, (Summary)]*]?) ; guid = 14740650423002898831
 
@@ -5788,7 +5874,7 @@ Function Summary
 
 If the global value is a function, the ``Summary`` entry will look like:
 
-.. code-block:: llvm
+.. code-block:: text
 
     function: (module: ^0, flags: (linkage: external, notEligibleToImport: 0, live: 0, dsoLocal: 0), insts: 2[, FuncFlags]?[, Calls]?[, TypeIdInfo]?[, Refs]?
 
@@ -5809,7 +5895,7 @@ Global Variable Summary
 
 If the global value is a variable, the ``Summary`` entry will look like:
 
-.. code-block:: llvm
+.. code-block:: text
 
     variable: (module: ^0, flags: (linkage: external, notEligibleToImport: 0, live: 0, dsoLocal: 0)[, Refs]?
 
@@ -5823,7 +5909,7 @@ Alias Summary
 
 If the global value is an alias, the ``Summary`` entry will look like:
 
-.. code-block:: llvm
+.. code-block:: text
 
     alias: (module: ^0, flags: (linkage: external, notEligibleToImport: 0, live: 0, dsoLocal: 0), aliasee: ^2)
 
@@ -5838,7 +5924,7 @@ Function Flags
 
 The optional ``FuncFlags`` field looks like:
 
-.. code-block:: llvm
+.. code-block:: text
 
     funcFlags: (readNone: 0, readOnly: 0, noRecurse: 0, returnDoesNotAlias: 0)
 
@@ -5852,13 +5938,13 @@ Calls
 
 The optional ``Calls`` field looks like:
 
-.. code-block:: llvm
+.. code-block:: text
 
     calls: ((Callee)[, (Callee)]*)
 
 where each ``Callee`` looks like:
 
-.. code-block:: llvm
+.. code-block:: text
 
     callee: ^1[, hotness: None]?[, relbf: 0]?
 
@@ -5875,7 +5961,7 @@ Refs
 
 The optional ``Refs`` field looks like:
 
-.. code-block:: llvm
+.. code-block:: text
 
     refs: ((Ref)[, (Ref)]*)
 
@@ -5891,7 +5977,7 @@ The optional ``TypeIdInfo`` field, used for
 `Control Flow Integrity <http://clang.llvm.org/docs/ControlFlowIntegrity.html>`_,
 looks like:
 
-.. code-block:: llvm
+.. code-block:: text
 
     typeIdInfo: [(TypeTests)]?[, (TypeTestAssumeVCalls)]?[, (TypeCheckedLoadVCalls)]?[, (TypeTestAssumeConstVCalls)]?[, (TypeCheckedLoadConstVCalls)]?
 
@@ -5900,7 +5986,7 @@ These optional fields have the following forms:
 TypeTests
 """""""""
 
-.. code-block:: llvm
+.. code-block:: text
 
     typeTests: (TypeIdRef[, TypeIdRef]*)
 
@@ -5910,13 +5996,13 @@ by summary id or ``GUID``.
 TypeTestAssumeVCalls
 """"""""""""""""""""
 
-.. code-block:: llvm
+.. code-block:: text
 
     typeTestAssumeVCalls: (VFuncId[, VFuncId]*)
 
 Where each VFuncId has the format:
 
-.. code-block:: llvm
+.. code-block:: text
 
     vFuncId: (TypeIdRef, offset: 16)
 
@@ -5926,7 +6012,7 @@ by summary id or ``GUID`` preceeded by a ``guid:`` tag.
 TypeCheckedLoadVCalls
 """""""""""""""""""""
 
-.. code-block:: llvm
+.. code-block:: text
 
     typeCheckedLoadVCalls: (VFuncId[, VFuncId]*)
 
@@ -5935,13 +6021,13 @@ Where each VFuncId has the format described for ``TypeTestAssumeVCalls``.
 TypeTestAssumeConstVCalls
 """""""""""""""""""""""""
 
-.. code-block:: llvm
+.. code-block:: text
 
     typeTestAssumeConstVCalls: (ConstVCall[, ConstVCall]*)
 
 Where each ConstVCall has the format:
 
-.. code-block:: llvm
+.. code-block:: text
 
     VFuncId, args: (Arg[, Arg]*)
 
@@ -5951,7 +6037,7 @@ and each Arg is an integer argument number.
 TypeCheckedLoadConstVCalls
 """"""""""""""""""""""""""
 
-.. code-block:: llvm
+.. code-block:: text
 
     typeCheckedLoadConstVCalls: (ConstVCall[, ConstVCall]*)
 
@@ -5970,7 +6056,7 @@ so these are only present in a combined summary index.
 
 Example:
 
-.. code-block:: llvm
+.. code-block:: text
 
     ^4 = typeid: (name: "_ZTS1A", summary: (typeTestRes: (kind: allOnes, sizeM1BitWidth: 7[, alignLog2: 0]?[, sizeM1: 0]?[, bitMask: 0]?[, inlineBits: 0]?)[, WpdResolutions]?)) ; guid = 7004155349499253778
 
@@ -5980,14 +6066,14 @@ the ``size-1`` bit width. It is followed by optional flags, which default to 0,
 and an optional WpdResolutions (whole program devirtualization resolution)
 field that looks like:
 
-.. code-block:: llvm
+.. code-block:: text
 
     wpdResolutions: ((offset: 0, WpdRes)[, (offset: 1, WpdRes)]*
 
 where each entry is a mapping from the given byte offset to the whole-program
 devirtualization resolution WpdRes, that has one of the following formats:
 
-.. code-block:: llvm
+.. code-block:: text
 
     wpdRes: (kind: branchFunnel)
     wpdRes: (kind: singleImpl, singleImplName: "_ZN1A1nEi")
@@ -5996,13 +6082,13 @@ devirtualization resolution WpdRes, that has one of the following formats:
 Additionally, each wpdRes has an optional ``resByArg`` field, which
 describes the resolutions for calls with all constant integer arguments:
 
-.. code-block:: llvm
+.. code-block:: text
 
     resByArg: (ResByArg[, ResByArg]*)
 
 where ResByArg is:
 
-.. code-block:: llvm
+.. code-block:: text
 
     args: (Arg[, Arg]*), byArg: (kind: UniformRetVal[, info: 0][, byte: 0][, bit: 0])
 
@@ -6369,7 +6455,7 @@ Syntax:
 
 ::
 
-      <result> = invoke [cconv] [ret attrs] <ty>|<fnty> <fnptrval>(<function args>) [fn attrs]
+      <result> = invoke [cconv] [ret attrs] [addrspace(<num>)] [<ty>|<fnty> <fnptrval>(<function args>) [fn attrs]
                     [operand bundles] to label <normal label> unwind label <exception label>
 
 Overview:
@@ -6405,6 +6491,9 @@ This instruction requires several arguments:
 #. The optional :ref:`Parameter Attributes <paramattrs>` list for return
    values. Only '``zeroext``', '``signext``', and '``inreg``' attributes
    are valid here.
+#. The optional addrspace attribute can be used to indicate the adress space
+   of the called function. If it is not specified, the program address space
+   from the :ref:`datalayout string<langref_datalayout>` will be used.
 #. '``ty``': the type of the call instruction itself which is also the
    type of the return value. Functions that return no value are marked
    ``void``.
@@ -9420,8 +9509,8 @@ Syntax:
 
 ::
 
-      <result> = [tail | musttail | notail ] call [fast-math flags] [cconv] [ret attrs] <ty>|<fnty> <fnptrval>(<function args>) [fn attrs]
-                   [ operand bundles ]
+      <result> = [tail | musttail | notail ] call [fast-math flags] [cconv] [ret attrs] [addrspace(<num>)]
+                 [<ty>|<fnty> <fnptrval>(<function args>) [fn attrs] [ operand bundles ]
 
 Overview:
 """""""""
@@ -9492,6 +9581,9 @@ This instruction requires several arguments:
 #. The optional :ref:`Parameter Attributes <paramattrs>` list for return
    values. Only '``zeroext``', '``signext``', and '``inreg``' attributes
    are valid here.
+#. The optional addrspace attribute can be used to indicate the adress space
+   of the called function. If it is not specified, the program address space
+   from the :ref:`datalayout string<langref_datalayout>` will be used.
 #. '``ty``': the type of the call instruction itself which is also the
    type of the return value. Functions that return no value are marked
    ``void``.
@@ -11380,13 +11472,22 @@ type.
 Semantics:
 """"""""""
 
-Follows the IEEE-754 semantics for minNum, which also match for libm's
-fmin.
+Follows the IEEE-754 semantics for minNum, except for handling of
+signaling NaNs. This match's the behavior of libm's fmin.
 
 If either operand is a NaN, returns the other non-NaN operand. Returns
-NaN only if both operands are NaN. If the operands compare equal,
-returns a value that compares equal to both operands. This means that
-fmin(+/-0.0, +/-0.0) could return either -0.0 or 0.0.
+NaN only if both operands are NaN. The returned NaN is always
+quiet. If the operands compare equal, returns a value that compares
+equal to both operands. This means that fmin(+/-0.0, +/-0.0) could
+return either -0.0 or 0.0.
+
+Unlike the IEEE-754 2008 behavior, this does not distinguish between
+signaling and quiet NaN inputs. If a target's implementation follows
+the standard and returns a quiet NaN if either input is a signaling
+NaN, the intrinsic lowering is responsible for quieting the inputs to
+correctly return the non-NaN input (e.g. by using the equivalent of
+``llvm.canonicalize``).
+
 
 '``llvm.maxnum.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -11421,13 +11522,21 @@ type.
 
 Semantics:
 """"""""""
-Follows the IEEE-754 semantics for maxNum, which also match for libm's
-fmax.
+Follows the IEEE-754 semantics for maxNum except for the handling of
+signaling NaNs. This matches the behavior of libm's fmax.
 
 If either operand is a NaN, returns the other non-NaN operand. Returns
-NaN only if both operands are NaN. If the operands compare equal,
-returns a value that compares equal to both operands. This means that
-fmax(+/-0.0, +/-0.0) could return either -0.0 or 0.0.
+NaN only if both operands are NaN. The returned NaN is always
+quiet. If the operands compare equal, returns a value that compares
+equal to both operands. This means that fmax(+/-0.0, +/-0.0) could
+return either -0.0 or 0.0.
+
+Unlike the IEEE-754 2008 behavior, this does not distinguish between
+signaling and quiet NaN inputs. If a target's implementation follows
+the standard and returns a quiet NaN if either input is a signaling
+NaN, the intrinsic lowering is responsible for quieting the inputs to
+correctly return the non-NaN input (e.g. by using the equivalent of
+``llvm.canonicalize``).
 
 '``llvm.copysign.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -55,6 +55,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/Linker/Linker.h"
 #include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Option/Arg.h"
@@ -369,7 +370,7 @@ static StringRef getCodeModel(ArgList &Args, DiagnosticsEngine &Diags) {
   if (Arg *A = Args.getLastArg(OPT_mcode_model)) {
     StringRef Value = A->getValue();
     if (Value == "small" || Value == "kernel" || Value == "medium" ||
-        Value == "large")
+        Value == "large" || Value == "tiny")
       return Value;
     Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Value;
   }
@@ -643,7 +644,12 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.SampleProfileFile = Args.getLastArgValue(OPT_fprofile_sample_use_EQ);
   Opts.DebugInfoForProfiling = Args.hasFlag(
       OPT_fdebug_info_for_profiling, OPT_fno_debug_info_for_profiling, false);
-  Opts.GnuPubnames = Args.hasArg(OPT_ggnu_pubnames);
+  Opts.DebugNameTable = static_cast<unsigned>(
+      Args.hasArg(OPT_ggnu_pubnames)
+          ? llvm::DICompileUnit::DebugNameTableKind::GNU
+          : Args.hasArg(OPT_gpubnames)
+                ? llvm::DICompileUnit::DebugNameTableKind::Default
+                : llvm::DICompileUnit::DebugNameTableKind::None);
 
   setPGOInstrumentor(Opts, Args, Diags);
   Opts.InstrProfileOutput =
@@ -690,7 +696,9 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
                         Args.hasArg(OPT_cl_unsafe_math_optimizations) ||
                         Args.hasArg(OPT_cl_fast_relaxed_math));
   Opts.Reassociate = Args.hasArg(OPT_mreassociate);
-  Opts.FlushDenorm = Args.hasArg(OPT_cl_denorms_are_zero);
+  Opts.FlushDenorm = Args.hasArg(OPT_cl_denorms_are_zero) ||
+                     (Args.hasArg(OPT_fcuda_is_device) &&
+                      Args.hasArg(OPT_fcuda_flush_denormals_to_zero));
   Opts.CorrectlyRoundedDivSqrt =
       Args.hasArg(OPT_cl_fp32_correctly_rounded_divide_sqrt);
   Opts.UniformWGSize =
@@ -808,7 +816,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       }
     }
   }
-	// Handle -fembed-bitcode option.
+  // Handle -fembed-bitcode option.
   if (Arg *A = Args.getLastArg(OPT_fembed_bitcode_EQ)) {
     StringRef Name = A->getValue();
     unsigned Model = llvm::StringSwitch<unsigned>(Name)
@@ -910,10 +918,10 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.RelaxELFRelocations = Args.hasArg(OPT_mrelax_relocations);
   Opts.DebugCompilationDir = Args.getLastArgValue(OPT_fdebug_compilation_dir);
   for (auto *A :
-       Args.filtered(OPT_mlink_bitcode_file, OPT_mlink_cuda_bitcode)) {
+       Args.filtered(OPT_mlink_bitcode_file, OPT_mlink_builtin_bitcode)) {
     CodeGenOptions::BitcodeFileToLink F;
     F.Filename = A->getValue();
-    if (A->getOption().matches(OPT_mlink_cuda_bitcode)) {
+    if (A->getOption().matches(OPT_mlink_builtin_bitcode)) {
       F.LinkFlags = llvm::Linker::Flags::LinkOnlyNeeded;
       // When linking CUDA bitcode, propagate function attributes so that
       // e.g. libdevice gets fast-math attrs if we're building with fast-math.
@@ -1122,6 +1130,22 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.EmitVersionIdentMetadata = Args.hasFlag(OPT_Qy, OPT_Qn, true);
 
   Opts.Addrsig = Args.hasArg(OPT_faddrsig);
+
+  if (Arg *A = Args.getLastArg(OPT_msign_return_address)) {
+    StringRef SignScope = A->getValue();
+    if (SignScope.equals_lower("none"))
+      Opts.setSignReturnAddress(CodeGenOptions::SignReturnAddressScope::None);
+    else if (SignScope.equals_lower("all"))
+      Opts.setSignReturnAddress(CodeGenOptions::SignReturnAddressScope::All);
+    else if (SignScope.equals_lower("non-leaf"))
+      Opts.setSignReturnAddress(
+          CodeGenOptions::SignReturnAddressScope::NonLeaf);
+    else
+      Diags.Report(diag::err_drv_invalid_value)
+          << A->getAsString(Args) << A->getValue();
+  }
+
+  Opts.KeepStaticConsts = Args.hasArg(OPT_fkeep_static_consts);
 
   return Success;
 }
@@ -1548,8 +1572,7 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
 
   Opts.OverrideRecordLayoutsFile
     = Args.getLastArgValue(OPT_foverride_record_layout_EQ);
-  Opts.AuxTriple =
-      llvm::Triple::normalize(Args.getLastArgValue(OPT_aux_triple));
+  Opts.AuxTriple = Args.getLastArgValue(OPT_aux_triple);
   Opts.StatsFile = Args.getLastArgValue(OPT_stats_file);
 
   if (const Arg *A = Args.getLastArg(OPT_arcmt_check,
@@ -2191,9 +2214,6 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   if (Args.hasArg(OPT_fno_cuda_host_device_constexpr))
     Opts.CUDAHostDeviceConstexpr = 0;
 
-  if (Opts.CUDAIsDevice && Args.hasArg(OPT_fcuda_flush_denormals_to_zero))
-    Opts.CUDADeviceFlushDenormalsToZero = 1;
-
   if (Opts.CUDAIsDevice && Args.hasArg(OPT_fcuda_approx_transcendentals))
     Opts.CUDADeviceApproxTranscendentals = 1;
 
@@ -2595,13 +2615,15 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
       Opts.OpenMP && !Args.hasArg(options::OPT_fnoopenmp_use_tls);
   Opts.OpenMPIsDevice =
       Opts.OpenMP && Args.hasArg(options::OPT_fopenmp_is_device);
+  bool IsTargetSpecified =
+      Opts.OpenMPIsDevice || Args.hasArg(options::OPT_fopenmp_targets_EQ);
 
   if (Opts.OpenMP || Opts.OpenMPSimd) {
-    if (int Version =
-            getLastArgIntValue(Args, OPT_fopenmp_version_EQ,
-                               IsSimdSpecified ? 45 : Opts.OpenMP, Diags))
+    if (int Version = getLastArgIntValue(
+            Args, OPT_fopenmp_version_EQ,
+            (IsSimdSpecified || IsTargetSpecified) ? 45 : Opts.OpenMP, Diags))
       Opts.OpenMP = Version;
-    else if (IsSimdSpecified)
+    else if (IsSimdSpecified || IsTargetSpecified)
       Opts.OpenMP = 45;
     // Provide diagnostic when a given target is not expected to be an OpenMP
     // device or host.
@@ -2751,6 +2773,8 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   // -fallow-editor-placeholders
   Opts.AllowEditorPlaceholders = Args.hasArg(OPT_fallow_editor_placeholders);
+
+  Opts.RegisterStaticDestructors = !Args.hasArg(OPT_fno_cxx_static_destructors);
 
   if (Arg *A = Args.getLastArg(OPT_fclang_abi_compat_EQ)) {
     Opts.setClangABICompat(LangOptions::ClangABI::Latest);

@@ -12,8 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ExecutionEngine/JITSymbol.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
-#include "llvm/Object/SymbolicFile.h"
+#include "llvm/Object/ObjectFile.h"
 
 using namespace llvm;
 
@@ -25,11 +26,13 @@ JITSymbolFlags llvm::JITSymbolFlags::fromGlobalValue(const GlobalValue &GV) {
     Flags |= JITSymbolFlags::Common;
   if (!GV.hasLocalLinkage() && !GV.hasHiddenVisibility())
     Flags |= JITSymbolFlags::Exported;
+  if (isa<Function>(GV))
+    Flags |= JITSymbolFlags::Callable;
   return Flags;
 }
 
-JITSymbolFlags
-llvm::JITSymbolFlags::fromObjectSymbol(const object::BasicSymbolRef &Symbol) {
+Expected<JITSymbolFlags>
+llvm::JITSymbolFlags::fromObjectSymbol(const object::SymbolRef &Symbol) {
   JITSymbolFlags Flags = JITSymbolFlags::None;
   if (Symbol.getFlags() & object::BasicSymbolRef::SF_Weak)
     Flags |= JITSymbolFlags::Weak;
@@ -37,11 +40,19 @@ llvm::JITSymbolFlags::fromObjectSymbol(const object::BasicSymbolRef &Symbol) {
     Flags |= JITSymbolFlags::Common;
   if (Symbol.getFlags() & object::BasicSymbolRef::SF_Exported)
     Flags |= JITSymbolFlags::Exported;
+
+  auto SymbolType = Symbol.getType();
+  if (!SymbolType)
+    return SymbolType.takeError();
+
+  if (*SymbolType & object::SymbolRef::ST_Function)
+    Flags |= JITSymbolFlags::Callable;
+
   return Flags;
 }
 
-ARMJITSymbolFlags llvm::ARMJITSymbolFlags::fromObjectSymbol(
-                                         const object::BasicSymbolRef &Symbol) {
+ARMJITSymbolFlags
+llvm::ARMJITSymbolFlags::fromObjectSymbol(const object::SymbolRef &Symbol) {
   ARMJITSymbolFlags Flags;
   if (Symbol.getFlags() & object::BasicSymbolRef::SF_Thumb)
     Flags |= ARMJITSymbolFlags::Thumb;
@@ -83,16 +94,24 @@ LegacyJITSymbolResolver::lookup(const LookupSet &Symbols) {
 
 /// Performs flags lookup by calling findSymbolInLogicalDylib and
 ///        returning the flags value for that symbol.
-Expected<JITSymbolResolver::LookupFlagsResult>
-LegacyJITSymbolResolver::lookupFlags(const LookupSet &Symbols) {
-  JITSymbolResolver::LookupFlagsResult Result;
+Expected<JITSymbolResolver::LookupSet>
+LegacyJITSymbolResolver::getResponsibilitySet(const LookupSet &Symbols) {
+  JITSymbolResolver::LookupSet Result;
 
   for (auto &Symbol : Symbols) {
     std::string SymName = Symbol.str();
-    if (auto Sym = findSymbolInLogicalDylib(SymName))
-      Result[Symbol] = Sym.getFlags();
-    else if (auto Err = Sym.takeError())
+    if (auto Sym = findSymbolInLogicalDylib(SymName)) {
+      // If there's an existing def but it is not strong, then the caller is
+      // responsible for it.
+      if (!Sym.getFlags().isStrong())
+        Result.insert(Symbol);
+    } else if (auto Err = Sym.takeError())
       return std::move(Err);
+    else {
+      // If there is no existing definition then the caller is responsible for
+      // it.
+      Result.insert(Symbol);
+    }
   }
 
   return std::move(Result);

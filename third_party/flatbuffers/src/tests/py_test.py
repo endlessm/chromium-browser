@@ -15,6 +15,7 @@
 
 import os.path
 import sys
+import imp
 PY_VERSION = sys.version_info[:2]
 
 import ctypes
@@ -24,7 +25,9 @@ import unittest
 
 
 from flatbuffers import compat
+from flatbuffers import util
 from flatbuffers.compat import range_func as compat_range
+from flatbuffers.compat import NumpyRequiredForThisFeature
 
 import flatbuffers
 from flatbuffers import number_types as N
@@ -54,9 +57,11 @@ def assertRaises(test_case, fn, exception_class):
 class TestWireFormat(unittest.TestCase):
     def test_wire_format(self):
         # Verify that using the generated Python code builds a buffer without
-        # returning errors, and is interpreted correctly:
-        gen_buf, gen_off = make_monster_from_generated_code()
-        CheckReadBuffer(gen_buf, gen_off)
+        # returning errors, and is interpreted correctly, for size prefixed
+        # representation and regular:
+        for sizePrefix in [True, False]:
+            gen_buf, gen_off = make_monster_from_generated_code(sizePrefix = sizePrefix)
+            CheckReadBuffer(gen_buf, gen_off, sizePrefix = sizePrefix)
 
         # Verify that the canonical flatbuffer file is readable by the
         # generated Python code. Note that context managers are not part of
@@ -72,7 +77,7 @@ class TestWireFormat(unittest.TestCase):
         f.close()
 
 
-def CheckReadBuffer(buf, offset):
+def CheckReadBuffer(buf, offset, sizePrefix = False):
     ''' CheckReadBuffer checks that the given buffer is evaluated correctly
         as the example Monster. '''
 
@@ -81,6 +86,11 @@ def CheckReadBuffer(buf, offset):
         if not stmt:
             raise AssertionError('CheckReadBuffer case failed')
 
+    if sizePrefix:
+        size = util.GetSizePrefix(buf, offset)
+        # taken from the size of monsterdata_python_wire.mon, minus 4
+        asserter(size == 348)
+        buf, offset = util.RemoveSizePrefix(buf, offset)
     monster = MyGame.Example.Monster.Monster.GetRootAsMonster(buf, offset)
 
     asserter(monster.Hp() == 80)
@@ -129,6 +139,40 @@ def CheckReadBuffer(buf, offset):
         v = monster.Inventory(i)
         invsum += int(v)
     asserter(invsum == 10)
+
+    for i in range(5):
+        asserter(monster.VectorOfLongs(i) == 10 ** (i * 2))
+
+    asserter(([-1.7976931348623157e+308, 0, 1.7976931348623157e+308]
+              == [monster.VectorOfDoubles(i)
+                  for i in range(monster.VectorOfDoublesLength())]))
+
+    try:
+        imp.find_module('numpy')
+        # if numpy exists, then we should be able to get the
+        # vector as a numpy array
+        import numpy as np
+
+        asserter(monster.InventoryAsNumpy().sum() == 10)
+        asserter(monster.InventoryAsNumpy().dtype == np.dtype('uint8'))
+
+        VectorOfLongs = monster.VectorOfLongsAsNumpy()
+        asserter(VectorOfLongs.dtype == np.dtype('int64'))
+        for i in range(5):
+            asserter(VectorOfLongs[i] == 10 ** (i * 2))
+
+        VectorOfDoubles = monster.VectorOfDoublesAsNumpy()
+        asserter(VectorOfDoubles.dtype == np.dtype('float64'))
+        asserter(VectorOfDoubles[0] == np.finfo('float64').min)
+        asserter(VectorOfDoubles[1] == 0.0)
+        asserter(VectorOfDoubles[2] == np.finfo('float64').max)
+
+    except ImportError:
+        # If numpy does not exist, trying to get vector as numpy
+        # array should raise NumpyRequiredForThisFeature. The way
+        # assertRaises has been implemented prevents us from
+        # asserting this error is raised outside of a test case.
+        pass
 
     asserter(monster.Test4Length() == 2)
 
@@ -423,6 +467,17 @@ class TestByteLayout(unittest.TestCase):
         self.assertBuilderEquals(b, [4, 0, 0, 0, 4, 5, 6, 7, 0, 0, 0, 0,
                                      3, 0, 0, 0, 1, 2, 3, 0])
 
+    def test_create_byte_vector(self):
+        b = flatbuffers.Builder(0)
+        b.CreateByteVector(b"")
+        # 0-byte pad:
+        self.assertBuilderEquals(b, [0, 0, 0, 0])
+
+        b = flatbuffers.Builder(0)
+        b.CreateByteVector(b"\x01\x02\x03")
+        # 1-byte pad:
+        self.assertBuilderEquals(b, [3, 0, 0, 0, 1, 2, 3, 0])
+
     def test_empty_vtable(self):
         b = flatbuffers.Builder(0)
         b.StartObject(0)
@@ -454,10 +509,10 @@ class TestByteLayout(unittest.TestCase):
         b.PrependBoolSlot(0, False, False)
         b.EndObject()
         self.assertBuilderEquals(b, [
-            6, 0,  # vtable bytes
+            4, 0,  # vtable bytes
             4, 0,  # end of object from here
-            0, 0,  # entry 1 is zero
-            6, 0, 0, 0,  # offset for start of vtable (int32)
+            # entry 1 is zero and not stored
+            4, 0, 0, 0,  # offset for start of vtable (int32)
         ])
 
     def test_vtable_with_one_int16(self):
@@ -763,7 +818,7 @@ class TestByteLayout(unittest.TestCase):
         ])
 
 
-def make_monster_from_generated_code():
+def make_monster_from_generated_code(sizePrefix = False):
     ''' Use generated code to build the example Monster. '''
 
     b = flatbuffers.Builder(0)
@@ -794,6 +849,20 @@ def make_monster_from_generated_code():
     b.PrependUOffsetTRelative(test1)
     testArrayOfString = b.EndVector(2)
 
+    MyGame.Example.Monster.MonsterStartVectorOfLongsVector(b, 5)
+    b.PrependInt64(100000000)
+    b.PrependInt64(1000000)
+    b.PrependInt64(10000)
+    b.PrependInt64(100)
+    b.PrependInt64(1)
+    VectorOfLongs = b.EndVector(5)
+
+    MyGame.Example.Monster.MonsterStartVectorOfDoublesVector(b, 3)
+    b.PrependFloat64(1.7976931348623157e+308)
+    b.PrependFloat64(0)
+    b.PrependFloat64(-1.7976931348623157e+308)
+    VectorOfDoubles = b.EndVector(3)
+
     MyGame.Example.Monster.MonsterStart(b)
 
     pos = MyGame.Example.Vec3.CreateVec3(b, 1.0, 2.0, 3.0, 3.0, 2, 5, 6)
@@ -806,9 +875,14 @@ def make_monster_from_generated_code():
     MyGame.Example.Monster.MonsterAddTest(b, mon2)
     MyGame.Example.Monster.MonsterAddTest4(b, test4)
     MyGame.Example.Monster.MonsterAddTestarrayofstring(b, testArrayOfString)
+    MyGame.Example.Monster.MonsterAddVectorOfLongs(b, VectorOfLongs)
+    MyGame.Example.Monster.MonsterAddVectorOfDoubles(b, VectorOfDoubles)
     mon = MyGame.Example.Monster.MonsterEnd(b)
 
-    b.Finish(mon)
+    if sizePrefix:
+        b.FinishSizePrefixed(mon)
+    else:
+        b.Finish(mon)
 
     return b.Bytes, b.Head()
 
@@ -843,7 +917,7 @@ class TestAllCodePathsOfExampleSchema(unittest.TestCase):
         self.assertEqual(100, self.mon.Hp())
 
     def test_default_monster_name(self):
-        self.assertEqual('', self.mon.Name())
+        self.assertEqual(None, self.mon.Name())
 
     def test_default_monster_inventory_item(self):
         self.assertEqual(0, self.mon.Inventory(0))
@@ -962,6 +1036,15 @@ class TestAllCodePathsOfExampleSchema(unittest.TestCase):
         self.assertEqual(0, mon2.Testnestedflatbuffer(0))
         self.assertEqual(2, mon2.Testnestedflatbuffer(1))
         self.assertEqual(4, mon2.Testnestedflatbuffer(2))
+        try:
+            imp.find_module('numpy')
+            # if numpy exists, then we should be able to get the
+            # vector as a numpy array
+            self.assertEqual([0, 2, 4], mon2.TestnestedflatbufferAsNumpy().tolist())
+        except ImportError:
+            assertRaises(self,
+                         lambda: mon2.TestnestedflatbufferAsNumpy(),
+                         NumpyRequiredForThisFeature)
 
     def test_nondefault_monster_testempty(self):
         b = flatbuffers.Builder(0)
@@ -1163,6 +1246,13 @@ class TestExceptions(unittest.TestCase):
         b.StartObject(0)
         s = 'test1'
         assertRaises(self, lambda: b.CreateString(s),
+                     flatbuffers.builder.IsNestedError)
+
+    def test_create_byte_vector_is_nested_error(self):
+        b = flatbuffers.Builder(0)
+        b.StartObject(0)
+        s = b'test1'
+        assertRaises(self, lambda: b.CreateByteVector(s),
                      flatbuffers.builder.IsNestedError)
 
     def test_finished_bytes_error(self):

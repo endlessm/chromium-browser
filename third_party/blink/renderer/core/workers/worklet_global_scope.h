@@ -51,6 +51,12 @@ class CORE_EXPORT WorkletGlobalScope
   SecurityContext& GetSecurityContext() final { return *this; }
   bool IsSecureContext(String& error_message) const final;
 
+  // Currently, worklet agents have no clearly defined owner. See
+  // https://html.spec.whatwg.org/multipage/webappapis.html#integration-with-the-javascript-agent-cluster-formalism
+  const base::UnguessableToken& GetAgentClusterID() const final {
+    return base::UnguessableToken::Null();
+  }
+
   DOMTimerCoordinator* Timers() final {
     // WorkletGlobalScopes don't have timers.
     NOTREACHED();
@@ -88,6 +94,8 @@ class CORE_EXPORT WorkletGlobalScope
 
   void Trace(blink::Visitor*) override;
 
+  HttpsState GetHttpsState() const override { return https_state_; }
+
  protected:
   // Partial implementation of the "set up a worklet environment settings
   // object" algorithm:
@@ -116,6 +124,8 @@ class CORE_EXPORT WorkletGlobalScope
   const bool document_secure_context_;
 
   CrossThreadPersistent<WorkletModuleResponsesMap> module_responses_map_;
+
+  const HttpsState https_state_;
 };
 
 DEFINE_TYPE_CASTS(WorkletGlobalScope,

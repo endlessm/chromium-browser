@@ -11,16 +11,16 @@ import shutil
 import subprocess
 import sys
 
-from py_utils import dependency_util
-from py_utils import file_util
-from py_utils import tempfile_ext
 from devil import base_error
 from devil.android import apk_helper
 from devil.android import flag_changer
-
+from py_utils import dependency_util
+from py_utils import file_util
+from py_utils import tempfile_ext
+from telemetry import compact_mode_options
+from telemetry import decorators
 from telemetry.core import exceptions
 from telemetry.core import platform
-from telemetry import decorators
 from telemetry.internal.backends import android_browser_backend_settings
 from telemetry.internal.backends.chrome import android_browser_backend
 from telemetry.internal.backends.chrome import chrome_startup_args
@@ -54,7 +54,7 @@ def _ProfileWithExtraFiles(profile_dir, profile_files_to_copy):
     # random name due to the extra failure mode of filling up the sdcard
     # in the case of unclean test teardown. We should consider changing
     # PushProfile to avoid writing to this intermediate location.
-    host_profile = os.path.join(tempdir, "_default_profile")
+    host_profile = os.path.join(tempdir, '_default_profile')
     if profile_dir:
       shutil.copytree(profile_dir, host_profile)
     else:
@@ -71,6 +71,7 @@ def _ProfileWithExtraFiles(profile_dir, profile_files_to_copy):
 
 class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
   """A launchable android browser instance."""
+
   def __init__(self, browser_type, finder_options, android_platform,
                backend_settings, local_apk=None):
     super(PossibleAndroidBrowser, self).__init__(
@@ -185,8 +186,11 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
     startup_args = self.GetBrowserStartupArgs(self._browser_options)
     device.adb.Logcat(clear=True)
 
+    # use legacy commandline path if in compatibility mode
     self._flag_changer = flag_changer.FlagChanger(
-        device, self._backend_settings.command_line_name)
+        device, self._backend_settings.command_line_name, use_legacy_path=
+        compact_mode_options.LEGACY_COMMAND_LINE_PATH in
+        browser_options.compatibility_mode)
     self._flag_changer.ReplaceFlags(startup_args)
     # Stop any existing browser found already running on the device. This is
     # done *after* setting the command line flags, in case some other Android
@@ -242,16 +246,21 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
           exc_info[0].__name__)
       try:
         browser_backend.Close()
-      except Exception: # pylint: disable=broad-except
+      except Exception:  # pylint: disable=broad-except
         logging.exception('Secondary failure while closing browser backend.')
 
       raise exc_info[0], exc_info[1], exc_info[2]
 
   def GetBrowserStartupArgs(self, browser_options):
     startup_args = chrome_startup_args.GetFromBrowserOptions(browser_options)
+    # use the flag `--ignore-certificate-errors` if in compatibility mode
+    supports_spki_list = (
+        self._backend_settings.supports_spki_list and
+        compact_mode_options.IGNORE_CERTIFICATE_ERROR
+        not in browser_options.compatibility_mode)
     startup_args.extend(chrome_startup_args.GetReplayArgs(
         self._platform_backend.network_controller_backend,
-        supports_spki_list=self._backend_settings.supports_spki_list))
+        supports_spki_list=supports_spki_list))
     startup_args.append('--enable-remote-debugging')
     startup_args.append('--disable-fre')
     startup_args.append('--disable-external-intent-requests')

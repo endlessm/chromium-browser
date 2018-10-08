@@ -16,8 +16,6 @@
 
 namespace content {
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(PictureInPictureWindowControllerImpl);
-
 // static
 PictureInPictureWindowController*
 PictureInPictureWindowController::GetOrCreateForWebContents(
@@ -80,6 +78,12 @@ void PictureInPictureWindowControllerImpl::ClickCustomControl(
       new MediaPlayerDelegateMsg_ClickPictureInPictureControl(
           media_player_id_->render_frame_host->GetRoutingID(),
           media_player_id_->delegate_id, control_id));
+}
+
+void PictureInPictureWindowControllerImpl::SetPictureInPictureCustomControls(
+    const std::vector<blink::PictureInPictureControlInfo>& controls) {
+  DCHECK(window_);
+  window_->SetPictureInPictureCustomControls(controls);
 }
 
 void PictureInPictureWindowControllerImpl::Close(bool should_pause_video) {

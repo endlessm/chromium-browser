@@ -59,8 +59,6 @@ class SimpleBuilder(generic_builders.Builder):
     if self._run.options.force_version:
       sync_stage = self._GetStageInstance(
           sync_stages.ManifestVersionedSyncStage)
-    elif self._run.config.use_lkgm:
-      sync_stage = self._GetStageInstance(sync_stages.LKGMSyncStage)
     elif self._run.config.use_chrome_lkgm:
       sync_stage = self._GetStageInstance(chrome_stages.ChromeLKGMSyncStage)
     else:
@@ -106,10 +104,8 @@ class SimpleBuilder(generic_builders.Builder):
     # For non-uni builds, we don't pass a model (just board)
     models = [config_lib.ModelTestConfig(None, board)]
 
-    unibuild = False
     if builder_run.config.models:
       models = builder_run.config.models
-      unibuild = True
 
     parallel_stages = []
     for suite_config in builder_run.config.hw_tests:
@@ -123,7 +119,11 @@ class SimpleBuilder(generic_builders.Builder):
 
       # Please see docstring for blocking in the HWTestConfig for more
       # information on this behavior.
-      if suite_config.blocking and not unibuild:
+      # Expected behavior:
+      #     1) Blocking suites are kicked off first, e.g. provision suite.
+      #     2) If it's unibuild, the blocking suites of all models are kicked
+      #        off in parallel first.
+      if suite_config.blocking:
         self._RunParallelStages(parallel_stages)
         parallel_stages = []
 
@@ -154,10 +154,12 @@ class SimpleBuilder(generic_builders.Builder):
       else:
         stage_class = test_stages.HWTestStage
 
-      # TODO (xixuan): Add AsyncSkylabHWTestStage here at
-      # the end of launch testing.
-      if builder_run.config.enable_skylab_hw_tests:
-        stage_class = test_stages.SkylabHWTestStage
+      if (builder_run.config.enable_skylab_hw_tests and
+          suite_config.enable_skylab):
+        if suite_config.async:
+          stage_class = test_stages.ASyncSkylabHWTestStage
+        else:
+          stage_class = test_stages.SkylabHWTestStage
 
       result = self._GetStageInstance(stage_class,
                                       board,

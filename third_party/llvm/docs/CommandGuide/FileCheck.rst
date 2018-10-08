@@ -77,6 +77,10 @@ OPTIONS
   -verify``. With this option FileCheck will verify that input does not contain
   warnings not covered by any ``CHECK:`` patterns.
 
+.. option:: --dump-input-on-failure
+
+  When the check fails, dump all of the original input.
+
 .. option:: --enable-var-scope
 
   Enables scope for regex variables.
@@ -266,9 +270,9 @@ you can use the "``CHECK-EMPTY:``" directive.
 
 .. code-block:: llvm
 
-   foo
+   declare void @foo()
 
-   bar
+   declare void @bar()
    ; CHECK: foo
    ; CHECK-EMPTY:
    ; CHECK-NEXT: bar

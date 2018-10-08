@@ -5,15 +5,12 @@
 import json
 
 from dashboard.api import api_request_handler
-from dashboard.common import namespaced_stored_object
+from dashboard.common import bot_configurations
 from dashboard.common import utils
 from dashboard.pinpoint.models import change
 from dashboard.pinpoint.models import job as job_module
 from dashboard.pinpoint.models import quest as quest_module
 from dashboard.pinpoint.models.change import patch
-
-
-_BOT_CONFIGURATIONS = 'bot_configurations'
 
 
 _ERROR_BUG_ID = 'Bug ID must be an integer.'
@@ -47,7 +44,10 @@ def _CreateJob(request):
 
   bug_id = _ValidateBugId(arguments.get('bug_id'))
   comparison_mode = _ValidateComparisonMode(arguments.get('comparison_mode'))
+  comparison_magnitude = _ValidateComparisonMagnitude(
+      arguments.get('comparison_magnitude'))
   gerrit_server, gerrit_change_id = _ValidatePatch(arguments.get('patch'))
+  name = arguments.get('name')
   pin = _ValidatePin(arguments.get('pin'))
   tags = _ValidateTags(arguments.get('tags'))
   user = _ValidateUser(arguments.get('user'))
@@ -55,8 +55,10 @@ def _CreateJob(request):
   # Create job.
   return job_module.Job.New(
       quests, changes, arguments=original_arguments, bug_id=bug_id,
-      comparison_mode=comparison_mode, gerrit_server=gerrit_server,
-      gerrit_change_id=gerrit_change_id, pin=pin, tags=tags, user=user)
+      comparison_mode=comparison_mode,
+      comparison_magnitude=comparison_magnitude, gerrit_server=gerrit_server,
+      gerrit_change_id=gerrit_change_id,
+      name=name, pin=pin, tags=tags, user=user)
 
 
 def _ArgumentsWithConfiguration(original_arguments):
@@ -64,8 +66,7 @@ def _ArgumentsWithConfiguration(original_arguments):
   # arguments. Pull any arguments from the specified "configuration", if any.
   configuration = original_arguments.get('configuration')
   if configuration:
-    configurations = namespaced_stored_object.Get(_BOT_CONFIGURATIONS)
-    new_arguments = configurations[configuration]
+    new_arguments = bot_configurations.Get(configuration)
   else:
     new_arguments = {}
 
@@ -124,6 +125,12 @@ def _ValidateComparisonMode(comparison_mode):
     raise ValueError('`comparison_mode` should be one of %s. Got "%s".' %
                      (job_module.COMPARISON_MODES + (None,), comparison_mode))
   return comparison_mode
+
+
+def _ValidateComparisonMagnitude(comparison_magnitude):
+  if not comparison_magnitude:
+    return 1.0
+  return float(comparison_magnitude)
 
 
 def _GenerateQuests(arguments):

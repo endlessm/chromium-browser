@@ -78,11 +78,18 @@ struct StructuralEquivalenceTest : ::testing::Test {
   }
 
   bool testStructuralMatch(Decl *D0, Decl *D1) {
-    llvm::DenseSet<std::pair<Decl *, Decl *>> NonEquivalentDecls;
-    StructuralEquivalenceContext Ctx(
-        D0->getASTContext(), D1->getASTContext(), NonEquivalentDecls,
-        StructuralEquivalenceKind::Default, false, false);
-    return Ctx.IsEquivalent(D0, D1);
+    llvm::DenseSet<std::pair<Decl *, Decl *>> NonEquivalentDecls01;
+    llvm::DenseSet<std::pair<Decl *, Decl *>> NonEquivalentDecls10;
+    StructuralEquivalenceContext Ctx01(
+        D0->getASTContext(), D1->getASTContext(),
+        NonEquivalentDecls01, StructuralEquivalenceKind::Default, false, false);
+    StructuralEquivalenceContext Ctx10(
+        D1->getASTContext(), D0->getASTContext(),
+        NonEquivalentDecls10, StructuralEquivalenceKind::Default, false, false);
+    bool Eq01 = Ctx01.IsEquivalent(D0, D1);
+    bool Eq10 = Ctx10.IsEquivalent(D1, D0);
+    EXPECT_EQ(Eq01, Eq10);
+    return Eq01;
   }
 
   bool testStructuralMatch(std::tuple<Decl *, Decl *> t) {
@@ -214,6 +221,14 @@ TEST_F(StructuralEquivalenceTest, WrongOrderOfFieldsInClass) {
 
 struct StructuralEquivalenceFunctionTest : StructuralEquivalenceTest {
 };
+
+TEST_F(StructuralEquivalenceFunctionTest, TemplateVsNonTemplate) {
+  auto t = makeNamedDecls(
+      "void foo();",
+      "template<class T> void foo();",
+      Lang_CXX);
+  EXPECT_FALSE(testStructuralMatch(t));
+}
 
 TEST_F(StructuralEquivalenceFunctionTest, ParamConstWithRef) {
   auto t = makeNamedDecls("void foo(int&);",
@@ -618,6 +633,40 @@ TEST_F(StructuralEquivalenceRecordTest,
   EXPECT_FALSE(testStructuralMatch(R0, R1));
 }
 
+TEST_F(StructuralEquivalenceRecordTest, TemplateVsNonTemplate) {
+  auto t = makeDecls<CXXRecordDecl>(
+      "struct A { };",
+      "template<class T> struct A { };",
+      Lang_CXX,
+      cxxRecordDecl(hasName("A")));
+  EXPECT_FALSE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceRecordTest,
+    FwdDeclRecordShouldBeEqualWithFwdDeclRecord) {
+  auto t = makeNamedDecls("class foo;", "class foo;", Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceRecordTest,
+       FwdDeclRecordShouldBeEqualWithRecordWhichHasDefinition) {
+  auto t =
+      makeNamedDecls("class foo;", "class foo { int A; };", Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceRecordTest,
+       RecordShouldBeEqualWithRecordWhichHasDefinition) {
+  auto t = makeNamedDecls("class foo { int A; };", "class foo { int A; };",
+                          Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceRecordTest, RecordsWithDifferentBody) {
+  auto t = makeNamedDecls("class foo { int B; };", "class foo { int A; };",
+                          Lang_CXX11);
+  EXPECT_FALSE(testStructuralMatch(t));
+}
 
 TEST_F(StructuralEquivalenceTest, CompareSameDeclWithMultiple) {
   auto t = makeNamedDecls(
@@ -626,6 +675,34 @@ TEST_F(StructuralEquivalenceTest, CompareSameDeclWithMultiple) {
       Lang_CXX);
   EXPECT_FALSE(testStructuralMatch(t));
 }
+
+struct StructuralEquivalenceEnumTest : StructuralEquivalenceTest {};
+
+TEST_F(StructuralEquivalenceEnumTest, FwdDeclEnumShouldBeEqualWithFwdDeclEnum) {
+  auto t = makeNamedDecls("enum class foo;", "enum class foo;", Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceEnumTest,
+       FwdDeclEnumShouldBeEqualWithEnumWhichHasDefinition) {
+  auto t =
+      makeNamedDecls("enum class foo;", "enum class foo { A };", Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceEnumTest,
+       EnumShouldBeEqualWithEnumWhichHasDefinition) {
+  auto t = makeNamedDecls("enum class foo { A };", "enum class foo { A };",
+                          Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceEnumTest, EnumsWithDifferentBody) {
+  auto t = makeNamedDecls("enum class foo { B };", "enum class foo { A };",
+                          Lang_CXX11);
+  EXPECT_FALSE(testStructuralMatch(t));
+}
+
 
 } // end namespace ast_matchers
 } // end namespace clang

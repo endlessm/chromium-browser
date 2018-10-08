@@ -18,6 +18,7 @@ from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import test_stages
 from chromite.lib.const import waterfall
 from chromite.lib import constants
+from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import cros_test_lib
 from chromite.lib import failures_lib
@@ -70,7 +71,7 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
                       cbuildbot_unittest.SimpleBuilderTestCase):
   """Tests for the HWTest stage."""
 
-  BOT_ID = 'x86-mario-release'
+  eve = 'eve-release'
   VERSION = 'R36-5760.0.0'
   RELEASE_TAG = ''
 
@@ -191,7 +192,7 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
   def testHandleTestWarning(self):
     """Tests that we pass the build on test warning."""
     # CQ passes.
-    self._Prepare('x86-alex-paladin')
+    self._Prepare('eve-paladin')
     self._RunHWTestSuite(warns=True, cmd_fail_mode='test_warn')
 
     # PFQ passes.
@@ -199,13 +200,13 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     self._RunHWTestSuite(warns=True, cmd_fail_mode='test_warn')
 
     # Canary passes.
-    self._Prepare('x86-alex-release')
+    self._Prepare('eve-release')
     self._RunHWTestSuite(warns=True, cmd_fail_mode='test_warn')
 
   def testHandleLabFail(self):
     """Tests that we handle lab failures correctly."""
     # CQ fails.
-    self._Prepare('x86-alex-paladin')
+    self._Prepare('eve-paladin')
     self._RunHWTestSuite(fails=True, cmd_fail_mode='lab_fail')
 
     # PFQ fails.
@@ -213,7 +214,7 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     self._RunHWTestSuite(fails=True, cmd_fail_mode='lab_fail')
 
     # Canary fails.
-    self._Prepare('x86-alex-release')
+    self._Prepare('eve-release')
     self._RunHWTestSuite(fails=True, cmd_fail_mode='lab_fail')
 
   def testWithSuiteWithFatalFailure(self):
@@ -222,17 +223,17 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
 
   def testWithSuiteWithFatalFailureWarnFlag(self):
     """Tests that we don't fail if HWTestConfig warn_only is True."""
-    self._Prepare('x86-alex-release', warn_only=True)
+    self._Prepare('eve-release', warn_only=True)
     self._RunHWTestSuite(warns=True, cmd_fail_mode='test_fail')
 
   def testHandleSuiteTimeout(self):
     """Tests that we handle suite timeout correctly ."""
     # Canary fails.
-    self._Prepare('x86-alex-release')
+    self._Prepare('eve-release')
     self._RunHWTestSuite(fails=True, cmd_fail_mode='suite_timeout')
 
     # CQ fails.
-    self._Prepare('x86-alex-paladin')
+    self._Prepare('eve-paladin')
     self._RunHWTestSuite(fails=True, cmd_fail_mode='suite_timeout')
 
     # PFQ fails.
@@ -242,11 +243,11 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
   def testHandleBoardNotAvailable(self):
     """Tests that we handle board not available correctly."""
     # Canary passes.
-    self._Prepare('x86-alex-release')
+    self._Prepare('eve-release')
     self._RunHWTestSuite(warns=True, cmd_fail_mode='board_not_available')
 
     # CQ fails.
-    self._Prepare('x86-alex-paladin')
+    self._Prepare('eve-paladin')
     self._RunHWTestSuite(fails=True, cmd_fail_mode='board_not_available')
 
     # PFQ fails.
@@ -256,11 +257,11 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
   def testHandleTimeout(self):
     """Tests that we handle timeout exceptions correctly."""
     # Canary fails.
-    self._Prepare('x86-alex-release')
+    self._Prepare('eve-release')
     self._RunHWTestSuite(fails=True, cmd_fail_mode='timeout')
 
     # CQ fails.
-    self._Prepare('x86-alex-paladin')
+    self._Prepare('eve-paladin')
     self._RunHWTestSuite(fails=True, cmd_fail_mode='timeout')
 
     # PFQ fails.
@@ -348,7 +349,7 @@ class ImageTestStageTest(generic_stages_unittest.AbstractStageTestCase,
                          cbuildbot_unittest.SimpleBuilderTestCase):
   """Test image test stage."""
 
-  BOT_ID = 'x86-mario-release'
+  BOT_ID = 'eve-release'
   RELEASE_TAG = 'ToT.0.0'
 
   def setUp(self):
@@ -380,3 +381,30 @@ class ImageTestStageTest(generic_stages_unittest.AbstractStageTestCase,
         path_util.ToChrootPath(stage.GetImageDirSymlink()),
     ]
     self.assertCommandContains(cmd)
+
+
+class CbuildbotLaunchTestEndToEndTest(
+    generic_stages_unittest.AbstractStageTestCase):
+  """Tests for the CbuildbotLaunchTestStage."""
+
+  def setUp(self):
+    self.tryjob_mock = self.PatchObject(
+        commands, 'RunLocalTryjob', autospec=True)
+    self.tryjob_failure_exception = failures_lib.BuildScriptFailure(
+        cros_build_lib.RunCommandError('msg', 1), 'cros tryjob')
+
+    self._Prepare()
+
+  def ConstructStage(self):
+    return test_stages.CbuildbotLaunchTestStage(self._run)
+
+  def testFullPassRun(self):
+    """Runs through CbuildbotLaunchTestStage.
+
+    This includes 4 runs through CbuildbotLaunchTestBuildStage.
+    """
+    # Tryjob command will: Fail, Pass, Pass, Pass.
+    self.tryjob_mock.side_effect = iter([
+        self.tryjob_failure_exception, None, None, None])
+
+    self.RunStage()

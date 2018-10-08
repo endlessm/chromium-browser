@@ -26,9 +26,6 @@ from chromite.lib import portage_util
 from chromite.scripts import cros_mark_as_stable
 
 
-site_config = config_lib.GetConfig()
-
-
 class UprevNotFound(Exception):
   """Exception to throw when no Chrome Uprev CL is found."""
 
@@ -47,8 +44,7 @@ def CloneWorkingRepo(dest, url, reference, branch):
     reference: Local checkout to draw objects from.
     branch: The branch to clone.
   """
-  repository.CloneGitRepo(dest, url, reference=reference,
-                          single_branch=True, branch=branch)
+  git.Clone(dest, url, reference=reference, single_branch=True, branch=branch)
   for name in glob.glob(os.path.join(reference, '.git', 'hooks', '*')):
     newname = os.path.join(dest, '.git', 'hooks', os.path.basename(name))
     shutil.copyfile(name, newname)
@@ -171,12 +167,12 @@ CONF_RE = re.compile(
 # Interesting paths.
 OVERLAY = os.path.join(constants.SOURCE_ROOT,
                        constants.CHROMIUMOS_OVERLAY_DIR)
-OVERLAY_URL = (site_config.params.EXTERNAL_GOB_URL +
+OVERLAY_URL = (config_lib.GetSiteParams().EXTERNAL_GOB_URL +
                '/chromiumos/overlays/chromiumos-overlay')
 PRIV_OVERLAY = os.path.join(constants.SOURCE_ROOT, 'src',
                             'private-overlays',
                             'chromeos-partner-overlay')
-PRIV_OVERLAY_URL = (site_config.params.INTERNAL_GOB_URL +
+PRIV_OVERLAY_URL = (config_lib.GetSiteParams().INTERNAL_GOB_URL +
                     '/chromeos/overlays/chromeos-partner-overlay')
 MASK_FILE = os.path.join('profiles', 'default', 'linux',
                          'package.mask', 'chromepin')

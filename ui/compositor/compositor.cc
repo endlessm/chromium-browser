@@ -255,7 +255,7 @@ Compositor::~Compositor() {
   }
 }
 
-void Compositor::AddFrameSink(const viz::FrameSinkId& frame_sink_id) {
+void Compositor::AddChildFrameSink(const viz::FrameSinkId& frame_sink_id) {
   if (!context_factory_private_)
     return;
   context_factory_private_->GetHostFrameSinkManager()
@@ -264,7 +264,7 @@ void Compositor::AddFrameSink(const viz::FrameSinkId& frame_sink_id) {
   child_frame_sinks_.insert(frame_sink_id);
 }
 
-void Compositor::RemoveFrameSink(const viz::FrameSinkId& frame_sink_id) {
+void Compositor::RemoveChildFrameSink(const viz::FrameSinkId& frame_sink_id) {
   if (!context_factory_private_)
     return;
   auto it = child_frame_sinks_.find(frame_sink_id);
@@ -432,16 +432,17 @@ bool Compositor::IsVisible() {
   return host_->IsVisible();
 }
 
-bool Compositor::ScrollLayerTo(int layer_id, const gfx::ScrollOffset& offset) {
+bool Compositor::ScrollLayerTo(cc::ElementId element_id,
+                               const gfx::ScrollOffset& offset) {
   auto input_handler = host_->GetInputHandler();
-  return input_handler && input_handler->ScrollLayerTo(layer_id, offset);
+  return input_handler && input_handler->ScrollLayerTo(element_id, offset);
 }
 
-bool Compositor::GetScrollOffsetForLayer(int layer_id,
+bool Compositor::GetScrollOffsetForLayer(cc::ElementId element_id,
                                          gfx::ScrollOffset* offset) const {
   auto input_handler = host_->GetInputHandler();
   return input_handler &&
-         input_handler->GetScrollOffsetForLayer(layer_id, offset);
+         input_handler->GetScrollOffsetForLayer(element_id, offset);
 }
 
 void Compositor::SetAuthoritativeVSyncInterval(
@@ -649,8 +650,6 @@ void Compositor::SetLayerTreeDebugState(
 
 void Compositor::OnCompositorLockStateChanged(bool locked) {
   host_->SetDeferCommits(locked);
-  for (auto& observer : observer_list_)
-    observer.OnCompositingLockStateChanged(this);
 }
 
 void Compositor::RequestPresentationTimeForNextFrame(

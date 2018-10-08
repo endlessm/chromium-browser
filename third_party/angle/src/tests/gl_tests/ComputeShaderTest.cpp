@@ -654,6 +654,76 @@ TEST_P(ComputeShaderTest, TextureSampling)
     EXPECT_GL_NO_ERROR();
 }
 
+// Test mixed use of sampler and image.
+TEST_P(ComputeShaderTest, SamplingAndImageReadWrite)
+{
+    GLTexture texture[3];
+    GLFramebuffer framebuffer;
+    const std::string csSource =
+        R"(#version 310 es
+        layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
+        layout(r32ui, binding = 0) readonly uniform highp uimage2D uImage_1;
+        layout(r32ui, binding = 1) writeonly uniform highp uimage2D uImage_2;
+        precision highp usampler2D;
+        uniform usampler2D tex;
+        void main()
+        {
+            uvec4 value_1 = texelFetch(tex, ivec2(gl_LocalInvocationID.xy), 0);
+            uvec4 value_2 = imageLoad(uImage_1, ivec2(gl_LocalInvocationID.xy));
+            imageStore(uImage_2, ivec2(gl_LocalInvocationID.xy), value_1 + value_2);
+        })";
+
+    constexpr int kWidth = 1, kHeight = 1;
+    constexpr GLuint kInputValues[3][1] = {{50}, {100}, {20}};
+
+    glBindTexture(GL_TEXTURE_2D, texture[0]);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, kWidth, kHeight);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT,
+                    kInputValues[0]);
+    glBindTexture(GL_TEXTURE_2D, texture[2]);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, kWidth, kHeight);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT,
+                    kInputValues[2]);
+    EXPECT_GL_NO_ERROR();
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glBindTexture(GL_TEXTURE_2D, texture[1]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, kWidth, kHeight);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT,
+                    kInputValues[1]);
+
+    EXPECT_GL_NO_ERROR();
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
+    glUseProgram(program.get());
+
+    glBindImageTexture(0, texture[0], 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32UI);
+    glBindImageTexture(1, texture[2], 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32UI);
+    EXPECT_GL_NO_ERROR();
+
+    glDispatchCompute(1, 1, 1);
+    EXPECT_GL_NO_ERROR();
+
+    glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+    GLuint outputValues[kWidth * kHeight];
+    constexpr GLuint expectedValue = 150;
+    glUseProgram(0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture[2], 0);
+    EXPECT_GL_NO_ERROR();
+    glReadPixels(0, 0, kWidth, kHeight, GL_RED_INTEGER, GL_UNSIGNED_INT, outputValues);
+    EXPECT_GL_NO_ERROR();
+
+    for (int i = 0; i < kWidth * kHeight; i++)
+    {
+        EXPECT_EQ(expectedValue, outputValues[i]);
+    }
+}
+
 // Use image uniform to read and write Texture2D in compute shader, and verify the contents.
 TEST_P(ComputeShaderTest, BindImageTextureWithTexture2D)
 {
@@ -1446,7 +1516,6 @@ TEST_P(ComputeShaderTest, StructArrayAsSharedVariable)
 }
 
 // Verify using atomic functions without return value can work correctly.
-// TODO(jiawei.shao@intel.com): add test on atomicExchange and atomicCompSwap.
 TEST_P(ComputeShaderTest, AtomicFunctionsNoReturnValue)
 {
     // TODO(jiawei.shao@intel.com): find out why this shader causes a link error on Android Nexus 5
@@ -1455,7 +1524,7 @@ TEST_P(ComputeShaderTest, AtomicFunctionsNoReturnValue)
 
     const char kCSShader[] =
         R"(#version 310 es
-        layout (local_size_x = 6, local_size_y = 1, local_size_z = 1) in;
+        layout (local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
         layout (r32ui, binding = 0) readonly uniform highp uimage2D srcImage;
         layout (r32ui, binding = 1) writeonly uniform highp uimage2D dstImage;
 
@@ -1465,14 +1534,20 @@ TEST_P(ComputeShaderTest, AtomicFunctionsNoReturnValue)
         const uint kOrIndex = 3u;
         const uint kAndIndex = 4u;
         const uint kXorIndex = 5u;
+        const uint kExchangeIndex = 6u;
+        const uint kCompSwapIndex = 7u;
 
-        shared highp uint results[6];
+        shared highp uint results[8];
 
         void main()
         {
             if (gl_LocalInvocationID.x == kMinIndex || gl_LocalInvocationID.x == kAndIndex)
             {
                 results[gl_LocalInvocationID.x] = 0xFFFFu;
+            }
+            else if (gl_LocalInvocationID.x == kCompSwapIndex)
+            {
+                results[gl_LocalInvocationID.x] = 1u;
             }
             else
             {
@@ -1488,6 +1563,8 @@ TEST_P(ComputeShaderTest, AtomicFunctionsNoReturnValue)
             atomicOr(results[kOrIndex], value);
             atomicAnd(results[kAndIndex], value);
             atomicXor(results[kXorIndex], value);
+            atomicExchange(results[kExchangeIndex], value);
+            atomicCompSwap(results[kCompSwapIndex], value, 256u);
             memoryBarrierShared();
             barrier();
 
@@ -1495,9 +1572,9 @@ TEST_P(ComputeShaderTest, AtomicFunctionsNoReturnValue)
                        uvec4(results[gl_LocalInvocationID.x]));
         })";
 
-    const std::array<GLuint, 6> inputData      = {{1, 2, 4, 8, 16, 32}};
-    const std::array<GLuint, 6> expectedValues = {{63, 1, 32, 63, 0, 63}};
-    runSharedMemoryTest<GLuint, 6, 1>(kCSShader, GL_R32UI, GL_UNSIGNED_INT, inputData,
+    const std::array<GLuint, 8> inputData      = {{1, 2, 4, 8, 16, 32, 64, 128}};
+    const std::array<GLuint, 8> expectedValues = {{255, 1, 128, 255, 0, 255, 128, 256}};
+    runSharedMemoryTest<GLuint, 8, 1>(kCSShader, GL_R32UI, GL_UNSIGNED_INT, inputData,
                                       expectedValues);
 }
 

@@ -51,7 +51,7 @@ namespace clang {
   public:
     ClangDiagnosticHandler(const CodeGenOptions &CGOpts, BackendConsumer *BCon)
         : CodeGenOpts(CGOpts), BackendCon(BCon) {}
-  
+
     bool handleDiagnostics(const DiagnosticInfo &DI) override;
 
     bool isAnalysisRemarkEnabled(StringRef PassName) const override {
@@ -127,6 +127,7 @@ namespace clang {
                                 CodeGenOpts, C, CoverageInfo)),
           LinkModules(std::move(LinkModules)) {
       FrontendTimesIsEnabled = TimePasses;
+      llvm::TimePassesIsEnabled = TimePasses;
     }
     llvm::Module *getModule() const { return Gen->GetModule(); }
     std::unique_ptr<llvm::Module> takeModule() {
@@ -241,7 +242,7 @@ namespace clang {
             LLVMIRGeneration.stopTimer();
         }
 
-	IRGenFinished = true;
+        IRGenFinished = true;
       }
 
       // Silently ignore if we weren't initialized for some reason.

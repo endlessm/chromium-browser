@@ -66,6 +66,7 @@ const Flag<bool> kBoolFlags[] = {
   { "-no-tls12", &TestConfig::no_tls12 },
   { "-no-tls11", &TestConfig::no_tls11 },
   { "-no-tls1", &TestConfig::no_tls1 },
+  { "-no-ticket", &TestConfig::no_ticket },
   { "-enable-channel-id", &TestConfig::enable_channel_id },
   { "-shim-writes-first", &TestConfig::shim_writes_first },
   { "-expect-session-miss", &TestConfig::expect_session_miss },
@@ -92,12 +93,6 @@ const Flag<bool> kBoolFlags[] = {
   { "-use-ticket-callback", &TestConfig::use_ticket_callback },
   { "-renew-ticket", &TestConfig::renew_ticket },
   { "-enable-early-data", &TestConfig::enable_early_data },
-  { "-enable-client-custom-extension",
-    &TestConfig::enable_client_custom_extension },
-  { "-enable-server-custom-extension",
-    &TestConfig::enable_server_custom_extension },
-  { "-custom-extension-skip", &TestConfig::custom_extension_skip },
-  { "-custom-extension-fail-add", &TestConfig::custom_extension_fail_add },
   { "-check-close-notify", &TestConfig::check_close_notify },
   { "-shim-shuts-down", &TestConfig::shim_shuts_down },
   { "-verify-fail", &TestConfig::verify_fail },
@@ -138,9 +133,9 @@ const Flag<bool> kBoolFlags[] = {
   { "-use-custom-verify-callback", &TestConfig::use_custom_verify_callback },
   { "-allow-false-start-without-alpn",
     &TestConfig::allow_false_start_without_alpn },
-  { "-expect-draft-downgrade", &TestConfig::expect_draft_downgrade },
+  { "-ignore-tls13-downgrade", &TestConfig::ignore_tls13_downgrade },
+  { "-expect-tls13-downgrade", &TestConfig::expect_tls13_downgrade },
   { "-handoff", &TestConfig::handoff },
-  { "-expect-dummy-pq-padding", &TestConfig::expect_dummy_pq_padding },
   { "-no-rsa-pss-rsae-certs", &TestConfig::no_rsa_pss_rsae_certs },
   { "-use-ocsp-callback", &TestConfig::use_ocsp_callback },
   { "-set-ocsp-in-callback", &TestConfig::set_ocsp_in_callback },
@@ -148,6 +143,9 @@ const Flag<bool> kBoolFlags[] = {
   { "-fail-ocsp-callback", &TestConfig::fail_ocsp_callback },
   { "-install-cert-compression-algs",
     &TestConfig::install_cert_compression_algs },
+  { "-is-handshaker-supported", &TestConfig::is_handshaker_supported },
+  { "-handshaker-resume", &TestConfig::handshaker_resume },
+  { "-reverify-on-resume", &TestConfig::reverify_on_resume },
 };
 
 const Flag<std::string> kStringFlags[] = {
@@ -175,6 +173,7 @@ const Flag<std::string> kStringFlags[] = {
   { "-use-client-ca-list", &TestConfig::use_client_ca_list },
   { "-expect-client-ca-list", &TestConfig::expected_client_ca_list },
   { "-expect-msg-callback", &TestConfig::expect_msg_callback },
+  { "-handshaker-path", &TestConfig::handshaker_path },
 };
 
 const Flag<std::string> kBase64Flags[] = {
@@ -217,12 +216,13 @@ const Flag<int> kIntFlags[] = {
   { "-read-size", &TestConfig::read_size },
   { "-expect-ticket-age-skew", &TestConfig::expect_ticket_age_skew },
   { "-tls13-variant", &TestConfig::tls13_variant },
-  { "-dummy-pq-padding-len", &TestConfig::dummy_pq_padding_len },
 };
 
 const Flag<std::vector<int>> kIntVectorFlags[] = {
   { "-signing-prefs", &TestConfig::signing_prefs },
   { "-verify-prefs", &TestConfig::verify_prefs },
+  { "-expect-peer-verify-pref",
+    &TestConfig::expected_peer_verify_prefs },
 };
 
 bool ParseFlag(char *flag, int argc, char **argv, int *i,
@@ -317,6 +317,8 @@ bool ParseConfig(int argc, char **argv,
                  TestConfig *out_initial,
                  TestConfig *out_resume,
                  TestConfig *out_retry) {
+  out_initial->argc = out_resume->argc = out_retry->argc = argc;
+  out_initial->argv = out_resume->argv = out_retry->argv = argv;
   for (int i = 0; i < argc; i++) {
     bool skip = false;
     char *flag = argv[i];
@@ -372,16 +374,6 @@ const TestConfig *GetTestConfig(const SSL *ssl) {
   return (const TestConfig *)SSL_get_ex_data(ssl, g_config_index);
 }
 
-bool MoveTestConfig(SSL *dest, SSL *src) {
-  const TestConfig *config = GetTestConfig(src);
-  if (!SSL_set_ex_data(src, g_config_index, nullptr) ||
-      !SSL_set_ex_data(dest, g_config_index, (void *)config)) {
-    return false;
-  }
-
-  return true;
-}
-
 static int LegacyOCSPCallback(SSL *ssl, void *arg) {
   const TestConfig *config = GetTestConfig(ssl);
   if (!SSL_is_server(ssl)) {
@@ -400,63 +392,6 @@ static int LegacyOCSPCallback(SSL *ssl, void *arg) {
     return SSL_TLSEXT_ERR_NOACK;
   }
   return SSL_TLSEXT_ERR_OK;
-}
-
-// kCustomExtensionValue is the extension value that the custom extension
-// callbacks will add.
-static const uint16_t kCustomExtensionValue = 1234;
-static void *const kCustomExtensionAddArg =
-    reinterpret_cast<void *>(kCustomExtensionValue);
-static void *const kCustomExtensionParseArg =
-    reinterpret_cast<void *>(kCustomExtensionValue + 1);
-static const char kCustomExtensionContents[] = "custom extension";
-
-static int CustomExtensionAddCallback(SSL *ssl, unsigned extension_value,
-                                      const uint8_t **out, size_t *out_len,
-                                      int *out_alert_value, void *add_arg) {
-  if (extension_value != kCustomExtensionValue ||
-      add_arg != kCustomExtensionAddArg) {
-    abort();
-  }
-
-  if (GetTestConfig(ssl)->custom_extension_skip) {
-    return 0;
-  }
-  if (GetTestConfig(ssl)->custom_extension_fail_add) {
-    return -1;
-  }
-
-  *out = reinterpret_cast<const uint8_t *>(kCustomExtensionContents);
-  *out_len = sizeof(kCustomExtensionContents) - 1;
-
-  return 1;
-}
-
-static void CustomExtensionFreeCallback(SSL *ssl, unsigned extension_value,
-                                        const uint8_t *out, void *add_arg) {
-  if (extension_value != kCustomExtensionValue ||
-      add_arg != kCustomExtensionAddArg ||
-      out != reinterpret_cast<const uint8_t *>(kCustomExtensionContents)) {
-    abort();
-  }
-}
-
-static int CustomExtensionParseCallback(SSL *ssl, unsigned extension_value,
-                                        const uint8_t *contents,
-                                        size_t contents_len,
-                                        int *out_alert_value, void *parse_arg) {
-  if (extension_value != kCustomExtensionValue ||
-      parse_arg != kCustomExtensionParseArg) {
-    abort();
-  }
-
-  if (contents_len != sizeof(kCustomExtensionContents) - 1 ||
-      OPENSSL_memcmp(contents, kCustomExtensionContents, contents_len) != 0) {
-    *out_alert_value = SSL_AD_DECODE_ERROR;
-    return 0;
-  }
-
-  return 1;
 }
 
 static int ServerNameCallback(SSL *ssl, int *out_alert, void *arg) {
@@ -906,8 +841,37 @@ static bssl::UniquePtr<STACK_OF(X509_NAME)> DecodeHexX509Names(
   return ret;
 }
 
+static bool CheckPeerVerifyPrefs(SSL *ssl) {
+  const TestConfig *config = GetTestConfig(ssl);
+  if (!config->expected_peer_verify_prefs.empty()) {
+    const uint16_t *peer_sigalgs;
+    size_t num_peer_sigalgs =
+        SSL_get0_peer_verify_algorithms(ssl, &peer_sigalgs);
+    if (config->expected_peer_verify_prefs.size() != num_peer_sigalgs) {
+      fprintf(stderr,
+              "peer verify preferences length mismatch (got %zu, wanted %zu)\n",
+              num_peer_sigalgs, config->expected_peer_verify_prefs.size());
+      return false;
+    }
+    for (size_t i = 0; i < num_peer_sigalgs; i++) {
+      if (static_cast<int>(peer_sigalgs[i]) !=
+          config->expected_peer_verify_prefs[i]) {
+        fprintf(stderr,
+                "peer verify preference %zu mismatch (got %04x, wanted %04x\n",
+                i, peer_sigalgs[i], config->expected_peer_verify_prefs[i]);
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 static bool CheckCertificateRequest(SSL *ssl) {
   const TestConfig *config = GetTestConfig(ssl);
+
+  if (!CheckPeerVerifyPrefs(ssl)) {
+    return false;
+  }
 
   if (!config->expected_certificate_types.empty()) {
     const uint8_t *certificate_types;
@@ -1244,22 +1208,6 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
     SSL_CTX_set_tlsext_ticket_key_cb(ssl_ctx.get(), TicketKeyCallback);
   }
 
-  if (enable_client_custom_extension &&
-      !SSL_CTX_add_client_custom_ext(
-          ssl_ctx.get(), kCustomExtensionValue, CustomExtensionAddCallback,
-          CustomExtensionFreeCallback, kCustomExtensionAddArg,
-          CustomExtensionParseCallback, kCustomExtensionParseArg)) {
-    return nullptr;
-  }
-
-  if (enable_server_custom_extension &&
-      !SSL_CTX_add_server_custom_ext(
-          ssl_ctx.get(), kCustomExtensionValue, CustomExtensionAddCallback,
-          CustomExtensionFreeCallback, kCustomExtensionAddArg,
-          CustomExtensionParseCallback, kCustomExtensionParseArg)) {
-    return nullptr;
-  }
-
   if (!use_custom_verify_callback) {
     SSL_CTX_set_cert_verify_callback(ssl_ctx.get(), CertVerifyCallback, NULL);
   }
@@ -1290,12 +1238,6 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
 
   if (!expected_server_name.empty()) {
     SSL_CTX_set_tlsext_servername_callback(ssl_ctx.get(), ServerNameCallback);
-  }
-
-  if (!ticket_key.empty() &&
-      !SSL_CTX_set_tlsext_ticket_keys(ssl_ctx.get(), ticket_key.data(),
-                                      ticket_key.size())) {
-    return nullptr;
   }
 
   if (enable_early_data) {
@@ -1330,6 +1272,10 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
     SSL_CTX_set_false_start_allowed_without_alpn(ssl_ctx.get(), 1);
   }
 
+  if (ignore_tls13_downgrade) {
+    SSL_CTX_set_ignore_tls13_downgrade(ssl_ctx.get(), 1);
+  }
+
   if (use_ocsp_callback) {
     SSL_CTX_set_tlsext_status_cb(ssl_ctx.get(), LegacyOCSPCallback);
   }
@@ -1341,7 +1287,12 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
       return nullptr;
     }
     CopySessions(ssl_ctx.get(), old_ctx);
+  } else if (!ticket_key.empty() &&
+             !SSL_CTX_set_tlsext_ticket_keys(ssl_ctx.get(), ticket_key.data(),
+                                             ticket_key.size())) {
+    return nullptr;
   }
+
 
   if (install_cert_compression_algs &&
       (!SSL_CTX_add_cert_compression_alg(
@@ -1464,8 +1415,9 @@ static ssl_verify_result_t CustomVerifyCallback(SSL *ssl, uint8_t *out_alert) {
 static int CertCallback(SSL *ssl, void *arg) {
   const TestConfig *config = GetTestConfig(ssl);
 
-  // Check the CertificateRequest metadata is as expected.
-  if (!SSL_is_server(ssl) && !CheckCertificateRequest(ssl)) {
+  // Check the peer certificate metadata is as expected.
+  if ((!SSL_is_server(ssl) && !CheckCertificateRequest(ssl)) ||
+      !CheckPeerVerifyPrefs(ssl)) {
     return -1;
   }
 
@@ -1543,6 +1495,9 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
   if (partial_write) {
     SSL_set_mode(ssl.get(), SSL_MODE_ENABLE_PARTIAL_WRITE);
   }
+  if (reverify_on_resume) {
+    SSL_CTX_set_reverify_on_resume(ssl_ctx, 1);
+  }
   if (no_tls13) {
     SSL_set_options(ssl.get(), SSL_OP_NO_TLSv1_3);
   }
@@ -1554,6 +1509,9 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
   }
   if (no_tls1) {
     SSL_set_options(ssl.get(), SSL_OP_NO_TLSv1);
+  }
+  if (no_ticket) {
+    SSL_set_options(ssl.get(), SSL_OP_NO_TICKET);
   }
   if (!expected_channel_id.empty() || enable_channel_id) {
     SSL_set_tls_channel_id_enabled(ssl.get(), 1);
@@ -1657,10 +1615,6 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
   }
   if (max_send_fragment > 0) {
     SSL_set_max_send_fragment(ssl.get(), max_send_fragment);
-  }
-  if (dummy_pq_padding_len > 0 &&
-      !SSL_set_dummy_pq_padding_size(ssl.get(), dummy_pq_padding_len)) {
-    return nullptr;
   }
   if (!quic_transport_params.empty()) {
     if (!SSL_set_quic_transport_params(

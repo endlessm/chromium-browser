@@ -144,28 +144,29 @@ class OrcMCJITReplacement : public ExecutionEngine {
   public:
     LinkingORCResolver(OrcMCJITReplacement &M) : M(M) {}
 
-    SymbolNameSet lookupFlags(SymbolFlagsMap &SymbolFlags,
-                              const SymbolNameSet &Symbols) override {
-      SymbolNameSet UnresolvedSymbols;
+    SymbolNameSet getResponsibilitySet(const SymbolNameSet &Symbols) override {
+      SymbolNameSet Result;
 
       for (auto &S : Symbols) {
         if (auto Sym = M.findMangledSymbol(*S)) {
-          SymbolFlags[S] = Sym.getFlags();
+          if (!Sym.getFlags().isStrong())
+            Result.insert(S);
         } else if (auto Err = Sym.takeError()) {
           M.reportError(std::move(Err));
           return SymbolNameSet();
         } else {
           if (auto Sym2 = M.ClientResolver->findSymbolInLogicalDylib(*S)) {
-            SymbolFlags[S] = Sym2.getFlags();
+            if (!Sym2.getFlags().isStrong())
+              Result.insert(S);
           } else if (auto Err = Sym2.takeError()) {
             M.reportError(std::move(Err));
             return SymbolNameSet();
           } else
-            UnresolvedSymbols.insert(S);
+            Result.insert(S);
         }
       }
 
-      return UnresolvedSymbols;
+      return Result;
     }
 
     SymbolNameSet lookup(std::shared_ptr<AsynchronousSymbolQuery> Query,
@@ -180,11 +181,11 @@ class OrcMCJITReplacement : public ExecutionEngine {
             Query->notifySymbolReady();
             NewSymbolsResolved = true;
           } else {
-            M.ES.failQuery(*Query, Addr.takeError());
+            M.ES.legacyFailQuery(*Query, Addr.takeError());
             return SymbolNameSet();
           }
         } else if (auto Err = Sym.takeError()) {
-          M.ES.failQuery(*Query, std::move(Err));
+          M.ES.legacyFailQuery(*Query, std::move(Err));
           return SymbolNameSet();
         } else {
           if (auto Sym2 = M.ClientResolver->findSymbol(*S)) {
@@ -193,11 +194,11 @@ class OrcMCJITReplacement : public ExecutionEngine {
               Query->notifySymbolReady();
               NewSymbolsResolved = true;
             } else {
-              M.ES.failQuery(*Query, Addr.takeError());
+              M.ES.legacyFailQuery(*Query, Addr.takeError());
               return SymbolNameSet();
             }
           } else if (auto Err = Sym2.takeError()) {
-            M.ES.failQuery(*Query, std::move(Err));
+            M.ES.legacyFailQuery(*Query, std::move(Err));
             return SymbolNameSet();
           } else
             UnresolvedSymbols.insert(S);

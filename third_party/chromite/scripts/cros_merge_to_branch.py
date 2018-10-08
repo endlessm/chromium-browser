@@ -31,7 +31,7 @@ from gerrit-int, you must prefix the gerrit change number with a * e.g.
   cros_merge_to_branch *26108 release-R22.2723.B
 
 For more information on how to do this yourself you can go here:
-http://dev.chromium.org/chromium-os/how-tos-and-troubleshooting/working-on-a-br\
+https://dev.chromium.org/chromium-os/how-tos-and-troubleshooting/working-on-a-br\
 anch
 """
 
@@ -167,7 +167,7 @@ def _SetupWorkDirectoryForPatch(work_dir, patch, branch, manifest, email):
     if not email:
       email = git.GetProjectUserEmail(reference)
 
-  repository.CloneGitRepo(work_dir, patch.project_url, reference=reference)
+  git.Clone(work_dir, patch.project_url, reference=reference)
 
   # Set the git committer.
   git.RunGit(work_dir, ['config', '--replace-all', 'user.email', email])

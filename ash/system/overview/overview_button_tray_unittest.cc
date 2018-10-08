@@ -15,6 +15,7 @@
 #include "ash/system/status_area_widget_test_helper.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/ash_test_helper.h"
+#include "ash/window_factory.h"
 #include "ash/wm/overview/window_selector_controller.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
@@ -23,7 +24,7 @@
 #include "base/command_line.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "base/time/time.h"
-#include "services/ui/public/cpp/input_devices/input_device_client_test_api.h"
+#include "services/ws/public/cpp/input_devices/input_device_client_test_api.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
@@ -76,11 +77,11 @@ class OverviewButtonTrayTest : public AshTestBase {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         ::switches::kUseFirstDisplayAsInternal);
 
-    ui::InputDeviceClientTestApi().SetKeyboardDevices({ui::InputDevice(
+    AshTestBase::SetUp();
+
+    ws::InputDeviceClientTestApi().SetKeyboardDevices({ui::InputDevice(
         3, ui::InputDeviceType::INPUT_DEVICE_INTERNAL, "keyboard")});
     base::RunLoop().RunUntilIdle();
-
-    AshTestBase::SetUp();
   }
 
   // Enters or exits tablet mode. Use these instead of
@@ -301,7 +302,7 @@ TEST_F(OverviewButtonTrayTest, HideAnimationAlwaysCompletesOnDelete) {
 TEST_F(OverviewButtonTrayTest, VisibilityChangesForSystemModalWindow) {
   // TODO(jonross): When CreateTestWindow*() have been unified, use the
   // appropriate method to replace this setup. (crbug.com/483503)
-  std::unique_ptr<aura::Window> window(new aura::Window(nullptr));
+  std::unique_ptr<aura::Window> window = window_factory::NewWindow();
   window->SetProperty(aura::client::kModalKey, ui::MODAL_TYPE_SYSTEM);
   window->SetType(aura::client::WINDOW_TYPE_NORMAL);
   window->Init(ui::LAYER_TEXTURED);

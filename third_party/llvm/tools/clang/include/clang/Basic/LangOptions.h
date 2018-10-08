@@ -50,10 +50,10 @@ protected:
 class LangOptions : public LangOptionsBase {
 public:
   using Visibility = clang::Visibility;
-  
+
   enum GCMode { NonGC, GCOnly, HybridGC };
   enum StackProtectorMode { SSPOff, SSPOn, SSPStrong, SSPReq };
-  
+
   enum SignedOverflowBehaviorTy {
     // Default C standard behavior.
     SOB_Undefined,
@@ -137,6 +137,14 @@ public:
     FPC_Fast
   };
 
+  // TODO: merge FEnvAccessModeKind and FPContractModeKind
+  enum FEnvAccessModeKind {
+    FEA_Off,
+
+    FEA_On
+  };
+
+
 public:
   /// Set of enabled sanitizers.
   SanitizerSet Sanitize;
@@ -165,7 +173,7 @@ public:
   clang::ObjCRuntime ObjCRuntime;
 
   std::string ObjCConstantStringClass;
-  
+
   /// The name of the handler function to be called when -ftrapv is
   /// specified.
   ///
@@ -209,10 +217,10 @@ public:
   LangOptions();
 
   // Define accessors/mutators for language options of enumeration type.
-#define LANGOPT(Name, Bits, Default, Description) 
+#define LANGOPT(Name, Bits, Default, Description)
 #define ENUM_LANGOPT(Name, Type, Bits, Default, Description) \
   Type get##Name() const { return static_cast<Type>(Name); } \
-  void set##Name(Type Value) { Name = static_cast<unsigned>(Value); }  
+  void set##Name(Type Value) { Name = static_cast<unsigned>(Value); }
 #include "clang/Basic/LangOptions.def"
 
   /// Are we compiling a module interface (.cppm or module map)?
@@ -228,7 +236,7 @@ public:
   bool isSignedOverflowDefined() const {
     return getSignedOverflowBehavior() == SOB_Defined;
   }
-  
+
   bool isSubscriptPointerArithmetic() const {
     return ObjCRuntime.isSubscriptPointerArithmetic() &&
            !ObjCSubscriptingLegacyRuntime;
@@ -262,14 +270,19 @@ public:
 /// Floating point control options
 class FPOptions {
 public:
-  FPOptions() : fp_contract(LangOptions::FPC_Off) {}
+  FPOptions() : fp_contract(LangOptions::FPC_Off), 
+                fenv_access(LangOptions::FEA_Off) {}
 
   // Used for serializing.
   explicit FPOptions(unsigned I)
-      : fp_contract(static_cast<LangOptions::FPContractModeKind>(I)) {}
+      : fp_contract(static_cast<LangOptions::FPContractModeKind>(I & 3)),
+        fenv_access(static_cast<LangOptions::FEnvAccessModeKind>((I >> 2) & 1))
+        {}
 
   explicit FPOptions(const LangOptions &LangOpts)
-      : fp_contract(LangOpts.getDefaultFPContractMode()) {}
+      : fp_contract(LangOpts.getDefaultFPContractMode()),
+        fenv_access(LangOptions::FEA_Off) {}
+  // FIXME: Use getDefaultFEnvAccessMode() when available.
 
   bool allowFPContractWithinStatement() const {
     return fp_contract == LangOptions::FPC_On;
@@ -289,12 +302,24 @@ public:
 
   void setDisallowFPContract() { fp_contract = LangOptions::FPC_Off; }
 
+  bool allowFEnvAccess() const {
+    return fenv_access == LangOptions::FEA_On;
+  }
+
+  void setAllowFEnvAccess() {
+    fenv_access = LangOptions::FEA_On;
+  }
+
+  void setDisallowFEnvAccess() { fenv_access = LangOptions::FEA_Off; }
+
   /// Used to serialize this.
-  unsigned getInt() const { return fp_contract; }
+  unsigned getInt() const { return fp_contract | (fenv_access << 2); }
 
 private:
-  /// Adjust BinaryOperator::FPFeatures to match the bit-field size of this.
+  /// Adjust BinaryOperator::FPFeatures to match the total bit-field size 
+  /// of these two.
   unsigned fp_contract : 2;
+  unsigned fenv_access : 1;
 };
 
 /// Describes the kind of translation unit being processed.
@@ -309,7 +334,7 @@ enum TranslationUnitKind {
   /// The translation unit is a module.
   TU_Module
 };
-  
+
 } // namespace clang
 
 #endif // LLVM_CLANG_BASIC_LANGOPTIONS_H

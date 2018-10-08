@@ -56,13 +56,13 @@ using ManagedAnalysisMap = llvm::DenseMap<const void *, ManagedAnalysis *>;
 AnalysisDeclContext::AnalysisDeclContext(AnalysisDeclContextManager *Mgr,
                                          const Decl *d,
                                          const CFG::BuildOptions &buildOptions)
-    : Manager(Mgr), D(d), cfgBuildOptions(buildOptions) {  
+    : Manager(Mgr), D(d), cfgBuildOptions(buildOptions) {
   cfgBuildOptions.forcedBlkExprs = &forcedBlkExprs;
 }
 
 AnalysisDeclContext::AnalysisDeclContext(AnalysisDeclContextManager *Mgr,
                                          const Decl *d)
-    : Manager(Mgr), D(d) {  
+    : Manager(Mgr), D(d) {
   cfgBuildOptions.forcedBlkExprs = &forcedBlkExprs;
 }
 
@@ -137,7 +137,7 @@ bool AnalysisDeclContext::isBodyAutosynthesized() const {
 bool AnalysisDeclContext::isBodyAutosynthesizedFromModelFile() const {
   bool Tmp;
   Stmt *Body = getBody(Tmp);
-  return Tmp && Body->getLocStart().isValid();
+  return Tmp && Body->getBeginLoc().isValid();
 }
 
 /// Returns true if \param VD is an Objective-C implicit 'self' parameter.
@@ -154,7 +154,7 @@ const ImplicitParamDecl *AnalysisDeclContext::getSelfDecl() const {
       const VarDecl *VD = I.getVariable();
       if (isSelfDecl(VD))
         return dyn_cast<ImplicitParamDecl>(VD);
-    }    
+    }
   }
 
   auto *CXXMethod = dyn_cast<CXXMethodDecl>(D);
@@ -191,7 +191,7 @@ AnalysisDeclContext::getBlockForRegisteredExpression(const Stmt *stmt) {
   assert(forcedBlkExprs);
   if (const auto *e = dyn_cast<Expr>(stmt))
     stmt = e->IgnoreParens();
-  CFG::BuildOptions::ForcedBlkExprs::const_iterator itr = 
+  CFG::BuildOptions::ForcedBlkExprs::const_iterator itr =
     forcedBlkExprs->find(stmt);
   assert(itr != forcedBlkExprs->end());
   return itr->second;
@@ -251,7 +251,7 @@ CFG *AnalysisDeclContext::getUnoptimizedCFG() {
 CFGStmtMap *AnalysisDeclContext::getCFGStmtMap() {
   if (cfgStmtMap)
     return cfgStmtMap.get();
-  
+
   if (CFG *c = getCFG()) {
     cfgStmtMap.reset(CFGStmtMap::Build(c, &getParentMap()));
     return cfgStmtMap.get();
@@ -263,7 +263,7 @@ CFGStmtMap *AnalysisDeclContext::getCFGStmtMap() {
 CFGReverseBlockReachabilityAnalysis *AnalysisDeclContext::getCFGReachablityAnalysis() {
   if (CFA)
     return CFA.get();
-  
+
   if (CFG *c = getCFG()) {
     CFA.reset(new CFGReverseBlockReachabilityAnalysis(*c));
     return CFA.get();
@@ -346,7 +346,7 @@ bool AnalysisDeclContext::isInStdNamespace(const Decl *D) {
 LocationContextManager &AnalysisDeclContext::getLocationContextManager() {
   assert(Manager &&
          "Cannot create LocationContexts without an AnalysisDeclContextManager!");
-  return Manager->getLocationContextManager();  
+  return Manager->getLocationContextManager();
 }
 
 //===----------------------------------------------------------------------===//
@@ -500,7 +500,7 @@ void LocationContext::dumpStack(
         OS << "Calling anonymous code";
       if (const Stmt *S = cast<StackFrameContext>(LCtx)->getCallSite()) {
         OS << " at ";
-        printLocation(OS, SM, S->getLocStart());
+        printLocation(OS, SM, S->getBeginLoc());
       }
       break;
     case Scope:
@@ -510,7 +510,7 @@ void LocationContext::dumpStack(
       OS << "Invoking block";
       if (const Decl *D = cast<BlockInvocationContext>(LCtx)->getDecl()) {
         OS << " defined at ";
-        printLocation(OS, SM, D->getLocStart());
+        printLocation(OS, SM, D->getBeginLoc());
       }
       break;
     }
@@ -562,9 +562,9 @@ public:
     IgnoredContexts.insert(BR->getBlockDecl());
     Visit(BR->getBlockDecl()->getBody());
   }
-  
+
   void VisitPseudoObjectExpr(PseudoObjectExpr *PE) {
-    for (PseudoObjectExpr::semantics_iterator it = PE->semantics_begin(), 
+    for (PseudoObjectExpr::semantics_iterator it = PE->semantics_begin(),
          et = PE->semantics_end(); it != et; ++it) {
       Expr *Semantic = *it;
       if (auto *OVE = dyn_cast<OpaqueValueExpr>(Semantic))

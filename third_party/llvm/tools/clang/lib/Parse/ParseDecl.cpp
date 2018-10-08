@@ -215,6 +215,15 @@ static bool attributeHasIdentifierArg(const IdentifierInfo &II) {
 #undef CLANG_ATTR_IDENTIFIER_ARG_LIST
 }
 
+/// Determine whether the given attribute has a variadic identifier argument.
+static bool attributeHasVariadicIdentifierArg(const IdentifierInfo &II) {
+#define CLANG_ATTR_VARIADIC_IDENTIFIER_ARG_LIST
+  return llvm::StringSwitch<bool>(normalizeAttrName(II.getName()))
+#include "clang/Parse/AttrParserStringSwitches.inc"
+           .Default(false);
+#undef CLANG_ATTR_VARIADIC_IDENTIFIER_ARG_LIST
+}
+
 /// Determine whether the given attribute parses a type argument.
 static bool attributeIsTypeArgAttr(const IdentifierInfo &II) {
 #define CLANG_ATTR_TYPE_ARG_LIST
@@ -282,7 +291,8 @@ unsigned Parser::ParseAttributeArgsCommon(
   ArgsVector ArgExprs;
   if (Tok.is(tok::identifier)) {
     // If this attribute wants an 'identifier' argument, make it so.
-    bool IsIdentifierArg = attributeHasIdentifierArg(*AttrName);
+    bool IsIdentifierArg = attributeHasIdentifierArg(*AttrName) ||
+                           attributeHasVariadicIdentifierArg(*AttrName);
     ParsedAttr::Kind AttrKind =
         ParsedAttr::getKind(AttrName, ScopeName, Syntax);
 
@@ -305,19 +315,25 @@ unsigned Parser::ParseAttributeArgsCommon(
 
     // Parse the non-empty comma-separated list of expressions.
     do {
-      bool Uneval = attributeParsedArgsUnevaluated(*AttrName);
-      EnterExpressionEvaluationContext Unevaluated(
-          Actions,
-          Uneval ? Sema::ExpressionEvaluationContext::Unevaluated
-                 : Sema::ExpressionEvaluationContext::ConstantEvaluated);
+      ExprResult ArgExpr;
+      if (Tok.is(tok::identifier) &&
+          attributeHasVariadicIdentifierArg(*AttrName)) {
+        ArgExprs.push_back(ParseIdentifierLoc());
+      } else {
+        bool Uneval = attributeParsedArgsUnevaluated(*AttrName);
+        EnterExpressionEvaluationContext Unevaluated(
+            Actions,
+            Uneval ? Sema::ExpressionEvaluationContext::Unevaluated
+                   : Sema::ExpressionEvaluationContext::ConstantEvaluated);
 
-      ExprResult ArgExpr(
-          Actions.CorrectDelayedTyposInExpr(ParseAssignmentExpression()));
-      if (ArgExpr.isInvalid()) {
-        SkipUntil(tok::r_paren, StopAtSemi);
-        return 0;
+        ExprResult ArgExpr(
+            Actions.CorrectDelayedTyposInExpr(ParseAssignmentExpression()));
+        if (ArgExpr.isInvalid()) {
+          SkipUntil(tok::r_paren, StopAtSemi);
+          return 0;
+        }
+        ArgExprs.push_back(ArgExpr.get());
       }
-      ArgExprs.push_back(ArgExpr.get());
       // Eat the comma, move to the next argument
     } while (TryConsumeToken(tok::comma));
   }
@@ -741,7 +757,7 @@ void Parser::ParseNullabilityTypeSpecifiers(ParsedAttributes &attrs) {
       if (!getLangOpts().ObjC1)
         Diag(AttrNameLoc, diag::ext_nullability)
           << AttrName;
-      attrs.addNew(AttrName, AttrNameLoc, nullptr, AttrNameLoc, nullptr, 0, 
+      attrs.addNew(AttrName, AttrNameLoc, nullptr, AttrNameLoc, nullptr, 0,
                    ParsedAttr::AS_Keyword);
       break;
     }
@@ -851,7 +867,7 @@ VersionTuple Parser::ParseVersionTuple(SourceRange &Range) {
               StopAtSemi | StopBeforeMatch | StopAtCodeCompletion);
     return VersionTuple();
   }
-  
+
   // Warn if separators, be it '.' or '_', do not match.
   if (AfterMajorSeparator != AfterMinorSeparator)
     Diag(Tok, diag::warn_expected_consistent_version_separator);
@@ -1031,7 +1047,7 @@ void Parser::ParseAvailabilityAttribute(IdentifierInfo &Availability,
         continue;
       }
     }
-    
+
     SourceRange VersionRange;
     VersionTuple Version = ParseVersionTuple(VersionRange);
 
@@ -1243,7 +1259,7 @@ void Parser::ParseObjCBridgeRelatedAttribute(IdentifierInfo &ObjCBridgeRelated,
     Diag(Tok, diag::err_expected) << tok::l_paren;
     return;
   }
-  
+
   // Parse the related class name.
   if (Tok.isNot(tok::identifier)) {
     Diag(Tok, diag::err_objcbridge_related_expected_related_class);
@@ -1276,7 +1292,7 @@ void Parser::ParseObjCBridgeRelatedAttribute(IdentifierInfo &ObjCBridgeRelated,
     SkipUntil(tok::r_paren, StopAtSemi);
     return;
   }
-  
+
   // Parse instance method name.  Also non-optional but empty string is
   // permitted.
   IdentifierLoc *InstanceMethod = nullptr;
@@ -1287,14 +1303,14 @@ void Parser::ParseObjCBridgeRelatedAttribute(IdentifierInfo &ObjCBridgeRelated,
     SkipUntil(tok::r_paren, StopAtSemi);
     return;
   }
-  
+
   // Closing ')'.
   if (T.consumeClose())
     return;
-  
+
   if (endLoc)
     *endLoc = T.getCloseLocation();
-  
+
   // Record this attribute
   attrs.addNew(&ObjCBridgeRelated,
                SourceRange(ObjCBridgeRelatedLoc, T.getCloseLocation()),
@@ -1924,7 +1940,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
 
       Diag(Loc, diag::err_c11_noreturn_misplaced)
           << (Fixit ? FixItHint::CreateRemoval(Loc) : FixItHint())
-          << (Fixit ? FixItHint::CreateInsertion(D.getLocStart(), "_Noreturn ")
+          << (Fixit ? FixItHint::CreateInsertion(D.getBeginLoc(), "_Noreturn ")
                     : FixItHint());
     }
   }
@@ -2016,7 +2032,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     DeclsInGroup.push_back(FirstDecl);
 
   bool ExpectSemi = Context != DeclaratorContext::ForContext;
-  
+
   // If we don't have a comma, it is either the end of the list (a ';') or an
   // error, bail out.
   SourceLocation CommaLoc;
@@ -2825,7 +2841,7 @@ Parser::DiagnoseMissingSemiAfterTagDefinition(DeclSpec &DS, AccessSpecifier AS,
     return false;
 
   const PrintingPolicy &PPol = Actions.getASTContext().getPrintingPolicy();
-  Diag(PP.getLocForEndOfToken(DS.getRepAsDecl()->getLocEnd()),
+  Diag(PP.getLocForEndOfToken(DS.getRepAsDecl()->getEndLoc()),
        diag::err_expected_after)
       << DeclSpec::getSpecifierName(DS.getTypeSpecType(), PPol) << tok::semi;
 
@@ -3799,7 +3815,7 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
                                PrevSpec, DiagID, Type.get(),
                                Actions.getASTContext().getPrintingPolicy()))
           Diag(StartLoc, DiagID) << PrevSpec;
-        
+
         DS.SetRangeEnd(EndLoc);
       } else {
         DS.SetTypeSpecError();
@@ -5347,7 +5363,7 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
       // Sema will have to catch (syntactically invalid) pointers into global
       // scope. It has to catch pointers into namespace scope anyway.
       D.AddTypeInfo(DeclaratorChunk::getMemberPointer(
-                        SS, DS.getTypeQualifiers(), DS.getLocEnd()),
+                        SS, DS.getTypeQualifiers(), DS.getEndLoc()),
                     std::move(DS.getAttributes()),
                     /* Don't replace range end. */ SourceLocation());
       return;
@@ -5611,7 +5627,7 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
       } else {
         AllowConstructorName =
             (D.getContext() == DeclaratorContext::MemberContext);
-        AllowDeductionGuide = 
+        AllowDeductionGuide =
           (D.getContext() == DeclaratorContext::FileContext ||
            D.getContext() == DeclaratorContext::MemberContext);
       }
@@ -6066,13 +6082,13 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
     LocalEndLoc = RParenLoc;
     EndLoc = RParenLoc;
 
-    // If there are attributes following the identifier list, parse them and 
+    // If there are attributes following the identifier list, parse them and
     // prohibit them.
     MaybeParseCXX11Attributes(FnAttrs);
     ProhibitAttributes(FnAttrs);
   } else {
     if (Tok.isNot(tok::r_paren))
-      ParseParameterDeclarationClause(D, FirstArgAttrs, ParamInfo, 
+      ParseParameterDeclarationClause(D, FirstArgAttrs, ParamInfo,
                                       EllipsisLoc);
     else if (RequiresArg)
       Diag(Tok, diag::err_argument_required_after_attribute);
@@ -6375,8 +6391,8 @@ void Parser::ParseParameterDeclarationClause(
     ParseDeclarationSpecifiers(DS);
 
 
-    // Parse the declarator.  This is "PrototypeContext" or 
-    // "LambdaExprParameterContext", because we must accept either 
+    // Parse the declarator.  This is "PrototypeContext" or
+    // "LambdaExprParameterContext", because we must accept either
     // 'declarator' or 'abstract-declarator' here.
     Declarator ParmDeclarator(
         DS, D.getContext() == DeclaratorContext::LambdaExprContext
@@ -6468,7 +6484,7 @@ void Parser::ParseParameterDeclarationClause(
       }
 
       ParamInfo.push_back(DeclaratorChunk::ParamInfo(ParmII,
-                                          ParmDeclarator.getIdentifierLoc(), 
+                                          ParmDeclarator.getIdentifierLoc(),
                                           Param, std::move(DefArgToks)));
     }
 
@@ -6677,7 +6693,7 @@ void Parser::ParseMisplacedBracketDeclarator(Declarator &D) {
 
   if (NeedParens) {
     // Create a DeclaratorChunk for the inserted parens.
-    SourceLocation EndLoc = PP.getLocForEndOfToken(D.getLocEnd());
+    SourceLocation EndLoc = PP.getLocForEndOfToken(D.getEndLoc());
     D.AddTypeInfo(DeclaratorChunk::getParen(SuggestParenLoc, EndLoc),
                   SourceLocation());
   }
@@ -6693,11 +6709,11 @@ void Parser::ParseMisplacedBracketDeclarator(Declarator &D) {
   if (!D.getIdentifier() && !NeedParens)
     return;
 
-  SourceLocation EndBracketLoc = TempDeclarator.getLocEnd();
+  SourceLocation EndBracketLoc = TempDeclarator.getEndLoc();
 
   // Generate the move bracket error message.
   SourceRange BracketRange(StartBracketLoc, EndBracketLoc);
-  SourceLocation EndLoc = PP.getLocForEndOfToken(D.getLocEnd());
+  SourceLocation EndLoc = PP.getLocForEndOfToken(D.getEndLoc());
 
   if (NeedParens) {
     Diag(EndLoc, diag::err_brackets_go_after_unqualified_id)

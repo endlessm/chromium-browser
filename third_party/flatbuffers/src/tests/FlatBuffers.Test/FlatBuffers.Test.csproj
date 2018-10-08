@@ -41,6 +41,9 @@
     <Compile Include="..\..\net\FlatBuffers\ByteBuffer.cs">
       <Link>FlatBuffers\ByteBuffer.cs</Link>
     </Compile>
+    <Compile Include="..\..\net\FlatBuffers\ByteBufferUtil.cs">
+      <Link>FlatBuffers\ByteBufferUtil.cs</Link>
+    </Compile>
     <Compile Include="..\..\net\FlatBuffers\IFlatbufferObject.cs">
       <Link>FlatBuffers\IFlatbufferObject.cs</Link>
     </Compile>
@@ -68,6 +71,9 @@
     <Compile Include="..\MyGame\Example\Monster.cs">
       <Link>MyGame\Example\Monster.cs</Link>
     </Compile>
+    <Compile Include="..\MyGame\Example\Referrable.cs">
+      <Link>MyGame\Example\Referrable.cs</Link>
+    </Compile>
     <Compile Include="..\MyGame\Example\Stat.cs">
       <Link>MyGame\Example\Stat.cs</Link>
     </Compile>
@@ -82,6 +88,9 @@
     </Compile>
     <Compile Include="..\MyGame\Example\Ability.cs">
       <Link>MyGame\Example\Ability.cs</Link>
+    </Compile>
+    <Compile Include="..\MyGame\InParentNamespace.cs">
+      <Link>MyGame\InParentNamespace.cs</Link>
     </Compile>
     <Compile Include="..\namespace_test\NamespaceA\NamespaceB\EnumInNestedNS.cs">
       <Link>NamespaceA\NamespaceB\EnumInNestedNS.cs</Link>

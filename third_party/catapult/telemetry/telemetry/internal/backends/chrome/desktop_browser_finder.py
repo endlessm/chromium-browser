@@ -130,12 +130,16 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
 
     self._InitPlatformIfNeeded()
 
-    startup_args = self.GetBrowserStartupArgs(self._browser_options)
 
     num_retries = 3
     for x in range(0, num_retries):
       returned_browser = None
       try:
+        # Note: we need to regenerate the browser startup arguments for each
+        # browser startup attempt since the state of the startup arguments
+        # may not be guaranteed the same each time
+        # For example, see: crbug.com/865895#c17
+        startup_args = self.GetBrowserStartupArgs(self._browser_options)
         returned_browser = None
 
         browser_backend = desktop_browser_backend.DesktopBrowserBackend(
@@ -165,6 +169,7 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
         # Attempt to clean up things left over from the failed browser startup.
         try:
           if returned_browser:
+            returned_browser.DumpStateUponFailure()
             returned_browser.Close()
         except Exception: # pylint: disable=broad-except
           pass
@@ -259,8 +264,7 @@ def FindAllAvailableBrowsers(finder_options, device):
     return []
 
   has_x11_display = True
-  if (sys.platform.startswith('linux') and
-      os.getenv('DISPLAY') == None):
+  if sys.platform.startswith('linux') and os.getenv('DISPLAY') is None:
     has_x11_display = False
 
   os_name = platform_module.GetHostPlatform().GetOSName()

@@ -91,6 +91,8 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
 
   void UpdateVisibilityState();
 
+  void MaybeUpdateShelfBackground();
+
   ShelfVisibilityState GetVisibilityState() const;
 
   int GetAccessibilityPanelHeight() const;
@@ -100,13 +102,9 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
   int GetDockedMagnifierHeight() const;
 
   // Returns the ideal bounds of the shelf assuming it is visible.
-  gfx::Rect GetIdealBounds();
+  gfx::Rect GetIdealBounds() const;
 
   gfx::Rect GetUserWorkAreaBounds() const;
-
-  // Updates the icon position given the current window bounds. This is used
-  // when dragging panels to reposition them with respect to the other panels.
-  void UpdateIconPositionForPanel(aura::Window* window);
 
   // Returns the screen bounds of the item for the specified window. If there is
   // no item for the specified window an empty rect is returned.
@@ -141,6 +139,12 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
   // Get the tray button that the system tray bubble and the notification center
   // bubble will be anchored. See also: StatusAreaWidget::GetSystemTrayAnchor()
   TrayBackgroundView* GetSystemTrayAnchor() const;
+
+  // Get the anchor rect that the system tray bubble and the notification center
+  // bubble will be anchored.
+  // x() and y() designates anchor point, but width() and height() are dummy.
+  // See also: BubbleDialogDelegateView::GetBubbleBounds()
+  gfx::Rect GetSystemTrayAnchorRect() const;
 
   void set_is_tablet_mode_animation_running(bool value) {
     is_tablet_mode_animation_running_ = value;
@@ -182,7 +186,7 @@ class ASH_EXPORT Shelf : public ShelfLayoutManagerObserver {
   // Sets shelf alignment to bottom during login and screen lock.
   ShelfLockingManager shelf_locking_manager_;
 
-  base::ObserverList<ShelfObserver> observers_;
+  base::ObserverList<ShelfObserver>::Unchecked observers_;
 
   // Forwards mouse and gesture events to ShelfLayoutManager for auto-hide.
   std::unique_ptr<AutoHideEventHandler> auto_hide_event_handler_;

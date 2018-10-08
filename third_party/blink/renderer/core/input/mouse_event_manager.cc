@@ -19,6 +19,7 @@
 #include "third_party/blink/renderer/core/events/drag_event.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/events/web_input_event_conversion.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
@@ -256,7 +257,7 @@ WebInputEventResult MouseEventManager::DispatchMouseEvent(
                                 : MouseEvent::kRealOrIndistinguishable,
         mouse_event.menu_source_type);
 
-    DispatchEventResult dispatch_result = target->DispatchEvent(event);
+    DispatchEventResult dispatch_result = target->DispatchEvent(*event);
     return EventHandlingUtil::ToWebInputEventResult(dispatch_result);
   }
   return WebInputEventResult::kNotHandled;
@@ -906,15 +907,14 @@ bool MouseEventManager::HandleDrag(const MouseEventWithHitTestResults& event,
     return true;
   }
 
-  // Once we're past the drag threshold, we don't want to treat this gesture as
-  // a click.
-  InvalidateClick();
-
   if (!TryStartDrag(event)) {
     // Something failed to start the drag, clean up.
     ClearDragDataTransfer();
     ResetDragState();
   } else {
+    // Once the drag operation is initiated, we don't want to treat this
+    // gesture as a click.
+    InvalidateClick();
     // Since drag operation started we need to send a pointercancel for the
     // corresponding pointer.
     if (initiator == DragInitiator::kMouse) {
@@ -1052,7 +1052,7 @@ WebInputEventResult MouseEventManager::DispatchDragEvent(
                                         : MouseEvent::kRealOrIndistinguishable);
 
   return EventHandlingUtil::ToWebInputEventResult(
-      drag_target->DispatchEvent(me));
+      drag_target->DispatchEvent(*me));
 }
 
 void MouseEventManager::ClearDragDataTransfer() {

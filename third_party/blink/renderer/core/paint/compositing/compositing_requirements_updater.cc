@@ -192,7 +192,7 @@ static CompositingReasons SubtreeReasonsForCompositing(
   //
   // TODO(smcgruer): Only composite fixed if needed (http://crbug.com/742213)
   const bool ignore_lcd_text = true;
-  if (layer->GetLayoutObject().Style()->GetPosition() == EPosition::kFixed ||
+  if (layer->GetLayoutObject().StyleRef().GetPosition() == EPosition::kFixed ||
       compositing_reason_finder.RequiresCompositingForScrollDependentPosition(
           layer, ignore_lcd_text)) {
     subtree_reasons |=
@@ -445,7 +445,7 @@ void CompositingRequirementsUpdater::UpdateRecursive(
       !layer->DescendantHasDirectOrScrollingCompositingReason() &&
       !needs_recursion_for_composited_scrolling_plus_fixed_or_sticky &&
       !needs_recursion_for_out_of_flow_descendant &&
-      layer->GetLayoutObject().HasOverflowClip() &&
+      layer->GetLayoutObject().ShouldClipOverflow() &&
       !layer->HasCompositingDescendant() &&
       !layer->DescendantMayNeedCompositingRequirementsUpdate();
 
@@ -606,7 +606,7 @@ void CompositingRequirementsUpdater::UpdateRecursive(
     }
 
     if (will_be_composited_or_squashed &&
-        layer->GetLayoutObject().Style()->HasBlendMode()) {
+        layer->GetLayoutObject().StyleRef().HasBlendMode()) {
       current_recursion_data.has_unisolated_composited_blending_descendant_ =
           true;
     }
@@ -627,7 +627,7 @@ void CompositingRequirementsUpdater::UpdateRecursive(
         reasons_to_composite & CompositingReason::kInlineTransform;
     if ((!child_recursion_data.testing_overlap_ &&
          !is_composited_clipping_layer) ||
-        layer->GetLayoutObject().Style()->HasCurrentTransformAnimation() ||
+        layer->GetLayoutObject().StyleRef().HasCurrentTransformAnimation() ||
         is_composited_with_inline_transform)
       current_recursion_data.testing_overlap_ = false;
 

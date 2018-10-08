@@ -15,11 +15,12 @@
 #include "base/feature_list.h"
 #include "base/hash.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/win/core_winrt_util.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_hstring.h"
@@ -701,7 +702,10 @@ class NotificationPlatformBridgeWinImpl
     HRESULT error_code;
     HRESULT hr = arguments->get_ErrorCode(&error_code);
     if (SUCCEEDED(hr)) {
+      // Error code successfully obtained from the Action Center.
       LogOnFailedStatus(OnFailedStatus::SUCCESS);
+      base::UmaHistogramSparse("Notifications.Windows.DisplayFailure",
+                               error_code);
       DLOG(ERROR) << "Failed to raise the toast notification, error code: "
                   << std::hex << error_code;
     } else {
@@ -833,6 +837,11 @@ bool NotificationPlatformBridgeWin::HandleActivation(
     return false;
   }
 
+  if (launch_id.is_for_dismiss_button()) {
+    LogActivationStatus(ActivationStatus::SUCCESS);
+    return true;  // We're done! The toast has already dismissed.
+  }
+
   base::Optional<base::string16> reply;
   base::string16 inline_reply =
       command_line.GetSwitchValueNative(switches::kNotificationInlineReply);
@@ -868,7 +877,10 @@ std::string NotificationPlatformBridgeWin::GetProfileIdFromLaunchId(
 
 // static
 bool NotificationPlatformBridgeWin::NativeNotificationEnabled() {
-  return base::win::GetVersion() >= base::win::VERSION_WIN10_RS1 &&
+  // Windows 10 native notification seems to have memory leak issues on OS
+  // builds older than 17134 (i.e., VERSION_WIN10_RS4). This seems to be a
+  // Windows issue which has been fixed in 17134.
+  return base::win::GetVersion() >= base::win::VERSION_WIN10_RS4 &&
          base::FeatureList::IsEnabled(features::kNativeNotifications);
 }
 

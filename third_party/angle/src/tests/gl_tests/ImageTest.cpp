@@ -165,9 +165,14 @@ class ImageTest : public ANGLETest
 
         // Create an image from the source texture
         EGLWindow *window = getEGLWindow();
+
+        EGLint attribs[] = {
+            EGL_IMAGE_PRESERVED, EGL_TRUE, EGL_NONE,
+        };
+
         EGLImageKHR image =
             eglCreateImageKHR(window->getDisplay(), window->getContext(), EGL_GL_TEXTURE_2D_KHR,
-                              reinterpretHelper<EGLClientBuffer>(source), nullptr);
+                              reinterpretHelper<EGLClientBuffer>(source), attribs);
 
         ASSERT_EGL_SUCCESS();
 
@@ -205,9 +210,14 @@ class ImageTest : public ANGLETest
 
         // Create an image from the source texture
         EGLWindow *window = getEGLWindow();
+
+        EGLint attribs[] = {
+            EGL_IMAGE_PRESERVED, EGL_TRUE, EGL_NONE,
+        };
+
         EGLImageKHR image =
             eglCreateImageKHR(window->getDisplay(), window->getContext(), imageTarget,
-                              reinterpretHelper<EGLClientBuffer>(source), nullptr);
+                              reinterpretHelper<EGLClientBuffer>(source), attribs);
 
         ASSERT_EGL_SUCCESS();
 
@@ -244,7 +254,11 @@ class ImageTest : public ANGLETest
         EGLWindow *window = getEGLWindow();
 
         EGLint attribs[] = {
-            EGL_GL_TEXTURE_ZOFFSET_KHR, static_cast<EGLint>(imageLayer), EGL_NONE,
+            EGL_GL_TEXTURE_ZOFFSET_KHR,
+            static_cast<EGLint>(imageLayer),
+            EGL_IMAGE_PRESERVED,
+            EGL_TRUE,
+            EGL_NONE,
         };
         EGLImageKHR image =
             eglCreateImageKHR(window->getDisplay(), window->getContext(), EGL_GL_TEXTURE_3D_KHR,
@@ -285,9 +299,14 @@ class ImageTest : public ANGLETest
 
         // Create an image from the source renderbuffer
         EGLWindow *window = getEGLWindow();
+
+        EGLint attribs[] = {
+            EGL_IMAGE_PRESERVED, EGL_TRUE, EGL_NONE,
+        };
+
         EGLImageKHR image =
             eglCreateImageKHR(window->getDisplay(), window->getContext(), EGL_GL_RENDERBUFFER_KHR,
-                              reinterpretHelper<EGLClientBuffer>(source), nullptr);
+                              reinterpretHelper<EGLClientBuffer>(source), attribs);
 
         ASSERT_EGL_SUCCESS();
 
@@ -458,6 +477,10 @@ class ImageTestES3 : public ImageTest
 // you change extension availability.
 TEST_P(ImageTest, ANGLEExtensionAvailability)
 {
+    // EGL support is based on driver extension availability.
+    ANGLE_SKIP_TEST_IF(IsOpenGLES() && IsAndroid());
+    ANGLE_SKIP_TEST_IF(IsOpenGLES() && IsOzone());
+
     if (IsD3D11() || IsD3D9())
     {
         EXPECT_TRUE(hasOESExt());
@@ -1292,6 +1315,10 @@ TEST_P(ImageTest, Source3DTargetTexture)
 
 TEST_P(ImageTest, Source3DTargetRenderbuffer)
 {
+    // Qualcom drivers appear to always bind the 0 layer of the source 3D texture when the target is
+    // a renderbuffer. They work correctly when the target is a 2D texture. http://anglebug.com/2745
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
+
     EGLWindow *window = getEGLWindow();
     ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !has3DTextureExt());
 
@@ -1556,6 +1583,11 @@ TEST_P(ImageTest, Deletion)
 
 TEST_P(ImageTest, MipLevels)
 {
+    // Driver returns OOM in read pixels, some internal error.
+    ANGLE_SKIP_TEST_IF(IsOzone() && IsOpenGLES());
+    // Also fails on NVIDIA Shield TV bot.
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
+
     EGLWindow *window = getEGLWindow();
     ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !has2DTextureExt());
 
@@ -1621,6 +1653,11 @@ TEST_P(ImageTest, MipLevels)
 // Respecify the source texture, orphaning it.  The target texture should not have updated data.
 TEST_P(ImageTest, Respecification)
 {
+    // Respecification of textures that does not change the size of the level attached to the EGL
+    // image does not cause orphaning on Qualcomm devices. http://anglebug.com/2744
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
+    ANGLE_SKIP_TEST_IF(IsOzone() && IsOpenGLES());
+
     EGLWindow *window = getEGLWindow();
     ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !has2DTextureExt());
 
@@ -1639,6 +1676,41 @@ TEST_P(ImageTest, Respecification)
     // Respecify source
     glBindTexture(GL_TEXTURE_2D, source);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, updateData);
+
+    // Expect that the target texture has the original data
+    verifyResults2D(target, originalData);
+
+    // Expect that the source texture has the updated data
+    verifyResults2D(source, updateData);
+
+    // Clean up
+    glDeleteTextures(1, &source);
+    eglDestroyImageKHR(window->getDisplay(), image);
+    glDeleteTextures(1, &target);
+}
+
+// Respecify the source texture with a different size, orphaning it.  The target texture should not
+// have updated data.
+TEST_P(ImageTest, RespecificationDifferentSize)
+{
+    EGLWindow *window = getEGLWindow();
+    ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !has2DTextureExt());
+
+    GLubyte originalData[4] = {255, 0, 255, 255};
+    GLubyte updateData[16]  = {0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255};
+
+    // Create the Image
+    GLuint source;
+    EGLImageKHR image;
+    createEGLImage2DTextureSource(1, 1, GL_RGBA, GL_UNSIGNED_BYTE, originalData, &source, &image);
+
+    // Create the target
+    GLuint target;
+    createEGLImageTargetTexture2D(image, &target);
+
+    // Respecify source
+    glBindTexture(GL_TEXTURE_2D, source);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, updateData);
 
     // Expect that the target texture has the original data
     verifyResults2D(target, originalData);
@@ -1705,6 +1777,10 @@ TEST_P(ImageTest, RespecificationWithFBO)
 // data
 TEST_P(ImageTest, RespecificationOfOtherLevel)
 {
+    // Respecification of textures that does not change the size of the level attached to the EGL
+    // image does not cause orphaning on Qualcomm devices. http://anglebug.com/2744
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
+
     EGLWindow *window = getEGLWindow();
     ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !has2DTextureExt());
 

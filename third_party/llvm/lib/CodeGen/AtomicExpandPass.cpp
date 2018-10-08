@@ -88,6 +88,7 @@ namespace {
     void expandPartwordAtomicRMW(
         AtomicRMWInst *I,
         TargetLoweringBase::AtomicExpansionKind ExpansionKind);
+    AtomicRMWInst *widenPartwordAtomicRMW(AtomicRMWInst *AI);
     void expandPartwordCmpXchg(AtomicCmpXchgInst *I);
 
     AtomicCmpXchgInst *convertCmpXchgToIntegerType(AtomicCmpXchgInst *CI);
@@ -306,6 +307,16 @@ bool AtomicExpand::runOnFunction(Function &F) {
       if (isIdempotentRMW(RMWI) && simplifyIdempotentRMW(RMWI)) {
         MadeChange = true;
       } else {
+        unsigned MinCASSize = TLI->getMinCmpXchgSizeInBits() / 8;
+        unsigned ValueSize = getAtomicOpSize(RMWI);
+        AtomicRMWInst::BinOp Op = RMWI->getOperation();
+        if (ValueSize < MinCASSize &&
+            (Op == AtomicRMWInst::Or || Op == AtomicRMWInst::Xor ||
+             Op == AtomicRMWInst::And)) {
+          RMWI = widenPartwordAtomicRMW(RMWI);
+          MadeChange = true;
+        }
+
         MadeChange |= tryExpandAtomicRMW(RMWI);
       }
     } else if (CASI) {
@@ -362,19 +373,19 @@ IntegerType *AtomicExpand::getCorrespondingIntegerType(Type *T,
 
 /// Convert an atomic load of a non-integral type to an integer load of the
 /// equivalent bitwidth.  See the function comment on
-/// convertAtomicStoreToIntegerType for background.  
+/// convertAtomicStoreToIntegerType for background.
 LoadInst *AtomicExpand::convertAtomicLoadToIntegerType(LoadInst *LI) {
   auto *M = LI->getModule();
   Type *NewTy = getCorrespondingIntegerType(LI->getType(),
                                             M->getDataLayout());
 
   IRBuilder<> Builder(LI);
-  
+
   Value *Addr = LI->getPointerOperand();
   Type *PT = PointerType::get(NewTy,
                               Addr->getType()->getPointerAddressSpace());
   Value *NewAddr = Builder.CreateBitCast(Addr, PT);
-  
+
   auto *NewLI = Builder.CreateLoad(NewAddr);
   NewLI->setAlignment(LI->getAlignment());
   NewLI->setVolatile(LI->isVolatile());
@@ -452,7 +463,7 @@ StoreInst *AtomicExpand::convertAtomicStoreToIntegerType(StoreInst *SI) {
   Type *NewTy = getCorrespondingIntegerType(SI->getValueOperand()->getType(),
                                             M->getDataLayout());
   Value *NewVal = Builder.CreateBitCast(SI->getValueOperand(), NewTy);
-  
+
   Value *Addr = SI->getPointerOperand();
   Type *PT = PointerType::get(NewTy,
                               Addr->getType()->getPointerAddressSpace());
@@ -659,12 +670,10 @@ static Value *performMaskedAtomicOp(AtomicRMWInst::BinOp Op,
   }
   case AtomicRMWInst::Or:
   case AtomicRMWInst::Xor:
-    // Or/Xor won't affect any other bits, so can just be done
-    // directly.
-    return performAtomicOp(Op, Builder, Loaded, Shifted_Inc);
+  case AtomicRMWInst::And:
+    llvm_unreachable("Or/Xor/And handled by widenPartwordAtomicRMW");
   case AtomicRMWInst::Add:
   case AtomicRMWInst::Sub:
-  case AtomicRMWInst::And:
   case AtomicRMWInst::Nand: {
     // The other arithmetic ops need to be masked into place.
     Value *NewVal = performAtomicOp(Op, Builder, Loaded, Shifted_Inc);
@@ -731,6 +740,41 @@ void AtomicExpand::expandPartwordAtomicRMW(
       Builder.CreateLShr(OldResult, PMV.ShiftAmt), PMV.ValueType);
   AI->replaceAllUsesWith(FinalOldResult);
   AI->eraseFromParent();
+}
+
+// Widen the bitwise atomicrmw (or/xor/and) to the minimum supported width.
+AtomicRMWInst *AtomicExpand::widenPartwordAtomicRMW(AtomicRMWInst *AI) {
+  IRBuilder<> Builder(AI);
+  AtomicRMWInst::BinOp Op = AI->getOperation();
+
+  assert((Op == AtomicRMWInst::Or || Op == AtomicRMWInst::Xor ||
+          Op == AtomicRMWInst::And) &&
+         "Unable to widen operation");
+
+  PartwordMaskValues PMV =
+      createMaskInstrs(Builder, AI, AI->getType(), AI->getPointerOperand(),
+                       TLI->getMinCmpXchgSizeInBits() / 8);
+
+  Value *ValOperand_Shifted =
+      Builder.CreateShl(Builder.CreateZExt(AI->getValOperand(), PMV.WordType),
+                        PMV.ShiftAmt, "ValOperand_Shifted");
+
+  Value *NewOperand;
+
+  if (Op == AtomicRMWInst::And)
+    NewOperand =
+        Builder.CreateOr(PMV.Inv_Mask, ValOperand_Shifted, "AndOperand");
+  else
+    NewOperand = ValOperand_Shifted;
+
+  AtomicRMWInst *NewAI = Builder.CreateAtomicRMW(Op, PMV.AlignedAddr,
+                                                 NewOperand, AI->getOrdering());
+
+  Value *FinalOldResult = Builder.CreateTrunc(
+      Builder.CreateLShr(NewAI, PMV.ShiftAmt), PMV.ValueType);
+  AI->replaceAllUsesWith(FinalOldResult);
+  AI->eraseFromParent();
+  return NewAI;
 }
 
 void AtomicExpand::expandPartwordCmpXchg(AtomicCmpXchgInst *CI) {
@@ -920,14 +964,14 @@ Value *AtomicExpand::insertRMWLLSCLoop(
 /// the equivalent bitwidth.  We used to not support pointer cmpxchg in the
 /// IR.  As a migration step, we convert back to what use to be the standard
 /// way to represent a pointer cmpxchg so that we can update backends one by
-/// one. 
+/// one.
 AtomicCmpXchgInst *AtomicExpand::convertCmpXchgToIntegerType(AtomicCmpXchgInst *CI) {
   auto *M = CI->getModule();
   Type *NewTy = getCorrespondingIntegerType(CI->getCompareOperand()->getType(),
                                             M->getDataLayout());
 
   IRBuilder<> Builder(CI);
-  
+
   Value *Addr = CI->getPointerOperand();
   Type *PT = PointerType::get(NewTy,
                               Addr->getType()->getPointerAddressSpace());
@@ -935,8 +979,8 @@ AtomicCmpXchgInst *AtomicExpand::convertCmpXchgToIntegerType(AtomicCmpXchgInst *
 
   Value *NewCmp = Builder.CreatePtrToInt(CI->getCompareOperand(), NewTy);
   Value *NewNewVal = Builder.CreatePtrToInt(CI->getNewValOperand(), NewTy);
-  
-  
+
+
   auto *NewCI = Builder.CreateAtomicCmpXchg(NewAddr, NewCmp, NewNewVal,
                                             CI->getSuccessOrdering(),
                                             CI->getFailureOrdering(),

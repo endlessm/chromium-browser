@@ -89,11 +89,12 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
       const base::Optional<AccountId>& prefilled_account) override;
   void HideOobeDialog() override;
   void UpdateOobeDialogSize(int width, int height) override;
+  void UpdateOobeDialogState(ash::mojom::OobeDialogState state) override;
   const user_manager::UserList GetUsers() override;
   void OnCancelPasswordChangedFlow() override;
   void ShowFeedback() override;
-  void ShowDialogForCaptivePortal() override;
-  void HideDialogForCaptivePortal() override;
+  void ShowResetScreen() override;
+  void HandleDisplayCaptivePortal() override;
   void UpdateAddUserButtonStatus() override;
 
   // LoginScreenClient::Delegate:
@@ -155,6 +156,11 @@ class LoginDisplayHostMojo : public LoginDisplayHostCommon,
 
   // Updates UI when version info is changed.
   std::unique_ptr<MojoVersionInfoDispatcher> version_info_updater_;
+
+  // Prevents repeated calls to OnStartSigninScreen, which can happen when a
+  // user cancels the Powerwash dialog in the login screen. Set to true on the
+  // first OnStartSigninScreen and remains true afterward.
+  bool signin_screen_started_ = false;
 
   base::WeakPtrFactory<LoginDisplayHostMojo> weak_factory_;
 

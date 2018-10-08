@@ -28,15 +28,6 @@ check_function_exists(secure_getenv HAVE_SECURE_GETENV)
 check_function_exists(__secure_getenv HAVE___SECURE_GETENV)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/loader_cmake_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/loader_cmake_config.h)
 
-# Fetch header version from vulkan_core.h
-file(STRINGS "${VulkanHeaders_INCLUDE_DIRS}/vulkan/vulkan_core.h" lines REGEX "^#define VK_HEADER_VERSION [0-9]+")
-list(LENGTH lines len)
-if(${len} EQUAL 1)
-    string(REGEX MATCHALL "[0-9]+" vk_header_version ${lines})
-else()
-    message(FATAL_ERROR "Unable to fetch version from vulkan.h")
-endif()
-
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     add_definitions(-DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN)
     set(DisplayServer Win32)
@@ -231,7 +222,7 @@ else()
     add_library(vulkan SHARED ${NORMAL_LOADER_SRCS} ${OPT_LOADER_SRCS})
     add_dependencies(vulkan generate_helper_files loader_gen_files loader_asm_gen_files)
     target_compile_definitions(vulkan PUBLIC -DLOADER_DYNAMIC_LIB)
-    set_target_properties(vulkan PROPERTIES SOVERSION "1" VERSION "1.1.${vk_header_version}")
+    set_target_properties(vulkan PROPERTIES SOVERSION "1" VERSION "${VulkanHeaders_VERSION_MAJOR}.${VulkanHeaders_VERSION_MINOR}.${VulkanHeaders_VERSION_PATCH}")
     target_link_libraries(vulkan -ldl -lpthread -lm)
 
     if(APPLE)
@@ -272,7 +263,7 @@ else()
             OUTPUT_NAME vulkan
             FRAMEWORK TRUE
             FRAMEWORK_VERSION A
-            VERSION "1.1.${vk_header_version}"       # "current version"
+            VERSION "${VulkanHeaders_VERSION_MAJOR}.${VulkanHeaders_VERSION_MINOR}.${VulkanHeaders_VERSION_PATCH}" # "current version"
             SOVERSION "1.0.0"                        # "compatibility version"
             MACOSX_FRAMEWORK_IDENTIFIER com.lunarg.vulkanFramework
             PUBLIC_HEADER "${FRAMEWORK_HEADERS}"
@@ -288,7 +279,7 @@ else()
         # Generate pkg-config file.
         include(FindPkgConfig QUIET)
         if(PKG_CONFIG_FOUND)
-            set(VK_API_VERSION "1.1.${vk_header_version}")
+            set(VK_API_VERSION "${VulkanHeaders_VERSION_MAJOR}.${VulkanHeaders_VERSION_MINOR}.${VulkanHeaders_VERSION_PATCH}")
             foreach(LIB ${CMAKE_CXX_IMPLICIT_LINK_LIBRARIES} ${PLATFORM_LIBS})
                 set(PRIVATE_LIBS "${PRIVATE_LIBS} -l${LIB}")
             endforeach()

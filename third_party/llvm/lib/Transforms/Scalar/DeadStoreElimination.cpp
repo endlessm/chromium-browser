@@ -71,7 +71,7 @@ using namespace llvm;
 
 STATISTIC(NumRedundantStores, "Number of redundant stores deleted");
 STATISTIC(NumFastStores, "Number of stores deleted");
-STATISTIC(NumFastOther , "Number of other instrs removed");
+STATISTIC(NumFastOther, "Number of other instrs removed");
 STATISTIC(NumCompletePartials, "Number of stores dead by later partials");
 STATISTIC(NumModifiedStores, "Number of stores modified");
 
@@ -188,7 +188,7 @@ static bool hasAnalyzableMemoryWrite(Instruction *I,
 /// returns true, this function and getLocForRead completely describe the memory
 /// operations for this instruction.
 static MemoryLocation getLocForWrite(Instruction *Inst) {
-  
+
   if (StoreInst *SI = dyn_cast<StoreInst>(Inst))
     return MemoryLocation::get(SI);
 

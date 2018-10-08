@@ -24,7 +24,24 @@ namespace NamespaceA {
 
 struct SecondTableInA;
 
+inline const flatbuffers::TypeTable *TableInFirstNSTypeTable();
+
+}  // namespace NamespaceA
+
+namespace NamespaceC {
+
+inline const flatbuffers::TypeTable *TableInCTypeTable();
+
+}  // namespace NamespaceC
+
+namespace NamespaceA {
+
+inline const flatbuffers::TypeTable *SecondTableInATypeTable();
+
 struct TableInFirstNS FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return TableInFirstNSTypeTable();
+  }
   enum {
     VT_FOO_TABLE = 4,
     VT_FOO_ENUM = 6,
@@ -70,13 +87,13 @@ struct TableInFirstNSBuilder {
   void add_foo_struct(const NamespaceA::NamespaceB::StructInNestedNS *foo_struct) {
     fbb_.AddStruct(TableInFirstNS::VT_FOO_STRUCT, foo_struct);
   }
-  TableInFirstNSBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+  explicit TableInFirstNSBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
   TableInFirstNSBuilder &operator=(const TableInFirstNSBuilder &);
   flatbuffers::Offset<TableInFirstNS> Finish() {
-    const auto end = fbb_.EndTable(start_, 3);
+    const auto end = fbb_.EndTable(start_);
     auto o = flatbuffers::Offset<TableInFirstNS>(end);
     return o;
   }
@@ -99,6 +116,9 @@ inline flatbuffers::Offset<TableInFirstNS> CreateTableInFirstNS(
 namespace NamespaceC {
 
 struct TableInC FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return TableInCTypeTable();
+  }
   enum {
     VT_REFER_TO_A1 = 4,
     VT_REFER_TO_A2 = 6
@@ -134,13 +154,13 @@ struct TableInCBuilder {
   void add_refer_to_a2(flatbuffers::Offset<NamespaceA::SecondTableInA> refer_to_a2) {
     fbb_.AddOffset(TableInC::VT_REFER_TO_A2, refer_to_a2);
   }
-  TableInCBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+  explicit TableInCBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
   TableInCBuilder &operator=(const TableInCBuilder &);
   flatbuffers::Offset<TableInC> Finish() {
-    const auto end = fbb_.EndTable(start_, 2);
+    const auto end = fbb_.EndTable(start_);
     auto o = flatbuffers::Offset<TableInC>(end);
     return o;
   }
@@ -161,6 +181,9 @@ inline flatbuffers::Offset<TableInC> CreateTableInC(
 namespace NamespaceA {
 
 struct SecondTableInA FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return SecondTableInATypeTable();
+  }
   enum {
     VT_REFER_TO_C = 4
   };
@@ -184,13 +207,13 @@ struct SecondTableInABuilder {
   void add_refer_to_c(flatbuffers::Offset<NamespaceC::TableInC> refer_to_c) {
     fbb_.AddOffset(SecondTableInA::VT_REFER_TO_C, refer_to_c);
   }
-  SecondTableInABuilder(flatbuffers::FlatBufferBuilder &_fbb)
+  explicit SecondTableInABuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
   SecondTableInABuilder &operator=(const SecondTableInABuilder &);
   flatbuffers::Offset<SecondTableInA> Finish() {
-    const auto end = fbb_.EndTable(start_, 1);
+    const auto end = fbb_.EndTable(start_);
     auto o = flatbuffers::Offset<SecondTableInA>(end);
     return o;
   }
@@ -211,6 +234,71 @@ namespace NamespaceC {
 }  // namespace NamespaceC
 
 namespace NamespaceA {
+
+inline const flatbuffers::TypeTable *TableInFirstNSTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_SEQUENCE, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 1 },
+    { flatbuffers::ET_SEQUENCE, 0, 2 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    NamespaceA::NamespaceB::TableInNestedNSTypeTable,
+    NamespaceA::NamespaceB::EnumInNestedNSTypeTable,
+    NamespaceA::NamespaceB::StructInNestedNSTypeTable
+  };
+  static const char * const names[] = {
+    "foo_table",
+    "foo_enum",
+    "foo_struct"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 3, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+}  // namespace NamespaceA
+
+namespace NamespaceC {
+
+inline const flatbuffers::TypeTable *TableInCTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_SEQUENCE, 0, 0 },
+    { flatbuffers::ET_SEQUENCE, 0, 1 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    NamespaceA::TableInFirstNSTypeTable,
+    NamespaceA::SecondTableInATypeTable
+  };
+  static const char * const names[] = {
+    "refer_to_a1",
+    "refer_to_a2"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 2, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+}  // namespace NamespaceC
+
+namespace NamespaceA {
+
+inline const flatbuffers::TypeTable *SecondTableInATypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_SEQUENCE, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    NamespaceC::TableInCTypeTable
+  };
+  static const char * const names[] = {
+    "refer_to_c"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
 
 }  // namespace NamespaceA
 

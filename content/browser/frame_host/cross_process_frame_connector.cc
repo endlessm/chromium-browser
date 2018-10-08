@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
+#include "components/viz/common/features.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "components/viz/service/surfaces/surface.h"
 #include "components/viz/service/surfaces/surface_hittest.h"
@@ -118,7 +119,7 @@ void CrossProcessFrameConnector::SetView(RenderWidgetHostViewChildFrame* view) {
     if (is_hidden_)
       OnVisibilityChanged(false);
     FrameMsg_ViewChanged_Params params;
-    if (features::IsAshInBrowserProcess())
+    if (!features::IsUsingWindowService())
       params.frame_sink_id = view_->GetFrameSinkId();
     frame_proxy_in_parent_renderer_->Send(new FrameMsg_ViewChanged(
         frame_proxy_in_parent_renderer_->GetRoutingID(), params));
@@ -147,8 +148,10 @@ void CrossProcessFrameConnector::RenderProcessGone() {
 
 void CrossProcessFrameConnector::FirstSurfaceActivation(
     const viz::SurfaceInfo& surface_info) {
-  frame_proxy_in_parent_renderer_->Send(new FrameMsg_FirstSurfaceActivation(
-      frame_proxy_in_parent_renderer_->GetRoutingID(), surface_info));
+  if (!features::IsSurfaceSynchronizationEnabled()) {
+    frame_proxy_in_parent_renderer_->Send(new FrameMsg_FirstSurfaceActivation(
+        frame_proxy_in_parent_renderer_->GetRoutingID(), surface_info));
+  }
 }
 
 void CrossProcessFrameConnector::SendIntrinsicSizingInfoToParent(
@@ -223,17 +226,6 @@ bool CrossProcessFrameConnector::TransformPointToCoordSpaceForView(
 
   return root_view->TransformPointToCoordSpaceForView(
       *transformed_point, target_view, transformed_point, source);
-}
-
-void CrossProcessFrameConnector::ForwardProcessAckedTouchEvent(
-    const TouchEventWithLatencyInfo& touch,
-    InputEventAckState ack_result) {
-  auto* main_view = GetRootRenderWidgetHostView();
-  // Note that the event's coordinates are in |view_|'s coordinate space, but
-  // since |ProcessAckedTouchEvent| doesn't use the coordinates, we don't
-  // bother to transform them back to the root coordinate space.
-  if (main_view)
-    main_view->ProcessAckedTouchEvent(touch, ack_result);
 }
 
 void CrossProcessFrameConnector::ForwardAckedTouchpadPinchGestureEvent(
@@ -336,12 +328,14 @@ void CrossProcessFrameConnector::OnSynchronizeVisualProperties(
 
 void CrossProcessFrameConnector::OnUpdateViewportIntersection(
     const gfx::Rect& viewport_intersection,
-    const gfx::Rect& compositor_visible_rect) {
+    const gfx::Rect& compositor_visible_rect,
+    bool occluded_or_obscured) {
   viewport_intersection_rect_ = viewport_intersection;
   compositor_visible_rect_ = compositor_visible_rect;
+  occluded_or_obscured_ = occluded_or_obscured;
   if (view_)
-    view_->UpdateViewportIntersection(viewport_intersection,
-                                      compositor_visible_rect);
+    view_->UpdateViewportIntersection(
+        viewport_intersection, compositor_visible_rect, occluded_or_obscured);
 
   if (IsVisible()) {
     // MaybeLogCrash will check 1) if there was a crash or not and 2) if the
@@ -461,7 +455,7 @@ bool CrossProcessFrameConnector::IsHidden() const {
 
 #if defined(USE_AURA)
 void CrossProcessFrameConnector::EmbedRendererWindowTreeClientInParent(
-    ui::mojom::WindowTreeClientPtr window_tree_client) {
+    ws::mojom::WindowTreeClientPtr window_tree_client) {
   RenderWidgetHostViewBase* root = GetRootRenderWidgetHostView();
   RenderWidgetHostViewBase* parent = GetParentRenderWidgetHostView();
   if (!parent || !root)
@@ -490,7 +484,7 @@ void CrossProcessFrameConnector::SetVisibilityForChildViews(
 
 void CrossProcessFrameConnector::SetScreenSpaceRect(
     const gfx::Rect& screen_space_rect) {
-  gfx::Rect old_rect = screen_space_rect;
+  gfx::Rect old_rect = screen_space_rect_in_pixels_;
   FrameConnectorDelegate::SetScreenSpaceRect(screen_space_rect);
 
   if (view_) {

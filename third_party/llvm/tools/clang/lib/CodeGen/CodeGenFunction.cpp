@@ -772,9 +772,11 @@ static bool endsWithReturn(const Decl* F) {
   return false;
 }
 
-static void markAsIgnoreThreadCheckingAtRuntime(llvm::Function *Fn) {
-  Fn->addFnAttr("sanitize_thread_no_checking_at_run_time");
-  Fn->removeFnAttr(llvm::Attribute::SanitizeThread);
+void CodeGenFunction::markAsIgnoreThreadCheckingAtRuntime(llvm::Function *Fn) {
+  if (SanOpts.has(SanitizerKind::Thread)) {
+    Fn->addFnAttr("sanitize_thread_no_checking_at_run_time");
+    Fn->removeFnAttr(llvm::Attribute::SanitizeThread);
+  }
 }
 
 static bool matchesStlAllocatorFn(const Decl *D, const ASTContext &Ctx) {
@@ -887,10 +889,6 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
           (OMD->getSelector().isUnarySelector() && II->isStr(".cxx_destruct"))) {
         markAsIgnoreThreadCheckingAtRuntime(Fn);
       }
-    } else if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D)) {
-      IdentifierInfo *II = FD->getIdentifier();
-      if (II && II->isStr("__destroy_helper_block_"))
-        markAsIgnoreThreadCheckingAtRuntime(Fn);
     }
   }
 
@@ -980,6 +978,13 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
       if (FD->isMain())
         Fn->addFnAttr(llvm::Attribute::NoRecurse);
+
+  // If a custom alignment is used, force realigning to this alignment on
+  // any main function which certainly will need it.
+  if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
+    if ((FD->isMain() || FD->isMSVCRTEntryPoint()) &&
+        CGM.getCodeGenOpts().StackAlignment)
+      Fn->addFnAttr("stackrealign");
 
   llvm::BasicBlock *EntryBB = createBasicBlock("entry", CurFn);
 
@@ -2089,9 +2094,8 @@ void CodeGenFunction::EmitVariablyModifiedType(QualType type) {
             SanitizerScope SanScope(this);
             llvm::Value *Zero = llvm::Constant::getNullValue(Size->getType());
             llvm::Constant *StaticArgs[] = {
-              EmitCheckSourceLocation(size->getLocStart()),
-              EmitCheckTypeDescriptor(size->getType())
-            };
+                EmitCheckSourceLocation(size->getBeginLoc()),
+                EmitCheckTypeDescriptor(size->getType())};
             EmitCheck(std::make_pair(Builder.CreateICmpSGT(Size, Zero),
                                      SanitizerKind::VLABound),
                       SanitizerHandler::VLABoundNotPositive, StaticArgs, Size);
@@ -2319,11 +2323,12 @@ void CodeGenFunction::checkTargetFeatures(const CallExpr *E,
       return;
     StringRef(FeatureList).split(ReqFeatures, ',');
     if (!hasRequiredFeatures(ReqFeatures, CGM, FD, MissingFeature))
-      CGM.getDiags().Report(E->getLocStart(), diag::err_builtin_needs_feature)
+      CGM.getDiags().Report(E->getBeginLoc(), diag::err_builtin_needs_feature)
           << TargetDecl->getDeclName()
           << CGM.getContext().BuiltinInfo.getRequiredFeatures(BuiltinID);
 
-  } else if (TargetDecl->hasAttr<TargetAttr>()) {
+  } else if (TargetDecl->hasAttr<TargetAttr>() ||
+             TargetDecl->hasAttr<CPUSpecificAttr>()) {
     // Get the required features for the callee.
 
     const TargetAttr *TD = TargetDecl->getAttr<TargetAttr>();
@@ -2344,7 +2349,7 @@ void CodeGenFunction::checkTargetFeatures(const CallExpr *E,
         ReqFeatures.push_back(F.getKey());
     }
     if (!hasRequiredFeatures(ReqFeatures, CGM, FD, MissingFeature))
-      CGM.getDiags().Report(E->getLocStart(), diag::err_function_needs_feature)
+      CGM.getDiags().Report(E->getBeginLoc(), diag::err_function_needs_feature)
           << FD->getDeclName() << TargetDecl->getDeclName() << MissingFeature;
   }
 }
@@ -2358,8 +2363,8 @@ void CodeGenFunction::EmitSanitizerStatReport(llvm::SanitizerStatKind SSK) {
   CGM.getSanStats().create(IRB, SSK);
 }
 
-llvm::Value *
-CodeGenFunction::FormResolverCondition(const MultiVersionResolverOption &RO) {
+llvm::Value *CodeGenFunction::FormResolverCondition(
+    const TargetMultiVersionResolverOption &RO) {
   llvm::Value *TrueCondition = nullptr;
   if (!RO.ParsedAttribute.Architecture.empty())
     TrueCondition = EmitX86CpuIs(RO.ParsedAttribute.Architecture);
@@ -2377,8 +2382,9 @@ CodeGenFunction::FormResolverCondition(const MultiVersionResolverOption &RO) {
   return TrueCondition;
 }
 
-void CodeGenFunction::EmitMultiVersionResolver(
-    llvm::Function *Resolver, ArrayRef<MultiVersionResolverOption> Options) {
+void CodeGenFunction::EmitTargetMultiVersionResolver(
+    llvm::Function *Resolver,
+    ArrayRef<TargetMultiVersionResolverOption> Options) {
   assert((getContext().getTargetInfo().getTriple().getArch() ==
               llvm::Triple::x86 ||
           getContext().getTargetInfo().getTriple().getArch() ==
@@ -2391,7 +2397,7 @@ void CodeGenFunction::EmitMultiVersionResolver(
   EmitX86CpuInit();
 
   llvm::Function *DefaultFunc = nullptr;
-  for (const MultiVersionResolverOption &RO : Options) {
+  for (const TargetMultiVersionResolverOption &RO : Options) {
     Builder.SetInsertPoint(CurBlock);
     llvm::Value *TrueCondition = FormResolverCondition(RO);
 
@@ -2410,6 +2416,44 @@ void CodeGenFunction::EmitMultiVersionResolver(
   // Emit return from the 'else-ist' block.
   Builder.SetInsertPoint(CurBlock);
   Builder.CreateRet(DefaultFunc);
+}
+
+void CodeGenFunction::EmitCPUDispatchMultiVersionResolver(
+    llvm::Function *Resolver,
+    ArrayRef<CPUDispatchMultiVersionResolverOption> Options) {
+  assert((getContext().getTargetInfo().getTriple().getArch() ==
+              llvm::Triple::x86 ||
+          getContext().getTargetInfo().getTriple().getArch() ==
+              llvm::Triple::x86_64) &&
+         "Only implemented for x86 targets");
+
+  // Main function's basic block.
+  llvm::BasicBlock *CurBlock = createBasicBlock("resolver_entry", Resolver);
+  Builder.SetInsertPoint(CurBlock);
+  EmitX86CpuInit();
+
+  for (const CPUDispatchMultiVersionResolverOption &RO : Options) {
+    Builder.SetInsertPoint(CurBlock);
+
+    // "generic" case should catch-all.
+    if (RO.FeatureMask == 0) {
+      Builder.CreateRet(RO.Function);
+      return;
+    }
+    llvm::BasicBlock *RetBlock = createBasicBlock("resolver_return", Resolver);
+    llvm::IRBuilder<> RetBuilder(RetBlock);
+    RetBuilder.CreateRet(RO.Function);
+    CurBlock = createBasicBlock("resolver_else", Resolver);
+    llvm::Value *TrueCondition = EmitX86CpuSupports(RO.FeatureMask);
+    Builder.CreateCondBr(TrueCondition, RetBlock, CurBlock);
+  }
+
+  Builder.SetInsertPoint(CurBlock);
+  llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
+  TrapCall->setDoesNotReturn();
+  TrapCall->setDoesNotThrow();
+  Builder.CreateUnreachable();
+  Builder.ClearInsertionPoint();
 }
 
 llvm::DebugLoc CodeGenFunction::SourceLocToDebugLoc(SourceLocation Location) {

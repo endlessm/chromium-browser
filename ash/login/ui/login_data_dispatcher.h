@@ -57,8 +57,8 @@ class ASH_EXPORT LoginDataDispatcher {
         const base::Optional<base::Time>& auth_reenabled_time);
 
     // Called when the given user can click their pod to unlock.
-    virtual void OnClickToUnlockEnabledForUserChanged(const AccountId& user,
-                                                      bool enabled);
+    virtual void OnTapToUnlockEnabledForUserChanged(const AccountId& user,
+                                                    bool enabled);
 
     // Called when |user| must authenticate online (e.g. when OAuth refresh
     // token is revoked).
@@ -71,6 +71,12 @@ class ASH_EXPORT LoginDataDispatcher {
     virtual void OnShowEasyUnlockIcon(
         const AccountId& user,
         const mojom::EasyUnlockIconOptionsPtr& icon);
+
+    // Called when a warning banner message should be displayed.
+    virtual void OnShowWarningBanner(const base::string16& message);
+
+    // Called when a warning banner message should be hidden.
+    virtual void OnHideWarningBanner();
 
     // Called when the info shown for dev and canary channels are changed.
     virtual void OnDevChannelInfoChanged(
@@ -121,11 +127,13 @@ class ASH_EXPORT LoginDataDispatcher {
   void SetAuthEnabledForUser(const AccountId& account_id,
                              bool is_enabled,
                              base::Optional<base::Time> auth_reenabled_time);
-  void SetClickToUnlockEnabledForUser(const AccountId& user, bool enabled);
+  void SetTapToUnlockEnabledForUser(const AccountId& user, bool enabled);
   void SetForceOnlineSignInForUser(const AccountId& user);
   void SetLockScreenNoteState(mojom::TrayActionState state);
   void ShowEasyUnlockIcon(const AccountId& user,
                           const mojom::EasyUnlockIconOptionsPtr& icon);
+  void ShowWarningBanner(const base::string16& message);
+  void HideWarningBanner();
   void SetDevChannelInfo(const std::string& os_version_label_text,
                          const std::string& enterprise_info_text,
                          const std::string& bluetooth_name);
@@ -145,7 +153,7 @@ class ASH_EXPORT LoginDataDispatcher {
                                  mojom::FingerprintUnlockState state);
 
  private:
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginDataDispatcher);
 };

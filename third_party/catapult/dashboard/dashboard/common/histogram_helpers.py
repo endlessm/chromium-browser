@@ -79,6 +79,62 @@ _LEGACY_BENCHMARKS = [
 _STATS_BLACKLIST = ['std', 'count', 'max', 'min', 'sum']
 
 
+def EscapeName(name):
+  """Escapes a trace name so it can be stored in a row.
+
+  Args:
+    name: A string representing a name.
+
+  Returns:
+    An escaped version of the name.
+  """
+  return re.sub(r'[\:|=/#&,]', '_', name)
+
+
+def ComputeTestPath(hist):
+  # If a Histogram represents a summary across multiple stories, then its
+  # 'stories' diagnostic will contain the names of all of the stories.
+  # If a Histogram is not a summary, then its 'stories' diagnostic will contain
+  # the singular name of its story.
+  is_summary = list(
+      hist.diagnostics.get(reserved_infos.SUMMARY_KEYS.name, []))
+
+  tir_label = GetTIRLabelFromHistogram(hist)
+
+  is_ref = hist.diagnostics.get(reserved_infos.IS_REFERENCE_BUILD.name)
+  if is_ref and len(is_ref) == 1:
+    is_ref = is_ref.GetOnlyElement()
+
+  story_name = hist.diagnostics.get(reserved_infos.STORIES.name)
+  if story_name and len(story_name) == 1:
+    story_name = story_name.GetOnlyElement()
+  else:
+    story_name = None
+
+  return ComputeTestPathFromComponents(
+      hist.name, tir_label=tir_label, story_name=story_name,
+      is_summary=is_summary, is_ref=is_ref)
+
+
+def ComputeTestPathFromComponents(
+    hist_name, tir_label=None, story_name=None, is_summary=None, is_ref=False):
+  path = hist_name
+
+  if tir_label and (
+      not is_summary or reserved_infos.STORY_TAGS.name in is_summary):
+    path += '/' + tir_label
+
+  if story_name and not is_summary:
+    escaped_story_name = EscapeName(story_name)
+    path += '/' + escaped_story_name
+    if is_ref:
+      path += '_ref'
+  elif is_ref:
+    path += '/ref'
+
+  return path
+
+
 def GetTIRLabelFromHistogram(hist):
   tags = hist.diagnostics.get(reserved_infos.STORY_TAGS.name) or []
 

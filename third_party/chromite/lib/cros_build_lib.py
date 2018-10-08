@@ -30,6 +30,7 @@ import traceback
 import types
 
 from chromite.lib import constants
+from chromite.lib import cros_collections
 from chromite.lib import cros_logging as logging
 from chromite.lib import signals
 
@@ -419,7 +420,7 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
                append_to_file=False, chroot_args=None, debug_level=logging.INFO,
                error_code_ok=False, int_timeout=1, kill_timeout=1,
                log_output=False, stdout_to_pipe=False, capture_output=False,
-               quiet=False, mute_output=None, stream_log=False):
+               quiet=False, mute_output=None):
   """Runs a command.
 
   Args:
@@ -471,8 +472,6 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
       |combine_stdout_stderr| to True.
     mute_output: Mute subprocess printing to parent stdout/stderr. Defaults to
       None, which bases muting on |debug_level|.
-    stream_log: Stream output to the logs as the command runs. Implies
-      log_output, stdout_to_pipe, combine_stdout_stderr.
 
   Returns:
     A CommandResult object.
@@ -486,9 +485,6 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
   if quiet:
     debug_level = logging.DEBUG
     stdout_to_pipe, combine_stdout_stderr = True, True
-
-  if stream_log:
-    log_output, stdout_to_pipe, combine_stdout_stderr = True, True, True
 
   # Set default for variables.
   stdout = None
@@ -547,9 +543,6 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
   elif input is not None:
     stdin = input
     input = None
-
-  # stream_log needs PIPE.
-  assert not stream_log or stdout == subprocess.PIPE
 
   if isinstance(cmd, basestring):
     if not shell:
@@ -619,18 +612,7 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
                                       kill_timeout, cmd, old_sigterm))
 
     try:
-      if stream_log:
-        logging.log(debug_level, '(stdout/stderr):\n')
-        cmd_result.output = ''
-        while True:
-          output = proc.stdout.readline()
-          if not len(output):
-            break
-          logging.log(debug_level, output.strip())
-          cmd_result.output += output
-        proc.wait()
-      else:
-        (cmd_result.output, cmd_result.error) = proc.communicate(input)
+      (cmd_result.output, cmd_result.error) = proc.communicate(input)
     finally:
       if use_signals:
         signal.signal(signal.SIGINT, old_sigint)
@@ -648,7 +630,7 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
 
     cmd_result.returncode = proc.returncode
 
-    if log_output and not stream_log:
+    if log_output:
       if cmd_result.output:
         logging.log(debug_level, '(stdout):\n%s', cmd_result.output)
       if cmd_result.error:
@@ -774,7 +756,7 @@ def GetChromeosVersion(str_obj):
   if str_obj is not None:
     match = re.search(r'CHROMEOS_VERSION_STRING=([0-9_.]+)', str_obj)
     if match and match.group(1):
-      logging.info('CHROMEOS_VERSION_STRING = %s' % match.group(1))
+      logging.info('CHROMEOS_VERSION_STRING = %s', match.group(1))
       return match.group(1)
 
   logging.info('CHROMEOS_VERSION_STRING NOT found')
@@ -966,6 +948,51 @@ def UncompressFile(infile, outfile):
     RunCommand(cmd, log_stdout_to_file=outfile)
 
 
+def MonitorDirectories(dir_paths, cwd=None, timeout=0):
+  """Uses lsof to monitor directories.
+
+  This helps debug CreateTarballErrors when contentious processes change
+  files being tarred.
+
+  Args:
+    dir_paths: The list of directories to track/monitor.
+    cwd: Current working directory.
+    timeout: (Optional) Runtime cutoff in seconds for finding culprit
+      processes. If processes are found earlier, function will exit. If
+      not specified, loop through once and exit.
+  """
+  timed_out = False
+  start_time = time.time()
+  while not timed_out:
+    try:
+      lsof_result = RunCommand(['lsof', '-n', '-d', '0-999', '-F', 'pn'],
+                               cwd=cwd, mute_output=True)
+    except Exception:
+      lsof_result = ''
+      logging.info('Exception running lsof.', exc_info=True)
+      timeout = 0
+
+    if lsof_result:
+      logging.info('Potential competing programs:')
+      current_pid = 0
+      for line in lsof_result.output.splitlines():
+        if line.startswith('p'):
+          current_pid = line[1:]
+        elif line.startswith('n') and current_pid:
+          current_path = line[1:]
+          for input_path in dir_paths:
+            if input_path in current_path:
+              timeout = 0
+              try:
+                ps_result = RunCommand(['ps', '-f', current_pid],
+                                       mute_output=True)
+                logging.info('%s', ps_result.output)
+              except Exception:
+                logging.info('Exception running ps.', exc_info=True)
+
+    timed_out = (time.time() > start_time + timeout)
+
+
 class CreateTarballError(RunCommandError):
   """Error while running tar.
 
@@ -1020,97 +1047,16 @@ def CreateTarball(target, cwd, sudo=False, compression=COMP_XZ, chroot=None,
     if result.returncode == 0:
       return result
     if result.returncode != 1 or try_count > 0:
-      # Debug logic to find the competing program that is modifying the
-      # directory being compressed.
-      try:
-        lsof_result = RunCommand(['lsof', '-n', '-d', '0-999', '-F', 'pn'],
-                                 cwd=cwd, mute_output=True)
-      except Exception:
-        lsof_result = 0
-        logging.info('Exception running lsof.', exc_info=True)
-
-      if lsof_result:
-        logging.info('Potential competing programs:')
-        current_pid = 0
-        for line in lsof_result.output.splitlines():
-          if line.startswith('p'):
-            current_pid = line[1:]
-          elif line.startswith('n') and current_pid:
-            current_path = line[1:]
-            for input_path in input_abs_paths:
-              if input_path in current_path:
-                try:
-                  ps_result = RunCommand(['ps', '-f', current_pid],
-                                         mute_output=True)
-                  logging.info('%s', ps_result.output)
-                except Exception:
-                  logging.info('Exception running ps.', exc_info=True)
-
+      # Since the build is abandoned at this point, we will take 5
+      # entire minutes to track down the competing process.
+      MonitorDirectories(input_abs_paths, cwd, 300)
       raise CreateTarballError('CreateTarball', result)
+
     assert result.returncode == 1 and try_count == 0
     logging.warning('CreateTarball: tar: source modification time changed ' +
                     '(see crbug.com/547055), retrying once')
     logging.PrintBuildbotStepWarnings()
-
-
-def GroupByKey(input_iter, key):
-  """Split an iterable of dicts, based on value of a key.
-
-  GroupByKey([{'a': 1}, {'a': 2}, {'a': 1, 'b': 2}], 'a') =>
-    {1: [{'a': 1}, {'a': 1, 'b': 2}], 2: [{'a': 2}]}
-
-  Args:
-    input_iter: An iterable of dicts.
-    key: A string specifying the key name to split by.
-
-  Returns:
-    A dictionary, mapping from each unique value for |key| that
-    was encountered in |input_iter| to a list of entries that had
-    that value.
-  """
-  split_dict = dict()
-  for entry in input_iter:
-    split_dict.setdefault(entry.get(key), []).append(entry)
-  return split_dict
-
-
-def GroupNamedtuplesByKey(input_iter, key):
-  """Split an iterable of namedtuples, based on value of a key.
-
-  Args:
-    input_iter: An iterable of namedtuples.
-    key: A string specifying the key name to split by.
-
-  Returns:
-    A dictionary, mapping from each unique value for |key| that
-    was encountered in |input_iter| to a list of entries that had
-    that value.
-  """
-  split_dict = {}
-  for entry in input_iter:
-    split_dict.setdefault(getattr(entry, key, None), []).append(entry)
-  return split_dict
-
-
-def InvertDictionary(origin_dict):
-  """Invert the key value mapping in the origin_dict.
-
-  Given an origin_dict {'key1': {'val1', 'val2'}, 'key2': {'val1', 'val3'},
-  'key3': {'val3'}}, the returned inverted dict will be
-  {'val1': {'key1', 'key2'}, 'val2': {'key1'}, 'val3': {'key2', 'key3'}}
-
-  Args:
-    origin_dict: A dict mapping each key to a group (collection) of values.
-
-  Returns:
-    An inverted dict mapping each key to a set of its values.
-  """
-  new_dict = {}
-  for origin_key, origin_values in origin_dict.iteritems():
-    for origin_value in origin_values:
-      new_dict.setdefault(origin_value, set()).add(origin_key)
-
-  return new_dict
+    MonitorDirectories(input_abs_paths, cwd)
 
 
 def GetInput(prompt):
@@ -1458,9 +1404,9 @@ def iflatten_instance(iterable, terminate_on_kls=(basestring,)):
   stopping descent on objects that either aren't iterable, or match
   isinstance(obj, terminate_on_kls).
 
-  Example:
-  >>> print list(iflatten_instance([1, 2, "as", ["4", 5]))
-  [1, 2, "as", "4", 5]
+  Examples:
+    >>> print list(iflatten_instance([1, 2, "as", ["4", 5]))
+    [1, 2, "as", "4", 5]
   """
   def descend_into(item):
     if isinstance(item, terminate_on_kls):
@@ -1820,78 +1766,21 @@ def GetSysroot(board=None):
   return '/' if board is None else os.path.join('/build', board)
 
 
-def Collection(classname, **kwargs):
-  """Create a new class with mutable named members.
-
-  This is like collections.namedtuple, but mutable.  Also similar to the
-  python 3.3 types.SimpleNamespace.
-
-  Example:
-    # Declare default values for this new class.
-    Foo = cros_build_lib.Collection('Foo', a=0, b=10)
-    # Create a new class but set b to 4.
-    foo = Foo(b=4)
-    # Print out a (will be the default 0) and b (will be 4).
-    print('a = %i, b = %i' % (foo.a, foo.b))
-  """
-
-  def sn_init(self, **kwargs):
-    """The new class's __init__ function."""
-    # First verify the kwargs don't have excess settings.
-    valid_keys = set(self.__slots__[1:])
-    these_keys = set(kwargs.keys())
-    invalid_keys = these_keys - valid_keys
-    if invalid_keys:
-      raise TypeError('invalid keyword arguments for this object: %r' %
-                      invalid_keys)
-
-    # Now initialize this object.
-    for k in valid_keys:
-      setattr(self, k, kwargs.get(k, self.__defaults__[k]))
-
-  def sn_repr(self):
-    """The new class's __repr__ function."""
-    return '%s(%s)' % (classname, ', '.join(
-        '%s=%r' % (k, getattr(self, k)) for k in self.__slots__[1:]))
-
-  # Give the new class a unique name and then generate the code for it.
-  classname = 'Collection_%s' % classname
-  expr = '\n'.join((
-      'class %(classname)s(object):',
-      '  __slots__ = ["__defaults__", "%(slots)s"]',
-      '  __defaults__ = {}',
-  )) % {
-      'classname': classname,
-      'slots': '", "'.join(sorted(str(k) for k in kwargs)),
-  }
-
-  # Create the class in a local namespace as exec requires.
-  namespace = {}
-  exec expr in namespace  # pylint: disable=exec-used
-  new_class = namespace[classname]
-
-  # Bind the helpers.
-  new_class.__defaults__ = kwargs.copy()
-  new_class.__init__ = sn_init
-  new_class.__repr__ = sn_repr
-
-  return new_class
-
-
 # Structure to hold the values produced by TimedSection.
 #
 #  Attributes:
 #    start: The absolute start time as a datetime.
 #    finish: The absolute finish time as a datetime, or None if in progress.
 #    delta: The runtime as a timedelta, or None if in progress.
-TimedResults = Collection('TimedResults', start=None, finish=None, delta=None)
+TimedResults = cros_collections.Collection(
+    'TimedResults', start=None, finish=None, delta=None)
 
 
 @contextlib.contextmanager
 def TimedSection():
   """Context manager to time how long a code block takes.
 
-  Example usage:
+  Examples:
     with cros_build_lib.TimedSection() as timer:
       DoWork()
     logging.info('DoWork took %s', timer.delta)
@@ -2238,23 +2127,24 @@ class _FdCapturer(object):
 class OutputCapturer(object):
   """Class for capturing stdout/stderr output.
 
-  Class is designed as a 'ContextManager'.  Example usage:
+  Class is designed as a 'ContextManager'.
 
-  with cros_build_lib.OutputCapturer() as output:
-    # Capturing of stdout/stderr automatically starts now.
-    # Do stuff that sends output to stdout/stderr.
-    # Capturing automatically stops at end of 'with' block.
+  Examples:
+    with cros_build_lib.OutputCapturer() as output:
+      # Capturing of stdout/stderr automatically starts now.
+      # Do stuff that sends output to stdout/stderr.
+      # Capturing automatically stops at end of 'with' block.
 
-  # stdout/stderr can be retrieved from the OutputCapturer object:
-  stdout = output.GetStdoutLines() # Or other access methods
+    # stdout/stderr can be retrieved from the OutputCapturer object:
+    stdout = output.GetStdoutLines() # Or other access methods
 
-  # Some Assert methods are only valid if capturing was used in test.
-  self.AssertOutputContainsError() # Or other related methods
+    # Some Assert methods are only valid if capturing was used in test.
+    self.AssertOutputContainsError() # Or other related methods
 
-  # OutputCapturer can also be used to capture output to specified files.
-  with self.OutputCapturer(stdout_path='/tmp/stdout.txt') as output:
-    # Do stuff.
-    # stdout will be captured to /tmp/stdout.txt.
+    # OutputCapturer can also be used to capture output to specified files.
+    with self.OutputCapturer(stdout_path='/tmp/stdout.txt') as output:
+      # Do stuff.
+      # stdout will be captured to /tmp/stdout.txt.
   """
 
   OPER_MSG_SPLIT_RE = re.compile(r'^\033\[1;.*?\033\[0m$|^[^\n]*$',

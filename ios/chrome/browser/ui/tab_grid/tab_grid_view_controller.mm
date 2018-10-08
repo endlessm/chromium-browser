@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_view_controller.h"
 
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/sys_string_conversions.h"
@@ -38,6 +39,37 @@ typedef NS_ENUM(NSUInteger, TabGridConfiguration) {
   TabGridConfigurationBottomToolbar = 1,
   TabGridConfigurationFloatingButton,
 };
+
+// User interaction that triggered a page change, if any.
+typedef NS_ENUM(NSUInteger, PageChangeInteraction) {
+  // There has been no interaction since the last page change.
+  PageChangeInteractionNone = 0,
+  // The user dragged in the scroll view to change pages.
+  PageChangeInteractionScrollDrag,
+  // The user tapped a segment of the page control to change pages.
+  PageChangeInteractionPageControlTap,
+  // The user dragged the page control slider to change pages.
+  PageChangeInteractionPageControlDrag,
+};
+
+// Key of the UMA IOS.TabSwitcher.PageChangeInteraction histogram.
+const char kUMATabSwitcherPageChangeInteractionHistogram[] =
+    "IOS.TabSwitcher.PageChangeInteraction";
+
+// Values of the UMA IOS.TabSwitcher.PageChangeInteraction histogram.
+enum class TabSwitcherPageChangeInteraction {
+  kNone = 0,
+  kScrollDrag = 1,
+  kControlTap = 2,
+  kControlDrag = 3,
+  kMaxValue = kControlDrag,
+};
+
+// Convenience function to record a page change interaction.
+void RecordPageChangeInteraction(TabSwitcherPageChangeInteraction interaction) {
+  UMA_HISTOGRAM_ENUMERATION(kUMATabSwitcherPageChangeInteractionHistogram,
+                            interaction);
+}
 
 // Computes the page from the offset and width of |scrollView|.
 TabGridPage GetPageFromScrollView(UIScrollView* scrollView) {
@@ -97,6 +129,8 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
 // Whether the scroll view is animating its content offset to the current page.
 @property(nonatomic, assign, getter=isScrollViewAnimatingContentOffset)
     BOOL scrollViewAnimatingContentOffset;
+
+@property(nonatomic, assign) PageChangeInteraction pageChangeInteraction;
 @end
 
 @implementation TabGridViewController
@@ -129,6 +163,7 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
 @synthesize initialFrame = _initialFrame;
 @synthesize scrollViewAnimatingContentOffset =
     _scrollViewAnimatingContentOffset;
+@synthesize pageChangeInteraction = _pageChangeInteraction;
 
 - (instancetype)init {
   if (self = [super init]) {
@@ -182,6 +217,9 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   self.initialFrame = self.view.frame;
   // Modify Remote Tabs Insets when page appears and during rotation.
   [self setInsetForRemoteTabs];
+  // Let image sources know the initial appearance is done.
+  [self.regularTabsImageDataSource clearPreloadedSnapshots];
+  [self.incognitoTabsImageDataSource clearPreloadedSnapshots];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -213,17 +251,18 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
     // current page value.
     self.currentPage = _currentPage;
     [self configureViewControllerForCurrentSizeClassesAndPage];
+    [self setInsetForRemoteTabs];
   };
-  auto completion =
-      ^(id<UIViewControllerTransitionCoordinatorContext> context) {
-        // Modify Remote Tabs Insets when page appears and during rotation.
-        [self setInsetForRemoteTabs];
-      };
-  [coordinator animateAlongsideTransition:animate completion:completion];
+  [coordinator animateAlongsideTransition:animate completion:nil];
 }
 
 - (UIStatusBarStyle)preferredStatusBarStyle {
   return UIStatusBarStyleLightContent;
+}
+
+- (void)didReceiveMemoryWarning {
+  [self.regularTabsImageDataSource clearPreloadedSnapshots];
+  [self.incognitoTabsImageDataSource clearPreloadedSnapshots];
 }
 
 #pragma mark - UIScrollViewDelegate
@@ -264,6 +303,7 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   // tapping on the page control during scrolling can result in erratic
   // scrolling.
   self.topToolbar.pageControl.userInteractionEnabled = NO;
+  self.pageChangeInteraction = PageChangeInteractionScrollDrag;
   [self updatePageViewAccessibilityVisibility];
 }
 
@@ -275,6 +315,9 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
 }
 
 - (void)scrollViewDidEndDecelerating:(UIScrollView*)scrollView {
+  // Mark the interaction as ended, so that scrolls that don't change page don't
+  // cause other interactions to be mislabeled.
+  self.pageChangeInteraction = PageChangeInteractionNone;
   [self updatePageViewAccessibilityVisibility];
 }
 
@@ -337,7 +380,26 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   return self.floatingButton;
 }
 
-#pragma mark - Public
+#pragma mark - Public Methods
+
+- (void)prepareForAppearance {
+  int gridSize = [self approximateVisibleGridCount];
+  switch (self.activePage) {
+    case TabGridPageIncognitoTabs:
+      [self.incognitoTabsImageDataSource
+          preloadSnapshotsForVisibleGridSize:gridSize];
+      break;
+    case TabGridPageRegularTabs:
+      [self.regularTabsImageDataSource
+          preloadSnapshotsForVisibleGridSize:gridSize];
+      break;
+    case TabGridPageRemoteTabs:
+      // Nothing to do.
+      break;
+  }
+}
+
+#pragma mark - Public Properties
 
 - (id<GridConsumer>)regularTabsConsumer {
   return self.regularTabsViewController;
@@ -542,6 +604,7 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   [self.view addSubview:scrollView];
   self.scrollContentView = contentView;
   self.scrollView = scrollView;
+  self.scrollView.accessibilityIdentifier = kTabGridScrollViewIdentifier;
   NSArray* constraints = @[
     [contentView.topAnchor constraintEqualToAnchor:scrollView.topAnchor],
     [contentView.bottomAnchor constraintEqualToAnchor:scrollView.bottomAnchor],
@@ -626,6 +689,9 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   styler.tableViewBackgroundColor = UIColorFromRGB(kGridBackgroundColor);
   styler.cellTitleColor = UIColorFromRGB(kGridDarkThemeCellTitleColor);
   styler.headerFooterTitleColor = UIColorFromRGB(kGridDarkThemeCellTitleColor);
+  styler.cellHighlightColor =
+      [UIColor colorWithWhite:0 alpha:kGridDarkThemeCellHighlightColorAlpha];
+  styler.cellSeparatorColor = UIColorFromRGB(kGridDarkThemeCellSeparatorColor);
   self.remoteTabsViewController.styler = styler;
 
   UIView* contentView = self.scrollContentView;
@@ -997,6 +1063,26 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
           "MobileTabSwitcherHeaderViewSelectDistantSessionPanel"));
       break;
   }
+  switch (self.pageChangeInteraction) {
+    case PageChangeInteractionNone:
+      // This shouldn't happen, but in case it does happen in release, track it.
+      NOTREACHED() << "Recorded a page change with no interaction.";
+      RecordPageChangeInteraction(TabSwitcherPageChangeInteraction::kNone);
+      break;
+    case PageChangeInteractionScrollDrag:
+      RecordPageChangeInteraction(
+          TabSwitcherPageChangeInteraction::kScrollDrag);
+      break;
+    case PageChangeInteractionPageControlTap:
+      RecordPageChangeInteraction(
+          TabSwitcherPageChangeInteraction::kControlTap);
+      break;
+    case PageChangeInteractionPageControlDrag:
+      RecordPageChangeInteraction(
+          TabSwitcherPageChangeInteraction::kControlDrag);
+      break;
+  }
+  self.pageChangeInteraction = PageChangeInteractionNone;
 }
 
 // Tells the appropriate delegate to create a new item, and then tells the
@@ -1054,6 +1140,21 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
       (self.currentPage == TabGridPageIncognitoTabs &&
        !self.incognitoTabsViewController.gridEmpty);
   [self.dispatcher setIncognitoContentVisible:incognitoContentVisible];
+}
+
+// Returns the approximate number of grid cells that will be visible on this
+// device.
+- (int)approximateVisibleGridCount {
+  if (IsRegularXRegularSizeClass(self)) {
+    // A 12" iPad Pro can show 30 cells in the tab grid.
+    return 30;
+  }
+  if (IsCompactWidth(self)) {
+    // A portrait phone shows up to four rows of two cells.
+    return 8;
+  }
+  // A landscape phone shows up to three rows of four cells.
+  return 12;
 }
 
 #pragma mark - GridViewControllerDelegate
@@ -1144,14 +1245,20 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
 - (void)closeAllButtonTapped:(id)sender {
   switch (self.currentPage) {
     case TabGridPageIncognitoTabs:
+      base::RecordAction(
+          base::UserMetricsAction("MobileTabGridCloseAllIncognitoTabs"));
       [self.incognitoTabsDelegate closeAllItems];
       break;
     case TabGridPageRegularTabs:
       DCHECK_EQ(self.undoCloseAllAvailable,
                 self.regularTabsViewController.gridEmpty);
       if (self.undoCloseAllAvailable) {
+        base::RecordAction(
+            base::UserMetricsAction("MobileTabGridUndoCloseAllRegularTabs"));
         [self.regularTabsDelegate undoCloseAllItems];
       } else {
+        base::RecordAction(
+            base::UserMetricsAction("MobileTabGridCloseAllRegularTabs"));
         [self.regularTabsDelegate saveAndCloseAllItems];
       }
       self.undoCloseAllAvailable = !self.undoCloseAllAvailable;
@@ -1178,6 +1285,8 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
   if (UseRTLLayout())
     offset = 1.0 - offset;
 
+  self.pageChangeInteraction = PageChangeInteractionPageControlDrag;
+
   // Total space available for the scroll view to scroll (horizontally).
   CGFloat offsetWidth =
       self.scrollView.contentSize.width - self.scrollView.frame.size.width;
@@ -1190,9 +1299,19 @@ NSUInteger GetPageIndexFromPage(TabGridPage page) {
 
 - (void)pageControlChangedPage:(id)sender {
   TabGridPage newPage = self.topToolbar.pageControl.selectedPage;
+  // If the user has dragged the page control, -pageControlChangedPage: will be
+  // called after the calls to -pageControlChangedValue:, so only set the
+  // interaction here if one hasn't already been set.
+  if (self.pageChangeInteraction == PageChangeInteractionNone)
+    self.pageChangeInteraction = PageChangeInteractionPageControlTap;
+
+  TabGridPage currentPage = self.currentPage;
   [self setCurrentPage:newPage animated:YES];
-  // Records when the user taps on the pageControl to switch pages.
-  [self recordActionSwitchingToPage:newPage];
+  // Records when the user uses the pageControl to switch pages.
+  if (currentPage != newPage)
+    [self recordActionSwitchingToPage:newPage];
+  // Regardless of whether the page changed, mark the interaction as done.
+  self.pageChangeInteraction = PageChangeInteractionNone;
 }
 
 #pragma mark - UIResponder

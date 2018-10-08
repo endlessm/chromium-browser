@@ -13,6 +13,8 @@ import tempfile
 import unittest
 import logging
 
+import mock
+
 from py_utils import cloud_storage
 
 from telemetry import benchmark
@@ -30,7 +32,7 @@ from telemetry import story as story_module
 from telemetry.testing import fakes
 from telemetry.testing import options_for_unittests
 from telemetry.testing import system_stub
-import mock
+from telemetry.util import wpr_modes
 from telemetry.value import improvement_direction
 from telemetry.value import list_of_scalar_values
 from telemetry.value import scalar
@@ -38,6 +40,7 @@ from telemetry.value import summary as summary_module
 from telemetry.web_perf import story_test
 from telemetry.web_perf import timeline_based_measurement
 from telemetry.wpr import archive_info
+
 from tracing.value import histogram as histogram_module
 from tracing.value import histogram_set
 from tracing.value.diagnostics import generic_set
@@ -243,14 +246,6 @@ class TestOnlyException(Exception):
   pass
 
 
-class ExcInfoMatcher(object):
-  def __init__(self, message):
-    self.message = message
-
-  def __eq__(self, other):
-    return isinstance(other[1], Exception) and self.message == other[1].message
-
-
 class _Measurement(legacy_page_test.LegacyPageTest):
   i = 0
   def RunPage(self, page, _, results):
@@ -333,6 +328,7 @@ class StoryRunnerTest(unittest.TestCase):
     self.assertFalse(self.results.had_failures)
     self.assertEquals(number_stories,
                       GetNumberOfSuccessfulPageRuns(self.results))
+    self.assertEquals(story_set.stories[0].wpr_mode, wpr_modes.WPR_REPLAY)
 
   def testRunStoryWithMissingArchiveFile(self):
     story_set = story_module.StorySet(archive_data_file='data/hi.json')
@@ -1107,15 +1103,11 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.state.WillRunStory(root_mock.story),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.Fail(ExcInfoMatcher('foo')),
+        mock.call.results.Fail(
+            'Exception raised running %s' % root_mock.story.name),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
     ])
-
-  def AssertListEquals(self, list_1, list_2):
-    self.assertEquals(len(list_1), len(list_2))
-    for i in range(len(list_1)):
-      self.assertEqual(list_1[i], list_2[i])
 
   def testRunStoryAndProcessErrorIfNeeded_tryAppCrash(self):
     tmp = tempfile.NamedTemporaryFile(delete=False)
@@ -1133,7 +1125,7 @@ class StoryRunnerTest(unittest.TestCase):
         story_runner._RunStoryAndProcessErrorIfNeeded(
             root_mock.story, root_mock.results, root_mock.state, root_mock.test)
 
-      self.AssertListEquals(root_mock.method_calls, [
+      self.assertListEqual(root_mock.method_calls, [
           mock.call.results.CreateArtifact(root_mock.story.name, 'logs'),
           mock.call.test.WillRunStory(root_mock.state.platform),
           mock.call.state.WillRunStory(root_mock.story),
@@ -1141,7 +1133,8 @@ class StoryRunnerTest(unittest.TestCase):
               root_mock.story, root_mock.results),
           mock.call.results.AddArtifact(
               root_mock.story.name, 'minidump', temp_file_path),
-          mock.call.results.Fail(ExcInfoMatcher('foo')),
+          mock.call.results.Fail(
+              'Exception raised running %s' % root_mock.story.name),
           mock.call.test.DidRunStory(
               root_mock.state.platform, root_mock.results),
           mock.call.state.DidRunStory(root_mock.results),
@@ -1165,7 +1158,8 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.state.CanRunStory(root_mock.story),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.Fail(ExcInfoMatcher('foo')),
+        mock.call.results.Fail(
+            'Exception raised running %s' % root_mock.story.name),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
     ])
@@ -1202,7 +1196,8 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.test.WillRunStory(root_mock.state.platform),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.Fail(ExcInfoMatcher('foo')),
+        mock.call.results.Fail(
+            'Exception raised running %s' % root_mock.story.name),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
     ])
@@ -1247,7 +1242,8 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.state.RunStory(root_mock.results),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.Fail(ExcInfoMatcher('foo')),
+        mock.call.results.Fail(
+            'Exception raised running %s' % root_mock.story.name),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
         mock.call.state.DidRunStory(root_mock.results),
     ])
@@ -1268,7 +1264,8 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.state.WillRunStory(root_mock.story),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.Fail(ExcInfoMatcher('foo')),
+        mock.call.results.Fail(
+            'Exception raised running %s' % root_mock.story.name),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
     ])
 
@@ -1310,7 +1307,8 @@ class StoryRunnerTest(unittest.TestCase):
         mock.call.test.Measure(root_mock.state.platform, root_mock.results),
         mock.call.state.DumpStateUponFailure(
             root_mock.story, root_mock.results),
-        mock.call.results.Fail(ExcInfoMatcher('foo')),
+        mock.call.results.Fail(
+            'Exception raised running %s' % root_mock.story.name),
         mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
     ])
 
@@ -1627,7 +1625,7 @@ class BenchmarkJsonResultsTest(unittest.TestCase):
     class StoryFailureSharedState(TestSharedState):
       def RunStory(self, results):
         logging.warning('This will fail gracefully')
-        raise exceptions.AppCrashException()
+        raise exceptions.Error('karma!')
 
     class TestBenchmark(benchmark.Benchmark):
       test = DummyTest
@@ -1665,7 +1663,7 @@ class BenchmarkJsonResultsTest(unittest.TestCase):
     self.assertIn('This will fail gracefully', foo_log)
 
     # Also the python crash stack.
-    self.assertIn("raise exceptions.AppCrashException()", foo_log)
+    self.assertIn("raise exceptions.Error('karma!')", foo_log)
 
   def testArtifactLogsContainUnhandleableException(self):
     class UnhandledFailureSharedState(TestSharedState):
@@ -1748,8 +1746,8 @@ class BenchmarkJsonResultsTest(unittest.TestCase):
     stories_to_crash = set('story_%s' % i for i in range(30, 50))
 
     def options_callback(options):
-      options.experimental_story_shard_begin_index = 10
-      options.experimental_story_shard_end_index = 41
+      options.story_shard_begin_index = 10
+      options.story_shard_end_index = 41
 
     options = _GenerateBaseBrowserFinderOptions(options_callback)
     options.suppress_gtest_report = True

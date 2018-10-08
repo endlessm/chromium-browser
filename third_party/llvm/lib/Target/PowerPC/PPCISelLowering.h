@@ -149,6 +149,10 @@ namespace llvm {
       /// For vector types, only the last n bits are used. See vsld.
       SRL, SRA, SHL,
 
+      /// EXTSWSLI = The PPC extswsli instruction, which does an extend-sign
+      /// word and shift left immediate.
+      EXTSWSLI,
+
       /// The combination of sra[wd]i and addze used to implemented signed
       /// integer division by a power of 2. The first operand is the dividend,
       /// and the second is the constant shift amount (representing the
@@ -665,7 +669,7 @@ namespace llvm {
     SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
 
     SDValue BuildSDIVPow2(SDNode *N, const APInt &Divisor, SelectionDAG &DAG,
-                          std::vector<SDNode *> *Created) const override;
+                          SmallVectorImpl<SDNode *> &Created) const override;
 
     unsigned getRegisterByName(const char* RegName, EVT VT,
                                SelectionDAG &DAG) const override;
@@ -872,9 +876,11 @@ namespace llvm {
                                                MCContext &Ctx) const override;
 
     unsigned getNumRegistersForCallingConv(LLVMContext &Context,
+                                           CallingConv:: ID CC,
                                            EVT VT) const override;
 
     MVT getRegisterTypeForCallingConv(LLVMContext &Context,
+                                      CallingConv:: ID CC,
                                       EVT VT) const override;
 
   private:
@@ -1141,7 +1147,7 @@ namespace llvm {
                                          ISD::ArgFlagsTy &ArgFlags,
                                          CCState &State);
 
-  bool 
+  bool
   CC_PPC32_SVR4_Custom_SkipLastArgRegsPPCF128(unsigned &ValNo, MVT &ValVT,
                                                  MVT &LocVT,
                                                  CCValAssign::LocInfo &LocInfo,

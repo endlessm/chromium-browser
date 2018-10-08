@@ -611,7 +611,8 @@ PreservedAnalyses WholeProgramDevirtPass::run(Module &M,
   auto OREGetter = [&](Function *F) -> OptimizationRemarkEmitter & {
     return FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F);
   };
-  if (!DevirtModule(M, AARGetter, OREGetter, nullptr, nullptr).run())
+  if (!DevirtModule(M, AARGetter, OREGetter, ExportSummary, ImportSummary)
+           .run())
     return PreservedAnalyses::all();
   return PreservedAnalyses::none();
 }
@@ -754,7 +755,8 @@ void DevirtModule::applySingleImplDevirt(VTableSlotInfo &SlotInfo,
   auto Apply = [&](CallSiteInfo &CSInfo) {
     for (auto &&VCallSite : CSInfo.CallSites) {
       if (RemarksEnabled)
-        VCallSite.emitRemark("single-impl", TheFn->getName(), OREGetter);
+        VCallSite.emitRemark("single-impl",
+                             TheFn->stripPointerCasts()->getName(), OREGetter);
       VCallSite.CS.setCalledFunction(ConstantExpr::getBitCast(
           TheFn, VCallSite.CS.getCalledValue()->getType()));
       // This use is no longer unsafe.
@@ -890,7 +892,8 @@ void DevirtModule::applyICallBranchFunnel(VTableSlotInfo &SlotInfo,
         continue;
 
       if (RemarksEnabled)
-        VCallSite.emitRemark("branch-funnel", JT->getName(), OREGetter);
+        VCallSite.emitRemark("branch-funnel",
+                             JT->stripPointerCasts()->getName(), OREGetter);
 
       // Pass the address of the vtable in the nest register, which is r10 on
       // x86_64.

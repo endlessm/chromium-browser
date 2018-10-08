@@ -44,6 +44,7 @@
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/autofill/local_card_migration_bubble.h"
 #include "chrome/browser/ui/autofill/save_card_bubble_view.h"
+#include "chrome/browser/ui/autofill/save_card_ui.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -65,9 +66,11 @@
 #include "chrome/browser/ui/views/autofill/local_card_migration_icon_view.h"
 #include "chrome/browser/ui/views/autofill/save_card_bubble_views.h"
 #include "chrome/browser/ui/views/autofill/save_card_icon_view.h"
+#include "chrome/browser/ui/views/autofill/save_card_manage_cards_bubble_views.h"
+#include "chrome/browser/ui/views/autofill/save_card_offer_bubble_views.h"
+#include "chrome/browser/ui/views/autofill/save_card_sign_in_promo_bubble_views.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bubble_view.h"
-#include "chrome/browser/ui/views/confirm_quit_bubble_controller.h"
 #include "chrome/browser/ui/views/download/download_in_progress_dialog_view.h"
 #include "chrome/browser/ui/views/download/download_shelf_view.h"
 #include "chrome/browser/ui/views/exclusive_access_bubble_views.h"
@@ -88,6 +91,7 @@
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_container_view.h"
 #include "chrome/browser/ui/views/profiles/profile_indicator_icon.h"
+#include "chrome/browser/ui/views/quit_instruction_bubble_controller.h"
 #include "chrome/browser/ui/views/status_bubble_views.h"
 #include "chrome/browser/ui/views/tab_contents/chrome_web_contents_view_focus_helper.h"
 #include "chrome/browser/ui/views/tabs/browser_tab_strip_controller.h"
@@ -265,8 +269,9 @@ void PaintAttachedBookmarkBar(gfx::Canvas* canvas,
                               view->GetLocalBounds(), background_image_offset);
   if (view->height() >= toolbar_overlap) {
     BrowserView::Paint1pxHorizontalLine(
-        canvas, view->GetThemeProvider()->GetColor(
-                    ThemeProperties::COLOR_TOOLBAR_BOTTOM_SEPARATOR),
+        canvas,
+        view->GetThemeProvider()->GetColor(
+            ThemeProperties::COLOR_TOOLBAR_CONTENT_AREA_SEPARATOR),
         view->GetLocalBounds(), true);
   }
 }
@@ -287,6 +292,31 @@ bool GetGestureCommand(ui::GestureEvent* event, int* command) {
 #endif  // OS_MACOSX
   return false;
 }
+
+// A view targeter for the overlay view, which makes sure the overlay view
+// itself is never a target for events, but its children (i.e. top_container)
+// may be.
+class OverlayViewTargeterDelegate : public views::ViewTargeterDelegate {
+ public:
+  OverlayViewTargeterDelegate() = default;
+  ~OverlayViewTargeterDelegate() override = default;
+
+  bool DoesIntersectRect(const views::View* target,
+                         const gfx::Rect& rect) const override {
+    for (int i = 0; i < target->child_count(); ++i) {
+      gfx::RectF child_rect(rect);
+      views::View::ConvertRectToTarget(target, target->child_at(i),
+                                       &child_rect);
+      if (target->child_at(i)->HitTestRect(gfx::ToEnclosingRect(child_rect)))
+        return true;
+    }
+
+    return false;
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(OverlayViewTargeterDelegate);
+};
 
 }  // namespace
 
@@ -481,25 +511,6 @@ void BrowserView::Paint1pxHorizontalLine(gfx::Canvas* canvas,
   cc::PaintFlags flags;
   flags.setColor(color);
   canvas->sk_canvas()->drawRect(gfx::RectFToSkRect(rect), flags);
-}
-
-// static
-void BrowserView::PaintToolbarTopSeparator(gfx::Canvas* canvas,
-                                           SkColor color,
-                                           const gfx::Rect& bounds) {
-  const float thickness = ui::MaterialDesignController::IsRefreshUi()
-                              ? 1.f
-                              : 1 / canvas->image_scale();
-  cc::PaintFlags flags;
-  flags.setColor(color);
-  flags.setStyle(cc::PaintFlags::kFill_Style);
-  canvas->sk_canvas()->drawRect(
-      RectFToSkRect(gfx::RectF(bounds.x(),
-                               bounds.bottom() -
-                                   GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP) -
-                                   thickness,
-                               bounds.width(), thickness)),
-      flags);
 }
 
 // static
@@ -732,12 +743,12 @@ void BrowserView::BookmarkBarStateChanged(
     // We don't properly support animating the bookmark bar to and from the
     // detached state in immersive fullscreen.
     bool detached_changed = (new_state == BookmarkBar::DETACHED) ||
-        bookmark_bar_view_->IsDetached();
+                            bookmark_bar_view_->IsDetached();
     if (detached_changed && immersive_mode_controller_->IsEnabled())
       change_type = BookmarkBar::DONT_ANIMATE_STATE_CHANGE;
-
     bookmark_bar_view_->SetBookmarkBarState(new_state, change_type);
   }
+
   if (MaybeShowBookmarkBar(GetActiveWebContents()))
     Layout();
 }
@@ -1104,8 +1115,7 @@ void BrowserView::ToolbarSizeChanged(bool is_animating) {
 
 void BrowserView::FocusBookmarksToolbar() {
   DCHECK(!immersive_mode_controller_->IsEnabled());
-  if (bookmark_bar_view_.get() &&
-      bookmark_bar_view_->visible() &&
+  if (bookmark_bar_view_ && bookmark_bar_view_->visible() &&
       bookmark_bar_view_->GetPreferredSize().height() != 0) {
     bookmark_bar_view_->SetPaneFocusAndFocusDefault();
   }
@@ -1151,8 +1161,10 @@ void BrowserView::RotatePaneFocus(bool forwards) {
 
 void BrowserView::DestroyBrowser() {
 #if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
-  GetWidget()->GetNativeView()->RemovePreTargetHandler(
-      ConfirmQuitBubbleController::GetInstance());
+  if (browser_->SupportsWindowFeature(Browser::FEATURE_TOOLBAR)) {
+    GetWidget()->GetNativeView()->RemovePreTargetHandler(
+        QuitInstructionBubbleController::GetInstance());
+  }
 #endif
 
   // After this returns other parts of Chrome are going to be shutdown. Close
@@ -1165,7 +1177,7 @@ void BrowserView::DestroyBrowser() {
 bool BrowserView::IsBookmarkBarVisible() const {
   if (!browser_->SupportsWindowFeature(Browser::FEATURE_BOOKMARKBAR))
     return false;
-  if (!bookmark_bar_view_.get())
+  if (!bookmark_bar_view_)
     return false;
   if (!bookmark_bar_view_->parent())
     return false;
@@ -1200,6 +1212,10 @@ bool BrowserView::IsToolbarVisible() const {
 
 bool BrowserView::IsToolbarShowing() const {
   return IsToolbarVisible();
+}
+
+bool BrowserView::IsInfoBarVisible() const {
+  return GetBrowserViewLayout()->IsInfobarVisible();
 }
 
 void BrowserView::ShowUpdateChromeDialog() {
@@ -1240,16 +1256,29 @@ autofill::SaveCardBubbleView* BrowserView::ShowSaveCreditCardBubble(
   LocationBarView* location_bar = GetLocationBarView();
   PageActionIconView* card_view = location_bar->save_credit_card_icon_view();
 
-  views::View* anchor_view = location_bar;
-  if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
-    if (card_view && card_view->visible())
-      anchor_view = card_view;
-    else
-      anchor_view = toolbar_button_provider()->GetAppMenuButton();
+  autofill::BubbleType bubble_type = controller->GetBubbleType();
+  autofill::SaveCardBubbleViews* bubble = nullptr;
+
+  switch (bubble_type) {
+    case autofill::BubbleType::LOCAL_SAVE:
+    case autofill::BubbleType::UPLOAD_SAVE:
+      bubble = new autofill::SaveCardOfferBubbleViews(
+          location_bar, gfx::Point(), web_contents, controller);
+      break;
+    case autofill::BubbleType::SIGN_IN_PROMO:
+      bubble = new autofill::SaveCardSignInPromoBubbleViews(
+          location_bar, gfx::Point(), web_contents, controller);
+      break;
+    case autofill::BubbleType::MANAGE_CARDS:
+      bubble = new autofill::SaveCardManageCardsBubbleViews(
+          location_bar, gfx::Point(), web_contents, controller);
+      break;
+    case autofill::BubbleType::INACTIVE:
+      break;
   }
 
-  autofill::SaveCardBubbleViews* bubble = new autofill::SaveCardBubbleViews(
-      anchor_view, gfx::Point(), web_contents, controller);
+  DCHECK(bubble);
+
   views::Widget* bubble_widget =
       views::BubbleDialogDelegateView::CreateBubble(bubble);
 
@@ -1268,16 +1297,8 @@ autofill::LocalCardMigrationBubble* BrowserView::ShowLocalCardMigrationBubble(
   PageActionIconView* card_view =
       location_bar->local_card_migration_icon_view();
 
-  views::View* anchor_view = location_bar;
-  if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
-    if (card_view && card_view->visible())
-      anchor_view = card_view;
-    else
-      anchor_view = toolbar_button_provider()->GetAppMenuButton();
-  }
-
   autofill::LocalCardMigrationBubbleViews* bubble =
-      new autofill::LocalCardMigrationBubbleViews(anchor_view, gfx::Point(),
+      new autofill::LocalCardMigrationBubbleViews(location_bar, gfx::Point(),
                                                   web_contents, controller);
   views::Widget* bubble_widget =
       views::BubbleDialogDelegateView::CreateBubble(bubble);
@@ -1645,7 +1666,19 @@ bool BrowserView::CanActivate() const {
 }
 
 base::string16 BrowserView::GetWindowTitle() const {
-  return browser_->GetWindowTitleForCurrentTab(true /* include_app_name */);
+  base::string16 title =
+      browser_->GetWindowTitleForCurrentTab(true /* include_app_name */);
+#if defined(OS_MACOSX)
+  TabAlertState state =
+      chrome::GetTabAlertStateForContents(GetActiveWebContents());
+  if (state == TabAlertState::AUDIO_PLAYING)
+    title = l10n_util::GetStringFUTF16(IDS_WINDOW_AUDIO_PLAYING_MAC, title,
+                                       base::WideToUTF16(L"\U0001F50A"));
+  else if (state == TabAlertState::AUDIO_MUTING)
+    title = l10n_util::GetStringFUTF16(IDS_WINDOW_AUDIO_MUTING_MAC, title,
+                                       base::WideToUTF16(L"\U0001F507"));
+#endif
+  return title;
 }
 
 base::string16 BrowserView::GetAccessibleWindowTitle() const {
@@ -1743,6 +1776,44 @@ FullscreenControlHost* BrowserView::GetFullscreenControlHost() {
   }
 
   return fullscreen_control_host_.get();
+}
+
+int BrowserView::GetBookmarkBarContentVerticalOffset() const {
+  if (!bookmark_bar_view_.get()) {
+    return 0;
+  }
+
+  // If the info bar is visible and the bookmark bar is detached, the info bar
+  // will be rendered above the bookmark bar. When this is the case, the shadow
+  // of the info bar will overlap onto the bookmark bar. The icons on the
+  // bookmark bar should be moved down so the icons appeared centered on the non
+  // shaded parts of the bookmark bar.
+  if (IsInfoBarVisible() && bookmark_bar_view_->IsDetached()) {
+    // 2 is roughly the number of visible pixels of the infobar shadow over the
+    // bookmark bar, so if we shift the top of the bookmark buttons down by this
+    // value, it will appear centered.
+    return 2;
+  }
+
+  // If the bookmark bar is attached, there will appear to be extra space above
+  // the bookmark bar icons due to the space below the location bar on the
+  // toolbar. The bookmark bar icons need to be moved up to compensate.
+  if (!bookmark_bar_view_->IsDetached()) {
+    return -GetBottomInsetOfLocationBarWithinToolbar() / 2;
+  }
+  return 0;
+}
+
+int BrowserView::GetBottomInsetOfLocationBarWithinToolbar() const {
+  return (toolbar_->height() - GetLocationBarView()->height() -
+          bookmark_bar_view_->GetToolbarOverlap()) /
+         2;
+}
+
+void BrowserView::ReparentTopContainerForEndOfImmersive() {
+  overlay_view_->SetVisible(false);
+  top_container()->DestroyLayer();
+  AddChildViewAt(top_container(), GetIndexOf(contents_container_) + 1);
 }
 
 views::View* BrowserView::GetInitiallyFocusedView() {
@@ -1882,6 +1953,15 @@ views::View* BrowserView::GetContentsView() {
 
 views::ClientView* BrowserView::CreateClientView(views::Widget* widget) {
   return this;
+}
+
+views::View* BrowserView::CreateOverlayView() {
+  overlay_view_ = new views::View();
+  overlay_view_->SetVisible(false);
+  overlay_view_targeter_ = std::make_unique<OverlayViewTargeterDelegate>();
+  overlay_view_->SetEventTargeter(
+      std::make_unique<views::ViewTargeter>(overlay_view_targeter_.get()));
+  return overlay_view_;
 }
 
 void BrowserView::OnWidgetDestroying(views::Widget* widget) {
@@ -2202,8 +2282,10 @@ void BrowserView::InitViews() {
                                        browser_->profile());
 
 #if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
-  GetWidget()->GetNativeView()->AddPreTargetHandler(
-      ConfirmQuitBubbleController::GetInstance());
+  if (browser_->SupportsWindowFeature(Browser::FEATURE_TOOLBAR)) {
+    GetWidget()->GetNativeView()->AddPreTargetHandler(
+        QuitInstructionBubbleController::GetInstance());
+  }
 #endif
 
 #if defined(USE_AURA)
@@ -2268,6 +2350,7 @@ void BrowserView::InitViews() {
   AddChildView(find_bar_host_view_);
 
   immersive_mode_controller_->Init(this);
+  immersive_mode_controller_->AddObserver(this);
 
   auto browser_view_layout = std::make_unique<BrowserViewLayout>();
   browser_view_layout->Init(new BrowserViewLayoutDelegateImpl(this),
@@ -2391,13 +2474,8 @@ void BrowserView::SetBookmarkBarParent(views::View* new_parent) {
   if (new_parent == this) {
     // BookmarkBarView is detached.
     views::View* target_view = top_container_;
-#if !defined(OS_CHROMEOS)
-    // CrOS immersive mode needs to show the rest of the top chrome
-    // in front of the detached bookmark bar, since the detached
-    // bar is styled to look like it's part of the NTP web content.
     if (ui::MaterialDesignController::IsRefreshUi())
       target_view = infobar_container_;
-#endif
     const int target_index = GetIndexOf(target_view);
     DCHECK_GE(target_index, 0);
     // |top_container_| contains the toolbar, so putting the bookmark bar ahead
@@ -2886,4 +2964,29 @@ BrowserView::GetActiveTabPermissionGranter() {
     return nullptr;
   return extensions::TabHelper::FromWebContents(web_contents)
       ->active_tab_permission_granter();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// BrowserView, ImmersiveModeController::Observer implementation:
+void BrowserView::OnImmersiveRevealStarted() {
+  top_container()->SetPaintToLayer();
+  top_container()->layer()->SetFillsBoundsOpaquely(false);
+  overlay_view_->AddChildView(top_container());
+  overlay_view_->SetVisible(true);
+  InvalidateLayout();
+  GetWidget()->GetRootView()->Layout();
+}
+
+void BrowserView::OnImmersiveRevealEnded() {
+  ReparentTopContainerForEndOfImmersive();
+  InvalidateLayout();
+  GetWidget()->GetRootView()->Layout();
+}
+
+void BrowserView::OnImmersiveFullscreenExited() {
+  OnImmersiveRevealEnded();
+}
+
+void BrowserView::OnImmersiveModeControllerDestroyed() {
+  ReparentTopContainerForEndOfImmersive();
 }

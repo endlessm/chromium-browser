@@ -52,7 +52,8 @@ class DirectoryLoader {
                   RootFolderIdLoader* root_folder_id_loader,
                   StartPageTokenLoader* start_page_token_loader,
                   LoaderController* apply_task_controller,
-                  const base::FilePath& root_entry_path);
+                  const base::FilePath& root_entry_path,
+                  const std::string& team_drive_id);
   ~DirectoryLoader();
 
   // Adds and removes the observer.
@@ -63,7 +64,7 @@ class DirectoryLoader {
   // |entries_callback| can be null.
   // |completion_callback| must not be null.
   void ReadDirectory(const base::FilePath& directory_path,
-                     const ReadDirectoryEntriesCallback& entries_callback,
+                     ReadDirectoryEntriesCallback entries_callback,
                      const FileOperationCallback& completion_callback);
 
  private:
@@ -73,14 +74,14 @@ class DirectoryLoader {
   // Part of ReadDirectory().
   void ReadDirectoryAfterGetEntry(
       const base::FilePath& directory_path,
-      const ReadDirectoryEntriesCallback& entries_callback,
+      ReadDirectoryEntriesCallback entries_callback,
       const FileOperationCallback& completion_callback,
       bool should_try_loading_parent,
       const ResourceEntry* entry,
       FileError error);
   void ReadDirectoryAfterLoadParent(
       const base::FilePath& directory_path,
-      const ReadDirectoryEntriesCallback& entries_callback,
+      ReadDirectoryEntriesCallback entries_callback,
       const FileOperationCallback& completion_callback,
       FileError error);
   void ReadDirectoryAfterGetRootFolderId(
@@ -138,7 +139,7 @@ class DirectoryLoader {
   RootFolderIdLoader* root_folder_id_loader_;      // Not owned.
   StartPageTokenLoader* start_page_token_loader_;  // Not owned
   LoaderController* loader_controller_;  // Not owned.
-  base::ObserverList<ChangeListLoaderObserver> observers_;
+  base::ObserverList<ChangeListLoaderObserver>::Unchecked observers_;
   typedef std::map<std::string, std::vector<ReadDirectoryCallbackState> >
       LoadCallbackMap;
   LoadCallbackMap pending_load_callback_;
@@ -150,6 +151,10 @@ class DirectoryLoader {
   // Can be a team drive root entry or for the users default corpus will be the
   // drive root entry.
   const base::FilePath root_entry_path_;
+
+  // The team drive id for this directory loader. Used to retrieve the start
+  // page token when performing a fast fetch.
+  const std::string team_drive_id_;
 
   THREAD_CHECKER(thread_checker_);
 

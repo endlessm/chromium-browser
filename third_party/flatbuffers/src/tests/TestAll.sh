@@ -13,6 +13,7 @@ sh PythonTest.sh
 echo "************************ JavaScript:"
 
 sh JavaScriptTest.sh
+sh JavaScriptUnionVectorTest.sh
 
 echo "************************ TypeScript:"
 
@@ -33,6 +34,16 @@ cd ..
 echo "************************ PHP:"
 
 php phpTest.php
+sh phpUnionVectorTest.sh
+
+echo "************************ Dart:"
+
+sh DartTest.sh
+
+echo "************************ Lobster:"
+
+# TODO: test if available.
+# lobster lobstertest.lobster
 
 echo "************************ C:"
 

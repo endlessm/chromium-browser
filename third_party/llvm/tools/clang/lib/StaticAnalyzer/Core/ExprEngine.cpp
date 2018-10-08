@@ -117,56 +117,42 @@ STATISTIC(NumTimesRetriedWithoutInlining,
 /// the construction context was present and contained references to these
 /// AST nodes.
 class ConstructedObjectKey {
-  typedef std::pair<
-      llvm::PointerUnion<const Stmt *, const CXXCtorInitializer *>,
-      const LocationContext *> ConstructedObjectKeyImpl;
+  typedef std::pair<ConstructionContextItem, const LocationContext *>
+      ConstructedObjectKeyImpl;
 
-  ConstructedObjectKeyImpl Impl;
+  const ConstructedObjectKeyImpl Impl;
 
   const void *getAnyASTNodePtr() const {
-    if (const Stmt *S = getStmt())
+    if (const Stmt *S = getItem().getStmtOrNull())
       return S;
     else
-      return getCXXCtorInitializer();
+      return getItem().getCXXCtorInitializer();
   }
 
 public:
-  ConstructedObjectKey(
-      llvm::PointerUnion<const Stmt *, const CXXCtorInitializer *> P,
-      const LocationContext *LC)
-      : Impl(P, LC) {
-    // This is the full list of statements that require additional actions when
-    // encountered. This list may be expanded when new actions are implemented.
-    assert(getCXXCtorInitializer() || isa<DeclStmt>(getStmt()) ||
-           isa<CXXNewExpr>(getStmt()) || isa<CXXBindTemporaryExpr>(getStmt()) ||
-           isa<MaterializeTemporaryExpr>(getStmt()) ||
-           isa<CXXConstructExpr>(getStmt()));
-  }
+  explicit ConstructedObjectKey(const ConstructionContextItem &Item,
+                       const LocationContext *LC)
+      : Impl(Item, LC) {}
 
-  const Stmt *getStmt() const {
-    return Impl.first.dyn_cast<const Stmt *>();
-  }
-
-  const CXXCtorInitializer *getCXXCtorInitializer() const {
-    return Impl.first.dyn_cast<const CXXCtorInitializer *>();
-  }
-
-  const LocationContext *getLocationContext() const {
-    return Impl.second;
-  }
+  const ConstructionContextItem &getItem() const { return Impl.first; }
+  const LocationContext *getLocationContext() const { return Impl.second; }
 
   void print(llvm::raw_ostream &OS, PrinterHelper *Helper, PrintingPolicy &PP) {
-    OS << '(' << getLocationContext() << ',' << getAnyASTNodePtr() << ") ";
-    if (const Stmt *S = getStmt()) {
+    OS << '(' << getLocationContext() << ',' << getAnyASTNodePtr() << ','
+       << getItem().getKindAsString();
+    if (getItem().getKind() == ConstructionContextItem::ArgumentKind)
+      OS << " #" << getItem().getIndex();
+    OS << ") ";
+    if (const Stmt *S = getItem().getStmtOrNull()) {
       S->printPretty(OS, Helper, PP);
     } else {
-      const CXXCtorInitializer *I = getCXXCtorInitializer();
+      const CXXCtorInitializer *I = getItem().getCXXCtorInitializer();
       OS << I->getAnyMember()->getNameAsString();
     }
   }
 
   void Profile(llvm::FoldingSetNodeID &ID) const {
-    ID.AddPointer(Impl.first.getOpaqueValue());
+    ID.Add(Impl.first);
     ID.AddPointer(Impl.second);
   }
 
@@ -183,15 +169,6 @@ typedef llvm::ImmutableMap<ConstructedObjectKey, SVal>
     ObjectsUnderConstructionMap;
 REGISTER_TRAIT_WITH_PROGRAMSTATE(ObjectsUnderConstruction,
                                  ObjectsUnderConstructionMap)
-
-// Additionally, track a set of destructors that correspond to elided
-// constructors when copy elision occurs.
-typedef std::pair<const CXXBindTemporaryExpr *, const LocationContext *>
-    ElidedDestructorItem;
-typedef llvm::ImmutableSet<ElidedDestructorItem>
-    ElidedDestructorSet;
-REGISTER_TRAIT_WITH_PROGRAMSTATE(ElidedDestructors,
-                                 ElidedDestructorSet)
 
 //===----------------------------------------------------------------------===//
 // Engine construction and deletion.
@@ -449,31 +426,32 @@ ExprEngine::createTemporaryRegionIfNeeded(ProgramStateRef State,
   return State;
 }
 
-ProgramStateRef ExprEngine::addObjectUnderConstruction(
-    ProgramStateRef State,
-    llvm::PointerUnion<const Stmt *, const CXXCtorInitializer *> P,
-    const LocationContext *LC, SVal V) {
-  ConstructedObjectKey Key(P, LC->getStackFrame());
+ProgramStateRef
+ExprEngine::addObjectUnderConstruction(ProgramStateRef State,
+                                       const ConstructionContextItem &Item,
+                                       const LocationContext *LC, SVal V) {
+  ConstructedObjectKey Key(Item, LC->getStackFrame());
   // FIXME: Currently the state might already contain the marker due to
   // incorrect handling of temporaries bound to default parameters.
   assert(!State->get<ObjectsUnderConstruction>(Key) ||
-         isa<CXXBindTemporaryExpr>(Key.getStmt()));
+         Key.getItem().getKind() ==
+             ConstructionContextItem::TemporaryDestructorKind);
   return State->set<ObjectsUnderConstruction>(Key, V);
 }
 
-Optional<SVal> ExprEngine::getObjectUnderConstruction(
-    ProgramStateRef State,
-    llvm::PointerUnion<const Stmt *, const CXXCtorInitializer *> P,
-    const LocationContext *LC) {
-  ConstructedObjectKey Key(P, LC->getStackFrame());
+Optional<SVal>
+ExprEngine::getObjectUnderConstruction(ProgramStateRef State,
+                                       const ConstructionContextItem &Item,
+                                       const LocationContext *LC) {
+  ConstructedObjectKey Key(Item, LC->getStackFrame());
   return Optional<SVal>::create(State->get<ObjectsUnderConstruction>(Key));
 }
 
-ProgramStateRef ExprEngine::finishObjectConstruction(
-    ProgramStateRef State,
-    llvm::PointerUnion<const Stmt *, const CXXCtorInitializer *> P,
-    const LocationContext *LC) {
-  ConstructedObjectKey Key(P, LC->getStackFrame());
+ProgramStateRef
+ExprEngine::finishObjectConstruction(ProgramStateRef State,
+                                     const ConstructionContextItem &Item,
+                                     const LocationContext *LC) {
+  ConstructedObjectKey Key(Item, LC->getStackFrame());
   assert(State->contains<ObjectsUnderConstruction>(Key));
   return State->remove<ObjectsUnderConstruction>(Key);
 }
@@ -481,25 +459,26 @@ ProgramStateRef ExprEngine::finishObjectConstruction(
 ProgramStateRef ExprEngine::elideDestructor(ProgramStateRef State,
                                             const CXXBindTemporaryExpr *BTE,
                                             const LocationContext *LC) {
-  ElidedDestructorItem I(BTE, LC);
-  assert(!State->contains<ElidedDestructors>(I));
-  return State->add<ElidedDestructors>(I);
+  ConstructedObjectKey Key({BTE, /*IsElided=*/true}, LC);
+  // FIXME: Currently the state might already contain the marker due to
+  // incorrect handling of temporaries bound to default parameters.
+  return State->set<ObjectsUnderConstruction>(Key, UnknownVal());
 }
 
 ProgramStateRef
 ExprEngine::cleanupElidedDestructor(ProgramStateRef State,
                                     const CXXBindTemporaryExpr *BTE,
                                     const LocationContext *LC) {
-  ElidedDestructorItem I(BTE, LC);
-  assert(State->contains<ElidedDestructors>(I));
-  return State->remove<ElidedDestructors>(I);
+  ConstructedObjectKey Key({BTE, /*IsElided=*/true}, LC);
+  assert(State->contains<ObjectsUnderConstruction>(Key));
+  return State->remove<ObjectsUnderConstruction>(Key);
 }
 
 bool ExprEngine::isDestructorElided(ProgramStateRef State,
                                     const CXXBindTemporaryExpr *BTE,
                                     const LocationContext *LC) {
-  ElidedDestructorItem I(BTE, LC);
-  return State->contains<ElidedDestructors>(I);
+  ConstructedObjectKey Key({BTE, /*IsElided=*/true}, LC);
+  return State->contains<ObjectsUnderConstruction>(Key);
 }
 
 bool ExprEngine::areAllObjectsFullyConstructed(ProgramStateRef State,
@@ -510,10 +489,6 @@ bool ExprEngine::areAllObjectsFullyConstructed(ProgramStateRef State,
     assert(LC && "ToLC must be a parent of FromLC!");
     for (auto I : State->get<ObjectsUnderConstruction>())
       if (I.first.getLocationContext() == LC)
-        return false;
-
-    for (auto I: State->get<ElidedDestructors>())
-      if (I.second == LC)
         return false;
 
     LC = LC->getParent();
@@ -559,14 +534,6 @@ static void printObjectsUnderConstructionForContext(raw_ostream &Out,
       continue;
     Key.print(Out, nullptr, PP);
     Out << " : " << Value << NL;
-  }
-
-  for (auto I : State->get<ElidedDestructors>()) {
-    if (I.second != LC)
-      continue;
-    Out << '(' << I.second << ',' << (const void *)I.first << ") ";
-    I.first->printPretty(Out, nullptr, PP);
-    Out << " : (constructor elided)" << NL;
   }
 }
 
@@ -745,7 +712,7 @@ void ExprEngine::ProcessStmt(const Stmt *currStmt, ExplodedNode *Pred) {
   G.reclaimRecentlyAllocatedNodes();
 
   PrettyStackTraceLoc CrashInfo(getContext().getSourceManager(),
-                                currStmt->getLocStart(),
+                                currStmt->getBeginLoc(),
                                 "Error evaluating statement");
 
   // Remove dead bindings and symbols.
@@ -772,7 +739,7 @@ void ExprEngine::ProcessStmt(const Stmt *currStmt, ExplodedNode *Pred) {
 
 void ExprEngine::ProcessLoopExit(const Stmt* S, ExplodedNode *Pred) {
   PrettyStackTraceLoc CrashInfo(getContext().getSourceManager(),
-                                S->getLocStart(),
+                                S->getBeginLoc(),
                                 "Error evaluating end of the loop");
   ExplodedNodeSet Dst;
   Dst.Add(Pred);
@@ -916,7 +883,7 @@ void ExprEngine::ProcessNewAllocator(const CXXNewExpr *NE,
   else {
     NodeBuilder Bldr(Pred, Dst, *currBldrCtx);
     const LocationContext *LCtx = Pred->getLocationContext();
-    PostImplicitCall PP(NE->getOperatorNew(), NE->getLocStart(), LCtx);
+    PostImplicitCall PP(NE->getOperatorNew(), NE->getBeginLoc(), LCtx);
     Bldr.generateNode(PP, Pred->getState(), Pred);
   }
   Engine.enqueue(Dst, currBldrCtx->getBlock(), currStmtIdx);
@@ -973,7 +940,7 @@ void ExprEngine::ProcessDeleteDtor(const CFGDeleteDtor Dtor,
     const CXXRecordDecl *RD = BTy->getAsCXXRecordDecl();
     const CXXDestructorDecl *Dtor = RD->getDestructor();
 
-    PostImplicitCall PP(Dtor, DE->getLocStart(), LCtx);
+    PostImplicitCall PP(Dtor, DE->getBeginLoc(), LCtx);
     NodeBuilder Bldr(Pred, Dst, *currBldrCtx);
     Bldr.generateNode(PP, Pred->getState(), Pred);
     return;
@@ -1064,7 +1031,7 @@ void ExprEngine::ProcessTemporaryDtor(const CFGTemporaryDtor D,
     State = cleanupElidedDestructor(State, BTE, LC);
     NodeBuilder Bldr(Pred, Dst, *currBldrCtx);
     PostImplicitCall PP(D.getDestructorDecl(getContext()),
-                        D.getBindTemporaryExpr()->getLocStart(),
+                        D.getBindTemporaryExpr()->getBeginLoc(),
                         Pred->getLocationContext());
     Bldr.generateNode(PP, State, Pred);
     return;
@@ -1172,8 +1139,7 @@ ProgramStateRef ExprEngine::escapeValue(ProgramStateRef State, SVal V,
 void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
                        ExplodedNodeSet &DstTop) {
   PrettyStackTraceLoc CrashInfo(getContext().getSourceManager(),
-                                S->getLocStart(),
-                                "Error evaluating statement");
+                                S->getBeginLoc(), "Error evaluating statement");
   ExplodedNodeSet Dst;
   StmtNodeBuilder Bldr(Pred, DstTop, *currBldrCtx);
 
@@ -2079,7 +2045,7 @@ void ExprEngine::processBranch(const Stmt *Condition, const Stmt *Term,
 
   Condition = ResolveCondition(Condition, BldCtx.getBlock());
   PrettyStackTraceLoc CrashInfo(getContext().getSourceManager(),
-                                Condition->getLocStart(),
+                                Condition->getBeginLoc(),
                                 "Error evaluating branch");
 
   ExplodedNodeSet CheckersOutSet;
@@ -2233,17 +2199,21 @@ void ExprEngine::processBeginOfFunction(NodeBuilderContext &BC,
 void ExprEngine::processEndOfFunction(NodeBuilderContext& BC,
                                       ExplodedNode *Pred,
                                       const ReturnStmt *RS) {
+  ProgramStateRef State = Pred->getState();
+
+  if (!Pred->getStackFrame()->inTopFrame())
+    State = finishArgumentConstruction(
+        State, *getStateManager().getCallEventManager().getCaller(
+                   Pred->getStackFrame(), Pred->getState()));
+
   // FIXME: We currently cannot assert that temporaries are clear, because
   // lifetime extended temporaries are not always modelled correctly. In some
   // cases when we materialize the temporary, we do
   // createTemporaryRegionIfNeeded(), and the region changes, and also the
   // respective destructor becomes automatic from temporary. So for now clean up
-  // the state manually before asserting. Ideally, the code above the assertion
-  // should go away, but the assertion should remain.
+  // the state manually before asserting. Ideally, this braced block of code
+  // should go away.
   {
-    ExplodedNodeSet CleanUpObjects;
-    NodeBuilder Bldr(Pred, CleanUpObjects, BC);
-    ProgramStateRef State = Pred->getState();
     const LocationContext *FromLC = Pred->getLocationContext();
     const LocationContext *ToLC = FromLC->getStackFrame()->getParent();
     const LocationContext *LC = FromLC;
@@ -2252,36 +2222,30 @@ void ExprEngine::processEndOfFunction(NodeBuilderContext& BC,
       for (auto I : State->get<ObjectsUnderConstruction>())
         if (I.first.getLocationContext() == LC) {
           // The comment above only pardons us for not cleaning up a
-          // CXXBindTemporaryExpr. If any other statements are found here,
+          // temporary destructor. If any other statements are found here,
           // it must be a separate problem.
-          assert(isa<CXXBindTemporaryExpr>(I.first.getStmt()));
+          assert(I.first.getItem().getKind() ==
+                     ConstructionContextItem::TemporaryDestructorKind ||
+                 I.first.getItem().getKind() ==
+                     ConstructionContextItem::ElidedDestructorKind);
           State = State->remove<ObjectsUnderConstruction>(I.first);
-          // Also cleanup the elided destructor info.
-          ElidedDestructorItem Item(
-              cast<CXXBindTemporaryExpr>(I.first.getStmt()),
-              I.first.getLocationContext());
-          State = State->remove<ElidedDestructors>(Item);
         }
-
-      // Also suppress the assertion for elided destructors when temporary
-      // destructors are not provided at all by the CFG, because there's no
-      // good place to clean them up.
-      if (!AMgr.getAnalyzerOptions().includeTemporaryDtorsInCFG())
-        for (auto I : State->get<ElidedDestructors>())
-          if (I.second == LC)
-            State = State->remove<ElidedDestructors>(I);
-
       LC = LC->getParent();
     }
-    if (State != Pred->getState()) {
-      Pred = Bldr.generateNode(Pred->getLocation(), State, Pred);
-      if (!Pred) {
-        // The node with clean temporaries already exists. We might have reached
-        // it on a path on which we initialize different temporaries.
-        return;
-      }
+  }
+
+  // Perform the transition with cleanups.
+  if (State != Pred->getState()) {
+    ExplodedNodeSet PostCleanup;
+    NodeBuilder Bldr(Pred, PostCleanup, BC);
+    Pred = Bldr.generateNode(Pred->getLocation(), State, Pred);
+    if (!Pred) {
+      // The node with clean temporaries already exists. We might have reached
+      // it on a path on which we initialize different temporaries.
+      return;
     }
   }
+
   assert(areAllObjectsFullyConstructed(Pred->getState(),
                                        Pred->getLocationContext(),
                                        Pred->getStackFrame()->getParent()));
@@ -2338,7 +2302,7 @@ void ExprEngine::processSwitch(SwitchNodeBuilder& builder) {
     // Evaluate the LHS of the case value.
     llvm::APSInt V1 = Case->getLHS()->EvaluateKnownConstInt(getContext());
     assert(V1.getBitWidth() == getContext().getIntWidth(CondE->getType()));
-    
+
     // Get the RHS of the case, if it exists.
     llvm::APSInt V2;
     if (const Expr *E = Case->getRHS())
@@ -2538,12 +2502,12 @@ void ExprEngine::VisitMemberExpr(const MemberExpr *M, ExplodedNode *Pred,
   ExplodedNodeSet CheckedSet;
   getCheckerManager().runCheckersForPreStmt(CheckedSet, Pred, M, *this);
 
-  ExplodedNodeSet EvalSet;  
-  ValueDecl *Member = M->getMemberDecl();  
+  ExplodedNodeSet EvalSet;
+  ValueDecl *Member = M->getMemberDecl();
 
   // Handle static member variables and enum constants accessed via
   // member syntax.
-  if (isa<VarDecl>(Member) || isa<EnumConstantDecl>(Member)) {    
+  if (isa<VarDecl>(Member) || isa<EnumConstantDecl>(Member)) {
     for (const auto I : CheckedSet)
       VisitCommonDeclRefExpr(M, Member, I, EvalSet);
   } else {
@@ -3085,7 +3049,7 @@ struct DOTGraphTraits<ExplodedNode*> : public DefaultDOTGraphTraits {
             << E.getDst()->getBlockID()  << ')';
 
         if (const Stmt *T = E.getSrc()->getTerminator()) {
-          SourceLocation SLoc = T->getLocStart();
+          SourceLocation SLoc = T->getBeginLoc();
 
           Out << "\\|Terminator: ";
           LangOptions LO; // FIXME.
@@ -3147,7 +3111,7 @@ struct DOTGraphTraits<ExplodedNode*> : public DefaultDOTGraphTraits {
         Out << S->getStmtClassName() << ' ' << (const void*) S << ' ';
         LangOptions LO; // FIXME.
         S->printPretty(Out, nullptr, PrintingPolicy(LO));
-        printLocation(Out, S->getLocStart());
+        printLocation(Out, S->getBeginLoc());
 
         if (Loc.getAs<PreStmt>())
           Out << "\\lPreStmt\\l;";

@@ -227,6 +227,9 @@ protected:
   /// HasFullFP16 - True if subtarget supports half-precision FP operations
   bool HasFullFP16 = false;
 
+  /// HasFP16FML - True if subtarget supports half-precision FP fml operations
+  bool HasFP16FML = false;
+
   /// HasD16 - True if subtarget is limited to 16 double precision
   /// FP registers for VFPv3.
   bool HasD16 = false;
@@ -327,6 +330,10 @@ protected:
   /// pairs faster.
   bool HasFuseAES = false;
 
+  /// HasFuseLiterals - if true, processor executes back to back
+  /// bottom and top halves of literal generation faster.
+  bool HasFuseLiterals = false;
+
   /// If true, if conversion may decide to leave some instructions unpredicated.
   bool IsProfitableToUnpredicate = false;
 
@@ -349,11 +356,17 @@ protected:
   /// If true, loading into a D subregister will be penalized.
   bool SlowLoadDSubregister = false;
 
+  /// If true, use a wider stride when allocating VFP registers.
+  bool UseWideStrideVFP = false;
+
   /// If true, the AGU and NEON/FPU units are multiplexed.
   bool HasMuxedUnits = false;
 
-  /// If true, VMOVS will never be widened to VMOVD
+  /// If true, VMOVS will never be widened to VMOVD.
   bool DontWidenVMOVS = false;
+
+  /// If true, splat a register between VFP and NEON instructions.
+  bool SplatVFPToNeon = false;
 
   /// If true, run the MLx expansion pass.
   bool ExpandMLx = false;
@@ -589,8 +602,10 @@ public:
   bool hasVMLxHazards() const { return HasVMLxHazards; }
   bool hasSlowOddRegister() const { return SlowOddRegister; }
   bool hasSlowLoadDSubregister() const { return SlowLoadDSubregister; }
+  bool useWideStrideVFP() const { return UseWideStrideVFP; }
   bool hasMuxedUnits() const { return HasMuxedUnits; }
   bool dontWidenVMOVS() const { return DontWidenVMOVS; }
+  bool useSplatVFPToNeon() const { return SplatVFPToNeon; }
   bool useNEONForFPMovs() const { return UseNEONForFPMovs; }
   bool checkVLDnAccessAlignment() const { return CheckVLDnAlign; }
   bool nonpipelinedVFP() const { return NonpipelinedVFP; }
@@ -610,10 +625,12 @@ public:
   bool hasFP16() const { return HasFP16; }
   bool hasD16() const { return HasD16; }
   bool hasFullFP16() const { return HasFullFP16; }
+  bool hasFP16FML() const { return HasFP16FML; }
 
   bool hasFuseAES() const { return HasFuseAES; }
+  bool hasFuseLiterals() const { return HasFuseLiterals; }
   /// Return true if the CPU supports any kind of instruction fusion.
-  bool hasFusion() const { return hasFuseAES(); }
+  bool hasFusion() const { return hasFuseAES() || hasFuseLiterals(); }
 
   const Triple &getTargetTriple() const { return TargetTriple; }
 

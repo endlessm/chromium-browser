@@ -109,7 +109,6 @@ public:
         RequiresDstTexture finalize(const GrCaps&, const GrAppliedClip*) override {
             return RequiresDstTexture::kNo;
         }
-        bool onCombineIfPossible(GrOp* other, const GrCaps& caps) override { return false; }
         void onPrepare(GrOpFlushState*) override {}
 
         LazyProxyTest* const fTest;
@@ -131,14 +130,14 @@ public:
                                     REPORTER_ASSERT(fTest->fReporter, !fTest->fHasClipTexture);
                                     fTest->fHasClipTexture = true;
                                     fAtlas->instantiate(rp);
-                                    return sk_ref_sp(fAtlas->priv().peekTexture());
+                                    return sk_ref_sp(fAtlas->peekTexture());
                                 },
                                 GrProxyProvider::Renderable::kYes,
                                 kBottomLeft_GrSurfaceOrigin,
                                 kAlpha_half_GrPixelConfig, *proxyProvider->caps());
             fAccess.reset(fLazyProxy, GrSamplerState::Filter::kNearest,
-                          GrSamplerState::WrapMode::kClamp, kFragment_GrShaderFlag);
-            this->addTextureSampler(&fAccess);
+                          GrSamplerState::WrapMode::kClamp);
+            this->setTextureSamplerCnt(1);
         }
 
     private:
@@ -149,6 +148,7 @@ public:
         GrGLSLFragmentProcessor* onCreateGLSLInstance() const override { return nullptr; }
         void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override {}
         bool onIsEqual(const GrFragmentProcessor&) const override { return false; }
+        const TextureSampler& onTextureSampler(int) const override { return fAccess; }
 
         GrProxyProvider* const fProxyProvider;
         LazyProxyTest* const fTest;
@@ -242,8 +242,8 @@ DEF_GPUTEST(LazyProxyReleaseTest, reporter, /* options */) {
                         *testCountPtr = 1;
                         return sk_sp<GrTexture>();
                     },
-                    desc, kTopLeft_GrSurfaceOrigin, GrMipMapped::kNo, GrInternalSurfaceFlags::kNone,
-                    SkBackingFit::kExact, SkBudgeted::kNo, lazyType);
+                    desc, kTopLeft_GrSurfaceOrigin, GrMipMapped::kNo, GrTextureType::k2D,
+                    GrInternalSurfaceFlags::kNone, SkBackingFit::kExact, SkBudgeted::kNo, lazyType);
 
             REPORTER_ASSERT(reporter, proxy.get());
             REPORTER_ASSERT(reporter, 0 == testCount);
@@ -309,8 +309,8 @@ private:
                     }
                     return rp->createTexture(desc, SkBudgeted::kNo);
                 },
-                desc, kTopLeft_GrSurfaceOrigin, GrMipMapped::kNo, SkBackingFit::kExact,
-                SkBudgeted::kNo);
+                desc, kTopLeft_GrSurfaceOrigin, GrMipMapped::kNo, GrTextureType::k2D,
+                SkBackingFit::kExact, SkBudgeted::kNo);
 
         SkASSERT(fLazyProxy.get());
 
@@ -323,7 +323,6 @@ private:
     RequiresDstTexture finalize(const GrCaps&, const GrAppliedClip*) override {
         return RequiresDstTexture::kNo;
     }
-    bool onCombineIfPossible(GrOp* other, const GrCaps& caps) override { return false; }
     void onPrepare(GrOpFlushState*) override {}
     void onExecute(GrOpFlushState* state) override {
         *fTestExecuteValue = 2;
@@ -397,7 +396,6 @@ private:
     RequiresDstTexture finalize(const GrCaps&, const GrAppliedClip*) override {
         return RequiresDstTexture::kNo;
     }
-    bool onCombineIfPossible(GrOp* other, const GrCaps& caps) override { return false; }
     void onPrepare(GrOpFlushState*) override {}
     void onExecute(GrOpFlushState* state) override {}
 
@@ -453,8 +451,8 @@ DEF_GPUTEST(LazyProxyUninstantiateTest, reporter, /* options */) {
                     texture->setRelease(UninstantiateReleaseProc, releasePtr);
                     return texture;
                 },
-                desc, kTopLeft_GrSurfaceOrigin, GrMipMapped::kNo, GrInternalSurfaceFlags::kNone,
-                SkBackingFit::kExact, SkBudgeted::kNo, lazyType);
+                desc, kTopLeft_GrSurfaceOrigin, GrMipMapped::kNo, GrTextureType::k2D,
+                GrInternalSurfaceFlags::kNone, SkBackingFit::kExact, SkBudgeted::kNo, lazyType);
 
         REPORTER_ASSERT(reporter, lazyProxy.get());
 

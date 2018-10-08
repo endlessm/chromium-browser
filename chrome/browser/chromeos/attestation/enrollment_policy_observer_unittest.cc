@@ -88,8 +88,7 @@ class EnrollmentPolicyObserverTest : public DeviceSettingsTestBase {
 
   void SetUpDevicePolicy(bool enrollment_id_needed) {
     device_policy_.policy_data().set_enrollment_id_needed(enrollment_id_needed);
-    device_policy_.Build();
-    session_manager_client_.set_device_policy(device_policy_.GetBlob());
+    ReloadDevicePolicy();
     ReloadDeviceSettings();
   }
 
@@ -137,6 +136,22 @@ TEST_F(EnrollmentPolicyObserverTest, GetCertificateBadRequestFailure) {
       .WillOnce(WithArgs<4>(Invoke(CertCallbackBadRequestFailure)));
   EXPECT_CALL(policy_client_, UploadEnterpriseEnrollmentId(enrollment_id_, _))
       .WillOnce(WithArgs<1>(Invoke(StatusCallbackSuccess)));
+  SetUpDevicePolicy(true);
+  Run();
+}
+
+TEST_F(EnrollmentPolicyObserverTest,
+       UploadEmptyEnterpriseEnrollmentIdOnlyOnce) {
+  cryptohome_client_.set_tpm_attestation_enrollment_id(true /* ignore_cache */,
+                                                       "");
+  EXPECT_CALL(attestation_flow_, GetCertificate(_, _, _, _, _))
+      .WillRepeatedly(WithArgs<4>(Invoke(CertCallbackBadRequestFailure)));
+  EXPECT_CALL(policy_client_, UploadEnterpriseEnrollmentId("", _))
+      .WillOnce(WithArgs<1>(Invoke(StatusCallbackSuccess)));
+  SetUpDevicePolicy(true);
+  // Request the EID again. We first setup device policy so that there is
+  // a change so the observer gets called again.
+  SetUpDevicePolicy(false);
   SetUpDevicePolicy(true);
   Run();
 }

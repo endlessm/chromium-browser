@@ -2048,10 +2048,6 @@ void HexagonDAGToDAGISel::SelectHvxVAlign(SDNode *N) {
 }
 
 void HexagonDAGToDAGISel::SelectV65GatherPred(SDNode *N) {
-  if (!HST->usePackets()) {
-    report_fatal_error("Support for gather requires packets, "
-                       "which are disabled");
-  }
   const SDLoc &dl(N);
   SDValue Chain = N->getOperand(0);
   SDValue Address = N->getOperand(2);
@@ -2083,18 +2079,13 @@ void HexagonDAGToDAGISel::SelectV65GatherPred(SDNode *N) {
   SDValue Ops[] = { Address, Predicate, Base, Modifier, Offset, Chain };
   SDNode *Result = CurDAG->getMachineNode(Opcode, dl, VTs, Ops);
 
-  MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
-  MemOp[0] = cast<MemIntrinsicSDNode>(N)->getMemOperand();
-  cast<MachineSDNode>(Result)->setMemRefs(MemOp, MemOp + 1);
+  MachineMemOperand *MemOp = cast<MemIntrinsicSDNode>(N)->getMemOperand();
+  CurDAG->setNodeMemRefs(cast<MachineSDNode>(Result), {MemOp});
 
   ReplaceNode(N, Result);
 }
 
 void HexagonDAGToDAGISel::SelectV65Gather(SDNode *N) {
-  if (!HST->usePackets()) {
-    report_fatal_error("Support for gather requires packets, "
-                       "which are disabled");
-  }
   const SDLoc &dl(N);
   SDValue Chain = N->getOperand(0);
   SDValue Address = N->getOperand(2);
@@ -2125,9 +2116,8 @@ void HexagonDAGToDAGISel::SelectV65Gather(SDNode *N) {
   SDValue Ops[] = { Address, Base, Modifier, Offset, Chain };
   SDNode *Result = CurDAG->getMachineNode(Opcode, dl, VTs, Ops);
 
-  MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
-  MemOp[0] = cast<MemIntrinsicSDNode>(N)->getMemOperand();
-  cast<MachineSDNode>(Result)->setMemRefs(MemOp, MemOp + 1);
+  MachineMemOperand *MemOp = cast<MemIntrinsicSDNode>(N)->getMemOperand();
+  CurDAG->setNodeMemRefs(cast<MachineSDNode>(Result), {MemOp});
 
   ReplaceNode(N, Result);
 }
