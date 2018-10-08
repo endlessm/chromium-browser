@@ -318,7 +318,7 @@ template("gcc_toolchain") {
       } else {
         rspfile = "{{output}}.rsp"
         rspfile_content = "{{inputs}}"
-        command = "\"$ar\" {{arflags}} -r -c -s -D {{output}} @\"$rspfile\""
+        command = "\"$ar\" {{arflags}} rcsD {{output}} @\"$rspfile\""
       }
 
       # Remove the output file first so that ar doesn't try to modify the
