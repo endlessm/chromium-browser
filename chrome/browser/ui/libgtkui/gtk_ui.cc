@@ -467,7 +467,6 @@ void GtkUi::Initialize() {
 
   // Instantiate the singleton instance of GtkEventLoop.
   GtkEventLoop::GetInstance();
-
 }
 
 bool GtkUi::GetTint(int id, color_utils::HSL* tint) const {
