@@ -32,7 +32,6 @@ from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import parallel_unittest
 from chromite.lib import partial_mock
-from chromite.lib import portage_util
 
 from chromite.cbuildbot.stages.generic_stages_unittest import patch
 from chromite.cbuildbot.stages.generic_stages_unittest import patches
@@ -209,7 +208,7 @@ class AllConfigsTestCase(generic_stages_unittest.AbstractStageTestCase,
       msg = '%s failed the following test:\n%s' % (self._bot_id, ex)
       raise AssertionError(msg)
 
-  def RunAllConfigs(self, task, skip_missing=False, site_config=None):
+  def RunAllConfigs(self, task, site_config=None):
     """Run |task| against all major configurations"""
     if site_config is None:
       site_config = config_lib.GetConfig()
@@ -221,13 +220,6 @@ class AllConfigsTestCase(generic_stages_unittest.AbstractStageTestCase,
       for bot_id, cfg in site_config.iteritems():
         if not cfg.boards or cfg.boards[0] not in boards:
           continue
-
-        if skip_missing:
-          try:
-            for b in cfg.boards:
-              portage_util.FindPrimaryOverlay(constants.BOTH_OVERLAYS, b)
-          except portage_util.MissingOverlayException:
-            continue
 
         queue.put([bot_id])
 
@@ -370,7 +362,7 @@ EC (RW) version: reef_v1.1.5909-bd1f0c9
     self._update_metadata = True
     update = os.path.join(
         self.build_root,
-        'chroot/build/x86-generic/usr/sbin/chromeos-firmwareupdate')
+        'chroot/build/amd64-generic/usr/sbin/chromeos-firmwareupdate')
     osutils.Touch(update, makedirs=True)
 
     cros_config_host = os.path.join(self.build_root,
@@ -378,9 +370,9 @@ EC (RW) version: reef_v1.1.5909-bd1f0c9
     osutils.Touch(cros_config_host, makedirs=True)
 
     self._mock_configurator = _HookRunCommand
-    self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
+    self.RunTestsWithBotId('amd64-generic-paladin', options_tests=False)
     board_metadata = (self._run.attrs.metadata.GetDict()['board-metadata']
-                      .get('x86-generic'))
+                      .get('amd64-generic'))
     self.assertIsNotNone(board_metadata)
 
     if 'models' in board_metadata:

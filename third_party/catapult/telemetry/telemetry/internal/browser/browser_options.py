@@ -12,6 +12,7 @@ import sys
 
 from py_utils import cloud_storage  # pylint: disable=import-error
 
+from telemetry import compact_mode_options
 from telemetry.core import platform
 from telemetry.core import util
 from telemetry.internal.browser import browser_finder
@@ -98,6 +99,17 @@ class BrowserFinderOptions(optparse.Values):
         default=socket.getservbyname('ssh'),
         dest='cros_remote_ssh_port',
         help='The SSH port of the remote ChromeOS device (requires --remote).')
+    parser.add_option(
+        '--compatibility-mode',
+        action='append',
+        dest='compatibility_mode',
+        choices=[compact_mode_options.NO_FIELD_TRIALS,
+                 compact_mode_options.IGNORE_CERTIFICATE_ERROR,
+                 compact_mode_options.LEGACY_COMMAND_LINE_PATH,
+                 compact_mode_options.GPU_BENCHMARKING_FALLBACKS],
+        default=[],
+        help='Select the compatibility change that you want to enforce when '
+             'running benchmarks')
     identity = None
     testing_rsa = os.path.join(
         util.GetTelemetryThirdPartyDir(), 'chromite', 'ssh_keys', 'testing_rsa')
@@ -147,7 +159,6 @@ class BrowserFinderOptions(optparse.Values):
         help='When running tests on android webview, more than one apk needs to'
         ' be installed. The apk running the test is said to embed webview.')
     parser.add_option_group(group)
-
 
     # Remote platform options
     group = optparse.OptionGroup(parser, 'Remote platform options')
@@ -282,6 +293,7 @@ class BrowserFinderOptions(optparse.Values):
     for k, v in defaults.__dict__.items():
       self.ensure_value(k, v)
 
+
 class BrowserOptions(object):
   """Options to be used for launching a browser."""
   # Allows clients to check whether they are dealing with a browser_options
@@ -357,6 +369,10 @@ class BrowserOptions(object):
     # already exist.
     self.profile_files_to_copy = []
 
+    # The list of compatibility change that you want to enforce, mainly for
+    # earlier versions of Chrome
+    self.compatibility_mode = []
+
   def __repr__(self):
     # This works around the infinite loop caused by the introduction of a
     # circular reference with _finder_options.
@@ -430,13 +446,14 @@ class BrowserOptions(object):
     parser.add_option_group(group)
 
   def UpdateFromParseResults(self, finder_options):
-    """Copies our options from finder_options"""
+    """Copies our options from finder_options."""
     browser_options_list = [
         'extra_browser_args_as_string',
         'extra_wpr_args_as_string',
         'profile_dir',
         'profile_type',
         'show_stdout',
+        'compatibility_mode'
         ]
     for o in browser_options_list:
       a = getattr(finder_options, o, None)

@@ -32,8 +32,6 @@ from chromite.lib import portage_util
 from chromite.scripts import pushimage
 
 
-site_config = config_lib.GetConfig()
-
 
 class RunBuildScriptTest(cros_test_lib.RunCommandTempDirTestCase):
   """Test RunBuildScript in a variety of cases."""
@@ -276,11 +274,14 @@ FAKE OUTPUT. Will be filled in later.
                  '--tags=suite:test-suite',
                  '--tags=board:test-board',
                  '--', commands.SKYLAB_RUN_SUITE_PATH,
-                 '--build', self._build, '--board', self._board]
+                 '--build', self._build, '--board', self._board,
+                 '--suite_name', self._suite,
+                 '--use_fallback']
     args = list(args)
-    base_cmd = base_cmd + ['--suite_name', self._suite] + args
+    base_cmd = base_cmd + args
 
-    self.create_cmd = base_cmd + ['--create_and_return']
+    self.create_cmd = base_cmd + ['--create_and_return',
+                                  '--passed_mins', '0']
     create_results = iter([
         self.rc.CmdResult(returncode=create_return_code,
                           output=self.CREATE_OUTPUT,
@@ -291,7 +292,8 @@ FAKE OUTPUT. Will be filled in later.
         side_effect=lambda *args, **kwargs: create_results.next(),
     )
 
-    self.wait_cmd = base_cmd + ['--suite_id', 'fake_parent_id']
+    self.wait_cmd = base_cmd + ['--suite_id', 'fake_parent_id',
+                                '--passed_mins', '0']
     wait_results = iter([
         self.rc.CmdResult(returncode=wait_return_code,
                           output=self.WAIT_OUTPUT,
@@ -344,6 +346,28 @@ FAKE OUTPUT. Will be filled in later.
       finally:
         print(logs.messages)
 
+  def testRemoveSeededSteps(self):
+    output = ('2018-xx-xx info | kicked off a test\n'
+              '@@@SEED_STEP Scheduled Tests@@@\n'
+              '@@@STEP_CURSOR Scheduled Tests@@@\n'
+              '@@@STEP_STARTED@@@\n'
+              '@@@STEP_LINK@[Test-logs]: test 1'
+              '@https://chrome-swarming.appspot.com/user/task/123@@@\n'
+              '@@@STEP_CLOSED@@@\n'
+              '@@@SEED_STEP Scheduled Tests 2@@@\n'
+              '@@@STEP_CURSOR Scheduled Tests 2@@@\n'
+              '@@@STEP_STARTED@@@\n'
+              '@@@STEP_LINK@[Test-logs]: test 2'
+              '@https://chrome-swarming.appspot.com/user/task/456@@@\n'
+              '@@@STEP_CLOSED@@@\n'
+              '@@@STEP_LINK@[Test-logs]: test 3'
+              '@https://chrome-swarming.appspot.com/user/task/789@@@\n')
+    expected_output = (
+        '2018-xx-xx info | kicked off a test\n'
+        '@@@STEP_LINK@[Test-logs]: test 3'
+        '@https://chrome-swarming.appspot.com/user/task/789@@@\n')
+    self.assertEqual(commands._remove_seeded_steps(output), expected_output)
+
   def testRunSkylabHWTestSuiteWithWait(self):
     """Test RunSkylabHWTestSuite with waiting for results."""
     self.SetCmdResults(swarming_cli_cmd='run')
@@ -384,11 +408,8 @@ The suite job has another 3:09:50.012887 till timeout.
 The suite job has another 2:39:39.789250 till timeout.
 '''
   JSON_DICT = '''
-{"tests": {"test_1":{"status":"GOOD", "attributes": ["suite:test-suite",
-                                                     "subsystem:light",
-                                                     "subsystem:bluetooth"]},
-           "test_2":{"status":"other", "attributes": ["suite:test-suite",
-                                                      "subsystem:network"]}
+{"tests": {"test_1":{"status":"GOOD", "attributes": ["suite:test-suite"]},
+           "test_2":{"status":"other", "attributes": ["suite:test-suite"]}
 }}
 '''
   JSON_OUTPUT = ('%s%s%s' % (commands.JSON_DICT_START, JSON_DICT,
@@ -415,7 +436,6 @@ The suite job has another 2:39:39.789250 till timeout.
     self._max_retries = 3
     self._minimum_duts = 2
     self._suite_min_duts = 2
-    self._subsystems = {'light', 'network'}
     self.create_cmd = None
     self.wait_cmd = None
     self.json_dump_cmd = None
@@ -484,15 +504,7 @@ The suite job has another 2:39:39.789250 till timeout.
                 '--', commands.RUN_SUITE_PATH,
                 '--build', 'test-build', '--board', 'test-board']
     args = list(args)
-    if '--subsystems' in args:
-      i = [i for i, val in enumerate(args) if val == '--subsystems'][0]
-      args[i] = '--suite_args'
-      subsys_lst = ['subsystem:%s' % x for x in json.loads(args[i+1])]
-      subsys_str = ' or '.join(subsys_lst)
-      args[i+1] = "{'attr_filter': '(suite:test-suite) and (%s)'}" % subsys_str
-      base_cmd = base_cmd + ['--suite_name', 'suite_attr_wrapper'] + args
-    else:
-      base_cmd = base_cmd + ['--suite_name', 'test-suite'] + args
+    base_cmd = base_cmd + ['--suite_name', 'test-suite'] + args
 
     self.create_cmd = base_cmd + ['-c']
     self.wait_cmd = base_cmd + ['-m', '26960110']
@@ -599,7 +611,7 @@ The suite job has another 2:39:39.789250 till timeout.
             '--priority', 'test-priority', '--timeout_mins', '2880',
             '--max_runtime_mins', '2880',
             '--retry', 'False', '--max_retries', '3', '--minimum_duts', '2',
-            '--suite_min_duts', '2', '--subsystems', '["light", "network"]'
+            '--suite_min_duts', '2'
         ],
         swarming_timeout_secs=swarming_timeout,
         swarming_io_timeout_secs=swarming_timeout,
@@ -617,8 +629,7 @@ The suite job has another 2:39:39.789250 till timeout.
                                        retry=self._retry,
                                        max_retries=self._max_retries,
                                        minimum_duts=self._minimum_duts,
-                                       suite_min_duts=self._suite_min_duts,
-                                       subsystems=self._subsystems)
+                                       suite_min_duts=self._suite_min_duts)
     self.assertEqual(cmd_result, (None, None))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
                              combine_stdout_stderr=True, env=mock.ANY)
@@ -734,36 +745,6 @@ The suite job has another 2:39:39.789250 till timeout.
       self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
       self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
-  def testGetRunSuiteArgsWithSubsystems(self):
-    """Test _GetRunSuiteArgs when subsystems is specified."""
-    result_1 = commands._GetRunSuiteArgs(build=self._build,
-                                         suite=self._suite,
-                                         board=self._board,
-                                         model=self._model,
-                                         subsystems=['light'])
-    expected_1 = ['--build', self._build,
-                  '--board', self._board,
-                  '--model', self._model,
-                  '--suite_name', 'suite_attr_wrapper',
-                  '--suite_args',
-                  ("{'attr_filter': '(suite:%s) and (subsystem:light)'}" %
-                   self._suite)]
-    # Test with multiple subsystems.
-    result_2 = commands._GetRunSuiteArgs(build=self._build,
-                                         suite=self._suite,
-                                         board=self._board,
-                                         subsystems=['light', 'power'])
-    expected_2 = ['--build', self._build,
-                  '--board', self._board,
-                  '--suite_name', 'suite_attr_wrapper',
-                  '--suite_args',
-                  ("{'attr_filter': '(suite:%s) and (subsystem:light or "
-                   "subsystem:power)'}" % self._suite)]
-
-    self.assertEqual(result_1, expected_1)
-    self.assertEqual(result_2, expected_2)
-
-
   def testRunHWTestSuiteJsonDumpWhenWaitCmdFail(self):
     """Test RunHWTestSuite run json dump cmd when wait_cmd fail."""
     self.SetCmdResults(wait_return_code=1, wait_retry=True)
@@ -792,6 +773,9 @@ class CBuildBotTest(cros_test_lib.RunCommandTempDirTestCase):
     self._chroot = os.path.join(self._buildroot, 'chroot')
     os.makedirs(os.path.join(self._buildroot, '.repo'))
 
+    self._dropfile = os.path.join(
+        self._buildroot, 'src', 'scripts', 'cbuildbot_package.list')
+
   def testGenerateStackTraces(self):
     """Test if we can generate stack traces for minidumps."""
     os.makedirs(os.path.join(self._chroot, 'tmp'))
@@ -804,10 +788,53 @@ class CBuildBotTest(cros_test_lib.RunCommandTempDirTestCase):
                                    test_results_dir, self.tempdir, True)
       self.assertCommandContains(['minidump_stackwalk'])
 
-  def testUprevAllPackages(self):
-    """Test if we get None in revisions.pfq indicating Full Builds."""
+  def testUprevPackagesMin(self):
+    """See if we can generate the minimal cros_mark_as_stable commandline."""
     commands.UprevPackages(self._buildroot, [self._board], self._overlays)
-    self.assertCommandContains(['--boards=%s' % self._board, 'commit'])
+    self.assertCommandContains([
+        'commit', '--all',
+        '--boards=%s' % self._board,
+        '--drop_file=%s' % self._dropfile,
+        '--buildroot', self._buildroot,
+        '--overlays', self._overlays[0],
+    ])
+
+  def testUprevPackagesMax(self):
+    """See if we can generate the max cros_mark_as_stable commandline."""
+    commands.UprevPackages(self._buildroot, [self._board],
+                           overlay_type=constants.PUBLIC_OVERLAYS,
+                           workspace='/workspace')
+    self.assertCommandContains([
+        'commit', '--all',
+        '--boards=%s' % self._board,
+        '--drop_file=%s' % self._dropfile,
+        '--buildroot', '/workspace',
+        '--overlay-type', 'public',
+    ])
+
+  def testUprevPushMin(self):
+    """See if we can generate the minimal cros_mark_as_stable commandline."""
+    commands.UprevPush(self._buildroot, self._overlays)
+    self.assertCommandContains([
+        'push',
+        '--buildroot', self._buildroot,
+        '--overlays', self._overlays[0],
+        '--dryrun',
+    ])
+
+  def testUprevPushMax(self):
+    """See if we can generate the max cros_mark_as_stable commandline."""
+    commands.UprevPush(self._buildroot,
+                       dryrun=False,
+                       staging_branch='stage-branch',
+                       overlay_type=constants.PUBLIC_OVERLAYS,
+                       workspace='/workspace')
+    self.assertCommandContains([
+        'push',
+        '--buildroot', '/workspace',
+        '--overlay-type', 'public',
+        '--staging_branch=%s' % 'stage-branch',
+    ])
 
   def testVerifyBinpkgMissing(self):
     """Test case where binpkg is missing."""
@@ -1160,11 +1187,12 @@ fe5d699f2e9e4a7de031497953313dbd *./models/snappy/setvars.sh
         constants.CHROMIUM_SRC_PROJECT,
         chrome_revision or 'refs/heads/master',
         constants.PATH_TO_CHROME_LKGM)
+    site_params = config_lib.GetSiteParams()
     with mock.patch.object(
         gob_util, 'FetchUrl',
         return_value=StringIO(base64.b64encode(chrome_lkgm))) as patcher:
       self.assertEqual(chrome_lkgm, commands.GetChromeLKGM(chrome_revision))
-      patcher.assert_called_with(site_config.params.EXTERNAL_GOB_HOST, url)
+      patcher.assert_called_with(site_params.EXTERNAL_GOB_HOST, url)
 
   def testChromeLKGM(self):
     """Verifies that we can get the chrome lkgm without a chrome revision."""

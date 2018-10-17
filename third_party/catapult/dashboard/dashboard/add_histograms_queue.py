@@ -12,7 +12,6 @@ from google.appengine.ext import ndb
 
 # TODO(eakuefner): Move these helpers so we don't have to import add_point or
 # add_point_queue directly.
-from dashboard import add_histograms
 from dashboard import add_point
 from dashboard import add_point_queue
 from dashboard import find_anomalies
@@ -20,7 +19,6 @@ from dashboard import graph_revisions
 from dashboard.common import datastore_hooks
 from dashboard.common import histogram_helpers
 from dashboard.common import request_handler
-from dashboard.common import stored_object
 from dashboard.common import utils
 from dashboard.models import anomaly
 from dashboard.models import graph_data
@@ -86,14 +84,9 @@ class AddHistogramsQueueHandler(request_handler.RequestHandler):
     """
     datastore_hooks.SetPrivilegedRequest()
 
-    bot_whitelist_future = stored_object.GetAsync(
-        add_point_queue.BOT_WHITELIST_KEY)
-
     params = json.loads(self.request.body)
 
     _PrewarmGets(params)
-
-    bot_whitelist = bot_whitelist_future.get_result()
 
     # Roughly, the processing of histograms and the processing of rows can be
     # done in parallel since there are no dependencies.
@@ -101,7 +94,7 @@ class AddHistogramsQueueHandler(request_handler.RequestHandler):
     futures = []
 
     for p in params:
-      futures.extend(_ProcessRowAndHistogram(p, bot_whitelist))
+      futures.extend(_ProcessRowAndHistogram(p))
 
     ndb.Future.wait_all(futures)
 
@@ -139,7 +132,7 @@ def _PrewarmGets(params):
   ndb.get_multi_async(list(keys))
 
 
-def _ProcessRowAndHistogram(params, bot_whitelist):
+def _ProcessRowAndHistogram(params):
   revision = int(params['revision'])
   test_path = params['test_path']
   benchmark_description = params['benchmark_description']
@@ -162,7 +155,7 @@ def _ProcessRowAndHistogram(params, bot_whitelist):
   else:
     rest = None
   full_test_name = '/'.join(test_path_parts[2:])
-  internal_only = add_point_queue.BotInternalOnly(bot, bot_whitelist)
+  internal_only = graph_data.Bot.GetInternalOnlySync(master, bot)
   extra_args = GetUnitArgs(hist.unit)
 
   unescaped_story_name = _GetStoryFromDiagnosticsDict(params.get('diagnostics'))
@@ -274,9 +267,14 @@ def ProcessDiagnostics(diagnostic_data, revision, test_key, internal_only):
         id=guid, name=name, data=diagnostic_datum, test=test_key,
         start_revision=revision, end_revision=sys.maxint,
         internal_only=internal_only))
+
+  suite_key = utils.TestKey('/'.join(test_key.id().split('/')[:3]))
+  last_added = yield histogram.HistogramRevisionRecord.GetLatest(suite_key)
+  assert last_added
+
   new_guids_to_existing_diagnostics = yield (
-      add_histograms.DeduplicateAndPutAsync(
-          diagnostic_entities, test_key, revision))
+      histogram.SparseDiagnostic.FindOrInsertDiagnostics(
+          diagnostic_entities, test_key, revision, last_added.revision))
 
   raise ndb.Return(new_guids_to_existing_diagnostics)
 

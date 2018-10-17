@@ -46,6 +46,57 @@ MyGame.Example.Any = {
 /**
  * @constructor
  */
+MyGame.InParentNamespace = function() {
+  /**
+   * @type {flatbuffers.ByteBuffer}
+   */
+  this.bb = null;
+
+  /**
+   * @type {number}
+   */
+  this.bb_pos = 0;
+};
+
+/**
+ * @param {number} i
+ * @param {flatbuffers.ByteBuffer} bb
+ * @returns {MyGame.InParentNamespace}
+ */
+MyGame.InParentNamespace.prototype.__init = function(i, bb) {
+  this.bb_pos = i;
+  this.bb = bb;
+  return this;
+};
+
+/**
+ * @param {flatbuffers.ByteBuffer} bb
+ * @param {MyGame.InParentNamespace=} obj
+ * @returns {MyGame.InParentNamespace}
+ */
+MyGame.InParentNamespace.getRootAsInParentNamespace = function(bb, obj) {
+  return (obj || new MyGame.InParentNamespace).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ */
+MyGame.InParentNamespace.startInParentNamespace = function(builder) {
+  builder.startObject(0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.InParentNamespace.endInParentNamespace = function(builder) {
+  var offset = builder.endObject();
+  return offset;
+};
+
+/**
+ * @constructor
+ */
 MyGame.Example2.Monster = function() {
   /**
    * @type {flatbuffers.ByteBuffer}
@@ -641,6 +692,88 @@ MyGame.Example.Stat.addCount = function(builder, count) {
  * @returns {flatbuffers.Offset}
  */
 MyGame.Example.Stat.endStat = function(builder) {
+  var offset = builder.endObject();
+  return offset;
+};
+
+/**
+ * @constructor
+ */
+MyGame.Example.Referrable = function() {
+  /**
+   * @type {flatbuffers.ByteBuffer}
+   */
+  this.bb = null;
+
+  /**
+   * @type {number}
+   */
+  this.bb_pos = 0;
+};
+
+/**
+ * @param {number} i
+ * @param {flatbuffers.ByteBuffer} bb
+ * @returns {MyGame.Example.Referrable}
+ */
+MyGame.Example.Referrable.prototype.__init = function(i, bb) {
+  this.bb_pos = i;
+  this.bb = bb;
+  return this;
+};
+
+/**
+ * @param {flatbuffers.ByteBuffer} bb
+ * @param {MyGame.Example.Referrable=} obj
+ * @returns {MyGame.Example.Referrable}
+ */
+MyGame.Example.Referrable.getRootAsReferrable = function(bb, obj) {
+  return (obj || new MyGame.Example.Referrable).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+};
+
+/**
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.Referrable.prototype.id = function() {
+  var offset = this.bb.__offset(this.bb_pos, 4);
+  return offset ? this.bb.readUint64(this.bb_pos + offset) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @param {flatbuffers.Long} value
+ * @returns {boolean}
+ */
+MyGame.Example.Referrable.prototype.mutate_id = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 4);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeUint64(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ */
+MyGame.Example.Referrable.startReferrable = function(builder) {
+  builder.startObject(1);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Long} id
+ */
+MyGame.Example.Referrable.addId = function(builder, id) {
+  builder.addFieldInt64(0, id, builder.createLong(0, 0));
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.Referrable.endReferrable = function(builder) {
   var offset = builder.endObject();
   return offset;
 };
@@ -1272,10 +1405,260 @@ MyGame.Example.Monster.prototype.testarrayofsortedstructLength = function() {
 };
 
 /**
+ * @param {number} index
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.flex = function(index) {
+  var offset = this.bb.__offset(this.bb_pos, 64);
+  return offset ? this.bb.readUint8(this.bb.__vector(this.bb_pos + offset) + index) : 0;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.flexLength = function() {
+  var offset = this.bb.__offset(this.bb_pos, 64);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @returns {Uint8Array}
+ */
+MyGame.Example.Monster.prototype.flexArray = function() {
+  var offset = this.bb.__offset(this.bb_pos, 64);
+  return offset ? new Uint8Array(this.bb.bytes().buffer, this.bb.bytes().byteOffset + this.bb.__vector(this.bb_pos + offset), this.bb.__vector_len(this.bb_pos + offset)) : null;
+};
+
+/**
+ * @param {number} index
+ * @param {MyGame.Example.Test=} obj
+ * @returns {MyGame.Example.Test}
+ */
+MyGame.Example.Monster.prototype.test5 = function(index, obj) {
+  var offset = this.bb.__offset(this.bb_pos, 66);
+  return offset ? (obj || new MyGame.Example.Test).__init(this.bb.__vector(this.bb_pos + offset) + index * 4, this.bb) : null;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.test5Length = function() {
+  var offset = this.bb.__offset(this.bb_pos, 66);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @param {number} index
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.Monster.prototype.vectorOfLongs = function(index) {
+  var offset = this.bb.__offset(this.bb_pos, 68);
+  return offset ? this.bb.readInt64(this.bb.__vector(this.bb_pos + offset) + index * 8) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.vectorOfLongsLength = function() {
+  var offset = this.bb.__offset(this.bb_pos, 68);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @param {number} index
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.vectorOfDoubles = function(index) {
+  var offset = this.bb.__offset(this.bb_pos, 70);
+  return offset ? this.bb.readFloat64(this.bb.__vector(this.bb_pos + offset) + index * 8) : 0;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.vectorOfDoublesLength = function() {
+  var offset = this.bb.__offset(this.bb_pos, 70);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @returns {Float64Array}
+ */
+MyGame.Example.Monster.prototype.vectorOfDoublesArray = function() {
+  var offset = this.bb.__offset(this.bb_pos, 70);
+  return offset ? new Float64Array(this.bb.bytes().buffer, this.bb.bytes().byteOffset + this.bb.__vector(this.bb_pos + offset), this.bb.__vector_len(this.bb_pos + offset)) : null;
+};
+
+/**
+ * @param {MyGame.InParentNamespace=} obj
+ * @returns {MyGame.InParentNamespace|null}
+ */
+MyGame.Example.Monster.prototype.parentNamespaceTest = function(obj) {
+  var offset = this.bb.__offset(this.bb_pos, 72);
+  return offset ? (obj || new MyGame.InParentNamespace).__init(this.bb.__indirect(this.bb_pos + offset), this.bb) : null;
+};
+
+/**
+ * @param {number} index
+ * @param {MyGame.Example.Referrable=} obj
+ * @returns {MyGame.Example.Referrable}
+ */
+MyGame.Example.Monster.prototype.vectorOfReferrables = function(index, obj) {
+  var offset = this.bb.__offset(this.bb_pos, 74);
+  return offset ? (obj || new MyGame.Example.Referrable).__init(this.bb.__indirect(this.bb.__vector(this.bb_pos + offset) + index * 4), this.bb) : null;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.vectorOfReferrablesLength = function() {
+  var offset = this.bb.__offset(this.bb_pos, 74);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.Monster.prototype.singleWeakReference = function() {
+  var offset = this.bb.__offset(this.bb_pos, 76);
+  return offset ? this.bb.readUint64(this.bb_pos + offset) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @param {flatbuffers.Long} value
+ * @returns {boolean}
+ */
+MyGame.Example.Monster.prototype.mutate_single_weak_reference = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 76);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeUint64(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @param {number} index
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.Monster.prototype.vectorOfWeakReferences = function(index) {
+  var offset = this.bb.__offset(this.bb_pos, 78);
+  return offset ? this.bb.readUint64(this.bb.__vector(this.bb_pos + offset) + index * 8) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.vectorOfWeakReferencesLength = function() {
+  var offset = this.bb.__offset(this.bb_pos, 78);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @param {number} index
+ * @param {MyGame.Example.Referrable=} obj
+ * @returns {MyGame.Example.Referrable}
+ */
+MyGame.Example.Monster.prototype.vectorOfStrongReferrables = function(index, obj) {
+  var offset = this.bb.__offset(this.bb_pos, 80);
+  return offset ? (obj || new MyGame.Example.Referrable).__init(this.bb.__indirect(this.bb.__vector(this.bb_pos + offset) + index * 4), this.bb) : null;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.vectorOfStrongReferrablesLength = function() {
+  var offset = this.bb.__offset(this.bb_pos, 80);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.Monster.prototype.coOwningReference = function() {
+  var offset = this.bb.__offset(this.bb_pos, 82);
+  return offset ? this.bb.readUint64(this.bb_pos + offset) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @param {flatbuffers.Long} value
+ * @returns {boolean}
+ */
+MyGame.Example.Monster.prototype.mutate_co_owning_reference = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 82);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeUint64(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @param {number} index
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.Monster.prototype.vectorOfCoOwningReferences = function(index) {
+  var offset = this.bb.__offset(this.bb_pos, 84);
+  return offset ? this.bb.readUint64(this.bb.__vector(this.bb_pos + offset) + index * 8) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.vectorOfCoOwningReferencesLength = function() {
+  var offset = this.bb.__offset(this.bb_pos, 84);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.Monster.prototype.nonOwningReference = function() {
+  var offset = this.bb.__offset(this.bb_pos, 86);
+  return offset ? this.bb.readUint64(this.bb_pos + offset) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @param {flatbuffers.Long} value
+ * @returns {boolean}
+ */
+MyGame.Example.Monster.prototype.mutate_non_owning_reference = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 86);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeUint64(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @param {number} index
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.Monster.prototype.vectorOfNonOwningReferences = function(index) {
+  var offset = this.bb.__offset(this.bb_pos, 88);
+  return offset ? this.bb.readUint64(this.bb.__vector(this.bb_pos + offset) + index * 8) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.Monster.prototype.vectorOfNonOwningReferencesLength = function() {
+  var offset = this.bb.__offset(this.bb_pos, 88);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
  * @param {flatbuffers.Builder} builder
  */
 MyGame.Example.Monster.startMonster = function(builder) {
-  builder.startObject(30);
+  builder.startObject(43);
 };
 
 /**
@@ -1654,6 +2037,286 @@ MyGame.Example.Monster.startTestarrayofsortedstructVector = function(builder, nu
 
 /**
  * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} flexOffset
+ */
+MyGame.Example.Monster.addFlex = function(builder, flexOffset) {
+  builder.addFieldOffset(30, flexOffset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<number>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.Monster.createFlexVector = function(builder, data) {
+  builder.startVector(1, data.length, 1);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addInt8(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.Monster.startFlexVector = function(builder, numElems) {
+  builder.startVector(1, numElems, 1);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} test5Offset
+ */
+MyGame.Example.Monster.addTest5 = function(builder, test5Offset) {
+  builder.addFieldOffset(31, test5Offset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.Monster.startTest5Vector = function(builder, numElems) {
+  builder.startVector(4, numElems, 2);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} vectorOfLongsOffset
+ */
+MyGame.Example.Monster.addVectorOfLongs = function(builder, vectorOfLongsOffset) {
+  builder.addFieldOffset(32, vectorOfLongsOffset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<flatbuffers.Long>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.Monster.createVectorOfLongsVector = function(builder, data) {
+  builder.startVector(8, data.length, 8);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addInt64(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.Monster.startVectorOfLongsVector = function(builder, numElems) {
+  builder.startVector(8, numElems, 8);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} vectorOfDoublesOffset
+ */
+MyGame.Example.Monster.addVectorOfDoubles = function(builder, vectorOfDoublesOffset) {
+  builder.addFieldOffset(33, vectorOfDoublesOffset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<number>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.Monster.createVectorOfDoublesVector = function(builder, data) {
+  builder.startVector(8, data.length, 8);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addFloat64(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.Monster.startVectorOfDoublesVector = function(builder, numElems) {
+  builder.startVector(8, numElems, 8);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} parentNamespaceTestOffset
+ */
+MyGame.Example.Monster.addParentNamespaceTest = function(builder, parentNamespaceTestOffset) {
+  builder.addFieldOffset(34, parentNamespaceTestOffset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} vectorOfReferrablesOffset
+ */
+MyGame.Example.Monster.addVectorOfReferrables = function(builder, vectorOfReferrablesOffset) {
+  builder.addFieldOffset(35, vectorOfReferrablesOffset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<flatbuffers.Offset>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.Monster.createVectorOfReferrablesVector = function(builder, data) {
+  builder.startVector(4, data.length, 4);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.Monster.startVectorOfReferrablesVector = function(builder, numElems) {
+  builder.startVector(4, numElems, 4);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Long} singleWeakReference
+ */
+MyGame.Example.Monster.addSingleWeakReference = function(builder, singleWeakReference) {
+  builder.addFieldInt64(36, singleWeakReference, builder.createLong(0, 0));
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} vectorOfWeakReferencesOffset
+ */
+MyGame.Example.Monster.addVectorOfWeakReferences = function(builder, vectorOfWeakReferencesOffset) {
+  builder.addFieldOffset(37, vectorOfWeakReferencesOffset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<flatbuffers.Long>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.Monster.createVectorOfWeakReferencesVector = function(builder, data) {
+  builder.startVector(8, data.length, 8);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addInt64(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.Monster.startVectorOfWeakReferencesVector = function(builder, numElems) {
+  builder.startVector(8, numElems, 8);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} vectorOfStrongReferrablesOffset
+ */
+MyGame.Example.Monster.addVectorOfStrongReferrables = function(builder, vectorOfStrongReferrablesOffset) {
+  builder.addFieldOffset(38, vectorOfStrongReferrablesOffset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<flatbuffers.Offset>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.Monster.createVectorOfStrongReferrablesVector = function(builder, data) {
+  builder.startVector(4, data.length, 4);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.Monster.startVectorOfStrongReferrablesVector = function(builder, numElems) {
+  builder.startVector(4, numElems, 4);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Long} coOwningReference
+ */
+MyGame.Example.Monster.addCoOwningReference = function(builder, coOwningReference) {
+  builder.addFieldInt64(39, coOwningReference, builder.createLong(0, 0));
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} vectorOfCoOwningReferencesOffset
+ */
+MyGame.Example.Monster.addVectorOfCoOwningReferences = function(builder, vectorOfCoOwningReferencesOffset) {
+  builder.addFieldOffset(40, vectorOfCoOwningReferencesOffset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<flatbuffers.Long>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.Monster.createVectorOfCoOwningReferencesVector = function(builder, data) {
+  builder.startVector(8, data.length, 8);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addInt64(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.Monster.startVectorOfCoOwningReferencesVector = function(builder, numElems) {
+  builder.startVector(8, numElems, 8);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Long} nonOwningReference
+ */
+MyGame.Example.Monster.addNonOwningReference = function(builder, nonOwningReference) {
+  builder.addFieldInt64(41, nonOwningReference, builder.createLong(0, 0));
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} vectorOfNonOwningReferencesOffset
+ */
+MyGame.Example.Monster.addVectorOfNonOwningReferences = function(builder, vectorOfNonOwningReferencesOffset) {
+  builder.addFieldOffset(42, vectorOfNonOwningReferencesOffset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<flatbuffers.Long>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.Monster.createVectorOfNonOwningReferencesVector = function(builder, data) {
+  builder.startVector(8, data.length, 8);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addInt64(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.Monster.startVectorOfNonOwningReferencesVector = function(builder, numElems) {
+  builder.startVector(8, numElems, 8);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
  * @returns {flatbuffers.Offset}
  */
 MyGame.Example.Monster.endMonster = function(builder) {
@@ -1668,6 +2331,475 @@ MyGame.Example.Monster.endMonster = function(builder) {
  */
 MyGame.Example.Monster.finishMonsterBuffer = function(builder, offset) {
   builder.finish(offset, 'MONS');
+};
+
+/**
+ * @constructor
+ */
+MyGame.Example.TypeAliases = function() {
+  /**
+   * @type {flatbuffers.ByteBuffer}
+   */
+  this.bb = null;
+
+  /**
+   * @type {number}
+   */
+  this.bb_pos = 0;
+};
+
+/**
+ * @param {number} i
+ * @param {flatbuffers.ByteBuffer} bb
+ * @returns {MyGame.Example.TypeAliases}
+ */
+MyGame.Example.TypeAliases.prototype.__init = function(i, bb) {
+  this.bb_pos = i;
+  this.bb = bb;
+  return this;
+};
+
+/**
+ * @param {flatbuffers.ByteBuffer} bb
+ * @param {MyGame.Example.TypeAliases=} obj
+ * @returns {MyGame.Example.TypeAliases}
+ */
+MyGame.Example.TypeAliases.getRootAsTypeAliases = function(bb, obj) {
+  return (obj || new MyGame.Example.TypeAliases).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.i8 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 4);
+  return offset ? this.bb.readInt8(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @param {number} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_i8 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 4);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeInt8(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.u8 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 6);
+  return offset ? this.bb.readUint8(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @param {number} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_u8 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 6);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeUint8(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.i16 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 8);
+  return offset ? this.bb.readInt16(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @param {number} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_i16 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 8);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeInt16(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.u16 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 10);
+  return offset ? this.bb.readUint16(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @param {number} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_u16 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 10);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeUint16(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.i32 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 12);
+  return offset ? this.bb.readInt32(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @param {number} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_i32 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 12);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeInt32(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.u32 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 14);
+  return offset ? this.bb.readUint32(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @param {number} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_u32 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 14);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeUint32(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.TypeAliases.prototype.i64 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 16);
+  return offset ? this.bb.readInt64(this.bb_pos + offset) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @param {flatbuffers.Long} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_i64 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 16);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeInt64(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @returns {flatbuffers.Long}
+ */
+MyGame.Example.TypeAliases.prototype.u64 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 18);
+  return offset ? this.bb.readUint64(this.bb_pos + offset) : this.bb.createLong(0, 0);
+};
+
+/**
+ * @param {flatbuffers.Long} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_u64 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 18);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeUint64(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.f32 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 20);
+  return offset ? this.bb.readFloat32(this.bb_pos + offset) : 0.0;
+};
+
+/**
+ * @param {number} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_f32 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 20);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeFloat32(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.f64 = function() {
+  var offset = this.bb.__offset(this.bb_pos, 22);
+  return offset ? this.bb.readFloat64(this.bb_pos + offset) : 0.0;
+};
+
+/**
+ * @param {number} value
+ * @returns {boolean}
+ */
+MyGame.Example.TypeAliases.prototype.mutate_f64 = function(value) {
+  var offset = this.bb.__offset(this.bb_pos, 22);
+
+  if (offset === 0) {
+    return false;
+  }
+
+  this.bb.writeFloat64(this.bb_pos + offset, value);
+  return true;
+};
+
+/**
+ * @param {number} index
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.v8 = function(index) {
+  var offset = this.bb.__offset(this.bb_pos, 24);
+  return offset ? this.bb.readInt8(this.bb.__vector(this.bb_pos + offset) + index) : 0;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.v8Length = function() {
+  var offset = this.bb.__offset(this.bb_pos, 24);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @returns {Int8Array}
+ */
+MyGame.Example.TypeAliases.prototype.v8Array = function() {
+  var offset = this.bb.__offset(this.bb_pos, 24);
+  return offset ? new Int8Array(this.bb.bytes().buffer, this.bb.bytes().byteOffset + this.bb.__vector(this.bb_pos + offset), this.bb.__vector_len(this.bb_pos + offset)) : null;
+};
+
+/**
+ * @param {number} index
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.vf64 = function(index) {
+  var offset = this.bb.__offset(this.bb_pos, 26);
+  return offset ? this.bb.readFloat64(this.bb.__vector(this.bb_pos + offset) + index * 8) : 0;
+};
+
+/**
+ * @returns {number}
+ */
+MyGame.Example.TypeAliases.prototype.vf64Length = function() {
+  var offset = this.bb.__offset(this.bb_pos, 26);
+  return offset ? this.bb.__vector_len(this.bb_pos + offset) : 0;
+};
+
+/**
+ * @returns {Float64Array}
+ */
+MyGame.Example.TypeAliases.prototype.vf64Array = function() {
+  var offset = this.bb.__offset(this.bb_pos, 26);
+  return offset ? new Float64Array(this.bb.bytes().buffer, this.bb.bytes().byteOffset + this.bb.__vector(this.bb_pos + offset), this.bb.__vector_len(this.bb_pos + offset)) : null;
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ */
+MyGame.Example.TypeAliases.startTypeAliases = function(builder) {
+  builder.startObject(12);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} i8
+ */
+MyGame.Example.TypeAliases.addI8 = function(builder, i8) {
+  builder.addFieldInt8(0, i8, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} u8
+ */
+MyGame.Example.TypeAliases.addU8 = function(builder, u8) {
+  builder.addFieldInt8(1, u8, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} i16
+ */
+MyGame.Example.TypeAliases.addI16 = function(builder, i16) {
+  builder.addFieldInt16(2, i16, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} u16
+ */
+MyGame.Example.TypeAliases.addU16 = function(builder, u16) {
+  builder.addFieldInt16(3, u16, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} i32
+ */
+MyGame.Example.TypeAliases.addI32 = function(builder, i32) {
+  builder.addFieldInt32(4, i32, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} u32
+ */
+MyGame.Example.TypeAliases.addU32 = function(builder, u32) {
+  builder.addFieldInt32(5, u32, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Long} i64
+ */
+MyGame.Example.TypeAliases.addI64 = function(builder, i64) {
+  builder.addFieldInt64(6, i64, builder.createLong(0, 0));
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Long} u64
+ */
+MyGame.Example.TypeAliases.addU64 = function(builder, u64) {
+  builder.addFieldInt64(7, u64, builder.createLong(0, 0));
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} f32
+ */
+MyGame.Example.TypeAliases.addF32 = function(builder, f32) {
+  builder.addFieldFloat32(8, f32, 0.0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} f64
+ */
+MyGame.Example.TypeAliases.addF64 = function(builder, f64) {
+  builder.addFieldFloat64(9, f64, 0.0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} v8Offset
+ */
+MyGame.Example.TypeAliases.addV8 = function(builder, v8Offset) {
+  builder.addFieldOffset(10, v8Offset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<number>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.TypeAliases.createV8Vector = function(builder, data) {
+  builder.startVector(1, data.length, 1);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addInt8(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.TypeAliases.startV8Vector = function(builder, numElems) {
+  builder.startVector(1, numElems, 1);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {flatbuffers.Offset} vf64Offset
+ */
+MyGame.Example.TypeAliases.addVf64 = function(builder, vf64Offset) {
+  builder.addFieldOffset(11, vf64Offset, 0);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {Array.<number>} data
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.TypeAliases.createVf64Vector = function(builder, data) {
+  builder.startVector(8, data.length, 8);
+  for (var i = data.length - 1; i >= 0; i--) {
+    builder.addFloat64(data[i]);
+  }
+  return builder.endVector();
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @param {number} numElems
+ */
+MyGame.Example.TypeAliases.startVf64Vector = function(builder, numElems) {
+  builder.startVector(8, numElems, 8);
+};
+
+/**
+ * @param {flatbuffers.Builder} builder
+ * @returns {flatbuffers.Offset}
+ */
+MyGame.Example.TypeAliases.endTypeAliases = function(builder) {
+  var offset = builder.endObject();
+  return offset;
 };
 
 // Exports for Node.js and RequireJS

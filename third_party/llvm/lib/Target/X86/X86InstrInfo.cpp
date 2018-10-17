@@ -19,6 +19,7 @@
 #include "X86Subtarget.h"
 #include "X86TargetMachine.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/LiveVariables.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
@@ -3307,24 +3308,21 @@ void X86InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
     .addReg(SrcReg, getKillRegState(isKill));
 }
 
-void X86InstrInfo::storeRegToAddr(MachineFunction &MF, unsigned SrcReg,
-                                  bool isKill,
-                                  SmallVectorImpl<MachineOperand> &Addr,
-                                  const TargetRegisterClass *RC,
-                                  MachineInstr::mmo_iterator MMOBegin,
-                                  MachineInstr::mmo_iterator MMOEnd,
-                                  SmallVectorImpl<MachineInstr*> &NewMIs) const {
+void X86InstrInfo::storeRegToAddr(
+    MachineFunction &MF, unsigned SrcReg, bool isKill,
+    SmallVectorImpl<MachineOperand> &Addr, const TargetRegisterClass *RC,
+    ArrayRef<MachineMemOperand *> MMOs,
+    SmallVectorImpl<MachineInstr *> &NewMIs) const {
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   unsigned Alignment = std::max<uint32_t>(TRI.getSpillSize(*RC), 16);
-  bool isAligned = MMOBegin != MMOEnd &&
-                   (*MMOBegin)->getAlignment() >= Alignment;
+  bool isAligned = !MMOs.empty() && MMOs.front()->getAlignment() >= Alignment;
   unsigned Opc = getStoreRegOpcode(SrcReg, RC, isAligned, Subtarget);
   DebugLoc DL;
   MachineInstrBuilder MIB = BuildMI(MF, DL, get(Opc));
   for (unsigned i = 0, e = Addr.size(); i != e; ++i)
     MIB.add(Addr[i]);
   MIB.addReg(SrcReg, getKillRegState(isKill));
-  (*MIB).setMemRefs(MMOBegin, MMOEnd);
+  MIB.setMemRefs(MMOs);
   NewMIs.push_back(MIB);
 }
 
@@ -3344,22 +3342,20 @@ void X86InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
   addFrameReference(BuildMI(MBB, MI, DL, get(Opc), DestReg), FrameIdx);
 }
 
-void X86InstrInfo::loadRegFromAddr(MachineFunction &MF, unsigned DestReg,
-                                 SmallVectorImpl<MachineOperand> &Addr,
-                                 const TargetRegisterClass *RC,
-                                 MachineInstr::mmo_iterator MMOBegin,
-                                 MachineInstr::mmo_iterator MMOEnd,
-                                 SmallVectorImpl<MachineInstr*> &NewMIs) const {
+void X86InstrInfo::loadRegFromAddr(
+    MachineFunction &MF, unsigned DestReg,
+    SmallVectorImpl<MachineOperand> &Addr, const TargetRegisterClass *RC,
+    ArrayRef<MachineMemOperand *> MMOs,
+    SmallVectorImpl<MachineInstr *> &NewMIs) const {
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   unsigned Alignment = std::max<uint32_t>(TRI.getSpillSize(*RC), 16);
-  bool isAligned = MMOBegin != MMOEnd &&
-                   (*MMOBegin)->getAlignment() >= Alignment;
+  bool isAligned = !MMOs.empty() && MMOs.front()->getAlignment() >= Alignment;
   unsigned Opc = getLoadRegOpcode(DestReg, RC, isAligned, Subtarget);
   DebugLoc DL;
   MachineInstrBuilder MIB = BuildMI(MF, DL, get(Opc), DestReg);
   for (unsigned i = 0, e = Addr.size(); i != e; ++i)
     MIB.add(Addr[i]);
-  (*MIB).setMemRefs(MMOBegin, MMOEnd);
+  MIB.setMemRefs(MMOs);
   NewMIs.push_back(MIB);
 }
 
@@ -4266,9 +4262,14 @@ bool X86InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   case X86::VMOVUPSZ256mr_NOVLX:
     return expandNOVLXStore(MIB, &getRegisterInfo(), get(X86::VMOVUPSYmr),
                             get(X86::VEXTRACTF64x4Zmr), X86::sub_ymm);
-  case X86::MOV32ri64:
+  case X86::MOV32ri64: {
+    unsigned Reg = MIB->getOperand(0).getReg();
+    unsigned Reg32 = RI.getSubReg(Reg, X86::sub_32bit);
     MI.setDesc(get(X86::MOV32ri));
+    MIB->getOperand(0).setReg(Reg32);
+    MIB.addReg(Reg, RegState::ImplicitDefine);
     return true;
+  }
 
   // KNL does not recognize dependency-breaking idioms for mask registers,
   // so kxnor %k1, %k1, %k2 has a RAW dependence on %k1.
@@ -4652,6 +4653,32 @@ static void addOperands(MachineInstrBuilder &MIB, ArrayRef<MachineOperand> MOs,
   }
 }
 
+static void updateOperandRegConstraints(MachineFunction &MF,
+                                        MachineInstr &NewMI,
+                                        const TargetInstrInfo &TII) {
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  const TargetRegisterInfo &TRI = *MRI.getTargetRegisterInfo();
+
+  for (int Idx : llvm::seq<int>(0, NewMI.getNumOperands())) {
+    MachineOperand &MO = NewMI.getOperand(Idx);
+    // We only need to update constraints on virtual register operands.
+    if (!MO.isReg())
+      continue;
+    unsigned Reg = MO.getReg();
+    if (!TRI.isVirtualRegister(Reg))
+      continue;
+
+    auto *NewRC = MRI.constrainRegClass(
+        Reg, TII.getRegClass(NewMI.getDesc(), Idx, &TRI, MF));
+    if (!NewRC) {
+      LLVM_DEBUG(
+          dbgs() << "WARNING: Unable to update register constraint for operand "
+                 << Idx << " of instruction:\n";
+          NewMI.dump(); dbgs() << "\n");
+    }
+  }
+}
+
 static MachineInstr *FuseTwoAddrInst(MachineFunction &MF, unsigned Opcode,
                                      ArrayRef<MachineOperand> MOs,
                                      MachineBasicBlock::iterator InsertPt,
@@ -4674,6 +4701,8 @@ static MachineInstr *FuseTwoAddrInst(MachineFunction &MF, unsigned Opcode,
     MachineOperand &MO = MI.getOperand(i);
     MIB.add(MO);
   }
+
+  updateOperandRegConstraints(MF, *NewMI, TII);
 
   MachineBasicBlock *MBB = InsertPt->getParent();
   MBB->insert(InsertPt, NewMI);
@@ -4700,6 +4729,8 @@ static MachineInstr *FuseInst(MachineFunction &MF, unsigned Opcode,
       MIB.add(MO);
     }
   }
+
+  updateOperandRegConstraints(MF, *NewMI, TII);
 
   MachineBasicBlock *MBB = InsertPt->getParent();
   MBB->insert(InsertPt, NewMI);
@@ -5322,6 +5353,54 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
                                /*Size=*/0, Alignment, /*AllowCommute=*/true);
 }
 
+static SmallVector<MachineMemOperand *, 2>
+extractLoadMMOs(ArrayRef<MachineMemOperand *> MMOs, MachineFunction &MF) {
+  SmallVector<MachineMemOperand *, 2> LoadMMOs;
+
+  for (MachineMemOperand *MMO : MMOs) {
+    if (!MMO->isLoad())
+      continue;
+
+    if (!MMO->isStore()) {
+      // Reuse the MMO.
+      LoadMMOs.push_back(MMO);
+    } else {
+      // Clone the MMO and unset the store flag.
+      LoadMMOs.push_back(MF.getMachineMemOperand(
+          MMO->getPointerInfo(), MMO->getFlags() & ~MachineMemOperand::MOStore,
+          MMO->getSize(), MMO->getBaseAlignment(), MMO->getAAInfo(), nullptr,
+          MMO->getSyncScopeID(), MMO->getOrdering(),
+          MMO->getFailureOrdering()));
+    }
+  }
+
+  return LoadMMOs;
+}
+
+static SmallVector<MachineMemOperand *, 2>
+extractStoreMMOs(ArrayRef<MachineMemOperand *> MMOs, MachineFunction &MF) {
+  SmallVector<MachineMemOperand *, 2> StoreMMOs;
+
+  for (MachineMemOperand *MMO : MMOs) {
+    if (!MMO->isStore())
+      continue;
+
+    if (!MMO->isLoad()) {
+      // Reuse the MMO.
+      StoreMMOs.push_back(MMO);
+    } else {
+      // Clone the MMO and unset the load flag.
+      StoreMMOs.push_back(MF.getMachineMemOperand(
+          MMO->getPointerInfo(), MMO->getFlags() & ~MachineMemOperand::MOLoad,
+          MMO->getSize(), MMO->getBaseAlignment(), MMO->getAAInfo(), nullptr,
+          MMO->getSyncScopeID(), MMO->getOrdering(),
+          MMO->getFailureOrdering()));
+    }
+  }
+
+  return StoreMMOs;
+}
+
 bool X86InstrInfo::unfoldMemoryOperand(
     MachineFunction &MF, MachineInstr &MI, unsigned Reg, bool UnfoldLoad,
     bool UnfoldStore, SmallVectorImpl<MachineInstr *> &NewMIs) const {
@@ -5366,9 +5445,8 @@ bool X86InstrInfo::unfoldMemoryOperand(
 
   // Emit the load instruction.
   if (UnfoldLoad) {
-    std::pair<MachineInstr::mmo_iterator, MachineInstr::mmo_iterator> MMOs =
-        MF.extractLoadMemRefs(MI.memoperands_begin(), MI.memoperands_end());
-    loadRegFromAddr(MF, Reg, AddrOps, RC, MMOs.first, MMOs.second, NewMIs);
+    auto MMOs = extractLoadMMOs(MI.memoperands(), MF);
+    loadRegFromAddr(MF, Reg, AddrOps, RC, MMOs, NewMIs);
     if (UnfoldStore) {
       // Address operands cannot be marked isKill.
       for (unsigned i = 1; i != 1 + X86::AddrNumOperands; ++i) {
@@ -5433,9 +5511,8 @@ bool X86InstrInfo::unfoldMemoryOperand(
   // Emit the store instruction.
   if (UnfoldStore) {
     const TargetRegisterClass *DstRC = getRegClass(MCID, 0, &RI, MF);
-    std::pair<MachineInstr::mmo_iterator, MachineInstr::mmo_iterator> MMOs =
-        MF.extractStoreMemRefs(MI.memoperands_begin(), MI.memoperands_end());
-    storeRegToAddr(MF, Reg, true, AddrOps, DstRC, MMOs.first, MMOs.second, NewMIs);
+    auto MMOs = extractStoreMMOs(MI.memoperands(), MF);
+    storeRegToAddr(MF, Reg, true, AddrOps, DstRC, MMOs, NewMIs);
   }
 
   return true;
@@ -5480,26 +5557,21 @@ X86InstrInfo::unfoldMemoryOperand(SelectionDAG &DAG, SDNode *N,
   SDNode *Load = nullptr;
   if (FoldedLoad) {
     EVT VT = *TRI.legalclasstypes_begin(*RC);
-    std::pair<MachineInstr::mmo_iterator,
-              MachineInstr::mmo_iterator> MMOs =
-      MF.extractLoadMemRefs(cast<MachineSDNode>(N)->memoperands_begin(),
-                            cast<MachineSDNode>(N)->memoperands_end());
-    if (!(*MMOs.first) &&
-        RC == &X86::VR128RegClass &&
+    auto MMOs = extractLoadMMOs(cast<MachineSDNode>(N)->memoperands(), MF);
+    if (MMOs.empty() && RC == &X86::VR128RegClass &&
         Subtarget.isUnalignedMem16Slow())
       // Do not introduce a slow unaligned load.
       return false;
     // FIXME: If a VR128 can have size 32, we should be checking if a 32-byte
     // memory access is slow above.
     unsigned Alignment = std::max<uint32_t>(TRI.getSpillSize(*RC), 16);
-    bool isAligned = (*MMOs.first) &&
-                     (*MMOs.first)->getAlignment() >= Alignment;
+    bool isAligned = !MMOs.empty() && MMOs.front()->getAlignment() >= Alignment;
     Load = DAG.getMachineNode(getLoadRegOpcode(0, RC, isAligned, Subtarget), dl,
                               VT, MVT::Other, AddrOps);
     NewNodes.push_back(Load);
 
     // Preserve memory reference information.
-    cast<MachineSDNode>(Load)->setMemRefs(MMOs.first, MMOs.second);
+    DAG.setNodeMemRefs(cast<MachineSDNode>(Load), MMOs);
   }
 
   // Emit the data processing instruction.
@@ -5549,27 +5621,22 @@ X86InstrInfo::unfoldMemoryOperand(SelectionDAG &DAG, SDNode *N,
     AddrOps.pop_back();
     AddrOps.push_back(SDValue(NewNode, 0));
     AddrOps.push_back(Chain);
-    std::pair<MachineInstr::mmo_iterator,
-              MachineInstr::mmo_iterator> MMOs =
-      MF.extractStoreMemRefs(cast<MachineSDNode>(N)->memoperands_begin(),
-                             cast<MachineSDNode>(N)->memoperands_end());
-    if (!(*MMOs.first) &&
-        RC == &X86::VR128RegClass &&
+    auto MMOs = extractStoreMMOs(cast<MachineSDNode>(N)->memoperands(), MF);
+    if (MMOs.empty() && RC == &X86::VR128RegClass &&
         Subtarget.isUnalignedMem16Slow())
       // Do not introduce a slow unaligned store.
       return false;
     // FIXME: If a VR128 can have size 32, we should be checking if a 32-byte
     // memory access is slow above.
     unsigned Alignment = std::max<uint32_t>(TRI.getSpillSize(*RC), 16);
-    bool isAligned = (*MMOs.first) &&
-                     (*MMOs.first)->getAlignment() >= Alignment;
+    bool isAligned = !MMOs.empty() && MMOs.front()->getAlignment() >= Alignment;
     SDNode *Store =
         DAG.getMachineNode(getStoreRegOpcode(0, DstRC, isAligned, Subtarget),
                            dl, MVT::Other, AddrOps);
     NewNodes.push_back(Store);
 
     // Preserve memory reference information.
-    cast<MachineSDNode>(Store)->setMemRefs(MMOs.first, MMOs.second);
+    DAG.setNodeMemRefs(cast<MachineSDNode>(Store), MMOs);
   }
 
   return true;
@@ -5851,7 +5918,9 @@ isSafeToMoveRegClassDefs(const TargetRegisterClass *RC) const {
 /// TODO: Eliminate this and move the code to X86MachineFunctionInfo.
 ///
 unsigned X86InstrInfo::getGlobalBaseReg(MachineFunction *MF) const {
-  assert(!Subtarget.is64Bit() &&
+  assert((!Subtarget.is64Bit() ||
+          MF->getTarget().getCodeModel() == CodeModel::Medium ||
+          MF->getTarget().getCodeModel() == CodeModel::Large) &&
          "X86-64 PIC uses RIP relative addressing");
 
   X86MachineFunctionInfo *X86FI = MF->getInfo<X86MachineFunctionInfo>();
@@ -5862,7 +5931,8 @@ unsigned X86InstrInfo::getGlobalBaseReg(MachineFunction *MF) const {
   // Create the register. The code to initialize it is inserted
   // later, by the CGBR pass (below).
   MachineRegisterInfo &RegInfo = MF->getRegInfo();
-  GlobalBaseReg = RegInfo.createVirtualRegister(&X86::GR32_NOSPRegClass);
+  GlobalBaseReg = RegInfo.createVirtualRegister(
+      Subtarget.is64Bit() ? &X86::GR64_NOSPRegClass : &X86::GR32_NOSPRegClass);
   X86FI->setGlobalBaseReg(GlobalBaseReg);
   return GlobalBaseReg;
 }
@@ -6477,6 +6547,19 @@ uint16_t X86InstrInfo::getExecutionDomainCustom(const MachineInstr &MI) const {
 
     // All domains are valid.
     return 0xe;
+  case X86::MOVHLPSrr:
+    // We can swap domains when both inputs are the same register.
+    // FIXME: This doesn't catch all the cases we would like. If the input
+    // register isn't KILLed by the instruction, the two address instruction
+    // pass puts a COPY on one input. The other input uses the original
+    // register. This prevents the same physical register from being used by
+    // both inputs.
+    if (MI.getOperand(1).getReg() == MI.getOperand(2).getReg() &&
+        MI.getOperand(0).getSubReg() == 0 &&
+        MI.getOperand(1).getSubReg() == 0 &&
+        MI.getOperand(2).getSubReg() == 0)
+      return 0x6;
+    return 0;
   }
   return 0;
 }
@@ -6583,6 +6666,20 @@ bool X86InstrInfo::setExecutionDomainCustom(MachineInstr &MI,
     MI.setDesc(get(table[Domain - 1]));
     return true;
   }
+  case X86::UNPCKHPDrr:
+  case X86::MOVHLPSrr:
+    // We just need to commute the instruction which will switch the domains.
+    if (Domain != dom && Domain != 3 &&
+        MI.getOperand(1).getReg() == MI.getOperand(2).getReg() &&
+        MI.getOperand(0).getSubReg() == 0 &&
+        MI.getOperand(1).getSubReg() == 0 &&
+        MI.getOperand(2).getSubReg() == 0) {
+      commuteInstruction(MI, false);
+      return true;
+    }
+    // We must always return true for MOVHLPSrr.
+    if (Opcode == X86::MOVHLPSrr)
+      return true;
   }
   return false;
 }
@@ -7321,9 +7418,10 @@ namespace {
         static_cast<const X86TargetMachine *>(&MF.getTarget());
       const X86Subtarget &STI = MF.getSubtarget<X86Subtarget>();
 
-      // Don't do anything if this is 64-bit as 64-bit PIC
-      // uses RIP relative addressing.
-      if (STI.is64Bit())
+      // Don't do anything in the 64-bit small and kernel code models. They use
+      // RIP-relative addressing for everything.
+      if (STI.is64Bit() && (TM->getCodeModel() == CodeModel::Small ||
+                            TM->getCodeModel() == CodeModel::Kernel))
         return false;
 
       // Only emit a global base reg in PIC mode.
@@ -7350,17 +7448,41 @@ namespace {
       else
         PC = GlobalBaseReg;
 
-      // Operand of MovePCtoStack is completely ignored by asm printer. It's
-      // only used in JIT code emission as displacement to pc.
-      BuildMI(FirstMBB, MBBI, DL, TII->get(X86::MOVPC32r), PC).addImm(0);
+      if (STI.is64Bit()) {
+        if (TM->getCodeModel() == CodeModel::Medium) {
+          // In the medium code model, use a RIP-relative LEA to materialize the
+          // GOT.
+          BuildMI(FirstMBB, MBBI, DL, TII->get(X86::LEA64r), PC)
+              .addReg(X86::RIP)
+              .addImm(0)
+              .addReg(0)
+              .addExternalSymbol("_GLOBAL_OFFSET_TABLE_")
+              .addReg(0);
+        } else if (TM->getCodeModel() == CodeModel::Large) {
+          // Loading the GOT in the large code model requires math with labels,
+          // so we use a pseudo instruction and expand it during MC emission.
+          unsigned Scratch = RegInfo.createVirtualRegister(&X86::GR64RegClass);
+          BuildMI(FirstMBB, MBBI, DL, TII->get(X86::MOVGOT64r), PC)
+              .addReg(Scratch, RegState::Undef | RegState::Define)
+              .addExternalSymbol("_GLOBAL_OFFSET_TABLE_");
+        } else {
+          llvm_unreachable("unexpected code model");
+        }
+      } else {
+        // Operand of MovePCtoStack is completely ignored by asm printer. It's
+        // only used in JIT code emission as displacement to pc.
+        BuildMI(FirstMBB, MBBI, DL, TII->get(X86::MOVPC32r), PC).addImm(0);
 
-      // If we're using vanilla 'GOT' PIC style, we should use relative addressing
-      // not to pc, but to _GLOBAL_OFFSET_TABLE_ external.
-      if (STI.isPICStyleGOT()) {
-        // Generate addl $__GLOBAL_OFFSET_TABLE_ + [.-piclabel], %some_register
-        BuildMI(FirstMBB, MBBI, DL, TII->get(X86::ADD32ri), GlobalBaseReg)
-          .addReg(PC).addExternalSymbol("_GLOBAL_OFFSET_TABLE_",
-                                        X86II::MO_GOT_ABSOLUTE_ADDRESS);
+        // If we're using vanilla 'GOT' PIC style, we should use relative
+        // addressing not to pc, but to _GLOBAL_OFFSET_TABLE_ external.
+        if (STI.isPICStyleGOT()) {
+          // Generate addl $__GLOBAL_OFFSET_TABLE_ + [.-piclabel],
+          // %some_register
+          BuildMI(FirstMBB, MBBI, DL, TII->get(X86::ADD32ri), GlobalBaseReg)
+              .addReg(PC)
+              .addExternalSymbol("_GLOBAL_OFFSET_TABLE_",
+                                 X86II::MO_GOT_ABSOLUTE_ADDRESS);
+        }
       }
 
       return true;
@@ -7529,30 +7651,36 @@ enum MachineOutlinerClass {
   MachineOutlinerTailCall
 };
 
-outliner::TargetCostInfo
-X86InstrInfo::getOutliningCandidateInfo(
-  std::vector<outliner::Candidate> &RepeatedSequenceLocs) const {
-  unsigned SequenceSize = std::accumulate(
-      RepeatedSequenceLocs[0].front(), std::next(RepeatedSequenceLocs[0].back()),
-      0, [](unsigned Sum, const MachineInstr &MI) {
-        // FIXME: x86 doesn't implement getInstSizeInBytes, so we can't
-        // tell the cost.  Just assume each instruction is one byte.
-        if (MI.isDebugInstr() || MI.isKill())
-          return Sum;
-        return Sum + 1;
-      });
+outliner::OutlinedFunction X86InstrInfo::getOutliningCandidateInfo(
+    std::vector<outliner::Candidate> &RepeatedSequenceLocs) const {
+  unsigned SequenceSize =
+      std::accumulate(RepeatedSequenceLocs[0].front(),
+                      std::next(RepeatedSequenceLocs[0].back()), 0,
+                      [](unsigned Sum, const MachineInstr &MI) {
+                        // FIXME: x86 doesn't implement getInstSizeInBytes, so
+                        // we can't tell the cost.  Just assume each instruction
+                        // is one byte.
+                        if (MI.isDebugInstr() || MI.isKill())
+                          return Sum;
+                        return Sum + 1;
+                      });
 
   // FIXME: Use real size in bytes for call and ret instructions.
-  if (RepeatedSequenceLocs[0].back()->isTerminator())
-    return outliner::TargetCostInfo(SequenceSize,
-                               1, // Number of bytes to emit call.
-                               0, // Number of bytes to emit frame.
-                               MachineOutlinerTailCall, // Type of call.
-                               MachineOutlinerTailCall // Type of frame.
-                              );
+  if (RepeatedSequenceLocs[0].back()->isTerminator()) {
+    for (outliner::Candidate &C : RepeatedSequenceLocs)
+      C.setCallInfo(MachineOutlinerTailCall, 1);
 
-  return outliner::TargetCostInfo(SequenceSize, 1, 1, MachineOutlinerDefault,
-                             MachineOutlinerDefault);
+    return outliner::OutlinedFunction(RepeatedSequenceLocs, SequenceSize,
+                                      0, // Number of bytes to emit frame.
+                                      MachineOutlinerTailCall // Type of frame.
+    );
+  }
+
+  for (outliner::Candidate &C : RepeatedSequenceLocs)
+    C.setCallInfo(MachineOutlinerDefault, 1);
+
+  return outliner::OutlinedFunction(RepeatedSequenceLocs, SequenceSize, 1,
+                                    MachineOutlinerDefault);
 }
 
 bool X86InstrInfo::isFunctionSafeToOutlineFrom(MachineFunction &MF,
@@ -7639,10 +7767,10 @@ X86InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,  unsigned Flags
 
 void X86InstrInfo::buildOutlinedFrame(MachineBasicBlock &MBB,
                                           MachineFunction &MF,
-                                          const outliner::TargetCostInfo &TCI)
+                                          const outliner::OutlinedFunction &OF)
                                           const {
   // If we're a tail call, we already have a return, so don't do anything.
-  if (TCI.FrameConstructionID == MachineOutlinerTailCall)
+  if (OF.FrameConstructionID == MachineOutlinerTailCall)
     return;
 
   // We're a normal call, so our sequence doesn't have a return instruction.
@@ -7655,12 +7783,12 @@ MachineBasicBlock::iterator
 X86InstrInfo::insertOutlinedCall(Module &M, MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator &It,
                                  MachineFunction &MF,
-                                 const outliner::TargetCostInfo &TCI) const {
+                                 const outliner::Candidate &C) const {
   // Is it a tail call?
-  if (TCI.CallConstructionID == MachineOutlinerTailCall) {
+  if (C.CallConstructionID == MachineOutlinerTailCall) {
     // Yes, just insert a JMP.
     It = MBB.insert(It,
-                  BuildMI(MF, DebugLoc(), get(X86::JMP_1))
+                  BuildMI(MF, DebugLoc(), get(X86::TAILJMPd64))
                       .addGlobalAddress(M.getNamedValue(MF.getName())));
   } else {
     // No, insert a call.

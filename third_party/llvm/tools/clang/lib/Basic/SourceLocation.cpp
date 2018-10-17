@@ -49,7 +49,7 @@ void SourceLocation::print(raw_ostream &OS, const SourceManager &SM)const{
 
   if (isFileID()) {
     PresumedLoc PLoc = SM.getPresumedLoc(*this);
-    
+
     if (PLoc.isInvalid()) {
       OS << "<invalid>";
       return;
@@ -77,6 +77,7 @@ SourceLocation::printToString(const SourceManager &SM) const {
 
 LLVM_DUMP_METHOD void SourceLocation::dump(const SourceManager &SM) const {
   print(llvm::errs(), SM);
+  llvm::errs() << '\n';
 }
 
 //===----------------------------------------------------------------------===//

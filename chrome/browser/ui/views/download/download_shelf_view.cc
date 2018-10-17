@@ -10,7 +10,6 @@
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/download/download_item_model.h"
-#include "chrome/browser/download/download_stats.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
@@ -138,7 +137,7 @@ void DownloadShelfView::RemoveDownloadView(View* view) {
   if (download_views_.empty())
     Close(AUTOMATIC);
   else if (CanAutoClose())
-    mouse_watcher_.Start();
+    mouse_watcher_.Start(GetWidget()->GetNativeWindow());
   Layout();
   SchedulePaint();
 }
@@ -168,12 +167,14 @@ views::View* DownloadShelfView::GetDefaultFocusableChild() {
 }
 
 void DownloadShelfView::OnPaintBorder(gfx::Canvas* canvas) {
-  canvas->FillRect(gfx::Rect(0, 0, width(), 1), kBorderColor);
+  canvas->FillRect(gfx::Rect(0, 0, width(), 1),
+                   GetThemeProvider()->GetColor(
+                       ThemeProperties::COLOR_TOOLBAR_CONTENT_AREA_SEPARATOR));
 }
 
 void DownloadShelfView::OpenedDownload() {
   if (CanAutoClose())
-    mouse_watcher_.Start();
+    mouse_watcher_.Start(GetWidget()->GetNativeWindow());
 }
 
 content::PageNavigator* DownloadShelfView::GetNavigator() {
@@ -349,13 +350,6 @@ void DownloadShelfView::DoOpen() {
 }
 
 void DownloadShelfView::DoClose(CloseReason reason) {
-  int num_in_progress = 0;
-  for (size_t i = 0; i < download_views_.size(); ++i) {
-    if (download_views_[i]->download()->GetState() == DownloadItem::IN_PROGRESS)
-      ++num_in_progress;
-  }
-  RecordDownloadShelfClose(
-      download_views_.size(), num_in_progress, reason == AUTOMATIC);
   parent_->SetDownloadShelfVisible(false);
   shelf_animation_.Hide();
 }

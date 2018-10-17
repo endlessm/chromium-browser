@@ -42,6 +42,7 @@ class CleanUpStage(generic_stages.BuilderStage):
   """
 
   option_name = 'clean'
+  category = constants.CI_INFRA_STAGE
 
   def _CleanChroot(self):
     logging.info('Cleaning chroot.')
@@ -396,6 +397,7 @@ class InitSDKStage(generic_stages.BuilderStage):
   """Stage that is responsible for initializing the SDK."""
 
   option_name = 'build'
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, chroot_replace=False, **kwargs):
     """InitSDK constructor.
@@ -444,23 +446,21 @@ class SetupBoardStage(generic_stages.BoardSpecificBuilderStage, InitSDKStage):
   """Stage that is responsible for building host pkgs and setting up a board."""
 
   option_name = 'build'
+  category = constants.CI_INFRA_STAGE
 
   def PerformStage(self):
-    build_id, _ = self._run.GetCIDBHandle()
-    install_plan_fn = ('/tmp/%s_install_plan.%s' %
-                       (self._current_board, build_id))
+    _, _ = self._run.GetCIDBHandle()
 
     # We need to run chroot updates on most builders because they uprev after
     # the InitSDK stage. For the SDK builder, we can skip updates because uprev
     # is run prior to InitSDK. This is not just an optimization: It helps
-    # workaround http://crbug.com/225509
+    # workaround https://crbug.com/225509
     if self._run.config.build_type != constants.CHROOT_BUILDER_TYPE:
       usepkg_toolchain = (self._run.config.usepkg_toolchain and
                           not self._latest_toolchain)
       commands.UpdateChroot(
           self._build_root, toolchain_boards=[self._current_board],
-          usepkg=usepkg_toolchain, extra_env=self._portage_extra_env,
-          save_install_plan=install_plan_fn)
+          usepkg=usepkg_toolchain, extra_env=self._portage_extra_env)
 
     # Always update the board.
     usepkg = self._run.config.usepkg_build_packages
@@ -469,14 +469,14 @@ class SetupBoardStage(generic_stages.BoardSpecificBuilderStage, InitSDKStage):
         chrome_binhost_only=self._run.config.chrome_binhost_only,
         force=self._run.config.board_replace,
         extra_env=self._portage_extra_env, chroot_upgrade=False,
-        profile=self._run.options.profile or self._run.config.profile,
-        save_install_plan=install_plan_fn)
+        profile=self._run.options.profile or self._run.config.profile)
 
 
 class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
                          generic_stages.ArchivingStageMixin):
   """Build Chromium OS packages."""
 
+  category = constants.PRODUCT_OS_STAGE
   option_name = 'build'
   def __init__(self, builder_run, board, suffix=None, afdo_generate_min=False,
                afdo_use=False, update_metadata=False, **kwargs):
@@ -595,9 +595,6 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
     chroot_args = self._SetupGomaIfNecessary()
 
     build_id, _ = self._run.GetCIDBHandle()
-    install_plan_fn = ('/tmp/%s_install_plan.%s' %
-                       (self._current_board, build_id))
-
     commands.Build(self._build_root,
                    self._current_board,
                    build_autotest=self._run.ShouldBuildAutotest(),
@@ -610,8 +607,7 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
                    chroot_args=chroot_args,
                    extra_env=self._portage_extra_env,
                    event_file=event_file_in_chroot,
-                   run_goma=bool(chroot_args),
-                   save_install_plan=install_plan_fn)
+                   run_goma=bool(chroot_args))
 
     if event_file and os.path.isfile(event_file):
       logging.info('Archive build-events.json file')
@@ -691,6 +687,7 @@ class BuildImageStage(BuildPackagesStage):
 
   option_name = 'build'
   config_name = 'images'
+  category = constants.PRODUCT_OS_STAGE
 
   def _BuildImages(self):
     # We only build base, dev, and test images from this stage.
@@ -811,6 +808,7 @@ class UprevStage(generic_stages.BuilderStage):
 
   config_name = 'uprev'
   option_name = 'uprev'
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, boards=None, **kwargs):
     super(UprevStage, self).__init__(builder_run, **kwargs)
@@ -819,7 +817,8 @@ class UprevStage(generic_stages.BuilderStage):
 
   def PerformStage(self):
     # Perform other uprevs.
-    overlays, _ = self._ExtractOverlays()
+    overlays = portage_util.FindOverlays(
+        self._run.config.overlays, buildroot=self._build_root)
     commands.UprevPackages(self._build_root,
                            self._boards,
                            overlays)
@@ -830,7 +829,9 @@ class RegenPortageCacheStage(generic_stages.BuilderStage):
 
   # We only need to run this if we're pushing at least one overlay.
   config_name = 'push_overlays'
+  category = constants.CI_INFRA_STAGE
 
   def PerformStage(self):
-    _, push_overlays = self._ExtractOverlays()
+    push_overlays = portage_util.FindOverlays(
+        self._run.config.push_overlays, buildroot=self._build_root)
     commands.RegenPortageCache(push_overlays)

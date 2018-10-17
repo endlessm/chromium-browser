@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/GlobalISel/IRTranslator.h"
+#include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallSet.h"
@@ -33,6 +34,7 @@
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -321,14 +323,16 @@ bool IRTranslator::translateRet(const User &U, MachineIRBuilder &MIRBuilder) {
   const Value *Ret = RI.getReturnValue();
   if (Ret && DL->getTypeStoreSize(Ret->getType()) == 0)
     Ret = nullptr;
+
+  ArrayRef<unsigned> VRegs;
+  if (Ret)
+    VRegs = getOrCreateVRegs(*Ret);
+
   // The target may mess up with the insertion point, but
   // this is not important as a return is the last instruction
   // of the block anyway.
 
-  // FIXME: this interface should simplify when CallLowering gets adapted to
-  // multiple VRegs per Value.
-  unsigned VReg = Ret ? packRegs(*Ret, MIRBuilder) : 0;
-  return CLI->lowerReturn(MIRBuilder, Ret, VReg);
+  return CLI->lowerReturn(MIRBuilder, Ret, VRegs);
 }
 
 bool IRTranslator::translateBr(const User &U, MachineIRBuilder &MIRBuilder) {
@@ -351,7 +355,7 @@ bool IRTranslator::translateBr(const User &U, MachineIRBuilder &MIRBuilder) {
     MIRBuilder.buildBr(TgtBB);
 
   // Link successors.
-  for (const BasicBlock *Succ : BrInst.successors())
+  for (const BasicBlock *Succ : successors(&BrInst))
     CurBB.addSuccessor(&getMBB(*Succ));
   return true;
 }
@@ -411,7 +415,7 @@ bool IRTranslator::translateIndirectBr(const User &U,
 
   // Link successors.
   MachineBasicBlock &CurBB = MIRBuilder.getMBB();
-  for (const BasicBlock *Succ : BrInst.successors())
+  for (const BasicBlock *Succ : successors(&BrInst))
     CurBB.addSuccessor(&getMBB(*Succ));
 
   return true;
@@ -702,29 +706,22 @@ void IRTranslator::getStackGuard(unsigned DstReg,
     return;
 
   MachinePointerInfo MPInfo(Global);
-  MachineInstr::mmo_iterator MemRefs = MF->allocateMemRefsArray(1);
   auto Flags = MachineMemOperand::MOLoad | MachineMemOperand::MOInvariant |
                MachineMemOperand::MODereferenceable;
-  *MemRefs =
+  MachineMemOperand *MemRef =
       MF->getMachineMemOperand(MPInfo, Flags, DL->getPointerSizeInBits() / 8,
                                DL->getPointerABIAlignment(0));
-  MIB.setMemRefs(MemRefs, MemRefs + 1);
+  MIB.setMemRefs({MemRef});
 }
 
 bool IRTranslator::translateOverflowIntrinsic(const CallInst &CI, unsigned Op,
                                               MachineIRBuilder &MIRBuilder) {
   ArrayRef<unsigned> ResRegs = getOrCreateVRegs(CI);
-  auto MIB = MIRBuilder.buildInstr(Op)
-                 .addDef(ResRegs[0])
-                 .addDef(ResRegs[1])
-                 .addUse(getOrCreateVReg(*CI.getOperand(0)))
-                 .addUse(getOrCreateVReg(*CI.getOperand(1)));
-
-  if (Op == TargetOpcode::G_UADDE || Op == TargetOpcode::G_USUBE) {
-    unsigned Zero = getOrCreateVReg(
-        *Constant::getNullValue(Type::getInt1Ty(CI.getContext())));
-    MIB.addUse(Zero);
-  }
+  MIRBuilder.buildInstr(Op)
+      .addDef(ResRegs[0])
+      .addDef(ResRegs[1])
+      .addUse(getOrCreateVReg(*CI.getOperand(0)))
+      .addUse(getOrCreateVReg(*CI.getOperand(1)));
 
   return true;
 }
@@ -766,6 +763,17 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
                                      DI.getVariable(), DI.getExpression());
     return true;
   }
+  case Intrinsic::dbg_label: {
+    const DbgLabelInst &DI = cast<DbgLabelInst>(CI);
+    assert(DI.getLabel() && "Missing label");
+
+    assert(DI.getLabel()->isValidLocationForIntrinsic(
+               MIRBuilder.getDebugLoc()) &&
+           "Expected inlined-at fields to agree");
+
+    MIRBuilder.buildDbgLabel(DI.getLabel());
+    return true;
+  }
   case Intrinsic::vaend:
     // No target I know of cares about va_end. Certainly no in-tree target
     // does. Simplest intrinsic ever!
@@ -805,11 +813,11 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
     return true;
   }
   case Intrinsic::uadd_with_overflow:
-    return translateOverflowIntrinsic(CI, TargetOpcode::G_UADDE, MIRBuilder);
+    return translateOverflowIntrinsic(CI, TargetOpcode::G_UADDO, MIRBuilder);
   case Intrinsic::sadd_with_overflow:
     return translateOverflowIntrinsic(CI, TargetOpcode::G_SADDO, MIRBuilder);
   case Intrinsic::usub_with_overflow:
-    return translateOverflowIntrinsic(CI, TargetOpcode::G_USUBE, MIRBuilder);
+    return translateOverflowIntrinsic(CI, TargetOpcode::G_USUBO, MIRBuilder);
   case Intrinsic::ssub_with_overflow:
     return translateOverflowIntrinsic(CI, TargetOpcode::G_SSUBO, MIRBuilder);
   case Intrinsic::umul_with_overflow:
@@ -844,6 +852,16 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
     return true;
   case Intrinsic::fabs:
     MIRBuilder.buildInstr(TargetOpcode::G_FABS)
+        .addDef(getOrCreateVReg(CI))
+        .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
+    return true;
+  case Intrinsic::trunc:
+    MIRBuilder.buildInstr(TargetOpcode::G_INTRINSIC_TRUNC)
+        .addDef(getOrCreateVReg(CI))
+        .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
+    return true;
+  case Intrinsic::round:
+    MIRBuilder.buildInstr(TargetOpcode::G_INTRINSIC_ROUND)
         .addDef(getOrCreateVReg(CI))
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
     return true;
@@ -907,6 +925,26 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
                                               getOrCreateFrameIndex(*Slot)),
             MachineMemOperand::MOStore | MachineMemOperand::MOVolatile,
             PtrTy.getSizeInBits() / 8, 8));
+    return true;
+  }
+  case Intrinsic::cttz:
+  case Intrinsic::ctlz: {
+    ConstantInt *Cst = cast<ConstantInt>(CI.getArgOperand(1));
+    bool isTrailing = ID == Intrinsic::cttz;
+    unsigned Opcode = isTrailing
+                          ? Cst->isZero() ? TargetOpcode::G_CTTZ
+                                          : TargetOpcode::G_CTTZ_ZERO_UNDEF
+                          : Cst->isZero() ? TargetOpcode::G_CTLZ
+                                          : TargetOpcode::G_CTLZ_ZERO_UNDEF;
+    MIRBuilder.buildInstr(Opcode)
+        .addDef(getOrCreateVReg(CI))
+        .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
+    return true;
+  }
+  case Intrinsic::ctpop: {
+    MIRBuilder.buildInstr(TargetOpcode::G_CTPOP)
+        .addDef(getOrCreateVReg(CI))
+        .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
     return true;
   }
   }
@@ -1156,6 +1194,9 @@ bool IRTranslator::translateLandingPad(const User &U,
 bool IRTranslator::translateAlloca(const User &U,
                                    MachineIRBuilder &MIRBuilder) {
   auto &AI = cast<AllocaInst>(U);
+
+  if (AI.isSwiftError())
+    return false;
 
   if (AI.isStaticAlloca()) {
     unsigned Res = getOrCreateVReg(AI);
@@ -1430,6 +1471,8 @@ void IRTranslator::finishPendingPhis() {
 bool IRTranslator::valueIsSplit(const Value &V,
                                 SmallVectorImpl<uint64_t> *Offsets) {
   SmallVector<LLT, 4> SplitTys;
+  if (Offsets && !Offsets->empty())
+    Offsets->clear();
   computeValueLLTs(*DL, *V.getType(), SplitTys, Offsets);
   return SplitTys.size() > 1;
 }
@@ -1500,6 +1543,8 @@ bool IRTranslator::translate(const Constant &C, unsigned Reg) {
       Ops.push_back(getOrCreateVReg(*CV->getOperand(i)));
     }
     EntryBuilder.buildMerge(Reg, Ops);
+  } else if (auto *BA = dyn_cast<BlockAddress>(&C)) {
+    EntryBuilder.buildBlockAddress(Reg, BA);
   } else
     return false;
 
@@ -1574,6 +1619,18 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
         MRI->createGenericVirtualRegister(getLLTForType(*Arg.getType(), *DL)));
   }
 
+  // We don't currently support translating swifterror or swiftself functions.
+  for (auto &Arg : F.args()) {
+    if (Arg.hasSwiftErrorAttr() || Arg.hasSwiftSelfAttr()) {
+      OptimizationRemarkMissed R("gisel-irtranslator", "GISelFailure",
+                                 F.getSubprogram(), &F.getEntryBlock());
+      R << "unable to lower arguments due to swifterror/swiftself: "
+        << ore::NV("Prototype", F.getType());
+      reportTranslationError(*MF, *TPC, *ORE, R);
+      return false;
+    }
+  }
+
   if (!CLI->lowerFormalArguments(EntryBuilder, F, VRegArgs)) {
     OptimizationRemarkMissed R("gisel-irtranslator", "GISelFailure",
                                F.getSubprogram(), &F.getEntryBlock());
@@ -1596,19 +1653,20 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
     ArgIt++;
   }
 
-  // And translate the function!
-  for (const BasicBlock &BB : F) {
-    MachineBasicBlock &MBB = getMBB(BB);
+  // Need to visit defs before uses when translating instructions.
+  ReversePostOrderTraversal<const Function *> RPOT(&F);
+  for (const BasicBlock *BB : RPOT) {
+    MachineBasicBlock &MBB = getMBB(*BB);
     // Set the insertion point of all the following translations to
     // the end of this basic block.
     CurBuilder.setMBB(MBB);
 
-    for (const Instruction &Inst : BB) {
+    for (const Instruction &Inst : *BB) {
       if (translate(Inst))
         continue;
 
       OptimizationRemarkMissed R("gisel-irtranslator", "GISelFailure",
-                                 Inst.getDebugLoc(), &BB);
+                                 Inst.getDebugLoc(), BB);
       R << "unable to translate instruction: " << ore::NV("Opcode", &Inst);
 
       if (ORE->allowExtraAnalysis("gisel-irtranslator")) {

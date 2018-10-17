@@ -495,15 +495,16 @@ static bool buildMUBUFOffsetLoadStore(const SIInstrInfo *TII,
     return false;
 
   const MachineOperand *Reg = TII->getNamedOperand(*MI, AMDGPU::OpName::vdata);
-  MachineInstrBuilder NewMI = BuildMI(*MBB, MI, DL, TII->get(LoadStoreOp))
-    .add(*Reg)
-    .add(*TII->getNamedOperand(*MI, AMDGPU::OpName::srsrc))
-    .add(*TII->getNamedOperand(*MI, AMDGPU::OpName::soffset))
-    .addImm(Offset)
-    .addImm(0) // glc
-    .addImm(0) // slc
-    .addImm(0) // tfe
-    .setMemRefs(MI->memoperands_begin(), MI->memoperands_end());
+  MachineInstrBuilder NewMI =
+      BuildMI(*MBB, MI, DL, TII->get(LoadStoreOp))
+          .add(*Reg)
+          .add(*TII->getNamedOperand(*MI, AMDGPU::OpName::srsrc))
+          .add(*TII->getNamedOperand(*MI, AMDGPU::OpName::soffset))
+          .addImm(Offset)
+          .addImm(0) // glc
+          .addImm(0) // slc
+          .addImm(0) // tfe
+          .cloneMemRefs(*MI);
 
   const MachineOperand *VDataIn = TII->getNamedOperand(*MI,
                                                        AMDGPU::OpName::vdata_in);
@@ -532,21 +533,28 @@ void SIRegisterInfo::buildSpillLoadStore(MachineBasicBlock::iterator MI,
   const DebugLoc &DL = MI->getDebugLoc();
   bool IsStore = Desc.mayStore();
 
-  bool RanOutOfSGPRs = false;
   bool Scavenged = false;
   unsigned SOffset = ScratchOffsetReg;
 
+  const unsigned EltSize = 4;
   const TargetRegisterClass *RC = getRegClassForReg(MF->getRegInfo(), ValueReg);
-  unsigned NumSubRegs = AMDGPU::getRegBitWidth(RC->getID()) / 32;
-  unsigned Size = NumSubRegs * 4;
+  unsigned NumSubRegs = AMDGPU::getRegBitWidth(RC->getID()) / (EltSize * CHAR_BIT);
+  unsigned Size = NumSubRegs * EltSize;
   int64_t Offset = InstOffset + MFI.getObjectOffset(Index);
-  const int64_t OriginalImmOffset = Offset;
+  int64_t ScratchOffsetRegDelta = 0;
 
   unsigned Align = MFI.getObjectAlignment(Index);
   const MachinePointerInfo &BasePtrInfo = MMO->getPointerInfo();
 
-  if (!isUInt<12>(Offset + Size)) {
+  assert((Offset % EltSize) == 0 && "unexpected VGPR spill offset");
+
+  if (!isUInt<12>(Offset + Size - EltSize)) {
     SOffset = AMDGPU::NoRegister;
+
+    // We currently only support spilling VGPRs to EltSize boundaries, meaning
+    // we can simplify the adjustment of Offset here to just scale with
+    // WavefrontSize.
+    Offset *= ST.getWavefrontSize();
 
     // We don't have access to the register scavenger if this function is called
     // during  PEI::scavengeFrameVirtualRegs().
@@ -561,8 +569,8 @@ void SIRegisterInfo::buildSpillLoadStore(MachineBasicBlock::iterator MI,
       // add the offset directly to the ScratchOffset register, and then
       // subtract the offset after the spill to return ScratchOffset to it's
       // original value.
-      RanOutOfSGPRs = true;
       SOffset = ScratchOffsetReg;
+      ScratchOffsetRegDelta = Offset;
     } else {
       Scavenged = true;
     }
@@ -573,8 +581,6 @@ void SIRegisterInfo::buildSpillLoadStore(MachineBasicBlock::iterator MI,
 
     Offset = 0;
   }
-
-  const unsigned EltSize = 4;
 
   for (unsigned i = 0, e = NumSubRegs; i != e; ++i, Offset += EltSize) {
     unsigned SubReg = NumSubRegs == 1 ?
@@ -607,11 +613,11 @@ void SIRegisterInfo::buildSpillLoadStore(MachineBasicBlock::iterator MI,
       MIB.addReg(ValueReg, RegState::Implicit | SrcDstRegState);
   }
 
-  if (RanOutOfSGPRs) {
+  if (ScratchOffsetRegDelta != 0) {
     // Subtract the offset we added to the ScratchOffset register.
     BuildMI(*MBB, MI, DL, TII->get(AMDGPU::S_SUB_U32), ScratchOffsetReg)
-      .addReg(ScratchOffsetReg)
-      .addImm(OriginalImmOffset);
+        .addReg(ScratchOffsetReg)
+        .addImm(ScratchOffsetRegDelta);
   }
 }
 

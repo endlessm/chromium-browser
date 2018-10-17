@@ -26,8 +26,6 @@ from telemetry.internal.platform.power_monitor import sysfs_power_monitor
 from telemetry.internal.util import binary_manager
 from telemetry.internal.util import external_modules
 
-psutil = external_modules.ImportOptionalModule('psutil')
-
 from devil.android import app_ui
 from devil.android import battery_utils
 from devil.android import device_errors
@@ -37,6 +35,7 @@ from devil.android.perf import perf_control
 from devil.android.perf import thermal_throttle
 from devil.android.sdk import shared_prefs
 from devil.android.sdk import version_codes
+from devil.android.tools import provision_devices
 from devil.android.tools import video_recorder
 
 try:
@@ -50,6 +49,7 @@ try:
 except Exception: # pylint: disable=broad-except
   surface_stats_collector = None
 
+psutil = external_modules.ImportOptionalModule('psutil')
 
 _ARCH_TO_STACK_TOOL_ARCH = {
     'armeabi-v7a': 'arm',
@@ -76,16 +76,16 @@ class AndroidPlatformBackend(
         self._device.EnableRoot()
       except device_errors.CommandFailedError:
         logging.warning('Unable to root %s', str(self._device))
-    assert self._device.HasRoot(), (
-        'Android device must be rooted to run Telemetry')
+    self._can_elevate_privilege = (
+        self._device.HasRoot() or self._device.NeedsSU())
+    assert self._can_elevate_privilege, (
+        'Android device must have root access to run Telemetry')
     self._battery = battery_utils.BatteryUtils(self._device)
     self._enable_performance_mode = device.enable_performance_mode
     self._surface_stats_collector = None
     self._perf_tests_setup = perf_control.PerfControl(self._device)
     self._thermal_throttle = thermal_throttle.ThermalThrottle(self._device)
     self._raw_display_frame_rate_measurements = []
-    self._can_elevate_privilege = (
-        self._device.HasRoot() or self._device.NeedsSU())
     self._device_copy_script = None
     self._power_monitor = (
         android_power_monitor_controller.AndroidPowerMonitorController([
@@ -338,7 +338,7 @@ class AndroidPlatformBackend(
       application: The full package name string of the application to kill.
     """
     assert isinstance(application, basestring)
-    self._device.KillAll(application, blocking=True, quiet=True)
+    self._device.KillAll(application, blocking=True, quiet=True, as_root=True)
 
   def LaunchApplication(
       self, application, parameters=None, elevate_privilege=False):
@@ -498,14 +498,6 @@ class AndroidPlatformBackend(
       if not self._device.DismissCrashDialogIfNeeded():
         break
 
-  def IsAppRunning(self, process_name):
-    """Determine if the given process is running.
-
-    Args:
-      process_name: The full package name string of the process.
-    """
-    return bool(self._device.GetApplicationPids(process_name))
-
   def PushProfile(self, package, new_profile_dir):
     """Replace application profile with files found on host machine.
 
@@ -525,7 +517,11 @@ class AndroidPlatformBackend(
     if not profile_base:
       profile_base = os.path.basename(profile_parent)
 
-    saved_profile_location = '/sdcard/profile/%s' % profile_base
+    provision_devices.CheckExternalStorage(self._device)
+
+    saved_profile_location = posixpath.join(
+        self._device.GetExternalStoragePath(),
+        'profile', profile_base)
     self._device.PushChangedFiles([(new_profile_dir, saved_profile_location)],
                                   delete_device_stale=True)
 

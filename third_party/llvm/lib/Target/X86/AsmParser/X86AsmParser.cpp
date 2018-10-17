@@ -955,7 +955,7 @@ public:
 
   void SetFrameRegister(unsigned RegNo) override;
 
-  bool parseAssignmentExpression(const MCExpr *&Res, SMLoc &EndLoc) override;
+  bool parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) override;
 
   bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
                         SMLoc NameLoc, OperandVector &Operands) override;
@@ -2260,15 +2260,17 @@ std::unique_ptr<X86Operand> X86AsmParser::ParseMemOperand(unsigned SegReg,
   return X86Operand::CreateMem(getPointerWidth(), Disp, MemStart, MemEnd);
 }
 
-// Parse either a standard expression or a register.
-bool X86AsmParser::parseAssignmentExpression(const MCExpr *&Res,
-                                             SMLoc &EndLoc) {
+// Parse either a standard primary expression or a register.
+bool X86AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
   MCAsmParser &Parser = getParser();
-  if (Parser.parseExpression(Res, EndLoc)) {
+  if (Parser.parsePrimaryExpr(Res, EndLoc)) {
     SMLoc StartLoc = Parser.getTok().getLoc();
     // Normal Expression parse fails, check if it could be a register.
     unsigned RegNo;
-    if (Parser.getTargetParser().ParseRegister(RegNo, StartLoc, EndLoc))
+    bool TryRegParse =
+        getTok().is(AsmToken::Percent) ||
+        (isParsingIntelSyntax() && getTok().is(AsmToken::Identifier));
+    if (!TryRegParse || ParseRegister(RegNo, StartLoc, EndLoc))
       return true;
     // Clear previous parse error and return correct expression.
     Parser.clearPendingErrors();
@@ -2603,11 +2605,11 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
   bool HadVerifyError = false;
 
   // Append default arguments to "ins[bwld]"
-  if (Name.startswith("ins") && 
+  if (Name.startswith("ins") &&
       (Operands.size() == 1 || Operands.size() == 3) &&
       (Name == "insb" || Name == "insw" || Name == "insl" || Name == "insd" ||
        Name == "ins")) {
-    
+
     AddDefaultSrcDestOperands(TmpOperands,
                               X86Operand::CreateReg(X86::DX, NameLoc, NameLoc),
                               DefaultMemDIOperand(NameLoc));
@@ -2615,7 +2617,7 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
   }
 
   // Append default arguments to "outs[bwld]"
-  if (Name.startswith("outs") && 
+  if (Name.startswith("outs") &&
       (Operands.size() == 1 || Operands.size() == 3) &&
       (Name == "outsb" || Name == "outsw" || Name == "outsl" ||
        Name == "outsd" || Name == "outs")) {

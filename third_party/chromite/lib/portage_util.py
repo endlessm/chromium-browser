@@ -40,7 +40,7 @@ PV = collections.namedtuple('PV', _PV_FIELDS)
 CPV = collections.namedtuple('CPV', ['category'] + _PV_FIELDS)
 
 # Package matching regexp, as dictated by package manager specification:
-# http://www.gentoo.org/proj/en/qa/pms.xml
+# https://www.gentoo.org/proj/en/qa/pms.xml
 _pkg = r'(?P<package>' + r'[\w+][\w+-]*)'
 _ver = (r'(?P<version>'
         r'(?P<version_no_rev>(\d+)((\.\d+)*)([a-z]?)'
@@ -284,31 +284,6 @@ def ReadOverlayFile(filename, overlay_type='both', board=None,
   return osutils.ReadFile(file_found)
 
 
-def FindPrimaryOverlay(overlay_type, board, buildroot=constants.SOURCE_ROOT):
-  """Return the primary overlay to use for a given buildbot.
-
-  An overlay is only considered a primary overlay if it has a make.conf and a
-  toolchain.conf. If multiple primary overlays are found, the first primary
-  overlay is returned.
-
-  Args:
-    overlay_type: A string describing which overlays you want.
-      'private': Just the private overlays.
-      'public': Just the public overlays.
-      'both': Both the public and private overlays.
-    board: Board to look at.
-    buildroot: Path to root of build directory.
-
-  Raises:
-    MissingOverlayException: No primary overlay found.
-  """
-  for overlay in FindOverlays(overlay_type, board, buildroot):
-    if (os.path.exists(os.path.join(overlay, 'make.conf')) and
-        os.path.exists(os.path.join(overlay, 'toolchain.conf'))):
-      return overlay
-  raise MissingOverlayException('No primary overlay found for board=%r' % board)
-
-
 def GetOverlayName(overlay):
   """Get the self-declared repo name for the |overlay| path."""
   try:
@@ -512,8 +487,12 @@ class EBuild(object):
     is_blacklisted = False
     has_test = False
     for line in fileinput.input(ebuild_path):
-      if line.startswith('inherit ') and 'cros-workon' in line:
-        is_workon = True
+      if line.startswith('inherit '):
+        eclasses = line.split()
+        if 'cros-workon' in eclasses:
+          is_workon = True
+        if 'cros-common.mk' in eclasses:
+          has_test = True
       elif line.startswith('KEYWORDS='):
         for keyword in line.split('=', 1)[1].strip("\"'").split():
           if not keyword.startswith('~') and keyword != '-*':
@@ -985,11 +964,11 @@ class EBuild(object):
     if (not test_dirs_changed and not unstable_ebuild_or_files_changed and
         not self._ShouldRevEBuild(commit_ids, srcdirs, subdirs_to_rev)):
       logging.info('Skipping uprev of ebuild %s, none of the rev_subdirs have '
-                   'been modified, no files/, nor has the -9999 ebuild.' %
+                   'been modified, no files/, nor has the -9999 ebuild.',
                    self.pkgname)
       return
 
-    logging.info('Determining whether to create new ebuild %s' %
+    logging.info('Determining whether to create new ebuild %s',
                  new_stable_ebuild_path)
     if not os.path.exists(self._unstable_ebuild_path):
       cros_build_lib.Die('Missing unstable ebuild: %s' %
@@ -1337,7 +1316,7 @@ def _FindUprevCandidates(files, allow_blacklisted=False):
     cros_build_lib.Die('Found multiple unstable ebuilds in %s' % path)
 
   if not stable_ebuilds:
-    logging.warning('Missing stable ebuild in %s' % path)
+    logging.warning('Missing stable ebuild in %s', path)
     return unstable_ebuilds[0]
 
   if len(stable_ebuilds) == 1:
@@ -1354,8 +1333,8 @@ def _FindUprevCandidates(files, allow_blacklisted=False):
   uprev_ebuild = max(stable_ebuilds, key=lambda eb: eb.current_revision)
   for ebuild in stable_ebuilds:
     if ebuild != uprev_ebuild:
-      logging.warning('Ignoring stable ebuild revision %s in %s' %
-                      (ebuild.version, path))
+      logging.warning('Ignoring stable ebuild revision %s in %s',
+                      ebuild.version, path)
   return uprev_ebuild
 
 
@@ -1553,8 +1532,9 @@ def SplitEbuildPath(path):
   perform any check on ebuild name elements or their validity, merely splits
   a filename, absolute or relative, and returns the last 3 components.
 
-  Example: For /any/path/chromeos-base/power_manager/power_manager-9999.ebuild,
-  returns ('chromeos-base', 'power_manager', 'power_manager-9999').
+  Examples:
+    For /any/path/chromeos-base/power_manager/power_manager-9999.ebuild,
+    returns ('chromeos-base', 'power_manager', 'power_manager-9999').
 
   Args:
     path: Path to the ebuild.

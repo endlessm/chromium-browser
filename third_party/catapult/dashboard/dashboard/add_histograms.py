@@ -4,22 +4,22 @@
 
 """URL endpoint for adding new histograms to the dashboard."""
 
+import cloudstorage
 import json
 import logging
 import sys
+import uuid
 import zlib
 
 from google.appengine.api import taskqueue
-from google.appengine.ext import ndb
 
-from dashboard import add_point
-from dashboard import add_point_queue
 from dashboard.api import api_request_handler
 from dashboard.common import datastore_hooks
 from dashboard.common import histogram_helpers
-from dashboard.common import stored_object
+from dashboard.common import request_handler
 from dashboard.common import timing
 from dashboard.common import utils
+from dashboard.models import graph_data
 from dashboard.models import histogram
 from tracing.value import histogram_set
 from tracing.value.diagnostics import diagnostic
@@ -56,10 +56,40 @@ SPARSE_DIAGNOSTIC_NAMES = SUITE_LEVEL_SPARSE_DIAGNOSTIC_NAMES.union(
 
 TASK_QUEUE_NAME = 'histograms-queue'
 
+_RETRY_PARAMS = cloudstorage.RetryParams(backoff_factor=1.1)
+_TASK_RETRY_LIMIT = 4
+
 
 def _CheckRequest(condition, msg):
   if not condition:
     raise api_request_handler.BadRequestError(msg)
+
+
+class AddHistogramsProcessHandler(request_handler.RequestHandler):
+
+  def post(self):
+    datastore_hooks.SetPrivilegedRequest()
+
+    try:
+      params = json.loads(self.request.body)
+      gcs_file_path = params['gcs_file_path']
+
+      try:
+        gcs_file = cloudstorage.open(
+            gcs_file_path, 'r', retry_params=_RETRY_PARAMS)
+        contents = gcs_file.read()
+        data_str = zlib.decompress(contents)
+        gcs_file.close()
+      finally:
+        cloudstorage.delete(gcs_file_path, retry_params=_RETRY_PARAMS)
+
+      with timing.WallTimeLogger('json.loads'):
+        histogram_dicts = json.loads(data_str)
+
+      ProcessHistogramSet(histogram_dicts)
+    except Exception as e: # pylint: disable=broad-except
+      logging.error(e.message)
+      self.response.out.write(json.dumps({'error': e.message}))
 
 
 class AddHistogramsHandler(api_request_handler.ApiRequestHandler):
@@ -69,19 +99,34 @@ class AddHistogramsHandler(api_request_handler.ApiRequestHandler):
 
     with timing.WallTimeLogger('decompress'):
       try:
-        data_str = zlib.decompress(self.request.body)
+        data_str = self.request.body
+        zlib.decompress(data_str)
         logging.info('Recieved compressed data.')
       except zlib.error:
         data_str = self.request.get('data')
+        data_str = zlib.compress(data_str)
         logging.info('Recieved uncompressed data.')
+
     if not data_str:
       raise api_request_handler.BadRequestError('Missing "data" parameter')
 
-    logging.info('Received data: %s', data_str[:200])
+    filename = uuid.uuid4()
+    params = {'gcs_file_path': '/add-histograms-cache/%s' % filename}
 
-    with timing.WallTimeLogger('json.loads'):
-      histogram_dicts = json.loads(data_str)
-    ProcessHistogramSet(histogram_dicts)
+    gcs_file = cloudstorage.open(
+        params['gcs_file_path'], 'w',
+        content_type='application/octet-stream',
+        retry_params=_RETRY_PARAMS)
+    gcs_file.write(data_str)
+    gcs_file.close()
+
+    retry_options = taskqueue.TaskRetryOptions(
+        task_retry_limit=_TASK_RETRY_LIMIT)
+    queue = taskqueue.Queue('default')
+    queue.add(
+        taskqueue.Task(
+            url='/add_histograms/process', payload=json.dumps(params),
+            retry_options=retry_options))
 
 
 def _LogDebugInfo(histograms):
@@ -102,9 +147,6 @@ def ProcessHistogramSet(histogram_dicts):
   if not isinstance(histogram_dicts, list):
     raise api_request_handler.BadRequestError(
         'HistogramSet JSON much be a list of dicts')
-
-  bot_whitelist_future = stored_object.GetAsync(
-      add_point_queue.BOT_WHITELIST_KEY)
 
   histograms = histogram_set.HistogramSet()
 
@@ -153,8 +195,20 @@ def ProcessHistogramSet(histogram_dicts):
 
     revision = ComputeRevision(histograms)
 
-    bot_whitelist = bot_whitelist_future.get_result()
-    internal_only = add_point_queue.BotInternalOnly(bot, bot_whitelist)
+    internal_only = graph_data.Bot.GetInternalOnlySync(master, bot)
+
+  revision_record = histogram.HistogramRevisionRecord.GetOrCreate(
+      suite_key, revision)
+  revision_record.put()
+
+  last_added = histogram.HistogramRevisionRecord.GetLatest(
+      suite_key).get_result()
+
+  # On first upload, a query immediately following a put may return nothing.
+  if not last_added:
+    last_added = revision_record
+
+  _CheckRequest(last_added, 'No last revision')
 
   # We'll skip the histogram-level sparse diagnostics because we need to
   # handle those with the histograms, below, so that we can properly assign
@@ -166,8 +220,11 @@ def ProcessHistogramSet(histogram_dicts):
   # TODO(eakuefner): Refactor master/bot computation to happen above this line
   # so that we can replace with a DiagnosticRef rather than a full diagnostic.
   with timing.WallTimeLogger('DeduplicateAndPut'):
-    new_guids_to_old_diagnostics = DeduplicateAndPut(
-        suite_level_sparse_diagnostic_entities, suite_key, revision)
+    new_guids_to_old_diagnostics = (
+        histogram.SparseDiagnostic.FindOrInsertDiagnostics(
+            suite_level_sparse_diagnostic_entities, suite_key,
+            revision, last_added.revision).get_result())
+
   with timing.WallTimeLogger('ReplaceSharedDiagnostic calls'):
     for new_guid, old_diagnostic in new_guids_to_old_diagnostics.iteritems():
       histograms.ReplaceSharedDiagnostic(
@@ -185,6 +242,16 @@ def _ValidateMasterBotBenchmarkName(master, bot, benchmark):
   for n in (master, bot, benchmark):
     if '/' in n:
       raise api_request_handler.BadRequestError('Illegal slash in %s' % n)
+
+
+def _QueueHistogramTasks(tasks):
+  queue = taskqueue.Queue(TASK_QUEUE_NAME)
+  futures = []
+  for i in xrange(0, len(tasks), taskqueue.MAX_TASKS_PER_ADD):
+    f = queue.add_async(tasks[i:i + taskqueue.MAX_TASKS_PER_ADD])
+    futures.append(f)
+  for f in futures:
+    f.get_result()
 
 
 def _MakeTask(params):
@@ -208,7 +275,7 @@ def _BatchHistogramsIntoTasks(
 
     # TODO(eakuefner): Don't compute full diagnostics, because we need anyway to
     # call GetOrCreate here and in the queue.
-    test_path = ComputeTestPath(suite_path, hist)
+    test_path = '%s/%s' % (suite_path, histogram_helpers.ComputeTestPath(hist))
 
     if test_path in duplicate_check:
       raise api_request_handler.BadRequestError(
@@ -242,16 +309,6 @@ def _BatchHistogramsIntoTasks(
   return tasks
 
 
-def _QueueHistogramTasks(tasks):
-  queue = taskqueue.Queue(TASK_QUEUE_NAME)
-  futures = []
-  for i in xrange(0, len(tasks), taskqueue.MAX_TASKS_PER_ADD):
-    f = queue.add_async(tasks[i:i + taskqueue.MAX_TASKS_PER_ADD])
-    futures.append(f)
-  for f in futures:
-    f.get_result()
-
-
 def _MakeTaskDict(
     hist, test_path, revision, benchmark_description, diagnostics):
   # TODO(simonhatch): "revision" is common to all tasks, as is the majority of
@@ -278,52 +335,6 @@ def _MakeTaskDict(
   return params
 
 
-# TODO(eakuefner): Clean this up by making it accept raw diagnostics.
-# TODO(eakuefner): Move this helper along with others to a common place.
-@ndb.synctasklet
-def DeduplicateAndPut(new_entities, test, rev):
-  result = yield DeduplicateAndPutAsync(new_entities, test, rev)
-  raise ndb.Return(result)
-
-
-@ndb.tasklet
-def DeduplicateAndPutAsync(new_entities, test, rev):
-  query = histogram.SparseDiagnostic.query(
-      ndb.AND(
-          histogram.SparseDiagnostic.end_revision == sys.maxint,
-          histogram.SparseDiagnostic.test == test))
-  diagnostic_entities = yield query.fetch_async()
-  entity_futures = []
-  new_guids_to_existing_diagnostics = {}
-
-  for new_entity in new_entities:
-    old_entity = _GetDiagnosticEntityMatchingName(
-        new_entity.name, diagnostic_entities)
-    if old_entity is not None:
-      # Case 1: One in datastore, different from new one.
-      if old_entity.IsDifferent(new_entity):
-        old_entity.end_revision = rev - 1
-        entity_futures.append(old_entity.put_async())
-        new_entity.start_revision = rev
-        new_entity.end_revision = sys.maxint
-        entity_futures.append(new_entity.put_async())
-      # Case 2: One in datastore, same as new one.
-      else:
-        new_guids_to_existing_diagnostics[new_entity.key.id()] = old_entity.data
-      continue
-    # Case 3: Nothing in datastore.
-    entity_futures.append(new_entity.put_async())
-  yield entity_futures
-  raise ndb.Return(new_guids_to_existing_diagnostics)
-
-
-def _GetDiagnosticEntityMatchingName(name, diagnostic_entities):
-  for entity in diagnostic_entities:
-    if entity.name == name:
-      return entity
-  return None
-
-
 def FindSuiteLevelSparseDiagnostics(
     histograms, suite_key, revision, internal_only):
   diagnostics = {}
@@ -348,37 +359,6 @@ def FindHistogramLevelSparseDiagnostics(hist):
     if name in HISTOGRAM_LEVEL_SPARSE_DIAGNOSTIC_NAMES:
       diagnostics[name] = diag
   return diagnostics
-
-
-def ComputeTestPath(suite_path, hist):
-  path = '%s/%s' % (suite_path, hist.name)
-
-  # If a Histogram represents a summary across multiple stories, then its
-  # 'stories' diagnostic will contain the names of all of the stories.
-  # If a Histogram is not a summary, then its 'stories' diagnostic will contain
-  # the singular name of its story.
-  is_summary = list(
-      hist.diagnostics.get(reserved_infos.SUMMARY_KEYS.name, []))
-
-  tir_label = histogram_helpers.GetTIRLabelFromHistogram(hist)
-  if tir_label and (
-      not is_summary or reserved_infos.STORY_TAGS.name in is_summary):
-    path += '/' + tir_label
-
-  is_ref = hist.diagnostics.get(reserved_infos.IS_REFERENCE_BUILD.name)
-  if is_ref and len(is_ref) == 1:
-    is_ref = is_ref.GetOnlyElement()
-
-  story_name = hist.diagnostics.get(reserved_infos.STORIES.name)
-  if story_name and len(story_name) == 1 and not is_summary:
-    escaped_story_name = add_point.EscapeName(story_name.GetOnlyElement())
-    path += '/' + escaped_story_name
-    if is_ref:
-      path += '_ref'
-  elif is_ref:
-    path += '/ref'
-
-  return path
 
 
 def _GetDiagnosticValue(name, hist, optional=False):

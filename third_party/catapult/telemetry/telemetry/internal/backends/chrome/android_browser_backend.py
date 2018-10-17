@@ -141,7 +141,8 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self.device.KillAll(
         self._backend_settings.package,
         exact=False,  # Send signal to children too.
-        signum=device_signal.SIGUSR1)
+        signum=device_signal.SIGUSR1,
+        as_root=True)
 
   @property
   def processes(self):
@@ -159,13 +160,17 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
 
   @property
   def pid(self):
-    package = self._backend_settings.package
-    browser_processes = [p for p in self.processes if p.name == package]
+    browser_processes = self._GetBrowserProcesses()
     assert len(browser_processes) <= 1, (
         'Found too many browsers: %r' % browser_processes)
     if not browser_processes:
       raise exceptions.BrowserGoneException(self.browser)
     return browser_processes[0].pid
+
+  def _GetBrowserProcesses(self):
+    """Return all possible browser processes."""
+    package = self._backend_settings.package
+    return [p for p in self.processes if p.name == package]
 
   @property
   def package(self):
@@ -183,7 +188,7 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._StopBrowser()
 
   def IsBrowserRunning(self):
-    return self.platform_backend.IsAppRunning(self._backend_settings.package)
+    return len(self._GetBrowserProcesses()) > 0
 
   def GetStandardOutput(self):
     return self.platform_backend.GetStandardOutput()

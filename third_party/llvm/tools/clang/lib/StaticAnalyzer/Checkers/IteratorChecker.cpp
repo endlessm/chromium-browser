@@ -67,10 +67,13 @@
 // a constraint which we later retrieve when doing an actual comparison.
 
 #include "ClangSACheckers.h"
+#include "clang/AST/DeclTemplate.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
+
+#include <utility>
 
 using namespace clang;
 using namespace ento;
@@ -85,34 +88,43 @@ private:
   // Container the iterator belongs to
   const MemRegion *Cont;
 
+  // Whether iterator is valid
+  const bool Valid;
+
   // Abstract offset
   const SymbolRef Offset;
 
-  IteratorPosition(const MemRegion *C, SymbolRef Of)
-      : Cont(C), Offset(Of) {}
+  IteratorPosition(const MemRegion *C, bool V, SymbolRef Of)
+      : Cont(C), Valid(V), Offset(Of) {}
 
 public:
   const MemRegion *getContainer() const { return Cont; }
+  bool isValid() const { return Valid; }
   SymbolRef getOffset() const { return Offset; }
 
+  IteratorPosition invalidate() const {
+    return IteratorPosition(Cont, false, Offset);
+  }
+
   static IteratorPosition getPosition(const MemRegion *C, SymbolRef Of) {
-    return IteratorPosition(C, Of);
+    return IteratorPosition(C, true, Of);
   }
 
   IteratorPosition setTo(SymbolRef NewOf) const {
-    return IteratorPosition(Cont, NewOf);
+    return IteratorPosition(Cont, Valid, NewOf);
   }
 
   bool operator==(const IteratorPosition &X) const {
-    return Cont == X.Cont && Offset == X.Offset;
+    return Cont == X.Cont && Valid == X.Valid && Offset == X.Offset;
   }
 
   bool operator!=(const IteratorPosition &X) const {
-    return Cont != X.Cont || Offset != X.Offset;
+    return Cont != X.Cont || Valid != X.Valid || Offset != X.Offset;
   }
 
   void Profile(llvm::FoldingSetNodeID &ID) const {
     ID.AddPointer(Cont);
+    ID.AddInteger(Valid);
     ID.Add(Offset);
   }
 };
@@ -181,15 +193,16 @@ public:
 
 class IteratorChecker
     : public Checker<check::PreCall, check::PostCall,
-                     check::PreStmt<CXXOperatorCallExpr>,
                      check::PostStmt<MaterializeTemporaryExpr>,
                      check::LiveSymbols, check::DeadSymbols,
                      eval::Assume> {
 
   std::unique_ptr<BugType> OutOfRangeBugType;
+  std::unique_ptr<BugType> InvalidatedBugType;
 
   void handleComparison(CheckerContext &C, const SVal &RetVal, const SVal &LVal,
                         const SVal &RVal, OverloadedOperatorKind Op) const;
+  void verifyAccess(CheckerContext &C, const SVal &Val) const;
   void verifyDereference(CheckerContext &C, const SVal &Val) const;
   void handleIncrement(CheckerContext &C, const SVal &RetVal, const SVal &Iter,
                        bool Postfix) const;
@@ -204,17 +217,21 @@ class IteratorChecker
                  const SVal &Cont) const;
   void assignToContainer(CheckerContext &C, const Expr *CE, const SVal &RetVal,
                          const MemRegion *Cont) const;
+  void handleAssign(CheckerContext &C, const SVal &Cont) const;
   void verifyRandomIncrOrDecr(CheckerContext &C, OverloadedOperatorKind Op,
                               const SVal &RetVal, const SVal &LHS,
                               const SVal &RHS) const;
   void reportOutOfRangeBug(const StringRef &Message, const SVal &Val,
                            CheckerContext &C, ExplodedNode *ErrNode) const;
+  void reportInvalidatedBug(const StringRef &Message, const SVal &Val,
+                            CheckerContext &C, ExplodedNode *ErrNode) const;
 
 public:
   IteratorChecker();
 
   enum CheckKind {
     CK_IteratorRangeChecker,
+    CK_InvalidatedIteratorChecker,
     CK_NumCheckKinds
   };
 
@@ -223,7 +240,6 @@ public:
 
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
   void checkPostCall(const CallEvent &Call, CheckerContext &C) const;
-  void checkPreStmt(const CXXOperatorCallExpr *COCE, CheckerContext &C) const;
   void checkPostStmt(const MaterializeTemporaryExpr *MTE,
                      CheckerContext &C) const;
   void checkLiveSymbols(ProgramStateRef State, SymbolReaper &SR) const;
@@ -248,7 +264,9 @@ bool isIteratorType(const QualType &Type);
 bool isIterator(const CXXRecordDecl *CRD);
 bool isBeginCall(const FunctionDecl *Func);
 bool isEndCall(const FunctionDecl *Func);
+bool isAssignmentOperator(OverloadedOperatorKind OK);
 bool isSimpleComparisonOperator(OverloadedOperatorKind OK);
+bool isAccessOperator(OverloadedOperatorKind OK);
 bool isDereferenceOperator(OverloadedOperatorKind OK);
 bool isIncrementOperator(OverloadedOperatorKind OK);
 bool isDecrementOperator(OverloadedOperatorKind OK);
@@ -287,10 +305,13 @@ ProgramStateRef relateIteratorPositions(ProgramStateRef State,
                                         const IteratorPosition &Pos1,
                                         const IteratorPosition &Pos2,
                                         bool Equal);
+ProgramStateRef invalidateAllIteratorPositions(ProgramStateRef State,
+                                               const MemRegion *Cont);
 const ContainerData *getContainerData(ProgramStateRef State,
                                       const MemRegion *Cont);
 ProgramStateRef setContainerData(ProgramStateRef State, const MemRegion *Cont,
                                  const ContainerData &CData);
+bool hasLiveIterators(ProgramStateRef State, const MemRegion *Cont);
 bool isOutOfRange(ProgramStateRef State, const IteratorPosition &Pos);
 bool isZero(ProgramStateRef State, const NonLoc &Val);
 } // namespace
@@ -299,16 +320,29 @@ IteratorChecker::IteratorChecker() {
   OutOfRangeBugType.reset(
       new BugType(this, "Iterator out of range", "Misuse of STL APIs"));
   OutOfRangeBugType->setSuppressOnSink(true);
+  InvalidatedBugType.reset(
+      new BugType(this, "Iterator invalidated", "Misuse of STL APIs"));
+  InvalidatedBugType->setSuppressOnSink(true);
 }
 
 void IteratorChecker::checkPreCall(const CallEvent &Call,
                                    CheckerContext &C) const {
-  // Check for out of range access
+  // Check for out of range access or access of invalidated position and
+  // iterator mismatches
   const auto *Func = dyn_cast_or_null<FunctionDecl>(Call.getDecl());
   if (!Func)
     return;
 
   if (Func->isOverloadedOperator()) {
+    if (ChecksEnabled[CK_InvalidatedIteratorChecker] &&
+        isAccessOperator(Func->getOverloadedOperator())) {
+      // Check for any kind of access of invalidated iterator positions
+      if (const auto *InstCall = dyn_cast<CXXInstanceCall>(&Call)) {
+        verifyAccess(C, InstCall->getCXXThisVal());
+      } else {
+        verifyAccess(C, Call.getArgSVal(0));
+      }
+    }
     if (ChecksEnabled[CK_IteratorRangeChecker] &&
         isRandomIncrOrDecrOperator(Func->getOverloadedOperator())) {
       if (const auto *InstCall = dyn_cast<CXXInstanceCall>(&Call)) {
@@ -346,7 +380,10 @@ void IteratorChecker::checkPostCall(const CallEvent &Call,
 
   if (Func->isOverloadedOperator()) {
     const auto Op = Func->getOverloadedOperator();
-    if (isSimpleComparisonOperator(Op)) {
+    if (isAssignmentOperator(Op)) {
+      const auto *InstCall = dyn_cast<CXXInstanceCall>(&Call);
+      handleAssign(C, InstCall->getCXXThisVal());
+    } else if (isSimpleComparisonOperator(Op)) {
       if (const auto *InstCall = dyn_cast<CXXInstanceCall>(&Call)) {
         handleComparison(C, Call.getReturnValue(), InstCall->getCXXThisVal(),
                          Call.getArgSVal(0), Op);
@@ -440,36 +477,6 @@ void IteratorChecker::checkPostCall(const CallEvent &Call,
   }
 }
 
-void IteratorChecker::checkPreStmt(const CXXOperatorCallExpr *COCE,
-                                   CheckerContext &C) const {
-  const auto *ThisExpr = COCE->getArg(0);
-
-  auto State = C.getState();
-  const auto *LCtx = C.getLocationContext();
-
-  const auto CurrentThis = State->getSVal(ThisExpr, LCtx);
-  if (const auto *Reg = CurrentThis.getAsRegion()) {
-    if (!Reg->getAs<CXXTempObjectRegion>())
-      return;
-    const auto OldState = C.getPredecessor()->getFirstPred()->getState();
-    const auto OldThis = OldState->getSVal(ThisExpr, LCtx);
-    // FIXME: This solution is unreliable. It may happen that another checker
-    //        subscribes to the pre-statement check of `CXXOperatorCallExpr`
-    //        and adds a transition before us. The proper fix is to make the
-    //        CFG provide a `ConstructionContext` for the `CXXOperatorCallExpr`,
-    //        which would turn the corresponding `CFGStmt` element into a
-    //        `CFGCXXRecordTypedCall` element, which will allow `ExprEngine` to
-    //        foresee that the `begin()`/`end()` call constructs the object
-    //        directly in the temporary region that `CXXOperatorCallExpr` takes
-    //        as its implicit object argument.
-    const auto *Pos = getIteratorPosition(OldState, OldThis);
-    if (!Pos)
-      return;
-    State = setIteratorPosition(State, CurrentThis, *Pos);
-    C.addTransition(State);
-  }
-}
-
 void IteratorChecker::checkPostStmt(const MaterializeTemporaryExpr *MTE,
                                     CheckerContext &C) const {
   /* Transfer iterator state to temporary objects */
@@ -536,7 +543,11 @@ void IteratorChecker::checkDeadSymbols(SymbolReaper &SR,
   auto ContMap = State->get<ContainerMap>();
   for (const auto Cont : ContMap) {
     if (!SR.isLiveRegion(Cont.first)) {
-      State = State->remove<ContainerMap>(Cont.first);
+      // We must keep the container data while it has live iterators to be able
+      // to compare them to the begin and the end of the container.
+      if (!hasLiveIterators(State, Cont.first)) {
+        State = State->remove<ContainerMap>(Cont.first);
+      }
     }
   }
 
@@ -546,6 +557,8 @@ void IteratorChecker::checkDeadSymbols(SymbolReaper &SR,
       State = State->remove<IteratorComparisonMap>(Comp.first);
     }
   }
+
+  C.addTransition(State);
 }
 
 ProgramStateRef IteratorChecker::evalAssume(ProgramStateRef State, SVal Cond,
@@ -617,13 +630,22 @@ void IteratorChecker::verifyDereference(CheckerContext &C,
   auto State = C.getState();
   const auto *Pos = getIteratorPosition(State, Val);
   if (Pos && isOutOfRange(State, *Pos)) {
-    // If I do not put a tag here, some range tests will fail
-    static CheckerProgramPointTag Tag("IteratorRangeChecker",
-                                      "IteratorOutOfRange");
-    auto *N = C.generateNonFatalErrorNode(State, &Tag);
+    auto *N = C.generateNonFatalErrorNode(State);
     if (!N)
       return;
     reportOutOfRangeBug("Iterator accessed outside of its range.", Val, C, N);
+  }
+}
+
+void IteratorChecker::verifyAccess(CheckerContext &C, const SVal &Val) const {
+  auto State = C.getState();
+  const auto *Pos = getIteratorPosition(State, Val);
+  if (Pos && !Pos->isValid()) {
+    auto *N = C.generateNonFatalErrorNode(State);
+    if (!N) {
+      return;
+    }
+    reportInvalidatedBug("Invalidated iterator accessed.", Val, C, N);
   }
 }
 
@@ -867,10 +889,38 @@ void IteratorChecker::assignToContainer(CheckerContext &C, const Expr *CE,
   C.addTransition(State);
 }
 
+void IteratorChecker::handleAssign(CheckerContext &C, const SVal &Cont) const {
+  const auto *ContReg = Cont.getAsRegion();
+  if (!ContReg)
+    return;
+
+  while (const auto *CBOR = ContReg->getAs<CXXBaseObjectRegion>()) {
+    ContReg = CBOR->getSuperRegion();
+  }
+
+  // Assignment of a new value to a container always invalidates all its
+  // iterators
+  auto State = C.getState();
+  const auto CData = getContainerData(State, ContReg);
+  if (CData) {
+    State = invalidateAllIteratorPositions(State, ContReg);
+  }
+
+  C.addTransition(State);
+}
+
 void IteratorChecker::reportOutOfRangeBug(const StringRef &Message,
                                           const SVal &Val, CheckerContext &C,
                                           ExplodedNode *ErrNode) const {
   auto R = llvm::make_unique<BugReport>(*OutOfRangeBugType, Message, ErrNode);
+  R->markInteresting(Val);
+  C.emitReport(std::move(R));
+}
+
+void IteratorChecker::reportInvalidatedBug(const StringRef &Message,
+                                           const SVal &Val, CheckerContext &C,
+                                           ExplodedNode *ErrNode) const {
+  auto R = llvm::make_unique<BugReport>(*InvalidatedBugType, Message, ErrNode);
   R->markInteresting(Val);
   C.emitReport(std::move(R));
 }
@@ -950,8 +1000,15 @@ bool isEndCall(const FunctionDecl *Func) {
   return IdInfo->getName().endswith_lower("end");
 }
 
+bool isAssignmentOperator(OverloadedOperatorKind OK) { return OK == OO_Equal; }
+
 bool isSimpleComparisonOperator(OverloadedOperatorKind OK) {
   return OK == OO_EqualEqual || OK == OO_ExclaimEqual;
+}
+
+bool isAccessOperator(OverloadedOperatorKind OK) {
+  return isDereferenceOperator(OK) || isIncrementOperator(OK) ||
+         isDecrementOperator(OK) || isRandomIncrOrDecrOperator(OK);
 }
 
 bool isDereferenceOperator(OverloadedOperatorKind OK) {
@@ -1188,6 +1245,65 @@ ProgramStateRef relateIteratorPositions(ProgramStateRef State,
   return NewState;
 }
 
+bool hasLiveIterators(ProgramStateRef State, const MemRegion *Cont) {
+  auto RegionMap = State->get<IteratorRegionMap>();
+  for (const auto Reg : RegionMap) {
+    if (Reg.second.getContainer() == Cont)
+      return true;
+  }
+
+  auto SymbolMap = State->get<IteratorSymbolMap>();
+  for (const auto Sym : SymbolMap) {
+    if (Sym.second.getContainer() == Cont)
+      return true;
+  }
+
+  return false;
+}
+
+template <typename Condition, typename Process>
+ProgramStateRef processIteratorPositions(ProgramStateRef State, Condition Cond,
+                                         Process Proc) {
+  auto &RegionMapFactory = State->get_context<IteratorRegionMap>();
+  auto RegionMap = State->get<IteratorRegionMap>();
+  bool Changed = false;
+  for (const auto Reg : RegionMap) {
+    if (Cond(Reg.second)) {
+      RegionMap = RegionMapFactory.add(RegionMap, Reg.first, Proc(Reg.second));
+      Changed = true;
+    }
+  }
+
+  if (Changed)
+    State = State->set<IteratorRegionMap>(RegionMap);
+
+  auto &SymbolMapFactory = State->get_context<IteratorSymbolMap>();
+  auto SymbolMap = State->get<IteratorSymbolMap>();
+  Changed = false;
+  for (const auto Sym : SymbolMap) {
+    if (Cond(Sym.second)) {
+      SymbolMap = SymbolMapFactory.add(SymbolMap, Sym.first, Proc(Sym.second));
+      Changed = true;
+    }
+  }
+
+  if (Changed)
+    State = State->set<IteratorSymbolMap>(SymbolMap);
+
+  return State;
+}
+
+ProgramStateRef invalidateAllIteratorPositions(ProgramStateRef State,
+                                               const MemRegion *Cont) {
+  auto MatchCont = [&](const IteratorPosition &Pos) {
+    return Pos.getContainer() == Cont;
+  };
+  auto Invalidate = [&](const IteratorPosition &Pos) {
+    return Pos.invalidate();
+  };
+  return processIteratorPositions(State, MatchCont, Invalidate);
+}
+
 bool isZero(ProgramStateRef State, const NonLoc &Val) {
   auto &BVF = State->getBasicVals();
   return compare(State, Val,
@@ -1258,4 +1374,4 @@ bool compare(ProgramStateRef State, NonLoc NL1, NonLoc NL2,
   }
 
 REGISTER_CHECKER(IteratorRangeChecker)
-
+REGISTER_CHECKER(InvalidatedIteratorChecker)

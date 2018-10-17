@@ -7,7 +7,7 @@
 
 from __future__ import print_function
 
-
+import itertools
 import json
 import os
 
@@ -25,10 +25,14 @@ CONNECTION_TYPE_COMMON = 'common'
 CONNECTION_TYPE_MOCK = 'mock'
 # Code 80 - bot died.
 RETRIABLE_INTERNAL_FAILURE_STATES = {80}
+# Choose a prime number here to make the lowest common multiple of suite
+# timeout_mins and silence check interval large enough.
+SILENCE_INTERVAL_MIN = 97
 
 
-def RunSwarmingCommand(cmd, swarming_server, swarming_cli_cmd='run',
+def RunSwarmingCommand(cmd, swarming_server, is_skylab=False,
                        task_name=None, dimensions=None,
+                       priority=None,
                        print_status_updates=False,
                        timeout_secs=None, io_timeout_secs=None,
                        hard_timeout_secs=None, expiration_secs=None,
@@ -39,11 +43,13 @@ def RunSwarmingCommand(cmd, swarming_server, swarming_cli_cmd='run',
   Args:
     cmd: Commands to run, represented as a list.
     swarming_server: The swarming server to send request to.
-    swarming_cli_cmd: The client command to kick off for swarming.py.
+    is_skylab: A boolean indicating whether the call is for skylab.
     task_name: String, represent a task.
     dimensions: A list of tuple with two elements, representing dimension for
                selecting a swarming bots. E.g. ('os', 'Linux') and pools and
                other dimension related stuff.
+    priority: An int number to indicate the priority of this swarming cmd.
+        By default it's None.
     print_status_updates: Boolean, whether to output status updates,
                           can be used to prevent from hitting
                           buildbot silent timeout.
@@ -59,22 +65,22 @@ def RunSwarmingCommand(cmd, swarming_server, swarming_cli_cmd='run',
     if temp_json_path is None:
       temp_json_path = os.path.join(tempdir, 'temp_summary.json')
 
-    swarming_cmd = [_SWARMING_PROXY_CLIENT, swarming_cli_cmd,
-                    '--swarming', swarming_server]
-    if swarming_cli_cmd == 'trigger':
-      swarming_cmd += ['--dump-json', temp_json_path]
-    elif swarming_cli_cmd == 'run':
-      swarming_cmd += ['--task-summary-json', temp_json_path]
-      if print_status_updates:
-        swarming_cmd.append('--print-status-updates')
+    swarming_cmd = [_SWARMING_PROXY_CLIENT, 'run', '--swarming',
+                    swarming_server]
+    swarming_cmd += ['--task-summary-json', temp_json_path]
+    if print_status_updates:
+      swarming_cmd.append('--print-status-updates')
 
-      if timeout_secs is not None:
-        swarming_cmd += ['--timeout', str(timeout_secs)]
+    if timeout_secs is not None:
+      swarming_cmd += ['--timeout', str(timeout_secs)]
 
     swarming_cmd += ['--raw-cmd']
 
     if task_name:
       swarming_cmd += ['--task-name', task_name]
+
+    if priority is not None:
+      swarming_cmd += ['--priority', str(priority)]
 
     if dimensions:
       for dimension in dimensions:
@@ -102,13 +108,19 @@ def RunSwarmingCommand(cmd, swarming_server, swarming_cli_cmd='run',
 
     try:
       result = None
-      while True:
+      for iteration in itertools.count(0):
         try:
-          # Add a timeout limit of 1.5 hours here to avoid
+          # Add a timeout limit of SILENCE_INTERVAL_MIN mins here to avoid
           # buildbot salency check.
-          with timeout_util.Timeout(5400):
+          with timeout_util.Timeout(SILENCE_INTERVAL_MIN * 60):
             logging.info('Re-run swarming_cmd to avoid buildbot salency check.')
-            result = cros_build_lib.RunCommand(swarming_cmd, *args, **kwargs)
+            if is_skylab:
+              result = cros_build_lib.RunCommand(
+                  swarming_cmd + ['--passed_mins',
+                                  str(iteration * SILENCE_INTERVAL_MIN)],
+                  *args, **kwargs)
+            else:
+              result = cros_build_lib.RunCommand(swarming_cmd, *args, **kwargs)
             break
         except timeout_util.TimeoutError:
           pass

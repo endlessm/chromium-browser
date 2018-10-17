@@ -651,9 +651,13 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     // it have a FP_TO_[SU]INT instruction with a narrower destination than
     // source.
     setOperationAction(ISD::SINT_TO_FP, MVT::v4i16, Custom);
+    setOperationAction(ISD::SINT_TO_FP, MVT::v8i16, Custom);
     setOperationAction(ISD::UINT_TO_FP, MVT::v4i16, Custom);
+    setOperationAction(ISD::UINT_TO_FP, MVT::v8i16, Custom);
     setOperationAction(ISD::FP_TO_UINT, MVT::v4i16, Custom);
+    setOperationAction(ISD::FP_TO_UINT, MVT::v8i16, Custom);
     setOperationAction(ISD::FP_TO_SINT, MVT::v4i16, Custom);
+    setOperationAction(ISD::FP_TO_SINT, MVT::v8i16, Custom);
 
     setOperationAction(ISD::FP_ROUND,   MVT::v2f32, Expand);
     setOperationAction(ISD::FP_EXTEND,  MVT::v2f64, Expand);
@@ -846,8 +850,10 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   }
   setOperationAction(ISD::CTTZ,  MVT::i32, Custom);
   setOperationAction(ISD::CTPOP, MVT::i32, Expand);
-  if (!Subtarget->hasV5TOps() || Subtarget->isThumb1Only())
+  if (!Subtarget->hasV5TOps() || Subtarget->isThumb1Only()) {
     setOperationAction(ISD::CTLZ, MVT::i32, Expand);
+    setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, LibCall);
+  }
 
   // @llvm.readcyclecounter requires the Performance Monitors extension.
   // Default to the 0 expansion on unsupported platforms.
@@ -1144,6 +1150,18 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FMAXNAN, MVT::v2f32, Legal);
     setOperationAction(ISD::FMINNAN, MVT::v4f32, Legal);
     setOperationAction(ISD::FMAXNAN, MVT::v4f32, Legal);
+
+    if (Subtarget->hasFullFP16()) {
+      setOperationAction(ISD::FMINNUM, MVT::v4f16, Legal);
+      setOperationAction(ISD::FMAXNUM, MVT::v4f16, Legal);
+      setOperationAction(ISD::FMINNUM, MVT::v8f16, Legal);
+      setOperationAction(ISD::FMAXNUM, MVT::v8f16, Legal);
+
+      setOperationAction(ISD::FMINNAN, MVT::v4f16, Legal);
+      setOperationAction(ISD::FMAXNAN, MVT::v4f16, Legal);
+      setOperationAction(ISD::FMINNAN, MVT::v8f16, Legal);
+      setOperationAction(ISD::FMAXNAN, MVT::v8f16, Legal);
+    }
   }
 
   // We have target-specific dag combine patterns for the following nodes:
@@ -3096,7 +3114,7 @@ static SDValue promoteToConstantPool(const GlobalValue *GV, SelectionDAG &DAG,
   // need to be duplicated) or duplicating the constant wouldn't increase code
   // size (implying the constant is no larger than 4 bytes).
   const Function &F = DAG.getMachineFunction().getFunction();
-  
+
   // We rely on this decision to inline being idemopotent and unrelated to the
   // use-site. We know that if we inline a variable at one use site, we'll
   // inline it elsewhere too (and reuse the constant pool entry). Fast-isel
@@ -4832,12 +4850,24 @@ static SDValue LowerVectorFP_TO_INT(SDValue Op, SelectionDAG &DAG) {
     return DAG.UnrollVectorOp(Op.getNode());
   }
 
-  assert(Op.getOperand(0).getValueType() == MVT::v4f32 &&
-         "Invalid type for custom lowering!");
-  if (VT != MVT::v4i16)
+  const bool HasFullFP16 =
+    static_cast<const ARMSubtarget&>(DAG.getSubtarget()).hasFullFP16();
+
+  EVT NewTy;
+  const EVT OpTy = Op.getOperand(0).getValueType();
+  if (OpTy == MVT::v4f32)
+    NewTy = MVT::v4i32;
+  else if (OpTy == MVT::v4f16 && HasFullFP16)
+    NewTy = MVT::v4i16;
+  else if (OpTy == MVT::v8f16 && HasFullFP16)
+    NewTy = MVT::v8i16;
+  else
+    llvm_unreachable("Invalid type for custom lowering!");
+
+  if (VT != MVT::v4i16 && VT != MVT::v8i16)
     return DAG.UnrollVectorOp(Op.getNode());
 
-  Op = DAG.getNode(Op.getOpcode(), dl, MVT::v4i32, Op.getOperand(0));
+  Op = DAG.getNode(Op.getOpcode(), dl, NewTy, Op.getOperand(0));
   return DAG.getNode(ISD::TRUNCATE, dl, VT, Op);
 }
 
@@ -4870,9 +4900,21 @@ static SDValue LowerVectorINT_TO_FP(SDValue Op, SelectionDAG &DAG) {
     return DAG.UnrollVectorOp(Op.getNode());
   }
 
-  assert(Op.getOperand(0).getValueType() == MVT::v4i16 &&
+  assert((Op.getOperand(0).getValueType() == MVT::v4i16 ||
+          Op.getOperand(0).getValueType() == MVT::v8i16) &&
          "Invalid type for custom lowering!");
-  if (VT != MVT::v4f32)
+
+  const bool HasFullFP16 =
+    static_cast<const ARMSubtarget&>(DAG.getSubtarget()).hasFullFP16();
+
+  EVT DestVecType;
+  if (VT == MVT::v4f32)
+    DestVecType = MVT::v4i32;
+  else if (VT == MVT::v4f16 && HasFullFP16)
+    DestVecType = MVT::v4i16;
+  else if (VT == MVT::v8f16 && HasFullFP16)
+    DestVecType = MVT::v8i16;
+  else
     return DAG.UnrollVectorOp(Op.getNode());
 
   unsigned CastOpc;
@@ -4889,7 +4931,7 @@ static SDValue LowerVectorINT_TO_FP(SDValue Op, SelectionDAG &DAG) {
     break;
   }
 
-  Op = DAG.getNode(CastOpc, dl, MVT::v4i32, Op.getOperand(0));
+  Op = DAG.getNode(CastOpc, dl, DestVecType, Op.getOperand(0));
   return DAG.getNode(Opc, dl, VT, Op);
 }
 
@@ -5162,7 +5204,7 @@ static SDValue ExpandBITCAST(SDNode *N, SelectionDAG &DAG,
       return SDValue();
     // SoftFP: read half-precision arguments:
     //
-    // t2: i32,ch = ... 
+    // t2: i32,ch = ...
     //        t7: i16 = truncate t2 <~~~~ Op
     //      t8: f16 = bitcast t7    <~~~~ N
     //
@@ -5173,7 +5215,7 @@ static SDValue ExpandBITCAST(SDNode *N, SelectionDAG &DAG,
     return SDValue();
   }
 
-  // Half-precision return values 
+  // Half-precision return values
   if (SrcVT == MVT::f16 && DstVT == MVT::i16) {
     if (!HasFullFP16)
       return SDValue();
@@ -7990,10 +8032,8 @@ static void ReplaceCMP_SWAP_64Results(SDNode *N,
       ARM::CMP_SWAP_64, SDLoc(N),
       DAG.getVTList(MVT::Untyped, MVT::i32, MVT::Other), Ops);
 
-  MachineFunction &MF = DAG.getMachineFunction();
-  MachineSDNode::mmo_iterator MemOp = MF.allocateMemRefsArray(1);
-  MemOp[0] = cast<MemSDNode>(N)->getMemOperand();
-  cast<MachineSDNode>(CmpSwap)->setMemRefs(MemOp, MemOp + 1);
+  MachineMemOperand *MemOp = cast<MemSDNode>(N)->getMemOperand();
+  DAG.setNodeMemRefs(cast<MachineSDNode>(CmpSwap), {MemOp});
 
   bool isBigEndian = DAG.getDataLayout().isBigEndian();
 
@@ -9169,6 +9209,8 @@ ARMTargetLowering::EmitLowered__chkstk(MachineInstr &MI,
   // IP.
 
   switch (TM.getCodeModel()) {
+  case CodeModel::Tiny:
+    llvm_unreachable("Tiny code model not available on ARM.");
   case CodeModel::Small:
   case CodeModel::Medium:
   case CodeModel::Kernel:
@@ -10407,6 +10449,25 @@ static SDValue PerformADDCombineWithOperands(SDNode *N, SDValue N0, SDValue N1,
   return SDValue();
 }
 
+bool
+ARMTargetLowering::isDesirableToCommuteWithShift(const SDNode *N,
+                                                 CombineLevel Level) const {
+  if (Level == BeforeLegalizeTypes)
+    return true;
+
+  if (Subtarget->isThumb() && Subtarget->isThumb1Only())
+    return true;
+
+  if (N->getOpcode() != ISD::SHL)
+    return true;
+
+  // Turn off commute-with-shift transform after legalization, so it doesn't
+  // conflict with PerformSHLSimplify.  (We could try to detect when
+  // PerformSHLSimplify would trigger more precisely, but it isn't
+  // really necessary.)
+  return false;
+}
+
 static SDValue PerformSHLSimplify(SDNode *N,
                                 TargetLowering::DAGCombinerInfo &DCI,
                                 const ARMSubtarget *ST) {
@@ -10506,9 +10567,7 @@ static SDValue PerformSHLSimplify(SDNode *N,
   LLVM_DEBUG(dbgs() << "Simplify shl use:\n"; SHL.getOperand(0).dump();
              SHL.dump(); N->dump());
   LLVM_DEBUG(dbgs() << "Into:\n"; X.dump(); BinOp.dump(); Res.dump());
-
-  DAG.ReplaceAllUsesWith(SDValue(N, 0), Res);
-  return SDValue(N, 0);
+  return Res;
 }
 
 
@@ -10676,6 +10735,83 @@ static SDValue PerformMULCombine(SDNode *N,
   return SDValue();
 }
 
+static SDValue CombineANDShift(SDNode *N,
+                               TargetLowering::DAGCombinerInfo &DCI,
+                               const ARMSubtarget *Subtarget) {
+  // Allow DAGCombine to pattern-match before we touch the canonical form.
+  if (DCI.isBeforeLegalize() || DCI.isCalledByLegalizer())
+    return SDValue();
+
+  if (N->getValueType(0) != MVT::i32)
+    return SDValue();
+
+  ConstantSDNode *N1C = dyn_cast<ConstantSDNode>(N->getOperand(1));
+  if (!N1C)
+    return SDValue();
+
+  uint32_t C1 = (uint32_t)N1C->getZExtValue();
+  // Don't transform uxtb/uxth.
+  if (C1 == 255 || C1 == 65535)
+    return SDValue();
+
+  SDNode *N0 = N->getOperand(0).getNode();
+  if (!N0->hasOneUse())
+    return SDValue();
+
+  if (N0->getOpcode() != ISD::SHL && N0->getOpcode() != ISD::SRL)
+    return SDValue();
+
+  bool LeftShift = N0->getOpcode() == ISD::SHL;
+
+  ConstantSDNode *N01C = dyn_cast<ConstantSDNode>(N0->getOperand(1));
+  if (!N01C)
+    return SDValue();
+
+  uint32_t C2 = (uint32_t)N01C->getZExtValue();
+  if (!C2 || C2 >= 32)
+    return SDValue();
+
+  SelectionDAG &DAG = DCI.DAG;
+  SDLoc DL(N);
+
+  // We have a pattern of the form "(and (shl x, c2) c1)" or
+  // "(and (srl x, c2) c1)", where c1 is a shifted mask. Try to
+  // transform to a pair of shifts, to save materializing c1.
+
+  // First pattern: right shift, and c1+1 is a power of two.
+  // FIXME: Also check reversed pattern (left shift, and ~c1+1 is a power
+  // of two).
+  // FIXME: Use demanded bits?
+  if (!LeftShift && isMask_32(C1)) {
+    uint32_t C3 = countLeadingZeros(C1);
+    if (C2 < C3) {
+      SDValue SHL = DAG.getNode(ISD::SHL, DL, MVT::i32, N0->getOperand(0),
+                                DAG.getConstant(C3 - C2, DL, MVT::i32));
+      return DAG.getNode(ISD::SRL, DL, MVT::i32, SHL,
+                         DAG.getConstant(C3, DL, MVT::i32));
+    }
+  }
+
+  // Second pattern: left shift, and (c1>>c2)+1 is a power of two.
+  // FIXME: Also check reversed pattern (right shift, and ~(c1<<c2)+1
+  // is a power of two).
+  // FIXME: Use demanded bits?
+  if (LeftShift && isShiftedMask_32(C1)) {
+    uint32_t C3 = countLeadingZeros(C1);
+    if (C2 + C3 < 32 && C1 == ((-1U << (C2 + C3)) >> C3)) {
+      SDValue SHL = DAG.getNode(ISD::SHL, DL, MVT::i32, N0->getOperand(0),
+                                DAG.getConstant(C2 + C3, DL, MVT::i32));
+      return DAG.getNode(ISD::SRL, DL, MVT::i32, SHL,
+                        DAG.getConstant(C3, DL, MVT::i32));
+    }
+  }
+
+  // FIXME: Transform "(and (shl x, c2) c1)" ->
+  // "(shl (and x, c1>>c2), c2)" if "c1 >> c2" is a cheaper immediate than
+  // c1.
+  return SDValue();
+}
+
 static SDValue PerformANDCombine(SDNode *N,
                                  TargetLowering::DAGCombinerInfo &DCI,
                                  const ARMSubtarget *Subtarget) {
@@ -10716,6 +10852,10 @@ static SDValue PerformANDCombine(SDNode *N,
     if (SDValue Result = PerformSHLSimplify(N, DCI, Subtarget))
       return Result;
   }
+
+  if (Subtarget->isThumb1Only())
+    if (SDValue Result = CombineANDShift(N, DCI, Subtarget))
+      return Result;
 
   return SDValue();
 }
@@ -13380,13 +13520,13 @@ bool ARMTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
     auto *RHS = dyn_cast<ConstantSDNode>(Op->getOperand(1));
     if (!RHS || RHS->getZExtValue() != 4)
       return false;
-    
+
     Offset = Op->getOperand(1);
     Base = Op->getOperand(0);
     AM = ISD::POST_INC;
     return true;
   }
-  
+
   bool isInc;
   bool isLegal = false;
   if (Subtarget->isThumb2())
@@ -13480,6 +13620,90 @@ void ARMTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
   }
   }
 }
+
+bool
+ARMTargetLowering::targetShrinkDemandedConstant(SDValue Op,
+                                                const APInt &DemandedAPInt,
+                                                TargetLoweringOpt &TLO) const {
+  // Delay optimization, so we don't have to deal with illegal types, or block
+  // optimizations.
+  if (!TLO.LegalOps)
+    return false;
+
+  // Only optimize AND for now.
+  if (Op.getOpcode() != ISD::AND)
+    return false;
+
+  EVT VT = Op.getValueType();
+
+  // Ignore vectors.
+  if (VT.isVector())
+    return false;
+
+  assert(VT == MVT::i32 && "Unexpected integer type");
+
+  // Make sure the RHS really is a constant.
+  ConstantSDNode *C = dyn_cast<ConstantSDNode>(Op.getOperand(1));
+  if (!C)
+    return false;
+
+  unsigned Mask = C->getZExtValue();
+
+  unsigned Demanded = DemandedAPInt.getZExtValue();
+  unsigned ShrunkMask = Mask & Demanded;
+  unsigned ExpandedMask = Mask | ~Demanded;
+
+  // If the mask is all zeros, let the target-independent code replace the
+  // result with zero.
+  if (ShrunkMask == 0)
+    return false;
+
+  // If the mask is all ones, erase the AND. (Currently, the target-independent
+  // code won't do this, so we have to do it explicitly to avoid an infinite
+  // loop in obscure cases.)
+  if (ExpandedMask == ~0U)
+    return TLO.CombineTo(Op, Op.getOperand(0));
+
+  auto IsLegalMask = [ShrunkMask, ExpandedMask](unsigned Mask) -> bool {
+    return (ShrunkMask & Mask) == ShrunkMask && (~ExpandedMask & Mask) == 0;
+  };
+  auto UseMask = [Mask, Op, VT, &TLO](unsigned NewMask) -> bool {
+    if (NewMask == Mask)
+      return true;
+    SDLoc DL(Op);
+    SDValue NewC = TLO.DAG.getConstant(NewMask, DL, VT);
+    SDValue NewOp = TLO.DAG.getNode(ISD::AND, DL, VT, Op.getOperand(0), NewC);
+    return TLO.CombineTo(Op, NewOp);
+  };
+
+  // Prefer uxtb mask.
+  if (IsLegalMask(0xFF))
+    return UseMask(0xFF);
+
+  // Prefer uxth mask.
+  if (IsLegalMask(0xFFFF))
+    return UseMask(0xFFFF);
+
+  // [1, 255] is Thumb1 movs+ands, legal immediate for ARM/Thumb2.
+  // FIXME: Prefer a contiguous sequence of bits for other optimizations.
+  if (ShrunkMask < 256)
+    return UseMask(ShrunkMask);
+
+  // [-256, -2] is Thumb1 movs+bics, legal immediate for ARM/Thumb2.
+  // FIXME: Prefer a contiguous sequence of bits for other optimizations.
+  if ((int)ExpandedMask <= -2 && (int)ExpandedMask >= -256)
+    return UseMask(ExpandedMask);
+
+  // Potential improvements:
+  //
+  // We could try to recognize lsls+lsrs or lsrs+lsls pairs here.
+  // We could try to prefer Thumb1 immediates which can be lowered to a
+  // two-instruction sequence.
+  // We could try to recognize more legal ARM/Thumb2 immediates here.
+
+  return false;
+}
+
 
 //===----------------------------------------------------------------------===//
 //                           ARM Inline Assembly Support

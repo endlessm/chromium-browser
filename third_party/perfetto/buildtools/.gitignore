@@ -5,6 +5,7 @@ clang/
 clang_format/
 emulator/
 googletest/
+jsoncpp/
 libbacktrace/
 libcxx/
 libcxxabi/
@@ -16,3 +17,6 @@ ndk/
 nodejs/
 protobuf/
 sqlite/
+android-core/
+lzma/
+test_data/

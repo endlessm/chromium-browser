@@ -78,8 +78,8 @@ void DemandedBitsWrapperPass::print(raw_ostream &OS, const Module *M) const {
 }
 
 static bool isAlwaysLive(Instruction *I) {
-  return isa<TerminatorInst>(I) || isa<DbgInfoIntrinsic>(I) ||
-      I->isEHPad() || I->mayHaveSideEffects();
+  return I->isTerminator() || isa<DbgInfoIntrinsic>(I) || I->isEHPad() ||
+         I->mayHaveSideEffects();
 }
 
 void DemandedBits::determineLiveOperandBits(
@@ -272,7 +272,7 @@ void DemandedBits::performAnalysis() {
     // Analysis already completed for this function.
     return;
   Analyzed = true;
-  
+
   Visited.clear();
   AliveBits.clear();
 
@@ -367,7 +367,7 @@ void DemandedBits::performAnalysis() {
 
 APInt DemandedBits::getDemandedBits(Instruction *I) {
   performAnalysis();
-  
+
   const DataLayout &DL = I->getModule()->getDataLayout();
   auto Found = AliveBits.find(I);
   if (Found != AliveBits.end())

@@ -898,6 +898,130 @@ Value *InstCombiner::foldAndOrOfICmpsOfAndWithPow2(ICmpInst *LHS, ICmpInst *RHS,
   return nullptr;
 }
 
+/// General pattern:
+///   X & Y
+///
+/// Where Y is checking that all the high bits (covered by a mask 4294967168)
+/// are uniform, i.e.  %arg & 4294967168  can be either  4294967168  or  0
+/// Pattern can be one of:
+///   %t = add        i32 %arg,    128
+///   %r = icmp   ult i32 %t,      256
+/// Or
+///   %t0 = shl       i32 %arg,    24
+///   %t1 = ashr      i32 %t0,     24
+///   %r  = icmp  eq  i32 %t1,     %arg
+/// Or
+///   %t0 = trunc     i32 %arg  to i8
+///   %t1 = sext      i8  %t0   to i32
+///   %r  = icmp  eq  i32 %t1,     %arg
+/// This pattern is a signed truncation check.
+///
+/// And X is checking that some bit in that same mask is zero.
+/// I.e. can be one of:
+///   %r = icmp sgt i32   %arg,    -1
+/// Or
+///   %t = and      i32   %arg,    2147483648
+///   %r = icmp eq  i32   %t,      0
+///
+/// Since we are checking that all the bits in that mask are the same,
+/// and a particular bit is zero, what we are really checking is that all the
+/// masked bits are zero.
+/// So this should be transformed to:
+///   %r = icmp ult i32 %arg, 128
+static Value *foldSignedTruncationCheck(ICmpInst *ICmp0, ICmpInst *ICmp1,
+                                        Instruction &CxtI,
+                                        InstCombiner::BuilderTy &Builder) {
+  assert(CxtI.getOpcode() == Instruction::And);
+
+  // Match  icmp ult (add %arg, C01), C1   (C1 == C01 << 1; powers of two)
+  auto tryToMatchSignedTruncationCheck = [](ICmpInst *ICmp, Value *&X,
+                                            APInt &SignBitMask) -> bool {
+    CmpInst::Predicate Pred;
+    const APInt *I01, *I1; // powers of two; I1 == I01 << 1
+    if (!(match(ICmp,
+                m_ICmp(Pred, m_Add(m_Value(X), m_Power2(I01)), m_Power2(I1))) &&
+          Pred == ICmpInst::ICMP_ULT && I1->ugt(*I01) && I01->shl(1) == *I1))
+      return false;
+    // Which bit is the new sign bit as per the 'signed truncation' pattern?
+    SignBitMask = *I01;
+    return true;
+  };
+
+  // One icmp needs to be 'signed truncation check'.
+  // We need to match this first, else we will mismatch commutative cases.
+  Value *X1;
+  APInt HighestBit;
+  ICmpInst *OtherICmp;
+  if (tryToMatchSignedTruncationCheck(ICmp1, X1, HighestBit))
+    OtherICmp = ICmp0;
+  else if (tryToMatchSignedTruncationCheck(ICmp0, X1, HighestBit))
+    OtherICmp = ICmp1;
+  else
+    return nullptr;
+
+  assert(HighestBit.isPowerOf2() && "expected to be power of two (non-zero)");
+
+  // Try to match/decompose into:  icmp eq (X & Mask), 0
+  auto tryToDecompose = [](ICmpInst *ICmp, Value *&X,
+                           APInt &UnsetBitsMask) -> bool {
+    CmpInst::Predicate Pred = ICmp->getPredicate();
+    // Can it be decomposed into  icmp eq (X & Mask), 0  ?
+    if (llvm::decomposeBitTestICmp(ICmp->getOperand(0), ICmp->getOperand(1),
+                                   Pred, X, UnsetBitsMask,
+                                   /*LookThruTrunc=*/false) &&
+        Pred == ICmpInst::ICMP_EQ)
+      return true;
+    // Is it  icmp eq (X & Mask), 0  already?
+    const APInt *Mask;
+    if (match(ICmp, m_ICmp(Pred, m_And(m_Value(X), m_APInt(Mask)), m_Zero())) &&
+        Pred == ICmpInst::ICMP_EQ) {
+      UnsetBitsMask = *Mask;
+      return true;
+    }
+    return false;
+  };
+
+  // And the other icmp needs to be decomposable into a bit test.
+  Value *X0;
+  APInt UnsetBitsMask;
+  if (!tryToDecompose(OtherICmp, X0, UnsetBitsMask))
+    return nullptr;
+
+  assert(!UnsetBitsMask.isNullValue() && "empty mask makes no sense.");
+
+  // Are they working on the same value?
+  Value *X;
+  if (X1 == X0) {
+    // Ok as is.
+    X = X1;
+  } else if (match(X0, m_Trunc(m_Specific(X1)))) {
+    UnsetBitsMask = UnsetBitsMask.zext(X1->getType()->getScalarSizeInBits());
+    X = X1;
+  } else
+    return nullptr;
+
+  // So which bits should be uniform as per the 'signed truncation check'?
+  // (all the bits starting with (i.e. including) HighestBit)
+  APInt SignBitsMask = ~(HighestBit - 1U);
+
+  // UnsetBitsMask must have some common bits with SignBitsMask,
+  if (!UnsetBitsMask.intersects(SignBitsMask))
+    return nullptr;
+
+  // Does UnsetBitsMask contain any bits outside of SignBitsMask?
+  if (!UnsetBitsMask.isSubsetOf(SignBitsMask)) {
+    APInt OtherHighestBit = (~UnsetBitsMask) + 1U;
+    if (!OtherHighestBit.isPowerOf2())
+      return nullptr;
+    HighestBit = APIntOps::umin(HighestBit, OtherHighestBit);
+  }
+  // Else, if it does not, then all is ok as-is.
+
+  // %r = icmp ult %X, SignBit
+  return Builder.CreateICmpULT(X, ConstantInt::get(X->getType(), HighestBit),
+                               CxtI.getName() + ".simplified");
+}
+
 /// Fold (icmp)&(icmp) if possible.
 Value *InstCombiner::foldAndOfICmps(ICmpInst *LHS, ICmpInst *RHS,
                                     Instruction &CxtI) {
@@ -935,6 +1059,9 @@ Value *InstCombiner::foldAndOfICmps(ICmpInst *LHS, ICmpInst *RHS,
     return V;
 
   if (Value *V = foldAndOrOfEqualityCmpsWithConstants(LHS, RHS, true, Builder))
+    return V;
+
+  if (Value *V = foldSignedTruncationCheck(LHS, RHS, CxtI, Builder))
     return V;
 
   // This only handles icmp of constants: (icmp1 A, C1) & (icmp2 B, C2).
@@ -1550,31 +1677,13 @@ Instruction *InstCombiner::visitAnd(BinaryOperator &I) {
     return DeMorgan;
 
   {
-    Value *A = nullptr, *B = nullptr, *C = nullptr;
-    // A&(A^B) => A & ~B
-    {
-      Value *tmpOp0 = Op0;
-      Value *tmpOp1 = Op1;
-      if (match(Op0, m_OneUse(m_Xor(m_Value(A), m_Value(B))))) {
-        if (A == Op1 || B == Op1 ) {
-          tmpOp1 = Op0;
-          tmpOp0 = Op1;
-          // Simplify below
-        }
-      }
-
-      if (match(tmpOp1, m_OneUse(m_Xor(m_Value(A), m_Value(B))))) {
-        if (B == tmpOp0) {
-          std::swap(A, B);
-        }
-        // Notice that the pattern (A&(~B)) is actually (A&(-1^B)), so if
-        // A is originally -1 (or a vector of -1 and undefs), then we enter
-        // an endless loop. By checking that A is non-constant we ensure that
-        // we will never get to the loop.
-        if (A == tmpOp0 && !isa<Constant>(A)) // A&(A^B) -> A & ~B
-          return BinaryOperator::CreateAnd(A, Builder.CreateNot(B));
-      }
-    }
+    Value *A, *B, *C;
+    // A & (A ^ B) --> A & ~B
+    if (match(Op1, m_OneUse(m_c_Xor(m_Specific(Op0), m_Value(B)))))
+      return BinaryOperator::CreateAnd(Op0, Builder.CreateNot(B));
+    // (A ^ B) & A --> A & ~B
+    if (match(Op0, m_OneUse(m_c_Xor(m_Specific(Op1), m_Value(B)))))
+      return BinaryOperator::CreateAnd(Op1, Builder.CreateNot(B));
 
     // (A ^ B) & ((B ^ C) ^ A) -> (A ^ B) & ~C
     if (match(Op0, m_Xor(m_Value(A), m_Value(B))))
@@ -2378,7 +2487,8 @@ Value *InstCombiner::foldXorOfICmps(ICmpInst *LHS, ICmpInst *RHS) {
   Value *LHS0 = LHS->getOperand(0), *LHS1 = LHS->getOperand(1);
   Value *RHS0 = RHS->getOperand(0), *RHS1 = RHS->getOperand(1);
   if ((LHS->hasOneUse() || RHS->hasOneUse()) &&
-      LHS0->getType() == RHS0->getType()) {
+      LHS0->getType() == RHS0->getType() &&
+      LHS0->getType()->isIntOrIntVectorTy()) {
     // (X > -1) ^ (Y > -1) --> (X ^ Y) < 0
     // (X <  0) ^ (Y <  0) --> (X ^ Y) < 0
     if ((PredL == CmpInst::ICMP_SGT && match(LHS1, m_AllOnes()) &&
@@ -2470,6 +2580,32 @@ static Instruction *visitMaskedMerge(BinaryOperator &I,
   return nullptr;
 }
 
+// Transform
+//   ~(x ^ y)
+// into:
+//   (~x) ^ y
+// or into
+//   x ^ (~y)
+static Instruction *sinkNotIntoXor(BinaryOperator &I,
+                                   InstCombiner::BuilderTy &Builder) {
+  Value *X, *Y;
+  // FIXME: one-use check is not needed in general, but currently we are unable
+  // to fold 'not' into 'icmp', if that 'icmp' has multiple uses. (D35182)
+  if (!match(&I, m_Not(m_OneUse(m_Xor(m_Value(X), m_Value(Y))))))
+    return nullptr;
+
+  // We only want to do the transform if it is free to do.
+  if (IsFreeToInvert(X, X->hasOneUse())) {
+    // Ok, good.
+  } else if (IsFreeToInvert(Y, Y->hasOneUse())) {
+    std::swap(X, Y);
+  } else
+    return nullptr;
+
+  Value *NotX = Builder.CreateNot(X, X->getName() + ".not");
+  return BinaryOperator::CreateXor(NotX, Y, I.getName() + ".demorgan");
+}
+
 // FIXME: We use commutative matchers (m_c_*) for some, but not all, matches
 // here. We should standardize that construct where it is needed or choose some
 // other way to ensure that commutated variants of patterns are not missed.
@@ -2499,9 +2635,15 @@ Instruction *InstCombiner::visitXor(BinaryOperator &I) {
   if (Value *V = SimplifyBSwap(I, Builder))
     return replaceInstUsesWith(I, V);
 
-  // A^B --> A|B iff A and B have no bits set in common.
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
-  if (haveNoCommonBitsSet(Op0, Op1, DL, &AC, &I, &DT))
+
+  // Fold (X & M) ^ (Y & ~M) -> (X & M) | (Y & ~M)
+  // This it a special case in haveNoCommonBitsSet, but the computeKnownBits
+  // calls in there are unnecessary as SimplifyDemandedInstructionBits should
+  // have already taken care of those cases.
+  Value *M;
+  if (match(&I, m_c_Xor(m_c_And(m_Not(m_Value(M)), m_Value()),
+                        m_c_And(m_Deferred(M), m_Value()))))
     return BinaryOperator::CreateOr(Op0, Op1);
 
   // Apply DeMorgan's Law for 'nand' / 'nor' logic with an inverted operand.
@@ -2544,6 +2686,10 @@ Instruction *InstCombiner::visitXor(BinaryOperator &I) {
         return BinaryOperator::CreateAnd(NotX, NotY);
       }
     }
+
+    // ~(X - Y) --> ~X + Y
+    if (match(NotVal, m_OneUse(m_Sub(m_Value(X), m_Value(Y)))))
+      return BinaryOperator::CreateAdd(Builder.CreateNot(X), Y);
 
     // ~(~X >>s Y) --> (X >>s Y)
     if (match(NotVal, m_AShr(m_Not(m_Value(X)), m_Value(Y))))
@@ -2773,12 +2919,10 @@ Instruction *InstCombiner::visitXor(BinaryOperator &I) {
   //   %res = select i1 %cmp2, i32 %x, i32 %noty
   //
   // Same is applicable for smin/umax/umin.
-  {
+  if (match(Op1, m_AllOnes()) && Op0->hasOneUse()) {
     Value *LHS, *RHS;
     SelectPatternFlavor SPF = matchSelectPattern(Op0, LHS, RHS).Flavor;
-    if (Op0->hasOneUse() && SelectPatternResult::isMinOrMax(SPF) &&
-        match(Op1, m_AllOnes())) {
-
+    if (SelectPatternResult::isMinOrMax(SPF)) {
       Value *X;
       if (match(RHS, m_Not(m_Value(X))))
         std::swap(RHS, LHS);
@@ -2790,6 +2934,9 @@ Instruction *InstCombiner::visitXor(BinaryOperator &I) {
       }
     }
   }
+
+  if (Instruction *NewXor = sinkNotIntoXor(I, Builder))
+    return NewXor;
 
   return nullptr;
 }

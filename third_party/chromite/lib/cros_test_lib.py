@@ -522,6 +522,11 @@ class TestCase(unittest.TestCase):
   # be suppressed for tests.
   ENVIRON_VARIABLE_SUPPRESSIONS = ('CROS_CACHEDIR',)
 
+  # The default diff is limited to 8 rows (of 80 cols).  Make this unlimited
+  # so we always see the output.  If it's too much, people can use loggers or
+  # pagers to scroll.
+  maxDiff = None
+
   def __init__(self, *args, **kwargs):
     unittest.TestCase.__init__(self, *args, **kwargs)
     # This is set to keep pylint from complaining.
@@ -1279,7 +1284,7 @@ class GerritTestCase(MockTempDirTestCase):
 
       self.PatchObject(gob_util, 'GetCookies', GetCookies)
 
-    site_config = config_lib.GetConfig()
+    site_params = config_lib.GetSiteParams()
 
     # Make all chromite code point to the test server.
     self.patched_params = {
@@ -1297,26 +1302,32 @@ class GerritTestCase(MockTempDirTestCase):
         'AOSP_GERRIT_URL': gi.gerrit_url,
 
         'MANIFEST_URL': '%s/%s' % (
-            gi.git_url, site_config.params.MANIFEST_PROJECT
+            gi.git_url, site_params.MANIFEST_PROJECT
         ),
         'MANIFEST_INT_URL': '%s/%s' % (
-            gi.git_url, site_config.params.MANIFEST_INT_PROJECT
+            gi.git_url, site_params.MANIFEST_INT_PROJECT
         ),
         'GIT_REMOTES': {
-            site_config.params.EXTERNAL_REMOTE: gi.gerrit_url,
-            site_config.params.INTERNAL_REMOTE: gi.gerrit_url,
-            site_config.params.CHROMIUM_REMOTE: gi.gerrit_url,
-            site_config.params.CHROME_REMOTE: gi.gerrit_url
+            site_params.EXTERNAL_REMOTE: gi.gerrit_url,
+            site_params.INTERNAL_REMOTE: gi.gerrit_url,
+            site_params.CHROMIUM_REMOTE: gi.gerrit_url,
+            site_params.CHROME_REMOTE: gi.gerrit_url
         }
     }
 
     for k in self.patched_params.iterkeys():
-      self.saved_params[k] = site_config.params.get(k)
+      self.saved_params[k] = site_params.get(k)
 
+    site_params.update(self.patched_params)
+
+    # site_config.params shouldn't be being used, but just to be safe...
+    site_config = config_lib.GetConfig()
     site_config._site_params.update(self.patched_params)
 
   def tearDown(self):
     # Restore the 'patched' site parameters.
+    site_params = config_lib.GetSiteParams()
+    site_params.update(self.saved_params)
     site_config = config_lib.GetConfig()
     site_config._site_params.update(self.saved_params)
 

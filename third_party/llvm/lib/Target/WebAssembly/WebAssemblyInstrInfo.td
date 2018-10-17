@@ -118,6 +118,18 @@ def f32imm_op : Operand<f32>;
 let OperandType = "OPERAND_F64IMM" in
 def f64imm_op : Operand<f64>;
 
+let OperandType = "OPERAND_VEC_I8IMM" in
+def vec_i8imm_op : Operand<i32>;
+
+let OperandType = "OPERAND_VEC_I16IMM" in
+def vec_i16imm_op : Operand<i32>;
+
+let OperandType = "OPERAND_VEC_I32IMM" in
+def vec_i32imm_op : Operand<i32>;
+
+let OperandType = "OPERAND_VEC_I64IMM" in
+def vec_i64imm_op : Operand<i64>;
+
 let OperandType = "OPERAND_FUNCTION32" in
 def function32_op : Operand<i32>;
 
@@ -172,7 +184,9 @@ defm "": ARGUMENT<EXCEPT_REF>;
 defm "": SIMD_ARGUMENT<v16i8>;
 defm "": SIMD_ARGUMENT<v8i16>;
 defm "": SIMD_ARGUMENT<v4i32>;
+defm "": SIMD_ARGUMENT<v2i64>;
 defm "": SIMD_ARGUMENT<v4f32>;
+defm "": SIMD_ARGUMENT<v2f64>;
 
 let Defs = [ARGUMENTS] in {
 

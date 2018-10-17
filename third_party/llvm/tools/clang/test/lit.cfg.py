@@ -71,7 +71,7 @@ llvm_config.add_tool_substitutions(tools, tool_dirs)
 
 config.substitutions.append(
     ('%hmaptool', "'%s' %s" % (config.python_executable,
-                             os.path.join(config.llvm_tools_dir, 'hmaptool'))))
+                             os.path.join(config.clang_tools_dir, 'hmaptool'))))
 
 # Plugins (loadable modules)
 # TODO: This should be supplied by Makefile or autoconf.
@@ -137,7 +137,7 @@ if os.path.exists('/dev/fd/0') and sys.platform not in ['cygwin']:
     config.available_features.add('dev-fd-fs')
 
 # Not set on native MS environment.
-if not re.match(r'.*-win32$', config.target_triple):
+if not re.match(r'.*-(windows-msvc)$', config.target_triple):
     config.available_features.add('non-ms-sdk')
 
 # Not set on native PS4 environment.
@@ -145,7 +145,7 @@ if not re.match(r'.*-scei-ps4', config.target_triple):
     config.available_features.add('non-ps4-sdk')
 
 # [PR8833] LLP64-incompatible tests
-if not re.match(r'^x86_64.*-(win32|mingw32|windows-gnu)$', config.target_triple):
+if not re.match(r'^x86_64.*-(windows-msvc|windows-gnu)$', config.target_triple):
     config.available_features.add('LP64')
 
 # [PR12920] "clang-driver" -- set if gcc driver is not used.

@@ -302,7 +302,7 @@ namespace opts {
 
   cl::opt<bool> CGProfile("elf-cg-profile", cl::desc("Display callgraph profile section"));
 
-  cl::opt<bool> Addrsig("elf-addrsig",
+  cl::opt<bool> Addrsig("addrsig",
                         cl::desc("Display address-significance table"));
 
   cl::opt<OutputStyleTy>
@@ -441,8 +441,8 @@ static void dumpObject(const ObjectFile *Obj, ScopedPrinter &Writer) {
       Dumper->printSectionAsString(Obj, SectionName);
     });
   if (!opts::HexDump.empty())
-    llvm::for_each(opts::HexDump, [&Dumper](StringRef SectionName) {
-      Dumper->printSectionAsHex(SectionName);
+    llvm::for_each(opts::HexDump, [&Dumper, Obj](StringRef SectionName) {
+      Dumper->printSectionAsHex(Obj, SectionName);
     });
   if (opts::HashTable)
     Dumper->printHashTable();
@@ -492,6 +492,8 @@ static void dumpObject(const ObjectFile *Obj, ScopedPrinter &Writer) {
       Dumper->printCOFFResources();
     if (opts::COFFLoadConfig)
       Dumper->printCOFFLoadConfig();
+    if (opts::Addrsig)
+      Dumper->printAddrsig();
     if (opts::CodeView)
       Dumper->printCodeViewDebugInfo();
     if (opts::CodeViewMergedTypes)

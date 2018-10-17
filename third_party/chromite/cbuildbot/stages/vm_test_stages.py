@@ -72,6 +72,7 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
 
   option_name = 'tests'
   config_name = 'vm_tests'
+  category = constants.TEST_INFRA_STAGE
 
   def __init__(self, builder_run, board, vm_tests=None, ssh_port=9228,
                test_basename=None, **kwargs):
@@ -291,6 +292,7 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
             'VMTestStage succeeded, but some optional tests failed.')
     except Exception as e:
       if not isinstance(e, failures_lib.TestWarning):
+        # pylint: disable=logging-not-lazy
         logging.error(_ERROR_MSG % dict(test_name='VMTests',
                                         test_results=test_basename))
       self._ArchiveVMFiles(test_results_root)
@@ -308,6 +310,7 @@ class ForgivenVMTestStage(VMTestStage, generic_stages.ForgivingBuilderStage):
   """Stage that forgives vm test failures."""
 
   stage_name = "ForgivenVMTest"
+  category = constants.TEST_INFRA_STAGE
 
   def __init__(self, *args, **kwargs):
     super(ForgivenVMTestStage, self).__init__(*args, **kwargs)
@@ -317,6 +320,7 @@ class GCETestStage(VMTestStage):
   """Run autotests on a GCE VM instance."""
 
   config_name = 'gce_tests'
+  category = constants.CI_INFRA_STAGE
 
   TEST_TIMEOUT = 90 * 60
 
@@ -385,6 +389,7 @@ class GCETestStage(VMTestStage):
             self._RunTest(gce_test, per_test_results_dir)
 
     except Exception:
+      # pylint: disable=logging-not-lazy
       logging.error(_ERROR_MSG % dict(test_name='GCETests',
                                       test_results=test_basename))
       raise
@@ -403,6 +408,7 @@ class MoblabVMTestStage(generic_stages.BoardSpecificBuilderStage,
 
   option_name = 'tests'
   config_name = 'moblab_vm_tests'
+  category = constants.TEST_INFRA_STAGE
 
   # This includes the time we expect to take to prepare and run the tests. It
   # excludes the time required to archive the results at the end.
@@ -422,6 +428,7 @@ class MoblabVMTestStage(generic_stages.BoardSpecificBuilderStage,
     try:
       self._PerformStage(work_dir, results_dir)
     except:
+      # pylint: disable=logging-not-lazy
       logging.error(_ERROR_MSG % dict(test_name='MoblabVMTest',
                                       test_results='directory'))
       raise

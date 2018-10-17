@@ -46,6 +46,8 @@ def BuilderName(build_config, active_waterfall, current_builder):
 class ScheduleSlavesStage(generic_stages.BuilderStage):
   """Stage that schedules slaves for the master build."""
 
+  category = constants.CI_INFRA_STAGE
+
   def __init__(self, builder_run, sync_stage, **kwargs):
     super(ScheduleSlavesStage, self).__init__(builder_run, **kwargs)
     self.sync_stage = sync_stage
@@ -170,8 +172,8 @@ class ScheduleSlavesStage(generic_stages.BuilderStage):
         if important_only or slave_config.important:
           raise
         else:
-          logging.warning('Failed to schedule %s current timestamp %s: %s'
-                          % (slave_config_name, current_ts, e))
+          logging.warning('Failed to schedule %s current timestamp %s: %s',
+                          slave_config_name, current_ts, e)
 
     if config_lib.IsMasterCQ(self._run.config) and db and scheduled_build_reqs:
       db.InsertBuildRequests(scheduled_build_reqs)

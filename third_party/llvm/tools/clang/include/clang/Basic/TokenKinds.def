@@ -425,6 +425,7 @@ KEYWORD(typeof                      , KEYGNU)
 KEYWORD(__FUNCDNAME__               , KEYMS)
 KEYWORD(__FUNCSIG__                 , KEYMS)
 KEYWORD(L__FUNCTION__               , KEYMS)
+KEYWORD(L__FUNCSIG__                , KEYMS)
 TYPE_TRAIT_1(__is_interface_class, IsInterfaceClass, KEYMS)
 TYPE_TRAIT_1(__is_sealed, IsSealed, KEYMS)
 
@@ -778,6 +779,11 @@ ANNOTATION(pragma_redefine_extname)
 // The lexer produces these so that they only take effect when the parser
 // handles them.
 ANNOTATION(pragma_fp_contract)
+
+// Annotation for #pragma STDC FENV_ACCESS
+// The lexer produces these so that they only take effect when the parser
+// handles them.
+ANNOTATION(pragma_fenv_access)
 
 // Annotation for #pragma pointers_to_members...
 // The lexer produces these so that they only take effect when the parser

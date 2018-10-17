@@ -50,6 +50,7 @@
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/ScopedPrinter.h"
+#include "llvm/Support/LEB128.h"
 #include "llvm/Support/Win64EH.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -83,7 +84,6 @@ public:
   void printSymbols() override;
   void printDynamicSymbols() override;
   void printUnwindInfo() override;
-  void printSectionAsHex(StringRef StringName) override;
 
   void printNeededLibraries() override;
 
@@ -99,6 +99,7 @@ public:
   mergeCodeViewTypes(llvm::codeview::MergingTypeTableBuilder &CVIDs,
                      llvm::codeview::MergingTypeTableBuilder &CVTypes) override;
   void printStackMap() const override;
+  void printAddrsig() override;
 private:
   void printSymbol(const SymbolRef &Sym);
   void printRelocation(const SectionRef &Section, const RelocationRef &Reloc,
@@ -653,28 +654,6 @@ void COFFDumper::printFileHeaders() {
 
   if (const dos_header *DH = Obj->getDOSHeader())
     printDOSHeader(DH);
-}
-
-void COFFDumper::printSectionAsHex(StringRef SectionName) {
-  char *StrPtr;
-  long SectionIndex = strtol(SectionName.data(), &StrPtr, 10);
-  const coff_section *Sec;
-  if (*StrPtr)
-    error(Obj->getSection(SectionName, Sec));
-  else {
-    error(Obj->getSection((int)SectionIndex, Sec));
-    if (!Sec)
-      return error(object_error::parse_failed);
-  }
-
-  StringRef SecName;
-  error(Obj->getSectionName(Sec, SecName));
-
-  ArrayRef<uint8_t> Content;
-  error(Obj->getSectionContents(Sec, Content));
-  const uint8_t *SecContent = Content.data();
-
-  SectionHexDump(SecName, SecContent, Content.size());
 }
 
 void COFFDumper::printDOSHeader(const dos_header *DH) {
@@ -1851,6 +1830,49 @@ void COFFDumper::printStackMap() const {
   else
     prettyPrintStackMap(W,
                         StackMapV2Parser<support::big>(StackMapContentsArray));
+}
+
+void COFFDumper::printAddrsig() {
+  object::SectionRef AddrsigSection;
+  for (auto Sec : Obj->sections()) {
+    StringRef Name;
+    Sec.getName(Name);
+    if (Name == ".llvm_addrsig") {
+      AddrsigSection = Sec;
+      break;
+    }
+  }
+
+  if (AddrsigSection == object::SectionRef())
+    return;
+
+  StringRef AddrsigContents;
+  AddrsigSection.getContents(AddrsigContents);
+  ArrayRef<uint8_t> AddrsigContentsArray(
+      reinterpret_cast<const uint8_t*>(AddrsigContents.data()),
+      AddrsigContents.size());
+
+  ListScope L(W, "Addrsig");
+  auto *Cur = reinterpret_cast<const uint8_t *>(AddrsigContents.begin());
+  auto *End = reinterpret_cast<const uint8_t *>(AddrsigContents.end());
+  while (Cur != End) {
+    unsigned Size;
+    const char *Err;
+    uint64_t SymIndex = decodeULEB128(Cur, &Size, End, &Err);
+    if (Err)
+      reportError(Err);
+
+    Expected<COFFSymbolRef> Sym = Obj->getSymbol(SymIndex);
+    StringRef SymName;
+    std::error_code EC = errorToErrorCode(Sym.takeError());
+    if (EC || (EC = Obj->getSymbolName(*Sym, SymName))) {
+      SymName = "";
+      error(EC);
+    }
+
+    W.printNumber("Sym", SymName, SymIndex);
+    Cur += Size;
+  }
 }
 
 void llvm::dumpCodeViewMergedTypes(

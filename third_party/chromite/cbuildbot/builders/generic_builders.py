@@ -119,7 +119,7 @@ class Builder(object):
     try:
       parallel.RunParallelSteps(steps)
     except BaseException as ex:
-      logging.error('BaseException in _RunParallelStages %s' % ex,
+      logging.error('BaseException in _RunParallelStages %s', ex,
                     exc_info=True)
       # If a stage threw an exception, it might not have correctly reported
       # results (e.g. because it was killed before it could report the
@@ -142,8 +142,15 @@ class Builder(object):
             if (not db.HasFailureMsgForStage(build_stage_id) and
                 (stage_status is None or stage_status['status']
                  not in constants.BUILDER_NON_FAILURE_STATUSES)):
+              metrics_fields = {
+                  'branch_name': stage.metrics_branch,
+                  'build_config': stage.build_config,
+                  'tryjob': stage.metrics_tryjob,
+                  'failed_stage': stage.name,
+                  'category': stage.category,
+              }
               failures_lib.ReportStageFailure(
-                  db, build_stage_id, ex, build_config=stage.build_config)
+                  db, build_stage_id, ex, metrics_fields=metrics_fields)
 
             # If this stage has non_completed status in buildStageTable, mark
             # the stage as 'fail' status in buildStageTable.

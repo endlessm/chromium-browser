@@ -1393,7 +1393,10 @@ Instruction *InstCombiner::foldShuffledBinop(BinaryOperator &Inst) {
   if (match(&Inst, m_c_BinOp(
           m_OneUse(m_ShuffleVector(m_Value(V1), m_Undef(), m_Constant(Mask))),
           m_Constant(C))) &&
-      V1->getType() == Inst.getType()) {
+      V1->getType()->getVectorNumElements() <= VWidth) {
+    assert(Inst.getType()->getScalarType() == V1->getType()->getScalarType() &&
+           "Shuffle should not change scalar type");
+    unsigned V1Width = V1->getType()->getVectorNumElements();
     // Find constant NewC that has property:
     //   shuffle(NewC, ShMask) = C
     // If such constant does not exist (example: ShMask=<0,0> and C=<1,2>)
@@ -1402,14 +1405,21 @@ Instruction *InstCombiner::foldShuffledBinop(BinaryOperator &Inst) {
     SmallVector<int, 16> ShMask;
     ShuffleVectorInst::getShuffleMask(Mask, ShMask);
     SmallVector<Constant *, 16>
-        NewVecC(VWidth, UndefValue::get(C->getType()->getScalarType()));
+        NewVecC(V1Width, UndefValue::get(C->getType()->getScalarType()));
     bool MayChange = true;
     for (unsigned I = 0; I < VWidth; ++I) {
       if (ShMask[I] >= 0) {
-        assert(ShMask[I] < (int)VWidth);
+        assert(ShMask[I] < (int)VWidth && "Not expecting narrowing shuffle");
         Constant *CElt = C->getAggregateElement(I);
         Constant *NewCElt = NewVecC[ShMask[I]];
-        if (!CElt || (!isa<UndefValue>(NewCElt) && NewCElt != CElt)) {
+        // Bail out if:
+        // 1. The constant vector contains a constant expression.
+        // 2. The shuffle needs an element of the constant vector that can't
+        //    be mapped to a new constant vector.
+        // 3. This is a widening shuffle that copies elements of V1 into the
+        //    extended elements (extending with undef is allowed).
+        if (!CElt || (!isa<UndefValue>(NewCElt) && NewCElt != CElt) ||
+            I >= V1Width) {
           MayChange = false;
           break;
         }
@@ -1424,7 +1434,7 @@ Instruction *InstCombiner::foldShuffledBinop(BinaryOperator &Inst) {
       bool ConstOp1 = isa<Constant>(Inst.getOperand(1));
       if (Inst.isIntDivRem() || (Inst.isShift() && ConstOp1))
         NewC = getSafeVectorConstantForBinop(Inst.getOpcode(), NewC, ConstOp1);
-      
+
       // Op(shuffle(V1, Mask), C) -> shuffle(Op(V1, NewC), Mask)
       // Op(C, shuffle(V1, Mask)) -> shuffle(Op(NewC, V1), Mask)
       Value *NewLHS = isa<Constant>(LHS) ? NewC : V1;
@@ -2144,7 +2154,7 @@ Instruction *InstCombiner::visitAllocSite(Instruction &MI) {
 
   // If we are removing an alloca with a dbg.declare, insert dbg.value calls
   // before each store.
-  TinyPtrVector<DbgInfoIntrinsic *> DIIs;
+  TinyPtrVector<DbgVariableIntrinsic *> DIIs;
   std::unique_ptr<DIBuilder> DIB;
   if (isa<AllocaInst>(MI)) {
     DIIs = FindDbgAddrUses(&MI);
@@ -2902,7 +2912,7 @@ static bool TryToSinkInstruction(Instruction *I, BasicBlock *DestBlock) {
 
   // Cannot move control-flow-involving, volatile loads, vaarg, etc.
   if (isa<PHINode>(I) || I->isEHPad() || I->mayHaveSideEffects() ||
-      isa<TerminatorInst>(I))
+      I->isTerminator())
     return false;
 
   // Do not sink alloca instructions out of the entry block.
@@ -2934,7 +2944,7 @@ static bool TryToSinkInstruction(Instruction *I, BasicBlock *DestBlock) {
 
   // Also sink all related debug uses from the source basic block. Otherwise we
   // get debug use before the def.
-  SmallVector<DbgInfoIntrinsic *, 1> DbgUsers;
+  SmallVector<DbgVariableIntrinsic *, 1> DbgUsers;
   findDbgUsers(DbgUsers, I);
   for (auto *DII : DbgUsers) {
     if (DII->getParent() == SrcBlock) {
@@ -3198,7 +3208,7 @@ static bool AddReachableCodeToWorklist(BasicBlock *BB, const DataLayout &DL,
       }
     }
 
-    for (BasicBlock *SuccBB : TI->successors())
+    for (BasicBlock *SuccBB : successors(TI))
       Worklist.push_back(SuccBB);
   } while (!Worklist.empty());
 

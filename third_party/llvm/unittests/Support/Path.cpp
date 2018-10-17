@@ -681,6 +681,37 @@ TEST_F(FileSystemTest, TempFiles) {
 #endif
 }
 
+TEST_F(FileSystemTest, TempFileCollisions) {
+  SmallString<128> TestDirectory;
+  ASSERT_NO_ERROR(
+      fs::createUniqueDirectory("CreateUniqueFileTest", TestDirectory));
+  FileRemover Cleanup(TestDirectory);
+  SmallString<128> Model = TestDirectory;
+  path::append(Model, "%.tmp");
+  SmallString<128> Path;
+  std::vector<fs::TempFile> TempFiles;
+
+  auto TryCreateTempFile = [&]() {
+    Expected<fs::TempFile> T = fs::TempFile::create(Model);
+    if (T) {
+      TempFiles.push_back(std::move(*T));
+      return true;
+    } else {
+      logAllUnhandledErrors(T.takeError(), errs(),
+                            "Failed to create temporary file: ");
+      return false;
+    }
+  };
+
+  // We should be able to create exactly 16 temporary files.
+  for (int i = 0; i < 16; ++i)
+    EXPECT_TRUE(TryCreateTempFile());
+  EXPECT_FALSE(TryCreateTempFile());
+
+  for (fs::TempFile &T : TempFiles)
+    cantFail(T.discard());
+}
+
 TEST_F(FileSystemTest, CreateDir) {
   ASSERT_NO_ERROR(fs::create_directory(Twine(TestDirectory) + "foo"));
   ASSERT_NO_ERROR(fs::create_directory(Twine(TestDirectory) + "foo"));
@@ -1266,7 +1297,7 @@ TEST_F(FileSystemTest, OpenFileForRead) {
   ASSERT_NO_ERROR(sys::fs::openFileForWrite(Twine(TempPath), FileDescriptor,
                                             fs::CD_OpenExisting));
   TimePoint<> Epoch(std::chrono::milliseconds(0));
-  ASSERT_NO_ERROR(fs::setLastModificationAndAccessTime(FileDescriptor, Epoch));
+  ASSERT_NO_ERROR(fs::setLastAccessAndModificationTime(FileDescriptor, Epoch));
   ::close(FileDescriptor);
 
   // Open the file and ensure access time is updated, when forced.

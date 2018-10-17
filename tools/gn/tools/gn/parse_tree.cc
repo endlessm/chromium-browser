@@ -269,12 +269,18 @@ bool AccessorNode::ComputeAndValidateListIndex(Scope* scope,
                "You gave me " + base::Int64ToString(index_int) + ".");
     return false;
   }
+  if (max_len == 0) {
+    *err = Err(index_->GetRange(), "Array subscript out of range.",
+               "You gave me " + base::Int64ToString(index_int) + " but the " +
+               "array has no elements.");
+    return false;
+  }
   size_t index_sizet = static_cast<size_t>(index_int);
   if (index_sizet >= max_len) {
     *err = Err(index_->GetRange(), "Array subscript out of range.",
                "You gave me " + base::Int64ToString(index_int) +
                    " but I was expecting something from 0 to " +
-                   base::NumberToString(max_len) + ", inclusive.");
+                   base::NumberToString(max_len - 1) + ", inclusive.");
     return false;
   }
 
@@ -477,6 +483,21 @@ void FunctionCallNode::Print(std::ostream& out, int indent) const {
   args_->Print(out, indent + 1);
   if (block_)
     block_->Print(out, indent + 1);
+}
+
+void FunctionCallNode::SetNewLocation(int line_number) {
+  Location func_old_loc = function_.location();
+  Location func_new_loc =
+      Location(func_old_loc.file(), line_number, func_old_loc.column_number(),
+               func_old_loc.byte());
+  function_.set_location(func_new_loc);
+
+  Location args_old_loc = args_->Begin().location();
+  Location args_new_loc =
+      Location(args_old_loc.file(), line_number, args_old_loc.column_number(),
+               args_old_loc.byte());
+  const_cast<Token&>(args_->Begin()).set_location(args_new_loc);
+  const_cast<Token&>(args_->End()->value()).set_location(args_new_loc);
 }
 
 // IdentifierNode --------------------------------------------------------------

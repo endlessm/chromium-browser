@@ -3442,7 +3442,7 @@
 // MIPS32BE:#define __mips 32
 // MIPS32BE:#define __mips__ 1
 // MIPS32BE:#define __mips_abicalls 1
-// MIPS32BE:#define __mips_fpr 32
+// MIPS32BE:#define __mips_fpr 0
 // MIPS32BE:#define __mips_hard_float 1
 // MIPS32BE:#define __mips_o32 1
 // MIPS32BE:#define _mips 1
@@ -3649,7 +3649,7 @@
 // MIPS32EL:#define __mips 32
 // MIPS32EL:#define __mips__ 1
 // MIPS32EL:#define __mips_abicalls 1
-// MIPS32EL:#define __mips_fpr 32
+// MIPS32EL:#define __mips_fpr 0
 // MIPS32EL:#define __mips_hard_float 1
 // MIPS32EL:#define __mips_o32 1
 // MIPS32EL:#define _mips 1
@@ -4900,6 +4900,41 @@
 // RUN:   | FileCheck -match-full-lines -check-prefix NOMIPS-ABS2008 %s
 // NOMIPS-ABS2008-NOT:#define __mips_abs2008 1
 //
+// RUN: %clang_cc1  \
+// RUN:   -E -dM -triple=mips-none-none < /dev/null \
+// RUN:   | FileCheck -match-full-lines -check-prefix MIPS32-NOFP %s
+// MIPS32-NOFP:#define __mips_fpr 0
+//
+// RUN: %clang_cc1 -target-feature +fpxx \
+// RUN:   -E -dM -triple=mips-none-none < /dev/null \
+// RUN:   | FileCheck -match-full-lines -check-prefix MIPS32-MFPXX %s
+// MIPS32-MFPXX:#define __mips_fpr 0
+//
+// RUN: %clang_cc1 -target-cpu mips32r6 -target-feature +fpxx \
+// RUN:   -E -dM -triple=mips-none-none < /dev/null \
+// RUN:   | FileCheck -match-full-lines -check-prefix MIPS32R6-MFPXX %s
+// MIPS32R6-MFPXX:#define __mips_fpr 0
+//
+// RUN: %clang_cc1  \
+// RUN:   -E -dM -triple=mips64-none-none < /dev/null \
+// RUN:   | FileCheck -match-full-lines -check-prefix MIPS64-NOFP %s
+// MIPS64-NOFP:#define __mips_fpr 64
+//
+// RUN: not %clang_cc1 -target-feature -fp64 \
+// RUN:   -E -dM -triple=mips64-none-none < /dev/null 2>&1 \
+// RUN:   | FileCheck -match-full-lines -check-prefix MIPS64-MFP32 %s
+// MIPS64-MFP32:error: option '-mfpxx' cannot be specified with 'mips64r2'
+//
+// RUN: not %clang_cc1 -target-feature +fpxx \
+// RUN:   -E -dM -triple=mips64-none-none < /dev/null 2>&1 \
+// RUN:   | FileCheck -match-full-lines -check-prefix MIPS64-MFPXX %s
+// MIPS64-MFPXX:error: '-mfpxx' can only be used with the 'o32' ABI
+//
+// RUN: not %clang_cc1 -target-cpu mips64r6 -target-feature +fpxx \
+// RUN:   -E -dM -triple=mips64-none-none < /dev/null 2>&1 \
+// RUN:   | FileCheck -match-full-lines -check-prefix MIPS64R6-MFPXX %s
+// MIPS64R6-MFPXX:error: '-mfpxx' can only be used with the 'o32' ABI
+//
 // RUN: %clang_cc1 -target-feature -fp64 \
 // RUN:   -E -dM -triple=mips-none-none < /dev/null \
 // RUN:   | FileCheck -match-full-lines -check-prefix MIPS32-MFP32 %s
@@ -4916,7 +4951,7 @@
 // RUN:   -E -dM -triple=mips-none-none < /dev/null \
 // RUN:   | FileCheck -match-full-lines -check-prefix MIPS32-MFP32SF %s
 // MIPS32-MFP32SF:#define _MIPS_FPSET 32
-// MIPS32-MFP32SF:#define __mips_fpr 32
+// MIPS32-MFP32SF:#define __mips_fpr 0
 //
 // RUN: %clang_cc1 -target-feature +fp64 \
 // RUN:   -E -dM -triple=mips64-none-none < /dev/null \
@@ -9019,7 +9054,7 @@
 // ANDROID:#define __ANDROID__ 1
 //
 // RUN: %clang_cc1 -x c++ -triple i686-linux-android -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix I386-ANDROID-CXX %s
-// I386-ANDROID-CXX:#define __STDCPP_DEFAULT_NEW_ALIGNMENT__ 4U
+// I386-ANDROID-CXX:#define __STDCPP_DEFAULT_NEW_ALIGNMENT__ 8U
 //
 // RUN: %clang_cc1 -x c++ -triple x86_64-linux-android -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix X86_64-ANDROID-CXX %s
 // X86_64-ANDROID-CXX:#define __STDCPP_DEFAULT_NEW_ALIGNMENT__ 16UL
@@ -9171,10 +9206,10 @@
 // WEBASSEMBLY32-NEXT:#define __INTMAX_MAX__ 9223372036854775807LL
 // WEBASSEMBLY32-NEXT:#define __INTMAX_TYPE__ long long int
 // WEBASSEMBLY32-NEXT:#define __INTMAX_WIDTH__ 64
-// WEBASSEMBLY32-NEXT:#define __INTPTR_FMTd__ "d"
-// WEBASSEMBLY32-NEXT:#define __INTPTR_FMTi__ "i"
-// WEBASSEMBLY32-NEXT:#define __INTPTR_MAX__ 2147483647
-// WEBASSEMBLY32-NEXT:#define __INTPTR_TYPE__ int
+// WEBASSEMBLY32-NEXT:#define __INTPTR_FMTd__ "ld"
+// WEBASSEMBLY32-NEXT:#define __INTPTR_FMTi__ "li"
+// WEBASSEMBLY32-NEXT:#define __INTPTR_MAX__ 2147483647L
+// WEBASSEMBLY32-NEXT:#define __INTPTR_TYPE__ long int
 // WEBASSEMBLY32-NEXT:#define __INTPTR_WIDTH__ 32
 // WEBASSEMBLY32-NEXT:#define __INT_FAST16_FMTd__ "hd"
 // WEBASSEMBLY32-NEXT:#define __INT_FAST16_FMTi__ "hi"
@@ -9239,10 +9274,10 @@
 // WEBASSEMBLY32-NEXT:#define __ORDER_PDP_ENDIAN__ 3412
 // WEBASSEMBLY32-NEXT:#define __POINTER_WIDTH__ 32
 // WEBASSEMBLY32-NEXT:#define __PRAGMA_REDEFINE_EXTNAME 1
-// WEBASSEMBLY32-NEXT:#define __PTRDIFF_FMTd__ "d"
-// WEBASSEMBLY32-NEXT:#define __PTRDIFF_FMTi__ "i"
-// WEBASSEMBLY32-NEXT:#define __PTRDIFF_MAX__ 2147483647
-// WEBASSEMBLY32-NEXT:#define __PTRDIFF_TYPE__ int
+// WEBASSEMBLY32-NEXT:#define __PTRDIFF_FMTd__ "ld"
+// WEBASSEMBLY32-NEXT:#define __PTRDIFF_FMTi__ "li"
+// WEBASSEMBLY32-NEXT:#define __PTRDIFF_MAX__ 2147483647L
+// WEBASSEMBLY32-NEXT:#define __PTRDIFF_TYPE__ long int
 // WEBASSEMBLY32-NEXT:#define __PTRDIFF_WIDTH__ 32
 // WEBASSEMBLY32-NOT:#define __REGISTER_PREFIX__
 // WEBASSEMBLY32-NEXT:#define __SCHAR_MAX__ 127
@@ -9262,12 +9297,12 @@
 // WEBASSEMBLY32-NEXT:#define __SIZEOF_SIZE_T__ 4
 // WEBASSEMBLY32-NEXT:#define __SIZEOF_WCHAR_T__ 4
 // WEBASSEMBLY32-NEXT:#define __SIZEOF_WINT_T__ 4
-// WEBASSEMBLY32-NEXT:#define __SIZE_FMTX__ "X"
-// WEBASSEMBLY32-NEXT:#define __SIZE_FMTo__ "o"
-// WEBASSEMBLY32-NEXT:#define __SIZE_FMTu__ "u"
-// WEBASSEMBLY32-NEXT:#define __SIZE_FMTx__ "x"
-// WEBASSEMBLY32-NEXT:#define __SIZE_MAX__ 4294967295U
-// WEBASSEMBLY32-NEXT:#define __SIZE_TYPE__ unsigned int
+// WEBASSEMBLY32-NEXT:#define __SIZE_FMTX__ "lX"
+// WEBASSEMBLY32-NEXT:#define __SIZE_FMTo__ "lo"
+// WEBASSEMBLY32-NEXT:#define __SIZE_FMTu__ "lu"
+// WEBASSEMBLY32-NEXT:#define __SIZE_FMTx__ "lx"
+// WEBASSEMBLY32-NEXT:#define __SIZE_MAX__ 4294967295UL
+// WEBASSEMBLY32-NEXT:#define __SIZE_TYPE__ long unsigned int
 // WEBASSEMBLY32-NEXT:#define __SIZE_WIDTH__ 32
 // WEBASSEMBLY32-NEXT:#define __STDC_HOSTED__ 0
 // WEBASSEMBLY32-NOT:#define __STDC_MB_MIGHT_NEQ_WC__
@@ -9315,12 +9350,12 @@
 // WEBASSEMBLY32-NEXT:#define __UINTMAX_MAX__ 18446744073709551615ULL
 // WEBASSEMBLY32-NEXT:#define __UINTMAX_TYPE__ long long unsigned int
 // WEBASSEMBLY32-NEXT:#define __UINTMAX_WIDTH__ 64
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTX__ "X"
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTo__ "o"
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTu__ "u"
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTx__ "x"
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_MAX__ 4294967295U
-// WEBASSEMBLY32-NEXT:#define __UINTPTR_TYPE__ unsigned int
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTX__ "lX"
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTo__ "lo"
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTu__ "lu"
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_FMTx__ "lx"
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_MAX__ 4294967295UL
+// WEBASSEMBLY32-NEXT:#define __UINTPTR_TYPE__ long unsigned int
 // WEBASSEMBLY32-NEXT:#define __UINTPTR_WIDTH__ 32
 // WEBASSEMBLY32-NEXT:#define __UINT_FAST16_FMTX__ "hX"
 // WEBASSEMBLY32-NEXT:#define __UINT_FAST16_FMTo__ "ho"

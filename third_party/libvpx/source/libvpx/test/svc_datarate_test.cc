@@ -15,6 +15,7 @@
 #include "test/svc_test.h"
 #include "test/util.h"
 #include "test/y4m_video_source.h"
+#include "vp9/common/vp9_onyxc_int.h"
 #include "vpx/vpx_codec.h"
 #include "vpx_ports/bitops.h"
 
@@ -69,34 +70,10 @@ class DatarateOnePassCbrSvc : public ::svc_test::OnePassCbrSvc {
   void set_frame_flags_bypass_mode(
       int tl, int num_spatial_layers, int is_key_frame,
       vpx_svc_ref_frame_config_t *ref_frame_config) {
+    for (int sl = 0; sl < num_spatial_layers; ++sl)
+      ref_frame_config->update_buffer_slot[sl] = 0;
+
     for (int sl = 0; sl < num_spatial_layers; ++sl) {
-      if (!tl) {
-        if (!sl) {
-          ref_frame_config->frame_flags[sl] =
-              VP8_EFLAG_NO_REF_GF | VP8_EFLAG_NO_REF_ARF | VP8_EFLAG_NO_UPD_GF |
-              VP8_EFLAG_NO_UPD_ARF;
-        } else {
-          if (is_key_frame) {
-            ref_frame_config->frame_flags[sl] =
-                VP8_EFLAG_NO_REF_GF | VP8_EFLAG_NO_REF_ARF |
-                VP8_EFLAG_NO_UPD_LAST | VP8_EFLAG_NO_UPD_ARF;
-          } else {
-            ref_frame_config->frame_flags[sl] =
-                VP8_EFLAG_NO_REF_ARF | VP8_EFLAG_NO_UPD_GF |
-                VP8_EFLAG_NO_UPD_ARF | VP8_EFLAG_NO_REF_GF;
-          }
-        }
-      } else if (tl == 1) {
-        if (!sl) {
-          ref_frame_config->frame_flags[sl] =
-              VP8_EFLAG_NO_REF_GF | VP8_EFLAG_NO_REF_ARF |
-              VP8_EFLAG_NO_UPD_LAST | VP8_EFLAG_NO_UPD_GF;
-        } else {
-          ref_frame_config->frame_flags[sl] =
-              VP8_EFLAG_NO_REF_ARF | VP8_EFLAG_NO_UPD_LAST |
-              VP8_EFLAG_NO_UPD_GF | VP8_EFLAG_NO_REF_GF;
-        }
-      }
       if (tl == 0) {
         ref_frame_config->lst_fb_idx[sl] = sl;
         if (sl) {
@@ -112,8 +89,47 @@ class DatarateOnePassCbrSvc : public ::svc_test::OnePassCbrSvc {
         ref_frame_config->alt_fb_idx[sl] = 0;
       } else if (tl == 1) {
         ref_frame_config->lst_fb_idx[sl] = sl;
-        ref_frame_config->gld_fb_idx[sl] = num_spatial_layers + sl - 1;
-        ref_frame_config->alt_fb_idx[sl] = num_spatial_layers + sl;
+        ref_frame_config->gld_fb_idx[sl] =
+            VPXMIN(REF_FRAMES - 1, num_spatial_layers + sl - 1);
+        ref_frame_config->alt_fb_idx[sl] =
+            VPXMIN(REF_FRAMES - 1, num_spatial_layers + sl);
+      }
+      if (!tl) {
+        if (!sl) {
+          ref_frame_config->reference_last[sl] = 1;
+          ref_frame_config->reference_golden[sl] = 0;
+          ref_frame_config->reference_alt_ref[sl] = 0;
+          ref_frame_config->update_buffer_slot[sl] |=
+              1 << ref_frame_config->lst_fb_idx[sl];
+        } else {
+          if (is_key_frame) {
+            ref_frame_config->reference_last[sl] = 1;
+            ref_frame_config->reference_golden[sl] = 0;
+            ref_frame_config->reference_alt_ref[sl] = 0;
+            ref_frame_config->update_buffer_slot[sl] |=
+                1 << ref_frame_config->gld_fb_idx[sl];
+          } else {
+            ref_frame_config->reference_last[sl] = 1;
+            ref_frame_config->reference_golden[sl] = 0;
+            ref_frame_config->reference_alt_ref[sl] = 0;
+            ref_frame_config->update_buffer_slot[sl] |=
+                1 << ref_frame_config->lst_fb_idx[sl];
+          }
+        }
+      } else if (tl == 1) {
+        if (!sl) {
+          ref_frame_config->reference_last[sl] = 1;
+          ref_frame_config->reference_golden[sl] = 0;
+          ref_frame_config->reference_alt_ref[sl] = 0;
+          ref_frame_config->update_buffer_slot[sl] |=
+              1 << ref_frame_config->alt_fb_idx[sl];
+        } else {
+          ref_frame_config->reference_last[sl] = 1;
+          ref_frame_config->reference_golden[sl] = 0;
+          ref_frame_config->reference_alt_ref[sl] = 0;
+          ref_frame_config->update_buffer_slot[sl] |=
+              1 << ref_frame_config->alt_fb_idx[sl];
+        }
       }
     }
   }
@@ -170,6 +186,8 @@ class DatarateOnePassCbrSvc : public ::svc_test::OnePassCbrSvc {
       layer_id.spatial_layer_id = 0;
       layer_id.temporal_layer_id = (video->frame() % 2 != 0);
       temporal_layer_id_ = layer_id.temporal_layer_id;
+      for (int i = 0; i < number_spatial_layers_; i++)
+        layer_id.temporal_layer_id_per_spatial[i] = temporal_layer_id_;
       encoder->Control(VP9E_SET_SVC_LAYER_ID, &layer_id);
       set_frame_flags_bypass_mode(layer_id.temporal_layer_id,
                                   number_spatial_layers_, 0, &ref_frame_config);
@@ -207,6 +225,8 @@ class DatarateOnePassCbrSvc : public ::svc_test::OnePassCbrSvc {
     }
 
     if (dynamic_drop_layer_) {
+      // TODO(jian): Disable AQ Mode for this test for now.
+      encoder->Control(VP9E_SET_AQ_MODE, 0);
       if (video->frame() == 0) {
         // Change layer bitrates to set top layers to 0. This will trigger skip
         // encoding/dropping of top two spatial layers.
@@ -514,7 +534,6 @@ TEST_P(DatarateOnePassCbrSvcSingleBR, OnePassCbrSvc2SL1TLScreenContent1) {
   cfg_.rc_target_bitrate = 500;
   ResetModel();
   tune_content_ = 1;
-  base_speed_setting_ = speed_setting_;
   AssignLayerBitrates();
   ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
   CheckLayerRateTargeting(number_spatial_layers_, number_temporal_layers_, 0.78,
@@ -838,7 +857,7 @@ TEST_P(DatarateOnePassCbrSvcFrameDropMultiBR, OnePassCbrSvc2SL3TL4Threads) {
   layer_framedrop_ = GET_PARAM(2);
   AssignLayerBitrates();
   ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-  CheckLayerRateTargeting(number_spatial_layers_, number_temporal_layers_, 0.75,
+  CheckLayerRateTargeting(number_spatial_layers_, number_temporal_layers_, 0.71,
                           1.45);
 #if CONFIG_VP9_DECODER
   // The non-reference frames are expected to be mismatched frames as the
@@ -885,7 +904,7 @@ TEST_P(DatarateOnePassCbrSvcFrameDropMultiBR, OnePassCbrSvc3SL3TL4Threads) {
   layer_framedrop_ = GET_PARAM(2);
   AssignLayerBitrates();
   ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-  CheckLayerRateTargeting(number_spatial_layers_, number_temporal_layers_, 0.73,
+  CheckLayerRateTargeting(number_spatial_layers_, number_temporal_layers_, 0.58,
                           1.2);
 #if CONFIG_VP9_DECODER
   // The non-reference frames are expected to be mismatched frames as the
@@ -1137,7 +1156,8 @@ TEST_P(DatarateOnePassCbrSvcSmallKF, OnePassCbrSvc3SL3TLSmallKf) {
   ResetModel();
   AssignLayerBitrates();
   ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-  CheckLayerRateTargeting(number_spatial_layers_, number_temporal_layers_, 0.78,
+  // TODO(jianj): webm:1554
+  CheckLayerRateTargeting(number_spatial_layers_, number_temporal_layers_, 0.76,
                           1.15);
 #if CONFIG_VP9_DECODER
   // The non-reference frames are expected to be mismatched frames as the
@@ -1281,6 +1301,59 @@ TEST_P(DatarateOnePassCbrSvcSingleBR, OnePassCbrSvc3SL1TLSyncWithIntraOnly) {
   ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
   CheckLayerRateTargeting(number_spatial_layers_, number_temporal_layers_, 0.73,
                           1.2);
+#if CONFIG_VP9_DECODER
+  // The non-reference frames are expected to be mismatched frames as the
+  // encoder will avoid loopfilter on these frames.
+  EXPECT_EQ(num_nonref_frames_, GetMismatchFrames());
+#endif
+}
+
+// Run SVC encoder for 2 quality layers (same resolution different,
+// bitrates), 1 temporal layer, with screen content mode.
+TEST_P(DatarateOnePassCbrSvcSingleBR, OnePassCbrSvc2QL1TLScreen) {
+  cfg_.rc_buf_initial_sz = 500;
+  cfg_.rc_buf_optimal_sz = 500;
+  cfg_.rc_buf_sz = 1000;
+  cfg_.rc_min_quantizer = 0;
+  cfg_.rc_max_quantizer = 56;
+  cfg_.rc_end_usage = VPX_CBR;
+  cfg_.g_lag_in_frames = 0;
+  cfg_.ss_number_layers = 2;
+  cfg_.ts_number_layers = 1;
+  cfg_.ts_rate_decimator[0] = 1;
+  cfg_.temporal_layering_mode = 0;
+  cfg_.g_error_resilient = 1;
+  cfg_.g_threads = 2;
+  svc_params_.scaling_factor_num[0] = 1;
+  svc_params_.scaling_factor_den[0] = 1;
+  svc_params_.scaling_factor_num[1] = 1;
+  svc_params_.scaling_factor_den[1] = 1;
+  cfg_.rc_dropframe_thresh = 30;
+  cfg_.kf_max_dist = 9999;
+  number_spatial_layers_ = cfg_.ss_number_layers;
+  number_temporal_layers_ = cfg_.ts_number_layers;
+  ::libvpx_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30, 1,
+                                       0, 400);
+  top_sl_width_ = 640;
+  top_sl_height_ = 480;
+  ResetModel();
+  tune_content_ = 1;
+  // Set the layer bitrates, for 2 spatial layers, 1 temporal.
+  cfg_.rc_target_bitrate = 400;
+  cfg_.ss_target_bitrate[0] = 100;
+  cfg_.ss_target_bitrate[1] = 300;
+  cfg_.layer_target_bitrate[0] = 100;
+  cfg_.layer_target_bitrate[1] = 300;
+  for (int sl = 0; sl < 2; ++sl) {
+    float layer_framerate = 30.0;
+    layer_target_avg_bandwidth_[sl] = static_cast<int>(
+        cfg_.layer_target_bitrate[sl] * 1000.0 / layer_framerate);
+    bits_in_buffer_model_[sl] =
+        cfg_.layer_target_bitrate[sl] * cfg_.rc_buf_initial_sz;
+  }
+  ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+  CheckLayerRateTargeting(number_spatial_layers_, number_temporal_layers_, 0.73,
+                          1.25);
 #if CONFIG_VP9_DECODER
   // The non-reference frames are expected to be mismatched frames as the
   // encoder will avoid loopfilter on these frames.

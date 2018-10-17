@@ -11,16 +11,18 @@ import subprocess
 import sys
 import time
 
-from py_utils import atexit_with_log
-from telemetry.core import util
-from telemetry.internal.util import ps_util
-
-import py_utils
-
 try:
   import fcntl
 except ImportError:
   fcntl = None
+
+from telemetry.core import exceptions
+from telemetry.core import util
+from telemetry.internal.util import ps_util
+
+import py_utils
+from py_utils import retry_util
+from py_utils import atexit_with_log
 
 
 _TSPROXY_PATH = os.path.join(
@@ -64,9 +66,11 @@ class TsProxyServer(object):
   def port(self):
     return self._port
 
-  def StartServer(self, timeout=10):
+  @retry_util.RetryOnException(exceptions.Error, retries=3)
+  def StartServer(self, timeout=10, retries=None):
     """Start TsProxy server and verify that it started.
     """
+    del retries  # handled by the decorator
     cmd_line = [sys.executable, _TSPROXY_PATH]
     cmd_line.extend([
         '--port=0'])  # Use port 0 so tsproxy picks a random available port.
@@ -97,8 +101,10 @@ class TsProxyServer(object):
       # TODO(nedn): remove this debug log once crbug.com/766877 is resolved
       ps_util.ListAllSubprocesses()
       err = self.StopServer()
-      raise RuntimeError(
-          'Error starting tsproxy: %s' % err)
+      if err:
+        logging.error('Error stopping WPR server:\n%s', err)
+      raise exceptions.Error(
+          'Error starting tsproxy: timed out after %s seconds' % timeout)
 
   def _IsStarted(self):
     assert not self._is_running
@@ -122,7 +128,9 @@ class TsProxyServer(object):
         return None
     return py_utils.WaitFor(ReadlLine, timeout)
 
-  def _IssueCommand(self, command_string, timeout):
+  @retry_util.RetryOnException(exceptions.Error, retries=3)
+  def _IssueCommand(self, command_string, timeout, retries=None):
+    del retries  # handled by the decorator
     logging.info('Issuing command to ts_proxy_server: %s', command_string)
     command_output = []
     self._proc.stdin.write('%s\n' % command_string)
@@ -138,7 +146,7 @@ class TsProxyServer(object):
     logging.log(logging.DEBUG if success else logging.ERROR,
                 'TsProxy output:\n%s', '\n'.join(command_output))
     if not success:
-      raise RuntimeError('Failed to execute command: %s', command_string)
+      raise exceptions.Error('Failed to execute command: %s', command_string)
 
   def UpdateOutboundPorts(self, http_port, https_port, timeout=5):
     assert http_port and https_port
@@ -151,7 +159,7 @@ class TsProxyServer(object):
 
   def UpdateTrafficSettings(
       self, round_trip_latency_ms=None,
-      download_bandwidth_kbps=None, upload_bandwidth_kbps=None, timeout=5):
+      download_bandwidth_kbps=None, upload_bandwidth_kbps=None, timeout=20):
     """Update traffic settings of the proxy server.
 
     Notes that this method only updates the specified parameter

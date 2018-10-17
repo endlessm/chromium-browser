@@ -50,12 +50,12 @@ class PerfControl(object):
 
     product_model = self._device.product_model
     # TODO(epenner): Enable on all devices (http://crbug.com/383566)
-    if 'Nexus 4' == product_model:
+    if product_model == 'Nexus 4':
       self._ForceAllCpusOnline(True)
       if not self._AllCpusAreOnline():
         logger.warning('Failed to force CPUs online. Results may be NOISY!')
       self.SetScalingGovernor('performance')
-    elif 'Nexus 5' == product_model:
+    elif product_model == 'Nexus 5':
       self._ForceAllCpusOnline(True)
       if not self._AllCpusAreOnline():
         logger.warning('Failed to force CPUs online. Results may be NOISY!')
@@ -79,7 +79,7 @@ class PerfControl(object):
     if not self._device.HasRoot():
       return
     product_model = self._device.product_model
-    if 'Nexus 5' == product_model:
+    if product_model == 'Nexus 5':
       if self._AllCpusAreOnline():
         self._SetScalingMaxFreq(2265600)
         self._SetMaxGpuClock(450000000)
@@ -179,8 +179,9 @@ class PerfControl(object):
 
   def _AllCpusAreOnline(self):
     results = self._ForEachCpu('cat "$CPU/online"')
-    # TODO(epenner): Investigate why file may be missing
-    # (http://crbug.com/397118)
+    # The file 'cpu0/online' is missing on some devices (example: Nexus 9). This
+    # is likely because on these devices it is impossible to bring the cpu0
+    # offline. Assuming the same for all devices until proven otherwise.
     return all(output.rstrip() == '1' and status == 0
                for (cpu, output, status) in results
                if cpu != 'cpu0')

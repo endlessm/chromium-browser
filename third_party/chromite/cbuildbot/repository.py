@@ -29,9 +29,6 @@ from chromite.lib import retry_util
 from chromite.lib import rewrite_git_alternates
 
 
-site_config = config_lib.GetConfig()
-
-
 # Default sleep time(second) between retries
 DEFAULT_SLEEP_TIME = 5
 
@@ -59,7 +56,7 @@ def IsInternalRepoCheckout(root):
       manifest_dir, ['config', 'remote.origin.url']).output.strip()
   return (os.path.splitext(os.path.basename(manifest_url))[0] ==
           os.path.splitext(os.path.basename(
-              site_config.params.MANIFEST_INT_URL))[0])
+              config_lib.GetSiteParams().MANIFEST_INT_URL))[0])
 
 
 def _IsLocalPath(url):
@@ -76,44 +73,6 @@ def _IsLocalPath(url):
   return o.scheme in ('file', '')
 
 
-def CloneGitRepo(working_dir, repo_url, reference=None, bare=False,
-                 mirror=False, depth=None, branch=None, single_branch=False):
-  """Clone given git repo
-
-  Args:
-    working_dir: location where it should be cloned to
-    repo_url: git repo to clone
-    reference: If given, pathway to a git repository to access git objects
-      from.  Note that the reference must exist as long as the newly created
-      repo is to be usable.
-    bare: Clone a bare checkout.
-    mirror: Clone a mirror checkout.
-    depth: If given, do a shallow clone limiting the objects pulled to just
-      that # of revs of history.  This option is mutually exclusive to
-      reference.
-    branch: If given, clone the given branch from the parent repository.
-    single_branch: Clone only one the requested branch.
-  """
-  osutils.SafeMakedirs(working_dir)
-  cmd = ['clone', repo_url, working_dir]
-  if reference:
-    if depth:
-      raise ValueError("reference and depth are mutually exclusive "
-                       "options; please pick one or the other.")
-    cmd += ['--reference', reference]
-  if bare:
-    cmd += ['--bare']
-  if mirror:
-    cmd += ['--mirror']
-  if depth:
-    cmd += ['--depth', str(int(depth))]
-  if branch:
-    cmd += ['--branch', branch]
-  if single_branch:
-    cmd += ['--single-branch']
-  git.RunGit(working_dir, cmd, print_cmd=True)
-
-
 def CloneWorkingRepo(dest, url, reference, branch=None, single_branch=False):
   """Clone a git repository with an existing local copy as a reference.
 
@@ -126,34 +85,12 @@ def CloneWorkingRepo(dest, url, reference, branch=None, single_branch=False):
     branch: The branch to clone.
     single_branch: Clone only one the requested branch.
   """
-  CloneGitRepo(dest, url, reference=reference,
-               single_branch=single_branch, branch=branch)
+  git.Clone(dest, url, reference=reference,
+            single_branch=single_branch, branch=branch)
   for name in glob.glob(os.path.join(reference, '.git', 'hooks', '*')):
     newname = os.path.join(dest, '.git', 'hooks', os.path.basename(name))
     shutil.copyfile(name, newname)
     shutil.copystat(name, newname)
-
-
-def UpdateGitRepo(working_dir, repo_url, **kwargs):
-  """Update the given git repo, blowing away any local changes.
-
-  If the repo does not exist, clone it from scratch.
-
-  Args:
-    working_dir: location where it should be cloned to
-    repo_url: git repo to clone
-    **kwargs: See CloneGitRepo.
-  """
-  assert not kwargs.get('bare'), 'Bare checkouts are not supported'
-  if git.IsGitRepo(working_dir):
-    try:
-      git.CleanAndCheckoutUpstream(working_dir)
-    except cros_build_lib.RunCommandError:
-      logging.warning('Could not update %s', working_dir, exc_info=True)
-      shutil.rmtree(working_dir)
-      CloneGitRepo(working_dir, repo_url, **kwargs)
-  else:
-    CloneGitRepo(working_dir, repo_url, **kwargs)
 
 
 def ClearBuildRoot(buildroot, preserve_paths=()):
@@ -179,47 +116,12 @@ def ClearBuildRoot(buildroot, preserve_paths=()):
   osutils.SafeMakedirs(buildroot)
 
 
-def PrepManifestForRepo(git_repo, manifest):
-  """Use this to store a local manifest in a git repo suitable for repo.
-
-  The repo tool can only fetch manifests from git repositories. So, to use
-  a local manifest file as the basis for a checkout, it must be checked into
-  a local git repository.
-
-  Common Usage:
-    manifest = CreateOrFetchWondrousManifest()
-    with osutils.TempDir() as manifest_git_dir:
-      PrepManifestForRepo(manifest_git_dir, manifest)
-      repo = RepoRepository(manifest_git_dir, repo_dir)
-      repo.Sync()
-
-  Args:
-    git_repo: Path at which to create the git repository (directory created, if
-              needed). If a tempdir, then cleanup is owned by the caller.
-    manifest: Path to existing manifest file to copy into the new git
-              repository.
-  """
-  if not git.GetGitGitdir(git_repo):
-    git.Init(git_repo)
-
-  new_manifest = os.path.join(git_repo, constants.DEFAULT_MANIFEST)
-
-  shutil.copyfile(manifest, new_manifest)
-  git.AddPath(new_manifest)
-  message = 'Local repository holding: %s' % manifest
-
-  # Commit new manifest. allow_empty in case it's the same as last manifest.
-  git.Commit(git_repo, message, allow_empty=True)
-
-
 class RepoRepository(object):
   """A Class that encapsulates a repo repository."""
-  # If a repo hasn't been used in the last 5 runs, wipe it.
-  LRU_THRESHOLD = 5
 
   def __init__(self, manifest_repo_url, directory, branch=None,
                referenced_repo=None, manifest=constants.DEFAULT_MANIFEST,
-               depth=None, repo_url=site_config.params.REPO_URL,
+               depth=None, repo_url=config_lib.GetSiteParams().REPO_URL,
                repo_branch=None, groups=None, repo_cmd='repo',
                preserve_paths=(), git_cache_dir=None):
     """Initialize.
@@ -452,6 +354,35 @@ class RepoRepository(object):
         raise ValueError('%s is nested inside a repo at %s.' %
                          (self.directory, repo_root))
 
+  def PreLoad(self, source_repo=None):
+    """Preinitialize new .repo directory for faster initial sync.
+
+    This is a hint that the new .repo directory can be copied from
+    source_repo/.repo to avoid network sync operations. It does nothing if the
+    .repo already exists, or source is invalid. source_repo defaults to the repo
+    of the current checkout for the script.
+
+    This should be done before the target is cleaned, to avoid corruption, since
+    the source is in an unknown state.
+
+    Args:
+      source_repo: Directory path to use as a template for new repo checkout.
+    """
+    if not source_repo:
+      source_repo = constants.SOURCE_ROOT
+
+    target_repo = os.path.join(self.directory, '.repo')
+
+    # If target already exist, or source is invalid, don't copy.
+    if os.path.exists(target_repo) or not IsARepoRoot(source_repo):
+      return
+
+    source_repo = os.path.join(source_repo, '.repo')
+
+    logging.info("Preloading '%s' from '%s'.", target_repo, source_repo)
+    shutil.copytree(source_repo, target_repo, symlinks=True)
+
+
   def Initialize(self, local_manifest=None, manifest_repo_url=None,
                  extra_args=()):
     """Initializes a repository.  Optionally forces a local manifest.
@@ -615,7 +546,7 @@ class RepoRepository(object):
       all_branches: If False, a repo sync -c is performed; this saves on
         sync'ing via grabbing only what is needed for the manifest specified
         branch. Defaults to True. TODO(davidjames): Set the default back to
-        False once we've fixed http://crbug.com/368722 .
+        False once we've fixed https://crbug.com/368722 .
       network_only: If true, perform only the network half of the sync; skip
         the checkout.  Primarily of use to validate a manifest (although
         if the manifest has bad copyfile statements, via skipping checkout
@@ -652,8 +583,8 @@ class RepoRepository(object):
         if constants.SYNC_RETRIES > 0:
           # Retry on clean up and repo sync commands,
           # decrement max_retry for this command
-          logging.warning('cmd %s failed, clean up repository and retry sync.'
-                          % cmd)
+          logging.warning('cmd %s failed, clean up repository and retry sync.',
+                          cmd)
           time.sleep(DEFAULT_SLEEP_TIME)
           retry_util.RetryCommand(self._CleanUpAndRunCommand,
                                   constants.SYNC_RETRIES - 1,
@@ -697,45 +628,11 @@ class RepoRepository(object):
       # use relative object pathways.  Note that cros_sdk also triggers the
       # same cleanup- we however kick it erring on the side of caution.
       self._EnsureMirroring(True)
-      self._DoCleanup()
 
     except cros_build_lib.RunCommandError as e:
       err_msg = e.Stringify()
       logging.error(err_msg)
       raise SrcCheckOutException(err_msg)
-
-  def _DoCleanup(self):
-    """Wipe unused repositories."""
-
-    # Find all projects, even if they're not in the manifest.  Note the find
-    # trickery this is done to keep it as fast as possible.
-    repo_path = os.path.join(self.directory, '.repo', 'projects')
-    current = set(cros_build_lib.RunCommand(
-        ['find', repo_path, '-type', 'd', '-name', '*.git', '-printf', '%P\n',
-         '-a', '!', '-wholename', '*.git/*', '-prune'],
-        print_cmd=False, capture_output=True).output.splitlines())
-    data = {}.fromkeys(current, 0)
-
-    path = os.path.join(self.directory, '.repo', 'project.lru')
-    if os.path.exists(path):
-      existing = [x.strip().split(None, 1)
-                  for x in osutils.ReadFile(path).splitlines()]
-      data.update((k, int(v)) for k, v in existing if k in current)
-
-    # Increment it all...
-    data.update((k, v + 1) for k, v in data.iteritems())
-    # Zero out what is now used.
-    checkouts = git.ManifestCheckout.Cached(self.directory).ListCheckouts()
-    data.update(('%s.git' % x['path'], 0) for x in checkouts)
-
-    # Finally... wipe anything that's greater than our threshold.
-    wipes = [k for k, v in data.iteritems() if v > self.LRU_THRESHOLD]
-    if wipes:
-      cros_build_lib.SudoRunCommand(
-          ['rm', '-rf'] + [os.path.join(repo_path, proj) for proj in wipes])
-      map(data.pop, wipes)
-
-    osutils.WriteFile(path, "\n".join('%s %i' % x for x in data.iteritems()))
 
   def GetRelativePath(self, path):
     """Returns full path including source directory of path in repo."""

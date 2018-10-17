@@ -62,11 +62,7 @@ class BrowserDistribution {
 
   virtual base::string16 GetPublisherName();
 
-  virtual base::string16 GetAppDescription();
-
   virtual base::string16 GetLongAppDescription();
-
-  virtual std::string GetSafeBrowsingName();
 
 #if defined(OS_WIN)
   virtual base::string16 GetDistributionData(HKEY root_key);

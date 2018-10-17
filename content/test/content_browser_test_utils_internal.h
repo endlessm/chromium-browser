@@ -247,9 +247,23 @@ class ShowWidgetMessageFilter : public content::BrowserMessageFilter {
 
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
   gfx::Rect initial_rect_;
-  int routing_id_;
+  int routing_id_ = MSG_ROUTING_NONE;
 
   DISALLOW_COPY_AND_ASSIGN(ShowWidgetMessageFilter);
+};
+
+// A BrowserMessageFilter that drops SwapOut ACK messages.
+class SwapoutACKMessageFilter : public BrowserMessageFilter {
+ public:
+  SwapoutACKMessageFilter();
+
+ protected:
+  ~SwapoutACKMessageFilter() override;
+
+ private:
+  // BrowserMessageFilter:
+  bool OnMessageReceived(const IPC::Message& message) override;
+  DISALLOW_COPY_AND_ASSIGN(SwapoutACKMessageFilter);
 };
 
 }  // namespace content

@@ -43,6 +43,7 @@ class BuilderStage(object):
   """Parent class for stages to be performed by a builder."""
   # Used to remove 'Stage' suffix of stage class when generating stage name.
   name_stage_re = re.compile(r'(\w+)Stage')
+  category = constants.UNCATEGORIZED_STAGE
 
   # TODO(sosa): Remove these once we have a SEND/RECIEVE IPC mechanism
   # implemented.
@@ -66,7 +67,8 @@ class BuilderStage(object):
     assert match, 'Class name %s does not end with Stage' % cls.__name__
     return match.group(1)
 
-  def __init__(self, builder_run, suffix=None, attempt=None, max_retry=None):
+  def __init__(self, builder_run, suffix=None, attempt=None, max_retry=None,
+               build_root=None):
     """Create a builder stage.
 
     Args:
@@ -77,6 +79,7 @@ class BuilderStage(object):
         also specified.
       max_retry: The maximum number of retries. Defaults to None. Is only valid
         if |attempt| is also specified.
+      build_root: Override the builder_run build_root.
     """
     self._run = builder_run
 
@@ -96,11 +99,11 @@ class BuilderStage(object):
     # TODO(mtennant): Replace self._boards with a self._run.boards?
     self._boards = self._run.config.boards
 
-    # TODO(mtennant): Try to rely on just self._run.buildroot directly, if
-    # the os.path.abspath can be applied there instead.
-    self._build_root = os.path.abspath(self._run.buildroot)
+    self._build_root = os.path.abspath(build_root or self._run.buildroot)
 
     self.build_config = self._run.config.name
+    self.metrics_branch = self._run.options.branch
+    self.metrics_tryjob = self._run.options.remote_trybot
 
     self._prebuilt_type = None
     if self._run.ShouldUploadPrebuilts():
@@ -215,10 +218,12 @@ class BuilderStage(object):
       kwargs['build_id'] = build_id
       self._build_stage_id = db.InsertBuildStage(**kwargs)
 
-  def _FinishBuildStageInCIDBAndMonarch(self, status, elapsed_time_seconds=0):
+  def _FinishBuildStageInCIDBAndMonarch(self, stage_result, status,
+                                        elapsed_time_seconds=0):
     """Mark the stage as finished in cidb.
 
     Args:
+      stage_result: results_lib.Results.* object of this stage.
       status: The finish status of the build. Enum type
           constants.BUILDER_COMPLETED_STATUSES
       elapsed_time_seconds: (optional) Elapsed time in stage, in seconds.
@@ -235,6 +240,19 @@ class BuilderStage(object):
     metrics.CumulativeSecondsDistribution(constants.MON_STAGE_DURATION).add(
         elapsed_time_seconds, fields=fields)
     metrics.Counter(constants.MON_STAGE_COMP_COUNT).increment(fields=fields)
+    if (isinstance(stage_result, BaseException) and
+        self._build_stage_id is not None):
+      metrics_fields = {
+          'branch_name': self.metrics_branch,
+          'build_config': self.build_config,
+          'tryjob': self.metrics_tryjob,
+          'failed_stage': self.name,
+          'category': self.category,
+      }
+      _, db = self._run.GetCIDBHandle()
+      if db:
+        failures_lib.ReportStageFailure(db, self._build_stage_id, stage_result,
+                                        metrics_fields=metrics_fields)
 
   def _StartBuildStageInCIDB(self):
     """Mark the stage as inflight in cidb."""
@@ -264,23 +282,8 @@ class BuilderStage(object):
     elif result == results_lib.Results.SKIPPED:
       return constants.BUILDER_STATUS_SKIPPED
     else:
-      logging.info('Translating result %s to fail.' % result)
+      logging.info('Translating result %s to fail.', result)
       return constants.BUILDER_STATUS_FAILED
-
-  def _ExtractOverlays(self):
-    """Extracts list of overlays into class."""
-    overlays = portage_util.FindOverlays(
-        self._run.config.overlays, buildroot=self._build_root)
-    push_overlays = portage_util.FindOverlays(
-        self._run.config.push_overlays, buildroot=self._build_root)
-
-    # Sanity checks.
-    # We cannot push to overlays that we don't rev.
-    assert set(push_overlays).issubset(set(overlays))
-    # Either has to be a master or not have any push overlays.
-    assert self._run.config.master or not push_overlays
-
-    return overlays, push_overlays
 
   def GetRepoRepository(self, **kwargs):
     """Create a new repo repository object."""
@@ -730,12 +733,8 @@ class BuilderStage(object):
       self._RecordResult(self.name, result, description, prefix=self._prefix,
                          board=board, time=elapsed_time,
                          build_stage_id=self._build_stage_id)
-      self._FinishBuildStageInCIDBAndMonarch(cidb_result, elapsed_time)
-      if isinstance(result, BaseException) and self._build_stage_id is not None:
-        _, db = self._run.GetCIDBHandle()
-        if db:
-          failures_lib.ReportStageFailure(
-              db, self._build_stage_id, result, build_config=self.build_config)
+      self._FinishBuildStageInCIDBAndMonarch(result,
+                                             cidb_result, elapsed_time)
 
       try:
         self.Finish()
@@ -773,6 +772,7 @@ class ForgivingBuilderStage(BuilderStage):
 
 class RetryStage(object):
   """Retry a given stage multiple times to see if it passes."""
+  category = constants.UNCATEGORIZED_STAGE
 
   def __init__(self, builder_run, max_retry, stage, *args, **kwargs):
     """Create a RetryStage object.
@@ -821,6 +821,7 @@ class RetryStage(object):
 
 class RepeatStage(object):
   """Run a given stage multiple times to see if it fails."""
+  category = constants.UNCATEGORIZED_STAGE
 
   def __init__(self, builder_run, count, stage, *args, **kwargs):
     """Create a RepeatStage object.
@@ -1074,7 +1075,7 @@ class ArchivingStageMixin(object):
     Returns:
       True is the build should not be copied to this moblab url
     """
-    bot_filter_list = ['paladin', 'trybot', 'pfq']
+    bot_filter_list = ['paladin', 'trybot', 'pfq', 'pre-cq', 'tryjob']
     if (url.find('moblab') and
         any(bot_id.find(filter) != -1 for filter in bot_filter_list)):
       return True
@@ -1192,7 +1193,7 @@ class ArchivingStageMixin(object):
           if c_file:
             with tempfile.NamedTemporaryFile() as f:
               logging.info('Export tags to gcloud via %s.', f.name)
-              logging.debug('Exporting: %s' % d[constants.METADATA_TAGS])
+              logging.debug('Exporting: %s', d[constants.METADATA_TAGS])
               osutils.WriteFile(f.name, json.dumps(d[constants.METADATA_TAGS]),
                                 atomic=True, makedirs=True)
               commands.ExportToGCloud(self._build_root, c_file, f.name,

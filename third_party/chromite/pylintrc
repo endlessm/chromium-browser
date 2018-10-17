@@ -50,6 +50,7 @@ enable=cros-logging-import
 # TODO: Re-enable redefined-variable-type.
 disable=
     broad-except,
+    consider-iterating-dictionary,
     fixme,
     file-ignored,
     invalid-name,
@@ -150,7 +151,13 @@ generated-members=REQUEST,acl_users,aq_parent,AndRaise,AndReturn,InAnyOrder,Mult
 
 # List of builtins function names that should not be used, separated by a comma.
 # XXX: Should we ban map() & filter() for list comprehensions?
-bad-functions=apply,input
+# exit & quit are for the interactive interpreter shell only.
+# https://docs.python.org/3/library/constants.html#constants-added-by-the-site-module
+bad-functions=
+    apply,
+    exit,
+    input,
+    quit,
 
 # Regular expression which should only match correct module names
 #module-rgx=(([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+))$
@@ -278,8 +285,18 @@ max-parents=10
 
 [IMPORTS]
 
-# Deprecated modules which should not be used, separated by a comma
-deprecated-modules=regsub,TERMIOS,Bastion,rexec,optparse
+# Deprecated modules which should not be used, separated by a comma.
+# Bastion: Dropped in Python 3.
+# optparse: Use the 'argparse' module instead.
+# regsub: Use the 're' module instead.
+# rexec: Dropped in Python 3.
+# TERMIOS: Use the 'termios' module instead.
+deprecated-modules=
+    Bastion,
+    optparse,
+    regsub,
+    rexec,
+    TERMIOS,
 
 # Create a graph of every (i.e. internal and external) dependencies in the
 # given file (report RP0402 must not be disabled)
@@ -292,3 +309,11 @@ deprecated-modules=regsub,TERMIOS,Bastion,rexec,optparse
 # Create a graph of internal dependencies in the given file (report RP0402 must
 # not be disabled)
 #int-import-graph=
+
+
+[LOGGING]
+
+# Apply logging string format checks to calls on these modules.
+logging-modules=
+    logging,
+    chromite.lib.cros_logging,

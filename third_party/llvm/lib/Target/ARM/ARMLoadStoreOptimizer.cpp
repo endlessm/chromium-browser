@@ -1275,7 +1275,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSMultiple(MachineInstr *MI) {
       // we're minimizing code size.
       if (!MBB.getParent()->getFunction().optForMinSize() || !BaseKill)
         return false;
-      
+
       bool HighRegsUsed = false;
       for (unsigned i = 2, e = MI->getNumOperands(); i != e; ++i)
         if (MI->getOperand(i).getReg() >= ARM::R8) {
@@ -1303,7 +1303,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSMultiple(MachineInstr *MI) {
     MIB.add(MI->getOperand(OpNum));
 
   // Transfer memoperands.
-  MIB->setMemRefs(MI->memoperands_begin(), MI->memoperands_end());
+  MIB.setMemRefs(MI->memoperands());
 
   MBB.erase(MBBI);
   return true;
@@ -1527,7 +1527,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSDouble(MachineInstr &MI) const {
   // Transfer implicit operands.
   for (const MachineOperand &MO : MI.implicit_operands())
     MIB.add(MO);
-  MIB->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
+  MIB.setMemRefs(MI.memoperands());
 
   MBB.erase(MBBI);
   return true;
@@ -2290,7 +2290,7 @@ bool ARMPreAllocLoadStoreOpt::RescheduleOps(MachineBasicBlock *MBB,
             if (!isT2)
               MIB.addReg(0);
             MIB.addImm(Offset).addImm(Pred).addReg(PredReg);
-            MIB.setMemRefs(Op0->mergeMemRefsWith(*Op1));
+            MIB.cloneMergedMemRefs({Op0, Op1});
             LLVM_DEBUG(dbgs() << "Formed " << *MIB << "\n");
             ++NumLDRDFormed;
           } else {
@@ -2304,7 +2304,7 @@ bool ARMPreAllocLoadStoreOpt::RescheduleOps(MachineBasicBlock *MBB,
             if (!isT2)
               MIB.addReg(0);
             MIB.addImm(Offset).addImm(Pred).addReg(PredReg);
-            MIB.setMemRefs(Op0->mergeMemRefsWith(*Op1));
+            MIB.cloneMergedMemRefs({Op0, Op1});
             LLVM_DEBUG(dbgs() << "Formed " << *MIB << "\n");
             ++NumSTRDFormed;
           }

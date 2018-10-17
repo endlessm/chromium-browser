@@ -321,6 +321,7 @@ void DwarfLinker::startDebugObject(LinkContext &Context) {
 
 void DwarfLinker::endDebugObject(LinkContext &Context) {
   Context.Clear();
+
   for (auto I = DIEBlocks.begin(), E = DIEBlocks.end(); I != E; ++I)
     (*I)->~DIEBlock();
   for (auto I = DIELocs.begin(), E = DIELocs.end(); I != E; ++I)
@@ -755,6 +756,50 @@ void DwarfLinker::keepDIEAndDependencies(
   }
 }
 
+namespace {
+/// This class represents an item in the work list. In addition to it's obvious
+/// purpose of representing the state associated with a particular run of the
+/// work loop, it also serves as a marker to indicate that we should run the
+/// "continuation" code.
+///
+/// Originally, the latter was lambda which allowed arbitrary code to be run.
+/// Because we always need to run the exact same code, it made more sense to
+/// use a boolean and repurpose the already existing DIE field.
+struct WorklistItem {
+  DWARFDie Die;
+  unsigned Flags;
+  bool IsContinuation;
+  CompileUnit::DIEInfo *ChildInfo = nullptr;
+
+  /// Construct a classic worklist item.
+  WorklistItem(DWARFDie Die, unsigned Flags)
+      : Die(Die), Flags(Flags), IsContinuation(false){};
+
+  /// Creates a continuation marker.
+  WorklistItem(DWARFDie Die) : Die(Die), IsContinuation(true){};
+};
+} // namespace
+
+// Helper that updates the completeness of the current DIE. It depends on the
+// fact that the incompletness of its children is already computed.
+static void updateIncompleteness(const DWARFDie &Die,
+                                 CompileUnit::DIEInfo &ChildInfo,
+                                 CompileUnit &CU) {
+  // Only propagate incomplete members.
+  if (Die.getTag() != dwarf::DW_TAG_structure_type &&
+      Die.getTag() != dwarf::DW_TAG_class_type)
+    return;
+
+  unsigned Idx = CU.getOrigUnit().getDIEIndex(Die);
+  CompileUnit::DIEInfo &MyInfo = CU.getInfo(Idx);
+
+  if (MyInfo.Incomplete)
+    return;
+
+  if (ChildInfo.Incomplete || ChildInfo.Prune)
+    MyInfo.Incomplete = true;
+}
+
 /// Recursively walk the \p DIE tree and look for DIEs to
 /// keep. Store that information in \p CU's DIEInfo.
 ///
@@ -769,58 +814,80 @@ void DwarfLinker::keepDIEAndDependencies(
 /// traversal we are currently doing.
 ///
 /// The return value indicates whether the DIE is incomplete.
-bool DwarfLinker::lookForDIEsToKeep(RelocationManager &RelocMgr,
+void DwarfLinker::lookForDIEsToKeep(RelocationManager &RelocMgr,
                                     RangesTy &Ranges, const UnitListTy &Units,
                                     const DWARFDie &Die,
                                     const DebugMapObject &DMO, CompileUnit &CU,
                                     unsigned Flags) {
-  unsigned Idx = CU.getOrigUnit().getDIEIndex(Die);
-  CompileUnit::DIEInfo &MyInfo = CU.getInfo(Idx);
-  bool AlreadyKept = MyInfo.Keep;
-  if (MyInfo.Prune)
-    return true;
+  // LIFO work list.
+  SmallVector<WorklistItem, 4> Worklist;
+  Worklist.emplace_back(Die, Flags);
 
-  // If the Keep flag is set, we are marking a required DIE's
-  // dependencies. If our target is already marked as kept, we're all
-  // set.
-  if ((Flags & TF_DependencyWalk) && AlreadyKept)
-    return MyInfo.Incomplete;
+  while (!Worklist.empty()) {
+    WorklistItem Current = Worklist.back();
+    Worklist.pop_back();
 
-  // We must not call shouldKeepDIE while called from keepDIEAndDependencies,
-  // because it would screw up the relocation finding logic.
-  if (!(Flags & TF_DependencyWalk))
-    Flags = shouldKeepDIE(RelocMgr, Ranges, Die, DMO, CU, MyInfo, Flags);
+    if (Current.IsContinuation) {
+      updateIncompleteness(Current.Die, *Current.ChildInfo, CU);
+      continue;
+    }
 
-  // If it is a newly kept DIE mark it as well as all its dependencies as kept.
-  if (!AlreadyKept && (Flags & TF_Keep)) {
-    bool UseOdr = (Flags & TF_DependencyWalk) ? (Flags & TF_ODR) : CU.hasODR();
-    keepDIEAndDependencies(RelocMgr, Ranges, Units, Die, MyInfo, DMO, CU,
-                           UseOdr);
+    unsigned Idx = CU.getOrigUnit().getDIEIndex(Current.Die);
+    CompileUnit::DIEInfo &MyInfo = CU.getInfo(Idx);
+
+    // At this point we are guaranteed to have a continuation marker before us
+    // in the worklist, except for the last DIE.
+    if (!Worklist.empty())
+      Worklist.back().ChildInfo = &MyInfo;
+
+    if (MyInfo.Prune)
+      continue;
+
+    // If the Keep flag is set, we are marking a required DIE's dependencies.
+    // If our target is already marked as kept, we're all set.
+    bool AlreadyKept = MyInfo.Keep;
+    if ((Current.Flags & TF_DependencyWalk) && AlreadyKept)
+      continue;
+
+    // We must not call shouldKeepDIE while called from keepDIEAndDependencies,
+    // because it would screw up the relocation finding logic.
+    if (!(Current.Flags & TF_DependencyWalk))
+      Current.Flags = shouldKeepDIE(RelocMgr, Ranges, Current.Die, DMO, CU,
+                                    MyInfo, Current.Flags);
+
+    // If it is a newly kept DIE mark it as well as all its dependencies as
+    // kept.
+    if (!AlreadyKept && (Current.Flags & TF_Keep)) {
+      bool UseOdr = (Current.Flags & TF_DependencyWalk)
+                        ? (Current.Flags & TF_ODR)
+                        : CU.hasODR();
+      keepDIEAndDependencies(RelocMgr, Ranges, Units, Current.Die, MyInfo, DMO,
+                             CU, UseOdr);
+    }
+
+    // The TF_ParentWalk flag tells us that we are currently walking up
+    // the parent chain of a required DIE, and we don't want to mark all
+    // the children of the parents as kept (consider for example a
+    // DW_TAG_namespace node in the parent chain). There are however a
+    // set of DIE types for which we want to ignore that directive and still
+    // walk their children.
+    if (dieNeedsChildrenToBeMeaningful(Current.Die.getTag()))
+      Current.Flags &= ~TF_ParentWalk;
+
+    if (!Current.Die.hasChildren() || (Current.Flags & TF_ParentWalk))
+      continue;
+
+    // Add children in reverse order to the worklist to effectively process
+    // them in order.
+    for (auto Child : reverse(Current.Die.children())) {
+      // Add continuation marker before every child to calculate incompleteness
+      // after the last child is processed. We can't store this information in
+      // the same item because we might have to process other continuations
+      // first.
+      Worklist.emplace_back(Current.Die);
+      Worklist.emplace_back(Child, Current.Flags);
+    }
   }
-  // The TF_ParentWalk flag tells us that we are currently walking up
-  // the parent chain of a required DIE, and we don't want to mark all
-  // the children of the parents as kept (consider for example a
-  // DW_TAG_namespace node in the parent chain). There are however a
-  // set of DIE types for which we want to ignore that directive and still
-  // walk their children.
-  if (dieNeedsChildrenToBeMeaningful(Die.getTag()))
-    Flags &= ~TF_ParentWalk;
-
-  if (!Die.hasChildren() || (Flags & TF_ParentWalk))
-    return MyInfo.Incomplete;
-
-  bool Incomplete = false;
-  for (auto Child : Die.children()) {
-    Incomplete |=
-        lookForDIEsToKeep(RelocMgr, Ranges, Units, Child, DMO, CU, Flags);
-
-    // If any of the members are incomplete we propagate the incompleteness.
-    if (!MyInfo.Incomplete && Incomplete &&
-        (Die.getTag() == dwarf::DW_TAG_structure_type ||
-         Die.getTag() == dwarf::DW_TAG_class_type))
-      MyInfo.Incomplete = true;
-  }
-  return MyInfo.Incomplete;
 }
 
 /// Assign an abbreviation number to \p Abbrev.
@@ -1628,8 +1695,8 @@ void DwarfLinker::patchLineTableForUnit(CompileUnit &Unit,
       OrigDwarf.isLittleEndian(), Unit.getOrigUnit().getAddressByteSize());
 
   Error Err = LineTable.parse(LineExtractor, &StmtOffset, OrigDwarf,
-                              &Unit.getOrigUnit());
-  DWARFDebugLine::warn(std::move(Err));
+                              &Unit.getOrigUnit(), DWARFContext::dumpWarning);
+  DWARFContext::dumpWarning(std::move(Err));
 
   // This vector is the output line table.
   std::vector<DWARFDebugLine::Row> NewRows;
@@ -1746,6 +1813,20 @@ void DwarfLinker::patchLineTableForUnit(CompileUnit &Unit,
 }
 
 void DwarfLinker::emitAcceleratorEntriesForUnit(CompileUnit &Unit) {
+  switch (Options.TheAccelTableKind) {
+  case AccelTableKind::Apple:
+    emitAppleAcceleratorEntriesForUnit(Unit);
+    break;
+  case AccelTableKind::Dwarf:
+    emitDwarfAcceleratorEntriesForUnit(Unit);
+    break;
+  case AccelTableKind::Default:
+    llvm_unreachable("The default must be updated to a concrete value.");
+    break;
+  }
+}
+
+void DwarfLinker::emitAppleAcceleratorEntriesForUnit(CompileUnit &Unit) {
   // Add namespaces.
   for (const auto &Namespace : Unit.getNamespaces())
     AppleNamespaces.addName(Namespace.Name,
@@ -1772,6 +1853,18 @@ void DwarfLinker::emitAcceleratorEntriesForUnit(CompileUnit &Unit) {
   /// Add ObjC names.
   for (const auto &ObjC : Unit.getObjC())
     AppleObjc.addName(ObjC.Name, ObjC.Die->getOffset() + Unit.getStartOffset());
+}
+
+void DwarfLinker::emitDwarfAcceleratorEntriesForUnit(CompileUnit &Unit) {
+  for (const auto &Namespace : Unit.getNamespaces())
+    DebugNames.addName(Namespace.Name, Namespace.Die->getOffset(),
+                       Namespace.Die->getTag(), Unit.getUniqueID());
+  for (const auto &Pubname : Unit.getPubnames())
+    DebugNames.addName(Pubname.Name, Pubname.Die->getOffset(),
+                       Pubname.Die->getTag(), Unit.getUniqueID());
+  for (const auto &Pubtype : Unit.getPubtypes())
+    DebugNames.addName(Pubtype.Name, Pubtype.Die->getOffset(),
+                       Pubtype.Die->getTag(), Unit.getUniqueID());
 }
 
 /// Read the frame info stored in the object, and emit the
@@ -1931,7 +2024,7 @@ bool DwarfLinker::registerModuleReference(
     const DWARFDie &CUDie, const DWARFUnit &Unit, DebugMap &ModuleMap,
     const DebugMapObject &DMO, RangesTy &Ranges, OffsetsStringPool &StringPool,
     UniquingStringPool &UniquingStringPool, DeclContextTree &ODRContexts,
-    unsigned &UnitID, unsigned Indent) {
+    unsigned &UnitID, unsigned Indent, bool Quiet) {
   std::string PCMfile = dwarf::toString(
       CUDie.find({dwarf::DW_AT_dwo_name, dwarf::DW_AT_GNU_dwo_name}), "");
   if (PCMfile.empty())
@@ -1943,11 +2036,12 @@ bool DwarfLinker::registerModuleReference(
 
   std::string Name = dwarf::toString(CUDie.find(dwarf::DW_AT_name), "");
   if (Name.empty()) {
-    reportWarning("Anonymous module skeleton CU for " + PCMfile, DMO);
+    if (!Quiet)
+      reportWarning("Anonymous module skeleton CU for " + PCMfile, DMO);
     return true;
   }
 
-  if (Options.Verbose) {
+  if (!Quiet && Options.Verbose) {
     outs().indent(Indent);
     outs() << "Found clang module reference " << PCMfile;
   }
@@ -1957,16 +2051,16 @@ bool DwarfLinker::registerModuleReference(
     // FIXME: Until PR27449 (https://llvm.org/bugs/show_bug.cgi?id=27449) is
     // fixed in clang, only warn about DWO_id mismatches in verbose mode.
     // ASTFileSignatures will change randomly when a module is rebuilt.
-    if (Options.Verbose && (Cached->second != DwoId))
+    if (!Quiet && Options.Verbose && (Cached->second != DwoId))
       reportWarning(Twine("hash mismatch: this object file was built against a "
                           "different version of the module ") +
                         PCMfile,
                     DMO);
-    if (Options.Verbose)
+    if (!Quiet && Options.Verbose)
       outs() << " [cached].\n";
     return true;
   }
-  if (Options.Verbose)
+  if (!Quiet && Options.Verbose)
     outs() << " ...\n";
 
   // Cyclic dependencies are disallowed by Clang, but we still
@@ -1974,7 +2068,7 @@ bool DwarfLinker::registerModuleReference(
   ClangModules.insert({PCMfile, DwoId});
   if (Error E = loadClangModule(PCMfile, PCMpath, Name, DwoId, ModuleMap, DMO,
                                 Ranges, StringPool, UniquingStringPool,
-                                ODRContexts, UnitID, Indent + 2)) {
+                                ODRContexts, UnitID, Indent + 2, Quiet)) {
     consumeError(std::move(E));
     return false;
   }
@@ -2003,14 +2097,12 @@ DwarfLinker::loadObject(const DebugMapObject &Obj, const DebugMap &Map) {
   return *Object;
 }
 
-Error DwarfLinker::loadClangModule(StringRef Filename, StringRef ModulePath,
-                                   StringRef ModuleName, uint64_t DwoId,
-                                   DebugMap &ModuleMap,
-                                   const DebugMapObject &DMO, RangesTy &Ranges,
-                                   OffsetsStringPool &StringPool,
-                                   UniquingStringPool &UniquingStringPool,
-                                   DeclContextTree &ODRContexts,
-                                   unsigned &UnitID, unsigned Indent) {
+Error DwarfLinker::loadClangModule(
+    StringRef Filename, StringRef ModulePath, StringRef ModuleName,
+    uint64_t DwoId, DebugMap &ModuleMap, const DebugMapObject &DMO,
+    RangesTy &Ranges, OffsetsStringPool &StringPool,
+    UniquingStringPool &UniquingStringPool, DeclContextTree &ODRContexts,
+    unsigned &UnitID, unsigned Indent, bool Quiet) {
   SmallString<80> Path(Options.PrependPath);
   if (sys::path::is_relative(Filename))
     sys::path::append(Path, ModulePath, Filename);
@@ -2063,16 +2155,16 @@ Error DwarfLinker::loadClangModule(StringRef Filename, StringRef ModulePath,
   // Setup access to the debug info.
   auto DwarfContext = DWARFContext::create(*ErrOrObj);
   RelocationManager RelocMgr(*this);
-  for (const auto &CU : DwarfContext->compile_units()) {
-    maybeUpdateMaxDwarfVersion(CU->getVersion());
 
+  for (const auto &CU : DwarfContext->compile_units()) {
+    updateDwarfVersion(CU->getVersion());
     // Recursively get all modules imported by this one.
     auto CUDie = CU->getUnitDIE(false);
     if (!CUDie)
       continue;
     if (!registerModuleReference(CUDie, *CU, ModuleMap, DMO, Ranges, StringPool,
                                  UniquingStringPool, ODRContexts, UnitID,
-                                 Indent)) {
+                                 Indent, Quiet)) {
       if (Unit) {
         std::string Err =
             (Filename +
@@ -2086,7 +2178,7 @@ Error DwarfLinker::loadClangModule(StringRef Filename, StringRef ModulePath,
       // ASTFileSignatures will change randomly when a module is rebuilt.
       uint64_t PCMDwoId = getDwoId(CUDie, *CU);
       if (PCMDwoId != DwoId) {
-        if (Options.Verbose)
+        if (!Quiet && Options.Verbose)
           reportWarning(
               Twine("hash mismatch: this object file was built against a "
                     "different version of the module ") +
@@ -2108,7 +2200,7 @@ Error DwarfLinker::loadClangModule(StringRef Filename, StringRef ModulePath,
   }
   if (!Unit->getOrigUnit().getUnitDIE().hasChildren())
     return Error::success();
-  if (Options.Verbose) {
+  if (!Quiet && Options.Verbose) {
     outs().indent(Indent);
     outs() << "cloning .debug_info from " << Filename << "\n";
   }
@@ -2169,6 +2261,26 @@ void DwarfLinker::DIECloner::cloneAllCompileUnits(
     if (!CurrentUnit->getOutputUnitDIE())
       continue;
     Linker.Streamer->emitDIE(*CurrentUnit->getOutputUnitDIE());
+  }
+}
+
+void DwarfLinker::updateAccelKind(DWARFContext &Dwarf) {
+  if (Options.TheAccelTableKind != AccelTableKind::Default)
+    return;
+
+  auto &DwarfObj = Dwarf.getDWARFObj();
+
+  if (!AtLeastOneDwarfAccelTable &&
+      (!DwarfObj.getAppleNamesSection().Data.empty() ||
+       !DwarfObj.getAppleTypesSection().Data.empty() ||
+       !DwarfObj.getAppleNamespacesSection().Data.empty() ||
+       !DwarfObj.getAppleObjCSection().Data.empty())) {
+    AtLeastOneAppleAccelTable = true;
+  }
+
+  if (!AtLeastOneDwarfAccelTable &&
+      !DwarfObj.getDebugNamesSection().Data.empty()) {
+    AtLeastOneDwarfAccelTable = true;
   }
 }
 
@@ -2245,8 +2357,12 @@ bool DwarfLinker::link(const DebugMap &Map) {
   unsigned NumObjects = Map.getNumberOfObjects();
   std::vector<LinkContext> ObjectContexts;
   ObjectContexts.reserve(NumObjects);
-  for (const auto &Obj : Map.objects())
+  for (const auto &Obj : Map.objects()) {
     ObjectContexts.emplace_back(Map, *this, *Obj.get());
+    LinkContext &LC = ObjectContexts.back();
+    if (LC.ObjectFile)
+      updateAccelKind(*LC.DwarfContext);
+  }
 
   // This Dwarf string pool which is only used for uniquing. This one should
   // never be used for offsets as its not thread-safe or predictable.
@@ -2259,6 +2375,19 @@ bool DwarfLinker::link(const DebugMap &Map) {
 
   // ODR Contexts for the link.
   DeclContextTree ODRContexts;
+
+  // If we haven't decided on an accelerator table kind yet, we base ourselves
+  // on the DWARF we have seen so far. At this point we haven't pulled in debug
+  // information from modules yet, so it is technically possible that they
+  // would affect the decision. However, as they're built with the same
+  // compiler and flags, it is safe to assume that they will follow the
+  // decision made here.
+  if (Options.TheAccelTableKind == AccelTableKind::Default) {
+    if (AtLeastOneDwarfAccelTable && !AtLeastOneAppleAccelTable)
+      Options.TheAccelTableKind = AccelTableKind::Dwarf;
+    else
+      Options.TheAccelTableKind = AccelTableKind::Apple;
+  }
 
   for (LinkContext &LinkContext : ObjectContexts) {
     if (Options.Verbose)
@@ -2325,7 +2454,9 @@ bool DwarfLinker::link(const DebugMap &Map) {
     // In a first phase, just read in the debug info and load all clang modules.
     LinkContext.CompileUnits.reserve(
         LinkContext.DwarfContext->getNumCompileUnits());
+
     for (const auto &CU : LinkContext.DwarfContext->compile_units()) {
+      updateDwarfVersion(CU->getVersion());
       auto CUDie = CU->getUnitDIE(false);
       if (Options.Verbose) {
         outs() << "Input compilation unit:";
@@ -2334,20 +2465,14 @@ bool DwarfLinker::link(const DebugMap &Map) {
         DumpOpts.Verbose = Options.Verbose;
         CUDie.dump(outs(), 0, DumpOpts);
       }
-
-      if (!CUDie || LLVM_UNLIKELY(Options.Update) ||
-          !registerModuleReference(CUDie, *CU, ModuleMap, LinkContext.DMO,
-                                   LinkContext.Ranges, OffsetsStringPool,
-                                   UniquingStringPool, ODRContexts, UnitID)) {
-        LinkContext.CompileUnits.push_back(llvm::make_unique<CompileUnit>(
-            *CU, UnitID++, !Options.NoODR && !Options.Update, ""));
-        maybeUpdateMaxDwarfVersion(CU->getVersion());
-      }
+      if (CUDie && !LLVM_UNLIKELY(Options.Update))
+        registerModuleReference(CUDie, *CU, ModuleMap, LinkContext.DMO,
+                                LinkContext.Ranges, OffsetsStringPool,
+                                UniquingStringPool, ODRContexts, UnitID);
     }
   }
 
-  // If we haven't seen any CUs, pick an arbitrary valid Dwarf version anyway,
-  // to be able to emit papertrail warnings.
+  // If we haven't seen any CUs, pick an arbitrary valid Dwarf version anyway.
   if (MaxDwarfVersion == 0)
     MaxDwarfVersion = 3;
 
@@ -2362,13 +2487,32 @@ bool DwarfLinker::link(const DebugMap &Map) {
     for (unsigned i = 0, e = NumObjects; i != e; ++i) {
       auto &LinkContext = ObjectContexts[i];
 
-      if (!LinkContext.ObjectFile) {
+      if (!LinkContext.ObjectFile || !LinkContext.DwarfContext) {
         std::unique_lock<std::mutex> LockGuard(ProcessedFilesMutex);
         ProcessedFiles.set(i);
         ProcessedFilesConditionVariable.notify_one();
         continue;
       }
 
+      for (const auto &CU : LinkContext.DwarfContext->compile_units()) {
+        updateDwarfVersion(CU->getVersion());
+        // The !registerModuleReference() condition effectively skips
+        // over fully resolved skeleton units. This second pass of
+        // registerModuleReferences doesn't do any new work, but it
+        // will collect top-level errors, which are suppressed. Module
+        // warnings were already displayed in the first iteration.
+        bool Quiet = true;
+        auto CUDie = CU->getUnitDIE(false);
+        if (!CUDie || LLVM_UNLIKELY(Options.Update) ||
+            !registerModuleReference(CUDie, *CU, ModuleMap, LinkContext.DMO,
+                                     LinkContext.Ranges, OffsetsStringPool,
+                                     UniquingStringPool, ODRContexts, UnitID,
+                                     Quiet)) {
+          LinkContext.CompileUnits.push_back(llvm::make_unique<CompileUnit>(
+              *CU, UnitID++, !Options.NoODR && !Options.Update, ""));
+        }
+      }
+      
       // Now build the DIE parent links that we will use during the next phase.
       for (auto &CurrentUnit : LinkContext.CompileUnits) {
         auto CUDie = CurrentUnit->getOrigUnit().getUnitDIE();
@@ -2444,10 +2588,20 @@ bool DwarfLinker::link(const DebugMap &Map) {
     if (!Options.NoOutput) {
       Streamer->emitAbbrevs(Abbreviations, MaxDwarfVersion);
       Streamer->emitStrings(OffsetsStringPool);
-      Streamer->emitAppleNames(AppleNames);
-      Streamer->emitAppleNamespaces(AppleNamespaces);
-      Streamer->emitAppleTypes(AppleTypes);
-      Streamer->emitAppleObjc(AppleObjc);
+      switch (Options.TheAccelTableKind) {
+      case AccelTableKind::Apple:
+        Streamer->emitAppleNames(AppleNames);
+        Streamer->emitAppleNamespaces(AppleNamespaces);
+        Streamer->emitAppleTypes(AppleTypes);
+        Streamer->emitAppleObjc(AppleObjc);
+        break;
+      case AccelTableKind::Dwarf:
+        Streamer->emitDebugNames(DebugNames);
+        break;
+      case AccelTableKind::Default:
+        llvm_unreachable("Default should have already been resolved.");
+        break;
+      }
     }
   };
 
@@ -2465,7 +2619,7 @@ bool DwarfLinker::link(const DebugMap &Map) {
   }
 
   return Options.NoOutput ? true : Streamer->finish(Map);
-}
+} // namespace dsymutil
 
 bool linkDwarf(raw_fd_ostream &OutFile, BinaryHolder &BinHolder,
                const DebugMap &DM, const LinkOptions &Options) {

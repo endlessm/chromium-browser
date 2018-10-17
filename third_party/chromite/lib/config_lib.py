@@ -10,6 +10,7 @@ from __future__ import print_function
 import copy
 import itertools
 import json
+import os
 
 from chromite.lib import constants
 from chromite.lib import memoize
@@ -32,15 +33,6 @@ CONFIG_TYPE_TOOLCHAIN = 'toolchain'
 
 DISPLAY_LABEL_PRECQ = 'pre_cq'
 DISPLAY_LABEL_TRYJOB = 'tryjob'
-
-# These are the build groups against which tryjobs can be directly run. All
-# other groups MUST be production builds (ie: use their -tryjob instead)
-# TODO: crbug.com/776955 Make the above statement true.
-TRYJOB_DISPLAY_LABEL = {
-    DISPLAY_LABEL_PRECQ,
-    DISPLAY_LABEL_TRYJOB,
-}
-
 DISPLAY_LABEL_INCREMENATAL = 'incremental'
 DISPLAY_LABEL_FULL = 'full'
 DISPLAY_LABEL_CHROME_INFORMATIONAL = 'chrome_informational'
@@ -59,7 +51,9 @@ DISPLAY_LABEL_UTILITY = 'utility'
 DISPLAY_LABEL_PRODUCTION_TRYJOB = 'production_tryjob'
 
 # This list of constants should be kept in sync with GoldenEye code.
-ALL_DISPLAY_LABEL = TRYJOB_DISPLAY_LABEL | {
+ALL_DISPLAY_LABEL = {
+    DISPLAY_LABEL_PRECQ,
+    DISPLAY_LABEL_TRYJOB,
     DISPLAY_LABEL_INCREMENATAL,
     DISPLAY_LABEL_FULL,
     DISPLAY_LABEL_CHROME_INFORMATIONAL,
@@ -94,6 +88,7 @@ ALL_LUCI_BUILDER = {
     LUCI_BUILDER_STAGING,
 }
 
+
 def isTryjobConfig(build_config):
   """Is a given build config a tryjob config, or a production config?
 
@@ -103,7 +98,7 @@ def isTryjobConfig(build_config):
   Returns:
     Boolean. True if it's a tryjob config.
   """
-  return build_config.display_label in TRYJOB_DISPLAY_LABEL
+  return build_config.luci_builder in (LUCI_BUILDER_TRY, LUCI_BUILDER_PRECQ)
 
 
 # In the Json, this special build config holds the default values for all
@@ -389,7 +384,7 @@ class TastVMTestConfig(object):
     timeout: Number of seconds to wait before timing out waiting for
              results.
   """
-  DEFAULT_TEST_TIMEOUT = 10 * 60
+  DEFAULT_TEST_TIMEOUT = 30 * 60
 
   def __init__(self, suite_name, test_exprs, timeout=DEFAULT_TEST_TIMEOUT):
     """Constructor -- see members above."""
@@ -514,7 +509,8 @@ class HWTestConfig(object):
                minimum_duts=0,
                suite_min_duts=0,
                suite_args=None,
-               offload_failures_only=False):
+               offload_failures_only=False,
+               enable_skylab=True):
     """Constructor -- see members above."""
     assert not async or not blocking
     assert not warn_only or not critical
@@ -533,6 +529,10 @@ class HWTestConfig(object):
     self.suite_min_duts = suite_min_duts
     self.suite_args = suite_args
     self.offload_failures_only = offload_failures_only
+    # Usually whether to run in skylab is controlled by 'enable_skylab_hw_test'
+    # in build config. But for some particular suites, we want to exclude them
+    # from Skylab even if the build config is migrated to Skylab.
+    self.enable_skylab = enable_skylab
 
   def SetBranchedValues(self):
     """Changes the HW Test timeout/priority values to branched values."""
@@ -935,12 +935,6 @@ def DefaultSettings():
       # Use a different branch of the project manifest for the build.
       manifest_branch=None,
 
-      # Use the Last Known Good Manifest blessed by Paladin.
-      use_lkgm=False,
-
-      # If we use_lkgm -- What is the name of the manifest to look for?
-      lkgm_manifest=constants.LKGM_MANIFEST,
-
       # LKGM for Chrome OS generated for Chrome builds that are blessed from
       # canary runs.
       use_chrome_lkgm=False,
@@ -979,9 +973,6 @@ def DefaultSettings():
 
       # Reexec into the buildroot after syncing.  Enabled by default.
       postsync_reexec=True,
-
-      # Create delta sysroot during ArchiveStage. Disabled by default.
-      create_delta_sysroot=False,
 
       # Run the binhost_test stage. Only makes sense for builders that have no
       # boards.
@@ -1032,6 +1023,12 @@ def DefaultSettings():
       image_test=False,
 
       # ==================================================================
+      # Workspace related options.
+
+      # Which branch should WorkspaceSyncStage checkout, if run.
+      workspace_branch=None,
+
+      # ==================================================================
       # The documentation associated with the config.
       doc=None,
 
@@ -1066,12 +1063,10 @@ def DefaultSettings():
   )
 
 
-def GerritInstanceParameters(name, instance, defaults=False):
+def GerritInstanceParameters(name, instance):
   GOB_HOST = '%s.googlesource.com'
   param_names = ['_GOB_INSTANCE', '_GERRIT_INSTANCE', '_GOB_HOST',
                  '_GERRIT_HOST', '_GOB_URL', '_GERRIT_URL']
-  if defaults:
-    return dict([('%s%s' % (name, x), None) for x in param_names])
 
   gob_instance = instance
   gerrit_instance = '%s-review' % instance
@@ -1094,10 +1089,14 @@ def DefaultSiteParameters():
   # Helper variables for defining site parameters.
   gob_host = '%s.googlesource.com'
 
+  manifest_project = 'chromiumos/manifest'
+  manifest_int_project = 'chromeos/manifest-internal'
   external_remote = 'cros'
   internal_remote = 'cros-internal'
   chromium_remote = 'chromium'
   chrome_remote = 'chrome'
+  aosp_remote = 'aosp'
+  weave_remote = 'weave'
 
   internal_change_prefix = '*'
   external_change_prefix = ''
@@ -1109,43 +1108,54 @@ def DefaultSiteParameters():
   default_site_params.update(
       GerritInstanceParameters('INTERNAL', 'chrome-internal'))
   default_site_params.update(
-      GerritInstanceParameters('AOSP', 'android', defaults=True))
+      GerritInstanceParameters('AOSP', 'android'))
   default_site_params.update(
-      GerritInstanceParameters('WEAVE', 'weave', defaults=True))
+      GerritInstanceParameters('WEAVE', 'weave'))
 
   default_site_params.update(
       # Parameters to define which manifests to use.
-      MANIFEST_PROJECT=None,
-      MANIFEST_INT_PROJECT=None,
-      MANIFEST_PROJECTS=None,
-      MANIFEST_URL=None,
-      MANIFEST_INT_URL=None,
+      MANIFEST_PROJECT=manifest_project,
+      MANIFEST_INT_PROJECT=manifest_int_project,
+      MANIFEST_PROJECTS=(manifest_project, manifest_int_project),
+      MANIFEST_URL=os.path.join(default_site_params['EXTERNAL_GOB_URL'],
+                                manifest_project),
+      MANIFEST_INT_URL=os.path.join(default_site_params['INTERNAL_GERRIT_URL'],
+                                    manifest_int_project),
 
       # CrOS remotes specified in the manifests.
       EXTERNAL_REMOTE=external_remote,
       INTERNAL_REMOTE=internal_remote,
-      GOB_REMOTES=None,
+      GOB_REMOTES={
+          default_site_params['EXTERNAL_GOB_INSTANCE']: external_remote,
+          default_site_params['INTERNAL_GOB_INSTANCE']: internal_remote,
+      },
       KAYLE_INTERNAL_REMOTE=None,
-      CHROMIUM_REMOTE=None,
-      CHROME_REMOTE=None,
-      AOSP_REMOTE=None,
-      WEAVE_REMOTE=None,
+      CHROMIUM_REMOTE=chromium_remote,
+      CHROME_REMOTE=chrome_remote,
+      AOSP_REMOTE=aosp_remote,
+      WEAVE_REMOTE=weave_remote,
 
       # Only remotes listed in CROS_REMOTES are considered branchable.
       # CROS_REMOTES and BRANCHABLE_PROJECTS must be kept in sync.
       GERRIT_HOSTS={
           external_remote: default_site_params['EXTERNAL_GERRIT_HOST'],
-          internal_remote: default_site_params['INTERNAL_GERRIT_HOST']
+          internal_remote: default_site_params['INTERNAL_GERRIT_HOST'],
+          aosp_remote: default_site_params['AOSP_GERRIT_HOST'],
+          weave_remote: default_site_params['WEAVE_GERRIT_HOST'],
       },
       CROS_REMOTES={
           external_remote: default_site_params['EXTERNAL_GOB_URL'],
-          internal_remote: default_site_params['INTERNAL_GOB_URL']
+          internal_remote: default_site_params['INTERNAL_GOB_URL'],
+          aosp_remote: default_site_params['AOSP_GOB_URL'],
+          weave_remote: default_site_params['WEAVE_GOB_URL'],
       },
       GIT_REMOTES={
           chromium_remote: default_site_params['EXTERNAL_GOB_URL'],
           chrome_remote: default_site_params['INTERNAL_GOB_URL'],
           external_remote: default_site_params['EXTERNAL_GOB_URL'],
           internal_remote: default_site_params['INTERNAL_GOB_URL'],
+          aosp_remote: default_site_params['AOSP_GOB_URL'],
+          weave_remote: default_site_params['WEAVE_GOB_URL'],
       },
 
       # Prefix to distinguish internal and external changes. This is used
@@ -1155,12 +1165,14 @@ def DefaultSiteParameters():
       INTERNAL_CHANGE_PREFIX=internal_change_prefix,
       EXTERNAL_CHANGE_PREFIX=external_change_prefix,
       CHANGE_PREFIX={
-          external_remote: internal_change_prefix,
-          internal_remote: external_change_prefix
+          external_remote: external_change_prefix,
+          internal_remote: internal_change_prefix,
       },
 
       # List of remotes that are okay to include in the external manifest.
-      EXTERNAL_REMOTES=None,
+      EXTERNAL_REMOTES=(
+          external_remote, chromium_remote, aosp_remote, weave_remote,
+      ),
 
       # Mapping 'remote name' -> regexp that matches names of repositories on
       # that remote that can be branched when creating CrOS branch.
@@ -1171,20 +1183,25 @@ def DefaultSiteParameters():
       # branchable.
       BRANCHABLE_PROJECTS={
           external_remote: r'(chromiumos|aosp)/(.+)',
-          internal_remote: r'chromeos/(.+)'
+          internal_remote: r'chromeos/(.+)',
       },
 
       # Additional parameters used to filter manifests, create modified
       # manifests, and to branch manifests.
-      MANIFEST_VERSIONS_GOB_URL=None,
-      MANIFEST_VERSIONS_GOB_URL_TEST=None,
-      MANIFEST_VERSIONS_INT_GOB_URL=None,
-      MANIFEST_VERSIONS_INT_GOB_URL_TEST=None,
-      MANIFEST_VERSIONS_GS_URL=None,
+      MANIFEST_VERSIONS_GOB_URL=('%s/chromiumos/manifest-versions' %
+                                 default_site_params['EXTERNAL_GOB_URL']),
+      MANIFEST_VERSIONS_GOB_URL_TEST=('%s/chromiumos/manifest-versions-test' %
+                                      default_site_params['EXTERNAL_GOB_URL']),
+      MANIFEST_VERSIONS_INT_GOB_URL=('%s/chromeos/manifest-versions' %
+                                     default_site_params['INTERNAL_GOB_URL']),
+      MANIFEST_VERSIONS_INT_GOB_URL_TEST=(
+          '%s/chromeos/manifest-versions-test' %
+          default_site_params['INTERNAL_GOB_URL']),
+      MANIFEST_VERSIONS_GS_URL='gs://chromeos-manifest-versions',
 
       # Standard directories under buildroot for cloning these repos.
-      EXTERNAL_MANIFEST_VERSIONS_PATH=None,
-      INTERNAL_MANIFEST_VERSIONS_PATH=None,
+      EXTERNAL_MANIFEST_VERSIONS_PATH='manifest-versions',
+      INTERNAL_MANIFEST_VERSIONS_PATH='manifest-versions-internal',
 
       # URL of the repo project.
       REPO_URL='https://chromium.googlesource.com/external/repo',
@@ -1196,15 +1213,8 @@ def DefaultSiteParameters():
   return default_site_params
 
 
-class SiteParameters(dict):
+class SiteParameters(AttrDict):
   """This holds the site-wide configuration parameters for a SiteConfig."""
-
-  def __getattr__(self, name):
-    """Support attribute-like access to each SiteValue entry."""
-    if name in self:
-      return self[name]
-
-    return super(SiteParameters, self).__getattribute__(name)
 
   @classmethod
   def HideDefaults(cls, site_params):
@@ -1372,7 +1382,7 @@ class SiteConfig(dict):
   def Add(self, name, template=None, *args, **kwargs):
     """Add a new BuildConfig to the SiteConfig.
 
-    Example usage:
+    Examples:
       # Creates default build named foo.
       site_config.Add('foo')
 
@@ -1884,3 +1894,18 @@ def GetConfig():
     SiteConfig instance to use for this build.
   """
   return LoadConfigFromFile(constants.CHROMEOS_CONFIG_FILE)
+
+
+@memoize.Memoize
+def GetSiteParams():
+  """Get the site parameter configs.
+
+  This is the new, preferred method of accessing the site parameters, instead of
+  SiteConfig.params.
+
+  Returns:
+    SiteParameters
+  """
+  site_params = SiteParameters()
+  site_params.update(DefaultSiteParameters())
+  return site_params

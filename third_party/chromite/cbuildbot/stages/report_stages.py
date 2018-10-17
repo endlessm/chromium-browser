@@ -20,12 +20,12 @@ from chromite.cbuildbot import goma_util
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages
-from chromite.lib.const import waterfall
 from chromite.lib import cidb
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import clactions
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_collections
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import git
@@ -41,9 +41,6 @@ from chromite.lib import risk_report
 from chromite.lib import toolchain
 from chromite.lib import tree_status
 from chromite.lib import triage_lib
-
-
-site_config = config_lib.GetConfig()
 
 
 def WriteBasicMetadata(builder_run):
@@ -214,6 +211,8 @@ class BuildStartStage(generic_stages.BuilderStage):
   build, and inserts the build into the database, if appropriate.
   """
 
+  category = constants.CI_INFRA_STAGE
+
   def _GetBuildTimeoutSeconds(self):
     """Get the overall build timeout to be published to cidb.
 
@@ -327,6 +326,8 @@ class BuildStartStage(generic_stages.BuilderStage):
 class SlaveFailureSummaryStage(generic_stages.BuilderStage):
   """Stage which summarizes and links to the failures of slave builds."""
 
+  category = constants.CI_INFRA_STAGE
+
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     if not self._run.config.master:
@@ -344,10 +345,10 @@ class SlaveFailureSummaryStage(generic_stages.BuilderStage):
     slave_buildbucket_ids = self.GetScheduledSlaveBuildbucketIds()
     slave_failures = db.GetSlaveFailures(
         build_id, buildbucket_ids=slave_buildbucket_ids)
-    failures_by_build = cros_build_lib.GroupNamedtuplesByKey(
+    failures_by_build = cros_collections.GroupNamedtuplesByKey(
         slave_failures, 'build_id')
     for build_id, build_failures in sorted(failures_by_build.items()):
-      failures_by_stage = cros_build_lib.GroupNamedtuplesByKey(
+      failures_by_stage = cros_collections.GroupNamedtuplesByKey(
           build_failures, 'build_stage_id')
       # Surface a link to each slave stage that failed, in stage_id sorted
       # order.
@@ -361,12 +362,8 @@ class SlaveFailureSummaryStage(generic_stages.BuilderStage):
         if (failure.stage_status != constants.BUILDER_STATUS_FAILED or
             failure.build_status == constants.BUILDER_STATUS_INFLIGHT):
           continue
-        waterfall_url = waterfall.WATERFALL_TO_DASHBOARD[failure.waterfall]
-        slave_stage_url = tree_status.ConstructBuildStageURL(
-            waterfall_url,
-            failure.builder_name,
-            failure.build_number,
-            failure.stage_name)
+        slave_stage_url = tree_status.ConstructLegolandBuildURL(
+            failure.buildbucket_id)
         logging.PrintBuildbotLink('%s %s' % (failure.build_config,
                                              failure.stage_name),
                                   slave_stage_url)
@@ -388,6 +385,8 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
   Where possible, metadata that is already known at this time should be
   written at this time rather than in ReportStage.
   """
+
+  category = constants.CI_INFRA_STAGE
 
   def _AbortPreviousHWTestSuites(self, milestone):
     """Abort any outstanding synchronous hwtest suites from this builder."""
@@ -415,6 +414,7 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
                   board=self._run.config.boards[0],
                   debug=False, # For tryjob
                   suite=suite_config.suite,
+                  priority=suite_config.priority,
                   pool=suite_config.pool)
             else:
               commands.AbortHWTests(self._run.config.name, old_version,
@@ -558,6 +558,8 @@ class ConfigDumpStage(generic_stages.BuilderStage):
   point the build is finalized.
   """
 
+  category = constants.CI_INFRA_STAGE
+
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     """Dump the running config to info logs."""
@@ -571,6 +573,7 @@ class ReportStage(generic_stages.BuilderStage,
   """Summarize all the builds."""
 
   _STATS_HISTORY_DAYS = 7
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, completion_instance, **kwargs):
     super(ReportStage, self).__init__(builder_run, **kwargs)
@@ -630,8 +633,9 @@ class ReportStage(generic_stages.BuilderStage,
     Returns:
       The new value of the streak counter.
     """
+    site_params = config_lib.GetSiteParams()
     gs_ctx = gs.GSContext(dry_run=dry_run)
-    counter_url = os.path.join(site_config.params.MANIFEST_VERSIONS_GS_URL,
+    counter_url = os.path.join(site_params.MANIFEST_VERSIONS_GS_URL,
                                constants.STREAK_COUNTERS,
                                counter_name)
     gs_counter = gs.GSCounter(gs_ctx, counter_url)
@@ -978,8 +982,8 @@ class ReportStage(generic_stages.BuilderStage,
           arches.append(toolchain.GetArchForTarget(default[0]))
         except cros_build_lib.RunCommandError as e:
           logging.warning(
-              'Unable to retrieve arch for board %s default toolchain %s: %s' %
-              (board, default, e))
+              'Unable to retrieve arch for board %s default toolchain %s: %s',
+              board, default, e)
     tags = {
         'arches': arches,
         'status': final_status,
@@ -1124,6 +1128,8 @@ class DetectRelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
   Changes relevant to this build will be logged to create links to them
   in the builder output.
   """
+
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, board, changes, suffix=None, **kwargs):
     super(DetectRelevantChangesStage, self).__init__(builder_run, board,

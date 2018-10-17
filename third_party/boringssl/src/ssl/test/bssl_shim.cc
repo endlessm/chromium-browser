@@ -70,6 +70,10 @@ OPENSSL_MSVC_PRAGMA(comment(lib, "Ws2_32.lib"))
 #include "test_config.h"
 #include "test_state.h"
 
+#if defined(OPENSSL_LINUX) && !defined(OPENSSL_ANDROID)
+#define HANDSHAKER_SUPPORTED
+#endif
+
 
 #if !defined(OPENSSL_WINDOWS)
 static int closesocket(int sock) {
@@ -88,20 +92,6 @@ static void PrintSocketError(const char *func) {
 static int Usage(const char *program) {
   fprintf(stderr, "Usage: %s [flags...]\n", program);
   return 1;
-}
-
-// MoveBIOs moves the |BIO|s of |src| to |dst|.  It is used for handoff.
-static void MoveBIOs(SSL *dest, SSL *src) {
-  BIO *rbio = SSL_get_rbio(src);
-  BIO_up_ref(rbio);
-  SSL_set0_rbio(dest, rbio);
-
-  BIO *wbio = SSL_get_wbio(src);
-  BIO_up_ref(wbio);
-  SSL_set0_wbio(dest, wbio);
-
-  SSL_set0_rbio(src, nullptr);
-  SSL_set0_wbio(src, nullptr);
 }
 
 template<typename T>
@@ -465,7 +455,10 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
     }
   }
 
-  if (config->is_server && !GetTestState(ssl)->early_callback_called) {
+  // early_callback_called is updated in the handshaker, so we don't see it
+  // here.
+  if (!config->handoff && config->is_server &&
+      !GetTestState(ssl)->early_callback_called) {
     fprintf(stderr, "early callback not called\n");
     return false;
   }
@@ -627,17 +620,9 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
     return false;
   }
 
-  if (config->expect_draft_downgrade != !!SSL_is_draft_downgrade(ssl)) {
-    fprintf(stderr, "Got %sdraft downgrade signal, but wanted the opposite.\n",
-            SSL_is_draft_downgrade(ssl) ? "" : "no ");
-    return false;
-  }
-
-  const bool did_dummy_pq_padding = !!SSL_dummy_pq_padding_used(ssl);
-  if (config->expect_dummy_pq_padding != did_dummy_pq_padding) {
-    fprintf(stderr,
-            "Dummy PQ padding %s observed, but expected the opposite.\n",
-            did_dummy_pq_padding ? "was" : "was not");
+  if (config->expect_tls13_downgrade != !!SSL_is_tls13_downgrade(ssl)) {
+    fprintf(stderr, "Got %s downgrade signal, but wanted the opposite.\n",
+            SSL_is_tls13_downgrade(ssl) ? "" : "no ");
     return false;
   }
 
@@ -759,76 +744,25 @@ static bool DoConnection(bssl::UniquePtr<SSL_SESSION> *out_session,
   return true;
 }
 
-static bool HandoffReady(SSL *ssl, int ret) {
-  return ret < 0 && SSL_get_error(ssl, ret) == SSL_ERROR_HANDOFF;
-}
-
-static bool HandbackReady(SSL *ssl, int ret) {
-  return ret < 0 && SSL_get_error(ssl, ret) == SSL_ERROR_HANDBACK;
-}
-
 static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session,
                        bssl::UniquePtr<SSL> *ssl_uniqueptr,
                        const TestConfig *config, bool is_resume, bool is_retry,
                        SettingsWriter *writer) {
   int ret;
   SSL *ssl = ssl_uniqueptr->get();
-  SSL_CTX *session_ctx = ssl->ctx;
+  SSL_CTX *session_ctx = SSL_get_SSL_CTX(ssl);
 
   if (!config->implicit_handshake) {
     if (config->handoff) {
-      bssl::UniquePtr<SSL_CTX> ctx_handoff = config->SetupCtx(ssl->ctx);
-      if (!ctx_handoff) {
+#if defined(HANDSHAKER_SUPPORTED)
+      if (!DoSplitHandshake(ssl_uniqueptr, writer, is_resume)) {
         return false;
       }
-      SSL_CTX_set_handoff_mode(ctx_handoff.get(), 1);
-
-      bssl::UniquePtr<SSL> ssl_handoff =
-          config->NewSSL(ctx_handoff.get(), nullptr, false, nullptr);
-      if (!ssl_handoff) {
-        return false;
-      }
-      SSL_set_accept_state(ssl_handoff.get());
-      if (!MoveTestConfig(ssl_handoff.get(), ssl) ||
-          !MoveTestState(ssl_handoff.get(), ssl)) {
-        return false;
-      }
-      MoveBIOs(ssl_handoff.get(), ssl);
-
-      do {
-        ret = CheckIdempotentError("SSL_do_handshake", ssl_handoff.get(),
-                                   [&]() -> int {
-          return SSL_do_handshake(ssl_handoff.get());
-        });
-      } while (!HandoffReady(ssl_handoff.get(), ret) &&
-               config->async &&
-               RetryAsync(ssl_handoff.get(), ret));
-
-      if (!HandoffReady(ssl_handoff.get(), ret)) {
-        fprintf(stderr, "Handshake failed while waiting for handoff.\n");
-        return false;
-      }
-
-      bssl::ScopedCBB cbb;
-      bssl::Array<uint8_t> handoff;
-      if (!CBB_init(cbb.get(), 512) ||
-          !SSL_serialize_handoff(ssl_handoff.get(), cbb.get()) ||
-          !CBBFinishArray(cbb.get(), &handoff) ||
-          !writer->WriteHandoff(handoff)) {
-        fprintf(stderr, "Handoff serialisation failed.\n");
-        return false;
-      }
-
-      MoveBIOs(ssl, ssl_handoff.get());
-      if (!MoveTestConfig(ssl, ssl_handoff.get()) ||
-          !MoveTestState(ssl, ssl_handoff.get())) {
-        return false;
-      }
-
-      if (!SSL_apply_handoff(ssl, handoff)) {
-        fprintf(stderr, "Handoff application failed.\n");
-        return false;
-      }
+      ssl = ssl_uniqueptr->get();
+#else
+      fprintf(stderr, "The external handshaker can only be used on Linux\n");
+      return false;
+#endif
     }
 
     do {
@@ -836,52 +770,6 @@ static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session,
         return SSL_do_handshake(ssl);
       });
     } while (config->async && RetryAsync(ssl, ret));
-
-    if (config->handoff) {
-      if (!HandbackReady(ssl, ret)) {
-        fprintf(stderr, "Connection failed to handback.\n");
-        return false;
-      }
-
-      bssl::ScopedCBB cbb;
-      bssl::Array<uint8_t> handback;
-      if (!CBB_init(cbb.get(), 512) ||
-          !SSL_serialize_handback(ssl, cbb.get()) ||
-          !CBBFinishArray(cbb.get(), &handback) ||
-          !writer->WriteHandback(handback)) {
-        fprintf(stderr, "Handback serialisation failed.\n");
-        return false;
-      }
-
-      bssl::UniquePtr<SSL_CTX> ctx_handback = config->SetupCtx(ssl->ctx);
-      if (!ctx_handback) {
-        return false;
-      }
-      bssl::UniquePtr<SSL> ssl_handback =
-          config->NewSSL(ctx_handback.get(), nullptr, false, nullptr);
-      if (!ssl_handback) {
-        return false;
-      }
-      MoveBIOs(ssl_handback.get(), ssl);
-      if (!MoveTestConfig(ssl_handback.get(), ssl) ||
-          !MoveTestState(ssl_handback.get(), ssl)) {
-        return false;
-      }
-
-      if (!SSL_apply_handback(ssl_handback.get(), handback)) {
-        fprintf(stderr, "Applying handback failed.\n");
-        return false;
-      }
-
-      *ssl_uniqueptr = std::move(ssl_handback);
-      ssl = ssl_uniqueptr->get();
-
-      do {
-        ret = CheckIdempotentError("SSL_do_handshake", ssl, [&]() -> int {
-          return SSL_do_handshake(ssl);
-        });
-      } while (config->async && RetryAsync(ssl, ret));
-    }
 
     if (config->forbid_renegotiation_after_handshake) {
       SSL_set_renegotiate_mode(ssl, ssl_renegotiate_never);
@@ -891,7 +779,7 @@ static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session,
       return false;
     }
 
-    CopySessions(session_ctx, ssl->ctx);
+    CopySessions(session_ctx, SSL_get_SSL_CTX(ssl));
 
     if (is_resume && !is_retry && !config->is_server &&
         config->expect_no_offer_early_data && SSL_in_early_data(ssl)) {
@@ -1206,6 +1094,15 @@ int main(int argc, char **argv) {
   if (!ParseConfig(argc - 1, argv + 1, &initial_config, &resume_config,
                    &retry_config)) {
     return Usage(argv[0]);
+  }
+
+  if (initial_config.is_handshaker_supported) {
+#if defined(HANDSHAKER_SUPPORTED)
+    printf("Yes\n");
+#else
+    printf("No\n");
+#endif
+    return 0;
   }
 
   bssl::UniquePtr<SSL_CTX> ssl_ctx;

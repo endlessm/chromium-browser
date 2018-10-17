@@ -12,6 +12,7 @@
 #include <limits>
 #include <set>
 #include <sstream>
+#include <utility>
 
 #include "base/base64.h"
 #include "base/bind.h"
@@ -21,19 +22,21 @@
 #include "base/format_macros.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_info.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/values.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/app_mode/arc/arc_kiosk_app_manager.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
+#include "chrome/browser/chromeos/crostini/crostini_pref_names.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
@@ -44,10 +47,14 @@
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/policy/profile_policy_connector_factory.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/audio/cras_audio_handler.h"
+#include "chromeos/dbus/cryptohome/rpc.pb.h"
+#include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/power_manager/idle.pb.h"
 #include "chromeos/dbus/update_engine_client.h"
 #include "chromeos/dbus/util/version_loader.h"
 #include "chromeos/disks/disk_mount_manager.h"
@@ -63,11 +70,13 @@
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/common/enterprise_reporting.mojom.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/policy/core/common/cloud/cloud_policy_util.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/session_manager/session_manager_types.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
@@ -107,6 +116,10 @@ const char kCPUTempFilePattern[] = "temp*_input";
 // Activity periods are keyed with day and user in format:
 // '<day_timestamp>:<BASE64 encoded user email>'
 constexpr char kActivityKeySeparator = ':';
+
+// How often the child's usage time is stored.
+static constexpr base::TimeDelta kUpdateChildActiveTimeInterval =
+    base::TimeDelta::FromSeconds(30);
 
 // Helper function (invoked via blocking pool) to fetch information about
 // mounted disks.
@@ -246,6 +259,57 @@ bool ReadAndroidStatus(
   return true;
 }
 
+// Converts the given GetTpmStatusReply to TpmStatusInfo.
+policy::TpmStatusInfo GetTpmStatusReplyToTpmStatusInfo(
+    const base::Optional<cryptohome::BaseReply>& reply) {
+  policy::TpmStatusInfo tpm_status_info;
+
+  if (!reply.has_value()) {
+    LOG(ERROR) << "GetTpmStatus call failed with empty reply.";
+    return tpm_status_info;
+  }
+  if (reply->has_error() &&
+      reply->error() != cryptohome::CRYPTOHOME_ERROR_NOT_SET) {
+    LOG(ERROR) << "GetTpmStatus failed with error: " << reply->error();
+    return tpm_status_info;
+  }
+  if (!reply->HasExtension(cryptohome::GetTpmStatusReply::reply)) {
+    LOG(ERROR)
+        << "GetTpmStatus failed with no GetTpmStatusReply extension in reply.";
+    return tpm_status_info;
+  }
+
+  auto reply_proto = reply->GetExtension(cryptohome::GetTpmStatusReply::reply);
+
+  tpm_status_info.enabled = reply_proto.enabled();
+  tpm_status_info.owned = reply_proto.owned();
+  tpm_status_info.initialized = reply_proto.initialized();
+  tpm_status_info.attestation_prepared = reply_proto.attestation_prepared();
+  tpm_status_info.attestation_enrolled = reply_proto.attestation_enrolled();
+  tpm_status_info.dictionary_attack_counter =
+      reply_proto.dictionary_attack_counter();
+  tpm_status_info.dictionary_attack_threshold =
+      reply_proto.dictionary_attack_threshold();
+  tpm_status_info.dictionary_attack_lockout_in_effect =
+      reply_proto.dictionary_attack_lockout_in_effect();
+  tpm_status_info.dictionary_attack_lockout_seconds_remaining =
+      reply_proto.dictionary_attack_lockout_seconds_remaining();
+  tpm_status_info.boot_lockbox_finalized = reply_proto.boot_lockbox_finalized();
+
+  return tpm_status_info;
+}
+
+void ReadTpmStatus(policy::DeviceStatusCollector::TpmStatusReceiver callback) {
+  chromeos::DBusThreadManager::Get()->GetCryptohomeClient()->GetTpmStatus(
+      cryptohome::GetTpmStatusRequest(),
+      base::BindOnce(
+          [](policy::DeviceStatusCollector::TpmStatusReceiver callback,
+             base::Optional<cryptohome::BaseReply> reply) {
+            std::move(callback).Run(GetTpmStatusReplyToTpmStatusInfo(reply));
+          },
+          std::move(callback)));
+}
+
 // Returns the DeviceLocalAccount associated with the current kiosk session.
 // Returns null if there is no active kiosk session, or if that kiosk
 // session has been removed from policy since the session started, in which
@@ -362,7 +426,7 @@ class GetStatusState : public base::RefCountedThreadSafe<GetStatusState> {
 
     // Call out to the blocking pool to sample disk volume info.
     base::PostTaskWithTraitsAndReplyWithResult(
-        FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
         base::Bind(volume_info_fetcher, mount_points),
         base::Bind(&GetStatusState::OnVolumeInfoReceived, this));
   }
@@ -372,7 +436,7 @@ class GetStatusState : public base::RefCountedThreadSafe<GetStatusState> {
       const policy::DeviceStatusCollector::CPUTempFetcher& cpu_temp_fetcher) {
     // Call out to the blocking pool to sample CPU temp.
     base::PostTaskWithTraitsAndReplyWithResult(
-        FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
         cpu_temp_fetcher,
         base::Bind(&GetStatusState::OnCPUTempInfoReceived, this));
   }
@@ -382,6 +446,17 @@ class GetStatusState : public base::RefCountedThreadSafe<GetStatusState> {
           android_status_fetcher) {
     return android_status_fetcher.Run(
         base::Bind(&GetStatusState::OnAndroidInfoReceived, this));
+  }
+
+  // Queues an async callback to query TPM status information.
+  void FetchTpmStatus(const policy::DeviceStatusCollector::TpmStatusFetcher&
+                          tpm_status_fetcher) {
+    // Call out to the blocking pool to get TPM status information.
+    base::PostTaskWithTraits(
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+        base::BindOnce(
+            tpm_status_fetcher,
+            base::BindOnce(&GetStatusState::OnTpmStatusReceived, this)));
   }
 
  private:
@@ -420,6 +495,29 @@ class GetStatusState : public base::RefCountedThreadSafe<GetStatusState> {
     android_status->set_droid_guard_info(droid_guard_info);
   }
 
+  void OnTpmStatusReceived(const TpmStatusInfo& tpm_status_struct) {
+    em::TpmStatusInfo* const tpm_status_proto =
+        device_status_->mutable_tpm_status_info();
+
+    tpm_status_proto->set_enabled(tpm_status_struct.enabled);
+    tpm_status_proto->set_owned(tpm_status_struct.owned);
+    tpm_status_proto->set_initialized(tpm_status_struct.initialized);
+    tpm_status_proto->set_attestation_prepared(
+        tpm_status_struct.attestation_prepared);
+    tpm_status_proto->set_attestation_enrolled(
+        tpm_status_struct.attestation_enrolled);
+    tpm_status_proto->set_dictionary_attack_counter(
+        tpm_status_struct.dictionary_attack_counter);
+    tpm_status_proto->set_dictionary_attack_threshold(
+        tpm_status_struct.dictionary_attack_threshold);
+    tpm_status_proto->set_dictionary_attack_lockout_in_effect(
+        tpm_status_struct.dictionary_attack_lockout_in_effect);
+    tpm_status_proto->set_dictionary_attack_lockout_seconds_remaining(
+        tpm_status_struct.dictionary_attack_lockout_seconds_remaining);
+    tpm_status_proto->set_boot_lockbox_finalized(
+        tpm_status_struct.boot_lockbox_finalized);
+  }
+
   const scoped_refptr<base::SequencedTaskRunner> task_runner_;
   policy::DeviceStatusCollector::StatusCallback response_;
   std::unique_ptr<em::DeviceStatusReportRequest> device_status_ =
@@ -450,7 +548,8 @@ class DeviceStatusCollector::ActivityStorage {
   // represents the distance from midnight.
   ActivityStorage(PrefService* pref_service,
                   const std::string& pref_name,
-                  TimeDelta activity_day_start);
+                  TimeDelta activity_day_start,
+                  bool is_enterprise_reporting);
   ~ActivityStorage();
 
   // Adds an activity period. Accepts empty |active_user_email| if it should not
@@ -492,6 +591,7 @@ class DeviceStatusCollector::ActivityStorage {
   void ProcessActivityPeriods(const base::DictionaryValue& activity_times,
                               const std::vector<std::string>& reporting_users,
                               base::DictionaryValue* const filtered_times);
+  void StoreChildScreenTime(Time activity_day_start, TimeDelta activity);
 
   // Determine the day key (milliseconds since epoch for corresponding
   // |day_start_| in UTC) for a given |timestamp|.
@@ -504,16 +604,47 @@ class DeviceStatusCollector::ActivityStorage {
   // from midnight.
   const TimeDelta day_start_;
 
+  // Whether reporting is for enterprise or consumer.
+  bool is_enterprise_reporting_ = false;
+
   DISALLOW_COPY_AND_ASSIGN(ActivityStorage);
 };
+
+TpmStatusInfo::TpmStatusInfo() = default;
+TpmStatusInfo::TpmStatusInfo(const TpmStatusInfo&) = default;
+TpmStatusInfo::TpmStatusInfo(
+    bool enabled,
+    bool owned,
+    bool initialized,
+    bool attestation_prepared,
+    bool attestation_enrolled,
+    int32_t dictionary_attack_counter,
+    int32_t dictionary_attack_threshold,
+    bool dictionary_attack_lockout_in_effect,
+    int32_t dictionary_attack_lockout_seconds_remaining,
+    bool boot_lockbox_finalized)
+    : enabled(enabled),
+      owned(owned),
+      initialized(initialized),
+      attestation_prepared(attestation_prepared),
+      attestation_enrolled(attestation_enrolled),
+      dictionary_attack_counter(dictionary_attack_counter),
+      dictionary_attack_threshold(dictionary_attack_threshold),
+      dictionary_attack_lockout_in_effect(dictionary_attack_lockout_in_effect),
+      dictionary_attack_lockout_seconds_remaining(
+          dictionary_attack_lockout_seconds_remaining),
+      boot_lockbox_finalized(boot_lockbox_finalized) {}
+TpmStatusInfo::~TpmStatusInfo() = default;
 
 DeviceStatusCollector::ActivityStorage::ActivityStorage(
     PrefService* pref_service,
     const std::string& pref_name,
-    TimeDelta activity_day_start)
+    TimeDelta activity_day_start,
+    bool is_enterprise_reporting)
     : pref_service_(pref_service),
       pref_name_(pref_name),
-      day_start_(activity_day_start) {
+      day_start_(activity_day_start),
+      is_enterprise_reporting_(is_enterprise_reporting) {
   DCHECK(pref_service_);
   const PrefService::PrefInitializationStatus pref_service_status =
       pref_service_->GetInitializationStatus();
@@ -545,6 +676,15 @@ void DeviceStatusCollector::ActivityStorage::AddActivityPeriod(
     int previous_activity = 0;
     activity_times->GetInteger(key, &previous_activity);
     activity_times->SetInteger(key, previous_activity + activity);
+
+    // If the user is a child, the child screen time pref may need to be
+    // updated.
+    if (user_manager::UserManager::Get()->IsLoggedInAsChildUser() &&
+        !is_enterprise_reporting_) {
+      StoreChildScreenTime(day_start - TimeDelta::FromDays(1),
+                           TimeDelta::FromMilliseconds(activity));
+    }
+
     start = day_start;
   }
 }
@@ -696,6 +836,28 @@ int64_t DeviceStatusCollector::ActivityStorage::TimestampToDayKey(
   return out_time.ToJavaTime();
 }
 
+void DeviceStatusCollector::ActivityStorage::StoreChildScreenTime(
+    Time activity_day_start,
+    TimeDelta activity) {
+  DCHECK(user_manager::UserManager::Get()->IsLoggedInAsChildUser() &&
+         !is_enterprise_reporting_);
+
+  // Today's start time.
+  Time today_start = Time::Now().LocalMidnight() + day_start_;
+
+  TimeDelta previous_activity = TimeDelta::FromMilliseconds(
+      pref_service_->GetInteger(prefs::kChildScreenTimeMilliseconds));
+
+  // If this activity window belongs to the current day, the screen time pref
+  // should be updated.
+  if (activity_day_start >= today_start) {
+    pref_service_->SetInteger(prefs::kChildScreenTimeMilliseconds,
+                              (previous_activity + activity).InMilliseconds());
+    pref_service_->SetTime(prefs::kLastChildScreenTimeSaved, Time::Now());
+  }
+  pref_service_->CommitPendingWrite();
+}
+
 DeviceStatusCollector::DeviceStatusCollector(
     PrefService* pref_service,
     chromeos::system::StatisticsProvider* provider,
@@ -703,19 +865,27 @@ DeviceStatusCollector::DeviceStatusCollector(
     const CPUStatisticsFetcher& cpu_statistics_fetcher,
     const CPUTempFetcher& cpu_temp_fetcher,
     const AndroidStatusFetcher& android_status_fetcher,
+    const TpmStatusFetcher& tpm_status_fetcher,
     TimeDelta activity_day_start,
     bool is_enterprise_reporting)
     : max_stored_past_activity_interval_(kMaxStoredPastActivityInterval),
       max_stored_future_activity_interval_(kMaxStoredFutureActivityInterval),
       pref_service_(pref_service),
       last_idle_check_(Time()),
+      last_active_check_(base::Time()),
+      last_state_active_(true),
       volume_info_fetcher_(volume_info_fetcher),
       cpu_statistics_fetcher_(cpu_statistics_fetcher),
       cpu_temp_fetcher_(cpu_temp_fetcher),
       android_status_fetcher_(android_status_fetcher),
+      tpm_status_fetcher_(tpm_status_fetcher),
       statistics_provider_(provider),
       cros_settings_(chromeos::CrosSettings::Get()),
+      power_manager_(
+          chromeos::DBusThreadManager::Get()->GetPowerManagerClient()),
+      session_manager_(session_manager::SessionManager::Get()),
       is_enterprise_reporting_(is_enterprise_reporting),
+      activity_day_start_(activity_day_start),
       task_runner_(nullptr),
       weak_factory_(this) {
   // Get the task runner of the current thread, so we can queue status responses
@@ -735,18 +905,23 @@ DeviceStatusCollector::DeviceStatusCollector(
   if (android_status_fetcher_.is_null())
     android_status_fetcher_ = base::Bind(&ReadAndroidStatus);
 
+  if (tpm_status_fetcher_.is_null())
+    tpm_status_fetcher_ = base::BindRepeating(&ReadTpmStatus);
+
   idle_poll_timer_.Start(FROM_HERE,
-                         TimeDelta::FromSeconds(kIdlePollIntervalSeconds),
-                         this, &DeviceStatusCollector::CheckIdleState);
+                         TimeDelta::FromSeconds(kIdlePollIntervalSeconds), this,
+                         &DeviceStatusCollector::CheckIdleState);
+  update_child_usage_timer_.Start(FROM_HERE, kUpdateChildActiveTimeInterval,
+                                  this,
+                                  &DeviceStatusCollector::UpdateChildUsageTime);
   resource_usage_sampling_timer_.Start(
       FROM_HERE, TimeDelta::FromSeconds(kResourceUsageSampleIntervalSeconds),
       this, &DeviceStatusCollector::SampleResourceUsage);
 
   // Watch for changes to the individual policies that control what the status
   // reports contain.
-  base::Closure callback =
-      base::Bind(&DeviceStatusCollector::UpdateReportingSettings,
-                 base::Unretained(this));
+  base::Closure callback = base::Bind(
+      &DeviceStatusCollector::UpdateReportingSettings, base::Unretained(this));
   version_info_subscription_ = cros_settings_->AddSettingsObserver(
       chromeos::kReportDeviceVersionInfo, callback);
   activity_times_subscription_ = cros_settings_->AddSettingsObserver(
@@ -766,24 +941,27 @@ DeviceStatusCollector::DeviceStatusCollector(
   running_kiosk_app_subscription_ = cros_settings_->AddSettingsObserver(
       chromeos::kReportRunningKioskApp, callback);
 
+  // Watch for changes on the device state to calculate the child's active time.
+  power_manager_->AddObserver(this);
+  session_manager_->AddObserver(this);
+
   // Fetch the current values of the policies.
   UpdateReportingSettings();
 
   // Get the OS, firmware, and TPM version info.
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::Bind(&chromeos::version_loader::GetVersion,
                  chromeos::version_loader::VERSION_FULL),
       base::Bind(&DeviceStatusCollector::OnOSVersion,
                  weak_factory_.GetWeakPtr()));
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::Bind(&chromeos::version_loader::GetFirmware),
       base::Bind(&DeviceStatusCollector::OnOSFirmware,
                  weak_factory_.GetWeakPtr()));
-  chromeos::version_loader::GetTpmVersion(
-      base::BindOnce(&DeviceStatusCollector::OnTpmVersion,
-                     weak_factory_.GetWeakPtr()));
+  chromeos::version_loader::GetTpmVersion(base::BindOnce(
+      &DeviceStatusCollector::OnTpmVersion, weak_factory_.GetWeakPtr()));
 
   // If doing enterprise device-level reporting, observe the list of users to be
   // reported. Consumer reporting is enforced for the signed-in registered user
@@ -803,10 +981,12 @@ DeviceStatusCollector::DeviceStatusCollector(
       pref_service_,
       (is_enterprise_reporting_ ? prefs::kDeviceActivityTimes
                                 : prefs::kUserActivityTimes),
-      activity_day_start);
+      activity_day_start, is_enterprise_reporting_);
 }
 
 DeviceStatusCollector::~DeviceStatusCollector() {
+  power_manager_->RemoveObserver(this);
+  session_manager_->RemoveObserver(this);
 }
 
 // static
@@ -820,12 +1000,24 @@ void DeviceStatusCollector::RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kReportArcStatusEnabled, false);
   registry->RegisterDictionaryPref(prefs::kUserActivityTimes,
                                    std::make_unique<base::DictionaryValue>());
+  registry->RegisterTimePref(prefs::kLastChildScreenTimeReset, Time());
+  registry->RegisterTimePref(prefs::kLastChildScreenTimeSaved, Time());
+  registry->RegisterIntegerPref(prefs::kChildScreenTimeMilliseconds, 0);
+}
+
+TimeDelta DeviceStatusCollector::GetActiveChildScreenTime() {
+  if (!user_manager::UserManager::Get()->IsLoggedInAsChildUser())
+    return TimeDelta::FromSeconds(0);
+
+  UpdateChildUsageTime();
+  return TimeDelta::FromMilliseconds(
+      pref_service_->GetInteger(prefs::kChildScreenTimeMilliseconds));
 }
 
 void DeviceStatusCollector::CheckIdleState() {
   CalculateIdleState(kIdleStateThresholdSeconds,
-      base::Bind(&DeviceStatusCollector::IdleStateCallback,
-                 base::Unretained(this)));
+                     base::Bind(&DeviceStatusCollector::IdleStateCallback,
+                                base::Unretained(this)));
 }
 
 void DeviceStatusCollector::UpdateReportingSettings() {
@@ -834,13 +1026,13 @@ void DeviceStatusCollector::UpdateReportingSettings() {
   // back when they are available.
   if (chromeos::CrosSettingsProvider::TRUSTED !=
       cros_settings_->PrepareTrustedValues(
-      base::Bind(&DeviceStatusCollector::UpdateReportingSettings,
-                 weak_factory_.GetWeakPtr()))) {
+          base::Bind(&DeviceStatusCollector::UpdateReportingSettings,
+                     weak_factory_.GetWeakPtr()))) {
     return;
   }
 
-  if (!cros_settings_->GetBoolean(
-          chromeos::kReportDeviceVersionInfo, &report_version_info_)) {
+  if (!cros_settings_->GetBoolean(chromeos::kReportDeviceVersionInfo,
+                                  &report_version_info_)) {
     report_version_info_ = true;
   }
   if (!is_enterprise_reporting_) {
@@ -851,8 +1043,8 @@ void DeviceStatusCollector::UpdateReportingSettings() {
                                          &report_activity_times_)) {
     report_activity_times_ = true;
   }
-  if (!cros_settings_->GetBoolean(
-          chromeos::kReportDeviceBootMode, &report_boot_mode_)) {
+  if (!cros_settings_->GetBoolean(chromeos::kReportDeviceBootMode,
+                                  &report_boot_mode_)) {
     report_boot_mode_ = true;
   }
   if (!cros_settings_->GetBoolean(chromeos::kReportDeviceSessionStatus,
@@ -871,8 +1063,8 @@ void DeviceStatusCollector::UpdateReportingSettings() {
   }
   // Hardware status is reported for enterprise devices only by default.
   const bool already_reporting_hardware_status = report_hardware_status_;
-  if (!cros_settings_->GetBoolean(
-          chromeos::kReportDeviceHardwareStatus, &report_hardware_status_)) {
+  if (!cros_settings_->GetBoolean(chromeos::kReportDeviceHardwareStatus,
+                                  &report_hardware_status_)) {
     report_hardware_status_ = is_enterprise_reporting_;
   }
 
@@ -906,18 +1098,18 @@ void DeviceStatusCollector::ClearCachedResourceUsage() {
 }
 
 void DeviceStatusCollector::IdleStateCallback(ui::IdleState state) {
-  // Do nothing if device activity reporting is disabled.
-  if (!report_activity_times_)
+  // Do nothing if device activity reporting is disabled or if it's a child
+  // account. Usage time for child accounts are calculated differently.
+  if (!report_activity_times_ || !is_enterprise_reporting_ ||
+      user_manager::UserManager::Get()->IsLoggedInAsChildUser()) {
     return;
+  }
 
   Time now = GetCurrentTime();
 
   // For kiosk apps we report total uptime instead of active time.
   if (state == ui::IDLE_STATE_ACTIVE || IsKioskApp()) {
-    // Child user is the consumer user registered with DMServer and
-    // therefore eligible for non-enterprise reporting.
-    CHECK(is_enterprise_reporting_ ||
-          user_manager::UserManager::Get()->IsLoggedInAsChildUser());
+    CHECK(is_enterprise_reporting_);
     std::string user_email = GetUserForActivityReporting();
     // If it's been too long since the last report, or if the activity is
     // negative (which can happen when the clock changes), assume a single
@@ -937,6 +1129,71 @@ void DeviceStatusCollector::IdleStateCallback(ui::IdleState state) {
         max_stored_future_activity_interval_);
   }
   last_idle_check_ = now;
+}
+
+void DeviceStatusCollector::OnSessionStateChanged() {
+  UpdateChildUsageTime();
+  last_state_active_ =
+      session_manager::SessionManager::Get()->session_state() ==
+      session_manager::SessionState::ACTIVE;
+}
+
+void DeviceStatusCollector::ScreenIdleStateChanged(
+    const power_manager::ScreenIdleState& state) {
+  UpdateChildUsageTime();
+  // It is active if screen is on and if the session is also active.
+  last_state_active_ =
+      !state.off() && session_manager_->session_state() ==
+                          session_manager::SessionState::ACTIVE;
+}
+
+void DeviceStatusCollector::SuspendImminent(
+    power_manager::SuspendImminent::Reason reason) {
+  UpdateChildUsageTime();
+  // Device is going to be suspeded, so it won't be active.
+  last_state_active_ = false;
+}
+
+void DeviceStatusCollector::SuspendDone(const base::TimeDelta& sleep_duration) {
+  UpdateChildUsageTime();
+  // Device is returning from suspension, so it is considered active if the
+  // session is also active.
+  last_state_active_ = session_manager_->session_state() ==
+                       session_manager::SessionState::ACTIVE;
+}
+
+void DeviceStatusCollector::UpdateChildUsageTime() {
+  if (!report_activity_times_ ||
+      !user_manager::UserManager::Get()->IsLoggedInAsChildUser()) {
+    return;
+  }
+
+  if (last_active_check_.is_null()) {
+    last_active_check_ = GetCurrentTime();
+    return;
+  }
+
+  // Only child accounts should be using this method.
+  CHECK(user_manager::UserManager::Get()->IsLoggedInAsChildUser());
+
+  Time now = GetCurrentTime();
+  Time reset_time = now.LocalMidnight() + activity_day_start_;
+  // Reset screen time if it has not been reset today.
+  if (reset_time > pref_service_->GetTime(prefs::kLastChildScreenTimeReset)) {
+    pref_service_->SetTime(prefs::kLastChildScreenTimeReset, now);
+    pref_service_->SetInteger(prefs::kChildScreenTimeMilliseconds, 0);
+    pref_service_->CommitPendingWrite();
+  }
+
+  if (last_state_active_) {
+    activity_storage_->AddActivityPeriod(last_active_check_, now,
+                                         GetUserForActivityReporting());
+
+    activity_storage_->PruneActivityPeriods(
+        now, max_stored_past_activity_interval_,
+        max_stored_future_activity_interval_);
+  }
+  last_active_check_ = now;
 }
 
 std::unique_ptr<DeviceLocalAccount>
@@ -972,7 +1229,7 @@ void DeviceStatusCollector::SampleResourceUsage() {
 
   // Call out to the blocking pool to sample CPU stats.
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       cpu_statistics_fetcher_,
       base::Bind(&DeviceStatusCollector::ReceiveCPUStatistics,
                  weak_factory_.GetWeakPtr()));
@@ -1069,6 +1326,10 @@ bool DeviceStatusCollector::IncludeEmailsInActivityReports() const {
 
 bool DeviceStatusCollector::GetActivityTimes(
     em::DeviceStatusReportRequest* status) {
+  if (user_manager::UserManager::Get()->IsLoggedInAsChildUser()) {
+    UpdateChildUsageTime();
+  }
+
   // If user reporting is off, data should be aggregated per day.
   // Signed-in user is reported in non-enterprise reporting.
   std::vector<ActivityStorage::ActivityPeriod> activity_times =
@@ -1107,6 +1368,7 @@ bool DeviceStatusCollector::GetVersionInfo(
 
   // Enterprise-only version reporting below.
   status->set_browser_version(version_info::GetVersionNumber());
+  status->set_channel(ConvertToProtoChannel(chrome::GetChannel()));
   status->set_firmware_version(firmware_version_);
 
   em::TpmVersionInfo* const tpm_version_info =
@@ -1154,18 +1416,17 @@ bool DeviceStatusCollector::GetNetworkInterfaces(
     const char* state_string;
     em::NetworkState::ConnectionState state_constant;
   } kConnectionStateMap[] = {
-    { shill::kStateIdle,              em::NetworkState::IDLE },
-    { shill::kStateCarrier,           em::NetworkState::CARRIER },
-    { shill::kStateAssociation,       em::NetworkState::ASSOCIATION },
-    { shill::kStateConfiguration,     em::NetworkState::CONFIGURATION },
-    { shill::kStateReady,             em::NetworkState::READY },
-    { shill::kStatePortal,            em::NetworkState::PORTAL },
-    { shill::kStateOffline,           em::NetworkState::OFFLINE },
-    { shill::kStateOnline,            em::NetworkState::ONLINE },
-    { shill::kStateDisconnect,        em::NetworkState::DISCONNECT },
-    { shill::kStateFailure,           em::NetworkState::FAILURE },
-    { shill::kStateActivationFailure,
-        em::NetworkState::ACTIVATION_FAILURE },
+      {shill::kStateIdle, em::NetworkState::IDLE},
+      {shill::kStateCarrier, em::NetworkState::CARRIER},
+      {shill::kStateAssociation, em::NetworkState::ASSOCIATION},
+      {shill::kStateConfiguration, em::NetworkState::CONFIGURATION},
+      {shill::kStateReady, em::NetworkState::READY},
+      {shill::kStatePortal, em::NetworkState::PORTAL},
+      {shill::kStateOffline, em::NetworkState::OFFLINE},
+      {shill::kStateOnline, em::NetworkState::ONLINE},
+      {shill::kStateDisconnect, em::NetworkState::DISCONNECT},
+      {shill::kStateFailure, em::NetworkState::FAILURE},
+      {shill::kStateActivationFailure, em::NetworkState::ACTIVATION_FAILURE},
   };
 
   chromeos::NetworkStateHandler::DeviceStateList device_list;
@@ -1305,6 +1566,9 @@ bool DeviceStatusCollector::GetHardwareStatus(
   // Get the current device sound volume level.
   chromeos::CrasAudioHandler* audio_handler = chromeos::CrasAudioHandler::Get();
   status->set_sound_volume(audio_handler->GetOutputVolumePercent());
+
+  // Fetch TPM status information on a background thread.
+  state->FetchTpmStatus(tpm_status_fetcher_);
 
   return true;
 }
@@ -1485,11 +1749,17 @@ bool DeviceStatusCollector::GetSessionStatusForUser(
     return false;
 
   bool anything_reported_user = false;
-  bool report_android_status =
-      profile->GetPrefs()->GetBoolean(prefs::kReportArcStatusEnabled);
 
+  const bool report_android_status =
+      profile->GetPrefs()->GetBoolean(prefs::kReportArcStatusEnabled);
   if (report_android_status)
     anything_reported_user |= GetAndroidStatus(status, state);
+
+  const bool report_crostini_usage = profile->GetPrefs()->GetBoolean(
+      crostini::prefs::kReportCrostiniUsageEnabled);
+  if (report_crostini_usage)
+    anything_reported_user |= GetCrostiniUsage(status, profile);
+
   if (anything_reported_user && !user->IsDeviceLocalAccount())
     status->set_user_dm_token(GetDMTokenForProfile(profile));
 
@@ -1566,11 +1836,30 @@ bool DeviceStatusCollector::GetAndroidStatus(
   return state->FetchAndroidStatus(android_status_fetcher_);
 }
 
+bool DeviceStatusCollector::GetCrostiniUsage(
+    em::SessionStatusReportRequest* status,
+    Profile* profile) {
+  if (!profile->GetPrefs()->HasPrefPath(
+          crostini::prefs::kCrostiniLastLaunchTimeWindowStart)) {
+    return false;
+  }
+
+  em::CrostiniStatus* const crostini_status = status->mutable_crostini_status();
+  const int64_t last_launch_time_window_start = profile->GetPrefs()->GetInt64(
+      crostini::prefs::kCrostiniLastLaunchTimeWindowStart);
+  const std::string& termina_version = profile->GetPrefs()->GetString(
+      crostini::prefs::kCrostiniLastLaunchVersion);
+  crostini_status->set_last_launch_time_window_start_timestamp(
+      last_launch_time_window_start);
+  crostini_status->set_last_launch_vm_image_version(termina_version);
+
+  return true;
+}
+
 std::string DeviceStatusCollector::GetAppVersion(
     const std::string& kiosk_app_id) {
-  Profile* const profile =
-      chromeos::ProfileHelper::Get()->GetProfileByUser(
-          user_manager::UserManager::Get()->GetActiveUser());
+  Profile* const profile = chromeos::ProfileHelper::Get()->GetProfileByUser(
+      user_manager::UserManager::Get()->GetActiveUser());
   const extensions::ExtensionRegistry* const registry =
       extensions::ExtensionRegistry::Get(profile);
   const extensions::Extension* const extension = registry->GetExtensionById(

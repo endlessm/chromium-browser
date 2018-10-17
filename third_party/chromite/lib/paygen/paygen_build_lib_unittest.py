@@ -32,8 +32,6 @@ class BasePaygenBuildLibTest(cros_test_lib.MockTestCase):
   """Base class for testing PaygenBuildLib class."""
 
   def setUp(self):
-    self.maxDiff = None
-
     # Clear json cache.
     paygen_build_lib.PaygenBuild._cachedPaygenJson = None
 
@@ -59,13 +57,13 @@ class PaygenJsonTests(BasePaygenBuildLibTest):
 
   def testGetPaygenJsonCaching(self):
     result = paygen_build_lib.PaygenBuild.GetPaygenJson()
-    self.assertEqual(len(result), 1360)
+    self.assertEqual(len(result), 1359)
     self.mockGetJson.assert_called_once()
 
     # Validate caching, by proving we don't refetch.
     self.mockGetJson.reset_mock()
     result = paygen_build_lib.PaygenBuild.GetPaygenJson()
-    self.assertEqual(len(result), 1360)
+    self.assertEqual(len(result), 1359)
     self.mockGetJson.assert_not_called()
 
   def testGetPaygenJsonBoard(self):
@@ -126,8 +124,6 @@ class BasePaygenBuildLibTestWithBuilds(BasePaygenBuildLibTest,
   """Test PaygenBuildLib class."""
 
   def setUp(self):
-    self.maxDiff = None
-
     self.prev_build = gspaths.Build(bucket='crt',
                                     channel='foo-channel',
                                     board='foo-board',

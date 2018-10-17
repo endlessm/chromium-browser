@@ -15,14 +15,15 @@
 #include "SkReadBuffer.h"
 #include "SkTo.h"
 #include "SkTypeface.h"
-#include "SkUtils.h"
+#include "SkUTF.h"
 #include "SkWriteBuffer.h"
 #include "Test.h"
+#undef ASSERT
 
 static size_t uni_to_utf8(const SkUnichar src[], void* dst, int count) {
     char* u8 = (char*)dst;
     for (int i = 0; i < count; ++i) {
-        int n = SkToInt(SkUTF8_FromUnichar(src[i], u8));
+        int n = SkToInt(SkUTF::ToUTF8(src[i], u8));
         u8 += n;
     }
     return u8 - (char*)dst;
@@ -31,7 +32,7 @@ static size_t uni_to_utf8(const SkUnichar src[], void* dst, int count) {
 static size_t uni_to_utf16(const SkUnichar src[], void* dst, int count) {
     uint16_t* u16 = (uint16_t*)dst;
     for (int i = 0; i < count; ++i) {
-        int n = SkToInt(SkUTF16_FromUnichar(src[i], u16));
+        int n = SkToInt(SkUTF::ToUTF16(src[i], u16));
         u16 += n;
     }
     return (char*)u16 - (char*)dst;

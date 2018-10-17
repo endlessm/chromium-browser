@@ -53,7 +53,9 @@
 #include <link.h>
 #include <pthread.h>
 #include <sched.h>
+#include <signal.h>
 #include <sys/mman.h>
+#include <sys/param.h>
 #if !SANITIZER_SOLARIS
 #include <sys/ptrace.h>
 #endif
@@ -66,7 +68,6 @@
 #include <ucontext.h>
 #endif
 #if SANITIZER_OPENBSD
-#include <signal.h>
 #include <sys/futex.h>
 #endif
 #include <unistd.h>
@@ -104,10 +105,6 @@ extern struct ps_strings *__ps_strings;
 #define environ _environ
 #endif
 
-#if !SANITIZER_ANDROID
-#include <sys/signal.h>
-#endif
-
 extern char **environ;
 
 #if SANITIZER_LINUX
@@ -120,6 +117,9 @@ struct kernel_timeval {
 // <linux/futex.h> is broken on some linux distributions.
 const int FUTEX_WAIT = 0;
 const int FUTEX_WAKE = 1;
+const int FUTEX_PRIVATE_FLAG = 128;
+const int FUTEX_WAIT_PRIVATE = FUTEX_WAIT | FUTEX_PRIVATE_FLAG;
+const int FUTEX_WAKE_PRIVATE = FUTEX_WAKE | FUTEX_PRIVATE_FLAG;
 #endif  // SANITIZER_LINUX
 
 // Are we using 32-bit or 64-bit Linux syscalls?
@@ -153,7 +153,11 @@ extern void internal_sigreturn();
 #if SANITIZER_OPENBSD
 # define SANITIZER_USE_GETENTROPY 1
 #else
-# define SANITIZER_USE_GETENTROPY 0
+# if SANITIZER_FREEBSD && __FreeBSD_version >= 1200000
+#   define SANITIZER_USE_GETENTROPY 1
+# else
+#   define SANITIZER_USE_GETENTROPY 0
+# endif
 #endif // SANITIZER_USE_GETENTROPY
 
 namespace __sanitizer {
@@ -485,6 +489,23 @@ tid_t GetTid() {
 #endif
 }
 
+int TgKill(pid_t pid, tid_t tid, int sig) {
+#if SANITIZER_LINUX
+  return internal_syscall(SYSCALL(tgkill), pid, tid, sig);
+#elif SANITIZER_FREEBSD
+  return internal_syscall(SYSCALL(thr_kill2), pid, tid, sig);
+#elif SANITIZER_OPENBSD
+  (void)pid;
+  return internal_syscall(SYSCALL(thrkill), tid, sig, nullptr);
+#elif SANITIZER_NETBSD
+  (void)pid;
+  return _lwp_kill(tid, sig);
+#elif SANITIZER_SOLARIS
+  (void)pid;
+  return thr_kill(tid, sig);
+#endif
+}
+
 #if !SANITIZER_SOLARIS
 u64 NanoTime() {
 #if SANITIZER_FREEBSD || SANITIZER_NETBSD || SANITIZER_OPENBSD
@@ -668,7 +689,8 @@ void BlockingMutex::Lock() {
 #elif SANITIZER_NETBSD
     sched_yield(); /* No userspace futex-like synchronization */
 #else
-    internal_syscall(SYSCALL(futex), (uptr)m, FUTEX_WAIT, MtxSleeping, 0, 0, 0);
+    internal_syscall(SYSCALL(futex), (uptr)m, FUTEX_WAIT_PRIVATE, MtxSleeping,
+                     0, 0, 0);
 #endif
   }
 }
@@ -683,7 +705,7 @@ void BlockingMutex::Unlock() {
 #elif SANITIZER_NETBSD
                    /* No userspace futex-like synchronization */
 #else
-    internal_syscall(SYSCALL(futex), (uptr)m, FUTEX_WAKE, 1, 0, 0, 0);
+    internal_syscall(SYSCALL(futex), (uptr)m, FUTEX_WAKE_PRIVATE, 1, 0, 0, 0);
 #endif
   }
 }
@@ -1243,7 +1265,7 @@ uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
                          "d"(parent_tidptr),
                          "r"(r8),
                          "r"(r10)
-                       : "rsp", "memory", "r11", "rcx");
+                       : "memory", "r11", "rcx");
   return res;
 }
 #elif defined(__mips__)

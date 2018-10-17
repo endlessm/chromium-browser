@@ -55,9 +55,6 @@ COMMIT_ORIGINAL_POSITION_FOOTER_KEY = 'Cr-Original-Commit-Position'
 # Regular expression to parse gclient's revinfo entries.
 REVINFO_RE = re.compile(r'^([^:]+):\s+([^@]+)@(.+)$')
 
-# Regular expression to match gclient's patch error message.
-PATCH_ERROR_RE = re.compile('Failed to apply .* @ .* to .* at .*')
-
 # Copied from scripts/recipes/chromium.py.
 GOT_REVISION_MAPPINGS = {
     CHROMIUM_SRC_URL: {
@@ -347,7 +344,7 @@ def git_config_if_not_set(key, value):
 
 def gclient_sync(
     with_branch_heads, with_tags, revisions, break_repo_locks,
-    disable_syntax_validation, gerrit_repo, gerrit_ref, gerrit_reset,
+    disable_syntax_validation, patch_refs, gerrit_reset,
     gerrit_rebase_patch_ref, apply_patch_on_gclient):
   # We just need to allocate a filename.
   fd, gclient_output_file = tempfile.mkstemp(suffix='.json')
@@ -369,10 +366,9 @@ def gclient_sync(
       revision = 'origin/master'
     args.extend(['--revision', '%s@%s' % (name, revision)])
 
-  if apply_patch_on_gclient and gerrit_repo and gerrit_ref:
-    # TODO(ehmaldonado): Merge gerrit_repo and gerrit_ref into a patch-ref flag
-    # and add support for passing multiple patch refs.
-    args.extend(['--patch-ref', gerrit_repo + '@' + gerrit_ref])
+  if apply_patch_on_gclient and patch_refs:
+    for patch_ref in patch_refs:
+      args.extend(['--patch-ref', patch_ref])
     if not gerrit_reset:
       args.append('--no-reset-patch-ref')
     if not gerrit_rebase_patch_ref:
@@ -383,7 +379,7 @@ def gclient_sync(
   except SubprocessFailed as e:
     # If gclient sync is handling patching, parse the output for a patch error
     # message.
-    if apply_patch_on_gclient and PATCH_ERROR_RE.search(e.output):
+    if apply_patch_on_gclient and 'Failed to apply patch.' in e.output:
       raise PatchFailed(e.message, e.code, e.output)
     # Throw a GclientSyncFailed exception so we can catch this independently.
     raise GclientSyncFailed(e.message, e.code, e.output)
@@ -439,7 +435,7 @@ def create_manifest_old():
 
 
 # TODO(hinoka): Include patch revision.
-def create_manifest(gclient_output, patch_root, gerrit_ref):
+def create_manifest(gclient_output, patch_root):
   """Return the JSONPB equivilent of the source manifest proto.
 
   The source manifest proto is defined here:
@@ -476,8 +472,6 @@ def create_manifest(gclient_output, patch_root, gerrit_ref):
           'revision': revision,
         }
       }
-      if patch_root == directory:
-        dirs[directory]['git_checkout']['patch_fetch_ref'] = gerrit_ref
 
   manifest['directories'] = dirs
   return manifest
@@ -721,6 +715,7 @@ def _git_checkout(sln, sln_dir, revisions, refs, git_cache_dir, cleanup_dir):
         _git_disable_gc(sln_dir)
         git('remote', 'set-url', 'origin', mirror_dir, cwd=sln_dir)
         git('fetch', 'origin', cwd=sln_dir)
+      git('remote', 'set-url', '--push', 'origin', url, cwd=sln_dir)
       for ref in refs:
         refspec = '%s:%s' % (ref, ref.lstrip('+'))
         git('fetch', 'origin', refspec, cwd=sln_dir)
@@ -758,58 +753,6 @@ def _download(url):
     except Exception:
       if attempt == ATTEMPTS - 1:
         raise
-
-
-def apply_gerrit_ref(gerrit_repo, gerrit_ref, root, gerrit_reset,
-                     gerrit_rebase_patch_ref):
-  gerrit_repo = gerrit_repo or 'origin'
-  assert gerrit_ref
-  base_rev = git('rev-parse', 'HEAD', cwd=root).strip()
-
-  print '===Applying gerrit ref==='
-  print 'Repo is %r @ %r, ref is %r, root is %r' % (
-      gerrit_repo, base_rev, gerrit_ref, root)
-  # TODO(tandrii): move the fix below to common gerrit codepath.
-  # Speculative fix: prior bot_update run with Rietveld patch may leave git
-  # index with unmerged paths. bot_update calls 'checkout --force xyz' thus
-  # ignoring such paths, but potentially never cleaning them up. The following
-  # command will do so. See http://crbug.com/692067.
-  git('reset', '--hard', cwd=root)
-  try:
-    git('fetch', gerrit_repo, gerrit_ref, cwd=root)
-    git('checkout', 'FETCH_HEAD', cwd=root)
-
-    if gerrit_rebase_patch_ref:
-      print '===Rebasing==='
-      # git rebase requires a branch to operate on.
-      temp_branch_name = 'tmp/' + uuid.uuid4().hex
-      try:
-        ok = False
-        git('checkout', '-b', temp_branch_name, cwd=root)
-        try:
-          git('-c', 'user.name=chrome-bot',
-              '-c', 'user.email=chrome-bot@chromium.org',
-              'rebase', base_rev, cwd=root)
-        except SubprocessFailed:
-          # Abort the rebase since there were failures.
-          git('rebase', '--abort', cwd=root)
-          raise
-
-        # Get off of the temporary branch since it can't be deleted otherwise.
-        cur_rev = git('rev-parse', 'HEAD', cwd=root).strip()
-        git('checkout', cur_rev, cwd=root)
-        git('branch', '-D', temp_branch_name, cwd=root)
-        ok = True
-      finally:
-        if not ok:
-          # Get off of the temporary branch since it can't be deleted otherwise.
-          git('checkout', base_rev, cwd=root)
-          git('branch', '-D', temp_branch_name, cwd=root)
-
-    if gerrit_reset:
-      git('reset', '--soft', base_rev, cwd=root)
-  except SubprocessFailed as e:
-    raise PatchFailed(e.message, e.code, e.output)
 
 
 def get_commit_position(git_path, revision='HEAD'):
@@ -871,7 +814,7 @@ def emit_json(out_file, did_run, gclient_output=None, **kwargs):
 
 
 def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
-                    target_cpu, patch_root, gerrit_repo, gerrit_ref,
+                    target_cpu, patch_root, patch_refs,
                     gerrit_rebase_patch_ref, refs, git_cache_dir,
                     cleanup_dir, gerrit_reset, disable_syntax_validation,
                     apply_patch_on_gclient):
@@ -894,10 +837,6 @@ def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
         relative_root = solution['name'][len(patch_root) + 1:]
         target = '/'.join([relative_root, 'DEPS']).lstrip('/')
         print '  relative root is %r, target is %r' % (relative_root, target)
-        if gerrit_ref:
-          apply_gerrit_ref(gerrit_repo, gerrit_ref, patch_root, gerrit_reset,
-                           gerrit_rebase_patch_ref)
-          applied_gerrit_patch = True
 
   # Ensure our build/ directory is set up with the correct .gclient file.
   gclient_configure(solutions, target_os, target_os_only, target_cpu,
@@ -928,8 +867,7 @@ def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
           gc_revisions,
           break_repo_locks,
           disable_syntax_validation,
-          gerrit_repo,
-          gerrit_ref,
+          patch_refs,
           gerrit_reset,
           gerrit_rebase_patch_ref,
           apply_patch_on_gclient)
@@ -938,14 +876,6 @@ def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
   # presubmit doesn't complain about it being modified.
   if git('ls-files', '.DEPS.git', cwd=first_sln).strip():
     git('checkout', 'HEAD', '--', '.DEPS.git', cwd=first_sln)
-
-  # Apply the rest of the patch here (sans DEPS)
-  if gerrit_ref and not applied_gerrit_patch and not apply_patch_on_gclient:
-    # If gerrit_ref was for solution's main repository, it has already been
-    # applied above. This chunk is executed only for patches to DEPS-ed in
-    # git repositories.
-    apply_gerrit_ref(gerrit_repo, gerrit_ref, patch_root, gerrit_reset,
-                     gerrit_rebase_patch_ref)
 
   # Reset the deps_file point in the solutions so that hooks get run properly.
   for sln in solutions:
@@ -1003,9 +933,8 @@ def parse_args():
   parse.add_option('--root', dest='patch_root',
                    help='DEPRECATED: Use --patch_root.')
   parse.add_option('--patch_root', help='Directory to patch on top of.')
-  parse.add_option('--gerrit_repo',
-                   help='Gerrit repository to pull the ref from.')
-  parse.add_option('--gerrit_ref', help='Gerrit ref to apply.')
+  parse.add_option('--patch_ref', dest='patch_refs', action='append', default=[],
+                   help='Git repository & ref to apply, as REPO@REF.')
   parse.add_option('--gerrit_no_rebase_patch_ref', action='store_true',
                    help='Bypass rebase of Gerrit patch ref after checkout.')
   parse.add_option('--gerrit_no_reset', action='store_true',
@@ -1085,6 +1014,10 @@ def parse_args():
         % (str(e),)
     )
 
+  if options.patch_refs:
+    if not options.apply_patch_on_gclient:
+      parse.error('--patch_ref cannot be used with --no-apply-patch-on-gclient')
+
   # Because we print CACHE_DIR out into a .gclient file, and then later run
   # eval() on it, backslashes need to be escaped, otherwise "E:\b\build" gets
   # parsed as "E:[\x08][\x08]uild".
@@ -1147,8 +1080,7 @@ def checkout(options, git_slns, specs, revisions, step_text):
 
           # Then, pass in information about how to patch.
           patch_root=options.patch_root,
-          gerrit_repo=options.gerrit_repo,
-          gerrit_ref=options.gerrit_ref,
+          patch_refs=options.patch_refs,
           gerrit_rebase_patch_ref=not options.gerrit_no_rebase_patch_ref,
 
           # Finally, extra configurations cleanup dir location.
@@ -1206,7 +1138,7 @@ def checkout(options, git_slns, specs, revisions, step_text):
             properties=got_revisions,
             manifest=create_manifest_old(),
             source_manifest=create_manifest(
-                gclient_output, options.patch_root, options.gerrit_ref))
+                gclient_output, options.patch_root))
 
 
 def print_debug_info():

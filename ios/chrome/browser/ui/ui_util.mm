@@ -53,12 +53,18 @@ CGFloat CurrentScreenWidth() {
 
 bool IsIPhoneX() {
   UIUserInterfaceIdiom idiom = [[UIDevice currentDevice] userInterfaceIdiom];
+  CGFloat height = CGRectGetHeight([[UIScreen mainScreen] nativeBounds]);
   return (idiom == UIUserInterfaceIdiomPhone &&
-          CGRectGetHeight([[UIScreen mainScreen] nativeBounds]) == 2436);
+          (height == 2436 || height == 2688 || height == 1792));
 }
 
 bool IsRefreshInfobarEnabled() {
-  return base::FeatureList::IsEnabled(kInfobarsUIReboot);
+  return base::FeatureList::IsEnabled(kUIRefreshPhase1);
+}
+
+// TODO(crbug.com/893314) : Remove this flag.
+bool IsClosingLastIncognitoTabEnabled() {
+  return base::FeatureList::IsEnabled(kClosingLastIncognitoTab);
 }
 
 bool IsRefreshLocationBarEnabled() {
@@ -97,6 +103,10 @@ CGFloat StatusBarHeight() {
                              .keyWindow.traitCollection.verticalSizeClass ==
                          UIUserInterfaceSizeClassCompact;
   return isCompactHeight ? 0 : 20;
+}
+
+CGFloat DeviceCornerRadius() {
+  return IsIPhoneX() ? 40.0 : 0.0;
 }
 
 CGFloat AlignValueToPixel(CGFloat value) {

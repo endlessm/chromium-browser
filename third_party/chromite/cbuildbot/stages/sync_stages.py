@@ -37,6 +37,7 @@ from chromite.lib import constants
 from chromite.lib import commandline
 from chromite.lib import cq_config
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_collections
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import git
@@ -47,9 +48,6 @@ from chromite.lib import timeout_util
 from chromite.lib import tree_status
 from chromite.scripts import cros_mark_android_as_stable
 from chromite.scripts import cros_mark_chrome_as_stable
-
-
-site_config = config_lib.GetConfig()
 
 
 PRE_CQ = validation_pool.PRE_CQ
@@ -114,6 +112,8 @@ class UnknownPreCQConfigRequestedError(Exception):
 
 class PatchChangesStage(generic_stages.BuilderStage):
   """Stage that patches a set of Gerrit changes to the buildroot source tree."""
+
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, patch_pool, **kwargs):
     """Construct a PatchChangesStage.
@@ -207,6 +207,7 @@ class BootstrapStage(PatchChangesStage):
                  calling stage.Run().
   """
   option_name = 'bootstrap'
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, patch_pool, **kwargs):
     super(BootstrapStage, self).__init__(
@@ -229,8 +230,7 @@ class BootstrapStage(PatchChangesStage):
       Exception, if the new patched manifest cannot be parsed.
     """
     checkout_dir = os.path.join(self.tempdir, 'manfest-checkout')
-    repository.CloneGitRepo(checkout_dir,
-                            self._run.config.manifest_repo_url)
+    git.Clone(checkout_dir, self._run.config.manifest_repo_url)
 
     patches = patch_series.PatchSeries.WorkOnSingleRepo(
         checkout_dir, tracking_branch=self._run.manifest_branch)
@@ -252,8 +252,8 @@ class BootstrapStage(PatchChangesStage):
         parsed_args, filter_fn)
 
     if removed:
-      logging.warning("The following arguments were removed due to api: '%s'"
-                      % ' '.join(removed))
+      logging.warning("The following arguments were removed due to api: '%s'",
+                      ' '.join(removed))
     return accepted
 
   @classmethod
@@ -325,8 +325,7 @@ class BootstrapStage(PatchChangesStage):
     # Checkout the new version of chromite, and patch it.
     chromite_dir = os.path.join(self.tempdir, 'chromite')
     reference_repo = os.path.join(constants.CHROMITE_DIR, '.git')
-    repository.CloneGitRepo(chromite_dir, constants.CHROMITE_URL,
-                            reference=reference_repo)
+    git.Clone(chromite_dir, constants.CHROMITE_URL, reference=reference_repo)
     git.RunGit(chromite_dir, ['checkout', filter_branch])
 
     chromite_pool = branch_pool.Filter(project=constants.CHROMITE_PROJECT)
@@ -378,6 +377,7 @@ class SyncStage(generic_stages.BuilderStage):
 
   option_name = 'sync'
   output_manifest_sha1 = True
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, **kwargs):
     super(SyncStage, self).__init__(builder_run, **kwargs)
@@ -393,16 +393,17 @@ class SyncStage(generic_stages.BuilderStage):
     if internal is None:
       internal = self._run.config.internal
 
+    site_params = config_lib.GetSiteParams()
     if internal:
       if test:
-        return site_config.params.MANIFEST_VERSIONS_INT_GOB_URL_TEST
+        return site_params.MANIFEST_VERSIONS_INT_GOB_URL_TEST
       else:
-        return site_config.params.MANIFEST_VERSIONS_INT_GOB_URL
+        return site_params.MANIFEST_VERSIONS_INT_GOB_URL
     else:
       if test:
-        return site_config.params.MANIFEST_VERSIONS_GOB_URL_TEST
+        return site_params.MANIFEST_VERSIONS_GOB_URL_TEST
       else:
-        return site_config.params.MANIFEST_VERSIONS_GOB_URL
+        return site_params.MANIFEST_VERSIONS_GOB_URL
 
   def Initialize(self):
     self._InitializeRepo()
@@ -516,30 +517,12 @@ class SyncStage(generic_stages.BuilderStage):
           logging.PrintBuildbotStepText('Pre-patch build failed.')
 
 
-class LKGMSyncStage(SyncStage):
-  """Stage that syncs to the last known good manifest blessed by builders."""
-
-  output_manifest_sha1 = False
-
-  def GetNextManifest(self):
-    """Override: Gets the LKGM."""
-    # TODO(sosa):  Should really use an initialized manager here.
-    if self.internal:
-      mv_dir = site_config.params.INTERNAL_MANIFEST_VERSIONS_PATH
-    else:
-      mv_dir = site_config.params.EXTERNAL_MANIFEST_VERSIONS_PATH
-
-    manifest_path = os.path.join(self._build_root, mv_dir)
-    manifest_repo = self._GetManifestVersionsRepoUrl()
-    manifest_version.RefreshManifestCheckout(manifest_path, manifest_repo)
-    return os.path.join(manifest_path, self._run.config.lkgm_manifest)
-
-
 class ManifestVersionedSyncStage(SyncStage):
   """Stage that generates a unique manifest file, and sync's to it."""
 
   # TODO(mtennant): Make this into a builder run value.
   output_manifest_sha1 = False
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, **kwargs):
     # Perform the sync at the end of the stage to the given manifest.
@@ -697,7 +680,7 @@ class ManifestVersionedSyncStage(SyncStage):
         root = doc.getroot()
         for node in root.findall('project'):
           remote = node.attrib.get('remote')
-          if remote and remote not in site_config.params.GIT_REMOTES:
+          if remote and remote not in config_lib.GetSiteParams().GIT_REMOTES:
             root.remove(node)
         doc.write(filtered_manifest)
         yield filtered_manifest
@@ -804,6 +787,7 @@ class MasterSlaveLKGMSyncStage(ManifestVersionedSyncStage):
   MAX_BUILD_HISTORY_LENGTH = 10
   MilestoneVersion = collections.namedtuple(
       'MilestoneVersion', ['milestone', 'platform'])
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, **kwargs):
     super(MasterSlaveLKGMSyncStage, self).__init__(builder_run, **kwargs)
@@ -974,6 +958,7 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
   # The amount of time we wait before assuming that the Pre-CQ is down and
   # that we should start testing changes that haven't been tested by the Pre-CQ.
   PRE_CQ_TIMEOUT = 2 * 60 * 60
+  category = constants.CI_INFRA_STAGE
 
   def __init__(self, builder_run, **kwargs):
     super(CommitQueueSyncStage, self).__init__(builder_run, **kwargs)
@@ -1040,15 +1025,6 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
         is_master=self._run.config.master,
         dryrun=self._run.options.debug,
         builder_run=self._run)
-
-  def _GetLKGMVersionFromManifest(self, manifest):
-    manifest_dom = minidom.parse(manifest)
-    elements = manifest_dom.getElementsByTagName(lkgm_manager.LKGM_ELEMENT)
-    if elements:
-      lkgm_version = elements[0].getAttribute(lkgm_manager.LKGM_VERSION_ATTR)
-      logging.info(
-          'LKGM version was found in the manifest: %s', lkgm_version)
-      return lkgm_version
 
   def GetNextManifest(self):
     """Gets the next manifest using LKGM logic."""
@@ -1137,6 +1113,8 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
 class PreCQSyncStage(SyncStage):
   """Sync and apply patches to test if they compile."""
 
+  category = constants.CI_INFRA_STAGE
+
   def __init__(self, builder_run, patches, **kwargs):
     super(PreCQSyncStage, self).__init__(builder_run, **kwargs)
 
@@ -1181,6 +1159,8 @@ class PreCQSyncStage(SyncStage):
 
 class PreCQLauncherStage(SyncStage):
   """Scans for CLs and automatically launches Pre-CQ jobs to test them."""
+
+  category = constants.CI_INFRA_STAGE
 
   # The number of minutes we wait before launching Pre-CQ jobs. This measures
   # the idle time of a given patch series, so, for example, if a user takes
@@ -1466,7 +1446,7 @@ class PreCQLauncherStage(SyncStage):
       result = cros_build_lib.RunCommand(
           cmd, cwd=self._build_root, capture_output=True)
       if result and result.output:
-        logging.info('output: %s' % result.output)
+        logging.info('output: %s', result.output)
         config_buildbucket_id_map = self.GetConfigBuildbucketIdMap(
             result.output)
 
@@ -1761,6 +1741,7 @@ class PreCQLauncherStage(SyncStage):
     Returns:
       A set of failed Pre-CQ build configs.
     """
+    site_config = config_lib.GetConfig()
     failed_build_configs = set()
     for action in action_history:
       build_config = action.build_config
@@ -1786,6 +1767,7 @@ class PreCQLauncherStage(SyncStage):
       A boolean indicating whether the consecutive failure counter of
         build_config exceeds its sanity_check_threshold.
     """
+    site_config = config_lib.GetConfig()
     sanity_check_threshold = site_config[build_config].sanity_check_threshold
 
     if sanity_check_threshold <= 0:
@@ -1819,14 +1801,14 @@ class PreCQLauncherStage(SyncStage):
     builds_history = db.GetBuildsHistory(
         build_configs, db.NUM_RESULTS_NO_LIMIT, start_date=start_date,
         final=True)
-    build_history_by_build_config = cros_build_lib.GroupByKey(
+    build_history_by_build_config = cros_collections.GroupByKey(
         builds_history, 'build_config')
 
     start_time = datetime.datetime.now() - datetime.timedelta(
         hours=self.PRE_CQ_SANITY_CHECK_PERIOD_HOURS)
     builds_requests = db.GetBuildRequestsForBuildConfigs(
         build_configs, start_time=start_time)
-    build_requests_by_build_config = cros_build_lib.GroupNamedtuplesByKey(
+    build_requests_by_build_config = cros_collections.GroupNamedtuplesByKey(
         builds_requests, 'request_build_config')
 
     sanity_check_build_configs = set()

@@ -12,7 +12,6 @@ import json
 import mock
 import os
 import re
-import cPickle
 
 from chromite.cbuildbot import builders
 from chromite.config import chromeos_config
@@ -79,10 +78,24 @@ class ConfigDumpTest(ChromeosConfigTestBase):
                   'defined configs. Run '
                   'config/chromeos_config_unittest --update')
 
+    # luci-scheduler.cfg
+    # We run this as a sep program to avoid the config cache.
+    cmd = os.path.join(constants.CHROMITE_DIR, 'scripts', 'gen_luci_scheduler')
+    result = cros_build_lib.RunCommand([cmd], capture_output=True)
+
+    new_dump = result.output
+    old_dump = osutils.ReadFile(constants.LUCI_SCHEDULER_CONFIG_FILE)
+
+    if new_dump != old_dump:
+      if cros_test_lib.GlobalTestConfig.UPDATE_GENERATED_FILES:
+        osutils.WriteFile(constants.LUCI_SCHEDULER_CONFIG_FILE, new_dump)
+      else:
+        self.fail('luci-scheduler.cfg does not match the '
+                  'defined configs. Run '
+                  'config/chromeos_config_unittest --update')
+
   def testSaveLoadReload(self):
     """Make sure that loading and reloading the config is a no-op."""
-    self.maxDiff = None
-
     site_config_str = self.site_config.SaveConfigToString()
     loaded = config_lib.LoadConfigFromString(site_config_str)
 
@@ -245,7 +258,7 @@ class UnifiedBuildConfigTestCase(object):
     '''
     self._fake_ge_build_config = json.loads(self._fake_ge_build_config_json)
 
-    site_params = chromeos_config.SiteParameters()
+    site_params = config_lib.DefaultSiteParameters()
     defaults = chromeos_config.DefaultSettings(site_params)
     self._site_config = config_lib.SiteConfig(defaults=defaults,
                                               site_params=site_params)
@@ -296,17 +309,6 @@ class UnifiedBuildCqBuilders(
     self.assertIn('coral-paladin', master_paladin['slave_configs'])
 
 
-class ConfigPickleTest(ChromeosConfigTestBase):
-  """Test that a config object is pickleable."""
-
-  def testPickle(self):
-    bc1 = self.site_config['x86-mario-paladin']
-    bc2 = cPickle.loads(cPickle.dumps(bc1))
-
-    self.assertEquals(bc1.boards, bc2.boards)
-    self.assertEquals(bc1.name, bc2.name)
-
-
 class ConfigClassTest(ChromeosConfigTestBase):
   """Tests of the config class itself."""
 
@@ -324,6 +326,19 @@ class ConfigClassTest(ChromeosConfigTestBase):
 
 class CBuildBotTest(ChromeosConfigTestBase):
   """General tests of chromeos_config."""
+
+  def findAllSlaveBuilds(self):
+    """Test helper for finding all slave builds.
+
+    Returns:
+      Set of slave build config names.
+    """
+    all_slaves = set()
+    for config in self.site_config.itervalues():
+      if config.master:
+        all_slaves.update(config.slave_configs)
+
+    return all_slaves
 
   def _GetBoardTypeToBoardsDict(self):
     """Get boards dict.
@@ -399,10 +414,7 @@ class CBuildBotTest(ChromeosConfigTestBase):
 
   def testOnlySlaveConfigsNotImportant(self):
     """Configs listing slave configs, must list valid configs."""
-    all_slaves = set()
-    for config in self.site_config.itervalues():
-      if config.master:
-        all_slaves.update(config.slave_configs)
+    all_slaves = self.findAllSlaveBuilds()
 
     for config in self.site_config.itervalues():
       self.assertTrue(config.important or config.name in all_slaves,
@@ -468,7 +480,7 @@ class CBuildBotTest(ChromeosConfigTestBase):
       overlays = config['overlays']
       push_overlays = config['push_overlays']
       if (overlays and push_overlays and config['uprev'] and config['master']
-          and not config['branch']):
+          and not config['branch'] and not config['debug']):
         other_master = masters.get(push_overlays)
         err_msg = 'Found two masters for push_overlays=%s: %s and %s'
         self.assertFalse(
@@ -604,7 +616,7 @@ class CBuildBotTest(ChromeosConfigTestBase):
   def testTryjobConfigsDontDefineOverrides(self):
     """Make sure that no tryjob safe configs define test overrides."""
     for build_name, config in self.site_config.iteritems():
-      if config.display_label not in config_lib.TRYJOB_DISPLAY_LABEL:
+      if not config_lib.isTryjobConfig(config):
         continue
 
       self.assertIsNone(
@@ -683,7 +695,7 @@ class CBuildBotTest(ChromeosConfigTestBase):
 
     found_types = set()
     for _, config in self.site_config.iteritems():
-      if config.display_label in config_lib.TRYJOB_DISPLAY_LABEL:
+      if config_lib.isTryjobConfig(config):
         continue
 
       if config.master:
@@ -893,11 +905,6 @@ class CBuildBotTest(ChromeosConfigTestBase):
 
     return False
 
-  def testCantBeBothTypesOfLKGM(self):
-    """Using lkgm and chrome_lkgm doesn't make sense."""
-    for config in self.site_config.values():
-      self.assertFalse(config['use_lkgm'] and config['use_chrome_lkgm'])
-
   def testNoDuplicateSlavePrebuilts(self):
     """Test that no two same-board paladin slaves upload prebuilts."""
     for cfg in self.site_config.values():
@@ -951,12 +958,9 @@ class CBuildBotTest(ChromeosConfigTestBase):
     """Verify that hw test priority is valid."""
     for build_name, config in self.site_config.iteritems():
       for test_config in config['hw_tests']:
-        if isinstance(test_config.priority, (int, long)):
-          self.assertTrue(0 <= test_config.priority <= 100)
-        else:
-          self.assertTrue(
-              test_config.priority in constants.HWTEST_VALID_PRIORITIES,
-              '%s has an invalid hwtest priority.' % build_name)
+        self.assertTrue(
+            test_config.priority in constants.HWTEST_VALID_PRIORITIES,
+            '%s has an invalid hwtest priority.' % build_name)
 
   def testAllBoardsExist(self):
     """Verifies that all config boards are in _all_boards."""
@@ -1182,6 +1186,35 @@ class CBuildBotTest(ChromeosConfigTestBase):
           self.fail(('%s has a triggered_gitiles that is malformed: %r\n'
                      "Simple example: [['url', ['refs/heads/master']]]") %
                     (config.name, config.triggered_gitiles))
+
+  def testTryjobsOnLegoland(self):
+    """LUCI Scheduler entries only work for swarming builds."""
+    not_legoland = []
+    for config in self.site_config.itervalues():
+      if (config.active_waterfall != waterfall.WATERFALL_SWARMING and
+          config_lib.isTryjobConfig(config)):
+        not_legoland.append(config.name)
+
+    self.assertFalse(not_legoland,
+                     "Tryjob not on legoland: %s" %
+                     ', '.join(not_legoland))
+
+  def testUncheduledLegoland(self):
+    """LUCI Scheduler entries only work for swarming builds."""
+    all_slaves = self.findAllSlaveBuilds()
+
+    not_scheduled_legoland = []
+    for config in self.site_config.itervalues():
+      if (config.active_waterfall == waterfall.WATERFALL_SWARMING and
+          not (config_lib.isTryjobConfig(config) or
+               config.schedule or
+               config.name in all_slaves)):
+        not_scheduled_legoland.append(config.name)
+
+    self.assertFalse(not_scheduled_legoland,
+                     "Unscheduled config on waterfall: %s" %
+                     ', '.join(not_scheduled_legoland))
+
 
 class TemplateTest(ChromeosConfigTestBase):
   """Tests for templates."""

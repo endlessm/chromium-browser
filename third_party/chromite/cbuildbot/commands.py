@@ -40,8 +40,6 @@ from chromite.lib import tree_status
 from chromite.lib.paygen import filelib
 from chromite.scripts import pushimage
 
-site_config = config_lib.GetConfig()
-
 
 _PACKAGE_FILE = '%(buildroot)s/src/scripts/cbuildbot_package.list'
 CHROME_KEYWORDS_FILE = ('/build/%(board)s/etc/portage/package.keywords/chrome')
@@ -258,8 +256,7 @@ def RunChrootUpgradeHooks(buildroot, chrome_root=None, extra_env=None):
                  chroot_args=chroot_args, extra_env=extra_env)
 
 
-def UpdateChroot(buildroot, usepkg, toolchain_boards=None, extra_env=None,
-                 save_install_plan=None):
+def UpdateChroot(buildroot, usepkg, toolchain_boards=None, extra_env=None):
   """Wrapper around update_chroot.
 
   Args:
@@ -267,7 +264,6 @@ def UpdateChroot(buildroot, usepkg, toolchain_boards=None, extra_env=None,
     usepkg: Whether to use binary packages when setting up the toolchain.
     toolchain_boards: List of boards to always include.
     extra_env: A dictionary of environmental variables to set during generation.
-    save_install_plan: filename to save the install plan for correct rev deps.
   """
   cmd = ['./update_chroot']
 
@@ -277,7 +273,7 @@ def UpdateChroot(buildroot, usepkg, toolchain_boards=None, extra_env=None,
   if toolchain_boards:
     cmd.extend(['--toolchain_boards', ','.join(toolchain_boards)])
 
-  # workaround http://crbug.com/225509
+  # workaround https://crbug.com/225509
   # Building with FEATURES=separatedebug will create a dedicated tarball with
   # the debug files, and the debug files won't be in the glibc.tbz2, which is
   # where the build scripts expect them.
@@ -285,15 +281,12 @@ def UpdateChroot(buildroot, usepkg, toolchain_boards=None, extra_env=None,
   extra_env_local.setdefault('FEATURES', '')
   extra_env_local['FEATURES'] += ' -separatedebug splitdebug'
 
-  if save_install_plan:
-    cmd.extend(['--save_install_plan=%s' % save_install_plan])
-
   RunBuildScript(buildroot, cmd, extra_env=extra_env_local, enter_chroot=True)
 
 
 def SetupBoard(buildroot, board, usepkg, chrome_binhost_only=False,
                extra_env=None, force=False, profile=None, chroot_upgrade=True,
-               chroot_args=None, save_install_plan=None):
+               chroot_args=None):
   """Wrapper around setup_board.
 
   Args:
@@ -308,7 +301,6 @@ def SetupBoard(buildroot, board, usepkg, chrome_binhost_only=False,
     chroot_upgrade: Whether to update the chroot. If the chroot is already up to
       date, you can specify chroot_upgrade=False.
     chroot_args: The args to the chroot.
-    save_install_plan: filename to save the install plan for correct rev deps.
   """
   cmd = ['./setup_board', '--board=%s' % board,
          '--accept_licenses=@CHROMEOS']
@@ -330,9 +322,6 @@ def SetupBoard(buildroot, board, usepkg, chrome_binhost_only=False,
 
   if force:
     cmd.append('--force')
-
-  if save_install_plan:
-    cmd.append('--save_install_plan=%s' % save_install_plan)
 
   RunBuildScript(buildroot, cmd, extra_env=extra_env, enter_chroot=True,
                  chroot_args=chroot_args)
@@ -447,8 +436,7 @@ def UpdateBinhostJson(buildroot):
 def Build(buildroot, board, build_autotest, usepkg, chrome_binhost_only,
           packages=(), skip_chroot_upgrade=True,
           extra_env=None, chrome_root=None, noretry=False,
-          chroot_args=None, event_file=None, run_goma=False,
-          save_install_plan=None):
+          chroot_args=None, event_file=None, run_goma=False):
   """Wrapper around build_packages.
 
   Args:
@@ -469,7 +457,6 @@ def Build(buildroot, board, build_autotest, usepkg, chrome_binhost_only,
     event_file: File name that events will be logged to.
     run_goma: Set ./build_package --run_goma option, which starts and stops
       goma server in chroot while building packages.
-    save_install_plan: filename to save the install plan for correct rev deps.
   """
   cmd = ['./build_packages', '--board=%s' % board,
          '--accept_licenses=@CHROMEOS', '--withdebugsymbols']
@@ -501,9 +488,6 @@ def Build(buildroot, board, build_autotest, usepkg, chrome_binhost_only,
   if event_file:
     cmd.append('--withevents')
     cmd.append('--eventfile=%s' % event_file)
-
-  if save_install_plan:
-    cmd.append('--save_install_plan=%s' % save_install_plan)
 
   cmd.extend(packages)
   RunBuildScript(buildroot, cmd, extra_env=extra_env, chroot_args=chroot_args,
@@ -818,7 +802,6 @@ def RunHWTestSuite(
     suite_args=None,
     offload_failures_only=None,
     debug=True,
-    subsystems=frozenset(),
     skip_duts_check=False,
     job_keyvals=None,
     test_args=None):
@@ -851,8 +834,6 @@ def RunHWTestSuite(
                 using repr(), so the dict values should be basic types.
     offload_failures_only: Only offload failed tests to Google Storage.
     debug: Whether we are in debug mode.
-    subsystems: A set of subsystems that the relevant changes affect, for
-                testing purposes.
     skip_duts_check: If True, skip minimum available DUTs check.
     job_keyvals: A dict of job keyvals to be inject to suite control file.
     test_args: A dict of test parameters to be inject to suite control file.
@@ -878,7 +859,7 @@ def RunHWTestSuite(
         suite_min_duts=suite_min_duts,
         suite_args=suite_args,
         offload_failures_only=offload_failures_only,
-        subsystems=subsystems,
+        subsystems=set([]),
         skip_duts_check=skip_duts_check,
         job_keyvals=job_keyvals,
         test_args=test_args)
@@ -1041,16 +1022,60 @@ def _GetRunSkylabSuiteArgs(
   if suite_args is not None:
     args += ['--suite_args', repr(suite_args)]
 
+  # Use fallback request for every skylab suite.
+  args += ['--use_fallback']
+
   return args
 # pylint: enable=docstring-missing-args
 
 
-def _SkylabHWTestCreate(swarming_cli_cmd, cmd, **kwargs):
+def _remove_seeded_steps(output):
+  """Remove the user seeded steps in SkylabHWTestStage.
+
+  This step is used for filtering out extra annotations so that they won't show
+  on buildbot page.
+
+  When a suite passes, only the create and final wait swarming task URL are
+  listed.
+  When a suite fails, swarming task URL of the failed task is also listed.
+  No additional links are expected to show on buildbot. An example is:
+      https://cros-goldeneye.corp.google.com/chromeos/healthmonitoring/
+      buildDetails?buildbucketId=8940161120910419584
+
+  But when users view the suite swarming task URL, they're expected to see
+  all its child tests and their results for further debugging, e.g.
+      https://chrome-swarming.appspot.com/task?id=3ee300326eb47a10&refresh=10
+      https://chrome-swarming.appspot.com/task?id=3ee30107bdfe7d10&refresh=10
+
+  It's bad behavior to filter out steps based on swarming output, which
+  means the buildbot interface is highly depending on the output of
+  run_suite_skylab.py in autotest. However, it is hard to insert annotations
+  independently (run_suite_skylab (python) cannot use the LogDog libraries
+  (Go)). Currently we're still relying on printing format
+  '@@@ *** @@@' and let builder running kitchen to interpret it automatically.
+  So this function is needed until we have better approaches to interact with
+  logdog.
+  """
+  output_lines = output.splitlines()
+  return_output = ''
+  is_seeded_step = False
+  for line in output_lines:
+    if '@@@SEED_STEP' in line:
+      is_seeded_step = True
+
+    if not is_seeded_step:
+      return_output += line + '\n'
+
+    if '@@@STEP_CLOSED' in line:
+      is_seeded_step = False
+
+  return return_output
+
+
+def _SkylabHWTestCreate(cmd, **kwargs):
   """Create HWTest with Skylab.
 
   Args:
-    swarming_cli_cmd: Either 'run' if waiting for the results,
-      otherwise, its value should be 'trigger'.
     cmd: A list of args for proxied run_suite_skylab command.
     kwargs: args to be passed to RunSwarmingCommand.
 
@@ -1062,24 +1087,23 @@ def _SkylabHWTestCreate(swarming_cli_cmd, cmd, **kwargs):
                cros_build_lib.CmdToStr(create_cmd))
   result = swarming_lib.RunSwarmingCommandWithRetries(
       max_retry=_MAX_HWTEST_START_CMD_RETRY,
+      is_skylab=True,
       error_check=swarming_lib.SwarmingRetriableErrorCheck,
-      cmd=create_cmd, swarming_cli_cmd=swarming_cli_cmd, capture_output=True,
+      cmd=create_cmd, capture_output=True,
       combine_stdout_stderr=True, **kwargs)
   # If the command succeeds, result.task_summary_json will have the right
   # content. So result.GetValue is able to return valid values from its
   # json summary.
-  for output in result.GetValue('outputs', ''):
-    sys.stdout.write(output)
+  for output in result.GetValue('outputs', []):
+    sys.stdout.write(_remove_seeded_steps(output))
   sys.stdout.flush()
   return result.GetValue('run_id')
 
 
-def _SkylabHWTestWait(swarming_cli_cmd, cmd, suite_id, **kwargs):
+def _SkylabHWTestWait(cmd, suite_id, **kwargs):
   """Wait for Skylab HWTest to finish.
 
   Args:
-    swarming_cli_cmd: Either 'run' if waiting for the results,
-      otherwise, its value should be 'trigger'.
     cmd: Proxied run_suite command.
     suite_id: The string suite_id to wait for.
     kwargs: args to be passed to RunSwarmingCommand.
@@ -1090,19 +1114,18 @@ def _SkylabHWTestWait(swarming_cli_cmd, cmd, suite_id, **kwargs):
   try:
     result = swarming_lib.RunSwarmingCommandWithRetries(
         max_retry=_MAX_HWTEST_START_CMD_RETRY,
+        is_skylab=True,
         error_check=swarming_lib.SwarmingRetriableErrorCheck,
-        cmd=wait_cmd, swarming_cli_cmd=swarming_cli_cmd,
-        capture_output=True, combine_stdout_stderr=True,
+        cmd=wait_cmd, capture_output=True, combine_stdout_stderr=True,
         **kwargs)
   except cros_build_lib.RunCommandError as e:
     result = e.result
     raise
   finally:
-    # 'Outputs' only exist when swarming_cli_cmd='run'.
     # This is required to output buildbot annotations, e.g. 'STEP_LINKS'.
     sys.stdout.write('######## Output for buildbot annotations ######## \n')
     for output in result.GetValue('outputs', []):
-      sys.stdout.write(output)
+      sys.stdout.write(_remove_seeded_steps(output))
     sys.stdout.write('######## END Output for buildbot annotations ######## \n')
     sys.stdout.flush()
 
@@ -1130,7 +1153,7 @@ def RunSkylabHWTestSuite(
   """
   priority_str = priority
   if priority:
-    priority = constants.HWTEST_PRIORITIES_MAP[str(priority)]
+    priority = constants.SKYLAB_HWTEST_PRIORITIES_MAP[str(priority)]
 
   cmd = [SKYLAB_RUN_SUITE_PATH]
   cmd += _GetRunSkylabSuiteArgs(
@@ -1145,9 +1168,9 @@ def RunSkylabHWTestSuite(
   swarming_args = _CreateSwarmingArgs(build, suite, board, priority_str,
                                       timeout_mins, run_skylab=True)
   try:
-    suite_id = _SkylabHWTestCreate('run', cmd, **swarming_args)
+    suite_id = _SkylabHWTestCreate(cmd, **swarming_args)
     if wait_for_results:
-      _SkylabHWTestWait('run', cmd, suite_id, **swarming_args)
+      _SkylabHWTestWait(cmd, suite_id, **swarming_args)
 
     return HWTestSuiteResult(None, None)
   except cros_build_lib.RunCommandError as e:
@@ -1192,7 +1215,6 @@ def _GetRunSuiteArgs(
 
   if model:
     args += ['--model', model]
-
 
   if subsystems:
     args += ['--suite_name', 'suite_attr_wrapper']
@@ -1273,7 +1295,7 @@ def _CreateSwarmingArgs(build, suite, board, priority,
     timeout_mins: run_suite timeout mins, will be used to figure out
                   timeouts for swarming task.
     board: Name of the board.
-    priority: Priority of this call.
+    priority: A String, e.g. CQ, representing the priority of this call.
     run_skylab: Indicate whether to create a swarming cmd for Skylab HWTest.
 
   Returns:
@@ -1283,10 +1305,13 @@ def _CreateSwarmingArgs(build, suite, board, priority,
   swarming_timeout = timeout_mins or _DEFAULT_HWTEST_TIMEOUT_MINS
   swarming_timeout = swarming_timeout * 60 + _SWARMING_ADDITIONAL_TIMEOUT
 
+  priority_num = None
   if run_skylab:
     swarming_server = topology.topology.get(
         topology.CHROME_SWARMING_PROXY_HOST_KEY)
     pool = SKYLAB_SUITE_BOT_POOL
+    if priority:
+      priority_num = constants.SKYLAB_HWTEST_PRIORITIES_MAP[str(priority)]
   else:
     swarming_server = topology.topology.get(
         topology.SWARMING_PROXY_HOST_KEY)
@@ -1306,6 +1331,7 @@ def _CreateSwarmingArgs(build, suite, board, priority,
   return {
       'swarming_server': swarming_server,
       'task_name': '-'.join([build, suite]),
+      'priority': priority_num,
       'dimensions': [('os', 'Ubuntu-14.04'),
                      ('pool', pool)],
       'print_status_updates': True,
@@ -1477,7 +1503,8 @@ def AbortHWTests(config_type_or_name, version, debug, suite=''):
     logging.warning('AbortHWTests failed', exc_info=True)
 
 
-def AbortSkylabHWTests(build, board, debug, suite, pool=None, suite_id=''):
+def AbortSkylabHWTests(build, board, debug, suite, priority, pool=None,
+                       suite_id=''):
   """Abort the specified hardware tests for the given bot(s).
 
   Args:
@@ -1485,11 +1512,11 @@ def AbortSkylabHWTests(build, board, debug, suite, pool=None, suite_id=''):
     board: The name of the board.
     debug: Whether we are in debug mode.
     suite: Name of the Autotest suite.
+    priority: A string like 'CQ' to represent the suite's priority.
     pool: The name of the pool.
     suite_id: The ID of this swarming suite task.
   """
-  abort_args = ['--board', board, '--suite_name', suite, '--build', build,
-                '--abort_limit', str(1)]
+  abort_args = ['--board', board, '--suite_name', suite, '--build', build]
   if suite_id:
     abort_args += ['--suite_task_ids', suite_id]
 
@@ -1502,6 +1529,7 @@ def AbortSkylabHWTests(build, board, debug, suite, pool=None, suite_id=''):
         'swarming_server': topology.topology.get(
             topology.CHROME_SWARMING_PROXY_HOST_KEY),
         'task_name': '-'.join(['abort', build, suite]),
+        'priority': constants.SKYLAB_HWTEST_PRIORITIES_MAP[str(priority)],
         'dimensions': [('os', 'Ubuntu-14.04'),
                        ('pool', SKYLAB_SUITE_BOT_POOL)],
         'print_status_updates': True,
@@ -1681,7 +1709,7 @@ def MarkAndroidAsStable(buildroot, tracking_branch, android_package,
                      combine_stdout_stderr=True, capture_output=True)
     except failures_lib.BuildScriptFailure:
       logging.error('Cannot emerge-%s =%s\nIs Android pinned to an older '
-                    'version?' % (board, android_atom))
+                    'version?', board, android_atom)
       raise AndroidIsPinnedUprevError(android_atom)
 
   return android_atom
@@ -1740,7 +1768,7 @@ def MarkChromeAsStable(buildroot,
           enter_chroot=True, combine_stdout_stderr=True, capture_output=True)
     except cros_build_lib.RunCommandError:
       logging.error('Cannot emerge-%s =%s\nIs Chrome pinned to an older '
-                    'version?' % (board, chrome_atom))
+                    'version?', board, chrome_atom)
       raise ChromeIsPinnedUprevError(chrome_atom)
 
   return chrome_atom
@@ -1755,14 +1783,34 @@ def CleanupChromeKeywordsFile(boards, buildroot):
       cros_build_lib.SudoRunCommand(['rm', '-f', keywords_file])
 
 
-def UprevPackages(buildroot, boards, overlays):
-  """Uprevs non-browser chromium os packages that have changed."""
+def UprevPackages(buildroot, boards, overlays=None, overlay_type=None,
+                  workspace=None):
+  """Uprevs non-browser chromium os packages that have changed.
+
+  Args:
+    buildroot: Root directory where build occurs.
+    boards: List of boards to uprev.
+    overlays: The overlays to check for ebuilds to uprev.
+    overlay_type: A value from constants.VALID_OVERLAYS.
+    workspace: Alternative buildroot directory to uprev.
+  """
+  assert not (overlays and overlay_type)
+
   drop_file = _PACKAGE_FILE % {'buildroot': buildroot}
-  cmd = ['cros_mark_as_stable', '--all',
-         '--boards=%s' % ':'.join(boards),
-         '--overlays=%s' % ':'.join(overlays),
-         '--drop_file=%s' % drop_file,
-         'commit']
+  cmd = [
+      'cros_mark_as_stable', 'commit',
+      '--all',
+      '--boards=%s' % ':'.join(boards),
+      '--drop_file=%s' % drop_file,
+      '--buildroot', workspace or buildroot,
+  ]
+
+  if overlays:
+    cmd.extend(['--overlays', ':'.join(overlays)])
+
+  if overlay_type:
+    cmd.extend(['--overlay-type', overlay_type])
+
   RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
 
@@ -1772,7 +1820,8 @@ def RegenPortageCache(overlays):
   parallel.RunTasksInProcessPool(portage_util.RegenCache, task_inputs)
 
 
-def UprevPush(buildroot, overlays, dryrun, staging_branch=None):
+def UprevPush(buildroot, overlays=None, dryrun=True, staging_branch=None,
+              overlay_type=None, workspace=None):
   """Pushes uprev changes to the main line.
 
   Args:
@@ -1781,16 +1830,23 @@ def UprevPush(buildroot, overlays, dryrun, staging_branch=None):
     dryrun: If True, do not actually push.
     staging_branch: If not None, push uprev commits to this
                     staging_branch.
+    overlay_type: A value from constants.VALID_OVERLAYS.
+    workspace: Alternative buildroot directory to uprev.
   """
-  cmd = ['cros_mark_as_stable',
-         '--srcroot=%s' % os.path.join(buildroot, 'src'),
-         '--overlays=%s' % ':'.join(overlays)
-        ]
+  assert not (overlays and overlay_type)
+
+  cmd = [
+      'cros_mark_as_stable', 'push',
+      '--buildroot', workspace or buildroot,
+  ]
+  if overlays:
+    cmd.extend(['--overlays', ':'.join(overlays)])
+  if overlay_type:
+    cmd.extend(['--overlay-type', overlay_type])
   if staging_branch is not None:
     cmd.append('--staging_branch=%s' % staging_branch)
   if dryrun:
     cmd.append('--dryrun')
-  cmd.append('push')
   RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
 
@@ -1866,7 +1922,7 @@ def GenerateBreakpadSymbols(buildroot, board, debug):
     debug: Include extra debugging output.
   """
   # We don't care about firmware symbols.
-  # See http://crbug.com/213670.
+  # See https://crbug.com/213670.
   exclude_dirs = ['firmware']
 
   cmd = ['cros_generate_breakpad_symbols', '--board=%s' % board,
@@ -2221,7 +2277,8 @@ def UploadSymbols(buildroot, board=None, official=False, cnt=None,
   RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
 
-def PushImages(board, archive_url, dryrun, profile, sign_types=()):
+def PushImages(board, archive_url, dryrun, profile, sign_types=(),
+               buildroot=None):
   """Push the generated image to the release bucket for signing."""
   # Log the equivalent command for debugging purposes.
   log_cmd = ['pushimage', '--board=%s' % board]
@@ -2236,11 +2293,12 @@ def PushImages(board, archive_url, dryrun, profile, sign_types=()):
     log_cmd.append('--sign-types=%s' % ' '.join(sign_types))
 
   log_cmd.append(archive_url)
-  logging.info('Running: %s' % cros_build_lib.CmdToStr(log_cmd))
+  logging.info('Running: %s', cros_build_lib.CmdToStr(log_cmd))
 
   try:
     return pushimage.PushImage(archive_url, board, profile=profile,
-                               sign_types=sign_types, dry_run=dryrun)
+                               sign_types=sign_types, dry_run=dryrun,
+                               buildroot=buildroot)
   except pushimage.PushError as e:
     logging.PrintBuildbotStepFailure()
     return e.args[1]
@@ -2523,7 +2581,7 @@ def BuildFullAutotestTarball(buildroot, board, tarball_dir):
   # status code 1. The tarball is still OK, although there might be a few
   # unneeded (and garbled) tmp files. If tar fails in a different way, it'll
   # return an error code other than 1.
-  # TODO: Fix the autotest ebuild. See http://crbug.com/237537
+  # TODO: Fix the autotest ebuild. See https://crbug.com/237537
   if result.returncode not in (0, 1):
     raise Exception('Autotest tarball creation failed with exit code %s'
                     % (result.returncode))
@@ -2743,13 +2801,15 @@ def BuildGceTarball(archive_dir, image_dir, image):
     return os.path.basename(output_file)
 
 
-def BuildFirmwareArchive(buildroot, board, archive_dir):
+def BuildFirmwareArchive(buildroot, board, archive_dir,
+                         archive_name=constants.FIRMWARE_ARCHIVE_NAME):
   """Build firmware_from_source.tar.bz2 in archive_dir from build root.
 
   Args:
     buildroot: Root directory where build occurs.
     board: Board name of build target.
     archive_dir: Directory to store output file.
+    archive_name: Name of file to create in archive_dir.
 
   Returns:
     The basename of the archived file, or None if the target board does
@@ -2761,7 +2821,6 @@ def BuildFirmwareArchive(buildroot, board, archive_dir):
   if not source_list:
     return None
 
-  archive_name = 'firmware_from_source.tar.bz2'
   archive_file = os.path.join(archive_dir, archive_name)
   BuildTarball(buildroot, source_list, archive_file, cwd=firmware_root)
   return archive_name
@@ -2894,7 +2953,7 @@ def GeneratePayloads(build_root, target_image_path, archive_dir, full=False,
     chroot_temp_dir = temp_dir.replace(chroot_dir, '', 1)
 
     cmd = [
-        os.path.join(path, 'cros_generate_update_payload'),
+        'cros_generate_update_payload',
         '--image', chroot_target,
         '--output', os.path.join(chroot_temp_dir, 'update.gz')
     ]
@@ -2941,7 +3000,7 @@ def GetChromeLKGM(revision):
   revision = revision or 'refs/heads/master'
   lkgm_url_path = '%s/+/%s/%s?format=text' % (
       constants.CHROMIUM_SRC_PROJECT, revision, constants.PATH_TO_CHROME_LKGM)
-  contents_b64 = gob_util.FetchUrl(site_config.params.EXTERNAL_GOB_HOST,
+  contents_b64 = gob_util.FetchUrl(config_lib.GetSiteParams().EXTERNAL_GOB_HOST,
                                    lkgm_url_path)
   return base64.b64decode(contents_b64.read()).strip()
 

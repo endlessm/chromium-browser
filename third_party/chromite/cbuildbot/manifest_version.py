@@ -29,8 +29,6 @@ from chromite.lib import osutils
 from chromite.lib import timeout_util
 
 
-site_config = config_lib.GetConfig()
-
 PUSH_BRANCH = 'temp_auto_checkin_branch'
 NUM_RETRIES = 20
 
@@ -93,7 +91,7 @@ def RefreshManifestCheckout(manifest_dir, manifest_repo):
   if reinitialize:
     logging.info('Cloning fresh manifest-versions checkout.')
     osutils.RmDir(manifest_dir, ignore_missing=True)
-    repository.CloneGitRepo(manifest_dir, manifest_repo)
+    git.Clone(manifest_dir, manifest_repo)
 
 
 def _PushGitChanges(git_repo, message, dry_run=False, push_to=None):
@@ -373,7 +371,7 @@ class BuildSpecsManager(object):
     """
     self.cros_source = source_repo
     buildroot = source_repo.directory
-    if manifest_repo.startswith(site_config.params.INTERNAL_GOB_URL):
+    if manifest_repo.startswith(config_lib.GetSiteParams().INTERNAL_GOB_URL):
       self.manifest_dir = os.path.join(buildroot, 'manifest-versions-internal')
     else:
       self.manifest_dir = os.path.join(buildroot, 'manifest-versions')

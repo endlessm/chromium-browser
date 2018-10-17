@@ -15,8 +15,8 @@
 #include "base/mac/scoped_nsobject.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "base/path_service.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "base/threading/thread_task_runner_handle.h"
 #import "chrome/browser/app_controller_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_host_manager_mac.h"
@@ -27,6 +27,7 @@
 #include "chrome/browser/mac/keychain_reauthorize.h"
 #import "chrome/browser/mac/keystone_glue.h"
 #include "chrome/browser/mac/mac_startup_profiler.h"
+#include "chrome/browser/ui/cocoa/main_menu_builder.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/crash/content/app/crashpad.h"
@@ -56,7 +57,7 @@ void EnsureMetadataNeverIndexFileOnFileThread(
 void EnsureMetadataNeverIndexFile(const base::FilePath& user_data_dir) {
   base::PostTaskWithTraits(
       FROM_HERE,
-      {base::MayBlock(), base::TaskPriority::BACKGROUND,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
       base::Bind(&EnsureMetadataNeverIndexFileOnFileThread, user_data_dir));
 }
@@ -67,8 +68,11 @@ void EnsureMetadataNeverIndexFile(const base::FilePath& user_data_dir) {
 
 ChromeBrowserMainPartsMac::ChromeBrowserMainPartsMac(
     const content::MainFunctionParams& parameters,
-    std::unique_ptr<ui::DataPack> data_pack)
-    : ChromeBrowserMainPartsPosix(parameters, std::move(data_pack)) {}
+    std::unique_ptr<ui::DataPack> data_pack,
+    ChromeFeatureListCreator* chrome_feature_list_creator)
+    : ChromeBrowserMainPartsPosix(parameters,
+                                  std::move(data_pack),
+                                  chrome_feature_list_creator) {}
 
 ChromeBrowserMainPartsMac::~ChromeBrowserMainPartsMac() {
 }
@@ -129,18 +133,13 @@ void ChromeBrowserMainPartsMac::PreMainMessageLoopStart() {
     }
   }
 
-  // Now load the nib (from the right bundle).
-  base::scoped_nsobject<NSNib> nib(
-      [[NSNib alloc] initWithNibNamed:@"MainMenu"
-                               bundle:base::mac::FrameworkBundle()]);
-  // TODO(viettrungluu): crbug.com/20504 - This currently leaks, so if you
-  // change this, you'll probably need to change the Valgrind suppression.
-  NSArray* top_level_objects = nil;
-  [nib instantiateWithOwner:NSApp topLevelObjects:&top_level_objects];
-  for (NSObject* object : top_level_objects)
-    [object retain];
-  // Make sure the app controller has been created.
-  DCHECK([NSApp delegate]);
+  // Create the app delegate. This object is intentionally leaked as a global
+  // singleton. It is accessed through -[NSApp delegate].
+  AppController* app_controller = [[AppController alloc] init];
+  [NSApp setDelegate:app_controller];
+
+  chrome::BuildMainMenu(NSApp, app_controller);
+  [app_controller mainMenuCreated];
 
   // Do Keychain reauthorization. This gets two chances to run. If the first
   // try doesn't complete successfully (crashes or is interrupted for any

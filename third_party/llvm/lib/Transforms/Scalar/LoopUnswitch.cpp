@@ -520,7 +520,7 @@ bool LoopUnswitch::runOnLoop(Loop *L, LPPassManager &LPM_Ref) {
 
   SanitizeMemory = F->hasFnAttribute(Attribute::SanitizeMemory);
   if (SanitizeMemory)
-    computeLoopSafetyInfo(&SafetyInfo, L);
+    SafetyInfo.computeLoopSafetyInfo(L);
 
   bool Changed = false;
   do {
@@ -708,7 +708,7 @@ bool LoopUnswitch::processCurrentLoop() {
       // Unswitch only those branches that are reachable.
       if (isUnreachableDueToPreviousUnswitching(*I))
         continue;
- 
+
       // If this isn't branching on an invariant condition, we can't unswitch
       // it.
       if (BI->isConditional()) {
@@ -754,7 +754,7 @@ bool LoopUnswitch::processCurrentLoop() {
           // We are unswitching ~0 out.
           UnswitchVal = AllOne;
         } else {
-          assert(OpChain == OC_OpChainNone && 
+          assert(OpChain == OC_OpChainNone &&
                  "Expect to unswitch on trivial chain");
           // Do not process same value again and again.
           // At this point we have some cases already unswitched and
@@ -1190,7 +1190,7 @@ void LoopUnswitch::SplitExitEdges(Loop *L,
 
     // Although SplitBlockPredecessors doesn't preserve loop-simplify in
     // general, if we call it on all predecessors of all exits then it does.
-    SplitBlockPredecessors(ExitBlock, Preds, ".us-lcssa", DT, LI,
+    SplitBlockPredecessors(ExitBlock, Preds, ".us-lcssa", DT, LI, nullptr,
                            /*PreserveLCSSA*/ true);
   }
 }
@@ -1440,11 +1440,11 @@ void LoopUnswitch::RewriteLoopBodyWithConditionConstant(Loop *L, Value *LIC,
         // This in-loop instruction has been simplified w.r.t. its context,
         // i.e. LIC != Val, make sure we propagate its replacement value to
         // all its users.
-        //  
+        //
         // We can not yet delete UI, the LIC user, yet, because that would invalidate
         // the LIC->users() iterator !. However, we can make this instruction
         // dead by replacing all its users and push it onto the worklist so that
-        // it can be properly deleted and its operands simplified. 
+        // it can be properly deleted and its operands simplified.
         UI->replaceAllUsesWith(Replacement);
       }
     }
@@ -1609,7 +1609,7 @@ Value *LoopUnswitch::SimplifyInstructionWithNotEqual(Instruction *Inst,
       LLVMContext &Ctx = Inst->getContext();
       if (CI->getPredicate() == CmpInst::ICMP_EQ)
         return ConstantInt::getFalse(Ctx);
-      else 
+      else
         return ConstantInt::getTrue(Ctx);
      }
   }

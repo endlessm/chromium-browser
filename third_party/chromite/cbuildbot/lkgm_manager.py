@@ -25,9 +25,6 @@ from chromite.lib import git
 from chromite.lib import osutils
 
 
-site_config = config_lib.GetConfig()
-
-
 # Paladin constants for manifest names.
 PALADIN_COMMIT_ELEMENT = 'pending_commit'
 
@@ -299,7 +296,7 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     logging.info('Cloning manifest repository from %s to %s.',
                  manifest_path, tmp_manifest_repo)
 
-    repository.CloneGitRepo(tmp_manifest_repo, manifest_path)
+    git.Clone(tmp_manifest_repo, manifest_path)
     git.CreateBranch(tmp_manifest_repo, self.cros_source.branch or 'master')
 
     logging.info('Switching to local patched manifest repository:')
@@ -452,7 +449,8 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     """
     last_error = None
     new_manifest = manifest_version.FilterManifest(
-        manifest, whitelisted_remotes=site_config.params.EXTERNAL_REMOTES)
+        manifest,
+        whitelisted_remotes=config_lib.GetSiteParams().EXTERNAL_REMOTES)
     version_info = self.GetCurrentVersionInfo()
     for _attempt in range(0, retries + 1):
       try:
@@ -557,7 +555,7 @@ def GenerateBlameList(source_repo, lkgm_path, only_print_chumps=False):
     # Additional case in case the repo has been removed from the manifest.
     src_path = source_repo.GetRelativePath(rel_src_path)
     if not os.path.exists(src_path):
-      logging.info('Detected repo removed from manifest %s' % project)
+      logging.info('Detected repo removed from manifest %s', project)
       continue
 
     revision = checkout['revision']

@@ -120,6 +120,8 @@ class CheckTemplateStage(generic_stages.BuilderStage):
   triggers config updates if necessary.
   """
 
+  category = constants.CI_INFRA_STAGE
+
   def __init__(self, builder_run, **kwargs):
     super(CheckTemplateStage, self).__init__(builder_run, **kwargs)
     self.ctx = gs.GSContext(init_boto=True)
@@ -212,6 +214,9 @@ class UpdateConfigStage(generic_stages.BuilderStage):
   based on the new template file, verifies the changes,
   and submits the changes to the corresponding branch.
   """
+
+  category = constants.CI_INFRA_STAGE
+
   def __init__(self, builder_run, template_gs_path,
                branch, chromite_dir, dry_run, **kwargs):
     super(UpdateConfigStage, self).__init__(builder_run, **kwargs)
@@ -284,7 +289,7 @@ class UpdateConfigStage(generic_stages.BuilderStage):
         capture_output=True,
         print_cmd=True).output
     if modifications:
-      logging.info('Changed files: %s ' % modifications)
+      logging.info('Changed files: %s ', modifications)
       return True
     else:
       return False

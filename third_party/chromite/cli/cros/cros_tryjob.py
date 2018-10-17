@@ -111,10 +111,12 @@ def CbuildbotArgs(options):
       args.append('--debug')
 
   elif options.where == CBUILDBOT:
-    args.extend(('--buildbot', '--nobootstrap', '--noreexec',
+    args.extend(('--debug', '--nobootstrap', '--noreexec',
                  '--no-buildbot-tags'))
-    if not options.production:
-      args.append('--debug')
+    if options.production:
+      # This is expected to fail on workstations without an explicit --debug,
+      # or running 'branch-util'.
+      args.append('--buildbot')
 
   else:
     raise Exception('Unknown options.where: %s', options.where)
@@ -257,11 +259,10 @@ def FindUserEmail(options):
   return git.GetProjectUserEmail(cwd)
 
 
-def PushLocalPatches(site_config, local_patches, user_email, dryrun=False):
+def PushLocalPatches(local_patches, user_email, dryrun=False):
   """Push local changes to a remote ref, and generate args to send.
 
   Args:
-    site_config: config_lib.SiteConfig containing all config info.
     local_patches: patch_pool.local_patches from verified patch_pool.
     user_email: Unique id for user submitting this tryjob.
     dryrun: Is this a dryrun? If so, don't really push.
@@ -286,9 +287,9 @@ def PushLocalPatches(site_config, local_patches, user_email, dryrun=False):
     print('Uploading patch %s' % patch)
     patch.Upload(checkout['push_url'], ref_final, dryrun=dryrun)
 
-    # TODO(rcui): Pass in the remote instead of tag. http://crosbug.com/33937.
+    # TODO(rcui): Pass in the remote instead of tag. https://crbug.com/216095.
     tag = constants.EXTERNAL_PATCH_TAG
-    if checkout['remote'] == site_config.params.INTERNAL_REMOTE:
+    if checkout['remote'] == config_lib.GetSiteParams().INTERNAL_REMOTE:
       tag = constants.INTERNAL_PATCH_TAG
 
     extra_args.append('--remote-patches=%s:%s:%s:%s:%s'
@@ -311,8 +312,7 @@ def RunRemote(site_config, options, patch_pool, staging=False):
 
   # Figure out the cbuildbot command line to pass in.
   args = CbuildbotArgs(options)
-  args += PushLocalPatches(
-      site_config, patch_pool.local_patches, user_email)
+  args += PushLocalPatches(patch_pool.local_patches, user_email)
 
   email_template = None
   if options.debug:
@@ -380,16 +380,19 @@ def VerifyOptions(options, site_config):
   if not options.build_configs:
     cros_build_lib.Die('At least one build_config is required.')
 
-  unknown_build_configs = [b for b in options.build_configs
-                           if b not in site_config]
-  if unknown_build_configs and not options.yes:
-    prompt = ('Unknown build configs; are you sure you want to schedule '
-              'for %s?' % ', '.join(unknown_build_configs))
-    if not cros_build_lib.BooleanPrompt(prompt=prompt, default=False):
-      cros_build_lib.Die('No confirmation.')
+  on_branch = options.branch != 'master'
+
+  if not (options.yes or on_branch):
+    unknown_build_configs = [b for b in options.build_configs
+                             if b not in site_config]
+    if unknown_build_configs:
+      prompt = ('Unknown build configs; are you sure you want to schedule '
+                'for %s?' % ', '.join(unknown_build_configs))
+      if not cros_build_lib.BooleanPrompt(prompt=prompt, default=False):
+        cros_build_lib.Die('No confirmation.')
 
   # Ensure that production configs are only run with --production.
-  if not (options.production or options.where == CBUILDBOT):
+  if not (on_branch or options.production or options.where == CBUILDBOT):
     # We can't know if branched configs are tryjob safe.
     # It should always be safe to run a tryjob config with --production.
     prod_configs = []

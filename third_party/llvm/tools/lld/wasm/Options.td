@@ -23,6 +23,9 @@ def color_diagnostics: F<"color-diagnostics">,
 def color_diagnostics_eq: J<"color-diagnostics=">,
   HelpText<"Use colors in diagnostics; one of 'always', 'never', 'auto'">;
 
+def compress_relocations: F<"compress-relocations">,
+  HelpText<"Compress the relocation targets in the code section.">;
+
 defm demangle: B<"demangle",
     "Demangle symbol names",
     "Do not demangle symbol names">;
@@ -131,6 +134,10 @@ def no_entry: F<"no-entry">,
 
 def stack_first: F<"stack-first">,
   HelpText<"Place stack at start of linear memory rather than after data">;
+
+defm whole_archive: B<"whole-archive",
+    "Force load of all members in a static library",
+    "Do not force load of all members in a static library (default)">;
 
 // Aliases
 def alias_entry_e: JoinedOrSeparate<["-"], "e">, Alias<entry>;

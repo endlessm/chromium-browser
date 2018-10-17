@@ -7,7 +7,6 @@
 
 from __future__ import print_function
 
-import collections
 import contextlib
 import datetime
 import difflib
@@ -672,17 +671,6 @@ class TestRunCommandOutput(cros_test_lib.TempDirTestCase,
     self.assertEquals(self._CaptureLogOutput(cmd, shell=True, log_output=True),
                       log_output)
 
-  @_ForceLoggingLevel
-  def testStreamLog(self):
-    """Streaming log_output, stdout and stderr interwoven in order."""
-    cmd = 'echo Greece; echo Italy >&2; echo Spain'
-    log_output = ("RunCommand: /bin/bash -c "
-                  "'echo Greece; echo Italy >&2; echo Spain'\n"
-                  "(stdout/stderr):\n\nGreece\nItaly\nSpain\n")
-    self.assertEquals(self._CaptureLogOutput(cmd, shell=True, stream_log=True),
-                      log_output)
-
-
 class TestTimedSection(cros_test_lib.TestCase):
   """Tests for TimedSection context manager."""
 
@@ -1160,92 +1148,6 @@ class TestManifestCheckout(cros_test_lib.TempDirTestCase):
     self.assertEqual(branches, ['refs/remotes/origin/release-R23-2913.B'])
 
 
-class TestGroupByKey(cros_test_lib.TestCase):
-  """Test SplitByKey."""
-
-  def testEmpty(self):
-    self.assertEqual({}, cros_build_lib.GroupByKey([], ''))
-
-  def testGroupByKey(self):
-    input_iter = [{'a': None, 'b': 0},
-                  {'a': 1, 'b': 1},
-                  {'a': 2, 'b': 2},
-                  {'a': 1, 'b': 3}]
-    expected_result = {
-        None: [{'a': None, 'b': 0}],
-        1:    [{'a': 1, 'b': 1},
-               {'a': 1, 'b': 3}],
-        2:    [{'a': 2, 'b': 2}]}
-    self.assertEqual(cros_build_lib.GroupByKey(input_iter, 'a'),
-                     expected_result)
-
-
-class GroupNamedtuplesByKeyTests(cros_test_lib.TestCase):
-  """Tests for GroupNamedtuplesByKey"""
-
-  def testGroupNamedtuplesByKeyWithEmptyInputIter(self):
-    """Test GroupNamedtuplesByKey with empty input_iter."""
-    self.assertEqual({}, cros_build_lib.GroupByKey([], ''))
-
-  def testGroupNamedtuplesByKey(self):
-    """Test GroupNamedtuplesByKey."""
-    TestTuple = collections.namedtuple('TestTuple', ('key1', 'key2'))
-    r1 = TestTuple('t1', 'val1')
-    r2 = TestTuple('t2', 'val2')
-    r3 = TestTuple('t2', 'val2')
-    r4 = TestTuple('t3', 'val3')
-    r5 = TestTuple('t3', 'val3')
-    r6 = TestTuple('t3', 'val3')
-    input_iter = [r1, r2, r3, r4, r5, r6]
-
-    expected_result = {
-        't1': [r1],
-        't2': [r2, r3],
-        't3': [r4, r5, r6]}
-    self.assertDictEqual(
-        cros_build_lib.GroupNamedtuplesByKey(input_iter, 'key1'),
-        expected_result)
-
-    expected_result = {
-        'val1': [r1],
-        'val2': [r2, r3],
-        'val3': [r4, r5, r6]}
-    self.assertDictEqual(
-        cros_build_lib.GroupNamedtuplesByKey(input_iter, 'key2'),
-        expected_result)
-
-    expected_result = {
-        None: [r1, r2, r3, r4, r5, r6]}
-    self.assertDictEqual(
-        cros_build_lib.GroupNamedtuplesByKey(input_iter, 'test'),
-        expected_result)
-
-
-class InvertDictionayTests(cros_test_lib.TestCase):
-  """Tests for InvertDictionary."""
-
-  def testInvertDictionary(self):
-    """Test InvertDictionary."""
-    changes = ['change_1', 'change_2', 'change_3', 'change_4']
-    slaves = ['slave_1', 'slave_2', 'slave_3', 'slave_4']
-    slave_changes_dict = {
-        slaves[0]: set(changes[0:1]),
-        slaves[1]: set(changes[0:2]),
-        slaves[2]: set(changes[2:4]),
-        slaves[3]: set()
-    }
-    change_slaves_dict = cros_build_lib.InvertDictionary(
-        slave_changes_dict)
-
-    expected_dict = {
-        changes[0]: set(slaves[0:2]),
-        changes[1]: set([slaves[1]]),
-        changes[2]: set([slaves[2]]),
-        changes[3]: set([slaves[2]])
-    }
-    self.assertDictEqual(change_slaves_dict, expected_dict)
-
-
 class Test_iflatten_instance(cros_test_lib.TestCase):
   """Test iflatten_instance function."""
 
@@ -1530,64 +1432,6 @@ class TestGetHostname(cros_test_lib.MockTestCase):
         fq_hostname=fq_hostname_gce_1, golo_only=True))
 
 
-class CollectionTest(cros_test_lib.TestCase):
-  """Tests for Collection helper."""
-
-  def testDefaults(self):
-    """Verify default values kick in."""
-    O = cros_build_lib.Collection('O', a=0, b='string', c={})
-    o = O()
-    self.assertEqual(o.a, 0)
-    self.assertEqual(o.b, 'string')
-    self.assertEqual(o.c, {})
-
-  def testOverrideDefaults(self):
-    """Verify we can set custom values at instantiation time."""
-    O = cros_build_lib.Collection('O', a=0, b='string', c={})
-    o = O(a=1000)
-    self.assertEqual(o.a, 1000)
-    self.assertEqual(o.b, 'string')
-    self.assertEqual(o.c, {})
-
-  def testSetNoNewMembers(self):
-    """Verify we cannot add new members after the fact."""
-    O = cros_build_lib.Collection('O', a=0, b='string', c={})
-    o = O()
-
-    # Need the func since self.assertRaises evaluates the args in this scope.
-    def _setit(collection):
-      collection.does_not_exit = 10
-    self.assertRaises(AttributeError, _setit, o)
-    self.assertRaises(AttributeError, setattr, o, 'new_guy', 10)
-
-  def testGetNoNewMembers(self):
-    """Verify we cannot get new members after the fact."""
-    O = cros_build_lib.Collection('O', a=0, b='string', c={})
-    o = O()
-
-    # Need the func since self.assertRaises evaluates the args in this scope.
-    def _getit(collection):
-      return collection.does_not_exit
-    self.assertRaises(AttributeError, _getit, o)
-    self.assertRaises(AttributeError, getattr, o, 'foooo')
-
-  def testNewValue(self):
-    """Verify we change members correctly."""
-    O = cros_build_lib.Collection('O', a=0, b='string', c={})
-    o = O()
-    o.a = 'a string'
-    o.c = 123
-    self.assertEqual(o.a, 'a string')
-    self.assertEqual(o.b, 'string')
-    self.assertEqual(o.c, 123)
-
-  def testString(self):
-    """Make sure the string representation is readable by da hue mans."""
-    O = cros_build_lib.Collection('O', a=0, b='string', c={})
-    o = O()
-    self.assertEqual("Collection_O(a=0, b='string', c={})", str(o))
-
-
 class GetImageDiskPartitionInfoTests(cros_test_lib.RunCommandTestCase):
   """Tests the GetImageDiskPartitionInfo function."""
 
@@ -1723,6 +1567,37 @@ EEC571FFB6E1)
                       '_ignored', 'PB')
 
 
+class DummyOutput(object):
+  """Object with a component called output."""
+  def __init__(self, output):
+    self.output = output
+
+
+class MonitorDirectoriesTests(cros_test_lib.MockTestCase):
+  """Tests the MonitorDirectories function."""
+
+  def setUp(self):
+    """Mock RunCommand."""
+    self.Results = []
+
+    def Result(*_args, **_kwargs):
+      """Creates objects with string object called output a la RunCommand."""
+      return self.Results.pop(0)
+
+    self.mockRun = self.PatchObject(cros_build_lib, 'RunCommand',
+                                    autospec=True,
+                                    side_effect=Result)
+
+  def testRegexFiltering(self):
+    """Test the filtering of dummy lsof output."""
+    self.Results = [DummyOutput("p1234\n"
+                                "f0\n"
+                                "n/usr/lib/target_folder/sth\n"),
+                    DummyOutput("")]
+    cros_build_lib.MonitorDirectories(["/usr/lib/"], cwd=os.getcwd())
+    self.assertEqual(self.mockRun.call_count, 2)
+
+
 class CreateTarballTests(cros_test_lib.TempDirTestCase):
   """Test the CreateTarball function."""
 
@@ -1774,9 +1649,17 @@ class FailedCreateTarballTests(cros_test_lib.MockTestCase):
       """Creates CommandResult objects for each tarResults value in turn."""
       return cros_build_lib.CommandResult(returncode=self.tarResults.pop(0))
 
+    def ReturnNone(*_args, **_kwargs):
+      """Return None mimicking MonitorDirectories."""
+      return None
+
     self.mockRun = self.PatchObject(cros_build_lib, 'RunCommand',
                                     autospec=True,
                                     side_effect=Result)
+
+    self.mockMonitor = self.PatchObject(cros_build_lib, 'MonitorDirectories',
+                                        autospec=True,
+                                        side_effect=ReturnNone)
 
   def testSuccess(self):
     """CreateTarball works the first time."""
@@ -1784,6 +1667,7 @@ class FailedCreateTarballTests(cros_test_lib.MockTestCase):
     cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
 
     self.assertEqual(self.mockRun.call_count, 1)
+    self.assertEqual(self.mockMonitor.call_count, 0)
 
   def testFailedOnceSoft(self):
     """Force a single retry for CreateTarball."""
@@ -1791,6 +1675,7 @@ class FailedCreateTarballTests(cros_test_lib.MockTestCase):
     cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
 
     self.assertEqual(self.mockRun.call_count, 2)
+    self.assertEqual(self.mockMonitor.call_count, 1)
 
   def testFailedOnceHard(self):
     """Test unrecoverable error."""
@@ -1798,8 +1683,9 @@ class FailedCreateTarballTests(cros_test_lib.MockTestCase):
     with self.assertRaises(cros_build_lib.RunCommandError) as cm:
       cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
 
-    self.assertEqual(self.mockRun.call_count, 2)
+    self.assertEqual(self.mockRun.call_count, 1)
     self.assertEqual(cm.exception.args[1].returncode, 2)
+    self.assertEqual(self.mockMonitor.call_count, 1)
 
   def testFailedTwiceSoft(self):
     """Exhaust retries for recoverable errors."""
@@ -1807,5 +1693,6 @@ class FailedCreateTarballTests(cros_test_lib.MockTestCase):
     with self.assertRaises(cros_build_lib.RunCommandError) as cm:
       cros_build_lib.CreateTarball('foo', 'bar', inputs=['a', 'b'])
 
-    self.assertEqual(self.mockRun.call_count, 3)
+    self.assertEqual(self.mockRun.call_count, 2)
     self.assertEqual(cm.exception.args[1].returncode, 1)
+    self.assertEqual(self.mockMonitor.call_count, 2)

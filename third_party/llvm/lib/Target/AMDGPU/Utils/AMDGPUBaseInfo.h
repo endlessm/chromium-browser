@@ -26,8 +26,10 @@
 namespace llvm {
 
 class Argument;
+class AMDGPUSubtarget;
 class FeatureBitset;
 class Function;
+class GCNSubtarget;
 class GlobalValue;
 class MCContext;
 class MCRegisterClass;
@@ -42,6 +44,7 @@ namespace AMDGPU {
 #define GET_MIMGBaseOpcode_DECL
 #define GET_MIMGDim_DECL
 #define GET_MIMGEncoding_DECL
+#define GET_MIMGLZMapping_DECL
 #include "AMDGPUGenSearchableTables.inc"
 
 namespace IsaInfo {
@@ -210,6 +213,14 @@ struct MIMGDimInfo {
 
 LLVM_READONLY
 const MIMGDimInfo *getMIMGDimInfo(unsigned Dim);
+
+struct MIMGLZMappingInfo {
+  MIMGBaseOpcode L;
+  MIMGBaseOpcode LZ;
+};
+
+LLVM_READONLY
+const MIMGLZMappingInfo *getMIMGLZMappingInfo(unsigned L);
 
 LLVM_READONLY
 int getMIMGOpcode(unsigned BaseOpcode, unsigned MIMGEncoding,
@@ -437,6 +448,12 @@ int64_t getSMRDEncodedOffset(const MCSubtargetInfo &ST, int64_t ByteOffset);
 /// offset field.  \p ByteOffset should be the offset in bytes and
 /// not the encoded offset.
 bool isLegalSMRDImmOffset(const MCSubtargetInfo &ST, int64_t ByteOffset);
+
+// Given Imm, split it into the values to put into the SOffset and ImmOffset
+// fields in an MUBUF instruction. Return false if it is not possible (due to a
+// hardware bug needing a workaround).
+bool splitMUBUFOffset(uint32_t Imm, uint32_t &SOffset, uint32_t &ImmOffset,
+                      const GCNSubtarget *Subtarget);
 
 /// \returns true if the intrinsic is divergent
 bool isIntrinsicSourceOfDivergence(unsigned IntrID);

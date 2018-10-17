@@ -7,6 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef LLVM_DEMANGLE_DEMANGLE_H
+#define LLVM_DEMANGLE_DEMANGLE_H
+
 #include <cstddef>
 
 namespace llvm {
@@ -16,7 +19,7 @@ namespace llvm {
 /// The mangled_name is demangled into buf and returned. If the buffer is not
 /// large enough, realloc is used to expand it.
 ///
-/// The *status will be set to a value from the enumeration
+/// The *status will be set to a value from the following enumeration
 enum : int {
   demangle_unknown_error = -4,
   demangle_invalid_args = -3,
@@ -27,6 +30,16 @@ enum : int {
 
 char *itaniumDemangle(const char *mangled_name, char *buf, size_t *n,
                       int *status);
+
+/// Calls the callback \c Callback with \c Ctx as an argument whenever a type is
+/// encountered. Returns true if \c MangledName couldn't be parsed.
+bool itaniumFindTypesInMangledName(const char *MangledName, void *Ctx,
+                                   void (*Callback)(void *, const char *));
+
+
+enum MSDemangleFlags { MSDF_None = 0, MSDF_DumpBackrefs = 1 << 0 };
+char *microsoftDemangle(const char *mangled_name, char *buf, size_t *n,
+                        int *status, MSDemangleFlags Flags = MSDF_None);
 
 /// "Partial" demangler. This supports demangling a string into an AST
 /// (typically an intermediate stage in itaniumDemangle) and querying certain
@@ -84,3 +97,5 @@ private:
   void *Context;
 };
 } // namespace llvm
+
+#endif

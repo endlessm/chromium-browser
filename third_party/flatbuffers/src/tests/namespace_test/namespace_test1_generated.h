@@ -13,6 +13,10 @@ struct TableInNestedNS;
 
 struct StructInNestedNS;
 
+inline const flatbuffers::TypeTable *TableInNestedNSTypeTable();
+
+inline const flatbuffers::TypeTable *StructInNestedNSTypeTable();
+
 enum EnumInNestedNS {
   EnumInNestedNS_A = 0,
   EnumInNestedNS_B = 1,
@@ -21,8 +25,17 @@ enum EnumInNestedNS {
   EnumInNestedNS_MAX = EnumInNestedNS_C
 };
 
-inline const char **EnumNamesEnumInNestedNS() {
-  static const char *names[] = {
+inline const EnumInNestedNS (&EnumValuesEnumInNestedNS())[3] {
+  static const EnumInNestedNS values[] = {
+    EnumInNestedNS_A,
+    EnumInNestedNS_B,
+    EnumInNestedNS_C
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesEnumInNestedNS() {
+  static const char * const names[] = {
     "A",
     "B",
     "C",
@@ -36,7 +49,7 @@ inline const char *EnumNameEnumInNestedNS(EnumInNestedNS e) {
   return EnumNamesEnumInNestedNS()[index];
 }
 
-MANUALLY_ALIGNED_STRUCT(4) StructInNestedNS FLATBUFFERS_FINAL_CLASS {
+FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(4) StructInNestedNS FLATBUFFERS_FINAL_CLASS {
  private:
   int32_t a_;
   int32_t b_;
@@ -44,9 +57,6 @@ MANUALLY_ALIGNED_STRUCT(4) StructInNestedNS FLATBUFFERS_FINAL_CLASS {
  public:
   StructInNestedNS() {
     memset(this, 0, sizeof(StructInNestedNS));
-  }
-  StructInNestedNS(const StructInNestedNS &_o) {
-    memcpy(this, &_o, sizeof(StructInNestedNS));
   }
   StructInNestedNS(int32_t _a, int32_t _b)
       : a_(flatbuffers::EndianScalar(_a)),
@@ -65,9 +75,12 @@ MANUALLY_ALIGNED_STRUCT(4) StructInNestedNS FLATBUFFERS_FINAL_CLASS {
     flatbuffers::WriteScalar(&b_, _b);
   }
 };
-STRUCT_END(StructInNestedNS, 8);
+FLATBUFFERS_STRUCT_END(StructInNestedNS, 8);
 
 struct TableInNestedNS FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return TableInNestedNSTypeTable();
+  }
   enum {
     VT_FOO = 4
   };
@@ -90,13 +103,13 @@ struct TableInNestedNSBuilder {
   void add_foo(int32_t foo) {
     fbb_.AddElement<int32_t>(TableInNestedNS::VT_FOO, foo, 0);
   }
-  TableInNestedNSBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+  explicit TableInNestedNSBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
   TableInNestedNSBuilder &operator=(const TableInNestedNSBuilder &);
   flatbuffers::Offset<TableInNestedNS> Finish() {
-    const auto end = fbb_.EndTable(start_, 1);
+    const auto end = fbb_.EndTable(start_);
     auto o = flatbuffers::Offset<TableInNestedNS>(end);
     return o;
   }
@@ -108,6 +121,55 @@ inline flatbuffers::Offset<TableInNestedNS> CreateTableInNestedNS(
   TableInNestedNSBuilder builder_(_fbb);
   builder_.add_foo(foo);
   return builder_.Finish();
+}
+
+inline const flatbuffers::TypeTable *EnumInNestedNSTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    EnumInNestedNSTypeTable
+  };
+  static const char * const names[] = {
+    "A",
+    "B",
+    "C"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_ENUM, 3, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *TableInNestedNSTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "foo"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 1, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *StructInNestedNSTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const int32_t values[] = { 0, 4, 8 };
+  static const char * const names[] = {
+    "a",
+    "b"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_STRUCT, 2, type_codes, nullptr, values, names
+  };
+  return &tt;
 }
 
 }  // namespace NamespaceB

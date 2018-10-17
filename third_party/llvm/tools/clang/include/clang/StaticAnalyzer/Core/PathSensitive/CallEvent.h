@@ -29,6 +29,7 @@
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState_Fwd.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SVals.h"
@@ -79,11 +80,27 @@ class CallDescription {
 
   mutable IdentifierInfo *II = nullptr;
   mutable bool IsLookupDone = false;
-  StringRef FuncName;
+  // The list of the qualified names used to identify the specified CallEvent,
+  // e.g. "{a, b}" represent the qualified names, like "a::b".
+  std::vector<StringRef> QualifiedName;
   unsigned RequiredArgs;
 
 public:
   const static unsigned NoArgRequirement = std::numeric_limits<unsigned>::max();
+
+  /// Constructs a CallDescription object.
+  ///
+  /// @param QualifiedName The list of the qualified names of the function that
+  /// will be matched. It does not require the user to provide the full list of
+  /// the qualified name. The more details provided, the more accurate the
+  /// matching.
+  ///
+  /// @param RequiredArgs The number of arguments that is expected to match a
+  /// call. Omit this parameter to match every occurrence of call with a given
+  /// name regardless the number of arguments.
+  CallDescription(std::vector<StringRef> QualifiedName,
+                  unsigned RequiredArgs = NoArgRequirement)
+      : QualifiedName(QualifiedName), RequiredArgs(RequiredArgs) {}
 
   /// Constructs a CallDescription object.
   ///
@@ -93,10 +110,11 @@ public:
   /// call. Omit this parameter to match every occurrence of call with a given
   /// name regardless the number of arguments.
   CallDescription(StringRef FuncName, unsigned RequiredArgs = NoArgRequirement)
-      : FuncName(FuncName), RequiredArgs(RequiredArgs) {}
+      : CallDescription(std::vector<StringRef>({FuncName}), NoArgRequirement) {
+  }
 
   /// Get the name of the function that this object matches.
-  StringRef getFunctionName() const { return FuncName; }
+  StringRef getFunctionName() const { return QualifiedName.back(); }
 };
 
 template<typename T = CallEvent>
@@ -117,12 +135,12 @@ public:
   }
 };
 
-/// \class RuntimeDefinition 
+/// \class RuntimeDefinition
 /// Defines the runtime definition of the called function.
-/// 
-/// Encapsulates the information we have about which Decl will be used 
+///
+/// Encapsulates the information we have about which Decl will be used
 /// when the call is executed on the given path. When dealing with dynamic
-/// dispatch, the information is based on DynamicTypeInfo and might not be 
+/// dispatch, the information is based on DynamicTypeInfo and might not be
 /// precise.
 class RuntimeDefinition {
   /// The Declaration of the function which could be called at runtime.
@@ -141,13 +159,13 @@ public:
   RuntimeDefinition(const Decl *InD, const MemRegion *InR): D(InD), R(InR) {}
 
   const Decl *getDecl() { return D; }
-    
-  /// Check if the definition we have is precise. 
-  /// If not, it is possible that the call dispatches to another definition at 
+
+  /// Check if the definition we have is precise.
+  /// If not, it is possible that the call dispatches to another definition at
   /// execution time.
   bool mayHaveOtherDefinitions() { return R != nullptr; }
-  
-  /// When other definitions are possible, returns the region whose runtime type 
+
+  /// When other definitions are possible, returns the region whose runtime type
   /// determines the method definition.
   const MemRegion *getDispatchRegion() { return R; }
 };
@@ -404,6 +422,48 @@ public:
   /// \p D must not be null.
   static bool isVariadic(const Decl *D);
 
+  /// Returns AnalysisDeclContext for the callee stack frame.
+  /// Currently may fail; returns null on failure.
+  AnalysisDeclContext *getCalleeAnalysisDeclContext() const;
+
+  /// Returns the callee stack frame. That stack frame will only be entered
+  /// during analysis if the call is inlined, but it may still be useful
+  /// in intermediate calculations even if the call isn't inlined.
+  /// May fail; returns null on failure.
+  const StackFrameContext *getCalleeStackFrame() const;
+
+  /// Returns memory location for a parameter variable within the callee stack
+  /// frame. May fail; returns null on failure.
+  const VarRegion *getParameterLocation(unsigned Index) const;
+
+  /// Returns true if on the current path, the argument was constructed by
+  /// calling a C++ constructor over it. This is an internal detail of the
+  /// analysis which doesn't necessarily represent the program semantics:
+  /// if we are supposed to construct an argument directly, we may still
+  /// not do that because we don't know how (i.e., construction context is
+  /// unavailable in the CFG or not supported by the analyzer).
+  bool isArgumentConstructedDirectly(unsigned Index) const {
+    // This assumes that the object was not yet removed from the state.
+    return ExprEngine::getObjectUnderConstruction(
+        getState(), {getOriginExpr(), Index}, getLocationContext()).hasValue();
+  }
+
+  /// Some calls have parameter numbering mismatched from argument numbering.
+  /// This function converts an argument index to the corresponding
+  /// parameter index. Returns None is the argument doesn't correspond
+  /// to any parameter variable.
+  virtual Optional<unsigned>
+  getAdjustedParameterIndex(unsigned ASTArgumentIndex) const {
+    return ASTArgumentIndex;
+  }
+
+  /// Some call event sub-classes conveniently adjust mismatching AST indices
+  /// to match parameter indices. This function converts an argument index
+  /// as understood by CallEvent to the argument index as understood by the AST.
+  virtual unsigned getASTArgumentIndex(unsigned CallArgumentIndex) const {
+    return CallArgumentIndex;
+  }
+
   // Iterator access to formal parameters and their types.
 private:
   struct GetTypeFn {
@@ -628,7 +688,7 @@ protected:
       : AnyFunctionCall(D, St, LCtx) {}
   CXXInstanceCall(const CXXInstanceCall &Other) = default;
 
-  void getExtraInvalidatedValues(ValueList &Values, 
+  void getExtraInvalidatedValues(ValueList &Values,
          RegionAndSymbolInvalidationTraits *ETraits) const override;
 
 public:
@@ -728,6 +788,20 @@ public:
   static bool classof(const CallEvent *CA) {
     return CA->getKind() == CE_CXXMemberOperator;
   }
+
+  Optional<unsigned>
+  getAdjustedParameterIndex(unsigned ASTArgumentIndex) const override {
+    // For member operator calls argument 0 on the expression corresponds
+    // to implicit this-parameter on the declaration.
+    return (ASTArgumentIndex > 0) ? Optional<unsigned>(ASTArgumentIndex - 1)
+                                  : None;
+  }
+
+  unsigned getASTArgumentIndex(unsigned CallArgumentIndex) const override {
+    // For member operator calls argument 0 on the expression corresponds
+    // to implicit this-parameter on the declaration.
+    return CallArgumentIndex + 1;
+  }
 };
 
 /// Represents an implicit call to a C++ destructor.
@@ -752,7 +826,7 @@ protected:
                     ProgramStateRef St, const LocationContext *LCtx)
       : CXXInstanceCall(DD, St, LCtx) {
     Data = DtorDataTy(Target, IsBaseDestructor).getOpaqueValue();
-    Location = Trigger->getLocEnd();
+    Location = Trigger->getEndLoc();
   }
 
   CXXDestructorCall(const CXXDestructorCall &Other) = default;

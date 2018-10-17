@@ -141,6 +141,29 @@ class ReadHistogramsJsonValueTest(_ReadValueExecutionTest):
     self.assertEqual(execution.result_values, (0, 1, 2))
     self.assertRetrievedOutputJson()
 
+  def testReadHistogramsJsonValueStoryNeedsEscape(self):
+    hist = histogram_module.Histogram('hist', 'count')
+    hist.AddSample(0)
+    hist.AddSample(1)
+    hist.AddSample(2)
+    histograms = histogram_set.HistogramSet([hist])
+    histograms.AddSharedDiagnostic(
+        reserved_infos.STORY_TAGS.name,
+        generic_set.GenericSet(['group:tir_label']))
+    histograms.AddSharedDiagnostic(
+        reserved_infos.STORIES.name,
+        generic_set.GenericSet(['http://story']))
+    self.SetOutputFileContents(histograms.AsDicts())
+
+    quest = read_value.ReadHistogramsJsonValue(
+        'chartjson-output.json', hist.name, 'tir_label', 'http://story')
+    execution = quest.Start(None, 'server', 'output hash')
+    execution.Poll()
+
+    self.assertReadValueSuccess(execution)
+    self.assertEqual(execution.result_values, (0, 1, 2))
+    self.assertRetrievedOutputJson()
+
   def testReadHistogramsJsonValueStatistic(self):
     hist = histogram_module.Histogram('hist', 'count')
     hist.AddSample(0)
@@ -342,7 +365,7 @@ class ReadHistogramsJsonValueTest(_ReadValueExecutionTest):
     self.assertEqual(execution.result_values, (0, 1, 2))
     self.assertRetrievedOutputJson()
 
-  def testReadHistogramsJsonValueSummary(self):
+  def testReadHistogramsJsonValueSummaryTIRLabel(self):
     samples = []
     hists = []
     for i in xrange(10):
@@ -368,7 +391,80 @@ class ReadHistogramsJsonValueTest(_ReadValueExecutionTest):
     execution.Poll()
 
     self.assertReadValueSuccess(execution)
-    self.assertEqual(execution.result_values, tuple(samples))
+    self.assertEqual(execution.result_values, (sum(samples),))
+    self.assertRetrievedOutputJson()
+
+  def testReadHistogramsJsonValueSummary(self):
+    samples = []
+    hists = []
+    for i in xrange(10):
+      hist = histogram_module.Histogram('hist', 'count')
+      hist.AddSample(0)
+      hist.AddSample(1)
+      hist.AddSample(2)
+      hist.diagnostics[reserved_infos.STORIES.name] = (
+          generic_set.GenericSet(['story%d' % i]))
+      hist.diagnostics[reserved_infos.STORY_TAGS.name] = (
+          generic_set.GenericSet(['group:tir_label1']))
+      hists.append(hist)
+      samples.extend(hist.sample_values)
+
+    for i in xrange(10):
+      hist = histogram_module.Histogram('hist', 'count')
+      hist.AddSample(0)
+      hist.AddSample(1)
+      hist.AddSample(2)
+      hist.diagnostics[reserved_infos.STORIES.name] = (
+          generic_set.GenericSet(['another_story%d' % i]))
+      hist.diagnostics[reserved_infos.STORY_TAGS.name] = (
+          generic_set.GenericSet(['group:tir_label2']))
+      hists.append(hist)
+      samples.extend(hist.sample_values)
+
+    histograms = histogram_set.HistogramSet(hists)
+    histograms.AddSharedDiagnostic(
+        reserved_infos.STORY_TAGS.name,
+        generic_set.GenericSet(['group:tir_label']))
+
+    self.SetOutputFileContents(histograms.AsDicts())
+
+    quest = read_value.ReadHistogramsJsonValue(
+        'chartjson-output.json', hist_name=hists[0].name)
+    execution = quest.Start(None, 'server', 'output hash')
+    execution.Poll()
+
+    self.assertReadValueSuccess(execution)
+    self.assertEqual(execution.result_values, (sum(samples),))
+    self.assertRetrievedOutputJson()
+
+  def testReadHistogramsJsonValueSummaryNoHistName(self):
+    samples = []
+    hists = []
+    for i in xrange(10):
+      hist = histogram_module.Histogram('hist', 'count')
+      hist.AddSample(0)
+      hist.AddSample(1)
+      hist.AddSample(2)
+      hist.diagnostics[reserved_infos.STORIES.name] = (
+          generic_set.GenericSet(['story%d' % i]))
+      hist.diagnostics[reserved_infos.STORY_TAGS.name] = (
+          generic_set.GenericSet(['group:tir_label1']))
+      hists.append(hist)
+      samples.extend(hist.sample_values)
+
+    histograms = histogram_set.HistogramSet(hists)
+    histograms.AddSharedDiagnostic(
+        reserved_infos.STORY_TAGS.name,
+        generic_set.GenericSet(['group:tir_label']))
+
+    self.SetOutputFileContents(histograms.AsDicts())
+
+    quest = read_value.ReadHistogramsJsonValue('chartjson-output.json')
+    execution = quest.Start(None, 'server', 'output hash')
+    execution.Poll()
+
+    self.assertReadValueSuccess(execution)
+    self.assertEqual(execution.result_values, ())
     self.assertRetrievedOutputJson()
 
   def testReadHistogramsJsonValueWithMissingFile(self):

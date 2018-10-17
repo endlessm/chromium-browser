@@ -87,6 +87,7 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCSection.h"
+#include "llvm/MC/MCSectionCOFF.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/MC/MCStreamer.h"
@@ -362,7 +363,7 @@ bool AsmPrinter::doInitialization(Module &M) {
                                    DWARFGroupName, DWARFGroupDescription));
 
   if (mdconst::extract_or_null<ConstantInt>(
-          MMI->getModule()->getModuleFlag("cfguard")))
+          MMI->getModule()->getModuleFlag("cfguardtable")))
     Handlers.push_back(HandlerInfo(new WinCFGuard(this), CFGuardName,
                                    CFGuardDescription, DWARFGroupName,
                                    DWARFGroupDescription));
@@ -1065,6 +1066,10 @@ void AsmPrinter::EmitFunctionBody() {
         ++NumInstsInFunction;
       }
 
+      // If there is a pre-instruction symbol, emit a label for it here.
+      if (MCSymbol *S = MI.getPreInstrSymbol())
+        OutStreamer->EmitLabel(S);
+
       if (ShouldPrintDebugScopes) {
         for (const HandlerInfo &HI : Handlers) {
           NamedRegionTimer T(HI.TimerName, HI.TimerDescription,
@@ -1115,6 +1120,10 @@ void AsmPrinter::EmitFunctionBody() {
         EmitInstruction(&MI);
         break;
       }
+
+      // If there is a post-instruction symbol, emit a label for it here.
+      if (MCSymbol *S = MI.getPostInstrSymbol())
+        OutStreamer->EmitLabel(S);
 
       if (ShouldPrintDebugScopes) {
         for (const HandlerInfo &HI : Handlers) {
@@ -1533,7 +1542,8 @@ bool AsmPrinter::doFinalization(Module &M) {
     // Emit address-significance attributes for all globals.
     OutStreamer->EmitAddrsig();
     for (const GlobalValue &GV : M.global_values())
-      if (!GV.isThreadLocal() && !GV.getName().startswith("llvm.") &&
+      if (!GV.use_empty() && !GV.isThreadLocal() &&
+          !GV.hasDLLImportStorageClass() && !GV.getName().startswith("llvm.") &&
           !GV.hasAtLeastLocalUnnamedAddr())
         OutStreamer->EmitAddrsigSym(getSymbol(&GV));
   }
@@ -2663,6 +2673,25 @@ MCSymbol *AsmPrinter::GetBlockAddressSymbol(const BasicBlock *BB) const {
 
 /// GetCPISymbol - Return the symbol for the specified constant pool entry.
 MCSymbol *AsmPrinter::GetCPISymbol(unsigned CPID) const {
+  if (getSubtargetInfo().getTargetTriple().isKnownWindowsMSVCEnvironment()) {
+    const MachineConstantPoolEntry &CPE =
+        MF->getConstantPool()->getConstants()[CPID];
+    if (!CPE.isMachineConstantPoolEntry()) {
+      const DataLayout &DL = MF->getDataLayout();
+      SectionKind Kind = CPE.getSectionKind(&DL);
+      const Constant *C = CPE.Val.ConstVal;
+      unsigned Align = CPE.Alignment;
+      if (const MCSectionCOFF *S = dyn_cast<MCSectionCOFF>(
+              getObjFileLowering().getSectionForConstant(DL, Kind, C, Align))) {
+        if (MCSymbol *Sym = S->getCOMDATSymbol()) {
+          if (Sym->isUndefined())
+            OutStreamer->EmitSymbolAttribute(Sym, MCSA_Global);
+          return Sym;
+        }
+      }
+    }
+  }
+
   const DataLayout &DL = getDataLayout();
   return OutContext.getOrCreateSymbol(Twine(DL.getPrivateGlobalPrefix()) +
                                       "CPI" + Twine(getFunctionNumber()) + "_" +

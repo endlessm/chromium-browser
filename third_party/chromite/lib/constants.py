@@ -45,8 +45,10 @@ PATH_TO_CBUILDBOT = os.path.join(CHROMITE_BIN_SUBDIR, 'cbuildbot')
 DEFAULT_CHROOT_DIR = 'chroot'
 
 CHROMEOS_CONFIG_FILE = os.path.join(CHROMITE_DIR, 'config', 'config_dump.json')
-WATERFALL_CONFIG_FILE = os.path.join(CHROMITE_DIR, 'config',
-                                     'waterfall_layout_dump.txt')
+WATERFALL_CONFIG_FILE = os.path.join(
+    CHROMITE_DIR, 'config', 'waterfall_layout_dump.txt')
+LUCI_SCHEDULER_CONFIG_FILE = os.path.join(
+    CHROMITE_DIR, 'config', 'luci-scheduler.cfg')
 
 GE_BUILD_CONFIG_FILE = os.path.join(
     CHROMITE_DIR, 'config', 'ge_build_config.json')
@@ -126,6 +128,9 @@ CL_STATUS_LAUNCHING = 'launching'
 CL_STATUS_WAITING = 'waiting'
 CL_STATUS_READY_TO_SUBMIT = 'ready-to-submit'
 CL_STATUS_FULLY_VERIFIED = 'fully-verified'
+
+# Partition labels
+CROS_PART_STATEFUL = 'STATE'
 
 # Signer status strings
 SIGNER_STATUS_PASSED = 'passed'
@@ -223,6 +228,7 @@ MON_BUILD_DURATION = 'chromeos/cbuildbot/build/durations'
 MON_STAGE_COMP_COUNT = 'chromeos/cbuildbot/stage/completed_count'
 MON_STAGE_DURATION = 'chromeos/cbuildbot/stage/durations'
 MON_STAGE_FAILURE_COUNT = 'chromeos/cbuildbot/stage/failure_count'
+MON_FAILED_STAGE = 'chromeos/chromite/cbuildbot_launch/failed_stage'
 MON_CL_HANDLE_TIME = 'chromeos/cbuildbot/submitted_change/handling_times'
 MON_CL_WALL_CLOCK_TIME = 'chromeos/cbuildbot/submitted_change/wall_clock_times'
 MON_CL_PRECQ_TIME = 'chromeos/cbuildbot/submitted_change/precq_times'
@@ -254,6 +260,15 @@ MON_BB_CANCEL_PRE_CQ_BUILD_COUNT = ('chromeos/cbuildbot/buildbucket/'
 MON_EXPORT_TO_GCLOUD = 'chromeos/cbuildbot/export_to_gcloud'
 MON_CL_REJECT_COUNT = 'chromeos/cbuildbot/change/rejected_count'
 MON_GS_ERROR = 'chromeos/gs/error_count'
+
+# Stage Categorization for failed stages metric.
+UNCATEGORIZED_STAGE = 'Uncategorized'
+CI_INFRA_STAGE = 'CI-Infra'
+TEST_INFRA_STAGE = 'Test-Infra'
+PRODUCT_OS_STAGE = 'Product-OS'
+PRODUCT_ANDROID_STAGE = 'Product-Android'
+PRODUCT_CHROME_STAGE = 'Product-Chrome'
+PRODUCT_TOOLCHAIN_STAGE = 'Product-Toolchain'
 
 
 # Re-execution API constants.
@@ -370,17 +385,21 @@ ANDROID_PI_BUILD_TARGETS = {
         'linux-cheets_x86_ndk_translation-userdebug', r'\.zip$'
     ),
     'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
+    'SDK_GOOGLE_X86_USERDEBUG': ('linux-sdk_cheets_x86-userdebug',
+                                 r'\.zip$'),
+    'SDK_GOOGLE_X86_64_USERDEBUG': ('linux-sdk_cheets_x86_64-userdebug',
+                                    r'\.zip$'),
 }
 
 ARC_BUCKET_URL = 'gs://chromeos-arc-images/builds'
 ARC_BUCKET_ACLS = {
     'ARM': 'googlestorage_acl_arm.txt',
     'X86': 'googlestorage_acl_x86.txt',
-    'X86_NDK_TRANSLATION': 'googlestorage_acl_internal.txt',
+    'X86_NDK_TRANSLATION': 'googlestorage_acl_ndk.txt',
     'X86_64': 'googlestorage_acl_x86.txt',
     'ARM_USERDEBUG': 'googlestorage_acl_arm.txt',
     'X86_USERDEBUG': 'googlestorage_acl_x86.txt',
-    'X86_NDK_TRANSLATION_USERDEBUG': 'googlestorage_acl_internal.txt',
+    'X86_NDK_TRANSLATION_USERDEBUG': 'googlestorage_acl_ndk.txt',
     'X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
     'AOSP_ARM_USERDEBUG': 'googlestorage_acl_arm.txt',
     'AOSP_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
@@ -686,6 +705,12 @@ HWTEST_BVT_SUITE = 'bvt-inline'
 HWTEST_COMMIT_SUITE = 'bvt-cq'
 HWTEST_CANARY_SUITE = 'bvt-perbuild'
 HWTEST_INSTALLER_SUITE = 'bvt-installer'
+# Runs all non-informational Tast tests (exercising any of OS, Chrome, and ARC).
+HWTEST_TAST_CQ_SUITE = 'bvt-tast-cq'
+# Runs non-informational Tast tests exercising either Chrome or ARC.
+HWTEST_TAST_CHROME_PFQ_SUITE = 'bvt-tast-chrome-pfq'
+# Runs non-informational Tast tests exercising ARC.
+HWTEST_TAST_ANDROID_PFQ_SUITE = 'bvt-tast-android-pfq'
 HWTEST_AFDO_SUITE = 'AFDO_record'
 HWTEST_JETSTREAM_COMMIT_SUITE = 'jetstream_cq'
 HWTEST_MOBLAB_SUITE = 'moblab'
@@ -695,8 +720,6 @@ HWTEST_TOOLCHAIN_SUITE = 'toolchain-tests'
 HWTEST_PROVISION_SUITE = 'provision'
 HWTEST_CTS_QUAL_SUITE = 'arc-cts-qual'
 HWTEST_GTS_QUAL_SUITE = 'arc-gts-qual'
-HWTEST_CTS_PRIORITY = 11
-HWTEST_GTS_PRIORITY = HWTEST_CTS_PRIORITY
 # Non-blocking informational hardware tests for Chrome, run throughout the
 # day on tip-of-trunk Chrome rather than on the daily Chrome branch.
 HWTEST_CHROME_INFORMATIONAL = 'chrome-informational'
@@ -706,6 +729,10 @@ HWTEST_CHROME_INFORMATIONAL = 'chrome-informational'
 # indicate that autotest is at capacity.
 HWTEST_TIMEOUT_EXTENSION = 10 * 60
 
+HWTEST_WEEKLY_PRIORITY = 'Weekly'
+HWTEST_CTS_PRIORITY = 'CTS'
+HWTEST_GTS_PRIORITY = HWTEST_CTS_PRIORITY
+HWTEST_DAILY_PRIORITY = 'Daily'
 HWTEST_DEFAULT_PRIORITY = 'DEFAULT'
 HWTEST_CQ_PRIORITY = 'CQ'
 HWTEST_BUILD_PRIORITY = 'Build'
@@ -713,8 +740,9 @@ HWTEST_PFQ_PRIORITY = 'PFQ'
 HWTEST_POST_BUILD_PRIORITY = 'PostBuild'
 
 # Ordered by priority (first item being lowest).
-HWTEST_VALID_PRIORITIES = ['Weekly',
-                           'Daily',
+HWTEST_VALID_PRIORITIES = [HWTEST_WEEKLY_PRIORITY,
+                           HWTEST_CTS_PRIORITY,
+                           HWTEST_DAILY_PRIORITY,
                            HWTEST_POST_BUILD_PRIORITY,
                            HWTEST_DEFAULT_PRIORITY,
                            HWTEST_BUILD_PRIORITY,
@@ -723,8 +751,30 @@ HWTEST_VALID_PRIORITIES = ['Weekly',
 
 # Creates a mapping of priorities to make easy comparsions.
 # Use the same priorities mapping as autotest/client/common_lib/priorities.py
-HWTEST_PRIORITIES_MAP = {key: 10 + 10 * index
-                         for index, key in enumerate(HWTEST_VALID_PRIORITIES)}
+HWTEST_PRIORITIES_MAP = {
+    HWTEST_WEEKLY_PRIORITY: 10,
+    HWTEST_CTS_PRIORITY: 11,
+    HWTEST_DAILY_PRIORITY: 20,
+    HWTEST_POST_BUILD_PRIORITY: 30,
+    HWTEST_DEFAULT_PRIORITY: 40,
+    HWTEST_BUILD_PRIORITY: 50,
+    HWTEST_PFQ_PRIORITY: 60,
+    HWTEST_CQ_PRIORITY: 70}
+
+# Creates a mapping of priorities for skylab hwtest tasks. In swarming,
+# lower number means high priorities. Priority lower than 48 will be special
+# tasks. The upper bound of priority is 255.
+# Use the same priorities mapping as autotest/venv/skylab_suite/swarming_lib.py
+SKYLAB_HWTEST_PRIORITIES_MAP = {
+    HWTEST_WEEKLY_PRIORITY: 230,
+    HWTEST_CTS_PRIORITY: 215,
+    HWTEST_DAILY_PRIORITY: 200,
+    HWTEST_POST_BUILD_PRIORITY: 170,
+    HWTEST_DEFAULT_PRIORITY: 140,
+    HWTEST_BUILD_PRIORITY: 110,
+    HWTEST_PFQ_PRIORITY: 80,
+    HWTEST_CQ_PRIORITY: 50,
+}
 
 
 # HWTest result statuses
@@ -1090,6 +1140,8 @@ METADATA_TAGS = 'tags'
 DELTA_SYSROOT_TAR = 'delta_sysroot.tar.xz'
 DELTA_SYSROOT_BATCH = 'batch'
 
+FIRMWARE_ARCHIVE_NAME = 'firmware_from_source.tar.bz2'
+
 # Global configuration constants.
 CHROMITE_CONFIG_DIR = os.path.expanduser('~/.chromite')
 CHROME_SDK_BASHRC = os.path.join(CHROMITE_CONFIG_DIR, 'chrome_sdk.bashrc')
@@ -1199,3 +1251,10 @@ UPDATE_ENGINE_SCRIPTS_PATH = os.path.join(SOURCE_ROOT, 'src', 'aosp', 'system',
 
 # Chroot snapshot names
 CHROOT_SNAPSHOT_CLEAN = 'clean-chroot'
+
+# Partition labels.
+PART_STATE = 'STATE'
+PART_ROOT_A = 'ROOT-A'
+PART_ROOT_B = 'ROOT-B'
+PART_KERN_A = 'KERN-A'
+PART_KERN_B = 'KERN-B'

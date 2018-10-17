@@ -41,6 +41,10 @@ using namespace llvm;
 
 STATISTIC(NumLoadMoved, "Number of loads moved below TokenFactor");
 
+static cl::opt<bool> AndImmShrink("x86-and-imm-shrink", cl::init(true),
+    cl::desc("Enable setting constant bits to reduce size of mask immediates"),
+    cl::Hidden);
+
 //===----------------------------------------------------------------------===//
 //                      Pattern Matcher Implementation
 //===----------------------------------------------------------------------===//
@@ -456,6 +460,7 @@ namespace {
     bool matchBEXTRFromAnd(SDNode *Node);
     bool shrinkAndImmediate(SDNode *N);
     bool isMaskZeroExtended(SDNode *N) const;
+    bool tryShiftAmountMod(SDNode *N);
 
     MachineSDNode *emitPCMPISTR(unsigned ROpc, unsigned MOpc, bool MayFoldLoad,
                                 const SDLoc &dl, MVT VT, SDNode *Node);
@@ -724,7 +729,7 @@ void X86DAGToDAGISel::PreprocessISelDAG() {
     if (OptLevel != CodeGenOpt::None &&
         // Only do this when the target can fold the load into the call or
         // jmp.
-        !Subtarget->useRetpoline() &&
+        !Subtarget->useRetpolineIndirectCalls() &&
         ((N->getOpcode() == X86ISD::CALL && !Subtarget->slowTwoMemOps()) ||
          (N->getOpcode() == X86ISD::TC_RETURN &&
           (Subtarget->is64Bit() ||
@@ -881,6 +886,14 @@ void X86DAGToDAGISel::PostprocessISelDAG() {
         In.getMachineOpcode() <= TargetOpcode::GENERIC_OP_END)
       continue;
 
+    // Make sure the instruction has a VEX, XOP, or EVEX prefix. This covers
+    // the SHA instructions which use a legacy encoding.
+    uint64_t TSFlags = getInstrInfo()->get(In.getMachineOpcode()).TSFlags;
+    if ((TSFlags & X86II::EncodingMask) != X86II::VEX &&
+        (TSFlags & X86II::EncodingMask) != X86II::EVEX &&
+        (TSFlags & X86II::EncodingMask) != X86II::XOP)
+      continue;
+
     // Producing instruction is another vector instruction. We can drop the
     // move.
     CurDAG->UpdateNodeOperands(N, N->getOperand(0), In, N->getOperand(2));
@@ -991,11 +1004,13 @@ bool X86DAGToDAGISel::matchWrapper(SDValue N, X86ISelAddressMode &AM) {
 
   bool IsRIPRel = N.getOpcode() == X86ISD::WrapperRIP;
 
-  // Only do this address mode folding for 64-bit if we're in the small code
-  // model.
-  // FIXME: But we can do GOTPCREL addressing in the medium code model.
+  // We can't use an addressing mode in the 64-bit large code model. In the
+  // medium code model, we use can use an mode when RIP wrappers are present.
+  // That signifies access to globals that are known to be "near", such as the
+  // GOT itself.
   CodeModel::Model M = TM.getCodeModel();
-  if (Subtarget->is64Bit() && M != CodeModel::Small && M != CodeModel::Kernel)
+  if (Subtarget->is64Bit() &&
+      (M == CodeModel::Large || (M == CodeModel::Medium && !IsRIPRel)))
     return true;
 
   // Base and index reg must be 0 in order to use %rip as base.
@@ -2539,10 +2554,9 @@ bool X86DAGToDAGISel::foldLoadStoreIntoMemOperand(SDNode *Node) {
     llvm_unreachable("Invalid opcode!");
   }
 
-  MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(2);
-  MemOp[0] = StoreNode->getMemOperand();
-  MemOp[1] = LoadNode->getMemOperand();
-  Result->setMemRefs(MemOp, MemOp + 2);
+  MachineMemOperand *MemOps[] = {StoreNode->getMemOperand(),
+                                 LoadNode->getMemOperand()};
+  CurDAG->setNodeMemRefs(Result, MemOps);
 
   // Update Load Chain uses as well.
   ReplaceUses(SDValue(LoadNode, 1), SDValue(Result, 1));
@@ -2632,9 +2646,7 @@ MachineSDNode *X86DAGToDAGISel::emitPCMPISTR(unsigned ROpc, unsigned MOpc,
     // Update the chain.
     ReplaceUses(Load.getValue(1), SDValue(CNode, 2));
     // Record the mem-refs
-    MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
-    MemOp[0] = cast<LoadSDNode>(Load)->getMemOperand();
-    CNode->setMemRefs(MemOp, MemOp + 1);
+    CurDAG->setNodeMemRefs(CNode, {cast<LoadSDNode>(Load)->getMemOperand()});
     return CNode;
   }
 
@@ -2672,9 +2684,7 @@ MachineSDNode *X86DAGToDAGISel::emitPCMPESTR(unsigned ROpc, unsigned MOpc,
     // Update the chain.
     ReplaceUses(Load.getValue(1), SDValue(CNode, 2));
     // Record the mem-refs
-    MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
-    MemOp[0] = cast<LoadSDNode>(Load)->getMemOperand();
-    CNode->setMemRefs(MemOp, MemOp + 1);
+    CurDAG->setNodeMemRefs(CNode, {cast<LoadSDNode>(Load)->getMemOperand()});
     return CNode;
   }
 
@@ -2683,6 +2693,102 @@ MachineSDNode *X86DAGToDAGISel::emitPCMPESTR(unsigned ROpc, unsigned MOpc,
   MachineSDNode *CNode = CurDAG->getMachineNode(ROpc, dl, VTs, Ops);
   InFlag = SDValue(CNode, 2);
   return CNode;
+}
+
+bool X86DAGToDAGISel::tryShiftAmountMod(SDNode *N) {
+  EVT VT = N->getValueType(0);
+
+  // Only handle scalar shifts.
+  if (VT.isVector())
+    return false;
+
+  // Narrower shifts only mask to 5 bits in hardware.
+  unsigned Size = VT == MVT::i64 ? 64 : 32;
+
+  SDValue OrigShiftAmt = N->getOperand(1);
+  SDValue ShiftAmt = OrigShiftAmt;
+  SDLoc DL(N);
+
+  // Skip over a truncate of the shift amount.
+  if (ShiftAmt->getOpcode() == ISD::TRUNCATE)
+    ShiftAmt = ShiftAmt->getOperand(0);
+
+  // Special case to avoid messing up a BZHI pattern.
+  // Look for (srl (shl X, (size - y)), (size - y)
+  if (Subtarget->hasBMI2() && (VT == MVT::i32 || VT == MVT::i64) &&
+      N->getOpcode() == ISD::SRL && N->getOperand(0).getOpcode() == ISD::SHL &&
+      // Shift amounts the same?
+      N->getOperand(1) == N->getOperand(0).getOperand(1) &&
+      // Shift amounts size - y?
+      ShiftAmt.getOpcode() == ISD::SUB &&
+      isa<ConstantSDNode>(ShiftAmt.getOperand(0)) &&
+      cast<ConstantSDNode>(ShiftAmt.getOperand(0))->getZExtValue() == Size)
+    return false;
+
+  SDValue NewShiftAmt;
+  if (ShiftAmt->getOpcode() == ISD::ADD || ShiftAmt->getOpcode() == ISD::SUB) {
+    SDValue Add0 = ShiftAmt->getOperand(0);
+    SDValue Add1 = ShiftAmt->getOperand(1);
+    // If we are shifting by X+/-N where N == 0 mod Size, then just shift by X
+    // to avoid the ADD/SUB.
+    if (isa<ConstantSDNode>(Add1) &&
+        cast<ConstantSDNode>(Add1)->getZExtValue() % Size == 0) {
+      NewShiftAmt = Add0;
+    // If we are shifting by N-X where N == 0 mod Size, then just shift by -X to
+    // generate a NEG instead of a SUB of a constant.
+    } else if (ShiftAmt->getOpcode() == ISD::SUB &&
+               isa<ConstantSDNode>(Add0) &&
+               cast<ConstantSDNode>(Add0)->getZExtValue() != 0 &&
+               cast<ConstantSDNode>(Add0)->getZExtValue() % Size == 0) {
+      // Insert a negate op.
+      // TODO: This isn't guaranteed to replace the sub if there is a logic cone
+      // that uses it that's not a shift.
+      EVT SubVT = ShiftAmt.getValueType();
+      SDValue Zero = CurDAG->getConstant(0, DL, SubVT);
+      SDValue Neg = CurDAG->getNode(ISD::SUB, DL, SubVT, Zero, Add1);
+      NewShiftAmt = Neg;
+
+      // Insert these operands into a valid topological order so they can
+      // get selected independently.
+      insertDAGNode(*CurDAG, OrigShiftAmt, Zero);
+      insertDAGNode(*CurDAG, OrigShiftAmt, Neg);
+    } else
+      return false;
+  } else
+    return false;
+
+  if (NewShiftAmt.getValueType() != MVT::i8) {
+    // Need to truncate the shift amount.
+    NewShiftAmt = CurDAG->getNode(ISD::TRUNCATE, DL, MVT::i8, NewShiftAmt);
+    // Add to a correct topological ordering.
+    insertDAGNode(*CurDAG, OrigShiftAmt, NewShiftAmt);
+  }
+
+  // Insert a new mask to keep the shift amount legal. This should be removed
+  // by isel patterns.
+  NewShiftAmt = CurDAG->getNode(ISD::AND, DL, MVT::i8, NewShiftAmt,
+                                CurDAG->getConstant(Size - 1, DL, MVT::i8));
+  // Place in a correct topological ordering.
+  insertDAGNode(*CurDAG, OrigShiftAmt, NewShiftAmt);
+
+  SDNode *UpdatedNode = CurDAG->UpdateNodeOperands(N, N->getOperand(0),
+                                                   NewShiftAmt);
+  if (UpdatedNode != N) {
+    // If we found an existing node, we should replace ourselves with that node
+    // and wait for it to be selected after its other users.
+    ReplaceNode(N, UpdatedNode);
+    return true;
+  }
+
+  // If the original shift amount is now dead, delete it so that we don't run
+  // it through isel.
+  if (OrigShiftAmt.getNode()->use_empty())
+    CurDAG->RemoveDeadNode(OrigShiftAmt.getNode());
+
+  // Now that we've optimized the shift amount, defer to normal isel to get
+  // load folding and legacy vs BMI2 selection without repeating it here.
+  SelectCode(N);
+  return true;
 }
 
 /// If the high bits of an 'and' operand are known zero, try setting the
@@ -2793,6 +2899,16 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
     ReplaceNode(Node, getGlobalBaseReg());
     return;
 
+  case ISD::BITCAST:
+    // Just drop all 128/256/512-bit bitcasts.
+    if (NVT.is512BitVector() || NVT.is256BitVector() || NVT.is128BitVector() ||
+        NVT == MVT::f128) {
+      ReplaceUses(SDValue(Node, 0), Node->getOperand(0));
+      CurDAG->RemoveDeadNode(Node);
+      return;
+    }
+    break;
+
   case X86ISD::SELECT:
   case X86ISD::SHRUNKBLEND: {
     // SHRUNKBLEND selects like a regular VSELECT. Same with X86ISD::SELECT.
@@ -2805,10 +2921,17 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
     return;
   }
 
+  case ISD::SRL:
+  case ISD::SRA:
+  case ISD::SHL:
+    if (tryShiftAmountMod(Node))
+      return;
+    break;
+
   case ISD::AND:
     if (matchBEXTRFromAnd(Node))
       return;
-    if (shrinkAndImmediate(Node))
+    if (AndImmShrink && shrinkAndImmediate(Node))
       return;
 
     LLVM_FALLTHROUGH;
@@ -3016,9 +3139,7 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
       // Update the chain.
       ReplaceUses(N1.getValue(1), Chain);
       // Record the mem-refs
-      MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
-      MemOp[0] = cast<LoadSDNode>(N1)->getMemOperand();
-      CNode->setMemRefs(MemOp, MemOp + 1);
+      CurDAG->setNodeMemRefs(CNode, {cast<LoadSDNode>(N1)->getMemOperand()});
     } else {
       SDValue Ops[] = { N1, InFlag };
       if (Opc == X86::MULX32rr || Opc == X86::MULX64rr) {
@@ -3186,9 +3307,7 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
       // Update the chain.
       ReplaceUses(N1.getValue(1), SDValue(CNode, 0));
       // Record the mem-refs
-      MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
-      MemOp[0] = cast<LoadSDNode>(N1)->getMemOperand();
-      CNode->setMemRefs(MemOp, MemOp + 1);
+      CurDAG->setNodeMemRefs(CNode, {cast<LoadSDNode>(N1)->getMemOperand()});
     } else {
       InFlag =
         SDValue(CurDAG->getMachineNode(Opc, dl, MVT::Glue, N1, InFlag), 0);

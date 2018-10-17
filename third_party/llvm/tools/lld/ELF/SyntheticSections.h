@@ -50,8 +50,6 @@ public:
   // If the section has the SHF_ALLOC flag and the size may be changed if
   // thunks are added, update the section size.
   virtual bool updateAllocSize() { return false; }
-  // If any additional finalization of contents are needed post thunk creation.
-  virtual void postThunkContents() {}
   virtual bool empty() const { return false; }
 
   static bool classof(const SectionBase *D) {
@@ -79,8 +77,8 @@ public:
   size_t NumFdes = 0;
 
   struct FdeData {
-    uint32_t Pc;
-    uint32_t FdeVA;
+    uint32_t PcRel;
+    uint32_t FdeVARel;
   };
 
   std::vector<FdeData> getFdeData() const;
@@ -135,6 +133,15 @@ protected:
   size_t NumEntries = 0;
   uint32_t TlsIndexOff = -1;
   uint64_t Size = 0;
+};
+
+// .note.GNU-stack section.
+class GnuStackSection : public SyntheticSection {
+public:
+  GnuStackSection()
+      : SyntheticSection(0, llvm::ELF::SHT_PROGBITS, 1, ".note.GNU-stack") {}
+  void writeTo(uint8_t *Buf) override {}
+  size_t getSize() const override { return 0; }
 };
 
 // .note.gnu.build-id section.
@@ -561,7 +568,6 @@ class SymbolTableBaseSection : public SyntheticSection {
 public:
   SymbolTableBaseSection(StringTableSection &StrTabSec);
   void finalizeContents() override;
-  void postThunkContents() override;
   size_t getSize() const override { return getNumSymbols() * Entsize; }
   void addSymbol(Symbol *Sym);
   unsigned getNumSymbols() const { return Symbols.size() + 1; }
@@ -569,6 +575,8 @@ public:
   ArrayRef<SymbolTableEntry> getSymbols() const { return Symbols; }
 
 protected:
+  void sortSymTabSymbols();
+
   // A vector of symbols and their string table offsets.
   std::vector<SymbolTableEntry> Symbols;
 
@@ -586,6 +594,16 @@ class SymbolTableSection final : public SymbolTableBaseSection {
 public:
   SymbolTableSection(StringTableSection &StrTabSec);
   void writeTo(uint8_t *Buf) override;
+};
+
+class SymtabShndxSection final : public SyntheticSection {
+public:
+  SymtabShndxSection();
+
+  void writeTo(uint8_t *Buf) override;
+  size_t getSize() const override;
+  bool empty() const override;
+  void finalizeContents() override;
 };
 
 // Outputs GNU Hash section. For detailed explanation see:
@@ -992,6 +1010,7 @@ struct InX {
   static StringTableSection *ShStrTab;
   static StringTableSection *StrTab;
   static SymbolTableBaseSection *SymTab;
+  static SymtabShndxSection* SymTabShndx;
 };
 
 template <class ELFT> struct In {

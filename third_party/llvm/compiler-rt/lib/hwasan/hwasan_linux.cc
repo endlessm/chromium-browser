@@ -44,16 +44,13 @@ static void ReserveShadowMemoryRange(uptr beg, uptr end, const char *name) {
   CHECK_EQ(((end + 1) % GetMmapGranularity()), 0);
   uptr size = end - beg + 1;
   DecreaseTotalMmap(size);  // Don't count the shadow against mmap_limit_mb.
-  void *res = MmapFixedNoReserve(beg, size, name);
-  if (res != (void *)beg) {
+  if (!MmapFixedNoReserve(beg, size, name)) {
     Report(
         "ReserveShadowMemoryRange failed while trying to map 0x%zx bytes. "
         "Perhaps you're using ulimit -v\n",
         size);
     Abort();
   }
-  if (common_flags()->no_huge_pages_for_shadow) NoHugePagesInRegion(beg, size);
-  if (common_flags()->use_madv_dontdump) DontDumpShadowMemory(beg, size);
 }
 
 static void ProtectGap(uptr addr, uptr size) {
@@ -220,6 +217,19 @@ bool InitShadow() {
   return true;
 }
 
+static void MadviseShadowRegion(uptr beg, uptr end) {
+  uptr size = end - beg + 1;
+  if (common_flags()->no_huge_pages_for_shadow)
+    NoHugePagesInRegion(beg, size);
+  if (common_flags()->use_madv_dontdump)
+    DontDumpShadowMemory(beg, size);
+}
+
+void MadviseShadow() {
+  MadviseShadowRegion(kLowShadowStart, kLowShadowEnd);
+  MadviseShadowRegion(kHighShadowStart, kHighShadowEnd);
+}
+
 bool MemIsApp(uptr p) {
   CHECK(GetTagFromPointer(p) == 0);
   return p >= kHighMemStart || (p >= kLowMemStart && p <= kLowMemEnd);
@@ -241,17 +251,42 @@ void InstallAtExitHandler() {
 
 // ---------------------- TSD ---------------- {{{1
 
+extern "C" void __hwasan_thread_enter() {
+  HwasanThread *t = HwasanThread::Create(nullptr, nullptr);
+  SetCurrentThread(t);
+  t->Init();
+}
+
+extern "C" void __hwasan_thread_exit() {
+  HwasanThread *t = GetCurrentThread();
+  // Make sure that signal handler can not see a stale current thread pointer.
+  atomic_signal_fence(memory_order_seq_cst);
+  if (t)
+    t->Destroy();
+}
+
+#if HWASAN_WITH_INTERCEPTORS
 static pthread_key_t tsd_key;
 static bool tsd_key_inited = false;
 
-void HwasanTSDInit(void (*destructor)(void *tsd)) {
+void HwasanTSDDtor(void *tsd) {
+  HwasanThread *t = (HwasanThread*)tsd;
+  if (t->destructor_iterations_ > 1) {
+    t->destructor_iterations_--;
+    CHECK_EQ(0, pthread_setspecific(tsd_key, tsd));
+    return;
+  }
+  __hwasan_thread_exit();
+}
+
+void HwasanTSDInit() {
   CHECK(!tsd_key_inited);
   tsd_key_inited = true;
-  CHECK_EQ(0, pthread_key_create(&tsd_key, destructor));
+  CHECK_EQ(0, pthread_key_create(&tsd_key, HwasanTSDDtor));
 }
 
 HwasanThread *GetCurrentThread() {
-  return (HwasanThread*)pthread_getspecific(tsd_key);
+  return (HwasanThread *)pthread_getspecific(tsd_key);
 }
 
 void SetCurrentThread(HwasanThread *t) {
@@ -261,18 +296,18 @@ void SetCurrentThread(HwasanThread *t) {
   CHECK_EQ(0, pthread_getspecific(tsd_key));
   pthread_setspecific(tsd_key, (void *)t);
 }
-
-void HwasanTSDDtor(void *tsd) {
-  HwasanThread *t = (HwasanThread*)tsd;
-  if (t->destructor_iterations_ > 1) {
-    t->destructor_iterations_--;
-    CHECK_EQ(0, pthread_setspecific(tsd_key, tsd));
-    return;
-  }
-  // Make sure that signal handler can not see a stale current thread pointer.
-  atomic_signal_fence(memory_order_seq_cst);
-  HwasanThread::TSDDtor(tsd);
+#elif SANITIZER_ANDROID
+void HwasanTSDInit() {}
+HwasanThread *GetCurrentThread() {
+  return (HwasanThread*)*get_android_tls_ptr();
 }
+
+void SetCurrentThread(HwasanThread *t) {
+  *get_android_tls_ptr() = (uptr)t;
+}
+#else
+#error unsupported configuration !HWASAN_WITH_INTERCEPTORS && !SANITIZER_ANDROID
+#endif
 
 struct AccessInfo {
   uptr addr;

@@ -28,6 +28,14 @@ def HasNEON          : Predicate<"Subtarget->hasNEON()">,
                                  AssemblerPredicate<"FeatureNEON", "neon">;
 def HasCrypto        : Predicate<"Subtarget->hasCrypto()">,
                                  AssemblerPredicate<"FeatureCrypto", "crypto">;
+def HasSM4           : Predicate<"Subtarget->hasSM4()">,
+                                 AssemblerPredicate<"FeatureSM4", "sm4">;
+def HasSHA3          : Predicate<"Subtarget->hasSHA3()">,
+                                 AssemblerPredicate<"FeatureSHA3", "sha3">;
+def HasSHA2          : Predicate<"Subtarget->hasSHA2()">,
+                                 AssemblerPredicate<"FeatureSHA2", "sha2">;
+def HasAES           : Predicate<"Subtarget->hasAES()">,
+                                 AssemblerPredicate<"FeatureAES", "aes">;
 def HasDotProd       : Predicate<"Subtarget->hasDotProd()">,
                                  AssemblerPredicate<"FeatureDotProd", "dotprod">;
 def HasCRC           : Predicate<"Subtarget->hasCRC()">,
@@ -41,6 +49,8 @@ def HasRDM           : Predicate<"Subtarget->hasRDM()">,
 def HasPerfMon       : Predicate<"Subtarget->hasPerfMon()">;
 def HasFullFP16      : Predicate<"Subtarget->hasFullFP16()">,
                                  AssemblerPredicate<"FeatureFullFP16", "fullfp16">;
+def HasFP16FML       : Predicate<"Subtarget->hasFP16FML()">,
+                                 AssemblerPredicate<"FeatureFP16FML", "fp16fml">;
 def HasSPE           : Predicate<"Subtarget->hasSPE()">,
                                  AssemblerPredicate<"FeatureSPE", "spe">;
 def HasFuseAES       : Predicate<"Subtarget->hasFuseAES()">,
@@ -166,6 +176,7 @@ def SDT_AArch64WrapperLarge : SDTypeProfile<1, 4,
 
 // Node definitions.
 def AArch64adrp          : SDNode<"AArch64ISD::ADRP", SDTIntUnaryOp, []>;
+def AArch64adr           : SDNode<"AArch64ISD::ADR", SDTIntUnaryOp, []>;
 def AArch64addlow        : SDNode<"AArch64ISD::ADDlow", SDTIntBinOp, []>;
 def AArch64LOADgot       : SDNode<"AArch64ISD::LOADgot", SDTIntUnaryOp>;
 def AArch64callseq_start : SDNode<"ISD::CALLSEQ_START",
@@ -467,6 +478,30 @@ defm SDOTlane : SIMDThreeSameVectorDotIndex<0, "sdot", int_aarch64_neon_sdot>;
 defm UDOTlane : SIMDThreeSameVectorDotIndex<1, "udot", int_aarch64_neon_udot>;
 }
 
+// Armv8.2-A Crypto extensions
+let Predicates = [HasSHA3] in {
+def SHA512H   : CryptoRRRTied<0b0, 0b00, "sha512h">;
+def SHA512H2  : CryptoRRRTied<0b0, 0b01, "sha512h2">;
+def SHA512SU0 : CryptoRRTied_2D<0b0, 0b00, "sha512su0">;
+def SHA512SU1 : CryptoRRRTied_2D<0b0, 0b10, "sha512su1">;
+def RAX1      : CryptoRRR_2D<0b0,0b11, "rax1">;
+def EOR3      : CryptoRRRR_16B<0b00, "eor3">;
+def BCAX      : CryptoRRRR_16B<0b01, "bcax">;
+def XAR       : CryptoRRRi6<"xar">;
+} // HasSHA3
+
+let Predicates = [HasSM4] in {
+def SM3TT1A   : CryptoRRRi2Tied<0b0, 0b00, "sm3tt1a">;
+def SM3TT1B   : CryptoRRRi2Tied<0b0, 0b01, "sm3tt1b">;
+def SM3TT2A   : CryptoRRRi2Tied<0b0, 0b10, "sm3tt2a">;
+def SM3TT2B   : CryptoRRRi2Tied<0b0, 0b11, "sm3tt2b">;
+def SM3SS1    : CryptoRRRR_4S<0b10, "sm3ss1">;
+def SM3PARTW1 : CryptoRRRTied_4S<0b1, 0b00, "sm3partw1">;
+def SM3PARTW2 : CryptoRRRTied_4S<0b1, 0b01, "sm3partw2">;
+def SM4ENCKEY : CryptoRRR_4S<0b1, 0b10, "sm4ekey">;
+def SM4E      : CryptoRRTied_4S<0b0, 0b01, "sm4e">;
+} // HasSM4
+
 let Predicates = [HasRCPC] in {
   // v8.3 Release Consistent Processor Consistent support, optional in v8.2.
   def LDAPRB  : RCPCLoad<0b00, "ldaprb", GPR32>;
@@ -484,31 +519,34 @@ defm FCADD : SIMDThreeSameVectorComplexHSD<1, 0b111, complexrotateopodd,
 defm FCMLA : SIMDIndexedTiedComplexHSD<1, 0, 1, complexrotateop, "fcmla",
                                        null_frag>;
 
+// v8.3a Pointer Authentication
+// These instructions inhabit part of the hint space and so can be used for
+// armv8 targets
+let Uses = [LR], Defs = [LR] in {
+  def PACIAZ   : SystemNoOperands<0b000, "paciaz">;
+  def PACIBZ   : SystemNoOperands<0b010, "pacibz">;
+  def AUTIAZ   : SystemNoOperands<0b100, "autiaz">;
+  def AUTIBZ   : SystemNoOperands<0b110, "autibz">;
+}
+let Uses = [LR, SP], Defs = [LR] in {
+  def PACIASP  : SystemNoOperands<0b001, "paciasp">;
+  def PACIBSP  : SystemNoOperands<0b011, "pacibsp">;
+  def AUTIASP  : SystemNoOperands<0b101, "autiasp">;
+  def AUTIBSP  : SystemNoOperands<0b111, "autibsp">;
+}
+let Uses = [X16, X17], Defs = [X17], CRm = 0b0001 in {
+  def PACIA1716  : SystemNoOperands<0b000, "pacia1716">;
+  def PACIB1716  : SystemNoOperands<0b010, "pacib1716">;
+  def AUTIA1716  : SystemNoOperands<0b100, "autia1716">;
+  def AUTIB1716  : SystemNoOperands<0b110, "autib1716">;
+}
+
+let Uses = [LR], Defs = [LR], CRm = 0b0000 in {
+  def XPACLRI   : SystemNoOperands<0b111, "xpaclri">;
+}
+
+// These pointer authentication isntructions require armv8.3a
 let Predicates = [HasV8_3a] in {
-  // v8.3a Pointer Authentication
-  let Uses = [LR], Defs = [LR] in {
-    def PACIAZ   : SystemNoOperands<0b000, "paciaz">;
-    def PACIBZ   : SystemNoOperands<0b010, "pacibz">;
-    def AUTIAZ   : SystemNoOperands<0b100, "autiaz">;
-    def AUTIBZ   : SystemNoOperands<0b110, "autibz">;
-  }
-  let Uses = [LR, SP], Defs = [LR] in {
-    def PACIASP  : SystemNoOperands<0b001, "paciasp">;
-    def PACIBSP  : SystemNoOperands<0b011, "pacibsp">;
-    def AUTIASP  : SystemNoOperands<0b101, "autiasp">;
-    def AUTIBSP  : SystemNoOperands<0b111, "autibsp">;
-  }
-  let Uses = [X16, X17], Defs = [X17], CRm = 0b0001 in {
-    def PACIA1716  : SystemNoOperands<0b000, "pacia1716">;
-    def PACIB1716  : SystemNoOperands<0b010, "pacib1716">;
-    def AUTIA1716  : SystemNoOperands<0b100, "autia1716">;
-    def AUTIB1716  : SystemNoOperands<0b110, "autib1716">;
-  }
-
-  let Uses = [LR], Defs = [LR], CRm = 0b0000 in {
-    def XPACLRI   : SystemNoOperands<0b111, "xpaclri">;
-  }
-
   multiclass SignAuth<bits<3> prefix, bits<3> prefix_z, string asm> {
     def IA   : SignAuthOneData<prefix, 0b00, !strconcat(asm, "ia")>;
     def IB   : SignAuthOneData<prefix, 0b01, !strconcat(asm, "ib")>;
@@ -538,7 +576,7 @@ let Predicates = [HasV8_3a] in {
   def BLRAAZ  : AuthOneOperand<0b001, 0, "blraaz">;
   def BLRABZ  : AuthOneOperand<0b001, 1, "blrabz">;
 
-  let isReturn = 1 in {
+  let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
     def RETAA   : AuthReturn<0b010, 0, "retaa">;
     def RETAB   : AuthReturn<0b010, 1, "retab">;
     def ERETAA  : AuthReturn<0b100, 0, "eretaa">;
@@ -555,7 +593,7 @@ let Predicates = [HasV8_3a] in {
     let Inst{31} = 0;
   }
 
-} // HasV8_3A
+} // HasV8_3a
 
 // v8.4 Flag manipulation instructions
 let Predicates = [HasV8_4a] in {
@@ -1348,7 +1386,8 @@ def : InstAlias<"cneg $dst, $src, $cc",
 //===----------------------------------------------------------------------===//
 let isReMaterializable = 1 in {
 let hasSideEffects = 0, mayStore = 0, mayLoad = 0 in {
-def ADR  : ADRI<0, "adr", adrlabel, []>;
+def ADR  : ADRI<0, "adr", adrlabel,
+                [(set GPR64:$Xd, (AArch64adr tglobaladdr:$label))]>;
 } // hasSideEffects = 0
 
 def ADRP : ADRI<1, "adrp", adrplabel,
@@ -1356,6 +1395,10 @@ def ADRP : ADRI<1, "adrp", adrplabel,
 } // isReMaterializable = 1
 
 // page address of a constant pool entry, block address
+def : Pat<(AArch64adr tconstpool:$cp), (ADR tconstpool:$cp)>;
+def : Pat<(AArch64adr tblockaddress:$cp), (ADR tblockaddress:$cp)>;
+def : Pat<(AArch64adr texternalsym:$sym), (ADR texternalsym:$sym)>;
+def : Pat<(AArch64adr tjumptable:$sym), (ADR tjumptable:$sym)>;
 def : Pat<(AArch64adrp tconstpool:$cp), (ADRP tconstpool:$cp)>;
 def : Pat<(AArch64adrp tblockaddress:$cp), (ADRP tblockaddress:$cp)>;
 def : Pat<(AArch64adrp texternalsym:$sym), (ADRP texternalsym:$sym)>;
@@ -3263,6 +3306,24 @@ defm SQRDMLAH : SIMDThreeSameVectorSQRDMLxHTiedHS<1,0b10000,"sqrdmlah",
                                                   int_aarch64_neon_sqadd>;
 defm SQRDMLSH : SIMDThreeSameVectorSQRDMLxHTiedHS<1,0b10001,"sqrdmlsh",
                                                     int_aarch64_neon_sqsub>;
+
+// FP16FML
+def FMLAL_2S   : BaseSIMDThreeSameMult<0, 0, 1, 0b001, "fmlal", ".2s", ".2h">;
+def FMLSL_2S   : BaseSIMDThreeSameMult<0, 0, 1, 0b101, "fmlsl", ".2s", ".2h">;
+def FMLAL_4S   : BaseSIMDThreeSameMult<1, 0, 1, 0b001, "fmlal", ".4s", ".4h">;
+def FMLSL_4S   : BaseSIMDThreeSameMult<1, 0, 1, 0b101, "fmlsl", ".4s", ".4h">;
+def FMLAL2_2S  : BaseSIMDThreeSameMult<0, 1, 0, 0b001, "fmlal2", ".2s", ".2h">;
+def FMLSL2_2S  : BaseSIMDThreeSameMult<0, 1, 0, 0b101, "fmlsl2", ".2s", ".2h">;
+def FMLAL2_4S  : BaseSIMDThreeSameMult<1, 1, 0, 0b001, "fmlal2", ".4s", ".4h">;
+def FMLSL2_4S  : BaseSIMDThreeSameMult<1, 1, 0, 0b101, "fmlsl2", ".4s", ".4h">;
+def FMLALI_2s  : BaseSIMDThreeSameMultIndex<0, 0, 0b0000, "fmlal", ".2s", ".2h", ".h">;
+def FMLSLI_2s  : BaseSIMDThreeSameMultIndex<0, 0, 0b0100, "fmlsl", ".2s", ".2h", ".h">;
+def FMLALI_4s  : BaseSIMDThreeSameMultIndex<1, 0, 0b0000, "fmlal", ".4s", ".4h", ".h">;
+def FMLSLI_4s  : BaseSIMDThreeSameMultIndex<1, 0, 0b0100, "fmlsl", ".4s", ".4h", ".h">;
+def FMLALI2_2s : BaseSIMDThreeSameMultIndex<0, 1, 0b1000, "fmlal2", ".2s", ".2h", ".h">;
+def FMLSLI2_2s : BaseSIMDThreeSameMultIndex<0, 1, 0b1100, "fmlsl2", ".2s", ".2h", ".h">;
+def FMLALI2_4s : BaseSIMDThreeSameMultIndex<1, 1, 0b1000, "fmlal2", ".4s", ".4h", ".h">;
+def FMLSLI2_4s : BaseSIMDThreeSameMultIndex<1, 1, 0b1100, "fmlsl2", ".4s", ".4h", ".h">;
 
 defm AND : SIMDLogicalThreeVector<0, 0b00, "and", and>;
 defm BIC : SIMDLogicalThreeVector<0, 0b01, "bic",
@@ -5606,10 +5667,12 @@ defm ST4 : SIMDLdSt4SingleAliases<"st4">;
 // Crypto extensions
 //----------------------------------------------------------------------------
 
+let Predicates = [HasAES] in {
 def AESErr   : AESTiedInst<0b0100, "aese",   int_aarch64_crypto_aese>;
 def AESDrr   : AESTiedInst<0b0101, "aesd",   int_aarch64_crypto_aesd>;
 def AESMCrr  : AESInst<    0b0110, "aesmc",  int_aarch64_crypto_aesmc>;
 def AESIMCrr : AESInst<    0b0111, "aesimc", int_aarch64_crypto_aesimc>;
+}
 
 // Pseudo instructions for AESMCrr/AESIMCrr with a register constraint required
 // for AES fusion on some CPUs.
@@ -5636,6 +5699,7 @@ def : Pat<(v16i8 (int_aarch64_crypto_aesimc
                                               (v16i8 V128:$src2)))))>,
           Requires<[HasFuseAES]>;
 
+let Predicates = [HasSHA2] in {
 def SHA1Crrr     : SHATiedInstQSV<0b000, "sha1c",   int_aarch64_crypto_sha1c>;
 def SHA1Prrr     : SHATiedInstQSV<0b001, "sha1p",   int_aarch64_crypto_sha1p>;
 def SHA1Mrrr     : SHATiedInstQSV<0b010, "sha1m",   int_aarch64_crypto_sha1m>;
@@ -5647,6 +5711,7 @@ def SHA256SU1rrr :SHATiedInstVVV<0b110, "sha256su1",int_aarch64_crypto_sha256su1
 def SHA1Hrr     : SHAInstSS<    0b0000, "sha1h",    int_aarch64_crypto_sha1h>;
 def SHA1SU1rr   : SHATiedInstVV<0b0001, "sha1su1",  int_aarch64_crypto_sha1su1>;
 def SHA256SU0rr : SHATiedInstVV<0b0010, "sha256su0",int_aarch64_crypto_sha256su0>;
+}
 
 //----------------------------------------------------------------------------
 // Compiler-pseudos

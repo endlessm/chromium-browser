@@ -425,11 +425,11 @@ defm V_MBCNT_LO_U32_B32 : VOP2Inst <"v_mbcnt_lo_u32_b32", VOP_NO_EXT<VOP_I32_I32
 defm V_MBCNT_HI_U32_B32 : VOP2Inst <"v_mbcnt_hi_u32_b32", VOP_NO_EXT<VOP_I32_I32_I32>, int_amdgcn_mbcnt_hi>;
 defm V_LDEXP_F32 : VOP2Inst <"v_ldexp_f32", VOP_NO_EXT<VOP_F32_F32_I32>, AMDGPUldexp>;
 defm V_CVT_PKACCUM_U8_F32 : VOP2Inst <"v_cvt_pkaccum_u8_f32", VOP_NO_EXT<VOP_I32_F32_I32>>; // TODO: set "Uses = dst"
-defm V_CVT_PKNORM_I16_F32 : VOP2Inst <"v_cvt_pknorm_i16_f32", VOP_NO_EXT<VOP_I32_F32_F32>, AMDGPUpknorm_i16_f32>;
-defm V_CVT_PKNORM_U16_F32 : VOP2Inst <"v_cvt_pknorm_u16_f32", VOP_NO_EXT<VOP_I32_F32_F32>, AMDGPUpknorm_u16_f32>;
-defm V_CVT_PKRTZ_F16_F32 : VOP2Inst <"v_cvt_pkrtz_f16_f32", VOP_NO_EXT<VOP_I32_F32_F32>, AMDGPUpkrtz_f16_f32>;
-defm V_CVT_PK_U16_U32 : VOP2Inst <"v_cvt_pk_u16_u32", VOP_NO_EXT<VOP_I32_I32_I32>, AMDGPUpk_u16_u32>;
-defm V_CVT_PK_I16_I32 : VOP2Inst <"v_cvt_pk_i16_i32", VOP_NO_EXT<VOP_I32_I32_I32>, AMDGPUpk_i16_i32>;
+defm V_CVT_PKNORM_I16_F32 : VOP2Inst <"v_cvt_pknorm_i16_f32", VOP_NO_EXT<VOP_V2I16_F32_F32>, AMDGPUpknorm_i16_f32>;
+defm V_CVT_PKNORM_U16_F32 : VOP2Inst <"v_cvt_pknorm_u16_f32", VOP_NO_EXT<VOP_V2I16_F32_F32>, AMDGPUpknorm_u16_f32>;
+defm V_CVT_PKRTZ_F16_F32 : VOP2Inst <"v_cvt_pkrtz_f16_f32", VOP_NO_EXT<VOP_V2F16_F32_F32>, AMDGPUpkrtz_f16_f32>;
+defm V_CVT_PK_U16_U32 : VOP2Inst <"v_cvt_pk_u16_u32", VOP_NO_EXT<VOP_V2I16_I32_I32>, AMDGPUpk_u16_u32>;
+defm V_CVT_PK_I16_I32 : VOP2Inst <"v_cvt_pk_i16_i32", VOP_NO_EXT<VOP_V2I16_I32_I32>, AMDGPUpk_i16_i32>;
 
 } // End SubtargetPredicate = isGCN
 
@@ -716,12 +716,6 @@ class VOP2_DPP <bits<6> op, VOP2_Pseudo ps, string OpName = ps.OpName, VOPProfil
 
 let AssemblerPredicates = [isVI], DecoderNamespace = "VI" in {
 
-multiclass VOP32_Real_vi <bits<10> op> {
-  def _vi :
-    VOP2_Real<!cast<VOP2_Pseudo>(NAME), SIEncodingFamily.VI>,
-    VOP3e_vi<op, !cast<VOP2_Pseudo>(NAME).Pfl>;
-}
-
 multiclass VOP2_Real_MADK_vi <bits<6> op> {
   def _vi : VOP2_Real<!cast<VOP2_Pseudo>(NAME), SIEncodingFamily.VI>,
             VOP2_MADKe<op{5-0}, !cast<VOP2_Pseudo>(NAME).Pfl>;
@@ -898,9 +892,6 @@ defm V_SUBBREV_CO_U32     : VOP2be_Real_e32e64_gfx9 <0x1e, "V_SUBBREV_U32", "v_s
 defm V_ADD_U32            : VOP2_Real_e32e64_gfx9 <0x34>;
 defm V_SUB_U32            : VOP2_Real_e32e64_gfx9 <0x35>;
 defm V_SUBREV_U32         : VOP2_Real_e32e64_gfx9 <0x36>;
-
-defm V_READLANE_B32       : VOP32_Real_vi <0x289>;
-defm V_WRITELANE_B32      : VOP32_Real_vi <0x28a>;
 
 defm V_BFM_B32            : VOP2_Real_e64only_vi <0x293>;
 defm V_BCNT_U32_B32       : VOP2_Real_e64only_vi <0x28b>;

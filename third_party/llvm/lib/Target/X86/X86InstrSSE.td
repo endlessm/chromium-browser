@@ -317,14 +317,6 @@ let Predicates = [UseAVX, OptForSize] in {
              (v2i64 (VMOVSDrr (v2i64 (V_SET0)),
                        (v2i64 (EXTRACT_SUBREG (v4i64 VR256:$src), sub_xmm)))),
              sub_xmm)>;
-
-  // Shuffle with VMOVSS
-  def : Pat<(v4i32 (X86Movss VR128:$src1, VR128:$src2)),
-            (VMOVSSrr VR128:$src1, VR128:$src2)>;
-
-  // Shuffle with VMOVSD
-  def : Pat<(v2i64 (X86Movsd VR128:$src1, VR128:$src2)),
-            (VMOVSDrr VR128:$src1, VR128:$src2)>;
 }
 
 let Predicates = [UseSSE1] in {
@@ -335,9 +327,6 @@ let Predicates = [UseSSE1] in {
             (MOVSSrr (v4f32 (V_SET0)), VR128:$src)>;
   def : Pat<(v4i32 (X86vzmovl (v4i32 VR128:$src))),
             (MOVSSrr (v4i32 (V_SET0)), VR128:$src)>;
-  // Shuffle with MOVSS
-  def : Pat<(v4i32 (X86Movss VR128:$src1, VR128:$src2)),
-            (MOVSSrr VR128:$src1, VR128:$src2)>;
   }
 
   // MOVSSrm already zeros the high parts of the register.
@@ -364,12 +353,6 @@ let Predicates = [UseSSE2] in {
             (COPY_TO_REGCLASS (MOVSDrm addr:$src), VR128)>;
   def : Pat<(v2f64 (X86vzload addr:$src)),
             (COPY_TO_REGCLASS (MOVSDrm addr:$src), VR128)>;
-
-  let Predicates = [UseSSE2, NoSSE41_Or_OptForSize] in {
-  // Shuffle with MOVSD
-  def : Pat<(v2i64 (X86Movsd VR128:$src1, VR128:$src2)),
-            (MOVSDrr VR128:$src1, VR128:$src2)>;
-  }
 }
 
 // Aliases to help the assembler pick two byte VEX encodings by swapping the
@@ -724,7 +707,7 @@ let Predicates = [UseSSE1] in {
             (MOVLPSmr addr:$src1, VR128:$src2)>;
 
   // This pattern helps select MOVLPS on SSE1 only targets. With SSE2 we'll
-  // end up with a movsd or bleand instead of shufp.
+  // end up with a movsd or blend instead of shufp.
   // No need for aligned load, we're only loading 64-bits.
   def : Pat<(X86Shufp (loadv4f32 addr:$src2), VR128:$src1, (i8 -28)),
             (MOVLPSrm VR128:$src1, addr:$src2)>;
@@ -780,7 +763,7 @@ let Predicates = [UseAVX] in {
 
 let Predicates = [UseSSE1] in {
   // This pattern helps select MOVHPS on SSE1 only targets. With SSE2 we'll
-  // end up with a movsd or bleand instead of shufp.
+  // end up with a movsd or blend instead of shufp.
   // No need for aligned load, we're only loading 64-bits.
   def : Pat<(X86Movlhps VR128:$src1, (loadv4f32 addr:$src2)),
             (MOVHPSrm VR128:$src1, addr:$src2)>;
@@ -1018,18 +1001,17 @@ def : InstAlias<"cvtsi2sd\t{$src, $dst|$dst, $src}",
 // Conversion Instructions Intrinsics - Match intrinsics which expect MM
 // and/or XMM operand(s).
 
-// FIXME: We probably want to match the rm form only when optimizing for
-// size, to avoid false depenendecies (see sse_fp_unop_s for details)
 multiclass sse12_cvt_sint<bits<8> opc, RegisterClass SrcRC, RegisterClass DstRC,
-                          Intrinsic Int, Operand memop, ComplexPattern mem_cpat,
-                          string asm, X86FoldableSchedWrite sched> {
+                          ValueType DstVT, ValueType SrcVT, SDNode OpNode,
+                          Operand memop, ComplexPattern mem_cpat, string asm,
+                          X86FoldableSchedWrite sched> {
   def rr_Int : SI<opc, MRMSrcReg, (outs DstRC:$dst), (ins SrcRC:$src),
                   !strconcat(asm, "\t{$src, $dst|$dst, $src}"),
-                  [(set DstRC:$dst, (Int SrcRC:$src))]>,
+                  [(set DstRC:$dst, (DstVT (OpNode (SrcVT SrcRC:$src))))]>,
                Sched<[sched]>;
   def rm_Int : SI<opc, MRMSrcMem, (outs DstRC:$dst), (ins memop:$src),
                   !strconcat(asm, "\t{$src, $dst|$dst, $src}"),
-                  [(set DstRC:$dst, (Int mem_cpat:$src))]>,
+                  [(set DstRC:$dst, (DstVT (OpNode (SrcVT mem_cpat:$src))))]>,
                Sched<[sched.Folded]>;
 }
 
@@ -1054,16 +1036,16 @@ let hasSideEffects = 0 in {
 }
 
 let Predicates = [UseAVX] in {
-defm VCVTSD2SI : sse12_cvt_sint<0x2D, VR128, GR32,
-                  int_x86_sse2_cvtsd2si, sdmem, sse_load_f64, "cvtsd2si",
+defm VCVTSD2SI : sse12_cvt_sint<0x2D, VR128, GR32, i32, v2f64,
+                  X86cvts2si, sdmem, sse_load_f64, "cvtsd2si",
                   WriteCvtSD2I>, XD, VEX, VEX_LIG;
-defm VCVTSD2SI64 : sse12_cvt_sint<0x2D, VR128, GR64,
-                    int_x86_sse2_cvtsd2si64, sdmem, sse_load_f64, "cvtsd2si",
+defm VCVTSD2SI64 : sse12_cvt_sint<0x2D, VR128, GR64, i64, v2f64,
+                    X86cvts2si, sdmem, sse_load_f64, "cvtsd2si",
                     WriteCvtSD2I>, XD, VEX, VEX_W, VEX_LIG;
 }
-defm CVTSD2SI : sse12_cvt_sint<0x2D, VR128, GR32, int_x86_sse2_cvtsd2si,
+defm CVTSD2SI : sse12_cvt_sint<0x2D, VR128, GR32, i32, v2f64, X86cvts2si,
                  sdmem, sse_load_f64, "cvtsd2si", WriteCvtSD2I>, XD;
-defm CVTSD2SI64 : sse12_cvt_sint<0x2D, VR128, GR64, int_x86_sse2_cvtsd2si64,
+defm CVTSD2SI64 : sse12_cvt_sint<0x2D, VR128, GR64, i64, v2f64, X86cvts2si,
                    sdmem, sse_load_f64, "cvtsd2si", WriteCvtSD2I>, XD, REX_W;
 
 
@@ -1095,47 +1077,47 @@ let isCodeGenOnly = 1 in {
 // Aliases for intrinsics
 let isCodeGenOnly = 1 in {
 let Predicates = [UseAVX] in {
-defm VCVTTSS2SI : sse12_cvt_sint<0x2C, VR128, GR32, int_x86_sse_cvttss2si,
+defm VCVTTSS2SI : sse12_cvt_sint<0x2C, VR128, GR32, i32, v4f32, X86cvtts2Int,
                                 ssmem, sse_load_f32, "cvttss2si",
                                 WriteCvtSS2I>, XS, VEX;
-defm VCVTTSS2SI64 : sse12_cvt_sint<0x2C, VR128, GR64,
-                               int_x86_sse_cvttss2si64, ssmem, sse_load_f32,
+defm VCVTTSS2SI64 : sse12_cvt_sint<0x2C, VR128, GR64, i64, v4f32,
+                               X86cvtts2Int, ssmem, sse_load_f32,
                                "cvttss2si", WriteCvtSS2I>,
                                XS, VEX, VEX_W;
-defm VCVTTSD2SI : sse12_cvt_sint<0x2C, VR128, GR32, int_x86_sse2_cvttsd2si,
+defm VCVTTSD2SI : sse12_cvt_sint<0x2C, VR128, GR32, i32, v2f64, X86cvtts2Int,
                                 sdmem, sse_load_f64, "cvttsd2si",
                                 WriteCvtSS2I>, XD, VEX;
-defm VCVTTSD2SI64 : sse12_cvt_sint<0x2C, VR128, GR64,
-                              int_x86_sse2_cvttsd2si64, sdmem, sse_load_f64,
+defm VCVTTSD2SI64 : sse12_cvt_sint<0x2C, VR128, GR64, i64, v2f64,
+                              X86cvtts2Int, sdmem, sse_load_f64,
                               "cvttsd2si", WriteCvtSS2I>,
                               XD, VEX, VEX_W;
 }
-defm CVTTSS2SI : sse12_cvt_sint<0x2C, VR128, GR32, int_x86_sse_cvttss2si,
+defm CVTTSS2SI : sse12_cvt_sint<0x2C, VR128, GR32, i32, v4f32, X86cvtts2Int,
                                     ssmem, sse_load_f32, "cvttss2si",
                                     WriteCvtSS2I>, XS;
-defm CVTTSS2SI64 : sse12_cvt_sint<0x2C, VR128, GR64,
-                                   int_x86_sse_cvttss2si64, ssmem, sse_load_f32,
+defm CVTTSS2SI64 : sse12_cvt_sint<0x2C, VR128, GR64, i64, v4f32,
+                                   X86cvtts2Int, ssmem, sse_load_f32,
                                    "cvttss2si", WriteCvtSS2I>, XS, REX_W;
-defm CVTTSD2SI : sse12_cvt_sint<0x2C, VR128, GR32, int_x86_sse2_cvttsd2si,
+defm CVTTSD2SI : sse12_cvt_sint<0x2C, VR128, GR32, i32, v2f64, X86cvtts2Int,
                                     sdmem, sse_load_f64, "cvttsd2si",
                                     WriteCvtSD2I>, XD;
-defm CVTTSD2SI64 : sse12_cvt_sint<0x2C, VR128, GR64,
-                                  int_x86_sse2_cvttsd2si64, sdmem, sse_load_f64,
+defm CVTTSD2SI64 : sse12_cvt_sint<0x2C, VR128, GR64, i64, v2f64,
+                                  X86cvtts2Int, sdmem, sse_load_f64,
                                   "cvttsd2si", WriteCvtSD2I>, XD, REX_W;
 } // isCodeGenOnly = 1
 
 let Predicates = [UseAVX] in {
-defm VCVTSS2SI   : sse12_cvt_sint<0x2D, VR128, GR32, int_x86_sse_cvtss2si,
+defm VCVTSS2SI   : sse12_cvt_sint<0x2D, VR128, GR32, i32, v4f32, X86cvts2si,
                                   ssmem, sse_load_f32, "cvtss2si",
                                   WriteCvtSS2I>, XS, VEX, VEX_LIG;
-defm VCVTSS2SI64 : sse12_cvt_sint<0x2D, VR128, GR64, int_x86_sse_cvtss2si64,
+defm VCVTSS2SI64 : sse12_cvt_sint<0x2D, VR128, GR64, i64, v4f32, X86cvts2si,
                                   ssmem, sse_load_f32, "cvtss2si",
                                   WriteCvtSS2I>, XS, VEX, VEX_W, VEX_LIG;
 }
-defm CVTSS2SI : sse12_cvt_sint<0x2D, VR128, GR32, int_x86_sse_cvtss2si,
+defm CVTSS2SI : sse12_cvt_sint<0x2D, VR128, GR32, i32, v4f32, X86cvts2si,
                                ssmem, sse_load_f32, "cvtss2si",
                                WriteCvtSS2I>, XS;
-defm CVTSS2SI64 : sse12_cvt_sint<0x2D, VR128, GR64, int_x86_sse_cvtss2si64,
+defm CVTSS2SI64 : sse12_cvt_sint<0x2D, VR128, GR64, i64, v4f32, X86cvts2si,
                                  ssmem, sse_load_f32, "cvtss2si",
                                  WriteCvtSS2I>, XS, REX_W;
 
@@ -6427,12 +6409,6 @@ let Predicates = [HasAVX, OptForSpeed] in {
             (VBLENDPSrmi VR128:$src1, addr:$src2, (i8 1))>;
   def : Pat<(v4f32 (X86Movss (loadv4f32 addr:$src2), VR128:$src1)),
             (VBLENDPSrmi VR128:$src1, addr:$src2, (i8 0xe))>;
-  def : Pat<(v4i32 (X86Movss VR128:$src1, VR128:$src2)),
-            (VPBLENDWrri VR128:$src1, VR128:$src2, (i8 3))>;
-  def : Pat<(v4i32 (X86Movss VR128:$src1, (bc_v4i32 (loadv2i64 addr:$src2)))),
-            (VPBLENDWrmi VR128:$src1, addr:$src2, (i8 3))>;
-  def : Pat<(v4i32 (X86Movss (bc_v4i32 (loadv2i64 addr:$src2)), VR128:$src1)),
-            (VPBLENDWrmi VR128:$src1, addr:$src2, (i8 0xfc))>;
 
   def : Pat<(v2f64 (X86Movsd VR128:$src1, VR128:$src2)),
             (VBLENDPDrri VR128:$src1, VR128:$src2, (i8 1))>;
@@ -6440,12 +6416,6 @@ let Predicates = [HasAVX, OptForSpeed] in {
             (VBLENDPDrmi VR128:$src1, addr:$src2, (i8 1))>;
   def : Pat<(v2f64 (X86Movsd (loadv2f64 addr:$src2), VR128:$src1)),
             (VBLENDPDrmi VR128:$src1, addr:$src2, (i8 2))>;
-  def : Pat<(v2i64 (X86Movsd VR128:$src1, VR128:$src2)),
-            (VPBLENDWrri VR128:$src1, VR128:$src2, (i8 0xf))>;
-  def : Pat<(v2i64 (X86Movsd VR128:$src1, (loadv2i64 addr:$src2))),
-            (VPBLENDWrmi VR128:$src1, addr:$src2, (i8 0xf))>;
-  def : Pat<(v2i64 (X86Movsd (loadv2i64 addr:$src2), VR128:$src1)),
-            (VPBLENDWrmi VR128:$src1, addr:$src2, (i8 0xf0))>;
 
   // Move low f32 and clear high bits.
   def : Pat<(v8f32 (X86vzmovl (v8f32 VR256:$src))),
@@ -6487,12 +6457,6 @@ let Predicates = [UseSSE41, OptForSpeed] in {
             (BLENDPSrmi VR128:$src1, addr:$src2, (i8 1))>;
   def : Pat<(v4f32 (X86Movss (memopv4f32 addr:$src2), VR128:$src1)),
             (BLENDPSrmi VR128:$src1, addr:$src2, (i8 0xe))>;
-  def : Pat<(v4i32 (X86Movss VR128:$src1, VR128:$src2)),
-            (PBLENDWrri VR128:$src1, VR128:$src2, (i8 3))>;
-  def : Pat<(v4i32 (X86Movss VR128:$src1, (bc_v4i32 (memopv2i64 addr:$src2)))),
-            (PBLENDWrmi VR128:$src1, addr:$src2, (i8 3))>;
-  def : Pat<(v4i32 (X86Movss (bc_v4i32 (memopv2i64 addr:$src2)), VR128:$src1)),
-            (PBLENDWrmi VR128:$src1, addr:$src2, (i8 0xfc))>;
 
   def : Pat<(v2f64 (X86Movsd VR128:$src1, VR128:$src2)),
             (BLENDPDrri VR128:$src1, VR128:$src2, (i8 1))>;
@@ -6500,12 +6464,6 @@ let Predicates = [UseSSE41, OptForSpeed] in {
             (BLENDPDrmi VR128:$src1, addr:$src2, (i8 1))>;
   def : Pat<(v2f64 (X86Movsd (memopv2f64 addr:$src2), VR128:$src1)),
             (BLENDPDrmi VR128:$src1, addr:$src2, (i8 2))>;
-  def : Pat<(v2i64 (X86Movsd VR128:$src1, VR128:$src2)),
-            (PBLENDWrri VR128:$src1, VR128:$src2, (i8 0xf))>;
-  def : Pat<(v2i64 (X86Movsd VR128:$src1, (memopv2i64 addr:$src2))),
-            (PBLENDWrmi VR128:$src1, addr:$src2, (i8 0xf))>;
-  def : Pat<(v2i64 (X86Movsd (memopv2i64 addr:$src2), VR128:$src1)),
-            (PBLENDWrmi VR128:$src1, addr:$src2, (i8 0xf0))>;
 }
 
 
@@ -7982,7 +7940,7 @@ defm VPMASKMOVQ : avx2_pmovmask<"vpmaskmovq",
 multiclass maskmov_lowering<string InstrStr, RegisterClass RC, ValueType VT,
                           ValueType MaskVT, string BlendStr, ValueType ZeroVT> {
     // masked store
-    def: Pat<(X86mstore addr:$ptr, (MaskVT RC:$mask), (VT RC:$src)),
+    def: Pat<(X86mstore (VT RC:$src), addr:$ptr, (MaskVT RC:$mask)),
              (!cast<Instruction>(InstrStr#"mr") addr:$ptr, RC:$mask, RC:$src)>;
     // masked load
     def: Pat<(VT (X86mload addr:$ptr, (MaskVT RC:$mask), undef)),
@@ -8171,51 +8129,6 @@ let Predicates = [UseAVX2] in {
     }
   }
 }
-
-//===----------------------------------------------------------------------===//
-// Extra selection patterns for f128, f128mem
-
-// movaps is shorter than movdqa. movaps is in SSE and movdqa is in SSE2.
-def : Pat<(alignedstore (f128 VR128:$src), addr:$dst),
-          (MOVAPSmr addr:$dst, (COPY_TO_REGCLASS (f128 VR128:$src), VR128))>;
-def : Pat<(store (f128 VR128:$src), addr:$dst),
-          (MOVUPSmr addr:$dst, (COPY_TO_REGCLASS (f128 VR128:$src), VR128))>;
-
-def : Pat<(alignedloadf128 addr:$src),
-          (COPY_TO_REGCLASS (MOVAPSrm addr:$src), VR128)>;
-def : Pat<(loadf128 addr:$src),
-          (COPY_TO_REGCLASS (MOVUPSrm addr:$src), VR128)>;
-
-// andps is shorter than andpd or pand. andps is SSE and andpd/pand are in SSE2
-def : Pat<(f128 (X86fand VR128:$src1, (memopf128 addr:$src2))),
-          (COPY_TO_REGCLASS
-           (ANDPSrm (COPY_TO_REGCLASS VR128:$src1, VR128), f128mem:$src2),
-           VR128)>;
-
-def : Pat<(f128 (X86fand VR128:$src1, VR128:$src2)),
-          (COPY_TO_REGCLASS
-           (ANDPSrr (COPY_TO_REGCLASS VR128:$src1, VR128),
-                    (COPY_TO_REGCLASS VR128:$src2, VR128)), VR128)>;
-
-def : Pat<(f128 (X86for VR128:$src1, (memopf128 addr:$src2))),
-          (COPY_TO_REGCLASS
-           (ORPSrm (COPY_TO_REGCLASS VR128:$src1, VR128), f128mem:$src2),
-           VR128)>;
-
-def : Pat<(f128 (X86for VR128:$src1, VR128:$src2)),
-          (COPY_TO_REGCLASS
-           (ORPSrr (COPY_TO_REGCLASS VR128:$src1, VR128),
-                   (COPY_TO_REGCLASS VR128:$src2, VR128)), VR128)>;
-
-def : Pat<(f128 (X86fxor VR128:$src1, (memopf128 addr:$src2))),
-          (COPY_TO_REGCLASS
-           (XORPSrm (COPY_TO_REGCLASS VR128:$src1, VR128), f128mem:$src2),
-           VR128)>;
-
-def : Pat<(f128 (X86fxor VR128:$src1, VR128:$src2)),
-          (COPY_TO_REGCLASS
-           (XORPSrr (COPY_TO_REGCLASS VR128:$src1, VR128),
-                    (COPY_TO_REGCLASS VR128:$src2, VR128)), VR128)>;
 
 //===----------------------------------------------------------------------===//
 // GFNI instructions

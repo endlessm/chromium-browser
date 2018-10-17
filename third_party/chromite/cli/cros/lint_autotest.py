@@ -26,30 +26,6 @@ from pylint.checkers import BaseChecker
 from pylint.checkers import imports
 from pylint.checkers import variables
 from pylint.interfaces import IAstroidChecker
-import logilab.common.modutils
-
-
-# patch up the logilab module lookup tools to understand autotest_lib.* trash
-_ffm = logilab.common.modutils.file_from_modpath
-
-def file_from_modpath(modpath, paths=None, context_file=None):
-  """Wrapper to eliminate autotest_lib from modpath.
-
-  Args:
-    modpath: name of module splitted on '.'
-    paths: optional list of paths where module should be searched for.
-    context_file: path to file doing the importing.
-
-  Returns:
-    The path to the module as returned by the parent method invocation.
-
-  Raises:
-    ImportError if these is no such module.
-  """
-  if modpath[0] == "autotest_lib":
-    return _ffm(modpath[1:], paths, context_file)
-  else:
-    return _ffm(modpath, paths, context_file)
 
 
 # patch up pylint import checker to handle our importing magic
@@ -117,11 +93,11 @@ def CustomizeImportsChecker():
   """Modifies stock imports checker to suit autotest."""
   cls = imports.ImportsChecker
 
-  old_visit_from = cls.visit_from
+  old_visit_importfrom = cls.visit_importfrom
   @patch_cls(cls)
-  def visit_from(self, node):  # pylint: disable=unused-variable
-    node.modname = patch_modname(node.modname)
-    return old_visit_from(self, node)
+  def visit_importfrom(self, node):  # pylint: disable=unused-variable
+    node.names = patch_modname(node.names)
+    return old_visit_importfrom(self, node)
 
 
 def CustomizeVariablesChecker():
@@ -147,12 +123,12 @@ def CustomizeVariablesChecker():
     patch_consumed_list(scoped_names[0], scoped_names[1])
     self._to_consume.append(scoped_names)
 
-  old_visit_from = cls.visit_from
+  old_visit_importfrom = cls.visit_importfrom
   @patch_cls(cls)
-  def visit_from(self, node):  # pylint: disable=unused-variable
+  def visit_importfrom(self, node):  # pylint: disable=unused-variable
     """Patches modnames so pylints understands autotest_lib."""
     node.modname = patch_modname(node.modname)
-    return old_visit_from(self, node)
+    return old_visit_importfrom(self, node)
 
 
 def _ShouldSkipArg(arg):
@@ -193,9 +169,9 @@ def CustomizeDocStringChecker():
       node: the node we're visiting.
     """
 
-  old_visit_function = cls.visit_function
+  old_visit_functiondef = cls.visit_functiondef
   @patch_cls(cls)
-  def visit_function(self, node):   # pylint: disable=unused-variable
+  def visit_functiondef(self, node):  # pylint: disable=unused-variable
     """Don't request docstrings for commonly overridden autotest functions.
 
     Args:
@@ -204,7 +180,7 @@ def CustomizeDocStringChecker():
     if ShouldSkipDocstring(node):
       return
 
-    old_visit_function(self, node)
+    old_visit_functiondef(self, node)
 
 
 class ParamChecker(BaseChecker):
@@ -261,4 +237,3 @@ def register(linter):
   CustomizeDocStringChecker()
   CustomizeImportsChecker()
   CustomizeVariablesChecker()
-  logilab.common.modutils.file_from_modpath = file_from_modpath

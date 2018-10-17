@@ -29,6 +29,7 @@ from chromite.lib import cidb
 from chromite.lib import cros_logging as logging
 from chromite.lib import config_lib
 from chromite.lib import constants
+from chromite.lib import portage_util
 from chromite.lib import tree_status
 
 
@@ -41,12 +42,12 @@ class ManifestVersionedSyncCompletionStageTest(
 
   # pylint: disable=abstract-method
 
-  BOT_ID = 'x86-mario-release'
+  BOT_ID = 'eve-release'
 
 
   def testManifestVersionedSyncCompletedSuccess(self):
     """Tests basic ManifestVersionedSyncStageCompleted on success"""
-    board_runattrs = self._run.GetBoardRunAttrs('x86-mario')
+    board_runattrs = self._run.GetBoardRunAttrs('eve')
     board_runattrs.SetParallel('success', True)
     update_status_mock = self.PatchObject(
         manifest_version.BuildSpecsManager, 'UpdateStatus')
@@ -83,7 +84,7 @@ class ManifestVersionedSyncCompletionStageTest(
 
   def testGetBuilderSuccessMap(self):
     """Tests that the builder success map is properly created."""
-    board_runattrs = self._run.GetBoardRunAttrs('x86-mario')
+    board_runattrs = self._run.GetBoardRunAttrs('eve')
     board_runattrs.SetParallel('success', True)
     builder_success_map = completion_stages.GetBuilderSuccessMap(
         self._run, True)
@@ -197,7 +198,6 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
 
   def testGetSlavesForMaster(self):
     """Tests that we get the slaves for a fake unified master configuration."""
-    self.maxDiff = None
     stage = self.ConstructStage()
     p = stage._GetSlaveConfigs()
     self.assertEqual([self.test_config['test3'], self.test_config['test5']], p)
@@ -547,16 +547,6 @@ class CanaryCompletionStageTest(
     return completion_stages.CanaryCompletionStage(
         self._run, sync_stage, success=True)
 
-  def testComposeTreeStatusMessage(self):
-    """Tests that the status message is constructed as expected."""
-    failing = ['foo1', 'foo2', 'foo3', 'foo4', 'foo5']
-    inflight = ['bar']
-    no_stat = []
-    stage = self.ConstructStage()
-    self.assertEqual(
-        stage._ComposeTreeStatusMessage(failing, inflight, no_stat),
-        'bar timed out; foo1,foo2 and 3 others failed')
-
   def testGetBuilderStatusesFetcher(self):
     """Test GetBuilderStatusesFetcher."""
     mock_fetcher = mock.Mock()
@@ -662,7 +652,7 @@ class BaseCommitQueueCompletionStageTest(
 # pylint: disable=too-many-ancestors
 class SlaveCommitQueueCompletionStageTest(BaseCommitQueueCompletionStageTest):
   """Tests how CQ a slave handles changes in CommitQueueCompletionStage."""
-  BOT_ID = 'x86-mario-paladin'
+  BOT_ID = 'eve-paladin'
 
   def testSuccess(self):
     """Test the slave succeeding."""
@@ -831,8 +821,8 @@ class PublishUprevChangesStageTest(
   def setUp(self):
     self.PatchObject(completion_stages.PublishUprevChangesStage,
                      '_GetPortageEnvVar')
-    self.PatchObject(completion_stages.PublishUprevChangesStage,
-                     '_ExtractOverlays', return_value=[['foo'], ['bar']])
+    self.PatchObject(portage_util, 'FindOverlays',
+                     side_effect=[['foo', 'bar'], ['bar']])
     self.PatchObject(prebuilts.BinhostConfWriter, 'Perform')
     self.push_mock = self.PatchObject(commands, 'UprevPush')
     self.PatchObject(generic_stages.BuilderStage, 'GetRepoRepository')

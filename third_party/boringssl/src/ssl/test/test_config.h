@@ -32,6 +32,7 @@ struct TestConfig {
   bool fallback_scsv = false;
   std::vector<int> signing_prefs;
   std::vector<int> verify_prefs;
+  std::vector<int> expected_peer_verify_prefs;
   std::string key_file;
   std::string cert_file;
   std::string expected_server_name;
@@ -49,6 +50,7 @@ struct TestConfig {
   bool no_tls12 = false;
   bool no_tls11 = false;
   bool no_tls1 = false;
+  bool no_ticket = false;
   std::string expected_channel_id;
   bool enable_channel_id = false;
   std::string send_channel_id;
@@ -154,16 +156,22 @@ struct TestConfig {
   bool use_custom_verify_callback = false;
   std::string expect_msg_callback;
   bool allow_false_start_without_alpn = false;
-  bool expect_draft_downgrade = false;
-  int dummy_pq_padding_len = 0;
+  bool ignore_tls13_downgrade = false;
+  bool expect_tls13_downgrade = false;
   bool handoff = false;
-  bool expect_dummy_pq_padding = false;
   bool no_rsa_pss_rsae_certs = false;
   bool use_ocsp_callback = false;
   bool set_ocsp_in_callback = false;
   bool decline_ocsp_callback = false;
   bool fail_ocsp_callback = false;
   bool install_cert_compression_algs = false;
+  bool reverify_on_resume = false;
+  bool is_handshaker_supported = false;
+  bool handshaker_resume = false;
+  std::string handshaker_path;
+
+  int argc;
+  char **argv;
 
   bssl::UniquePtr<SSL_CTX> SetupCtx(SSL_CTX *old_ctx) const;
 
@@ -178,8 +186,6 @@ bool ParseConfig(int argc, char **argv, TestConfig *out_initial,
 bool SetTestConfig(SSL *ssl, const TestConfig *config);
 
 const TestConfig *GetTestConfig(const SSL *ssl);
-
-bool MoveTestConfig(SSL *dest, SSL *src);
 
 bool LoadCertificate(bssl::UniquePtr<X509> *out_x509,
                      bssl::UniquePtr<STACK_OF(X509)> *out_chain,

@@ -458,23 +458,6 @@ def ListChrootSnapshots(chroot_vg, chroot_lv):
   return snapshots
 
 
-def _FindSubmounts(*args):
-  """Find all mounts matching each of the paths in |args| and any submounts.
-
-  Returns:
-    A list of all matching mounts in the order found in /proc/mounts.
-  """
-  mounts = []
-  paths = [p.rstrip('/') for p in args]
-  for mtab in osutils.IterateMountPoints():
-    for path in paths:
-      if mtab.destination == path or mtab.destination.startswith(path + '/'):
-        mounts.append(mtab.destination)
-        break
-
-  return mounts
-
-
 def _SudoCommand():
   """Get the 'sudo' command, along with all needed environment variables."""
 
@@ -845,7 +828,7 @@ def main(argv):
         'Are you in a Chromium source tree instead of Chromium OS?\n\n'
         'Please change to a directory inside your Chromium OS source tree\n'
         'and retry.  If you need to setup a Chromium OS source tree, see\n'
-        '  http://www.chromium.org/chromium-os/developer-guide')
+        '  https://dev.chromium.org/chromium-os/developer-guide')
 
   any_snapshot_operation = (options.snapshot_create or options.snapshot_restore
                             or options.snapshot_delete or options.snapshot_list)

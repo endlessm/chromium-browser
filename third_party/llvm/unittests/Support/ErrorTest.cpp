@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/Error.h"
+#include "llvm-c/Error.h"
 
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Errc.h"
@@ -443,6 +444,29 @@ TEST(Error, StringError) {
     << "Failed to convert StringError to error_code.";
 }
 
+TEST(Error, createStringError) {
+  static const char *Bar = "bar";
+  static const std::error_code EC = errc::invalid_argument;
+  std::string Msg;
+  raw_string_ostream S(Msg);
+  logAllUnhandledErrors(createStringError(EC, "foo%s%d0x%" PRIx8, Bar, 1, 0xff),
+                        S, "");
+  EXPECT_EQ(S.str(), "foobar10xff\n")
+    << "Unexpected createStringError() log result";
+
+  S.flush();
+  Msg.clear();
+  logAllUnhandledErrors(createStringError(EC, Bar), S, "");
+  EXPECT_EQ(S.str(), "bar\n")
+    << "Unexpected createStringError() (overloaded) log result";
+
+  S.flush();
+  Msg.clear();
+  auto Res = errorToErrorCode(createStringError(EC, "foo%s", Bar));
+  EXPECT_EQ(Res, EC)
+    << "Failed to convert createStringError() result to error_code.";
+}
+
 // Test that the ExitOnError utility works as expected.
 TEST(Error, ExitOnError) {
   ExitOnError ExitOnErr;
@@ -807,6 +831,37 @@ TEST(Error, ErrorMatchers) {
                            HasValue(testing::Gt(1))),
       "Expected: succeeded with value (is > 1)\n"
       "  Actual: failed  (CustomError {0})");
+}
+
+TEST(Error, C_API) {
+  EXPECT_THAT_ERROR(unwrap(wrap(Error::success())), Succeeded())
+      << "Failed to round-trip Error success value via C API";
+  EXPECT_THAT_ERROR(unwrap(wrap(make_error<CustomError>(0))),
+                    Failed<CustomError>())
+      << "Failed to round-trip Error failure value via C API";
+
+  auto Err =
+      wrap(make_error<StringError>("test message", inconvertibleErrorCode()));
+  EXPECT_EQ(LLVMGetErrorTypeId(Err), LLVMGetStringErrorTypeId())
+      << "Failed to match error type ids via C API";
+  char *ErrMsg = LLVMGetErrorMessage(Err);
+  EXPECT_STREQ(ErrMsg, "test message")
+      << "Failed to roundtrip StringError error message via C API";
+  LLVMDisposeErrorMessage(ErrMsg);
+
+  bool GotCSE = false;
+  bool GotCE = false;
+  handleAllErrors(
+    unwrap(wrap(joinErrors(make_error<CustomSubError>(42, 7),
+                           make_error<CustomError>(42)))),
+    [&](CustomSubError &CSE) {
+      GotCSE = true;
+    },
+    [&](CustomError &CE) {
+      GotCE = true;
+    });
+  EXPECT_TRUE(GotCSE) << "Failed to round-trip ErrorList via C API";
+  EXPECT_TRUE(GotCE) << "Failed to round-trip ErrorList via C API";
 }
 
 } // end anon namespace

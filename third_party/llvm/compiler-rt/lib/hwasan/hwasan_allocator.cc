@@ -24,6 +24,7 @@
 #include "hwasan_mapping.h"
 #include "hwasan_thread.h"
 #include "hwasan_poisoning.h"
+#include "hwasan_report.h"
 
 namespace __hwasan {
 
@@ -156,8 +157,12 @@ static void *HwasanAllocate(StackTrace *stack, uptr size, uptr alignment,
   meta->state = CHUNK_ALLOCATED;
   meta->requested_size = size;
   meta->alloc_context_id = StackDepotPut(*stack);
-  if (zeroise)
+  if (zeroise) {
     internal_memset(allocated, 0, size);
+  } else if (flags()->max_malloc_fill_size > 0) {
+    uptr fill_size = Min(size, (uptr)flags()->max_malloc_fill_size);
+    internal_memset(allocated, flags()->malloc_fill_byte, fill_size);
+  }
 
   void *user_ptr = allocated;
   if (flags()->tag_in_malloc &&
@@ -169,9 +174,20 @@ static void *HwasanAllocate(StackTrace *stack, uptr size, uptr alignment,
   return user_ptr;
 }
 
+static bool PointerAndMemoryTagsMatch(void *user_ptr) {
+  CHECK(user_ptr);
+  tag_t ptr_tag = GetTagFromPointer(reinterpret_cast<uptr>(user_ptr));
+  tag_t mem_tag = *reinterpret_cast<tag_t *>(
+      MEM_TO_SHADOW(GetAddressFromPointer(user_ptr)));
+  return ptr_tag == mem_tag;
+}
+
 void HwasanDeallocate(StackTrace *stack, void *user_ptr) {
   CHECK(user_ptr);
   HWASAN_FREE_HOOK(user_ptr);
+
+  if (!PointerAndMemoryTagsMatch(user_ptr))
+    ReportInvalidFree(stack, reinterpret_cast<uptr>(user_ptr));
 
   void *p = GetAddressFromPointer(user_ptr);
   Metadata *meta = reinterpret_cast<Metadata *>(allocator.GetMetaData(p));
@@ -182,6 +198,10 @@ void HwasanDeallocate(StackTrace *stack, void *user_ptr) {
   // This memory will not be reused by anyone else, so we are free to keep it
   // poisoned.
   HwasanThread *t = GetCurrentThread();
+  if (flags()->max_free_fill_size > 0) {
+    uptr fill_size = Min(size, (uptr)flags()->max_free_fill_size);
+    internal_memset(p, flags()->free_fill_byte, fill_size);
+  }
   if (flags()->tag_in_free &&
       atomic_load_relaxed(&hwasan_allocator_tagging_enabled))
     TagMemoryAligned((uptr)p, size,
@@ -201,6 +221,9 @@ void *HwasanReallocate(StackTrace *stack, void *user_old_p, uptr new_size,
   alignment = Max(alignment, kShadowAlignment);
   new_size = RoundUpTo(new_size, kShadowAlignment);
 
+  if (!PointerAndMemoryTagsMatch(user_old_p))
+    ReportInvalidFree(stack, reinterpret_cast<uptr>(user_old_p));
+
   void *old_p = GetAddressFromPointer(user_old_p);
   Metadata *meta = reinterpret_cast<Metadata*>(allocator.GetMetaData(old_p));
   uptr old_size = meta->requested_size;
@@ -218,7 +241,7 @@ void *HwasanReallocate(StackTrace *stack, void *user_old_p, uptr new_size,
           t ? t->GenerateRandomTag() : kFallbackAllocTag);
     }
     if (new_size > old_size) {
-      tag_t tag = GetTagFromPointer((uptr)user_old_p);
+      tag_t tag = GetTagFromPointer(reinterpret_cast<uptr>(user_old_p));
       TagMemoryAligned((uptr)old_p + old_size, new_size - old_size, tag);
     }
     return user_old_p;

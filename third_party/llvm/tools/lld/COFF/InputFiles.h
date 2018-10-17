@@ -13,6 +13,7 @@
 #include "Config.h"
 #include "lld/Common/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/LTO/LTO.h"
 #include "llvm/Object/Archive.h"
@@ -144,6 +145,8 @@ public:
   // if we are not producing a PDB.
   llvm::pdb::DbiModuleDescriptorBuilder *ModuleDBI = nullptr;
 
+  const coff_section *AddrsigSec = nullptr;
+
 private:
   void initializeChunks();
   void initializeSymbols();
@@ -157,10 +160,24 @@ private:
       COFFSymbolRef COFFSym,
       const llvm::object::coff_aux_section_definition *Def);
 
+  void readAssociativeDefinition(
+      COFFSymbolRef COFFSym,
+      const llvm::object::coff_aux_section_definition *Def,
+      uint32_t ParentSection);
+
+  void recordPrevailingSymbolForMingw(
+      COFFSymbolRef COFFSym,
+      llvm::DenseMap<StringRef, uint32_t> &PrevailingSectionMap);
+
+  void maybeAssociateSEHForMingw(
+      COFFSymbolRef Sym, const llvm::object::coff_aux_section_definition *Def,
+      const llvm::DenseMap<StringRef, uint32_t> &PrevailingSectionMap);
+
   llvm::Optional<Symbol *>
   createDefined(COFFSymbolRef Sym,
                 std::vector<const llvm::object::coff_aux_section_definition *>
-                    &ComdatDefs);
+                    &ComdatDefs,
+                bool &PrevailingComdat);
   Symbol *createRegular(COFFSymbolRef Sym);
   Symbol *createUndefined(COFFSymbolRef Sym);
 

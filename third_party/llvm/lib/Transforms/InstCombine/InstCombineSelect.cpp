@@ -54,6 +54,55 @@ static Value *createMinMax(InstCombiner::BuilderTy &Builder,
   return Builder.CreateSelect(Builder.CreateICmp(Pred, A, B), A, B);
 }
 
+/// Replace a select operand based on an equality comparison with the identity
+/// constant of a binop.
+static Instruction *foldSelectBinOpIdentity(SelectInst &Sel,
+                                            const TargetLibraryInfo &TLI) {
+  // The select condition must be an equality compare with a constant operand.
+  Value *X;
+  Constant *C;
+  CmpInst::Predicate Pred;
+  if (!match(Sel.getCondition(), m_Cmp(Pred, m_Value(X), m_Constant(C))))
+    return nullptr;
+
+  bool IsEq;
+  if (ICmpInst::isEquality(Pred))
+    IsEq = Pred == ICmpInst::ICMP_EQ;
+  else if (Pred == FCmpInst::FCMP_OEQ)
+    IsEq = true;
+  else if (Pred == FCmpInst::FCMP_UNE)
+    IsEq = false;
+  else
+    return nullptr;
+
+  // A select operand must be a binop, and the compare constant must be the
+  // identity constant for that binop.
+  BinaryOperator *BO;
+  if (!match(Sel.getOperand(IsEq ? 1 : 2), m_BinOp(BO)) ||
+      ConstantExpr::getBinOpIdentity(BO->getOpcode(), BO->getType(), true) != C)
+    return nullptr;
+
+  // Last, match the compare variable operand with a binop operand.
+  Value *Y;
+  if (!BO->isCommutative() && !match(BO, m_BinOp(m_Value(Y), m_Specific(X))))
+    return nullptr;
+  if (!match(BO, m_c_BinOp(m_Value(Y), m_Specific(X))))
+    return nullptr;
+
+  // +0.0 compares equal to -0.0, and so it does not behave as required for this
+  // transform. Bail out if we can not exclude that possibility.
+  if (isa<FPMathOperator>(BO))
+    if (!BO->hasNoSignedZeros() && !CannotBeNegativeZero(Y, &TLI))
+      return nullptr;
+
+  // BO = binop Y, X
+  // S = { select (cmp eq X, C), BO, ? } or { select (cmp ne X, C), ?, BO }
+  // =>
+  // S = { select (cmp eq X, C),  Y, ? } or { select (cmp ne X, C), ?,  Y }
+  Sel.setOperand(IsEq ? 1 : 2, Y);
+  return &Sel;
+}
+
 /// This folds:
 ///  select (icmp eq (and X, C1)), TC, FC
 ///    iff C1 is a power 2 and the difference between TC and FC is a power-of-2.
@@ -319,7 +368,10 @@ Instruction *InstCombiner::foldSelectOpOp(SelectInst &SI, Instruction *TI,
   Value *Op0 = MatchIsOpZero ? MatchOp : NewSI;
   Value *Op1 = MatchIsOpZero ? NewSI : MatchOp;
   if (auto *BO = dyn_cast<BinaryOperator>(TI)) {
-    return BinaryOperator::Create(BO->getOpcode(), Op0, Op1);
+    BinaryOperator *NewBO = BinaryOperator::Create(BO->getOpcode(), Op0, Op1);
+    NewBO->copyIRFlags(TI);
+    NewBO->andIRFlags(FI);
+    return NewBO;
   }
   if (auto *TGEP = dyn_cast<GetElementPtrInst>(TI)) {
     auto *FGEP = cast<GetElementPtrInst>(FI);
@@ -794,8 +846,11 @@ canonicalizeMinMaxWithConstant(SelectInst &Sel, ICmpInst &Cmp,
   return &Sel;
 }
 
-/// There are 4 select variants for each of ABS/NABS (different compare
-/// constants, compare predicates, select operands). Canonicalize to 1 pattern.
+/// There are many select variants for each of ABS/NABS.
+/// In matchSelectPattern(), there are different compare constants, compare
+/// predicates/operands and select operands.
+/// In isKnownNegation(), there are different formats of negated operands.
+/// Canonicalize all these variants to 1 pattern.
 /// This makes CSE more likely.
 static Instruction *canonicalizeAbsNabs(SelectInst &Sel, ICmpInst &Cmp,
                                         InstCombiner::BuilderTy &Builder) {
@@ -810,34 +865,61 @@ static Instruction *canonicalizeAbsNabs(SelectInst &Sel, ICmpInst &Cmp,
   if (SPF != SelectPatternFlavor::SPF_ABS &&
       SPF != SelectPatternFlavor::SPF_NABS)
     return nullptr;
-  
-  // TODO: later canonicalization change will move this condition check.
-  // Without this check, following assert will be hit.
-  if (match(Cmp.getOperand(0), m_Sub(m_Value(), m_Value())))
-    return nullptr;
 
-  // Is this already canonical?
-  if (match(Cmp.getOperand(1), m_ZeroInt()) &&
-      Cmp.getPredicate() == ICmpInst::ICMP_SLT)
-    return nullptr;
-
-  // Create the canonical compare.
-  Cmp.setPredicate(ICmpInst::ICMP_SLT);
-  Cmp.setOperand(1, ConstantInt::getNullValue(Cmp.getOperand(0)->getType()));
-
-  // If the select operands do not change, we're done.
   Value *TVal = Sel.getTrueValue();
   Value *FVal = Sel.getFalseValue();
+  assert(isKnownNegation(TVal, FVal) &&
+         "Unexpected result from matchSelectPattern");
+
+  // The compare may use the negated abs()/nabs() operand, or it may use
+  // negation in non-canonical form such as: sub A, B.
+  bool CmpUsesNegatedOp = match(Cmp.getOperand(0), m_Neg(m_Specific(TVal))) ||
+                          match(Cmp.getOperand(0), m_Neg(m_Specific(FVal)));
+
+  bool CmpCanonicalized = !CmpUsesNegatedOp &&
+                          match(Cmp.getOperand(1), m_ZeroInt()) &&
+                          Cmp.getPredicate() == ICmpInst::ICMP_SLT;
+  bool RHSCanonicalized = match(RHS, m_Neg(m_Specific(LHS)));
+
+  // Is this already canonical?
+  if (CmpCanonicalized && RHSCanonicalized)
+    return nullptr;
+
+  // If RHS is used by other instructions except compare and select, don't
+  // canonicalize it to not increase the instruction count.
+  if (!(RHS->hasOneUse() || (RHS->hasNUses(2) && CmpUsesNegatedOp)))
+    return nullptr;
+
+  // Create the canonical compare: icmp slt LHS 0.
+  if (!CmpCanonicalized) {
+    Cmp.setPredicate(ICmpInst::ICMP_SLT);
+    Cmp.setOperand(1, ConstantInt::getNullValue(Cmp.getOperand(0)->getType()));
+    if (CmpUsesNegatedOp)
+      Cmp.setOperand(0, LHS);
+  }
+
+  // Create the canonical RHS: RHS = sub (0, LHS).
+  if (!RHSCanonicalized) {
+    assert(RHS->hasOneUse() && "RHS use number is not right");
+    RHS = Builder.CreateNeg(LHS);
+    if (TVal == LHS) {
+      Sel.setFalseValue(RHS);
+      FVal = RHS;
+    } else {
+      Sel.setTrueValue(RHS);
+      TVal = RHS;
+    }
+  }
+
+  // If the select operands do not change, we're done.
   if (SPF == SelectPatternFlavor::SPF_NABS) {
-    if (TVal == LHS && match(FVal, m_Neg(m_Specific(TVal))))
+    if (TVal == LHS)
       return &Sel;
-    assert(FVal == LHS && match(TVal, m_Neg(m_Specific(FVal))) &&
-           "Unexpected results from matchSelectPattern");
+    assert(FVal == LHS && "Unexpected results from matchSelectPattern");
   } else {
-    if (FVal == LHS && match(TVal, m_Neg(m_Specific(FVal))))
+    if (FVal == LHS)
       return &Sel;
-    assert(TVal == LHS && match(FVal, m_Neg(m_Specific(TVal))) &&
-           "Unexpected results from matchSelectPattern");
+    assert(TVal == LHS && "Unexpected results from matchSelectPattern");
   }
 
   // We are swapping the select operands, so swap the metadata too.
@@ -1699,7 +1781,7 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
     if (Instruction *FoldI = foldSelectIntoOp(SI, TrueVal, FalseVal))
       return FoldI;
 
-    Value *LHS, *RHS, *LHS2, *RHS2;
+    Value *LHS, *RHS;
     Instruction::CastOps CastOp;
     SelectPatternResult SPR = matchSelectPattern(&SI, LHS, RHS, &CastOp);
     auto SPF = SPR.Flavor;
@@ -1758,6 +1840,7 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
       // MIN(MAX(a, b), a) -> a
       // ABS(ABS(a)) -> ABS(a)
       // NABS(NABS(a)) -> NABS(a)
+      Value *LHS2, *RHS2;
       if (SelectPatternFlavor SPF2 = matchSelectPattern(LHS, LHS2, RHS2).Flavor)
         if (Instruction *R = foldSPFofSPF(cast<Instruction>(LHS),SPF2,LHS2,RHS2,
                                           SI, SPF, RHS))
@@ -1929,6 +2012,9 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
 
   // Simplify selects that test the returned flag of cmpxchg instructions.
   if (Instruction *Select = foldSelectCmpXchg(SI))
+    return Select;
+
+  if (Instruction *Select = foldSelectBinOpIdentity(SI, TLI))
     return Select;
 
   return nullptr;
