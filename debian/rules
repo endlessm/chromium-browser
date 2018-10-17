@@ -50,7 +50,6 @@ DEB_DH_SHLIBDEPS_ARGS_chromium-codecs-ffmpeg := -ldebian/chromium-codecs-ffmpeg/
 DEB_DH_SHLIBDEPS_ARGS_chromium-codecs-ffmpeg-extra := -ldebian/chromium-codecs-ffmpeg-extra/$(LIB_DIR)
 
 common_defines+=\
-	enable_google_now=false \
 	enable_hangout_services_extension=true \
 	enable_mdns=true \
 	enable_nacl=false \
@@ -73,7 +72,6 @@ common_defines+=\
 	use_gio=true \
 	use_glib=true \
 	use_gold=false \
-	use_gtk3=true \
 	use_libpci=true \
 	use_pulseaudio=true \
 	use_sysroot=false \

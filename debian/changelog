@@ -1,3 +1,51 @@
+chromium-browser (70.0.3538.67-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 70.0.3538.67
+    - CVE-2018-17462: Sandbox escape in AppCache.
+    - CVE-2018-17463: Remote code execution in V8.
+    - CVE to be assigned: Heap buffer overflow in Little CMS in PDFium.
+    - CVE-2018-17464: URL spoof in Omnibox.
+    - CVE-2018-17465: Use after free in V8.
+    - CVE-2018-17466: Memory corruption in Angle.
+    - CVE-2018-17467: URL spoof in Omnibox.
+    - CVE-2018-17468: Cross-origin URL disclosure in Blink.
+    - CVE-2018-17469: Heap buffer overflow in PDFium.
+    - CVE-2018-17470: Memory corruption in GPU Internals.
+    - CVE-2018-17471: Security UI occlusion in full screen mode.
+    - CVE-2018-17472: iframe sandbox escape on iOS.
+    - CVE-2018-17473: URL spoof in Omnibox.
+    - CVE-2018-17474: Use after free in Blink.
+    - CVE-2018-17475: URL spoof in Omnibox.
+    - CVE-2018-17476: Security UI occlusion in full screen mode.
+    - CVE-2018-5179: Lack of limits on update() in ServiceWorker.
+    - CVE-2018-17477: UI spoof in Extensions.
+  * debian/rules:
+    - remove enable_google_now build flag
+    - remove use_gtk3 build flag
+  * debian/patches/arm-neon.patch: refreshed
+  * debian/patches/chromium_useragent.patch: refreshed
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/define__libc_malloc.patch: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: refreshed
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-other-locations: refreshed
+  * debian/known_gn_gen_args-*:
+    - remove enable_google_now build flag
+    - remove use_gtk3 build flag
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 16 Oct 2018 22:54:27 +0200
+
+chromium-browser (69.0.3497.100-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 69.0.3497.100
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 18 Sep 2018 09:40:32 +0200
+
 chromium-browser (69.0.3497.92-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 69.0.3497.92
