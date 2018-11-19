@@ -38,6 +38,7 @@ Build-Depends:
 	libxkbcommon-dev,
 	libpam0g-dev,
 	libffi-dev,
+	libva-dev,
 	uuid-dev,
 	chrpath,
 	yasm
