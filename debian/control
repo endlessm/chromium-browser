@@ -45,6 +45,7 @@ Build-Depends:
 	libpam0g-dev,
 	libffi-dev,
 	libgbm-dev,
+	libva-dev,
 	uuid-dev,
 	chrpath,
 	yasm
