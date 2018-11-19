@@ -66,7 +66,12 @@ class MAYBE_WebRtcMediaRecorderTest
       return;
     // This flag is also used for encoding, https://crbug.com/616640.
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kDisableAcceleratedVideoDecode);
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+        switches::kEnableAcceleratedVideo
+#else
+        switches::kDisableAcceleratedVideoDecode
+#endif
+        );
   }
 
  private:

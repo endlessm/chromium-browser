@@ -14,6 +14,13 @@ const char kAccelerated2dCanvasDescription[] =
     "Enables the use of the GPU to perform 2d canvas rendering instead of "
     "using software rendering.";
 
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+const char kAcceleratedVideoName[] = "Hardware-accelerated video";
+const char kAcceleratedVideoDescription[] =
+    "Hardware-accelerated video where VA-API driver is installed on the"
+    "system.";
+#endif
+
 const char kAcceleratedVideoDecodeName[] = "Hardware-accelerated video decode";
 const char kAcceleratedVideoDecodeDescription[] =
     "Hardware-accelerated video decode where available.";
@@ -2103,6 +2110,7 @@ const char kWebrtcHybridAgcName[] = "WebRTC hybrid Agc2/Agc1.";
 const char kWebrtcHybridAgcDescription[] =
     "WebRTC Agc2 digital adaptation with Agc1 analog adaptation.";
 
+#if defined(OS_CHROMEOS) || defined(OS_ANDROID)
 const char kWebrtcHwDecodingName[] = "WebRTC hardware video decoding";
 const char kWebrtcHwDecodingDescription[] =
     "Support in WebRTC for decoding video streams using platform hardware.";
@@ -2110,6 +2118,7 @@ const char kWebrtcHwDecodingDescription[] =
 const char kWebrtcHwEncodingName[] = "WebRTC hardware video encoding";
 const char kWebrtcHwEncodingDescription[] =
     "Support in WebRTC for encoding video streams using platform hardware.";
+#endif
 
 const char kWebrtcHwH264EncodingName[] = "WebRTC hardware h264 video encoding";
 const char kWebrtcHwH264EncodingDescription[] =
@@ -3087,14 +3096,16 @@ const char kTextSuggestionsTouchBarDescription[] =
 
 // Chrome OS -------------------------------------------------------------------
 
-#if defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS) || (defined(OS_LINUX) && !defined(OS_ANDROID))
 
 const char kAcceleratedMjpegDecodeName[] =
     "Hardware-accelerated mjpeg decode for captured frame";
 const char kAcceleratedMjpegDecodeDescription[] =
     "Enable hardware-accelerated mjpeg decode for captured frame where "
     "available.";
+#endif
 
+#if defined(OS_CHROMEOS)
 const char kAllowTouchpadThreeFingerClickName[] = "Touchpad three-finger-click";
 const char kAllowTouchpadThreeFingerClickDescription[] =
     "Enables touchpad three-finger-click as middle button.";

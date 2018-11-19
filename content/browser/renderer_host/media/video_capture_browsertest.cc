@@ -166,8 +166,13 @@ class VideoCaptureBrowserTest : public ContentBrowserTest,
       base::CommandLine::ForCurrentProcess()->AppendSwitch(
           switches::kUseFakeJpegDecodeAccelerator);
     } else {
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+      base::CommandLine::ForCurrentProcess()->AppendSwitch(
+          switches::kEnableAcceleratedMjpegDecode);
+#else
       base::CommandLine::ForCurrentProcess()->AppendSwitch(
           switches::kDisableAcceleratedMjpegDecode);
+#endif
     }
   }
 

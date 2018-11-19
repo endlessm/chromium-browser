@@ -69,6 +69,17 @@ const char kDisable3DAPIs[]                 = "disable-3d-apis";
 // Disable gpu-accelerated 2d canvas.
 const char kDisableAccelerated2dCanvas[]    = "disable-accelerated-2d-canvas";
 
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// Enable hardware accelerated mjpeg decode on linux
+const char kEnableAcceleratedMjpegDecode[] = "enable-accelerated-mjpeg-decode";
+#endif
+
+#if defined(OS_LINUX)
+// Enables hardware acceleration of video for Linux only. VA-API driver
+// is required to be present on the system installation.
+const char kEnableAcceleratedVideo[] = "enable-accelerated-video";
+#endif
+
 // Disables hardware acceleration of video decode, where available.
 const char kDisableAcceleratedVideoDecode[] =
     "disable-accelerated-video-decode";
@@ -870,11 +881,13 @@ const char kWaitForDebuggerChildren[]       = "wait-for-debugger-children";
 // ignores this switch on its stable and beta channels.
 const char kDisableWebRtcEncryption[]      = "disable-webrtc-encryption";
 
+#if defined(OS_CHROMEOS)
 // Disables HW decode acceleration for WebRTC.
 const char kDisableWebRtcHWDecoding[]       = "disable-webrtc-hw-decoding";
 
 // Disables HW encode acceleration for WebRTC.
 const char kDisableWebRtcHWEncoding[] = "disable-webrtc-hw-encoding";
+#endif
 
 // Enables negotiation of GCM cipher suites from RFC 7714 for SRTP in WebRTC.
 // See https://tools.ietf.org/html/rfc7714 for further information.

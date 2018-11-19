@@ -33,6 +33,9 @@ CONTENT_EXPORT extern const char kDisable3DAPIs[];
 CONTENT_EXPORT extern const char kDisableAccelerated2dCanvas[];
 CONTENT_EXPORT extern const char kDisableAcceleratedJpegDecoding[];
 CONTENT_EXPORT extern const char kDisableAcceleratedVideoDecode[];
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+CONTENT_EXPORT extern const char kEnableAcceleratedMjpegDecode[];
+#endif
 CONTENT_EXPORT extern const char kDisableAcceleratedVideoEncode[];
 CONTENT_EXPORT extern const char kDisableAudioSupportForDesktopShare[];
 extern const char kDisableBackingStoreLimit[];
@@ -106,6 +109,9 @@ CONTENT_EXPORT extern const char kDomAutomationController[];
 extern const char kDisable2dCanvasClipAntialiasing[];
 CONTENT_EXPORT extern const char kDumpBlinkRuntimeCallStats[];
 CONTENT_EXPORT extern const char kEnableAccessibilityObjectModel[];
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+CONTENT_EXPORT extern const char kEnableAcceleratedVideo[];
+#endif
 CONTENT_EXPORT extern const char kEnableAggressiveDOMStorageFlushing[];
 CONTENT_EXPORT extern const char kEnableAutomation[];
 CONTENT_EXPORT extern const char kEnablePreferCompositingToLCDText[];
@@ -242,8 +248,10 @@ CONTENT_EXPORT extern const char kValidateInputEventStream[];
 CONTENT_EXPORT extern const char kWaitForDebuggerChildren[];
 
 CONTENT_EXPORT extern const char kDisableWebRtcEncryption[];
+#if defined(OS_CHROMEOS)
 CONTENT_EXPORT extern const char kDisableWebRtcHWDecoding[];
 CONTENT_EXPORT extern const char kDisableWebRtcHWEncoding[];
+#endif
 CONTENT_EXPORT extern const char kEnableWebRtcSrtpAesGcm[];
 CONTENT_EXPORT extern const char kEnableWebRtcSrtpEncryptedHeaders[];
 CONTENT_EXPORT extern const char kEnableWebRtcStunOrigin[];
