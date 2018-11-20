@@ -720,8 +720,7 @@ config("compiler") {
   # This flag enforces that member pointer base types are complete. It helps
   # prevent us from running into problems in the Microsoft C++ ABI (see
   # https://crbug.com/847724).
-  if (is_clang && !is_nacl && target_os != "chromeos" && !use_xcode_clang &&
-      (is_win || use_custom_libcxx)) {
+  if (false) {
     cflags += [ "-fcomplete-member-pointers" ]
   }
 
@@ -1490,10 +1489,10 @@ config("default_warnings") {
 
           # Ignore warnings about MSVC optimization pragmas.
           # TODO(thakis): Only for no_chromium_code? http://crbug.com/505314
-          "-Wno-ignored-pragma-optimize",
+          #"-Wno-ignored-pragma-optimize",
 
           # TODO(hans): https://crbug.com/890307
-          "-Wno-defaulted-function-deleted",
+          #"-Wno-defaulted-function-deleted",
         ]
       }
     }
