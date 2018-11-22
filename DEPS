@@ -38,7 +38,7 @@ gclient_gn_args = [
 
 
 vars = {
-  "buildspec_platforms": "win, linux64, mac64, win64",
+  "buildspec_platforms": "win, ios, linux64, chromeos, win64, android, mac64",
   # Variable that can be used to support multiple build scenarios, like having
   # Chromium specific targets in a client project's GN file or sync dependencies
   # conditionally etc.
@@ -106,11 +106,11 @@ vars = {
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling Skia
   # and whatever else without interference from each other.
-  'skia_revision': '193565807f7fd2a2c14e21b44c545cc03ebe134f',
+  'skia_revision': '8adc53ec0ee4bbafbd9925024df38437c0fcf88a',
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling V8
   # and whatever else without interference from each other.
-  'v8_revision': '5f246c123ea463b189ca0579c0a9074459e20a6f',
+  'v8_revision': '0ab74ca5dc325e46ad0763000e00c79fb2b4dad1',
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling swarming_client
   # and whatever else without interference from each other.
@@ -751,7 +751,7 @@ deps = {
     Var('chromium_git') + '/chromium/deps/hunspell_dictionaries.git' + '@' + 'a9bac57ce6c9d390a52ebaad3259f5fdb871210e',
 
   'src/third_party/icu':
-    Var('chromium_git') + '/chromium/deps/icu.git' + '@' + 'a191af9d025859e8368b8b469120d78006e9f5f6',
+    Var('chromium_git') + '/chromium/deps/icu.git' + '@' + '0b9783609f6a3375260e9f5cd96e6938bc9d0afe',
 
   'src/third_party/icu4j': {
       'packages': [
@@ -1099,7 +1099,7 @@ deps = {
     Var('chromium_git') + '/external/khronosgroup/webgl.git' + '@' + '7ca87fb1d3da3b3d2060886e8c58e726d74c8219',
 
   'src/third_party/webrtc':
-    Var('webrtc_git') + '/src.git' + '@' + '024118622a7a892560644a12127fe584cef49135',
+    Var('webrtc_git') + '/src.git' + '@' + '4ab51cb6d7d4530b344e63ed8274d1454b7a5f39',
 
   'src/third_party/xdg-utils': {
       'url': Var('chromium_git') + '/chromium/deps/xdg-utils.git' + '@' + 'd80274d5869b17b8c9067a1022e4416ee7ed5e0d',
@@ -1133,7 +1133,7 @@ deps = {
     Var('chromium_git') + '/v8/v8.git' + '@' +  Var('v8_revision'),
 
   'src-internal': {
-    'url': 'https://chrome-internal.googlesource.com/chrome/src-internal.git@1dbfca2797bb308bea1bc6424860412a30a62c20',
+    'url': 'https://chrome-internal.googlesource.com/chrome/src-internal.git@661455147c96759265b799cc081ca7dfc923c4ba',
     'condition': 'checkout_src_internal',
   },
 

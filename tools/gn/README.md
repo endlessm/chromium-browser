@@ -6,6 +6,13 @@ GN is a meta-build system that generates build files for
 
 ## Getting started
 
+You can download the latest version of GN binary for
+[Linux](https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/latest),
+[macOS](https://chrome-infra-packages.appspot.com/dl/gn/gn/mac-amd64/+/latest) and
+[Windows](https://chrome-infra-packages.appspot.com/dl/gn/gn/windows-amd64/+/latest).
+
+Alternatively, you can build GN from source:
+
     git clone https://gn.googlesource.com/gn
     cd gn
     python build/gen.py
@@ -20,6 +27,11 @@ similar.
 On Linux and Mac, the default compiler is `clang++`, a recent version is
 expected to be found in `PATH`. This can be overridden by setting `CC`, `CXX`,
 and `AR`.
+
+## Reporting bugs
+
+If you find a bug, you can see if it is known or report it in the [bug
+database](https://bugs.chromium.org/p/gn/issues/list).
 
 ## Sending patches
 

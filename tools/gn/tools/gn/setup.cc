@@ -18,7 +18,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "tools/gn/command_format.h"
 #include "tools/gn/commands.h"
@@ -71,7 +70,8 @@ Variables
   check_targets [optional]
       A list of labels and label patterns that should be checked when running
       "gn check" or "gn gen --check". If unspecified, all targets will be
-      checked. If it is the empty list, no targets will be checked.
+      checked. If it is the empty list, no targets will be checked. To
+      bypass this list, request an explicit check of targets, like "//*".
 
       The format of this list is identical to that of "visibility" so see "gn
       help visibility" for examples.
@@ -190,6 +190,24 @@ void DecrementWorkCount() {
 
 #if defined(OS_WIN)
 
+std::wstring SysMultiByteToWide(base::StringPiece mb) {
+  if (mb.empty())
+    return std::wstring();
+
+  int mb_length = static_cast<int>(mb.length());
+  // Compute the length of the buffer.
+  int charcount =
+      MultiByteToWideChar(CP_ACP, 0, mb.data(), mb_length, NULL, 0);
+  if (charcount == 0)
+    return std::wstring();
+
+  std::wstring wide;
+  wide.resize(charcount);
+  MultiByteToWideChar(CP_ACP, 0, mb.data(), mb_length, &wide[0], charcount);
+
+  return wide;
+}
+
 // Given the path to a batch file that runs Python, extracts the name of the
 // executable actually implementing Python. Generally people write a batch file
 // to put something named "python" on the path, which then just redirects to
@@ -215,7 +233,7 @@ base::FilePath PythonBatToExe(const base::FilePath& bat_path) {
     base::TrimWhitespaceASCII(python_path, base::TRIM_ALL, &python_path);
 
     // Python uses the system multibyte code page for sys.executable.
-    base::FilePath exe_path(base::SysNativeMBToWide(python_path));
+    base::FilePath exe_path(SysMultiByteToWide(python_path));
 
     // Check for reasonable output, cmd may have output an error message.
     if (base::PathExists(exe_path))
@@ -543,19 +561,21 @@ bool Setup::FillSourceDir(const base::CommandLine& cmdline) {
     // When --root is specified, an alternate --dotfile can also be set.
     // --dotfile should be a real file path and not a "//foo" source-relative
     // path.
-    base::FilePath dot_file_path =
+    base::FilePath dotfile_path =
         cmdline.GetSwitchValuePath(switches::kDotfile);
-    if (dot_file_path.empty()) {
+    if (dotfile_path.empty()) {
       dotfile_name_ = root_path.Append(kGnFile);
     } else {
-      dotfile_name_ = base::MakeAbsoluteFilePath(dot_file_path);
+      dotfile_name_ = base::MakeAbsoluteFilePath(dotfile_path);
       if (dotfile_name_.empty()) {
         Err(Location(), "Could not load dotfile.",
-            "The file \"" + FilePathToUTF8(dot_file_path) +
+            "The file \"" + FilePathToUTF8(dotfile_path) +
                 "\" couldn't be loaded.")
             .PrintToStdout();
         return false;
       }
+      // Only set dotfile_name if it was passed explicitly.
+      build_settings_.set_dotfile_name(dotfile_name_);
     }
   } else {
     // In the default case, look for a dotfile and that also tells us where the
