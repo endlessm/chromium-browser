@@ -1,3 +1,25 @@
+chromium-browser (70.0.3538.110-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 70.0.3538.110
+    - CVE-2018-17479: Use-after-free in GPU.
+  * debian/patches/relax-ninja-version-requirement.patch: refreshed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 20 Nov 2018 12:13:30 +0100
+
+chromium-browser (70.0.3538.102-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 70.0.3538.102
+    - CVE-2018-17478: Out of bounds memory access in V8.
+  * debian/patches/gn-bootstrap-remove-sysroot-options.patch: added
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 15 Nov 2018 07:08:10 +0100
+
+chromium-browser (70.0.3538.77-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 70.0.3538.77
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 25 Oct 2018 07:33:53 +0200
+
 chromium-browser (70.0.3538.67-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 70.0.3538.67
