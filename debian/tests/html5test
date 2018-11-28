@@ -43,7 +43,7 @@ if __name__ == '__main__':
     match = re.search("YOUR BROWSER SCORES (\d+) OUT OF (\d+) POINTS", score)
     assert match is not None
     score = (int(match.group(1)), int(match.group(2)))
-    expected_score = (523, 555)
+    expected_score = (525, 555)
     sys.stderr.flush()
     print("Score: {}/{}".format(score[0], score[1]))
 
@@ -248,7 +248,7 @@ if __name__ == '__main__':
         ("row-location.geolocation", "Yes"),
         ("row-location.orientation", "Yes"),
         ("row-location.motion", "Yes"),
-        ("row-output.requestFullScreen", "Prefixed"),
+        ("row-output.requestFullScreen", "Yes"),
         ("row-output.notifications", "Yes"),
         ("row-input.getGamepads", "Yes"),
         ("row-input.pointerevents", "Yes"),

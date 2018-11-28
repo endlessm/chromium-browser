@@ -1,3 +1,62 @@
+chromium-browser (71.0.3578.98-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 71.0.3578.98
+    - CVE-2018-17481: Use after free in PDFium.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 13 Dec 2018 12:56:41 +0100
+
+chromium-browser (71.0.3578.80-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 71.0.3578.80
+    - CVE-2018-17480: Out of bounds write in V8.
+    - CVE-2018-17481: Use after frees in PDFium.
+    - CVE-2018-18335: Heap buffer overflow in Skia.
+    - CVE-2018-18336: Use after free in PDFium.
+    - CVE-2018-18337: Use after free in Blink.
+    - CVE-2018-18338: Heap buffer overflow in Canvas.
+    - CVE-2018-18339: Use after free in WebAudio.
+    - CVE-2018-18340: Use after free in MediaRecorder.
+    - CVE-2018-18341: Heap buffer overflow in Blink.
+    - CVE-2018-18342: Out of bounds write in V8.
+    - CVE-2018-18343: Use after free in Skia.
+    - CVE-2018-18344: Inappropriate implementation in Extensions.
+    - CVE-2018-18345: Inappropriate implementation in Site Isolation.
+    - CVE-2018-18346: Incorrect security UI in Blink.
+    - CVE-2018-18347: Inappropriate implementation in Navigation.
+    - CVE-2018-18348: Inappropriate implementation in Omnibox.
+    - CVE-2018-18349: Insufficient policy enforcement in Blink.
+    - CVE-2018-18350: Insufficient policy enforcement in Blink.
+    - CVE-2018-18351: Insufficient policy enforcement in Navigation.
+    - CVE-2018-18352: Inappropriate implementation in Media.
+    - CVE-2018-18353: Inappropriate implementation in Network Authentication.
+    - CVE-2018-18354: Insufficient data validation in Shell Integration.
+    - CVE-2018-18355: Insufficient policy enforcement in URL Formatter.
+    - CVE-2018-18356: Use after free in Skia.
+    - CVE-2018-18357: Insufficient policy enforcement in URL Formatter.
+    - CVE-2018-18358: Insufficient policy enforcement in Proxy.
+    - CVE-2018-18359: Out of bounds read in V8.
+  * debian/patches/chromium_useragent.patch: refreshed
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/gn-bootstrap-remove-sysroot-options.patch: refreshed
+  * debian/patches/gn-no-last-commit-position.patch: refreshed
+  * debian/patches/no-new-ninja-flag.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: refreshed
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: refreshed
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/touch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-allow-enable.patch: removed, no longer needed
+  * debian/patches/widevine-other-locations: refreshed
+  * debian/patches/widevine-revision.patch: renamed to
+    debian/patches/widevine-enable-version-string.patch and updated
+  * debian/tests/html5test: update test expectations
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 04 Dec 2018 23:08:03 +0100
+
 chromium-browser (70.0.3538.110-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 70.0.3538.110
