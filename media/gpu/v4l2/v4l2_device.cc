@@ -953,6 +953,7 @@ uint32_t V4L2Device::VideoCodecProfileToV4L2PixFmt(VideoCodecProfile profile,
 // static
 VideoCodecProfile V4L2Device::V4L2VP9ProfileToVideoCodecProfile(
     uint32_t profile) {
+#if 0
   switch (profile) {
     case V4L2_MPEG_VIDEO_VP9_PROFILE_0:
       return VP9PROFILE_PROFILE0;
@@ -963,9 +964,13 @@ VideoCodecProfile V4L2Device::V4L2VP9ProfileToVideoCodecProfile(
     case V4L2_MPEG_VIDEO_VP9_PROFILE_3:
       return VP9PROFILE_PROFILE3;
     default:
+  {
+#endif
       VLOGF(2) << "Not a VP9 profile: " << profile;
       return VIDEO_CODEC_PROFILE_UNKNOWN;
+#if 0
   }
+#endif
 }
 
 // static
@@ -1001,7 +1006,6 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
     case V4L2_PIX_FMT_VP9: {
 #if 0
     case V4L2_PIX_FMT_VP9_FRAME: {
-#endif
       v4l2_queryctrl query_ctrl = {};
       query_ctrl.id = V4L2_CID_MPEG_VIDEO_VP9_PROFILE;
       if (Ioctl(VIDIOC_QUERYCTRL, &query_ctrl) == 0) {
@@ -1019,11 +1023,14 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
         }
         return profiles;
       } else {
+#endif
         // TODO(keiichiw): need a fallback here?
         VLOGF(2) << "V4L2_CID_MPEG_VIDEO_VP9_PROFILE is not supported.";
         min_profile = VP9PROFILE_PROFILE0;
         max_profile = VP9PROFILE_PROFILE0;
+#if 0
       }
+#endif
       break;
     }
 
