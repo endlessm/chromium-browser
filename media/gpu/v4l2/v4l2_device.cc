@@ -1299,6 +1299,7 @@ VideoCodecProfile V4L2Device::V4L2ProfileToVideoCodecProfile(VideoCodec codec,
           return VP8PROFILE_ANY;
       }
       break;
+#if 0
     case kCodecVP9:
       switch (profile) {
         case V4L2_MPEG_VIDEO_VP9_PROFILE_0:
@@ -1311,6 +1312,7 @@ VideoCodecProfile V4L2Device::V4L2ProfileToVideoCodecProfile(VideoCodec codec,
           return VP9PROFILE_PROFILE3;
       }
       break;
+#endif
     default:
       VLOGF(2) << "Unknown codec: " << codec;
   }
@@ -1332,9 +1334,11 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
       case kCodecVP8:
         query_id = V4L2_CID_MPEG_VIDEO_VP8_PROFILE;
         break;
+#if 0
       case kCodecVP9:
         query_id = V4L2_CID_MPEG_VIDEO_VP9_PROFILE;
         break;
+#endif
       default:
         return false;
     }
