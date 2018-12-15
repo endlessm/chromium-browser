@@ -214,7 +214,7 @@ public:
     // Skip spaces and tabs
     unsigned Position = Comment.find_first_not_of(" \t");
     if (Position >= Comment.size())
-      // we reached the end of the comment. Bail out.
+      // We reached the end of the comment. Bail out.
       return;
 
     Comment = Comment.drop_front(Position);
@@ -318,7 +318,6 @@ static void processViewOptions() {
       EnableAllViews.getPosition() < EnableAllStats.getPosition()
           ? EnableAllStats
           : EnableAllViews;
-  processOptionImpl(PrintSummaryView, Default);
   processOptionImpl(PrintRegisterFileStats, Default);
   processOptionImpl(PrintDispatchStats, Default);
   processOptionImpl(PrintSchedulerStats, Default);

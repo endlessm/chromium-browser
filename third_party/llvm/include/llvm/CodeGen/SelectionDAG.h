@@ -28,7 +28,7 @@
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Analysis/DivergenceAnalysis.h"
+#include "llvm/Analysis/LegacyDivergenceAnalysis.h"
 #include "llvm/CodeGen/DAGCombine.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
@@ -188,8 +188,8 @@ public:
     return DbgValues.empty() && ByvalParmDbgValues.empty() && DbgLabels.empty();
   }
 
-  ArrayRef<SDDbgValue*> getSDDbgValues(const SDNode *Node) {
-    DbgValMapType::iterator I = DbgValMap.find(Node);
+  ArrayRef<SDDbgValue*> getSDDbgValues(const SDNode *Node) const {
+    auto I = DbgValMap.find(Node);
     if (I != DbgValMap.end())
       return I->second;
     return ArrayRef<SDDbgValue*>();
@@ -229,7 +229,7 @@ class SelectionDAG {
   LLVMContext *Context;
   CodeGenOpt::Level OptLevel;
 
-  DivergenceAnalysis * DA = nullptr;
+  LegacyDivergenceAnalysis * DA = nullptr;
   FunctionLoweringInfo * FLI = nullptr;
 
   /// The function-level optimization remark emitter.  Used to emit remarks
@@ -382,7 +382,7 @@ public:
   /// Prepare this SelectionDAG to process code in the given MachineFunction.
   void init(MachineFunction &NewMF, OptimizationRemarkEmitter &NewORE,
             Pass *PassPtr, const TargetLibraryInfo *LibraryInfo,
-            DivergenceAnalysis * Divergence);
+            LegacyDivergenceAnalysis * Divergence);
 
   void setFunctionLoweringInfo(FunctionLoweringInfo * FuncInfo) {
     FLI = FuncInfo;
@@ -471,7 +471,9 @@ public:
     return Root;
   }
 
+#ifndef NDEBUG
   void VerifyDAGDiverence();
+#endif
 
   /// This iterates over the nodes in the SelectionDAG, folding
   /// certain types of nodes together, or eliminating superfluous nodes.  The
@@ -1351,7 +1353,7 @@ public:
   void AddDbgLabel(SDDbgLabel *DB);
 
   /// Get the debug values which reference the given SDNode.
-  ArrayRef<SDDbgValue*> GetDbgValues(const SDNode* SD) {
+  ArrayRef<SDDbgValue*> GetDbgValues(const SDNode* SD) const {
     return DbgInfo->getSDDbgValues(SD);
   }
 

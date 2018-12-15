@@ -289,7 +289,7 @@ public:
   /// Returns whether V is a source of divergence.
   ///
   /// This function provides the target-dependent information for
-  /// the target-independent DivergenceAnalysis. DivergenceAnalysis first
+  /// the target-independent LegacyDivergenceAnalysis. LegacyDivergenceAnalysis first
   /// builds the dependency graph, and then runs the reachability algorithm
   /// starting with the sources of divergence.
   bool isSourceOfDivergence(const Value *V) const;
@@ -738,6 +738,10 @@ public:
   /// perform for this target. This number depends on the level of parallelism
   /// and the number of execution units in the CPU.
   unsigned getMaxInterleaveFactor(unsigned VF) const;
+
+  /// Collect properties of V used in cost analyzis, e.g. OP_PowerOf2.
+  OperandValueKind getOperandInfo(Value *V,
+                                  OperandValueProperties &OpProps) const;
 
   /// This is an approximation of reciprocal throughput of a math/logic op.
   /// A higher cost indicates less expected throughput.

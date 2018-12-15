@@ -32,8 +32,6 @@ AMDGPULegalizerInfo::AMDGPULegalizerInfo(const GCNSubtarget &ST,
     return LLT::pointer(AS, TM.getPointerSizeInBits(AS));
   };
 
-  auto AMDGPUAS = ST.getAMDGPUAS();
-
   const LLT S1 = LLT::scalar(1);
   const LLT V2S16 = LLT::vector(2, 16);
 
@@ -44,8 +42,8 @@ AMDGPULegalizerInfo::AMDGPULegalizerInfo(const GCNSubtarget &ST,
   const LLT GlobalPtr = GetAddrSpacePtr(AMDGPUAS::GLOBAL_ADDRESS);
   const LLT ConstantPtr = GetAddrSpacePtr(AMDGPUAS::CONSTANT_ADDRESS);
   const LLT LocalPtr = GetAddrSpacePtr(AMDGPUAS::LOCAL_ADDRESS);
-  const LLT FlatPtr = GetAddrSpacePtr(AMDGPUAS.FLAT_ADDRESS);
-  const LLT PrivatePtr = GetAddrSpacePtr(AMDGPUAS.PRIVATE_ADDRESS);
+  const LLT FlatPtr = GetAddrSpacePtr(AMDGPUAS::FLAT_ADDRESS);
+  const LLT PrivatePtr = GetAddrSpacePtr(AMDGPUAS::PRIVATE_ADDRESS);
 
   const LLT AddrSpaces[] = {
     GlobalPtr,
@@ -119,6 +117,10 @@ AMDGPULegalizerInfo::AMDGPULegalizerInfo(const GCNSubtarget &ST,
   setAction({G_ICMP, S1}, Legal);
   setAction({G_ICMP, 1, S32}, Legal);
 
+  getActionDefinitionsBuilder(G_INTTOPTR)
+    .legalIf([](const LegalityQuery &Query) {
+      return true;
+    });
 
   getActionDefinitionsBuilder({G_LOAD, G_STORE})
     .legalIf([=, &ST](const LegalityQuery &Query) {

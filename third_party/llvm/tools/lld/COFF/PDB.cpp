@@ -16,6 +16,7 @@
 #include "Writer.h"
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/Timer.h"
+#include "llvm/DebugInfo/CodeView/DebugFrameDataSubsection.h"
 #include "llvm/DebugInfo/CodeView/DebugSubsectionRecord.h"
 #include "llvm/DebugInfo/CodeView/GlobalTypeTableBuilder.h"
 #include "llvm/DebugInfo/CodeView/LazyRandomTypeCollection.h"
@@ -81,7 +82,11 @@ struct CVIndexMap {
   bool IsTypeServerMap = false;
 };
 
+class DebugSHandler;
+
 class PDBLinker {
+  friend DebugSHandler;
+
 public:
   PDBLinker(SymbolTable *Symtab)
       : Alloc(), Symtab(Symtab), Builder(Alloc), TypeTable(Alloc),
@@ -93,7 +98,7 @@ public:
   }
 
   /// Emit the basic PDB structure: initial streams, headers, etc.
-  void initialize(const llvm::codeview::DebugInfo &BuildId);
+  void initialize(llvm::codeview::DebugInfo *BuildId);
 
   /// Add natvis files specified on the command line.
   void addNatvisFiles();
@@ -125,8 +130,8 @@ public:
   void addSections(ArrayRef<OutputSection *> OutputSections,
                    ArrayRef<uint8_t> SectionTable);
 
-  /// Write the PDB to disk.
-  void commit();
+  /// Write the PDB to disk and store the Guid generated for it in *Guid.
+  void commit(codeview::GUID *Guid);
 
 private:
   BumpPtrAllocator Alloc;
@@ -165,8 +170,79 @@ private:
 
   /// List of TypeServer PDBs which cannot be loaded.
   /// Cached to prevent repeated load attempts.
-  std::set<GUID> MissingTypeServerPDBs;
+  std::map<GUID, std::string> MissingTypeServerPDBs;
 };
+
+class DebugSHandler {
+  PDBLinker &Linker;
+
+  /// The object file whose .debug$S sections we're processing.
+  ObjFile &File;
+
+  /// The result of merging type indices.
+  const CVIndexMap &IndexMap;
+
+  /// The DEBUG_S_STRINGTABLE subsection.  These strings are referred to by
+  /// index from other records in the .debug$S section.  All of these strings
+  /// need to be added to the global PDB string table, and all references to
+  /// these strings need to have their indices re-written to refer to the
+  /// global PDB string table.
+  DebugStringTableSubsectionRef CVStrTab;
+
+  /// The DEBUG_S_FILECHKSMS subsection.  As above, these are referred to
+  /// by other records in the .debug$S section and need to be merged into the
+  /// PDB.
+  DebugChecksumsSubsectionRef Checksums;
+
+  /// The DEBUG_S_FRAMEDATA subsection(s).  There can be more than one of
+  /// these and they need not appear in any specific order.  However, they
+  /// contain string table references which need to be re-written, so we
+  /// collect them all here and re-write them after all subsections have been
+  /// discovered and processed.
+  std::vector<DebugFrameDataSubsectionRef> NewFpoFrames;
+
+  /// Pointers to raw memory that we determine have string table references
+  /// that need to be re-written.  We first process all .debug$S subsections
+  /// to ensure that we can handle subsections written in any order, building
+  /// up this list as we go.  At the end, we use the string table (which must
+  /// have been discovered by now else it is an error) to re-write these
+  /// references.
+  std::vector<ulittle32_t *> StringTableReferences;
+
+public:
+  DebugSHandler(PDBLinker &Linker, ObjFile &File, const CVIndexMap &IndexMap)
+      : Linker(Linker), File(File), IndexMap(IndexMap) {}
+
+  void handleDebugS(lld::coff::SectionChunk &DebugS);
+  void finish();
+};
+}
+
+// Visual Studio's debugger requires absolute paths in various places in the
+// PDB to work without additional configuration:
+// https://docs.microsoft.com/en-us/visualstudio/debugger/debug-source-files-common-properties-solution-property-pages-dialog-box
+static void pdbMakeAbsolute(SmallVectorImpl<char> &FileName) {
+  if (sys::path::is_absolute(FileName, sys::path::Style::windows))
+    return;
+  if (Config->PDBSourcePath.empty()) {
+    // Debuggers generally want that PDB files contain absolute, Windows-style
+    // paths. On POSIX hosts, this here will produce an absolute POSIX-style
+    // path, which is weird -- but it's not clear what else to do.
+    // People doing cross builds should probably just always pass
+    // /pbdsourcepath: and make sure paths to input obj files and to lld-link
+    // itself are relative.
+    sys::fs::make_absolute(FileName);
+    return;
+  }
+  // Using /pdbsourcepath: with absolute POSIX paths will prepend
+  // PDBSourcePath to the absolute POSIX path. Since absolute POSIX paths
+  // don't make sense in PDB files anyways, this is gargabe-in-garbage-out.
+  SmallString<128> AbsoluteFileName = Config->PDBSourcePath;
+  sys::path::append(AbsoluteFileName, sys::path::Style::windows, FileName);
+  sys::path::native(AbsoluteFileName, sys::path::Style::windows);
+  sys::path::remove_dots(AbsoluteFileName, /*remove_dot_dots=*/true,
+                         sys::path::Style::windows);
+  FileName = std::move(AbsoluteFileName);
 }
 
 static SectionChunk *findByName(ArrayRef<SectionChunk *> Sections,
@@ -302,6 +378,12 @@ Expected<const CVIndexMap&> PDBLinker::mergeDebugT(ObjFile *File,
 
 static Expected<std::unique_ptr<pdb::NativeSession>>
 tryToLoadPDB(const GUID &GuidFromObj, StringRef TSPath) {
+  // Ensure the file exists before anything else. We want to return ENOENT,
+  // "file not found", even if the path points to a removable device (in which
+  // case the return message would be EAGAIN, "resource unavailable try again")
+  if (!llvm::sys::fs::exists(TSPath))
+    return errorCodeToError(std::error_code(ENOENT, std::generic_category()));
+
   ErrorOr<std::unique_ptr<MemoryBuffer>> MBOrErr = MemoryBuffer::getFile(
       TSPath, /*FileSize=*/-1, /*RequiresNullTerminator=*/false);
   if (!MBOrErr)
@@ -326,21 +408,22 @@ tryToLoadPDB(const GUID &GuidFromObj, StringRef TSPath) {
   // PDB file doesn't mean it matches.  For it to match the InfoStream's GUID
   // must match the GUID specified in the TypeServer2 record.
   if (ExpectedInfo->getGuid() != GuidFromObj)
-    return make_error<pdb::GenericError>(
-        pdb::generic_error_code::type_server_not_found, TSPath);
+    return make_error<pdb::PDBError>(pdb::pdb_error_code::signature_out_of_date);
 
   return std::move(NS);
 }
 
-Expected<const CVIndexMap&> PDBLinker::maybeMergeTypeServerPDB(ObjFile *File,
-                                                               TypeServer2Record &TS) {
-  const GUID& TSId = TS.getGuid();
+Expected<const CVIndexMap &>
+PDBLinker::maybeMergeTypeServerPDB(ObjFile *File, TypeServer2Record &TS) {
+  const GUID &TSId = TS.getGuid();
   StringRef TSPath = TS.getName();
 
   // First, check if the PDB has previously failed to load.
-  if (MissingTypeServerPDBs.count(TSId))
-    return make_error<pdb::GenericError>(
-      pdb::generic_error_code::type_server_not_found, TSPath);
+  auto PrevErr = MissingTypeServerPDBs.find(TSId);
+  if (PrevErr != MissingTypeServerPDBs.end())
+    return createFileError(
+        TSPath,
+        make_error<StringError>(PrevErr->second, inconvertibleErrorCode()));
 
   // Second, check if we already loaded a PDB with this GUID. Return the type
   // index mapping if we have it.
@@ -355,20 +438,37 @@ Expected<const CVIndexMap&> PDBLinker::maybeMergeTypeServerPDB(ObjFile *File,
   // Check for a PDB at:
   // 1. The given file path
   // 2. Next to the object file or archive file
-  auto ExpectedSession = tryToLoadPDB(TSId, TSPath);
-  if (!ExpectedSession) {
-    consumeError(ExpectedSession.takeError());
-    StringRef LocalPath =
-        !File->ParentName.empty() ? File->ParentName : File->getName();
-    SmallString<128> Path = sys::path::parent_path(LocalPath);
-    sys::path::append(
-        Path, sys::path::filename(TSPath, sys::path::Style::windows));
-    ExpectedSession = tryToLoadPDB(TSId, Path);
-  }
+  auto ExpectedSession = handleExpected(
+      tryToLoadPDB(TSId, TSPath),
+      [&]() {
+        StringRef LocalPath =
+            !File->ParentName.empty() ? File->ParentName : File->getName();
+        SmallString<128> Path = sys::path::parent_path(LocalPath);
+        sys::path::append(
+            Path, sys::path::filename(TSPath, sys::path::Style::windows));
+        return tryToLoadPDB(TSId, Path);
+      },
+      [&](std::unique_ptr<ECError> EC) -> Error {
+        auto SysErr = EC->convertToErrorCode();
+        // Only re-try loading if the previous error was "No such file or
+        // directory"
+        if (SysErr.category() == std::generic_category() &&
+            SysErr.value() == ENOENT)
+          return Error::success();
+        return Error(std::move(EC));
+      });
+
   if (auto E = ExpectedSession.takeError()) {
     TypeServerIndexMappings.erase(TSId);
-    MissingTypeServerPDBs.emplace(TSId);
-    return std::move(E);
+
+    // Flatten the error to a string, for later display, if the error occurs
+    // again on the same PDB.
+    std::string ErrMsg;
+    raw_string_ostream S(ErrMsg);
+    S << E;
+    MissingTypeServerPDBs.emplace(TSId, S.str());
+
+    return createFileError(TSPath, std::move(E));
   }
 
   pdb::NativeSession *Session = ExpectedSession->get();
@@ -766,15 +866,15 @@ static void mergeSymbolRecords(BumpPtrAllocator &Alloc, ObjFile *File,
   cantFail(std::move(EC));
 }
 
-// Allocate memory for a .debug$S section and relocate it.
+// Allocate memory for a .debug$S / .debug$F section and relocate it.
 static ArrayRef<uint8_t> relocateDebugChunk(BumpPtrAllocator &Alloc,
-                                            SectionChunk *DebugChunk) {
-  uint8_t *Buffer = Alloc.Allocate<uint8_t>(DebugChunk->getSize());
-  assert(DebugChunk->OutputSectionOff == 0 &&
+                                            SectionChunk &DebugChunk) {
+  uint8_t *Buffer = Alloc.Allocate<uint8_t>(DebugChunk.getSize());
+  assert(DebugChunk.OutputSectionOff == 0 &&
          "debug sections should not be in output sections");
-  DebugChunk->writeTo(Buffer);
-  return consumeDebugMagic(makeArrayRef(Buffer, DebugChunk->getSize()),
-                           ".debug$S");
+  DebugChunk.readRelocTargets();
+  DebugChunk.writeTo(Buffer);
+  return makeArrayRef(Buffer, DebugChunk.getSize());
 }
 
 static pdb::SectionContrib createSectionContrib(const Chunk *C, uint32_t Modi) {
@@ -803,101 +903,76 @@ static pdb::SectionContrib createSectionContrib(const Chunk *C, uint32_t Modi) {
   return SC;
 }
 
-void PDBLinker::addObjFile(ObjFile *File) {
-  // Add a module descriptor for every object file. We need to put an absolute
-  // path to the object into the PDB. If this is a plain object, we make its
-  // path absolute. If it's an object in an archive, we make the archive path
-  // absolute.
-  bool InArchive = !File->ParentName.empty();
-  SmallString<128> Path = InArchive ? File->ParentName : File->getName();
-  sys::fs::make_absolute(Path);
-  sys::path::native(Path, sys::path::Style::windows);
-  StringRef Name = InArchive ? File->getName() : StringRef(Path);
-
-  File->ModuleDBI = &ExitOnErr(Builder.getDbiBuilder().addModuleInfo(Name));
-  File->ModuleDBI->setObjFileName(Path);
-
-  auto Chunks = File->getChunks();
-  uint32_t Modi = File->ModuleDBI->getModuleIndex();
-  for (Chunk *C : Chunks) {
-    auto *SecChunk = dyn_cast<SectionChunk>(C);
-    if (!SecChunk || !SecChunk->isLive())
-      continue;
-    pdb::SectionContrib SC = createSectionContrib(SecChunk, Modi);
-    File->ModuleDBI->setFirstSectionContrib(SC);
-    break;
+static uint32_t
+translateStringTableIndex(uint32_t ObjIndex,
+                          const DebugStringTableSubsectionRef &ObjStrTable,
+                          DebugStringTableSubsection &PdbStrTable) {
+  auto ExpectedString = ObjStrTable.getString(ObjIndex);
+  if (!ExpectedString) {
+    warn("Invalid string table reference");
+    consumeError(ExpectedString.takeError());
+    return 0;
   }
 
-  // Before we can process symbol substreams from .debug$S, we need to process
-  // type information, file checksums, and the string table.  Add type info to
-  // the PDB first, so that we can get the map from object file type and item
-  // indices to PDB type and item indices.
-  CVIndexMap ObjectIndexMap;
-  auto IndexMapResult = mergeDebugT(File, ObjectIndexMap);
+  return PdbStrTable.insert(*ExpectedString);
+}
 
-  // If the .debug$T sections fail to merge, assume there is no debug info.
-  if (!IndexMapResult) {
-    warn("Type server PDB for " + Name + " is invalid, ignoring debug info. " +
-         toString(IndexMapResult.takeError()));
-    return;
-  }
+void DebugSHandler::handleDebugS(lld::coff::SectionChunk &DebugS) {
+  DebugSubsectionArray Subsections;
 
-  const CVIndexMap &IndexMap = *IndexMapResult;
+  ArrayRef<uint8_t> RelocatedDebugContents = consumeDebugMagic(
+      relocateDebugChunk(Linker.Alloc, DebugS), DebugS.getSectionName());
 
-  ScopedTimer T(SymbolMergingTimer);
+  BinaryStreamReader Reader(RelocatedDebugContents, support::little);
+  ExitOnErr(Reader.readArray(Subsections, RelocatedDebugContents.size()));
 
-  // Now do all live .debug$S sections.
-  DebugStringTableSubsectionRef CVStrTab;
-  DebugChecksumsSubsectionRef Checksums;
-  std::vector<ulittle32_t *> StringTableReferences;
-  for (SectionChunk *DebugChunk : File->getDebugChunks()) {
-    if (!DebugChunk->isLive() || DebugChunk->getSectionName() != ".debug$S")
-      continue;
-
-    ArrayRef<uint8_t> RelocatedDebugContents =
-        relocateDebugChunk(Alloc, DebugChunk);
-    if (RelocatedDebugContents.empty())
-      continue;
-
-    DebugSubsectionArray Subsections;
-    BinaryStreamReader Reader(RelocatedDebugContents, support::little);
-    ExitOnErr(Reader.readArray(Subsections, RelocatedDebugContents.size()));
-
-    for (const DebugSubsectionRecord &SS : Subsections) {
-      switch (SS.kind()) {
-      case DebugSubsectionKind::StringTable: {
-        assert(!CVStrTab.valid() &&
-               "Encountered multiple string table subsections!");
-        ExitOnErr(CVStrTab.initialize(SS.getRecordData()));
-        break;
+  for (const DebugSubsectionRecord &SS : Subsections) {
+    switch (SS.kind()) {
+    case DebugSubsectionKind::StringTable: {
+      assert(!CVStrTab.valid() &&
+             "Encountered multiple string table subsections!");
+      ExitOnErr(CVStrTab.initialize(SS.getRecordData()));
+      break;
+    }
+    case DebugSubsectionKind::FileChecksums:
+      assert(!Checksums.valid() &&
+             "Encountered multiple checksum subsections!");
+      ExitOnErr(Checksums.initialize(SS.getRecordData()));
+      break;
+    case DebugSubsectionKind::Lines:
+      // We can add the relocated line table directly to the PDB without
+      // modification because the file checksum offsets will stay the same.
+      File.ModuleDBI->addDebugSubsection(SS);
+      break;
+    case DebugSubsectionKind::FrameData: {
+      // We need to re-write string table indices here, so save off all
+      // frame data subsections until we've processed the entire list of
+      // subsections so that we can be sure we have the string table.
+      DebugFrameDataSubsectionRef FDS;
+      ExitOnErr(FDS.initialize(SS.getRecordData()));
+      NewFpoFrames.push_back(std::move(FDS));
+      break;
+    }
+    case DebugSubsectionKind::Symbols:
+      if (Config->DebugGHashes) {
+        mergeSymbolRecords(Linker.Alloc, &File, Linker.Builder.getGsiBuilder(),
+                           IndexMap, Linker.GlobalIDTable,
+                           StringTableReferences, SS.getRecordData());
+      } else {
+        mergeSymbolRecords(Linker.Alloc, &File, Linker.Builder.getGsiBuilder(),
+                           IndexMap, Linker.IDTable, StringTableReferences,
+                           SS.getRecordData());
       }
-      case DebugSubsectionKind::FileChecksums:
-        assert(!Checksums.valid() &&
-               "Encountered multiple checksum subsections!");
-        ExitOnErr(Checksums.initialize(SS.getRecordData()));
-        break;
-      case DebugSubsectionKind::Lines:
-        // We can add the relocated line table directly to the PDB without
-        // modification because the file checksum offsets will stay the same.
-        File->ModuleDBI->addDebugSubsection(SS);
-        break;
-      case DebugSubsectionKind::Symbols:
-        if (Config->DebugGHashes) {
-          mergeSymbolRecords(Alloc, File, Builder.getGsiBuilder(), IndexMap,
-                             GlobalIDTable, StringTableReferences,
-                             SS.getRecordData());
-        } else {
-          mergeSymbolRecords(Alloc, File, Builder.getGsiBuilder(), IndexMap,
-                             IDTable, StringTableReferences,
-                             SS.getRecordData());
-        }
-        break;
-      default:
-        // FIXME: Process the rest of the subsections.
-        break;
-      }
+      break;
+    default:
+      // FIXME: Process the rest of the subsections.
+      break;
     }
   }
+}
+
+void DebugSHandler::finish() {
+  pdb::DbiStreamBuilder &DbiBuilder = Linker.Builder.getDbiBuilder();
 
   // We should have seen all debug subsections across the entire object file now
   // which means that if a StringTable subsection and Checksums subsection were
@@ -913,39 +988,111 @@ void PDBLinker::addObjFile(ObjFile *File) {
     return;
   }
 
-  // Rewrite each string table reference based on the value that the string
-  // assumes in the final PDB.
-  for (ulittle32_t *Ref : StringTableReferences) {
-    auto ExpectedString = CVStrTab.getString(*Ref);
-    if (!ExpectedString) {
-      warn("Invalid string table reference");
-      consumeError(ExpectedString.takeError());
-      continue;
+  // Rewrite string table indices in the Fpo Data and symbol records to refer to
+  // the global PDB string table instead of the object file string table.
+  for (DebugFrameDataSubsectionRef &FDS : NewFpoFrames) {
+    const uint32_t *Reloc = FDS.getRelocPtr();
+    for (codeview::FrameData FD : FDS) {
+      FD.RvaStart += *Reloc;
+      FD.FrameFunc =
+          translateStringTableIndex(FD.FrameFunc, CVStrTab, Linker.PDBStrTab);
+      DbiBuilder.addNewFpoData(FD);
     }
-
-    *Ref = PDBStrTab.insert(*ExpectedString);
   }
+
+  for (ulittle32_t *Ref : StringTableReferences)
+    *Ref = translateStringTableIndex(*Ref, CVStrTab, Linker.PDBStrTab);
 
   // Make a new file checksum table that refers to offsets in the PDB-wide
   // string table. Generally the string table subsection appears after the
   // checksum table, so we have to do this after looping over all the
   // subsections.
-  auto NewChecksums = make_unique<DebugChecksumsSubsection>(PDBStrTab);
+  auto NewChecksums = make_unique<DebugChecksumsSubsection>(Linker.PDBStrTab);
   for (FileChecksumEntry &FC : Checksums) {
-    SmallString<128> FileName = ExitOnErr(CVStrTab.getString(FC.FileNameOffset));
-    if (!sys::path::is_absolute(FileName) &&
-        !Config->PDBSourcePath.empty()) {
-      SmallString<128> AbsoluteFileName = Config->PDBSourcePath;
-      sys::path::append(AbsoluteFileName, FileName);
-      sys::path::native(AbsoluteFileName);
-      sys::path::remove_dots(AbsoluteFileName, /*remove_dot_dots=*/true);
-      FileName = std::move(AbsoluteFileName);
-    }
-    ExitOnErr(Builder.getDbiBuilder().addModuleSourceFile(*File->ModuleDBI,
-                                                          FileName));
+    SmallString<128> FileName =
+        ExitOnErr(CVStrTab.getString(FC.FileNameOffset));
+    pdbMakeAbsolute(FileName);
+    ExitOnErr(Linker.Builder.getDbiBuilder().addModuleSourceFile(
+        *File.ModuleDBI, FileName));
     NewChecksums->addChecksum(FileName, FC.Kind, FC.Checksum);
   }
-  File->ModuleDBI->addDebugSubsection(std::move(NewChecksums));
+  File.ModuleDBI->addDebugSubsection(std::move(NewChecksums));
+}
+
+void PDBLinker::addObjFile(ObjFile *File) {
+  // Add a module descriptor for every object file. We need to put an absolute
+  // path to the object into the PDB. If this is a plain object, we make its
+  // path absolute. If it's an object in an archive, we make the archive path
+  // absolute.
+  bool InArchive = !File->ParentName.empty();
+  SmallString<128> Path = InArchive ? File->ParentName : File->getName();
+  pdbMakeAbsolute(Path);
+  sys::path::native(Path, sys::path::Style::windows);
+  StringRef Name = InArchive ? File->getName() : StringRef(Path);
+
+  pdb::DbiStreamBuilder &DbiBuilder = Builder.getDbiBuilder();
+  File->ModuleDBI = &ExitOnErr(DbiBuilder.addModuleInfo(Name));
+  File->ModuleDBI->setObjFileName(Path);
+
+  auto Chunks = File->getChunks();
+  uint32_t Modi = File->ModuleDBI->getModuleIndex();
+  for (Chunk *C : Chunks) {
+    auto *SecChunk = dyn_cast<SectionChunk>(C);
+    if (!SecChunk || !SecChunk->Live)
+      continue;
+    pdb::SectionContrib SC = createSectionContrib(SecChunk, Modi);
+    File->ModuleDBI->setFirstSectionContrib(SC);
+    break;
+  }
+
+  // Before we can process symbol substreams from .debug$S, we need to process
+  // type information, file checksums, and the string table.  Add type info to
+  // the PDB first, so that we can get the map from object file type and item
+  // indices to PDB type and item indices.
+  CVIndexMap ObjectIndexMap;
+  auto IndexMapResult = mergeDebugT(File, ObjectIndexMap);
+
+  // If the .debug$T sections fail to merge, assume there is no debug info.
+  if (!IndexMapResult) {
+    auto FileName = sys::path::filename(Path);
+    warn("Cannot use debug info for '" + FileName + "'\n" +
+         ">>> failed to load reference " +
+         StringRef(toString(IndexMapResult.takeError())));
+    return;
+  }
+
+  ScopedTimer T(SymbolMergingTimer);
+
+  DebugSHandler DSH(*this, *File, *IndexMapResult);
+  // Now do all live .debug$S and .debug$F sections.
+  for (SectionChunk *DebugChunk : File->getDebugChunks()) {
+    if (!DebugChunk->Live || DebugChunk->getSize() == 0)
+      continue;
+
+    if (DebugChunk->getSectionName() == ".debug$S") {
+      DSH.handleDebugS(*DebugChunk);
+      continue;
+    }
+
+    if (DebugChunk->getSectionName() == ".debug$F") {
+      ArrayRef<uint8_t> RelocatedDebugContents =
+          relocateDebugChunk(Alloc, *DebugChunk);
+
+      FixedStreamArray<object::FpoData> FpoRecords;
+      BinaryStreamReader Reader(RelocatedDebugContents, support::little);
+      uint32_t Count = RelocatedDebugContents.size() / sizeof(object::FpoData);
+      ExitOnErr(Reader.readArray(FpoRecords, Count));
+
+      // These are already relocated and don't refer to the string table, so we
+      // can just copy it.
+      for (const object::FpoData &FD : FpoRecords)
+        DbiBuilder.addOldFpoData(FD);
+      continue;
+    }
+  }
+
+  // Do any post-processing now that all .debug$S sections have been processed.
+  DSH.finish();
 }
 
 static PublicSym32 createPublic(Defined *Def) {
@@ -1075,11 +1222,14 @@ static void addCommonLinkerModuleSymbols(StringRef Path,
   std::string ArgStr = llvm::join(Args, " ");
   EBS.Fields.push_back("cwd");
   SmallString<64> cwd;
-  sys::fs::current_path(cwd);
+  if (Config->PDBSourcePath.empty()) 
+    sys::fs::current_path(cwd);
+  else
+    cwd = Config->PDBSourcePath;
   EBS.Fields.push_back(cwd);
   EBS.Fields.push_back("exe");
   SmallString<64> exe = Config->Argv[0];
-  llvm::sys::fs::make_absolute(exe);
+  pdbMakeAbsolute(exe);
   EBS.Fields.push_back(exe);
   EBS.Fields.push_back("pdb");
   EBS.Fields.push_back(Path);
@@ -1111,7 +1261,7 @@ static void addLinkerModuleSectionSymbol(pdb::DbiModuleDescriptorBuilder &Mod,
 void coff::createPDB(SymbolTable *Symtab,
                      ArrayRef<OutputSection *> OutputSections,
                      ArrayRef<uint8_t> SectionTable,
-                     const llvm::codeview::DebugInfo &BuildId) {
+                     llvm::codeview::DebugInfo *BuildId) {
   ScopedTimer T1(TotalPdbLinkTimer);
   PDBLinker PDB(Symtab);
 
@@ -1121,11 +1271,18 @@ void coff::createPDB(SymbolTable *Symtab,
   PDB.addNatvisFiles();
 
   ScopedTimer T2(DiskCommitTimer);
-  PDB.commit();
+  codeview::GUID Guid;
+  PDB.commit(&Guid);
+  memcpy(&BuildId->PDB70.Signature, &Guid, 16);
 }
 
-void PDBLinker::initialize(const llvm::codeview::DebugInfo &BuildId) {
+void PDBLinker::initialize(llvm::codeview::DebugInfo *BuildId) {
   ExitOnErr(Builder.initialize(4096)); // 4096 is blocksize
+
+  BuildId->Signature.CVSignature = OMF::Signature::PDB70;
+  // Signature is set to a hash of the PDB contents when the PDB is done.
+  memset(BuildId->PDB70.Signature, 0, 16);
+  BuildId->PDB70.Age = 1;
 
   // Create streams in MSF for predefined streams, namely
   // PDB, TPI, DBI and IPI.
@@ -1134,15 +1291,12 @@ void PDBLinker::initialize(const llvm::codeview::DebugInfo &BuildId) {
 
   // Add an Info stream.
   auto &InfoBuilder = Builder.getInfoBuilder();
-  GUID uuid;
-  memcpy(&uuid, &BuildId.PDB70.Signature, sizeof(uuid));
-  InfoBuilder.setAge(BuildId.PDB70.Age);
-  InfoBuilder.setGuid(uuid);
   InfoBuilder.setVersion(pdb::PdbRaw_ImplVer::PdbImplVC70);
+  InfoBuilder.setHashPDBContentsToGUID(true);
 
   // Add an empty DBI stream.
   pdb::DbiStreamBuilder &DbiBuilder = Builder.getDbiBuilder();
-  DbiBuilder.setAge(BuildId.PDB70.Age);
+  DbiBuilder.setAge(BuildId->PDB70.Age);
   DbiBuilder.setVersionHeader(pdb::PdbDbiV70);
   DbiBuilder.setMachineType(Config->Machine);
   // Technically we are not link.exe 14.11, but there are known cases where
@@ -1157,7 +1311,7 @@ void PDBLinker::addSections(ArrayRef<OutputSection *> OutputSections,
   // It's not entirely clear what this is, but the * Linker * module uses it.
   pdb::DbiStreamBuilder &DbiBuilder = Builder.getDbiBuilder();
   NativePath = Config->PDBPath;
-  sys::fs::make_absolute(NativePath);
+  pdbMakeAbsolute(NativePath);
   sys::path::native(NativePath, sys::path::Style::windows);
   uint32_t PdbFilePathNI = DbiBuilder.addECName(NativePath);
   auto &LinkerModule = ExitOnErr(DbiBuilder.addModuleInfo("* Linker *"));
@@ -1167,7 +1321,7 @@ void PDBLinker::addSections(ArrayRef<OutputSection *> OutputSections,
   // Add section contributions. They must be ordered by ascending RVA.
   for (OutputSection *OS : OutputSections) {
     addLinkerModuleSectionSymbol(LinkerModule, *OS, Alloc);
-    for (Chunk *C : OS->getChunks()) {
+    for (Chunk *C : OS->Chunks) {
       pdb::SectionContrib SC =
           createSectionContrib(C, LinkerModule.getModuleIndex());
       Builder.getDbiBuilder().addSectionContrib(SC);
@@ -1186,9 +1340,9 @@ void PDBLinker::addSections(ArrayRef<OutputSection *> OutputSections,
       DbiBuilder.addDbgStream(pdb::DbgHeaderType::SectionHdr, SectionTable));
 }
 
-void PDBLinker::commit() {
+void PDBLinker::commit(codeview::GUID *Guid) {
   // Write to a file.
-  ExitOnErr(Builder.commit(Config->PDBPath));
+  ExitOnErr(Builder.commit(Config->PDBPath, Guid));
 }
 
 static Expected<StringRef>

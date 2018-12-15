@@ -156,7 +156,7 @@ static list<std::string> Name(
     value_desc("pattern"), cat(DwarfDumpCategory));
 static alias NameAlias("n", desc("Alias for -name"), aliasopt(Name));
 static opt<unsigned long long> Lookup("lookup",
-           desc("Lookup <address> in the debug information and print out any"
+           desc("Lookup <address> in the debug information and print out any "
                 "available file, function, block and line table details."),
            value_desc("address"), cat(DwarfDumpCategory));
 static opt<std::string>
@@ -358,7 +358,7 @@ static void filterByAccelName(ArrayRef<std::string> Names, DWARFContext &DICtx,
     getDies(DICtx, DICtx.getAppleNamespaces(), Name, Dies);
     getDies(DICtx, DICtx.getDebugNames(), Name, Dies);
   }
-  llvm::sort(Dies.begin(), Dies.end());
+  llvm::sort(Dies);
   Dies.erase(std::unique(Dies.begin(), Dies.end()), Dies.end());
 
   for (DWARFDie Die : Dies)

@@ -41,16 +41,21 @@ typedef u8 tag_t;
 const unsigned kAddressTagShift = 56;
 const uptr kAddressTagMask = 0xFFUL << kAddressTagShift;
 
+// Minimal alignment of the shadow base address. Determines the space available
+// for threads and stack histories. This is an ABI constant.
+const unsigned kShadowBaseAlignment = 32;
+
 static inline tag_t GetTagFromPointer(uptr p) {
   return p >> kAddressTagShift;
 }
 
-static inline uptr GetAddressFromPointer(uptr p) {
-  return p & ~kAddressTagMask;
+static inline uptr UntagAddr(uptr tagged_addr) {
+  return tagged_addr & ~kAddressTagMask;
 }
 
-static inline void * GetAddressFromPointer(const void *p) {
-  return (void *)((uptr)p & ~kAddressTagMask);
+static inline void *UntagPtr(const void *tagged_ptr) {
+  return reinterpret_cast<void *>(
+      UntagAddr(reinterpret_cast<uptr>(tagged_ptr)));
 }
 
 static inline uptr AddTagToPointer(uptr p, tag_t tag) {
@@ -65,6 +70,7 @@ extern int hwasan_report_count;
 
 bool ProtectRange(uptr beg, uptr end);
 bool InitShadow();
+void InitThreads();
 void MadviseShadow();
 char *GetProcSelfMaps();
 void InitializeInterceptors();
@@ -141,8 +147,11 @@ class ScopedThreadLocalStateBackup {
 };
 
 void HwasanTSDInit();
+void HwasanTSDThreadInit();
 
 void HwasanOnDeadlySignal(int signo, void *info, void *context);
+
+void UpdateMemoryUsage();
 
 }  // namespace __hwasan
 

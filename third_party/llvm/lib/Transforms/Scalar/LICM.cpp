@@ -38,6 +38,7 @@
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/GlobalsModRef.h"
+#include "llvm/Analysis/GuardUtils.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPass.h"
@@ -416,7 +417,8 @@ bool llvm::sinkRegion(DomTreeNode *N, AliasAnalysis *AA, LoopInfo *LI,
       //
       bool FreeInLoop = false;
       if (isNotUsedOrFreeInLoop(I, CurLoop, SafetyInfo, TTI, FreeInLoop) &&
-          canSinkOrHoistInst(I, AA, DT, CurLoop, CurAST, true, ORE)) {
+          canSinkOrHoistInst(I, AA, DT, CurLoop, CurAST, true, ORE) &&
+          !I.mayHaveSideEffects()) {
         if (sink(I, LI, DT, CurLoop, SafetyInfo, ORE, FreeInLoop)) {
           if (!FreeInLoop) {
             ++II;
@@ -527,7 +529,7 @@ bool llvm::hoistRegion(DomTreeNode *N, AliasAnalysis *AA, LoopInfo *LI,
       using namespace PatternMatch;
       if (((I.use_empty() &&
             match(&I, m_Intrinsic<Intrinsic::invariant_start>())) ||
-           match(&I, m_Intrinsic<Intrinsic::experimental_guard>())) &&
+           isGuard(&I)) &&
           IsMustExecute && IsMemoryNotModified &&
           CurLoop->hasLoopInvariantOperands(&I)) {
         hoist(I, DT, CurLoop, SafetyInfo, ORE);
@@ -604,8 +606,8 @@ namespace {
 /// concerns such as aliasing or speculation safety.  
 bool isHoistableAndSinkableInst(Instruction &I) {
   // Only these instructions are hoistable/sinkable.
-  return (isa<LoadInst>(I) || isa<CallInst>(I) ||
-          isa<FenceInst>(I) ||
+  return (isa<LoadInst>(I) || isa<StoreInst>(I) ||
+          isa<CallInst>(I) || isa<FenceInst>(I) || 
           isa<BinaryOperator>(I) || isa<CastInst>(I) ||
           isa<SelectInst>(I) || isa<GetElementPtrInst>(I) ||
           isa<CmpInst>(I) || isa<InsertElementInst>(I) ||
@@ -651,16 +653,8 @@ bool llvm::canSinkOrHoistInst(Instruction &I, AAResults *AA, DominatorTree *DT,
     if (isLoadInvariantInLoop(LI, DT, CurLoop))
       return true;
 
-    // Don't hoist loads which have may-aliased stores in loop.
-    uint64_t Size = 0;
-    if (LI->getType()->isSized())
-      Size = I.getModule()->getDataLayout().getTypeStoreSize(LI->getType());
-
-    AAMDNodes AAInfo;
-    LI->getAAMetadata(AAInfo);
-
-    bool Invalidated = pointerInvalidatedByLoop(
-        MemoryLocation(LI->getOperand(0), Size, AAInfo), CurAST, CurLoop, AA);
+    bool Invalidated = pointerInvalidatedByLoop(MemoryLocation::get(LI),
+                                                CurAST, CurLoop, AA);
     // Check loop-invariant address because this may also be a sinkable load
     // whose address is not necessarily loop-invariant.
     if (ORE && Invalidated && CurLoop->isLoopInvariant(LI->getPointerOperand()))
@@ -695,6 +689,7 @@ bool llvm::canSinkOrHoistInst(Instruction &I, AAResults *AA, DominatorTree *DT,
       // it's arguments with arbitrary offsets.  If we can prove there are no
       // writes to this memory in the loop, we can hoist or sink.
       if (AliasAnalysis::onlyAccessesArgPointees(Behavior)) {
+        // TODO: expand to writeable arguments
         for (Value *Op : CI->arg_operands())
           if (Op->getType()->isPointerTy() &&
               pointerInvalidatedByLoop(
@@ -728,6 +723,26 @@ bool llvm::canSinkOrHoistInst(Instruction &I, AAResults *AA, DominatorTree *DT,
       return false;
     (void)FI; //suppress unused variable warning
     assert(UniqueI == FI && "AS must contain FI");
+    return true;
+  } else if (auto *SI = dyn_cast<StoreInst>(&I)) {
+    if (!SI->isUnordered())
+      return false; // Don't sink/hoist volatile or ordered atomic store!
+
+    // We can only hoist a store that we can prove writes a value which is not
+    // read or overwritten within the loop.  For those cases, we fallback to
+    // load store promotion instead.  TODO: We can extend this to cases where
+    // there is exactly one write to the location and that write dominates an
+    // arbitrary number of reads in the loop.
+    auto &AS = CurAST->getAliasSetFor(MemoryLocation::get(SI));
+
+    if (AS.isRef() || !AS.isMustAlias())
+      // Quick exit test, handled by the full path below as well.
+      return false;
+    auto *UniqueI = AS.getUniqueInstruction();
+    if (!UniqueI)
+      // other memory op, give up
+      return false;
+    assert(UniqueI == SI && "AS must contain SI");
     return true;
   }
 
@@ -1520,11 +1535,6 @@ LoopInvariantCodeMotion::collectAliasInfoForLoop(Loop *L, LoopInfo *LI,
                                                  AliasAnalysis *AA) {
   std::unique_ptr<AliasSetTracker> CurAST;
   SmallVector<Loop *, 4> RecomputeLoops;
-  auto mergeLoop = [&CurAST](Loop *L) {
-    // Loop over the body of this loop, looking for calls, invokes, and stores.
-    for (BasicBlock *BB : L->blocks())
-      CurAST->add(*BB); // Incorporate the specified basic block
-  };
   for (Loop *InnerL : L->getSubLoops()) {
     auto MapI = LoopToAliasSetMap.find(InnerL);
     // If the AST for this inner loop is missing it may have been merged into
@@ -1551,10 +1561,13 @@ LoopInvariantCodeMotion::collectAliasInfoForLoop(Loop *L, LoopInfo *LI,
 
   // Add everything from the sub loops that are no longer directly available.
   for (Loop *InnerL : RecomputeLoops)
-    mergeLoop(InnerL);
+    for (BasicBlock *BB : InnerL->blocks())
+      CurAST->add(*BB);
 
-  // And merge in this loop.
-  mergeLoop(L);
+  // And merge in this loop (without anything from inner loops).
+  for (BasicBlock *BB : L->blocks())
+    if (LI->getLoopFor(BB) == L)
+      CurAST->add(*BB);
 
   return CurAST;
 }

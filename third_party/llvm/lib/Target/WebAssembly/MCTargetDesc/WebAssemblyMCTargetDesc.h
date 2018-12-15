@@ -96,8 +96,8 @@ enum TOF {
 
   // Flags to indicate the type of the symbol being referenced
   MO_SYMBOL_FUNCTION = 0x1,
-  MO_SYMBOL_GLOBAL   = 0x2,
-  MO_SYMBOL_MASK     = 0x3,
+  MO_SYMBOL_GLOBAL = 0x2,
+  MO_SYMBOL_MASK = 0x3,
 };
 } // end namespace WebAssemblyII
 
@@ -305,6 +305,31 @@ inline unsigned GetDefaultP2Align(unsigned Opcode) {
   case WebAssembly::ATOMIC_WAIT_I64:
   case WebAssembly::ATOMIC_WAIT_I64_S:
     return 3;
+  case WebAssembly::LOAD_v16i8:
+  case WebAssembly::LOAD_v16i8_S:
+  case WebAssembly::LOAD_v8i16:
+  case WebAssembly::LOAD_v8i16_S:
+  case WebAssembly::LOAD_v4i32:
+  case WebAssembly::LOAD_v4i32_S:
+  case WebAssembly::LOAD_v2i64:
+  case WebAssembly::LOAD_v2i64_S:
+  case WebAssembly::LOAD_v4f32:
+  case WebAssembly::LOAD_v4f32_S:
+  case WebAssembly::LOAD_v2f64:
+  case WebAssembly::LOAD_v2f64_S:
+  case WebAssembly::STORE_v16i8:
+  case WebAssembly::STORE_v16i8_S:
+  case WebAssembly::STORE_v8i16:
+  case WebAssembly::STORE_v8i16_S:
+  case WebAssembly::STORE_v4i32:
+  case WebAssembly::STORE_v4i32_S:
+  case WebAssembly::STORE_v2i64:
+  case WebAssembly::STORE_v2i64_S:
+  case WebAssembly::STORE_v4f32:
+  case WebAssembly::STORE_v4f32_S:
+  case WebAssembly::STORE_v2f64:
+  case WebAssembly::STORE_v2f64_S:
+    return 4;
   default:
     llvm_unreachable("Only loads and stores have p2align values");
   }

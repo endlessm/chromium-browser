@@ -16,7 +16,6 @@
 #include "AMDGPUSubtarget.h"
 #include "AMDGPUTargetMachine.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Analysis/DivergenceAnalysis.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
@@ -84,8 +83,8 @@ bool AMDGPULowerKernelArguments::runOnFunction(Function &F) {
     return false;
 
   CallInst *KernArgSegment =
-    Builder.CreateIntrinsic(Intrinsic::amdgcn_kernarg_segment_ptr, nullptr,
-                            F.getName() + ".kernarg.segment");
+      Builder.CreateIntrinsic(Intrinsic::amdgcn_kernarg_segment_ptr, {}, {},
+                              nullptr, F.getName() + ".kernarg.segment");
 
   KernArgSegment->addAttribute(AttributeList::ReturnIndex, Attribute::NonNull);
   KernArgSegment->addAttribute(AttributeList::ReturnIndex,

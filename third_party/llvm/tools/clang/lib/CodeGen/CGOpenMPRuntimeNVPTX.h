@@ -72,10 +72,11 @@ private:
   void emitNonSPMDEntryFooter(CodeGenFunction &CGF, EntryFunctionState &EST);
 
   /// Helper for generic variables globalization prolog.
-  void emitGenericVarsProlog(CodeGenFunction &CGF, SourceLocation Loc);
+  void emitGenericVarsProlog(CodeGenFunction &CGF, SourceLocation Loc,
+                             bool WithSPMDCheck = false);
 
   /// Helper for generic variables globalization epilog.
-  void emitGenericVarsEpilog(CodeGenFunction &CGF);
+  void emitGenericVarsEpilog(CodeGenFunction &CGF, bool WithSPMDCheck = false);
 
   /// Helper for SPMD mode target directive's entry function.
   void emitSPMDEntryHeader(CodeGenFunction &CGF, EntryFunctionState &EST,
@@ -339,6 +340,16 @@ public:
   ///
   void functionFinished(CodeGenFunction &CGF) override;
 
+  /// Choose a default value for the dist_schedule clause.
+  void getDefaultDistScheduleAndChunk(CodeGenFunction &CGF,
+      const OMPLoopDirective &S, OpenMPDistScheduleClauseKind &ScheduleKind,
+      llvm::Value *&Chunk) const override;
+
+  /// Choose a default value for the schedule clause.
+  void getDefaultScheduleAndChunk(CodeGenFunction &CGF,
+      const OMPLoopDirective &S, OpenMPScheduleClauseKind &ScheduleKind,
+      llvm::Value *&Chunk) const override;
+
 private:
   /// Track the execution mode when codegening directives within a target
   /// region. The appropriate mode (SPMD/NON-SPMD) is set on entry to the
@@ -362,9 +373,21 @@ private:
   llvm::Function *createParallelDataSharingWrapper(
       llvm::Function *OutlinedParallelFn, const OMPExecutableDirective &D);
 
+  /// The data for the single globalized variable.
+  struct MappedVarData {
+    /// Corresponding field in the global record.
+    const FieldDecl * FD = nullptr;
+    /// Corresponding address.
+    Address PrivateAddr = Address::invalid();
+    /// true, if only one element is required (for latprivates in SPMD mode),
+    /// false, if need to create based on the warp-size.
+    bool IsOnePerTeam = false;
+    MappedVarData() = delete;
+    MappedVarData(const FieldDecl *FD, bool IsOnePerTeam = false)
+        : FD(FD), IsOnePerTeam(IsOnePerTeam) {}
+  };
   /// The map of local variables to their addresses in the global memory.
-  using DeclToAddrMapTy = llvm::MapVector<const Decl *,
-      std::pair<const FieldDecl *, Address>>;
+  using DeclToAddrMapTy = llvm::MapVector<const Decl *, MappedVarData>;
   /// Set of the parameters passed by value escaping OpenMP context.
   using EscapedParamsTy = llvm::SmallPtrSet<const Decl *, 4>;
   struct FunctionData {
@@ -374,6 +397,7 @@ private:
     llvm::SmallVector<llvm::Value *, 4> EscapedVariableLengthDeclsAddrs;
     const RecordDecl *GlobalRecord = nullptr;
     llvm::Value *GlobalRecordAddr = nullptr;
+    llvm::Value *IsInSPMDModeFlag = nullptr;
     std::unique_ptr<CodeGenFunction::OMPMapVars> MappedParams;
   };
   /// Maps the function to the list of the globalized variables with their

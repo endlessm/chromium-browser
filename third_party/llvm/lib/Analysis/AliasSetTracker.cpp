@@ -13,6 +13,7 @@
 
 #include "llvm/Analysis/AliasSetTracker.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/GuardUtils.h"
 #include "llvm/Analysis/MemoryLocation.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/CallSite.h"
@@ -172,8 +173,7 @@ void AliasSet::addUnknownInst(Instruction *I, AliasAnalysis &AA) {
   // Guards are marked as modifying memory for control flow modelling purposes,
   // but don't actually modify any specific memory location.
   using namespace PatternMatch;
-  bool MayWriteMemory = I->mayWriteToMemory() &&
-    !match(I, m_Intrinsic<Intrinsic::experimental_guard>()) &&
+  bool MayWriteMemory = I->mayWriteToMemory() && !isGuard(I) &&
     !(I->use_empty() && match(I, m_Intrinsic<Intrinsic::invariant_start>()));
   if (!MayWriteMemory) {
     Alias = SetMayAlias;
@@ -256,9 +256,22 @@ Instruction* AliasSet::getUniqueInstruction() {
   if (AliasAny)
     // May have collapses alias set
     return nullptr;
-  if (size() != 0)
-    // Can't track source of pointer, might be many instruction
-    return nullptr;
+  if (begin() != end()) {
+    if (!UnknownInsts.empty())
+      // Another instruction found
+      return nullptr;
+    if (std::next(begin()) != end())
+      // Another instruction found
+      return nullptr;
+    Value *Addr = begin()->getValue();
+    assert(!Addr->user_empty() &&
+           "where's the instruction which added this pointer?");
+    if (std::next(Addr->user_begin()) != Addr->user_end())
+      // Another instruction found -- this is really restrictive
+      // TODO: generalize!
+      return nullptr;
+    return cast<Instruction>(*(Addr->user_begin()));
+  }
   if (1 != UnknownInsts.size())
     return nullptr;
   return cast<Instruction>(UnknownInsts[0]);
@@ -394,8 +407,8 @@ void AliasSetTracker::add(AnyMemSetInst *MSI) {
 }
 
 void AliasSetTracker::add(AnyMemTransferInst *MTI) {
-  addPointer(MemoryLocation::getForSource(MTI), AliasSet::RefAccess);
   addPointer(MemoryLocation::getForDest(MTI), AliasSet::ModAccess);
+  addPointer(MemoryLocation::getForSource(MTI), AliasSet::RefAccess);
 }
 
 void AliasSetTracker::addUnknown(Instruction *Inst) {
@@ -439,6 +452,46 @@ void AliasSetTracker::add(Instruction *I) {
     return add(MSI);
   if (AnyMemTransferInst *MTI = dyn_cast<AnyMemTransferInst>(I))
     return add(MTI);
+
+  // Handle all calls with known mod/ref sets genericall
+  CallSite CS(I);
+  if (CS && CS.onlyAccessesArgMemory()) {
+    auto getAccessFromModRef = [](ModRefInfo MRI) {
+      if (isRefSet(MRI) && isModSet(MRI))
+        return AliasSet::ModRefAccess;
+      else if (isModSet(MRI))
+        return AliasSet::ModAccess;
+      else if (isRefSet(MRI))
+        return AliasSet::RefAccess;
+      else
+        return AliasSet::NoAccess;
+     
+    };
+    
+    ModRefInfo CallMask = createModRefInfo(AA.getModRefBehavior(CS));
+
+    // Some intrinsics are marked as modifying memory for control flow
+    // modelling purposes, but don't actually modify any specific memory
+    // location. 
+    using namespace PatternMatch;
+    if (I->use_empty() && match(I, m_Intrinsic<Intrinsic::invariant_start>()))
+      CallMask = clearMod(CallMask);
+
+    for (auto AI = CS.arg_begin(), AE = CS.arg_end(); AI != AE; ++AI) {
+      const Value *Arg = *AI;
+      if (!Arg->getType()->isPointerTy())
+        continue;
+      unsigned ArgIdx = std::distance(CS.arg_begin(), AI);
+      MemoryLocation ArgLoc = MemoryLocation::getForArgument(CS, ArgIdx,
+                                                             nullptr);
+      ModRefInfo ArgMask = AA.getArgModRefInfo(CS, ArgIdx);
+      ArgMask = intersectModRef(CallMask, ArgMask);
+      if (!isNoModRef(ArgMask))
+        addPointer(ArgLoc, getAccessFromModRef(ArgMask));
+    }
+    return;
+  }
+  
   return addUnknown(I);
 }
 

@@ -16,8 +16,8 @@
 #define LLVM_TOOLS_LLVM_MCA_HWEVENTLISTENER_H
 
 #include "Instruction.h"
+#include "Support.h"
 #include "llvm/ADT/ArrayRef.h"
-#include <utility>
 
 namespace mca {
 
@@ -61,21 +61,33 @@ public:
 class HWInstructionIssuedEvent : public HWInstructionEvent {
 public:
   using ResourceRef = std::pair<uint64_t, uint64_t>;
-  HWInstructionIssuedEvent(const InstRef &IR,
-                           llvm::ArrayRef<std::pair<ResourceRef, double>> UR)
+  HWInstructionIssuedEvent(
+      const InstRef &IR,
+      llvm::ArrayRef<std::pair<ResourceRef, ResourceCycles>> UR)
       : HWInstructionEvent(HWInstructionEvent::Issued, IR), UsedResources(UR) {}
 
-  llvm::ArrayRef<std::pair<ResourceRef, double>> UsedResources;
+  llvm::ArrayRef<std::pair<ResourceRef, ResourceCycles>> UsedResources;
 };
 
 class HWInstructionDispatchedEvent : public HWInstructionEvent {
 public:
-  HWInstructionDispatchedEvent(const InstRef &IR, llvm::ArrayRef<unsigned> Regs)
+  HWInstructionDispatchedEvent(const InstRef &IR, llvm::ArrayRef<unsigned> Regs,
+                               unsigned UOps)
       : HWInstructionEvent(HWInstructionEvent::Dispatched, IR),
-        UsedPhysRegs(Regs) {}
+        UsedPhysRegs(Regs), MicroOpcodes(UOps) {}
   // Number of physical register allocated for this instruction. There is one
   // entry per register file.
   llvm::ArrayRef<unsigned> UsedPhysRegs;
+  // Number of micro opcodes dispatched.
+  // This field is often set to the total number of micro-opcodes specified by
+  // the instruction descriptor of IR.
+  // The only exception is when IR declares a number of micro opcodes
+  // which exceeds the processor DispatchWidth, and - by construction - it
+  // requires multiple cycles to be fully dispatched. In that particular case,
+  // the dispatch logic would generate more than one dispatch event (one per
+  // cycle), and each event would declare how many micro opcodes are effectively
+  // been dispatched to the schedulers.
+  unsigned MicroOpcodes;
 };
 
 class HWInstructionRetiredEvent : public HWInstructionEvent {

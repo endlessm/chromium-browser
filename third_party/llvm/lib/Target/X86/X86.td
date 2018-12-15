@@ -88,12 +88,12 @@ def Feature3DNowA  : SubtargetFeature<"3dnowa", "X863DNowLevel", "ThreeDNowA",
                                       [Feature3DNow]>;
 // All x86-64 hardware has SSE2, but we don't mark SSE2 as an implied
 // feature, because SSE2 can be disabled (e.g. for compiling OS kernels)
-// without disabling 64-bit mode.
+// without disabling 64-bit mode. Nothing should imply this feature bit. It
+// is used to enforce that only 64-bit capable CPUs are used in 64-bit mode.
 def Feature64Bit   : SubtargetFeature<"64bit", "HasX86_64", "true",
                                       "Support 64-bit instructions">;
 def FeatureCMPXCHG16B : SubtargetFeature<"cx16", "HasCmpxchg16b", "true",
-                                      "64-bit with cmpxchg16b",
-                                      [Feature64Bit]>;
+                                      "64-bit with cmpxchg16b">;
 def FeatureSlowSHLD : SubtargetFeature<"slow-shld", "IsSHLDSlow", "true",
                                        "SHLD instruction is slow">;
 def FeatureSlowPMULLD : SubtargetFeature<"slow-pmulld", "IsPMULLDSlow", "true",
@@ -400,6 +400,10 @@ def FeatureMOVDIRI  : SubtargetFeature<"movdiri", "HasMOVDIRI", "true",
 def FeatureMOVDIR64B : SubtargetFeature<"movdir64b", "HasMOVDIR64B", "true",
                                         "Support movdir64b instruction">;
 
+def FeatureFastBEXTR : SubtargetFeature<"fast-bextr", "HasFastBEXTR", "true",
+          "Indicates that the BEXTR instruction is implemented as a single uop "
+          "with good throughput.">;
+
 //===----------------------------------------------------------------------===//
 // Register File Description
 //===----------------------------------------------------------------------===//
@@ -520,6 +524,7 @@ def : ProcessorModel<"nocona", GenericPostRAModel, [
   FeatureSSE3,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B
 ]>;
 
@@ -532,6 +537,7 @@ def : ProcessorModel<"core2", SandyBridgeModel, [
   FeatureSSSE3,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureLAHFSAHF,
   FeatureMacroFusion
@@ -544,6 +550,7 @@ def : ProcessorModel<"penryn", SandyBridgeModel, [
   FeatureSSE41,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureLAHFSAHF,
   FeatureMacroFusion
@@ -559,6 +566,7 @@ class BonnellProc<string Name> : ProcessorModel<Name, AtomModel, [
   FeatureSSSE3,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureMOVBE,
   FeatureLEAForSP,
@@ -580,11 +588,11 @@ class SilvermontProc<string Name> : ProcessorModel<Name, SLMModel, [
   FeatureSSE42,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureMOVBE,
   FeaturePOPCNT,
   FeaturePCLMUL,
-  FeatureAES,
   FeatureSlowDivide64,
   FeatureSlowTwoMemOps,
   FeaturePRFCHW,
@@ -615,6 +623,7 @@ def GLMFeatures : ProcessorFeatures<[], [
   FeatureSSE42,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureMOVBE,
   FeaturePOPCNT,
@@ -675,6 +684,7 @@ class NehalemProc<string Name> : ProcessorModel<Name, SandyBridgeModel, [
   FeatureSSE42,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeaturePOPCNT,
   FeatureLAHFSAHF,
@@ -692,9 +702,9 @@ class WestmereProc<string Name> : ProcessorModel<Name, SandyBridgeModel, [
   FeatureSSE42,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeaturePOPCNT,
-  FeatureAES,
   FeaturePCLMUL,
   FeatureLAHFSAHF,
   FeatureMacroFusion
@@ -710,9 +720,9 @@ def SNBFeatures : ProcessorFeatures<[], [
   FeatureAVX,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeaturePOPCNT,
-  FeatureAES,
   FeatureSlowDivide64,
   FeaturePCLMUL,
   FeatureXSAVE,
@@ -782,6 +792,7 @@ class BroadwellProc<string Name> : ProcModel<Name, BroadwellModel,
 def : BroadwellProc<"broadwell">;
 
 def SKLFeatures : ProcessorFeatures<BDWFeatures.Value, [
+  FeatureAES,
   FeatureMPX,
   FeatureRTM,
   FeatureXSAVEC,
@@ -927,13 +938,13 @@ foreach P = ["k8", "opteron", "athlon64", "athlon-fx"] in {
 foreach P = ["k8-sse3", "opteron-sse3", "athlon64-sse3"] in {
   def : Proc<P, [FeatureX87, FeatureSlowUAMem16, FeatureSSE3, Feature3DNowA,
                  FeatureFXSR, FeatureNOPL, FeatureCMPXCHG16B, FeatureSlowSHLD,
-                 FeatureCMOV]>;
+                 FeatureCMOV, Feature64Bit]>;
 }
 
 foreach P = ["amdfam10", "barcelona"] in {
   def : Proc<P, [FeatureX87, FeatureSSE4A, Feature3DNowA, FeatureFXSR,
                  FeatureNOPL, FeatureCMPXCHG16B, FeatureLZCNT, FeaturePOPCNT,
-                 FeatureSlowSHLD, FeatureLAHFSAHF, FeatureCMOV]>;
+                 FeatureSlowSHLD, FeatureLAHFSAHF, FeatureCMOV, Feature64Bit]>;
 }
 
 // Bobcat
@@ -945,6 +956,7 @@ def : Proc<"btver1", [
   FeatureSSE4A,
   FeatureFXSR,
   FeatureNOPL,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeaturePRFCHW,
   FeatureLZCNT,
@@ -963,6 +975,7 @@ def : ProcessorModel<"btver2", BtVer2Model, [
   FeatureFXSR,
   FeatureNOPL,
   FeatureSSE4A,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeaturePRFCHW,
   FeatureAES,
@@ -978,6 +991,7 @@ def : ProcessorModel<"btver2", BtVer2Model, [
   FeatureSlowSHLD,
   FeatureLAHFSAHF,
   FeatureFast15ByteNOP,
+  FeatureFastBEXTR,
   FeatureFastPartialYMMorZMMWrite
 ]>;
 
@@ -987,6 +1001,7 @@ def : Proc<"bdver1", [
   FeatureCMOV,
   FeatureXOP,
   FeatureFMA4,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureAES,
   FeaturePRFCHW,
@@ -1011,6 +1026,7 @@ def : Proc<"bdver2", [
   FeatureCMOV,
   FeatureXOP,
   FeatureFMA4,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureAES,
   FeaturePRFCHW,
@@ -1031,6 +1047,7 @@ def : Proc<"bdver2", [
   FeatureSlowSHLD,
   FeatureLAHFSAHF,
   FeatureFast11ByteNOP,
+  FeatureFastBEXTR,
   FeatureMacroFusion
 ]>;
 
@@ -1040,6 +1057,7 @@ def : Proc<"bdver3", [
   FeatureCMOV,
   FeatureXOP,
   FeatureFMA4,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureAES,
   FeaturePRFCHW,
@@ -1062,6 +1080,7 @@ def : Proc<"bdver3", [
   FeatureFSGSBase,
   FeatureLAHFSAHF,
   FeatureFast11ByteNOP,
+  FeatureFastBEXTR,
   FeatureMacroFusion
 ]>;
 
@@ -1075,6 +1094,7 @@ def : Proc<"bdver4", [
   FeatureNOPL,
   FeatureXOP,
   FeatureFMA4,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureAES,
   FeaturePRFCHW,
@@ -1092,6 +1112,7 @@ def : Proc<"bdver4", [
   FeatureSlowSHLD,
   FeatureFSGSBase,
   FeatureLAHFSAHF,
+  FeatureFastBEXTR,
   FeatureFast11ByteNOP,
   FeatureMWAITX,
   FeatureMacroFusion
@@ -1107,6 +1128,7 @@ def: ProcessorModel<"znver1", Znver1Model, [
   FeatureCLFLUSHOPT,
   FeatureCLZERO,
   FeatureCMOV,
+  Feature64Bit,
   FeatureCMPXCHG16B,
   FeatureF16C,
   FeatureFMA,
@@ -1116,6 +1138,7 @@ def: ProcessorModel<"znver1", Znver1Model, [
   FeatureFastLZCNT,
   FeatureLAHFSAHF,
   FeatureLZCNT,
+  FeatureFastBEXTR,
   FeatureFast15ByteNOP,
   FeatureMacroFusion,
   FeatureMMX,

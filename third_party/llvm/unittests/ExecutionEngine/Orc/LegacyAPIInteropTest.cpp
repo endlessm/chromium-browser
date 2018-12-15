@@ -19,15 +19,13 @@ class LegacyAPIsStandardTest : public CoreAPIsBasedStandardTest {};
 namespace {
 
 TEST_F(LegacyAPIsStandardTest, TestLambdaSymbolResolver) {
-  BarSym.setFlags(static_cast<JITSymbolFlags::FlagNames>(BarSym.getFlags() |
-                                                         JITSymbolFlags::Weak));
+  BarSym.setFlags(BarSym.getFlags() | JITSymbolFlags::Weak);
 
   cantFail(JD.define(absoluteSymbols({{Foo, FooSym}, {Bar, BarSym}})));
 
   auto Resolver = createSymbolResolver(
       [&](const SymbolNameSet &Symbols) {
         auto FlagsMap = JD.lookupFlags(Symbols);
-        llvm::dbgs() << "FlagsMap is " << FlagsMap << "\n";
         SymbolNameSet Result;
         for (auto &KV : FlagsMap)
           if (!KV.second.isStrong())
@@ -74,8 +72,7 @@ TEST_F(LegacyAPIsStandardTest, TestLambdaSymbolResolver) {
 
 TEST_F(LegacyAPIsStandardTest, LegacyLookupHelpersFn) {
   bool BarMaterialized = false;
-  BarSym.setFlags(static_cast<JITSymbolFlags::FlagNames>(BarSym.getFlags() |
-                                                         JITSymbolFlags::Weak));
+  BarSym.setFlags(BarSym.getFlags() | JITSymbolFlags::Weak);
 
   auto LegacyLookup = [&](const std::string &Name) -> JITSymbol {
     if (Name == "foo")
