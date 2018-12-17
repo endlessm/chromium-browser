@@ -118,6 +118,20 @@ namespace blink {
 
 using namespace HTMLNames;
 
+// Helper function we use on EndlessOS to alter the UserAgent string
+// returned by chromium's content layer based on the frame's URL.
+String adaptUserAgentForURL(const String& user_agent, const KURL& url) {
+#ifdef __arm__
+  // Netflix specific navigator.UA override to CrOS
+  if (url.Host().Contains("netflix.com")) {
+    String replaced_value = user_agent;
+    replaced_value.Replace("Linux armv7l", "CrOS armv7l 10575.22.0");
+    return replaced_value;
+  }
+#endif
+  return user_agent;
+}
+
 bool IsBackForwardLoadType(WebFrameLoadType type) {
   return type == WebFrameLoadType::kBackForward;
 }
@@ -1384,7 +1398,13 @@ void FrameLoader::RestoreScrollPositionAndViewState(
 }
 
 String FrameLoader::UserAgent() const {
-  String user_agent = Client()->UserAgent();
+  Document* document = frame_->GetDocument();
+  String clientUserAgent = Client()->UserAgent();
+
+  // On Endless, we need to still be able to alter the UserAgent string depending
+  // on the URL we are loading, so we adapt it if needed before applying it.
+  String user_agent = document ? adaptUserAgentForURL(clientUserAgent, document->Url()) : clientUserAgent;
+
   probe::applyUserAgentOverride(frame_->GetDocument(), &user_agent);
   return user_agent;
 }
