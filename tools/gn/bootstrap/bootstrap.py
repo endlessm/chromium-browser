@@ -76,8 +76,6 @@ def main(argv):
     cmd.append('--debug')
   subprocess.check_call(cmd)
 
-  shutil.copy2(
-      os.path.join(BOOTSTRAP_DIR, 'last_commit_position.h'), gn_build_dir)
   subprocess.check_call(
       ['ninja', '-C', gn_build_dir, 'gn'])
   shutil.copy2(os.path.join(gn_build_dir, 'gn'), gn_path)
