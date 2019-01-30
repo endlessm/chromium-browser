@@ -114,6 +114,8 @@ public:
     All      // Sign the return address of all functions
   };
 
+  enum SignReturnAddressKeyValue { AKey, BKey };
+
   /// The code model to use (-mcmodel).
   std::string CodeModel;
 
@@ -199,6 +201,10 @@ public:
 
   /// Name of the profile file to use as input for -fprofile-instr-use
   std::string ProfileInstrumentUsePath;
+
+  /// Name of the profile remapping file to apply to the profile data supplied
+  /// by -fprofile-sample-use or -fprofile-instr-use.
+  std::string ProfileRemappingFile;
 
   /// Name of the function summary index file to use for ThinLTO function
   /// importing.

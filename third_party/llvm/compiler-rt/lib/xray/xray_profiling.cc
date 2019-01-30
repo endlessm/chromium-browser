@@ -133,21 +133,20 @@ XRayLogFlushStatus profilingFlush() XRAY_NEVER_INSTRUMENT {
       if (Verbosity())
         Report("profiling: No data to flush.\n");
     } else {
-      int Fd = getLogFD();
-      if (Fd == -1) {
+      LogWriter *LW = LogWriter::Open();
+      if (LW == nullptr) {
         if (Verbosity())
           Report("profiling: Failed to flush to file, dropping data.\n");
       } else {
         // Now for each of the buffers, write out the profile data as we would
         // see it in memory, verbatim.
         while (B.Data != nullptr && B.Size != 0) {
-          retryingWriteAll(Fd, reinterpret_cast<const char *>(B.Data),
-                           reinterpret_cast<const char *>(B.Data) + B.Size);
+          LW->WriteAll(reinterpret_cast<const char *>(B.Data),
+                       reinterpret_cast<const char *>(B.Data) + B.Size);
           B = profileCollectorService::nextBuffer(B);
         }
-        // Then we close out the file.
-        internal_close(Fd);
       }
+      LogWriter::Close(LW);
     }
   }
 
@@ -198,11 +197,11 @@ void profilingHandleArg0(int32_t FuncId,
   switch (Entry) {
   case XRayEntryType::ENTRY:
   case XRayEntryType::LOG_ARGS_ENTRY:
-    TLD.FCT->enterFunction(FuncId, TSC);
+    TLD.FCT->enterFunction(FuncId, TSC, CPU);
     break;
   case XRayEntryType::EXIT:
   case XRayEntryType::TAIL:
-    TLD.FCT->exitFunction(FuncId, TSC);
+    TLD.FCT->exitFunction(FuncId, TSC, CPU);
     break;
   default:
     // FIXME: Handle bugs.
@@ -228,10 +227,15 @@ XRayLogInitStatus profilingFinalize() XRAY_NEVER_INSTRUMENT {
   // Wait a grace period to allow threads to see that we're finalizing.
   SleepForMillis(profilingFlags()->grace_period_ms);
 
-  // We also want to make sure that the current thread's data is cleaned up,
-  // if we have any.
+  // We also want to make sure that the current thread's data is cleaned up, if
+  // we have any. We need to ensure that the call to postCurrentThreadFCT() is
+  // guarded by our recursion guard.
   auto &TLD = getThreadLocalData();
-  postCurrentThreadFCT(TLD);
+  {
+    RecursionGuard G(ReentranceGuard);
+    if (G)
+      postCurrentThreadFCT(TLD);
+  }
 
   // Then we force serialize the log data.
   profileCollectorService::serialize();
@@ -285,7 +289,13 @@ profilingLoggingInit(UNUSED size_t BufferSize, UNUSED size_t BufferMax,
       if (TLD.Allocators == nullptr && TLD.FCT == nullptr)
         return;
 
-      postCurrentThreadFCT(TLD);
+      {
+        // If we're somehow executing this while inside a non-reentrant-friendly
+        // context, we skip attempting to post the current thread's data.
+        RecursionGuard G(ReentranceGuard);
+        if (G)
+          postCurrentThreadFCT(TLD);
+      }
     });
 
     // We also need to set up an exit handler, so that we can get the profile

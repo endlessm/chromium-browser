@@ -458,20 +458,45 @@ SourceLocation DeclRefExpr::getEndLoc() const {
   return getNameInfo().getEndLoc();
 }
 
-PredefinedExpr::PredefinedExpr(SourceLocation L, QualType FNTy, IdentType IT,
+PredefinedExpr::PredefinedExpr(SourceLocation L, QualType FNTy, IdentKind IK,
                                StringLiteral *SL)
     : Expr(PredefinedExprClass, FNTy, VK_LValue, OK_Ordinary,
            FNTy->isDependentType(), FNTy->isDependentType(),
            FNTy->isInstantiationDependentType(),
-           /*ContainsUnexpandedParameterPack=*/false),
-      Loc(L), Type(IT), FnName(SL) {}
-
-StringLiteral *PredefinedExpr::getFunctionName() {
-  return cast_or_null<StringLiteral>(FnName);
+           /*ContainsUnexpandedParameterPack=*/false) {
+  PredefinedExprBits.Kind = IK;
+  assert((getIdentKind() == IK) &&
+         "IdentKind do not fit in PredefinedExprBitfields!");
+  bool HasFunctionName = SL != nullptr;
+  PredefinedExprBits.HasFunctionName = HasFunctionName;
+  PredefinedExprBits.Loc = L;
+  if (HasFunctionName)
+    setFunctionName(SL);
 }
 
-StringRef PredefinedExpr::getIdentTypeName(PredefinedExpr::IdentType IT) {
-  switch (IT) {
+PredefinedExpr::PredefinedExpr(EmptyShell Empty, bool HasFunctionName)
+    : Expr(PredefinedExprClass, Empty) {
+  PredefinedExprBits.HasFunctionName = HasFunctionName;
+}
+
+PredefinedExpr *PredefinedExpr::Create(const ASTContext &Ctx, SourceLocation L,
+                                       QualType FNTy, IdentKind IK,
+                                       StringLiteral *SL) {
+  bool HasFunctionName = SL != nullptr;
+  void *Mem = Ctx.Allocate(totalSizeToAlloc<Stmt *>(HasFunctionName),
+                           alignof(PredefinedExpr));
+  return new (Mem) PredefinedExpr(L, FNTy, IK, SL);
+}
+
+PredefinedExpr *PredefinedExpr::CreateEmpty(const ASTContext &Ctx,
+                                            bool HasFunctionName) {
+  void *Mem = Ctx.Allocate(totalSizeToAlloc<Stmt *>(HasFunctionName),
+                           alignof(PredefinedExpr));
+  return new (Mem) PredefinedExpr(EmptyShell(), HasFunctionName);
+}
+
+StringRef PredefinedExpr::getIdentKindName(PredefinedExpr::IdentKind IK) {
+  switch (IK) {
   case Func:
     return "__func__";
   case Function:
@@ -489,15 +514,15 @@ StringRef PredefinedExpr::getIdentTypeName(PredefinedExpr::IdentType IT) {
   case PrettyFunctionNoVirtual:
     break;
   }
-  llvm_unreachable("Unknown ident type for PredefinedExpr");
+  llvm_unreachable("Unknown ident kind for PredefinedExpr");
 }
 
 // FIXME: Maybe this should use DeclPrinter with a special "print predefined
 // expr" policy instead.
-std::string PredefinedExpr::ComputeName(IdentType IT, const Decl *CurrentDecl) {
+std::string PredefinedExpr::ComputeName(IdentKind IK, const Decl *CurrentDecl) {
   ASTContext &Context = CurrentDecl->getASTContext();
 
-  if (IT == PredefinedExpr::FuncDName) {
+  if (IK == PredefinedExpr::FuncDName) {
     if (const NamedDecl *ND = dyn_cast<NamedDecl>(CurrentDecl)) {
       std::unique_ptr<MangleContext> MC;
       MC.reset(Context.createMangleContext());
@@ -532,21 +557,21 @@ std::string PredefinedExpr::ComputeName(IdentType IT, const Decl *CurrentDecl) {
     llvm::raw_svector_ostream Out(Buffer);
     if (auto *DCBlock = dyn_cast<BlockDecl>(DC))
       // For nested blocks, propagate up to the parent.
-      Out << ComputeName(IT, DCBlock);
+      Out << ComputeName(IK, DCBlock);
     else if (auto *DCDecl = dyn_cast<Decl>(DC))
-      Out << ComputeName(IT, DCDecl) << "_block_invoke";
+      Out << ComputeName(IK, DCDecl) << "_block_invoke";
     return Out.str();
   }
   if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(CurrentDecl)) {
-    if (IT != PrettyFunction && IT != PrettyFunctionNoVirtual &&
-        IT != FuncSig && IT != LFuncSig)
+    if (IK != PrettyFunction && IK != PrettyFunctionNoVirtual &&
+        IK != FuncSig && IK != LFuncSig)
       return FD->getNameAsString();
 
     SmallString<256> Name;
     llvm::raw_svector_ostream Out(Name);
 
     if (const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(FD)) {
-      if (MD->isVirtual() && IT != PrettyFunctionNoVirtual)
+      if (MD->isVirtual() && IK != PrettyFunctionNoVirtual)
         Out << "virtual ";
       if (MD->isStatic())
         Out << "static ";
@@ -564,7 +589,7 @@ std::string PredefinedExpr::ComputeName(IdentType IT, const Decl *CurrentDecl) {
     if (FD->hasWrittenPrototype())
       FT = dyn_cast<FunctionProtoType>(AFT);
 
-    if (IT == FuncSig || IT == LFuncSig) {
+    if (IK == FuncSig || IK == LFuncSig) {
       switch (AFT->getCallConv()) {
       case CC_C: POut << "__cdecl "; break;
       case CC_X86StdCall: POut << "__stdcall "; break;
@@ -589,7 +614,7 @@ std::string PredefinedExpr::ComputeName(IdentType IT, const Decl *CurrentDecl) {
       if (FT->isVariadic()) {
         if (FD->getNumParams()) POut << ", ";
         POut << "...";
-      } else if ((IT == FuncSig || IT == LFuncSig ||
+      } else if ((IK == FuncSig || IK == LFuncSig ||
                   !Context.getLangOpts().CPlusPlus) &&
                  !Decl->getNumParams()) {
         POut << "void";
@@ -688,7 +713,7 @@ std::string PredefinedExpr::ComputeName(IdentType IT, const Decl *CurrentDecl) {
       // CapturedDecl.
       if (DC->isFunctionOrMethod() && (DC->getDeclKind() != Decl::Captured)) {
         const Decl *D = Decl::castFromDeclContext(DC);
-        return ComputeName(IT, D);
+        return ComputeName(IK, D);
       }
     llvm_unreachable("CapturedDecl not inside a function or method");
   }
@@ -713,7 +738,7 @@ std::string PredefinedExpr::ComputeName(IdentType IT, const Decl *CurrentDecl) {
 
     return Name.str().str();
   }
-  if (isa<TranslationUnitDecl>(CurrentDecl) && IT == PrettyFunction) {
+  if (isa<TranslationUnitDecl>(CurrentDecl) && IK == PrettyFunction) {
     // __PRETTY_FUNCTION__ -> "top level", the others produce an empty string.
     return "top level";
   }
@@ -1446,7 +1471,7 @@ UnaryExprOrTypeTraitExpr::UnaryExprOrTypeTraitExpr(
 
   // Check to see if we are in the situation where alignof(decl) should be
   // dependent because decl's alignment is dependent.
-  if (ExprKind == UETT_AlignOf) {
+  if (ExprKind == UETT_AlignOf || ExprKind == UETT_PreferredAlignOf) {
     if (!isValueDependent() || !isInstantiationDependent()) {
       E = E->IgnoreParens();
 
@@ -1641,9 +1666,9 @@ bool CastExpr::CastConsistency() const {
   case CK_ARCConsumeObject:
   case CK_ARCReclaimReturnedObject:
   case CK_ARCExtendBlockObject:
-  case CK_ZeroToOCLEvent:
-  case CK_ZeroToOCLQueue:
+  case CK_ZeroToOCLOpaqueType:
   case CK_IntToOCLSampler:
+  case CK_FixedPointCast:
     assert(!getType()->isBooleanType() && "unheralded conversion to bool");
     goto CheckNoBasePath;
 
@@ -1661,6 +1686,7 @@ bool CastExpr::CastConsistency() const {
   case CK_LValueBitCast:            // -> bool&
   case CK_UserDefinedConversion:    // operator bool()
   case CK_BuiltinFnToFnPtr:
+  case CK_FixedPointToBoolean:
   CheckNoBasePath:
     assert(path_empty() && "Cast kind should not have a base path!");
     break;
@@ -3095,6 +3121,11 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
     // These never have a side-effect.
     return false;
 
+  case ConstantExprClass:
+    // FIXME: Move this into the "return false;" block above.
+    return cast<ConstantExpr>(this)->getSubExpr()->HasSideEffects(
+        Ctx, IncludePossibleEffects);
+
   case CallExprClass:
   case CXXOperatorCallExprClass:
   case CXXMemberCallExprClass:
@@ -3254,11 +3285,8 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
 
   case LambdaExprClass: {
     const LambdaExpr *LE = cast<LambdaExpr>(this);
-    for (LambdaExpr::capture_iterator I = LE->capture_begin(),
-                                      E = LE->capture_end(); I != E; ++I)
-      if (I->getCaptureKind() == LCK_ByCopy)
-        // FIXME: Only has a side-effect if the variable is volatile or if
-        // the copy would invoke a non-trivial copy constructor.
+    for (Expr *E : LE->capture_inits())
+      if (E->HasSideEffects(Ctx, IncludePossibleEffects))
         return true;
     return false;
   }

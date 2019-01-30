@@ -4324,7 +4324,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       inferPointerNullability(SimplePointerKind::Pointer, DeclType.Loc,
                               DeclType.EndLoc, DeclType.getAttrs());
 
-      if (LangOpts.ObjC1 && T->getAs<ObjCObjectType>()) {
+      if (LangOpts.ObjC && T->getAs<ObjCObjectType>()) {
         T = Context.getObjCObjectPointerType(T);
         if (DeclType.Ptr.TypeQuals)
           T = S.BuildQualifiedType(T, DeclType.Loc, DeclType.Ptr.TypeQuals);
@@ -5238,7 +5238,7 @@ TypeSourceInfo *Sema::GetTypeForDeclaratorCast(Declarator &D, QualType FromTy) {
   TypeSourceInfo *ReturnTypeInfo = nullptr;
   QualType declSpecTy = GetDeclSpecTypeForDeclarator(state, ReturnTypeInfo);
 
-  if (getLangOpts().ObjC1) {
+  if (getLangOpts().ObjC) {
     Qualifiers::ObjCLifetime ownership = Context.getInnerObjCOwnership(FromTy);
     if (ownership != Qualifiers::OCL_None)
       transferARCOwnership(state, declSpecTy, ownership);
@@ -7273,7 +7273,7 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       // not appertain to a DeclaratorChunk. If we handle them as type
       // attributes, accept them in that position and diagnose the GCC
       // incompatibility.
-      if (attr.getScopeName() && attr.getScopeName()->isStr("gnu")) {
+      if (attr.isGNUScope()) {
         bool IsTypeAttr = attr.isTypeAttr();
         if (TAL == TAL_DeclChunk) {
           state.getSema().Diag(attr.getLoc(),

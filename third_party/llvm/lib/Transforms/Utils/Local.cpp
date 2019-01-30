@@ -105,7 +105,7 @@ STATISTIC(NumRemoved, "Number of unreachable basic blocks removed");
 bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
                                   const TargetLibraryInfo *TLI,
                                   DomTreeUpdater *DTU) {
-  TerminatorInst *T = BB->getTerminator();
+  Instruction *T = BB->getTerminator();
   IRBuilder<> Builder(T);
 
   // Branch - See if we are conditional jumping on constant
@@ -2101,7 +2101,7 @@ static bool markAliveBlocks(Function &F,
       }
     }
 
-    TerminatorInst *Terminator = BB->getTerminator();
+    Instruction *Terminator = BB->getTerminator();
     if (auto *II = dyn_cast<InvokeInst>(Terminator)) {
       // Turn invokes that call 'nounwind' functions into ordinary calls.
       Value *Callee = II->getCalledValue();
@@ -2176,14 +2176,14 @@ static bool markAliveBlocks(Function &F,
 }
 
 void llvm::removeUnwindEdge(BasicBlock *BB, DomTreeUpdater *DTU) {
-  TerminatorInst *TI = BB->getTerminator();
+  Instruction *TI = BB->getTerminator();
 
   if (auto *II = dyn_cast<InvokeInst>(TI)) {
     changeToCall(II, DTU);
     return;
   }
 
-  TerminatorInst *NewTI;
+  Instruction *NewTI;
   BasicBlock *UnwindDest;
 
   if (auto *CRI = dyn_cast<CleanupReturnInst>(TI)) {
@@ -2260,7 +2260,7 @@ bool llvm::removeUnreachableBlocks(Function &F, LazyValueInfo *LVI,
       continue;
     }
     if (DTU) {
-      // Remove the TerminatorInst of BB to clear the successor list of BB.
+      // Remove the terminator of BB to clear the successor list of BB.
       if (BB->getTerminator())
         BB->getInstList().pop_back();
       new UnreachableInst(BB->getContext(), BB);
@@ -2315,7 +2315,15 @@ void llvm::combineMetadata(Instruction *K, const Instruction *J,
         K->setMetadata(Kind, MDNode::intersect(JMD, KMD));
         break;
       case LLVMContext::MD_range:
-        K->setMetadata(Kind, MDNode::getMostGenericRange(JMD, KMD));
+
+        // If K does move, use most generic range. Otherwise keep the range of
+        // K.
+        if (DoesKMove)
+          // FIXME: If K does move, we should drop the range info and nonnull.
+          //        Currently this function is used with DoesKMove in passes
+          //        doing hoisting/sinking and the current behavior of using the
+          //        most generic range is correct in those cases.
+          K->setMetadata(Kind, MDNode::getMostGenericRange(JMD, KMD));
         break;
       case LLVMContext::MD_fpmath:
         K->setMetadata(Kind, MDNode::getMostGenericFPMath(JMD, KMD));
@@ -2527,6 +2535,47 @@ void llvm::dropDebugUsers(Instruction &I) {
   findDbgUsers(DbgUsers, &I);
   for (auto *DII : DbgUsers)
     DII->eraseFromParent();
+}
+
+void llvm::hoistAllInstructionsInto(BasicBlock *DomBlock, Instruction *InsertPt,
+                                    BasicBlock *BB) {
+  // Since we are moving the instructions out of its basic block, we do not
+  // retain their original debug locations (DILocations) and debug intrinsic
+  // instructions (dbg.values).
+  //
+  // Doing so would degrade the debugging experience and adversely affect the
+  // accuracy of profiling information.
+  //
+  // Currently, when hoisting the instructions, we take the following actions:
+  // - Remove their dbg.values.
+  // - Set their debug locations to the values from the insertion point.
+  //
+  // As per PR39141 (comment #8), the more fundamental reason why the dbg.values
+  // need to be deleted, is because there will not be any instructions with a
+  // DILocation in either branch left after performing the transformation. We
+  // can only insert a dbg.value after the two branches are joined again.
+  //
+  // See PR38762, PR39243 for more details.
+  //
+  // TODO: Extend llvm.dbg.value to take more than one SSA Value (PR39141) to
+  // encode predicated DIExpressions that yield different results on different
+  // code paths.
+  for (BasicBlock::iterator II = BB->begin(), IE = BB->end(); II != IE;) {
+    Instruction *I = &*II;
+    I->dropUnknownNonDebugMetadata();
+    if (I->isUsedByMetadata())
+      dropDebugUsers(*I);
+    if (isa<DbgVariableIntrinsic>(I)) {
+      // Remove DbgInfo Intrinsics.
+      II = I->eraseFromParent();
+      continue;
+    }
+    I->setDebugLoc(InsertPt->getDebugLoc());
+    ++II;
+  }
+  DomBlock->getInstList().splice(InsertPt->getIterator(), BB->getInstList(),
+                                 BB->begin(),
+                                 BB->getTerminator()->getIterator());
 }
 
 namespace {

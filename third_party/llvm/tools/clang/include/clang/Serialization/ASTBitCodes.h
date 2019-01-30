@@ -1536,6 +1536,8 @@ namespace serialization {
 
       /// An OMPDeclareReductionDecl record.
       DECL_OMP_DECLARE_REDUCTION,
+
+      DECL_LAST = DECL_OMP_DECLARE_REDUCTION
     };
 
     /// Record codes for each kind of statement or expression.
@@ -1548,7 +1550,7 @@ namespace serialization {
     enum StmtCode {
       /// A marker record that indicates that we are at the end
       /// of an expression.
-      STMT_STOP = 128,
+      STMT_STOP = DECL_LAST + 1,
 
       /// A NULL expression.
       STMT_NULL_PTR,
@@ -1615,6 +1617,9 @@ namespace serialization {
 
       /// A MS-style AsmStmt record.
       STMT_MSASM,
+
+      /// A constant expression context.
+      EXPR_CONSTANT,
 
       /// A PredefinedExpr record.
       EXPR_PREDEFINED,

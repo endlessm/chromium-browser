@@ -109,6 +109,8 @@ private:
   insertCounterWriteout(ArrayRef<std::pair<GlobalVariable *, MDNode *>>);
   Function *insertFlush(ArrayRef<std::pair<GlobalVariable *, MDNode *>>);
 
+  void AddFlushBeforeForkAndExec();
+
   enum class GCovFileType { GCNO, GCDA };
   std::string mangleName(const DICompileUnit *CU, GCovFileType FileType);
 
@@ -468,6 +470,8 @@ bool GCOVProfiler::runOnModule(Module &M, const TargetLibraryInfo &TLI) {
   this->TLI = &TLI;
   Ctx = &M.getContext();
 
+  AddFlushBeforeForkAndExec();
+
   if (Options.EmitNotes) emitProfileNotes();
   if (Options.EmitData) return emitProfileArcs();
   return false;
@@ -524,6 +528,38 @@ static bool shouldKeepInEntry(BasicBlock::iterator It) {
 	return false;
 }
 
+void GCOVProfiler::AddFlushBeforeForkAndExec() {
+  SmallVector<Instruction *, 2> ForkAndExecs;
+  for (auto &F : M->functions()) {
+    for (auto &I : instructions(F)) {
+      if (CallInst *CI = dyn_cast<CallInst>(&I)) {
+        if (Function *Callee = CI->getCalledFunction()) {
+          LibFunc LF;
+          if (TLI->getLibFunc(*Callee, LF) &&
+              (LF == LibFunc_fork || LF == LibFunc_execl ||
+               LF == LibFunc_execle || LF == LibFunc_execlp ||
+               LF == LibFunc_execv || LF == LibFunc_execvp ||
+               LF == LibFunc_execve || LF == LibFunc_execvpe ||
+               LF == LibFunc_execvP)) {
+            ForkAndExecs.push_back(&I);
+          }
+        }
+      }
+    }
+  }
+
+  // We need to split the block after the fork/exec call
+  // because else the counters for the lines after will be
+  // the same as before the call.
+  for (auto I : ForkAndExecs) {
+    IRBuilder<> Builder(I);
+    FunctionType *FTy = FunctionType::get(Builder.getVoidTy(), {}, false);
+    Constant *GCOVFlush = M->getOrInsertFunction("__gcov_flush", FTy);
+    Builder.CreateCall(GCOVFlush);
+    I->getParent()->splitBasicBlock(I);
+  }
+}
+
 void GCOVProfiler::emitProfileNotes() {
   NamedMDNode *CU_Nodes = M->getNamedMetadata("llvm.dbg.cu");
   if (!CU_Nodes) return;
@@ -570,9 +606,14 @@ void GCOVProfiler::emitProfileNotes() {
                                                 Options.ExitBlockBeforeBody));
       GCOVFunction &Func = *Funcs.back();
 
+      // Add the function line number to the lines of the entry block
+      // to have a counter for the function definition.
+      uint32_t Line = SP->getLine();
+      Func.getBlock(&EntryBlock).getFile(SP->getFilename()).addLine(Line);
+
       for (auto &BB : F) {
         GCOVBlock &Block = Func.getBlock(&BB);
-        TerminatorInst *TI = BB.getTerminator();
+        Instruction *TI = BB.getTerminator();
         if (int successors = TI->getNumSuccessors()) {
           for (int i = 0; i != successors; ++i) {
             Block.addEdge(Func.getBlock(TI->getSuccessor(i)));
@@ -581,7 +622,6 @@ void GCOVProfiler::emitProfileNotes() {
           Block.addEdge(Func.getReturnBlock());
         }
 
-        uint32_t Line = 0;
         for (auto &I : BB) {
           // Debug intrinsic locations correspond to the location of the
           // declaration, not necessarily any statements or expressions.
@@ -603,6 +643,7 @@ void GCOVProfiler::emitProfileNotes() {
           GCOVLines &Lines = Block.getFile(SP->getFilename());
           Lines.addLine(Loc.getLine());
         }
+        Line = 0;
       }
       EdgeDestinations += Func.getEdgeDestinations();
     }
@@ -640,7 +681,7 @@ bool GCOVProfiler::emitProfileArcs() {
       DenseMap<std::pair<BasicBlock *, BasicBlock *>, unsigned> EdgeToCounter;
       unsigned Edges = 0;
       for (auto &BB : F) {
-        TerminatorInst *TI = BB.getTerminator();
+        Instruction *TI = BB.getTerminator();
         if (isa<ReturnInst>(TI)) {
           EdgeToCounter[{&BB, nullptr}] = Edges++;
         } else {
@@ -684,7 +725,7 @@ bool GCOVProfiler::emitProfileArcs() {
           Count = Builder.CreateAdd(Count, Builder.getInt64(1));
           Builder.CreateStore(Count, Phi);
 
-          TerminatorInst *TI = BB.getTerminator();
+          Instruction *TI = BB.getTerminator();
           if (isa<ReturnInst>(TI)) {
             auto It = EdgeToCounter.find({&BB, nullptr});
             assert(It != EdgeToCounter.end());

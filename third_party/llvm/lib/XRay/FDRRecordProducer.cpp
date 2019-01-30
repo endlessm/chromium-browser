@@ -53,14 +53,15 @@ metadataRecordType(const XRayFileHeader &Header, uint8_t T) {
   case MetadataRecordKinds::WalltimeMarkerKind:
     return make_unique<WallclockRecord>();
   case MetadataRecordKinds::CustomEventMarkerKind:
+    if (Header.Version >= 5)
+      return make_unique<CustomEventRecordV5>();
     return make_unique<CustomEventRecord>();
   case MetadataRecordKinds::CallArgumentKind:
     return make_unique<CallArgRecord>();
   case MetadataRecordKinds::BufferExtentsKind:
     return make_unique<BufferExtents>();
   case MetadataRecordKinds::TypedEventMarkerKind:
-    return createStringError(std::make_error_code(std::errc::invalid_argument),
-                             "Encountered an unsupported TypedEventMarker.");
+    return make_unique<TypedEventRecord>();
   case MetadataRecordKinds::PidKind:
     return make_unique<PIDRecord>();
   case MetadataRecordKinds::EnumEndMarker:
@@ -84,6 +85,12 @@ Expected<std::unique_ptr<Record>> FileBasedRecordProducer::produce() {
   // the rest of the bytes.
   auto PreReadOffset = OffsetPtr;
   uint8_t FirstByte = E.getU8(&OffsetPtr);
+  if (OffsetPtr == PreReadOffset)
+    return createStringError(
+        std::make_error_code(std::errc::executable_format_error),
+        "Failed reading one byte from offset %d.", OffsetPtr);
+
+  // Set up our result record.
   std::unique_ptr<Record> R;
 
   // For metadata records, handle especially here.

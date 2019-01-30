@@ -197,7 +197,7 @@ static bool canSplitCallSite(CallSite CS, TargetTransformInfo &TTI) {
       isa<IndirectBrInst>(Preds[1]->getTerminator()))
     return false;
 
-  // BasicBlock::canSplitPredecessors is more agressive, so checking for
+  // BasicBlock::canSplitPredecessors is more aggressive, so checking for
   // BasicBlock::isEHPad as well.
   if (!CallSiteBB->canSplitPredecessors() || CallSiteBB->isEHPad())
     return false;
@@ -248,7 +248,7 @@ static void copyMustTailReturn(BasicBlock *SplitBB, Instruction *CI,
   ReturnInst* RI = dyn_cast<ReturnInst>(&*II);
   assert(RI && "`musttail` call must be followed by `ret` instruction");
 
-  TerminatorInst *TI = SplitBB->getTerminator();
+  Instruction *TI = SplitBB->getTerminator();
   Value *V = NewCI;
   if (BCI)
     V = cloneInstForMustTail(BCI, TI, V);
@@ -461,10 +461,9 @@ static bool tryToSplitOnPredicatedArgument(CallSite CS, DominatorTree *DT) {
     PredsCS.push_back({Pred, Conditions});
   }
 
-  if (std::all_of(PredsCS.begin(), PredsCS.end(),
-                  [](const std::pair<BasicBlock *, ConditionsTy> &P) {
-                    return P.second.empty();
-                  }))
+  if (all_of(PredsCS, [](const std::pair<BasicBlock *, ConditionsTy> &P) {
+        return P.second.empty();
+      }))
     return false;
 
   splitCallSite(CS, PredsCS, DT);

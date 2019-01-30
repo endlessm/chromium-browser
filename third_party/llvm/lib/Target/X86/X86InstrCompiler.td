@@ -37,11 +37,6 @@ let hasSideEffects = 0, isNotDuplicable = 1, Uses = [ESP, SSP],
   def MOVPC32r : Ii32<0xE8, Pseudo, (outs GR32:$reg), (ins i32imm:$label),
                       "", []>;
 
-// 64-bit large code model PIC base construction.
-let hasSideEffects = 0, mayLoad = 1, isNotDuplicable = 1, SchedRW = [WriteJump] in
-  def MOVGOT64r : PseudoI<(outs GR64:$reg),
-                          (ins GR64:$scratch, i64i32imm_pcrel:$got), []>;
-
 // ADJCALLSTACKDOWN/UP implicitly use/def ESP because they may be expanded into
 // a stack adjustment and the codegen must know that they may modify the stack
 // pointer before prolog-epilog rewriting occurs.
@@ -2135,17 +2130,3 @@ def : Pat<(cttz_zero_undef (loadi64 addr:$src)), (BSF64rm addr:$src)>;
 let Predicates = [HasMOVBE] in {
  def : Pat<(bswap GR16:$src), (ROL16ri GR16:$src, (i8 8))>;
 }
-
-// These patterns are selected by some custom code in X86ISelDAGToDAG.cpp that
-// custom combines and+srl into BEXTR. We use these patterns to avoid a bunch
-// of manual code for folding loads.
-let Predicates = [HasBMI, NoTBM] in {
-  def : Pat<(X86bextr GR32:$src1, (i32 imm:$src2)),
-            (BEXTR32rr GR32:$src1, (MOV32ri imm:$src2))>;
-  def : Pat<(X86bextr (loadi32 addr:$src1), (i32 imm:$src2)),
-            (BEXTR32rm addr:$src1, (MOV32ri imm:$src2))>;
-  def : Pat<(X86bextr GR64:$src1, mov64imm32:$src2),
-            (BEXTR64rr GR64:$src1, (MOV32ri64 mov64imm32:$src2))>;
-  def : Pat<(X86bextr (loadi64 addr:$src1), mov64imm32:$src2),
-            (BEXTR64rm addr:$src1, (MOV32ri64 mov64imm32:$src2))>;
-} // HasBMI, NoTBM

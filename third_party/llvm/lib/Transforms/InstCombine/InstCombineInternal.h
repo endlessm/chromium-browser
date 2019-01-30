@@ -82,8 +82,8 @@ class User;
 ///   5 -> Other instructions
 static inline unsigned getComplexity(Value *V) {
   if (isa<Instruction>(V)) {
-    if (isa<CastInst>(V) || BinaryOperator::isNeg(V) ||
-        BinaryOperator::isFNeg(V) || BinaryOperator::isNot(V))
+    if (isa<CastInst>(V) || match(V, m_Neg(m_Value())) ||
+        match(V, m_Not(m_Value())) || match(V, m_FNeg(m_Value())))
       return 4;
     return 5;
   }
@@ -141,7 +141,7 @@ static inline Constant *SubOne(Constant *C) {
 /// uses of V and only keep uses of ~V.
 static inline bool IsFreeToInvert(Value *V, bool WillInvertAllUses) {
   // ~(~(X)) -> X.
-  if (BinaryOperator::isNot(V))
+  if (match(V, m_Not(m_Value())))
     return true;
 
   // Constants can be considered to be not'ed values.
@@ -589,6 +589,9 @@ private:
 
   Value *foldAndOrOfICmpsOfAndWithPow2(ICmpInst *LHS, ICmpInst *RHS,
                                        bool JoinedByAnd, Instruction &CxtI);
+  Value *matchSelectFromAndOr(Value *A, Value *B, Value *C, Value *D);
+  Value *getSelectCondition(Value *A, Value *B);
+
 public:
   /// Inserts an instruction \p New before instruction \p Old
   ///

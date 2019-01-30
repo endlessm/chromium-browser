@@ -264,25 +264,9 @@ def SI_END_CF : CFPseudoInstSI <
   let mayStore = 1;
 }
 
-def SI_BREAK : CFPseudoInstSI <
-  (outs SReg_64:$dst), (ins SReg_64:$src),
-  [(set i64:$dst, (int_amdgcn_break i64:$src))], 1> {
-  let Size = 4;
-  let isAsCheapAsAMove = 1;
-  let isReMaterializable = 1;
-}
-
 def SI_IF_BREAK : CFPseudoInstSI <
   (outs SReg_64:$dst), (ins SReg_64:$vcc, SReg_64:$src),
   [(set i64:$dst, (int_amdgcn_if_break i1:$vcc, i64:$src))]> {
-  let Size = 4;
-  let isAsCheapAsAMove = 1;
-  let isReMaterializable = 1;
-}
-
-def SI_ELSE_BREAK : CFPseudoInstSI <
-  (outs SReg_64:$dst), (ins SReg_64:$src0, SReg_64:$src1),
-  [(set i64:$dst, (int_amdgcn_else_break i64:$src0, i64:$src1))]> {
   let Size = 4;
   let isAsCheapAsAMove = 1;
   let isReMaterializable = 1;
@@ -1327,9 +1311,19 @@ def : GCNPat <
   (S_XOR_B64 $src0, $src1)
 >;
 
+def : GCNPat <
+  (i1 (sub i1:$src0, i1:$src1)),
+  (S_XOR_B64 $src0, $src1)
+>;
+
 let AddedComplexity = 1 in {
 def : GCNPat <
   (i1 (add i1:$src0, (i1 -1))),
+  (S_NOT_B64 $src0)
+>;
+
+def : GCNPat <
+  (i1 (sub i1:$src0, (i1 -1))),
   (S_NOT_B64 $src0)
 >;
 }
@@ -1635,10 +1629,11 @@ def : IntMed3Pat<V_MED3_U32, umax, umax_oneuse, umin_oneuse>;
 // This matches 16 permutations of
 // max(min(x, y), min(max(x, y), z))
 class FPMed3Pat<ValueType vt,
+                //SDPatternOperator max, SDPatternOperator min,
                 Instruction med3Inst> : GCNPat<
-  (fmaxnum (fminnum_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+  (fmaxnum_like (fminnum_like_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
                            (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
-           (fminnum_oneuse (fmaxnum_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+           (fminnum_like_oneuse (fmaxnum_like_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
                                            (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
                            (vt (VOP3Mods_nnan vt:$src2, i32:$src2_mods)))),
   (med3Inst $src0_mods, $src0, $src1_mods, $src1, $src2_mods, $src2, DSTCLAMP.NONE, DSTOMOD.NONE)
@@ -1646,10 +1641,10 @@ class FPMed3Pat<ValueType vt,
 
 class FP16Med3Pat<ValueType vt,
                 Instruction med3Inst> : GCNPat<
-  (fmaxnum (fminnum_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
-                           (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
-           (fminnum_oneuse (fmaxnum_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
-                                           (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
+  (fmaxnum_like (fminnum_like_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+                                     (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
+           (fminnum_like_oneuse (fmaxnum_like_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+                                                     (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
                            (vt (VOP3Mods_nnan vt:$src2, i32:$src2_mods)))),
   (med3Inst $src0_mods, $src0, $src1_mods, $src1, $src2_mods, $src2, DSTCLAMP.NONE)
 >;

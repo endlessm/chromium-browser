@@ -320,6 +320,7 @@ def int_gcwrite : Intrinsic<[],
 def int_returnaddress : Intrinsic<[llvm_ptr_ty], [llvm_i32_ty], [IntrNoMem]>;
 def int_addressofreturnaddress : Intrinsic<[llvm_ptr_ty], [], [IntrNoMem]>;
 def int_frameaddress  : Intrinsic<[llvm_ptr_ty], [llvm_i32_ty], [IntrNoMem]>;
+def int_sponentry  : Intrinsic<[llvm_ptr_ty], [], [IntrNoMem]>;
 def int_read_register  : Intrinsic<[llvm_anyint_ty], [llvm_metadata_ty],
                                    [IntrReadMem], "llvm.read_register">;
 def int_write_register : Intrinsic<[], [llvm_metadata_ty, llvm_anyint_ty],
@@ -453,6 +454,14 @@ def int_maxnum : Intrinsic<[llvm_anyfloat_ty],
   [LLVMMatchType<0>, LLVMMatchType<0>],
   [IntrNoMem, IntrSpeculatable, Commutative]
 >;
+def int_minimum : Intrinsic<[llvm_anyfloat_ty],
+  [LLVMMatchType<0>, LLVMMatchType<0>],
+  [IntrNoMem, IntrSpeculatable, Commutative]
+>;
+def int_maximum : Intrinsic<[llvm_anyfloat_ty],
+  [LLVMMatchType<0>, LLVMMatchType<0>],
+  [IntrNoMem, IntrSpeculatable, Commutative]
+>;
 
 // NOTE: these are internal interfaces.
 def int_setjmp     : Intrinsic<[llvm_i32_ty],  [llvm_ptr_ty]>;
@@ -557,9 +566,35 @@ let IntrProperties = [IntrInaccessibleMemOnly] in {
                                                          [ LLVMMatchType<0>,
                                                            llvm_metadata_ty,
                                                            llvm_metadata_ty ]>;
+  def int_experimental_constrained_maxnum : Intrinsic<[ llvm_anyfloat_ty ],
+                                                      [ LLVMMatchType<0>,
+                                                        LLVMMatchType<0>,
+                                                        llvm_metadata_ty,
+                                                        llvm_metadata_ty ]>;
+  def int_experimental_constrained_minnum : Intrinsic<[ llvm_anyfloat_ty ],
+                                                      [ LLVMMatchType<0>,
+                                                        LLVMMatchType<0>,
+                                                        llvm_metadata_ty,
+                                                        llvm_metadata_ty ]>;
+  def int_experimental_constrained_ceil : Intrinsic<[ llvm_anyfloat_ty ],
+                                                    [ LLVMMatchType<0>,
+                                                      llvm_metadata_ty,
+                                                      llvm_metadata_ty ]>;
+  def int_experimental_constrained_floor : Intrinsic<[ llvm_anyfloat_ty ],
+                                                     [ LLVMMatchType<0>,
+                                                       llvm_metadata_ty,
+                                                       llvm_metadata_ty ]>;
+  def int_experimental_constrained_round : Intrinsic<[ llvm_anyfloat_ty ],
+                                                     [ LLVMMatchType<0>,
+                                                      llvm_metadata_ty,
+                                                      llvm_metadata_ty ]>;
+  def int_experimental_constrained_trunc : Intrinsic<[ llvm_anyfloat_ty ],
+                                                     [ LLVMMatchType<0>,
+                                                       llvm_metadata_ty,
+                                                       llvm_metadata_ty ]>;
 }
 // FIXME: Add intrinsics for fcmp, fptrunc, fpext, fptoui and fptosi.
-// FIXME: Add intrinsics for fabs, copysign, floor, ceil, trunc and round?
+// FIXME: Add intrinsics for fabs and copysign? 
 
 
 //===------------------------- Expect Intrinsics --------------------------===//
@@ -699,6 +734,21 @@ def int_smul_with_overflow : Intrinsic<[llvm_anyint_ty, llvm_i1_ty],
 def int_umul_with_overflow : Intrinsic<[llvm_anyint_ty, llvm_i1_ty],
                                        [LLVMMatchType<0>, LLVMMatchType<0>],
                                        [IntrNoMem, IntrSpeculatable]>;
+
+//===------------------------- Fixed Point Intrinsics ---------------------===//
+//
+def int_sadd_sat : Intrinsic<[llvm_anyint_ty],
+                             [LLVMMatchType<0>, LLVMMatchType<0>],
+                             [IntrNoMem, IntrSpeculatable, Commutative]>;
+def int_uadd_sat : Intrinsic<[llvm_anyint_ty],
+                             [LLVMMatchType<0>, LLVMMatchType<0>],
+                             [IntrNoMem, IntrSpeculatable, Commutative]>;
+def int_ssub_sat : Intrinsic<[llvm_anyint_ty],
+                             [LLVMMatchType<0>, LLVMMatchType<0>],
+                             [IntrNoMem, IntrSpeculatable]>;
+def int_usub_sat : Intrinsic<[llvm_anyint_ty],
+                             [LLVMMatchType<0>, LLVMMatchType<0>],
+                             [IntrNoMem, IntrSpeculatable]>;
 
 //===------------------------- Memory Use Markers -------------------------===//
 //
@@ -849,6 +899,10 @@ def int_convert_from_fp16 : Intrinsic<[llvm_anyfloat_ty], [llvm_i16_ty]>;
 // maps to void __clear_cache() on supporting platforms
 def int_clear_cache : Intrinsic<[], [llvm_ptr_ty, llvm_ptr_ty],
                                 [], "llvm.clear_cache">;
+
+// Intrinsic to detect whether its argument is a constant.
+def int_is_constant : Intrinsic<[llvm_i1_ty], [llvm_any_ty], [IntrNoMem], "llvm.is.constant">;
+
 
 //===-------------------------- Masked Intrinsics -------------------------===//
 //

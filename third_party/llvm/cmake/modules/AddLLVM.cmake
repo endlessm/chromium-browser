@@ -635,6 +635,7 @@ macro(add_llvm_library name)
     set_property(GLOBAL APPEND PROPERTY LLVM_EXPORTS_BUILDTREE_ONLY ${name})
   else()
     if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "LTO" OR
+        ${name} STREQUAL "OptRemarks" OR
         (LLVM_LINK_LLVM_DYLIB AND ${name} STREQUAL "LLVM"))
       set(install_dir lib${LLVM_LIBDIR_SUFFIX})
       if(ARG_SHARED OR BUILD_SHARED_LIBS)
@@ -659,7 +660,7 @@ macro(add_llvm_library name)
               ${install_type} DESTINATION ${install_dir}
               COMPONENT ${name})
 
-      if (NOT CMAKE_CONFIGURATION_TYPES)
+      if (NOT LLVM_ENABLE_IDE)
         add_llvm_install_targets(install-${name}
                                  DEPENDS ${name}
                                  COMPONENT ${name})
@@ -890,7 +891,7 @@ macro(add_llvm_tool name)
               RUNTIME DESTINATION ${LLVM_TOOLS_INSTALL_DIR}
               COMPONENT ${name})
 
-      if (NOT CMAKE_CONFIGURATION_TYPES)
+      if (NOT LLVM_ENABLE_IDE)
         add_llvm_install_targets(install-${name}
                                  DEPENDS ${name}
                                  COMPONENT ${name})
@@ -928,7 +929,7 @@ macro(add_llvm_utility name)
     install (TARGETS ${name}
       RUNTIME DESTINATION ${LLVM_UTILS_INSTALL_DIR}
       COMPONENT ${name})
-    if (NOT CMAKE_CONFIGURATION_TYPES)
+    if (NOT LLVM_ENABLE_IDE)
       add_llvm_install_targets(install-${name}
                                DEPENDS ${name}
                                COMPONENT ${name})
@@ -1409,7 +1410,7 @@ function(add_lit_testsuite target comment)
 endfunction()
 
 function(add_lit_testsuites project directory)
-  if (NOT CMAKE_CONFIGURATION_TYPES)
+  if (NOT LLVM_ENABLE_IDE)
     cmake_parse_arguments(ARG "" "" "PARAMS;DEPENDS;ARGS" ${ARGN})
 
     # Search recursively for test directories by assuming anything not
@@ -1468,7 +1469,7 @@ function(llvm_install_library_symlink name dest type)
           CODE "install_symlink(${full_name} ${full_dest} ${output_dir})"
           COMPONENT ${component})
 
-  if (NOT CMAKE_CONFIGURATION_TYPES AND NOT ARG_ALWAYS_GENERATE)
+  if (NOT LLVM_ENABLE_IDE AND NOT ARG_ALWAYS_GENERATE)
     add_llvm_install_targets(install-${name}
                              DEPENDS ${name} ${dest} install-${dest}
                              COMPONENT ${name})
@@ -1501,7 +1502,7 @@ function(llvm_install_symlink name dest)
           CODE "install_symlink(${full_name} ${full_dest} ${LLVM_TOOLS_INSTALL_DIR})"
           COMPONENT ${component})
 
-  if (NOT CMAKE_CONFIGURATION_TYPES AND NOT ARG_ALWAYS_GENERATE)
+  if (NOT LLVM_ENABLE_IDE AND NOT ARG_ALWAYS_GENERATE)
     add_llvm_install_targets(install-${name}
                              DEPENDS ${name} ${dest} install-${dest}
                              COMPONENT ${name})

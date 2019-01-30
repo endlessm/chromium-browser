@@ -88,6 +88,7 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/IR/Statepoint.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/User.h"
@@ -121,6 +122,7 @@
 #include <vector>
 
 using namespace llvm;
+using namespace PatternMatch;
 
 #define DEBUG_TYPE "isel"
 
@@ -1824,7 +1826,6 @@ SelectionDAGBuilder::EmitBranchForMergedCondition(const Value *Cond,
   SwitchCases.push_back(CB);
 }
 
-/// FindMergedConditions - If Cond is an expression like
 void SelectionDAGBuilder::FindMergedConditions(const Value *Cond,
                                                MachineBasicBlock *TBB,
                                                MachineBasicBlock *FBB,
@@ -1836,13 +1837,12 @@ void SelectionDAGBuilder::FindMergedConditions(const Value *Cond,
                                                bool InvertCond) {
   // Skip over not part of the tree and remember to invert op and operands at
   // next level.
-  if (BinaryOperator::isNot(Cond) && Cond->hasOneUse()) {
-    const Value *CondOp = BinaryOperator::getNotArgument(Cond);
-    if (InBlock(CondOp, CurBB->getBasicBlock())) {
-      FindMergedConditions(CondOp, TBB, FBB, CurBB, SwitchBB, Opc, TProb, FProb,
-                           !InvertCond);
-      return;
-    }
+  Value *NotCond;
+  if (match(Cond, m_OneUse(m_Not(m_Value(NotCond)))) &&
+      InBlock(NotCond, CurBB->getBasicBlock())) {
+    FindMergedConditions(NotCond, TBB, FBB, CurBB, SwitchBB, Opc, TProb, FProb,
+                         !InvertCond);
+    return;
   }
 
   const Instruction *BOp = dyn_cast<Instruction>(Cond);
@@ -2972,16 +2972,16 @@ void SelectionDAGBuilder::visitSelect(const User &I) {
     case SPF_FMINNUM:
       switch (SPR.NaNBehavior) {
       case SPNB_NA: llvm_unreachable("No NaN behavior for FP op?");
-      case SPNB_RETURNS_NAN:   Opc = ISD::FMINNAN; break;
+      case SPNB_RETURNS_NAN:   Opc = ISD::FMINIMUM; break;
       case SPNB_RETURNS_OTHER: Opc = ISD::FMINNUM; break;
       case SPNB_RETURNS_ANY: {
         if (TLI.isOperationLegalOrCustom(ISD::FMINNUM, VT))
           Opc = ISD::FMINNUM;
-        else if (TLI.isOperationLegalOrCustom(ISD::FMINNAN, VT))
-          Opc = ISD::FMINNAN;
+        else if (TLI.isOperationLegalOrCustom(ISD::FMINIMUM, VT))
+          Opc = ISD::FMINIMUM;
         else if (UseScalarMinMax)
           Opc = TLI.isOperationLegalOrCustom(ISD::FMINNUM, VT.getScalarType()) ?
-            ISD::FMINNUM : ISD::FMINNAN;
+            ISD::FMINNUM : ISD::FMINIMUM;
         break;
       }
       }
@@ -2989,17 +2989,17 @@ void SelectionDAGBuilder::visitSelect(const User &I) {
     case SPF_FMAXNUM:
       switch (SPR.NaNBehavior) {
       case SPNB_NA: llvm_unreachable("No NaN behavior for FP op?");
-      case SPNB_RETURNS_NAN:   Opc = ISD::FMAXNAN; break;
+      case SPNB_RETURNS_NAN:   Opc = ISD::FMAXIMUM; break;
       case SPNB_RETURNS_OTHER: Opc = ISD::FMAXNUM; break;
       case SPNB_RETURNS_ANY:
 
         if (TLI.isOperationLegalOrCustom(ISD::FMAXNUM, VT))
           Opc = ISD::FMAXNUM;
-        else if (TLI.isOperationLegalOrCustom(ISD::FMAXNAN, VT))
-          Opc = ISD::FMAXNAN;
+        else if (TLI.isOperationLegalOrCustom(ISD::FMAXIMUM, VT))
+          Opc = ISD::FMAXIMUM;
         else if (UseScalarMinMax)
           Opc = TLI.isOperationLegalOrCustom(ISD::FMAXNUM, VT.getScalarType()) ?
-            ISD::FMAXNUM : ISD::FMAXNAN;
+            ISD::FMAXNUM : ISD::FMAXIMUM;
         break;
       }
       break;
@@ -5050,6 +5050,10 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     setValue(&I, DAG.getNode(ISD::ADDROFRETURNADDR, sdl,
                              TLI.getPointerTy(DAG.getDataLayout())));
     return nullptr;
+  case Intrinsic::sponentry:
+    setValue(&I, DAG.getNode(ISD::SPONENTRY, sdl,
+                             TLI.getPointerTy(DAG.getDataLayout())));
+    return nullptr;
   case Intrinsic::frameaddress:
     setValue(&I, DAG.getNode(ISD::FRAMEADDR, sdl,
                              TLI.getPointerTy(DAG.getDataLayout()),
@@ -5565,8 +5569,8 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
   case Intrinsic::minnum: {
     auto VT = getValue(I.getArgOperand(0)).getValueType();
     unsigned Opc =
-        I.hasNoNaNs() && TLI.isOperationLegalOrCustom(ISD::FMINNAN, VT)
-            ? ISD::FMINNAN
+        I.hasNoNaNs() && TLI.isOperationLegalOrCustom(ISD::FMINIMUM, VT)
+            ? ISD::FMINIMUM
             : ISD::FMINNUM;
     setValue(&I, DAG.getNode(Opc, sdl, VT,
                              getValue(I.getArgOperand(0)),
@@ -5576,14 +5580,26 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
   case Intrinsic::maxnum: {
     auto VT = getValue(I.getArgOperand(0)).getValueType();
     unsigned Opc =
-        I.hasNoNaNs() && TLI.isOperationLegalOrCustom(ISD::FMAXNAN, VT)
-            ? ISD::FMAXNAN
+        I.hasNoNaNs() && TLI.isOperationLegalOrCustom(ISD::FMAXIMUM, VT)
+            ? ISD::FMAXIMUM
             : ISD::FMAXNUM;
     setValue(&I, DAG.getNode(Opc, sdl, VT,
                              getValue(I.getArgOperand(0)),
                              getValue(I.getArgOperand(1))));
     return nullptr;
   }
+  case Intrinsic::minimum:
+    setValue(&I, DAG.getNode(ISD::FMINIMUM, sdl,
+                             getValue(I.getArgOperand(0)).getValueType(),
+                             getValue(I.getArgOperand(0)),
+                             getValue(I.getArgOperand(1))));
+    return nullptr;
+  case Intrinsic::maximum:
+    setValue(&I, DAG.getNode(ISD::FMAXIMUM, sdl,
+                             getValue(I.getArgOperand(0)).getValueType(),
+                             getValue(I.getArgOperand(0)),
+                             getValue(I.getArgOperand(1))));
+    return nullptr;
   case Intrinsic::copysign:
     setValue(&I, DAG.getNode(ISD::FCOPYSIGN, sdl,
                              getValue(I.getArgOperand(0)).getValueType(),
@@ -5615,6 +5631,12 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
   case Intrinsic::experimental_constrained_log2:
   case Intrinsic::experimental_constrained_rint:
   case Intrinsic::experimental_constrained_nearbyint:
+  case Intrinsic::experimental_constrained_maxnum:
+  case Intrinsic::experimental_constrained_minnum:
+  case Intrinsic::experimental_constrained_ceil:
+  case Intrinsic::experimental_constrained_floor:
+  case Intrinsic::experimental_constrained_round:
+  case Intrinsic::experimental_constrained_trunc:
     visitConstrainedFPIntrinsic(cast<ConstrainedFPIntrinsic>(I));
     return nullptr;
   case Intrinsic::fmuladd: {
@@ -5759,6 +5781,30 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     setValue(&I, DAG.getSelect(sdl, VT, IsZeroShift, IsFSHL ? X : Y, Or));
     return nullptr;
   }
+  case Intrinsic::sadd_sat: {
+    SDValue Op1 = getValue(I.getArgOperand(0));
+    SDValue Op2 = getValue(I.getArgOperand(1));
+    setValue(&I, DAG.getNode(ISD::SADDSAT, sdl, Op1.getValueType(), Op1, Op2));
+    return nullptr;
+  }
+  case Intrinsic::uadd_sat: {
+    SDValue Op1 = getValue(I.getArgOperand(0));
+    SDValue Op2 = getValue(I.getArgOperand(1));
+    setValue(&I, DAG.getNode(ISD::UADDSAT, sdl, Op1.getValueType(), Op1, Op2));
+    return nullptr;
+  }
+  case Intrinsic::ssub_sat: {
+    SDValue Op1 = getValue(I.getArgOperand(0));
+    SDValue Op2 = getValue(I.getArgOperand(1));
+    setValue(&I, DAG.getNode(ISD::SSUBSAT, sdl, Op1.getValueType(), Op1, Op2));
+    return nullptr;
+  }
+  case Intrinsic::usub_sat: {
+    SDValue Op1 = getValue(I.getArgOperand(0));
+    SDValue Op2 = getValue(I.getArgOperand(1));
+    setValue(&I, DAG.getNode(ISD::USUBSAT, sdl, Op1.getValueType(), Op1, Op2));
+    return nullptr;
+  }
   case Intrinsic::stacksave: {
     SDValue Op = getRoot();
     Res = DAG.getNode(
@@ -5851,6 +5897,13 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     setValue(&I, Res);
     return nullptr;
   }
+
+  case Intrinsic::is_constant:
+    // If this wasn't constant-folded away by now, then it's not a
+    // constant.
+    setValue(&I, DAG.getConstant(0, sdl, MVT::i1));
+    return nullptr;
+
   case Intrinsic::annotation:
   case Intrinsic::ptr_annotation:
   case Intrinsic::launder_invariant_group:
@@ -6270,11 +6323,11 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     return nullptr;
   }
 
-  case Intrinsic::wasm_landingpad_index: {
-    // TODO store landing pad index in a map, which will be used when generating
-    // LSDA information
+  case Intrinsic::wasm_landingpad_index:
+    // Information this intrinsic contained has been transferred to
+    // MachineFunction in SelectionDAGISel::PrepareEHLandingPad. We can safely
+    // delete it now.
     return nullptr;
-  }
   }
 }
 
@@ -6337,6 +6390,24 @@ void SelectionDAGBuilder::visitConstrainedFPIntrinsic(
     break;
   case Intrinsic::experimental_constrained_nearbyint:
     Opcode = ISD::STRICT_FNEARBYINT;
+    break;
+  case Intrinsic::experimental_constrained_maxnum:
+    Opcode = ISD::STRICT_FMAXNUM;
+    break;
+  case Intrinsic::experimental_constrained_minnum:
+    Opcode = ISD::STRICT_FMINNUM;
+    break;
+  case Intrinsic::experimental_constrained_ceil:
+    Opcode = ISD::STRICT_FCEIL;
+    break;
+  case Intrinsic::experimental_constrained_floor:
+    Opcode = ISD::STRICT_FFLOOR;
+    break;
+  case Intrinsic::experimental_constrained_round:
+    Opcode = ISD::STRICT_FROUND;
+    break;
+  case Intrinsic::experimental_constrained_trunc:
+    Opcode = ISD::STRICT_FTRUNC;
     break;
   }
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
@@ -6432,7 +6503,7 @@ SelectionDAGBuilder::lowerInvokable(TargetLowering::CallLoweringInfo &CLI,
       WinEHFuncInfo *EHInfo = DAG.getMachineFunction().getWinEHFuncInfo();
       EHInfo->addIPToStateRange(cast<InvokeInst>(CLI.CS.getInstruction()),
                                 BeginLabel, EndLabel);
-    } else {
+    } else if (!isScopedEHPersonality(Pers)) {
       MF.addInvoke(FuncInfo.MBBMap[EHPadBB], BeginLabel, EndLabel);
     }
   }
@@ -7949,7 +8020,8 @@ SDValue SelectionDAGBuilder::lowerRangeToAssertZExt(SelectionDAG &DAG,
     return Op;
 
   APInt Hi = CR.getUnsignedMax();
-  unsigned Bits = Hi.getActiveBits();
+  unsigned Bits = std::max(Hi.getActiveBits(),
+                           static_cast<unsigned>(IntegerType::MIN_INT_BITS));
 
   EVT SmallVT = EVT::getIntegerVT(*DAG.getContext(), Bits);
 
@@ -9237,7 +9309,7 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
 /// the end.
 void
 SelectionDAGBuilder::HandlePHINodesInSuccessorBlocks(const BasicBlock *LLVMBB) {
-  const TerminatorInst *TI = LLVMBB->getTerminator();
+  const Instruction *TI = LLVMBB->getTerminator();
 
   SmallPtrSet<MachineBasicBlock *, 4> SuccsHandled;
 

@@ -17,6 +17,7 @@
 #include "clang/AST/DeclOpenMP.h"
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/AST/StmtVisitor.h"
+#include "clang/Basic/Cuda.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 using namespace clang;
@@ -83,9 +84,9 @@ enum OpenMPRTLFunctionNVPTX {
   OMPRTL_NVPTX__kmpc_data_sharing_init_stack,
   /// Call to void __kmpc_data_sharing_init_stack_spmd();
   OMPRTL_NVPTX__kmpc_data_sharing_init_stack_spmd,
-  /// Call to void* __kmpc_data_sharing_push_stack(size_t size,
+  /// Call to void* __kmpc_data_sharing_coalesced_push_stack(size_t size,
   /// int16_t UseSharedMemory);
-  OMPRTL_NVPTX__kmpc_data_sharing_push_stack,
+  OMPRTL_NVPTX__kmpc_data_sharing_coalesced_push_stack,
   /// Call to void __kmpc_data_sharing_pop_stack(void *a);
   OMPRTL_NVPTX__kmpc_data_sharing_pop_stack,
   /// Call to void __kmpc_begin_sharing_variables(void ***args,
@@ -100,6 +101,11 @@ enum OpenMPRTLFunctionNVPTX {
   OMPRTL_NVPTX__kmpc_parallel_level,
   /// Call to int8_t __kmpc_is_spmd_exec_mode();
   OMPRTL_NVPTX__kmpc_is_spmd_exec_mode,
+  /// Call to void __kmpc_get_team_static_memory(const void *buf, size_t size,
+  /// int16_t is_shared, const void **res);
+  OMPRTL_NVPTX__kmpc_get_team_static_memory,
+  /// Call to void __kmpc_restore_team_static_memory(int16_t is_shared);
+  OMPRTL_NVPTX__kmpc_restore_team_static_memory,
 };
 
 /// Pre(post)-action for different OpenMP constructs specialized for NVPTX.
@@ -203,7 +209,8 @@ static RecordDecl *buildRecordForGlobalizedVars(
   std::stable_sort(GlobalizedVars.begin(), GlobalizedVars.end(),
                    stable_sort_comparator);
   // Build struct _globalized_locals_ty {
-  //         /*  globalized vars  */[32] align (max(decl_align, 128))
+  //         /*  globalized vars  */[WarSize] align (max(decl_align,
+  //         GlobalMemoryAlignment))
   //         /*  globalized vars  */ for EscapedDeclsForTeams
   //       };
   RecordDecl *GlobalizedRD = C.buildImplicitRecord("_globalized_locals_ty");
@@ -370,11 +377,16 @@ class CheckVarsEscapingDeclContext final
     }
   }
 
-  void buildRecordForGlobalizedVars() {
+  void buildRecordForGlobalizedVars(bool IsInTTDRegion) {
     assert(!GlobalizedRD &&
            "Record for globalized variables is built already.");
+    ArrayRef<const ValueDecl *> EscapedDeclsForParallel, EscapedDeclsForTeams;
+    if (IsInTTDRegion)
+      EscapedDeclsForTeams = EscapedDecls.getArrayRef();
+    else
+      EscapedDeclsForParallel = EscapedDecls.getArrayRef();
     GlobalizedRD = ::buildRecordForGlobalizedVars(
-        CGF.getContext(), EscapedDecls.getArrayRef(), llvm::None,
+        CGF.getContext(), EscapedDeclsForParallel, EscapedDeclsForTeams,
         MappedDeclsFields);
   }
 
@@ -521,9 +533,9 @@ public:
 
   /// Returns the record that handles all the escaped local variables and used
   /// instead of their original storage.
-  const RecordDecl *getGlobalizedRecord() {
+  const RecordDecl *getGlobalizedRecord(bool IsInTTDRegion) {
     if (!GlobalizedRD)
-      buildRecordForGlobalizedVars();
+      buildRecordForGlobalizedVars(IsInTTDRegion);
     return GlobalizedRD;
   }
 
@@ -1114,20 +1126,42 @@ void CGOpenMPRuntimeNVPTX::emitNonSPMDKernel(const OMPExecutableDirective &D,
                          CGOpenMPRuntimeNVPTX::WorkerFunctionState &WST)
         : EST(EST), WST(WST) {}
     void Enter(CodeGenFunction &CGF) override {
-      auto &RT = static_cast<CGOpenMPRuntimeNVPTX &>(CGF.CGM.getOpenMPRuntime());
+      auto &RT =
+          static_cast<CGOpenMPRuntimeNVPTX &>(CGF.CGM.getOpenMPRuntime());
       RT.emitNonSPMDEntryHeader(CGF, EST, WST);
       // Skip target region initialization.
       RT.setLocThreadIdInsertPt(CGF, /*AtCurrentPoint=*/true);
     }
     void Exit(CodeGenFunction &CGF) override {
-      auto &RT = static_cast<CGOpenMPRuntimeNVPTX &>(CGF.CGM.getOpenMPRuntime());
+      auto &RT =
+          static_cast<CGOpenMPRuntimeNVPTX &>(CGF.CGM.getOpenMPRuntime());
       RT.clearLocThreadIdInsertPt(CGF);
       RT.emitNonSPMDEntryFooter(CGF, EST);
     }
   } Action(EST, WST);
   CodeGen.setAction(Action);
+  IsInTTDRegion = true;
+  // Reserve place for the globalized memory.
+  GlobalizedRecords.emplace_back();
+  if (!StaticGlobalized) {
+    StaticGlobalized = new llvm::GlobalVariable(
+        CGM.getModule(), CGM.VoidPtrTy, /*isConstant=*/true,
+        llvm::GlobalValue::WeakAnyLinkage, nullptr,
+        "_openmp_static_glob_rd$ptr");
+    StaticGlobalized->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+  }
+  if (!KernelStaticGlobalized) {
+    KernelStaticGlobalized = new llvm::GlobalVariable(
+        CGM.getModule(), CGM.VoidPtrTy, /*isConstant=*/false,
+        llvm::GlobalValue::InternalLinkage,
+        llvm::ConstantPointerNull::get(CGM.VoidPtrTy),
+        "_openmp_kernel_static_glob_rd$ptr", /*InsertBefore=*/nullptr,
+        llvm::GlobalValue::NotThreadLocal,
+        CGM.getContext().getTargetAddressSpace(LangAS::cuda_shared));
+  }
   emitTargetOutlinedFunctionHelper(D, ParentName, OutlinedFn, OutlinedFnID,
                                    IsOffloadEntry, CodeGen);
+  IsInTTDRegion = false;
 
   // Now change the name of the worker function to correspond to this target
   // region's entry function.
@@ -1240,8 +1274,28 @@ void CGOpenMPRuntimeNVPTX::emitSPMDKernel(const OMPExecutableDirective &D,
     }
   } Action(*this, EST, D);
   CodeGen.setAction(Action);
+  IsInTTDRegion = true;
+  // Reserve place for the globalized memory.
+  GlobalizedRecords.emplace_back();
+  if (!StaticGlobalized) {
+    StaticGlobalized = new llvm::GlobalVariable(
+        CGM.getModule(), CGM.VoidPtrTy, /*isConstant=*/true,
+        llvm::GlobalValue::WeakAnyLinkage, nullptr,
+        "_openmp_static_glob_rd$ptr");
+    StaticGlobalized->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+  }
+  if (!KernelStaticGlobalized) {
+    KernelStaticGlobalized = new llvm::GlobalVariable(
+        CGM.getModule(), CGM.VoidPtrTy, /*isConstant=*/false,
+        llvm::GlobalValue::InternalLinkage,
+        llvm::ConstantPointerNull::get(CGM.VoidPtrTy),
+        "_openmp_kernel_static_glob_rd$ptr", /*InsertBefore=*/nullptr,
+        llvm::GlobalValue::NotThreadLocal,
+        CGM.getContext().getTargetAddressSpace(LangAS::cuda_shared));
+  }
   emitTargetOutlinedFunctionHelper(D, ParentName, OutlinedFn, OutlinedFnID,
                                    IsOffloadEntry, CodeGen);
+  IsInTTDRegion = false;
 }
 
 static void
@@ -1691,14 +1745,14 @@ CGOpenMPRuntimeNVPTX::createNVPTXRuntimeFunction(unsigned Function) {
         CGM.CreateRuntimeFunction(FnTy, "__kmpc_data_sharing_init_stack_spmd");
     break;
   }
-  case OMPRTL_NVPTX__kmpc_data_sharing_push_stack: {
-    // Build void *__kmpc_data_sharing_push_stack(size_t size,
+  case OMPRTL_NVPTX__kmpc_data_sharing_coalesced_push_stack: {
+    // Build void *__kmpc_data_sharing_coalesced_push_stack(size_t size,
     // int16_t UseSharedMemory);
     llvm::Type *TypeParams[] = {CGM.SizeTy, CGM.Int16Ty};
     auto *FnTy =
         llvm::FunctionType::get(CGM.VoidPtrTy, TypeParams, /*isVarArg=*/false);
     RTLFn = CGM.CreateRuntimeFunction(
-        FnTy, /*Name=*/"__kmpc_data_sharing_push_stack");
+        FnTy, /*Name=*/"__kmpc_data_sharing_coalesced_push_stack");
     break;
   }
   case OMPRTL_NVPTX__kmpc_data_sharing_pop_stack: {
@@ -1746,6 +1800,24 @@ CGOpenMPRuntimeNVPTX::createNVPTXRuntimeFunction(unsigned Function) {
     // Build int8_t __kmpc_is_spmd_exec_mode();
     auto *FnTy = llvm::FunctionType::get(CGM.Int8Ty, /*isVarArg=*/false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "__kmpc_is_spmd_exec_mode");
+    break;
+  }
+  case OMPRTL_NVPTX__kmpc_get_team_static_memory: {
+    // Build void __kmpc_get_team_static_memory(const void *buf, size_t size,
+    // int16_t is_shared, const void **res);
+    llvm::Type *TypeParams[] = {CGM.VoidPtrTy, CGM.SizeTy, CGM.Int16Ty,
+                                CGM.VoidPtrPtrTy};
+    auto *FnTy =
+        llvm::FunctionType::get(CGM.VoidTy, TypeParams, /*isVarArg*/ false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "__kmpc_get_team_static_memory");
+    break;
+  }
+  case OMPRTL_NVPTX__kmpc_restore_team_static_memory: {
+    // Build void __kmpc_restore_team_static_memory(int16_t is_shared);
+    auto *FnTy =
+        llvm::FunctionType::get(CGM.VoidTy, CGM.Int16Ty, /*isVarArg=*/false);
+    RTLFn =
+        CGM.CreateRuntimeFunction(FnTy, "__kmpc_restore_team_static_memory");
     break;
   }
   }
@@ -1845,12 +1917,15 @@ llvm::Value *CGOpenMPRuntimeNVPTX::emitParallelOutlinedFunction(
     }
   } Action(IsInParallelRegion);
   CodeGen.setAction(Action);
+  bool PrevIsInTTDRegion = IsInTTDRegion;
+  IsInTTDRegion = false;
   bool PrevIsInTargetMasterThreadRegion = IsInTargetMasterThreadRegion;
   IsInTargetMasterThreadRegion = false;
   auto *OutlinedFun =
       cast<llvm::Function>(CGOpenMPRuntime::emitParallelOutlinedFunction(
           D, ThreadIDVar, InnermostKind, CodeGen));
   IsInTargetMasterThreadRegion = PrevIsInTargetMasterThreadRegion;
+  IsInTTDRegion = PrevIsInTTDRegion;
   if (getExecutionMode() != CGOpenMPRuntimeNVPTX::EM_SPMD &&
       !IsInParallelRegion) {
     llvm::Function *WrapperFun =
@@ -1966,6 +2041,7 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsProlog(CodeGenFunction &CGF,
     return;
   if (const RecordDecl *GlobalizedVarsRecord = I->getSecond().GlobalRecord) {
     QualType GlobalRecTy = CGM.getContext().getRecordType(GlobalizedVarsRecord);
+    QualType SecGlobalRecTy;
 
     // Recover pointer to this function's global record. The runtime will
     // handle the specifics of the allocation of the memory.
@@ -1980,11 +2056,21 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsProlog(CodeGenFunction &CGF,
     llvm::PointerType *GlobalRecPtrTy =
         CGF.ConvertTypeForMem(GlobalRecTy)->getPointerTo();
     llvm::Value *GlobalRecCastAddr;
-    if (WithSPMDCheck ||
-        getExecutionMode() == CGOpenMPRuntimeNVPTX::EM_Unknown) {
+    llvm::Value *IsTTD = nullptr;
+    if (!IsInTTDRegion &&
+        (WithSPMDCheck ||
+         getExecutionMode() == CGOpenMPRuntimeNVPTX::EM_Unknown)) {
       llvm::BasicBlock *ExitBB = CGF.createBasicBlock(".exit");
       llvm::BasicBlock *SPMDBB = CGF.createBasicBlock(".spmd");
       llvm::BasicBlock *NonSPMDBB = CGF.createBasicBlock(".non-spmd");
+      if (I->getSecond().SecondaryGlobalRecord.hasValue()) {
+        llvm::Value *RTLoc = emitUpdateLocation(CGF, Loc);
+        llvm::Value *ThreadID = getThreadID(CGF, Loc);
+        llvm::Value *PL = CGF.EmitRuntimeCall(
+            createNVPTXRuntimeFunction(OMPRTL_NVPTX__kmpc_parallel_level),
+            {RTLoc, ThreadID});
+        IsTTD = Bld.CreateIsNull(PL);
+      }
       llvm::Value *IsSPMD = Bld.CreateIsNotNull(CGF.EmitNounwindRuntimeCall(
           createNVPTXRuntimeFunction(OMPRTL_NVPTX__kmpc_is_spmd_exec_mode)));
       Bld.CreateCondBr(IsSPMD, SPMDBB, NonSPMDBB);
@@ -1997,15 +2083,32 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsProlog(CodeGenFunction &CGF,
       // There is no need to emit line number for unconditional branch.
       (void)ApplyDebugLocation::CreateEmpty(CGF);
       CGF.EmitBlock(NonSPMDBB);
+      llvm::Value *Size = llvm::ConstantInt::get(CGM.SizeTy, GlobalRecordSize);
+      if (const RecordDecl *SecGlobalizedVarsRecord =
+              I->getSecond().SecondaryGlobalRecord.getValueOr(nullptr)) {
+        SecGlobalRecTy =
+            CGM.getContext().getRecordType(SecGlobalizedVarsRecord);
+
+        // Recover pointer to this function's global record. The runtime will
+        // handle the specifics of the allocation of the memory.
+        // Use actual memory size of the record including the padding
+        // for alignment purposes.
+        unsigned Alignment =
+            CGM.getContext().getTypeAlignInChars(SecGlobalRecTy).getQuantity();
+        unsigned GlobalRecordSize =
+            CGM.getContext().getTypeSizeInChars(SecGlobalRecTy).getQuantity();
+        GlobalRecordSize = llvm::alignTo(GlobalRecordSize, Alignment);
+        Size = Bld.CreateSelect(
+            IsTTD, llvm::ConstantInt::get(CGM.SizeTy, GlobalRecordSize), Size);
+      }
       // TODO: allow the usage of shared memory to be controlled by
       // the user, for now, default to global.
       llvm::Value *GlobalRecordSizeArg[] = {
-          llvm::ConstantInt::get(CGM.SizeTy, GlobalRecordSize),
-          CGF.Builder.getInt16(/*UseSharedMemory=*/0)};
-      llvm::Value *GlobalRecValue =
-          CGF.EmitRuntimeCall(createNVPTXRuntimeFunction(
-                                  OMPRTL_NVPTX__kmpc_data_sharing_push_stack),
-                              GlobalRecordSizeArg);
+          Size, CGF.Builder.getInt16(/*UseSharedMemory=*/0)};
+      llvm::Value *GlobalRecValue = CGF.EmitRuntimeCall(
+          createNVPTXRuntimeFunction(
+              OMPRTL_NVPTX__kmpc_data_sharing_coalesced_push_stack),
+          GlobalRecordSizeArg);
       GlobalRecCastAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(
           GlobalRecValue, GlobalRecPtrTy);
       CGF.EmitBlock(ExitBB);
@@ -2016,16 +2119,73 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsProlog(CodeGenFunction &CGF,
       GlobalRecCastAddr = Phi;
       I->getSecond().GlobalRecordAddr = Phi;
       I->getSecond().IsInSPMDModeFlag = IsSPMD;
+    } else if (IsInTTDRegion) {
+      assert(GlobalizedRecords.back().Records.size() < 2 &&
+             "Expected less than 2 globalized records: one for target and one "
+             "for teams.");
+      unsigned Offset = 0;
+      for (const RecordDecl *RD : GlobalizedRecords.back().Records) {
+        QualType RDTy = CGM.getContext().getRecordType(RD);
+        unsigned Alignment =
+            CGM.getContext().getTypeAlignInChars(RDTy).getQuantity();
+        unsigned Size = CGM.getContext().getTypeSizeInChars(RDTy).getQuantity();
+        Offset =
+            llvm::alignTo(llvm::alignTo(Offset, Alignment) + Size, Alignment);
+      }
+      unsigned Alignment =
+          CGM.getContext().getTypeAlignInChars(GlobalRecTy).getQuantity();
+      Offset = llvm::alignTo(Offset, Alignment);
+      GlobalizedRecords.back().Records.push_back(GlobalizedVarsRecord);
+      ++GlobalizedRecords.back().RegionCounter;
+      if (GlobalizedRecords.back().Records.size() == 1) {
+        assert(StaticGlobalized &&
+               "Static pointer must be initialized already.");
+        Address Buffer = CGF.EmitLoadOfPointer(
+            Address(StaticGlobalized, CGM.getPointerAlign()),
+            CGM.getContext()
+                .getPointerType(CGM.getContext().VoidPtrTy)
+                .castAs<PointerType>());
+        auto *RecSize = new llvm::GlobalVariable(
+            CGM.getModule(), CGM.SizeTy, /*isConstant=*/true,
+            llvm::GlobalValue::InternalLinkage, nullptr,
+            "_openmp_static_kernel$size");
+        RecSize->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+        llvm::Value *Ld = CGF.EmitLoadOfScalar(
+            Address(RecSize, CGM.getPointerAlign()), /*Volatile=*/false,
+            CGM.getContext().getSizeType(), Loc);
+        llvm::Value *ResAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(
+            KernelStaticGlobalized, CGM.VoidPtrPtrTy);
+        llvm::Value *GlobalRecordSizeArg[] = {
+            Buffer.getPointer(), Ld,
+            llvm::ConstantInt::getNullValue(CGM.Int16Ty), ResAddr};
+        CGF.EmitRuntimeCall(createNVPTXRuntimeFunction(
+                                OMPRTL_NVPTX__kmpc_get_team_static_memory),
+                            GlobalRecordSizeArg);
+        GlobalizedRecords.back().RecSize = RecSize;
+      }
+      assert(KernelStaticGlobalized && "Global address must be set already.");
+      Address FrameAddr = CGF.EmitLoadOfPointer(
+          Address(KernelStaticGlobalized, CGM.getPointerAlign()),
+          CGM.getContext()
+              .getPointerType(CGM.getContext().VoidPtrTy)
+              .castAs<PointerType>());
+      llvm::Value *GlobalRecValue =
+          Bld.CreateConstInBoundsGEP(FrameAddr, Offset, CharUnits::One())
+              .getPointer();
+      I->getSecond().GlobalRecordAddr = GlobalRecValue;
+      I->getSecond().IsInSPMDModeFlag = nullptr;
+      GlobalRecCastAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(
+          GlobalRecValue, CGF.ConvertTypeForMem(GlobalRecTy)->getPointerTo());
     } else {
       // TODO: allow the usage of shared memory to be controlled by
       // the user, for now, default to global.
       llvm::Value *GlobalRecordSizeArg[] = {
           llvm::ConstantInt::get(CGM.SizeTy, GlobalRecordSize),
           CGF.Builder.getInt16(/*UseSharedMemory=*/0)};
-      llvm::Value *GlobalRecValue =
-          CGF.EmitRuntimeCall(createNVPTXRuntimeFunction(
-                                  OMPRTL_NVPTX__kmpc_data_sharing_push_stack),
-                              GlobalRecordSizeArg);
+      llvm::Value *GlobalRecValue = CGF.EmitRuntimeCall(
+          createNVPTXRuntimeFunction(
+              OMPRTL_NVPTX__kmpc_data_sharing_coalesced_push_stack),
+          GlobalRecordSizeArg);
       GlobalRecCastAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(
           GlobalRecValue, GlobalRecPtrTy);
       I->getSecond().GlobalRecordAddr = GlobalRecValue;
@@ -2036,6 +2196,17 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsProlog(CodeGenFunction &CGF,
 
     // Emit the "global alloca" which is a GEP from the global declaration
     // record using the pointer returned by the runtime.
+    LValue SecBase;
+    decltype(I->getSecond().LocalVarData)::const_iterator SecIt;
+    if (IsTTD) {
+      SecIt = I->getSecond().SecondaryLocalVarData->begin();
+      llvm::PointerType *SecGlobalRecPtrTy =
+          CGF.ConvertTypeForMem(SecGlobalRecTy)->getPointerTo();
+      SecBase = CGF.MakeNaturalAlignPointeeAddrLValue(
+          Bld.CreatePointerBitCastOrAddrSpaceCast(
+              I->getSecond().GlobalRecordAddr, SecGlobalRecPtrTy),
+          SecGlobalRecTy);
+    }
     for (auto &Rec : I->getSecond().LocalVarData) {
       bool EscapedParam = I->getSecond().EscapedParameters.count(Rec.first);
       llvm::Value *ParValue;
@@ -2049,23 +2220,33 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsProlog(CodeGenFunction &CGF,
       // Emit VarAddr basing on lane-id if required.
       QualType VarTy;
       if (Rec.second.IsOnePerTeam) {
-        Rec.second.PrivateAddr = VarAddr.getAddress();
         VarTy = Rec.second.FD->getType();
       } else {
         llvm::Value *Ptr = CGF.Builder.CreateInBoundsGEP(
             VarAddr.getAddress().getPointer(),
             {Bld.getInt32(0), getNVPTXLaneID(CGF)});
-        Rec.second.PrivateAddr =
-            Address(Ptr, CGM.getContext().getDeclAlign(Rec.first));
         VarTy =
             Rec.second.FD->getType()->castAsArrayTypeUnsafe()->getElementType();
-        VarAddr = CGF.MakeAddrLValue(Rec.second.PrivateAddr, VarTy,
-                                     AlignmentSource::Decl);
+        VarAddr = CGF.MakeAddrLValue(
+            Address(Ptr, CGM.getContext().getDeclAlign(Rec.first)), VarTy,
+            AlignmentSource::Decl);
       }
-      if (WithSPMDCheck ||
-                getExecutionMode() == CGOpenMPRuntimeNVPTX::EM_Unknown) {
+      Rec.second.PrivateAddr = VarAddr.getAddress();
+      if (!IsInTTDRegion &&
+          (WithSPMDCheck ||
+           getExecutionMode() == CGOpenMPRuntimeNVPTX::EM_Unknown)) {
         assert(I->getSecond().IsInSPMDModeFlag &&
                "Expected unknown execution mode or required SPMD check.");
+        if (IsTTD) {
+          assert(SecIt->second.IsOnePerTeam &&
+                 "Secondary glob data must be one per team.");
+          LValue SecVarAddr = CGF.EmitLValueForField(SecBase, SecIt->second.FD);
+          VarAddr.setAddress(
+              Address(Bld.CreateSelect(IsTTD, SecVarAddr.getPointer(),
+                                       VarAddr.getPointer()),
+                      VarAddr.getAlignment()));
+          Rec.second.PrivateAddr = VarAddr.getAddress();
+        }
         Address GlobalPtr = Rec.second.PrivateAddr;
         Address LocalAddr = CGF.CreateMemTemp(VarTy, Rec.second.FD->getName());
         Rec.second.PrivateAddr = Address(
@@ -2078,6 +2259,8 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsProlog(CodeGenFunction &CGF,
         CGF.EmitStoreOfScalar(ParValue, VarAddr);
         I->getSecond().MappedParams->setVarAddr(CGF, VD, VarAddr.getAddress());
       }
+      if (IsTTD)
+        ++SecIt;
     }
   }
   for (const ValueDecl *VD : I->getSecond().EscapedVariableLengthDecls) {
@@ -2099,7 +2282,8 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsProlog(CodeGenFunction &CGF,
     llvm::Value *GlobalRecordSizeArg[] = {
         Size, CGF.Builder.getInt16(/*UseSharedMemory=*/0)};
     llvm::Value *GlobalRecValue = CGF.EmitRuntimeCall(
-        createNVPTXRuntimeFunction(OMPRTL_NVPTX__kmpc_data_sharing_push_stack),
+        createNVPTXRuntimeFunction(
+            OMPRTL_NVPTX__kmpc_data_sharing_coalesced_push_stack),
         GlobalRecordSizeArg);
     llvm::Value *GlobalRecCastAddr = Bld.CreatePointerBitCastOrAddrSpaceCast(
         GlobalRecValue, CGF.ConvertTypeForMem(VD->getType())->getPointerTo());
@@ -2131,8 +2315,9 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsEpilog(CodeGenFunction &CGF,
           Addr);
     }
     if (I->getSecond().GlobalRecordAddr) {
-      if (WithSPMDCheck ||
-          getExecutionMode() == CGOpenMPRuntimeNVPTX::EM_Unknown) {
+      if (!IsInTTDRegion &&
+          (WithSPMDCheck ||
+           getExecutionMode() == CGOpenMPRuntimeNVPTX::EM_Unknown)) {
         CGBuilderTy &Bld = CGF.Builder;
         llvm::BasicBlock *ExitBB = CGF.createBasicBlock(".exit");
         llvm::BasicBlock *NonSPMDBB = CGF.createBasicBlock(".non-spmd");
@@ -2145,6 +2330,17 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsEpilog(CodeGenFunction &CGF,
                 OMPRTL_NVPTX__kmpc_data_sharing_pop_stack),
             CGF.EmitCastToVoidPtr(I->getSecond().GlobalRecordAddr));
         CGF.EmitBlock(ExitBB);
+      } else if (IsInTTDRegion) {
+        assert(GlobalizedRecords.back().RegionCounter > 0 &&
+               "region counter must be > 0.");
+        --GlobalizedRecords.back().RegionCounter;
+        // Emit the restore function only in the target region.
+        if (GlobalizedRecords.back().RegionCounter == 0) {
+          CGF.EmitRuntimeCall(
+              createNVPTXRuntimeFunction(
+                  OMPRTL_NVPTX__kmpc_restore_team_static_memory),
+              llvm::ConstantInt::getNullValue(CGM.Int16Ty));
+        }
       } else {
         CGF.EmitRuntimeCall(createNVPTXRuntimeFunction(
                                 OMPRTL_NVPTX__kmpc_data_sharing_pop_stack),
@@ -4087,7 +4283,8 @@ void CGOpenMPRuntimeNVPTX::emitFunctionProlog(CodeGenFunction &CGF,
     return;
   CheckVarsEscapingDeclContext VarChecker(CGF);
   VarChecker.Visit(Body);
-  const RecordDecl *GlobalizedVarsRecord = VarChecker.getGlobalizedRecord();
+  const RecordDecl *GlobalizedVarsRecord =
+      VarChecker.getGlobalizedRecord(IsInTTDRegion);
   ArrayRef<const ValueDecl *> EscapedVariableLengthDecls =
       VarChecker.getEscapedVariableLengthDecls();
   if (!GlobalizedVarsRecord && EscapedVariableLengthDecls.empty())
@@ -4105,7 +4302,21 @@ void CGOpenMPRuntimeNVPTX::emitFunctionProlog(CodeGenFunction &CGF,
   for (const ValueDecl *VD : VarChecker.getEscapedDecls()) {
     assert(VD->isCanonicalDecl() && "Expected canonical declaration");
     const FieldDecl *FD = VarChecker.getFieldForGlobalizedVar(VD);
-    Data.insert(std::make_pair(VD, MappedVarData(FD)));
+    Data.insert(std::make_pair(VD, MappedVarData(FD, IsInTTDRegion)));
+  }
+  if (!IsInTTDRegion && !NeedToDelayGlobalization && !IsInParallelRegion) {
+    CheckVarsEscapingDeclContext VarChecker(CGF);
+    VarChecker.Visit(Body);
+    I->getSecond().SecondaryGlobalRecord =
+        VarChecker.getGlobalizedRecord(/*IsInTTDRegion=*/true);
+    I->getSecond().SecondaryLocalVarData.emplace();
+    DeclToAddrMapTy &Data = I->getSecond().SecondaryLocalVarData.getValue();
+    for (const ValueDecl *VD : VarChecker.getEscapedDecls()) {
+      assert(VD->isCanonicalDecl() && "Expected canonical declaration");
+      const FieldDecl *FD = VarChecker.getFieldForGlobalizedVar(VD);
+      Data.insert(
+          std::make_pair(VD, MappedVarData(FD, /*IsInTTDRegion=*/true)));
+    }
   }
   if (!NeedToDelayGlobalization) {
     emitGenericVarsProlog(CGF, D->getBeginLoc(), /*WithSPMDCheck=*/true);
@@ -4161,16 +4372,189 @@ void CGOpenMPRuntimeNVPTX::getDefaultDistScheduleAndChunk(
     Chunk = CGF.EmitScalarConversion(getNVPTXNumThreads(CGF),
         CGF.getContext().getIntTypeForBitwidth(32, /*Signed=*/0),
         S.getIterationVariable()->getType(), S.getBeginLoc());
+    return;
   }
+  CGOpenMPRuntime::getDefaultDistScheduleAndChunk(
+      CGF, S, ScheduleKind, Chunk);
 }
 
 void CGOpenMPRuntimeNVPTX::getDefaultScheduleAndChunk(
     CodeGenFunction &CGF, const OMPLoopDirective &S,
     OpenMPScheduleClauseKind &ScheduleKind,
-    llvm::Value *&Chunk) const {
-  if (getExecutionMode() == CGOpenMPRuntimeNVPTX::EM_SPMD) {
-    ScheduleKind = OMPC_SCHEDULE_static;
-    Chunk = CGF.Builder.getIntN(CGF.getContext().getTypeSize(
-        S.getIterationVariable()->getType()), 1);
+    const Expr *&ChunkExpr) const {
+  ScheduleKind = OMPC_SCHEDULE_static;
+  // Chunk size is 1 in this case.
+  llvm::APInt ChunkSize(32, 1);
+  ChunkExpr = IntegerLiteral::Create(CGF.getContext(), ChunkSize,
+      CGF.getContext().getIntTypeForBitwidth(32, /*Signed=*/0),
+      SourceLocation());
+}
+
+void CGOpenMPRuntimeNVPTX::adjustTargetSpecificDataForLambdas(
+    CodeGenFunction &CGF, const OMPExecutableDirective &D) const {
+  assert(isOpenMPTargetExecutionDirective(D.getDirectiveKind()) &&
+         " Expected target-based directive.");
+  const CapturedStmt *CS = D.getCapturedStmt(OMPD_target);
+  for (const CapturedStmt::Capture &C : CS->captures()) {
+    // Capture variables captured by reference in lambdas for target-based
+    // directives.
+    if (!C.capturesVariable())
+      continue;
+    const VarDecl *VD = C.getCapturedVar();
+    const auto *RD = VD->getType()
+                         .getCanonicalType()
+                         .getNonReferenceType()
+                         ->getAsCXXRecordDecl();
+    if (!RD || !RD->isLambda())
+      continue;
+    Address VDAddr = CGF.GetAddrOfLocalVar(VD);
+    LValue VDLVal;
+    if (VD->getType().getCanonicalType()->isReferenceType())
+      VDLVal = CGF.EmitLoadOfReferenceLValue(VDAddr, VD->getType());
+    else
+      VDLVal = CGF.MakeAddrLValue(
+          VDAddr, VD->getType().getCanonicalType().getNonReferenceType());
+    llvm::DenseMap<const VarDecl *, FieldDecl *> Captures;
+    FieldDecl *ThisCapture = nullptr;
+    RD->getCaptureFields(Captures, ThisCapture);
+    if (ThisCapture && CGF.CapturedStmtInfo->isCXXThisExprCaptured()) {
+      LValue ThisLVal =
+          CGF.EmitLValueForFieldInitialization(VDLVal, ThisCapture);
+      llvm::Value *CXXThis = CGF.LoadCXXThis();
+      CGF.EmitStoreOfScalar(CXXThis, ThisLVal);
+    }
+    for (const LambdaCapture &LC : RD->captures()) {
+      if (LC.getCaptureKind() != LCK_ByRef)
+        continue;
+      const VarDecl *VD = LC.getCapturedVar();
+      if (!CS->capturesVariable(VD))
+        continue;
+      auto It = Captures.find(VD);
+      assert(It != Captures.end() && "Found lambda capture without field.");
+      LValue VarLVal = CGF.EmitLValueForFieldInitialization(VDLVal, It->second);
+      Address VDAddr = CGF.GetAddrOfLocalVar(VD);
+      if (VD->getType().getCanonicalType()->isReferenceType())
+        VDAddr = CGF.EmitLoadOfReferenceLValue(VDAddr,
+                                               VD->getType().getCanonicalType())
+                     .getAddress();
+      CGF.EmitStoreOfScalar(VDAddr.getPointer(), VarLVal);
+    }
   }
+}
+
+/// Get number of SMs and number of blocks per SM.
+static std::pair<unsigned, unsigned> getSMsBlocksPerSM(CodeGenModule &CGM) {
+  std::pair<unsigned, unsigned> Data;
+  if (CGM.getLangOpts().OpenMPCUDANumSMs)
+    Data.first = CGM.getLangOpts().OpenMPCUDANumSMs;
+  if (CGM.getLangOpts().OpenMPCUDABlocksPerSM)
+    Data.second = CGM.getLangOpts().OpenMPCUDABlocksPerSM;
+  if (Data.first && Data.second)
+    return Data;
+  if (CGM.getTarget().hasFeature("ptx")) {
+    llvm::StringMap<bool> Features;
+    CGM.getTarget().initFeatureMap(Features, CGM.getDiags(),
+                                   CGM.getTarget().getTargetOpts().CPU,
+                                   CGM.getTarget().getTargetOpts().Features);
+    for (const auto &Feature : Features) {
+      if (Feature.getValue()) {
+        switch (StringToCudaArch(Feature.getKey())) {
+        case CudaArch::SM_20:
+        case CudaArch::SM_21:
+        case CudaArch::SM_30:
+        case CudaArch::SM_32:
+        case CudaArch::SM_35:
+        case CudaArch::SM_37:
+        case CudaArch::SM_50:
+        case CudaArch::SM_52:
+        case CudaArch::SM_53:
+          return {16, 16};
+        case CudaArch::SM_60:
+        case CudaArch::SM_61:
+        case CudaArch::SM_62:
+          return {56, 32};
+        case CudaArch::SM_70:
+        case CudaArch::SM_72:
+        case CudaArch::SM_75:
+          return {84, 32};
+        case CudaArch::GFX600:
+        case CudaArch::GFX601:
+        case CudaArch::GFX700:
+        case CudaArch::GFX701:
+        case CudaArch::GFX702:
+        case CudaArch::GFX703:
+        case CudaArch::GFX704:
+        case CudaArch::GFX801:
+        case CudaArch::GFX802:
+        case CudaArch::GFX803:
+        case CudaArch::GFX810:
+        case CudaArch::GFX900:
+        case CudaArch::GFX902:
+        case CudaArch::GFX904:
+        case CudaArch::GFX906:
+        case CudaArch::GFX909:
+        case CudaArch::UNKNOWN:
+          break;
+        case CudaArch::LAST:
+          llvm_unreachable("Unexpected Cuda arch.");
+        }
+      }
+    }
+  }
+  llvm_unreachable("Unexpected NVPTX target without ptx feature.");
+}
+
+void CGOpenMPRuntimeNVPTX::clear() {
+  if (!GlobalizedRecords.empty()) {
+    ASTContext &C = CGM.getContext();
+    RecordDecl *StaticRD = C.buildImplicitRecord(
+        "_openmp_static_memory_type_$_", RecordDecl::TagKind::TTK_Union);
+    StaticRD->startDefinition();
+    for (const GlobalPtrSizeRecsTy &Records : GlobalizedRecords) {
+      if (Records.Records.empty())
+        continue;
+      unsigned Size = 0;
+      unsigned RecAlignment = 0;
+      for (const RecordDecl *RD : Records.Records) {
+        QualType RDTy = CGM.getContext().getRecordType(RD);
+        unsigned Alignment =
+            CGM.getContext().getTypeAlignInChars(RDTy).getQuantity();
+        RecAlignment = std::max(RecAlignment, Alignment);
+        unsigned RecSize =
+            CGM.getContext().getTypeSizeInChars(RDTy).getQuantity();
+        Size =
+            llvm::alignTo(llvm::alignTo(Size, Alignment) + RecSize, Alignment);
+      }
+      Size = llvm::alignTo(Size, RecAlignment);
+      llvm::APInt ArySize(/*numBits=*/64, Size);
+      QualType SubTy = C.getConstantArrayType(
+          C.CharTy, ArySize, ArrayType::Normal, /*IndexTypeQuals=*/0);
+      auto *Field = FieldDecl::Create(
+          C, StaticRD, SourceLocation(), SourceLocation(), nullptr, SubTy,
+          C.getTrivialTypeSourceInfo(SubTy, SourceLocation()),
+          /*BW=*/nullptr, /*Mutable=*/false,
+          /*InitStyle=*/ICIS_NoInit);
+      Field->setAccess(AS_public);
+      StaticRD->addDecl(Field);
+      Records.RecSize->setInitializer(llvm::ConstantInt::get(CGM.SizeTy, Size));
+    }
+    StaticRD->completeDefinition();
+    QualType StaticTy = C.getRecordType(StaticRD);
+    std::pair<unsigned, unsigned> SMsBlockPerSM = getSMsBlocksPerSM(CGM);
+    llvm::APInt Size1(32, SMsBlockPerSM.second);
+    QualType Arr1Ty = C.getConstantArrayType(StaticTy, Size1, ArrayType::Normal,
+                                             /*IndexTypeQuals=*/0);
+    llvm::APInt Size2(32, SMsBlockPerSM.first);
+    QualType Arr2Ty = C.getConstantArrayType(Arr1Ty, Size2, ArrayType::Normal,
+                                             /*IndexTypeQuals=*/0);
+    llvm::Type *LLVMArr2Ty = CGM.getTypes().ConvertTypeForMem(Arr2Ty);
+    auto *GV = new llvm::GlobalVariable(
+        CGM.getModule(), LLVMArr2Ty,
+        /*isConstant=*/false, llvm::GlobalValue::WeakAnyLinkage,
+        llvm::Constant::getNullValue(LLVMArr2Ty), "_openmp_static_glob_rd_$_");
+    StaticGlobalized->setInitializer(
+        llvm::ConstantExpr::getPointerBitCastOrAddrSpaceCast(GV,
+                                                             CGM.VoidPtrTy));
+  }
+  CGOpenMPRuntime::clear();
 }

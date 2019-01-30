@@ -56,6 +56,11 @@ static cl::opt<bool>
     DumpThinCGSCCs("dump-thin-cg-sccs", cl::init(false), cl::Hidden,
                    cl::desc("Dump the SCCs in the ThinLTO index's callgraph"));
 
+/// Enable global value internalization in LTO.
+cl::opt<bool> EnableLTOInternalization(
+    "enable-lto-internalization", cl::init(true), cl::Hidden,
+    cl::desc("Enable global value internalization in LTO"));
+
 // Returns a unique hash for the Module considering the current list of
 // export/import and other global analysis results.
 // The hash is produced in \p Key.
@@ -263,8 +268,15 @@ static void computeCacheKey(
 
   if (!Conf.SampleProfile.empty()) {
     auto FileOrErr = MemoryBuffer::getFile(Conf.SampleProfile);
-    if (FileOrErr)
+    if (FileOrErr) {
       Hasher.update(FileOrErr.get()->getBuffer());
+
+      if (!Conf.ProfileRemapping.empty()) {
+        FileOrErr = MemoryBuffer::getFile(Conf.ProfileRemapping);
+        if (FileOrErr)
+          Hasher.update(FileOrErr.get()->getBuffer());
+      }
+    }
   }
 
   Key = toHex(Hasher.result());
@@ -337,7 +349,8 @@ static void thinLTOInternalizeAndPromoteGUID(
     if (isExported(S->modulePath(), GUID)) {
       if (GlobalValue::isLocalLinkage(S->linkage()))
         S->setLinkage(GlobalValue::ExternalLinkage);
-    } else if (!GlobalValue::isLocalLinkage(S->linkage()))
+    } else if (EnableLTOInternalization &&
+               !GlobalValue::isLocalLinkage(S->linkage()))
       S->setLinkage(GlobalValue::InternalLinkage);
   }
 }
@@ -869,7 +882,7 @@ Error LTO::runRegularLTO(AddStreamFn AddStream) {
         continue;
       GV->setUnnamedAddr(R.second.UnnamedAddr ? GlobalValue::UnnamedAddr::Global
                                               : GlobalValue::UnnamedAddr::None);
-      if (R.second.Partition == 0)
+      if (EnableLTOInternalization && R.second.Partition == 0)
         GV->setLinkage(GlobalValue::InternalLinkage);
     }
 

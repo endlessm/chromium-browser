@@ -78,6 +78,14 @@ WebAssemblyTargetStreamer *WebAssemblyAsmPrinter::getTargetStreamer() {
 //===----------------------------------------------------------------------===//
 
 void WebAssemblyAsmPrinter::EmitEndOfAsmFile(Module &M) {
+  for (auto &It : OutContext.getSymbols()) {
+    // Emit a .globaltype declaration.
+    auto Sym = cast<MCSymbolWasm>(It.getValue());
+    if (Sym->getType() == wasm::WASM_SYMBOL_TYPE_GLOBAL) {
+      getTargetStreamer()->emitGlobalType(Sym);
+    }
+  }
+
   for (const auto &F : M) {
     // Emit function type info for all undefined functions
     if (F.isDeclarationForLinker() && !F.isIntrinsic()) {
@@ -105,6 +113,7 @@ void WebAssemblyAsmPrinter::EmitEndOfAsmFile(Module &M) {
       }
     }
   }
+
   for (const auto &G : M.globals()) {
     if (!G.hasInitializer() && G.hasExternalLinkage()) {
       if (G.getValueType()->isSized()) {
@@ -176,14 +185,14 @@ void WebAssemblyAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   LLVM_DEBUG(dbgs() << "EmitInstruction: " << *MI << '\n');
 
   switch (MI->getOpcode()) {
-  case WebAssembly::ARGUMENT_I32:
-  case WebAssembly::ARGUMENT_I32_S:
-  case WebAssembly::ARGUMENT_I64:
-  case WebAssembly::ARGUMENT_I64_S:
-  case WebAssembly::ARGUMENT_F32:
-  case WebAssembly::ARGUMENT_F32_S:
-  case WebAssembly::ARGUMENT_F64:
-  case WebAssembly::ARGUMENT_F64_S:
+  case WebAssembly::ARGUMENT_i32:
+  case WebAssembly::ARGUMENT_i32_S:
+  case WebAssembly::ARGUMENT_i64:
+  case WebAssembly::ARGUMENT_i64_S:
+  case WebAssembly::ARGUMENT_f32:
+  case WebAssembly::ARGUMENT_f32_S:
+  case WebAssembly::ARGUMENT_f64:
+  case WebAssembly::ARGUMENT_f64_S:
   case WebAssembly::ARGUMENT_v16i8:
   case WebAssembly::ARGUMENT_v16i8_S:
   case WebAssembly::ARGUMENT_v8i16:

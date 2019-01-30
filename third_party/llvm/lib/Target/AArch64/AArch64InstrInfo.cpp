@@ -108,6 +108,14 @@ unsigned AArch64InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
     // This gets lowered to an instruction sequence which takes 16 bytes
     NumBytes = 16;
     break;
+  case AArch64::JumpTableDest32:
+  case AArch64::JumpTableDest16:
+  case AArch64::JumpTableDest8:
+    NumBytes = 12;
+    break;
+  case AArch64::SPACE:
+    NumBytes = MI.getOperand(1).getImm();
+    break;
   }
 
   return NumBytes;
@@ -696,7 +704,7 @@ bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr &MI) const {
   // Secondly, check cases specific to sub-targets.
 
   if (Subtarget.hasExynosCheapAsMoveHandling()) {
-    if (isExynosResetFast(MI) || isExynosShiftLeftFast(MI))
+    if (isExynosResetFast(MI) || isExynosShiftExtFast(MI))
       return true;
     else
       return MI.isAsCheapAsAMove();
@@ -750,7 +758,7 @@ bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr &MI) const {
   llvm_unreachable("Unknown opcode to check as cheap as a move!");
 }
 
-bool AArch64InstrInfo::isExynosResetFast(const MachineInstr &MI) const {
+bool AArch64InstrInfo::isExynosResetFast(const MachineInstr &MI) {
   unsigned Reg, Imm, Shift;
 
   switch (MI.getOpcode()) {
@@ -821,7 +829,72 @@ bool AArch64InstrInfo::isExynosResetFast(const MachineInstr &MI) const {
   }
 }
 
-bool AArch64InstrInfo::isExynosShiftLeftFast(const MachineInstr &MI) const {
+bool AArch64InstrInfo::isExynosLdStExtFast(const MachineInstr &MI) {
+  unsigned Imm;
+  AArch64_AM::ShiftExtendType Ext;
+
+  switch (MI.getOpcode()) {
+  default:
+    return false;
+
+  // WriteLD
+  case AArch64::PRFMroW:
+  case AArch64::PRFMroX:
+
+  // WriteLDIdx
+  case AArch64::LDRBBroW:
+  case AArch64::LDRBBroX:
+  case AArch64::LDRHHroW:
+  case AArch64::LDRHHroX:
+  case AArch64::LDRSBWroW:
+  case AArch64::LDRSBWroX:
+  case AArch64::LDRSBXroW:
+  case AArch64::LDRSBXroX:
+  case AArch64::LDRSHWroW:
+  case AArch64::LDRSHWroX:
+  case AArch64::LDRSHXroW:
+  case AArch64::LDRSHXroX:
+  case AArch64::LDRSWroW:
+  case AArch64::LDRSWroX:
+  case AArch64::LDRWroW:
+  case AArch64::LDRWroX:
+  case AArch64::LDRXroW:
+  case AArch64::LDRXroX:
+
+  case AArch64::LDRBroW:
+  case AArch64::LDRBroX:
+  case AArch64::LDRDroW:
+  case AArch64::LDRDroX:
+  case AArch64::LDRHroW:
+  case AArch64::LDRHroX:
+  case AArch64::LDRSroW:
+  case AArch64::LDRSroX:
+
+  // WriteSTIdx
+  case AArch64::STRBBroW:
+  case AArch64::STRBBroX:
+  case AArch64::STRHHroW:
+  case AArch64::STRHHroX:
+  case AArch64::STRWroW:
+  case AArch64::STRWroX:
+  case AArch64::STRXroW:
+  case AArch64::STRXroX:
+
+  case AArch64::STRBroW:
+  case AArch64::STRBroX:
+  case AArch64::STRDroW:
+  case AArch64::STRDroX:
+  case AArch64::STRHroW:
+  case AArch64::STRHroX:
+  case AArch64::STRSroW:
+  case AArch64::STRSroX:
+    Imm = MI.getOperand(3).getImm();
+    Ext = AArch64_AM::getMemExtendType(Imm);
+    return (Ext == AArch64_AM::SXTX || Ext == AArch64_AM::UXTX);
+  }
+}
+
+bool AArch64InstrInfo::isExynosShiftExtFast(const MachineInstr &MI) {
   unsigned Imm, Shift;
   AArch64_AM::ShiftExtendType Ext;
 
@@ -887,64 +960,10 @@ bool AArch64InstrInfo::isExynosShiftLeftFast(const MachineInstr &MI) const {
     Shift = AArch64_AM::getArithShiftValue(Imm);
     Ext = AArch64_AM::getArithExtendType(Imm);
     return (Shift == 0 || (Shift <= 3 && Ext == AArch64_AM::UXTX));
-
-  case AArch64::PRFMroW:
-  case AArch64::PRFMroX:
-
-  // WriteLDIdx
-  case AArch64::LDRBBroW:
-  case AArch64::LDRBBroX:
-  case AArch64::LDRHHroW:
-  case AArch64::LDRHHroX:
-  case AArch64::LDRSBWroW:
-  case AArch64::LDRSBWroX:
-  case AArch64::LDRSBXroW:
-  case AArch64::LDRSBXroX:
-  case AArch64::LDRSHWroW:
-  case AArch64::LDRSHWroX:
-  case AArch64::LDRSHXroW:
-  case AArch64::LDRSHXroX:
-  case AArch64::LDRSWroW:
-  case AArch64::LDRSWroX:
-  case AArch64::LDRWroW:
-  case AArch64::LDRWroX:
-  case AArch64::LDRXroW:
-  case AArch64::LDRXroX:
-
-  case AArch64::LDRBroW:
-  case AArch64::LDRBroX:
-  case AArch64::LDRDroW:
-  case AArch64::LDRDroX:
-  case AArch64::LDRHroW:
-  case AArch64::LDRHroX:
-  case AArch64::LDRSroW:
-  case AArch64::LDRSroX:
-
-  // WriteSTIdx
-  case AArch64::STRBBroW:
-  case AArch64::STRBBroX:
-  case AArch64::STRHHroW:
-  case AArch64::STRHHroX:
-  case AArch64::STRWroW:
-  case AArch64::STRWroX:
-  case AArch64::STRXroW:
-  case AArch64::STRXroX:
-
-  case AArch64::STRBroW:
-  case AArch64::STRBroX:
-  case AArch64::STRDroW:
-  case AArch64::STRDroX:
-  case AArch64::STRHroW:
-  case AArch64::STRHroX:
-  case AArch64::STRSroW:
-  case AArch64::STRSroX:
-    Imm = MI.getOperand(3).getImm();
-    Ext = AArch64_AM::getMemExtendType(Imm);
-    return (Ext == AArch64_AM::SXTX || Ext == AArch64_AM::UXTX);
   }
 }
 
-bool AArch64InstrInfo::isFalkorShiftExtFast(const MachineInstr &MI) const {
+bool AArch64InstrInfo::isFalkorShiftExtFast(const MachineInstr &MI) {
   switch (MI.getOpcode()) {
   default:
     return false;
@@ -1066,6 +1085,32 @@ bool AArch64InstrInfo::isFalkorShiftExtFast(const MachineInstr &MI) const {
   }
 }
 
+bool AArch64InstrInfo::isSEHInstruction(const MachineInstr &MI) {
+  unsigned Opc = MI.getOpcode();
+  switch (Opc) {
+    default:
+      return false;
+    case AArch64::SEH_StackAlloc:
+    case AArch64::SEH_SaveFPLR:
+    case AArch64::SEH_SaveFPLR_X:
+    case AArch64::SEH_SaveReg:
+    case AArch64::SEH_SaveReg_X:
+    case AArch64::SEH_SaveRegP:
+    case AArch64::SEH_SaveRegP_X:
+    case AArch64::SEH_SaveFReg:
+    case AArch64::SEH_SaveFReg_X:
+    case AArch64::SEH_SaveFRegP:
+    case AArch64::SEH_SaveFRegP_X:
+    case AArch64::SEH_SetFP:
+    case AArch64::SEH_AddFP:
+    case AArch64::SEH_Nop:
+    case AArch64::SEH_PrologEnd:
+    case AArch64::SEH_EpilogStart:
+    case AArch64::SEH_EpilogEnd:
+      return true;
+  }
+}
+
 bool AArch64InstrInfo::isCoalescableExtInstr(const MachineInstr &MI,
                                              unsigned &SrcReg, unsigned &DstReg,
                                              unsigned &SubIdx) const {
@@ -1116,6 +1161,14 @@ bool AArch64InstrInfo::areMemAccessesTriviallyDisjoint(
     }
   }
   return false;
+}
+
+bool AArch64InstrInfo::isSchedulingBoundary(const MachineInstr &MI,
+                                            const MachineBasicBlock *MBB,
+                                            const MachineFunction &MF) const {
+  if (TargetInstrInfo::isSchedulingBoundary(MI, MBB, MF))
+    return true;
+  return isSEHInstruction(MI);
 }
 
 /// analyzeCompare - For a comparison instruction, return the source registers
@@ -3007,7 +3060,8 @@ void llvm::emitFrameOffset(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator MBBI, const DebugLoc &DL,
                            unsigned DestReg, unsigned SrcReg, int Offset,
                            const TargetInstrInfo *TII,
-                           MachineInstr::MIFlag Flag, bool SetNZCV) {
+                           MachineInstr::MIFlag Flag, bool SetNZCV,
+                           bool NeedsWinCFI) {
   if (DestReg == SrcReg && Offset == 0)
     return;
 
@@ -3052,6 +3106,11 @@ void llvm::emitFrameOffset(MachineBasicBlock &MBB,
         .addImm(AArch64_AM::getShifterImm(AArch64_AM::LSL, ShiftSize))
         .setMIFlag(Flag);
 
+   if (NeedsWinCFI && SrcReg == AArch64::SP && DestReg == AArch64::SP)
+     BuildMI(MBB, MBBI, DL, TII->get(AArch64::SEH_StackAlloc))
+         .addImm(ThisVal)
+         .setMIFlag(Flag);
+
     SrcReg = DestReg;
     Offset -= ThisVal;
     if (Offset == 0)
@@ -3062,6 +3121,21 @@ void llvm::emitFrameOffset(MachineBasicBlock &MBB,
       .addImm(Offset)
       .addImm(AArch64_AM::getShifterImm(AArch64_AM::LSL, 0))
       .setMIFlag(Flag);
+
+  if (NeedsWinCFI) {
+    if ((DestReg == AArch64::FP && SrcReg == AArch64::SP) ||
+        (SrcReg == AArch64::FP && DestReg == AArch64::SP)) {
+      if (Offset == 0)
+        BuildMI(MBB, MBBI, DL, TII->get(AArch64::SEH_SetFP)).
+                setMIFlag(Flag);
+      else
+        BuildMI(MBB, MBBI, DL, TII->get(AArch64::SEH_AddFP)).
+                addImm(Offset).setMIFlag(Flag);
+    } else if (DestReg == AArch64::SP) {
+      BuildMI(MBB, MBBI, DL, TII->get(AArch64::SEH_StackAlloc)).
+              addImm(Offset).setMIFlag(Flag);
+    }
+  }
 }
 
 MachineInstr *AArch64InstrInfo::foldMemoryOperandImpl(
@@ -5084,12 +5158,9 @@ AArch64InstrInfo::getOutliningCandidateInfo(
   unsigned FrameID = MachineOutlinerDefault;
   unsigned NumBytesToCreateFrame = 4;
 
-  bool HasBTI =
-      std::any_of(RepeatedSequenceLocs.begin(), RepeatedSequenceLocs.end(),
-                  [](outliner::Candidate &C) {
-                    return C.getMF()->getFunction().hasFnAttribute(
-                        "branch-target-enforcement");
-                  });
+  bool HasBTI = any_of(RepeatedSequenceLocs, [](outliner::Candidate &C) {
+    return C.getMF()->getFunction().hasFnAttribute("branch-target-enforcement");
+  });
 
   // If the last instruction in any candidate is a terminator, then we should
   // tail call all of the candidates.
@@ -5124,10 +5195,9 @@ AArch64InstrInfo::getOutliningCandidateInfo(
   // LR is live, so we need to save it. Decide whether it should be saved to
   // the stack, or if it can be saved to a register.
   else {
-    if (std::all_of(RepeatedSequenceLocs.begin(), RepeatedSequenceLocs.end(),
-                    [this](outliner::Candidate &C) {
-                      return findRegisterToSaveLRTo(C);
-                    })) {
+    if (all_of(RepeatedSequenceLocs, [this](outliner::Candidate &C) {
+          return findRegisterToSaveLRTo(C);
+        })) {
       // Every candidate has an available callee-saved register for the save.
       // We can save LR to a register.
       FrameID = MachineOutlinerRegSave;
@@ -5195,8 +5265,7 @@ AArch64InstrInfo::getMachineOutlinerMBBFlags(MachineBasicBlock &MBB) const {
   unsigned Flags = 0x0;
   // Check if there's a call inside this MachineBasicBlock. If there is, then
   // set a flag.
-  if (std::any_of(MBB.begin(), MBB.end(),
-                  [](MachineInstr &MI) { return MI.isCall(); }))
+  if (any_of(MBB, [](MachineInstr &MI) { return MI.isCall(); }))
     Flags |= MachineOutlinerMBBFlags::HasCalls;
 
   // Check if LR is available through all of the MBB. If it's not, then set

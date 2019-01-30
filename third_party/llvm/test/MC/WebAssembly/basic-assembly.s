@@ -1,4 +1,6 @@
-# RUN: llvm-mc -triple=wasm32-unknown-unknown -mattr=+simd128,+nontrapping-fptoint < %s | FileCheck %s
+# RUN: llvm-mc -triple=wasm32-unknown-unknown -mattr=+simd128,+nontrapping-fptoint,+exception-handling < %s | FileCheck %s
+# this one is just here to see if it converts to .o without errors, but doesn't check any output:
+# RUN: llvm-mc -triple=wasm32-unknown-unknown -filetype=obj -mattr=+simd128,+nontrapping-fptoint,+exception-handling < %s
 
     .text
     .type    test0,@function
@@ -46,10 +48,19 @@ test0:
     # TODO: enable once instruction has been added.
     #i32x4.trunc_s/f32x4:sat
     i32.trunc_s/f32
+    try
+.LBB0_3:
+    i32.catch   0
+.LBB0_4:
+    catch_all
+.LBB0_5:
+    end_try
     #i32.trunc_s:sat/f32
-    get_global	__stack_pointer@GLOBAL
+    get_global  __stack_pointer@GLOBAL
     end_function
-
+.Lfunc_end0:
+	.size	test0, .Lfunc_end0-test0
+    .globaltype	__stack_pointer, i32
 
 # CHECK:           .text
 # CHECK-LABEL: test0:
@@ -88,5 +99,14 @@ test0:
 # CHECK-NEXT:      get_local   5
 # CHECK-NEXT:      f32x4.add
 # CHECK-NEXT:      i32.trunc_s/f32
-# CHECK-NEXT:      get_global	__stack_pointer@GLOBAL
+# CHECK-NEXT:      try
+# CHECK-NEXT:  .LBB0_3:
+# CHECK-NEXT:      i32.catch   0
+# CHECK-NEXT:  .LBB0_4:
+# CHECK-NEXT:      catch_all
+# CHECK-NEXT:  .LBB0_5:
+# CHECK-NEXT:      end_try
+# CHECK-NEXT:      get_global  __stack_pointer@GLOBAL
 # CHECK-NEXT:      end_function
+
+# CHECK:           .globaltype	__stack_pointer, i32

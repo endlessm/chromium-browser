@@ -24,6 +24,9 @@ match.  The file to verify is read from standard input unless the
 OPTIONS
 -------
 
+Options are parsed from the environment variable ``FILECHECK_OPTS``
+and from the command line.
+
 .. option:: -help
 
  Print a summary of command line options.
@@ -115,6 +118,10 @@ OPTIONS
   directives.  This option is deprecated and is only provided for convenience
   as old tests are migrated to the new non-overlapping ``CHECK-DAG:``
   implementation.
+
+.. option:: --color
+
+  Use colors in output (autodetected by default).
 
 EXIT STATUS
 -----------

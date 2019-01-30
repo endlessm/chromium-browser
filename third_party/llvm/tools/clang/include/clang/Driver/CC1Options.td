@@ -129,6 +129,9 @@ def analyzer_disable_all_checks : Flag<["-"], "analyzer-disable-all-checks">,
 def analyzer_checker_help : Flag<["-"], "analyzer-checker-help">,
   HelpText<"Display the list of analyzer checkers that are available">;
 
+def analyzer_config_help : Flag<["-"], "analyzer-config-help">,
+  HelpText<"Display the list of -analyzer-config options">;
+
 def analyzer_list_enabled_checkers : Flag<["-"], "analyzer-list-enabled-checkers">,
   HelpText<"Display the list of enabled analyzer checkers">;
 
@@ -354,6 +357,13 @@ def fdebug_pass_manager : Flag<["-"], "fdebug-pass-manager">,
     HelpText<"Prints debug information for the new pass manager">;
 def fno_debug_pass_manager : Flag<["-"], "fno-debug-pass-manager">,
     HelpText<"Disables debug printing for the new pass manager">;
+// The driver option takes the key as a parameter to the -msign-return-address=
+// and -mbranch-protection= options, but CC1 has a separate option so we
+// don't have to parse the parameter twice.
+def msign_return_address_key_EQ : Joined<["-"], "msign-return-address-key=">,
+    Values<"a_key,b_key">;
+def mbranch_target_enforce : Flag<["-"], "mbranch-target-enforce">;
+def fno_dllexport_inlines : Flag<["-"], "fno-dllexport-inlines">;
 
 //===----------------------------------------------------------------------===//
 // Dependency Output Options

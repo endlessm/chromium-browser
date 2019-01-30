@@ -3036,7 +3036,7 @@ static void ConvertUTF8ToWideString(unsigned CharByteWidth, StringRef Source,
 }
 
 ExprResult Sema::BuildPredefinedExpr(SourceLocation Loc,
-                                     PredefinedExpr::IdentType IT) {
+                                     PredefinedExpr::IdentKind IK) {
   // Pick the current block, lambda, captured statement or function.
   Decl *currentDecl = nullptr;
   if (const BlockScopeInfo *BSI = getCurBlock())
@@ -3060,11 +3060,11 @@ ExprResult Sema::BuildPredefinedExpr(SourceLocation Loc,
   else {
     // Pre-defined identifiers are of type char[x], where x is the length of
     // the string.
-    auto Str = PredefinedExpr::ComputeName(IT, currentDecl);
+    auto Str = PredefinedExpr::ComputeName(IK, currentDecl);
     unsigned Length = Str.length();
 
     llvm::APInt LengthI(32, Length + 1);
-    if (IT == PredefinedExpr::LFunction || IT == PredefinedExpr::LFuncSig) {
+    if (IK == PredefinedExpr::LFunction || IK == PredefinedExpr::LFuncSig) {
       ResTy =
           Context.adjustStringLiteralBaseType(Context.WideCharTy.withConst());
       SmallString<32> RawChars;
@@ -3083,24 +3083,24 @@ ExprResult Sema::BuildPredefinedExpr(SourceLocation Loc,
     }
   }
 
-  return new (Context) PredefinedExpr(Loc, ResTy, IT, SL);
+  return PredefinedExpr::Create(Context, Loc, ResTy, IK, SL);
 }
 
 ExprResult Sema::ActOnPredefinedExpr(SourceLocation Loc, tok::TokenKind Kind) {
-  PredefinedExpr::IdentType IT;
+  PredefinedExpr::IdentKind IK;
 
   switch (Kind) {
   default: llvm_unreachable("Unknown simple primary expr!");
-  case tok::kw___func__: IT = PredefinedExpr::Func; break; // [C99 6.4.2.2]
-  case tok::kw___FUNCTION__: IT = PredefinedExpr::Function; break;
-  case tok::kw___FUNCDNAME__: IT = PredefinedExpr::FuncDName; break; // [MS]
-  case tok::kw___FUNCSIG__: IT = PredefinedExpr::FuncSig; break; // [MS]
-  case tok::kw_L__FUNCTION__: IT = PredefinedExpr::LFunction; break; // [MS]
-  case tok::kw_L__FUNCSIG__: IT = PredefinedExpr::LFuncSig; break; // [MS]
-  case tok::kw___PRETTY_FUNCTION__: IT = PredefinedExpr::PrettyFunction; break;
+  case tok::kw___func__: IK = PredefinedExpr::Func; break; // [C99 6.4.2.2]
+  case tok::kw___FUNCTION__: IK = PredefinedExpr::Function; break;
+  case tok::kw___FUNCDNAME__: IK = PredefinedExpr::FuncDName; break; // [MS]
+  case tok::kw___FUNCSIG__: IK = PredefinedExpr::FuncSig; break; // [MS]
+  case tok::kw_L__FUNCTION__: IK = PredefinedExpr::LFunction; break; // [MS]
+  case tok::kw_L__FUNCSIG__: IK = PredefinedExpr::LFuncSig; break; // [MS]
+  case tok::kw___PRETTY_FUNCTION__: IK = PredefinedExpr::PrettyFunction; break;
   }
 
-  return BuildPredefinedExpr(Loc, IT);
+  return BuildPredefinedExpr(Loc, IK);
 }
 
 ExprResult Sema::ActOnCharacterConstant(const Token &Tok, Scope *UDLScope) {
@@ -3596,7 +3596,8 @@ static bool CheckExtensionTraitOperandType(Sema &S, QualType T,
 
   // C99 6.5.3.4p1:
   if (T->isFunctionType() &&
-      (TraitKind == UETT_SizeOf || TraitKind == UETT_AlignOf)) {
+      (TraitKind == UETT_SizeOf || TraitKind == UETT_AlignOf ||
+       TraitKind == UETT_PreferredAlignOf)) {
     // sizeof(function)/alignof(function) is allowed as an extension.
     S.Diag(Loc, diag::ext_sizeof_alignof_function_type)
       << TraitKind << ArgRange;
@@ -3674,7 +3675,7 @@ bool Sema::CheckUnaryExprOrTypeTraitOperand(Expr *E,
   // the expression to be complete. 'sizeof' requires the expression's type to
   // be complete (and will attempt to complete it if it's an array of unknown
   // bound).
-  if (ExprKind == UETT_AlignOf) {
+  if (ExprKind == UETT_AlignOf || ExprKind == UETT_PreferredAlignOf) {
     if (RequireCompleteType(E->getExprLoc(),
                             Context.getBaseElementType(E->getType()),
                             diag::err_sizeof_alignof_incomplete_type, ExprKind,
@@ -3698,7 +3699,8 @@ bool Sema::CheckUnaryExprOrTypeTraitOperand(Expr *E,
 
   // The operand for sizeof and alignof is in an unevaluated expression context,
   // so side effects could result in unintended consequences.
-  if ((ExprKind == UETT_SizeOf || ExprKind == UETT_AlignOf) &&
+  if ((ExprKind == UETT_SizeOf || ExprKind == UETT_AlignOf ||
+       ExprKind == UETT_PreferredAlignOf) &&
       !inTemplateInstantiation() && E->HasSideEffects(Context, false))
     Diag(E->getExprLoc(), diag::warn_side_effects_unevaluated_context);
 
@@ -3767,7 +3769,8 @@ bool Sema::CheckUnaryExprOrTypeTraitOperand(QualType ExprType,
   // C11 6.5.3.4/3, C++11 [expr.alignof]p3:
   //   When alignof or _Alignof is applied to an array type, the result
   //   is the alignment of the element type.
-  if (ExprKind == UETT_AlignOf || ExprKind == UETT_OpenMPRequiredSimdAlign)
+  if (ExprKind == UETT_AlignOf || ExprKind == UETT_PreferredAlignOf ||
+      ExprKind == UETT_OpenMPRequiredSimdAlign)
     ExprType = Context.getBaseElementType(ExprType);
 
   if (ExprKind == UETT_VecStep)
@@ -3796,7 +3799,7 @@ bool Sema::CheckUnaryExprOrTypeTraitOperand(QualType ExprType,
   return false;
 }
 
-static bool CheckAlignOfExpr(Sema &S, Expr *E) {
+static bool CheckAlignOfExpr(Sema &S, Expr *E, UnaryExprOrTypeTrait ExprKind) {
   E = E->IgnoreParens();
 
   // Cannot know anything else if the expression is dependent.
@@ -3850,7 +3853,7 @@ static bool CheckAlignOfExpr(Sema &S, Expr *E) {
       return false;
   }
 
-  return S.CheckUnaryExprOrTypeTraitOperand(E, UETT_AlignOf);
+  return S.CheckUnaryExprOrTypeTraitOperand(E, ExprKind);
 }
 
 bool Sema::CheckVecStepExpr(Expr *E) {
@@ -4046,8 +4049,8 @@ Sema::CreateUnaryExprOrTypeTraitExpr(Expr *E, SourceLocation OpLoc,
   bool isInvalid = false;
   if (E->isTypeDependent()) {
     // Delay type-checking for type-dependent expressions.
-  } else if (ExprKind == UETT_AlignOf) {
-    isInvalid = CheckAlignOfExpr(*this, E);
+  } else if (ExprKind == UETT_AlignOf || ExprKind == UETT_PreferredAlignOf) {
+    isInvalid = CheckAlignOfExpr(*this, E, ExprKind);
   } else if (ExprKind == UETT_VecStep) {
     isInvalid = CheckVecStepExpr(E);
   } else if (ExprKind == UETT_OpenMPRequiredSimdAlign) {
@@ -5884,7 +5887,30 @@ CastKind Sema::PrepareScalarCast(ExprResult &Src, QualType DestTy) {
     case Type::STK_FloatingComplex:
     case Type::STK_IntegralComplex:
     case Type::STK_MemberPointer:
+    case Type::STK_FixedPoint:
       llvm_unreachable("illegal cast from pointer");
+    }
+    llvm_unreachable("Should have returned before this");
+
+  case Type::STK_FixedPoint:
+    switch (DestTy->getScalarTypeKind()) {
+    case Type::STK_FixedPoint:
+      return CK_FixedPointCast;
+    case Type::STK_Bool:
+      return CK_FixedPointToBoolean;
+    case Type::STK_Integral:
+    case Type::STK_Floating:
+    case Type::STK_IntegralComplex:
+    case Type::STK_FloatingComplex:
+      Diag(Src.get()->getExprLoc(),
+           diag::err_unimplemented_conversion_with_fixed_point_type)
+          << DestTy;
+      return CK_IntegralCast;
+    case Type::STK_CPointer:
+    case Type::STK_ObjCObjectPointer:
+    case Type::STK_BlockPointer:
+    case Type::STK_MemberPointer:
+      llvm_unreachable("illegal cast to pointer type");
     }
     llvm_unreachable("Should have returned before this");
 
@@ -5916,6 +5942,11 @@ CastKind Sema::PrepareScalarCast(ExprResult &Src, QualType DestTy) {
       return CK_FloatingRealToComplex;
     case Type::STK_MemberPointer:
       llvm_unreachable("member pointer type in C");
+    case Type::STK_FixedPoint:
+      Diag(Src.get()->getExprLoc(),
+           diag::err_unimplemented_conversion_with_fixed_point_type)
+          << SrcTy;
+      return CK_IntegralCast;
     }
     llvm_unreachable("Should have returned before this");
 
@@ -5943,6 +5974,11 @@ CastKind Sema::PrepareScalarCast(ExprResult &Src, QualType DestTy) {
       llvm_unreachable("valid float->pointer cast?");
     case Type::STK_MemberPointer:
       llvm_unreachable("member pointer type in C");
+    case Type::STK_FixedPoint:
+      Diag(Src.get()->getExprLoc(),
+           diag::err_unimplemented_conversion_with_fixed_point_type)
+          << SrcTy;
+      return CK_IntegralCast;
     }
     llvm_unreachable("Should have returned before this");
 
@@ -5972,6 +6008,11 @@ CastKind Sema::PrepareScalarCast(ExprResult &Src, QualType DestTy) {
       llvm_unreachable("valid complex float->pointer cast?");
     case Type::STK_MemberPointer:
       llvm_unreachable("member pointer type in C");
+    case Type::STK_FixedPoint:
+      Diag(Src.get()->getExprLoc(),
+           diag::err_unimplemented_conversion_with_fixed_point_type)
+          << SrcTy;
+      return CK_IntegralCast;
     }
     llvm_unreachable("Should have returned before this");
 
@@ -6001,6 +6042,11 @@ CastKind Sema::PrepareScalarCast(ExprResult &Src, QualType DestTy) {
       llvm_unreachable("valid complex int->pointer cast?");
     case Type::STK_MemberPointer:
       llvm_unreachable("member pointer type in C");
+    case Type::STK_FixedPoint:
+      Diag(Src.get()->getExprLoc(),
+           diag::err_unimplemented_conversion_with_fixed_point_type)
+          << SrcTy;
+      return CK_IntegralCast;
     }
     llvm_unreachable("Should have returned before this");
   }
@@ -7837,7 +7883,7 @@ Sema::CheckAssignmentConstraints(QualType LHSType, ExprResult &RHS,
     }
 
     // id -> T^
-    if (getLangOpts().ObjC1 && RHSType->isObjCIdType()) {
+    if (getLangOpts().ObjC && RHSType->isObjCIdType()) {
       Kind = CK_AnyPointerToBlockPointerCast;
       return Compatible;
     }
@@ -8146,7 +8192,7 @@ Sema::CheckSingleAssignmentConstraints(QualType LHSType, ExprResult &CallerRHS,
       if (!Diagnose)
         return Incompatible;
     }
-    if (getLangOpts().ObjC1 &&
+    if (getLangOpts().ObjC &&
         (CheckObjCBridgeRelatedConversions(E->getBeginLoc(), LHSType,
                                            E->getType(), E, Diagnose) ||
          ConversionToObjCStringLiteralCheck(LHSType, E, Diagnose))) {
@@ -8677,6 +8723,32 @@ static void checkArithmeticNull(Sema &S, ExprResult &LHS, ExprResult &RHS,
       << LHS.get()->getSourceRange() << RHS.get()->getSourceRange();
 }
 
+static void DiagnoseDivisionSizeofPointer(Sema &S, Expr *LHS, Expr *RHS,
+                                          SourceLocation Loc) {
+  const auto *LUE = dyn_cast<UnaryExprOrTypeTraitExpr>(LHS);
+  const auto *RUE = dyn_cast<UnaryExprOrTypeTraitExpr>(RHS);
+  if (!LUE || !RUE)
+    return;
+  if (LUE->getKind() != UETT_SizeOf || LUE->isArgumentType() ||
+      RUE->getKind() != UETT_SizeOf)
+    return;
+
+  QualType LHSTy = LUE->getArgumentExpr()->IgnoreParens()->getType();
+  QualType RHSTy;
+
+  if (RUE->isArgumentType())
+    RHSTy = RUE->getArgumentType();
+  else
+    RHSTy = RUE->getArgumentExpr()->IgnoreParens()->getType();
+
+  if (!LHSTy->isPointerType() || RHSTy->isPointerType())
+    return;
+  if (LHSTy->getPointeeType() != RHSTy)
+    return;
+
+  S.Diag(Loc, diag::warn_division_sizeof_ptr) << LHS << LHS->getSourceRange();
+}
+
 static void DiagnoseBadDivideOrRemainderValues(Sema& S, ExprResult &LHS,
                                                ExprResult &RHS,
                                                SourceLocation Loc, bool IsDiv) {
@@ -8707,8 +8779,10 @@ QualType Sema::CheckMultiplyDivideOperands(ExprResult &LHS, ExprResult &RHS,
 
   if (compType.isNull() || !compType->isArithmeticType())
     return InvalidOperands(Loc, LHS, RHS);
-  if (IsDiv)
+  if (IsDiv) {
     DiagnoseBadDivideOrRemainderValues(*this, LHS, RHS, Loc, IsDiv);
+    DiagnoseDivisionSizeofPointer(*this, LHS.get(), RHS.get(), Loc);
+  }
   return compType;
 }
 
@@ -10448,6 +10522,10 @@ QualType Sema::CheckCompareOperands(ExprResult &LHS, ExprResult &RHS,
   }
 
   if (getLangOpts().OpenCLVersion >= 200) {
+    if (LHSType->isClkEventT() && RHSType->isClkEventT()) {
+      return computeResultTy();
+    }
+
     if (LHSType->isQueueT() && RHSType->isQueueT()) {
       return computeResultTy();
     }
@@ -11237,6 +11315,12 @@ static bool IgnoreCommaOperand(const Expr *E) {
     if (CE->getCastKind() == CK_ToVoid) {
       return true;
     }
+
+    // static_cast<void> on a dependent type will not show up as CK_ToVoid.
+    if (CE->getCastKind() == CK_Dependent && E->getType()->isVoidType() &&
+        CE->getSubExpr()->getType()->isDependentType()) {
+      return true;
+    }
   }
 
   return false;
@@ -11260,8 +11344,11 @@ void Sema::DiagnoseCommaOperator(const Expr *LHS, SourceLocation Loc) {
   // The whitelisted locations are the initialization and increment portions
   // of a for loop.  The additional checks are on the condition of
   // if statements, do/while loops, and for loops.
+  // Differences in scope flags for C89 mode requires the extra logic.
   const unsigned ForIncrementFlags =
-      Scope::ControlScope | Scope::ContinueScope | Scope::BreakScope;
+      getLangOpts().C99 || getLangOpts().CPlusPlus
+          ? Scope::ControlScope | Scope::ContinueScope | Scope::BreakScope
+          : Scope::ContinueScope | Scope::BreakScope;
   const unsigned ForInitFlags = Scope::ControlScope | Scope::DeclScope;
   const unsigned ScopeFlags = getCurScope()->getFlags();
   if ((ScopeFlags & ForIncrementFlags) == ForIncrementFlags ||
@@ -11889,7 +11976,7 @@ static void DiagnoseSelfAssignment(Sema &S, Expr *LHSExpr, Expr *RHSExpr,
 /// is usually indicative of introspection within the Objective-C pointer.
 static void checkObjCPointerIntrospection(Sema &S, ExprResult &L, ExprResult &R,
                                           SourceLocation OpLoc) {
-  if (!S.getLangOpts().ObjC1)
+  if (!S.getLangOpts().ObjC)
     return;
 
   const Expr *ObjCPointerExpr = nullptr, *OtherExpr = nullptr;
@@ -13680,7 +13767,7 @@ ExprResult Sema::ActOnGNUNullExpr(SourceLocation TokenLoc) {
 
 bool Sema::ConversionToObjCStringLiteralCheck(QualType DstType, Expr *&Exp,
                                               bool Diagnose) {
-  if (!getLangOpts().ObjC1)
+  if (!getLangOpts().ObjC)
     return false;
 
   const ObjCObjectPointerType *PT = DstType->getAs<ObjCObjectPointerType>();
@@ -14053,7 +14140,7 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
   // in the non-ICE case.
   if (!getLangOpts().CPlusPlus11 && E->isIntegerConstantExpr(Context)) {
     if (Result)
-      *Result = E->EvaluateKnownConstInt(Context);
+      *Result = E->EvaluateKnownConstIntCheckOverflow(Context);
     return E;
   }
 

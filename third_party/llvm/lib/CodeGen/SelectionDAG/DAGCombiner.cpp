@@ -83,6 +83,7 @@ STATISTIC(PostIndexedNodes, "Number of post-indexed nodes created");
 STATISTIC(OpsNarrowed     , "Number of load/op/store narrowed");
 STATISTIC(LdStFP2Int      , "Number of fp load/store pairs transformed to int");
 STATISTIC(SlicedLoads, "Number of load sliced");
+STATISTIC(NumFPLogicOpsConv, "Number of logic ops converted to fp ops");
 
 static cl::opt<bool>
 CombinerGlobalAA("combiner-global-alias-analysis", cl::Hidden,
@@ -249,6 +250,11 @@ namespace {
     SDValue SplitIndexingFromLoad(LoadSDNode *LD);
     bool SliceUpLoad(SDNode *N);
 
+    // Scalars have size 0 to distinguish from singleton vectors.
+    SDValue ForwardStoreValueToDirectLoad(LoadSDNode *LD);
+    bool getTruncatedStoreValue(StoreSDNode *ST, SDValue &Val);
+    bool extendLoadedValueToExtension(LoadSDNode *LD, SDValue &Val);
+
     /// Replace an ISD::EXTRACT_VECTOR_ELT of a load with a narrowed
     ///   load.
     ///
@@ -365,6 +371,8 @@ namespace {
     SDValue visitFFLOOR(SDNode *N);
     SDValue visitFMINNUM(SDNode *N);
     SDValue visitFMAXNUM(SDNode *N);
+    SDValue visitFMINIMUM(SDNode *N);
+    SDValue visitFMAXIMUM(SDNode *N);
     SDValue visitBRCOND(SDNode *N);
     SDValue visitBR_CC(SDNode *N);
     SDValue visitLOAD(SDNode *N);
@@ -456,7 +464,6 @@ namespace {
     SDValue TransformFPLoadStorePair(SDNode *N);
     SDValue convertBuildVecZextToZext(SDNode *N);
     SDValue reduceBuildVecExtToExtBuildVec(SDNode *N);
-    SDValue reduceBuildVecConvertToConvertBuildVec(SDNode *N);
     SDValue reduceBuildVecToShuffle(SDNode *N);
     SDValue createBuildVecShuffle(const SDLoc &DL, SDNode *N,
                                   ArrayRef<int> VectorMask, SDValue VecIn1,
@@ -1576,6 +1583,8 @@ SDValue DAGCombiner::visit(SDNode *N) {
   case ISD::FFLOOR:             return visitFFLOOR(N);
   case ISD::FMINNUM:            return visitFMINNUM(N);
   case ISD::FMAXNUM:            return visitFMAXNUM(N);
+  case ISD::FMINIMUM:           return visitFMINIMUM(N);
+  case ISD::FMAXIMUM:           return visitFMAXIMUM(N);
   case ISD::FCEIL:              return visitFCEIL(N);
   case ISD::FTRUNC:             return visitFTRUNC(N);
   case ISD::BRCOND:             return visitBRCOND(N);
@@ -2531,8 +2540,7 @@ SDValue DAGCombiner::visitADDCARRYLike(SDValue N0, SDValue N1, SDValue CarryIn,
 // Since it may not be valid to emit a fold to zero for vector initializers
 // check if we can before folding.
 static SDValue tryFoldToZero(const SDLoc &DL, const TargetLowering &TLI, EVT VT,
-                             SelectionDAG &DAG, bool LegalOperations,
-                             bool LegalTypes) {
+                             SelectionDAG &DAG, bool LegalOperations) {
   if (!VT.isVector())
     return DAG.getConstant(0, DL, VT);
   if (!LegalOperations || TLI.isOperationLegal(ISD::BUILD_VECTOR, VT))
@@ -2559,7 +2567,7 @@ SDValue DAGCombiner::visitSUB(SDNode *N) {
   // fold (sub x, x) -> 0
   // FIXME: Refactor this and xor and other similar operations together.
   if (N0 == N1)
-    return tryFoldToZero(DL, TLI, VT, DAG, LegalOperations, LegalTypes);
+    return tryFoldToZero(DL, TLI, VT, DAG, LegalOperations);
   if (DAG.isConstantIntBuildVectorOrConstantInt(N0) &&
       DAG.isConstantIntBuildVectorOrConstantInt(N1)) {
     // fold (sub c1, c2) -> c1-c2
@@ -3118,8 +3126,11 @@ static SDValue simplifyDivRem(SDNode *N, SelectionDAG &DAG) {
   if (N0.isUndef())
     return DAG.getConstant(0, DL, VT);
 
-  // TODO: 0 / X -> 0
-  // TODO: 0 % X -> 0
+  // 0 / X -> 0
+  // 0 % X -> 0
+  ConstantSDNode *N0C = isConstOrConstSplat(N0);
+  if (N0C && N0C->isNullValue())
+    return N0;
 
   // X / X -> 1
   // X % X -> 0
@@ -3128,11 +3139,12 @@ static SDValue simplifyDivRem(SDNode *N, SelectionDAG &DAG) {
 
   // X / 1 -> X
   // X % 1 -> 0
-  if (N1C && N1C->isOne())
-    return IsDiv ? N0 : DAG.getConstant(0, DL, VT);
   // If this is a boolean op (single-bit element type), we can't have
   // division-by-zero or remainder-by-zero, so assume the divisor is 1.
-  // Similarly, if we're zero-extending a boolean divisor, then assume it's a 1.
+  // TODO: Similarly, if we're zero-extending a boolean divisor, then assume
+  // it's a 1.
+  if ((N1C && N1C->isOne()) || (VT.getScalarType() == MVT::i1))
+    return IsDiv ? N0 : DAG.getConstant(0, DL, VT);
 
   return SDValue();
 }
@@ -3827,10 +3839,7 @@ SDValue DAGCombiner::SimplifyBinOpWithSameOpcodeHands(SDNode *N) {
       // Don't try to fold this node if it requires introducing a
       // build vector of all zeros that might be illegal at this stage.
       if (N->getOpcode() == ISD::XOR && !ShOp.isUndef()) {
-        if (!LegalTypes)
-          ShOp = DAG.getConstant(0, SDLoc(N), VT);
-        else
-          ShOp = SDValue();
+        ShOp = tryFoldToZero(SDLoc(N), TLI, VT, DAG, LegalOperations);
       }
 
       // (AND (shuf (A, C), shuf (B, C))) -> shuf (AND (A, B), C)
@@ -3848,10 +3857,7 @@ SDValue DAGCombiner::SimplifyBinOpWithSameOpcodeHands(SDNode *N) {
       // build vector of all zeros that might be illegal at this stage.
       ShOp = N0->getOperand(0);
       if (N->getOpcode() == ISD::XOR && !ShOp.isUndef()) {
-        if (!LegalTypes)
-          ShOp = DAG.getConstant(0, SDLoc(N), VT);
-        else
-          ShOp = SDValue();
+        ShOp = tryFoldToZero(SDLoc(N), TLI, VT, DAG, LegalOperations);
       }
 
       // (AND (shuf (C, A), shuf (C, B))) -> shuf (C, AND (A, B))
@@ -6141,7 +6147,7 @@ SDValue DAGCombiner::visitXOR(SDNode *N) {
 
   // fold (xor x, x) -> 0
   if (N0 == N1)
-    return tryFoldToZero(SDLoc(N), TLI, VT, DAG, LegalOperations, LegalTypes);
+    return tryFoldToZero(SDLoc(N), TLI, VT, DAG, LegalOperations);
 
   // fold (xor (shl 1, x), -1) -> (rotl ~1, x)
   // Here is a concrete example of this equivalence:
@@ -7091,6 +7097,13 @@ static SDValue combineMinNumMaxNum(const SDLoc &DL, EVT VT, SDValue LHS,
   case ISD::SETLE:
   case ISD::SETULT:
   case ISD::SETULE: {
+    // Since it's known never nan to get here already, either fminnum or
+    // fminnum_ieee are OK. Try the ieee version first, since it's fminnum is
+    // expanded in terms of it.
+    unsigned IEEEOpcode = (LHS == True) ? ISD::FMINNUM_IEEE : ISD::FMAXNUM_IEEE;
+    if (TLI.isOperationLegalOrCustom(IEEEOpcode, VT))
+      return DAG.getNode(IEEEOpcode, DL, VT, LHS, RHS);
+
     unsigned Opcode = (LHS == True) ? ISD::FMINNUM : ISD::FMAXNUM;
     if (TLI.isOperationLegalOrCustom(Opcode, TransformVT))
       return DAG.getNode(Opcode, DL, VT, LHS, RHS);
@@ -7102,6 +7115,10 @@ static SDValue combineMinNumMaxNum(const SDLoc &DL, EVT VT, SDValue LHS,
   case ISD::SETGE:
   case ISD::SETUGT:
   case ISD::SETUGE: {
+    unsigned IEEEOpcode = (LHS == True) ? ISD::FMAXNUM_IEEE : ISD::FMINNUM_IEEE;
+    if (TLI.isOperationLegalOrCustom(IEEEOpcode, VT))
+      return DAG.getNode(IEEEOpcode, DL, VT, LHS, RHS);
+
     unsigned Opcode = (LHS == True) ? ISD::FMAXNUM : ISD::FMINNUM;
     if (TLI.isOperationLegalOrCustom(Opcode, TransformVT))
       return DAG.getNode(Opcode, DL, VT, LHS, RHS);
@@ -8367,7 +8384,7 @@ static SDValue tryToFoldExtOfExtload(SelectionDAG &DAG, DAGCombiner &Combiner,
 
   LoadSDNode *LN0 = cast<LoadSDNode>(N0);
   EVT MemVT = LN0->getMemoryVT();
-  if ((LegalOperations || LN0->isVolatile()) &&
+  if ((LegalOperations || LN0->isVolatile() || VT.isVector()) &&
       !TLI.isLoadExtLegal(ExtLoadType, VT, MemVT))
     return {};
 
@@ -8671,27 +8688,25 @@ static bool isTruncateOf(SelectionDAG &DAG, SDValue N, SDValue &Op,
     return true;
   }
 
-  if (N->getOpcode() != ISD::SETCC || N->getValueType(0) != MVT::i1 ||
-      cast<CondCodeSDNode>(N->getOperand(2))->get() != ISD::SETNE)
+  if (N.getOpcode() != ISD::SETCC ||
+      N.getValueType().getScalarType() != MVT::i1 ||
+      cast<CondCodeSDNode>(N.getOperand(2))->get() != ISD::SETNE)
     return false;
 
   SDValue Op0 = N->getOperand(0);
   SDValue Op1 = N->getOperand(1);
   assert(Op0.getValueType() == Op1.getValueType());
 
-  if (isNullConstant(Op0))
+  if (isNullConstantOrNullSplatConstant(Op0))
     Op = Op1;
-  else if (isNullConstant(Op1))
+  else if (isNullConstantOrNullSplatConstant(Op1))
     Op = Op0;
   else
     return false;
 
   DAG.computeKnownBits(Op, Known);
 
-  if (!(Known.Zero | 1).isAllOnesValue())
-    return false;
-
-  return true;
+  return (Known.Zero | 1).isAllOnesValue();
 }
 
 SDValue DAGCombiner::visitZERO_EXTEND(SDNode *N) {
@@ -8711,17 +8726,16 @@ SDValue DAGCombiner::visitZERO_EXTEND(SDNode *N) {
   // fold (zext (truncate x)) -> (zext x) or
   //      (zext (truncate x)) -> (truncate x)
   // This is valid when the truncated bits of x are already zero.
-  // FIXME: We should extend this to work for vectors too.
   SDValue Op;
   KnownBits Known;
-  if (!VT.isVector() && isTruncateOf(DAG, N0, Op, Known)) {
+  if (isTruncateOf(DAG, N0, Op, Known)) {
     APInt TruncatedBits =
-      (Op.getValueSizeInBits() == N0.getValueSizeInBits()) ?
-      APInt(Op.getValueSizeInBits(), 0) :
-      APInt::getBitsSet(Op.getValueSizeInBits(),
-                        N0.getValueSizeInBits(),
-                        std::min(Op.getValueSizeInBits(),
-                                 VT.getSizeInBits()));
+      (Op.getScalarValueSizeInBits() == N0.getScalarValueSizeInBits()) ?
+      APInt(Op.getScalarValueSizeInBits(), 0) :
+      APInt::getBitsSet(Op.getScalarValueSizeInBits(),
+                        N0.getScalarValueSizeInBits(),
+                        std::min(Op.getScalarValueSizeInBits(),
+                                 VT.getScalarSizeInBits()));
     if (TruncatedBits.isSubsetOf(Known.Zero))
       return DAG.getZExtOrTrunc(Op, SDLoc(N), VT);
   }
@@ -9066,17 +9080,16 @@ SDValue DAGCombiner::visitANY_EXTEND(SDNode *N) {
         return DAG.getSetCC(SDLoc(N), VT, N0.getOperand(0),
                              N0.getOperand(1),
                              cast<CondCodeSDNode>(N0.getOperand(2))->get());
+
       // If the desired elements are smaller or larger than the source
       // elements we can use a matching integer vector type and then
       // truncate/any extend
-      else {
-        EVT MatchingVectorType = N00VT.changeVectorElementTypeToInteger();
-        SDValue VsetCC =
-          DAG.getSetCC(SDLoc(N), MatchingVectorType, N0.getOperand(0),
-                        N0.getOperand(1),
-                        cast<CondCodeSDNode>(N0.getOperand(2))->get());
-        return DAG.getAnyExtOrTrunc(VsetCC, SDLoc(N), VT);
-      }
+      EVT MatchingVectorType = N00VT.changeVectorElementTypeToInteger();
+      SDValue VsetCC =
+        DAG.getSetCC(SDLoc(N), MatchingVectorType, N0.getOperand(0),
+                      N0.getOperand(1),
+                      cast<CondCodeSDNode>(N0.getOperand(2))->get());
+      return DAG.getAnyExtOrTrunc(VsetCC, SDLoc(N), VT);
     }
 
     // aext(setcc x,y,cc) -> select_cc x, y, 1, 0, cc
@@ -9381,7 +9394,8 @@ SDValue DAGCombiner::visitSIGN_EXTEND_INREG(SDNode *N) {
       N0.getOperand(0).getScalarValueSizeInBits() == EVTBits) {
     if (!LegalOperations ||
         TLI.isOperationLegal(ISD::SIGN_EXTEND_VECTOR_INREG, VT))
-      return DAG.getSignExtendVectorInReg(N0.getOperand(0), SDLoc(N), VT);
+      return DAG.getNode(ISD::SIGN_EXTEND_VECTOR_INREG, SDLoc(N), VT,
+                         N0.getOperand(0));
   }
 
   // fold (sext_in_reg (zext x)) -> (sext x)
@@ -9843,19 +9857,29 @@ static SDValue foldBitcastedFPLogic(SDNode *N, SelectionDAG &DAG,
     FPOpcode = ISD::FNEG;
     SignMask = APInt::getSignMask(SourceVT.getScalarSizeInBits());
     break;
-  // TODO: ISD::OR --> ISD::FNABS?
+  case ISD::OR:
+    FPOpcode = ISD::FABS;
+    SignMask = APInt::getSignMask(SourceVT.getScalarSizeInBits());
+    break;
   default:
     return SDValue();
   }
 
   // Fold (bitcast int (and (bitcast fp X to int), 0x7fff...) to fp) -> fabs X
   // Fold (bitcast int (xor (bitcast fp X to int), 0x8000...) to fp) -> fneg X
+  // Fold (bitcast int (or (bitcast fp X to int), 0x8000...) to fp) ->
+  //   fneg (fabs X)
   SDValue LogicOp0 = N0.getOperand(0);
   ConstantSDNode *LogicOp1 = isConstOrConstSplat(N0.getOperand(1), true);
   if (LogicOp1 && LogicOp1->getAPIntValue() == SignMask &&
       LogicOp0.getOpcode() == ISD::BITCAST &&
-      LogicOp0.getOperand(0).getValueType() == VT)
-    return DAG.getNode(FPOpcode, SDLoc(N), VT, LogicOp0.getOperand(0));
+      LogicOp0.getOperand(0).getValueType() == VT) {
+    SDValue FPOp = DAG.getNode(FPOpcode, SDLoc(N), VT, LogicOp0.getOperand(0));
+    NumFPLogicOpsConv++;
+    if (N0.getOpcode() == ISD::OR)
+      return DAG.getNode(ISD::FNEG, SDLoc(N), VT, FPOp);
+    return FPOp;
+  }
 
   return SDValue();
 }
@@ -10778,17 +10802,18 @@ SDValue DAGCombiner::visitFMULForFMADistributiveCombine(SDNode *N) {
   unsigned PreferredFusedOpcode = HasFMAD ? ISD::FMAD : ISD::FMA;
   bool Aggressive = TLI.enableAggressiveFMAFusion(VT);
 
-  // fold (fmul (fadd x, +1.0), y) -> (fma x, y, y)
-  // fold (fmul (fadd x, -1.0), y) -> (fma x, y, (fneg y))
+  // fold (fmul (fadd x0, +1.0), y) -> (fma x0, y, y)
+  // fold (fmul (fadd x0, -1.0), y) -> (fma x0, y, (fneg y))
   auto FuseFADD = [&](SDValue X, SDValue Y, const SDNodeFlags Flags) {
     if (X.getOpcode() == ISD::FADD && (Aggressive || X->hasOneUse())) {
-      auto XC1 = isConstOrConstSplatFP(X.getOperand(1));
-      if (XC1 && XC1->isExactlyValue(+1.0))
-        return DAG.getNode(PreferredFusedOpcode, SL, VT, X.getOperand(0), Y,
-                           Y, Flags);
-      if (XC1 && XC1->isExactlyValue(-1.0))
-        return DAG.getNode(PreferredFusedOpcode, SL, VT, X.getOperand(0), Y,
-                           DAG.getNode(ISD::FNEG, SL, VT, Y), Flags);
+      if (auto *C = isConstOrConstSplatFP(X.getOperand(1), true)) {
+        if (C->isExactlyValue(+1.0))
+          return DAG.getNode(PreferredFusedOpcode, SL, VT, X.getOperand(0), Y,
+                             Y, Flags);
+        if (C->isExactlyValue(-1.0))
+          return DAG.getNode(PreferredFusedOpcode, SL, VT, X.getOperand(0), Y,
+                             DAG.getNode(ISD::FNEG, SL, VT, Y), Flags);
+      }
     }
     return SDValue();
   };
@@ -10798,29 +10823,30 @@ SDValue DAGCombiner::visitFMULForFMADistributiveCombine(SDNode *N) {
   if (SDValue FMA = FuseFADD(N1, N0, Flags))
     return FMA;
 
-  // fold (fmul (fsub +1.0, x), y) -> (fma (fneg x), y, y)
-  // fold (fmul (fsub -1.0, x), y) -> (fma (fneg x), y, (fneg y))
-  // fold (fmul (fsub x, +1.0), y) -> (fma x, y, (fneg y))
-  // fold (fmul (fsub x, -1.0), y) -> (fma x, y, y)
+  // fold (fmul (fsub +1.0, x1), y) -> (fma (fneg x1), y, y)
+  // fold (fmul (fsub -1.0, x1), y) -> (fma (fneg x1), y, (fneg y))
+  // fold (fmul (fsub x0, +1.0), y) -> (fma x0, y, (fneg y))
+  // fold (fmul (fsub x0, -1.0), y) -> (fma x0, y, y)
   auto FuseFSUB = [&](SDValue X, SDValue Y, const SDNodeFlags Flags) {
     if (X.getOpcode() == ISD::FSUB && (Aggressive || X->hasOneUse())) {
-      auto XC0 = isConstOrConstSplatFP(X.getOperand(0));
-      if (XC0 && XC0->isExactlyValue(+1.0))
-        return DAG.getNode(PreferredFusedOpcode, SL, VT,
-                           DAG.getNode(ISD::FNEG, SL, VT, X.getOperand(1)), Y,
-                           Y, Flags);
-      if (XC0 && XC0->isExactlyValue(-1.0))
-        return DAG.getNode(PreferredFusedOpcode, SL, VT,
-                           DAG.getNode(ISD::FNEG, SL, VT, X.getOperand(1)), Y,
-                           DAG.getNode(ISD::FNEG, SL, VT, Y), Flags);
-
-      auto XC1 = isConstOrConstSplatFP(X.getOperand(1));
-      if (XC1 && XC1->isExactlyValue(+1.0))
-        return DAG.getNode(PreferredFusedOpcode, SL, VT, X.getOperand(0), Y,
-                           DAG.getNode(ISD::FNEG, SL, VT, Y), Flags);
-      if (XC1 && XC1->isExactlyValue(-1.0))
-        return DAG.getNode(PreferredFusedOpcode, SL, VT, X.getOperand(0), Y,
-                           Y, Flags);
+      if (auto *C0 = isConstOrConstSplatFP(X.getOperand(0), true)) {
+        if (C0->isExactlyValue(+1.0))
+          return DAG.getNode(PreferredFusedOpcode, SL, VT,
+                             DAG.getNode(ISD::FNEG, SL, VT, X.getOperand(1)), Y,
+                             Y, Flags);
+        if (C0->isExactlyValue(-1.0))
+          return DAG.getNode(PreferredFusedOpcode, SL, VT,
+                             DAG.getNode(ISD::FNEG, SL, VT, X.getOperand(1)), Y,
+                             DAG.getNode(ISD::FNEG, SL, VT, Y), Flags);
+      }
+      if (auto *C1 = isConstOrConstSplatFP(X.getOperand(1), true)) {
+        if (C1->isExactlyValue(+1.0))
+          return DAG.getNode(PreferredFusedOpcode, SL, VT, X.getOperand(0), Y,
+                             DAG.getNode(ISD::FNEG, SL, VT, Y), Flags);
+        if (C1->isExactlyValue(-1.0))
+          return DAG.getNode(PreferredFusedOpcode, SL, VT, X.getOperand(0), Y,
+                             Y, Flags);
+      }
     }
     return SDValue();
   };
@@ -10831,14 +10857,6 @@ SDValue DAGCombiner::visitFMULForFMADistributiveCombine(SDNode *N) {
     return FMA;
 
   return SDValue();
-}
-
-static bool isFMulNegTwo(SDValue &N) {
-  if (N.getOpcode() != ISD::FMUL)
-    return false;
-  if (ConstantFPSDNode *CFP = isConstOrConstSplatFP(N.getOperand(1)))
-    return CFP->isExactlyValue(-2.0);
-  return false;
 }
 
 SDValue DAGCombiner::visitFADD(SDNode *N) {
@@ -10885,14 +10903,24 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
     return DAG.getNode(ISD::FSUB, DL, VT, N1,
                        GetNegatedExpression(N0, DAG, LegalOperations), Flags);
 
-  // fold (fadd A, (fmul B, -2.0)) -> (fsub A, (fadd B, B))
-  // fold (fadd (fmul B, -2.0), A) -> (fsub A, (fadd B, B))
-  if ((isFMulNegTwo(N0) && N0.hasOneUse()) ||
-      (isFMulNegTwo(N1) && N1.hasOneUse())) {
-    bool N1IsFMul = isFMulNegTwo(N1);
-    SDValue AddOp = N1IsFMul ? N1.getOperand(0) : N0.getOperand(0);
-    SDValue Add = DAG.getNode(ISD::FADD, DL, VT, AddOp, AddOp, Flags);
-    return DAG.getNode(ISD::FSUB, DL, VT, N1IsFMul ? N0 : N1, Add, Flags);
+  auto isFMulNegTwo = [](SDValue FMul) {
+    if (!FMul.hasOneUse() || FMul.getOpcode() != ISD::FMUL)
+      return false;
+    auto *C = isConstOrConstSplatFP(FMul.getOperand(1), true);
+    return C && C->isExactlyValue(-2.0);
+  };
+
+  // fadd (fmul B, -2.0), A --> fsub A, (fadd B, B)
+  if (isFMulNegTwo(N0)) {
+    SDValue B = N0.getOperand(0);
+    SDValue Add = DAG.getNode(ISD::FADD, DL, VT, B, B, Flags);
+    return DAG.getNode(ISD::FSUB, DL, VT, N1, Add, Flags);
+  }
+  // fadd A, (fmul B, -2.0) --> fsub A, (fadd B, B)
+  if (isFMulNegTwo(N1)) {
+    SDValue B = N1.getOperand(0);
+    SDValue Add = DAG.getNode(ISD::FADD, DL, VT, B, B, Flags);
+    return DAG.getNode(ISD::FSUB, DL, VT, N0, Add, Flags);
   }
 
   // No FP constant should be created after legalization as Instruction
@@ -11555,15 +11583,15 @@ static inline bool CanCombineFCOPYSIGN_EXTEND_ROUND(SDNode *N) {
 SDValue DAGCombiner::visitFCOPYSIGN(SDNode *N) {
   SDValue N0 = N->getOperand(0);
   SDValue N1 = N->getOperand(1);
-  ConstantFPSDNode *N0CFP = dyn_cast<ConstantFPSDNode>(N0);
-  ConstantFPSDNode *N1CFP = dyn_cast<ConstantFPSDNode>(N1);
+  bool N0CFP = isConstantFPBuildVectorOrConstantFP(N0);
+  bool N1CFP = isConstantFPBuildVectorOrConstantFP(N1);
   EVT VT = N->getValueType(0);
 
   if (N0CFP && N1CFP) // Constant fold
     return DAG.getNode(ISD::FCOPYSIGN, SDLoc(N), VT, N0, N1);
 
-  if (N1CFP) {
-    const APFloat &V = N1CFP->getValueAPF();
+  if (ConstantFPSDNode *N1C = isConstOrConstSplatFP(N->getOperand(1))) {
+    const APFloat &V = N1C->getValueAPF();
     // copysign(x, c1) -> fabs(x)       iff ispos(c1)
     // copysign(x, c1) -> fneg(fabs(x)) iff isneg(c1)
     if (!V.isNegative()) {
@@ -12093,7 +12121,8 @@ SDValue DAGCombiner::visitFNEG(SDNode *N) {
   return SDValue();
 }
 
-SDValue DAGCombiner::visitFMINNUM(SDNode *N) {
+static SDValue visitFMinMax(SelectionDAG &DAG, SDNode *N,
+                            APFloat (*Op)(const APFloat &, const APFloat &)) {
   SDValue N0 = N->getOperand(0);
   SDValue N1 = N->getOperand(1);
   EVT VT = N->getValueType(0);
@@ -12103,36 +12132,31 @@ SDValue DAGCombiner::visitFMINNUM(SDNode *N) {
   if (N0CFP && N1CFP) {
     const APFloat &C0 = N0CFP->getValueAPF();
     const APFloat &C1 = N1CFP->getValueAPF();
-    return DAG.getConstantFP(minnum(C0, C1), SDLoc(N), VT);
+    return DAG.getConstantFP(Op(C0, C1), SDLoc(N), VT);
   }
 
   // Canonicalize to constant on RHS.
   if (isConstantFPBuildVectorOrConstantFP(N0) &&
-     !isConstantFPBuildVectorOrConstantFP(N1))
-    return DAG.getNode(ISD::FMINNUM, SDLoc(N), VT, N1, N0);
+      !isConstantFPBuildVectorOrConstantFP(N1))
+    return DAG.getNode(N->getOpcode(), SDLoc(N), VT, N1, N0);
 
   return SDValue();
 }
 
+SDValue DAGCombiner::visitFMINNUM(SDNode *N) {
+  return visitFMinMax(DAG, N, minnum);
+}
+
 SDValue DAGCombiner::visitFMAXNUM(SDNode *N) {
-  SDValue N0 = N->getOperand(0);
-  SDValue N1 = N->getOperand(1);
-  EVT VT = N->getValueType(0);
-  const ConstantFPSDNode *N0CFP = isConstOrConstSplatFP(N0);
-  const ConstantFPSDNode *N1CFP = isConstOrConstSplatFP(N1);
+  return visitFMinMax(DAG, N, maxnum);
+}
 
-  if (N0CFP && N1CFP) {
-    const APFloat &C0 = N0CFP->getValueAPF();
-    const APFloat &C1 = N1CFP->getValueAPF();
-    return DAG.getConstantFP(maxnum(C0, C1), SDLoc(N), VT);
-  }
+SDValue DAGCombiner::visitFMINIMUM(SDNode *N) {
+  return visitFMinMax(DAG, N, minimum);
+}
 
-  // Canonicalize to constant on RHS.
-  if (isConstantFPBuildVectorOrConstantFP(N0) &&
-     !isConstantFPBuildVectorOrConstantFP(N1))
-    return DAG.getNode(ISD::FMAXNUM, SDLoc(N), VT, N1, N0);
-
-  return SDValue();
+SDValue DAGCombiner::visitFMAXIMUM(SDNode *N) {
+  return visitFMinMax(DAG, N, maximum);
 }
 
 SDValue DAGCombiner::visitFABS(SDNode *N) {
@@ -12751,6 +12775,143 @@ SDValue DAGCombiner::SplitIndexingFromLoad(LoadSDNode *LD) {
   return DAG.getNode(Opc, SDLoc(LD), BP.getSimpleValueType(), BP, Inc);
 }
 
+static inline int numVectorEltsOrZero(EVT T) {
+  return T.isVector() ? T.getVectorNumElements() : 0;
+}
+
+bool DAGCombiner::getTruncatedStoreValue(StoreSDNode *ST, SDValue &Val) {
+  Val = ST->getValue();
+  EVT STType = Val.getValueType();
+  EVT STMemType = ST->getMemoryVT();
+  if (STType == STMemType)
+    return true;
+  if (isTypeLegal(STMemType))
+    return false; // fail.
+  if (STType.isFloatingPoint() && STMemType.isFloatingPoint() &&
+      TLI.isOperationLegal(ISD::FTRUNC, STMemType)) {
+    Val = DAG.getNode(ISD::FTRUNC, SDLoc(ST), STMemType, Val);
+    return true;
+  }
+  if (numVectorEltsOrZero(STType) == numVectorEltsOrZero(STMemType) &&
+      STType.isInteger() && STMemType.isInteger()) {
+    Val = DAG.getNode(ISD::TRUNCATE, SDLoc(ST), STMemType, Val);
+    return true;
+  }
+  if (STType.getSizeInBits() == STMemType.getSizeInBits()) {
+    Val = DAG.getBitcast(STMemType, Val);
+    return true;
+  }
+  return false; // fail.
+}
+
+bool DAGCombiner::extendLoadedValueToExtension(LoadSDNode *LD, SDValue &Val) {
+  EVT LDMemType = LD->getMemoryVT();
+  EVT LDType = LD->getValueType(0);
+  assert(Val.getValueType() == LDMemType &&
+         "Attempting to extend value of non-matching type");
+  if (LDType == LDMemType)
+    return true;
+  if (LDMemType.isInteger() && LDType.isInteger()) {
+    switch (LD->getExtensionType()) {
+    case ISD::NON_EXTLOAD:
+      Val = DAG.getBitcast(LDType, Val);
+      return true;
+    case ISD::EXTLOAD:
+      Val = DAG.getNode(ISD::ANY_EXTEND, SDLoc(LD), LDType, Val);
+      return true;
+    case ISD::SEXTLOAD:
+      Val = DAG.getNode(ISD::SIGN_EXTEND, SDLoc(LD), LDType, Val);
+      return true;
+    case ISD::ZEXTLOAD:
+      Val = DAG.getNode(ISD::ZERO_EXTEND, SDLoc(LD), LDType, Val);
+      return true;
+    }
+  }
+  return false;
+}
+
+SDValue DAGCombiner::ForwardStoreValueToDirectLoad(LoadSDNode *LD) {
+  if (OptLevel == CodeGenOpt::None || LD->isVolatile())
+    return SDValue();
+  SDValue Chain = LD->getOperand(0);
+  StoreSDNode *ST = dyn_cast<StoreSDNode>(Chain.getNode());
+  if (!ST || ST->isVolatile())
+    return SDValue();
+
+  EVT LDType = LD->getValueType(0);
+  EVT LDMemType = LD->getMemoryVT();
+  EVT STMemType = ST->getMemoryVT();
+  EVT STType = ST->getValue().getValueType();
+
+  BaseIndexOffset BasePtrLD = BaseIndexOffset::match(LD, DAG);
+  BaseIndexOffset BasePtrST = BaseIndexOffset::match(ST, DAG);
+  int64_t Offset;
+  if (!BasePtrST.equalBaseIndex(BasePtrLD, DAG, Offset))
+    return SDValue();
+
+  // Normalize for Endianness. After this Offset=0 will denote that the least
+  // significant bit in the loaded value maps to the least significant bit in
+  // the stored value). With Offset=n (for n > 0) the loaded value starts at the
+  // n:th least significant byte of the stored value.
+  if (DAG.getDataLayout().isBigEndian())
+    Offset = (STMemType.getStoreSizeInBits() -
+              LDMemType.getStoreSizeInBits()) / 8 - Offset;
+
+  // Check that the stored value cover all bits that are loaded.
+  bool STCoversLD =
+      (Offset >= 0) &&
+      (Offset * 8 + LDMemType.getSizeInBits() <= STMemType.getSizeInBits());
+  if (!STCoversLD)
+    return SDValue();
+
+  // Memory as copy space (potentially masked).
+  if (Offset == 0 && LDType == STType && STMemType == LDMemType) {
+    // Simple case: Direct non-truncating forwarding
+    if (LDType.getSizeInBits() == LDMemType.getSizeInBits())
+      return CombineTo(LD, ST->getValue(), Chain);
+    // Can we model the truncate and extension with an and mask?
+    if (STType.isInteger() && LDMemType.isInteger() && !STType.isVector() &&
+        !LDMemType.isVector() && LD->getExtensionType() != ISD::SEXTLOAD) {
+      // Mask to size of LDMemType
+      auto Mask =
+          DAG.getConstant(APInt::getLowBitsSet(STType.getSizeInBits(),
+                                               STMemType.getSizeInBits()),
+                          SDLoc(ST), STType);
+      auto Val = DAG.getNode(ISD::AND, SDLoc(LD), LDType, ST->getValue(), Mask);
+      return CombineTo(LD, Val, Chain);
+    }
+  }
+
+  // TODO: Deal with nonzero offset.
+  if (LD->getBasePtr().isUndef() || Offset != 0)
+    return SDValue();
+  // Model necessary truncations / extenstions.
+  SDValue Val;
+  // Truncate Value To Stored Memory Size.
+  do {
+    if (!getTruncatedStoreValue(ST, Val))
+      continue;
+    if (!isTypeLegal(LDMemType))
+      continue;
+    if (STMemType != LDMemType) {
+      // TODO: Support vectors? This requires extract_subvector/bitcast.
+      if (!STMemType.isVector() && !LDMemType.isVector() &&
+          STMemType.isInteger() && LDMemType.isInteger())
+        Val = DAG.getNode(ISD::TRUNCATE, SDLoc(LD), LDMemType, Val);
+      else
+        continue;
+    }
+    if (!extendLoadedValueToExtension(LD, Val))
+      continue;
+    return CombineTo(LD, Val, Chain);
+  } while (false);
+
+  // On failure, cleanup dead nodes we may have created.
+  if (Val->use_empty())
+    deleteAndRecombine(Val.getNode());
+  return SDValue();
+}
+
 SDValue DAGCombiner::visitLOAD(SDNode *N) {
   LoadSDNode *LD  = cast<LoadSDNode>(N);
   SDValue Chain = LD->getChain();
@@ -12817,17 +12978,8 @@ SDValue DAGCombiner::visitLOAD(SDNode *N) {
 
   // If this load is directly stored, replace the load value with the stored
   // value.
-  // TODO: Handle store large -> read small portion.
-  // TODO: Handle TRUNCSTORE/LOADEXT
-  if (OptLevel != CodeGenOpt::None &&
-      ISD::isNormalLoad(N) && !LD->isVolatile()) {
-    if (ISD::isNON_TRUNCStore(Chain.getNode())) {
-      StoreSDNode *PrevST = cast<StoreSDNode>(Chain);
-      if (PrevST->getBasePtr() == Ptr &&
-          PrevST->getValue().getValueType() == N->getValueType(0))
-        return CombineTo(N, PrevST->getOperand(1), Chain);
-    }
-  }
+  if (auto V = ForwardStoreValueToDirectLoad(LD))
+    return V;
 
   // Try to infer better alignment information than the load already has.
   if (OptLevel != CodeGenOpt::None && LD->isUnindexed()) {
@@ -14161,14 +14313,14 @@ bool DAGCombiner::checkMergeStoreCandidatesForDependencies(
     //                    in candidate selection and can be
     //                    safely ignored
     //   * Value (Op 1) -> Cycles may happen (e.g. through load chains)
-    //   * Address (Op 2) -> Merged addresses may only vary by a fixed constant
-    //                      and so no cycles are possible.
-    //   * (Op 3) -> appears to always be undef. Cannot be source of cycle.
-    //
-    // Thus we need only check predecessors of the value operands.
-    auto *Op = N->getOperand(1).getNode();
-    if (Visited.insert(Op).second)
-      Worklist.push_back(Op);
+    //   * Address (Op 2) -> Merged addresses may only vary by a fixed constant,
+    //                       but aren't necessarily fromt the same base node, so
+    //                       cycles possible (e.g. via indexed store).
+    //   * (Op 3) -> Represents the pre or post-indexing offset (or undef for
+    //               non-indexed stores). Not constant on all targets (e.g. ARM)
+    //               and so can participate in a cycle.
+    for (unsigned j = 1; j < N->getNumOperands(); ++j)
+      Worklist.push_back(N->getOperand(j).getNode());
   }
   // Search through DAG. We can stop early if we find a store node.
   for (unsigned i = 0; i < NumStores; ++i)
@@ -14874,7 +15026,9 @@ SDValue DAGCombiner::visitSTORE(SDNode *N) {
 
   // FIXME: is there such a thing as a truncating indexed store?
   if (ST->isTruncatingStore() && ST->isUnindexed() &&
-      Value.getValueType().isInteger()) {
+      Value.getValueType().isInteger() &&
+      (!isa<ConstantSDNode>(Value) ||
+       !cast<ConstantSDNode>(Value)->isOpaque())) {
     // See if we can simplify the input to this truncstore with knowledge that
     // only the low bits are being used.  For example:
     // "truncstore (or (shl x, 8), y), i8"  -> "truncstore y, i8"
@@ -15317,14 +15471,13 @@ SDValue DAGCombiner::ReplaceExtractVectorEltOfLoadWithNarrowedLoad(
 }
 
 SDValue DAGCombiner::visitEXTRACT_VECTOR_ELT(SDNode *N) {
-  // (vextract (scalar_to_vector val, 0) -> val
   SDValue InVec = N->getOperand(0);
   EVT VT = InVec.getValueType();
   EVT NVT = N->getValueType(0);
-
   if (InVec.isUndef())
     return DAG.getUNDEF(NVT);
 
+  // (vextract (scalar_to_vector val, 0) -> val
   if (InVec.getOpcode() == ISD::SCALAR_TO_VECTOR) {
     // Check if the result type doesn't match the inserted element type. A
     // SCALAR_TO_VECTOR may truncate the inserted element and the
@@ -15361,14 +15514,41 @@ SDValue DAGCombiner::visitEXTRACT_VECTOR_ELT(SDNode *N) {
     // converts.
   }
 
-  // extract_vector_elt (v2i32 (bitcast i64:x)), EltTrunc -> i32 (trunc i64:x)
-  bool isLE = DAG.getDataLayout().isLittleEndian();
-  unsigned EltTrunc = isLE ? 0 : VT.getVectorNumElements() - 1;
-  if (ConstEltNo && InVec.getOpcode() == ISD::BITCAST && InVec.hasOneUse() &&
-      ConstEltNo->getZExtValue() == EltTrunc && VT.isInteger()) {
+  // TODO: These transforms should not require the 'hasOneUse' restriction, but
+  // there are regressions on multiple targets without it. We can end up with a
+  // mess of scalar and vector code if we reduce only part of the DAG to scalar.
+  if (ConstEltNo && InVec.getOpcode() == ISD::BITCAST && VT.isInteger() &&
+      InVec.hasOneUse()) {
+    // The vector index of the LSBs of the source depend on the endian-ness.
+    bool IsLE = DAG.getDataLayout().isLittleEndian();
+    unsigned ExtractIndex = ConstEltNo->getZExtValue();
+    // extract_elt (v2i32 (bitcast i64:x)), BCTruncElt -> i32 (trunc i64:x)
+    unsigned BCTruncElt = IsLE ? 0 : VT.getVectorNumElements() - 1;
     SDValue BCSrc = InVec.getOperand(0);
-    if (BCSrc.getValueType().isScalarInteger())
+    if (ExtractIndex == BCTruncElt && BCSrc.getValueType().isScalarInteger())
       return DAG.getNode(ISD::TRUNCATE, SDLoc(N), NVT, BCSrc);
+
+    if (LegalTypes && BCSrc.getValueType().isInteger() &&
+        BCSrc.getOpcode() == ISD::SCALAR_TO_VECTOR) {
+      // ext_elt (bitcast (scalar_to_vec i64 X to v2i64) to v4i32), TruncElt -->
+      // trunc i64 X to i32
+      SDValue X = BCSrc.getOperand(0);
+      assert(X.getValueType().isScalarInteger() && NVT.isScalarInteger() &&
+             "Extract element and scalar to vector can't change element type "
+             "from FP to integer.");
+      unsigned XBitWidth = X.getValueSizeInBits();
+      unsigned VecEltBitWidth = VT.getScalarSizeInBits();
+      BCTruncElt = IsLE ? 0 : XBitWidth / VecEltBitWidth - 1;
+
+      // An extract element return value type can be wider than its vector
+      // operand element type. In that case, the high bits are undefined, so
+      // it's possible that we may need to extend rather than truncate.
+      if (ExtractIndex == BCTruncElt && XBitWidth > VecEltBitWidth) {
+        assert(XBitWidth % VecEltBitWidth == 0 &&
+               "Scalar bitwidth must be a multiple of vector element bitwidth");
+        return DAG.getAnyExtOrTrunc(X, SDLoc(N), NVT);
+      }
+    }
   }
 
   // extract_vector_elt (insert_vector_elt vec, val, idx), idx) -> val
@@ -15664,77 +15844,6 @@ SDValue DAGCombiner::reduceBuildVecExtToExtBuildVec(SDNode *N) {
   AddToWorklist(BV.getNode());
   // Bitcast to the desired type.
   return DAG.getBitcast(VT, BV);
-}
-
-SDValue DAGCombiner::reduceBuildVecConvertToConvertBuildVec(SDNode *N) {
-  EVT VT = N->getValueType(0);
-
-  unsigned NumInScalars = N->getNumOperands();
-  SDLoc DL(N);
-
-  EVT SrcVT = MVT::Other;
-  unsigned Opcode = ISD::DELETED_NODE;
-  unsigned NumDefs = 0;
-
-  for (unsigned i = 0; i != NumInScalars; ++i) {
-    SDValue In = N->getOperand(i);
-    unsigned Opc = In.getOpcode();
-
-    if (Opc == ISD::UNDEF)
-      continue;
-
-    // If all scalar values are floats and converted from integers.
-    if (Opcode == ISD::DELETED_NODE &&
-        (Opc == ISD::UINT_TO_FP || Opc == ISD::SINT_TO_FP)) {
-      Opcode = Opc;
-    }
-
-    if (Opc != Opcode)
-      return SDValue();
-
-    EVT InVT = In.getOperand(0).getValueType();
-
-    // If all scalar values are typed differently, bail out. It's chosen to
-    // simplify BUILD_VECTOR of integer types.
-    if (SrcVT == MVT::Other)
-      SrcVT = InVT;
-    if (SrcVT != InVT)
-      return SDValue();
-    NumDefs++;
-  }
-
-  // If the vector has just one element defined, it's not worth to fold it into
-  // a vectorized one.
-  if (NumDefs < 2)
-    return SDValue();
-
-  assert((Opcode == ISD::UINT_TO_FP || Opcode == ISD::SINT_TO_FP)
-         && "Should only handle conversion from integer to float.");
-  assert(SrcVT != MVT::Other && "Cannot determine source type!");
-
-  EVT NVT = EVT::getVectorVT(*DAG.getContext(), SrcVT, NumInScalars);
-
-  if (!TLI.isOperationLegalOrCustom(Opcode, NVT))
-    return SDValue();
-
-  // Just because the floating-point vector type is legal does not necessarily
-  // mean that the corresponding integer vector type is.
-  if (!isTypeLegal(NVT))
-    return SDValue();
-
-  SmallVector<SDValue, 8> Opnds;
-  for (unsigned i = 0; i != NumInScalars; ++i) {
-    SDValue In = N->getOperand(i);
-
-    if (In.isUndef())
-      Opnds.push_back(DAG.getUNDEF(SrcVT));
-    else
-      Opnds.push_back(In.getOperand(0));
-  }
-  SDValue BV = DAG.getBuildVector(NVT, DL, Opnds);
-  AddToWorklist(BV.getNode());
-
-  return DAG.getNode(Opcode, DL, VT, BV);
 }
 
 SDValue DAGCombiner::createBuildVecShuffle(const SDLoc &DL, SDNode *N,
@@ -16183,9 +16292,6 @@ SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
   if (SDValue V = reduceBuildVecExtToExtBuildVec(N))
     return V;
 
-  if (SDValue V = reduceBuildVecConvertToConvertBuildVec(N))
-    return V;
-
   if (SDValue V = reduceBuildVecToShuffle(N))
     return V;
 
@@ -16489,39 +16595,21 @@ SDValue DAGCombiner::visitCONCAT_VECTORS(SDNode *N) {
   return SDValue();
 }
 
-/// If we are extracting a subvector produced by a wide binary operator with at
-/// at least one operand that was the result of a vector concatenation, then try
-/// to use the narrow vector operands directly to avoid the concatenation and
-/// extraction.
+/// If we are extracting a subvector produced by a wide binary operator try
+/// to use a narrow binary operator and/or avoid concatenation and extraction.
 static SDValue narrowExtractedVectorBinOp(SDNode *Extract, SelectionDAG &DAG) {
   // TODO: Refactor with the caller (visitEXTRACT_SUBVECTOR), so we can share
   // some of these bailouts with other transforms.
 
   // The extract index must be a constant, so we can map it to a concat operand.
-  auto *ExtractIndex = dyn_cast<ConstantSDNode>(Extract->getOperand(1));
-  if (!ExtractIndex)
-    return SDValue();
-
-  // Only handle the case where we are doubling and then halving. A larger ratio
-  // may require more than two narrow binops to replace the wide binop.
-  EVT VT = Extract->getValueType(0);
-  unsigned NumElems = VT.getVectorNumElements();
-  assert((ExtractIndex->getZExtValue() % NumElems) == 0 &&
-         "Extract index is not a multiple of the vector length.");
-  if (Extract->getOperand(0).getValueSizeInBits() != VT.getSizeInBits() * 2)
+  auto *ExtractIndexC = dyn_cast<ConstantSDNode>(Extract->getOperand(1));
+  if (!ExtractIndexC)
     return SDValue();
 
   // We are looking for an optionally bitcasted wide vector binary operator
   // feeding an extract subvector.
   SDValue BinOp = peekThroughBitcasts(Extract->getOperand(0));
-
-  // TODO: The motivating case for this transform is an x86 AVX1 target. That
-  // target has temptingly almost legal versions of bitwise logic ops in 256-bit
-  // flavors, but no other 256-bit integer support. This could be extended to
-  // handle any binop, but that may require fixing/adding other folds to avoid
-  // codegen regressions.
-  unsigned BOpcode = BinOp.getOpcode();
-  if (BOpcode != ISD::AND && BOpcode != ISD::OR && BOpcode != ISD::XOR)
+  if (!ISD::isBinaryOp(BinOp.getNode()))
     return SDValue();
 
   // The binop must be a vector type, so we can chop it in half.
@@ -16529,19 +16617,62 @@ static SDValue narrowExtractedVectorBinOp(SDNode *Extract, SelectionDAG &DAG) {
   if (!WideBVT.isVector())
     return SDValue();
 
+  EVT VT = Extract->getValueType(0);
+  unsigned NumElems = VT.getVectorNumElements();
+  unsigned ExtractIndex = ExtractIndexC->getZExtValue();
+  assert(ExtractIndex % NumElems == 0 &&
+         "Extract index is not a multiple of the vector length.");
+  EVT SrcVT = Extract->getOperand(0).getValueType();
+
+  // Bail out if this is not a proper multiple width extraction.
+  unsigned NumSrcElems = SrcVT.getVectorNumElements();
+  if (NumSrcElems % NumElems != 0)
+    return SDValue();
+
   // Bail out if the target does not support a narrower version of the binop.
+  unsigned NarrowingRatio = NumSrcElems / NumElems;
+  unsigned BOpcode = BinOp.getOpcode();
+  unsigned WideNumElts = WideBVT.getVectorNumElements();
   EVT NarrowBVT = EVT::getVectorVT(*DAG.getContext(), WideBVT.getScalarType(),
-                                   WideBVT.getVectorNumElements() / 2);
+                                   WideNumElts / NarrowingRatio);
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   if (!TLI.isOperationLegalOrCustomOrPromote(BOpcode, NarrowBVT))
     return SDValue();
 
-  SDValue LHS = peekThroughBitcasts(BinOp.getOperand(0));
-  SDValue RHS = peekThroughBitcasts(BinOp.getOperand(1));
+  // If extraction is cheap, we don't need to look at the binop operands
+  // for concat ops. The narrow binop alone makes this transform profitable.
+  // TODO: We're not dealing with the bitcasted pattern here. That limitation
+  // should be lifted.
+  if (Extract->getOperand(0) == BinOp && BinOp.hasOneUse() &&
+      TLI.isExtractSubvectorCheap(NarrowBVT, WideBVT, ExtractIndex)) {
+    // extract (binop B0, B1), N --> binop (extract B0, N), (extract B1, N)
+    SDLoc DL(Extract);
+    SDValue X = DAG.getNode(ISD::EXTRACT_SUBVECTOR, DL, NarrowBVT,
+                            BinOp.getOperand(0), Extract->getOperand(1));
+    SDValue Y = DAG.getNode(ISD::EXTRACT_SUBVECTOR, DL, NarrowBVT,
+                            BinOp.getOperand(1), Extract->getOperand(1));
+    return DAG.getNode(BOpcode, DL, NarrowBVT, X, Y,
+                       BinOp.getNode()->getFlags());
+  }
+
+  // Only handle the case where we are doubling and then halving. A larger ratio
+  // may require more than two narrow binops to replace the wide binop.
+  if (NarrowingRatio != 2)
+    return SDValue();
+
+  // TODO: The motivating case for this transform is an x86 AVX1 target. That
+  // target has temptingly almost legal versions of bitwise logic ops in 256-bit
+  // flavors, but no other 256-bit integer support. This could be extended to
+  // handle any binop, but that may require fixing/adding other folds to avoid
+  // codegen regressions.
+  if (BOpcode != ISD::AND && BOpcode != ISD::OR && BOpcode != ISD::XOR)
+    return SDValue();
 
   // We need at least one concatenation operation of a binop operand to make
   // this transform worthwhile. The concat must double the input vector sizes.
   // TODO: Should we also handle INSERT_SUBVECTOR patterns?
+  SDValue LHS = peekThroughBitcasts(BinOp.getOperand(0));
+  SDValue RHS = peekThroughBitcasts(BinOp.getOperand(1));
   bool ConcatL =
       LHS.getOpcode() == ISD::CONCAT_VECTORS && LHS.getNumOperands() == 2;
   bool ConcatR =
@@ -16552,7 +16683,7 @@ static SDValue narrowExtractedVectorBinOp(SDNode *Extract, SelectionDAG &DAG) {
   // If one of the binop operands was not the result of a concat, we must
   // extract a half-sized operand for our new narrow binop. We can't just reuse
   // the original extract index operand because we may have bitcasted.
-  unsigned ConcatOpNum = ExtractIndex->getZExtValue() / NumElems;
+  unsigned ConcatOpNum = ExtractIndex / NumElems;
   unsigned ExtBOIdx = ConcatOpNum * NarrowBVT.getVectorNumElements();
   EVT ExtBOIdxVT = Extract->getOperand(1).getValueType();
   SDLoc DL(Extract);
@@ -16911,7 +17042,8 @@ static SDValue combineShuffleToVectorExtend(ShuffleVectorSDNode *SVN,
       if (!LegalOperations ||
           TLI.isOperationLegalOrCustom(ISD::ANY_EXTEND_VECTOR_INREG, OutVT))
         return DAG.getBitcast(VT,
-                            DAG.getAnyExtendVectorInReg(N0, SDLoc(SVN), OutVT));
+                              DAG.getNode(ISD::ANY_EXTEND_VECTOR_INREG,
+                                          SDLoc(SVN), OutVT, N0));
   }
 
   return SDValue();

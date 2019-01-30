@@ -60,8 +60,17 @@ using namespace llvm;
 
 #define DEBUG_TYPE "function-import"
 
-STATISTIC(NumImportedFunctions, "Number of functions imported");
-STATISTIC(NumImportedGlobalVars, "Number of global variables imported");
+STATISTIC(NumImportedFunctionsThinLink,
+          "Number of functions thin link decided to import");
+STATISTIC(NumImportedHotFunctionsThinLink,
+          "Number of hot functions thin link decided to import");
+STATISTIC(NumImportedCriticalFunctionsThinLink,
+          "Number of critical functions thin link decided to import");
+STATISTIC(NumImportedGlobalVarsThinLink,
+          "Number of global variables thin link decided to import");
+STATISTIC(NumImportedFunctions, "Number of functions imported in backend");
+STATISTIC(NumImportedGlobalVars,
+          "Number of global variables imported in backend");
 STATISTIC(NumImportedModules, "Number of modules imported from");
 STATISTIC(NumDeadSymbols, "Number of dead stripped symbols in index");
 STATISTIC(NumLiveSymbols, "Number of live symbols in index");
@@ -228,8 +237,16 @@ selectCallee(const ModuleSummaryIndex &Index,
           return false;
         }
 
+        // Skip if it isn't legal to import (e.g. may reference unpromotable
+        // locals).
         if (Summary->notEligibleToImport()) {
           Reason = FunctionImporter::ImportFailureReason::NotEligible;
+          return false;
+        }
+
+        // Don't bother importing if we can't inline it anyway.
+        if (Summary->fflags().NoInline) {
+          Reason = FunctionImporter::ImportFailureReason::NoInline;
           return false;
         }
 
@@ -278,11 +295,13 @@ static void computeImportForReferencedGlobals(
 
     for (auto &RefSummary : VI.getSummaryList())
       if (RefSummary->getSummaryKind() == GlobalValueSummary::GlobalVarKind &&
-          // Don't try to import regular LTO summaries added to dummy module.
-          !RefSummary->modulePath().empty() &&
+          !RefSummary->notEligibleToImport() &&
           !GlobalValue::isInterposableLinkage(RefSummary->linkage()) &&
           RefSummary->refs().empty()) {
-        ImportList[RefSummary->modulePath()].insert(VI.getGUID());
+        auto ILI = ImportList[RefSummary->modulePath()].insert(VI.getGUID());
+        // Only update stat if we haven't already imported this variable.
+        if (ILI.second)
+          NumImportedGlobalVarsThinLink++;
         if (ExportLists)
           (*ExportLists)[RefSummary->modulePath()].insert(VI.getGUID());
         break;
@@ -307,6 +326,8 @@ getFailureName(FunctionImporter::ImportFailureReason Reason) {
     return "LocalLinkageNotInModule";
   case FunctionImporter::ImportFailureReason::NotEligible:
     return "NotEligible";
+  case FunctionImporter::ImportFailureReason::NoInline:
+    return "NoInline";
   }
   llvm_unreachable("invalid reason");
 }
@@ -363,6 +384,11 @@ static void computeImportForFunction(
     auto &ProcessedThreshold = std::get<0>(IT.first->second);
     auto &CalleeSummary = std::get<1>(IT.first->second);
     auto &FailureInfo = std::get<2>(IT.first->second);
+
+    bool IsHotCallsite =
+        Edge.second.getHotness() == CalleeInfo::HotnessType::Hot;
+    bool IsCriticalCallsite =
+        Edge.second.getHotness() == CalleeInfo::HotnessType::Critical;
 
     const FunctionSummary *ResolvedCalleeSummary = nullptr;
     if (CalleeSummary) {
@@ -435,6 +461,13 @@ static void computeImportForFunction(
       // We previously decided to import this GUID definition if it was already
       // inserted in the set of imports from the exporting module.
       bool PreviouslyImported = !ILI.second;
+      if (!PreviouslyImported) {
+        NumImportedFunctionsThinLink++;
+        if (IsHotCallsite)
+          NumImportedHotFunctionsThinLink++;
+        if (IsCriticalCallsite)
+          NumImportedCriticalFunctionsThinLink++;
+      }
 
       // Make exports in the source module.
       if (ExportLists) {
@@ -468,8 +501,6 @@ static void computeImportForFunction(
       return Threshold * ImportInstrFactor;
     };
 
-    bool IsHotCallsite =
-        Edge.second.getHotness() == CalleeInfo::HotnessType::Hot;
     const auto AdjThreshold = GetAdjustedThreshold(Threshold, IsHotCallsite);
 
     ImportCount++;

@@ -528,11 +528,11 @@ void CGDebugInfo::CreateCompileUnit() {
   llvm::dwarf::SourceLanguage LangTag;
   const LangOptions &LO = CGM.getLangOpts();
   if (LO.CPlusPlus) {
-    if (LO.ObjC1)
+    if (LO.ObjC)
       LangTag = llvm::dwarf::DW_LANG_ObjC_plus_plus;
     else
       LangTag = llvm::dwarf::DW_LANG_C_plus_plus;
-  } else if (LO.ObjC1) {
+  } else if (LO.ObjC) {
     LangTag = llvm::dwarf::DW_LANG_ObjC;
   } else if (LO.RenderScript) {
     LangTag = llvm::dwarf::DW_LANG_GOOGLE_RenderScript;
@@ -546,7 +546,7 @@ void CGDebugInfo::CreateCompileUnit() {
 
   // Figure out which version of the ObjC runtime we have.
   unsigned RuntimeVers = 0;
-  if (LO.ObjC1)
+  if (LO.ObjC)
     RuntimeVers = LO.ObjCRuntime.isNonFragile() ? 2 : 1;
 
   llvm::DICompileUnit::DebugEmissionKind EmissionKind;
@@ -1955,8 +1955,17 @@ static bool isDefinedInClangModule(const RecordDecl *RD) {
   if (auto *CXXDecl = dyn_cast<CXXRecordDecl>(RD)) {
     if (!CXXDecl->isCompleteDefinition())
       return false;
+    // Check wether RD is a template.
     auto TemplateKind = CXXDecl->getTemplateSpecializationKind();
     if (TemplateKind != TSK_Undeclared) {
+      // Unfortunately getOwningModule() isn't accurate enough to find the
+      // owning module of a ClassTemplateSpecializationDecl that is inside a
+      // namespace spanning multiple modules.
+      bool Explicit = false;
+      if (auto *TD = dyn_cast<ClassTemplateSpecializationDecl>(CXXDecl))
+        Explicit = TD->isExplicitInstantiationOrSpecialization();
+      if (!Explicit && CXXDecl->getEnclosingNamespaceContext())
+        return false;
       // This is a template, check the origin of the first member.
       if (CXXDecl->field_begin() == CXXDecl->field_end())
         return TemplateKind == TSK_ExplicitInstantiationDeclaration;

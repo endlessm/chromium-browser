@@ -1248,7 +1248,9 @@ void COFFDumper::mergeCodeViewTypes(MergingTypeTableBuilder &CVIDs,
         error(object_error::parse_failed);
       }
       SmallVector<TypeIndex, 128> SourceToDest;
-      if (auto EC = mergeTypeAndIdRecords(CVIDs, CVTypes, SourceToDest, Types))
+      Optional<EndPrecompRecord> EndPrecomp;
+      if (auto EC = mergeTypeAndIdRecords(CVIDs, CVTypes, SourceToDest, Types,
+                                          EndPrecomp))
         return error(std::move(EC));
     }
   }
@@ -1549,8 +1551,10 @@ void COFFDumper::printUnwindInfo() {
     Dumper.printData(Ctx);
     break;
   }
+  case COFF::IMAGE_FILE_MACHINE_ARM64:
   case COFF::IMAGE_FILE_MACHINE_ARMNT: {
-    ARM::WinEH::Decoder Decoder(W);
+    ARM::WinEH::Decoder Decoder(W, Obj->getMachine() ==
+                                       COFF::IMAGE_FILE_MACHINE_ARM64);
     Decoder.dumpProcedureData(*Obj);
     break;
   }

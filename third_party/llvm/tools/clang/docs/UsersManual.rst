@@ -22,7 +22,7 @@ This document describes important notes about using Clang as a compiler
 for an end-user, documenting the supported features, command line
 options, etc. If you are interested in using Clang to build a tool that
 processes code, please see :doc:`InternalsManual`. If you are interested in the
-`Clang Static Analyzer <http://clang-analyzer.llvm.org>`_, please see its web
+`Clang Static Analyzer <https://clang-analyzer.llvm.org>`_, please see its web
 page.
 
 Clang is one component in a complete toolchain for C family languages.
@@ -587,7 +587,7 @@ Options to Control Clang Crash Diagnostics
 
 As unbelievable as it may sound, Clang does crash from time to time.
 Generally, this only occurs to those living on the `bleeding
-edge <http://llvm.org/releases/download.html#svn>`_. Clang goes to great
+edge <https://llvm.org/releases/download.html#svn>`_. Clang goes to great
 lengths to assist you in filing a bug report. Specifically, Clang
 generates preprocessed source file(s) and associated run script(s) upon
 a crash. These files should be attached to a bug report to ease
@@ -982,11 +982,11 @@ Controlling Static Analyzer Diagnostics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 While not strictly part of the compiler, the diagnostics from Clang's
-`static analyzer <http://clang-analyzer.llvm.org>`_ can also be
+`static analyzer <https://clang-analyzer.llvm.org>`_ can also be
 influenced by the user via changes to the source code. See the available
-`annotations <http://clang-analyzer.llvm.org/annotations.html>`_ and the
+`annotations <https://clang-analyzer.llvm.org/annotations.html>`_ and the
 analyzer's `FAQ
-page <http://clang-analyzer.llvm.org/faq.html#exclude_code>`_ for more
+page <https://clang-analyzer.llvm.org/faq.html#exclude_code>`_ for more
 information.
 
 .. _usersmanual-precompiled-headers:
@@ -1799,6 +1799,78 @@ In these cases, you can use the flag ``-fno-profile-instr-generate`` (or
 Note that these flags should appear after the corresponding profile
 flags to have an effect.
 
+Profile remapping
+^^^^^^^^^^^^^^^^^
+
+When the program is compiled after a change that affects many symbol names,
+pre-existing profile data may no longer match the program. For example:
+
+ * switching from libstdc++ to libc++ will result in the mangled names of all
+   functions taking standard library types to change
+ * renaming a widely-used type in C++ will result in the mangled names of all
+   functions that have parameters involving that type to change
+ * moving from a 32-bit compilation to a 64-bit compilation may change the
+   underlying type of ``size_t`` and similar types, resulting in changes to
+   manglings
+
+Clang allows use of a profile remapping file to specify that such differences
+in mangled names should be ignored when matching the profile data against the
+program.
+
+.. option:: -fprofile-remapping-file=<file>
+
+  Specifies a file containing profile remapping information, that will be
+  used to match mangled names in the profile data to mangled names in the
+  program.
+
+The profile remapping file is a text file containing lines of the form
+
+.. code-block:: text
+
+  fragmentkind fragment1 fragment2
+
+where ``fragmentkind`` is one of ``name``, ``type``, or ``encoding``,
+indicating whether the following mangled name fragments are
+<`name <http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.name>`_>s,
+<`type <http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.type>`_>s, or
+<`encoding <http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.encoding>`_>s,
+respectively.
+Blank lines and lines starting with ``#`` are ignored.
+
+For convenience, built-in <substitution>s such as ``St`` and ``Ss``
+are accepted as <name>s (even though they technically are not <name>s).
+
+For example, to specify that ``absl::string_view`` and ``std::string_view``
+should be treated as equivalent when matching profile data, the following
+remapping file could be used:
+
+.. code-block:: text
+
+  # absl::string_view is considered equivalent to std::string_view
+  type N4absl11string_viewE St17basic_string_viewIcSt11char_traitsIcEE
+
+  # std:: might be std::__1:: in libc++ or std::__cxx11:: in libstdc++
+  name 3std St3__1
+  name 3std St7__cxx11
+
+Matching profile data using a profile remapping file is supported on a
+best-effort basis. For example, information regarding indirect call targets is
+currently not remapped. For best results, you are encouraged to generate new
+profile data matching the updated program, or to remap the profile data
+using the ``llvm-cxxmap`` and ``llvm-profdata merge`` tools.
+
+.. note::
+
+  Profile data remapping support is currently only implemented for LLVM's
+  new pass manager, which can be enabled with
+  ``-fexperimental-new-pass-manager``.
+
+.. note::
+
+  Profile data remapping is currently only supported for C++ mangled names
+  following the Itanium C++ ABI mangling scheme. This covers all C++ targets
+  supported by Clang other than Windows.
+
 Controlling Debug Information
 -----------------------------
 
@@ -2086,7 +2158,7 @@ comment(lib)`` are well supported.
 clang has a ``-fms-compatibility`` flag that makes clang accept enough
 invalid C++ to be able to parse most Microsoft headers. For example, it
 allows `unqualified lookup of dependent base class members
-<http://clang.llvm.org/compatibility.html#dep_lookup_bases>`_, which is
+<https://clang.llvm.org/compatibility.html#dep_lookup_bases>`_, which is
 a common compatibility issue with clang. This flag is enabled by default
 for Windows targets.
 
@@ -2928,8 +3000,8 @@ Execute ``clang-cl /?`` to see a list of supported options:
       -fno-debug-macro        Do not emit macro debug information
       -fno-delayed-template-parsing
                               Disable delayed template parsing
-      -fno-sanitize-address-poison-class-member-array-new-cookie
-                              Disable poisoning array cookies when using class member operator new[] in AddressSanitizer
+      -fno-sanitize-address-poison-custom-array-cookie
+                              Disable poisoning array cookies when using custom operator new[] in AddressSanitizer
       -fno-sanitize-address-use-after-scope
                               Disable use-after-scope detection in AddressSanitizer
       -fno-sanitize-blacklist Don't use blacklist file for sanitizers
@@ -2965,8 +3037,8 @@ Execute ``clang-cl /?`` to see a list of supported options:
                               Level of field padding for AddressSanitizer
       -fsanitize-address-globals-dead-stripping
                               Enable linker dead stripping of globals in AddressSanitizer
-      -fsanitize-address-poison-class-member-array-new-cookie
-                              Enable poisoning array cookies when using class member operator new[] in AddressSanitizer
+      -fsanitize-address-poison-custom-array-cookie
+                              Enable poisoning array cookies when using custom operator new[] in AddressSanitizer
       -fsanitize-address-use-after-scope
                               Enable use-after-scope detection in AddressSanitizer
       -fsanitize-blacklist=<value>

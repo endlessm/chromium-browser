@@ -182,6 +182,7 @@ protected:
 
 public:
   explicit CGOpenMPRuntimeNVPTX(CodeGenModule &CGM);
+  void clear() override;
 
   /// Emit call to void __kmpc_push_proc_bind(ident_t *loc, kmp_int32
   /// global_tid, int proc_bind) to generate code for 'proc_bind' clause.
@@ -348,7 +349,12 @@ public:
   /// Choose a default value for the schedule clause.
   void getDefaultScheduleAndChunk(CodeGenFunction &CGF,
       const OMPLoopDirective &S, OpenMPScheduleClauseKind &ScheduleKind,
-      llvm::Value *&Chunk) const override;
+      const Expr *&ChunkExpr) const override;
+
+  /// Adjust some parameters for the target-based directives, like addresses of
+  /// the variables captured by reference in lambdas.
+  void adjustTargetSpecificDataForLambdas(
+      CodeGenFunction &CGF, const OMPExecutableDirective &D) const override;
 
 private:
   /// Track the execution mode when codegening directives within a target
@@ -360,6 +366,9 @@ private:
   /// true if we're emitting the code for the target region and next parallel
   /// region is L0 for sure.
   bool IsInTargetMasterThreadRegion = false;
+  /// true if currently emitting code for target/teams/distribute region, false
+  /// - otherwise.
+  bool IsInTTDRegion = false;
   /// true if we're definitely in the parallel region.
   bool IsInParallelRegion = false;
 
@@ -376,7 +385,7 @@ private:
   /// The data for the single globalized variable.
   struct MappedVarData {
     /// Corresponding field in the global record.
-    const FieldDecl * FD = nullptr;
+    const FieldDecl *FD = nullptr;
     /// Corresponding address.
     Address PrivateAddr = Address::invalid();
     /// true, if only one element is required (for latprivates in SPMD mode),
@@ -392,10 +401,12 @@ private:
   using EscapedParamsTy = llvm::SmallPtrSet<const Decl *, 4>;
   struct FunctionData {
     DeclToAddrMapTy LocalVarData;
+    llvm::Optional<DeclToAddrMapTy> SecondaryLocalVarData = llvm::None;
     EscapedParamsTy EscapedParameters;
     llvm::SmallVector<const ValueDecl*, 4> EscapedVariableLengthDecls;
     llvm::SmallVector<llvm::Value *, 4> EscapedVariableLengthDeclsAddrs;
     const RecordDecl *GlobalRecord = nullptr;
+    llvm::Optional<const RecordDecl *> SecondaryGlobalRecord = llvm::None;
     llvm::Value *GlobalRecordAddr = nullptr;
     llvm::Value *IsInSPMDModeFlag = nullptr;
     std::unique_ptr<CodeGenFunction::OMPMapVars> MappedParams;
@@ -403,6 +414,23 @@ private:
   /// Maps the function to the list of the globalized variables with their
   /// addresses.
   llvm::SmallDenseMap<llvm::Function *, FunctionData> FunctionGlobalizedDecls;
+  /// List of records for the globalized variables in target/teams/distribute
+  /// contexts. Inner records are going to be joined into the single record,
+  /// while those resulting records are going to be joined into the single
+  /// union. This resulting union (one per CU) is the entry point for the static
+  /// memory management runtime functions.
+  struct GlobalPtrSizeRecsTy {
+    llvm::GlobalVariable *RecSize = nullptr;
+    llvm::SmallVector<const RecordDecl *, 2> Records;
+    unsigned RegionCounter = 0;
+  };
+  llvm::SmallVector<GlobalPtrSizeRecsTy, 8> GlobalizedRecords;
+  /// Global variable used for staticlly allocated global memoryused for
+  /// globalization in target/teams/distribute regions.
+  llvm::GlobalVariable *StaticGlobalized = nullptr;
+  /// Shared pointer for the global memory in the global memory buffer used for
+  /// the given kernel.
+  llvm::GlobalVariable *KernelStaticGlobalized = nullptr;
 };
 
 } // CodeGen namespace.

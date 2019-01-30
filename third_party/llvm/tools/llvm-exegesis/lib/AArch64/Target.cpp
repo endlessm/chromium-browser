@@ -11,6 +11,7 @@
 #include "AArch64.h"
 #include "AArch64RegisterInfo.h"
 
+namespace llvm {
 namespace exegesis {
 
 namespace {
@@ -52,6 +53,10 @@ static llvm::MCInst loadImmediate(unsigned Reg, unsigned RegBitWidth,
 } // namespace
 
 class ExegesisAArch64Target : public ExegesisTarget {
+public:
+  ExegesisAArch64Target() : ExegesisTarget({}) {}
+
+private:
   std::vector<llvm::MCInst> setRegTo(const llvm::MCSubtargetInfo &STI,
                                      unsigned Reg,
                                      const llvm::APInt &Value) const override {
@@ -90,3 +95,4 @@ void InitializeAArch64ExegesisTarget() {
 }
 
 } // namespace exegesis
+} // namespace llvm

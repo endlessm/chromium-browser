@@ -20,38 +20,46 @@
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/Program.h"
 
+namespace llvm {
 namespace exegesis {
+
+std::vector<CodeTemplate> getSingleton(CodeTemplate &&CT) {
+  std::vector<CodeTemplate> Result;
+  Result.push_back(std::move(CT));
+  return Result;
+}
 
 SnippetGeneratorFailure::SnippetGeneratorFailure(const llvm::Twine &S)
     : llvm::StringError(S, llvm::inconvertibleErrorCode()) {}
 
-SnippetGenerator::SnippetGenerator(const LLVMState &State)
-    : State(State), RATC(State.getRegInfo(),
-                         getFunctionReservedRegs(State.getTargetMachine())) {}
+SnippetGenerator::SnippetGenerator(const LLVMState &State) : State(State) {}
 
 SnippetGenerator::~SnippetGenerator() = default;
 
 llvm::Expected<std::vector<BenchmarkCode>>
-SnippetGenerator::generateConfigurations(unsigned Opcode) const {
-  if (auto E = generateCodeTemplate(Opcode)) {
-    CodeTemplate &CT = E.get();
-    const llvm::BitVector &ForbiddenRegs =
-        CT.ScratchSpacePointerInReg
-            ? RATC.getRegister(CT.ScratchSpacePointerInReg).aliasedBits()
-            : RATC.emptyRegisters();
+SnippetGenerator::generateConfigurations(const Instruction &Instr) const {
+  if (auto E = generateCodeTemplates(Instr)) {
+    const auto &RATC = State.getRATC();
     std::vector<BenchmarkCode> Output;
-    // TODO: Generate as many BenchmarkCode as needed.
-    {
-      BenchmarkCode BC;
-      BC.Info = CT.Info;
-      for (InstructionTemplate &IT : CT.Instructions) {
-        randomizeUnsetVariables(ForbiddenRegs, IT);
-        BC.Instructions.push_back(IT.build());
+    for (CodeTemplate &CT : E.get()) {
+      const llvm::BitVector &ForbiddenRegs =
+          CT.ScratchSpacePointerInReg
+              ? RATC.getRegister(CT.ScratchSpacePointerInReg).aliasedBits()
+              : RATC.emptyRegisters();
+      // TODO: Generate as many BenchmarkCode as needed.
+      {
+        BenchmarkCode BC;
+        BC.Info = CT.Info;
+        for (InstructionTemplate &IT : CT.Instructions) {
+          randomizeUnsetVariables(ForbiddenRegs, IT);
+          BC.Instructions.push_back(IT.build());
+        }
+        if (CT.ScratchSpacePointerInReg)
+          BC.LiveIns.push_back(CT.ScratchSpacePointerInReg);
+        BC.RegisterInitialValues =
+            computeRegisterInitialValues(CT.Instructions);
+        Output.push_back(std::move(BC));
       }
-      if (CT.ScratchSpacePointerInReg)
-        BC.LiveIns.push_back(CT.ScratchSpacePointerInReg);
-      BC.RegisterInitialValues = computeRegisterInitialValues(CT.Instructions);
-      Output.push_back(std::move(BC));
     }
     return Output;
   } else
@@ -64,7 +72,7 @@ std::vector<RegisterValue> SnippetGenerator::computeRegisterInitialValues(
   // Ignore memory operands which are handled separately.
   // Loop invariant: DefinedRegs[i] is true iif it has been set at least once
   // before the current instruction.
-  llvm::BitVector DefinedRegs = RATC.emptyRegisters();
+  llvm::BitVector DefinedRegs = State.getRATC().emptyRegisters();
   std::vector<RegisterValue> RIV;
   for (const InstructionTemplate &IT : Instructions) {
     // Returns the register that this Operand sets or uses, or 0 if this is not
@@ -100,13 +108,14 @@ std::vector<RegisterValue> SnippetGenerator::computeRegisterInitialValues(
   return RIV;
 }
 
-llvm::Expected<CodeTemplate> SnippetGenerator::generateSelfAliasingCodeTemplate(
-    const Instruction &Instr) const {
+llvm::Expected<std::vector<CodeTemplate>>
+generateSelfAliasingCodeTemplates(const Instruction &Instr) {
   const AliasingConfigurations SelfAliasing(Instr, Instr);
-  if (SelfAliasing.empty()) {
+  if (SelfAliasing.empty())
     return llvm::make_error<SnippetGeneratorFailure>("empty self aliasing");
-  }
-  CodeTemplate CT;
+  std::vector<CodeTemplate> Result;
+  Result.emplace_back();
+  CodeTemplate &CT = Result.back();
   InstructionTemplate IT(Instr);
   if (SelfAliasing.hasImplicitAliasing()) {
     CT.Info = "implicit Self cycles, picking random values.";
@@ -117,16 +126,18 @@ llvm::Expected<CodeTemplate> SnippetGenerator::generateSelfAliasingCodeTemplate(
     setRandomAliasing(SelfAliasing, IT, IT);
   }
   CT.Instructions.push_back(std::move(IT));
-  return std::move(CT);
+  return std::move(Result);
 }
 
-llvm::Expected<CodeTemplate>
-SnippetGenerator::generateUnconstrainedCodeTemplate(const Instruction &Instr,
-                                                    llvm::StringRef Msg) const {
-  CodeTemplate CT;
+llvm::Expected<std::vector<CodeTemplate>>
+generateUnconstrainedCodeTemplates(const Instruction &Instr,
+                                   llvm::StringRef Msg) {
+  std::vector<CodeTemplate> Result;
+  Result.emplace_back();
+  CodeTemplate &CT = Result.back();
   CT.Info = llvm::formatv("{0}, repeating an unconstrained assignment", Msg);
   CT.Instructions.emplace_back(Instr);
-  return std::move(CT);
+  return std::move(Result);
 }
 
 std::mt19937 &randomGenerator() {
@@ -212,3 +223,4 @@ void randomizeUnsetVariables(const llvm::BitVector &ForbiddenRegs,
 }
 
 } // namespace exegesis
+} // namespace llvm

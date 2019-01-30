@@ -98,10 +98,11 @@ STATISTIC(NumMaxBlockCountReachedInInlined,
 STATISTIC(NumTimesRetriedWithoutInlining,
             "The # of times we re-evaluated a call without inlining");
 
-
 //===----------------------------------------------------------------------===//
 // Internal program state traits.
 //===----------------------------------------------------------------------===//
+
+namespace {
 
 // When modeling a C++ constructor, for a variety of reasons we need to track
 // the location of the object for the duration of its ConstructionContext.
@@ -164,6 +165,7 @@ public:
     return Impl < RHS.Impl;
   }
 };
+} // namespace
 
 typedef llvm::ImmutableMap<ConstructedObjectKey, SVal>
     ObjectsUnderConstructionMap;
@@ -1264,6 +1266,9 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::ObjCSubscriptRefExprClass:
     case Stmt::ObjCPropertyRefExprClass:
       llvm_unreachable("These are handled by PseudoObjectExpr");
+
+    case Expr::ConstantExprClass:
+      return Visit(cast<ConstantExpr>(S)->getSubExpr(), Pred, DstTop);
 
     case Stmt::GNUNullExprClass: {
       // GNU __null is a pointer-width integer, not an actual pointer.
@@ -3105,4 +3110,9 @@ std::string ExprEngine::DumpGraph(ArrayRef<const ExplodedNode*> Nodes,
 #endif
   llvm::errs() << "Warning: dumping graph requires assertions" << "\n";
   return "";
+}
+
+void *ProgramStateTrait<ReplayWithoutInlining>::GDMIndex() {
+  static int index = 0;
+  return &index;
 }

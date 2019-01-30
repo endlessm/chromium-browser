@@ -17,87 +17,226 @@
 #include "X86Subtarget.h"
 #include "llvm/MC/MCInstBuilder.h"
 
+namespace llvm {
 namespace exegesis {
 
 namespace {
 
-// Common code for X86 Uops and Latency runners.
-template <typename Impl> class X86SnippetGenerator : public Impl {
-  using Impl::Impl;
+// Returns an error if we cannot handle the memory references in this
+// instruction.
+Error isInvalidMemoryInstr(const Instruction &Instr) {
+  switch (Instr.Description->TSFlags & X86II::FormMask) {
+  default:
+    llvm_unreachable("Unknown FormMask value");
+  // These have no memory access.
+  case X86II::Pseudo:
+  case X86II::RawFrm:
+  case X86II::MRMDestReg:
+  case X86II::MRMSrcReg:
+  case X86II::MRMSrcReg4VOp3:
+  case X86II::MRMSrcRegOp4:
+  case X86II::MRMXr:
+  case X86II::MRM0r:
+  case X86II::MRM1r:
+  case X86II::MRM2r:
+  case X86II::MRM3r:
+  case X86II::MRM4r:
+  case X86II::MRM5r:
+  case X86II::MRM6r:
+  case X86II::MRM7r:
+  case X86II::MRM_C0:
+  case X86II::MRM_C1:
+  case X86II::MRM_C2:
+  case X86II::MRM_C3:
+  case X86II::MRM_C4:
+  case X86II::MRM_C5:
+  case X86II::MRM_C6:
+  case X86II::MRM_C7:
+  case X86II::MRM_C8:
+  case X86II::MRM_C9:
+  case X86II::MRM_CA:
+  case X86II::MRM_CB:
+  case X86II::MRM_CC:
+  case X86II::MRM_CD:
+  case X86II::MRM_CE:
+  case X86II::MRM_CF:
+  case X86II::MRM_D0:
+  case X86II::MRM_D1:
+  case X86II::MRM_D2:
+  case X86II::MRM_D3:
+  case X86II::MRM_D4:
+  case X86II::MRM_D5:
+  case X86II::MRM_D6:
+  case X86II::MRM_D7:
+  case X86II::MRM_D8:
+  case X86II::MRM_D9:
+  case X86II::MRM_DA:
+  case X86II::MRM_DB:
+  case X86II::MRM_DC:
+  case X86II::MRM_DD:
+  case X86II::MRM_DE:
+  case X86II::MRM_DF:
+  case X86II::MRM_E0:
+  case X86II::MRM_E1:
+  case X86II::MRM_E2:
+  case X86II::MRM_E3:
+  case X86II::MRM_E4:
+  case X86II::MRM_E5:
+  case X86II::MRM_E6:
+  case X86II::MRM_E7:
+  case X86II::MRM_E8:
+  case X86II::MRM_E9:
+  case X86II::MRM_EA:
+  case X86II::MRM_EB:
+  case X86II::MRM_EC:
+  case X86II::MRM_ED:
+  case X86II::MRM_EE:
+  case X86II::MRM_EF:
+  case X86II::MRM_F0:
+  case X86II::MRM_F1:
+  case X86II::MRM_F2:
+  case X86II::MRM_F3:
+  case X86II::MRM_F4:
+  case X86II::MRM_F5:
+  case X86II::MRM_F6:
+  case X86II::MRM_F7:
+  case X86II::MRM_F8:
+  case X86II::MRM_F9:
+  case X86II::MRM_FA:
+  case X86II::MRM_FB:
+  case X86II::MRM_FC:
+  case X86II::MRM_FD:
+  case X86II::MRM_FE:
+  case X86II::MRM_FF:
+  case X86II::RawFrmImm8:
+    return Error::success();
+  case X86II::AddRegFrm:
+    return (Instr.Description->Opcode == X86::POP16r || Instr.Description->Opcode == X86::POP32r ||
+            Instr.Description->Opcode == X86::PUSH16r || Instr.Description->Opcode == X86::PUSH32r)
+               ? make_error<BenchmarkFailure>(
+                     "unsupported opcode: unsupported memory access")
+               : Error::success();
+  // These access memory and are handled.
+  case X86II::MRMDestMem:
+  case X86II::MRMSrcMem:
+  case X86II::MRMSrcMem4VOp3:
+  case X86II::MRMSrcMemOp4:
+  case X86II::MRMXm:
+  case X86II::MRM0m:
+  case X86II::MRM1m:
+  case X86II::MRM2m:
+  case X86II::MRM3m:
+  case X86II::MRM4m:
+  case X86II::MRM5m:
+  case X86II::MRM6m:
+  case X86II::MRM7m:
+    return Error::success();
+  // These access memory and are not handled yet.
+  case X86II::RawFrmImm16:
+  case X86II::RawFrmMemOffs:
+  case X86II::RawFrmSrc:
+  case X86II::RawFrmDst:
+  case X86II::RawFrmDstSrc:
+    return make_error<BenchmarkFailure>(
+        "unsupported opcode: non uniform memory access");
+  }
+}
 
-  llvm::Expected<CodeTemplate>
-  generateCodeTemplate(unsigned Opcode) const override {
-    // Test whether we can generate a snippet for this instruction.
-    const auto &InstrInfo = this->State.getInstrInfo();
-    const auto OpcodeName = InstrInfo.getName(Opcode);
-    if (OpcodeName.startswith("POPF") || OpcodeName.startswith("PUSHF") ||
-        OpcodeName.startswith("ADJCALLSTACK")) {
+static llvm::Error IsInvalidOpcode(const Instruction &Instr) {
+  const auto OpcodeName = Instr.Name;
+  if ((Instr.Description->TSFlags & X86II::FormMask) == X86II::Pseudo)
+    return llvm::make_error<BenchmarkFailure>(
+        "unsupported opcode: pseudo instruction");
+  if (OpcodeName.startswith("POPF") || OpcodeName.startswith("PUSHF") ||
+      OpcodeName.startswith("ADJCALLSTACK"))
+    return llvm::make_error<BenchmarkFailure>(
+        "unsupported opcode: Push/Pop/AdjCallStack");
+  if (llvm::Error Error = isInvalidMemoryInstr(Instr))
+    return Error;
+  // We do not handle instructions with OPERAND_PCREL.
+  for (const Operand &Op : Instr.Operands)
+    if (Op.isExplicit() &&
+        Op.getExplicitOperandInfo().OperandType == llvm::MCOI::OPERAND_PCREL)
       return llvm::make_error<BenchmarkFailure>(
-          "Unsupported opcode: Push/Pop/AdjCallStack");
-    }
+          "unsupported opcode: PC relative operand");
+  // We do not handle second-form X87 instructions. We only handle first-form
+  // ones (_Fp), see comment in X86InstrFPStack.td.
+  for (const Operand &Op : Instr.Operands)
+    if (Op.isReg() && Op.isExplicit() &&
+        Op.getExplicitOperandInfo().RegClass == llvm::X86::RSTRegClassID)
+      return llvm::make_error<BenchmarkFailure>(
+          "unsupported second-form X87 instruction");
+  return llvm::Error::success();
+}
 
-    // Handle X87.
-    const auto &InstrDesc = InstrInfo.get(Opcode);
-    const unsigned FPInstClass = InstrDesc.TSFlags & llvm::X86II::FPTypeMask;
-    const Instruction Instr(InstrDesc, this->RATC);
-    switch (FPInstClass) {
+static unsigned GetX86FPFlags(const Instruction &Instr) {
+  return Instr.Description->TSFlags & llvm::X86II::FPTypeMask;
+}
+
+class X86LatencySnippetGenerator : public LatencySnippetGenerator {
+public:
+  using LatencySnippetGenerator::LatencySnippetGenerator;
+
+  llvm::Expected<std::vector<CodeTemplate>>
+  generateCodeTemplates(const Instruction &Instr) const override {
+    if (auto E = IsInvalidOpcode(Instr))
+      return std::move(E);
+
+    switch (GetX86FPFlags(Instr)) {
     case llvm::X86II::NotFP:
-      break;
+      return LatencySnippetGenerator::generateCodeTemplates(Instr);
     case llvm::X86II::ZeroArgFP:
-      return llvm::make_error<BenchmarkFailure>("Unsupported x87 ZeroArgFP");
     case llvm::X86II::OneArgFP:
-      return llvm::make_error<BenchmarkFailure>("Unsupported x87 OneArgFP");
+    case llvm::X86II::SpecialFP:
+    case llvm::X86II::CompareFP:
+    case llvm::X86II::CondMovFP:
+      return llvm::make_error<BenchmarkFailure>("Unsupported x87 Instruction");
     case llvm::X86II::OneArgFPRW:
-    case llvm::X86II::TwoArgFP: {
+    case llvm::X86II::TwoArgFP:
+      // These are instructions like
+      //   - `ST(0) = fsqrt(ST(0))` (OneArgFPRW)
+      //   - `ST(0) = ST(0) + ST(i)` (TwoArgFP)
+      // They are intrinsically serial and do not modify the state of the stack.
+      return generateSelfAliasingCodeTemplates(Instr);
+    default:
+      llvm_unreachable("Unknown FP Type!");
+    }
+  }
+};
+
+class X86UopsSnippetGenerator : public UopsSnippetGenerator {
+public:
+  using UopsSnippetGenerator::UopsSnippetGenerator;
+
+  llvm::Expected<std::vector<CodeTemplate>>
+  generateCodeTemplates(const Instruction &Instr) const override {
+    if (auto E = IsInvalidOpcode(Instr))
+      return std::move(E);
+
+    switch (GetX86FPFlags(Instr)) {
+    case llvm::X86II::NotFP:
+      return UopsSnippetGenerator::generateCodeTemplates(Instr);
+    case llvm::X86II::ZeroArgFP:
+    case llvm::X86II::OneArgFP:
+    case llvm::X86II::SpecialFP:
+      return llvm::make_error<BenchmarkFailure>("Unsupported x87 Instruction");
+    case llvm::X86II::OneArgFPRW:
+    case llvm::X86II::TwoArgFP:
       // These are instructions like
       //   - `ST(0) = fsqrt(ST(0))` (OneArgFPRW)
       //   - `ST(0) = ST(0) + ST(i)` (TwoArgFP)
       // They are intrinsically serial and do not modify the state of the stack.
       // We generate the same code for latency and uops.
-      return this->generateSelfAliasingCodeTemplate(Instr);
-    }
+      return generateSelfAliasingCodeTemplates(Instr);
     case llvm::X86II::CompareFP:
-      return Impl::handleCompareFP(Instr);
     case llvm::X86II::CondMovFP:
-      return Impl::handleCondMovFP(Instr);
-    case llvm::X86II::SpecialFP:
-      return llvm::make_error<BenchmarkFailure>("Unsupported x87 SpecialFP");
+      // We can compute uops for any FP instruction that does not grow or shrink
+      // the stack (either do not touch the stack or push as much as they pop).
+      return generateUnconstrainedCodeTemplates(
+          Instr, "instruction does not grow/shrink the FP stack");
     default:
       llvm_unreachable("Unknown FP Type!");
     }
-
-    // Fallback to generic implementation.
-    return Impl::Base::generateCodeTemplate(Opcode);
-  }
-};
-
-class X86LatencyImpl : public LatencySnippetGenerator {
-protected:
-  using Base = LatencySnippetGenerator;
-  using Base::Base;
-  llvm::Expected<CodeTemplate> handleCompareFP(const Instruction &Instr) const {
-    return llvm::make_error<SnippetGeneratorFailure>(
-        "Unsupported x87 CompareFP");
-  }
-  llvm::Expected<CodeTemplate> handleCondMovFP(const Instruction &Instr) const {
-    return llvm::make_error<SnippetGeneratorFailure>(
-        "Unsupported x87 CondMovFP");
-  }
-};
-
-class X86UopsImpl : public UopsSnippetGenerator {
-protected:
-  using Base = UopsSnippetGenerator;
-  using Base::Base;
-  // We can compute uops for any FP instruction that does not grow or shrink the
-  // stack (either do not touch the stack or push as much as they pop).
-  llvm::Expected<CodeTemplate> handleCompareFP(const Instruction &Instr) const {
-    return generateUnconstrainedCodeTemplate(
-        Instr, "instruction does not grow/shrink the FP stack");
-  }
-  llvm::Expected<CodeTemplate> handleCondMovFP(const Instruction &Instr) const {
-    return generateUnconstrainedCodeTemplate(
-        Instr, "instruction does not grow/shrink the FP stack");
   }
 };
 
@@ -182,12 +321,10 @@ struct ConstantInliner {
     return std::move(Instructions);
   }
 
-  std::vector<llvm::MCInst>
-  loadX87AndFinalize(unsigned Reg, unsigned RegBitWidth, unsigned Opcode) {
-    assert((RegBitWidth & 7) == 0 &&
-           "RegBitWidth must be a multiple of 8 bits");
-    initStack(RegBitWidth / 8);
-    add(llvm::MCInstBuilder(Opcode)
+  std::vector<llvm::MCInst> loadX87STAndFinalize(unsigned Reg) {
+    initStack(kF80Bytes);
+    add(llvm::MCInstBuilder(llvm::X86::LD_F80m)
+            // Address = ESP
             .addReg(llvm::X86::RSP) // BaseReg
             .addImm(1)              // ScaleAmt
             .addReg(0)              // IndexReg
@@ -195,7 +332,21 @@ struct ConstantInliner {
             .addReg(0));            // Segment
     if (Reg != llvm::X86::ST0)
       add(llvm::MCInstBuilder(llvm::X86::ST_Frr).addReg(Reg));
-    add(releaseStackSpace(RegBitWidth / 8));
+    add(releaseStackSpace(kF80Bytes));
+    return std::move(Instructions);
+  }
+
+  std::vector<llvm::MCInst> loadX87FPAndFinalize(unsigned Reg) {
+    initStack(kF80Bytes);
+    add(llvm::MCInstBuilder(llvm::X86::LD_Fp80m)
+            .addReg(Reg)
+            // Address = ESP
+            .addReg(llvm::X86::RSP) // BaseReg
+            .addImm(1)              // ScaleAmt
+            .addReg(0)              // IndexReg
+            .addImm(0)              // Disp
+            .addReg(0));            // Segment
+    add(releaseStackSpace(kF80Bytes));
     return std::move(Instructions);
   }
 
@@ -206,6 +357,8 @@ struct ConstantInliner {
   }
 
 private:
+  static constexpr const unsigned kF80Bytes = 10; // 80 bits.
+
   ConstantInliner &add(const llvm::MCInst &Inst) {
     Instructions.push_back(Inst);
     return *this;
@@ -239,7 +392,13 @@ private:
   std::vector<llvm::MCInst> Instructions;
 };
 
+#include "X86GenExegesis.inc"
+
 class ExegesisX86Target : public ExegesisTarget {
+public:
+  ExegesisX86Target() : ExegesisTarget(X86CpuPfmCounters) {}
+
+private:
   void addTargetSpecificPasses(llvm::PassManagerBase &PM) const override {
     // Lowers FP pseudo-instructions, e.g. ABS_Fp32 -> ABS_F.
     PM.add(llvm::createX86FloatingPointStackifierPass());
@@ -258,33 +417,28 @@ class ExegesisX86Target : public ExegesisTarget {
 
   void fillMemoryOperands(InstructionTemplate &IT, unsigned Reg,
                           unsigned Offset) const override {
-    // FIXME: For instructions that read AND write to memory, we use the same
-    // value for input and output.
-    for (size_t I = 0, E = IT.Instr.Operands.size(); I < E; ++I) {
-      const Operand *Op = &IT.Instr.Operands[I];
-      if (Op->isExplicit() && Op->isMemory()) {
-        // Case 1: 5-op memory.
-        assert((I + 5 <= E) && "x86 memory references are always 5 ops");
-        IT.getValueFor(*Op) = llvm::MCOperand::createReg(Reg); // BaseReg
-        Op = &IT.Instr.Operands[++I];
-        assert(Op->isMemory());
-        assert(Op->isExplicit());
-        IT.getValueFor(*Op) = llvm::MCOperand::createImm(1); // ScaleAmt
-        Op = &IT.Instr.Operands[++I];
-        assert(Op->isMemory());
-        assert(Op->isExplicit());
-        IT.getValueFor(*Op) = llvm::MCOperand::createReg(0); // IndexReg
-        Op = &IT.Instr.Operands[++I];
-        assert(Op->isMemory());
-        assert(Op->isExplicit());
-        IT.getValueFor(*Op) = llvm::MCOperand::createImm(Offset); // Disp
-        Op = &IT.Instr.Operands[++I];
-        assert(Op->isMemory());
-        assert(Op->isExplicit());
-        IT.getValueFor(*Op) = llvm::MCOperand::createReg(0); // Segment
-        // Case2: segment:index addressing. We assume that ES is 0.
+    assert(!isInvalidMemoryInstr(IT.Instr) &&
+           "fillMemoryOperands requires a valid memory instruction");
+    int MemOpIdx = X86II::getMemoryOperandNo(IT.Instr.Description->TSFlags);
+    assert(MemOpIdx >= 0 && "invalid memory operand index");
+    // getMemoryOperandNo() ignores tied operands, so we have to add them back.
+    for (unsigned I = 0; I <= static_cast<unsigned>(MemOpIdx); ++I) {
+      const auto &Op = IT.Instr.Operands[I];
+      if (Op.isTied() && Op.getTiedToIndex() < I) {
+        ++MemOpIdx;
       }
     }
+    // Now fill in the memory operands.
+    const auto SetOp = [&IT](int OpIdx, const MCOperand &OpVal) {
+      const auto Op = IT.Instr.Operands[OpIdx];
+      assert(Op.isMemory() && Op.isExplicit() && "invalid memory pattern");
+      IT.getValueFor(Op) = OpVal;
+    };
+    SetOp(MemOpIdx + 0, MCOperand::createReg(Reg));    // BaseReg
+    SetOp(MemOpIdx + 1, MCOperand::createImm(1));      // ScaleAmt
+    SetOp(MemOpIdx + 2, MCOperand::createReg(0));      // IndexReg
+    SetOp(MemOpIdx + 3, MCOperand::createImm(Offset)); // Disp
+    SetOp(MemOpIdx + 4, MCOperand::createReg(0));      // Segment
   }
 
   std::vector<llvm::MCInst> setRegTo(const llvm::MCSubtargetInfo &STI,
@@ -318,12 +472,12 @@ class ExegesisX86Target : public ExegesisTarget {
       if (STI.getFeatureBits()[llvm::X86::FeatureAVX512])
         return CI.loadAndFinalize(Reg, 512, llvm::X86::VMOVDQU32Zrm);
     if (llvm::X86::RSTRegClass.contains(Reg)) {
-      if (Value.getBitWidth() == 32)
-        return CI.loadX87AndFinalize(Reg, 32, llvm::X86::LD_F32m);
-      if (Value.getBitWidth() == 64)
-        return CI.loadX87AndFinalize(Reg, 64, llvm::X86::LD_F64m);
-      if (Value.getBitWidth() == 80)
-        return CI.loadX87AndFinalize(Reg, 80, llvm::X86::LD_F80m);
+      return CI.loadX87STAndFinalize(Reg);
+    }
+    if (llvm::X86::RFP32RegClass.contains(Reg) ||
+        llvm::X86::RFP64RegClass.contains(Reg) ||
+        llvm::X86::RFP80RegClass.contains(Reg)) {
+      return CI.loadX87FPAndFinalize(Reg);
     }
     if (Reg == llvm::X86::EFLAGS)
       return CI.popFlagAndFinalize();
@@ -332,12 +486,12 @@ class ExegesisX86Target : public ExegesisTarget {
 
   std::unique_ptr<SnippetGenerator>
   createLatencySnippetGenerator(const LLVMState &State) const override {
-    return llvm::make_unique<X86SnippetGenerator<X86LatencyImpl>>(State);
+    return llvm::make_unique<X86LatencySnippetGenerator>(State);
   }
 
   std::unique_ptr<SnippetGenerator>
   createUopsSnippetGenerator(const LLVMState &State) const override {
-    return llvm::make_unique<X86SnippetGenerator<X86UopsImpl>>(State);
+    return llvm::make_unique<X86UopsSnippetGenerator>(State);
   }
 
   bool matchesArch(llvm::Triple::ArchType Arch) const override {
@@ -357,3 +511,4 @@ void InitializeX86ExegesisTarget() {
 }
 
 } // namespace exegesis
+} // namespace llvm

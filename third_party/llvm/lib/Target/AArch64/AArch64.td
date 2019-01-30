@@ -180,6 +180,10 @@ def FeatureDisableLatencySchedHeuristic : SubtargetFeature<
     "disable-latency-sched-heuristic", "DisableLatencySchedHeuristic", "true",
     "Disable latency scheduling heuristic">;
 
+def FeatureForce32BitJumpTables
+   : SubtargetFeature<"force-32bit-jump-tables", "Force32BitJumpTables", "true",
+                      "Force jump table entries to be 32-bits wide except at MinSize">;
+
 def FeatureRCPC : SubtargetFeature<"rcpc", "HasRCPC", "true",
                                    "Enable support for RCPC extension">;
 
@@ -404,9 +408,8 @@ def ProcExynosM1 : SubtargetFeature<"exynosm1", "ARMProcFamily", "ExynosM1",
                                      FeatureCRC,
                                      FeatureCrypto,
                                      FeatureExynosCheapAsMoveHandling,
-                                     FeatureFPARMv8,
+                                     FeatureForce32BitJumpTables,
                                      FeatureFuseAES,
-                                     FeatureNEON,
                                      FeaturePerfMon,
                                      FeaturePostRAScheduler,
                                      FeatureSlowMisaligned128Store,
@@ -419,9 +422,8 @@ def ProcExynosM2 : SubtargetFeature<"exynosm2", "ARMProcFamily", "ExynosM1",
                                      FeatureCRC,
                                      FeatureCrypto,
                                      FeatureExynosCheapAsMoveHandling,
-                                     FeatureFPARMv8,
+                                     FeatureForce32BitJumpTables,
                                      FeatureFuseAES,
-                                     FeatureNEON,
                                      FeaturePerfMon,
                                      FeaturePostRAScheduler,
                                      FeatureSlowMisaligned128Store,
@@ -432,13 +434,12 @@ def ProcExynosM3 : SubtargetFeature<"exynosm3", "ARMProcFamily", "ExynosM3",
                                     [FeatureCRC,
                                      FeatureCrypto,
                                      FeatureExynosCheapAsMoveHandling,
-                                     FeatureFPARMv8,
+                                     FeatureForce32BitJumpTables,
                                      FeatureFuseAddress,
                                      FeatureFuseAES,
                                      FeatureFuseCCSelect,
                                      FeatureFuseLiterals,
                                      FeatureLSLFast,
-                                     FeatureNEON,
                                      FeaturePerfMon,
                                      FeaturePostRAScheduler,
                                      FeaturePredictableSelectIsExpensive,
@@ -486,7 +487,7 @@ def ProcSaphira  : SubtargetFeature<"saphira", "ARMProcFamily", "Saphira",
                                    FeaturePredictableSelectIsExpensive,
                                    FeatureZCZeroing,
                                    FeatureLSLFast,
-                                   HasV8_3aOps]>;
+                                   HasV8_4aOps]>;
 
 def ProcThunderX2T99  : SubtargetFeature<"thunderx2t99", "ARMProcFamily",
                                          "ThunderX2T99",

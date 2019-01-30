@@ -1810,7 +1810,10 @@ INTERCEPTOR(int, ioctl, int d, unsigned long request, ...) {
 
 #if SANITIZER_INTERCEPT_GETPWNAM_AND_FRIENDS || \
     SANITIZER_INTERCEPT_GETPWENT || SANITIZER_INTERCEPT_FGETPWENT || \
-    SANITIZER_INTERCEPT_GETPWENT_R || SANITIZER_INTERCEPT_GETPWNAM_R_AND_FRIENDS
+    SANITIZER_INTERCEPT_GETPWENT_R || \
+    SANITIZER_INTERCEPT_GETPWNAM_R_AND_FRIENDS || \
+    SANITIZER_INTERCEPT_FGETPWENT_R || \
+    SANITIZER_INTERCEPT_FGETGRENT_R
 static void unpoison_passwd(void *ctx, __sanitizer_passwd *pwd) {
   if (pwd) {
     COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwd, sizeof(*pwd));
@@ -2034,21 +2037,6 @@ INTERCEPTOR(int, getpwent_r, __sanitizer_passwd *pwbuf, char *buf,
   if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
   return res;
 }
-INTERCEPTOR(int, fgetpwent_r, void *fp, __sanitizer_passwd *pwbuf, char *buf,
-            SIZE_T buflen, __sanitizer_passwd **pwbufp) {
-  void *ctx;
-  COMMON_INTERCEPTOR_ENTER(ctx, fgetpwent_r, fp, pwbuf, buf, buflen, pwbufp);
-  // FIXME: under ASan the call below may write to freed memory and corrupt
-  // its metadata. See
-  // https://github.com/google/sanitizers/issues/321.
-  int res = REAL(fgetpwent_r)(fp, pwbuf, buf, buflen, pwbufp);
-  if (!res) {
-    if (pwbufp && *pwbufp) unpoison_passwd(ctx, *pwbufp);
-    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, buflen);
-  }
-  if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
-  return res;
-}
 INTERCEPTOR(int, getgrent_r, __sanitizer_group *pwbuf, char *buf, SIZE_T buflen,
             __sanitizer_group **pwbufp) {
   void *ctx;
@@ -2064,6 +2052,36 @@ INTERCEPTOR(int, getgrent_r, __sanitizer_group *pwbuf, char *buf, SIZE_T buflen,
   if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
   return res;
 }
+#define INIT_GETPWENT_R                   \
+  COMMON_INTERCEPT_FUNCTION(getpwent_r);  \
+  COMMON_INTERCEPT_FUNCTION(getgrent_r);
+#else
+#define INIT_GETPWENT_R
+#endif
+
+#if SANITIZER_INTERCEPT_FGETPWENT_R
+INTERCEPTOR(int, fgetpwent_r, void *fp, __sanitizer_passwd *pwbuf, char *buf,
+            SIZE_T buflen, __sanitizer_passwd **pwbufp) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, fgetpwent_r, fp, pwbuf, buf, buflen, pwbufp);
+  // FIXME: under ASan the call below may write to freed memory and corrupt
+  // its metadata. See
+  // https://github.com/google/sanitizers/issues/321.
+  int res = REAL(fgetpwent_r)(fp, pwbuf, buf, buflen, pwbufp);
+  if (!res) {
+    if (pwbufp && *pwbufp) unpoison_passwd(ctx, *pwbufp);
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, buflen);
+  }
+  if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
+  return res;
+}
+#define INIT_FGETPWENT_R                  \
+  COMMON_INTERCEPT_FUNCTION(fgetpwent_r);
+#else
+#define INIT_FGETPWENT_R
+#endif
+
+#if SANITIZER_INTERCEPT_FGETGRENT_R
 INTERCEPTOR(int, fgetgrent_r, void *fp, __sanitizer_group *pwbuf, char *buf,
             SIZE_T buflen, __sanitizer_group **pwbufp) {
   void *ctx;
@@ -2079,13 +2097,10 @@ INTERCEPTOR(int, fgetgrent_r, void *fp, __sanitizer_group *pwbuf, char *buf,
   if (pwbufp) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwbufp, sizeof(*pwbufp));
   return res;
 }
-#define INIT_GETPWENT_R                   \
-  COMMON_INTERCEPT_FUNCTION(getpwent_r);  \
-  COMMON_INTERCEPT_FUNCTION(fgetpwent_r); \
-  COMMON_INTERCEPT_FUNCTION(getgrent_r);  \
+#define INIT_FGETGRENT_R                  \
   COMMON_INTERCEPT_FUNCTION(fgetgrent_r);
 #else
-#define INIT_GETPWENT_R
+#define INIT_FGETGRENT_R
 #endif
 
 #if SANITIZER_INTERCEPT_SETPWENT
@@ -2149,6 +2164,8 @@ INTERCEPTOR(int, clock_gettime, u32 clk_id, void *tp) {
 namespace __sanitizer {
 extern "C" {
 int real_clock_gettime(u32 clk_id, void *tp) {
+  if (COMMON_INTERCEPTOR_NOTHING_IS_INITIALIZED)
+    return internal_clock_gettime(clk_id, tp);
   return REAL(clock_gettime)(clk_id, tp);
 }
 }  // extern "C"
@@ -4819,6 +4836,14 @@ INTERCEPTOR(float, remquof, float x, float y, int *quo) {
   if (quo) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, quo, sizeof(*quo));
   return res;
 }
+#define INIT_REMQUO                   \
+  COMMON_INTERCEPT_FUNCTION(remquo);  \
+  COMMON_INTERCEPT_FUNCTION(remquof);
+#else
+#define INIT_REMQUO
+#endif
+
+#if SANITIZER_INTERCEPT_REMQUOL
 INTERCEPTOR(long double, remquol, long double x, long double y, int *quo) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, remquol, x, y, quo);
@@ -4829,12 +4854,10 @@ INTERCEPTOR(long double, remquol, long double x, long double y, int *quo) {
   if (quo) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, quo, sizeof(*quo));
   return res;
 }
-#define INIT_REMQUO                   \
-  COMMON_INTERCEPT_FUNCTION(remquo);  \
-  COMMON_INTERCEPT_FUNCTION(remquof); \
+#define INIT_REMQUOL                  \
   COMMON_INTERCEPT_FUNCTION_LDBL(remquol);
 #else
-#define INIT_REMQUO
+#define INIT_REMQUOL
 #endif
 
 #if SANITIZER_INTERCEPT_LGAMMA
@@ -4853,6 +4876,14 @@ INTERCEPTOR(float, lgammaf, float x) {
   COMMON_INTERCEPTOR_WRITE_RANGE(ctx, &signgam, sizeof(signgam));
   return res;
 }
+#define INIT_LGAMMA                   \
+  COMMON_INTERCEPT_FUNCTION(lgamma);  \
+  COMMON_INTERCEPT_FUNCTION(lgammaf);
+#else
+#define INIT_LGAMMA
+#endif
+
+#if SANITIZER_INTERCEPT_LGAMMAL
 INTERCEPTOR(long double, lgammal, long double x) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, lgammal, x);
@@ -4860,12 +4891,10 @@ INTERCEPTOR(long double, lgammal, long double x) {
   COMMON_INTERCEPTOR_WRITE_RANGE(ctx, &signgam, sizeof(signgam));
   return res;
 }
-#define INIT_LGAMMA                   \
-  COMMON_INTERCEPT_FUNCTION(lgamma);  \
-  COMMON_INTERCEPT_FUNCTION(lgammaf); \
+#define INIT_LGAMMAL                  \
   COMMON_INTERCEPT_FUNCTION_LDBL(lgammal);
 #else
-#define INIT_LGAMMA
+#define INIT_LGAMMAL
 #endif
 
 #if SANITIZER_INTERCEPT_LGAMMA_R
@@ -7299,6 +7328,8 @@ static void InitializeCommonInterceptors() {
   INIT_GETPWENT;
   INIT_FGETPWENT;
   INIT_GETPWENT_R;
+  INIT_FGETPWENT_R;
+  INIT_FGETGRENT_R;
   INIT_SETPWENT;
   INIT_CLOCK_GETTIME;
   INIT_GETITIMER;
@@ -7408,7 +7439,9 @@ static void InitializeCommonInterceptors() {
   INIT_PTHREAD_GETNAME_NP;
   INIT_SINCOS;
   INIT_REMQUO;
+  INIT_REMQUOL;
   INIT_LGAMMA;
+  INIT_LGAMMAL;
   INIT_LGAMMA_R;
   INIT_LGAMMAL_R;
   INIT_DRAND48_R;

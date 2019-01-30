@@ -851,6 +851,9 @@ def err_pragma_attribute_no_pop_eof : Error<"unterminated "
   "'#pragma clang attribute push' at end of file">;
 def note_pragma_attribute_applied_decl_here : Note<
   "when applied to this declaration">;
+def err_pragma_attr_attr_no_push : Error<
+  "'#pragma clang attribute' attribute with no matching "
+  "'#pragma clang attribute push'">;
 
 /// Objective-C parser diagnostics
 def err_duplicate_class_def : Error<
@@ -2889,8 +2892,6 @@ def err_cyclic_alias : Error<
   "%select{alias|ifunc}0 definition is part of a cycle">;
 def err_ifunc_resolver_return : Error<
   "ifunc resolver function must return a pointer">;
-def err_ifunc_resolver_params : Error<
-  "ifunc resolver function must have no parameters">;
 def warn_attribute_wrong_decl_type_str : Warning<
   "%0 attribute only applies to %1">, InGroup<IgnoredAttributes>;
 def err_attribute_wrong_decl_type_str : Error<
@@ -3183,10 +3184,10 @@ def err_impcast_complex_scalar : Error<
   "implicit conversion from %0 to %1 is not permitted in C++">;
 def warn_impcast_float_precision : Warning<
   "implicit conversion loses floating-point precision: %0 to %1">,
-  InGroup<Conversion>, DefaultIgnore;
+  InGroup<ImplicitFloatConversion>, DefaultIgnore;
 def warn_impcast_float_result_precision : Warning<
   "implicit conversion when assigning computation result loses floating-point precision: %0 to %1">,
-  InGroup<Conversion>, DefaultIgnore;
+  InGroup<ImplicitFloatConversion>, DefaultIgnore;
 def warn_impcast_double_promotion : Warning<
   "implicit conversion increases floating-point precision: %0 to %1">,
   InGroup<DoublePromotion>, DefaultIgnore;
@@ -3198,10 +3199,10 @@ def warn_impcast_integer_sign_conditional : Warning<
   InGroup<SignConversion>, DefaultIgnore;
 def warn_impcast_integer_precision : Warning<
   "implicit conversion loses integer precision: %0 to %1">,
-  InGroup<Conversion>, DefaultIgnore;
+  InGroup<ImplicitIntConversion>, DefaultIgnore;
 def warn_impcast_high_order_zero_bits : Warning<
   "higher order bits are zeroes after implicit conversion">,
-  InGroup<Conversion>, DefaultIgnore;
+  InGroup<ImplicitIntConversion>, DefaultIgnore;
 def warn_impcast_nonnegative_result : Warning<
   "the resulting value is always non-negative after implicit conversion">,
   InGroup<SignConversion>, DefaultIgnore;
@@ -3292,6 +3293,10 @@ def warn_address_of_reference_null_compare : Warning<
   "%select{true|false}0">,
   InGroup<TautologicalUndefinedCompare>;
 def note_reference_is_return_value : Note<"%0 returns a reference">;
+
+def warn_division_sizeof_ptr : Warning<
+  "'%0' will return the size of the pointer, not the array itself">,
+  InGroup<DiagGroup<"sizeof-pointer-div">>;
 
 def note_function_warning_silence : Note<
     "prefix with the address-of operator to silence this warning">;
@@ -3676,7 +3681,7 @@ def warn_diagnose_if_succeeded : Warning<"%0">, InGroup<UserDefinedWarnings>,
 def note_ovl_candidate_disabled_by_function_cond_attr : Note<
     "candidate disabled: %0">;
 def note_ovl_candidate_disabled_by_extension : Note<
-    "candidate disabled due to OpenCL extension">;
+    "candidate unavailable as it requires OpenCL extension '%0' to be enabled">;
 def err_addrof_function_disabled_by_enable_if_attr : Error<
     "cannot take address of function %0 because it has one or more "
     "non-tautological enable_if conditions">;
@@ -5476,20 +5481,24 @@ def err_atomic_specifier_bad_type : Error<
   "%1 %select{||||||which is not trivially copyable}0">;
 
 // Expressions.
+def select_unary_expr_or_type_trait_kind : TextSubstitution<
+  "%select{sizeof|alignof|vec_step|__builtin_omp_required_simd_align|"
+  "__alignof}0">;
 def ext_sizeof_alignof_function_type : Extension<
-  "invalid application of '%select{sizeof|alignof|vec_step}0' to a "
-  "function type">, InGroup<PointerArith>;
+  "invalid application of '%sub{select_unary_expr_or_type_trait_kind}0' "
+  "to a function type">, InGroup<PointerArith>;
 def ext_sizeof_alignof_void_type : Extension<
-  "invalid application of '%select{sizeof|alignof|vec_step}0' to a void "
-  "type">, InGroup<PointerArith>;
+  "invalid application of '%sub{select_unary_expr_or_type_trait_kind}0' "
+  "to a void type">, InGroup<PointerArith>;
 def err_opencl_sizeof_alignof_type : Error<
-  "invalid application of '%select{sizeof|alignof|vec_step|__builtin_omp_required_simd_align}0' to a void type">;
+  "invalid application of '%sub{select_unary_expr_or_type_trait_kind}0' "
+  "to a void type">;
 def err_sizeof_alignof_incomplete_type : Error<
-  "invalid application of '%select{sizeof|alignof|vec_step|__builtin_omp_required_simd_align}0' to an "
-  "incomplete type %1">;
+  "invalid application of '%sub{select_unary_expr_or_type_trait_kind}0' "
+  "to an incomplete type %1">;
 def err_sizeof_alignof_function_type : Error<
-  "invalid application of '%select{sizeof|alignof|vec_step|__builtin_omp_required_simd_align}0' to a "
-  "function type">;
+  "invalid application of '%sub{select_unary_expr_or_type_trait_kind}0' "
+  "to a function type">;
 def err_openmp_default_simd_align_expr : Error<
   "invalid application of '__builtin_omp_required_simd_align' to an expression, only type is allowed">;
 def err_sizeof_alignof_typeof_bitfield : Error<
@@ -6631,6 +6640,10 @@ let CategoryName = "Lambda Issue" in {
      InGroup<CXXPre17Compat>, DefaultIgnore;
   def ext_star_this_lambda_capture_cxx17 : ExtWarn<
     "capture of '*this' by copy is a C++17 extension">, InGroup<CXX17>;
+
+  // C++17 parameter shadows capture
+  def err_parameter_shadow_capture : Error<
+    "a lambda parameter cannot shadow an explicitly captured entity">;
 
   // C++2a [=, this] captures.
   def warn_cxx17_compat_equals_this_lambda_capture : Warning<
@@ -7889,6 +7902,8 @@ def warn_format_non_standard: Warning<
 def warn_format_non_standard_conversion_spec: Warning<
   "using length modifier '%0' with conversion specifier '%1' is not supported by ISO C">,
   InGroup<FormatNonStandard>, DefaultIgnore;
+def err_invalid_mask_type_size : Error<
+  "mask type size must be between 1-byte and 8-bytes">;
 def warn_format_invalid_annotation : Warning<
   "using '%0' format specifier annotation outside of os_log()/os_trace()">,
   InGroup<Format>;
@@ -9457,10 +9472,9 @@ def ext_warn_gnu_final : ExtWarn<
   "__final is a GNU extension, consider using C++11 final">,
   InGroup<GccCompat>;
 
-def warn_shadow_field :
-  Warning<"non-static data member %0 of %1 shadows member inherited from "
-  "type %2">,
-  InGroup<ShadowField>, DefaultIgnore;
+def warn_shadow_field : Warning<
+  "%select{parameter|non-static data member}3 %0 %select{|of %1 }3shadows "
+  "member inherited from type %2">, InGroup<ShadowField>, DefaultIgnore;
 def note_shadow_field : Note<"declared here">;
 
 def err_multiversion_required_in_redecl : Error<

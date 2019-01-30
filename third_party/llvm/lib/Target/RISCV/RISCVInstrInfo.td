@@ -205,6 +205,12 @@ def ixlenimm : Operand<XLenVT> {
 // Standalone (codegen-only) immleaf patterns.
 def simm32     : ImmLeaf<XLenVT, [{return isInt<32>(Imm);}]>;
 def simm32hi20 : ImmLeaf<XLenVT, [{return isShiftedInt<20, 12>(Imm);}]>;
+// A mask value that won't affect significant shift bits.
+def immbottomxlenset : ImmLeaf<XLenVT, [{
+  if (Subtarget->is64Bit())
+    return countTrailingOnes<uint64_t>(Imm) >= 6;
+  return countTrailingOnes<uint64_t>(Imm) >= 5;
+}]>;
 
 // Addressing modes.
 // Necessary because a frameindex can't be matched directly in a pattern.
@@ -646,12 +652,22 @@ def : PatGprGpr<and, AND>;
 def : PatGprSimm12<and, ANDI>;
 def : PatGprGpr<xor, XOR>;
 def : PatGprSimm12<xor, XORI>;
-def : PatGprGpr<shl, SLL>;
 def : PatGprUimmLog2XLen<shl, SLLI>;
-def : PatGprGpr<srl, SRL>;
 def : PatGprUimmLog2XLen<srl, SRLI>;
-def : PatGprGpr<sra, SRA>;
 def : PatGprUimmLog2XLen<sra, SRAI>;
+
+// Match both a plain shift and one where the shift amount is masked (this is
+// typically introduced when the legalizer promotes the shift amount and
+// zero-extends it). For RISC-V, the mask is unnecessary as shifts in the base
+// ISA only read the least significant 5 bits (RV32I) or 6 bits (RV64I).
+class shiftop<SDPatternOperator operator>
+    : PatFrags<(ops node:$val, node:$count),
+               [(operator node:$val, node:$count),
+                (operator node:$val, (and node:$count, immbottomxlenset))]>;
+
+def : PatGprGpr<shiftop<shl>, SLL>;
+def : PatGprGpr<shiftop<srl>, SRL>;
+def : PatGprGpr<shiftop<sra>, SRA>;
 
 /// FrameIndex calculations
 

@@ -16,11 +16,9 @@ target triple = "wasm32-unknown-unknown"
 ; SIMD128-NEXT: .result v128{{$}}
 ; SIMD128-NEXT: i8x16.add_saturate_s $push[[R:[0-9]+]]=, $0, $1{{$}}
 ; SIMD128-NEXT: return $pop[[R]]{{$}}
-declare <16 x i8> @llvm.wasm.add.saturate.signed.v16i8(<16 x i8>, <16 x i8>)
+declare <16 x i8> @llvm.sadd.sat.v16i8(<16 x i8>, <16 x i8>)
 define <16 x i8> @add_sat_s_v16i8(<16 x i8> %x, <16 x i8> %y) {
-  %a = call <16 x i8> @llvm.wasm.add.saturate.signed.v16i8(
-    <16 x i8> %x, <16 x i8> %y
-  )
+  %a = call <16 x i8> @llvm.sadd.sat.v16i8(<16 x i8> %x, <16 x i8> %y)
   ret <16 x i8> %a
 }
 
@@ -29,11 +27,9 @@ define <16 x i8> @add_sat_s_v16i8(<16 x i8> %x, <16 x i8> %y) {
 ; SIMD128-NEXT: .result v128{{$}}
 ; SIMD128-NEXT: i8x16.add_saturate_u $push[[R:[0-9]+]]=, $0, $1{{$}}
 ; SIMD128-NEXT: return $pop[[R]]{{$}}
-declare <16 x i8> @llvm.wasm.add.saturate.unsigned.v16i8(<16 x i8>, <16 x i8>)
+declare <16 x i8> @llvm.uadd.sat.v16i8(<16 x i8>, <16 x i8>)
 define <16 x i8> @add_sat_u_v16i8(<16 x i8> %x, <16 x i8> %y) {
-  %a = call <16 x i8> @llvm.wasm.add.saturate.unsigned.v16i8(
-    <16 x i8> %x, <16 x i8> %y
-  )
+  %a = call <16 x i8> @llvm.uadd.sat.v16i8(<16 x i8> %x, <16 x i8> %y)
   ret <16 x i8> %a
 }
 
@@ -106,11 +102,9 @@ define <16 x i8> @bitselect_v16i8(<16 x i8> %c, <16 x i8> %v1, <16 x i8> %v2) {
 ; SIMD128-NEXT: .result v128{{$}}
 ; SIMD128-NEXT: i16x8.add_saturate_s $push[[R:[0-9]+]]=, $0, $1{{$}}
 ; SIMD128-NEXT: return $pop[[R]]{{$}}
-declare <8 x i16> @llvm.wasm.add.saturate.signed.v8i16(<8 x i16>, <8 x i16>)
+declare <8 x i16> @llvm.sadd.sat.v8i16(<8 x i16>, <8 x i16>)
 define <8 x i16> @add_sat_s_v8i16(<8 x i16> %x, <8 x i16> %y) {
-  %a = call <8 x i16> @llvm.wasm.add.saturate.signed.v8i16(
-    <8 x i16> %x, <8 x i16> %y
-  )
+  %a = call <8 x i16> @llvm.sadd.sat.v8i16(<8 x i16> %x, <8 x i16> %y)
   ret <8 x i16> %a
 }
 
@@ -119,11 +113,9 @@ define <8 x i16> @add_sat_s_v8i16(<8 x i16> %x, <8 x i16> %y) {
 ; SIMD128-NEXT: .result v128{{$}}
 ; SIMD128-NEXT: i16x8.add_saturate_u $push[[R:[0-9]+]]=, $0, $1{{$}}
 ; SIMD128-NEXT: return $pop[[R]]{{$}}
-declare <8 x i16> @llvm.wasm.add.saturate.unsigned.v8i16(<8 x i16>, <8 x i16>)
+declare <8 x i16> @llvm.uadd.sat.v8i16(<8 x i16>, <8 x i16>)
 define <8 x i16> @add_sat_u_v8i16(<8 x i16> %x, <8 x i16> %y) {
-  %a = call <8 x i16> @llvm.wasm.add.saturate.unsigned.v8i16(
-    <8 x i16> %x, <8 x i16> %y
-  )
+  %a = call <8 x i16> @llvm.uadd.sat.v8i16(<8 x i16> %x, <8 x i16> %y)
   ret <8 x i16> %a
 }
 
@@ -226,6 +218,30 @@ define <4 x i32> @bitselect_v4i32(<4 x i32> %c, <4 x i32> %v1, <4 x i32> %v2) {
   ret <4 x i32> %a
 }
 
+; CHECK-LABEL: trunc_sat_s_v4i32:
+; NO-SIMD128-NOT: f32x4
+; SIMD128-NEXT: .param v128{{$}}
+; SIMD128-NEXT: .result v128{{$}}
+; SIMD128-NEXT: i32x4.trunc_sat_s/f32x4 $push[[R:[0-9]+]]=, $0
+; SIMD128-NEXT: return $pop[[R]]
+declare <4 x i32> @llvm.wasm.trunc.saturate.signed.v4i32.v4f32(<4 x float>)
+define <4 x i32> @trunc_sat_s_v4i32(<4 x float> %x) {
+  %a = call <4 x i32> @llvm.wasm.trunc.saturate.signed.v4i32.v4f32(<4 x float> %x)
+  ret <4 x i32> %a
+}
+
+; CHECK-LABEL: trunc_sat_u_v4i32:
+; NO-SIMD128-NOT: f32x4
+; SIMD128-NEXT: .param v128{{$}}
+; SIMD128-NEXT: .result v128{{$}}
+; SIMD128-NEXT: i32x4.trunc_sat_u/f32x4 $push[[R:[0-9]+]]=, $0
+; SIMD128-NEXT: return $pop[[R]]
+declare <4 x i32> @llvm.wasm.trunc.saturate.unsigned.v4i32.v4f32(<4 x float>)
+define <4 x i32> @trunc_sat_u_v4i32(<4 x float> %x) {
+  %a = call <4 x i32> @llvm.wasm.trunc.saturate.unsigned.v4i32.v4f32(<4 x float> %x)
+  ret <4 x i32> %a
+}
+
 ; ==============================================================================
 ; 2 x i64
 ; ==============================================================================
@@ -261,6 +277,30 @@ define <2 x i64> @bitselect_v2i64(<2 x i64> %c, <2 x i64> %v1, <2 x i64> %v2) {
   %a = call <2 x i64> @llvm.wasm.bitselect.v2i64(
     <2 x i64> %c, <2 x i64> %v1, <2 x i64> %v2
   )
+  ret <2 x i64> %a
+}
+
+; CHECK-LABEL: trunc_sat_s_v2i64:
+; NO-SIMD128-NOT: f32x4
+; SIMD128-NEXT: .param v128{{$}}
+; SIMD128-NEXT: .result v128{{$}}
+; SIMD128-NEXT: i64x2.trunc_sat_s/f64x2 $push[[R:[0-9]+]]=, $0
+; SIMD128-NEXT: return $pop[[R]]
+declare <2 x i64> @llvm.wasm.trunc.saturate.signed.v2i64.v2f64(<2 x double>)
+define <2 x i64> @trunc_sat_s_v2i64(<2 x double> %x) {
+  %a = call <2 x i64> @llvm.wasm.trunc.saturate.signed.v2i64.v2f64(<2 x double> %x)
+  ret <2 x i64> %a
+}
+
+; CHECK-LABEL: trunc_sat_u_v2i64:
+; NO-SIMD128-NOT: f32x4
+; SIMD128-NEXT: .param v128{{$}}
+; SIMD128-NEXT: .result v128{{$}}
+; SIMD128-NEXT: i64x2.trunc_sat_u/f64x2 $push[[R:[0-9]+]]=, $0
+; SIMD128-NEXT: return $pop[[R]]
+declare <2 x i64> @llvm.wasm.trunc.saturate.unsigned.v2i64.v2f64(<2 x double>)
+define <2 x i64> @trunc_sat_u_v2i64(<2 x double> %x) {
+  %a = call <2 x i64> @llvm.wasm.trunc.saturate.unsigned.v2i64.v2f64(<2 x double> %x)
   ret <2 x i64> %a
 }
 

@@ -39,6 +39,7 @@
 #define fstat __fstat50
 #define gettimeofday __gettimeofday50
 #define getrusage __getrusage50
+#define tzset __tzset50
 #endif
 
 #include <stdarg.h>
@@ -265,7 +266,7 @@ INTERCEPTOR(void, mallinfo, __sanitizer_struct_mallinfo *sret) {
 
 #if !SANITIZER_FREEBSD && !SANITIZER_NETBSD
 INTERCEPTOR(int, mallopt, int cmd, int value) {
-  return -1;
+  return 0;
 }
 #define MSAN_MAYBE_INTERCEPT_MALLOPT INTERCEPT_FUNCTION(mallopt)
 #else
@@ -1071,6 +1072,7 @@ extern char *tzname[2];
 
 INTERCEPTOR(void, tzset, int fake) {
   ENSURE_MSAN_INITED();
+  InterceptorScope interceptor_scope;
   REAL(tzset)(fake);
   if (tzname[0])
     __msan_unpoison(tzname[0], REAL(strlen)(tzname[0]) + 1);

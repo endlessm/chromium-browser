@@ -365,7 +365,7 @@ Decl *Parser::ParseLinkage(ParsingDeclSpec &DS, DeclaratorContext Context) {
     case tok::r_brace:
       if (!NestedModules)
         break;
-      // Fall through.
+      LLVM_FALLTHROUGH;
     default:
       ParsedAttributesWithRange attrs(AttrFactory);
       MaybeParseCXX11Attributes(attrs);
@@ -2410,7 +2410,7 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
                                        const ParsedTemplateInfo &TemplateInfo,
                                        ParsingDeclRAIIObject *TemplateDiags) {
   if (Tok.is(tok::at)) {
-    if (getLangOpts().ObjC1 && NextToken().isObjCAtKeyword(tok::objc_defs))
+    if (getLangOpts().ObjC && NextToken().isObjCAtKeyword(tok::objc_defs))
       Diag(Tok, diag::err_at_defs_cxx);
     else
       Diag(Tok, diag::err_at_in_class);
@@ -3868,7 +3868,8 @@ bool Parser::ParseCXX11AttributeArgs(IdentifierInfo *AttrName,
     return false;
   }
 
-  if (ScopeName && ScopeName->getName() == "gnu") {
+  if (ScopeName &&
+      (ScopeName->getName() == "gnu" || ScopeName->getName() == "__gnu__")) {
     // GNU-scoped attributes have some special cases to handle GNU-specific
     // behaviors.
     ParseGNUAttributeArgs(AttrName, AttrNameLoc, Attrs, EndLoc, ScopeName,

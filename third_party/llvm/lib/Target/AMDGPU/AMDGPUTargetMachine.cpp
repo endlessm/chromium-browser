@@ -166,6 +166,7 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeSIShrinkInstructionsPass(*PR);
   initializeSIOptimizeExecMaskingPreRAPass(*PR);
   initializeSILoadStoreOptimizerPass(*PR);
+  initializeAMDGPUFixFunctionBitcastsPass(*PR);
   initializeAMDGPUAlwaysInlinePass(*PR);
   initializeAMDGPUAnnotateKernelFeaturesPass(*PR);
   initializeAMDGPUAnnotateUniformValuesPass(*PR);
@@ -191,6 +192,7 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeSIFormMemoryClausesPass(*PR);
   initializeAMDGPUUnifyDivergentExitNodesPass(*PR);
   initializeAMDGPUAAWrapperPassPass(*PR);
+  initializeAMDGPUExternalAAWrapperPass(*PR);
   initializeAMDGPUUseNativeCallsPass(*PR);
   initializeAMDGPUSimplifyLibCallsPass(*PR);
   initializeAMDGPUInlinerPass(*PR);
@@ -337,13 +339,6 @@ StringRef AMDGPUTargetMachine::getFeatureString(const Function &F) const {
   return FSAttr.hasAttribute(Attribute::None) ?
     getTargetFeatureString() :
     FSAttr.getValueAsString();
-}
-
-static ImmutablePass *createAMDGPUExternalAAWrapperPass() {
-  return createExternalAAWrapperPass([](Pass &P, Function &, AAResults &AAR) {
-      if (auto *WrapperPass = P.getAnalysisIfAvailable<AMDGPUAAWrapperPass>())
-        AAR.addAAResult(WrapperPass->getResult());
-      });
 }
 
 /// Predicate for Internalize pass.
@@ -611,6 +606,11 @@ void AMDGPUPassConfig::addIRPasses() {
   disablePass(&PatchableFunctionID);
 
   addPass(createAtomicExpandPass());
+
+  // This must occur before inlining, as the inliner will not look through
+  // bitcast calls.
+  addPass(createAMDGPUFixFunctionBitcastsPass());
+
   addPass(createAMDGPULowerIntrinsicsPass());
 
   // Function calls are not supported, so make sure we inline everything.
@@ -811,8 +811,8 @@ bool GCNPassConfig::addILPOpts() {
 
 bool GCNPassConfig::addInstSelector() {
   AMDGPUPassConfig::addInstSelector();
-  addPass(createSILowerI1CopiesPass());
   addPass(&SIFixSGPRCopiesID);
+  addPass(createSILowerI1CopiesPass());
   return false;
 }
 

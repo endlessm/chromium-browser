@@ -2111,7 +2111,7 @@ void Sema::MergeTypedefNameDecl(Scope *S, TypedefNameDecl *New,
 
   // Allow multiple definitions for ObjC built-in typedefs.
   // FIXME: Verify the underlying types are equivalent!
-  if (getLangOpts().ObjC1) {
+  if (getLangOpts().ObjC) {
     const IdentifierInfo *TypeID = New->getIdentifier();
     switch (TypeID->getLength()) {
     default: break;
@@ -10022,11 +10022,17 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
     if (FunctionTemplateDecl *OldTemplateDecl =
             dyn_cast<FunctionTemplateDecl>(OldDecl)) {
       auto *OldFD = OldTemplateDecl->getTemplatedDecl();
-      NewFD->setPreviousDeclaration(OldFD);
-      adjustDeclContextForDeclaratorDecl(NewFD, OldFD);
       FunctionTemplateDecl *NewTemplateDecl
         = NewFD->getDescribedFunctionTemplate();
       assert(NewTemplateDecl && "Template/non-template mismatch");
+
+      // The call to MergeFunctionDecl above may have created some state in
+      // NewTemplateDecl that needs to be merged with OldTemplateDecl before we
+      // can add it as a redeclaration.
+      NewTemplateDecl->mergePrevDecl(OldTemplateDecl);
+
+      NewFD->setPreviousDeclaration(OldFD);
+      adjustDeclContextForDeclaratorDecl(NewFD, OldFD);
       if (NewFD->isCXXClassMember()) {
         NewFD->setAccess(OldTemplateDecl->getAccess());
         NewTemplateDecl->setAccess(OldTemplateDecl->getAccess());
@@ -11707,7 +11713,7 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
 
   // In Objective-C, don't allow jumps past the implicit initialization of a
   // local retaining variable.
-  if (getLangOpts().ObjC1 &&
+  if (getLangOpts().ObjC &&
       var->hasLocalStorage()) {
     switch (var->getType().getObjCLifetime()) {
     case Qualifiers::OCL_None:
@@ -11918,6 +11924,49 @@ static bool hasDependentAlignment(VarDecl *VD) {
   return false;
 }
 
+/// Check if VD needs to be dllexport/dllimport due to being in a
+/// dllexport/import function.
+void Sema::CheckStaticLocalForDllExport(VarDecl *VD) {
+  assert(VD->isStaticLocal());
+
+  auto *FD = dyn_cast_or_null<FunctionDecl>(VD->getParentFunctionOrMethod());
+
+  // Find outermost function when VD is in lambda function.
+  while (FD && !getDLLAttr(FD) &&
+         !FD->hasAttr<DLLExportStaticLocalAttr>() &&
+         !FD->hasAttr<DLLImportStaticLocalAttr>()) {
+    FD = dyn_cast_or_null<FunctionDecl>(FD->getParentFunctionOrMethod());
+  }
+
+  if (!FD)
+    return;
+
+  // Static locals inherit dll attributes from their function.
+  if (Attr *A = getDLLAttr(FD)) {
+    auto *NewAttr = cast<InheritableAttr>(A->clone(getASTContext()));
+    NewAttr->setInherited(true);
+    VD->addAttr(NewAttr);
+  } else if (Attr *A = FD->getAttr<DLLExportStaticLocalAttr>()) {
+    auto *NewAttr = ::new (getASTContext()) DLLExportAttr(A->getRange(),
+                                                          getASTContext(),
+                                                          A->getSpellingListIndex());
+    NewAttr->setInherited(true);
+    VD->addAttr(NewAttr);
+
+    // Export this function to enforce exporting this static variable even
+    // if it is not used in this compilation unit.
+    if (!FD->hasAttr<DLLExportAttr>())
+      FD->addAttr(NewAttr);
+
+  } else if (Attr *A = FD->getAttr<DLLImportStaticLocalAttr>()) {
+    auto *NewAttr = ::new (getASTContext()) DLLImportAttr(A->getRange(),
+                                                          getASTContext(),
+                                                          A->getSpellingListIndex());
+    NewAttr->setInherited(true);
+    VD->addAttr(NewAttr);
+  }
+}
+
 /// FinalizeDeclaration - called by ParseDeclarationAfterDeclarator to perform
 /// any semantic actions necessary after any initializer has been attached.
 void Sema::FinalizeDeclaration(Decl *ThisDecl) {
@@ -11971,14 +12020,9 @@ void Sema::FinalizeDeclaration(Decl *ThisDecl) {
   }
 
   if (VD->isStaticLocal()) {
-    if (FunctionDecl *FD =
-            dyn_cast_or_null<FunctionDecl>(VD->getParentFunctionOrMethod())) {
-      // Static locals inherit dll attributes from their function.
-      if (Attr *A = getDLLAttr(FD)) {
-        auto *NewAttr = cast<InheritableAttr>(A->clone(getASTContext()));
-        NewAttr->setInherited(true);
-        VD->addAttr(NewAttr);
-      }
+    CheckStaticLocalForDllExport(VD);
+
+    if (dyn_cast_or_null<FunctionDecl>(VD->getParentFunctionOrMethod())) {
       // CUDA 8.0 E.3.9.4: Within the body of a __device__ or __global__
       // function, only __shared__ variables or variables without any device
       // memory qualifiers may be declared with static storage class.
@@ -12347,6 +12391,13 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D) {
         D.SetIdentifier(nullptr, D.getIdentifierLoc());
         D.setInvalidType(true);
       }
+    }
+
+    if (LangOpts.CPlusPlus) {
+      DeclarationNameInfo DNI = GetNameForDeclarator(D);
+      if (auto *RD = dyn_cast<CXXRecordDecl>(CurContext))
+        CheckShadowInheritedFields(DNI.getLoc(), DNI.getName(), RD,
+                                   /*DeclIsField*/ false);
     }
   }
 
@@ -13031,7 +13082,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
 
     if (!FD->isInvalidDecl()) {
       // Don't diagnose unused parameters of defaulted or deleted functions.
-      if (!FD->isDeleted() && !FD->isDefaulted())
+      if (!FD->isDeleted() && !FD->isDefaulted() && !FD->hasSkippedBody())
         DiagnoseUnusedParameters(FD->parameters());
       DiagnoseSizeOfParametersAndReturnValue(FD->parameters(),
                                              FD->getReturnType(), FD);
@@ -13126,7 +13177,8 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
     assert(MD == getCurMethodDecl() && "Method parsing confused");
     MD->setBody(Body);
     if (!MD->isInvalidDecl()) {
-      DiagnoseUnusedParameters(MD->parameters());
+      if (!MD->hasSkippedBody())
+        DiagnoseUnusedParameters(MD->parameters());
       DiagnoseSizeOfParametersAndReturnValue(MD->parameters(),
                                              MD->getReturnType(), MD);
 
@@ -14586,7 +14638,7 @@ CreateNewDecl:
     // If this is an undefined enum, warn.
     if (TUK != TUK_Definition && !Invalid) {
       TagDecl *Def;
-      if (IsFixed && (getLangOpts().CPlusPlus11 || getLangOpts().ObjC2) &&
+      if (IsFixed && (getLangOpts().CPlusPlus11 || getLangOpts().ObjC) &&
           cast<EnumDecl>(New)->isFixed()) {
         // C++0x: 7.2p2: opaque-enum-declaration.
         // Conflicts are diagnosed above. Do nothing.
@@ -15765,7 +15817,7 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
         }
         ObjCFieldLifetimeErrReported = true;
       }
-    } else if (getLangOpts().ObjC1 &&
+    } else if (getLangOpts().ObjC &&
                getLangOpts().getGC() != LangOptions::NonGC &&
                Record && !Record->hasObjectMember()) {
       if (FD->getType()->isObjCObjectPointerType() ||
@@ -16263,8 +16315,10 @@ Decl *Sema::ActOnEnumConstant(Scope *S, Decl *theEnumDecl, Decl *lastEnumConst,
 
   // Verify that there isn't already something declared with this name in this
   // scope.
-  NamedDecl *PrevDecl = LookupSingleName(S, Id, IdLoc, LookupOrdinaryName,
-                                         ForVisibleRedeclaration);
+  LookupResult R(*this, Id, IdLoc, LookupOrdinaryName, ForVisibleRedeclaration);
+  LookupName(R, S);
+  NamedDecl *PrevDecl = R.getAsSingle<NamedDecl>();
+
   if (PrevDecl && PrevDecl->isTemplateParameter()) {
     // Maybe we will complain about the shadowed template parameter.
     DiagnoseTemplateParameterShadow(IdLoc, PrevDecl);
@@ -16287,6 +16341,11 @@ Decl *Sema::ActOnEnumConstant(Scope *S, Decl *theEnumDecl, Decl *lastEnumConst,
     return nullptr;
 
   if (PrevDecl) {
+    if (!TheEnumDecl->isScoped() && isa<ValueDecl>(PrevDecl)) {
+      // Check for other kinds of shadowing not already handled.
+      CheckShadow(New, PrevDecl, R);
+    }
+
     // When in C++, we may get a TagDecl with the same name; in this case the
     // enum constant will 'hide' the tag.
     assert((getLangOpts().CPlusPlus || !isa<TagDecl>(PrevDecl)) &&

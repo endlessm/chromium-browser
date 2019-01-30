@@ -15,6 +15,7 @@
 #include <unordered_set>
 #include <vector>
 
+namespace llvm {
 namespace exegesis {
 
 static const char kCsvSep = ',';
@@ -657,11 +658,11 @@ llvm::Error Analysis::run<Analysis::PrintSchedClassInconsistencies>(
 
     // Print any scheduling class that has at least one cluster that does not
     // match the checked-in data.
-    if (std::all_of(SchedClassClusters.begin(), SchedClassClusters.end(),
-                    [this, &RSCAndPoints](const SchedClassCluster &C) {
-                      return C.measurementsMatch(*SubtargetInfo_,
-                                                 RSCAndPoints.RSC, Clustering_);
-                    }))
+    if (llvm::all_of(SchedClassClusters,
+                     [this, &RSCAndPoints](const SchedClassCluster &C) {
+                       return C.measurementsMatch(
+                           *SubtargetInfo_, RSCAndPoints.RSC, Clustering_);
+                     }))
       continue; // Nothing weird.
 
     OS << "<div class=\"inconsistency\"><p>Sched Class <span "
@@ -796,3 +797,4 @@ std::vector<std::pair<uint16_t, float>> computeIdealizedProcResPressure(
 }
 
 } // namespace exegesis
+} // namespace llvm

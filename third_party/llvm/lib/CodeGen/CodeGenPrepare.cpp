@@ -321,6 +321,24 @@ class TypePromotionTransaction;
     }
 
   private:
+    template <typename F>
+    void resetIteratorIfInvalidatedWhileCalling(BasicBlock *BB, F f) {
+      // Substituting can cause recursive simplifications, which can invalidate
+      // our iterator.  Use a WeakTrackingVH to hold onto it in case this
+      // happens.
+      Value *CurValue = &*CurInstIterator;
+      WeakTrackingVH IterHandle(CurValue);
+
+      f();
+
+      // If the iterator instruction was recursively deleted, start over at the
+      // start of the block.
+      if (IterHandle != CurValue) {
+        CurInstIterator = BB->begin();
+        SunkAddrs.clear();
+      }
+    }
+
     bool eliminateFallThrough(Function &F);
     bool eliminateMostlyEmptyBlocks(Function &F);
     BasicBlock *findDestBlockOfMergeableEmptyBlock(BasicBlock *BB);
@@ -436,11 +454,6 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
   bool MadeChange = true;
   while (MadeChange) {
     MadeChange = false;
-    SeenChainsForSExt.clear();
-    ValToSExtendedUses.clear();
-    RemovedInsts.clear();
-    LargeOffsetGEPMap.clear();
-    LargeOffsetGEPID.clear();
     for (Function::iterator I = F.begin(); I != F.end(); ) {
       BasicBlock *BB = &*I++;
       bool ModifiedDTOnIteration = false;
@@ -460,6 +473,11 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
       I->deleteValue();
 
     EverMadeChange |= MadeChange;
+    SeenChainsForSExt.clear();
+    ValToSExtendedUses.clear();
+    RemovedInsts.clear();
+    LargeOffsetGEPMap.clear();
+    LargeOffsetGEPID.clear();
   }
 
   SunkAddrs.clear();
@@ -1690,21 +1708,18 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool &ModifiedDT) {
       // Lower all uses of llvm.objectsize.*
       ConstantInt *RetVal =
           lowerObjectSizeCall(II, *DL, TLInfo, /*MustSucceed=*/true);
-      // Substituting this can cause recursive simplifications, which can
-      // invalidate our iterator.  Use a WeakTrackingVH to hold onto it in case
-      // this
-      // happens.
-      Value *CurValue = &*CurInstIterator;
-      WeakTrackingVH IterHandle(CurValue);
 
-      replaceAndRecursivelySimplify(CI, RetVal, TLInfo, nullptr);
-
-      // If the iterator instruction was recursively deleted, start over at the
-      // start of the block.
-      if (IterHandle != CurValue) {
-        CurInstIterator = BB->begin();
-        SunkAddrs.clear();
-      }
+      resetIteratorIfInvalidatedWhileCalling(BB, [&]() {
+        replaceAndRecursivelySimplify(CI, RetVal, TLInfo, nullptr);
+      });
+      return true;
+    }
+    case Intrinsic::is_constant: {
+      // If is_constant hasn't folded away yet, lower it to false now.
+      Constant *RetVal = ConstantInt::get(II->getType(), 0);
+      resetIteratorIfInvalidatedWhileCalling(BB, [&]() {
+        replaceAndRecursivelySimplify(CI, RetVal, TLInfo, nullptr);
+      });
       return true;
     }
     case Intrinsic::aarch64_stlxr:
@@ -1721,11 +1736,22 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool &ModifiedDT) {
       return true;
     }
     case Intrinsic::launder_invariant_group:
-    case Intrinsic::strip_invariant_group:
-      II->replaceAllUsesWith(II->getArgOperand(0));
+    case Intrinsic::strip_invariant_group: {
+      Value *ArgVal = II->getArgOperand(0);
+      auto it = LargeOffsetGEPMap.find(II);
+      if (it != LargeOffsetGEPMap.end()) {
+          // Merge entries in LargeOffsetGEPMap to reflect the RAUW.
+          // Make sure not to have to deal with iterator invalidation
+          // after possibly adding ArgVal to LargeOffsetGEPMap.
+          auto GEPs = std::move(it->second);
+          LargeOffsetGEPMap[ArgVal].append(GEPs.begin(), GEPs.end());
+          LargeOffsetGEPMap.erase(II);
+      }
+
+      II->replaceAllUsesWith(ArgVal);
       II->eraseFromParent();
       return true;
-
+    }
     case Intrinsic::cttz:
     case Intrinsic::ctlz:
       // If counting zeros is expensive, try to avoid it.

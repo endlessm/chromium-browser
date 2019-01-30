@@ -127,6 +127,7 @@ struct Configuration {
   bool AsNeeded = false;
   bool Bsymbolic;
   bool BsymbolicFunctions;
+  bool CallGraphProfileSort;
   bool CheckSections;
   bool CompressDebugSections;
   bool Cref;
@@ -217,6 +218,7 @@ struct Configuration {
   unsigned LTOO;
   unsigned Optimize;
   unsigned ThinLTOJobs;
+  int32_t SplitStackAdjustSize;
 
   // The following config options do not directly correspond to any
   // particualr command line options.

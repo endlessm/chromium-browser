@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.4.3)
 
+if(POLICY CMP0075)
+  cmake_policy(SET CMP0075 NEW)
+endif()
+
 # If we are not building as a part of LLVM, build Clang as an
 # standalone project, using LLVM as an external library:
 if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
@@ -394,22 +398,35 @@ option(CLANG_BUILD_TOOLS
 option(CLANG_ENABLE_ARCMT "Build ARCMT." ON)
 option(CLANG_ENABLE_STATIC_ANALYZER "Build static analyzer." ON)
 
-option(CLANG_ANALYZER_BUILD_Z3
-  "Build the static analyzer with the Z3 constraint manager." OFF)
+set(CLANG_ANALYZER_Z3_INSTALL_DIR "" CACHE STRING "Install directory of the Z3 solver.")
+
+find_package(Z3 4.7.1 EXACT)
+
+if (CLANG_ANALYZER_Z3_INSTALL_DIR)
+  if (NOT Z3_FOUND)
+    message(FATAL_ERROR "Z3 4.7.1 has not been found in CLANG_ANALYZER_Z3_INSTALL_DIR: ${CLANG_ANALYZER_Z3_INSTALL_DIR}.")
+  endif()
+endif()
+
+set(CLANG_ANALYZER_ENABLE_Z3_SOLVER_DEFAULT "${Z3_FOUND}")
+
+option(CLANG_ANALYZER_ENABLE_Z3_SOLVER
+  "Enable Support for the Z3 constraint solver in the Clang Static Analyzer."
+  ${CLANG_ANALYZER_ENABLE_Z3_SOLVER_DEFAULT}
+)
+
+if (CLANG_ANALYZER_ENABLE_Z3_SOLVER)
+  if (NOT Z3_FOUND)
+    message(FATAL_ERROR "CLANG_ANALYZER_ENABLE_Z3_SOLVER cannot be enabled when Z3 is not available.")
+  endif()
+
+  set(CLANG_ANALYZER_WITH_Z3 1)
+endif()
 
 option(CLANG_ENABLE_PROTO_FUZZER "Build Clang protobuf fuzzer." OFF)
 
-if(NOT CLANG_ENABLE_STATIC_ANALYZER AND (CLANG_ENABLE_ARCMT OR CLANG_ANALYZER_BUILD_Z3))
+if(NOT CLANG_ENABLE_STATIC_ANALYZER AND (CLANG_ENABLE_ARCMT OR CLANG_ANALYZER_ENABLE_Z3_SOLVER))
   message(FATAL_ERROR "Cannot disable static analyzer while enabling ARCMT or Z3")
-endif()
-
-if(CLANG_ANALYZER_BUILD_Z3)
-  find_package(Z3 4.5)
-  if(Z3_FOUND)
-    set(CLANG_ANALYZER_WITH_Z3 1)
-  else()
-    message(FATAL_ERROR "Cannot find Z3 header file or shared library")
-  endif()
 endif()
 
 if(CLANG_ENABLE_ARCMT)
@@ -485,6 +502,7 @@ if( CLANG_INCLUDE_TESTS )
       )
   endif()
   add_subdirectory(test)
+  add_subdirectory(bindings/python/tests)
 
   if(CLANG_BUILT_STANDALONE)
     # Add a global check rule now that all subdirectories have been traversed
@@ -493,11 +511,13 @@ if( CLANG_INCLUDE_TESTS )
     get_property(LLVM_LIT_PARAMS GLOBAL PROPERTY LLVM_LIT_PARAMS)
     get_property(LLVM_LIT_DEPENDS GLOBAL PROPERTY LLVM_LIT_DEPENDS)
     get_property(LLVM_LIT_EXTRA_ARGS GLOBAL PROPERTY LLVM_LIT_EXTRA_ARGS)
+    get_property(LLVM_ADDITIONAL_TEST_TARGETS
+                 GLOBAL PROPERTY LLVM_ADDITIONAL_TEST_TARGETS)
     add_lit_target(check-all
       "Running all regression tests"
       ${LLVM_LIT_TESTSUITES}
       PARAMS ${LLVM_LIT_PARAMS}
-      DEPENDS ${LLVM_LIT_DEPENDS}
+      DEPENDS ${LLVM_LIT_DEPENDS} ${LLVM_ADDITIONAL_TEST_TARGETS}
       ARGS ${LLVM_LIT_EXTRA_ARGS}
       )
   endif()

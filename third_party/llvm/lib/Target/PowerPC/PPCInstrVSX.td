@@ -1040,17 +1040,14 @@ def : Pat<(v2f64 (bitconvert v1i128:$A)),
 def : Pat<(v1i128 (bitconvert v2f64:$A)),
           (COPY_TO_REGCLASS $A, VRRC)>;
 
-// sign extension patterns
-// To extend "in place" from v2i32 to v2i64, we have input data like:
-// | undef | i32 | undef | i32 |
-// but xvcvsxwdp expects the input in big-Endian format:
-// | i32 | undef | i32 | undef |
-// so we need to shift everything to the left by one i32 (word) before
-// the conversion.
-def : Pat<(sext_inreg v2i64:$C, v2i32),
-          (XVCVDPSXDS (XVCVSXWDP (XXSLDWI $C, $C, 1)))>;
-def : Pat<(v2f64 (sint_to_fp (sext_inreg v2i64:$C, v2i32))),
-          (XVCVSXWDP (XXSLDWI $C, $C, 1))>;
+def : Pat<(v2i64 (bitconvert f128:$A)),
+          (COPY_TO_REGCLASS $A, VRRC)>;
+def : Pat<(v4i32 (bitconvert f128:$A)),
+          (COPY_TO_REGCLASS $A, VRRC)>;
+def : Pat<(v8i16 (bitconvert f128:$A)),
+          (COPY_TO_REGCLASS $A, VRRC)>;
+def : Pat<(v16i8 (bitconvert f128:$A)),
+          (COPY_TO_REGCLASS $A, VRRC)>;
 
 def : Pat<(v2f64 (PPCsvec2fp v4i32:$C, 0)),
           (v2f64 (XVCVSXWDP (v2i64 (XXMRGHW $C, $C))))>;
@@ -1069,10 +1066,6 @@ let Predicates = [HasVSX, HasOnlySwappingMemOps] in {
   // Stores.
   def : Pat<(int_ppc_vsx_stxvd2x v2f64:$rS, xoaddr:$dst),
             (STXVD2X $rS, xoaddr:$dst)>;
-  def : Pat<(int_ppc_vsx_stxvd2x_be v2f64:$rS, xoaddr:$dst),
-            (STXVD2X $rS, xoaddr:$dst)>;
-  def : Pat<(int_ppc_vsx_stxvw4x_be v4i32:$rS, xoaddr:$dst),
-            (STXVW4X $rS, xoaddr:$dst)>;
   def : Pat<(PPCstxvd2x v2f64:$rS, xoaddr:$dst), (STXVD2X $rS, xoaddr:$dst)>;
 }
 let Predicates = [IsBigEndian, HasVSX, HasOnlySwappingMemOps] in {
@@ -1993,6 +1986,10 @@ let Predicates = [IsLittleEndian, HasVSX] in
   def : Pat<(f64 (vector_extract v2f64:$S, i64:$Idx)),
             (f64 VectorExtractions.LE_VARIABLE_DOUBLE)>;
 
+def : Pat<(int_ppc_vsx_stxvd2x_be v2f64:$rS, xoaddr:$dst),
+            (STXVD2X $rS, xoaddr:$dst)>;
+def : Pat<(int_ppc_vsx_stxvw4x_be v4i32:$rS, xoaddr:$dst),
+            (STXVW4X $rS, xoaddr:$dst)>;
 def : Pat<(v4i32 (int_ppc_vsx_lxvw4x_be xoaddr:$src)), (LXVW4X xoaddr:$src)>;
 def : Pat<(v2f64 (int_ppc_vsx_lxvd2x_be xoaddr:$src)), (LXVD2X xoaddr:$src)>;
 
@@ -3876,10 +3873,11 @@ let AddedComplexity = 400 in {
                         (COPY_TO_REGCLASS (MTVSRD $A), VSRC),
                         (COPY_TO_REGCLASS (MTVSRD $B), VSRC), 0))>;
     def : Pat<(v4i32 (build_vector i32:$A, i32:$B, i32:$C, i32:$D)),
-              (VMRGOW (XXPERMDI (COPY_TO_REGCLASS (MTVSRWZ $A), VSRC),
-                                   (COPY_TO_REGCLASS (MTVSRWZ $C), VSRC), 0),
-                      (XXPERMDI (COPY_TO_REGCLASS (MTVSRWZ $B), VSRC),
-                                   (COPY_TO_REGCLASS (MTVSRWZ $D), VSRC), 0))>;
+              (XXPERMDI
+                (COPY_TO_REGCLASS
+                  (MTVSRD (RLDIMI AnyExts.B, AnyExts.A, 32, 0)), VSRC),
+                (COPY_TO_REGCLASS
+                  (MTVSRD (RLDIMI AnyExts.D, AnyExts.C, 32, 0)), VSRC), 0)>;
     def : Pat<(v4i32 (build_vector i32:$A, i32:$A, i32:$A, i32:$A)),
               (XXSPLTW (COPY_TO_REGCLASS (MTVSRWZ $A), VSRC), 1)>;
   }
@@ -3891,10 +3889,11 @@ let AddedComplexity = 400 in {
                         (COPY_TO_REGCLASS (MTVSRD $B), VSRC),
                         (COPY_TO_REGCLASS (MTVSRD $A), VSRC), 0))>;
     def : Pat<(v4i32 (build_vector i32:$A, i32:$B, i32:$C, i32:$D)),
-              (VMRGOW (XXPERMDI (COPY_TO_REGCLASS (MTVSRWZ $D), VSRC),
-                                   (COPY_TO_REGCLASS (MTVSRWZ $B), VSRC), 0),
-                      (XXPERMDI (COPY_TO_REGCLASS (MTVSRWZ $C), VSRC),
-                                   (COPY_TO_REGCLASS (MTVSRWZ $A), VSRC), 0))>;
+              (XXPERMDI
+                (COPY_TO_REGCLASS
+                  (MTVSRD (RLDIMI AnyExts.C, AnyExts.D, 32, 0)), VSRC),
+                (COPY_TO_REGCLASS
+                  (MTVSRD (RLDIMI AnyExts.A, AnyExts.B, 32, 0)), VSRC), 0)>;
     def : Pat<(v4i32 (build_vector i32:$A, i32:$A, i32:$A, i32:$A)),
               (XXSPLTW (COPY_TO_REGCLASS (MTVSRWZ $A), VSRC), 1)>;
   }
@@ -3947,10 +3946,9 @@ let AddedComplexity = 400 in {
     def : Pat<(v2i64 (build_vector i64:$rB, i64:$rA)),
               (v2i64 (MTVSRDD $rB, $rA))>;
     def : Pat<(v4i32 (build_vector i32:$A, i32:$B, i32:$C, i32:$D)),
-              (VMRGOW
-                (v4i32 (COPY_TO_REGCLASS (MTVSRDD AnyExts.A, AnyExts.C), VSRC)),
-                (v4i32
-                  (COPY_TO_REGCLASS (MTVSRDD AnyExts.B, AnyExts.D), VSRC)))>;
+              (MTVSRDD
+                (RLDIMI AnyExts.B, AnyExts.A, 32, 0),
+                (RLDIMI AnyExts.D, AnyExts.C, 32, 0))>;
   }
 
   let Predicates = [IsISA3_0, HasDirectMove, IsLittleEndian] in {
@@ -3960,10 +3958,9 @@ let AddedComplexity = 400 in {
     def : Pat<(v2i64 (build_vector i64:$rA, i64:$rB)),
               (v2i64 (MTVSRDD $rB, $rA))>;
     def : Pat<(v4i32 (build_vector i32:$A, i32:$B, i32:$C, i32:$D)),
-              (VMRGOW
-                (v4i32 (COPY_TO_REGCLASS (MTVSRDD AnyExts.D, AnyExts.B), VSRC)),
-                (v4i32
-                  (COPY_TO_REGCLASS (MTVSRDD AnyExts.C, AnyExts.A), VSRC)))>;
+              (MTVSRDD
+                (RLDIMI AnyExts.C, AnyExts.D, 32, 0),
+                (RLDIMI AnyExts.A, AnyExts.B, 32, 0))>;
   }
   // P9 Altivec instructions that can be used to build vectors.
   // Adding them to PPCInstrVSX.td rather than PPCAltivecVSX.td to compete

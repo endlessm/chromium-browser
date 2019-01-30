@@ -30,6 +30,7 @@
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CodeGen.h"
@@ -123,6 +124,10 @@ static cl::opt<bool>
     BranchRelaxation("aarch64-enable-branch-relax", cl::Hidden, cl::init(true),
                      cl::desc("Relax out of range conditional branches"));
 
+static cl::opt<bool> EnableCompressJumpTables(
+    "aarch64-enable-compress-jump-tables", cl::Hidden, cl::init(true),
+    cl::desc("Use smallest entry possible for jump tables"));
+
 // FIXME: Unify control over GlobalMerge.
 static cl::opt<cl::boolOrDefault>
     EnableGlobalMerge("aarch64-enable-global-merge", cl::Hidden,
@@ -158,6 +163,7 @@ extern "C" void LLVMInitializeAArch64Target() {
   initializeAArch64AdvSIMDScalarPass(*PR);
   initializeAArch64BranchTargetsPass(*PR);
   initializeAArch64CollectLOHPass(*PR);
+  initializeAArch64CompressJumpTablesPass(*PR);
   initializeAArch64ConditionalComparesPass(*PR);
   initializeAArch64ConditionOptimizerPass(*PR);
   initializeAArch64DeadRegisterDefinitionsPass(*PR);
@@ -256,6 +262,16 @@ AArch64TargetMachine::AArch64TargetMachine(const Target &T, const Triple &TT,
   if (TT.isOSBinFormatMachO()) {
     this->Options.TrapUnreachable = true;
     this->Options.NoTrapAfterNoreturn = true;
+  }
+
+  if (getMCAsmInfo()->usesWindowsCFI()) {
+    // Unwinding can get confused if the last instruction in an
+    // exception-handling region (function, funclet, try block, etc.)
+    // is a call.
+    //
+    // FIXME: We could elide the trap if the next instruction would be in
+    // the same region anyway.
+    this->Options.TrapUnreachable = true;
   }
 
   // Enable GlobalISel at or below EnableGlobalISelAt0.
@@ -545,6 +561,9 @@ void AArch64PassConfig::addPreEmitPass() {
 
   if (EnableBranchTargets)
     addPass(createAArch64BranchTargetsPass());
+
+  if (TM->getOptLevel() != CodeGenOpt::None && EnableCompressJumpTables)
+    addPass(createAArch64CompressJumpTablesPass());
 
   if (TM->getOptLevel() != CodeGenOpt::None && EnableCollectLOH &&
       TM->getTargetTriple().isOSBinFormatMachO())

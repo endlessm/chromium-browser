@@ -1491,11 +1491,14 @@ void RelocationBaseSection::addReloc(const DynamicReloc &Reloc) {
 }
 
 void RelocationBaseSection::finalizeContents() {
-  // If all relocations are R_*_RELATIVE they don't refer to any
-  // dynamic symbol and we don't need a dynamic symbol table. If that
-  // is the case, just use 0 as the link.
-  getParent()->Link =
-      In.DynSymTab ? In.DynSymTab->getParent()->SectionIndex : 0;
+  // When linking glibc statically, .rel{,a}.plt contains R_*_IRELATIVE
+  // relocations due to IFUNC (e.g. strcpy). sh_link will be set to 0 in that
+  // case.
+  InputSection *SymTab = Config->Relocatable ? In.SymTab : In.DynSymTab;
+  getParent()->Link = SymTab ? SymTab->getParent()->SectionIndex : 0;
+
+  if (In.RelaIplt == this || In.RelaPlt == this)
+    getParent()->Info = In.GotPlt->getParent()->SectionIndex;
 }
 
 RelrBaseSection::RelrBaseSection()
@@ -1720,6 +1723,11 @@ bool AndroidPackedRelocationSection<ELFT>::updateAllocSize() {
       }
     }
   }
+
+  // Don't allow the section to shrink; otherwise the size of the section can
+  // oscillate infinitely.
+  if (RelocData.size() < OldSize)
+    RelocData.append(OldSize - RelocData.size(), 0);
 
   // Returns whether the section size changed. We need to keep recomputing both
   // section layout and the contents of this section until the size converges
@@ -2587,7 +2595,7 @@ void GdbIndexSection::writeTo(uint8_t *Buf) {
   }
 }
 
-bool GdbIndexSection::empty() const { return !Out::DebugInfo; }
+bool GdbIndexSection::empty() const { return Chunks.empty(); }
 
 EhFrameHeader::EhFrameHeader()
     : SyntheticSection(SHF_ALLOC, SHT_PROGBITS, 4, ".eh_frame_hdr") {}

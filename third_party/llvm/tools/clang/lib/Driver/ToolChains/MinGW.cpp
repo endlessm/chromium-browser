@@ -10,6 +10,7 @@
 #include "MinGW.h"
 #include "InputInfo.h"
 #include "CommonArgs.h"
+#include "clang/Config/config.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/DriverDiagnostic.h"
@@ -219,8 +220,24 @@ void tools::MinGW::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back("-lssp_nonshared");
         CmdArgs.push_back("-lssp");
       }
-      if (Args.hasArg(options::OPT_fopenmp))
-        CmdArgs.push_back("-lgomp");
+
+      if (Args.hasFlag(options::OPT_fopenmp, options::OPT_fopenmp_EQ,
+                       options::OPT_fno_openmp, false)) {
+        switch (TC.getDriver().getOpenMPRuntime(Args)) {
+        case Driver::OMPRT_OMP:
+          CmdArgs.push_back("-lomp");
+          break;
+        case Driver::OMPRT_IOMP5:
+          CmdArgs.push_back("-liomp5md");
+          break;
+        case Driver::OMPRT_GOMP:
+          CmdArgs.push_back("-lgomp");
+          break;
+        case Driver::OMPRT_Unknown:
+          // Already diagnosed.
+          break;
+        }
+      }
 
       AddLibGCC(Args, CmdArgs);
 
@@ -376,6 +393,10 @@ toolchains::MinGW::MinGW(const Driver &D, const llvm::Triple &Triple,
   getFilePaths().push_back(Base + "lib");
   // openSUSE
   getFilePaths().push_back(Base + Arch + "/sys-root/mingw/lib");
+
+  NativeLLVMSupport =
+      Args.getLastArgValue(options::OPT_fuse_ld_EQ, CLANG_DEFAULT_LINKER)
+          .equals_lower("lld");
 }
 
 bool toolchains::MinGW::IsIntegratedAssemblerDefault() const { return true; }
@@ -401,6 +422,10 @@ Tool *toolchains::MinGW::buildAssembler() const {
 
 Tool *toolchains::MinGW::buildLinker() const {
   return new tools::MinGW::Linker(*this);
+}
+
+bool toolchains::MinGW::HasNativeLLVMSupport() const {
+  return NativeLLVMSupport;
 }
 
 bool toolchains::MinGW::IsUnwindTablesDefault(const ArgList &Args) const {

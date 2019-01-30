@@ -851,7 +851,7 @@ define i8 @test_iinsertelement_v4i1(i32 %a, i32 %b, <4 x i32> %x , <4 x i32> %y)
 ; SKX-NEXT:    kxorb %k2, %k1, %k1
 ; SKX-NEXT:    kshiftlb $7, %k1, %k1
 ; SKX-NEXT:    kshiftrb $5, %k1, %k1
-; SKX-NEXT:    kxorb %k1, %k0, %k0
+; SKX-NEXT:    kxorw %k1, %k0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
 ; SKX-NEXT:    ## kill: def $al killed $al killed $eax
 ; SKX-NEXT:    retq
@@ -890,7 +890,7 @@ define i8 @test_iinsertelement_v2i1(i32 %a, i32 %b, <2 x i64> %x , <2 x i64> %y)
 ; SKX-NEXT:    kshiftrb $7, %k0, %k0
 ; SKX-NEXT:    kmovd %eax, %k1
 ; SKX-NEXT:    kshiftlb $1, %k1, %k1
-; SKX-NEXT:    korb %k1, %k0, %k0
+; SKX-NEXT:    korw %k1, %k0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
 ; SKX-NEXT:    ## kill: def $al killed $al killed $eax
 ; SKX-NEXT:    retq
@@ -993,7 +993,6 @@ define zeroext i8 @test_extractelement_v32i1(<32 x i8> %a, <32 x i8> %b) {
 ; KNL-NEXT:    vpcmpeqb %ymm1, %ymm0, %ymm0
 ; KNL-NEXT:    vpternlogq $15, %zmm0, %zmm0, %zmm0
 ; KNL-NEXT:    vpmovsxbd %xmm0, %zmm0
-; KNL-NEXT:    vpslld $31, %zmm0, %zmm0
 ; KNL-NEXT:    vptestmd %zmm0, %zmm0, %k0
 ; KNL-NEXT:    kshiftrw $2, %k0, %k0
 ; KNL-NEXT:    kmovw %k0, %eax
@@ -1020,10 +1019,9 @@ define zeroext i8 @test_extractelement_v64i1(<64 x i8> %a, <64 x i8> %b) {
 ; KNL:       ## %bb.0:
 ; KNL-NEXT:    vpminub %ymm3, %ymm1, %ymm0
 ; KNL-NEXT:    vpcmpeqb %ymm0, %ymm1, %ymm0
-; KNL-NEXT:    vpternlogq $15, %zmm0, %zmm0, %zmm0
 ; KNL-NEXT:    vextracti128 $1, %ymm0, %xmm0
+; KNL-NEXT:    vpternlogq $15, %zmm0, %zmm0, %zmm0
 ; KNL-NEXT:    vpmovsxbd %xmm0, %zmm0
-; KNL-NEXT:    vpslld $31, %zmm0, %zmm0
 ; KNL-NEXT:    vptestmd %zmm0, %zmm0, %k0
 ; KNL-NEXT:    kshiftrw $15, %k0, %k0
 ; KNL-NEXT:    kmovw %k0, %eax
@@ -1056,10 +1054,9 @@ define zeroext i8 @extractelement_v64i1_alt(<64 x i8> %a, <64 x i8> %b) {
 ; KNL:       ## %bb.0:
 ; KNL-NEXT:    vpminub %ymm3, %ymm1, %ymm0
 ; KNL-NEXT:    vpcmpeqb %ymm0, %ymm1, %ymm0
-; KNL-NEXT:    vpternlogq $15, %zmm0, %zmm0, %zmm0
 ; KNL-NEXT:    vextracti128 $1, %ymm0, %xmm0
+; KNL-NEXT:    vpternlogq $15, %zmm0, %zmm0, %zmm0
 ; KNL-NEXT:    vpmovsxbd %xmm0, %zmm0
-; KNL-NEXT:    vpslld $31, %zmm0, %zmm0
 ; KNL-NEXT:    vptestmd %zmm0, %zmm0, %k0
 ; KNL-NEXT:    kshiftrw $15, %k0, %k0
 ; KNL-NEXT:    kmovw %k0, %eax

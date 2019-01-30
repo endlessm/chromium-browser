@@ -66,6 +66,7 @@ public:
     PIDEntry,
     NewBuffer,
     EndOfBuffer,
+    TypedEvent,
   };
 
   Type type() const override { return Type::Metadata; }
@@ -153,13 +154,14 @@ public:
 class CustomEventRecord : public MetadataRecord {
   int32_t Size = 0;
   uint64_t TSC = 0;
+  uint16_t CPU = 0;
   std::string Data{};
   friend class RecordInitializer;
 
 public:
   CustomEventRecord() = default;
-  explicit CustomEventRecord(uint64_t S, uint64_t T, std::string D)
-      : MetadataRecord(), Size(S), TSC(T), Data(std::move(D)) {}
+  explicit CustomEventRecord(uint64_t S, uint64_t T, uint16_t C, std::string D)
+      : MetadataRecord(), Size(S), TSC(T), CPU(C), Data(std::move(D)) {}
 
   MetadataType metadataType() const override {
     return MetadataType::CustomEvent;
@@ -167,6 +169,53 @@ public:
 
   int32_t size() const { return Size; }
   uint64_t tsc() const { return TSC; }
+  uint16_t cpu() const { return CPU; }
+  StringRef data() const { return Data; }
+
+  Error apply(RecordVisitor &V) override;
+};
+
+class CustomEventRecordV5 : public MetadataRecord {
+  int32_t Size = 0;
+  int32_t Delta = 0;
+  std::string Data{};
+  friend class RecordInitializer;
+
+public:
+  CustomEventRecordV5() = default;
+  explicit CustomEventRecordV5(int32_t S, int32_t D, std::string P)
+      : MetadataRecord(), Size(S), Delta(D), Data(std::move(P)) {}
+
+  MetadataType metadataType() const override {
+    return MetadataType::CustomEvent;
+  }
+
+  int32_t size() const { return Size; }
+  int32_t delta() const { return Delta; }
+  StringRef data() const { return Data; }
+
+  Error apply(RecordVisitor &V) override;
+};
+
+class TypedEventRecord : public MetadataRecord {
+  int32_t Size = 0;
+  int32_t Delta = 0;
+  uint16_t EventType = 0;
+  std::string Data{};
+  friend class RecordInitializer;
+
+public:
+  TypedEventRecord() = default;
+  explicit TypedEventRecord(int32_t S, int32_t D, uint16_t E, std::string P)
+      : MetadataRecord(), Size(S), Delta(D), Data(std::move(P)) {}
+
+  MetadataType metadataType() const override {
+    return MetadataType::TypedEvent;
+  }
+
+  int32_t size() const { return Size; }
+  int32_t delta() const { return Delta; }
+  uint16_t eventType() const { return EventType; }
   StringRef data() const { return Data; }
 
   Error apply(RecordVisitor &V) override;
@@ -267,15 +316,23 @@ public:
   virtual Error visit(NewBufferRecord &) = 0;
   virtual Error visit(EndBufferRecord &) = 0;
   virtual Error visit(FunctionRecord &) = 0;
+  virtual Error visit(CustomEventRecordV5 &) = 0;
+  virtual Error visit(TypedEventRecord &) = 0;
 };
 
 class RecordInitializer : public RecordVisitor {
   DataExtractor &E;
   uint32_t &OffsetPtr;
+  uint16_t Version;
 
 public:
+  static constexpr uint16_t DefaultVersion = 5u;
+
+  explicit RecordInitializer(DataExtractor &DE, uint32_t &OP, uint16_t V)
+      : RecordVisitor(), E(DE), OffsetPtr(OP), Version(V) {}
+
   explicit RecordInitializer(DataExtractor &DE, uint32_t &OP)
-      : RecordVisitor(), E(DE), OffsetPtr(OP) {}
+      : RecordInitializer(DE, OP, DefaultVersion) {}
 
   Error visit(BufferExtents &) override;
   Error visit(WallclockRecord &) override;
@@ -287,6 +344,8 @@ public:
   Error visit(NewBufferRecord &) override;
   Error visit(EndBufferRecord &) override;
   Error visit(FunctionRecord &) override;
+  Error visit(CustomEventRecordV5 &) override;
+  Error visit(TypedEventRecord &) override;
 };
 
 } // namespace xray

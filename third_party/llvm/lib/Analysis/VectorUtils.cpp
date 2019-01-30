@@ -54,6 +54,8 @@ bool llvm::isTriviallyVectorizable(Intrinsic::ID ID) {
   case Intrinsic::fabs:
   case Intrinsic::minnum:
   case Intrinsic::maxnum:
+  case Intrinsic::minimum:
+  case Intrinsic::maximum:
   case Intrinsic::copysign:
   case Intrinsic::floor:
   case Intrinsic::ceil:
@@ -502,6 +504,35 @@ Instruction *llvm::propagateMetadata(Instruction *Inst, ArrayRef<Value *> VL) {
   return Inst;
 }
 
+Constant *llvm::createBitMaskForGaps(IRBuilder<> &Builder, unsigned VF,
+                                           const InterleaveGroup &Group) {
+  // All 1's means mask is not needed.
+  if (Group.getNumMembers() == Group.getFactor())
+    return nullptr;
+
+  // TODO: support reversed access.
+  assert(!Group.isReverse() && "Reversed group not supported.");
+
+  SmallVector<Constant *, 16> Mask;
+  for (unsigned i = 0; i < VF; i++)
+    for (unsigned j = 0; j < Group.getFactor(); ++j) {
+      unsigned HasMember = Group.getMember(j) ? 1 : 0;
+      Mask.push_back(Builder.getInt1(HasMember));
+    }
+
+  return ConstantVector::get(Mask);
+}
+
+Constant *llvm::createReplicatedMask(IRBuilder<> &Builder, 
+                                     unsigned ReplicationFactor, unsigned VF) {
+  SmallVector<Constant *, 16> MaskVec;
+  for (unsigned i = 0; i < VF; i++)
+    for (unsigned j = 0; j < ReplicationFactor; j++)
+      MaskVec.push_back(Builder.getInt32(i));
+
+  return ConstantVector::get(MaskVec);
+}
+
 Constant *llvm::createInterleaveMask(IRBuilder<> &Builder, unsigned VF,
                                      unsigned NumVecs) {
   SmallVector<Constant *, 16> Mask;
@@ -672,7 +703,8 @@ void InterleavedAccessInfo::collectConstStrideAccesses(
 // this group because it and (2) are dependent. However, (1) can be grouped
 // with other accesses that may precede it in program order. Note that a
 // bottom-up order does not imply that WAW dependences should not be checked.
-void InterleavedAccessInfo::analyzeInterleaving() {
+void InterleavedAccessInfo::analyzeInterleaving(
+                                 bool EnablePredicatedInterleavedMemAccesses) {
   LLVM_DEBUG(dbgs() << "LV: Analyzing interleaved accesses...\n");
   const ValueToValueMap &Strides = LAI->getSymbolicStrides();
 
@@ -712,9 +744,8 @@ void InterleavedAccessInfo::analyzeInterleaving() {
     // create a group for B, we continue with the bottom-up algorithm to ensure
     // we don't break any of B's dependences.
     InterleaveGroup *Group = nullptr;
-    // TODO: Ignore B if it is in a predicated block. This restriction can be 
-    // relaxed in the future once we handle masked interleaved groups.
-    if (isStrided(DesB.Stride) && !isPredicated(B->getParent())) {
+    if (isStrided(DesB.Stride) && 
+        (!isPredicated(B->getParent()) || EnablePredicatedInterleavedMemAccesses)) {
       Group = getInterleaveGroup(B);
       if (!Group) {
         LLVM_DEBUG(dbgs() << "LV: Creating an interleave group with:" << *B
@@ -808,11 +839,12 @@ void InterleavedAccessInfo::analyzeInterleaving() {
       if (DistanceToB % static_cast<int64_t>(DesB.Size))
         continue;
 
-      // Ignore A if either A or B is in a predicated block. Although we
-      // currently prevent group formation for predicated accesses, we may be
-      // able to relax this limitation in the future once we handle more
-      // complicated blocks.
-      if (isPredicated(A->getParent()) || isPredicated(B->getParent()))
+      // All members of a predicated interleave-group must have the same predicate,
+      // and currently must reside in the same BB.
+      BasicBlock *BlockA = A->getParent();  
+      BasicBlock *BlockB = B->getParent();  
+      if ((isPredicated(BlockA) || isPredicated(BlockB)) &&
+          (!EnablePredicatedInterleavedMemAccesses || BlockA != BlockB))
         continue;
 
       // The index of A is the index of B plus A's distance to B in multiples
@@ -905,4 +937,29 @@ void InterleavedAccessInfo::analyzeInterleaving() {
       RequiresScalarEpilogue = true;
     }
   }
+}
+
+void InterleavedAccessInfo::invalidateGroupsRequiringScalarEpilogue() {
+  // If no group had triggered the requirement to create an epilogue loop,
+  // there is nothing to do.
+  if (!requiresScalarEpilogue())
+    return;
+
+  // Avoid releasing a Group twice.
+  SmallPtrSet<InterleaveGroup *, 4> DelSet;
+  for (auto &I : InterleaveGroupMap) {
+    InterleaveGroup *Group = I.second;
+    if (Group->requiresScalarEpilogue())
+      DelSet.insert(Group);
+  }
+  for (auto *Ptr : DelSet) {
+    LLVM_DEBUG(
+        dbgs()
+        << "LV: Invalidate candidate interleaved group due to gaps that "
+           "require a scalar epilogue (not allowed under optsize) and cannot "
+           "be masked (not enabled). \n");
+    releaseGroup(Ptr);
+  }
+
+  RequiresScalarEpilogue = false;
 }

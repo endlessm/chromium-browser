@@ -495,6 +495,52 @@ main_body:
   ret void
 }
 
+; SMRD load with a non-const non-uniform offset of > 4 dwords (requires splitting)
+; GCN-LABEL: {{^}}smrd_load_nonconst3:
+; GCN-DAG: buffer_load_dwordx4 v[0:3], v{{[0-9]+}}, s[0:3], 0 offen ;
+; GCN-DAG: buffer_load_dwordx4 v[4:7], v{{[0-9]+}}, s[0:3], 0 offen offset:16 ;
+; GCN-DAG: buffer_load_dwordx4 v[8:11], v{{[0-9]+}}, s[0:3], 0 offen offset:32 ;
+; GCN-DAG: buffer_load_dwordx4 v[12:15], v{{[0-9]+}}, s[0:3], 0 offen offset:48 ;
+; GCN: ; return to shader part epilog
+define amdgpu_ps <16 x float> @smrd_load_nonconst3(<4 x i32> inreg %rsrc, i32 %off) #0 {
+main_body:
+  %ld = call <16 x i32> @llvm.amdgcn.s.buffer.load.v16i32(<4 x i32> %rsrc, i32 %off, i32 0)
+  %bc = bitcast <16 x i32> %ld to <16 x float>
+  ret <16 x float> %bc
+}
+
+; GCN-LABEL: {{^}}smrd_load_nonconst4:
+; SICIVI: v_add_{{i32|u32}}_e32 v{{[0-9]+}}, vcc, 0xff8, v0 ;
+; GFX9: v_add_u32_e32 v{{[0-9]+}}, 0xff8, v0 ;
+; GCN-DAG: buffer_load_dwordx4 v[0:3], v{{[0-9]+}}, s[0:3], 0 offen ;
+; GCN-DAG: buffer_load_dwordx4 v[4:7], v{{[0-9]+}}, s[0:3], 0 offen offset:16 ;
+; GCN-DAG: buffer_load_dwordx4 v[8:11], v{{[0-9]+}}, s[0:3], 0 offen offset:32 ;
+; GCN-DAG: buffer_load_dwordx4 v[12:15], v{{[0-9]+}}, s[0:3], 0 offen offset:48 ;
+; GCN: ; return to shader part epilog
+define amdgpu_ps <16 x float> @smrd_load_nonconst4(<4 x i32> inreg %rsrc, i32 %off) #0 {
+main_body:
+  %off.2 = add i32 %off, 4088
+  %ld = call <16 x i32> @llvm.amdgcn.s.buffer.load.v16i32(<4 x i32> %rsrc, i32 %off.2, i32 0)
+  %bc = bitcast <16 x i32> %ld to <16 x float>
+  ret <16 x float> %bc
+}
+
+; GCN-LABEL: {{^}}smrd_load_nonconst5:
+; SICIVI: v_add_{{i32|u32}}_e32 v{{[0-9]+}}, vcc, 0x1004, v0
+; GFX9: v_add_u32_e32 v{{[0-9]+}}, 0x1004, v0
+; GCN-DAG: buffer_load_dwordx4 v[0:3], v{{[0-9]+}}, s[0:3], 0 offen ;
+; GCN-DAG: buffer_load_dwordx4 v[4:7], v{{[0-9]+}}, s[0:3], 0 offen offset:16 ;
+; GCN-DAG: buffer_load_dwordx4 v[8:11], v{{[0-9]+}}, s[0:3], 0 offen offset:32 ;
+; GCN-DAG: buffer_load_dwordx4 v[12:15], v{{[0-9]+}}, s[0:3], 0 offen offset:48 ;
+; GCN: ; return to shader part epilog
+define amdgpu_ps <16 x float> @smrd_load_nonconst5(<4 x i32> inreg %rsrc, i32 %off) #0 {
+main_body:
+  %off.2 = add i32 %off, 4100
+  %ld = call <16 x i32> @llvm.amdgcn.s.buffer.load.v16i32(<4 x i32> %rsrc, i32 %off.2, i32 0)
+  %bc = bitcast <16 x i32> %ld to <16 x float>
+  ret <16 x float> %bc
+}
+
 ; SMRD load dwordx2
 ; GCN-LABEL: {{^}}smrd_load_dwordx2:
 ; SIVIGFX9: s_buffer_load_dwordx2 s[{{[0-9]+:[0-9]+}}], s[{{[0-9]+:[0-9]+}}], s{{[0-9]+}}
@@ -509,6 +555,63 @@ main_body:
   %r.2 = extractelement <2 x float> %s.buffer.float, i32 1
   call void @llvm.amdgcn.exp.f32(i32 0, i32 15, float %r.1, float %r.1, float %r.1, float %r.2, i1 true, i1 true) #0
   ret void
+}
+
+; GCN-LABEL: {{^}}smrd_uniform_loop:
+;
+; TODO: this should use an s_buffer_load
+;
+; GCN: buffer_load_dword
+define amdgpu_ps float @smrd_uniform_loop(<4 x i32> inreg %desc, i32 %bound) #0 {
+main_body:
+  br label %loop
+
+loop:
+  %counter = phi i32 [ 0, %main_body ], [ %counter.next, %loop ]
+  %sum = phi float [ 0.0, %main_body ], [ %sum.next, %loop ]
+  %offset = shl i32 %counter, 2
+  %v = call float @llvm.SI.load.const.v4i32(<4 x i32> %desc, i32 %offset)
+  %sum.next = fadd float %sum, %v
+  %counter.next = add i32 %counter, 1
+  %cc = icmp uge i32 %counter.next, %bound
+  br i1 %cc, label %exit, label %loop
+
+exit:
+  ret float %sum.next
+}
+
+
+; GCN-LABEL: {{^}}smrd_uniform_loop2:
+; (this test differs from smrd_uniform_loop by the more complex structure of phis,
+; which used to confuse the DivergenceAnalysis after structurization)
+;
+; TODO: we should keep the loop counter in an SGPR and use an S_BUFFER_LOAD
+;
+; GCN: buffer_load_dword
+define amdgpu_ps float @smrd_uniform_loop2(<4 x i32> inreg %desc, i32 %bound, i32 %bound.a) #0 {
+main_body:
+  br label %loop
+
+loop:
+  %counter = phi i32 [ 0, %main_body ], [ %counter.next, %loop.a ], [ %counter.next, %loop.b ]
+  %sum = phi float [ 0.0, %main_body ], [ %sum.next, %loop.a ], [ %sum.next.b, %loop.b ]
+  %offset = shl i32 %counter, 2
+  %v = call float @llvm.SI.load.const.v4i32(<4 x i32> %desc, i32 %offset)
+  %sum.next = fadd float %sum, %v
+  %counter.next = add i32 %counter, 1
+  %cc = icmp uge i32 %counter.next, %bound
+  br i1 %cc, label %exit, label %loop.a
+
+loop.a:
+  %cc.a = icmp uge i32 %counter.next, %bound.a
+  br i1 %cc, label %loop, label %loop.b
+
+loop.b:
+  %sum.next.b = fadd float %sum.next, 1.0
+  br label %loop
+
+exit:
+  ret float %sum.next
 }
 
 

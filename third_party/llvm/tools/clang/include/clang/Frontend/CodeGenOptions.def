@@ -62,6 +62,8 @@ CODEGENOPT(ExperimentalNewPassManager, 1, 0) ///< Enables the new, experimental
 CODEGENOPT(DebugPassManager, 1, 0) ///< Prints debug information for the new
                                    ///< pass manager.
 CODEGENOPT(DisableRedZone    , 1, 0) ///< Set when -mno-red-zone is enabled.
+CODEGENOPT(IndirectTlsSegRefs, 1, 0) ///< Set when -mno-tls-direct-seg-refs
+                                     ///< is specified.
 CODEGENOPT(DisableTailCalls  , 1, 0) ///< Do not emit tail calls.
 CODEGENOPT(NoEscapingBlockTailCalls, 1, 0) ///< Do not emit tail calls from
                                            ///< escaping blocks.
@@ -172,7 +174,7 @@ CODEGENOPT(NewStructPathTBAA , 1, 0) ///< Whether or not to use enhanced struct-
 CODEGENOPT(SaveTempLabels    , 1, 0) ///< Save temporary labels.
 CODEGENOPT(SanitizeAddressUseAfterScope , 1, 0) ///< Enable use-after-scope detection
                                                 ///< in AddressSanitizer
-CODEGENOPT(SanitizeAddressPoisonClassMemberArrayNewCookie, 1,
+CODEGENOPT(SanitizeAddressPoisonCustomArrayCookie, 1,
            0) ///< Enable poisoning operator new[] which is not a replaceable
               ///< global allocation function in AddressSanitizer
 CODEGENOPT(SanitizeAddressGlobalsDeadStripping, 1, 0) ///< Enable linker dead stripping
@@ -341,6 +343,8 @@ CODEGENOPT(ForceEmitVTables, 1, 0)
 CODEGENOPT(Addrsig, 1, 0)
 
 ENUM_CODEGENOPT(SignReturnAddress, SignReturnAddressScope, 2, None)
+ENUM_CODEGENOPT(SignReturnAddressKey, SignReturnAddressKeyValue, 1, AKey)
+CODEGENOPT(BranchTargetEnforcement, 1, 0)
 
 /// Whether to emit unused static constants.
 CODEGENOPT(KeepStaticConsts, 1, 0)

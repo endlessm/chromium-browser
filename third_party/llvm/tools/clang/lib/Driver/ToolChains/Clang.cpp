@@ -1430,6 +1430,56 @@ void Clang::RenderTargetOptions(const llvm::Triple &EffectiveTriple,
   }
 }
 
+// Parse -mbranch-protection=<protection>[+<protection>]* where
+//   <protection> ::= standard | none | [bti,pac-ret[+b-key,+leaf]*]
+// Returns a triple of (return address signing Scope, signing key, require
+// landing pads)
+static std::tuple<StringRef, StringRef, bool>
+ParseAArch64BranchProtection(const Driver &D, const ArgList &Args,
+                             const Arg *A) {
+  StringRef Scope = "none";
+  StringRef Key = "a_key";
+  bool IndirectBranches = false;
+
+  StringRef Value = A->getValue();
+  // This maps onto -mbranch-protection=<scope>+<key>
+
+  if (Value.equals("standard")) {
+    Scope = "non-leaf";
+    Key = "a_key";
+    IndirectBranches = true;
+
+  } else if (!Value.equals("none")) {
+    SmallVector<StringRef, 4> BranchProtection;
+    StringRef(A->getValue()).split(BranchProtection, '+');
+
+    auto Protection = BranchProtection.begin();
+    while (Protection != BranchProtection.end()) {
+      if (Protection->equals("bti"))
+        IndirectBranches = true;
+      else if (Protection->equals("pac-ret")) {
+        Scope = "non-leaf";
+        while (++Protection != BranchProtection.end()) {
+          // Inner loop as "leaf" and "b-key" options must only appear attached
+          // to pac-ret.
+          if (Protection->equals("leaf"))
+            Scope = "all";
+          else if (Protection->equals("b-key"))
+            Key = "b_key";
+          else
+            break;
+        }
+        Protection--;
+      } else
+        D.Diag(diag::err_invalid_branch_protection)
+            << *Protection << A->getAsString(Args);
+      Protection++;
+    }
+  }
+
+  return std::make_tuple(Scope, Key, IndirectBranches);
+}
+
 namespace {
 void RenderAArch64ABI(const llvm::Triple &Triple, const ArgList &Args,
                       ArgStringList &CmdArgs) {
@@ -1484,9 +1534,33 @@ void Clang::AddAArch64TargetArgs(const ArgList &Args,
       CmdArgs.push_back("-aarch64-enable-global-merge=true");
   }
 
-  if (Arg *A = Args.getLastArg(options::OPT_msign_return_address)) {
+  // Enable/disable return address signing and indirect branch targets.
+  if (Arg *A = Args.getLastArg(options::OPT_msign_return_address_EQ,
+                               options::OPT_mbranch_protection_EQ)) {
+
+    const Driver &D = getToolChain().getDriver();
+
+    StringRef Scope, Key;
+    bool IndirectBranches;
+
+    if (A->getOption().matches(options::OPT_msign_return_address_EQ)) {
+      Scope = A->getValue();
+      if (!Scope.equals("none") && !Scope.equals("non-leaf") &&
+          !Scope.equals("all"))
+        D.Diag(diag::err_invalid_branch_protection)
+            << Scope << A->getAsString(Args);
+      Key = "a_key";
+      IndirectBranches = false;
+    } else
+      std::tie(Scope, Key, IndirectBranches) =
+          ParseAArch64BranchProtection(D, Args, A);
+
     CmdArgs.push_back(
-        Args.MakeArgString(Twine("-msign-return-address=") + A->getValue()));
+        Args.MakeArgString(Twine("-msign-return-address=") + Scope));
+    CmdArgs.push_back(
+        Args.MakeArgString(Twine("-msign-return-address-key=") + Key));
+    if (IndirectBranches)
+      CmdArgs.push_back("-mbranch-target-enforce");
   }
 }
 
@@ -1738,6 +1812,10 @@ void Clang::AddX86TargetArgs(const ArgList &Args,
       Args.hasArg(options::OPT_mkernel) ||
       Args.hasArg(options::OPT_fapple_kext))
     CmdArgs.push_back("-disable-red-zone");
+
+  if (!Args.hasFlag(options::OPT_mtls_direct_seg_refs,
+                    options::OPT_mno_tls_direct_seg_refs, true))
+    CmdArgs.push_back("-mno-tls-direct-seg-refs");
 
   // Default to avoid implicit floating-point for kernel/kext code, but allow
   // that to be overridden with -mno-soft-float.
@@ -3047,8 +3125,8 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
 
   // -gsplit-dwarf should turn on -g and enable the backend dwarf
   // splitting and extraction.
-  // FIXME: Currently only works on Linux.
-  if (T.isOSLinux()) {
+  // FIXME: Currently only works on Linux and Fuchsia.
+  if (T.isOSLinux() || T.isOSFuchsia()) {
     if (!SplitDWARFInlining)
       CmdArgs.push_back("-fno-split-dwarf-inlining");
 
@@ -3172,18 +3250,15 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   bool IsCuda = JA.isOffloading(Action::OFK_Cuda);
   bool IsHIP = JA.isOffloading(Action::OFK_HIP);
   bool IsOpenMPDevice = JA.isDeviceOffloading(Action::OFK_OpenMP);
-  bool IsModulePrecompile =
-      isa<PrecompileJobAction>(JA) && JA.getType() == types::TY_ModuleFile;
   bool IsHeaderModulePrecompile = isa<HeaderModulePrecompileJobAction>(JA);
 
   // A header module compilation doesn't have a main input file, so invent a
   // fake one as a placeholder.
-  // FIXME: Pick the language based on the header file language.
   const char *ModuleName = [&]{
     auto *ModuleNameArg = Args.getLastArg(options::OPT_fmodule_name_EQ);
     return ModuleNameArg ? ModuleNameArg->getValue() : "";
   }();
-  InputInfo HeaderModuleInput(types::TY_CXXModule, ModuleName, ModuleName);
+  InputInfo HeaderModuleInput(Inputs[0].getType(), ModuleName, ModuleName);
 
   const InputInfo &Input =
       IsHeaderModulePrecompile ? HeaderModuleInput : Inputs[0];
@@ -3194,10 +3269,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   for (const InputInfo &I : Inputs) {
     if (&I == &Input) {
       // This is the primary input.
-    } else if (IsModulePrecompile &&
+    } else if (IsHeaderModulePrecompile &&
                types::getPrecompiledType(I.getType()) == types::TY_PCH) {
-      types::ID Expected =
-          types::lookupHeaderTypeForSourceType(Inputs[0].getType());
+      types::ID Expected = HeaderModuleInput.getType();
       if (I.getType() != Expected) {
         D.Diag(diag::err_drv_module_header_wrong_kind)
             << I.getFilename() << types::getTypeName(I.getType())
@@ -3814,7 +3888,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Add the split debug info name to the command lines here so we
   // can propagate it to the backend.
-  bool SplitDWARF = SplitDWARFArg && RawTriple.isOSLinux() &&
+  bool SplitDWARF = SplitDWARFArg &&
+                    (RawTriple.isOSLinux() || RawTriple.isOSFuchsia()) &&
                     (isa<AssembleJobAction>(JA) || isa<CompileJobAction>(JA) ||
                      isa<BackendJobAction>(JA));
   const char *SplitDWARFOut;
@@ -4101,6 +4176,17 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_relocatable_pch))
     CmdArgs.push_back("-relocatable-pch");
 
+  if (const Arg *A = Args.getLastArg(options::OPT_fcf_runtime_abi_EQ)) {
+    static const char *kCFABIs[] = {
+      "standalone", "objc", "swift", "swift-5.0", "swift-4.2", "swift-4.1",
+    };
+
+    if (find(kCFABIs, StringRef(A->getValue())) == std::end(kCFABIs))
+      D.Diag(diag::err_drv_invalid_cf_runtime_abi) << A->getValue();
+    else
+      A->render(Args, CmdArgs);
+  }
+
   if (Arg *A = Args.getLastArg(options::OPT_fconstant_string_class_EQ)) {
     CmdArgs.push_back("-fconstant-string-class");
     CmdArgs.push_back(A->getValue());
@@ -4208,6 +4294,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       Args.AddLastArg(CmdArgs, options::OPT_fopenmp_simd,
                       options::OPT_fno_openmp_simd);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_version_EQ);
+      Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_number_of_sm_EQ);
+      Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_blocks_per_sm_EQ);
 
       // When in OpenMP offloading mode with NVPTX target, forward
       // cuda-mode flag
@@ -4355,6 +4443,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     else
       A->render(Args, CmdArgs);
   }
+  Args.AddLastArg(CmdArgs, options::OPT_fprofile_remapping_file_EQ);
 
   RenderBuiltinOptions(TC, RawTriple, Args, CmdArgs);
 
@@ -5066,6 +5155,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
   }
 
+  // Make the compile command echo its inputs for /showFilenames.
+  if (Output.getType() == types::TY_Object &&
+      Args.hasFlag(options::OPT__SLASH_showFilenames,
+                   options::OPT__SLASH_showFilenames_, false)) {
+    C.getJobs().getJobs().back()->setPrintInputFilenames(true);
+  }
+
   if (Arg *A = Args.getLastArg(options::OPT_pg))
     if (!shouldUseFramePointer(Args, Triple))
       D.Diag(diag::err_drv_argument_not_allowed_with) << "-fomit-frame-pointer"
@@ -5403,6 +5499,11 @@ void Clang::AddClangCLArgs(const ArgList &Args, types::ID InputType,
 
   if (VolatileOptionID == options::OPT__SLASH_volatile_ms)
     CmdArgs.push_back("-fms-volatile");
+
+ if (Args.hasFlag(options::OPT__SLASH_Zc_dllexportInlines_,
+                  options::OPT__SLASH_Zc_dllexportInlines,
+                  false))
+    CmdArgs.push_back("-fno-dllexport-inlines");
 
   Arg *MostGeneralArg = Args.getLastArg(options::OPT__SLASH_vmg);
   Arg *BestCaseArg = Args.getLastArg(options::OPT__SLASH_vmb);
@@ -5751,8 +5852,9 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back("-o");
   CmdArgs.push_back(Output.getFilename());
 
+  const llvm::Triple &T = getToolChain().getTriple();
   if (Args.hasArg(options::OPT_gsplit_dwarf) &&
-      getToolChain().getTriple().isOSLinux()) {
+      (T.isOSLinux() || T.isOSFuchsia())) {
     CmdArgs.push_back("-split-dwarf-file");
     CmdArgs.push_back(SplitDebugName(Args, Input));
   }
