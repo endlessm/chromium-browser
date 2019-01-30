@@ -299,7 +299,7 @@ def WriteGNNinja(path, platform, host, options):
           ldflags.append('-Wl,-strip-all')
 
       # Enable identical code-folding.
-      if not platform.is_darwin():
+      if not platform.is_darwin() and False:
         ldflags.append('-Wl,--icf=all')
 
     cflags.extend([
