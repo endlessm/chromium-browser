@@ -1,3 +1,59 @@
+chromium-browser (72.0.3626.81-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 72.0.3626.81
+    - CVE-2019-5754: Inappropriate implementation in QUIC Networking.
+    - CVE-2019-5782: Inappropriate implementation in V8.
+    - CVE-2019-5755: Inappropriate implementation in V8.
+    - CVE-2019-5756: Use after free in PDFium.
+    - CVE-2019-5757: Type Confusion in SVG.
+    - CVE-2019-5758: Use after free in Blink.
+    - CVE-2019-5759: Use after free in HTML select elements.
+    - CVE-2019-5760: Use after free in WebRTC.
+    - CVE-2019-5761: Use after free in SwiftShader.
+    - CVE-2019-5762: Use after free in PDFium.
+    - CVE-2019-5763: Insufficient validation of untrusted input in V8.
+    - CVE-2019-5764: Use after free in WebRTC.
+    - CVE-2019-5765: Insufficient policy enforcement in the browser.
+    - CVE-2019-5766: Insufficient policy enforcement in Canvas.
+    - CVE-2019-5767: Incorrect security UI in WebAPKs.
+    - CVE-2019-5768: Insufficient policy enforcement in DevTools.
+    - CVE-2019-5769: Insufficient validation of untrusted input in Blink.
+    - CVE-2019-5770: Heap buffer overflow in WebGL.
+    - CVE-2019-5771: Heap buffer overflow in SwiftShader.
+    - CVE-2019-5772: Use after free in PDFium.
+    - CVE-2019-5773: Insufficient data validation in IndexedDB.
+    - CVE-2019-5774: Insufficient validation of untrusted input in SafeBrowsing.
+    - CVE-2019-5775: Insufficient policy enforcement in Omnibox.
+    - CVE-2019-5776: Insufficient policy enforcement in Omnibox.
+    - CVE-2019-5777: Insufficient policy enforcement in Omnibox.
+    - CVE-2019-5778: Insufficient policy enforcement in Extensions.
+    - CVE-2019-5779: Insufficient policy enforcement in ServiceWorker.
+    - CVE-2019-5780: Insufficient policy enforcement.
+    - CVE-2019-5781: Insufficient policy enforcement in Omnibox.
+  * debian/control: add default-jre-headless as a build dependency
+    (needed to compile the new lite JS mojom bindings)
+  * debian/patches/additional-search-engines.patch: refreshed
+  * debian/patches/chromium_useragent.patch: refreshed
+  * debian/patches/closure-compiler-java-no-client-vm.patch: added
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/fix-ffmpeg-ia32-build.patch: refreshed
+  * debian/patches/gn-bootstrap-remove-sysroot-options.patch: removed, no longer
+    needed
+  * debian/patches/gn-do-not-build-with-icf.patch: added
+  * debian/patches/gn-no-last-commit-position.patch: refreshed
+  * debian/patches/no-new-ninja-flag.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: refreshed
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-other-locations: refreshed
+  * debian/tests/html5test: update test expectations
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 30 Jan 2019 12:48:30 +0100
+
 chromium-browser (71.0.3578.98-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 71.0.3578.98

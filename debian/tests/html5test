@@ -43,7 +43,7 @@ if __name__ == '__main__':
     match = re.search("YOUR BROWSER SCORES (\d+) OUT OF (\d+) POINTS", score)
     assert match is not None
     score = (int(match.group(1)), int(match.group(2)))
-    expected_score = (525, 555)
+    expected_score = (530, 555)
     sys.stderr.flush()
     print("Score: {}/{}".format(score[0], score[1]))
 
@@ -270,7 +270,7 @@ if __name__ == '__main__':
         ("row-rtc.objectrtc", "No"),
         ("row-rtc.datachannel", "Yes"),
         ("row-media.getUserMedia", "Yes"),
-        ("row-media.getDisplayMedia", "No"),
+        ("row-media.getDisplayMedia", "Yes"),
         ("row-media.enumerateDevices", "Yes"),
         ("row-rtc.recorder", "Yes"),
         ("row-interaction.dragdrop.attributes", "Partial"),
