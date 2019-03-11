@@ -108,6 +108,7 @@ Description: Extra ffmpeg codecs for the Chromium Browser
  chromium-codecs-ffmpeg if you prefer only the patent-free codecs
 
 Package: chromium-chromedriver
+Provides: chromium-driver
 Architecture: i386 amd64 armhf arm64
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends}, chromium-browser (>= 4.0.203.0~)

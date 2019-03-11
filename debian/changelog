@@ -1,3 +1,96 @@
+chromium-browser (73.0.3683.86-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 73.0.3683.86
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 21 Mar 2019 09:32:01 +0100
+
+chromium-browser (73.0.3683.75-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 73.0.3683.75
+    - CVE-2019-5787: Use after free in Canvas.
+    - CVE-2019-5788: Use after free in FileAPI.
+    - CVE-2019-5789: Use after free in WebMIDI.
+    - CVE-2019-5790: Heap buffer overflow in V8.
+    - CVE-2019-5791: Type confusion in V8.
+    - CVE-2019-5792: Integer overflow in PDFium.
+    - CVE-2019-5793: Excessive permissions for private API in Extensions.
+    - CVE-2019-5794: Security UI spoofing.
+    - CVE-2019-5795: Integer overflow in PDFium.
+    - CVE-2019-5796: Race condition in Extensions.
+    - CVE-2019-5797: Race condition in DOMStorage.
+    - CVE-2019-5798: Out of bounds read in Skia.
+    - CVE-2019-5799: CSP bypass with blob URL.
+    - CVE-2019-5800: CSP bypass with blob URL.
+    - CVE-2019-5801: Incorrect Omnibox display on iOS.
+    - CVE-2019-5802: Security UI spoofing.
+    - CVE-2019-5803: CSP bypass with Javascript URLs'.
+    - CVE-2019-5804: Command line command injection on Windows.
+  * debian/patches/additional-search-engines.patch: removed, no longer needed
+  * debian/patches/closure-compiler-java-no-client-vm.patch: refreshed
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/constexpr-errors-with-old-clang.patch: added
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/fix-ffmpeg-ia32-build.patch: refreshed
+  * debian/patches/fix-ptrace-header-include.patch: added
+  * debian/patches/gn-no-last-commit-position.patch: refreshed
+  * debian/patches/no-new-ninja-flag.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: refreshed
+  * debian/patches/search-credit.patch: updated
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: updated
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-enable-version-string.patch: refreshed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 12 Mar 2019 22:11:59 +0100
+
+chromium-browser (72.0.3626.121-0ubuntu0.16.04.2) UNRELEASED; urgency=medium
+
+  * debian/chromium-chromedriver.links: added for backwards compatibility with
+    existing selenium scripts that expect the chromedriver executable in
+    /usr/lib/chromium-browser/ (LP: #1667208)
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 07 Mar 2019 15:45:43 +0100
+
+chromium-browser (72.0.3626.121-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 72.0.3626.121
+    - CVE-2019-5786: Use-after-free in FileReader
+  * debian/patches/gn-fix-link-pthread.patch: removed, no longer needed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 05 Mar 2019 16:34:54 +0100
+
+chromium-browser (72.0.3626.119-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 72.0.3626.119
+  * debian/patches/gn-fix-link-pthread.patch: added
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Mon, 25 Feb 2019 17:05:46 +0100
+
+chromium-browser (72.0.3626.109-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 72.0.3626.109
+  * debian/rules:
+    - restore old keepalive snippet to prevent builds from timing out during
+      the link phase (this happens often enough on armhf, Launchpad builders
+      have an inactivity timeout of 150 minutes)
+    - install the chromedriver executable in /usr/bin, where python{,3}-selenium
+      and other packages expect it by default (LP: #1667208)
+  * debian/control: make chromium-chromedriver provide "chromium-driver"
+  * debian/chromium-chromedriver.{dirs,install}: removed, no longer needed
+  * debian/tests/{chromium-version,html5test}: remove custom driver path
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 21 Feb 2019 11:49:50 +0100
+
+chromium-browser (72.0.3626.96-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 72.0.3626.96
+    - CVE-2019-5784: Inappropriate implementation in V8.
+  * debian/patches/gn-do-not-build-with-icf.patch: removed, no longer needed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 08 Feb 2019 18:01:05 +0100
+
 chromium-browser (72.0.3626.81-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 72.0.3626.81

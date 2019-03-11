@@ -194,7 +194,7 @@ override_dh_auto_configure: out/Release/gn
 # There are two things to build. Standard ffmpeg+browser, and full ffmpeg.
 override_dh_auto_build: BUILD_TARGETS := chrome chrome_sandbox chromedriver
 override_dh_auto_build:
-	ninja -C out/Release $(BUILD_TARGETS)
+	while sleep 1200; do echo "#  I ATEN'T DEAD"; done& ninja -C out/Release $(BUILD_TARGETS) && { kill \%1; sleep 1; echo; true; } || { kill \%1; exit 1; sleep 2; echo; false; }
 	ninja -C out/ffmpeg-std libffmpeg.so
 
 override_dh_fixperms:
@@ -291,7 +291,7 @@ override_dh_install-arch:
 	##### Copy installed to package ####
 	dh_install -a
 
-	mkdir -p debian/chromium-chromedriver/$(LIB_DIR)
+	mkdir -p debian/chromium-chromedriver/usr/bin
 	mkdir -p debian/chromium-browser/$(LIB_DIR)
 
 	install -T -m 644 debian/chromium-browser.default debian/chromium-browser/etc/chromium-browser/default
@@ -308,7 +308,7 @@ override_dh_install-arch:
 	rm                 debian/tmp/$(LIB_DIR)/chrome_sandbox
 
 	# move chromedriver into its own package
-	install    -m 555 debian/tmp/$(LIB_DIR)/chromedriver debian/chromium-chromedriver/$(LIB_DIR)
+	install    -m 555 debian/tmp/$(LIB_DIR)/chromedriver debian/chromium-chromedriver/usr/bin
 	rm                debian/tmp/$(LIB_DIR)/chromedriver
 
 	mv -iv debian/tmp/$(LIB_DIR)/* debian/chromium-browser/$(LIB_DIR)/
@@ -470,6 +470,8 @@ RENAMED_FILE := s,^usr/lib/chromium-browser/chrome.1\$$,usr/share/man/man1/chrom
 RENAMED_FILE += s,^usr/lib/chromium-browser/chrome_sandbox$$,usr/lib/chromium-browser/chrome-sandbox,
 #  Executable name is different.
 RENAMED_FILE += s,^usr/lib/chromium-browser/chrome$$,usr/lib/chromium-browser/chromium-browser,
+#  chromedriver is moved to /usr/bin (LP: #1667208)
+RENAMED_FILE += s,^usr/lib/chromium-browser/chromedriver$$,usr/bin/chromedriver,
 
 
 ###############################################################################################
