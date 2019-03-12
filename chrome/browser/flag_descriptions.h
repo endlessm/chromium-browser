@@ -38,10 +38,6 @@ namespace flag_descriptions {
 extern const char kAccelerated2dCanvasName[];
 extern const char kAccelerated2dCanvasDescription[];
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
-extern const char kAcceleratedVideoName[];
-extern const char kAcceleratedVideoDescription[];
-#endif
 extern const char kAcceleratedVideoDecodeName[];
 extern const char kAcceleratedVideoDecodeDescription[];
 
@@ -1850,16 +1846,12 @@ extern const char kPermissionPromptPersistenceToggleDescription[];
 
 #endif  // defined(OS_MACOSX)
 
-#if defined(OS_CHROMEOS) || (defined(OS_LINUX) && !defined(OS_ANDROID))
-
-extern const char kAcceleratedMjpegDecodeName[];
-extern const char kAcceleratedMjpegDecodeDescription[];
-
-#endif
-
 // Chrome OS ------------------------------------------------------------------
 
 #if defined(OS_CHROMEOS)
+
+extern const char kAcceleratedMjpegDecodeName[];
+extern const char kAcceleratedMjpegDecodeDescription[];
 
 extern const char kAllowTouchpadThreeFingerClickName[];
 extern const char kAllowTouchpadThreeFingerClickDescription[];

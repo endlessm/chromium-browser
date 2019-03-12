@@ -72,17 +72,9 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
   gpu_preferences.in_process_gpu =
       command_line->HasSwitch(switches::kInProcessGPU);
   gpu_preferences.disable_accelerated_video_decode =
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-      !command_line->HasSwitch(switches::kEnableAcceleratedVideo);
-#else
       command_line->HasSwitch(switches::kDisableAcceleratedVideoDecode);
-#endif
   gpu_preferences.disable_accelerated_video_encode =
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-      !command_line->HasSwitch(switches::kEnableAcceleratedVideo);
-#else
       command_line->HasSwitch(switches::kDisableAcceleratedVideoEncode);
-#endif
 #if defined(OS_WIN)
   uint32_t enable_accelerated_vpx_decode_val =
       gpu::GpuPreferences::VPX_VENDOR_MICROSOFT;

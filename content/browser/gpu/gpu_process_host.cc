@@ -210,9 +210,7 @@ static const char* const kSwitchNames[] = {
     switches::kDisableLogging,
     switches::kDisableShaderNameHashing,
     switches::kDisableSkiaRuntimeOpts,
-#if !defined(OS_LINUX)
     switches::kDisableWebRtcHWEncoding,
-#endif
 #if defined(OS_WIN)
     switches::kEnableAcceleratedVpxDecode,
 #endif
