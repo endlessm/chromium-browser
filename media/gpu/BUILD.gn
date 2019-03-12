@@ -251,11 +251,6 @@ component("gpu") {
 
   if (use_vaapi) {
     public_deps += [ "//media/gpu/vaapi" ]
-
-    if (is_desktop_linux) {
-      public_configs = [ ":libva_config" ]
-    }
-
   }
 
   if (is_win) {
@@ -508,12 +503,6 @@ if (use_v4l2_codec || use_vaapi || is_mac || is_win) {
       deps += [ "//ui/ozone" ]
     }
   }
-}
-
-import("//build/config/linux/pkg_config.gni")
-
-pkg_config("libva_config") {
-  packages = [ "libva" ]
 }
 
 if (use_v4l2_codec || use_vaapi) {

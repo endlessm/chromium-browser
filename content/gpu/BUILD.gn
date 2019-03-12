@@ -136,8 +136,4 @@ target(link_target_type, "gpu_sources") {
       (!is_chromecast || is_cast_desktop_build)) {
     configs += [ "//build/config/linux/dri" ]
   }
-
-  if (is_desktop_linux) {
-    public_configs = [ "//media/gpu:libva_config" ]
-  }
 }

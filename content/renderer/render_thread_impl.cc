@@ -1330,11 +1330,7 @@ media::GpuVideoAcceleratorFactories* RenderThreadImpl::GetGpuFactories() {
           kGpuStreamPriorityMedia);
 
   const bool enable_video_accelerator =
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-      cmd_line->HasSwitch(switches::kEnableAcceleratedVideo) &&
-#else
       !cmd_line->HasSwitch(switches::kDisableAcceleratedVideoDecode) &&
-#endif
       (gpu_channel_host->gpu_feature_info()
            .status_values[gpu::GPU_FEATURE_TYPE_ACCELERATED_VIDEO_DECODE] ==
        gpu::kGpuFeatureStatusEnabled);

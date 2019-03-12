@@ -2966,11 +2966,7 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
     switches::kDefaultTileHeight,
     switches::kDisable2dCanvasImageChromium,
     switches::kDisableAcceleratedJpegDecoding,
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-    switches::kEnableAcceleratedVideo,
-#else
-     switches::kDisableAcceleratedVideoDecode,
-#endif
+    switches::kDisableAcceleratedVideoDecode,
     switches::kDisableBackgroundTasks,
     switches::kDisableBackgroundTimerThrottling,
     switches::kDisableBreakpad,
@@ -3109,10 +3105,8 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
 #if BUILDFLAG(ENABLE_RUNTIME_MEDIA_RENDERER_SELECTION)
     switches::kDisableMojoRenderer,
 #endif
-#if !defined(OS_LINUX) || defined(OS_CHROMEOS)
-     switches::kDisableWebRtcHWDecoding,
-     switches::kDisableWebRtcHWEncoding,
-#endif
+    switches::kDisableWebRtcHWDecoding,
+    switches::kDisableWebRtcHWEncoding,
     switches::kEnableWebRtcSrtpAesGcm,
     switches::kEnableWebRtcSrtpEncryptedHeaders,
     switches::kEnableWebRtcStunOrigin,
