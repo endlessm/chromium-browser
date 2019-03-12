@@ -45,9 +45,6 @@ static void ReportToUMA(VAJDADecoderFailure failure) {
 // macro in the header file without pulling in the entire <va/va.h>.
 static_assert(VA_FOURCC_YUYV == VA_FOURCC('Y', 'U', 'Y', 'V'),
               "VA_FOURCC_YUYV must be equal to VA_FOURCC('Y', 'U', 'Y', 'V')");
-#ifndef VA_FOURCC_I420
-#define VA_FOURCC_I420 0x30323449
-#endif
 constexpr VAImageFormat kImageFormatI420 = {.fourcc = VA_FOURCC_I420,
                                             .byte_order = VA_LSB_FIRST,
                                             .bits_per_pixel = 12};
