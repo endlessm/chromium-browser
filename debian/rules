@@ -139,7 +139,6 @@ else ifeq (i386,$(DEB_HOST_ARCH))
 common_defines += target_cpu="x86"
 else ifeq (amd64,$(DEB_HOST_ARCH))
 common_defines += target_cpu="x64"
-common_defines += use_vaapi=true
 else ifeq (mipsel,$(DEB_HOST_ARCH))
 common_defines += target_cpu="mipsel"
 else ifeq ($(DEB_HOST_ARCH),)
@@ -328,12 +327,7 @@ override_dh_install-arch:
 	mkdir -p debian/chromium-chromedriver/$(LIB_DIR)
 	mkdir -p debian/chromium-browser/$(LIB_DIR)
 
-	# Endless: Set different runtime flags for VA-API on Intel
-ifeq (amd64,$(DEB_HOST_ARCH))
-	install -T -m 644 debian/chromium-browser.default.amd64 debian/chromium-browser/etc/chromium-browser/default
-else
 	install -T -m 644 debian/chromium-browser.default debian/chromium-browser/etc/chromium-browser/default
-endif
 
 	# Convert rpath to runpath if needed, so that LD_LIBRARY_PATH (set in our launcher script)
 	# takes precedence. This is required for Endless extra codecs to work properly.
