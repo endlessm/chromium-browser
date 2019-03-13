@@ -119,7 +119,7 @@ def main(argv):
   shutil.copy2(
       os.path.join(BOOTSTRAP_DIR, 'last_commit_position.h'), gn_build_dir)
   subprocess.check_call(
-      ['ninja', '-C', gn_build_dir, 'gn', '-w', 'dupbuild=err'])
+      ['ninja', '-C', gn_build_dir, 'gn'])
   shutil.copy2(os.path.join(gn_build_dir, 'gn'), gn_path)
 
   if not options.skip_generate_buildfiles:
