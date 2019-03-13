@@ -611,11 +611,11 @@ template("clang_toolchain") {
 
   gcc_toolchain(target_name) {
     prefix = rebase_path("$clang_base_path/bin", root_build_dir)
-    cc = "$prefix/clang"
-    cxx = "$prefix/clang++"
+    cc = "$prefix/clang-6.0"
+    cxx = "$prefix/clang++-6.0"
     ld = cxx
     readelf = "${toolprefix}readelf"
-    ar = "${prefix}/llvm-ar"
+    ar = "${prefix}/llvm-ar-6.0"
     nm = "${toolprefix}nm"
 
     forward_variables_from(invoker,
