@@ -166,7 +166,7 @@ class MEDIA_GPU_EXPORT V4L2SliceVideoDecodeAccelerator
   void Dequeue();
 
   // V4L2 QBUF helpers.
-  bool EnqueueInputRecord(const V4L2DecodeSurface* dec_surface);
+  bool EnqueueInputRecord(int index, uint32_t config_store);
   bool EnqueueOutputRecord(int index);
 
   // Set input and output formats in hardware.
