@@ -146,11 +146,6 @@ class MEDIA_GPU_EXPORT V4L2WritableBufferRef {
   // return nullptr for any other buffer type.
   scoped_refptr<VideoFrame> GetVideoFrame() WARN_UNUSED_RESULT;
 
-  // Add the request or config store information to |surface|.
-  // TODO(acourbot): This method is a temporary hack. Implement proper config
-  // store/request API support.
-  void PrepareQueueBuffer(const V4L2DecodeSurface& surface);
-
   // Return the V4L2 buffer ID of the underlying buffer.
   // TODO(acourbot) This is used for legacy clients but should be ultimately
   // removed. See crbug/879971
