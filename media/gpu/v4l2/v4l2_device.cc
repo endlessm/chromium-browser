@@ -587,11 +587,6 @@ void V4L2WritableBufferRef::SetPlaneDataOffset(const size_t plane,
   buffer_data_->v4l2_buffer_.m.planes[plane].data_offset = data_offset;
 }
 
-void V4L2WritableBufferRef::PrepareQueueBuffer(
-    const V4L2DecodeSurface& surface) {
-  surface.PrepareQueueBuffer(&(buffer_data_->v4l2_buffer_));
-}
-
 size_t V4L2WritableBufferRef::BufferId() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(IsValid());
