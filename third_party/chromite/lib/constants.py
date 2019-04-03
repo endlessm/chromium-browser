@@ -9,12 +9,6 @@ from __future__ import print_function
 
 import os
 
-# TODO(akeshet): Once constants.py is more completely split, and the callers are
-# all updated, remove these *-imports. See crbug.com/746047 for context.
-# pylint: disable=wildcard-import
-# pylint: disable=unused-wildcard-import
-from chromite.lib.const.waterfall import *
-
 def _FindSourceRoot():
   """Try and find the root check out of the chromiumos tree"""
   source_root = path = os.path.realpath(os.path.join(
@@ -345,8 +339,9 @@ DEFAULT_CTS_APFE_GSURI = 'gs://chromeos-cts-apfe/'
 ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
 ANDROID_MST_BUILD_BRANCH = 'git_master-arc-dev'
-ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
-ANDROID_PI_BUILD_BRANCH = 'git_pi-arc'
+ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc-m73'
+ANDROID_PI_BUILD_BRANCH = 'git_pi-arc-m73'
+ANDROID_VMPI_BUILD_BRANCH = 'git_pi-arcvm-dev'
 ANDROID_GTS_BUILD_TARGETS = {
     # "gts_arm64" is the build maintained by GMS team.
     'XTS': ('linux-gts_arm64', r'\.zip$'),
@@ -392,6 +387,11 @@ ANDROID_PI_BUILD_TARGETS = {
                                  r'\.zip$'),
     'SDK_GOOGLE_X86_64_USERDEBUG': ('linux-sdk_cheets_x86_64-userdebug',
                                     r'\.zip$'),
+}
+ANDROID_VMPI_BUILD_TARGETS = {
+    'ARM_USERDEBUG': ('linux-bertha_arm-userdebug', r'\.zip$'),
+    'X86_USERDEBUG': ('linux-bertha_x86-userdebug', r'\.zip$'),
+    'X86_64_USERDEBUG': ('linux-bertha_x86_64-userdebug', r'\.zip$'),
 }
 
 ARC_BUCKET_URL = 'gs://chromeos-arc-images/builds'
@@ -503,6 +503,7 @@ CREATED_BRANCHES = [
 TARGET_OS_PKG = 'virtual/target-os'
 TARGET_OS_DEV_PKG = 'virtual/target-os-dev'
 TARGET_OS_TEST_PKG = 'virtual/target-os-test'
+TARGET_OS_FACTORY_PKG = 'virtual/target-os-factory'
 
 # Constants for uprevving Chrome
 
@@ -551,18 +552,6 @@ ANDROID_PACKAGE_NAME = 'android-container'
 # Builds and validates the latest Android release.
 ANDROID_REV_LATEST = 'latest_release'
 VALID_ANDROID_REVISIONS = [ANDROID_REV_LATEST]
-
-
-# Builder types supported
-BAREMETAL_BUILD_SLAVE_TYPE = 'baremetal'
-GCE_BEEFY_BUILD_SLAVE_TYPE = 'gce_beefy'
-GCE_BUILD_SLAVE_TYPE = 'gce'
-
-VALID_BUILD_SLAVE_TYPES = (
-    BAREMETAL_BUILD_SLAVE_TYPE,
-    GCE_BEEFY_BUILD_SLAVE_TYPE,
-    GCE_BUILD_SLAVE_TYPE,
-)
 
 # Build types supported.
 
@@ -787,6 +776,9 @@ SKYLAB_HWTEST_PRIORITIES_MAP = {
     HWTEST_CQ_PRIORITY: 50,
 }
 
+# The environment for executing tests.
+ENV_SKYLAB = 'skylab'
+ENV_AUTOTEST = 'autotest'
 
 # HWTest result statuses
 HWTEST_STATUS_PASS = 'pass'
@@ -1164,16 +1156,11 @@ LAB_STATUS_URL = 'http://chromiumos-lab.appspot.com/current?format=json'
 
 GOLO_SMTP_SERVER = 'mail.golo.chromium.org'
 
-# Valid sherrif types.
 CHROME_GARDENER = 'chrome'
-
-# URLs to retrieve sheriff names from the waterfall.
-CHROME_GARDENER_URL = 'https://go/legoland-chrome-pfq'
-
-SHERIFF_TYPE_TO_URL = {
-    CHROME_GARDENER: (CHROME_GARDENER_URL,)
-}
-
+# URL to retrieve gardener names from the waterfall.
+CHROME_GARDENER_URL = (
+    'https://rota-ng.appspot.com/legacy/sheriff_cr_cros_gardeners.json'
+)
 
 # Useful config targets.
 CQ_MASTER = 'master-paladin'
@@ -1185,6 +1172,7 @@ BLUESTREAK_PRE_CQ = 'bluestreak-pre-cq'
 MST_ANDROID_PFQ_MASTER = 'master-mst-android-pfq'
 NYC_ANDROID_PFQ_MASTER = 'master-nyc-android-pfq'
 PI_ANDROID_PFQ_MASTER = 'master-pi-android-pfq'
+VMPI_ANDROID_PFQ_MASTER = 'master-vmpi-android-pfq'
 TOOLCHAIN_MASTTER = 'master-toolchain'
 
 
@@ -1267,3 +1255,7 @@ PART_ROOT_A = 'ROOT-A'
 PART_ROOT_B = 'ROOT-B'
 PART_KERN_A = 'KERN-A'
 PART_KERN_B = 'KERN-B'
+
+# Mock build and stage IDs
+MOCK_STAGE_ID = 313377
+MOCK_BUILD_ID = 31337

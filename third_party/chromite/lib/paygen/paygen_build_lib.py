@@ -29,7 +29,6 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import parallel
 from chromite.lib import retry_util
-from chromite.lib.paygen import download_cache
 from chromite.lib.paygen import gslock
 from chromite.lib.paygen import gspaths
 from chromite.lib.paygen import paygen_payload_lib
@@ -216,27 +215,79 @@ def _FilterForTest(artifacts):
           if i.image_type == 'test']
 
 
-def _GenerateSinglePayload(payload, sign, dry_run):
-  """Generate a single payload.
+def _DefaultPayloadUri(payload, random_str=None):
+  """Compute the default output URI for a payload.
 
-  This is intended to be safe to call inside a new process.
+  For a glob that matches all potential URIs for this
+  payload, pass in a random_str of '*'.
 
   Args:
-    payload: gspath.Payload object defining the payloads to generate.
-    sign: boolean to decide if payload should be signed.
-    dry_run: boolean saying if this is a dry run.
+    payload: gspaths.Payload instance.
+    random_str: A hook to force a specific random_str. None means generate it.
+
+  Returns:
+    Default URI for the payload.
   """
-  # This cache dir will be shared with other processes, but we need our
-  # own instance of the cache manager to properly coordinate.
-  cache_dir = paygen_payload_lib.FindCacheDir()
-  with download_cache.DownloadCache(
-      cache_dir, cache_size=PaygenBuild.CACHE_SIZE) as cache:
-    # Actually generate the payload.
-    paygen_payload_lib.CreateAndUploadPayload(
-        payload,
-        cache,
-        sign=sign,
-        dry_run=dry_run)
+  src_version = None
+  if payload.src_image:
+    src_version = payload.src_image.build.version
+
+  if gspaths.IsImage(payload.tgt_image):
+    # Signed payload.
+    return gspaths.ChromeosReleases.PayloadUri(
+        payload.build, random_str=random_str, key=payload.tgt_image.key,
+        image_channel=payload.tgt_image.image_channel,
+        image_version=payload.tgt_image.image_version, src_version=src_version)
+  elif gspaths.IsUnsignedImageArchive(payload.tgt_image):
+    # Unsigned test payload.
+    return gspaths.ChromeosReleases.PayloadUri(payload.build,
+                                               random_str=random_str,
+                                               src_version=src_version)
+  else:
+    raise Error('Unknown image type %s' % type(payload.tgt_image))
+
+
+def _FillInPayloadUri(payload, random_str=None):
+  """Fill in default output URI for a payload if missing.
+
+  Args:
+    payload: gspaths.Payload instance.
+    random_str: A hook to force a specific random_str. None means generate it.
+  """
+  if not payload.uri:
+    payload.uri = _DefaultPayloadUri(payload, random_str)
+
+
+def _FilterNonPayloadUris(payload_uris):
+  """Filters out non-payloads from a list of GS URIs.
+
+  This essentially filters out known auxiliary artifacts whose names resemble /
+  derive from a respective payload name, such as files with .log and
+  .metadata-signature extensions.
+
+  Args:
+    payload_uris: a list of GS URIs (potentially) corresopnding to payloads
+
+  Returns:
+    A filtered list of URIs.
+  """
+  return [uri for uri in payload_uris
+          if not (uri.endswith('.log') or uri.endswith('.metadata-signature'))]
+
+
+# If the downloaded JSON is bad, a ValueError exception will be rasied.
+# This appears to be a sporadic GS flake that a retry can fix.
+def _GetJson(uri):
+  """Downloads JSON from URI and parses it.
+
+  Argps:
+    uri: The URI of a JSON file at the given GS URI.
+
+  Returns:
+    Valid JSON retrieved from given uri.
+  """
+  downloaded_json = gs.GSContext().Cat(uri)
+  return json.loads(downloaded_json)
 
 
 class PayloadTest(utils.RestrictedAttrDict):
@@ -272,8 +323,8 @@ class PayloadTest(utils.RestrictedAttrDict):
         ' for deltas. src_image: %s ' %
         (src_channel, src_version, payload.src_image))
 
-    src_channel = src_channel or payload.src_image.channel
-    src_version = src_version or payload.src_image.version
+    src_channel = src_channel or payload.src_image.build.channel
+    src_version = src_version or payload.src_image.build.version
 
     super(PayloadTest, self).__init__(payload=payload,
                                       src_channel=src_channel,
@@ -286,9 +337,6 @@ class PaygenBuild(object):
   It operates across a single build at a time, and is responsible for locking
   that build and for flagging it as finished when all payloads are generated.
   """
-  # 50 GB of cache.
-  CACHE_SIZE = 50 * 1024 * 1024 * 1024
-
   # Relative subpath for dumping control files inside the temp directory.
   CONTROL_FILE_SUBDIR = os.path.join('autotest', 'au_control_files')
 
@@ -302,21 +350,20 @@ class PaygenBuild(object):
   _version_to_full_test_payloads = {}
 
 
-  def __init__(self, build, work_dir, site_config,
-               dry_run=False,
-               skip_delta_payloads=False,
-               skip_duts_check=False):
+  def __init__(self, build, payload_build, work_dir, site_config, dry_run=False,
+               skip_delta_payloads=False, skip_duts_check=False):
     """Initializer."""
     self._build = build
     self._work_dir = work_dir
     self._site_config = site_config
     self._dry_run = dry_run
-    self._ctx = gs.GSContext(dry_run=dry_run)
+    self._ctx = gs.GSContext()
     self._skip_delta_payloads = skip_delta_payloads
     self._archive_board = None
     self._archive_build = None
     self._archive_build_uri = None
     self._skip_duts_check = skip_duts_check
+    self._payload_build = payload_build
 
   # Hidden class level cache value.
   _cachedPaygenJson = None
@@ -376,9 +423,7 @@ class PaygenBuild(object):
     Returns:
       Returns a google storage path to the build flag requested.
     """
-    return gspaths.ChromeosReleases.BuildPayloadsFlagUri(
-        self._build.channel, self._build.board, self._build.version, flag,
-        bucket=self._build.bucket)
+    return gspaths.ChromeosReleases.BuildPayloadsFlagUri(self._build, flag)
 
   def _MapToArchive(self, board, version):
     """Returns the chromeos-image-archive equivalents for the build.
@@ -481,8 +526,7 @@ class PaygenBuild(object):
     # this point, so we use the wildcard here and rely on the signers to upload
     # the expected artifacts.
     search_uri = gspaths.ChromeosReleases.ImageUri(
-        build.channel, build.board, build.version, key='*', image_type='*',
-        image_channel='*', image_version='*', bucket=build.bucket)
+        build, key='*', image_type='*', image_channel='*', image_version='*')
 
     image_uris = self._ctx.LS(search_uri)
     images = [gspaths.ChromeosReleases.ParseImageUri(uri) for uri in image_uris]
@@ -512,9 +556,8 @@ class PaygenBuild(object):
       BuildCorrupt: Raised if unexpected images are found.
       ImageMissing: Raised if expected images are missing.
     """
-    search_uri = gspaths.ChromeosReleases.UnsignedImageUri(
-        build.channel, build.board, build.version, milestone='*',
-        image_type='test', bucket=build.bucket)
+    search_uri = gspaths.ChromeosReleases.UnsignedImageUri(build, milestone='*',
+                                                           image_type='test')
 
     image_uris = self._ctx.LS(search_uri)
     images = [gspaths.ChromeosReleases.ParseUnsignedImageUri(uri)
@@ -659,10 +702,12 @@ class PaygenBuild(object):
             full_test_payload, source_build.channel, source_build.version))
 
     for p in payloads:
-      paygen_payload_lib.FillInPayloadUri(p)
+      p.build = self._payload_build
+      _FillInPayloadUri(p)
 
     for t in payload_tests:
-      paygen_payload_lib.FillInPayloadUri(t.payload)
+      t.payload.build = self._payload_build
+      _FillInPayloadUri(t.payload)
 
     return payloads, payload_tests
 
@@ -680,10 +725,11 @@ class PaygenBuild(object):
     """
     payloads_args = [(payload,
                       isinstance(payload.tgt_image, gspaths.Image),
-                      self._dry_run)
+                      True)
                      for payload in payloads]
 
-    parallel.RunTasksInProcessPool(_GenerateSinglePayload, payloads_args)
+    parallel.RunTasksInProcessPool(paygen_payload_lib.CreateAndUploadPayload,
+                                   payloads_args)
 
   def _FindFullTestPayloads(self, channel, version):
     """Returns a list of full test payloads for a given version.
@@ -706,10 +752,10 @@ class PaygenBuild(object):
       # Serve from cache, if possible.
       return self._version_to_full_test_payloads[(channel, version)]
 
-    payload_search_uri = gspaths.ChromeosReleases.PayloadUri(
-        channel, self._build.board, version, '*',
-        bucket=self._build.bucket)
+    build = gspaths.Build(channel=channel, board=self._build.board,
+                          version=version, bucket=self._build.bucket)
 
+    payload_search_uri = gspaths.ChromeosReleases.PayloadUri(build, '*')
     payload_candidate = self._ctx.LS(payload_search_uri)
 
     # We create related files for each payload that have the payload name
@@ -747,8 +793,9 @@ class PaygenBuild(object):
     src_payload_uri = src_payload_uri_list[0]
     logging.info('Source full test payload found at %s', src_payload_uri)
 
-    release_archive_uri = gspaths.ChromeosReleases.BuildUri(
-        src_channel, self._build.board, src_version)
+    build = gspaths.Build(channel=src_channel, board=self._build.board,
+                          version=src_version, bucket=self._build.bucket)
+    release_archive_uri = gspaths.ChromeosReleases.BuildUri(build)
 
     # TODO(dgarrett): Remove if block after finishing crbug.com/523122
     stateful_uri = os.path.join(release_archive_uri, 'stateful.tgz')
@@ -765,7 +812,7 @@ class PaygenBuild(object):
         suite_name,               # Name of the test (use the suite name).
         bool(payload.src_image),  # Whether this is a delta.
         src_version,
-        payload.tgt_image.version,
+        payload.tgt_image.build.version,
         src_payload_uri,
         payload.uri,
         suite_name=suite_name,
@@ -847,10 +894,24 @@ class PaygenBuild(object):
     # Clean up any signer client files that leaked on this or previous
     # runs.
     self._ctx.Remove(
-        gspaths.ChromeosReleases.BuildPayloadsSigningUri(
-            self._build.channel, self._build.board, self._build.version,
-            bucket=self._build.bucket),
+        gspaths.ChromeosReleases.BuildPayloadsSigningUri(self._build),
         recursive=True, ignore_missing=True)
+
+  def _FindExistingPayloads(self, payload):
+    """Look to see if any matching payloads already exist.
+
+    Since payload names contain a random component, there can be multiple
+    names for a given payload. This function lists all existing payloads
+    that match the default URI for the given payload.
+
+    Args:
+      payload: gspaths.Payload instance.
+
+    Returns:
+      List of URIs for existing payloads that match the default payload pattern.
+    """
+    search_uri = _DefaultPayloadUri(payload, random_str='*')
+    return _FilterNonPayloadUris(self._ctx.LS(search_uri))
 
   def CreatePayloads(self):
     """Get lock on this build, and Process if we succeed.
@@ -867,7 +928,7 @@ class PaygenBuild(object):
     logging.info('Examining: %s', self._build)
 
     try:
-      with gslock.Lock(lock_uri, dry_run=self._dry_run):
+      with gslock.Lock(lock_uri):
         logging.info('Starting: %s', self._build)
 
         payloads, payload_tests = self._DiscoverRequiredPayloads()
@@ -878,7 +939,7 @@ class PaygenBuild(object):
         # this run will be skipping any actual work.
         for p in payloads:
           try:
-            result = paygen_payload_lib.FindExistingPayloads(p)
+            result = self._FindExistingPayloads(p)
             if result:
               p.exists = True
               p.uri = result[0]
@@ -949,7 +1010,7 @@ def ValidateBoardConfig(board):
 
 
 def ScheduleAutotestTests(suite_name, board, model, build, skip_duts_check,
-                          debug, job_keyvals=None):
+                          debug, test_env, job_keyvals=None):
   """Run the appropriate command to schedule the Autotests we have prepped.
 
   Args:
@@ -959,24 +1020,39 @@ def ScheduleAutotestTests(suite_name, board, model, build, skip_duts_check,
     build: A string representing the name of the archive build.
     skip_duts_check: A boolean indicating to not check minimum available DUTs.
     debug: A boolean indicating whether or not we are in debug mode.
+    test_env: A string to indicate the env that the test should run in. The
+              value could be constants.ENV_SKYLAB, constants.ENV_AUTOTEST.
     job_keyvals: A dict of job keyvals to be injected to suite control file.
   """
   timeout_mins = config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT / 60
-  cmd_result = commands.RunHWTestSuite(
-      board=board,
-      model=model,
-      build=build,
-      suite=suite_name,
-      file_bugs=True,
-      pool='bvt',
-      priority=constants.HWTEST_BUILD_PRIORITY,
-      retry=True,
-      wait_for_results=False,
-      timeout_mins=timeout_mins,
-      suite_min_duts=2,
-      debug=debug,
-      skip_duts_check=skip_duts_check,
-      job_keyvals=job_keyvals)
+  if test_env == constants.ENV_SKYLAB:
+    cmd_result = commands.RunSkylabHWTestSuite(
+        build=build,
+        suite=suite_name,
+        board=board,
+        model=model,
+        pool='bvt',
+        wait_for_results=False,
+        priority=constants.HWTEST_BUILD_PRIORITY,
+        timeout_mins=timeout_mins,
+        retry=True,
+        job_keyvals=job_keyvals)
+  else:
+    cmd_result = commands.RunHWTestSuite(
+        board=board,
+        model=model,
+        build=build,
+        suite=suite_name,
+        file_bugs=True,
+        pool='bvt',
+        priority=constants.HWTEST_BUILD_PRIORITY,
+        retry=True,
+        wait_for_results=False,
+        timeout_mins=timeout_mins,
+        suite_min_duts=2,
+        debug=debug,
+        skip_duts_check=skip_duts_check,
+        job_keyvals=job_keyvals)
 
   if cmd_result.to_raise:
     if isinstance(cmd_result.to_raise, failures_lib.TestWarning):
@@ -984,19 +1060,3 @@ def ScheduleAutotestTests(suite_name, board, model, build, skip_duts_check,
                       cmd_result.to_raise)
     else:
       raise cmd_result.to_raise
-
-
-# If the downloaded JSON is bad, a ValueError exception will be rasied.
-# This appears to be a sporadic GS flake that a retry can fix.
-def _GetJson(uri):
-  """Downloads JSON from URI and parses it.
-
-  Args:
-    uri: The URI of a JSON file at the given GS URI.
-
-  Returns:
-    Valid JSON retrieved from given uri.
-  """
-  ctx = gs.GSContext()
-  downloaded_json = ctx.Cat(uri)
-  return json.loads(downloaded_json)

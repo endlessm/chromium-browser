@@ -9,9 +9,10 @@
 
 #include "ANGLEPerfTest.h"
 
-#include "system_utils.h"
+#include "common/platform.h"
 #include "third_party/perf/perf_test.h"
-#include "third_party/trace_event/trace_event.h"
+#include "util/shader_utils.h"
+#include "util/system_utils.h"
 
 #include <cassert>
 #include <cmath>
@@ -20,6 +21,10 @@
 #include <sstream>
 
 #include <json/json.h>
+
+#if defined(ANGLE_USE_UTIL_LOADER) && defined(ANGLE_PLATFORM_WINDOWS)
+#    include "util/windows/WGLWindow.h"
+#endif  // defined(ANGLE_USE_UTIL_LOADER) &&defined(ANGLE_PLATFORM_WINDOWS)
 
 namespace
 {
@@ -74,8 +79,6 @@ angle::TraceEventHandle AddTraceEvent(angle::PlatformMethods *platform,
     static_assert(offsetof(TraceCategory, enabled) == 0,
                   "|enabled| must be the first field of the TraceCategory class.");
     const TraceCategory *category = reinterpret_cast<const TraceCategory *>(categoryEnabledFlag);
-    ptrdiff_t categoryIndex       = category - gTraceCategories;
-    ASSERT(categoryIndex >= 0 && static_cast<size_t>(categoryIndex) < ArraySize(gTraceCategories));
 
     ANGLERenderTest *renderTest     = static_cast<ANGLERenderTest *>(platform->context);
     std::vector<TraceEvent> &buffer = renderTest->getTraceEventBuffer();
@@ -290,6 +293,19 @@ double ANGLEPerfTest::normalizedTime(size_t value) const
 
 std::string RenderTestParams::suffix() const
 {
+    switch (driver)
+    {
+        case angle::GLESDriverType::AngleEGL:
+            break;
+        case angle::GLESDriverType::SystemEGL:
+            return "_native";
+        case angle::GLESDriverType::SystemWGL:
+            return "_wgl";
+        default:
+            assert(0);
+            return "_unk";
+    }
+
     switch (getRenderer())
     {
         case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE:
@@ -313,7 +329,7 @@ std::string RenderTestParams::suffix() const
 ANGLERenderTest::ANGLERenderTest(const std::string &name, const RenderTestParams &testParams)
     : ANGLEPerfTest(name, testParams.suffix(), OneFrame() ? 1 : testParams.iterationsPerStep),
       mTestParams(testParams),
-      mEGLWindow(createEGLWindow(testParams)),
+      mGLWindow(nullptr),
       mOSWindow(nullptr)
 {
     // Force fast tests to make sure our slowest bots don't time out.
@@ -324,12 +340,37 @@ ANGLERenderTest::ANGLERenderTest(const std::string &name, const RenderTestParams
 
     // Try to ensure we don't trigger allocation during execution.
     mTraceEventBuffer.reserve(kInitialTraceEventBufferSize);
+
+    switch (testParams.driver)
+    {
+        case angle::GLESDriverType::AngleEGL:
+            mGLWindow = createEGLWindow(testParams);
+            mEntryPointsLib.reset(angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME));
+            break;
+        case angle::GLESDriverType::SystemEGL:
+            std::cerr << "Not implemented." << std::endl;
+            mSkipTest = true;
+            break;
+        case angle::GLESDriverType::SystemWGL:
+#if defined(ANGLE_USE_UTIL_LOADER) && defined(ANGLE_PLATFORM_WINDOWS)
+            mGLWindow = WGLWindow::New(testParams.majorVersion, testParams.minorVersion);
+            mEntryPointsLib.reset(angle::OpenSharedLibrary("opengl32"));
+#else
+            std::cout << "WGL driver not available. Skipping test." << std::endl;
+            mSkipTest = true;
+#endif  // defined(ANGLE_USE_UTIL_LOADER) && defined(ANGLE_PLATFORM_WINDOWS)
+            break;
+        default:
+            std::cerr << "Error in switch." << std::endl;
+            mSkipTest = true;
+            break;
+    }
 }
 
 ANGLERenderTest::~ANGLERenderTest()
 {
-    SafeDelete(mOSWindow);
-    SafeDelete(mEGLWindow);
+    OSWindow::Delete(&mOSWindow);
+    GLWindowBase::Delete(&mGLWindow);
 }
 
 void ANGLERenderTest::addExtensionPrerequisite(const char *extensionName)
@@ -339,14 +380,25 @@ void ANGLERenderTest::addExtensionPrerequisite(const char *extensionName)
 
 void ANGLERenderTest::SetUp()
 {
+    if (mSkipTest)
+    {
+        return;
+    }
+
     ANGLEPerfTest::SetUp();
 
     // Set a consistent CPU core affinity and high priority.
     angle::StabilizeCPUForBenchmarking();
 
-    mOSWindow = CreateOSWindow();
-    ASSERT(mEGLWindow != nullptr);
-    mEGLWindow->setSwapInterval(0);
+    mOSWindow = OSWindow::New();
+
+    if (!mGLWindow)
+    {
+        mSkipTest = true;
+        return;
+    }
+
+    mGLWindow->setSwapInterval(0);
 
     mPlatformMethods.overrideWorkaroundsD3D      = OverrideWorkaroundsD3D;
     mPlatformMethods.logError                    = EmptyPlatformMethod;
@@ -357,18 +409,20 @@ void ANGLERenderTest::SetUp()
     mPlatformMethods.updateTraceEventDuration    = UpdateTraceEventDuration;
     mPlatformMethods.monotonicallyIncreasingTime = MonotonicallyIncreasingTime;
     mPlatformMethods.context                     = this;
-    mEGLWindow->setPlatformMethods(&mPlatformMethods);
+    mGLWindow->setPlatformMethods(&mPlatformMethods);
 
     if (!mOSWindow->initialize(mName, mTestParams.windowWidth, mTestParams.windowHeight))
     {
+        mSkipTest = true;
         FAIL() << "Failed initializing OSWindow";
-        return;
+        // FAIL returns.
     }
 
-    if (!mEGLWindow->initializeGL(mOSWindow))
+    if (!mGLWindow->initializeGL(mOSWindow, mEntryPointsLib.get()))
     {
-        FAIL() << "Failed initializing EGLWindow";
-        return;
+        mSkipTest = true;
+        FAIL() << "Failed initializing GL Window";
+        // FAIL returns.
     }
 
     if (!areExtensionPrerequisitesFulfilled())
@@ -385,18 +439,30 @@ void ANGLERenderTest::SetUp()
 
     if (mTestParams.iterationsPerStep == 0)
     {
+        mSkipTest = true;
         FAIL() << "Please initialize 'iterationsPerStep'.";
-        abortTest();
-        return;
+        // FAIL returns.
     }
 }
 
 void ANGLERenderTest::TearDown()
 {
-    destroyBenchmark();
+    if (!mSkipTest)
+    {
+        destroyBenchmark();
+    }
 
-    mEGLWindow->destroyGL();
-    mOSWindow->destroy();
+    if (mGLWindow)
+    {
+        mGLWindow->destroyGL();
+        mGLWindow = nullptr;
+    }
+
+    if (mOSWindow)
+    {
+        mOSWindow->destroy();
+        mOSWindow = nullptr;
+    }
 
     // Dump trace events to json file.
     if (gEnableTrace)
@@ -433,7 +499,7 @@ void ANGLERenderTest::step()
         // to swap.
         if (mTestParams.eglParameters.deviceType != EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE)
         {
-            mEGLWindow->swap();
+            mGLWindow->swap();
         }
         mOSWindow->messageLoop();
     }
@@ -473,12 +539,12 @@ bool ANGLERenderTest::areExtensionPrerequisitesFulfilled() const
 
 void ANGLERenderTest::setWebGLCompatibilityEnabled(bool webglCompatibility)
 {
-    mEGLWindow->setWebGLCompatibilityEnabled(webglCompatibility);
+    mGLWindow->setWebGLCompatibilityEnabled(webglCompatibility);
 }
 
 void ANGLERenderTest::setRobustResourceInit(bool enabled)
 {
-    mEGLWindow->setRobustResourceInit(enabled);
+    mGLWindow->setRobustResourceInit(enabled);
 }
 
 std::vector<TraceEvent> &ANGLERenderTest::getTraceEventBuffer()
@@ -489,8 +555,8 @@ std::vector<TraceEvent> &ANGLERenderTest::getTraceEventBuffer()
 // static
 EGLWindow *ANGLERenderTest::createEGLWindow(const RenderTestParams &testParams)
 {
-    return new EGLWindow(testParams.majorVersion, testParams.minorVersion,
-                         testParams.eglParameters);
+    return EGLWindow::New(testParams.majorVersion, testParams.minorVersion,
+                          testParams.eglParameters);
 }
 
 void ANGLEProcessPerfTestArgs(int *argc, char **argv)

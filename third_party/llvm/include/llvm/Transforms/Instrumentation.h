@@ -77,6 +77,12 @@ struct GCOVOptions {
   // Emit the exit block immediately after the start block, rather than after
   // all of the function body's blocks.
   bool ExitBlockBeforeBody;
+
+  // Regexes separated by a semi-colon to filter the files to instrument.
+  std::string Filter;
+
+  // Regexes separated by a semi-colon to filter the files to not instrument.
+  std::string Exclude;
 };
 
 ModulePass *createGCOVProfilerPass(const GCOVOptions &Options =
@@ -143,18 +149,11 @@ FunctionPass *createAddressSanitizerFunctionPass(bool CompileKernel = false,
                                                  bool UseAfterScope = false);
 ModulePass *createAddressSanitizerModulePass(bool CompileKernel = false,
                                              bool Recover = false,
-                                             bool UseGlobalsGC = true);
-
-// Insert MemorySanitizer instrumentation (detection of uninitialized reads)
-FunctionPass *createMemorySanitizerPass(int TrackOrigins = 0,
-                                        bool Recover = false,
-                                        bool EnableKmsan = false);
+                                             bool UseGlobalsGC = true,
+                                             bool UseOdrIndicator = true);
 
 FunctionPass *createHWAddressSanitizerPass(bool CompileKernel = false,
                                            bool Recover = false);
-
-// Insert ThreadSanitizer (race detection) instrumentation
-FunctionPass *createThreadSanitizerPass();
 
 // Insert DataFlowSanitizer (dynamic data flow analysis) instrumentation
 ModulePass *createDataFlowSanitizerPass(
@@ -223,7 +222,6 @@ static inline uint32_t scaleBranchCount(uint64_t Count, uint64_t Scale) {
   assert(Scaled <= std::numeric_limits<uint32_t>::max() && "overflow 32-bits");
   return Scaled;
 }
-
 } // end namespace llvm
 
 #endif // LLVM_TRANSFORMS_INSTRUMENTATION_H

@@ -91,6 +91,7 @@ namespace {
     AtomicRMWInst *widenPartwordAtomicRMW(AtomicRMWInst *AI);
     void expandPartwordCmpXchg(AtomicCmpXchgInst *I);
     void expandAtomicRMWToMaskedIntrinsic(AtomicRMWInst *AI);
+    void expandAtomicCmpXchgToMaskedIntrinsic(AtomicCmpXchgInst *CI);
 
     AtomicCmpXchgInst *convertCmpXchgToIntegerType(AtomicCmpXchgInst *CI);
     static Value *insertRMWCmpXchgLoop(
@@ -495,11 +496,26 @@ static void createCmpXchgInstFun(IRBuilder<> &Builder, Value *Addr,
                                  Value *Loaded, Value *NewVal,
                                  AtomicOrdering MemOpOrder,
                                  Value *&Success, Value *&NewLoaded) {
+  Type *OrigTy = NewVal->getType();
+
+  // This code can go away when cmpxchg supports FP types.
+  bool NeedBitcast = OrigTy->isFloatingPointTy();
+  if (NeedBitcast) {
+    IntegerType *IntTy = Builder.getIntNTy(OrigTy->getPrimitiveSizeInBits());
+    unsigned AS = Addr->getType()->getPointerAddressSpace();
+    Addr = Builder.CreateBitCast(Addr, IntTy->getPointerTo(AS));
+    NewVal = Builder.CreateBitCast(NewVal, IntTy);
+    Loaded = Builder.CreateBitCast(Loaded, IntTy);
+  }
+
   Value* Pair = Builder.CreateAtomicCmpXchg(
       Addr, Loaded, NewVal, MemOpOrder,
       AtomicCmpXchgInst::getStrongestFailureOrdering(MemOpOrder));
   Success = Builder.CreateExtractValue(Pair, 1, "success");
   NewLoaded = Builder.CreateExtractValue(Pair, 0, "newloaded");
+
+  if (NeedBitcast)
+    NewLoaded = Builder.CreateBitCast(NewLoaded, OrigTy);
 }
 
 /// Emit IR to implement the given atomicrmw operation on values in registers,
@@ -944,6 +960,35 @@ void AtomicExpand::expandAtomicRMWToMaskedIntrinsic(AtomicRMWInst *AI) {
   AI->eraseFromParent();
 }
 
+void AtomicExpand::expandAtomicCmpXchgToMaskedIntrinsic(AtomicCmpXchgInst *CI) {
+  IRBuilder<> Builder(CI);
+
+  PartwordMaskValues PMV = createMaskInstrs(
+      Builder, CI, CI->getCompareOperand()->getType(), CI->getPointerOperand(),
+      TLI->getMinCmpXchgSizeInBits() / 8);
+
+  Value *CmpVal_Shifted = Builder.CreateShl(
+      Builder.CreateZExt(CI->getCompareOperand(), PMV.WordType), PMV.ShiftAmt,
+      "CmpVal_Shifted");
+  Value *NewVal_Shifted = Builder.CreateShl(
+      Builder.CreateZExt(CI->getNewValOperand(), PMV.WordType), PMV.ShiftAmt,
+      "NewVal_Shifted");
+  Value *OldVal = TLI->emitMaskedAtomicCmpXchgIntrinsic(
+      Builder, CI, PMV.AlignedAddr, CmpVal_Shifted, NewVal_Shifted, PMV.Mask,
+      CI->getSuccessOrdering());
+  Value *FinalOldVal = Builder.CreateTrunc(
+      Builder.CreateLShr(OldVal, PMV.ShiftAmt), PMV.ValueType);
+
+  Value *Res = UndefValue::get(CI->getType());
+  Res = Builder.CreateInsertValue(Res, FinalOldVal, 0);
+  Value *Success = Builder.CreateICmpEQ(
+      CmpVal_Shifted, Builder.CreateAnd(OldVal, PMV.Mask), "Success");
+  Res = Builder.CreateInsertValue(Res, Success, 1);
+
+  CI->replaceAllUsesWith(Res);
+  CI->eraseFromParent();
+}
+
 Value *AtomicExpand::insertRMWLLSCLoop(
     IRBuilder<> &Builder, Type *ResultTy, Value *Addr,
     AtomicOrdering MemOpOrder,
@@ -1366,8 +1411,8 @@ bool AtomicExpand::tryExpandAtomicCmpXchg(AtomicCmpXchgInst *CI) {
     return expandAtomicCmpXchg(CI);
   }
   case TargetLoweringBase::AtomicExpansionKind::MaskedIntrinsic:
-    llvm_unreachable(
-        "MaskedIntrinsic expansion of cmpxhg not yet implemented");
+    expandAtomicCmpXchgToMaskedIntrinsic(CI);
+    return true;
   }
 }
 

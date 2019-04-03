@@ -1,7 +1,7 @@
 # Copyright 2013 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-"""Finds desktop browsers that can be controlled by telemetry."""
+"""Finds desktop browsers that can be started and controlled by telemetry."""
 
 import logging
 import os
@@ -16,7 +16,6 @@ from telemetry.core import exceptions
 from telemetry.core import platform as platform_module
 from telemetry.internal.backends.chrome import chrome_startup_args
 from telemetry.internal.backends.chrome import desktop_browser_backend
-from telemetry.internal.backends.chrome import gpu_compositing_checker
 from telemetry.internal.browser import browser
 from telemetry.internal.browser import possible_browser
 from telemetry.internal.platform import desktop_device
@@ -30,10 +29,11 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
 
   def __init__(self, browser_type, finder_options, executable, flash_path,
                is_content_shell, browser_directory, is_local_build=False):
+    del finder_options
     target_os = sys.platform.lower()
     super(PossibleDesktopBrowser, self).__init__(
         browser_type, target_os, not is_content_shell)
-    assert browser_type in FindAllBrowserTypes(finder_options), (
+    assert browser_type in FindAllBrowserTypes(), (
         'Please add %s to desktop_browser_finder.FindAllBrowserTypes' %
         browser_type)
     self._local_executable = executable
@@ -120,7 +120,10 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
       shutil.rmtree(self._profile_directory, ignore_errors=True)
       self._profile_directory = None
 
-  def Create(self, clear_caches=True):
+  def Create(self, clear_caches=False):
+    # TODO(crbug.com/811244): Remove when callers no longer use this option.
+    assert not clear_caches, 'Option no longer supported, see: crbug.com/811244'
+
     if self._flash_path and not os.path.exists(self._flash_path):
       logging.warning(
           'Could not find Flash at %s. Continuing without Flash.\n'
@@ -147,19 +150,8 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
             self._browser_directory, self._profile_directory,
             self._local_executable, self._flash_path, self._is_content_shell)
 
-        # TODO(crbug.com/811244): Remove when this is handled by shared state.
-        if clear_caches:
-          self._ClearCachesOnStart()
-
-        returned_browser = browser.Browser(
+        return browser.Browser(
             browser_backend, self._platform_backend, startup_args)
-        if self._browser_options.assert_gpu_compositing:
-          gpu_compositing_checker.AssertGpuCompositingEnabled(
-              returned_browser.GetSystemInfo())
-        return returned_browser
-      # Do not retry if gpu assertion failure is raised.
-      except gpu_compositing_checker.GpuCompositingAssertionFailure:
-        raise
       except Exception: # pylint: disable=broad-except
         report = 'Browser creation failed (attempt %d of %d)' % (
             (x + 1), num_retries)
@@ -233,7 +225,7 @@ def SelectDefaultBrowser(possible_browsers):
 def CanFindAvailableBrowsers():
   return not platform_module.GetHostPlatform().GetOSName() == 'chromeos'
 
-def FindAllBrowserTypes(_):
+def FindAllBrowserTypes():
   return [
       'exact',
       'reference',

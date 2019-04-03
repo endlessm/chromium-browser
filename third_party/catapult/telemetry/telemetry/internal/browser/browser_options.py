@@ -73,7 +73,7 @@ class BrowserFinderOptions(optparse.Values):
         default=None,
         help='Browser type to run, '
         'in order of priority. Supported values: list,%s' %
-        ', '.join(browser_finder.FindAllBrowserTypes(self)))
+        ', '.join(browser_finder.FindAllBrowserTypes()))
     group.add_option(
         '--browser-executable',
         dest='browser_executable',
@@ -340,7 +340,6 @@ class BrowserOptions(object):
 
     # pylint: disable=invalid-name
     self.clear_sytem_cache_for_browser_and_profile_on_start = False
-    self.startup_url = 'about:blank'
 
     # Background pages of built-in component extensions can interfere with
     # performance measurements.

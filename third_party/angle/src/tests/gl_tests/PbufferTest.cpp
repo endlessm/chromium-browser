@@ -6,6 +6,7 @@
 
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
+#include "util/EGLWindow.h"
 
 using namespace angle;
 
@@ -26,7 +27,7 @@ class PbufferTest : public ANGLETest
     {
         ANGLETest::SetUp();
 
-        const std::string vsSource =
+        constexpr char kVS[] =
             R"(precision highp float;
             attribute vec4 position;
             varying vec2 texcoord;
@@ -38,7 +39,7 @@ class PbufferTest : public ANGLETest
                 texcoord.y = 1.0 - texcoord.y;
             })";
 
-        const std::string textureFSSource =
+        constexpr char kFS[] =
             R"(precision highp float;
             uniform sampler2D tex;
             varying vec2 texcoord;
@@ -48,7 +49,7 @@ class PbufferTest : public ANGLETest
                 gl_FragColor = texture2D(tex, texcoord);
             })";
 
-        mTextureProgram = CompileProgram(vsSource, textureFSSource);
+        mTextureProgram = CompileProgram(kVS, kFS);
         if (mTextureProgram == 0)
         {
             FAIL() << "shader compilation failed.";

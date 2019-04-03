@@ -360,6 +360,8 @@ bool InitializeSymbolTables(TInfoSink& infoSink, TSymbolTable** commonTable,  TS
             infoSink, commonTable, symbolTables);
         InitializeStageSymbolTable(*builtInParseables, version, profile, spvVersion, EShLangMissNV, source,
             infoSink, commonTable, symbolTables);
+        InitializeStageSymbolTable(*builtInParseables, version, profile, spvVersion, EShLangCallableNV, source,
+            infoSink, commonTable, symbolTables);
     }
 
     // check for mesh
@@ -607,7 +609,7 @@ bool DeduceVersionProfile(TInfoSink& infoSink, EShLanguage stage, bool versionNo
     case EShLangCallableNV:
         if (profile == EEsProfile || version < 460) {
             correct = false;
-            infoSink.info.message(EPrefixError, "#version: raytracing shaders require non-es profile with version 460 or above");
+            infoSink.info.message(EPrefixError, "#version: ray tracing shaders require non-es profile with version 460 or above");
             version = 460;
         }
         break;
@@ -1759,6 +1761,14 @@ void TShader::setAutoMapBindings(bool map)              { intermediate->setAutoM
 void TShader::setInvertY(bool invert)                   { intermediate->setInvertY(invert); }
 // Fragile: currently within one stage: simple auto-assignment of location
 void TShader::setAutoMapLocations(bool map)             { intermediate->setAutoMapLocations(map); }
+void TShader::addUniformLocationOverride(const char* name, int loc)
+{
+    intermediate->addUniformLocationOverride(name, loc);
+}
+void TShader::setUniformLocationBase(int base)
+{
+    intermediate->setUniformLocationBase(base);
+}
 // See comment above TDefaultHlslIoMapper in iomapper.cpp:
 void TShader::setHlslIoMapping(bool hlslIoMap)          { intermediate->setHlslIoMapping(hlslIoMap); }
 void TShader::setFlattenUniformArrays(bool flatten)     { intermediate->setFlattenUniformArrays(flatten); }

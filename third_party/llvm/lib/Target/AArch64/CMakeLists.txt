@@ -15,6 +15,7 @@ tablegen(LLVM AArch64GenRegisterBank.inc -gen-register-bank)
 tablegen(LLVM AArch64GenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM AArch64GenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM AArch64GenSystemOperands.inc -gen-searchable-tables)
+tablegen(LLVM AArch64GenExegesis.inc -gen-exegesis)
 
 add_public_tablegen_target(AArch64CommonTableGen)
 
@@ -51,6 +52,7 @@ add_llvm_target(AArch64CodeGen
   AArch64RegisterBankInfo.cpp
   AArch64RegisterInfo.cpp
   AArch64SelectionDAGInfo.cpp
+  AArch64SpeculationHardening.cpp
   AArch64StorePairSuppress.cpp
   AArch64Subtarget.cpp
   AArch64TargetMachine.cpp

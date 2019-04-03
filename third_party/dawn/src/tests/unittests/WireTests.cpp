@@ -16,6 +16,7 @@
 #include "mock/mock_dawn.h"
 
 #include "common/Assert.h"
+#include "common/Constants.h"
 #include "dawn_wire/Wire.h"
 #include "utils/TerribleCommandBuffer.h"
 
@@ -117,6 +118,17 @@ static void ToMockBufferMapWriteCallback(dawnBufferMapAsyncStatus status, void* 
     mockBufferMapWriteCallback->Call(status, lastMapWritePointer, userdata);
 }
 
+class MockFenceOnCompletionCallback {
+  public:
+    MOCK_METHOD2(Call, void(dawnFenceCompletionStatus status, dawnCallbackUserdata userdata));
+};
+
+static std::unique_ptr<MockFenceOnCompletionCallback> mockFenceOnCompletionCallback;
+static void ToMockFenceOnCompletionCallback(dawnFenceCompletionStatus status,
+                                            dawnCallbackUserdata userdata) {
+    mockFenceOnCompletionCallback->Call(status, userdata);
+}
+
 class WireTestsBase : public Test {
     protected:
         WireTestsBase(bool ignoreSetCallbackCalls)
@@ -128,6 +140,7 @@ class WireTestsBase : public Test {
             mockBuilderErrorCallback = std::make_unique<MockBuilderErrorCallback>();
             mockBufferMapReadCallback = std::make_unique<MockBufferMapReadCallback>();
             mockBufferMapWriteCallback = std::make_unique<MockBufferMapWriteCallback>();
+            mockFenceOnCompletionCallback = std::make_unique<MockFenceOnCompletionCallback>();
 
             dawnProcTable mockProcs;
             dawnDevice mockDevice;
@@ -162,6 +175,7 @@ class WireTestsBase : public Test {
             mockBuilderErrorCallback = nullptr;
             mockBufferMapReadCallback = nullptr;
             mockBufferMapWriteCallback = nullptr;
+            mockFenceOnCompletionCallback = nullptr;
         }
 
         void FlushClient() {
@@ -199,6 +213,7 @@ TEST_F(WireTests, CallForwarded) {
     EXPECT_CALL(api, DeviceCreateCommandBufferBuilder(apiDevice))
         .WillOnce(Return(apiCmdBufBuilder));
 
+    EXPECT_CALL(api, CommandBufferBuilderRelease(apiCmdBufBuilder));
     FlushClient();
 }
 
@@ -215,6 +230,8 @@ TEST_F(WireTests, CreateThenCall) {
     EXPECT_CALL(api, CommandBufferBuilderGetResult(apiCmdBufBuilder))
         .WillOnce(Return(apiCmdBuf));
 
+    EXPECT_CALL(api, CommandBufferBuilderRelease(apiCmdBufBuilder));
+    EXPECT_CALL(api, CommandBufferRelease(apiCmdBuf));
     FlushClient();
 }
 
@@ -228,6 +245,7 @@ TEST_F(WireTests, RefCountKeptInClient) {
     dawnCommandBufferBuilder apiCmdBufBuilder = api.GetNewCommandBufferBuilder();
     EXPECT_CALL(api, DeviceCreateCommandBufferBuilder(apiDevice))
         .WillOnce(Return(apiCmdBufBuilder));
+    EXPECT_CALL(api, CommandBufferBuilderRelease(apiCmdBufBuilder));
 
     FlushClient();
 }
@@ -264,6 +282,8 @@ TEST_F(WireTests, ValueArgument) {
     EXPECT_CALL(api, ComputePassEncoderDispatch(apiPass, 1, 2, 3))
         .Times(1);
 
+    EXPECT_CALL(api, CommandBufferBuilderRelease(apiBuilder));
+    EXPECT_CALL(api, ComputePassEncoderRelease(apiPass));
     FlushClient();
 }
 
@@ -298,6 +318,8 @@ TEST_F(WireTests, ValueArrayArgument) {
         .WillOnce(Return(apiPass));
 
     EXPECT_CALL(api, ComputePassEncoderSetPushConstants(apiPass, DAWN_SHADER_STAGE_BIT_VERTEX, 0, 4, ResultOf(CheckPushConstantValues, Eq(true))));
+    EXPECT_CALL(api, CommandBufferBuilderRelease(apiBuilder));
+    EXPECT_CALL(api, ComputePassEncoderRelease(apiPass));
 
     FlushClient();
 }
@@ -305,26 +327,112 @@ TEST_F(WireTests, ValueArrayArgument) {
 // Test that the wire is able to send C strings
 TEST_F(WireTests, CStringArgument) {
     // Create shader module
-    dawnShaderModuleDescriptor descriptor;
-    descriptor.nextInChain = nullptr;
-    descriptor.codeSize = 0;
-    dawnShaderModule shaderModule = dawnDeviceCreateShaderModule(device, &descriptor);
-
-    dawnShaderModule apiShaderModule = api.GetNewShaderModule();
+    dawnShaderModuleDescriptor vertexDescriptor;
+    vertexDescriptor.nextInChain = nullptr;
+    vertexDescriptor.codeSize = 0;
+    dawnShaderModule vsModule = dawnDeviceCreateShaderModule(device, &vertexDescriptor);
+    dawnShaderModule apiVsModule = api.GetNewShaderModule();
     EXPECT_CALL(api, DeviceCreateShaderModule(apiDevice, _))
-        .WillOnce(Return(apiShaderModule));
+        .WillOnce(Return(apiVsModule));
+
+    // Create the blend state descriptor
+    dawnBlendDescriptor blendDescriptor;
+    blendDescriptor.operation = DAWN_BLEND_OPERATION_ADD;
+    blendDescriptor.srcFactor = DAWN_BLEND_FACTOR_ONE;
+    blendDescriptor.dstFactor = DAWN_BLEND_FACTOR_ONE;
+    dawnBlendStateDescriptor blendStateDescriptor;
+    blendStateDescriptor.nextInChain = nullptr;
+    blendStateDescriptor.blendEnabled = false;
+    blendStateDescriptor.alphaBlend = blendDescriptor;
+    blendStateDescriptor.colorBlend = blendDescriptor;
+    blendStateDescriptor.colorWriteMask = DAWN_COLOR_WRITE_MASK_ALL;
+
+    // Create the input state
+    dawnInputStateBuilder inputStateBuilder = dawnDeviceCreateInputStateBuilder(device);
+    dawnInputStateBuilder apiInputStateBuilder = api.GetNewInputStateBuilder();
+    EXPECT_CALL(api, DeviceCreateInputStateBuilder(apiDevice))
+        .WillOnce(Return(apiInputStateBuilder));
+
+    dawnInputState inputState = dawnInputStateBuilderGetResult(inputStateBuilder);
+    dawnInputState apiInputState = api.GetNewInputState();
+    EXPECT_CALL(api, InputStateBuilderGetResult(apiInputStateBuilder))
+        .WillOnce(Return(apiInputState));
+
+    // Create the depth-stencil state
+    dawnStencilStateFaceDescriptor stencilFace;
+    stencilFace.compare = DAWN_COMPARE_FUNCTION_ALWAYS;
+    stencilFace.stencilFailOp = DAWN_STENCIL_OPERATION_KEEP;
+    stencilFace.depthFailOp = DAWN_STENCIL_OPERATION_KEEP;
+    stencilFace.passOp = DAWN_STENCIL_OPERATION_KEEP;
+
+    dawnDepthStencilStateDescriptor depthStencilState;
+    depthStencilState.nextInChain = nullptr;
+    depthStencilState.depthWriteEnabled = false;
+    depthStencilState.depthCompare = DAWN_COMPARE_FUNCTION_ALWAYS;
+    depthStencilState.back = stencilFace;
+    depthStencilState.front = stencilFace;
+    depthStencilState.stencilReadMask = 0xff;
+    depthStencilState.stencilWriteMask = 0xff;
+
+    // Create the pipeline layout
+    dawnPipelineLayoutDescriptor layoutDescriptor;
+    layoutDescriptor.nextInChain = nullptr;
+    layoutDescriptor.numBindGroupLayouts = 0;
+    layoutDescriptor.bindGroupLayouts = nullptr;
+    dawnPipelineLayout layout = dawnDeviceCreatePipelineLayout(device, &layoutDescriptor);
+    dawnPipelineLayout apiLayout = api.GetNewPipelineLayout();
+    EXPECT_CALL(api, DeviceCreatePipelineLayout(apiDevice, _))
+        .WillOnce(Return(apiLayout));
 
     // Create pipeline
-    dawnRenderPipelineBuilder pipelineBuilder = dawnDeviceCreateRenderPipelineBuilder(device);
-    dawnRenderPipelineBuilderSetStage(pipelineBuilder, DAWN_SHADER_STAGE_FRAGMENT, shaderModule, "my entry point");
+    dawnRenderPipelineDescriptor pipelineDescriptor;
+    pipelineDescriptor.nextInChain = nullptr;
 
-    dawnRenderPipelineBuilder apiPipelineBuilder = api.GetNewRenderPipelineBuilder();
-    EXPECT_CALL(api, DeviceCreateRenderPipelineBuilder(apiDevice))
-        .WillOnce(Return(apiPipelineBuilder));
+    dawnPipelineStageDescriptor vertexStage;
+    vertexStage.nextInChain = nullptr;
+    vertexStage.module = vsModule;
+    vertexStage.entryPoint = "main";
+    pipelineDescriptor.vertexStage = &vertexStage;
 
-    EXPECT_CALL(api, RenderPipelineBuilderSetStage(apiPipelineBuilder, DAWN_SHADER_STAGE_FRAGMENT, apiShaderModule, StrEq("my entry point")));
+    dawnPipelineStageDescriptor fragmentStage;
+    fragmentStage.nextInChain = nullptr;
+    fragmentStage.module = vsModule;
+    fragmentStage.entryPoint = "main";
+    pipelineDescriptor.fragmentStage = &fragmentStage;
 
-    FlushClient();
+    dawnAttachmentsStateDescriptor attachmentsState;
+    attachmentsState.nextInChain = nullptr;
+    attachmentsState.numColorAttachments = 1;
+    dawnAttachmentDescriptor colorAttachment = {nullptr, DAWN_TEXTURE_FORMAT_R8_G8_B8_A8_UNORM};
+    dawnAttachmentDescriptor* colorAttachmentPtr[] = {&colorAttachment};
+    attachmentsState.colorAttachments = colorAttachmentPtr;
+    attachmentsState.hasDepthStencilAttachment = false;
+    // Even with hasDepthStencilAttachment = false, depthStencilAttachment must point to valid
+    // data because we don't have optional substructures yet.
+    attachmentsState.depthStencilAttachment = &colorAttachment;
+    pipelineDescriptor.attachmentsState = &attachmentsState;
+
+    pipelineDescriptor.numBlendStates = 1;
+    pipelineDescriptor.blendStates = &blendStateDescriptor;
+
+    pipelineDescriptor.sampleCount = 1;
+    pipelineDescriptor.layout = layout;
+    pipelineDescriptor.inputState = inputState;
+    pipelineDescriptor.indexFormat = DAWN_INDEX_FORMAT_UINT32;
+    pipelineDescriptor.primitiveTopology = DAWN_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    pipelineDescriptor.depthStencilState = &depthStencilState;
+
+    dawnDeviceCreateRenderPipeline(device, &pipelineDescriptor);
+	EXPECT_CALL(api, DeviceCreateRenderPipeline(apiDevice, MatchesLambda([](const dawnRenderPipelineDescriptor* desc) -> bool {
+        return desc->vertexStage->entryPoint == std::string("main");
+    })))
+        .WillOnce(Return(nullptr));
+        EXPECT_CALL(api, ShaderModuleRelease(apiVsModule));
+        EXPECT_CALL(api, InputStateBuilderRelease(apiInputStateBuilder));
+        EXPECT_CALL(api, InputStateRelease(apiInputState));
+        EXPECT_CALL(api, PipelineLayoutRelease(apiLayout));
+
+        FlushClient();
 }
 
 // Test that the wire is able to send objects as value arguments
@@ -351,6 +459,9 @@ TEST_F(WireTests, ObjectAsValueArgument) {
     EXPECT_CALL(api, CommandBufferBuilderBeginRenderPass(apiCmdBufBuilder, apiRenderPass))
         .Times(1);
 
+    EXPECT_CALL(api, CommandBufferBuilderRelease(apiCmdBufBuilder));
+    EXPECT_CALL(api, RenderPassDescriptorBuilderRelease(apiRenderPassBuilder));
+    EXPECT_CALL(api, RenderPassDescriptorRelease(apiRenderPass));
     FlushClient();
 }
 
@@ -374,6 +485,8 @@ TEST_F(WireTests, ObjectsAsPointerArgument) {
         apiCmdBufs[i] = api.GetNewCommandBuffer();
         EXPECT_CALL(api, CommandBufferBuilderGetResult(apiCmdBufBuilder))
             .WillOnce(Return(apiCmdBufs[i]));
+        EXPECT_CALL(api, CommandBufferBuilderRelease(apiCmdBufBuilder));
+        EXPECT_CALL(api, CommandBufferRelease(apiCmdBufs[i]));
     }
 
     // Create queue
@@ -389,6 +502,7 @@ TEST_F(WireTests, ObjectsAsPointerArgument) {
         return cmdBufs[0] == apiCmdBufs[0] && cmdBufs[1] == apiCmdBufs[1];
     })));
 
+    EXPECT_CALL(api, QueueRelease(apiQueue));
     FlushClient();
 }
 
@@ -402,6 +516,10 @@ TEST_F(WireTests, StructureOfValuesArgument) {
     descriptor.addressModeU = DAWN_ADDRESS_MODE_CLAMP_TO_EDGE;
     descriptor.addressModeV = DAWN_ADDRESS_MODE_REPEAT;
     descriptor.addressModeW = DAWN_ADDRESS_MODE_MIRRORED_REPEAT;
+    descriptor.lodMinClamp = kLodMin;
+    descriptor.lodMaxClamp = kLodMax;
+    descriptor.compareFunction = DAWN_COMPARE_FUNCTION_NEVER;
+    descriptor.borderColor = DAWN_BORDER_COLOR_TRANSPARENT_BLACK;
 
     dawnDeviceCreateSampler(device, &descriptor);
     EXPECT_CALL(api, DeviceCreateSampler(apiDevice, MatchesLambda([](const dawnSamplerDescriptor* desc) -> bool {
@@ -411,7 +529,11 @@ TEST_F(WireTests, StructureOfValuesArgument) {
             desc->mipmapFilter == DAWN_FILTER_MODE_LINEAR &&
             desc->addressModeU == DAWN_ADDRESS_MODE_CLAMP_TO_EDGE &&
             desc->addressModeV == DAWN_ADDRESS_MODE_REPEAT &&
-            desc->addressModeW == DAWN_ADDRESS_MODE_MIRRORED_REPEAT;
+            desc->addressModeW == DAWN_ADDRESS_MODE_MIRRORED_REPEAT &&
+            desc->compareFunction == DAWN_COMPARE_FUNCTION_NEVER &&
+            desc->borderColor == DAWN_BORDER_COLOR_TRANSPARENT_BLACK &&
+            desc->lodMinClamp == kLodMin &&
+            desc->lodMaxClamp == kLodMax;
     })))
         .WillOnce(Return(nullptr));
 
@@ -441,13 +563,14 @@ TEST_F(WireTests, StructureOfObjectArrayArgument) {
     })))
         .WillOnce(Return(nullptr));
 
+    EXPECT_CALL(api, BindGroupLayoutRelease(apiBgl));
     FlushClient();
 }
 
 // Test that the wire is able to send structures that contain objects
 TEST_F(WireTests, StructureOfStructureArrayArgument) {
     static constexpr int NUM_BINDINGS = 3;
-    dawnBindGroupBinding bindings[NUM_BINDINGS]{
+    dawnBindGroupLayoutBinding bindings[NUM_BINDINGS]{
         {0, DAWN_SHADER_STAGE_BIT_VERTEX, DAWN_BINDING_TYPE_SAMPLER},
         {1, DAWN_SHADER_STAGE_BIT_VERTEX, DAWN_BINDING_TYPE_SAMPLED_TEXTURE},
         {2,
@@ -477,26 +600,46 @@ TEST_F(WireTests, StructureOfStructureArrayArgument) {
             })))
         .WillOnce(Return(apiBgl));
 
+    EXPECT_CALL(api, BindGroupLayoutRelease(apiBgl));
     FlushClient();
 }
 
 // Test passing nullptr instead of objects - object as value version
-TEST_F(WireTests, DISABLED_NullptrAsValue) {
-    dawnCommandBufferBuilder builder = dawnDeviceCreateCommandBufferBuilder(device);
-    dawnComputePassEncoder pass = dawnCommandBufferBuilderBeginComputePass(builder);
-    dawnComputePassEncoderSetComputePipeline(pass, nullptr);
+TEST_F(WireTests, OptionalObjectValue) {
+    dawnBindGroupLayoutDescriptor bglDesc;
+    bglDesc.nextInChain = nullptr;
+    bglDesc.numBindings = 0;
+    dawnBindGroupLayout bgl = dawnDeviceCreateBindGroupLayout(device, &bglDesc);
 
-    dawnCommandBufferBuilder apiBuilder = api.GetNewCommandBufferBuilder();
-    EXPECT_CALL(api, DeviceCreateCommandBufferBuilder(apiDevice))
-        .WillOnce(Return(apiBuilder));
+    dawnBindGroupLayout apiBindGroupLayout = api.GetNewBindGroupLayout();
+    EXPECT_CALL(api, DeviceCreateBindGroupLayout(apiDevice, _))
+        .WillOnce(Return(apiBindGroupLayout));
 
-    dawnComputePassEncoder apiPass = api.GetNewComputePassEncoder();
-    EXPECT_CALL(api, CommandBufferBuilderBeginComputePass(apiBuilder))
-        .WillOnce(Return(apiPass));
+    // The `sampler`, `textureView` and `buffer` members of a binding are optional.
+    dawnBindGroupBinding binding;
+    binding.binding = 0;
+    binding.sampler = nullptr;
+    binding.textureView = nullptr;
+    binding.buffer = nullptr;
 
-    EXPECT_CALL(api, ComputePassEncoderSetComputePipeline(apiPass, nullptr))
-        .Times(1);
+    dawnBindGroupDescriptor bgDesc;
+    bgDesc.nextInChain = nullptr;
+    bgDesc.layout = bgl;
+    bgDesc.numBindings = 1;
+    bgDesc.bindings = &binding;
 
+    dawnDeviceCreateBindGroup(device, &bgDesc);
+    EXPECT_CALL(api, DeviceCreateBindGroup(apiDevice, MatchesLambda([](const dawnBindGroupDescriptor* desc) -> bool {
+        return desc->nextInChain == nullptr &&
+            desc->numBindings == 1 &&
+            desc->bindings[0].binding == 0 &&
+            desc->bindings[0].sampler == nullptr &&
+            desc->bindings[0].buffer == nullptr &&
+            desc->bindings[0].textureView == nullptr;
+    })))
+        .WillOnce(Return(nullptr));
+
+    EXPECT_CALL(api, BindGroupLayoutRelease(apiBindGroupLayout));
     FlushClient();
 }
 
@@ -589,6 +732,8 @@ TEST_F(WireTests, SuccessCallbackOnBuilderSuccess) {
             return apiBuffer;
         }));
 
+    EXPECT_CALL(api, BufferBuilderRelease(apiBufferBuilder));
+    EXPECT_CALL(api, BufferRelease(apiBuffer));
     FlushClient();
 
     EXPECT_CALL(*mockBuilderErrorCallback, Call(DAWN_BUILDER_ERROR_STATUS_SUCCESS, _ , 1 ,2));
@@ -651,6 +796,8 @@ TEST_F(WireTests, SuccessCallbackNotForwardedToDevice) {
             return apiBuffer;
         }));
 
+    EXPECT_CALL(api, BufferBuilderRelease(apiBufferBuilder));
+    EXPECT_CALL(api, BufferRelease(apiBuffer));
     FlushClient();
     FlushServer();
 }
@@ -673,6 +820,7 @@ TEST_F(WireTests, ErrorCallbackForwardedToDevice) {
             return nullptr;
         }));
 
+    EXPECT_CALL(api, BufferBuilderRelease(apiBufferBuilder));
     FlushClient();
 
     EXPECT_CALL(*mockDeviceErrorCallback, Call(_, userdata)).Times(1);
@@ -734,6 +882,8 @@ TEST_F(WireSetCallbackTests, BuilderErrorCallback) {
             return apiBuffer;
         }));
 
+    EXPECT_CALL(api, BufferBuilderRelease(apiBufferBuilder));
+    EXPECT_CALL(api, BufferRelease(apiBuffer));
     FlushClient();
 
     // The error callback gets called on the client side
@@ -761,6 +911,7 @@ class WireBufferMappingTests : public WireTestsBase {
                 EXPECT_CALL(api, DeviceCreateBuffer(apiDevice, _))
                     .WillOnce(Return(apiBuffer))
                     .RetiresOnSaturation();
+                EXPECT_CALL(api, BufferRelease(apiBuffer));
                 FlushClient();
             }
             {
@@ -791,7 +942,7 @@ class WireBufferMappingTests : public WireTestsBase {
 TEST_F(WireBufferMappingTests, MappingForReadSuccessBuffer) {
     dawnCallbackUserdata userdata = 8653;
     dawnBufferMapReadAsync(buffer, 40, sizeof(uint32_t), ToMockBufferMapReadCallback, userdata);
-    
+
     uint32_t bufferContent = 31337;
     EXPECT_CALL(api, OnBufferMapReadAsyncCallback(apiBuffer, 40, sizeof(uint32_t), _, _))
         .WillOnce(InvokeWithoutArgs([&]() {
@@ -816,7 +967,7 @@ TEST_F(WireBufferMappingTests, MappingForReadSuccessBuffer) {
 TEST_F(WireBufferMappingTests, ErrorWhileMappingForRead) {
     dawnCallbackUserdata userdata = 8654;
     dawnBufferMapReadAsync(buffer, 40, sizeof(uint32_t), ToMockBufferMapReadCallback, userdata);
-    
+
     EXPECT_CALL(api, OnBufferMapReadAsyncCallback(apiBuffer, 40, sizeof(uint32_t), _, _))
         .WillOnce(InvokeWithoutArgs([&]() {
             api.CallMapReadCallback(apiBuffer, DAWN_BUFFER_MAP_ASYNC_STATUS_ERROR, nullptr);
@@ -961,9 +1112,6 @@ TEST_F(WireBufferMappingTests, DestroyInsideMapReadCallback) {
         }));
 
     FlushServer();
-
-    EXPECT_CALL(api, BufferRelease(apiBuffer))
-        .Times(1);
 
     FlushClient();
 }
@@ -1158,8 +1306,215 @@ TEST_F(WireBufferMappingTests, DestroyInsideMapWriteCallback) {
 
     FlushServer();
 
-    EXPECT_CALL(api, BufferRelease(apiBuffer))
-        .Times(1);
+    FlushClient();
+}
+
+class WireFenceTests : public WireTestsBase {
+  public:
+    WireFenceTests() : WireTestsBase(true) {
+    }
+
+    void SetUp() override {
+        WireTestsBase::SetUp();
+
+        {
+            dawnFenceDescriptor descriptor;
+            descriptor.initialValue = 1;
+            descriptor.nextInChain = nullptr;
+
+            apiFence = api.GetNewFence();
+            fence = dawnDeviceCreateFence(device, &descriptor);
+
+            EXPECT_CALL(api, DeviceCreateFence(apiDevice, _)).WillOnce(Return(apiFence));
+            EXPECT_CALL(api, FenceRelease(apiFence));
+            FlushClient();
+        }
+        {
+            queue = dawnDeviceCreateQueue(device);
+            apiQueue = api.GetNewQueue();
+            EXPECT_CALL(api, DeviceCreateQueue(apiDevice)).WillOnce(Return(apiQueue));
+            EXPECT_CALL(api, QueueRelease(apiQueue));
+            FlushClient();
+        }
+    }
+
+  protected:
+    void DoQueueSignal(uint64_t signalValue) {
+        dawnQueueSignal(queue, fence, signalValue);
+        EXPECT_CALL(api, QueueSignal(apiQueue, apiFence, signalValue)).Times(1);
+
+        // This callback is generated to update the completedValue of the fence
+        // on the client
+        EXPECT_CALL(api, OnFenceOnCompletionCallback(apiFence, signalValue, _, _))
+            .WillOnce(InvokeWithoutArgs([&]() {
+                api.CallFenceOnCompletionCallback(apiFence, DAWN_FENCE_COMPLETION_STATUS_SUCCESS);
+            }));
+    }
+
+    // A successfully created fence
+    dawnFence fence;
+    dawnFence apiFence;
+
+    dawnQueue queue;
+    dawnQueue apiQueue;
+};
+
+// Check that signaling a fence succeeds
+TEST_F(WireFenceTests, QueueSignalSuccess) {
+    DoQueueSignal(2u);
+    DoQueueSignal(3u);
+    FlushClient();
+    FlushServer();
+}
+
+// Without any flushes, it is valid to signal a value greater than the current
+// signaled value
+TEST_F(WireFenceTests, QueueSignalSynchronousValidationSuccess) {
+    dawnCallbackUserdata userdata = 9157;
+    dawnDeviceSetErrorCallback(device, ToMockDeviceErrorCallback, userdata);
+    EXPECT_CALL(*mockDeviceErrorCallback, Call(_, userdata)).Times(0);
+
+    dawnQueueSignal(queue, fence, 2u);
+    dawnQueueSignal(queue, fence, 4u);
+    dawnQueueSignal(queue, fence, 5u);
+}
+
+// Without any flushes, errors should be generated when signaling a value less
+// than or equal to the current signaled value
+TEST_F(WireFenceTests, QueueSignalSynchronousValidationError) {
+    dawnCallbackUserdata userdata = 3157;
+    dawnDeviceSetErrorCallback(device, ToMockDeviceErrorCallback, userdata);
+
+    EXPECT_CALL(*mockDeviceErrorCallback, Call(_, userdata)).Times(1);
+    dawnQueueSignal(queue, fence, 0u);  // Error
+    EXPECT_TRUE(Mock::VerifyAndClear(mockDeviceErrorCallback.get()));
+
+    EXPECT_CALL(*mockDeviceErrorCallback, Call(_, userdata)).Times(1);
+    dawnQueueSignal(queue, fence, 1u);  // Error
+    EXPECT_TRUE(Mock::VerifyAndClear(mockDeviceErrorCallback.get()));
+
+    EXPECT_CALL(*mockDeviceErrorCallback, Call(_, userdata)).Times(0);
+    dawnQueueSignal(queue, fence, 4u);  // Success
+    EXPECT_TRUE(Mock::VerifyAndClear(mockDeviceErrorCallback.get()));
+
+    EXPECT_CALL(*mockDeviceErrorCallback, Call(_, userdata)).Times(1);
+    dawnQueueSignal(queue, fence, 3u);  // Error
+    EXPECT_TRUE(Mock::VerifyAndClear(mockDeviceErrorCallback.get()));
+}
+
+// Check that callbacks are immediately called if the fence is already finished
+TEST_F(WireFenceTests, OnCompletionImmediate) {
+    // Can call on value < (initial) signaled value happens immediately
+    {
+        dawnCallbackUserdata userdata = 9847;
+        EXPECT_CALL(*mockFenceOnCompletionCallback,
+                    Call(DAWN_FENCE_COMPLETION_STATUS_SUCCESS, userdata))
+            .Times(1);
+        dawnFenceOnCompletion(fence, 0, ToMockFenceOnCompletionCallback, userdata);
+    }
+
+    // Can call on value == (initial) signaled value happens immediately
+    {
+        dawnCallbackUserdata userdata = 4347;
+        EXPECT_CALL(*mockFenceOnCompletionCallback,
+                    Call(DAWN_FENCE_COMPLETION_STATUS_SUCCESS, userdata))
+            .Times(1);
+        dawnFenceOnCompletion(fence, 1, ToMockFenceOnCompletionCallback, userdata);
+    }
+}
+
+// Check that all passed client completion callbacks are called
+TEST_F(WireFenceTests, OnCompletionMultiple) {
+    DoQueueSignal(3u);
+    DoQueueSignal(6u);
+
+    dawnCallbackUserdata userdata0 = 2134;
+    dawnCallbackUserdata userdata1 = 7134;
+    dawnCallbackUserdata userdata2 = 3144;
+    dawnCallbackUserdata userdata3 = 1130;
+
+    // Add callbacks in a non-monotonic order. They should still be called
+    // in order of increasing fence value.
+    // Add multiple callbacks for the same value.
+    dawnFenceOnCompletion(fence, 6, ToMockFenceOnCompletionCallback, userdata0);
+    dawnFenceOnCompletion(fence, 2, ToMockFenceOnCompletionCallback, userdata1);
+    dawnFenceOnCompletion(fence, 3, ToMockFenceOnCompletionCallback, userdata2);
+    dawnFenceOnCompletion(fence, 2, ToMockFenceOnCompletionCallback, userdata3);
+
+    Sequence s1, s2;
+    EXPECT_CALL(*mockFenceOnCompletionCallback,
+                Call(DAWN_FENCE_COMPLETION_STATUS_SUCCESS, userdata1))
+        .Times(1)
+        .InSequence(s1);
+    EXPECT_CALL(*mockFenceOnCompletionCallback,
+                Call(DAWN_FENCE_COMPLETION_STATUS_SUCCESS, userdata3))
+        .Times(1)
+        .InSequence(s2);
+    EXPECT_CALL(*mockFenceOnCompletionCallback,
+                Call(DAWN_FENCE_COMPLETION_STATUS_SUCCESS, userdata2))
+        .Times(1)
+        .InSequence(s1, s2);
+    EXPECT_CALL(*mockFenceOnCompletionCallback,
+                Call(DAWN_FENCE_COMPLETION_STATUS_SUCCESS, userdata0))
+        .Times(1)
+        .InSequence(s1, s2);
 
     FlushClient();
+    FlushServer();
+}
+
+// Without any flushes, it is valid to wait on a value less than or equal to
+// the last signaled value
+TEST_F(WireFenceTests, OnCompletionSynchronousValidationSuccess) {
+    dawnQueueSignal(queue, fence, 4u);
+    dawnFenceOnCompletion(fence, 2u, ToMockFenceOnCompletionCallback, 0);
+    dawnFenceOnCompletion(fence, 3u, ToMockFenceOnCompletionCallback, 0);
+    dawnFenceOnCompletion(fence, 4u, ToMockFenceOnCompletionCallback, 0);
+}
+
+// Without any flushes, errors should be generated when waiting on a value greater
+// than the last signaled value
+TEST_F(WireFenceTests, OnCompletionSynchronousValidationError) {
+    dawnCallbackUserdata userdata1 = 3817;
+    dawnCallbackUserdata userdata2 = 3857;
+    dawnDeviceSetErrorCallback(device, ToMockDeviceErrorCallback, userdata2);
+
+    EXPECT_CALL(*mockFenceOnCompletionCallback, Call(DAWN_FENCE_COMPLETION_STATUS_ERROR, userdata1))
+        .Times(1);
+    EXPECT_CALL(*mockDeviceErrorCallback, Call(_, userdata2)).Times(1);
+
+    dawnFenceOnCompletion(fence, 2u, ToMockFenceOnCompletionCallback, userdata1);
+}
+
+// Check that the fence completed value is initialized
+TEST_F(WireFenceTests, GetCompletedValueInitialization) {
+    EXPECT_EQ(dawnFenceGetCompletedValue(fence), 1u);
+}
+
+// Check that the fence completed value updates after signaling the fence
+TEST_F(WireFenceTests, GetCompletedValueUpdate) {
+    DoQueueSignal(3u);
+    FlushClient();
+    FlushServer();
+
+    EXPECT_EQ(dawnFenceGetCompletedValue(fence), 3u);
+}
+
+// Check that the fence completed value does not update without a flush
+TEST_F(WireFenceTests, GetCompletedValueNoUpdate) {
+    dawnQueueSignal(queue, fence, 3u);
+    EXPECT_EQ(dawnFenceGetCompletedValue(fence), 1u);
+}
+
+// Check that the callback is called with UNKNOWN when the fence is destroyed
+// before the completed value is updated
+TEST_F(WireFenceTests, DestroyBeforeOnCompletionEnd) {
+    dawnCallbackUserdata userdata = 8616;
+    dawnQueueSignal(queue, fence, 3u);
+    dawnFenceOnCompletion(fence, 2u, ToMockFenceOnCompletionCallback, userdata);
+    EXPECT_CALL(*mockFenceOnCompletionCallback,
+                Call(DAWN_FENCE_COMPLETION_STATUS_UNKNOWN, userdata))
+        .Times(1);
+
+    dawnFenceRelease(fence);
 }

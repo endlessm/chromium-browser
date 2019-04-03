@@ -45,11 +45,23 @@ void AdjustGlyphSpace(std::vector<FXTEXT_GLYPHPOS>* pGlyphAndPos) {
     float current_origin_f =
         bVertical ? current.m_fOrigin.y : current.m_fOrigin.x;
 
-    int space = next_origin - current_origin;
+    FX_SAFE_INT32 safe_space = next_origin;
+    safe_space -= current_origin;
+    if (!safe_space.IsValid())
+      continue;
+
+    int space = safe_space.ValueOrDie();
     float space_f = next_origin_f - current_origin_f;
     float error = fabs(space_f) - fabs(static_cast<float>(space));
-    if (error > 0.5f)
-      current_origin += space > 0 ? -1 : 1;
+    if (error <= 0.5f)
+      continue;
+
+    FX_SAFE_INT32 safe_origin = current_origin;
+    safe_origin += space > 0 ? -1 : 1;
+    if (!safe_origin.IsValid())
+      continue;
+
+    current_origin = safe_origin.ValueOrDie();
   }
 }
 
@@ -1084,7 +1096,7 @@ bool CFX_RenderDevice::DrawTextPath(int nChars,
     matrix.Concat(*pText2User);
 
     CFX_PathData TransformedPath(*pPath);
-    TransformedPath.Transform(&matrix);
+    TransformedPath.Transform(matrix);
     if (fill_color || stroke_color) {
       int fill_mode = nFlag;
       if (fill_color)

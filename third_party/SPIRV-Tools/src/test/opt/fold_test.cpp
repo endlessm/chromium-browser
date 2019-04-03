@@ -168,6 +168,7 @@ OpName %main "main"
 %int_2 = OpConstant %int 2
 %int_3 = OpConstant %int 3
 %int_4 = OpConstant %int 4
+%int_n24 = OpConstant %int -24
 %int_min = OpConstant %int -2147483648
 %int_max = OpConstant %int 2147483647
 %long_0 = OpConstant %long 0
@@ -179,6 +180,7 @@ OpName %main "main"
 %uint_3 = OpConstant %uint 3
 %uint_4 = OpConstant %uint 4
 %uint_32 = OpConstant %uint 32
+%uint_42 = OpConstant %uint 42
 %uint_max = OpConstant %uint 4294967295
 %v2int_undef = OpUndef %v2int
 %v2int_0_0 = OpConstantComposite %v2int %int_0 %int_0
@@ -474,7 +476,77 @@ INSTANTIATE_TEST_CASE_P(TestCase, IntegerInstructionFoldingTest,
           "%2 = OpUMod %uint %uint_1 %uint_0\n" +
           "OpReturn\n" +
           "OpFunctionEnd",
-      2, 0)
+      2, 0),
+  // Test case 22: fold unsigned n >> 42 (undefined, so set to zero).
+  InstructionFoldingCase<uint32_t>(
+      Header() + "%main = OpFunction %void None %void_func\n" +
+          "%main_lab = OpLabel\n" +
+          "%n = OpVariable %_ptr_uint Function\n" +
+          "%load = OpLoad %uint %n\n" +
+          "%2 = OpShiftRightLogical %uint %load %uint_42\n" +
+          "OpReturn\n" +
+          "OpFunctionEnd",
+      2, 0),
+  // Test case 23: fold signed n >> 42 (undefined, so set to zero).
+  InstructionFoldingCase<uint32_t>(
+      Header() + "%main = OpFunction %void None %void_func\n" +
+          "%main_lab = OpLabel\n" +
+          "%n = OpVariable %_ptr_int Function\n" +
+          "%load = OpLoad %int %n\n" +
+          "%2 = OpShiftRightLogical %int %load %uint_42\n" +
+          "OpReturn\n" +
+          "OpFunctionEnd",
+      2, 0),
+  // Test case 24: fold n << 42 (undefined, so set to zero).
+  InstructionFoldingCase<uint32_t>(
+      Header() + "%main = OpFunction %void None %void_func\n" +
+          "%main_lab = OpLabel\n" +
+          "%n = OpVariable %_ptr_int Function\n" +
+          "%load = OpLoad %int %n\n" +
+          "%2 = OpShiftLeftLogical %int %load %uint_42\n" +
+          "OpReturn\n" +
+          "OpFunctionEnd",
+      2, 0),
+  // Test case 25: fold -24 >> 32 (defined as -1)
+  InstructionFoldingCase<uint32_t>(
+      Header() + "%main = OpFunction %void None %void_func\n" +
+          "%main_lab = OpLabel\n" +
+          "%2 = OpShiftRightArithmetic %int %int_n24 %uint_32\n" +
+          "OpReturn\n" +
+          "OpFunctionEnd",
+      2, -1),
+  // Test case 26: fold 2 >> 32 (signed)
+  InstructionFoldingCase<uint32_t>(
+      Header() + "%main = OpFunction %void None %void_func\n" +
+          "%main_lab = OpLabel\n" +
+          "%2 = OpShiftRightArithmetic %int %int_2 %uint_32\n" +
+          "OpReturn\n" +
+          "OpFunctionEnd",
+      2, 0),
+  // Test case 27: fold 2 >> 32 (unsigned)
+  InstructionFoldingCase<uint32_t>(
+      Header() + "%main = OpFunction %void None %void_func\n" +
+          "%main_lab = OpLabel\n" +
+          "%2 = OpShiftRightLogical %int %int_2 %uint_32\n" +
+          "OpReturn\n" +
+          "OpFunctionEnd",
+      2, 0),
+  // Test case 28: fold 2 << 32
+  InstructionFoldingCase<uint32_t>(
+      Header() + "%main = OpFunction %void None %void_func\n" +
+          "%main_lab = OpLabel\n" +
+          "%2 = OpShiftLeftLogical %int %int_2 %uint_32\n" +
+          "OpReturn\n" +
+          "OpFunctionEnd",
+      2, 0),
+  // Test case 29: fold -INT_MIN
+  InstructionFoldingCase<uint32_t>(
+      Header() + "%main = OpFunction %void None %void_func\n" +
+          "%main_lab = OpLabel\n" +
+          "%2 = OpSNegate %int %int_min\n" +
+          "OpReturn\n" +
+          "OpFunctionEnd",
+      2, std::numeric_limits<int32_t>::min())
 ));
 // clang-format on
 

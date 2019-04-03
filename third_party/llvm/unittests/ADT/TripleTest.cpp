@@ -93,6 +93,12 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::Contiki, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
 
+  T = Triple("i386-pc-hurd-gnu");
+  EXPECT_EQ(Triple::x86, T.getArch());
+  EXPECT_EQ(Triple::PC, T.getVendor());
+  EXPECT_EQ(Triple::Hurd, T.getOS());
+  EXPECT_EQ(Triple::GNU, T.getEnvironment());
+
   T = Triple("x86_64-pc-linux-gnu");
   EXPECT_EQ(Triple::x86_64, T.getArch());
   EXPECT_EQ(Triple::PC, T.getVendor());
@@ -247,11 +253,23 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::UnknownOS, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
 
+  T = Triple("wasm32-unknown-wasi-musl");
+  EXPECT_EQ(Triple::wasm32, T.getArch());
+  EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
+  EXPECT_EQ(Triple::WASI, T.getOS());
+  EXPECT_EQ(Triple::Musl, T.getEnvironment());
+
   T = Triple("wasm64-unknown-unknown");
   EXPECT_EQ(Triple::wasm64, T.getArch());
   EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
   EXPECT_EQ(Triple::UnknownOS, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
+
+  T = Triple("wasm64-unknown-wasi-musl");
+  EXPECT_EQ(Triple::wasm64, T.getArch());
+  EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
+  EXPECT_EQ(Triple::WASI, T.getOS());
+  EXPECT_EQ(Triple::Musl, T.getEnvironment());
 
   T = Triple("avr-unknown-unknown");
   EXPECT_EQ(Triple::avr, T.getArch());
@@ -1229,11 +1247,17 @@ TEST(TripleTest, FileFormat) {
 
   EXPECT_EQ(Triple::Wasm, Triple("wasm32-unknown-unknown").getObjectFormat());
   EXPECT_EQ(Triple::Wasm, Triple("wasm64-unknown-unknown").getObjectFormat());
+  EXPECT_EQ(Triple::Wasm, Triple("wasm32-unknown-wasi-musl").getObjectFormat());
+  EXPECT_EQ(Triple::Wasm, Triple("wasm64-unknown-wasi-musl").getObjectFormat());
 
   EXPECT_EQ(Triple::Wasm,
             Triple("wasm32-unknown-unknown-wasm").getObjectFormat());
   EXPECT_EQ(Triple::Wasm,
             Triple("wasm64-unknown-unknown-wasm").getObjectFormat());
+  EXPECT_EQ(Triple::Wasm,
+            Triple("wasm32-unknown-wasi-musl-wasm").getObjectFormat());
+  EXPECT_EQ(Triple::Wasm,
+            Triple("wasm64-unknown-wasi-musl-wasm").getObjectFormat());
 
   Triple MSVCNormalized(Triple::normalize("i686-pc-windows-msvc-elf"));
   EXPECT_EQ(Triple::ELF, MSVCNormalized.getObjectFormat());

@@ -1,8 +1,7 @@
-/*
- * Vulkan
- *
- * Copyright (C) 2015 Valve, Inc.
- * Copyright (C) 2016 Google, Inc.
+/* Copyright (c) 2015-2018 The Khronos Group Inc.
+ * Copyright (c) 2015-2018 Valve Corporation
+ * Copyright (c) 2015-2018 LunarG, Inc.
+ * Copyright (C) 2015-2018 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,8 +20,6 @@
 #include <string.h>
 #include <unordered_map>
 #include <list>
-
-#define VALIDATION_ERROR_MAP_IMPL
 
 #include "vk_loader_platform.h"
 #include "vulkan/vk_layer.h"
@@ -473,6 +470,53 @@ VKAPI_ATTR void VKAPI_CALL FreeCommandBuffers(VkDevice device, VkCommandPool com
     }
 }
 
+VKAPI_ATTR VkResult VKAPI_CALL ResetCommandPool(VkDevice device, VkCommandPool commandPool, VkCommandPoolResetFlags flags) {
+    dispatch_key key = get_dispatch_key(device);
+    layer_data *my_data = GetLayerDataPtr(key, layer_data_map);
+    VkLayerDispatchTable *pTable = my_data->device_dispatch_table;
+    VkResult result;
+    bool threadChecks = startMultiThread();
+    if (threadChecks) {
+        startReadObject(my_data, device);
+        startWriteObject(my_data, commandPool);
+        // Check for any uses of non-externally sync'd command buffers (for example from vkCmdExecuteCommands)
+        my_data->c_VkCommandPoolContents.startWrite(my_data->report_data, commandPool);
+        // Host access to commandPool must be externally synchronized
+    }
+    result = pTable->ResetCommandPool(device, commandPool, flags);
+    if (threadChecks) {
+        finishReadObject(my_data, device);
+        finishWriteObject(my_data, commandPool);
+        my_data->c_VkCommandPoolContents.finishWrite(commandPool);
+        // Host access to commandPool must be externally synchronized
+    } else {
+        finishMultiThread();
+    }
+    return result;
+}
+
+VKAPI_ATTR void VKAPI_CALL DestroyCommandPool(VkDevice device, VkCommandPool commandPool, const VkAllocationCallbacks *pAllocator) {
+    dispatch_key key = get_dispatch_key(device);
+    layer_data *my_data = GetLayerDataPtr(key, layer_data_map);
+    VkLayerDispatchTable *pTable = my_data->device_dispatch_table;
+    bool threadChecks = startMultiThread();
+    if (threadChecks) {
+        startReadObject(my_data, device);
+        startWriteObject(my_data, commandPool);
+        // Check for any uses of non-externally sync'd command buffers (for example from vkCmdExecuteCommands)
+        my_data->c_VkCommandPoolContents.startWrite(my_data->report_data, commandPool);
+        // Host access to commandPool must be externally synchronized
+    }
+    pTable->DestroyCommandPool(device, commandPool, pAllocator);
+    if (threadChecks) {
+        finishReadObject(my_data, device);
+        finishWriteObject(my_data, commandPool);
+        my_data->c_VkCommandPoolContents.finishWrite(commandPool);
+        // Host access to commandPool must be externally synchronized
+    } else {
+        finishMultiThread();
+    }
+}
 }  // namespace threading
 
 // vk_layer_logging.h expects these to be defined

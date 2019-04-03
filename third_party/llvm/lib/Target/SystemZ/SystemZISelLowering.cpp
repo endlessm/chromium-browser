@@ -523,9 +523,11 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
   setTargetDAGCombine(ISD::ZERO_EXTEND);
   setTargetDAGCombine(ISD::SIGN_EXTEND);
   setTargetDAGCombine(ISD::SIGN_EXTEND_INREG);
+  setTargetDAGCombine(ISD::LOAD);
   setTargetDAGCombine(ISD::STORE);
   setTargetDAGCombine(ISD::EXTRACT_VECTOR_ELT);
   setTargetDAGCombine(ISD::FP_ROUND);
+  setTargetDAGCombine(ISD::FP_EXTEND);
   setTargetDAGCombine(ISD::BSWAP);
   setTargetDAGCombine(ISD::SDIV);
   setTargetDAGCombine(ISD::UDIV);
@@ -2217,8 +2219,7 @@ static void adjustForRedundantAnd(SelectionDAG &DAG, const SDLoc &DL,
   auto *Mask = dyn_cast<ConstantSDNode>(C.Op0.getOperand(1));
   if (!Mask)
     return;
-  KnownBits Known;
-  DAG.computeKnownBits(C.Op0.getOperand(0), Known);
+  KnownBits Known = DAG.computeKnownBits(C.Op0.getOperand(0));
   if ((~Known.Zero).getZExtValue() & ~Mask->getZExtValue())
     return;
 
@@ -3164,10 +3165,9 @@ SDValue SystemZTargetLowering::lowerOR(SDValue Op, SelectionDAG &DAG) const {
   assert(Op.getValueType() == MVT::i64 && "Should be 64-bit operation");
 
   // Get the known-zero masks for each operand.
-  SDValue Ops[] = { Op.getOperand(0), Op.getOperand(1) };
-  KnownBits Known[2];
-  DAG.computeKnownBits(Ops[0], Known[0]);
-  DAG.computeKnownBits(Ops[1], Known[1]);
+  SDValue Ops[] = {Op.getOperand(0), Op.getOperand(1)};
+  KnownBits Known[2] = {DAG.computeKnownBits(Ops[0]),
+                        DAG.computeKnownBits(Ops[1])};
 
   // See if the upper 32 bits of one operand and the lower 32 bits of the
   // other are known zero.  They are the low and high operands respectively.
@@ -3350,8 +3350,7 @@ SDValue SystemZTargetLowering::lowerCTPOP(SDValue Op,
   }
 
   // Get the known-zero mask for the operand.
-  KnownBits Known;
-  DAG.computeKnownBits(Op, Known);
+  KnownBits Known = DAG.computeKnownBits(Op);
   unsigned NumSignificantBits = (~Known.Zero).getActiveBits();
   if (NumSignificantBits == 0)
     return DAG.getConstant(0, DL, VT);
@@ -4479,6 +4478,7 @@ static SDValue buildVector(SelectionDAG &DAG, const SDLoc &DL, EVT VT,
   // Constants with undefs to get a full vector constant and use that
   // as the starting point.
   SDValue Result;
+  SDValue ReplicatedVal;
   if (NumConstants > 0) {
     for (unsigned I = 0; I < NumElements; ++I)
       if (!Constants[I].getNode())
@@ -4489,17 +4489,21 @@ static SDValue buildVector(SelectionDAG &DAG, const SDLoc &DL, EVT VT,
     // avoid a false dependency on any previous contents of the vector
     // register.
 
-    // Use a VLREP if at least one element is a load.
-    unsigned LoadElIdx = UINT_MAX;
+    // Use a VLREP if at least one element is a load. Make sure to replicate
+    // the load with the most elements having its value.
+    std::map<const SDNode*, unsigned> UseCounts;
+    SDNode *LoadMaxUses = nullptr;
     for (unsigned I = 0; I < NumElements; ++I)
       if (Elems[I].getOpcode() == ISD::LOAD &&
           cast<LoadSDNode>(Elems[I])->isUnindexed()) {
-        LoadElIdx = I;
-        break;
+        SDNode *Ld = Elems[I].getNode();
+        UseCounts[Ld]++;
+        if (LoadMaxUses == nullptr || UseCounts[LoadMaxUses] < UseCounts[Ld])
+          LoadMaxUses = Ld;
       }
-    if (LoadElIdx != UINT_MAX) {
-      Result = DAG.getNode(SystemZISD::REPLICATE, DL, VT, Elems[LoadElIdx]);
-      Done[LoadElIdx] = true;
+    if (LoadMaxUses != nullptr) {
+      ReplicatedVal = SDValue(LoadMaxUses, 0);
+      Result = DAG.getNode(SystemZISD::REPLICATE, DL, VT, ReplicatedVal);
     } else {
       // Try to use VLVGP.
       unsigned I1 = NumElements / 2 - 1;
@@ -4520,7 +4524,7 @@ static SDValue buildVector(SelectionDAG &DAG, const SDLoc &DL, EVT VT,
 
   // Use VLVGx to insert the other elements.
   for (unsigned I = 0; I < NumElements; ++I)
-    if (!Done[I] && !Elems[I].isUndef())
+    if (!Done[I] && !Elems[I].isUndef() && Elems[I] != ReplicatedVal)
       Result = DAG.getNode(ISD::INSERT_VECTOR_ELT, DL, VT, Result, Elems[I],
                            DAG.getConstant(I, DL, MVT::i32));
   return Result;
@@ -5363,6 +5367,46 @@ SDValue SystemZTargetLowering::combineMERGE(
   return SDValue();
 }
 
+SDValue SystemZTargetLowering::combineLOAD(
+    SDNode *N, DAGCombinerInfo &DCI) const {
+  SelectionDAG &DAG = DCI.DAG;
+  EVT LdVT = N->getValueType(0);
+  if (LdVT.isVector() || LdVT.isInteger())
+    return SDValue();
+  // Transform a scalar load that is REPLICATEd as well as having other
+  // use(s) to the form where the other use(s) use the first element of the
+  // REPLICATE instead of the load. Otherwise instruction selection will not
+  // produce a VLREP. Avoid extracting to a GPR, so only do this for floating
+  // point loads.
+
+  SDValue Replicate;
+  SmallVector<SDNode*, 8> OtherUses;
+  for (SDNode::use_iterator UI = N->use_begin(), UE = N->use_end();
+       UI != UE; ++UI) {
+    if (UI->getOpcode() == SystemZISD::REPLICATE) {
+      if (Replicate)
+        return SDValue(); // Should never happen
+      Replicate = SDValue(*UI, 0);
+    }
+    else if (UI.getUse().getResNo() == 0)
+      OtherUses.push_back(*UI);
+  }
+  if (!Replicate || OtherUses.empty())
+    return SDValue();
+
+  SDLoc DL(N);
+  SDValue Extract0 = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, LdVT,
+                              Replicate, DAG.getConstant(0, DL, MVT::i32));
+  // Update uses of the loaded Value while preserving old chains.
+  for (SDNode *U : OtherUses) {
+    SmallVector<SDValue, 8> Ops;
+    for (SDValue Op : U->ops())
+      Ops.push_back((Op.getNode() == N && Op.getResNo() == 0) ? Extract0 : Op);
+    DAG.UpdateNodeOperands(U, Ops);
+  }
+  return SDValue(N, 0);
+}
+
 SDValue SystemZTargetLowering::combineSTORE(
     SDNode *N, DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -5439,7 +5483,7 @@ SDValue SystemZTargetLowering::combineFP_ROUND(
   // (fpround (extract_vector_elt X 0))
   // (fpround (extract_vector_elt X 1)) ->
   // (extract_vector_elt (VROUND X) 0)
-  // (extract_vector_elt (VROUND X) 1)
+  // (extract_vector_elt (VROUND X) 2)
   //
   // This is a special case since the target doesn't really support v2f32s.
   SelectionDAG &DAG = DCI.DAG;
@@ -5473,6 +5517,53 @@ SDValue SystemZTargetLowering::combineFP_ROUND(
           SDValue Extract0 =
             DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SDLoc(Op0), MVT::f32,
                         VRound, DAG.getConstant(0, SDLoc(Op0), MVT::i32));
+          return Extract0;
+        }
+      }
+    }
+  }
+  return SDValue();
+}
+
+SDValue SystemZTargetLowering::combineFP_EXTEND(
+    SDNode *N, DAGCombinerInfo &DCI) const {
+  // (fpextend (extract_vector_elt X 0))
+  // (fpextend (extract_vector_elt X 2)) ->
+  // (extract_vector_elt (VEXTEND X) 0)
+  // (extract_vector_elt (VEXTEND X) 1)
+  //
+  // This is a special case since the target doesn't really support v2f32s.
+  SelectionDAG &DAG = DCI.DAG;
+  SDValue Op0 = N->getOperand(0);
+  if (N->getValueType(0) == MVT::f64 &&
+      Op0.hasOneUse() &&
+      Op0.getOpcode() == ISD::EXTRACT_VECTOR_ELT &&
+      Op0.getOperand(0).getValueType() == MVT::v4f32 &&
+      Op0.getOperand(1).getOpcode() == ISD::Constant &&
+      cast<ConstantSDNode>(Op0.getOperand(1))->getZExtValue() == 0) {
+    SDValue Vec = Op0.getOperand(0);
+    for (auto *U : Vec->uses()) {
+      if (U != Op0.getNode() &&
+          U->hasOneUse() &&
+          U->getOpcode() == ISD::EXTRACT_VECTOR_ELT &&
+          U->getOperand(0) == Vec &&
+          U->getOperand(1).getOpcode() == ISD::Constant &&
+          cast<ConstantSDNode>(U->getOperand(1))->getZExtValue() == 2) {
+        SDValue OtherExtend = SDValue(*U->use_begin(), 0);
+        if (OtherExtend.getOpcode() == ISD::FP_EXTEND &&
+            OtherExtend.getOperand(0) == SDValue(U, 0) &&
+            OtherExtend.getValueType() == MVT::f64) {
+          SDValue VExtend = DAG.getNode(SystemZISD::VEXTEND, SDLoc(N),
+                                        MVT::v2f64, Vec);
+          DCI.AddToWorklist(VExtend.getNode());
+          SDValue Extract1 =
+            DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SDLoc(U), MVT::f64,
+                        VExtend, DAG.getConstant(1, SDLoc(U), MVT::i32));
+          DCI.AddToWorklist(Extract1.getNode());
+          DAG.ReplaceAllUsesOfValueWith(OtherExtend, Extract1);
+          SDValue Extract0 =
+            DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SDLoc(Op0), MVT::f64,
+                        VExtend, DAG.getConstant(0, SDLoc(Op0), MVT::i32));
           return Extract0;
         }
       }
@@ -5694,10 +5785,12 @@ SDValue SystemZTargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::SIGN_EXTEND_INREG:  return combineSIGN_EXTEND_INREG(N, DCI);
   case SystemZISD::MERGE_HIGH:
   case SystemZISD::MERGE_LOW:   return combineMERGE(N, DCI);
+  case ISD::LOAD:               return combineLOAD(N, DCI);
   case ISD::STORE:              return combineSTORE(N, DCI);
   case ISD::EXTRACT_VECTOR_ELT: return combineEXTRACT_VECTOR_ELT(N, DCI);
   case SystemZISD::JOIN_DWORDS: return combineJOIN_DWORDS(N, DCI);
   case ISD::FP_ROUND:           return combineFP_ROUND(N, DCI);
+  case ISD::FP_EXTEND:          return combineFP_EXTEND(N, DCI);
   case ISD::BSWAP:              return combineBSWAP(N, DCI);
   case SystemZISD::BR_CCMASK:   return combineBR_CCMASK(N, DCI);
   case SystemZISD::SELECT_CCMASK: return combineSELECT_CCMASK(N, DCI);
@@ -5816,10 +5909,10 @@ static void computeKnownBitsBinOp(const SDValue Op, KnownBits &Known,
                                   unsigned OpNo) {
   APInt Src0DemE = getDemandedSrcElements(Op, DemandedElts, OpNo);
   APInt Src1DemE = getDemandedSrcElements(Op, DemandedElts, OpNo + 1);
-  unsigned SrcBitWidth = Op.getOperand(OpNo).getScalarValueSizeInBits();
-  KnownBits LHSKnown(SrcBitWidth), RHSKnown(SrcBitWidth);
-  DAG.computeKnownBits(Op.getOperand(OpNo), LHSKnown, Src0DemE, Depth + 1);
-  DAG.computeKnownBits(Op.getOperand(OpNo + 1), RHSKnown, Src1DemE, Depth + 1);
+  KnownBits LHSKnown =
+      DAG.computeKnownBits(Op.getOperand(OpNo), Src0DemE, Depth + 1);
+  KnownBits RHSKnown =
+      DAG.computeKnownBits(Op.getOperand(OpNo + 1), Src1DemE, Depth + 1);
   Known.Zero = LHSKnown.Zero & RHSKnown.Zero;
   Known.One = LHSKnown.One & RHSKnown.One;
 }
@@ -5885,9 +5978,8 @@ SystemZTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
     case Intrinsic::s390_vuplf: {
       SDValue SrcOp = Op.getOperand(1);
       unsigned SrcBitWidth = SrcOp.getScalarValueSizeInBits();
-      Known = KnownBits(SrcBitWidth);
       APInt SrcDemE = getDemandedSrcElements(Op, DemandedElts, 0);
-      DAG.computeKnownBits(SrcOp, Known, SrcDemE, Depth + 1);
+      Known = DAG.computeKnownBits(SrcOp, SrcDemE, Depth + 1);
       if (IsLogical) {
         Known = Known.zext(BitWidth);
         Known.Zero.setBitsFrom(SrcBitWidth);
@@ -5906,7 +5998,7 @@ SystemZTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
       break;
     case SystemZISD::REPLICATE: {
       SDValue SrcOp = Op.getOperand(0);
-      DAG.computeKnownBits(SrcOp, Known, Depth + 1);
+      Known = DAG.computeKnownBits(SrcOp, Depth + 1);
       if (Known.getBitWidth() < BitWidth && isa<ConstantSDNode>(SrcOp))
         Known = Known.sext(BitWidth); // VREPI sign extends the immedate.
       break;

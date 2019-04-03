@@ -318,7 +318,7 @@ class RAGreedy : public MachineFunctionPass,
 
     /// Track new eviction.
     /// The Evictor vreg has evicted the Evictee vreg from Physreg.
-    /// \param PhysReg The phisical register Evictee was evicted from.
+    /// \param PhysReg The physical register Evictee was evicted from.
     /// \param Evictor The evictor Vreg that evicted Evictee.
     /// \param Evictee The evictee Vreg.
     void addEviction(unsigned PhysReg, unsigned Evictor, unsigned Evictee) {
@@ -1183,7 +1183,10 @@ bool RAGreedy::addSplitConstraints(InterferenceCache::Cursor Intf,
     BC.Number = BI.MBB->getNumber();
     Intf.moveToBlock(BC.Number);
     BC.Entry = BI.LiveIn ? SpillPlacement::PrefReg : SpillPlacement::DontCare;
-    BC.Exit = BI.LiveOut ? SpillPlacement::PrefReg : SpillPlacement::DontCare;
+    BC.Exit = (BI.LiveOut &&
+               !LIS->getInstructionFromIndex(BI.LastInstr)->isImplicitDef())
+                  ? SpillPlacement::PrefReg
+                  : SpillPlacement::DontCare;
     BC.ChangesValue = BI.FirstDef.isValid();
 
     if (!Intf.hasInterference())

@@ -7,6 +7,8 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
+#include <utility>
 
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
@@ -22,6 +24,7 @@
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/login/enrollment/auto_enrollment_check_screen_view.h"
 #include "chrome/browser/chromeos/login/enrollment/enrollment_screen_view.h"
+#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/browser/chromeos/login/screens/demo_preferences_screen_view.h"
 #include "chrome/browser/chromeos/login/screens/demo_setup_screen_view.h"
 #include "chrome/browser/chromeos/login/screens/error_screen.h"
@@ -44,7 +47,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/assistant_optin_flow_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/auto_enrollment_check_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/controller_pairing_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/demo_preferences_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/demo_setup_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/device_disabled_screen_handler.h"
@@ -57,7 +59,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/fingerprint_setup_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/hid_detection_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/host_pairing_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/kiosk_app_menu_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/kiosk_autolaunch_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/kiosk_enable_screen_handler.h"
@@ -70,14 +71,13 @@
 #include "chrome/browser/ui/webui/chromeos/login/recommend_apps_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/reset_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/supervision_transition_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/sync_consent_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/terms_of_service_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/update_required_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/update_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/user_board_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/user_image_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/voice_interaction_value_prop_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/wait_for_container_ready_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/wrong_hwid_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/user_image_source.h"
@@ -92,7 +92,7 @@
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/chrome_unscaled_resources.h"
 #include "chrome/grit/component_extension_resources.h"
-#include "chromeos/chromeos_switches.h"
+#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/services/multidevice_setup/public/mojom/constants.mojom.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/prefs/pref_service.h"
@@ -104,6 +104,7 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/webui/web_ui_util.h"
+#include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
 #include "ui/display/display.h"
 #include "ui/events/devices/input_device.h"
 #include "ui/events/devices/input_device_manager.h"
@@ -127,6 +128,7 @@ constexpr char kArcOverlayCSSPath[] = "overlay.css";
 constexpr char kArcPlaystoreCSSPath[] = "playstore.css";
 constexpr char kArcPlaystoreJSPath[] = "playstore.js";
 constexpr char kArcPlaystoreLogoPath[] = "playstore.svg";
+constexpr char kArcSupervisionIconPath[] = "supervision_icon.png";
 constexpr char kCustomElementsHTMLPath[] = "custom_elements.html";
 constexpr char kCustomElementsJSPath[] = "custom_elements.js";
 constexpr char kCustomElementsUserPodHTMLPath[] =
@@ -156,6 +158,7 @@ constexpr char kEnrollmentJSPath[] = "enrollment.js";
 void AddProductLogoResources(content::WebUIDataSource* source) {
   // Required for Assistant OOBE.
   source->AddResourcePath(kArcAssistantLogoPath, IDR_ASSISTANT_LOGO_PNG);
+  source->AddResourcePath(kArcSupervisionIconPath, IDR_SUPERVISION_ICON_PNG);
 
 #if defined(GOOGLE_CHROME_BUILD)
   source->AddResourcePath(kLogo24PX1XSvgPath, IDR_PRODUCT_LOGO_24PX_1X);
@@ -195,6 +198,16 @@ void AddEnterpriseEnrollmentResources(content::WebUIDataSource* source) {
   source->AddResourcePath(kEnrollmentHTMLPath, IDR_OOBE_ENROLLMENT_HTML);
   source->AddResourcePath(kEnrollmentCSSPath, IDR_OOBE_ENROLLMENT_CSS);
   source->AddResourcePath(kEnrollmentJSPath, IDR_OOBE_ENROLLMENT_JS);
+}
+
+void AddFingerprintResources(content::WebUIDataSource* source) {
+  if (quick_unlock::IsFingerprintReaderOnKeyboard()) {
+    source->AddResourcePath("fingerprint_scanner_animation.png",
+                            IDR_LOGIN_FINGERPRINT_SCANNER_LAPTOP_ANIMATION);
+  } else {
+    source->AddResourcePath("fingerprint_scanner_animation.png",
+                            IDR_LOGIN_FINGERPRINT_SCANNER_TABLET_ANIMATION);
+  }
 }
 
 // Default and non-shared resource definition for kOobeDisplay display type.
@@ -266,6 +279,7 @@ content::WebUIDataSource* CreateOobeUIDataSource(
   AddProductLogoResources(source);
 
   if (display_type != OobeUI::kLockDisplay) {
+    AddFingerprintResources(source);
     AddSyncConsentResources(source);
     AddArcScreensResources(source);
     AddEnterpriseEnrollmentResources(source);
@@ -411,19 +425,11 @@ void OobeUI::ConfigureOobeDisplay() {
 
   AddScreenHandler(std::make_unique<ArcKioskSplashScreenHandler>());
 
-  if (display_type_ == kOobeDisplay) {
-    AddScreenHandler(std::make_unique<ControllerPairingScreenHandler>());
-
-    AddScreenHandler(std::make_unique<HostPairingScreenHandler>());
-  }
-
   AddScreenHandler(std::make_unique<DeviceDisabledScreenHandler>());
 
   AddScreenHandler(std::make_unique<EncryptionMigrationScreenHandler>());
 
-  AddScreenHandler(std::make_unique<VoiceInteractionValuePropScreenHandler>());
-
-  AddScreenHandler(std::make_unique<WaitForContainerReadyScreenHandler>());
+  AddScreenHandler(std::make_unique<SupervisionTransitionScreenHandler>());
 
   AddScreenHandler(std::make_unique<UpdateRequiredScreenHandler>());
 
@@ -601,14 +607,6 @@ HIDDetectionView* OobeUI::GetHIDDetectionView() {
   return GetView<HIDDetectionScreenHandler>();
 }
 
-ControllerPairingScreenView* OobeUI::GetControllerPairingScreenView() {
-  return GetView<ControllerPairingScreenHandler>();
-}
-
-HostPairingScreenView* OobeUI::GetHostPairingScreenView() {
-  return GetView<HostPairingScreenHandler>();
-}
-
 DeviceDisabledScreenView* OobeUI::GetDeviceDisabledScreenView() {
   return GetView<DeviceDisabledScreenHandler>();
 }
@@ -617,13 +615,8 @@ EncryptionMigrationScreenView* OobeUI::GetEncryptionMigrationScreenView() {
   return GetView<EncryptionMigrationScreenHandler>();
 }
 
-VoiceInteractionValuePropScreenView*
-OobeUI::GetVoiceInteractionValuePropScreenView() {
-  return GetView<VoiceInteractionValuePropScreenHandler>();
-}
-
-WaitForContainerReadyScreenView* OobeUI::GetWaitForContainerReadyScreenView() {
-  return GetView<WaitForContainerReadyScreenHandler>();
+SupervisionTransitionScreenView* OobeUI::GetSupervisionTransitionScreenView() {
+  return GetView<SupervisionTransitionScreenHandler>();
 }
 
 UpdateRequiredView* OobeUI::GetUpdateRequiredScreenView() {

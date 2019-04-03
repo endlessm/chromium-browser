@@ -326,6 +326,7 @@ protected:
   bool EnableUnsafeDSOffsetFolding;
   bool EnableSIScheduler;
   bool EnableDS128;
+  bool EnablePRTStrictNull;
   bool DumpCode;
 
   // Subtarget statically properties set by tablegen
@@ -353,6 +354,7 @@ protected:
   bool HasDPP;
   bool HasR128A16;
   bool HasDLInsts;
+  bool HasDotInsts;
   bool EnableSRAMECC;
   bool FlatAddressSpace;
   bool FlatInstOffsets;
@@ -576,12 +578,19 @@ public:
     return getGeneration() < AMDGPUSubtarget::GFX9;
   }
 
+  /// \returns If target requires PRT Struct NULL support (zero result registers
+  /// for sparse texture support).
+  bool usePRTStrictNull() const {
+    return EnablePRTStrictNull;
+  }
+
   bool hasAutoWaitcntBeforeBarrier() const {
     return AutoWaitcntBeforeBarrier;
   }
 
   bool hasCodeObjectV3() const {
-    return CodeObjectV3;
+    // FIXME: Need to add code object v3 support for mesa and pal.
+    return isAmdHsaOS() ? CodeObjectV3 : false;
   }
 
   bool hasUnalignedBufferAccess() const {
@@ -677,6 +686,10 @@ public:
 
   bool hasDLInsts() const {
     return HasDLInsts;
+  }
+
+  bool hasDotInsts() const {
+    return HasDotInsts;
   }
 
   bool isSRAMECCEnabled() const {
@@ -814,6 +827,11 @@ public:
 
   bool has12DWordStoreHazard() const {
     return getGeneration() != AMDGPUSubtarget::SOUTHERN_ISLANDS;
+  }
+
+  // \returns true if the subtarget supports DWORDX3 load/store instructions.
+  bool hasDwordx3LoadStores() const {
+    return CIInsts;
   }
 
   bool hasSMovFedHazard() const {

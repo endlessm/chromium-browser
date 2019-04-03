@@ -600,6 +600,8 @@ TEST_F(FormatTestJS, GoogModules) {
                getGoogleJSStyleWithColumns(40));
   verifyFormat("var long = goog.require('this.is.really.absurdly.long');",
                getGoogleJSStyleWithColumns(40));
+  verifyFormat("const X = goog.requireType('this.is.really.absurdly.long');",
+               getGoogleJSStyleWithColumns(40));
   verifyFormat("goog.forwardDeclare('this.is.really.absurdly.long');",
                getGoogleJSStyleWithColumns(40));
 
@@ -1184,6 +1186,16 @@ TEST_F(FormatTestJS, WrapRespectsAutomaticSemicolonInsertion) {
                "      }&ABC => 1)\n"
                "}",
                getGoogleJSStyleWithColumns(25));
+}
+
+TEST_F(FormatTestJS, AddsIsTheDictKeyOnNewline) {
+  // Do not confuse is, the dict key with is, the type matcher. Put is, the dict
+  // key, on a newline.
+  verifyFormat("Polymer({\n"
+               "  is: '',  //\n"
+               "  rest: 1\n"
+               "});",
+               getGoogleJSStyleWithColumns(20));
 }
 
 TEST_F(FormatTestJS, AutomaticSemicolonInsertionHeuristic) {

@@ -103,6 +103,10 @@ static cl::opt<bool>
     OutputThinLTOBC("thinlto-bc",
                     cl::desc("Write output as ThinLTO-ready bitcode"));
 
+static cl::opt<bool>
+    SplitLTOUnit("thinlto-split-lto-unit",
+                 cl::desc("Enable splitting of a ThinLTO LTOUnit"));
+
 static cl::opt<std::string> ThinLinkBitcodeFile(
     "thin-link-bitcode-file", cl::value_desc("filename"),
     cl::desc(
@@ -271,6 +275,19 @@ static cl::opt<std::string>
                     cl::desc("YAML output filename for pass remarks"),
                     cl::value_desc("filename"));
 
+cl::opt<PGOKind>
+    PGOKindFlag("pgo-kind", cl::init(NoPGO), cl::Hidden,
+                cl::desc("The kind of profile guided optimization"),
+                cl::values(clEnumValN(NoPGO, "nopgo", "Do not use PGO."),
+                           clEnumValN(InstrGen, "pgo-instr-gen-pipeline",
+                                      "Instrument the IR to generate profile."),
+                           clEnumValN(InstrUse, "pgo-instr-use-pipeline",
+                                      "Use instrumented profile to guide PGO."),
+                           clEnumValN(SampleUse, "pgo-sample-use-pipeline",
+                                      "Use sampled profile to guide PGO.")));
+cl::opt<std::string> ProfileFile("profile-file",
+                                 cl::desc("Path to the profile."), cl::Hidden);
+
 class OptCustomPassManager : public legacy::PassManager {
   DebugifyStatsMap DIStatsMap;
 
@@ -364,6 +381,21 @@ static void AddOptimizationPasses(legacy::PassManagerBase &MPM,
 
   if (Coroutines)
     addCoroutinePassesToExtensionPoints(Builder);
+
+  switch (PGOKindFlag) {
+  case InstrGen:
+    Builder.EnablePGOInstrGen = true;
+    Builder.PGOInstrGen = ProfileFile;
+    break;
+  case InstrUse:
+    Builder.PGOInstrUse = ProfileFile;
+    break;
+  case SampleUse:
+    Builder.PGOSampleUse = ProfileFile;
+    break;
+  default:
+    break;
+  }
 
   Builder.populateFunctionPassManager(FPM);
   Builder.populateModulePassManager(MPM);
@@ -463,6 +495,7 @@ int main(int argc, char **argv) {
   initializePreISelIntrinsicLoweringLegacyPassPass(Registry);
   initializeGlobalMergePass(Registry);
   initializeIndirectBrExpandPassPass(Registry);
+  initializeInterleavedLoadCombinePass(Registry);
   initializeInterleavedAccessPass(Registry);
   initializeEntryExitInstrumenterPass(Registry);
   initializePostInlineEntryExitInstrumenterPass(Registry);
@@ -594,6 +627,9 @@ int main(int argc, char **argv) {
   if (!Force && !NoOutput && !AnalyzeOnly && !OutputAssembly)
     if (CheckBitcodeOutputToConsole(Out->os(), !Quiet))
       NoOutput = true;
+
+  if (OutputThinLTOBC)
+    M->addModuleFlag(Module::Error, "EnableSplitLTOUnit", SplitLTOUnit);
 
   if (PassPipeline.getNumOccurrences() > 0) {
     OutputKind OK = OK_NoOutput;

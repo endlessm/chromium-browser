@@ -618,7 +618,8 @@ class BuildSpecsManager(object):
 
   def __init__(self, source_repo, manifest_repo, build_names, incr_type, force,
                branch, manifest=constants.DEFAULT_MANIFEST, dry_run=True,
-               config=None, metadata=None, db=None, buildbucket_client=None):
+               config=None, metadata=None, buildstore=None,
+               buildbucket_client=None):
     """Initializes a build specs manager.
 
     Args:
@@ -635,7 +636,7 @@ class BuildSpecsManager(object):
       config: Instance of config_lib.BuildConfig. Config dict of this builder.
       metadata: Instance of metadata_lib.CBuildbotMetadata. Metadata of this
                 builder.
-      db: Instance of cidb.CIDBConnection.
+      buildstore: BuildStore object to make DB calls.
       buildbucket_client: Instance of buildbucket_lib.buildbucket_client.
     """
     self.cros_source = source_repo
@@ -655,7 +656,8 @@ class BuildSpecsManager(object):
     self.config = config
     self.master = False if config is None else config.master
     self.metadata = metadata
-    self.db = db
+    self.buildstore = buildstore
+    self.db = buildstore.GetCIDBHandle()
     self.buildbucket_client = buildbucket_client
 
     # Directories and specifications are set once we load the specs.
@@ -842,7 +844,7 @@ class BuildSpecsManager(object):
     return (self._latest_build and
             self._latest_build['status'] == constants.BUILDER_STATUS_FAILED)
 
-  def WaitForSlavesToComplete(self, master_build_id, db, builders_array,
+  def WaitForSlavesToComplete(self, master_build_id, builders_array,
                               pool=None, timeout=3 * 60,
                               ignore_timeout_exception=True):
     """Wait for all slaves to complete or timeout.
@@ -854,7 +856,6 @@ class BuildSpecsManager(object):
 
     Args:
       master_build_id: Master build id to check.
-      db: An instance of cidb.CIDBConnection.
       builders_array: The name list of the build configs to check.
       pool: An instance of ValidationPool.validation_pool used by sync stage
             to apply changes.
@@ -876,7 +877,7 @@ class BuildSpecsManager(object):
       logging.info('%s until timeout...', remaining)
 
     slave_status = build_status.SlaveStatus(
-        start_time, builders_array, master_build_id, db,
+        start_time, builders_array, master_build_id, buildstore=self.buildstore,
         config=self.config,
         metadata=self.metadata,
         buildbucket_client=self.buildbucket_client,
@@ -1005,8 +1006,22 @@ class BuildSpecsManager(object):
       CreateSymlink(src_file, dest_file)
 
   def PushSpecChanges(self, commit_message):
-    """Pushes any changes you have in the manifest directory."""
-    _PushGitChanges(self.manifest_dir, commit_message, dry_run=self.dry_run)
+    """Pushes any changes you have in the manifest directory.
+
+    Args:
+      commit_message: Message that the git commit will contain.
+    """
+    # %submit enables Gerrit automerge feature to manage contention on the
+    # high traffic manifest_versions repository.
+    push_to_git = git.GetTrackingBranch(
+        self.manifest_dir, for_checkout=False, for_push=False)
+    push_to = git.RemoteRef(push_to_git.remote, 'refs/for/master%submit',
+                            push_to_git.project_name)
+    _PushGitChanges(
+        self.manifest_dir,
+        commit_message,
+        dry_run=self.dry_run,
+        push_to=push_to)
 
   def UpdateStatus(self, success_map, message=None, retries=NUM_RETRIES):
     """Updates the status of the build for the current build spec.
@@ -1027,8 +1042,7 @@ class BuildSpecsManager(object):
         commit_message = (
             'Automatic checkin: status=%s build_version %s for %s' %
             (builder_status_lib.BuilderStatus.GetCompletedStatus(success),
-             self.current_version,
-             self.build_names[0]))
+             self.current_version, self.build_names[0]))
 
         self._SetPassSymlinks(success_map)
 

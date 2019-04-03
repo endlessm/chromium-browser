@@ -416,7 +416,7 @@ static std::error_code rename_internal(HANDLE FromHandle, const Twine &To,
       *reinterpret_cast<FILE_RENAME_INFO *>(RenameInfoBuf.data());
   RenameInfo.ReplaceIfExists = ReplaceIfExists;
   RenameInfo.RootDirectory = 0;
-  RenameInfo.FileNameLength = ToWide.size();
+  RenameInfo.FileNameLength = ToWide.size() * sizeof(wchar_t);
   std::copy(ToWide.begin(), ToWide.end(), &RenameInfo.FileName[0]);
 
   SetLastError(ERROR_SUCCESS);
@@ -1251,6 +1251,17 @@ static void expandTildeExpr(SmallVectorImpl<char> &Path) {
   // Overwrite the first character and insert the rest.
   Path[0] = HomeDir[0];
   Path.insert(Path.begin() + 1, HomeDir.begin() + 1, HomeDir.end());
+}
+
+void expand_tilde(const Twine &path, SmallVectorImpl<char> &dest) {
+  dest.clear();
+  if (path.isTriviallyEmpty())
+    return;
+
+  path.toVector(dest);
+  expandTildeExpr(dest);
+
+  return;
 }
 
 std::error_code real_path(const Twine &path, SmallVectorImpl<char> &dest,

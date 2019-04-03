@@ -13,10 +13,6 @@ _DEFAULT_EXTRA_ARGS = [
     '-v', '--upload-results', '--output-format', 'histograms']
 
 
-_PERFORMANCE_TESTS = ('performance_test_suite',
-                      'performance_webview_test_suite')
-
-
 class RunTelemetryTest(run_performance_test.RunPerformanceTest):
 
   def Start(self, change, isolate_server, isolate_hash):
@@ -34,15 +30,15 @@ class RunTelemetryTest(run_performance_test.RunPerformanceTest):
     benchmark = arguments.get('benchmark')
     if not benchmark:
       raise TypeError('Missing "benchmark" argument.')
-    if arguments.get('target') in _PERFORMANCE_TESTS:
-      extra_test_args += ('--benchmarks', benchmark)
-    else:
-      # TODO: Remove this hack when all builders build performance_test_suite.
-      extra_test_args.append(benchmark)
+    extra_test_args += ('--benchmarks', benchmark)
 
     story = arguments.get('story')
     if story:
       extra_test_args += ('--story-filter', story)
+
+    story_tags = arguments.get('story_tags')
+    if story_tags:
+      extra_test_args += ('--story-tag-filter', story_tags)
 
     # TODO: Workaround for crbug.com/677843.
     if (benchmark.startswith('startup.warm') or

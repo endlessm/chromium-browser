@@ -15,6 +15,7 @@
 #define LLVM_CLANG_LIB_CODEGEN_CGOPENMPRUNTIME_H
 
 #include "CGValue.h"
+#include "clang/AST/DeclOpenMP.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/SourceLocation.h"
@@ -282,12 +283,35 @@ protected:
                               bool AtCurrentPoint = false);
   void clearLocThreadIdInsertPt(CodeGenFunction &CGF);
 
+  /// Check if the default location must be constant.
+  /// Default is false to support OMPT/OMPD.
+  virtual bool isDefaultLocationConstant() const { return false; }
+
+  /// Returns additional flags that can be stored in reserved_2 field of the
+  /// default location.
+  virtual unsigned getDefaultLocationReserved2Flags() const { return 0; }
+
+  /// Returns default flags for the barriers depending on the directive, for
+  /// which this barier is going to be emitted.
+  static unsigned getDefaultFlagsForBarriers(OpenMPDirectiveKind Kind);
+
+  /// Get the LLVM type for the critical name.
+  llvm::ArrayType *getKmpCriticalNameTy() const {return KmpCriticalNameTy;}
+
+  /// Returns corresponding lock object for the specified critical region
+  /// name. If the lock object does not exist it is created, otherwise the
+  /// reference to the existing copy is returned.
+  /// \param CriticalName Name of the critical region.
+  ///
+  llvm::Value *getCriticalRegionLock(StringRef CriticalName);
+
 private:
   /// Default const ident_t object used for initialization of all other
   /// ident_t objects.
   llvm::Constant *DefaultOpenMPPSource = nullptr;
+  using FlagsTy = std::pair<unsigned, unsigned>;
   /// Map of flags and corresponding default locations.
-  typedef llvm::DenseMap<unsigned, llvm::Value *> OpenMPDefaultLocMapTy;
+  using OpenMPDefaultLocMapTy = llvm::DenseMap<FlagsTy, llvm::Value *>;
   OpenMPDefaultLocMapTy OpenMPDefaultLocMap;
   Address getOrCreateDefaultLocation(unsigned Flags);
 
@@ -697,13 +721,6 @@ private:
   void emitThreadPrivateVarInit(CodeGenFunction &CGF, Address VDAddr,
                                 llvm::Value *Ctor, llvm::Value *CopyCtor,
                                 llvm::Value *Dtor, SourceLocation Loc);
-
-  /// Returns corresponding lock object for the specified critical region
-  /// name. If the lock object does not exist it is created, otherwise the
-  /// reference to the existing copy is returned.
-  /// \param CriticalName Name of the critical region.
-  ///
-  llvm::Value *getCriticalRegionLock(StringRef CriticalName);
 
   struct TaskResultTy {
     llvm::Value *NewTask = nullptr;
@@ -1351,6 +1368,15 @@ public:
                                           bool IsOffloadEntry,
                                           const RegionCodeGenTy &CodeGen);
 
+  /// Emit code that pushes the trip count of loops associated with constructs
+  /// 'target teams distribute' and 'teams distribute parallel for'.
+  /// \param SizeEmitter Emits the int64 value for the number of iterations of
+  /// the associated loop.
+  virtual void emitTargetNumIterationsCall(
+      CodeGenFunction &CGF, const OMPExecutableDirective &D, const Expr *Device,
+      const llvm::function_ref<llvm::Value *(
+          CodeGenFunction &CGF, const OMPLoopDirective &D)> &SizeEmitter);
+
   /// Emit the target offloading code associated with \a D. The emitted
   /// code attempts offloading the execution to the device, an the event of
   /// a failure it executes the host version outlined in \a OutlinedFn.
@@ -1541,7 +1567,7 @@ public:
   virtual Address getAddressOfLocalVariable(CodeGenFunction &CGF,
                                             const VarDecl *VD);
 
-  /// Marks the declaration as alread emitted for the device code and returns
+  /// Marks the declaration as already emitted for the device code and returns
   /// true, if it was marked already, and false, otherwise.
   bool markAsGlobalTarget(GlobalDecl GD);
 
@@ -1553,6 +1579,11 @@ public:
   virtual void
   adjustTargetSpecificDataForLambdas(CodeGenFunction &CGF,
                                      const OMPExecutableDirective &D) const;
+
+  /// Perform check on requires decl to ensure that target architecture
+  /// supports unified addressing
+  virtual void checkArchForUnifiedAddressing(CodeGenModule &CGM,
+                                             const OMPRequiresDecl *D) const {}
 };
 
 /// Class supports emissionof SIMD-only code.

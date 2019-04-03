@@ -36,11 +36,11 @@
 
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/networkmonitor.h"
+#include "rtc_base/network_monitor.h"
 #include "rtc_base/socket.h"  // includes something that makes windows happy
-#include "rtc_base/stringencode.h"
+#include "rtc_base/string_encode.h"
+#include "rtc_base/string_utils.h"
 #include "rtc_base/strings/string_builder.h"
-#include "rtc_base/stringutils.h"
 #include "rtc_base/thread.h"
 
 namespace rtc {
@@ -264,8 +264,7 @@ webrtc::MdnsResponderInterface* NetworkManager::GetMdnsResponder() const {
 }
 
 NetworkManagerBase::NetworkManagerBase()
-    : enumeration_permission_(NetworkManager::ENUMERATION_ALLOWED),
-      ipv6_enabled_(true) {}
+    : enumeration_permission_(NetworkManager::ENUMERATION_ALLOWED) {}
 
 NetworkManagerBase::~NetworkManagerBase() {
   for (const auto& kv : networks_map_) {
@@ -284,22 +283,20 @@ void NetworkManagerBase::GetAnyAddressNetworks(NetworkList* networks) {
     ipv4_any_address_network_.reset(
         new rtc::Network("any", "any", ipv4_any_address, 0, ADAPTER_TYPE_ANY));
     ipv4_any_address_network_->set_default_local_address_provider(this);
+    ipv4_any_address_network_->set_mdns_responder_provider(this);
     ipv4_any_address_network_->AddIP(ipv4_any_address);
-    ipv4_any_address_network_->SetMdnsResponder(GetMdnsResponder());
   }
   networks->push_back(ipv4_any_address_network_.get());
 
-  if (ipv6_enabled()) {
-    if (!ipv6_any_address_network_) {
-      const rtc::IPAddress ipv6_any_address(in6addr_any);
-      ipv6_any_address_network_.reset(new rtc::Network(
-          "any", "any", ipv6_any_address, 0, ADAPTER_TYPE_ANY));
-      ipv6_any_address_network_->set_default_local_address_provider(this);
-      ipv6_any_address_network_->AddIP(ipv6_any_address);
-      ipv6_any_address_network_->SetMdnsResponder(GetMdnsResponder());
-    }
-    networks->push_back(ipv6_any_address_network_.get());
+  if (!ipv6_any_address_network_) {
+    const rtc::IPAddress ipv6_any_address(in6addr_any);
+    ipv6_any_address_network_.reset(
+        new rtc::Network("any", "any", ipv6_any_address, 0, ADAPTER_TYPE_ANY));
+    ipv6_any_address_network_->set_default_local_address_provider(this);
+    ipv6_any_address_network_->set_mdns_responder_provider(this);
+    ipv6_any_address_network_->AddIP(ipv6_any_address);
   }
+  networks->push_back(ipv6_any_address_network_.get());
 }
 
 void NetworkManagerBase::GetNetworks(NetworkList* result) const {
@@ -386,7 +383,7 @@ void NetworkManagerBase::MergeNetworkList(const NetworkList& new_networks,
         delete net;
       }
     }
-    networks_map_[key]->SetMdnsResponder(GetMdnsResponder());
+    networks_map_[key]->set_mdns_responder_provider(this);
   }
   // It may still happen that the merged list is a subset of |networks_|.
   // To detect this change, we compare their sizes.
@@ -518,10 +515,6 @@ void BasicNetworkManager::ConvertIfAddrs(struct ifaddrs* interfaces,
     // Skip unknown family.
     if (cursor->ifa_addr->sa_family != AF_INET &&
         cursor->ifa_addr->sa_family != AF_INET6) {
-      continue;
-    }
-    // Skip IPv6 if not enabled.
-    if (cursor->ifa_addr->sa_family == AF_INET6 && !ipv6_enabled()) {
       continue;
     }
     // Convert to InterfaceAddress.
@@ -699,20 +692,16 @@ bool BasicNetworkManager::CreateNetworks(bool include_ignored,
             break;
           }
           case AF_INET6: {
-            if (ipv6_enabled()) {
-              sockaddr_in6* v6_addr =
-                  reinterpret_cast<sockaddr_in6*>(address->Address.lpSockaddr);
-              scope_id = v6_addr->sin6_scope_id;
-              ip = IPAddress(v6_addr->sin6_addr);
+            sockaddr_in6* v6_addr =
+                reinterpret_cast<sockaddr_in6*>(address->Address.lpSockaddr);
+            scope_id = v6_addr->sin6_scope_id;
+            ip = IPAddress(v6_addr->sin6_addr);
 
-              if (IsIgnoredIPv6(InterfaceAddress(ip))) {
-                continue;
-              }
-
-              break;
-            } else {
+            if (IsIgnoredIPv6(InterfaceAddress(ip))) {
               continue;
             }
+
+            break;
           }
           default: { continue; }
         }
@@ -750,6 +739,7 @@ bool BasicNetworkManager::CreateNetworks(bool include_ignored,
           std::unique_ptr<Network> network(new Network(
               name, description, prefix, prefix_length, adapter_type));
           network->set_default_local_address_provider(this);
+          network->set_mdns_responder_provider(this);
           network->set_scope_id(scope_id);
           network->AddIP(ip);
           bool ignored = IsIgnoredNetwork(*network);
@@ -1058,6 +1048,13 @@ IPAddress Network::GetBestIP() const {
   }
 
   return static_cast<IPAddress>(selected_ip);
+}
+
+webrtc::MdnsResponderInterface* Network::GetMdnsResponder() const {
+  if (mdns_responder_provider_ == nullptr) {
+    return nullptr;
+  }
+  return mdns_responder_provider_->GetMdnsResponder();
 }
 
 uint16_t Network::GetCost() const {

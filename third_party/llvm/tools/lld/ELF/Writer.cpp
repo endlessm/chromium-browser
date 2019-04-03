@@ -172,15 +172,14 @@ static Defined *addOptionalRegular(StringRef Name, SectionBase *Sec,
   Symbol *S = Symtab->find(Name);
   if (!S || S->isDefined())
     return nullptr;
-  Symbol *Sym = Symtab->addDefined(Name, StOther, STT_NOTYPE, Val,
-                                   /*Size=*/0, Binding, Sec,
-                                   /*File=*/nullptr);
-  return cast<Defined>(Sym);
+  return Symtab->addDefined(Name, StOther, STT_NOTYPE, Val,
+                            /*Size=*/0, Binding, Sec,
+                            /*File=*/nullptr);
 }
 
 static Defined *addAbsolute(StringRef Name) {
-  return cast<Defined>(Symtab->addDefined(Name, STV_HIDDEN, STT_NOTYPE, 0, 0,
-                                          STB_GLOBAL, nullptr, nullptr));
+  return Symtab->addDefined(Name, STV_HIDDEN, STT_NOTYPE, 0, 0, STB_GLOBAL,
+                            nullptr, nullptr);
 }
 
 // The linker is expected to define some symbols depending on
@@ -213,9 +212,20 @@ void elf::addReservedSymbols() {
   // _GLOBAL_OFFSET_TABLE_ and _SDA_BASE_ from the 32-bit ABI. It is used to
   // represent the TOC base which is offset by 0x8000 bytes from the start of
   // the .got section.
-  ElfSym::GlobalOffsetTable = addOptionalRegular(
-      (Config->EMachine == EM_PPC64) ? ".TOC." : "_GLOBAL_OFFSET_TABLE_",
-      Out::ElfHeader, Target->GotBaseSymOff);
+  // We do not allow _GLOBAL_OFFSET_TABLE_ to be defined by input objects as the
+  // correctness of some relocations depends on its value.
+  StringRef GotTableSymName =
+      (Config->EMachine == EM_PPC64) ? ".TOC." : "_GLOBAL_OFFSET_TABLE_";
+  if (Symbol *S = Symtab->find(GotTableSymName)) {
+    if (S->isDefined())
+      error(toString(S->File) + " cannot redefine linker defined symbol '" +
+            GotTableSymName + "'");
+    else
+      ElfSym::GlobalOffsetTable = Symtab->addDefined(
+          GotTableSymName, STV_HIDDEN, STT_NOTYPE, Target->GotBaseSymOff,
+          /*Size=*/0, STB_GLOBAL, Out::ElfHeader,
+          /*File=*/nullptr);
+  }
 
   // __ehdr_start is the location of ELF file headers. Note that we define
   // this symbol unconditionally even when using a linker script, which
@@ -363,6 +373,11 @@ template <class ELFT> static void createSyntheticSections() {
   } else {
     In.Got = make<GotSection>();
     Add(In.Got);
+  }
+
+  if (Config->EMachine == EM_PPC64) {
+    In.PPC64LongBranchTarget = make<PPC64LongBranchTargetSection>();
+    Add(In.PPC64LongBranchTarget);
   }
 
   In.GotPlt = make<GotPltSection>();
@@ -715,17 +730,17 @@ static bool isRelroSection(const OutputSection *Sec) {
 // * It is easy two see how similar two ranks are (see getRankProximity).
 enum RankFlags {
   RF_NOT_ADDR_SET = 1 << 18,
-  RF_NOT_INTERP = 1 << 17,
-  RF_NOT_ALLOC = 1 << 16,
-  RF_WRITE = 1 << 15,
-  RF_EXEC_WRITE = 1 << 14,
-  RF_EXEC = 1 << 13,
-  RF_RODATA = 1 << 12,
-  RF_NON_TLS_BSS = 1 << 11,
-  RF_NON_TLS_BSS_RO = 1 << 10,
-  RF_NOT_TLS = 1 << 9,
-  RF_BSS = 1 << 8,
-  RF_NOTE = 1 << 7,
+  RF_NOT_ALLOC = 1 << 17,
+  RF_NOT_INTERP = 1 << 16,
+  RF_NOT_NOTE = 1 << 15,
+  RF_WRITE = 1 << 14,
+  RF_EXEC_WRITE = 1 << 13,
+  RF_EXEC = 1 << 12,
+  RF_RODATA = 1 << 11,
+  RF_NON_TLS_BSS = 1 << 10,
+  RF_NON_TLS_BSS_RO = 1 << 9,
+  RF_NOT_TLS = 1 << 8,
+  RF_BSS = 1 << 7,
   RF_PPC_NOT_TOCBSS = 1 << 6,
   RF_PPC_TOCL = 1 << 5,
   RF_PPC_TOC = 1 << 4,
@@ -744,16 +759,24 @@ static unsigned getSectionRank(const OutputSection *Sec) {
     return Rank;
   Rank |= RF_NOT_ADDR_SET;
 
+  // Allocatable sections go first to reduce the total PT_LOAD size and
+  // so debug info doesn't change addresses in actual code.
+  if (!(Sec->Flags & SHF_ALLOC))
+    return Rank | RF_NOT_ALLOC;
+
   // Put .interp first because some loaders want to see that section
   // on the first page of the executable file when loaded into memory.
   if (Sec->Name == ".interp")
     return Rank;
   Rank |= RF_NOT_INTERP;
 
-  // Allocatable sections go first to reduce the total PT_LOAD size and
-  // so debug info doesn't change addresses in actual code.
-  if (!(Sec->Flags & SHF_ALLOC))
-    return Rank | RF_NOT_ALLOC;
+  // Put .note sections (which make up one PT_NOTE) at the beginning so that
+  // they are likely to be included in a core file even if core file size is
+  // limited. In particular, we want a .note.gnu.build-id and a .note.tag to be
+  // included in a core to match core files with executables.
+  if (Sec->Type == SHT_NOTE)
+    return Rank;
+  Rank |= RF_NOT_NOTE;
 
   // Sort sections based on their access permission in the following
   // order: R, RX, RWX, RW.  This order is based on the following
@@ -816,12 +839,6 @@ static unsigned getSectionRank(const OutputSection *Sec) {
   // first.
   if (IsNoBits)
     Rank |= RF_BSS;
-
-  // We create a NOTE segment for contiguous .note sections, so make
-  // them contigous if there are more than one .note section with the
-  // same attributes.
-  if (Sec->Type == SHT_NOTE)
-    Rank |= RF_NOTE;
 
   // Some architectures have additional ordering restrictions for sections
   // within the same PT_LOAD.
@@ -893,12 +910,18 @@ void PhdrEntry::add(OutputSection *Sec) {
 template <class ELFT> void Writer<ELFT>::addRelIpltSymbols() {
   if (Config->Relocatable || needsInterpSection())
     return;
-  StringRef S = Config->IsRela ? "__rela_iplt_start" : "__rel_iplt_start";
-  addOptionalRegular(S, In.RelaIplt, 0, STV_HIDDEN, STB_WEAK);
 
-  S = Config->IsRela ? "__rela_iplt_end" : "__rel_iplt_end";
-  ElfSym::RelaIpltEnd =
-      addOptionalRegular(S, In.RelaIplt, 0, STV_HIDDEN, STB_WEAK);
+  // By default, __rela_iplt_{start,end} belong to a dummy section 0
+  // because .rela.plt might be empty and thus removed from output.
+  // We'll override Out::ElfHeader with In.RelaIplt later when we are
+  // sure that .rela.plt exists in output.
+  ElfSym::RelaIpltStart = addOptionalRegular(
+      Config->IsRela ? "__rela_iplt_start" : "__rel_iplt_start",
+      Out::ElfHeader, 0, STV_HIDDEN, STB_WEAK);
+
+  ElfSym::RelaIpltEnd = addOptionalRegular(
+      Config->IsRela ? "__rela_iplt_end" : "__rel_iplt_end",
+      Out::ElfHeader, 0, STV_HIDDEN, STB_WEAK);
 }
 
 template <class ELFT>
@@ -932,8 +955,12 @@ template <class ELFT> void Writer<ELFT>::setReservedSymbolSections() {
     ElfSym::GlobalOffsetTable->Section = GotSection;
   }
 
-  if (ElfSym::RelaIpltEnd)
+  // .rela_iplt_{start,end} mark the start and the end of .rela.plt section.
+  if (ElfSym::RelaIpltStart && !In.RelaIplt->empty()) {
+    ElfSym::RelaIpltStart->Section = In.RelaIplt;
+    ElfSym::RelaIpltEnd->Section = In.RelaIplt;
     ElfSym::RelaIpltEnd->Value = In.RelaIplt->getSize();
+  }
 
   PhdrEntry *Last = nullptr;
   PhdrEntry *LastRO = nullptr;
@@ -1606,7 +1633,7 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
   // It should be okay as no one seems to care about the type.
   // Even the author of gold doesn't remember why gold behaves that way.
   // https://sourceware.org/ml/binutils/2002-03/msg00360.html
-  if (In.DynSymTab)
+  if (In.Dynamic->Parent)
     Symtab->addDefined("_DYNAMIC", STV_HIDDEN, STT_NOTYPE, 0 /*Value*/,
                        /*Size=*/0, STB_WEAK, In.Dynamic,
                        /*File=*/nullptr);
@@ -1646,7 +1673,7 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
     if (In.SymTab)
       In.SymTab->addSymbol(Sym);
 
-    if (In.DynSymTab && Sym->includeInDynsym()) {
+    if (Sym->includeInDynsym()) {
       In.DynSymTab->addSymbol(Sym);
       if (auto *File = dyn_cast_or_null<SharedFile<ELFT>>(Sym->File))
         if (File->IsNeeded && !Sym->isUndefined())
@@ -1756,6 +1783,7 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
 
   // maybeAddThunks may have added local symbols to the static symbol table.
   finalizeSynthetic(In.SymTab);
+  finalizeSynthetic(In.PPC64LongBranchTarget);
 
   // Fill other section headers. The dynamic table is finalized
   // at the end because some tags like RELSZ depend on result
@@ -1919,9 +1947,8 @@ template <class ELFT> std::vector<PhdrEntry *> Writer<ELFT>::createPhdrs() {
     Ret.push_back(TlsHdr);
 
   // Add an entry for .dynamic.
-  if (In.DynSymTab)
-    AddHdr(PT_DYNAMIC, In.Dynamic->getParent()->getPhdrFlags())
-        ->add(In.Dynamic->getParent());
+  if (OutputSection *Sec = In.Dynamic->getParent())
+    AddHdr(PT_DYNAMIC, Sec->getPhdrFlags())->add(Sec);
 
   // PT_GNU_RELRO includes all sections that should be marked as
   // read-only by dynamic linker after proccessing relocations.
@@ -2164,11 +2191,23 @@ template <class ELFT> void Writer<ELFT>::setPhdrs() {
       P->p_memsz = alignTo(P->p_memsz, Target->PageSize);
     }
 
-    // The TLS pointer goes after PT_TLS for variant 2 targets. At least glibc
-    // will align it, so round up the size to make sure the offsets are
-    // correct.
-    if (P->p_type == PT_TLS && P->p_memsz)
+    if (P->p_type == PT_TLS && P->p_memsz) {
+      if (!Config->Shared &&
+          (Config->EMachine == EM_ARM || Config->EMachine == EM_AARCH64)) {
+        // On ARM/AArch64, reserve extra space (8 words) between the thread
+        // pointer and an executable's TLS segment by overaligning the segment.
+        // This reservation is needed for backwards compatibility with Android's
+        // TCB, which allocates several slots after the thread pointer (e.g.
+        // TLS_SLOT_STACK_GUARD==5). For simplicity, this overalignment is also
+        // done on other operating systems.
+        P->p_align = std::max<uint64_t>(P->p_align, Config->Wordsize * 8);
+      }
+
+      // The TLS pointer goes after PT_TLS for variant 2 targets. At least glibc
+      // will align it, so round up the size to make sure the offsets are
+      // correct.
       P->p_memsz = alignTo(P->p_memsz, P->p_align);
+    }
   }
 }
 
@@ -2386,7 +2425,8 @@ template <class ELFT> void Writer<ELFT>::writeHeader() {
 
 // Open a result file.
 template <class ELFT> void Writer<ELFT>::openFile() {
-  if (!Config->Is64 && FileSize > UINT32_MAX) {
+  uint64_t MaxSize = Config->Is64 ? INT64_MAX : UINT32_MAX;
+  if (MaxSize < FileSize) {
     error("output file too large: " + Twine(FileSize) + " bytes");
     return;
   }

@@ -78,8 +78,8 @@ private:
 
   SymbolAssignment *readSymbolAssignment(StringRef Name);
   ByteCommand *readByteCommand(StringRef Tok);
-  uint32_t readFill();
-  uint32_t parseFill(StringRef Tok);
+  std::array<uint8_t, 4> readFill();
+  std::array<uint8_t, 4> parseFill(StringRef Tok);
   bool readSectionDirective(OutputSection *Cmd, StringRef Tok1, StringRef Tok2);
   void readSectionAddressType(OutputSection *Cmd);
   OutputSection *readOverlaySectionDescription();
@@ -94,7 +94,7 @@ private:
   SortSectionPolicy readSortKind();
   SymbolAssignment *readProvideHidden(bool Provide, bool Hidden);
   SymbolAssignment *readAssignment(StringRef Tok);
-  std::pair<ELFKind, uint16_t> readBfdName();
+  std::tuple<ELFKind, uint16_t, bool> readBfdName();
   void readSort();
   Expr readAssert();
   Expr readConstant();
@@ -271,6 +271,8 @@ void ScriptParser::readLinkerScript() {
 }
 
 void ScriptParser::readDefsym(StringRef Name) {
+  if (errorCount())
+    return;
   Expr E = readExpr();
   if (!atEOF())
     setError("EOF expected, but got " + next());
@@ -383,27 +385,39 @@ void ScriptParser::readOutputArch() {
     skip();
 }
 
-std::pair<ELFKind, uint16_t> ScriptParser::readBfdName() {
+std::tuple<ELFKind, uint16_t, bool> ScriptParser::readBfdName() {
   StringRef S = unquote(next());
   if (S == "elf32-i386")
-    return {ELF32LEKind, EM_386};
+    return std::make_tuple(ELF32LEKind, EM_386, false);
   if (S == "elf32-iamcu")
-    return {ELF32LEKind, EM_IAMCU};
+    return std::make_tuple(ELF32LEKind, EM_IAMCU, false);
   if (S == "elf32-littlearm")
-    return {ELF32LEKind, EM_ARM};
+    return std::make_tuple(ELF32LEKind, EM_ARM, false);
   if (S == "elf32-x86-64")
-    return {ELF32LEKind, EM_X86_64};
+    return std::make_tuple(ELF32LEKind, EM_X86_64, false);
   if (S == "elf64-littleaarch64")
-    return {ELF64LEKind, EM_AARCH64};
+    return std::make_tuple(ELF64LEKind, EM_AARCH64, false);
   if (S == "elf64-powerpc")
-    return {ELF64BEKind, EM_PPC64};
+    return std::make_tuple(ELF64BEKind, EM_PPC64, false);
   if (S == "elf64-powerpcle")
-    return {ELF64LEKind, EM_PPC64};
+    return std::make_tuple(ELF64LEKind, EM_PPC64, false);
   if (S == "elf64-x86-64")
-    return {ELF64LEKind, EM_X86_64};
+    return std::make_tuple(ELF64LEKind, EM_X86_64, false);
+  if (S == "elf32-tradbigmips")
+    return std::make_tuple(ELF32BEKind, EM_MIPS, false);
+  if (S == "elf32-ntradbigmips")
+    return std::make_tuple(ELF32BEKind, EM_MIPS, true);
+  if (S == "elf32-tradlittlemips")
+    return std::make_tuple(ELF32LEKind, EM_MIPS, false);
+  if (S == "elf32-ntradlittlemips")
+    return std::make_tuple(ELF32LEKind, EM_MIPS, true);
+  if (S == "elf64-tradbigmips")
+    return std::make_tuple(ELF64BEKind, EM_MIPS, false);
+  if (S == "elf64-tradlittlemips")
+    return std::make_tuple(ELF64LEKind, EM_MIPS, false);
 
   setError("unknown output format name: " + S);
-  return {ELFNoneKind, EM_NONE};
+  return std::make_tuple(ELFNoneKind, EM_NONE, false);
 }
 
 // Parse OUTPUT_FORMAT(bfdname) or OUTPUT_FORMAT(bfdname, big, little).
@@ -411,11 +425,9 @@ std::pair<ELFKind, uint16_t> ScriptParser::readBfdName() {
 void ScriptParser::readOutputFormat() {
   expect("(");
 
-  std::pair<ELFKind, uint16_t> P = readBfdName();
-  if (Config->EKind == ELFNoneKind) {
-    Config->EKind = P.first;
-    Config->EMachine = P.second;
-  }
+  std::tuple<ELFKind, uint16_t, bool> BfdTuple = readBfdName();
+  if (Config->EKind == ELFNoneKind)
+    std::tie(Config->EKind, Config->EMachine, Config->MipsN32Abi) = BfdTuple;
 
   if (consume(")"))
     return;
@@ -727,9 +739,9 @@ Expr ScriptParser::readAssert() {
 // alias for =fillexp section attribute, which is different from
 // what GNU linkers do.
 // https://sourceware.org/binutils/docs/ld/Output-Section-Data.html
-uint32_t ScriptParser::readFill() {
+std::array<uint8_t, 4> ScriptParser::readFill() {
   expect("(");
-  uint32_t V = parseFill(next());
+  std::array<uint8_t, 4> V = parseFill(next());
   expect(")");
   return V;
 }
@@ -842,7 +854,12 @@ OutputSection *ScriptParser::readOutputSectionDescription(StringRef OutSec) {
     } else if (peek() == "(") {
       Cmd->SectionCommands.push_back(readInputSectionDescription(Tok));
     } else {
-      setError("unknown command " + Tok);
+      // We have a file name and no input sections description. It is not a
+      // commonly used syntax, but still acceptable. In that case, all sections
+      // from the file will be included.
+      auto *ISD = make<InputSectionDescription>(Tok);
+      ISD->SectionPatterns.push_back({{}, StringMatcher({"*"})});
+      Cmd->SectionCommands.push_back(ISD);
     }
   }
 
@@ -879,13 +896,13 @@ OutputSection *ScriptParser::readOutputSectionDescription(StringRef OutSec) {
 // When reading a hexstring, ld.bfd handles it as a blob of arbitrary
 // size, while ld.gold always handles it as a 32-bit big-endian number.
 // We are compatible with ld.gold because it's easier to implement.
-uint32_t ScriptParser::parseFill(StringRef Tok) {
+std::array<uint8_t, 4> ScriptParser::parseFill(StringRef Tok) {
   uint32_t V = 0;
   if (!to_integer(Tok, V))
     setError("invalid filler expression: " + Tok);
 
-  uint32_t Buf;
-  write32be(&Buf, V);
+  std::array<uint8_t, 4> Buf;
+  write32be(Buf.data(), V);
   return Buf;
 }
 

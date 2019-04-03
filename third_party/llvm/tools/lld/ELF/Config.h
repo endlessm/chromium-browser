@@ -135,6 +135,7 @@ struct Configuration {
   bool Demangle = true;
   bool DisableVerify;
   bool EhFrameHdr;
+  bool EmitLLVM;
   bool EmitRelocs;
   bool EnableNewDtags;
   bool ExecuteOnly;
@@ -158,6 +159,7 @@ struct Configuration {
   bool OFormatBinary;
   bool Omagic;
   bool OptRemarksWithHotness;
+  bool PicThunk;
   bool Pie;
   bool PrintGcSections;
   bool PrintIcfSections;
@@ -189,6 +191,7 @@ struct Configuration {
   bool ZInitfirst;
   bool ZInterpose;
   bool ZKeepTextSectionPrefix;
+  bool ZNodefaultlib;
   bool ZNodelete;
   bool ZNodlopen;
   bool ZNow;

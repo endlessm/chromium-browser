@@ -28,6 +28,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/BinaryFormat/COFF.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -109,12 +110,33 @@ public:
     AU.setPreservesAll();
   }
 
-  bool runOnMachineFunction(MachineFunction &F) override {
-    AArch64FI = F.getInfo<AArch64FunctionInfo>();
-    STI = static_cast<const AArch64Subtarget*>(&F.getSubtarget());
-    bool Result = AsmPrinter::runOnMachineFunction(F);
+  bool runOnMachineFunction(MachineFunction &MF) override {
+    AArch64FI = MF.getInfo<AArch64FunctionInfo>();
+    STI = static_cast<const AArch64Subtarget*>(&MF.getSubtarget());
+
+    SetupMachineFunction(MF);
+
+    if (STI->isTargetCOFF()) {
+      bool Internal = MF.getFunction().hasInternalLinkage();
+      COFF::SymbolStorageClass Scl = Internal ? COFF::IMAGE_SYM_CLASS_STATIC
+                                              : COFF::IMAGE_SYM_CLASS_EXTERNAL;
+      int Type =
+        COFF::IMAGE_SYM_DTYPE_FUNCTION << COFF::SCT_COMPLEX_TYPE_SHIFT;
+
+      OutStreamer->BeginCOFFSymbolDef(CurrentFnSym);
+      OutStreamer->EmitCOFFSymbolStorageClass(Scl);
+      OutStreamer->EmitCOFFSymbolType(Type);
+      OutStreamer->EndCOFFSymbolDef();
+    }
+
+    // Emit the rest of the function body.
+    EmitFunctionBody();
+
+    // Emit the XRay table for this function.
     emitXRayTable();
-    return Result;
+
+    // We didn't modify anything.
+    return false;
   }
 
 private:
@@ -217,7 +239,7 @@ void AArch64AsmPrinter::EmitEndOfAsmFile(Module &M) {
     // linker can safely perform dead code stripping.  Since LLVM never
     // generates code that does this, it is always safe to set.
     OutStreamer->EmitAssemblerFlag(MCAF_SubsectionsViaSymbols);
-    SM.serializeToStackMapSection();
+    emitStackMaps(SM);
   }
 }
 
@@ -672,6 +694,34 @@ void AArch64AsmPrinter::EmitInstruction(const MachineInstr *MI) {
   switch (MI->getOpcode()) {
   default:
     break;
+    case AArch64::MOVMCSym: {
+    unsigned DestReg = MI->getOperand(0).getReg();
+    const MachineOperand &MO_Sym = MI->getOperand(1);
+    MachineOperand Hi_MOSym(MO_Sym), Lo_MOSym(MO_Sym);
+    MCOperand Hi_MCSym, Lo_MCSym;
+
+    Hi_MOSym.setTargetFlags(AArch64II::MO_G1 | AArch64II::MO_S);
+    Lo_MOSym.setTargetFlags(AArch64II::MO_G0 | AArch64II::MO_NC);
+
+    MCInstLowering.lowerOperand(Hi_MOSym, Hi_MCSym);
+    MCInstLowering.lowerOperand(Lo_MOSym, Lo_MCSym);
+
+    MCInst MovZ;
+    MovZ.setOpcode(AArch64::MOVZXi);
+    MovZ.addOperand(MCOperand::createReg(DestReg));
+    MovZ.addOperand(Hi_MCSym);
+    MovZ.addOperand(MCOperand::createImm(16));
+    EmitToStreamer(*OutStreamer, MovZ);
+
+    MCInst MovK;
+    MovK.setOpcode(AArch64::MOVKXi);
+    MovK.addOperand(MCOperand::createReg(DestReg));
+    MovK.addOperand(MCOperand::createReg(DestReg));
+    MovK.addOperand(Lo_MCSym);
+    MovK.addOperand(MCOperand::createImm(0));
+    EmitToStreamer(*OutStreamer, MovK);
+    return;
+  }
   case AArch64::MOVIv2d_ns:
     // If the target has <rdar://problem/16473581>, lower this
     // instruction to movi.16b instead.
@@ -694,6 +744,19 @@ void AArch64AsmPrinter::EmitInstruction(const MachineInstr *MI) {
       OutStreamer->EmitRawText(StringRef(OS.str()));
     }
     return;
+
+  case AArch64::EMITBKEY: {
+      ExceptionHandling ExceptionHandlingType = MAI->getExceptionHandlingType();
+      if (ExceptionHandlingType != ExceptionHandling::DwarfCFI &&
+          ExceptionHandlingType != ExceptionHandling::ARM)
+        return;
+
+      if (needsCFIMoves() == CFI_M_None)
+        return;
+
+      OutStreamer->EmitCFIBKeyFrame();
+      return;
+    }
   }
 
   // Tail calls use pseudo instructions so they have the proper code-gen

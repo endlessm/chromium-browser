@@ -34,7 +34,6 @@ from devil.android.perf import cache_control
 from devil.android.perf import perf_control
 from devil.android.perf import thermal_throttle
 from devil.android.sdk import shared_prefs
-from devil.android.sdk import version_codes
 from devil.android.tools import provision_devices
 from devil.android.tools import video_recorder
 
@@ -414,12 +413,6 @@ class AndroidPlatformBackend(
   def StopMonitoringPower(self):
     return self._power_monitor.StopMonitoringPower()
 
-  def CanMonitorNetworkData(self):
-    return self._device.build_version_sdk >= version_codes.LOLLIPOP
-
-  def GetNetworkData(self, browser):
-    return self._battery.GetNetworkData(browser._browser_backend.package)
-
   def PathExists(self, device_path, **kwargs):
     """ Return whether the given path exists on the device.
     This method is the same as
@@ -605,7 +598,7 @@ class AndroidPlatformBackend(
           ['am', 'set-debug-app', '--persistent', package],
           check_return=True)
 
-  def GetLogCat(self, number_of_lines=500):
+  def GetLogCat(self, number_of_lines=1500):
     """Returns most recent lines of logcat dump.
 
     Args:

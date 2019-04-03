@@ -551,6 +551,7 @@ private:
   CFGBlock *VisitGotoStmt(GotoStmt *G);
   CFGBlock *VisitIfStmt(IfStmt *I);
   CFGBlock *VisitImplicitCastExpr(ImplicitCastExpr *E, AddStmtChoice asc);
+  CFGBlock *VisitConstantExpr(ConstantExpr *E, AddStmtChoice asc);
   CFGBlock *VisitIndirectGotoStmt(IndirectGotoStmt *I);
   CFGBlock *VisitLabelStmt(LabelStmt *L);
   CFGBlock *VisitBlockExpr(BlockExpr *E, AddStmtChoice asc);
@@ -1038,11 +1039,13 @@ private:
     if (!areExprTypesCompatible(Expr1, Expr2))
       return {};
 
-    llvm::APSInt L1, L2;
-
-    if (!Expr1->EvaluateAsInt(L1, *Context) ||
-        !Expr2->EvaluateAsInt(L2, *Context))
+    Expr::EvalResult L1Result, L2Result;
+    if (!Expr1->EvaluateAsInt(L1Result, *Context) ||
+        !Expr2->EvaluateAsInt(L2Result, *Context))
       return {};
+
+    llvm::APSInt L1 = L1Result.Val.getInt();
+    llvm::APSInt L2 = L2Result.Val.getInt();
 
     // Can't compare signed with unsigned or with different bit width.
     if (L1.isSigned() != L2.isSigned() || L1.getBitWidth() != L2.getBitWidth())
@@ -1133,13 +1136,16 @@ private:
           case BO_And: {
             // If either operand is zero, we know the value
             // must be false.
-            llvm::APSInt IntVal;
-            if (Bop->getLHS()->EvaluateAsInt(IntVal, *Context)) {
+            Expr::EvalResult LHSResult;
+            if (Bop->getLHS()->EvaluateAsInt(LHSResult, *Context)) {
+              llvm::APSInt IntVal = LHSResult.Val.getInt();
               if (!IntVal.getBoolValue()) {
                 return TryResult(false);
               }
             }
-            if (Bop->getRHS()->EvaluateAsInt(IntVal, *Context)) {
+            Expr::EvalResult RHSResult;
+            if (Bop->getRHS()->EvaluateAsInt(RHSResult, *Context)) {
+              llvm::APSInt IntVal = RHSResult.Val.getInt();
               if (!IntVal.getBoolValue()) {
                 return TryResult(false);
               }
@@ -2099,6 +2105,9 @@ CFGBlock *CFGBuilder::Visit(Stmt * S, AddStmtChoice asc) {
 
     case Stmt::ImplicitCastExprClass:
       return VisitImplicitCastExpr(cast<ImplicitCastExpr>(S), asc);
+
+    case Stmt::ConstantExprClass:
+      return VisitConstantExpr(cast<ConstantExpr>(S), asc);
 
     case Stmt::IndirectGotoStmtClass:
       return VisitIndirectGotoStmt(cast<IndirectGotoStmt>(S));
@@ -4380,6 +4389,10 @@ CFGBlock *CFGBuilder::VisitImplicitCastExpr(ImplicitCastExpr *E,
   return Visit(E->getSubExpr(), AddStmtChoice());
 }
 
+CFGBlock *CFGBuilder::VisitConstantExpr(ConstantExpr *E, AddStmtChoice asc) {
+  return Visit(E->getSubExpr(), AddStmtChoice());
+}
+
 CFGBlock *CFGBuilder::VisitIndirectGotoStmt(IndirectGotoStmt *I) {
   // Lazily create the indirect-goto dispatch block if there isn't one already.
   CFGBlock *IBlock = cfg->getIndirectGotoBlock();
@@ -4434,6 +4447,10 @@ tryAgain:
     case Stmt::CXXFunctionalCastExprClass:
       // For functional cast we want BindToTemporary to be passed further.
       E = cast<CXXFunctionalCastExpr>(E)->getSubExpr();
+      goto tryAgain;
+
+    case Stmt::ConstantExprClass:
+      E = cast<ConstantExpr>(E)->getSubExpr();
       goto tryAgain;
 
     case Stmt::ParenExprClass:

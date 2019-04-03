@@ -30,17 +30,15 @@ import (
 )
 
 const (
-	BUNDLE_RECIPES_NAME         = "Housekeeper-PerCommit-BundleRecipes"
-	ISOLATE_GCLOUD_LINUX_NAME   = "Housekeeper-PerCommit-IsolateGCloudLinux"
-	ISOLATE_GO_DEPS_NAME        = "Housekeeper-PerCommit-IsolateGoDeps"
-	ISOLATE_GO_LINUX_NAME       = "Housekeeper-PerCommit-IsolateGoLinux"
-	ISOLATE_SKIMAGE_NAME        = "Housekeeper-PerCommit-IsolateSkImage"
-	ISOLATE_SKP_NAME            = "Housekeeper-PerCommit-IsolateSKP"
-	ISOLATE_SVG_NAME            = "Housekeeper-PerCommit-IsolateSVG"
-	ISOLATE_NDK_LINUX_NAME      = "Housekeeper-PerCommit-IsolateAndroidNDKLinux"
-	ISOLATE_SDK_LINUX_NAME      = "Housekeeper-PerCommit-IsolateAndroidSDKLinux"
-	ISOLATE_WIN_TOOLCHAIN_NAME  = "Housekeeper-PerCommit-IsolateWinToolchain"
-	ISOLATE_WIN_VULKAN_SDK_NAME = "Housekeeper-PerCommit-IsolateWinVulkanSDK"
+	BUNDLE_RECIPES_NAME        = "Housekeeper-PerCommit-BundleRecipes"
+	ISOLATE_GCLOUD_LINUX_NAME  = "Housekeeper-PerCommit-IsolateGCloudLinux"
+	ISOLATE_GO_DEPS_NAME       = "Housekeeper-PerCommit-IsolateGoDeps"
+	ISOLATE_SKIMAGE_NAME       = "Housekeeper-PerCommit-IsolateSkImage"
+	ISOLATE_SKP_NAME           = "Housekeeper-PerCommit-IsolateSKP"
+	ISOLATE_SVG_NAME           = "Housekeeper-PerCommit-IsolateSVG"
+	ISOLATE_NDK_LINUX_NAME     = "Housekeeper-PerCommit-IsolateAndroidNDKLinux"
+	ISOLATE_SDK_LINUX_NAME     = "Housekeeper-PerCommit-IsolateAndroidSDKLinux"
+	ISOLATE_WIN_TOOLCHAIN_NAME = "Housekeeper-PerCommit-IsolateWinToolchain"
 
 	DEFAULT_OS_DEBIAN    = "Debian-9.4"
 	DEFAULT_OS_LINUX_GCE = DEFAULT_OS_DEBIAN
@@ -127,6 +125,12 @@ var (
 			Path: "cache/git_cache",
 		},
 	}
+	CACHES_GO = []*specs.Cache{
+		&specs.Cache{
+			Name: "go_cache",
+			Path: "cache/go_cache",
+		},
+	}
 	CACHES_WORKDIR = []*specs.Cache{
 		&specs.Cache{
 			Name: "work",
@@ -149,7 +153,7 @@ var (
 		&specs.CipdPackage{
 			Name:    "infra/tools/luci/vpython/${platform}",
 			Path:    "cipd_bin_packages",
-			Version: "git_revision:b6cdec8586c9f8d3d728b1bc0bd4331330ba66fc",
+			Version: "git_revision:96f81e737868d43124b4661cf1c325296ca04944",
 		},
 	}
 
@@ -165,12 +169,12 @@ var (
 		&specs.CipdPackage{
 			Name:    "infra/tools/luci/kitchen/${platform}",
 			Path:    ".",
-			Version: "git_revision:546aae39f1fb9dce9add528e2011afa574535ecd",
+			Version: "git_revision:d8f38ca9494b5af249942631f9cee45927f6b4bc",
 		},
 		&specs.CipdPackage{
 			Name:    "infra/tools/luci-auth/${platform}",
 			Path:    "cipd_bin_packages",
-			Version: "git_revision:e1abc57be62d198b5c2f487bfb2fa2d2eb0e867c",
+			Version: "git_revision:2c805f1c716f6c5ad2126b27ec88b8585a09481e",
 		},
 	}, CIPD_PKGS_PYTHON...)
 
@@ -183,12 +187,12 @@ var (
 		&specs.CipdPackage{
 			Name:    "infra/tools/git/${platform}",
 			Path:    "cipd_bin_packages",
-			Version: "git_revision:0ae21738597e5601ba90372315145fec18582fc4",
+			Version: "git_revision:c9c8a52bfeaf8bc00ece22fdfd447822c8fcad77",
 		},
 		&specs.CipdPackage{
 			Name:    "infra/tools/luci/git-credential-luci/${platform}",
 			Path:    "cipd_bin_packages",
-			Version: "git_revision:e1abc57be62d198b5c2f487bfb2fa2d2eb0e867c",
+			Version: "git_revision:2c805f1c716f6c5ad2126b27ec88b8585a09481e",
 		},
 	}
 
@@ -318,6 +322,7 @@ func kitchenTask(name, recipe, isolate, serviceAccount string, dimensions []stri
 			"log_location": logdogAnnotationUrl(),
 		},
 		Isolate:        relpath(isolate),
+		MaxAttempts:    attempts(name),
 		Outputs:        outputs,
 		ServiceAccount: serviceAccount,
 	}
@@ -448,7 +453,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			"Ubuntu17":   "Ubuntu-17.04",
 			"Ubuntu18":   "Ubuntu-18.04",
 			"Win":        DEFAULT_OS_WIN,
-			"Win10":      "Windows-10-17134.407",
+			"Win10":      "Windows-10-17763.195",
 			"Win2k8":     "Windows-2008ServerR2-SP1",
 			"Win2016":    DEFAULT_OS_WIN,
 			"Win7":       "Windows-7-SP1",
@@ -464,7 +469,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 		}
 		if d["os"] == DEFAULT_OS_WIN {
 			// TODO(dogben): Temporarily add image dimension during upgrade.
-			d["image"] = "windows-server-2016-dc-v20180710"
+			d["image"] = "windows-server-2016-dc-v20190108"
 		}
 	} else {
 		d["os"] = DEFAULT_OS_DEBIAN
@@ -478,6 +483,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				"Chorizo":         {"chorizo", "1.30_109591"},
 				"GalaxyS6":        {"zerofltetmo", "NRD90M_G920TUVU5FQK1"},
 				"GalaxyS7_G930FD": {"herolte", "R16NW_G930FXXS2ERH6"}, // This is Oreo.
+				"GalaxyS9":        {"starlte", "R16NW_G960FXXU2BRJ8"}, // This is Oreo.
 				"MotoG4":          {"athene", "NPJS25.93-14.7-8"},
 				"NVIDIA_Shield":   {"foster", "OPR6.170623.010"},
 				"Nexus5":          {"hammerhead", "M4B30Z_3437181"},
@@ -561,8 +567,9 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 					"GTX660":        "10de:11c0-25.21.14.1634",
 					"GTX960":        "10de:1401-25.21.14.1634",
 					"IntelHD4400":   "8086:0a16-20.19.15.4963",
-					"IntelIris540":  "8086:1926-25.20.100.6326",
+					"IntelIris540":  "8086:1926-25.20.100.6444",
 					"IntelIris6100": "8086:162b-20.19.15.4963",
+					"IntelIris655":  "8086:3ea5-25.20.100.6444",
 					"RadeonHD7770":  "1002:683d-24.20.13001.1010",
 					"RadeonR9M470X": "1002:6646-24.20.13001.1010",
 					"QuadroP400":    "10de:1cb3-25.21.14.1678",
@@ -700,10 +707,6 @@ var ISOLATE_ASSET_MAPPING = map[string]isolateAssetCfg{
 		cipdPkg: "go_deps",
 		path:    "go_deps",
 	},
-	ISOLATE_GO_LINUX_NAME: {
-		cipdPkg: "go",
-		path:    "go",
-	},
 	ISOLATE_SKIMAGE_NAME: {
 		cipdPkg: "skimage",
 		path:    "skimage",
@@ -726,11 +729,7 @@ var ISOLATE_ASSET_MAPPING = map[string]isolateAssetCfg{
 	},
 	ISOLATE_WIN_TOOLCHAIN_NAME: {
 		cipdPkg: "win_toolchain",
-		path:    "t",
-	},
-	ISOLATE_WIN_VULKAN_SDK_NAME: {
-		cipdPkg: "win_vulkan_sdk",
-		path:    "win_vulkan_sdk",
+		path:    "win_toolchain",
 	},
 }
 
@@ -781,10 +780,18 @@ func usesGit(t *specs.TaskSpec, name string) {
 	t.CipdPackages = append(t.CipdPackages, CIPD_PKGS_GIT...)
 }
 
+// usesGo adds attributes to tasks which use go. Recipes should use
+// "with api.context(env=api.infra.go_env)".
+// (Not needed for tasks that just want to run Go code from the infra repo -- instead use go_deps.)
+func usesGo(b *specs.TasksCfgBuilder, t *specs.TaskSpec) {
+	t.Caches = append(t.Caches, CACHES_GO...)
+	t.CipdPackages = append(t.CipdPackages, b.MustGetCipdPackageFromAsset("go"))
+	t.Dependencies = append(t.Dependencies, isolateCIPDAsset(b, ISOLATE_GO_DEPS_NAME))
+}
+
 // usesDocker adds attributes to tasks which use docker.
 func usesDocker(t *specs.TaskSpec, name string) {
-	// currently, just the WASM (using EMCC) builder uses Docker.
-	if strings.Contains(name, "EMCC") {
+	if strings.Contains(name, "EMCC") || strings.Contains(name, "SKQP") || strings.Contains(name, "LottieWeb") {
 		t.Caches = append(t.Caches, CACHES_DOCKER...)
 	}
 }
@@ -793,6 +800,24 @@ func usesDocker(t *specs.TaskSpec, name string) {
 func timeout(task *specs.TaskSpec, timeout time.Duration) {
 	task.ExecutionTimeout = timeout
 	task.IoTimeout = timeout // With kitchen, step logs don't count toward IoTimeout.
+}
+
+// attempts returns the desired MaxAttempts for this task.
+func attempts(name string) int {
+	if strings.Contains(name, "Android_Framework") {
+		// The reason for this has been lost to time.
+		return 1
+	}
+	if !(strings.HasPrefix(name, "Build-") || strings.HasPrefix(name, "Upload-")) {
+		for _, extraConfig := range []string{"ASAN", "MSAN", "TSAN", "UBSAN", "Valgrind"} {
+			if strings.Contains(name, extraConfig) {
+				// Sanitizers often find non-deterministic issues that retries would hide.
+				return 1
+			}
+		}
+	}
+	// Retry by default to hide random bot/hardware failures.
+	return 2
 }
 
 // compile generates a compile task. Returns the name of the last task in the
@@ -831,9 +856,6 @@ func compile(b *specs.TasksCfgBuilder, name string, parts map[string]string) str
 		if strings.Contains(name, "Clang") {
 			task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("clang_linux"))
 		}
-		if strings.Contains(name, "Vulkan") {
-			task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("linux_vulkan_sdk"))
-		}
 		if parts["target_arch"] == "mips64el" || parts["target_arch"] == "loongson3a" {
 			if parts["compiler"] != "GCC" {
 				glog.Fatalf("mips64el toolchain is GCC, but compiler is %q in %q", parts["compiler"], name)
@@ -854,9 +876,6 @@ func compile(b *specs.TasksCfgBuilder, name string, parts map[string]string) str
 		if strings.Contains(name, "Clang") {
 			task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("clang_win"))
 		}
-		if strings.Contains(name, "Vulkan") {
-			task.Dependencies = append(task.Dependencies, isolateCIPDAsset(b, ISOLATE_WIN_VULKAN_SDK_NAME))
-		}
 		if strings.Contains(name, "OpenCL") {
 			task.CipdPackages = append(task.CipdPackages,
 				b.MustGetCipdPackageFromAsset("opencl_headers"),
@@ -875,8 +894,6 @@ func compile(b *specs.TasksCfgBuilder, name string, parts map[string]string) str
 			task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("moltenvk"))
 		}
 	}
-
-	task.MaxAttempts = 2
 
 	// Add the task.
 	b.MustAddTask(name, task)
@@ -913,8 +930,7 @@ func recreateSKPs(b *specs.TasksCfgBuilder, name string) string {
 	}
 	task := kitchenTask(name, "recreate_skps", "swarm_recipe.isolate", SERVICE_ACCOUNT_RECREATE_SKPS, dims, nil, OUTPUT_NONE)
 	task.CipdPackages = append(task.CipdPackages, CIPD_PKGS_GIT...)
-	task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("go"))
-	task.Dependencies = append(task.Dependencies, isolateCIPDAsset(b, ISOLATE_GO_DEPS_NAME))
+	usesGo(b, task)
 	timeout(task, 4*time.Hour)
 	b.MustAddTask(name, task)
 	return name
@@ -927,8 +943,7 @@ func updateGoDEPS(b *specs.TasksCfgBuilder, name string) string {
 	dims := linuxGceDimensions(MACHINE_TYPE_LARGE)
 	task := kitchenTask(name, "update_go_deps", "swarm_recipe.isolate", SERVICE_ACCOUNT_UPDATE_GO_DEPS, dims, nil, OUTPUT_NONE)
 	task.CipdPackages = append(task.CipdPackages, CIPD_PKGS_GIT...)
-	task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("go"))
-	task.Dependencies = append(task.Dependencies, isolateCIPDAsset(b, ISOLATE_GO_DEPS_NAME))
+	usesGo(b, task)
 	b.MustAddTask(name, task)
 	return name
 }
@@ -947,7 +962,6 @@ func checkGeneratedFiles(b *specs.TasksCfgBuilder, name string) string {
 func housekeeper(b *specs.TasksCfgBuilder, name string) string {
 	task := kitchenTask(name, "housekeeper", "swarm_recipe.isolate", SERVICE_ACCOUNT_HOUSEKEEPER, linuxGceDimensions(MACHINE_TYPE_SMALL), nil, OUTPUT_NONE)
 	usesGit(task, name)
-	task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("go"))
 	b.MustAddTask(name, task)
 	return name
 }
@@ -958,8 +972,7 @@ func bookmaker(b *specs.TasksCfgBuilder, name, compileTaskName string) string {
 	task := kitchenTask(name, "bookmaker", "swarm_recipe.isolate", SERVICE_ACCOUNT_BOOKMAKER, linuxGceDimensions(MACHINE_TYPE_SMALL), nil, OUTPUT_NONE)
 	task.Caches = append(task.Caches, CACHES_WORKDIR...)
 	task.CipdPackages = append(task.CipdPackages, CIPD_PKGS_GIT...)
-	task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("go"))
-	task.Dependencies = append(task.Dependencies, compileTaskName)
+	task.Dependencies = append(task.Dependencies, compileTaskName, isolateCIPDAsset(b, ISOLATE_GO_DEPS_NAME))
 	timeout(task, 2*time.Hour)
 	b.MustAddTask(name, task)
 	return name
@@ -970,7 +983,6 @@ func bookmaker(b *specs.TasksCfgBuilder, name, compileTaskName string) string {
 // should add as a dependency.
 func androidFrameworkCompile(b *specs.TasksCfgBuilder, name string) string {
 	task := kitchenTask(name, "android_compile", "swarm_recipe.isolate", SERVICE_ACCOUNT_COMPILE, linuxGceDimensions(MACHINE_TYPE_SMALL), nil, OUTPUT_NONE)
-	task.MaxAttempts = 1
 	timeout(task, time.Hour)
 	b.MustAddTask(name, task)
 	return name
@@ -981,8 +993,7 @@ func androidFrameworkCompile(b *specs.TasksCfgBuilder, name string) string {
 func infra(b *specs.TasksCfgBuilder, name string) string {
 	task := kitchenTask(name, "infra", "swarm_recipe.isolate", SERVICE_ACCOUNT_COMPILE, linuxGceDimensions(MACHINE_TYPE_SMALL), nil, OUTPUT_NONE)
 	usesGit(task, name)
-	task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("go"))
-	task.Dependencies = append(task.Dependencies, isolateCIPDAsset(b, ISOLATE_GO_DEPS_NAME))
+	usesGo(b, task)
 	b.MustAddTask(name, task)
 	return name
 }
@@ -1023,9 +1034,7 @@ func getParentRevisionName(compileTaskName string, parts map[string]string) stri
 func calmbench(b *specs.TasksCfgBuilder, name string, parts map[string]string, compileTaskName, compileParentName string) string {
 	task := kitchenTask(name, "calmbench", "calmbench.isolate", "", swarmDimensions(parts), nil, OUTPUT_PERF)
 	usesGit(task, name)
-	task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("go"))
 	task.Dependencies = append(task.Dependencies, compileTaskName, compileParentName, ISOLATE_SKP_NAME, ISOLATE_SVG_NAME)
-	task.MaxAttempts = 2
 	if parts["cpu_or_gpu_value"] == "QuadroP400" {
 		// Specify "rack" dimension for consistent test results.
 		// See https://bugs.chromium.org/p/chromium/issues/detail?id=784662&desc=2#c34
@@ -1121,7 +1130,7 @@ func test(b *specs.TasksCfgBuilder, name string, parts map[string]string, compil
 		task.Dependencies = append(task.Dependencies, deps...)
 	}
 	task.Expiration = 20 * time.Hour
-	task.MaxAttempts = 2
+
 	timeout(task, 4*time.Hour)
 	if strings.Contains(parts["extra_config"], "Valgrind") {
 		timeout(task, 9*time.Hour)
@@ -1170,7 +1179,6 @@ func perf(b *specs.TasksCfgBuilder, name string, parts map[string]string, compil
 	task.CipdPackages = append(task.CipdPackages, pkgs...)
 	task.Dependencies = append(task.Dependencies, compileTaskName)
 	task.Expiration = 20 * time.Hour
-	task.MaxAttempts = 2
 	timeout(task, 4*time.Hour)
 	if deps := getIsolatedCIPDDeps(parts); len(deps) > 0 {
 		task.Dependencies = append(task.Dependencies, deps...)

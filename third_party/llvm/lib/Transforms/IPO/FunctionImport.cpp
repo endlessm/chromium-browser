@@ -293,11 +293,21 @@ static void computeImportForReferencedGlobals(
 
     LLVM_DEBUG(dbgs() << " ref -> " << VI << "\n");
 
+    // If this is a local variable, make sure we import the copy
+    // in the caller's module. The only time a local variable can
+    // share an entry in the index is if there is a local with the same name
+    // in another module that had the same source file name (in a different
+    // directory), where each was compiled in their own directory so there
+    // was not distinguishing path.
+    auto LocalNotInModule = [&](const GlobalValueSummary *RefSummary) -> bool {
+      return GlobalValue::isLocalLinkage(RefSummary->linkage()) &&
+             RefSummary->modulePath() != Summary.modulePath();
+    };
+
     for (auto &RefSummary : VI.getSummaryList())
-      if (RefSummary->getSummaryKind() == GlobalValueSummary::GlobalVarKind &&
-          !RefSummary->notEligibleToImport() &&
-          !GlobalValue::isInterposableLinkage(RefSummary->linkage()) &&
-          RefSummary->refs().empty()) {
+      if (isa<GlobalVarSummary>(RefSummary.get()) &&
+          canImportGlobalVar(RefSummary.get()) &&
+          !LocalNotInModule(RefSummary.get())) {
         auto ILI = ImportList[RefSummary->modulePath()].insert(VI.getGUID());
         // Only update stat if we haven't already imported this variable.
         if (ILI.second)
@@ -767,9 +777,14 @@ void llvm::computeDeadSymbols(
     VI = updateValueInfoForIndirectCalls(Index, VI);
     if (!VI)
       return;
-    for (auto &S : VI.getSummaryList())
-      if (S->isLive())
-        return;
+
+    // We need to make sure all variants of the symbol are scanned, alias can
+    // make one (but not all) alive.
+    if (llvm::all_of(VI.getSummaryList(),
+                     [](const std::unique_ptr<llvm::GlobalValueSummary> &S) {
+                       return S->isLive();
+                     }))
+      return;
 
     // We only keep live symbols that are known to be non-prevailing if any are
     // available_externally, linkonceodr, weakodr. Those symbols are discarded
@@ -822,6 +837,25 @@ void llvm::computeDeadSymbols(
                     << " symbols Dead \n");
   NumDeadSymbols += DeadSymbols;
   NumLiveSymbols += LiveSymbols;
+}
+
+// Compute dead symbols and propagate constants in combined index.
+void llvm::computeDeadSymbolsWithConstProp(
+    ModuleSummaryIndex &Index,
+    const DenseSet<GlobalValue::GUID> &GUIDPreservedSymbols,
+    function_ref<PrevailingType(GlobalValue::GUID)> isPrevailing,
+    bool ImportEnabled) {
+  computeDeadSymbols(Index, GUIDPreservedSymbols, isPrevailing);
+  if (ImportEnabled) {
+    Index.propagateConstants(GUIDPreservedSymbols);
+  } else {
+    // If import is disabled we should drop read-only attribute
+    // from all summaries to prevent internalization.
+    for (auto &P : Index)
+      for (auto &S : P.second.SummaryList)
+        if (auto *GVS = dyn_cast<GlobalVarSummary>(S.get()))
+          GVS->setReadOnly(false);
+  }
 }
 
 /// Compute the set of summaries needed for a ThinLTO backend compilation of
@@ -882,7 +916,8 @@ bool llvm::convertToDeclaration(GlobalValue &GV) {
     if (GV.getValueType()->isFunctionTy())
       NewGV =
           Function::Create(cast<FunctionType>(GV.getValueType()),
-                           GlobalValue::ExternalLinkage, "", GV.getParent());
+                           GlobalValue::ExternalLinkage, GV.getAddressSpace(),
+                           "", GV.getParent());
     else
       NewGV =
           new GlobalVariable(*GV.getParent(), GV.getValueType(),
@@ -897,8 +932,8 @@ bool llvm::convertToDeclaration(GlobalValue &GV) {
   return true;
 }
 
-/// Fixup WeakForLinker linkages in \p TheModule based on summary analysis.
-void llvm::thinLTOResolveWeakForLinkerModule(
+/// Fixup prevailing symbol linkages in \p TheModule based on summary analysis.
+void llvm::thinLTOResolvePrevailingInModule(
     Module &TheModule, const GVSummaryMapTy &DefinedGlobals) {
   auto updateLinkage = [&](GlobalValue &GV) {
     // See if the global summary analysis computed a new resolved linkage.
@@ -915,13 +950,15 @@ void llvm::thinLTOResolveWeakForLinkerModule(
     // as we need access to the resolution vectors for each input file in
     // order to find which symbols have been redefined.
     // We may consider reorganizing this code and moving the linkage recording
-    // somewhere else, e.g. in thinLTOResolveWeakForLinkerInIndex.
+    // somewhere else, e.g. in thinLTOResolvePrevailingInIndex.
     if (NewLinkage == GlobalValue::WeakAnyLinkage) {
       GV.setLinkage(NewLinkage);
       return;
     }
 
-    if (!GlobalValue::isWeakForLinker(GV.getLinkage()))
+    if (GlobalValue::isLocalLinkage(GV.getLinkage()) ||
+        // In case it was dead and already converted to declaration.
+        GV.isDeclaration())
       return;
     // Check for a non-prevailing def that has interposable linkage
     // (e.g. non-odr weak or linkonce). In that case we can't simply
@@ -932,7 +969,7 @@ void llvm::thinLTOResolveWeakForLinkerModule(
         GlobalValue::isInterposableLinkage(GV.getLinkage())) {
       if (!convertToDeclaration(GV))
         // FIXME: Change this to collect replaced GVs and later erase
-        // them from the parent module once thinLTOResolveWeakForLinkerGUID is
+        // them from the parent module once thinLTOResolvePrevailingGUID is
         // changed to enable this for aliases.
         llvm_unreachable("Expected GV to be converted");
     } else {
@@ -1016,6 +1053,18 @@ static Function *replaceAliasWithAliasee(Module *SrcModule, GlobalAlias *GA) {
   GA->replaceAllUsesWith(ConstantExpr::getBitCast(NewFn, GA->getType()));
   NewFn->takeName(GA);
   return NewFn;
+}
+
+// Internalize values that we marked with specific attribute
+// in processGlobalForThinLTO.
+static void internalizeImmutableGVs(Module &M) {
+  for (auto &GV : M.globals())
+    // Skip GVs which have been converted to declarations
+    // by dropDeadSymbols.
+    if (!GV.isDeclaration() && GV.hasAttribute("thinlto-internalize")) {
+      GV.setLinkage(GlobalValue::InternalLinkage);
+      GV.setVisibility(GlobalValue::DefaultVisibility);
+    }
 }
 
 // Automatically import functions in Module \p DestModule based on the summaries
@@ -1140,6 +1189,8 @@ Expected<bool> FunctionImporter::importFunctions(
     ImportedCount += GlobalsToImport.size();
     NumImportedModules++;
   }
+
+  internalizeImmutableGVs(DestModule);
 
   NumImportedFunctions += (ImportedCount - ImportedGVCount);
   NumImportedGlobalVars += ImportedGVCount;

@@ -12,15 +12,10 @@
 
 #include <gtest/gtest.h>
 
-#include "common/debug.h"
-
 namespace angle
 {
 
-struct CompilerParameters;
 struct PlatformParameters;
-
-bool IsPlatformAvailable(const CompilerParameters &param);
 
 bool IsPlatformAvailable(const PlatformParameters &param);
 

@@ -8,7 +8,7 @@
 
 #include "test_utils/ANGLETest.h"
 
-#include "random_utils.h"
+#include "util/random_utils.h"
 
 using namespace angle;
 
@@ -54,8 +54,8 @@ class ParallelShaderCompileTest : public ANGLETest
         bool compile()
         {
             mVertexShader =
-                compileShader(GL_VERTEX_SHADER, insertRandomString(essl1_shaders::vs::Simple()));
-            mFragmentShader = compileShader(GL_FRAGMENT_SHADER,
+                CompileShader(GL_VERTEX_SHADER, insertRandomString(essl1_shaders::vs::Simple()));
+            mFragmentShader = CompileShader(GL_FRAGMENT_SHADER,
                                             insertRandomString(essl1_shaders::fs::UniformColor()));
             return (mVertexShader != 0 && mFragmentShader != 0);
         }
@@ -123,7 +123,7 @@ class ParallelShaderCompileTest : public ANGLETest
             return ostream.str();
         }
 
-        GLuint compileShader(GLenum type, const std::string &source)
+        GLuint CompileShader(GLenum type, const std::string &source)
         {
             GLuint shader = glCreateShader(type);
 
@@ -190,7 +190,8 @@ TEST_P(ParallelShaderCompileTest, LinkAndDrawManyPrograms)
     constexpr int kTaskCount = 32;
     for (int i = 0; i < kTaskCount; ++i)
     {
-        std::unique_ptr<ClearColorWithDraw> task(new ClearColorWithDraw(i * 255 / kTaskCount));
+        std::unique_ptr<ClearColorWithDraw> task(
+            new ClearColorWithDraw(static_cast<GLubyte>(i * 255 / kTaskCount)));
         bool isCompiling = task->compile();
         ASSERT_TRUE(isCompiling);
         compileTasks.push_back(std::move(task));

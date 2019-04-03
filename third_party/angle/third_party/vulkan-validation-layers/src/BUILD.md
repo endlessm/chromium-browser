@@ -100,6 +100,8 @@ To obtain the framework, change your current directory to the top of your
 Vulkan-ValidationLayers repository and run:
 
     git clone https://github.com/google/googletest.git external/googletest
+    cd external/googletest
+    git checkout tags/release-1.8.1
 
 before configuring your build with CMake.
 
@@ -192,7 +194,6 @@ on/off options currently supported by this repository:
 | BUILD_WSI_XCB_SUPPORT | Linux | `ON` | Build the components with XCB support. |
 | BUILD_WSI_XLIB_SUPPORT | Linux | `ON` | Build the components with Xlib support. |
 | BUILD_WSI_WAYLAND_SUPPORT | Linux | `ON` | Build the components with Wayland support. |
-| BUILD_WSI_MIR_SUPPORT | Linux | `OFF` | Build the components with Mir support. |
 | USE_CCACHE | Linux | `OFF` | Enable caching with the CCache program. |
 
 The following is a table of all string options currently supported by this repository:
@@ -404,7 +405,8 @@ repository to other Linux distributions.
 #### Required Package List
 
     sudo apt-get install git cmake build-essential libx11-xcb-dev \
-        libxkbcommon-dev libmirclient-dev libwayland-dev libxrandr-dev
+        libxkbcommon-dev libwayland-dev libxrandr-dev \
+        libegl1-mesa-dev
 
 ### Linux Build
 

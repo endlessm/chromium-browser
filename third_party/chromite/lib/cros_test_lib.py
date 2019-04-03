@@ -1196,7 +1196,7 @@ class GerritTestCase(MockTempDirTestCase):
   def _create_gerrit_instance(self, tmp_dir):
     default_host = 't3st-chr0m3'
     git_host = os.environ.get('CROS_TEST_GIT_HOST',
-                              '%s.googlesource.com' % default_host)
+                              constants.GOB_HOST % default_host)
     gerrit_host = os.environ.get('CROS_TEST_GERRIT_HOST',
                                  '%s-review.googlesource.com' % default_host)
     ip = socket.gethostbyname(socket.gethostname())
@@ -1319,16 +1319,10 @@ class GerritTestCase(MockTempDirTestCase):
 
     site_params.update(self.patched_params)
 
-    # site_config.params shouldn't be being used, but just to be safe...
-    site_config = config_lib.GetConfig()
-    site_config._site_params.update(self.patched_params)
-
   def tearDown(self):
     # Restore the 'patched' site parameters.
     site_params = config_lib.GetSiteParams()
     site_params.update(self.saved_params)
-    site_config = config_lib.GetConfig()
-    site_config._site_params.update(self.saved_params)
 
   def createProject(self, suffix, description='Test project', owners=None,
                     submit_type='CHERRY_PICK'):

@@ -4,6 +4,9 @@
 
 #include "chrome/browser/chromeos/authpolicy/auth_policy_credentials_manager.h"
 
+#include <memory>
+#include <utility>
+
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/public/cpp/vector_icons/vector_icons.h"
 #include "base/files/important_file_writer.h"
@@ -24,17 +27,25 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
+#include "chromeos/account_manager/account_manager.h"
+#include "chromeos/account_manager/account_manager_factory.h"
+#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/auth_policy_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "content/public/browser/network_service_instance.h"
+#include "content/public/common/network_service_util.h"
 #include "dbus/message.h"
+#include "services/network/public/mojom/network_service.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_delegate.h"
+
+namespace chromeos {
 
 namespace {
 
@@ -78,14 +89,34 @@ void WriteFile(const std::string& file_name, const std::string& blob) {
 // dns_canonicalize_hostname below, it would get overridden.
 std::string AdjustConfig(const std::string& config, bool is_dns_cname_enabled) {
   std::string adjusted_config = base::StringPrintf(
-      chromeos::kKrb5CnameSettings, is_dns_cname_enabled ? "true" : "false");
+      kKrb5CnameSettings, is_dns_cname_enabled ? "true" : "false");
   adjusted_config.append(config);
   return adjusted_config;
 }
 
-}  // namespace
+// Sets up Chrome OS Account Manager.
+// |profile| is a non-owning pointer to |Profile|.
+// |object_guid| is the Active Directory Object GUID for the Device Account.
+void SetupAccountManager(Profile* profile, const std::string& object_guid) {
+  if (!switches::IsAccountManagerEnabled())
+    return;
 
-namespace chromeos {
+  AccountManagerFactory* factory =
+      g_browser_process->platform_part()->GetAccountManagerFactory();
+  DCHECK(factory);
+  AccountManager* account_manager =
+      factory->GetAccountManager(profile->GetPath().value());
+  DCHECK(account_manager);
+  // |AccountManager::UpsertToken| is idempotent and safe to call multiple
+  // times.
+  account_manager->UpsertToken(
+      AccountManager::AccountKey{
+          object_guid,
+          account_manager::AccountType::ACCOUNT_TYPE_ACTIVE_DIRECTORY},
+      AccountManager::kActiveDirectoryDummyToken);
+}
+
+}  // namespace
 
 const char* kKrb5CnameSettings =
     "[libdefaults]\n"
@@ -95,7 +126,7 @@ const char* kKrb5CnameSettings =
 AuthPolicyCredentialsManager::AuthPolicyCredentialsManager(Profile* profile)
     : profile_(profile) {
   const user_manager::User* user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+      ProfileHelper::Get()->GetUserByProfile(profile);
   CHECK(user && user->IsActiveDirectoryUser());
   StartObserveNetwork();
   account_id_ = user->GetAccountId();
@@ -107,9 +138,22 @@ AuthPolicyCredentialsManager::AuthPolicyCredentialsManager(Profile* profile)
   base::FilePath path;
   base::PathService::Get(base::DIR_HOME, &path);
   path = path.Append(kKrb5Directory);
-  env->SetVar(kKrb5CCEnvName,
-              kKrb5CCFilePrefix + path.Append(kKrb5CCFile).value());
-  env->SetVar(kKrb5ConfEnvName, path.Append(kKrb5ConfFile).value());
+  std::string krb5cc_env_value =
+      kKrb5CCFilePrefix + path.Append(kKrb5CCFile).value();
+  std::string krb5conf_env_value = path.Append(kKrb5ConfFile).value();
+  env->SetVar(kKrb5CCEnvName, krb5cc_env_value);
+  env->SetVar(kKrb5ConfEnvName, krb5conf_env_value);
+
+  // Send the environment variables to the network service if it's running
+  // out of process.
+  if (content::IsOutOfProcessNetworkService()) {
+    std::vector<network::mojom::EnvironmentVariablePtr> environment;
+    environment.push_back(network::mojom::EnvironmentVariable::New(
+        kKrb5CCEnvName, krb5cc_env_value));
+    environment.push_back(network::mojom::EnvironmentVariable::New(
+        kKrb5ConfEnvName, krb5conf_env_value));
+    content::GetNetworkService()->SetEnvironment(std::move(environment));
+  }
 
   negotiate_disable_cname_lookup_.Init(
       prefs::kDisableAuthNegotiateCnameLookup, g_browser_process->local_state(),
@@ -119,13 +163,15 @@ AuthPolicyCredentialsManager::AuthPolicyCredentialsManager(Profile* profile)
 
   // Connecting to the signal sent by authpolicyd notifying that Kerberos files
   // have changed.
-  chromeos::DBusThreadManager::Get()->GetAuthPolicyClient()->ConnectToSignal(
+  DBusThreadManager::Get()->GetAuthPolicyClient()->ConnectToSignal(
       authpolicy::kUserKerberosFilesChangedSignal,
       base::Bind(
           &AuthPolicyCredentialsManager::OnUserKerberosFilesChangedCallback,
           weak_factory_.GetWeakPtr()),
       base::Bind(&AuthPolicyCredentialsManager::OnSignalConnectedCallback,
                  weak_factory_.GetWeakPtr()));
+
+  SetupAccountManager(profile, user->GetAccountId().GetObjGuid());
 }
 
 AuthPolicyCredentialsManager::~AuthPolicyCredentialsManager() {}
@@ -135,12 +181,12 @@ void AuthPolicyCredentialsManager::Shutdown() {
 }
 
 void AuthPolicyCredentialsManager::DefaultNetworkChanged(
-    const chromeos::NetworkState* network) {
+    const NetworkState* network) {
   GetUserStatusIfConnected(network);
 }
 
 void AuthPolicyCredentialsManager::NetworkConnectionStateChanged(
-    const chromeos::NetworkState* network) {
+    const NetworkState* network) {
   GetUserStatusIfConnected(network);
 }
 
@@ -156,7 +202,7 @@ void AuthPolicyCredentialsManager::GetUserStatus() {
   authpolicy::GetUserStatusRequest request;
   request.set_user_principal_name(account_id_.GetUserEmail());
   request.set_account_id(account_id_.GetObjGuid());
-  chromeos::DBusThreadManager::Get()->GetAuthPolicyClient()->GetUserStatus(
+  DBusThreadManager::Get()->GetAuthPolicyClient()->GetUserStatus(
       request,
       base::BindOnce(&AuthPolicyCredentialsManager::OnGetUserStatusCallback,
                      weak_factory_.GetWeakPtr()));
@@ -219,13 +265,11 @@ void AuthPolicyCredentialsManager::OnGetUserStatusCallback(
 }
 
 void AuthPolicyCredentialsManager::GetUserKerberosFiles() {
-  chromeos::DBusThreadManager::Get()
-      ->GetAuthPolicyClient()
-      ->GetUserKerberosFiles(
-          account_id_.GetObjGuid(),
-          base::BindOnce(
-              &AuthPolicyCredentialsManager::OnGetUserKerberosFilesCallback,
-              weak_factory_.GetWeakPtr()));
+  DBusThreadManager::Get()->GetAuthPolicyClient()->GetUserKerberosFiles(
+      account_id_.GetObjGuid(),
+      base::BindOnce(
+          &AuthPolicyCredentialsManager::OnGetUserKerberosFilesCallback,
+          weak_factory_.GetWeakPtr()));
 }
 
 void AuthPolicyCredentialsManager::OnGetUserKerberosFilesCallback(
@@ -264,21 +308,20 @@ void AuthPolicyCredentialsManager::ScheduleGetUserStatus() {
 }
 
 void AuthPolicyCredentialsManager::StartObserveNetwork() {
-  DCHECK(chromeos::NetworkHandler::IsInitialized());
+  DCHECK(NetworkHandler::IsInitialized());
   if (is_observing_network_)
     return;
   is_observing_network_ = true;
-  chromeos::NetworkHandler::Get()->network_state_handler()->AddObserver(
-      this, FROM_HERE);
+  NetworkHandler::Get()->network_state_handler()->AddObserver(this, FROM_HERE);
 }
 
 void AuthPolicyCredentialsManager::StopObserveNetwork() {
   if (!is_observing_network_)
     return;
-  DCHECK(chromeos::NetworkHandler::IsInitialized());
+  DCHECK(NetworkHandler::IsInitialized());
   is_observing_network_ = false;
-  chromeos::NetworkHandler::Get()->network_state_handler()->RemoveObserver(
-      this, FROM_HERE);
+  NetworkHandler::Get()->network_state_handler()->RemoveObserver(this,
+                                                                 FROM_HERE);
 }
 
 void AuthPolicyCredentialsManager::UpdateDisplayAndGivenName(
@@ -338,7 +381,7 @@ void AuthPolicyCredentialsManager::ShowNotification(int message_id) {
 }
 
 void AuthPolicyCredentialsManager::GetUserStatusIfConnected(
-    const chromeos::NetworkState* network) {
+    const NetworkState* network) {
   if (!network || !network->IsConnectedState())
     return;
   if (is_get_status_in_progress_) {
@@ -378,7 +421,8 @@ AuthPolicyCredentialsManagerFactory::GetInstance() {
 AuthPolicyCredentialsManagerFactory::AuthPolicyCredentialsManagerFactory()
     : BrowserContextKeyedServiceFactory(
           "AuthPolicyCredentialsManager",
-          BrowserContextDependencyManager::GetInstance()) {}
+          BrowserContextDependencyManager::GetInstance()) {
+}
 
 AuthPolicyCredentialsManagerFactory::~AuthPolicyCredentialsManagerFactory() {}
 
@@ -394,7 +438,7 @@ KeyedService* AuthPolicyCredentialsManagerFactory::BuildServiceInstanceFor(
     return nullptr;
   Profile* profile = Profile::FromBrowserContext(context);
   const user_manager::User* user =
-      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+      ProfileHelper::Get()->GetUserByProfile(profile);
   if (!user || !user->IsActiveDirectoryUser())
     return nullptr;
   return new AuthPolicyCredentialsManager(profile);

@@ -127,6 +127,36 @@ class TracingControllerTest(tab_test_case.TabTestCase):
       self.assertEquals(expected_title, markers[i]['title'])
       self.assertLess(markers[i]['start'], markers[i + 1]['start'])
 
+  @decorators.Isolated
+  def testFlushTracingDiscardCurrent(self):
+    tab = self._browser.tabs[0]
+
+    # Set up the tracing config.
+    tracing_controller = self._browser.platform.tracing_controller
+    config = tracing_config.TracingConfig()
+    config.enable_chrome_trace = True
+
+    # Start tracing and inject a unique marker into the sub-trace.
+    tracing_controller.StartTracing(config)
+    self.assertTrue(tracing_controller.is_tracing_running)
+    tab.AddTimelineMarker('test-marker-before')
+
+    # Flush the trace, dropping existing trace data, and add another marker.
+    tracing_controller.FlushTracing(discard_current=True)
+    self.assertTrue(tracing_controller.is_tracing_running)
+    tab.AddTimelineMarker('test-marker-after')
+
+    # Stop tracing.
+    trace_data, errors = tracing_controller.StopTracing()
+    self.assertEqual(errors, [])
+    self.assertFalse(tracing_controller.is_tracing_running)
+
+    # Check that the marker after flushing is found, but not the one before
+    # flushing.
+    markers = [e['title'] for e in ReadMarkerEvents(trace_data)]
+    self.assertIn('test-marker-after', markers)
+    self.assertNotIn('test-marker-before', markers)
+
 
 class StartupTracingTest(unittest.TestCase):
   """Tests that start tracing before the browser is created."""
@@ -159,6 +189,8 @@ class StartupTracingTest(unittest.TestCase):
         if e['title'].startswith('test-marker-')]
 
   @decorators.Isolated
+  # crbug.com/920454
+  @decorators.Disabled('chromeos')
   def testStopTracingWhileBrowserIsRunning(self):
     self.tracing_controller.StartTracing(self.config)
     with self.possible_browser.BrowserSession(self.browser_options) as browser:
@@ -169,6 +201,8 @@ class StartupTracingTest(unittest.TestCase):
     self.assertEquals(markers, ['test-marker-foo'])
 
   @decorators.Isolated
+  # crbug.com/920454
+  @decorators.Disabled('chromeos')
   def testCloseBrowserBeforeTracingIsStopped(self):
     self.tracing_controller.StartTracing(self.config)
     with self.possible_browser.BrowserSession(self.browser_options) as browser:
@@ -179,6 +213,8 @@ class StartupTracingTest(unittest.TestCase):
     self.assertEquals(markers, ['test-marker-bar'])
 
   @decorators.Isolated
+  # crbug.com/920454
+  @decorators.Disabled('chromeos')
   def testRestartBrowserWhileTracing(self):
     expected_markers = ['test-marker-%i' % i for i in xrange(4)]
     self.tracing_controller.StartTracing(self.config)

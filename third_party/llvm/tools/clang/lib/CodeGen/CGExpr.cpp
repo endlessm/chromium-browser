@@ -26,7 +26,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/NSAPI.h"
-#include "clang/Frontend/CodeGenOptions.h"
+#include "clang/Basic/CodeGenOptions.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/IR/DataLayout.h"
@@ -419,8 +419,12 @@ LValue CodeGenFunction::
 EmitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *M) {
   const Expr *E = M->GetTemporaryExpr();
 
-    // FIXME: ideally this would use EmitAnyExprToMem, however, we cannot do so
-    // as that will cause the lifetime adjustment to be lost for ARC
+  assert((!M->getExtendingDecl() || !isa<VarDecl>(M->getExtendingDecl()) ||
+          !cast<VarDecl>(M->getExtendingDecl())->isARCPseudoStrong()) &&
+         "Reference should never be pseudo-strong!");
+
+  // FIXME: ideally this would use EmitAnyExprToMem, however, we cannot do so
+  // as that will cause the lifetime adjustment to be lost for ARC
   auto ownership = M->getType().getObjCLifetime();
   if (ownership != Qualifiers::OCL_None &&
       ownership != Qualifiers::OCL_ExplicitNone) {
@@ -1260,6 +1264,8 @@ LValue CodeGenFunction::EmitLValue(const Expr *E) {
     return EmitVAArgExprLValue(cast<VAArgExpr>(E));
   case Expr::DeclRefExprClass:
     return EmitDeclRefLValue(cast<DeclRefExpr>(E));
+  case Expr::ConstantExprClass:
+    return EmitLValue(cast<ConstantExpr>(E)->getSubExpr());
   case Expr::ParenExprClass:
     return EmitLValue(cast<ParenExpr>(E)->getSubExpr());
   case Expr::GenericSelectionExprClass:
@@ -2877,6 +2883,11 @@ static void emitCheckHandlerCall(CodeGenFunction &CGF,
                                  CheckRecoverableKind RecoverKind, bool IsFatal,
                                  llvm::BasicBlock *ContBB) {
   assert(IsFatal || RecoverKind != CheckRecoverableKind::Unrecoverable);
+  Optional<ApplyDebugLocation> DL;
+  if (!CGF.Builder.getCurrentDebugLocation()) {
+    // Ensure that the call has at least an artificial debug location.
+    DL.emplace(CGF, SourceLocation());
+  }
   bool NeedsAbortSuffix =
       IsFatal && RecoverKind != CheckRecoverableKind::Unrecoverable;
   bool MinimalRuntime = CGF.CGM.getCodeGenOpts().SanitizeMinimalRuntime;
@@ -3941,7 +3952,7 @@ LValue CodeGenFunction::EmitLValueForField(LValue base,
       LValue RefLVal = MakeAddrLValue(addr, FieldType, FieldBaseInfo,
                                       FieldTBAAInfo);
       if (RecordCVR & Qualifiers::Volatile)
-        RefLVal.getQuals().setVolatile(true);
+        RefLVal.getQuals().addVolatile();
       addr = EmitLoadOfReference(RefLVal, &FieldBaseInfo, &FieldTBAAInfo);
 
       // Qualifiers on the struct don't apply to the referencee.
@@ -4161,7 +4172,6 @@ LValue CodeGenFunction::EmitCastLValue(const CastExpr *E) {
   case CK_ARCReclaimReturnedObject:
   case CK_ARCExtendBlockObject:
   case CK_CopyAndAutoreleaseBlockObject:
-  case CK_AddressSpaceConversion:
   case CK_IntToOCLSampler:
   case CK_FixedPointCast:
   case CK_FixedPointToBoolean:
@@ -4257,6 +4267,15 @@ LValue CodeGenFunction::EmitCastLValue(const CastExpr *E) {
 
     return MakeAddrLValue(V, E->getType(), LV.getBaseInfo(),
                           CGM.getTBAAInfoForSubobject(LV, E->getType()));
+  }
+  case CK_AddressSpaceConversion: {
+    LValue LV = EmitLValue(E->getSubExpr());
+    QualType DestTy = getContext().getPointerType(E->getType());
+    llvm::Value *V = getTargetHooks().performAddrSpaceCast(
+        *this, LV.getPointer(), E->getSubExpr()->getType().getAddressSpace(),
+        E->getType().getAddressSpace(), ConvertType(DestTy));
+    return MakeAddrLValue(Address(V, LV.getAddress().getAlignment()),
+                          E->getType(), LV.getBaseInfo(), LV.getTBAAInfo());
   }
   case CK_ObjCObjectLValueCast: {
     LValue LV = EmitLValue(E->getSubExpr());
@@ -4373,7 +4392,7 @@ static CGCallee EmitDirectCallee(CodeGenFunction &CGF, const FunctionDecl *FD) {
   }
 
   llvm::Constant *calleePtr = EmitFunctionDeclPointer(CGF.CGM, FD);
-  return CGCallee::forDirect(calleePtr, FD);
+  return CGCallee::forDirect(calleePtr, GlobalDecl(FD));
 }
 
 CGCallee CodeGenFunction::EmitCallee(const Expr *E) {
@@ -4417,8 +4436,13 @@ CGCallee CodeGenFunction::EmitCallee(const Expr *E) {
     calleePtr = EmitLValue(E).getPointer();
   }
   assert(functionType->isFunctionType());
-  CGCalleeInfo calleeInfo(functionType->getAs<FunctionProtoType>(),
-                          E->getReferencedDeclOfCallee());
+
+  GlobalDecl GD;
+  if (const auto *VD =
+          dyn_cast_or_null<VarDecl>(E->getReferencedDeclOfCallee()))
+    GD = GlobalDecl(VD);
+
+  CGCalleeInfo calleeInfo(functionType->getAs<FunctionProtoType>(), GD);
   CGCallee callee(calleeInfo, calleePtr);
   return callee;
 }
@@ -4603,7 +4627,8 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   assert(CalleeType->isFunctionPointerType() &&
          "Call must have function pointer type!");
 
-  const Decl *TargetDecl = OrigCallee.getAbstractInfo().getCalleeDecl();
+  const Decl *TargetDecl =
+      OrigCallee.getAbstractInfo().getCalleeDecl().getDecl();
 
   if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(TargetDecl))
     // We can only guarantee that a function is called from the correct

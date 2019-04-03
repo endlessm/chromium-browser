@@ -177,7 +177,7 @@ define <4 x i32> @test_extracti128(<8 x i16> %a0, <4 x i32> *%a1) {
 ; GENERIC-NEXT:    vpmovzxwd {{.*#+}} ymm1 = xmm0[0],zero,xmm0[1],zero,xmm0[2],zero,xmm0[3],zero,xmm0[4],zero,xmm0[5],zero,xmm0[6],zero,xmm0[7],zero sched: [1:1.00]
 ; GENERIC-NEXT:    vextracti128 $1, %ymm1, %xmm0 # sched: [1:1.00]
 ; GENERIC-NEXT:    vextracti128 $1, %ymm1, (%rdi) # sched: [1:1.00]
-; GENERIC-NEXT:    vzeroupper # sched: [100:0.33]
+; GENERIC-NEXT:    vzeroupper # sched: [1:1.00]
 ; GENERIC-NEXT:    retq # sched: [1:1.00]
 ;
 ; HASWELL-LABEL: test_extracti128:
@@ -185,7 +185,7 @@ define <4 x i32> @test_extracti128(<8 x i16> %a0, <4 x i32> *%a1) {
 ; HASWELL-NEXT:    vpmovzxwd {{.*#+}} ymm1 = xmm0[0],zero,xmm0[1],zero,xmm0[2],zero,xmm0[3],zero,xmm0[4],zero,xmm0[5],zero,xmm0[6],zero,xmm0[7],zero sched: [3:1.00]
 ; HASWELL-NEXT:    vextracti128 $1, %ymm1, %xmm0 # sched: [3:1.00]
 ; HASWELL-NEXT:    vextracti128 $1, %ymm1, (%rdi) # sched: [1:1.00]
-; HASWELL-NEXT:    vzeroupper # sched: [4:1.00]
+; HASWELL-NEXT:    vzeroupper # sched: [0:1.00]
 ; HASWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; BROADWELL-LABEL: test_extracti128:
@@ -193,7 +193,7 @@ define <4 x i32> @test_extracti128(<8 x i16> %a0, <4 x i32> *%a1) {
 ; BROADWELL-NEXT:    vpmovzxwd {{.*#+}} ymm1 = xmm0[0],zero,xmm0[1],zero,xmm0[2],zero,xmm0[3],zero,xmm0[4],zero,xmm0[5],zero,xmm0[6],zero,xmm0[7],zero sched: [3:1.00]
 ; BROADWELL-NEXT:    vextracti128 $1, %ymm1, %xmm0 # sched: [3:1.00]
 ; BROADWELL-NEXT:    vextracti128 $1, %ymm1, (%rdi) # sched: [1:1.00]
-; BROADWELL-NEXT:    vzeroupper # sched: [4:1.00]
+; BROADWELL-NEXT:    vzeroupper # sched: [0:1.00]
 ; BROADWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; SKYLAKE-LABEL: test_extracti128:
@@ -201,7 +201,7 @@ define <4 x i32> @test_extracti128(<8 x i16> %a0, <4 x i32> *%a1) {
 ; SKYLAKE-NEXT:    vpmovzxwd {{.*#+}} ymm1 = xmm0[0],zero,xmm0[1],zero,xmm0[2],zero,xmm0[3],zero,xmm0[4],zero,xmm0[5],zero,xmm0[6],zero,xmm0[7],zero sched: [3:1.00]
 ; SKYLAKE-NEXT:    vextracti128 $1, %ymm1, %xmm0 # sched: [3:1.00]
 ; SKYLAKE-NEXT:    vextracti128 $1, %ymm1, (%rdi) # sched: [1:1.00]
-; SKYLAKE-NEXT:    vzeroupper # sched: [4:1.00]
+; SKYLAKE-NEXT:    vzeroupper # sched: [0:0.67]
 ; SKYLAKE-NEXT:    retq # sched: [7:1.00]
 ;
 ; SKX-LABEL: test_extracti128:
@@ -209,7 +209,7 @@ define <4 x i32> @test_extracti128(<8 x i16> %a0, <4 x i32> *%a1) {
 ; SKX-NEXT:    vpmovzxwd {{.*#+}} ymm1 = xmm0[0],zero,xmm0[1],zero,xmm0[2],zero,xmm0[3],zero,xmm0[4],zero,xmm0[5],zero,xmm0[6],zero,xmm0[7],zero sched: [3:1.00]
 ; SKX-NEXT:    vextracti128 $1, %ymm1, %xmm0 # sched: [3:1.00]
 ; SKX-NEXT:    vextracti128 $1, %ymm1, (%rdi) # sched: [1:1.00]
-; SKX-NEXT:    vzeroupper # sched: [4:1.00]
+; SKX-NEXT:    vzeroupper # sched: [0:0.67]
 ; SKX-NEXT:    retq # sched: [7:1.00]
 ;
 ; ZNVER1-LABEL: test_extracti128:
@@ -474,31 +474,31 @@ define <4 x float> @test_gatherqps_ymm(<4 x float> %a0, i8* %a1, <4 x i64> %a2, 
 ; GENERIC-LABEL: test_gatherqps_ymm:
 ; GENERIC:       # %bb.0:
 ; GENERIC-NEXT:    vgatherqps %xmm2, (%rdi,%ymm1,4), %xmm0 # sched: [5:0.50]
-; GENERIC-NEXT:    vzeroupper # sched: [100:0.33]
+; GENERIC-NEXT:    vzeroupper # sched: [1:1.00]
 ; GENERIC-NEXT:    retq # sched: [1:1.00]
 ;
 ; HASWELL-LABEL: test_gatherqps_ymm:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    vgatherqps %xmm2, (%rdi,%ymm1,4), %xmm0 # sched: [28:3.67]
-; HASWELL-NEXT:    vzeroupper # sched: [4:1.00]
+; HASWELL-NEXT:    vzeroupper # sched: [0:1.00]
 ; HASWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; BROADWELL-LABEL: test_gatherqps_ymm:
 ; BROADWELL:       # %bb.0:
 ; BROADWELL-NEXT:    vgatherqps %xmm2, (%rdi,%ymm1,4), %xmm0 # sched: [24:5.00]
-; BROADWELL-NEXT:    vzeroupper # sched: [4:1.00]
+; BROADWELL-NEXT:    vzeroupper # sched: [0:1.00]
 ; BROADWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; SKYLAKE-LABEL: test_gatherqps_ymm:
 ; SKYLAKE:       # %bb.0:
 ; SKYLAKE-NEXT:    vgatherqps %xmm2, (%rdi,%ymm1,4), %xmm0 # sched: [25:1.00]
-; SKYLAKE-NEXT:    vzeroupper # sched: [4:1.00]
+; SKYLAKE-NEXT:    vzeroupper # sched: [0:0.67]
 ; SKYLAKE-NEXT:    retq # sched: [7:1.00]
 ;
 ; SKX-LABEL: test_gatherqps_ymm:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vgatherqps %xmm2, (%rdi,%ymm1,4), %xmm0 # sched: [25:1.00]
-; SKX-NEXT:    vzeroupper # sched: [4:1.00]
+; SKX-NEXT:    vzeroupper # sched: [0:0.67]
 ; SKX-NEXT:    retq # sched: [7:1.00]
 ;
 ; ZNVER1-LABEL: test_gatherqps_ymm:
@@ -1129,12 +1129,12 @@ define <32 x i8> @test_paddsb(<32 x i8> %a0, <32 x i8> %a1, <32 x i8> *%a2) {
 ; ZNVER1-NEXT:    vpaddsb %ymm1, %ymm0, %ymm0 # sched: [1:0.25]
 ; ZNVER1-NEXT:    vpaddsb (%rdi), %ymm0, %ymm0 # sched: [8:0.50]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
-  %1 = call <32 x i8> @llvm.x86.avx2.padds.b(<32 x i8> %a0, <32 x i8> %a1)
+  %1 = call <32 x i8> @llvm.sadd.sat.v32i8(<32 x i8> %a0, <32 x i8> %a1)
   %2 = load <32 x i8>, <32 x i8> *%a2, align 32
-  %3 = call <32 x i8> @llvm.x86.avx2.padds.b(<32 x i8> %1, <32 x i8> %2)
+  %3 = call <32 x i8> @llvm.sadd.sat.v32i8(<32 x i8> %1, <32 x i8> %2)
   ret <32 x i8> %3
 }
-declare <32 x i8> @llvm.x86.avx2.padds.b(<32 x i8>, <32 x i8>) nounwind readnone
+declare <32 x i8> @llvm.sadd.sat.v32i8(<32 x i8>, <32 x i8>) nounwind readnone
 
 define <16 x i16> @test_paddsw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2) {
 ; GENERIC-LABEL: test_paddsw:
@@ -1172,12 +1172,12 @@ define <16 x i16> @test_paddsw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2) 
 ; ZNVER1-NEXT:    vpaddsw %ymm1, %ymm0, %ymm0 # sched: [1:0.25]
 ; ZNVER1-NEXT:    vpaddsw (%rdi), %ymm0, %ymm0 # sched: [8:0.50]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
-  %1 = call <16 x i16> @llvm.x86.avx2.padds.w(<16 x i16> %a0, <16 x i16> %a1)
+  %1 = call <16 x i16> @llvm.sadd.sat.v16i16(<16 x i16> %a0, <16 x i16> %a1)
   %2 = load <16 x i16>, <16 x i16> *%a2, align 32
-  %3 = call <16 x i16> @llvm.x86.avx2.padds.w(<16 x i16> %1, <16 x i16> %2)
+  %3 = call <16 x i16> @llvm.sadd.sat.v16i16(<16 x i16> %1, <16 x i16> %2)
   ret <16 x i16> %3
 }
-declare <16 x i16> @llvm.x86.avx2.padds.w(<16 x i16>, <16 x i16>) nounwind readnone
+declare <16 x i16> @llvm.sadd.sat.v16i16(<16 x i16>, <16 x i16>) nounwind readnone
 
 define <32 x i8> @test_paddusb(<32 x i8> %a0, <32 x i8> %a1, <32 x i8> *%a2) {
 ; GENERIC-LABEL: test_paddusb:
@@ -1215,12 +1215,12 @@ define <32 x i8> @test_paddusb(<32 x i8> %a0, <32 x i8> %a1, <32 x i8> *%a2) {
 ; ZNVER1-NEXT:    vpaddusb %ymm1, %ymm0, %ymm0 # sched: [1:0.25]
 ; ZNVER1-NEXT:    vpaddusb (%rdi), %ymm0, %ymm0 # sched: [8:0.50]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
-  %1 = call <32 x i8> @llvm.x86.avx2.paddus.b(<32 x i8> %a0, <32 x i8> %a1)
+  %1 = call <32 x i8> @llvm.uadd.sat.v32i8(<32 x i8> %a0, <32 x i8> %a1)
   %2 = load <32 x i8>, <32 x i8> *%a2, align 32
-  %3 = call <32 x i8> @llvm.x86.avx2.paddus.b(<32 x i8> %1, <32 x i8> %2)
+  %3 = call <32 x i8> @llvm.uadd.sat.v32i8(<32 x i8> %1, <32 x i8> %2)
   ret <32 x i8> %3
 }
-declare <32 x i8> @llvm.x86.avx2.paddus.b(<32 x i8>, <32 x i8>) nounwind readnone
+declare <32 x i8> @llvm.uadd.sat.v32i8(<32 x i8>, <32 x i8>) nounwind readnone
 
 define <16 x i16> @test_paddusw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2) {
 ; GENERIC-LABEL: test_paddusw:
@@ -1258,12 +1258,12 @@ define <16 x i16> @test_paddusw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2)
 ; ZNVER1-NEXT:    vpaddusw %ymm1, %ymm0, %ymm0 # sched: [1:0.25]
 ; ZNVER1-NEXT:    vpaddusw (%rdi), %ymm0, %ymm0 # sched: [8:0.50]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
-  %1 = call <16 x i16> @llvm.x86.avx2.paddus.w(<16 x i16> %a0, <16 x i16> %a1)
+  %1 = call <16 x i16> @llvm.uadd.sat.v16i16(<16 x i16> %a0, <16 x i16> %a1)
   %2 = load <16 x i16>, <16 x i16> *%a2, align 32
-  %3 = call <16 x i16> @llvm.x86.avx2.paddus.w(<16 x i16> %1, <16 x i16> %2)
+  %3 = call <16 x i16> @llvm.uadd.sat.v16i16(<16 x i16> %1, <16 x i16> %2)
   ret <16 x i16> %3
 }
-declare <16 x i16> @llvm.x86.avx2.paddus.w(<16 x i16>, <16 x i16>) nounwind readnone
+declare <16 x i16> @llvm.uadd.sat.v16i16(<16 x i16>, <16 x i16>) nounwind readnone
 
 define <16 x i16> @test_paddw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2) {
 ; GENERIC-LABEL: test_paddw:
@@ -2920,31 +2920,31 @@ define <4 x i32> @test_pgatherqd_ymm(<4 x i32> %a0, i8* %a1, <4 x i64> %a2, <4 x
 ; GENERIC-LABEL: test_pgatherqd_ymm:
 ; GENERIC:       # %bb.0:
 ; GENERIC-NEXT:    vpgatherqd %xmm2, (%rdi,%ymm1,2), %xmm0 # sched: [5:0.50]
-; GENERIC-NEXT:    vzeroupper # sched: [100:0.33]
+; GENERIC-NEXT:    vzeroupper # sched: [1:1.00]
 ; GENERIC-NEXT:    retq # sched: [1:1.00]
 ;
 ; HASWELL-LABEL: test_pgatherqd_ymm:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    vpgatherqd %xmm2, (%rdi,%ymm1,2), %xmm0 # sched: [28:5.00]
-; HASWELL-NEXT:    vzeroupper # sched: [4:1.00]
+; HASWELL-NEXT:    vzeroupper # sched: [0:1.00]
 ; HASWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; BROADWELL-LABEL: test_pgatherqd_ymm:
 ; BROADWELL:       # %bb.0:
 ; BROADWELL-NEXT:    vpgatherqd %xmm2, (%rdi,%ymm1,2), %xmm0 # sched: [5:0.50]
-; BROADWELL-NEXT:    vzeroupper # sched: [4:1.00]
+; BROADWELL-NEXT:    vzeroupper # sched: [0:1.00]
 ; BROADWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; SKYLAKE-LABEL: test_pgatherqd_ymm:
 ; SKYLAKE:       # %bb.0:
 ; SKYLAKE-NEXT:    vpgatherqd %xmm2, (%rdi,%ymm1,2), %xmm0 # sched: [25:1.00]
-; SKYLAKE-NEXT:    vzeroupper # sched: [4:1.00]
+; SKYLAKE-NEXT:    vzeroupper # sched: [0:0.67]
 ; SKYLAKE-NEXT:    retq # sched: [7:1.00]
 ;
 ; SKX-LABEL: test_pgatherqd_ymm:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vpgatherqd %xmm2, (%rdi,%ymm1,2), %xmm0 # sched: [25:1.00]
-; SKX-NEXT:    vzeroupper # sched: [4:1.00]
+; SKX-NEXT:    vzeroupper # sched: [0:0.67]
 ; SKX-NEXT:    retq # sched: [7:1.00]
 ;
 ; ZNVER1-LABEL: test_pgatherqd_ymm:
@@ -4089,31 +4089,31 @@ define i32 @test_pmovmskb(<32 x i8> %a0) {
 ; GENERIC-LABEL: test_pmovmskb:
 ; GENERIC:       # %bb.0:
 ; GENERIC-NEXT:    vpmovmskb %ymm0, %eax # sched: [2:1.00]
-; GENERIC-NEXT:    vzeroupper # sched: [100:0.33]
+; GENERIC-NEXT:    vzeroupper # sched: [1:1.00]
 ; GENERIC-NEXT:    retq # sched: [1:1.00]
 ;
 ; HASWELL-LABEL: test_pmovmskb:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    vpmovmskb %ymm0, %eax # sched: [3:1.00]
-; HASWELL-NEXT:    vzeroupper # sched: [4:1.00]
+; HASWELL-NEXT:    vzeroupper # sched: [0:1.00]
 ; HASWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; BROADWELL-LABEL: test_pmovmskb:
 ; BROADWELL:       # %bb.0:
 ; BROADWELL-NEXT:    vpmovmskb %ymm0, %eax # sched: [3:1.00]
-; BROADWELL-NEXT:    vzeroupper # sched: [4:1.00]
+; BROADWELL-NEXT:    vzeroupper # sched: [0:1.00]
 ; BROADWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; SKYLAKE-LABEL: test_pmovmskb:
 ; SKYLAKE:       # %bb.0:
 ; SKYLAKE-NEXT:    vpmovmskb %ymm0, %eax # sched: [2:1.00]
-; SKYLAKE-NEXT:    vzeroupper # sched: [4:1.00]
+; SKYLAKE-NEXT:    vzeroupper # sched: [0:0.67]
 ; SKYLAKE-NEXT:    retq # sched: [7:1.00]
 ;
 ; SKX-LABEL: test_pmovmskb:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vpmovmskb %ymm0, %eax # sched: [2:1.00]
-; SKX-NEXT:    vzeroupper # sched: [4:1.00]
+; SKX-NEXT:    vzeroupper # sched: [0:0.67]
 ; SKX-NEXT:    retq # sched: [7:1.00]
 ;
 ; ZNVER1-LABEL: test_pmovmskb:
@@ -6505,12 +6505,12 @@ define <32 x i8> @test_psubsb(<32 x i8> %a0, <32 x i8> %a1, <32 x i8> *%a2) {
 ; ZNVER1-NEXT:    vpsubsb %ymm1, %ymm0, %ymm0 # sched: [1:0.25]
 ; ZNVER1-NEXT:    vpsubsb (%rdi), %ymm0, %ymm0 # sched: [8:0.50]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
-  %1 = call <32 x i8> @llvm.x86.avx2.psubs.b(<32 x i8> %a0, <32 x i8> %a1)
+  %1 = call <32 x i8> @llvm.ssub.sat.v32i8(<32 x i8> %a0, <32 x i8> %a1)
   %2 = load <32 x i8>, <32 x i8> *%a2, align 32
-  %3 = call <32 x i8> @llvm.x86.avx2.psubs.b(<32 x i8> %1, <32 x i8> %2)
+  %3 = call <32 x i8> @llvm.ssub.sat.v32i8(<32 x i8> %1, <32 x i8> %2)
   ret <32 x i8> %3
 }
-declare <32 x i8> @llvm.x86.avx2.psubs.b(<32 x i8>, <32 x i8>) nounwind readnone
+declare <32 x i8> @llvm.ssub.sat.v32i8(<32 x i8>, <32 x i8>) nounwind readnone
 
 define <16 x i16> @test_psubsw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2) {
 ; GENERIC-LABEL: test_psubsw:
@@ -6548,12 +6548,12 @@ define <16 x i16> @test_psubsw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2) 
 ; ZNVER1-NEXT:    vpsubsw %ymm1, %ymm0, %ymm0 # sched: [1:0.25]
 ; ZNVER1-NEXT:    vpsubsw (%rdi), %ymm0, %ymm0 # sched: [8:0.50]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
-  %1 = call <16 x i16> @llvm.x86.avx2.psubs.w(<16 x i16> %a0, <16 x i16> %a1)
+  %1 = call <16 x i16> @llvm.ssub.sat.v16i16(<16 x i16> %a0, <16 x i16> %a1)
   %2 = load <16 x i16>, <16 x i16> *%a2, align 32
-  %3 = call <16 x i16> @llvm.x86.avx2.psubs.w(<16 x i16> %1, <16 x i16> %2)
+  %3 = call <16 x i16> @llvm.ssub.sat.v16i16(<16 x i16> %1, <16 x i16> %2)
   ret <16 x i16> %3
 }
-declare <16 x i16> @llvm.x86.avx2.psubs.w(<16 x i16>, <16 x i16>) nounwind readnone
+declare <16 x i16> @llvm.ssub.sat.v16i16(<16 x i16>, <16 x i16>) nounwind readnone
 
 define <32 x i8> @test_psubusb(<32 x i8> %a0, <32 x i8> %a1, <32 x i8> *%a2) {
 ; GENERIC-LABEL: test_psubusb:
@@ -6591,12 +6591,12 @@ define <32 x i8> @test_psubusb(<32 x i8> %a0, <32 x i8> %a1, <32 x i8> *%a2) {
 ; ZNVER1-NEXT:    vpsubusb %ymm1, %ymm0, %ymm0 # sched: [1:0.25]
 ; ZNVER1-NEXT:    vpsubusb (%rdi), %ymm0, %ymm0 # sched: [8:0.50]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
-  %1 = call <32 x i8> @llvm.x86.avx2.psubus.b(<32 x i8> %a0, <32 x i8> %a1)
+  %1 = call <32 x i8> @llvm.usub.sat.v32i8(<32 x i8> %a0, <32 x i8> %a1)
   %2 = load <32 x i8>, <32 x i8> *%a2, align 32
-  %3 = call <32 x i8> @llvm.x86.avx2.psubus.b(<32 x i8> %1, <32 x i8> %2)
+  %3 = call <32 x i8> @llvm.usub.sat.v32i8(<32 x i8> %1, <32 x i8> %2)
   ret <32 x i8> %3
 }
-declare <32 x i8> @llvm.x86.avx2.psubus.b(<32 x i8>, <32 x i8>) nounwind readnone
+declare <32 x i8> @llvm.usub.sat.v32i8(<32 x i8>, <32 x i8>) nounwind readnone
 
 define <16 x i16> @test_psubusw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2) {
 ; GENERIC-LABEL: test_psubusw:
@@ -6634,12 +6634,12 @@ define <16 x i16> @test_psubusw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2)
 ; ZNVER1-NEXT:    vpsubusw %ymm1, %ymm0, %ymm0 # sched: [1:0.25]
 ; ZNVER1-NEXT:    vpsubusw (%rdi), %ymm0, %ymm0 # sched: [8:0.50]
 ; ZNVER1-NEXT:    retq # sched: [1:0.50]
-  %1 = call <16 x i16> @llvm.x86.avx2.psubus.w(<16 x i16> %a0, <16 x i16> %a1)
+  %1 = call <16 x i16> @llvm.usub.sat.v16i16(<16 x i16> %a0, <16 x i16> %a1)
   %2 = load <16 x i16>, <16 x i16> *%a2, align 32
-  %3 = call <16 x i16> @llvm.x86.avx2.psubus.w(<16 x i16> %1, <16 x i16> %2)
+  %3 = call <16 x i16> @llvm.usub.sat.v16i16(<16 x i16> %1, <16 x i16> %2)
   ret <16 x i16> %3
 }
-declare <16 x i16> @llvm.x86.avx2.psubus.w(<16 x i16>, <16 x i16>) nounwind readnone
+declare <16 x i16> @llvm.usub.sat.v16i16(<16 x i16>, <16 x i16>) nounwind readnone
 
 define <16 x i16> @test_psubw(<16 x i16> %a0, <16 x i16> %a1, <16 x i16> *%a2) {
 ; GENERIC-LABEL: test_psubw:

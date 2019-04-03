@@ -507,12 +507,12 @@ Id Builder::makeSampledImageType(Id imageType)
 Id Builder::makeAccelerationStructureNVType()
 {
     Instruction *type;
-    if (groupedTypes[OpTypeAccelerationStructureNVX].size() == 0) {
-        type = new Instruction(getUniqueId(), NoType, OpTypeAccelerationStructureNVX);
+    if (groupedTypes[OpTypeAccelerationStructureNV].size() == 0) {
+        type = new Instruction(getUniqueId(), NoType, OpTypeAccelerationStructureNV);
         constantsTypesGlobals.push_back(std::unique_ptr<Instruction>(type));
         module.mapInstruction(type);
     } else {
-        type = groupedTypes[OpTypeAccelerationStructureNVX].back();
+        type = groupedTypes[OpTypeAccelerationStructureNV].back();
     }
 
     return type->getResultId();
@@ -1293,7 +1293,7 @@ Id Builder::createAccessChain(StorageClass storageClass, Id base, const std::vec
 
 Id Builder::createArrayLength(Id base, unsigned int member)
 {
-    spv::Id intType = makeIntType(32);
+    spv::Id intType = makeUintType(32);
     Instruction* length = new Instruction(getUniqueId(), intType, OpArrayLength);
     length->addIdOperand(base);
     length->addImmediateOperand(member);

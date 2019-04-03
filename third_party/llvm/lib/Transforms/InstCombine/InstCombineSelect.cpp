@@ -709,23 +709,30 @@ static Value *foldSelectCttzCtlz(ICmpInst *ICI, Value *TrueVal, Value *FalseVal,
       match(Count, m_Trunc(m_Value(V))))
     Count = V;
 
+  // Check that 'Count' is a call to intrinsic cttz/ctlz. Also check that the
+  // input to the cttz/ctlz is used as LHS for the compare instruction.
+  if (!match(Count, m_Intrinsic<Intrinsic::cttz>(m_Specific(CmpLHS))) &&
+      !match(Count, m_Intrinsic<Intrinsic::ctlz>(m_Specific(CmpLHS))))
+    return nullptr;
+
+  IntrinsicInst *II = cast<IntrinsicInst>(Count);
+
   // Check if the value propagated on zero is a constant number equal to the
   // sizeof in bits of 'Count'.
   unsigned SizeOfInBits = Count->getType()->getScalarSizeInBits();
-  if (!match(ValueOnZero, m_SpecificInt(SizeOfInBits)))
-    return nullptr;
-
-  // Check that 'Count' is a call to intrinsic cttz/ctlz. Also check that the
-  // input to the cttz/ctlz is used as LHS for the compare instruction.
-  if (match(Count, m_Intrinsic<Intrinsic::cttz>(m_Specific(CmpLHS))) ||
-      match(Count, m_Intrinsic<Intrinsic::ctlz>(m_Specific(CmpLHS)))) {
-    IntrinsicInst *II = cast<IntrinsicInst>(Count);
+  if (match(ValueOnZero, m_SpecificInt(SizeOfInBits))) {
     // Explicitly clear the 'undef_on_zero' flag.
     IntrinsicInst *NewI = cast<IntrinsicInst>(II->clone());
     NewI->setArgOperand(1, ConstantInt::getFalse(NewI->getContext()));
     Builder.Insert(NewI);
     return Builder.CreateZExtOrTrunc(NewI, ValueOnZero->getType());
   }
+
+  // If the ValueOnZero is not the bitwidth, we can at least make use of the
+  // fact that the cttz/ctlz result will not be used if the input is zero, so
+  // it's okay to relax it to undef for that case.
+  if (II->hasOneUse() && !match(II->getArgOperand(1), m_One()))
+    II->setArgOperand(1, ConstantInt::getTrue(II->getContext()));
 
   return nullptr;
 }
@@ -1546,6 +1553,60 @@ static Instruction *factorizeMinMaxTree(SelectPatternFlavor SPF, Value *LHS,
   return SelectInst::Create(CmpABC, MinMaxOp, ThirdOp);
 }
 
+/// Try to reduce a rotate pattern that includes a compare and select into a
+/// funnel shift intrinsic. Example:
+/// rotl32(a, b) --> (b == 0 ? a : ((a >> (32 - b)) | (a << b)))
+///              --> call llvm.fshl.i32(a, a, b)
+static Instruction *foldSelectRotate(SelectInst &Sel) {
+  // The false value of the select must be a rotate of the true value.
+  Value *Or0, *Or1;
+  if (!match(Sel.getFalseValue(), m_OneUse(m_Or(m_Value(Or0), m_Value(Or1)))))
+    return nullptr;
+
+  Value *TVal = Sel.getTrueValue();
+  Value *SA0, *SA1;
+  if (!match(Or0, m_OneUse(m_LogicalShift(m_Specific(TVal), m_Value(SA0)))) ||
+      !match(Or1, m_OneUse(m_LogicalShift(m_Specific(TVal), m_Value(SA1)))))
+    return nullptr;
+
+  auto ShiftOpcode0 = cast<BinaryOperator>(Or0)->getOpcode();
+  auto ShiftOpcode1 = cast<BinaryOperator>(Or1)->getOpcode();
+  if (ShiftOpcode0 == ShiftOpcode1)
+    return nullptr;
+
+  // We have one of these patterns so far:
+  // select ?, TVal, (or (lshr TVal, SA0), (shl TVal, SA1))
+  // select ?, TVal, (or (shl TVal, SA0), (lshr TVal, SA1))
+  // This must be a power-of-2 rotate for a bitmasking transform to be valid.
+  unsigned Width = Sel.getType()->getScalarSizeInBits();
+  if (!isPowerOf2_32(Width))
+    return nullptr;
+
+  // Check the shift amounts to see if they are an opposite pair.
+  Value *ShAmt;
+  if (match(SA1, m_OneUse(m_Sub(m_SpecificInt(Width), m_Specific(SA0)))))
+    ShAmt = SA0;
+  else if (match(SA0, m_OneUse(m_Sub(m_SpecificInt(Width), m_Specific(SA1)))))
+    ShAmt = SA1;
+  else
+    return nullptr;
+
+  // Finally, see if the select is filtering out a shift-by-zero.
+  Value *Cond = Sel.getCondition();
+  ICmpInst::Predicate Pred;
+  if (!match(Cond, m_OneUse(m_ICmp(Pred, m_Specific(ShAmt), m_ZeroInt()))) ||
+      Pred != ICmpInst::ICMP_EQ)
+    return nullptr;
+
+  // This is a rotate that avoids shift-by-bitwidth UB in a suboptimal way.
+  // Convert to funnel shift intrinsic.
+  bool IsFshl = (ShAmt == SA0 && ShiftOpcode0 == BinaryOperator::Shl) ||
+                (ShAmt == SA1 && ShiftOpcode1 == BinaryOperator::Shl);
+  Intrinsic::ID IID = IsFshl ? Intrinsic::fshl : Intrinsic::fshr;
+  Function *F = Intrinsic::getDeclaration(Sel.getModule(), IID, Sel.getType());
+  return IntrinsicInst::Create(F, { TVal, TVal, ShAmt });
+}
+
 Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
   Value *CondVal = SI.getCondition();
   Value *TrueVal = SI.getTrueValue();
@@ -1806,8 +1867,7 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
       // MAX(~a, C)  -> ~MIN(a, ~C)
       // MIN(~a, ~b) -> ~MAX(a, b)
       // MIN(~a, C)  -> ~MAX(a, ~C)
-      auto moveNotAfterMinMax = [&](Value *X, Value *Y,
-                                    bool Swapped) -> Instruction * {
+      auto moveNotAfterMinMax = [&](Value *X, Value *Y) -> Instruction * {
         Value *A;
         if (match(X, m_Not(m_Value(A))) && !X->hasNUsesOrMore(3) &&
             !IsFreeToInvert(A, A->hasOneUse()) &&
@@ -1820,14 +1880,8 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
           if (MDNode *MD = SI.getMetadata(LLVMContext::MD_prof)) {
             cast<SelectInst>(NewMinMax)->setMetadata(LLVMContext::MD_prof, MD);
             // Swap the metadata if the operands are swapped.
-            if (Swapped) {
-              assert(X == SI.getFalseValue() && Y == SI.getTrueValue() &&
-                     "Unexpected operands.");
+            if (X == SI.getFalseValue() && Y == SI.getTrueValue())
               cast<SelectInst>(NewMinMax)->swapProfMetadata();
-            } else {
-              assert(X == SI.getTrueValue() && Y == SI.getFalseValue() &&
-                     "Unexpected operands.");
-            }
           }
 
           return BinaryOperator::CreateNot(NewMinMax);
@@ -1836,9 +1890,9 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
         return nullptr;
       };
 
-      if (Instruction *I = moveNotAfterMinMax(LHS, RHS, /*Swapped*/false))
+      if (Instruction *I = moveNotAfterMinMax(LHS, RHS))
         return I;
-      if (Instruction *I = moveNotAfterMinMax(RHS, LHS, /*Swapped*/true))
+      if (Instruction *I = moveNotAfterMinMax(RHS, LHS))
         return I;
 
       if (Instruction *I = factorizeMinMaxTree(SPF, LHS, RHS, Builder))
@@ -1968,24 +2022,6 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
     }
   }
 
-  // See if we can determine the result of this select based on a dominating
-  // condition.
-  BasicBlock *Parent = SI.getParent();
-  if (BasicBlock *Dom = Parent->getSinglePredecessor()) {
-    auto *PBI = dyn_cast_or_null<BranchInst>(Dom->getTerminator());
-    if (PBI && PBI->isConditional() &&
-        PBI->getSuccessor(0) != PBI->getSuccessor(1) &&
-        (PBI->getSuccessor(0) == Parent || PBI->getSuccessor(1) == Parent)) {
-      bool CondIsTrue = PBI->getSuccessor(0) == Parent;
-      Optional<bool> Implication = isImpliedCondition(
-          PBI->getCondition(), SI.getCondition(), DL, CondIsTrue);
-      if (Implication) {
-        Value *V = *Implication ? TrueVal : FalseVal;
-        return replaceInstUsesWith(SI, V);
-      }
-    }
-  }
-
   // If we can compute the condition, there's no need for a select.
   // Like the above fold, we are attempting to reduce compile-time cost by
   // putting this fold here with limitations rather than in InstSimplify.
@@ -2009,6 +2045,9 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
 
   if (Instruction *Select = foldSelectBinOpIdentity(SI, TLI))
     return Select;
+
+  if (Instruction *Rot = foldSelectRotate(SI))
+    return Rot;
 
   return nullptr;
 }

@@ -38,6 +38,8 @@
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #include <sys/attr.h>
+#elif defined(__DragonFly__)
+#include <sys/mount.h>
 #endif
 
 // Both stdio.h and cstdio are included via different paths and
@@ -54,7 +56,7 @@
 
 #include <sys/types.h>
 #if !defined(__APPLE__) && !defined(__OpenBSD__) && !defined(__FreeBSD__) &&   \
-    !defined(__linux__)
+    !defined(__linux__) && !defined(__FreeBSD_kernel__)
 #include <sys/statvfs.h>
 #define STATVFS statvfs
 #define FSTATVFS fstatvfs
@@ -83,7 +85,7 @@
 #define STATVFS_F_FRSIZE(vfs) static_cast<uint64_t>(vfs.f_bsize)
 #endif
 
-#if defined(__NetBSD__) || defined(__GNU__)
+#if defined(__NetBSD__) || defined(__DragonFly__) || defined(__GNU__)
 #define STATVFS_F_FLAG(vfs) (vfs).f_flag
 #else
 #define STATVFS_F_FLAG(vfs) (vfs).f_flags
@@ -227,11 +229,11 @@ std::string getMainExecutable(const char *argv0, void *MainAddr) {
 }
 
 TimePoint<> basic_file_status::getLastAccessedTime() const {
-  return toTimePoint(fs_st_atime);
+  return toTimePoint(fs_st_atime, fs_st_atime_nsec);
 }
 
 TimePoint<> basic_file_status::getLastModificationTime() const {
-  return toTimePoint(fs_st_mtime);
+  return toTimePoint(fs_st_mtime, fs_st_mtime_nsec);
 }
 
 UniqueID file_status::getUniqueID() const {
@@ -548,6 +550,18 @@ static void expandTildeExpr(SmallVectorImpl<char> &Path) {
   llvm::sys::path::append(Path, Storage);
 }
 
+
+void expand_tilde(const Twine &path, SmallVectorImpl<char> &dest) {
+  dest.clear();
+  if (path.isTriviallyEmpty())
+    return;
+
+  path.toVector(dest);
+  expandTildeExpr(dest);
+
+  return;
+}
+
 static file_type typeForMode(mode_t Mode) {
   if (S_ISDIR(Mode))
     return file_type::directory_file;
@@ -577,11 +591,22 @@ static std::error_code fillStatus(int StatRet, const struct stat &Status,
     return EC;
   }
 
+  uint32_t atime_nsec, mtime_nsec;
+#if defined(HAVE_STRUCT_STAT_ST_MTIMESPEC_TV_NSEC)
+  atime_nsec = Status.st_atimespec.tv_nsec;
+  mtime_nsec = Status.st_mtimespec.tv_nsec;
+#elif defined(HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
+  atime_nsec = Status.st_atim.tv_nsec;
+  mtime_nsec = Status.st_mtim.tv_nsec;
+#else
+  atime_nsec = mtime_nsec = 0;
+#endif
+
   perms Perms = static_cast<perms>(Status.st_mode) & all_perms;
   Result = file_status(typeForMode(Status.st_mode), Perms, Status.st_dev,
-                       Status.st_nlink, Status.st_ino, Status.st_atime,
-                       Status.st_mtime, Status.st_uid, Status.st_gid,
-                       Status.st_size);
+                       Status.st_nlink, Status.st_ino,
+                       Status.st_atime, atime_nsec, Status.st_mtime, mtime_nsec,
+                       Status.st_uid, Status.st_gid, Status.st_size);
 
   return std::error_code();
 }

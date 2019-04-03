@@ -34,6 +34,7 @@ arm_internal_release_boards = frozenset([
     'daisy_skate',
     'daisy_spring',
     'elm',
+    'flapjack',
     'gale',
     'gonzo',
     'gru',
@@ -154,7 +155,7 @@ x86_internal_release_boards = frozenset([
     'sand',
     'sentry',
     'setzer',
-    'slippy',
+    'sludge',
     'snappy',
     'soraka',
     'squawks',
@@ -182,6 +183,7 @@ x86_external_boards = frozenset([
 brillo_boards = frozenset([
     'arkham',
     'gale',
+    'mistral',
     'whirlwind',
 ])
 
@@ -229,6 +231,7 @@ scribe_boards = frozenset([
 ])
 
 termina_boards = frozenset([
+    'sludge',
     'tatl',
     'tael',
 ])
@@ -253,3 +256,7 @@ norootfs_verification_boards = frozenset([
 ])
 
 base_layout_boards = lakitu_boards | termina_boards
+
+builder_incompatible_binaries_boards = frozenset([
+    'grunt',
+])

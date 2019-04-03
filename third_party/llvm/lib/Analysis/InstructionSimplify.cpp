@@ -2630,6 +2630,70 @@ static void setLimitsForBinOp(BinaryOperator &BO, APInt &Lower, APInt &Upper,
   }
 }
 
+/// Some intrinsics with a constant operand have an easy-to-compute range of
+/// outputs. This can be used to fold a comparison to always true or always
+/// false.
+static void setLimitsForIntrinsic(IntrinsicInst &II, APInt &Lower,
+                                  APInt &Upper) {
+  unsigned Width = Lower.getBitWidth();
+  const APInt *C;
+  switch (II.getIntrinsicID()) {
+  case Intrinsic::uadd_sat:
+    // uadd.sat(x, C) produces [C, UINT_MAX].
+    if (match(II.getOperand(0), m_APInt(C)) ||
+        match(II.getOperand(1), m_APInt(C)))
+      Lower = *C;
+    break;
+  case Intrinsic::sadd_sat:
+    if (match(II.getOperand(0), m_APInt(C)) ||
+        match(II.getOperand(1), m_APInt(C))) {
+      if (C->isNegative()) {
+        // sadd.sat(x, -C) produces [SINT_MIN, SINT_MAX + (-C)].
+        Lower = APInt::getSignedMinValue(Width);
+        Upper = APInt::getSignedMaxValue(Width) + *C + 1;
+      } else {
+        // sadd.sat(x, +C) produces [SINT_MIN + C, SINT_MAX].
+        Lower = APInt::getSignedMinValue(Width) + *C;
+        Upper = APInt::getSignedMaxValue(Width) + 1;
+      }
+    }
+    break;
+  case Intrinsic::usub_sat:
+    // usub.sat(C, x) produces [0, C].
+    if (match(II.getOperand(0), m_APInt(C)))
+      Upper = *C + 1;
+    // usub.sat(x, C) produces [0, UINT_MAX - C].
+    else if (match(II.getOperand(1), m_APInt(C)))
+      Upper = APInt::getMaxValue(Width) - *C + 1;
+    break;
+  case Intrinsic::ssub_sat:
+    if (match(II.getOperand(0), m_APInt(C))) {
+      if (C->isNegative()) {
+        // ssub.sat(-C, x) produces [SINT_MIN, -SINT_MIN + (-C)].
+        Lower = APInt::getSignedMinValue(Width);
+        Upper = *C - APInt::getSignedMinValue(Width) + 1;
+      } else {
+        // ssub.sat(+C, x) produces [-SINT_MAX + C, SINT_MAX].
+        Lower = *C - APInt::getSignedMaxValue(Width);
+        Upper = APInt::getSignedMaxValue(Width) + 1;
+      }
+    } else if (match(II.getOperand(1), m_APInt(C))) {
+      if (C->isNegative()) {
+        // ssub.sat(x, -C) produces [SINT_MIN - (-C), SINT_MAX]:
+        Lower = APInt::getSignedMinValue(Width) - *C;
+        Upper = APInt::getSignedMaxValue(Width) + 1;
+      } else {
+        // ssub.sat(x, +C) produces [SINT_MIN, SINT_MAX - C].
+        Lower = APInt::getSignedMinValue(Width);
+        Upper = APInt::getSignedMaxValue(Width) - *C + 1;
+      }
+    }
+    break;
+  default:
+    break;
+  }
+}
+
 static Value *simplifyICmpWithConstant(CmpInst::Predicate Pred, Value *LHS,
                                        Value *RHS, const InstrInfoQuery &IIQ) {
   Type *ITy = GetCompareTy(RHS); // The return type.
@@ -2663,6 +2727,8 @@ static Value *simplifyICmpWithConstant(CmpInst::Predicate Pred, Value *LHS,
   APInt Upper = APInt(Width, 0);
   if (auto *BO = dyn_cast<BinaryOperator>(LHS))
     setLimitsForBinOp(*BO, Lower, Upper, IIQ);
+  else if (auto *II = dyn_cast<IntrinsicInst>(LHS))
+    setLimitsForIntrinsic(*II, Lower, Upper);
 
   ConstantRange LHS_CR =
       Lower != Upper ? ConstantRange(Lower, Upper) : ConstantRange(Width, true);
@@ -3837,6 +3903,28 @@ static Value *simplifySelectWithICmpCond(Value *CondVal, Value *TrueVal,
       if (Value *V = simplifySelectBitTest(TrueVal, FalseVal, X, Y,
                                            Pred == ICmpInst::ICMP_EQ))
         return V;
+
+    // Test for zero-shift-guard-ops around funnel shifts. These are used to
+    // avoid UB from oversized shifts in raw IR rotate patterns, but the
+    // intrinsics do not have that problem.
+    Value *ShAmt;
+    auto isFsh = m_CombineOr(m_Intrinsic<Intrinsic::fshl>(m_Value(X), m_Value(),
+                                                          m_Value(ShAmt)),
+                             m_Intrinsic<Intrinsic::fshr>(m_Value(), m_Value(X),
+                                                          m_Value(ShAmt)));
+    // (ShAmt != 0) ? fshl(X, *, ShAmt) : X --> fshl(X, *, ShAmt)
+    // (ShAmt != 0) ? fshr(*, X, ShAmt) : X --> fshr(*, X, ShAmt)
+    // (ShAmt == 0) ? fshl(X, *, ShAmt) : X --> X
+    // (ShAmt == 0) ? fshr(*, X, ShAmt) : X --> X
+    if (match(TrueVal, isFsh) && FalseVal == X && CmpLHS == ShAmt)
+      return Pred == ICmpInst::ICMP_NE ? TrueVal : X;
+
+    // (ShAmt == 0) ? X : fshl(X, *, ShAmt) --> fshl(X, *, ShAmt)
+    // (ShAmt == 0) ? X : fshr(*, X, ShAmt) --> fshr(*, X, ShAmt)
+    // (ShAmt != 0) ? X : fshl(X, *, ShAmt) --> X
+    // (ShAmt != 0) ? X : fshr(*, X, ShAmt) --> X
+    if (match(FalseVal, isFsh) && TrueVal == X && CmpLHS == ShAmt)
+      return Pred == ICmpInst::ICMP_EQ ? FalseVal : X;
   }
 
   // Check for other compares that behave like bit test.
@@ -3943,6 +4031,10 @@ static Value *SimplifySelectInst(Value *Cond, Value *TrueVal, Value *FalseVal,
 
   if (Value *V = foldSelectWithBinaryOp(Cond, TrueVal, FalseVal))
     return V;
+
+  Optional<bool> Imp = isImpliedByDomCondition(Cond, Q.CxtI, Q.DL);
+  if (Imp)
+    return *Imp ? TrueVal : FalseVal;
 
   return nullptr;
 }
@@ -4890,6 +4982,40 @@ static Value *simplifyBinaryIntrinsic(Function *F, Value *Op0, Value *Op1,
     if (match(Op0, m_Undef()) || match(Op1, m_Undef()))
       return Constant::getNullValue(ReturnType);
     break;
+  case Intrinsic::uadd_sat:
+    // sat(MAX + X) -> MAX
+    // sat(X + MAX) -> MAX
+    if (match(Op0, m_AllOnes()) || match(Op1, m_AllOnes()))
+      return Constant::getAllOnesValue(ReturnType);
+    LLVM_FALLTHROUGH;
+  case Intrinsic::sadd_sat:
+    // sat(X + undef) -> -1
+    // sat(undef + X) -> -1
+    // For unsigned: Assume undef is MAX, thus we saturate to MAX (-1).
+    // For signed: Assume undef is ~X, in which case X + ~X = -1.
+    if (match(Op0, m_Undef()) || match(Op1, m_Undef()))
+      return Constant::getAllOnesValue(ReturnType);
+
+    // X + 0 -> X
+    if (match(Op1, m_Zero()))
+      return Op0;
+    // 0 + X -> X
+    if (match(Op0, m_Zero()))
+      return Op1;
+    break;
+  case Intrinsic::usub_sat:
+    // sat(0 - X) -> 0, sat(X - MAX) -> 0
+    if (match(Op0, m_Zero()) || match(Op1, m_AllOnes()))
+      return Constant::getNullValue(ReturnType);
+    LLVM_FALLTHROUGH;
+  case Intrinsic::ssub_sat:
+    // X - X -> 0, X - undef -> 0, undef - X -> 0
+    if (Op0 == Op1 || match(Op0, m_Undef()) || match(Op1, m_Undef()))
+      return Constant::getNullValue(ReturnType);
+    // X - 0 -> X
+    if (match(Op1, m_Zero()))
+      return Op0;
+    break;
   case Intrinsic::load_relative:
     if (auto *C0 = dyn_cast<Constant>(Op0))
       if (auto *C1 = dyn_cast<Constant>(Op1))
@@ -4986,7 +5112,16 @@ static Value *simplifyIntrinsic(Function *F, IterTy ArgBegin, IterTy ArgEnd,
   }
   case Intrinsic::fshl:
   case Intrinsic::fshr: {
-    Value *ShAmtArg = ArgBegin[2];
+    Value *Op0 = ArgBegin[0], *Op1 = ArgBegin[1], *ShAmtArg = ArgBegin[2];
+
+    // If both operands are undef, the result is undef.
+    if (match(Op0, m_Undef()) && match(Op1, m_Undef()))
+      return UndefValue::get(F->getReturnType());
+
+    // If shift amount is undef, assume it is zero.
+    if (match(ShAmtArg, m_Undef()))
+      return ArgBegin[IID == Intrinsic::fshl ? 0 : 1];
+
     const APInt *ShAmtC;
     if (match(ShAmtArg, m_APInt(ShAmtC))) {
       // If there's effectively no shift, return the 1st arg or 2nd arg.

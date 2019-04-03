@@ -147,12 +147,11 @@ std::string DecoderStream<StreamType>::GetStreamTypeString() {
 }
 
 template <DemuxerStream::Type StreamType>
-void DecoderStream<StreamType>::Initialize(
-    DemuxerStream* stream,
-    InitCB init_cb,
-    CdmContext* cdm_context,
-    StatisticsCB statistics_cb,
-    base::RepeatingClosure waiting_for_decryption_key_cb) {
+void DecoderStream<StreamType>::Initialize(DemuxerStream* stream,
+                                           InitCB init_cb,
+                                           CdmContext* cdm_context,
+                                           StatisticsCB statistics_cb,
+                                           WaitingCB waiting_cb) {
   FUNCTION_DVLOG(1);
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK_EQ(state_, STATE_UNINITIALIZED);
@@ -163,11 +162,13 @@ void DecoderStream<StreamType>::Initialize(
   init_cb_ = std::move(init_cb);
   cdm_context_ = cdm_context;
   statistics_cb_ = std::move(statistics_cb);
-  waiting_for_decryption_key_cb_ = waiting_for_decryption_key_cb;
+
+  // Make a copy here since it's also passed to |decoder_selector_| below.
+  waiting_cb_ = waiting_cb;
 
   traits_->OnStreamReset(stream_);
   decoder_selector_.Initialize(traits_.get(), stream, cdm_context,
-                               std::move(waiting_for_decryption_key_cb));
+                               std::move(waiting_cb));
 
   state_ = STATE_INITIALIZING;
   SelectDecoder();
@@ -813,7 +814,7 @@ void DecoderStream<StreamType>::ReinitializeDecoder() {
                           weak_factory_.GetWeakPtr()),
       base::BindRepeating(&DecoderStream<StreamType>::OnDecodeOutputReady,
                           fallback_weak_factory_.GetWeakPtr()),
-      waiting_for_decryption_key_cb_);
+      waiting_cb_);
 }
 
 template <DemuxerStream::Type StreamType>
@@ -943,14 +944,15 @@ void DecoderStream<StreamType>::MaybePrepareAnotherOutput() {
   if (ready_outputs_.size() >= static_cast<size_t>(GetMaxDecodeRequests()))
     return;
 
-  TRACE_EVENT_ASYNC_BEGIN1(
-      "media", GetPrepareTraceString<StreamType>(), this, "timestamp_us",
-      unprepared_outputs_.front()->timestamp().InMicroseconds());
+  // Retain a copy to avoid dangling reference in OnPreparedOutputReady().
+  const scoped_refptr<Output> output = unprepared_outputs_.front();
+  TRACE_EVENT_ASYNC_BEGIN1("media", GetPrepareTraceString<StreamType>(), this,
+                           "timestamp_us",
+                           output->timestamp().InMicroseconds());
   preparing_output_ = true;
   prepare_cb_.Run(
-      unprepared_outputs_.front(),
-      base::BindOnce(&DecoderStream<StreamType>::OnPreparedOutputReady,
-                     prepare_weak_factory_.GetWeakPtr()));
+      output, base::BindOnce(&DecoderStream<StreamType>::OnPreparedOutputReady,
+                             prepare_weak_factory_.GetWeakPtr()));
 }
 
 template <DemuxerStream::Type StreamType>

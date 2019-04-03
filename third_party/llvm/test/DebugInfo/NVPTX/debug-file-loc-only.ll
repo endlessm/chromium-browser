@@ -1,6 +1,6 @@
 ; RUN: llc < %s -mtriple=nvptx64-nvidia-cuda | FileCheck %s
 
-; // Bitcode int this test case is reduced version of compiled code below:
+; // Bitcode in this test case is reduced version of compiled code below:
 ;extern "C" {
 ;#line 1 "/source/dir/foo.h"
 ;__device__ void foo() {}

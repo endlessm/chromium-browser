@@ -10,7 +10,7 @@
 #ifndef LLVM_DEMANGLE_MICROSOFT_DEMANGLE_H
 #define LLVM_DEMANGLE_MICROSOFT_DEMANGLE_H
 
-#include "llvm/Demangle/Compiler.h"
+#include "llvm/Demangle/DemangleConfig.h"
 #include "llvm/Demangle/MicrosoftDemangleNodes.h"
 #include "llvm/Demangle/StringView.h"
 #include "llvm/Demangle/Utility.h"
@@ -245,7 +245,7 @@ private:
   FuncClass demangleFunctionClass(StringView &MangledName);
   CallingConv demangleCallingConvention(StringView &MangledName);
   StorageClass demangleVariableStorageClass(StringView &MangledName);
-  void demangleThrowSpecification(StringView &MangledName);
+  bool demangleThrowSpecification(StringView &MangledName);
   wchar_t demangleWcharLiteral(StringView &MangledName);
   uint8_t demangleCharLiteral(StringView &MangledName);
 

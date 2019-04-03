@@ -46,19 +46,24 @@ struct CopyConfig {
   StringRef OutputFilename;
   StringRef OutputFormat;
 
-  // Only applicable for --input-format=Binary
+  // Only applicable for --input-format=binary
   MachineInfo BinaryArch;
+  // Only applicable when --output-format!=binary (e.g. elf64-x86-64).
+  Optional<MachineInfo> OutputArch;
 
   // Advanced options
   StringRef AddGnuDebugLink;
+  StringRef BuildIdLinkDir;
+  Optional<StringRef> BuildIdLinkInput;
+  Optional<StringRef> BuildIdLinkOutput;
   StringRef SplitDWO;
   StringRef SymbolsPrefix;
 
   // Repeated options
   std::vector<StringRef> AddSection;
   std::vector<StringRef> DumpSection;
-  std::vector<StringRef> Keep;
-  std::vector<StringRef> OnlyKeep;
+  std::vector<StringRef> KeepSection;
+  std::vector<StringRef> OnlySection;
   std::vector<StringRef> SymbolsToGlobalize;
   std::vector<StringRef> SymbolsToKeep;
   std::vector<StringRef> SymbolsToLocalize;

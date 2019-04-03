@@ -21,6 +21,7 @@ add_spvtools_unittest(TARGET opt
        block_merge_test.cpp
        ccp_test.cpp
        cfg_cleanup_test.cpp
+       code_sink_test.cpp
        combine_access_chains_test.cpp
        common_uniform_elim_test.cpp
        compact_ids_test.cpp
@@ -38,6 +39,7 @@ add_spvtools_unittest(TARGET opt
        fold_spec_const_op_composite_test.cpp
        fold_test.cpp
        freeze_spec_const_test.cpp
+       function_test.cpp
        if_conversion_test.cpp
        inline_opaque_test.cpp
        inline_test.cpp
@@ -61,7 +63,6 @@ add_spvtools_unittest(TARGET opt
        pass_manager_test.cpp
        pass_merge_return_test.cpp
        pass_remove_duplicates_test.cpp
-       pass_test.cpp pass_utils.cpp
        pass_utils.cpp
        private_to_local_test.cpp
        process_lines_test.cpp
@@ -81,6 +82,7 @@ add_spvtools_unittest(TARGET opt
        type_manager_test.cpp
        types_test.cpp
        unify_const_test.cpp
+       upgrade_memory_model_test.cpp
        utils_test.cpp pass_utils.cpp
        value_table_test.cpp
        vector_dce_test.cpp

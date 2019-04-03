@@ -91,12 +91,11 @@ void MSP430MCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
   Offset = 2;
 
   uint64_t BinaryOpCode = getBinaryCodeForInstr(MI, Fixups, STI);
-  const uint16_t *Words = reinterpret_cast<uint16_t const *>(&BinaryOpCode);
   size_t WordCount = Size / 2;
 
-  for (size_t i = 0; i < WordCount; ++i) {
-    uint16_t Word = Words[i];
-    support::endian::write(OS, Word, support::little);
+  while (WordCount--) {
+    support::endian::write(OS, (uint16_t)BinaryOpCode, support::little);
+    BinaryOpCode >>= 16;
   }
 }
 
@@ -129,7 +128,7 @@ unsigned MSP430MCCodeEmitter::getMemOpValue(const MCInst &MI, unsigned Op,
   const MCOperand &MO2 = MI.getOperand(Op + 1);
   if (MO2.isImm()) {
     Offset += 2;
-    return (MO2.getImm() << 4) | Reg;
+    return ((unsigned)MO2.getImm() << 4) | Reg;
   }
 
   assert(MO2.isExpr() && "Expr operand expected");

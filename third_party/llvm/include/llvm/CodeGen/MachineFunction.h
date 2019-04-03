@@ -329,6 +329,7 @@ class MachineFunction {
   bool CallsUnwindInit = false;
   bool HasEHScopes = false;
   bool HasEHFunclets = false;
+  bool HasLocalEscape = false;
 
   /// List of C++ TypeInfo used.
   std::vector<const GlobalValue *> TypeInfos;
@@ -372,16 +373,18 @@ public:
 
   public:
     virtual ~Delegate() = default;
-    virtual void MF_HandleInsertion(const MachineInstr &MI) = 0;
-    virtual void MF_HandleRemoval(const MachineInstr &MI) = 0;
+    /// Callback after an insertion. This should not modify the MI directly.
+    virtual void MF_HandleInsertion(MachineInstr &MI) = 0;
+    /// Callback before a removal. This should not modify the MI directly.
+    virtual void MF_HandleRemoval(MachineInstr &MI) = 0;
   };
 
 private:
   Delegate *TheDelegate = nullptr;
 
   // Callbacks for insertion and removal.
-  void handleInsertion(const MachineInstr &MI);
-  void handleRemoval(const MachineInstr &MI);
+  void handleInsertion(MachineInstr &MI);
+  void handleRemoval(MachineInstr &MI);
   friend struct ilist_traits<MachineInstr>;
 
 public:
@@ -808,6 +811,9 @@ public:
 
   bool hasEHFunclets() const { return HasEHFunclets; }
   void setHasEHFunclets(bool V) { HasEHFunclets = V; }
+
+  bool hasLocalEscape() const { return HasLocalEscape; }
+  void setHasLocalEscape(bool V) { HasLocalEscape = V; }
 
   /// Find or create an LandingPadInfo for the specified MachineBasicBlock.
   LandingPadInfo &getOrCreateLandingPadInfo(MachineBasicBlock *LandingPad);

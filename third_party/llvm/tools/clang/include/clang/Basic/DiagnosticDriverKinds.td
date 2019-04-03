@@ -161,6 +161,9 @@ def warn_drv_yc_multiple_inputs_clang_cl : Warning<
   "support for '/Yc' with more than one source file not implemented yet; flag ignored">,
   InGroup<ClangClPch>;
 
+def err_drv_dllexport_inlines_and_fallback : Error<
+  "option '/Zc:dllexportInlines-' is ABI-changing and not compatible with '/fallback'">;
+
 def err_drv_invalid_value : Error<"invalid value '%1' in '%0'">;
 def err_drv_invalid_int_value : Error<"invalid integral value '%1' in '%0'">;
 def err_drv_invalid_remap_file : Error<
@@ -296,6 +299,9 @@ def err_analyzer_config_no_value : Error<
   "analyzer-config option '%0' has a key but no value">;
 def err_analyzer_config_multiple_values : Error<
   "analyzer-config option '%0' should contain only one '='">;
+def err_analyzer_config_invalid_input : Error<
+  "invalid input for analyzer-config option '%0', that expects %1 value">;
+def err_analyzer_config_unknown : Error<"unknown analyzer-config '%0'">;
 
 def err_drv_invalid_hvx_length : Error<
   "-mhvx-length is not supported without a -mhvx/-mhvx= flag">;
@@ -354,7 +360,7 @@ def warn_drv_unsupported_pic_with_mabicalls : Warning<
   "%select{implicit usage of|}1 -mabicalls and the N64 ABI">,
   InGroup<OptionIgnored>;
 def err_drv_unsupported_noabicalls_pic : Error<
-  "position-independent code requires ‘-mabicalls’">;
+  "position-independent code requires '-mabicalls'">;
 def err_drv_unsupported_indirect_jump_opt : Error<
   "'-mindirect-jump=%0' is unsupported with the '%1' architecture">;
 def err_drv_unknown_indirect_jump_opt : Error<
@@ -399,4 +405,24 @@ def warn_drv_experimental_isel_incomplete_opt : Warning<
 def warn_drv_moutline_unsupported_opt : Warning<
   "The '%0' architecture does not support -moutline; flag ignored">,
   InGroup<OptionIgnored>;
+
+def warn_drv_darwin_sdk_invalid_settings : Warning<
+  "SDK settings were ignored as 'SDKSettings.json' could not be parsed">,
+  InGroup<DiagGroup<"darwin-sdk-settings">>;
+
+def err_drv_trivial_auto_var_init_zero_disabled : Error<
+  "-ftrivial-auto-var-init=zero hasn't been enabled. Enable it at your own peril for benchmarking purpose only with "
+  "-enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang">;
+
+def warn_drv_msp430_hwmult_unsupported : Warning<"the given MCU does not "
+  "support hardware multiply, but -mhwmult is set to %0.">,
+   InGroup<InvalidCommandLineArgument>;
+def warn_drv_msp430_hwmult_mismatch : Warning<"the given MCU supports %0 "
+  "hardware multiply, but -mhwmult is set to %1.">,
+   InGroup<InvalidCommandLineArgument>;
+def warn_drv_msp430_hwmult_no_device : Warning<"no MCU device specified, but "
+  "'-mhwmult' is set to 'auto', assuming no hardware multiply. Use -mmcu to "
+  "specify a MSP430 device, or -mhwmult to set hardware multiply type "
+  "explicitly.">, InGroup<InvalidCommandLineArgument>;
+
 }

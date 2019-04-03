@@ -14,6 +14,7 @@
 
 #include "tests/DawnTest.h"
 
+#include "utils/ComboRenderPipelineDescriptor.h"
 #include "utils/DawnHelpers.h"
 
 #include <array>
@@ -23,28 +24,29 @@ constexpr static unsigned int kRTSize = 16;
 class DrawQuad {
     public:
         DrawQuad() {}
-        DrawQuad(dawn::Device* device, const char* vsSource, const char* fsSource)
+        DrawQuad(dawn::Device device, const char* vsSource, const char* fsSource)
             : device(device) {
-                vsModule = utils::CreateShaderModule(*device, dawn::ShaderStage::Vertex, vsSource);
-                fsModule = utils::CreateShaderModule(*device, dawn::ShaderStage::Fragment, fsSource);
+                vsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Vertex, vsSource);
+                fsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Fragment, fsSource);
 
-                pipelineLayout = utils::MakeBasicPipelineLayout(*device, nullptr);
+                pipelineLayout = utils::MakeBasicPipelineLayout(device, nullptr);
             }
 
         void Draw(dawn::RenderPassEncoder* pass) {
-            auto renderPipeline = device->CreateRenderPipelineBuilder()
-                .SetColorAttachmentFormat(0, dawn::TextureFormat::R8G8B8A8Unorm)
-                .SetLayout(pipelineLayout)
-                .SetStage(dawn::ShaderStage::Vertex, vsModule, "main")
-                .SetStage(dawn::ShaderStage::Fragment, fsModule, "main")
-                .GetResult();
 
-            pass->SetRenderPipeline(renderPipeline);
-            pass->DrawArrays(6, 1, 0, 0);
+            utils::ComboRenderPipelineDescriptor descriptor(device);
+            descriptor.layout = pipelineLayout;
+            descriptor.cVertexStage.module = vsModule;
+            descriptor.cFragmentStage.module = fsModule;
+
+            auto renderPipeline = device.CreateRenderPipeline(&descriptor);
+
+            pass->SetPipeline(renderPipeline);
+            pass->Draw(6, 1, 0, 0);
         }
 
     private:
-        dawn::Device* device = nullptr;
+        dawn::Device device;
         dawn::ShaderModule vsModule = {};
         dawn::ShaderModule fsModule = {};
         dawn::PipelineLayout pipelineLayout = {};
@@ -60,7 +62,8 @@ class RenderPassLoadOpTests : public DawnTest {
             descriptor.size.width = kRTSize;
             descriptor.size.height = kRTSize;
             descriptor.size.depth = 1;
-            descriptor.arrayLayer = 1;
+            descriptor.arraySize = 1;
+            descriptor.sampleCount = 1;
             descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
             descriptor.levelCount = 1;
             descriptor.usage = dawn::TextureUsageBit::OutputAttachment | dawn::TextureUsageBit::TransferSrc;
@@ -94,7 +97,7 @@ class RenderPassLoadOpTests : public DawnTest {
                     color = vec4(0.f, 0.f, 1.f, 1.f);
                 }
                 )";
-            blueQuad = DrawQuad(&device, vsSource, fsSource);
+            blueQuad = DrawQuad(device, vsSource, fsSource);
         }
 
         dawn::Texture renderTarget;
@@ -109,12 +112,16 @@ class RenderPassLoadOpTests : public DawnTest {
 
 // Tests clearing, loading, and drawing into color attachments
 TEST_P(RenderPassLoadOpTests, ColorClearThenLoadAndDraw) {
+    dawn::RenderPassColorAttachmentDescriptor colorAttachment;
+    colorAttachment.attachment = renderTargetView;
+    colorAttachment.resolveTarget = nullptr;
+    colorAttachment.clearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+    colorAttachment.loadOp = dawn::LoadOp::Clear;
+    colorAttachment.storeOp = dawn::StoreOp::Store;
 
     // Part 1: clear once, check to make sure it's cleared
-
     auto renderPassClearZero = device.CreateRenderPassDescriptorBuilder()
-        .SetColorAttachment(0, renderTargetView, dawn::LoadOp::Clear)
-        .SetColorAttachmentClearColor(0, 0.0f, 0.0f, 0.0f, 0.0f)
+        .SetColorAttachments(1, &colorAttachment)
         .GetResult();
 
     auto commandsClearZeroBuilder = device.CreateCommandBufferBuilder();
@@ -122,9 +129,10 @@ TEST_P(RenderPassLoadOpTests, ColorClearThenLoadAndDraw) {
     clearZeroPass.EndPass();
     auto commandsClearZero = commandsClearZeroBuilder.GetResult();
 
+    dawn::RenderPassColorAttachmentDescriptor colorAttachmentGreen = colorAttachment;
+    colorAttachmentGreen.clearColor = { 0.0f, 1.0f, 0.0f, 1.0f };
     auto renderPassClearGreen = device.CreateRenderPassDescriptorBuilder()
-        .SetColorAttachment(0, renderTargetView, dawn::LoadOp::Clear)
-        .SetColorAttachmentClearColor(0, 0.0f, 1.0f, 0.0f, 1.0f)
+        .SetColorAttachments(1, &colorAttachmentGreen)
         .GetResult();
 
     auto commandsClearGreenBuilder = device.CreateCommandBufferBuilder();
@@ -133,15 +141,16 @@ TEST_P(RenderPassLoadOpTests, ColorClearThenLoadAndDraw) {
     auto commandsClearGreen = commandsClearGreenBuilder.GetResult();
 
     queue.Submit(1, &commandsClearZero);
-    EXPECT_TEXTURE_RGBA8_EQ(expectZero.data(), renderTarget, 0, 0, kRTSize, kRTSize, 0);
+    EXPECT_TEXTURE_RGBA8_EQ(expectZero.data(), renderTarget, 0, 0, kRTSize, kRTSize, 0, 0);
 
     queue.Submit(1, &commandsClearGreen);
-    EXPECT_TEXTURE_RGBA8_EQ(expectGreen.data(), renderTarget, 0, 0, kRTSize, kRTSize, 0);
+    EXPECT_TEXTURE_RGBA8_EQ(expectGreen.data(), renderTarget, 0, 0, kRTSize, kRTSize, 0, 0);
 
     // Part 2: draw a blue quad into the right half of the render target, and check result
-
+    dawn::RenderPassColorAttachmentDescriptor colorAttachmentLoad = colorAttachment;
+    colorAttachmentLoad.loadOp = dawn::LoadOp::Load;
     auto renderPassLoad = device.CreateRenderPassDescriptorBuilder()
-        .SetColorAttachment(0, renderTargetView, dawn::LoadOp::Load)
+        .SetColorAttachments(1, &colorAttachmentLoad)
         .GetResult();
 
     dawn::CommandBuffer commandsLoad;
@@ -155,9 +164,9 @@ TEST_P(RenderPassLoadOpTests, ColorClearThenLoadAndDraw) {
 
     queue.Submit(1, &commandsLoad);
     // Left half should still be green
-    EXPECT_TEXTURE_RGBA8_EQ(expectGreen.data(), renderTarget, 0, 0, kRTSize / 2, kRTSize, 0);
+    EXPECT_TEXTURE_RGBA8_EQ(expectGreen.data(), renderTarget, 0, 0, kRTSize / 2, kRTSize, 0, 0);
     // Right half should now be blue
-    EXPECT_TEXTURE_RGBA8_EQ(expectBlue.data(), renderTarget, kRTSize / 2, 0, kRTSize / 2, kRTSize, 0);
+    EXPECT_TEXTURE_RGBA8_EQ(expectBlue.data(), renderTarget, kRTSize / 2, 0, kRTSize / 2, kRTSize, 0, 0);
 }
 
 DAWN_INSTANTIATE_TEST(RenderPassLoadOpTests, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend)

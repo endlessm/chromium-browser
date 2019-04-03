@@ -10,7 +10,6 @@
 #include "CGLoopInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
-#include "clang/Sema/LoopHint.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
@@ -22,11 +21,12 @@ using namespace llvm;
 
 static MDNode *createMetadata(LLVMContext &Ctx, const LoopAttributes &Attrs,
                               const llvm::DebugLoc &StartLoc,
-                              const llvm::DebugLoc &EndLoc) {
+                              const llvm::DebugLoc &EndLoc, MDNode *&AccGroup) {
 
   if (!Attrs.IsParallel && Attrs.VectorizeWidth == 0 &&
       Attrs.InterleaveCount == 0 && Attrs.UnrollCount == 0 &&
-      Attrs.UnrollAndJamCount == 0 &&
+      Attrs.UnrollAndJamCount == 0 && !Attrs.PipelineDisabled &&
+      Attrs.PipelineInitiationInterval == 0 &&
       Attrs.VectorizeEnable == LoopAttributes::Unspecified &&
       Attrs.UnrollEnable == LoopAttributes::Unspecified &&
       Attrs.UnrollAndJamEnable == LoopAttributes::Unspecified &&
@@ -123,6 +123,28 @@ static MDNode *createMetadata(LLVMContext &Ctx, const LoopAttributes &Attrs,
     Args.push_back(MDNode::get(Ctx, Vals));
   }
 
+  if (Attrs.IsParallel) {
+    AccGroup = MDNode::getDistinct(Ctx, {});
+    Args.push_back(MDNode::get(
+        Ctx, {MDString::get(Ctx, "llvm.loop.parallel_accesses"), AccGroup}));
+  }
+
+  if (Attrs.PipelineDisabled) {
+    Metadata *Vals[] = {
+        MDString::get(Ctx, "llvm.loop.pipeline.disable"),
+        ConstantAsMetadata::get(ConstantInt::get(
+            Type::getInt1Ty(Ctx), (Attrs.PipelineDisabled == true)))};
+    Args.push_back(MDNode::get(Ctx, Vals));
+  }
+
+  if (Attrs.PipelineInitiationInterval > 0) {
+    Metadata *Vals[] = {
+        MDString::get(Ctx, "llvm.loop.pipeline.initiationinterval"),
+        ConstantAsMetadata::get(ConstantInt::get(
+            Type::getInt32Ty(Ctx), Attrs.PipelineInitiationInterval))};
+    Args.push_back(MDNode::get(Ctx, Vals));
+  }
+
   // Set the first operand to itself.
   MDNode *LoopID = MDNode::get(Ctx, Args);
   LoopID->replaceOperandWith(0, LoopID);
@@ -134,7 +156,8 @@ LoopAttributes::LoopAttributes(bool IsParallel)
       UnrollEnable(LoopAttributes::Unspecified),
       UnrollAndJamEnable(LoopAttributes::Unspecified), VectorizeWidth(0),
       InterleaveCount(0), UnrollCount(0), UnrollAndJamCount(0),
-      DistributeEnable(LoopAttributes::Unspecified) {}
+      DistributeEnable(LoopAttributes::Unspecified), PipelineDisabled(false),
+      PipelineInitiationInterval(0) {}
 
 void LoopAttributes::clear() {
   IsParallel = false;
@@ -146,12 +169,15 @@ void LoopAttributes::clear() {
   UnrollEnable = LoopAttributes::Unspecified;
   UnrollAndJamEnable = LoopAttributes::Unspecified;
   DistributeEnable = LoopAttributes::Unspecified;
+  PipelineDisabled = false;
+  PipelineInitiationInterval = 0;
 }
 
 LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
                    const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc)
     : LoopID(nullptr), Header(Header), Attrs(Attrs) {
-  LoopID = createMetadata(Header->getContext(), Attrs, StartLoc, EndLoc);
+  LoopID =
+      createMetadata(Header->getContext(), Attrs, StartLoc, EndLoc, AccGroup);
 }
 
 void LoopInfoStack::push(BasicBlock *Header, const llvm::DebugLoc &StartLoc,
@@ -224,10 +250,14 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
       case LoopHintAttr::Distribute:
         setDistributeState(false);
         break;
+      case LoopHintAttr::PipelineDisabled:
+        setPipelineDisabled(true);
+        break;
       case LoopHintAttr::UnrollCount:
       case LoopHintAttr::UnrollAndJamCount:
       case LoopHintAttr::VectorizeWidth:
       case LoopHintAttr::InterleaveCount:
+      case LoopHintAttr::PipelineInitiationInterval:
         llvm_unreachable("Options cannot be disabled.");
         break;
       }
@@ -251,6 +281,8 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
       case LoopHintAttr::UnrollAndJamCount:
       case LoopHintAttr::VectorizeWidth:
       case LoopHintAttr::InterleaveCount:
+      case LoopHintAttr::PipelineDisabled:
+      case LoopHintAttr::PipelineInitiationInterval:
         llvm_unreachable("Options cannot enabled.");
         break;
       }
@@ -270,6 +302,8 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
       case LoopHintAttr::VectorizeWidth:
       case LoopHintAttr::InterleaveCount:
       case LoopHintAttr::Distribute:
+      case LoopHintAttr::PipelineDisabled:
+      case LoopHintAttr::PipelineInitiationInterval:
         llvm_unreachable("Options cannot be used to assume mem safety.");
         break;
       }
@@ -289,6 +323,8 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
       case LoopHintAttr::VectorizeWidth:
       case LoopHintAttr::InterleaveCount:
       case LoopHintAttr::Distribute:
+      case LoopHintAttr::PipelineDisabled:
+      case LoopHintAttr::PipelineInitiationInterval:
         llvm_unreachable("Options cannot be used with 'full' hint.");
         break;
       }
@@ -307,11 +343,15 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
       case LoopHintAttr::UnrollAndJamCount:
         setUnrollAndJamCount(ValueInt);
         break;
+      case LoopHintAttr::PipelineInitiationInterval:
+        setPipelineInitiationInterval(ValueInt);
+        break;
       case LoopHintAttr::Unroll:
       case LoopHintAttr::UnrollAndJam:
       case LoopHintAttr::Vectorize:
       case LoopHintAttr::Interleave:
       case LoopHintAttr::Distribute:
+      case LoopHintAttr::PipelineDisabled:
         llvm_unreachable("Options cannot be assigned a value.");
         break;
       }
@@ -329,6 +369,21 @@ void LoopInfoStack::pop() {
 }
 
 void LoopInfoStack::InsertHelper(Instruction *I) const {
+  if (I->mayReadOrWriteMemory()) {
+    SmallVector<Metadata *, 4> AccessGroups;
+    for (const LoopInfo &AL : Active) {
+      // Here we assume that every loop that has an access group is parallel.
+      if (MDNode *Group = AL.getAccessGroup())
+        AccessGroups.push_back(Group);
+    }
+    MDNode *UnionMD = nullptr;
+    if (AccessGroups.size() == 1)
+      UnionMD = cast<MDNode>(AccessGroups[0]);
+    else if (AccessGroups.size() >= 2)
+      UnionMD = MDNode::get(I->getContext(), AccessGroups);
+    I->setMetadata("llvm.access.group", UnionMD);
+  }
+
   if (!hasInfo())
     return;
 
@@ -343,19 +398,5 @@ void LoopInfoStack::InsertHelper(Instruction *I) const {
         break;
       }
     return;
-  }
-
-  if (I->mayReadOrWriteMemory()) {
-    SmallVector<Metadata *, 2> ParallelLoopIDs;
-    for (const LoopInfo &AL : Active)
-      if (AL.getAttributes().IsParallel)
-        ParallelLoopIDs.push_back(AL.getLoopID());
-
-    MDNode *ParallelMD = nullptr;
-    if (ParallelLoopIDs.size() == 1)
-      ParallelMD = cast<MDNode>(ParallelLoopIDs[0]);
-    else if (ParallelLoopIDs.size() >= 2)
-      ParallelMD = MDNode::get(I->getContext(), ParallelLoopIDs);
-    I->setMetadata("llvm.mem.parallel_loop_access", ParallelMD);
   }
 }

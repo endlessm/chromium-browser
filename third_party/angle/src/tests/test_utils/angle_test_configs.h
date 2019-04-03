@@ -17,24 +17,23 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
-#include "EGLWindow.h"
 #include "GLSLANG/ShaderLang.h"
 #include "angle_test_instantiate.h"
+#include "util/EGLPlatformParameters.h"
 
 namespace angle
 {
 
-struct CompilerParameters
+// The GLES driver type determines what shared object we use to load the GLES entry points.
+// AngleEGL loads from ANGLE's version of libEGL, libGLESv2, and libGLESv1_CM.
+// SystemEGL uses the system copies of libEGL, libGLESv2, and libGLESv1_CM.
+// SystemWGL loads Windows GL with the GLES compatiblity extensions. See util/WGLWindow.h.
+enum class GLESDriverType
 {
-    CompilerParameters();
-    CompilerParameters(ShShaderOutput output);
-
-    const char *str() const;
-
-    ShShaderOutput output;
+    AngleEGL,
+    SystemEGL,
+    SystemWGL,
 };
-
-std::ostream &operator<<(std::ostream &stream, const CompilerParameters &pp);
 
 struct PlatformParameters
 {
@@ -42,12 +41,14 @@ struct PlatformParameters
     PlatformParameters(EGLint majorVersion,
                        EGLint minorVersion,
                        const EGLPlatformParameters &eglPlatformParameters);
+    PlatformParameters(EGLint majorVersion, EGLint minorVersion, GLESDriverType driver);
 
     EGLint getRenderer() const;
 
     EGLint majorVersion;
     EGLint minorVersion;
     EGLPlatformParameters eglParameters;
+    GLESDriverType driver;
 };
 
 bool operator<(const PlatformParameters &a, const PlatformParameters &b);
@@ -174,6 +175,9 @@ PlatformParameters ES2_VULKAN();
 PlatformParameters ES2_VULKAN_NULL();
 PlatformParameters ES3_VULKAN();
 PlatformParameters ES3_VULKAN_NULL();
+
+PlatformParameters ES2_WGL();
+PlatformParameters ES3_WGL();
 
 }  // namespace angle
 

@@ -26,7 +26,6 @@
 #include "SkMD5.h"
 #include "SkMakeUnique.h"
 #include "SkMalloc.h"
-#include "SkMatrix44.h"
 #include "SkPixmap.h"
 #include "SkPngChunkReader.h"
 #include "SkPngEncoder.h"
@@ -169,9 +168,9 @@ static void test_in_stripes(skiatest::Reporter* r, SkCodec* codec, const SkImage
 }
 
 template<typename Codec>
-static void test_codec(skiatest::Reporter* r, Codec* codec, SkBitmap& bm, const SkImageInfo& info,
-        const SkISize& size, SkCodec::Result expectedResult, SkMD5::Digest* digest,
-        const SkMD5::Digest* goodDigest) {
+static void test_codec(skiatest::Reporter* r, const char* path, Codec* codec, SkBitmap& bm,
+        const SkImageInfo& info, const SkISize& size, SkCodec::Result expectedResult,
+        SkMD5::Digest* digest, const SkMD5::Digest* goodDigest) {
 
     REPORTER_ASSERT(r, info.dimensions() == size);
     bm.allocPixels(info);
@@ -195,16 +194,21 @@ static void test_codec(skiatest::Reporter* r, Codec* codec, SkBitmap& bm, const 
             // This will allow comparison even if the image is incomplete.
             bm565.eraseColor(SK_ColorBLACK);
 
-            REPORTER_ASSERT(r, expectedResult == codec->getPixels(info565,
-                    bm565.getPixels(), bm565.rowBytes()));
+            auto actualResult = codec->getPixels(info565, bm565.getPixels(), bm565.rowBytes());
+            if (actualResult == expectedResult) {
+                SkMD5::Digest digest565;
+                md5(bm565, &digest565);
 
-            SkMD5::Digest digest565;
-            md5(bm565, &digest565);
-
-            // A dumb client's request for non-opaque should also succeed.
-            for (auto alpha : { kPremul_SkAlphaType, kUnpremul_SkAlphaType }) {
-                info565 = info565.makeAlphaType(alpha);
-                test_info(r, codec, info565, expectedResult, &digest565);
+                // A request for non-opaque should also succeed.
+                for (auto alpha : { kPremul_SkAlphaType, kUnpremul_SkAlphaType }) {
+                    info565 = info565.makeAlphaType(alpha);
+                    test_info(r, codec, info565, expectedResult, &digest565);
+                }
+            } else {
+                ERRORF(r, "Decoding %s to 565 failed with result \"%s\"\n\t\t\t\texpected:\"%s\"",
+                          path,
+                          SkCodec::ResultToString(actualResult),
+                          SkCodec::ResultToString(expectedResult));
             }
         } else {
             test_info(r, codec, info565, SkCodec::kInvalidConversion, nullptr);
@@ -310,7 +314,7 @@ static void check(skiatest::Reporter* r,
     SkBitmap bm;
     SkCodec::Result expectedResult =
         supportsIncomplete ? SkCodec::kIncompleteInput : SkCodec::kSuccess;
-    test_codec(r, codec.get(), bm, info, size, expectedResult, &codecDigest, nullptr);
+    test_codec(r, path, codec.get(), bm, info, size, expectedResult, &codecDigest, nullptr);
 
     // Scanline decoding follows.
 
@@ -436,7 +440,7 @@ static void check(skiatest::Reporter* r,
 
         SkBitmap bm;
         SkMD5::Digest androidCodecDigest;
-        test_codec(r, androidCodec.get(), bm, info, size, expectedResult, &androidCodecDigest,
+        test_codec(r, path, androidCodec.get(), bm, info, size, expectedResult, &androidCodecDigest,
                    &codecDigest);
     }
 
@@ -1020,7 +1024,7 @@ static void check_color_xform(skiatest::Reporter* r, const char* path) {
 
     const int dstWidth = subsetWidth / opts.fSampleSize;
     const int dstHeight = subsetHeight / opts.fSampleSize;
-    auto colorSpace = SkColorSpace::MakeRGB(g2Dot2_TransferFn, SkColorSpace::kAdobeRGB_Gamut);
+    auto colorSpace = SkColorSpace::MakeRGB(SkNamedTransferFn::k2Dot2, SkNamedGamut::kAdobeRGB);
     SkImageInfo dstInfo = codec->getInfo().makeWH(dstWidth, dstHeight)
                                           .makeColorType(kN32_SkColorType)
                                           .makeColorSpace(colorSpace);
@@ -1586,22 +1590,21 @@ static void test_encode_icc(skiatest::Reporter* r, SkEncodedImageFormat format) 
 
     // Test with P3 color space.
     SkDynamicMemoryWStream p3Buf;
-    sk_sp<SkColorSpace> p3 = SkColorSpace::MakeRGB(SkColorSpace::kSRGB_RenderTargetGamma,
-                                                   SkColorSpace::kDCIP3_D65_Gamut);
+    sk_sp<SkColorSpace> p3 = SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kDCIP3);
     pixmap.setColorSpace(p3);
     encode_format(&p3Buf, pixmap, format);
     sk_sp<SkData> p3Data = p3Buf.detachAsData();
     std::unique_ptr<SkCodec> p3Codec(SkCodec::MakeFromData(p3Data));
     REPORTER_ASSERT(r, p3Codec->getInfo().colorSpace()->gammaCloseToSRGB());
-    SkMatrix44 mat0, mat1;
+    skcms_Matrix3x3 mat0, mat1;
     bool success = p3->toXYZD50(&mat0);
     REPORTER_ASSERT(r, success);
     success = p3Codec->getInfo().colorSpace()->toXYZD50(&mat1);
     REPORTER_ASSERT(r, success);
 
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 4; j++) {
-            REPORTER_ASSERT(r, color_space_almost_equal(mat0.get(i, j), mat1.get(i, j)));
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            REPORTER_ASSERT(r, color_space_almost_equal(mat0.vals[i][j], mat1.vals[i][j]));
         }
     }
 }

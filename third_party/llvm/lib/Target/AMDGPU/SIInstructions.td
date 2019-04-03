@@ -247,7 +247,7 @@ def SI_LOOP : CFPseudoInstSI <
   (outs), (ins SReg_64:$saved, brtarget:$target),
   [(AMDGPUloop i64:$saved, bb:$target)], 1, 1> {
   let Size = 8;
-  let isBranch = 0;
+  let isBranch = 1;
   let hasSideEffects = 1;
 }
 
@@ -307,6 +307,7 @@ def SI_ILLEGAL_COPY : SPseudoInstSI <
 def SI_BR_UNDEF : SPseudoInstSI <(outs), (ins sopp_brtarget:$simm16)> {
   let isTerminator = 1;
   let usesCustomInserter = 1;
+  let isBranch = 1;
 }
 
 def SI_PS_LIVE : PseudoInstSI <
@@ -579,7 +580,13 @@ def : Pat <
   (int_amdgcn_kill (i1 (setcc f32:$src, InlineFPImm<f32>:$imm, cond:$cond))),
   (SI_KILL_F32_COND_IMM_PSEUDO $src, (bitcast_fpimm_to_i32 $imm), (cond_as_i32imm $cond))
 >;
-// TODO: we could add more variants for other types of conditionals
+
+  // TODO: we could add more variants for other types of conditionals
+
+def : Pat <
+  (int_amdgcn_icmp i1:$src, (i1 0), (i32 33)),
+  (COPY $src) // Return the SGPRs representing i1 src
+>;
 
 //===----------------------------------------------------------------------===//
 // VOP1 Patterns
@@ -850,6 +857,8 @@ def : BitConvert <f64, v2f32, VReg_64>;
 def : BitConvert <v2f32, f64, VReg_64>;
 def : BitConvert <f64, v2i32, VReg_64>;
 def : BitConvert <v2i32, f64, VReg_64>;
+def : BitConvert <v4i16, v4f16, VReg_64>;
+def : BitConvert <v4f16, v4i16, VReg_64>;
 
 // FIXME: Make SGPR
 def : BitConvert <v2i32, v4f16, VReg_64>;
@@ -1535,15 +1544,15 @@ def : GCNPat <
 } // End SubtargetPredicate = HasVOP3PInsts
 
 
-// def : GCNPat <
-//   (v2f16 (scalar_to_vector f16:$src0)),
-//   (COPY $src0)
-// >;
+def : GCNPat <
+  (v2f16 (scalar_to_vector f16:$src0)),
+  (COPY $src0)
+>;
 
-// def : GCNPat <
-//   (v2i16 (scalar_to_vector i16:$src0)),
-//   (COPY $src0)
-// >;
+def : GCNPat <
+  (v2i16 (scalar_to_vector i16:$src0)),
+  (COPY $src0)
+>;
 
 def : GCNPat <
   (v4i16 (scalar_to_vector i16:$src0)),
@@ -1621,8 +1630,8 @@ defm : BFMPatterns <i32, S_BFM_B32, S_MOV_B32>;
 defm : BFEPattern <V_BFE_U32, V_BFE_I32, S_MOV_B32>;
 defm : SHA256MaPattern <V_BFI_B32, V_XOR_B32_e64, SReg_64>;
 
-def : IntMed3Pat<V_MED3_I32, smax, smax_oneuse, smin_oneuse>;
-def : IntMed3Pat<V_MED3_U32, umax, umax_oneuse, umin_oneuse>;
+defm : IntMed3Pat<V_MED3_I32, smin, smax, smin_oneuse, smax_oneuse>;
+defm : IntMed3Pat<V_MED3_U32, umin, umax, umin_oneuse, umax_oneuse>;
 
 }
 
@@ -1649,20 +1658,33 @@ class FP16Med3Pat<ValueType vt,
   (med3Inst $src0_mods, $src0, $src1_mods, $src1, $src2_mods, $src2, DSTCLAMP.NONE)
 >;
 
-class Int16Med3Pat<Instruction med3Inst,
+multiclass Int16Med3Pat<Instruction med3Inst,
+                   SDPatternOperator min,
                    SDPatternOperator max,
                    SDPatternOperator max_oneuse,
                    SDPatternOperator min_oneuse,
-                   ValueType vt = i32> : GCNPat<
+                   ValueType vt = i16> {
+  // This matches 16 permutations of
+  // max(min(x, y), min(max(x, y), z))
+  def : GCNPat <
   (max (min_oneuse vt:$src0, vt:$src1),
        (min_oneuse (max_oneuse vt:$src0, vt:$src1), vt:$src2)),
   (med3Inst SRCMODS.NONE, $src0, SRCMODS.NONE, $src1, SRCMODS.NONE, $src2, DSTCLAMP.NONE)
 >;
 
+  // This matches 16 permutations of
+  // min(max(a, b), max(min(a, b), c))
+  def : GCNPat <
+  (min (max_oneuse vt:$src0, vt:$src1),
+      (max_oneuse (min_oneuse vt:$src0, vt:$src1), vt:$src2)),
+  (med3Inst SRCMODS.NONE, $src0, SRCMODS.NONE, $src1, SRCMODS.NONE, $src2, DSTCLAMP.NONE)
+>;
+}
+
 def : FPMed3Pat<f32, V_MED3_F32>;
 
 let OtherPredicates = [isGFX9] in {
 def : FP16Med3Pat<f16, V_MED3_F16>;
-def : Int16Med3Pat<V_MED3_I16, smax, smax_oneuse, smin_oneuse, i16>;
-def : Int16Med3Pat<V_MED3_U16, umax, umax_oneuse, umin_oneuse, i16>;
+defm : Int16Med3Pat<V_MED3_I16, smin, smax, smax_oneuse, smin_oneuse>;
+defm : Int16Med3Pat<V_MED3_U16, umin, umax, umax_oneuse, umin_oneuse>;
 } // End Predicates = [isGFX9]

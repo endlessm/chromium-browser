@@ -93,7 +93,7 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
       const gfx::Rect& src_rect,
       const gfx::Size& output_size,
       base::OnceCallback<void(const SkBitmap&)> callback) override;
-  void EnsureSurfaceSynchronizedForLayoutTest() override;
+  void EnsureSurfaceSynchronizedForWebTest() override;
   uint32_t GetCaptureSequenceNumber() const override;
   void Show() override;
   void Hide() override;
@@ -212,11 +212,6 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
     return frame_connector_;
   }
 
-  // Returns the current surface scale factor.
-  float current_surface_scale_factor() {
-    return last_activated_surface_info_.device_scale_factor();
-  }
-
   // Returns the view into which this view is directly embedded. This can
   // return nullptr when this view's associated child frame is not connected
   // to the frame tree.
@@ -236,7 +231,6 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
   void UpdateRenderThrottlingStatus();
 
   ui::TextInputType GetTextInputType() const;
-  bool GetSelectionRange(gfx::Range* range) const;
 
   RenderWidgetHostViewBase* GetRootRenderWidgetHostView() const;
 

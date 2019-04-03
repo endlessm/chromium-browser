@@ -453,6 +453,38 @@ static void ARM64EmitUnwindCode(MCStreamer &streamer, const MCSymbol *begin,
   }
 }
 
+// Returns the epilog symbol of an epilog with the exact same unwind code
+// sequence, if it exists.  Otherwise, returns nulltpr.
+// EpilogInstrs - Unwind codes for the current epilog.
+// Epilogs - Epilogs that potentialy match the current epilog.
+static MCSymbol*
+FindMatchingEpilog(const std::vector<WinEH::Instruction>& EpilogInstrs,
+                   const std::vector<MCSymbol *>& Epilogs,
+                   const WinEH::FrameInfo *info) {
+  for (auto *EpilogStart : Epilogs) {
+    auto InstrsIter = info->EpilogMap.find(EpilogStart);
+    assert(InstrsIter != info->EpilogMap.end() &&
+           "Epilog not found in EpilogMap");
+    const auto &Instrs = InstrsIter->second;
+
+    if (Instrs.size() != EpilogInstrs.size())
+      continue;
+
+    bool Match = true;
+    for (unsigned i = 0; i < Instrs.size(); ++i)
+      if (Instrs[i].Operation != EpilogInstrs[i].Operation ||
+          Instrs[i].Offset != EpilogInstrs[i].Offset ||
+          Instrs[i].Register != EpilogInstrs[i].Register) {
+         Match = false;
+         break;
+      }
+
+    if (Match)
+      return EpilogStart;
+  }
+  return nullptr;
+}
+
 // Populate the .xdata section.  The format of .xdata on ARM64 is documented at
 // https://docs.microsoft.com/en-us/cpp/build/arm64-exception-handling
 static void ARM64EmitUnwindInfo(MCStreamer &streamer, WinEH::FrameInfo *info) {
@@ -468,27 +500,43 @@ static void ARM64EmitUnwindInfo(MCStreamer &streamer, WinEH::FrameInfo *info) {
   info->Symbol = Label;
 
   uint32_t FuncLength = 0x0;
-  FuncLength = (uint32_t)GetAbsDifference(streamer, info->FuncletOrFuncEnd,
-                                          info->Begin);
-  if (FuncLength)
-    FuncLength /= 4;
+  if (info->FuncletOrFuncEnd)
+    FuncLength = (uint32_t)GetAbsDifference(streamer, info->FuncletOrFuncEnd,
+                                            info->Begin);
+  FuncLength /= 4;
   uint32_t PrologCodeBytes = ARM64CountOfUnwindCodes(info->Instructions);
   uint32_t TotalCodeBytes = PrologCodeBytes;
 
   // Process epilogs.
   MapVector<MCSymbol *, uint32_t> EpilogInfo;
+  // Epilogs processed so far.
+  std::vector<MCSymbol *> AddedEpilogs;
+
   for (auto &I : info->EpilogMap) {
     MCSymbol *EpilogStart = I.first;
     auto &EpilogInstrs = I.second;
     uint32_t CodeBytes = ARM64CountOfUnwindCodes(EpilogInstrs);
-    EpilogInfo[EpilogStart] = TotalCodeBytes;
-    TotalCodeBytes += CodeBytes;
+
+    MCSymbol* MatchingEpilog =
+      FindMatchingEpilog(EpilogInstrs, AddedEpilogs, info);
+    if (MatchingEpilog) {
+      assert(EpilogInfo.find(MatchingEpilog) != EpilogInfo.end() &&
+             "Duplicate epilog not found");
+      EpilogInfo[EpilogStart] = EpilogInfo[MatchingEpilog];
+      // Clear the unwind codes in the EpilogMap, so that they don't get output
+      // in the logic below.
+      EpilogInstrs.clear();
+    } else {
+      EpilogInfo[EpilogStart] = TotalCodeBytes;
+      TotalCodeBytes += CodeBytes;
+      AddedEpilogs.push_back(EpilogStart);
+    }
   }
 
   // Code Words, Epilog count, E, X, Vers, Function Length
   uint32_t row1 = 0x0;
-  uint8_t CodeWords = TotalCodeBytes / 4;
-  uint8_t CodeWordsMod = TotalCodeBytes % 4;
+  uint32_t CodeWords = TotalCodeBytes / 4;
+  uint32_t CodeWordsMod = TotalCodeBytes % 4;
   if (CodeWordsMod)
     CodeWords++;
   uint32_t EpilogCount = info->EpilogMap.size();
@@ -505,6 +553,11 @@ static void ARM64EmitUnwindInfo(MCStreamer &streamer, WinEH::FrameInfo *info) {
 
   // Extended Code Words, Extended Epilog Count
   if (ExtensionWord) {
+    // FIXME: We should be able to split unwind info into multiple sections.
+    // FIXME: We should share epilog codes across epilogs, where possible,
+    // which would make this issue show up less frequently.
+    if (CodeWords > 0xFF || EpilogCount > 0xFFFF)
+      report_fatal_error("SEH unwind data splitting not yet implemented");
     uint32_t row2 = 0x0;
     row2 |= (CodeWords & 0xFF) << 16;
     row2 |= (EpilogCount & 0xFFFF);

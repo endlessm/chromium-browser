@@ -136,6 +136,7 @@ using namespace llvm;
 
 STATISTIC(NumFunctionsMerged, "Number of functions merged");
 STATISTIC(NumThunksWritten, "Number of thunks generated");
+STATISTIC(NumAliasesWritten, "Number of aliases generated");
 STATISTIC(NumDoubleWeak, "Number of new functions created");
 
 static cl::opt<unsigned> NumFunctionsForSanityCheck(
@@ -164,6 +165,11 @@ static cl::opt<bool>
                       cl::init(false),
                       cl::desc("Preserve debug info in thunk when mergefunc "
                                "transformations are made."));
+
+static cl::opt<bool>
+    MergeFunctionsAliases("mergefunc-use-aliases", cl::Hidden,
+                          cl::init(false),
+                          cl::desc("Allow mergefunc to create aliases"));
 
 namespace {
 
@@ -272,6 +278,13 @@ private:
   /// delete G.
   void writeThunk(Function *F, Function *G);
 
+  // Replace G with an alias to F (deleting function G)
+  void writeAlias(Function *F, Function *G);
+
+  // Replace G with an alias to F if possible, or a thunk to F if
+  // profitable. Returns false if neither is the case.
+  bool writeThunkOrAlias(Function *F, Function *G);
+
   /// Replace function F with function G in the function tree.
   void replaceFunctionInTree(const FunctionNode &FN, Function *G);
 
@@ -370,6 +383,12 @@ bool MergeFunctions::doSanityCheck(std::vector<WeakTrackingVH> &Worklist) {
 }
 #endif
 
+/// Check whether \p F is eligible for function merging.
+static bool isEligibleForMerging(Function &F) {
+  return !F.isDeclaration() && !F.hasAvailableExternallyLinkage() &&
+         !F.isVarArg();
+}
+
 bool MergeFunctions::runOnModule(Module &M) {
   if (skipModule(M))
     return false;
@@ -381,7 +400,7 @@ bool MergeFunctions::runOnModule(Module &M) {
   std::vector<std::pair<FunctionComparator::FunctionHash, Function *>>
     HashedFuncs;
   for (Function &Func : M) {
-    if (!Func.isDeclaration() && !Func.hasAvailableExternallyLinkage()) {
+    if (isEligibleForMerging(Func)) {
       HashedFuncs.push_back({FunctionComparator::functionHash(Func), &Func});
     }
   }
@@ -461,7 +480,7 @@ void MergeFunctions::replaceDirectCallers(Function *Old, Function *New) {
                                           NewPAL.getRetAttributes(),
                                           NewArgAttrs));
 
-      remove(CS.getInstruction()->getParent()->getParent());
+      remove(CS.getInstruction()->getFunction());
       U->set(BitcastNew);
     }
   }
@@ -680,8 +699,8 @@ void MergeFunctions::writeThunk(Function *F, Function *G) {
     GEntryBlock->getTerminator()->eraseFromParent();
     BB = GEntryBlock;
   } else {
-    NewG = Function::Create(G->getFunctionType(), G->getLinkage(), "",
-                            G->getParent());
+    NewG = Function::Create(G->getFunctionType(), G->getLinkage(),
+                            G->getAddressSpace(), "", G->getParent());
     BB = BasicBlock::Create(F->getContext(), "", NewG);
   }
 
@@ -735,27 +754,76 @@ void MergeFunctions::writeThunk(Function *F, Function *G) {
   ++NumThunksWritten;
 }
 
+// Whether this function may be replaced by an alias
+static bool canCreateAliasFor(Function *F) {
+  if (!MergeFunctionsAliases || !F->hasGlobalUnnamedAddr())
+    return false;
+
+  // We should only see linkages supported by aliases here
+  assert(F->hasLocalLinkage() || F->hasExternalLinkage()
+      || F->hasWeakLinkage() || F->hasLinkOnceLinkage());
+  return true;
+}
+
+// Replace G with an alias to F (deleting function G)
+void MergeFunctions::writeAlias(Function *F, Function *G) {
+  Constant *BitcastF = ConstantExpr::getBitCast(F, G->getType());
+  PointerType *PtrType = G->getType();
+  auto *GA = GlobalAlias::create(
+      PtrType->getElementType(), PtrType->getAddressSpace(),
+      G->getLinkage(), "", BitcastF, G->getParent());
+
+  F->setAlignment(std::max(F->getAlignment(), G->getAlignment()));
+  GA->takeName(G);
+  GA->setVisibility(G->getVisibility());
+  GA->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+
+  removeUsers(G);
+  G->replaceAllUsesWith(GA);
+  G->eraseFromParent();
+
+  LLVM_DEBUG(dbgs() << "writeAlias: " << GA->getName() << '\n');
+  ++NumAliasesWritten;
+}
+
+// Replace G with an alias to F if possible, or a thunk to F if
+// profitable. Returns false if neither is the case.
+bool MergeFunctions::writeThunkOrAlias(Function *F, Function *G) {
+  if (canCreateAliasFor(G)) {
+    writeAlias(F, G);
+    return true;
+  }
+  if (isThunkProfitable(F)) {
+    writeThunk(F, G);
+    return true;
+  }
+  return false;
+}
+
 // Merge two equivalent functions. Upon completion, Function G is deleted.
 void MergeFunctions::mergeTwoFunctions(Function *F, Function *G) {
   if (F->isInterposable()) {
     assert(G->isInterposable());
 
-    if (!isThunkProfitable(F)) {
+    // Both writeThunkOrAlias() calls below must succeed, either because we can
+    // create aliases for G and NewF, or because a thunk for F is profitable.
+    // F here has the same signature as NewF below, so that's what we check.
+    if (!isThunkProfitable(F) && (!canCreateAliasFor(F) || !canCreateAliasFor(G))) {
       return;
     }
 
     // Make them both thunks to the same internal function.
-    Function *H = Function::Create(F->getFunctionType(), F->getLinkage(), "",
-                                   F->getParent());
-    H->copyAttributesFrom(F);
-    H->takeName(F);
+    Function *NewF = Function::Create(F->getFunctionType(), F->getLinkage(),
+                                      F->getAddressSpace(), "", F->getParent());
+    NewF->copyAttributesFrom(F);
+    NewF->takeName(F);
     removeUsers(F);
-    F->replaceAllUsesWith(H);
+    F->replaceAllUsesWith(NewF);
 
-    unsigned MaxAlignment = std::max(G->getAlignment(), H->getAlignment());
+    unsigned MaxAlignment = std::max(G->getAlignment(), NewF->getAlignment());
 
-    writeThunk(F, G);
-    writeThunk(F, H);
+    writeThunkOrAlias(F, G);
+    writeThunkOrAlias(F, NewF);
 
     F->setAlignment(MaxAlignment);
     F->setLinkage(GlobalValue::PrivateLinkage);
@@ -783,18 +851,15 @@ void MergeFunctions::mergeTwoFunctions(Function *F, Function *G) {
     // If G was internal then we may have replaced all uses of G with F. If so,
     // stop here and delete G. There's no need for a thunk. (See note on
     // MergeFunctionsPDI above).
-    if (G->hasLocalLinkage() && G->use_empty() && !MergeFunctionsPDI) {
+    if (G->isDiscardableIfUnused() && G->use_empty() && !MergeFunctionsPDI) {
       G->eraseFromParent();
       ++NumFunctionsMerged;
       return;
     }
 
-    if (!isThunkProfitable(F)) {
-      return;
+    if (writeThunkOrAlias(F, G)) {
+      ++NumFunctionsMerged;
     }
-
-    writeThunk(F, G);
-    ++NumFunctionsMerged;
   }
 }
 
@@ -895,7 +960,7 @@ void MergeFunctions::removeUsers(Value *V) {
 
     for (User *U : V->users()) {
       if (Instruction *I = dyn_cast<Instruction>(U)) {
-        remove(I->getParent()->getParent());
+        remove(I->getFunction());
       } else if (isa<GlobalValue>(U)) {
         // do nothing
       } else if (Constant *C = dyn_cast<Constant>(U)) {

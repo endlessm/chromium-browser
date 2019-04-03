@@ -137,13 +137,15 @@ static cl::opt<std::string> PrintMachineInstrs(
     "print-machineinstrs", cl::ValueOptional, cl::desc("Print machine instrs"),
     cl::value_desc("pass-name"), cl::init("option-unspecified"), cl::Hidden);
 
-static cl::opt<int> EnableGlobalISelAbort(
+static cl::opt<GlobalISelAbortMode> EnableGlobalISelAbort(
     "global-isel-abort", cl::Hidden,
     cl::desc("Enable abort calls when \"global\" instruction selection "
-             "fails to lower/select an instruction: 0 disable the abort, "
-             "1 enable the abort, and "
-             "2 disable the abort but emit a diagnostic on failure"),
-    cl::init(1));
+             "fails to lower/select an instruction"),
+    cl::values(
+        clEnumValN(GlobalISelAbortMode::Disable, "0", "Disable the abort"),
+        clEnumValN(GlobalISelAbortMode::Enable, "1", "Enable the abort"),
+        clEnumValN(GlobalISelAbortMode::DisableWithDiag, "2",
+                   "Disable the abort but emit a diagnostic on failure")));
 
 // Temporary option to allow experimenting with MachineScheduler as a post-RA
 // scheduler. Targets can "properly" enable this with
@@ -343,11 +345,39 @@ static AnalysisID getPassIDFromName(StringRef PassName) {
   return PI ? PI->getTypeInfo() : nullptr;
 }
 
+static std::pair<StringRef, unsigned>
+getPassNameAndInstanceNum(StringRef PassName) {
+  StringRef Name, InstanceNumStr;
+  std::tie(Name, InstanceNumStr) = PassName.split(',');
+
+  unsigned InstanceNum = 0;
+  if (!InstanceNumStr.empty() && InstanceNumStr.getAsInteger(10, InstanceNum))
+    report_fatal_error("invalid pass instance specifier " + PassName);
+
+  return std::make_pair(Name, InstanceNum);
+}
+
 void TargetPassConfig::setStartStopPasses() {
-  StartBefore = getPassIDFromName(StartBeforeOpt);
-  StartAfter = getPassIDFromName(StartAfterOpt);
-  StopBefore = getPassIDFromName(StopBeforeOpt);
-  StopAfter = getPassIDFromName(StopAfterOpt);
+  StringRef StartBeforeName;
+  std::tie(StartBeforeName, StartBeforeInstanceNum) =
+    getPassNameAndInstanceNum(StartBeforeOpt);
+
+  StringRef StartAfterName;
+  std::tie(StartAfterName, StartAfterInstanceNum) =
+    getPassNameAndInstanceNum(StartAfterOpt);
+
+  StringRef StopBeforeName;
+  std::tie(StopBeforeName, StopBeforeInstanceNum)
+    = getPassNameAndInstanceNum(StopBeforeOpt);
+
+  StringRef StopAfterName;
+  std::tie(StopAfterName, StopAfterInstanceNum)
+    = getPassNameAndInstanceNum(StopAfterOpt);
+
+  StartBefore = getPassIDFromName(StartBeforeName);
+  StartAfter = getPassIDFromName(StartAfterName);
+  StopBefore = getPassIDFromName(StopBeforeName);
+  StopAfter = getPassIDFromName(StopAfterName);
   if (StartBefore && StartAfter)
     report_fatal_error(Twine(StartBeforeOptName) + Twine(" and ") +
                        Twine(StartAfterOptName) + Twine(" specified!"));
@@ -383,6 +413,9 @@ TargetPassConfig::TargetPassConfig(LLVMTargetMachine &TM, PassManagerBase &pm)
 
   if (TM.Options.EnableIPRA)
     setRequiresCodeGenSCCOrder();
+
+  if (EnableGlobalISelAbort.getNumOccurrences())
+    TM.Options.GlobalISelAbort = EnableGlobalISelAbort;
 
   setStartStopPasses();
 }
@@ -488,9 +521,9 @@ void TargetPassConfig::addPass(Pass *P, bool verifyAfter, bool printAfter) {
   // and shouldn't reference it.
   AnalysisID PassID = P->getPassID();
 
-  if (StartBefore == PassID)
+  if (StartBefore == PassID && StartBeforeCount++ == StartBeforeInstanceNum)
     Started = true;
-  if (StopBefore == PassID)
+  if (StopBefore == PassID && StopBeforeCount++ == StopBeforeInstanceNum)
     Stopped = true;
   if (Started && !Stopped) {
     std::string Banner;
@@ -513,9 +546,11 @@ void TargetPassConfig::addPass(Pass *P, bool verifyAfter, bool printAfter) {
   } else {
     delete P;
   }
-  if (StopAfter == PassID)
+
+  if (StopAfter == PassID && StopAfterCount++ == StopAfterInstanceNum)
     Stopped = true;
-  if (StartAfter == PassID)
+
+  if (StartAfter == PassID && StartAfterCount++ == StartAfterInstanceNum)
     Started = true;
   if (Stopped && !Started)
     report_fatal_error("Cannot stop compilation after pass that is not run");
@@ -720,18 +755,33 @@ void TargetPassConfig::addISelPrepare() {
 bool TargetPassConfig::addCoreISelPasses() {
   // Enable FastISel with -fast-isel, but allow that to be overridden.
   TM->setO0WantsFastISel(EnableFastISelOption != cl::BOU_FALSE);
-  if (EnableFastISelOption == cl::BOU_TRUE ||
-      (TM->getOptLevel() == CodeGenOpt::None && TM->getO0WantsFastISel()))
+
+  // Determine an instruction selector.
+  enum class SelectorType { SelectionDAG, FastISel, GlobalISel };
+  SelectorType Selector;
+
+  if (EnableFastISelOption == cl::BOU_TRUE)
+    Selector = SelectorType::FastISel;
+  else if (EnableGlobalISelOption == cl::BOU_TRUE ||
+           (TM->Options.EnableGlobalISel &&
+            EnableGlobalISelOption != cl::BOU_FALSE))
+    Selector = SelectorType::GlobalISel;
+  else if (TM->getOptLevel() == CodeGenOpt::None && TM->getO0WantsFastISel())
+    Selector = SelectorType::FastISel;
+  else
+    Selector = SelectorType::SelectionDAG;
+
+  // Set consistently TM->Options.EnableFastISel and EnableGlobalISel.
+  if (Selector == SelectorType::FastISel) {
     TM->setFastISel(true);
-
-  // Ask the target for an instruction selector.
-  // Explicitly enabling fast-isel should override implicitly enabled
-  // global-isel.
-  if (EnableGlobalISelOption == cl::BOU_TRUE ||
-      (EnableGlobalISelOption == cl::BOU_UNSET &&
-       TM->Options.EnableGlobalISel && EnableFastISelOption != cl::BOU_TRUE)) {
+    TM->setGlobalISel(false);
+  } else if (Selector == SelectorType::GlobalISel) {
     TM->setFastISel(false);
+    TM->setGlobalISel(true);
+  }
 
+  // Add instruction selector passes.
+  if (Selector == SelectorType::GlobalISel) {
     SaveAndRestore<bool> SavedAddingMachinePasses(AddingMachinePasses, true);
     if (addIRTranslator())
       return true;
@@ -990,7 +1040,8 @@ bool TargetPassConfig::getOptimizeRegAlloc() const {
 }
 
 /// RegisterRegAlloc's global Registry tracks allocator registration.
-MachinePassRegistry RegisterRegAlloc::Registry;
+MachinePassRegistry<RegisterRegAlloc::FunctionPassCtor>
+    RegisterRegAlloc::Registry;
 
 /// A dummy default pass factory indicates whether the register allocator is
 /// overridden on the command line.
@@ -1164,14 +1215,9 @@ void TargetPassConfig::addBlockPlacement() {
 /// GlobalISel Configuration
 //===---------------------------------------------------------------------===//
 bool TargetPassConfig::isGlobalISelAbortEnabled() const {
-  if (EnableGlobalISelAbort.getNumOccurrences() > 0)
-    return EnableGlobalISelAbort == 1;
-
-  // When no abort behaviour is specified, we don't abort if the target says
-  // that GISel is enabled.
-  return !TM->Options.EnableGlobalISel;
+  return TM->Options.GlobalISelAbort == GlobalISelAbortMode::Enable;
 }
 
 bool TargetPassConfig::reportDiagnosticWhenGlobalISelFallback() const {
-  return EnableGlobalISelAbort == 2;
+  return TM->Options.GlobalISelAbort == GlobalISelAbortMode::DisableWithDiag;
 }

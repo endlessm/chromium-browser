@@ -42,16 +42,12 @@ using namespace __tsan;  // NOLINT
 
 #if SANITIZER_NETBSD
 #define dirfd(dirp) (*(int *)(dirp))
-#define fileno_unlocked fileno
+#define fileno_unlocked(fp) \
+  (((__sanitizer_FILE*)fp)->_file == -1 ? -1 : \
+   (int)(unsigned short)(((__sanitizer_FILE*)fp)->_file))  // NOLINT
 
-#if _LP64
-#define __sF_size 152
-#else
-#define __sF_size 88
-#endif
-
-#define stdout ((char*)&__sF + (__sF_size * 1))
-#define stderr ((char*)&__sF + (__sF_size * 2))
+#define stdout ((__sanitizer_FILE*)&__sF[1])
+#define stderr ((__sanitizer_FILE*)&__sF[2])
 
 #define nanosleep __nanosleep50
 #define vfork __vfork14
@@ -96,8 +92,8 @@ DECLARE_REAL_AND_INTERCEPTOR(void *, malloc, uptr size)
 DECLARE_REAL_AND_INTERCEPTOR(void, free, void *ptr)
 extern "C" void *pthread_self();
 extern "C" void _exit(int status);
-extern "C" int fileno_unlocked(void *stream);
 #if !SANITIZER_NETBSD
+extern "C" int fileno_unlocked(void *stream);
 extern "C" int dirfd(void *dirp);
 #endif
 #if !SANITIZER_FREEBSD && !SANITIZER_ANDROID && !SANITIZER_NETBSD
@@ -228,6 +224,16 @@ void InitializeLibIgnore() {
   libignore()->OnLibraryLoaded(0);
 }
 
+// The following two hooks can be used by for cooperative scheduling when
+// locking.
+#ifdef TSAN_EXTERNAL_HOOKS
+void OnPotentiallyBlockingRegionBegin();
+void OnPotentiallyBlockingRegionEnd();
+#else
+SANITIZER_WEAK_CXX_DEFAULT_IMPL void OnPotentiallyBlockingRegionBegin() {}
+SANITIZER_WEAK_CXX_DEFAULT_IMPL void OnPotentiallyBlockingRegionEnd() {}
+#endif
+
 }  // namespace __tsan
 
 static ThreadSignalContext *SigCtx(ThreadState *thr) {
@@ -248,8 +254,7 @@ ScopedInterceptor::ScopedInterceptor(ThreadState *thr, const char *fname,
   if (!thr_->ignore_interceptors) FuncEntry(thr, pc);
   DPrintf("#%d: intercept %s()\n", thr_->tid, fname);
   ignoring_ =
-      !thr_->in_ignored_lib && (flags()->ignore_interceptors_accesses ||
-                                libignore()->IsIgnored(pc, &in_ignored_lib_));
+      !thr_->in_ignored_lib && libignore()->IsIgnored(pc, &in_ignored_lib_);
   EnableIgnores();
 }
 
@@ -866,6 +871,8 @@ TSAN_INTERCEPTOR(int, posix_memalign, void **memptr, uptr align, uptr sz) {
 // Used in thread-safe function static initialization.
 STDCXX_INTERCEPTOR(int, __cxa_guard_acquire, atomic_uint32_t *g) {
   SCOPED_INTERCEPTOR_RAW(__cxa_guard_acquire, g);
+  OnPotentiallyBlockingRegionBegin();
+  auto on_exit = at_scope_exit(&OnPotentiallyBlockingRegionEnd);
   for (;;) {
     u32 cmp = atomic_load(g, memory_order_acquire);
     if (cmp == 0) {
@@ -1043,6 +1050,35 @@ TSAN_INTERCEPTOR(int, pthread_detach, void *th) {
   }
   return res;
 }
+
+#if SANITIZER_LINUX
+TSAN_INTERCEPTOR(int, pthread_tryjoin_np, void *th, void **ret) {
+  SCOPED_TSAN_INTERCEPTOR(pthread_tryjoin_np, th, ret);
+  int tid = ThreadTid(thr, pc, (uptr)th);
+  ThreadIgnoreBegin(thr, pc);
+  int res = REAL(pthread_tryjoin_np)(th, ret);
+  ThreadIgnoreEnd(thr, pc);
+  if (res == 0)
+    ThreadJoin(thr, pc, tid);
+  else
+    ThreadNotJoined(thr, pc, tid, (uptr)th);
+  return res;
+}
+
+TSAN_INTERCEPTOR(int, pthread_timedjoin_np, void *th, void **ret,
+                 const struct timespec *abstime) {
+  SCOPED_TSAN_INTERCEPTOR(pthread_timedjoin_np, th, ret, abstime);
+  int tid = ThreadTid(thr, pc, (uptr)th);
+  ThreadIgnoreBegin(thr, pc);
+  int res = BLOCK_REAL(pthread_timedjoin_np)(th, ret, abstime);
+  ThreadIgnoreEnd(thr, pc);
+  if (res == 0)
+    ThreadJoin(thr, pc, tid);
+  else
+    ThreadNotJoined(thr, pc, tid, (uptr)th);
+  return res;
+}
+#endif
 
 // Problem:
 // NPTL implementation of pthread_cond has 2 versions (2.2.5 and 2.3.2).
@@ -2213,7 +2249,8 @@ static void HandleRecvmsg(ThreadState *thr, uptr pc,
   (void) ctx;
 
 #define COMMON_INTERCEPTOR_FILE_OPEN(ctx, file, path) \
-  Acquire(thr, pc, File2addr(path));                  \
+  if (path)                                           \
+    Acquire(thr, pc, File2addr(path));                \
   if (file) {                                         \
     int fd = fileno_unlocked(file);                   \
     if (fd >= 0) FdFileCreate(thr, pc, fd);           \
@@ -2640,6 +2677,10 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(pthread_create);
   TSAN_INTERCEPT(pthread_join);
   TSAN_INTERCEPT(pthread_detach);
+  #if SANITIZER_LINUX
+  TSAN_INTERCEPT(pthread_tryjoin_np);
+  TSAN_INTERCEPT(pthread_timedjoin_np);
+  #endif
 
   TSAN_INTERCEPT_VER(pthread_cond_init, PTHREAD_ABI_BASE);
   TSAN_INTERCEPT_VER(pthread_cond_signal, PTHREAD_ABI_BASE);

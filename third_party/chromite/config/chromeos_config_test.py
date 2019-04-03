@@ -454,6 +454,7 @@ def InsertHwTestsOverrideDefaults(build):
       hw_config.file_bugs = False
       hw_config.priority = constants.HWTEST_DEFAULT_PRIORITY
 
+
 def EnsureVmTestsOnVmTestBoards(site_config, boards_dict, _gs_build_config):
   """Make sure VMTests are only enabled on boards that support them.
 
@@ -469,24 +470,6 @@ def EnsureVmTestsOnVmTestBoards(site_config, boards_dict, _gs_build_config):
       if c.child_configs:
         for cc in c.child_configs:
           cc.apply(site_config.templates.no_vmtest_builder)
-
-
-def EnsureVmTestsOnBaremetal(site_config, _gs_build_config):
-  """Make sure VMTests have a builder than can run them.
-
-  Args:
-    site_config: config_lib.SiteConfig containing builds to have their
-                 waterfall values updated.
-    ge_build_config: Dictionary containing the decoded GE configuration file.
-  """
-  for c in site_config.itervalues():
-    # We can run vmtests on GCE because we are whitelisted for GCE L2 VM support
-    # and are migrating from baremetal to GCE.
-    if c.vm_tests or c.moblab_vm_tests:
-      # Special case betty-incremental which we want on gce, crbug.com/795976
-      if c['name'] == 'betty-incremental':
-        continue
-      c['buildslave_type'] = constants.BAREMETAL_BUILD_SLAVE_TYPE
 
 
 def ApplyCustomOverrides(site_config, ge_build_config):
@@ -653,6 +636,21 @@ def IncrementalBuilders(site_config):
   )
 
 
+def PostsubmitBuilders(site_config):
+  """Create all postsubmit test configs.
+
+  Args:
+    site_config: config_lib.SiteConfig to be modified by adding templates
+                 and configs.
+  """
+  for config in site_config.itervalues():
+    if config.name.endswith('postsubmit'):
+      config.apply(
+          site_config.templates.no_vmtest_builder,
+          site_config.templates.no_hwtest_builder,
+      )
+
+
 def GeneralTemplates(site_config, ge_build_config):
   """Apply test config to general templates
 
@@ -790,22 +788,7 @@ def GeneralTemplates(site_config, ge_build_config):
   # END Factory
 
   # BEGIN Firmware
-  site_config.templates.firmware_base.apply(
-      site_config.templates.no_vmtest_builder,
-  )
-
-  site_config.templates.firmware.apply(
-      # site_config.templates.default_hw_tests_override,
-      site_config.templates.no_vmtest_builder,
-  )
-
-  site_config.templates.depthcharge_firmware.apply(
-      # site_config.templates.default_hw_tests_override,
-      site_config.templates.no_vmtest_builder,
-  )
-
-  site_config.templates.depthcharge_full_firmware.apply(
-      # site_config.templates.default_hw_tests_override,
+  site_config.templates.firmwarebranch.apply(
       site_config.templates.no_vmtest_builder,
   )
   # END Firmware
@@ -952,8 +935,8 @@ def ApplyConfig(site_config, boards_dict, ge_build_config):
 
   IncrementalBuilders(site_config)
 
-  EnsureVmTestsOnVmTestBoards(site_config, boards_dict, ge_build_config)
+  PostsubmitBuilders(site_config)
 
-  EnsureVmTestsOnBaremetal(site_config, ge_build_config)
+  EnsureVmTestsOnVmTestBoards(site_config, boards_dict, ge_build_config)
 
   ApplyCustomOverrides(site_config, ge_build_config)

@@ -52,10 +52,12 @@ class HexagonSubtarget : public HexagonGenSubtargetInfo {
   bool UseNewValueJumps = false;
   bool UseNewValueStores = false;
   bool UseSmallData = false;
+  bool UseZRegOps = false;
 
   bool HasMemNoShuf = false;
   bool EnableDuplex = false;
   bool ReservedR19 = false;
+  bool NoreturnStackElim = false;
 
 public:
   Hexagon::ArchEnum HexagonArchVersion;
@@ -150,6 +152,12 @@ public:
   bool hasV65OpsOnly() const {
     return getHexagonArchVersion() == Hexagon::ArchEnum::V65;
   }
+  bool hasV66Ops() const {
+    return getHexagonArchVersion() >= Hexagon::ArchEnum::V66;
+  }
+  bool hasV66OpsOnly() const {
+    return getHexagonArchVersion() == Hexagon::ArchEnum::V66;
+  }
 
   bool useLongCalls() const { return UseLongCalls; }
   bool useMemops() const { return UseMemops; }
@@ -157,6 +165,7 @@ public:
   bool useNewValueJumps() const { return UseNewValueJumps; }
   bool useNewValueStores() const { return UseNewValueStores; }
   bool useSmallData() const { return UseSmallData; }
+  bool useZRegOps() const { return UseZRegOps; }
 
   bool useHVXOps() const {
     return HexagonHVXVersion > Hexagon::ArchEnum::NoArch;
@@ -167,6 +176,8 @@ public:
   bool hasMemNoShuf() const { return HasMemNoShuf; }
   bool hasReservedR19() const { return ReservedR19; }
   bool usePredicatedCalls() const;
+
+  bool noreturnStackElim() const { return NoreturnStackElim; }
 
   bool useBSBScheduling() const { return UseBSBScheduling; }
   bool enableMachineScheduler() const override;

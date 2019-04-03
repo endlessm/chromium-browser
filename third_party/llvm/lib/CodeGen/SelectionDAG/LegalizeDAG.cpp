@@ -1128,6 +1128,12 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
     Action = TLI.getOperationAction(Node->getOpcode(), Node->getValueType(0));
     break;
   }
+  case ISD::SMULFIX: {
+    unsigned Scale = Node->getConstantOperandVal(2);
+    Action = TLI.getFixedPointOperationAction(Node->getOpcode(),
+                                              Node->getValueType(0), Scale);
+    break;
+  }
   case ISD::MSCATTER:
     Action = TLI.getOperationAction(Node->getOpcode(),
                     cast<MaskedScatterSDNode>(Node)->getValue().getValueType());
@@ -1170,6 +1176,8 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
       }
     }
     break;
+    case ISD::FSHL:
+    case ISD::FSHR:
     case ISD::SRL_PARTS:
     case ISD::SRA_PARTS:
     case ISD::SHL_PARTS: {
@@ -2637,6 +2645,10 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
   SDValue Tmp1, Tmp2, Tmp3, Tmp4;
   bool NeedInvert;
   switch (Node->getOpcode()) {
+  case ISD::ABS:
+    if (TLI.expandABS(Node, Tmp1, DAG))
+      Results.push_back(Tmp1);
+    break;
   case ISD::CTPOP:
     if (TLI.expandCTPOP(Node, Tmp1, DAG))
       Results.push_back(Tmp1);
@@ -3262,13 +3274,25 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     }
     break;
   }
+  case ISD::FSHL:
+  case ISD::FSHR:
+    if (TLI.expandFunnelShift(Node, Tmp1, DAG))
+      Results.push_back(Tmp1);
+    break;
+  case ISD::ROTL:
+  case ISD::ROTR:
+    if (TLI.expandROT(Node, Tmp1, DAG))
+      Results.push_back(Tmp1);
+    break;
   case ISD::SADDSAT:
   case ISD::UADDSAT:
   case ISD::SSUBSAT:
-  case ISD::USUBSAT: {
-    Results.push_back(TLI.getExpandedSaturationAdditionSubtraction(Node, DAG));
+  case ISD::USUBSAT:
+    Results.push_back(TLI.expandAddSubSat(Node, DAG));
     break;
-  }
+  case ISD::SMULFIX:
+    Results.push_back(TLI.getExpandedFixedPointMultiplication(Node, DAG));
+    break;
   case ISD::SADDO:
   case ISD::SSUBO: {
     SDValue LHS = Node->getOperand(0);
@@ -3661,10 +3685,7 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     (void)Legalized;
     assert(Legalized && "Can't legalize BR_CC with legal condition!");
 
-    // If we expanded the SETCC by inverting the condition code, then wrap
-    // the existing SETCC in a NOT to restore the intended condition.
-    if (NeedInvert)
-      Tmp4 = DAG.getNOT(dl, Tmp4, Tmp4->getValueType(0));
+    assert(!NeedInvert && "Don't know how to invert BR_CC!");
 
     // If we expanded the SETCC by swapping LHS and RHS, create a new BR_CC
     // node.
@@ -3708,46 +3729,6 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     ReplaceNode(SDValue(Node, 0), Result);
     break;
   }
-  case ISD::ROTL:
-  case ISD::ROTR: {
-    bool IsLeft = Node->getOpcode() == ISD::ROTL;
-    SDValue Op0 = Node->getOperand(0), Op1 = Node->getOperand(1);
-    EVT ResVT = Node->getValueType(0);
-    EVT OpVT = Op0.getValueType();
-    assert(OpVT == ResVT &&
-           "The result and the operand types of rotate should match");
-    EVT ShVT = Op1.getValueType();
-    SDValue Width = DAG.getConstant(OpVT.getScalarSizeInBits(), dl, ShVT);
-
-    // If a rotate in the other direction is legal, use it.
-    unsigned RevRot = IsLeft ? ISD::ROTR : ISD::ROTL;
-    if (TLI.isOperationLegal(RevRot, ResVT)) {
-      SDValue Sub = DAG.getNode(ISD::SUB, dl, ShVT, Width, Op1);
-      Results.push_back(DAG.getNode(RevRot, dl, ResVT, Op0, Sub));
-      break;
-    }
-
-    // Otherwise,
-    //   (rotl x, c) -> (or (shl x, (and c, w-1)), (srl x, (and w-c, w-1)))
-    //   (rotr x, c) -> (or (srl x, (and c, w-1)), (shl x, (and w-c, w-1)))
-    //
-    assert(isPowerOf2_32(OpVT.getScalarSizeInBits()) &&
-           "Expecting the type bitwidth to be a power of 2");
-    unsigned ShOpc = IsLeft ? ISD::SHL : ISD::SRL;
-    unsigned HsOpc = IsLeft ? ISD::SRL : ISD::SHL;
-    SDValue Width1 = DAG.getNode(ISD::SUB, dl, ShVT,
-                                 Width, DAG.getConstant(1, dl, ShVT));
-    SDValue NegOp1 = DAG.getNode(ISD::SUB, dl, ShVT, Width, Op1);
-    SDValue And0 = DAG.getNode(ISD::AND, dl, ShVT, Op1, Width1);
-    SDValue And1 = DAG.getNode(ISD::AND, dl, ShVT, NegOp1, Width1);
-
-    SDValue Or = DAG.getNode(ISD::OR, dl, ResVT,
-                             DAG.getNode(ShOpc, dl, ResVT, Op0, And0),
-                             DAG.getNode(HsOpc, dl, ResVT, Op0, And1));
-    Results.push_back(Or);
-    break;
-  }
-
   case ISD::GLOBAL_OFFSET_TABLE:
   case ISD::GlobalAddress:
   case ISD::GlobalTLSAddress:
@@ -4549,6 +4530,24 @@ void SelectionDAGLegalize::PromoteNode(SDNode *Node) {
     SDValue Concat = DAG.getNode(ISD::CONCAT_VECTORS, SL, NVT, NewElts);
     SDValue CvtVec = DAG.getNode(ISD::BITCAST, SL, OVT, Concat);
     Results.push_back(CvtVec);
+    break;
+  }
+  case ISD::ATOMIC_SWAP: {
+    AtomicSDNode *AM = cast<AtomicSDNode>(Node);
+    SDLoc SL(Node);
+    SDValue CastVal = DAG.getNode(ISD::BITCAST, SL, NVT, AM->getVal());
+    assert(NVT.getSizeInBits() == OVT.getSizeInBits() &&
+           "unexpected promotion type");
+    assert(AM->getMemoryVT().getSizeInBits() == NVT.getSizeInBits() &&
+           "unexpected atomic_swap with illegal type");
+
+    SDValue NewAtomic
+      = DAG.getAtomic(ISD::ATOMIC_SWAP, SL, NVT,
+                      DAG.getVTList(NVT, MVT::Other),
+                      { AM->getChain(), AM->getBasePtr(), CastVal },
+                      AM->getMemOperand());
+    Results.push_back(DAG.getNode(ISD::BITCAST, SL, OVT, NewAtomic));
+    Results.push_back(NewAtomic.getValue(1));
     break;
   }
   }

@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2015-2016 The Khronos Group Inc.
- * Copyright (c) 2015-2016 Valve Corporation
- * Copyright (c) 2015-2016 LunarG, Inc.
- * Copyright (c) 2015-2016 Google, Inc.
+ * Copyright (c) 2015-2018 The Khronos Group Inc.
+ * Copyright (c) 2015-2018 Valve Corporation
+ * Copyright (c) 2015-2018 LunarG, Inc.
+ * Copyright (c) 2015-2018 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@
  */
 
 #define NOMINMAX
-#define VALIDATION_ERROR_MAP_IMPL
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,7 +42,6 @@
 #include "vk_layer_logging.h"
 #include "vk_layer_utils.h"
 #include "vk_enum_string_helper.h"
-#include "vk_validation_error_messages.h"
 #include "vk_object_types.h"
 #include "vk_extension_helper.h"
 #include "vulkan/vk_layer.h"
@@ -749,7 +747,8 @@ void *BuildUnwrappedUpdateTemplateBuffer(layer_data *dev_data, uint64_t descript
                     size_t numBytes = create_info.pDescriptorUpdateEntries[i].descriptorCount;
                     allocation_size = std::max(allocation_size, offset + numBytes);
                     // nothing to unwrap, just plain data
-                    template_entries.emplace_back(offset, kVulkanObjectTypeUnknown, reinterpret_cast<void *>(update_entry), numBytes);
+                    template_entries.emplace_back(offset, kVulkanObjectTypeUnknown, reinterpret_cast<void *>(update_entry),
+                                                  numBytes);
                     // to break out of the loop
                     j = create_info.pDescriptorUpdateEntries[i].descriptorCount;
                 } break;
@@ -773,11 +772,13 @@ void *BuildUnwrappedUpdateTemplateBuffer(layer_data *dev_data, uint64_t descript
         } else {
             switch (type) {
                 case kVulkanObjectTypeImage:
-                    *(reinterpret_cast<VkDescriptorImageInfo *>(destination)) = *(reinterpret_cast<VkDescriptorImageInfo *>(source));
+                    *(reinterpret_cast<VkDescriptorImageInfo *>(destination)) =
+                        *(reinterpret_cast<VkDescriptorImageInfo *>(source));
                     delete reinterpret_cast<VkDescriptorImageInfo *>(source);
                     break;
                 case kVulkanObjectTypeBuffer:
-                    *(reinterpret_cast<VkDescriptorBufferInfo *>(destination)) = *(reinterpret_cast<VkDescriptorBufferInfo *>(source));
+                    *(reinterpret_cast<VkDescriptorBufferInfo *>(destination)) =
+                        *(reinterpret_cast<VkDescriptorBufferInfo *>(source));
                     delete reinterpret_cast<VkDescriptorBufferInfo *>(source);
                     break;
                 case kVulkanObjectTypeBufferView:
@@ -851,7 +852,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceDisplayPropertiesKHR(VkPhysicalD
     if ((result == VK_SUCCESS || result == VK_INCOMPLETE) && pProperties) {
         std::lock_guard<std::mutex> lock(global_lock);
         for (uint32_t idx0 = 0; idx0 < *pPropertyCount; ++idx0) {
-            pProperties[idx0].display = WrapNew(pProperties[idx0].display);
+            pProperties[idx0].display = MaybeWrapDisplay(pProperties[idx0].display, my_map_data);
         }
     }
     return result;
@@ -866,7 +867,8 @@ VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceDisplayProperties2KHR(VkPhysical
     if ((result == VK_SUCCESS || result == VK_INCOMPLETE) && pProperties) {
         std::lock_guard<std::mutex> lock(global_lock);
         for (uint32_t idx0 = 0; idx0 < *pPropertyCount; ++idx0) {
-            pProperties[idx0].displayProperties.display = WrapNew(pProperties[idx0].displayProperties.display);
+            pProperties[idx0].displayProperties.display =
+                MaybeWrapDisplay(pProperties[idx0].displayProperties.display, my_map_data);
         }
     }
     return result;
@@ -882,7 +884,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceDisplayPlanePropertiesKHR(VkPhys
         std::lock_guard<std::mutex> lock(global_lock);
         for (uint32_t idx0 = 0; idx0 < *pPropertyCount; ++idx0) {
             VkDisplayKHR &opt_display = pProperties[idx0].currentDisplay;
-            if (opt_display) opt_display = WrapNew(opt_display);
+            if (opt_display) opt_display = MaybeWrapDisplay(opt_display, my_map_data);
         }
     }
     return result;
@@ -899,7 +901,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceDisplayPlaneProperties2KHR(VkPhy
         std::lock_guard<std::mutex> lock(global_lock);
         for (uint32_t idx0 = 0; idx0 < *pPropertyCount; ++idx0) {
             VkDisplayKHR &opt_display = pProperties[idx0].displayPlaneProperties.currentDisplay;
-            if (opt_display) opt_display = WrapNew(opt_display);
+            if (opt_display) opt_display = MaybeWrapDisplay(opt_display, my_map_data);
         }
     }
     return result;
@@ -913,10 +915,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetDisplayPlaneSupportedDisplaysKHR(VkPhysicalDev
     if ((result == VK_SUCCESS || result == VK_INCOMPLETE) && pDisplays) {
         std::lock_guard<std::mutex> lock(global_lock);
         for (uint32_t i = 0; i < *pDisplayCount; ++i) {
-            // TODO: this looks like it really wants a /reverse/ mapping. What's going on here?
-            auto it = unique_id_mapping.find(reinterpret_cast<const uint64_t &>(pDisplays[i]));
-            assert(it != unique_id_mapping.end());
-            pDisplays[i] = reinterpret_cast<VkDisplayKHR &>(it->second);
+            if (pDisplays[i]) pDisplays[i] = MaybeWrapDisplay(pDisplays[i], my_map_data);
         }
     }
     return result;

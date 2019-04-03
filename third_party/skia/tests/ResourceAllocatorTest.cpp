@@ -10,6 +10,7 @@
 #include "Test.h"
 
 #include "GrContextPriv.h"
+#include "GrDeinstantiateProxyTracker.h"
 #include "GrGpu.h"
 #include "GrProxyProvider.h"
 #include "GrResourceAllocator.h"
@@ -17,7 +18,6 @@
 #include "GrSurfaceProxyPriv.h"
 #include "GrTexture.h"
 #include "GrTextureProxy.h"
-#include "GrUninstantiateProxyTracker.h"
 
 #include "SkSurface.h"
 
@@ -69,7 +69,8 @@ static GrSurfaceProxy* make_backend(GrContext* context, const ProxyParams& p,
         return nullptr;
     }
 
-    auto tmp = proxyProvider->wrapBackendTexture(*backendTex, p.fOrigin);
+    auto tmp = proxyProvider->wrapBackendTexture(*backendTex, p.fOrigin, kBorrow_GrWrapOwnership,
+                                                 kRead_GrIOType);
     if (!tmp) {
         return nullptr;
     }
@@ -89,7 +90,8 @@ static void cleanup_backend(GrContext* context, const GrBackendTexture& backendT
 // assigned different GrSurfaces.
 static void overlap_test(skiatest::Reporter* reporter, GrResourceProvider* resourceProvider,
                          GrSurfaceProxy* p1, GrSurfaceProxy* p2, bool expectedResult) {
-    GrResourceAllocator alloc(resourceProvider);
+    GrDeinstantiateProxyTracker deinstantiateTracker;
+    GrResourceAllocator alloc(resourceProvider, &deinstantiateTracker);
 
     alloc.addInterval(p1, 0, 4);
     alloc.addInterval(p2, 1, 2);
@@ -97,8 +99,7 @@ static void overlap_test(skiatest::Reporter* reporter, GrResourceProvider* resou
 
     int startIndex, stopIndex;
     GrResourceAllocator::AssignError error;
-    GrUninstantiateProxyTracker uninstantiateTracker;
-    alloc.assign(&startIndex, &stopIndex, &uninstantiateTracker, &error);
+    alloc.assign(&startIndex, &stopIndex, &error);
     REPORTER_ASSERT(reporter, GrResourceAllocator::AssignError::kNoError == error);
 
     REPORTER_ASSERT(reporter, p1->peekSurface());
@@ -112,7 +113,8 @@ static void overlap_test(skiatest::Reporter* reporter, GrResourceProvider* resou
 static void non_overlap_test(skiatest::Reporter* reporter, GrResourceProvider* resourceProvider,
                              GrSurfaceProxy* p1, GrSurfaceProxy* p2,
                              bool expectedResult) {
-    GrResourceAllocator alloc(resourceProvider);
+    GrDeinstantiateProxyTracker deinstantiateTracker;
+    GrResourceAllocator alloc(resourceProvider, &deinstantiateTracker);
 
     alloc.addInterval(p1, 0, 2);
     alloc.addInterval(p2, 3, 5);
@@ -120,8 +122,7 @@ static void non_overlap_test(skiatest::Reporter* reporter, GrResourceProvider* r
 
     int startIndex, stopIndex;
     GrResourceAllocator::AssignError error;
-    GrUninstantiateProxyTracker uninstantiateTracker;
-    alloc.assign(&startIndex, &stopIndex, &uninstantiateTracker, &error);
+    alloc.assign(&startIndex, &stopIndex, &error);
     REPORTER_ASSERT(reporter, GrResourceAllocator::AssignError::kNoError == error);
 
     REPORTER_ASSERT(reporter, p1->peekSurface());
@@ -284,4 +285,77 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceAllocatorStressTest, reporter, ctxInf
 
     context->setResourceCacheLimits(maxNum, maxBytes);
     resourceProvider->testingOnly_setExplicitlyAllocateGPUResources(orig);
+}
+
+sk_sp<GrSurfaceProxy> make_lazy(GrProxyProvider* proxyProvider, const GrCaps* caps,
+                                const ProxyParams& p, bool deinstantiate) {
+    GrColorType grCT = SkColorTypeToGrColorType(p.fColorType);
+    GrPixelConfig config = GrColorTypeToPixelConfig(grCT, GrSRGBEncoded::kNo);
+
+    GrSurfaceDesc desc;
+    desc.fFlags = p.fIsRT ? kRenderTarget_GrSurfaceFlag : kNone_GrSurfaceFlags;
+    desc.fWidth = p.fSize;
+    desc.fHeight = p.fSize;
+    desc.fConfig = config;
+    desc.fSampleCnt = p.fSampleCnt;
+
+    SkBackingFit fit = p.fFit;
+    auto callback = [fit, desc](GrResourceProvider* resourceProvider) -> sk_sp<GrSurface> {
+        if (!resourceProvider) {
+            return nullptr;
+        }
+        if (fit == SkBackingFit::kApprox) {
+            return resourceProvider->createApproxTexture(desc, GrResourceProvider::Flags::kNone);
+        } else {
+            return resourceProvider->createTexture(desc, SkBudgeted::kNo);
+        }
+    };
+    const GrBackendFormat format = caps->getBackendFormatFromColorType(p.fColorType);
+    auto lazyType = deinstantiate ? GrSurfaceProxy::LazyInstantiationType ::kDeinstantiate
+                                  : GrSurfaceProxy::LazyInstantiationType ::kSingleUse;
+    GrInternalSurfaceFlags flags = GrInternalSurfaceFlags::kNone;
+    return proxyProvider->createLazyProxy(callback, format, desc, p.fOrigin, GrMipMapped::kNo,
+                                          flags, p.fFit, SkBudgeted::kNo, lazyType);
+}
+
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(LazyDeinstantiation, reporter, ctxInfo) {
+    GrContext* context = ctxInfo.grContext();
+    GrResourceProvider* resourceProvider = ctxInfo.grContext()->contextPriv().resourceProvider();
+    for (auto explicitlyAllocating : {false, true}) {
+        resourceProvider->testingOnly_setExplicitlyAllocateGPUResources(explicitlyAllocating);
+        ProxyParams texParams;
+        texParams.fFit = SkBackingFit::kExact;
+        texParams.fOrigin = kTopLeft_GrSurfaceOrigin;
+        texParams.fColorType = kRGBA_8888_SkColorType;
+        texParams.fIsRT = false;
+        texParams.fSampleCnt = 1;
+        texParams.fSize = 100;
+        ProxyParams rtParams = texParams;
+        rtParams.fIsRT = true;
+        auto proxyProvider = context->contextPriv().proxyProvider();
+        auto caps = context->contextPriv().caps();
+        auto p0 = make_lazy(proxyProvider, caps, texParams, true);
+        auto p1 = make_lazy(proxyProvider, caps, texParams, false);
+        texParams.fFit = rtParams.fFit = SkBackingFit::kApprox;
+        auto p2 = make_lazy(proxyProvider, caps, rtParams, true);
+        auto p3 = make_lazy(proxyProvider, caps, rtParams, false);
+
+        GrDeinstantiateProxyTracker deinstantiateTracker;
+        {
+            GrResourceAllocator alloc(resourceProvider, &deinstantiateTracker);
+            alloc.addInterval(p0.get(), 0, 1);
+            alloc.addInterval(p1.get(), 0, 1);
+            alloc.addInterval(p2.get(), 0, 1);
+            alloc.addInterval(p3.get(), 0, 1);
+            alloc.markEndOfOpList(0);
+            int startIndex, stopIndex;
+            GrResourceAllocator::AssignError error;
+            alloc.assign(&startIndex, &stopIndex, &error);
+        }
+        deinstantiateTracker.deinstantiateAllProxies();
+        REPORTER_ASSERT(reporter, !p0->isInstantiated());
+        REPORTER_ASSERT(reporter, p1->isInstantiated());
+        REPORTER_ASSERT(reporter, !p2->isInstantiated());
+        REPORTER_ASSERT(reporter, p3->isInstantiated());
+    }
 }

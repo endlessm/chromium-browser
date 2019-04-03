@@ -308,6 +308,9 @@ public:
         : DAGUpdateListener(DAG), Callback(std::move(Callback)) {}
 
     void NodeDeleted(SDNode *N, SDNode *E) override { Callback(N, E); }
+
+   private:
+    virtual void anchor();
   };
 
   /// When true, additional steps are taken to
@@ -929,40 +932,44 @@ public:
                           Type *SizeTy, unsigned ElemSz, bool isTailCall,
                           MachinePointerInfo DstPtrInfo);
 
-  /// Helper function to make it easier to build SetCC's if you just
-  /// have an ISD::CondCode instead of an SDValue.
-  ///
+  /// Helper function to make it easier to build SetCC's if you just have an
+  /// ISD::CondCode instead of an SDValue.
   SDValue getSetCC(const SDLoc &DL, EVT VT, SDValue LHS, SDValue RHS,
                    ISD::CondCode Cond) {
     assert(LHS.getValueType().isVector() == RHS.getValueType().isVector() &&
-      "Cannot compare scalars to vectors");
+           "Cannot compare scalars to vectors");
     assert(LHS.getValueType().isVector() == VT.isVector() &&
-      "Cannot compare scalars to vectors");
+           "Cannot compare scalars to vectors");
     assert(Cond != ISD::SETCC_INVALID &&
-        "Cannot create a setCC of an invalid node.");
+           "Cannot create a setCC of an invalid node.");
     return getNode(ISD::SETCC, DL, VT, LHS, RHS, getCondCode(Cond));
   }
 
-  /// Helper function to make it easier to build Select's if you just
-  /// have operands and don't want to check for vector.
+  /// Helper function to make it easier to build Select's if you just have
+  /// operands and don't want to check for vector.
   SDValue getSelect(const SDLoc &DL, EVT VT, SDValue Cond, SDValue LHS,
                     SDValue RHS) {
     assert(LHS.getValueType() == RHS.getValueType() &&
            "Cannot use select on differing types");
     assert(VT.isVector() == LHS.getValueType().isVector() &&
            "Cannot mix vectors and scalars");
-    return getNode(Cond.getValueType().isVector() ? ISD::VSELECT : ISD::SELECT, DL, VT,
-                   Cond, LHS, RHS);
+    auto Opcode = Cond.getValueType().isVector() ? ISD::VSELECT : ISD::SELECT;
+    return getNode(Opcode, DL, VT, Cond, LHS, RHS);
   }
 
-  /// Helper function to make it easier to build SelectCC's if you
-  /// just have an ISD::CondCode instead of an SDValue.
-  ///
+  /// Helper function to make it easier to build SelectCC's if you just have an
+  /// ISD::CondCode instead of an SDValue.
   SDValue getSelectCC(const SDLoc &DL, SDValue LHS, SDValue RHS, SDValue True,
                       SDValue False, ISD::CondCode Cond) {
-    return getNode(ISD::SELECT_CC, DL, True.getValueType(),
-                   LHS, RHS, True, False, getCondCode(Cond));
+    return getNode(ISD::SELECT_CC, DL, True.getValueType(), LHS, RHS, True,
+                   False, getCondCode(Cond));
   }
+
+  /// Try to simplify a select/vselect into 1 of its operands or a constant.
+  SDValue simplifySelect(SDValue Cond, SDValue TVal, SDValue FVal);
+
+  /// Try to simplify a shift into 1 of its operands or a constant.
+  SDValue simplifyShift(SDValue X, SDValue Y);
 
   /// VAArg produces a result and token chain, and takes a pointer
   /// and a source value as input.
@@ -1123,6 +1130,13 @@ public:
 
   /// Expand the specified \c ISD::VACOPY node as the Legalize pass would.
   SDValue expandVACopy(SDNode *Node);
+
+  /// Returs an GlobalAddress of the function from the current module with
+  /// name matching the given ExternalSymbol. Additionally can provide the
+  /// matched function.
+  /// Panics the function doesn't exists.
+  SDValue getSymbolFunctionGlobalAddress(SDValue Op,
+                                         Function **TargetFunction = nullptr);
 
   /// *Mutate* the specified node in-place to have the
   /// specified operands.  If the resultant node already exists in the DAG,
@@ -1428,18 +1442,6 @@ public:
   KnownBits computeKnownBits(SDValue Op, const APInt &DemandedElts,
                              unsigned Depth = 0) const;
 
-  /// \copydoc SelectionDAG::computeKnownBits(SDValue,unsigned)
-  void computeKnownBits(SDValue Op, KnownBits &Known,
-                        unsigned Depth = 0) const {
-    Known = computeKnownBits(Op, Depth);
-  }
-
-  /// \copydoc SelectionDAG::computeKnownBits(SDValue,const APInt&,unsigned)
-  void computeKnownBits(SDValue Op, KnownBits &Known, const APInt &DemandedElts,
-                        unsigned Depth = 0) const {
-    Known = computeKnownBits(Op, DemandedElts, Depth);
-  }
-
   /// Used to represent the possible overflow behavior of an operation.
   /// Never: the operation cannot overflow.
   /// Always: the operation will always overflow.
@@ -1510,6 +1512,18 @@ public:
   /// Return true if A and B have no common bits set. As an example, this can
   /// allow an 'add' to be transformed into an 'or'.
   bool haveNoCommonBitsSet(SDValue A, SDValue B) const;
+
+  /// Test whether \p V has a splatted value for all the demanded elements.
+  ///
+  /// On success \p UndefElts will indicate the elements that have UNDEF
+  /// values instead of the splat value, this is only guaranteed to be correct
+  /// for \p DemandedElts.
+  ///
+  /// NOTE: The function will return true for a demanded splat of UNDEF values.
+  bool isSplatValue(SDValue V, const APInt &DemandedElts, APInt &UndefElts);
+
+  /// Test whether \p V has a splatted value.
+  bool isSplatValue(SDValue V, bool AllowUndefs = false);
 
   /// Match a binop + shuffle pyramid that represents a horizontal reduction
   /// over the elements of a vector starting from the EXTRACT_VECTOR_ELT node /p

@@ -78,7 +78,7 @@
 #include "chrome/browser/metrics/renderer_uptime_tracker.h"
 #include "chrome/browser/metrics/thread_watcher.h"
 #include "chrome/browser/nacl_host/nacl_browser_delegate_impl.h"
-#include "chrome/browser/performance_monitor/performance_monitor.h"
+#include "chrome/browser/performance_monitor/process_monitor.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
 #include "chrome/browser/prefs/chrome_command_line_pref_store.h"
@@ -212,7 +212,8 @@
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chromeos/chromeos_switches.h"
+#include "chrome/browser/chromeos/settings/stats_reporting_controller.h"
+#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/settings/cros_settings_names.h"
 #endif  // defined(OS_CHROMEOS)
 
@@ -301,6 +302,9 @@
 #if BUILDFLAG(ENABLE_VR)
 #include "chrome/browser/component_updater/vr_assets_component_installer.h"
 #include "chrome/browser/vr/service/vr_service_impl.h"
+#if defined(OS_WIN)
+#include "chrome/browser/vr/ui_host/vr_ui_host_impl.h"
+#endif
 #endif
 
 #if BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)
@@ -325,11 +329,6 @@
 using content::BrowserThread;
 
 namespace {
-
-struct ApplicationLocaleResult {
-  std::string actual_locale;
-  std::string preferred_locale;
-};
 
 #if !defined(OS_ANDROID)
 // Holds the RunLoop for the non-Android MainMessageLoopRun() to Run().
@@ -620,22 +619,6 @@ std::unique_ptr<ThreadProfiler> CreateAndStartBrowserMainThreadProfiler() {
 
 }  // namespace
 
-namespace chrome_browser {
-
-// This error message is not localized because we failed to load the
-// localization data files.
-#if defined(OS_WIN)
-const char kMissingLocaleDataTitle[] = "Missing File Error";
-#endif  // defined(OS_WIN)
-
-#if defined(OS_WIN)
-// TODO(port) This should be used on Linux Aura as well. http://crbug.com/338969
-const char kMissingLocaleDataMessage[] =
-    "Unable to find locale data files. Please reinstall.";
-#endif  // defined(OS_WIN)
-
-}  // namespace chrome_browser
-
 // BrowserMainParts ------------------------------------------------------------
 
 ChromeBrowserMainParts::ChromeBrowserMainParts(
@@ -915,16 +898,16 @@ int ChromeBrowserMainParts::OnLocalStateLoaded(
   }
 #endif  // defined(OS_WIN)
 
-  if (browser_process_->actual_locale().empty()) {
+  std::string locale = chrome_feature_list_creator_->actual_locale();
+  if (locale.empty()) {
     *failed_to_load_resource_bundle = true;
     return chrome::RESULT_CODE_MISSING_DATA;
   }
+  browser_process_->SetApplicationLocale(locale);
 
   const int apply_first_run_result = ApplyFirstRunPrefs();
   if (apply_first_run_result != service_manager::RESULT_CODE_NORMAL_EXIT)
     return apply_first_run_result;
-
-  browser_process_->SetApplicationLocale(browser_process_->actual_locale());
 
   SetupOriginTrialsCommandLine(browser_process_->local_state());
 
@@ -1008,6 +991,7 @@ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
 
 #if defined(OS_CHROMEOS)
   chromeos::CrosSettings::Initialize(local_state);
+  chromeos::StatsReportingController::Initialize(local_state);
 #endif  // defined(OS_CHROMEOS)
 
   {
@@ -1090,7 +1074,11 @@ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
 #if BUILDFLAG(ENABLE_VR)
   content::WebvrServiceProvider::SetWebvrServiceCallback(
       base::Bind(&vr::VRServiceImpl::Create));
-#endif
+
+#if defined(OS_WIN)
+  vr::VRUiHost::SetFactory(&vr::VRUiHostImpl::Create);
+#endif  // defined(OS_WIN)
+#endif  // BUILDFLAG(ENABLE_VR)
 
   // Enable Navigation Tracing only if a trace upload url is specified.
   if (parsed_command_line_.HasSwitch(switches::kEnableNavigationTracing) &&
@@ -1135,7 +1123,7 @@ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
       (local_state->IsManagedPreference(prefs::kIsolateOrigins) &&
        local_state->GetString(prefs::kIsolateOrigins).empty())) {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kDisableSiteIsolation);
+        switches::kDisableSiteIsolationForPolicy);
   }
 
   // ChromeOS needs ui::ResourceBundle::InitSharedInstance to be called before
@@ -1510,10 +1498,6 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
 
   // Profile creation ----------------------------------------------------------
 
-  metrics::MetricsService::SetExecutionPhase(
-      metrics::ExecutionPhase::CREATE_PROFILE,
-      g_browser_process->local_state());
-
   UMA_HISTOGRAM_TIMES("Startup.PreMainMessageLoopRunImplStep1Time",
                       base::TimeTicks::Now() - start_time_step1);
 
@@ -1675,9 +1659,6 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
   // Start watching for hangs during startup. We disarm this hang detector when
   // ThreadWatcher takes over or when browser is shutdown or when
   // startup_watcher_ is deleted.
-  metrics::MetricsService::SetExecutionPhase(
-      metrics::ExecutionPhase::STARTUP_TIMEBOMB_ARM,
-      g_browser_process->local_state());
   startup_watcher_->Arm(base::TimeDelta::FromSeconds(600));
 #endif  // !defined(OS_ANDROID)
 
@@ -1700,9 +1681,6 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
 #endif
 
   // Start watching all browser threads for responsiveness.
-  metrics::MetricsService::SetExecutionPhase(
-      metrics::ExecutionPhase::THREAD_WATCHER_START,
-      g_browser_process->local_state());
   ThreadWatcherList::StartWatchingAll(parsed_command_line());
 
   // This has to come before the first GetInstance() call. PreBrowserStart()
@@ -1878,11 +1856,8 @@ bool ChromeBrowserMainParts::MainMessageLoopRun(int* result_code) {
 
   DCHECK(base::MessageLoopCurrentForUI::IsSet());
 
-  performance_monitor::PerformanceMonitor::GetInstance()->StartGatherCycle();
+  performance_monitor::ProcessMonitor::GetInstance()->StartGatherCycle();
 
-  metrics::MetricsService::SetExecutionPhase(
-      metrics::ExecutionPhase::MAIN_MESSAGE_LOOP_RUN,
-      g_browser_process->local_state());
   g_run_loop->Run();
 
   return true;
@@ -1898,9 +1873,6 @@ void ChromeBrowserMainParts::PostMainMessageLoopRun() {
 #else
   // Start watching for jank during shutdown. It gets disarmed when
   // |shutdown_watcher_| object is destructed.
-  metrics::MetricsService::SetExecutionPhase(
-      metrics::ExecutionPhase::SHUTDOWN_TIMEBOMB_ARM,
-      g_browser_process->local_state());
   shutdown_watcher_->Arm(base::TimeDelta::FromSeconds(300));
 
   // Disarm the startup hang detector time bomb if it is still Arm'ed.
@@ -1974,6 +1946,7 @@ void ChromeBrowserMainParts::PostDestroyThreads() {
   CHECK(metrics::MetricsService::UmaMetricsProperlyShutdown());
 
 #if defined(OS_CHROMEOS)
+  chromeos::StatsReportingController::Shutdown();
   chromeos::CrosSettings::Shutdown();
 #endif  // defined(OS_CHROMEOS)
 #endif  // defined(OS_ANDROID)

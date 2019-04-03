@@ -52,7 +52,17 @@ static WasmYAML::Limits make_limits(const wasm::WasmLimits &Limits) {
 std::unique_ptr<WasmYAML::CustomSection>
 WasmDumper::dumpCustomSection(const WasmSection &WasmSec) {
   std::unique_ptr<WasmYAML::CustomSection> CustomSec;
-  if (WasmSec.Name == "name") {
+  if (WasmSec.Name == "dylink") {
+    std::unique_ptr<WasmYAML::DylinkSection> DylinkSec =
+        make_unique<WasmYAML::DylinkSection>();
+    const wasm::WasmDylinkInfo& Info = Obj.dylinkInfo();
+    DylinkSec->MemorySize = Info.MemorySize;
+    DylinkSec->MemoryAlignment = Info.MemoryAlignment;
+    DylinkSec->TableSize = Info.TableSize;
+    DylinkSec->TableAlignment = Info.TableAlignment;
+    DylinkSec->Needed = Info.Needed;
+    CustomSec = std::move(DylinkSec);
+  } else if (WasmSec.Name == "name") {
     std::unique_ptr<WasmYAML::NameSection> NameSec =
         make_unique<WasmYAML::NameSection>();
     for (const llvm::wasm::WasmFunctionName &Func : Obj.debugNames()) {
@@ -107,6 +117,7 @@ WasmDumper::dumpCustomSection(const WasmSection &WasmSec) {
         break;
       case wasm::WASM_SYMBOL_TYPE_FUNCTION:
       case wasm::WASM_SYMBOL_TYPE_GLOBAL:
+      case wasm::WASM_SYMBOL_TYPE_EVENT:
         Info.ElementIndex = Symbol.ElementIndex;
         break;
       case wasm::WASM_SYMBOL_TYPE_SECTION:
@@ -122,6 +133,29 @@ WasmDumper::dumpCustomSection(const WasmSection &WasmSec) {
     }
 
     CustomSec = std::move(LinkingSec);
+  } else if (WasmSec.Name == "producers") {
+    std::unique_ptr<WasmYAML::ProducersSection> ProducersSec =
+        make_unique<WasmYAML::ProducersSection>();
+    const llvm::wasm::WasmProducerInfo &Info = Obj.getProducerInfo();
+    for (auto &E : Info.Languages) {
+      WasmYAML::ProducerEntry Producer;
+      Producer.Name = E.first;
+      Producer.Version = E.second;
+      ProducersSec->Languages.push_back(Producer);
+    }
+    for (auto &E : Info.Tools) {
+      WasmYAML::ProducerEntry Producer;
+      Producer.Name = E.first;
+      Producer.Version = E.second;
+      ProducersSec->Tools.push_back(Producer);
+    }
+    for (auto &E : Info.SDKs) {
+      WasmYAML::ProducerEntry Producer;
+      Producer.Name = E.first;
+      Producer.Version = E.second;
+      ProducersSec->SDKs.push_back(Producer);
+    }
+    CustomSec = std::move(ProducersSec);
   } else {
     CustomSec = make_unique<WasmYAML::CustomSection>(WasmSec.Name);
   }
@@ -182,6 +216,10 @@ ErrorOr<WasmYAML::Object *> WasmDumper::dump() {
           Im.GlobalImport.Type = Import.Global.Type;
           Im.GlobalImport.Mutable = Import.Global.Mutable;
           break;
+        case wasm::WASM_EXTERNAL_EVENT:
+          Im.EventImport.Attribute = Import.Event.Attribute;
+          Im.EventImport.SigIndex = Import.Event.SigIndex;
+          break;
         case wasm::WASM_EXTERNAL_TABLE:
           Im.TableImport = make_table(Import.Table);
           break;
@@ -229,6 +267,18 @@ ErrorOr<WasmYAML::Object *> WasmDumper::dump() {
         GlobalSec->Globals.push_back(G);
       }
       S = std::move(GlobalSec);
+      break;
+    }
+    case wasm::WASM_SEC_EVENT: {
+      auto EventSec = make_unique<WasmYAML::EventSection>();
+      for (auto &Event : Obj.events()) {
+        WasmYAML::Event E;
+        E.Index = Event.Index;
+        E.Attribute = Event.Type.Attribute;
+        E.SigIndex = Event.Type.SigIndex;
+        EventSec->Events.push_back(E);
+      }
+      S = std::move(EventSec);
       break;
     }
     case wasm::WASM_SEC_START: {

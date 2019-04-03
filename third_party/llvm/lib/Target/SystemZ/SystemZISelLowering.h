@@ -587,10 +587,12 @@ private:
   SDValue combineSIGN_EXTEND(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineSIGN_EXTEND_INREG(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineMERGE(SDNode *N, DAGCombinerInfo &DCI) const;
+  SDValue combineLOAD(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineSTORE(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineEXTRACT_VECTOR_ELT(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineJOIN_DWORDS(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineFP_ROUND(SDNode *N, DAGCombinerInfo &DCI) const;
+  SDValue combineFP_EXTEND(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineBSWAP(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineBR_CCMASK(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue combineSELECT_CCMASK(SDNode *N, DAGCombinerInfo &DCI) const;

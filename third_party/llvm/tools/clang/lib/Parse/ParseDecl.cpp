@@ -24,7 +24,6 @@
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
-#include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
@@ -1001,6 +1000,21 @@ void Parser::ParseAvailabilityAttribute(IdentifierInfo &Availability,
       continue;
     }
 
+    if (Keyword == Ident_deprecated && Platform->Ident &&
+        Platform->Ident->isStr("swift")) {
+      // For swift, we deprecate for all versions.
+      if (Changes[Deprecated].KeywordLoc.isValid()) {
+        Diag(KeywordLoc, diag::err_availability_redundant)
+          << Keyword
+          << SourceRange(Changes[Deprecated].KeywordLoc);
+      }
+
+      Changes[Deprecated].KeywordLoc = KeywordLoc;
+      // Use a fake version here.
+      Changes[Deprecated].Version = VersionTuple(1);
+      continue;
+    }
+
     if (Tok.isNot(tok::equal)) {
       Diag(Tok, diag::err_expected_after) << Keyword << tok::equal;
       SkipUntil(tok::r_paren, StopAtSemi);
@@ -1412,7 +1426,7 @@ void Parser::ParseLexedAttribute(LateParsedAttribute &LA,
     RecordDecl *RD = dyn_cast_or_null<RecordDecl>(D->getDeclContext());
 
     // Allow 'this' within late-parsed attributes.
-    Sema::CXXThisScopeRAII ThisScope(Actions, RD, /*TypeQuals=*/0,
+    Sema::CXXThisScopeRAII ThisScope(Actions, RD, Qualifiers(),
                                      ND && ND->isCXXInstanceMember());
 
     if (LA.Decls.size() == 1) {
@@ -6058,9 +6072,6 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   DeclSpec DS(AttrFactory);
   bool RefQualifierIsLValueRef = true;
   SourceLocation RefQualifierLoc;
-  SourceLocation ConstQualifierLoc;
-  SourceLocation VolatileQualifierLoc;
-  SourceLocation RestrictQualifierLoc;
   ExceptionSpecificationType ESpecType = EST_None;
   SourceRange ESpecRange;
   SmallVector<ParsedType, 2> DynamicExceptions;
@@ -6123,9 +6134,6 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                                 }));
       if (!DS.getSourceRange().getEnd().isInvalid()) {
         EndLoc = DS.getSourceRange().getEnd();
-        ConstQualifierLoc = DS.getConstSpecLoc();
-        VolatileQualifierLoc = DS.getVolatileSpecLoc();
-        RestrictQualifierLoc = DS.getRestrictSpecLoc();
       }
 
       // Parse ref-qualifier[opt].
@@ -6147,13 +6155,14 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
          : D.getContext() == DeclaratorContext::FileContext &&
            D.getCXXScopeSpec().isValid() &&
            Actions.CurContext->isRecord());
-      Sema::CXXThisScopeRAII ThisScope(Actions,
-                               dyn_cast<CXXRecordDecl>(Actions.CurContext),
-                               DS.getTypeQualifiers() |
-                               (D.getDeclSpec().isConstexprSpecified() &&
-                                !getLangOpts().CPlusPlus14
-                                  ? Qualifiers::Const : 0),
-                               IsCXX11MemberFunction);
+
+      Qualifiers Q = Qualifiers::fromCVRUMask(DS.getTypeQualifiers());
+      if (D.getDeclSpec().isConstexprSpecified() && !getLangOpts().CPlusPlus14)
+        Q.addConst();
+
+      Sema::CXXThisScopeRAII ThisScope(
+          Actions, dyn_cast<CXXRecordDecl>(Actions.CurContext), Q,
+          IsCXX11MemberFunction);
 
       // Parse exception-specification[opt].
       bool Delayed = D.isFirstDeclarationOfMember() &&
@@ -6224,15 +6233,13 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   D.AddTypeInfo(DeclaratorChunk::getFunction(
                     HasProto, IsAmbiguous, LParenLoc, ParamInfo.data(),
                     ParamInfo.size(), EllipsisLoc, RParenLoc,
-                    DS.getTypeQualifiers(), RefQualifierIsLValueRef,
-                    RefQualifierLoc, ConstQualifierLoc, VolatileQualifierLoc,
-                    RestrictQualifierLoc,
-                    /*MutableLoc=*/SourceLocation(), ESpecType, ESpecRange,
-                    DynamicExceptions.data(), DynamicExceptionRanges.data(),
-                    DynamicExceptions.size(),
+                    RefQualifierIsLValueRef, RefQualifierLoc,
+                    /*MutableLoc=*/SourceLocation(),
+                    ESpecType, ESpecRange, DynamicExceptions.data(),
+                    DynamicExceptionRanges.data(), DynamicExceptions.size(),
                     NoexceptExpr.isUsable() ? NoexceptExpr.get() : nullptr,
                     ExceptionSpecTokens, DeclsInPrototype, StartLoc,
-                    LocalEndLoc, D, TrailingReturnType),
+                    LocalEndLoc, D, TrailingReturnType, &DS),
                 std::move(FnAttrs), EndLoc);
 }
 

@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <array>
 #include <cmath>
 
 #include "tests/DawnTest.h"
 
 #include "common/Assert.h"
 #include "common/Constants.h"
+#include "utils/ComboRenderPipelineDescriptor.h"
 #include "utils/DawnHelpers.h"
 
 constexpr static unsigned int kRTSize = 64;
@@ -73,19 +73,21 @@ protected:
             }
         )");
 
-        mPipeline = device.CreateRenderPipelineBuilder()
-            .SetColorAttachmentFormat(0, mRenderPass.colorFormat)
-            .SetLayout(pipelineLayout)
-            .SetStage(dawn::ShaderStage::Vertex, vsModule, "main")
-            .SetStage(dawn::ShaderStage::Fragment, fsModule, "main")
-            .GetResult();
+        utils::ComboRenderPipelineDescriptor pipelineDescriptor(device);
+        pipelineDescriptor.layout = pipelineLayout;
+        pipelineDescriptor.cVertexStage.module = vsModule;
+        pipelineDescriptor.cFragmentStage.module = fsModule;
+        pipelineDescriptor.cColorAttachments[0]->format = mRenderPass.colorFormat;
+
+        mPipeline = device.CreateRenderPipeline(&pipelineDescriptor);
 
         dawn::TextureDescriptor descriptor;
         descriptor.dimension = dawn::TextureDimension::e2D;
         descriptor.size.width = 2;
         descriptor.size.height = 2;
         descriptor.size.depth = 1;
-        descriptor.arrayLayer = 1;
+        descriptor.arraySize = 1;
+        descriptor.sampleCount = 1;
         descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
         descriptor.levelCount = 1;
         descriptor.usage = dawn::TextureUsageBit::TransferDst | dawn::TextureUsageBit::Sampled;
@@ -102,7 +104,7 @@ protected:
         dawn::Buffer stagingBuffer = utils::CreateBufferFromData(device, data, sizeof(data), dawn::BufferUsageBit::TransferSrc);
         dawn::BufferCopyView bufferCopyView = utils::CreateBufferCopyView(stagingBuffer, 0, 256, 0);
         dawn::TextureCopyView textureCopyView =
-            utils::CreateTextureCopyView(texture, 0, 0, {0, 0, 0}, dawn::TextureAspect::Color);
+            utils::CreateTextureCopyView(texture, 0, 0, {0, 0, 0});
         dawn::Extent3D copySize = {2, 2, 1};
         dawn::CommandBuffer copy =
             device.CreateCommandBufferBuilder()
@@ -123,21 +125,24 @@ protected:
             descriptor.addressModeU = u.mMode;
             descriptor.addressModeV = v.mMode;
             descriptor.addressModeW = w.mMode;
+            descriptor.lodMinClamp = kLodMin;
+            descriptor.lodMaxClamp = kLodMax;
+            descriptor.compareFunction = dawn::CompareFunction::Never;
+            descriptor.borderColor = dawn::BorderColor::TransparentBlack;
             sampler = device.CreateSampler(&descriptor);
         }
 
-        auto bindGroup = device.CreateBindGroupBuilder()
-            .SetLayout(mBindGroupLayout)
-            .SetSamplers(0, 1, &sampler)
-            .SetTextureViews(1, 1, &mTextureView)
-            .GetResult();
+        dawn::BindGroup bindGroup = utils::MakeBindGroup(device, mBindGroupLayout, {
+            {0, sampler},
+            {1, mTextureView}
+        });
 
         dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
         {
             dawn::RenderPassEncoder pass = builder.BeginRenderPass(mRenderPass.renderPassInfo);
-            pass.SetRenderPipeline(mPipeline);
+            pass.SetPipeline(mPipeline);
             pass.SetBindGroup(0, bindGroup);
-            pass.DrawArrays(6, 1, 0, 0);
+            pass.Draw(6, 1, 0, 0);
             pass.EndPass();
         }
 

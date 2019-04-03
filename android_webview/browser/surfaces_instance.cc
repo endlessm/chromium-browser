@@ -24,6 +24,7 @@
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/presentation_feedback.h"
 #include "ui/gfx/transform.h"
 
 namespace android_webview {
@@ -154,6 +155,7 @@ void SurfacesInstance::DrawAndSwap(const gfx::Size& viewport,
   frame.render_pass_list.push_back(std::move(render_pass));
   frame.metadata.device_scale_factor = device_scale_factor;
   frame.metadata.referenced_surfaces = GetChildIdsRanges();
+  frame.metadata.frame_token = ++next_frame_token_;
 
   if (!root_id_allocation_.IsValid() || viewport != surface_size_ ||
       device_scale_factor != device_scale_factor_) {
@@ -171,6 +173,8 @@ void SurfacesInstance::DrawAndSwap(const gfx::Size& viewport,
   display_->Resize(viewport);
   display_->DrawAndSwap();
   display_->DidReceiveSwapBuffersAck();
+  display_->DidReceivePresentationFeedback(gfx::PresentationFeedback(
+      base::TimeTicks::Now(), base::TimeDelta(), 0 /* flags */));
 }
 
 void SurfacesInstance::AddChildId(const viz::SurfaceId& child_id) {
@@ -209,6 +213,7 @@ void SurfacesInstance::SetSolidColorRootFrame() {
       viz::BeginFrameAck::CreateManualAckWithDamage();
   frame.metadata.referenced_surfaces = GetChildIdsRanges();
   frame.metadata.device_scale_factor = device_scale_factor_;
+  frame.metadata.frame_token = ++next_frame_token_;
   support_->SubmitCompositorFrame(root_id_allocation_.local_surface_id(),
                                   std::move(frame));
 }

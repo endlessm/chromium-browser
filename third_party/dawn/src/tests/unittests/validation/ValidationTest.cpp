@@ -14,22 +14,33 @@
 
 #include "tests/unittests/validation/ValidationTest.h"
 
+#include "common/Assert.h"
 #include "dawn/dawn.h"
 #include "dawn_native/DawnNative.h"
 #include "dawn_native/NullBackend.h"
 
-namespace dawn_native {
-    namespace null {
-        void Init(dawnProcTable* procs, dawnDevice* device);
-    }
-}
-
 ValidationTest::ValidationTest() {
-    dawnProcTable procs = dawn_native::GetProcs();
-    dawnDevice cDevice = dawn_native::null::CreateDevice();
+    mInstance = std::make_unique<dawn_native::Instance>();
+    mInstance->DiscoverDefaultAdapters();
 
+    std::vector<dawn_native::Adapter> adapters = mInstance->GetAdapters();
+
+    // Validation tests run against the null backend, find the corresponding adapter
+    bool foundNullAdapter = false;
+    dawn_native::Adapter nullAdapter;
+    for (auto adapter : adapters) {
+        if (adapter.GetBackendType() == dawn_native::BackendType::Null) {
+            nullAdapter = adapter;
+            foundNullAdapter = true;
+            break;
+        }
+    }
+
+    ASSERT(foundNullAdapter);
+    device = dawn::Device::Acquire(nullAdapter.CreateDevice());
+
+    dawnProcTable procs = dawn_native::GetProcs();
     dawnSetProcs(&procs);
-    device = dawn::Device::Acquire(cDevice);
 
     device.SetErrorCallback(ValidationTest::OnDeviceError, static_cast<dawnCallbackUserdata>(reinterpret_cast<uintptr_t>(this)));
 }
@@ -79,16 +90,22 @@ dawn::RenderPassDescriptor ValidationTest::CreateSimpleRenderPass() {
         descriptor.size.width = 640;
         descriptor.size.height = 480;
         descriptor.size.depth = 1;
-        descriptor.arrayLayer = 1;
+        descriptor.arraySize = 1;
+        descriptor.sampleCount = 1;
         descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
         descriptor.levelCount = 1;
         descriptor.usage = dawn::TextureUsageBit::OutputAttachment;
 
         auto colorBuffer = device.CreateTexture(&descriptor);
         auto colorView = colorBuffer.CreateDefaultTextureView();
-
+        dawn::RenderPassColorAttachmentDescriptor colorAttachment;
+        colorAttachment.attachment = colorView;
+        colorAttachment.resolveTarget = nullptr;
+        colorAttachment.clearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+        colorAttachment.loadOp = dawn::LoadOp::Clear;
+        colorAttachment.storeOp = dawn::StoreOp::Store;
         return device.CreateRenderPassDescriptorBuilder()
-            .SetColorAttachment(0, colorView, dawn::LoadOp::Clear)
+            .SetColorAttachments(1, &colorAttachment)
             .GetResult();
 }
 
@@ -132,16 +149,22 @@ ValidationTest::DummyRenderPass ValidationTest::CreateDummyRenderPass() {
     descriptor.size.width = dummy.width;
     descriptor.size.height = dummy.height;
     descriptor.size.depth = 1;
-    descriptor.arrayLayer = 1;
+    descriptor.arraySize = 1;
+    descriptor.sampleCount = 1;
     descriptor.format = dummy.attachmentFormat;
     descriptor.levelCount = 1;
     descriptor.usage = dawn::TextureUsageBit::OutputAttachment;
     dummy.attachment = device.CreateTexture(&descriptor);
 
     dawn::TextureView view = dummy.attachment.CreateDefaultTextureView();
-
+    dawn::RenderPassColorAttachmentDescriptor colorAttachment;
+    colorAttachment.attachment = view;
+    colorAttachment.resolveTarget = nullptr;
+    colorAttachment.clearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+    colorAttachment.loadOp = dawn::LoadOp::Clear;
+    colorAttachment.storeOp = dawn::StoreOp::Store;
     dummy.renderPass = AssertWillBeSuccess(device.CreateRenderPassDescriptorBuilder())
-        .SetColorAttachment(0, view, dawn::LoadOp::Clear)
+        .SetColorAttachments(1, &colorAttachment)
         .GetResult();
 
     return dummy;

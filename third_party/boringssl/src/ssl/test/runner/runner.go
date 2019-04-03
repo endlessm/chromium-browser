@@ -22,6 +22,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -472,6 +473,11 @@ type testCase struct {
 	sendKeyUpdates int
 	// keyUpdateRequest is the KeyUpdateRequest value to send in KeyUpdate messages.
 	keyUpdateRequest byte
+	// expectUnsolicitedKeyUpdate makes the test expect a one or more KeyUpdate
+	// messages while reading data from the shim. Don't use this in combination
+	// with any of the fields that send a KeyUpdate otherwise any received
+	// KeyUpdate might not be as unsolicited as expected.
+	expectUnsolicitedKeyUpdate bool
 	// expectMessageDropped, if true, means the test message is expected to
 	// be dropped by the client rather than echoed back.
 	expectMessageDropped bool
@@ -490,6 +496,9 @@ type testCase struct {
 	// expectedQUICTransportParams contains the QUIC transport
 	// parameters that are expected to be sent by the peer.
 	expectedQUICTransportParams []byte
+	// exportTrafficSecrets, if true, configures the test to export the TLS 1.3
+	// traffic secrets and confirms that they match.
+	exportTrafficSecrets bool
 }
 
 var testCases []testCase
@@ -768,6 +777,32 @@ func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool, tr
 		}
 	}
 
+	if test.exportTrafficSecrets {
+		secretLenBytes := make([]byte, 2)
+		if _, err := io.ReadFull(tlsConn, secretLenBytes); err != nil {
+			return err
+		}
+		secretLen := binary.LittleEndian.Uint16(secretLenBytes)
+
+		theirReadSecret := make([]byte, secretLen)
+		theirWriteSecret := make([]byte, secretLen)
+		if _, err := io.ReadFull(tlsConn, theirReadSecret); err != nil {
+			return err
+		}
+		if _, err := io.ReadFull(tlsConn, theirWriteSecret); err != nil {
+			return err
+		}
+
+		myReadSecret := tlsConn.in.trafficSecret
+		myWriteSecret := tlsConn.out.trafficSecret
+		if !bytes.Equal(myWriteSecret, theirReadSecret) {
+			return fmt.Errorf("read traffic-secret mismatch; got %x, wanted %x", theirReadSecret, myWriteSecret)
+		}
+		if !bytes.Equal(myReadSecret, theirWriteSecret) {
+			return fmt.Errorf("write traffic-secret mismatch; got %x, wanted %x", theirWriteSecret, myReadSecret)
+		}
+	}
+
 	if test.testTLSUnique {
 		var peersValue [12]byte
 		if _, err := io.ReadFull(tlsConn, peersValue[:]); err != nil {
@@ -920,6 +955,10 @@ func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool, tr
 			if v != testMessage[i]^0xff {
 				return fmt.Errorf("bad reply contents at byte %d; got %q and wanted %q", i, buf, testMessage)
 			}
+		}
+
+		if seen := tlsConn.keyUpdateSeen; seen != test.expectUnsolicitedKeyUpdate {
+			return fmt.Errorf("keyUpdateSeen (%t) != expectUnsolicitedKeyUpdate", seen)
 		}
 	}
 
@@ -1121,6 +1160,10 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 	if test.exportKeyingMaterial > 0 || test.exportEarlyKeyingMaterial > 0 {
 		flags = append(flags, "-export-label", test.exportLabel)
 		flags = append(flags, "-export-context", test.exportContext)
+	}
+
+	if test.exportTrafficSecrets {
+		flags = append(flags, "-export-traffic-secrets")
 	}
 
 	if test.expectResumeRejected {
@@ -2792,7 +2835,7 @@ read alert 1 0
 			expectedError: ":WRONG_VERSION_NUMBER:",
 		},
 		{
-			name: "KeyUpdate-Client",
+			name: "KeyUpdate-ToClient",
 			config: Config{
 				MaxVersion: VersionTLS13,
 			},
@@ -2801,12 +2844,29 @@ read alert 1 0
 		},
 		{
 			testType: serverTest,
-			name:     "KeyUpdate-Server",
+			name:     "KeyUpdate-ToServer",
 			config: Config{
 				MaxVersion: VersionTLS13,
 			},
 			sendKeyUpdates:   1,
 			keyUpdateRequest: keyUpdateNotRequested,
+		},
+		{
+			name: "KeyUpdate-FromClient",
+			config: Config{
+				MaxVersion: VersionTLS13,
+			},
+			expectUnsolicitedKeyUpdate: true,
+			flags:                      []string{"-key-update"},
+		},
+		{
+			testType: serverTest,
+			name:     "KeyUpdate-FromServer",
+			config: Config{
+				MaxVersion: VersionTLS13,
+			},
+			expectUnsolicitedKeyUpdate: true,
+			flags:                      []string{"-key-update"},
 		},
 		{
 			name: "KeyUpdate-InvalidRequestMode",
@@ -8862,7 +8922,7 @@ func addSignatureAlgorithmTests() {
 	// Not all ciphers involve a signature. Advertise a list which gives all
 	// versions a signing cipher.
 	signingCiphers := []uint16{
-		TLS_AES_128_GCM_SHA256,
+		TLS_AES_256_GCM_SHA384,
 		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
@@ -9306,26 +9366,8 @@ func addSignatureAlgorithmTests() {
 		expectedError: ":WRONG_SIGNATURE_TYPE:",
 	})
 
-	// Test that, if the list is missing, the peer falls back to SHA-1 in
-	// TLS 1.2, but not TLS 1.3.
-	testCases = append(testCases, testCase{
-		name: "ClientAuth-SHA1-Fallback-RSA",
-		config: Config{
-			MaxVersion: VersionTLS12,
-			ClientAuth: RequireAnyClientCert,
-			VerifySignatureAlgorithms: []signatureAlgorithm{
-				signatureRSAPKCS1WithSHA1,
-			},
-			Bugs: ProtocolBugs{
-				NoSignatureAlgorithms: true,
-			},
-		},
-		flags: []string{
-			"-cert-file", path.Join(*resourceDir, rsaCertificateFile),
-			"-key-file", path.Join(*resourceDir, rsaKeyFile),
-		},
-	})
-
+	// Test that, if the ClientHello list is missing, the server falls back
+	// to SHA-1 in TLS 1.2, but not TLS 1.3.
 	testCases = append(testCases, testCase{
 		testType: serverTest,
 		name:     "ServerAuth-SHA1-Fallback-RSA",
@@ -9341,24 +9383,6 @@ func addSignatureAlgorithmTests() {
 		flags: []string{
 			"-cert-file", path.Join(*resourceDir, rsaCertificateFile),
 			"-key-file", path.Join(*resourceDir, rsaKeyFile),
-		},
-	})
-
-	testCases = append(testCases, testCase{
-		name: "ClientAuth-SHA1-Fallback-ECDSA",
-		config: Config{
-			MaxVersion: VersionTLS12,
-			ClientAuth: RequireAnyClientCert,
-			VerifySignatureAlgorithms: []signatureAlgorithm{
-				signatureECDSAWithSHA1,
-			},
-			Bugs: ProtocolBugs{
-				NoSignatureAlgorithms: true,
-			},
-		},
-		flags: []string{
-			"-cert-file", path.Join(*resourceDir, ecdsaP256CertificateFile),
-			"-key-file", path.Join(*resourceDir, ecdsaP256KeyFile),
 		},
 	})
 
@@ -9381,6 +9405,66 @@ func addSignatureAlgorithmTests() {
 	})
 
 	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "ServerAuth-NoFallback-TLS13",
+		config: Config{
+			MaxVersion: VersionTLS13,
+			VerifySignatureAlgorithms: []signatureAlgorithm{
+				signatureRSAPKCS1WithSHA1,
+			},
+			Bugs: ProtocolBugs{
+				NoSignatureAlgorithms: true,
+			},
+		},
+		shouldFail:    true,
+		expectedError: ":NO_COMMON_SIGNATURE_ALGORITHMS:",
+	})
+
+	// The CertificateRequest list, however, may never be omitted. It is a
+	// syntax error for it to be empty.
+	testCases = append(testCases, testCase{
+		name: "ClientAuth-NoFallback-RSA",
+		config: Config{
+			MaxVersion: VersionTLS12,
+			ClientAuth: RequireAnyClientCert,
+			VerifySignatureAlgorithms: []signatureAlgorithm{
+				signatureRSAPKCS1WithSHA1,
+			},
+			Bugs: ProtocolBugs{
+				NoSignatureAlgorithms: true,
+			},
+		},
+		flags: []string{
+			"-cert-file", path.Join(*resourceDir, rsaCertificateFile),
+			"-key-file", path.Join(*resourceDir, rsaKeyFile),
+		},
+		shouldFail:         true,
+		expectedError:      ":DECODE_ERROR:",
+		expectedLocalError: "remote error: error decoding message",
+	})
+
+	testCases = append(testCases, testCase{
+		name: "ClientAuth-NoFallback-ECDSA",
+		config: Config{
+			MaxVersion: VersionTLS12,
+			ClientAuth: RequireAnyClientCert,
+			VerifySignatureAlgorithms: []signatureAlgorithm{
+				signatureECDSAWithSHA1,
+			},
+			Bugs: ProtocolBugs{
+				NoSignatureAlgorithms: true,
+			},
+		},
+		flags: []string{
+			"-cert-file", path.Join(*resourceDir, ecdsaP256CertificateFile),
+			"-key-file", path.Join(*resourceDir, ecdsaP256KeyFile),
+		},
+		shouldFail:         true,
+		expectedError:      ":DECODE_ERROR:",
+		expectedLocalError: "remote error: error decoding message",
+	})
+
+	testCases = append(testCases, testCase{
 		name: "ClientAuth-NoFallback-TLS13",
 		config: Config{
 			MaxVersion: VersionTLS13,
@@ -9396,27 +9480,9 @@ func addSignatureAlgorithmTests() {
 			"-cert-file", path.Join(*resourceDir, rsaCertificateFile),
 			"-key-file", path.Join(*resourceDir, rsaKeyFile),
 		},
-		shouldFail: true,
-		// An empty CertificateRequest signature algorithm list is a
-		// syntax error in TLS 1.3.
+		shouldFail:         true,
 		expectedError:      ":DECODE_ERROR:",
 		expectedLocalError: "remote error: error decoding message",
-	})
-
-	testCases = append(testCases, testCase{
-		testType: serverTest,
-		name:     "ServerAuth-NoFallback-TLS13",
-		config: Config{
-			MaxVersion: VersionTLS13,
-			VerifySignatureAlgorithms: []signatureAlgorithm{
-				signatureRSAPKCS1WithSHA1,
-			},
-			Bugs: ProtocolBugs{
-				NoSignatureAlgorithms: true,
-			},
-		},
-		shouldFail:    true,
-		expectedError: ":NO_COMMON_SIGNATURE_ALGORITHMS:",
 	})
 
 	// Test that signature preferences are enforced. BoringSSL does not
@@ -9613,7 +9679,7 @@ func addSignatureAlgorithmTests() {
 			CipherSuites: []uint16{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			Certificates: []Certificate{ecdsaP256Certificate},
 		},
-		flags:         []string{"-p384-only"},
+		flags:         []string{"-curves", strconv.Itoa(int(CurveP384))},
 		shouldFail:    true,
 		expectedError: ":BAD_ECC_CERT:",
 	})
@@ -9625,7 +9691,7 @@ func addSignatureAlgorithmTests() {
 			MaxVersion:   VersionTLS13,
 			Certificates: []Certificate{ecdsaP256Certificate},
 		},
-		flags: []string{"-p384-only"},
+		flags: []string{"-curves", strconv.Itoa(int(CurveP384))},
 	})
 
 	// In TLS 1.2, the ECDSA curve is not in the signature algorithm.
@@ -10515,6 +10581,24 @@ func addExportKeyingMaterialTests() {
 	})
 }
 
+func addExportTrafficSecretsTests() {
+	for _, cipherSuite := range []testCipherSuite{
+		// Test a SHA-256 and SHA-384 based cipher suite.
+		{"AEAD-AES128-GCM-SHA256", TLS_AES_128_GCM_SHA256},
+		{"AEAD-AES256-GCM-SHA384", TLS_AES_256_GCM_SHA384},
+	} {
+
+		testCases = append(testCases, testCase{
+			name: "ExportTrafficSecrets-" + cipherSuite.name,
+			config: Config{
+				MinVersion:   VersionTLS13,
+				CipherSuites: []uint16{cipherSuite.id},
+			},
+			exportTrafficSecrets: true,
+		})
+	}
+}
+
 func addTLSUniqueTests() {
 	for _, isClient := range []bool{false, true} {
 		for _, isResumption := range []bool{false, true} {
@@ -10705,6 +10789,7 @@ var testCurves = []struct {
 	{"P-384", CurveP384},
 	{"P-521", CurveP521},
 	{"X25519", CurveX25519},
+	{"CECPQ2", CurveCECPQ2},
 }
 
 const bogusCurve = 0x1234
@@ -10712,6 +10797,10 @@ const bogusCurve = 0x1234
 func addCurveTests() {
 	for _, curve := range testCurves {
 		for _, ver := range tlsVersions {
+			if curve.id == CurveCECPQ2 && ver.version < VersionTLS13 {
+				continue
+			}
+
 			suffix := curve.name + "-" + ver.name
 
 			testCases = append(testCases, testCase{
@@ -10721,7 +10810,7 @@ func addCurveTests() {
 					CipherSuites: []uint16{
 						TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 						TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-						TLS_AES_128_GCM_SHA256,
+						TLS_AES_256_GCM_SHA384,
 					},
 					CurvePreferences: []CurveID{curve.id},
 				},
@@ -10740,7 +10829,7 @@ func addCurveTests() {
 					CipherSuites: []uint16{
 						TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 						TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-						TLS_AES_128_GCM_SHA256,
+						TLS_AES_256_GCM_SHA384,
 					},
 					CurvePreferences: []CurveID{curve.id},
 				},
@@ -10752,7 +10841,7 @@ func addCurveTests() {
 				expectedCurveID: curve.id,
 			})
 
-			if curve.id != CurveX25519 {
+			if curve.id != CurveX25519 && curve.id != CurveCECPQ2 {
 				testCases = append(testCases, testCase{
 					name: "CurveTest-Client-Compressed-" + suffix,
 					config: Config{
@@ -10760,7 +10849,7 @@ func addCurveTests() {
 						CipherSuites: []uint16{
 							TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 							TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-							TLS_AES_128_GCM_SHA256,
+							TLS_AES_256_GCM_SHA384,
 						},
 						CurvePreferences: []CurveID{curve.id},
 						Bugs: ProtocolBugs{
@@ -10780,7 +10869,7 @@ func addCurveTests() {
 						CipherSuites: []uint16{
 							TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 							TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-							TLS_AES_128_GCM_SHA256,
+							TLS_AES_256_GCM_SHA384,
 						},
 						CurvePreferences: []CurveID{curve.id},
 						Bugs: ProtocolBugs{
@@ -10896,7 +10985,7 @@ func addCurveTests() {
 				IgnorePeerCurvePreferences: true,
 			},
 		},
-		flags:         []string{"-p384-only"},
+		flags:         []string{"-curves", strconv.Itoa(int(CurveP384))},
 		shouldFail:    true,
 		expectedError: ":WRONG_CURVE:",
 	})
@@ -10912,7 +11001,7 @@ func addCurveTests() {
 				SendCurve: CurveP256,
 			},
 		},
-		flags:         []string{"-p384-only"},
+		flags:         []string{"-curves", strconv.Itoa(int(CurveP384))},
 		shouldFail:    true,
 		expectedError: ":WRONG_CURVE:",
 	})
@@ -11161,6 +11250,112 @@ func addCurveTests() {
 			Bugs: ProtocolBugs{
 				SetX25519HighBit: true,
 			},
+		},
+	})
+
+	// CECPQ2 should not be offered by a TLS < 1.3 client.
+	testCases = append(testCases, testCase{
+		name: "CECPQ2NotInTLS12",
+		config: Config{
+			Bugs: ProtocolBugs{
+				FailIfCECPQ2Offered: true,
+			},
+		},
+		flags: []string{
+			"-max-version", strconv.Itoa(VersionTLS12),
+			"-curves", strconv.Itoa(int(CurveCECPQ2)),
+			"-curves", strconv.Itoa(int(CurveX25519)),
+		},
+	})
+
+	// CECPQ2 should not crash a TLS < 1.3 client if the server mistakenly
+	// selects it.
+	testCases = append(testCases, testCase{
+		name: "CECPQ2NotAcceptedByTLS12Client",
+		config: Config{
+			Bugs: ProtocolBugs{
+				SendCurve: CurveCECPQ2,
+			},
+		},
+		flags: []string{
+			"-max-version", strconv.Itoa(VersionTLS12),
+			"-curves", strconv.Itoa(int(CurveCECPQ2)),
+			"-curves", strconv.Itoa(int(CurveX25519)),
+		},
+		shouldFail:    true,
+		expectedError: ":WRONG_CURVE:",
+	})
+
+	// CECPQ2 should not be offered by default as a client.
+	testCases = append(testCases, testCase{
+		name: "CECPQ2NotEnabledByDefaultInClients",
+		config: Config{
+			MinVersion: VersionTLS13,
+			Bugs: ProtocolBugs{
+				FailIfCECPQ2Offered: true,
+			},
+		},
+	})
+
+	// If CECPQ2 is offered, both X25519 and CECPQ2 should have a key-share.
+	testCases = append(testCases, testCase{
+		name: "NotJustCECPQ2KeyShare",
+		config: Config{
+			MinVersion: VersionTLS13,
+			Bugs: ProtocolBugs{
+				ExpectedKeyShares: []CurveID{CurveCECPQ2, CurveX25519},
+			},
+		},
+		flags: []string{
+			"-curves", strconv.Itoa(int(CurveCECPQ2)),
+			"-curves", strconv.Itoa(int(CurveX25519)),
+			"-expect-curve-id", strconv.Itoa(int(CurveCECPQ2)),
+		},
+	})
+
+	// ... but only if CECPQ2 is listed first.
+	testCases = append(testCases, testCase{
+		name: "CECPQ2KeyShareNotIncludedSecond",
+		config: Config{
+			MinVersion: VersionTLS13,
+			Bugs: ProtocolBugs{
+				ExpectedKeyShares: []CurveID{CurveX25519},
+			},
+		},
+		flags: []string{
+			"-curves", strconv.Itoa(int(CurveX25519)),
+			"-curves", strconv.Itoa(int(CurveCECPQ2)),
+			"-expect-curve-id", strconv.Itoa(int(CurveX25519)),
+		},
+	})
+
+	// If CECPQ2 is the only configured curve, the key share is sent.
+	testCases = append(testCases, testCase{
+		name: "JustConfiguringCECPQ2Works",
+		config: Config{
+			MinVersion: VersionTLS13,
+			Bugs: ProtocolBugs{
+				ExpectedKeyShares: []CurveID{CurveCECPQ2},
+			},
+		},
+		flags: []string{
+			"-curves", strconv.Itoa(int(CurveCECPQ2)),
+			"-expect-curve-id", strconv.Itoa(int(CurveCECPQ2)),
+		},
+	})
+
+	// As a server, CECPQ2 is not yet supported by default.
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "CECPQ2NotEnabledByDefaultForAServer",
+		config: Config{
+			MinVersion:       VersionTLS13,
+			CurvePreferences: []CurveID{CurveCECPQ2, CurveX25519},
+			DefaultCurves:    []CurveID{CurveCECPQ2},
+		},
+		flags: []string{
+			"-server-preference",
+			"-expect-curve-id", strconv.Itoa(int(CurveX25519)),
 		},
 	})
 }
@@ -12700,7 +12895,7 @@ func addTLS13HandshakeTests() {
 				},
 			},
 			tls13Variant:  variant,
-			flags:         []string{"-p384-only"},
+			flags:         []string{"-curves", strconv.Itoa(int(CurveP384))},
 			shouldFail:    true,
 			expectedError: ":WRONG_CURVE:",
 		})
@@ -13859,6 +14054,60 @@ func addTLS13CipherPreferenceTests() {
 			"-expect-cipher-no-aes", strconv.Itoa(int(TLS_CHACHA20_POLY1305_SHA256)),
 		},
 	})
+
+	// Test that CECPQ2 cannot be used with TLS_AES_128_GCM_SHA256.
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "TLS13-CipherPreference-CECPQ2-AES128Only",
+		config: Config{
+			MaxVersion: VersionTLS13,
+			CipherSuites: []uint16{
+				TLS_AES_128_GCM_SHA256,
+			},
+		},
+		flags: []string{
+			"-curves", strconv.Itoa(int(CurveCECPQ2)),
+		},
+		shouldFail:         true,
+		expectedError:      ":NO_SHARED_CIPHER:",
+		expectedLocalError: "remote error: handshake failure",
+	})
+
+	// Test that CECPQ2 continues to honor AES vs ChaCha20 logic.
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "TLS13-CipherPreference-CECPQ2-AES128-ChaCha20-AES256",
+		config: Config{
+			MaxVersion: VersionTLS13,
+			CipherSuites: []uint16{
+				TLS_AES_128_GCM_SHA256,
+				TLS_CHACHA20_POLY1305_SHA256,
+				TLS_AES_256_GCM_SHA384,
+			},
+		},
+		flags: []string{
+			"-curves", strconv.Itoa(int(CurveCECPQ2)),
+			"-expect-cipher-aes", strconv.Itoa(int(TLS_CHACHA20_POLY1305_SHA256)),
+			"-expect-cipher-no-aes", strconv.Itoa(int(TLS_CHACHA20_POLY1305_SHA256)),
+		},
+	})
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "TLS13-CipherPreference-CECPQ2-AES128-AES256-ChaCha20",
+		config: Config{
+			MaxVersion: VersionTLS13,
+			CipherSuites: []uint16{
+				TLS_AES_128_GCM_SHA256,
+				TLS_AES_256_GCM_SHA384,
+				TLS_CHACHA20_POLY1305_SHA256,
+			},
+		},
+		flags: []string{
+			"-curves", strconv.Itoa(int(CurveCECPQ2)),
+			"-expect-cipher-aes", strconv.Itoa(int(TLS_AES_256_GCM_SHA384)),
+			"-expect-cipher-no-aes", strconv.Itoa(int(TLS_CHACHA20_POLY1305_SHA256)),
+		},
+	})
 }
 
 func addPeekTests() {
@@ -14680,7 +14929,7 @@ func addJDK11WorkaroundTests() {
 		},
 		{
 			// The above with a padding extension added at the end.
-			decodeHexOrPanic("010001b4030336a379aa355a22a064b4402760efae1c73977b0b4c975efc7654c35677723dde201fe3f8a2bca60418a68f72463ea19f3c241e7cbfceb347e451a62bd2417d8981005a13011302c02cc02bc030009dc02ec032009f00a3c02f009cc02dc031009e00a2c024c028003dc026c02a006b006ac00ac0140035c005c00f00390038c023c027003cc025c02900670040c009c013002fc004c00e0033003200ff01000111000000080006000003736e69000500050100000000000a0020001e0017001800190009000a000b000c000d000e001601000101010201030104000b00020100000d002800260403050306030804080508060809080a080b04010501060104020303030103020203020102020032002800260403050306030804080508060809080a080b04010501060104020303030103020203020102020011000900070200040000000000170000002b0009080304030303020301002d000201010033004700450017004104721f007464cb08a0f36e093ad178eb78d6968df20077b2dd882694a85dc4c9884caf5092db41f16cc3f8d41f59426992fa5e32cfb9ad08deee752cdd95b1a6b50015000770616464696e67"),
+			decodeHexOrPanic("010001b4030336a379aa355a22a064b4402760efae1c73977b0b4c975efc7654c35677723dde201fe3f8a2bca60418a68f72463ea19f3c241e7cbfceb347e451a62bd2417d8981005a13011302c02cc02bc030009dc02ec032009f00a3c02f009cc02dc031009e00a2c024c028003dc026c02a006b006ac00ac0140035c005c00f00390038c023c027003cc025c02900670040c009c013002fc004c00e0033003200ff01000111000000080006000003736e69000500050100000000000a0020001e0017001800190009000a000b000c000d000e001601000101010201030104000b00020100000d002800260403050306030804080508060809080a080b04010501060104020303030103020203020102020032002800260403050306030804080508060809080a080b04010501060104020303030103020203020102020011000900070200040000000000170000002b0009080304030303020301002d000201010033004700450017004104721f007464cb08a0f36e093ad178eb78d6968df20077b2dd882694a85dc4c9884caf5092db41f16cc3f8d41f59426992fa5e32cfb9ad08deee752cdd95b1a6b50015000700000000000000"),
 			false,
 		},
 		{
@@ -14905,6 +15154,7 @@ func main() {
 	addSignatureAlgorithmTests()
 	addDTLSRetransmitTests()
 	addExportKeyingMaterialTests()
+	addExportTrafficSecretsTests()
 	addTLSUniqueTests()
 	addCustomExtensionTests()
 	addRSAClientKeyExchangeTests()

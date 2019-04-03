@@ -15,6 +15,7 @@
 #include "tests/DawnTest.h"
 
 #include "common/Assert.h"
+#include "utils/ComboRenderPipelineDescriptor.h"
 #include "utils/DawnHelpers.h"
 
 constexpr uint32_t kRTSize = 400;
@@ -51,14 +52,15 @@ class IndexFormatTest : public DawnTest {
                 })"
             );
 
-            return device.CreateRenderPipelineBuilder()
-                .SetColorAttachmentFormat(0, renderPass.colorFormat)
-                .SetPrimitiveTopology(dawn::PrimitiveTopology::TriangleStrip)
-                .SetStage(dawn::ShaderStage::Vertex, vsModule, "main")
-                .SetStage(dawn::ShaderStage::Fragment, fsModule, "main")
-                .SetIndexFormat(format)
-                .SetInputState(inputState)
-                .GetResult();
+            utils::ComboRenderPipelineDescriptor descriptor(device);
+            descriptor.cVertexStage.module = vsModule;
+            descriptor.cFragmentStage.module = fsModule;
+            descriptor.primitiveTopology = dawn::PrimitiveTopology::TriangleStrip;
+            descriptor.indexFormat = format;
+            descriptor.inputState = inputState;
+            descriptor.cColorAttachments[0]->format = renderPass.colorFormat;
+
+            return device.CreateRenderPipeline(&descriptor);
         }
 };
 
@@ -81,10 +83,10 @@ TEST_P(IndexFormatTest, Uint32) {
     dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
     {
         dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-        pass.SetRenderPipeline(pipeline);
+        pass.SetPipeline(pipeline);
         pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
         pass.SetIndexBuffer(indexBuffer, 0);
-        pass.DrawElements(3, 1, 0, 0);
+        pass.DrawIndexed(3, 1, 0, 0, 0);
         pass.EndPass();
     }
 
@@ -112,10 +114,10 @@ TEST_P(IndexFormatTest, Uint16) {
     dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
     {
         dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-        pass.SetRenderPipeline(pipeline);
+        pass.SetPipeline(pipeline);
         pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
         pass.SetIndexBuffer(indexBuffer, 0);
-        pass.DrawElements(3, 1, 0, 0);
+        pass.DrawIndexed(3, 1, 0, 0, 0);
         pass.EndPass();
     }
 
@@ -156,10 +158,10 @@ TEST_P(IndexFormatTest, Uint32PrimitiveRestart) {
     dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
     {
         dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-        pass.SetRenderPipeline(pipeline);
+        pass.SetPipeline(pipeline);
         pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
         pass.SetIndexBuffer(indexBuffer, 0);
-        pass.DrawElements(7, 1, 0, 0);
+        pass.DrawIndexed(7, 1, 0, 0, 0);
         pass.EndPass();
     }
 
@@ -190,10 +192,10 @@ TEST_P(IndexFormatTest, Uint16PrimitiveRestart) {
     dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
     {
         dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-        pass.SetRenderPipeline(pipeline);
+        pass.SetPipeline(pipeline);
         pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
         pass.SetIndexBuffer(indexBuffer, 0);
-        pass.DrawElements(7, 1, 0, 0);
+        pass.DrawIndexed(7, 1, 0, 0, 0);
         pass.EndPass();
     }
 
@@ -229,11 +231,11 @@ TEST_P(IndexFormatTest, ChangePipelineAfterSetIndexBuffer) {
     dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
     {
         dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-        pass.SetRenderPipeline(pipeline16);
+        pass.SetPipeline(pipeline16);
         pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
         pass.SetIndexBuffer(indexBuffer, 0);
-        pass.SetRenderPipeline(pipeline32);
-        pass.DrawElements(3, 1, 0, 0);
+        pass.SetPipeline(pipeline32);
+        pass.DrawIndexed(3, 1, 0, 0, 0);
         pass.EndPass();
     }
 
@@ -265,9 +267,9 @@ TEST_P(IndexFormatTest, DISABLED_SetIndexBufferBeforeSetPipeline) {
     {
         dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
         pass.SetIndexBuffer(indexBuffer, 0);
-        pass.SetRenderPipeline(pipeline);
+        pass.SetPipeline(pipeline);
         pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
-        pass.DrawElements(3, 1, 0, 0);
+        pass.DrawIndexed(3, 1, 0, 0, 0);
         pass.EndPass();
     }
 

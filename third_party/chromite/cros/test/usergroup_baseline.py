@@ -59,7 +59,7 @@ USER_BASELINE_LAKITU = dict((e.user, e) for e in (
 ))
 
 USER_BASELINE_JETSTREAM = dict((e.user, e) for e in (
-    UserEntry(user='ap-monitor', uid=1102, gid=1103),
+    UserEntry(user='ap-monitor', uid=1103, gid=1103),
 ))
 
 USER_BASELINE_TERMINA = dict((e.user, e) for e in (
@@ -74,6 +74,7 @@ USER_BOARD_BASELINES = {
     'arkham': USER_BASELINE_JETSTREAM,
     'cyclone': USER_BASELINE_JETSTREAM,
     'gale': USER_BASELINE_JETSTREAM,
+    'mistral': USER_BASELINE_JETSTREAM,
     'storm': USER_BASELINE_JETSTREAM,
     'whirlwind': USER_BASELINE_JETSTREAM,
     'tael': USER_BASELINE_TERMINA,
@@ -115,6 +116,8 @@ GROUP_BASELINE = dict((e.group, e) for e in (
                       'chaps', 'cros-disks', 'imageloaderd'}),
     GroupEntry(group='tss', gid=207, users={'root', 'attestation',
                                             'bootlockboxd', 'chaps',
+                                            'oobe_config_restore',
+                                            'oobe_config_save',
                                             'tpm_manager', 'trunks'}),
     GroupEntry(group='pkcs11', gid=208, users={'root', 'ipsec', 'chronos',
                                                'chaps', 'wpa', 'attestation'}),
@@ -131,7 +134,7 @@ GROUP_BASELINE = dict((e.group, e) for e in (
     GroupEntry(group='authpolicyd', gid=254, users={'authpolicyd',
                                                     'authpolicyd-exec'}),
     GroupEntry(group='scanner', gid=255, users={'saned'}),
-    GroupEntry(group='uinput', gid=258, users={'bluetooth', 'volume'}),
+    GroupEntry(group='uinput', gid=258, users={'bluetooth', 'volume', 'biod'}),
     GroupEntry(group='apmanager', gid=259, users={'apmanager', 'buffet'}),
     GroupEntry(group='peerd', gid=260, users={'buffet', 'chronos', 'peerd'}),
     GroupEntry(group='buffet', gid=264, users={'chronos', 'buffet', 'power'}),
@@ -149,7 +152,8 @@ GROUP_BASELINE = dict((e.group, e) for e in (
     GroupEntry(group='devbroker-access', gid=403, users={'chronos'}),
     GroupEntry(group='i2c', gid=404, users={'power'}),
     GroupEntry(group='android-root', gid=655360, users={'android-root'}),
-    GroupEntry(group='android-everybody', gid=665357, users={'chronos'}),
+    GroupEntry(group='android-everybody', gid=665357,
+               users={'chronos', 'seneschal'}),
     GroupEntry(group='user-containers', gid=10000, users={'user-containers'}),
     GroupEntry(group='midis', gid=608, users={'chronos'}),
     GroupEntry(group='avfs', gid=301, users={'cros-disks'}),
@@ -159,6 +163,8 @@ GROUP_BASELINE = dict((e.group, e) for e in (
                                                  'cups'}),
     GroupEntry(group='tun', gid=413, users={'crosvm', 'shill'}),
     GroupEntry(group='gpio', gid=414, users={'modem'}),
+    GroupEntry(group='suzy-q', gid=415, users={'chronos', 'rma_fw_keeper'}),
+    GroupEntry(group='cros_ec-access', gid=416, users={'runtime_probe'}),
     GroupEntry(group='shill', gid=20104, users={'shill', 'ipsec'}),
     GroupEntry(group='fuse-drivefs', gid=304, users={'chronos'}),
     GroupEntry(group='password-viewers', gid=611, users={'shill'}),
@@ -202,6 +208,7 @@ GROUP_BOARD_BASELINES = {
     'arkham': GROUP_BASELINE_JETSTREAM,
     'cyclone': GROUP_BASELINE_JETSTREAM,
     'gale': GROUP_BASELINE_JETSTREAM,
+    'mistral': GROUP_BASELINE_JETSTREAM,
     'storm': GROUP_BASELINE_JETSTREAM,
     'whirlwind': GROUP_BASELINE_JETSTREAM,
     'veyron_rialto': GROUP_BASELINE_RIALTO,

@@ -197,6 +197,8 @@ ParsedInstruction MakeParsedInt32TypeInstruction(uint32_t result_id) {
 
 class BinaryParseTest : public spvtest::TextToBinaryTestBase<::testing::Test> {
  protected:
+  ~BinaryParseTest() { spvDiagnosticDestroy(diagnostic_); }
+
   void Parse(const SpirvVector& words, spv_result_t expected_result,
              bool flip_words = false) {
     SpirvVector flipped_words(words);
@@ -308,7 +310,7 @@ TEST_F(BinaryParseTest, SpecifyConsumerNullDiagnosticsForBadParse) {
         EXPECT_STREQ("input", source);
         EXPECT_EQ(0u, position.line);
         EXPECT_EQ(0u, position.column);
-        EXPECT_EQ(5u, position.index);
+        EXPECT_EQ(1u, position.index);
         EXPECT_STREQ("Invalid opcode: 65535", message);
       });
 

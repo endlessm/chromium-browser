@@ -29,7 +29,12 @@
 
 // This function should be present in the libFuzzer so that the client
 // binary can test for its existence.
+#if LIBFUZZER_MSVC
+extern "C" void __libfuzzer_is_present() {}
+#pragma comment(linker, "/include:__libfuzzer_is_present")
+#else
 extern "C" __attribute__((used)) void __libfuzzer_is_present() {}
+#endif  // LIBFUZZER_MSVC
 
 namespace fuzzer {
 
@@ -617,10 +622,6 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
   Options.PrintFinalStats = Flags.print_final_stats;
   Options.PrintCorpusStats = Flags.print_corpus_stats;
   Options.PrintCoverage = Flags.print_coverage;
-  Options.PrintUnstableStats = Flags.print_unstable_stats;
-  if (Flags.handle_unstable == TracePC::MinUnstable ||
-      Flags.handle_unstable == TracePC::ZeroUnstable)
-    Options.HandleUnstable = Flags.handle_unstable;
   Options.DumpCoverage = Flags.dump_coverage;
   if (Flags.exit_on_src_pos)
     Options.ExitOnSrcPos = Flags.exit_on_src_pos;

@@ -5,6 +5,8 @@
 #include "ui/display/manager/display_manager.h"
 
 #include "ash/accelerators/accelerator_commands.h"
+#include "ash/accelerometer/accelerometer_reader.h"
+#include "ash/accelerometer/accelerometer_types.h"
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/display/cursor_window_controller.h"
 #include "ash/display/display_configuration_controller.h"
@@ -27,12 +29,11 @@
 #include "ash/wm/window_util.h"
 #include "base/command_line.h"
 #include "base/format_macros.h"
+#include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
-#include "chromeos/accelerometer/accelerometer_reader.h"
-#include "chromeos/accelerometer/accelerometer_types.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window_observer.h"
@@ -58,8 +59,8 @@
 
 namespace ash {
 
-using std::vector;
 using std::string;
+using std::vector;
 
 using base::StringPrintf;
 
@@ -167,7 +168,7 @@ class DisplayManagerTest : public AshTestBase,
     display_manager()->SetMirrorMode(
         active ? display::MirrorMode::kNormal : display::MirrorMode::kOff,
         base::nullopt);
-    RunAllPendingInMessageLoop();
+    base::RunLoop().RunUntilIdle();
   }
 
  private:
@@ -2175,7 +2176,7 @@ TEST_F(DisplayManagerTest, SoftwareMirroring) {
 
   display_manager()->SetMultiDisplayMode(display::DisplayManager::MIRRORING);
   display_manager()->UpdateDisplays();
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(display_observer.changed_and_reset());
   EXPECT_EQ(1U, display_manager()->GetNumDisplays());
   EXPECT_EQ(
@@ -2627,10 +2628,10 @@ TEST_F(DisplayManagerTest, ConfigureUnifiedTwice) {
 
   UpdateDisplay("300x200,400x500");
   // Mirror windows are created in a posted task.
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
 
   UpdateDisplay("300x250,400x550");
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
 }
 
 TEST_F(DisplayManagerTest, NoRotateUnifiedDesktop) {
@@ -3052,7 +3053,7 @@ TEST_F(DisplayManagerTest, UnifiedDesktopTabletMode) {
   Shell::GetPrimaryRootWindow()->RemoveObserver(this);
 
   UpdateDisplay("400x300,800x800");
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
 
   // Set the first display as internal display so that the tablet mode can be
   // enabled.
@@ -3065,7 +3066,7 @@ TEST_F(DisplayManagerTest, UnifiedDesktopTabletMode) {
   // Turn on tablet mode, expect that we switch to mirror mode without any
   // crashes.
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
 
   // The Home Launcher should be created and shown, not dismissed as a result of
@@ -3079,13 +3080,50 @@ TEST_F(DisplayManagerTest, UnifiedDesktopTabletMode) {
   // Exiting tablet mode should exit mirror mode and return back to Unified
   // mode.
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(false);
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(display_manager()->IsInSoftwareMirrorMode());
   EXPECT_TRUE(display_manager()->IsInUnifiedMode());
 
   // Home Launcher should be dismissed.
   EXPECT_FALSE(tablet_mode_controller->IsTabletModeWindowManagerEnabled());
   EXPECT_FALSE(app_list_controller->IsVisible());
+}
+
+TEST_F(DisplayManagerTest, DisplayPrefsAndForcedMirrorMode) {
+  UpdateDisplay("400x300,800x800");
+  base::RunLoop().RunUntilIdle();
+
+  // Set the first display as internal display so that the tablet mode can be
+  // enabled.
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetFirstDisplayAsInternalDisplay();
+
+  // Initially we can save display prefs ...
+  EXPECT_TRUE(Shell::Get()->ShouldSaveDisplaySettings());
+  // ... and there are no external displays that are candidates for mirror
+  // restore.
+  EXPECT_TRUE(display_manager()->external_display_mirror_info().empty());
+
+  // Turn on tablet mode, and expect that it's not possible to persist the
+  // display prefs while forced mirror mode is active.
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
+  EXPECT_TRUE(
+      display_manager()->layout_store()->forced_mirror_mode_for_tablet());
+  EXPECT_FALSE(Shell::Get()->ShouldSaveDisplaySettings());
+  // Forced mirror mode does not add external displays as candidates for mirror
+  // restore.
+  EXPECT_TRUE(display_manager()->external_display_mirror_info().empty());
+
+  // Exit tablet mode and expect everything is back to normal.
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(false);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(display_manager()->IsInSoftwareMirrorMode());
+  EXPECT_FALSE(
+      display_manager()->layout_store()->forced_mirror_mode_for_tablet());
+  EXPECT_TRUE(Shell::Get()->ShouldSaveDisplaySettings());
+  EXPECT_TRUE(display_manager()->external_display_mirror_info().empty());
 }
 
 TEST_F(DisplayManagerTest, DockMode) {
@@ -3546,21 +3584,19 @@ class DisplayManagerOrientationTest : public DisplayManagerTest {
   void SetUp() override {
     DisplayManagerTest::SetUp();
     const float kMeanGravity = 9.8066f;
-    portrait_primary->Set(chromeos::ACCELEROMETER_SOURCE_SCREEN, -kMeanGravity,
-                          0.f, 0.f);
-    portrait_secondary->Set(chromeos::ACCELEROMETER_SOURCE_SCREEN, kMeanGravity,
-                            0.f, 0.f);
-    landscape_primary->Set(chromeos::ACCELEROMETER_SOURCE_SCREEN, 0,
-                           -kMeanGravity, 0.f);
+    portrait_primary->Set(ACCELEROMETER_SOURCE_SCREEN, -kMeanGravity, 0.f, 0.f);
+    portrait_secondary->Set(ACCELEROMETER_SOURCE_SCREEN, kMeanGravity, 0.f,
+                            0.f);
+    landscape_primary->Set(ACCELEROMETER_SOURCE_SCREEN, 0, -kMeanGravity, 0.f);
   }
 
  protected:
-  scoped_refptr<chromeos::AccelerometerUpdate> portrait_primary =
-      new chromeos::AccelerometerUpdate();
-  scoped_refptr<chromeos::AccelerometerUpdate> portrait_secondary =
-      new chromeos::AccelerometerUpdate();
-  scoped_refptr<chromeos::AccelerometerUpdate> landscape_primary =
-      new chromeos::AccelerometerUpdate();
+  scoped_refptr<AccelerometerUpdate> portrait_primary =
+      new AccelerometerUpdate();
+  scoped_refptr<AccelerometerUpdate> portrait_secondary =
+      new AccelerometerUpdate();
+  scoped_refptr<AccelerometerUpdate> landscape_primary =
+      new AccelerometerUpdate();
 
  private:
   DISALLOW_COPY_AND_ASSIGN(DisplayManagerOrientationTest);
@@ -3867,7 +3903,7 @@ TEST_F(DisplayManagerTest, HardwareMirrorMode) {
 
   // mirrored across 3 displays...
   display_manager()->OnNativeDisplaysChanged(display_info_list);
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(1U, display_manager()->GetNumDisplays());
   EXPECT_EQ(3U, display_manager()->num_connected_displays());
@@ -3981,7 +4017,7 @@ TEST_F(DisplayManagerTest, SwitchToAndFromSoftwareMirrorMode) {
   // Switch from mirroring to unified, but it fails.
   SetSoftwareMirrorMode(true);
   display_manager()->SetUnifiedDesktopEnabled(true);
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
   EXPECT_FALSE(display_manager()->IsInUnifiedMode());
 
@@ -4010,7 +4046,7 @@ TEST_F(DisplayManagerTest, SourceAndDestinationInSoftwareMirrorMode) {
 
   // Connect all displays.
   display_manager()->OnNativeDisplaysChanged(display_info_list);
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(display::kInvalidDisplayId,
             display_manager()->mirroring_source_id());
   EXPECT_TRUE(
@@ -4055,7 +4091,7 @@ TEST_F(DisplayManagerTest, CompositingCursorInMultiSoftwareMirroring) {
 
   // Connect all displays, cursor compositing is disabled by default.
   display_manager()->OnNativeDisplaysChanged(display_info_list);
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   CursorWindowController* cursor_window_controller =
       Shell::Get()->window_tree_host_manager()->cursor_window_controller();
   EXPECT_FALSE(cursor_window_controller->is_cursor_compositing_enabled());
@@ -4384,7 +4420,7 @@ TEST_F(DisplayManagerTest, MirrorModeRestoreAfterResume) {
 
 TEST_F(DisplayManagerTest, SoftwareMirrorRotationForTablet) {
   UpdateDisplay("400x300,800x800");
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
 
   // Set the first display as internal display so that the tablet mode can be
   // enabled.
@@ -4393,7 +4429,7 @@ TEST_F(DisplayManagerTest, SoftwareMirrorRotationForTablet) {
 
   // Simulate turning on mirror mode triggered by tablet mode on.
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
-  RunAllPendingInMessageLoop();
+  base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
   EXPECT_EQ(gfx::Rect(0, 0, 400, 300),
             display::Screen::GetScreen()->GetPrimaryDisplay().bounds());

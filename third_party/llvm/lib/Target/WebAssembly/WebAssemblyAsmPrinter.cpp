@@ -22,6 +22,7 @@
 #include "WebAssemblyMCInstLower.h"
 #include "WebAssemblyMachineFunctionInfo.h"
 #include "WebAssemblyRegisterInfo.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/AsmPrinter.h"
@@ -79,11 +80,12 @@ WebAssemblyTargetStreamer *WebAssemblyAsmPrinter::getTargetStreamer() {
 
 void WebAssemblyAsmPrinter::EmitEndOfAsmFile(Module &M) {
   for (auto &It : OutContext.getSymbols()) {
-    // Emit a .globaltype declaration.
+    // Emit a .globaltype and .eventtype declaration.
     auto Sym = cast<MCSymbolWasm>(It.getValue());
-    if (Sym->getType() == wasm::WASM_SYMBOL_TYPE_GLOBAL) {
+    if (Sym->getType() == wasm::WASM_SYMBOL_TYPE_GLOBAL)
       getTargetStreamer()->emitGlobalType(Sym);
-    }
+    else if (Sym->getType() == wasm::WASM_SYMBOL_TYPE_EVENT)
+      getTargetStreamer()->emitEventType(Sym);
   }
 
   for (const auto &F : M) {
@@ -93,6 +95,7 @@ void WebAssemblyAsmPrinter::EmitEndOfAsmFile(Module &M) {
       SmallVector<MVT, 4> Params;
       ComputeSignatureVTs(F.getFunctionType(), F, TM, Params, Results);
       auto *Sym = cast<MCSymbolWasm>(getSymbol(&F));
+      Sym->setType(wasm::WASM_SYMBOL_TYPE_FUNCTION);
       if (!Sym->getSignature()) {
         auto Signature = SignatureFromMVTs(Results, Params);
         Sym->setSignature(Signature.get());
@@ -103,12 +106,13 @@ void WebAssemblyAsmPrinter::EmitEndOfAsmFile(Module &M) {
       // infer the type from a call). With object files it applies to all
       // imports. so fix the names and the tests, or rethink how import
       // delcarations work in asm files.
-      getTargetStreamer()->emitIndirectFunctionType(Sym);
+      getTargetStreamer()->emitFunctionType(Sym);
 
       if (TM.getTargetTriple().isOSBinFormatWasm() &&
           F.hasFnAttribute("wasm-import-module")) {
         StringRef Name =
             F.getFnAttribute("wasm-import-module").getValueAsString();
+        Sym->setModuleName(Name);
         getTargetStreamer()->emitImportModule(Sym, Name);
       }
     }
@@ -143,6 +147,35 @@ void WebAssemblyAsmPrinter::EmitEndOfAsmFile(Module &M) {
       OutStreamer->PopSection();
     }
   }
+
+  if (const NamedMDNode *Ident = M.getNamedMetadata("llvm.ident")) {
+    llvm::SmallSet<StringRef, 4> SeenTools;
+    llvm::SmallVector<std::pair<StringRef, StringRef>, 4> Tools;
+    for (size_t i = 0, e = Ident->getNumOperands(); i < e; ++i) {
+      const auto *S = cast<MDString>(Ident->getOperand(i)->getOperand(0));
+      std::pair<StringRef, StringRef> Field = S->getString().split("version");
+      StringRef Name = Field.first.trim();
+      StringRef Version = Field.second.trim();
+      if (!SeenTools.insert(Name).second)
+        continue;
+      Tools.emplace_back(Name, Version);
+    }
+    MCSectionWasm *Producers = OutContext.getWasmSection(
+        ".custom_section.producers", SectionKind::getMetadata());
+    OutStreamer->PushSection();
+    OutStreamer->SwitchSection(Producers);
+    OutStreamer->EmitULEB128IntValue(1);
+    OutStreamer->EmitULEB128IntValue(strlen("processed-by"));
+    OutStreamer->EmitBytes("processed-by");
+    OutStreamer->EmitULEB128IntValue(Tools.size());
+    for (auto &Tool : Tools) {
+      OutStreamer->EmitULEB128IntValue(Tool.first.size());
+      OutStreamer->EmitBytes(Tool.first);
+      OutStreamer->EmitULEB128IntValue(Tool.second.size());
+      OutStreamer->EmitBytes(Tool.second);
+    }
+    OutStreamer->PopSection();
+  }
 }
 
 void WebAssemblyAsmPrinter::EmitConstantPool() {
@@ -163,9 +196,10 @@ void WebAssemblyAsmPrinter::EmitFunctionBodyStart() {
   auto *WasmSym = cast<MCSymbolWasm>(CurrentFnSym);
   WasmSym->setSignature(Signature.get());
   addSignature(std::move(Signature));
+  WasmSym->setType(wasm::WASM_SYMBOL_TYPE_FUNCTION);
 
   // FIXME: clean up how params and results are emitted (use signatures)
-  getTargetStreamer()->emitParam(CurrentFnSym, ParamVTs);
+  getTargetStreamer()->emitFunctionType(WasmSym);
 
   // Emit the function index.
   if (MDNode *Idx = F.getMetadata("wasm.index")) {
@@ -175,8 +209,9 @@ void WebAssemblyAsmPrinter::EmitFunctionBodyStart() {
         cast<ConstantAsMetadata>(Idx->getOperand(0))->getValue()));
   }
 
-  getTargetStreamer()->emitResult(CurrentFnSym, ResultVTs);
-  getTargetStreamer()->emitLocal(MFI->getLocals());
+  SmallVector<wasm::ValType, 16> Locals;
+  ValTypesFromMVTs(MFI->getLocals(), Locals);
+  getTargetStreamer()->emitLocal(Locals);
 
   AsmPrinter::EmitFunctionBodyStart();
 }

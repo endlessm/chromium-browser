@@ -43,8 +43,8 @@ struct MultiviewRenderTestParams final : public MultiviewImplementationParams
           mMultiviewLayout(multiviewLayout),
           mSamples(samples)
     {
-        ASSERT(multiviewLayout == GL_FRAMEBUFFER_MULTIVIEW_LAYERED_ANGLE ||
-               multiviewLayout == GL_FRAMEBUFFER_MULTIVIEW_SIDE_BY_SIDE_ANGLE);
+        EXPECT_TRUE(multiviewLayout == GL_FRAMEBUFFER_MULTIVIEW_LAYERED_ANGLE ||
+                    multiviewLayout == GL_FRAMEBUFFER_MULTIVIEW_SIDE_BY_SIDE_ANGLE);
     }
     GLenum mMultiviewLayout;
     int mSamples;
@@ -64,7 +64,8 @@ std::ostream &operator<<(std::ostream &os, const MultiviewRenderTestParams &para
             os << "_side_by_side";
             break;
         default:
-            UNREACHABLE();
+            os << "_error";
+            break;
     }
     if (params.mSamples > 0)
     {
@@ -101,7 +102,7 @@ class MultiviewFramebufferTestBase : public MultiviewTestBase
 
     void updateFBOs(int viewWidth, int height, int numViews, int numLayers, int baseViewIndex)
     {
-        ASSERT(numViews + baseViewIndex <= numLayers);
+        ASSERT_TRUE(numViews + baseViewIndex <= numLayers);
 
         freeFBOs();
 
@@ -151,7 +152,7 @@ class MultiviewFramebufferTestBase : public MultiviewTestBase
                 }
                 break;
             default:
-                UNREACHABLE();
+                ASSERT_TRUE(false);
         }
 
         // Clear the buffers.
@@ -182,7 +183,7 @@ class MultiviewFramebufferTestBase : public MultiviewTestBase
         int numLayers = mReadFramebuffer.size();
         if (mResolveFramebuffer.empty())
         {
-            ASSERT(mResolveTexture == 0u);
+            ASSERT_TRUE(mResolveTexture == 0u);
             glGenTextures(1, &mResolveTexture);
             CreateMultiviewBackingTextures(mMultiviewLayout, 0, mViewWidth, mViewHeight, numLayers,
                                            mResolveTexture, 0u, 0u);
@@ -216,10 +217,10 @@ class MultiviewFramebufferTestBase : public MultiviewTestBase
                 glBindFramebuffer(GL_READ_FRAMEBUFFER, mReadFramebuffer[0]);
                 return ReadColor(view * mViewWidth + x, y);
             case GL_FRAMEBUFFER_MULTIVIEW_LAYERED_ANGLE:
-                ASSERT(static_cast<size_t>(view) < mReadFramebuffer.size());
+                EXPECT_TRUE(static_cast<size_t>(view) < mReadFramebuffer.size());
                 if (mSamples > 0)
                 {
-                    ASSERT(static_cast<size_t>(view) < mResolveFramebuffer.size());
+                    EXPECT_TRUE(static_cast<size_t>(view) < mResolveFramebuffer.size());
                     glBindFramebuffer(GL_READ_FRAMEBUFFER, mResolveFramebuffer[view]);
                 }
                 else
@@ -228,7 +229,7 @@ class MultiviewFramebufferTestBase : public MultiviewTestBase
                 }
                 return ReadColor(x, y);
             default:
-                UNREACHABLE();
+                EXPECT_TRUE(false);
         }
         return GLColor(0, 0, 0, 0);
     }
@@ -524,14 +525,11 @@ class MultiviewLayeredRenderTest : public MultiviewFramebufferTestBase,
 // 2) does not generate any error if the draw framebuffer has exactly 1 view.
 TEST_P(MultiviewDrawValidationTest, IndirectDraw)
 {
-    if (!requestMultiviewExtension())
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension());
 
     const GLint viewportOffsets[4] = {0, 0, 2, 0};
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -557,13 +555,13 @@ TEST_P(MultiviewDrawValidationTest, IndirectDraw)
 
     // Check for a GL_INVALID_OPERATION error with the framebuffer having 2 views.
     {
-        const std::string &vsSource =
+        constexpr char kVS[] =
             "#version 300 es\n"
             "#extension GL_OVR_multiview : require\n"
             "layout(num_views = 2) in;\n"
             "void main()\n"
             "{}\n";
-        ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+        ANGLE_GL_PROGRAM(program, kVS, kFS);
         glUseProgram(program);
 
         glFramebufferTextureMultiviewSideBySideANGLE(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex2D, 0,
@@ -578,13 +576,13 @@ TEST_P(MultiviewDrawValidationTest, IndirectDraw)
 
     // Check that no errors are generated if the number of views is 1.
     {
-        const std::string &vsSource =
+        constexpr char kVS[] =
             "#version 300 es\n"
             "#extension GL_OVR_multiview : require\n"
             "layout(num_views = 1) in;\n"
             "void main()\n"
             "{}\n";
-        ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+        ANGLE_GL_PROGRAM(program, kVS, kFS);
         glUseProgram(program);
 
         glFramebufferTextureMultiviewSideBySideANGLE(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex2D, 0,
@@ -604,26 +602,23 @@ TEST_P(MultiviewDrawValidationTest, IndirectDraw)
 // 2) does not generate any error if the number of views is the same.
 TEST_P(MultiviewDrawValidationTest, NumViewsMismatch)
 {
-    if (!requestMultiviewExtension())
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension());
 
     const GLint viewportOffsets[4] = {0, 0, 2, 0};
 
-    const std::string &vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
         "void main()\n"
         "{}\n";
-    const std::string &fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
         "void main()\n"
         "{}\n";
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     glUseProgram(program);
 
     GLVertexArray vao;
@@ -674,16 +669,16 @@ TEST_P(MultiviewDrawValidationTest, NumViewsMismatchForNonMultiviewProgram)
         return;
     }
 
-    const std::string &vsSourceNoMultiview =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "void main()\n"
         "{}\n";
-    const std::string &fsSourceNoMultiview =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "precision mediump float;\n"
         "void main()\n"
         "{}\n";
-    ANGLE_GL_PROGRAM(programNoMultiview, vsSourceNoMultiview, fsSourceNoMultiview);
+    ANGLE_GL_PROGRAM(programNoMultiview, kVS, kFS);
     glUseProgram(programNoMultiview);
 
     GLVertexArray vao;
@@ -710,33 +705,29 @@ TEST_P(MultiviewDrawValidationTest, NumViewsMismatchForNonMultiviewProgram)
 
 // The test verifies that glDraw*:
 // 1) generates an INVALID_OPERATION error if the number of views in the active draw framebuffer is
-// greater than 1 and there is an active transform feedback object.
+// greater than 1 and there is an active not paused transform feedback object.
 // 2) does not generate any error if the number of views in the draw framebuffer is 1.
 TEST_P(MultiviewDrawValidationTest, ActiveTransformFeedback)
 {
-    if (!requestMultiviewExtension())
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension());
 
     const GLint viewportOffsets[4] = {0, 0, 2, 0};
 
-    const std::string &vsSource =
-        R"(#version 300 es
-        out float tfVarying;
-        void main()
-        {
-            tfVarying = 1.0;
-        })";
-    const std::string &fsSource =
-        R"(#version 300 es
-        precision mediump float;
-        void main()
-        {})";
+    constexpr char kVS[] = R"(#version 300 es
+out float tfVarying;
+void main()
+{
+    tfVarying = 1.0;
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+void main()
+{})";
 
     std::vector<std::string> tfVaryings;
     tfVaryings.emplace_back("tfVarying");
-    ANGLE_GL_PROGRAM_TRANSFORM_FEEDBACK(singleViewProgram, vsSource, fsSource, tfVaryings,
+    ANGLE_GL_PROGRAM_TRANSFORM_FEEDBACK(singleViewProgram, kVS, kFS, tfVaryings,
                                         GL_SEPARATE_ATTRIBS);
 
     std::vector<std::string> dualViewTFVaryings;
@@ -785,23 +776,23 @@ TEST_P(MultiviewDrawValidationTest, ActiveTransformFeedback)
         EXPECT_GL_NO_ERROR();
     }
 
-    // A paused transform feedback should still trigger an error.
+    // A paused transform feedback should not trigger an error.
     glBeginTransformFeedback(GL_TRIANGLES);
     glPauseTransformFeedback();
     ASSERT_GL_NO_ERROR();
 
     glDrawArrays(GL_TRIANGLES, 0, 3);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    ASSERT_GL_NO_ERROR();
 
     // Unbind transform feedback - should succeed.
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     ASSERT_GL_NO_ERROR();
 
-    // Rebind paused transform feedback - should fail.
+    // Rebind paused transform feedback - should succeed.
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, transformFeedback);
     glDrawArrays(GL_TRIANGLES, 0, 3);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    ASSERT_GL_NO_ERROR();
 
     glResumeTransformFeedback();
     glEndTransformFeedback();
@@ -829,27 +820,21 @@ TEST_P(MultiviewDrawValidationTest, ActiveTransformFeedback)
 TEST_P(MultiviewDrawValidationTest, ActiveTimeElapsedQuery)
 {
     ANGLE_SKIP_TEST_IF(!requestMultiviewExtension());
-
-    if (extensionRequestable("GL_EXT_disjoint_timer_query"))
-    {
-        glRequestExtensionANGLE("GL_EXT_disjoint_timer_query");
-    }
-
-    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_EXT_disjoint_timer_query"));
+    ANGLE_SKIP_TEST_IF(!ensureExtensionEnabled("GL_EXT_disjoint_timer_query"));
 
     ANGLE_GL_PROGRAM(dualViewProgram, kDualViewVSSource, kDualViewFSSource);
 
     const GLint viewportOffsets[4] = {0, 0, 2, 0};
-    const std::string &vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "void main()\n"
         "{}\n";
-    const std::string &fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "precision mediump float;\n"
         "void main()\n"
         "{}\n";
-    ANGLE_GL_PROGRAM(singleViewProgram, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(singleViewProgram, kVS, kFS);
     glUseProgram(singleViewProgram);
 
     GLVertexArray vao;
@@ -919,10 +904,8 @@ TEST_P(MultiviewDrawValidationTest, ActiveTimeElapsedQuery)
 // The test checks that glDrawArrays can be used to render into two views.
 TEST_P(MultiviewRenderDualViewTest, DrawArrays)
 {
-    if (!requestMultiviewExtension(isMultisampled()))
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension(isMultisampled()));
+
     drawQuad(mProgram, "vPosition", 0.0f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
 
@@ -932,10 +915,8 @@ TEST_P(MultiviewRenderDualViewTest, DrawArrays)
 // The test checks that glDrawElements can be used to render into two views.
 TEST_P(MultiviewRenderDualViewTest, DrawElements)
 {
-    if (!requestMultiviewExtension(isMultisampled()))
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension(isMultisampled()));
+
     drawIndexedQuad(mProgram, "vPosition", 0.0f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
 
@@ -945,10 +926,8 @@ TEST_P(MultiviewRenderDualViewTest, DrawElements)
 // The test checks that glDrawRangeElements can be used to render into two views.
 TEST_P(MultiviewRenderDualViewTest, DrawRangeElements)
 {
-    if (!requestMultiviewExtension(isMultisampled()))
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension(isMultisampled()));
+
     drawIndexedQuad(mProgram, "vPosition", 0.0f, 1.0f, true, true);
     ASSERT_GL_NO_ERROR();
 
@@ -958,12 +937,9 @@ TEST_P(MultiviewRenderDualViewTest, DrawRangeElements)
 // The test checks that glDrawArrays can be used to render into four views.
 TEST_P(MultiviewRenderTest, DrawArraysFourViews)
 {
-    if (!requestMultiviewExtension(isMultisampled()))
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension(isMultisampled()));
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 4) in;\n"
@@ -982,7 +958,7 @@ TEST_P(MultiviewRenderTest, DrawArraysFourViews)
         "   gl_Position.yzw = vPosition.yzw;\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -993,7 +969,7 @@ TEST_P(MultiviewRenderTest, DrawArraysFourViews)
         "}\n";
 
     updateFBOs(4, 1, 4);
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 
     drawQuad(program, "vPosition", 0.0f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
@@ -1019,12 +995,9 @@ TEST_P(MultiviewRenderTest, DrawArraysFourViews)
 // The test checks that glDrawArraysInstanced can be used to render into two views.
 TEST_P(MultiviewRenderTest, DrawArraysInstanced)
 {
-    if (!requestMultiviewExtension(isMultisampled()))
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension(isMultisampled()));
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1041,7 +1014,7 @@ TEST_P(MultiviewRenderTest, DrawArraysInstanced)
         "       gl_Position.yzw = p.yzw;\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1055,7 +1028,7 @@ TEST_P(MultiviewRenderTest, DrawArraysInstanced)
     const int kViewHeight = 2;
     const int kNumViews   = 2;
     updateFBOs(kViewWidth, kViewHeight, kNumViews);
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 
     drawQuadInstanced(program, "vPosition", 0.0f, 1.0f, true, 2u);
     ASSERT_GL_NO_ERROR();
@@ -1088,10 +1061,7 @@ TEST_P(MultiviewRenderTest, DrawArraysInstanced)
 // not by 3.
 TEST_P(MultiviewRenderTest, AttribDivisor)
 {
-    if (!requestMultiviewExtension(isMultisampled()))
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension(isMultisampled()));
 
     // Looks like an incorrect D3D debug layer message is generated on Windows AMD and NVIDIA.
     // May be specific to Windows 7 / Windows Server 2008. http://anglebug.com/2778
@@ -1100,7 +1070,7 @@ TEST_P(MultiviewRenderTest, AttribDivisor)
         ignoreD3D11SDKLayersWarnings();
     }
 
-    const std::string &vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1115,7 +1085,7 @@ TEST_P(MultiviewRenderTest, AttribDivisor)
         "       gl_Position.yzw = p.yzw;\n"
         "}\n";
 
-    const std::string &fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1129,7 +1099,7 @@ TEST_P(MultiviewRenderTest, AttribDivisor)
     const int kViewHeight = 4;
     const int kNumViews   = 2;
     updateFBOs(kViewWidth, kViewHeight, kNumViews);
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 
     GLBuffer xOffsetVBO;
     glBindBuffer(GL_ARRAY_BUFFER, xOffsetVBO);
@@ -1175,15 +1145,12 @@ TEST_P(MultiviewRenderTest, AttribDivisor)
 // multi-view context propagate the correct divisor to the driver.
 TEST_P(MultiviewRenderTest, DivisorOrderOfOperation)
 {
-    if (!requestMultiviewExtension(isMultisampled()))
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension(isMultisampled()));
 
     updateFBOs(1, 1, 2);
 
     // Create multiview program.
-    const std::string &vs =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1196,7 +1163,7 @@ TEST_P(MultiviewRenderTest, DivisorOrderOfOperation)
         "       gl_Position = p;\n"
         "}\n";
 
-    const std::string &fs =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1206,9 +1173,9 @@ TEST_P(MultiviewRenderTest, DivisorOrderOfOperation)
         "    col = vec4(0,1,0,1);\n"
         "}\n";
 
-    ANGLE_GL_PROGRAM(program, vs, fs);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 
-    const std::string &dummyVS =
+    constexpr char kDummyVS[] =
         "#version 300 es\n"
         "layout(location = 0) in vec2 vPosition;\n"
         "layout(location = 1) in float offsetX;\n"
@@ -1217,7 +1184,7 @@ TEST_P(MultiviewRenderTest, DivisorOrderOfOperation)
         "       gl_Position = vec4(vPosition, 0.0, 1.0);\n"
         "}\n";
 
-    const std::string &dummyFS =
+    constexpr char kDummyFS[] =
         "#version 300 es\n"
         "precision mediump float;\n"
         "out vec4 col;\n"
@@ -1226,7 +1193,7 @@ TEST_P(MultiviewRenderTest, DivisorOrderOfOperation)
         "    col = vec4(0,0,0,1);\n"
         "}\n";
 
-    ANGLE_GL_PROGRAM(dummyProgram, dummyVS, dummyFS);
+    ANGLE_GL_PROGRAM(dummyProgram, kDummyVS, kDummyFS);
 
     GLBuffer xOffsetVBO;
     glBindBuffer(GL_ARRAY_BUFFER, xOffsetVBO);
@@ -1343,7 +1310,7 @@ TEST_P(MultiviewOcclusionQueryTest, OcclusionQueryNothingVisible)
     ANGLE_SKIP_TEST_IF(!requestMultiviewExtension());
     ANGLE_SKIP_TEST_IF(!requestOcclusionQueryExtension());
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1354,7 +1321,7 @@ TEST_P(MultiviewOcclusionQueryTest, OcclusionQueryNothingVisible)
         "       gl_Position.yzw = vec3(vPosition.yz, 1.);\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1363,7 +1330,7 @@ TEST_P(MultiviewOcclusionQueryTest, OcclusionQueryNothingVisible)
         "{\n"
         "    col = vec4(1,0,0,0);\n"
         "}\n";
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     updateFBOs(1, 1, 2);
 
     GLuint result = drawAndRetrieveOcclusionQueryResult(program);
@@ -1378,7 +1345,7 @@ TEST_P(MultiviewOcclusionQueryTest, OcclusionQueryOnlyLeftVisible)
     ANGLE_SKIP_TEST_IF(!requestMultiviewExtension());
     ANGLE_SKIP_TEST_IF(!requestOcclusionQueryExtension());
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1389,7 +1356,7 @@ TEST_P(MultiviewOcclusionQueryTest, OcclusionQueryOnlyLeftVisible)
         "       gl_Position.yzw = vec3(vPosition.yz, 1.);\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1398,7 +1365,7 @@ TEST_P(MultiviewOcclusionQueryTest, OcclusionQueryOnlyLeftVisible)
         "{\n"
         "    col = vec4(1,0,0,0);\n"
         "}\n";
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     updateFBOs(1, 1, 2);
 
     GLuint result = drawAndRetrieveOcclusionQueryResult(program);
@@ -1413,7 +1380,7 @@ TEST_P(MultiviewOcclusionQueryTest, OcclusionQueryOnlyRightVisible)
     ANGLE_SKIP_TEST_IF(!requestMultiviewExtension());
     ANGLE_SKIP_TEST_IF(!requestOcclusionQueryExtension());
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1424,7 +1391,7 @@ TEST_P(MultiviewOcclusionQueryTest, OcclusionQueryOnlyRightVisible)
         "       gl_Position.yzw = vec3(vPosition.yz, 1.);\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1433,7 +1400,7 @@ TEST_P(MultiviewOcclusionQueryTest, OcclusionQueryOnlyRightVisible)
         "{\n"
         "    col = vec4(1,0,0,0);\n"
         "}\n";
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     updateFBOs(1, 1, 2);
 
     GLuint result = drawAndRetrieveOcclusionQueryResult(program);
@@ -1450,7 +1417,7 @@ TEST_P(MultiviewProgramGenerationTest, SimpleProgram)
         return;
     }
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1458,7 +1425,7 @@ TEST_P(MultiviewProgramGenerationTest, SimpleProgram)
         "{\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1466,7 +1433,7 @@ TEST_P(MultiviewProgramGenerationTest, SimpleProgram)
         "{\n"
         "}\n";
 
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     glUseProgram(program);
 
     EXPECT_GL_NO_ERROR();
@@ -1481,7 +1448,7 @@ TEST_P(MultiviewProgramGenerationTest, UseViewIDInVertexShader)
         return;
     }
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1494,7 +1461,7 @@ TEST_P(MultiviewProgramGenerationTest, UseViewIDInVertexShader)
         "   }\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1502,7 +1469,7 @@ TEST_P(MultiviewProgramGenerationTest, UseViewIDInVertexShader)
         "{\n"
         "}\n";
 
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     glUseProgram(program);
 
     EXPECT_GL_NO_ERROR();
@@ -1517,7 +1484,7 @@ TEST_P(MultiviewProgramGenerationTest, UseViewIDInFragmentShader)
         return;
     }
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1525,7 +1492,7 @@ TEST_P(MultiviewProgramGenerationTest, UseViewIDInFragmentShader)
         "{\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1539,7 +1506,7 @@ TEST_P(MultiviewProgramGenerationTest, UseViewIDInFragmentShader)
         "   }\n"
         "}\n";
 
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     glUseProgram(program);
 
     EXPECT_GL_NO_ERROR();
@@ -1556,7 +1523,7 @@ TEST_P(MultiviewRenderPrimitiveTest, Points)
     // Test failing on P400 graphics card (anglebug.com/2228)
     ANGLE_SKIP_TEST_IF(IsWindows() && IsD3D11() && IsNVIDIA());
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1567,7 +1534,7 @@ TEST_P(MultiviewRenderPrimitiveTest, Points)
         "   gl_Position = vec4(vPosition.xy, 0.0, 1.0);\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1576,7 +1543,7 @@ TEST_P(MultiviewRenderPrimitiveTest, Points)
         "{\n"
         "   col = vec4(0,1,0,1);\n"
         "}\n";
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     glUseProgram(program);
 
     const int kViewWidth  = 4;
@@ -1802,7 +1769,7 @@ TEST_P(MultiviewSideBySideRenderTest, NoLeakingFragments)
     glScissor(0, 0, 1, 1);
     glEnable(GL_SCISSOR_TEST);
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -1813,7 +1780,7 @@ TEST_P(MultiviewSideBySideRenderTest, NoLeakingFragments)
         "   gl_Position = vec4(vPosition.xy, 0.0, 1.0);\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1826,7 +1793,7 @@ TEST_P(MultiviewSideBySideRenderTest, NoLeakingFragments)
         "       col = vec4(0,1,0,1);\n"
         "   }\n"
         "}\n";
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     glUseProgram(program);
 
     const std::vector<Vector2I> &windowCoordinates = {Vector2I(0, 0), Vector2I(2, 0)};
@@ -1883,7 +1850,7 @@ TEST_P(MultiviewRenderTest, ProgramRelinkUpdatesAttribDivisor)
     const int kViewHeight = 1;
     const int kNumViews   = 2;
 
-    const std::string &fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -1916,7 +1883,7 @@ TEST_P(MultiviewRenderTest, ProgramRelinkUpdatesAttribDivisor)
     };
 
     std::string vsSource = generateVertexShaderSource(kNumViews);
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, vsSource.c_str(), kFS);
     glUseProgram(program);
 
     GLint positionLoc;
@@ -1964,9 +1931,9 @@ TEST_P(MultiviewRenderTest, ProgramRelinkUpdatesAttribDivisor)
         vsSource               = generateVertexShaderSource(kNewNumViews);
         updateFBOs(kViewWidth, kViewHeight, kNewNumViews);
 
-        GLuint vs = CompileShader(GL_VERTEX_SHADER, vsSource);
+        GLuint vs = CompileShader(GL_VERTEX_SHADER, vsSource.c_str());
         ASSERT_NE(0u, vs);
-        GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fsSource);
+        GLuint fs = CompileShader(GL_FRAGMENT_SHADER, kFS);
         ASSERT_NE(0u, fs);
 
         GLint numAttachedShaders = 0;
@@ -2078,7 +2045,7 @@ TEST_P(MultiviewRenderTest, SelectColorBasedOnViewIDOVR)
         return;
     }
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 3) in;\n"
@@ -2088,7 +2055,7 @@ TEST_P(MultiviewRenderTest, SelectColorBasedOnViewIDOVR)
         "   gl_Position = vec4(vPosition, 1.);\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -2107,7 +2074,7 @@ TEST_P(MultiviewRenderTest, SelectColorBasedOnViewIDOVR)
         "}\n";
 
     updateFBOs(1, 1, 3);
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 
     drawQuad(program, "vPosition", 0.0f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
@@ -2127,7 +2094,7 @@ TEST_P(MultiviewLayeredRenderTest, RenderToSubrangeOfLayers)
         return;
     }
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -2137,7 +2104,7 @@ TEST_P(MultiviewLayeredRenderTest, RenderToSubrangeOfLayers)
         "   gl_Position = vec4(vPosition, 1.);\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -2148,7 +2115,7 @@ TEST_P(MultiviewLayeredRenderTest, RenderToSubrangeOfLayers)
         "}\n";
 
     updateFBOs(1, 1, 2, 4, 1);
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 
     drawQuad(program, "vPosition", 0.0f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
@@ -2173,7 +2140,7 @@ TEST_P(MultiviewRenderTest, FlatInterpolation)
         return;
     }
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -2185,7 +2152,7 @@ TEST_P(MultiviewRenderTest, FlatInterpolation)
         "   oInstanceID = gl_InstanceID;\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -2204,7 +2171,7 @@ TEST_P(MultiviewRenderTest, FlatInterpolation)
         "}\n";
 
     updateFBOs(1, 1, 2);
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 
     drawQuad(program, "vPosition", 0.0f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
@@ -2223,7 +2190,7 @@ TEST_P(MultiviewRenderTest, FlatInterpolation2)
         return;
     }
 
-    const std::string vsSource =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -2235,7 +2202,7 @@ TEST_P(MultiviewRenderTest, FlatInterpolation2)
         "   flatVarying = int(gl_ViewID_OVR);\n"
         "}\n";
 
-    const std::string fsSource =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -2251,7 +2218,7 @@ TEST_P(MultiviewRenderTest, FlatInterpolation2)
         "}\n";
 
     updateFBOs(1, 1, 2);
-    ANGLE_GL_PROGRAM(program, vsSource, fsSource);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 
     drawQuad(program, "vPosition", 0.0f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
@@ -2273,7 +2240,7 @@ TEST_P(MultiviewSideBySideRenderTest, ViewportOffsetsAppliedBugCoverage)
     updateFBOs(1, 1, 2);
 
     // Create multiview program.
-    const std::string &vs =
+    constexpr char kVS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "layout(num_views = 2) in;\n"
@@ -2283,7 +2250,7 @@ TEST_P(MultiviewSideBySideRenderTest, ViewportOffsetsAppliedBugCoverage)
         "       gl_Position = vec4(vPosition, 1.0);\n"
         "}\n";
 
-    const std::string &fs =
+    constexpr char kFS[] =
         "#version 300 es\n"
         "#extension GL_OVR_multiview : require\n"
         "precision mediump float;\n"
@@ -2293,7 +2260,7 @@ TEST_P(MultiviewSideBySideRenderTest, ViewportOffsetsAppliedBugCoverage)
         "    col = vec4(0,1,0,1);\n"
         "}\n";
 
-    ANGLE_GL_PROGRAM(program, vs, fs);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 
     glViewport(0, 0, 1, 1);
     glScissor(0, 0, 1, 1);

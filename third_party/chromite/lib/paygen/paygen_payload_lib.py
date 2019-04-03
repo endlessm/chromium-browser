@@ -13,21 +13,25 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 
+from chromite.lib import chroot_util
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
-from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import path_util
+from chromite.lib.paygen import download_cache
 from chromite.lib.paygen import filelib
 from chromite.lib.paygen import gspaths
+from chromite.lib.paygen import partition_lib
 from chromite.lib.paygen import signer_payloads_client
 from chromite.lib.paygen import urilib
-from chromite.lib.paygen import utils
 
 
 DESCRIPTION_FILE_VERSION = 2
 
+# Only two parallel paygen for now.
+_semaphore = threading.Semaphore(2)
 
 class Error(Exception):
   """Base class for payload generation errors."""
@@ -41,8 +45,11 @@ class PayloadVerificationError(Error):
   """Raised when the generated payload fails to verify."""
 
 
-class _PaygenPayload(object):
+class PaygenPayload(object):
   """Class to manage the process of generating and signing a payload."""
+
+  # 50 GB of cache.
+  CACHE_SIZE = 50 * 1024 * 1024 * 1024
 
   # What keys do we sign payloads with, and what size are they?
   PAYLOAD_SIGNATURE_KEYSETS = ('update_signer',)
@@ -55,23 +62,19 @@ class _PaygenPayload(object):
   _KERNEL = 'kernel'
   _ROOTFS = 'root'
 
-  def __init__(self, payload, cache, work_dir, sign, verify, dry_run=False):
-    """Init for _PaygenPayload.
+  def __init__(self, payload, work_dir, sign, verify):
+    """Init for PaygenPayload.
 
     Args:
       payload: An instance of gspaths.Payload describing the payload to
                generate.
-      cache: An instance of DownloadCache for retrieving files.
       work_dir: A working directory for output files. Can NOT be shared.
       sign: Boolean saying if the payload should be signed (normally, you do).
       verify: whether the payload should be verified after being generated
-      dry_run: do not do any actual work
     """
     self.payload = payload
-    self.cache = cache
     self.work_dir = work_dir
     self._verify = verify
-    self._dry_run = dry_run
 
     self.src_image_file = os.path.join(work_dir, 'src_image.bin')
     self.tgt_image_file = os.path.join(work_dir, 'tgt_image.bin')
@@ -81,29 +84,36 @@ class _PaygenPayload(object):
     self.description_file = os.path.join(work_dir, 'delta.json')
     self.metadata_size_file = os.path.join(work_dir, 'metadata_size.txt')
     self.metadata_size = 0
+    self.metadata_hash_file = os.path.join(work_dir, 'metadata_hash')
+    self.payload_hash_file = os.path.join(work_dir, 'payload_hash')
+
+    self._postinst_config_file = os.path.join(work_dir, 'postinst_config')
 
     self.signer = None
 
-    # Names to pass to cros_generate_update_payload for extracting old/new
+    # TODO(ahassani): Use the partition names from the target image to construct
+    # these so we can support different partitions.
+    #
+    #  Names to pass to cros_generate_update_payload for extracting old/new
     # kernel/rootfs partitions.
-    self.partition_names = (self._KERNEL, self._ROOTFS)
-    self.tgt_partitions = {}
-    self.src_partitions = {}
-    for part_name in self.partition_names:
-      self.tgt_partitions[part_name] = os.path.join(self.work_dir,
-                                                    'new_' + part_name + '.dat')
-      self.src_partitions[part_name] = os.path.join(self.work_dir,
-                                                    'old_' + part_name + '.dat')
+    self.partition_names = (self._ROOTFS, self._KERNEL)
+    self.tgt_partitions = tuple(os.path.join(self.work_dir, 'tgt_%s.bin' % name)
+                                for name in self.partition_names)
+    self.src_partitions = tuple(os.path.join(self.work_dir, 'src_%s.bin' % name)
+                                for name in self.partition_names)
 
     if sign:
       self.signed_payload_file = self.payload_file + '.signed'
       self.metadata_signature_file = self._MetadataUri(self.signed_payload_file)
 
+      build = gspaths.Build(payload.tgt_image.build)
       self.signer = signer_payloads_client.SignerPayloadsClientGoogleStorage(
-          payload.tgt_image.channel,
-          payload.tgt_image.board,
-          payload.tgt_image.version,
-          payload.tgt_image.bucket)
+          build)
+
+    # This cache dir will be shared with other processes, but we need our own
+    # instance of the cache manager to properly coordinate.
+    self._cache = download_cache.DownloadCache(
+        self._FindCacheDir(), cache_size=PaygenPayload.CACHE_SIZE)
 
   def _MetadataUri(self, uri):
     """Given a payload uri, find the uri for the metadata signature."""
@@ -116,6 +126,14 @@ class _PaygenPayload(object):
   def _JsonUri(self, uri):
     """Given a payload uri, find the uri for the json payload description."""
     return uri + '.json'
+
+  def _FindCacheDir(self):
+    """Helper for deciding what cache directory to use.
+
+    Returns:
+      Returns a directory suitable for use with a DownloadCache.
+    """
+    return os.path.join(path_util.GetCacheDir(), 'paygen_cache')
 
   def _RunGeneratorCmd(self, cmd):
     """Wrapper for RunCommand in chroot.
@@ -160,19 +178,12 @@ class _PaygenPayload(object):
 
     Returns:
       If dict_obj[key] contains a non-False value or default is non-False,
-      returns a list containing the flag and value arguments (e.g. ['--foo',
-      'bar']), unless flag is empty/None, in which case returns a list
-      containing only the value argument (e.g.  ['bar']). Otherwise, returns an
-      empty list.
+      returns a string representing the flag and value arguments
+      (e.g. '--foo=bar')
     """
-    arg_list = []
     val = dict_obj.get(key) or default
-    if val:
-      arg_list = [str(val)]
-      if flag:
-        arg_list.insert(0, flag)
+    return '%s=%s' % (flag, str(val))
 
-    return arg_list
 
   def _PrepareImage(self, image, image_file):
     """Download an prepare an image for delta generation.
@@ -215,7 +226,7 @@ class _PaygenPayload(object):
       download_file = image_file
 
     # Download the image file or archive.
-    self.cache.GetFileCopy(image.uri, download_file)
+    self._cache.GetFileCopy(image.uri, download_file)
 
     # If we downloaded an archive, extract the image file from it.
     if extract_file:
@@ -228,59 +239,104 @@ class _PaygenPayload(object):
       # It's safe to delete the archive at this point.
       os.remove(download_file)
 
-  def _CheckPartitionFiles(self):
-    """Makes sure the extracted partition files exist."""
-    for part_name in self.partition_names:
-      if not os.path.isfile(self.tgt_partitions[part_name]):
-        raise PayloadVerificationError('Failed to extract partition (%s)' %
-                                       self.tgt_partitions[part_name])
-    if self.payload.src_image:
-      for part_name in self.partition_names:
-        if not os.path.isfile(self.src_partitions[part_name]):
-          raise PayloadVerificationError('Failed to extract partition (%s)' %
-                                         self.src_partitions[part_name])
+  def _GeneratePostinstConfig(self, run_postinst):
+    """Generates the postinstall config file
+
+    This file is used in update engine's major version 2.
+
+    Args:
+      run_postinst: Whether the updater should run postinst or not.
+    """
+    # In major version 2 we need to explicity mark the postinst on the root
+    # partition to run.
+    osutils.WriteFile(self._postinst_config_file,
+                      'RUN_POSTINSTALL_root=%s\n' %
+                      ('true' if run_postinst else 'false'))
+
+  def _ExtractPartitions(self):
+    """Extracts root and kernel partitions from an image."""
+    for idx, part_name in enumerate(self.partition_names):
+      if part_name == self._ROOTFS:
+        partition_lib.ExtractRoot(self.tgt_image_file,
+                                  self.tgt_partitions[idx])
+        if self.payload.src_image:
+          partition_lib.ExtractRoot(self.src_image_file,
+                                    self.src_partitions[idx])
+      elif part_name == self._KERNEL:
+        partition_lib.ExtractKernel(self.tgt_image_file,
+                                    self.tgt_partitions[idx])
+        if self.payload.src_image:
+          partition_lib.ExtractKernel(self.src_image_file,
+                                      self.src_partitions[idx])
+      else:
+        # It is a normal dlc partition, so we need to just copy it there but for
+        # now just raise an error.
+        raise Error('Invalid partition %s' % part_name)
 
   def _GenerateUnsignedPayload(self):
     """Generate the unsigned delta into self.payload_file."""
     # Note that the command run here requires sudo access.
-
     logging.info('Generating unsigned payload as %s', self.payload_file)
 
+    self._ExtractPartitions()
+
+    # Makes sure we have generated postinstall config for major version 2 and
+    # platform image.
+    self._GeneratePostinstConfig(True)
+
     tgt_image = self.payload.tgt_image
-    cmd = ['cros_generate_update_payload',
-           '--output', path_util.ToChrootPath(self.payload_file),
-           '--image', path_util.ToChrootPath(self.tgt_image_file),
-           '--channel', tgt_image.channel,
-           '--board', tgt_image.board,
-           '--version', tgt_image.version,
-           '--kern_path',
-           path_util.ToChrootPath(self.tgt_partitions[self._KERNEL]),
-           '--root_path',
-           path_util.ToChrootPath(self.tgt_partitions[self._ROOTFS])]
-    cmd += self._BuildArg('--key', tgt_image, 'key', default='test')
-    cmd += self._BuildArg('--build_channel', tgt_image, 'image_channel',
-                          default=tgt_image.channel)
-    cmd += self._BuildArg('--build_version', tgt_image, 'image_version',
-                          default=tgt_image.version)
+    cmd = ['delta_generator',
+           '--major_version=2',
+           '--out_file=' + path_util.ToChrootPath(self.payload_file),
+           # Target image args: (The order of partitions are important.)
+           '--partition_names=' + ':'.join(self.partition_names),
+           '--new_partitions=' +
+           ':'.join(path_util.ToChrootPath(x) for x in self.tgt_partitions),
+           '--new_postinstall_config_file=' +
+           path_util.ToChrootPath(self._postinst_config_file)]
+
+    if tgt_image.build:
+      # These next 6 parameters are basically optional and the update engine
+      # client ignores them, but we can keep them to identify parameters of a
+      # payload by looking at itself.  Either all of the build options should be
+      # passed or non of them. So, set the default key to 'test' only if it
+      # didn't have a key but it had other build options like channel, board,
+      # etc.
+      cmd += ['--new_channel=' + tgt_image.build.channel,
+              '--new_board=' + tgt_image.build.board,
+              '--new_version=' + tgt_image.build.version,
+              self._BuildArg('--new_build_channel', tgt_image, 'image_channel',
+                             default=tgt_image.build.channel),
+              self._BuildArg('--new_build_version', tgt_image, 'image_version',
+                             default=tgt_image.build.version),
+              self._BuildArg('--new_key', tgt_image, 'key',
+                             default='test' if tgt_image.build.channel else '')]
 
     if self.payload.src_image:
       src_image = self.payload.src_image
-      cmd += ['--src_image', path_util.ToChrootPath(self.src_image_file),
-              '--src_channel', src_image.channel,
-              '--src_board', src_image.board,
-              '--src_version', src_image.version,
-              '--src_kern_path',
-              path_util.ToChrootPath(self.src_partitions[self._KERNEL]),
-              '--src_root_path',
-              path_util.ToChrootPath(self.src_partitions[self._ROOTFS])]
-      cmd += self._BuildArg('--src_key', src_image, 'key', default='test')
-      cmd += self._BuildArg('--src_build_channel', src_image, 'image_channel',
-                            default=src_image.channel)
-      cmd += self._BuildArg('--src_build_version', src_image, 'image_version',
-                            default=src_image.version)
+      cmd += ['--old_partitions=' +
+              ':'.join(path_util.ToChrootPath(x) for x in self.src_partitions)]
 
+      if src_image.build:
+        # See above comment for new_channel.
+        cmd += ['--old_channel=' + src_image.build.channel,
+                '--old_board=' + src_image.build.board,
+                '--old_version=' + src_image.build.version,
+                self._BuildArg('--old_build_channel', src_image,
+                               'image_channel',
+                               default=src_image.build.channel),
+                self._BuildArg('--old_build_version', src_image,
+                               'image_version',
+                               default=src_image.build.version),
+                self._BuildArg(
+                    '--old_key', src_image, 'key',
+                    default='test' if src_image.build.channel else '')]
+
+    # Do not run the delta_generator in parallel. It already has full
+    # parallelism inside.
+    _semaphore.acquire()
     self._RunGeneratorCmd(cmd)
-    self._CheckPartitionFiles()
+    _semaphore.release()
 
   def _GenerateHashes(self):
     """Generate a payload hash and a metadata hash.
@@ -295,21 +351,18 @@ class _PaygenPayload(object):
     # How big will the signatures be.
     signature_sizes = [str(size) for size in self.PAYLOAD_SIGNATURE_SIZES_BYTES]
 
-    with tempfile.NamedTemporaryFile(dir=self.work_dir) as \
-         payload_hash_file, \
-         tempfile.NamedTemporaryFile(dir=self.work_dir) as \
-         metadata_hash_file:
+    cmd = ['delta_generator',
+           '--in_file=' + path_util.ToChrootPath(self.payload_file),
+           '--signature_size=' + ':'.join(signature_sizes),
+           '--out_hash_file=' +
+           path_util.ToChrootPath(self.payload_hash_file),
+           '--out_metadata_hash_file=' +
+           path_util.ToChrootPath(self.metadata_hash_file)]
 
-      cmd = ['delta_generator',
-             '--in_file=' + path_util.ToChrootPath(self.payload_file),
-             '--signature_size=' + ':'.join(signature_sizes),
-             '--out_hash_file=' +
-             path_util.ToChrootPath(payload_hash_file.name),
-             '--out_metadata_hash_file=' +
-             path_util.ToChrootPath(metadata_hash_file.name)]
+    self._RunGeneratorCmd(cmd)
 
-      self._RunGeneratorCmd(cmd)
-      return payload_hash_file.read(), metadata_hash_file.read()
+    return (osutils.ReadFile(self.payload_hash_file),
+            osutils.ReadFile(self.metadata_hash_file))
 
   def _ReadMetadataSizeFile(self):
     """Discover the metadata size.
@@ -382,33 +435,50 @@ class _PaygenPayload(object):
 
     return hashes_sigs
 
-  def _InsertPayloadSignatures(self, signatures):
-    """Put payload signatures into the payload they sign.
+  def _WriteSignaturesToFile(self, signatures):
+    """Write each signature into a temp file in the chroot.
 
     Args:
-      signatures: List of signatures for the payload.
+      signatures: A list of signaturs to write into file.
+
+    Returns:
+      The list of files in the chroot with the same order as signatures.
     """
-    logging.info('Inserting payload signatures into %s.',
+    file_paths = []
+    for signature in signatures:
+      path = tempfile.NamedTemporaryFile(dir=self.work_dir, delete=False).name
+      osutils.WriteFile(path, signature)
+      file_paths.append(path_util.ToChrootPath(path))
+
+    return file_paths
+
+  def _InsertSignaturesIntoPayload(self, payload_signatures,
+                                   metadata_signatures):
+    """Put payload and metadta signatures into the payload we sign.
+
+    Args:
+      payload_signatures: List of signatures for the payload.
+      metadata_signatures: List of signatures for the metadata.
+    """
+    logging.info('Inserting payload and metadata signatures into %s.',
                  self.signed_payload_file)
 
-    signature_files = [utils.CreateTempFileWithContents(s,
-                                                        base_dir=self.work_dir)
-                       for s in signatures]
-    signature_file_names = [path_util.ToChrootPath(f.name)
-                            for f in signature_files]
+    payload_signature_file_names = self._WriteSignaturesToFile(
+        payload_signatures)
+    metadata_signature_file_names = self._WriteSignaturesToFile(
+        metadata_signatures)
 
     cmd = ['delta_generator',
            '--in_file=' + path_util.ToChrootPath(self.payload_file),
-           '--payload_signature_file=' + ':'.join(signature_file_names),
+           '--payload_signature_file=' + ':'.join(payload_signature_file_names),
+           '--metadata_signature_file=' +
+           ':'.join(metadata_signature_file_names),
            '--out_file=' + path_util.ToChrootPath(self.signed_payload_file),
            '--out_metadata_size_file=' +
            path_util.ToChrootPath(self.metadata_size_file)]
 
     self._RunGeneratorCmd(cmd)
     self._ReadMetadataSizeFile()
-
-    for f in signature_files:
-      f.close()
 
   def _StoreMetadataSignatures(self, signatures):
     """Store metadata signatures related to the payload.
@@ -501,8 +571,14 @@ class _PaygenPayload(object):
     Returns:
       List of payload signatures, List of metadata signatures.
     """
-    # Create hashes to sign.
+    # Create hashes to sign or even if signing not needed.  TODO(ahassani): In
+    # practice we don't need to generate hashes if we are not signing, so when
+    # devserver stopped depending on cros_generate_update_payload. this can be
+    # reverted.
     payload_hash, metadata_hash = self._GenerateHashes()
+
+    if not self.signer:
+      return (None, None)
 
     # Sign them.
     # pylint: disable=unpacking-non-sequence
@@ -510,10 +586,10 @@ class _PaygenPayload(object):
         [payload_hash, metadata_hash])
     # pylint: enable=unpacking-non-sequence
 
-    # Insert payload signature(s).
-    self._InsertPayloadSignatures(payload_signatures)
+    # Insert payload and metadata signature(s).
+    self._InsertSignaturesIntoPayload(payload_signatures, metadata_signatures)
 
-    # Store Metadata signature(s).
+    # Store metadata signature(s).
     self._StoreMetadataSignatures(metadata_signatures)
 
     return (payload_signatures, metadata_signatures)
@@ -535,9 +611,7 @@ class _PaygenPayload(object):
     self._GenerateUnsignedPayload()
 
     # Sign the payload, if needed.
-    metadata_signatures = None
-    if self.signer:
-      _, metadata_signatures = self._SignPayload()
+    _, metadata_signatures = self._SignPayload()
 
     # Store hash and signatures json.
     self._StorePayloadJson(metadata_signatures)
@@ -565,19 +639,18 @@ class _PaygenPayload(object):
     cmd = ['check_update_payload', path_util.ToChrootPath(payload_file_name),
            '--check', '--type', 'delta' if is_delta else 'full',
            '--disabled_tests', 'move-same-src-dst-block',
-           '--part_names', self._KERNEL, self._ROOTFS,
-           '--dst_part_paths',
-           path_util.ToChrootPath(self.tgt_partitions[self._KERNEL]),
-           path_util.ToChrootPath(self.tgt_partitions[self._ROOTFS])]
+           '--part_names']
+    cmd.extend(self.partition_names)
+    cmd += ['--dst_part_paths']
+    cmd.extend(path_util.ToChrootPath(x) for x in self.tgt_partitions)
     if metadata_sig_file_name:
       cmd += ['--meta-sig', path_util.ToChrootPath(metadata_sig_file_name)]
 
     cmd += ['--metadata-size', str(self.metadata_size)]
 
     if is_delta:
-      cmd += ['--src_part_paths',
-              path_util.ToChrootPath(self.src_partitions[self._KERNEL]),
-              path_util.ToChrootPath(self.src_partitions[self._ROOTFS])]
+      cmd += ['--src_part_paths']
+      cmd.extend(path_util.ToChrootPath(x) for x in self.src_partitions)
 
     self._RunGeneratorCmd(cmd)
 
@@ -600,138 +673,28 @@ class _PaygenPayload(object):
 
   def Run(self):
     """Create, verify and upload the results."""
-    if self._dry_run:
-      logging.info('dry-run mode; skipping Create+Verify+Upload steps')
-      return
+    logging.info('* Starting payload generation')
+    start_time = datetime.datetime.now()
 
     self._Create()
     if self._verify:
       self._VerifyPayload()
     self._UploadResults()
 
+    end_time = datetime.datetime.now()
+    logging.info('* Finished payload generation in %s', end_time - start_time)
 
-def DefaultPayloadUri(payload, random_str=None):
-  """Compute the default output URI for a payload.
-
-  For a glob that matches all potential URIs for this
-  payload, pass in a random_str of '*'.
-
-  Args:
-    payload: gspaths.Payload instance.
-    random_str: A hook to force a specific random_str. None means generate it.
-
-  Returns:
-    Default URI for the payload.
-  """
-  src_version = None
-  if payload.src_image:
-    src_version = payload.src_image['version']
-
-  if gspaths.IsImage(payload.tgt_image):
-    # Signed payload.
-    return gspaths.ChromeosReleases.PayloadUri(
-        channel=payload.tgt_image.channel,
-        board=payload.tgt_image.board,
-        version=payload.tgt_image.version,
-        random_str=random_str,
-        key=payload.tgt_image.key,
-        image_channel=payload.tgt_image.image_channel,
-        image_version=payload.tgt_image.image_version,
-        src_version=src_version,
-        bucket=payload.tgt_image.bucket)
-  elif gspaths.IsUnsignedImageArchive(payload.tgt_image):
-    # Unsigned test payload.
-    return gspaths.ChromeosReleases.PayloadUri(
-        channel=payload.tgt_image.channel,
-        board=payload.tgt_image.board,
-        version=payload.tgt_image.version,
-        random_str=random_str,
-        src_version=src_version,
-        bucket=payload.tgt_image.bucket)
-  else:
-    raise Error('Unknown image type %s' % type(payload.tgt_image))
-
-
-def FillInPayloadUri(payload, random_str=None):
-  """Fill in default output URI for a payload if missing.
-
-  Args:
-    payload: gspaths.Payload instance.
-    random_str: A hook to force a specific random_str. None means generate it.
-  """
-  if not payload.uri:
-    payload.uri = DefaultPayloadUri(payload, random_str)
-
-
-def _FilterNonPayloadUris(payload_uris):
-  """Filters out non-payloads from a list of GS URIs.
-
-  This essentially filters out known auxiliary artifacts whose names resemble /
-  derive from a respective payload name, such as files with .log and
-  .metadata-signature extensions.
-
-  Args:
-    payload_uris: a list of GS URIs (potentially) corresopnding to payloads
-
-  Returns:
-    A filtered list of URIs.
-  """
-  return [uri for uri in payload_uris
-          if not (uri.endswith('.log') or uri.endswith('.metadata-signature'))]
-
-
-def FindExistingPayloads(payload):
-  """Look to see if any matching payloads already exist.
-
-  Since payload names contain a random component, there can be multiple
-  names for a given payload. This function lists all existing payloads
-  that match the default URI for the given payload.
-
-  Args:
-    payload: gspaths.Payload instance.
-
-  Returns:
-    List of URIs for existing payloads that match the default payload pattern.
-  """
-  ctx = gs.GSContext()
-  search_uri = DefaultPayloadUri(payload, random_str='*')
-  return _FilterNonPayloadUris(ctx.LS(search_uri))
-
-
-def FindCacheDir():
-  """Helper for deciding what cache directory to use.
-
-  Returns:
-    Returns a directory suitable for use with a DownloadCache.
-  """
-  # Discover which directory to use for caching
-  return os.path.join(path_util.GetCacheDir(), 'paygen_cache')
-
-
-def CreateAndUploadPayload(payload, cache, sign=True, verify=True,
-                           dry_run=False):
+def CreateAndUploadPayload(payload, sign=True, verify=True):
   """Helper to create a PaygenPayloadLib instance and use it.
 
+  Mainly can be used as a single function to help with parallelism.
+
   Args:
-    payload: An instance of utils.Payload describing the payload to generate.
-    cache: An instance of DownloadCache for retrieving files.
+    payload: An instance of gspaths.Payload describing the payload to generate.
     sign: Boolean saying if the payload should be signed (normally, you do).
     verify: whether the payload should be verified (default: True)
-    dry_run: don't perform actual work
   """
   # We need to create a temp directory inside the chroot so be able to access
   # from both inside and outside the chroot.
-  temp_dir = path_util.FromChrootPath(cros_build_lib.RunCommand(
-      ['mktemp', '-d'],
-      capture_output=True,
-      enter_chroot=True).output.strip())
-
-  with osutils.TempDir(prefix='paygen_payload.', base_dir=temp_dir) as work_dir:
-    logging.info('* Starting payload generation')
-    start_time = datetime.datetime.now()
-
-    _PaygenPayload(payload, cache, work_dir, sign, verify,
-                   dry_run=dry_run).Run()
-
-    end_time = datetime.datetime.now()
-    logging.info('* Finished payload generation in %s', end_time - start_time)
+  with chroot_util.TempDirInChroot() as work_dir:
+    PaygenPayload(payload, work_dir, sign, verify).Run()

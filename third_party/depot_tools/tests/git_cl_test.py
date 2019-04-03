@@ -742,14 +742,12 @@ class TestGitCl(TestCase):
     codereview_file = StringIO.StringIO('GERRIT_HOST: true')
     self.calls = [
       ((['git', 'config', '--unset-all', 'rietveld.cc'],), CERR1),
-      ((['git', 'config', '--unset-all', 'rietveld.private'],), CERR1),
       ((['git', 'config', '--unset-all', 'rietveld.tree-status-url'],), CERR1),
       ((['git', 'config', '--unset-all', 'rietveld.viewvc-url'],), CERR1),
       ((['git', 'config', '--unset-all', 'rietveld.bug-prefix'],), CERR1),
       ((['git', 'config', '--unset-all', 'rietveld.cpplint-regex'],), CERR1),
       ((['git', 'config', '--unset-all', 'rietveld.cpplint-ignore-regex'],),
         CERR1),
-      ((['git', 'config', '--unset-all', 'rietveld.project'],), CERR1),
       ((['git', 'config', '--unset-all', 'rietveld.run-post-upload-hook'],),
         CERR1),
       ((['git', 'config', 'gerrit.host', 'true'],), ''),
@@ -1061,10 +1059,17 @@ class TestGitCl(TestCase):
         if c in cc:
           cc.remove(c)
 
-    if not tbr:
-      for k, v in sorted((labels or {}).items()):
-        ref_suffix += ',l=%s+%d' % (k, v)
-        metrics_arguments.append('l=%s+%d' % (k, v))
+    for k, v in sorted((labels or {}).items()):
+      ref_suffix += ',l=%s+%d' % (k, v)
+      metrics_arguments.append('l=%s+%d' % (k, v))
+
+    if tbr:
+      calls += [
+        (('GetCodeReviewTbrScore',
+          '%s-review.googlesource.com' % short_hostname,
+          'my/repo'),
+         2,),
+      ]
 
     calls += [
       (('time.time',), 1000,),
@@ -1116,29 +1121,6 @@ class TestGitCl(TestCase):
             cc + ['chromium-reviews+test-more-cc@chromium.org'],
             notify),
            ''),
-      ]
-    if tbr:
-      calls += [
-        (('GetChangeDetail', 'chromium-review.googlesource.com',
-          'my%2Frepo~123456', ['LABELS']), {
-             'labels': {
-                 'Code-Review': {
-                     'default_value': 0,
-                     'all': [],
-                     'values': {
-                         '+2': 'lgtm, approved',
-                         '+1': 'lgtm, but someone else must approve',
-                         ' 0': 'No score',
-                         '-1': 'Don\'t submit as-is',
-                     }
-                 }
-              }
-          }),
-        (('SetReview',
-          'chromium-review.googlesource.com',
-          'my%2Frepo~123456',
-          'Self-approving for TBR',
-          {'Code-Review': 2}, None), ''),
       ]
     calls += cls._git_post_upload_calls()
     return calls
@@ -1263,6 +1245,8 @@ class TestGitCl(TestCase):
         notify=True)
 
   def test_gerrit_reviewer_multiple(self):
+    self.mock(git_cl.gerrit_util, 'GetCodeReviewTbrScore',
+              lambda *a: self._mocked_call('GetCodeReviewTbrScore', *a))
     self._run_gerrit_upload_test(
         [],
         'desc\nTBR=reviewer@example.com\nBUG=\nR=another@example.com\n'
@@ -1271,7 +1255,8 @@ class TestGitCl(TestCase):
         ['reviewer@example.com', 'another@example.com'],
         expected_upstream_ref='origin/master',
         cc=['more@example.com', 'people@example.com'],
-        tbr='reviewer@example.com')
+        tbr='reviewer@example.com',
+        labels={'Code-Review': 2})
 
   def test_gerrit_upload_squash_first_is_default(self):
     self._run_gerrit_upload_test(
@@ -1630,8 +1615,6 @@ class TestGitCl(TestCase):
       self.calls += [
         ((['git', 'symbolic-ref', 'HEAD'],), 'master'),
         ((['git', 'config', 'branch.master.gerritissue'],), CERR1),
-        ((['git', 'config', 'rietveld.autoupdate'],), CERR1),
-        ((['git', 'config', 'gerrit.host'],), 'true'),
       ]
     if detect_gerrit_server:
       self.calls += self._get_gerrit_codereview_server_calls(
@@ -1782,8 +1765,6 @@ class TestGitCl(TestCase):
     self.calls = [
       ((['git', 'symbolic-ref', 'HEAD'],), 'master'),
       ((['git', 'config', 'branch.master.gerritissue'],), CERR1),
-      ((['git', 'config', 'rietveld.autoupdate'],), CERR1),
-      ((['git', 'config', 'gerrit.host'],), 'true'),
       ((['git', 'config', 'branch.master.gerritserver'],), CERR1),
       ((['git', 'config', 'branch.master.merge'],), 'refs/heads/master'),
       ((['git', 'config', 'branch.master.remote'],), 'origin'),
@@ -2060,8 +2041,6 @@ class TestGitCl(TestCase):
           'refs/heads/master\nrefs/heads/foo\nrefs/heads/bar'),
          ((['git', 'config', 'branch.master.gerritissue'],), '456'),
          ((['git', 'config', 'branch.foo.gerritissue'],), CERR1),
-         ((['git', 'config', 'rietveld.autoupdate'],), CERR1),
-         ((['git', 'config', 'gerrit.host'],), 'true'),
          ((['git', 'config', 'branch.bar.gerritissue'],), '789'),
          ((['git', 'symbolic-ref', 'HEAD'],), 'master'),
          ((['git', 'tag', 'git-cl-archived-456-foo', 'foo'],), ''),
@@ -2097,8 +2076,6 @@ class TestGitCl(TestCase):
           'refs/heads/master\nrefs/heads/foo\nrefs/heads/bar'),
          ((['git', 'config', 'branch.master.gerritissue'],), '456'),
          ((['git', 'config', 'branch.foo.gerritissue'],), CERR1),
-         ((['git', 'config', 'rietveld.autoupdate'],), CERR1),
-         ((['git', 'config', 'gerrit.host'],), 'true'),
          ((['git', 'config', 'branch.bar.gerritissue'],), '789'),
          ((['git', 'symbolic-ref', 'HEAD'],), 'master'),]
 
@@ -2119,8 +2096,6 @@ class TestGitCl(TestCase):
          ((['git', 'config', 'branch.master.gerritissue'],), '1'),
          ((['git', 'config', 'branch.foo.gerritissue'],), '456'),
          ((['git', 'config', 'branch.bar.gerritissue'],), CERR1),
-         ((['git', 'config', 'rietveld.autoupdate'],), CERR1),
-         ((['git', 'config', 'gerrit.host'],), 'true'),
          ((['git', 'symbolic-ref', 'HEAD'],), 'master'),
          ((['git', 'branch', '-D', 'foo'],), '')]
 

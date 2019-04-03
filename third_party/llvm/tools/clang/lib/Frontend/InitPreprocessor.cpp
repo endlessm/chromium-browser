@@ -21,7 +21,6 @@
 #include "clang/Frontend/FrontendOptions.h"
 #include "clang/Frontend/Utils.h"
 #include "clang/Lex/HeaderSearch.h"
-#include "clang/Lex/PTHManager.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Serialization/ASTReader.h"
@@ -74,23 +73,6 @@ static void AddImplicitIncludeMacros(MacroBuilder &Builder, StringRef File) {
   Builder.append(Twine("#__include_macros \"") + File + "\"");
   // Marker token to stop the __include_macros fetch loop.
   Builder.append("##"); // ##?
-}
-
-/// AddImplicitIncludePTH - Add an implicit \#include using the original file
-/// used to generate a PTH cache.
-static void AddImplicitIncludePTH(MacroBuilder &Builder, Preprocessor &PP,
-                                  StringRef ImplicitIncludePTH) {
-  PTHManager *P = PP.getPTHManager();
-  // Null check 'P' in the corner case where it couldn't be created.
-  const char *OriginalFile = P ? P->getOriginalSourceFile() : nullptr;
-
-  if (!OriginalFile) {
-    PP.getDiagnostics().Report(diag::err_fe_pth_file_has_no_source_header)
-      << ImplicitIncludePTH;
-    return;
-  }
-
-  AddImplicitInclude(Builder, OriginalFile);
 }
 
 /// Add an implicit \#include using the original file used to generate
@@ -558,15 +540,16 @@ static void InitializeCPlusPlusFeatureTestMacros(const LangOptions &LangOpts,
   if (LangOpts.RelaxedTemplateTemplateArgs)
     Builder.defineMacro("__cpp_template_template_args", "201611L");
 
+  // C++20 features.
+  if (LangOpts.Char8)
+    Builder.defineMacro("__cpp_char8_t", "201811L");
+  Builder.defineMacro("__cpp_impl_destroying_delete", "201806L");
+
   // TS features.
   if (LangOpts.ConceptsTS)
     Builder.defineMacro("__cpp_experimental_concepts", "1L");
   if (LangOpts.CoroutinesTS)
     Builder.defineMacro("__cpp_coroutines", "201703L");
-
-  // Potential future breaking changes.
-  if (LangOpts.Char8)
-    Builder.defineMacro("__cpp_char8_t", "201803L");
 }
 
 static void InitializePredefinedMacros(const TargetInfo &TI,
@@ -1177,8 +1160,6 @@ void clang::InitializePreprocessor(
   if (!InitOpts.ImplicitPCHInclude.empty())
     AddImplicitIncludePCH(Builder, PP, PCHContainerRdr,
                           InitOpts.ImplicitPCHInclude);
-  if (!InitOpts.ImplicitPTHInclude.empty())
-    AddImplicitIncludePTH(Builder, PP, InitOpts.ImplicitPTHInclude);
 
   // Process -include directives.
   for (unsigned i = 0, e = InitOpts.Includes.size(); i != e; ++i) {

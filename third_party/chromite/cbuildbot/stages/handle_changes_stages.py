@@ -32,9 +32,11 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
 
   category = constants.CI_INFRA_STAGE
 
-  def __init__(self, builder_run, sync_stage, completion_stage, **kwargs):
+  def __init__(self, builder_run, buildstore, sync_stage, completion_stage,
+               **kwargs):
     """Initialize CommitQueueHandleChangesStage."""
-    super(CommitQueueHandleChangesStage, self).__init__(builder_run, **kwargs)
+    super(CommitQueueHandleChangesStage, self).__init__(builder_run, buildstore,
+                                                        **kwargs)
     assert config_lib.IsMasterCQ(self._run.config)
     self.sync_stage = sync_stage
     self.completion_stage = completion_stage
@@ -46,14 +48,16 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
       success: bool indicating whether the CQ was a success.
     """
     build_id, db = self._run.GetCIDBHandle()
-    if db:
+    if self.buildstore.AreClientsReady():
       my_actions = db.GetActionsForBuild(build_id)
-      my_submit_actions = [m for m in my_actions
-                           if m.action == constants.CL_ACTION_SUBMITTED]
+      my_submit_actions = [
+          m for m in my_actions if m.action == constants.CL_ACTION_SUBMITTED
+      ]
       # A dictionary mapping from every change that was submitted to the
       # submission reason.
-      submitted_change_strategies = {m.patch : m.reason
-                                     for m in my_submit_actions}
+      submitted_change_strategies = {
+          m.patch: m.reason for m in my_submit_actions
+      }
       submitted_changes_all_actions = db.GetActionsForChanges(
           submitted_change_strategies.keys())
 
@@ -65,14 +69,16 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
 
       # Record CQ wall-clock metric.
       submitted_any = len(submitted_change_strategies) > 0
-      bi = db.GetBuildStatus(build_id)
+      bi = self.buildstore.GetBuildStatuses(build_ids=[build_id])[0]
       current_time = db.GetTime()
       elapsed_seconds = int((current_time - bi['start_time']).total_seconds())
       self_destructed = self._run.attrs.metadata.GetValueWithDefault(
           constants.SELF_DESTRUCTED_BUILD, False)
-      fields = {'success': success,
-                'submitted_any': submitted_any,
-                'self_destructed': self_destructed}
+      fields = {
+          'success': success,
+          'submitted_any': submitted_any,
+          'self_destructed': self_destructed
+      }
 
       m = metrics.Counter(constants.MON_CQ_WALL_CLOCK_SECS)
       m.increment_by(elapsed_seconds, fields=fields)
@@ -89,13 +95,17 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
       A list of the builds (master + slaves) which passed the sync stage (See
       relevant_changes.TriageRelevantChanges.STAGE_SYNC)
     """
-    assert db, 'No database connection to use.'
+    assert self.buildstore.AreClientsReady(), 'No database connection to use.'
     build_stages_dict = {}
 
     # Get slave stages.
-    slave_stages = db.GetSlaveStages(
-        build_id, buildbucket_ids=slave_buildbucket_ids)
-    for stage in slave_stages:
+    child_build_ids = [
+        c['id']
+        for c in self.buildstore.GetBuildStatuses(
+            buildbucket_ids=slave_buildbucket_ids)]
+
+    child_stages = db.GetBuildsStages(child_build_ids)
+    for stage in child_stages:
       build_stages_dict.setdefault(stage['build_config'], []).append(stage)
 
     # Get master stages.
@@ -172,9 +182,13 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
           no_stat).difference(builds_passed_sync_stage)
       changes_by_config = (
           relevant_changes.RelevantChanges.GetRelevantChangesForSlaves(
-              build_id, db, self._run.config, changes,
+              build_id,
+              db,
+              self._run.config,
+              changes,
               builds_not_passed_sync_stage,
-              slave_buildbucket_ids, include_master=True))
+              slave_buildbucket_ids,
+              include_master=True))
 
       changes_by_slaves = changes_by_config.copy()
       # Exclude master build
@@ -198,8 +212,8 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
       # The master didn't destruct itself and some slave(s) timed out due to
       # unknown causes, so only reject infra changes (probably just chromite
       # changes).
-      self.sync_stage.pool.HandleValidationTimeout(sanity=tot_sanity,
-                                                   changes=changes)
+      self.sync_stage.pool.HandleValidationTimeout(
+          sanity=tot_sanity, changes=changes)
       return
 
     failed_hwtests = None
@@ -215,7 +229,10 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
     # the intersection of both. Let HandleValidationFailure decide
     # what changes to reject.
     self.sync_stage.pool.HandleValidationFailure(
-        messages, sanity=tot_sanity, changes=changes, no_stat=no_stat,
+        messages,
+        sanity=tot_sanity,
+        changes=changes,
+        no_stat=no_stat,
         failed_hwtests=failed_hwtests)
 
   def HandleCompletionFailure(self):

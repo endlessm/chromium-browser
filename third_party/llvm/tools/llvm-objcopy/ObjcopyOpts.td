@@ -76,10 +76,11 @@ defm rename_section
 defm redefine_symbol
     : Eq<"redefine-sym", "Change the name of a symbol old to new">,
       MetaVarName<"old=new">;
-defm keep : Eq<"keep", "Keep <section>">, MetaVarName<"section">;
-defm only_keep : Eq<"only-keep", "Remove all but <section>">,
-                 MetaVarName<"section">;
-def j : JoinedOrSeparate<["-"], "j">, Alias<only_keep>;
+defm keep_section : Eq<"keep-section", "Keep <section>">,
+                    MetaVarName<"section">;
+defm only_section : Eq<"only-section", "Remove all but <section>">,
+                    MetaVarName<"section">;
+def j : JoinedOrSeparate<["-"], "j">, Alias<only_section>;
 defm add_section
     : Eq<"add-section",
          "Make a section named <section> with the contents of <file>.">,
@@ -164,3 +165,16 @@ defm prefix_symbols
 
 def version : Flag<["-", "--"], "version">,
               HelpText<"Print the version and exit.">;
+def V : Flag<["-"], "V">, Alias<version>;
+defm build_id_link_dir
+    : Eq<"build-id-link-dir", "Set directory for --build-id-link-input and "
+                              "--build-id-link-output to <dir>">,
+      MetaVarName<"dir">;
+defm build_id_link_input
+    : Eq<"build-id-link-input", "Hard-link the input to <dir>/xx/xxx<suffix> "
+                                "name derived from hex build ID">,
+      MetaVarName<"suffix">;
+defm build_id_link_output
+    : Eq<"build-id-link-output", "Hard-link the output to <dir>/xx/xxx<suffix> "
+                                 "name derived from hex build ID">,
+      MetaVarName<"suffix">;

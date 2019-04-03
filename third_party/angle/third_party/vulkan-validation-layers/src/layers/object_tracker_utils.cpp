@@ -20,8 +20,6 @@
  * Author: Tobin Ehlis <tobin@lunarg.com>
  */
 
-#define VALIDATION_ERROR_MAP_IMPL
-
 #include "object_tracker.h"
 
 namespace object_tracker {
@@ -1047,7 +1045,7 @@ VKAPI_ATTR VkResult VKAPI_CALL EnumeratePhysicalDevices(VkInstance instance, uin
     VkResult result =
         instance_data->instance_dispatch_table.EnumeratePhysicalDevices(instance, pPhysicalDeviceCount, pPhysicalDevices);
     lock.lock();
-    if (result == VK_SUCCESS) {
+    if (result == VK_SUCCESS || result == VK_INCOMPLETE) {
         if (pPhysicalDevices) {
             for (uint32_t i = 0; i < *pPhysicalDeviceCount; i++) {
                 CreateObject(instance, pPhysicalDevices[i], kVulkanObjectTypePhysicalDevice, nullptr);
@@ -1325,11 +1323,9 @@ VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceDisplayPropertiesKHR(VkPhysicalD
         instance_data->instance_dispatch_table.GetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, pPropertyCount, pProperties);
 
     lock.lock();
-    if (result == VK_SUCCESS) {
-        if (pProperties) {
-            for (uint32_t i = 0; i < *pPropertyCount; ++i) {
-                CreateObject(physicalDevice, pProperties[i].display, kVulkanObjectTypeDisplayKHR, nullptr);
-            }
+    if ((result == VK_SUCCESS || result == VK_INCOMPLETE) && pProperties) {
+        for (uint32_t i = 0; i < *pPropertyCount; ++i) {
+            CreateObject(physicalDevice, pProperties[i].display, kVulkanObjectTypeDisplayKHR, nullptr);
         }
     }
     lock.unlock();
@@ -1355,13 +1351,12 @@ VKAPI_ATTR VkResult VKAPI_CALL GetDisplayModePropertiesKHR(VkPhysicalDevice phys
         instance_data->instance_dispatch_table.GetDisplayModePropertiesKHR(physicalDevice, display, pPropertyCount, pProperties);
 
     lock.lock();
-    if (result == VK_SUCCESS) {
-        if (pProperties) {
-            for (uint32_t i = 0; i < *pPropertyCount; ++i) {
-                CreateObject(physicalDevice, pProperties[i].displayMode, kVulkanObjectTypeDisplayModeKHR, nullptr);
-            }
+    if ((result == VK_SUCCESS || result == VK_INCOMPLETE) && pProperties) {
+        for (uint32_t i = 0; i < *pPropertyCount; ++i) {
+            CreateObject(physicalDevice, pProperties[i].displayMode, kVulkanObjectTypeDisplayModeKHR, nullptr);
         }
     }
+
     lock.unlock();
 
     return result;

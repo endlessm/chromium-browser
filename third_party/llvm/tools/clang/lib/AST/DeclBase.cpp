@@ -955,10 +955,7 @@ static Decl::Kind getKind(const Decl *D) { return D->getKind(); }
 static Decl::Kind getKind(const DeclContext *DC) { return DC->getDeclKind(); }
 
 int64_t Decl::getID() const {
-  Optional<int64_t> Out = getASTContext().getAllocator().identifyObject(this);
-  assert(Out && "Wrong allocator used");
-  assert(*Out % alignof(Decl) == 0 && "Wrong alignment information");
-  return *Out / alignof(Decl);
+  return getASTContext().getAllocator().identifyKnownAlignedObject<Decl>(this);
 }
 
 const FunctionType *Decl::getFunctionType(bool BlocksToo) const {
@@ -1408,6 +1405,12 @@ static bool shouldBeHidden(NamedDecl *D) {
       D->isTemplateParameter())
     return true;
 
+  // Skip friends and local extern declarations unless they're the first
+  // declaration of the entity.
+  if ((D->isLocalExternDecl() || D->getFriendObjectKind()) &&
+      D != D->getCanonicalDecl())
+    return true;
+
   // Skip template specializations.
   // FIXME: This feels like a hack. Should DeclarationName support
   // template-ids, or is there a better way to keep specializations
@@ -1466,7 +1469,9 @@ void DeclContext::removeDecl(Decl *D) {
       if (Map) {
         StoredDeclsMap::iterator Pos = Map->find(ND->getDeclName());
         assert(Pos != Map->end() && "no lookup entry for decl");
-        if (Pos->second.getAsVector() || Pos->second.getAsDecl() == ND)
+        // Remove the decl only if it is contained.
+        StoredDeclsList::DeclsTy *Vec = Pos->second.getAsVector();
+        if ((Vec && is_contained(*Vec, ND)) || Pos->second.getAsDecl() == ND)
           Pos->second.remove(ND);
       }
     } while (DC->isTransparentContext() && (DC = DC->getParent()));

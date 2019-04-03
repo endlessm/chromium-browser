@@ -104,7 +104,11 @@ def UndefinedFuncTemplate : DiagGroup<"undefined-func-template">;
 def MissingNoEscape : DiagGroup<"missing-noescape">;
 
 def DeleteIncomplete : DiagGroup<"delete-incomplete">;
-def DeleteNonVirtualDtor : DiagGroup<"delete-non-virtual-dtor">;
+def DeleteNonAbstractNonVirtualDtor : DiagGroup<"delete-non-abstract-non-virtual-dtor">;
+def DeleteAbstractNonVirtualDtor : DiagGroup<"delete-abstract-non-virtual-dtor">;
+def DeleteNonVirtualDtor : DiagGroup<"delete-non-virtual-dtor",
+                                     [DeleteNonAbstractNonVirtualDtor,
+                                      DeleteAbstractNonVirtualDtor]>;
 def AbstractFinalClass : DiagGroup<"abstract-final-class">;
 
 def CXX11CompatDeprecatedWritableStr :
@@ -162,6 +166,8 @@ def GNUEmptyStruct : DiagGroup<"gnu-empty-struct">;
 def ExtraTokens : DiagGroup<"extra-tokens">;
 def CXX98CompatExtraSemi : DiagGroup<"c++98-compat-extra-semi">;
 def CXX11ExtraSemi : DiagGroup<"c++11-extra-semi">;
+def EmptyInitStatement : DiagGroup<"empty-init-stmt">;
+def ExtraSemiStmt : DiagGroup<"extra-semi-stmt", [EmptyInitStatement]>;
 def ExtraSemi : DiagGroup<"extra-semi", [CXX98CompatExtraSemi,
                                          CXX11ExtraSemi]>;
 
@@ -285,6 +291,7 @@ def ExpansionToDefined : DiagGroup<"expansion-to-defined">;
 def FlagEnum : DiagGroup<"flag-enum">;
 def IncrementBool : DiagGroup<"increment-bool", [DeprecatedIncrementBool]>;
 def InfiniteRecursion : DiagGroup<"infinite-recursion">;
+def PureVirtualCallFromCtorDtor: DiagGroup<"call-to-pure-virtual-from-ctor-dtor">;
 def GNUImaginaryConstant : DiagGroup<"gnu-imaginary-constant">;
 def IgnoredQualifiers : DiagGroup<"ignored-qualifiers">;
 def : DiagGroup<"import">;
@@ -358,6 +365,8 @@ def NullArithmetic : DiagGroup<"null-arithmetic">;
 def NullCharacter : DiagGroup<"null-character">;
 def NullDereference : DiagGroup<"null-dereference">;
 def InitializerOverrides : DiagGroup<"initializer-overrides">;
+// For compatibility with GCC; -Woverride-init = -Winitializer-overrides
+def : DiagGroup<"override-init", [InitializerOverrides]>;
 def NonNull : DiagGroup<"nonnull">;
 def NonPODVarargs : DiagGroup<"non-pod-varargs">;
 def ClassVarargs : DiagGroup<"class-varargs", [NonPODVarargs]>;
@@ -768,7 +777,8 @@ def Extra : DiagGroup<"extra", [
     MissingMethodReturnType,
     SignCompare,
     UnusedParameter,
-    NullPointerArithmetic
+    NullPointerArithmetic,
+    EmptyInitStatement
   ]>;
 
 def Most : DiagGroup<"most", [
@@ -1035,3 +1045,8 @@ def ExperimentalISel : DiagGroup<"experimental-isel">;
 // A warning group specifically for warnings related to function
 // multiversioning.
 def FunctionMultiVersioning : DiagGroup<"function-multiversion">;
+
+def NoDeref : DiagGroup<"noderef">;
+
+// A group for cross translation unit static analysis related warnings.
+def CrossTU : DiagGroup<"ctu">;

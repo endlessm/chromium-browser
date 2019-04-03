@@ -65,6 +65,9 @@ class FakePlatform(object):
   def Initialize(self):
     pass
 
+  def FlushDnsCache(self):
+    pass
+
   def SetFullPerformanceModeEnabled(self, enabled):
     pass
 
@@ -208,7 +211,6 @@ class FakePossibleBrowser(object):
     self._returned_browser = FakeBrowser(FakeLinuxPlatform())
     self.browser_type = 'linux'
     self.supports_tab_control = False
-    self.is_remote = False
     self.execute_on_startup = execute_on_startup
     self.execute_after_browser_creation = execute_after_browser_creation
     self.browser_options = None  # This is set in SetUpEnvironment.
@@ -218,7 +220,8 @@ class FakePossibleBrowser(object):
     """The browser object that will be returned through later API calls."""
     return self._returned_browser
 
-  def Create(self):
+  def Create(self, clear_caches=False):
+    del clear_caches  # Unused.
     if self.execute_on_startup is not None:
       self.execute_on_startup()
     if self.execute_after_browser_creation is not None:
@@ -240,15 +243,12 @@ class FakePossibleBrowser(object):
     """
     return self.returned_browser.platform
 
-  def IsRemote(self):
-    return self.is_remote
-
 
 class FakeSharedPageState(shared_page_state.SharedPageState):
   def __init__(self, test, finder_options, story_set):
     super(FakeSharedPageState, self).__init__(test, finder_options, story_set)
 
-  def _GetPossibleBrowser(self, test, finder_options):
+  def _GetPossibleBrowser(self):
     p = FakePossibleBrowser()
     self.ConfigurePossibleBrowser(p)
     return p

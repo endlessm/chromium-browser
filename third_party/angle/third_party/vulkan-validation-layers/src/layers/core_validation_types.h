@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2016 The Khronos Group Inc.
- * Copyright (c) 2015-2016 Valve Corporation
- * Copyright (c) 2015-2016 LunarG, Inc.
- * Copyright (C) 2015-2016 Google Inc.
+/* Copyright (c) 2015-2018 The Khronos Group Inc.
+ * Copyright (c) 2015-2018 Valve Corporation
+ * Copyright (c) 2015-2018 LunarG, Inc.
+ * Copyright (C) 2015-2018 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,10 +26,10 @@
 #include "hash_vk_types.h"
 #include "vk_safe_struct.h"
 #include "vulkan/vulkan.h"
-#include "vk_validation_error_messages.h"
 #include "vk_layer_logging.h"
 #include "vk_object_types.h"
 #include "vk_extension_helper.h"
+#include "convert_to_renderpass2.h"
 #include <atomic>
 #include <functional>
 #include <map>
@@ -146,8 +146,8 @@ struct DESCRIPTOR_POOL_STATE : BASE_NODE {
 
     safe_VkDescriptorPoolCreateInfo createInfo;
     std::unordered_set<cvdescriptorset::DescriptorSet *> sets;  // Collection of all sets in this pool
-    std::map<uint32_t, uint32_t> maxDescriptorTypeCount;               // Max # of descriptors of each type in this pool
-    std::map<uint32_t, uint32_t> availableDescriptorTypeCount;         // Available # of descriptors of each type in this pool
+    std::map<uint32_t, uint32_t> maxDescriptorTypeCount;        // Max # of descriptors of each type in this pool
+    std::map<uint32_t, uint32_t> availableDescriptorTypeCount;  // Available # of descriptors of each type in this pool
 
     DESCRIPTOR_POOL_STATE(const VkDescriptorPool pool, const VkDescriptorPoolCreateInfo *pCreateInfo)
         : pool(pool),
@@ -414,12 +414,13 @@ struct DAGNode {
 
 struct RENDER_PASS_STATE : public BASE_NODE {
     VkRenderPass renderPass;
-    safe_VkRenderPassCreateInfo createInfo;
+    safe_VkRenderPassCreateInfo2KHR createInfo;
     std::vector<std::vector<uint32_t>> self_dependencies;
     std::vector<DAGNode> subpassToNode;
     std::unordered_map<uint32_t, bool> attachment_first_read;
 
-    RENDER_PASS_STATE(VkRenderPassCreateInfo const *pCreateInfo) : createInfo(pCreateInfo) {}
+    RENDER_PASS_STATE(VkRenderPassCreateInfo2KHR const *pCreateInfo) : createInfo(pCreateInfo) {}
+    RENDER_PASS_STATE(VkRenderPassCreateInfo const *pCreateInfo) { ConvertVkRenderPassCreateInfoToV2KHR(pCreateInfo, &createInfo); }
 };
 
 // vkCmd tracking -- complete as of header 1.0.68
@@ -430,6 +431,7 @@ enum CMD_TYPE {
     CMD_NONE,
     CMD_BEGINQUERY,
     CMD_BEGINRENDERPASS,
+    CMD_BEGINRENDERPASS2KHR,
     CMD_BINDDESCRIPTORSETS,
     CMD_BINDINDEXBUFFER,
     CMD_BINDPIPELINE,
@@ -464,9 +466,11 @@ enum CMD_TYPE {
     CMD_ENDCOMMANDBUFFER,  // Should be the last command in any RECORDED cmd buffer
     CMD_ENDQUERY,
     CMD_ENDRENDERPASS,
+    CMD_ENDRENDERPASS2KHR,
     CMD_EXECUTECOMMANDS,
     CMD_FILLBUFFER,
     CMD_NEXTSUBPASS,
+    CMD_NEXTSUBPASS2KHR,
     CMD_PIPELINEBARRIER,
     CMD_PROCESSCOMMANDSNVX,
     CMD_PUSHCONSTANTS,
@@ -750,33 +754,34 @@ class PIPELINE_STATE : public BASE_NODE {
         computePipelineCI.initialize(&emptyComputeCI);
         graphicsPipelineCI.initialize(&emptyGraphicsCI, false, false);
         switch (raytracingPipelineCI.pStages->stage) {
-        case VK_SHADER_STAGE_RAYGEN_BIT_NVX:
-            this->active_shaders |= VK_SHADER_STAGE_RAYGEN_BIT_NVX;
-            break;
-        case VK_SHADER_STAGE_ANY_HIT_BIT_NVX:
-            this->active_shaders |= VK_SHADER_STAGE_ANY_HIT_BIT_NVX;
-            break;
-        case VK_SHADER_STAGE_CLOSEST_HIT_BIT_NVX:
-            this->active_shaders |= VK_SHADER_STAGE_CLOSEST_HIT_BIT_NVX;
-            break;
-        case VK_SHADER_STAGE_MISS_BIT_NVX:
-            this->active_shaders = VK_SHADER_STAGE_MISS_BIT_NVX;
-            break;
-        case VK_SHADER_STAGE_INTERSECTION_BIT_NVX:
-            this->active_shaders = VK_SHADER_STAGE_INTERSECTION_BIT_NVX;
-            break;
-        case VK_SHADER_STAGE_CALLABLE_BIT_NVX:
-            this->active_shaders |= VK_SHADER_STAGE_CALLABLE_BIT_NVX;
-            break;
-        default:
-            // TODO : Flag error
-            break;
+            case VK_SHADER_STAGE_RAYGEN_BIT_NVX:
+                this->active_shaders |= VK_SHADER_STAGE_RAYGEN_BIT_NVX;
+                break;
+            case VK_SHADER_STAGE_ANY_HIT_BIT_NVX:
+                this->active_shaders |= VK_SHADER_STAGE_ANY_HIT_BIT_NVX;
+                break;
+            case VK_SHADER_STAGE_CLOSEST_HIT_BIT_NVX:
+                this->active_shaders |= VK_SHADER_STAGE_CLOSEST_HIT_BIT_NVX;
+                break;
+            case VK_SHADER_STAGE_MISS_BIT_NVX:
+                this->active_shaders = VK_SHADER_STAGE_MISS_BIT_NVX;
+                break;
+            case VK_SHADER_STAGE_INTERSECTION_BIT_NVX:
+                this->active_shaders = VK_SHADER_STAGE_INTERSECTION_BIT_NVX;
+                break;
+            case VK_SHADER_STAGE_CALLABLE_BIT_NVX:
+                this->active_shaders |= VK_SHADER_STAGE_CALLABLE_BIT_NVX;
+                break;
+            default:
+                // TODO : Flag error
+                break;
         }
     }
 };
 
 // Track last states that are bound per pipeline bind point (Gfx & Compute)
 struct LAST_BOUND_STATE {
+    LAST_BOUND_STATE() { reset(); }  // must define default constructor for portability reasons
     PIPELINE_STATE *pipeline_state;
     VkPipelineLayout pipeline_layout;
     // Track each set that has been bound
@@ -1100,6 +1105,8 @@ struct DeviceFeatures {
     VkPhysicalDeviceMeshShaderFeaturesNV mesh_shader;
     VkPhysicalDeviceInlineUniformBlockFeaturesEXT inline_uniform_block;
 };
+
+enum RenderPassCreateVersion { RENDER_PASS_VERSION_1 = 0, RENDER_PASS_VERSION_2 = 1 };
 
 // Fwd declarations of layer_data and helpers to look-up/validate state from layer_data maps
 namespace core_validation {

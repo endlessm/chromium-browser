@@ -138,7 +138,8 @@ endif()
 # build might work on ELF but fail on MachO/COFF.
 if(NOT (${CMAKE_SYSTEM_NAME} MATCHES "Darwin" OR WIN32 OR CYGWIN OR
         ${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD" OR
-        ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD") AND
+	${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD" OR
+	${CMAKE_SYSTEM_NAME} MATCHES "DragonFly") AND
    NOT LLVM_USE_SANITIZER)
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,defs")
 endif()
@@ -512,6 +513,10 @@ if (MSVC)
           # Update 1. Re-evaluate the usefulness of this diagnostic with Update 2.
       -wd4592 # Suppress ''var': symbol will be dynamically initialized (implementation limitation)
       -wd4319 # Suppress ''operator' : zero extending 'type' to 'type' of greater size'
+          # C4709 is disabled because of a bug with Visual Studio 2017 as of
+          # v15.8.8. Re-evaluate the usefulness of this diagnostic when the bug
+          # is fixed.
+      -wd4709 # Suppress comma operator within array index expression
 
       # Ideally, we'd like this warning to be enabled, but MSVC 2013 doesn't
       # support the 'aligned' attribute in the way that clang sources requires (for

@@ -91,7 +91,7 @@ void shader_module::BuildDefIndex() {
             case spv::OpTypeReserveId:
             case spv::OpTypeQueue:
             case spv::OpTypePipe:
-            case spv::OpTypeAccelerationStructureNVX:
+            case spv::OpTypeAccelerationStructureNV:
                 def_index[insn.word(1)] = insn.offset();
                 break;
 
@@ -145,17 +145,17 @@ unsigned ExecutionModelToShaderStageFlagBits(unsigned mode) {
             return VK_SHADER_STAGE_FRAGMENT_BIT;
         case spv::ExecutionModelGLCompute:
             return VK_SHADER_STAGE_COMPUTE_BIT;
-        case spv::ExecutionModelRayGenerationNVX:
+        case spv::ExecutionModelRayGenerationNV:
             return VK_SHADER_STAGE_RAYGEN_BIT_NVX;
-        case spv::ExecutionModelAnyHitNVX:
+        case spv::ExecutionModelAnyHitNV:
             return VK_SHADER_STAGE_ANY_HIT_BIT_NVX;
-        case spv::ExecutionModelClosestHitNVX:
+        case spv::ExecutionModelClosestHitNV:
             return VK_SHADER_STAGE_CLOSEST_HIT_BIT_NVX;
-        case spv::ExecutionModelMissNVX:
+        case spv::ExecutionModelMissNV:
             return VK_SHADER_STAGE_MISS_BIT_NVX;
-        case spv::ExecutionModelIntersectionNVX:
+        case spv::ExecutionModelIntersectionNV:
             return VK_SHADER_STAGE_INTERSECTION_BIT_NVX;
-        case spv::ExecutionModelCallableNVX:
+        case spv::ExecutionModelCallableNV:
             return VK_SHADER_STAGE_CALLABLE_BIT_NVX;
         case spv::ExecutionModelTaskNV:
             return VK_SHADER_STAGE_TASK_BIT_NV;
@@ -285,7 +285,7 @@ static void DescribeTypeInner(std::ostringstream &ss, shader_module const *src, 
         case spv::OpTypeImage:
             ss << "image(dim=" << insn.word(3) << ", sampled=" << insn.word(7) << ")";
             break;
-        case spv::OpTypeAccelerationStructureNVX:
+        case spv::OpTypeAccelerationStructureNV:
             ss << "accelerationStruture";
             break;
         default:
@@ -688,19 +688,15 @@ static std::vector<std::pair<uint32_t, interface_var>> CollectInterfaceByInputAt
     return out;
 }
 
-static bool IsWritableDescriptorType(shader_module const *module, uint32_t type_id) {
+static bool IsWritableDescriptorType(shader_module const *module, uint32_t type_id, bool is_storage_buffer) {
     auto type = module->get_def(type_id);
 
     // Strip off any array or ptrs. Where we remove array levels, adjust the  descriptor count for each dimension.
     while (type.opcode() == spv::OpTypeArray || type.opcode() == spv::OpTypePointer || type.opcode() == spv::OpTypeRuntimeArray) {
         if (type.opcode() == spv::OpTypeArray || type.opcode() == spv::OpTypeRuntimeArray) {
-            // Element type
-            type = module->get_def(type.word(2));
+            type = module->get_def(type.word(2));  // Element type
         } else {
-            if (type.word(2) == spv::StorageClassStorageBuffer) {
-                return true;
-            }
-            type = module->get_def(type.word(3));
+            type = module->get_def(type.word(3));  // Pointee type
         }
     }
 
@@ -711,14 +707,25 @@ static bool IsWritableDescriptorType(shader_module const *module, uint32_t type_
             return sampled == 2 && dim != spv::DimSubpassData;
         }
 
-        case spv::OpTypeStruct:
+        case spv::OpTypeStruct: {
+            std::unordered_set<unsigned> nonwritable_members;
             for (auto insn : *module) {
                 if (insn.opcode() == spv::OpDecorate && insn.word(1) == type.word(1)) {
                     if (insn.word(2) == spv::DecorationBufferBlock) {
-                        return true;
+                        // Legacy storage block in the Uniform storage class
+                        // has its struct type decorated with BufferBlock.
+                        is_storage_buffer = true;
                     }
+                } else if (insn.opcode() == spv::OpMemberDecorate && insn.word(1) == type.word(1) &&
+                           insn.word(3) == spv::DecorationNonWritable) {
+                    nonwritable_members.insert(insn.word(2));
                 }
             }
+
+            // A buffer is writable if it's either flavor of storage buffer, and has any member not decorated
+            // as nonwritable.
+            return is_storage_buffer && nonwritable_members.size() != type.len() - 2;
+        }
     }
 
     return false;
@@ -743,6 +750,8 @@ static std::vector<std::pair<descriptor_slot_t, interface_var>> CollectInterface
                 var_bindings[insn.word(1)] = insn.word(3);
             }
 
+            // Note: do toplevel DecorationNonWritable out here; it applies to
+            // the OpVariable rather than the type.
             if (insn.word(2) == spv::DecorationNonWritable) {
                 var_nonwritable[insn.word(1)] = 1;
             }
@@ -766,7 +775,8 @@ static std::vector<std::pair<descriptor_slot_t, interface_var>> CollectInterface
             v.type_id = insn.word(1);
             out.emplace_back(std::make_pair(set, binding), v);
 
-            if (var_nonwritable.find(id) == var_nonwritable.end() && IsWritableDescriptorType(src, insn.word(1))) {
+            if (var_nonwritable.find(id) == var_nonwritable.end() &&
+                IsWritableDescriptorType(src, insn.word(1), insn.word(3) == spv::StorageClassStorageBuffer)) {
                 *has_writable_descriptor = true;
             }
         }
@@ -899,9 +909,10 @@ static bool ValidateFsOutputsAgainstRenderPass(debug_report_data const *report_d
             // shader to not produce a matching output.
             if (!used) {
                 if (pipeline->attachments[it_b->first].colorWriteMask != 0) {
-                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT,
+                    skip |= log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT,
                                     HandleToUint64(fs->vk_shader_module), kVUID_Core_Shader_InputNotProduced,
-                                    "Attachment %d not written by fragment shader", it_b->first);
+                                    "Attachment %d not written by fragment shader; undefined values will be written to attachment",
+                                    it_b->first);
                 }
             }
             used = false;
@@ -912,10 +923,11 @@ static bool ValidateFsOutputsAgainstRenderPass(debug_report_data const *report_d
 
             // Type checking
             if (!(output_type & att_type)) {
-                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT,
-                                HandleToUint64(fs->vk_shader_module), kVUID_Core_Shader_InterfaceTypeMismatch,
-                                "Attachment %d of type `%s` does not match fragment shader output type of `%s`", it_b->first,
-                                string_VkFormat(it_b->second), DescribeType(fs, it_a->second.type_id).c_str());
+                skip |= log_msg(
+                    report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT,
+                    HandleToUint64(fs->vk_shader_module), kVUID_Core_Shader_InterfaceTypeMismatch,
+                    "Attachment %d of type `%s` does not match fragment shader output type of `%s`; resulting values are undefined",
+                    it_b->first, string_VkFormat(it_b->second), DescribeType(fs, it_a->second.type_id).c_str());
             }
 
             // OK!
@@ -1301,7 +1313,7 @@ static std::set<uint32_t> TypeToDescriptorTypeSet(shader_module const *module, u
                 return ret;
             }
         }
-        case spv::OpTypeAccelerationStructureNVX:
+        case spv::OpTypeAccelerationStructureNV:
             ret.insert(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NVX);
             return ret;
 
@@ -1440,6 +1452,7 @@ static bool ValidateShaderCapabilities(layer_data *dev_data, shader_module const
         {spv::CapabilityShaderViewportMaskNV, {VK_NV_VIEWPORT_ARRAY2_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_nv_viewport_array2}},
         {spv::CapabilitySubgroupBallotKHR, {VK_EXT_SHADER_SUBGROUP_BALLOT_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_ext_shader_subgroup_ballot }},
         {spv::CapabilitySubgroupVoteKHR, {VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_ext_shader_subgroup_vote }},
+        {spv::CapabilityInt64Atomics, {VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_khr_shader_atomic_int64 }},
 
         {spv::CapabilityStorageBuffer8BitAccess , {"VkPhysicalDevice8BitStorageFeaturesKHR::storageBuffer8BitAccess", &VkPhysicalDevice8BitStorageFeaturesKHR::storageBuffer8BitAccess, &DeviceExtensions::vk_khr_8bit_storage}},
         {spv::CapabilityUniformAndStorageBuffer8BitAccess , {"VkPhysicalDevice8BitStorageFeaturesKHR::uniformAndStorageBuffer8BitAccess", &VkPhysicalDevice8BitStorageFeaturesKHR::uniformAndStorageBuffer8BitAccess, &DeviceExtensions::vk_khr_8bit_storage}},

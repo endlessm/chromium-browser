@@ -55,7 +55,7 @@ DEF_TEST(SkPDF_JpegEmbedTest, r) {
     }
     ////////////////////////////////////////////////////////////////////////////
     SkDynamicMemoryWStream pdf;
-    sk_sp<SkDocument> document(SkPDF::MakeDocument(&pdf));
+    auto document = SkPDF::MakeDocument(&pdf);
     SkCanvas* canvas = document->beginPage(642, 1028);
 
     canvas->clear(SK_ColorLTGRAY);
@@ -71,7 +71,9 @@ DEF_TEST(SkPDF_JpegEmbedTest, r) {
     sk_sp<SkData> pdfData = pdf.detachAsData();
     SkASSERT(pdfData);
 
+    #ifndef SK_PDF_BASE85_BINARY
     REPORTER_ASSERT(r, is_subset_of(mandrillData.get(), pdfData.get()));
+    #endif
 
     // This JPEG uses a nonstandard colorspace - it can not be
     // embedded into the PDF directly.

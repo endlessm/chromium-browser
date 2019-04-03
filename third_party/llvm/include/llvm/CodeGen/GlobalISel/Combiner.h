@@ -21,31 +21,25 @@
 namespace llvm {
 class MachineRegisterInfo;
 class CombinerInfo;
+class GISelCSEInfo;
 class TargetPassConfig;
 class MachineFunction;
-
-class CombinerChangeObserver {
-public:
-  virtual ~CombinerChangeObserver() {}
-
-  /// An instruction was erased.
-  virtual void erasedInstr(MachineInstr &MI) = 0;
-  /// An instruction was created and inseerted into the function.
-  virtual void createdInstr(MachineInstr &MI) = 0;
-};
 
 class Combiner {
 public:
   Combiner(CombinerInfo &CombinerInfo, const TargetPassConfig *TPC);
 
-  bool combineMachineInstrs(MachineFunction &MF);
+  /// If CSEInfo is not null, then the Combiner will setup observer for
+  /// CSEInfo and instantiate a CSEMIRBuilder. Pass nullptr if CSE is not
+  /// needed.
+  bool combineMachineInstrs(MachineFunction &MF, GISelCSEInfo *CSEInfo);
 
 protected:
   CombinerInfo &CInfo;
 
   MachineRegisterInfo *MRI = nullptr;
   const TargetPassConfig *TPC;
-  MachineIRBuilder Builder;
+  std::unique_ptr<MachineIRBuilder> Builder;
 };
 
 } // End namespace llvm.

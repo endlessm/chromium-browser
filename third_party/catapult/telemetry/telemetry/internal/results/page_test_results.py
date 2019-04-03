@@ -26,7 +26,6 @@ from telemetry.value import skip
 from telemetry.value import trace
 
 from tracing.value import convert_chart_json
-from tracing.value import histogram
 from tracing.value import histogram_set
 from tracing.value.diagnostics import all_diagnostics
 from tracing.value.diagnostics import reserved_infos
@@ -336,7 +335,6 @@ class PageTestResults(object):
       return []
     self._histograms.ImportDicts(json.loads(vinn_result.stdout))
     self._histograms.ImportDicts(self._histogram_dicts_to_add)
-    self._histograms.ResolveRelatedHistograms()
 
   def __copy__(self):
     cls = self.__class__
@@ -500,15 +498,10 @@ class PageTestResults(object):
       self._histograms.AddHistogram(hist, diags)
 
   def ImportHistogramDicts(self, histogram_dicts, import_immediately=True):
-    dicts_to_add = []
-    for d in histogram_dicts:
-      # If there's a type field, it's a diagnostic.
-      if 'type' in d:
-        dicts_to_add.append(d)
-      else:
-        hist = histogram.Histogram.FromDict(d)
-        if self._ShouldAddHistogram(hist):
-          dicts_to_add.append(d)
+    histograms = histogram_set.HistogramSet()
+    histograms.ImportDicts(histogram_dicts)
+    histograms.FilterHistograms(lambda hist: not self._ShouldAddHistogram(hist))
+    dicts_to_add = histograms.AsDicts()
 
     # For measurements that add both TBMv2 and legacy metrics to results, we
     # want TBMv2 histograms be imported at the end, when PopulateHistogramSet is

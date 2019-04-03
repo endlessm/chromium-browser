@@ -75,6 +75,13 @@ CompositorFrameSinkSupport::~CompositorFrameSinkSupport() {
   DCHECK(!added_frame_observer_);
 }
 
+CompositorFrameSinkSupport::PresentationFeedbackMap
+CompositorFrameSinkSupport::TakePresentationFeedbacks() {
+  PresentationFeedbackMap map;
+  map.swap(presentation_feedbacks_);
+  return map;
+}
+
 void CompositorFrameSinkSupport::SetUpHitTest(
     LatestLocalSurfaceIdLookupDelegate* local_surface_id_lookup_delegate) {
   DCHECK(is_root_);
@@ -360,10 +367,10 @@ SubmitResult CompositorFrameSinkSupport::MaybeSubmitCompositorFrameInternal(
 
   ++ack_pending_count_;
 
-  base::ScopedClosureRunner frame_rejected_callback(base::BindOnce(
-      &CompositorFrameSinkSupport::DidRejectCompositorFrame,
-      weak_factory_.GetWeakPtr(), frame.metadata.frame_token,
-      frame.metadata.request_presentation_feedback, frame.resource_list));
+  base::ScopedClosureRunner frame_rejected_callback(
+      base::BindOnce(&CompositorFrameSinkSupport::DidRejectCompositorFrame,
+                     weak_factory_.GetWeakPtr(), frame.metadata.frame_token,
+                     frame.resource_list));
 
   compositor_frame_callback_ = std::move(callback);
   if (compositor_frame_callback_) {
@@ -488,11 +495,8 @@ SubmitResult CompositorFrameSinkSupport::MaybeSubmitCompositorFrameInternal(
 
   bool result = current_surface->QueueFrame(
       std::move(frame), frame_index, std::move(frame_rejected_callback),
-      frame.metadata.request_presentation_feedback
-          ? base::BindOnce(
-                &CompositorFrameSinkSupport::DidPresentCompositorFrame,
-                weak_factory_.GetWeakPtr(), frame.metadata.frame_token)
-          : Surface::PresentedCallback());
+      base::BindOnce(&CompositorFrameSinkSupport::DidPresentCompositorFrame,
+                     weak_factory_.GetWeakPtr(), frame.metadata.frame_token));
   if (!result) {
     TRACE_EVENT_INSTANT0("viz", "QueueFrame failed", TRACE_EVENT_SCOPE_THREAD);
     return SubmitResult::SURFACE_INVARIANTS_VIOLATION;
@@ -549,16 +553,13 @@ void CompositorFrameSinkSupport::DidPresentCompositorFrame(
 
 void CompositorFrameSinkSupport::DidRejectCompositorFrame(
     uint32_t presentation_token,
-    bool request_presentation_feedback,
     std::vector<TransferableResource> frame_resource_list) {
   std::vector<ReturnedResource> resources =
       TransferableResource::ReturnResources(frame_resource_list);
   ReturnResources(resources);
   DidReceiveCompositorFrameAck();
-  if (request_presentation_feedback) {
-    DidPresentCompositorFrame(presentation_token,
-                              gfx::PresentationFeedback::Failure());
-  }
+  DidPresentCompositorFrame(presentation_token,
+                            gfx::PresentationFeedback::Failure());
 }
 
 void CompositorFrameSinkSupport::UpdateDisplayRootReference(
@@ -587,16 +588,17 @@ void CompositorFrameSinkSupport::OnBeginFrame(const BeginFrameArgs& args) {
     HandleCallback();
   }
 
-  if (client_ &&
-      (client_needs_begin_frame_ || !presentation_feedbacks_.empty())) {
+  if (client_ && ShouldSendBeginFrame(args.frame_time)) {
     BeginFrameArgs copy_args = args;
     copy_args.trace_id = ComputeTraceId();
     TRACE_EVENT_WITH_FLOW1("viz,benchmark", "Graphics.Pipeline",
                            TRACE_ID_GLOBAL(copy_args.trace_id),
                            TRACE_EVENT_FLAG_FLOW_OUT, "step",
                            "IssueBeginFrame");
+    last_frame_time_ = args.frame_time;
     client_->OnBeginFrame(copy_args, std::move(presentation_feedbacks_));
     presentation_feedbacks_.clear();
+    UpdateNeedsBeginFramesInternal();
   }
 }
 
@@ -734,6 +736,35 @@ int64_t CompositorFrameSinkSupport::ComputeTraceId() {
   uint64_t client = (frame_sink_id_.client_id() & 0xffff);
   uint64_t sink = (frame_sink_id_.sink_id() & 0xffff);
   return (client << 48) | (sink << 32) | trace_sequence_;
+}
+
+bool CompositorFrameSinkSupport::ShouldSendBeginFrame(
+    base::TimeTicks frame_time) {
+  // If there are pending presentation feedbacks from the previous frame(s),
+  // then the client needs to receive the begin-frame.
+  if (!presentation_feedbacks_.empty())
+    return true;
+
+  if (!client_needs_begin_frame_)
+    return false;
+
+  if (!last_activated_surface_id_.is_valid())
+    return true;
+
+  Surface* surface =
+      surface_manager_->GetSurfaceForId(last_activated_surface_id_);
+  // If client has not submitted any frames, or the first frame submitted is
+  // yet to be embedded, then allow the begin-frame to be dispatched to the
+  // client.
+  if (!surface || !surface->seen_first_surface_embedding())
+    return true;
+
+  // Send begin-frames if the client has requested for it, and the previously
+  // submitted frame has already been drawn, or if the previous begin-frame was
+  // sent more than 1 second ago.
+  constexpr base::TimeDelta throttled_rate = base::TimeDelta::FromSeconds(1);
+  return !surface->HasUndrawnActiveFrame() ||
+         (frame_time - last_frame_time_) >= throttled_rate;
 }
 
 }  // namespace viz

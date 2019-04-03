@@ -11,6 +11,7 @@
 #define LLVM_DEMANGLE_DEMANGLE_H
 
 #include <cstddef>
+#include <string>
 
 namespace llvm {
 /// This is a llvm local version of __cxa_demangle. Other than the name and
@@ -31,15 +32,17 @@ enum : int {
 char *itaniumDemangle(const char *mangled_name, char *buf, size_t *n,
                       int *status);
 
-/// Calls the callback \c Callback with \c Ctx as an argument whenever a type is
-/// encountered. Returns true if \c MangledName couldn't be parsed.
-bool itaniumFindTypesInMangledName(const char *MangledName, void *Ctx,
-                                   void (*Callback)(void *, const char *));
-
 
 enum MSDemangleFlags { MSDF_None = 0, MSDF_DumpBackrefs = 1 << 0 };
 char *microsoftDemangle(const char *mangled_name, char *buf, size_t *n,
                         int *status, MSDemangleFlags Flags = MSDF_None);
+
+/// Attempt to demangle a string using different demangling schemes.
+/// The function uses heuristics to determine which demangling scheme to use.
+/// \param MangledName - reference to string to demangle.
+/// \returns - the demangled string, or a copy of the input string if no
+/// demangling occurred.
+std::string demangle(const std::string &MangledName);
 
 /// "Partial" demangler. This supports demangling a string into an AST
 /// (typically an intermediate stage in itaniumDemangle) and querying certain

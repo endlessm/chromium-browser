@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_PARSE_PARSER_H
 #define LLVM_CLANG_PARSE_PARSER_H
 
+#include "clang/AST/OpenMPClause.h"
 #include "clang/AST/Availability.h"
 #include "clang/Basic/BitmaskEnum.h"
 #include "clang/Basic/OpenMPKinds.h"
@@ -22,7 +23,6 @@
 #include "clang/Lex/CodeCompletionHandler.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/DeclSpec.h"
-#include "clang/Sema/LoopHint.h"
 #include "clang/Sema/Sema.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
@@ -38,6 +38,7 @@ namespace clang {
   class CorrectionCandidateCallback;
   class DeclGroupRef;
   class DiagnosticBuilder;
+  struct LoopHint;
   class Parser;
   class ParsingDeclRAIIObject;
   class ParsingDeclSpec;
@@ -358,6 +359,11 @@ class Parser : public CodeCompletionHandler {
   /// Used to determine if an expression that is being parsed is a statement or
   /// just a regular sub-expression.
   SourceLocation ExprStatementTokLoc;
+
+  /// Tests whether an expression value is discarded based on token lookahead.
+  /// It will return true if the lexer is currently processing the })
+  /// terminating a GNU statement expression and false otherwise.
+  bool isExprValueDiscarded();
 
 public:
   Parser(Preprocessor &PP, Sema &Actions, bool SkipFunctionBodies);
@@ -1888,6 +1894,7 @@ private:
   StmtResult ParseCompoundStatement(bool isStmtExpr,
                                     unsigned ScopeFlags);
   void ParseCompoundStatementLeadingPragmas();
+  bool ConsumeNullStmt(StmtVector &Stmts);
   StmtResult ParseCompoundStatementBody(bool isStmtExpr = false);
   bool ParseParenExprOrCondition(StmtResult *InitStmt,
                                  Sema::ConditionResult &CondResult,
@@ -2659,9 +2666,16 @@ private:
   DeclGroupPtrTy ParseNamespace(DeclaratorContext Context,
                                 SourceLocation &DeclEnd,
                                 SourceLocation InlineLoc = SourceLocation());
-  void ParseInnerNamespace(std::vector<SourceLocation> &IdentLoc,
-                           std::vector<IdentifierInfo *> &Ident,
-                           std::vector<SourceLocation> &NamespaceLoc,
+
+  struct InnerNamespaceInfo {
+    SourceLocation NamespaceLoc;
+    SourceLocation InlineLoc;
+    SourceLocation IdentLoc;
+    IdentifierInfo *Ident;
+  };
+  using InnerNamespaceInfoList = llvm::SmallVector<InnerNamespaceInfo, 4>;
+
+  void ParseInnerNamespace(const InnerNamespaceInfoList &InnerNSs,
                            unsigned int index, SourceLocation &InlineLoc,
                            ParsedAttributes &attrs,
                            BalancedDelimiterTracker &Tracker);
@@ -2767,6 +2781,11 @@ private:
   DeclGroupPtrTy ParseOMPDeclareSimdClauses(DeclGroupPtrTy Ptr,
                                             CachedTokens &Toks,
                                             SourceLocation Loc);
+  /// Parse clauses for '#pragma omp declare target'.
+  DeclGroupPtrTy ParseOMPDeclareTargetClauses();
+  /// Parse '#pragma omp end declare target'.
+  void ParseOMPEndDeclareTargetDirective(OpenMPDirectiveKind DKind,
+                                         SourceLocation Loc);
   /// Parses declarative OpenMP directives.
   DeclGroupPtrTy ParseOpenMPDeclarativeDirectiveWithExtDecl(
       AccessSpecifier &AS, ParsedAttributesWithRange &Attrs,
@@ -2863,7 +2882,10 @@ public:
     DeclarationNameInfo ReductionId;
     OpenMPDependClauseKind DepKind = OMPC_DEPEND_unknown;
     OpenMPLinearClauseKind LinKind = OMPC_LINEAR_val;
-    OpenMPMapClauseKind MapTypeModifier = OMPC_MAP_unknown;
+    SmallVector<OpenMPMapModifierKind, OMPMapClause::NumberOfModifiers>
+    MapTypeModifiers;
+    SmallVector<SourceLocation, OMPMapClause::NumberOfModifiers>
+    MapTypeModifiersLoc;
     OpenMPMapClauseKind MapType = OMPC_MAP_unknown;
     bool IsMapTypeImplicit = false;
     SourceLocation DepLinMapLoc;

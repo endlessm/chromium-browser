@@ -77,7 +77,6 @@ void InitializeInterceptors();
 
 void HwasanAllocatorInit();
 void HwasanAllocatorThreadFinish();
-void HwasanDeallocate(StackTrace *stack, void *ptr);
 
 void *hwasan_malloc(uptr size, StackTrace *stack);
 void *hwasan_calloc(uptr nmemb, uptr size, StackTrace *stack);
@@ -88,6 +87,7 @@ void *hwasan_aligned_alloc(uptr alignment, uptr size, StackTrace *stack);
 void *hwasan_memalign(uptr alignment, uptr size, StackTrace *stack);
 int hwasan_posix_memalign(void **memptr, uptr alignment, uptr size,
                         StackTrace *stack);
+void hwasan_free(void *ptr, StackTrace *stack);
 
 void InstallTrapHandler();
 void InstallAtExitHandler();
@@ -103,8 +103,6 @@ struct SymbolizerScope {
   SymbolizerScope() { EnterSymbolizer(); }
   ~SymbolizerScope() { ExitSymbolizer(); }
 };
-
-void PrintWarning(uptr pc, uptr bp);
 
 void GetStackTrace(BufferedStackTrace *stack, uptr max_s, uptr pc, uptr bp,
                    void *context, bool request_fast_unwind);
@@ -153,6 +151,10 @@ void HwasanTSDThreadInit();
 void HwasanOnDeadlySignal(int signo, void *info, void *context);
 
 void UpdateMemoryUsage();
+
+void AppendToErrorMessageBuffer(const char *buffer);
+
+void AndroidTestTlsSlot();
 
 }  // namespace __hwasan
 

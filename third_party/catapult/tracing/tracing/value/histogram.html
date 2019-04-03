@@ -153,17 +153,14 @@ tr.exportTo('tr.v', function() {
    */
   class Histogram {
     constructor(name, unit, opt_binBoundaries) {
+      if (!(unit instanceof tr.b.Unit)) {
+        throw new Error('unit must be a Unit: ' + unit);
+      }
       let binBoundaries = opt_binBoundaries;
       if (!binBoundaries) {
         const baseUnit = unit.baseUnit ? unit.baseUnit : unit;
         binBoundaries = DEFAULT_BOUNDARIES_FOR_UNIT.get(baseUnit.unitName);
       }
-
-      // If this Histogram is being deserialized, then its guid will be set by
-      // fromDict().
-      // If this Histogram is being computed by a metric, then its guid will be
-      // allocated the first time the guid is gotten by asDict().
-      this.guid_ = undefined;
 
       // Serialize binBoundaries here instead of holding a reference to it in
       // case it is modified.
@@ -182,7 +179,6 @@ tr.exportTo('tr.v', function() {
       this.numNans = 0;
       this.running_ = undefined;
       this.sampleValues_ = [];
-      this.shortName = undefined;
       this.summaryOptions = new Map(DEFAULT_SUMMARY_OPTIONS);
       this.summaryOptions.set('percentile', []);
       this.summaryOptions.set('iprs', []);
@@ -207,7 +203,6 @@ tr.exportTo('tr.v', function() {
      * @param {!Object|!Map} opt_options.summaryOptions
      * @param {!Object|!Map} opt_options.diagnostics
      * @param {string} opt_options.description
-     * @param {string} opt_options.shortName
      * @return {!tr.v.Histogram}
      */
     static create(name, unit, samples, opt_options) {
@@ -215,7 +210,6 @@ tr.exportTo('tr.v', function() {
       const hist = new Histogram(name, unit, options.binBoundaries);
 
       if (options.description) hist.description = options.description;
-      if (options.shortName) hist.shortName = options.shortName;
 
       if (options.summaryOptions) {
         let summaryOptions = options.summaryOptions;
@@ -233,6 +227,7 @@ tr.exportTo('tr.v', function() {
           diagnostics = Object.entries(diagnostics);
         }
         for (const [name, diagnostic] of diagnostics) {
+          if (!diagnostic) continue;
           hist.diagnostics.set(name, diagnostic);
         }
       }
@@ -272,29 +267,9 @@ tr.exportTo('tr.v', function() {
       return this.name_;
     }
 
-    get guid() {
-      if (this.guid_ === undefined) {
-        this.guid_ = tr.b.GUID.allocateUUID4();
-      }
-
-      return this.guid_;
-    }
-
-    set guid(guid) {
-      if (this.guid_ !== undefined) {
-        throw new Error('Cannot reset guid');
-      }
-
-      this.guid_ = guid;
-    }
-
     static fromDict(dict) {
       const hist = new Histogram(dict.name, tr.b.Unit.fromJSON(dict.unit),
           HistogramBinBoundaries.fromDict(dict.binBoundaries));
-      hist.guid = dict.guid;
-      if (dict.shortName) {
-        hist.shortName = dict.shortName;
-      }
       if (dict.description) {
         hist.description = dict.description;
       }
@@ -459,9 +434,15 @@ tr.exportTo('tr.v', function() {
      * @param {(!Object|!tr.v.d.DiagnosticMap)=} opt_diagnostics
      */
     addSample(value, opt_diagnostics) {
-      if (opt_diagnostics &&
-          !(opt_diagnostics instanceof tr.v.d.DiagnosticMap)) {
-        opt_diagnostics = tr.v.d.DiagnosticMap.fromObject(opt_diagnostics);
+      if (opt_diagnostics) {
+        if (!(opt_diagnostics instanceof tr.v.d.DiagnosticMap)) {
+          opt_diagnostics = tr.v.d.DiagnosticMap.fromObject(opt_diagnostics);
+        }
+        for (const [name, diag] of opt_diagnostics) {
+          if (diag instanceof tr.v.d.Breakdown) {
+            diag.truncate(this.unit);
+          }
+        }
       }
 
       if (typeof(value) !== 'number' || isNaN(value)) {
@@ -475,6 +456,8 @@ tr.exportTo('tr.v', function() {
           this.running_ = new tr.b.math.RunningStatistics();
         }
         this.running_.add(value);
+
+        value = this.unit.truncate(value);
 
         const binIndex = this.getBinIndexForValue(value);
         let bin = this.allBins[binIndex];
@@ -599,20 +582,6 @@ tr.exportTo('tr.v', function() {
         }
         this.running_ = this.running_.merge(other.running_);
       }
-
-      let mergedFrom = this.diagnostics.get(tr.v.d.RESERVED_NAMES.MERGED_FROM);
-      if (!mergedFrom) {
-        mergedFrom = new tr.v.d.RelatedHistogramMap();
-        this.diagnostics.set(tr.v.d.RESERVED_NAMES.MERGED_FROM, mergedFrom);
-      }
-      mergedFrom.set(mergedFrom.length, other);
-
-      let mergedTo = other.diagnostics.get(tr.v.d.RESERVED_NAMES.MERGED_TO);
-      if (!mergedTo) {
-        mergedTo = new tr.v.d.RelatedHistogramMap();
-        other.diagnostics.set(tr.v.d.RESERVED_NAMES.MERGED_TO, mergedTo);
-      }
-      mergedTo.set(mergedTo.length, this);
 
       this.diagnostics.addDiagnostics(other.diagnostics);
 
@@ -863,8 +832,8 @@ tr.exportTo('tr.v', function() {
     }
 
     /**
-     * Create a new Histogram instance that is just like |this| except for its
-     * guid. This is useful when merging Histograms.
+     * Create a new Histogram instance that is just like |this|. This is useful
+     * when merging Histograms.
      * @return {!tr.v.Histogram}
      */
     clone() {
@@ -887,7 +856,7 @@ tr.exportTo('tr.v', function() {
      * Produce a Histogram with |this| Histogram's name, unit, description,
      * statistics, summaryOptions, sampleValues, and diagnostics, but with
      * |newBoundaries|.
-     * guid and sample diagnostics are not copied. In-bound Relationship
+     * sample diagnostics are not copied. In-bound Relationship
      * diagnostics are broken.
      *
      * @param {!tr.v.HistogramBinBoundaries} newBoundaries
@@ -918,12 +887,8 @@ tr.exportTo('tr.v', function() {
       const dict = {};
       dict.name = this.name;
       dict.unit = this.unit.asJSON();
-      dict.guid = this.guid;
       if (this.binBoundariesDict_ !== undefined) {
         dict.binBoundaries = this.binBoundariesDict_;
-      }
-      if (this.shortName) {
-        dict.shortName = this.shortName;
       }
       if (this.description) {
         dict.description = this.description;
@@ -944,6 +909,7 @@ tr.exportTo('tr.v', function() {
 
       if (this.numValues) {
         dict.sampleValues = this.sampleValues.slice();
+        this.running.truncate(this.unit);
         dict.running = this.running_.asDict();
         dict.allBins = this.allBinsAsDict_();
       }

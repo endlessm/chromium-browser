@@ -1,3 +1,4 @@
+jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000;
 
 describe('PathKit\'s Path Behavior', function() {
     // Note, don't try to print the PathKit object - it can cause Karma/Jasmine to lock up.
@@ -8,7 +9,7 @@ describe('PathKit\'s Path Behavior', function() {
         } else {
             PathKitInit({
                 locateFile: (file) => '/pathkit/'+file,
-            }).then((_PathKit) => {
+            }).ready().then((_PathKit) => {
                 PathKit = _PathKit;
                 resolve();
             });
@@ -158,7 +159,7 @@ describe('PathKit\'s Path Behavior', function() {
     }
 
     describe('Command arrays', function(){
-        it('does NOT approximates conics when dumping as toCmds', function(done){
+        it('does NOT approximates conics when dumping as toCmds', function(done) {
             LoadPathKit.then(catchException(done, () => {
                 let path = PathKit.NewPath();
                 path.moveTo(20, 120);

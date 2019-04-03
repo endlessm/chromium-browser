@@ -1331,10 +1331,10 @@
 // AARCH64-DARWIN: #define __INT_FAST32_FMTi__ "i"
 // AARCH64-DARWIN: #define __INT_FAST32_MAX__ 2147483647
 // AARCH64-DARWIN: #define __INT_FAST32_TYPE__ int
-// AARCH64-DARWIN: #define __INT_FAST64_FMTd__ "ld"
-// AARCH64-DARWIN: #define __INT_FAST64_FMTi__ "li"
-// AARCH64-DARWIN: #define __INT_FAST64_MAX__ 9223372036854775807L
-// AARCH64-DARWIN: #define __INT_FAST64_TYPE__ long int
+// AARCH64-DARWIN: #define __INT_FAST64_FMTd__ "lld"
+// AARCH64-DARWIN: #define __INT_FAST64_FMTi__ "lli"
+// AARCH64-DARWIN: #define __INT_FAST64_MAX__ 9223372036854775807LL
+// AARCH64-DARWIN: #define __INT_FAST64_TYPE__ long long int
 // AARCH64-DARWIN: #define __INT_FAST8_FMTd__ "hhd"
 // AARCH64-DARWIN: #define __INT_FAST8_FMTi__ "hhi"
 // AARCH64-DARWIN: #define __INT_FAST8_MAX__ 127
@@ -1347,10 +1347,10 @@
 // AARCH64-DARWIN: #define __INT_LEAST32_FMTi__ "i"
 // AARCH64-DARWIN: #define __INT_LEAST32_MAX__ 2147483647
 // AARCH64-DARWIN: #define __INT_LEAST32_TYPE__ int
-// AARCH64-DARWIN: #define __INT_LEAST64_FMTd__ "ld"
-// AARCH64-DARWIN: #define __INT_LEAST64_FMTi__ "li"
-// AARCH64-DARWIN: #define __INT_LEAST64_MAX__ 9223372036854775807L
-// AARCH64-DARWIN: #define __INT_LEAST64_TYPE__ long int
+// AARCH64-DARWIN: #define __INT_LEAST64_FMTd__ "lld"
+// AARCH64-DARWIN: #define __INT_LEAST64_FMTi__ "lli"
+// AARCH64-DARWIN: #define __INT_LEAST64_MAX__ 9223372036854775807LL
+// AARCH64-DARWIN: #define __INT_LEAST64_TYPE__ long long int
 // AARCH64-DARWIN: #define __INT_LEAST8_FMTd__ "hhd"
 // AARCH64-DARWIN: #define __INT_LEAST8_FMTi__ "hhi"
 // AARCH64-DARWIN: #define __INT_LEAST8_MAX__ 127
@@ -1418,16 +1418,16 @@
 // AARCH64-DARWIN: #define __UINT_FAST16_TYPE__ unsigned short
 // AARCH64-DARWIN: #define __UINT_FAST32_MAX__ 4294967295U
 // AARCH64-DARWIN: #define __UINT_FAST32_TYPE__ unsigned int
-// AARCH64-DARWIN: #define __UINT_FAST64_MAX__ 18446744073709551615UL
-// AARCH64-DARWIN: #define __UINT_FAST64_TYPE__ long unsigned int
+// AARCH64-DARWIN: #define __UINT_FAST64_MAX__ 18446744073709551615ULL
+// AARCH64-DARWIN: #define __UINT_FAST64_TYPE__ long long unsigned int
 // AARCH64-DARWIN: #define __UINT_FAST8_MAX__ 255
 // AARCH64-DARWIN: #define __UINT_FAST8_TYPE__ unsigned char
 // AARCH64-DARWIN: #define __UINT_LEAST16_MAX__ 65535
 // AARCH64-DARWIN: #define __UINT_LEAST16_TYPE__ unsigned short
 // AARCH64-DARWIN: #define __UINT_LEAST32_MAX__ 4294967295U
 // AARCH64-DARWIN: #define __UINT_LEAST32_TYPE__ unsigned int
-// AARCH64-DARWIN: #define __UINT_LEAST64_MAX__ 18446744073709551615UL
-// AARCH64-DARWIN: #define __UINT_LEAST64_TYPE__ long unsigned int
+// AARCH64-DARWIN: #define __UINT_LEAST64_MAX__ 18446744073709551615ULL
+// AARCH64-DARWIN: #define __UINT_LEAST64_TYPE__ long long unsigned int
 // AARCH64-DARWIN: #define __UINT_LEAST8_MAX__ 255
 // AARCH64-DARWIN: #define __UINT_LEAST8_TYPE__ unsigned char
 // AARCH64-DARWIN: #define __USER_LABEL_PREFIX__ _
@@ -9057,6 +9057,7 @@
 // RUN: %clang_cc1 -triple arm-linux-androideabi -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix ANDROID %s
 // ANDROID-NOT:#define __ANDROID_API__
 // ANDROID:#define __ANDROID__ 1
+// ANDROID-NOT:#define __gnu_linux__
 //
 // RUN: %clang_cc1 -x c++ -triple i686-linux-android -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix I386-ANDROID-CXX %s
 // I386-ANDROID-CXX:#define __STDCPP_DEFAULT_NEW_ALIGNMENT__ 8U
@@ -9067,6 +9068,7 @@
 // RUN: %clang_cc1 -triple arm-linux-androideabi20 -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix ANDROID20 %s
 // ANDROID20:#define __ANDROID_API__ 20
 // ANDROID20:#define __ANDROID__ 1
+// ANDROID-NOT:#define __gnu_linux__
 //
 // RUN: %clang_cc1 -triple lanai-unknown-unknown -E -dM < /dev/null | FileCheck -match-full-lines -check-prefix LANAI %s
 // LANAI: #define __lanai__ 1

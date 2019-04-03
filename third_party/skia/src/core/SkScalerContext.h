@@ -96,6 +96,7 @@ public:
     }
 
     SkScalar getContrast() const {
+        sk_ignore_unused_variable(fReservedAlign);
         return SkIntToScalar(fContrast) / ((1 << 8) - 1);
     }
     void setContrast(SkScalar c) {
@@ -206,11 +207,6 @@ public:
         return static_cast<SkMask::Format>(fMaskFormat);
     }
 
-private:
-    // TODO: get rid of these bad friends.
-    friend class SkScalerContext;
-    friend class SkScalerContext_DW;
-
     SkColor getLuminanceColor() const {
         return fLumBits;
     }
@@ -219,6 +215,10 @@ private:
     void setLuminanceColor(SkColor c) {
         fLumBits = c;
     }
+
+private:
+    // TODO: remove
+    friend class SkScalerContext;
 };
 SK_END_REQUIRE_DENSE
 
@@ -283,13 +283,6 @@ public:
      */
     uint16_t charToGlyphID(SkUnichar uni) {
         return generateCharToGlyph(uni);
-    }
-
-    /** Map the glyphID to its glyph index, and then to its char code. Unmapped
-        glyphs return zero.
-    */
-    SkUnichar glyphIDToChar(uint16_t glyphID) {
-        return (glyphID < getGlyphCount()) ? generateGlyphToChar(glyphID) : 0;
     }
 
     unsigned    getGlyphCount() { return this->generateGlyphCount(); }
@@ -368,12 +361,6 @@ public:
         const SkMatrix& deviceMatrix, SkAutoDescriptor* ad,
         SkScalerContextEffects* effects);
 
-    static SkDescriptor* CreateDescriptorAndEffectsUsingPaint(
-        const SkPaint& paint, const SkSurfaceProps& surfaceProps,
-        SkScalerContextFlags scalerContextFlags,
-        const SkMatrix& deviceMatrix, SkAutoDescriptor* ad,
-        SkScalerContextEffects* effects);
-
 protected:
     SkScalerContextRec fRec;
 
@@ -416,12 +403,6 @@ protected:
      *  If there is no 1:1 mapping from the unichar to a glyph id, returns 0.
      */
     virtual uint16_t generateCharToGlyph(SkUnichar unichar) = 0;
-
-    /** Returns the unichar for the given glyph id.
-     *  If there is no 1:1 mapping from the glyph id to a unichar, returns 0.
-     *  The default implementation always returns 0, indicating failure.
-     */
-    virtual SkUnichar generateGlyphToChar(uint16_t glyphId);
 
     void forceGenerateImageFromPath() { fGenerateImageFromPath = true; }
     void forceOffGenerateImageFromPath() { fGenerateImageFromPath = false; }

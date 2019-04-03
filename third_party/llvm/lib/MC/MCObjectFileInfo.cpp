@@ -479,10 +479,10 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(const Triple &T, bool Large) {
 }
 
 void MCObjectFileInfo::initCOFFMCObjectFileInfo(const Triple &T) {
-  EHFrameSection = Ctx->getCOFFSection(
-      ".eh_frame", COFF::IMAGE_SCN_CNT_INITIALIZED_DATA |
-                       COFF::IMAGE_SCN_MEM_READ | COFF::IMAGE_SCN_MEM_WRITE,
-      SectionKind::getData());
+  EHFrameSection =
+      Ctx->getCOFFSection(".eh_frame", COFF::IMAGE_SCN_CNT_INITIALIZED_DATA |
+                                           COFF::IMAGE_SCN_MEM_READ,
+                          SectionKind::getData());
 
   // Set the `IMAGE_SCN_MEM_16BIT` flag when compiling for thumb mode.  This is
   // used to indicate to the linker that the text segment contains thumb instructions
@@ -510,11 +510,7 @@ void MCObjectFileInfo::initCOFFMCObjectFileInfo(const Triple &T) {
       ".rdata", COFF::IMAGE_SCN_CNT_INITIALIZED_DATA | COFF::IMAGE_SCN_MEM_READ,
       SectionKind::getReadOnly());
 
-  // FIXME: We're emitting LSDA info into a readonly section on COFF, even
-  // though it contains relocatable pointers.  In PIC mode, this is probably a
-  // big runtime hit for C++ apps.  Either the contents of the LSDA need to be
-  // adjusted or this should be a data section.
-  if (T.getArch() == Triple::x86_64) {
+  if (T.getArch() == Triple::x86_64 || T.getArch() == Triple::aarch64) {
     // On Windows 64 with SEH, the LSDA is emitted into the .xdata section
     LSDASection = nullptr;
   } else {
@@ -812,16 +808,17 @@ void MCObjectFileInfo::InitMCObjectFileInfo(const Triple &TheTriple, bool PIC,
   }
 }
 
-MCSection *MCObjectFileInfo::getDwarfTypesSection(uint64_t Hash) const {
+MCSection *MCObjectFileInfo::getDwarfComdatSection(const char *Name,
+                                                   uint64_t Hash) const {
   switch (TT.getObjectFormat()) {
   case Triple::ELF:
-    return Ctx->getELFSection(".debug_types", ELF::SHT_PROGBITS, ELF::SHF_GROUP,
-                              0, utostr(Hash));
+    return Ctx->getELFSection(Name, ELF::SHT_PROGBITS, ELF::SHF_GROUP, 0,
+                              utostr(Hash));
   case Triple::MachO:
   case Triple::COFF:
   case Triple::Wasm:
   case Triple::UnknownObjectFormat:
-    report_fatal_error("Cannot get DWARF types section for this object file "
+    report_fatal_error("Cannot get DWARF comdat section for this object file "
                        "format: not implemented.");
     break;
   }

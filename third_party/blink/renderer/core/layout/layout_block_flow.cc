@@ -55,6 +55,7 @@
 #include "third_party/blink/renderer/core/layout/line/line_width.h"
 #include "third_party/blink/renderer/core/layout/logical_values.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_line_height_metrics.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_offset_mapping.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
 #include "third_party/blink/renderer/core/layout/ng/legacy_layout_tree_walking.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_absolute_utils.h"
@@ -390,7 +391,7 @@ bool LayoutBlockFlow::CheckIfIsSelfCollapsingBlock() const {
       StyleRef().MarginAfterCollapse() == EMarginCollapse::kSeparate)
     return false;
 
-  Length logical_height_length = StyleRef().LogicalHeight();
+  const Length& logical_height_length = StyleRef().LogicalHeight();
   bool has_auto_height = logical_height_length.IsAuto();
   if (logical_height_length.IsPercentOrCalc() &&
       !GetDocument().InQuirksMode()) {
@@ -445,6 +446,9 @@ void LayoutBlockFlow::UpdateBlockLayout(bool relayout_children) {
 
   if (RuntimeEnabledFeatures::TrackLayoutPassesPerBlockEnabled())
     IncrementLayoutPassCount();
+
+  if (rare_data_)
+    ClearOffsetMapping();
 
   if (!relayout_children && SimplifiedLayout())
     return;
@@ -525,7 +529,7 @@ void LayoutBlockFlow::UpdateBlockLayout(bool relayout_children) {
   LayoutPositionedObjects(relayout_children, behavior);
 
   // Add overflow from children.
-  ComputeOverflow(unconstrained_client_after_edge);
+  ComputeLayoutOverflow(unconstrained_client_after_edge, false);
 
   descendants_with_floats_marked_for_layout_ = false;
 
@@ -2560,18 +2564,19 @@ bool LayoutBlockFlow::AreCachedLinesValidFor(const NGConstraintSpace&) const {
   return false;
 }
 
-void LayoutBlockFlow::SetPaintFragment(const NGBreakToken*,
+void LayoutBlockFlow::SetPaintFragment(const NGBlockBreakToken*,
                                        scoped_refptr<const NGPhysicalFragment>,
                                        NGPhysicalOffset) {}
 
 void LayoutBlockFlow::UpdatePaintFragmentFromCachedLayoutResult(
-    const NGBreakToken*,
+    const NGBlockBreakToken*,
     scoped_refptr<const NGPhysicalFragment>,
     NGPhysicalOffset) {}
 
 void LayoutBlockFlow::ComputeVisualOverflow(
-    const LayoutRect& previous_visual_overflow_rect,
     bool recompute_floats) {
+  LayoutRect previous_visual_overflow_rect = VisualOverflowRect();
+  ClearVisualOverflow();
   AddVisualOverflowFromChildren();
 
   AddVisualEffectOverflow();
@@ -2580,10 +2585,8 @@ void LayoutBlockFlow::ComputeVisualOverflow(
   if (recompute_floats || CreatesNewFormattingContext() ||
       HasSelfPaintingLayer())
     AddVisualOverflowFromFloats();
-
   if (VisualOverflowRect() != previous_visual_overflow_rect) {
-    if (Layer())
-      Layer()->SetNeedsCompositingInputsUpdate();
+    SetShouldCheckForPaintInvalidation();
     GetFrameView()->SetIntersectionObservationState(LocalFrameView::kDesired);
   }
 }
@@ -3604,6 +3607,7 @@ void LayoutBlockFlow::MakeChildrenNonInline(LayoutObject* insertion_point) {
   DCHECK(!insertion_point || insertion_point->Parent() == this);
 
   SetChildrenInline(false);
+  ClearNGInlineNodeData();
 
   LayoutObject* child = FirstChild();
   if (!child)
@@ -4367,9 +4371,9 @@ void LayoutBlockFlow::UpdateAncestorShouldPaintFloatingObject(
   // However, sometimes a layer's self painting status is affected by its
   // compositing status, so we need to call this method during compositing
   // update when we find a layer changes self painting status. This doesn't
-  // apply to SPv2 in which a layer's self painting status no longer depends on
+  // apply to CAP in which a layer's self painting status no longer depends on
   // compositing status.
-  DCHECK(!RuntimeEnabledFeatures::SlimmingPaintV2Enabled());
+  DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
   DCHECK(float_box.IsFloating());
   bool float_box_is_self_painting_layer =
       float_box.HasLayer() && float_box.Layer()->IsSelfPaintingLayer();
@@ -4492,7 +4496,7 @@ void LayoutBlockFlow::PositionSpannerDescendant(
 DISABLE_CFI_PERF
 bool LayoutBlockFlow::CreatesNewFormattingContext() const {
   if (IsInline() || IsFloatingOrOutOfFlowPositioned() || HasOverflowClip() ||
-      IsFlexItemIncludingDeprecated() || IsCustomItem() ||
+      IsFlexItemIncludingDeprecatedAndNG() || IsCustomItem() ||
       IsDocumentElement() || IsGridItem() || IsWritingModeRoot() ||
       StyleRef().Display() == EDisplay::kFlowRoot ||
       ShouldApplyPaintContainment() || ShouldApplyLayoutContainment() ||
@@ -4658,15 +4662,17 @@ void LayoutBlockFlow::SimplifiedNormalFlowInlineLayout() {
   }
 }
 
-bool LayoutBlockFlow::RecalcInlineChildrenOverflow() {
+bool LayoutBlockFlow::RecalcInlineChildrenLayoutOverflow() {
   DCHECK(ChildrenInline());
-  bool children_overflow_changed = false;
+  bool children_layout_overflow_changed = false;
   ListHashSet<RootInlineBox*> line_boxes;
   for (InlineWalker walker(LineLayoutBlockFlow(this)); !walker.AtEnd();
        walker.Advance()) {
     LayoutObject* layout_object = walker.Current().GetLayoutObject();
-    if (RecalcNormalFlowChildOverflowIfNeeded(layout_object)) {
-      children_overflow_changed = true;
+    if (RecalcNormalFlowChildLayoutOverflowIfNeeded(layout_object)) {
+      children_layout_overflow_changed = true;
+      // TODO(chrishtr): should this be IsBox()? Non-blocks can be
+      // inline and have line box wrappers.
       if (layout_object->IsLayoutBlock()) {
         if (InlineBox* inline_box_wrapper =
                 ToLayoutBlock(layout_object)->InlineBoxWrapper())
@@ -4684,7 +4690,30 @@ bool LayoutBlockFlow::RecalcInlineChildrenOverflow() {
     box->ClearKnownToHaveNoOverflow();
     box->ComputeOverflow(box->LineTop(), box->LineBottom(), text_box_data_map);
   }
-  return children_overflow_changed;
+  return children_layout_overflow_changed;
+}
+
+void LayoutBlockFlow::RecalcInlineChildrenVisualOverflow() {
+  DCHECK(ChildrenInline());
+  ListHashSet<RootInlineBox*> line_boxes;
+  for (InlineWalker walker(LineLayoutBlockFlow(this)); !walker.AtEnd();
+       walker.Advance()) {
+    LayoutObject* layout_object = walker.Current().GetLayoutObject();
+    RecalcNormalFlowChildVisualOverflowIfNeeded(layout_object);
+    if (layout_object->IsBox()) {
+      if (InlineBox* inline_box_wrapper =
+              ToLayoutBox(layout_object)->InlineBoxWrapper())
+        line_boxes.insert(&inline_box_wrapper->Root());
+    }
+  }
+
+  // Child inline boxes' self visual overflow is already computed at the same
+  // time as layout overflow. But we need to add replaced children visual rects.
+  for (ListHashSet<RootInlineBox*>::const_iterator it = line_boxes.begin();
+       it != line_boxes.end(); ++it) {
+    RootInlineBox* box = *it;
+    box->AddReplacedChildrenVisualOverflow(box->LineTop(), box->LineBottom());
+  }
 }
 
 PositionWithAffinity LayoutBlockFlow::PositionForPoint(
@@ -4916,6 +4945,39 @@ void LayoutBlockFlow::IncrementLayoutPassCount() {
 
 int LayoutBlockFlow::GetLayoutPassCountForTesting() {
   return GetLayoutPassCountMap().find(this)->value;
+}
+
+LayoutBlockFlow::LayoutBlockFlowRareData::LayoutBlockFlowRareData(
+    const LayoutBlockFlow* block)
+    : margins_(PositiveMarginBeforeDefault(block),
+               NegativeMarginBeforeDefault(block),
+               PositiveMarginAfterDefault(block),
+               NegativeMarginAfterDefault(block)),
+      break_before_(static_cast<unsigned>(EBreakBetween::kAuto)),
+      break_after_(static_cast<unsigned>(EBreakBetween::kAuto)),
+      line_break_to_avoid_widow_(-1),
+      did_break_at_line_to_avoid_widow_(false),
+      discard_margin_before_(false),
+      discard_margin_after_(false) {}
+
+LayoutBlockFlow::LayoutBlockFlowRareData::~LayoutBlockFlowRareData() = default;
+
+void LayoutBlockFlow::ClearOffsetMapping() {
+  DCHECK(!IsLayoutNGObject());
+  DCHECK(rare_data_);
+  rare_data_->offset_mapping_.reset();
+}
+
+const NGOffsetMapping* LayoutBlockFlow::GetOffsetMapping() const {
+  DCHECK(!IsLayoutNGObject());
+  return rare_data_ ? rare_data_->offset_mapping_.get() : nullptr;
+}
+
+void LayoutBlockFlow::SetOffsetMapping(
+    std::unique_ptr<NGOffsetMapping> offset_mapping) {
+  DCHECK(!IsLayoutNGObject());
+  DCHECK(offset_mapping);
+  EnsureRareData().offset_mapping_ = std::move(offset_mapping);
 }
 
 }  // namespace blink

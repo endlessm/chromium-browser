@@ -393,10 +393,11 @@ Parser::ParseRHSOfBinaryExpression(ExprResult LHS, prec::Level MinPrec) {
       }
     }
 
-    // Code completion for the right-hand side of an assignment expression
-    // goes through a special hook that takes the left-hand side into account.
-    if (Tok.is(tok::code_completion) && NextTokPrec == prec::Assignment) {
-      Actions.CodeCompleteAssignmentRHS(getCurScope(), LHS.get());
+    // Code completion for the right-hand side of a binary expression goes
+    // through a special hook that takes the left-hand side into account.
+    if (Tok.is(tok::code_completion)) {
+      Actions.CodeCompleteBinaryRHS(getCurScope(), LHS.get(),
+                                    OpToken.getKind());
       cutOffParsing();
       return ExprError();
     }
@@ -3011,12 +3012,8 @@ ExprResult Parser::ParseBlockLiteralExpression() {
                                      /*NumArgs=*/0,
                                      /*EllipsisLoc=*/NoLoc,
                                      /*RParenLoc=*/NoLoc,
-                                     /*TypeQuals=*/0,
                                      /*RefQualifierIsLvalueRef=*/true,
                                      /*RefQualifierLoc=*/NoLoc,
-                                     /*ConstQualifierLoc=*/NoLoc,
-                                     /*VolatileQualifierLoc=*/NoLoc,
-                                     /*RestrictQualifierLoc=*/NoLoc,
                                      /*MutableLoc=*/NoLoc, EST_None,
                                      /*ESpecRange=*/SourceRange(),
                                      /*Exceptions=*/nullptr,

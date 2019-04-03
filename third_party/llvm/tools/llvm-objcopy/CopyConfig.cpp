@@ -189,6 +189,22 @@ static const MachineInfo &getMachineInfo(StringRef Arch) {
   return Iter->getValue();
 }
 
+static const StringMap<MachineInfo> OutputFormatMap{
+    // Name, {EMachine, 64bit, LittleEndian}
+    {"elf32-i386", {ELF::EM_386, false, true}},
+    {"elf32-powerpcle", {ELF::EM_PPC, false, true}},
+    {"elf32-x86-64", {ELF::EM_X86_64, false, true}},
+    {"elf64-powerpcle", {ELF::EM_PPC64, true, true}},
+    {"elf64-x86-64", {ELF::EM_X86_64, true, true}},
+};
+
+static const MachineInfo &getOutputFormatMachineInfo(StringRef Format) {
+  auto Iter = OutputFormatMap.find(Format);
+  if (Iter == std::end(OutputFormatMap))
+    error("Invalid output format: '" + Format + "'");
+  return Iter->getValue();
+}
+
 static void addGlobalSymbolsFromFile(std::vector<std::string> &Symbols,
                                      StringRef Filename) {
   SmallVector<StringRef, 16> Lines;
@@ -226,6 +242,7 @@ DriverConfig parseObjcopyOptions(ArrayRef<const char *> ArgsArr) {
   }
 
   if (InputArgs.hasArg(OBJCOPY_version)) {
+    outs() << "llvm-objcopy, compatible with GNU objcopy\n";
     cl::PrintVersionMessage();
     exit(0);
   }
@@ -265,6 +282,8 @@ DriverConfig parseObjcopyOptions(ArrayRef<const char *> ArgsArr) {
       error("Specified binary input without specifiying an architecture");
     Config.BinaryArch = getMachineInfo(BinaryArch);
   }
+  if (!Config.OutputFormat.empty() && Config.OutputFormat != "binary")
+    Config.OutputArch = getOutputFormatMachineInfo(Config.OutputFormat);
 
   if (auto Arg = InputArgs.getLastArg(OBJCOPY_compress_debug_sections,
                                       OBJCOPY_compress_debug_sections_eq)) {
@@ -285,8 +304,15 @@ DriverConfig parseObjcopyOptions(ArrayRef<const char *> ArgsArr) {
     }
   }
 
-  Config.SplitDWO = InputArgs.getLastArgValue(OBJCOPY_split_dwo);
   Config.AddGnuDebugLink = InputArgs.getLastArgValue(OBJCOPY_add_gnu_debuglink);
+  Config.BuildIdLinkDir = InputArgs.getLastArgValue(OBJCOPY_build_id_link_dir);
+  if (InputArgs.hasArg(OBJCOPY_build_id_link_input))
+    Config.BuildIdLinkInput =
+        InputArgs.getLastArgValue(OBJCOPY_build_id_link_input);
+  if (InputArgs.hasArg(OBJCOPY_build_id_link_output))
+    Config.BuildIdLinkOutput =
+        InputArgs.getLastArgValue(OBJCOPY_build_id_link_output);
+  Config.SplitDWO = InputArgs.getLastArgValue(OBJCOPY_split_dwo);
   Config.SymbolsPrefix = InputArgs.getLastArgValue(OBJCOPY_prefix_symbols);
 
   for (auto Arg : InputArgs.filtered(OBJCOPY_redefine_symbol)) {
@@ -305,10 +331,10 @@ DriverConfig parseObjcopyOptions(ArrayRef<const char *> ArgsArr) {
 
   for (auto Arg : InputArgs.filtered(OBJCOPY_remove_section))
     Config.ToRemove.push_back(Arg->getValue());
-  for (auto Arg : InputArgs.filtered(OBJCOPY_keep))
-    Config.Keep.push_back(Arg->getValue());
-  for (auto Arg : InputArgs.filtered(OBJCOPY_only_keep))
-    Config.OnlyKeep.push_back(Arg->getValue());
+  for (auto Arg : InputArgs.filtered(OBJCOPY_keep_section))
+    Config.KeepSection.push_back(Arg->getValue());
+  for (auto Arg : InputArgs.filtered(OBJCOPY_only_section))
+    Config.OnlySection.push_back(Arg->getValue());
   for (auto Arg : InputArgs.filtered(OBJCOPY_add_section))
     Config.AddSection.push_back(Arg->getValue());
   for (auto Arg : InputArgs.filtered(OBJCOPY_dump_section))
@@ -383,6 +409,7 @@ DriverConfig parseStripOptions(ArrayRef<const char *> ArgsArr) {
   }
 
   if (InputArgs.hasArg(STRIP_version)) {
+    outs() << "llvm-strip, compatible with GNU strip\n";
     cl::PrintVersionMessage();
     exit(0);
   }
@@ -411,8 +438,8 @@ DriverConfig parseStripOptions(ArrayRef<const char *> ArgsArr) {
       !Config.StripAllGNU)
     Config.StripAll = true;
 
-  for (auto Arg : InputArgs.filtered(STRIP_keep))
-    Config.Keep.push_back(Arg->getValue());
+  for (auto Arg : InputArgs.filtered(STRIP_keep_section))
+    Config.KeepSection.push_back(Arg->getValue());
 
   for (auto Arg : InputArgs.filtered(STRIP_remove_section))
     Config.ToRemove.push_back(Arg->getValue());

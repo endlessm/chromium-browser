@@ -146,6 +146,7 @@ class ParameterValidationOutputGenerator(OutputGenerator):
             'vkDestroyDebugReportCallbackEXT',
             'vkCreateCommandPool',
             'vkCreateRenderPass',
+            'vkCreateRenderPass2KHR',
             'vkDestroyRenderPass',
             'vkCreateDebugUtilsMessengerEXT',
             'vkDestroyDebugUtilsMessengerEXT',
@@ -710,14 +711,14 @@ class ParameterValidationOutputGenerator(OutputGenerator):
     def genVkStructureType(self, typename):
         # Add underscore between lowercase then uppercase
         value = re.sub('([a-z0-9])([A-Z])', r'\1_\2', typename)
+        value = value.replace('ASTCDecode', 'ASTC_Decode')
         value = value.replace('D3_D12', 'D3D12')
-        value = value.replace('ASTCDecode', 'ASTC_Decode')
         value = value.replace('Device_IDProp', 'Device_ID_Prop')
-        value = value.replace('LODGather', 'LOD_Gather')
-        value = value.replace('Features2', 'FEATURES_2')
-        value = value.replace('e16_Bit', 'E_16BIT')
         value = value.replace('e8_Bit', 'E_8BIT')
-        value = value.replace('ASTCDecode', 'ASTC_Decode')
+        value = value.replace('e16_Bit', 'E_16BIT')
+        value = value.replace('Features2', 'FEATURES_2')
+        value = value.replace('LODGather', 'LOD_Gather')
+        value = value.replace('PCIBus', 'PCI_Bus')
         # Change to uppercase
         value = value.upper()
         # Add STRUCTURE_TYPE_
@@ -782,9 +783,9 @@ class ParameterValidationOutputGenerator(OutputGenerator):
             decoratedName = '{}({}/{})'.format(*match.group(1, 2, 3))
         else:
             # Matches expressions similar to 'latexmath : [dataSize \over 4]'
-            match = re.match(r'latexmath\s*\:\s*\[\s*(\w+)\s*\\over\s*(\d+)\s*\]', source)
-            name = match.group(1)
-            decoratedName = '{}/{}'.format(*match.group(1, 2))
+            match = re.match(r'latexmath\s*\:\s*\[\s*(\\textrm\{)?(\w+)\}?\s*\\over\s*(\d+)\s*\]', source)
+            name = match.group(2)
+            decoratedName = '{}/{}'.format(*match.group(2, 3))
         return name, decoratedName
     #
     # Get the length paramater record for the specified parameter name

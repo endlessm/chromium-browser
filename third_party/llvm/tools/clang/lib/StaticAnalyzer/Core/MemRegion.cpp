@@ -1105,9 +1105,8 @@ MemRegionManager::getCXXThisRegion(QualType thisPointerTy,
   // FIXME: when operator() of lambda is analyzed as a top level function and
   // 'this' refers to a this to the enclosing scope, there is no right region to
   // return.
-  while (!LC->inTopFrame() &&
-         (!D || D->isStatic() ||
-          PT != D->getThisType(getContext())->getAs<PointerType>())) {
+  while (!LC->inTopFrame() && (!D || D->isStatic() ||
+                               PT != D->getThisType()->getAs<PointerType>())) {
     LC = LC->getParent();
     D = dyn_cast<CXXMethodDecl>(LC->getDecl());
   }
@@ -1172,6 +1171,15 @@ const MemRegion *MemRegion::getBaseRegion() const {
     }
     break;
   }
+  return R;
+}
+
+// getgetMostDerivedObjectRegion gets the region of the root class of a C++
+// class hierarchy.
+const MemRegion *MemRegion::getMostDerivedObjectRegion() const {
+  const MemRegion *R = this;
+  while (const auto *BR = dyn_cast<CXXBaseObjectRegion>(R))
+    R = BR->getSuperRegion();
   return R;
 }
 

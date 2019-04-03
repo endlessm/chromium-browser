@@ -190,7 +190,7 @@ public:
         SkFont defaultFont;
         REPORTER_ASSERT(reporter, defaultFont.getSize() != font.getSize());
         REPORTER_ASSERT(reporter, defaultFont.getScaleX() != font.getScaleX());
-        REPORTER_ASSERT(reporter, defaultFont.getTypeface() != font.getTypeface());
+        REPORTER_ASSERT(reporter, defaultFont.getTypefaceOrDefault() != font.getTypefaceOrDefault());
         REPORTER_ASSERT(reporter, defaultFont.getSkewX() != font.getSkewX());
         REPORTER_ASSERT(reporter, defaultFont.getHinting() != font.getHinting());
         REPORTER_ASSERT(reporter, defaultFont.getEdging() != font.getEdging());
@@ -210,12 +210,7 @@ public:
 
         SkTextBlobRunIterator it(blob.get());
         while (!it.done()) {
-            SkPaint paint;
-            it.applyFontToPaint(&paint);    // need iter for fonts
-            SkFont iterFont = SkFont::LEGACY_ExtractFromPaint(paint);
-
-            REPORTER_ASSERT(reporter, iterFont == font);
-
+            REPORTER_ASSERT(reporter, it.font() == font);
             it.next();
         }
 
@@ -320,17 +315,16 @@ DEF_TEST(TextBlob_paint, reporter) {
 
 DEF_TEST(TextBlob_extended, reporter) {
     SkTextBlobBuilder textBlobBuilder;
-    SkPaint paint;
+    SkFont font;
     const char text1[] = "Foo";
     const char text2[] = "Bar";
 
-    int glyphCount = paint.textToGlyphs(text1, strlen(text1), nullptr);
+    int glyphCount = font.countText(text1, strlen(text1), kUTF8_SkTextEncoding);
     SkAutoTMalloc<uint16_t> glyphs(glyphCount);
-    (void)paint.textToGlyphs(text1, strlen(text1), glyphs.get());
-    paint.setTextEncoding(SkPaint::kGlyphID_TextEncoding);
+    (void)font.textToGlyphs(text1, strlen(text1), kUTF8_SkTextEncoding, glyphs.get(), glyphCount);
 
     auto run = SkTextBlobBuilderPriv::AllocRunText(&textBlobBuilder,
-            paint, glyphCount, 0, 0, SkToInt(strlen(text2)), SkString(), nullptr);
+            font, glyphCount, 0, 0, SkToInt(strlen(text2)), SkString(), nullptr);
     memcpy(run.glyphs, glyphs.get(), sizeof(uint16_t) * glyphCount);
     memcpy(run.utf8text, text2, strlen(text2));
     for (int i = 0; i < glyphCount; ++i) {
@@ -416,8 +410,8 @@ DEF_TEST(TextBlob_serialize, reporter) {
         sk_sp<SkTypeface> tf = SkTypeface::MakeDefault();
 
         SkTextBlobBuilder builder;
-        add_run(&builder, "Hello", 10, 20, nullptr);    // we don't flatten this in the paint
-        add_run(&builder, "World", 10, 40, tf);         // we will flatten this in the paint
+        add_run(&builder, "Hello", 10, 20, nullptr);    // don't flatten a typeface
+        add_run(&builder, "World", 10, 40, tf);         // do flatten this typeface
         return builder.make();
     }();
 
@@ -426,7 +420,7 @@ DEF_TEST(TextBlob_serialize, reporter) {
     serializeProcs.fTypefaceProc = &SerializeTypeface;
     serializeProcs.fTypefaceCtx = (void*) &array;
     sk_sp<SkData> data = blob0->serialize(serializeProcs);
-    REPORTER_ASSERT(reporter, array.count() == 2);
+    REPORTER_ASSERT(reporter, array.count() == 1);
     SkDeserialProcs deserializeProcs;
     deserializeProcs.fTypefaceProc = &DeserializeTypeface;
     deserializeProcs.fTypefaceCtx = (void*) &array;
@@ -441,7 +435,7 @@ DEF_TEST(TextBlob_serialize, reporter) {
 
 DEF_TEST(TextBlob_MakeAsDrawText, reporter) {
     const char text[] = "Hello";
-    auto blob = SkTextBlob::MakeFromString(text, SkFont(), SkPaint::kUTF8_TextEncoding);
+    auto blob = SkTextBlob::MakeFromString(text, SkFont(), kUTF8_SkTextEncoding);
 
     int runs = 0;
     for(SkTextBlobRunIterator it(blob.get()); !it.done(); it.next()) {

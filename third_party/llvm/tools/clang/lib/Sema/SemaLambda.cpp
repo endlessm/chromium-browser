@@ -759,14 +759,15 @@ QualType Sema::buildLambdaInitCaptureInitialization(SourceLocation Loc,
   TypeSourceInfo *TSI = TLB.getTypeSourceInfo(Context, DeductType);
 
   // Deduce the type of the init capture.
+  Expr *DeduceInit = Init;
   QualType DeducedType = deduceVarTypeFromInitializer(
       /*VarDecl*/nullptr, DeclarationName(Id), DeductType, TSI,
-      SourceRange(Loc, Loc), IsDirectInit, Init);
+      SourceRange(Loc, Loc), IsDirectInit, DeduceInit);
   if (DeducedType.isNull())
     return QualType();
 
   // Are we a non-list direct initialization?
-  ParenListExpr *CXXDirectInit = dyn_cast<ParenListExpr>(Init);
+  bool CXXDirectInit = isa<ParenListExpr>(Init);
 
   // Perform initialization analysis and ensure any implicit conversions
   // (such as lvalue-to-rvalue) are enforced.
@@ -779,10 +780,7 @@ QualType Sema::buildLambdaInitCaptureInitialization(SourceLocation Loc,
                            : InitializationKind::CreateDirectList(Loc))
           : InitializationKind::CreateCopy(Loc, Init->getBeginLoc());
 
-  MultiExprArg Args = Init;
-  if (CXXDirectInit)
-    Args =
-        MultiExprArg(CXXDirectInit->getExprs(), CXXDirectInit->getNumExprs());
+  MultiExprArg Args = DeduceInit;
   QualType DclT;
   InitializationSequence InitSeq(*this, Entity, Kind, Args);
   ExprResult Result = InitSeq.Perform(*this, Entity, Kind, Args, &DclT);
@@ -859,7 +857,7 @@ void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
     FunctionProtoType::ExtProtoInfo EPI(Context.getDefaultCallingConvention(
         /*IsVariadic=*/false, /*IsCXXMethod=*/true));
     EPI.HasTrailingReturn = true;
-    EPI.TypeQuals |= DeclSpec::TQ_const;
+    EPI.TypeQuals.addConst();
     // C++1y [expr.prim.lambda]:
     //   The lambda return type is 'auto', which is replaced by the
     //   trailing-return type if provided and/or deduced from 'return'
@@ -884,8 +882,10 @@ void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
     //   This function call operator is declared const (9.3.1) if and only if
     //   the lambda-expression's parameter-declaration-clause is not followed
     //   by mutable. It is neither virtual nor declared volatile. [...]
-    if (!FTI.hasMutableQualifier())
-      FTI.TypeQuals |= DeclSpec::TQ_const;
+    if (!FTI.hasMutableQualifier()) {
+      FTI.getOrCreateMethodQualifiers().SetTypeQual(DeclSpec::TQ_const,
+                                                    SourceLocation());
+    }
 
     MethodTyInfo = GetTypeForDeclarator(ParamInfo, CurScope);
     assert(MethodTyInfo && "no type from lambda-declarator");
@@ -1198,7 +1198,7 @@ QualType Sema::getLambdaConversionFunctionResultType(
   CallingConv CC = Context.getDefaultCallingConvention(
       CallOpProto->isVariadic(), /*IsCXXMethod=*/false);
   InvokerExtInfo.ExtInfo = InvokerExtInfo.ExtInfo.withCallingConv(CC);
-  InvokerExtInfo.TypeQuals = 0;
+  InvokerExtInfo.TypeQuals = Qualifiers();
   assert(InvokerExtInfo.RefQualifier == RQ_None &&
       "Lambda's call operator should not have a reference qualifier");
   return Context.getFunctionType(CallOpProto->getReturnType(),
@@ -1229,7 +1229,8 @@ static void addFunctionPointerConversion(Sema &S,
       S.Context.getDefaultCallingConvention(
       /*IsVariadic=*/false, /*IsCXXMethod=*/true));
   // The conversion function is always const.
-  ConvExtInfo.TypeQuals = Qualifiers::Const;
+  ConvExtInfo.TypeQuals = Qualifiers();
+  ConvExtInfo.TypeQuals.addConst();
   QualType ConvTy =
       S.Context.getFunctionType(PtrToFunctionTy, None, ConvExtInfo);
 
@@ -1377,7 +1378,8 @@ static void addBlockPointerConversion(Sema &S,
   FunctionProtoType::ExtProtoInfo ConversionEPI(
       S.Context.getDefaultCallingConvention(
           /*IsVariadic=*/false, /*IsCXXMethod=*/true));
-  ConversionEPI.TypeQuals = Qualifiers::Const;
+  ConversionEPI.TypeQuals = Qualifiers();
+  ConversionEPI.TypeQuals.addConst();
   QualType ConvTy = S.Context.getFunctionType(BlockPtrTy, None, ConversionEPI);
 
   SourceLocation Loc = IntroducerRange.getBegin();
@@ -1722,7 +1724,7 @@ ExprResult Sema::BuildBlockForLambdaConversion(SourceLocation CurrentLocation,
                                                  /*NRVO=*/false),
       CurrentLocation, Src);
   if (!Init.isInvalid())
-    Init = ActOnFinishFullExpr(Init.get());
+    Init = ActOnFinishFullExpr(Init.get(), /*DiscardedValue*/ false);
 
   if (Init.isInvalid())
     return ExprError();

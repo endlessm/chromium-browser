@@ -39,12 +39,10 @@ SUITE_LEVEL_SPARSE_DIAGNOSTIC_NAMES = set([
     reserved_infos.OS_VERSIONS.name,
     reserved_infos.OWNERS.name,
     reserved_infos.PRODUCT_VERSIONS.name,
-    reserved_infos.TAG_MAP.name,
 ])
 
 HISTOGRAM_LEVEL_SPARSE_DIAGNOSTIC_NAMES = set([
     reserved_infos.DEVICE_IDS.name,
-    reserved_infos.RELATED_NAMES.name,
     reserved_infos.STORIES.name,
     reserved_infos.STORYSET_REPEATS.name,
     reserved_infos.STORY_TAGS.name,
@@ -174,9 +172,6 @@ def ProcessHistogramSet(histogram_dicts):
   with timing.WallTimeLogger('hs.ImportDicts'):
     histograms.ImportDicts(histogram_dicts)
 
-  with timing.WallTimeLogger('hs.ResolveRelatedHistograms'):
-    histograms.ResolveRelatedHistograms()
-
   with timing.WallTimeLogger('hs.DeduplicateDiagnostics'):
     histograms.DeduplicateDiagnostics()
 
@@ -211,10 +206,10 @@ def ProcessHistogramSet(histogram_dicts):
 
   with timing.WallTimeLogger('ComputeRevision'):
     suite_key = utils.TestKey('%s/%s/%s' % (master, bot, benchmark))
-
     logging.info('Suite: %s', suite_key.id())
 
     revision = ComputeRevision(histograms)
+    logging.info('Revision: %s', revision)
 
     internal_only = graph_data.Bot.GetInternalOnlySync(master, bot)
 

@@ -166,6 +166,8 @@ const char* const E_GL_EXT_post_depth_coverage              = "GL_EXT_post_depth
 const char* const E_GL_EXT_control_flow_attributes          = "GL_EXT_control_flow_attributes";
 const char* const E_GL_EXT_nonuniform_qualifier             = "GL_EXT_nonuniform_qualifier";
 const char* const E_GL_EXT_samplerless_texture_functions    = "GL_EXT_samplerless_texture_functions";
+const char* const E_GL_EXT_scalar_block_layout              = "GL_EXT_scalar_block_layout";
+const char* const E_GL_EXT_fragment_invocation_density      = "GL_EXT_fragment_invocation_density";
 
 // Arrays of extensions for the above viewportEXTs duplications
 
@@ -208,7 +210,7 @@ const char* const E_GL_NV_conservative_raster_underestimation   = "GL_NV_conserv
 const char* const E_GL_NV_shader_noperspective_interpolation    = "GL_NV_shader_noperspective_interpolation";
 const char* const E_GL_NV_shader_subgroup_partitioned           = "GL_NV_shader_subgroup_partitioned";
 const char* const E_GL_NV_shading_rate_image                    = "GL_NV_shading_rate_image";
-const char* const E_GL_NVX_raytracing                           = "GL_NVX_raytracing";
+const char* const E_GL_NV_ray_tracing                           = "GL_NV_ray_tracing";
 const char* const E_GL_NV_fragment_shader_barycentric           = "GL_NV_fragment_shader_barycentric";
 const char* const E_GL_NV_compute_shader_derivatives            = "GL_NV_compute_shader_derivatives";
 const char* const E_GL_NV_shader_texture_footprint              = "GL_NV_shader_texture_footprint";

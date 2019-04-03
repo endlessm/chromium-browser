@@ -31,6 +31,20 @@ class TestRequest(unittest.TestCase):
     self.http.request.assert_called_once_with(
         'http://example.com/', method='GET', body=None, headers=mock.ANY)
 
+  def testRequest_acceptJson(self):
+    self.http.request.return_value = Response(200, '{"code": "ok!"}')
+    self.assertEqual(
+        request.Request('http://example.com/', accept='json'), {'code': 'ok!'})
+    self.http.request.assert_called_once_with(
+        'http://example.com/', method='GET', body=None, headers=mock.ANY)
+
+  def testRequest_acceptJsonWithSecurityPrefix(self):
+    self.http.request.return_value = Response(200, ')]}\'{"code": "ok!"}')
+    self.assertEqual(
+        request.Request('http://example.com/', accept='json'), {'code': 'ok!'})
+    self.http.request.assert_called_once_with(
+        'http://example.com/', method='GET', body=None, headers=mock.ANY)
+
   def testRequest_postWithParams(self):
     self.http.request.return_value = Response(200, 'OK!')
     self.assertEqual(request.Request(
@@ -100,8 +114,13 @@ class TestRequestErrors(unittest.TestCase):
     self.assertEqual(error.response.status, 500)
     self.assertEqual(error.content, 'Oops, I had a problem!')
 
-  def testErrorMessageToString(self):
+  def testJsonErrorMessageToString(self):
     message = u'Something went wrong. That\u2019s all we know.'
     error = request.ServerError(
         '/endpoint', *Response(500, json.dumps({'error': message})))
+    self.assertIn('Something went wrong.', str(error))
+
+  def testErrorMessageToString(self):
+    content = u'Something went wrong. That\u2019s all we know.'.encode('utf-8')
+    error = request.ServerError('/endpoint', *Response(500, content))
     self.assertIn('Something went wrong.', str(error))

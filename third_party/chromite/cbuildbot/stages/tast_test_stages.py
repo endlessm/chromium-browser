@@ -23,7 +23,6 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import osutils
-from chromite.lib import path_util
 from chromite.lib import timeout_util
 
 
@@ -132,7 +131,7 @@ class TastVMTestStage(generic_stages.BoardSpecificBuilderStage,
       String containing chroot suffixed by path.
     """
     # When os.path.join encounters an absolute path, it throws away everything
-    # it's alredy seen.
+    # it's already seen.
     return os.path.join(self._build_root, constants.DEFAULT_CHROOT_DIR,
                         path.lstrip('/'))
 
@@ -172,20 +171,16 @@ class TastVMTestStage(generic_stages.BoardSpecificBuilderStage,
     Raises:
       failures_lib.TestFailure if an internal error is encountered.
     """
-    image_path = path_util.ToChrootPath(os.path.join(self.GetImageDirSymlink(),
-                                                     constants.TEST_IMAGE_BIN))
-    cmd = [os.path.join(self._build_root, 'chromite/bin/cros_sdk'),
-           '--', 'cros_run_vm_test', '--no-display',
-           '--board=' + self._current_board, '--image-path=' + image_path,
-           '--copy-on-write', '--results-dir=' + suite_chroot_results_dir,
-           '--host-cmd', '--', 'tast', '-verbose', 'run', '-build=false',
-           '-resultsdir=' + suite_chroot_results_dir, '-extrauseflags=tast_vm',
-           '127.0.0.1:9222'
-          ] + test_exprs
+    vm_path = os.path.join(self.GetImageDirSymlink(), constants.VM_IMAGE_BIN)
+    results_dir = self._MakeChrootPathAbsolute(suite_chroot_results_dir)
+    cmd = ['./cros_run_vm_test', '--no-display', '--copy-on-write', '--debug',
+           '--board=%s' % self._current_board, '--image-path=%s' % vm_path,
+           '--results-dir=%s' % results_dir, '--tast'] + test_exprs
 
     result = cros_build_lib.RunCommand(
-        cmd, error_code_ok=True,
-        kill_timeout=TastVMTestStage.CLEANUP_TIMEOUT_SEC)
+        cmd, error_code_ok=True, cwd=constants.CHROMITE_BIN_DIR,
+        kill_timeout=TastVMTestStage.CLEANUP_TIMEOUT_SEC
+    )
     if result.returncode:
       raise failures_lib.TestFailure(FAILURE_EXIT_CODE % result.returncode)
 

@@ -19,6 +19,7 @@
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/GlobalISel/CallLowering.h"
+#include "llvm/CodeGen/GlobalISel/GISelChangeObserver.h"
 #include "llvm/CodeGen/LowLevelType.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -75,11 +76,16 @@
 
 using namespace llvm;
 
+static cl::opt<bool>
+    EnableCSEInIRTranslator("enable-cse-in-irtranslator",
+                            cl::desc("Should enable CSE in irtranslator"),
+                            cl::Optional, cl::init(false));
 char IRTranslator::ID = 0;
 
 INITIALIZE_PASS_BEGIN(IRTranslator, DEBUG_TYPE, "IRTranslator LLVM IR -> MI",
                 false, false)
 INITIALIZE_PASS_DEPENDENCY(TargetPassConfig)
+INITIALIZE_PASS_DEPENDENCY(GISelCSEAnalysisWrapperPass)
 INITIALIZE_PASS_END(IRTranslator, DEBUG_TYPE, "IRTranslator LLVM IR -> MI",
                 false, false)
 
@@ -105,20 +111,24 @@ IRTranslator::IRTranslator() : MachineFunctionPass(ID) {
 }
 
 #ifndef NDEBUG
+namespace {
 /// Verify that every instruction created has the same DILocation as the
 /// instruction being translated.
-class DILocationVerifier : MachineFunction::Delegate {
-  MachineFunction &MF;
+class DILocationVerifier : public GISelChangeObserver {
   const Instruction *CurrInst = nullptr;
 
 public:
-  DILocationVerifier(MachineFunction &MF) : MF(MF) { MF.setDelegate(this); }
-  ~DILocationVerifier() { MF.resetDelegate(this); }
+  DILocationVerifier() = default;
+  ~DILocationVerifier() = default;
 
   const Instruction *getCurrentInst() const { return CurrInst; }
   void setCurrentInst(const Instruction *Inst) { CurrInst = Inst; }
 
-  void MF_HandleInsertion(const MachineInstr &MI) override {
+  void erasingInstr(MachineInstr &MI) override {}
+  void changingInstr(MachineInstr &MI) override {}
+  void changedInstr(MachineInstr &MI) override {}
+
+  void createdInstr(MachineInstr &MI) override {
     assert(getCurrentInst() && "Inserted instruction without a current MI");
 
     // Only print the check message if we're actually checking it.
@@ -129,14 +139,15 @@ public:
     assert(CurrInst->getDebugLoc() == MI.getDebugLoc() &&
            "Line info was not transferred to all instructions");
   }
-  void MF_HandleRemoval(const MachineInstr &MI) override {}
 };
+} // namespace
 #endif // ifndef NDEBUG
 
 
 void IRTranslator::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<StackProtector>();
   AU.addRequired<TargetPassConfig>();
+  AU.addRequired<GISelCSEAnalysisWrapperPass>();
   getSelectionDAGFallbackAnalysisUsage(AU);
   MachineFunctionPass::getAnalysisUsage(AU);
 }
@@ -215,7 +226,7 @@ ArrayRef<unsigned> IRTranslator::getOrCreateVRegs(const Value &Val) {
     unsigned Idx = 0;
     while (auto Elt = C.getAggregateElement(Idx++)) {
       auto EltRegs = getOrCreateVRegs(*Elt);
-      std::copy(EltRegs.begin(), EltRegs.end(), std::back_inserter(*VRegs));
+      llvm::copy(EltRegs, std::back_inserter(*VRegs));
     }
   } else {
     assert(SplitTys.size() == 1 && "unexpectedly split LLT");
@@ -330,6 +341,13 @@ bool IRTranslator::translateFSub(const User &U, MachineIRBuilder &MIRBuilder) {
   return translateBinaryOp(TargetOpcode::G_FSUB, U, MIRBuilder);
 }
 
+bool IRTranslator::translateFNeg(const User &U, MachineIRBuilder &MIRBuilder) {
+  MIRBuilder.buildInstr(TargetOpcode::G_FNEG)
+      .addDef(getOrCreateVReg(U))
+      .addUse(getOrCreateVReg(*U.getOperand(1)));
+  return true;
+}
+
 bool IRTranslator::translateCompare(const User &U,
                                     MachineIRBuilder &MIRBuilder) {
   const CmpInst *CI = dyn_cast<CmpInst>(&U);
@@ -347,8 +365,10 @@ bool IRTranslator::translateCompare(const User &U,
   else if (Pred == CmpInst::FCMP_TRUE)
     MIRBuilder.buildCopy(
         Res, getOrCreateVReg(*Constant::getAllOnesValue(CI->getType())));
-  else
-    MIRBuilder.buildFCmp(Pred, Res, Op0, Op1);
+  else {
+    auto FCmp = MIRBuilder.buildFCmp(Pred, Res, Op0, Op1);
+    FCmp->copyIRFlags(*CI);
+  }
 
   return true;
 }
@@ -581,8 +601,15 @@ bool IRTranslator::translateSelect(const User &U,
   ArrayRef<unsigned> Op0Regs = getOrCreateVRegs(*U.getOperand(1));
   ArrayRef<unsigned> Op1Regs = getOrCreateVRegs(*U.getOperand(2));
 
-  for (unsigned i = 0; i < ResRegs.size(); ++i)
-    MIRBuilder.buildSelect(ResRegs[i], Tst, Op0Regs[i], Op1Regs[i]);
+  const SelectInst &SI = cast<SelectInst>(U);
+  const CmpInst *Cmp = dyn_cast<CmpInst>(SI.getCondition());
+  for (unsigned i = 0; i < ResRegs.size(); ++i) {
+    auto Select =
+        MIRBuilder.buildSelect(ResRegs[i], Tst, Op0Regs[i], Op1Regs[i]);
+    if (Cmp && isa<FPMathOperator>(Cmp)) {
+      Select->copyIRFlags(*Cmp);
+    }
+  }
 
   return true;
 }
@@ -862,37 +889,56 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
     return translateOverflowIntrinsic(CI, TargetOpcode::G_UMULO, MIRBuilder);
   case Intrinsic::smul_with_overflow:
     return translateOverflowIntrinsic(CI, TargetOpcode::G_SMULO, MIRBuilder);
-  case Intrinsic::pow:
-    MIRBuilder.buildInstr(TargetOpcode::G_FPOW)
+  case Intrinsic::pow: {
+    auto Pow = MIRBuilder.buildInstr(TargetOpcode::G_FPOW)
         .addDef(getOrCreateVReg(CI))
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)))
         .addUse(getOrCreateVReg(*CI.getArgOperand(1)));
+    Pow->copyIRFlags(CI);
     return true;
-  case Intrinsic::exp:
-    MIRBuilder.buildInstr(TargetOpcode::G_FEXP)
+  }
+  case Intrinsic::exp: {
+    auto Exp = MIRBuilder.buildInstr(TargetOpcode::G_FEXP)
         .addDef(getOrCreateVReg(CI))
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
+    Exp->copyIRFlags(CI);
     return true;
-  case Intrinsic::exp2:
-    MIRBuilder.buildInstr(TargetOpcode::G_FEXP2)
+  }
+  case Intrinsic::exp2: {
+    auto Exp2 = MIRBuilder.buildInstr(TargetOpcode::G_FEXP2)
         .addDef(getOrCreateVReg(CI))
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
+    Exp2->copyIRFlags(CI);
     return true;
-  case Intrinsic::log:
-    MIRBuilder.buildInstr(TargetOpcode::G_FLOG)
+  }
+  case Intrinsic::log: {
+    auto Log = MIRBuilder.buildInstr(TargetOpcode::G_FLOG)
         .addDef(getOrCreateVReg(CI))
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
+    Log->copyIRFlags(CI);
     return true;
-  case Intrinsic::log2:
-    MIRBuilder.buildInstr(TargetOpcode::G_FLOG2)
+  }
+  case Intrinsic::log2: {
+    auto Log2 = MIRBuilder.buildInstr(TargetOpcode::G_FLOG2)
         .addDef(getOrCreateVReg(CI))
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
+    Log2->copyIRFlags(CI);
     return true;
-  case Intrinsic::fabs:
-    MIRBuilder.buildInstr(TargetOpcode::G_FABS)
+  }
+  case Intrinsic::log10: {
+    auto Log10 = MIRBuilder.buildInstr(TargetOpcode::G_FLOG10)
         .addDef(getOrCreateVReg(CI))
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
+    Log10->copyIRFlags(CI);
     return true;
+  }
+  case Intrinsic::fabs: {
+    auto Fabs = MIRBuilder.buildInstr(TargetOpcode::G_FABS)
+        .addDef(getOrCreateVReg(CI))
+        .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
+    Fabs->copyIRFlags(CI);
+    return true;
+  }
   case Intrinsic::trunc:
     MIRBuilder.buildInstr(TargetOpcode::G_INTRINSIC_TRUNC)
         .addDef(getOrCreateVReg(CI))
@@ -903,13 +949,15 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
         .addDef(getOrCreateVReg(CI))
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
     return true;
-  case Intrinsic::fma:
-    MIRBuilder.buildInstr(TargetOpcode::G_FMA)
+  case Intrinsic::fma: {
+    auto FMA = MIRBuilder.buildInstr(TargetOpcode::G_FMA)
         .addDef(getOrCreateVReg(CI))
         .addUse(getOrCreateVReg(*CI.getArgOperand(0)))
         .addUse(getOrCreateVReg(*CI.getArgOperand(1)))
         .addUse(getOrCreateVReg(*CI.getArgOperand(2)));
+    FMA->copyIRFlags(CI);
     return true;
+  }
   case Intrinsic::fmuladd: {
     const TargetMachine &TM = MF->getTarget();
     const TargetLowering &TLI = *MF->getSubtarget().getTargetLowering();
@@ -921,11 +969,14 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
         TLI.isFMAFasterThanFMulAndFAdd(TLI.getValueType(*DL, CI.getType()))) {
       // TODO: Revisit this to see if we should move this part of the
       // lowering to the combiner.
-      MIRBuilder.buildInstr(TargetOpcode::G_FMA, Dst, Op0, Op1, Op2);
+      auto FMA =  MIRBuilder.buildInstr(TargetOpcode::G_FMA, {Dst}, {Op0, Op1, Op2});
+      FMA->copyIRFlags(CI);
     } else {
       LLT Ty = getLLTForType(*CI.getType(), *DL);
-      auto FMul = MIRBuilder.buildInstr(TargetOpcode::G_FMUL, Ty, Op0, Op1);
-      MIRBuilder.buildInstr(TargetOpcode::G_FADD, Dst, FMul, Op2);
+      auto FMul = MIRBuilder.buildInstr(TargetOpcode::G_FMUL, {Ty}, {Op0, Op1});
+      FMul->copyIRFlags(CI);
+      auto FAdd =  MIRBuilder.buildInstr(TargetOpcode::G_FADD, {Dst}, {FMul, Op2});
+      FAdd->copyIRFlags(CI);
     }
     return true;
   }
@@ -961,13 +1012,15 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
     getStackGuard(GuardVal, MIRBuilder);
 
     AllocaInst *Slot = cast<AllocaInst>(CI.getArgOperand(1));
+    int FI = getOrCreateFrameIndex(*Slot);
+    MF->getFrameInfo().setStackProtectorIndex(FI);
+
     MIRBuilder.buildStore(
         GuardVal, getOrCreateVReg(*Slot),
-        *MF->getMachineMemOperand(
-            MachinePointerInfo::getFixedStack(*MF,
-                                              getOrCreateFrameIndex(*Slot)),
-            MachineMemOperand::MOStore | MachineMemOperand::MOVolatile,
-            PtrTy.getSizeInBits() / 8, 8));
+        *MF->getMachineMemOperand(MachinePointerInfo::getFixedStack(*MF, FI),
+                                  MachineMemOperand::MOStore |
+                                      MachineMemOperand::MOVolatile,
+                                  PtrTy.getSizeInBits() / 8, 8));
     return true;
   }
   case Intrinsic::cttz:
@@ -997,6 +1050,11 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
     return true;
   }
   case Intrinsic::invariant_end:
+    return true;
+  case Intrinsic::ceil:
+    MIRBuilder.buildInstr(TargetOpcode::G_FCEIL)
+        .addDef(getOrCreateVReg(CI))
+        .addUse(getOrCreateVReg(*CI.getArgOperand(0)));
     return true;
   }
   return false;
@@ -1400,7 +1458,7 @@ bool IRTranslator::translatePHI(const User &U, MachineIRBuilder &MIRBuilder) {
 
   SmallVector<MachineInstr *, 4> Insts;
   for (auto Reg : getOrCreateVRegs(PI)) {
-    auto MIB = MIRBuilder.buildInstr(TargetOpcode::G_PHI, Reg);
+    auto MIB = MIRBuilder.buildInstr(TargetOpcode::G_PHI, {Reg}, {});
     Insts.push_back(MIB.getInstr());
   }
 
@@ -1504,12 +1562,14 @@ bool IRTranslator::translateAtomicRMW(const User &U,
 
 void IRTranslator::finishPendingPhis() {
 #ifndef NDEBUG
-  DILocationVerifier Verifier(*MF);
+  DILocationVerifier Verifier;
+  GISelObserverWrapper WrapperObserver(&Verifier);
+  RAIIDelegateInstaller DelInstall(*MF, &WrapperObserver);
 #endif // ifndef NDEBUG
   for (auto &Phi : PendingPHIs) {
     const PHINode *PI = Phi.first;
     ArrayRef<MachineInstr *> ComponentPHIs = Phi.second;
-    EntryBuilder.setDebugLoc(PI->getDebugLoc());
+    EntryBuilder->setDebugLoc(PI->getDebugLoc());
 #ifndef NDEBUG
     Verifier.setCurrentInst(PI);
 #endif // ifndef NDEBUG
@@ -1550,11 +1610,12 @@ bool IRTranslator::valueIsSplit(const Value &V,
 }
 
 bool IRTranslator::translate(const Instruction &Inst) {
-  CurBuilder.setDebugLoc(Inst.getDebugLoc());
-  EntryBuilder.setDebugLoc(Inst.getDebugLoc());
+  CurBuilder->setDebugLoc(Inst.getDebugLoc());
+  EntryBuilder->setDebugLoc(Inst.getDebugLoc());
   switch(Inst.getOpcode()) {
-#define HANDLE_INST(NUM, OPCODE, CLASS) \
-    case Instruction::OPCODE: return translate##OPCODE(Inst, CurBuilder);
+#define HANDLE_INST(NUM, OPCODE, CLASS)                                        \
+  case Instruction::OPCODE:                                                    \
+    return translate##OPCODE(Inst, *CurBuilder.get());
 #include "llvm/IR/Instruction.def"
   default:
     return false;
@@ -1563,11 +1624,11 @@ bool IRTranslator::translate(const Instruction &Inst) {
 
 bool IRTranslator::translate(const Constant &C, unsigned Reg) {
   if (auto CI = dyn_cast<ConstantInt>(&C))
-    EntryBuilder.buildConstant(Reg, *CI);
+    EntryBuilder->buildConstant(Reg, *CI);
   else if (auto CF = dyn_cast<ConstantFP>(&C))
-    EntryBuilder.buildFConstant(Reg, *CF);
+    EntryBuilder->buildFConstant(Reg, *CF);
   else if (isa<UndefValue>(C))
-    EntryBuilder.buildUndef(Reg);
+    EntryBuilder->buildUndef(Reg);
   else if (isa<ConstantPointerNull>(C)) {
     // As we are trying to build a constant val of 0 into a pointer,
     // insert a cast to make them correct with respect to types.
@@ -1575,35 +1636,36 @@ bool IRTranslator::translate(const Constant &C, unsigned Reg) {
     auto *ZeroTy = Type::getIntNTy(C.getContext(), NullSize);
     auto *ZeroVal = ConstantInt::get(ZeroTy, 0);
     unsigned ZeroReg = getOrCreateVReg(*ZeroVal);
-    EntryBuilder.buildCast(Reg, ZeroReg);
+    EntryBuilder->buildCast(Reg, ZeroReg);
   } else if (auto GV = dyn_cast<GlobalValue>(&C))
-    EntryBuilder.buildGlobalValue(Reg, GV);
+    EntryBuilder->buildGlobalValue(Reg, GV);
   else if (auto CAZ = dyn_cast<ConstantAggregateZero>(&C)) {
     if (!CAZ->getType()->isVectorTy())
       return false;
     // Return the scalar if it is a <1 x Ty> vector.
     if (CAZ->getNumElements() == 1)
       return translate(*CAZ->getElementValue(0u), Reg);
-    std::vector<unsigned> Ops;
+    SmallVector<unsigned, 4> Ops;
     for (unsigned i = 0; i < CAZ->getNumElements(); ++i) {
       Constant &Elt = *CAZ->getElementValue(i);
       Ops.push_back(getOrCreateVReg(Elt));
     }
-    EntryBuilder.buildMerge(Reg, Ops);
+    EntryBuilder->buildBuildVector(Reg, Ops);
   } else if (auto CV = dyn_cast<ConstantDataVector>(&C)) {
     // Return the scalar if it is a <1 x Ty> vector.
     if (CV->getNumElements() == 1)
       return translate(*CV->getElementAsConstant(0), Reg);
-    std::vector<unsigned> Ops;
+    SmallVector<unsigned, 4> Ops;
     for (unsigned i = 0; i < CV->getNumElements(); ++i) {
       Constant &Elt = *CV->getElementAsConstant(i);
       Ops.push_back(getOrCreateVReg(Elt));
     }
-    EntryBuilder.buildMerge(Reg, Ops);
+    EntryBuilder->buildBuildVector(Reg, Ops);
   } else if (auto CE = dyn_cast<ConstantExpr>(&C)) {
     switch(CE->getOpcode()) {
-#define HANDLE_INST(NUM, OPCODE, CLASS)                         \
-      case Instruction::OPCODE: return translate##OPCODE(*CE, EntryBuilder);
+#define HANDLE_INST(NUM, OPCODE, CLASS)                                        \
+  case Instruction::OPCODE:                                                    \
+    return translate##OPCODE(*CE, *EntryBuilder.get());
 #include "llvm/IR/Instruction.def"
     default:
       return false;
@@ -1615,9 +1677,9 @@ bool IRTranslator::translate(const Constant &C, unsigned Reg) {
     for (unsigned i = 0; i < CV->getNumOperands(); ++i) {
       Ops.push_back(getOrCreateVReg(*CV->getOperand(i)));
     }
-    EntryBuilder.buildMerge(Reg, Ops);
+    EntryBuilder->buildBuildVector(Reg, Ops);
   } else if (auto *BA = dyn_cast<BlockAddress>(&C)) {
-    EntryBuilder.buildBlockAddress(Reg, BA);
+    EntryBuilder->buildBlockAddress(Reg, BA);
   } else
     return false;
 
@@ -1634,8 +1696,8 @@ void IRTranslator::finalizeFunction() {
   // MachineIRBuilder::DebugLoc can outlive the DILocation it holds. Clear it
   // to avoid accessing free’d memory (in runOnMachineFunction) and to avoid
   // destroying it twice (in ~IRTranslator() and ~LLVMContext())
-  EntryBuilder = MachineIRBuilder();
-  CurBuilder = MachineIRBuilder();
+  EntryBuilder.reset();
+  CurBuilder.reset();
 }
 
 bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
@@ -1643,12 +1705,30 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
   const Function &F = MF->getFunction();
   if (F.empty())
     return false;
+  GISelCSEAnalysisWrapper &Wrapper =
+      getAnalysis<GISelCSEAnalysisWrapperPass>().getCSEWrapper();
+  // Set the CSEConfig and run the analysis.
+  GISelCSEInfo *CSEInfo = nullptr;
+  TPC = &getAnalysis<TargetPassConfig>();
+  bool IsO0 = TPC->getOptLevel() == CodeGenOpt::Level::None;
+  // Disable CSE for O0.
+  bool EnableCSE = !IsO0 && EnableCSEInIRTranslator;
+  if (EnableCSE) {
+    EntryBuilder = make_unique<CSEMIRBuilder>(CurMF);
+    std::unique_ptr<CSEConfig> Config = make_unique<CSEConfig>();
+    CSEInfo = &Wrapper.get(std::move(Config));
+    EntryBuilder->setCSEInfo(CSEInfo);
+    CurBuilder = make_unique<CSEMIRBuilder>(CurMF);
+    CurBuilder->setCSEInfo(CSEInfo);
+  } else {
+    EntryBuilder = make_unique<MachineIRBuilder>();
+    CurBuilder = make_unique<MachineIRBuilder>();
+  }
   CLI = MF->getSubtarget().getCallLowering();
-  CurBuilder.setMF(*MF);
-  EntryBuilder.setMF(*MF);
+  CurBuilder->setMF(*MF);
+  EntryBuilder->setMF(*MF);
   MRI = &MF->getRegInfo();
   DL = &F.getParent()->getDataLayout();
-  TPC = &getAnalysis<TargetPassConfig>();
   ORE = llvm::make_unique<OptimizationRemarkEmitter>(&F);
 
   assert(PendingPHIs.empty() && "stale PHIs");
@@ -1667,7 +1747,7 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
   // Setup a separate basic-block for the arguments and constants
   MachineBasicBlock *EntryBB = MF->CreateMachineBasicBlock();
   MF->push_back(EntryBB);
-  EntryBuilder.setMBB(*EntryBB);
+  EntryBuilder->setMBB(*EntryBB);
 
   // Create all blocks, in IR order, to preserve the layout.
   for (const BasicBlock &BB: F) {
@@ -1704,7 +1784,7 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
     }
   }
 
-  if (!CLI->lowerFormalArguments(EntryBuilder, F, VRegArgs)) {
+  if (!CLI->lowerFormalArguments(*EntryBuilder.get(), F, VRegArgs)) {
     OptimizationRemarkMissed R("gisel-irtranslator", "GISelFailure",
                                F.getSubprogram(), &F.getEntryBlock());
     R << "unable to lower arguments: " << ore::NV("Prototype", F.getType());
@@ -1721,22 +1801,27 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
       assert(VRegs.empty() && "VRegs already populated?");
       VRegs.push_back(VArg);
     } else {
-      unpackRegs(*ArgIt, VArg, EntryBuilder);
+      unpackRegs(*ArgIt, VArg, *EntryBuilder.get());
     }
     ArgIt++;
   }
 
   // Need to visit defs before uses when translating instructions.
+  GISelObserverWrapper WrapperObserver;
+  if (EnableCSE && CSEInfo)
+    WrapperObserver.addObserver(CSEInfo);
   {
     ReversePostOrderTraversal<const Function *> RPOT(&F);
 #ifndef NDEBUG
-    DILocationVerifier Verifier(*MF);
+    DILocationVerifier Verifier;
+    WrapperObserver.addObserver(&Verifier);
 #endif // ifndef NDEBUG
+    RAIIDelegateInstaller DelInstall(*MF, &WrapperObserver);
     for (const BasicBlock *BB : RPOT) {
       MachineBasicBlock &MBB = getMBB(*BB);
       // Set the insertion point of all the following translations to
       // the end of this basic block.
-      CurBuilder.setMBB(MBB);
+      CurBuilder->setMBB(MBB);
 
       for (const Instruction &Inst : *BB) {
 #ifndef NDEBUG
@@ -1761,6 +1846,9 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &CurMF) {
         return false;
       }
     }
+#ifndef NDEBUG
+    WrapperObserver.removeObserver(&Verifier);
+#endif
   }
 
   finishPendingPhis();

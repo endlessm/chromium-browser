@@ -28,10 +28,10 @@
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/Basic/Builtins.h"
+#include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
-#include "clang/Frontend/CodeGenOptions.h"
-#include "clang/Sema/SemaDiagnostic.h"
+#include "clang/Frontend/FrontendDiagnostic.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Intrinsics.h"
@@ -1073,9 +1073,8 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
     // Count the implicit return.
     if (!endsWithReturn(D))
       ++NumReturnExprs;
-  } else if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::Indirect &&
-             !hasScalarEvaluationKind(CurFnInfo->getReturnType())) {
-    // Indirect aggregate return; emit returned value directly into sret slot.
+  } else if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::Indirect) {
+    // Indirect return; emit returned value directly into sret slot.
     // This reduces code size, and affects correctness in C++.
     auto AI = CurFn->arg_begin();
     if (CurFnInfo->getReturnInfo().isSRetAfterThis())
@@ -1157,7 +1156,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
     if (CXXABIThisValue) {
       SanitizerSet SkippedChecks;
       SkippedChecks.set(SanitizerKind::ObjectSize, true);
-      QualType ThisTy = MD->getThisType(getContext());
+      QualType ThisTy = MD->getThisType();
 
       // If this is the call operator of a lambda with no capture-default, it
       // may have a static invoker function, which may call this operator with
@@ -1203,8 +1202,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
       LargestVectorWidth = VecWidth->getVectorWidth();
 }
 
-void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
-                                       const Stmt *Body) {
+void CodeGenFunction::EmitFunctionBody(const Stmt *Body) {
   incrementProfileCounter(Body);
   if (const CompoundStmt *S = dyn_cast<CompoundStmt>(Body))
     EmitCompoundStmtWithoutScope(*S);
@@ -1258,7 +1256,7 @@ QualType CodeGenFunction::BuildFunctionArgList(GlobalDecl GD,
   const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(FD);
   if (MD && MD->isInstance()) {
     if (CGM.getCXXABI().HasThisReturn(GD))
-      ResTy = MD->getThisType(getContext());
+      ResTy = MD->getThisType();
     else if (CGM.getCXXABI().hasMostDerivedReturn(GD))
       ResTy = CGM.getContext().VoidPtrTy;
     CGM.getCXXABI().buildThisParam(*this, Args);
@@ -1372,7 +1370,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     // copy-constructors.
     emitImplicitAssignmentOperatorBody(Args);
   } else if (Body) {
-    EmitFunctionBody(Args, Body);
+    EmitFunctionBody(Body);
   } else
     llvm_unreachable("no definition for emitted function");
 
@@ -1513,10 +1511,11 @@ bool CodeGenFunction::ConstantFoldsToSimpleInteger(const Expr *Cond,
                                                    bool AllowLabels) {
   // FIXME: Rename and handle conversion of other evaluatable things
   // to bool.
-  llvm::APSInt Int;
-  if (!Cond->EvaluateAsInt(Int, getContext()))
+  Expr::EvalResult Result;
+  if (!Cond->EvaluateAsInt(Result, getContext()))
     return false;  // Not foldable, not integer or not fully evaluatable.
 
+  llvm::APSInt Int = Result.Val.getInt();
   if (!AllowLabels && CodeGenFunction::ContainsLabel(Cond))
     return false;  // Contains a label.
 
@@ -1701,7 +1700,7 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
   // create metadata that specifies that the branch is unpredictable.
   // Don't bother if not optimizing because that metadata would not be used.
   llvm::MDNode *Unpredictable = nullptr;
-  auto *Call = dyn_cast<CallExpr>(Cond);
+  auto *Call = dyn_cast<CallExpr>(Cond->IgnoreImpCasts());
   if (Call && CGM.getCodeGenOpts().OptimizationLevel != 0) {
     auto *FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl());
     if (FD && FD->getBuiltinID() == Builtin::BI__builtin_unpredictable) {
@@ -2208,6 +2207,49 @@ void CodeGenFunction::unprotectFromPeepholes(PeepholeProtection protection) {
   protection.Inst->eraseFromParent();
 }
 
+void CodeGenFunction::EmitAlignmentAssumption(llvm::Value *PtrValue,
+                                              QualType Ty, SourceLocation Loc,
+                                              SourceLocation AssumptionLoc,
+                                              llvm::Value *Alignment,
+                                              llvm::Value *OffsetValue) {
+  llvm::Value *TheCheck;
+  llvm::Instruction *Assumption = Builder.CreateAlignmentAssumption(
+      CGM.getDataLayout(), PtrValue, Alignment, OffsetValue, &TheCheck);
+  if (SanOpts.has(SanitizerKind::Alignment)) {
+    EmitAlignmentAssumptionCheck(PtrValue, Ty, Loc, AssumptionLoc, Alignment,
+                                 OffsetValue, TheCheck, Assumption);
+  }
+}
+
+void CodeGenFunction::EmitAlignmentAssumption(llvm::Value *PtrValue,
+                                              QualType Ty, SourceLocation Loc,
+                                              SourceLocation AssumptionLoc,
+                                              unsigned Alignment,
+                                              llvm::Value *OffsetValue) {
+  llvm::Value *TheCheck;
+  llvm::Instruction *Assumption = Builder.CreateAlignmentAssumption(
+      CGM.getDataLayout(), PtrValue, Alignment, OffsetValue, &TheCheck);
+  if (SanOpts.has(SanitizerKind::Alignment)) {
+    llvm::Value *AlignmentVal = llvm::ConstantInt::get(IntPtrTy, Alignment);
+    EmitAlignmentAssumptionCheck(PtrValue, Ty, Loc, AssumptionLoc, AlignmentVal,
+                                 OffsetValue, TheCheck, Assumption);
+  }
+}
+
+void CodeGenFunction::EmitAlignmentAssumption(llvm::Value *PtrValue,
+                                              const Expr *E,
+                                              SourceLocation AssumptionLoc,
+                                              unsigned Alignment,
+                                              llvm::Value *OffsetValue) {
+  if (auto *CE = dyn_cast<CastExpr>(E))
+    E = CE->getSubExprAsWritten();
+  QualType Ty = E->getType();
+  SourceLocation Loc = E->getExprLoc();
+
+  EmitAlignmentAssumption(PtrValue, Ty, Loc, AssumptionLoc, Alignment,
+                          OffsetValue);
+}
+
 llvm::Value *CodeGenFunction::EmitAnnotationCall(llvm::Value *AnnotationFn,
                                                  llvm::Value *AnnotatedVal,
                                                  StringRef AnnotationStr,
@@ -2244,7 +2286,7 @@ Address CodeGenFunction::EmitFieldAnnotations(const FieldDecl *D,
     // annotation on the first field of a struct and annotation on the struct
     // itself.
     if (VTy != CGM.Int8PtrTy)
-      V = Builder.Insert(new llvm::BitCastInst(V, CGM.Int8PtrTy));
+      V = Builder.CreateBitCast(V, CGM.Int8PtrTy);
     V = EmitAnnotationCall(F, V, I->getAnnotation(), D->getLocation());
     V = Builder.CreateBitCast(V, VTy);
   }
@@ -2291,7 +2333,7 @@ static bool hasRequiredFeatures(const SmallVectorImpl<StringRef> &ReqFeatures,
   // Now build up the set of caller features and verify that all the required
   // features are there.
   llvm::StringMap<bool> CallerFeatureMap;
-  CGM.getFunctionFeatureMap(CallerFeatureMap, FD);
+  CGM.getFunctionFeatureMap(CallerFeatureMap, GlobalDecl().getWithDecl(FD));
 
   // If we have at least one of the features in the feature list return
   // true, otherwise return false.
@@ -2458,6 +2500,61 @@ void CodeGenFunction::EmitMultiVersionResolver(
   TrapCall->setDoesNotThrow();
   Builder.CreateUnreachable();
   Builder.ClearInsertionPoint();
+}
+
+// Loc - where the diagnostic will point, where in the source code this
+//  alignment has failed.
+// SecondaryLoc - if present (will be present if sufficiently different from
+//  Loc), the diagnostic will additionally point a "Note:" to this location.
+//  It should be the location where the __attribute__((assume_aligned))
+//  was written e.g.
+void CodeGenFunction::EmitAlignmentAssumptionCheck(
+    llvm::Value *Ptr, QualType Ty, SourceLocation Loc,
+    SourceLocation SecondaryLoc, llvm::Value *Alignment,
+    llvm::Value *OffsetValue, llvm::Value *TheCheck,
+    llvm::Instruction *Assumption) {
+  assert(Assumption && isa<llvm::CallInst>(Assumption) &&
+         cast<llvm::CallInst>(Assumption)->getCalledValue() ==
+             llvm::Intrinsic::getDeclaration(
+                 Builder.GetInsertBlock()->getParent()->getParent(),
+                 llvm::Intrinsic::assume) &&
+         "Assumption should be a call to llvm.assume().");
+  assert(&(Builder.GetInsertBlock()->back()) == Assumption &&
+         "Assumption should be the last instruction of the basic block, "
+         "since the basic block is still being generated.");
+
+  if (!SanOpts.has(SanitizerKind::Alignment))
+    return;
+
+  // Don't check pointers to volatile data. The behavior here is implementation-
+  // defined.
+  if (Ty->getPointeeType().isVolatileQualified())
+    return;
+
+  // We need to temorairly remove the assumption so we can insert the
+  // sanitizer check before it, else the check will be dropped by optimizations.
+  Assumption->removeFromParent();
+
+  {
+    SanitizerScope SanScope(this);
+
+    if (!OffsetValue)
+      OffsetValue = Builder.getInt1(0); // no offset.
+
+    llvm::Constant *StaticData[] = {EmitCheckSourceLocation(Loc),
+                                    EmitCheckSourceLocation(SecondaryLoc),
+                                    EmitCheckTypeDescriptor(Ty)};
+    llvm::Value *DynamicData[] = {EmitCheckValue(Ptr),
+                                  EmitCheckValue(Alignment),
+                                  EmitCheckValue(OffsetValue)};
+    EmitCheck({std::make_pair(TheCheck, SanitizerKind::Alignment)},
+              SanitizerHandler::AlignmentAssumption, StaticData, DynamicData);
+  }
+
+  // We are now in the (new, empty) "cont" basic block.
+  // Reintroduce the assumption.
+  Builder.Insert(Assumption);
+  // FIXME: Assumption still has it's original basic block as it's Parent.
 }
 
 llvm::DebugLoc CodeGenFunction::SourceLocToDebugLoc(SourceLocation Location) {

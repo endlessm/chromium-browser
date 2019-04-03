@@ -11,8 +11,10 @@
 
 #include <vector>
 
-#include "OSWindow.h"
+#include "common/platform.h"
 #include "test_utils/ANGLETest.h"
+#include "util/EGLWindow.h"
+#include "util/OSWindow.h"
 
 #if defined(ANGLE_ENABLE_D3D11)
 #    define INITGUID
@@ -25,7 +27,7 @@
 namespace
 {
 
-class EGLSurfaceTest : public testing::Test
+class EGLSurfaceTest : public EGLTest
 {
   protected:
     EGLSurfaceTest()
@@ -39,7 +41,9 @@ class EGLSurfaceTest : public testing::Test
 
     void SetUp() override
     {
-        mOSWindow = CreateOSWindow();
+        EGLTest::SetUp();
+
+        mOSWindow = OSWindow::New();
         mOSWindow->initialize("EGLSurfaceTest", 64, 64);
     }
 
@@ -79,7 +83,7 @@ class EGLSurfaceTest : public testing::Test
         }
 
         mOSWindow->destroy();
-        SafeDelete(mOSWindow);
+        OSWindow::Delete(&mOSWindow);
 
         ASSERT_TRUE(mWindowSurface == EGL_NO_SURFACE && mContext == EGL_NO_CONTEXT);
     }
@@ -175,21 +179,7 @@ class EGLSurfaceTest : public testing::Test
 
     GLuint createProgram()
     {
-        const std::string testVertexShaderSource =
-            R"(attribute highp vec4 position;
-
-            void main(void)
-            {
-                gl_Position = position;
-            })";
-
-        const std::string testFragmentShaderSource =
-            R"(void main(void)
-            {
-                gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-            })";
-
-        return CompileProgram(testVertexShaderSource, testFragmentShaderSource);
+        return CompileProgram(angle::essl1_shaders::vs::Simple(), angle::essl1_shaders::fs::Red());
     }
 
     void drawWithProgram(GLuint program)
@@ -197,7 +187,8 @@ class EGLSurfaceTest : public testing::Test
         glClearColor(0, 0, 0, 1);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        GLint positionLocation = glGetAttribLocation(program, "position");
+        GLint positionLocation =
+            glGetAttribLocation(program, angle::essl1_shaders::PositionAttrib());
 
         glUseProgram(program);
 
@@ -676,7 +667,8 @@ TEST_F(EGLSurfaceTest, CreateSurfaceWithMSAA)
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    GLint positionLocation = glGetAttribLocation(program, "position");
+    GLint positionLocation = glGetAttribLocation(program, angle::essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, positionLocation);
 
     glUseProgram(program);
 

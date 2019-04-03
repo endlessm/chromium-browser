@@ -101,7 +101,6 @@ LoginHandler::LoginHandler(
     : handled_auth_(false),
       auth_info_(auth_info),
       web_contents_getter_(web_contents_getter),
-      login_model_(NULL),
       auth_required_callback_(std::move(auth_required_callback)),
       has_shown_login_handler_(false),
       release_soon_has_been_called_(false) {
@@ -282,21 +281,7 @@ bool LoginHandler::WasAuthHandled() const {
   return was_handled;
 }
 
-LoginHandler::~LoginHandler() {
-  ResetModel();
-}
-
-void LoginHandler::SetModel(LoginModelData model_data) {
-  ResetModel();
-  login_model_ = model_data.model;
-  login_model_->AddObserverAndDeliverCredentials(this, model_data.form);
-}
-
-void LoginHandler::ResetModel() {
-  if (login_model_)
-    login_model_->RemoveObserver(this);
-  login_model_ = nullptr;
-}
+LoginHandler::~LoginHandler() = default;
 
 void LoginHandler::NotifyAuthNeeded() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -341,7 +326,8 @@ void LoginHandler::ReleaseSoon() {
       base::BindOnce(&LoginHandler::RemoveObservers, this));
 
   // Delete this object once all InvokeLaters have been called.
-  BrowserThread::ReleaseSoon(BrowserThread::IO, FROM_HERE, this);
+  BrowserThread::ReleaseSoon(BrowserThread::IO, FROM_HERE,
+                             base::WrapRefCounted(this));
 }
 
 void LoginHandler::AddObservers() {
@@ -629,7 +615,8 @@ void LoginHandler::LoginDialogCallback(
   auto continuation = base::BindOnce(&LoginHandler::MaybeSetUpLoginPrompt,
                                      request_url, base::RetainedRef(auth_info),
                                      base::RetainedRef(handler), is_main_frame);
-  if (api->MaybeProxyAuthRequest(auth_info, std::move(response_headers),
+  if (api->MaybeProxyAuthRequest(parent_contents->GetBrowserContext(),
+                                 auth_info, std::move(response_headers),
                                  request_id, is_main_frame,
                                  std::move(continuation))) {
     return;
@@ -651,7 +638,8 @@ void LoginHandler::MaybeSetUpLoginPrompt(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   WebContents* parent_contents = handler->GetWebContentsForLogin();
-  if (!parent_contents || handler->WasAuthHandled()) {
+  if (!parent_contents || !parent_contents->GetDelegate() ||
+      handler->WasAuthHandled()) {
     // The request may have been canceled, or it may be for a renderer not
     // hosted by a tab (e.g. an extension). Cancel just in case (canceling twice
     // is a no-op).

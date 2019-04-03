@@ -554,9 +554,9 @@ certain user-defined criteria. For example:
 
 .. code-block:: c
 
-  void abs(int a)
+  int abs(int a)
     __attribute__((diagnose_if(a >= 0, "Redundant abs call", "warning")));
-  void must_abs(int a)
+  int must_abs(int a)
     __attribute__((diagnose_if(a >= 0, "Redundant abs call", "error")));
 
   int val = abs(1); // warning: Redundant abs call
@@ -846,6 +846,73 @@ use the retaining behavior attributes (``ns_returns_retained``,
 Query for this feature with ``__has_attribute(objc_method_family)``.
   }];
 }
+
+def RetainBehaviorDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+The behavior of a function with respect to reference counting for Foundation
+(Objective-C), CoreFoundation (C) and OSObject (C++) is determined by a naming
+convention (e.g. functions starting with "get" are assumed to return at
+``+0``).
+
+It can be overriden using a family of the following attributes.  In
+Objective-C, the annotation ``__attribute__((ns_returns_retained))`` applied to
+a function communicates that the object is returned at ``+1``, and the caller
+is responsible for freeing it.
+Similiarly, the annotation ``__attribute__((ns_returns_not_retained))``
+specifies that the object is returned at ``+0`` and the ownership remains with
+the callee.
+The annotation ``__attribute__((ns_consumes_self))`` specifies that
+the Objective-C method call consumes the reference to ``self``, e.g. by
+attaching it to a supplied parameter.
+Additionally, parameters can have an annotation
+``__attribute__((ns_consumed))``, which specifies that passing an owned object
+as that parameter effectively transfers the ownership, and the caller is no
+longer responsible for it.
+These attributes affect code generation when interacting with ARC code, and
+they are used by the Clang Static Analyzer.
+
+In C programs using CoreFoundation, a similar set of attributes:
+``__attribute__((cf_returns_not_retained))``,
+``__attribute__((cf_returns_retained))`` and ``__attribute__((cf_consumed))``
+have the same respective semantics when applied to CoreFoundation objects.
+These attributes affect code generation when interacting with ARC code, and
+they are used by the Clang Static Analyzer.
+
+Finally, in C++ interacting with XNU kernel (objects inheriting from OSObject),
+the same attribute family is present:
+``__attribute__((os_returns_not_retained))``,
+``__attribute__((os_returns_retained))`` and ``__attribute__((os_consumed))``,
+with the same respective semantics.
+Similar to ``__attribute__((ns_consumes_self))``,
+``__attribute__((os_consumes_this))`` specifies that the method call consumes
+the reference to "this" (e.g., when attaching it to a different object supplied
+as a parameter).
+Out parameters (parameters the function is meant to write into,
+either via pointers-to-pointers or references-to-pointers)
+may be annotated with ``__attribute__((os_returns_retained))``
+or ``__attribute__((os_returns_not_retained))`` which specifies that the object
+written into the out parameter should (or respectively should not) be released
+after use.
+Since often out parameters may or may not be written depending on the exit
+code of the function,
+annotations ``__attribute__((os_returns_retained_on_zero))``
+and ``__attribute__((os_returns_retained_on_non_zero))`` specify that
+an out parameter at ``+1`` is written if and only if the function returns a zero
+(respectively non-zero) error code.
+Observe that return-code-dependent out parameter annotations are only
+available for retained out parameters, as non-retained object do not have to be
+released by the callee.
+These attributes are only used by the Clang Static Analyzer.
+
+The family of attributes ``X_returns_X_retained`` can be added to functions,
+C++ methods, and Objective-C methods and properties.
+Attributes ``X_consumed`` can be added to parameters of methods, functions,
+and Objective-C methods.
+  }];
+}
+
+
 
 def NoDebugDocs : Documentation {
   let Category = DocCatVariable;
@@ -1742,6 +1809,31 @@ similar to ``stdcall`` on x86. Valid parameter values are "aapcs" and
   }];
 }
 
+def AArch64VectorPcsDocs : Documentation {
+  let Category = DocCatCallingConvs;
+  let Content = [{
+On AArch64 targets, this attribute changes the calling convention of a
+function to preserve additional floating-point and Advanced SIMD registers
+relative to the default calling convention used for AArch64.
+
+This means it is more efficient to call such functions from code that performs
+extensive floating-point and vector calculations, because fewer live SIMD and FP
+registers need to be saved. This property makes it well-suited for e.g.
+floating-point or vector math library functions, which are typically leaf
+functions that require a small number of registers.
+
+However, using this attribute also means that it is more expensive to call
+a function that adheres to the default calling convention from within such
+a function. Therefore, it is recommended that this attribute is only used
+for leaf functions.
+
+For more information, see the documentation for `aarch64_vector_pcs`_ on
+the Arm Developer website.
+
+.. _`aarch64_vector_pcs`: https://developer.arm.com/products/software-development-tools/hpc/arm-compiler-for-hpc/vector-function-abi
+  }];
+}
+
 def RegparmDocs : Documentation {
   let Category = DocCatCallingConvs;
   let Content = [{
@@ -2501,10 +2593,10 @@ def LoopHintDocs : Documentation {
   let Heading = "#pragma clang loop";
   let Content = [{
 The ``#pragma clang loop`` directive allows loop optimization hints to be
-specified for the subsequent loop. The directive allows vectorization,
-interleaving, and unrolling to be enabled or disabled. Vector width as well
-as interleave and unrolling count can be manually specified. See
-`language extensions
+specified for the subsequent loop. The directive allows pipelining to be
+disabled, or vectorization, interleaving, and unrolling to be enabled or disabled.
+Vector width, interleave count, unrolling count, and the initiation interval
+for pipelining can be explicitly specified. See `language extensions
 <http://clang.llvm.org/docs/LanguageExtensions.html#extensions-for-loop-hint-optimizations>`_
 for details.
   }];
@@ -2564,6 +2656,56 @@ is equivalent to ``#pragma clang loop unroll(disable)``.  See
 for further details including limitations of the unroll hints.
   }];
 }
+
+def PipelineHintDocs : Documentation {
+  let Category = DocCatStmt;
+  let Heading = "#pragma clang loop pipeline, #pragma clang loop pipeline_initiation_interval";
+  let Content = [{
+    Software Pipelining optimization is a technique used to optimize loops by
+  utilizing instruction-level parallelism. It reorders loop instructions to
+  overlap iterations. As a result, the next iteration starts before the previous
+  iteration has finished. The module scheduling technique creates a schedule for
+  one iteration such that when repeating at regular intervals, no inter-iteration
+  dependencies are violated. This constant interval(in cycles) between the start
+  of iterations is called the initiation interval. i.e. The initiation interval
+  is the number of cycles between two iterations of an unoptimized loop in the
+  newly created schedule. A new, optimized loop is created such that a single iteration
+  of the loop executes in the same number of cycles as the initiation interval.
+    For further details see <https://llvm.org/pubs/2005-06-17-LattnerMSThesis-book.pdf>.
+
+  ``#pragma clang loop pipeline and #pragma loop pipeline_initiation_interval``
+  could be used as hints for the software pipelining optimization. The pragma is
+  placed immediately before a for, while, do-while, or a C++11 range-based for
+  loop.
+
+  Using ``#pragma clang loop pipeline(disable)`` avoids the software pipelining
+  optimization. The disable state can only be specified:
+
+  .. code-block:: c++
+
+  #pragma clang loop pipeline(disable)
+  for (...) {
+    ...
+  }
+
+  Using ``#pragma loop pipeline_initiation_interval`` instructs
+  the software pipeliner to try the specified initiation interval.
+  If a schedule was found then the resulting loop iteration would have
+  the specified cycle count. If a schedule was not found then loop
+  remains unchanged. The initiation interval must be a positive number
+  greater than zero:
+
+  .. code-block:: c++
+
+  #pragma loop pipeline_initiation_interval(10)
+  for (...) {
+    ...
+  }
+
+  }];
+}
+
+
 
 def OpenCLUnrollHintDocs : Documentation {
   let Category = DocCatStmt;
@@ -3523,6 +3665,63 @@ corresponding line within the inlined callee.
   }];
 }
 
+def NoDerefDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+The ``noderef`` attribute causes clang to diagnose dereferences of annotated pointer types.
+This is ideally used with pointers that point to special memory which cannot be read
+from or written to, but allowing for the pointer to be used in pointer arithmetic.
+The following are examples of valid expressions where dereferences are diagnosed:
+
+.. code-block:: c
+
+  int __attribute__((noderef)) *p;
+  int x = *p;  // warning
+
+  int __attribute__((noderef)) **p2;
+  x = **p2;  // warning
+
+  int * __attribute__((noderef)) *p3;
+  p = *p3;  // warning
+
+  struct S {
+    int a;
+  };
+  struct S __attribute__((noderef)) *s;
+  x = s->a;    // warning
+  x = (*s).a;  // warning
+
+Not all dereferences may diagnose a warning if the value directed by the pointer may not be
+accessed. The following are examples of valid expressions where may not be diagnosed:
+
+.. code-block:: c
+
+  int *q;
+  int __attribute__((noderef)) *p;
+  q = &*p;
+  q = *&p;
+
+  struct S {
+    int a;
+  };
+  struct S __attribute__((noderef)) *s;
+  p = &s->a;
+  p = &(*s).a;
+
+``noderef`` is currently only supported for pointers and arrays and not usable for
+references or Objective-C object pointers.
+
+.. code-block: c++
+
+  int x = 2;
+  int __attribute__((noderef)) &y = x;  // warning: 'noderef' can only be used on an array or pointer type
+
+.. code-block: objc
+
+  id __attribute__((noderef)) obj = [NSObject new]; // warning: 'noderef' can only be used on an array or pointer type
+}];
+}
+
 def ReinitializesDocs : Documentation {
   let Category = DocCatFunction;
   let Content = [{
@@ -3570,6 +3769,18 @@ invoking clang with -fno-c++-static-destructors.
   }];
 }
 
+def UninitializedDocs : Documentation {
+  let Category = DocCatVariable;
+  let Content = [{
+The command-line parameter ``-ftrivial-auto-var-init=*`` can be used to
+initialize trivial automatic stack variables. By default, trivial automatic
+stack variables are uninitialized. This attribute is used to override the
+command-line parameter, forcing variables to remain uninitialized. It has no
+semantic meaning in that using uninitialized values is undefined behavior,
+it rather documents the programmer's intent.
+  }];
+}
+
 def GnuInlineDocs : Documentation {
   let Category = DocCatFunction;
   let Content = [{
@@ -3604,3 +3815,55 @@ GNU inline semantics are the default behavior with ``-std=gnu89``,
 ``-std=c89``, ``-std=c94``, or ``-fgnu89-inline``.
   }];
 }
+
+def SpeculativeLoadHardeningDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+  This attribute can be applied to a function declaration in order to indicate
+  that `Speculative Load Hardening <https://llvm.org/docs/SpeculativeLoadHardening.html>`_
+  should be enabled for the function body. This can also be applied to a method
+  in Objective C.
+
+  Speculative Load Hardening is a best-effort mitigation against
+  information leak attacks that make use of control flow
+  miss-speculation - specifically miss-speculation of whether a branch
+  is taken or not. Typically vulnerabilities enabling such attacks are
+  classified as "Spectre variant #1". Notably, this does not attempt to
+  mitigate against miss-speculation of branch target, classified as
+  "Spectre variant #2" vulnerabilities.
+
+  When inlining, the attribute is sticky. Inlining a function that
+  carries this attribute will cause the caller to gain the
+  attribute. This is intended to provide a maximally conservative model
+  where the code in a function annotated with this attribute will always
+  (even after inlining) end up hardened.
+  }];
+}
+
+def ObjCExternallyRetainedDocs : Documentation {
+  let Category = DocCatVariable;
+  let Content = [{
+The ``objc_externally_retained`` attribute can be applied to strong local
+variables, functions, methods, or blocks to opt into
+`externally-retained semantics
+<https://clang.llvm.org/docs/AutomaticReferenceCounting.html#externally-retained-variables>`_.
+
+When applied to the definition of a function, method, or block, every parameter
+of the function with implicit strong retainable object pointer type is
+considered externally-retained, and becomes ``const``. By explicitly annotating
+a parameter with ``__strong``, you can opt back into the default
+non-externally-retained behaviour for that parameter. For instance,
+``first_param`` is externally-retained below, but not ``second_param``:
+
+.. code-block:: objc
+
+  __attribute__((objc_externally_retained))
+  void f(NSArray *first_param, __strong NSArray *second_param) {
+    // ...
+  }
+
+Likewise, when applied to a strong local variable, that variable becomes
+``const`` and is considered externally-retained.
+
+When compiled without ``-fobjc-arc``, this attribute is ignored.
+}]; }

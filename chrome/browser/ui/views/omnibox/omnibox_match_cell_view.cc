@@ -68,6 +68,17 @@ int HorizontalPadding() {
 gfx::Insets GetMarginInsets(int text_height, bool is_two_line) {
   int vertical_margin =
       is_two_line ? kTwoLineRowMarginHeight : kOneLineRowMarginHeight;
+
+  if (base::FeatureList::IsEnabled(omnibox::kUIExperimentVerticalMargin)) {
+    // If the vertical margin experiment is on, we purposely set both the
+    // one-line and two-line suggestions to have the same vertical margin.
+    //
+    // There is no vertical margin value we could set to make the new answer
+    // style look anything similar to the pre-Refresh style, but setting them to
+    // be the same looks reasonable, and is a sane place to start experimenting.
+    vertical_margin = OmniboxFieldTrial::GetSuggestionVerticalMargin();
+  }
+
   return gfx::Insets(vertical_margin, kMarginLeft, vertical_margin,
                      OmniboxMatchCellView::kMarginRight);
 }
@@ -167,7 +178,7 @@ class RoundedCornerImageView : public views::ImageView {
 };
 
 void RoundedCornerImageView::OnPaint(gfx::Canvas* canvas) {
-  gfx::Path mask;
+  SkPath mask;
   mask.addRoundRect(gfx::RectToSkRect(GetImageBounds()),
                     kEntityImageCornerRadius, kEntityImageCornerRadius);
   canvas->ClipPath(mask, true);
@@ -241,8 +252,7 @@ int OmniboxMatchCellView::GetTextIndent() {
 void OmniboxMatchCellView::OnMatchUpdate(const OmniboxResultView* result_view,
                                          const AutocompleteMatch& match) {
   is_rich_suggestion_ =
-      (OmniboxFieldTrial::IsNewAnswerLayoutEnabled() &&
-       (!!match.answer || match.type == AutocompleteMatchType::CALCULATOR)) ||
+      (!!match.answer || match.type == AutocompleteMatchType::CALCULATOR) ||
       (OmniboxFieldTrial::IsRichEntitySuggestionsEnabled() &&
        !match.image_url.empty());
   is_search_type_ = AutocompleteMatch::IsSearchType(match.type);
@@ -268,8 +278,7 @@ void OmniboxMatchCellView::OnMatchUpdate(const OmniboxResultView* result_view,
     icon_view_->SetSize(icon_view_->CalculatePreferredSize());
   }
 
-  if (OmniboxFieldTrial::IsNewAnswerLayoutEnabled() &&
-      match.type == AutocompleteMatchType::CALCULATOR) {
+  if (match.type == AutocompleteMatchType::CALCULATOR) {
     answer_image_view_->SetImage(
         ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
             IDR_OMNIBOX_CALCULATOR_ROUND));

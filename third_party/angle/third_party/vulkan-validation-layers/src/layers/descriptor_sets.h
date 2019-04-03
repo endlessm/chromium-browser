@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2016 The Khronos Group Inc.
- * Copyright (c) 2015-2016 Valve Corporation
- * Copyright (c) 2015-2016 LunarG, Inc.
- * Copyright (C) 2015-2016 Google Inc.
+/* Copyright (c) 2015-2018 The Khronos Group Inc.
+ * Copyright (c) 2015-2018 Valve Corporation
+ * Copyright (c) 2015-2018 LunarG, Inc.
+ * Copyright (C) 2015-2018 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@
 #define CORE_VALIDATION_DESCRIPTOR_SETS_H_
 
 #include "core_validation_error_enums.h"
-#include "vk_validation_error_messages.h"
 #include "core_validation_types.h"
 #include "hash_vk_types.h"
 #include "vk_layer_logging.h"
@@ -301,7 +300,7 @@ class Descriptor {
     virtual void WriteUpdate(const VkWriteDescriptorSet *, const uint32_t) = 0;
     virtual void CopyUpdate(const Descriptor *) = 0;
     // Create binding between resources of this descriptor and given cb_node
-    virtual void BindCommandBuffer(const core_validation::layer_data *, GLOBAL_CB_NODE *) = 0;
+    virtual void UpdateDrawState(core_validation::layer_data *, GLOBAL_CB_NODE *) = 0;
     virtual DescriptorClass GetClass() const { return descriptor_class; };
     // Special fast-path check for SamplerDescriptors that are immutable
     virtual bool IsImmutableSampler() const { return false; };
@@ -323,7 +322,7 @@ class SamplerDescriptor : public Descriptor {
     SamplerDescriptor(const VkSampler *);
     void WriteUpdate(const VkWriteDescriptorSet *, const uint32_t) override;
     void CopyUpdate(const Descriptor *) override;
-    void BindCommandBuffer(const core_validation::layer_data *, GLOBAL_CB_NODE *) override;
+    void UpdateDrawState(core_validation::layer_data *, GLOBAL_CB_NODE *) override;
     virtual bool IsImmutableSampler() const override { return immutable_; };
     VkSampler GetSampler() const { return sampler_; }
 
@@ -338,7 +337,7 @@ class ImageSamplerDescriptor : public Descriptor {
     ImageSamplerDescriptor(const VkSampler *);
     void WriteUpdate(const VkWriteDescriptorSet *, const uint32_t) override;
     void CopyUpdate(const Descriptor *) override;
-    void BindCommandBuffer(const core_validation::layer_data *, GLOBAL_CB_NODE *) override;
+    void UpdateDrawState(core_validation::layer_data *, GLOBAL_CB_NODE *) override;
     virtual bool IsImmutableSampler() const override { return immutable_; };
     VkSampler GetSampler() const { return sampler_; }
     VkImageView GetImageView() const { return image_view_; }
@@ -356,7 +355,7 @@ class ImageDescriptor : public Descriptor {
     ImageDescriptor(const VkDescriptorType);
     void WriteUpdate(const VkWriteDescriptorSet *, const uint32_t) override;
     void CopyUpdate(const Descriptor *) override;
-    void BindCommandBuffer(const core_validation::layer_data *, GLOBAL_CB_NODE *) override;
+    void UpdateDrawState(core_validation::layer_data *, GLOBAL_CB_NODE *) override;
     virtual bool IsStorage() const override { return storage_; }
     VkImageView GetImageView() const { return image_view_; }
     VkImageLayout GetImageLayout() const { return image_layout_; }
@@ -372,7 +371,7 @@ class TexelDescriptor : public Descriptor {
     TexelDescriptor(const VkDescriptorType);
     void WriteUpdate(const VkWriteDescriptorSet *, const uint32_t) override;
     void CopyUpdate(const Descriptor *) override;
-    void BindCommandBuffer(const core_validation::layer_data *, GLOBAL_CB_NODE *) override;
+    void UpdateDrawState(core_validation::layer_data *, GLOBAL_CB_NODE *) override;
     virtual bool IsStorage() const override { return storage_; }
     VkBufferView GetBufferView() const { return buffer_view_; }
 
@@ -386,7 +385,7 @@ class BufferDescriptor : public Descriptor {
     BufferDescriptor(const VkDescriptorType);
     void WriteUpdate(const VkWriteDescriptorSet *, const uint32_t) override;
     void CopyUpdate(const Descriptor *) override;
-    void BindCommandBuffer(const core_validation::layer_data *, GLOBAL_CB_NODE *) override;
+    void UpdateDrawState(core_validation::layer_data *, GLOBAL_CB_NODE *) override;
     virtual bool IsDynamic() const override { return dynamic_; }
     virtual bool IsStorage() const override { return storage_; }
     VkBuffer GetBuffer() const { return buffer_; }
@@ -403,18 +402,24 @@ class BufferDescriptor : public Descriptor {
 
 class InlineUniformDescriptor : public Descriptor {
    public:
-    InlineUniformDescriptor(const VkDescriptorType) { updated = false; descriptor_class = InlineUniform; }
+    InlineUniformDescriptor(const VkDescriptorType) {
+        updated = false;
+        descriptor_class = InlineUniform;
+    }
     void WriteUpdate(const VkWriteDescriptorSet *, const uint32_t) override { updated = true; }
-    void CopyUpdate(const Descriptor *) override  { updated = true; }
-    void BindCommandBuffer(const core_validation::layer_data *, GLOBAL_CB_NODE *) override {}
+    void CopyUpdate(const Descriptor *) override { updated = true; }
+    void UpdateDrawState(core_validation::layer_data *, GLOBAL_CB_NODE *) override {}
 };
 
 class AccelerationStructureDescriptor : public Descriptor {
    public:
-    AccelerationStructureDescriptor(const VkDescriptorType) { updated = false; descriptor_class = AccelerationStructure; }
+    AccelerationStructureDescriptor(const VkDescriptorType) {
+        updated = false;
+        descriptor_class = AccelerationStructure;
+    }
     void WriteUpdate(const VkWriteDescriptorSet *, const uint32_t) override { updated = true; }
-    void CopyUpdate(const Descriptor *) override  { updated = true; }
-    void BindCommandBuffer(const core_validation::layer_data *, GLOBAL_CB_NODE *) override {}
+    void CopyUpdate(const Descriptor *) override { updated = true; }
+    void UpdateDrawState(core_validation::layer_data *, GLOBAL_CB_NODE *) override {}
 };
 
 // Structs to contain common elements that need to be shared between Validate* and Perform* calls below
@@ -510,10 +515,9 @@ class DescriptorSet : public BASE_NODE {
     VkDescriptorSet GetSet() const { return set_; };
     // Return unordered_set of all command buffers that this set is bound to
     std::unordered_set<GLOBAL_CB_NODE *> GetBoundCmdBuffers() const { return cb_bindings; }
-    // Bind given cmd_buffer to this descriptor set
-    void BindCommandBuffer(GLOBAL_CB_NODE *, const std::map<uint32_t, descriptor_req> &);
-    // Update CB image layout map with image/imagesampler descriptor image layouts
-    void UpdateDSImageLayoutState(GLOBAL_CB_NODE *);
+    // Bind given cmd_buffer to this descriptor set and
+    // update CB image layout map with image/imagesampler descriptor image layouts
+    void UpdateDrawState(GLOBAL_CB_NODE *, const std::map<uint32_t, descriptor_req> &);
 
     // Track work that has been bound or validated to avoid duplicate work, important when large descriptor arrays
     // are present

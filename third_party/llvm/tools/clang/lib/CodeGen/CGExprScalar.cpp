@@ -23,9 +23,9 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtVisitor.h"
+#include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/FixedPoint.h"
 #include "clang/Basic/TargetInfo.h"
-#include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
@@ -124,6 +124,13 @@ struct BinOpInfo {
       if (auto *CFP = dyn_cast<llvm::ConstantFP>(RHS))
         return CFP->isZero();
     return true;
+  }
+
+  /// Check if either operand is a fixed point type, in which case, this
+  /// operation did not follow usual arithmetic conversion and both operands may
+  /// not be the same.
+  bool isFixedPointBinOp() const {
+    return isa<BinaryOperator>(E) && Ty->isFixedPointType();
   }
 };
 
@@ -258,8 +265,11 @@ public:
           AVAttr = TTy->getDecl()->getAttr<AlignValueAttr>();
       } else {
         // Assumptions for function parameters are emitted at the start of the
-        // function, so there is no need to repeat that here.
-        if (isa<ParmVarDecl>(VD))
+        // function, so there is no need to repeat that here,
+        // unless the alignment-assumption sanitizer is enabled,
+        // then we prefer the assumption over alignment attribute
+        // on IR function param.
+        if (isa<ParmVarDecl>(VD) && !CGF.SanOpts.has(SanitizerKind::Alignment))
           return;
 
         AVAttr = VD->getAttr<AlignValueAttr>();
@@ -276,7 +286,8 @@ public:
 
     Value *AlignmentValue = CGF.EmitScalarExpr(AVAttr->getAlignment());
     llvm::ConstantInt *AlignmentCI = cast<llvm::ConstantInt>(AlignmentValue);
-    CGF.EmitAlignmentAssumption(V, AlignmentCI->getZExtValue());
+    CGF.EmitAlignmentAssumption(V, E, AVAttr->getLocation(),
+                                AlignmentCI->getZExtValue());
   }
 
   /// EmitLoadOfLValue - Given an expression with complex type that represents a
@@ -332,6 +343,13 @@ public:
         : TreatBooleanAsSigned(false),
           EmitImplicitIntegerTruncationChecks(false),
           EmitImplicitIntegerSignChangeChecks(false) {}
+
+    ScalarConversionOpts(clang::SanitizerSet SanOpts)
+        : TreatBooleanAsSigned(false),
+          EmitImplicitIntegerTruncationChecks(
+              SanOpts.hasOneOf(SanitizerKind::ImplicitIntegerTruncation)),
+          EmitImplicitIntegerSignChangeChecks(
+              SanOpts.has(SanitizerKind::ImplicitIntegerSignChange)) {}
   };
   Value *
   EmitScalarConversion(Value *Src, QualType SrcTy, QualType DstTy,
@@ -339,6 +357,9 @@ public:
                        ScalarConversionOpts Opts = ScalarConversionOpts());
 
   Value *EmitFixedPointConversion(Value *Src, QualType SrcTy, QualType DstTy,
+                                  SourceLocation Loc);
+  Value *EmitFixedPointConversion(Value *Src, FixedPointSemantics &SrcFixedSema,
+                                  FixedPointSemantics &DstFixedSema,
                                   SourceLocation Loc);
 
   /// Emit a conversion from the specified complex type to the specified
@@ -398,6 +419,9 @@ public:
   }
   Value *VisitExpr(Expr *S);
 
+  Value *VisitConstantExpr(ConstantExpr *E) {
+    return Visit(E->getSubExpr());
+  }
   Value *VisitParenExpr(ParenExpr *PE) {
     return Visit(PE->getSubExpr());
   }
@@ -714,6 +738,9 @@ public:
   Value *EmitOr (const BinOpInfo &Ops) {
     return Builder.CreateOr(Ops.LHS, Ops.RHS, "or");
   }
+
+  // Helper functions for fixed point binary operations.
+  Value *EmitFixedPointBinOp(const BinOpInfo &Ops);
 
   BinOpInfo EmitBinOps(const BinaryOperator *E);
   LValue EmitCompoundAssignLValue(const CompoundAssignOperator *E,
@@ -1409,10 +1436,6 @@ Value *ScalarExprEmitter::EmitScalarConversion(Value *Src, QualType SrcType,
 Value *ScalarExprEmitter::EmitFixedPointConversion(Value *Src, QualType SrcTy,
                                                    QualType DstTy,
                                                    SourceLocation Loc) {
-  using llvm::APInt;
-  using llvm::ConstantInt;
-  using llvm::Value;
-
   assert(SrcTy->isFixedPointType());
   assert(DstTy->isFixedPointType());
 
@@ -1420,6 +1443,16 @@ Value *ScalarExprEmitter::EmitFixedPointConversion(Value *Src, QualType SrcTy,
       CGF.getContext().getFixedPointSemantics(SrcTy);
   FixedPointSemantics DstFPSema =
       CGF.getContext().getFixedPointSemantics(DstTy);
+  return EmitFixedPointConversion(Src, SrcFPSema, DstFPSema, Loc);
+}
+
+Value *ScalarExprEmitter::EmitFixedPointConversion(
+    Value *Src, FixedPointSemantics &SrcFPSema, FixedPointSemantics &DstFPSema,
+    SourceLocation Loc) {
+  using llvm::APInt;
+  using llvm::ConstantInt;
+  using llvm::Value;
+
   unsigned SrcWidth = SrcFPSema.getWidth();
   unsigned DstWidth = DstFPSema.getWidth();
   unsigned SrcScale = SrcFPSema.getScale();
@@ -1448,7 +1481,8 @@ Value *ScalarExprEmitter::EmitFixedPointConversion(Value *Src, QualType SrcTy,
   } else {
     // Adjust the number of fractional bits.
     if (DstScale > SrcScale) {
-      ResultWidth = SrcWidth + DstScale - SrcScale;
+      // Compare to DstWidth to prevent resizing twice.
+      ResultWidth = std::max(SrcWidth + DstScale - SrcScale, DstWidth);
       llvm::Type *UpscaledTy = Builder.getIntNTy(ResultWidth);
       Result = Builder.CreateIntCast(Result, UpscaledTy, SrcIsSigned, "resize");
       Result = Builder.CreateShl(Result, DstScale - SrcScale, "upscale");
@@ -1479,7 +1513,8 @@ Value *ScalarExprEmitter::EmitFixedPointConversion(Value *Src, QualType SrcTy,
     }
 
     // Resize the integer part to get the final destination size.
-    Result = Builder.CreateIntCast(Result, DstIntTy, SrcIsSigned, "resize");
+    if (ResultWidth != DstWidth)
+      Result = Builder.CreateIntCast(Result, DstIntTy, SrcIsSigned, "resize");
   }
   return Result;
 }
@@ -1707,8 +1742,9 @@ Value *ScalarExprEmitter::VisitMemberExpr(MemberExpr *E) {
     CGF.EmitIgnoredExpr(E->getBase());
     return CGF.emitScalarConstant(Constant, E);
   } else {
-    llvm::APSInt Value;
-    if (E->EvaluateAsInt(Value, CGF.getContext(), Expr::SE_AllowSideEffects)) {
+    Expr::EvalResult Result;
+    if (E->EvaluateAsInt(Result, CGF.getContext(), Expr::SE_AllowSideEffects)) {
+      llvm::APSInt Value = Result.Val.getInt();
       CGF.EmitIgnoredExpr(E->getBase());
       return Builder.getInt(Value);
     }
@@ -2188,13 +2224,8 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_IntegralCast: {
     ScalarConversionOpts Opts;
     if (auto *ICE = dyn_cast<ImplicitCastExpr>(CE)) {
-      if (CGF.SanOpts.hasOneOf(SanitizerKind::ImplicitConversion) &&
-          !ICE->isPartOfExplicitCast()) {
-        Opts.EmitImplicitIntegerTruncationChecks =
-            CGF.SanOpts.hasOneOf(SanitizerKind::ImplicitIntegerTruncation);
-        Opts.EmitImplicitIntegerSignChangeChecks =
-            CGF.SanOpts.has(SanitizerKind::ImplicitIntegerSignChange);
-      }
+      if (!ICE->isPartOfExplicitCast())
+        Opts = ScalarConversionOpts(CGF.SanOpts);
     }
     return EmitScalarConversion(Visit(E), E->getType(), DestTy,
                                 CE->getExprLoc(), Opts);
@@ -2236,7 +2267,8 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   }
 
   case CK_ZeroToOCLOpaqueType: {
-    assert((DestTy->isEventT() || DestTy->isQueueT()) &&
+    assert((DestTy->isEventT() || DestTy->isQueueT() ||
+            DestTy->isOCLIntelSubgroupAVCType()) &&
            "CK_ZeroToOCLEvent cast on non-event type");
     return llvm::Constant::getNullValue(ConvertType(DestTy));
   }
@@ -2591,9 +2623,11 @@ Value *ScalarExprEmitter::VisitUnaryLNot(const UnaryOperator *E) {
 
 Value *ScalarExprEmitter::VisitOffsetOfExpr(OffsetOfExpr *E) {
   // Try folding the offsetof to a constant.
-  llvm::APSInt Value;
-  if (E->EvaluateAsInt(Value, CGF.getContext()))
+  Expr::EvalResult EVResult;
+  if (E->EvaluateAsInt(EVResult, CGF.getContext())) {
+    llvm::APSInt Value = EVResult.Val.getInt();
     return Builder.getInt(Value);
+  }
 
   // Loop over the components of the offsetof to compute the value.
   unsigned n = E->getNumComponents();
@@ -2862,9 +2896,10 @@ LValue ScalarExprEmitter::EmitCompoundAssignLValue(
   // Expand the binary operator.
   Result = (this->*Func)(OpInfo);
 
-  // Convert the result back to the LHS type.
-  Result =
-      EmitScalarConversion(Result, E->getComputationResultType(), LHSTy, Loc);
+  // Convert the result back to the LHS type,
+  // potentially with Implicit Conversion sanitizer check.
+  Result = EmitScalarConversion(Result, E->getComputationResultType(), LHSTy,
+                                Loc, ScalarConversionOpts(CGF.SanOpts));
 
   if (atomicPHI) {
     llvm::BasicBlock *opBB = Builder.GetInsertBlock();
@@ -3324,7 +3359,106 @@ Value *ScalarExprEmitter::EmitAdd(const BinOpInfo &op) {
     return propagateFMFlags(V, op);
   }
 
+  if (op.isFixedPointBinOp())
+    return EmitFixedPointBinOp(op);
+
   return Builder.CreateAdd(op.LHS, op.RHS, "add");
+}
+
+/// The resulting value must be calculated with exact precision, so the operands
+/// may not be the same type.
+Value *ScalarExprEmitter::EmitFixedPointBinOp(const BinOpInfo &op) {
+  using llvm::APSInt;
+  using llvm::ConstantInt;
+
+  const auto *BinOp = cast<BinaryOperator>(op.E);
+  assert((BinOp->getOpcode() == BO_Add || BinOp->getOpcode() == BO_Sub) &&
+         "Expected operation to be addition or subtraction");
+
+  // The result is a fixed point type and at least one of the operands is fixed
+  // point while the other is either fixed point or an int. This resulting type
+  // should be determined by Sema::handleFixedPointConversions().
+  QualType ResultTy = op.Ty;
+  QualType LHSTy = BinOp->getLHS()->getType();
+  QualType RHSTy = BinOp->getRHS()->getType();
+  ASTContext &Ctx = CGF.getContext();
+  Value *LHS = op.LHS;
+  Value *RHS = op.RHS;
+
+  auto LHSFixedSema = Ctx.getFixedPointSemantics(LHSTy);
+  auto RHSFixedSema = Ctx.getFixedPointSemantics(RHSTy);
+  auto ResultFixedSema = Ctx.getFixedPointSemantics(ResultTy);
+  auto CommonFixedSema = LHSFixedSema.getCommonSemantics(RHSFixedSema);
+
+  // Convert the operands to the full precision type.
+  Value *FullLHS = EmitFixedPointConversion(LHS, LHSFixedSema, CommonFixedSema,
+                                            BinOp->getExprLoc());
+  Value *FullRHS = EmitFixedPointConversion(RHS, RHSFixedSema, CommonFixedSema,
+                                            BinOp->getExprLoc());
+
+  // Perform the actual addition.
+  Value *Result;
+  switch (BinOp->getOpcode()) {
+  case BO_Add: {
+    if (ResultFixedSema.isSaturated()) {
+      llvm::Intrinsic::ID IID = ResultFixedSema.isSigned()
+                                    ? llvm::Intrinsic::sadd_sat
+                                    : llvm::Intrinsic::uadd_sat;
+      Result = Builder.CreateBinaryIntrinsic(IID, FullLHS, FullRHS);
+    } else {
+      Result = Builder.CreateAdd(FullLHS, FullRHS);
+    }
+    break;
+  }
+  case BO_Sub: {
+    if (ResultFixedSema.isSaturated()) {
+      llvm::Intrinsic::ID IID = ResultFixedSema.isSigned()
+                                    ? llvm::Intrinsic::ssub_sat
+                                    : llvm::Intrinsic::usub_sat;
+      Result = Builder.CreateBinaryIntrinsic(IID, FullLHS, FullRHS);
+    } else {
+      Result = Builder.CreateSub(FullLHS, FullRHS);
+    }
+    break;
+  }
+  case BO_Mul:
+  case BO_Div:
+  case BO_Shl:
+  case BO_Shr:
+  case BO_Cmp:
+  case BO_LT:
+  case BO_GT:
+  case BO_LE:
+  case BO_GE:
+  case BO_EQ:
+  case BO_NE:
+  case BO_LAnd:
+  case BO_LOr:
+  case BO_MulAssign:
+  case BO_DivAssign:
+  case BO_AddAssign:
+  case BO_SubAssign:
+  case BO_ShlAssign:
+  case BO_ShrAssign:
+    llvm_unreachable("Found unimplemented fixed point binary operation");
+  case BO_PtrMemD:
+  case BO_PtrMemI:
+  case BO_Rem:
+  case BO_Xor:
+  case BO_And:
+  case BO_Or:
+  case BO_Assign:
+  case BO_RemAssign:
+  case BO_AndAssign:
+  case BO_XorAssign:
+  case BO_OrAssign:
+  case BO_Comma:
+    llvm_unreachable("Found unsupported binary operation for fixed point types.");
+  }
+
+  // Convert to the result type.
+  return EmitFixedPointConversion(Result, CommonFixedSema, ResultFixedSema,
+                                  BinOp->getExprLoc());
 }
 
 Value *ScalarExprEmitter::EmitSub(const BinOpInfo &op) {
@@ -3357,6 +3491,9 @@ Value *ScalarExprEmitter::EmitSub(const BinOpInfo &op) {
       Value *V = Builder.CreateFSub(op.LHS, op.RHS, "sub");
       return propagateFMFlags(V, op);
     }
+
+    if (op.isFixedPointBinOp())
+      return EmitFixedPointBinOp(op);
 
     return Builder.CreateSub(op.LHS, op.RHS, "sub");
   }

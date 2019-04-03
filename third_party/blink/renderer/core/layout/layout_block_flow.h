@@ -59,9 +59,11 @@ class LayoutMultiColumnFlowThread;
 class LayoutMultiColumnSpannerPlaceholder;
 class LayoutRubyRun;
 class MarginInfo;
+class NGBlockBreakToken;
 class NGBreakToken;
 class NGConstraintSpace;
 class NGLayoutResult;
+class NGOffsetMapping;
 class NGPaintFragment;
 class NGPhysicalFragment;
 
@@ -111,9 +113,9 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
 
   void UpdateBlockLayout(bool relayout_children) override;
 
-  void ComputeVisualOverflow(const LayoutRect&, bool recompute_floats) override;
+  void ComputeVisualOverflow(bool recompute_floats) override;
   void ComputeLayoutOverflow(LayoutUnit old_client_after_edge,
-                             bool recompute_floats) override;
+                             bool recompute_floats = false) override;
 
   void DeleteLineBoxTree();
 
@@ -424,7 +426,8 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
   void SetShouldDoFullPaintInvalidationForFirstLine();
 
   void SimplifiedNormalFlowInlineLayout();
-  bool RecalcInlineChildrenOverflow();
+  bool RecalcInlineChildrenLayoutOverflow();
+  void RecalcInlineChildrenVisualOverflow();
 
   PositionWithAffinity PositionForPoint(const LayoutPoint&) const override;
 
@@ -454,6 +457,7 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
   virtual NGInlineNodeData* TakeNGInlineNodeData() { return nullptr; }
   virtual NGInlineNodeData* GetNGInlineNodeData() const { return nullptr; }
   virtual void ResetNGInlineNodeData() {}
+  virtual void ClearNGInlineNodeData() {}
   virtual bool HasNGInlineNodeData() const { return false; }
   virtual NGPaintFragment* PaintFragment() const { return nullptr; }
   virtual scoped_refptr<NGLayoutResult> CachedLayoutResult(
@@ -466,11 +470,11 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
   virtual void ClearCachedLayoutResult();
   virtual bool AreCachedLinesValidFor(const NGConstraintSpace&) const;
   virtual void WillCollectInlines() {}
-  virtual void SetPaintFragment(const NGBreakToken*,
+  virtual void SetPaintFragment(const NGBlockBreakToken*,
                                 scoped_refptr<const NGPhysicalFragment>,
                                 NGPhysicalOffset);
   virtual void UpdatePaintFragmentFromCachedLayoutResult(
-      const NGBreakToken*,
+      const NGBlockBreakToken*,
       scoped_refptr<const NGPhysicalFragment>,
       NGPhysicalOffset);
   virtual const NGPhysicalBoxFragment* CurrentFragment() const {
@@ -766,18 +770,8 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
     USING_FAST_MALLOC(LayoutBlockFlowRareData);
 
    public:
-    LayoutBlockFlowRareData(const LayoutBlockFlow* block)
-        : margins_(PositiveMarginBeforeDefault(block),
-                   NegativeMarginBeforeDefault(block),
-                   PositiveMarginAfterDefault(block),
-                   NegativeMarginAfterDefault(block)),
-          multi_column_flow_thread_(nullptr),
-          break_before_(static_cast<unsigned>(EBreakBetween::kAuto)),
-          break_after_(static_cast<unsigned>(EBreakBetween::kAuto)),
-          line_break_to_avoid_widow_(-1),
-          did_break_at_line_to_avoid_widow_(false),
-          discard_margin_before_(false),
-          discard_margin_after_(false) {}
+    explicit LayoutBlockFlowRareData(const LayoutBlockFlow* block);
+    ~LayoutBlockFlowRareData();
 
     static LayoutUnit PositiveMarginBeforeDefault(
         const LayoutBlockFlow* block) {
@@ -799,7 +793,13 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
 
     LayoutUnit first_forced_break_offset_;
 
-    LayoutMultiColumnFlowThread* multi_column_flow_thread_;
+    LayoutMultiColumnFlowThread* multi_column_flow_thread_ = nullptr;
+
+    // |offset_mapping_| is used only for legacy layout tree for caching offset
+    // mapping for |NGInlineNode::GetOffsetMapping()|.
+    // TODO(yosin): Once we have no legacy support, we should get rid of
+    // |offset_mapping_| here.
+    std::unique_ptr<NGOffsetMapping> offset_mapping_;
 
     unsigned break_before_ : 4;
     unsigned break_after_ : 4;
@@ -809,6 +809,10 @@ class CORE_EXPORT LayoutBlockFlow : public LayoutBlock {
     bool discard_margin_after_ : 1;
     DISALLOW_COPY_AND_ASSIGN(LayoutBlockFlowRareData);
   };
+
+  void ClearOffsetMapping();
+  const NGOffsetMapping* GetOffsetMapping() const;
+  void SetOffsetMapping(std::unique_ptr<NGOffsetMapping>);
 
   const FloatingObjects* GetFloatingObjects() const {
     return floating_objects_.get();

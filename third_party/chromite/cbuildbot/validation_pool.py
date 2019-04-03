@@ -318,12 +318,7 @@ class ValidationPool(object):
 
   @property
   def build_log(self):
-    if self._buildbucket_id:
-      return tree_status.ConstructLegolandBuildURL(self._buildbucket_id)
-
-    if self._run:
-      return tree_status.ConstructDashboardURL(
-          self._run.GetWaterfall(), self._builder_name, self._build_number)
+    return tree_status.ConstructLegolandBuildURL(self._buildbucket_id)
 
   @staticmethod
   def GetGerritHelpersForOverlays(overlays):
@@ -646,8 +641,7 @@ class ValidationPool(object):
     def IsCrosReview(change):
       return (change.project.startswith('chromiumos/') or
               change.project.startswith('chromeos/') or
-              change.project.startswith('aosp/') or
-              change.project.startswith('weave/'))
+              change.project.startswith('aosp/'))
 
     # First we filter to only Chromium OS repositories.
     changes = [c for c in changes if IsCrosReview(c)]

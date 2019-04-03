@@ -5,10 +5,6 @@
 #include "content/public/common/content_features.h"
 #include "build/build_config.h"
 
-#if defined(OS_CHROMEOS)
-#include "media/capture/video/chromeos/public/cros_features.h"
-#endif
-
 namespace features {
 
 // All features in alphabetical order.
@@ -57,13 +53,9 @@ const base::Feature kAwaitOptimization{"AwaitOptimization",
 const base::Feature kBackgroundFetch{"BackgroundFetch",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Enables access to active background fetches.
-const base::Feature kBackgroundFetchAccessActiveFetches{
-    "BackgroundFetchAccessActiveFetches", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Enables using uploads in a Background Fetch.
-const base::Feature kBackgroundFetchUploads{"BackgroundFetchUploads",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
+// Enable using the BackForwardCache.
+const base::Feature kBackForwardCache{"BackForwardCache",
+                                      base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enable incremental marking for Blink's heap managed by the Oilpan garbage
 // collector.
@@ -139,6 +131,10 @@ const base::Feature kCSSFragmentIdentifiers{"CSSFragmentIdentifiers",
 const base::Feature kDataSaverHoldback{"DataSaverHoldback",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Enable changing source dynamically for desktop capture.
+const base::Feature kDesktopCaptureChangeSource{
+    "DesktopCaptureChangeSource", base::FEATURE_ENABLED_BY_DEFAULT};
+
 // Throttle tasks in Blink background timer queues based on CPU budgets
 // for the background tab. Bug: https://crbug.com/639852.
 const base::Feature kExpensiveBackgroundTimerThrottling{
@@ -166,10 +162,6 @@ const base::Feature kFramebustingNeedsSameOriginOrUserGesture{
     "FramebustingNeedsSameOriginOrUserGesture",
     base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Enables extended Gamepad API features like motion tracking and haptics.
-const base::Feature kGamepadExtensions{"GamepadExtensions",
-                                       base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Enables haptic vibration effects on supported gamepads.
 const base::Feature kGamepadVibration{"GamepadVibration",
                                       base::FEATURE_ENABLED_BY_DEFAULT};
@@ -195,6 +187,11 @@ const base::Feature kGuestViewCrossProcessFrames{
 // Enables BlinkGC heap compaction.
 const base::Feature kHeapCompaction{"HeapCompaction",
                                     base::FEATURE_DISABLED_BY_DEFAULT};
+
+// If a page does a client side redirect or adds to the history without a user
+// gesture, then skip it on back/forward UI.
+const base::Feature kHistoryManipulationIntervention{
+    "HistoryManipulationIntervention", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables/disables the Image Capture API.
 const base::Feature kImageCaptureAPI{"ImageCaptureAPI",
@@ -312,7 +309,7 @@ const base::Feature kPassiveDocumentEventListeners{
 // Whether document level wheel and mousewheel event listeners should default
 // 'passive' to true.
 const base::Feature kPassiveDocumentWheelEventListeners{
-    "PassiveDocumentWheelEventListeners", base::FEATURE_DISABLED_BY_DEFAULT};
+    "PassiveDocumentWheelEventListeners", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Whether we should force a touchstart and first touchmove per scroll event
 // listeners to be non-blocking during fling.
@@ -386,6 +383,11 @@ const base::Feature kSendBeaconThrowForBlobWithNonSimpleType{
 const base::Feature kSecMetadata{"SecMetadata",
                                  base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Keep processes with service workers controlling clients from other
+// processes at foreground priority. (crbug.com/928904)
+const base::Feature kServiceWorkerForegroundPriority{
+    "ServiceWorkerForegroundPriority", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables long running message dispatch for service workers.
 // This is a temporary addition only to be used for the Android Messages
 // integration with ChromeOS (http://crbug.com/823256).
@@ -440,6 +442,12 @@ const base::Feature kTimerThrottlingForHiddenFrames{
 const base::Feature kTouchpadAsyncPinchEvents{"TouchpadAsyncPinchEvents",
                                               base::FEATURE_ENABLED_BY_DEFAULT};
 
+// Skips the passthrough touch event queue filter, ensuring that all touch
+// events that reach the queue will be passed onto the renderer compositor
+// process as long as the page hasn't timed out.
+const base::Feature kSkipPassthroughTouchEventQueueFilter{
+    "SkipPassthroughTouchEventQueueFilter", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Allows user activation propagation to all frames having the same origin as
 // the activation notifier frame.  This is an intermediate measure before we
 // have an iframe attribute to declaratively allow user activation propagation
@@ -452,10 +460,6 @@ const base::Feature kUserActivationSameOriginVisibility{
 // today.
 const base::Feature kUserActivationV2{"UserActivationV2",
                                       base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Enables to use a snapshot file in creating V8 contexts.
-const base::Feature kV8ContextSnapshot{"V8ContextSnapshot",
-                                       base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables V8's low memory mode for subframes. This is used only
 // in conjunction with the --site-per-process feature.
@@ -526,12 +530,6 @@ const base::Feature kWebAuthBle{"WebAuthenticationBle",
 const base::Feature kWebAuthCable{"WebAuthenticationCable",
                                   base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Controls whether CTAP2 devices can communicate via the WebAuthentication API
-// using pairingless BLE protocol on Windows.
-// https://w3c.github.io/webauthn
-const base::Feature kWebAuthCableWin{"WebAuthenticationCableWin",
-                                     base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Controls whether AuthenticatorAttestationResponse contains a getTransports
 // member to return the set of transports supported by an authenticator.
 const base::Feature kWebAuthGetTransports{"WebAuthenticationGetTransports",
@@ -582,7 +580,7 @@ const base::Feature kWebRtcScreenshareSwEncoding{
 // http://crbug.com/688388. This value is sent to WebRTC's echo canceller to
 // toggle which echo canceller should be used.
 const base::Feature kWebRtcUseEchoCanceller3{"WebRtcUseEchoCanceller3",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Use GpuMemoryBuffer backed VideoFrames in media streams.
 const base::Feature kWebRtcUseGpuMemoryBufferVideoFrames{
@@ -623,13 +621,9 @@ const base::Feature kWebXrOrientationSensorDevice{
 const base::Feature kWipeCorruptV2IDBDatabases{
     "WipeCorruptV2IDBDatabases", base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Enabled "work stealing" in the script runner.
-const base::Feature kWorkStealingInScriptRunner{
-    "WorkStealingInScriptRunner", base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Enabled scheduler use for script streaming.
-const base::Feature kScheduledScriptStreaming{
-    "ScheduledScriptStreaming", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kScheduledScriptStreaming{"ScheduledScriptStreaming",
+                                              base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Start streaming scripts on script preload.
 const base::Feature kScriptStreamingOnPreload{
@@ -695,15 +689,20 @@ const base::Feature kDeviceMonitorMac{"DeviceMonitorMac",
 const base::Feature kIOSurfaceCapturer{"IOSurfaceCapturer",
                                        base::FEATURE_ENABLED_BY_DEFAULT};
 
-// The V2 sandbox on MacOS removes the unsandboed warmup phase and sandboxes the
-// entire life of the process.
-const base::Feature kMacV2Sandbox{"MacV2Sandbox",
-                                  base::FEATURE_ENABLED_BY_DEFAULT};
-//
+const base::Feature kMacV2GPUSandbox{"MacV2GPUSandbox",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables the suggested text touch bar for autocomplete in textfields.
 const base::Feature kTextSuggestionsTouchBar{"TextSuggestionsTouchBar",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 #endif  // defined(OS_MACOSX)
+
+#if defined(WEBRTC_USE_PIPEWIRE)
+// Controls whether the PipeWire support for screen capturing is enabled on the
+// Wayland display server.
+const base::Feature kWebRtcPipeWireCapturer{"WebRTCPipeWireCapturer",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
+#endif  // defined(WEBRTC_USE_PIPEWIRE)
 
 enum class VideoCaptureServiceConfiguration {
   kEnabledForOutOfProcess,
@@ -720,12 +719,11 @@ VideoCaptureServiceConfiguration GetVideoCaptureServiceConfiguration() {
   if (!ShouldEnableVideoCaptureService())
     return VideoCaptureServiceConfiguration::kDisabled;
 
-#if defined(OS_ANDROID)
+// On ChromeOS the service must run in the browser process, because parts of the
+// code depend on global objects that are only available in the Browser process.
+// See https://crbug.com/891961.
+#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
   return VideoCaptureServiceConfiguration::kEnabledForBrowserProcess;
-#elif defined(OS_CHROMEOS)
-  return media::ShouldUseCrosCameraService()
-             ? VideoCaptureServiceConfiguration::kEnabledForBrowserProcess
-             : VideoCaptureServiceConfiguration::kEnabledForOutOfProcess;
 #else
   return base::FeatureList::IsEnabled(
              features::kRunVideoCaptureServiceInBrowserProcess)

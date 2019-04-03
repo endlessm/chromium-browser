@@ -32,6 +32,7 @@ namespace llvm {
 class LegalizerInfo;
 class Legalizer;
 class MachineRegisterInfo;
+class GISelChangeObserver;
 
 class LegalizerHelper {
 public:
@@ -48,8 +49,10 @@ public:
     UnableToLegalize,
   };
 
-  LegalizerHelper(MachineFunction &MF);
-  LegalizerHelper(MachineFunction &MF, const LegalizerInfo &LI);
+  LegalizerHelper(MachineFunction &MF, GISelChangeObserver &Observer,
+                  MachineIRBuilder &B);
+  LegalizerHelper(MachineFunction &MF, const LegalizerInfo &LI,
+                  GISelChangeObserver &Observer, MachineIRBuilder &B);
 
   /// Replace \p MI by a sequence of legal instructions that can implement the
   /// same operation. Note that this means \p MI may be deleted, so any iterator
@@ -88,7 +91,7 @@ public:
 
   /// Expose MIRBuilder so clients can set their own RecordInsertInstruction
   /// functions
-  MachineIRBuilder MIRBuilder;
+  MachineIRBuilder &MIRBuilder;
 
   /// Expose LegalizerInfo so the clients can re-use.
   const LegalizerInfo &getLegalizerInfo() const { return LI; }
@@ -117,6 +120,8 @@ private:
 
   MachineRegisterInfo &MRI;
   const LegalizerInfo &LI;
+  /// To keep track of changes made by the LegalizerHelper.
+  GISelChangeObserver &Observer;
 };
 
 /// Helper function that creates the given libcall.

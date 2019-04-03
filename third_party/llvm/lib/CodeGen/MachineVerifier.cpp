@@ -250,6 +250,7 @@ namespace {
     void report_context(const LiveRange::Segment &S) const;
     void report_context(const VNInfo &VNI) const;
     void report_context(SlotIndex Pos) const;
+    void report_context(MCPhysReg PhysReg) const;
     void report_context_liverange(const LiveRange &LR) const;
     void report_context_lanemask(LaneBitmask LaneMask) const;
     void report_context_vreg(unsigned VReg) const;
@@ -540,6 +541,10 @@ void MachineVerifier::report_context_liverange(const LiveRange &LR) const {
   errs() << "- liverange:   " << LR << '\n';
 }
 
+void MachineVerifier::report_context(MCPhysReg PReg) const {
+  errs() << "- p. register: " << printReg(PReg, TRI) << '\n';
+}
+
 void MachineVerifier::report_context_vreg(unsigned VReg) const {
   errs() << "- v. register: " << printReg(VReg, TRI) << '\n';
 }
@@ -619,6 +624,7 @@ MachineVerifier::visitMachineBasicBlockBefore(const MachineBasicBlock *MBB) {
       if (isAllocatable(LI.PhysReg) && !MBB->isEHPad() &&
           MBB->getIterator() != MBB->getParent()->begin()) {
         report("MBB has allocatable live-in, but isn't entry or landing-pad.", MBB);
+        report_context(LI.PhysReg);
       }
     }
   }
@@ -677,7 +683,7 @@ MachineVerifier::visitMachineBasicBlockBefore(const MachineBasicBlock *MBB) {
         // out the bottom of the function.
       } else if (MBB->succ_size() == LandingPadSuccs.size()) {
         // It's possible that the block legitimately ends with a noreturn
-        // call or an unreachable, in which case it won't actuall fall
+        // call or an unreachable, in which case it won't actually fall
         // out of the block.
       } else if (MBB->succ_size() != 1+LandingPadSuccs.size()) {
         report("MBB exits via unconditional fall-through but doesn't have "
@@ -1053,6 +1059,89 @@ void MachineVerifier::visitMachineInstrBefore(const MachineInstr *MI) {
                MI);
       break;
     }
+    break;
+  }
+  case TargetOpcode::G_MERGE_VALUES: {
+    // G_MERGE_VALUES should only be used to merge scalars into a larger scalar,
+    // e.g. s2N = MERGE sN, sN
+    // Merging multiple scalars into a vector is not allowed, should use
+    // G_BUILD_VECTOR for that.
+    LLT DstTy = MRI->getType(MI->getOperand(0).getReg());
+    LLT SrcTy = MRI->getType(MI->getOperand(1).getReg());
+    if (DstTy.isVector() || SrcTy.isVector())
+      report("G_MERGE_VALUES cannot operate on vectors", MI);
+    break;
+  }
+  case TargetOpcode::G_UNMERGE_VALUES: {
+    LLT DstTy = MRI->getType(MI->getOperand(0).getReg());
+    LLT SrcTy = MRI->getType(MI->getOperand(MI->getNumOperands()-1).getReg());
+    // For now G_UNMERGE can split vectors.
+    for (unsigned i = 0; i < MI->getNumOperands()-1; ++i) {
+      if (MRI->getType(MI->getOperand(i).getReg()) != DstTy)
+        report("G_UNMERGE_VALUES destination types do not match", MI);
+    }
+    if (SrcTy.getSizeInBits() !=
+        (DstTy.getSizeInBits() * (MI->getNumOperands() - 1))) {
+      report("G_UNMERGE_VALUES source operand does not cover dest operands",
+             MI);
+    }
+    break;
+  }
+  case TargetOpcode::G_BUILD_VECTOR: {
+    // Source types must be scalars, dest type a vector. Total size of scalars
+    // must match the dest vector size.
+    LLT DstTy = MRI->getType(MI->getOperand(0).getReg());
+    LLT SrcEltTy = MRI->getType(MI->getOperand(1).getReg());
+    if (!DstTy.isVector() || SrcEltTy.isVector())
+      report("G_BUILD_VECTOR must produce a vector from scalar operands", MI);
+    for (unsigned i = 2; i < MI->getNumOperands(); ++i) {
+      if (MRI->getType(MI->getOperand(1).getReg()) !=
+          MRI->getType(MI->getOperand(i).getReg()))
+        report("G_BUILD_VECTOR source operand types are not homogeneous", MI);
+    }
+    if (DstTy.getSizeInBits() !=
+        SrcEltTy.getSizeInBits() * (MI->getNumOperands() - 1))
+      report("G_BUILD_VECTOR src operands total size don't match dest "
+             "size.",
+             MI);
+    break;
+  }
+  case TargetOpcode::G_BUILD_VECTOR_TRUNC: {
+    // Source types must be scalars, dest type a vector. Scalar types must be
+    // larger than the dest vector elt type, as this is a truncating operation.
+    LLT DstTy = MRI->getType(MI->getOperand(0).getReg());
+    LLT SrcEltTy = MRI->getType(MI->getOperand(1).getReg());
+    if (!DstTy.isVector() || SrcEltTy.isVector())
+      report("G_BUILD_VECTOR_TRUNC must produce a vector from scalar operands",
+             MI);
+    for (unsigned i = 2; i < MI->getNumOperands(); ++i) {
+      if (MRI->getType(MI->getOperand(1).getReg()) !=
+          MRI->getType(MI->getOperand(i).getReg()))
+        report("G_BUILD_VECTOR_TRUNC source operand types are not homogeneous",
+               MI);
+    }
+    if (SrcEltTy.getSizeInBits() <= DstTy.getElementType().getSizeInBits())
+      report("G_BUILD_VECTOR_TRUNC source operand types are not larger than "
+             "dest elt type",
+             MI);
+    break;
+  }
+  case TargetOpcode::G_CONCAT_VECTORS: {
+    // Source types should be vectors, and total size should match the dest
+    // vector size.
+    LLT DstTy = MRI->getType(MI->getOperand(0).getReg());
+    LLT SrcTy = MRI->getType(MI->getOperand(1).getReg());
+    if (!DstTy.isVector() || !SrcTy.isVector())
+      report("G_CONCAT_VECTOR requires vector source and destination operands",
+             MI);
+    for (unsigned i = 2; i < MI->getNumOperands(); ++i) {
+      if (MRI->getType(MI->getOperand(1).getReg()) !=
+          MRI->getType(MI->getOperand(i).getReg()))
+        report("G_CONCAT_VECTOR source operand types are not homogeneous", MI);
+    }
+    if (DstTy.getNumElements() !=
+        SrcTy.getNumElements() * (MI->getNumOperands() - 1))
+      report("G_CONCAT_VECTOR num dest and source elements should match", MI);
     break;
   }
   case TargetOpcode::COPY: {

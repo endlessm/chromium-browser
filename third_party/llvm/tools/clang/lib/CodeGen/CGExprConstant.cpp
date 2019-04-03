@@ -723,6 +723,10 @@ public:
     return nullptr;
   }
 
+  llvm::Constant *VisitConstantExpr(ConstantExpr *CE, QualType T) {
+    return Visit(CE->getSubExpr(), T);
+  }
+
   llvm::Constant *VisitParenExpr(ParenExpr *PE, QualType T) {
     return Visit(PE->getSubExpr(), T);
   }
@@ -1451,6 +1455,7 @@ llvm::Constant *ConstantEmitter::tryEmitPrivateForVarInit(const VarDecl &D) {
         if (CD->isTrivial() && CD->isDefaultConstructor())
           return CGM.EmitNullConstant(D.getType());
       }
+    InConstantContext = true;
   }
 
   QualType destType = D.getType();
@@ -1548,7 +1553,7 @@ llvm::Constant *ConstantEmitter::tryEmitPrivate(const Expr *E,
   if (destType->isReferenceType())
     Success = E->EvaluateAsLValue(Result, CGM.getContext());
   else
-    Success = E->EvaluateAsRValue(Result, CGM.getContext());
+    Success = E->EvaluateAsRValue(Result, CGM.getContext(), InConstantContext);
 
   llvm::Constant *C;
   if (Success && !Result.HasSideEffects)
@@ -1601,6 +1606,7 @@ private:
   ConstantLValue tryEmitBase(const APValue::LValueBase &base);
 
   ConstantLValue VisitStmt(const Stmt *S) { return nullptr; }
+  ConstantLValue VisitConstantExpr(const ConstantExpr *E);
   ConstantLValue VisitCompoundLiteralExpr(const CompoundLiteralExpr *E);
   ConstantLValue VisitStringLiteral(const StringLiteral *E);
   ConstantLValue VisitObjCEncodeExpr(const ObjCEncodeExpr *E);
@@ -1756,6 +1762,11 @@ ConstantLValueEmitter::tryEmitBase(const APValue::LValueBase &base) {
 }
 
 ConstantLValue
+ConstantLValueEmitter::VisitConstantExpr(const ConstantExpr *E) {
+  return Visit(E->getSubExpr());
+}
+
+ConstantLValue
 ConstantLValueEmitter::VisitCompoundLiteralExpr(const CompoundLiteralExpr *E) {
   return tryEmitGlobalCompoundLiteral(CGM, Emitter.CGF, E);
 }
@@ -1862,6 +1873,9 @@ llvm::Constant *ConstantEmitter::tryEmitPrivate(const APValue &Value,
     return ConstantLValueEmitter(*this, Value, DestType).tryEmit();
   case APValue::Int:
     return llvm::ConstantInt::get(CGM.getLLVMContext(), Value.getInt());
+  case APValue::FixedPoint:
+    return llvm::ConstantInt::get(CGM.getLLVMContext(),
+                                  Value.getFixedPoint().getValue());
   case APValue::ComplexInt: {
     llvm::Constant *Complex[2];
 

@@ -67,7 +67,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   // represented by |render_process_host|, if any. Otherwise, an empty string is
   // returned.
   static std::string GetPartitionID(
-      const content::RenderProcessHost* render_process_host);
+      content::RenderProcessHost* render_process_host);
 
   static const char Type[];
 
@@ -234,7 +234,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
       const base::Callback<void(bool)>& callback) final;
   bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
-                                  content::MediaStreamType type) final;
+                                  blink::MediaStreamType type) final;
   void CanDownload(const GURL& url,
                    const std::string& request_method,
                    const base::Callback<void(bool)>& callback) final;
@@ -284,8 +284,6 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void ReportFrameNameChange(const std::string& name);
 
   void PushWebViewStateToIOThread();
-  static void RemoveWebViewStateFromIOThread(
-      content::WebContents* web_contents);
 
   // Loads the |url| provided. |force_navigation| indicates whether to reload
   // the content if the provided |url| matches the current page of the guest.

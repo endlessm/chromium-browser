@@ -409,19 +409,6 @@ static void test_copy_on_write(skiatest::Reporter* reporter, SkSurface* surface)
     testRRect.setRectXY(testRect, SK_Scalar1, SK_Scalar1);
 
     SkString testText("Hello World");
-    const SkPoint testPoints2[] = {
-        { SkIntToScalar(0), SkIntToScalar(1) },
-        { SkIntToScalar(1), SkIntToScalar(1) },
-        { SkIntToScalar(2), SkIntToScalar(1) },
-        { SkIntToScalar(3), SkIntToScalar(1) },
-        { SkIntToScalar(4), SkIntToScalar(1) },
-        { SkIntToScalar(5), SkIntToScalar(1) },
-        { SkIntToScalar(6), SkIntToScalar(1) },
-        { SkIntToScalar(7), SkIntToScalar(1) },
-        { SkIntToScalar(8), SkIntToScalar(1) },
-        { SkIntToScalar(9), SkIntToScalar(1) },
-        { SkIntToScalar(10), SkIntToScalar(1) },
-    };
 
 #define EXPECT_COPY_ON_WRITE(command)                               \
     {                                                               \
@@ -444,9 +431,7 @@ static void test_copy_on_write(skiatest::Reporter* reporter, SkSurface* surface)
     EXPECT_COPY_ON_WRITE(drawBitmap(testBitmap, 0, 0))
     EXPECT_COPY_ON_WRITE(drawBitmapRect(testBitmap, testRect, nullptr))
     EXPECT_COPY_ON_WRITE(drawBitmapNine(testBitmap, testIRect, testRect, nullptr))
-    EXPECT_COPY_ON_WRITE(drawString(testText, 0, 1, testPaint))
-    EXPECT_COPY_ON_WRITE(drawPosText(testText.c_str(), testText.size(), testPoints2, \
-        testPaint))
+    EXPECT_COPY_ON_WRITE(drawString(testText, 0, 1, SkFont(), testPaint))
 }
 DEF_TEST(SurfaceCopyOnWrite, reporter) {
     test_copy_on_write(reporter, create_surface().get());
@@ -672,8 +657,29 @@ static sk_sp<SkSurface> create_gpu_surface_backend_texture(
     GrContext* context, int sampleCnt, uint32_t color, GrBackendTexture* outTexture) {
     GrGpu* gpu = context->contextPriv().getGpu();
 
+    // On Pixel and Pixel2XL's with Adreno 530 and 540s, setting width and height to 10s reliably
+    // triggers what appears to be a driver race condition where the 10x10 surface from the
+    // OverdrawSurface_gpu test is reused(?) for this surface created by the SurfacePartialDraw_gpu
+    // test.
+    //
+    // Immediately after creation of this surface, readback shows the correct initial solid color.
+    // However, sometime before content is rendered into the upper half of the surface, the driver
+    // presumably cleans up the OverdrawSurface_gpu's memory which corrupts this color buffer. The
+    // top half of the surface is fine after the partially-covering rectangle is drawn, but the
+    // untouched bottom half contains random pixel values that trigger asserts in the
+    // SurfacePartialDraw_gpu test for no longer matching the initial color. Running the
+    // SurfacePartialDraw_gpu test without the OverdrawSurface_gpu test completes successfully.
+    //
+    // Requesting a much larger backend texture size seems to prevent it from reusing the same
+    // memory and avoids the issue.
+#if defined(SK_BUILD_FOR_SKQP)
     const int kWidth = 10;
     const int kHeight = 10;
+#else
+    const int kWidth = 100;
+    const int kHeight = 100;
+#endif
+
     std::unique_ptr<uint32_t[]> pixels(new uint32_t[kWidth * kHeight]);
     sk_memset32(pixels.get(), color, kWidth * kHeight);
 

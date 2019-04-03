@@ -46,6 +46,7 @@ class CPDF_ObjectStream {
 
   uint32_t obj_num_ = CPDF_Object::kInvalidObjNum;
   uint32_t extends_obj_num_ = CPDF_Object::kInvalidObjNum;
+
   RetainPtr<IFX_SeekableReadStream> data_stream_;
   int first_object_offset_ = 0;
   std::map<uint32_t, uint32_t> objects_offsets_;

@@ -1,7 +1,7 @@
-; RUN: llc -mtriple=thumbv7m -arm-disable-cgp=false %s -o - | FileCheck %s --check-prefix=CHECK-COMMON --check-prefix=CHECK-NODSP
-; RUN: llc -mtriple=thumbv8m.main -arm-disable-cgp=false %s -o - | FileCheck %s --check-prefix=CHECK-COMMON --check-prefix=CHECK-NODSP
-; RUN: llc -mtriple=thumbv8m.main -arm-disable-cgp=false -arm-enable-scalar-dsp=true -mcpu=cortex-m33 %s -o - | FileCheck %s --check-prefix=CHECK-COMMON --check-prefix=CHECK-DSP
-; RUN: llc -mtriple=thumbv7em %s -arm-disable-cgp=false -arm-enable-scalar-dsp=true -arm-enable-scalar-dsp-imms=true -o - | FileCheck %s --check-prefix=CHECK-COMMON --check-prefix=CHECK-DSP-IMM
+; RUN: llc -mtriple=thumbv7m -arm-disable-cgp=false %s -o - | FileCheck %s --check-prefix=CHECK-COMMON
+; RUN: llc -mtriple=thumbv8m.main -arm-disable-cgp=false %s -o - | FileCheck %s --check-prefix=CHECK-COMMON
+; RUN: llc -mtriple=thumbv8m.main -arm-disable-cgp=false -arm-enable-scalar-dsp=true -mcpu=cortex-m33 %s -o - | FileCheck %s --check-prefix=CHECK-COMMON
+; RUN: llc -mtriple=thumbv7em %s -arm-disable-cgp=false -arm-enable-scalar-dsp=true -arm-enable-scalar-dsp-imms=true -o - | FileCheck %s --check-prefix=CHECK-COMMON
 
 ; Test that ARMCodeGenPrepare can handle:
 ; - loops
@@ -171,4 +171,16 @@ if.end:
 
 exit:
   ret i16 %unrelated
+}
+
+; CHECK-COMMON-LABEL: promote_arg_return
+; CHECK-COMMON-NOT: uxt
+; CHECK-COMMON: strb
+define i16 @promote_arg_return(i16 zeroext %arg1, i16 zeroext %arg2, i8* %res) {
+  %add = add nuw i16 %arg1, 15
+  %mul = mul nuw nsw i16 %add, 3
+  %cmp = icmp ult i16 %mul, %arg2
+  %conv = zext i1 %cmp to i8
+  store i8 %conv, i8* %res
+  ret i16 %arg1
 }

@@ -48,9 +48,21 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
   const LLT v2s64 = LLT::vector(2, 64);
 
   getActionDefinitionsBuilder(G_IMPLICIT_DEF)
-      .legalFor({p0, s1, s8, s16, s32, s64})
-      .clampScalar(0, s1, s64)
-      .widenScalarToNextPow2(0, 8);
+    .legalFor({p0, s1, s8, s16, s32, s64, v2s64})
+    .clampScalar(0, s1, s64)
+    .widenScalarToNextPow2(0, 8)
+    .fewerElementsIf(
+      [=](const LegalityQuery &Query) {
+        return Query.Types[0].isVector() &&
+          (Query.Types[0].getElementType() != s64 ||
+           Query.Types[0].getNumElements() != 2);
+      },
+      [=](const LegalityQuery &Query) {
+        LLT EltTy = Query.Types[0].getElementType();
+        if (EltTy == s64)
+          return std::make_pair(0, LLT::vector(2, 64));
+        return std::make_pair(0, EltTy);
+      });
 
   getActionDefinitionsBuilder(G_PHI)
       .legalFor({p0, s16, s32, s64})
@@ -96,6 +108,16 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
       .legalFor({s32, s64});
 
   getActionDefinitionsBuilder({G_FREM, G_FPOW}).libcallFor({s32, s64});
+
+  getActionDefinitionsBuilder(G_FCEIL)
+      // If we don't have full FP16 support, then widen s16 to s32 if we
+      // encounter it.
+      .widenScalarIf(
+          [=, &ST](const LegalityQuery &Query) {
+            return Query.Types[0] == s16 && !ST.hasFullFP16();
+          },
+          [=](const LegalityQuery &Query) { return std::make_pair(0, s32); })
+      .legalFor({s16, s32, s64, v2s32, v4s32, v2s64});
 
   getActionDefinitionsBuilder(G_INSERT)
       .unsupportedIf([=](const LegalityQuery &Query) {
@@ -398,13 +420,26 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST) {
         return VecTy == v4s32 || VecTy == v2s64;
       });
 
+  getActionDefinitionsBuilder(G_BUILD_VECTOR)
+      .legalFor({{v4s32, s32}, {v2s64, s64}})
+      .clampNumElements(0, v4s32, v4s32)
+      .clampNumElements(0, v2s64, v2s64)
+
+      // Deal with larger scalar types, which will be implicitly truncated.
+      .legalIf([=](const LegalityQuery &Query) {
+        return Query.Types[0].getScalarSizeInBits() <
+               Query.Types[1].getSizeInBits();
+      })
+      .minScalarSameAs(1, 0);
+
   computeTables();
   verify(*ST.getInstrInfo());
 }
 
 bool AArch64LegalizerInfo::legalizeCustom(MachineInstr &MI,
                                           MachineRegisterInfo &MRI,
-                                          MachineIRBuilder &MIRBuilder) const {
+                                          MachineIRBuilder &MIRBuilder,
+                                          GISelChangeObserver &Observer) const {
   switch (MI.getOpcode()) {
   default:
     // No idea what to do.

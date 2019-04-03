@@ -53,13 +53,15 @@ class InstancingTest : public ANGLETest
         )";
 
         // attrib 0 is instanced
-        mProgram0 = CompileProgram(inst + pos + main, essl1_shaders::fs::Red());
+        const std::string inst0 = inst + pos + main;
+        mProgram0               = CompileProgram(inst0.c_str(), essl1_shaders::fs::Red());
         ASSERT_NE(0u, mProgram0);
         ASSERT_EQ(0, glGetAttribLocation(mProgram0, "a_instance"));
         ASSERT_EQ(1, glGetAttribLocation(mProgram0, "a_position"));
 
         // attrib 1 is instanced
-        mProgram1 = CompileProgram(pos + inst + main, essl1_shaders::fs::Red());
+        const std::string inst1 = pos + inst + main;
+        mProgram1               = CompileProgram(inst1.c_str(), essl1_shaders::fs::Red());
         ASSERT_NE(0u, mProgram1);
         ASSERT_EQ(1, glGetAttribLocation(mProgram1, "a_instance"));
         ASSERT_EQ(0, glGetAttribLocation(mProgram1, "a_position"));
@@ -81,7 +83,6 @@ class InstancingTest : public ANGLETest
         // The instance data array selects all the slices in order.
         // 'lastDrawn' is the index (zero-based) of the last slice into which we draw.
         const unsigned lastDrawn = (numInstance - 1) / divisor;
-        ASSERT(lastDrawn < kMaxDrawn);
 
         const int instanceAttrib = attribZeroInstanced ? 0 : 1;
         const int positionAttrib = attribZeroInstanced ? 1 : 0;
@@ -127,11 +128,12 @@ class InstancingTest : public ANGLETest
     {
         for (unsigned i = 0; i < kMaxDrawn; ++i)
         {
-            float y = -1.0 + kDrawSize / 2.0 + i * kDrawSize;
-            int iy  = (y + 1.0) / 2.0 * getWindowHeight();
+            float y =
+                -1.0f + static_cast<float>(kDrawSize) / 2.0f + static_cast<float>(i * kDrawSize);
+            int iy = static_cast<int>((y + 1.0f) / 2.0f * getWindowHeight());
             for (unsigned j = 0; j < 8; j += 2)
             {
-                int ix = (kPointVertices[j] + 1.0) / 2.0 * getWindowWidth();
+                int ix = static_cast<int>((kPointVertices[j] + 1.0f) / 2.0f * getWindowWidth());
                 EXPECT_PIXEL_COLOR_EQ(ix, iy, i <= lastDrawn ? GLColor::red : GLColor::blue);
             }
         }
@@ -303,7 +305,6 @@ TEST_P(InstancingTestES31, UpdateAttribBindingByVertexAttribDivisor)
     const unsigned numInstance = 4;
     const unsigned divisor     = 1;
     const unsigned lastDrawn   = (numInstance - 1) / divisor;
-    ASSERT(lastDrawn < kMaxDrawn);
 
     // Set the formats by VertexAttribFormat
     glVertexAttribFormat(positionLoc, 2, GL_FLOAT, GL_FALSE, 0);
@@ -360,7 +361,7 @@ TEST_P(InstancingTestES31, UpdateAttribBindingByVertexAttribDivisor)
 // Verify that a large divisor that also changes doesn't cause issues and renders correctly.
 TEST_P(InstancingTestES3, LargeDivisor)
 {
-    const std::string &vs = R"(#version 300 es
+    constexpr char kVS[] = R"(#version 300 es
 layout(location = 0) in vec4 a_position;
 layout(location = 1) in vec4 a_color;
 out vec4 v_color;
@@ -371,7 +372,7 @@ void main()
     v_color = a_color;
 })";
 
-    const std::string &fs = R"(#version 300 es
+    constexpr char kFS[] = R"(#version 300 es
 precision highp float;
 in vec4 v_color;
 out vec4 my_FragColor;
@@ -380,7 +381,7 @@ void main()
     my_FragColor = v_color;
 })";
 
-    ANGLE_GL_PROGRAM(program, vs, fs);
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
     glUseProgram(program);
 
     glClearColor(0.0f, 0.0f, 1.0f, 1.0f);

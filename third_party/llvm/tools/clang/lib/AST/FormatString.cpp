@@ -179,6 +179,36 @@ clang::analyze_format_string::ParseArgPosition(FormatStringHandler &H,
 }
 
 bool
+clang::analyze_format_string::ParseVectorModifier(FormatStringHandler &H,
+                                                  FormatSpecifier &FS,
+                                                  const char *&I,
+                                                  const char *E,
+                                                  const LangOptions &LO) {
+  if (!LO.OpenCL)
+    return false;
+
+  const char *Start = I;
+  if (*I == 'v') {
+    ++I;
+
+    if (I == E) {
+      H.HandleIncompleteSpecifier(Start, E - Start);
+      return true;
+    }
+
+    OptionalAmount NumElts = ParseAmount(I, E);
+    if (NumElts.getHowSpecified() != OptionalAmount::Constant) {
+      H.HandleIncompleteSpecifier(Start, E - Start);
+      return true;
+    }
+
+    FS.setVectorNumElts(NumElts);
+  }
+
+  return false;
+}
+
+bool
 clang::analyze_format_string::ParseLengthModifier(FormatSpecifier &FS,
                                                   const char *&I,
                                                   const char *E,
@@ -455,6 +485,14 @@ ArgType::matchesType(ASTContext &C, QualType argTy) const {
   }
 
   llvm_unreachable("Invalid ArgType Kind!");
+}
+
+ArgType ArgType::makeVectorType(ASTContext &C, unsigned NumElts) const {
+  if (K != SpecificTy) // Won't be a valid vector element type.
+    return ArgType::Invalid();
+
+  QualType Vec = C.getExtVectorType(T, NumElts);
+  return ArgType(Vec, Name);
 }
 
 QualType ArgType::getRepresentativeType(ASTContext &C) const {

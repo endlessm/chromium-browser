@@ -89,6 +89,14 @@ DiagnosticsEngine::~DiagnosticsEngine() {
   setClient(nullptr);
 }
 
+void DiagnosticsEngine::dump() const {
+  DiagStatesByLoc.dump(*SourceMgr);
+}
+
+void DiagnosticsEngine::dump(StringRef DiagName) const {
+  DiagStatesByLoc.dump(*SourceMgr, DiagName);
+}
+
 void DiagnosticsEngine::setClient(DiagnosticConsumer *client,
                                   bool ShouldOwnClient) {
   Owner.reset(ShouldOwnClient ? client : nullptr);
@@ -975,6 +983,7 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
       llvm::raw_svector_ostream(OutStr) << '\'' << II->getName() << '\'';
       break;
     }
+    case DiagnosticsEngine::ak_qual:
     case DiagnosticsEngine::ak_qualtype:
     case DiagnosticsEngine::ak_declarationname:
     case DiagnosticsEngine::ak_nameddecl:

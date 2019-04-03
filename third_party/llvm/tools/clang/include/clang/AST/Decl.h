@@ -15,6 +15,7 @@
 #define LLVM_CLANG_AST_DECL_H
 
 #include "clang/AST/APValue.h"
+#include "clang/AST/ASTContextAllocate.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/ExternalASTSource.h"
@@ -866,8 +867,12 @@ private:
     unsigned SClass : 3;
     unsigned TSCSpec : 2;
     unsigned InitStyle : 2;
+
+    /// Whether this variable is an ARC pseudo-__strong variable; see
+    /// isARCPseudoStrong() for details.
+    unsigned ARCPseudoStrong : 1;
   };
-  enum { NumVarDeclBits = 7 };
+  enum { NumVarDeclBits = 8 };
 
 protected:
   enum { NumParameterIndexBits = 8 };
@@ -939,10 +944,6 @@ protected:
 
     /// Whether this variable is the for-in loop declaration in Objective-C.
     unsigned ObjCForDecl : 1;
-
-    /// Whether this variable is an ARC pseudo-__strong
-    /// variable;  see isARCPseudoStrong() for details.
-    unsigned ARCPseudoStrong : 1;
 
     /// Whether this variable is (C++1z) inline.
     unsigned IsInline : 1;
@@ -1349,17 +1350,15 @@ public:
     NonParmVarDeclBits.ObjCForDecl = FRD;
   }
 
-  /// Determine whether this variable is an ARC pseudo-__strong
-  /// variable.  A pseudo-__strong variable has a __strong-qualified
-  /// type but does not actually retain the object written into it.
-  /// Generally such variables are also 'const' for safety.
-  bool isARCPseudoStrong() const {
-    return isa<ParmVarDecl>(this) ? false : NonParmVarDeclBits.ARCPseudoStrong;
-  }
-  void setARCPseudoStrong(bool ps) {
-    assert(!isa<ParmVarDecl>(this));
-    NonParmVarDeclBits.ARCPseudoStrong = ps;
-  }
+  /// Determine whether this variable is an ARC pseudo-__strong variable. A
+  /// pseudo-__strong variable has a __strong-qualified type but does not
+  /// actually retain the object written into it. Generally such variables are
+  /// also 'const' for safety. There are 3 cases where this will be set, 1) if
+  /// the variable is annotated with the objc_externally_retained attribute, 2)
+  /// if its 'self' in a non-init method, or 3) if its the variable in an for-in
+  /// loop.
+  bool isARCPseudoStrong() const { return VarDeclBits.ARCPseudoStrong; }
+  void setARCPseudoStrong(bool PS) { VarDeclBits.ARCPseudoStrong = PS; }
 
   /// Whether this variable is (C++1z) inline.
   bool isInline() const {
@@ -1717,6 +1716,13 @@ private:
 
   void setParameterIndexLarge(unsigned parameterIndex);
   unsigned getParameterIndexLarge() const;
+};
+
+enum class MultiVersionKind {
+  None,
+  Target,
+  CPUSpecific,
+  CPUDispatch
 };
 
 /// Represents a function declaration or definition.
@@ -2226,6 +2232,12 @@ public:
     getCanonicalDecl()->FunctionDeclBits.IsMultiVersion = V;
   }
 
+  /// Gets the kind of multiversioning attribute this declaration has. Note that
+  /// this can return a value even if the function is not multiversion, such as
+  /// the case of 'target'.
+  MultiVersionKind getMultiVersionKind() const;
+
+
   /// True if this function is a multiversioned dispatch function as a part of
   /// the cpu_specific/cpu_dispatch functionality.
   bool isCPUDispatchMultiVersion() const;
@@ -2313,14 +2325,6 @@ public:
     return getType()->castAs<FunctionType>()->getCallResultType(
         getASTContext());
   }
-
-  /// Returns the WarnUnusedResultAttr that is either declared on this
-  /// function, or its return type declaration.
-  const Attr *getUnusedResultAttr() const;
-
-  /// Returns true if this function or its return type has the
-  /// warn_unused_result attribute.
-  bool hasUnusedResultAttr() const { return getUnusedResultAttr() != nullptr; }
 
   /// Returns the storage class as written in the source. For the
   /// computed linkage of symbol, see getLinkage.

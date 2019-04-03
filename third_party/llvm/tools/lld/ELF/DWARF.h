@@ -37,22 +37,30 @@ public:
     return RangeSection;
   }
 
+  const llvm::DWARFSection &getRnglistsSection() const override {
+    return RngListsSection;
+  }
+
   const llvm::DWARFSection &getLineSection() const override {
     return LineSection;
+  }
+
+  const llvm::DWARFSection &getAddrSection() const override {
+    return AddrSection;
+  }
+
+  const llvm::DWARFSection &getGnuPubNamesSection() const override {
+    return GnuPubNamesSection;
+  }
+
+  const llvm::DWARFSection &getGnuPubTypesSection() const override {
+    return GnuPubTypesSection;
   }
 
   StringRef getFileName() const override { return ""; }
   StringRef getAbbrevSection() const override { return AbbrevSection; }
   StringRef getStringSection() const override { return StrSection; }
   StringRef getLineStringSection() const override { return LineStringSection; }
-
-  StringRef getGnuPubNamesSection() const override {
-    return GnuPubNamesSection;
-  }
-
-  StringRef getGnuPubTypesSection() const override {
-    return GnuPubTypesSection;
-  }
 
   bool isLittleEndian() const override {
     return ELFT::TargetEndianness == llvm::support::little;
@@ -67,13 +75,14 @@ private:
                                                uint64_t Pos,
                                                ArrayRef<RelTy> Rels) const;
 
+  LLDDWARFSection GnuPubNamesSection;
+  LLDDWARFSection GnuPubTypesSection;
   LLDDWARFSection InfoSection;
   LLDDWARFSection RangeSection;
+  LLDDWARFSection RngListsSection;
   LLDDWARFSection LineSection;
-
+  LLDDWARFSection AddrSection;
   StringRef AbbrevSection;
-  StringRef GnuPubNamesSection;
-  StringRef GnuPubTypesSection;
   StringRef StrSection;
   StringRef LineStringSection;
 };

@@ -139,12 +139,12 @@ MachineFunction::MachineFunction(const Function &F,
   init();
 }
 
-void MachineFunction::handleInsertion(const MachineInstr &MI) {
+void MachineFunction::handleInsertion(MachineInstr &MI) {
   if (TheDelegate)
     TheDelegate->MF_HandleInsertion(MI);
 }
 
-void MachineFunction::handleRemoval(const MachineInstr &MI) {
+void MachineFunction::handleRemoval(MachineInstr &MI) {
   if (TheDelegate)
     TheDelegate->MF_HandleRemoval(MI);
 }
@@ -435,7 +435,7 @@ MachineFunction::createMIExtraInfo(ArrayRef<MachineMemOperand *> MMOs,
 
 const char *MachineFunction::createExternalSymbolName(StringRef Name) {
   char *Dest = Allocator.Allocate<char>(Name.size() + 1);
-  std::copy(Name.begin(), Name.end(), Dest);
+  llvm::copy(Name, Dest);
   Dest[Name.size()] = 0;
   return Dest;
 }

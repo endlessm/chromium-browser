@@ -9,6 +9,7 @@
 
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
+#include "util/EGLWindow.h"
 
 #include <array>
 
@@ -57,7 +58,7 @@ class RobustBufferAccessBehaviorTest : public ANGLETest
 
     void initBasicProgram()
     {
-        const std::string &vsCheckOutOfBounds =
+        constexpr char kVS[] =
             "precision mediump float;\n"
             "attribute vec4 position;\n"
             "attribute vec4 vecRandom;\n"
@@ -80,14 +81,14 @@ class RobustBufferAccessBehaviorTest : public ANGLETest
             "    gl_Position = position;\n"
             "}\n";
 
-        const std::string &fragmentShaderSource =
+        constexpr char kFS[] =
             "precision mediump float;\n"
             "varying vec4 v_color;\n"
             "void main() {\n"
             "    gl_FragColor = v_color;\n"
             "}\n";
 
-        mProgram = CompileProgram(vsCheckOutOfBounds, fragmentShaderSource);
+        mProgram = CompileProgram(kVS, kFS);
         ASSERT_NE(0u, mProgram);
 
         mTestAttrib = glGetAttribLocation(mProgram, "vecRandom");
@@ -152,8 +153,9 @@ TEST_P(RobustBufferAccessBehaviorTest, DrawElementsIndexOutOfRangeWithStaticDraw
 {
     ANGLE_SKIP_TEST_IF(IsNVIDIA() && IsWindows() && IsOpenGL());
 
-    // Failing after changing the shard count of angle_end2end_tests. http://anglebug.com/2799
-    ANGLE_SKIP_TEST_IF(IsNVIDIA() && IsD3D11_FL93());
+    // Failing on NV after changing shard count of angle_end2end_tests. http://anglebug.com/2799
+    // Also failing on AMD after a validation change. http://anglebug.com/3042
+    ANGLE_SKIP_TEST_IF(IsD3D11_FL93());
 
     ANGLE_SKIP_TEST_IF(!initExtension());
 

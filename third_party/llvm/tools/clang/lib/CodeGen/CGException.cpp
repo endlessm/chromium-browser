@@ -250,7 +250,11 @@ static llvm::Constant *getPersonalityFn(CodeGenModule &CGM,
 static llvm::Constant *getOpaquePersonalityFn(CodeGenModule &CGM,
                                         const EHPersonality &Personality) {
   llvm::Constant *Fn = getPersonalityFn(CGM, Personality);
-  return llvm::ConstantExpr::getBitCast(Fn, CGM.Int8PtrTy);
+  llvm::PointerType* Int8PtrTy = llvm::PointerType::get(
+      llvm::Type::getInt8Ty(CGM.getLLVMContext()),
+      CGM.getDataLayout().getProgramAddressSpace());
+
+  return llvm::ConstantExpr::getBitCast(Fn, Int8PtrTy);
 }
 
 /// Check whether a landingpad instruction only uses C++ features.
@@ -1623,8 +1627,16 @@ struct PerformSEHFinally final : EHScopeStack::Cleanup {
 
     // Compute the two argument values.
     QualType ArgTys[2] = {Context.UnsignedCharTy, Context.VoidPtrTy};
-    llvm::Value *LocalAddrFn = CGM.getIntrinsic(llvm::Intrinsic::localaddress);
-    llvm::Value *FP = CGF.Builder.CreateCall(LocalAddrFn);
+    llvm::Value *FP = nullptr;
+    // If CFG.IsOutlinedSEHHelper is true, then we are within a finally block.
+    if (CGF.IsOutlinedSEHHelper) {
+      FP = &CGF.CurFn->arg_begin()[1];
+    } else {
+      llvm::Value *LocalAddrFn =
+          CGM.getIntrinsic(llvm::Intrinsic::localaddress);
+      FP = CGF.Builder.CreateCall(LocalAddrFn);
+    }
+
     llvm::Value *IsForEH =
         llvm::ConstantInt::get(CGF.ConvertType(ArgTys[0]), F.isForEHCleanup());
     Args.add(RValue::get(IsForEH), ArgTys[0]);
@@ -1777,7 +1789,7 @@ void CodeGenFunction::EmitCapturedLocals(CodeGenFunction &ParentCGF,
     // frame pointer of the parent function. We only need to do this in filters,
     // since finally funclets recover the parent FP for us.
     llvm::Function *RecoverFPIntrin =
-        CGM.getIntrinsic(llvm::Intrinsic::x86_seh_recoverfp);
+        CGM.getIntrinsic(llvm::Intrinsic::eh_recoverfp);
     llvm::Constant *ParentI8Fn =
         llvm::ConstantExpr::getBitCast(ParentCGF.CurFn, Int8PtrTy);
     ParentFP = Builder.CreateCall(RecoverFPIntrin, {ParentI8Fn, EntryFP});
@@ -1874,7 +1886,7 @@ void CodeGenFunction::startOutlinedSEHHelper(CodeGenFunction &ParentCGF,
                 OutlinedStmt->getBeginLoc(), OutlinedStmt->getBeginLoc());
   CurSEHParent = ParentCGF.CurSEHParent;
 
-  CGM.SetLLVMFunctionAttributes(nullptr, FnInfo, CurFn);
+  CGM.SetLLVMFunctionAttributes(GlobalDecl(), FnInfo, CurFn);
   EmitCapturedLocals(ParentCGF, OutlinedStmt, IsFilter);
 }
 

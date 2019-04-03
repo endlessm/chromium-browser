@@ -92,6 +92,7 @@ SVal Environment::getSVal(const EnvironmentEntry &Entry,
   case Stmt::ExprWithCleanupsClass:
   case Stmt::GenericSelectionExprClass:
   case Stmt::OpaqueValueExprClass:
+  case Stmt::ConstantExprClass:
   case Stmt::ParenExprClass:
   case Stmt::SubstNonTypeTemplateParmExprClass:
     llvm_unreachable("Should have been handled by ignoreTransparentExprs");
@@ -192,11 +193,6 @@ EnvironmentManager::removeDeadBindings(Environment Env,
 
       // Mark all symbols in the block expr's value live.
       RSScaner.scan(X);
-      continue;
-    } else {
-      SymExpr::symbol_iterator SI = X.symbol_begin(), SE = X.symbol_end();
-      for (; SI != SE; ++SI)
-        SymReaper.maybeDead(*SI);
     }
   }
 

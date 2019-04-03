@@ -389,8 +389,7 @@ unsigned TargetTransformInfo::getMaxInterleaveFactor(unsigned VF) const {
 }
 
 TargetTransformInfo::OperandValueKind
-TargetTransformInfo::getOperandInfo(Value *V,
-                                    OperandValueProperties &OpProps) const {
+TargetTransformInfo::getOperandInfo(Value *V, OperandValueProperties &OpProps) {
   OperandValueKind OpInfo = OK_AnyValue;
   OpProps = OP_None;
 
@@ -399,6 +398,13 @@ TargetTransformInfo::getOperandInfo(Value *V,
       OpProps = OP_PowerOf2;
     return OK_UniformConstantValue;
   }
+
+  // A broadcast shuffle creates a uniform value.
+  // TODO: Add support for non-zero index broadcasts.
+  // TODO: Add support for different source vector width.
+  if (auto *ShuffleInst = dyn_cast<ShuffleVectorInst>(V))
+    if (ShuffleInst->isZeroEltSplat())
+      OpInfo = OK_UniformValue;
 
   const Value *Splat = getSplatValue(V);
 
@@ -617,6 +623,12 @@ void TargetTransformInfo::getMemcpyLoopResidualLoweringType(
 bool TargetTransformInfo::areInlineCompatible(const Function *Caller,
                                               const Function *Callee) const {
   return TTIImpl->areInlineCompatible(Caller, Callee);
+}
+
+bool TargetTransformInfo::areFunctionArgsABICompatible(
+    const Function *Caller, const Function *Callee,
+    SmallPtrSetImpl<Argument *> &Args) const {
+  return TTIImpl->areFunctionArgsABICompatible(Caller, Callee, Args);
 }
 
 bool TargetTransformInfo::isIndexedLoadLegal(MemIndexedMode Mode,
@@ -1108,14 +1120,20 @@ int TargetTransformInfo::getInstructionThroughput(const Instruction *I) const {
   }
   case Instruction::ShuffleVector: {
     const ShuffleVectorInst *Shuffle = cast<ShuffleVectorInst>(I);
-    // TODO: Identify and add costs for insert/extract subvector, etc.
+    Type *Ty = Shuffle->getType();
+    Type *SrcTy = Shuffle->getOperand(0)->getType();
+
+    // TODO: Identify and add costs for insert subvector, etc.
+    int SubIndex;
+    if (Shuffle->isExtractSubvectorMask(SubIndex))
+      return TTIImpl->getShuffleCost(SK_ExtractSubvector, SrcTy, SubIndex, Ty);
+
     if (Shuffle->changesLength())
       return -1;
 
     if (Shuffle->isIdentity())
       return 0;
 
-    Type *Ty = Shuffle->getType();
     if (Shuffle->isReverse())
       return TTIImpl->getShuffleCost(SK_Reverse, Ty, 0, nullptr);
 

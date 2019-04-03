@@ -177,15 +177,20 @@ class Job(ndb.Model):
   def auto_name(self):
     if self.name:
       return self.name
-    result = ''
+
+    if self.comparison_mode == job_state.FUNCTIONAL:
+      name = 'Functional bisect'
+    elif self.comparison_mode == job_state.PERFORMANCE:
+      name = 'Performance bisect'
+    else:
+      name = 'Try job'
+
     if 'configuration' in self.arguments:
-      result = '%s' % self.arguments['configuration']
+      name += ' on ' + self.arguments['configuration']
       if 'benchmark' in self.arguments:
-        result = '%s: %s' % (result, self.arguments['benchmark'])
-        if 'story' in self.arguments:
-          result = '%s:%s' % (result, self.arguments['story'])
-      return result
-    return 'Untitled Job'
+        name += '/' + self.arguments['benchmark']
+
+    return name
 
   def AddChange(self, change):
     self.state.AddChange(change)
@@ -244,7 +249,8 @@ class Job(ndb.Model):
 
       # TODO: Assign the largest difference, not the last one.
       owner = commit_info['author']
-      sheriff = utils.GetSheriffForAutorollCommit(commit_info)
+      sheriff = utils.GetSheriffForAutorollCommit(
+          commit_info['author'], commit_info['message'])
       cc_list.add(commit_info['author'])
 
       values_a = self.state.ResultValues(change_a)
@@ -444,14 +450,14 @@ def _FormatDifferenceForBug(commit_info, values_a, values_b, metric):
   subject = '<b>%s</b> by %s' % (commit_info['subject'], commit_info['author'])
 
   if values_a:
-    mean_a = float(sum(values_a)) / len(values_a)
+    mean_a = job_state.Mean(values_a)
     formatted_a = '%.4g' % mean_a
   else:
     mean_a = None
     formatted_a = 'No values'
 
   if values_b:
-    mean_b = float(sum(values_b)) / len(values_b)
+    mean_b = job_state.Mean(values_b)
     formatted_b = '%.4g' % mean_b
   else:
     mean_b = None

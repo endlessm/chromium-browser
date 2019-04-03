@@ -1149,7 +1149,6 @@ TEST_F(ScalarReplacementTest, NoPartialAccesses2) {
 ; CHECK: OpVariable [[float_ptr]] Function
 ; CHECK: OpVariable [[float_ptr]] Function
 ; CHECK: OpVariable [[float_ptr]] Function
-; CHECK: OpVariable [[float_ptr]] Function
 ; CHECK-NOT: OpVariable
 ;
 OpCapability Shader
@@ -1553,6 +1552,72 @@ OpFunctionEnd
   auto result =
       SinglePassRunAndDisassemble<ScalarReplacementPass>(text, true, false, 0);
   EXPECT_EQ(Pass::Status::SuccessWithChange, std::get<1>(result));
+}
+
+TEST_F(ScalarReplacementTest, AmbigousPointer) {
+  const std::string text = R"(
+; CHECK: [[s1:%\w+]] = OpTypeStruct %uint
+; CHECK: [[s2:%\w+]] = OpTypeStruct %uint
+; CHECK: [[s3:%\w+]] = OpTypeStruct [[s2]]
+; CHECK: [[s3_const:%\w+]] = OpConstantComposite [[s3]]
+; CHECK: [[s2_ptr:%\w+]] = OpTypePointer Function [[s2]]
+; CHECK: OpCompositeExtract [[s2]] [[s3_const]]
+
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %2 "main"
+               OpExecutionMode %2 OriginUpperLeft
+               OpSource ESSL 310
+       %void = OpTypeVoid
+          %5 = OpTypeFunction %void
+       %uint = OpTypeInt 32 0
+  %_struct_7 = OpTypeStruct %uint
+  %_struct_8 = OpTypeStruct %uint
+  %_struct_9 = OpTypeStruct %_struct_8
+     %uint_1 = OpConstant %uint 1
+         %11 = OpConstantComposite %_struct_8 %uint_1
+         %12 = OpConstantComposite %_struct_9 %11
+%_ptr_Function__struct_9 = OpTypePointer Function %_struct_9
+%_ptr_Function__struct_7 = OpTypePointer Function %_struct_7
+          %2 = OpFunction %void None %5
+         %15 = OpLabel
+        %var = OpVariable %_ptr_Function__struct_9 Function
+               OpStore %var %12
+         %ld = OpLoad %_struct_9 %var
+         %ex = OpCompositeExtract %_struct_8 %ld 0
+               OpReturn
+               OpFunctionEnd
+  )";
+
+  SinglePassRunAndMatch<ScalarReplacementPass>(text, true);
+}
+
+// Test that scalar replacement does not crash when there is an OpAccessChain
+// with no index.  If we choose to handle this case in the future, then the
+// result can change.
+TEST_F(ScalarReplacementTest, TestAccessChainWithNoIndexes) {
+  const std::string text = R"(
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %1 "main"
+               OpExecutionMode %1 OriginLowerLeft
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+      %float = OpTypeFloat 32
+  %_struct_5 = OpTypeStruct %float
+%_ptr_Function__struct_5 = OpTypePointer Function %_struct_5
+          %1 = OpFunction %void None %3
+          %7 = OpLabel
+          %8 = OpVariable %_ptr_Function__struct_5 Function
+          %9 = OpAccessChain %_ptr_Function__struct_5 %8
+               OpReturn
+               OpFunctionEnd
+  )";
+
+  auto result =
+      SinglePassRunAndDisassemble<ScalarReplacementPass>(text, true, false);
+  EXPECT_EQ(Pass::Status::SuccessWithoutChange, std::get<1>(result));
 }
 
 }  // namespace

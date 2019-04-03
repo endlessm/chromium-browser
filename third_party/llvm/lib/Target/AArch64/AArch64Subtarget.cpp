@@ -14,13 +14,13 @@
 #include "AArch64Subtarget.h"
 
 #include "AArch64.h"
-#include "AArch64InstrInfo.h"
-#include "AArch64PBQPRegAlloc.h"
-#include "AArch64TargetMachine.h"
-
 #include "AArch64CallLowering.h"
+#include "AArch64InstrInfo.h"
 #include "AArch64LegalizerInfo.h"
+#include "AArch64PBQPRegAlloc.h"
 #include "AArch64RegisterBankInfo.h"
+#include "AArch64TargetMachine.h"
+#include "MCTargetDesc/AArch64AddressingModes.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
 #include "llvm/CodeGen/MachineScheduler.h"
 #include "llvm/IR/GlobalValue.h"
@@ -147,6 +147,11 @@ void AArch64Subtarget::initializeProperties() {
     PrefLoopAlignment = 2;
     // FIXME: remove this to enable 64-bit SLP if performance looks good.
     MinVectorRegisterBitWidth = 128;
+    break;
+  case TSV110:
+    CacheLineSize = 64;
+    PrefFunctionAlignment = 4;
+    PrefLoopAlignment = 2;
     break;
   }
 }

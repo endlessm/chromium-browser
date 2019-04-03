@@ -20,13 +20,15 @@ set(GTEST_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../external/googletest)
 # Needed to make structure definitions match with glslang libraries
 add_definitions(-DNV_EXTENSIONS -DAMD_EXTENSIONS)
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+if(WIN32)
     add_definitions(-DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN)
     # Workaround for TR1 deprecation in Visual Studio 15.5 until Google Test is updated
     add_definitions(-D_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
+elseif(ANDROID)
     add_definitions(-DVK_USE_PLATFORM_ANDROID_KHR)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+elseif(APPLE)
+    add_definitions(-DVK_USE_PLATFORM_MACOS_MVK)
+elseif(UNIX AND NOT APPLE) # i.e. Linux
     if(BUILD_WSI_XCB_SUPPORT)
         add_definitions(-DVK_USE_PLATFORM_XCB_KHR)
     endif()
@@ -38,13 +40,6 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if(BUILD_WSI_WAYLAND_SUPPORT)
         add_definitions(-DVK_USE_PLATFORM_WAYLAND_KHR)
     endif()
-
-    if(BUILD_WSI_MIR_SUPPORT)
-        add_definitions(-DVK_USE_PLATFORM_MIR_KHR)
-        include_directories(${MIR_INCLUDE_DIR})
-    endif()
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    add_definitions(-DVK_USE_PLATFORM_MACOS_MVK)
 else()
     message(FATAL_ERROR "Unsupported Platform!")
 endif()
@@ -104,7 +99,13 @@ set(
     )
 find_package(Vulkan)
 
-add_executable(vk_layer_validation_tests layer_validation_tests.cpp ../layers/vk_format_utils.cpp ${COMMON_CPP})
+set_source_files_properties(${PROJECT_BINARY_DIR}/vk_safe_struct.cpp PROPERTIES GENERATED TRUE)
+add_executable(vk_layer_validation_tests
+               layer_validation_tests.cpp
+               ../layers/vk_format_utils.cpp
+               ../layers/convert_to_renderpass2.cpp
+               ${PROJECT_BINARY_DIR}/vk_safe_struct.cpp
+               ${COMMON_CPP})
 set_target_properties(vk_layer_validation_tests PROPERTIES COMPILE_DEFINITIONS "GTEST_LINKED_AS_SHARED_LIBRARY=1")
 target_include_directories(vk_layer_validation_tests
                            PUBLIC ${VulkanHeaders_INCLUDE_DIR}
@@ -126,22 +127,30 @@ add_dependencies(vk_layer_validation_tests
                  VkLayer_threading-json
                  VkLayer_unique_objects-json)
 
-if(NOT WIN32)
-    set_target_properties(vk_layer_validation_tests PROPERTIES COMPILE_FLAGS "-Wno-sign-compare")
+# Specify target_link_libraries
+if(WIN32)
+    target_link_libraries(vk_layer_validation_tests
+                          PRIVATE Vulkan::Vulkan
+                                  gtest
+                                  gtest_main
+                                  ${GLSLANG_LIBRARIES})
+else()
+    target_compile_options(vk_layer_validation_tests PRIVATE "-Wno-sign-compare")
     if(BUILD_WSI_XCB_SUPPORT OR BUILD_WSI_XLIB_SUPPORT)
         target_link_libraries(vk_layer_validation_tests
-                              Vulkan::Vulkan
-                              ${XCB_LIBRARIES}
-                              ${X11_LIBRARIES}
-                              gtest
-                              gtest_main
-                              ${GLSLANG_LIBRARIES})
+                              PRIVATE Vulkan::Vulkan
+                                      ${XCB_LIBRARIES}
+                                      ${X11_LIBRARIES}
+                                      gtest
+                                      gtest_main
+                                      ${GLSLANG_LIBRARIES})
     else()
-        target_link_libraries(vk_layer_validation_tests Vulkan::Vulkan gtest gtest_main ${GLSLANG_LIBRARIES})
+        target_link_libraries(vk_layer_validation_tests
+                              PRIVATE Vulkan::Vulkan
+                                      gtest
+                                      gtest_main
+                                      ${GLSLANG_LIBRARIES})
     endif()
-endif()
-if(WIN32)
-    target_link_libraries(vk_layer_validation_tests Vulkan::Vulkan gtest gtest_main ${GLSLANG_LIBRARIES})
 endif()
 
 if(WIN32)

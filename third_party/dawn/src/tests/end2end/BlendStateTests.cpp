@@ -19,6 +19,7 @@
 
 #include "common/Assert.h"
 #include "common/Constants.h"
+#include "utils/ComboRenderPipelineDescriptor.h"
 #include "utils/DawnHelpers.h"
 
 constexpr static unsigned int kRTSize = 64;
@@ -52,7 +53,7 @@ class BlendStateTest : public DawnTest {
         };
 
         // Set up basePipeline and testPipeline. testPipeline has the given blend state on the first attachment. basePipeline has no blending
-        void SetupSingleSourcePipelines(const dawn::BlendState &blendState) {
+        void SetupSingleSourcePipelines(const dawn::BlendStateDescriptor& blendStateDescriptor) {
             dawn::ShaderModule fsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Fragment, R"(
                 #version 450
                 layout(set = 0, binding = 0) uniform myBlock {
@@ -66,20 +67,22 @@ class BlendStateTest : public DawnTest {
                 }
             )");
 
-            basePipeline = device.CreateRenderPipelineBuilder()
-                .SetColorAttachmentFormat(0, renderPass.colorFormat)
-                .SetLayout(pipelineLayout)
-                .SetStage(dawn::ShaderStage::Vertex, vsModule, "main")
-                .SetStage(dawn::ShaderStage::Fragment, fsModule, "main")
-                .GetResult();
+            utils::ComboRenderPipelineDescriptor baseDescriptor(device);
+            baseDescriptor.layout = pipelineLayout;
+            baseDescriptor.cVertexStage.module = vsModule;
+            baseDescriptor.cFragmentStage.module = fsModule;
+            baseDescriptor.cColorAttachments[0]->format = renderPass.colorFormat;
 
-            testPipeline = device.CreateRenderPipelineBuilder()
-                .SetColorAttachmentFormat(0, renderPass.colorFormat)
-                .SetLayout(pipelineLayout)
-                .SetStage(dawn::ShaderStage::Vertex, vsModule, "main")
-                .SetStage(dawn::ShaderStage::Fragment, fsModule, "main")
-                .SetColorAttachmentBlendState(0, blendState)
-                .GetResult();
+            basePipeline = device.CreateRenderPipeline(&baseDescriptor);
+
+            utils::ComboRenderPipelineDescriptor testDescriptor(device);
+            testDescriptor.layout = pipelineLayout;
+            testDescriptor.cVertexStage.module = vsModule;
+            testDescriptor.cFragmentStage.module = fsModule;
+            testDescriptor.cColorAttachments[0]->format = renderPass.colorFormat;
+            testDescriptor.cBlendStates[0] = blendStateDescriptor;
+
+            testPipeline = device.CreateRenderPipeline(&testDescriptor);
         }
 
         // Create a bind group to set the colors as a uniform buffer
@@ -96,15 +99,7 @@ class BlendStateTest : public DawnTest {
             uint32_t bufferSize = static_cast<uint32_t>(4 * N * sizeof(float));
 
             dawn::Buffer buffer = utils::CreateBufferFromData(device, &data, bufferSize, dawn::BufferUsageBit::Uniform);
-
-            dawn::BufferView view = buffer.CreateBufferViewBuilder()
-                .SetExtent(0, bufferSize)
-                .GetResult();
-
-            return device.CreateBindGroupBuilder()
-                .SetLayout(bindGroupLayout)
-                .SetBufferViews(0, 1, &view)
-                .GetResult();
+            return utils::MakeBindGroup(device, bindGroupLayout, {{0, buffer, 0, bufferSize}});
         }
 
         // Test that after drawing a triangle with the base color, and then the given triangle spec, the color is as expected
@@ -113,15 +108,15 @@ class BlendStateTest : public DawnTest {
             {
                 dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
                 // First use the base pipeline to draw a triangle with no blending
-                pass.SetRenderPipeline(basePipeline);
+                pass.SetPipeline(basePipeline);
                 pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { base } })));
-                pass.DrawArrays(3, 1, 0, 0);
+                pass.Draw(3, 1, 0, 0);
 
                 // Then use the test pipeline to draw the test triangle with blending
-                pass.SetRenderPipeline(testPipeline);
+                pass.SetPipeline(testPipeline);
                 pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { triangle.color } })));
                 pass.SetBlendColor(triangle.blendFactor[0], triangle.blendFactor[1], triangle.blendFactor[2], triangle.blendFactor[3]);
-                pass.DrawArrays(3, 1, 0, 0);
+                pass.Draw(3, 1, 0, 0);
                 pass.EndPass();
             }
 
@@ -138,13 +133,13 @@ class BlendStateTest : public DawnTest {
             blend.srcFactor = dawn::BlendFactor::One;
             blend.dstFactor = dawn::BlendFactor::One;
 
-            dawn::BlendState blendState = device.CreateBlendStateBuilder()
-                .SetBlendEnabled(true)
-                .SetColorBlend(&blend)
-                .SetAlphaBlend(&blend)
-                .GetResult();
+            dawn::BlendStateDescriptor descriptor;
+            descriptor.blendEnabled = true;
+            descriptor.alphaBlend = blend;
+            descriptor.colorBlend = blend;
+            descriptor.colorWriteMask = dawn::ColorWriteMask::All;
 
-            SetupSingleSourcePipelines(blendState);
+            SetupSingleSourcePipelines(descriptor);
 
             for (const auto& test : tests) {
                 DoSingleSourceTest(base, { test.first }, test.second);
@@ -163,13 +158,13 @@ class BlendStateTest : public DawnTest {
             alphaBlend.srcFactor = alphaSrcFactor;
             alphaBlend.dstFactor = alphaDstFactor;
 
-            dawn::BlendState blendState = device.CreateBlendStateBuilder()
-                .SetBlendEnabled(true)
-                .SetColorBlend(&colorBlend)
-                .SetAlphaBlend(&alphaBlend)
-                .GetResult();
+            dawn::BlendStateDescriptor descriptor;
+            descriptor.blendEnabled = true;
+            descriptor.colorBlend = colorBlend;
+            descriptor.alphaBlend = alphaBlend;
+            descriptor.colorWriteMask = dawn::ColorWriteMask::All;
 
-            SetupSingleSourcePipelines(blendState);
+            SetupSingleSourcePipelines(descriptor);
 
             for (const auto& test : tests) {
                 DoSingleSourceTest(base, test.first, test.second);
@@ -279,8 +274,17 @@ namespace {
 
 // Test compilation and usage of the fixture
 TEST_P(BlendStateTest, Basic) {
-    dawn::BlendState blendState = device.CreateBlendStateBuilder().GetResult();
-    SetupSingleSourcePipelines(blendState);
+    dawn::BlendDescriptor blend;
+    blend.operation = dawn::BlendOperation::Add;
+    blend.srcFactor = dawn::BlendFactor::One;
+    blend.dstFactor = dawn::BlendFactor::Zero;
+    dawn::BlendStateDescriptor descriptor;
+    descriptor.blendEnabled = false;
+    descriptor.alphaBlend = blend;
+    descriptor.colorBlend = blend;
+    descriptor.colorWriteMask = dawn::ColorWriteMask::All;
+
+    SetupSingleSourcePipelines(descriptor);
 
     DoSingleSourceTest(RGBA8(0, 0, 0, 0), { RGBA8(255, 0, 0, 0) }, RGBA8(255, 0, 0, 0));
 }
@@ -630,15 +634,14 @@ TEST_P(BlendStateTest, ColorWriteMask) {
     blend.srcFactor = dawn::BlendFactor::One;
     blend.dstFactor = dawn::BlendFactor::One;
 
+    dawn::BlendStateDescriptor descriptor;
+    descriptor.blendEnabled = true;
+    descriptor.colorBlend = blend;
+    descriptor.alphaBlend = blend;
     {
         // Test single channel color write
-        dawn::BlendState blendState = device.CreateBlendStateBuilder()
-            .SetBlendEnabled(true)
-            .SetColorBlend(&blend)
-            .SetAlphaBlend(&blend)
-            .SetColorWriteMask(dawn::ColorWriteMask::Red)
-            .GetResult();
-        SetupSingleSourcePipelines(blendState);
+        descriptor.colorWriteMask = dawn::ColorWriteMask::Red;
+        SetupSingleSourcePipelines(descriptor);
 
         RGBA8 base(32, 64, 128, 192);
         for (auto& color : kColors) {
@@ -649,13 +652,8 @@ TEST_P(BlendStateTest, ColorWriteMask) {
 
     {
         // Test multi channel color write
-        dawn::BlendState blendState = device.CreateBlendStateBuilder()
-            .SetBlendEnabled(true)
-            .SetColorBlend(&blend)
-            .SetAlphaBlend(&blend)
-            .SetColorWriteMask(dawn::ColorWriteMask::Green | dawn::ColorWriteMask::Alpha)
-            .GetResult();
-        SetupSingleSourcePipelines(blendState);
+        descriptor.colorWriteMask = dawn::ColorWriteMask::Green | dawn::ColorWriteMask::Alpha;
+        SetupSingleSourcePipelines(descriptor);
 
         RGBA8 base(32, 64, 128, 192);
         for (auto& color : kColors) {
@@ -666,13 +664,8 @@ TEST_P(BlendStateTest, ColorWriteMask) {
 
     {
         // Test no channel color write
-        dawn::BlendState blendState = device.CreateBlendStateBuilder()
-            .SetBlendEnabled(true)
-            .SetColorBlend(&blend)
-            .SetAlphaBlend(&blend)
-            .SetColorWriteMask(dawn::ColorWriteMask::None)
-            .GetResult();
-        SetupSingleSourcePipelines(blendState);
+        descriptor.colorWriteMask = dawn::ColorWriteMask::None;
+        SetupSingleSourcePipelines(descriptor);
 
         RGBA8 base(32, 64, 128, 192);
         for (auto& color : kColors) {
@@ -684,11 +677,17 @@ TEST_P(BlendStateTest, ColorWriteMask) {
 // Check that the color write mask works when blending is disabled
 TEST_P(BlendStateTest, ColorWriteMaskBlendingDisabled) {
     {
-        dawn::BlendState blendState = device.CreateBlendStateBuilder()
-            .SetBlendEnabled(false)
-            .SetColorWriteMask(dawn::ColorWriteMask::Red)
-            .GetResult();
-        SetupSingleSourcePipelines(blendState);
+        dawn::BlendDescriptor blend;
+        blend.operation = dawn::BlendOperation::Add;
+        blend.srcFactor = dawn::BlendFactor::One;
+        blend.dstFactor = dawn::BlendFactor::Zero;
+        dawn::BlendStateDescriptor descriptor;
+        descriptor.alphaBlend = blend;
+        descriptor.colorBlend = blend;
+
+        descriptor.blendEnabled = false;
+        descriptor.colorWriteMask = dawn::ColorWriteMask::Red;
+        SetupSingleSourcePipelines(descriptor);
 
         RGBA8 base(32, 64, 128, 192);
         RGBA8 expected(32, 0, 0, 0);
@@ -696,9 +695,9 @@ TEST_P(BlendStateTest, ColorWriteMaskBlendingDisabled) {
         dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
         {
             dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-            pass.SetRenderPipeline(testPipeline);
+            pass.SetPipeline(testPipeline);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { base } })));
-            pass.DrawArrays(3, 1, 0, 0);
+            pass.Draw(3, 1, 0, 0);
             pass.EndPass();
         }
 
@@ -720,7 +719,8 @@ TEST_P(BlendStateTest, IndependentBlendState) {
     descriptor.size.width = kRTSize;
     descriptor.size.height = kRTSize;
     descriptor.size.depth = 1;
-    descriptor.arrayLayer = 1;
+    descriptor.arraySize = 1;
+    descriptor.sampleCount = 1;
     descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
     descriptor.levelCount = 1;
     descriptor.usage = dawn::TextureUsageBit::OutputAttachment | dawn::TextureUsageBit::TransferSrc;
@@ -730,11 +730,17 @@ TEST_P(BlendStateTest, IndependentBlendState) {
         renderTargetViews[i] = renderTargets[i].CreateDefaultTextureView();
     }
 
+    dawn::RenderPassColorAttachmentDescriptor colorAttachments[4];
+    for (uint32_t i = 0; i < 4; ++i) {
+        colorAttachments[i].attachment = renderTargetViews[i];
+        colorAttachments[i].resolveTarget = nullptr;
+        colorAttachments[i].clearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+        colorAttachments[i].loadOp = dawn::LoadOp::Clear;
+        colorAttachments[i].storeOp = dawn::StoreOp::Store;
+    }
+
     dawn::RenderPassDescriptor renderpass = device.CreateRenderPassDescriptorBuilder()
-        .SetColorAttachment(0, renderTargetViews[0], dawn::LoadOp::Clear)
-        .SetColorAttachment(1, renderTargetViews[1], dawn::LoadOp::Clear)
-        .SetColorAttachment(2, renderTargetViews[2], dawn::LoadOp::Clear)
-        .SetColorAttachment(3, renderTargetViews[3], dawn::LoadOp::Clear)
+        .SetColorAttachments(4, colorAttachments)
         .GetResult();
 
     dawn::ShaderModule fsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Fragment, R"(
@@ -759,6 +765,23 @@ TEST_P(BlendStateTest, IndependentBlendState) {
         }
     )");
 
+    utils::ComboRenderPipelineDescriptor baseDescriptor(device);
+    baseDescriptor.layout = pipelineLayout;
+    baseDescriptor.cVertexStage.module = vsModule;
+    baseDescriptor.cFragmentStage.module = fsModule;
+    baseDescriptor.cAttachmentsState.numColorAttachments = 4;
+    baseDescriptor.numBlendStates = 4;
+
+    basePipeline = device.CreateRenderPipeline(&baseDescriptor);
+
+    utils::ComboRenderPipelineDescriptor testDescriptor(device);
+    testDescriptor.layout = pipelineLayout;
+    testDescriptor.cVertexStage.module = vsModule;
+    testDescriptor.cFragmentStage.module = fsModule;
+    testDescriptor.cAttachmentsState.numColorAttachments = 4;
+    testDescriptor.numBlendStates = 4;
+
+    // set blend states
     dawn::BlendDescriptor blend1;
     blend1.operation = dawn::BlendOperation::Add;
     blend1.srcFactor = dawn::BlendFactor::One;
@@ -774,48 +797,19 @@ TEST_P(BlendStateTest, IndependentBlendState) {
     blend3.srcFactor = dawn::BlendFactor::One;
     blend3.dstFactor = dawn::BlendFactor::One;
 
-    std::array<dawn::BlendState, 3> blendStates = { {
-        device.CreateBlendStateBuilder()
-            .SetBlendEnabled(true)
-            .SetColorBlend(&blend1)
-            .SetAlphaBlend(&blend1)
-            .GetResult(),
-        device.CreateBlendStateBuilder()
-            .SetBlendEnabled(true)
-            .SetColorBlend(&blend2)
-            .SetAlphaBlend(&blend2)
-            .GetResult(),
-        device.CreateBlendStateBuilder()
-            .SetBlendEnabled(true)
-            .SetColorBlend(&blend3)
-            .SetAlphaBlend(&blend3)
-            .GetResult(),
-    } };
+    testDescriptor.cBlendStates[0].blendEnabled = true;
+    testDescriptor.cBlendStates[0].colorBlend = blend1;
+    testDescriptor.cBlendStates[0].alphaBlend = blend1;
 
-    basePipeline = device.CreateRenderPipelineBuilder()
-        .SetColorAttachmentFormat(0, dawn::TextureFormat::R8G8B8A8Unorm)
-        .SetColorAttachmentFormat(1, dawn::TextureFormat::R8G8B8A8Unorm)
-        .SetColorAttachmentFormat(2, dawn::TextureFormat::R8G8B8A8Unorm)
-        .SetColorAttachmentFormat(3, dawn::TextureFormat::R8G8B8A8Unorm)
-        .SetLayout(pipelineLayout)
-        .SetStage(dawn::ShaderStage::Vertex, vsModule, "main")
-        .SetStage(dawn::ShaderStage::Fragment, fsModule, "main")
-        .GetResult();
+    testDescriptor.cBlendStates[1].blendEnabled = true;
+    testDescriptor.cBlendStates[1].colorBlend = blend2;
+    testDescriptor.cBlendStates[1].alphaBlend = blend2;
 
-    testPipeline = device.CreateRenderPipelineBuilder()
-        .SetColorAttachmentFormat(0, dawn::TextureFormat::R8G8B8A8Unorm)
-        .SetColorAttachmentFormat(1, dawn::TextureFormat::R8G8B8A8Unorm)
-        .SetColorAttachmentFormat(2, dawn::TextureFormat::R8G8B8A8Unorm)
-        .SetColorAttachmentFormat(3, dawn::TextureFormat::R8G8B8A8Unorm)
-        .SetLayout(pipelineLayout)
-        .SetStage(dawn::ShaderStage::Vertex, vsModule, "main")
-        .SetStage(dawn::ShaderStage::Fragment, fsModule, "main")
-        .SetColorAttachmentBlendState(0, blendStates[0])
-        .SetColorAttachmentBlendState(1, blendStates[1])
-        // Blend state not set on third color attachment. It should be default
-        .SetColorAttachmentBlendState(3, blendStates[2])
-        .GetResult();
+    testDescriptor.cBlendStates[3].blendEnabled = true;
+    testDescriptor.cBlendStates[3].colorBlend = blend3;
+    testDescriptor.cBlendStates[3].alphaBlend = blend3;
 
+    testPipeline = device.CreateRenderPipeline(&testDescriptor);
 
     for (unsigned int c = 0; c < kColors.size(); ++c) {
         RGBA8 base = kColors[((c + 31) * 29) % kColors.size()];
@@ -832,13 +826,13 @@ TEST_P(BlendStateTest, IndependentBlendState) {
         dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
         {
             dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
-            pass.SetRenderPipeline(basePipeline);
+            pass.SetPipeline(basePipeline);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 4>({ { base, base, base, base } })));
-            pass.DrawArrays(3, 1, 0, 0);
+            pass.Draw(3, 1, 0, 0);
 
-            pass.SetRenderPipeline(testPipeline);
+            pass.SetPipeline(testPipeline);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 4>({ { color0, color1, color2, color3 } })));
-            pass.DrawArrays(3, 1, 0, 0);
+            pass.Draw(3, 1, 0, 0);
             pass.EndPass();
         }
 
@@ -854,17 +848,6 @@ TEST_P(BlendStateTest, IndependentBlendState) {
 
 // Test that the default blend color is correctly set at the beginning of every subpass
 TEST_P(BlendStateTest, DefaultBlendColor) {
-    dawn::BlendDescriptor blend;
-    blend.operation = dawn::BlendOperation::Add;
-    blend.srcFactor = dawn::BlendFactor::BlendColor;
-    blend.dstFactor = dawn::BlendFactor::One;
-
-    dawn::BlendState blendState = device.CreateBlendStateBuilder()
-        .SetBlendEnabled(true)
-        .SetColorBlend(&blend)
-        .SetAlphaBlend(&blend)
-        .GetResult();
-
     dawn::ShaderModule fsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Fragment, R"(
         #version 450
         layout(set = 0, binding = 0) uniform myBlock {
@@ -878,32 +861,41 @@ TEST_P(BlendStateTest, DefaultBlendColor) {
         }
     )");
 
-    basePipeline = device.CreateRenderPipelineBuilder()
-        .SetColorAttachmentFormat(0, renderPass.colorFormat)
-        .SetLayout(pipelineLayout)
-        .SetStage(dawn::ShaderStage::Vertex, vsModule, "main")
-        .SetStage(dawn::ShaderStage::Fragment, fsModule, "main")
-        .GetResult();
+    utils::ComboRenderPipelineDescriptor baseDescriptor(device);
+    baseDescriptor.layout = pipelineLayout;
+    baseDescriptor.cVertexStage.module = vsModule;
+    baseDescriptor.cFragmentStage.module = fsModule;
+    baseDescriptor.cColorAttachments[0]->format = renderPass.colorFormat;
 
-    testPipeline = device.CreateRenderPipelineBuilder()
-        .SetColorAttachmentFormat(0, renderPass.colorFormat)
-        .SetLayout(pipelineLayout)
-        .SetStage(dawn::ShaderStage::Vertex, vsModule, "main")
-        .SetStage(dawn::ShaderStage::Fragment, fsModule, "main")
-        .SetColorAttachmentBlendState(0, blendState)
-        .GetResult();
+    basePipeline = device.CreateRenderPipeline(&baseDescriptor);
+
+    utils::ComboRenderPipelineDescriptor testDescriptor(device);
+    testDescriptor.layout = pipelineLayout;
+    testDescriptor.cVertexStage.module = vsModule;
+    testDescriptor.cFragmentStage.module = fsModule;
+    testDescriptor.cColorAttachments[0]->format = renderPass.colorFormat;
+
+    dawn::BlendDescriptor blend;
+    blend.operation = dawn::BlendOperation::Add;
+    blend.srcFactor = dawn::BlendFactor::BlendColor;
+    blend.dstFactor = dawn::BlendFactor::One;
+    testDescriptor.cBlendStates[0].blendEnabled = true;
+    testDescriptor.cBlendStates[0].colorBlend = blend;
+    testDescriptor.cBlendStates[0].alphaBlend = blend;
+
+    testPipeline = device.CreateRenderPipeline(&testDescriptor);
 
     // Check that the initial blend color is (0,0,0,0)
     {
         dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
         {
             dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-            pass.SetRenderPipeline(basePipeline);
+            pass.SetPipeline(basePipeline);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { RGBA8(0, 0, 0, 0) } })));
-            pass.DrawArrays(3, 1, 0, 0);
-            pass.SetRenderPipeline(testPipeline);
+            pass.Draw(3, 1, 0, 0);
+            pass.SetPipeline(testPipeline);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { RGBA8(255, 255, 255, 255) } })));
-            pass.DrawArrays(3, 1, 0, 0);
+            pass.Draw(3, 1, 0, 0);
             pass.EndPass();
         }
 
@@ -918,13 +910,13 @@ TEST_P(BlendStateTest, DefaultBlendColor) {
         dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
         {
             dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-            pass.SetRenderPipeline(basePipeline);
+            pass.SetPipeline(basePipeline);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { RGBA8(0, 0, 0, 0) } })));
-            pass.DrawArrays(3, 1, 0, 0);
-            pass.SetRenderPipeline(testPipeline);
+            pass.Draw(3, 1, 0, 0);
+            pass.SetPipeline(testPipeline);
             pass.SetBlendColor(1, 1, 1, 1);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { RGBA8(255, 255, 255, 255) } })));
-            pass.DrawArrays(3, 1, 0, 0);
+            pass.Draw(3, 1, 0, 0);
             pass.EndPass();
         }
 
@@ -939,23 +931,23 @@ TEST_P(BlendStateTest, DefaultBlendColor) {
         dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
         {
             dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-            pass.SetRenderPipeline(basePipeline);
+            pass.SetPipeline(basePipeline);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { RGBA8(0, 0, 0, 0) } })));
-            pass.DrawArrays(3, 1, 0, 0);
-            pass.SetRenderPipeline(testPipeline);
+            pass.Draw(3, 1, 0, 0);
+            pass.SetPipeline(testPipeline);
             pass.SetBlendColor(1, 1, 1, 1);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { RGBA8(255, 255, 255, 255) } })));
-            pass.DrawArrays(3, 1, 0, 0);
+            pass.Draw(3, 1, 0, 0);
             pass.EndPass();
         }
         {
             dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
-            pass.SetRenderPipeline(basePipeline);
+            pass.SetPipeline(basePipeline);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { RGBA8(0, 0, 0, 0) } })));
-            pass.DrawArrays(3, 1, 0, 0);
-            pass.SetRenderPipeline(testPipeline);
+            pass.Draw(3, 1, 0, 0);
+            pass.SetPipeline(testPipeline);
             pass.SetBindGroup(0, MakeBindGroupForColors(std::array<RGBA8, 1>({ { RGBA8(255, 255, 255, 255) } })));
-            pass.DrawArrays(3, 1, 0, 0);
+            pass.Draw(3, 1, 0, 0);
             pass.EndPass();
         }
 

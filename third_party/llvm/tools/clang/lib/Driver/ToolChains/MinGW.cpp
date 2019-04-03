@@ -54,7 +54,7 @@ void tools::MinGW::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Args.hasArg(options::OPT_gsplit_dwarf))
     SplitDebugInfo(getToolChain(), C, *this, JA, Args, Output,
-                   SplitDebugName(Args, Inputs[0]));
+                   SplitDebugName(Args, Output));
 }
 
 void tools::MinGW::Linker::AddLibGCC(const ArgList &Args,
@@ -429,6 +429,12 @@ bool toolchains::MinGW::HasNativeLLVMSupport() const {
 }
 
 bool toolchains::MinGW::IsUnwindTablesDefault(const ArgList &Args) const {
+  Arg *ExceptionArg = Args.getLastArg(options::OPT_fsjlj_exceptions,
+                                      options::OPT_fseh_exceptions,
+                                      options::OPT_fdwarf_exceptions);
+  if (ExceptionArg &&
+      ExceptionArg->getOption().matches(options::OPT_fseh_exceptions))
+    return true;
   return getArch() == llvm::Triple::x86_64;
 }
 

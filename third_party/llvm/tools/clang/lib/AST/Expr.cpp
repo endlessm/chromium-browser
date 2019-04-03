@@ -28,7 +28,6 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Lex/LiteralSupport.h"
-#include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -342,16 +341,32 @@ void DeclRefExpr::computeDependence(const ASTContext &Ctx) {
     ExprBits.ContainsUnexpandedParameterPack = true;
 }
 
+DeclRefExpr::DeclRefExpr(const ASTContext &Ctx, ValueDecl *D,
+                         bool RefersToEnclosingVariableOrCapture, QualType T,
+                         ExprValueKind VK, SourceLocation L,
+                         const DeclarationNameLoc &LocInfo)
+    : Expr(DeclRefExprClass, T, VK, OK_Ordinary, false, false, false, false),
+      D(D), DNLoc(LocInfo) {
+  DeclRefExprBits.HasQualifier = false;
+  DeclRefExprBits.HasTemplateKWAndArgsInfo = false;
+  DeclRefExprBits.HasFoundDecl = false;
+  DeclRefExprBits.HadMultipleCandidates = false;
+  DeclRefExprBits.RefersToEnclosingVariableOrCapture =
+      RefersToEnclosingVariableOrCapture;
+  DeclRefExprBits.Loc = L;
+  computeDependence(Ctx);
+}
+
 DeclRefExpr::DeclRefExpr(const ASTContext &Ctx,
                          NestedNameSpecifierLoc QualifierLoc,
-                         SourceLocation TemplateKWLoc,
-                         ValueDecl *D, bool RefersToEnclosingVariableOrCapture,
-                         const DeclarationNameInfo &NameInfo,
-                         NamedDecl *FoundD,
+                         SourceLocation TemplateKWLoc, ValueDecl *D,
+                         bool RefersToEnclosingVariableOrCapture,
+                         const DeclarationNameInfo &NameInfo, NamedDecl *FoundD,
                          const TemplateArgumentListInfo *TemplateArgs,
                          QualType T, ExprValueKind VK)
-  : Expr(DeclRefExprClass, T, VK, OK_Ordinary, false, false, false, false),
-    D(D), Loc(NameInfo.getLoc()), DNLoc(NameInfo.getInfo()) {
+    : Expr(DeclRefExprClass, T, VK, OK_Ordinary, false, false, false, false),
+      D(D), DNLoc(NameInfo.getInfo()) {
+  DeclRefExprBits.Loc = NameInfo.getLoc();
   DeclRefExprBits.HasQualifier = QualifierLoc ? 1 : 0;
   if (QualifierLoc) {
     new (getTrailingObjects<NestedNameSpecifierLoc>())
@@ -886,66 +901,105 @@ double FloatingLiteral::getValueAsApproximateDouble() const {
   return V.convertToDouble();
 }
 
-int StringLiteral::mapCharByteWidth(TargetInfo const &target,StringKind k) {
-  int CharByteWidth = 0;
-  switch(k) {
-    case Ascii:
-    case UTF8:
-      CharByteWidth = target.getCharWidth();
-      break;
-    case Wide:
-      CharByteWidth = target.getWCharWidth();
-      break;
-    case UTF16:
-      CharByteWidth = target.getChar16Width();
-      break;
-    case UTF32:
-      CharByteWidth = target.getChar32Width();
-      break;
+unsigned StringLiteral::mapCharByteWidth(TargetInfo const &Target,
+                                         StringKind SK) {
+  unsigned CharByteWidth = 0;
+  switch (SK) {
+  case Ascii:
+  case UTF8:
+    CharByteWidth = Target.getCharWidth();
+    break;
+  case Wide:
+    CharByteWidth = Target.getWCharWidth();
+    break;
+  case UTF16:
+    CharByteWidth = Target.getChar16Width();
+    break;
+  case UTF32:
+    CharByteWidth = Target.getChar32Width();
+    break;
   }
   assert((CharByteWidth & 7) == 0 && "Assumes character size is byte multiple");
   CharByteWidth /= 8;
-  assert((CharByteWidth==1 || CharByteWidth==2 || CharByteWidth==4)
-         && "character byte widths supported are 1, 2, and 4 only");
+  assert((CharByteWidth == 1 || CharByteWidth == 2 || CharByteWidth == 4) &&
+         "The only supported character byte widths are 1,2 and 4!");
   return CharByteWidth;
 }
 
-StringLiteral *StringLiteral::Create(const ASTContext &C, StringRef Str,
-                                     StringKind Kind, bool Pascal, QualType Ty,
-                                     const SourceLocation *Loc,
-                                     unsigned NumStrs) {
-  assert(C.getAsConstantArrayType(Ty) &&
+StringLiteral::StringLiteral(const ASTContext &Ctx, StringRef Str,
+                             StringKind Kind, bool Pascal, QualType Ty,
+                             const SourceLocation *Loc,
+                             unsigned NumConcatenated)
+    : Expr(StringLiteralClass, Ty, VK_LValue, OK_Ordinary, false, false, false,
+           false) {
+  assert(Ctx.getAsConstantArrayType(Ty) &&
          "StringLiteral must be of constant array type!");
+  unsigned CharByteWidth = mapCharByteWidth(Ctx.getTargetInfo(), Kind);
+  unsigned ByteLength = Str.size();
+  assert((ByteLength % CharByteWidth == 0) &&
+         "The size of the data must be a multiple of CharByteWidth!");
 
-  // Allocate enough space for the StringLiteral plus an array of locations for
-  // any concatenated string tokens.
-  void *Mem =
-      C.Allocate(sizeof(StringLiteral) + sizeof(SourceLocation) * (NumStrs - 1),
-                 alignof(StringLiteral));
-  StringLiteral *SL = new (Mem) StringLiteral(Ty);
+  // Avoid the expensive division. The compiler should be able to figure it
+  // out by itself. However as of clang 7, even with the appropriate
+  // llvm_unreachable added just here, it is not able to do so.
+  unsigned Length;
+  switch (CharByteWidth) {
+  case 1:
+    Length = ByteLength;
+    break;
+  case 2:
+    Length = ByteLength / 2;
+    break;
+  case 4:
+    Length = ByteLength / 4;
+    break;
+  default:
+    llvm_unreachable("Unsupported character width!");
+  }
 
-  // OPTIMIZE: could allocate this appended to the StringLiteral.
-  SL->setString(C,Str,Kind,Pascal);
+  StringLiteralBits.Kind = Kind;
+  StringLiteralBits.CharByteWidth = CharByteWidth;
+  StringLiteralBits.IsPascal = Pascal;
+  StringLiteralBits.NumConcatenated = NumConcatenated;
+  *getTrailingObjects<unsigned>() = Length;
 
-  SL->TokLocs[0] = Loc[0];
-  SL->NumConcatenated = NumStrs;
+  // Initialize the trailing array of SourceLocation.
+  // This is safe since SourceLocation is POD-like.
+  std::memcpy(getTrailingObjects<SourceLocation>(), Loc,
+              NumConcatenated * sizeof(SourceLocation));
 
-  if (NumStrs != 1)
-    memcpy(&SL->TokLocs[1], Loc+1, sizeof(SourceLocation)*(NumStrs-1));
-  return SL;
+  // Initialize the trailing array of char holding the string data.
+  std::memcpy(getTrailingObjects<char>(), Str.data(), ByteLength);
 }
 
-StringLiteral *StringLiteral::CreateEmpty(const ASTContext &C,
-                                          unsigned NumStrs) {
-  void *Mem =
-      C.Allocate(sizeof(StringLiteral) + sizeof(SourceLocation) * (NumStrs - 1),
-                 alignof(StringLiteral));
-  StringLiteral *SL =
-      new (Mem) StringLiteral(C.adjustStringLiteralBaseType(QualType()));
-  SL->CharByteWidth = 0;
-  SL->Length = 0;
-  SL->NumConcatenated = NumStrs;
-  return SL;
+StringLiteral::StringLiteral(EmptyShell Empty, unsigned NumConcatenated,
+                             unsigned Length, unsigned CharByteWidth)
+    : Expr(StringLiteralClass, Empty) {
+  StringLiteralBits.CharByteWidth = CharByteWidth;
+  StringLiteralBits.NumConcatenated = NumConcatenated;
+  *getTrailingObjects<unsigned>() = Length;
+}
+
+StringLiteral *StringLiteral::Create(const ASTContext &Ctx, StringRef Str,
+                                     StringKind Kind, bool Pascal, QualType Ty,
+                                     const SourceLocation *Loc,
+                                     unsigned NumConcatenated) {
+  void *Mem = Ctx.Allocate(totalSizeToAlloc<unsigned, SourceLocation, char>(
+                               1, NumConcatenated, Str.size()),
+                           alignof(StringLiteral));
+  return new (Mem)
+      StringLiteral(Ctx, Str, Kind, Pascal, Ty, Loc, NumConcatenated);
+}
+
+StringLiteral *StringLiteral::CreateEmpty(const ASTContext &Ctx,
+                                          unsigned NumConcatenated,
+                                          unsigned Length,
+                                          unsigned CharByteWidth) {
+  void *Mem = Ctx.Allocate(totalSizeToAlloc<unsigned, SourceLocation, char>(
+                               1, NumConcatenated, Length * CharByteWidth),
+                           alignof(StringLiteral));
+  return new (Mem)
+      StringLiteral(EmptyShell(), NumConcatenated, Length, CharByteWidth);
 }
 
 void StringLiteral::outputString(raw_ostream &OS) const {
@@ -1044,42 +1098,6 @@ void StringLiteral::outputString(raw_ostream &OS) const {
   OS << '"';
 }
 
-void StringLiteral::setString(const ASTContext &C, StringRef Str,
-                              StringKind Kind, bool IsPascal) {
-  //FIXME: we assume that the string data comes from a target that uses the same
-  // code unit size and endianness for the type of string.
-  this->Kind = Kind;
-  this->IsPascal = IsPascal;
-
-  CharByteWidth = mapCharByteWidth(C.getTargetInfo(),Kind);
-  assert((Str.size()%CharByteWidth == 0)
-         && "size of data must be multiple of CharByteWidth");
-  Length = Str.size()/CharByteWidth;
-
-  switch(CharByteWidth) {
-    case 1: {
-      char *AStrData = new (C) char[Length];
-      std::memcpy(AStrData,Str.data(),Length*sizeof(*AStrData));
-      StrData.asChar = AStrData;
-      break;
-    }
-    case 2: {
-      uint16_t *AStrData = new (C) uint16_t[Length];
-      std::memcpy(AStrData,Str.data(),Length*sizeof(*AStrData));
-      StrData.asUInt16 = AStrData;
-      break;
-    }
-    case 4: {
-      uint32_t *AStrData = new (C) uint32_t[Length];
-      std::memcpy(AStrData,Str.data(),Length*sizeof(*AStrData));
-      StrData.asUInt32 = AStrData;
-      break;
-    }
-    default:
-      llvm_unreachable("unsupported CharByteWidth");
-  }
-}
-
 /// getLocationOfByte - Return a source location that points to the specified
 /// byte of this string literal.
 ///
@@ -1101,7 +1119,8 @@ StringLiteral::getLocationOfByte(unsigned ByteNo, const SourceManager &SM,
                                  const LangOptions &Features,
                                  const TargetInfo &Target, unsigned *StartToken,
                                  unsigned *StartTokenByteOffset) const {
-  assert((Kind == StringLiteral::Ascii || Kind == StringLiteral::UTF8) &&
+  assert((getKind() == StringLiteral::Ascii ||
+          getKind() == StringLiteral::UTF8) &&
          "Only narrow string literals are currently supported");
 
   // Loop over all of the tokens in this string until we find the one that
@@ -1169,8 +1188,6 @@ StringLiteral::getLocationOfByte(unsigned ByteNo, const SourceManager &SM,
   }
 }
 
-
-
 /// getOpcodeStr - Turn an Opcode enum value into the punctuation char it
 /// corresponds to, e.g. "sizeof" or "[pre]++".
 StringRef UnaryOperator::getOpcodeStr(Opcode Op) {
@@ -1217,49 +1234,98 @@ OverloadedOperatorKind UnaryOperator::getOverloadedOperator(Opcode Opc) {
 // Postfix Operators.
 //===----------------------------------------------------------------------===//
 
-CallExpr::CallExpr(const ASTContext &C, StmtClass SC, Expr *fn,
-                   ArrayRef<Expr *> preargs, ArrayRef<Expr *> args, QualType t,
-                   ExprValueKind VK, SourceLocation rparenloc)
-    : Expr(SC, t, VK, OK_Ordinary, fn->isTypeDependent(),
-           fn->isValueDependent(), fn->isInstantiationDependent(),
-           fn->containsUnexpandedParameterPack()),
-      NumArgs(args.size()) {
-
-  unsigned NumPreArgs = preargs.size();
-  SubExprs = new (C) Stmt *[args.size()+PREARGS_START+NumPreArgs];
-  SubExprs[FN] = fn;
-  for (unsigned i = 0; i != NumPreArgs; ++i) {
-    updateDependenciesFromArg(preargs[i]);
-    SubExprs[i+PREARGS_START] = preargs[i];
-  }
-  for (unsigned i = 0; i != args.size(); ++i) {
-    updateDependenciesFromArg(args[i]);
-    SubExprs[i+PREARGS_START+NumPreArgs] = args[i];
-  }
-
+CallExpr::CallExpr(StmtClass SC, Expr *Fn, ArrayRef<Expr *> PreArgs,
+                   ArrayRef<Expr *> Args, QualType Ty, ExprValueKind VK,
+                   SourceLocation RParenLoc, unsigned MinNumArgs,
+                   ADLCallKind UsesADL)
+    : Expr(SC, Ty, VK, OK_Ordinary, Fn->isTypeDependent(),
+           Fn->isValueDependent(), Fn->isInstantiationDependent(),
+           Fn->containsUnexpandedParameterPack()),
+      RParenLoc(RParenLoc) {
+  NumArgs = std::max<unsigned>(Args.size(), MinNumArgs);
+  unsigned NumPreArgs = PreArgs.size();
   CallExprBits.NumPreArgs = NumPreArgs;
-  RParenLoc = rparenloc;
+  assert((NumPreArgs == getNumPreArgs()) && "NumPreArgs overflow!");
+
+  unsigned OffsetToTrailingObjects = offsetToTrailingObjects(SC);
+  CallExprBits.OffsetToTrailingObjects = OffsetToTrailingObjects;
+  assert((CallExprBits.OffsetToTrailingObjects == OffsetToTrailingObjects) &&
+         "OffsetToTrailingObjects overflow!");
+
+  CallExprBits.UsesADL = static_cast<bool>(UsesADL);
+
+  setCallee(Fn);
+  for (unsigned I = 0; I != NumPreArgs; ++I) {
+    updateDependenciesFromArg(PreArgs[I]);
+    setPreArg(I, PreArgs[I]);
+  }
+  for (unsigned I = 0; I != Args.size(); ++I) {
+    updateDependenciesFromArg(Args[I]);
+    setArg(I, Args[I]);
+  }
+  for (unsigned I = Args.size(); I != NumArgs; ++I) {
+    setArg(I, nullptr);
+  }
 }
 
-CallExpr::CallExpr(const ASTContext &C, StmtClass SC, Expr *fn,
-                   ArrayRef<Expr *> args, QualType t, ExprValueKind VK,
-                   SourceLocation rparenloc)
-    : CallExpr(C, SC, fn, ArrayRef<Expr *>(), args, t, VK, rparenloc) {}
-
-CallExpr::CallExpr(const ASTContext &C, Expr *fn, ArrayRef<Expr *> args,
-                   QualType t, ExprValueKind VK, SourceLocation rparenloc)
-    : CallExpr(C, CallExprClass, fn, ArrayRef<Expr *>(), args, t, VK, rparenloc) {
-}
-
-CallExpr::CallExpr(const ASTContext &C, StmtClass SC, EmptyShell Empty)
-    : CallExpr(C, SC, /*NumPreArgs=*/0, Empty) {}
-
-CallExpr::CallExpr(const ASTContext &C, StmtClass SC, unsigned NumPreArgs,
+CallExpr::CallExpr(StmtClass SC, unsigned NumPreArgs, unsigned NumArgs,
                    EmptyShell Empty)
-  : Expr(SC, Empty), SubExprs(nullptr), NumArgs(0) {
-  // FIXME: Why do we allocate this?
-  SubExprs = new (C) Stmt*[PREARGS_START+NumPreArgs]();
+    : Expr(SC, Empty), NumArgs(NumArgs) {
   CallExprBits.NumPreArgs = NumPreArgs;
+  assert((NumPreArgs == getNumPreArgs()) && "NumPreArgs overflow!");
+
+  unsigned OffsetToTrailingObjects = offsetToTrailingObjects(SC);
+  CallExprBits.OffsetToTrailingObjects = OffsetToTrailingObjects;
+  assert((CallExprBits.OffsetToTrailingObjects == OffsetToTrailingObjects) &&
+         "OffsetToTrailingObjects overflow!");
+}
+
+CallExpr *CallExpr::Create(const ASTContext &Ctx, Expr *Fn,
+                           ArrayRef<Expr *> Args, QualType Ty, ExprValueKind VK,
+                           SourceLocation RParenLoc, unsigned MinNumArgs,
+                           ADLCallKind UsesADL) {
+  unsigned NumArgs = std::max<unsigned>(Args.size(), MinNumArgs);
+  unsigned SizeOfTrailingObjects =
+      CallExpr::sizeOfTrailingObjects(/*NumPreArgs=*/0, NumArgs);
+  void *Mem =
+      Ctx.Allocate(sizeof(CallExpr) + SizeOfTrailingObjects, alignof(CallExpr));
+  return new (Mem) CallExpr(CallExprClass, Fn, /*PreArgs=*/{}, Args, Ty, VK,
+                            RParenLoc, MinNumArgs, UsesADL);
+}
+
+CallExpr *CallExpr::CreateTemporary(void *Mem, Expr *Fn, QualType Ty,
+                                    ExprValueKind VK, SourceLocation RParenLoc,
+                                    ADLCallKind UsesADL) {
+  assert(!(reinterpret_cast<uintptr_t>(Mem) % alignof(CallExpr)) &&
+         "Misaligned memory in CallExpr::CreateTemporary!");
+  return new (Mem) CallExpr(CallExprClass, Fn, /*PreArgs=*/{}, /*Args=*/{}, Ty,
+                            VK, RParenLoc, /*MinNumArgs=*/0, UsesADL);
+}
+
+CallExpr *CallExpr::CreateEmpty(const ASTContext &Ctx, unsigned NumArgs,
+                                EmptyShell Empty) {
+  unsigned SizeOfTrailingObjects =
+      CallExpr::sizeOfTrailingObjects(/*NumPreArgs=*/0, NumArgs);
+  void *Mem =
+      Ctx.Allocate(sizeof(CallExpr) + SizeOfTrailingObjects, alignof(CallExpr));
+  return new (Mem) CallExpr(CallExprClass, /*NumPreArgs=*/0, NumArgs, Empty);
+}
+
+unsigned CallExpr::offsetToTrailingObjects(StmtClass SC) {
+  switch (SC) {
+  case CallExprClass:
+    return sizeof(CallExpr);
+  case CXXOperatorCallExprClass:
+    return sizeof(CXXOperatorCallExpr);
+  case CXXMemberCallExprClass:
+    return sizeof(CXXMemberCallExpr);
+  case UserDefinedLiteralClass:
+    return sizeof(UserDefinedLiteral);
+  case CUDAKernelCallExprClass:
+    return sizeof(CUDAKernelCallExpr);
+  default:
+    llvm_unreachable("unexpected class deriving from CallExpr!");
+  }
 }
 
 void CallExpr::updateDependenciesFromArg(Expr *Arg) {
@@ -1271,14 +1337,6 @@ void CallExpr::updateDependenciesFromArg(Expr *Arg) {
     ExprBits.InstantiationDependent = true;
   if (Arg->containsUnexpandedParameterPack())
     ExprBits.ContainsUnexpandedParameterPack = true;
-}
-
-FunctionDecl *CallExpr::getDirectCallee() {
-  return dyn_cast_or_null<FunctionDecl>(getCalleeDecl());
-}
-
-Decl *CallExpr::getCalleeDecl() {
-  return getCallee()->getReferencedDeclOfCallee();
 }
 
 Decl *Expr::getReferencedDeclOfCallee() {
@@ -1303,35 +1361,6 @@ Decl *Expr::getReferencedDeclOfCallee() {
     return ME->getMemberDecl();
 
   return nullptr;
-}
-
-/// setNumArgs - This changes the number of arguments present in this call.
-/// Any orphaned expressions are deleted by this, and any new operands are set
-/// to null.
-void CallExpr::setNumArgs(const ASTContext& C, unsigned NumArgs) {
-  // No change, just return.
-  if (NumArgs == getNumArgs()) return;
-
-  // If shrinking # arguments, just delete the extras and forgot them.
-  if (NumArgs < getNumArgs()) {
-    this->NumArgs = NumArgs;
-    return;
-  }
-
-  // Otherwise, we are growing the # arguments.  New an bigger argument array.
-  unsigned NumPreArgs = getNumPreArgs();
-  Stmt **NewSubExprs = new (C) Stmt*[NumArgs+PREARGS_START+NumPreArgs];
-  // Copy over args.
-  for (unsigned i = 0; i != getNumArgs()+PREARGS_START+NumPreArgs; ++i)
-    NewSubExprs[i] = SubExprs[i];
-  // Null out new args.
-  for (unsigned i = getNumArgs()+PREARGS_START+NumPreArgs;
-       i != NumArgs+PREARGS_START+NumPreArgs; ++i)
-    NewSubExprs[i] = nullptr;
-
-  if (SubExprs) C.Deallocate(SubExprs);
-  SubExprs = NewSubExprs;
-  this->NumArgs = NumArgs;
 }
 
 /// getBuiltinCallee - If this is a call to a builtin, return the builtin ID. If
@@ -1381,6 +1410,19 @@ QualType CallExpr::getCallReturnType(const ASTContext &Ctx) const {
 
   const FunctionType *FnType = CalleeType->castAs<FunctionType>();
   return FnType->getReturnType();
+}
+
+const Attr *CallExpr::getUnusedResultAttr(const ASTContext &Ctx) const {
+  // If the return type is a struct, union, or enum that is marked nodiscard,
+  // then return the return type attribute.
+  if (const TagDecl *TD = getCallReturnType(Ctx)->getAsTagDecl())
+    if (const auto *A = TD->getAttr<WarnUnusedResultAttr>())
+      return A;
+
+  // Otherwise, see if the callee is marked nodiscard and return that attribute
+  // instead.
+  const Decl *D = getCalleeDecl();
+  return D ? D->getAttr<WarnUnusedResultAttr>() : nullptr;
 }
 
 SourceLocation CallExpr::getBeginLoc() const {
@@ -1527,7 +1569,7 @@ MemberExpr *MemberExpr::Create(
              QualifierLoc.getNestedNameSpecifier()->isInstantiationDependent())
       E->setInstantiationDependent(true);
 
-    E->HasQualifierOrFoundDecl = true;
+    E->MemberExprBits.HasQualifierOrFoundDecl = true;
 
     MemberExprNameQualifier *NQ =
         E->getTrailingObjects<MemberExprNameQualifier>();
@@ -1535,7 +1577,8 @@ MemberExpr *MemberExpr::Create(
     NQ->FoundDecl = founddecl;
   }
 
-  E->HasTemplateKWAndArgsInfo = (targs || TemplateKWLoc.isValid());
+  E->MemberExprBits.HasTemplateKWAndArgsInfo =
+      (targs || TemplateKWLoc.isValid());
 
   if (targs) {
     bool Dependent = false;
@@ -1630,13 +1673,18 @@ bool CastExpr::CastConsistency() const {
     assert(getSubExpr()->getType()->isFunctionType());
     goto CheckNoBasePath;
 
-  case CK_AddressSpaceConversion:
-    assert(getType()->isPointerType() || getType()->isBlockPointerType());
-    assert(getSubExpr()->getType()->isPointerType() ||
-           getSubExpr()->getType()->isBlockPointerType());
-    assert(getType()->getPointeeType().getAddressSpace() !=
-           getSubExpr()->getType()->getPointeeType().getAddressSpace());
-    LLVM_FALLTHROUGH;
+  case CK_AddressSpaceConversion: {
+    auto Ty = getType();
+    auto SETy = getSubExpr()->getType();
+    assert(getValueKindForType(Ty) == Expr::getValueKindForType(SETy));
+    if (isRValue()) {
+      Ty = Ty->getPointeeType();
+      SETy = SETy->getPointeeType();
+    }
+    assert(!Ty.isNull() && !SETy.isNull() &&
+           Ty.getAddressSpace() != SETy.getAddressSpace());
+    goto CheckNoBasePath;
+  }
   // These should not have an inheritance path.
   case CK_Dynamic:
   case CK_ToUnion:
@@ -1760,21 +1808,6 @@ NamedDecl *CastExpr::getConversionFunction() const {
   return nullptr;
 }
 
-CastExpr::BasePathSizeTy *CastExpr::BasePathSize() {
-  assert(!path_empty());
-  switch (getStmtClass()) {
-#define ABSTRACT_STMT(x)
-#define CASTEXPR(Type, Base)                                                   \
-  case Stmt::Type##Class:                                                      \
-    return static_cast<Type *>(this)                                           \
-        ->getTrailingObjects<CastExpr::BasePathSizeTy>();
-#define STMT(Type, Base)
-#include "clang/AST/StmtNodes.inc"
-  default:
-    llvm_unreachable("non-cast expressions not possible here");
-  }
-}
-
 CXXBaseSpecifier **CastExpr::path_buffer() {
   switch (getStmtClass()) {
 #define ABSTRACT_STMT(x)
@@ -1813,9 +1846,7 @@ ImplicitCastExpr *ImplicitCastExpr::Create(const ASTContext &C, QualType T,
                                            const CXXCastPath *BasePath,
                                            ExprValueKind VK) {
   unsigned PathSize = (BasePath ? BasePath->size() : 0);
-  void *Buffer =
-      C.Allocate(totalSizeToAlloc<CastExpr::BasePathSizeTy, CXXBaseSpecifier *>(
-          PathSize ? 1 : 0, PathSize));
+  void *Buffer = C.Allocate(totalSizeToAlloc<CXXBaseSpecifier *>(PathSize));
   ImplicitCastExpr *E =
     new (Buffer) ImplicitCastExpr(T, Kind, Operand, PathSize, VK);
   if (PathSize)
@@ -1826,9 +1857,7 @@ ImplicitCastExpr *ImplicitCastExpr::Create(const ASTContext &C, QualType T,
 
 ImplicitCastExpr *ImplicitCastExpr::CreateEmpty(const ASTContext &C,
                                                 unsigned PathSize) {
-  void *Buffer =
-      C.Allocate(totalSizeToAlloc<CastExpr::BasePathSizeTy, CXXBaseSpecifier *>(
-          PathSize ? 1 : 0, PathSize));
+  void *Buffer = C.Allocate(totalSizeToAlloc<CXXBaseSpecifier *>(PathSize));
   return new (Buffer) ImplicitCastExpr(EmptyShell(), PathSize);
 }
 
@@ -1839,9 +1868,7 @@ CStyleCastExpr *CStyleCastExpr::Create(const ASTContext &C, QualType T,
                                        TypeSourceInfo *WrittenTy,
                                        SourceLocation L, SourceLocation R) {
   unsigned PathSize = (BasePath ? BasePath->size() : 0);
-  void *Buffer =
-      C.Allocate(totalSizeToAlloc<CastExpr::BasePathSizeTy, CXXBaseSpecifier *>(
-          PathSize ? 1 : 0, PathSize));
+  void *Buffer = C.Allocate(totalSizeToAlloc<CXXBaseSpecifier *>(PathSize));
   CStyleCastExpr *E =
     new (Buffer) CStyleCastExpr(T, VK, K, Op, PathSize, WrittenTy, L, R);
   if (PathSize)
@@ -1852,9 +1879,7 @@ CStyleCastExpr *CStyleCastExpr::Create(const ASTContext &C, QualType T,
 
 CStyleCastExpr *CStyleCastExpr::CreateEmpty(const ASTContext &C,
                                             unsigned PathSize) {
-  void *Buffer =
-      C.Allocate(totalSizeToAlloc<CastExpr::BasePathSizeTy, CXXBaseSpecifier *>(
-          PathSize ? 1 : 0, PathSize));
+  void *Buffer = C.Allocate(totalSizeToAlloc<CXXBaseSpecifier *>(PathSize));
   return new (Buffer) CStyleCastExpr(EmptyShell(), PathSize);
 }
 
@@ -2288,16 +2313,12 @@ bool Expr::isUnusedResultAWarning(const Expr *&WarnE, SourceLocation &Loc,
     // If this is a direct call, get the callee.
     const CallExpr *CE = cast<CallExpr>(this);
     if (const Decl *FD = CE->getCalleeDecl()) {
-      const FunctionDecl *Func = dyn_cast<FunctionDecl>(FD);
-      bool HasWarnUnusedResultAttr = Func ? Func->hasUnusedResultAttr()
-                                          : FD->hasAttr<WarnUnusedResultAttr>();
-
       // If the callee has attribute pure, const, or warn_unused_result, warn
       // about it. void foo() { strlen("bar"); } should warn.
       //
       // Note: If new cases are added here, DiagnoseUnusedExprResult should be
       // updated to match for QoI.
-      if (HasWarnUnusedResultAttr ||
+      if (CE->hasUnusedResultAttr(Ctx) ||
           FD->hasAttr<PureAttr>() || FD->hasAttr<ConstAttr>()) {
         WarnE = this;
         Loc = CE->getCallee()->getBeginLoc();
@@ -2561,6 +2582,10 @@ Expr* Expr::IgnoreParens() {
         continue;
       }
     }
+    if (ConstantExpr *CE = dyn_cast<ConstantExpr>(E)) {
+      E = CE->getSubExpr();
+      continue;
+    }
     return E;
   }
 }
@@ -2585,6 +2610,10 @@ Expr *Expr::IgnoreParenCasts() {
       E = NTTP->getReplacement();
       continue;
     }
+    if (FullExpr *FE = dyn_cast<FullExpr>(E)) {
+      E = FE->getSubExpr();
+      continue;
+    }
     return E;
   }
 }
@@ -2604,6 +2633,10 @@ Expr *Expr::IgnoreCasts() {
     if (SubstNonTypeTemplateParmExpr *NTTP
         = dyn_cast<SubstNonTypeTemplateParmExpr>(E)) {
       E = NTTP->getReplacement();
+      continue;
+    }
+    if (FullExpr *FE = dyn_cast<FullExpr>(E)) {
+      E = FE->getSubExpr();
       continue;
     }
     return E;
@@ -2630,6 +2663,9 @@ Expr *Expr::IgnoreParenLValueCasts() {
     } else if (SubstNonTypeTemplateParmExpr *NTTP
                                   = dyn_cast<SubstNonTypeTemplateParmExpr>(E)) {
       E = NTTP->getReplacement();
+      continue;
+    } else if (FullExpr *FE = dyn_cast<FullExpr>(E)) {
+      E = FE->getSubExpr();
       continue;
     }
     break;
@@ -2896,6 +2932,12 @@ bool Expr::isConstantInitializer(ASTContext &Ctx, bool IsForRef,
 
     break;
   }
+  case ConstantExprClass: {
+    // FIXME: We should be able to return "true" here, but it can lead to extra
+    // error messages. E.g. in Sema/array-init.c.
+    const Expr *Exp = cast<ConstantExpr>(this)->getSubExpr();
+    return Exp->isConstantInitializer(Ctx, false, Culprit);
+  }
   case CompoundLiteralExprClass: {
     // This handles gcc's extension that allows global initializers like
     // "struct x {int x;} x = (struct x) {};".
@@ -2935,8 +2977,8 @@ bool Expr::isConstantInitializer(ASTContext &Ctx, bool IsForRef,
           const Expr *Elt = ILE->getInit(ElementNo++);
           if (Field->isBitField()) {
             // Bitfields have to evaluate to an integer.
-            llvm::APSInt ResultTmp;
-            if (!Elt->EvaluateAsInt(ResultTmp, Ctx)) {
+            EvalResult Result;
+            if (!Elt->EvaluateAsInt(Result, Ctx)) {
               if (Culprit)
                 *Culprit = Elt;
               return false;
@@ -3417,20 +3459,20 @@ Expr::isNullPointerConstant(ASTContext &Ctx,
       // Check that it is a cast to void*.
       if (const PointerType *PT = CE->getType()->getAs<PointerType>()) {
         QualType Pointee = PT->getPointeeType();
+        Qualifiers Qs = Pointee.getQualifiers();
         // Only (void*)0 or equivalent are treated as nullptr. If pointee type
         // has non-default address space it is not treated as nullptr.
         // (__generic void*)0 in OpenCL 2.0 should not be treated as nullptr
         // since it cannot be assigned to a pointer to constant address space.
-        bool PointeeHasDefaultAS =
-            Pointee.getAddressSpace() == LangAS::Default ||
-            (Ctx.getLangOpts().OpenCLVersion >= 200 &&
+        if ((Ctx.getLangOpts().OpenCLVersion >= 200 &&
              Pointee.getAddressSpace() == LangAS::opencl_generic) ||
             (Ctx.getLangOpts().OpenCL &&
              Ctx.getLangOpts().OpenCLVersion < 200 &&
-             Pointee.getAddressSpace() == LangAS::opencl_private);
+             Pointee.getAddressSpace() == LangAS::opencl_private))
+          Qs.removeAddressSpace();
 
-        if (PointeeHasDefaultAS && Pointee->isVoidType() && // to void*
-            CE->getSubExpr()->getType()->isIntegerType())   // from int.
+        if (Pointee->isVoidType() && Qs.empty() && // to void*
+            CE->getSubExpr()->getType()->isIntegerType()) // from int
           return CE->getSubExpr()->isNullPointerConstant(Ctx, NPC);
       }
     }
@@ -3980,25 +4022,46 @@ SourceLocation DesignatedInitUpdateExpr::getEndLoc() const {
   return getBase()->getEndLoc();
 }
 
-ParenListExpr::ParenListExpr(const ASTContext& C, SourceLocation lparenloc,
-                             ArrayRef<Expr*> exprs,
-                             SourceLocation rparenloc)
-  : Expr(ParenListExprClass, QualType(), VK_RValue, OK_Ordinary,
-         false, false, false, false),
-    NumExprs(exprs.size()), LParenLoc(lparenloc), RParenLoc(rparenloc) {
-  Exprs = new (C) Stmt*[exprs.size()];
-  for (unsigned i = 0; i != exprs.size(); ++i) {
-    if (exprs[i]->isTypeDependent())
+ParenListExpr::ParenListExpr(SourceLocation LParenLoc, ArrayRef<Expr *> Exprs,
+                             SourceLocation RParenLoc)
+    : Expr(ParenListExprClass, QualType(), VK_RValue, OK_Ordinary, false, false,
+           false, false),
+      LParenLoc(LParenLoc), RParenLoc(RParenLoc) {
+  ParenListExprBits.NumExprs = Exprs.size();
+
+  for (unsigned I = 0, N = Exprs.size(); I != N; ++I) {
+    if (Exprs[I]->isTypeDependent())
       ExprBits.TypeDependent = true;
-    if (exprs[i]->isValueDependent())
+    if (Exprs[I]->isValueDependent())
       ExprBits.ValueDependent = true;
-    if (exprs[i]->isInstantiationDependent())
+    if (Exprs[I]->isInstantiationDependent())
       ExprBits.InstantiationDependent = true;
-    if (exprs[i]->containsUnexpandedParameterPack())
+    if (Exprs[I]->containsUnexpandedParameterPack())
       ExprBits.ContainsUnexpandedParameterPack = true;
 
-    Exprs[i] = exprs[i];
+    getTrailingObjects<Stmt *>()[I] = Exprs[I];
   }
+}
+
+ParenListExpr::ParenListExpr(EmptyShell Empty, unsigned NumExprs)
+    : Expr(ParenListExprClass, Empty) {
+  ParenListExprBits.NumExprs = NumExprs;
+}
+
+ParenListExpr *ParenListExpr::Create(const ASTContext &Ctx,
+                                     SourceLocation LParenLoc,
+                                     ArrayRef<Expr *> Exprs,
+                                     SourceLocation RParenLoc) {
+  void *Mem = Ctx.Allocate(totalSizeToAlloc<Stmt *>(Exprs.size()),
+                           alignof(ParenListExpr));
+  return new (Mem) ParenListExpr(LParenLoc, Exprs, RParenLoc);
+}
+
+ParenListExpr *ParenListExpr::CreateEmpty(const ASTContext &Ctx,
+                                          unsigned NumExprs) {
+  void *Mem =
+      Ctx.Allocate(totalSizeToAlloc<Stmt *>(NumExprs), alignof(ParenListExpr));
+  return new (Mem) ParenListExpr(EmptyShell(), NumExprs);
 }
 
 const OpaqueValueExpr *OpaqueValueExpr::findInCopyConstruct(const Expr *e) {

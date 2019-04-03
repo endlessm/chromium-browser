@@ -1,11 +1,31 @@
+//===- MicrosoftDemangleNodes.h ---------------------------------*- C++ -*-===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is dual licensed under the MIT and the University of Illinois Open
+// Source Licenses. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+// This file defines the AST nodes used in the MSVC demangler.
+//
+//===----------------------------------------------------------------------===//
+
 #ifndef LLVM_SUPPORT_MICROSOFTDEMANGLENODES_H
 #define LLVM_SUPPORT_MICROSOFTDEMANGLENODES_H
 
-#include "llvm/Demangle/Compiler.h"
+#include "llvm/Demangle/DemangleConfig.h"
 #include "llvm/Demangle/StringView.h"
 #include <array>
 
+namespace llvm {
+namespace itanium_demangle {
 class OutputStream;
+}
+}
+
+using llvm::itanium_demangle::OutputStream;
+using llvm::itanium_demangle::StringView;
 
 namespace llvm {
 namespace ms_demangle {
@@ -53,6 +73,7 @@ enum class ReferenceKind : uint8_t { None, LValueRef, RValueRef };
 enum OutputFlags {
   OF_Default = 0,
   OF_NoCallingConvention = 1,
+  OF_NoTagSpecifier = 2,
 };
 
 // Types
@@ -235,6 +256,8 @@ struct Node {
 
   virtual void output(OutputStream &OS, OutputFlags Flags) const = 0;
 
+  std::string toString(OutputFlags Flags = OF_Default) const;
+
 private:
   NodeKind Kind;
 };
@@ -320,6 +343,9 @@ struct FunctionSignatureNode : public TypeNode {
 
   // Function parameters
   NodeArrayNode *Params = nullptr;
+
+  // True if the function type is noexcept
+  bool IsNoexcept = false;
 };
 
 struct IdentifierNode : public Node {

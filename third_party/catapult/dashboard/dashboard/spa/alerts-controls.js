@@ -142,7 +142,6 @@ tr.exportTo('cp', () => {
     hasTriagedExisting: options => false,
     hasIgnored: options => false,
     ignoredCount: options => 0,
-    isLoading: options => false,
     maxRevision: options => options.maxRevision || '',
     minRevision: options => options.minRevision || '',
     recentlyModifiedBugs: options => [],
@@ -151,10 +150,6 @@ tr.exportTo('cp', () => {
       options: [],
       selectedOptions: options.reports || [],
     }),
-    sectionId: options => 0,
-    selectedAlertPath: options => undefined,
-    selectedAlertsCount: options => 0,
-    selectedAlertsCount: options => 0,
     sheriff: options => cp.MenuInput.buildState({
       label: 'Sheriff',
       options: [],
@@ -200,8 +195,19 @@ tr.exportTo('cp', () => {
       }));
     },
 
+    loadSheriffs: statePath => async(dispatch, getState) => {
+      const sheriffs = await new cp.SheriffsRequest().response;
+      dispatch({
+        type: AlertsControls.reducers.receiveSheriffs.name,
+        statePath,
+        sheriffs,
+      });
+      dispatch(cp.MenuInput.actions.focus(statePath + '.sheriff'));
+    },
+
     connected: statePath => async(dispatch, getState) => {
       AlertsControls.actions.loadReportNames(statePath)(dispatch, getState);
+      AlertsControls.actions.loadSheriffs(statePath)(dispatch, getState);
       dispatch({
         type: AlertsControls.reducers.receiveRecentlyModifiedBugs.name,
         statePath,
@@ -218,6 +224,15 @@ tr.exportTo('cp', () => {
   };
 
   AlertsControls.reducers = {
+    receiveSheriffs: (state, {sheriffs}, rootState) => {
+      const sheriff = cp.MenuInput.buildState({
+        label: `Sheriffs (${sheriffs.length})`,
+        options: sheriffs,
+        selectedOptions: state.sheriff ? state.sheriff.selectedOptions : [],
+      });
+      return {...state, sheriff};
+    },
+
     onBugKeyup: (state, action, rootState) => {
       const options = state.bug.options.filter(option => !option.manual);
       const bugIds = options.map(option => option.value);
@@ -261,20 +276,22 @@ tr.exportTo('cp', () => {
 
   AlertsControls.compileSources = async(
     sheriffs, bugs, reports, minRevision, maxRevision, improvements) => {
+    // Returns a list of AlertsRequest bodies. See ../api/alerts.py for
+    // request body parameters.
     const revisions = {
-      minRevision: maybeInt(minRevision),
-      maxRevision: maybeInt(maxRevision),
+      min_end_revision: maybeInt(minRevision),
+      max_start_revision: maybeInt(maxRevision),
     };
     const sources = [];
     for (const sheriff of sheriffs) {
       sources.push({
         sheriff,
-        improvements,
+        is_improvement: improvements,
         ...revisions,
       });
     }
     for (const bug of bugs) {
-      sources.push({bug, ...revisions});
+      sources.push({bug_id: bug, ...revisions});
     }
     if (reports.length) {
       const reportTemplateInfos = await new cp.ReportNamesRequest().response;

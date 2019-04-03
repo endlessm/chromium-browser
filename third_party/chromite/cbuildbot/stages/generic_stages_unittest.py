@@ -17,7 +17,6 @@ import unittest
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
 from chromite.cbuildbot.stages import generic_stages
-from chromite.lib.const import waterfall
 from chromite.lib import auth
 from chromite.lib import buildbucket_lib
 from chromite.lib import config_lib
@@ -33,13 +32,13 @@ from chromite.lib import parallel
 from chromite.lib import partial_mock
 from chromite.lib import portage_util
 from chromite.lib import results_lib
+from chromite.lib.buildstore import FakeBuildStore
 from chromite.scripts import cbuildbot
 
 
 DEFAULT_BUILD_NUMBER = 1234321
 DEFAULT_BUILD_ID = 31337
 DEFAULT_BUILD_STAGE_ID = 313377
-
 
 # pylint: disable=protected-access
 
@@ -75,12 +74,27 @@ class StageTestCase(cros_test_lib.MockOutputTestCase,
     self._boards = None
     self._run = None
     self._model = None
+    self.buildstore = FakeBuildStore()
 
+  def CreateMockOverlay(self, overlay):
+    """Helper for creating an overlay in the fake buildroot.
+
+    Args:
+      overlay: The overlay name to create. Usually the board name.
+    """
+    layout_path = os.path.join(self.build_root, 'src', 'overlays',
+                               'overlay-%s' % overlay,
+                               'metadata', 'layout.conf')
+
+    layout_content = 'repo-name = %s\n' % overlay
+
+    # Don't use osutils.WriteFile, some tests mock it out.
+    osutils.SafeMakedirs(os.path.dirname(layout_path))
+    with open(layout_path, 'w') as f:
+      f.writelines(cros_build_lib.iflatten_instance(layout_content))
 
   def _Prepare(self, bot_id=None, extra_config=None, cmd_args=None,
                extra_cmd_args=None, build_id=DEFAULT_BUILD_ID,
-               wfall=waterfall.WATERFALL_INTERNAL,
-               waterfall_url=constants.BUILD_INT_DASHBOARD,
                master_build_id=None,
                site_config=None):
     """Prepare a BuilderRun at self._run for this test.
@@ -108,9 +122,6 @@ class StageTestCase(cros_test_lib.MockOutputTestCase,
         Example: ['branch-name', 'some-branch-name'] will effectively cause
         self._run.options.branch_name to be set to 'some-branch-name'.
       build_id: mock build id
-      wfall: Name of the current waterfall.
-             Possibly from waterfall.CIDB_KNOWN_WATERFALLS.
-      waterfall_url: Url for the current waterfall.
       master_build_id: mock build id of master build.
       site_config: SiteConfig to use (or MockSiteConfig)
     """
@@ -158,9 +169,6 @@ class StageTestCase(cros_test_lib.MockOutputTestCase,
 
     if master_build_id is not None:
       self._run.options.master_build_id = master_build_id
-
-    self._run.attrs.metadata.UpdateWithDict({'buildbot-master-name': wfall})
-    self._run.attrs.metadata.UpdateWithDict({'buildbot-url': waterfall_url})
 
     if self.RELEASE_TAG is not None:
       self._run.attrs.release_tag = self.RELEASE_TAG
@@ -230,14 +238,14 @@ class AbstractStageTestCase(StageTestCase):
   default values for testing BuilderStage and its derivatives.
   """
 
-  def ConstructStage(self):
+  def ConstructStage(self, **kwargs):
     """Returns an instance of the stage to be tested.
 
     Note: Must be implemented in subclasses.
     """
     raise NotImplementedError(self, "ConstructStage: Implement in your test")
 
-  def RunStage(self):
+  def RunStage(self, **kwargs):
     """Creates and runs an instance of the stage to be tested.
 
     Note: Requires ConstructStage() to be implemented.
@@ -249,7 +257,7 @@ class AbstractStageTestCase(StageTestCase):
     # Stage construction is usually done as late as possible because the tests
     # set up the build configuration and options used in constructing the stage.
     results_lib.Results.Clear()
-    stage = self.ConstructStage()
+    stage = self.ConstructStage(**kwargs)
     stage.Run()
     self.assertTrue(results_lib.Results.BuildSucceededSoFar())
 
@@ -276,8 +284,9 @@ class BuilderStageTest(AbstractStageTestCase):
   """Tests for BuilderStage class."""
 
   def setUp(self):
-    self._Prepare(wfall=waterfall.WATERFALL_INTERNAL)
+    self._Prepare()
     self.mock_cidb = mock.MagicMock()
+    self.buildstore = FakeBuildStore()
     cidb.CIDBConnectionFactory.SetupMockCidb(self.mock_cidb)
     # Many tests modify the global results_lib.Results instance.
     results_lib.Results.Clear()
@@ -297,12 +306,13 @@ class BuilderStageTest(AbstractStageTestCase):
     if stage_class is None:
       stage_class = generic_stages.BuilderStage
 
-    self.PatchObject(self.mock_cidb, 'InsertBuildStage',
-                     return_value=DEFAULT_BUILD_STAGE_ID)
-    stage = stage_class(self._run)
-    self.mock_cidb.InsertBuildStage.assert_called_once_with(
-        build_id=DEFAULT_BUILD_ID,
-        name=mock.ANY)
+    self.PatchObject(
+        FakeBuildStore, 'InsertBuildStage',
+        return_value=constants.MOCK_STAGE_ID)
+    stage = stage_class(self._run, self.buildstore)
+    self.buildstore.InsertBuildStage.assert_called_once_with(
+        constants.MOCK_BUILD_ID, stage.name, None,
+        constants.BUILDER_STATUS_PLANNED)
     return stage
 
   def ConstructStage(self):
@@ -335,13 +345,14 @@ class BuilderStageTest(AbstractStageTestCase):
     """Basic test for the ConstructDashboardURL() function."""
     stage = self.ConstructStage()
 
-    exp_url = ('https://luci-milo.appspot.com/buildbot/chromeos/'
-               'amd64-generic-paladin/%s' % DEFAULT_BUILD_NUMBER)
+    exp_url = ('https://cros-goldeneye.corp.google.com/chromeos/'
+               'healthmonitoring/buildDetails?buildbucketId=fake_bb_id')
     self.assertEqual(stage.ConstructDashboardURL(), exp_url)
 
     stage_name = 'Archive'
-    exp_url = ('https://uberchromegw.corp.google.com/i/chromeos/builders/'
-               'amd64-generic-paladin/builds/1234321/steps/Archive/logs/stdio')
+    exp_url = ('https://luci-logdog.appspot.com/v/?s=chromeos/buildbucket/'
+               'cr-buildbucket.appspot.com/1234321/%2B/steps/Archive/0/stdout')
+
     self.assertEqual(stage.ConstructDashboardURL(stage=stage_name), exp_url)
 
   def test_PrintSmoke(self):
@@ -492,7 +503,8 @@ class BuilderStageGetBuildFailureMessage(AbstractStageTestCase):
   """Test GetBuildFailureMessage in BuilderStage."""
 
   def setUp(self):
-    self._Prepare(wfall=waterfall.WATERFALL_SWARMING)
+    self._Prepare()
+    self.buildstore = FakeBuildStore()
     # Many tests modify the global results_lib.Results instance.
     results_lib.Results.Clear()
 
@@ -500,14 +512,14 @@ class BuilderStageGetBuildFailureMessage(AbstractStageTestCase):
     cidb.CIDBConnectionFactory.ClearMock()
 
   def ConstructStage(self):
-    return generic_stages.BuilderStage(self._run)
+    return generic_stages.BuilderStage(self._run, self.buildstore)
 
   def testGetBuildFailureMessageFromCIDB(self):
     """Test GetBuildFailureMessageFromCIDB."""
     db = fake_cidb.FakeCIDBConnection()
     cidb.CIDBConnectionFactory.SetupMockCidb(db)
 
-    build_id = db.InsertBuild('lumpy-pre-cq', waterfall.WATERFALL_INTERNAL, 1,
+    build_id = db.InsertBuild('lumpy-pre-cq', 1,
                               'lumpy-pre-cq', 'bot_hostname',
                               status=constants.BUILDER_STATUS_INFLIGHT)
     stage_id = db.InsertBuildStage(build_id, 'BuildPackages', status='fail')
@@ -588,8 +600,9 @@ class MasterConfigBuilderStageTest(AbstractStageTestCase):
   BOT_ID = 'master-paladin'
 
   def setUp(self):
-    self._Prepare(wfall=waterfall.WATERFALL_SWARMING)
+    self._Prepare()
     self.mock_cidb = mock.MagicMock()
+    self.buildstore = FakeBuildStore()
     cidb.CIDBConnectionFactory.SetupMockCidb(self.mock_cidb)
     results_lib.Results.Clear()
 
@@ -597,7 +610,7 @@ class MasterConfigBuilderStageTest(AbstractStageTestCase):
     cidb.CIDBConnectionFactory.ClearMock()
 
   def ConstructStage(self):
-    return generic_stages.BuilderStage(self._run)
+    return generic_stages.BuilderStage(self._run, self.buildstore)
 
   def testGetBuildbucketClient(self):
     """GetBuildbucketClient returns not None."""
@@ -697,10 +710,12 @@ class BoardSpecificBuilderStageTest(AbstractStageTestCase):
   DEFAULT_BOARD_NAME = 'my_shiny_test_board'
 
   def setUp(self):
+    self.buildstore = FakeBuildStore()
     self._Prepare()
 
   def ConstructStage(self):
     return generic_stages.BoardSpecificBuilderStage(self._run,
+                                                    self.buildstore,
                                                     self.DEFAULT_BOARD_NAME)
 
   def testBuilderNameContainsBoardName(self):

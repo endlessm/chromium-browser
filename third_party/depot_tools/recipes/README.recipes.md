@@ -332,7 +332,7 @@ Create a new branch from given project and commit
 Returns:
   the ref of the branch created
 
-&mdash; **def [get\_change\_description](/recipes/recipe_modules/gerrit/api.py#106)(self, host, change, patchset):**
+&mdash; **def [get\_change\_description](/recipes/recipe_modules/gerrit/api.py#72)(self, host, change, patchset):**
 
 Get the description for a given CL and patchset.
 
@@ -344,20 +344,7 @@ Args:
 Returns:
   The description corresponding to given CL and patchset.
 
-&mdash; **def [get\_change\_destination\_branch](/recipes/recipe_modules/gerrit/api.py#72)(self, host, change, name=None, step_test_data=None):**
-
-Get the upstream branch for a given CL.
-
-Result is cached.
-
-Args:
-  host: URL of Gerrit host to query.
-  change: The change number.
-
-Returns:
-  the name of the branch
-
-&mdash; **def [get\_changes](/recipes/recipe_modules/gerrit/api.py#151)(self, host, query_params, start=None, limit=None, o_params=None, step_test_data=None, \*\*kwargs):**
+&mdash; **def [get\_changes](/recipes/recipe_modules/gerrit/api.py#117)(self, host, query_params, start=None, limit=None, o_params=None, step_test_data=None, \*\*kwargs):**
 
 Query changes for the given host.
 
@@ -382,7 +369,7 @@ Get a branch from given project and commit
 Returns:
   the revision of the branch
 
-&mdash; **def [get\_revision\_info](/recipes/recipe_modules/gerrit/api.py#121)(self, host, change, patchset):**
+&mdash; **def [get\_revision\_info](/recipes/recipe_modules/gerrit/api.py#87)(self, host, change, patchset):**
 
 Returns the info for a given patchset of a given change.
 
@@ -396,7 +383,7 @@ Returns:
       https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#list-changes
 ### *recipe_modules* / [git](/recipes/recipe_modules/git)
 
-[DEPS](/recipes/recipe_modules/git/__init__.py#1): [infra\_paths](#recipe_modules-infra_paths), [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/runtime][recipe_engine/recipe_modules/runtime], [recipe\_engine/step][recipe_engine/recipe_modules/step]
+[DEPS](/recipes/recipe_modules/git/__init__.py#1): [infra\_paths](#recipe_modules-infra_paths), [recipe\_engine/buildbucket][recipe_engine/recipe_modules/buildbucket], [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/python][recipe_engine/recipe_modules/python], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/runtime][recipe_engine/recipe_modules/runtime], [recipe\_engine/step][recipe_engine/recipe_modules/step]
 
 #### **class [GitApi](/recipes/recipe_modules/git/api.py#10)([RecipeApi][recipe_engine/wkt/RecipeApi]):**
 
@@ -404,7 +391,7 @@ Returns:
 
 Return a git command step.
 
-&mdash; **def [bundle\_create](/recipes/recipe_modules/git/api.py#383)(self, bundle_path, rev_list_args=None, \*\*kwargs):**
+&mdash; **def [bundle\_create](/recipes/recipe_modules/git/api.py#382)(self, bundle_path, rev_list_args=None, \*\*kwargs):**
 
 Run 'git bundle create' on a Git repository.
 
@@ -457,7 +444,7 @@ Args:
 Returns: If the checkout was successful, this returns the commit hash of
   the checked-out-repo. Otherwise this returns None.
 
-&mdash; **def [config\_get](/recipes/recipe_modules/git/api.py#356)(self, prop_name, \*\*kwargs):**
+&mdash; **def [config\_get](/recipes/recipe_modules/git/api.py#355)(self, prop_name, \*\*kwargs):**
 
 Returns: (str) The Git config output, or None if no output was generated.
 
@@ -482,7 +469,7 @@ Returns:
 
 Fetches all tags from the remote.
 
-&mdash; **def [get\_remote\_url](/recipes/recipe_modules/git/api.py#373)(self, remote_name=None, \*\*kwargs):**
+&mdash; **def [get\_remote\_url](/recipes/recipe_modules/git/api.py#372)(self, remote_name=None, \*\*kwargs):**
 
 Returns: (str) The URL of the remote Git repository, or None.
 
@@ -490,11 +477,11 @@ Args:
   remote_name: (str) The name of the remote to query, defaults to 'origin'.
   kwargs: Forwarded to '__call__'.
 
-&mdash; **def [get\_timestamp](/recipes/recipe_modules/git/api.py#328)(self, commit='HEAD', test_data=None, \*\*kwargs):**
+&mdash; **def [get\_timestamp](/recipes/recipe_modules/git/api.py#327)(self, commit='HEAD', test_data=None, \*\*kwargs):**
 
 Find and return the timestamp of the given commit.
 
-&mdash; **def [new\_branch](/recipes/recipe_modules/git/api.py#396)(self, branch, name=None, upstream=None, \*\*kwargs):**
+&mdash; **def [new\_branch](/recipes/recipe_modules/git/api.py#395)(self, branch, name=None, upstream=None, \*\*kwargs):**
 
 Runs git new-branch on a Git repository, to be used before git cl upload.
 
@@ -504,7 +491,7 @@ Args:
   upstream (str): to origin/master.
   kwargs: Forwarded to '__call__'.
 
-&mdash; **def [rebase](/recipes/recipe_modules/git/api.py#337)(self, name_prefix, branch, dir_path, remote_name=None, \*\*kwargs):**
+&mdash; **def [rebase](/recipes/recipe_modules/git/api.py#336)(self, name_prefix, branch, dir_path, remote_name=None, \*\*kwargs):**
 
 Run rebase HEAD onto branch
 Args:
@@ -751,7 +738,7 @@ Return a presubmit step.
 
 #### **class [TryserverApi](/recipes/recipe_modules/tryserver/api.py#11)([RecipeApi][recipe_engine/wkt/RecipeApi]):**
 
-&mdash; **def [add\_failure\_reason](/recipes/recipe_modules/tryserver/api.py#206)(self, reason):**
+&mdash; **def [add\_failure\_reason](/recipes/recipe_modules/tryserver/api.py#215)(self, reason):**
 
 Records a more detailed reason why build is failing.
 
@@ -791,11 +778,11 @@ Argument:
 
 Returned paths will be relative to to patch_root.
 
-&mdash; **def [get\_footer](/recipes/recipe_modules/tryserver/api.py#262)(self, tag, patch_text=None):**
+&mdash; **def [get\_footer](/recipes/recipe_modules/tryserver/api.py#271)(self, tag, patch_text=None):**
 
 Gets a specific tag from a CL description
 
-&mdash; **def [get\_footers](/recipes/recipe_modules/tryserver/api.py#242)(self, patch_text=None):**
+&mdash; **def [get\_footers](/recipes/recipe_modules/tryserver/api.py#251)(self, patch_text=None):**
 
 Retrieves footers from the patch description.
 
@@ -814,13 +801,20 @@ Returns true iff the properties exist to match a Gerrit issue.
 
 Returns true iff we have a change to check out.
 
-&mdash; **def [normalize\_footer\_name](/recipes/recipe_modules/tryserver/api.py#266)(self, footer):**
+&mdash; **def [normalize\_footer\_name](/recipes/recipe_modules/tryserver/api.py#275)(self, footer):**
 
-&mdash; **def [set\_compile\_failure\_tryjob\_result](/recipes/recipe_modules/tryserver/api.py#185)(self):**
+&mdash; **def [set\_compile\_failure\_tryjob\_result](/recipes/recipe_modules/tryserver/api.py#194)(self):**
 
 Mark the tryjob result as a compile failure.
 
-&emsp; **@contextlib.contextmanager**<br>&mdash; **def [set\_failure\_hash](/recipes/recipe_modules/tryserver/api.py#215)(self):**
+&mdash; **def [set\_do\_not\_retry\_build](/recipes/recipe_modules/tryserver/api.py#181)(self):**
+
+A flag to indicate the build should not be retried by the CQ.
+
+This mechanism is used to reduce CQ duration when retrying will likely
+return an identical result.
+
+&emsp; **@contextlib.contextmanager**<br>&mdash; **def [set\_failure\_hash](/recipes/recipe_modules/tryserver/api.py#224)(self):**
 
 Context manager that sets a failure_hash build property on StepFailure.
 
@@ -829,7 +823,7 @@ for the same reason. For example, if a patch is bad (breaks something),
 we'd expect it to always break in the same way. Different failures
 for the same patch are usually a sign of flakiness.
 
-&mdash; **def [set\_invalid\_test\_results\_tryjob\_result](/recipes/recipe_modules/tryserver/api.py#197)(self):**
+&mdash; **def [set\_invalid\_test\_results\_tryjob\_result](/recipes/recipe_modules/tryserver/api.py#206)(self):**
 
 Mark the tryjob result as having invalid test results.
 
@@ -837,7 +831,7 @@ This means we run some tests, but the results were not valid
 (e.g. no list of specific test cases that failed, or too many
 tests failing, etc).
 
-&mdash; **def [set\_patch\_failure\_tryjob\_result](/recipes/recipe_modules/tryserver/api.py#181)(self):**
+&mdash; **def [set\_patch\_failure\_tryjob\_result](/recipes/recipe_modules/tryserver/api.py#190)(self):**
 
 Mark the tryjob result as failure to apply the patch.
 
@@ -848,7 +842,7 @@ Adds a subproject tag to the build.
 This can be used to distinguish between builds that execute different steps
 depending on what was patched, e.g. blink vs. pure chromium patches.
 
-&mdash; **def [set\_test\_failure\_tryjob\_result](/recipes/recipe_modules/tryserver/api.py#189)(self):**
+&mdash; **def [set\_test\_failure\_tryjob\_result](/recipes/recipe_modules/tryserver/api.py#198)(self):**
 
 Mark the tryjob result as a test failure.
 
@@ -930,9 +924,9 @@ Raises:
 &mdash; **def [RunSteps](/recipes/recipe_modules/gerrit/examples/full.py#11)(api):**
 ### *recipes* / [git:examples/full](/recipes/recipe_modules/git/examples/full.py)
 
-[DEPS](/recipes/recipe_modules/git/examples/full.py#5): [git](#recipe_modules-git), [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/runtime][recipe_engine/recipe_modules/runtime], [recipe\_engine/step][recipe_engine/recipe_modules/step]
+[DEPS](/recipes/recipe_modules/git/examples/full.py#5): [git](#recipe_modules-git), [recipe\_engine/buildbucket][recipe_engine/recipe_modules/buildbucket], [recipe\_engine/context][recipe_engine/recipe_modules/context], [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/platform][recipe_engine/recipe_modules/platform], [recipe\_engine/properties][recipe_engine/recipe_modules/properties], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/runtime][recipe_engine/recipe_modules/runtime], [recipe\_engine/step][recipe_engine/recipe_modules/step]
 
-&mdash; **def [RunSteps](/recipes/recipe_modules/git/examples/full.py#18)(api):**
+&mdash; **def [RunSteps](/recipes/recipe_modules/git/examples/full.py#19)(api):**
 ### *recipes* / [git\_cl:examples/full](/recipes/recipe_modules/git_cl/examples/full.py)
 
 [DEPS](/recipes/recipe_modules/git_cl/examples/full.py#9): [git\_cl](#recipe_modules-git_cl), [recipe\_engine/path][recipe_engine/recipe_modules/path], [recipe\_engine/raw\_io][recipe_engine/recipe_modules/raw_io], [recipe\_engine/step][recipe_engine/recipe_modules/step]
@@ -981,18 +975,18 @@ Move things around in a loop!
 
 &mdash; **def [RunSteps](/recipes/recipe_modules/windows_sdk/examples/full.py#13)(api):**
 
-[recipe_engine/recipe_modules/buildbucket]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-buildbucket
-[recipe_engine/recipe_modules/cipd]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-cipd
-[recipe_engine/recipe_modules/context]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-context
-[recipe_engine/recipe_modules/file]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-file
-[recipe_engine/recipe_modules/json]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-json
-[recipe_engine/recipe_modules/path]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-path
-[recipe_engine/recipe_modules/platform]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-platform
-[recipe_engine/recipe_modules/properties]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-properties
-[recipe_engine/recipe_modules/python]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-python
-[recipe_engine/recipe_modules/raw_io]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-raw_io
-[recipe_engine/recipe_modules/runtime]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-runtime
-[recipe_engine/recipe_modules/source_manifest]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-source_manifest
-[recipe_engine/recipe_modules/step]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-step
-[recipe_engine/recipe_modules/url]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/README.recipes.md#recipe_modules-url
-[recipe_engine/wkt/RecipeApi]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/d0deba23a671b236ec535a9a54aa78b6dcf142ab/recipe_engine/recipe_api.py#1015
+[recipe_engine/recipe_modules/buildbucket]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-buildbucket
+[recipe_engine/recipe_modules/cipd]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-cipd
+[recipe_engine/recipe_modules/context]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-context
+[recipe_engine/recipe_modules/file]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-file
+[recipe_engine/recipe_modules/json]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-json
+[recipe_engine/recipe_modules/path]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-path
+[recipe_engine/recipe_modules/platform]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-platform
+[recipe_engine/recipe_modules/properties]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-properties
+[recipe_engine/recipe_modules/python]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-python
+[recipe_engine/recipe_modules/raw_io]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-raw_io
+[recipe_engine/recipe_modules/runtime]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-runtime
+[recipe_engine/recipe_modules/source_manifest]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-source_manifest
+[recipe_engine/recipe_modules/step]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-step
+[recipe_engine/recipe_modules/url]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/README.recipes.md#recipe_modules-url
+[recipe_engine/wkt/RecipeApi]: https://chromium.googlesource.com/infra/luci/recipes-py.git/+/157d3d2973ebb66c21dce81dfa506695b8ab6926/recipe_engine/recipe_api.py#1005

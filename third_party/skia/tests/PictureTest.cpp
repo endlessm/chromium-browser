@@ -108,12 +108,18 @@ public:
         : INHERITED(width, height)
         , fSaveCount(0)
         , fSaveLayerCount(0)
+        , fSaveBehindCount(0)
         , fRestoreCount(0){
     }
 
     SaveLayerStrategy getSaveLayerStrategy(const SaveLayerRec& rec) override {
         ++fSaveLayerCount;
         return this->INHERITED::getSaveLayerStrategy(rec);
+    }
+
+    bool onDoSaveBehind(const SkRect* subset) override {
+        ++fSaveBehindCount;
+        return this->INHERITED::onDoSaveBehind(subset);
     }
 
     void willSave() override {
@@ -128,11 +134,13 @@ public:
 
     unsigned int getSaveCount() const { return fSaveCount; }
     unsigned int getSaveLayerCount() const { return fSaveLayerCount; }
+    unsigned int getSaveBehindCount() const { return fSaveBehindCount; }
     unsigned int getRestoreCount() const { return fRestoreCount; }
 
 private:
     unsigned int fSaveCount;
     unsigned int fSaveLayerCount;
+    unsigned int fSaveBehindCount;
     unsigned int fRestoreCount;
 
     typedef SkCanvas INHERITED;
@@ -550,9 +558,8 @@ static void test_gen_id(skiatest::Reporter* reporter) {
 static void test_typeface(skiatest::Reporter* reporter) {
     SkPictureRecorder recorder;
     SkCanvas* canvas = recorder.beginRecording(10, 10);
-    SkPaint paint;
-    paint.setTypeface(SkTypeface::MakeFromName("Arial", SkFontStyle::Italic()));
-    canvas->drawString("Q", 0, 10, paint);
+    SkFont font(SkTypeface::MakeFromName("Arial", SkFontStyle::Italic()));
+    canvas->drawString("Q", 0, 10, font, SkPaint());
     sk_sp<SkPicture> picture(recorder.finishRecordingAsPicture());
     SkDynamicMemoryWStream stream;
     picture->serialize(&stream);

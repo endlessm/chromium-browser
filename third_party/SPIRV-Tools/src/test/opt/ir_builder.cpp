@@ -198,6 +198,7 @@ TEST_F(IRBuilderTest, TestCondBranchAddition) {
 
     BasicBlock& bb_merge = *fn.begin();
 
+    // TODO(1841): Handle id overflow.
     fn.begin().InsertBefore(std::unique_ptr<BasicBlock>(
         new BasicBlock(std::unique_ptr<Instruction>(new Instruction(
             context.get(), SpvOpLabel, 0, context->TakeNextId(), {})))));
@@ -207,6 +208,7 @@ TEST_F(IRBuilderTest, TestCondBranchAddition) {
       builder.AddBranch(bb_merge.id());
     }
 
+    // TODO(1841): Handle id overflow.
     fn.begin().InsertBefore(std::unique_ptr<BasicBlock>(
         new BasicBlock(std::unique_ptr<Instruction>(new Instruction(
             context.get(), SpvOpLabel, 0, context->TakeNextId(), {})))));
@@ -401,6 +403,34 @@ OpFunctionEnd
   EXPECT_EQ(const_4->GetSingleWordOperand(0), type_id_signed);
   EXPECT_EQ(const_6->GetSingleWordOperand(0), type_id_signed);
 
+  Match(text, context.get());
+}
+
+TEST_F(IRBuilderTest, AccelerationStructureNV) {
+  const std::string text = R"(
+; CHECK: OpTypeAccelerationStructureNV
+OpCapability Shader
+OpCapability RayTracingNV
+OpExtension "SPV_NV_ray_tracing"
+OpMemoryModel Logical GLSL450
+OpEntryPoint Fragment %8 "main"
+OpExecutionMode %8 OriginUpperLeft
+%1 = OpTypeVoid
+%2 = OpTypeBool
+%3 = OpTypeAccelerationStructureNV
+%7 = OpTypeFunction %1
+%8 = OpFunction %1 None %7
+%9 = OpLabel
+OpReturn
+OpFunctionEnd
+)";
+
+  std::unique_ptr<IRContext> context =
+      BuildModule(SPV_ENV_UNIVERSAL_1_2, nullptr, text);
+  EXPECT_NE(nullptr, context);
+
+  InstructionBuilder builder(context.get(),
+                             &*context->module()->begin()->begin()->begin());
   Match(text, context.get());
 }
 

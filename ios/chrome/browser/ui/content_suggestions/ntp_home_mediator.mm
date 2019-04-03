@@ -14,6 +14,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
+#import "ios/chrome/browser/ntp/new_tab_page_tab_helper.h"
 #import "ios/chrome/browser/search_engines/search_engine_observer_bridge.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
@@ -201,6 +202,11 @@ const char kNTPHelpURL[] =
 }
 
 - (void)openPageForItemAtIndexPath:(NSIndexPath*)indexPath {
+  NewTabPageTabHelper* NTPHelper =
+      NewTabPageTabHelper::FromWebState(self.webState);
+  if (NTPHelper && NTPHelper->IgnoreLoadRequests()) {
+    return;
+  }
   CollectionViewItem* item = [self.suggestionsViewController.collectionViewModel
       itemAtIndexPath:indexPath];
   ContentSuggestionsItem* suggestionItem =
@@ -231,6 +237,11 @@ const char kNTPHelpURL[] =
 
 - (void)openMostVisitedItem:(CollectionViewItem*)item
                     atIndex:(NSInteger)mostVisitedIndex {
+  NewTabPageTabHelper* NTPHelper =
+      NewTabPageTabHelper::FromWebState(self.webState);
+  if (NTPHelper && NTPHelper->IgnoreLoadRequests())
+    return;
+
   if ([item isKindOfClass:[ContentSuggestionsMostVisitedActionItem class]]) {
     ContentSuggestionsMostVisitedActionItem* mostVisitedItem =
         base::mac::ObjCCastStrict<ContentSuggestionsMostVisitedActionItem>(
@@ -346,6 +357,10 @@ const char kNTPHelpURL[] =
 }
 
 - (void)handleLearnMoreTapped {
+  NewTabPageTabHelper* NTPHelper =
+      NewTabPageTabHelper::FromWebState(self.webState);
+  if (NTPHelper && NTPHelper->IgnoreLoadRequests())
+    return;
   GURL URL(kNTPHelpURL);
   ChromeLoadParams params(URL);
   [self.dispatcher loadURLWithParams:params];
@@ -443,6 +458,15 @@ const char kNTPHelpURL[] =
 
 - (BOOL)isScrolledToTop {
   return self.suggestionsViewController.scrolledToTop;
+}
+
+- (BOOL)ignoreLoadRequests {
+  NewTabPageTabHelper* NTPHelper =
+      NewTabPageTabHelper::FromWebState(self.webState);
+  if (NTPHelper && NTPHelper->IgnoreLoadRequests()) {
+    return YES;
+  }
+  return NO;
 }
 
 #pragma mark - WebStateListObserving

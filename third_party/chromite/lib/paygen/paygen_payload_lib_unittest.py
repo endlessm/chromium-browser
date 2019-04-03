@@ -15,7 +15,6 @@ import mock
 
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
-from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import partial_mock
 
@@ -34,42 +33,44 @@ class PaygenPayloadLibTest(cros_test_lib.MockTempDirTestCase):
   """PaygenPayloadLib tests base class."""
 
   def setUp(self):
-    self.old_image = gspaths.Image(
+    self.old_build = gspaths.Build(
         channel='dev-channel',
         board='x86-alex',
         version='1620.0.0',
+        bucket='chromeos-releases-test')
+
+    self.old_image = gspaths.Image(
+        build=self.old_build,
         key='mp-v3',
         uri=('gs://chromeos-releases-test/dev-channel/x86-alex/1620.0.0/'
              'chromeos_1620.0.0_x86-alex_recovery_dev-channel_mp-v3.bin'))
 
     self.old_base_image = gspaths.Image(
-        channel='dev-channel',
-        board='x86-alex',
-        version='1620.0.0',
+        build=self.old_build,
         key='mp-v3',
         image_type='base',
         uri=('gs://chromeos-releases-test/dev-channel/x86-alex/1620.0.0/'
              'chromeos_1620.0.0_x86-alex_base_dev-channel_mp-v3.bin'))
 
-    self.new_image = gspaths.Image(
+    self.new_build = gspaths.Build(
         channel='dev-channel',
         board='x86-alex',
         version='4171.0.0',
+        bucket='chromeos-releases-test')
+
+    self.new_image = gspaths.Image(
+        build=self.new_build,
         key='mp-v3',
         uri=('gs://chromeos-releases-test/dev-channel/x86-alex/4171.0.0/'
              'chromeos_4171.0.0_x86-alex_recovery_dev-channel_mp-v3.bin'))
 
     self.old_test_image = gspaths.UnsignedImageArchive(
-        channel='dev-channel',
-        board='x86-alex',
-        version='1620.0.0',
+        build=self.old_build,
         uri=('gs://chromeos-releases-test/dev-channel/x86-alex/1620.0.0/'
              'chromeos_1620.0.0_x86-alex_recovery_dev-channel_test.bin'))
 
     self.new_test_image = gspaths.Image(
-        channel='dev-channel',
-        board='x86-alex',
-        version='4171.0.0',
+        build=self.new_build,
         uri=('gs://chromeos-releases-test/dev-channel/x86-alex/4171.0.0/'
              'chromeos_4171.0.0_x86-alex_recovery_dev-channel_test.bin'))
 
@@ -111,9 +112,8 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     if work_dir is None:
       work_dir = self.tempdir
 
-    return paygen_payload_lib._PaygenPayload(
+    return paygen_payload_lib.PaygenPayload(
         payload=payload,
-        cache=self.cache,
         work_dir=work_dir,
         sign=sign,
         verify=False)
@@ -177,18 +177,15 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     test_dict = {'foo': 'bar'}
 
     # Value present.
-    self.assertEqual(gen._BuildArg('--foo', test_dict, 'foo'),
-                     ['--foo', 'bar'])
-    self.assertEqual(gen._BuildArg(None, test_dict, 'foo'),
-                     ['bar'])
+    self.assertEqual(gen._BuildArg('--foo', test_dict, 'foo'), '--foo=bar')
 
     # Value present, default has no impact.
     self.assertEqual(gen._BuildArg('--foo', test_dict, 'foo', default='baz'),
-                     ['--foo', 'bar'])
+                     '--foo=bar')
 
     # Value missing, default kicking in.
     self.assertEqual(gen._BuildArg('--foo2', test_dict, 'foo2', default='baz'),
-                     ['--foo2', 'baz'])
+                     '--foo2=baz')
 
   def _DoPrepareImageTest(self, image_type):
     """Test _PrepareImage."""
@@ -197,21 +194,13 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     gen = self._GetStdGenerator(work_dir=self.tempdir)
 
     if image_type == 'Image':
-      image_obj = gspaths.Image(
-          channel='dev-channel',
-          board='x86-alex',
-          version='4171.0.0',
-          key='mp-v3',
-          uri=download_uri)
+      image_obj = gspaths.Image(build=self.new_build, key='mp-v3',
+                                uri=download_uri)
       test_extract_file = None
     elif image_type == 'UnsignedImageArchive':
       image_obj = gspaths.UnsignedImageArchive(
-          channel='dev-channel',
-          board='x86-alex',
-          version='4171.0.0',
-          image_type='test',
-          uri=download_uri)
-      test_extract_file = paygen_payload_lib._PaygenPayload.TEST_IMAGE_NAME
+          build=self.new_build, image_type='test', uri=download_uri)
+      test_extract_file = paygen_payload_lib.PaygenPayload.TEST_IMAGE_NAME
     else:
       raise ValueError('invalid image type descriptor (%s)' % image_type)
 
@@ -245,66 +234,88 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     """Test preparing a test image."""
     self._DoPrepareImageTest('UnsignedImageArchive')
 
+  def testGeneratePostinstConfigTrue(self):
+    """Tests creating the postinstall config file."""
+    gen = self._GetStdGenerator(payload=self.full_payload,
+                                work_dir=self.tempdir)
+
+    gen._GeneratePostinstConfig(True)
+    self.assertEqual(osutils.ReadFile(gen._postinst_config_file),
+                     'RUN_POSTINSTALL_root=true\n')
+
+  def testGeneratePostinstConfigFalse(self):
+    "Tests creating the postinstall config file."
+    gen = self._GetStdGenerator(payload=self.full_payload,
+                                work_dir=self.tempdir)
+
+    gen._GeneratePostinstConfig(False)
+    self.assertEqual(osutils.ReadFile(gen._postinst_config_file),
+                     'RUN_POSTINSTALL_root=false\n')
+
   def testGenerateUnsignedPayloadFull(self):
     """Test _GenerateUnsignedPayload with full payload."""
     gen = self._GetStdGenerator(payload=self.full_payload, work_dir='/work')
 
     # Stub out the required functions.
+    extract_mock = self.PatchObject(gen, '_ExtractPartitions')
+    postinst_config_mock = self.PatchObject(gen, '_GeneratePostinstConfig')
     run_mock = self.PatchObject(gen, '_RunGeneratorCmd')
-    check_mock = self.PatchObject(gen, '_CheckPartitionFiles')
 
     # Run the test.
     gen._GenerateUnsignedPayload()
 
     # Check the expected function calls.
-    cmd = ['cros_generate_update_payload',
-           '--output', gen.payload_file,
-           '--image', gen.tgt_image_file,
-           '--channel', 'dev-channel',
-           '--board', 'x86-alex',
-           '--version', '1620.0.0',
-           '--kern_path', '/work/new_kernel.dat',
-           '--root_path', '/work/new_root.dat',
-           '--key', 'mp-v3',
-           '--build_channel', 'dev-channel',
-           '--build_version', '1620.0.0']
+    cmd = ['delta_generator',
+           '--major_version=2',
+           '--out_file=' + gen.payload_file,
+           '--partition_names=' + ':'.join(gen.partition_names),
+           '--new_partitions=' + ':'.join(gen.tgt_partitions),
+           '--new_postinstall_config_file=' + gen._postinst_config_file,
+           '--new_channel=dev-channel',
+           '--new_board=x86-alex',
+           '--new_version=1620.0.0',
+           '--new_build_channel=dev-channel',
+           '--new_build_version=1620.0.0',
+           '--new_key=mp-v3']
+    extract_mock.assert_called_once_with()
+    postinst_config_mock.assert_called_once_with(True)
     run_mock.assert_called_once_with(cmd)
-    check_mock.assert_called_once_with()
 
   def testGenerateUnsignedPayloadDelta(self):
     """Test _GenerateUnsignedPayload with delta payload."""
     gen = self._GetStdGenerator(payload=self.delta_payload, work_dir='/work')
 
     # Stub out the required functions.
+    extract_mock = self.PatchObject(gen, '_ExtractPartitions')
+    postinst_config_mock = self.PatchObject(gen, '_GeneratePostinstConfig')
     run_mock = self.PatchObject(gen, '_RunGeneratorCmd')
-    check_mock = self.PatchObject(gen, '_CheckPartitionFiles')
 
     # Run the test.
     gen._GenerateUnsignedPayload()
 
     # Check the expected function calls.
-    cmd = ['cros_generate_update_payload',
-           '--output', gen.payload_file,
-           '--image', gen.tgt_image_file,
-           '--channel', 'dev-channel',
-           '--board', 'x86-alex',
-           '--version', '4171.0.0',
-           '--kern_path', '/work/new_kernel.dat',
-           '--root_path', '/work/new_root.dat',
-           '--key', 'mp-v3',
-           '--build_channel', 'dev-channel',
-           '--build_version', '4171.0.0',
-           '--src_image', gen.src_image_file,
-           '--src_channel', 'dev-channel',
-           '--src_board', 'x86-alex',
-           '--src_version', '1620.0.0',
-           '--src_kern_path', '/work/old_kernel.dat',
-           '--src_root_path', '/work/old_root.dat',
-           '--src_key', 'mp-v3',
-           '--src_build_channel', 'dev-channel',
-           '--src_build_version', '1620.0.0']
+    cmd = ['delta_generator',
+           '--major_version=2',
+           '--out_file=' + gen.payload_file,
+           '--partition_names=' + ':'.join(gen.partition_names),
+           '--new_partitions=' + ':'.join(gen.tgt_partitions),
+           '--new_postinstall_config_file=' + gen._postinst_config_file,
+           '--new_channel=dev-channel',
+           '--new_board=x86-alex',
+           '--new_version=4171.0.0',
+           '--new_build_channel=dev-channel',
+           '--new_build_version=4171.0.0',
+           '--new_key=mp-v3',
+           '--old_partitions=' + ':'.join(gen.src_partitions),
+           '--old_channel=dev-channel',
+           '--old_board=x86-alex',
+           '--old_version=1620.0.0',
+           '--old_build_channel=dev-channel',
+           '--old_build_version=1620.0.0',
+           '--old_key=mp-v3']
+    extract_mock.assert_called_once_with()
+    postinst_config_mock.assert_called_once_with(True)
     run_mock.assert_called_once_with(cmd)
-    check_mock.assert_called_once_with()
 
   def testGenerateUnsignedTestPayloadFull(self):
     """Test _GenerateUnsignedPayload with full test payload."""
@@ -312,26 +323,29 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
                                 work_dir='/work')
 
     # Stub out the required functions.
+    extract_mock = self.PatchObject(gen, '_ExtractPartitions')
+    postinst_config_mock = self.PatchObject(gen, '_GeneratePostinstConfig')
     run_mock = self.PatchObject(gen, '_RunGeneratorCmd')
-    check_mock = self.PatchObject(gen, '_CheckPartitionFiles')
 
     # Run the test.
     gen._GenerateUnsignedPayload()
 
     # Check the expected function calls.
-    cmd = ['cros_generate_update_payload',
-           '--output', gen.payload_file,
-           '--image', gen.tgt_image_file,
-           '--channel', 'dev-channel',
-           '--board', 'x86-alex',
-           '--version', '1620.0.0',
-           '--kern_path', '/work/new_kernel.dat',
-           '--root_path', '/work/new_root.dat',
-           '--key', 'test',
-           '--build_channel', 'dev-channel',
-           '--build_version', '1620.0.0']
+    cmd = ['delta_generator',
+           '--major_version=2',
+           '--out_file=' + gen.payload_file,
+           '--partition_names=' + ':'.join(gen.partition_names),
+           '--new_partitions=' + ':'.join(gen.tgt_partitions),
+           '--new_postinstall_config_file=' + gen._postinst_config_file,
+           '--new_channel=dev-channel',
+           '--new_board=x86-alex',
+           '--new_version=1620.0.0',
+           '--new_build_channel=dev-channel',
+           '--new_build_version=1620.0.0',
+           '--new_key=test']
+    extract_mock.assert_called_once_with()
+    postinst_config_mock.assert_called_once_with(True)
     run_mock.assert_called_once_with(cmd)
-    check_mock.assert_called_once_with()
 
   def testGenerateUnsignedTestPayloadDelta(self):
     """Test _GenerateUnsignedPayload with delta payload."""
@@ -339,43 +353,45 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
                                 work_dir='/work')
 
     # Stub out the required functions.
+    extract_mock = self.PatchObject(gen, '_ExtractPartitions')
+    postinst_config_mock = self.PatchObject(gen, '_GeneratePostinstConfig')
     run_mock = self.PatchObject(gen, '_RunGeneratorCmd')
-    check_mock = self.PatchObject(gen, '_CheckPartitionFiles')
 
     # Run the test.
     gen._GenerateUnsignedPayload()
 
     # Check the expected function calls.
-    cmd = ['cros_generate_update_payload',
-           '--output', gen.payload_file,
-           '--image', gen.tgt_image_file,
-           '--channel', 'dev-channel',
-           '--board', 'x86-alex',
-           '--version', '4171.0.0',
-           '--kern_path', '/work/new_kernel.dat',
-           '--root_path', '/work/new_root.dat',
-           '--key', 'test',
-           '--build_channel', 'dev-channel',
-           '--build_version', '4171.0.0',
-           '--src_image', gen.src_image_file,
-           '--src_channel', 'dev-channel',
-           '--src_board', 'x86-alex',
-           '--src_version', '1620.0.0',
-           '--src_kern_path', '/work/old_kernel.dat',
-           '--src_root_path', '/work/old_root.dat',
-           '--src_key', 'test',
-           '--src_build_channel', 'dev-channel',
-           '--src_build_version', '1620.0.0']
+    cmd = ['delta_generator',
+           '--major_version=2',
+           '--out_file=' + gen.payload_file,
+           '--partition_names=' + ':'.join(gen.partition_names),
+           '--new_partitions=' + ':'.join(gen.tgt_partitions),
+           '--new_postinstall_config_file=' + gen._postinst_config_file,
+           '--new_channel=dev-channel',
+           '--new_board=x86-alex',
+           '--new_version=4171.0.0',
+           '--new_build_channel=dev-channel',
+           '--new_build_version=4171.0.0',
+           '--new_key=test',
+           '--old_partitions=' + ':'.join(gen.src_partitions),
+           '--old_channel=dev-channel',
+           '--old_board=x86-alex',
+           '--old_version=1620.0.0',
+           '--old_build_channel=dev-channel',
+           '--old_build_version=1620.0.0',
+           '--old_key=test']
+    extract_mock.assert_called_once_with()
+    postinst_config_mock.assert_called_once_with(True)
     run_mock.assert_called_once_with(cmd)
-    check_mock.assert_called_once_with()
 
   def testGenerateHashes(self):
     """Test _GenerateHashes."""
     gen = self._GetStdGenerator()
 
     # Stub out the required functions.
-    run_mock = self.PatchObject(paygen_payload_lib._PaygenPayload,
+    run_mock = self.PatchObject(paygen_payload_lib.PaygenPayload,
                                 '_RunGeneratorCmd')
+    read_mock = self.PatchObject(osutils, 'ReadFile', return_value='')
 
     # Run the test.
     self.assertEqual(gen._GenerateHashes(), ('', ''))
@@ -386,6 +402,8 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--signature_size=256',
            partial_mock.HasString('--out_hash_file='),
            partial_mock.HasString('--out_metadata_hash_file=')]
+    read_mock.assert_any_call(gen.payload_hash_file)
+    read_mock.assert_any_call(gen.metadata_hash_file)
     run_mock.assert_called_once_with(cmd)
 
   def testSignHashes(self):
@@ -409,23 +427,37 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
         hashes,
         keysets=gen.PAYLOAD_SIGNATURE_KEYSETS)
 
-  def testInsertPayloadSignatures(self):
-    """Test inserting payload signatures."""
+  def testWriteSignaturesToFile(self):
+    """Test writing signatures into files."""
+    gen = self._GetStdGenerator(payload=self.delta_payload)
+    signatures = ('0' * 256, '1' * 256)
+
+    file_paths = gen._WriteSignaturesToFile(signatures)
+    self.assertEqual(len(file_paths), len(signatures))
+    self.assertExists(file_paths[0])
+    self.assertExists(file_paths[1])
+    self.assertEqual(osutils.ReadFile(file_paths[0]), signatures[0])
+    self.assertEqual(osutils.ReadFile(file_paths[1]), signatures[1])
+
+  def testInsertSignaturesIntoPayload(self):
+    """Test inserting payload and metadata signatures."""
     gen = self._GetStdGenerator(payload=self.delta_payload)
     payload_signatures = ('0' * 256,)
+    metadata_signatures = ('0' * 256,)
 
     # Stub out the required functions.
-    run_mock = self.PatchObject(paygen_payload_lib._PaygenPayload,
+    run_mock = self.PatchObject(paygen_payload_lib.PaygenPayload,
                                 '_RunGeneratorCmd')
     read_mock = self.PatchObject(gen, '_ReadMetadataSizeFile')
 
     # Run the test.
-    gen._InsertPayloadSignatures(payload_signatures)
+    gen._InsertSignaturesIntoPayload(payload_signatures, metadata_signatures)
 
     # Check the expected function calls.
     cmd = ['delta_generator',
            '--in_file=' + gen.payload_file,
            partial_mock.HasString('payload_signature_file'),
+           partial_mock.HasString('metadata_signature_file'),
            '--out_file=' + gen.signed_payload_file,
            '--out_metadata_size_file=' + gen.metadata_size_file]
     run_mock.assert_called_once_with(cmd)
@@ -466,11 +498,11 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--check',
            '--type', 'delta',
            '--disabled_tests', 'move-same-src-dst-block',
-           '--part_names', 'kernel', 'root',
-           '--dst_part_paths', '/work/new_kernel.dat', '/work/new_root.dat',
+           '--part_names', 'root', 'kernel',
+           '--dst_part_paths', '/work/tgt_root.bin', '/work/tgt_kernel.bin',
            '--meta-sig', gen.metadata_signature_file,
            '--metadata-size', "10",
-           '--src_part_paths', '/work/old_kernel.dat', '/work/old_root.dat']
+           '--src_part_paths', '/work/src_root.bin', '/work/src_kernel.bin']
     run_mock.assert_called_once_with(cmd)
 
   def testVerifyPayloadFull(self):
@@ -491,8 +523,8 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
            '--check',
            '--type', 'full',
            '--disabled_tests', 'move-same-src-dst-block',
-           '--part_names', 'kernel', 'root',
-           '--dst_part_paths', '/work/new_kernel.dat', '/work/new_root.dat',
+           '--part_names', 'root', 'kernel',
+           '--dst_part_paths', '/work/tgt_root.bin', '/work/tgt_kernel.bin',
            '--meta-sig', gen.metadata_signature_file,
            '--metadata-size', "10"]
     run_mock.assert_called_once_with(cmd)
@@ -549,15 +581,16 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     gen = self._GetStdGenerator(payload=self.delta_payload, work_dir='/work')
 
     # Set up stubs.
-    gen_mock = self.PatchObject(paygen_payload_lib._PaygenPayload,
+    gen_mock = self.PatchObject(paygen_payload_lib.PaygenPayload,
                                 '_GenerateHashes',
                                 return_value=(payload_hash, metadata_hash))
-    sign_mock = self.PatchObject(paygen_payload_lib._PaygenPayload,
+    sign_mock = self.PatchObject(paygen_payload_lib.PaygenPayload,
                                  '_SignHashes',
                                  return_value=(payload_sigs, metadata_sigs))
-    ins_mock = self.PatchObject(paygen_payload_lib._PaygenPayload,
-                                '_InsertPayloadSignatures')
-    store_mock = self.PatchObject(paygen_payload_lib._PaygenPayload,
+
+    ins_mock = self.PatchObject(paygen_payload_lib.PaygenPayload,
+                                '_InsertSignaturesIntoPayload')
+    store_mock = self.PatchObject(paygen_payload_lib.PaygenPayload,
                                   '_StoreMetadataSignatures')
 
     # Run the test.
@@ -569,7 +602,7 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     # Check expected calls.
     gen_mock.assert_called_once_with()
     sign_mock.assert_called_once_with([payload_hash, metadata_hash])
-    ins_mock.assert_called_once_with(payload_sigs)
+    ins_mock.assert_called_once_with(payload_sigs, metadata_sigs)
     store_mock.assert_called_once_with(metadata_sigs)
 
   def testCreateSignedDelta(self):
@@ -578,14 +611,14 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
     gen = self._GetStdGenerator(payload=payload, work_dir='/work')
 
     # Set up stubs.
-    prep_mock = self.PatchObject(paygen_payload_lib._PaygenPayload,
+    prep_mock = self.PatchObject(paygen_payload_lib.PaygenPayload,
                                  '_PrepareImage')
-    gen_mock = self.PatchObject(paygen_payload_lib._PaygenPayload,
+    gen_mock = self.PatchObject(paygen_payload_lib.PaygenPayload,
                                 '_GenerateUnsignedPayload')
     sign_mock = self.PatchObject(
-        paygen_payload_lib._PaygenPayload, '_SignPayload',
+        paygen_payload_lib.PaygenPayload, '_SignPayload',
         return_value=(['payload_sigs'], ['metadata_sigs']))
-    store_mock = self.PatchObject(paygen_payload_lib._PaygenPayload,
+    store_mock = self.PatchObject(paygen_payload_lib.PaygenPayload,
                                   '_StorePayloadJson')
 
     # Run the test.
@@ -625,85 +658,13 @@ class PaygenPayloadLibBasicTest(PaygenPayloadLibTest):
         mock.call('/work/delta.json', 'gs://full_old_foo/boo.json'),
     ])
 
-  def testDefaultPayloadUri(self):
-    """Test paygen_payload_lib.DefaultPayloadUri."""
-
-    # Test a Full Payload
-    result = paygen_payload_lib.DefaultPayloadUri(self.full_payload,
-                                                  random_str='abc123')
-    self.assertEqual(
-        result,
-        'gs://chromeos-releases/dev-channel/x86-alex/1620.0.0/payloads/'
-        'chromeos_1620.0.0_x86-alex_dev-channel_full_mp-v3.bin-abc123.signed')
-
-    # Test a Delta Payload
-    result = paygen_payload_lib.DefaultPayloadUri(self.delta_payload,
-                                                  random_str='abc123')
-    self.assertEqual(
-        result,
-        'gs://chromeos-releases/dev-channel/x86-alex/4171.0.0/payloads/'
-        'chromeos_1620.0.0-4171.0.0_x86-alex_dev-channel_delta_mp-v3.bin-'
-        'abc123.signed')
-
-    # Test changing channel, board, and keys
-    src_image = gspaths.Image(
-        channel='dev-channel',
-        board='x86-alex',
-        version='3588.0.0',
-        key='premp')
-    tgt_image = gspaths.Image(
-        channel='stable-channel',
-        board='x86-alex-he',
-        version='3590.0.0',
-        key='mp-v3')
-    payload = gspaths.Payload(src_image=src_image, tgt_image=tgt_image)
-
-    result = paygen_payload_lib.DefaultPayloadUri(payload,
-                                                  random_str='abc123')
-    self.assertEqual(
-        result,
-        'gs://chromeos-releases/stable-channel/x86-alex-he/3590.0.0/payloads/'
-        'chromeos_3588.0.0-3590.0.0_x86-alex-he_stable-channel_delta_mp-v3.bin-'
-        'abc123.signed')
-
-  def testFillInPayloadUri(self):
-    """Test filling in the payload URI of a gspaths.Payload object."""
-    # Assert that it doesn't change if already present.
-    pre_uri = self.full_payload.uri
-    paygen_payload_lib.FillInPayloadUri(self.full_payload,
-                                        random_str='abc123')
-    self.assertEqual(self.full_payload.uri,
-                     pre_uri)
-
-    # Test that it does change if not present.
-    payload = gspaths.Payload(tgt_image=self.old_image)
-    paygen_payload_lib.FillInPayloadUri(payload,
-                                        random_str='abc123')
-    self.assertEqual(
-        payload.uri,
-        'gs://chromeos-releases/dev-channel/x86-alex/1620.0.0/payloads/'
-        'chromeos_1620.0.0_x86-alex_dev-channel_full_mp-v3.bin-abc123.signed')
-
-  def testFindExistingPayloads(self):
-    """Test finding already existing payloads."""
-    # Set up the test replay script.
-    ls_mock = self.PatchObject(gs.GSContext, 'LS', return_value=['foo_result'])
-
-    self.assertEqual(
-        paygen_payload_lib.FindExistingPayloads(self.full_payload),
-        ['foo_result'])
-
-    ls_mock.assert_called_once_with(
-        'gs://chromeos-releases/dev-channel/x86-alex/1620.0.0/payloads/'
-        'chromeos_1620.0.0_x86-alex_dev-channel_full_mp-v3.bin-*.signed')
-
   def testFindCacheDir(self):
     """Test calculating the location of the cache directory."""
-    result = paygen_payload_lib.FindCacheDir()
+    gen = self._GetStdGenerator(work_dir='/foo')
 
     # The correct result is based on the system cache directory, which changes.
     # Ensure it ends with the right directory name.
-    self.assertEqual(os.path.basename(result), 'paygen_cache')
+    self.assertEqual(os.path.basename(gen._FindCacheDir()), 'paygen_cache')
 
 
 class PaygenPayloadLibEndToEndTest(PaygenPayloadLibTest):
@@ -721,7 +682,6 @@ class PaygenPayloadLibEndToEndTest(PaygenPayloadLibTest):
 
     paygen_payload_lib.CreateAndUploadPayload(
         payload=payload,
-        cache=self.cache,
         sign=sign)
 
     self.assertExists(output_uri)

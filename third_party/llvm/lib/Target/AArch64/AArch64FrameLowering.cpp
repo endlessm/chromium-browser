@@ -204,6 +204,11 @@ bool AArch64FrameLowering::canUseRedZone(const MachineFunction &MF) const {
 bool AArch64FrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   const TargetRegisterInfo *RegInfo = MF.getSubtarget().getRegisterInfo();
+  // Win64 EH requires a frame pointer if funclets are present, as the locals
+  // are accessed off the frame pointer in both the parent function and the
+  // funclets.
+  if (MF.hasEHFunclets())
+    return true;
   // Retain behavior of always omitting the FP for leaf functions when possible.
   if (MFI.hasCalls() && MF.getTarget().Options.DisableFramePointerElim(MF))
     return true;
@@ -221,6 +226,10 @@ bool AArch64FrameLowering::hasFP(const MachineFunction &MF) const {
   // DefaultSafeSPDisplacement is fine as we only emergency spill GP regs.
   if (!MFI.isMaxCallFrameSizeComputed() ||
       MFI.getMaxCallFrameSize() > DefaultSafeSPDisplacement)
+    return true;
+
+  // Win64 SEH requires frame pointer if funclets are present.
+  if (MF.hasLocalEscape())
     return true;
 
   return false;
@@ -585,10 +594,12 @@ static MachineBasicBlock::iterator convertCalleeSaveRestoreToSPPrePostIncDec(
     const DebugLoc &DL, const TargetInstrInfo *TII, int CSStackSizeInc,
     bool NeedsWinCFI, bool InProlog = true) {
   // Ignore instructions that do not operate on SP, i.e. shadow call stack
-  // instructions.
+  // instructions and associated CFI instruction.
   while (MBBI->getOpcode() == AArch64::STRXpost ||
-         MBBI->getOpcode() == AArch64::LDRXpre) {
-    assert(MBBI->getOperand(0).getReg() != AArch64::SP);
+         MBBI->getOpcode() == AArch64::LDRXpre ||
+         MBBI->getOpcode() == AArch64::CFI_INSTRUCTION) {
+    if (MBBI->getOpcode() != AArch64::CFI_INSTRUCTION)
+      assert(MBBI->getOperand(0).getReg() != AArch64::SP);
     ++MBBI;
   }
   unsigned NewOpc;
@@ -685,9 +696,11 @@ static void fixupCalleeSaveRestoreStackOffset(MachineInstr &MI,
   unsigned Opc = MI.getOpcode();
 
   // Ignore instructions that do not operate on SP, i.e. shadow call stack
-  // instructions.
-  if (Opc == AArch64::STRXpost || Opc == AArch64::LDRXpre) {
-    assert(MI.getOperand(0).getReg() != AArch64::SP);
+  // instructions and associated CFI instruction.
+  if (Opc == AArch64::STRXpost || Opc == AArch64::LDRXpre ||
+      Opc == AArch64::CFI_INSTRUCTION) {
+    if (Opc != AArch64::CFI_INSTRUCTION)
+      assert(MI.getOperand(0).getReg() != AArch64::SP);
     return;
   }
 
@@ -774,6 +787,12 @@ static bool ShouldSignWithAKey(MachineFunction &MF) {
   return Key.equals_lower("a_key");
 }
 
+static bool needsWinCFI(const MachineFunction &MF) {
+  const Function &F = MF.getFunction();
+  return MF.getTarget().getMCAsmInfo()->usesWindowsCFI() &&
+         F.needsUnwindTableEntry();
+}
+
 void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
                                         MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.begin();
@@ -787,9 +806,10 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
   bool needsFrameMoves = (MMI.hasDebugInfo() || F.needsUnwindTableEntry()) &&
                          !MF.getTarget().getMCAsmInfo()->usesWindowsCFI();
   bool HasFP = hasFP(MF);
-  bool NeedsWinCFI = MF.getTarget().getMCAsmInfo()->usesWindowsCFI() &&
-                     F.needsUnwindTableEntry();
+  bool NeedsWinCFI = needsWinCFI(MF);
   MF.setHasWinCFI(NeedsWinCFI);
+  bool IsFunclet = MBB.isEHFuncletEntry();
+
   // At this point, we're going to decide whether or not the function uses a
   // redzone. In most cases, the function doesn't have a redzone so let's
   // assume that's false and set it to true in the case that there's a redzone.
@@ -800,10 +820,21 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
   DebugLoc DL;
 
   if (ShouldSignReturnAddress(MF)) {
-    BuildMI(
-        MBB, MBBI, DL,
-        TII->get(ShouldSignWithAKey(MF) ? AArch64::PACIASP : AArch64::PACIBSP))
-        .setMIFlag(MachineInstr::FrameSetup);
+    if (ShouldSignWithAKey(MF))
+      BuildMI(MBB, MBBI, DL, TII->get(AArch64::PACIASP))
+          .setMIFlag(MachineInstr::FrameSetup);
+    else {
+      BuildMI(MBB, MBBI, DL, TII->get(AArch64::EMITBKEY))
+          .setMIFlag(MachineInstr::FrameSetup);
+      BuildMI(MBB, MBBI, DL, TII->get(AArch64::PACIBSP))
+          .setMIFlag(MachineInstr::FrameSetup);
+    }
+
+    unsigned CFIIndex =
+        MF.addFrameInst(MCCFIInstruction::createNegateRAState(nullptr));
+    BuildMI(MBB, MBBI, DL, TII->get(TargetOpcode::CFI_INSTRUCTION))
+        .addCFIIndex(CFIIndex)
+        .setMIFlags(MachineInstr::FrameSetup);
   }
 
   // All calls are tail calls in GHC calling conv, and functions have no
@@ -811,7 +842,14 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
   if (MF.getFunction().getCallingConv() == CallingConv::GHC)
     return;
 
-  int NumBytes = (int)MFI.getStackSize();
+  // getStackSize() includes all the locals in its size calculation. We don't
+  // include these locals when computing the stack size of a funclet, as they
+  // are allocated in the parent's stack frame and accessed via the frame
+  // pointer from the funclet.  We only save the callee saved registers in the
+  // funclet, which are really the callee saved registers of the parent
+  // function, including the funclet.
+  int NumBytes = IsFunclet ? (int)getWinEHFuncletFrameSize(MF)
+                           : (int)MFI.getStackSize();
   if (!AFI->hasStackFrame() && !windowsRequiresStackProbe(MF, NumBytes)) {
     assert(!HasFP && "unexpected function without stack frame but with FP");
     // All of the stack allocation is for locals.
@@ -847,7 +885,10 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
 
   bool IsWin64 =
       Subtarget.isCallingConvWin64(MF.getFunction().getCallingConv());
-  unsigned FixedObject = IsWin64 ? alignTo(AFI->getVarArgsGPRSize(), 16) : 0;
+  // Var args are accounted for in the containing function, so don't
+  // include them for funclets.
+  unsigned FixedObject = (IsWin64 && !IsFunclet) ?
+                         alignTo(AFI->getVarArgsGPRSize(), 16) : 0;
 
   auto PrologueSaveSize = AFI->getCalleeSavedStackSize() + FixedObject;
   // All of the remaining stack allocations are for locals.
@@ -873,6 +914,29 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
       fixupCalleeSaveRestoreStackOffset(*MBBI, AFI->getLocalStackSize(),
                                         NeedsWinCFI);
     ++MBBI;
+  }
+
+  // The code below is not applicable to funclets. We have emitted all the SEH
+  // opcodes that we needed to emit.  The FP and BP belong to the containing
+  // function.
+  if (IsFunclet) {
+    if (NeedsWinCFI)
+      BuildMI(MBB, MBBI, DL, TII->get(AArch64::SEH_PrologEnd))
+          .setMIFlag(MachineInstr::FrameSetup);
+
+    // SEH funclets are passed the frame pointer in X1.  If the parent
+    // function uses the base register, then the base register is used
+    // directly, and is not retrieved from X1.
+    if (F.hasPersonalityFn()) {
+      EHPersonality Per = classifyEHPersonality(F.getPersonalityFn());
+      if (isAsynchronousEHPersonality(Per)) {
+        BuildMI(MBB, MBBI, DL, TII->get(TargetOpcode::COPY), AArch64::FP)
+            .addReg(AArch64::X1).setMIFlag(MachineInstr::FrameSetup);
+        MBB.addLiveIn(AArch64::X1);
+      }
+    }
+
+    return;
   }
 
   if (HasFP) {
@@ -1165,6 +1229,16 @@ static void InsertReturnAddressAuth(MachineFunction &MF,
   }
 }
 
+static bool isFuncletReturnInstr(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  default:
+    return false;
+  case AArch64::CATCHRET:
+  case AArch64::CLEANUPRET:
+    return true;
+  }
+}
+
 void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
                                         MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
@@ -1173,8 +1247,8 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
   DebugLoc DL;
   bool IsTailCallReturn = false;
-  bool NeedsWinCFI = MF.getTarget().getMCAsmInfo()->usesWindowsCFI() &&
-                     MF.getFunction().needsUnwindTableEntry();
+  bool NeedsWinCFI = needsWinCFI(MF);
+  bool IsFunclet = false;
 
   if (MBB.end() != MBBI) {
     DL = MBBI->getDebugLoc();
@@ -1182,9 +1256,11 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
     IsTailCallReturn = RetOpcode == AArch64::TCRETURNdi ||
                        RetOpcode == AArch64::TCRETURNri ||
                        RetOpcode == AArch64::TCRETURNriBTI;
+    IsFunclet = isFuncletReturnInstr(*MBBI);
   }
 
-  int NumBytes = MFI.getStackSize();
+  int NumBytes = IsFunclet ? (int)getWinEHFuncletFrameSize(MF)
+                           : MFI.getStackSize();
   AArch64FunctionInfo *AFI = MF.getInfo<AArch64FunctionInfo>();
 
   // All calls are tail calls in GHC calling conv, and functions have no
@@ -1241,10 +1317,19 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
 
   bool IsWin64 =
       Subtarget.isCallingConvWin64(MF.getFunction().getCallingConv());
-  unsigned FixedObject = IsWin64 ? alignTo(AFI->getVarArgsGPRSize(), 16) : 0;
+  // Var args are accounted for in the containing function, so don't
+  // include them for funclets.
+  unsigned FixedObject =
+      (IsWin64 && !IsFunclet) ? alignTo(AFI->getVarArgsGPRSize(), 16) : 0;
 
   uint64_t AfterCSRPopSize = ArgumentPopSize;
   auto PrologueSaveSize = AFI->getCalleeSavedStackSize() + FixedObject;
+  // We cannot rely on the local stack size set in emitPrologue if the function
+  // has funclets, as funclets have different local stack size requirements, and
+  // the current value set in emitPrologue may be that of the containing
+  // function.
+  if (MF.hasEHFunclets())
+    AFI->setLocalStackSize(NumBytes - PrologueSaveSize);
   bool CombineSPBump = shouldCombineCSRLocalStackBump(MF, NumBytes);
   // Assume we can't combine the last pop with the sp restore.
 
@@ -1340,7 +1425,7 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
   // FIXME: Rather than doing the math here, we should instead just use
   // non-post-indexed loads for the restores if we aren't actually going to
   // be able to save any instructions.
-  if (MFI.hasVarSizedObjects() || AFI->isStackRealigned())
+  if (!IsFunclet && (MFI.hasVarSizedObjects() || AFI->isStackRealigned()))
     emitFrameOffset(MBB, LastPopI, DL, AArch64::SP, AArch64::FP,
                     -AFI->getCalleeSavedStackSize() + 16, TII,
                     MachineInstr::FrameDestroy, false, NeedsWinCFI);
@@ -1445,6 +1530,14 @@ int AArch64FrameLowering::resolveFrameIndexReference(const MachineFunction &MF,
         // being in range for direct access. If the FPOffset is positive,
         // that'll always be best, as the SP will be even further away.
         UseFP = true;
+      } else if (MF.hasEHFunclets() && !RegInfo->hasBasePointer(MF)) {
+        // Funclets access the locals contained in the parent's stack frame
+        // via the frame pointer, so we have to use the FP in the parent
+        // function.
+        assert(
+            Subtarget.isCallingConvWin64(MF.getFunction().getCallingConv()) &&
+            "Funclets should only be present on Win64");
+        UseFP = true;
       } else {
         // We have the choice between FP and (SP or BP).
         if (FPOffsetFits && PreferFP) // If FP is the best fit, use it.
@@ -1538,8 +1631,7 @@ static void computeCalleeSaveRegisterPairs(
   if (CSI.empty())
     return;
 
-  bool NeedsWinCFI = MF.getTarget().getMCAsmInfo()->usesWindowsCFI() &&
-                     MF.getFunction().needsUnwindTableEntry();
+  bool NeedsWinCFI = needsWinCFI(MF);
   AArch64FunctionInfo *AFI = MF.getInfo<AArch64FunctionInfo>();
   MachineFrameInfo &MFI = MF.getFrameInfo();
   CallingConv::ID CC = MF.getFunction().getCallingConv();
@@ -1652,8 +1744,7 @@ bool AArch64FrameLowering::spillCalleeSavedRegisters(
     const TargetRegisterInfo *TRI) const {
   MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
-  bool NeedsWinCFI = MF.getTarget().getMCAsmInfo()->usesWindowsCFI() &&
-                     MF.getFunction().needsUnwindTableEntry();
+  bool NeedsWinCFI = needsWinCFI(MF);
   DebugLoc DL;
   SmallVector<RegPairInfo, 8> RegPairs;
 
@@ -1674,6 +1765,23 @@ bool AArch64FrameLowering::spillCalleeSavedRegisters(
     if (NeedsWinCFI)
       BuildMI(MBB, MI, DL, TII.get(AArch64::SEH_Nop))
           .setMIFlag(MachineInstr::FrameSetup);
+
+    if (!MF.getFunction().hasFnAttribute(Attribute::NoUnwind)) {
+      // Emit a CFI instruction that causes 8 to be subtracted from the value of
+      // x18 when unwinding past this frame.
+      static const char CFIInst[] = {
+          dwarf::DW_CFA_val_expression,
+          18, // register
+          2,  // length
+          static_cast<char>(unsigned(dwarf::DW_OP_breg18)),
+          static_cast<char>(-8) & 0x7f, // addend (sleb128)
+      };
+      unsigned CFIIndex =
+          MF.addFrameInst(MCCFIInstruction::createEscape(nullptr, CFIInst));
+      BuildMI(MBB, MI, DL, TII.get(AArch64::CFI_INSTRUCTION))
+          .addCFIIndex(CFIIndex)
+          .setMIFlag(MachineInstr::FrameSetup);
+    }
 
     // This instruction also makes x18 live-in to the entry block.
     MBB.addLiveIn(AArch64::X18);
@@ -1765,8 +1873,7 @@ bool AArch64FrameLowering::restoreCalleeSavedRegisters(
   const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   DebugLoc DL;
   SmallVector<RegPairInfo, 8> RegPairs;
-  bool NeedsWinCFI = MF.getTarget().getMCAsmInfo()->usesWindowsCFI() &&
-                     MF.getFunction().needsUnwindTableEntry();
+  bool NeedsWinCFI = needsWinCFI(MF);
 
   if (MI != MBB.end())
     DL = MI->getDebugLoc();
@@ -1997,4 +2104,70 @@ bool AArch64FrameLowering::enableStackSlotScavenging(
     const MachineFunction &MF) const {
   const AArch64FunctionInfo *AFI = MF.getInfo<AArch64FunctionInfo>();
   return AFI->hasCalleeSaveStackFreeSpace();
+}
+
+void AArch64FrameLowering::processFunctionBeforeFrameFinalized(
+    MachineFunction &MF, RegScavenger *RS) const {
+  // If this function isn't doing Win64-style C++ EH, we don't need to do
+  // anything.
+  if (!MF.hasEHFunclets())
+    return;
+  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  WinEHFuncInfo &EHInfo = *MF.getWinEHFuncInfo();
+
+  MachineBasicBlock &MBB = MF.front();
+  auto MBBI = MBB.begin();
+  while (MBBI != MBB.end() && MBBI->getFlag(MachineInstr::FrameSetup))
+    ++MBBI;
+
+  if (MBBI->isTerminator())
+    return;
+
+  // Create an UnwindHelp object.
+  int UnwindHelpFI =
+      MFI.CreateStackObject(/*size*/8, /*alignment*/16, false);
+  EHInfo.UnwindHelpFrameIdx = UnwindHelpFI;
+  // We need to store -2 into the UnwindHelp object at the start of the
+  // function.
+  DebugLoc DL;
+  RS->enterBasicBlock(MBB);
+  unsigned DstReg = RS->scavengeRegister(&AArch64::GPR64RegClass, MBBI, 0);
+  BuildMI(MBB, MBBI, DL, TII.get(AArch64::MOVi64imm), DstReg).addImm(-2);
+  BuildMI(MBB, MBBI, DL, TII.get(AArch64::STURXi))
+      .addReg(DstReg, getKillRegState(true))
+      .addFrameIndex(UnwindHelpFI)
+      .addImm(0);
+}
+
+/// For Win64 AArch64 EH, the offset to the Unwind object is from the SP before
+/// the update.  This is easily retrieved as it is exactly the offset that is set
+/// in processFunctionBeforeFrameFinalized.
+int AArch64FrameLowering::getFrameIndexReferencePreferSP(
+    const MachineFunction &MF, int FI, unsigned &FrameReg,
+    bool IgnoreSPUpdates) const {
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  LLVM_DEBUG(dbgs() << "Offset from the SP for " << FI << " is "
+                    << MFI.getObjectOffset(FI) << "\n");
+  FrameReg = AArch64::SP;
+  return MFI.getObjectOffset(FI);
+}
+
+/// The parent frame offset (aka dispFrame) is only used on X86_64 to retrieve
+/// the parent's frame pointer
+unsigned AArch64FrameLowering::getWinEHParentFrameOffset(
+    const MachineFunction &MF) const {
+  return 0;
+}
+
+/// Funclets only need to account for space for the callee saved registers,
+/// as the locals are accounted for in the parent's stack frame.
+unsigned AArch64FrameLowering::getWinEHFuncletFrameSize(
+    const MachineFunction &MF) const {
+  // This is the size of the pushed CSRs.
+  unsigned CSSize =
+      MF.getInfo<AArch64FunctionInfo>()->getCalleeSavedStackSize();
+  // This is the amount of stack a funclet needs to allocate.
+  return alignTo(CSSize + MF.getFrameInfo().getMaxCallFrameSize(),
+                 getStackAlignment());
 }

@@ -179,6 +179,7 @@ class ValidationJSON:
         self.regex_dict[re.compile('<.*?>|&(amp;)+lt;|&(amp;)+gt;')] = ""
         self.regex_dict[re.compile(r'\\\(codeSize \\over 4\\\)')] = "(codeSize/4)"
         self.regex_dict[re.compile(r'\\\(\\lceil\{\\mathit\{rasterizationSamples} \\over 32}\\rceil\\\)')] = "(rasterizationSamples/32)"
+        self.regex_dict[re.compile(r'\\\(\\textrm\{codeSize} \\over 4\\\)')] = "(codeSize/4)"
         # Some fancy punctuation chars that break the Android build...
         self.regex_dict[re.compile('&#8594;')] = "->"       # Arrow char
         self.regex_dict[re.compile('&#8217;')] = "'"        # Left-slanting apostrophe to apostrophe
@@ -493,17 +494,16 @@ class OutputDatabase:
 // Disable auto-formatting for generated file
 // clang-format off
             
-#include <string>
-#include <unordered_map>
-            
 // Mapping from VUID string to the corresponding spec text
-#ifdef VALIDATION_ERROR_MAP_IMPL
-std::unordered_map<std::string, std::string> vuid_to_error_text_map {
+typedef struct _vuid_spec_text_pair {
+    const char * vuid;
+    const char * spec_text;
+} vuid_spec_text_pair;
+
+static const vuid_spec_text_pair vuid_spec_text[] = {
 """
         self.header_postamble = """};
-#else
-extern std::unordered_map<std::string, std::string> vuid_to_error_text_map;
-#endif"""
+"""
         self.spec_url = "https://www.khronos.org/registry/vulkan/specs/1.1-extensions/html/vkspec.html"
     
     def dump_txt(self):

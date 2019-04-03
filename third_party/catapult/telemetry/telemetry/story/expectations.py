@@ -239,7 +239,7 @@ class _TestConditionByAndroidModel(_TestCondition):
 
   def ShouldDisable(self, platform, finder_options):
     return (platform.GetOSName() == 'android' and
-            self._model in platform.GetDeviceTypeName())
+            self._model == platform.GetDeviceTypeName())
 
   def __str__(self):
     return self._name

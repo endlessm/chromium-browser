@@ -64,7 +64,7 @@ template <size_t Version = 5> class FDRController {
     First = true;
     UndoableFunctionEnters = 0;
     UndoableTailExits = 0;
-    atomic_store(&B.Extents, 0, memory_order_release);
+    atomic_store(B.Extents, 0, memory_order_release);
     return true;
   }
 
@@ -123,7 +123,7 @@ template <size_t Version = 5> class FDRController {
     if (First) {
       First = false;
       W.resetRecord();
-      atomic_store(&B.Extents, 0, memory_order_release);
+      atomic_store(B.Extents, 0, memory_order_release);
       return setupNewBuffer();
     }
 
@@ -252,9 +252,13 @@ public:
     if (PreambleStatus == PreambleResult::InvalidBuffer)
       return returnBuffer();
 
-    UndoableFunctionEnters = (PreambleStatus == PreambleResult::WroteMetadata)
-                                 ? 1
-                                 : UndoableFunctionEnters + 1;
+    if (PreambleStatus == PreambleResult::WroteMetadata) {
+      UndoableFunctionEnters = 1;
+      UndoableTailExits = 0;
+    } else {
+      ++UndoableFunctionEnters;
+    }
+
     auto Delta = TSC - LatestTSC;
     LastFunctionEntryTSC = TSC;
     LatestTSC = TSC;
@@ -300,9 +304,8 @@ public:
     UndoableFunctionEnters = 0;
     UndoableTailExits = 0;
 
-    W.writeFunction(FDRLogWriter::FunctionRecordKind::EnterArg, mask(FuncId),
-                    Delta);
-    return W.writeMetadata<MetadataRecord::RecordKinds::CallArgument>(Arg);
+    return W.writeFunctionWithArg(FDRLogWriter::FunctionRecordKind::EnterArg,
+                                  mask(FuncId), Delta, Arg);
   }
 
   bool functionExit(int32_t FuncId, uint64_t TSC,

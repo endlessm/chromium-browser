@@ -89,7 +89,6 @@ llvm_config.use_default_substitutions()
 config.substitutions.append(('%llvmshlibdir', config.llvm_shlib_dir))
 config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
 config.substitutions.append(('%exeext', config.llvm_exe_ext))
-config.substitutions.append(('%host_cc', config.host_cc))
 
 
 lli_args = []
@@ -146,11 +145,11 @@ tools.extend([
     'llvm-isel-fuzzer', 'llvm-opt-fuzzer', 'llvm-lib', 'llvm-link', 'llvm-lto',
     'llvm-lto2', 'llvm-mc', 'llvm-mca', 'llvm-modextract', 'llvm-nm',
     'llvm-objcopy', 'llvm-objdump', 'llvm-pdbutil', 'llvm-profdata',
-    'llvm-ranlib', 'llvm-readobj', 'llvm-rtdyld', 'llvm-size', 'llvm-split',
-    'llvm-strings', 'llvm-strip', 'llvm-tblgen', 'llvm-undname', 'llvm-c-test',
-    'llvm-cxxfilt', 'llvm-xray', 'yaml2obj', 'obj2yaml', 'yaml-bench',
-    'verify-uselistorder', 'bugpoint', 'llc', 'llvm-symbolizer', 'opt',
-    'sancov', 'sanstats'])
+    'llvm-ranlib', 'llvm-readelf', 'llvm-readobj', 'llvm-rtdyld', 'llvm-size',
+    'llvm-split', 'llvm-strings', 'llvm-strip', 'llvm-tblgen', 'llvm-undname',
+    'llvm-c-test', 'llvm-cxxfilt', 'llvm-xray', 'yaml2obj', 'obj2yaml',
+    'yaml-bench', 'verify-uselistorder', 'bugpoint', 'llc', 'llvm-symbolizer',
+    'opt', 'sancov', 'sanstats'])
 
 # The following tools are optional
 tools.extend([

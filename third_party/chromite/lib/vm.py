@@ -7,7 +7,6 @@
 
 from __future__ import print_function
 
-import argparse
 import distutils.version
 import errno
 import multiprocessing
@@ -15,7 +14,6 @@ import os
 import re
 import shutil
 import socket
-import time
 
 from chromite.cli.cros import cros_chrome_sdk
 from chromite.lib import cache
@@ -23,6 +21,7 @@ from chromite.lib import commandline
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import device
 from chromite.lib import memoize
 from chromite.lib import osutils
 from chromite.lib import path_util
@@ -30,20 +29,8 @@ from chromite.lib import remote_access
 from chromite.lib import retry_util
 
 
-class DeviceError(Exception):
-  """Exception for Device failures."""
-
-  def __init__(self, message):
-    super(DeviceError, self).__init__()
-    logging.error(message)
-
-
-class VMError(DeviceError):
+class VMError(device.DeviceError):
   """Exception for VM errors."""
-
-
-class VMCreationError(VMError):
-  """Raised when failed to create a VM image."""
 
 
 def VMIsUpdatable(path):
@@ -55,7 +42,7 @@ def VMIsUpdatable(path):
   Returns:
     True if VM is updatable; False otherwise.
   """
-  table = cros_build_lib.GetImageDiskPartitionInfo(path, unit='MB')
+  table = {p.name: p for p in cros_build_lib.GetImageDiskPartitionInfo(path)}
   # Assume if size of the two root partitions match, the image
   # is updatable.
   return table['ROOT-B'].size == table['ROOT-A'].size
@@ -80,8 +67,7 @@ def CreateVMImage(image=None, board=None, updatable=True, dest_dir=None):
       use the folder where |image| resides.
   """
   if not image and not board:
-    raise VMCreationError(
-        'Cannot create VM when both image and board are None.')
+    raise VMError('Cannot create VM when both image and board are None.')
 
   image_dir = os.path.dirname(image)
   src_path = dest_path = os.path.join(image_dir, constants.VM_IMAGE_BIN)
@@ -136,7 +122,7 @@ def CreateVMImage(image=None, board=None, updatable=True, dest_dir=None):
       if tempdir:
         osutils.RmDir(
             path_util.FromChrootPath(tempdir), ignore_missing=True)
-      raise VMCreationError(msg)
+      raise VMError(msg)
 
     if dest_dir:
       # Move VM from tempdir to dest_dir.
@@ -146,253 +132,12 @@ def CreateVMImage(image=None, board=None, updatable=True, dest_dir=None):
       osutils.RmDir(path_util.FromChrootPath(tempdir), ignore_missing=True)
 
   if not os.path.exists(dest_path):
-    raise VMCreationError(msg)
+    raise VMError(msg)
 
   return dest_path
 
 
-class VMStartupError(VMError):
-  """Raised when failed to start a VM instance."""
-
-
-class VMStopError(VMError):
-  """Raised when failed to stop a VM instance."""
-
-# TODO(achuith): Deprecate in favor of VM class below.
-class VMInstance(object):
-  """This is a wrapper of a VM instance."""
-
-  MAX_LAUNCH_ATTEMPTS = 5
-  TIME_BETWEEN_LAUNCH_ATTEMPTS = 30
-
-  # VM needs a longer timeout.
-  SSH_CONNECT_TIMEOUT = 120
-
-  def __init__(self, image_path, port=None, tempdir=None,
-               debug_level=logging.DEBUG):
-    """Initializes VMWrapper with a VM image path.
-
-    Args:
-      image_path: Path to the VM image.
-      port: SSH port of the VM.
-      tempdir: Temporary working directory.
-      debug_level: Debug level for logging.
-    """
-    self.image_path = image_path
-    self.tempdir = tempdir
-    self._tempdir_obj = None
-    if not self.tempdir:
-      self._tempdir_obj = osutils.TempDir(prefix='vm_wrapper', sudo_rm=True)
-      self.tempdir = self._tempdir_obj.tempdir
-    self.kvm_pid_path = os.path.join(self.tempdir, 'kvm.pid')
-    self.port = (remote_access.GetUnusedPort() if port is None
-                 else remote_access.NormalizePort(port))
-    self.debug_level = debug_level
-    self.ssh_settings = remote_access.CompileSSHConnectSettings(
-        ConnectTimeout=self.SSH_CONNECT_TIMEOUT)
-    self.agent = remote_access.RemoteAccess(
-        remote_access.LOCALHOST, self.tempdir, self.port,
-        debug_level=self.debug_level, interactive=False)
-    self.device_addr = 'ssh://%s:%d' % (remote_access.LOCALHOST, self.port)
-
-  def _Start(self):
-    """Run the command to start VM."""
-    cmd = [os.path.join(constants.CROSUTILS_DIR, 'bin', 'cros_start_vm'),
-           '--ssh_port', str(self.port),
-           '--image_path', self.image_path,
-           '--no_graphics',
-           '--kvm_pid', self.kvm_pid_path]
-    try:
-      self._RunCommand(cmd, capture_output=True)
-    except cros_build_lib.RunCommandError as e:
-      msg = 'VM failed to start'
-      logging.warning('%s: %s', msg, e)
-      raise VMStartupError(msg)
-
-  def Connect(self):
-    """Returns True if we can connect to VM via SSH."""
-    try:
-      self.agent.RemoteSh(['true'], connect_settings=self.ssh_settings)
-    except Exception:
-      return False
-
-    return True
-
-  def Stop(self, ignore_error=False):
-    """Stops a running VM.
-
-    Args:
-      ignore_error: If set True, do not raise an exception on error.
-    """
-    cmd = [os.path.join(constants.CROSUTILS_DIR, 'bin', 'cros_stop_vm'),
-           '--kvm_pid', self.kvm_pid_path]
-    result = self._RunCommand(cmd, capture_output=True, error_code_ok=True)
-    if result.returncode:
-      msg = 'Failed to stop VM'
-      if ignore_error:
-        logging.warning('%s: %s', msg, result.error)
-      else:
-        logging.error('%s: %s', msg, result.error)
-        raise VMStopError(msg)
-
-  def Start(self):
-    """Start VM and wait until we can ssh into it.
-
-    This command is more robust than just naively starting the VM as it will
-    try to start the VM multiple times if the VM fails to start up. This is
-    inspired by retry_until_ssh in crosutils/lib/cros_vm_lib.sh.
-    """
-    for _ in range(self.MAX_LAUNCH_ATTEMPTS):
-      try:
-        self._Start()
-      except VMStartupError:
-        logging.warning('VM failed to start.')
-        continue
-
-      if self.Connect():
-        # VM is started up successfully if we can connect to it.
-        break
-
-      logging.warning('Cannot connect to VM...')
-      self.Stop(ignore_error=True)
-      time.sleep(self.TIME_BETWEEN_LAUNCH_ATTEMPTS)
-    else:
-      raise VMStartupError('Max attempts (%d) to start VM exceeded.'
-                           % self.MAX_LAUNCH_ATTEMPTS)
-
-    logging.info('VM started at port %d', self.port)
-
-  def _RunCommand(self, *args, **kwargs):
-    """Runs a commmand on the host machine."""
-    kwargs.setdefault('debug_level', self.debug_level)
-    return cros_build_lib.RunCommand(*args, **kwargs)
-
-
-class Device(object):
-  """Class for managing a test device."""
-
-  def __init__(self, opts):
-    """Initialize Device.
-
-    Args:
-      opts: command line options.
-    """
-    self.device = opts.device
-    self.ssh_port = None
-    self.board = opts.board
-
-    self.cmd = opts.args[1:] if opts.cmd else None
-    self.private_key = opts.private_key
-    self.dry_run = opts.dry_run
-    # log_level is only set if --log-level or --debug is specified.
-    self.log_level = getattr(opts, 'log_level', None)
-    self.InitRemote()
-
-  def InitRemote(self):
-    """Initialize remote access."""
-    self.remote = remote_access.RemoteDevice(self.device,
-                                             port=self.ssh_port,
-                                             private_key=self.private_key)
-
-    self.device_addr = 'ssh://%s' % self.device
-    if self.ssh_port:
-      self.device_addr += ':%d' % self.ssh_port
-
-  def WaitForBoot(self):
-    """Wait for the device to boot up.
-
-    Wait for the ssh connection to become active.
-    """
-    try:
-      result = retry_util.RetryException(
-          exception=remote_access.SSHConnectionError,
-          max_retry=10,
-          functor=lambda: self.RemoteCommand(cmd=['echo']),
-          sleep=5)
-    except remote_access.SSHConnectionError:
-      raise DeviceError(
-          'WaitForBoot timed out trying to connect to the device.')
-
-    if result.returncode != 0:
-      raise DeviceError('WaitForBoot failed: %s.' % result.error)
-
-  def RemoteCommand(self, cmd, stream_output=False, **kwargs):
-    """Run a remote command.
-
-    Args:
-      cmd: command to run.
-      stream_output: Stream output of long-running commands.
-      kwargs: additional args (see documentation for RemoteDevice.RunCommand).
-
-    Returns:
-      cros_build_lib.CommandResult object.
-    """
-    if self.dry_run:
-      return self._DryRunCommand(cmd)
-    else:
-      kwargs.setdefault('error_code_ok', True)
-      if stream_output:
-        kwargs.setdefault('capture_output', False)
-      else:
-        kwargs.setdefault('combine_stdout_stderr', True)
-        kwargs.setdefault('log_output', True)
-      return self.remote.RunCommand(cmd, debug_level=logging.INFO, **kwargs)
-
-  def _DryRunCommand(self, cmd):
-    """Print a command for dry_run.
-
-    Args:
-      cmd: command to print.
-
-    Returns:
-      cros_build_lib.CommandResult object.
-    """
-    assert self.dry_run, 'Use with --dry-run only'
-    logging.info('[DRY RUN] %s', cros_build_lib.CmdToStr(cmd))
-    return cros_build_lib.CommandResult(cmd, output='', returncode=0)
-
-  @property
-  def is_vm(self):
-    """Returns true if we're a VM."""
-    return self._IsVM(self.device)
-
-  @staticmethod
-  def _IsVM(device):
-    """VM if |device| is specified and it's not localhost."""
-    return not device or device == remote_access.LOCALHOST
-
-  @staticmethod
-  def Create(opts):
-    """Create either a Device or VM based on |opts.device|."""
-    if Device._IsVM(opts.device):
-      return VM(opts)
-    return Device(opts)
-
-  @staticmethod
-  def GetParser():
-    """Parse a list of args.
-
-    Args:
-      argv: list of command line arguments.
-
-    Returns:
-      List of parsed opts.
-    """
-    parser = commandline.ArgumentParser(description=__doc__)
-    parser.add_argument('--device', help='Hostname or Device IP.')
-    sdk_board_env = os.environ.get(cros_chrome_sdk.SDKFetcher.SDK_BOARD_ENV)
-    parser.add_argument('--board', default=sdk_board_env, help='Board to use.')
-    parser.add_argument('--private-key', help='Path to ssh private key.')
-    parser.add_argument('--dry-run', action='store_true', default=False,
-                        help='dry run for debugging.')
-    parser.add_argument('--cmd', action='store_true', default=False,
-                        help='Run a command.')
-    parser.add_argument('args', nargs=argparse.REMAINDER,
-                        help='Command to run.')
-    return parser
-
-
-class VM(Device):
+class VM(device.Device):
   """Class for managing a VM."""
 
   SSH_PORT = 9222
@@ -445,22 +190,6 @@ class VM(Device):
     self.kvm_serial = '%s.serial' % self.kvm_monitor
 
     self.InitRemote()
-
-  def RunCommand(self, *args, **kwargs):
-    """Use SudoRunCommand or RunCommand as necessary.
-
-    Args:
-      args and kwargs: positional and optional args to RunCommand.
-
-    Returns:
-      cros_build_lib.CommandResult object.
-    """
-    if self.dry_run:
-      return self._DryRunCommand(*args)
-    elif self.use_sudo:
-      return cros_build_lib.SudoRunCommand(*args, **kwargs)
-    else:
-      return cros_build_lib.RunCommand(*args, **kwargs)
 
   def _CreateVMDir(self):
     """Safely create vm_dir."""
@@ -723,6 +452,7 @@ class VM(Device):
       qemu_args.extend(['-display', 'none'])
     logging.info('Pid file: %s', self.pidfile)
     self.RunCommand(qemu_args)
+    self.WaitForBoot()
 
   def _GetVMPid(self):
     """Get the pid of the VM.
@@ -826,7 +556,7 @@ class VM(Device):
     Returns:
       List of parsed opts.
     """
-    device_parser = Device.GetParser()
+    device_parser = device.Device.GetParser()
     parser = commandline.ArgumentParser(description=__doc__,
                                         parents=[device_parser],
                                         add_help=False, logging=False)

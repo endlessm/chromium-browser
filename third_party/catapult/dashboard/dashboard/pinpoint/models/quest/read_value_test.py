@@ -27,7 +27,9 @@ class ReadHistogramsJsonValueQuestTest(unittest.TestCase):
   def testMinimumArguments(self):
     quest = read_value.ReadHistogramsJsonValue.FromDict(
         _BASE_ARGUMENTS_HISTOGRAMS)
-    expected = read_value.ReadHistogramsJsonValue('chartjson-output.json')
+    expected = read_value.ReadHistogramsJsonValue(
+        'speedometer/perf_results.json')
+    print quest._results_filename
     self.assertEqual(quest, expected)
 
   def testAllArguments(self):
@@ -39,23 +41,13 @@ class ReadHistogramsJsonValueQuestTest(unittest.TestCase):
     quest = read_value.ReadHistogramsJsonValue.FromDict(arguments)
 
     expected = read_value.ReadHistogramsJsonValue(
-        'chartjson-output.json', 'timeToFirst',
+        'speedometer/perf_results.json', 'timeToFirst',
         'pcv1-cold', 'trace_name', 'avg')
     self.assertEqual(quest, expected)
 
-  def testPerformanceTestSuite(self):
-    arguments = dict(_BASE_ARGUMENTS_HISTOGRAMS)
-    arguments['target'] = 'performance_test_suite'
-    quest = read_value.ReadHistogramsJsonValue.FromDict(arguments)
-
-    expected = read_value.ReadHistogramsJsonValue(
-        'speedometer/perf_results.json')
-    self.assertEqual(quest, expected)
-
-  def testPerformanceTestSuiteWindows(self):
+  def testWindows(self):
     arguments = dict(_BASE_ARGUMENTS_HISTOGRAMS)
     arguments['dimensions'] = [{'key': 'os', 'value': 'Windows-10'}]
-    arguments['target'] = 'performance_test_suite'
     quest = read_value.ReadHistogramsJsonValue.FromDict(arguments)
 
     expected = read_value.ReadHistogramsJsonValue(
@@ -73,14 +65,16 @@ class ReadGraphJsonValueQuestTest(unittest.TestCase):
   def testMissingChart(self):
     arguments = dict(_BASE_ARGUMENTS_GRAPH_JSON)
     del arguments['chart']
-    with self.assertRaises(TypeError):
-      read_value.ReadGraphJsonValue.FromDict(arguments)
+    quest = read_value.ReadGraphJsonValue.FromDict(arguments)
+    expected = read_value.ReadGraphJsonValue(None, 'trace_name')
+    self.assertEqual(quest, expected)
 
   def testMissingTrace(self):
     arguments = dict(_BASE_ARGUMENTS_GRAPH_JSON)
     del arguments['trace']
-    with self.assertRaises(TypeError):
-      read_value.ReadGraphJsonValue.FromDict(arguments)
+    quest = read_value.ReadGraphJsonValue.FromDict(arguments)
+    expected = read_value.ReadGraphJsonValue('chart_name', None)
+    self.assertEqual(quest, expected)
 
 
 class _ReadValueExecutionTest(unittest.TestCase):

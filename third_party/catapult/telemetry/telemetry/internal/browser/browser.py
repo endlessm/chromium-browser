@@ -42,10 +42,7 @@ class Browser(app.App):
       if find_existing:
         self._browser_backend.BindDevToolsClient()
       else:
-        # TODO(crbug.com/787834): Move url computation out of the browser
-        # backend and into the callers of this constructor.
-        startup_url = self._browser_backend.GetBrowserStartupUrl()
-        self._browser_backend.Start(startup_args, startup_url=startup_url)
+        self._browser_backend.Start(startup_args)
       self._LogBrowserInfo()
     except Exception:
       exc_info = sys.exc_info()

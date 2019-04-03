@@ -18,6 +18,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include <limits>
 
 namespace llvm {
@@ -26,6 +27,7 @@ class BasicBlock;
 class BlockFrequency;
 class BlockFrequencyInfo;
 class BranchProbabilityInfo;
+class CallInst;
 class DominatorTree;
 class Function;
 class Instruction;
@@ -146,7 +148,8 @@ class Value;
     BasicBlock *findOrCreateBlockForHoisting(BasicBlock *CommonExitBlock);
 
   private:
-    void severSplitPHINodes(BasicBlock *&Header);
+    void severSplitPHINodesOfEntry(BasicBlock *&Header);
+    void severSplitPHINodesOfExits(const SmallPtrSetImpl<BasicBlock *> &Exits);
     void splitReturnBlocks();
 
     Function *constructFunction(const ValueSet &inputs,
@@ -162,10 +165,9 @@ class Value;
         DenseMap<BasicBlock *, BlockFrequency> &ExitWeights,
         BranchProbabilityInfo *BPI);
 
-    void emitCallAndSwitchStatement(Function *newFunction,
-                                    BasicBlock *newHeader,
-                                    ValueSet &inputs,
-                                    ValueSet &outputs);
+    CallInst *emitCallAndSwitchStatement(Function *newFunction,
+                                         BasicBlock *newHeader,
+                                         ValueSet &inputs, ValueSet &outputs);
   };
 
 } // end namespace llvm

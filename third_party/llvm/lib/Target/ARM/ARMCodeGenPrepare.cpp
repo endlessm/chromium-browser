@@ -109,24 +109,25 @@ EnableDSPWithImms("arm-enable-scalar-dsp-imms", cl::Hidden, cl::init(false),
 namespace {
 class IRPromoter {
   SmallPtrSet<Value*, 8> NewInsts;
-  SmallVector<Instruction*, 4> InstsToRemove;
-  DenseMap<Value*, Type*> TruncTysMap;
+  SmallPtrSet<Instruction*, 4> InstsToRemove;
+  DenseMap<Value*, SmallVector<Type*, 4>> TruncTysMap;
   SmallPtrSet<Value*, 8> Promoted;
   Module *M = nullptr;
   LLVMContext &Ctx;
   IntegerType *ExtTy = nullptr;
   IntegerType *OrigTy = nullptr;
+  SmallPtrSetImpl<Value*> *Visited;
+  SmallPtrSetImpl<Value*> *Sources;
+  SmallPtrSetImpl<Instruction*> *Sinks;
+  SmallPtrSetImpl<Instruction*> *SafeToPromote;
 
-  void PrepareConstants(SmallPtrSetImpl<Value*> &Visited,
-                         SmallPtrSetImpl<Instruction*> &SafeToPromote);
-  void ExtendSources(SmallPtrSetImpl<Value*> &Sources);
-  void PromoteTree(SmallPtrSetImpl<Value*> &Visited,
-                   SmallPtrSetImpl<Value*> &Sources,
-                   SmallPtrSetImpl<Instruction*> &Sinks,
-                   SmallPtrSetImpl<Instruction*> &SafeToPromote);
-  void TruncateSinks(SmallPtrSetImpl<Value*> &Sources,
-                     SmallPtrSetImpl<Instruction*> &Sinks);
-  void Cleanup(SmallPtrSetImpl<Instruction*> &Sinks);
+  void ReplaceAllUsersOfWith(Value *From, Value *To);
+  void PrepareConstants(void);
+  void ExtendSources(void);
+  void ConvertTruncs(void);
+  void PromoteTree(void);
+  void TruncateSinks(void);
+  void Cleanup(void);
 
 public:
   IRPromoter(Module *M) : M(M), Ctx(M->getContext()),
@@ -180,6 +181,22 @@ static bool generateSignBits(Value *V) {
          Opc == Instruction::SRem;
 }
 
+static bool EqualTypeSize(Value *V) {
+  return V->getType()->getScalarSizeInBits() == ARMCodeGenPrepare::TypeSize;
+}
+
+static bool LessOrEqualTypeSize(Value *V) {
+  return V->getType()->getScalarSizeInBits() <= ARMCodeGenPrepare::TypeSize;
+}
+
+static bool GreaterThanTypeSize(Value *V) {
+  return V->getType()->getScalarSizeInBits() > ARMCodeGenPrepare::TypeSize;
+}
+
+static bool LessThanTypeSize(Value *V) {
+  return V->getType()->getScalarSizeInBits() < ARMCodeGenPrepare::TypeSize;
+}
+
 /// Some instructions can use 8- and 16-bit operands, and we don't need to
 /// promote anything larger. We disallow booleans to make life easier when
 /// dealing with icmps but allow any other integer that is <= 16 bits. Void
@@ -194,15 +211,15 @@ static bool isSupportedType(Value *V) {
   if (auto *Ld = dyn_cast<LoadInst>(V))
     Ty = cast<PointerType>(Ld->getPointerOperandType())->getElementType();
 
-  const IntegerType *IntTy = dyn_cast<IntegerType>(Ty);
-  if (!IntTy)
+  if (!isa<IntegerType>(Ty) ||
+      cast<IntegerType>(V->getType())->getBitWidth() == 1)
     return false;
 
-  return IntTy->getBitWidth() == ARMCodeGenPrepare::TypeSize;
+  return LessOrEqualTypeSize(V);
 }
 
 /// Return true if the given value is a source in the use-def chain, producing
-/// a narrow (i8, i16) value. These values will be zext to start the promotion
+/// a narrow 'TypeSize' value. These values will be zext to start the promotion
 /// of the tree to i32. We guarantee that these won't populate the upper bits
 /// of the register. ZExt on the loads will be free, and the same for call
 /// return values because we only accept ones that guarantee a zeroext ret val.
@@ -211,6 +228,7 @@ static bool isSupportedType(Value *V) {
 static bool isSource(Value *V) {
   if (!isa<IntegerType>(V->getType()))
     return false;
+
   // TODO Allow zext to be sources.
   if (isa<Argument>(V))
     return true;
@@ -221,7 +239,7 @@ static bool isSource(Value *V) {
   else if (auto *Call = dyn_cast<CallInst>(V))
     return Call->hasRetAttr(Attribute::AttrKind::ZExt);
   else if (auto *Trunc = dyn_cast<TruncInst>(V))
-    return isSupportedType(Trunc);
+    return EqualTypeSize(Trunc);
   return false;
 }
 
@@ -232,20 +250,23 @@ static bool isSink(Value *V) {
   // TODO The truncate also isn't actually necessary because we would already
   // proved that the data value is kept within the range of the original data
   // type.
-  auto UsesNarrowValue = [](Value *V) {
-    return V->getType()->getScalarSizeInBits() == ARMCodeGenPrepare::TypeSize;
-  };
 
+  // Sinks are:
+  // - points where the value in the register is being observed, such as an
+  //   icmp, switch or store.
+  // - points where value types have to match, such as calls and returns.
+  // - zext are included to ease the transformation and are generally removed
+  //   later on.
   if (auto *Store = dyn_cast<StoreInst>(V))
-    return UsesNarrowValue(Store->getValueOperand());
+    return LessOrEqualTypeSize(Store->getValueOperand());
   if (auto *Return = dyn_cast<ReturnInst>(V))
-    return UsesNarrowValue(Return->getReturnValue());
-  if (auto *Trunc = dyn_cast<TruncInst>(V))
-    return UsesNarrowValue(Trunc->getOperand(0));
+    return LessOrEqualTypeSize(Return->getReturnValue());
   if (auto *ZExt = dyn_cast<ZExtInst>(V))
-    return UsesNarrowValue(ZExt->getOperand(0));
+    return GreaterThanTypeSize(ZExt);
+  if (auto *Switch = dyn_cast<SwitchInst>(V))
+    return LessThanTypeSize(Switch->getCondition());
   if (auto *ICmp = dyn_cast<ICmpInst>(V))
-    return ICmp->isSigned();
+    return ICmp->isSigned() || LessThanTypeSize(ICmp->getOperand(0));
 
   return isa<CallInst>(V);
 }
@@ -416,23 +437,32 @@ static Intrinsic::ID getNarrowIntrinsic(Instruction *I) {
   llvm_unreachable("unhandled opcode for narrow intrinsic");
 }
 
-static void ReplaceAllUsersOfWith(Value *From, Value *To) {
+void IRPromoter::ReplaceAllUsersOfWith(Value *From, Value *To) {
   SmallVector<Instruction*, 4> Users;
   Instruction *InstTo = dyn_cast<Instruction>(To);
+  bool ReplacedAll = true;
+
+  LLVM_DEBUG(dbgs() << "ARM CGP: Replacing " << *From << " with " << *To
+             << "\n");
+
   for (Use &U : From->uses()) {
     auto *User = cast<Instruction>(U.getUser());
-    if (InstTo && User->isIdenticalTo(InstTo))
+    if (InstTo && User->isIdenticalTo(InstTo)) {
+      ReplacedAll = false;
       continue;
+    }
     Users.push_back(User);
   }
 
   for (auto *U : Users)
     U->replaceUsesOfWith(From, To);
+
+  if (ReplacedAll)
+    if (auto *I = dyn_cast<Instruction>(From))
+      InstsToRemove.insert(I);
 }
 
-void
-IRPromoter::PrepareConstants(SmallPtrSetImpl<Value*> &Visited,
-                             SmallPtrSetImpl<Instruction*> &SafeToPromote) {
+void IRPromoter::PrepareConstants() {
   IRBuilder<> Builder{Ctx};
   // First step is to prepare the instructions for mutation. Most constants
   // just need to be zero extended into their new type, but complications arise
@@ -453,12 +483,12 @@ IRPromoter::PrepareConstants(SmallPtrSetImpl<Value*> &Visited,
   // immediate as operand 1, we create an equivalent instruction using a
   // positive immediate. That positive immediate can then be zext along with
   // all the other immediates later.
-  for (auto *V : Visited) {
+  for (auto *V : *Visited) {
     if (!isa<Instruction>(V))
       continue;
 
     auto *I = cast<Instruction>(V);
-    if (SafeToPromote.count(I)) {
+    if (SafeToPromote->count(I)) {
 
       if (!isa<OverflowingBinaryOperator>(I))
         continue;
@@ -483,16 +513,16 @@ IRPromoter::PrepareConstants(SmallPtrSetImpl<Value*> &Visited,
           NewInst->copyIRFlags(I);
           NewInsts.insert(NewInst);
         }
-        InstsToRemove.push_back(I);
+        InstsToRemove.insert(I);
         I->replaceAllUsesWith(NewVal);
       }
     }
   }
   for (auto *I : NewInsts)
-    Visited.insert(I);
+    Visited->insert(I);
 }
 
-void IRPromoter::ExtendSources(SmallPtrSetImpl<Value*> &Sources) {
+void IRPromoter::ExtendSources() {
   IRBuilder<> Builder{Ctx};
 
   auto InsertZExt = [&](Value *V, Instruction *InsertPt) {
@@ -510,13 +540,13 @@ void IRPromoter::ExtendSources(SmallPtrSetImpl<Value*> &Sources) {
         I->moveAfter(InsertPt);
       NewInsts.insert(I);
     }
+
     ReplaceAllUsersOfWith(V, ZExt);
-    TruncTysMap[ZExt] = TruncTysMap[V];
   };
 
   // Now, insert extending instructions between the sources and their users.
   LLVM_DEBUG(dbgs() << "ARM CGP: Promoting sources:\n");
-  for (auto V : Sources) {
+  for (auto V : *Sources) {
     LLVM_DEBUG(dbgs() << " - " << *V << "\n");
     if (auto *I = dyn_cast<Instruction>(V))
       InsertZExt(I, I);
@@ -530,22 +560,19 @@ void IRPromoter::ExtendSources(SmallPtrSetImpl<Value*> &Sources) {
   }
 }
 
-void IRPromoter::PromoteTree(SmallPtrSetImpl<Value*> &Visited,
-                             SmallPtrSetImpl<Value*> &Sources,
-                             SmallPtrSetImpl<Instruction*> &Sinks,
-                             SmallPtrSetImpl<Instruction*> &SafeToPromote) {
+void IRPromoter::PromoteTree() {
   LLVM_DEBUG(dbgs() << "ARM CGP: Mutating the tree..\n");
 
   IRBuilder<> Builder{Ctx};
 
   // Mutate the types of the instructions within the tree. Here we handle
   // constant operands.
-  for (auto *V : Visited) {
-    if (Sources.count(V))
+  for (auto *V : *Visited) {
+    if (Sources->count(V))
       continue;
 
     auto *I = cast<Instruction>(V);
-    if (Sinks.count(I))
+    if (Sinks->count(I))
       continue;
 
     for (unsigned i = 0, e = I->getNumOperands(); i < e; ++i) {
@@ -568,15 +595,15 @@ void IRPromoter::PromoteTree(SmallPtrSetImpl<Value*> &Visited,
 
   // Finally, any instructions that should be promoted but haven't yet been,
   // need to be handled using intrinsics.
-  for (auto *V : Visited) {
+  for (auto *V : *Visited) {
     auto *I = dyn_cast<Instruction>(V);
     if (!I)
       continue;
 
-    if (Sources.count(I) || Sinks.count(I))
+    if (Sources->count(I) || Sinks->count(I))
       continue;
 
-    if (!shouldPromote(I) || SafeToPromote.count(I) || NewInsts.count(I))
+    if (!shouldPromote(I) || SafeToPromote->count(I) || NewInsts.count(I))
       continue;
   
     assert(EnableDSP && "DSP intrinisc insertion not enabled!");
@@ -590,29 +617,21 @@ void IRPromoter::PromoteTree(SmallPtrSetImpl<Value*> &Visited,
     Builder.SetCurrentDebugLocation(I->getDebugLoc());
     Value *Args[] = { I->getOperand(0), I->getOperand(1) };
     CallInst *Call = Builder.CreateCall(DSPInst, Args);
-    ReplaceAllUsersOfWith(I, Call);
-    InstsToRemove.push_back(I);
     NewInsts.insert(Call);
-    TruncTysMap[Call] = OrigTy;
+    ReplaceAllUsersOfWith(I, Call);
   }
 }
 
-void IRPromoter::TruncateSinks(SmallPtrSetImpl<Value*> &Sources,
-                               SmallPtrSetImpl<Instruction*> &Sinks) {
+void IRPromoter::TruncateSinks() {
   LLVM_DEBUG(dbgs() << "ARM CGP: Fixing up the sinks:\n");
 
   IRBuilder<> Builder{Ctx};
 
-  auto InsertTrunc = [&](Value *V) -> Instruction* {
+  auto InsertTrunc = [&](Value *V, Type *TruncTy) -> Instruction* {
     if (!isa<Instruction>(V) || !isa<IntegerType>(V->getType()))
       return nullptr;
 
-    if ((!Promoted.count(V) && !NewInsts.count(V)) || !TruncTysMap.count(V) ||
-        Sources.count(V))
-      return nullptr;
-
-    Type *TruncTy = TruncTysMap[V];
-    if (TruncTy == ExtTy)
+    if ((!Promoted.count(V) && !NewInsts.count(V)) || Sources->count(V))
       return nullptr;
 
     LLVM_DEBUG(dbgs() << "ARM CGP: Creating " << *TruncTy << " Trunc for "
@@ -626,14 +645,15 @@ void IRPromoter::TruncateSinks(SmallPtrSetImpl<Value*> &Sources,
 
   // Fix up any stores or returns that use the results of the promoted
   // chain.
-  for (auto I : Sinks) {
-    LLVM_DEBUG(dbgs() << " - " << *I << "\n");
+  for (auto I : *Sinks) {
+    LLVM_DEBUG(dbgs() << "ARM CGP: For Sink: " << *I << "\n");
 
     // Handle calls separately as we need to iterate over arg operands.
     if (auto *Call = dyn_cast<CallInst>(I)) {
       for (unsigned i = 0; i < Call->getNumArgOperands(); ++i) {
         Value *Arg = Call->getArgOperand(i);
-        if (Instruction *Trunc = InsertTrunc(Arg)) {
+        Type *Ty = TruncTysMap[Call][i];
+        if (Instruction *Trunc = InsertTrunc(Arg, Ty)) {
           Trunc->moveBefore(Call);
           Call->setArgOperand(i, Trunc);
         }
@@ -641,44 +661,53 @@ void IRPromoter::TruncateSinks(SmallPtrSetImpl<Value*> &Sources,
       continue;
     }
 
+    // Special case switches because we need to truncate the condition.
+    if (auto *Switch = dyn_cast<SwitchInst>(I)) {
+      Type *Ty = TruncTysMap[Switch][0];
+      if (Instruction *Trunc = InsertTrunc(Switch->getCondition(), Ty)) {
+        Trunc->moveBefore(Switch);
+        Switch->setCondition(Trunc);
+      }
+      continue;
+    }
+
     // Now handle the others.
     for (unsigned i = 0; i < I->getNumOperands(); ++i) {
-      if (Instruction *Trunc = InsertTrunc(I->getOperand(i))) {
+      Type *Ty = TruncTysMap[I][i];
+      if (Instruction *Trunc = InsertTrunc(I->getOperand(i), Ty)) {
         Trunc->moveBefore(I);
         I->setOperand(i, Trunc);
       }
     }
   }
-
 }
 
-void IRPromoter::Cleanup(SmallPtrSetImpl<Instruction*> &Sinks) {
-  // Some zext sinks will now have become redundant, along with their trunc
-  // operands, so remove them.
-  for (auto I : Sinks) {
-    if (auto *ZExt = dyn_cast<ZExtInst>(I)) {
-      if (ZExt->getDestTy() != ExtTy)
-        continue;
+void IRPromoter::Cleanup() {
+  // Some zexts will now have become redundant, along with their trunc
+  // operands, so remove them
+  for (auto V : *Visited) {
+    if (!isa<CastInst>(V))
+      continue;
 
-      Value *Src = ZExt->getOperand(0);
-      if (ZExt->getSrcTy() == ZExt->getDestTy()) {
-        LLVM_DEBUG(dbgs() << "ARM CGP: Removing unnecessary zext\n");
-        ReplaceAllUsersOfWith(ZExt, Src);
-        InstsToRemove.push_back(ZExt);
-        continue;
-      }
+    auto ZExt = cast<CastInst>(V);
+    if (ZExt->getDestTy() != ExtTy)
+      continue;
 
-      // For any truncs that we insert to handle zexts, we can replace the
-      // result of the zext with the input to the trunc.
-      if (NewInsts.count(Src) && isa<TruncInst>(Src)) {
-        auto *Trunc = cast<TruncInst>(Src);
-        assert(Trunc->getOperand(0)->getType() == ExtTy &&
-               "expected inserted trunc to be operating on i32");
-        LLVM_DEBUG(dbgs() << "ARM CGP: Replacing zext with trunc operand: "
-                   << *Trunc->getOperand(0));
-        ReplaceAllUsersOfWith(ZExt, Trunc->getOperand(0));
-        InstsToRemove.push_back(ZExt);
-      }
+    Value *Src = ZExt->getOperand(0);
+    if (ZExt->getSrcTy() == ZExt->getDestTy()) {
+      LLVM_DEBUG(dbgs() << "ARM CGP: Removing unnecessary cast: " << *ZExt
+                 << "\n");
+      ReplaceAllUsersOfWith(ZExt, Src);
+      continue;
+    }
+
+    // For any truncs that we insert to handle zexts, we can replace the
+    // result of the zext with the input to the trunc.
+    if (NewInsts.count(Src) && isa<ZExtInst>(V) && isa<TruncInst>(Src)) {
+      auto *Trunc = cast<TruncInst>(Src);
+      assert(Trunc->getOperand(0)->getType() == ExtTy &&
+             "expected inserted trunc to be operating on i32");
+      ReplaceAllUsersOfWith(ZExt, Trunc->getOperand(0));
     }
   }
 
@@ -694,6 +723,29 @@ void IRPromoter::Cleanup(SmallPtrSetImpl<Instruction*> &Sinks) {
   Promoted.clear();
 }
 
+void IRPromoter::ConvertTruncs() {
+  IRBuilder<> Builder{Ctx};
+
+  for (auto *V : *Visited) {
+    if (!isa<TruncInst>(V) || Sources->count(V))
+      continue;
+
+    auto *Trunc = cast<TruncInst>(V);
+    assert(LessThanTypeSize(Trunc) && "expected narrow trunc");
+
+    Builder.SetInsertPoint(Trunc);
+    unsigned NumBits =
+      cast<IntegerType>(Trunc->getType())->getScalarSizeInBits();
+    ConstantInt *Mask = ConstantInt::get(Ctx, APInt::getMaxValue(NumBits));
+    Value *Masked = Builder.CreateAnd(Trunc->getOperand(0), Mask);
+
+    if (auto *I = dyn_cast<Instruction>(Masked))
+      NewInsts.insert(I);
+
+    ReplaceAllUsersOfWith(Trunc, Masked);
+  }
+}
+
 void IRPromoter::Mutate(Type *OrigTy,
                         SmallPtrSetImpl<Value*> &Visited,
                         SmallPtrSetImpl<Value*> &Sources,
@@ -707,39 +759,49 @@ void IRPromoter::Mutate(Type *OrigTy,
   assert(OrigTy->getPrimitiveSizeInBits() < ExtTy->getPrimitiveSizeInBits() &&
          "original type not smaller than extended type");
 
-  // Cache original types.
-  for (auto *V : Visited)
-    TruncTysMap[V] = V->getType();
+  this->Visited = &Visited;
+  this->Sources = &Sources;
+  this->Sinks = &Sinks;
+  this->SafeToPromote = &SafeToPromote;
+
+  // Cache original types of the values that will likely need truncating
+  for (auto *I : Sinks) {
+    if (auto *Call = dyn_cast<CallInst>(I)) {
+      for (unsigned i = 0; i < Call->getNumArgOperands(); ++i) {
+        Value *Arg = Call->getArgOperand(i);
+        TruncTysMap[Call].push_back(Arg->getType());
+      }
+    } else if (auto *Switch = dyn_cast<SwitchInst>(I))
+      TruncTysMap[I].push_back(Switch->getCondition()->getType());
+    else {
+      for (unsigned i = 0; i < I->getNumOperands(); ++i)
+        TruncTysMap[I].push_back(I->getOperand(i)->getType());
+    }
+  }
 
   // Convert adds and subs using negative immediates to equivalent instructions
   // that use positive constants.
-  PrepareConstants(Visited, SafeToPromote);
+  PrepareConstants();
 
   // Insert zext instructions between sources and their users.
-  ExtendSources(Sources);
+  ExtendSources();
+
+  // Convert any truncs, that aren't sources, into AND masks.
+  ConvertTruncs();
 
   // Promote visited instructions, mutating their types in place. Also insert
   // DSP intrinsics, if enabled, for adds and subs which would be unsafe to
   // promote.
-  PromoteTree(Visited, Sources, Sinks, SafeToPromote);
+  PromoteTree();
 
   // Insert trunc instructions for use by calls, stores etc...
-  TruncateSinks(Sources, Sinks);
+  TruncateSinks();
 
   // Finally, remove unecessary zexts and truncs, delete old instructions and
   // clear the data structures.
-  Cleanup(Sinks);
+  Cleanup();
 
-  LLVM_DEBUG(dbgs() << "ARM CGP: Mutation complete:\n");
-  LLVM_DEBUG(dbgs();
-             for (auto *V : Sources)
-               V->dump();
-             for (auto *I : NewInsts)
-               I->dump();
-             for (auto *V : Visited) {
-               if (!Sources.count(V))
-                 V->dump();
-              });
+  LLVM_DEBUG(dbgs() << "ARM CGP: Mutation complete\n");
 }
 
 /// We accept most instructions, as well as Arguments and ConstantInsts. We
@@ -747,8 +809,15 @@ void IRPromoter::Mutate(Type *OrigTy,
 /// return value is zeroext. We don't allow opcodes that can introduce sign
 /// bits.
 bool ARMCodeGenPrepare::isSupportedValue(Value *V) {
-  if (isa<ICmpInst>(V))
-    return true;
+  if (auto *I = dyn_cast<ICmpInst>(V)) {
+    // Now that we allow small types than TypeSize, only allow icmp of
+    // TypeSize because they will require a trunc to be legalised.
+    // TODO: Allow icmp of smaller types, and calculate at the end
+    // whether the transform would be beneficial.
+    if (isa<PointerType>(I->getOperand(0)->getType()))
+      return true;
+    return EqualTypeSize(I->getOperand(0));
+  }
 
   // Memory instructions
   if (isa<StoreInst>(V) || isa<GetElementPtrInst>(V))
@@ -766,12 +835,11 @@ bool ARMCodeGenPrepare::isSupportedValue(Value *V) {
       isa<LoadInst>(V))
     return isSupportedType(V);
 
-  // Truncs can be either sources or sinks.
-  if (auto *Trunc = dyn_cast<TruncInst>(V))
-    return isSupportedType(Trunc) || isSupportedType(Trunc->getOperand(0));
+  if (isa<SExtInst>(V))
+    return false;
 
-  if (isa<CastInst>(V) && !isa<SExtInst>(V))
-    return isSupportedType(cast<CastInst>(V)->getOperand(0));
+  if (auto *Cast = dyn_cast<CastInst>(V))
+    return isSupportedType(Cast) || isSupportedType(Cast->getOperand(0));
 
   // Special cases for calls as we need to check for zeroext
   // TODO We should accept calls even if they don't have zeroext, as they can
@@ -901,13 +969,17 @@ bool ARMCodeGenPrepare::TryToPromote(Value *V) {
     // Calls can be both sources and sinks.
     if (isSink(V))
       Sinks.insert(cast<Instruction>(V));
+
     if (isSource(V))
       Sources.insert(V);
-    else if (auto *I = dyn_cast<Instruction>(V)) {
-      // Visit operands of any instruction visited.
-      for (auto &U : I->operands()) {
-        if (!AddLegalInst(U))
-          return false;
+
+    if (!isSink(V) && !isSource(V)) {
+      if (auto *I = dyn_cast<Instruction>(V)) {
+        // Visit operands of any instruction visited.
+        for (auto &U : I->operands()) {
+          if (!AddLegalInst(U))
+            return false;
+        }
       }
     }
 
@@ -972,6 +1044,8 @@ bool ARMCodeGenPrepare::runOnFunction(Function &F) {
         // Skip signed or pointer compares
         if (CI.isSigned() || !isa<IntegerType>(CI.getOperand(0)->getType()))
           continue;
+
+        LLVM_DEBUG(dbgs() << "ARM CGP: Searching from: " << CI << "\n");
 
         for (auto &Op : CI.operands()) {
           if (auto *I = dyn_cast<Instruction>(Op))

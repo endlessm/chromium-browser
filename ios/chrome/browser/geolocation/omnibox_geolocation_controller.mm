@@ -211,9 +211,7 @@ const char* const kGeolocationAuthorizationActionNewUser =
   [self stopUpdatingLocation];
 }
 
-- (void)locationBarDidSubmitURL:(const GURL&)url
-                     transition:(ui::PageTransition)transition
-                   browserState:(ios::ChromeBrowserState*)browserState {
+- (void)locationBarDidSubmitURL {
   // Stop updating the location when the user submits a query from the Omnibox.
   // We're not interested in further updates until the next time the user puts
   // the focus on the Omnbox.
@@ -325,6 +323,13 @@ const char* const kGeolocationAuthorizationActionNewUser =
   DCHECK(tab.webState->GetNavigationManager());
   web::NavigationItem* item =
       tab.webState->GetNavigationManager()->GetVisibleItem();
+
+  if (!item) {
+    // TODO(crbug.com/899827): remove this early return once committed
+    // navigation item always exists after WebStateObserver::PageLoaded.
+    return;
+  }
+
   if (![self URLIsAuthorizationPromptingURL:item->GetURL()] ||
       !self.locationManager.locationServicesEnabled) {
     return;
