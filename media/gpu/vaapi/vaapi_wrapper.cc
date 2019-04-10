@@ -293,8 +293,11 @@ bool VADisplayState::Initialize() {
 }
 
 bool VADisplayState::InitializeOnce() {
-  static_assert(VA_MAJOR_VERSION >= 1 && VA_MINOR_VERSION >= 1,
-                "Requires VA-API >= 1.1.0");
+
+      LOG(WARNING) << "VA_MAJOR_VERSION value "
+                   << VA_MAJOR_VERSION << "." << VA_MINOR_VERSION;
+/*  static_assert(VA_MAJOR_VERSION >= 1 && VA_MINOR_VERSION >= 1,
+                "Requires VA-API >= 1.1.0"); */
 
   switch (gl::GetGLImplementation()) {
     case gl::kGLImplementationEGLGLES2:
@@ -307,7 +310,7 @@ bool VADisplayState::InitializeOnce() {
       LOG(WARNING) << "VAAPI video acceleration not available without "
                       "DesktopGL (GLX).";
 #endif  // USE_X11
-      break;
+     break;
     // Cannot infer platform from GL, try all available displays
     case gl::kGLImplementationNone:
 #if defined(USE_X11)
