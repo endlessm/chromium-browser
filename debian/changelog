@@ -1,3 +1,64 @@
+chromium-browser (74.0.3729.169-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 74.0.3729.169
+  * debian/patches/revert-gn-4960.patch: added
+  * debian/patches/revert-gn-4980.patch: added
+  * debian/tests/data/HTML5test/index.html: mock whichbrowser.net to remove
+    external test dependency
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 22 May 2019 12:35:00 +0200
+
+chromium-browser (74.0.3729.157-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 74.0.3729.157
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Mon, 20 May 2019 15:38:40 +0200
+
+chromium-browser (74.0.3729.131-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 74.0.3729.131
+    - CVE-2019-5824: Parameter passing error in media player.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 01 May 2019 23:31:31 +0200
+
+chromium-browser (74.0.3729.108-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 74.0.3729.108
+    - CVE-2019-5805: Use after free in PDFium.
+    - CVE-2019-5806: Integer overflow in Angle.
+    - CVE-2019-5807: Memory corruption in V8.
+    - CVE-2019-5808: Use after free in Blink.
+    - CVE-2019-5809: Use after free in Blink.
+    - CVE-2019-5810: User information disclosure in Autofill.
+    - CVE-2019-5811: CORS bypass in Blink.
+    - CVE-2019-5812: URL spoof in Omnibox on iOS.
+    - CVE-2019-5813: Out of bounds read in V8.
+    - CVE-2019-5814: CORS bypass in Blink.
+    - CVE-2019-5815: Heap buffer overflow in Blink.
+    - CVE-2019-5816: Exploit persistence extension on Android.
+    - CVE-2019-5817: Heap buffer overflow in Angle on Windows.
+    - CVE-2019-5818: Uninitialized value in media reader.
+    - CVE-2019-5819: Incorrect escaping in developer tools.
+    - CVE-2019-5820: Integer overflow in PDFium.
+    - CVE-2019-5821: Integer overflow in PDFium.
+    - CVE-2019-5822: CORS bypass in download manager.
+    - CVE-2019-5823: Forced navigation from service worker.
+  * debian/patches/default-allocator: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/gn-add-missing-arm-impl-files.patch: removed, no longer
+    needed
+  * debian/patches/gn-no-last-commit-position.patch: refreshed
+  * debian/patches/no-new-ninja-flag.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: refreshed
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: refreshed
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-enable-version-string.patch: refreshed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 25 Apr 2019 17:34:57 +0200
+
 chromium-browser (73.0.3683.86-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 73.0.3683.86
