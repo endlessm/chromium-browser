@@ -298,6 +298,8 @@ if (!is_android && !is_mac) {
                        rebase_path(version_script, root_build_dir) ]
         }
 
+        configs += [ "//build/config/gcc:rpath_for_built_shared_libraries" ]
+
         if (use_x11) {
           configs += [
             "//build/config/linux:x11",
