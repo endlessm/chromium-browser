@@ -349,11 +349,15 @@ static int fdk_aac_decode_frame(AVCodecContext *avctx, void *data,
     }
 
     err = aacDecoder_DecodeFrame(s->handle, (INT_PCM *) s->decoder_buffer, s->decoder_buffer_size / sizeof(INT_PCM), 0);
-    if (err == AAC_DEC_NOT_ENOUGH_BITS) {
-        ret = avpkt->size - valid;
-        goto end;
-    }
     if (err != AAC_DEC_OK) {
+        /* Just ignore sync or non-fatal decode errors and keep feeding */
+        if ((err >= aac_dec_sync_error_start && err <= aac_dec_sync_error_end) ||
+           (err >= aac_dec_decode_error_start && err <= aac_dec_decode_error_end) ||
+           (err >= aac_dec_anc_data_error_start && err <= aac_dec_anc_data_error_end)) {
+            ret = avpkt->size - valid;
+            goto end;
+        }
+	/* All other errors, return them */
         av_log(avctx, AV_LOG_ERROR,
                "aacDecoder_DecodeFrame() failed: %x\n", err);
         ret = AVERROR_UNKNOWN;
