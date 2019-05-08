@@ -86,6 +86,7 @@ common_defines+=\
 	use_gio=true \
 	use_glib=true \
 	use_gold=false \
+	use_gnome_keyring=false \
 	use_libjpeg_turbo=true \
 	use_libpci=true \
 	use_pulseaudio=true \
