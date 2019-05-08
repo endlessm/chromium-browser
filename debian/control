@@ -30,7 +30,6 @@ Build-Depends:
 	libxss-dev,
 	libgtk-3-dev,
 	libglib2.0-dev,
-	libgnome-keyring-dev,
 	libudev-dev,
 	libdrm-dev,
 	libcap-dev,
