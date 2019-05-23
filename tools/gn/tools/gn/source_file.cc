@@ -55,19 +55,18 @@ SourceFile::Type GetSourceFileType(const std::string& file) {
 SourceFile::SourceFile() : type_(SOURCE_UNKNOWN) {}
 
 SourceFile::SourceFile(const base::StringPiece& p)
-    : value_(p.data(), p.size()) {
+    : value_(p.data(), p.size()), type_(GetSourceFileType(value_)) {
   DCHECK(!value_.empty());
   AssertValueSourceFileString(value_);
   NormalizePath(&value_);
-  type_ = GetSourceFileType(value_);
 }
 
-SourceFile::SourceFile(SwapIn, std::string* value) {
+SourceFile::SourceFile(SwapIn, std::string* value)
+    : type_(GetSourceFileType(*value)) {
   value_.swap(*value);
   DCHECK(!value_.empty());
   AssertValueSourceFileString(value_);
   NormalizePath(&value_);
-  type_ = GetSourceFileType(value_);
 }
 
 SourceFile::~SourceFile() = default;
@@ -92,9 +91,4 @@ SourceDir SourceFile::GetDir() const {
 
 base::FilePath SourceFile::Resolve(const base::FilePath& source_root) const {
   return ResolvePath(value_, true, source_root);
-}
-
-void SourceFile::SetValue(const std::string& value) {
-  value_ = value;
-  type_ = GetSourceFileType(value_);
 }

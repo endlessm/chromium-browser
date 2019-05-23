@@ -47,7 +47,7 @@ class TargetGenerator {
 
   const BuildSettings* GetBuildSettings() const;
 
-  virtual bool FillSources();
+  bool FillSources();
   bool FillPublic();
   bool FillConfigs();
   bool FillOutputs(bool allow_substitutions);
