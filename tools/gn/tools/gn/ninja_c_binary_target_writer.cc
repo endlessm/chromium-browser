@@ -24,6 +24,7 @@
 #include "tools/gn/ninja_utils.h"
 #include "tools/gn/scheduler.h"
 #include "tools/gn/settings.h"
+#include "tools/gn/source_file_type.h"
 #include "tools/gn/string_utils.h"
 #include "tools/gn/substitution_writer.h"
 #include "tools/gn/target.h"
@@ -66,27 +67,27 @@ void AddSourceSetObjectFiles(const Target* source_set,
     if (source_set->GetOutputFilesForSource(source, &tool_name, &tool_outputs))
       obj_files->push_back(tool_outputs[0]);
 
-    used_types.Set(source.type());
+    used_types.Set(GetSourceFileType(source));
   }
 
   // Add MSVC precompiled header object files. GCC .gch files are not object
   // files so they are omitted.
   if (source_set->config_values().has_precompiled_headers()) {
-    if (used_types.Get(SourceFile::SOURCE_C)) {
+    if (used_types.Get(SOURCE_C)) {
       const CTool* tool = source_set->toolchain()->GetToolAsC(CTool::kCToolCc);
       if (tool && tool->precompiled_header_type() == CTool::PCH_MSVC) {
         GetPCHOutputFiles(source_set, CTool::kCToolCc, &tool_outputs);
         obj_files->Append(tool_outputs.begin(), tool_outputs.end());
       }
     }
-    if (used_types.Get(SourceFile::SOURCE_CPP)) {
+    if (used_types.Get(SOURCE_CPP)) {
       const CTool* tool = source_set->toolchain()->GetToolAsC(CTool::kCToolCxx);
       if (tool && tool->precompiled_header_type() == CTool::PCH_MSVC) {
         GetPCHOutputFiles(source_set, CTool::kCToolCxx, &tool_outputs);
         obj_files->Append(tool_outputs.begin(), tool_outputs.end());
       }
     }
-    if (used_types.Get(SourceFile::SOURCE_M)) {
+    if (used_types.Get(SOURCE_M)) {
       const CTool* tool =
           source_set->toolchain()->GetToolAsC(CTool::kCToolObjC);
       if (tool && tool->precompiled_header_type() == CTool::PCH_MSVC) {
@@ -94,7 +95,7 @@ void AddSourceSetObjectFiles(const Target* source_set,
         obj_files->Append(tool_outputs.begin(), tool_outputs.end());
       }
     }
-    if (used_types.Get(SourceFile::SOURCE_MM)) {
+    if (used_types.Get(SOURCE_MM)) {
       const CTool* tool =
           source_set->toolchain()->GetToolAsC(CTool::kCToolObjCxx);
       if (tool && tool->precompiled_header_type() == CTool::PCH_MSVC) {
@@ -118,7 +119,7 @@ void NinjaCBinaryTargetWriter::Run() {
   // Figure out what source types are needed.
   SourceFileTypeSet used_types;
   for (const auto& source : target_->sources())
-    used_types.Set(source.type());
+    used_types.Set(GetSourceFileType(source));
 
   WriteCompilerVars(used_types);
 
@@ -234,34 +235,31 @@ void NinjaCBinaryTargetWriter::WriteCompilerVars(
       target_->config_values().has_precompiled_headers();
 
   EscapeOptions opts = GetFlagOptions();
-  if (used_types.Get(SourceFile::SOURCE_S) ||
-      used_types.Get(SourceFile::SOURCE_ASM)) {
+  if (used_types.Get(SOURCE_S) || used_types.Get(SOURCE_ASM)) {
     WriteOneFlag(target_, &CSubstitutionAsmFlags, false, Tool::kToolNone,
                  &ConfigValues::asmflags, opts, path_output_, out_);
   }
-  if (used_types.Get(SourceFile::SOURCE_C) ||
-      used_types.Get(SourceFile::SOURCE_CPP) ||
-      used_types.Get(SourceFile::SOURCE_M) ||
-      used_types.Get(SourceFile::SOURCE_MM)) {
+  if (used_types.Get(SOURCE_C) || used_types.Get(SOURCE_CPP) ||
+      used_types.Get(SOURCE_M) || used_types.Get(SOURCE_MM)) {
     WriteOneFlag(target_, &CSubstitutionCFlags, false, Tool::kToolNone,
                  &ConfigValues::cflags, opts, path_output_, out_);
   }
-  if (used_types.Get(SourceFile::SOURCE_C)) {
+  if (used_types.Get(SOURCE_C)) {
     WriteOneFlag(target_, &CSubstitutionCFlagsC, has_precompiled_headers,
                  CTool::kCToolCc, &ConfigValues::cflags_c, opts, path_output_,
                  out_);
   }
-  if (used_types.Get(SourceFile::SOURCE_CPP)) {
+  if (used_types.Get(SOURCE_CPP)) {
     WriteOneFlag(target_, &CSubstitutionCFlagsCc, has_precompiled_headers,
                  CTool::kCToolCxx, &ConfigValues::cflags_cc, opts, path_output_,
                  out_);
   }
-  if (used_types.Get(SourceFile::SOURCE_M)) {
+  if (used_types.Get(SOURCE_M)) {
     WriteOneFlag(target_, &CSubstitutionCFlagsObjC, has_precompiled_headers,
                  CTool::kCToolObjC, &ConfigValues::cflags_objc, opts,
                  path_output_, out_);
   }
-  if (used_types.Get(SourceFile::SOURCE_MM)) {
+  if (used_types.Get(SOURCE_MM)) {
     WriteOneFlag(target_, &CSubstitutionCFlagsObjCc, has_precompiled_headers,
                  CTool::kCToolObjCxx, &ConfigValues::cflags_objcc, opts,
                  path_output_, out_);
@@ -321,14 +319,14 @@ void NinjaCBinaryTargetWriter::WritePCHCommands(
 
   const CTool* tool_c = target_->toolchain()->GetToolAsC(CTool::kCToolCc);
   if (tool_c && tool_c->precompiled_header_type() != CTool::PCH_NONE &&
-      used_types.Get(SourceFile::SOURCE_C)) {
+      used_types.Get(SOURCE_C)) {
     WritePCHCommand(&CSubstitutionCFlagsC, CTool::kCToolCc,
                     tool_c->precompiled_header_type(), input_dep,
                     order_only_deps, object_files, other_files);
   }
   const CTool* tool_cxx = target_->toolchain()->GetToolAsC(CTool::kCToolCxx);
   if (tool_cxx && tool_cxx->precompiled_header_type() != CTool::PCH_NONE &&
-      used_types.Get(SourceFile::SOURCE_CPP)) {
+      used_types.Get(SOURCE_CPP)) {
     WritePCHCommand(&CSubstitutionCFlagsCc, CTool::kCToolCxx,
                     tool_cxx->precompiled_header_type(), input_dep,
                     order_only_deps, object_files, other_files);
@@ -336,7 +334,7 @@ void NinjaCBinaryTargetWriter::WritePCHCommands(
 
   const CTool* tool_objc = target_->toolchain()->GetToolAsC(CTool::kCToolObjC);
   if (tool_objc && tool_objc->precompiled_header_type() == CTool::PCH_GCC &&
-      used_types.Get(SourceFile::SOURCE_M)) {
+      used_types.Get(SOURCE_M)) {
     WritePCHCommand(&CSubstitutionCFlagsObjC, CTool::kCToolObjC,
                     tool_objc->precompiled_header_type(), input_dep,
                     order_only_deps, object_files, other_files);
@@ -345,7 +343,7 @@ void NinjaCBinaryTargetWriter::WritePCHCommands(
   const CTool* tool_objcxx =
       target_->toolchain()->GetToolAsC(CTool::kCToolObjCxx);
   if (tool_objcxx && tool_objcxx->precompiled_header_type() == CTool::PCH_GCC &&
-      used_types.Get(SourceFile::SOURCE_MM)) {
+      used_types.Get(SOURCE_MM)) {
     WritePCHCommand(&CSubstitutionCFlagsObjCc, CTool::kCToolObjCxx,
                     tool_objcxx->precompiled_header_type(), input_dep,
                     order_only_deps, object_files, other_files);
@@ -478,7 +476,7 @@ void NinjaCBinaryTargetWriter::WriteSources(
     deps.resize(0);
     const char* tool_name = Tool::kToolNone;
     if (!target_->GetOutputFilesForSource(source, &tool_name, &tool_outputs)) {
-      if (source.type() == SourceFile::SOURCE_DEF)
+      if (GetSourceFileType(source) == SOURCE_DEF)
         other_files->push_back(source);
       continue;  // No output for this source.
     }
@@ -599,7 +597,7 @@ void NinjaCBinaryTargetWriter::WriteLinkerStuff(
   const SourceFile* optional_def_file = nullptr;
   if (!other_files.empty()) {
     for (const SourceFile& src_file : other_files) {
-      if (src_file.type() == SourceFile::SOURCE_DEF) {
+      if (GetSourceFileType(src_file) == SOURCE_DEF) {
         optional_def_file = &src_file;
         implicit_deps.push_back(
             OutputFile(settings_->build_settings(), src_file));

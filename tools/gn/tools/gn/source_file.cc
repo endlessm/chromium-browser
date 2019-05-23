@@ -21,48 +21,18 @@ void AssertValueSourceFileString(const std::string& s) {
   DCHECK(!EndsWithSlash(s)) << s;
 }
 
-SourceFile::Type GetSourceFileType(const std::string& file) {
-  base::StringPiece extension = FindExtension(&file);
-  if (extension == "cc" || extension == "cpp" || extension == "cxx")
-    return SourceFile::SOURCE_CPP;
-  if (extension == "h" || extension == "hpp" || extension == "hxx" ||
-      extension == "hh" || extension == "inc")
-    return SourceFile::SOURCE_H;
-  if (extension == "c")
-    return SourceFile::SOURCE_C;
-  if (extension == "m")
-    return SourceFile::SOURCE_M;
-  if (extension == "mm")
-    return SourceFile::SOURCE_MM;
-  if (extension == "rc")
-    return SourceFile::SOURCE_RC;
-  if (extension == "S" || extension == "s" || extension == "asm")
-    return SourceFile::SOURCE_S;
-  if (extension == "o" || extension == "obj")
-    return SourceFile::SOURCE_O;
-  if (extension == "def")
-    return SourceFile::SOURCE_DEF;
-  if (extension == "rs")
-    return SourceFile::SOURCE_RS;
-  if (extension == "go")
-    return SourceFile::SOURCE_GO;
-
-  return SourceFile::SOURCE_UNKNOWN;
-}
-
 }  // namespace
 
-SourceFile::SourceFile() : type_(SOURCE_UNKNOWN) {}
+SourceFile::SourceFile() = default;
 
 SourceFile::SourceFile(const base::StringPiece& p)
-    : value_(p.data(), p.size()), type_(GetSourceFileType(value_)) {
+    : value_(p.data(), p.size()) {
   DCHECK(!value_.empty());
   AssertValueSourceFileString(value_);
   NormalizePath(&value_);
 }
 
-SourceFile::SourceFile(SwapIn, std::string* value)
-    : type_(GetSourceFileType(*value)) {
+SourceFile::SourceFile(SwapIn, std::string* value) {
   value_.swap(*value);
   DCHECK(!value_.empty());
   AssertValueSourceFileString(value_);

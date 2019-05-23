@@ -16,6 +16,7 @@
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/functions.h"
 #include "tools/gn/scheduler.h"
+#include "tools/gn/source_file_type.h"
 #include "tools/gn/substitution_writer.h"
 #include "tools/gn/tool.h"
 #include "tools/gn/toolchain.h"
@@ -486,10 +487,10 @@ bool Target::GetOutputFilesForSource(const SourceFile& source,
   outputs->clear();
   *computed_tool_type = Tool::kToolNone;
 
-  SourceFile::Type file_type = source.type();
-  if (file_type == SourceFile::SOURCE_UNKNOWN)
+  SourceFileType file_type = GetSourceFileType(source);
+  if (file_type == SOURCE_UNKNOWN)
     return false;
-  if (file_type == SourceFile::SOURCE_O) {
+  if (file_type == SOURCE_O) {
     // Object files just get passed to the output and not compiled.
     outputs->push_back(OutputFile(settings()->build_settings(), source));
     return true;
