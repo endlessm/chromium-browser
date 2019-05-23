@@ -1,9 +1,8 @@
 //===-- NVPTXISelLowering.cpp - NVPTX DAG Lowering Implementation ---------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1503,7 +1502,7 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       for (unsigned j = 0, je = VTs.size(); j != je; ++j) {
         // New store.
         if (VectorInfo[j] & PVF_FIRST) {
-          assert(StoreOperands.empty() && "Unfinished preceeding store.");
+          assert(StoreOperands.empty() && "Unfinished preceding store.");
           StoreOperands.push_back(Chain);
           StoreOperands.push_back(DAG.getConstant(paramCount, dl, MVT::i32));
           StoreOperands.push_back(DAG.getConstant(Offsets[j], dl, MVT::i32));

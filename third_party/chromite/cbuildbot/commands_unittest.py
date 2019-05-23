@@ -248,6 +248,8 @@ FAKE OUTPUT. Will be filled in later.
                  '--tags=luci_project:chromeos',
                  '--tags=suite:test-suite',
                  '--tags=board:test-board',
+                 '--auth-service-account-json',
+                 constants.CHROMEOS_SERVICE_ACCOUNT,
                  '--', commands.SKYLAB_RUN_SUITE_PATH,
                  '--build', self._build, '--board', self._board,
                  '--suite_name', self._suite,
@@ -420,7 +422,7 @@ The suite job has another 2:39:39.789250 till timeout.
     self.internal_failure_exit_code = 1
     # A random code that's not retriable.
     self.swarming_code = 10
-    topology.FetchTopologyFromCIDB(None)
+    topology.FetchTopology()
 
   def RunHWTestSuite(self, *args, **kwargs):
     """Run the hardware test suite, printing logs to stdout."""
@@ -476,6 +478,8 @@ The suite job has another 2:39:39.789250 till timeout.
                 '--tags=build:test-build',
                 '--tags=task_name:test-build-test-suite',
                 '--tags=board:test-board',
+                '--auth-service-account-json',
+                constants.CHROMEOS_SERVICE_ACCOUNT,
                 '--', commands.RUN_SUITE_PATH,
                 '--build', 'test-build', '--board', 'test-board']
     args = list(args)
@@ -1178,7 +1182,7 @@ fe5d699f2e9e4a7de031497953313dbd *./models/snappy/setvars.sh
 
   def testAbortHWTests(self):
     """Verifies that HWTests are aborted for a specific non-CQ config."""
-    topology.FetchTopologyFromCIDB(None)
+    topology.FetchTopology()
     commands.AbortHWTests('my_config', 'my_version', debug=False)
     self.assertCommandContains(['-i', 'my_config/my_version'])
 
@@ -1337,6 +1341,30 @@ class BuildTarballTests(cros_test_lib.RunCommandTempDirTestCase):
         self._buildroot, expected_files,
         os.path.join(self._tarball_dir, commands.AUTOTEST_SERVER_PACKAGE),
         cwd=self._cwd, extra_args=mock.ANY, error_code_ok=True)
+
+  def testBuildTastTarball(self):
+    """Tests that generating the Tast private bundles tarball is correct."""
+    expected_tarball = os.path.join(self._tarball_dir, 'tast_bundles.tar.bz2')
+
+    for d in ('libexec/tast', 'share/tast'):
+      os.makedirs(os.path.join(self._cwd, d))
+
+    with mock.patch.object(commands, 'BuildTarball') as m:
+      tarball = commands.BuildTastBundleTarball(self._buildroot, self._cwd,
+                                                self._tarball_dir)
+      self.assertEquals(expected_tarball, tarball)
+      m.assert_called_once_with(self._buildroot,
+                                ['libexec/tast', 'share/tast'],
+                                expected_tarball,
+                                cwd=self._cwd)
+
+  def testBuildTastTarballNoBundle(self):
+    """Tests the case when the Tast private bundles tarball is not generated."""
+    with mock.patch.object(commands, 'BuildTarball') as m:
+      tarball = commands.BuildTastBundleTarball(self._buildroot, self._cwd,
+                                                self._tarball_dir)
+      self.assertIs(tarball, None)
+      m.assert_not_called()
 
   def testBuildStrippedPackagesArchive(self):
     """Test generation of stripped package tarball using globs."""

@@ -1,9 +1,8 @@
 //===-- UnrollLoopRuntime.cpp - Runtime Loop unrolling utilities ----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -939,11 +938,11 @@ bool llvm::UnrollRuntimeLoopRemainder(Loop *L, unsigned Count,
   if (OtherExits.size() > 0) {
     // Generate dedicated exit blocks for the original loop, to preserve
     // LoopSimplifyForm.
-    formDedicatedExitBlocks(L, DT, LI, PreserveLCSSA);
+    formDedicatedExitBlocks(L, DT, LI, nullptr, PreserveLCSSA);
     // Generate dedicated exit blocks for the remainder loop if one exists, to
     // preserve LoopSimplifyForm.
     if (remainderLoop)
-      formDedicatedExitBlocks(remainderLoop, DT, LI, PreserveLCSSA);
+      formDedicatedExitBlocks(remainderLoop, DT, LI, nullptr, PreserveLCSSA);
   }
 
   auto UnrollResult = LoopUnrollResult::Unmodified;

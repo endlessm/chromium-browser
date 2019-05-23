@@ -1,9 +1,8 @@
 //===-- llvm-objdump.cpp - Object file dumping utility for llvm -----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -71,10 +70,16 @@
 using namespace llvm;
 using namespace object;
 
+cl::opt<unsigned long long> AdjustVMA(
+    "adjust-vma",
+    cl::desc("Increase the displayed address by the specified offset"),
+    cl::value_desc("offset"), cl::init(0));
+
 cl::opt<bool>
     llvm::AllHeaders("all-headers",
                      cl::desc("Display all available header information"));
 static cl::alias AllHeadersShort("x", cl::desc("Alias for --all-headers"),
+                                 cl::NotHidden, cl::Grouping,
                                  cl::aliasopt(AllHeaders));
 
 static cl::list<std::string>
@@ -83,25 +88,26 @@ InputFilenames(cl::Positional, cl::desc("<input object files>"),cl::ZeroOrMore);
 cl::opt<bool>
 llvm::Disassemble("disassemble",
   cl::desc("Display assembler mnemonics for the machine instructions"));
-static cl::alias
-Disassembled("d", cl::desc("Alias for --disassemble"),
-             cl::aliasopt(Disassemble));
+static cl::alias Disassembled("d", cl::desc("Alias for --disassemble"),
+                              cl::NotHidden, cl::Grouping,
+                              cl::aliasopt(Disassemble));
 
 cl::opt<bool>
 llvm::DisassembleAll("disassemble-all",
   cl::desc("Display assembler mnemonics for the machine instructions"));
-static cl::alias
-DisassembleAlld("D", cl::desc("Alias for --disassemble-all"),
-             cl::aliasopt(DisassembleAll));
+static cl::alias DisassembleAlld("D", cl::desc("Alias for --disassemble-all"),
+                                 cl::NotHidden, cl::Grouping,
+                                 cl::aliasopt(DisassembleAll));
 
 cl::opt<bool> llvm::Demangle("demangle", cl::desc("Demangle symbols names"),
                              cl::init(false));
 
 static cl::alias DemangleShort("C", cl::desc("Alias for --demangle"),
+                               cl::NotHidden, cl::Grouping,
                                cl::aliasopt(llvm::Demangle));
 
 static cl::list<std::string>
-DisassembleFunctions("df",
+DisassembleFunctions("disassemble-functions",
                      cl::CommaSeparated,
                      cl::desc("List of functions to disassemble"));
 static StringSet<> DisasmFuncsSet;
@@ -110,26 +116,27 @@ cl::opt<bool>
 llvm::Relocations("reloc",
                   cl::desc("Display the relocation entries in the file"));
 static cl::alias RelocationsShort("r", cl::desc("Alias for --reloc"),
-                                  cl::NotHidden,
+                                  cl::NotHidden, cl::Grouping,
                                   cl::aliasopt(llvm::Relocations));
 
 cl::opt<bool>
 llvm::DynamicRelocations("dynamic-reloc",
   cl::desc("Display the dynamic relocation entries in the file"));
-static cl::alias
-DynamicRelocationsd("R", cl::desc("Alias for --dynamic-reloc"),
-             cl::aliasopt(DynamicRelocations));
+static cl::alias DynamicRelocationsd("R", cl::desc("Alias for --dynamic-reloc"),
+                                     cl::NotHidden, cl::Grouping,
+                                     cl::aliasopt(DynamicRelocations));
 
 cl::opt<bool>
     llvm::SectionContents("full-contents",
                           cl::desc("Display the content of each section"));
 static cl::alias SectionContentsShort("s",
                                       cl::desc("Alias for --full-contents"),
+                                      cl::NotHidden, cl::Grouping,
                                       cl::aliasopt(SectionContents));
 
 cl::opt<bool> llvm::SymbolTable("syms", cl::desc("Display the symbol table"));
 static cl::alias SymbolTableShort("t", cl::desc("Alias for --syms"),
-                                  cl::NotHidden,
+                                  cl::NotHidden, cl::Grouping,
                                   cl::aliasopt(llvm::SymbolTable));
 
 cl::opt<bool>
@@ -153,8 +160,8 @@ llvm::RawClangAST("raw-clang-ast",
 
 static cl::opt<bool>
 MachOOpt("macho", cl::desc("Use MachO specific object file parser"));
-static cl::alias
-MachOm("m", cl::desc("Alias for --macho"), cl::aliasopt(MachOOpt));
+static cl::alias MachOm("m", cl::desc("Alias for --macho"), cl::NotHidden,
+                        cl::Grouping, cl::aliasopt(MachOOpt));
 
 cl::opt<std::string>
 llvm::TripleName("triple", cl::desc("Target triple to disassemble for, "
@@ -173,19 +180,25 @@ llvm::ArchName("arch-name", cl::desc("Target arch to disassemble for, "
 cl::opt<bool>
 llvm::SectionHeaders("section-headers", cl::desc("Display summaries of the "
                                                  "headers for each section."));
-static cl::alias
-SectionHeadersShort("headers", cl::desc("Alias for --section-headers"),
-                    cl::aliasopt(SectionHeaders));
-static cl::alias
-SectionHeadersShorter("h", cl::desc("Alias for --section-headers"),
-                      cl::aliasopt(SectionHeaders));
+static cl::alias SectionHeadersShort("headers",
+                                     cl::desc("Alias for --section-headers"),
+                                     cl::NotHidden,
+                                     cl::aliasopt(SectionHeaders));
+static cl::alias SectionHeadersShorter("h",
+                                       cl::desc("Alias for --section-headers"),
+                                       cl::NotHidden, cl::Grouping,
+                                       cl::aliasopt(SectionHeaders));
+
+static cl::opt<bool>
+    ShowLMA("show-lma",
+            cl::desc("Display LMA column when dumping ELF section headers"));
 
 cl::list<std::string>
 llvm::FilterSections("section", cl::desc("Operate on the specified sections only. "
                                          "With -macho dump segment,section"));
-cl::alias
-static FilterSectionsj("j", cl::desc("Alias for --section"),
-                 cl::aliasopt(llvm::FilterSections));
+cl::alias static FilterSectionsj("j", cl::desc("Alias for --section"),
+                                 cl::NotHidden,
+                                 cl::aliasopt(llvm::FilterSections));
 
 cl::list<std::string>
 llvm::MAttrs("mattr",
@@ -203,9 +216,9 @@ llvm::NoLeadingAddr("no-leading-addr", cl::desc("Print no leading address"));
 cl::opt<bool>
 llvm::UnwindInfo("unwind-info", cl::desc("Display unwind information"));
 
-static cl::alias
-UnwindInfoShort("u", cl::desc("Alias for --unwind-info"),
-                cl::aliasopt(UnwindInfo));
+static cl::alias UnwindInfoShort("u", cl::desc("Alias for --unwind-info"),
+                                 cl::NotHidden, cl::Grouping,
+                                 cl::aliasopt(UnwindInfo));
 
 cl::opt<bool>
 llvm::PrivateHeaders("private-headers",
@@ -216,24 +229,26 @@ llvm::FirstPrivateHeader("private-header",
                          cl::desc("Display only the first format specific file "
                                   "header"));
 
-static cl::alias
-PrivateHeadersShort("p", cl::desc("Alias for --private-headers"),
-                    cl::aliasopt(PrivateHeaders));
+static cl::alias PrivateHeadersShort("p",
+                                     cl::desc("Alias for --private-headers"),
+                                     cl::NotHidden, cl::Grouping,
+                                     cl::aliasopt(PrivateHeaders));
 
 cl::opt<bool> llvm::FileHeaders(
     "file-headers",
     cl::desc("Display the contents of the overall file header"));
 
 static cl::alias FileHeadersShort("f", cl::desc("Alias for --file-headers"),
+                                  cl::NotHidden, cl::Grouping,
                                   cl::aliasopt(FileHeaders));
 
 cl::opt<bool>
     llvm::ArchiveHeaders("archive-headers",
                          cl::desc("Display archive header information"));
 
-cl::alias
-ArchiveHeadersShort("a", cl::desc("Alias for --archive-headers"),
-                    cl::aliasopt(ArchiveHeaders));
+cl::alias ArchiveHeadersShort("a", cl::desc("Alias for --archive-headers"),
+                              cl::NotHidden, cl::Grouping,
+                              cl::aliasopt(ArchiveHeaders));
 
 cl::opt<bool>
     llvm::PrintImmHex("print-imm-hex",
@@ -251,14 +266,15 @@ cl::opt<bool> PrintSource(
     cl::desc(
         "Display source inlined with disassembly. Implies disassemble object"));
 
-cl::alias PrintSourceShort("S", cl::desc("Alias for -source"),
-                           cl::aliasopt(PrintSource));
+cl::alias PrintSourceShort("S", cl::desc("Alias for -source"), cl::NotHidden,
+                           cl::Grouping, cl::aliasopt(PrintSource));
 
 cl::opt<bool> PrintLines("line-numbers",
                          cl::desc("Display source line numbers with "
                                   "disassembly. Implies disassemble object"));
 
 cl::alias PrintLinesShort("l", cl::desc("Alias for -line-numbers"),
+                          cl::NotHidden, cl::Grouping,
                           cl::aliasopt(PrintLines));
 
 cl::opt<unsigned long long>
@@ -274,62 +290,23 @@ cl::opt<bool> DisassembleZeroes(
                 cl::desc("Do not skip blocks of zeroes when disassembling"));
 cl::alias DisassembleZeroesShort("z",
                                  cl::desc("Alias for --disassemble-zeroes"),
+                                 cl::NotHidden, cl::Grouping,
                                  cl::aliasopt(DisassembleZeroes));
+
+static cl::list<std::string>
+    DisassemblerOptions("disassembler-options",
+                        cl::desc("Pass target specific disassembler options"),
+                        cl::value_desc("options"), cl::CommaSeparated);
+static cl::alias
+    DisassemblerOptionsShort("M", cl::desc("Alias for --disassembler-options"),
+                             cl::NotHidden, cl::Prefix, cl::CommaSeparated,
+                             cl::aliasopt(DisassemblerOptions));
 
 static StringRef ToolName;
 
 typedef std::vector<std::tuple<uint64_t, StringRef, uint8_t>> SectionSymbolsTy;
 
-namespace {
-typedef std::function<bool(llvm::object::SectionRef const &)> FilterPredicate;
-
-class SectionFilterIterator {
-public:
-  SectionFilterIterator(FilterPredicate P,
-                        llvm::object::section_iterator const &I,
-                        llvm::object::section_iterator const &E)
-      : Predicate(std::move(P)), Iterator(I), End(E) {
-    ScanPredicate();
-  }
-  const llvm::object::SectionRef &operator*() const { return *Iterator; }
-  SectionFilterIterator &operator++() {
-    ++Iterator;
-    ScanPredicate();
-    return *this;
-  }
-  bool operator!=(SectionFilterIterator const &Other) const {
-    return Iterator != Other.Iterator;
-  }
-
-private:
-  void ScanPredicate() {
-    while (Iterator != End && !Predicate(*Iterator)) {
-      ++Iterator;
-    }
-  }
-  FilterPredicate Predicate;
-  llvm::object::section_iterator Iterator;
-  llvm::object::section_iterator End;
-};
-
-class SectionFilter {
-public:
-  SectionFilter(FilterPredicate P, llvm::object::ObjectFile const &O)
-      : Predicate(std::move(P)), Object(O) {}
-  SectionFilterIterator begin() {
-    return SectionFilterIterator(Predicate, Object.section_begin(),
-                                 Object.section_end());
-  }
-  SectionFilterIterator end() {
-    return SectionFilterIterator(Predicate, Object.section_end(),
-                                 Object.section_end());
-  }
-
-private:
-  FilterPredicate Predicate;
-  llvm::object::ObjectFile const &Object;
-};
-SectionFilter ToolSectionFilter(llvm::object::ObjectFile const &O) {
+SectionFilter llvm::ToolSectionFilter(llvm::object::ObjectFile const &O) {
   return SectionFilter(
       [](llvm::object::SectionRef const &S) {
         if (FilterSections.empty())
@@ -341,7 +318,6 @@ SectionFilter ToolSectionFilter(llvm::object::ObjectFile const &O) {
         return is_contained(FilterSections, String);
       },
       O);
-}
 }
 
 void llvm::error(std::error_code EC) {
@@ -463,388 +439,17 @@ bool llvm::isRelocAddressLess(RelocationRef A, RelocationRef B) {
   return A.getOffset() < B.getOffset();
 }
 
-template <class ELFT>
-static std::error_code getRelocationValueString(const ELFObjectFile<ELFT> *Obj,
-                                                const RelocationRef &RelRef,
-                                                SmallVectorImpl<char> &Result) {
-  typedef typename ELFObjectFile<ELFT>::Elf_Sym Elf_Sym;
-  typedef typename ELFObjectFile<ELFT>::Elf_Shdr Elf_Shdr;
-  typedef typename ELFObjectFile<ELFT>::Elf_Rela Elf_Rela;
-
-  const ELFFile<ELFT> &EF = *Obj->getELFFile();
-  DataRefImpl Rel = RelRef.getRawDataRefImpl();
-  auto SecOrErr = EF.getSection(Rel.d.a);
-  if (!SecOrErr)
-    return errorToErrorCode(SecOrErr.takeError());
-
-  int64_t Addend = 0;
-  // If there is no Symbol associated with the relocation, we set the undef
-  // boolean value to 'true'. This will prevent us from calling functions that
-  // requires the relocation to be associated with a symbol.
-  //
-  // In SHT_REL case we would need to read the addend from section data.
-  // GNU objdump does not do that and we just follow for simplicity.
-  bool Undef = false;
-  if ((*SecOrErr)->sh_type == ELF::SHT_RELA) {
-    const Elf_Rela *ERela = Obj->getRela(Rel);
-    Addend = ERela->r_addend;
-    Undef = ERela->getSymbol(false) == 0;
-  } else if ((*SecOrErr)->sh_type != ELF::SHT_REL) {
-    return object_error::parse_failed;
-  }
-
-  // Default scheme is to print Target, as well as "+ <addend>" for nonzero
-  // addend. Should be acceptable for all normal purposes.
-  std::string FmtBuf;
-  raw_string_ostream Fmt(FmtBuf);
-
-  if (!Undef) {
-    symbol_iterator SI = RelRef.getSymbol();
-    const Elf_Sym *Sym = Obj->getSymbol(SI->getRawDataRefImpl());
-    if (Sym->getType() == ELF::STT_SECTION) {
-      Expected<section_iterator> SymSI = SI->getSection();
-      if (!SymSI)
-        return errorToErrorCode(SymSI.takeError());
-      const Elf_Shdr *SymSec = Obj->getSection((*SymSI)->getRawDataRefImpl());
-      auto SecName = EF.getSectionName(SymSec);
-      if (!SecName)
-        return errorToErrorCode(SecName.takeError());
-      Fmt << *SecName;
-    } else {
-      Expected<StringRef> SymName = SI->getName();
-      if (!SymName)
-        return errorToErrorCode(SymName.takeError());
-      if (Demangle)
-        Fmt << demangle(*SymName);
-      else
-        Fmt << *SymName;
-    }
-  } else {
-    Fmt << "*ABS*";
-  }
-
-  if (Addend != 0)
-    Fmt << (Addend < 0 ? "" : "+") << Addend;
-  Fmt.flush();
-  Result.append(FmtBuf.begin(), FmtBuf.end());
-  return std::error_code();
-}
-
-static std::error_code getRelocationValueString(const ELFObjectFileBase *Obj,
-                                                const RelocationRef &Rel,
-                                                SmallVectorImpl<char> &Result) {
-  if (auto *ELF32LE = dyn_cast<ELF32LEObjectFile>(Obj))
-    return getRelocationValueString(ELF32LE, Rel, Result);
-  if (auto *ELF64LE = dyn_cast<ELF64LEObjectFile>(Obj))
-    return getRelocationValueString(ELF64LE, Rel, Result);
-  if (auto *ELF32BE = dyn_cast<ELF32BEObjectFile>(Obj))
-    return getRelocationValueString(ELF32BE, Rel, Result);
-  auto *ELF64BE = cast<ELF64BEObjectFile>(Obj);
-  return getRelocationValueString(ELF64BE, Rel, Result);
-}
-
-static std::error_code getRelocationValueString(const COFFObjectFile *Obj,
-                                                const RelocationRef &Rel,
-                                                SmallVectorImpl<char> &Result) {
-  symbol_iterator SymI = Rel.getSymbol();
-  Expected<StringRef> SymNameOrErr = SymI->getName();
-  if (!SymNameOrErr)
-    return errorToErrorCode(SymNameOrErr.takeError());
-  StringRef SymName = *SymNameOrErr;
-  Result.append(SymName.begin(), SymName.end());
-  return std::error_code();
-}
-
-static void printRelocationTargetName(const MachOObjectFile *O,
-                                      const MachO::any_relocation_info &RE,
-                                      raw_string_ostream &Fmt) {
-  // Target of a scattered relocation is an address.  In the interest of
-  // generating pretty output, scan through the symbol table looking for a
-  // symbol that aligns with that address.  If we find one, print it.
-  // Otherwise, we just print the hex address of the target.
-  if (O->isRelocationScattered(RE)) {
-    uint32_t Val = O->getPlainRelocationSymbolNum(RE);
-
-    for (const SymbolRef &Symbol : O->symbols()) {
-      Expected<uint64_t> Addr = Symbol.getAddress();
-      if (!Addr)
-        report_error(O->getFileName(), Addr.takeError());
-      if (*Addr != Val)
-        continue;
-      Expected<StringRef> Name = Symbol.getName();
-      if (!Name)
-        report_error(O->getFileName(), Name.takeError());
-      Fmt << *Name;
-      return;
-    }
-
-    // If we couldn't find a symbol that this relocation refers to, try
-    // to find a section beginning instead.
-    for (const SectionRef &Section : ToolSectionFilter(*O)) {
-      std::error_code ec;
-
-      StringRef Name;
-      uint64_t Addr = Section.getAddress();
-      if (Addr != Val)
-        continue;
-      if ((ec = Section.getName(Name)))
-        report_error(O->getFileName(), ec);
-      Fmt << Name;
-      return;
-    }
-
-    Fmt << format("0x%x", Val);
-    return;
-  }
-
-  StringRef S;
-  bool isExtern = O->getPlainRelocationExternal(RE);
-  uint64_t Val = O->getPlainRelocationSymbolNum(RE);
-
-  if (O->getAnyRelocationType(RE) == MachO::ARM64_RELOC_ADDEND) {
-    Fmt << format("0x%0" PRIx64, Val);
-    return;
-  }
-
-  if (isExtern) {
-    symbol_iterator SI = O->symbol_begin();
-    advance(SI, Val);
-    Expected<StringRef> SOrErr = SI->getName();
-    if (!SOrErr)
-      report_error(O->getFileName(), SOrErr.takeError());
-    S = *SOrErr;
-  } else {
-    section_iterator SI = O->section_begin();
-    // Adjust for the fact that sections are 1-indexed.
-    if (Val == 0) {
-      Fmt << "0 (?,?)";
-      return;
-    }
-    uint32_t I = Val - 1;
-    while (I != 0 && SI != O->section_end()) {
-      --I;
-      advance(SI, 1);
-    }
-    if (SI == O->section_end())
-      Fmt << Val << " (?,?)";
-    else
-      SI->getName(S);
-  }
-
-  Fmt << S;
-}
-
-static std::error_code getRelocationValueString(const WasmObjectFile *Obj,
-                                                const RelocationRef &RelRef,
-                                                SmallVectorImpl<char> &Result) {
-  const wasm::WasmRelocation& Rel = Obj->getWasmRelocation(RelRef);
-  symbol_iterator SI = RelRef.getSymbol();
-  std::string FmtBuf;
-  raw_string_ostream Fmt(FmtBuf);
-  if (SI == Obj->symbol_end()) {
-    // Not all wasm relocations have symbols associated with them.
-    // In particular R_WEBASSEMBLY_TYPE_INDEX_LEB.
-    Fmt << Rel.Index;
-  } else {
-    Expected<StringRef> SymNameOrErr = SI->getName();
-    if (!SymNameOrErr)
-      return errorToErrorCode(SymNameOrErr.takeError());
-    StringRef SymName = *SymNameOrErr;
-    Result.append(SymName.begin(), SymName.end());
-  }
-  Fmt << (Rel.Addend < 0 ? "" : "+") << Rel.Addend;
-  Fmt.flush();
-  Result.append(FmtBuf.begin(), FmtBuf.end());
-  return std::error_code();
-}
-
-static std::error_code getRelocationValueString(const MachOObjectFile *Obj,
-                                                const RelocationRef &RelRef,
-                                                SmallVectorImpl<char> &Result) {
-  DataRefImpl Rel = RelRef.getRawDataRefImpl();
-  MachO::any_relocation_info RE = Obj->getRelocation(Rel);
-
-  unsigned Arch = Obj->getArch();
-
-  std::string FmtBuf;
-  raw_string_ostream Fmt(FmtBuf);
-  unsigned Type = Obj->getAnyRelocationType(RE);
-  bool IsPCRel = Obj->getAnyRelocationPCRel(RE);
-
-  // Determine any addends that should be displayed with the relocation.
-  // These require decoding the relocation type, which is triple-specific.
-
-  // X86_64 has entirely custom relocation types.
-  if (Arch == Triple::x86_64) {
-    switch (Type) {
-    case MachO::X86_64_RELOC_GOT_LOAD:
-    case MachO::X86_64_RELOC_GOT: {
-      printRelocationTargetName(Obj, RE, Fmt);
-      Fmt << "@GOT";
-      if (IsPCRel)
-        Fmt << "PCREL";
-      break;
-    }
-    case MachO::X86_64_RELOC_SUBTRACTOR: {
-      DataRefImpl RelNext = Rel;
-      Obj->moveRelocationNext(RelNext);
-      MachO::any_relocation_info RENext = Obj->getRelocation(RelNext);
-
-      // X86_64_RELOC_SUBTRACTOR must be followed by a relocation of type
-      // X86_64_RELOC_UNSIGNED.
-      // NOTE: Scattered relocations don't exist on x86_64.
-      unsigned RType = Obj->getAnyRelocationType(RENext);
-      if (RType != MachO::X86_64_RELOC_UNSIGNED)
-        report_error(Obj->getFileName(), "Expected X86_64_RELOC_UNSIGNED after "
-                     "X86_64_RELOC_SUBTRACTOR.");
-
-      // The X86_64_RELOC_UNSIGNED contains the minuend symbol;
-      // X86_64_RELOC_SUBTRACTOR contains the subtrahend.
-      printRelocationTargetName(Obj, RENext, Fmt);
-      Fmt << "-";
-      printRelocationTargetName(Obj, RE, Fmt);
-      break;
-    }
-    case MachO::X86_64_RELOC_TLV:
-      printRelocationTargetName(Obj, RE, Fmt);
-      Fmt << "@TLV";
-      if (IsPCRel)
-        Fmt << "P";
-      break;
-    case MachO::X86_64_RELOC_SIGNED_1:
-      printRelocationTargetName(Obj, RE, Fmt);
-      Fmt << "-1";
-      break;
-    case MachO::X86_64_RELOC_SIGNED_2:
-      printRelocationTargetName(Obj, RE, Fmt);
-      Fmt << "-2";
-      break;
-    case MachO::X86_64_RELOC_SIGNED_4:
-      printRelocationTargetName(Obj, RE, Fmt);
-      Fmt << "-4";
-      break;
-    default:
-      printRelocationTargetName(Obj, RE, Fmt);
-      break;
-    }
-    // X86 and ARM share some relocation types in common.
-  } else if (Arch == Triple::x86 || Arch == Triple::arm ||
-             Arch == Triple::ppc) {
-    // Generic relocation types...
-    switch (Type) {
-    case MachO::GENERIC_RELOC_PAIR: // prints no info
-      return std::error_code();
-    case MachO::GENERIC_RELOC_SECTDIFF: {
-      DataRefImpl RelNext = Rel;
-      Obj->moveRelocationNext(RelNext);
-      MachO::any_relocation_info RENext = Obj->getRelocation(RelNext);
-
-      // X86 sect diff's must be followed by a relocation of type
-      // GENERIC_RELOC_PAIR.
-      unsigned RType = Obj->getAnyRelocationType(RENext);
-
-      if (RType != MachO::GENERIC_RELOC_PAIR)
-        report_error(Obj->getFileName(), "Expected GENERIC_RELOC_PAIR after "
-                     "GENERIC_RELOC_SECTDIFF.");
-
-      printRelocationTargetName(Obj, RE, Fmt);
-      Fmt << "-";
-      printRelocationTargetName(Obj, RENext, Fmt);
-      break;
-    }
-    }
-
-    if (Arch == Triple::x86 || Arch == Triple::ppc) {
-      switch (Type) {
-      case MachO::GENERIC_RELOC_LOCAL_SECTDIFF: {
-        DataRefImpl RelNext = Rel;
-        Obj->moveRelocationNext(RelNext);
-        MachO::any_relocation_info RENext = Obj->getRelocation(RelNext);
-
-        // X86 sect diff's must be followed by a relocation of type
-        // GENERIC_RELOC_PAIR.
-        unsigned RType = Obj->getAnyRelocationType(RENext);
-        if (RType != MachO::GENERIC_RELOC_PAIR)
-          report_error(Obj->getFileName(), "Expected GENERIC_RELOC_PAIR after "
-                       "GENERIC_RELOC_LOCAL_SECTDIFF.");
-
-        printRelocationTargetName(Obj, RE, Fmt);
-        Fmt << "-";
-        printRelocationTargetName(Obj, RENext, Fmt);
-        break;
-      }
-      case MachO::GENERIC_RELOC_TLV: {
-        printRelocationTargetName(Obj, RE, Fmt);
-        Fmt << "@TLV";
-        if (IsPCRel)
-          Fmt << "P";
-        break;
-      }
-      default:
-        printRelocationTargetName(Obj, RE, Fmt);
-      }
-    } else { // ARM-specific relocations
-      switch (Type) {
-      case MachO::ARM_RELOC_HALF:
-      case MachO::ARM_RELOC_HALF_SECTDIFF: {
-        // Half relocations steal a bit from the length field to encode
-        // whether this is an upper16 or a lower16 relocation.
-        bool isUpper = (Obj->getAnyRelocationLength(RE) & 0x1) == 1;
-
-        if (isUpper)
-          Fmt << ":upper16:(";
-        else
-          Fmt << ":lower16:(";
-        printRelocationTargetName(Obj, RE, Fmt);
-
-        DataRefImpl RelNext = Rel;
-        Obj->moveRelocationNext(RelNext);
-        MachO::any_relocation_info RENext = Obj->getRelocation(RelNext);
-
-        // ARM half relocs must be followed by a relocation of type
-        // ARM_RELOC_PAIR.
-        unsigned RType = Obj->getAnyRelocationType(RENext);
-        if (RType != MachO::ARM_RELOC_PAIR)
-          report_error(Obj->getFileName(), "Expected ARM_RELOC_PAIR after "
-                       "ARM_RELOC_HALF");
-
-        // NOTE: The half of the target virtual address is stashed in the
-        // address field of the secondary relocation, but we can't reverse
-        // engineer the constant offset from it without decoding the movw/movt
-        // instruction to find the other half in its immediate field.
-
-        // ARM_RELOC_HALF_SECTDIFF encodes the second section in the
-        // symbol/section pointer of the follow-on relocation.
-        if (Type == MachO::ARM_RELOC_HALF_SECTDIFF) {
-          Fmt << "-";
-          printRelocationTargetName(Obj, RENext, Fmt);
-        }
-
-        Fmt << ")";
-        break;
-      }
-      default: { printRelocationTargetName(Obj, RE, Fmt); }
-      }
-    }
-  } else
-    printRelocationTargetName(Obj, RE, Fmt);
-
-  Fmt.flush();
-  Result.append(FmtBuf.begin(), FmtBuf.end());
-  return std::error_code();
-}
-
 static std::error_code getRelocationValueString(const RelocationRef &Rel,
                                                 SmallVectorImpl<char> &Result) {
   const ObjectFile *Obj = Rel.getObject();
   if (auto *ELF = dyn_cast<ELFObjectFileBase>(Obj))
-    return getRelocationValueString(ELF, Rel, Result);
+    return getELFRelocationValueString(ELF, Rel, Result);
   if (auto *COFF = dyn_cast<COFFObjectFile>(Obj))
-    return getRelocationValueString(COFF, Rel, Result);
+    return getCOFFRelocationValueString(COFF, Rel, Result);
   if (auto *Wasm = dyn_cast<WasmObjectFile>(Obj))
-    return getRelocationValueString(Wasm, Rel, Result);
+    return getWasmRelocationValueString(Wasm, Rel, Result);
   if (auto *MachO = dyn_cast<MachOObjectFile>(Obj))
-    return getRelocationValueString(MachO, Rel, Result);
+    return getMachORelocationValueString(MachO, Rel, Result);
   llvm_unreachable("unknown object file format");
 }
 
@@ -979,6 +584,17 @@ static bool isArmElf(const ObjectFile *Obj) {
            Obj->getArch() == Triple::thumbeb));
 }
 
+static void printRelocation(const RelocationRef &Rel, uint64_t Address,
+                            uint8_t AddrSize) {
+  StringRef Fmt =
+      AddrSize > 4 ? "\t\t%016" PRIx64 ":  " : "\t\t\t%08" PRIx64 ":  ";
+  SmallString<16> Name;
+  SmallString<32> Val;
+  Rel.getTypeName(Name);
+  error(getRelocationValueString(Rel, Val));
+  outs() << format(Fmt.data(), Address) << Name << "\t" << Val << "\n";
+}
+
 class PrettyPrinter {
 public:
   virtual ~PrettyPrinter() = default;
@@ -1039,21 +655,15 @@ public:
     auto HeadTail = PacketBundle.first.split('\n');
     auto Preamble = " { ";
     auto Separator = "";
-    StringRef Fmt = "\t\t\t%08" PRIx64 ":  ";
-    std::vector<RelocationRef>::const_iterator RelCur = Rels->begin();
-    std::vector<RelocationRef>::const_iterator RelEnd = Rels->end();
 
     // Hexagon's packets require relocations to be inline rather than
     // clustered at the end of the packet.
+    std::vector<RelocationRef>::const_iterator RelCur = Rels->begin();
+    std::vector<RelocationRef>::const_iterator RelEnd = Rels->end();
     auto PrintReloc = [&]() -> void {
       while ((RelCur != RelEnd) && (RelCur->getOffset() <= Address)) {
         if (RelCur->getOffset() == Address) {
-          SmallString<16> Name;
-          SmallString<32> Val;
-          RelCur->getTypeName(Name);
-          error(getRelocationValueString(*RelCur, Val));
-          OS << Separator << format(Fmt.data(), Address) << Name << "\t" << Val
-                << "\n";
+          printRelocation(*RelCur, Address, 4);
           return;
         }
         ++RelCur;
@@ -1270,10 +880,6 @@ static void addPltEntries(const ObjectFile *Obj,
 // returns the number of zero bytes that can be skipped when dumping the
 // disassembly of the instructions in Buf.
 static size_t countSkippableZeroBytes(ArrayRef<uint8_t> Buf) {
-  // When -z or --disassemble-zeroes are given we always dissasemble them.
-  if (DisassembleZeroes)
-    return 0;
-
   // Find the number of leading zeroes.
   size_t N = 0;
   while (N < Buf.size() && !Buf[N])
@@ -1289,76 +895,43 @@ static size_t countSkippableZeroBytes(ArrayRef<uint8_t> Buf) {
   return N & ~0x3;
 }
 
-static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
-  if (StartAddress > StopAddress)
-    error("Start address should be less than stop address");
-
-  const Target *TheTarget = getTarget(Obj);
-
-  // Package up features to be passed to target/subtarget
-  SubtargetFeatures Features = Obj->getFeatures();
-  if (!MAttrs.empty())
-    for (unsigned I = 0; I != MAttrs.size(); ++I)
-      Features.AddFeature(MAttrs[I]);
-
-  std::unique_ptr<const MCRegisterInfo> MRI(
-      TheTarget->createMCRegInfo(TripleName));
-  if (!MRI)
-    report_error(Obj->getFileName(), "no register info for target " +
-                 TripleName);
-
-  // Set up disassembler.
-  std::unique_ptr<const MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName));
-  if (!AsmInfo)
-    report_error(Obj->getFileName(), "no assembly info for target " +
-                 TripleName);
-  std::unique_ptr<const MCSubtargetInfo> STI(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI)
-    report_error(Obj->getFileName(), "no subtarget info for target " +
-                 TripleName);
-  std::unique_ptr<const MCInstrInfo> MII(TheTarget->createMCInstrInfo());
-  if (!MII)
-    report_error(Obj->getFileName(), "no instruction info for target " +
-                 TripleName);
-  MCObjectFileInfo MOFI;
-  MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI.InitMCObjectFileInfo(Triple(TripleName), false, Ctx);
-
-  std::unique_ptr<MCDisassembler> DisAsm(
-    TheTarget->createMCDisassembler(*STI, Ctx));
-  if (!DisAsm)
-    report_error(Obj->getFileName(), "no disassembler for target " +
-                 TripleName);
-
-  std::unique_ptr<const MCInstrAnalysis> MIA(
-      TheTarget->createMCInstrAnalysis(MII.get()));
-
-  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
-  std::unique_ptr<MCInstPrinter> IP(TheTarget->createMCInstPrinter(
-      Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP)
-    report_error(Obj->getFileName(), "no instruction printer for target " +
-                 TripleName);
-  IP->setPrintImmHex(PrintImmHex);
-  PrettyPrinter &PIP = selectPrettyPrinter(Triple(TripleName));
-
-  StringRef Fmt = Obj->getBytesInAddress() > 4 ? "\t\t%016" PRIx64 ":  " :
-                                                 "\t\t\t%08" PRIx64 ":  ";
-
-  SourcePrinter SP(Obj, TheTarget->getName());
-
-  // Create a mapping, RelocSecs = SectionRelocMap[S], where sections
-  // in RelocSecs contain the relocations for section S.
-  std::error_code EC;
-  std::map<SectionRef, SmallVector<SectionRef, 1>> SectionRelocMap;
-  for (const SectionRef &Section : ToolSectionFilter(*Obj)) {
-    section_iterator Sec2 = Section.getRelocatedSection();
-    if (Sec2 != Obj->section_end())
-      SectionRelocMap[*Sec2].push_back(Section);
+// Returns a map from sections to their relocations.
+static std::map<SectionRef, std::vector<RelocationRef>>
+getRelocsMap(llvm::object::ObjectFile const &Obj) {
+  std::map<SectionRef, std::vector<RelocationRef>> Ret;
+  for (const SectionRef &Section : ToolSectionFilter(Obj)) {
+    section_iterator RelSec = Section.getRelocatedSection();
+    if (RelSec == Obj.section_end())
+      continue;
+    std::vector<RelocationRef> &V = Ret[*RelSec];
+    for (const RelocationRef &R : Section.relocations())
+      V.push_back(R);
+    // Sort relocations by address.
+    llvm::sort(V, isRelocAddressLess);
   }
+  return Ret;
+}
+
+// Used for --adjust-vma to check if address should be adjusted by the
+// specified value for a given section.
+// For ELF we do not adjust non-allocatable sections like debug ones,
+// because they are not loadable.
+// TODO: implement for other file formats.
+static bool shouldAdjustVA(const SectionRef &Section) {
+  const ObjectFile *Obj = Section.getObject();
+  if (isa<object::ELFObjectFileBase>(Obj))
+    return ELFSectionRef(Section).getFlags() & ELF::SHF_ALLOC;
+  return false;
+}
+
+static void disassembleObject(const Target *TheTarget, const ObjectFile *Obj,
+                              MCContext &Ctx, MCDisassembler *DisAsm,
+                              const MCInstrAnalysis *MIA, MCInstPrinter *IP,
+                              const MCSubtargetInfo *STI, PrettyPrinter &PIP,
+                              SourcePrinter &SP, bool InlineRelocs) {
+  std::map<SectionRef, std::vector<RelocationRef>> RelocMap;
+  if (InlineRelocs)
+    RelocMap = getRelocsMap(*Obj);
 
   // Create a mapping from virtual address to symbol name.  This is used to
   // pretty print the symbols while disassembling.
@@ -1381,8 +954,11 @@ static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
       report_error(Obj->getFileName(), SectionOrErr.takeError());
 
     uint8_t SymbolType = ELF::STT_NOTYPE;
-    if (Obj->isELF())
+    if (Obj->isELF()) {
       SymbolType = getElfSymbolType(Obj, Symbol);
+      if (SymbolType == ELF::STT_SECTION)
+        continue;
+    }
 
     section_iterator SecI = *SectionOrErr;
     if (SecI != Obj->section_end())
@@ -1483,19 +1059,6 @@ static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
       }
     }
 
-    // Make a list of all the relocations for this section.
-    std::vector<RelocationRef> Rels;
-    if (InlineRelocs) {
-      for (const SectionRef &RelocSec : SectionRelocMap[Section]) {
-        for (const RelocationRef &Reloc : RelocSec.relocations()) {
-          Rels.push_back(Reloc);
-        }
-      }
-    }
-
-    // Sort relocations by address.
-    llvm::sort(Rels, isRelocAddressLess);
-
     StringRef SegmentName = "";
     if (const MachOObjectFile *MachO = dyn_cast<const MachOObjectFile>(Obj)) {
       DataRefImpl DR = Section.getRawDataRefImpl();
@@ -1520,10 +1083,14 @@ static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
     ArrayRef<uint8_t> Bytes(reinterpret_cast<const uint8_t *>(BytesStr.data()),
                             BytesStr.size());
 
+    uint64_t VMAAdjustment = 0;
+    if (shouldAdjustVA(Section))
+      VMAAdjustment = AdjustVMA;
+
     uint64_t Size;
     uint64_t Index;
     bool PrintedSection = false;
-
+    std::vector<RelocationRef> Rels = RelocMap[Section];
     std::vector<RelocationRef>::const_iterator RelCur = Rels.begin();
     std::vector<RelocationRef>::const_iterator RelEnd = Rels.end();
     // Disassemble symbol by symbol.
@@ -1584,7 +1151,8 @@ static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
 
       outs() << '\n';
       if (!NoLeadingAddr)
-        outs() << format("%016" PRIx64 " ", SectionAddr + Start);
+        outs() << format("%016" PRIx64 " ",
+                         SectionAddr + Start + VMAAdjustment);
 
       StringRef SymbolName = std::get<1>(Symbols[SI]);
       if (Demangle)
@@ -1713,7 +1281,7 @@ static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
               // Indent the space for less than 8 bytes data.
               // 2 spaces for byte and one for space between bytes
               IndentOffset = 3 * (8 - NumBytes);
-              for (int Excess = 8 - NumBytes; Excess < 8; Excess++)
+              for (int Excess = NumBytes; Excess < 8; Excess++)
                 AsciiData[Excess] = '\0';
               NumBytes = 8;
             }
@@ -1729,12 +1297,22 @@ static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
         if (Index >= End)
           break;
 
-        if (size_t N =
-                countSkippableZeroBytes(Bytes.slice(Index, End - Index))) {
-          outs() << "\t\t..." << '\n';
-          Index += N;
-          if (Index >= End)
-            break;
+        // When -z or --disassemble-zeroes are given we always dissasemble them.
+        // Otherwise we might want to skip zero bytes we see.
+        if (!DisassembleZeroes) {
+          uint64_t MaxOffset = End - Index;
+          // For -reloc: print zero blocks patched by relocations, so that
+          // relocations can be shown in the dump.
+          if (RelCur != RelEnd)
+            MaxOffset = RelCur->getOffset() - Index;
+
+          if (size_t N =
+                  countSkippableZeroBytes(Bytes.slice(Index, MaxOffset))) {
+            outs() << "\t\t..." << '\n';
+            Index += N;
+            if (Index >= End)
+              break;
+          }
         }
 
         // Disassemble a real instruction or a data when disassemble all is
@@ -1745,9 +1323,9 @@ static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
         if (Size == 0)
           Size = 1;
 
-        PIP.printInst(*IP, Disassembled ? &Inst : nullptr,
-                      Bytes.slice(Index, Size), SectionAddr + Index, outs(), "",
-                      *STI, &SP, &Rels);
+        PIP.printInst(
+            *IP, Disassembled ? &Inst : nullptr, Bytes.slice(Index, Size),
+            SectionAddr + Index + VMAAdjustment, outs(), "", *STI, &SP, &Rels);
         outs() << CommentStream.str();
         Comments.clear();
 
@@ -1813,31 +1391,103 @@ static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
         outs() << "\n";
 
         // Hexagon does this in pretty printer
-        if (Obj->getArch() != Triple::hexagon)
+        if (Obj->getArch() != Triple::hexagon) {
           // Print relocation for instruction.
           while (RelCur != RelEnd) {
-            uint64_t Addr = RelCur->getOffset();
-            SmallString<16> Name;
-            SmallString<32> Val;
-
+            uint64_t Offset = RelCur->getOffset();
             // If this relocation is hidden, skip it.
-            if (getHidden(*RelCur) || ((SectionAddr + Addr) < StartAddress)) {
+            if (getHidden(*RelCur) || ((SectionAddr + Offset) < StartAddress)) {
               ++RelCur;
               continue;
             }
 
-            // Stop when rel_cur's address is past the current instruction.
-            if (Addr >= Index + Size)
+            // Stop when RelCur's offset is past the current instruction.
+            if (Offset >= Index + Size)
               break;
-            RelCur->getTypeName(Name);
-            error(getRelocationValueString(*RelCur, Val));
-            outs() << format(Fmt.data(), SectionAddr + Addr) << Name << "\t"
-                   << Val << "\n";
+
+            // When --adjust-vma is used, update the address printed.
+            if (RelCur->getSymbol() != Obj->symbol_end()) {
+              Expected<section_iterator> SymSI =
+                  RelCur->getSymbol()->getSection();
+              if (SymSI && *SymSI != Obj->section_end() &&
+                  (shouldAdjustVA(**SymSI)))
+                Offset += AdjustVMA;
+            }
+
+            printRelocation(*RelCur, SectionAddr + Offset,
+                            Obj->getBytesInAddress());
             ++RelCur;
           }
+        }
       }
     }
   }
+}
+
+static void disassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
+  if (StartAddress > StopAddress)
+    error("Start address should be less than stop address");
+
+  const Target *TheTarget = getTarget(Obj);
+
+  // Package up features to be passed to target/subtarget
+  SubtargetFeatures Features = Obj->getFeatures();
+  if (!MAttrs.empty())
+    for (unsigned I = 0; I != MAttrs.size(); ++I)
+      Features.AddFeature(MAttrs[I]);
+
+  std::unique_ptr<const MCRegisterInfo> MRI(
+      TheTarget->createMCRegInfo(TripleName));
+  if (!MRI)
+    report_error(Obj->getFileName(),
+                 "no register info for target " + TripleName);
+
+  // Set up disassembler.
+  std::unique_ptr<const MCAsmInfo> AsmInfo(
+      TheTarget->createMCAsmInfo(*MRI, TripleName));
+  if (!AsmInfo)
+    report_error(Obj->getFileName(),
+                 "no assembly info for target " + TripleName);
+  std::unique_ptr<const MCSubtargetInfo> STI(
+      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
+  if (!STI)
+    report_error(Obj->getFileName(),
+                 "no subtarget info for target " + TripleName);
+  std::unique_ptr<const MCInstrInfo> MII(TheTarget->createMCInstrInfo());
+  if (!MII)
+    report_error(Obj->getFileName(),
+                 "no instruction info for target " + TripleName);
+  MCObjectFileInfo MOFI;
+  MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
+  // FIXME: for now initialize MCObjectFileInfo with default values
+  MOFI.InitMCObjectFileInfo(Triple(TripleName), false, Ctx);
+
+  std::unique_ptr<MCDisassembler> DisAsm(
+      TheTarget->createMCDisassembler(*STI, Ctx));
+  if (!DisAsm)
+    report_error(Obj->getFileName(),
+                 "no disassembler for target " + TripleName);
+
+  std::unique_ptr<const MCInstrAnalysis> MIA(
+      TheTarget->createMCInstrAnalysis(MII.get()));
+
+  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
+  std::unique_ptr<MCInstPrinter> IP(TheTarget->createMCInstPrinter(
+      Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
+  if (!IP)
+    report_error(Obj->getFileName(),
+                 "no instruction printer for target " + TripleName);
+  IP->setPrintImmHex(PrintImmHex);
+
+  PrettyPrinter &PIP = selectPrettyPrinter(Triple(TripleName));
+  SourcePrinter SP(Obj, TheTarget->getName());
+
+  for (StringRef Opt : DisassemblerOptions)
+    if (!IP->applyTargetSpecificCLOption(Opt))
+      error("Unrecognized disassembler option: " + Opt);
+
+  disassembleObject(TheTarget, Obj, Ctx, DisAsm.get(), MIA.get(), IP.get(),
+                    STI.get(), PIP, SP, InlineRelocs);
 }
 
 void llvm::printRelocations(const ObjectFile *Obj) {
@@ -1901,22 +1551,51 @@ void llvm::printDynamicRelocations(const ObjectFile *Obj) {
   }
 }
 
+// Returns true if we need to show LMA column when dumping section headers. We
+// show it only when the platform is ELF and either we have at least one section
+// whose VMA and LMA are different and/or when --show-lma flag is used.
+static bool shouldDisplayLMA(const ObjectFile *Obj) {
+  if (!Obj->isELF())
+    return false;
+  for (const SectionRef &S : ToolSectionFilter(*Obj))
+    if (S.getAddress() != getELFSectionLMA(S))
+      return true;
+  return ShowLMA;
+}
+
 void llvm::printSectionHeaders(const ObjectFile *Obj) {
-  outs() << "Sections:\n"
-            "Idx Name          Size      Address          Type\n";
+  bool HasLMAColumn = shouldDisplayLMA(Obj);
+  if (HasLMAColumn)
+    outs() << "Sections:\n"
+              "Idx Name          Size     VMA              LMA              "
+              "Type\n";
+  else
+    outs() << "Sections:\n"
+              "Idx Name          Size     VMA          Type\n";
+
   for (const SectionRef &Section : ToolSectionFilter(*Obj)) {
     StringRef Name;
     error(Section.getName(Name));
-    uint64_t Address = Section.getAddress();
+    uint64_t VMA = Section.getAddress();
+    if (shouldAdjustVA(Section))
+      VMA += AdjustVMA;
+
     uint64_t Size = Section.getSize();
     bool Text = Section.isText();
     bool Data = Section.isData();
     bool BSS = Section.isBSS();
     std::string Type = (std::string(Text ? "TEXT " : "") +
                         (Data ? "DATA " : "") + (BSS ? "BSS" : ""));
-    outs() << format("%3d %-13s %08" PRIx64 " %016" PRIx64 " %s\n",
-                     (unsigned)Section.getIndex(), Name.str().c_str(), Size,
-                     Address, Type.c_str());
+
+    if (HasLMAColumn)
+      outs() << format("%3d %-13s %08" PRIx64 " %016" PRIx64 " %016" PRIx64
+                       " %s\n",
+                       (unsigned)Section.getIndex(), Name.str().c_str(), Size,
+                       VMA, getELFSectionLMA(Section), Type.c_str());
+    else
+      outs() << format("%3d %-13s %08" PRIx64 " %016" PRIx64 " %s\n",
+                       (unsigned)Section.getIndex(), Name.str().c_str(), Size,
+                       VMA, Type.c_str());
   }
   outs() << "\n";
 }
@@ -2221,7 +1900,9 @@ static void printFaultMaps(const ObjectFile *Obj) {
 static void printPrivateFileHeaders(const ObjectFile *O, bool OnlyFirst) {
   if (O->isELF()) {
     printELFFileHeader(O);
-    return printELFDynamicSection(O);
+    printELFDynamicSection(O);
+    printELFSymbolVersionInfo(O);
+    return;
   }
   if (O->isCOFF())
     return printCOFFFileHeader(O);
@@ -2456,8 +2137,8 @@ int main(int argc, char **argv) {
     InputFilenames.push_back("a.out");
 
   if (AllHeaders)
-    FileHeaders = PrivateHeaders = Relocations = SectionHeaders = SymbolTable =
-        true;
+    ArchiveHeaders = FileHeaders = PrivateHeaders = Relocations =
+        SectionHeaders = SymbolTable = true;
 
   if (DisassembleAll || PrintSource || PrintLines)
     Disassemble = true;

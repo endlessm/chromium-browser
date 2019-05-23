@@ -23,8 +23,6 @@ class RenderPipelineValidationTest : public ValidationTest {
         void SetUp() override {
             ValidationTest::SetUp();
 
-            renderpass = CreateSimpleRenderPass();
-
             vsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Vertex, R"(
                 #version 450
                 void main() {
@@ -40,7 +38,6 @@ class RenderPipelineValidationTest : public ValidationTest {
                 })");
         }
 
-        dawn::RenderPassDescriptor renderpass;
         dawn::ShaderModule vsModule;
         dawn::ShaderModule fsModule;
 };
@@ -54,35 +51,23 @@ TEST_F(RenderPipelineValidationTest, CreationSuccess) {
     device.CreateRenderPipeline(&descriptor);
 }
 
-TEST_F(RenderPipelineValidationTest, BlendState) {
-
+TEST_F(RenderPipelineValidationTest, ColorState) {
     {
         // This one succeeds because attachment 0 is the color attachment
         utils::ComboRenderPipelineDescriptor descriptor(device);
         descriptor.cVertexStage.module = vsModule;
         descriptor.cFragmentStage.module = fsModule;
-        descriptor.numBlendStates = 1;
+        descriptor.colorStateCount = 1;
 
         device.CreateRenderPipeline(&descriptor);
     }
 
-    {   // Fail because lack of blend states for color attachments
+    {  // Fail because lack of color states (and depth/stencil state)
         utils::ComboRenderPipelineDescriptor descriptor(device);
         descriptor.cVertexStage.module = vsModule;
         descriptor.cFragmentStage.module = fsModule;
-        descriptor.numBlendStates = 0;
-
-        ASSERT_DEVICE_ERROR(device.CreateRenderPipeline(&descriptor));
-    }
-
-    {
-        // Fail because set blend states for empty color attachments
-        utils::ComboRenderPipelineDescriptor descriptor(device);
-        descriptor.cVertexStage.module = vsModule;
-        descriptor.cFragmentStage.module = fsModule;
-        descriptor.numBlendStates = 2;
+        descriptor.colorStateCount = 0;
 
         ASSERT_DEVICE_ERROR(device.CreateRenderPipeline(&descriptor));
     }
 }
-

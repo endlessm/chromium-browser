@@ -18,6 +18,7 @@ import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.toolbar.IncognitoStateProvider.IncognitoStateObserver;
 import org.chromium.chrome.browser.util.AccessibilityUtil;
+import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.widget.ChromeImageButton;
 
@@ -39,8 +40,9 @@ public class NewTabButton
 
         mIsIncognito = false;
         mLightModeTint =
-                AppCompatResources.getColorStateList(getContext(), R.color.light_mode_tint);
-        mDarkModeTint = AppCompatResources.getColorStateList(getContext(), R.color.dark_mode_tint);
+                AppCompatResources.getColorStateList(getContext(), R.color.tint_on_dark_bg);
+        mDarkModeTint =
+                AppCompatResources.getColorStateList(getContext(), R.color.standard_mode_tint);
         setImageDrawable(VectorDrawableCompat.create(
                 getContext().getResources(), R.drawable.new_tab_icon, getContext().getTheme()));
         updateDrawableTint();
@@ -93,7 +95,9 @@ public class NewTabButton
                 DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())
                 || ((DeviceClassManager.enableAccessibilityLayout()
                             || ChromeFeatureList.isEnabled(
-                                    ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID))
+                                    ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID)
+                            || FeatureUtilities.isTabGroupsAndroidEnabled()
+                            || FeatureUtilities.isGridTabSwitcherEnabled())
                         && mIsIncognito);
         ApiCompatibilityUtils.setImageTintList(
                 this, shouldUseLightMode ? mLightModeTint : mDarkModeTint);

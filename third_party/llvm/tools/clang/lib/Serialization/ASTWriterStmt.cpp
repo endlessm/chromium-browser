@@ -1,9 +1,8 @@
 //===--- ASTWriterStmt.cpp - Statement and Expression Serialization -------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -969,18 +968,24 @@ void ASTStmtWriter::VisitBlockExpr(BlockExpr *E) {
 
 void ASTStmtWriter::VisitGenericSelectionExpr(GenericSelectionExpr *E) {
   VisitExpr(E);
+
   Record.push_back(E->getNumAssocs());
-
-  Record.AddStmt(E->getControllingExpr());
-  for (unsigned I = 0, N = E->getNumAssocs(); I != N; ++I) {
-    Record.AddTypeSourceInfo(E->getAssocTypeSourceInfo(I));
-    Record.AddStmt(E->getAssocExpr(I));
-  }
-  Record.push_back(E->isResultDependent() ? -1U : E->getResultIndex());
-
+  Record.push_back(E->ResultIndex);
   Record.AddSourceLocation(E->getGenericLoc());
   Record.AddSourceLocation(E->getDefaultLoc());
   Record.AddSourceLocation(E->getRParenLoc());
+
+  Stmt **Stmts = E->getTrailingObjects<Stmt *>();
+  // Add 1 to account for the controlling expression which is the first
+  // expression in the trailing array of Stmt *. This is not needed for
+  // the trailing array of TypeSourceInfo *.
+  for (unsigned I = 0, N = E->getNumAssocs() + 1; I < N; ++I)
+    Record.AddStmt(Stmts[I]);
+
+  TypeSourceInfo **TSIs = E->getTrailingObjects<TypeSourceInfo *>();
+  for (unsigned I = 0, N = E->getNumAssocs(); I < N; ++I)
+    Record.AddTypeSourceInfo(TSIs[I]);
+
   Code = serialization::EXPR_GENERIC_SELECTION;
 }
 

@@ -23,7 +23,6 @@ ROWS_QUERY_LIMIT = 20000
 
 COLUMNS_REQUIRING_ROWS = {'timestamp', 'revisions', 'annotations'}.union(
     descriptor.STATISTICS)
-CACHE_SECONDS = 60 * 60 * 24 * 7
 
 
 class Timeseries2Handler(api_request_handler.ApiRequestHandler):
@@ -53,8 +52,6 @@ class Timeseries2Handler(api_request_handler.ApiRequestHandler):
     except AssertionError:
       # The caller has requested internal-only data but is not authorized.
       raise api_request_handler.NotFoundError
-    self.response.headers['Cache-Control'] = '%s, max-age=%d' % (
-        'private' if query.private else 'public', CACHE_SECONDS)
     return result
 
 
@@ -297,7 +294,7 @@ class TimeseriesQuery(object):
         self._private = True
       datum = self._Datum(alert.end_revision)
       # TODO(benjhayden) bisect_status
-      datum['alert'] = alerts.GetAnomalyDict(alert)
+      datum['alert'] = alerts.AnomalyDicts([alert], v2=True)[0]
 
   @ndb.tasklet
   def _FetchHistograms(self):

@@ -1,23 +1,4 @@
-// The increased timeout is especially needed with larger binaries
-// like in the debug/gpu build
-jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000;
-
 describe('CanvasKit\'s Path Behavior', function() {
-    // Note, don't try to print the CanvasKit object - it can cause Karma/Jasmine to lock up.
-    var CanvasKit = null;
-    const LoadCanvasKit = new Promise(function(resolve, reject) {
-        if (CanvasKit) {
-            resolve();
-        } else {
-            CanvasKitInit({
-                locateFile: (file) => '/canvaskit/'+file,
-            }).ready().then((_CanvasKit) => {
-                CanvasKit = _CanvasKit;
-                resolve();
-            });
-        }
-    });
-
     let container = document.createElement('div');
     document.body.appendChild(container);
     const CANVAS_WIDTH = 600;
@@ -32,22 +13,6 @@ describe('CanvasKit\'s Path Behavior', function() {
     afterEach(function() {
         container.innerHTML = '';
     });
-
-    function reportSurface(surface, testname, done) {
-        // In docker, the webgl canvas is blank, but the surface has the pixel
-        // data. So, we copy it out and draw it to a normal canvas to take a picture.
-        // To be consistent across CPU and GPU, we just do it for all configurations
-        // (even though the CPU canvas shows up after flush just fine).
-        let pixels = surface.getCanvas().readPixels(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        pixels = new Uint8ClampedArray(pixels.buffer);
-        var imageData = new ImageData(pixels, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-        let reportingCanvas =  document.getElementById('report');
-        reportingCanvas.getContext('2d').putImageData(imageData, 0, 0);
-        reportCanvas(reportingCanvas, testname).then(() => {
-            done();
-        }).catch(reportError(done));
-    }
 
     it('can draw a path', function(done) {
         LoadCanvasKit.then(catchException(done, () => {
@@ -134,7 +99,7 @@ describe('CanvasKit\'s Path Behavior', function() {
             canvas.drawArc(CanvasKit.LTRBRect(55, 35, 95, 80), 15, 270, true, paint);
 
             const font = new CanvasKit.SkFont(null, 20);
-            canvas.drawText('this is ascii text', 5, 100, font, paint);
+            canvas.drawText('this is ascii text', 5, 100, paint, font);
 
             const blob = CanvasKit.SkTextBlob.MakeFromText('Unicode chars 💩 é É ص', font);
             canvas.drawTextBlob(blob, 5, 130, paint);
@@ -189,7 +154,7 @@ describe('CanvasKit\'s Path Behavior', function() {
             canvas.clear(CanvasKit.Color(255, 255, 255, 1.0));
 
             canvas.drawPath(path, paint);
-            canvas.drawText('This is text', 10, 280, textFont, textPaint);
+            canvas.drawText('This is text', 10, 280, textPaint, textFont);
             surface.flush();
             dpe.delete();
             path.delete();

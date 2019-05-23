@@ -435,12 +435,6 @@ class FakeCIDBConnection(object):
     """
     return self.buildStageTable.get(build_stage_id)
 
-  def GetBuildStages(self, build_id):
-    """Gets build stages given the build_id"""
-    return [self.buildStageTable[_id]
-            for _id in self.buildStageTable
-            if self.buildStageTable[_id]['build_id'] == build_id]
-
   def GetBuildsStages(self, build_ids):
     """Quick implementation of fake GetBuildsStages."""
     build_stages = []
@@ -455,10 +449,26 @@ class FakeCIDBConnection(object):
 
     return build_stages
 
+  def GetBuildsStagesWithBuildbucketIds(self, buildbucket_ids):
+    """Quick implementation of fake GetBuildsStagesWithBuildbucketIds."""
+    build_stages = []
+    build_statuses = {b['id']: b for b in self.buildTable
+                      if b['buildbucket_id'] in buildbucket_ids}
+    for _id in self.buildStageTable:
+      build_id = self.buildStageTable[_id]['build_id']
+      if build_id in build_statuses:
+        stage = self.buildStageTable[_id].copy()
+        stage['build_config'] = build_statuses[build_id]['build_config']
+        build_stages.append(stage)
+
+    return build_stages
+
+  #pylint: disable=unused-argument
   def GetBuildHistory(self, build_config, num_results,
                       ignore_build_id=None, start_date=None, end_date=None,
-                      milestone_version=None, platform_version=None,
-                      starting_build_id=None, final=False, reverse=False):
+                      branch=None, milestone_version=None,
+                      platform_version=None, starting_build_id=None,
+                      ending_build_id=None, final=False, reverse=False):
     """Returns the build history for the given |build_config|."""
     return self.GetBuildsHistory(
         build_configs=[build_config], num_results=num_results,

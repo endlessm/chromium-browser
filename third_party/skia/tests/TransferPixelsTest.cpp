@@ -58,19 +58,19 @@ bool does_full_buffer_contain_correct_values(GrColor* srcBuffer,
 
 void basic_transfer_test(skiatest::Reporter* reporter, GrContext* context, GrColorType colorType,
                          bool renderTarget) {
-    if (GrCaps::kNone_MapFlags == context->contextPriv().caps()->mapBufferFlags()) {
+    if (GrCaps::kNone_MapFlags == context->priv().caps()->mapBufferFlags()) {
         return;
     }
 
-    auto resourceProvider = context->contextPriv().resourceProvider();
-    GrGpu* gpu = context->contextPriv().getGpu();
+    auto resourceProvider = context->priv().resourceProvider();
+    GrGpu* gpu = context->priv().getGpu();
 
     // set up the data
     const int kTextureWidth = 16;
     const int kTextureHeight = 16;
 #ifdef SK_BUILD_FOR_IOS
     // UNPACK_ROW_LENGTH is broken on iOS so rowBytes needs to match data width
-    const int kBufferWidth = GrBackendApi::kOpenGL == context->contextPriv().getBackend() ? 16 : 20;
+    const int kBufferWidth = GrBackendApi::kOpenGL == context->backend() ? 16 : 20;
 #else
     const int kBufferWidth = 20;
 #endif
@@ -83,11 +83,8 @@ void basic_transfer_test(skiatest::Reporter* reporter, GrContext* context, GrCol
 
     // create and fill transfer buffer
     size_t size = rowBytes*kBufferHeight;
-    auto bufferFlags = GrResourceProvider::Flags::kNoPendingIO;
-    sk_sp<GrBuffer> buffer(resourceProvider->createBuffer(size,
-                                                          kXferCpuToGpu_GrBufferType,
-                                                          kDynamic_GrAccessPattern,
-                                                          bufferFlags));
+    sk_sp<GrGpuBuffer> buffer(resourceProvider->createBuffer(size, GrGpuBufferType::kXferCpuToGpu,
+                                                             kDynamic_GrAccessPattern));
     if (!buffer) {
         return;
     }
@@ -110,8 +107,8 @@ void basic_transfer_test(skiatest::Reporter* reporter, GrContext* context, GrCol
             continue;
         }
 
-        if (!context->contextPriv().caps()->isConfigTexturable(desc.fConfig) ||
-            (renderTarget && !context->contextPriv().caps()->isConfigRenderable(desc.fConfig))) {
+        if (!context->priv().caps()->isConfigTexturable(desc.fConfig) ||
+            (renderTarget && !context->priv().caps()->isConfigRenderable(desc.fConfig))) {
             continue;
         }
 
@@ -144,7 +141,7 @@ void basic_transfer_test(skiatest::Reporter* reporter, GrContext* context, GrCol
         // transfer partial data
 #ifdef SK_BUILD_FOR_IOS
         // UNPACK_ROW_LENGTH is broken on iOS so we can't do partial transfers
-        if (GrBackendApi::kOpenGL == context->contextPriv().getBackend()) {
+        if (GrBackendApi::kOpenGL == context->backend()) {
             continue;
         }
 #endif

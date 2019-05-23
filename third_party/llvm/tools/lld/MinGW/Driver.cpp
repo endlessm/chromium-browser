@@ -1,9 +1,8 @@
 //===- MinGW/Driver.cpp ---------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -177,6 +176,8 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
     Add("-dll");
   if (Args.hasArg(OPT_verbose))
     Add("-verbose");
+  if (Args.hasArg(OPT_exclude_all_symbols))
+    Add("-exclude-all-symbols");
   if (Args.hasArg(OPT_export_all_symbols))
     Add("-export-all-symbols");
   if (Args.hasArg(OPT_large_address_aware))
@@ -187,6 +188,9 @@ bool mingw::link(ArrayRef<const char *> ArgsArr, raw_ostream &Diag) {
   if (Args.getLastArgValue(OPT_m) != "thumb2pe" &&
       Args.getLastArgValue(OPT_m) != "arm64pe" && !Args.hasArg(OPT_dynamicbase))
     Add("-dynamicbase:no");
+
+  if (Args.hasFlag(OPT_no_insert_timestamp, OPT_insert_timestamp, false))
+    Add("-timestamp:0");
 
   if (Args.hasFlag(OPT_gc_sections, OPT_no_gc_sections, false))
     Add("-opt:ref");

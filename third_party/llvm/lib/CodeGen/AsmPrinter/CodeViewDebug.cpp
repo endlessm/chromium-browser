@@ -1,9 +1,8 @@
 //===- llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.cpp ----------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -364,8 +363,8 @@ TypeIndex CodeViewDebug::getFuncIdForSubprogram(const DISubprogram *SP) {
   return recordTypeIndexForDINode(SP, TI);
 }
 
-static bool isTrivial(const DICompositeType *DCTy) {
-  return ((DCTy->getFlags() & DINode::FlagTrivial) == DINode::FlagTrivial);
+static bool isNonTrivial(const DICompositeType *DCTy) {
+  return ((DCTy->getFlags() & DINode::FlagNonTrivial) == DINode::FlagNonTrivial);
 }
 
 static FunctionOptions
@@ -380,12 +379,12 @@ getFunctionOptions(const DISubroutineType *Ty,
   }
 
   if (auto *ReturnDCTy = dyn_cast_or_null<DICompositeType>(ReturnTy)) {
-    if (!isTrivial(ReturnDCTy))
+    if (isNonTrivial(ReturnDCTy))
       FO |= FunctionOptions::CxxReturnUdt;
   }
 
   // DISubroutineType is unnamed. Use DISubprogram's i.e. SPName in comparison.
-  if (ClassTy && !isTrivial(ClassTy) && SPName == ClassTy->getName()) {
+  if (ClassTy && isNonTrivial(ClassTy) && SPName == ClassTy->getName()) {
     FO |= FunctionOptions::Constructor;
 
   // TODO: put the FunctionOptions::ConstructorWithVirtualBases flag.
@@ -1836,7 +1835,10 @@ TypeIndex CodeViewDebug::lowerTypeMemberFunction(const DISubroutineType *Ty,
 
   unsigned Index = 0;
   SmallVector<TypeIndex, 8> ArgTypeIndices;
-  TypeIndex ReturnTypeIndex = getTypeIndex(ReturnAndArgs[Index++]);
+  TypeIndex ReturnTypeIndex = TypeIndex::Void();
+  if (ReturnAndArgs.size() > Index) {
+    ReturnTypeIndex = getTypeIndex(ReturnAndArgs[Index++]);
+  }
 
   // If the first argument is a pointer type and this isn't a static method,
   // treat it as the special 'this' parameter, which is encoded separately from
@@ -2183,6 +2185,14 @@ TypeIndex CodeViewDebug::lowerCompleteTypeClass(const DICompositeType *Ty) {
 
   if (ContainsNestedClass)
     CO |= ClassOptions::ContainsNestedClass;
+
+  // MSVC appears to set this flag by searching any destructor or method with
+  // FunctionOptions::Constructor among the emitted members. Clang AST has all
+  // the members, however special member functions are not yet emitted into 
+  // debug information. For now checking a class's non-triviality seems enough.
+  // FIXME: not true for a nested unnamed struct.
+  if (isNonTrivial(Ty))
+    CO |= ClassOptions::HasConstructorOrDestructor;
 
   std::string FullName = getFullyQualifiedName(Ty);
 

@@ -78,10 +78,10 @@ class CopyTests_T2B : public CopyTests {
             descriptor.size.width = textureSpec.width;
             descriptor.size.height = textureSpec.height;
             descriptor.size.depth = 1;
-            descriptor.arraySize = textureSpec.arraySize;
+            descriptor.arrayLayerCount = textureSpec.arraySize;
             descriptor.sampleCount = 1;
             descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
-            descriptor.levelCount = textureSpec.level + 1;
+            descriptor.mipLevelCount = textureSpec.level + 1;
             descriptor.usage = dawn::TextureUsageBit::TransferDst | dawn::TextureUsageBit::TransferSrc;
             dawn::Texture texture = device.CreateTexture(&descriptor);
 
@@ -91,7 +91,7 @@ class CopyTests_T2B : public CopyTests {
             uint32_t texelsPerRow = rowPitch / kBytesPerTexel;
             uint32_t texelCountPerLayer = texelsPerRow * (height - 1) + width;
 
-            dawn::CommandBufferBuilder cmdBuilder = device.CreateCommandBufferBuilder();
+            dawn::CommandEncoder encoder = device.CreateCommandEncoder();
 
             std::vector<std::vector<RGBA8>> textureArrayData(textureSpec.arraySize);
             for (uint32_t slice = 0; slice < textureSpec.arraySize; ++slice) {
@@ -106,7 +106,7 @@ class CopyTests_T2B : public CopyTests {
                 dawn::TextureCopyView textureCopyView =
                     utils::CreateTextureCopyView(texture, textureSpec.level, slice, {0, 0, 0});
                 dawn::Extent3D copySize = {width, height, 1};
-                cmdBuilder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
+                encoder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
             }
 
             // Create a buffer of size `size * textureSpec.arrayLayer` and populate it with empty data (0,0,0,0)
@@ -127,11 +127,11 @@ class CopyTests_T2B : public CopyTests {
                 dawn::BufferCopyView bufferCopyView =
                     utils::CreateBufferCopyView(buffer, bufferOffset, bufferSpec.rowPitch, 0);
                 dawn::Extent3D copySize = {textureSpec.copyWidth, textureSpec.copyHeight, 1};
-                cmdBuilder.CopyTextureToBuffer(&textureCopyView, &bufferCopyView, &copySize);
+                encoder.CopyTextureToBuffer(&textureCopyView, &bufferCopyView, &copySize);
                 bufferOffset += bufferSpec.size;
             }
 
-            dawn::CommandBuffer commands = cmdBuilder.GetResult();
+            dawn::CommandBuffer commands = encoder.Finish();
             queue.Submit(1, &commands);
 
             bufferOffset = bufferSpec.offset;
@@ -188,14 +188,14 @@ protected:
         descriptor.size.width = textureSpec.width;
         descriptor.size.height = textureSpec.height;
         descriptor.size.depth = 1;
-        descriptor.arraySize = 1;
+        descriptor.arrayLayerCount = 1;
         descriptor.sampleCount = 1;
         descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
-        descriptor.levelCount = textureSpec.level + 1;
+        descriptor.mipLevelCount = textureSpec.level + 1;
         descriptor.usage = dawn::TextureUsageBit::TransferDst | dawn::TextureUsageBit::TransferSrc;
         dawn::Texture texture = device.CreateTexture(&descriptor);
 
-        dawn::CommandBufferBuilder cmdBuilder = device.CreateCommandBufferBuilder();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
 
         // Create an upload buffer filled with empty data and use it to populate the `level` mip of the texture
         // Note: Prepopulating the texture with empty data ensures that there is not random data in the expectation
@@ -214,7 +214,7 @@ protected:
             dawn::TextureCopyView textureCopyView =
                 utils::CreateTextureCopyView(texture, textureSpec.level, 0, {0, 0, 0});
             dawn::Extent3D copySize = {width, height, 1};
-            cmdBuilder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
+            encoder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
         }
 
         // Copy to the region [(`x`, `y`), (`x + copyWidth, `y + copyWidth`)] at the `level` mip from the buffer at the specified `offset` and `rowPitch`
@@ -224,10 +224,10 @@ protected:
             dawn::TextureCopyView textureCopyView = utils::CreateTextureCopyView(
                 texture, textureSpec.level, 0, {textureSpec.x, textureSpec.y, 0});
             dawn::Extent3D copySize = {textureSpec.copyWidth, textureSpec.copyHeight, 1};
-            cmdBuilder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
+            encoder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
         }
 
-        dawn::CommandBuffer commands = cmdBuilder.GetResult();
+        dawn::CommandBuffer commands = encoder.Finish();
         queue.Submit(1, &commands);
 
         // Pack the data used to create the buffer in the specified copy region to have the same format as the expected texture data.
@@ -396,6 +396,9 @@ TEST_P(CopyTests_T2B, Texture2DArrayRegion) {
 
 // Test that copying texture 2D array mips with 256-byte aligned sizes works
 TEST_P(CopyTests_T2B, Texture2DArrayMip) {
+    // TODO(bryan.bernhart@intel.com): Figure out why this test fails on Intel Linux.
+    // See https://bugs.chromium.org/p/dawn/issues/detail?id=101
+    DAWN_SKIP_TEST_IF(IsLinux() && IsVulkan() && IsIntel());
     constexpr uint32_t kWidth = 256;
     constexpr uint32_t kHeight = 128;
     constexpr uint32_t kLayers = 6u;
@@ -404,7 +407,7 @@ TEST_P(CopyTests_T2B, Texture2DArrayMip) {
     }
 }
 
-DAWN_INSTANTIATE_TEST(CopyTests_T2B, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend)
+DAWN_INSTANTIATE_TEST(CopyTests_T2B, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);
 
 // Test that copying an entire texture with 256-byte aligned dimensions works
 TEST_P(CopyTests_B2T, FullTextureAligned) {
@@ -547,4 +550,4 @@ TEST_P(CopyTests_B2T, RowPitchUnaligned) {
     }
 }
 
-DAWN_INSTANTIATE_TEST(CopyTests_B2T, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend)
+DAWN_INSTANTIATE_TEST(CopyTests_B2T, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);

@@ -24,13 +24,13 @@ class BindGroupTests : public DawnTest {
 protected:
     dawn::CommandBuffer CreateSimpleComputeCommandBuffer(
             const dawn::ComputePipeline& pipeline, const dawn::BindGroup& bindGroup) {
-        dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
-        dawn::ComputePassEncoder pass = builder.BeginComputePass();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::ComputePassEncoder pass = encoder.BeginComputePass();
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, bindGroup);
         pass.Dispatch(1, 1, 1);
         pass.EndPass();
-        return builder.GetResult();
+        return encoder.Finish();
     }
 
     dawn::PipelineLayout MakeBasicPipelineLayout(
@@ -38,7 +38,7 @@ protected:
         std::vector<dawn::BindGroupLayout> bindingInitializer) const {
         dawn::PipelineLayoutDescriptor descriptor;
 
-        descriptor.numBindGroupLayouts = bindingInitializer.size();
+        descriptor.bindGroupLayoutCount = bindingInitializer.size();
         descriptor.bindGroupLayouts = bindingInitializer.data();
 
         return device.CreatePipelineLayout(&descriptor);
@@ -130,7 +130,7 @@ TEST_P(BindGroupTests, ReusedUBO) {
     textureDescriptor.layout = pipelineLayout;
     textureDescriptor.cVertexStage.module = vsModule;
     textureDescriptor.cFragmentStage.module = fsModule;
-    textureDescriptor.cColorAttachments[0]->format = renderPass.colorFormat;
+    textureDescriptor.cColorStates[0]->format = renderPass.colorFormat;
 
     dawn::RenderPipeline pipeline = device.CreateRenderPipeline(&textureDescriptor);
 
@@ -152,14 +152,14 @@ TEST_P(BindGroupTests, ReusedUBO) {
         {1, buffer, 256, sizeof(Data::color)}
     });
 
-    dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
-    dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+    dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
     pass.SetPipeline(pipeline);
     pass.SetBindGroup(0, bindGroup);
     pass.Draw(3, 1, 0, 0);
     pass.EndPass();
 
-    dawn::CommandBuffer commands = builder.GetResult();
+    dawn::CommandBuffer commands = encoder.Finish();
     queue.Submit(1, &commands);
 
     RGBA8 filled(0, 255, 0, 255);
@@ -215,7 +215,7 @@ TEST_P(BindGroupTests, UBOSamplerAndTexture) {
     pipelineDescriptor.layout = pipelineLayout;
     pipelineDescriptor.cVertexStage.module = vsModule;
     pipelineDescriptor.cFragmentStage.module = fsModule;
-    pipelineDescriptor.cColorAttachments[0]->format = renderPass.colorFormat;
+    pipelineDescriptor.cColorStates[0]->format = renderPass.colorFormat;
 
     dawn::RenderPipeline pipeline = device.CreateRenderPipeline(&pipelineDescriptor);
 
@@ -242,10 +242,10 @@ TEST_P(BindGroupTests, UBOSamplerAndTexture) {
     descriptor.size.width = kRTSize;
     descriptor.size.height = kRTSize;
     descriptor.size.depth = 1;
-    descriptor.arraySize = 1;
+    descriptor.arrayLayerCount = 1;
     descriptor.sampleCount = 1;
     descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
-    descriptor.levelCount = 1;
+    descriptor.mipLevelCount = 1;
     descriptor.usage = dawn::TextureUsageBit::TransferDst | dawn::TextureUsageBit::Sampled;
     dawn::Texture texture = device.CreateTexture(&descriptor);
     dawn::TextureView textureView = texture.CreateDefaultTextureView();
@@ -267,19 +267,19 @@ TEST_P(BindGroupTests, UBOSamplerAndTexture) {
         {2, textureView}
     });
 
-    dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     dawn::BufferCopyView bufferCopyView =
         utils::CreateBufferCopyView(stagingBuffer, 0, widthInBytes, 0);
     dawn::TextureCopyView textureCopyView = utils::CreateTextureCopyView(texture, 0, 0, {0, 0, 0});
     dawn::Extent3D copySize = {width, height, 1};
-    builder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
-    dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
+    encoder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
+    dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
     pass.SetPipeline(pipeline);
     pass.SetBindGroup(0, bindGroup);
     pass.Draw(3, 1, 0, 0);
     pass.EndPass();
 
-    dawn::CommandBuffer commands = builder.GetResult();
+    dawn::CommandBuffer commands = encoder.Finish();
     queue.Submit(1, &commands);
 
     RGBA8 filled(0, 255, 0, 255);
@@ -337,7 +337,7 @@ TEST_P(BindGroupTests, MultipleBindLayouts) {
     textureDescriptor.layout = pipelineLayout;
     textureDescriptor.cVertexStage.module = vsModule;
     textureDescriptor.cFragmentStage.module = fsModule;
-    textureDescriptor.cColorAttachments[0]->format = renderPass.colorFormat;
+    textureDescriptor.cColorStates[0]->format = renderPass.colorFormat;
 
     dawn::RenderPipeline pipeline = device.CreateRenderPipeline(&textureDescriptor);
 
@@ -367,15 +367,15 @@ TEST_P(BindGroupTests, MultipleBindLayouts) {
                                                    {1, buffers[i], 256, sizeof(Data::color)}}));
     }
 
-    dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
-    dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+    dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
     pass.SetPipeline(pipeline);
     pass.SetBindGroup(0, bindGroups[0]);
     pass.SetBindGroup(1, bindGroups[1]);
     pass.Draw(3, 1, 0, 0);
     pass.EndPass();
 
-    dawn::CommandBuffer commands = builder.GetResult();
+    dawn::CommandBuffer commands = encoder.Finish();
     queue.Submit(1, &commands);
 
     RGBA8 filled(255, 255, 0, 255);
@@ -431,11 +431,11 @@ TEST_P(BindGroupTests, DrawTwiceInSamePipelineWithFourBindGroupSets)
     pipelineDescriptor.layout = pipelineLayout;
     pipelineDescriptor.cVertexStage.module = vsModule;
     pipelineDescriptor.cFragmentStage.module = fsModule;
-    pipelineDescriptor.cColorAttachments[0]->format = renderPass.colorFormat;
+    pipelineDescriptor.cColorStates[0]->format = renderPass.colorFormat;
 
     dawn::RenderPipeline pipeline = device.CreateRenderPipeline(&pipelineDescriptor);
-    dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
-    dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+    dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
 
     pass.SetPipeline(pipeline);
 
@@ -455,7 +455,7 @@ TEST_P(BindGroupTests, DrawTwiceInSamePipelineWithFourBindGroupSets)
     pass.Draw(3, 1, 0, 0);
     pass.EndPass();
 
-    dawn::CommandBuffer commands = builder.GetResult();
+    dawn::CommandBuffer commands = encoder.Finish();
     queue.Submit(1, &commands);
 
     RGBA8 filled(255, 0, 0, 255);

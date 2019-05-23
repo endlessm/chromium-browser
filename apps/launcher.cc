@@ -8,6 +8,7 @@
 #include <set>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -159,8 +160,8 @@ class PlatformAppPathLauncher
         FROM_HERE,
         {base::TaskPriority::USER_VISIBLE, base::MayBlock(),
          base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
-        base::Bind(&PlatformAppPathLauncher::MakePathAbsolute, this,
-                   current_directory));
+        base::BindOnce(&PlatformAppPathLauncher::MakePathAbsolute, this,
+                       current_directory));
   }
 
  private:
@@ -183,7 +184,7 @@ class PlatformAppPathLauncher
 
     base::PostTaskWithTraits(
         FROM_HERE, {BrowserThread::UI},
-        base::Bind(&PlatformAppPathLauncher::Launch, this));
+        base::BindOnce(&PlatformAppPathLauncher::Launch, this));
   }
 
   void OnFilesValid(std::unique_ptr<std::set<base::FilePath>> directory_paths) {
@@ -267,11 +268,11 @@ class PlatformAppPathLauncher
         }
       }
     } else {
-      const std::vector<const extensions::FileHandlerInfo*>& handlers =
-          extensions::app_file_handler_util::FindFileHandlersForEntries(
+      const std::vector<extensions::FileHandlerMatch> handlers =
+          extensions::app_file_handler_util::FindFileHandlerMatchesForEntries(
               *app, entries_);
       if (!handlers.empty())
-        handler = handlers[0];
+        handler = handlers[0].handler;
     }
 
     // If this app doesn't have a file handler that supports the file, launch

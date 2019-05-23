@@ -1,9 +1,8 @@
 //===- TargetLoweringBase.cpp - Implement the TargetLoweringBase class ----===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -625,6 +624,7 @@ void TargetLoweringBase::initActions() {
     setOperationAction(ISD::SSUBSAT, VT, Expand);
     setOperationAction(ISD::USUBSAT, VT, Expand);
     setOperationAction(ISD::SMULFIX, VT, Expand);
+    setOperationAction(ISD::UMULFIX, VT, Expand);
 
     // Overflow operations default to expand
     setOperationAction(ISD::SADDO, VT, Expand);
@@ -1455,6 +1455,7 @@ int TargetLoweringBase::InstructionOpcodeToISD(unsigned Opcode) const {
   case Switch:         return 0;
   case IndirectBr:     return 0;
   case Invoke:         return 0;
+  case CallBr:         return 0;
   case Resume:         return 0;
   case Unreachable:    return 0;
   case CleanupRet:     return 0;
@@ -1588,8 +1589,8 @@ Value *TargetLoweringBase::getSafeStackPointerLocation(IRBuilder<> &IRB) const {
   // thread's unsafe stack pointer.
   Module *M = IRB.GetInsertBlock()->getParent()->getParent();
   Type *StackPtrTy = Type::getInt8PtrTy(M->getContext());
-  Value *Fn = M->getOrInsertFunction("__safestack_pointer_address",
-                                     StackPtrTy->getPointerTo(0));
+  FunctionCallee Fn = M->getOrInsertFunction("__safestack_pointer_address",
+                                             StackPtrTy->getPointerTo(0));
   return IRB.CreateCall(Fn);
 }
 
@@ -1664,7 +1665,7 @@ Value *TargetLoweringBase::getSDagStackGuard(const Module &M) const {
   return M.getNamedValue("__stack_chk_guard");
 }
 
-Value *TargetLoweringBase::getSSPStackGuardCheck(const Module &M) const {
+Function *TargetLoweringBase::getSSPStackGuardCheck(const Module &M) const {
   return nullptr;
 }
 

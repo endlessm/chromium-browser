@@ -1,9 +1,8 @@
 //===-- Value.cpp - Implement the Value class -----------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -58,7 +57,8 @@ Value::Value(Type *ty, unsigned scid)
   // FIXME: Why isn't this in the subclass gunk??
   // Note, we cannot call isa<CallInst> before the CallInst has been
   // constructed.
-  if (SubclassID == Instruction::Call || SubclassID == Instruction::Invoke)
+  if (SubclassID == Instruction::Call || SubclassID == Instruction::Invoke ||
+      SubclassID == Instruction::CallBr)
     assert((VTy->isFirstClassType() || VTy->isVoidTy() || VTy->isStructTy()) &&
            "invalid CallInst type!");
   else if (SubclassID != BasicBlockVal &&
@@ -931,7 +931,7 @@ void ValueHandleBase::ValueIsRAUWd(Value *Old, Value *New) {
                << Old->getName() << " to " << *New->getType() << " %"
                << New->getName() << "\n";
         llvm_unreachable(
-            "A weak tracking value handle still pointed to the  old value!\n");
+            "A weak tracking value handle still pointed to the old value!\n");
       default:
         break;
       }

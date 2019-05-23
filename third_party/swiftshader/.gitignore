@@ -1,10 +1,19 @@
 # Ignored folders #
+/cache/
 /lib/
 /obj/
 /bin/
 /out/
-/build/
 .vs
+CMakeFiles/
+
+# The /build/ directory is recommended for CMake build output and should be
+# ignored, except for Visual Studio project files that we check into the
+# repository and regenerate with build/cmake.sh
+!/build
+/build/*
+!/build/cmake.sh
+!/build/Visual Studio 15 2017 Win64/
 
 # Ignored files #
 *.obj
@@ -29,3 +38,4 @@
 *.opendb
 *.db
 *~
+CMakeCache.txt

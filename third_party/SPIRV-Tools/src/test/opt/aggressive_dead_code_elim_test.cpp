@@ -4254,7 +4254,7 @@ TEST_P(AggressiveEliminateDeadConstantTest, Custom) {
   SinglePassRunAndMatch<AggressiveDCEPass>(assembly_with_dead_const, false);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ScalarTypeConstants, AggressiveEliminateDeadConstantTest,
     ::testing::ValuesIn(std::vector<AggressiveEliminateDeadConstantTestCase>({
         // clang-format off
@@ -4346,7 +4346,7 @@ INSTANTIATE_TEST_CASE_P(
         // clang-format on
     })));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     VectorTypeConstants, AggressiveEliminateDeadConstantTest,
     ::testing::ValuesIn(std::vector<AggressiveEliminateDeadConstantTestCase>({
         // clang-format off
@@ -4473,7 +4473,7 @@ INSTANTIATE_TEST_CASE_P(
         // clang-format on
     })));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     StructTypeConstants, AggressiveEliminateDeadConstantTest,
     ::testing::ValuesIn(std::vector<AggressiveEliminateDeadConstantTestCase>({
         // clang-format off
@@ -4644,7 +4644,7 @@ INSTANTIATE_TEST_CASE_P(
         // clang-format on
     })));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ScalarTypeSpecConstants, AggressiveEliminateDeadConstantTest,
     ::testing::ValuesIn(std::vector<AggressiveEliminateDeadConstantTestCase>({
         // clang-format off
@@ -4697,7 +4697,7 @@ INSTANTIATE_TEST_CASE_P(
         // clang-format on
     })));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     VectorTypeSpecConstants, AggressiveEliminateDeadConstantTest,
     ::testing::ValuesIn(std::vector<AggressiveEliminateDeadConstantTestCase>({
         // clang-format off
@@ -4819,7 +4819,7 @@ INSTANTIATE_TEST_CASE_P(
         // clang-format on
     })));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     SpecConstantOp, AggressiveEliminateDeadConstantTest,
     ::testing::ValuesIn(std::vector<AggressiveEliminateDeadConstantTestCase>({
         // clang-format off
@@ -5001,7 +5001,7 @@ INSTANTIATE_TEST_CASE_P(
         // clang-format on
     })));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     LongDefUseChain, AggressiveEliminateDeadConstantTest,
     ::testing::ValuesIn(std::vector<AggressiveEliminateDeadConstantTestCase>({
         // clang-format off
@@ -5151,7 +5151,6 @@ OpFunctionEnd
 TEST_F(AggressiveDCETest, ParitallyDeadDecorationGroup) {
   const std::string text = R"(
 ; CHECK: OpDecorate [[grp:%\w+]] Restrict
-; CHECK: OpDecorate [[grp]] Aliased
 ; CHECK: [[grp]] = OpDecorationGroup
 ; CHECK: OpGroupDecorate [[grp]] [[output:%\w+]]
 ; CHECK: [[output]] = OpVariable {{%\w+}} Output
@@ -5161,7 +5160,6 @@ OpMemoryModel Logical GLSL450
 OpEntryPoint Fragment %main "main" %output
 OpExecutionMode %main OriginUpperLeft
 OpDecorate %1 Restrict
-OpDecorate %1 Aliased
 %1 = OpDecorationGroup
 OpGroupDecorate %1 %var %output
 %void = OpTypeVoid
@@ -5185,7 +5183,6 @@ OpFunctionEnd
 TEST_F(AggressiveDCETest, ParitallyDeadDecorationGroupDifferentGroupDecorate) {
   const std::string text = R"(
 ; CHECK: OpDecorate [[grp:%\w+]] Restrict
-; CHECK: OpDecorate [[grp]] Aliased
 ; CHECK: [[grp]] = OpDecorationGroup
 ; CHECK: OpGroupDecorate [[grp]] [[output:%\w+]]
 ; CHECK-NOT: OpGroupDecorate
@@ -5196,7 +5193,6 @@ OpMemoryModel Logical GLSL450
 OpEntryPoint Fragment %main "main" %output
 OpExecutionMode %main OriginUpperLeft
 OpDecorate %1 Restrict
-OpDecorate %1 Aliased
 %1 = OpDecorationGroup
 OpGroupDecorate %1 %output
 OpGroupDecorate %1 %var

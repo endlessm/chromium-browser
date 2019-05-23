@@ -41,10 +41,10 @@ class BindGroupValidationTest : public ValidationTest {
             dawn::TextureDescriptor descriptor;
             descriptor.dimension = dawn::TextureDimension::e2D;
             descriptor.size = {16, 16, 1};
-            descriptor.arraySize = 1;
+            descriptor.arrayLayerCount = 1;
             descriptor.sampleCount = 1;
             descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
-            descriptor.levelCount = 1;
+            descriptor.mipLevelCount = 1;
             descriptor.usage = dawn::TextureUsageBit::Sampled;
             mSampledTexture = device.CreateTexture(&descriptor);
             mSampledTextureView = mSampledTexture.CreateDefaultTextureView();
@@ -65,7 +65,7 @@ TEST_F(BindGroupValidationTest, NextInChainNullptr) {
 
     dawn::BindGroupDescriptor descriptor;
     descriptor.layout = layout;
-    descriptor.numBindings = 0;
+    descriptor.bindingCount = 0;
     descriptor.bindings = nullptr;
 
     // Control case: check that nextInChain = nullptr is valid
@@ -77,8 +77,8 @@ TEST_F(BindGroupValidationTest, NextInChainNullptr) {
     ASSERT_DEVICE_ERROR(device.CreateBindGroup(&descriptor));
 }
 
-// Check constraints on numBindings
-TEST_F(BindGroupValidationTest, NumBindingsMismatch) {
+// Check constraints on bindingCount
+TEST_F(BindGroupValidationTest, bindingCountMismatch) {
     dawn::BindGroupLayout layout = utils::MakeBindGroupLayout(device, {
         {0, dawn::ShaderStageBit::Fragment, dawn::BindingType::Sampler}
     });
@@ -86,7 +86,7 @@ TEST_F(BindGroupValidationTest, NumBindingsMismatch) {
     // Control case: check that a descriptor with one binding is ok
     utils::MakeBindGroup(device, layout, {{0, mSampler}});
 
-    // Check that numBindings != layout.numBindings fails.
+    // Check that bindingCount != layout.bindingCount fails.
     ASSERT_DEVICE_ERROR(utils::MakeBindGroup(device, layout, {}));
 }
 
@@ -142,7 +142,7 @@ TEST_F(BindGroupValidationTest, SamplerBindingType) {
 
     dawn::BindGroupDescriptor descriptor;
     descriptor.layout = layout;
-    descriptor.numBindings = 1;
+    descriptor.bindingCount = 1;
     descriptor.bindings = &binding;
 
     // Not setting anything fails
@@ -161,6 +161,19 @@ TEST_F(BindGroupValidationTest, SamplerBindingType) {
     binding.buffer = mUBO;
     ASSERT_DEVICE_ERROR(device.CreateBindGroup(&descriptor));
     binding.buffer = nullptr;
+
+    // Setting the sampler to an error sampler is an error.
+    {
+        dawn::SamplerDescriptor samplerDesc = utils::GetDefaultSamplerDescriptor();
+        samplerDesc.minFilter = static_cast<dawn::FilterMode>(0xFFFFFFFF);
+
+        dawn::Sampler errorSampler;
+        ASSERT_DEVICE_ERROR(errorSampler = device.CreateSampler(&samplerDesc));
+
+        binding.sampler = errorSampler;
+        ASSERT_DEVICE_ERROR(device.CreateBindGroup(&descriptor));
+        binding.sampler = nullptr;
+    }
 }
 
 // Check that a texture binding must contain exactly a texture view
@@ -179,7 +192,7 @@ TEST_F(BindGroupValidationTest, TextureBindingType) {
 
     dawn::BindGroupDescriptor descriptor;
     descriptor.layout = layout;
-    descriptor.numBindings = 1;
+    descriptor.bindingCount = 1;
     descriptor.bindings = &binding;
 
     // Not setting anything fails
@@ -198,6 +211,24 @@ TEST_F(BindGroupValidationTest, TextureBindingType) {
     binding.buffer = mUBO;
     ASSERT_DEVICE_ERROR(device.CreateBindGroup(&descriptor));
     binding.buffer = nullptr;
+
+    // Setting the texture view to an error texture view is an error.
+    {
+        dawn::TextureViewDescriptor viewDesc;
+        viewDesc.format = dawn::TextureFormat::R8G8B8A8Unorm;
+        viewDesc.dimension = dawn::TextureViewDimension::e2D;
+        viewDesc.baseMipLevel = 0;
+        viewDesc.mipLevelCount = 0;
+        viewDesc.baseArrayLayer = 0;
+        viewDesc.arrayLayerCount = 0;
+
+        dawn::TextureView errorView;
+        ASSERT_DEVICE_ERROR(errorView = mSampledTexture.CreateTextureView(&viewDesc));
+
+        binding.textureView = errorView;
+        ASSERT_DEVICE_ERROR(device.CreateBindGroup(&descriptor));
+        binding.textureView = nullptr;
+    }
 }
 
 // Check that a buffer binding must contain exactly a buffer
@@ -216,7 +247,7 @@ TEST_F(BindGroupValidationTest, BufferBindingType) {
 
     dawn::BindGroupDescriptor descriptor;
     descriptor.layout = layout;
-    descriptor.numBindings = 1;
+    descriptor.bindingCount = 1;
     descriptor.bindings = &binding;
 
     // Not setting anything fails
@@ -235,6 +266,20 @@ TEST_F(BindGroupValidationTest, BufferBindingType) {
     binding.sampler = mSampler;
     ASSERT_DEVICE_ERROR(device.CreateBindGroup(&descriptor));
     binding.sampler = nullptr;
+
+    // Setting the buffer to an error buffer is an error.
+    {
+        dawn::BufferDescriptor bufferDesc;
+        bufferDesc.size = 1024;
+        bufferDesc.usage = static_cast<dawn::BufferUsageBit>(0xFFFFFFFF);
+
+        dawn::Buffer errorBuffer;
+        ASSERT_DEVICE_ERROR(errorBuffer = device.CreateBuffer(&bufferDesc));
+
+        binding.buffer = errorBuffer;
+        ASSERT_DEVICE_ERROR(device.CreateBindGroup(&descriptor));
+        binding.buffer = nullptr;
+    }
 }
 
 // Check that a texture must have the correct usage
@@ -250,10 +295,10 @@ TEST_F(BindGroupValidationTest, TextureUsage) {
     dawn::TextureDescriptor descriptor;
     descriptor.dimension = dawn::TextureDimension::e2D;
     descriptor.size = {16, 16, 1};
-    descriptor.arraySize = 1;
+    descriptor.arrayLayerCount = 1;
     descriptor.sampleCount = 1;
     descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
-    descriptor.levelCount = 1;
+    descriptor.mipLevelCount = 1;
     descriptor.usage = dawn::TextureUsageBit::OutputAttachment;
     dawn::Texture outputTexture = device.CreateTexture(&descriptor);
     dawn::TextureView outputTextureView = outputTexture.CreateDefaultTextureView();
@@ -336,6 +381,25 @@ TEST_F(BindGroupValidationTest, BufferBindingOOB) {
 
     // Error case, offset+size overflows to be 0
     ASSERT_DEVICE_ERROR(utils::MakeBindGroup(device, layout, {{0, buffer, 256, uint32_t(0) - uint32_t(256)}}));
+}
+
+// Test what happens when the layout is an error.
+TEST_F(BindGroupValidationTest, ErrorLayout) {
+    dawn::BindGroupLayout goodLayout = utils::MakeBindGroupLayout(device, {
+        {0, dawn::ShaderStageBit::Vertex, dawn::BindingType::UniformBuffer},
+    });
+
+    dawn::BindGroupLayout errorLayout;
+    ASSERT_DEVICE_ERROR(errorLayout = utils::MakeBindGroupLayout(device, {
+        {0, dawn::ShaderStageBit::Vertex, dawn::BindingType::UniformBuffer},
+        {0, dawn::ShaderStageBit::Vertex, dawn::BindingType::UniformBuffer},
+    }));
+
+    // Control case, creating with the good layout works
+    utils::MakeBindGroup(device, goodLayout, {{0, mUBO, 0, 256}});
+
+    // Control case, creating with the good layout works
+    ASSERT_DEVICE_ERROR(utils::MakeBindGroup(device, errorLayout, {{0, mUBO, 0, 256}}));
 }
 
 class BindGroupLayoutValidationTest : public ValidationTest {

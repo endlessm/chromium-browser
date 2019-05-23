@@ -1,9 +1,8 @@
 //===- llvm/ADT/STLExtras.h - Useful STL related functions ------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1576,6 +1575,19 @@ bool hasNItemsOrMore(
       return false; // Too few.
   return true;
 }
+
+/// Returns a raw pointer that represents the same address as the argument.
+///
+/// The late bound return should be removed once we move to C++14 to better
+/// align with the C++20 declaration. Also, this implementation can be removed
+/// once we move to C++20 where it's defined as std::to_addres()
+///
+/// The std::pointer_traits<>::to_address(p) variations of these overloads has
+/// not been implemented.
+template <class Ptr> auto to_address(const Ptr &P) -> decltype(P.operator->()) {
+  return P.operator->();
+}
+template <class T> constexpr T *to_address(T *P) { return P; }
 
 } // end namespace llvm
 

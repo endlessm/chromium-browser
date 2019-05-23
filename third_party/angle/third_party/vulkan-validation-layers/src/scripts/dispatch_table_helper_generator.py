@@ -168,27 +168,30 @@ class DispatchTableHelperOutputGenerator(OutputGenerator):
     # Determine if this API should be ignored or added to the instance or device dispatch table
     def AddCommandToDispatchList(self, name, handle_type, protect, cmdinfo):
         handle = self.registry.tree.find("types/type/[name='" + handle_type + "'][@category='handle']")
-        if handle == None:
+        if handle is None:
             return
         if handle_type != 'VkInstance' and handle_type != 'VkPhysicalDevice' and name != 'vkGetInstanceProcAddr':
             self.device_dispatch_list.append((name, self.featureExtraProtect))
             extension = "VK_VERSION" not in self.featureName
             promoted = not extension and "VK_VERSION_1_0" != self.featureName
-            if promoted or (extension and self.extension_type == 'device'):
+            if promoted or extension:
                 self.device_stub_list.append([name, self.featureName])
                 if extension:
                     self.device_extension_list.append([name, self.featureName])
                 # Build up stub function
                 return_type = ''
                 decl = self.makeCDecls(cmdinfo.elem)[1]
-                if 'typedef VkResult' in decl:
+                if decl.startswith('typedef VkResult'):
                     return_type = 'return VK_SUCCESS;'
-                decl = decl.split('*PFN_vk')[1]
+                elif decl.startswith('typedef VkDeviceAddress'):
+                    return_type = 'return 0;'
+                elif decl.startswith('typedef uint32_t'):
+                    return_type = 'return 0;'
+                pre_decl, decl = decl.split('*PFN_vk')
+                pre_decl = pre_decl.replace('typedef ', '')
+                pre_decl = pre_decl.split(' (')[0]
                 decl = decl.replace(')(', '(')
-                if return_type == '':
-                    decl = 'static VKAPI_ATTR void VKAPI_CALL Stub' + decl
-                else:
-                    decl = 'static VKAPI_ATTR VkResult VKAPI_CALL Stub' + decl
+                decl = 'static VKAPI_ATTR ' + pre_decl + ' VKAPI_CALL Stub' + decl
                 func_body = ' { ' + return_type + ' };'
                 decl = decl.replace (';', func_body)
                 if self.featureExtraProtect is not None:

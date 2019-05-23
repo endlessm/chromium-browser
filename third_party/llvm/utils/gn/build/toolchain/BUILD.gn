@@ -50,7 +50,7 @@ template("unix_toolchain") {
         # Remove the output file first so that ar doesn't try to modify the
         # existing file.
         command =
-            "rm -f {{output}} && $ar rcsDT {{arflags}} {{output}} {{inputs}}"
+            "rm -f {{output}} && $ar rcsD {{arflags}} {{output}} {{inputs}}"
       }
       description = "AR {{output}}"
       outputs = [
@@ -157,13 +157,17 @@ template("stage2_unix_toolchain") {
     cc = "bin/clang"
     cxx = "bin/clang++"
     ld = cxx
-    ar = "bin/llvm-ar"
+    if (current_os != "mac") {
+      ar = "bin/llvm-ar"
+    }
 
     deps = [
       "//:clang($host_toolchain)",
       "//:lld($host_toolchain)",
-      "//:llvm-ar($host_toolchain)",
     ]
+    if (current_os != "mac") {
+      deps += [ "//:llvm-ar($host_toolchain)" ]
+    }
   }
 }
 
@@ -171,6 +175,7 @@ stage2_unix_toolchain("stage2_unix") {
   toolchain_args = {
     current_os = host_os
     current_cpu = host_cpu
+    is_clang = true
     use_lld = host_os != "mac"
   }
 }
@@ -180,6 +185,7 @@ if (android_ndk_path != "") {
     toolchain_args = {
       current_os = "android"
       current_cpu = "arm64"
+      is_clang = true
       use_lld = true
     }
   }
@@ -191,7 +197,9 @@ toolchain("win") {
 
   if (clang_base_path != "") {
     cl = "$clang_base_path/bin/clang-cl"
-    link = "$clang_base_path/bin/lld-link"
+    if (use_lld) {
+      link = "$clang_base_path/bin/lld-link"
+    }
   }
 
   if (use_goma) {
@@ -226,9 +234,11 @@ toolchain("win") {
   }
 
   tool("solink") {
-    dllfile = "{{output_dir}}/{{target_output_name}}{{output_extension}}"
-    libfile = "$dllfile.lib"
-    command = "$link /nologo /dll {{ldflags}} /out:$dllfile /implib:$libfile {{libs}} /pdb:$dllfile.pdb {{inputs}}"
+    outprefix = "{{output_dir}}/{{target_output_name}}"
+    dllfile = "$outprefix{{output_extension}}"
+    libfile = "$outprefix.lib"
+    pdbfile = "$outprefix.pdb"
+    command = "$link /nologo /dll {{ldflags}} /out:$dllfile /implib:$libfile /pdb:$pdbfile {{libs}} {{inputs}}"
     description = "LINK $dllfile"
     link_output = libfile
     depend_output = libfile
@@ -251,8 +261,10 @@ toolchain("win") {
   # standalone loadable modules used for unit-testing LLVM's dynamic library
   # loading code.
   tool("solink_module") {
-    dllfile = "{{output_dir}}/{{target_output_name}}{{output_extension}}"
-    command = "$link /nologo /dll {{ldflags}} /out:$dllfile {{libs}} /pdb:$dllfile.pdb {{inputs}}"
+    outprefix = "{{output_dir}}/{{target_output_name}}"
+    dllfile = "$outprefix{{output_extension}}"
+    pdbfile = "$outprefix.pdb"
+    command = "$link /nologo /dll {{ldflags}} /out:$dllfile /pdb:$pdbfile {{libs}} {{inputs}}"
     description = "LINK_MODULE $dllfile"
     outputs = [
       dllfile,
@@ -264,8 +276,10 @@ toolchain("win") {
   }
 
   tool("link") {
-    outfile = "{{output_dir}}/{{target_output_name}}{{output_extension}}"
-    command = "$link /nologo {{ldflags}} /out:$outfile {{libs}} /pdb:$outfile.pdb {{inputs}}"
+    outprefix = "{{output_dir}}/{{target_output_name}}"
+    outfile = "$outprefix{{output_extension}}"
+    pdbfile = "$outprefix.pdb"
+    command = "$link /nologo {{ldflags}} /out:$outfile /pdb:$pdbfile {{libs}} {{inputs}}"
     description = "LINK $outfile"
     outputs = [
       outfile,

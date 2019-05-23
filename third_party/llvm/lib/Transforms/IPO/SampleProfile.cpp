@@ -1,9 +1,8 @@
 //===- SampleProfile.cpp - Incorporate sample profiles into the IR --------===//
 //
-//                      The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -319,6 +318,14 @@ protected:
 
   /// Optimization Remark Emitter used to emit diagnostic remarks.
   OptimizationRemarkEmitter *ORE = nullptr;
+
+  // Information recorded when we declined to inline a call site
+  // because we have determined it is too cold is accumulated for
+  // each callee function. Initially this is just the entry count.
+  struct NotInlinedProfileInfo {
+    uint64_t entryCount;
+  };
+  DenseMap<Function *, NotInlinedProfileInfo> notInlinedCallInfo;
 };
 
 class SampleProfileLoaderLegacyPass : public ModulePass {
@@ -779,6 +786,8 @@ bool SampleProfileLoader::inlineCallInstruction(Instruction *I) {
 bool SampleProfileLoader::inlineHotFunctions(
     Function &F, DenseSet<GlobalValue::GUID> &InlinedGUIDs) {
   DenseSet<Instruction *> PromotedInsns;
+
+  DenseMap<Instruction *, const FunctionSamples *> localNotInlinedCallSites;
   bool Changed = false;
   while (true) {
     bool LocalChanged = false;
@@ -791,6 +800,8 @@ bool SampleProfileLoader::inlineHotFunctions(
         if ((isa<CallInst>(I) || isa<InvokeInst>(I)) &&
             !isa<IntrinsicInst>(I) && (FS = findCalleeFunctionSamples(I))) {
           Candidates.push_back(&I);
+          if (FS->getEntrySamples() > 0)
+            localNotInlinedCallSites.try_emplace(&I, FS);
           if (callsiteIsHot(FS, PSI))
             Hot = true;
         }
@@ -836,8 +847,10 @@ bool SampleProfileLoader::inlineHotFunctions(
             PromotedInsns.insert(I);
             // If profile mismatches, we should not attempt to inline DI.
             if ((isa<CallInst>(DI) || isa<InvokeInst>(DI)) &&
-                inlineCallInstruction(DI))
+                inlineCallInstruction(DI)) {
+              localNotInlinedCallSites.erase(I);
               LocalChanged = true;
+            }
           } else {
             LLVM_DEBUG(dbgs()
                        << "\nFailed to promote indirect call to "
@@ -846,8 +859,10 @@ bool SampleProfileLoader::inlineHotFunctions(
         }
       } else if (CalledFunction && CalledFunction->getSubprogram() &&
                  !CalledFunction->isDeclaration()) {
-        if (inlineCallInstruction(I))
+        if (inlineCallInstruction(I)) {
+          localNotInlinedCallSites.erase(I);
           LocalChanged = true;
+        }
       } else if (IsThinLTOPreLink) {
         findCalleeFunctionSamples(*I)->findInlinedFunctions(
             InlinedGUIDs, F.getParent(), PSI->getOrCompHotCountThreshold());
@@ -858,6 +873,18 @@ bool SampleProfileLoader::inlineHotFunctions(
     } else {
       break;
     }
+  }
+
+  // Accumulate not inlined callsite information into notInlinedSamples
+  for (const auto &Pair : localNotInlinedCallSites) {
+    Instruction *I = Pair.getFirst();
+    Function *Callee = CallSite(I).getCalledFunction();
+    if (!Callee || Callee->isDeclaration())
+      continue;
+    const FunctionSamples *FS = Pair.getSecond();
+    auto pair =
+        notInlinedCallInfo.try_emplace(Callee, NotInlinedProfileInfo{0});
+    pair.first->second.entryCount += FS->getEntrySamples();
   }
   return Changed;
 }
@@ -1300,9 +1327,9 @@ void SampleProfileLoader::propagateWeights(Function &F) {
                             SortedCallTargets, Sum, IPVK_IndirectCallTarget,
                             SortedCallTargets.size());
         } else if (!dyn_cast<IntrinsicInst>(&I)) {
-          SmallVector<uint32_t, 1> Weights;
-          Weights.push_back(BlockWeights[BB]);
-          I.setMetadata(LLVMContext::MD_prof, MDB.createBranchWeights(Weights));
+          I.setMetadata(LLVMContext::MD_prof,
+                        MDB.createBranchWeights(
+                            {static_cast<uint32_t>(BlockWeights[BB])}));
         }
       }
     }
@@ -1601,6 +1628,12 @@ bool SampleProfileLoader::runOnModule(Module &M, ModuleAnalysisManager *AM,
       clearFunctionData();
       retval |= runOnFunction(F, AM);
     }
+
+  // Account for cold calls not inlined....
+  for (const std::pair<Function *, NotInlinedProfileInfo> &pair :
+       notInlinedCallInfo)
+    updateProfileCallee(pair.first, pair.second.entryCount);
+
   return retval;
 }
 

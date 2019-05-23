@@ -235,6 +235,8 @@ protected:
 
 	ProgramHandles createProgram(const std::string& vs, const std::string& fs)
 	{
+		GLchar buf[1024];
+
 		ProgramHandles ph;
 		ph.program = glCreateProgram();
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
@@ -246,7 +248,8 @@ protected:
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 		GLint vsCompileStatus = 0;
 		glGetShaderiv(ph.vertexShader, GL_COMPILE_STATUS, &vsCompileStatus);
-		EXPECT_EQ(vsCompileStatus, GL_TRUE);
+		glGetShaderInfoLog(ph.vertexShader, sizeof(buf), nullptr, buf);
+		EXPECT_EQ(vsCompileStatus, GL_TRUE) << "Compile status: " << std::endl << buf;
 
 		ph.fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 		const char* fsSource[1] = { fs.c_str() };
@@ -255,7 +258,8 @@ protected:
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 		GLint fsCompileStatus = 0;
 		glGetShaderiv(ph.fragmentShader, GL_COMPILE_STATUS, &fsCompileStatus);
-		EXPECT_EQ(fsCompileStatus, GL_TRUE);
+		glGetShaderInfoLog(ph.fragmentShader, sizeof(buf), nullptr, buf);
+		EXPECT_EQ(fsCompileStatus, GL_TRUE) << "Compile status: " << std::endl << buf;
 
 		glAttachShader(ph.program, ph.vertexShader);
 		glAttachShader(ph.program, ph.fragmentShader);
@@ -264,7 +268,8 @@ protected:
 
 		GLint linkStatus = 0;
 		glGetProgramiv(ph.program, GL_LINK_STATUS, &linkStatus);
-		EXPECT_NE(linkStatus, 0);
+		glGetProgramInfoLog(ph.program, sizeof(buf), nullptr, buf);
+		EXPECT_NE(linkStatus, 0) << "Link status: " << std::endl << buf;
 
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
@@ -314,6 +319,66 @@ protected:
 		glDisableVertexAttribArray(posLoc);
 		glUseProgram(prevProgram);
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+	}
+
+	std::string replace(std::string str, const std::string& substr, const std::string& replacement)
+	{
+		size_t pos = 0;
+		while((pos = str.find(substr, pos)) != std::string::npos) {
+			str.replace(pos, substr.length(), replacement);
+			pos += replacement.length();
+		}
+		return str;
+	}
+
+	void checkCompiles(std::string v, std::string f)
+	{
+		Initialize(3, false);
+
+		std::string vs =
+			"#version 300 es\n"
+			"in vec4 position;\n"
+			"out float unfoldable;\n"
+			"$INSERT\n"
+			"void main()\n"
+			"{\n"
+			"    unfoldable = position.x;\n"
+			"    gl_Position = vec4(position.xy, 0.0, 1.0);\n"
+			"    gl_Position.x += F(unfoldable);\n"
+			"}\n";
+
+		std::string fs =
+			"#version 300 es\n"
+			"precision mediump float;\n"
+			"in float unfoldable;\n"
+			"out vec4 fragColor;\n"
+			"$INSERT\n"
+			"void main()\n"
+			"{\n"
+			"    fragColor = vec4(1.0, 1.0, 1.0, 1.0);\n"
+			"    fragColor.x += F(unfoldable);\n"
+			"}\n";
+
+		vs = replace(vs, "$INSERT", (v.length() > 0) ? v : "float F(float ignored) { return 0.0; }");
+		fs = replace(fs, "$INSERT", (f.length() > 0) ? f : "float F(float ignored) { return 0.0; }");
+
+		const ProgramHandles ph = createProgram(vs, fs);
+
+		glUseProgram(ph.program);
+
+		drawQuad(ph.program);
+
+		deleteProgram(ph);
+
+		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+		Uninitialize();
+	}
+
+	void checkCompiles(std::string s)
+	{
+		checkCompiles(s, "");
+		checkCompiles("", s);
 	}
 
 	EGLDisplay getDisplay() const { return display; }
@@ -950,6 +1015,50 @@ TEST_F(SwiftShaderTest, AtanCornerCases)
 	Uninitialize();
 }
 
+TEST_F(SwiftShaderTest, TransformFeedback_DrawArraysInstanced)
+{
+	Initialize(3, false);
+
+	const char * data0[] =
+	{
+		"#version 300 es\n"
+		"in mediump vec2 vary;"
+		"out mediump vec4 color;"
+		"void main()"
+		"{\t"
+			"color = vec4(vary, 0.0, 1.0);"
+		"}"
+	};
+	const char * data1[] =
+	{
+		"#version 300 es\n"
+		"layout(location=0) in mediump vec2 pos;"
+		"out mediump vec2 vary;"
+		"void main()"
+		"{\t"
+			"vary = pos;\t"
+			"gl_Position = vec4(pos, 0.0, 1.0);"
+		"}"
+	};
+
+	GLuint vert = glCreateShader(GL_VERTEX_SHADER);
+	GLuint frag = glCreateShader(GL_FRAGMENT_SHADER);
+	GLuint program = glCreateProgram();
+
+	glShaderSource(frag, 1, data0, (const GLint *)0);
+	glAttachShader(program, vert);
+	glCompileShader(frag);
+	glAttachShader(program, frag);
+	glShaderSource(vert, 1, data1, (const GLint *)0);
+	glCompileShader(vert);
+	glLinkProgram(program);
+	glUseProgram(program);
+	glBeginTransformFeedback(GL_POINTS);
+	glDrawArraysInstanced(GL_POINTS, 0, 1, 1);
+
+	Uninitialize();
+}
+
 // Test conditions that should result in a GL_OUT_OF_MEMORY and not crash
 TEST_F(SwiftShaderTest, OutOfMemory)
 {
@@ -1380,6 +1489,109 @@ TEST_F(SwiftShaderTest, TextureRectangle_CopyTexSubImage)
 	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
 	Uninitialize();
+}
+
+TEST_F(SwiftShaderTest, CompilerLimits_DeepNestedIfs)
+{
+	std::string body = "return 1.0;";
+	for (int i = 0; i < 16; i++)
+	{
+		body = "  if (f > " + std::to_string(i * 0.1f) + ") {\n" + body + "}\n";
+	}
+
+	checkCompiles(
+		"float F(float f) {\n" + body + "  return 0.0f;\n}\n"
+	);
+}
+
+TEST_F(SwiftShaderTest, CompilerLimits_DeepNestedSwitches)
+{
+	std::string body = "return 1.0;";
+	for (int i = 0; i < 16; i++)
+	{
+		body = "  switch (int(f)) {\n case 1:\n  f *= 2.0;\n" + body + "}\n";
+	}
+
+	checkCompiles("float F(float f) {\n" + body + "  return 0.0f;\n}\n");
+}
+
+TEST_F(SwiftShaderTest, CompilerLimits_DeepNestedLoops)
+{
+	std::string loops = "f = f + f * 2.0;";
+	for (int i = 0; i < 16; i++)
+	{
+		auto it = "l" + std::to_string(i);
+		loops = "  for (int " + it + " = 0; " + it + " < i; " + it + "++) {\n" + loops + "}\n";
+	}
+
+	checkCompiles(
+		"float F(float f) {\n"
+		"  int i = (f > 0.0) ? 1 : 0;\n" + loops +
+		"  return f;\n"
+		"}\n"
+	);
+}
+
+TEST_F(SwiftShaderTest, CompilerLimits_DeepNestedCalls)
+{
+	std::string funcs = "float E(float f) { return f * 2.0f; }\n";
+	std::string last = "E";
+	for (int i = 0; i < 16; i++)
+	{
+		std::string f = "C" + std::to_string(i);
+		funcs += "float " + f + "(float f) { return " + last + "(f) + 1.0f; }\n";
+		last = f;
+	}
+
+	checkCompiles(funcs +
+		"float F(float f) { return " + last + "(f); }\n"
+	);
+}
+
+TEST_F(SwiftShaderTest, CompilerLimits_ManyCallSites)
+{
+	std::string calls;
+	for (int i = 0; i < 256; i++)
+	{
+		calls += "  f += C(f);\n";
+	}
+
+	checkCompiles(
+		"float C(float f) { return f * 2.0f; }\n"
+		"float F(float f) {\n" + calls + "  return f;\n}\n"
+	);
+}
+
+TEST_F(SwiftShaderTest, CompilerLimits_DeepNestedCallsInUnusedFunction)
+{
+	std::string funcs = "float E(float f) { return f * 2.0f; }\n";
+	std::string last = "E";
+	for (int i = 0; i < 16; i++)
+	{
+		std::string f = "C" + std::to_string(i);
+		funcs += "float " + f + "(float f) { return " + last + "(f) + 1.0f; }\n";
+		last = f;
+	}
+
+	checkCompiles(funcs +
+		"float F(float f) { return f; }\n"
+	);
+}
+
+// Test that the compiler correctly handles functions being stripped.
+// The frontend will strip the Dead functions, but may keep the their function
+// labels reserved. This produces labels that are greater than the number of
+// live functions.
+TEST_F(SwiftShaderTest, CompilerLimits_SparseLabels)
+{
+	checkCompiles(
+		"void Dead1() {}\n"
+		"void Dead2() {}\n"
+		"void Dead3() {}\n"
+		"void Dead4() {}\n"
+		"void Dead5() { Dead1(); Dead2(); Dead3(); Dead4(); }\n"
+		"float F(float f) { for(int i = 0; i < -1; ++i) { Dead5(); } return f; }\n"
+	);
 }
 
 #ifndef EGL_ANGLE_iosurface_client_buffer
@@ -2121,3 +2333,4 @@ TEST_F(IOSurfaceClientBufferTest, MakeCurrentDisallowed)
 
 	Uninitialize();
 }
+

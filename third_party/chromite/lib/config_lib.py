@@ -78,8 +78,8 @@ ALL_DISPLAY_LABEL = {
 
 # These values must be kept in sync with the ChromeOS LUCI builders.
 #
-# https://chrome-internal.git.corp.google.com/chromeos/
-#    manifest-internal/+/infra/config/cr-buildbucket.cfg
+# https://chrome-internal.googlesource.com/chromeos/
+#     infra/config/+/refs/heads/master/luci/cr-buildbucket.cfg
 LUCI_BUILDER_TRY = 'Try'
 LUCI_BUILDER_PRECQ = 'PreCQ'
 LUCI_BUILDER_PROD = 'Prod'
@@ -140,6 +140,11 @@ def IsPFQType(b_type):
   """Returns True if this build type is a PFQ."""
   return b_type in (constants.PFQ_TYPE, constants.PALADIN_TYPE,
                     constants.CHROME_PFQ_TYPE, constants.ANDROID_PFQ_TYPE)
+
+
+def IsBinhostType(b_type):
+  """Returns True if this build type is a BINHOST.conf provider"""
+  return b_type in (constants.CHROME_PFQ_TYPE, constants.POSTSUBMIT_TYPE)
 
 
 def IsCQType(b_type):
@@ -1072,6 +1077,9 @@ def DefaultSettings():
 
       # Which goma client to use.
       goma_client_type=None,
+
+      # Try to use goma to build all packages.
+      build_all_with_goma=False,
 
       # This is a LUCI Scheduler schedule string. Setting this will create
       # a LUCI Scheduler for this build on swarming (not buildbot).

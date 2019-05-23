@@ -1,9 +1,8 @@
 //===--- BuiltinsX86.def - X86 Builtin function database --------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1068,12 +1067,12 @@ TARGET_BUILTIN(__builtin_ia32_psubsw512, "V32sV32sV32s", "ncV:512:", "avx512bw")
 TARGET_BUILTIN(__builtin_ia32_psubusb512, "V64cV64cV64c", "ncV:512:", "avx512bw")
 TARGET_BUILTIN(__builtin_ia32_psubusw512, "V32sV32sV32s", "ncV:512:", "avx512bw")
 
-TARGET_BUILTIN(__builtin_ia32_vpconflictdi_128_mask, "V2LLiV2LLiV2LLiUc", "ncV:128:", "avx512cd,avx512vl")
-TARGET_BUILTIN(__builtin_ia32_vpconflictdi_256_mask, "V4LLiV4LLiV4LLiUc", "ncV:256:", "avx512cd,avx512vl")
-TARGET_BUILTIN(__builtin_ia32_vpconflictsi_128_mask, "V4iV4iV4iUc", "ncV:128:", "avx512cd,avx512vl")
-TARGET_BUILTIN(__builtin_ia32_vpconflictsi_256_mask, "V8iV8iV8iUc", "ncV:256:", "avx512cd,avx512vl")
-TARGET_BUILTIN(__builtin_ia32_vpconflictdi_512_mask, "V8LLiV8LLiV8LLiUc", "ncV:512:", "avx512cd")
-TARGET_BUILTIN(__builtin_ia32_vpconflictsi_512_mask, "V16iV16iV16iUs", "ncV:512:", "avx512cd")
+TARGET_BUILTIN(__builtin_ia32_vpconflictdi_128, "V2LLiV2LLi", "ncV:128:", "avx512cd,avx512vl")
+TARGET_BUILTIN(__builtin_ia32_vpconflictdi_256, "V4LLiV4LLi", "ncV:256:", "avx512cd,avx512vl")
+TARGET_BUILTIN(__builtin_ia32_vpconflictsi_128, "V4iV4i", "ncV:128:", "avx512cd,avx512vl")
+TARGET_BUILTIN(__builtin_ia32_vpconflictsi_256, "V8iV8i", "ncV:256:", "avx512cd,avx512vl")
+TARGET_BUILTIN(__builtin_ia32_vpconflictdi_512, "V8LLiV8LLi", "ncV:512:", "avx512cd")
+TARGET_BUILTIN(__builtin_ia32_vpconflictsi_512, "V16iV16i", "ncV:512:", "avx512cd")
 TARGET_BUILTIN(__builtin_ia32_vplzcntd_512, "V16iV16i", "ncV:512:", "avx512cd")
 TARGET_BUILTIN(__builtin_ia32_vplzcntq_512, "V8LLiV8LLi", "ncV:512:", "avx512cd")
 
@@ -1302,7 +1301,6 @@ TARGET_BUILTIN(__builtin_ia32_cvtps2qq256_mask, "V4LLiV4fV4LLiUc", "ncV:256:", "
 TARGET_BUILTIN(__builtin_ia32_cvtps2uqq128_mask, "V2LLiV4fV2LLiUc", "ncV:128:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_cvtps2uqq256_mask, "V4LLiV4fV4LLiUc", "ncV:256:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_cvtqq2ps128_mask, "V4fV2LLiV4fUc", "ncV:128:", "avx512vl,avx512dq")
-TARGET_BUILTIN(__builtin_ia32_cvtqq2ps256_mask, "V4fV4LLiV4fUc", "ncV:256:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_cvttpd2qq128_mask, "V2LLiV2dV2LLiUc", "ncV:128:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_cvttpd2qq256_mask, "V4LLiV4dV4LLiUc", "ncV:256:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_cvttpd2uqq128_mask, "V2LLiV2dV2LLiUc", "ncV:128:", "avx512vl,avx512dq")
@@ -1312,7 +1310,6 @@ TARGET_BUILTIN(__builtin_ia32_cvttps2qq256_mask, "V4LLiV4fV4LLiUc", "ncV:256:", 
 TARGET_BUILTIN(__builtin_ia32_cvttps2uqq128_mask, "V2LLiV4fV2LLiUc", "ncV:128:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_cvttps2uqq256_mask, "V4LLiV4fV4LLiUc", "ncV:256:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_cvtuqq2ps128_mask, "V4fV2LLiV4fUc", "ncV:128:", "avx512vl,avx512dq")
-TARGET_BUILTIN(__builtin_ia32_cvtuqq2ps256_mask, "V4fV4LLiV4fUc", "ncV:256:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_rangepd128_mask, "V2dV2dV2dIiV2dUc", "ncV:128:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_rangepd256_mask, "V4dV4dV4dIiV4dUc", "ncV:256:", "avx512vl,avx512dq")
 TARGET_BUILTIN(__builtin_ia32_rangeps128_mask, "V4fV4fV4fIiV4fUc", "ncV:128:", "avx512vl,avx512dq")

@@ -24,6 +24,7 @@ RECORD_MODE_MAP = {
 }
 
 ENABLE_SYSTRACE_PARAM = 'enable_systrace'
+UMA_HISTOGRAM_NAMES_PARAM = 'histogram_names'
 
 def ConvertStringToCamelCase(string):
   """Convert an underscore/hyphen-case string to its camel-case counterpart.
@@ -68,6 +69,7 @@ class ChromeTraceConfig(object):
         chrome_trace_category_filter.ChromeTraceCategoryFilter())
     self._memory_dump_config = None
     self._enable_systrace = False
+    self._uma_histogram_names = []
 
   def SetLowOverheadFilter(self):
     self._category_filter = (
@@ -106,6 +108,13 @@ class ChromeTraceConfig(object):
   def SetEnableSystrace(self):
     self._enable_systrace = True
 
+  def EnableUMAHistograms(self, *args):
+    for uma_histogram_name in args:
+      self._uma_histogram_names.append(uma_histogram_name)
+
+  def HasUMAHistograms(self):
+    return len(self._uma_histogram_names) != 0
+
   @property
   def record_mode(self):
     return self._record_mode
@@ -130,6 +139,8 @@ class ChromeTraceConfig(object):
       result.update(self._memory_dump_config.GetDictForChromeTracing())
     if self._enable_systrace:
       result.update({ENABLE_SYSTRACE_PARAM: True})
+    if self._uma_histogram_names:
+      result[UMA_HISTOGRAM_NAMES_PARAM] = self._uma_histogram_names
     return result
 
   @property

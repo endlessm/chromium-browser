@@ -13,6 +13,7 @@
 #include "ash/public/interfaces/ash_message_center_controller.mojom.h"
 #include "ash/public/interfaces/assistant_controller.mojom.h"
 #include "ash/public/interfaces/voice_interaction_controller.mojom.h"
+#include "base/synchronization/lock.h"
 #include "base/threading/thread.h"
 #include "chromeos/assistant/internal/action/cros_action_module.h"
 #include "chromeos/assistant/internal/cros_display_connection.h"
@@ -33,6 +34,10 @@ namespace assistant_client {
 class AssistantManager;
 class AssistantManagerInternal;
 }  // namespace assistant_client
+
+namespace network {
+class SharedURLLoaderFactoryInfo;
+}  // namespace network
 
 namespace service_manager {
 class Connector;
@@ -85,18 +90,21 @@ class AssistantManagerServiceImpl
       service_manager::Connector* connector,
       device::mojom::BatteryMonitorPtr battery_monitor,
       Service* service,
-      network::NetworkConnectionTracker* network_connection_tracker);
+      network::NetworkConnectionTracker* network_connection_tracker,
+      std::unique_ptr<network::SharedURLLoaderFactoryInfo>
+          url_loader_factory_info);
 
   ~AssistantManagerServiceImpl() override;
 
   // assistant::AssistantManagerService overrides
-  void Start(const std::string& access_token,
+  void Start(const base::Optional<std::string>& access_token,
              bool enable_hotword,
              base::OnceClosure callback) override;
   void Stop() override;
   State GetState() const override;
   void SetAccessToken(const std::string& access_token) override;
   void EnableListening(bool enable) override;
+  void EnableHotword(bool enable) override;
   AssistantSettingsManager* GetAssistantSettingsManager() override;
 
   // mojom::Assistant overrides:
@@ -173,12 +181,8 @@ class AssistantManagerServiceImpl
   }
 
  private:
-  std::unique_ptr<assistant_client::AssistantManager> StartAssistantInternal(
-      const std::string& access_token,
-      bool enable_hotword);
-  void PostInitAssistant(
-      base::OnceClosure post_init_callback,
-      std::unique_ptr<assistant_client::AssistantManager>* assistant_manager);
+  void StartAssistantInternal(const base::Optional<std::string>& access_token);
+  void PostInitAssistant(base::OnceClosure post_init_callback);
 
   // Update device id, type and locale
   void UpdateDeviceSettings();
@@ -250,6 +254,10 @@ class AssistantManagerServiceImpl
   std::unique_ptr<CrosDisplayConnection> display_connection_;
   std::unique_ptr<assistant_client::AssistantManager> assistant_manager_;
   std::unique_ptr<AssistantSettingsManagerImpl> assistant_settings_manager_;
+  // |new_asssistant_manager_| is created on |background_thread_| then posted to
+  // main thread to finish initialization then move to |assistant_manager_|.
+  std::unique_ptr<assistant_client::AssistantManager> new_assistant_manager_;
+  base::Lock new_assistant_manager_lock_;
   // same ownership as assistant_manager_.
   assistant_client::AssistantManagerInternal* assistant_manager_internal_ =
       nullptr;

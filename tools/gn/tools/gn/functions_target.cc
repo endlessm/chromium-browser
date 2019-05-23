@@ -221,7 +221,7 @@ Example
     script = "idl_processor.py"
     sources = [ "foo.idl", "bar.idl" ]
 
-    # Our script reads this file each time, so we need to list is as a
+    # Our script reads this file each time, so we need to list it as a
     # dependency so we can rebuild if it changes.
     inputs = [ "my_configuration.txt" ]
 
@@ -327,8 +327,9 @@ const char kCreateBundle_Help[] =
   are computed from all "bundle_data" target this one depends on transitively
   (the recursion stops at "create_bundle" targets).
 
-  The "bundle_*_dir" properties must be defined. They will be used for the
-  expansion of {{bundle_*_dir}} rules in "bundle_data" outputs.
+  The "bundle_*_dir" are be used for the expansion of {{bundle_*_dir}} rules in
+  "bundle_data" outputs. The properties are optional but must be defined if any
+  of the "bundle_data" target use them.
 
   This target can be used on all platforms though it is designed only to
   generate iOS or macOS bundle. In cross-platform projects, it is advised to put
@@ -358,13 +359,11 @@ Code signing
 
 Variables
 
-  bundle_root_dir*, bundle_contents_dir*, bundle_resources_dir*,
-  bundle_executable_dir*, bundle_plugins_dir*, bundle_deps_filter, deps,
-  data_deps, public_deps, visibility, product_type, code_signing_args,
-  code_signing_script, code_signing_sources, code_signing_outputs,
-  xcode_extra_attributes, xcode_test_application_name, partial_info_plist,
-  metadata
-  * = required
+  bundle_root_dir, bundle_contents_dir, bundle_resources_dir,
+  bundle_executable_dir, bundle_deps_filter, deps, data_deps, public_deps,
+  visibility, product_type, code_signing_args, code_signing_script,
+  code_signing_sources, code_signing_outputs, xcode_extra_attributes,
+  xcode_test_application_name, partial_info_plist, metadata
 
 Example
 
@@ -389,7 +388,7 @@ Example
       }
 
       bundle_data("${app_name}_bundle_info_plist") {
-        deps = [ ":${app_name}_generate_info_plist" ]
+        public_deps = [ ":${app_name}_generate_info_plist" ]
         sources = [ "$gen_path/Info.plist" ]
         outputs = [ "{{bundle_contents_dir}}/Info.plist" ]
       }
@@ -406,34 +405,32 @@ Example
       code_signing =
           defined(invoker.code_signing) && invoker.code_signing
 
-      if (is_ios && !code_signing) {
+      if (!is_ios || !code_signing) {
         bundle_data("${app_name}_bundle_executable") {
-          deps = [ ":${app_name}_generate_executable" ]
+          public_deps = [ ":${app_name}_generate_executable" ]
           sources = [ "$gen_path/$app_name" ]
           outputs = [ "{{bundle_executable_dir}}/$app_name" ]
         }
       }
 
-      create_bundle("${app_name}.app") {
+      create_bundle("$app_name.app") {
         product_type = "com.apple.product-type.application"
 
         if (is_ios) {
-          bundle_root_dir = "${root_build_dir}/$target_name"
+          bundle_root_dir = "$root_build_dir/$target_name"
           bundle_contents_dir = bundle_root_dir
           bundle_resources_dir = bundle_contents_dir
           bundle_executable_dir = bundle_contents_dir
-          bundle_plugins_dir = "${bundle_contents_dir}/Plugins"
 
           extra_attributes = {
             ONLY_ACTIVE_ARCH = "YES"
             DEBUG_INFORMATION_FORMAT = "dwarf"
           }
         } else {
-          bundle_root_dir = "${root_build_dir}/target_name"
-          bundle_contents_dir  = "${bundle_root_dir}/Contents"
-          bundle_resources_dir = "${bundle_contents_dir}/Resources"
-          bundle_executable_dir = "${bundle_contents_dir}/MacOS"
-          bundle_plugins_dir = "${bundle_contents_dir}/Plugins"
+          bundle_root_dir = "$root_build_dir/$target_name"
+          bundle_contents_dir  = "$bundle_root_dir/Contents"
+          bundle_resources_dir = "$bundle_contents_dir/Resources"
+          bundle_executable_dir = "$bundle_contents_dir/MacOS"
         }
         deps = [ ":${app_name}_bundle_info_plist" ]
         if (is_ios && code_signing) {

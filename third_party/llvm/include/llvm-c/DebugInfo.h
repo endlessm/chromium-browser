@@ -1,9 +1,8 @@
 //===------------ DebugInfo.h - LLVM C API Debug Info API -----------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -478,6 +477,19 @@ LLVMDIBuilderCreateSubroutineType(LLVMDIBuilderRef Builder,
                                   LLVMMetadataRef *ParameterTypes,
                                   unsigned NumParameterTypes,
                                   LLVMDIFlags Flags);
+
+/**
+ * Create debugging information entry for an enumerator.
+ * @param Builder        The DIBuilder.
+ * @param Name           Enumerator name.
+ * @param NameLen        Length of enumerator name.
+ * @param Value          Enumerator value.
+ * @param IsUnsigned     True if the value is unsigned.
+ */
+LLVMMetadataRef LLVMDIBuilderCreateEnumerator(LLVMDIBuilderRef Builder,
+                                              const char *Name, size_t NameLen,
+                                              int64_t Value,
+                                              LLVMBool IsUnsigned);
 
 /**
  * Create debugging information entry for an enumeration.

@@ -84,7 +84,8 @@ def WriteTagMetadata(builder_run):
   This is a proof of concept for using tags to help find commonality
   in failures.
   """
-  build_id, _ = builder_run.GetCIDBHandle()
+  build_identifier, _ = builder_run.GetCIDBHandle()
+  build_id = build_identifier.cidb_id
 
   # Yes, these values match general metadata values, but they are just
   # proof of concept, so far.
@@ -294,6 +295,12 @@ class BuildStartStage(generic_stages.BuilderStage):
               master_build_status['build_number'])
         logging.PrintBuildbotLink('Link to master build', master_url)
 
+    # Set annealing snapshot revision build property for Findit integration.
+    if self._run.options.cbb_snapshot_revision:
+      logging.PrintKitchenSetBuildProperty(
+          'GOT_REVISION',
+          self._run.options.cbb_snapshot_revision)
+
     # Write the tag metadata last so that a build_id is available.
     WriteTagMetadata(self._run)
 
@@ -331,12 +338,8 @@ class SlaveFailureSummaryStage(generic_stages.BuilderStage):
                    'Doing nothing.')
       return
 
-    slave_buildbucket_ids = self.GetScheduledSlaveBuildbucketIds()
-    child_build_ids = [
-        c['id']
-        for c in self.buildstore.GetBuildStatuses(slave_buildbucket_ids)]
-    child_failures = self.buildstore.GetCIDBHandle().GetBuildsFailures(
-        child_build_ids)
+    child_failures = self.buildstore.GetBuildsFailures(
+        self.GetScheduledSlaveBuildbucketIds())
     failures_by_build = cros_collections.GroupNamedtuplesByKey(
         child_failures, 'build_id')
     for _, build_failures in sorted(failures_by_build.items()):
@@ -380,18 +383,19 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
 
   category = constants.CI_INFRA_STAGE
 
-  def _AbortPreviousHWTestSuites(self, milestone):
+  def _AbortPreviousHWTestSuites(self):
     """Abort any outstanding synchronous hwtest suites from this builder."""
     # Only try to clean up previous HWTests if this is really running on one of
     # our builders in a non-trybot build.
     debug = (self._run.options.remote_trybot or
              (not self._run.options.buildbot) or
              self._run.options.debug)
-    build_id, db = self._run.GetCIDBHandle()
-    if db:
-      builds = db.GetBuildHistory(self._run.config.name, 2,
-                                  milestone_version=milestone,
-                                  ignore_build_id=build_id)
+    build_identifier, _ = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
+    if self.buildstore.AreClientsReady():
+      builds = self.buildstore.GetBuildHistory(
+          self._run.config.name, 2, branch=self._run.options.branch_name,
+          ignore_build_id=build_id)
       for build in builds:
         old_version = build['full_version']
         if old_version is None:
@@ -516,7 +520,8 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
     self.UploadMetadata(filename=constants.PARTIAL_METADATA_JSON)
 
     # Write child-per-build and board-per-build rows to database
-    build_id, db = self._run.GetCIDBHandle()
+    build_identifier, db = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     if db:
       # TODO(akeshet): replace this with a GetValue call once crbug.com/406522
       # is resolved
@@ -531,7 +536,7 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
     # Abort previous hw test suites. This happens after reexecution as it
     # requires chromite/third_party/swarming.client, which is not available
     # untill after reexecution.
-    self._AbortPreviousHWTestSuites(version['milestone'])
+    self._AbortPreviousHWTestSuites()
 
 
 class ConfigDumpStage(generic_stages.BuilderStage):
@@ -677,7 +682,7 @@ class ReportStage(generic_stages.BuilderStage,
                    builder_run.config.name, board_names)
       return
 
-    logging.PrintBuildbotSetBuildProperty('artifact_link', archive.upload_url)
+    logging.PrintKitchenSetBuildProperty('artifact_link', archive.upload_url)
 
     uploaded_json = 'uploaded.json'
     commands.GenerateUploadJSON(os.path.join(archive_path, uploaded_json),
@@ -726,13 +731,12 @@ class ReportStage(generic_stages.BuilderStage,
     logging.PrintBuildbotLink('Artifacts[%s]' % links_build_description,
                               artifacts_url)
 
-  def _UploadBuildStagesTimeline(self, builder_run, build_id, db):
+  def _UploadBuildStagesTimeline(self, builder_run, build_id):
     """Upload an HTML timeline for the build stages at remote archive location.
 
     Args:
       builder_run: BuilderRun object for this run.
       build_id: CIDB id for the current build.
-      db: CIDBConnection instance.
 
     Returns:
       If an index file is uploaded then a dict is returned where each value
@@ -755,7 +759,7 @@ class ReportStage(generic_stages.BuilderStage,
     timeline = os.path.join(archive_path, timeline_file)
 
     # Gather information about this build from CIDB.
-    stages = db.GetBuildStages(build_id)
+    stages = self.buildstore.GetBuildsStages(build_ids=[build_id])
     # Many stages are started in parallel after the build finishes. Stages are
     # sorted by start_time first bceause it shows that progression most
     # clearly. Sort by finish_time secondarily to display those paralllel
@@ -775,13 +779,12 @@ class ReportStage(generic_stages.BuilderStage,
         debug=self._run.options.debug_forced, update_list=True, acl=self.acl)
     return os.path.join(archive.download_url_file, timeline_file)
 
-  def _UploadSlavesTimeline(self, builder_run, build_id, db):
+  def _UploadSlavesTimeline(self, builder_run, build_id):
     """Upload an HTML timeline for the slaves at remote archive location.
 
     Args:
       builder_run: BuilderRun object for this run.
       build_id: CIDB id for the master build.
-      db: CIDBConnection instance.
 
     Returns:
       The URL of the timeline is returned if slave builds exists.  If no
@@ -802,7 +805,7 @@ class ReportStage(generic_stages.BuilderStage,
     timeline = os.path.join(archive_path, timeline_file)
 
     # Gather information about this build from CIDB.
-    statuses = db.GetSlaveStatuses(build_id)
+    statuses = self.buildstore.GetSlaveStatuses(build_id)
     if statuses is None or len(statuses) == 0:
       return None
     # Slaves may be started at slightly different times, but what matters most
@@ -886,10 +889,10 @@ class ReportStage(generic_stages.BuilderStage,
     # or multiple child builder runs.
     for builder_run in self._run.GetUngroupedBuilderRuns():
       if db is not None:
-        timeline = self._UploadBuildStagesTimeline(builder_run, build_id, db)
+        timeline = self._UploadBuildStagesTimeline(builder_run, build_id)
         logging.PrintBuildbotLink('Build stages timeline', timeline)
 
-        timeline = self._UploadSlavesTimeline(builder_run, build_id, db)
+        timeline = self._UploadSlavesTimeline(builder_run, build_id)
         if timeline is not None:
           logging.PrintBuildbotLink('Slaves timeline', timeline)
 
@@ -932,8 +935,11 @@ class ReportStage(generic_stages.BuilderStage,
     This includes final metadata archival, and update CIDB with our final status
     as well as producting a logged build result summary.
     """
-    build_id, db = self._run.GetCIDBHandle()
-    if results_lib.Results.BuildSucceededSoFar(db, build_id, self.name):
+    build_identifier, db = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
+    buildbucket_id = build_identifier.buildbucket_id
+    if results_lib.Results.BuildSucceededSoFar(self.buildstore, buildbucket_id,
+                                               self.name):
       final_status = constants.BUILDER_STATUS_PASSED
     else:
       final_status = constants.BUILDER_STATUS_FAILED
@@ -1012,8 +1018,8 @@ class ReportStage(generic_stages.BuilderStage,
       child_metadatas = self._run.attrs.metadata.GetDict().get(
           'child-configs', [])
       for child_metadata in child_metadatas:
-        db.FinishChildConfig(build_id, child_metadata['name'],
-                             child_metadata['status'])
+        self.buildstore.FinishChildConfig(build_id, child_metadata['name'],
+                                          child_metadata['status'])
 
       # TODO(pprabhu): After BuildData and CBuildbotMetdata are merged, remove
       # this extra temporary object creation.
@@ -1073,7 +1079,8 @@ class ReportStage(generic_stages.BuilderStage,
 
   def _RunRiskReport(self):
     """Fetches the CL-Scanner risk report and prints step text and links."""
-    build_id, _ = self._run.GetCIDBHandle()
+    build_identifier, _ = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     report = risk_report.GetCLRiskReport(build_id)
     for link_text, url in sorted(report.iteritems()):
       logging.PrintBuildbotLink(link_text, url)
@@ -1084,8 +1091,9 @@ class ReportStage(generic_stages.BuilderStage,
     This method should be called only after the build has been Finished in
     cidb.
     """
-    build_id, _ = self._run.GetCIDBHandle()
+    build_identifier, _ = self._run.GetCIDBHandle()
     if self.buildstore.AreClientsReady():
+      build_id = build_identifier.cidb_id
       build_info = self.buildstore.GetBuildStatuses(build_ids=[build_id])[0]
       duration = (build_info['finish_time'] -
                   build_info['start_time']).total_seconds()
@@ -1170,7 +1178,8 @@ class DetectRelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
       action: The action for the changes to record (must be one of
         constants.CL_ACTIONS).
     """
-    build_id, db = self._run.GetCIDBHandle()
+    build_identifier, db = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     if db:
       cl_actions = [clactions.CLAction.FromGerritPatchAndAction(
           change, action) for change in changes]

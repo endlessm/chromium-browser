@@ -1,9 +1,8 @@
 //===- llvm/lib/Target/ARM/ARMCallLowering.cpp - Call lowering ------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -132,7 +131,7 @@ struct OutgoingValueHandler : public CallLowering::ValueHandler {
     unsigned ExtReg = extendRegister(ValVReg, VA);
     auto MMO = MIRBuilder.getMF().getMachineMemOperand(
         MPO, MachineMemOperand::MOStore, VA.getLocVT().getStoreSize(),
-        /* Alignment */ 0);
+        /* Alignment */ 1);
     MIRBuilder.buildStore(ExtReg, Addr, *MMO);
   }
 
@@ -332,11 +331,11 @@ struct IncomingValueHandler : public CallLowering::ValueHandler {
       assert(MRI.getType(ValVReg).isScalar() && "Only scalars supported atm");
 
       auto LoadVReg = MRI.createGenericVirtualRegister(LLT::scalar(32));
-      buildLoad(LoadVReg, Addr, Size, /* Alignment */ 0, MPO);
+      buildLoad(LoadVReg, Addr, Size, /* Alignment */ 1, MPO);
       MIRBuilder.buildTrunc(ValVReg, LoadVReg);
     } else {
       // If the value is not extended, a simple load will suffice.
-      buildLoad(ValVReg, Addr, Size, /* Alignment */ 0, MPO);
+      buildLoad(ValVReg, Addr, Size, /* Alignment */ 1, MPO);
     }
   }
 

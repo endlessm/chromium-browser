@@ -8,6 +8,7 @@
 //
 
 #include "test_utils/ANGLETest.h"
+#include "test_utils/gl_raii.h"
 #include "util/EGLWindow.h"
 
 namespace angle
@@ -512,6 +513,17 @@ TEST_P(ImageTest, ANGLEExtensionAvailability)
             EXPECT_FALSE(hasCubemapExt());
             EXPECT_FALSE(hasExternalESSL3Ext());
         }
+    }
+    else if (IsVulkan())
+    {
+        EXPECT_TRUE(hasOESExt());
+        EXPECT_TRUE(hasExternalExt());
+        EXPECT_TRUE(hasBaseExt());
+        EXPECT_TRUE(has2DTextureExt());
+        EXPECT_TRUE(hasCubemapExt());
+        EXPECT_TRUE(hasRenderbufferExt());
+        // TODO(geofflang): Support GL_OES_EGL_image_external_essl3. http://anglebug.com/2668
+        EXPECT_FALSE(hasExternalESSL3Ext());
     }
     else
     {
@@ -1208,6 +1220,9 @@ TEST_P(ImageTest, SourceCubeTargetRenderbuffer)
     EGLWindow *window = getEGLWindow();
     ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !hasCubemapExt());
 
+    // http://anglebug.com/3145
+    ANGLE_SKIP_TEST_IF(IsVulkan() && IsIntel() && IsFuchsia());
+
     GLubyte data[24] = {
         255, 0, 255, 255, 255, 255, 255, 255, 255, 0, 0, 255,
         0,   0, 255, 255, 0,   255, 0,   255, 0,   0, 0, 255,
@@ -1624,9 +1639,9 @@ TEST_P(ImageTest, MipLevels)
 
     const size_t mipLevels   = 3;
     const size_t textureSize = 4;
-    std::vector<GLuint> mip0Data(textureSize * textureSize, 0xFFFF0000);
-    std::vector<GLuint> mip1Data(mip0Data.size() << 1, 0xFF00FF00);
-    std::vector<GLuint> mip2Data(mip0Data.size() << 2, 0xFF0000FF);
+    std::vector<GLColor> mip0Data(textureSize * textureSize, GLColor::red);
+    std::vector<GLColor> mip1Data(mip0Data.size() << 1, GLColor::green);
+    std::vector<GLColor> mip2Data(mip0Data.size() << 2, GLColor::blue);
     GLubyte *data[mipLevels] = {
         reinterpret_cast<GLubyte *>(&mip0Data[0]),
         reinterpret_cast<GLubyte *>(&mip1Data[0]),
@@ -1673,6 +1688,36 @@ TEST_P(ImageTest, MipLevels)
         // Expect that the targets have the same color as the source texture
         verifyResults2D(textureTarget, data[level]);
         verifyResultsRenderbuffer(renderbufferTarget, data[level]);
+
+        // Update the data by uploading data to the texture
+        std::vector<GLuint> textureUpdateData(textureSize * textureSize, level);
+        glBindTexture(GL_TEXTURE_2D, textureTarget);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, textureSize >> level, textureSize >> level, GL_RGBA,
+                        GL_UNSIGNED_BYTE, textureUpdateData.data());
+        ASSERT_GL_NO_ERROR();
+
+        // Expect that both the texture and renderbuffer see the updated texture data
+        verifyResults2D(textureTarget, reinterpret_cast<GLubyte *>(textureUpdateData.data()));
+        verifyResultsRenderbuffer(renderbufferTarget,
+                                  reinterpret_cast<GLubyte *>(textureUpdateData.data()));
+
+        // Update the renderbuffer by clearing it
+        GLFramebuffer fbo;
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                  renderbufferTarget);
+
+        GLubyte clearValue = static_cast<GLubyte>(level);
+        GLubyte renderbufferClearData[4]{clearValue, clearValue, clearValue, clearValue};
+        glClearColor(renderbufferClearData[0] / 255.0f, renderbufferClearData[1] / 255.0f,
+                     renderbufferClearData[2] / 255.0f, renderbufferClearData[3] / 255.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        ASSERT_GL_NO_ERROR();
+
+        // Expect that both the texture and renderbuffer see the cleared renderbuffer data
+        verifyResults2D(textureTarget, renderbufferClearData);
+        verifyResultsRenderbuffer(renderbufferTarget, renderbufferClearData);
 
         // Clean up
         eglDestroyImageKHR(window->getDisplay(), image);
@@ -1814,6 +1859,10 @@ TEST_P(ImageTest, RespecificationOfOtherLevel)
     // Respecification of textures that does not change the size of the level attached to the EGL
     // image does not cause orphaning on Qualcomm devices. http://anglebug.com/2744
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
+
+    // It is undefined what happens to the mip 0 of the dest texture after it is orphaned. Some
+    // backends explicitly copy the data but Vulkan does not.
+    ANGLE_SKIP_TEST_IF(IsVulkan());
 
     EGLWindow *window = getEGLWindow();
     ANGLE_SKIP_TEST_IF(!hasOESExt() || !hasBaseExt() || !has2DTextureExt());

@@ -36,7 +36,8 @@ class ParseError(Exception):
 
 
 class Expectation(object):
-    def __init__(self, reason, test, tags, results):
+    def __init__(self, reason, test, tags, results,
+                 retry_on_failure=False):
         """Constructor for expectations.
 
         Args:
@@ -55,6 +56,7 @@ class Expectation(object):
         self._test = test
         self._tags = frozenset(tags)
         self._results = frozenset(results)
+        self.should_retry_on_failure = retry_on_failure
 
     def __eq__(self, other):
         return (self.reason == other.reason and self.test == other.test
@@ -141,6 +143,7 @@ class TaggedTestListParser(object):
                         right_bracket = line.find(']')
                         if right_bracket == -1:
                             tag_set.update(line[1:].split())
+                            lineno += 1
                         else:
                             tag_set.update(line[1:right_bracket].split())
                             if line[right_bracket+1:]:
@@ -148,7 +151,6 @@ class TaggedTestListParser(object):
                                     lineno,
                                     'Nothing is allowed after a closing tag '
                                     'bracket')
-                        lineno += 1
                 else:
                     if line[right_bracket+1:]:
                         raise ParseError(
@@ -208,13 +210,21 @@ class TaggedTestListParser(object):
             raise ParseError(lineno, error_msg)
 
         results = []
+        retry_on_failure = False
         for r in raw_results.split():
             try:
-                results.append(_EXPECTATION_MAP[r])
+                # The test expectations may contain expected results and
+                # the RetryOnFailure tag
+                if r in  _EXPECTATION_MAP:
+                    results.append(_EXPECTATION_MAP[r])
+                elif r == 'RetryOnFailure':
+                    retry_on_failure = True
+                else:
+                    raise KeyError
             except KeyError:
                 raise ParseError(lineno, 'Unknown result type "%s"' % r)
 
-        return Expectation(reason, test, tags, results)
+        return Expectation(reason, test, tags, results, retry_on_failure)
 
 
 class TestExpectations(object):
@@ -255,7 +265,9 @@ class TestExpectations(object):
 
         return 0, None
 
-    def expected_results_for(self, test):
+    def expectations_for(self, test):
+        # Returns a tuple of (expectations, should_retry_on_failure)
+        #
         # A given test may have multiple expectations, each with different
         # sets of tags that apply and different expected results, e.g.:
         #
@@ -267,17 +279,20 @@ class TestExpectations(object):
         # a subset of the ones in effect, and  return the union of all of the
         # results. For example, if the runner is running with {Debug, Mac, Mac10.12}
         # then lines with no tags, {Mac}, or {Debug, Mac} would all match, but
-        # {Debug, Win} would not.
+        # {Debug, Win} would not. We also have to set the should_retry_on_failure
+        # boolean variable to True if any of the expectations have the
+        # should_retry_on_failure flag set to true
         #
         # The longest matching test string (name or glob) has priority.
         results = set()
-
+        should_retry_on_failure = False
         # First, check for an exact match on the test name.
         for exp in self.individual_exps.get(test, []):
             if exp.tags.issubset(self.tags):
                 results.update(exp.results)
-        if results:
-            return results
+                should_retry_on_failure |= exp.should_retry_on_failure
+        if results or should_retry_on_failure:
+            return (results or {ResultType.Pass}), should_retry_on_failure
 
         # If we didn't find an exact match, check for matching globs. Match by
         # the most specific (i.e., longest) glob first. Because self.globs is
@@ -287,12 +302,13 @@ class TestExpectations(object):
                 for exp in exps:
                     if exp.tags.issubset(self.tags):
                         results.update(exp.results)
-
+                        should_retry_on_failure |= exp.should_retry_on_failure
                 # if *any* of the exps matched, results will be non-empty,
                 # and we're done. If not, keep looking through ever-shorter
                 # globs.
-                if results:
-                    return results
+                if results or should_retry_on_failure:
+                    return ((results or {ResultType.Pass}),
+                            should_retry_on_failure)
 
         # Nothing matched, so by default, the test is expected to pass.
-        return {ResultType.Pass}
+        return {ResultType.Pass}, False

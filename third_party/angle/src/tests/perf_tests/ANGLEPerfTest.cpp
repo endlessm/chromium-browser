@@ -170,6 +170,7 @@ ANGLEPerfTest::ANGLEPerfTest(const std::string &name,
     : mName(name),
       mSuffix(suffix),
       mTimer(CreateTimer()),
+      mGPUTimeNs(0),
       mSkipTest(false),
       mStepsToRun(std::numeric_limits<unsigned int>::max()),
       mNumStepsPerformed(0),
@@ -213,11 +214,16 @@ void ANGLEPerfTest::run()
     // Do another warmup run. Seems to consistently improve results.
     doRunLoop(kMaximumRunTimeSeconds);
 
+    double totalTime = 0.0;
     for (unsigned int trial = 0; trial < kNumTrials; ++trial)
     {
         doRunLoop(kMaximumRunTimeSeconds);
-        printResults();
+        totalTime += printResults();
     }
+    double average = totalTime / kNumTrials;
+    std::ostringstream averageString;
+    averageString << "for " << kNumTrials << " runs";
+    printResult("average", average, averageString.str(), false);
 }
 
 void ANGLEPerfTest::doRunLoop(double maxRunTime)
@@ -225,6 +231,7 @@ void ANGLEPerfTest::doRunLoop(double maxRunTime)
     mNumStepsPerformed = 0;
     mRunning           = true;
     mTimer->start();
+    startTest();
 
     while (mRunning)
     {
@@ -266,24 +273,42 @@ void ANGLEPerfTest::SetUp() {}
 
 void ANGLEPerfTest::TearDown() {}
 
-void ANGLEPerfTest::printResults()
+double ANGLEPerfTest::printResults()
 {
-    double elapsedTimeSeconds = mTimer->getElapsedTime();
+    double elapsedTimeSeconds[2] = {
+        mTimer->getElapsedTime(),
+        mGPUTimeNs * 1e-9,
+    };
 
-    double secondsPerStep      = elapsedTimeSeconds / static_cast<double>(mNumStepsPerformed);
-    double secondsPerIteration = secondsPerStep / static_cast<double>(mIterationsPerStep);
+    const char *clockNames[2] = {
+        "wall_time",
+        "gpu_time",
+    };
 
-    // Give the result a different name to ensure separate graphs if we transition.
-    if (secondsPerIteration > 1e-3)
+    // If measured gpu time is non-zero, print that too.
+    size_t clocksToOutput = mGPUTimeNs > 0 ? 2 : 1;
+
+    double retValue = 0.0;
+    for (size_t i = 0; i < clocksToOutput; ++i)
     {
-        double microSecondsPerIteration = secondsPerIteration * kMicroSecondsPerSecond;
-        printResult("wall_time", microSecondsPerIteration, "us", true);
+        double secondsPerStep = elapsedTimeSeconds[i] / static_cast<double>(mNumStepsPerformed);
+        double secondsPerIteration = secondsPerStep / static_cast<double>(mIterationsPerStep);
+
+        // Give the result a different name to ensure separate graphs if we transition.
+        if (secondsPerIteration > 1e-3)
+        {
+            double microSecondsPerIteration = secondsPerIteration * kMicroSecondsPerSecond;
+            retValue                        = microSecondsPerIteration;
+            printResult(clockNames[i], microSecondsPerIteration, "us", true);
+        }
+        else
+        {
+            double nanoSecPerIteration = secondsPerIteration * kNanoSecondsPerSecond;
+            retValue                   = nanoSecPerIteration;
+            printResult(clockNames[i], nanoSecPerIteration, "ns", true);
+        }
     }
-    else
-    {
-        double nanoSecPerIteration = secondsPerIteration * kNanoSecondsPerSecond;
-        printResult("wall_time", nanoSecPerIteration, "ns", true);
-    }
+    return retValue;
 }
 
 double ANGLEPerfTest::normalizedTime(size_t value) const
@@ -494,19 +519,50 @@ void ANGLERenderTest::step()
     else
     {
         drawBenchmark();
-        // Swap is needed so that the GPU driver will occasionally flush its internal command queue
-        // to the GPU. The null device benchmarks are only testing CPU overhead, so they don't need
-        // to swap.
-        if (mTestParams.eglParameters.deviceType != EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE)
-        {
-            mGLWindow->swap();
-        }
+        // Swap is needed so that the GPU driver will occasionally flush its
+        // internal command queue to the GPU. This is enabled for null back-end
+        // devices because some back-ends (e.g. Vulkan) also accumulate internal
+        // command queues.
+        mGLWindow->swap();
         mOSWindow->messageLoop();
+    }
+}
+
+void ANGLERenderTest::startGpuTimer()
+{
+    if (mTestParams.trackGpuTime)
+    {
+        glBeginQueryEXT(GL_TIME_ELAPSED_EXT, mTimestampQuery);
+    }
+}
+
+void ANGLERenderTest::stopGpuTimer()
+{
+    if (mTestParams.trackGpuTime)
+    {
+        glEndQueryEXT(GL_TIME_ELAPSED_EXT);
+        uint64_t gpuTimeNs = 0;
+        glGetQueryObjectui64vEXT(mTimestampQuery, GL_QUERY_RESULT_EXT, &gpuTimeNs);
+
+        mGPUTimeNs += gpuTimeNs;
+    }
+}
+
+void ANGLERenderTest::startTest()
+{
+    if (mTestParams.trackGpuTime)
+    {
+        glGenQueriesEXT(1, &mTimestampQuery);
+        mGPUTimeNs = 0;
     }
 }
 
 void ANGLERenderTest::finishTest()
 {
+    if (mTestParams.trackGpuTime)
+    {
+        glDeleteQueriesEXT(1, &mTimestampQuery);
+    }
     if (mTestParams.eglParameters.deviceType != EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE)
     {
         glFinish();

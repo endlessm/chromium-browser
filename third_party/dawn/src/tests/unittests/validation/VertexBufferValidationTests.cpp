@@ -24,8 +24,6 @@ class VertexBufferValidationTest : public ValidationTest {
         void SetUp() override {
             ValidationTest::SetUp();
 
-            renderpass = CreateSimpleRenderPass();
-
             fsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Fragment, R"(
                 #version 450
                 layout(location = 0) out vec4 fragColor;
@@ -71,9 +69,20 @@ class VertexBufferValidationTest : public ValidationTest {
 
         dawn::InputState MakeInputState(unsigned int numInputs) {
             auto builder = device.CreateInputStateBuilder();
+            dawn::VertexAttributeDescriptor attribute;
+            attribute.offset = 0;
+            attribute.format = dawn::VertexFormat::FloatR32G32B32;
+
+            dawn::VertexInputDescriptor input;
+            input.stride = 0;
+            input.stepMode = dawn::InputStepMode::Vertex;
+
             for (unsigned int i = 0; i < numInputs; ++i) {
-                builder.SetAttribute(i, i, dawn::VertexFormat::FloatR32G32B32, 0);
-                builder.SetInput(i, 0, dawn::InputStepMode::Vertex);
+                attribute.shaderLocation = i;
+                attribute.inputSlot = i;
+                input.inputSlot = i;
+                builder.SetAttribute(&attribute);
+                builder.SetInput(&input);
             }
             return builder.GetResult();
         }
@@ -88,11 +97,11 @@ class VertexBufferValidationTest : public ValidationTest {
             return device.CreateRenderPipeline(&descriptor);
         }
 
-        dawn::RenderPassDescriptor renderpass;
         dawn::ShaderModule fsModule;
 };
 
 TEST_F(VertexBufferValidationTest, VertexInputsInheritedBetweenPipelines) {
+    DummyRenderPass renderPass(device);
     auto vsModule2 = MakeVertexShader(2);
     auto vsModule1 = MakeVertexShader(1);
 
@@ -106,19 +115,19 @@ TEST_F(VertexBufferValidationTest, VertexInputsInheritedBetweenPipelines) {
     uint32_t offsets[] = { 0, 0 };
 
     // Check failure when vertex buffer is not set
-    dawn::CommandBufferBuilder builder = AssertWillBeError(device.CreateCommandBufferBuilder());
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
         pass.SetPipeline(pipeline1);
         pass.Draw(3, 1, 0, 0);
         pass.EndPass();
     }
-    builder.GetResult();
+    ASSERT_DEVICE_ERROR(encoder.Finish());
 
     // Check success when vertex buffer is inherited from previous pipeline
-    builder = AssertWillBeSuccess(device.CreateCommandBufferBuilder());
+    encoder = device.CreateCommandEncoder();
     {
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
         pass.SetPipeline(pipeline2);
         pass.SetVertexBuffers(0, 2, vertexBuffers.data(), offsets);
         pass.Draw(3, 1, 0, 0);
@@ -126,10 +135,11 @@ TEST_F(VertexBufferValidationTest, VertexInputsInheritedBetweenPipelines) {
         pass.Draw(3, 1, 0, 0);
         pass.EndPass();
     }
-    builder.GetResult();
+    encoder.Finish();
 }
 
 TEST_F(VertexBufferValidationTest, VertexInputsNotInheritedBetweenRendePasses) {
+    DummyRenderPass renderPass(device);
     auto vsModule2 = MakeVertexShader(2);
     auto vsModule1 = MakeVertexShader(1);
 
@@ -143,37 +153,37 @@ TEST_F(VertexBufferValidationTest, VertexInputsNotInheritedBetweenRendePasses) {
     uint32_t offsets[] = { 0, 0 };
 
     // Check success when vertex buffer is set for each render pass
-    dawn::CommandBufferBuilder builder = AssertWillBeSuccess(device.CreateCommandBufferBuilder());
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
         pass.SetPipeline(pipeline2);
         pass.SetVertexBuffers(0, 2, vertexBuffers.data(), offsets);
         pass.Draw(3, 1, 0, 0);
         pass.EndPass();
     }
     {
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
         pass.SetPipeline(pipeline1);
         pass.SetVertexBuffers(0, 1, vertexBuffers.data(), offsets);
         pass.Draw(3, 1, 0, 0);
         pass.EndPass();
     }
-    builder.GetResult();
+    encoder.Finish();
 
     // Check failure because vertex buffer is not inherited in second subpass
-    builder = AssertWillBeError(device.CreateCommandBufferBuilder());
+    encoder = device.CreateCommandEncoder();
     {
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
         pass.SetPipeline(pipeline2);
         pass.SetVertexBuffers(0, 2, vertexBuffers.data(), offsets);
         pass.Draw(3, 1, 0, 0);
         pass.EndPass();
     }
     {
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
         pass.SetPipeline(pipeline1);
         pass.Draw(3, 1, 0, 0);
         pass.EndPass();
     }
-    builder.GetResult();
+    ASSERT_DEVICE_ERROR(encoder.Finish());
 }

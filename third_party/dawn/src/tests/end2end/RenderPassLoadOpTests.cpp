@@ -62,10 +62,10 @@ class RenderPassLoadOpTests : public DawnTest {
             descriptor.size.width = kRTSize;
             descriptor.size.height = kRTSize;
             descriptor.size.depth = 1;
-            descriptor.arraySize = 1;
+            descriptor.arrayLayerCount = 1;
             descriptor.sampleCount = 1;
             descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
-            descriptor.levelCount = 1;
+            descriptor.mipLevelCount = 1;
             descriptor.usage = dawn::TextureUsageBit::OutputAttachment | dawn::TextureUsageBit::TransferSrc;
             renderTarget = device.CreateTexture(&descriptor);
 
@@ -112,33 +112,19 @@ class RenderPassLoadOpTests : public DawnTest {
 
 // Tests clearing, loading, and drawing into color attachments
 TEST_P(RenderPassLoadOpTests, ColorClearThenLoadAndDraw) {
-    dawn::RenderPassColorAttachmentDescriptor colorAttachment;
-    colorAttachment.attachment = renderTargetView;
-    colorAttachment.resolveTarget = nullptr;
-    colorAttachment.clearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-    colorAttachment.loadOp = dawn::LoadOp::Clear;
-    colorAttachment.storeOp = dawn::StoreOp::Store;
-
     // Part 1: clear once, check to make sure it's cleared
-    auto renderPassClearZero = device.CreateRenderPassDescriptorBuilder()
-        .SetColorAttachments(1, &colorAttachment)
-        .GetResult();
-
-    auto commandsClearZeroBuilder = device.CreateCommandBufferBuilder();
-    auto clearZeroPass = commandsClearZeroBuilder.BeginRenderPass(renderPassClearZero);
+    utils::ComboRenderPassDescriptor renderPassClearZero({renderTargetView});
+    auto commandsClearZeroEncoder = device.CreateCommandEncoder();
+    auto clearZeroPass = commandsClearZeroEncoder.BeginRenderPass(&renderPassClearZero);
     clearZeroPass.EndPass();
-    auto commandsClearZero = commandsClearZeroBuilder.GetResult();
+    auto commandsClearZero = commandsClearZeroEncoder.Finish();
 
-    dawn::RenderPassColorAttachmentDescriptor colorAttachmentGreen = colorAttachment;
-    colorAttachmentGreen.clearColor = { 0.0f, 1.0f, 0.0f, 1.0f };
-    auto renderPassClearGreen = device.CreateRenderPassDescriptorBuilder()
-        .SetColorAttachments(1, &colorAttachmentGreen)
-        .GetResult();
-
-    auto commandsClearGreenBuilder = device.CreateCommandBufferBuilder();
-    auto clearGreenPass = commandsClearGreenBuilder.BeginRenderPass(renderPassClearGreen);
+    utils::ComboRenderPassDescriptor renderPassClearGreen({renderTargetView});
+    renderPassClearGreen.cColorAttachmentsInfoPtr[0]->clearColor = {0.0f, 1.0f, 0.0f, 1.0f};
+    auto commandsClearGreenEncoder = device.CreateCommandEncoder();
+    auto clearGreenPass = commandsClearGreenEncoder.BeginRenderPass(&renderPassClearGreen);
     clearGreenPass.EndPass();
-    auto commandsClearGreen = commandsClearGreenBuilder.GetResult();
+    auto commandsClearGreen = commandsClearGreenEncoder.Finish();
 
     queue.Submit(1, &commandsClearZero);
     EXPECT_TEXTURE_RGBA8_EQ(expectZero.data(), renderTarget, 0, 0, kRTSize, kRTSize, 0, 0);
@@ -147,19 +133,15 @@ TEST_P(RenderPassLoadOpTests, ColorClearThenLoadAndDraw) {
     EXPECT_TEXTURE_RGBA8_EQ(expectGreen.data(), renderTarget, 0, 0, kRTSize, kRTSize, 0, 0);
 
     // Part 2: draw a blue quad into the right half of the render target, and check result
-    dawn::RenderPassColorAttachmentDescriptor colorAttachmentLoad = colorAttachment;
-    colorAttachmentLoad.loadOp = dawn::LoadOp::Load;
-    auto renderPassLoad = device.CreateRenderPassDescriptorBuilder()
-        .SetColorAttachments(1, &colorAttachmentLoad)
-        .GetResult();
-
+    utils::ComboRenderPassDescriptor renderPassLoad({renderTargetView});
+    renderPassLoad.cColorAttachmentsInfoPtr[0]->loadOp = dawn::LoadOp::Load;
     dawn::CommandBuffer commandsLoad;
     {
-        auto builder = device.CreateCommandBufferBuilder();
-        auto pass = builder.BeginRenderPass(renderPassLoad);
+        auto encoder = device.CreateCommandEncoder();
+        auto pass = encoder.BeginRenderPass(&renderPassLoad);
         blueQuad.Draw(&pass);
         pass.EndPass();
-        commandsLoad = builder.GetResult();
+        commandsLoad = encoder.Finish();
     }
 
     queue.Submit(1, &commandsLoad);
@@ -169,4 +151,4 @@ TEST_P(RenderPassLoadOpTests, ColorClearThenLoadAndDraw) {
     EXPECT_TEXTURE_RGBA8_EQ(expectBlue.data(), renderTarget, kRTSize / 2, 0, kRTSize / 2, kRTSize, 0, 0);
 }
 
-DAWN_INSTANTIATE_TEST(RenderPassLoadOpTests, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend)
+DAWN_INSTANTIATE_TEST(RenderPassLoadOpTests, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);

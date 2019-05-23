@@ -58,6 +58,8 @@ from dashboard.api import alerts as api_alerts
 from dashboard.api import bugs
 from dashboard.api import describe
 from dashboard.api import list_timeseries
+from dashboard.api import new_bug
+from dashboard.api import existing_bug
 from dashboard.api import report_generate
 from dashboard.api import report_names
 from dashboard.api import report_template
@@ -75,10 +77,11 @@ _URL_MAPPING = [
     ('/add_point_queue', add_point_queue.AddPointQueueHandler),
     ('/alerts', alerts.AlertsHandler),
     (r'/api/alerts', api_alerts.AlertsHandler),
-    (r'/api/alerts/(.*)', api_alerts.AlertsHandler),
     (r'/api/bugs/(.*)', bugs.BugsHandler),
     (r'/api/describe', describe.DescribeHandler),
     (r'/api/list_timeseries/(.*)', list_timeseries.ListTimeseriesHandler),
+    (r'/api/new_bug', new_bug.NewBugHandler),
+    (r'/api/existing_bug', existing_bug.ExistingBugHandler),
     (r'/api/report/generate', report_generate.ReportGenerateHandler),
     (r'/api/report/names', report_names.ReportNamesHandler),
     (r'/api/report/template', report_template.ReportTemplateHandler),

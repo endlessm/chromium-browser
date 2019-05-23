@@ -1,9 +1,8 @@
 //===- Writer.cpp ---------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -61,7 +60,8 @@ private:
 
   std::vector<PhdrEntry *> createPhdrs();
   void removeEmptyPTLoad();
-  void addPtArmExid(std::vector<PhdrEntry *> &Phdrs);
+  void addPhdrForSection(std::vector<PhdrEntry *> &Phdrs, unsigned ShType,
+                         unsigned PType, unsigned PFlags);
   void assignFileOffsets();
   void assignFileOffsetsBinary();
   void setPhdrs();
@@ -289,10 +289,8 @@ template <class ELFT> static void createSyntheticSections() {
   Out::ProgramHeaders = make<OutputSection>("", 0, SHF_ALLOC);
   Out::ProgramHeaders->Alignment = Config->Wordsize;
 
-  if (needsInterpSection()) {
-    In.Interp = createInterpSection();
-    Add(In.Interp);
-  }
+  if (needsInterpSection())
+    Add(createInterpSection());
 
   if (Config->Strip != StripPolicy::All) {
     In.StrTab = make<StringTableSection>(".strtab", false);
@@ -385,10 +383,8 @@ template <class ELFT> static void createSyntheticSections() {
   In.IgotPlt = make<IgotPltSection>();
   Add(In.IgotPlt);
 
-  if (Config->GdbIndex) {
-    In.GdbIndex = GdbIndexSection::create<ELFT>();
-    Add(In.GdbIndex);
-  }
+  if (Config->GdbIndex)
+    Add(GdbIndexSection::create<ELFT>());
 
   // We always need to add rel[a].plt to output if it has entries.
   // Even for static linking it can contain R_[*]_IRELATIVE relocations.
@@ -1251,6 +1247,24 @@ static void sortSection(OutputSection *Sec,
   if (Name == ".init" || Name == ".fini")
     return;
 
+  // .toc is allocated just after .got and is accessed using GOT-relative
+  // relocations. Object files compiled with small code model have an
+  // addressable range of [.got, .got + 0xFFFC] for GOT-relative relocations.
+  // To reduce the risk of relocation overflow, .toc contents are sorted so that
+  // sections having smaller relocation offsets are at beginning of .toc
+  if (Config->EMachine == EM_PPC64 && Name == ".toc") {
+    if (Script->HasSectionsCommand)
+      return;
+    assert(Sec->SectionCommands.size() == 1);
+    auto *ISD = cast<InputSectionDescription>(Sec->SectionCommands[0]);
+    std::stable_sort(ISD->Sections.begin(), ISD->Sections.end(),
+                     [](const InputSection *A, const InputSection *B) -> bool {
+                       return A->File->PPC64SmallCodeModelTocRelocs &&
+                              !B->File->PPC64SmallCodeModelTocRelocs;
+                     });
+    return;
+  }
+
   // Sort input sections by priority using the list provided
   // by --symbol-ordering-file.
   if (!Order.empty())
@@ -1660,10 +1674,33 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
   if (!Config->Relocatable)
     forEachRelSec(scanRelocations<ELFT>);
 
+  addIRelativeRelocs();
+
   if (In.Plt && !In.Plt->empty())
     In.Plt->addSymbols();
   if (In.Iplt && !In.Iplt->empty())
     In.Iplt->addSymbols();
+
+  if (!Config->AllowShlibUndefined) {
+    // Error on undefined symbols in a shared object, if all of its DT_NEEDED
+    // entires are seen. These cases would otherwise lead to runtime errors
+    // reported by the dynamic linker.
+    //
+    // ld.bfd traces all DT_NEEDED to emulate the logic of the dynamic linker to
+    // catch more cases. That is too much for us. Our approach resembles the one
+    // used in ld.gold, achieves a good balance to be useful but not too smart.
+    for (InputFile *File : SharedFiles) {
+      SharedFile<ELFT> *F = cast<SharedFile<ELFT>>(File);
+      F->AllNeededIsKnown = llvm::all_of(F->DtNeeded, [&](StringRef Needed) {
+        return Symtab->SoNames.count(Needed);
+      });
+    }
+    for (Symbol *Sym : Symtab->getSymbols())
+      if (Sym->isUndefined() && !Sym->isWeak())
+        if (auto *F = dyn_cast_or_null<SharedFile<ELFT>>(Sym->File))
+          if (F->AllNeededIsKnown)
+            error(toString(F) + ": undefined reference to " + toString(*Sym));
+  }
 
   // Now that we have defined all possible global symbols including linker-
   // synthesized ones. Visit all symbols to give the finishing touches.
@@ -1721,7 +1758,16 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
   // image base and the dynamic section on mips includes the image base.
   if (!Config->Relocatable && !Config->OFormatBinary) {
     Phdrs = Script->hasPhdrsCommands() ? Script->createPhdrs() : createPhdrs();
-    addPtArmExid(Phdrs);
+    if (Config->EMachine == EM_ARM) {
+      // PT_ARM_EXIDX is the ARM EHABI equivalent of PT_GNU_EH_FRAME
+      addPhdrForSection(Phdrs, SHT_ARM_EXIDX, PT_ARM_EXIDX, PF_R);
+    }
+    if (Config->EMachine == EM_MIPS) {
+      // Add separate segments for MIPS-specific sections.
+      addPhdrForSection(Phdrs, SHT_MIPS_REGINFO, PT_MIPS_REGINFO, PF_R);
+      addPhdrForSection(Phdrs, SHT_MIPS_OPTIONS, PT_MIPS_OPTIONS, PF_R);
+      addPhdrForSection(Phdrs, SHT_MIPS_ABIFLAGS, PT_MIPS_ABIFLAGS, PF_R);
+    }
     Out::ProgramHeaders->Size = sizeof(Elf_Phdr) * Phdrs.size();
 
     // Find the TLS segment. This happens before the section layout loop so that
@@ -2017,19 +2063,17 @@ template <class ELFT> std::vector<PhdrEntry *> Writer<ELFT>::createPhdrs() {
 }
 
 template <class ELFT>
-void Writer<ELFT>::addPtArmExid(std::vector<PhdrEntry *> &Phdrs) {
-  if (Config->EMachine != EM_ARM)
-    return;
-  auto I = llvm::find_if(OutputSections, [](OutputSection *Cmd) {
-    return Cmd->Type == SHT_ARM_EXIDX;
-  });
+void Writer<ELFT>::addPhdrForSection(std::vector<PhdrEntry *> &Phdrs,
+                                     unsigned ShType, unsigned PType,
+                                     unsigned PFlags) {
+  auto I = llvm::find_if(
+      OutputSections, [=](OutputSection *Cmd) { return Cmd->Type == ShType; });
   if (I == OutputSections.end())
     return;
 
-  // PT_ARM_EXIDX is the ARM EHABI equivalent of PT_GNU_EH_FRAME
-  PhdrEntry *ARMExidx = make<PhdrEntry>(PT_ARM_EXIDX, PF_R);
-  ARMExidx->add(*I);
-  Phdrs.push_back(ARMExidx);
+  PhdrEntry *Entry = make<PhdrEntry>(PType, PFlags);
+  Entry->add(*I);
+  Phdrs.push_back(Entry);
 }
 
 // The first section of each PT_LOAD, the first section in PT_GNU_RELRO and the
@@ -2344,9 +2388,21 @@ static uint16_t getELFType() {
 
 static uint8_t getAbiVersion() {
   // MIPS non-PIC executable gets ABI version 1.
-  if (Config->EMachine == EM_MIPS && getELFType() == ET_EXEC &&
-      (Config->EFlags & (EF_MIPS_PIC | EF_MIPS_CPIC)) == EF_MIPS_CPIC)
-    return 1;
+  if (Config->EMachine == EM_MIPS) {
+    if (getELFType() == ET_EXEC &&
+        (Config->EFlags & (EF_MIPS_PIC | EF_MIPS_CPIC)) == EF_MIPS_CPIC)
+      return 1;
+    return 0;
+  }
+
+  if (Config->EMachine == EM_AMDGPU) {
+    uint8_t Ver = ObjectFiles[0]->ABIVersion;
+    for (InputFile *File : makeArrayRef(ObjectFiles).slice(1))
+      if (File->ABIVersion != Ver)
+        error("incompatible ABI version: " + toString(File));
+    return Ver;
+  }
+
   return 0;
 }
 

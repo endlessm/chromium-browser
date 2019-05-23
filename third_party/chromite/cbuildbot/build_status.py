@@ -185,7 +185,8 @@ class SlaveStatus(object):
 
     self.all_cidb_status_dict = (
         builder_status_lib.SlaveBuilderStatus.GetAllSlaveCIDBStatusInfo(
-            self.db, self.master_build_id, self.all_buildbucket_info_dict))
+            self.buildstore, self.master_build_id,
+            self.all_buildbucket_info_dict))
     self.new_cidb_status_dict = self._GetNewSlaveCIDBStatusInfo(
         self.all_cidb_status_dict, self.completed_builds)
 
@@ -301,10 +302,10 @@ class SlaveStatus(object):
           logging.info('Not retriable build %s started already.', build)
           continue
 
-        assert self.db is not None
+        assert self.buildstore.AreClientsReady()
 
-        build_stages = self.db.GetBuildStages(
-            self.new_cidb_status_dict[build].build_id)
+        build_stages = self.buildstore.GetBuildsStages(build_ids=[
+            self.new_cidb_status_dict[build].build_id])
         accepted_stages = {stage['name'] for stage in build_stages
                            if stage['status'] in self.ACCEPTED_STATUSES}
 
@@ -412,7 +413,8 @@ class SlaveStatus(object):
     )
     all_experimental_cidb_status_dict = (
         builder_status_lib.SlaveBuilderStatus.GetAllSlaveCIDBStatusInfo(
-            self.db, self.master_build_id, all_experimental_bb_info_dict)
+            self.buildstore, self.master_build_id,
+            all_experimental_bb_info_dict)
     )
 
     completed_experimental_builds = set(
@@ -643,11 +645,10 @@ class SlaveStatus(object):
         # ignored_reason message into the buildMessageTable.
         for build in uncompleted_important_builds:
           if build in self.all_cidb_status_dict:
-            self.db.InsertBuildMessage(
+            self.buildstore.InsertBuildMessage(
                 self.master_build_id,
-                message_type=constants.MESSAGE_TYPE_IGNORED_REASON,
-                message_subtype=constants.MESSAGE_SUBTYPE_SELF_DESTRUCTION,
-                message_value=str(self.all_cidb_status_dict[build].build_id))
+                message_value=str(
+                    self.all_cidb_status_dict[build].buildbucket_id))
         builder_status_lib.CancelBuilds(uncompleted_build_buildbucket_ids,
                                         self.buildbucket_client,
                                         self.dry_run,

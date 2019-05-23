@@ -452,6 +452,20 @@ TEST(StringViewMatcherTest, CanBeImplicitlyConstructedFromStringView) {
 }
 #endif  // GTEST_HAS_ABSL
 
+// Tests that a std::reference_wrapper<std::string> object can be implicitly
+// converted to a Matcher<std::string> or Matcher<const std::string&> via Eq().
+TEST(StringMatcherTest,
+     CanBeImplicitlyConstructedFromEqReferenceWrapperString) {
+  std::string value = "cats";
+  Matcher<std::string> m1 = Eq(std::ref(value));
+  EXPECT_TRUE(m1.Matches("cats"));
+  EXPECT_FALSE(m1.Matches("dogs"));
+
+  Matcher<const std::string&> m2 = Eq(std::ref(value));
+  EXPECT_TRUE(m2.Matches("cats"));
+  EXPECT_FALSE(m2.Matches("dogs"));
+}
+
 // Tests that MakeMatcher() constructs a Matcher<T> from a
 // MatcherInterface* without requiring the user to explicitly
 // write the type.
@@ -968,6 +982,8 @@ class Unprintable {
   Unprintable() : c_('a') {}
 
   bool operator==(const Unprintable& /* rhs */) const { return true; }
+  // -Wunused-private-field: dummy accessor for `c_`.
+  char dummy_c() { return c_; }
  private:
   char c_;
 };
@@ -4858,7 +4874,7 @@ typedef testing::Types<
     list<int> >
     ContainerEqTestTypes;
 
-TYPED_TEST_CASE(ContainerEqTest, ContainerEqTestTypes);
+TYPED_TEST_SUITE(ContainerEqTest, ContainerEqTestTypes);
 
 // Tests that the filled container is equal to itself.
 TYPED_TEST(ContainerEqTest, EqualsSelf) {
@@ -6090,7 +6106,7 @@ TEST_P(BipartiteTest, Exhaustive) {
   } while (graph.NextGraph());
 }
 
-INSTANTIATE_TEST_CASE_P(AllGraphs, BipartiteTest,
+INSTANTIATE_TEST_SUITE_P(AllGraphs, BipartiteTest,
                         ::testing::Range(0, 5));
 
 // Parameterized by a pair interpreted as (LhsSize, RhsSize).
@@ -6133,7 +6149,7 @@ TEST_P(BipartiteNonSquareTest, Exhaustive) {
   } while (graph.NextGraph());
 }
 
-INSTANTIATE_TEST_CASE_P(AllGraphs, BipartiteNonSquareTest,
+INSTANTIATE_TEST_SUITE_P(AllGraphs, BipartiteNonSquareTest,
     testing::Values(
         std::make_pair(1, 2),
         std::make_pair(2, 1),
@@ -6171,7 +6187,7 @@ TEST_P(BipartiteRandomTest, LargerNets) {
 }
 
 // Test argument is a std::pair<int, int> representing (nodes, iters).
-INSTANTIATE_TEST_CASE_P(Samples, BipartiteRandomTest,
+INSTANTIATE_TEST_SUITE_P(Samples, BipartiteRandomTest,
     testing::Values(
         std::make_pair(5, 10000),
         std::make_pair(6, 5000),
@@ -6927,10 +6943,10 @@ TEST(ArgsTest, ExplainsMatchResultWithoutInnerExplanation) {
 // For testing Args<>'s explanation.
 class LessThanMatcher : public MatcherInterface<std::tuple<char, int> > {
  public:
-  virtual void DescribeTo(::std::ostream* os) const {}
+  void DescribeTo(::std::ostream* /*os*/) const override {}
 
-  virtual bool MatchAndExplain(std::tuple<char, int> value,
-                               MatchResultListener* listener) const {
+  bool MatchAndExplain(std::tuple<char, int> value,
+                       MatchResultListener* listener) const override {
     const int diff = std::get<0>(value) - std::get<1>(value);
     if (diff > 0) {
       *listener << "where the first value is " << diff

@@ -1,9 +1,8 @@
 //===-- llvm/CodeGen/GlobalISel/Legalizer.cpp -----------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -77,6 +76,7 @@ static bool isArtifact(const MachineInstr &MI) {
   case TargetOpcode::G_UNMERGE_VALUES:
   case TargetOpcode::G_CONCAT_VECTORS:
   case TargetOpcode::G_BUILD_VECTOR:
+  case TargetOpcode::G_EXTRACT:
     return true;
   }
 }
@@ -155,16 +155,19 @@ bool Legalizer::runOnMachineFunction(MachineFunction &MF) {
       if (!isPreISelGenericOpcode(MI.getOpcode()))
         continue;
       if (isArtifact(MI))
-        ArtifactList.insert(&MI);
+        ArtifactList.deferred_insert(&MI);
       else
-        InstList.insert(&MI);
+        InstList.deferred_insert(&MI);
     }
   }
+  ArtifactList.finalize();
+  InstList.finalize();
   std::unique_ptr<MachineIRBuilder> MIRBuilder;
   GISelCSEInfo *CSEInfo = nullptr;
-  bool IsO0 = TPC.getOptLevel() == CodeGenOpt::Level::None;
-  // Disable CSE for O0.
-  bool EnableCSE = !IsO0 && EnableCSEInLegalizer;
+  bool EnableCSE = EnableCSEInLegalizer.getNumOccurrences()
+                       ? EnableCSEInLegalizer
+                       : TPC.isGISelCSEEnabled();
+
   if (EnableCSE) {
     MIRBuilder = make_unique<CSEMIRBuilder>();
     std::unique_ptr<CSEConfig> Config = make_unique<CSEConfig>();

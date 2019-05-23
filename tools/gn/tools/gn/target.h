@@ -331,7 +331,7 @@ class Target : public Item {
   // are just passed to the output. The output will always be overwritten, not
   // appended to.
   bool GetOutputFilesForSource(const SourceFile& source,
-                               Toolchain::ToolType* computed_tool_type,
+                               const char** computed_tool_type,
                                std::vector<OutputFile>* outputs) const;
 
  private:
@@ -346,7 +346,7 @@ class Target : public Item {
   void PullRecursiveBundleData();
 
   // Fills the link and dependency output files when a target is resolved.
-  void FillOutputFiles();
+  bool FillOutputFiles(Err* err);
 
   // Checks precompiled headers from configs and makes sure the resulting
   // values are in config_values_.

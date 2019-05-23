@@ -124,6 +124,9 @@ struct AutocompleteMatch {
     DRIVE_FORMS,
     DRIVE_SHEETS,
     DRIVE_SLIDES,
+    DRIVE_IMAGE,
+    DRIVE_PDF,
+    DRIVE_VIDEO,
     DRIVE_OTHER
   };
 
@@ -146,7 +149,8 @@ struct AutocompleteMatch {
   const gfx::VectorIcon& GetVectorIcon(bool is_bookmark) const;
 #endif
 
-  // Comparison function for determining when one match is better than another.
+  // Comparison function for determining whether the first match is better than
+  // the second.
   static bool MoreRelevant(const AutocompleteMatch& elem1,
                            const AutocompleteMatch& elem2);
 
@@ -307,8 +311,10 @@ struct AutocompleteMatch {
   // there isn't an image URL, returns an empty GURL (test with is_empty()).
   GURL ImageUrl() const;
 
-  // Changes properties to make use of the Pedal (e.g. content, URLs...).
-  void ApplyPedal();
+  // Returns a new Pedal match suggestion instance derived from this match,
+  // which is considered to be the triggering suggestion.  The new match
+  // will be set to use the given |pedal|.
+  AutocompleteMatch DerivePedalSuggestion(OmniboxPedal* pedal) const;
 
   // Adds optional information to the |additional_info| dictionary.
   void RecordAdditionalInfo(const std::string& property,
@@ -504,6 +510,10 @@ struct AutocompleteMatch {
   // and sorted.  Most providers will leave this as NULL, which will cause the
   // AutocompleteController to do no additional transformations.
   std::unique_ptr<TemplateURLRef::SearchTermsArgs> search_terms_args;
+
+  // Optional post content. If this is set, the request to load the destination
+  // url will pass this post content as well.
+  std::unique_ptr<TemplateURLRef::PostContent> post_content;
 
   // Information dictionary into which each provider can optionally record a
   // property and associated value and which is presented in chrome://omnibox.

@@ -258,7 +258,6 @@ def RunTests(args):
     PrintTelemetryHelp()
     return parser.exit_status
   binary_manager.InitDependencyManager(options.client_configs)
-  not_using_typ_expectation = len(options.expectations_files) == 0
   for start_dir in options.start_dirs:
     modules_to_classes = discover.DiscoverClasses(
         start_dir,
@@ -280,6 +279,12 @@ def RunTests(args):
     print 'Available tests: %s' % '\n'.join(
         cl.Name() for cl in browser_test_classes)
     return 1
+
+  test_class_expectations_files = test_class.ExpectationsFiles()
+
+  # all file paths in test_class_expectations-files must be absolute
+  assert all(os.path.isabs(path) for path in test_class_expectations_files)
+  options.expectations_files.extend(test_class_expectations_files)
 
   # Create test context.
   context = browser_test_context.TypTestContext()
@@ -308,7 +313,7 @@ def RunTests(args):
   possible_browser = browser_finder.FindBrowser(context.finder_options)
 
   # Setup typ runner.
-  runner = typ.Runner()
+  test_class._typ_runner = runner = typ.Runner()
   options.tags.extend(test_class.GenerateTags(context.finder_options,
                                               possible_browser))
   runner.context = context
@@ -329,7 +334,8 @@ def RunTests(args):
   runner.args.write_trace_to = options.write_trace_to
   runner.args.list_only = options.list_only
   runner.classifier = _GetClassifier(options)
-
+  runner.args.retry_only_retry_on_failure_tests = (
+      options.retry_only_retry_on_failure_tests)
   runner.args.suffixes = TEST_SUFFIXES
 
   # Since sharding logic is handled by browser_test_runner harness by passing
@@ -346,35 +352,7 @@ def RunTests(args):
   except KeyboardInterrupt:
     print >> sys.stderr, "interrupted, exiting"
     ret = 130
-  finally:
-    if (options.write_full_results_to and
-        os.path.exists(options.write_full_results_to) and
-        not_using_typ_expectation):
-      # Set expectation of all skipped tests to skip to keep the test behavior
-      # the same as when typ doesn't support test expectation.
-      # (also see crbug.com/904019) for why this work around is needed)
-      # TODO(crbug.com/698902): remove this once gpu tests are converted to use
-      # typ's expectation.
-      _SetSkippedTestExpectationsToSkip(options.write_full_results_to)
   return ret
-
-
-def _SetSkippedTestExpectationsToSkip(full_results_file_path):
-  with open(full_results_file_path) as f:
-    results = json.load(f)
-  root_node = results['tests']
-  queue = [root_node]
-  while queue:
-    curr_node = queue.pop()
-    if 'actual' in curr_node:
-      if curr_node['actual'] == 'SKIP':
-        curr_node['expected'] = 'SKIP'
-    else:
-      for v in curr_node.values():
-        queue.append(v)
-  with open(full_results_file_path, 'w') as f:
-    json.dump(results, f, indent=2)
-
 
 def _SetUpProcess(child, context):
   args = context.finder_options

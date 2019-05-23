@@ -1,9 +1,8 @@
 //===--- SemaType.cpp - Semantic Analysis for Types -----------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1442,7 +1441,15 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     else
       Result = Context.Int128Ty;
     break;
-  case DeclSpec::TST_float16: Result = Context.Float16Ty; break;
+  case DeclSpec::TST_float16:
+    // CUDA host and device may have different _Float16 support, therefore
+    // do not diagnose _Float16 usage to avoid false alarm.
+    // ToDo: more precise diagnostics for CUDA.
+    if (!S.Context.getTargetInfo().hasFloat16Type() && !S.getLangOpts().CUDA)
+      S.Diag(DS.getTypeSpecTypeLoc(), diag::err_type_unsupported)
+        << "_Float16";
+    Result = Context.Float16Ty;
+    break;
   case DeclSpec::TST_half:    Result = Context.HalfTy; break;
   case DeclSpec::TST_float:   Result = Context.FloatTy; break;
   case DeclSpec::TST_double:
@@ -1868,7 +1875,7 @@ static QualType inferARCLifetimeForPointee(Sema &S, QualType type,
 }
 
 static std::string getFunctionQualifiersAsString(const FunctionProtoType *FnTy){
-  std::string Quals = FnTy->getTypeQuals().getAsString();
+  std::string Quals = FnTy->getMethodQuals().getAsString();
 
   switch (FnTy->getRefQualifier()) {
   case RQ_None:
@@ -1910,7 +1917,7 @@ static bool checkQualifiedFunction(Sema &S, QualType T, SourceLocation Loc,
                                    QualifiedFunctionKind QFK) {
   // Does T refer to a function type with a cv-qualifier or a ref-qualifier?
   const FunctionProtoType *FPT = T->getAs<FunctionProtoType>();
-  if (!FPT || (FPT->getTypeQuals().empty() && FPT->getRefQualifier() == RQ_None))
+  if (!FPT || (FPT->getMethodQuals().empty() && FPT->getRefQualifier() == RQ_None))
     return false;
 
   S.Diag(Loc, diag::err_compound_qualified_function_type)
@@ -2243,15 +2250,13 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
   }
 
   if (T->isVariableArrayType() && !Context.getTargetInfo().isVLASupported()) {
-    if (getLangOpts().CUDA) {
-      // CUDA device code doesn't support VLAs.
-      CUDADiagIfDeviceCode(Loc, diag::err_cuda_vla) << CurrentCUDATarget();
-    } else if (!getLangOpts().OpenMP ||
-               shouldDiagnoseTargetSupportFromOpenMP()) {
-      // Some targets don't support VLAs.
-      Diag(Loc, diag::err_vla_unsupported);
-      return QualType();
-    }
+    // CUDA device code and some other targets don't support VLAs.
+    targetDiag(Loc, (getLangOpts().CUDA && getLangOpts().CUDAIsDevice)
+                        ? diag::err_cuda_vla
+                        : diag::err_vla_unsupported)
+        << ((getLangOpts().CUDA && getLangOpts().CUDAIsDevice)
+                ? CurrentCUDATarget()
+                : CFT_InvalidTarget);
   }
 
   // If this is not C99, extwarn about VLA's and C99 array size modifiers.
@@ -3916,6 +3921,25 @@ static Attr *createNullabilityAttr(ASTContext &Ctx, ParsedAttr &Attr,
   llvm_unreachable("unknown NullabilityKind");
 }
 
+// Diagnose whether this is a case with the multiple addr spaces.
+// Returns true if this is an invalid case.
+// ISO/IEC TR 18037 S5.3 (amending C99 6.7.3): "No type shall be qualified
+// by qualifiers for two or more different address spaces."
+static bool DiagnoseMultipleAddrSpaceAttributes(Sema &S, LangAS ASOld,
+                                                LangAS ASNew,
+                                                SourceLocation AttrLoc) {
+  if (ASOld != LangAS::Default) {
+    if (ASOld != ASNew) {
+      S.Diag(AttrLoc, diag::err_attribute_address_multiple_qualifiers);
+      return true;
+    }
+    // Emit a warning if they are identical; it's likely unintended.
+    S.Diag(AttrLoc,
+           diag::warn_attribute_address_multiple_identical_qualifiers);
+  }
+  return false;
+}
+
 static TypeSourceInfo *
 GetTypeSourceInfoForDeclarator(TypeProcessingState &State,
                                QualType T, TypeSourceInfo *ReturnTypeInfo);
@@ -3944,7 +3968,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
 
   // Does T refer to a function type with a cv-qualifier or a ref-qualifier?
   bool IsQualifiedFunction = T->isFunctionProtoType() &&
-      (!T->castAs<FunctionProtoType>()->getTypeQuals().empty() ||
+      (!T->castAs<FunctionProtoType>()->getMethodQuals().empty() ||
        T->castAs<FunctionProtoType>()->getRefQualifier() != RQ_None);
 
   // If T is 'decltype(auto)', the only declarators we can have are parens
@@ -4823,18 +4847,35 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
                                       Exceptions,
                                       EPI.ExceptionSpec);
 
-        const auto &Spec = D.getCXXScopeSpec();
+        // FIXME: Set address space from attrs for C++ mode here.
         // OpenCLCPlusPlus: A class member function has an address space.
-        if (state.getSema().getLangOpts().OpenCLCPlusPlus &&
-            ((!Spec.isEmpty() &&
-              Spec.getScopeRep()->getKind() == NestedNameSpecifier::TypeSpec) ||
-             state.getDeclarator().getContext() ==
-                 DeclaratorContext::MemberContext)) {
-          LangAS CurAS = EPI.TypeQuals.getAddressSpace();
+        auto IsClassMember = [&]() {
+          return (!state.getDeclarator().getCXXScopeSpec().isEmpty() &&
+                  state.getDeclarator()
+                          .getCXXScopeSpec()
+                          .getScopeRep()
+                          ->getKind() == NestedNameSpecifier::TypeSpec) ||
+                 state.getDeclarator().getContext() ==
+                     DeclaratorContext::MemberContext;
+        };
+
+        if (state.getSema().getLangOpts().OpenCLCPlusPlus && IsClassMember()) {
+          LangAS ASIdx = LangAS::Default;
+          // Take address space attr if any and mark as invalid to avoid adding
+          // them later while creating QualType.
+          if (FTI.MethodQualifiers)
+            for (ParsedAttr &attr : FTI.MethodQualifiers->getAttributes()) {
+              LangAS ASIdxNew = attr.asOpenCLLangAS();
+              if (DiagnoseMultipleAddrSpaceAttributes(S, ASIdx, ASIdxNew,
+                                                      attr.getLoc()))
+                D.setInvalidType(true);
+              else
+                ASIdx = ASIdxNew;
+            }
           // If a class member function's address space is not set, set it to
           // __generic.
           LangAS AS =
-              (CurAS == LangAS::Default ? LangAS::opencl_generic : CurAS);
+              (ASIdx == LangAS::Default ? LangAS::opencl_generic : ASIdx);
           EPI.TypeQuals.addAddressSpace(AS);
         }
         T = Context.getFunctionType(T, ParamTys, EPI);
@@ -5752,28 +5793,27 @@ ParsedType Sema::ActOnObjCInstanceType(SourceLocation Loc) {
 // Type Attribute Processing
 //===----------------------------------------------------------------------===//
 
-/// BuildAddressSpaceAttr - Builds a DependentAddressSpaceType if an expression
-/// is uninstantiated. If instantiated it will apply the appropriate address space
-/// to the type. This function allows dependent template variables to be used in
-/// conjunction with the address_space attribute
-QualType Sema::BuildAddressSpaceAttr(QualType &T, Expr *AddrSpace,
-                                     SourceLocation AttrLoc) {
+/// Build an AddressSpace index from a constant expression and diagnose any
+/// errors related to invalid address_spaces. Returns true on successfully
+/// building an AddressSpace index.
+static bool BuildAddressSpaceIndex(Sema &S, LangAS &ASIdx,
+                                   const Expr *AddrSpace,
+                                   SourceLocation AttrLoc) {
   if (!AddrSpace->isValueDependent()) {
-
     llvm::APSInt addrSpace(32);
-    if (!AddrSpace->isIntegerConstantExpr(addrSpace, Context)) {
-      Diag(AttrLoc, diag::err_attribute_argument_type)
+    if (!AddrSpace->isIntegerConstantExpr(addrSpace, S.Context)) {
+      S.Diag(AttrLoc, diag::err_attribute_argument_type)
           << "'address_space'" << AANT_ArgumentIntegerConstant
           << AddrSpace->getSourceRange();
-      return QualType();
+      return false;
     }
 
     // Bounds checking.
     if (addrSpace.isSigned()) {
       if (addrSpace.isNegative()) {
-        Diag(AttrLoc, diag::err_attribute_address_space_negative)
+        S.Diag(AttrLoc, diag::err_attribute_address_space_negative)
             << AddrSpace->getSourceRange();
-        return QualType();
+        return false;
       }
       addrSpace.setIsSigned(false);
     }
@@ -5782,27 +5822,31 @@ QualType Sema::BuildAddressSpaceAttr(QualType &T, Expr *AddrSpace,
     max =
         Qualifiers::MaxAddressSpace - (unsigned)LangAS::FirstTargetAddressSpace;
     if (addrSpace > max) {
-      Diag(AttrLoc, diag::err_attribute_address_space_too_high)
+      S.Diag(AttrLoc, diag::err_attribute_address_space_too_high)
           << (unsigned)max.getZExtValue() << AddrSpace->getSourceRange();
-      return QualType();
+      return false;
     }
 
-    LangAS ASIdx =
+    ASIdx =
         getLangASFromTargetAS(static_cast<unsigned>(addrSpace.getZExtValue()));
+    return true;
+  }
 
-    // If this type is already address space qualified with a different
-    // address space, reject it.
-    // ISO/IEC TR 18037 S5.3 (amending C99 6.7.3): "No type shall be qualified
-    // by qualifiers for two or more different address spaces."
-    if (T.getAddressSpace() != LangAS::Default) {
-      if (T.getAddressSpace() != ASIdx) {
-        Diag(AttrLoc, diag::err_attribute_address_multiple_qualifiers);
-        return QualType();
-      } else
-        // Emit a warning if they are identical; it's likely unintended.
-        Diag(AttrLoc,
-             diag::warn_attribute_address_multiple_identical_qualifiers);
-    }
+  // Default value for DependentAddressSpaceTypes
+  ASIdx = LangAS::Default;
+  return true;
+}
+
+/// BuildAddressSpaceAttr - Builds a DependentAddressSpaceType if an expression
+/// is uninstantiated. If instantiated it will apply the appropriate address
+/// space to the type. This function allows dependent template variables to be
+/// used in conjunction with the address_space attribute
+QualType Sema::BuildAddressSpaceAttr(QualType &T, LangAS ASIdx, Expr *AddrSpace,
+                                     SourceLocation AttrLoc) {
+  if (!AddrSpace->isValueDependent()) {
+    if (DiagnoseMultipleAddrSpaceAttributes(*this, T.getAddressSpace(), ASIdx,
+                                            AttrLoc))
+      return QualType();
 
     return Context.getAddrSpaceQualType(T, ASIdx);
   }
@@ -5818,6 +5862,14 @@ QualType Sema::BuildAddressSpaceAttr(QualType &T, Expr *AddrSpace,
   }
 
   return Context.getDependentAddressSpaceType(T, AddrSpace, AttrLoc);
+}
+
+QualType Sema::BuildAddressSpaceAttr(QualType &T, Expr *AddrSpace,
+                                     SourceLocation AttrLoc) {
+  LangAS ASIdx;
+  if (!BuildAddressSpaceIndex(*this, ASIdx, AddrSpace, AttrLoc))
+    return QualType();
+  return BuildAddressSpaceAttr(T, ASIdx, AddrSpace, AttrLoc);
 }
 
 /// HandleAddressSpaceTypeAttribute - Process an address_space attribute on the
@@ -5865,49 +5917,51 @@ static void HandleAddressSpaceTypeAttribute(QualType &Type,
       ASArgExpr = static_cast<Expr *>(Attr.getArgAsExpr(0));
     }
 
-    // Create the DependentAddressSpaceType or append an address space onto
-    // the type.
-    QualType T = S.BuildAddressSpaceAttr(Type, ASArgExpr, Attr.getLoc());
-
-    if (!T.isNull()) {
-      ASTContext &Ctx = S.Context;
-      auto *ASAttr = ::new (Ctx) AddressSpaceAttr(
-          Attr.getRange(), Ctx, Attr.getAttributeSpellingListIndex(),
-          static_cast<unsigned>(T.getQualifiers().getAddressSpace()));
-      Type = State.getAttributedType(ASAttr, T, T);
-    } else {
+    LangAS ASIdx;
+    if (!BuildAddressSpaceIndex(S, ASIdx, ASArgExpr, Attr.getLoc())) {
       Attr.setInvalid();
-    }
-  } else {
-    // The keyword-based type attributes imply which address space to use.
-    switch (Attr.getKind()) {
-    case ParsedAttr::AT_OpenCLGlobalAddressSpace:
-      ASIdx = LangAS::opencl_global; break;
-    case ParsedAttr::AT_OpenCLLocalAddressSpace:
-      ASIdx = LangAS::opencl_local; break;
-    case ParsedAttr::AT_OpenCLConstantAddressSpace:
-      ASIdx = LangAS::opencl_constant; break;
-    case ParsedAttr::AT_OpenCLGenericAddressSpace:
-      ASIdx = LangAS::opencl_generic; break;
-    case ParsedAttr::AT_OpenCLPrivateAddressSpace:
-      ASIdx = LangAS::opencl_private; break;
-    default:
-      llvm_unreachable("Invalid address space");
+      return;
     }
 
-    // If this type is already address space qualified with a different
-    // address space, reject it.
-    // ISO/IEC TR 18037 S5.3 (amending C99 6.7.3): "No type shall be qualified by
-    // qualifiers for two or more different address spaces."
-    if (Type.getAddressSpace() != LangAS::Default) {
-      if (Type.getAddressSpace() != ASIdx) {
-        S.Diag(Attr.getLoc(), diag::err_attribute_address_multiple_qualifiers);
+    ASTContext &Ctx = S.Context;
+    auto *ASAttr = ::new (Ctx) AddressSpaceAttr(
+        Attr.getRange(), Ctx, Attr.getAttributeSpellingListIndex(),
+        static_cast<unsigned>(ASIdx));
+
+    // If the expression is not value dependent (not templated), then we can
+    // apply the address space qualifiers just to the equivalent type.
+    // Otherwise, we make an AttributedType with the modified and equivalent
+    // type the same, and wrap it in a DependentAddressSpaceType. When this
+    // dependent type is resolved, the qualifier is added to the equivalent type
+    // later.
+    QualType T;
+    if (!ASArgExpr->isValueDependent()) {
+      QualType EquivType =
+          S.BuildAddressSpaceAttr(Type, ASIdx, ASArgExpr, Attr.getLoc());
+      if (EquivType.isNull()) {
         Attr.setInvalid();
         return;
-      } else
-        // Emit a warning if they are identical; it's likely unintended.
-        S.Diag(Attr.getLoc(),
-               diag::warn_attribute_address_multiple_identical_qualifiers);
+      }
+      T = State.getAttributedType(ASAttr, Type, EquivType);
+    } else {
+      T = State.getAttributedType(ASAttr, Type, Type);
+      T = S.BuildAddressSpaceAttr(T, ASIdx, ASArgExpr, Attr.getLoc());
+    }
+
+    if (!T.isNull())
+      Type = T;
+    else
+      Attr.setInvalid();
+  } else {
+    // The keyword-based type attributes imply which address space to use.
+    ASIdx = Attr.asOpenCLLangAS();
+    if (ASIdx == LangAS::Default)
+      llvm_unreachable("Invalid address space");
+
+    if (DiagnoseMultipleAddrSpaceAttributes(S, Type.getAddressSpace(), ASIdx,
+                                            Attr.getLoc())) {
+      Attr.setInvalid();
+      return;
     }
 
     Type = S.Context.getAddrSpaceQualType(Type, ASIdx);
@@ -7244,9 +7298,12 @@ static void deduceOpenCLImplicitAddrSpace(TypeProcessingState &State,
       // Do not deduce addr space of the void type, e.g. in f(void), otherwise
       // it will fail some sema check.
       (T->isVoidType() && !IsPointee) ||
-      // Do not deduce address spaces for dependent types because they might end
+      // Do not deduce addr spaces for dependent types because they might end
       // up instantiating to a type with an explicit address space qualifier.
-      T->isDependentType())
+      T->isDependentType() ||
+      // Do not deduce addr space of decltype because it will be taken from
+      // its argument.
+      T->isDecltypeType())
     return;
 
   LangAS ImpAddr = LangAS::Default;
@@ -7338,9 +7395,11 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
           if (!IsTypeAttr)
             continue;
         }
-      } else if (TAL != TAL_DeclChunk) {
+      } else if (TAL != TAL_DeclChunk &&
+                 attr.getKind() != ParsedAttr::AT_AddressSpace) {
         // Otherwise, only consider type processing for a C++11 attribute if
         // it's actually been applied to a type.
+        // We also allow C++11 address_space attributes to pass through.
         continue;
       }
     }

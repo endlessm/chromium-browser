@@ -33,6 +33,7 @@
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/suggestion_answer.h"
 #include "components/omnibox/browser/url_prefix.h"
+#include "components/omnibox/common/omnibox_features.h"
 #include "components/search/search.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/strings/grit/components_strings.h"
@@ -546,7 +547,8 @@ void SearchProvider::EnforceConstraints() {
         (keyword_url != nullptr) &&
         (keyword_url->type() == TemplateURL::OMNIBOX_API_EXTENSION);
     if ((keyword_url != nullptr) && !is_extension_keyword &&
-        (AutocompleteResult::FindTopMatch(&matches_) == matches_.end())) {
+        (AutocompleteResult::FindTopMatch(input_.current_page_classification(),
+                                          matches_) == matches_.end())) {
       // In non-extension keyword mode, disregard the keyword verbatim suggested
       // relevance if necessary, so at least one match is allowed to be default.
       // (In extension keyword mode this is not necessary because the extension
@@ -568,7 +570,8 @@ void SearchProvider::EnforceConstraints() {
       ConvertResultsToAutocompleteMatches();
     }
     if (!is_extension_keyword &&
-        (AutocompleteResult::FindTopMatch(&matches_) == matches_.end())) {
+        (AutocompleteResult::FindTopMatch(input_.current_page_classification(),
+                                          matches_) == matches_.end())) {
       // Guarantee that SearchProvider returns a legal default match (except
       // when in extension-based keyword mode).  The omnibox always needs at
       // least one legal default match, and it relies on SearchProvider in
@@ -583,15 +586,17 @@ void SearchProvider::EnforceConstraints() {
       ConvertResultsToAutocompleteMatches();
     }
     DCHECK(!IsTopMatchSearchWithURLInput());
-    DCHECK(is_extension_keyword ||
-           (AutocompleteResult::FindTopMatch(&matches_) != matches_.end()));
+    DCHECK(is_extension_keyword || (AutocompleteResult::FindTopMatch(
+                                        input_.current_page_classification(),
+                                        matches_) != matches_.end()));
   }
 }
 
 void SearchProvider::RecordTopSuggestion() {
   top_query_suggestion_fill_into_edit_ = base::string16();
   top_navigation_suggestion_ = GURL();
-  auto first_match = AutocompleteResult::FindTopMatch(matches_);
+  auto first_match = AutocompleteResult::FindTopMatch(
+      input_.current_page_classification(), matches_);
   if (first_match != matches_.end()) {
     // Identify if this match came from a query suggestion or a navsuggestion.
     // In either case, extracts the identifying feature of the suggestion
@@ -692,9 +697,6 @@ void SearchProvider::StartOrStopSuggestQuery(bool minimal_changes) {
     ClearAllResults();
     return;
   }
-
-  if (OmniboxFieldTrial::DisableResultsCaching())
-    ClearAllResults();
 
   // For the minimal_changes case, if we finished the previous query and still
   // have its results, or are allowed to keep running it, just do that, rather
@@ -956,11 +958,11 @@ std::unique_ptr<network::SimpleURLLoader> SearchProvider::CreateSuggestLoader(
   request->url = suggest_url;
   request->load_flags = net::LOAD_DO_NOT_SAVE_COOKIES;
   // Add Chrome experiment state to the request headers.
-  variations::AppendVariationHeadersUnknownSignedIn(
+  variations::AppendVariationsHeaderUnknownSignedIn(
       request->url,
       client()->IsOffTheRecord() ? variations::InIncognito::kYes
                                  : variations::InIncognito::kNo,
-      &request->headers);
+      request.get());
 
   // TODO(https://crbug.com/808498) re-add data use measurement once
   // SimpleURLLoader supports it.
@@ -1086,7 +1088,8 @@ void SearchProvider::ConvertResultsToAutocompleteMatches() {
   // Guarantee that if there's a legal default match anywhere in the result
   // set that it'll get returned.  The rotate() call does this by moving the
   // default match to the front of the list.
-  auto default_match = AutocompleteResult::FindTopMatch(&matches);
+  auto default_match = AutocompleteResult::FindTopMatch(
+      input_.current_page_classification(), &matches);
   if (default_match != matches.end())
     std::rotate(matches.begin(), default_match, default_match + 1);
 
@@ -1138,7 +1141,8 @@ void SearchProvider::RemoveExtraAnswers(ACMatches* matches) {
 }
 
 bool SearchProvider::IsTopMatchSearchWithURLInput() const {
-  auto first_match = AutocompleteResult::FindTopMatch(matches_);
+  auto first_match = AutocompleteResult::FindTopMatch(
+      input_.current_page_classification(), matches_);
   return (input_.type() == metrics::OmniboxInputType::URL) &&
          (first_match != matches_.end()) &&
          (first_match->relevance > CalculateRelevanceForVerbatim()) &&

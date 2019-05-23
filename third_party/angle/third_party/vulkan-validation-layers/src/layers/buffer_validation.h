@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2017 The Khronos Group Inc.
- * Copyright (c) 2015-2017 Valve Corporation
- * Copyright (c) 2015-2017 LunarG, Inc.
- * Copyright (C) 2015-2017 Google Inc.
+/* Copyright (c) 2015-2019 The Khronos Group Inc.
+ * Copyright (c) 2015-2019 Valve Corporation
+ * Copyright (c) 2015-2019 LunarG, Inc.
+ * Copyright (C) 2015-2019 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,13 @@
  * limitations under the License.
  *
  * Mark Lobodzinski <mark@lunarg.com>
+ * Dave Houlton <daveh@lunarg.com>
  */
 #ifndef CORE_VALIDATION_BUFFER_VALIDATION_H_
 #define CORE_VALIDATION_BUFFER_VALIDATION_H_
 
-#include "core_validation_types.h"
-#include "core_validation_error_enums.h"
+#include "core_validation.h"
+#include "shader_validation.h"
 #include "descriptor_sets.h"
 #include "vulkan/vk_layer.h"
 #include <limits.h>
@@ -32,16 +33,22 @@
 #include <algorithm>
 #include <bitset>
 
+using core_validation::instance_layer_data;
 using core_validation::layer_data;
 
-bool PreCallValidateCreateImage(layer_data *device_data, const VkImageCreateInfo *pCreateInfo,
-                                const VkAllocationCallbacks *pAllocator, VkImage *pImage);
+uint32_t FullMipChainLevels(uint32_t height, uint32_t width = 1, uint32_t depth = 1);
+uint32_t FullMipChainLevels(VkExtent3D);
+uint32_t FullMipChainLevels(VkExtent2D);
 
-void PostCallRecordCreateImage(layer_data *device_data, const VkImageCreateInfo *pCreateInfo, VkImage *pImage);
+bool PreCallValidateCreateImage(VkDevice device, const VkImageCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator,
+                                VkImage *pImage);
 
-void PreCallRecordDestroyImage(layer_data *device_data, VkImage image, IMAGE_STATE *image_state, VK_OBJECT obj_struct);
+void PostCallRecordCreateImage(VkDevice device, const VkImageCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator,
+                               VkImage *pImage, VkResult result);
 
-bool PreCallValidateDestroyImage(layer_data *device_data, VkImage image, IMAGE_STATE **image_state, VK_OBJECT *obj_struct);
+void PreCallRecordDestroyImage(VkDevice device, VkImage image, const VkAllocationCallbacks *pAllocator);
+
+bool PreCallValidateDestroyImage(VkDevice device, VkImage image, const VkAllocationCallbacks *pAllocator);
 
 bool ValidateImageAttributes(layer_data *device_data, IMAGE_STATE *image_state, VkImageSubresourceRange range);
 
@@ -54,21 +61,25 @@ bool VerifyClearImageLayout(layer_data *device_data, GLOBAL_CB_NODE *cb_node, IM
 
 bool VerifyImageLayout(layer_data const *device_data, GLOBAL_CB_NODE const *cb_node, IMAGE_STATE *image_state,
                        VkImageSubresourceLayers subLayers, VkImageLayout explicit_layout, VkImageLayout optimal_layout,
-                       const char *caller, const std::string &layout_invalid_msg_code, const std::string &layout_mismatch_msg_code,
-                       bool *error);
+                       const char *caller, const char *layout_invalid_msg_code, const char *layout_mismatch_msg_code, bool *error);
 
 void RecordClearImageLayout(layer_data *dev_data, GLOBAL_CB_NODE *cb_node, VkImage image, VkImageSubresourceRange range,
                             VkImageLayout dest_image_layout);
 
-bool PreCallValidateCmdClearColorImage(layer_data *dev_data, VkCommandBuffer commandBuffer, VkImage image,
-                                       VkImageLayout imageLayout, uint32_t rangeCount, const VkImageSubresourceRange *pRanges);
+bool PreCallValidateCmdClearColorImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout imageLayout,
+                                       const VkClearColorValue *pColor, uint32_t rangeCount,
+                                       const VkImageSubresourceRange *pRanges);
 
-void PreCallRecordCmdClearImage(layer_data *dev_data, VkCommandBuffer commandBuffer, VkImage image, VkImageLayout imageLayout,
-                                uint32_t rangeCount, const VkImageSubresourceRange *pRanges);
+void PreCallRecordCmdClearColorImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout imageLayout,
+                                     const VkClearColorValue *pColor, uint32_t rangeCount, const VkImageSubresourceRange *pRanges);
 
-bool PreCallValidateCmdClearDepthStencilImage(layer_data *dev_data, VkCommandBuffer commandBuffer, VkImage image,
-                                              VkImageLayout imageLayout, uint32_t rangeCount,
+bool PreCallValidateCmdClearDepthStencilImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout imageLayout,
+                                              const VkClearDepthStencilValue *pDepthStencil, uint32_t rangeCount,
                                               const VkImageSubresourceRange *pRanges);
+
+void PreCallRecordCmdClearDepthStencilImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout imageLayout,
+                                            const VkClearDepthStencilValue *pDepthStencil, uint32_t rangeCount,
+                                            const VkImageSubresourceRange *pRanges);
 
 bool FindLayoutVerifyNode(layer_data const *device_data, GLOBAL_CB_NODE const *pCB, ImageSubresourcePair imgpair,
                           IMAGE_CMD_BUF_LAYOUT_NODE &node, const VkImageAspectFlags aspectMask);
@@ -129,9 +140,9 @@ bool ValidateBarriersQFOTransferUniqueness(layer_data *device_data, const char *
                                            uint32_t bufferBarrierCount, const VkBufferMemoryBarrier *pBufferMemBarriers,
                                            uint32_t imageMemBarrierCount, const VkImageMemoryBarrier *pImageMemBarriers);
 
-void RecordBarriersQFOTransfers(layer_data *device_data, const char *func_name, GLOBAL_CB_NODE *cb_state,
-                                uint32_t bufferBarrierCount, const VkBufferMemoryBarrier *pBufferMemBarriers,
-                                uint32_t imageMemBarrierCount, const VkImageMemoryBarrier *pImageMemBarriers);
+void RecordBarriersQFOTransfers(layer_data *device_data, GLOBAL_CB_NODE *cb_state, uint32_t bufferBarrierCount,
+                                const VkBufferMemoryBarrier *pBufferMemBarriers, uint32_t imageMemBarrierCount,
+                                const VkImageMemoryBarrier *pImageMemBarriers);
 
 bool ValidateQueuedQFOTransfers(layer_data *dev_data, GLOBAL_CB_NODE *pCB,
                                 QFOTransferCBScoreboards<VkImageMemoryBarrier> *qfo_image_scoreboards,
@@ -152,27 +163,23 @@ bool VerifyDestImageLayout(layer_data *dev_data, GLOBAL_CB_NODE *cb_node, VkImag
 void TransitionFinalSubpassLayouts(layer_data *dev_data, GLOBAL_CB_NODE *pCB, const VkRenderPassBeginInfo *pRenderPassBegin,
                                    FRAMEBUFFER_STATE *framebuffer_state);
 
-bool PreCallValidateCmdCopyImage(layer_data *device_data, GLOBAL_CB_NODE *cb_node, IMAGE_STATE *src_image_state,
-                                 IMAGE_STATE *dst_image_state, uint32_t region_count, const VkImageCopy *regions,
-                                 VkImageLayout src_image_layout, VkImageLayout dst_image_layout);
+bool PreCallValidateCmdCopyImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage,
+                                 VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageCopy *pRegions);
 
-bool PreCallValidateCmdClearAttachments(layer_data *device_data, VkCommandBuffer commandBuffer, uint32_t attachmentCount,
+bool PreCallValidateCmdClearAttachments(VkCommandBuffer commandBuffer, uint32_t attachmentCount,
                                         const VkClearAttachment *pAttachments, uint32_t rectCount, const VkClearRect *pRects);
 
-bool PreCallValidateCmdResolveImage(layer_data *device_data, GLOBAL_CB_NODE *cb_node, IMAGE_STATE *src_image_state,
-                                    VkImageLayout src_image_layout, IMAGE_STATE *dst_image_state, VkImageLayout dst_image_layout,
-                                    uint32_t regionCount, const VkImageResolve *pRegions);
+bool PreCallValidateCmdResolveImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage,
+                                    VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageResolve *pRegions);
 
-void PreCallRecordCmdResolveImage(layer_data *device_data, GLOBAL_CB_NODE *cb_node, IMAGE_STATE *src_image_state,
-                                  IMAGE_STATE *dst_image_state);
+void PreCallRecordCmdResolveImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage,
+                                  VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageResolve *pRegions);
 
-bool PreCallValidateCmdBlitImage(layer_data *device_data, GLOBAL_CB_NODE *cb_node, IMAGE_STATE *src_image_state,
-                                 IMAGE_STATE *dst_image_state, uint32_t region_count, const VkImageBlit *regions,
-                                 VkImageLayout src_image_layout, VkImageLayout dst_image_layout, VkFilter filter);
+bool PreCallValidateCmdBlitImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage,
+                                 VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageBlit *pRegions, VkFilter filter);
 
-void PreCallRecordCmdBlitImage(layer_data *device_data, GLOBAL_CB_NODE *cb_node, IMAGE_STATE *src_image_state,
-                               IMAGE_STATE *dst_image_state, uint32_t region_count, const VkImageBlit *regions,
-                               VkImageLayout src_image_layout, VkImageLayout dst_image_layout);
+void PreCallRecordCmdBlitImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage,
+                               VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageBlit *pRegions, VkFilter filter);
 
 bool ValidateCmdBufImageLayouts(layer_data *device_data, GLOBAL_CB_NODE *pCB,
                                 std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> const &globalImageLayoutMap,
@@ -194,7 +201,7 @@ bool ValidateMapImageLayouts(core_validation::layer_data *dev_data, VkDevice dev
                              VkDeviceSize offset, VkDeviceSize end_offset);
 
 bool ValidateImageUsageFlags(layer_data *dev_data, IMAGE_STATE const *image_state, VkFlags desired, bool strict,
-                             const std::string &msgCode, char const *func_name, char const *usage_string);
+                             const char *msgCode, char const *func_name, char const *usage_string);
 
 bool ValidateImageFormatFeatureFlags(layer_data *dev_data, IMAGE_STATE const *image_state, VkFormatFeatureFlags desired,
                                      char const *func_name, const std::string &linear_vuid, const std::string &optimal_vuid);
@@ -204,15 +211,19 @@ bool ValidateImageSubresourceLayers(layer_data *dev_data, const GLOBAL_CB_NODE *
                                     uint32_t i);
 
 bool ValidateBufferUsageFlags(const layer_data *dev_data, BUFFER_STATE const *buffer_state, VkFlags desired, bool strict,
-                              const std::string &msgCode, char const *func_name, char const *usage_string);
+                              const char *msgCode, char const *func_name, char const *usage_string);
 
-bool PreCallValidateCreateBuffer(layer_data *dev_data, const VkBufferCreateInfo *pCreateInfo);
+bool PreCallValidateCreateBuffer(VkDevice device, const VkBufferCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator,
+                                 VkBuffer *pBuffer);
 
-void PostCallRecordCreateBuffer(layer_data *device_data, const VkBufferCreateInfo *pCreateInfo, VkBuffer *pBuffer);
+void PostCallRecordCreateBuffer(VkDevice device, const VkBufferCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator,
+                                VkBuffer *pBuffer, VkResult result);
 
-bool PreCallValidateCreateBufferView(const layer_data *dev_data, const VkBufferViewCreateInfo *pCreateInfo);
+bool PreCallValidateCreateBufferView(VkDevice device, const VkBufferViewCreateInfo *pCreateInfo,
+                                     const VkAllocationCallbacks *pAllocator, VkBufferView *pView);
 
-void PostCallRecordCreateBufferView(layer_data *device_data, const VkBufferViewCreateInfo *pCreateInfo, VkBufferView *pView);
+void PostCallRecordCreateBufferView(VkDevice device, const VkBufferViewCreateInfo *pCreateInfo,
+                                    const VkAllocationCallbacks *pAllocator, VkBufferView *pView, VkResult result);
 
 bool ValidateImageAspectMask(const layer_data *device_data, VkImage image, VkFormat format, VkImageAspectFlags aspect_mask,
                              const char *func_name, const char *vuid = "VUID-VkImageSubresource-aspectMask-parameter");
@@ -230,9 +241,11 @@ bool ValidateImageBarrierSubresourceRange(const layer_data *device_data, const I
                                           const VkImageSubresourceRange &subresourceRange, const char *cmd_name,
                                           const char *param_name);
 
-bool PreCallValidateCreateImageView(layer_data *device_data, const VkImageViewCreateInfo *create_info);
+bool PreCallValidateCreateImageView(VkDevice device, const VkImageViewCreateInfo *pCreateInfo,
+                                    const VkAllocationCallbacks *pAllocator, VkImageView *pView);
 
-void PostCallRecordCreateImageView(layer_data *device_data, const VkImageViewCreateInfo *create_info, VkImageView view);
+void PostCallRecordCreateImageView(VkDevice device, const VkImageViewCreateInfo *pCreateInfo,
+                                   const VkAllocationCallbacks *pAllocator, VkImageView *pView, VkResult result);
 
 bool ValidateCopyBufferImageTransferGranularityRequirements(layer_data *device_data, const GLOBAL_CB_NODE *cb_node,
                                                             const IMAGE_STATE *img, const VkBufferImageCopy *region,
@@ -245,52 +258,46 @@ bool ValidateImageArrayLayerRange(layer_data *device_data, const GLOBAL_CB_NODE 
                                   const uint32_t base_layer, const uint32_t layer_count, const uint32_t i, const char *function,
                                   const char *member, const std::string &vuid);
 
-void PreCallRecordCmdCopyImage(layer_data *device_data, GLOBAL_CB_NODE *cb_node, IMAGE_STATE *src_image_state,
-                               IMAGE_STATE *dst_image_state, uint32_t region_count, const VkImageCopy *regions,
-                               VkImageLayout src_image_layout, VkImageLayout dst_image_layout);
+void PreCallRecordCmdCopyImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage,
+                               VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageCopy *pRegions);
 
-bool PreCallValidateCmdCopyBuffer(layer_data *device_data, GLOBAL_CB_NODE *cb_node, BUFFER_STATE *src_buffer_state,
-                                  BUFFER_STATE *dst_buffer_state);
+bool PreCallValidateCmdCopyBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, uint32_t regionCount,
+                                  const VkBufferCopy *pRegions);
 
-void PreCallRecordCmdCopyBuffer(layer_data *device_data, GLOBAL_CB_NODE *cb_node, BUFFER_STATE *src_buffer_state,
-                                BUFFER_STATE *dst_buffer_state);
+void PreCallRecordCmdCopyBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, uint32_t regionCount,
+                                const VkBufferCopy *pRegions);
 
-bool PreCallValidateDestroyImageView(layer_data *device_data, VkImageView image_view, IMAGE_VIEW_STATE **image_view_state,
-                                     VK_OBJECT *obj_struct);
+bool PreCallValidateDestroyImageView(VkDevice device, VkImageView imageView, const VkAllocationCallbacks *pAllocator);
 
-void PreCallRecordDestroyImageView(layer_data *device_data, VkImageView image_view, IMAGE_VIEW_STATE *image_view_state,
-                                   VK_OBJECT obj_struct);
+void PreCallRecordDestroyImageView(VkDevice device, VkImageView imageView, const VkAllocationCallbacks *pAllocator);
 
-bool PreCallValidateDestroyBuffer(layer_data *device_data, VkBuffer buffer, BUFFER_STATE **buffer_state, VK_OBJECT *obj_struct);
+bool PreCallValidateDestroyBuffer(VkDevice device, VkBuffer buffer, const VkAllocationCallbacks *pAllocator);
 
-void PreCallRecordDestroyBuffer(layer_data *device_data, VkBuffer buffer, BUFFER_STATE *buffer_state, VK_OBJECT obj_struct);
+void PreCallRecordDestroyBuffer(VkDevice device, VkBuffer buffer, const VkAllocationCallbacks *pAllocator);
 
-bool PreCallValidateDestroyBufferView(layer_data *device_data, VkBufferView buffer_view, BUFFER_VIEW_STATE **buffer_view_state,
-                                      VK_OBJECT *obj_struct);
+bool PreCallValidateDestroyBufferView(VkDevice device, VkBufferView bufferView, const VkAllocationCallbacks *pAllocator);
 
-void PreCallRecordDestroyBufferView(layer_data *device_data, VkBufferView buffer_view, BUFFER_VIEW_STATE *buffer_view_state,
-                                    VK_OBJECT obj_struct);
+void PreCallRecordDestroyBufferView(VkDevice device, VkBufferView bufferView, const VkAllocationCallbacks *pAllocator);
 
-bool PreCallValidateCmdFillBuffer(layer_data *device_data, GLOBAL_CB_NODE *cb_node, BUFFER_STATE *buffer_state);
+bool PreCallValidateCmdFillBuffer(VkCommandBuffer commandBuffer, VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize size,
+                                  uint32_t data);
 
-void PreCallRecordCmdFillBuffer(layer_data *device_data, GLOBAL_CB_NODE *cb_node, BUFFER_STATE *buffer_state);
+void PreCallRecordCmdFillBuffer(VkCommandBuffer commandBuffer, VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize size,
+                                uint32_t data);
 
-bool PreCallValidateCmdCopyImageToBuffer(layer_data *device_data, VkImageLayout srcImageLayout, GLOBAL_CB_NODE *cb_node,
-                                         IMAGE_STATE *src_image_state, BUFFER_STATE *dst_buff_state, uint32_t regionCount,
-                                         const VkBufferImageCopy *pRegions, const char *func_name);
+bool PreCallValidateCmdCopyImageToBuffer(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
+                                         VkBuffer dstBuffer, uint32_t regionCount, const VkBufferImageCopy *pRegions);
 
-void PreCallRecordCmdCopyImageToBuffer(layer_data *device_data, GLOBAL_CB_NODE *cb_node, IMAGE_STATE *src_image_state,
-                                       BUFFER_STATE *dst_buff_state, uint32_t region_count, const VkBufferImageCopy *regions,
-                                       VkImageLayout src_image_layout);
+void PreCallRecordCmdCopyImageToBuffer(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
+                                       VkBuffer dstBuffer, uint32_t regionCount, const VkBufferImageCopy *pRegions);
 
-bool PreCallValidateCmdCopyBufferToImage(layer_data *dev_data, VkImageLayout dstImageLayout, GLOBAL_CB_NODE *cb_node,
-                                         BUFFER_STATE *src_buff_state, IMAGE_STATE *dst_image_state, uint32_t regionCount,
-                                         const VkBufferImageCopy *pRegions, const char *func_name);
+bool PreCallValidateCmdCopyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkImage dstImage,
+                                         VkImageLayout dstImageLayout, uint32_t regionCount, const VkBufferImageCopy *pRegions);
 
-void PreCallRecordCmdCopyBufferToImage(layer_data *device_data, GLOBAL_CB_NODE *cb_node, BUFFER_STATE *src_buff_state,
-                                       IMAGE_STATE *dst_image_state, uint32_t region_count, const VkBufferImageCopy *regions,
-                                       VkImageLayout dst_image_layout);
+void PreCallRecordCmdCopyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkImage dstImage,
+                                       VkImageLayout dstImageLayout, uint32_t regionCount, const VkBufferImageCopy *pRegions);
 
-bool PreCallValidateGetImageSubresourceLayout(layer_data *device_data, VkImage image, const VkImageSubresource *pSubresource);
+bool PreCallValidateGetImageSubresourceLayout(VkDevice device, VkImage image, const VkImageSubresource *pSubresource,
+                                              VkSubresourceLayout *pLayout);
 
 #endif  // CORE_VALIDATION_BUFFER_VALIDATION_H_

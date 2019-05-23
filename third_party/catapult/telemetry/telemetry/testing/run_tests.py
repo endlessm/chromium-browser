@@ -29,8 +29,15 @@ import typ
 class RunTestsCommand(command_line.OptparseCommand):
   """Run unit tests"""
 
-  usage = ('[test_name_1 test_name_2 ...] [<options>] or '
-           '--test-filter=<test_name_1>::<test_name_2>::... [<options>]')
+  usage = (
+      '\n\n  ./run_tests [test_name_1 test_name_2 ...] [<options>]\n\n'
+      'You can get a list of potential test names by running\n\n'
+      '  ./run_tests --list-only\n\n'
+      'For a test that looks like \n'
+      '"telemetry.web_perf.timeline_based_measurement_unittest.LegacyTim'
+      'elineBasedMetricsTests.testDuplicateRepeatableInteractions",\n'
+      'You can use any substring of it, i.e.\n\n'
+      '  ./run_tests testDuplicateRepeatableInteractions\n')
   xvfb_process = None
 
   def __init__(self):
@@ -41,7 +48,7 @@ class RunTestsCommand(command_line.OptparseCommand):
   def CreateParser(cls):
     options = browser_options.BrowserFinderOptions()
     options.browser_type = 'any'
-    parser = options.CreateParser('%%prog %s' % cls.usage)
+    parser = options.CreateParser(cls.usage)
     return parser
 
   @classmethod
@@ -171,7 +178,8 @@ class RunTestsCommand(command_line.OptparseCommand):
       runner.args.jobs = max(int(args.jobs) // 4, 1)
     else:
       runner.args.jobs = max(int(args.jobs) // 2, 1)
-
+    runner.args.expectations_files = args.expectations_files
+    runner.args.tags = args.tags
     runner.args.skip = args.skip
     runner.args.metadata = args.metadata
     runner.args.passthrough = args.passthrough
@@ -186,7 +194,8 @@ class RunTestsCommand(command_line.OptparseCommand):
     runner.args.list_only = args.list_only
     runner.args.shard_index = args.shard_index
     runner.args.total_shards = args.total_shards
-
+    runner.args.retry_only_retry_on_failure_tests = (
+        args.retry_only_retry_on_failure_tests)
     runner.args.path.append(util.GetUnittestDataDir())
 
     # Standard verbosity will only emit output on test failure. Higher verbosity
@@ -222,12 +231,12 @@ def GetClassifier(args, possible_browser):
 
   def ClassifyTestWithoutBrowser(test_set, test):
     name = test.id()
-    if _SkipMatch(name, args.skip):
-      test_set.tests_to_skip.append(
-          typ.TestInput(name, 'skipped because matched --skip'))
-      return
     if (not selected_tests or
         _MatchesSelectedTest(name, selected_tests, selected_tests_are_exact)):
+      if _SkipMatch(name, args.skip):
+        test_set.tests_to_skip.append(
+            typ.TestInput(name, 'skipped because matched --skip'))
+        return
       # TODO(telemetry-team): Make sure that all telemetry unittest that invokes
       # actual browser are subclasses of browser_test_case.BrowserTestCase
       # (crbug.com/537428)
@@ -239,12 +248,12 @@ def GetClassifier(args, possible_browser):
 
   def ClassifyTestWithBrowser(test_set, test):
     name = test.id()
-    if _SkipMatch(name, args.skip):
-      test_set.tests_to_skip.append(
-          typ.TestInput(name, 'skipped because matched --skip'))
-      return
     if (not selected_tests or
         _MatchesSelectedTest(name, selected_tests, selected_tests_are_exact)):
+      if _SkipMatch(name, args.skip):
+        test_set.tests_to_skip.append(
+            typ.TestInput(name, 'skipped because matched --skip'))
+        return
       assert hasattr(test, '_testMethodName')
       method = getattr(
           test, test._testMethodName)  # pylint: disable=protected-access

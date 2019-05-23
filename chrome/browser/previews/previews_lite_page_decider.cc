@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
@@ -176,8 +177,7 @@ PreviewsLitePageDecider::~PreviewsLitePageDecider() = default;
 void PreviewsLitePageDecider::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(kUserNeedsNotification, true);
-  registry->RegisterDictionaryPref(kHostBlacklist,
-                                   std::make_unique<base::DictionaryValue>());
+  registry->RegisterDictionaryPref(kHostBlacklist);
 }
 
 // static
@@ -221,6 +221,22 @@ PreviewsLitePageDecider::MaybeCreateThrottleFor(
   }
 
   return nullptr;
+}
+
+// static
+uint64_t PreviewsLitePageDecider::GeneratePageIdForWebContents(
+    content::WebContents* web_contents) {
+  return PreviewsLitePageDecider::GeneratePageIdForProfile(
+      Profile::FromBrowserContext(web_contents->GetBrowserContext()));
+}
+
+// static
+uint64_t PreviewsLitePageDecider::GeneratePageIdForProfile(Profile* profile) {
+  PreviewsService* previews_service =
+      PreviewsServiceFactory::GetForProfile(profile);
+  return previews_service
+             ? previews_service->previews_lite_page_decider()->GeneratePageID()
+             : 0;
 }
 
 void PreviewsLitePageDecider::OnProxyRequestHeadersChanged(
@@ -340,11 +356,14 @@ void PreviewsLitePageDecider::ReportDataSavings(int64_t network_bytes,
   if (!drp_settings_ || !drp_settings_->data_reduction_proxy_service())
     return;
 
+  // The total data usage is tracked for all data in Chrome, so we only need to
+  // update the savings.
+  int64_t data_saved = original_bytes - network_bytes;
   drp_settings_->data_reduction_proxy_service()->UpdateDataUseForHost(
-      network_bytes, original_bytes, host);
+      0, data_saved, host);
 
   drp_settings_->data_reduction_proxy_service()->UpdateContentLengths(
-      network_bytes, original_bytes, true /* data_reduction_proxy_enabled */,
+      0, data_saved, true /* data_reduction_proxy_enabled */,
       data_reduction_proxy::DataReductionProxyRequestType::
           VIA_DATA_REDUCTION_PROXY,
       "text/html", true /* is_user_traffic */,

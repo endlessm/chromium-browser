@@ -27,7 +27,7 @@ NUM_RETRIES = 20
 # Namedtupe to store CIDB status info.
 CIDBStatusInfo = collections.namedtuple(
     'CIDBStatusInfo',
-    ['build_id', 'status', 'build_number'])
+    ['build_id', 'status', 'buildbucket_id'])
 
 
 def CancelBuilds(buildbucket_ids, buildbucket_client,
@@ -102,17 +102,16 @@ def GetSlavesAbortedBySelfDestructedMaster(master_build_id, buildstore):
   if not buildstore.AreClientsReady():
     return set()
 
-  messages = buildstore.GetCIDBHandle().GetBuildMessages(
-      master_build_id,
-      message_type=constants.MESSAGE_TYPE_IGNORED_REASON,
-      message_subtype=constants.MESSAGE_SUBTYPE_SELF_DESTRUCTION)
+  messages = buildstore.GetBuildMessages(
+      master_build_id)
   # tentative fix for crbug.com/890651
   if not messages:
     logging.warning('No build message retrieved for master_build_id=%s',
                     master_build_id)
     return set()
-  slave_build_ids = [int(m['message_value']) for m in messages]
-  build_statuses = buildstore.GetBuildStatuses(build_ids=slave_build_ids)
+  slave_buildbucket_ids = [long(m['message_value']) for m in messages]
+  build_statuses = buildstore.GetBuildStatuses(
+      buildbucket_ids=slave_buildbucket_ids)
   return set(b['build_config'] for b in build_statuses)
 
 
@@ -234,12 +233,13 @@ class BuilderStatusManager(object):
         msg_summary, failure_messages, internal, reason, build_config)
 
   @classmethod
-  def AbortedBySelfDestruction(cls, db, build_id, master_build_id):
-    """Check CIDB for whether a specified build was aborted by master.
+  def AbortedBySelfDestruction(cls, buildstore, buildbucket_id,
+                               master_build_id):
+    """Check BuildStore for whether a specified build was aborted by master.
 
     Args:
-      db: An instance of cidb.CIDBConnection.
-      build_id: The build ID (int) of the build to get status of
+      buildstore: A BuildStore instance to make DB calls.
+      buildbucket_id: The buildbucket ID (int) of the build to get status of
       master_build_id: The build ID (int) of the master build which may
         have aborted it.
 
@@ -251,10 +251,10 @@ class BuilderStatusManager(object):
       # Builds without master_build_id can't be aborted by self-destruction.
       return False
 
-    build_messages = db.GetBuildMessages(master_build_id)
+    build_messages = buildstore.GetBuildMessages(master_build_id)
     build_messages = (
         message for message in build_messages if message['message_value'] ==
-        str(build_id))
+        str(buildbucket_id))
     return any((
         message['message_type'] ==
         constants.MESSAGE_TYPE_IGNORED_REASON and
@@ -271,13 +271,14 @@ class SlaveBuilderStatus(object):
   fetches BuilderStatus information for important slaves.
   """
 
-  def __init__(self, master_build_id, db, config, metadata, buildbucket_client,
-               builders_array, dry_run, exclude_experimental=True):
+  def __init__(self, master_build_id, buildstore, config, metadata,
+               buildbucket_client, builders_array, dry_run,
+               exclude_experimental=True):
     """Create an instance of SlaveBuilderStatus for a given master build.
 
     Args:
       master_build_id: The build_id of the master build.
-      db: An instance of cidb.CIDBConnection to fetch data from CIDB.
+      buildstore: A BuildStore instance to make DB calls with.
       config: Instance of config_lib.BuildConfig. Config dict of this build.
       metadata: Instance of metadata_lib.CBuildbotMetadata. Metadata of this
                 build.
@@ -289,7 +290,8 @@ class SlaveBuilderStatus(object):
         True.
     """
     self.master_build_id = master_build_id
-    self.db = db
+    self.buildstore = buildstore
+    self.db = buildstore.GetCIDBHandle()
     self.config = config
     self.metadata = metadata
     self.buildbucket_client = buildbucket_client
@@ -317,15 +319,11 @@ class SlaveBuilderStatus(object):
     """
     slave_failures_dict = {}
 
-    slave_buildbucket_ids = (
+    child_buildbucket_ids = (
         None if buildbucket_info_dict is None else
         [bb_info.buildbucket_id for bb_info in buildbucket_info_dict.values()])
 
-    child_build_ids = [
-        c['id']
-        for c in self.db.GetBuildStatusesWithBuildbucketIds(
-            slave_buildbucket_ids)]
-    stage_failures = self.db.GetBuildsFailures(child_build_ids)
+    stage_failures = self.buildstore.GetBuildsFailures(child_buildbucket_ids)
     stage_failures_by_build = cros_collections.GroupNamedtuplesByKey(
         stage_failures, 'build_config')
 
@@ -350,7 +348,8 @@ class SlaveBuilderStatus(object):
     return set(build_config
                for build_config, cidb_info in cidb_info_dict.iteritems()
                if BuilderStatusManager.AbortedBySelfDestruction(
-                   self.db, cidb_info.build_id, self.master_build_id))
+                   self.buildstore, cidb_info.buildbucket_id,
+                   self.master_build_id))
 
   def _InitSlaveInfo(self):
     """Init slave info including buildbucket info, cidb info and failures."""
@@ -516,12 +515,12 @@ class SlaveBuilderStatus(object):
     return all_buildbucket_info_dict
 
   @staticmethod
-  def GetAllSlaveCIDBStatusInfo(db, master_build_id,
+  def GetAllSlaveCIDBStatusInfo(buildstore, master_build_id,
                                 all_buildbucket_info_dict):
     """Get build status information from CIDB for all slaves.
 
     Args:
-      db: An instance of cidb.CIDBConnection.
+      buildstore: An instance of buildstore.BuildStore.
       master_build_id: The build_id of the master build for slaves.
       all_buildbucket_info_dict: A dict mapping all build config names to their
         information fetched from Buildbucket server (in the format of
@@ -533,16 +532,17 @@ class SlaveBuilderStatus(object):
       map only contains slave builds which are associated with buildbucket_ids
       recorded in all_buildbucket_info_dict.
     """
+    # TODO(buildstore): make sure buildstore is BuildStore, not CIDBConnection.
     all_cidb_status_dict = {}
-    if db is not None:
+    if buildstore is not None:
       buildbucket_ids = None if all_buildbucket_info_dict is None else [
           info.buildbucket_id for info in all_buildbucket_info_dict.values()]
 
-      slave_statuses = db.GetSlaveStatuses(
+      slave_statuses = buildstore.GetSlaveStatuses(
           master_build_id, buildbucket_ids=buildbucket_ids)
 
       all_cidb_status_dict = {s['build_config']: CIDBStatusInfo(
-          s['id'], s['status'], s['build_number']) for s in slave_statuses}
+          s['id'], s['status'], s['buildbucket_id']) for s in slave_statuses}
 
     return all_cidb_status_dict
 
@@ -550,14 +550,14 @@ class SlaveBuilderStatus(object):
 class BuilderStatusesFetcher(object):
   """Class to fetch BuilderStatus of a build and its slave builds(if any)."""
 
-  def __init__(self, build_id, db, success, message, config, metadata,
+  def __init__(self, build_id, buildstore, success, message, config, metadata,
                buildbucket_client, builders_array=None,
                exclude_experimental=True, dry_run=True):
     """Initialize BuilderStatusesFetcher.
 
     Args:
       build_id: Build id of the build.
-      db: An instance of cidb.CIDBConnection.
+      buildstore: A BuildStore instance to make DB calls.
       success: Whether the build succeeded so far.
       message: The failure message (see return type of
         generic_stages.GetBuildFailureMessage) of the build.
@@ -573,7 +573,8 @@ class BuilderStatusesFetcher(object):
       dry_run: Boolean indicating whether it's a dry run. Default to True.
     """
     self.build_id = build_id
-    self.db = db
+    self.buildstore = buildstore
+    self.db = buildstore.GetCIDBHandle()
     self.success = success
     self.message = message
     self.config = config
@@ -608,7 +609,7 @@ class BuilderStatusesFetcher(object):
       return {}
 
     slave_builder_statuses = SlaveBuilderStatus(
-        self.build_id, self.db, self.config, self.metadata,
+        self.build_id, self.buildstore, self.config, self.metadata,
         self.buildbucket_client, self.builders_array, self.dry_run,
         exclude_experimental=self.exclude_experimental)
 

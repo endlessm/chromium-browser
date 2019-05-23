@@ -223,7 +223,8 @@ class BuilderStage(object):
       Expected arguments are the same as cidb.InsertBuildStage, except
       |build_id|, which is populated here.
     """
-    build_id, _ = self._run.GetCIDBHandle()
+    build_identifier, _ = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     if build_id:
       self._build_stage_id = self.buildstore.InsertBuildStage(
           build_id, name, board, status)
@@ -240,9 +241,8 @@ class BuilderStage(object):
           constants.BUILDER_COMPLETED_STATUSES
       elapsed_time_seconds: (optional) Elapsed time in stage, in seconds.
     """
-    _, db = self._run.GetCIDBHandle()
-    if self._build_stage_id is not None and db is not None:
-      db.FinishBuildStage(self._build_stage_id, status)
+    if self._build_stage_id is not None and self.buildstore.AreClientsReady():
+      self.buildstore.FinishBuildStage(self._build_stage_id, status)
 
     fields = {
         'status': status,
@@ -271,25 +271,22 @@ class BuilderStage(object):
           'failed_stage': self.name,
           'category': self.category
       })
-      _, db = self._run.GetCIDBHandle()
-      if db:
+      if self.buildstore.AreClientsReady():
         failures_lib.ReportStageFailure(
-            db,
+            self.buildstore,
             self._build_stage_id,
             stage_result,
             metrics_fields=failed_metrics_fields)
 
   def _StartBuildStageInCIDB(self):
     """Mark the stage as inflight in cidb."""
-    _, db = self._run.GetCIDBHandle()
-    if self._build_stage_id is not None and db is not None:
-      db.StartBuildStage(self._build_stage_id)
+    if self._build_stage_id is not None and self.buildstore.AreClientsReady():
+      self.buildstore.StartBuildStage(self._build_stage_id)
 
   def _WaitBuildStageInCIDB(self):
     """Mark the stage as waiting in cidb."""
-    _, db = self._run.GetCIDBHandle()
-    if self._build_stage_id is not None and db is not None:
-      db.WaitBuildStage(self._build_stage_id)
+    if self._build_stage_id is not None and self.buildstore.AreClientsReady():
+      self.buildstore.WaitBuildStage(self._build_stage_id)
 
   def _TranslateResultToCIDBStatus(self, result):
     """Translates the different result_lib.Result results to builder statuses.
@@ -372,17 +369,18 @@ class BuilderStage(object):
 
     return buildbucket_ids
 
-  def GetBuildFailureMessageFromCIDB(self, build_id, db):
-    """Get message summarizing failures of this build from CIDB.
+  def GetBuildFailureMessageFromBuildStore(self, buildstore, build_identifier):
+    """Get message summarizing failures of this build from BuildStore.
 
     Args:
-      build_id: The build id of the build being inspected.
-      db: An instance of cidb.CIDBConnection.
+      buildstore: An instance of BuildStore to make DB calls.
+      build_identifier: The instance of BuildIdentifier of the current build.
 
     Returns:
       An instance of build_failure_message.BuildFailureMessage.
     """
-    stage_failures = db.GetBuildsFailures([build_id])
+    stage_failures = buildstore.GetBuildsFailures([
+        build_identifier.buildbucket_id])
     failure_msg_manager = failure_message_lib.FailureMessageManager()
     failure_messages = failure_msg_manager.ConstructStageFailureMessages(
         stage_failures)
@@ -390,7 +388,8 @@ class BuilderStage(object):
     if stage_failures:
       master_build_id = stage_failures[0].master_build_id
     aborted = builder_status_lib.BuilderStatusManager.AbortedBySelfDestruction(
-        db, build_id, master_build_id)
+        buildstore, build_identifier.buildbucket_id,
+        master_build_id)
 
     return builder_status_lib.BuilderStatusManager.CreateBuildFailureMessage(
         self._run.config.name,
@@ -412,15 +411,17 @@ class BuilderStage(object):
 
   def GetBuildFailureMessage(self):
     """Get message summarizing failure of this build."""
-    build_id, db = self._run.GetCIDBHandle()
-    if db is not None:
-      return self.GetBuildFailureMessageFromCIDB(build_id, db)
+    build_identifier, _ = self._run.GetCIDBHandle()
+    if self.buildstore.AreClientsReady():
+      return self.GetBuildFailureMessageFromBuildStore(
+          self.buildstore, build_identifier)
     else:
       return self.GetBuildFailureMessageFromResults()
 
   def GetJobKeyvals(self):
     """Get job keyvals for the build stage."""
-    build_id, _ = self._run.GetCIDBHandle()
+    build_identifier, _ = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     job_keyvals = {
         constants.JOB_KEYVAL_DATASTORE_PARENT_KEY: (
             'Build', build_id, 'BuildStage', self._build_stage_id),
@@ -942,14 +943,25 @@ class BoardSpecificBuilderStage(BuilderStage):
 
   def GetListOfPackagesToBuild(self):
     """Returns a list of packages to build."""
+
+    # If we have defined explicit packages to build for ChromeOS Findit
+    # integration, add those to the list of _run.config.packages to build.
+    packages = []
+    if self._run.options.cbb_build_packages:
+      logging.info('Adding list of packages to build for ChromeOS Findit: %s',
+                   self._run.options.cbb_build_packages)
+      packages += self._run.options.cbb_build_packages
     if self._run.config.packages:
-      # If the list of packages is set in the config, use it.
-      return self._run.config.packages
+      packages += self._run.config.packages
+
+    # Short circuit if there are any Findit or explicit builds specified.
+    if packages:
+      return packages
 
     # TODO: the logic below is duplicated from the build_packages
     # script. Once we switch to `cros build`, we should consolidate
     # the logic in a shared location.
-    packages = [constants.TARGET_OS_PKG]
+    packages += [constants.TARGET_OS_PKG]
     # Build Dev packages by default.
     packages += [constants.TARGET_OS_DEV_PKG]
     # Build test packages by default.
@@ -990,9 +1002,13 @@ class BoardSpecificBuilderStage(BuilderStage):
     logging.info('Waiting up to %s for %s ...', timeout_str, pretty_name)
     return self.board_runattrs.GetParallel(board_attr, timeout=timeout)
 
-  def GetImageDirSymlink(self, pointer='latest-cbuildbot'):
+  def GetImageDirSymlink(self, pointer='latest-cbuildbot', buildroot=None):
     """Get the location of the current image."""
-    return os.path.join(self._run.buildroot, 'src', 'build', 'images',
+
+    if not buildroot:
+      buildroot = self._run.buildroot
+
+    return os.path.join(buildroot, 'src', 'build', 'images',
                         self._current_board, pointer)
 
 
@@ -1080,17 +1096,21 @@ class ArchivingStageMixin(object):
       yield bg_queue
 
   def PrintDownloadLink(self, filename, prefix='', text_to_display=None):
-    """Print a link to an artifact in Google Storage.
+    """Log a link to an artifact in Google Storage and return the URL.
 
     Args:
       filename: The filename of the uploaded file.
       prefix: The prefix to put in front of the filename.
       text_to_display: Text to display. If None, use |prefix| + |filename|.
+
+    Returns:
+      The download URL.
     """
     url = '%s/%s' % (self.download_url.rstrip('/'), filename)
     if not text_to_display:
       text_to_display = '%s%s' % (prefix, filename)
     logging.PrintBuildbotLink(text_to_display, url)
+    return url
 
   def _IsInUploadBlacklist(self, filename):
     """Check if this file is blacklisted to go into a board's extra buckets.
@@ -1117,7 +1137,7 @@ class ArchivingStageMixin(object):
       True is the build should not be copied to this moblab url
     """
     bot_filter_list = ['paladin', 'trybot', 'pfq', 'pre-cq', 'tryjob']
-    if (url.find('moblab') and
+    if (url.find('moblab') != -1 and
         any(bot_id.find(filter) != -1 for filter in bot_filter_list)):
       return True
     return False
@@ -1231,7 +1251,8 @@ class ArchivingStageMixin(object):
       logging.info('Uploading metadata file %s now.', metadata_json)
       self.UploadArtifact(filename, archive=False)
 
-    build_id, _ = self._run.GetCIDBHandle()
+    build_identifier, _ = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     if self.buildstore.AreClientsReady():
       logging.info('Writing updated metadata to database for build_id %s.',
                    build_id)

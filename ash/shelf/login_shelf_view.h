@@ -14,6 +14,7 @@
 #include "ash/public/interfaces/kiosk_app_info.mojom.h"
 #include "ash/public/interfaces/login_screen.mojom.h"
 #include "ash/shutdown_controller.h"
+#include "ash/system/locale/locale_update_controller.h"
 #include "ash/tray_action/tray_action_observer.h"
 #include "base/scoped_observer.h"
 #include "ui/views/controls/button/button.h"
@@ -47,7 +48,8 @@ class ASH_EXPORT LoginShelfView : public views::View,
                                   public LockScreenActionBackgroundObserver,
                                   public ShutdownController::Observer,
                                   public LoginScreenControllerObserver,
-                                  public LoginDataDispatcher::Observer {
+                                  public LoginDataDispatcher::Observer,
+                                  public LocaleChangeObserver {
  public:
   enum ButtonId {
     kShutdown = 1,   // Shut down the device.
@@ -80,7 +82,7 @@ class ASH_EXPORT LoginShelfView : public views::View,
   void SetAllowLoginAsGuest(bool allow_guest);
 
   // Sets whether parent access button can be shown on the login shelf.
-  void SetShowParentAccess(bool show);
+  void SetShowParentAccessButton(bool show);
 
   // Sets if the guest button on the login shelf can be shown during gaia
   // signin screen.
@@ -101,6 +103,9 @@ class ASH_EXPORT LoginShelfView : public views::View,
   // views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
+  int ui_update_count() const { return ui_update_count_; }
+  gfx::Rect get_button_union_bounds() const { return button_union_bounds_; }
+
  protected:
   // TrayActionObserver:
   void OnLockScreenNoteStateChanged(mojom::TrayActionState state) override;
@@ -119,12 +124,22 @@ class ASH_EXPORT LoginShelfView : public views::View,
   void OnUsersChanged(
       const std::vector<mojom::LoginUserInfoPtr>& users) override;
 
+  // LocaleChangeObserver:
+  void OnLocaleChanged() override;
+
  private:
   bool LockScreenActionBackgroundAnimating() const;
 
   // Updates the visibility of buttons based on state changes, e.g. shutdown
   // policy updates, session state changes etc.
   void UpdateUi();
+
+  // Updates the color of all buttons. Uses dark colors if |use_dark_colors| is
+  // true, light colors otherwise.
+  void UpdateButtonColors(bool use_dark_colors);
+
+  // Updates the total bounds of all buttons.
+  void UpdateButtonUnionBounds();
 
   mojom::OobeDialogState dialog_state_ = mojom::OobeDialogState::HIDDEN;
   bool allow_guest_ = true;
@@ -148,7 +163,18 @@ class ASH_EXPORT LoginShelfView : public views::View,
   ScopedObserver<LoginScreenController, LoginScreenControllerObserver>
       login_screen_controller_observer_;
 
+  ScopedObserver<LocaleUpdateController, LocaleChangeObserver>
+      locale_change_observer_{this};
+
   KioskAppsButton* kiosk_apps_button_ = nullptr;  // Owned by view hierarchy
+
+  // This is used in tests to wait until UI is updated.
+  int ui_update_count_ = 0;
+
+  // The bounds of all the buttons that this view is showing. Useful for
+  // letting events that target the "empty space" pass through. These
+  // coordinates are local to the view.
+  gfx::Rect button_union_bounds_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginShelfView);
 };

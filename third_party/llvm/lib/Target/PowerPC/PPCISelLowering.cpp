@@ -1,9 +1,8 @@
 //===-- PPCISelLowering.cpp - PPC DAG Lowering Implementation -------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -118,6 +117,8 @@ STATISTIC(NumTailCalls, "Number of tail calls");
 STATISTIC(NumSiblingCalls, "Number of sibling calls");
 
 static bool isNByteElemShuffleMask(ShuffleVectorSDNode *, unsigned, int);
+
+static SDValue widenVec(SelectionDAG &DAG, SDValue Vec, const SDLoc &dl);
 
 // FIXME: Remove this once the bug has been fixed!
 extern cl::opt<bool> ANDIGlueBug;
@@ -639,6 +640,14 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
     // We can custom expand all VECTOR_SHUFFLEs to VPERM, others we can handle
     // with merges, splats, etc.
     setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i8, Custom);
+
+    // Vector truncates to sub-word integer that fit in an Altivec/VSX register
+    // are cheap, so handle them before they get expanded to scalar.
+    setOperationAction(ISD::TRUNCATE, MVT::v8i8, Custom);
+    setOperationAction(ISD::TRUNCATE, MVT::v4i8, Custom);
+    setOperationAction(ISD::TRUNCATE, MVT::v2i8, Custom);
+    setOperationAction(ISD::TRUNCATE, MVT::v4i16, Custom);
+    setOperationAction(ISD::TRUNCATE, MVT::v2i16, Custom);
 
     setOperationAction(ISD::AND   , MVT::v4i32, Legal);
     setOperationAction(ISD::OR    , MVT::v4i32, Legal);
@@ -3145,101 +3154,6 @@ SDValue PPCTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   // Store third word : arguments given in registers
   return DAG.getStore(thirdStore, dl, FR, nextPtr,
                       MachinePointerInfo(SV, nextOffset));
-}
-
-#include "PPCGenCallingConv.inc"
-
-// Function whose sole purpose is to kill compiler warnings
-// stemming from unused functions included from PPCGenCallingConv.inc.
-CCAssignFn *PPCTargetLowering::useFastISelCCs(unsigned Flag) const {
-  return Flag ? CC_PPC64_ELF_FIS : RetCC_PPC64_ELF_FIS;
-}
-
-bool llvm::CC_PPC32_SVR4_Custom_Dummy(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
-                                      CCValAssign::LocInfo &LocInfo,
-                                      ISD::ArgFlagsTy &ArgFlags,
-                                      CCState &State) {
-  return true;
-}
-
-bool llvm::CC_PPC32_SVR4_Custom_AlignArgRegs(unsigned &ValNo, MVT &ValVT,
-                                             MVT &LocVT,
-                                             CCValAssign::LocInfo &LocInfo,
-                                             ISD::ArgFlagsTy &ArgFlags,
-                                             CCState &State) {
-  static const MCPhysReg ArgRegs[] = {
-    PPC::R3, PPC::R4, PPC::R5, PPC::R6,
-    PPC::R7, PPC::R8, PPC::R9, PPC::R10,
-  };
-  const unsigned NumArgRegs = array_lengthof(ArgRegs);
-
-  unsigned RegNum = State.getFirstUnallocated(ArgRegs);
-
-  // Skip one register if the first unallocated register has an even register
-  // number and there are still argument registers available which have not been
-  // allocated yet. RegNum is actually an index into ArgRegs, which means we
-  // need to skip a register if RegNum is odd.
-  if (RegNum != NumArgRegs && RegNum % 2 == 1) {
-    State.AllocateReg(ArgRegs[RegNum]);
-  }
-
-  // Always return false here, as this function only makes sure that the first
-  // unallocated register has an odd register number and does not actually
-  // allocate a register for the current argument.
-  return false;
-}
-
-bool
-llvm::CC_PPC32_SVR4_Custom_SkipLastArgRegsPPCF128(unsigned &ValNo, MVT &ValVT,
-                                                  MVT &LocVT,
-                                                  CCValAssign::LocInfo &LocInfo,
-                                                  ISD::ArgFlagsTy &ArgFlags,
-                                                  CCState &State) {
-  static const MCPhysReg ArgRegs[] = {
-    PPC::R3, PPC::R4, PPC::R5, PPC::R6,
-    PPC::R7, PPC::R8, PPC::R9, PPC::R10,
-  };
-  const unsigned NumArgRegs = array_lengthof(ArgRegs);
-
-  unsigned RegNum = State.getFirstUnallocated(ArgRegs);
-  int RegsLeft = NumArgRegs - RegNum;
-
-  // Skip if there is not enough registers left for long double type (4 gpr regs
-  // in soft float mode) and put long double argument on the stack.
-  if (RegNum != NumArgRegs && RegsLeft < 4) {
-    for (int i = 0; i < RegsLeft; i++) {
-      State.AllocateReg(ArgRegs[RegNum + i]);
-    }
-  }
-
-  return false;
-}
-
-bool llvm::CC_PPC32_SVR4_Custom_AlignFPArgRegs(unsigned &ValNo, MVT &ValVT,
-                                               MVT &LocVT,
-                                               CCValAssign::LocInfo &LocInfo,
-                                               ISD::ArgFlagsTy &ArgFlags,
-                                               CCState &State) {
-  static const MCPhysReg ArgRegs[] = {
-    PPC::F1, PPC::F2, PPC::F3, PPC::F4, PPC::F5, PPC::F6, PPC::F7,
-    PPC::F8
-  };
-
-  const unsigned NumArgRegs = array_lengthof(ArgRegs);
-
-  unsigned RegNum = State.getFirstUnallocated(ArgRegs);
-
-  // If there is only one Floating-point register left we need to put both f64
-  // values of a split ppc_fp128 value on the stack.
-  if (RegNum != NumArgRegs && ArgRegs[RegNum] == PPC::F8) {
-    State.AllocateReg(ArgRegs[RegNum]);
-  }
-
-  // Always return false here, as this function only makes sure that the two f64
-  // values a ppc_fp128 value is split into are both passed in registers or both
-  // passed on the stack and does not actually allocate a register for the
-  // current argument.
-  return false;
 }
 
 /// FPR - The set of FP registers that should be allocated for arguments,
@@ -6890,6 +6804,61 @@ SDValue PPCTargetLowering::LowerTRUNCATE(SDValue Op, SelectionDAG &DAG) const {
                      Op.getOperand(0));
 }
 
+SDValue PPCTargetLowering::LowerTRUNCATEVector(SDValue Op,
+                                               SelectionDAG &DAG) const {
+
+  // Implements a vector truncate that fits in a vector register as a shuffle.
+  // We want to legalize vector truncates down to where the source fits in
+  // a vector register (and target is therefore smaller than vector register
+  // size).  At that point legalization will try to custom lower the sub-legal
+  // result and get here - where we can contain the truncate as a single target
+  // operation.
+
+  // For example a trunc <2 x i16> to <2 x i8> could be visualized as follows:
+  //   <MSB1|LSB1, MSB2|LSB2> to <LSB1, LSB2>
+  //
+  // We will implement it for big-endian ordering as this (where x denotes
+  // undefined):
+  //   < MSB1|LSB1, MSB2|LSB2, uu, uu, uu, uu, uu, uu> to
+  //   < LSB1, LSB2, u, u, u, u, u, u, u, u, u, u, u, u, u, u>
+  // 
+  // The same operation in little-endian ordering will be:
+  //   <uu, uu, uu, uu, uu, uu, LSB2|MSB2, LSB1|MSB1> to
+  //   <u, u, u, u, u, u, u, u, u, u, u, u, u, u, LSB2, LSB1>
+
+  assert(Op.getValueType().isVector() && "Vector type expected.");
+
+  SDLoc DL(Op);
+  SDValue N1 = Op.getOperand(0);
+  unsigned SrcSize = N1.getValueType().getSizeInBits();
+  assert(SrcSize <= 128 && "Source must fit in an Altivec/VSX vector");
+  SDValue WideSrc = SrcSize == 128 ? N1 : widenVec(DAG, N1, DL);
+
+  EVT TrgVT = Op.getValueType();
+  unsigned TrgNumElts = TrgVT.getVectorNumElements();
+  EVT EltVT = TrgVT.getVectorElementType();
+  unsigned WideNumElts = 128 / EltVT.getSizeInBits();
+  EVT WideVT = EVT::getVectorVT(*DAG.getContext(), EltVT, WideNumElts);
+
+  // First list the elements we want to keep.
+  unsigned SizeMult = SrcSize / TrgVT.getSizeInBits();
+  SmallVector<int, 16> ShuffV;
+  if (Subtarget.isLittleEndian())
+    for (unsigned i = 0; i < TrgNumElts; ++i)
+      ShuffV.push_back(i * SizeMult);
+  else
+    for (unsigned i = 1; i <= TrgNumElts; ++i)
+      ShuffV.push_back(i * SizeMult - 1);
+
+  // Populate the remaining elements with undefs.
+  for (unsigned i = TrgNumElts; i < WideNumElts; ++i)
+    // ShuffV.push_back(i + WideNumElts);
+    ShuffV.push_back(WideNumElts + 1);
+
+  SDValue Conv = DAG.getNode(ISD::BITCAST, DL, WideVT, WideSrc);
+  return DAG.getVectorShuffle(WideVT, DL, Conv, DAG.getUNDEF(WideVT), ShuffV);
+}
+
 /// LowerSELECT_CC - Lower floating point select_cc's into fsel instruction when
 /// possible.
 SDValue PPCTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
@@ -9737,6 +9706,14 @@ void PPCTargetLowering::ReplaceNodeResults(SDNode *N,
       return;
     Results.push_back(LowerFP_TO_INT(SDValue(N, 0), DAG, dl));
     return;
+  case ISD::TRUNCATE: {
+    EVT TrgVT = N->getValueType(0);
+    if (TrgVT.isVector() &&
+        isOperationCustom(N->getOpcode(), TrgVT) &&
+        N->getOperand(0).getValueType().getSizeInBits() <= 128)
+      Results.push_back(LowerTRUNCATEVector(SDValue(N, 0), DAG));
+    return;
+  }
   case ISD::BITCAST:
     // Don't handle bitcast here.
     return;

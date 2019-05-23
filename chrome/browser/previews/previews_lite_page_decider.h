@@ -21,11 +21,14 @@
 #include "net/http/http_request_headers.h"
 
 class PrefService;
+class Profile;
 
 namespace content {
 class BrowserContext;
 class NavigationHandle;
 class NavigationThrottle;
+class WebContents;
+
 }  // namespace content
 
 namespace user_prefs {
@@ -51,6 +54,11 @@ class PreviewsLitePageDecider
   static std::unique_ptr<content::NavigationThrottle> MaybeCreateThrottleFor(
       content::NavigationHandle* handle);
 
+  // Helpers to generate page ID.
+  static uint64_t GeneratePageIdForWebContents(
+      content::WebContents* web_contents);
+  static uint64_t GeneratePageIdForProfile(Profile* profile);
+
   // Removes |this| as a DataReductionProxySettingsObserver.
   void Shutdown();
 
@@ -70,6 +78,8 @@ class PreviewsLitePageDecider
   // Sets that the user has seen the UI notification.
   void SetUserHasSeenUINotification();
 
+  uint64_t GeneratePageID() override;
+
  private:
   FRIEND_TEST_ALL_PREFIXES(PreviewsLitePageDeciderTest, TestServerUnavailable);
   FRIEND_TEST_ALL_PREFIXES(PreviewsLitePageDeciderTest, TestSingleBypass);
@@ -79,7 +89,6 @@ class PreviewsLitePageDecider
   bool IsServerUnavailable() override;
   void AddSingleBypass(std::string url) override;
   bool CheckSingleBypass(std::string url) override;
-  uint64_t GeneratePageID() override;
   void ReportDataSavings(int64_t network_bytes,
                          int64_t original_bytes,
                          const std::string& host) override;

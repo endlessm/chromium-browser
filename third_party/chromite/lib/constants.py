@@ -24,7 +24,6 @@ def _FindSourceRoot():
 
 SOURCE_ROOT = _FindSourceRoot()
 CHROOT_SOURCE_ROOT = '/mnt/host/source'
-CHROOT_WORKSPACE_ROOT = '/mnt/host/workspace'
 CHROOT_CACHE_ROOT = '/var/cache/chromeos-cache'
 DEPOT_TOOLS_SUBPATH = 'chromium/tools/depot_tools'
 
@@ -339,8 +338,8 @@ DEFAULT_CTS_APFE_GSURI = 'gs://chromeos-cts-apfe/'
 ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
 ANDROID_MST_BUILD_BRANCH = 'git_master-arc-dev'
-ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc-m73'
-ANDROID_PI_BUILD_BRANCH = 'git_pi-arc-m73'
+ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
+ANDROID_PI_BUILD_BRANCH = 'git_pi-arc'
 ANDROID_VMPI_BUILD_BRANCH = 'git_pi-arcvm-dev'
 ANDROID_GTS_BUILD_TARGETS = {
     # "gts_arm64" is the build maintained by GMS team.
@@ -373,7 +372,12 @@ ANDROID_NYC_BUILD_TARGETS = {
     'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
 ANDROID_PI_BUILD_TARGETS = {
-    'ARM': ('linux-cheets_arm-user', r'\.zip$'),
+    # Roll XkbToKcmConverter with system image. It's a host executable and
+    # doesn't depend on the target as long as it's pi-arc branch. The converter
+    # is ARC specific and not a part of Android SDK. Having a custom target like
+    # SDK_TOOLS might be better in the long term, but let's use one from ARM
+    # target as there's no other similar executables right now.
+    'ARM': ('linux-cheets_arm-user', r'(\.zip|/XkbToKcmConverter)$'),
     'X86': ('linux-cheets_x86-user', r'\.zip$'),
     'X86_NDK_TRANSLATION': ('linux-cheets_x86_ndk_translation-user', r'\.zip$'),
     'X86_64': ('linux-cheets_x86_64-user', r'\.zip$'),
@@ -633,21 +637,16 @@ VALID_BUILD_TYPES = (
 # The default list of pre-cq configs to use.
 PRE_CQ_DEFAULT_CONFIGS = [
     # Betty is the designated board to run vmtest on N.
-    'betty-pre-cq',                   # vm board                  vmtest
-    'betty-arcnext-pre-cq',           # vm board                  arcnext
-    'cyan-no-vmtest-pre-cq',          # braswell     kernel 3.18
-    'daisy_spring-no-vmtest-pre-cq',  # arm32        kernel 3.8
-    'eve-no-vmtest-pre-cq',           # kabylake     kernel 4.4   cheets_user_64
-    'fizz-no-vmtest-pre-cq',          # kabylake     kernel 4.4
-    'grunt-no-vmtest-pre-cq',         # stoneyridge  kernel 4.14
-    'guado_moblab-no-vmtest-pre-cq',  # broadwell    kernel 3.14  moblab
-    'kevin-arcnext-no-vmtest-pre-cq', # arm64        kernel 4.4   arcnext
-    'lakitu-no-vmtest-pre-cq',        # container    kernel 4.14
-    'nyan_blaze-no-vmtest-pre-cq',    # arm32        kernel 3.10
-    'reef-no-vmtest-pre-cq',          # apollolake   kernel 4.4   vulkan
-    'samus-no-vmtest-pre-cq',         # broadwell    kernel 3.14
+    'betty-arcnext-pre-cq',           # vm board    arcnext
+    'betty-pre-cq',                   # vm board    vmtest
+    'eve-no-vmtest-pre-cq',           # kabylake    cheets_64 vulkan(Intel)
+    'fizz-no-vmtest-pre-cq',          # kabylake
+    'grunt-no-vmtest-pre-cq',         # stoneyridge vulkan(AMD)
+    'guado_moblab-no-vmtest-pre-cq',  # broadwell   moblab
+    'kevin-arcnext-no-vmtest-pre-cq', # arm64       arcnext
+    'lakitu-no-vmtest-pre-cq',        # container
+    'nyan_blaze-no-vmtest-pre-cq',    # arm32
     'whirlwind-no-vmtest-pre-cq',     # brillo
-    'zako-no-vmtest-pre-cq',          # haswell      kernel 3.8
 ]
 
 # The name of the pre-cq launching config.
@@ -711,6 +710,8 @@ HWTEST_TAST_CQ_SUITE = 'bvt-tast-cq'
 HWTEST_TAST_CHROME_PFQ_SUITE = 'bvt-tast-chrome-pfq'
 # Runs non-informational Tast tests exercising ARC.
 HWTEST_TAST_ANDROID_PFQ_SUITE = 'bvt-tast-android-pfq'
+# Runs all Tast informational tests.
+HWTEST_TAST_INFORMATIONAL_SUITE = 'bvt-tast-informational'
 HWTEST_AFDO_SUITE = 'AFDO_record'
 HWTEST_JETSTREAM_COMMIT_SUITE = 'jetstream_cq'
 HWTEST_MOBLAB_SUITE = 'moblab'
@@ -779,6 +780,9 @@ SKYLAB_HWTEST_PRIORITIES_MAP = {
 # The environment for executing tests.
 ENV_SKYLAB = 'skylab'
 ENV_AUTOTEST = 'autotest'
+
+# The cipd package for skylab tool
+CIPD_SKYLAB_PACKAGE = 'chromiumos/infra/skylab/linux-amd64'
 
 # HWTest result statuses
 HWTEST_STATUS_PASS = 'pass'
@@ -1098,7 +1102,7 @@ VM_IMAGE_BIN = '%s.bin' % VM_IMAGE_NAME
 VM_IMAGE_TAR = '%s.tar.xz' % VM_IMAGE_NAME
 VM_DISK_PREFIX = 'chromiumos_qemu_disk.bin'
 VM_MEM_PREFIX = 'chromiumos_qemu_mem.bin'
-VM_NUM_RETRIES = 1
+VM_NUM_RETRIES = 0
 TAST_VM_TEST_RESULTS = 'tast_vm_test_results_%(attempt)s'
 
 TEST_IMAGE_NAME = 'chromiumos_test_image'
@@ -1256,6 +1260,18 @@ PART_ROOT_B = 'ROOT-B'
 PART_KERN_A = 'KERN-A'
 PART_KERN_B = 'KERN-B'
 
-# Mock build and stage IDs
+# Mock build and stage IDs.
 MOCK_STAGE_ID = 313377
 MOCK_BUILD_ID = 31337
+
+# Topology dictionary copied from CIDB.
+TOPOLOGY_DICT = {
+    '/buildbucket/host':'cr-buildbucket.appspot.com',
+    '/chrome_swarming_proxy/host':'chromeos-swarming.appspot.com',
+    '/datastore/creds_file':('/creds/service_accounts/service-account-chromeos'
+                             '-datastore-writer-prod.json'),
+    '/sheriffomatic/host':'sheriff-o-matic.appspot.com',
+    '/statsd/es_host':'104.154.79.237',
+    '/statsd/host':'104.154.79.237',
+    '/swarming_proxy/host':'chromeos-proxy.appspot.com',
+}

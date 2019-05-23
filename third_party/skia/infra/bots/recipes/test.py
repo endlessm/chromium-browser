@@ -27,6 +27,7 @@ def upload_dm_results(buildername):
     'ASAN',
     'Coverage',
     'MSAN',
+    'MSRTC',
     'TSAN',
     'UBSAN',
     'Valgrind',
@@ -679,6 +680,7 @@ def dm_flags(api, bot):
     blacklist(['vk', 'gm', '_', 'filterfastbounds'])
     blacklist(['vk', 'gm', '_', 'fontmgr_iter'])
     blacklist(['vk', 'gm', '_', 'fontmgr_match'])
+    blacklist(['vk', 'gm', '_', 'fontscaler'])
     blacklist(['vk', 'gm', '_', 'fontscalerdistortable'])
     blacklist(['vk', 'gm', '_', 'gammagradienttext'])
     blacklist(['vk', 'gm', '_', 'gammatext'])
@@ -710,7 +712,6 @@ def dm_flags(api, bot):
     blacklist(['vk', 'gm', '_', 'varied_text_clipped_lcd'])
     blacklist(['vk', 'gm', '_', 'varied_text_ignorable_clip_lcd'])
     if 'Debug' in bot:
-      blacklist(['vk', 'gm', '_', 'fontscaler'])
       blacklist(['vk', 'gm', '_', 'mixedtextblobs'])
       blacklist(['vk', 'gm', '_', 'textblobmixedsizes'])
       blacklist(['vk', 'gm', '_', 'textblobmixedsizes_df'])
@@ -722,6 +723,7 @@ def dm_flags(api, bot):
     match.append('~^InitialTextureClear$')
     match.append('~^RGB565TextureTest$')
     match.append('~^RGBA4444TextureTest$')
+    match.append('~^TextureIdleProcFlushTest$')
     match.append('~^WritePixelsNonTextureMSAA_Gpu$')
 
   if 'ANGLE' in bot:
@@ -754,27 +756,34 @@ def dm_flags(api, bot):
 
   if 'Metal' in bot:
     # skia:8243
-    match.append('~^ClearOp$')
-    match.append('~^DDLSurfaceCharacterizationTest$')
+    match.append('~^DDLMakeRenderTargetTest$')
+    match.append('~^DDLNonTextureabilityTest$')
     match.append('~^DDLOperatorEqTest$')
-    match.append('~^DeferredProxyTest$')
-    match.append('~^GPUMemorySize$')
+    match.append('~^DDLSurfaceCharacterizationTest$')
     match.append('~^GrContext_colorTypeSupportedAsImage$')
     match.append('~^GrContext_colorTypeSupportedAsSurface$')
     match.append('~^GrContext_maxSurfaceSamplesForColorType$')
     match.append('~^GrContextFactory_sharedContexts$')
+    match.append('~^GrDefaultPathRendererTest$')
     match.append('~^GrPipelineDynamicStateTest$')
     match.append('~^InitialTextureClear$')
-    match.append('~^PromiseImageTest$')
-    match.append('~^PromiseImageTextureReuse$')
+    match.append('~^PromiseImageTextureFullCache$')
     match.append('~^PromiseImageTextureReuseDifferentConfig$')
-    match.append('~^ResourceAllocatorTest$')
-    match.append('~^RGB565TextureTest$')
-    match.append('~^RGBA4444TextureTest$')
-    match.append('~^TransferPixelsTest$')
     match.append('~^SurfaceSemaphores$')
+    match.append('~^SurfaceTest$')
+    match.append('~^TransferPixelsTest$')
     match.append('~^VertexAttributeCount$')
-    match.append('~^WrappedProxyTest$')
+    match.append('~^WritePixelsNonTexture_Gpu$')
+    if 'Mac' in bot:
+      match.append('~^RGB565TextureTest$')
+      match.append('~^RGBA4444TextureTest$')
+      match.append('~^TextureIdleProcFlushTest$')
+
+  if 'Wuffs' in api.vars.extra_tokens:
+    # skia:8750
+    blacklist(['_', 'tests', '_', 'Codec_partial'])
+    # skia:8762
+    blacklist(['_', 'tests', '_', 'Codec_gif'])
 
   if blacklisted:
     args.append('--blacklist')
@@ -904,6 +913,7 @@ def test_steps(api):
     'gitHash',              api.properties['revision'],
     'builder',              api.vars.builder_name,
     'buildbucket_build_id', api.properties.get('buildbucket_build_id', ''),
+    'task_id',              api.properties['task_id'],
   ]
   if api.vars.is_trybot:
     properties.extend([
@@ -947,6 +957,11 @@ def test_steps(api):
 
   if 'Lottie' in api.vars.builder_cfg.get('extra_config', ''):
     keys.extend(['renderer', 'skottie'])
+  if 'DDL' in api.vars.builder_cfg.get('extra_config', ''):
+    # 'DDL' style means "--skpViewportSize 2048 --pr ~small"
+    keys.extend(['style', 'DDL'])
+  else:
+    keys.extend(['style', 'default'])
 
   args.extend(keys)
 
@@ -1020,6 +1035,7 @@ TEST_BUILDERS = [
   'Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-All-MSAN',
   ('Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-All'
    '-SK_USE_DISCARDABLE_SCALEDIMAGECACHE'),
+  'Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-All-Wuffs',
   'Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Release-All-Lottie',
   ('Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Release-All'
    '-SK_FORCE_RASTER_PIPELINE_BLITTER'),
@@ -1027,13 +1043,15 @@ TEST_BUILDERS = [
   'Test-Debian9-Clang-GCE-GPU-SwiftShader-x86_64-Release-All-SwiftShader',
   'Test-Debian9-Clang-NUC5PPYH-GPU-IntelHD405-x86_64-Release-All-Vulkan',
   'Test-Debian9-Clang-NUC7i5BNK-GPU-IntelIris640-x86_64-Debug-All-Vulkan',
-  'Test-Mac-Clang-MacBook10.1-GPU-IntelHD615-x86_64-Release-All-NativeFonts',
-  'Test-Mac-Clang-MacBookAir7.2-GPU-IntelHD6000-x86_64-Debug-All',
-  'Test-Mac-Clang-MacBookPro11.5-CPU-AVX2-x86_64-Release-All',
-  'Test-Mac-Clang-MacBookPro11.5-GPU-RadeonHD8870M-x86_64-Debug-All-Metal',
-  ('Test-Mac-Clang-MacBookPro11.5-GPU-RadeonHD8870M-x86_64-Release-All-'
+  ('Test-Mac10.13-Clang-MacBook10.1-GPU-IntelHD615-x86_64-Release-All'
+   '-NativeFonts'),
+  'Test-Mac10.13-Clang-MacBookPro11.5-CPU-AVX2-x86_64-Release-All',
+  'Test-Mac10.13-Clang-MacBookPro11.5-GPU-RadeonHD8870M-x86_64-Debug-All-Metal',
+  ('Test-Mac10.13-Clang-MacBookPro11.5-GPU-RadeonHD8870M-x86_64-Release-All-'
    'MoltenVK_Vulkan'),
-  'Test-Mac-Clang-MacMini7.1-GPU-IntelIris5100-x86_64-Debug-All-CommandBuffer',
+  ('Test-Mac10.13-Clang-MacMini7.1-GPU-IntelIris5100-x86_64-Debug-All'
+   '-CommandBuffer'),
+  'Test-Mac10.14-Clang-MacBookAir7.2-GPU-IntelHD6000-x86_64-Debug-All',
   'Test-Ubuntu17-Clang-Golo-GPU-QuadroP400-x86_64-Debug-All-Vulkan_Coverage',
   ('Test-Ubuntu17-GCC-Golo-GPU-QuadroP400-x86_64-Release-All'
    '-Valgrind_AbandonGpuContext_SK_CPU_LIMIT_SSE41'),
@@ -1054,6 +1072,7 @@ TEST_BUILDERS = [
   'Test-Win2016-Clang-GCE-CPU-AVX2-x86_64-Debug-All-FAAA',
   'Test-Win2016-Clang-GCE-CPU-AVX2-x86_64-Debug-All-FDAA',
   'Test-Win2016-Clang-GCE-CPU-AVX2-x86_64-Debug-All-FSAA',
+  'Test-Win2016-MSVC-GCE-CPU-AVX2-x86_64-Debug-All-MSRTC',
   'Test-iOS-Clang-iPadPro-GPU-PowerVRGT7800-arm64-Release-All',
 ]
 
@@ -1067,7 +1086,8 @@ def GenTests(api):
                      revision='abc123',
                      path_config='kitchen',
                      gold_hashes_url='https://example.com/hashes.txt',
-                     swarm_out_dir='[SWARM_OUT_DIR]') +
+                     swarm_out_dir='[SWARM_OUT_DIR]',
+                     task_id='task_12345') +
       api.path.exists(
           api.path['start_dir'].join('skia'),
           api.path['start_dir'].join('skia', 'infra', 'bots', 'assets',
@@ -1106,7 +1126,8 @@ def GenTests(api):
                    revision='abc123',
                    path_config='kitchen',
                    gold_hashes_url='https://example.com/hashes.txt',
-                   swarm_out_dir='[SWARM_OUT_DIR]') +
+                   swarm_out_dir='[SWARM_OUT_DIR]',
+                   task_id='task_12345') +
     api.properties(patch_storage='gerrit') +
     api.properties.tryserver(
           buildername=builder,
@@ -1133,7 +1154,8 @@ def GenTests(api):
                    revision='abc123',
                    path_config='kitchen',
                    gold_hashes_url='https://example.com/hashes.txt',
-                   swarm_out_dir='[SWARM_OUT_DIR]') +
+                   swarm_out_dir='[SWARM_OUT_DIR]',
+                   task_id='task_12345') +
     api.path.exists(
         api.path['start_dir'].join('skia'),
         api.path['start_dir'].join('skia', 'infra', 'bots', 'assets',
@@ -1155,7 +1177,8 @@ def GenTests(api):
                    revision='abc123',
                    path_config='kitchen',
                    gold_hashes_url='https://example.com/hashes.txt',
-                   swarm_out_dir='[SWARM_OUT_DIR]') +
+                   swarm_out_dir='[SWARM_OUT_DIR]',
+                   task_id='task_12345') +
     api.path.exists(
         api.path['start_dir'].join('skia'),
         api.path['start_dir'].join('skia', 'infra', 'bots', 'assets',
@@ -1178,7 +1201,8 @@ def GenTests(api):
                    revision='abc123',
                    path_config='kitchen',
                    gold_hashes_url='https://example.com/hashes.txt',
-                   swarm_out_dir='[SWARM_OUT_DIR]') +
+                   swarm_out_dir='[SWARM_OUT_DIR]',
+                   task_id='task_12345') +
     api.path.exists(
         api.path['start_dir'].join('skia'),
         api.path['start_dir'].join('skia', 'infra', 'bots', 'assets',
@@ -1204,7 +1228,8 @@ def GenTests(api):
                    revision='abc123',
                    path_config='kitchen',
                    gold_hashes_url='https://example.com/hashes.txt',
-                   swarm_out_dir='[SWARM_OUT_DIR]') +
+                   swarm_out_dir='[SWARM_OUT_DIR]',
+                   task_id='task_12345') +
     api.path.exists(
         api.path['start_dir'].join('skia'),
         api.path['start_dir'].join('skia', 'infra', 'bots', 'assets',
@@ -1229,7 +1254,8 @@ def GenTests(api):
                    path_config='kitchen',
                    swarm_out_dir='[SWARM_OUT_DIR]',
                    gold_hashes_url='https://example.com/hashes.txt',
-                   internal_hardware_label='2') +
+                   internal_hardware_label='2',
+                   task_id='task_12345') +
     api.path.exists(
         api.path['start_dir'].join('skia'),
         api.path['start_dir'].join('skia', 'infra', 'bots', 'assets',
@@ -1250,7 +1276,8 @@ def GenTests(api):
                    path_config='kitchen',
                    swarm_out_dir='[SWARM_OUT_DIR]',
                    gold_hashes_url='https://example.com/hashes.txt',
-                   internal_hardware_label='5') +
+                   internal_hardware_label='5',
+                   task_id='task_12345') +
     api.path.exists(
         api.path['start_dir'].join('skia'),
         api.path['start_dir'].join('skia', 'infra', 'bots', 'assets',

@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2018 The Khronos Group Inc.
- * Copyright (c) 2015-2018 Valve Corporation
- * Copyright (c) 2015-2018 LunarG, Inc.
- * Copyright (C) 2015-2018 Google Inc.
+/* Copyright (c) 2015-2019 The Khronos Group Inc.
+ * Copyright (c) 2015-2019 Valve Corporation
+ * Copyright (c) 2015-2019 LunarG, Inc.
+ * Copyright (C) 2015-2019 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@
  * Author: Tobin Ehlis <tobine@google.com>
  * Author: Chris Forbes <chrisf@ijw.co.nz>
  * Author: Mark Lobodzinski <mark@lunarg.com>
+ * Author: Dave Houlton <daveh@lunarg.com>
  */
 #ifndef CORE_VALIDATION_TYPES_H_
 #define CORE_VALIDATION_TYPES_H_
@@ -29,16 +30,24 @@
 #include "vk_layer_logging.h"
 #include "vk_object_types.h"
 #include "vk_extension_helper.h"
+#include "vk_typemap_helper.h"
 #include "convert_to_renderpass2.h"
 #include <atomic>
 #include <functional>
+#include <list>
 #include <map>
+#include <memory>
+#include <set>
 #include <string.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include <memory>
 #include <list>
+
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+#include "android_ndk_types.h"
+#endif  // VK_USE_PLATFORM_ANDROID_KHR
 
 // Fwd declarations -- including descriptor_set.h creates an ugly include loop
 namespace cvdescriptorset {
@@ -272,8 +281,12 @@ class BUFFER_VIEW_STATE : public BASE_NODE {
 struct SAMPLER_STATE : public BASE_NODE {
     VkSampler sampler;
     VkSamplerCreateInfo createInfo;
+    VkSamplerYcbcrConversion samplerConversion = VK_NULL_HANDLE;
 
-    SAMPLER_STATE(const VkSampler *ps, const VkSamplerCreateInfo *pci) : sampler(*ps), createInfo(*pci){};
+    SAMPLER_STATE(const VkSampler *ps, const VkSamplerCreateInfo *pci) : sampler(*ps), createInfo(*pci) {
+        auto *conversionInfo = lvl_find_in_chain<VkSamplerYcbcrConversionInfo>(pci->pNext);
+        if (conversionInfo) samplerConversion = conversionInfo->conversion;
+    }
 };
 
 class IMAGE_STATE : public BINDABLE {
@@ -287,6 +300,9 @@ class IMAGE_STATE : public BINDABLE {
     bool get_sparse_reqs_called;  // Track if GetImageSparseMemoryRequirements() has been called for this image
     bool sparse_metadata_required;  // Track if sparse metadata aspect is required for this image
     bool sparse_metadata_bound;     // Track if sparse metadata aspect is bound to this image
+    bool imported_ahb;              // True if image was imported from an Android Hardware Buffer
+    bool has_ahb_format;            // True if image was created with an external Android format
+    uint64_t ahb_format;            // External Android format, if provided
     std::vector<VkSparseImageMemoryRequirements> sparse_requirements;
     IMAGE_STATE(VkImage img, const VkImageCreateInfo *pCreateInfo)
         : image(img),
@@ -298,6 +314,9 @@ class IMAGE_STATE : public BINDABLE {
           get_sparse_reqs_called(false),
           sparse_metadata_required(false),
           sparse_metadata_bound(false),
+          imported_ahb(false),
+          has_ahb_format(false),
+          ahb_format(0),
           sparse_requirements{} {
         if ((createInfo.sharingMode == VK_SHARING_MODE_CONCURRENT) && (createInfo.queueFamilyIndexCount > 0)) {
             uint32_t *pQueueFamilyIndices = new uint32_t[createInfo.queueFamilyIndexCount];
@@ -326,7 +345,12 @@ class IMAGE_VIEW_STATE : public BASE_NODE {
    public:
     VkImageView image_view;
     VkImageViewCreateInfo create_info;
-    IMAGE_VIEW_STATE(VkImageView iv, const VkImageViewCreateInfo *ci) : image_view(iv), create_info(*ci){};
+    VkSamplerYcbcrConversion samplerConversion;  // Handle of the ycbcr sampler conversion the image was created with, if any
+    IMAGE_VIEW_STATE(VkImageView iv, const VkImageViewCreateInfo *ci)
+        : image_view(iv), create_info(*ci), samplerConversion(VK_NULL_HANDLE) {
+        auto *conversionInfo = lvl_find_in_chain<VkSamplerYcbcrConversionInfo>(create_info.pNext);
+        if (conversionInfo) samplerConversion = conversionInfo->conversion;
+    };
     IMAGE_VIEW_STATE(const IMAGE_VIEW_STATE &rh_obj) = delete;
 };
 
@@ -355,6 +379,8 @@ struct DEVICE_MEM_INFO : public BASE_NODE {
     bool is_dedicated;
     VkBuffer dedicated_buffer;
     VkImage dedicated_image;
+    bool is_export;
+    VkExternalMemoryHandleTypeFlags export_handle_type_flags;
     std::unordered_set<VK_OBJECT> obj_bindings;               // objects bound to this memory
     std::unordered_map<uint64_t, MEMORY_RANGE> bound_ranges;  // Map of object to its binding range
     // Convenience vectors image/buff handles to speed up iterating over images or buffers independently
@@ -375,6 +401,8 @@ struct DEVICE_MEM_INFO : public BASE_NODE {
           is_dedicated(false),
           dedicated_buffer(VK_NULL_HANDLE),
           dedicated_image(VK_NULL_HANDLE),
+          is_export(false),
+          export_handle_type_flags(0),
           mem_range{},
           shadow_copy_base(0),
           shadow_copy(0),
@@ -636,6 +664,18 @@ struct PIPELINE_LAYOUT_NODE {
     }
 };
 
+static inline bool CompatForSet(uint32_t set, const std::vector<PipelineLayoutCompatId> &a,
+                                const std::vector<PipelineLayoutCompatId> &b) {
+    bool result = (set < a.size()) && (set < b.size()) && (a[set] == b[set]);
+    return result;
+}
+
+static inline bool CompatForSet(uint32_t set, const PIPELINE_LAYOUT_NODE *a, const PIPELINE_LAYOUT_NODE *b) {
+    // Intentionally have a result variable to simplify debugging
+    bool result = a && b && CompatForSet(set, a->compat_for_set, b->compat_for_set);
+    return result;
+}
+
 class PIPELINE_STATE : public BASE_NODE {
    public:
     VkPipeline pipeline;
@@ -643,7 +683,7 @@ class PIPELINE_STATE : public BASE_NODE {
     // Hold shared ptr to RP in case RP itself is destroyed
     std::shared_ptr<RENDER_PASS_STATE> rp_state;
     safe_VkComputePipelineCreateInfo computePipelineCI;
-    safe_VkRaytracingPipelineCreateInfoNVX raytracingPipelineCI;
+    safe_VkRayTracingPipelineCreateInfoNV raytracingPipelineCI;
     // Flag of which shader stages are active for this pipeline
     uint32_t active_shaders;
     uint32_t duplicate_shaders;
@@ -746,7 +786,7 @@ class PIPELINE_STATE : public BASE_NODE {
                 break;
         }
     }
-    void initRaytracingPipelineNVX(const VkRaytracingPipelineCreateInfoNVX *pCreateInfo) {
+    void initRayTracingPipelineNV(const VkRayTracingPipelineCreateInfoNV *pCreateInfo) {
         raytracingPipelineCI.initialize(pCreateInfo);
         // Make sure gfx and compute pipeline is null
         VkGraphicsPipelineCreateInfo emptyGraphicsCI = {};
@@ -754,23 +794,23 @@ class PIPELINE_STATE : public BASE_NODE {
         computePipelineCI.initialize(&emptyComputeCI);
         graphicsPipelineCI.initialize(&emptyGraphicsCI, false, false);
         switch (raytracingPipelineCI.pStages->stage) {
-            case VK_SHADER_STAGE_RAYGEN_BIT_NVX:
-                this->active_shaders |= VK_SHADER_STAGE_RAYGEN_BIT_NVX;
+            case VK_SHADER_STAGE_RAYGEN_BIT_NV:
+                this->active_shaders |= VK_SHADER_STAGE_RAYGEN_BIT_NV;
                 break;
-            case VK_SHADER_STAGE_ANY_HIT_BIT_NVX:
-                this->active_shaders |= VK_SHADER_STAGE_ANY_HIT_BIT_NVX;
+            case VK_SHADER_STAGE_ANY_HIT_BIT_NV:
+                this->active_shaders |= VK_SHADER_STAGE_ANY_HIT_BIT_NV;
                 break;
-            case VK_SHADER_STAGE_CLOSEST_HIT_BIT_NVX:
-                this->active_shaders |= VK_SHADER_STAGE_CLOSEST_HIT_BIT_NVX;
+            case VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV:
+                this->active_shaders |= VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV;
                 break;
-            case VK_SHADER_STAGE_MISS_BIT_NVX:
-                this->active_shaders = VK_SHADER_STAGE_MISS_BIT_NVX;
+            case VK_SHADER_STAGE_MISS_BIT_NV:
+                this->active_shaders = VK_SHADER_STAGE_MISS_BIT_NV;
                 break;
-            case VK_SHADER_STAGE_INTERSECTION_BIT_NVX:
-                this->active_shaders = VK_SHADER_STAGE_INTERSECTION_BIT_NVX;
+            case VK_SHADER_STAGE_INTERSECTION_BIT_NV:
+                this->active_shaders = VK_SHADER_STAGE_INTERSECTION_BIT_NV;
                 break;
-            case VK_SHADER_STAGE_CALLABLE_BIT_NVX:
-                this->active_shaders |= VK_SHADER_STAGE_CALLABLE_BIT_NVX;
+            case VK_SHADER_STAGE_CALLABLE_BIT_NV:
+                this->active_shaders |= VK_SHADER_STAGE_CALLABLE_BIT_NV;
                 break;
             default:
                 // TODO : Flag error
@@ -930,6 +970,20 @@ struct QFOTransferCBScoreboards {
     QFOTransferCBScoreboard<Barrier> release;
 };
 
+struct GpuDeviceMemoryBlock {
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+    uint32_t offset;
+};
+
+struct GpuBufferInfo {
+    GpuDeviceMemoryBlock mem_block;
+    VkDescriptorSet desc_set;
+    VkDescriptorPool desc_pool;
+    GpuBufferInfo(GpuDeviceMemoryBlock mem_block, VkDescriptorSet desc_set, VkDescriptorPool desc_pool)
+        : mem_block(mem_block), desc_set(desc_set), desc_pool(desc_pool){};
+};
+
 // Cmd Buffer Wrapper Struct - TODO : This desperately needs its own class
 struct GLOBAL_CB_NODE : public BASE_NODE {
     VkCommandBuffer commandBuffer;
@@ -996,13 +1050,15 @@ struct GLOBAL_CB_NODE : public BASE_NODE {
     std::unordered_set<cvdescriptorset::DescriptorSet *> validated_descriptor_sets;
     // Contents valid only after an index buffer is bound (CBSTATUS_INDEX_BUFFER_BOUND set)
     IndexBufferBinding index_buffer_binding;
+    // GPU Validation data
+    std::vector<GpuBufferInfo> gpu_buffer_list;
 };
 
-static QFOTransferBarrierSets<VkImageMemoryBarrier> &GetQFOBarrierSets(
+static inline QFOTransferBarrierSets<VkImageMemoryBarrier> &GetQFOBarrierSets(
     GLOBAL_CB_NODE *cb, const QFOTransferBarrier<VkImageMemoryBarrier>::Tag &type_tag) {
     return cb->qfo_transfer_image_barriers;
 }
-static QFOTransferBarrierSets<VkBufferMemoryBarrier> &GetQFOBarrierSets(
+static inline QFOTransferBarrierSets<VkBufferMemoryBarrier> &GetQFOBarrierSets(
     GLOBAL_CB_NODE *cb, const QFOTransferBarrier<VkBufferMemoryBarrier>::Tag &type_tag) {
     return cb->qfo_transfer_buffer_barriers;
 }
@@ -1039,6 +1095,8 @@ struct IMAGE_LAYOUT_NODE {
 // The end goal is to have all checks guarded by a bool. The bools are all "false" by default meaning that all checks
 // are enabled. At CreateInstance time, the user can use the VK_EXT_validation_flags extension to pass in enum values
 // of VkValidationCheckEXT that will selectively disable checks.
+// The VK_EXT_validation_features extension can also be used with the VkValidationFeaturesEXT structure to set
+// disables in the CHECK_DISABLED struct and/or enables in the CHECK_ENABLED struct.
 struct CHECK_DISABLED {
     bool command_buffer_state;
     bool create_descriptor_set_layout;
@@ -1073,6 +1131,13 @@ struct CHECK_DISABLED {
     void SetAll(bool value) { std::fill(&command_buffer_state, &shader_validation + 1, value); }
 };
 
+struct CHECK_ENABLED {
+    bool gpu_validation;
+    bool gpu_validation_reserve_binding_slot;
+
+    void SetAll(bool value) { std::fill(&gpu_validation, &gpu_validation_reserve_binding_slot + 1, value); }
+};
+
 struct MT_FB_ATTACHMENT_INFO {
     IMAGE_VIEW_STATE *view_state;
     VkImage image;
@@ -1104,9 +1169,36 @@ struct DeviceFeatures {
     VkPhysicalDeviceShadingRateImageFeaturesNV shading_rate_image;
     VkPhysicalDeviceMeshShaderFeaturesNV mesh_shader;
     VkPhysicalDeviceInlineUniformBlockFeaturesEXT inline_uniform_block;
+    VkPhysicalDeviceTransformFeedbackFeaturesEXT transform_feedback_features;
+    VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8;
+    VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vtx_attrib_divisor_features;
+    VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features;
+    VkPhysicalDeviceBufferAddressFeaturesEXT buffer_address;
 };
 
 enum RenderPassCreateVersion { RENDER_PASS_VERSION_1 = 0, RENDER_PASS_VERSION_2 = 1 };
+
+class GpuDeviceMemoryManager;
+class GpuDescriptorSetManager;
+struct ShaderTracker {
+    VkPipeline pipeline;
+    VkShaderModule shader_module;
+    std::vector<unsigned int> pgm;
+};
+struct GpuValidationState {
+    bool aborted;
+    bool reserve_binding_slot;
+    VkDescriptorSetLayout debug_desc_layout;
+    VkDescriptorSetLayout dummy_desc_layout;
+    uint32_t adjusted_max_desc_sets;
+    uint32_t desc_set_bind_index;
+    uint32_t unique_shader_module_id;
+    std::unordered_map<uint32_t, ShaderTracker> shader_map;
+    std::unique_ptr<GpuDeviceMemoryManager> memory_manager;
+    std::unique_ptr<GpuDescriptorSetManager> desc_set_manager;
+    VkCommandPool barrier_command_pool;
+    VkCommandBuffer barrier_command_buffer;
+};
 
 // Fwd declarations of layer_data and helpers to look-up/validate state from layer_data maps
 namespace core_validation {
@@ -1123,6 +1215,7 @@ IMAGE_VIEW_STATE *GetAttachmentImageViewState(layer_data *dev_data, FRAMEBUFFER_
 IMAGE_VIEW_STATE *GetImageViewState(const layer_data *, VkImageView);
 SWAPCHAIN_NODE *GetSwapchainNode(const layer_data *, VkSwapchainKHR);
 GLOBAL_CB_NODE *GetCBNode(layer_data const *my_data, const VkCommandBuffer cb);
+PIPELINE_STATE *GetPipelineState(layer_data const *dev_data, VkPipeline pipeline);
 RENDER_PASS_STATE *GetRenderPassState(layer_data const *dev_data, VkRenderPass renderpass);
 std::shared_ptr<RENDER_PASS_STATE> GetRenderPassStateSharedPtr(layer_data const *dev_data, VkRenderPass renderpass);
 FRAMEBUFFER_STATE *GetFramebufferState(const layer_data *my_data, VkFramebuffer framebuffer);
@@ -1133,8 +1226,8 @@ const DeviceFeatures *GetEnabledFeatures(const layer_data *device_data);
 const DeviceExtensions *GetEnabledExtensions(const layer_data *device_data);
 
 void InvalidateCommandBuffers(const layer_data *, std::unordered_set<GLOBAL_CB_NODE *> const &, VK_OBJECT);
-bool ValidateMemoryIsBoundToBuffer(const layer_data *, const BUFFER_STATE *, const char *, const std::string &);
-bool ValidateMemoryIsBoundToImage(const layer_data *, const IMAGE_STATE *, const char *, const std::string &);
+bool ValidateMemoryIsBoundToBuffer(const layer_data *, const BUFFER_STATE *, const char *, const char *);
+bool ValidateMemoryIsBoundToImage(const layer_data *, const IMAGE_STATE *, const char *, const char *);
 void AddCommandBufferBindingSampler(GLOBAL_CB_NODE *, SAMPLER_STATE *);
 void AddCommandBufferBindingImage(const layer_data *, GLOBAL_CB_NODE *, IMAGE_STATE *);
 void AddCommandBufferBindingImageView(const layer_data *, GLOBAL_CB_NODE *, IMAGE_VIEW_STATE *);
@@ -1147,11 +1240,11 @@ void RemoveImageMemoryRange(uint64_t handle, DEVICE_MEM_INFO *mem_info);
 void RemoveBufferMemoryRange(uint64_t handle, DEVICE_MEM_INFO *mem_info);
 void ClearMemoryObjectBindings(layer_data *dev_data, uint64_t handle, VulkanObjectType type);
 bool ValidateCmdQueueFlags(layer_data *dev_data, const GLOBAL_CB_NODE *cb_node, const char *caller_name, VkQueueFlags flags,
-                           const std::string &error_code);
+                           const char *error_code);
 bool ValidateCmd(layer_data *my_data, const GLOBAL_CB_NODE *pCB, const CMD_TYPE cmd, const char *caller_name);
-bool InsideRenderPass(const layer_data *my_data, const GLOBAL_CB_NODE *pCB, const char *apiName, const std::string &msgCode);
+bool InsideRenderPass(const layer_data *my_data, const GLOBAL_CB_NODE *pCB, const char *apiName, const char *msgCode);
 void SetImageMemoryValid(layer_data *dev_data, IMAGE_STATE *image_state, bool valid);
-bool OutsideRenderPass(const layer_data *my_data, GLOBAL_CB_NODE *pCB, const char *apiName, const std::string &msgCode);
+bool OutsideRenderPass(const layer_data *my_data, GLOBAL_CB_NODE *pCB, const char *apiName, const char *msgCode);
 void SetLayout(GLOBAL_CB_NODE *pCB, ImageSubresourcePair imgpair, const IMAGE_CMD_BUF_LAYOUT_NODE &node);
 void SetLayout(GLOBAL_CB_NODE *pCB, ImageSubresourcePair imgpair, const VkImageLayout &layout);
 bool ValidateImageMemoryIsValid(layer_data *dev_data, IMAGE_STATE *image_state, const char *functionName);
@@ -1164,12 +1257,16 @@ bool ValidateCmdSubpassState(const layer_data *dev_data, const GLOBAL_CB_NODE *p
 bool ValidateCmd(layer_data *dev_data, const GLOBAL_CB_NODE *cb_state, const CMD_TYPE cmd, const char *caller_name);
 
 // Prototypes for layer_data accessor functions.  These should be in their own header file at some point
-VkFormatProperties GetFormatProperties(const core_validation::layer_data *device_data, const VkFormat format);
-VkResult GetImageFormatProperties(core_validation::layer_data *device_data, const VkImageCreateInfo *image_ci,
-                                  VkImageFormatProperties *image_format_properties);
+VkFormatProperties GetPDFormatProperties(const core_validation::layer_data *device_data, const VkFormat format);
+VkResult GetPDImageFormatProperties(core_validation::layer_data *, const VkImageCreateInfo *, VkImageFormatProperties *);
+VkResult GetPDImageFormatProperties2(core_validation::layer_data *, const VkPhysicalDeviceImageFormatInfo2 *,
+                                     VkImageFormatProperties2 *);
 const debug_report_data *GetReportData(const layer_data *);
-const VkPhysicalDeviceProperties *GetPhysicalDeviceProperties(const layer_data *);
+const VkLayerDispatchTable *GetDispatchTable(const layer_data *);
+const VkPhysicalDeviceProperties *GetPDProperties(const layer_data *);
+const VkPhysicalDeviceMemoryProperties *GetPhysicalDeviceMemoryProperties(const layer_data *);
 const CHECK_DISABLED *GetDisables(layer_data *);
+const CHECK_ENABLED *GetEnables(layer_data *);
 std::unordered_map<VkImage, std::unique_ptr<IMAGE_STATE>> *GetImageMap(core_validation::layer_data *);
 std::unordered_map<VkImage, std::vector<ImageSubresourcePair>> *GetImageSubresourceMap(layer_data *);
 std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> *GetImageLayoutMap(layer_data *);
@@ -1177,8 +1274,17 @@ std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> const *GetImageLayou
 std::unordered_map<VkBuffer, std::unique_ptr<BUFFER_STATE>> *GetBufferMap(layer_data *device_data);
 std::unordered_map<VkBufferView, std::unique_ptr<BUFFER_VIEW_STATE>> *GetBufferViewMap(layer_data *device_data);
 std::unordered_map<VkImageView, std::unique_ptr<IMAGE_VIEW_STATE>> *GetImageViewMap(layer_data *device_data);
+std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetYcbcrConversionFormatMap(layer_data *);
+std::unordered_set<uint64_t> *GetAHBExternalFormatsSet(layer_data *);
+
 const DeviceExtensions *GetDeviceExtensions(const layer_data *);
+GpuValidationState *GetGpuValidationState(layer_data *);
+const GpuValidationState *GetGpuValidationState(const layer_data *);
+VkDevice GetDevice(const layer_data *);
+
 uint32_t GetApiVersion(const layer_data *);
+
+VKAPI_ATTR VkResult VKAPI_CALL QueueWaitIdle(VkQueue queue);
 
 GlobalQFOTransferBarrierMap<VkImageMemoryBarrier> &GetGlobalQFOReleaseBarrierMap(
     layer_data *dev_data, const QFOTransferBarrier<VkImageMemoryBarrier>::Tag &type_tag);

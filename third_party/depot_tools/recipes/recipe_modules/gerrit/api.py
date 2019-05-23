@@ -19,11 +19,11 @@ class GerritApi(recipe_api.RecipeApi):
     env = self.m.context.env
     env.setdefault('PATH', '%(PATH)s')
     env['PATH'] = self.m.path.pathsep.join([
-        env['PATH'], str(self._module.PACKAGE_REPO_ROOT)])
+        env['PATH'], str(self.repo_resource())])
 
     with self.m.context(env=env):
       return self.m.python(prefix + name,
-                           self.package_repo_resource('gerrit_client.py'),
+                           self.repo_resource('gerrit_client.py'),
                            cmd,
                            infra_step=infra_step,
                            **kwargs)
@@ -154,4 +154,24 @@ class GerritApi(recipe_api.RecipeApi):
         args,
         step_test_data=step_test_data,
         **kwargs
+    ).json.output
+
+  def abandon_change(self, host, change, message=None, name=None,
+                     step_test_data=None):
+    args = [
+        'abandon',
+        '--host', host,
+        '--change', int(change),
+        '--json_file', self.m.json.output(),
+    ]
+    if message:
+      args.extend(['--message', message])
+    if not step_test_data:
+      step_test_data = lambda: self.test_api.get_one_change_response_data(
+          status='ABANDONED', _number=str(change))
+
+    return self(
+        name or 'abandon',
+        args,
+        step_test_data=step_test_data,
     ).json.output

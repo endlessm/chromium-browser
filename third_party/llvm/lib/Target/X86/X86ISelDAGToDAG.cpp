@@ -1,9 +1,8 @@
 //===- X86ISelDAGToDAG.cpp - A DAG pattern matching inst selector for X86 -===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -398,6 +397,19 @@ namespace {
       uint64_t Index = N->getConstantOperandVal(2);
       MVT VecVT = N->getSimpleValueType(0);
       return getI8Imm((Index * VecVT.getScalarSizeInBits()) / VecWidth, DL);
+    }
+
+    // Helper to detect unneeded and instructions on shift amounts. Called
+    // from PatFrags in tablegen.
+    bool isUnneededShiftMask(SDNode *N, unsigned Width) const {
+      assert(N->getOpcode() == ISD::AND && "Unexpected opcode");
+      const APInt &Val = cast<ConstantSDNode>(N->getOperand(1))->getAPIntValue();
+
+      if (Val.countTrailingOnes() >= Width)
+        return true;
+
+      APInt Mask = Val | CurDAG->computeKnownBits(N->getOperand(0)).Zero;
+      return Mask.countTrailingOnes() >= Width;
     }
 
     /// Return an SDNode that returns the value of the global base register.
@@ -1138,15 +1150,23 @@ bool X86DAGToDAGISel::matchWrapper(SDValue N, X86ISelAddressMode &AM) {
   if (AM.hasSymbolicDisplacement())
     return true;
 
+  bool IsRIPRelTLS = false;
   bool IsRIPRel = N.getOpcode() == X86ISD::WrapperRIP;
+  if (IsRIPRel) {
+    SDValue Val = N.getOperand(0);
+    if (Val.getOpcode() == ISD::TargetGlobalTLSAddress)
+      IsRIPRelTLS = true;
+  }
 
-  // We can't use an addressing mode in the 64-bit large code model. In the
-  // medium code model, we use can use an mode when RIP wrappers are present.
-  // That signifies access to globals that are known to be "near", such as the
-  // GOT itself.
+  // We can't use an addressing mode in the 64-bit large code model.
+  // Global TLS addressing is an exception. In the medium code model,
+  // we use can use a mode when RIP wrappers are present.
+  // That signifies access to globals that are known to be "near",
+  // such as the GOT itself.
   CodeModel::Model M = TM.getCodeModel();
   if (Subtarget->is64Bit() &&
-      (M == CodeModel::Large || (M == CodeModel::Medium && !IsRIPRel)))
+      ((M == CodeModel::Large && !IsRIPRelTLS) ||
+       (M == CodeModel::Medium && !IsRIPRel)))
     return true;
 
   // Base and index reg must be 0 in order to use %rip as base.
@@ -2959,23 +2979,31 @@ bool X86DAGToDAGISel::matchBitExtract(SDNode *Node) {
   }
 
   SDValue OrigNBits = NBits;
-  if (NBits.getValueType() != XVT) {
-    // Truncate the shift amount.
-    NBits = CurDAG->getNode(ISD::TRUNCATE, DL, MVT::i8, NBits);
-    insertDAGNode(*CurDAG, OrigNBits, NBits);
+  // Truncate the shift amount.
+  NBits = CurDAG->getNode(ISD::TRUNCATE, DL, MVT::i8, NBits);
+  insertDAGNode(*CurDAG, OrigNBits, NBits);
 
-    // Insert 8-bit NBits into lowest 8 bits of XVT-sized (32 or 64-bit)
-    // register. All the other bits are undefined, we do not care about them.
-    SDValue ImplDef =
-        SDValue(CurDAG->getMachineNode(TargetOpcode::IMPLICIT_DEF, DL, XVT), 0);
-    insertDAGNode(*CurDAG, OrigNBits, ImplDef);
-    NBits =
-        CurDAG->getTargetInsertSubreg(X86::sub_8bit, DL, XVT, ImplDef, NBits);
-    insertDAGNode(*CurDAG, OrigNBits, NBits);
-  }
+  // Insert 8-bit NBits into lowest 8 bits of 32-bit register.
+  // All the other bits are undefined, we do not care about them.
+  SDValue ImplDef = SDValue(
+      CurDAG->getMachineNode(TargetOpcode::IMPLICIT_DEF, DL, MVT::i32), 0);
+  insertDAGNode(*CurDAG, OrigNBits, ImplDef);
+  NBits = CurDAG->getTargetInsertSubreg(X86::sub_8bit, DL, MVT::i32, ImplDef,
+                                        NBits);
+  insertDAGNode(*CurDAG, OrigNBits, NBits);
 
   if (Subtarget->hasBMI2()) {
     // Great, just emit the the BZHI..
+    if (XVT != MVT::i32) {
+      // But have to place the bit count into the wide-enough register first.
+      SDValue ImplDef = SDValue(
+          CurDAG->getMachineNode(TargetOpcode::IMPLICIT_DEF, DL, XVT), 0);
+      insertDAGNode(*CurDAG, OrigNBits, ImplDef);
+      NBits = CurDAG->getTargetInsertSubreg(X86::sub_32bit, DL, XVT, ImplDef,
+                                            NBits);
+      insertDAGNode(*CurDAG, OrigNBits, NBits);
+    }
+
     SDValue Extract = CurDAG->getNode(X86ISD::BZHI, DL, XVT, X, NBits);
     ReplaceNode(Node, Extract.getNode());
     SelectCode(Extract.getNode());
@@ -2991,7 +3019,7 @@ bool X86DAGToDAGISel::matchBitExtract(SDNode *Node) {
   // Shift NBits left by 8 bits, thus producing 'control'.
   // This makes the low 8 bits to be zero.
   SDValue C8 = CurDAG->getConstant(8, DL, MVT::i8);
-  SDValue Control = CurDAG->getNode(ISD::SHL, DL, XVT, NBits, C8);
+  SDValue Control = CurDAG->getNode(ISD::SHL, DL, MVT::i32, NBits, C8);
   insertDAGNode(*CurDAG, OrigNBits, Control);
 
   // If the 'X' is *logically* shifted, we can fold that shift into 'control'.
@@ -3003,12 +3031,23 @@ bool X86DAGToDAGISel::matchBitExtract(SDNode *Node) {
            "Expected shift amount to be i8");
 
     // Now, *zero*-extend the shift amount. The bits 8...15 *must* be zero!
+    // We could zext to i16 in some form, but we intentionally don't do that.
     SDValue OrigShiftAmt = ShiftAmt;
-    ShiftAmt = CurDAG->getNode(ISD::ZERO_EXTEND, DL, XVT, ShiftAmt);
+    ShiftAmt = CurDAG->getNode(ISD::ZERO_EXTEND, DL, MVT::i32, ShiftAmt);
     insertDAGNode(*CurDAG, OrigShiftAmt, ShiftAmt);
 
     // And now 'or' these low 8 bits of shift amount into the 'control'.
-    Control = CurDAG->getNode(ISD::OR, DL, XVT, Control, ShiftAmt);
+    Control = CurDAG->getNode(ISD::OR, DL, MVT::i32, Control, ShiftAmt);
+    insertDAGNode(*CurDAG, OrigNBits, Control);
+  }
+
+  // But have to place the 'control' into the wide-enough register first.
+  if (XVT != MVT::i32) {
+    SDValue ImplDef =
+        SDValue(CurDAG->getMachineNode(TargetOpcode::IMPLICIT_DEF, DL, XVT), 0);
+    insertDAGNode(*CurDAG, OrigNBits, ImplDef);
+    Control = CurDAG->getTargetInsertSubreg(X86::sub_32bit, DL, XVT, ImplDef,
+                                            Control);
     insertDAGNode(*CurDAG, OrigNBits, Control);
   }
 

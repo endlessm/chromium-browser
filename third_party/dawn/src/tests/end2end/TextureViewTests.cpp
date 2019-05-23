@@ -30,18 +30,18 @@ namespace {
     dawn::Texture Create2DTexture(dawn::Device device,
                                   uint32_t width,
                                   uint32_t height,
-                                  uint32_t layerCount,
-                                  uint32_t levelCount,
+                                  uint32_t arrayLayerCount,
+                                  uint32_t mipLevelCount,
                                   dawn::TextureUsageBit usage) {
         dawn::TextureDescriptor descriptor;
         descriptor.dimension = dawn::TextureDimension::e2D;
         descriptor.size.width = width;
         descriptor.size.height = height;
         descriptor.size.depth = 1;
-        descriptor.arraySize = layerCount;
+        descriptor.arrayLayerCount = arrayLayerCount;
         descriptor.sampleCount = 1;
         descriptor.format = kDefaultFormat;
-        descriptor.levelCount = levelCount;
+        descriptor.mipLevelCount = mipLevelCount;
         descriptor.usage = usage;
         return device.CreateTexture(&descriptor);
     }
@@ -110,22 +110,22 @@ protected:
         mVSModule = CreateDefaultVertexShaderModule(device);
     }
 
-    void initTexture(uint32_t layerCount, uint32_t levelCount) {
-        ASSERT(layerCount > 0 && levelCount > 0);
+    void initTexture(uint32_t arrayLayerCount, uint32_t mipLevelCount) {
+        ASSERT(arrayLayerCount > 0 && mipLevelCount > 0);
 
-        const uint32_t textureWidthLevel0 = 1 << levelCount;
-        const uint32_t textureHeightLevel0 = 1 << levelCount;
+        const uint32_t textureWidthLevel0 = 1 << mipLevelCount;
+        const uint32_t textureHeightLevel0 = 1 << mipLevelCount;
         constexpr dawn::TextureUsageBit kUsage =
             dawn::TextureUsageBit::TransferDst | dawn::TextureUsageBit::Sampled;
         mTexture = Create2DTexture(
-            device, textureWidthLevel0, textureHeightLevel0, layerCount, levelCount, kUsage);
+            device, textureWidthLevel0, textureHeightLevel0, arrayLayerCount, mipLevelCount, kUsage);
 
         mDefaultTextureViewDescriptor.dimension = dawn::TextureViewDimension::e2DArray;
         mDefaultTextureViewDescriptor.format = kDefaultFormat;
         mDefaultTextureViewDescriptor.baseMipLevel = 0;
-        mDefaultTextureViewDescriptor.levelCount = levelCount;
+        mDefaultTextureViewDescriptor.mipLevelCount = mipLevelCount;
         mDefaultTextureViewDescriptor.baseArrayLayer = 0;
-        mDefaultTextureViewDescriptor.layerCount = layerCount;
+        mDefaultTextureViewDescriptor.arrayLayerCount = arrayLayerCount;
 
         // Create a texture with pixel = (0, 0, 0, level * 10 + layer + 1) at level `level` and
         // layer `layer`.
@@ -134,9 +134,9 @@ protected:
         constexpr uint32_t kPixelsPerRowPitch = kTextureRowPitchAlignment / sizeof(RGBA8);
         ASSERT_LE(textureWidthLevel0, kPixelsPerRowPitch);
 
-        dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
-        for (uint32_t layer = 0; layer < layerCount; ++layer) {
-            for (uint32_t level = 0; level < levelCount; ++level) {
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        for (uint32_t layer = 0; layer < arrayLayerCount; ++layer) {
+            for (uint32_t level = 0; level < mipLevelCount; ++level) {
                 const uint32_t texWidth = textureWidthLevel0 >> level;
                 const uint32_t texHeight = textureHeightLevel0 >> level;
 
@@ -152,10 +152,10 @@ protected:
                 dawn::TextureCopyView textureCopyView =
                     utils::CreateTextureCopyView(mTexture, level, layer, {0, 0, 0});
                 dawn::Extent3D copySize = {texWidth, texHeight, 1};
-                builder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
+                encoder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
             }
         }
-        dawn::CommandBuffer copy = builder.GetResult();
+        dawn::CommandBuffer copy = encoder.Finish();
         queue.Submit(1, &copy);
     }
 
@@ -172,20 +172,20 @@ protected:
         textureDescriptor.cVertexStage.module = mVSModule;
         textureDescriptor.cFragmentStage.module = fsModule;
         textureDescriptor.layout = mPipelineLayout;
-        textureDescriptor.cColorAttachments[0]->format = mRenderPass.colorFormat;
+        textureDescriptor.cColorStates[0]->format = mRenderPass.colorFormat;
 
         dawn::RenderPipeline pipeline = device.CreateRenderPipeline(&textureDescriptor);
 
-        dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
         {
-            dawn::RenderPassEncoder pass = builder.BeginRenderPass(mRenderPass.renderPassInfo);
+            dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&mRenderPass.renderPassInfo);
             pass.SetPipeline(pipeline);
             pass.SetBindGroup(0, bindGroup);
             pass.Draw(6, 1, 0, 0);
             pass.EndPass();
         }
 
-        dawn::CommandBuffer commands = builder.GetResult();
+        dawn::CommandBuffer commands = encoder.Finish();
         queue.Submit(1, &commands);
 
         RGBA8 expectedPixel(0, 0, 0, expected);
@@ -207,9 +207,9 @@ protected:
         dawn::TextureViewDescriptor descriptor = mDefaultTextureViewDescriptor;
         descriptor.dimension = dawn::TextureViewDimension::e2D;
         descriptor.baseArrayLayer = textureViewBaseLayer;
-        descriptor.layerCount = 1;
+        descriptor.arrayLayerCount = 1;
         descriptor.baseMipLevel = textureViewBaseMipLevel;
-        descriptor.levelCount = 1;
+        descriptor.mipLevelCount = 1;
         dawn::TextureView textureView = mTexture.CreateTextureView(&descriptor);
 
         const char* fragmentShader = R"(
@@ -246,9 +246,9 @@ protected:
         dawn::TextureViewDescriptor descriptor = mDefaultTextureViewDescriptor;
         descriptor.dimension = dawn::TextureViewDimension::e2DArray;
         descriptor.baseArrayLayer = textureViewBaseLayer;
-        descriptor.layerCount = kTextureViewLayerCount;
+        descriptor.arrayLayerCount = kTextureViewLayerCount;
         descriptor.baseMipLevel = textureViewBaseMipLevel;
-        descriptor.levelCount = 1;
+        descriptor.mipLevelCount = 1;
         dawn::TextureView textureView = mTexture.CreateTextureView(&descriptor);
 
         const char* fragmentShader = R"(
@@ -327,7 +327,7 @@ protected:
         descriptor.dimension = (isCubeMapArray) ?
             dawn::TextureViewDimension::CubeArray : dawn::TextureViewDimension::Cube;
         descriptor.baseArrayLayer = textureViewBaseLayer;
-        descriptor.layerCount = textureViewLayerCount;
+        descriptor.arrayLayerCount = textureViewLayerCount;
 
         dawn::TextureView cubeMapTextureView = mTexture.CreateTextureView(&descriptor);
 
@@ -484,23 +484,16 @@ class TextureViewRenderingTest : public DawnTest {
         descriptor.format = kDefaultFormat;
         descriptor.dimension = dimension;
         descriptor.baseArrayLayer = textureViewBaseLayer;
-        descriptor.layerCount = 1;
+        descriptor.arrayLayerCount = 1;
         descriptor.baseMipLevel = textureViewBaseLevel;
-        descriptor.levelCount = 1;
+        descriptor.mipLevelCount = 1;
         dawn::TextureView textureView = texture.CreateTextureView(&descriptor);
 
         dawn::ShaderModule vsModule = CreateDefaultVertexShaderModule(device);
 
         // Clear textureView with Red(255, 0, 0, 255) and render Green(0, 255, 0, 255) into it
-        dawn::RenderPassColorAttachmentDescriptor colorAttachment;
-        colorAttachment.attachment = textureView;
-        colorAttachment.resolveTarget = nullptr;
-        colorAttachment.clearColor = { 1.0, 0.0, 0.0, 1.0 };
-        colorAttachment.loadOp = dawn::LoadOp::Clear;
-        colorAttachment.storeOp = dawn::StoreOp::Store;
-        dawn::RenderPassDescriptor renderPassInfo = device.CreateRenderPassDescriptorBuilder()
-            .SetColorAttachments(1, &colorAttachment)
-            .GetResult();
+        utils::ComboRenderPassDescriptor renderPassInfo({textureView});
+        renderPassInfo.cColorAttachmentsInfoPtr[0]->clearColor = {1.0f, 0.0f, 0.0f, 1.0f};
 
         const char* oneColorFragmentShader = R"(
             #version 450
@@ -516,20 +509,19 @@ class TextureViewRenderingTest : public DawnTest {
         utils::ComboRenderPipelineDescriptor pipelineDescriptor(device);
         pipelineDescriptor.cVertexStage.module = vsModule;
         pipelineDescriptor.cFragmentStage.module = oneColorFsModule;
-        pipelineDescriptor.cColorAttachments[0]->format = kDefaultFormat;
+        pipelineDescriptor.cColorStates[0]->format = kDefaultFormat;
 
         dawn::RenderPipeline oneColorPipeline = device.CreateRenderPipeline(&pipelineDescriptor);
 
-        dawn::CommandBufferBuilder commandBufferBuilder = device.CreateCommandBufferBuilder();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
         {
-            dawn::RenderPassEncoder pass =
-                commandBufferBuilder.BeginRenderPass(renderPassInfo);
+            dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPassInfo);
             pass.SetPipeline(oneColorPipeline);
             pass.Draw(6, 1, 0, 0);
             pass.EndPass();
         }
 
-        dawn::CommandBuffer commands = commandBufferBuilder.GetResult();
+        dawn::CommandBuffer commands = encoder.Finish();
         queue.Submit(1, &commands);
 
         // Check if the right pixels (Green) have been written into the right part of the texture.
@@ -631,6 +623,6 @@ TEST_P(TextureViewRenderingTest, Texture2DArrayViewOnALayerOf2DArrayTextureAsCol
     }
 }
 
-DAWN_INSTANTIATE_TEST(TextureViewSamplingTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend)
+DAWN_INSTANTIATE_TEST(TextureViewSamplingTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);
 
-DAWN_INSTANTIATE_TEST(TextureViewRenderingTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend)
+DAWN_INSTANTIATE_TEST(TextureViewRenderingTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);

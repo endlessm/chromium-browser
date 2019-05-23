@@ -472,7 +472,8 @@ def run_command(command, cwd, env, hard_timeout, grace_period):
           had_signal.append(True)
           raise subprocess42.TimeoutExpired(command, None)
 
-      proc = subprocess42.Popen(command, cwd=cwd, env=env, detached=True)
+      proc = subprocess42.Popen(
+          command, cwd=cwd, env=env, detached=True, close_fds=True)
       with subprocess42.set_signal_handler(subprocess42.STOP_SIGNALS, handler):
         try:
           exit_code = proc.wait(hard_timeout or None)
@@ -1243,7 +1244,7 @@ def main(args):
   (parser, options, args) = parse_args(args)
 
   if not file_path.enable_symlink():
-    logging.error('Symlink support is not enabled')
+    logging.warning('Symlink support is not enabled')
 
   named_cache = process_named_cache_options(parser, options)
   # hint is 0 if there's no named cache.

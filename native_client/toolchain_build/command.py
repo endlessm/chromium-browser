@@ -44,6 +44,7 @@ COMMAND_CODE_FILES += [os.path.join(NACL_DIR, 'pynacl', f)
                                  'hashing_tools.py', 'local_storage_cache.py',
                                  'log_tools.py', 'repo_tools.py',)]
 
+
 def HashBuildSystemSources():
   """Read the build source files to use in hashes for Callbacks."""
   global FILE_CONTENTS_HASH
@@ -52,6 +53,7 @@ def HashBuildSystemSources():
     with open(filename) as f:
       h.update(f.read())
   FILE_CONTENTS_HASH = h.hexdigest()
+
 
 HashBuildSystemSources()
 
@@ -393,6 +395,10 @@ def SyncGitRepoCmds(url, destination, revision, clobber_invalid_repo=False,
 
     abs_dir = subst.SubstituteAbsPaths(directory)
     git_dir = os.path.join(abs_dir, '.git')
+
+    logger.debug('Updating mirrors: %s (.git exists: %s)',
+                 abs_dir, os.path.exists(git_dir))
+
     if os.path.exists(git_dir):
       fetch_list = pynacl.repo_tools.GitRemoteRepoList(abs_dir,
                                                        include_fetch=True,
@@ -405,6 +411,10 @@ def SyncGitRepoCmds(url, destination, revision, clobber_invalid_repo=False,
                                                       include_push=True,
                                                       logger=logger)
       tracked_push_url = dict(push_list).get('origin', 'None')
+
+      # TODO(thakis): Remove once https://crbug.com/923062 is done.
+      logger.debug('remote fetch: %s', fetch_list)
+      logger.debug('remote push: %s', push_list)
 
       if ((known_mirrors and tracked_fetch_url != url) or
           (push_mirrors and tracked_push_url != push_url)):

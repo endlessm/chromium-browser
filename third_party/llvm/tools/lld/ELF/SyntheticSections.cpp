@@ -1,9 +1,8 @@
 //===- SyntheticSections.cpp ----------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -15,7 +14,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "SyntheticSections.h"
-#include "Bits.h"
 #include "Config.h"
 #include "InputFiles.h"
 #include "LinkerScript.h"
@@ -58,6 +56,17 @@ using llvm::support::endian::write32le;
 using llvm::support::endian::write64le;
 
 constexpr size_t MergeNoTailSection::NumShards;
+
+static uint64_t readUint(uint8_t *Buf) {
+  return Config->Is64 ? read64(Buf) : read32(Buf);
+}
+
+static void writeUint(uint8_t *Buf, uint64_t Val) {
+  if (Config->Is64)
+    write64(Buf, Val);
+  else
+    write32(Buf, Val);
+}
 
 // Returns an LLD version string.
 static ArrayRef<uint8_t> getVersion() {
@@ -1029,11 +1038,8 @@ void MipsGotSection::writeTo(uint8_t *Buf) {
   for (const FileGot &G : Gots) {
     auto Write = [&](size_t I, const Symbol *S, int64_t A) {
       uint64_t VA = A;
-      if (S) {
+      if (S)
         VA = S->getVA(A);
-        if (S->StOther & STO_MIPS_MICROMIPS)
-          VA |= 1;
-      }
       writeUint(Buf + I * Config->Wordsize, VA);
     };
     // Write 'page address' entries to the local part of the GOT.
@@ -1133,7 +1139,6 @@ IgotPltSection::IgotPltSection()
                        Target->GotPltEntrySize, getIgotPltName()) {}
 
 void IgotPltSection::addEntry(Symbol &Sym) {
-  Sym.IsInIgot = true;
   assert(Sym.PltIndex == Entries.size());
   Entries.push_back(&Sym);
 }
@@ -1296,6 +1301,8 @@ template <class ELFT> void DynamicSection<ELFT>::finalizeContents() {
   }
   if (!Config->ZText)
     DtFlags |= DF_TEXTREL;
+  if (Config->HasStaticTlsModel)
+    DtFlags |= DF_STATIC_TLS;
 
   if (DtFlags)
     addInt(DT_FLAGS, DtFlags);
@@ -1507,14 +1514,15 @@ void RelocationBaseSection::finalizeContents() {
   // When linking glibc statically, .rel{,a}.plt contains R_*_IRELATIVE
   // relocations due to IFUNC (e.g. strcpy). sh_link will be set to 0 in that
   // case.
-  InputSection *SymTab = Config->Relocatable ? In.SymTab : In.DynSymTab;
-  if (SymTab && SymTab->getParent())
-    getParent()->Link = SymTab->getParent()->SectionIndex;
+  if (In.DynSymTab && In.DynSymTab->getParent())
+    getParent()->Link = In.DynSymTab->getParent()->SectionIndex;
   else
     getParent()->Link = 0;
 
-  if (In.RelaIplt == this || In.RelaPlt == this)
+  if (In.RelaPlt == this)
     getParent()->Info = In.GotPlt->getParent()->SectionIndex;
+  if (In.RelaIplt == this)
+    getParent()->Info = In.IgotPlt->getParent()->SectionIndex;
 }
 
 RelrBaseSection::RelrBaseSection()
@@ -1803,7 +1811,7 @@ template <class ELFT> bool RelrSection<ELFT>::updateAllocSize() {
   std::vector<uint64_t> Offsets;
   for (const RelativeReloc &Rel : Relocs)
     Offsets.push_back(Rel.getOffset());
-  llvm::sort(Offsets.begin(), Offsets.end());
+  llvm::sort(Offsets);
 
   // For each leading relocation, find following ones that can be folded
   // as a bitmap and fold them.
@@ -1999,6 +2007,11 @@ template <class ELFT> void SymbolTableSection<ELFT>::writeTo(uint8_t *Buf) {
       ESym->setVisibility(Sym->Visibility);
     }
 
+    // The 3 most significant bits of st_other are used by OpenPOWER ABI.
+    // See getPPC64GlobalEntryToLocalEntryOffset() for more details.
+    if (Config->EMachine == EM_PPC64)
+      ESym->st_other |= Sym->StOther & 0xe0;
+
     ESym->st_name = Ent.StrTabOffset;
     ESym->st_shndx = getSymSectionIndex(Ent.Sym);
 
@@ -2035,14 +2048,17 @@ template <class ELFT> void SymbolTableSection<ELFT>::writeTo(uint8_t *Buf) {
       if (Sym->isInPlt() && Sym->NeedsPltAddr)
         ESym->st_other |= STO_MIPS_PLT;
       if (isMicroMips()) {
-        // Set STO_MIPS_MICROMIPS flag and less-significant bit for
-        // a defined microMIPS symbol and symbol should point to its
-        // PLT entry (in case of microMIPS, PLT entries always contain
-        // microMIPS code).
+        // We already set the less-significant bit for symbols
+        // marked by the `STO_MIPS_MICROMIPS` flag and for microMIPS PLT
+        // records. That allows us to distinguish such symbols in
+        // the `MIPS<ELFT>::relocateOne()` routine. Now we should
+        // clear that bit for non-dynamic symbol table, so tools
+        // like `objdump` will be able to deal with a correct
+        // symbol position.
         if (Sym->isDefined() &&
             ((Sym->StOther & STO_MIPS_MICROMIPS) || Sym->NeedsPltAddr)) {
-          if (StrTabSec.isDynamic())
-            ESym->st_value |= 1;
+          if (!StrTabSec.isDynamic())
+            ESym->st_value &= ~1;
           ESym->st_other |= STO_MIPS_MICROMIPS;
         }
       }
@@ -2331,10 +2347,8 @@ void PltSection::writeTo(uint8_t *Buf) {
 template <class ELFT> void PltSection::addEntry(Symbol &Sym) {
   Sym.PltIndex = Entries.size();
   RelocationBaseSection *PltRelocSection = In.RelaPlt;
-  if (IsIplt) {
+  if (IsIplt)
     PltRelocSection = In.RelaIplt;
-    Sym.IsInIplt = true;
-  }
   unsigned RelOff =
       static_cast<RelocationSection<ELFT> *>(PltRelocSection)->getRelocOffset();
   Entries.push_back(std::make_pair(&Sym, RelOff));

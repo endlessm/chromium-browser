@@ -1,9 +1,8 @@
 //===- GlobalsModRef.cpp - Simple Mod/Ref Analysis for Globals ------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -597,7 +596,7 @@ void GlobalsAAResult::AnalyzeCallGraph(CallGraph &CG, Module &M) {
         }
 
         // All non-call instructions we use the primary predicates for whether
-        // thay read or write memory.
+        // they read or write memory.
         if (I.mayReadFromMemory())
           FI.addModRefInfo(ModRefInfo::Ref);
         if (I.mayWriteToMemory())
@@ -791,10 +790,10 @@ bool GlobalsAAResult::isNonEscapingGlobalNoAlias(const GlobalValue *GV,
     }
 
     // FIXME: It would be good to handle other obvious no-alias cases here, but
-    // it isn't clear how to do so reasonbly without building a small version
+    // it isn't clear how to do so reasonably without building a small version
     // of BasicAA into this code. We could recurse into AAResultBase::alias
     // here but that seems likely to go poorly as we're inside the
-    // implementation of such a query. Until then, just conservatievly retun
+    // implementation of such a query. Until then, just conservatively return
     // false.
     return false;
   } while (!Inputs.empty());

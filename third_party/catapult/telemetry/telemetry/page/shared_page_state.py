@@ -69,7 +69,8 @@ class SharedPageState(story_module.SharedState):
             possible_browser=self._possible_browser,
             process_name=finder_options.interval_profiling_target,
             periods=finder_options.interval_profiling_periods,
-            frequency=finder_options.interval_profiling_frequency))
+            frequency=finder_options.interval_profiling_frequency,
+            profiler_options=finder_options.interval_profiler_options))
 
     self.platform.SetFullPerformanceModeEnabled(
         finder_options.full_performance_mode)
@@ -185,8 +186,7 @@ class SharedPageState(story_module.SharedState):
 
     # Clear caches before starting browser.
     self.platform.FlushDnsCache()
-    if browser_options.clear_sytem_cache_for_browser_and_profile_on_start:
-      # TODO(crbug.com/811244): Consider whether we can do this unconditionally.
+    if browser_options.flush_os_page_caches_on_start:
       self._possible_browser.FlushOsPageCaches()
 
     self._browser = self._possible_browser.Create()

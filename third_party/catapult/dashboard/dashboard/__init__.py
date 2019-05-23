@@ -25,6 +25,7 @@ THIRD_PARTY_LIBRARIES = [
     'flot',
     'jquery',
     'polymer',
+    'polymer2/bower_components/chopsui',
     'six',
     'gae_ts_mon',
 ]
@@ -33,7 +34,6 @@ THIRD_PARTY_LIBRARIES = [
 DASHBOARD_FILES = [
     'appengine_config.py',
     'app.yaml',
-    'v2spa.yaml',
     'scripts.yaml',
     'cron.yaml',
     'dashboard',

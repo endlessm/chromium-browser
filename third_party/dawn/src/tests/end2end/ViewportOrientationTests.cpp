@@ -40,19 +40,19 @@ TEST_P(ViewportOrientationTests, OriginAt0x0) {
     descriptor.cVertexStage.module = vsModule;
     descriptor.cFragmentStage.module = fsModule;
     descriptor.primitiveTopology = dawn::PrimitiveTopology::PointList;
-    descriptor.cColorAttachments[0]->format = renderPass.colorFormat;
+    descriptor.cColorStates[0]->format = renderPass.colorFormat;
 
     dawn::RenderPipeline pipeline = device.CreateRenderPipeline(&descriptor);
 
-    dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(pipeline);
         pass.Draw(1, 1, 0, 0);
         pass.EndPass();
     }
 
-    dawn::CommandBuffer commands = builder.GetResult();
+    dawn::CommandBuffer commands = encoder.Finish();
     queue.Submit(1, &commands);
 
     EXPECT_PIXEL_RGBA8_EQ(RGBA8(0, 255, 0, 255), renderPass.color, 0, 0);
@@ -61,4 +61,4 @@ TEST_P(ViewportOrientationTests, OriginAt0x0) {
     EXPECT_PIXEL_RGBA8_EQ(RGBA8(0, 0, 0, 0), renderPass.color, 1, 1);
 }
 
-DAWN_INSTANTIATE_TEST(ViewportOrientationTests, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend)
+DAWN_INSTANTIATE_TEST(ViewportOrientationTests, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);

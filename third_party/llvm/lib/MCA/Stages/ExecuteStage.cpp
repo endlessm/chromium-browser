@@ -1,9 +1,8 @@
 //===---------------------- ExecuteStage.cpp --------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 /// \file
@@ -147,9 +146,9 @@ Error ExecuteStage::execute(InstRef &IR) {
   // BufferSize=0 as reserved. Resources with a buffer size of zero will only
   // be released after MCIS is issued, and all the ResourceCycles for those
   // units have been consumed.
-  HWS.dispatch(IR);
+  bool IsReadyInstruction = HWS.dispatch(IR);
   notifyReservedOrReleasedBuffers(IR, /* Reserved */ true);
-  if (!HWS.isReady(IR))
+  if (!IsReadyInstruction)
     return ErrorSuccess();
 
   // If we did not return early, then the scheduler is ready for execution.
@@ -189,9 +188,10 @@ void ExecuteStage::notifyInstructionIssued(
   LLVM_DEBUG({
     dbgs() << "[E] Instruction Issued: #" << IR << '\n';
     for (const std::pair<ResourceRef, ResourceCycles> &Resource : Used) {
+      assert(Resource.second.getDenominator() == 1 && "Invalid cycles!");
       dbgs() << "[E] Resource Used: [" << Resource.first.first << '.'
              << Resource.first.second << "], ";
-      dbgs() << "cycles: " << Resource.second << '\n';
+      dbgs() << "cycles: " << Resource.second.getNumerator() << '\n';
     }
   });
 

@@ -72,6 +72,7 @@ class TestBrowserWindow : public BrowserWindow {
                           int reason) override {}
   void OnTabDetached(content::WebContents* contents, bool was_active) override {
   }
+  void OnTabRestored(int command_id) override {}
   void ZoomChangedForActiveTab(bool can_show_bubble) override {}
   gfx::Rect GetRestoredBounds() const override;
   ui::WindowShowState GetRestoredState() const override;
@@ -87,7 +88,7 @@ class TestBrowserWindow : public BrowserWindow {
   bool IsFullscreenBubbleVisible() const override;
   LocationBar* GetLocationBar() const override;
   PageActionIconContainer* GetPageActionIconContainer() override;
-  void SetFocusToLocationBar() override {}
+  void SetFocusToLocationBar(bool select_all) override {}
   void UpdateReloadStopState(bool is_loading, bool force) override {}
   void UpdateToolbar(content::WebContents* contents) override {}
   void UpdateToolbarVisibility(bool visible, bool animate) override {}
@@ -118,8 +119,6 @@ class TestBrowserWindow : public BrowserWindow {
       bool disable_stay_in_chrome,
       IntentPickerResponse callback) override {}
   void SetIntentPickerViewVisibility(bool visible) override {}
-#else  // !defined(OS_CHROMEOS)
-  BadgeServiceDelegate* GetBadgeServiceDelegate() const override;
 #endif
   autofill::SaveCardBubbleView* ShowSaveCreditCardBubble(
       content::WebContents* contents,
@@ -132,6 +131,8 @@ class TestBrowserWindow : public BrowserWindow {
   ShowTranslateBubbleResult ShowTranslateBubble(
       content::WebContents* contents,
       translate::TranslateStep step,
+      const std::string& source_language,
+      const std::string& target_language,
       translate::TranslateErrors::Type error_type,
       bool is_user_gesture) override;
 #if BUILDFLAG(ENABLE_ONE_CLICK_SIGNIN)
@@ -146,7 +147,7 @@ class TestBrowserWindow : public BrowserWindow {
       Browser::DownloadClosePreventionType dialog_type,
       bool app_modal,
       const base::Callback<void(bool)>& callback) override {}
-  void UserChangedTheme() override {}
+  void UserChangedTheme(BrowserThemeChangeType theme_change_type) override {}
   void CutCopyPaste(int command_id) override {}
   FindBar* CreateFindBar() override;
   web_modal::WebContentsModalDialogHost* GetWebContentsModalDialogHost()
@@ -194,7 +195,7 @@ class TestBrowserWindow : public BrowserWindow {
     base::TimeTicks GetMatchSelectionTimestamp() const override;
     void AcceptInput() override {}
     void AcceptInput(base::TimeTicks match_selection_timestamp) override {}
-    void FocusLocation() override {}
+    void FocusLocation(bool select_all) override {}
     void FocusSearch() override {}
     void UpdateContentSettingsIcons() override {}
     void UpdateSaveCreditCardIcon() override {}

@@ -1,9 +1,8 @@
 //===-- X86InstrFragmentsSIMD.td - x86 SIMD ISA ------------*- tablegen -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -127,7 +126,7 @@ def X86vfpext  : SDNode<"X86ISD::VFPEXT",
 def X86vfpround: SDNode<"X86ISD::VFPROUND",
                         SDTypeProfile<1, 1, [SDTCVecEltisVT<0, f32>,
                                              SDTCVecEltisVT<1, f64>,
-                                             SDTCisSameSizeAs<0, 1>]>>;
+                                             SDTCisOpSmallerThanOp<0, 1>]>>;
 
 def X86froundRnd: SDNode<"X86ISD::VFPROUNDS_RND",
                         SDTypeProfile<1, 3, [SDTCVecEltisVT<0, f32>,
@@ -525,10 +524,14 @@ def X86RndScalesRnd : SDNode<"X86ISD::VRNDSCALES_RND", SDTFPBinOpImmRound>;
 def X86ReducesRnd   : SDNode<"X86ISD::VREDUCES_RND",   SDTFPBinOpImmRound>;
 def X86GetMantsRnd  : SDNode<"X86ISD::VGETMANTS_RND",  SDTFPBinOpImmRound>;
 
-def X86compress: SDNode<"X86ISD::COMPRESS", SDTypeProfile<1, 1,
-                              [SDTCisSameAs<0, 1>, SDTCisVec<1>]>, []>;
-def X86expand  : SDNode<"X86ISD::EXPAND", SDTypeProfile<1, 1,
-                              [SDTCisSameAs<0, 1>, SDTCisVec<1>]>, []>;
+def X86compress: SDNode<"X86ISD::COMPRESS", SDTypeProfile<1, 3,
+                              [SDTCisSameAs<0, 1>, SDTCisVec<1>,
+                               SDTCisSameAs<0, 2>, SDTCVecEltisVT<3, i1>,
+                               SDTCisSameNumEltsAs<0, 3>]>, []>;
+def X86expand  : SDNode<"X86ISD::EXPAND", SDTypeProfile<1, 3,
+                              [SDTCisSameAs<0, 1>, SDTCisVec<1>,
+                               SDTCisSameAs<0, 2>, SDTCVecEltisVT<3, i1>,
+                               SDTCisSameNumEltsAs<0, 3>]>, []>;
 
 // vpshufbitqmb
 def X86Vpshufbitqmb : SDNode<"X86ISD::VPSHUFBITQMB",
@@ -598,12 +601,22 @@ def X86cvtp2Int      : SDNode<"X86ISD::CVTP2SI",  SDTFloatToInt>;
 def X86cvtp2UInt     : SDNode<"X86ISD::CVTP2UI",  SDTFloatToInt>;
 
 
+// Masked versions of above
+def SDTMVintToFP: SDTypeProfile<1, 3, [SDTCisVec<0>, SDTCisVec<1>,
+                                       SDTCisFP<0>, SDTCisInt<1>,
+                                       SDTCisSameSizeAs<0, 1>,
+                                       SDTCisSameAs<0, 2>,
+                                       SDTCVecEltisVT<3, i1>,
+                                       SDTCisSameNumEltsAs<1, 3>]>;
 def SDTMFloatToInt: SDTypeProfile<1, 3, [SDTCisVec<0>, SDTCisVec<1>,
                                          SDTCisInt<0>, SDTCisFP<1>,
                                          SDTCisSameSizeAs<0, 1>,
                                          SDTCisSameAs<0, 2>,
                                          SDTCVecEltisVT<3, i1>,
                                          SDTCisSameNumEltsAs<1, 3>]>;
+
+def X86VMSintToFP    : SDNode<"X86ISD::MCVTSI2P",  SDTMVintToFP>;
+def X86VMUintToFP    : SDNode<"X86ISD::MCVTUI2P",  SDTMVintToFP>;
 
 def X86mcvtp2Int     : SDNode<"X86ISD::MCVTP2SI",  SDTMFloatToInt>;
 def X86mcvtp2UInt    : SDNode<"X86ISD::MCVTP2UI",  SDTMFloatToInt>;

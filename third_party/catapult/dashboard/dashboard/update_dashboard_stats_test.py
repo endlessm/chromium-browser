@@ -67,7 +67,8 @@ class UpdateDashboardStatsTest(test.TestCase):
     self.testapp = webtest.TestApp(app)
 
   def _CreateJob(
-      self, hash1, hash2, comparison_mode, created, bug_id, exception=None):
+      self, hash1, hash2, comparison_mode, created, bug_id, exception=None,
+      arguments=None):
     old_commit = commit.Commit('chromium', hash1)
     change_a = change_module.Change((old_commit,))
 
@@ -76,13 +77,13 @@ class UpdateDashboardStatsTest(test.TestCase):
 
     job = job_module.Job.New(
         (_QuestStub(),), (change_a, change_b),
-        comparison_mode=comparison_mode,
-        bug_id=bug_id)
+        comparison_mode=comparison_mode, bug_id=bug_id, arguments=arguments)
     job.created = created
     job.exception = exception
     job.state.ScheduleWork()
     job.state.Explore()
     job.put()
+    return job
 
   @mock.patch.object(
       update_dashboard_stats, '_ProcessPinpointJobs',
@@ -103,6 +104,9 @@ class UpdateDashboardStatsTest(test.TestCase):
       update_dashboard_stats, '_ProcessPinpointJobs',
       mock.MagicMock(side_effect=_FakeTasklet))
   @mock.patch.object(
+      update_dashboard_stats, '_ProcessPinpointStats',
+      mock.MagicMock(side_effect=_FakeTasklet))
+  @mock.patch.object(
       update_dashboard_stats.deferred, 'defer')
   def testPost_ProcessAlerts_NoAlerts(self, mock_defer):
     created = datetime.datetime.now() - datetime.timedelta(days=2)
@@ -116,6 +120,38 @@ class UpdateDashboardStatsTest(test.TestCase):
 
   @mock.patch.object(
       update_dashboard_stats, '_ProcessAlerts',
+      mock.MagicMock(side_effect=_FakeTasklet))
+  @mock.patch.object(
+      change_module.Change, 'Midpoint',
+      mock.MagicMock(side_effect=commit.NonLinearError))
+  @mock.patch.object(
+      update_dashboard_stats.deferred, 'defer')
+  @mock.patch.object(
+      update_dashboard_stats, '_ProcessPinpointJobs',
+      mock.MagicMock(side_effect=_FakeTasklet))
+  def testPost_ProcessPinpointStats_Success(self, mock_defer):
+    created = datetime.datetime.now() - datetime.timedelta(hours=12)
+    j = self._CreateJob(
+        'aaaaaaaa', 'bbbbbbbb', job_state.PERFORMANCE, created, 12345,
+        arguments={'configuration': 'bot1', 'benchmark': 'suite1'})
+    j.updated = created + datetime.timedelta(hours=1)
+    j.put()
+
+    created = datetime.datetime.now() - datetime.timedelta(hours=12)
+    j = self._CreateJob(
+        'aaaaaaaa', 'bbbbbbbb', job_state.PERFORMANCE, created, 12345,
+        arguments={'configuration': 'bot2', 'benchmark': 'suite2'})
+    j.updated = created + datetime.timedelta(hours=1)
+    j.put()
+
+    self.testapp.get('/update_dashboard_stats')
+    self.assertTrue(mock_defer.called)
+
+  @mock.patch.object(
+      update_dashboard_stats, '_ProcessAlerts',
+      mock.MagicMock(side_effect=_FakeTasklet))
+  @mock.patch.object(
+      update_dashboard_stats, '_ProcessPinpointStats',
       mock.MagicMock(side_effect=_FakeTasklet))
   @mock.patch.object(
       change_module.Change, 'Midpoint',
@@ -138,6 +174,9 @@ class UpdateDashboardStatsTest(test.TestCase):
       mock.MagicMock(side_effect=httplib.HTTPException))
   @mock.patch.object(
       update_dashboard_stats, '_ProcessAlerts',
+      mock.MagicMock(side_effect=_FakeTasklet))
+  @mock.patch.object(
+      update_dashboard_stats, '_ProcessPinpointStats',
       mock.MagicMock(side_effect=_FakeTasklet))
   @mock.patch.object(
       change_module.Change, 'Midpoint',

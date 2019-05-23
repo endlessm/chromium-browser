@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2018 The Khronos Group Inc.
- * Copyright (c) 2015-2018 Valve Corporation
- * Copyright (c) 2015-2018 LunarG, Inc.
- * Copyright (C) 2015-2018 Google Inc.
+/* Copyright (c) 2015-2019 The Khronos Group Inc.
+ * Copyright (c) 2015-2019 Valve Corporation
+ * Copyright (c) 2015-2019 LunarG, Inc.
+ * Copyright (C) 2015-2019 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -116,6 +116,7 @@ class DescriptorSetLayoutDef {
         return GetDescriptorSetLayoutBindingPtrFromIndex(GetIndexFromBinding(binding));
     }
     const std::vector<safe_VkDescriptorSetLayoutBinding> &GetBindings() const { return bindings_; }
+    const std::vector<VkDescriptorBindingFlagsEXT> &GetBindingFlags() const { return binding_flags_; }
     uint32_t GetDescriptorCountFromIndex(const uint32_t) const;
     uint32_t GetDescriptorCountFromBinding(const uint32_t binding) const {
         return GetDescriptorCountFromIndex(GetIndexFromBinding(binding));
@@ -164,8 +165,8 @@ class DescriptorSetLayoutDef {
     const BindingTypeStats &GetBindingTypeStats() const { return binding_type_stats_; }
 
    private:
-    // Only the first two data members are used for hash and equality checks, the other members are derived from them, and are used
-    // to speed up the various lookups/queries/validations
+    // Only the first three data members are used for hash and equality checks, the other members are derived from them, and are
+    // used to speed up the various lookups/queries/validations
     VkDescriptorSetLayoutCreateFlags flags_;
     std::vector<safe_VkDescriptorSetLayoutBinding> bindings_;
     std::vector<VkDescriptorBindingFlagsEXT> binding_flags_;
@@ -185,8 +186,10 @@ class DescriptorSetLayoutDef {
     BindingTypeStats binding_type_stats_;
 };
 
-static bool operator==(const DescriptorSetLayoutDef &lhs, const DescriptorSetLayoutDef &rhs) {
-    return (lhs.GetCreateFlags() == rhs.GetCreateFlags()) && (lhs.GetBindings() == rhs.GetBindings());
+static inline bool operator==(const DescriptorSetLayoutDef &lhs, const DescriptorSetLayoutDef &rhs) {
+    bool result = (lhs.GetCreateFlags() == rhs.GetCreateFlags()) && (lhs.GetBindings() == rhs.GetBindings()) &&
+                  (lhs.GetBindingFlags() == rhs.GetBindingFlags());
+    return result;
 }
 
 // Canonical dictionary of DSL definitions -- independent of device or handle
@@ -314,8 +317,8 @@ class Descriptor {
 // Shared helper functions - These are useful because the shared sampler image descriptor type
 //  performs common functions with both sampler and image descriptors so they can share their common functions
 bool ValidateSampler(const VkSampler, const core_validation::layer_data *);
-bool ValidateImageUpdate(VkImageView, VkImageLayout, VkDescriptorType, const core_validation::layer_data *, std::string *,
-                         std::string *);
+bool ValidateImageUpdate(VkImageView, VkImageLayout, VkDescriptorType, const core_validation::layer_data *, const char *func_name,
+                         std::string *, std::string *);
 
 class SamplerDescriptor : public Descriptor {
    public:
@@ -431,13 +434,23 @@ struct AllocateDescriptorSetsData {
 // Helper functions for descriptor set functions that cross multiple sets
 // "Validate" will make sure an update is ok without actually performing it
 bool ValidateUpdateDescriptorSets(const debug_report_data *, const core_validation::layer_data *, uint32_t,
-                                  const VkWriteDescriptorSet *, uint32_t, const VkCopyDescriptorSet *);
+                                  const VkWriteDescriptorSet *, uint32_t, const VkCopyDescriptorSet *, const char *func_name);
 // "Perform" does the update with the assumption that ValidateUpdateDescriptorSets() has passed for the given update
 void PerformUpdateDescriptorSets(const core_validation::layer_data *, uint32_t, const VkWriteDescriptorSet *, uint32_t,
                                  const VkCopyDescriptorSet *);
-// Similar to PerformUpdateDescriptorSets, this function will do the same for updating via templates
-void PerformUpdateDescriptorSetsWithTemplateKHR(layer_data *, VkDescriptorSet, std::unique_ptr<TEMPLATE_STATE> const &,
-                                                const void *);
+
+// Helper class to encapsulate the descriptor update template decoding logic
+struct DecodedTemplateUpdate {
+    std::vector<VkWriteDescriptorSet> desc_writes;
+    std::vector<VkWriteDescriptorSetInlineUniformBlockEXT> inline_infos;
+    DecodedTemplateUpdate(layer_data *device_data, VkDescriptorSet descriptorSet, const TEMPLATE_STATE *template_state,
+                          const void *pData, VkDescriptorSetLayout push_layout = VK_NULL_HANDLE);
+};
+// Helper wrapping ValidateUpdateDescriptorSets, updating via templates
+bool ValidateUpdateDescriptorSetsWithTemplateKHR(layer_data *device_data, VkDescriptorSet descriptorSet,
+                                                 const TEMPLATE_STATE *template_state, const void *pData);
+// Helper wrapping PerformUpdateDescriptorSets, updating via templates
+void PerformUpdateDescriptorSetsWithTemplateKHR(layer_data *, VkDescriptorSet, const TEMPLATE_STATE *, const void *);
 // Update the common AllocateDescriptorSetsData struct which can then be shared between Validate* and Perform* funcs below
 void UpdateAllocateDescriptorSetsData(const layer_data *dev_data, const VkDescriptorSetAllocateInfo *,
                                       AllocateDescriptorSetsData *);
@@ -500,14 +513,20 @@ class DescriptorSet : public BASE_NODE {
     uint32_t GetStorageUpdates(const std::map<uint32_t, descriptor_req> &, std::unordered_set<VkBuffer> *,
                                std::unordered_set<VkImageView> *) const;
 
+    std::string StringifySetAndLayout() const;
     // Descriptor Update functions. These functions validate state and perform update separately
+    // Validate contents of a push descriptor update
+    bool ValidatePushDescriptorsUpdate(const debug_report_data *report_data, uint32_t write_count,
+                                       const VkWriteDescriptorSet *p_wds, const char *func_name);
+    // Perform a push update whose contents were just validated using ValidatePushDescriptorsUpdate
+    void PerformPushDescriptorsUpdate(uint32_t write_count, const VkWriteDescriptorSet *p_wds);
     // Validate contents of a WriteUpdate
-    bool ValidateWriteUpdate(const debug_report_data *, const VkWriteDescriptorSet *, std::string *, std::string *);
+    bool ValidateWriteUpdate(const debug_report_data *, const VkWriteDescriptorSet *, const char *, std::string *, std::string *);
     // Perform a WriteUpdate whose contents were just validated using ValidateWriteUpdate
     void PerformWriteUpdate(const VkWriteDescriptorSet *);
     // Validate contents of a CopyUpdate
-    bool ValidateCopyUpdate(const debug_report_data *, const VkCopyDescriptorSet *, const DescriptorSet *, std::string *,
-                            std::string *);
+    bool ValidateCopyUpdate(const debug_report_data *, const VkCopyDescriptorSet *, const DescriptorSet *, const char *func_name,
+                            std::string *, std::string *);
     // Perform a CopyUpdate whose contents were just validated using ValidateCopyUpdate
     void PerformCopyUpdate(const VkCopyDescriptorSet *, const DescriptorSet *);
 
@@ -553,11 +572,11 @@ class DescriptorSet : public BASE_NODE {
     DESCRIPTOR_POOL_STATE *GetPoolState() const { return pool_state_; }
 
    private:
-    bool VerifyWriteUpdateContents(const VkWriteDescriptorSet *, const uint32_t, std::string *, std::string *) const;
-    bool VerifyCopyUpdateContents(const VkCopyDescriptorSet *, const DescriptorSet *, VkDescriptorType, uint32_t, std::string *,
-                                  std::string *) const;
+    bool VerifyWriteUpdateContents(const VkWriteDescriptorSet *, const uint32_t, const char *, std::string *, std::string *) const;
+    bool VerifyCopyUpdateContents(const VkCopyDescriptorSet *, const DescriptorSet *, VkDescriptorType, uint32_t, const char *,
+                                  std::string *, std::string *) const;
     bool ValidateBufferUsage(BUFFER_STATE const *, VkDescriptorType, std::string *, std::string *) const;
-    bool ValidateBufferUpdate(VkDescriptorBufferInfo const *, VkDescriptorType, std::string *, std::string *) const;
+    bool ValidateBufferUpdate(VkDescriptorBufferInfo const *, VkDescriptorType, const char *, std::string *, std::string *) const;
     // Private helper to set all bound cmd buffers to INVALID state
     void InvalidateBoundCmdBuffers();
     bool some_update_;  // has any part of the set ever been updated?

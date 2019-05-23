@@ -120,7 +120,8 @@ class SlaveFailureSummaryStageTest(
             stage_name='FailingStage',
             stage_status=constants.BUILDER_STATUS_FAILED,
             build_status=constants.BUILDER_STATUS_FAILED))
-    self.PatchObject(self.db, 'GetBuildsFailures', return_value=[fake_failure])
+    self.PatchObject(self.buildstore, 'GetBuildsFailures',
+                     return_value=[fake_failure])
     self.PatchObject(logging, 'PrintBuildbotLink')
     self.RunStage()
     self.assertEqual(logging.PrintBuildbotLink.call_count, 1)
@@ -205,7 +206,6 @@ class AbstractReportStageTestCase(
   """Base class for testing the Report stage."""
 
   def setUp(self):
-    self.buildstore = FakeBuildStore()
     for cmd in ((osutils, 'WriteFile'),
                 (commands, 'UploadArchivedFile'),
                 (alerts, 'SendEmail')):
@@ -225,11 +225,12 @@ class AbstractReportStageTestCase(
     # mock requirements can replace this with a separate call to
     # SetupMockCidb
     self.mock_cidb = mock.MagicMock()
+    self.buildstore = FakeBuildStore(self.mock_cidb)
     cidb.CIDBConnectionFactory.SetupMockCidb(self.mock_cidb)
 
     # Setup topology for unittests
     keyvals = {topology.DATASTORE_WRITER_CREDS_KEY:'./foo/bar.cert'}
-    topology_unittest.FakeFetchTopologyFromCIDB(keyvals=keyvals)
+    topology_unittest.FakeFetchTopology(keyvals=keyvals)
 
     self._Prepare()
 
@@ -252,18 +253,21 @@ class ReportStageTest(AbstractReportStageTestCase):
 
     stages = [
         {
+            'build_config': 'build1',
             'name': 'stage1',
             'start_time': dt.datetime.now() - dt.timedelta(0, 500),
             'finish_time': dt.datetime.now() - dt.timedelta(0, 300),
             'status': constants.BUILDER_STATUS_PASSED,
         },
         {
+            'build_config': 'build1',
             'name': 'stage2',
             'start_time': dt.datetime.now() - dt.timedelta(0, 500),
             'finish_time': dt.datetime.now() - dt.timedelta(0, 200),
             'status': constants.BUILDER_STATUS_PASSED,
         },
         {
+            'build_config': 'build1',
             'name': 'stage3',
             'start_time': dt.datetime.now() - dt.timedelta(0, 200),
             'finish_time': dt.datetime.now() - dt.timedelta(0, 100),
@@ -293,7 +297,7 @@ class ReportStageTest(AbstractReportStageTestCase):
             'status': constants.BUILDER_STATUS_PASSED,
         },
     ]
-    self.mock_cidb.GetBuildStages = mock.Mock(return_value=stages)
+    self.buildstore.GetBuildsStages = mock.Mock(return_value=stages)
     self.mock_cidb.GetSlaveStatuses = mock.Mock(return_value=statuses)
     self._SetupUpdateStreakCounter()
     self.PatchObject(report_stages.ReportStage, '_LinkArtifacts')

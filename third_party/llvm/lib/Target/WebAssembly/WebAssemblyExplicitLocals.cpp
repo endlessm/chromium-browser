@@ -1,9 +1,8 @@
 //===-- WebAssemblyExplicitLocals.cpp - Make Locals Explicit --------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -317,7 +316,7 @@ bool WebAssemblyExplicitLocals::runOnMachineFunction(MachineFunction &MF) {
         // with inline asm register operands is to provide local indices as
         // immediates.
         if (MO.isDef()) {
-          assert(MI.getOpcode() == TargetOpcode::INLINEASM);
+          assert(MI.isInlineAsm());
           unsigned LocalId = getLocalId(Reg2Local, CurLocal, OldReg);
           // If this register operand is tied to another operand, we can't
           // change it to an immediate. Untie it first.
@@ -335,7 +334,7 @@ bool WebAssemblyExplicitLocals::runOnMachineFunction(MachineFunction &MF) {
 
         // Our contract with inline asm register operands is to provide local
         // indices as immediates.
-        if (MI.getOpcode() == TargetOpcode::INLINEASM) {
+        if (MI.isInlineAsm()) {
           unsigned LocalId = getLocalId(Reg2Local, CurLocal, OldReg);
           // Untie it first if this reg operand is tied to another operand.
           MI.untieRegOperand(MI.getOperandNo(&MO));

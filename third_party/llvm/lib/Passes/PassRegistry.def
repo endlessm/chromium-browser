@@ -1,9 +1,8 @@
 //===- PassRegistry.def - Registry of passes --------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -28,6 +27,7 @@ MODULE_ANALYSIS("stack-safety", StackSafetyGlobalAnalysis())
 MODULE_ANALYSIS("targetlibinfo", TargetLibraryAnalysis())
 MODULE_ANALYSIS("verify", VerifierAnalysis())
 MODULE_ANALYSIS("pass-instrumentation", PassInstrumentationAnalysis(PIC))
+MODULE_ANALYSIS("asan-globals-md", ASanGlobalsMetadataAnalysis())
 
 #ifndef MODULE_ALIAS_ANALYSIS
 #define MODULE_ALIAS_ANALYSIS(NAME, CREATE_PASS)                               \
@@ -82,6 +82,7 @@ MODULE_PASS("strip-dead-prototypes", StripDeadPrototypesPass())
 MODULE_PASS("synthetic-counts-propagation", SyntheticCountsPropagation())
 MODULE_PASS("wholeprogramdevirt", WholeProgramDevirtPass(nullptr, nullptr))
 MODULE_PASS("verify", VerifierPass())
+MODULE_PASS("asan-module", ModuleAddressSanitizerPass(false, false, true, false))
 #undef MODULE_PASS
 
 #ifndef CGSCC_ANALYSIS
@@ -178,6 +179,7 @@ FUNCTION_PASS("libcalls-shrinkwrap", LibCallsShrinkWrapPass())
 FUNCTION_PASS("loweratomic", LowerAtomicPass())
 FUNCTION_PASS("lower-expect", LowerExpectIntrinsicPass())
 FUNCTION_PASS("lower-guard-intrinsic", LowerGuardIntrinsicPass())
+FUNCTION_PASS("lower-widenable-condition", LowerWidenableConditionPass())
 FUNCTION_PASS("guard-widening", GuardWideningPass())
 FUNCTION_PASS("gvn", GVN())
 FUNCTION_PASS("load-store-vectorizer", LoadStoreVectorizerPass())
@@ -231,7 +233,8 @@ FUNCTION_PASS("verify<regions>", RegionInfoVerifierPass())
 FUNCTION_PASS("view-cfg", CFGViewerPass())
 FUNCTION_PASS("view-cfg-only", CFGOnlyViewerPass())
 FUNCTION_PASS("transform-warning", WarnMissedTransformationsPass())
-FUNCTION_PASS("msan", MemorySanitizerPass())
+FUNCTION_PASS("asan", AddressSanitizerPass(false, false, false))
+FUNCTION_PASS("msan", MemorySanitizerPass({}))
 FUNCTION_PASS("tsan", ThreadSanitizerPass())
 #undef FUNCTION_PASS
 
@@ -239,8 +242,15 @@ FUNCTION_PASS("tsan", ThreadSanitizerPass())
 #define FUNCTION_PASS_WITH_PARAMS(NAME, CREATE_PASS, PARSER)
 #endif
 FUNCTION_PASS_WITH_PARAMS("unroll",
-			  [](LoopUnrollOptions Opts) { return LoopUnrollPass(Opts); },
-			  parseLoopUnrollOptions)
+                           [](LoopUnrollOptions Opts) {
+                             return LoopUnrollPass(Opts);
+                           },
+                           parseLoopUnrollOptions)
+FUNCTION_PASS_WITH_PARAMS("msan",
+                           [](MemorySanitizerOptions Opts) {
+                             return MemorySanitizerPass(Opts);
+                           },
+                           parseMSanPassOptions)
 #undef FUNCTION_PASS_WITH_PARAMS
 
 #ifndef LOOP_ANALYSIS

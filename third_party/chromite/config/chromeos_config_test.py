@@ -84,6 +84,10 @@ class HWTestList(object):
         config_lib.HWTestConfig(constants.HWTEST_ARC_COMMIT_SUITE,
                                 **bvt_inline_kwargs),
         self.TastConfig(constants.HWTEST_TAST_CQ_SUITE, **bvt_inline_kwargs),
+        # Start informational Tast tests before the installer suite to let the
+        # former run even if the latter fails: https://crbug.com/911921
+        self.TastConfig(constants.HWTEST_TAST_INFORMATIONAL_SUITE,
+                        **async_kwargs),
         config_lib.HWTestConfig(constants.HWTEST_INSTALLER_SUITE,
                                 **installer_kwargs),
         config_lib.HWTestConfig(constants.HWTEST_COMMIT_SUITE,
@@ -559,6 +563,9 @@ def ApplyCustomOverrides(site_config, ge_build_config):
           'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
       },
 
+      'moblab-generic-vm-paladin': site_config.templates.moblab_vm_tests,
+      'moblab-generic-vm-pre-cq': site_config.templates.moblab_vm_tests,
+
       'peppy-chrome-pfq': {
           'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
@@ -678,6 +685,8 @@ def GeneralTemplates(site_config, ge_build_config):
       vm_tests=[],
       vm_tests_override=None,
       gce_tests=[],
+      tast_vm_tests=[],
+      moblab_vm_tests=[],
   )
 
   site_config.AddTemplate(

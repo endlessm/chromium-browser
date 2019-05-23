@@ -1,7 +1,6 @@
 syntax = 'proto3';
 package chromite.api;
 import "build_api.proto";
-import "google/protobuf/empty.proto";
 
 // Messages used to test build_api message and service handling.
 
@@ -25,19 +24,54 @@ service TestApiService {
   };
 
   // Method that has input and output messages.
-  rpc InputOutputMethod(TestRequestMessage) returns (TestResultMessage) {
+  rpc InputOutputMethod(TestRequestMessage) returns (TestResultMessage);
+  // Method name override.
+  rpc RenamedMethod(TestRequestMessage) returns (TestResultMessage) {
+    option (method_options) = {
+      implementation_name: 'CorrectName'
+    };
+  }
+}
 
+// Inside chroot service.
+service InsideChrootApiService {
+  // Mocking the method returns means we don't have an implementation of this
+  // module, but we do require it.
+  option (service_options) = {
+    module: "build_api_test",
+    service_chroot_assert: INSIDE,
   };
-  // Method with only input message.
-  rpc InputMethod(TestRequestMessage) returns (google.protobuf.Empty) {
 
-  };
-  // Method with only output message.
-  rpc OutputMethod(google.protobuf.Empty) returns (TestResultMessage) {
+  // No override of service level inside assertion.
+  rpc InsideServiceInsideMethod(TestRequestMessage) returns (TestResultMessage);
 
-  };
-  // Method with no input or output message.
-  rpc NoIoMethod(google.protobuf.Empty) returns (google.protobuf.Empty) {
+  // Override service level inside assertion with outside assertion.
+  rpc InsideServiceOutsideMethod(TestRequestMessage)
+    returns (TestResultMessage) {
+    option (method_options) = {
+      method_chroot_assert: OUTSIDE,
+    };
+  }
+}
 
+// Outside chroot service.
+service OutsideChrootApiService {
+  // Mocking the method returns means we don't have an implementation of this
+  // module, but we do require it.
+  option (service_options) = {
+    module: "build_api_test",
+    service_chroot_assert: OUTSIDE,
   };
+
+  // No override of service level outside assertion.
+  rpc OutsideServiceOutsideMethod(TestRequestMessage)
+    returns (TestResultMessage);
+
+  // Override service level outside assertion with inside assertion.
+  rpc OutsideServiceInsideMethod(TestRequestMessage)
+    returns (TestResultMessage) {
+    option (method_options) = {
+      method_chroot_assert: INSIDE,
+    };
+  }
 }

@@ -10,12 +10,17 @@
 #include "ANGLETest.h"
 
 #include "common/platform.h"
+#include "gpu_info_util/SystemInfo.h"
 #include "util/EGLWindow.h"
 #include "util/OSWindow.h"
 
 #if defined(ANGLE_USE_UTIL_LOADER) && defined(ANGLE_PLATFORM_WINDOWS)
 #    include "util/windows/WGLWindow.h"
 #endif  // defined(ANGLE_USE_UTIL_LOADER) && defined(ANGLE_PLATFORM_WINDOWS)
+
+#if defined(ANGLE_PLATFORM_WINDOWS)
+#    include <VersionHelpers.h>
+#endif  // defined(ANGLE_PLATFORM_WINDOWS)
 
 namespace angle
 {
@@ -63,7 +68,14 @@ void TestPlatform_logWarning(PlatformMethods *platform, const char *warningMessa
     if (testPlatformContext->ignoreMessages)
         return;
 
-    std::cerr << "Warning: " << warningMessage << std::endl;
+    if (testPlatformContext->warningsAsErrors)
+    {
+        FAIL() << warningMessage;
+    }
+    else
+    {
+        std::cerr << "Warning: " << warningMessage << std::endl;
+    }
 }
 
 void TestPlatform_logInfo(PlatformMethods *platform, const char *infoMessage)
@@ -310,9 +322,10 @@ ANGLETestBase::ANGLETestBase(const angle::PlatformParameters &params)
             mEGLWindow->setDebugLayersEnabled(true);
 
             // Workaround for NVIDIA not being able to share OpenGL and Vulkan contexts.
+            // Workaround if any of the GPUs is Nvidia, since we can't detect current GPU.
             EGLint renderer = params.getRenderer();
             bool needsWindowSwap =
-                mLastRendererType.valid() &&
+                hasNvidiaGPU() && mLastRendererType.valid() &&
                 ((renderer != EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE) !=
                  (mLastRendererType.value() != EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE));
 
@@ -374,8 +387,9 @@ ANGLETestBase::~ANGLETestBase()
 
 void ANGLETestBase::ANGLETestSetUp()
 {
-    mPlatformContext.ignoreMessages = false;
-    mPlatformContext.currentTest    = this;
+    mPlatformContext.ignoreMessages   = false;
+    mPlatformContext.warningsAsErrors = false;
+    mPlatformContext.currentTest      = this;
 
     // Resize the window before creating the context so that the first make current
     // sets the viewport and scissor box to the right size.
@@ -914,6 +928,18 @@ void ANGLETestBase::checkD3D11SDKLayersMessages()
 #endif  // defined(ANGLE_PLATFORM_WINDOWS)
 }
 
+bool ANGLETestBase::hasNvidiaGPU()
+{
+    for (const angle::GPUDeviceInfo &gpu : ANGLETestEnvironment::GetSystemInfo()->gpus)
+    {
+        if (angle::IsNvidia(gpu.vendorId))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ANGLETestBase::extensionEnabled(const std::string &extName)
 {
     return CheckExtensionExists(reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS)),
@@ -1219,56 +1245,11 @@ bool IsNULL()
     return (rendererString.find("NULL") != std::string::npos);
 }
 
-bool IsAndroid()
-{
-#if defined(ANGLE_PLATFORM_ANDROID)
-    return true;
-#else
-    return false;
-#endif
-}
-
 bool IsVulkan()
 {
     const char *renderer = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
     std::string rendererString(renderer);
     return (rendererString.find("Vulkan") != std::string::npos);
-}
-
-bool IsOzone()
-{
-#if defined(USE_OZONE)
-    return true;
-#else
-    return false;
-#endif
-}
-
-bool IsLinux()
-{
-#if defined(ANGLE_PLATFORM_LINUX)
-    return true;
-#else
-    return false;
-#endif
-}
-
-bool IsOSX()
-{
-#if defined(ANGLE_PLATFORM_APPLE)
-    return true;
-#else
-    return false;
-#endif
-}
-
-bool IsWindows()
-{
-#if defined(ANGLE_PLATFORM_WINDOWS)
-    return true;
-#else
-    return false;
-#endif
 }
 
 bool IsDebug()
@@ -1297,6 +1278,15 @@ void ANGLETestBase::ignoreD3D11SDKLayersWarnings()
     mIgnoreD3D11SDKLayersWarnings = true;
 }
 
+void ANGLETestBase::treatPlatformWarningsAsErrors()
+{
+#if defined(ANGLE_PLATFORM_WINDOWS)
+    // Only do warnings-as-errors on 8 and above. We may fall back to the old
+    // compiler DLL on Windows 7.
+    mPlatformContext.warningsAsErrors = IsWindows8OrGreater();
+#endif  // defined(ANGLE_PLATFORM_WINDOWS)
+}
+
 ANGLETestBase::ScopedIgnorePlatformMessages::ScopedIgnorePlatformMessages(ANGLETestBase *test)
     : mTest(test)
 {
@@ -1313,6 +1303,7 @@ Optional<EGLint> ANGLETestBase::mLastRendererType;
 
 std::unique_ptr<angle::Library> ANGLETestEnvironment::gEGLLibrary;
 std::unique_ptr<angle::Library> ANGLETestEnvironment::gWGLLibrary;
+std::unique_ptr<angle::SystemInfo> ANGLETestEnvironment::gSystemInfo;
 
 void ANGLETestEnvironment::SetUp()
 {
@@ -1347,6 +1338,19 @@ angle::Library *ANGLETestEnvironment::GetWGLLibrary()
     }
 #endif  // defined(ANGLE_USE_UTIL_LOADER) && defined(ANGLE_PLATFORM_WINDOWS)
     return gWGLLibrary.get();
+}
+
+angle::SystemInfo *ANGLETestEnvironment::GetSystemInfo()
+{
+    if (!gSystemInfo)
+    {
+        gSystemInfo = std::make_unique<angle::SystemInfo>();
+        if (!angle::GetSystemInfo(gSystemInfo.get()))
+        {
+            std::cerr << "Failed to get system info." << std::endl;
+        }
+    }
+    return gSystemInfo.get();
 }
 
 void ANGLEProcessTestArgs(int *argc, char *argv[])

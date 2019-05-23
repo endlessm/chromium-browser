@@ -1,9 +1,8 @@
 //===--- CommonArgs.cpp - Args handling for multiple toolchains -*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -758,9 +757,9 @@ bool tools::addXRayRuntime(const ToolChain&TC, const ArgList &Args, ArgStringLis
 
   if (TC.getXRayArgs().needsXRayRt()) {
     CmdArgs.push_back("-whole-archive");
-    CmdArgs.push_back(TC.getCompilerRTArgString(Args, "xray", false));
+    CmdArgs.push_back(TC.getCompilerRTArgString(Args, "xray"));
     for (const auto &Mode : TC.getXRayArgs().modeList())
-      CmdArgs.push_back(TC.getCompilerRTArgString(Args, Mode, false));
+      CmdArgs.push_back(TC.getCompilerRTArgString(Args, Mode));
     CmdArgs.push_back("-no-whole-archive");
     return true;
   }
@@ -1138,19 +1137,22 @@ static void AddLibgcc(const llvm::Triple &Triple, const Driver &D,
   bool isCygMing = Triple.isOSCygMing();
   bool IsIAMCU = Triple.isOSIAMCU();
   bool StaticLibgcc = Args.hasArg(options::OPT_static_libgcc) ||
-                      Args.hasArg(options::OPT_static);
+                      Args.hasArg(options::OPT_static) ||
+                      Args.hasArg(options::OPT_static_pie);
 
   bool SharedLibgcc = Args.hasArg(options::OPT_shared_libgcc);
   bool UnspecifiedLibgcc = !StaticLibgcc && !SharedLibgcc;
 
   // Gcc adds libgcc arguments in various ways:
   //
-  // gcc <none>: -lgcc --as-needed -lgcc_s --no-as-needed
-  // g++ <none>:                   -lgcc_s               -lgcc
-  // gcc shared:                   -lgcc_s               -lgcc
-  // g++ shared:                   -lgcc_s               -lgcc
-  // gcc static: -lgcc             -lgcc_eh
-  // g++ static: -lgcc             -lgcc_eh
+  // gcc <none>:     -lgcc --as-needed -lgcc_s --no-as-needed
+  // g++ <none>:                       -lgcc_s               -lgcc
+  // gcc shared:                       -lgcc_s               -lgcc
+  // g++ shared:                       -lgcc_s               -lgcc
+  // gcc static:     -lgcc             -lgcc_eh
+  // g++ static:     -lgcc             -lgcc_eh
+  // gcc static-pie: -lgcc             -lgcc_eh
+  // g++ static-pie: -lgcc             -lgcc_eh
   //
   // Also, certain targets need additional adjustments.
 

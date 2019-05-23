@@ -10,7 +10,6 @@
 #include "Test.h"
 
 #include "GrContextPriv.h"
-#include "GrDeinstantiateProxyTracker.h"
 #include "GrGpu.h"
 #include "GrProxyProvider.h"
 #include "GrResourceAllocator.h"
@@ -59,8 +58,8 @@ static GrSurfaceProxy* make_deferred(GrProxyProvider* proxyProvider, const GrCap
 
 static GrSurfaceProxy* make_backend(GrContext* context, const ProxyParams& p,
                                     GrBackendTexture* backendTex) {
-    GrProxyProvider* proxyProvider = context->contextPriv().proxyProvider();
-    GrGpu* gpu = context->contextPriv().getGpu();
+    GrProxyProvider* proxyProvider = context->priv().proxyProvider();
+    GrGpu* gpu = context->priv().getGpu();
 
     *backendTex = gpu->createTestingOnlyBackendTexture(nullptr, p.fSize, p.fSize,
                                                        p.fColorType, false,
@@ -70,7 +69,7 @@ static GrSurfaceProxy* make_backend(GrContext* context, const ProxyParams& p,
     }
 
     auto tmp = proxyProvider->wrapBackendTexture(*backendTex, p.fOrigin, kBorrow_GrWrapOwnership,
-                                                 kRead_GrIOType);
+                                                 GrWrapCacheable::kNo, kRead_GrIOType);
     if (!tmp) {
         return nullptr;
     }
@@ -83,15 +82,14 @@ static GrSurfaceProxy* make_backend(GrContext* context, const ProxyParams& p,
 }
 
 static void cleanup_backend(GrContext* context, const GrBackendTexture& backendTex) {
-    context->contextPriv().getGpu()->deleteTestingOnlyBackendTexture(backendTex);
+    context->priv().getGpu()->deleteTestingOnlyBackendTexture(backendTex);
 }
 
 // Basic test that two proxies with overlapping intervals and compatible descriptors are
 // assigned different GrSurfaces.
 static void overlap_test(skiatest::Reporter* reporter, GrResourceProvider* resourceProvider,
                          GrSurfaceProxy* p1, GrSurfaceProxy* p2, bool expectedResult) {
-    GrDeinstantiateProxyTracker deinstantiateTracker;
-    GrResourceAllocator alloc(resourceProvider, &deinstantiateTracker);
+    GrResourceAllocator alloc(resourceProvider);
 
     alloc.addInterval(p1, 0, 4);
     alloc.addInterval(p2, 1, 2);
@@ -113,8 +111,7 @@ static void overlap_test(skiatest::Reporter* reporter, GrResourceProvider* resou
 static void non_overlap_test(skiatest::Reporter* reporter, GrResourceProvider* resourceProvider,
                              GrSurfaceProxy* p1, GrSurfaceProxy* p2,
                              bool expectedResult) {
-    GrDeinstantiateProxyTracker deinstantiateTracker;
-    GrResourceAllocator alloc(resourceProvider, &deinstantiateTracker);
+    GrResourceAllocator alloc(resourceProvider);
 
     alloc.addInterval(p1, 0, 2);
     alloc.addInterval(p2, 3, 5);
@@ -138,9 +135,9 @@ bool GrResourceProvider::testingOnly_setExplicitlyAllocateGPUResources(bool newV
 }
 
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceAllocatorTest, reporter, ctxInfo) {
-    const GrCaps* caps = ctxInfo.grContext()->contextPriv().caps();
-    GrProxyProvider* proxyProvider = ctxInfo.grContext()->contextPriv().proxyProvider();
-    GrResourceProvider* resourceProvider = ctxInfo.grContext()->contextPriv().resourceProvider();
+    const GrCaps* caps = ctxInfo.grContext()->priv().caps();
+    GrProxyProvider* proxyProvider = ctxInfo.grContext()->priv().proxyProvider();
+    GrResourceProvider* resourceProvider = ctxInfo.grContext()->priv().resourceProvider();
 
     bool orig = resourceProvider->testingOnly_setExplicitlyAllocateGPUResources(true);
 
@@ -185,9 +182,9 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceAllocatorTest, reporter, ctxInfo) {
         p2->completedRead();
     }
 
-    int k2 = ctxInfo.grContext()->contextPriv().caps()->getRenderTargetSampleCount(
+    int k2 = ctxInfo.grContext()->priv().caps()->getRenderTargetSampleCount(
                                                                     2, kRGBA_8888_GrPixelConfig);
-    int k4 = ctxInfo.grContext()->contextPriv().caps()->getRenderTargetSampleCount(
+    int k4 = ctxInfo.grContext()->priv().caps()->getRenderTargetSampleCount(
                                                                     4, kRGBA_8888_GrPixelConfig);
 
     //--------------------------------------------------------------------------------------------
@@ -268,7 +265,7 @@ static void draw(GrContext* context) {
 
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceAllocatorStressTest, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    GrResourceProvider* resourceProvider = ctxInfo.grContext()->contextPriv().resourceProvider();
+    GrResourceProvider* resourceProvider = ctxInfo.grContext()->priv().resourceProvider();
 
     int maxNum;
     size_t maxBytes;
@@ -288,7 +285,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceAllocatorStressTest, reporter, ctxInf
 }
 
 sk_sp<GrSurfaceProxy> make_lazy(GrProxyProvider* proxyProvider, const GrCaps* caps,
-                                const ProxyParams& p, bool deinstantiate) {
+                                const ProxyParams& p) {
     GrColorType grCT = SkColorTypeToGrColorType(p.fColorType);
     GrPixelConfig config = GrColorTypeToPixelConfig(grCT, GrSRGBEncoded::kNo);
 
@@ -311,8 +308,7 @@ sk_sp<GrSurfaceProxy> make_lazy(GrProxyProvider* proxyProvider, const GrCaps* ca
         }
     };
     const GrBackendFormat format = caps->getBackendFormatFromColorType(p.fColorType);
-    auto lazyType = deinstantiate ? GrSurfaceProxy::LazyInstantiationType ::kDeinstantiate
-                                  : GrSurfaceProxy::LazyInstantiationType ::kSingleUse;
+    auto lazyType = GrSurfaceProxy::LazyInstantiationType ::kSingleUse;
     GrInternalSurfaceFlags flags = GrInternalSurfaceFlags::kNone;
     return proxyProvider->createLazyProxy(callback, format, desc, p.fOrigin, GrMipMapped::kNo,
                                           flags, p.fFit, SkBudgeted::kNo, lazyType);
@@ -320,7 +316,7 @@ sk_sp<GrSurfaceProxy> make_lazy(GrProxyProvider* proxyProvider, const GrCaps* ca
 
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(LazyDeinstantiation, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    GrResourceProvider* resourceProvider = ctxInfo.grContext()->contextPriv().resourceProvider();
+    GrResourceProvider* resourceProvider = ctxInfo.grContext()->priv().resourceProvider();
     for (auto explicitlyAllocating : {false, true}) {
         resourceProvider->testingOnly_setExplicitlyAllocateGPUResources(explicitlyAllocating);
         ProxyParams texParams;
@@ -332,30 +328,22 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(LazyDeinstantiation, reporter, ctxInfo) {
         texParams.fSize = 100;
         ProxyParams rtParams = texParams;
         rtParams.fIsRT = true;
-        auto proxyProvider = context->contextPriv().proxyProvider();
-        auto caps = context->contextPriv().caps();
-        auto p0 = make_lazy(proxyProvider, caps, texParams, true);
-        auto p1 = make_lazy(proxyProvider, caps, texParams, false);
+        auto proxyProvider = context->priv().proxyProvider();
+        auto caps = context->priv().caps();
+        auto p0 = make_lazy(proxyProvider, caps, texParams);
         texParams.fFit = rtParams.fFit = SkBackingFit::kApprox;
-        auto p2 = make_lazy(proxyProvider, caps, rtParams, true);
-        auto p3 = make_lazy(proxyProvider, caps, rtParams, false);
+        auto p1 = make_lazy(proxyProvider, caps, rtParams);
 
-        GrDeinstantiateProxyTracker deinstantiateTracker;
         {
-            GrResourceAllocator alloc(resourceProvider, &deinstantiateTracker);
+            GrResourceAllocator alloc(resourceProvider);
             alloc.addInterval(p0.get(), 0, 1);
             alloc.addInterval(p1.get(), 0, 1);
-            alloc.addInterval(p2.get(), 0, 1);
-            alloc.addInterval(p3.get(), 0, 1);
             alloc.markEndOfOpList(0);
             int startIndex, stopIndex;
             GrResourceAllocator::AssignError error;
             alloc.assign(&startIndex, &stopIndex, &error);
         }
-        deinstantiateTracker.deinstantiateAllProxies();
-        REPORTER_ASSERT(reporter, !p0->isInstantiated());
+        REPORTER_ASSERT(reporter, p0->isInstantiated());
         REPORTER_ASSERT(reporter, p1->isInstantiated());
-        REPORTER_ASSERT(reporter, !p2->isInstantiated());
-        REPORTER_ASSERT(reporter, p3->isInstantiated());
     }
 }

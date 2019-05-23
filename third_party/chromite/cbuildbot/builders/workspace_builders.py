@@ -8,7 +8,7 @@
 from __future__ import print_function
 
 from chromite.cbuildbot.builders import generic_builders
-from chromite.cbuildbot.stages import firmware_stages
+from chromite.cbuildbot.stages import branch_archive_stages
 from chromite.cbuildbot.stages import workspace_stages
 
 
@@ -62,6 +62,9 @@ class FirmwareBranchBuilder(BuildSpecBuilder):
     self._RunStage(workspace_stages.WorkspaceInitSDKStage,
                    build_root=self._run.options.workspace)
 
+    self._RunStage(workspace_stages.WorkspaceUpdateSDKStage,
+                   build_root=self._run.options.workspace)
+
     for board in self._run.config.boards:
       self._RunStage(workspace_stages.WorkspaceSetupBoardStage,
                      build_root=self._run.options.workspace,
@@ -71,7 +74,7 @@ class FirmwareBranchBuilder(BuildSpecBuilder):
                      build_root=self._run.options.workspace,
                      board=board)
 
-      self._RunStage(firmware_stages.FirmwareArchiveStage,
+      self._RunStage(branch_archive_stages.FirmwareArchiveStage,
                      build_root=self._run.options.workspace,
                      board=board)
 
@@ -88,13 +91,38 @@ class FactoryBranchBuilder(BuildSpecBuilder):
     """Run the stages."""
     super(FactoryBranchBuilder, self).RunStages()
 
+    assert len(self._run.config.boards) == 1
+    board = self._run.config.boards[0]
+
     self._RunStage(workspace_stages.WorkspaceInitSDKStage,
+                   build_root=self._run.options.workspace)
+
+    self._RunStage(workspace_stages.WorkspaceUpdateSDKStage,
                    build_root=self._run.options.workspace)
 
     self._RunStage(workspace_stages.WorkspaceSyncChromeStage,
                    build_root=self._run.options.workspace)
 
-    for board in self._run.config.boards:
-      self._RunStage(workspace_stages.WorkspaceSetupBoardStage,
-                     build_root=self._run.options.workspace,
-                     board=board)
+    self._RunStage(workspace_stages.WorkspaceSetupBoardStage,
+                   build_root=self._run.options.workspace,
+                   board=board)
+
+    self._RunStage(workspace_stages.WorkspaceBuildPackagesStage,
+                   build_root=self._run.options.workspace,
+                   board=board)
+
+    self._RunStage(workspace_stages.WorkspaceUnitTestStage,
+                   build_root=self._run.options.workspace,
+                   board=board)
+
+    self._RunStage(workspace_stages.WorkspaceBuildImageStage,
+                   build_root=self._run.options.workspace,
+                   board=board)
+
+    self._RunStage(workspace_stages.WorkspaceDebugSymbolsStage,
+                   build_root=self._run.options.workspace,
+                   board=board)
+
+    self._RunStage(branch_archive_stages.FactoryArchiveStage,
+                   build_root=self._run.options.workspace,
+                   board=board)

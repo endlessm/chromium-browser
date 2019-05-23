@@ -127,7 +127,8 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
     """
     # Wait for slaves if we're a master, in production or mock-production.
     # Otherwise just look at our own status.
-    build_id, db = self._run.GetCIDBHandle()
+    build_identifier, db = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     builders_array = None
     if not self._run.config.master:
       # The slave build returns its own status.
@@ -166,7 +167,7 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
     # the tree status.
     builder_statuses_fetcher = builder_status_lib.BuilderStatusesFetcher(
         build_id,
-        db,
+        self.buildstore,
         self.success,
         self.message,
         self._run.config,
@@ -335,8 +336,9 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
         # If the master build itself didn't pass, report fatal.
         return self._run.config.name in not_passed_builders
 
-      build_id, _ = self._run.GetCIDBHandle()
+      build_identifier, _ = self._run.GetCIDBHandle()
       if self.buildstore.AreClientsReady():
+        build_id = build_identifier.cidb_id
         aborted_slaves = (
             builder_status_lib.GetSlavesAbortedBySelfDestructedMaster(
                 build_id, self.buildstore))
@@ -788,11 +790,10 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
     self.success = success
     self.stage_push = stage_push
 
-  def CheckMasterBinhostTest(self, db, build_id):
+  def CheckMasterBinhostTest(self, build_id):
     """Check whether the master builder has passed BinhostTest stage.
 
     Args:
-      db: cidb.CIDBConnection object.
       build_id: build_id of the master build to check for.
 
     Returns:
@@ -801,8 +802,8 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
     """
     stage_name = 'BinhostTest'
 
-    if self._build_stage_id is not None and db is not None:
-      stages = db.GetBuildStages(build_id)
+    if self._build_stage_id is not None and self.buildstore.AreClientsReady():
+      stages = self.buildstore.GetBuildsStages(build_ids=[build_id])
 
       # No stages found. BinhostTest stage didn't start or got skipped,
       # in both case we don't need to push commits to the temp pfq branch.
@@ -823,18 +824,15 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
                         stage_status)
         return False
 
-    logging.warning('Not valid build_stage_id %s or db %s or no %s found',
-                    self._build_stage_id, db, stage_name)
+    logging.warning('Not valid build_stage_id %s or no %s found',
+                    self._build_stage_id, stage_name)
     return False
 
-  def CheckSlaveUploadPrebuiltsTest(self, db):
+  def CheckSlaveUploadPrebuiltsTest(self):
     """Check if the slaves have passed UploadPrebuilts stage.
 
     Given the master build id, check if all the important slaves have passed
     the UploadPrebuilts stage.
-
-    Args:
-      db: cidb.CIDBConnection object.
 
     Returns:
       True if all the important slaves have passed the stage;
@@ -853,15 +851,12 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
       logging.info('In debug environment, return CheckSlaveUploadPrebuiltsTest'
                    'as True')
       return True
-    elif self._build_stage_id is not None and db is not None:
+    elif self._build_stage_id is not None and self.buildstore.AreClientsReady():
       slave_configs = self._GetSlaveConfigs()
       important_set = set([slave['name'] for slave in slave_configs])
 
-      child_buildbucket_ids = self.GetScheduledSlaveBuildbucketIds()
-      status_list = self.buildstore.GetBuildStatuses(
-          buildbucket_ids=child_buildbucket_ids)
-      child_build_ids = [c['id'] for c in status_list] if status_list else []
-      stages = db.GetBuildsStages(child_build_ids)
+      stages = self.buildstore.GetBuildsStages(
+          buildbucket_ids=self.GetScheduledSlaveBuildbucketIds())
 
       passed_set = set([
           s['build_config']
@@ -878,8 +873,7 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
         logging.warning("slave %s didn't pass %s", remaining_set, stage_name)
         return False
     else:
-      logging.warning('Not valid build_stage_id %s or db %s',
-                      self._build_stage_id, db)
+      logging.warning('Not valid build_stage_id %s', self._build_stage_id)
       return False
 
   def PerformStage(self):
@@ -898,12 +892,13 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
       if not config_lib.IsMasterChromePFQ(self._run.config):
         raise ValueError('This build must be a master chrome PFQ build '
                          'when stage_push is True.')
-      build_id, db = self._run.GetCIDBHandle()
+      build_identifier, _ = self._run.GetCIDBHandle()
+      build_id = build_identifier.cidb_id
 
       # If the master passed BinHostTest and all the important slaves passed
       # UploadPrebuiltsTest, push uprev commits to a staging_branch.
-      if (self.CheckMasterBinhostTest(db, build_id) and
-          self.CheckSlaveUploadPrebuiltsTest(db)):
+      if (self.CheckMasterBinhostTest(build_id) and
+          self.CheckSlaveUploadPrebuiltsTest()):
         staging_branch = ('refs/' + constants.PFQ_REF + '/' +
                           constants.STAGING_PFQ_BRANCH_PREFIX + str(build_id))
 

@@ -1,9 +1,8 @@
 //===-- VOP1Instructions.td - Vector Instruction Defintions ---------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -48,7 +47,6 @@ class VOP1_Pseudo <string opName, VOPProfile P, list<dag> pattern=[], bit VOP1On
   let mayLoad = 0;
   let mayStore = 0;
   let hasSideEffects = 0;
-  let SubtargetPredicate = isGCN;
 
   let VOP1 = 1;
   let VALU = 1;
@@ -156,7 +154,6 @@ def V_READFIRSTLANE_B32 :
   let mayLoad = 0;
   let mayStore = 0;
   let hasSideEffects = 0;
-  let SubtargetPredicate = isGCN;
 
   let VOP1 = 1;
   let VALU = 1;

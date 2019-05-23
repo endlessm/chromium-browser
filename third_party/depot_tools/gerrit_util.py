@@ -140,6 +140,10 @@ class CookiesAuthenticator(Authenticator):
 
   @classmethod
   def get_new_password_message(cls, host):
+    if host is None:
+      return ('Git host for gerrit upload is unknown. Check your remote '
+              'and the branch your branch is tracking. This tool assumes '
+              'that you are using a git server at *.googlesource.com.')
     assert not host.startswith('http')
     # Assume *.googlesource.com pattern.
     parts = host.split('.')
@@ -681,6 +685,12 @@ def GetChangeReview(host, change, revision=None):
 def GetChangeComments(host, change):
   """Get the line- and file-level comments on a change."""
   path = 'changes/%s/comments' % change
+  return ReadHttpJsonResponse(CreateHttpConn(host, path))
+
+
+def GetChangeRobotComments(host, change):
+  """Get the line- and file-level robot comments on a change."""
+  path = 'changes/%s/robotcomments' % change
   return ReadHttpJsonResponse(CreateHttpConn(host, path))
 
 

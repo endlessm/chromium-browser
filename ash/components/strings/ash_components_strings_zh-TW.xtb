@@ -6,7 +6,7 @@
 <translation id="1195667586424773550">將連結拖曳至該分頁的網址列</translation>
 <translation id="1204450209689312104">以無痕模式開啟新視窗</translation>
 <translation id="1251638888133819822">開啟或關閉全螢幕放大鏡</translation>
-<translation id="1290373024480130896"><ph name="MODIFIER1" /><ph name="SEPARATOR1" /><ph name="MODIFIER2" /><ph name="SEPARATOR2" /><ph name="MODIFIER3" /><ph name="SEPARATOR3" /><ph name="KEY" /> 鍵</translation>
+<translation id="1290373024480130896"><ph name="MODIFIER1" /><ph name="SEPARATOR1" /><ph name="MODIFIER2" /><ph name="SEPARATOR2" /><ph name="MODIFIER3" /><ph name="SEPARATOR3" /><ph name="KEY" /></translation>
 <translation id="1293699935367580298">Esc</translation>
 <translation id="1299858300159559687">列印目前網頁</translation>
 <translation id="1383876407941801731">搜尋</translation>
@@ -32,6 +32,7 @@
 <translation id="2181097965834437145">顯示或隱藏書籤列</translation>
 <translation id="2185166372312820725">前往上一個分頁</translation>
 <translation id="2194790690264064655">按住 <ph name="CTRL" /> 鍵，然後按一下連結</translation>
+<translation id="2246352309084894470">開啟/關閉全螢幕啟動器</translation>
 <translation id="2382644247745281995">目前的鍵盤配置不支援這個按鍵</translation>
 <translation id="2397416548179033562">顯示 Chrome 選單</translation>
 <translation id="2424073332829844142">開啟及關閉 Caps Lock 鍵</translation>

@@ -1,9 +1,8 @@
 //===- CXCursor.cpp - Routines for manipulating CXCursors -----------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -79,6 +78,9 @@ static CXCursorKind GetCursorKind(const Attr *A) {
     case attr::ObjCRuntimeVisible: return CXCursor_ObjCRuntimeVisible;
     case attr::ObjCBoxable: return CXCursor_ObjCBoxable;
     case attr::FlagEnum: return CXCursor_FlagEnum;
+    case attr::Convergent: return CXCursor_ConvergentAttr;
+    case attr::WarnUnused: return CXCursor_WarnUnusedAttr;
+    case attr::WarnUnusedResult: return CXCursor_WarnUnusedResultAttr;
   }
 
   return CXCursor_UnexposedAttr;

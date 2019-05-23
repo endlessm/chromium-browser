@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 #include <memory>
+#include <unordered_map>
 
 // Getting data back from Dawn is done in an async manners so all expectations are "deferred"
 // until the end of the test. Also expectations use a copy to a MapRead buffer to get the data
@@ -30,10 +31,6 @@
     AddBufferExpectation(__FILE__, __LINE__, buffer, offset, sizeof(uint32_t) * count, \
                          new detail::ExpectEq<uint32_t>(expected, count))
 
-#define EXPECT_BUFFER_U8_EQ(expected, buffer, offset)                         \
-    AddBufferExpectation(__FILE__, __LINE__, buffer, offset, sizeof(uint8_t), \
-                         new detail::ExpectEq<uint8_t>(expected))
-
 // Test a pixel of the mip level 0 of a 2D texture.
 #define EXPECT_PIXEL_RGBA8_EQ(expected, texture, x, y)                                  \
     AddTextureExpectation(__FILE__, __LINE__, texture, x, y, 1, 1, 0, 0, sizeof(RGBA8), \
@@ -43,6 +40,13 @@
     AddTextureExpectation(__FILE__, __LINE__, texture, x, y, width, height, level, slice, \
                           sizeof(RGBA8),                                                  \
                           new detail::ExpectEq<RGBA8>(expected, (width) * (height)))
+
+// Should only be used to test validation of function that can't be tested by regular validation
+// tests;
+#define ASSERT_DEVICE_ERROR(statement) \
+    StartExpectDeviceError();          \
+    statement;                         \
+    ASSERT_TRUE(EndExpectDeviceError());
 
 struct RGBA8 {
     constexpr RGBA8() : RGBA8(0, 0, 0, 0) {
@@ -56,15 +60,13 @@ struct RGBA8 {
 };
 std::ostream& operator<<(std::ostream& stream, const RGBA8& color);
 
-// Backend types used in the DAWN_INSTANTIATE_TEST
-enum BackendType {
-    D3D12Backend,
-    MetalBackend,
-    OpenGLBackend,
-    VulkanBackend,
-    NumBackendTypes,
-};
-std::ostream& operator<<(std::ostream& stream, BackendType backend);
+// Shorthands for backend types used in the DAWN_INSTANTIATE_TEST
+static constexpr dawn_native::BackendType D3D12Backend = dawn_native::BackendType::D3D12;
+static constexpr dawn_native::BackendType MetalBackend = dawn_native::BackendType::Metal;
+static constexpr dawn_native::BackendType OpenGLBackend = dawn_native::BackendType::OpenGL;
+static constexpr dawn_native::BackendType VulkanBackend = dawn_native::BackendType::Vulkan;
+
+struct GLFWwindow;
 
 namespace utils {
     class BackendBinding;
@@ -76,10 +78,36 @@ namespace detail {
 }
 
 namespace dawn_wire {
-    class CommandHandler;
+    class WireClient;
+    class WireServer;
 }  // namespace dawn_wire
 
-class DawnTest : public ::testing::TestWithParam<BackendType> {
+void InitDawnEnd2EndTestEnvironment(int argc, char** argv);
+
+class DawnTestEnvironment : public testing::Environment {
+  public:
+    DawnTestEnvironment(int argc, char** argv);
+    ~DawnTestEnvironment() = default;
+
+    void SetUp() override;
+
+    bool UseWire() const;
+    dawn_native::Instance* GetInstance() const;
+    GLFWwindow* GetWindowForBackend(dawn_native::BackendType type) const;
+
+  private:
+    void CreateBackendWindow(dawn_native::BackendType type);
+
+    bool mUseWire = false;
+    std::unique_ptr<dawn_native::Instance> mInstance;
+
+    // Windows don't usually like to be bound to one API than the other, for example switching
+    // from Vulkan to OpenGL causes crashes on some drivers. Because of this, we lazily created
+    // a window for each backing API.
+    std::unordered_map<dawn_native::BackendType, GLFWwindow*> mWindows;
+};
+
+class DawnTest : public ::testing::TestWithParam<dawn_native::BackendType> {
   public:
     DawnTest();
     ~DawnTest();
@@ -102,6 +130,9 @@ class DawnTest : public ::testing::TestWithParam<BackendType> {
     bool IsWindows() const;
     bool IsLinux() const;
     bool IsMacOS() const;
+
+    void StartExpectDeviceError();
+    bool EndExpectDeviceError();
 
   protected:
     dawn::Device device;
@@ -133,11 +164,16 @@ class DawnTest : public ::testing::TestWithParam<BackendType> {
 
   private:
     // Things used to set up testing through the Wire.
-    std::unique_ptr<dawn_wire::CommandHandler> mWireServer;
-    std::unique_ptr<dawn_wire::CommandHandler> mWireClient;
+    std::unique_ptr<dawn_wire::WireServer> mWireServer;
+    std::unique_ptr<dawn_wire::WireClient> mWireClient;
     std::unique_ptr<utils::TerribleCommandBuffer> mC2sBuf;
     std::unique_ptr<utils::TerribleCommandBuffer> mS2cBuf;
     void FlushWire();
+
+    // Tracking for validation errors
+    static void OnDeviceError(const char* message, dawnCallbackUserdata userdata);
+    bool mExpectError = false;
+    bool mError = false;
 
     // MapRead buffers used to get data for the expectations
     struct ReadbackSlot {
@@ -151,6 +187,7 @@ class DawnTest : public ::testing::TestWithParam<BackendType> {
     void MapSlotsSynchronously();
     static void SlotMapReadCallback(dawnBufferMapAsyncStatus status,
                                     const void* data,
+                                    uint32_t dataLength,
                                     dawnCallbackUserdata userdata);
     size_t mNumPendingMapOperations = 0;
 
@@ -187,12 +224,13 @@ class DawnTest : public ::testing::TestWithParam<BackendType> {
 
 // Instantiate the test once for each backend provided after the first argument. Use it like this:
 //     DAWN_INSTANTIATE_TEST(MyTestFixture, MetalBackend, OpenGLBackend)
-#define DAWN_INSTANTIATE_TEST(testName, firstParam, ...)                                           \
-    const decltype(firstParam) testName##params[] = {firstParam, ##__VA_ARGS__};                   \
-    INSTANTIATE_TEST_CASE_P(, testName,                                                            \
-                            testing::ValuesIn(::detail::FilterBackends(                            \
-                                testName##params, sizeof(testName##params) / sizeof(firstParam))), \
-                            testing::PrintToStringParamName());
+#define DAWN_INSTANTIATE_TEST(testName, firstParam, ...)                         \
+    const decltype(firstParam) testName##params[] = {firstParam, ##__VA_ARGS__}; \
+    INSTANTIATE_TEST_SUITE_P(                                                    \
+        , testName,                                                              \
+        testing::ValuesIn(::detail::FilterBackends(                              \
+            testName##params, sizeof(testName##params) / sizeof(firstParam))),   \
+        ::detail::GetParamName)
 
 // Skip a test when the given condition is satisfied.
 #define DAWN_SKIP_TEST_IF(condition)                               \
@@ -203,8 +241,10 @@ class DawnTest : public ::testing::TestWithParam<BackendType> {
 
 namespace detail {
     // Helper functions used for DAWN_INSTANTIATE_TEST
-    bool IsBackendAvailable(BackendType type);
-    std::vector<BackendType> FilterBackends(const BackendType* types, size_t numParams);
+    bool IsBackendAvailable(dawn_native::BackendType type);
+    std::vector<dawn_native::BackendType> FilterBackends(const dawn_native::BackendType* types,
+                                                         size_t numParams);
+    std::string GetParamName(const testing::TestParamInfo<dawn_native::BackendType>& info);
 
     // All classes used to implement the deferred expectations should inherit from this.
     class Expectation {

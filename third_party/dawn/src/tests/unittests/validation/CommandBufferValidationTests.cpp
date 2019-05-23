@@ -21,37 +21,36 @@ class CommandBufferValidationTest : public ValidationTest {
 
 // Test for an empty command buffer
 TEST_F(CommandBufferValidationTest, Empty) {
-    AssertWillBeSuccess(device.CreateCommandBufferBuilder())
-        .GetResult();
+    device.CreateCommandEncoder().Finish();
 }
 
 // Test that a command buffer cannot be ended mid render pass
 TEST_F(CommandBufferValidationTest, EndedMidRenderPass) {
-    dawn::RenderPassDescriptor renderpass = CreateSimpleRenderPass();
+    DummyRenderPass dummyRenderPass(device);
 
     // Control case, command buffer ended after the pass is ended.
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeSuccess(device.CreateCommandBufferBuilder());
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&dummyRenderPass);
         pass.EndPass();
-        builder.GetResult();
+        encoder.Finish();
     }
 
     // Error case, command buffer ended mid-pass.
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeError(device.CreateCommandBufferBuilder());
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
-        builder.GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&dummyRenderPass);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 
-    // Error case, command buffer ended mid-pass. Trying to use encoders after GetResult
+    // Error case, command buffer ended mid-pass. Trying to use encoders after Finish
     // should fail too.
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeError(device.CreateCommandBufferBuilder());
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
-        builder.GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&dummyRenderPass);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
         // TODO(cwallez@chromium.org) this should probably be a device error, but currently it
-        // produces a builder error.
+        // produces a encoder error.
         pass.EndPass();
     }
 }
@@ -60,52 +59,52 @@ TEST_F(CommandBufferValidationTest, EndedMidRenderPass) {
 TEST_F(CommandBufferValidationTest, EndedMidComputePass) {
     // Control case, command buffer ended after the pass is ended.
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeSuccess(device.CreateCommandBufferBuilder());
-        dawn::ComputePassEncoder pass = builder.BeginComputePass();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::ComputePassEncoder pass = encoder.BeginComputePass();
         pass.EndPass();
-        builder.GetResult();
+        encoder.Finish();
     }
 
     // Error case, command buffer ended mid-pass.
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeError(device.CreateCommandBufferBuilder());
-        dawn::ComputePassEncoder pass = builder.BeginComputePass();
-        builder.GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::ComputePassEncoder pass = encoder.BeginComputePass();
+        ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 
-    // Error case, command buffer ended mid-pass. Trying to use encoders after GetResult
+    // Error case, command buffer ended mid-pass. Trying to use encoders after Finish
     // should fail too.
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeError(device.CreateCommandBufferBuilder());
-        dawn::ComputePassEncoder pass = builder.BeginComputePass();
-        builder.GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::ComputePassEncoder pass = encoder.BeginComputePass();
+        ASSERT_DEVICE_ERROR(encoder.Finish());
         // TODO(cwallez@chromium.org) this should probably be a device error, but currently it
-        // produces a builder error.
+        // produces a encoder error.
         pass.EndPass();
     }
 }
 
 // Test that a render pass cannot be ended twice
 TEST_F(CommandBufferValidationTest, RenderPassEndedTwice) {
-    dawn::RenderPassDescriptor renderpass = CreateSimpleRenderPass();
+    DummyRenderPass dummyRenderPass(device);
 
     // Control case, pass is ended once
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeSuccess(device.CreateCommandBufferBuilder());
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&dummyRenderPass);
         pass.EndPass();
-        builder.GetResult();
+        encoder.Finish();
     }
 
     // Error case, pass ended twice
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeError(device.CreateCommandBufferBuilder());
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&dummyRenderPass);
         pass.EndPass();
         // TODO(cwallez@chromium.org) this should probably be a device error, but currently it
-        // produces a builder error.
+        // produces a encoder error.
         pass.EndPass();
-        builder.GetResult();
+        ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 }
 
@@ -113,21 +112,46 @@ TEST_F(CommandBufferValidationTest, RenderPassEndedTwice) {
 TEST_F(CommandBufferValidationTest, ComputePassEndedTwice) {
     // Control case, pass is ended once.
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeSuccess(device.CreateCommandBufferBuilder());
-        dawn::ComputePassEncoder pass = builder.BeginComputePass();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::ComputePassEncoder pass = encoder.BeginComputePass();
         pass.EndPass();
-        builder.GetResult();
+        encoder.Finish();
     }
 
     // Error case, pass ended twice
     {
-        dawn::CommandBufferBuilder builder = AssertWillBeError(device.CreateCommandBufferBuilder());
-        dawn::ComputePassEncoder pass = builder.BeginComputePass();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::ComputePassEncoder pass = encoder.BeginComputePass();
         pass.EndPass();
         // TODO(cwallez@chromium.org) this should probably be a device error, but currently it
-        // produces a builder error.
+        // produces a encoder error.
         pass.EndPass();
-        builder.GetResult();
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+}
+
+// Test that beginning a compute pass before ending the previous pass causes an error.
+TEST_F(CommandBufferValidationTest, BeginComputePassBeforeEndPreviousPass) {
+    DummyRenderPass dummyRenderPass(device);
+
+    // Beginning a compute pass before ending a render pass causes an error.
+    {
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::RenderPassEncoder renderPass = encoder.BeginRenderPass(&dummyRenderPass);
+        dawn::ComputePassEncoder computePass = encoder.BeginComputePass();
+        computePass.EndPass();
+        renderPass.EndPass();
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+
+    // Beginning a compute pass before ending a compute pass causes an error.
+    {
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        dawn::ComputePassEncoder computePass1 = encoder.BeginComputePass();
+        dawn::ComputePassEncoder computePass2 = encoder.BeginComputePass();
+        computePass2.EndPass();
+        computePass1.EndPass();
+        ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 }
 
@@ -141,13 +165,13 @@ TEST_F(CommandBufferValidationTest, BufferWithMultipleReadUsage) {
 
     // Use the buffer as both index and vertex in the same pass
     uint32_t zero = 0;
-    dawn::CommandBufferBuilder builder = AssertWillBeSuccess(device.CreateCommandBufferBuilder());
-    auto renderpass = CreateSimpleRenderPass();
-    dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+    DummyRenderPass dummyRenderPass(device);
+    dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&dummyRenderPass);
     pass.SetIndexBuffer(buffer, 0);
     pass.SetVertexBuffers(0, 1, &buffer, &zero);
     pass.EndPass();
-    builder.GetResult();
+    encoder.Finish();
 }
 
 // Test that using the same buffer as both readable and writable in the same pass is disallowed
@@ -165,13 +189,13 @@ TEST_F(CommandBufferValidationTest, BufferWithReadAndWriteUsage) {
     dawn::BindGroup bg = utils::MakeBindGroup(device, bgl, {{0, buffer, 0, 4}});
 
     // Use the buffer as both index and storage in the same pass
-    dawn::CommandBufferBuilder builder = AssertWillBeError(device.CreateCommandBufferBuilder());
-    auto renderpass = CreateSimpleRenderPass();
-    dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderpass);
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+    DummyRenderPass dummyRenderPass(device);
+    dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&dummyRenderPass);
     pass.SetIndexBuffer(buffer, 0);
     pass.SetBindGroup(0, bg);
     pass.EndPass();
-    builder.GetResult();
+    ASSERT_DEVICE_ERROR(encoder.Finish());
 }
 
 // Test that using the same texture as both readable and writable in the same pass is disallowed
@@ -182,9 +206,9 @@ TEST_F(CommandBufferValidationTest, TextureWithReadAndWriteUsage) {
     textureDescriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
     textureDescriptor.dimension = dawn::TextureDimension::e2D;
     textureDescriptor.size = {1, 1, 1};
-    textureDescriptor.arraySize = 1;
+    textureDescriptor.arrayLayerCount = 1;
     textureDescriptor.sampleCount = 1;
-    textureDescriptor.levelCount = 1;
+    textureDescriptor.mipLevelCount = 1;
     dawn::Texture texture = device.CreateTexture(&textureDescriptor);
     dawn::TextureView view = texture.CreateDefaultTextureView();
 
@@ -195,20 +219,12 @@ TEST_F(CommandBufferValidationTest, TextureWithReadAndWriteUsage) {
     dawn::BindGroup bg = utils::MakeBindGroup(device, bgl, {{0, view}});
 
     // Create the render pass that will use the texture as an output attachment
-    dawn::RenderPassColorAttachmentDescriptor colorAttachment;
-    colorAttachment.attachment = view;
-    colorAttachment.resolveTarget = nullptr;
-    colorAttachment.clearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-    colorAttachment.loadOp = dawn::LoadOp::Load;
-    colorAttachment.storeOp = dawn::StoreOp::Store;
-    dawn::RenderPassDescriptor renderPass = device.CreateRenderPassDescriptorBuilder()
-        .SetColorAttachments(1, &colorAttachment)
-        .GetResult();
+    utils::ComboRenderPassDescriptor renderPass({view});
 
     // Use the texture as both sampeld and output attachment in the same pass
-    dawn::CommandBufferBuilder builder = AssertWillBeError(device.CreateCommandBufferBuilder());
-    dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass);
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+    dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
     pass.SetBindGroup(0, bg);
     pass.EndPass();
-    builder.GetResult();
+    ASSERT_DEVICE_ERROR(encoder.Finish());
 }

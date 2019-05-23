@@ -1,9 +1,8 @@
 //===-- MipsAsmParser.cpp - Parse Mips assembly to MCInst instructions ----===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -65,10 +64,7 @@ class MCInstrInfo;
 
 } // end namespace llvm
 
-static cl::opt<bool>
-EmitJalrReloc("mips-jalr-reloc", cl::Hidden,
-              cl::desc("MIPS: Emit R_{MICRO}MIPS_JALR relocation with jalr"),
-              cl::init(true));
+extern cl::opt<bool> EmitJalrReloc;
 
 namespace {
 

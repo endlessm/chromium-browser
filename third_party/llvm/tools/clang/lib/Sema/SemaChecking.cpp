@@ -1,9 +1,8 @@
 //===- SemaChecking.cpp - Extra Semantic Checking -------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1077,6 +1076,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     if (SemaBuiltinAssumeAligned(TheCall))
       return ExprError();
     break;
+  case Builtin::BI__builtin_dynamic_object_size:
   case Builtin::BI__builtin_object_size:
     if (SemaBuiltinConstantArgRange(TheCall, 1, 0, 3))
       return ExprError();
@@ -7651,7 +7651,8 @@ CheckPrintfHandler::HandlePrintfSpecifier(const analyze_printf::PrintfSpecifier
             startSpecifier, specifierLen);
 
   // Check the length modifier is valid with the given conversion specifier.
-  if (!FS.hasValidLengthModifier(S.getASTContext().getTargetInfo()))
+  if (!FS.hasValidLengthModifier(S.getASTContext().getTargetInfo(),
+                                 S.getLangOpts()))
     HandleInvalidLengthModifier(FS, CS, startSpecifier, specifierLen,
                                 diag::warn_format_nonsensical_length);
   else if (!FS.hasStandardLengthModifier())
@@ -8155,7 +8156,8 @@ bool CheckScanfHandler::HandleScanfSpecifier(
   }
 
   // Check the length modifier is valid with the given conversion specifier.
-  if (!FS.hasValidLengthModifier(S.getASTContext().getTargetInfo()))
+  if (!FS.hasValidLengthModifier(S.getASTContext().getTargetInfo(),
+                                 S.getLangOpts()))
     HandleInvalidLengthModifier(FS, CS, startSpecifier, specifierLen,
                                 diag::warn_format_nonsensical_length);
   else if (!FS.hasStandardLengthModifier())
@@ -9172,23 +9174,23 @@ void Sema::CheckMemaccessArguments(const CallExpr *Call,
             getContainedDynamicClass(PointeeTy, IsContained)) {
 
       unsigned OperationType = 0;
+      const bool IsCmp = BId == Builtin::BImemcmp || BId == Builtin::BIbcmp;
       // "overwritten" if we're warning about the destination for any call
       // but memcmp; otherwise a verb appropriate to the call.
-      if (ArgIdx != 0 || BId == Builtin::BImemcmp) {
+      if (ArgIdx != 0 || IsCmp) {
         if (BId == Builtin::BImemcpy)
           OperationType = 1;
         else if(BId == Builtin::BImemmove)
           OperationType = 2;
-        else if (BId == Builtin::BImemcmp)
+        else if (IsCmp)
           OperationType = 3;
       }
 
-      DiagRuntimeBehavior(
-        Dest->getExprLoc(), Dest,
-        PDiag(diag::warn_dyn_class_memaccess)
-          << (BId == Builtin::BImemcmp ? ArgIdx + 2 : ArgIdx)
-          << FnName << IsContained << ContainedRD << OperationType
-          << Call->getCallee()->getSourceRange());
+      DiagRuntimeBehavior(Dest->getExprLoc(), Dest,
+                          PDiag(diag::warn_dyn_class_memaccess)
+                              << (IsCmp ? ArgIdx + 2 : ArgIdx) << FnName
+                              << IsContained << ContainedRD << OperationType
+                              << Call->getCallee()->getSourceRange());
     } else if (PointeeTy.hasNonTrivialObjCLifetime() &&
              BId != Builtin::BImemset)
       DiagRuntimeBehavior(
@@ -10622,16 +10624,18 @@ static void AnalyzeCompoundAssignment(Sema &S, BinaryOperator *E) {
   // The below checks assume source is floating point.
   if (!ResultBT || !RBT || !RBT->isFloatingPoint()) return;
 
-  // If source is floating point but target is not.
-  if (!ResultBT->isFloatingPoint())
-    return DiagnoseFloatingImpCast(S, E, E->getRHS()->getType(),
-                                   E->getExprLoc());
+  // If source is floating point but target is an integer.
+  if (ResultBT->isInteger())
+    return DiagnoseImpCast(S, E, E->getRHS()->getType(), E->getLHS()->getType(),
+                           E->getExprLoc(), diag::warn_impcast_float_integer);
 
-  // If both source and target are floating points.
-  // Builtin FP kinds are ordered by increasing FP rank.
-  if (ResultBT->getKind() < RBT->getKind() &&
-      // We don't want to warn for system macro.
-      !S.SourceMgr.isInSystemMacro(E->getOperatorLoc()))
+  if (!ResultBT->isFloatingPoint())
+    return;
+
+  // If both source and target are floating points, warn about losing precision.
+  int Order = S.getASTContext().getFloatingTypeSemanticOrder(
+      QualType(ResultBT, 0), QualType(RBT, 0));
+  if (Order < 0 && !S.SourceMgr.isInSystemMacro(E->getOperatorLoc()))
     // warn about dropping FP rank.
     DiagnoseImpCast(S, E->getRHS(), E->getLHS()->getType(), E->getOperatorLoc(),
                     diag::warn_impcast_float_result_precision);
@@ -10950,8 +10954,9 @@ CheckImplicitConversion(Sema &S, Expr *E, QualType T, SourceLocation CC,
     if (TargetBT && TargetBT->isFloatingPoint()) {
       // ...then warn if we're dropping FP rank.
 
-      // Builtin FP kinds are ordered by increasing FP rank.
-      if (SourceBT->getKind() > TargetBT->getKind()) {
+      int Order = S.getASTContext().getFloatingTypeSemanticOrder(
+          QualType(SourceBT, 0), QualType(TargetBT, 0));
+      if (Order > 0) {
         // Don't warn about float constants that are precisely
         // representable in the target type.
         Expr::EvalResult result;
@@ -10969,7 +10974,7 @@ CheckImplicitConversion(Sema &S, Expr *E, QualType T, SourceLocation CC,
         DiagnoseImpCast(S, E, T, CC, diag::warn_impcast_float_precision);
       }
       // ... or possibly if we're increasing rank, too
-      else if (TargetBT->getKind() > SourceBT->getKind()) {
+      else if (Order < 0) {
         if (S.SourceMgr.isInSystemMacro(CC))
           return;
 
@@ -11011,6 +11016,28 @@ CheckImplicitConversion(Sema &S, Expr *E, QualType T, SourceLocation CC,
       }
     }
     return;
+  }
+
+  if (Source->isFixedPointType()) {
+    // TODO: Only CK_FixedPointCast is supported now. The other valid casts
+    // should be accounted for here.
+    if (Target->isFixedPointType()) {
+      Expr::EvalResult Result;
+      if (E->EvaluateAsFixedPoint(Result, S.Context,
+                                  Expr::SE_AllowSideEffects)) {
+        APFixedPoint Value = Result.Val.getFixedPoint();
+        APFixedPoint MaxVal = S.Context.getFixedPointMax(T);
+        APFixedPoint MinVal = S.Context.getFixedPointMin(T);
+        if (Value > MaxVal || Value < MinVal) {
+          S.DiagRuntimeBehavior(E->getExprLoc(), E,
+                                S.PDiag(diag::warn_impcast_fixed_point_range)
+                                    << Value.toString() << T
+                                    << E->getSourceRange()
+                                    << clang::SourceRange(CC));
+          return;
+        }
+      }
+    }
   }
 
   DiagnoseNullConversion(S, E, T, CC);
@@ -11641,12 +11668,12 @@ class SequenceChecker : public EvaluatedExprVisitor<SequenceChecker> {
     class Seq {
       friend class SequenceTree;
 
-      unsigned Index = 0;
+      unsigned Index;
 
       explicit Seq(unsigned N) : Index(N) {}
 
     public:
-      Seq() = default;
+      Seq() : Index(0) {}
     };
 
     SequenceTree() { Values.push_back(Value(0)); }
@@ -11710,19 +11737,19 @@ class SequenceChecker : public EvaluatedExprVisitor<SequenceChecker> {
   };
 
   struct Usage {
-    Expr *Use = nullptr;
+    Expr *Use;
     SequenceTree::Seq Seq;
 
-    Usage() = default;
+    Usage() : Use(nullptr), Seq() {}
   };
 
   struct UsageInfo {
     Usage Uses[UK_Count];
 
     /// Have we issued a diagnostic for this variable already?
-    bool Diagnosed = false;
+    bool Diagnosed;
 
-    UsageInfo() = default;
+    UsageInfo() : Uses(), Diagnosed(false) {}
   };
   using UsageInfoMap = llvm::SmallDenseMap<Object, UsageInfo, 16>;
 

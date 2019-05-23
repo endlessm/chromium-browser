@@ -1,17 +1,14 @@
 //===-- DSInstructions.td - DS Instruction Defintions ---------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 class DS_Pseudo <string opName, dag outs, dag ins, string asmOps, list<dag> pattern=[]> :
   InstSI <outs, ins, "", pattern>,
   SIMCInstr <opName, SIEncodingFamily.NONE> {
-
-  let SubtargetPredicate = isGCN;
 
   let LGKM_CNT = 1;
   let DS = 1;

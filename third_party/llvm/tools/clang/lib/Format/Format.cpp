@@ -1,9 +1,8 @@
 //===--- Format.cpp - Format C++ code -------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -1854,6 +1853,7 @@ static unsigned findJavaImportGroup(const FormatStyle &Style,
 static void sortJavaImports(const FormatStyle &Style,
                             const SmallVectorImpl<JavaImportDirective> &Imports,
                             ArrayRef<tooling::Range> Ranges, StringRef FileName,
+                            StringRef Code,
                             tooling::Replacements &Replaces) {
   unsigned ImportsBeginOffset = Imports.front().Offset;
   unsigned ImportsEndOffset =
@@ -1868,13 +1868,13 @@ static void sortJavaImports(const FormatStyle &Style,
     JavaImportGroups.push_back(
         findJavaImportGroup(Style, Imports[i].Identifier));
   }
-  llvm::sort(Indices.begin(), Indices.end(), [&](unsigned LHSI, unsigned RHSI) {
-        // Negating IsStatic to push static imports above non-static imports.
-        return std::make_tuple(!Imports[LHSI].IsStatic, JavaImportGroups[LHSI],
-                               Imports[LHSI].Identifier) <
-               std::make_tuple(!Imports[RHSI].IsStatic, JavaImportGroups[RHSI],
-                               Imports[RHSI].Identifier);
-      });
+  llvm::sort(Indices, [&](unsigned LHSI, unsigned RHSI) {
+    // Negating IsStatic to push static imports above non-static imports.
+    return std::make_tuple(!Imports[LHSI].IsStatic, JavaImportGroups[LHSI],
+                           Imports[LHSI].Identifier) <
+           std::make_tuple(!Imports[RHSI].IsStatic, JavaImportGroups[RHSI],
+                           Imports[RHSI].Identifier);
+  });
 
   // Deduplicate imports.
   Indices.erase(std::unique(Indices.begin(), Indices.end(),
@@ -1902,6 +1902,11 @@ static void sortJavaImports(const FormatStyle &Style,
     CurrentIsStatic = Imports[Index].IsStatic;
     CurrentImportGroup = JavaImportGroups[Index];
   }
+
+  // If the imports are out of order, we generate a single replacement fixing
+  // the entire block. Otherwise, no replacement is generated.
+  if (result == Code.substr(Imports.front().Offset, ImportsBlockSize))
+    return;
 
   auto Err = Replaces.add(tooling::Replacement(FileName, Imports.front().Offset,
                                                ImportsBlockSize, result));
@@ -1968,7 +1973,7 @@ tooling::Replacements sortJavaImports(const FormatStyle &Style, StringRef Code,
     SearchFrom = Pos + 1;
   }
   if (!ImportsInBlock.empty())
-    sortJavaImports(Style, ImportsInBlock, Ranges, FileName, Replaces);
+    sortJavaImports(Style, ImportsInBlock, Ranges, FileName, Code, Replaces);
   return Replaces;
 }
 

@@ -1305,6 +1305,9 @@ void SimpleStateChangeTest::simpleDrawWithColor(const GLColor &color)
 // frame.
 TEST_P(SimpleStateChangeTest, DrawArraysThenDrawElements)
 {
+    // http://anglebug.com/3124: Flaky on Nexus5X.
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsVulkan());
+
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
     glUseProgram(program);
 
@@ -2480,6 +2483,12 @@ class WebGL2ValidationStateChangeTest : public ValidationStateChangeTest
 class ValidationStateChangeTestES31 : public ANGLETest
 {};
 
+class WebGLComputeValidationStateChangeTest : public ANGLETest
+{
+  public:
+    WebGLComputeValidationStateChangeTest() { setWebGLCompatibilityEnabled(true); }
+};
+
 // Tests that mapping and unmapping an array buffer in various ways causes rendering to fail.
 // This isn't guaranteed to produce an error by GL. But we assume ANGLE always errors.
 TEST_P(ValidationStateChangeTest, MapBufferAndDraw)
@@ -2626,7 +2635,7 @@ TEST_P(ValidationStateChangeTestES31, MapBufferAndDrawWithDivisor)
 }
 
 // Tests that changing a vertex binding with glVertexAttribDivisor updates the buffer size check.
-TEST_P(ValidationStateChangeTestES31, DrawPastEndOfBufferWithDivisor)
+TEST_P(WebGLComputeValidationStateChangeTest, DrawPastEndOfBufferWithDivisor)
 {
     // Initialize program and set up state.
     ANGLE_GL_PROGRAM(program, kColorVS, kColorFS);
@@ -3020,11 +3029,9 @@ void main()
     glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, transformFeedbackBuffer);
 
     // Set up uniform buffer.
-    std::vector<GLColor32F> redData(1, kFloatGreen);
-
     GLBuffer uniformBuffer;
     glBindBuffer(GL_UNIFORM_BUFFER, uniformBuffer);
-    glBufferData(GL_UNIFORM_BUFFER, 128, &kFloatGreen.R, GL_STATIC_DRAW);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(GLColor32F), &kFloatGreen.R, GL_STATIC_DRAW);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, uniformBuffer);
 
     ASSERT_GL_NO_ERROR();
@@ -3078,6 +3085,8 @@ void main()
 // Test sampler format validation caching works.
 TEST_P(WebGL2ValidationStateChangeTest, SamplerFormatCache)
 {
+    // TODO(jdarpinian): Re-enable this test when fixing http://crbug.com/940080
+    ANGLE_SKIP_TEST_IF(true);
     constexpr char kFS[] = R"(#version 300 es
 precision mediump float;
 uniform sampler2D sampler;
@@ -3358,6 +3367,42 @@ TEST_P(ValidationStateChangeTest, MapElementArrayBuffer)
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 }
+
+// Tests that deleting a texture successfully binds the zero texture.
+TEST_P(SimpleStateChangeTest, DeleteTextureThenDraw)
+{
+    constexpr char kFS[] =
+        "uniform sampler2D us; void main() { gl_FragColor = texture2D(us, vec2(0)); }";
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+    GLint loc = glGetUniformLocation(program, "us");
+    ASSERT_EQ(0, loc);
+
+    auto quadVertices = GetQuadVertices();
+    GLint posLoc      = glGetAttribLocation(program, essl1_shaders::PositionAttrib());
+    ASSERT_EQ(0, posLoc);
+
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferData(GL_ARRAY_BUFFER, quadVertices.size() * sizeof(quadVertices[0]),
+                 quadVertices.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(posLoc);
+
+    constexpr size_t kSize = 2;
+    std::vector<GLColor> red(kSize * kSize, GLColor::red);
+
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, red.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glUniform1i(loc, 1);
+    tex.reset();
+
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+}
 }  // anonymous namespace
 
 ANGLE_INSTANTIATE_TEST(StateChangeTest, ES2_D3D9(), ES2_D3D11(), ES2_OPENGL(), ES2_VULKAN());
@@ -3379,3 +3424,4 @@ ANGLE_INSTANTIATE_TEST(SimpleStateChangeTestES31, ES31_OPENGL(), ES31_D3D11());
 ANGLE_INSTANTIATE_TEST(ValidationStateChangeTest, ES3_D3D11(), ES3_OPENGL());
 ANGLE_INSTANTIATE_TEST(WebGL2ValidationStateChangeTest, ES3_D3D11(), ES3_OPENGL());
 ANGLE_INSTANTIATE_TEST(ValidationStateChangeTestES31, ES31_OPENGL(), ES31_D3D11());
+ANGLE_INSTANTIATE_TEST(WebGLComputeValidationStateChangeTest, ES31_D3D11(), ES31_OPENGL());

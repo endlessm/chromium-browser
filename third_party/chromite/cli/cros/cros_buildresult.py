@@ -46,9 +46,8 @@ def FetchBuildStatuses(buildstore, options):
   elif options.build_config:
     start_date = options.start_date or options.date
     end_date = options.end_date or options.date
-    db = buildstore.GetCIDBHandle()
-    return db.GetBuildHistory(
-        options.build_config, db.NUM_RESULTS_NO_LIMIT,
+    return buildstore.GetBuildHistory(
+        options.build_config, buildstore.NUM_RESULTS_NO_LIMIT,
         start_date=start_date, end_date=end_date)
   else:
     cros_build_lib.Die('You must specify which builds.')
@@ -58,7 +57,6 @@ def IsBuildStatusFinished(build_status):
   """Populates the 'artifacts_url' and 'stages' build_status fields.
 
   Args:
-    db: CIDBConnection.
     build_status: Single build_status dict returned by any Fetch method.
 
   Returns:
@@ -81,14 +79,14 @@ def FixUpBuildStatus(buildstore, build_status):
   """
   # We don't actually store the artifacts_url, but we store a URL for a specific
   # artifact we can use to derive it.
-  db = buildstore.GetCIDBHandle()
   build_status['artifacts_url'] = None
   if build_status['metadata_url']:
     build_status['artifacts_url'] = os.path.dirname(
         build_status['metadata_url'])
 
   # Find stage information.
-  build_status['stages'] = db.GetBuildStages(build_status['id'])
+  build_status['stages'] = buildstore.GetBuildsStages(
+      buildbucket_ids=[build_status['buildbucket_id']])
 
   return build_status
 

@@ -47,7 +47,8 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
     Args:
       success: bool indicating whether the CQ was a success.
     """
-    build_id, db = self._run.GetCIDBHandle()
+    build_identifier, db = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     if self.buildstore.AreClientsReady():
       my_actions = db.GetActionsForBuild(build_id)
       my_submit_actions = [
@@ -83,12 +84,11 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
       m = metrics.Counter(constants.MON_CQ_WALL_CLOCK_SECS)
       m.increment_by(elapsed_seconds, fields=fields)
 
-  def _GetBuildsPassedSyncStage(self, build_id, db, slave_buildbucket_ids):
+  def _GetBuildsPassedSyncStage(self, build_id, slave_buildbucket_ids):
     """Get builds which passed the sync stages.
 
     Args:
       build_id: The build id of the master build.
-      db: An instance of cidb.CIDBConnection.
       slave_buildbucket_ids: A list of buildbucket_ids of the slave builds.
 
     Returns:
@@ -99,17 +99,13 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
     build_stages_dict = {}
 
     # Get slave stages.
-    child_build_ids = [
-        c['id']
-        for c in self.buildstore.GetBuildStatuses(
-            buildbucket_ids=slave_buildbucket_ids)]
-
-    child_stages = db.GetBuildsStages(child_build_ids)
+    child_stages = self.buildstore.GetBuildsStages(
+        buildbucket_ids=slave_buildbucket_ids)
     for stage in child_stages:
       build_stages_dict.setdefault(stage['build_config'], []).append(stage)
 
     # Get master stages.
-    master_stages = db.GetBuildStages(build_id)
+    master_stages = self.buildstore.GetBuildsStages(build_ids=[build_id])
     for stage in master_stages:
       build_stages_dict.setdefault(self._run.config.name, []).append(stage)
 
@@ -173,17 +169,21 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
         self.completion_stage.GetSlaveStatuses(), failing)
     changes = self.sync_stage.pool.applied
 
-    build_id, db = self._run.GetCIDBHandle()
+    build_identifier, db = self._run.GetCIDBHandle()
 
+    # TODO(buildstore): some unittests only pass because db is None here.
+    # Figure out if that's correct, or if the test is bad, then change 'if db'
+    # to 'if self.buildstore.AreClientsReady()'.
     if db:
+      build_id = build_identifier.cidb_id
       builds_passed_sync_stage = self._GetBuildsPassedSyncStage(
-          build_id, db, slave_buildbucket_ids)
+          build_id, slave_buildbucket_ids)
       builds_not_passed_sync_stage = failing.union(inflight).union(
           no_stat).difference(builds_passed_sync_stage)
       changes_by_config = (
           relevant_changes.RelevantChanges.GetRelevantChangesForSlaves(
               build_id,
-              db,
+              self.buildstore,
               self._run.config,
               changes,
               builds_not_passed_sync_stage,
@@ -196,7 +196,7 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
       slaves_by_change = cros_collections.InvertDictionary(changes_by_slaves)
       passed_in_history_slaves_by_change = (
           relevant_changes.RelevantChanges.GetPreviouslyPassedSlavesForChanges(
-              build_id, db, changes, slaves_by_change))
+              build_id, self.buildstore, changes, slaves_by_change))
 
       # Even if some slaves didn't pass the critical stages, we can still submit
       # some changes based on CQ history.
@@ -217,13 +217,16 @@ class CommitQueueHandleChangesStage(generic_stages.BuilderStage):
       return
 
     failed_hwtests = None
+    # TODO(buildstore): some unittests only pass because db is None here.
+    # Figure out if that's correct, or if the test is bad, then change 'if db'
+    # to 'if self.buildstore.AreClientsReady()'.
     if db:
-      slave_statuses = db.GetSlaveStatuses(
+      slave_statuses = self.buildstore.GetSlaveStatuses(
           build_id, buildbucket_ids=slave_buildbucket_ids)
       slave_build_ids = [x['id'] for x in slave_statuses]
       failed_hwtests = (
           hwtest_results.HWTestResultManager.GetFailedHWTestsFromCIDB(
-              db, slave_build_ids))
+              self.buildstore.GetCIDBHandle(), slave_build_ids))
 
     # Some builders failed, or some builders did not report stats, or
     # the intersection of both. Let HandleValidationFailure decide

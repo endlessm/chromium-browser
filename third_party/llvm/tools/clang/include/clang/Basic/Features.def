@@ -1,9 +1,8 @@
 //===--- Features.def - Features and Extensions database --------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -96,7 +95,7 @@ FEATURE(objc_arc, LangOpts.ObjCAutoRefCount)
 FEATURE(objc_arc_fields, true)
 FEATURE(objc_arc_weak, LangOpts.ObjCWeak)
 FEATURE(objc_default_synthesize_properties, LangOpts.ObjC)
-FEATURE(objc_fixed_enum, true)
+FEATURE(objc_fixed_enum, LangOpts.ObjC)
 FEATURE(objc_instancetype, LangOpts.ObjC)
 FEATURE(objc_kindof, LangOpts.ObjC)
 FEATURE(objc_modules, LangOpts.ObjC && LangOpts.Modules)

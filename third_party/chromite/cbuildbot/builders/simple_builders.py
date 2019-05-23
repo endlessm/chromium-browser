@@ -244,9 +244,11 @@ class SimpleBuilder(generic_builders.Builder):
     parallel.RunParallelSteps([
         lambda: self._RunParallelStages(stage_objs + [archive_stage]),
         lambda: self._RunHWTests(builder_run, board),
-        lambda: self._RunVMTests(builder_run, board),
         lambda: self._RunDebugSymbolStages(builder_run, board),
     ])
+    # Move VMTests out of parallel execution due to high failure rate.
+    # http://crbug/932644
+    self._RunVMTests(builder_run, board)
 
   def RunSetupBoard(self):
     """Run the SetupBoard stage for all child configs and boards."""
@@ -529,9 +531,10 @@ class DistributedBuilder(SimpleBuilder):
     build_finished = False
     try:
       super(DistributedBuilder, self).RunStages()
-      build_id, db = self._run.GetCIDBHandle()
+      build_identifier, _ = self._run.GetCIDBHandle()
+      buildbucket_id = build_identifier.buildbucket_id
       was_build_successful = results_lib.Results.BuildSucceededSoFar(
-          db, build_id)
+          self.buildstore, buildbucket_id)
       build_finished = True
     except failures_lib.ExitEarlyException as ex:
       # If a stage throws ExitEarlyException, it's exiting with success,

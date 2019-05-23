@@ -1,9 +1,8 @@
 //===- ASTContext.h - Context to hold long-lived AST nodes ------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -2003,6 +2002,9 @@ public:
     /// No error
     GE_None,
 
+    /// Missing a type
+    GE_Missing_type,
+
     /// Missing a type from <stdio.h>
     GE_Missing_stdio,
 
@@ -2085,6 +2087,16 @@ public:
   /// characters.
   CharUnits getTypeSizeInChars(QualType T) const;
   CharUnits getTypeSizeInChars(const Type *T) const;
+
+  Optional<CharUnits> getTypeSizeInCharsIfKnown(QualType Ty) const {
+    if (Ty->isIncompleteType() || Ty->isDependentType())
+      return None;
+    return getTypeSizeInChars(Ty);
+  }
+
+  Optional<CharUnits> getTypeSizeInCharsIfKnown(const Type *Ty) const {
+    return getTypeSizeInCharsIfKnown(QualType(Ty, 0));
+  }
 
   /// Return the ABI-specified alignment of a (complete) type \p T, in
   /// bits.
@@ -2225,7 +2237,8 @@ public:
 
   VTableContextBase *getVTableContext();
 
-  MangleContext *createMangleContext();
+  /// If \p T is null pointer, assume the target in ASTContext.
+  MangleContext *createMangleContext(const TargetInfo *T = nullptr);
 
   void DeepCollectObjCIvars(const ObjCInterfaceDecl *OI, bool leafClass,
                             SmallVectorImpl<const ObjCIvarDecl*> &Ivars) const;
@@ -2487,6 +2500,11 @@ public:
   /// If \p LHS > \p RHS, returns 1.  If \p LHS == \p RHS, returns 0.  If
   /// \p LHS < \p RHS, return -1.
   int getFloatingTypeOrder(QualType LHS, QualType RHS) const;
+
+  /// Compare the rank of two floating point types as above, but compare equal
+  /// if both types have the same floating-point semantics on the target (i.e.
+  /// long double and double on AArch64 will return 0).
+  int getFloatingTypeSemanticOrder(QualType LHS, QualType RHS) const;
 
   /// Return a real floating point or a complex type (based on
   /// \p typeDomain/\p typeSize).
@@ -2791,46 +2809,46 @@ public:
   //===--------------------------------------------------------------------===//
 
   /// The number of implicitly-declared default constructors.
-  static unsigned NumImplicitDefaultConstructors;
+  unsigned NumImplicitDefaultConstructors = 0;
 
   /// The number of implicitly-declared default constructors for
   /// which declarations were built.
-  static unsigned NumImplicitDefaultConstructorsDeclared;
+  unsigned NumImplicitDefaultConstructorsDeclared = 0;
 
   /// The number of implicitly-declared copy constructors.
-  static unsigned NumImplicitCopyConstructors;
+  unsigned NumImplicitCopyConstructors = 0;
 
   /// The number of implicitly-declared copy constructors for
   /// which declarations were built.
-  static unsigned NumImplicitCopyConstructorsDeclared;
+  unsigned NumImplicitCopyConstructorsDeclared = 0;
 
   /// The number of implicitly-declared move constructors.
-  static unsigned NumImplicitMoveConstructors;
+  unsigned NumImplicitMoveConstructors = 0;
 
   /// The number of implicitly-declared move constructors for
   /// which declarations were built.
-  static unsigned NumImplicitMoveConstructorsDeclared;
+  unsigned NumImplicitMoveConstructorsDeclared = 0;
 
   /// The number of implicitly-declared copy assignment operators.
-  static unsigned NumImplicitCopyAssignmentOperators;
+  unsigned NumImplicitCopyAssignmentOperators = 0;
 
   /// The number of implicitly-declared copy assignment operators for
   /// which declarations were built.
-  static unsigned NumImplicitCopyAssignmentOperatorsDeclared;
+  unsigned NumImplicitCopyAssignmentOperatorsDeclared = 0;
 
   /// The number of implicitly-declared move assignment operators.
-  static unsigned NumImplicitMoveAssignmentOperators;
+  unsigned NumImplicitMoveAssignmentOperators = 0;
 
   /// The number of implicitly-declared move assignment operators for
   /// which declarations were built.
-  static unsigned NumImplicitMoveAssignmentOperatorsDeclared;
+  unsigned NumImplicitMoveAssignmentOperatorsDeclared = 0;
 
   /// The number of implicitly-declared destructors.
-  static unsigned NumImplicitDestructors;
+  unsigned NumImplicitDestructors = 0;
 
   /// The number of implicitly-declared destructors for which
   /// declarations were built.
-  static unsigned NumImplicitDestructorsDeclared;
+  unsigned NumImplicitDestructorsDeclared = 0;
 
 public:
   /// Initialize built-in types.

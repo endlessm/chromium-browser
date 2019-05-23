@@ -32,7 +32,7 @@ public:
     DEFINE_OP_CLASS_ID
     static std::unique_ptr<GrDrawOp> Make(GrContext* context,
                                           std::unique_ptr<GrFragmentProcessor> fp) {
-        GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
+        GrOpMemoryPool* pool = context->priv().opMemoryPool();
 
         return pool->allocate<TestOp>(std::move(fp));
     }
@@ -45,11 +45,13 @@ public:
 
     FixedFunctionFlags fixedFunctionFlags() const override { return FixedFunctionFlags::kNone; }
 
-    GrProcessorSet::Analysis finalize(const GrCaps& caps, const GrAppliedClip* clip) override {
+    GrProcessorSet::Analysis finalize(
+            const GrCaps& caps, const GrAppliedClip* clip, GrFSAAType fsaaType) override {
         static constexpr GrProcessorAnalysisColor kUnknownColor;
         SkPMColor4f overrideColor;
-        return fProcessors.finalize(kUnknownColor, GrProcessorAnalysisCoverage::kNone, clip, false,
-                                    caps, &overrideColor);
+        return fProcessors.finalize(
+                kUnknownColor, GrProcessorAnalysisCoverage::kNone, clip,
+                &GrUserStencilSettings::kUnused, fsaaType, caps, &overrideColor);
     }
 
 private:
@@ -61,6 +63,7 @@ private:
     }
 
     void onPrepareDraws(Target* target) override { return; }
+    void onExecute(GrOpFlushState*, const SkRect&) override { return; }
 
     GrProcessorSet fProcessors;
 
@@ -77,7 +80,7 @@ public:
         return std::unique_ptr<GrFragmentProcessor>(new TestFP(std::move(child)));
     }
     static std::unique_ptr<GrFragmentProcessor> Make(const SkTArray<sk_sp<GrTextureProxy>>& proxies,
-                                                     const SkTArray<sk_sp<GrBuffer>>& buffers) {
+                                                     const SkTArray<sk_sp<GrGpuBuffer>>& buffers) {
         return std::unique_ptr<GrFragmentProcessor>(new TestFP(proxies, buffers));
     }
 
@@ -93,7 +96,8 @@ public:
     }
 
 private:
-    TestFP(const SkTArray<sk_sp<GrTextureProxy>>& proxies, const SkTArray<sk_sp<GrBuffer>>& buffers)
+    TestFP(const SkTArray<sk_sp<GrTextureProxy>>& proxies,
+           const SkTArray<sk_sp<GrGpuBuffer>>& buffers)
             : INHERITED(kTestFP_ClassID, kNone_OptimizationFlags), fSamplers(4) {
         for (const auto& proxy : proxies) {
             fSamplers.emplace_back(proxy);
@@ -154,7 +158,7 @@ void testingOnly_getIORefCnts(GrTextureProxy* proxy, int* refCnt, int* readCnt, 
 
 DEF_GPUTEST_FOR_ALL_CONTEXTS(ProcessorRefTest, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    GrProxyProvider* proxyProvider = context->contextPriv().proxyProvider();
+    GrProxyProvider* proxyProvider = context->priv().proxyProvider();
 
     GrSurfaceDesc desc;
     desc.fWidth = 10;
@@ -162,12 +166,12 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(ProcessorRefTest, reporter, ctxInfo) {
     desc.fConfig = kRGBA_8888_GrPixelConfig;
 
     const GrBackendFormat format =
-            context->contextPriv().caps()->getBackendFormatFromColorType(kRGBA_8888_SkColorType);
+            context->priv().caps()->getBackendFormatFromColorType(kRGBA_8888_SkColorType);
 
     for (bool makeClone : {false, true}) {
         for (int parentCnt = 0; parentCnt < 2; parentCnt++) {
             sk_sp<GrRenderTargetContext> renderTargetContext(
-                    context->contextPriv().makeDeferredRenderTargetContext(
+                    context->priv().makeDeferredRenderTargetContext(
                                                              format, SkBackingFit::kApprox, 1, 1,
                                                              kRGBA_8888_GrPixelConfig, nullptr));
             {
@@ -185,7 +189,7 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(ProcessorRefTest, reporter, ctxInfo) {
                         SkBudgeted::kYes);
                 {
                     SkTArray<sk_sp<GrTextureProxy>> proxies;
-                    SkTArray<sk_sp<GrBuffer>> buffers;
+                    SkTArray<sk_sp<GrGpuBuffer>> buffers;
                     proxies.push_back(proxy1);
                     auto fp = TestFP::Make(std::move(proxies), std::move(buffers));
                     for (int i = 0; i < parentCnt; ++i) {
@@ -237,7 +241,10 @@ static GrColor input_texel_color(int i, int j, SkScalar delta) {
     // Delta must be less than 0.5 to prevent over/underflow issues with the input color
     SkASSERT(delta <= 0.5);
 
-    SkColor color = SkColorSetARGB((uint8_t)i, (uint8_t)j, (uint8_t)(i + j), (uint8_t)(2 * j - i));
+    SkColor color = SkColorSetARGB((uint8_t)(i & 0xFF),
+                                   (uint8_t)(j & 0xFF),
+                                   (uint8_t)((i + j) & 0xFF),
+                                   (uint8_t)((2 * j - i) & 0xFF));
     SkColor4f color4f = SkColor4f::FromColor(color);
     for (int i = 0; i < 4; i++) {
         if (color4f[i] > 0.5) {
@@ -349,7 +356,7 @@ bool log_surface_context(sk_sp<GrSurfaceContext> src, SkString* dst) {
 }
 
 bool log_surface_proxy(GrContext* context, sk_sp<GrSurfaceProxy> src, SkString* dst) {
-    sk_sp<GrSurfaceContext> sContext(context->contextPriv().makeWrappedSurfaceContext(src));
+    sk_sp<GrSurfaceContext> sContext(context->priv().makeWrappedSurfaceContext(src));
     return log_surface_context(sContext, dst);
 }
 
@@ -421,8 +428,8 @@ bool legal_modulation(const GrColor& in1, const GrColor& in2, const GrColor& in3
 
 DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(ProcessorOptimizationValidationTest, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    GrProxyProvider* proxyProvider = context->contextPriv().proxyProvider();
-    auto resourceProvider = context->contextPriv().resourceProvider();
+    GrProxyProvider* proxyProvider = context->priv().proxyProvider();
+    auto resourceProvider = context->priv().resourceProvider();
     using FPFactory = GrFragmentProcessorTestFactory;
 
     uint32_t seed = FLAGS_processorSeed;
@@ -435,11 +442,11 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(ProcessorOptimizationValidationTest, repor
     SkRandom random(seed);
 
     const GrBackendFormat format =
-            context->contextPriv().caps()->getBackendFormatFromColorType(kRGBA_8888_SkColorType);
+            context->priv().caps()->getBackendFormatFromColorType(kRGBA_8888_SkColorType);
 
     // Make the destination context for the test.
     static constexpr int kRenderSize = 256;
-    sk_sp<GrRenderTargetContext> rtc = context->contextPriv().makeDeferredRenderTargetContext(
+    sk_sp<GrRenderTargetContext> rtc = context->priv().makeDeferredRenderTargetContext(
             format, SkBackingFit::kExact, kRenderSize, kRenderSize, kRGBA_8888_GrPixelConfig,
             nullptr);
 
@@ -481,6 +488,10 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(ProcessorOptimizationValidationTest, repor
             // written.
             timesToInvokeFactory *= FPFactory::Count() / 2;
         }
+#if defined(__MSVC_RUNTIME_CHECKS)
+        // This test is infuriatingly slow with MSVC runtime checks enabled
+        timesToInvokeFactory = 1;
+#endif
         for (int j = 0; j < timesToInvokeFactory; ++j) {
             fp = FPFactory::MakeIdx(i, &testData);
             if (!fp->instantiate(resourceProvider)) {
@@ -666,17 +677,17 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(ProcessorOptimizationValidationTest, repor
 // progenitors.
 DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(ProcessorCloneTest, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    GrProxyProvider* proxyProvider = context->contextPriv().proxyProvider();
-    auto resourceProvider = context->contextPriv().resourceProvider();
+    GrProxyProvider* proxyProvider = context->priv().proxyProvider();
+    auto resourceProvider = context->priv().resourceProvider();
 
     SkRandom random;
 
     const GrBackendFormat format =
-            context->contextPriv().caps()->getBackendFormatFromColorType(kRGBA_8888_SkColorType);
+            context->priv().caps()->getBackendFormatFromColorType(kRGBA_8888_SkColorType);
 
     // Make the destination context for the test.
     static constexpr int kRenderSize = 1024;
-    sk_sp<GrRenderTargetContext> rtc = context->contextPriv().makeDeferredRenderTargetContext(
+    sk_sp<GrRenderTargetContext> rtc = context->priv().makeDeferredRenderTargetContext(
             format, SkBackingFit::kExact, kRenderSize, kRenderSize, kRGBA_8888_GrPixelConfig,
             nullptr);
 

@@ -1,9 +1,8 @@
 //===- DWARFDie.cpp -------------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -87,7 +86,7 @@ static void dumpLocation(raw_ostream &OS, DWARFFormValue &FormValue,
     DataExtractor Data(StringRef((const char *)Expr.data(), Expr.size()),
                        Ctx.isLittleEndian(), 0);
     DWARFExpression(Data, U->getVersion(), U->getAddressByteSize())
-        .print(OS, MRI);
+        .print(OS, MRI, U);
     return;
   }
 
@@ -103,8 +102,8 @@ static void dumpLocation(raw_ostream &OS, DWARFFormValue &FormValue,
         uint64_t BaseAddr = 0;
         if (Optional<SectionedAddress> BA = U->getBaseAddress())
           BaseAddr = BA->Address;
-        LL->dump(OS, Ctx.isLittleEndian(), Obj.getAddressSize(), MRI, BaseAddr,
-                 Indent);
+        LL->dump(OS, Ctx.isLittleEndian(), Obj.getAddressSize(), MRI, U,
+                 BaseAddr, Indent);
       } else
         OS << "error extracting location list.";
       return;

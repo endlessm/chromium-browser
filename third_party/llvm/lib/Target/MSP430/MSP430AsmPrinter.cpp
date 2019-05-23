@@ -1,9 +1,8 @@
 //===-- MSP430AsmPrinter.cpp - MSP430 LLVM assembly writer ----------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -114,12 +113,12 @@ void MSP430AsmPrinter::printSrcMemOperand(const MachineInstr *MI, int OpNum,
   // Print displacement first
 
   // Imm here is in fact global address - print extra modifier.
-  if (Disp.isImm() && !Base.getReg())
+  if (Disp.isImm() && Base.getReg() == MSP430::SR)
     O << '&';
   printOperand(MI, OpNum+1, O, "nohash");
 
   // Print register base field
-  if (Base.getReg()) {
+  if (Base.getReg() != MSP430::SR && Base.getReg() != MSP430::PC) {
     O << '(';
     printOperand(MI, OpNum, O);
     O << ')';

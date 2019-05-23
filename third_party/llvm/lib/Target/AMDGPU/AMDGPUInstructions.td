@@ -1,9 +1,8 @@
 //===-- AMDGPUInstructions.td - Common instruction defs ---*- tablegen -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -66,12 +65,8 @@ class ILFormat<dag outs, dag ins, string asmstr, list<dag> pattern>
 
 def TruePredicate : Predicate<"true">;
 
-// Exists to help track down where SubtargetPredicate isn't set rather
-// than letting tablegen crash with an unhelpful error.
-def InvalidPred : Predicate<"predicate not set on instruction or pattern">;
-
 class PredicateControl {
-  Predicate SubtargetPredicate = InvalidPred;
+  Predicate SubtargetPredicate = TruePredicate;
   list<Predicate> AssemblerPredicates = [];
   Predicate AssemblerPredicate = TruePredicate;
   list<Predicate> OtherPredicates = [];
@@ -626,9 +621,7 @@ class Extract_Element <ValueType sub_type, ValueType vec_type, int sub_idx,
   : AMDGPUPat<
   (sub_type (extractelt vec_type:$src, sub_idx)),
   (EXTRACT_SUBREG $src, sub_reg)
-> {
-  let SubtargetPredicate = TruePredicate;
-}
+>;
 
 /* Insert element pattern */
 class Insert_Element <ValueType elem_type, ValueType vec_type,
@@ -636,9 +629,7 @@ class Insert_Element <ValueType elem_type, ValueType vec_type,
   : AMDGPUPat <
   (insertelt vec_type:$vec, elem_type:$elem, sub_idx),
   (INSERT_SUBREG $vec, $elem, sub_reg)
-> {
-  let SubtargetPredicate = TruePredicate;
-}
+>;
 
 // XXX: Convert to new syntax and use COPY_TO_REG, once the DFAPacketizer
 // can handle COPY instructions.

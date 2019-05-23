@@ -364,6 +364,7 @@ class PaygenBuild(object):
     self._archive_build_uri = None
     self._skip_duts_check = skip_duts_check
     self._payload_build = payload_build
+    self._payload_test_configs = []
 
   # Hidden class level cache value.
   _cachedPaygenJson = None
@@ -767,8 +768,16 @@ class PaygenBuild(object):
     self._version_to_full_test_payloads[(channel, version)] = full_test_payloads
     return full_test_payloads
 
-  def _EmitControlFile(self, payload_test, suite_name, control_dump_dir):
-    """Emit an Autotest control file for a given payload test."""
+  def _PaygenTestConfig(self, payload_test, suite_name):
+    """Generate paygen test config for a given payload test.
+
+    Args:
+      payload_test: A PayloadTest object.
+      suite_name: A string suite name.
+
+    Returns:
+      A test_params.TestConfig object.
+    """
     # Figure out the source version for the test.
     payload = payload_test.payload
     src_version = payload_test.src_version
@@ -807,7 +816,7 @@ class PaygenBuild(object):
       raise PayloadTestError('cannot find source stateful.tgz for testing %s' %
                              payload)
 
-    test = test_params.TestConfig(
+    return test_params.TestConfig(
         self._archive_board,
         suite_name,               # Name of the test (use the suite name).
         bool(payload.src_image),  # Whether this is a delta.
@@ -818,10 +827,21 @@ class PaygenBuild(object):
         suite_name=suite_name,
         source_archive_uri=release_archive_uri)
 
+
+  def _EmitControlFile(self, payload_test_config, control_dump_dir):
+    """Emit an Autotest control file for a given payload test config.
+
+    Args:
+      payload_test_config: A test_params.TestConfig object.
+      control_dump_dir: A string path to dump the new control file.
+
+    Returns:
+      a string control file path.
+    """
     with open(test_control.get_control_file_name()) as f:
       control_code = f.read()
     control_file = test_control.dump_autotest_control_file(
-        test, None, control_code, control_dump_dir)
+        payload_test_config, None, control_code, control_dump_dir)
     logging.info('Control file emitted at %s', control_file)
     return control_file
 
@@ -843,7 +863,9 @@ class PaygenBuild(object):
     # Emit a control file for each payload.
     logging.info('Emitting control files into %s', control_dump_dir)
     for payload_test in payload_tests:
-      self._EmitControlFile(payload_test, suite_name, control_dump_dir)
+      paygen_test_config = self._PaygenTestConfig(payload_test, suite_name)
+      self._payload_test_configs.append(paygen_test_config)
+      self._EmitControlFile(paygen_test_config, control_dump_dir)
 
     tarball_name = self.CONTROL_TARBALL_TEMPLATE % test_channel
 
@@ -993,7 +1015,8 @@ class PaygenBuild(object):
     finally:
       self._CleanupBuild()
 
-    return suite_name, self._archive_board, self._archive_build
+    return (suite_name, self._archive_board, self._archive_build,
+            self._payload_test_configs)
 
 
 def ValidateBoardConfig(board):
@@ -1010,7 +1033,8 @@ def ValidateBoardConfig(board):
 
 
 def ScheduleAutotestTests(suite_name, board, model, build, skip_duts_check,
-                          debug, test_env, job_keyvals=None):
+                          debug, payload_test_configs, test_env,
+                          job_keyvals=None):
   """Run the appropriate command to schedule the Autotests we have prepped.
 
   Args:
@@ -1020,23 +1044,42 @@ def ScheduleAutotestTests(suite_name, board, model, build, skip_duts_check,
     build: A string representing the name of the archive build.
     skip_duts_check: A boolean indicating to not check minimum available DUTs.
     debug: A boolean indicating whether or not we are in debug mode.
+    payload_test_configs: A list of test_params.TestConfig objets to be
+                          scheduled with.
     test_env: A string to indicate the env that the test should run in. The
               value could be constants.ENV_SKYLAB, constants.ENV_AUTOTEST.
     job_keyvals: A dict of job keyvals to be injected to suite control file.
   """
-  timeout_mins = config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT / 60
+  # Double timeout for crbug.com/930256. Will change back once paygen
+  # suites been migrated to skylab.
+  timeout_mins = 2 * config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT / 60
   if test_env == constants.ENV_SKYLAB:
-    cmd_result = commands.RunSkylabHWTestSuite(
-        build=build,
-        suite=suite_name,
-        board=board,
-        model=model,
-        pool='bvt',
-        wait_for_results=False,
-        priority=constants.HWTEST_BUILD_PRIORITY,
-        timeout_mins=timeout_mins,
-        retry=True,
-        job_keyvals=job_keyvals)
+    tags = ['build:%s' % build,
+            'suite:%s' % suite_name,
+            'user:PaygenTestStage']
+    for payload_test in payload_test_configs:
+      test_name = test_control.get_test_name()
+      # TKO parser requires that label format can be parsed by
+      # site_utils.parse_job_name to get build, build_version, board and suite.
+      # A parsable label format for autoupdate_EndtoEnd test should be:
+      #   reef-release/R74-XX.0.0/paygen_au_canary/autoupdate_E2E_***_XX.0.0
+      shown_test_name = '%s_%s' % (test_name, payload_test.unique_name_suffix())
+      tko_label = '%s/%s/%s' % (build, suite_name, shown_test_name)
+      keyvals = ['build:%s' % build,
+                 'suite:%s' % suite_name,
+                 'label:%s' % tko_label]
+      test_args = payload_test.get_cmdline_args()
+      cmd_result = commands.RunSkylabHWTest(
+          build=build,
+          pool='bvt',
+          test_name=test_control.get_test_name(),
+          shown_test_name=shown_test_name,
+          board=board,
+          model=model,
+          timeout_mins=timeout_mins,
+          tags=tags,
+          keyvals=keyvals,
+          test_args=test_args)
   else:
     cmd_result = commands.RunHWTestSuite(
         board=board,

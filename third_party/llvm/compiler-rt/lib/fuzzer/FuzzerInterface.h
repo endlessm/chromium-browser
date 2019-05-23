@@ -1,9 +1,8 @@
 //===- FuzzerInterface.h - Interface header for the Fuzzer ------*- C++ -* ===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 // Define the interface between libFuzzer and the library being tested.
@@ -28,7 +27,7 @@ extern "C" {
 
 // Define FUZZER_INTERFACE_VISIBILITY to set default visibility in a way that
 // doesn't break MSVC.
-#if defined(_MSC_VER) && !defined(__clang__)
+#if defined(_WIN32)
 #define FUZZER_INTERFACE_VISIBILITY __declspec(dllexport)
 #else
 #define FUZZER_INTERFACE_VISIBILITY __attribute__((visibility("default")))

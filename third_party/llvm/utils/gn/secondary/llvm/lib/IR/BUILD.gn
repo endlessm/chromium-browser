@@ -19,6 +19,7 @@ static_library("IR") {
     "//llvm/lib/Support",
   ]
   sources = [
+    "AbstractCallSite.cpp",
     "AsmWriter.cpp",
     "Attributes.cpp",
     "AutoUpgrade.cpp",
@@ -36,7 +37,6 @@ static_library("IR") {
     "DiagnosticHandler.cpp",
     "DiagnosticInfo.cpp",
     "DiagnosticPrinter.cpp",
-    "DomTreeUpdater.cpp",
     "Dominators.cpp",
     "Function.cpp",
     "GVMaterializer.cpp",

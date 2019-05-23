@@ -1,9 +1,8 @@
 //=- AArch64InstrInfo.td - Describe the AArch64 Instructions -*- tablegen -*-=//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -763,6 +762,13 @@ def MSRpstateImm4 : MSRpstateImm0_15;
 // TPIDR_EL0.
 def MOVbaseTLS : Pseudo<(outs GPR64:$dst), (ins),
                        [(set GPR64:$dst, AArch64threadpointer)]>, Sched<[WriteSys]>;
+
+let Uses = [ X9 ], Defs = [ X16, X17, LR, NZCV ] in {
+def HWASAN_CHECK_MEMACCESS : Pseudo<
+  (outs), (ins GPR64noip:$ptr, i32imm:$accessinfo),
+  [(int_hwasan_check_memaccess X9, GPR64noip:$ptr, (i32 imm:$accessinfo))]>,
+  Sched<[]>;
+}
 
 // The cycle counter PMC register is PMCCNTR_EL0.
 let Predicates = [HasPerfMon] in

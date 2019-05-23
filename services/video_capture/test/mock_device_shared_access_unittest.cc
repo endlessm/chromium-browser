@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_task_environment.h"
@@ -12,8 +14,10 @@
 #include "media/capture/video/video_capture_system_impl.h"
 #include "services/service_manager/public/cpp/service_keepalive.h"
 #include "services/video_capture/device_factory_media_to_mojo_adapter.h"
+#include "services/video_capture/device_media_to_mojo_adapter.h"
 #include "services/video_capture/public/cpp/mock_receiver.h"
 #include "services/video_capture/public/mojom/device_factory_provider.mojom.h"
+#include "services/video_capture/public/mojom/video_source.mojom.h"
 #include "services/video_capture/video_source_provider_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -21,6 +25,7 @@ using testing::_;
 using testing::Invoke;
 using testing::InvokeWithoutArgs;
 using testing::Mock;
+using testing::SaveArg;
 
 namespace video_capture {
 
@@ -29,26 +34,27 @@ class MockDeviceSharedAccessTest : public ::testing::Test {
   MockDeviceSharedAccessTest()
       : mock_receiver_1_(mojo::MakeRequest(&receiver_1_)),
         mock_receiver_2_(mojo::MakeRequest(&receiver_2_)),
-        service_keepalive_(nullptr, base::nullopt),
-        next_arbitrary_frame_feedback_id_(123) {}
+        next_arbitrary_frame_feedback_id_(123),
+        service_keepalive_(nullptr, base::nullopt) {}
   ~MockDeviceSharedAccessTest() override {}
 
   void SetUp() override {
     auto mock_device_factory = std::make_unique<media::MockDeviceFactory>();
+    mock_device_factory_ = mock_device_factory.get();
     media::VideoCaptureDeviceDescriptor mock_descriptor;
     mock_descriptor.device_id = "MockDeviceId";
     mock_device_factory->AddMockDevice(&mock_device_, mock_descriptor);
 
     auto video_capture_system = std::make_unique<media::VideoCaptureSystemImpl>(
         std::move(mock_device_factory));
-    mock_device_factory_ = std::make_unique<DeviceFactoryMediaToMojoAdapter>(
+    service_device_factory_ = std::make_unique<DeviceFactoryMediaToMojoAdapter>(
         std::move(video_capture_system), base::DoNothing(),
         base::ThreadTaskRunnerHandle::Get());
-    source_provider_ =
-        std::make_unique<VideoSourceProviderImpl>(mock_device_factory_.get());
-    source_provider_->SetServiceRef(service_keepalive_.CreateRef());
+    service_device_factory_->SetServiceRef(service_keepalive_.CreateRef());
+    source_provider_ = std::make_unique<VideoSourceProviderImpl>(
+        service_device_factory_.get(), base::DoNothing());
 
-    // Obtain the mock device backed source from |sourcr_provider_|.
+    // Obtain the mock device backed source from |source_provider_|.
     base::MockCallback<mojom::DeviceFactory::GetDeviceInfosCallback>
         device_infos_receiver;
     base::RunLoop wait_loop;
@@ -94,24 +100,40 @@ class MockDeviceSharedAccessTest : public ::testing::Test {
   }
 
   void LetClient2ConnectWithRequestableSettingsAndExpectToGetThem() {
+    LetClient2ConnectWithRequestableSettings(
+        false /*force_reopen_with_new_settings*/,
+        mojom::CreatePushSubscriptionResultCode::kCreatedWithRequestedSettings);
+  }
+
+  void LetClient2ConnectWithRequestableSettings(
+      bool force_reopen_with_new_settings,
+      mojom::CreatePushSubscriptionResultCode expected_result_code) {
     base::RunLoop run_loop;
     source_->CreatePushSubscription(
         std::move(receiver_2_), requestable_settings_,
-        false /*force_reopen_with_new_settings*/,
-        mojo::MakeRequest(&subscription_2_),
+        force_reopen_with_new_settings, mojo::MakeRequest(&subscription_2_),
         base::BindOnce(
             [](base::RunLoop* run_loop,
                media::VideoCaptureParams* requested_settings,
+               mojom::CreatePushSubscriptionResultCode expected_result_code,
                mojom::CreatePushSubscriptionResultCode result_code,
                const media::VideoCaptureParams&
                    settings_source_was_opened_with) {
-              ASSERT_EQ(mojom::CreatePushSubscriptionResultCode::
-                            kCreatedWithRequestedSettings,
-                        result_code);
-              ASSERT_EQ(*requested_settings, settings_source_was_opened_with);
+              ASSERT_EQ(expected_result_code, result_code);
+              if (expected_result_code ==
+                  mojom::CreatePushSubscriptionResultCode::
+                      kCreatedWithRequestedSettings) {
+                ASSERT_EQ(*requested_settings, settings_source_was_opened_with);
+              }
+              if (expected_result_code ==
+                  mojom::CreatePushSubscriptionResultCode::
+                      kCreatedWithDifferentSettings) {
+                ASSERT_FALSE(*requested_settings ==
+                             settings_source_was_opened_with);
+              }
               run_loop->Quit();
             },
-            &run_loop, &requestable_settings_));
+            &run_loop, &requestable_settings_, expected_result_code));
     run_loop.Run();
   }
 
@@ -143,7 +165,7 @@ class MockDeviceSharedAccessTest : public ::testing::Test {
 
     auto different_settings = requestable_settings_;
     // Change something arbitrary
-    different_settings.requested_format.frame_size = gfx::Size(123, 456);
+    different_settings.requested_format.frame_size = gfx::Size(124, 456);
     ASSERT_FALSE(requestable_settings_ == different_settings);
 
     source_->CreatePushSubscription(
@@ -188,6 +210,23 @@ class MockDeviceSharedAccessTest : public ::testing::Test {
     Mock::VerifyAndClearExpectations(&mock_receiver_2_);
   }
 
+  void SendFrameAndExpectToArriveOnlyAtSubscriber1() {
+    const int32_t kArbitraryFrameFeedbackId =
+        next_arbitrary_frame_feedback_id_++;
+    const int32_t kArbitraryRotation = 0;
+
+    base::RunLoop wait_loop;
+    EXPECT_CALL(mock_receiver_1_,
+                DoOnFrameReadyInBuffer(_, kArbitraryFrameFeedbackId, _, _))
+        .WillOnce(InvokeWithoutArgs([&wait_loop]() { wait_loop.Quit(); }));
+    EXPECT_CALL(mock_receiver_2_, DoOnFrameReadyInBuffer(_, _, _, _)).Times(0);
+    mock_device_.SendStubFrame(requestable_settings_.requested_format,
+                               kArbitraryRotation, kArbitraryFrameFeedbackId);
+    wait_loop.Run();
+    Mock::VerifyAndClearExpectations(&mock_receiver_1_);
+    Mock::VerifyAndClearExpectations(&mock_receiver_2_);
+  }
+
   void SendFrameAndExpectToArriveOnlyAtSubscriber2() {
     const int32_t kArbitraryFrameFeedbackId =
         next_arbitrary_frame_feedback_id_++;
@@ -208,7 +247,8 @@ class MockDeviceSharedAccessTest : public ::testing::Test {
  protected:
   base::test::ScopedTaskEnvironment task_environment_;
   media::MockDevice mock_device_;
-  std::unique_ptr<DeviceFactoryMediaToMojoAdapter> mock_device_factory_;
+  media::MockDeviceFactory* mock_device_factory_;
+  std::unique_ptr<DeviceFactoryMediaToMojoAdapter> service_device_factory_;
   std::unique_ptr<VideoSourceProviderImpl> source_provider_;
   mojom::VideoSourcePtr source_;
   media::VideoCaptureParams requestable_settings_;
@@ -220,9 +260,10 @@ class MockDeviceSharedAccessTest : public ::testing::Test {
   mojom::ReceiverPtr receiver_2_;
   MockReceiver mock_receiver_2_;
 
+  int32_t next_arbitrary_frame_feedback_id_;
+
  private:
   service_manager::ServiceKeepalive service_keepalive_;
-  int32_t next_arbitrary_frame_feedback_id_;
 };
 
 // This alias ensures test output is easily attributed to this service's tests.
@@ -237,6 +278,80 @@ TEST_F(MockVideoCaptureDeviceSharedAccessTest,
 TEST_F(MockVideoCaptureDeviceSharedAccessTest,
        TwoClientsCreatePushSubscriptionWithDifferentSettings) {
   LetTwoClientsConnectWithDifferentSettings();
+}
+
+TEST_F(MockVideoCaptureDeviceSharedAccessTest,
+       SecondClientForcesReopenWithDifferentSettings) {
+  LetClient1ConnectWithRequestableSettingsAndExpectToGetThem();
+  subscription_1_->Activate();
+
+  auto previously_requested_settings = requestable_settings_;
+  // Change something arbitrary
+  requestable_settings_.requested_format.frame_size = gfx::Size(124, 456);
+  ASSERT_FALSE(requestable_settings_ == previously_requested_settings);
+
+  LetClient2ConnectWithRequestableSettings(
+      true /*force_reopen_with_new_settings*/,
+      mojom::CreatePushSubscriptionResultCode::kCreatedWithRequestedSettings);
+  subscription_2_->Activate();
+  SendFrameAndExpectToArriveAtBothSubscribers();
+}
+
+TEST_F(MockVideoCaptureDeviceSharedAccessTest,
+       SecondClientsForcesReopenWithSameSettings) {
+  LetClient1ConnectWithRequestableSettingsAndExpectToGetThem();
+  LetClient2ConnectWithRequestableSettings(
+      true /*force_reopen_with_new_settings*/,
+      mojom::CreatePushSubscriptionResultCode::kCreatedWithRequestedSettings);
+  subscription_1_->Activate();
+  subscription_2_->Activate();
+  SendFrameAndExpectToArriveAtBothSubscribers();
+}
+
+// Tests that existing buffers are retired but no OnStopped() and OnStarted()
+// event is sent to existing client when the device internally restarts because
+// a new client connects with |force_reopen_with_new_settings| set to true.
+TEST_F(MockVideoCaptureDeviceSharedAccessTest,
+       InternalDeviceRestartIsTransparentToExistingSubscribers) {
+  LetClient1ConnectWithRequestableSettingsAndExpectToGetThem();
+  EXPECT_CALL(mock_receiver_1_, DoOnNewBuffer(_, _)).Times(1);
+  EXPECT_CALL(mock_receiver_1_, OnStarted()).Times(1);
+  subscription_1_->Activate();
+  mock_device_.SendOnStarted();
+  SendFrameAndExpectToArriveOnlyAtSubscriber1();
+  Mock::VerifyAndClearExpectations(&mock_receiver_1_);
+
+  auto previously_requested_settings = requestable_settings_;
+  // Change something arbitrary
+  requestable_settings_.requested_format.frame_size = gfx::Size(124, 456);
+  ASSERT_FALSE(requestable_settings_ == previously_requested_settings);
+
+  {
+    testing::InSequence s;
+    EXPECT_CALL(mock_receiver_1_, DoOnBufferRetired(_)).Times(1);
+    EXPECT_CALL(mock_receiver_1_, DoOnNewBuffer(_, _)).Times(1);
+  }
+  EXPECT_CALL(mock_receiver_1_, OnStopped()).Times(0);
+  EXPECT_CALL(mock_receiver_1_, OnStarted()).Times(0);
+
+  LetClient2ConnectWithRequestableSettings(
+      true /*force_reopen_with_new_settings*/,
+      mojom::CreatePushSubscriptionResultCode::kCreatedWithRequestedSettings);
+  subscription_2_->Activate();
+
+  mock_device_.SendOnStarted();
+  SendFrameAndExpectToArriveAtBothSubscribers();
+  Mock::VerifyAndClearExpectations(&mock_receiver_1_);
+}
+
+TEST_F(MockVideoCaptureDeviceSharedAccessTest,
+       CreatingSubscriptionFailsWhenCreatingDeviceFails) {
+  // Make it so that attempts to open the mock device will fail.
+  mock_device_factory_->RemoveAllDevices();
+
+  LetClient2ConnectWithRequestableSettings(
+      false /*force_reopen_with_new_settings*/,
+      mojom::CreatePushSubscriptionResultCode::kFailed);
 }
 
 TEST_F(MockVideoCaptureDeviceSharedAccessTest,
@@ -314,6 +429,38 @@ TEST_F(MockVideoCaptureDeviceSharedAccessTest, SuspendAndResume) {
 
   subscription_1_->Resume();
   SendFrameAndExpectToArriveAtBothSubscribers();
+}
+
+TEST_F(MockVideoCaptureDeviceSharedAccessTest, SuspendAndResumeSingleClient) {
+  LetClient1ConnectWithRequestableSettingsAndExpectToGetThem();
+  subscription_1_->Activate();
+  {
+    base::RunLoop wait_loop;
+    subscription_1_->Suspend(base::BindOnce(
+        [](base::RunLoop* wait_loop) { wait_loop->Quit(); }, &wait_loop));
+    wait_loop.Run();
+  }
+  EXPECT_CALL(mock_receiver_1_, DoOnFrameReadyInBuffer(_, _, _, _)).Times(0);
+
+  // Send a couple of frames. We want to send at least as many frames as
+  // the maximum buffer count in the video frame pool to make sure that
+  // buffers are properly released and reused.
+  mock_device_.SendOnStarted();
+  for (int i = 0; i < DeviceMediaToMojoAdapter::max_buffer_pool_buffer_count();
+       i++) {
+    const int32_t kArbitraryRotation = 0;
+    const int32_t kArbitraryFrameFeedbackId =
+        next_arbitrary_frame_feedback_id_++;
+    mock_device_.SendStubFrame(requestable_settings_.requested_format,
+                               kArbitraryRotation, kArbitraryFrameFeedbackId);
+    // We need to wait until the frame has arrived at BroadcastingReceiver
+    base::RunLoop().RunUntilIdle();
+  }
+  Mock::VerifyAndClearExpectations(&mock_receiver_1_);
+
+  subscription_1_->Resume();
+  subscription_1_.FlushForTesting();
+  SendFrameAndExpectToArriveOnlyAtSubscriber1();
 }
 
 TEST_F(MockVideoCaptureDeviceSharedAccessTest,

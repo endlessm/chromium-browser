@@ -1,9 +1,8 @@
 //===-- sanitizer_stacktrace_test.cc --------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -59,9 +58,9 @@ void FastUnwindTest::SetUp() {
   // Mark the last fp point back up to terminate the stack trace.
   fake_stack[RoundDownTo(fake_stack_size - 1, 2)] = (uhwptr)&fake_stack[0];
 
-  // Top is two slots past the end because FastUnwindStack subtracts two.
+  // Top is two slots past the end because UnwindFast subtracts two.
   fake_top = (uhwptr)&fake_stack[fake_stack_size + 2];
-  // Bottom is one slot before the start because FastUnwindStack uses >.
+  // Bottom is one slot before the start because UnwindFast uses >.
   fake_bottom = (uhwptr)mapping;
   start_pc = PC(0);
 }

@@ -13,7 +13,7 @@ import os
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot.builders import generic_builders
 from chromite.cbuildbot.builders import workspace_builders
-from chromite.cbuildbot.stages import firmware_stages
+from chromite.cbuildbot.stages import branch_archive_stages
 from chromite.cbuildbot.stages import workspace_stages
 from chromite.lib import config_lib
 from chromite.lib import config_lib_unittest
@@ -188,13 +188,15 @@ class BuildspecBuilderTest(cros_test_lib.MockTempDirTestCase):
                   build_root=self.workspace),
         mock.call(workspace_stages.WorkspaceInitSDKStage,
                   build_root=self.workspace),
+        mock.call(workspace_stages.WorkspaceUpdateSDKStage,
+                  build_root=self.workspace),
         mock.call(workspace_stages.WorkspaceSetupBoardStage,
                   build_root=self.workspace,
                   board='board'),
         mock.call(workspace_stages.WorkspaceBuildPackagesStage,
                   build_root=self.workspace,
                   board='board'),
-        mock.call(firmware_stages.FirmwareArchiveStage,
+        mock.call(branch_archive_stages.FirmwareArchiveStage,
                   build_root=self.workspace,
                   board='board'),
     ])
@@ -210,13 +212,15 @@ class BuildspecBuilderTest(cros_test_lib.MockTempDirTestCase):
     self.assertEqual(self.mock_run_stage.call_args_list, [
         mock.call(workspace_stages.WorkspaceInitSDKStage,
                   build_root=self.workspace),
+        mock.call(workspace_stages.WorkspaceUpdateSDKStage,
+                  build_root=self.workspace),
         mock.call(workspace_stages.WorkspaceSetupBoardStage,
                   build_root=self.workspace,
                   board='board'),
         mock.call(workspace_stages.WorkspaceBuildPackagesStage,
                   build_root=self.workspace,
                   board='board'),
-        mock.call(firmware_stages.FirmwareArchiveStage,
+        mock.call(branch_archive_stages.FirmwareArchiveStage,
                   build_root=self.workspace,
                   board='board'),
     ])
@@ -234,6 +238,8 @@ class BuildspecBuilderTest(cros_test_lib.MockTempDirTestCase):
                   build_root=self.workspace),
         mock.call(workspace_stages.WorkspaceInitSDKStage,
                   build_root=self.workspace),
+        mock.call(workspace_stages.WorkspaceUpdateSDKStage,
+                  build_root=self.workspace),
         # Board A
         mock.call(workspace_stages.WorkspaceSetupBoardStage,
                   build_root=self.workspace,
@@ -241,7 +247,7 @@ class BuildspecBuilderTest(cros_test_lib.MockTempDirTestCase):
         mock.call(workspace_stages.WorkspaceBuildPackagesStage,
                   build_root=self.workspace,
                   board='boardA'),
-        mock.call(firmware_stages.FirmwareArchiveStage,
+        mock.call(branch_archive_stages.FirmwareArchiveStage,
                   build_root=self.workspace,
                   board='boardA'),
         # Board B
@@ -251,7 +257,7 @@ class BuildspecBuilderTest(cros_test_lib.MockTempDirTestCase):
         mock.call(workspace_stages.WorkspaceBuildPackagesStage,
                   build_root=self.workspace,
                   board='boardB'),
-        mock.call(firmware_stages.FirmwareArchiveStage,
+        mock.call(branch_archive_stages.FirmwareArchiveStage,
                   build_root=self.workspace,
                   board='boardB'),
     ])
@@ -269,9 +275,26 @@ class BuildspecBuilderTest(cros_test_lib.MockTempDirTestCase):
                   build_root=self.workspace),
         mock.call(workspace_stages.WorkspaceInitSDKStage,
                   build_root=self.workspace),
+        mock.call(workspace_stages.WorkspaceUpdateSDKStage,
+                  build_root=self.workspace),
         mock.call(workspace_stages.WorkspaceSyncChromeStage,
                   build_root=self.workspace),
         mock.call(workspace_stages.WorkspaceSetupBoardStage,
+                  build_root=self.workspace,
+                  board='board'),
+        mock.call(workspace_stages.WorkspaceBuildPackagesStage,
+                  build_root=self.workspace,
+                  board='board'),
+        mock.call(workspace_stages.WorkspaceUnitTestStage,
+                  build_root=self.workspace,
+                  board='board'),
+        mock.call(workspace_stages.WorkspaceBuildImageStage,
+                  build_root=self.workspace,
+                  board='board'),
+        mock.call(workspace_stages.WorkspaceDebugSymbolsStage,
+                  build_root=self.workspace,
+                  board='board'),
+        mock.call(branch_archive_stages.FactoryArchiveStage,
                   build_root=self.workspace,
                   board='board'),
     ])

@@ -4,6 +4,11 @@
 */
 'use strict';
 tr.exportTo('cp', () => {
+  const DEFAULT_RECOMMENDATIONS = [
+    'Chromium Perf Sheriff',
+    'memory:chrome:all_processes:reported_by_chrome:effective_size',
+  ];
+
   class RecommendedOptions extends cp.ElementBase {
     ready() {
       super.ready();
@@ -51,6 +56,7 @@ tr.exportTo('cp', () => {
     },
 
     recommendOptions: statePath => async(dispatch, getState) => {
+      if (!Polymer.Path.get(getState(), statePath)) return;
       dispatch({
         type: RecommendedOptions.reducers.recommendOptions.name,
         statePath,
@@ -77,6 +83,13 @@ tr.exportTo('cp', () => {
       try {
         optionRecommendations = JSON.parse(localStorage.getItem(
             RecommendedOptions.STORAGE_KEY));
+
+        for (const value of DEFAULT_RECOMMENDATIONS) {
+          if (!(value in optionRecommendations)) {
+            optionRecommendations[value] = [now];
+          }
+        }
+
         for (const [value, dates] of Object.entries(optionRecommendations)) {
           optionRecommendations[value] = dates.map(d => new Date(d)).filter(
               date => ((now - date) < RecommendedOptions.OLD_MS));

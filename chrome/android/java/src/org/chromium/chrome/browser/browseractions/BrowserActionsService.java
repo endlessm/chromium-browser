@@ -21,6 +21,7 @@ import org.chromium.base.VisibleForTesting;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
@@ -229,7 +230,9 @@ public class BrowserActionsService extends Service {
 
     private void sendBrowserActionsNotification(boolean isUpdate, int tabId) {
         Notification notification = createNotificationBuilder(isUpdate, tabId).build();
-        startForeground(NotificationConstants.NOTIFICATION_ID_BROWSER_ACTIONS, notification);
+
+        AppHooks.get().startForeground(this, NotificationConstants.NOTIFICATION_ID_BROWSER_ACTIONS,
+                notification, 0 /* foregroundServiceType */);
 
         if (!isUpdate) {
             NotificationUmaTracker.getInstance().onNotificationShown(
@@ -275,7 +278,7 @@ public class BrowserActionsService extends Service {
         boolean multipleUrls = hasBrowserActionsNotification();
         Intent intent;
         if (!multipleUrls && tabId != Tab.INVALID_TAB_ID) {
-            intent = Tab.createBringTabToFrontIntent(tabId);
+            intent = IntentUtils.createBringTabToFrontIntent(tabId);
         } else {
             intent = new Intent(this, ChromeLauncherActivity.class);
             IntentHandler.addTrustedIntentExtras(intent);

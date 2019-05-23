@@ -1,6 +1,6 @@
-/* Copyright (c) 2015-2018 The Khronos Group Inc.
- * Copyright (c) 2015-2018 Valve Corporation
- * Copyright (c) 2015-2018 LunarG, Inc.
+/* Copyright (c) 2015-2019 The Khronos Group Inc.
+ * Copyright (c) 2015-2019 Valve Corporation
+ * Copyright (c) 2015-2019 LunarG, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +47,17 @@
 #define DECORATE_UNUSED __attribute__((unused))
 #else
 #define DECORATE_UNUSED
+#endif
+
+#if defined __ANDROID__
+#include <android/log.h>
+#define LOGCONSOLE(...) ((void)__android_log_print(ANDROID_LOG_INFO, "VALIDATION", __VA_ARGS__))
+#else
+#define LOGCONSOLE(...)      \
+    {                        \
+        printf(__VA_ARGS__); \
+        printf("\n");        \
+    }
 #endif
 
 static const char DECORATE_UNUSED *kVUIDUndefined = "VUID_Undefined";
@@ -349,18 +360,18 @@ static inline bool debug_log_msg(const debug_report_data *debug_data, VkFlags ms
             }
         }
         // Look for any debug utils or marker names to use for this object
-        callback_data.pObjects[0].pObjectName = NULL;
+        object_name_info.pObjectName = NULL;
         auto utils_name_iter = debug_data->debugUtilsObjectNameMap->find(src_object);
         if (utils_name_iter != debug_data->debugUtilsObjectNameMap->end()) {
-            callback_data.pObjects[0].pObjectName = utils_name_iter->second.c_str();
+            object_name_info.pObjectName = utils_name_iter->second.c_str();
         } else {
             auto marker_name_iter = debug_data->debugObjectNameMap->find(src_object);
             if (marker_name_iter != debug_data->debugObjectNameMap->end()) {
-                callback_data.pObjects[0].pObjectName = marker_name_iter->second.c_str();
+                object_name_info.pObjectName = marker_name_iter->second.c_str();
             }
         }
-        if (NULL != callback_data.pObjects[0].pObjectName) {
-            oss << " (Name = " << callback_data.pObjects[0].pObjectName << " : Type = ";
+        if (NULL != object_name_info.pObjectName) {
+            oss << " (Name = " << object_name_info.pObjectName << " : Type = ";
         } else {
             oss << " (Type = ";
         }
@@ -429,7 +440,8 @@ static inline void DebugAnnotFlagsToReportFlags(VkDebugUtilsMessageSeverityFlagB
 static inline bool debug_messenger_log_msg(const debug_report_data *debug_data,
                                            VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
                                            VkDebugUtilsMessageTypeFlagsEXT message_type,
-                                           VkDebugUtilsMessengerCallbackDataEXT *callback_data) {
+                                           VkDebugUtilsMessengerCallbackDataEXT *callback_data,
+                                           const VkDebugUtilsMessengerEXT *messenger) {
     bool bail = false;
     VkLayerDbgFunctionNode *layer_dbg_node = NULL;
 
@@ -443,16 +455,21 @@ static inline bool debug_messenger_log_msg(const debug_report_data *debug_data,
 
     DebugAnnotFlagsToReportFlags(message_severity, message_type, &object_flags);
 
+    VkDebugUtilsObjectNameInfoEXT object_name_info;
+    object_name_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+    object_name_info.pNext = NULL;
+    object_name_info.objectType = VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT;
+    object_name_info.objectHandle = HandleToUint64(*messenger);
+    object_name_info.pObjectName = NULL;
+    callback_data->pObjects = &object_name_info;
+    callback_data->objectCount = 1;
+
     while (layer_dbg_node) {
         if (layer_dbg_node->is_messenger && (layer_dbg_node->messenger.messageSeverity & message_severity) &&
             (layer_dbg_node->messenger.messageType & message_type)) {
-            // Loop through each object and give it the proper name if it was set.
-            for (uint32_t obj = 0; obj < callback_data->objectCount; obj++) {
-                auto it = debug_data->debugUtilsObjectNameMap->find(callback_data->pObjects[obj].objectHandle);
-                if (it == debug_data->debugUtilsObjectNameMap->end()) {
-                    continue;
-                }
-                callback_data->pObjects[obj].pObjectName = it->second.c_str();
+            auto it = debug_data->debugUtilsObjectNameMap->find(object_name_info.objectHandle);
+            if (it != debug_data->debugUtilsObjectNameMap->end()) {
+                object_name_info.pObjectName = it->second.c_str();
             }
             if (layer_dbg_node->messenger.pfnUserCallback(message_severity, message_type, callback_data,
                                                           layer_dbg_node->pUserData)) {
@@ -564,7 +581,6 @@ static inline VkResult layer_create_messenger_callback(debug_report_data *debug_
     }
 
     VkDebugUtilsMessengerCallbackDataEXT callback_data = {};
-    VkDebugUtilsObjectNameInfoEXT blank_object = {};
     callback_data.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CALLBACK_DATA_EXT;
     callback_data.pNext = NULL;
     callback_data.flags = 0;
@@ -575,15 +591,10 @@ static inline VkResult layer_create_messenger_callback(debug_report_data *debug_
     callback_data.pQueueLabels = NULL;
     callback_data.cmdBufLabelCount = 0;
     callback_data.pCmdBufLabels = NULL;
-    callback_data.objectCount = 1;
-    callback_data.pObjects = &blank_object;
-    blank_object.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
-    blank_object.pNext = NULL;
-    blank_object.objectType = VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT;
-    blank_object.objectHandle = HandleToUint64(*messenger);
-    blank_object.pObjectName = NULL;
+    callback_data.objectCount = 0;
+    callback_data.pObjects = NULL;
     debug_messenger_log_msg(debug_data, VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT,
-                            VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT, &callback_data);
+                            VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT, &callback_data, messenger);
     return VK_SUCCESS;
 }
 
@@ -846,11 +857,13 @@ static inline int string_sprintf(std::string *output, const char *fmt, ...) {
     va_start(argptr, fmt);
     int reserve = vsnprintf(nullptr, 0, fmt, argptr);
     va_end(argptr);
-    formatted.reserve(reserve + 1);
+    formatted.reserve(reserve + 1);  // Set the storage length long enough to hold the output + null
+    formatted.resize(reserve);       // Set the *logical* length to be what vsprintf will write
     va_start(argptr, fmt);
     int result = vsnprintf((char *)formatted.data(), formatted.capacity(), fmt, argptr);
     va_end(argptr);
     assert(result == reserve);
+    assert((formatted.size() == strlen(formatted.c_str())));
     return result;
 }
 
@@ -931,12 +944,21 @@ static inline bool log_msg(const debug_report_data *debug_data, VkFlags msg_flag
 static inline VKAPI_ATTR VkBool32 VKAPI_CALL report_log_callback(VkFlags msg_flags, VkDebugReportObjectTypeEXT obj_type,
                                                                  uint64_t src_object, size_t location, int32_t msg_code,
                                                                  const char *layer_prefix, const char *message, void *user_data) {
+    std::ostringstream msg_buffer;
     char msg_flag_string[30];
 
     PrintMessageFlags(msg_flags, msg_flag_string);
 
-    fprintf((FILE *)user_data, "%s(%s): msg_code: %d: %s\n", layer_prefix, msg_flag_string, msg_code, message);
+    msg_buffer << layer_prefix << "(" << msg_flag_string << "): msg_code: " << msg_code << ": " << message << "\n";
+    const std::string tmp = msg_buffer.str();
+    const char *cstr = tmp.c_str();
+
+    fprintf((FILE *)user_data, "%s", cstr);
     fflush((FILE *)user_data);
+
+#if defined __ANDROID__
+    LOGCONSOLE("%s", cstr);
+#endif
 
     return false;
 }
@@ -974,21 +996,31 @@ static inline VKAPI_ATTR VkBool32 VKAPI_CALL messenger_log_callback(VkDebugUtils
                                                                     VkDebugUtilsMessageTypeFlagsEXT message_type,
                                                                     const VkDebugUtilsMessengerCallbackDataEXT *callback_data,
                                                                     void *user_data) {
+    std::ostringstream msg_buffer;
     char msg_severity[30];
     char msg_type[30];
 
     PrintMessageSeverity(message_severity, msg_severity);
     PrintMessageType(message_type, msg_type);
 
-    fprintf((FILE *)user_data, "%s(%s / %s): msgNum: %d - %s\n", callback_data->pMessageIdName, msg_severity, msg_type,
-            callback_data->messageIdNumber, callback_data->pMessage);
-    fprintf((FILE *)user_data, "    Objects: %d\n", callback_data->objectCount);
+    msg_buffer << callback_data->pMessageIdName << "(" << msg_severity << " / " << msg_type
+               << "): msgNum: " << callback_data->messageIdNumber << " - " << callback_data->pMessage << "\n";
+    msg_buffer << "    Objects: " << callback_data->objectCount << "\n";
     for (uint32_t obj = 0; obj < callback_data->objectCount; ++obj) {
-        fprintf((FILE *)user_data, "       [%d] 0x%" PRIx64 ", type: %d, name: %s\n", obj,
-                callback_data->pObjects[obj].objectHandle, callback_data->pObjects[obj].objectType,
-                callback_data->pObjects[obj].pObjectName);
+        msg_buffer << "        [" << obj << "] " << std::hex << std::showbase
+                   << HandleToUint64(callback_data->pObjects[obj].objectHandle) << ", type: " << std::dec << std::noshowbase
+                   << callback_data->pObjects[obj].objectType
+                   << ", name: " << (callback_data->pObjects[obj].pObjectName ? callback_data->pObjects[obj].pObjectName : "NULL")
+                   << "\n";
     }
+    const std::string tmp = msg_buffer.str();
+    const char *cstr = tmp.c_str();
+    fprintf((FILE *)user_data, "%s", cstr);
     fflush((FILE *)user_data);
+
+#if defined __ANDROID__
+    LOGCONSOLE("%s", cstr);
+#endif
 
     return false;
 }
@@ -997,28 +1029,27 @@ static inline VKAPI_ATTR VkBool32 VKAPI_CALL messenger_win32_debug_output_msg(
     VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagsEXT message_type,
     const VkDebugUtilsMessengerCallbackDataEXT *callback_data, void *user_data) {
 #ifdef WIN32
-    char buf[2048];
+    std::ostringstream msg_buffer;
     char msg_severity[30];
     char msg_type[30];
 
     PrintMessageSeverity(message_severity, msg_severity);
     PrintMessageType(message_type, msg_type);
 
-    size_t buffer_space = sizeof(buf) - 1;
-    size_t remaining_space = buffer_space;
-    _snprintf(buf, sizeof(buf) - 1, "%s(%s / %s): msgNum: %d - %s\n", callback_data->pMessageIdName, msg_severity, msg_type,
-              callback_data->messageIdNumber, callback_data->pMessage);
-    remaining_space = buffer_space - strlen(buf);
-    _snprintf(buf, remaining_space, "    Objects: %d\n", callback_data->objectCount);
+    msg_buffer << callback_data->pMessageIdName << "(" << msg_severity << " / " << msg_type
+               << "): msgNum: " << callback_data->messageIdNumber << " - " << callback_data->pMessage << "\n";
+    msg_buffer << "    Objects: " << callback_data->objectCount << "\n";
+
     for (uint32_t obj = 0; obj < callback_data->objectCount; ++obj) {
-        remaining_space = buffer_space - strlen(buf);
-        if (remaining_space > 0) {
-            _snprintf(buf, remaining_space, "       [%d] 0x%" PRIx64 ", type: %d, name: %s\n", obj,
-                      callback_data->pObjects[obj].objectHandle, callback_data->pObjects[obj].objectType,
-                      callback_data->pObjects[obj].pObjectName);
-        }
+        msg_buffer << "       [" << obj << "]  " << std::hex << std::showbase
+                   << HandleToUint64(callback_data->pObjects[obj].objectHandle) << ", type: " << std::dec << std::noshowbase
+                   << callback_data->pObjects[obj].objectType
+                   << ", name: " << (callback_data->pObjects[obj].pObjectName ? callback_data->pObjects[obj].pObjectName : "NULL")
+                   << "\n";
     }
-    OutputDebugString(buf);
+    const std::string tmp = msg_buffer.str();
+    const char *cstr = tmp.c_str();
+    OutputDebugString(cstr);
 #endif
 
     return false;
@@ -1131,8 +1162,11 @@ static inline void EndCmdDebugUtilsLabel(debug_report_data *report_data, VkComma
             report_data->cmdBufLabelHasInsert = false;
             label_iter->second.pop_back();
         }
-        // Now pop the normal item
-        label_iter->second.pop_back();
+        // Guard against unbalanced markers.
+        if (label_iter->second.size() > 0) {
+            // Now pop the normal item
+            label_iter->second.pop_back();
+        }
     }
 }
 

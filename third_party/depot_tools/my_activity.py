@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env vpython
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -20,6 +20,17 @@ Example:
 # before end and modified after begin. Then, we get the details of each item and
 # check those details to determine if there was activity in the given period.
 # This means that query time scales mostly with (today() - begin).
+
+# [VPYTHON:BEGIN]
+# wheel: <
+#   name: "infra/python/wheels/python-dateutil-py2_py3"
+#   version: "version:2.7.3"
+# >
+# wheel: <
+#   name: "infra/python/wheels/six-py2_py3"
+#   version: "version:1.10.0"
+# >
+# [VPYTHON:END]
 
 import collections
 import contextlib
@@ -689,7 +700,7 @@ class MyActivity(object):
     if self.changes:
       self.print_heading('Changes')
       for change in self.changes:
-          self.print_change(change)
+        self.print_change(change)
 
   def print_access_errors(self):
     if self.access_errors:
@@ -846,7 +857,8 @@ def main():
   parser = optparse.OptionParser(description=sys.modules[__name__].__doc__)
   parser.add_option(
       '-u', '--user', metavar='<email>',
-      default=os.environ.get('USER'),
+      # Look for USER and USERNAME (Windows) environment variables.
+      default=os.environ.get('USER', os.environ.get('USERNAME')),
       help='Filter on user, default=%default')
   parser.add_option(
       '-b', '--begin', metavar='<date>',
@@ -997,7 +1009,7 @@ def main():
   if args:
     parser.error('Args unsupported')
   if not options.user:
-    parser.error('USER is not set, please use -u')
+    parser.error('USER/USERNAME is not set, please use -u')
   options.user = username(options.user)
 
   logging.basicConfig(level=options.verbosity)
@@ -1027,6 +1039,12 @@ def main():
     else:
       end = datetime.today()
   options.begin, options.end = begin, end
+  if begin >= end:
+    # The queries fail in peculiar ways when the begin date is in the future.
+    # Give a descriptive error message instead.
+    logging.error('Start date (%s) is the same or later than end date (%s)' %
+                  (begin, end))
+    return 1
 
   if options.markdown:
     options.output_format_heading = '### {heading}\n'

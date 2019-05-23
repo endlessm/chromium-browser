@@ -105,7 +105,7 @@ MainThreadDebugger::~MainThreadDebugger() {
 
 void MainThreadDebugger::ReportConsoleMessage(ExecutionContext* context,
                                               MessageSource source,
-                                              MessageLevel level,
+                                              mojom::ConsoleMessageLevel level,
                                               const String& message,
                                               SourceLocation* location) {
   if (LocalFrame* frame = ToFrame(context))
@@ -188,9 +188,9 @@ void MainThreadDebugger::ExceptionThrown(ExecutionContext* context,
     NOTREACHED();
   }
 
-  frame->Console().ReportMessageToClient(kJSMessageSource, kErrorMessageLevel,
-                                         event->MessageForConsole(),
-                                         event->Location());
+  frame->Console().ReportMessageToClient(
+      kJSMessageSource, mojom::ConsoleMessageLevel::kError,
+      event->MessageForConsole(), event->Location());
 
   const String default_message = "Uncaught";
   if (script_state && script_state->ContextIsValid()) {
@@ -282,8 +282,20 @@ void MainThreadDebugger::unmuteMetrics(int context_group_id) {
 v8::Local<v8::Context> MainThreadDebugger::ensureDefaultContextInGroup(
     int context_group_id) {
   LocalFrame* frame = WeakIdentifierMap<LocalFrame>::Lookup(context_group_id);
-  ScriptState* script_state =
-      frame ? ToScriptStateForMainWorld(frame) : nullptr;
+  if (!frame)
+    return v8::Local<v8::Context>();
+
+  // This is a workaround code with a bailout to avoid crashing in
+  // LocalWindowProxy::Initialize().
+  // We cannot request a ScriptState on a provisional frame as it would lead
+  // to a context creation on it, which is not allowed. Remove this extra check
+  // when provisional frames concept gets eliminated. See crbug.com/897816
+  // The DCHECK is kept to catch additional regressions earlier.
+  DCHECK(!frame->IsProvisional());
+  if (frame->IsProvisional())
+    return v8::Local<v8::Context>();
+
+  ScriptState* script_state = ToScriptStateForMainWorld(frame);
   return script_state ? script_state->GetContext() : v8::Local<v8::Context>();
 }
 

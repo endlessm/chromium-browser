@@ -1,9 +1,8 @@
 //===-------- LegalizeFloatTypes.cpp - Legalization of float types --------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -441,6 +440,15 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_FNEG(SDNode *N, unsigned ResNo) {
     return SDValue(N, ResNo);
   EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), N->getValueType(0));
   SDLoc dl(N);
+
+  EVT FloatVT = N->getValueType(ResNo);
+  if (FloatVT == MVT::f32 || FloatVT == MVT::f64 || FloatVT == MVT::f128) {
+    // Expand Y = FNEG(X) -> Y = X ^ sign mask
+    APInt SignMask = APInt::getSignMask(NVT.getSizeInBits());
+    return DAG.getNode(ISD::XOR, dl, NVT, GetSoftenedFloat(N->getOperand(0)),
+                       DAG.getConstant(SignMask, dl, NVT));
+  }
+
   // Expand Y = FNEG(X) -> Y = SUB -0.0, X
   SDValue Ops[2] = { DAG.getConstantFP(-0.0, dl, N->getValueType(0)),
                      GetSoftenedFloat(N->getOperand(0)) };
@@ -1749,6 +1757,8 @@ static ISD::NodeType GetPromotionOpcode(EVT OpVT, EVT RetVT) {
 }
 
 bool DAGTypeLegalizer::PromoteFloatOperand(SDNode *N, unsigned OpNo) {
+  LLVM_DEBUG(dbgs() << "Promote float operand " << OpNo << ": "; N->dump(&DAG);
+             dbgs() << "\n");
   SDValue R = SDValue();
 
   if (CustomLowerNode(N, N->getOperand(OpNo).getValueType(), false)) {
@@ -1763,6 +1773,10 @@ bool DAGTypeLegalizer::PromoteFloatOperand(SDNode *N, unsigned OpNo) {
   // a part of PromoteFloatResult.
   switch (N->getOpcode()) {
     default:
+  #ifndef NDEBUG
+      dbgs() << "PromoteFloatOperand Op #" << OpNo << ": ";
+      N->dump(&DAG); dbgs() << "\n";
+  #endif
       llvm_unreachable("Do not know how to promote this operator's operand!");
 
     case ISD::BITCAST:    R = PromoteFloatOp_BITCAST(N, OpNo); break;
@@ -1873,6 +1887,8 @@ SDValue DAGTypeLegalizer::PromoteFloatOp_STORE(SDNode *N, unsigned OpNo) {
 //===----------------------------------------------------------------------===//
 
 void DAGTypeLegalizer::PromoteFloatResult(SDNode *N, unsigned ResNo) {
+  LLVM_DEBUG(dbgs() << "Promote float result " << ResNo << ": "; N->dump(&DAG);
+             dbgs() << "\n");
   SDValue R = SDValue();
 
   switch (N->getOpcode()) {
@@ -1881,6 +1897,10 @@ void DAGTypeLegalizer::PromoteFloatResult(SDNode *N, unsigned ResNo) {
     case ISD::FP16_TO_FP:
     case ISD::FP_TO_FP16:
     default:
+#ifndef NDEBUG
+      dbgs() << "PromoteFloatResult #" << ResNo << ": ";
+      N->dump(&DAG); dbgs() << "\n";
+#endif
       llvm_unreachable("Do not know how to promote this operator's result!");
 
     case ISD::BITCAST:    R = PromoteFloatRes_BITCAST(N); break;

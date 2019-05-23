@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/base_paths.h"
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/cpu.h"
 #include "base/files/file_path.h"
@@ -36,7 +37,6 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/crash_keys.h"
 #include "chrome/common/logging_chrome.h"
-#include "chrome/common/trace_event_args_whitelist.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/gpu/chrome_content_gpu_client.h"
 #include "chrome/renderer/chrome_content_renderer_client.h"
@@ -46,6 +46,7 @@
 #include "components/crash/content/app/crash_reporter_client.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/crash/core/common/crash_keys.h"
+#include "components/gwp_asan/buildflags/buildflags.h"
 #include "components/nacl/common/buildflags.h"
 #include "components/services/heap_profiling/public/cpp/sampling_profiler_wrapper.h"
 #include "components/services/heap_profiling/public/cpp/stream.h"
@@ -77,7 +78,6 @@
 #include "chrome/child/v8_crashpad_support_win.h"
 #include "chrome/common/child_process_logging.h"
 #include "chrome_elf/chrome_elf_main.h"
-#include "components/gwp_asan/client/gwp_asan.h"  // nogncheck
 #include "sandbox/win/src/sandbox.h"
 #include "ui/base/resource/resource_bundle_win.h"
 #endif
@@ -109,6 +109,7 @@
 #if defined(OS_CHROMEOS)
 #include "base/system/sys_info.h"
 #include "chrome/browser/chromeos/boot_times_recorder.h"
+#include "chrome/browser/chromeos/dbus/dbus_helper.h"
 #include "chromeos/constants/chromeos_paths.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/hugepage_text/hugepage_text.h"
@@ -132,6 +133,7 @@
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
 #include "components/crash/content/app/breakpad_linux.h"
+#include "v8/include/v8-wasm-trap-handler-posix.h"
 #include "v8/include/v8.h"
 #endif
 
@@ -160,6 +162,10 @@
 
 #if !defined(CHROME_MULTIPLE_DLL_BROWSER) && BUILDFLAG(ENABLE_PDF)
 #include "chrome/child/pdf_child_init.h"
+#endif
+
+#if BUILDFLAG(ENABLE_GWP_ASAN)
+#include "components/gwp_asan/client/gwp_asan.h"  // nogncheck
 #endif
 
 #if !defined(CHROME_MULTIPLE_DLL_BROWSER)
@@ -511,6 +517,12 @@ void ChromeMainDelegate::PostEarlyInitialization(bool is_running_tests) {
   // a ChromeNetworkDelegate attached that selectively allows cookies again.
   net::URLRequest::SetDefaultCookiePolicyToBlock();
 
+#if defined(OS_CHROMEOS)
+  // The feature list depends on BrowserPolicyConnectorChromeOS which depends
+  // on DBus, so initialize it here.
+  chromeos::InitializeDBus();
+#endif
+
   DCHECK(chrome_feature_list_creator_);
   chrome_feature_list_creator_->CreateFeatureList();
   PostFieldTrialInitialization();
@@ -528,8 +540,16 @@ bool ChromeMainDelegate::ShouldCreateFeatureList() {
 #endif
 
 void ChromeMainDelegate::PostFieldTrialInitialization() {
-#if defined(OS_WIN)
-  gwp_asan::EnableForMalloc();
+#if BUILDFLAG(ENABLE_GWP_ASAN)
+  version_info::Channel channel = chrome::GetChannel();
+  bool is_canary_dev = (channel == version_info::Channel::CANARY ||
+                        channel == version_info::Channel::DEV);
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  std::string process_type =
+      command_line.GetSwitchValueASCII(switches::kProcessType);
+  bool is_browser_process = process_type.empty();
+  gwp_asan::EnableForMalloc(is_canary_dev, is_browser_process);
 #endif
 }
 
@@ -577,9 +597,6 @@ bool ChromeMainDelegate::BasicStartupComplete(int* exit_code) {
 
   content::Profiling::ProcessStarted();
 
-  base::trace_event::TraceLog::GetInstance()->SetArgumentFilterPredicate(
-      base::Bind(&IsTraceEventArgsWhitelisted));
-
   // Setup tracing sampler profiler as early as possible at startup if needed.
   tracing_sampler_profiler_ =
       tracing::TracingSamplerProfiler::CreateOnMainThread();
@@ -588,7 +605,7 @@ bool ChromeMainDelegate::BasicStartupComplete(int* exit_code) {
   v8_crashpad_support::SetUp();
 #endif
 #if defined(OS_LINUX)
-  breakpad::SetFirstChanceExceptionHandler(v8::V8::TryHandleSignal);
+  breakpad::SetFirstChanceExceptionHandler(v8::TryHandleWebAssemblyTrapPosix);
 #endif
 
 #if defined(OS_POSIX)

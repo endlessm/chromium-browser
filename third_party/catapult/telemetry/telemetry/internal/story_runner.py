@@ -298,6 +298,7 @@ def Run(test, story_set, finder_options, results, max_failures=None,
           logging.error('Too many failures. Aborting.')
           return
   finally:
+    results.ComputeTimelineBasedMetrics()
     results.PopulateHistogramSet()
 
     for name, diag in device_info_diags.iteritems():
@@ -329,6 +330,7 @@ def RunBenchmark(benchmark, finder_options):
     1 if there is failure or 2 if there is an uncaught exception.
   """
   benchmark.CustomizeBrowserOptions(finder_options.browser_options)
+  benchmark.CustomizeOptions(finder_options)
 
   benchmark_metadata = benchmark.GetMetadata()
   possible_browser = browser_finder.FindBrowser(finder_options)

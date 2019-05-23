@@ -19,8 +19,10 @@ namespace commands {
 const char kMeta[] = "meta";
 const char kMeta_HelpShort[] = "meta: List target metadata collection results.";
 const char kMeta_Help[] =
-    R"(gn meta <out_dir> <target>* --data=<key>[,<key>*]* [--walk=<key>[,<key>*]*]
-       [--rebase=<dest dir>]
+    R"(gn meta
+
+  gn meta <out_dir> <target>* --data=<key>[,<key>*]* [--walk=<key>[,<key>*]*]
+          [--rebase=<dest dir>]
 
   Lists collected metaresults of all given targets for the given data key(s),
   collecting metadata dependencies as specified by the given walk key(s).
@@ -112,8 +114,15 @@ int RunMeta(const std::vector<std::string>& args) {
       walk_keys_str, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   Err err;
   std::set<const Target*> targets_walked;
+  SourceDir rebase_source_dir(rebase_dir);
+  // When SourceDir constructor is supplied with an empty string,
+  // a trailing slash will be added. This prevent SourceDir::is_null()
+  // from returning true. Explicitly remove this traling slash here.
+  if (rebase_dir.empty()) {
+    rebase_source_dir = SourceDir();
+  }
   std::vector<Value> result =
-      WalkMetadata(targets, data_keys, walk_keys, SourceDir(rebase_dir),
+      WalkMetadata(targets, data_keys, walk_keys, rebase_source_dir,
                    &targets_walked, &err);
   if (err.has_error()) {
     err.PrintToStdout();

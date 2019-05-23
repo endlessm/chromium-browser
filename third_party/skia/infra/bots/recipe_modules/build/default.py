@@ -197,6 +197,7 @@ def compile_fn(api, checkout_root, out_dir):
       'skia_enable_pdf':        'false',
       'skia_use_expat':         'false',
       'skia_use_freetype':      'false',
+      'skia_use_harfbuzz':      'false',
       'skia_use_libjpeg_turbo': 'false',
       'skia_use_libpng':        'false',
       'skia_use_libwebp':       'false',
@@ -244,9 +245,18 @@ def compile_fn(api, checkout_root, out_dir):
   for t in extra_tokens:
     if t.endswith('SAN'):
       sanitize = t
+      if api.vars.is_linux and t == 'ASAN':
+        # skia:8712 and skia:8713
+        extra_cflags.append('-DSK_ENABLE_SCOPED_LSAN_SUPPRESSIONS')
   if 'SafeStack' in extra_tokens:
     assert sanitize == ''
     sanitize = 'safe-stack'
+  if 'MSRTC' in extra_tokens:
+    assert sanitize == ''
+    sanitize = 'MSVC'
+
+  if 'Wuffs' in extra_tokens:
+    args['skia_use_wuffs'] = 'true'
 
   for (k,v) in {
     'cc':  cc,

@@ -72,7 +72,7 @@ OPTIONS
 
   Path to object file to be symbolized.
 
-.. option:: -functions=[none|short|linkage]
+.. option:: -functions[=<none|short|linkage>], -f
 
   Specify the way function names are printed (omit function name,
   print short function name, or print full linkage name, respectively).
@@ -87,7 +87,11 @@ OPTIONS
 
  Print demangled function names. Defaults to true.
 
-.. option:: -inlining 
+.. option:: -no-demangle
+
+ Don't print demangled function names.
+
+.. option:: -inlining, -inlines, -i
 
  If a source code location is in an inlined function, prints all the
  inlnied frames. Defaults to true.
@@ -114,6 +118,15 @@ OPTIONS
 
  Print human readable output. If ``-inlining`` is specified, enclosing scope is
  prefixed by (inlined by). Refer to listed examples.
+
+.. option:: -basenames, -s
+
+ Strip directories when printing the file path.
+
+.. option:: -adjust-vma=<offset>
+
+ Add the specified offset to object file addresses when performing lookups. This
+ can be used to perform lookups as if the object were relocated by the offset.
 
 EXIT STATUS
 -----------

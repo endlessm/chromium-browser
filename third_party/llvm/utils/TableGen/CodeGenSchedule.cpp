@@ -1,9 +1,8 @@
 //===- CodeGenSchedule.cpp - Scheduling MachineModels ---------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1936,8 +1935,9 @@ void CodeGenSchedModels::checkCompleteness() {
       unsigned SCIdx = getSchedClassIdx(*Inst);
       if (!SCIdx) {
         if (Inst->TheDef->isValueUnset("SchedRW") && !HadCompleteModel) {
-          PrintError("No schedule information for instruction '"
-                     + Inst->TheDef->getName() + "'");
+          PrintError(Inst->TheDef->getLoc(),
+                     "No schedule information for instruction '" +
+                         Inst->TheDef->getName() + "'");
           Complete = false;
         }
         continue;
@@ -1955,8 +1955,9 @@ void CodeGenSchedModels::checkCompleteness() {
         return R->getValueAsDef("SchedModel") == ProcModel.ModelDef;
       });
       if (I == InstRWs.end()) {
-        PrintError("'" + ProcModel.ModelName + "' lacks information for '" +
-                   Inst->TheDef->getName() + "'");
+        PrintError(Inst->TheDef->getLoc(), "'" + ProcModel.ModelName +
+                                               "' lacks information for '" +
+                                               Inst->TheDef->getName() + "'");
         Complete = false;
       }
     }

@@ -1,4 +1,5 @@
-; RUN: llc < %s -asm-verbose=false -disable-wasm-fallthrough-return-opt -wasm-disable-explicit-locals -wasm-keep-registers | FileCheck %s
+; RUN: llc < %s -thread-model=single -asm-verbose=false -disable-wasm-fallthrough-return-opt -wasm-disable-explicit-locals -wasm-keep-registers | FileCheck %s --check-prefixes=CHECK,SINGLE
+; RUN: llc < %s -thread-model=posix -asm-verbose=false -disable-wasm-fallthrough-return-opt -wasm-disable-explicit-locals -wasm-keep-registers | FileCheck %s --check-prefixes=CHECK,THREADS
 
 ; Test that globals assemble as expected.
 
@@ -20,7 +21,7 @@ define i32 @foo() {
 
 ; CHECK-LABEL: call_memcpy:
 ; CHECK-NEXT: .functype call_memcpy (i32, i32, i32) -> (i32){{$}}
-; CHECK-NEXT: i32.call        $push0=, memcpy@FUNCTION, $0, $1, $2{{$}}
+; CHECK-NEXT: i32.call        $push0=, memcpy, $0, $1, $2{{$}}
 ; CHECK-NEXT: return          $pop0{{$}}
 declare void @llvm.memcpy.p0i8.p0i8.i32(i8* nocapture, i8* nocapture readonly, i32, i1)
 define i8* @call_memcpy(i8* %p, i8* nocapture readonly %q, i32 %n) {
@@ -191,7 +192,8 @@ define i8* @call_memcpy(i8* %p, i8* nocapture readonly %q, i32 %n) {
 
 ; Constant global.
 ; CHECK: .type    rom,@object{{$}}
-; CHECK: .section .rodata.rom,
+; SINGLE: .section .rodata.rom,""
+; THREADS: .section .rodata.rom,"passive"
 ; CHECK: .globl   rom{{$}}
 ; CHECK: .p2align   4{{$}}
 ; CHECK: rom:
@@ -204,7 +206,8 @@ define i8* @call_memcpy(i8* %p, i8* nocapture readonly %q, i32 %n) {
 ; CHECK-NEXT: .skip       8
 ; CHECK-NEXT: .size       array, 8
 ; CHECK: .type       pointer_to_array,@object
-; CHECK-NEXT: .section    .rodata.pointer_to_array,
+; SINGLE-NEXT: .section    .rodata.pointer_to_array,""
+; THREADS-NEXT: .section    .rodata.pointer_to_array,"passive"
 ; CHECK-NEXT: .globl      pointer_to_array
 ; CHECK-NEXT: .p2align      2
 ; CHECK-NEXT: pointer_to_array:

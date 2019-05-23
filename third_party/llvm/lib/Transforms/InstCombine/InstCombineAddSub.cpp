@@ -1,9 +1,8 @@
 //===- InstCombineAddSub.cpp ------------------------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1118,6 +1117,12 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
     // -A + B --> B - A
     return BinaryOperator::CreateSub(RHS, A);
   }
+
+  // Canonicalize sext to zext for better value tracking potential.
+  // add A, sext(B) --> sub A, zext(B)
+  if (match(&I, m_c_Add(m_Value(A), m_OneUse(m_SExt(m_Value(B))))) &&
+      B->getType()->isIntOrIntVectorTy(1))
+    return BinaryOperator::CreateSub(A, Builder.CreateZExt(B, Ty));
 
   // A + -B  -->  A - B
   if (match(RHS, m_Neg(m_Value(B))))

@@ -379,14 +379,14 @@ class DeployLuciSchedulerStage(generic_stages.BuilderStage):
 
   category = constants.CI_INFRA_STAGE
 
-  # Where is the LUCI Project config defined.
   PROJECT_URL = os.path.join(constants.INTERNAL_GOB_URL,
-                             'chromeos/manifest-internal')
-  PROJECT_BRANCH = 'infra/config'
+                             'chromeos/infra/config')
+  PROJECT_BRANCH = 'master'
 
   def __init__(self, builder_run, buildstore, **kwargs):
     super(DeployLuciSchedulerStage, self).__init__(builder_run, buildstore,
                                                    **kwargs)
+    self.legacy_project_dir = None
     self.project_dir = None
 
   def _RunUnitTest(self):
@@ -398,30 +398,39 @@ class DeployLuciSchedulerStage(generic_stages.BuilderStage):
     cmd = ['cros_sdk', '--', test_path]
     cros_build_lib.RunCommand(cmd, cwd=constants.CHROMITE_DIR)
 
+  def _MakeWorkDir(self, name):
+    """Makes and returns the path to a temporary directory.
+
+    Args:
+      name: name to use in the creation of the temporary directory.
+    """
+    path = GetProjectWorkDir(name)
+    osutils.RmDir(path, ignore_missing=True, sudo=True)
+    osutils.SafeMakedirs(path)
+    return path
+
   def _CheckoutLuciProject(self):
-    """Checkout to the corresponding branch in the temp repository.
+    """Checkout the LUCI project config.
 
     Raises:
       BranchNotFoundException if failed to checkout to the branch.
     """
-    self.project_dir = GetProjectWorkDir('luci_config')
-    osutils.RmDir(self.project_dir, ignore_missing=True, sudo=True)
-    osutils.SafeMakedirs(self.project_dir)
+    self.project_dir = self._MakeWorkDir('luci_config')
 
     git.Clone(self.project_dir, self.PROJECT_URL, branch=self.PROJECT_BRANCH)
 
-    logging.info('Checked out %s:%s in %s', self.PROJECT_URL,
-                 self.PROJECT_BRANCH, self.project_dir)
+    logging.info('Checked out luci config %s:%s in %s',
+                 self.PROJECT_URL, self.PROJECT_BRANCH, self.project_dir)
 
   def _UpdateLuciProject(self):
-    """Create and return a diff patch file for config changes."""
     source_file = os.path.join(constants.CHROMITE_DIR, 'config',
                                'luci-scheduler.cfg')
 
-    target_file = os.path.join(self.project_dir, 'luci-scheduler.cfg')
+    target_file = os.path.join(self.project_dir, 'luci', 'luci-scheduler.cfg')
 
     if osutils.ReadFile(source_file) == osutils.ReadFile(target_file):
-      logging.PrintBuildbotStepText('luci-scheduler.cfg current: No Update.')
+      logging.PrintBuildbotStepText(
+          'luci-scheduler.cfg current: No Update.')
       return
 
     chromite_rev = git.RunGit(
@@ -439,20 +448,20 @@ class DeployLuciSchedulerStage(generic_stages.BuilderStage):
     git.RunGit(self.project_dir, ['add', '-A'])
     git.RunGit(self.project_dir, ['commit', '-m', message])
 
-    push_to = git.RemoteRef('origin', 'infra/config')
+    push_to = git.RemoteRef('origin', self.PROJECT_BRANCH)
     logging.info('Pushing to branch (%s) with message: %s %s', push_to, message,
                  ' (dryrun)' if self._run.options.debug else '')
     git.RunGit(
         self.project_dir, ['config', 'push.default', 'tracking'],
         print_cmd=True)
-    git.PushBranch(
-        self.PROJECT_BRANCH, self.project_dir, dryrun=self._run.options.debug)
+    git.PushBranch(self.PROJECT_BRANCH, self.project_dir,
+                   dryrun=self._run.options.debug)
     logging.PrintBuildbotStepText('luci-scheduler.cfg: Updated.')
 
   def PerformStage(self):
     """Perform the DeployLuciSchedulerStage."""
-    logging.info('Update luci_scheduler.cfg at %s:%s.', self.PROJECT_URL,
-                 self.PROJECT_BRANCH)
+    logging.info('Update luci_scheduler.cfg at %s:%s.',
+                 self.PROJECT_URL, self.PROJECT_BRANCH)
 
     self._RunUnitTest()
     self._CheckoutLuciProject()

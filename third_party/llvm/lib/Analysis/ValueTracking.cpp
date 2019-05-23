@@ -1,9 +1,8 @@
 //===- ValueTracking.cpp - Walk computations to compute properties --------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -2037,10 +2036,32 @@ bool isKnownNonZero(const Value *V, unsigned Depth, const Query &Q) {
     if (isKnownNonNullFromDominatingCondition(V, Q.CxtI, Q.DT))
       return true;
 
+    // Look through bitcast operations, GEPs, and int2ptr instructions as they
+    // do not alter the value, or at least not the nullness property of the
+    // value, e.g., int2ptr is allowed to zero/sign extend the value.
+    //
+    // Note that we have to take special care to avoid looking through
+    // truncating casts, e.g., int2ptr/ptr2int with appropriate sizes, as well
+    // as casts that can alter the value, e.g., AddrSpaceCasts.
     if (const GEPOperator *GEP = dyn_cast<GEPOperator>(V))
       if (isGEPKnownNonNull(GEP, Depth, Q))
         return true;
+
+    if (auto *BCO = dyn_cast<BitCastOperator>(V))
+      return isKnownNonZero(BCO->getOperand(0), Depth, Q);
+
+    if (auto *I2P = dyn_cast<IntToPtrInst>(V))
+      if (Q.DL.getTypeSizeInBits(I2P->getSrcTy()) <=
+          Q.DL.getTypeSizeInBits(I2P->getDestTy()))
+        return isKnownNonZero(I2P->getOperand(0), Depth, Q);
   }
+
+  // Similar to int2ptr above, we can look through ptr2int here if the cast
+  // is a no-op or an extend and not a truncate.
+  if (auto *P2I = dyn_cast<PtrToIntInst>(V))
+    if (Q.DL.getTypeSizeInBits(P2I->getSrcTy()) <=
+        Q.DL.getTypeSizeInBits(P2I->getDestTy()))
+      return isKnownNonZero(P2I->getOperand(0), Depth, Q);
 
   unsigned BitWidth = getBitWidth(V->getType()->getScalarType(), Q.DL);
 
@@ -3901,6 +3922,7 @@ bool llvm::isSafeToSpeculativelyExecute(const Value *V,
   case Instruction::VAArg:
   case Instruction::Alloca:
   case Instruction::Invoke:
+  case Instruction::CallBr:
   case Instruction::PHI:
   case Instruction::Store:
   case Instruction::Ret:
@@ -4325,7 +4347,8 @@ bool llvm::isGuaranteedToTransferExecutionToSuccessor(const Instruction *I) {
     // is guaranteed to return.
     return CS.onlyReadsMemory() || CS.onlyAccessesArgMemory() ||
            match(I, m_Intrinsic<Intrinsic::assume>()) ||
-           match(I, m_Intrinsic<Intrinsic::sideeffect>());
+           match(I, m_Intrinsic<Intrinsic::sideeffect>()) ||
+           match(I, m_Intrinsic<Intrinsic::experimental_widenable_condition>());
   }
 
   // Other instructions return normally.
@@ -4333,7 +4356,7 @@ bool llvm::isGuaranteedToTransferExecutionToSuccessor(const Instruction *I) {
 }
 
 bool llvm::isGuaranteedToTransferExecutionToSuccessor(const BasicBlock *BB) {
-  // TODO: This is slightly consdervative for invoke instruction since exiting
+  // TODO: This is slightly conservative for invoke instruction since exiting
   // via an exception *is* normal control for them.
   for (auto I = BB->begin(), E = BB->end(); I != E; ++I)
     if (!isGuaranteedToTransferExecutionToSuccessor(&*I))

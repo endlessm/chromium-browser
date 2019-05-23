@@ -1,9 +1,8 @@
 //===- TargetPassConfig.cpp - Target independent code generation passes ---===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -408,7 +407,7 @@ TargetPassConfig::TargetPassConfig(LLVMTargetMachine &TM, PassManagerBase &pm)
     TM.Options.EnableIPRA = EnableIPRA;
   else {
     // If not explicitly specified, use target default.
-    TM.Options.EnableIPRA = TM.useIPRA();
+    TM.Options.EnableIPRA |= TM.useIPRA();
   }
 
   if (TM.Options.EnableIPRA)
@@ -1039,10 +1038,6 @@ bool TargetPassConfig::getOptimizeRegAlloc() const {
   llvm_unreachable("Invalid optimize-regalloc state");
 }
 
-/// RegisterRegAlloc's global Registry tracks allocator registration.
-MachinePassRegistry<RegisterRegAlloc::FunctionPassCtor>
-    RegisterRegAlloc::Registry;
-
 /// A dummy default pass factory indicates whether the register allocator is
 /// overridden on the command line.
 static llvm::once_flag InitializeDefaultRegisterAllocatorFlag;
@@ -1220,4 +1215,8 @@ bool TargetPassConfig::isGlobalISelAbortEnabled() const {
 
 bool TargetPassConfig::reportDiagnosticWhenGlobalISelFallback() const {
   return TM->Options.GlobalISelAbort == GlobalISelAbortMode::DisableWithDiag;
+}
+
+bool TargetPassConfig::isGISelCSEEnabled() const {
+  return getOptLevel() != CodeGenOpt::Level::None;
 }

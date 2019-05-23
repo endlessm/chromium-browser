@@ -408,7 +408,7 @@ def RemoveUnusedToolchains(root):
   for toolchain in valid_toolchains:
     toolchain_age_in_sec = time.time() - toolchain[0]
     if toolchain_age_in_sec > toolchain_expiration_time:
-      print ('Removing version %s of the Win toolchain has it hasn\'t been used'
+      print ('Removing version %s of the Win toolchain as it hasn\'t been used'
              ' in the past %d days.' % (toolchain[1],
                                         toolchain_age_in_sec / 60 / 60 / 24))
       RemoveToolchain(root, toolchain[1], True)
@@ -442,6 +442,8 @@ def main():
                     help='write information about toolchain to FILE')
   parser.add_option('--force', action='store_true',
                     help='force script to run on non-Windows hosts')
+  parser.add_option('--no-download', action='store_true',
+                    help='configure if present but don\'t download')
   parser.add_option('--toolchain-dir',
                     default=os.getenv(ENV_TOOLCHAIN_ROOT, BASEDIR),
                     help='directory to install toolchain into')
@@ -492,6 +494,11 @@ def main():
   # based on timestamps to make that case fast.
   current_hashes = CalculateToolchainHashes(target_dir, True)
   if desired_hash not in current_hashes:
+    if options.no_download:
+      raise SystemExit('Toolchain is out of date. Run "gclient runhooks" to '
+                       'update the toolchain, or set '
+                       'DEPOT_TOOLS_WIN_TOOLCHAIN=0 to use the locally '
+                       'installed toolchain.')
     should_use_file = False
     should_use_http = False
     should_use_gs = False

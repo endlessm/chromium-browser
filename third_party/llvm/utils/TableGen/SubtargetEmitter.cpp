@@ -1,9 +1,8 @@
 //===- SubtargetEmitter.cpp - Generate subtarget enumerations -------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -204,7 +203,7 @@ unsigned SubtargetEmitter::FeatureKeyValues(raw_ostream &OS) {
     OS << "  { "
        << "\"" << CommandLineName << "\", "
        << "\"" << Desc << "\", "
-       << "{ " << Target << "::" << Name << " }, ";
+       << Target << "::" << Name << ", ";
 
     RecVec ImpliesList = Feature->getValueAsListOfDefs("Implies");
 
@@ -243,18 +242,18 @@ unsigned SubtargetEmitter::CPUKeyValues(raw_ostream &OS) {
     StringRef Name = Processor->getValueAsString("Name");
     RecVec FeatureList = Processor->getValueAsListOfDefs("Features");
 
-    // Emit as { "cpu", "description", { f1 , f2 , ... fn } },
-    OS << "  { "
+    // Emit as { "cpu", "description", 0, { f1 , f2 , ... fn } },
+    // The 0 is for the feature id which isn't used for CPUs.
+    OS << " { "
        << "\"" << Name << "\", "
-       << "\"Select the " << Name << " processor\", ";
+       << "\"Select the " << Name << " processor\", 0, ";
 
     OS << "{";
     for (unsigned j = 0, M = FeatureList.size(); j < M;) {
       OS << " " << Target << "::" << FeatureList[j]->getName();
       if (++j < M) OS << ",";
     }
-    // The { } is for the "implies" section of this data structure.
-    OS << " }, { } },\n";
+    OS << " } },\n";
   }
 
   // End processor table

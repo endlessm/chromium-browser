@@ -91,6 +91,12 @@ CompositorView::CompositorView(JNIEnv* env,
 
   root_layer_->SetIsDrawable(true);
   root_layer_->SetBackgroundColor(SK_ColorWHITE);
+
+  surface_control_feature_checker_ = content::GpuFeatureChecker::Create(
+      gpu::GpuFeatureType::GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL,
+      base::Bind(&CompositorView::OnSurfaceControlFeatureStatusUpdate,
+                 weak_factory_.GetWeakPtr()));
+  surface_control_feature_checker_->CheckGpuFeatureAvailability();
 }
 
 CompositorView::~CompositorView() {
@@ -118,7 +124,7 @@ base::android::ScopedJavaLocalRef<jobject> CompositorView::GetResourceManager(
 
 void CompositorView::RecreateSurface() {
   JNIEnv* env = base::android::AttachCurrentThread();
-  compositor_->SetSurface(nullptr);
+  compositor_->SetSurface(nullptr, false);
   Java_CompositorView_recreateSurface(env, obj_);
 }
 
@@ -144,6 +150,15 @@ ui::UIResourceProvider* CompositorView::GetUIResourceProvider() {
   return compositor_ ? &compositor_->GetUIResourceProvider() : nullptr;
 }
 
+void CompositorView::OnSurfaceControlFeatureStatusUpdate(bool available) {
+  if (available) {
+    JNIEnv* env = base::android::AttachCurrentThread();
+    Java_CompositorView_notifyWillUseSurfaceControl(env, obj_);
+  }
+
+  surface_control_feature_checker_.reset();
+}
+
 void CompositorView::SurfaceCreated(JNIEnv* env,
                                     const JavaParamRef<jobject>& object) {
   compositor_->SetRootLayer(root_layer_);
@@ -152,7 +167,7 @@ void CompositorView::SurfaceCreated(JNIEnv* env,
 
 void CompositorView::SurfaceDestroyed(JNIEnv* env,
                                       const JavaParamRef<jobject>& object) {
-  compositor_->SetSurface(nullptr);
+  compositor_->SetSurface(nullptr, false);
   current_surface_format_ = 0;
   tab_content_manager_->OnUIResourcesWereEvicted();
 }
@@ -162,11 +177,12 @@ void CompositorView::SurfaceChanged(JNIEnv* env,
                                     jint format,
                                     jint width,
                                     jint height,
+                                    bool backed_by_surface_texture,
                                     const JavaParamRef<jobject>& surface) {
   DCHECK(surface);
   if (current_surface_format_ != format) {
     current_surface_format_ = format;
-    compositor_->SetSurface(surface);
+    compositor_->SetSurface(surface, backed_by_surface_texture);
   }
   gfx::Size size = gfx::Size(width, height);
   compositor_->SetWindowBounds(size);
@@ -266,7 +282,7 @@ void CompositorView::BrowserChildProcessKilled(
           base::android::SDK_VERSION_JELLY_BEAN_MR2 &&
       data.process_type == content::PROCESS_TYPE_GPU) {
     JNIEnv* env = base::android::AttachCurrentThread();
-    compositor_->SetSurface(nullptr);
+    compositor_->SetSurface(nullptr, false);
     Java_CompositorView_recreateSurface(env, obj_);
   }
 }

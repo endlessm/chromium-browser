@@ -86,7 +86,6 @@
     *   [bundle_contents_dir: Expansion of {{bundle_contents_dir}} in create_bundle.](#var_bundle_contents_dir)
     *   [bundle_deps_filter: [label list] A list of labels that are filtered out.](#var_bundle_deps_filter)
     *   [bundle_executable_dir: Expansion of {{bundle_executable_dir}} in create_bundle](#var_bundle_executable_dir)
-    *   [bundle_plugins_dir: Expansion of {{bundle_plugins_dir}} in create_bundle.](#var_bundle_plugins_dir)
     *   [bundle_resources_dir: Expansion of {{bundle_resources_dir}} in create_bundle.](#var_bundle_resources_dir)
     *   [bundle_root_dir: Expansion of {{bundle_root_dir}} in create_bundle.](#var_bundle_root_dir)
     *   [cflags: [string list] Flags passed to all C compiler variants.](#var_cflags)
@@ -146,12 +145,12 @@
     *   [dotfile: Info about the toplevel .gn file.](#dotfile)
     *   [execution: Build graph and execution overview.](#execution)
     *   [grammar: Language and grammar for GN build files.](#grammar)
-    *   [input_conversion: Processing input from exec_script and read_file.](#input_conversion)
+    *   [input_conversion: Processing input from exec_script and read_file.](#io_conversion)
     *   [label_pattern: Matching more than one label.](#label_pattern)
     *   [labels: About labels.](#labels)
     *   [ninja_rules: How Ninja build rules are named.](#ninja_rules)
     *   [nogncheck: Annotating includes for checking.](#nogncheck)
-    *   [output_conversion: Specifies how to transform a value to output.](#output_conversion)
+    *   [output_conversion: Specifies how to transform a value to output.](#io_conversion)
     *   [runtime_deps: How runtime dependency computation works.](#runtime_deps)
     *   [source_expansion: Map sources to outputs for scripts.](#source_expansion)
     *   [switches: Show available command-line switches.](#switch_list)
@@ -446,10 +445,12 @@
   Deletes the contents of the output directory except for args.gn and
   creates a Ninja build environment sufficient to regenerate the build.
 ```
-### <a name="cmd_desc"></a>**gn desc &lt;out_dir&gt; &lt;label or pattern&gt; [&lt;what to show&gt;] [\--blame] "**
-#### **[\--format=json]**
+### <a name="cmd_desc"></a>**gn desc**
 
 ```
+  gn desc <out_dir> <label or pattern> [<what to show>] [--blame]
+          [--format=json]
+
   Displays information about a given target or config. The build parameters
   will be taken for the build in the given <out_dir>.
 
@@ -683,6 +684,7 @@
       "vs2013" - Visual Studio 2013 project/solution files.
       "vs2015" - Visual Studio 2015 project/solution files.
       "vs2017" - Visual Studio 2017 project/solution files.
+      "vs2019" - Visual Studio 2019 project/solution files.
       "xcode" - Xcode workspace/solution files.
       "qtcreator" - QtCreator project files.
       "json" - JSON file containing target information
@@ -776,12 +778,15 @@
 #### **Compilation Database**
 
 ```
-  --export-compile-commands
+  --export-compile-commands[=<target_name1,target_name2...>]
       Produces a compile_commands.json file in the root of the build directory
       containing an array of “command objects”, where each command object
-      specifies one way a translation unit is compiled in the project. This is
-      used for various Clang-based tooling, allowing for the replay of individual
-      compilations independent of the build system.
+      specifies one way a translation unit is compiled in the project. If a list
+      of target_name is supplied, only targets that are reachable from the list
+      of target_name will be used for “command objects” generation, otherwise
+      all available targets will be used. This is used for various Clang-based
+      tooling, allowing for the replay of individual compilations independent
+      of the build system.
 ```
 ### <a name="cmd_help"></a>**gn help &lt;anything&gt;**
 
@@ -878,9 +883,11 @@
       Lists all variants of the target //base:base (it may be referenced
       in multiple toolchains).
 ```
-### <a name="cmd_meta"></a>**gn meta &lt;out_dir&gt; &lt;target&gt;* \--data=&lt;key&gt;[,&lt;key&gt;*]* [\--walk=&lt;key&gt;[,&lt;key&gt;*]*]**
+### <a name="cmd_meta"></a>**gn meta**
+
 ```
-       [--rebase=<dest dir>]
+  gn meta <out_dir> <target>* --data=<key>[,<key>*]* [--walk=<key>[,<key>*]*]
+          [--rebase=<dest dir>]
 
   Lists collected metaresults of all given targets for the given data key(s),
   collecting metadata dependencies as specified by the given walk key(s).
@@ -978,9 +985,11 @@
 ```
   gn path out/Default //base //tools/gn
 ```
-### <a name="cmd_refs"></a>**gn refs &lt;out_dir&gt; (&lt;label_pattern&gt;|&lt;label&gt;|&lt;file&gt;|@&lt;response_file&gt;)***
+### <a name="cmd_refs"></a>**gn refs**
+
 ```
-        [--all] [--all-toolchains] [--as=...] [--testonly=...] [--type=...]
+  gn refs <out_dir> (<label_pattern>|<label>|<file>|@<response_file>)*
+          [--all] [--all-toolchains] [--as=...] [--testonly=...] [--type=...]
 
   Finds reverse dependencies (which targets reference something). The input is
   a list containing:
@@ -1262,7 +1271,7 @@
     script = "idl_processor.py"
     sources = [ "foo.idl", "bar.idl" ]
 
-    # Our script reads this file each time, so we need to list is as a
+    # Our script reads this file each time, so we need to list it as a
     # dependency so we can rebuild if it changes.
     inputs = [ "my_configuration.txt" ]
 
@@ -1379,8 +1388,9 @@
   are computed from all "bundle_data" target this one depends on transitively
   (the recursion stops at "create_bundle" targets).
 
-  The "bundle_*_dir" properties must be defined. They will be used for the
-  expansion of {{bundle_*_dir}} rules in "bundle_data" outputs.
+  The "bundle_*_dir" are be used for the expansion of {{bundle_*_dir}} rules in
+  "bundle_data" outputs. The properties are optional but must be defined if any
+  of the "bundle_data" target use them.
 
   This target can be used on all platforms though it is designed only to
   generate iOS or macOS bundle. In cross-platform projects, it is advised to put
@@ -1414,13 +1424,11 @@
 #### **Variables**
 
 ```
-  bundle_root_dir*, bundle_contents_dir*, bundle_resources_dir*,
-  bundle_executable_dir*, bundle_plugins_dir*, bundle_deps_filter, deps,
-  data_deps, public_deps, visibility, product_type, code_signing_args,
-  code_signing_script, code_signing_sources, code_signing_outputs,
-  xcode_extra_attributes, xcode_test_application_name, partial_info_plist,
-  metadata
-  * = required
+  bundle_root_dir, bundle_contents_dir, bundle_resources_dir,
+  bundle_executable_dir, bundle_deps_filter, deps, data_deps, public_deps,
+  visibility, product_type, code_signing_args, code_signing_script,
+  code_signing_sources, code_signing_outputs, xcode_extra_attributes,
+  xcode_test_application_name, partial_info_plist, metadata
 ```
 
 #### **Example**
@@ -1447,7 +1455,7 @@
       }
 
       bundle_data("${app_name}_bundle_info_plist") {
-        deps = [ ":${app_name}_generate_info_plist" ]
+        public_deps = [ ":${app_name}_generate_info_plist" ]
         sources = [ "$gen_path/Info.plist" ]
         outputs = [ "{{bundle_contents_dir}}/Info.plist" ]
       }
@@ -1464,34 +1472,32 @@
       code_signing =
           defined(invoker.code_signing) && invoker.code_signing
 
-      if (is_ios && !code_signing) {
+      if (!is_ios || !code_signing) {
         bundle_data("${app_name}_bundle_executable") {
-          deps = [ ":${app_name}_generate_executable" ]
+          public_deps = [ ":${app_name}_generate_executable" ]
           sources = [ "$gen_path/$app_name" ]
           outputs = [ "{{bundle_executable_dir}}/$app_name" ]
         }
       }
 
-      create_bundle("${app_name}.app") {
+      create_bundle("$app_name.app") {
         product_type = "com.apple.product-type.application"
 
         if (is_ios) {
-          bundle_root_dir = "${root_build_dir}/$target_name"
+          bundle_root_dir = "$root_build_dir/$target_name"
           bundle_contents_dir = bundle_root_dir
           bundle_resources_dir = bundle_contents_dir
           bundle_executable_dir = bundle_contents_dir
-          bundle_plugins_dir = "${bundle_contents_dir}/Plugins"
 
           extra_attributes = {
             ONLY_ACTIVE_ARCH = "YES"
             DEBUG_INFORMATION_FORMAT = "dwarf"
           }
         } else {
-          bundle_root_dir = "${root_build_dir}/target_name"
-          bundle_contents_dir  = "${bundle_root_dir}/Contents"
-          bundle_resources_dir = "${bundle_contents_dir}/Resources"
-          bundle_executable_dir = "${bundle_contents_dir}/MacOS"
-          bundle_plugins_dir = "${bundle_contents_dir}/Plugins"
+          bundle_root_dir = "$root_build_dir/$target_name"
+          bundle_contents_dir  = "$bundle_root_dir/Contents"
+          bundle_resources_dir = "$bundle_contents_dir/Resources"
+          bundle_executable_dir = "$bundle_contents_dir/MacOS"
         }
         deps = [ ":${app_name}_bundle_info_plist" ]
         if (is_ios && code_signing) {
@@ -1910,7 +1916,7 @@
 
 ```
   config("myconfig") {
-    includes = [ "include/common" ]
+    include_dirs = [ "include/common" ]
     defines = [ "ENABLE_DOOM_MELON" ]
   }
 
@@ -2046,7 +2052,7 @@
       unspecified or the empty list which means no arguments.
 
   input_conversion:
-      Controls how the file is read and parsed. See "gn help input_conversion".
+      Controls how the file is read and parsed. See "gn help io_conversion".
 
       If unspecified, defaults to the empty string which causes the script
       result to be discarded. exec script will return None.
@@ -2590,7 +2596,7 @@
       Filename to read, relative to the build file.
 
   input_conversion
-      Controls how the file is read and parsed. See "gn help input_conversion".
+      Controls how the file is read and parsed. See "gn help io_conversion".
 ```
 
 #### **Example**
@@ -3687,7 +3693,7 @@
       The list or string to write.
 
   output_conversion
-    Controls how the output is written. See "gn help output_conversion".
+    Controls how the output is written. See "gn help io_conversion".
 ```
 ## <a name="predefined_variables"></a>Built-in predefined variables
 
@@ -4281,9 +4287,11 @@
     ]
   }
 ```
-### <a name="var_bundle_executable_dir"></a>**bundle_executable_dir**: Expansion of {{bundle_executable_dir}} in
+### <a name="var_bundle_executable_dir"></a>**bundle_executable_dir**
+
 ```
-                              create_bundle.
+  bundle_executable_dir: Expansion of {{bundle_executable_dir}} in
+                         create_bundle.
 
   A string corresponding to a path in $root_build_dir.
 
@@ -4293,20 +4301,11 @@
 
   See "gn help bundle_root_dir" for examples.
 ```
-### <a name="var_bundle_plugins_dir"></a>**bundle_plugins_dir**: Expansion of {{bundle_plugins_dir}} in create_bundle.
+### <a name="var_bundle_resources_dir"></a>**bundle_resources_dir**
 
 ```
-  A string corresponding to a path in $root_build_dir.
-
-  This string is used by the "create_bundle" target to expand the
-  {{bundle_plugins_dir}} of the "bundle_data" target it depends on. This must
-  correspond to a path under "bundle_root_dir".
-
-  See "gn help bundle_root_dir" for examples.
-```
-### <a name="var_bundle_resources_dir"></a>**bundle_resources_dir**: Expansion of {{bundle_resources_dir}} in
-```
-                             create_bundle.
+  bundle_resources_dir: Expansion of {{bundle_resources_dir}} in
+                        create_bundle.
 
   A string corresponding to a path in $root_build_dir.
 
@@ -4340,7 +4339,6 @@
     bundle_contents_dir = "${bundle_root_dir}/Contents"
     bundle_resources_dir = "${bundle_contents_dir}/Resources"
     bundle_executable_dir = "${bundle_contents_dir}/MacOS"
-    bundle_plugins_dir = "${bundle_contents_dir}/PlugIns"
   }
 ```
 ### <a name="var_cflags"></a>**cflags***: Flags passed to the C compiler.
@@ -5212,7 +5210,7 @@
 
 ```
   Controls how the "contents" of a generated_file target is formatted.
-  See "gn help output_conversion".
+  See "gn help io_conversion".
 ```
 ### <a name="var_output_dir"></a>**output_dir**: [directory] Directory to put output file in.
 
@@ -6812,8 +6810,9 @@
   {{source_target_relative}}
       The path to the source file relative to the target's directory. This will
       generally be used for replicating the source directory layout in the
-      output directory. This can only be used in actions and it is an error to
-      use in process_file_template where there is no "target".
+      output directory. This can only be used in actions and bundle_data
+      targets. It is an error to use in process_file_template where there is no
+      "target".
         "//foo/bar/baz.txt" => "baz.txt"
 ```
 

@@ -1,9 +1,8 @@
 //===- InstrProf.cpp - Instrumented profiling format support --------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1010,6 +1009,23 @@ void getMemOPSizeRangeFromOption(StringRef MemOPSizeRange, int64_t &RangeStart,
       MemOPSizeRange.getAsInteger(10, RangeLast);
   }
   assert(RangeLast >= RangeStart);
+}
+
+// Create the variable for the profile file name.
+void createProfileFileNameVar(Module &M, StringRef InstrProfileOutput) {
+  if (InstrProfileOutput.empty())
+    return;
+  Constant *ProfileNameConst =
+      ConstantDataArray::getString(M.getContext(), InstrProfileOutput, true);
+  GlobalVariable *ProfileNameVar = new GlobalVariable(
+      M, ProfileNameConst->getType(), true, GlobalValue::WeakAnyLinkage,
+      ProfileNameConst, INSTR_PROF_QUOTE(INSTR_PROF_PROFILE_NAME_VAR));
+  Triple TT(M.getTargetTriple());
+  if (TT.supportsCOMDAT()) {
+    ProfileNameVar->setLinkage(GlobalValue::ExternalLinkage);
+    ProfileNameVar->setComdat(M.getOrInsertComdat(
+        StringRef(INSTR_PROF_QUOTE(INSTR_PROF_PROFILE_NAME_VAR))));
+  }
 }
 
 } // end namespace llvm

@@ -27,18 +27,18 @@ class CopyCommandTest : public ValidationTest {
             return device.CreateBuffer(&descriptor);
         }
 
-        dawn::Texture Create2DTexture(uint32_t width, uint32_t height, uint32_t levels,
-                                      uint32_t arraySize, dawn::TextureFormat format,
-                                      dawn::TextureUsageBit usage) {
+        dawn::Texture Create2DTexture(uint32_t width, uint32_t height, uint32_t mipLevelCount,
+                                      uint32_t arrayLayerCount, dawn::TextureFormat format,
+                                      dawn::TextureUsageBit usage, uint32_t sampleCount = 1) {
             dawn::TextureDescriptor descriptor;
             descriptor.dimension = dawn::TextureDimension::e2D;
             descriptor.size.width = width;
             descriptor.size.height = height;
             descriptor.size.depth = 1;
-            descriptor.arraySize = arraySize;
-            descriptor.sampleCount = 1;
+            descriptor.arrayLayerCount = arrayLayerCount;
+            descriptor.sampleCount = sampleCount;
             descriptor.format = format;
-            descriptor.levelCount = levels;
+            descriptor.mipLevelCount = mipLevelCount;
             descriptor.usage = usage;
             dawn::Texture tex = device.CreateTexture(&descriptor);
             return tex;
@@ -64,16 +64,13 @@ class CopyCommandTest : public ValidationTest {
             dawn::TextureCopyView textureCopyView =
                 utils::CreateTextureCopyView(destTexture, destLevel, destSlice, destOrigin);
 
+            dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+            encoder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &extent3D);
+
             if (expectation == utils::Expectation::Success) {
-                dawn::CommandBuffer commands =
-                    AssertWillBeSuccess(device.CreateCommandBufferBuilder())
-                        .CopyBufferToTexture(&bufferCopyView, &textureCopyView, &extent3D)
-                        .GetResult();
+                encoder.Finish();
             } else {
-                dawn::CommandBuffer commands =
-                    AssertWillBeError(device.CreateCommandBufferBuilder())
-                        .CopyBufferToTexture(&bufferCopyView, &textureCopyView, &extent3D)
-                        .GetResult();
+                ASSERT_DEVICE_ERROR(encoder.Finish());
             }
         }
 
@@ -92,16 +89,13 @@ class CopyCommandTest : public ValidationTest {
             dawn::TextureCopyView textureCopyView =
                 utils::CreateTextureCopyView(srcTexture, srcLevel, srcSlice, srcOrigin);
 
+            dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+            encoder.CopyTextureToBuffer(&textureCopyView, &bufferCopyView, &extent3D);
+
             if (expectation == utils::Expectation::Success) {
-                dawn::CommandBuffer commands =
-                    AssertWillBeSuccess(device.CreateCommandBufferBuilder())
-                        .CopyTextureToBuffer(&textureCopyView, &bufferCopyView, &extent3D)
-                        .GetResult();
+                encoder.Finish();
             } else {
-                dawn::CommandBuffer commands =
-                    AssertWillBeError(device.CreateCommandBufferBuilder())
-                        .CopyTextureToBuffer(&textureCopyView, &bufferCopyView, &extent3D)
-                        .GetResult();
+                ASSERT_DEVICE_ERROR(encoder.Finish());
             }
         }
 };
@@ -118,20 +112,20 @@ TEST_F(CopyCommandTest_B2B, Success) {
 
     // Copy different copies, including some that touch the OOB condition
     {
-        dawn::CommandBuffer commands = AssertWillBeSuccess(device.CreateCommandBufferBuilder())
-            .CopyBufferToBuffer(source, 0, destination, 0, 16)
-            .CopyBufferToBuffer(source, 8, destination, 0, 8)
-            .CopyBufferToBuffer(source, 0, destination, 8, 8)
-            .GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(source, 0, destination, 0, 16);
+        encoder.CopyBufferToBuffer(source, 8, destination, 0, 8);
+        encoder.CopyBufferToBuffer(source, 0, destination, 8, 8);
+        encoder.Finish();
     }
 
     // Empty copies are valid
     {
-        dawn::CommandBuffer commands = AssertWillBeSuccess(device.CreateCommandBufferBuilder())
-            .CopyBufferToBuffer(source, 0, destination, 0, 0)
-            .CopyBufferToBuffer(source, 0, destination, 16, 0)
-            .CopyBufferToBuffer(source, 16, destination, 0, 0)
-            .GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(source, 0, destination, 0, 0);
+        encoder.CopyBufferToBuffer(source, 0, destination, 16, 0);
+        encoder.CopyBufferToBuffer(source, 16, destination, 0, 0);
+        encoder.Finish();
     }
 }
 
@@ -142,16 +136,16 @@ TEST_F(CopyCommandTest_B2B, OutOfBounds) {
 
     // OOB on the source
     {
-        dawn::CommandBuffer commands = AssertWillBeError(device.CreateCommandBufferBuilder())
-            .CopyBufferToBuffer(source, 8, destination, 0, 12)
-            .GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(source, 8, destination, 0, 12);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 
     // OOB on the destination
     {
-        dawn::CommandBuffer commands = AssertWillBeError(device.CreateCommandBufferBuilder())
-            .CopyBufferToBuffer(source, 0, destination, 8, 12)
-            .GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(source, 0, destination, 8, 12);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 }
 
@@ -163,16 +157,69 @@ TEST_F(CopyCommandTest_B2B, BadUsage) {
 
     // Source with incorrect usage
     {
-        dawn::CommandBuffer commands = AssertWillBeError(device.CreateCommandBufferBuilder())
-            .CopyBufferToBuffer(vertex, 0, destination, 0, 16)
-            .GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(vertex, 0, destination, 0, 16);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 
     // Destination with incorrect usage
     {
-        dawn::CommandBuffer commands = AssertWillBeError(device.CreateCommandBufferBuilder())
-            .CopyBufferToBuffer(source, 0, vertex, 0, 16)
-            .GetResult();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(source, 0, vertex, 0, 16);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+}
+
+// Test B2B copies with unaligned data size
+TEST_F(CopyCommandTest_B2B, UnalignedSize) {
+    dawn::Buffer source = CreateBuffer(16, dawn::BufferUsageBit::TransferSrc);
+    dawn::Buffer destination = CreateBuffer(16, dawn::BufferUsageBit::TransferDst);
+
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+    encoder.CopyBufferToBuffer(source, 8, destination, 0, sizeof(uint8_t));
+    ASSERT_DEVICE_ERROR(encoder.Finish());
+}
+
+// Test B2B copies with unaligned offset
+TEST_F(CopyCommandTest_B2B, UnalignedOffset) {
+    dawn::Buffer source = CreateBuffer(16, dawn::BufferUsageBit::TransferSrc);
+    dawn::Buffer destination = CreateBuffer(16, dawn::BufferUsageBit::TransferDst);
+
+    // Unaligned source offset
+    {
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(source, 9, destination, 0, 4);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+
+    // Unaligned destination offset
+    {
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(source, 8, destination, 1, 4);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+}
+
+// Test B2B copies with buffers in error state cause errors.
+TEST_F(CopyCommandTest_B2B, BuffersInErrorState) {
+    dawn::BufferDescriptor errorBufferDescriptor;
+    errorBufferDescriptor.size = 4;
+    errorBufferDescriptor.usage = dawn::BufferUsageBit::MapRead | dawn::BufferUsageBit::TransferSrc;
+    ASSERT_DEVICE_ERROR(dawn::Buffer errorBuffer = device.CreateBuffer(&errorBufferDescriptor));
+
+    constexpr uint32_t bufferSize = 4;
+    dawn::Buffer validBuffer = CreateBuffer(bufferSize, dawn::BufferUsageBit::TransferSrc);
+
+    {
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(errorBuffer, 0, validBuffer, 0, 4);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+
+    {
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToBuffer(validBuffer, 0, errorBuffer, 0, 4);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 }
 
@@ -385,6 +432,58 @@ TEST_F(CopyCommandTest_B2T, IncorrectBufferOffset) {
     }
 }
 
+// Test multisampled textures cannot be used in B2T copies.
+TEST_F(CopyCommandTest_B2T, CopyToMultisampledTexture) {
+    uint32_t bufferSize = BufferSizeForTextureCopy(16, 16, 1);
+    dawn::Buffer source = CreateBuffer(bufferSize, dawn::BufferUsageBit::TransferSrc);
+    dawn::Texture destination = Create2DTexture(2, 2, 1, 1, dawn::TextureFormat::R8G8B8A8Unorm,
+                                                dawn::TextureUsageBit::TransferDst, 4);
+
+    TestB2TCopy(utils::Expectation::Failure, source, 0, 256, 0, destination, 0, 0, {0, 0, 0},
+                {2, 2, 1});
+}
+
+// Test B2T copies with buffer or texture in error state causes errors.
+TEST_F(CopyCommandTest_B2T, BufferOrTextureInErrorState) {
+    dawn::BufferDescriptor errorBufferDescriptor;
+    errorBufferDescriptor.size = 4;
+    errorBufferDescriptor.usage = dawn::BufferUsageBit::MapRead | dawn::BufferUsageBit::TransferSrc;
+    ASSERT_DEVICE_ERROR(dawn::Buffer errorBuffer = device.CreateBuffer(&errorBufferDescriptor));
+
+    dawn::TextureDescriptor errorTextureDescriptor;
+    errorTextureDescriptor.arrayLayerCount = 0;
+    ASSERT_DEVICE_ERROR(dawn::Texture errorTexture = device.CreateTexture(&errorTextureDescriptor));
+
+    dawn::BufferCopyView errorBufferCopyView = utils::CreateBufferCopyView(errorBuffer, 0, 0, 0);
+    dawn::TextureCopyView errorTextureCopyView =
+        utils::CreateTextureCopyView(errorTexture, 0, 0, {1, 1, 1});
+
+    dawn::Extent3D extent3D = {1, 1, 1};
+
+    {
+        dawn::Texture destination =
+            Create2DTexture(16, 16, 1, 1, dawn::TextureFormat::R8G8B8A8Unorm,
+                            dawn::TextureUsageBit::TransferDst);
+        dawn::TextureCopyView textureCopyView =
+            utils::CreateTextureCopyView(destination, 0, 0, {1, 1, 1});
+
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToTexture(&errorBufferCopyView, &textureCopyView, &extent3D);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+
+    {
+        uint32_t bufferSize = BufferSizeForTextureCopy(4, 4, 1);
+        dawn::Buffer source = CreateBuffer(bufferSize, dawn::BufferUsageBit::TransferSrc);
+
+        dawn::BufferCopyView bufferCopyView = utils::CreateBufferCopyView(source, 0, 0, 0);
+
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToTexture(&bufferCopyView, &errorTextureCopyView, &extent3D);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+}
+
 class CopyCommandTest_T2B : public CopyCommandTest {
 };
 
@@ -588,3 +687,54 @@ TEST_F(CopyCommandTest_T2B, IncorrectBufferOffset) {
                 256, 0, {1, 1, 1});
 }
 
+// Test multisampled textures cannot be used in T2B copies.
+TEST_F(CopyCommandTest_T2B, CopyFromMultisampledTexture) {
+    dawn::Texture source = Create2DTexture(2, 2, 1, 1, dawn::TextureFormat::R8G8B8A8Unorm,
+                                           dawn::TextureUsageBit::TransferSrc, 4);
+    uint32_t bufferSize = BufferSizeForTextureCopy(16, 16, 1);
+    dawn::Buffer destination = CreateBuffer(bufferSize, dawn::BufferUsageBit::TransferDst);
+
+    TestT2BCopy(utils::Expectation::Failure, source, 0, 0, {0, 0, 0}, destination, 0, 256, 0,
+                {2, 2, 1});
+}
+
+// Test T2B copies with buffer or texture in error state cause errors.
+TEST_F(CopyCommandTest_T2B, BufferOrTextureInErrorState) {
+    dawn::BufferDescriptor errorBufferDescriptor;
+    errorBufferDescriptor.size = 4;
+    errorBufferDescriptor.usage = dawn::BufferUsageBit::MapRead | dawn::BufferUsageBit::TransferSrc;
+    ASSERT_DEVICE_ERROR(dawn::Buffer errorBuffer = device.CreateBuffer(&errorBufferDescriptor));
+
+    dawn::TextureDescriptor errorTextureDescriptor;
+    errorTextureDescriptor.arrayLayerCount = 0;
+    ASSERT_DEVICE_ERROR(dawn::Texture errorTexture = device.CreateTexture(&errorTextureDescriptor));
+
+    dawn::BufferCopyView errorBufferCopyView = utils::CreateBufferCopyView(errorBuffer, 0, 0, 0);
+    dawn::TextureCopyView errorTextureCopyView =
+        utils::CreateTextureCopyView(errorTexture, 0, 0, {1, 1, 1});
+
+    dawn::Extent3D extent3D = {1, 1, 1};
+
+    {
+        uint32_t bufferSize = BufferSizeForTextureCopy(4, 4, 1);
+        dawn::Buffer source = CreateBuffer(bufferSize, dawn::BufferUsageBit::TransferSrc);
+
+        dawn::BufferCopyView bufferCopyView = utils::CreateBufferCopyView(source, 0, 0, 0);
+
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyTextureToBuffer(&errorTextureCopyView, &bufferCopyView, &extent3D);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+
+    {
+        dawn::Texture destination =
+            Create2DTexture(16, 16, 1, 1, dawn::TextureFormat::R8G8B8A8Unorm,
+                            dawn::TextureUsageBit::TransferDst);
+        dawn::TextureCopyView textureCopyView =
+            utils::CreateTextureCopyView(destination, 0, 0, {1, 1, 1});
+
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyTextureToBuffer(&textureCopyView, &errorBufferCopyView, &extent3D);
+        ASSERT_DEVICE_ERROR(encoder.Finish());
+    }
+}

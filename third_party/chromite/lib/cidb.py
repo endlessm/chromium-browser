@@ -1182,20 +1182,6 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     return stage[0] if stage else None
 
   @minimum_schema(30)
-  def GetBuildStages(self, build_id):
-    """Gets all the stages of a given build.
-
-    Args:
-      build_id: build id of the build to fetch the stages for.
-
-    Returns:
-      A list containing, for each stage of the build found, a dictionary with
-      keys (id, build_id, name, board, status, last_updated, start_time,
-      finish_time, final).
-    """
-    return self.GetBuildsStages([build_id])
-
-  @minimum_schema(30)
   def GetBuildsStages(self, build_ids):
     """Gets all the stages for all listed build_ids.
 
@@ -1223,6 +1209,43 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
 
     query += (' WHERE b.id IN (%s)' %
               (','.join('"%s"' % x for x in build_ids)))
+
+    results = self._Execute(query).fetchall()
+
+    columns = bs_table_columns + b_table_columns
+    return [dict(zip(columns, values)) for values in results]
+
+  @minimum_schema(30)
+  def GetBuildsStagesWithBuildbucketIds(self, buildbucket_ids):
+    """Gets all the stages for all listed buildbucket_ids.
+
+    This function is a modified copy of GetBuildsStages().
+
+    Args:
+      buildbucket_ids: list of buildbucket ids of the builds to fetch the
+        stages for.
+
+    Returns:
+      A list containing, for each stage of the builds found, a dictionary with
+      keys (id, build_id, name, board, status, last_updated, start_time,
+      finish_time, final).
+    """
+    if not buildbucket_ids:
+      return []
+    bs_table_columns = ['id', 'build_id', 'name', 'board', 'status',
+                        'last_updated', 'start_time', 'finish_time', 'final']
+    bs_prepended_columns = ['bs.' + x for x in bs_table_columns]
+
+    b_table_columns = ['build_config', 'important']
+    b_prepended_columns = ['b.' + x for x in b_table_columns]
+
+    query = ('SELECT %s, %s FROM buildStageTable bs JOIN '
+             'buildTable b ON bs.build_id=b.id' %
+             (', '.join(bs_prepended_columns),
+              ', '.join(b_prepended_columns)))
+
+    query += (' WHERE b.buildbucket_id IN (%s)' %
+              (','.join('"%s"' % x for x in buildbucket_ids)))
 
     results = self._Execute(query).fetchall()
 
@@ -1263,22 +1286,22 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
         return []
 
   @minimum_schema(44)
-  def GetBuildsFailures(self, build_ids):
-    """Gets the failure entries for all listed build_ids.
+  def GetBuildsFailures(self, buildbucket_ids):
+    """Gets the failure entries for all listed buildbucket_ids.
 
     Args:
-      build_ids: list of build ids of the builds to fetch failures for.
+      buildbucket_ids: list of build ids of the builds to fetch failures for.
 
     Returns:
       A list of failure_message_lib.StageFailure instances.
     """
-    if not build_ids:
+    if not buildbucket_ids:
       return []
 
     columns_string = ', '.join(failure_message_lib.FAILURE_KEYS)
 
-    query = ('SELECT %s FROM failureView WHERE build_id IN (%s)' %
-             (columns_string, ','.join(str(int(x)) for x in build_ids)))
+    query = ('SELECT %s FROM failureView WHERE buildbucket_id IN (%s)' %
+             (columns_string, ','.join(str(int(x)) for x in buildbucket_ids)))
 
     results = self._Execute(query).fetchall()
     return [failure_message_lib.StageFailure(*values) for values in results]
@@ -1319,10 +1342,10 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   @minimum_schema(65)
   def GetBuildHistory(self, build_config, num_results,
                       ignore_build_id=None, start_date=None, end_date=None,
-                      milestone_version=None, platform_version=None,
-                      starting_build_id=None, ending_build_id=None,
-                      waterfall=None, buildbot_generation=None, final=False,
-                      reverse=False):
+                      branch=None, milestone_version=None,
+                      platform_version=None, starting_build_id=None,
+                      ending_build_id=None, waterfall=None,
+                      buildbot_generation=None, final=False, reverse=False):
     """Returns basic information about most recent builds for build config.
 
     By default this function returns the most recent builds. Some arguments can
@@ -1340,6 +1363,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
           after this date.
       end_date: (Optional, type:datetime.date) Get builds that occured on or
           before this date.
+      branch: (Optional) Return only results for this branch.
       milestone_version: (Optional) Return only results for this
           milestone_version.
       platform_version: (Optional) Return only results for this
@@ -1363,7 +1387,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     return self.GetBuildsHistory(
         [build_config], num_results,
         ignore_build_id=ignore_build_id, start_date=start_date,
-        end_date=end_date,
+        end_date=end_date, branch=branch,
         milestone_version=milestone_version, platform_version=platform_version,
         starting_build_id=starting_build_id, ending_build_id=ending_build_id,
         waterfall=waterfall, buildbot_generation=buildbot_generation,
@@ -1372,10 +1396,10 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   @minimum_schema(65)
   def GetBuildsHistory(self, build_configs, num_results,
                        ignore_build_id=None, start_date=None, end_date=None,
-                       milestone_version=None, platform_version=None,
-                       starting_build_id=None, ending_build_id=None,
-                       waterfall=None, buildbot_generation=None, final=False,
-                       reverse=False):
+                       branch=None, milestone_version=None,
+                       platform_version=None, starting_build_id=None,
+                       ending_build_id=None, waterfall=None,
+                       buildbot_generation=None, final=False, reverse=False):
     """Returns basic information about most recent builds for build configs.
 
     By default this function returns the most recent builds. Some arguments can
@@ -1394,6 +1418,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
           after this date.
       end_date: (Optional, type:datetime.date) Get builds that occured on or
           before this date.
+      branch: (Optional) Return only results for this branch.
       milestone_version: (Optional) Return only results for this
           milestone_version.
       platform_version: (Optional) Return only results for this
@@ -1430,6 +1455,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       where_clauses.append('id <= %d' % ending_build_id)
     if ignore_build_id is not None:
       where_clauses.append('id != %d' % ignore_build_id)
+    if branch is not None:
+      where_clauses.append('branch = "%s"' % branch)
     if milestone_version is not None:
       where_clauses.append('milestone_version = "%s"' % milestone_version)
     if platform_version is not None:

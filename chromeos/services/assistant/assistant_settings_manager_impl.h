@@ -32,6 +32,9 @@ class AssistantSettingsManagerImpl : public AssistantSettingsManager {
 
   bool speaker_id_enrollment_done() { return speaker_id_enrollment_done_; }
 
+  // AssistantSettingsManager overrides:
+  void BindRequest(mojom::AssistantSettingsManagerRequest request) override;
+
   // mojom::AssistantSettingsManager overrides:
   void GetSettings(const std::string& selector,
                    GetSettingsCallback callback) override;
@@ -42,19 +45,14 @@ class AssistantSettingsManagerImpl : public AssistantSettingsManager {
       mojom::SpeakerIdEnrollmentClientPtr client) override;
   void StopSpeakerIdEnrollment(
       StopSpeakerIdEnrollmentCallback callback) override;
+  void SyncSpeakerIdEnrollmentStatus() override;
 
-  // AssistantSettingsManager overrides:
-  void BindRequest(mojom::AssistantSettingsManagerRequest request) override;
-
-  void SyncSpeakerIdEnrollmentStatus();
   void UpdateServerDeviceSettings();
 
  private:
   void HandleSpeakerIdEnrollmentUpdate(
       const assistant_client::SpeakerIdEnrollmentUpdate& update);
   void HandleStopSpeakerIdEnrollment(base::RepeatingCallback<void()> callback);
-  void HandleSpeakerIdEnrollmentStatusSync(
-      const assistant_client::SpeakerIdEnrollmentUpdate& update);
 
   Service* const service_;
   AssistantManagerServiceImpl* const assistant_manager_service_;

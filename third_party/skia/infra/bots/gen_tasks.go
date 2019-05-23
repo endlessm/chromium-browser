@@ -40,11 +40,10 @@ const (
 	ISOLATE_SDK_LINUX_NAME     = "Housekeeper-PerCommit-IsolateAndroidSDKLinux"
 	ISOLATE_WIN_TOOLCHAIN_NAME = "Housekeeper-PerCommit-IsolateWinToolchain"
 
-	DEFAULT_OS_DEBIAN    = "Debian-9.4"
-	DEFAULT_OS_LINUX_GCE = DEFAULT_OS_DEBIAN
-	DEFAULT_OS_MAC       = "Mac-10.13.6"
-	DEFAULT_OS_UBUNTU    = "Ubuntu-14.04"
-	DEFAULT_OS_WIN       = "Windows-2016Server-14393"
+	DEFAULT_OS_DEBIAN    = "Debian"
+	DEFAULT_OS_LINUX_GCE = "Debian"
+	DEFAULT_OS_MAC       = "Mac"
+	DEFAULT_OS_WIN       = "Windows-2016Server"
 
 	DEFAULT_PROJECT = "skia"
 
@@ -66,7 +65,6 @@ const (
 	// Name prefix for upload jobs.
 	PREFIX_UPLOAD = "Upload"
 
-	SERVICE_ACCOUNT_BOOKMAKER          = "skia-bookmaker@skia-swarming-bots.iam.gserviceaccount.com"
 	SERVICE_ACCOUNT_COMPILE            = "skia-external-compile-tasks@skia-swarming-bots.iam.gserviceaccount.com"
 	SERVICE_ACCOUNT_HOUSEKEEPER        = "skia-external-housekeeper@skia-swarming-bots.iam.gserviceaccount.com"
 	SERVICE_ACCOUNT_RECREATE_SKPS      = "skia-recreate-skps@skia-swarming-bots.iam.gserviceaccount.com"
@@ -274,6 +272,7 @@ func kitchenTask(name, recipe, isolate, serviceAccount string, dimensions []stri
 		"repository":           specs.PLACEHOLDER_REPO,
 		"revision":             specs.PLACEHOLDER_REVISION,
 		"swarm_out_dir":        outputDir,
+		"task_id":              specs.PLACEHOLDER_TASK_ID,
 	}
 	for k, v := range extraProps {
 		properties[k] = v
@@ -351,10 +350,10 @@ func linuxGceDimensions(machineType string) []string {
 	}
 }
 
-func wasmGceDimensions() []string {
+func dockerGceDimensions() []string {
 	// There's limited parallelism for WASM builds, so we can get away with the medium
 	// instance instead of the beefy large instance.
-	// Docker being intsalled is the most important part.
+	// Docker being installed is the most important part.
 	return append(linuxGceDimensions(MACHINE_TYPE_MEDIUM), "docker_installed:true")
 }
 
@@ -395,6 +394,8 @@ func deriveCompileTaskName(jobName string, parts map[string]string) string {
 			task_os = "Win"
 		} else if strings.Contains(task_os, "Ubuntu") || strings.Contains(task_os, "Debian") {
 			task_os = "Debian9"
+		} else if strings.Contains(task_os, "Mac") {
+			task_os = "Mac"
 		}
 		jobNameMap := map[string]string{
 			"role":          "Build",
@@ -449,27 +450,18 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			"ChromeOS":   "ChromeOS",
 			"Debian9":    DEFAULT_OS_DEBIAN,
 			"Mac":        DEFAULT_OS_MAC,
-			"Ubuntu14":   DEFAULT_OS_UBUNTU,
-			"Ubuntu17":   "Ubuntu-17.04",
-			"Ubuntu18":   "Ubuntu-18.04",
+			"Mac10.13":   "Mac-10.13",
+			"Mac10.14":   "Mac-10.14",
+			"Ubuntu18":   "Ubuntu",
 			"Win":        DEFAULT_OS_WIN,
-			"Win10":      "Windows-10-17763.195",
-			"Win2k8":     "Windows-2008ServerR2-SP1",
+			"Win10":      "Windows-10",
 			"Win2016":    DEFAULT_OS_WIN,
 			"Win7":       "Windows-7-SP1",
 			"Win8":       "Windows-8.1-SP0",
-			"iOS":        "iOS-11.4.1",
+			"iOS":        "iOS",
 		}[os]
 		if !ok {
 			glog.Fatalf("Entry %q not found in OS mapping.", os)
-		}
-		if os == "Win10" && parts["model"] == "Golo" {
-			// ChOps-owned machines have Windows 10 v1709, but a slightly different version than Skolo.
-			d["os"] = "Windows-10-16299.309"
-		}
-		if d["os"] == DEFAULT_OS_WIN {
-			// TODO(dogben): Temporarily add image dimension during upgrade.
-			d["image"] = "windows-server-2016-dc-v20190108"
 		}
 	} else {
 		d["os"] = DEFAULT_OS_DEBIAN
@@ -497,7 +489,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				glog.Fatalf("Entry %q not found in Android mapping.", parts["model"])
 			}
 			d["device_type"] = deviceInfo[0]
-			d["device_os"] = deviceInfo[1]
+			// Ignore device_os on branches. d["device_os"] = deviceInfo[1]
 		} else if strings.Contains(parts["os"], "iOS") {
 			device, ok := map[string]string{
 				"iPadMini4": "iPad5,1",
@@ -521,7 +513,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				glog.Fatalf("Please update defaultSwarmDimensions for SKQP::Emulator %s %s.", parts["os"], parts["model"])
 			}
 			d["cpu"] = "x86-64-i5-7260U"
-			d["os"] = "Debian-9.4"
+			d["os"] = DEFAULT_OS_DEBIAN
 			// KVM means Kernel-based Virtual Machine, that is, can this vm virtualize commands
 			// For us, this means, can we run an x86 android emulator on it.
 			// kjlubick tried running this on GCE, but it was a bit too slow on the large install.
@@ -535,6 +527,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				},
 				"AVX2": {
 					"GCE":            "x86-64-Haswell_GCE",
+					"MacBookAir7.2":  "x86-64-i5-5350U",
 					"MacBookPro11.5": "x86-64-i7-4870HQ",
 					"NUC5i7RYH":      "x86-64-i7-5557U",
 				},
@@ -560,19 +553,19 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			if strings.Contains(parts["extra_config"], "CanvasKit") {
 				// GPU is defined for the WebGL version of CanvasKit, but
 				// it can still run on a GCE instance.
-				return wasmGceDimensions()
+				return dockerGceDimensions()
 			} else if strings.Contains(parts["os"], "Win") {
 				gpu, ok := map[string]string{
-					"GT610":         "10de:104a-23.21.13.9101",
-					"GTX660":        "10de:11c0-25.21.14.1634",
-					"GTX960":        "10de:1401-25.21.14.1634",
-					"IntelHD4400":   "8086:0a16-20.19.15.4963",
-					"IntelIris540":  "8086:1926-25.20.100.6444",
-					"IntelIris6100": "8086:162b-20.19.15.4963",
-					"IntelIris655":  "8086:3ea5-25.20.100.6444",
-					"RadeonHD7770":  "1002:683d-24.20.13001.1010",
-					"RadeonR9M470X": "1002:6646-24.20.13001.1010",
-					"QuadroP400":    "10de:1cb3-25.21.14.1678",
+					"GT610":         "10de:104a",
+					"GTX660":        "10de:11c0",
+					"GTX960":        "10de:1401",
+					"IntelHD4400":   "8086:0a16",
+					"IntelIris540":  "8086:1926",
+					"IntelIris6100": "8086:162b",
+					"IntelIris655":  "8086:3ea5",
+					"RadeonHD7770":  "1002:683d",
+					"RadeonR9M470X": "1002:6646",
+					"QuadroP400":    "10de:1cb3",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
 					glog.Fatalf("Entry %q not found in Win GPU mapping.", parts["cpu_or_gpu_value"])
@@ -585,14 +578,14 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 					"IntelHD2000":   "8086:0102",
 					"IntelHD405":    "8086:22b1",
 					"IntelIris640":  "8086:5926",
-					"QuadroP400":    "10de:1cb3-384.59",
+					"QuadroP400":    "10de:1cb3",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
 					glog.Fatalf("Entry %q not found in Ubuntu GPU mapping.", parts["cpu_or_gpu_value"])
 				}
 				if parts["os"] == "Ubuntu18" && parts["cpu_or_gpu_value"] == "QuadroP400" {
-					// Ubuntu18 has a slightly newer GPU driver.
-					gpu = "10de:1cb3-390.87"
+					// Ubuntu18 has a newer GPU driver.
+					gpu = "10de:1cb3"
 				}
 				d["gpu"] = gpu
 			} else if strings.Contains(parts["os"], "Mac") {
@@ -600,7 +593,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 					"IntelHD6000":   "8086:1626",
 					"IntelHD615":    "8086:591e",
 					"IntelIris5100": "8086:0a2e",
-					"RadeonHD8870M": "1002:6821-4.0.20-3.2.8",
+					"RadeonHD8870M": "1002:6821",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
 					glog.Fatalf("Entry %q not found in Mac GPU mapping.", parts["cpu_or_gpu_value"])
@@ -632,12 +625,12 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 	} else {
 		d["gpu"] = "none"
 		if d["os"] == DEFAULT_OS_DEBIAN {
-			if strings.Contains(parts["extra_config"], "PathKit") || strings.Contains(parts["extra_config"], "CanvasKit") {
-				return wasmGceDimensions()
+			if strings.Contains(parts["extra_config"], "PathKit") || strings.Contains(parts["extra_config"], "CanvasKit") || strings.Contains(parts["extra_config"], "CMake") {
+				return dockerGceDimensions()
 			}
 			if parts["role"] == "BuildStats" {
-				// Doesn't require a lot of resources
-				return linuxGceDimensions(MACHINE_TYPE_MEDIUM)
+				// Doesn't require a lot of resources, but some steps require docker
+				return dockerGceDimensions()
 			}
 			// Use many-core machines for Build tasks.
 			return linuxGceDimensions(MACHINE_TYPE_LARGE)
@@ -791,7 +784,7 @@ func usesGo(b *specs.TasksCfgBuilder, t *specs.TaskSpec) {
 
 // usesDocker adds attributes to tasks which use docker.
 func usesDocker(t *specs.TaskSpec, name string) {
-	if strings.Contains(name, "EMCC") || strings.Contains(name, "SKQP") || strings.Contains(name, "LottieWeb") {
+	if strings.Contains(name, "EMCC") || strings.Contains(name, "SKQP") || strings.Contains(name, "LottieWeb") || strings.Contains(name, "CMake") {
 		t.Caches = append(t.Caches, CACHES_DOCKER...)
 	}
 }
@@ -966,18 +959,6 @@ func housekeeper(b *specs.TasksCfgBuilder, name string) string {
 	return name
 }
 
-// bookmaker generates a Bookmaker task. Returns the name of the last task
-// in the generated chain of tasks, which the Job should add as a dependency.
-func bookmaker(b *specs.TasksCfgBuilder, name, compileTaskName string) string {
-	task := kitchenTask(name, "bookmaker", "swarm_recipe.isolate", SERVICE_ACCOUNT_BOOKMAKER, linuxGceDimensions(MACHINE_TYPE_SMALL), nil, OUTPUT_NONE)
-	task.Caches = append(task.Caches, CACHES_WORKDIR...)
-	task.CipdPackages = append(task.CipdPackages, CIPD_PKGS_GIT...)
-	task.Dependencies = append(task.Dependencies, compileTaskName, isolateCIPDAsset(b, ISOLATE_GO_DEPS_NAME))
-	timeout(task, 2*time.Hour)
-	b.MustAddTask(name, task)
-	return name
-}
-
 // androidFrameworkCompile generates an Android Framework Compile task. Returns
 // the name of the last task in the generated chain of tasks, which the Job
 // should add as a dependency.
@@ -998,6 +979,8 @@ func infra(b *specs.TasksCfgBuilder, name string) string {
 	return name
 }
 
+var BUILD_STATS_NO_UPLOAD = []string{"BuildStats-Debian9-Clang-x86_64-Release"}
+
 func buildstats(b *specs.TasksCfgBuilder, name string, parts map[string]string, compileTaskName string) string {
 	task := kitchenTask(name, "compute_buildstats", "swarm_recipe.isolate", "", swarmDimensions(parts), nil, OUTPUT_PERF)
 	task.Dependencies = append(task.Dependencies, compileTaskName)
@@ -1005,8 +988,8 @@ func buildstats(b *specs.TasksCfgBuilder, name string, parts map[string]string, 
 	b.MustAddTask(name, task)
 
 	// Upload release results (for tracking in perf)
-	// We have some jobs that are FYI (e.g. Debug-CanvasKit)
-	if strings.Contains(name, "Release") {
+	// We have some jobs that are FYI (e.g. Debug-CanvasKit, tree-map generator)
+	if strings.Contains(name, "Release") && !util.In(name, BUILD_STATS_NO_UPLOAD) {
 		uploadName := fmt.Sprintf("%s%s%s", PREFIX_UPLOAD, jobNameSchema.Sep, name)
 		extraProps := map[string]string{
 			"gs_bucket": CONFIG.GsBucketNano,
@@ -1136,6 +1119,8 @@ func test(b *specs.TasksCfgBuilder, name string, parts map[string]string, compil
 		timeout(task, 9*time.Hour)
 		task.Expiration = 48 * time.Hour
 		task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("valgrind"))
+		// Since Valgrind runs on the same bots as the CQ, we restrict Valgrind to a subset of the bots
+		// to ensure there are always bots free for CQ tasks.
 		task.Dimensions = append(task.Dimensions, "valgrind:1")
 	} else if strings.Contains(parts["extra_config"], "MSAN") {
 		timeout(task, 9*time.Hour)
@@ -1188,6 +1173,8 @@ func perf(b *specs.TasksCfgBuilder, name string, parts map[string]string, compil
 		timeout(task, 9*time.Hour)
 		task.Expiration = 48 * time.Hour
 		task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("valgrind"))
+		// Since Valgrind runs on the same bots as the CQ, we restrict Valgrind to a subset of the bots
+		// to ensure there are always bots free for CQ tasks.
 		task.Dimensions = append(task.Dimensions, "valgrind:1")
 	} else if strings.Contains(parts["extra_config"], "MSAN") {
 		timeout(task, 9*time.Hour)
@@ -1239,22 +1226,12 @@ func presubmit(b *specs.TasksCfgBuilder, name string) string {
 	// Use MACHINE_TYPE_LARGE because it seems to save time versus MEDIUM and we want presubmit to be
 	// fast.
 	task := kitchenTask(name, "run_presubmit", "empty.isolate", SERVICE_ACCOUNT_COMPILE, linuxGceDimensions(MACHINE_TYPE_LARGE), extraProps, OUTPUT_NONE)
-
-	replaceArg := func(key, value string) {
-		found := false
-		for idx, arg := range task.Command {
-			if arg == key {
-				task.Command[idx+1] = value
-				found = true
-			}
-		}
-		if !found {
-			task.Command = append(task.Command, key, value)
-		}
-	}
-	replaceArg("-repository", "https://chromium.googlesource.com/chromium/tools/build")
-	replaceArg("-revision", "HEAD")
 	usesGit(task, name)
+	task.CipdPackages = append(task.CipdPackages, &specs.CipdPackage{
+		Name:    "infra/recipe_bundles/chromium.googlesource.com/chromium/tools/build",
+		Path:    "recipe_bundle",
+		Version: "refs/heads/master",
+	})
 	task.Dependencies = []string{} // No bundled recipes for this one.
 	b.MustAddTask(name, task)
 	return name
@@ -1346,9 +1323,6 @@ func process(b *specs.TasksCfgBuilder, name string) {
 		priority = 1
 		deps = append(deps, presubmit(b, name))
 	}
-	if strings.Contains(name, "Bookmaker") {
-		deps = append(deps, bookmaker(b, name, compileTaskName))
-	}
 
 	// Common assets needed by the remaining bots.
 
@@ -1400,6 +1374,14 @@ func process(b *specs.TasksCfgBuilder, name string) {
 	// Calmbench bots.
 	if parts["role"] == "Calmbench" {
 		deps = append(deps, calmbench(b, name, parts, compileTaskName, compileParentName))
+	}
+
+	// Valgrind runs at a low priority so that it doesn't occupy all the bots.
+	if strings.Contains(name, "Valgrind") {
+		// Priority of 0.085 should result in Valgrind tasks with a blamelist of ~10 commits having the
+		// same score as other tasks with a blamelist of 1 commit, when we have insufficient bot
+		// capacity to run more frequently.
+		priority = 0.085
 	}
 
 	// BuildStats bots. This computes things like binary size.

@@ -14,6 +14,7 @@ from __future__ import print_function
 
 import os
 
+from chromite.lib import buildbucket_v2
 from chromite.lib import cidb
 from chromite.lib import constants
 from chromite.lib import fake_cidb
@@ -23,11 +24,27 @@ class BuildStoreException(Exception):
   """General exception class for this module."""
 
 
+class BuildIdentifier(object):
+  """The class maintains all the IDs corresponding to a build."""
+
+  def __init__(self, cidb_id=None, buildbucket_id=None):
+    """Instantiate a container class for all IDs.
+
+    Args:
+      cidb_id: ID of the build in CIDB.
+      buildbucket_id: ID of the build in Buildbucket.
+    """
+    self.cidb_id = cidb_id
+    self.buildbucket_id = buildbucket_id
+
+
 class BuildStore(object):
   """BuildStore class to handle all DB calls."""
 
-  def __init__(self, _read_from_bb=False, _write_to_bb=False,
-               _write_to_cidb=True, cidb_creds=None):
+  NUM_RESULTS_NO_LIMIT = -1
+
+  def __init__(self, _read_from_bb=False, _write_to_bb=True,
+               _write_to_cidb=True, cidb_creds=None, for_service=None):
     """Get an instance of the BuildStore.
 
     Args:
@@ -35,16 +52,19 @@ class BuildStore(object):
       _write_to_bb: Determines whether information is written to Buildbucket.
       _write_to_cidb: Determines whether information is written to CIDB.
       cidb_creds: CIDB credentials for scripts running outside of cbuildbot.
+      for_service: Argument for CIDBConnection.__init__().
     """
     self._read_from_bb = _read_from_bb
     self._write_to_bb = _write_to_bb
     self._write_to_cidb = _write_to_cidb
     self.cidb_creds = cidb_creds
+    self.for_service = for_service
     self.cidb_conn = None
+    self.bb_client = None
     self.process_id = os.getpid()
 
   def _IsCIDBClientMissing(self):
-    """Checks to see CIDB client if needed and is missing.
+    """Checks to see if CIDB client is needed and is missing.
 
     Returns:
       Boolean indicating the state of CIDB client.
@@ -54,6 +74,17 @@ class BuildStore(object):
 
     return need_for_cidb and not cidb_is_running
 
+  def _IsBuildbucketClientMissing(self):
+    """Checks to see if Buildbucket v2 client is needed and is missing.
+
+    Returns:
+      Boolean indicating the state of Buildbucket v2 client.
+    """
+    need_for_bb = self._write_to_bb or self._read_from_bb
+    bb_is_running = self.bb_client is not None
+
+    return need_for_bb and not bb_is_running
+
   def GetCIDBHandle(self):
     """Retrieve cidb_conn.
 
@@ -61,7 +92,7 @@ class BuildStore(object):
       self.cidb_conn if initialized.
     """
     if not self.InitializeClients():
-      return
+      raise BuildStoreException('BuildStore clients could not be initialized.')
 
     if self.cidb_conn:
       return self.cidb_conn
@@ -78,14 +109,20 @@ class BuildStore(object):
     if self._IsCIDBClientMissing() or pid_mismatch:
       self.process_id = os.getpid()
       if self.cidb_creds:
-        self.cidb_conn = cidb.CIDBConnection(self.cidb_creds)
+        for_service = self.for_service if self.for_service else False
+        self.cidb_conn = cidb.CIDBConnection(self.cidb_creds,
+                                             for_service=for_service)
       elif not cidb.CIDBConnectionFactory.IsCIDBSetup():
         self.cidb_conn = None
       else:
-        self.cidb_conn = cidb.CIDBConnectionFactory.GetCIDBConnectionForBuilder(
-        )
+        self.cidb_conn = (
+            cidb.CIDBConnectionFactory.GetCIDBConnectionForBuilder())
 
-    return not self._IsCIDBClientMissing()
+    if self._IsBuildbucketClientMissing() or pid_mismatch:
+      self.bb_client = buildbucket_v2.BuildbucketV2()
+
+    return not (self._IsCIDBClientMissing() or
+                self._IsBuildbucketClientMissing())
 
   def AreClientsReady(self):
     """A front-end function for InitializeClients()."""
@@ -121,13 +158,41 @@ class BuildStore(object):
       build_id: incremental primary ID of the build in CIDB.
     """
     if not self.InitializeClients():
-      return
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    build_id = 0
     if self._write_to_cidb:
-      return self.cidb_conn.InsertBuild(
+      build_id = self.cidb_conn.InsertBuild(
           builder_name, build_number, build_config, bot_hostname,
           master_build_id, timeout_seconds, important, buildbucket_id, branch)
+    if self._write_to_bb:
+      buildbucket_v2.UpdateSelfCommonBuildProperties(critical=important)
 
-  def GetBuildMessages(self, build_id, message_type=None, message_subtype=None):
+    return build_id
+
+  def GetSlaveStatuses(self, master_build_id, buildbucket_ids=None):
+    """Gets the statuses of slave builders to given build.
+
+    Args:
+      master_build_id: build id of the master build to fetch the slave
+                       statuses for.
+      buildbucket_ids: A list of buildbucket_ids (string). If it's given,
+        only fetch the builds with buildbucket_id in the buildbucket_ids.
+        Default to None.
+
+    Returns:
+      A list containing a dictionary with keys BUILD_STATUS_KEYS.
+      If buildbucket_ids is None, the list contains all slave builds found
+      in the buildTable; else, the list only contains the slave builds
+      with |buildbucket_id| in the buildbucket_ids list.
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if not self._read_from_bb:
+      return self.cidb_conn.GetSlaveStatuses(master_build_id, buildbucket_ids)
+
+  def GetBuildMessages(
+      self, build_id, message_type=constants.MESSAGE_TYPE_IGNORED_REASON,
+      message_subtype=constants.MESSAGE_SUBTYPE_SELF_DESTRUCTION):
     """Gets build messages for particular build_id.
 
     Args:
@@ -143,10 +208,54 @@ class BuildStore(object):
       message_subtype, message_value, timestamp, board.
     """
     if not self.InitializeClients():
-      return
+      raise BuildStoreException('BuildStore clients could not be initialized.')
     if not self._read_from_bb:
-      return self.cidb_conn.GetBuildMessages(build_id, message_type,
-                                             message_subtype)
+      return self.cidb_conn.GetBuildMessages(build_id,
+                                             message_type=message_type,
+                                             message_subtype=message_subtype)
+
+  def GetBuildHistory(
+      self, build_config, num_results,
+      ignore_build_id=None, start_date=None, end_date=None, branch=None,
+      platform_version=None, starting_build_id=None, ending_build_id=None):
+    """Returns basic information about most recent builds for build config.
+
+    By default this function returns the most recent builds. Some arguments can
+    restrict the result to older builds.
+
+    Args:
+      build_config: config name of the build to get history.
+      num_results: Number of builds to search back. Set this to
+          CIDBConnection.NUM_RESULTS_NO_LIMIT to request no limit on the number
+          of results.
+      ignore_build_id: (Optional) Ignore a specific build. This is most useful
+          to ignore the current build when querying recent past builds from a
+          build in flight.
+      start_date: (Optional, type: datetime.date) Get builds that occured on or
+          after this date.
+      end_date: (Optional, type:datetime.date) Get builds that occured on or
+          before this date.
+      branch: (Optional) Return only results for this branch.
+      platform_version: (Optional) Return only results for this
+          platform_version.
+      starting_build_id: (Optional) The minimum build_id for which data should
+          be retrieved.
+      ending_build_id: (Optional) The maximum build_id for which data should
+          be retrieved.
+
+    Returns:
+      A sorted list of dicts containing up to |number| dictionaries for
+      build statuses in descending order (if |reverse| is True, ascending
+      order).
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if not self._read_from_bb:
+      return self.cidb_conn.GetBuildHistory(
+          build_config, num_results, ignore_build_id=ignore_build_id,
+          start_date=start_date, end_date=end_date, branch=branch,
+          platform_version=platform_version,
+          starting_build_id=starting_build_id, ending_build_id=ending_build_id)
 
   def InsertBuildStage(self,
                        build_id,
@@ -166,9 +275,55 @@ class BuildStore(object):
       Integer primary key of inserted stage, i.e. build_stage_id
     """
     if not self.InitializeClients():
-      return
+      raise BuildStoreException('BuildStore clients could not be initialized.')
     if self._write_to_cidb:
       return self.cidb_conn.InsertBuildStage(build_id, name, board, status)
+
+  def InsertFailure(self, build_stage_id, exception_type, exception_message,
+                    exception_category=constants.EXCEPTION_CATEGORY_UNKNOWN,
+                    outer_failure_id=None, extra_info=None):
+    """Insert a failure description into CIDB.
+
+    Args:
+      build_stage_id: primary key, in CIDB's buildStageTable, of the stage
+                      where failure occured.
+      exception_type: str name of the exception class.
+      exception_message: str description of the failure.
+      exception_category: (Optional) one of
+                          constants.EXCEPTION_CATEGORY_ALL_CATEGORIES,
+                          Default: 'unknown'.
+      outer_failure_id: (Optional) primary key of outer failure which contains
+                        this failure. Used to store CompoundFailure
+                        relationship.
+      extra_info: (Optional) extra category-specific string description giving
+                  failure details. Used for programmatic triage.
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if self._write_to_cidb:
+      return self.cidb_conn.InsertFailure(build_stage_id, exception_type,
+                                          exception_message, exception_category,
+                                          outer_failure_id, extra_info)
+
+  def InsertBuildMessage(
+      self, build_id, message_type=constants.MESSAGE_TYPE_IGNORED_REASON,
+      message_subtype=constants.MESSAGE_SUBTYPE_SELF_DESTRUCTION,
+      message_value=None, board=None):
+    """Insert a build message into database.
+
+    Args:
+      build_id: primary key of build recording this message.
+      message_type: Optional str name of message type.
+      message_subtype: Optional str name of message subtype.
+      message_value: Optional value of message.
+      board: Optional str name of the board.
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if self._write_to_cidb:
+      return self.cidb_conn.InsertBuildMessage(
+          build_id, message_type=message_type, message_subtype=message_subtype,
+          message_value=message_value, board=board)
 
   def FinishBuild(self, build_id, status=None, summary=None, metadata_url=None,
                   strict=True):
@@ -195,11 +350,63 @@ class BuildStore(object):
       The number of rows that were updated.
     """
     if not self.InitializeClients():
-      return
+      raise BuildStoreException('BuildStore clients could not be initialized.')
     if self._write_to_cidb:
       return self.cidb_conn.FinishBuild(
           build_id, status=status, summary=summary, metadata_url=metadata_url,
           strict=strict)
+
+  def FinishChildConfig(self, build_id, child_config, status=None):
+    """Marks the given child config as finished with |status|.
+
+    This should be called before FinishBuild, on all child configs that
+    were used in a build.
+
+    Args:
+      build_id: primary key of the build in the buildTable
+      child_config: String child_config name.
+      status: Final child_config status, one of
+              constants.BUILDER_COMPLETED_STATUSES or None
+              for default "inflight".
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if self._write_to_cidb:
+      self.cidb_conn.FinishChildConfig(build_id, child_config, status=status)
+
+  def StartBuildStage(self, build_stage_id):
+    """Marks a build stage as inflight, in the database.
+
+    Args:
+      build_stage_id: primary key of the build stage in buildStageTable.
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if self._write_to_cidb:
+      return self.cidb_conn.StartBuildStage(build_stage_id)
+
+  def WaitBuildStage(self, build_stage_id):
+    """Marks a build stage as waiting, in the database.
+
+    Args:
+      build_stage_id: primary key of the build stage in buildStageTable.
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if self._write_to_cidb:
+      return self.cidb_conn.WaitBuildStage(build_stage_id)
+
+  def FinishBuildStage(self, build_stage_id, status):
+    """Marks a build stage as finished, in the database.
+
+    Args:
+      build_stage_id: primary key of the build stage in buildStageTable.
+      status: one of constants.BUILDER_COMPLETED_STATUSES
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if self._write_to_cidb:
+      return self.cidb_conn.FinishBuildStage(build_stage_id, status)
 
   def UpdateMetadata(self, build_id, metadata):
     """Update the given metadata row in database.
@@ -209,9 +416,53 @@ class BuildStore(object):
       metadata: CBuildbotMetadata instance to update with.
     """
     if not self.InitializeClients():
-      return
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    update_status = 0
     if self._write_to_cidb:
-      return self.cidb_conn.UpdateMetadata(build_id, metadata)
+      update_status = self.cidb_conn.UpdateMetadata(build_id, metadata)
+    if self._write_to_bb:
+      buildbucket_v2.UpdateBuildMetadata(metadata)
+    return update_status
+
+  def GetBuildsFailures(self, buildbucket_ids=None):
+    """Gets the failure entries for all listed buildbucket_ids.
+
+    Args:
+      buildbucket_ids: list of build ids of the builds to fetch failures for.
+
+    Returns:
+      A list of failure_message_lib.StageFailure instances. This will change
+      with Buildbucket implementation.
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if not self._read_from_bb:
+      if buildbucket_ids:
+        return self.cidb_conn.GetBuildsFailures(buildbucket_ids)
+      else:
+        return []
+
+  def GetBuildsStages(self, build_ids=None, buildbucket_ids=None):
+    """Gets all the stages for all listed build_ids.
+
+    Args:
+      build_ids: list of CIDB ids of the builds to fetch the stages for.
+      buildbucket_ids: list of Buildbucket IDs to query for.
+
+    Returns:
+      A list containing, for each stage of the builds found, a dictionary with
+      keys (id, build_id, name, board, status, last_updated, start_time,
+      finish_time, final).
+    """
+    if not self.InitializeClients():
+      raise BuildStoreException('BuildStore clients could not be initialized.')
+    if not self._read_from_bb:
+      if build_ids:
+        return self.cidb_conn.GetBuildsStages(build_ids)
+      elif buildbucket_ids:
+        return self.cidb_conn.GetBuildsStagesWithBuildbucketIds(buildbucket_ids)
+      else:
+        return []
 
   def ExtendDeadline(self, build_id, timeout):
     """Extend the deadline for the given metadata row in the database.
@@ -221,7 +472,7 @@ class BuildStore(object):
       timeout: new timeout value.
     """
     if not self.InitializeClients():
-      return
+      raise BuildStoreException('BuildStore clients could not be initialized.')
     if self._write_to_cidb:
       return self.cidb_conn.ExtendDeadline(build_id, timeout)
 
@@ -241,7 +492,7 @@ class BuildStore(object):
       milestone_version, important).
     """
     if not self.InitializeClients():
-      return
+      raise BuildStoreException('BuildStore clients could not be initialized.')
     if not self._read_from_bb:
       if buildbucket_ids and build_ids:
         raise BuildStoreException('GetBuildStatuses: Cannot process both '
@@ -255,6 +506,7 @@ class BuildStore(object):
         return []
 
 
+#pylint: disable=unused-argument
 class FakeBuildStore(object):
   """Fake BuildStore class to be used only in unittests."""
 
@@ -295,6 +547,15 @@ class FakeBuildStore(object):
         platform_version, start_time, build_type, branch)
     return build_id
 
+  def GetBuildHistory(
+      self, build_config, num_results, ignore_build_id=None, start_date=None,
+      end_date=None, branch=None, platform_version=None, starting_build_id=None,
+      ending_build_id=None):
+    return self.fake_cidb.GetBuildHistory(
+        build_config, num_results, ignore_build_id=ignore_build_id,
+        start_date=start_date, end_date=end_date,
+        platform_version=platform_version, starting_build_id=starting_build_id)
+
   def InsertBuildStage(self,
                        build_id,
                        name,
@@ -304,16 +565,60 @@ class FakeBuildStore(object):
                                                      status)
     return build_stage_id
 
-  #pylint: disable=unused-argument
+  def InsertFailure(self, build_stage_id, exception_type, exception_message,
+                    exception_category=constants.EXCEPTION_CATEGORY_UNKNOWN,
+                    outer_failure_id=None, extra_info=None):
+    return self.fake_cidb.InsertFailure(build_stage_id, exception_type,
+                                        exception_message, exception_category,
+                                        outer_failure_id, extra_info)
+
+  def GetSlaveStatuses(self, master_build_id, buildbucket_ids=None):
+    return self.fake_cidb.GetSlaveStatuses(master_build_id, buildbucket_ids)
+
+  def GetBuildMessages(
+      self, build_id, message_type=None, message_subtype=None):
+    return self.fake_cidb.GetBuildMessages(build_id, message_type=message_type,
+                                           message_subtype=message_subtype)
+
+  def InsertBuildMessage(
+      self, build_id, message_type=constants.MESSAGE_TYPE_IGNORED_REASON,
+      message_subtype=constants.MESSAGE_SUBTYPE_SELF_DESTRUCTION,
+      message_value=None, board=None):
+    return self.fake_cidb.InsertBuildMessage(
+        build_id, message_type=message_type, message_subtype=message_subtype,
+        message_value=message_value, board=board)
+
   def FinishBuild(self, build_id, status=None, summary=None, metadata_url=None,
                   strict=True):
     return
-  #pylint: enable=unused-argument
 
-  def UpdateMetadata(self, build_id, metadata): #pylint: disable=unused-argument
+  def StartBuildStage(self, build_stage_id):
+    return build_stage_id
+
+  def WaitBuildStage(self, build_stage_id):
+    return build_stage_id
+
+  def FinishBuildStage(self, build_stage_id, status):
+    return build_stage_id
+
+  def UpdateMetadata(self, build_id, metadata):
     return
 
-  def ExtendDeadline(self, build_id, timeout): #pylint: disable=unused-argument
+  def GetBuildsFailures(self, buildbucket_ids=None):
+    if buildbucket_ids:
+      return self.fake_cidb.GetBuildsFailures(buildbucket_ids)
+    else:
+      return []
+
+  def GetBuildsStages(self, buildbucket_ids=None, build_ids=None):
+    if buildbucket_ids:
+      return self.fake_cidb.GetBuildsStagesWithBuildbucketIds(buildbucket_ids)
+    elif build_ids:
+      return self.fake_cidb.GetBuildsStages(build_ids)
+    else:
+      return []
+
+  def ExtendDeadline(self, build_id, timeout):
     return
 
   def GetBuildStatuses(self, buildbucket_ids=None, build_ids=None):

@@ -1,9 +1,8 @@
 //===- GVN.cpp - Eliminate redundant values and loads ---------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -30,6 +29,7 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/CFG.h"
+#include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -47,7 +47,6 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DebugLoc.h"
-#include "llvm/IR/DomTreeUpdater.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstrTypes.h"
@@ -1132,6 +1131,14 @@ bool GVN::PerformLoadPRE(LoadInst *LI, AvailValInBlkVect &ValuesPerBlock,
         return false;
       }
 
+      // FIXME: Can we support the fallthrough edge?
+      if (isa<CallBrInst>(Pred->getTerminator())) {
+        LLVM_DEBUG(
+            dbgs() << "COULD NOT PRE LOAD BECAUSE OF CALLBR CRITICAL EDGE '"
+                   << Pred->getName() << "': " << *LI << '\n');
+        return false;
+      }
+
       if (LoadBB->isEHPad()) {
         LLVM_DEBUG(
             dbgs() << "COULD NOT PRE LOAD BECAUSE OF AN EH PAD CRITICAL EDGE '"
@@ -1235,10 +1242,10 @@ bool GVN::PerformLoadPRE(LoadInst *LI, AvailValInBlkVect &ValuesPerBlock,
     BasicBlock *UnavailablePred = PredLoad.first;
     Value *LoadPtr = PredLoad.second;
 
-    auto *NewLoad = new LoadInst(LoadPtr, LI->getName()+".pre",
-                                 LI->isVolatile(), LI->getAlignment(),
-                                 LI->getOrdering(), LI->getSyncScopeID(),
-                                 UnavailablePred->getTerminator());
+    auto *NewLoad =
+        new LoadInst(LI->getType(), LoadPtr, LI->getName() + ".pre",
+                     LI->isVolatile(), LI->getAlignment(), LI->getOrdering(),
+                     LI->getSyncScopeID(), UnavailablePred->getTerminator());
     NewLoad->setDebugLoc(LI->getDebugLoc());
 
     // Transfer the old load's AA tags to the new load.
@@ -2168,8 +2175,8 @@ bool GVN::performScalarPRE(Instruction *CurInst) {
     return false;
 
   // We don't currently value number ANY inline asm calls.
-  if (CallInst *CallI = dyn_cast<CallInst>(CurInst))
-    if (CallI->isInlineAsm())
+  if (auto *CallB = dyn_cast<CallBase>(CurInst))
+    if (CallB->isInlineAsm())
       return false;
 
   uint32_t ValNo = VN.lookup(CurInst);
@@ -2250,6 +2257,11 @@ bool GVN::performScalarPRE(Instruction *CurInst) {
 
     // Don't do PRE across indirect branch.
     if (isa<IndirectBrInst>(PREPred->getTerminator()))
+      return false;
+
+    // Don't do PRE across callbr.
+    // FIXME: Can we do this across the fallthrough edge?
+    if (isa<CallBrInst>(PREPred->getTerminator()))
       return false;
 
     // We can't do PRE safely on a critical edge, so instead we schedule

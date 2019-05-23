@@ -6,6 +6,8 @@
 
 #include <utility>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "chromeos/dbus/util/version_loader.h"
 #include "chromeos/services/assistant/assistant_manager_service_impl.h"
 #include "chromeos/services/assistant/constants.h"
@@ -162,6 +164,13 @@ void AssistantSettingsManagerImpl::StopSpeakerIdEnrollment(
       });
 }
 
+void AssistantSettingsManagerImpl::SyncSpeakerIdEnrollmentStatus() {
+  DCHECK(service_->main_task_runner()->RunsTasksInCurrentSequence());
+
+  // Disable status check on M74 since we do not have the API available.
+  return;
+}
+
 void AssistantSettingsManagerImpl::HandleSpeakerIdEnrollmentUpdate(
     const assistant_client::SpeakerIdEnrollmentUpdate& update) {
   DCHECK(service_->main_task_runner()->RunsTasksInCurrentSequence());
@@ -191,67 +200,11 @@ void AssistantSettingsManagerImpl::HandleSpeakerIdEnrollmentUpdate(
   }
 }
 
-void AssistantSettingsManagerImpl::HandleSpeakerIdEnrollmentStatusSync(
-    const assistant_client::SpeakerIdEnrollmentUpdate& update) {
-  DCHECK(service_->main_task_runner()->RunsTasksInCurrentSequence());
-  switch (update.state) {
-    case SpeakerIdEnrollmentState::LISTEN:
-      speaker_id_enrollment_done_ = false;
-      // Stop the enrollment since we already get the status.
-      if (!speaker_id_enrollment_client_) {
-        StopSpeakerIdEnrollment(base::DoNothing());
-        // If hotword is enabled but there is no voice model found, launch the
-        // enrollment flow.
-        if (service_->assistant_state()->hotword_enabled().value())
-          service_->assistant_controller()->StartSpeakerIdEnrollmentFlow();
-      }
-      break;
-    case SpeakerIdEnrollmentState::DONE:
-      speaker_id_enrollment_done_ = true;
-      assistant_manager_service_->UpdateInternalOptions(
-          assistant_manager_service_->assistant_manager_internal());
-      break;
-    case SpeakerIdEnrollmentState::PROCESS:
-    case SpeakerIdEnrollmentState::FAILURE:
-    case SpeakerIdEnrollmentState::INIT:
-    case SpeakerIdEnrollmentState::CHECK:
-    case SpeakerIdEnrollmentState::UPLOAD:
-    case SpeakerIdEnrollmentState::FETCH:
-      break;
-  }
-}
-
 void AssistantSettingsManagerImpl::HandleStopSpeakerIdEnrollment(
     base::RepeatingCallback<void()> callback) {
   DCHECK(service_->main_task_runner()->RunsTasksInCurrentSequence());
   speaker_id_enrollment_client_.reset();
   callback.Run();
-}
-
-void AssistantSettingsManagerImpl::SyncSpeakerIdEnrollmentStatus() {
-  DCHECK(service_->main_task_runner()->RunsTasksInCurrentSequence());
-  if (speaker_id_enrollment_client_) {
-    // Speaker id enrollment is in progress.
-    return;
-  }
-
-  // TODO(updowndota): Add a dedicate API for fetching enrollment status.
-  assistant_client::SpeakerIdEnrollmentConfig client_config;
-  client_config.user_id = kUserID;
-  client_config.skip_cloud_enrollment = false;
-
-  assistant_manager_service_->assistant_manager_internal()
-      ->StartSpeakerIdEnrollment(
-          client_config,
-          [weak_ptr = weak_factory_.GetWeakPtr(),
-           task_runner = service_->main_task_runner()](
-              const assistant_client::SpeakerIdEnrollmentUpdate& update) {
-            task_runner->PostTask(
-                FROM_HERE,
-                base::BindOnce(&AssistantSettingsManagerImpl::
-                                   HandleSpeakerIdEnrollmentStatusSync,
-                               weak_ptr, update));
-          });
 }
 
 void AssistantSettingsManagerImpl::UpdateServerDeviceSettings() {

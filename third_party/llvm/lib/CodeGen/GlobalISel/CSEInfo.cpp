@@ -1,9 +1,8 @@
 //===- CSEInfo.cpp ------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -139,7 +138,7 @@ MachineInstr *GISelCSEInfo::getMachineInstrIfExists(FoldingSetNodeID &ID,
                                                     void *&InsertPos) {
   handleRecordedInsts();
   if (auto *Inst = getNodeIfExists(ID, MBB, InsertPos)) {
-    LLVM_DEBUG(dbgs() << "CSEInfo: Found Instr " << *Inst->MI << "\n";);
+    LLVM_DEBUG(dbgs() << "CSEInfo::Found Instr " << *Inst->MI;);
     return const_cast<MachineInstr *>(Inst->MI);
   }
   return nullptr;
@@ -158,14 +157,14 @@ void GISelCSEInfo::countOpcodeHit(unsigned Opc) {
 void GISelCSEInfo::recordNewInstruction(MachineInstr *MI) {
   if (shouldCSE(MI->getOpcode())) {
     TemporaryInsts.insert(MI);
-    LLVM_DEBUG(dbgs() << "CSEInfo: Recording new MI" << *MI << "\n";);
+    LLVM_DEBUG(dbgs() << "CSEInfo::Recording new MI " << *MI);
   }
 }
 
 void GISelCSEInfo::handleRecordedInst(MachineInstr *MI) {
   assert(shouldCSE(MI->getOpcode()) && "Invalid instruction for CSE");
   auto *UMI = InstrMapping.lookup(MI);
-  LLVM_DEBUG(dbgs() << "CSEInfo: Handling recorded MI" << *MI << "\n";);
+  LLVM_DEBUG(dbgs() << "CSEInfo::Handling recorded MI " << *MI);
   if (UMI) {
     // Invalidate this MI.
     invalidateUniqueMachineInstr(UMI);
@@ -224,14 +223,14 @@ void GISelCSEInfo::analyze(MachineFunction &MF) {
     for (MachineInstr &MI : MBB) {
       if (!shouldCSE(MI.getOpcode()))
         continue;
-      LLVM_DEBUG(dbgs() << "CSEInfo::Add MI: " << MI << "\n";);
+      LLVM_DEBUG(dbgs() << "CSEInfo::Add MI: " << MI);
       insertInstr(&MI);
     }
   }
 }
 
 void GISelCSEInfo::releaseMemory() {
-  // print();
+  print();
   CSEMap.clear();
   InstrMapping.clear();
   UniqueInstrAllocator.Reset();
@@ -245,11 +244,11 @@ void GISelCSEInfo::releaseMemory() {
 }
 
 void GISelCSEInfo::print() {
-#ifndef NDEBUG
-  for (auto &It : OpcodeHitTable) {
-    dbgs() << "CSE Count for Opc " << It.first << " : " << It.second << "\n";
-  };
-#endif
+  LLVM_DEBUG(for (auto &It
+                  : OpcodeHitTable) {
+    dbgs() << "CSEInfo::CSE Hit for Opc " << It.first << " : " << It.second
+           << "\n";
+  };);
 }
 /// -----------------------------------------
 // ---- Profiling methods for FoldingSetNode --- //

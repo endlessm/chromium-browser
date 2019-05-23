@@ -1,9 +1,8 @@
 //===-- AMDGPUSearchableTables.td - ------------------------*- tablegen -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -49,6 +48,8 @@ def : SourceOfDivergence<int_amdgcn_workitem_id_z>;
 def : SourceOfDivergence<int_amdgcn_interp_mov>;
 def : SourceOfDivergence<int_amdgcn_interp_p1>;
 def : SourceOfDivergence<int_amdgcn_interp_p2>;
+def : SourceOfDivergence<int_amdgcn_interp_p1_f16>;
+def : SourceOfDivergence<int_amdgcn_interp_p2_f16>;
 def : SourceOfDivergence<int_amdgcn_mbcnt_hi>;
 def : SourceOfDivergence<int_amdgcn_mbcnt_lo>;
 def : SourceOfDivergence<int_r600_read_tidig_x>;

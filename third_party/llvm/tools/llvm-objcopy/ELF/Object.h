@@ -1,9 +1,8 @@
 //===- Object.h -------------------------------------------------*- C++ -*-===//
 //
-//                      The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -194,8 +193,8 @@ protected:
 
 public:
   virtual ~Writer();
-  virtual void finalize() = 0;
-  virtual void write() = 0;
+  virtual Error finalize() = 0;
+  virtual Error write() = 0;
 
   Writer(Object &O, Buffer &B) : Obj(O), Buf(B) {}
 };
@@ -227,8 +226,8 @@ public:
   virtual ~ELFWriter() {}
   bool WriteSectionHeaders = true;
 
-  void finalize() override;
-  void write() override;
+  Error finalize() override;
+  Error write() override;
   ELFWriter(Object &Obj, Buffer &Buf, bool WSH)
       : Writer(Obj, Buf), WriteSectionHeaders(WSH) {}
 };
@@ -241,8 +240,8 @@ private:
 
 public:
   ~BinaryWriter() {}
-  void finalize() override;
-  void write() override;
+  Error finalize() override;
+  Error write() override;
   BinaryWriter(Object &Obj, Buffer &Buf) : Writer(Obj, Buf) {}
 };
 
@@ -274,8 +273,10 @@ public:
 
   virtual void initialize(SectionTableRef SecTable);
   virtual void finalize();
-  virtual void removeSectionReferences(const SectionBase *Sec);
-  virtual void removeSymbols(function_ref<bool(const Symbol &)> ToRemove);
+  // Remove references to these sections. The list of sections must be sorted.
+  virtual Error
+  removeSectionReferences(function_ref<bool(const SectionBase *)> ToRemove);
+  virtual Error removeSymbols(function_ref<bool(const Symbol &)> ToRemove);
   virtual void accept(SectionVisitor &Visitor) const = 0;
   virtual void accept(MutableSectionVisitor &Visitor) = 0;
   virtual void markSymbols();
@@ -335,7 +336,8 @@ public:
 
   void accept(SectionVisitor &Visitor) const override;
   void accept(MutableSectionVisitor &Visitor) override;
-  void removeSectionReferences(const SectionBase *Sec) override;
+  Error removeSectionReferences(
+      function_ref<bool(const SectionBase *)> ToRemove) override;
   void initialize(SectionTableRef SecTable) override;
   void finalize() override;
 };
@@ -522,12 +524,13 @@ public:
   Symbol *getSymbolByIndex(uint32_t Index);
   void updateSymbols(function_ref<void(Symbol &)> Callable);
 
-  void removeSectionReferences(const SectionBase *Sec) override;
+  Error removeSectionReferences(
+      function_ref<bool(const SectionBase *)> ToRemove) override;
   void initialize(SectionTableRef SecTable) override;
   void finalize() override;
   void accept(SectionVisitor &Visitor) const override;
   void accept(MutableSectionVisitor &Visitor) override;
-  void removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
+  Error removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_SYMTAB;
@@ -574,7 +577,8 @@ protected:
   RelocSectionWithSymtabBase() = default;
 
 public:
-  void removeSectionReferences(const SectionBase *Sec) override;
+  Error removeSectionReferences(
+      function_ref<bool(const SectionBase *)> ToRemove) override;
   void initialize(SectionTableRef SecTable) override;
   void finalize() override;
 };
@@ -589,7 +593,7 @@ public:
   void addRelocation(Relocation Rel) { Relocations.push_back(Rel); }
   void accept(SectionVisitor &Visitor) const override;
   void accept(MutableSectionVisitor &Visitor) override;
-  void removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
+  Error removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
   void markSymbols() override;
 
   static bool classof(const SectionBase *S) {
@@ -624,7 +628,7 @@ public:
   void accept(SectionVisitor &) const override;
   void accept(MutableSectionVisitor &Visitor) override;
   void finalize() override;
-  void removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
+  Error removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
   void markSymbols() override;
 
   static bool classof(const SectionBase *S) {
@@ -801,11 +805,16 @@ public:
   ConstRange<SectionBase> sections() const {
     return make_pointee_range(Sections);
   }
+  SectionBase *findSection(StringRef Name) {
+    auto SecIt =
+        find_if(Sections, [&](const SecPtr &Sec) { return Sec->Name == Name; });
+    return SecIt == Sections.end() ? nullptr : SecIt->get();
+  }
   Range<Segment> segments() { return make_pointee_range(Segments); }
   ConstRange<Segment> segments() const { return make_pointee_range(Segments); }
 
-  void removeSections(std::function<bool(const SectionBase &)> ToRemove);
-  void removeSymbols(function_ref<bool(const Symbol &)> ToRemove);
+  Error removeSections(std::function<bool(const SectionBase &)> ToRemove);
+  Error removeSymbols(function_ref<bool(const Symbol &)> ToRemove);
   template <class T, class... Ts> T &addSection(Ts &&... Args) {
     auto Sec = llvm::make_unique<T>(std::forward<Ts>(Args)...);
     auto Ptr = Sec.get();

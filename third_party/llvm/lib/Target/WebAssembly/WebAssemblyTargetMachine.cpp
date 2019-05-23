@@ -1,9 +1,8 @@
 //===- WebAssemblyTargetMachine.cpp - Define TargetMachine for WebAssembly -==//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -58,7 +57,6 @@ extern "C" void LLVMInitializeWebAssemblyTarget() {
   initializeOptimizeReturnedPass(PR);
   initializeWebAssemblyArgumentMovePass(PR);
   initializeWebAssemblySetP2AlignOperandsPass(PR);
-  initializeWebAssemblyEHRestoreStackPointerPass(PR);
   initializeWebAssemblyReplacePhysRegsPass(PR);
   initializeWebAssemblyPrepareForLiveIntervalsPass(PR);
   initializeWebAssemblyOptimizeLiveIntervalsPass(PR);
@@ -122,7 +120,7 @@ WebAssemblyTargetMachine::WebAssemblyTargetMachine(
   // splitting and tail merging.
 }
 
-WebAssemblyTargetMachine::~WebAssemblyTargetMachine() {}
+WebAssemblyTargetMachine::~WebAssemblyTargetMachine() = default; // anchor.
 
 const WebAssemblySubtarget *
 WebAssemblyTargetMachine::getSubtargetImpl(const Function &F) const {
@@ -285,14 +283,6 @@ void WebAssemblyPassConfig::addPostRegAlloc() {
 void WebAssemblyPassConfig::addPreEmitPass() {
   TargetPassConfig::addPreEmitPass();
 
-  // Restore __stack_pointer global after an exception is thrown.
-  addPass(createWebAssemblyEHRestoreStackPointer());
-
-  // Now that we have a prologue and epilogue and all frame indices are
-  // rewritten, eliminate SP and FP. This allows them to be stackified,
-  // colored, and numbered with the rest of the registers.
-  addPass(createWebAssemblyReplacePhysRegs());
-
   // Rewrite pseudo call_indirect instructions as real instructions.
   // This needs to run before register stackification, because we change the
   // order of the arguments.
@@ -302,8 +292,15 @@ void WebAssemblyPassConfig::addPreEmitPass() {
   addPass(createWebAssemblyFixIrreducibleControlFlow());
 
   // Do various transformations for exception handling.
+  // Every CFG-changing optimizations should come before this.
   addPass(createWebAssemblyLateEHPrepare());
 
+  // Now that we have a prologue and epilogue and all frame indices are
+  // rewritten, eliminate SP and FP. This allows them to be stackified,
+  // colored, and numbered with the rest of the registers.
+  addPass(createWebAssemblyReplacePhysRegs());
+
+  // Preparations and optimizations related to register stackification.
   if (getOptLevel() != CodeGenOpt::None) {
     // LiveIntervals isn't commonly run this late. Re-establish preconditions.
     addPass(createWebAssemblyPrepareForLiveIntervals());

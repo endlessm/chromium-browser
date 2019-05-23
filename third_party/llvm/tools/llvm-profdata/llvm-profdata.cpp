@@ -1,9 +1,8 @@
 //===- llvm-profdata.cpp - LLVM profile data tool -------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -27,8 +26,8 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/WithColor.h"
 #include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 
@@ -643,7 +642,7 @@ static void traverseAllValueSites(const InstrProfRecord &Func, uint32_t VK,
     for (uint32_t V = 0; V < NV; V++) {
       OS << "\t[ " << format("%2u", I) << ", ";
       if (Symtab == nullptr)
-        OS << format("%4u", VD[V].Value);
+        OS << format("%4" PRIu64, VD[V].Value);
       else
         OS << Symtab->getFuncName(VD[V].Value);
       OS << ", " << format("%10" PRId64, VD[V].Count) << " ] ("

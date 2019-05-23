@@ -17,6 +17,10 @@ const base::Feature kDoodlesOnLocalNtp{"DoodlesOnLocalNtp",
 const base::Feature kPromosOnLocalNtp{"PromosOnLocalNtp",
                                       base::FEATURE_DISABLED_BY_DEFAULT};
 
+// If enabled, the fakebox will not be shown on the NTP.
+const base::Feature kRemoveNtpFakebox{"RemoveNtpFakebox",
+                                      base::FEATURE_DISABLED_BY_DEFAULT};
+
 // If enabled, the user will sometimes see search suggestions on the NTP.
 const base::Feature kSearchSuggestionsOnLocalNtp{
     "SearchSuggestionsOnLocalNtp", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -24,5 +28,45 @@ const base::Feature kSearchSuggestionsOnLocalNtp{
 // Enables using the local NTP if Google is the default search engine.
 const base::Feature kUseGoogleLocalNtp{"UseGoogleLocalNtp",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
+// If enabled, show a search icon (magnifier glass) in the NTP fakebox. Also
+// implicitly enabled by |kFakeboxSearchIconColorOnNtp|.
+const base::Feature kFakeboxSearchIconOnNtp{"FakeboxSearchIconOnNtp",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
+
+// If enabled, show a blue search icon (magnifier glass) in the NTP fakebox.
+const base::Feature kFakeboxSearchIconColorOnNtp{
+    "FakeboxSearchIconColorOnNtp", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// If enabled, show a shorter hint text in the NTP fakebox.
+const base::Feature kFakeboxShortHintTextOnNtp{
+    "FakeboxShortHintTextOnNtp", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// If enabled, the NTP fakebox will be changed to the Google search style. Also
+// implicitly enabled by |kFakeboxSearchIconOnNtp|,
+// |kFakeboxSearchIconColorOnNtp|, and |kUseAlternateFakeboxRectOnNtp|.
+const base::Feature kUseAlternateFakeboxOnNtp{
+    "UseAlternateFakeboxOnNtp", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// If enabled, the NTP fakebox will be changed to a rectangular Google search
+// style with slightly rounded corners.
+const base::Feature kUseAlternateFakeboxRectOnNtp{
+    "UseAlternateFakeboxRectOnNtp", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// If enabled, the shortcuts will not be shown on the NTP.
+const base::Feature kHideShortcutsOnNtp{"HideShortcutsOnNtp",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
+bool IsFakeboxSearchIconOnNtpEnabled() {
+  return base::FeatureList::IsEnabled(kFakeboxSearchIconOnNtp) ||
+         base::FeatureList::IsEnabled(kFakeboxSearchIconColorOnNtp);
+}
+
+bool IsUseAlternateFakeboxOnNtpEnabled() {
+  return base::FeatureList::IsEnabled(kFakeboxSearchIconOnNtp) ||
+         base::FeatureList::IsEnabled(kFakeboxSearchIconColorOnNtp) ||
+         base::FeatureList::IsEnabled(kUseAlternateFakeboxRectOnNtp) ||
+         base::FeatureList::IsEnabled(kUseAlternateFakeboxOnNtp);
+}
 
 }  // namespace features

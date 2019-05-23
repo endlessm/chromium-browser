@@ -22,6 +22,11 @@
 #include "util/system_utils.h"
 #include "util/util_gl.h"
 
+namespace angle
+{
+struct SystemInfo;
+}  // namespace angle
+
 #define ASSERT_GL_TRUE(a) ASSERT_EQ(static_cast<GLboolean>(GL_TRUE), (a))
 #define ASSERT_GL_FALSE(a) ASSERT_EQ(static_cast<GLboolean>(GL_FALSE), (a))
 #define EXPECT_GL_TRUE(a) EXPECT_EQ(static_cast<GLboolean>(GL_TRUE), (a))
@@ -174,15 +179,16 @@ GLColor32F ReadColor32F(GLint x, GLint y);
 #define EXPECT_PIXEL_COLOR32F_EQ(x, y, angleColor) EXPECT_EQ(angleColor, angle::ReadColor32F(x, y))
 
 #define EXPECT_PIXEL_RECT_EQ(x, y, width, height, color)                                           \
-                                                                                                   \
+    do                                                                                             \
     {                                                                                              \
         std::vector<GLColor> actualColors(width *height);                                          \
         glReadPixels((x), (y), (width), (height), GL_RGBA, GL_UNSIGNED_BYTE, actualColors.data()); \
         std::vector<GLColor> expectedColors(width *height, color);                                 \
         EXPECT_EQ(expectedColors, actualColors);                                                   \
-    }
+    } while (0)
 
 #define EXPECT_PIXEL_NEAR(x, y, r, g, b, a, abs_error)                  \
+    do                                                                  \
     {                                                                   \
         GLubyte pixel[4];                                               \
         glReadPixels((x), (y), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel); \
@@ -191,10 +197,10 @@ GLColor32F ReadColor32F(GLint x, GLint y);
         EXPECT_NEAR((g), pixel[1], abs_error);                          \
         EXPECT_NEAR((b), pixel[2], abs_error);                          \
         EXPECT_NEAR((a), pixel[3], abs_error);                          \
-    }
+    } while (0)
 
 #define EXPECT_PIXEL32F_NEAR(x, y, r, g, b, a, abs_error)       \
-                                                                \
+    do                                                          \
     {                                                           \
         GLfloat pixel[4];                                       \
         glReadPixels((x), (y), 1, 1, GL_RGBA, GL_FLOAT, pixel); \
@@ -203,7 +209,7 @@ GLColor32F ReadColor32F(GLint x, GLint y);
         EXPECT_NEAR((g), pixel[1], abs_error);                  \
         EXPECT_NEAR((b), pixel[2], abs_error);                  \
         EXPECT_NEAR((a), pixel[3], abs_error);                  \
-    }
+    } while (0)
 
 // TODO(jmadill): Figure out how we can use GLColor's nice printing with EXPECT_NEAR.
 #define EXPECT_PIXEL_COLOR_NEAR(x, y, angleColor, abs_error) \
@@ -213,15 +219,15 @@ GLColor32F ReadColor32F(GLint x, GLint y);
     EXPECT_PIXEL32F_NEAR(x, y, angleColor.R, angleColor.G, angleColor.B, angleColor.A, abs_error)
 
 #define EXPECT_COLOR_NEAR(expected, actual, abs_error) \
-                                                       \
+    do                                                 \
     {                                                  \
         EXPECT_NEAR(expected.R, actual.R, abs_error);  \
         EXPECT_NEAR(expected.G, actual.G, abs_error);  \
         EXPECT_NEAR(expected.B, actual.B, abs_error);  \
         EXPECT_NEAR(expected.A, actual.A, abs_error);  \
-    }
+    } while (0)
 #define EXPECT_PIXEL32F_NEAR(x, y, r, g, b, a, abs_error)       \
-                                                                \
+    do                                                          \
     {                                                           \
         GLfloat pixel[4];                                       \
         glReadPixels((x), (y), 1, 1, GL_RGBA, GL_FLOAT, pixel); \
@@ -230,7 +236,7 @@ GLColor32F ReadColor32F(GLint x, GLint y);
         EXPECT_NEAR((g), pixel[1], abs_error);                  \
         EXPECT_NEAR((b), pixel[2], abs_error);                  \
         EXPECT_NEAR((a), pixel[3], abs_error);                  \
-    }
+    } while (0)
 
 #define EXPECT_PIXEL_COLOR32F_NEAR(x, y, angleColor, abs_error) \
     EXPECT_PIXEL32F_NEAR(x, y, angleColor.R, angleColor.G, angleColor.B, angleColor.A, abs_error)
@@ -244,6 +250,7 @@ class WGLWindow;
 struct TestPlatformContext final : private angle::NonCopyable
 {
     bool ignoreMessages        = false;
+    bool warningsAsErrors      = false;
     ANGLETestBase *currentTest = nullptr;
 };
 
@@ -368,6 +375,9 @@ class ANGLETestBase
 
     void ignoreD3D11SDKLayersWarnings();
 
+    // Allows a test to be more restrictive about platform warnings.
+    void treatPlatformWarningsAsErrors();
+
     static OSWindow *GetOSWindow() { return mOSWindow; }
 
     GLuint get2DTexturedQuadProgram();
@@ -389,6 +399,7 @@ class ANGLETestBase
 
   private:
     void checkD3D11SDKLayersMessages();
+    bool hasNvidiaGPU();
 
     void drawQuad(GLuint program,
                   const std::string &positionAttribName,
@@ -442,10 +453,14 @@ class ANGLETestEnvironment : public testing::Environment
     static angle::Library *GetEGLLibrary();
     static angle::Library *GetWGLLibrary();
 
+    static angle::SystemInfo *GetSystemInfo();
+
   private:
     // For loading entry points.
     static std::unique_ptr<angle::Library> gEGLLibrary;
     static std::unique_ptr<angle::Library> gWGLLibrary;
+
+    static std::unique_ptr<angle::SystemInfo> gSystemInfo;
 };
 
 // This base fixture loads the EGL entry points.
@@ -475,14 +490,7 @@ bool IsD3DSM3();
 bool IsDesktopOpenGL();
 bool IsOpenGLES();
 bool IsOpenGL();
-bool IsOzone();
 bool IsNULL();
-
-// Operating systems
-bool IsAndroid();
-bool IsLinux();
-bool IsOSX();
-bool IsWindows();
 bool IsVulkan();
 
 // Debug/Release

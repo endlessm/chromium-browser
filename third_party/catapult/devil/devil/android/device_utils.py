@@ -2224,20 +2224,42 @@ class DeviceUtils(object):
     else:
       return False
 
+  def GetLocale(self, cache=False):
+    """Returns the locale setting on the device.
+
+    Args:
+      cache: Whether to use cached properties when available.
+    Returns:
+      A pair (language, country).
+    """
+    locale = self.GetProp('persist.sys.locale', cache=cache)
+    if locale:
+      if '-' not in locale:
+        logging.error('Unparsable locale: %s', locale)
+        return ('', '')  # Behave as if persist.sys.locale is undefined.
+      return tuple(locale.split('-', 1))
+    return (self.GetProp('persist.sys.language', cache=cache),
+            self.GetProp('persist.sys.country', cache=cache))
+
   def GetLanguage(self, cache=False):
     """Returns the language setting on the device.
+
+    DEPRECATED: Prefer GetLocale() instead.
+
     Args:
       cache: Whether to use cached properties when available.
     """
-    return self.GetProp('persist.sys.language', cache=cache)
+    return self.GetLocale(cache=cache)[0]
 
   def GetCountry(self, cache=False):
     """Returns the country setting on the device.
 
+    DEPRECATED: Prefer GetLocale() instead.
+
     Args:
       cache: Whether to use cached properties when available.
     """
-    return self.GetProp('persist.sys.country', cache=cache)
+    return self.GetLocale(cache=cache)[1]
 
   @property
   def screen_density(self):
@@ -2310,7 +2332,11 @@ class DeviceUtils(object):
 
   @property
   def product_cpu_abi(self):
-    """Returns the product cpu abi of the device (e.g. 'armeabi-v7a')."""
+    """Returns the product cpu abi of the device (e.g. 'armeabi-v7a').
+
+    For supported ABIs, the return value will be one of the values defined in
+    devil.android.ndk.abis.
+    """
     return self.GetProp('ro.product.cpu.abi', cache=True)
 
   @property
@@ -2436,7 +2462,8 @@ class DeviceUtils(object):
       retries: number of retries
 
     Returns:
-      The device's main ABI name.
+      The device's main ABI name. For supported ABIs, the return value will be
+      one of the values defined in devil.android.ndk.abis.
 
     Raises:
       CommandTimeoutError on timeout.
@@ -2935,7 +2962,7 @@ class DeviceUtils(object):
           the last attempt if there are no available devices. It will only reset
           those that appear to be android devices.
       abis: A list of ABIs for which the device needs to support at least one of
-          (optional).
+          (optional). See devil.android.ndk.abis for valid values.
       A device serial, or a list of device serials (optional).
 
     Returns:

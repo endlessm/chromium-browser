@@ -77,7 +77,7 @@ protected:
         pipelineDescriptor.layout = pipelineLayout;
         pipelineDescriptor.cVertexStage.module = vsModule;
         pipelineDescriptor.cFragmentStage.module = fsModule;
-        pipelineDescriptor.cColorAttachments[0]->format = mRenderPass.colorFormat;
+        pipelineDescriptor.cColorStates[0]->format = mRenderPass.colorFormat;
 
         mPipeline = device.CreateRenderPipeline(&pipelineDescriptor);
 
@@ -86,10 +86,10 @@ protected:
         descriptor.size.width = 2;
         descriptor.size.height = 2;
         descriptor.size.depth = 1;
-        descriptor.arraySize = 1;
+        descriptor.arrayLayerCount = 1;
         descriptor.sampleCount = 1;
         descriptor.format = dawn::TextureFormat::R8G8B8A8Unorm;
-        descriptor.levelCount = 1;
+        descriptor.mipLevelCount = 1;
         descriptor.usage = dawn::TextureUsageBit::TransferDst | dawn::TextureUsageBit::Sampled;
         dawn::Texture texture = device.CreateTexture(&descriptor);
 
@@ -106,12 +106,13 @@ protected:
         dawn::TextureCopyView textureCopyView =
             utils::CreateTextureCopyView(texture, 0, 0, {0, 0, 0});
         dawn::Extent3D copySize = {2, 2, 1};
-        dawn::CommandBuffer copy =
-            device.CreateCommandBufferBuilder()
-                .CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize)
-                .GetResult();
 
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+        encoder.CopyBufferToTexture(&bufferCopyView, &textureCopyView, &copySize);
+
+        dawn::CommandBuffer copy = encoder.Finish();
         queue.Submit(1, &copy);
+
         mTextureView = texture.CreateDefaultTextureView();
     }
 
@@ -137,16 +138,16 @@ protected:
             {1, mTextureView}
         });
 
-        dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
+        dawn::CommandEncoder encoder = device.CreateCommandEncoder();
         {
-            dawn::RenderPassEncoder pass = builder.BeginRenderPass(mRenderPass.renderPassInfo);
+            dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&mRenderPass.renderPassInfo);
             pass.SetPipeline(mPipeline);
             pass.SetBindGroup(0, bindGroup);
             pass.Draw(6, 1, 0, 0);
             pass.EndPass();
         }
 
-        dawn::CommandBuffer commands = builder.GetResult();
+        dawn::CommandBuffer commands = encoder.Finish();
         queue.Submit(1, &commands);
 
         RGBA8 expectedU2(u.mExpected2, u.mExpected2, u.mExpected2, 255);
@@ -183,4 +184,4 @@ TEST_P(SamplerTest, AddressMode) {
     }
 }
 
-DAWN_INSTANTIATE_TEST(SamplerTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend)
+DAWN_INSTANTIATE_TEST(SamplerTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);

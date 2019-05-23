@@ -1,9 +1,8 @@
 //===- PatternMatch.h - Match on the LLVM IR --------------------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1463,6 +1462,20 @@ struct UAddWithOverflow_match {
     if (Pred == ICmpInst::ICMP_UGT)
       if (AddExpr.match(ICmpRHS) && (ICmpLHS == AddLHS || ICmpLHS == AddRHS))
         return L.match(AddLHS) && R.match(AddRHS) && S.match(ICmpRHS);
+
+    // Match special-case for increment-by-1.
+    if (Pred == ICmpInst::ICMP_EQ) {
+      // (a + 1) == 0
+      // (1 + a) == 0
+      if (AddExpr.match(ICmpLHS) && m_ZeroInt().match(ICmpRHS) &&
+          (m_One().match(AddLHS) || m_One().match(AddRHS)))
+        return L.match(AddLHS) && R.match(AddRHS) && S.match(ICmpLHS);
+      // 0 == (a + 1)
+      // 0 == (1 + a)
+      if (m_ZeroInt().match(ICmpLHS) && AddExpr.match(ICmpRHS) &&
+          (m_One().match(AddLHS) || m_One().match(AddRHS)))
+        return L.match(AddLHS) && R.match(AddRHS) && S.match(ICmpRHS);
+    }
 
     return false;
   }

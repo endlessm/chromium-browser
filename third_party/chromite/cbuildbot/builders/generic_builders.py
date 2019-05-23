@@ -134,6 +134,7 @@ class Builder(object):
 
         if cidb.CIDBConnectionFactory.IsCIDBSetup():
           db = cidb.CIDBConnectionFactory.GetCIDBConnectionForBuilder()
+          buildstore = BuildStore()
           for build_stage_id in stage.GetBuildStageIDs():
             stage_status = db.GetBuildStage(build_stage_id)
 
@@ -151,7 +152,7 @@ class Builder(object):
                   'category': stage.category,
               }
               failures_lib.ReportStageFailure(
-                  db, build_stage_id, ex, metrics_fields=metrics_fields)
+                  buildstore, build_stage_id, ex, metrics_fields=metrics_fields)
 
             # If this stage has non_completed status in buildStageTable, mark
             # the stage as 'fail' status in buildStageTable.
@@ -345,8 +346,10 @@ class Builder(object):
         raise
 
       exception_thrown = True
-      build_id, db = self._run.GetCIDBHandle()
-      if results_lib.Results.BuildSucceededSoFar(db, build_id):
+      build_identifier, _ = self._run.GetCIDBHandle()
+      buildbucket_id = build_identifier.buildbucket_id
+      if results_lib.Results.BuildSucceededSoFar(self.buildstore,
+                                                 buildbucket_id):
         # If the build is marked as successful, but threw exceptions, that's a
         # problem. Print the traceback for debugging.
         if isinstance(ex, failures_lib.CompoundFailure):
@@ -365,8 +368,10 @@ class Builder(object):
         results_lib.WriteCheckpoint(self._run.options.buildroot)
         completion_instance = self.GetCompletionInstance()
         self._RunStage(report_stages.ReportStage, completion_instance)
-        build_id, db = self._run.GetCIDBHandle()
-        success = results_lib.Results.BuildSucceededSoFar(db, build_id)
+        build_identifier, _ = self._run.GetCIDBHandle()
+        buildbucket_id = build_identifier.buildbucket_id
+        success = results_lib.Results.BuildSucceededSoFar(self.buildstore,
+                                                          buildbucket_id)
         if exception_thrown and success:
           success = False
           logging.PrintBuildbotStepWarnings()
@@ -427,9 +432,10 @@ class PreCqBuilder(Builder):
     try:
       self.RunTestStages()
     finally:
-      build_id, db = self._run.GetCIDBHandle()
+      build_identifier, _ = self._run.GetCIDBHandle()
+      buildbucket_id = build_identifier.buildbucket_id
       was_build_successful = results_lib.Results.BuildSucceededSoFar(
-          db, build_id)
+          self.buildstore, buildbucket_id)
 
       self.completion_instance = self._GetStageInstance(
           completion_stages.PreCQCompletionStage, self.sync_stage,

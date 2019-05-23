@@ -39,6 +39,7 @@ const char kSwitchIdeValueVs[] = "vs";
 const char kSwitchIdeValueVs2013[] = "vs2013";
 const char kSwitchIdeValueVs2015[] = "vs2015";
 const char kSwitchIdeValueVs2017[] = "vs2017";
+const char kSwitchIdeValueVs2019[] = "vs2019";
 const char kSwitchIdeValueWinSdk[] = "winsdk";
 const char kSwitchIdeValueXcode[] = "xcode";
 const char kSwitchIdeValueJson[] = "json";
@@ -200,12 +201,15 @@ bool RunIdeWriter(const std::string& ide,
     }
     return res;
   } else if (ide == kSwitchIdeValueVs || ide == kSwitchIdeValueVs2013 ||
-             ide == kSwitchIdeValueVs2015 || ide == kSwitchIdeValueVs2017) {
+             ide == kSwitchIdeValueVs2015 || ide == kSwitchIdeValueVs2017 ||
+             ide == kSwitchIdeValueVs2019) {
     VisualStudioWriter::Version version = VisualStudioWriter::Version::Vs2017;
     if (ide == kSwitchIdeValueVs2013)
       version = VisualStudioWriter::Version::Vs2013;
     else if (ide == kSwitchIdeValueVs2015)
       version = VisualStudioWriter::Version::Vs2015;
+    else if (ide == kSwitchIdeValueVs2019)
+      version = VisualStudioWriter::Version::Vs2019;
 
     std::string sln_name;
     if (command_line->HasSwitch(kSwitchSln))
@@ -290,9 +294,11 @@ bool RunCompileCommandsWriter(const BuildSettings* build_settings,
   base::ElapsedTimer timer;
 
   std::string file_name = "compile_commands.json";
+  std::string target_filters =
+      command_line->GetSwitchValueASCII(kSwitchExportCompileCommands);
 
-  bool res = CompileCommandsWriter::RunAndWriteFiles(build_settings, builder,
-                                                     file_name, quiet, err);
+  bool res = CompileCommandsWriter::RunAndWriteFiles(
+      build_settings, builder, file_name, target_filters, quiet, err);
   if (res && !quiet) {
     OutputString("Generating compile_commands took " +
                  base::Int64ToString(timer.Elapsed().InMilliseconds()) +
@@ -333,6 +339,7 @@ IDE options
       "vs2013" - Visual Studio 2013 project/solution files.
       "vs2015" - Visual Studio 2015 project/solution files.
       "vs2017" - Visual Studio 2017 project/solution files.
+      "vs2019" - Visual Studio 2019 project/solution files.
       "xcode" - Xcode workspace/solution files.
       "qtcreator" - QtCreator project files.
       "json" - JSON file containing target information
@@ -415,12 +422,15 @@ Generic JSON Output
 
 Compilation Database
 
-  --export-compile-commands
+  --export-compile-commands[=<target_name1,target_name2...>]
       Produces a compile_commands.json file in the root of the build directory
       containing an array of “command objects”, where each command object
-      specifies one way a translation unit is compiled in the project. This is
-      used for various Clang-based tooling, allowing for the replay of individual
-      compilations independent of the build system.
+      specifies one way a translation unit is compiled in the project. If a list
+      of target_name is supplied, only targets that are reachable from the list
+      of target_name will be used for “command objects” generation, otherwise
+      all available targets will be used. This is used for various Clang-based
+      tooling, allowing for the replay of individual compilations independent
+      of the build system.
 )";
 
 int RunGen(const std::vector<std::string>& args) {
@@ -436,6 +446,10 @@ int RunGen(const std::vector<std::string>& args) {
 
   // Deliberately leaked to avoid expensive process teardown.
   Setup* setup = new Setup();
+  // Generate an empty args.gn file if it does not exists
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kArgs)) {
+    setup->set_gen_empty_args(true);
+  }
   if (!setup->DoSetup(args[0], true))
     return 1;
 

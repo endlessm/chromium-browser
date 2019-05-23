@@ -55,6 +55,7 @@ class BrowserFinderOptions(optparse.Values):
     self.interval_profiling_target = ''
     self.interval_profiling_periods = []
     self.interval_profiling_frequency = 1000
+    self.interval_profiler_options = ''
 
   def __repr__(self):
     return str(sorted(self.__dict__.items()))
@@ -175,30 +176,46 @@ class BrowserFinderOptions(optparse.Values):
         'used.')
     parser.add_option_group(group)
 
-    # CPU profiling on Android.
+    # CPU profiling on Android/Linux/ChromeOS.
     group = optparse.OptionGroup(parser, (
         'CPU profiling over intervals of interest, '
-        'Android and Linux only'))
+        'Android, Linux, and ChromeOS only'))
     group.add_option(
         '--interval-profiling-target', dest='interval_profiling_target',
-        default='renderer:main', metavar='PROCESS_NAME[:THREAD_NAME]',
-        help='Run the CPU profiler on this process/thread (default=%default).')
+        default='renderer:main',
+        metavar='PROCESS_NAME[:THREAD_NAME]|"system_wide"',
+        help='Run the CPU profiler on this process/thread (default=%default), '
+        'which is supported only on Linux and Android, or system-wide, which '
+        'is supported only on ChromeOS.')
     group.add_option(
         '--interval-profiling-period', dest='interval_profiling_periods',
-        type='choice', choices=('navigation', 'interactions'), action='append',
-        default=[], metavar='PERIOD',
+        type='choice',
+        choices=('navigation', 'interactions', 'story_run'),
+        action='append', default=[], metavar='PERIOD',
         help='Run the CPU profiler during this test period. '
-        'May be specified multiple times; available choices '
-        'are ["navigation", "interactions"]. Profile data will be written to'
-        'artifacts/*.perf.data (Android) or artifacts/*.profile.pb (Linux) '
-        'files in the output directory. See '
+        'May be specified multiple times except when the story_run period is '
+        'used; available choices are ["navigation", "interactions", '
+        '"story_run"]. Profile data will be written to '
+        'artifacts/*.perf.data (Android/ChromeOS) or '
+        'artifacts/*.profile.pb (Linux) files in the output directory. See '
         'https://developer.android.com/ndk/guides/simpleperf for more info on '
         'Android profiling via simpleperf.')
     group.add_option(
         '--interval-profiling-frequency', default=1000, metavar='FREQUENCY',
         type=int,
         help='Frequency of CPU profiling samples, in samples per second '
-        '(default=%default).')
+        '(default=%default). This flag is used only on Android')
+    group.add_option(
+        '--interval-profiler-options',
+        dest='interval_profiler_options', type=str,
+        metavar='"--flag <options> ..."',
+        help='Addtional arguments to pass to the CPU profiler. This is used '
+        'only on ChromeOS. On ChromeOS, pass the linux perf\'s subcommand name '
+        'followed by the options to pass to the perf tool. Supported perf '
+        'subcommands are "record" and "stat". '
+        'Eg: "record -e cycles -c 4000000 -g". Note: "-a" flag is added to the '
+        'perf command by default. Do not pass options that are incompatible '
+        'with the system-wide profile collection.')
     parser.add_option_group(group)
 
     # Browser options.
@@ -264,6 +281,18 @@ class BrowserFinderOptions(optparse.Values):
           if len(browser_types[device_name]) == 0:
             print '     No browsers found for this device'
         sys.exit(0)
+
+      # Profiling other periods along with the story_run period leads to running
+      # multiple profiling processes at the same time. The effects of performing
+      # muliple CPU profiling at the same time is unclear and may generate
+      # incorrect profiles so this will not be supported.
+      if (len(self.interval_profiling_periods) > 1
+          and 'story_run' in self.interval_profiling_periods):
+        print 'Cannot specify other periods along with the story_run period.'
+        sys.exit(1)
+
+      self.interval_profiler_options = shlex.split(
+          self.interval_profiler_options)
 
       # Parse browser options.
       self.browser_options.UpdateFromParseResults(self)
@@ -338,8 +367,11 @@ class BrowserOptions(object):
     self.disable_background_networking = True
     self.browser_user_agent_type = None
 
-    # pylint: disable=invalid-name
-    self.clear_sytem_cache_for_browser_and_profile_on_start = False
+    # Some benchmarks (startup, loading, and memory related) need this to get
+    # more representative measurements. Only has an effect for page sets based
+    # on SharedPageState. New clients should probably define their own shared
+    # state and make cache clearing decisions on their own.
+    self.flush_os_page_caches_on_start = False
 
     # Background pages of built-in component extensions can interfere with
     # performance measurements.

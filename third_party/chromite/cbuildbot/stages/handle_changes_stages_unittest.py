@@ -20,7 +20,6 @@ from chromite.lib import cidb
 from chromite.lib import clactions
 from chromite.lib import config_lib
 from chromite.lib import constants
-from chromite.lib import fake_cidb
 from chromite.lib import hwtest_results
 from chromite.lib import timeout_util
 from chromite.lib import tree_status
@@ -39,6 +38,7 @@ class CommitQueueHandleChangesStageTests(
   def setUp(self):
     self._Prepare()
     self.buildstore = FakeBuildStore()
+    self.mock_cidb = self.buildstore.GetCIDBHandle()
 
     self.partial_submit_changes = ['A', 'B']
     self.other_changes = ['C', 'D']
@@ -87,17 +87,15 @@ class CommitQueueHandleChangesStageTests(
   def test_GetBuildsPassedSyncStage(self):
     """Test _GetBuildsPassedSyncStage."""
     stage = self.ConstructStage()
-    mock_cidb = mock.Mock()
-    mock_cidb.GetBuildStatusesWithBuildbucketIds.return_value = []
-    mock_cidb.GetBuildsStages.return_value = [
+    self.PatchObject(FakeBuildStore, 'GetBuildsStages', return_value=[
         {'build_config': 's_1', 'status': 'pass', 'name': 'CommitQueueSync'},
         {'build_config': 's_2', 'status': 'pass', 'name': 'CommitQueueSync'},
-        {'build_config': 's_3', 'status': 'fail', 'name': 'CommitQueueSync'}]
-    mock_cidb.GetBuildStages.return_value = [
-        {'status': 'pass', 'name': 'CommitQueueSync'}]
+        {'build_config': 's_3', 'status': 'fail', 'name': 'CommitQueueSync'},
+        {'build_config': 'master-paladin', 'status': 'pass',
+         'name': 'CommitQueueSync'}])
 
     builds = stage._GetBuildsPassedSyncStage(
-        'build_id', mock_cidb, ['id_1', 'id_2'])
+        'build_id', ['id_1', 'id_2'])
     self.assertItemsEqual(builds, ['s_1', 's_2', 'master-paladin'])
 
   def _MockPartialSubmit(self, stage):
@@ -155,7 +153,7 @@ class CommitQueueHandleChangesStageTests(
     stage = self.ConstructStage()
     self._MockPartialSubmit(stage)
     master_build_id = stage._run.attrs.metadata.GetValue('build_id')
-    db = fake_cidb.FakeCIDBConnection()
+    db = self.mock_cidb
     slave_build_id = db.InsertBuild(
         'slave_1', 1, 'slave_1', 'bot_hostname',
         master_build_id=master_build_id, buildbucket_id='123')
@@ -234,7 +232,8 @@ class CommitQueueHandleChangesStageTests(
                              'build_config': slave,
                              'status': constants.BUILDER_STATUS_PASSED})
     self.PatchObject(self.buildstore, 'GetBuildStatuses', return_value=[])
-    self.PatchObject(mock_cidb, 'GetBuildsStages', return_value=slave_stages)
+    self.PatchObject(self.buildstore, 'GetBuildsStages',
+                     return_value=slave_stages)
 
     # Set up SubmitPartialPool to provide a list of changes to look at.
     self.PatchObject(stage.sync_stage.pool, 'SubmitPartialPool',

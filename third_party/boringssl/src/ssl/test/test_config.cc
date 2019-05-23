@@ -145,6 +145,7 @@ const Flag<bool> kBoolFlags[] = {
   { "-is-handshaker-supported", &TestConfig::is_handshaker_supported },
   { "-handshaker-resume", &TestConfig::handshaker_resume },
   { "-reverify-on-resume", &TestConfig::reverify_on_resume },
+  { "-enforce-rsa-key-usage", &TestConfig::enforce_rsa_key_usage },
   { "-jdk11-workaround", &TestConfig::jdk11_workaround },
   { "-server-preference", &TestConfig::server_preference },
   { "-export-traffic-secrets", &TestConfig::export_traffic_secrets },
@@ -177,6 +178,7 @@ const Flag<std::string> kStringFlags[] = {
   { "-expect-client-ca-list", &TestConfig::expected_client_ca_list },
   { "-expect-msg-callback", &TestConfig::expect_msg_callback },
   { "-handshaker-path", &TestConfig::handshaker_path },
+  { "-delegated-credential", &TestConfig::delegated_credential },
 };
 
 const Flag<std::string> kBase64Flags[] = {
@@ -218,7 +220,6 @@ const Flag<int> kIntFlags[] = {
   { "-max-send-fragment", &TestConfig::max_send_fragment },
   { "-read-size", &TestConfig::read_size },
   { "-expect-ticket-age-skew", &TestConfig::expect_ticket_age_skew },
-  { "-tls13-variant", &TestConfig::tls13_variant },
 };
 
 const Flag<std::vector<int>> kIntVectorFlags[] = {
@@ -1247,9 +1248,6 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
     SSL_CTX_set_early_data_enabled(ssl_ctx.get(), 1);
   }
 
-  SSL_CTX_set_tls13_variant(ssl_ctx.get(),
-                            static_cast<enum tls13_variant_t>(tls13_variant));
-
   if (allow_unknown_alpn_protos) {
     SSL_CTX_set_allow_unknown_alpn_protos(ssl_ctx.get(), 1);
   }
@@ -1504,6 +1502,9 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
   if (reverify_on_resume) {
     SSL_CTX_set_reverify_on_resume(ssl_ctx, 1);
   }
+  if (enforce_rsa_key_usage) {
+    SSL_set_enforce_rsa_key_usage(ssl.get(), 1);
+  }
   if (no_tls13) {
     SSL_set_options(ssl.get(), SSL_OP_NO_TLSv1_3);
   }
@@ -1671,6 +1672,41 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
       // manually.
       SSL_SESSION_up_ref(session);
       GetTestState(ssl.get())->pending_session.reset(session);
+    }
+  }
+
+  if (!delegated_credential.empty()) {
+    std::string::size_type comma = delegated_credential.find(',');
+    if (comma == std::string::npos) {
+      fprintf(stderr, "failed to find comma in delegated credential argument");
+      return nullptr;
+    }
+
+    const std::string dc_hex = delegated_credential.substr(0, comma);
+    const std::string pkcs8_hex = delegated_credential.substr(comma + 1);
+    std::string dc, pkcs8;
+    if (!HexDecode(&dc, dc_hex) || !HexDecode(&pkcs8, pkcs8_hex)) {
+      fprintf(stderr, "failed to hex decode delegated credential argument");
+      return nullptr;
+    }
+
+    CBS dc_cbs(bssl::Span<const uint8_t>(
+        reinterpret_cast<const uint8_t *>(dc.data()), dc.size()));
+    CBS pkcs8_cbs(bssl::Span<const uint8_t>(
+        reinterpret_cast<const uint8_t *>(pkcs8.data()), pkcs8.size()));
+
+    bssl::UniquePtr<EVP_PKEY> priv(EVP_parse_private_key(&pkcs8_cbs));
+    if (!priv) {
+      fprintf(stderr, "failed to parse delegated credential private key");
+      return nullptr;
+    }
+
+    bssl::UniquePtr<CRYPTO_BUFFER> dc_buf(
+        CRYPTO_BUFFER_new_from_CBS(&dc_cbs, nullptr));
+    if (!SSL_set1_delegated_credential(ssl.get(), dc_buf.get(),
+                                      priv.get(), nullptr)) {
+      fprintf(stderr, "SSL_set1_delegated_credential failed.\n");
+      return nullptr;
     }
   }
 

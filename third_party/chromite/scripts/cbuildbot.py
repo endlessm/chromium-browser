@@ -127,18 +127,11 @@ def _RunBuildStagesWrapper(options, site_config, build_config):
   else:
     options.managed_chrome = build_config['sync_chrome']
 
+  chrome_root_mgr = None
   if options.managed_chrome:
-    # Tell Chrome to fetch the source locally.
-    internal = constants.USE_CHROME_INTERNAL in build_config['useflags']
-    chrome_src = 'chrome-src-internal' if internal else 'chrome-src'
-    target_name = 'target'
-    if options.branch:
-      # Tie the cache per branch
-      target_name = 'target-%s' % options.branch
-    options.chrome_root = os.path.join(options.cache_dir, 'distfiles',
-                                       target_name, chrome_src)
-    # Create directory if in need
-    osutils.SafeMakedirsNonRoot(options.chrome_root)
+    # Create a temp directory for syncing Chrome source.
+    chrome_root_mgr = osutils.TempDir(prefix='chrome_root_')
+    options.chrome_root = chrome_root_mgr.tempdir
 
   # We are done munging options values, so freeze options object now to avoid
   # further abuse of it.
@@ -173,8 +166,12 @@ def _RunBuildStagesWrapper(options, site_config, build_config):
     else:
       builder = builders.Builder(builder_run, buildstore)
 
-    if not builder.Run():
-      sys.exit(1)
+    try:
+      if not builder.Run():
+        sys.exit(1)
+    finally:
+      if chrome_root_mgr:
+        chrome_root_mgr.Cleanup()
 
 
 def _CheckChromeVersionOption(_option, _opt_str, value, parser):
@@ -221,7 +218,7 @@ class CustomOption(commandline.FilteringOption):
 
 
 class CustomParser(commandline.FilteringParser):
-  """Custom option parser which supports arguments passed-trhough to trybot"""
+  """Custom option parser which supports arguments passed-through to trybot"""
 
   DEFAULT_OPTION_CLASS = CustomOption
 
@@ -483,6 +480,16 @@ def _CreateParser():
                           help='Run the build as a sanity check build.')
   group.add_remote_option('--debug-cidb', action='store_true', default=False,
                           help='Force Debug CIDB to be used.')
+  # cbuildbot ChromeOS Findit options
+  group.add_remote_option('--cbb_build_packages', action='split_extend',
+                          dest='cbb_build_packages',
+                          default=[],
+                          help='Specify an explicit list of packages to build '
+                               'for integration with Findit.')
+  group.add_remote_option('--cbb_snapshot_revision', type='string',
+                          dest='cbb_snapshot_revision', default=None,
+                          help='Snapshot manifest revision to sync to '
+                               'for building.')
 
   parser.add_argument_group(group)
 
@@ -809,9 +816,7 @@ def _SetupConnections(options, build_config):
     cidb.CIDBConnectionFactory.SetupNoCidb()
     context = ts_mon_config.TrivialContextManager()
 
-  db = cidb.CIDBConnectionFactory.GetCIDBConnectionForBuilder()
-  topology.FetchTopologyFromCIDB(db)
-
+  topology.FetchTopology()
   return context
 
 

@@ -134,6 +134,19 @@ class Benchmark(command_line.Command):
   def HasTraceRerunDebugOption(cls):
     return False
 
+  @classmethod
+  def GetSupportedPlatformNames(cls, supported_platforms):
+    """Returns a list of platforms supported by this benchmark.
+
+    Returns:
+      A set of names of supported platforms. The supported platforms are a list
+      of strings that would match possible values from platform.GetOsName().
+    """
+    result = set()
+    for p in supported_platforms:
+      result.update(p.GetSupportedPlatformNames())
+    return frozenset(result)
+
   def GetTraceRerunCommands(self):
     if self.HasTraceRerunDebugOption():
       return [['Debug Trace', '--rerun-with-debug-trace']]
@@ -185,7 +198,12 @@ class Benchmark(command_line.Command):
     return True
 
   def CustomizeBrowserOptions(self, options):
-    """Add browser options that are required by this benchmark."""
+    """DEPRECATED! Please use CustomizeOptions() instead.
+       Add browser options that are required by this benchmark.
+    """
+
+  def CustomizeOptions(self, finder_options):
+    """Add options that are required by this benchmark."""
 
   def GetMetadata(self):
     return BenchmarkMetadata(self.Name(), self.__doc__,

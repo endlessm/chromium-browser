@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# Copyright (c) 2015-2018 The Khronos Group Inc.
-# Copyright (c) 2015-2018 Valve Corporation
-# Copyright (c) 2015-2018 LunarG, Inc.
-# Copyright (c) 2015-2018 Google Inc.
+# Copyright (c) 2015-2019 The Khronos Group Inc.
+# Copyright (c) 2015-2019 Valve Corporation
+# Copyright (c) 2015-2019 LunarG, Inc.
+# Copyright (c) 2015-2019 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 #
 # Author: Tobin Ehlis <tobine@google.com>
 # Author: Dave Houlton <daveh@lunarg.com>
+# Author: Shannon McPherson <shannon@lunarg.com>
 
 import argparse
 import os
@@ -28,6 +29,7 @@ import json
 import re
 import csv
 import html
+import time
 from collections import defaultdict
 
 verbose_mode = False
@@ -50,18 +52,20 @@ generated_layer_source_directories = [
 'build',
 'dbuild',
 'release',
+'../build/Vulkan-ValidationLayers/'
 ]
 generated_layer_source_files = [
 'parameter_validation.cpp',
 'object_tracker.cpp',
 ]
 layer_source_files = [
+'../layers/buffer_validation.cpp',
 '../layers/core_validation.cpp',
 '../layers/descriptor_sets.cpp',
 '../layers/parameter_validation_utils.cpp',
 '../layers/object_tracker_utils.cpp',
 '../layers/shader_validation.cpp',
-'../layers/buffer_validation.cpp',
+'../layers/stateless_validation.h'
 ]
 
 # This needs to be updated as new extensions roll in
@@ -178,6 +182,10 @@ class ValidationJSON:
         self.regex_dict = {}
         self.regex_dict[re.compile('<.*?>|&(amp;)+lt;|&(amp;)+gt;')] = ""
         self.regex_dict[re.compile(r'\\\(codeSize \\over 4\\\)')] = "(codeSize/4)"
+        self.regex_dict[re.compile(r'\\\(\\lceil{\\frac{height}{maxFragmentDensityTexelSize_{height}}}\\rceil\\\)')] = "the ceiling of height/maxFragmentDensityTexelSize.height"
+        self.regex_dict[re.compile(r'\\\(\\lceil{\\frac{width}{maxFragmentDensityTexelSize_{width}}}\\rceil\\\)')] = "the ceiling of width/maxFragmentDensityTexelSize.width"
+        self.regex_dict[re.compile(r'\\\(\\lceil{\\frac{maxFramebufferHeight}{minFragmentDensityTexelSize_{height}}}\\rceil\\\)')] = "the ceiling of maxFramebufferHeight/minFragmentDensityTexelSize.height"
+        self.regex_dict[re.compile(r'\\\(\\lceil{\\frac{maxFramebufferWidth}{minFragmentDensityTexelSize_{width}}}\\rceil\\\)')] = "the ceiling of maxFramebufferWidth/minFragmentDensityTexelSize.width"
         self.regex_dict[re.compile(r'\\\(\\lceil\{\\mathit\{rasterizationSamples} \\over 32}\\rceil\\\)')] = "(rasterizationSamples/32)"
         self.regex_dict[re.compile(r'\\\(\\textrm\{codeSize} \\over 4\\\)')] = "(codeSize/4)"
         # Some fancy punctuation chars that break the Android build...
@@ -265,7 +273,7 @@ class ValidationSource:
                     if True in [line.strip().startswith(comment) for comment in ['//', '/*']]:
                         continue
                     # Find vuid strings
-                    if prepend != None:
+                    if prepend is not None:
                         line = prepend[:-2] + line.lstrip().lstrip('"') # join lines skipping CR, whitespace and trailing/leading quote char
                         prepend = None
                     if any(prefix in line for prefix in vuid_prefixes):
@@ -333,7 +341,7 @@ class ValidationTests:
                         continue
 
                     # if line ends in a broken VUID string, fix that before proceeding
-                    if prepend != None:
+                    if prepend is not None:
                         line = prepend[:-2] + line.lstrip().lstrip('"') # join lines skipping CR, whitespace and trailing/leading quote char
                         prepend = None
                     if any(prefix in line for prefix in vuid_prefixes):
@@ -465,13 +473,15 @@ class OutputDatabase:
         self.vj = val_json
         self.vs = val_source
         self.vt = val_tests
-        self.header_preamble = """/* THIS FILE IS GENERATED.  DO NOT EDIT. */
-/* (scripts/vk_validation_stats.py) */
+        self.header_version = "/* THIS FILE IS GENERATED - DO NOT EDIT (scripts/vk_validation_stats.py) */"
+        self.header_version += "\n/* Vulkan specification version: %s */" % val_json.apiversion
+        self.header_version += "\n/* Header generated: %s */\n" % time.strftime('%Y-%m-%d %H:%M:%S') 
+        self.header_preamble = """
 /*
  * Vulkan
  *
- * Copyright (c) 2016-2018 Google Inc.
- * Copyright (c) 2016-2018 LunarG, Inc.
+ * Copyright (c) 2016-2019 Google Inc.
+ * Copyright (c) 2016-2019 LunarG, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -584,6 +594,7 @@ static const vuid_spec_text_pair vuid_spec_text[] = {
     def export_header(self):
         print("\n Exporting header file to: %s" % header_filename)
         with open (header_filename, 'w') as hfile:
+            hfile.write(self.header_version)
             hfile.write(self.header_preamble)
             vuid_list = list(self.vj.all_vuids)
             vuid_list.sort()

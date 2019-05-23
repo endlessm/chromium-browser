@@ -1,9 +1,8 @@
 //===- WasmYAML.cpp - Wasm YAMLIO implementation --------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -404,8 +403,18 @@ void MappingTraits<wasm::WasmInitExpr>::mapping(IO &IO,
 void MappingTraits<WasmYAML::DataSegment>::mapping(
     IO &IO, WasmYAML::DataSegment &Segment) {
   IO.mapOptional("SectionOffset", Segment.SectionOffset);
-  IO.mapRequired("MemoryIndex", Segment.MemoryIndex);
-  IO.mapRequired("Offset", Segment.Offset);
+  IO.mapRequired("InitFlags", Segment.InitFlags);
+  if (Segment.InitFlags & wasm::WASM_SEGMENT_HAS_MEMINDEX) {
+    IO.mapRequired("MemoryIndex", Segment.MemoryIndex);
+  } else {
+    Segment.MemoryIndex = 0;
+  }
+  if ((Segment.InitFlags & wasm::WASM_SEGMENT_IS_PASSIVE) == 0) {
+    IO.mapRequired("Offset", Segment.Offset);
+  } else {
+    Segment.Offset.Opcode = wasm::WASM_OPCODE_I32_CONST;
+    Segment.Offset.Value.Int32 = 0;
+  }
   IO.mapRequired("Content", Segment.Content);
 }
 
@@ -487,6 +496,7 @@ void ScalarBitSetTraits<WasmYAML::SymbolFlags>::bitset(
   // BCaseMask(VISIBILITY_MASK, VISIBILITY_DEFAULT);
   BCaseMask(VISIBILITY_MASK, VISIBILITY_HIDDEN);
   BCaseMask(UNDEFINED, UNDEFINED);
+  BCaseMask(EXPORTED, EXPORTED);
 #undef BCaseMask
 }
 

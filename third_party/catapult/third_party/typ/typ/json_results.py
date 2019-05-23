@@ -16,7 +16,6 @@ from collections import OrderedDict
 
 import json
 
-
 class ResultType(object):
     Pass = 'PASS'
     Failure = 'FAIL'
@@ -46,6 +45,7 @@ class Result(object):
         self.out = out
         self.err = err
         self.pid = pid
+        self.is_regression = actual != ResultType.Pass and unexpected
 
 
 class ResultSet(object):
@@ -78,8 +78,8 @@ def make_full_results(metadata, seconds_since_epoch, all_test_names, results):
         full_results[key] = val
 
     passing_tests = _passing_test_names(results)
-    failed_tests = failed_test_names(results)
-    skipped_tests = set(all_test_names) - passing_tests - failed_tests
+    skipped_tests = _skipped_test_names(results)
+    failed_tests = set(all_test_names) - passing_tests - skipped_tests
 
     full_results['num_failures_by_type'] = OrderedDict()
     full_results['num_failures_by_type']['FAIL'] = len(failed_tests)
@@ -128,10 +128,10 @@ def num_skips(full_results):
     return full_results['num_failures_by_type']['SKIP']
 
 
-def failed_test_names(results):
+def regressions(results):
     names = set()
     for r in results.results:
-        if r.actual == ResultType.Failure:
+        if r.is_regression:
             names.add(r.name)
         elif ((r.actual == ResultType.Pass or r.actual == ResultType.Skip)
               and r.name in names):
@@ -143,6 +143,8 @@ def failed_test_names(results):
             names.remove(r.name)
     return names
 
+def _skipped_test_names(results):
+    return set([r.name for r in results.results if r.actual == ResultType.Skip])
 
 def _passing_test_names(results):
     return set(r.name for r in results.results if r.actual == ResultType.Pass)
@@ -173,7 +175,7 @@ def _results_for_test(test_name, results):
             # of the *last* time it was run.
             if r.unexpected:
                 value['is_unexpected'] = r.unexpected
-                if r.actual != ResultType.Pass:
+                if r.is_regression:
                     value['is_regression'] = True
             else:
                 if 'is_unexpected' in value:
@@ -183,7 +185,7 @@ def _results_for_test(test_name, results):
 
             # This assumes that the expected values are the same for every
             # invocation of the test.
-            value['expected'] = ' '.join(r.expected)
+            value['expected'] = ' '.join(sorted(r.expected))
 
     if not actuals:  # pragma: untested
         actuals.append('SKIP')

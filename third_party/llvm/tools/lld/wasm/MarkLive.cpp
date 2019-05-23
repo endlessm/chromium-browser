@@ -1,9 +1,8 @@
 //===- MarkLive.cpp -------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -72,7 +71,7 @@ void lld::wasm::markLive() {
     InputChunk *C = Q.pop_back_val();
 
     for (const WasmRelocation Reloc : C->getRelocations()) {
-      if (Reloc.Type == R_WEBASSEMBLY_TYPE_INDEX_LEB)
+      if (Reloc.Type == R_WASM_TYPE_INDEX_LEB)
         continue;
       Symbol *Sym = C->File->getSymbol(Reloc.Index);
 
@@ -83,9 +82,9 @@ void lld::wasm::markLive() {
       // zero is only reachable via "call", not via "call_indirect".  The stub
       // functions used for weak-undefined symbols have this behaviour (compare
       // equal to null pointer, only reachable via direct call).
-      if (Reloc.Type == R_WEBASSEMBLY_TABLE_INDEX_SLEB ||
-          Reloc.Type == R_WEBASSEMBLY_TABLE_INDEX_I32) {
-        FunctionSymbol *FuncSym = cast<FunctionSymbol>(Sym);
+      if (Reloc.Type == R_WASM_TABLE_INDEX_SLEB ||
+          Reloc.Type == R_WASM_TABLE_INDEX_I32) {
+        auto *FuncSym = cast<FunctionSymbol>(Sym);
         if (FuncSym->hasTableIndex() && FuncSym->getTableIndex() == 0)
           continue;
       }

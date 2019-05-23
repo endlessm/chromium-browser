@@ -417,7 +417,7 @@ class SyncStage(generic_stages.BuilderStage):
     """Returns the manifest to use."""
     return self._run.config.manifest
 
-  def ManifestCheckout(self, next_manifest):
+  def ManifestCheckout(self, next_manifest, fetch_all=False):
     """Checks out the repository to the given manifest."""
     self._Print('\n'.join([
         'BUILDROOT: %s' % self.repo.directory,
@@ -432,7 +432,11 @@ class SyncStage(generic_stages.BuilderStage):
         self.repo.ExportManifest(mark_revision=self.output_manifest_sha1),
         file=sys.stderr)
 
-    self.repo.RepairMissingRemotes()
+    if fetch_all:
+      # Perform git fetch all on projects to resolve any git corruption
+      # that may occur due to flake.
+      # http://crbug/921407
+      self.repo.FetchAll()
 
   def RunPrePatchBuild(self):
     """Run through a pre-patch build to prepare for incremental build.
@@ -736,15 +740,14 @@ class ManifestVersionedSyncStage(SyncStage):
     Args:
       master_id: Our master build id.
     """
-    _, db = self._run.GetCIDBHandle()
     if self.buildstore.AreClientsReady() and master_id:
       assert not self._run.options.force_version
       master_build_status = self.buildstore.GetBuildStatuses(
           build_ids=[master_id])[0]
-      latest = db.GetBuildHistory(
+      latest = self.buildstore.GetBuildHistory(
           master_build_status['build_config'],
           1,
-          milestone_version=master_build_status['milestone_version'])
+          branch=self._run.options.branch_name)
       if latest and latest[0]['id'] != master_id:
         raise failures_lib.MasterSlaveVersionMismatchFailure(
             'This slave\'s master (id=%s) has been supplanted by a newer '
@@ -911,12 +914,13 @@ class MasterSlaveLKGMSyncStage(ManifestVersionedSyncStage):
       e.g. MilestoneVersion(milestone='44', platform='7072.0.0-rc4')
       or None if failed to retrieve milestone and platform versions.
     """
-    build_id, db = self._run.GetCIDBHandle()
+    build_identifier, _ = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
 
-    if db is None:
+    if not self.buildstore.AreClientsReady():
       return None
 
-    builds = db.GetBuildHistory(
+    builds = self.buildstore.GetBuildHistory(
         build_config=self._run.config.name,
         num_results=self.MAX_BUILD_HISTORY_LENGTH,
         ignore_build_id=build_id)
@@ -1085,7 +1089,8 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
     # We must extend the builder deadline before publishing a new manifest to
     # ensure that slaves have enough time to complete the builds about to
     # start.
-    build_id, _ = self._run.GetCIDBHandle()
+    build_identifier, _ = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     if self.buildstore.AreClientsReady():
       self.buildstore.ExtendDeadline(build_id, self._run.config.build_timeout)
 
@@ -1098,12 +1103,12 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
 
     return manifest
 
-  def ManifestCheckout(self, next_manifest):
+  def ManifestCheckout(self, next_manifest, fetch_all=False):
     """Checks out the repository to the given manifest."""
     # Sync to the provided manifest on slaves. On the master, we're
     # already synced to this manifest, so self.skip_sync is set and
     # this is a no-op.
-    super(CommitQueueSyncStage, self).ManifestCheckout(next_manifest)
+    super(CommitQueueSyncStage, self).ManifestCheckout(next_manifest, fetch_all)
 
     if self._run.config.build_before_patching:
       assert not self._run.config.master
@@ -1119,7 +1124,14 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
       # print the list of applied changes.
       self.manifest_manager.GenerateBlameListSinceLKGM()
       self._SetPoolFromManifest(next_manifest)
-      self.pool.ApplyPoolIntoRepo()
+      try:
+        self.pool.ApplyPoolIntoRepo()
+      except cros_build_lib.RunCommandError:
+        logging.error('Possible git error on ApplyPoolIntoRepo. Retrying after'
+                      ' a git cleanup and `fetch --all`.', exc_info=True)
+        self.repo.BuildRootGitCleanup(prune_all=True)
+        self.repo.FetchAll()
+        self.pool.ApplyPoolIntoRepo()
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
@@ -1391,7 +1403,8 @@ class PreCQLauncherStage(SyncStage):
         clactions.CLAction.FromGerritPatchAndAction(
             change, constants.CL_ACTION_SCREENED_FOR_PRE_CQ))
 
-    build_id, db = self._run.GetCIDBHandle()
+    build_identifier, db = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
     db.InsertCLActions(build_id, actions)
 
   def CanSubmitChangeInPreCQ(self, change):
@@ -1606,7 +1619,8 @@ class PreCQLauncherStage(SyncStage):
     action_string = clactions.GetRequeuedOrSpeculative(change, action_history,
                                                        not change.IsMergeable())
     if action_string:
-      build_id, db = self._run.GetCIDBHandle()
+      build_identifier, db = self._run.GetCIDBHandle()
+      build_id = build_identifier.cidb_id
       action = clactions.CLAction.FromGerritPatchAndAction(
           change, action_string)
       db.InsertCLActions(build_id, [action])
@@ -1631,7 +1645,8 @@ class PreCQLauncherStage(SyncStage):
                           constants.CL_STATUS_FULLY_VERIFIED)
     if timed_out and verified:
       msg = PRECQ_EXPIRY_MSG % self.STATUS_EXPIRY_TIMEOUT
-      build_id, db = self._run.GetCIDBHandle()
+      build_identifier, db = self._run.GetCIDBHandle()
+      build_id = build_identifier.cidb_id
       if db:
         pool.SendNotification(change, '%(details)s', details=msg)
         action = clactions.CLAction.FromGerritPatchAndAction(
@@ -1915,7 +1930,8 @@ class PreCQLauncherStage(SyncStage):
       status: One of constants.CL_STATUS_* statuses.
     """
     if changes:
-      build_id, db = self._run.GetCIDBHandle()
+      build_identifier, db = self._run.GetCIDBHandle()
+      build_id = build_identifier.cidb_id
       a = clactions.TranslatePreCQStatusToAction(status)
       actions = [
           clactions.CLAction.FromGerritPatchAndAction(c, a) for c in changes
@@ -1929,7 +1945,8 @@ class PreCQLauncherStage(SyncStage):
       pool: An instance of ValidationPool.validation_pool.
       changes: GerritPatch instances.
     """
-    build_id, db = self._run.GetCIDBHandle()
+    build_identifier, db = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
 
     action_history, _, status_map = (
         self._GetUpdatedActionHistoryAndStatusMaps(db, changes))
@@ -2015,7 +2032,8 @@ class PreCQLauncherStage(SyncStage):
     Non-manifest changes are just submitted here because they don't need to be
     verified by either the Pre-CQ or CQ.
     """
-    build_id, db = self._run.GetCIDBHandle()
+    build_identifier, db = self._run.GetCIDBHandle()
+    build_id = build_identifier.cidb_id
 
     action_history = db.GetActionsForChanges(changes)
 

@@ -1,9 +1,8 @@
 //===- CXTypes.cpp - Implements 'CXTypes' aspect of libclang ------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===--------------------------------------------------------------------===//
 //
@@ -129,7 +128,9 @@ CXType cxtype::MakeCXType(QualType T, CXTranslationUnit TU) {
     // Handle attributed types as the original type
     if (auto *ATT = T->getAs<AttributedType>()) {
       if (!(TU->ParsingOptions & CXTranslationUnit_IncludeAttributedTypes)) {
-        return MakeCXType(ATT->getModifiedType(), TU);
+        // Return the equivalent type which represents the canonically
+        // equivalent type.
+        return MakeCXType(ATT->getEquivalentType(), TU);
       }
     }
     // Handle paren types as the original type

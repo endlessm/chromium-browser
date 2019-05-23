@@ -56,12 +56,11 @@ class AutocompleteResult {
   void SortAndCull(const AutocompleteInput& input,
                    TemplateURLService* template_url_service);
 
-  // Creates and adds any dedicated Pedal matches triggered by existing match.
+  // Creates and adds any dedicated Pedal matches triggered by existing matches.
+  // This should be the only place where new Pedal suggestions are introduced
+  // because it doesn't dedupe; it just carefully avoids adding duplicates.
   void AppendDedicatedPedalMatches(AutocompleteProviderClient* client,
                                    const AutocompleteInput& input);
-
-  // Sets |pedal| in matches that have Pedal-triggering text.
-  void ConvertInSuggestionPedalMatches(AutocompleteProviderClient* client);
 
   // Sets |has_tab_match| in matches whose URL matches an open tab's URL.
   // Also, fixes up the description if not using another UI element to
@@ -95,8 +94,14 @@ class AutocompleteResult {
   bool TopMatchIsStandaloneVerbatimMatch() const;
 
   // Returns the first match in |matches| which might be chosen as default.
-  static ACMatches::const_iterator FindTopMatch(const ACMatches& matches);
-  static ACMatches::iterator FindTopMatch(ACMatches* matches);
+  // If |kOmniboxPreserveDefaultMatchScore| is enabled and the page is not
+  // the fake box, the scores are not demoted by type.
+  static ACMatches::const_iterator FindTopMatch(
+      metrics::OmniboxEventProto::PageClassification page_classification,
+      const ACMatches& matches);
+  static ACMatches::iterator FindTopMatch(
+      metrics::OmniboxEventProto::PageClassification page_classification,
+      ACMatches* matches);
 
   const GURL& alternate_nav_url() const { return alternate_nav_url_; }
 

@@ -93,16 +93,14 @@ DEF_TEST(Annotation_PdfDefineNamedDestination, reporter) {
 
     DEF_TEST(Annotation_SvgLink, reporter) {
         SkDynamicMemoryWStream outStream;
-        std::unique_ptr<SkXMLWriter> xmlWriter(new SkXMLStreamWriter(&outStream));
         SkRect bounds = SkRect::MakeIWH(400, 400);
-        std::unique_ptr<SkCanvas> canvas = SkSVGCanvas::Make(bounds, xmlWriter.get());
+        std::unique_ptr<SkCanvas> canvas = SkSVGCanvas::Make(bounds, &outStream);
 
         SkRect r = SkRect::MakeXYWH(SkIntToScalar(72), SkIntToScalar(72), SkIntToScalar(288),
                                     SkIntToScalar(72));
         sk_sp<SkData> data(SkData::MakeWithCString("http://www.gooogle.com"));
         SkAnnotateRectWithURL(canvas.get(), r, data.get());
 
-        canvas->flush();
         sk_sp<SkData> out = outStream.detachAsData();
         const char* rawOutput = (const char*)out->data();
 
@@ -112,16 +110,14 @@ DEF_TEST(Annotation_PdfDefineNamedDestination, reporter) {
 
     DEF_TEST(Annotation_SvgLinkNamedDestination, reporter) {
         SkDynamicMemoryWStream outStream;
-        std::unique_ptr<SkXMLWriter> xmlWriter(new SkXMLStreamWriter(&outStream));
         SkRect bounds = SkRect::MakeIWH(400, 400);
-        std::unique_ptr<SkCanvas> canvas = SkSVGCanvas::Make(bounds, xmlWriter.get());
+        std::unique_ptr<SkCanvas> canvas = SkSVGCanvas::Make(bounds, &outStream);
 
         SkRect r = SkRect::MakeXYWH(SkIntToScalar(72), SkIntToScalar(72), SkIntToScalar(288),
                                     SkIntToScalar(72));
         sk_sp<SkData> data(SkData::MakeWithCString("http://www.gooogle.com/#NamedDestination"));
         SkAnnotateLinkToDestination(canvas.get(), r, data.get());
 
-        canvas->flush();
         sk_sp<SkData> out = outStream.detachAsData();
         const char* rawOutput = (const char*)out->data();
 

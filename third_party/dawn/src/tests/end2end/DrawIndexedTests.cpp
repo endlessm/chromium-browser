@@ -26,10 +26,21 @@ class DrawIndexedTest : public DawnTest {
 
             renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
+            dawn::VertexInputDescriptor input;
+            input.inputSlot = 0;
+            input.stride = 4 * sizeof(float);
+            input.stepMode = dawn::InputStepMode::Vertex;
+
+            dawn::VertexAttributeDescriptor attribute;
+            attribute.shaderLocation = 0;
+            attribute.inputSlot = 0;
+            attribute.offset = 0;
+            attribute.format = dawn::VertexFormat::FloatR32G32B32A32;
+
             dawn::InputState inputState = device.CreateInputStateBuilder()
-                .SetInput(0, 4 * sizeof(float), dawn::InputStepMode::Vertex)
-                .SetAttribute(0, 0, dawn::VertexFormat::FloatR32G32B32A32, 0)
-                .GetResult();
+                                              .SetInput(&input)
+                                              .SetAttribute(&attribute)
+                                              .GetResult();
 
             dawn::ShaderModule vsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Vertex, R"(
                 #version 450
@@ -53,7 +64,7 @@ class DrawIndexedTest : public DawnTest {
             descriptor.primitiveTopology = dawn::PrimitiveTopology::TriangleStrip;
             descriptor.indexFormat = dawn::IndexFormat::Uint32;
             descriptor.inputState = inputState;
-            descriptor.cColorAttachments[0]->format = renderPass.colorFormat;
+            descriptor.cColorStates[0]->format = renderPass.colorFormat;
 
             pipeline = device.CreateRenderPipeline(&descriptor);
 
@@ -84,9 +95,10 @@ class DrawIndexedTest : public DawnTest {
                   uint32_t baseVertex, uint32_t firstInstance, RGBA8 bottomLeftExpected,
                   RGBA8 topRightExpected) {
             uint32_t zeroOffset = 0;
-            dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
+            dawn::CommandEncoder encoder = device.CreateCommandEncoder();
             {
-                dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass.renderPassInfo);
+                dawn::RenderPassEncoder pass = encoder.BeginRenderPass(
+                    &renderPass.renderPassInfo);
                 pass.SetPipeline(pipeline);
                 pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
                 pass.SetIndexBuffer(indexBuffer, 0);
@@ -94,7 +106,7 @@ class DrawIndexedTest : public DawnTest {
                 pass.EndPass();
             }
 
-            dawn::CommandBuffer commands = builder.GetResult();
+            dawn::CommandBuffer commands = encoder.Finish();
             queue.Submit(1, &commands);
 
             EXPECT_PIXEL_RGBA8_EQ(bottomLeftExpected, renderPass.color, 1, 3);
@@ -132,4 +144,4 @@ TEST_P(DrawIndexedTest, BaseVertex) {
     Test(3, 1, 3, 4, 0, filled, notFilled);
 }
 
-DAWN_INSTANTIATE_TEST(DrawIndexedTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend)
+DAWN_INSTANTIATE_TEST(DrawIndexedTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);

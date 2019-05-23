@@ -397,6 +397,18 @@ class CBuildBotTest(ChromeosConfigTestBase):
                       'Non affinity luci_builder "%s" on "%s"' %
                       (config.luci_builder, build_name))
 
+  def testAffinityPoolSize(self):
+    """Verify we have enough affinity builders."""
+    affinity_count = len([b for b in self.site_config.itervalues()
+                          if b.build_affinity])
+
+    # Keep in sync with bots.cfg
+    # https://chrome-internal.googlesource.com/infradata/config/+/
+    #         master/configs/chromeos-swarming/bots.cfg
+    affinity_pool_size = 460 - 350
+
+    self.assertTrue(affinity_count <= affinity_pool_size)
+
   def testMasterSlaveConfigsExist(self):
     """Configs listing slave configs, must list valid configs."""
     for config in self.site_config.itervalues():
@@ -721,6 +733,33 @@ class CBuildBotTest(ChromeosConfigTestBase):
     have_vm_tests = any([self.site_config[name].vm_tests
                          for name in pre_cq_configs])
     self.assertTrue(have_vm_tests, 'No Pre-CQ builder has VM tests enabled')
+
+  def testCqHasPrebuilts(self):
+    """Make sure every master has a sane list of slaves"""
+    cq = set()
+    for builder in set(self.site_config['master-paladin'].slave_configs):
+      if self.site_config[builder].important:
+        cq.update(self.site_config[builder].boards)
+
+    postsubmit = set()
+    for builder in set(self.site_config['master-postsubmit'].slave_configs):
+      postsubmit.update(self.site_config[builder].boards)
+
+    without_postsubmit = cq.difference(postsubmit)
+    self.assertFalse(without_postsubmit)
+
+  def testPreCqHasPrebuilts(self):
+    """Make sure every master has a sane list of slaves"""
+    precq = set()
+    for builder in set(constants.PRE_CQ_DEFAULT_CONFIGS):
+      precq.update(self.site_config[builder].boards)
+
+    postsubmit = set()
+    for builder in set(self.site_config['master-postsubmit'].slave_configs):
+      postsubmit.update(self.site_config[builder].boards)
+
+    without_postsubmit = precq.difference(postsubmit)
+    self.assertFalse(without_postsubmit)
 
   def testPfqsHavePaladins(self):
     """Make sure that every active PFQ has an associated Paladin.
@@ -1118,6 +1157,20 @@ class CBuildBotTest(ChromeosConfigTestBase):
           self.fail(('%s has a triggered_gitiles that is malformed: %r\n'
                      "Simple example: [['url', ['refs/heads/master']]]") %
                     (config.name, config.triggered_gitiles))
+
+  def testNoTestsInPostsubmit(self):
+    """Configs must have names set."""
+    for build_name, config in self.site_config.iteritems():
+      if config.build_type != constants.POSTSUBMIT_TYPE:
+        continue
+
+      msg = 'Unexpected test in: %s' % build_name
+      self.assertFalse(config.unittests, msg)
+      self.assertFalse(config.hw_tests, msg)
+      self.assertFalse(config.vm_tests, msg)
+      self.assertFalse(config.gce_tests, msg)
+      self.assertFalse(config.tast_vm_tests, msg)
+      self.assertFalse(config.moblab_vm_tests, msg)
 
 
 class TemplateTest(ChromeosConfigTestBase):

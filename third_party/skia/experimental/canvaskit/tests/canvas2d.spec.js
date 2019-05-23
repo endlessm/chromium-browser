@@ -1,22 +1,4 @@
-// The increased timeout is especially needed with larger binaries
-// like in the debug/gpu build
-jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000;
-
 describe('CanvasKit\'s Canvas 2d Behavior', function() {
-    // Note, don't try to print the CanvasKit object - it can cause Karma/Jasmine to lock up.
-    var CanvasKit = null;
-    const LoadCanvasKit = new Promise(function(resolve, reject) {
-        if (CanvasKit) {
-            resolve();
-        } else {
-            CanvasKitInit({
-                locateFile: (file) => '/canvaskit/'+file,
-            }).ready().then((_CanvasKit) => {
-                CanvasKit = _CanvasKit;
-                resolve();
-            });
-        }
-    });
 
     let container = document.createElement('div');
     document.body.appendChild(container);
@@ -517,9 +499,9 @@ describe('CanvasKit\'s Canvas 2d Behavior', function() {
         it('supports gradients, which respect clip/save/restore', function(done) {
             LoadCanvasKit.then(catchException(done, () => {
                 multipleCanvasTest('gradients_clip', done, (canvas) => {
-                    let ctx = canvas.getContext('2d');
+                    const ctx = canvas.getContext('2d');
 
-                    var rgradient = ctx.createRadialGradient(200, 300, 10, 100, 100, 300);
+                    const rgradient = ctx.createRadialGradient(200, 300, 10, 100, 100, 300);
 
                     rgradient.addColorStop(0, 'red');
                     rgradient.addColorStop(.7, 'white');
@@ -539,7 +521,7 @@ describe('CanvasKit\'s Canvas 2d Behavior', function() {
                     ctx.save();
                     ctx.clip();
 
-                    var lgradient = ctx.createLinearGradient(200, 20, 420, 40);
+                    const lgradient = ctx.createLinearGradient(200, 20, 420, 40);
 
                     lgradient.addColorStop(0, 'green');
                     lgradient.addColorStop(.5, 'cyan');
@@ -844,8 +826,8 @@ describe('CanvasKit\'s Canvas 2d Behavior', function() {
             LoadCanvasKit.then(catchException(done, () => {
                 multipleCanvasTest('path2d_line_drawing_operations', done, (canvas) => {
                     let ctx = canvas.getContext('2d');
-                    var clock;
-                    var path;
+                    let clock;
+                    let path;
                     if (canvas.makePath2D) {
                         clock = canvas.makePath2D('M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z');
                         path = canvas.makePath2D();

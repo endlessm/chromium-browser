@@ -1,9 +1,8 @@
 //===-- sanitizer_stacktrace_libcdep.cc -----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -72,14 +71,14 @@ void BufferedStackTrace::Unwind(u32 max_depth, uptr pc, uptr bp, void *context,
   if (!WillUseFastUnwind(request_fast_unwind)) {
 #if SANITIZER_CAN_SLOW_UNWIND
     if (context)
-      SlowUnwindStackWithContext(pc, context, max_depth);
+      UnwindSlow(pc, context, max_depth);
     else
-      SlowUnwindStack(pc, max_depth);
+      UnwindSlow(pc, max_depth);
 #else
     UNREACHABLE("slow unwind requested but not available");
 #endif
   } else {
-    FastUnwindStack(pc, bp, stack_top, stack_bottom, max_depth);
+    UnwindFast(pc, bp, stack_top, stack_bottom, max_depth);
   }
 }
 

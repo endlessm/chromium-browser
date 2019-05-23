@@ -1,9 +1,8 @@
 //===-- AMDGPUSubtarget.cpp - AMDGPU Subtarget Information ----------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -124,6 +123,10 @@ GCNSubtarget::initializeSubtargetDependencies(const Triple &TT,
       HasMovrel = true;
   }
 
+  // Don't crash on invalid devices.
+  if (WavefrontSize == 0)
+    WavefrontSize = 64;
+
   HasFminFmaxLegacy = getGeneration() < AMDGPUSubtarget::VOLCANIC_ISLANDS;
 
   return *this;
@@ -153,7 +156,6 @@ GCNSubtarget::GCNSubtarget(const Triple &TT, StringRef GPU, StringRef FS,
     AMDGPUSubtarget(TT),
     TargetTriple(TT),
     Gen(SOUTHERN_ISLANDS),
-    IsaVersion(ISAVersion0_0_0),
     InstrItins(getInstrItineraryForCPU(GPU)),
     LDSBankCount(0),
     MaxPrivateElementSize(0),
@@ -172,8 +174,6 @@ GCNSubtarget::GCNSubtarget(const Triple &TT, StringRef GPU, StringRef FS,
     HasApertureRegs(false),
     EnableXNACK(false),
     TrapHandler(false),
-    DebuggerInsertNops(false),
-    DebuggerEmitPrologue(false),
 
     EnableHugePrivateBuffer(false),
     EnableLoadStoreOpt(false),
@@ -204,7 +204,8 @@ GCNSubtarget::GCNSubtarget(const Triple &TT, StringRef GPU, StringRef FS,
     HasDPP(false),
     HasR128A16(false),
     HasDLInsts(false),
-    HasDotInsts(false),
+    HasDot1Insts(false),
+    HasDot2Insts(false),
     EnableSRAMECC(false),
     FlatAddressSpace(false),
     FlatInstOffsets(false),

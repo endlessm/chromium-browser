@@ -133,11 +133,12 @@ ABI Changes in Clang
 OpenMP Support in Clang
 ----------------------------------
 
-- ...
+- Added emission of the debug information for NVPTX target devices.
 
 CUDA Support in Clang
 ---------------------
 
+- Added emission of the debug information for the device code.
 
 Internal API Changes
 --------------------
@@ -162,7 +163,11 @@ clang-format
 libclang
 --------
 
-...
+- When `CINDEXTEST_INCLUDE_ATTRIBUTED_TYPES` is not provided when making a
+  CXType, the equivalent type of the AttributedType is returned instead of the
+  modified type if the user does not want attribute sugar. The equivalent type
+  represents the minimally-desugared type which the AttributedType is
+  canonically equivalent to.
 
 
 Static Analyzer
