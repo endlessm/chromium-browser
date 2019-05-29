@@ -431,7 +431,7 @@ if (is_component_ffmpeg) {
       ]
 
       # Need to link against the system's libfdk-aac.
-      if (current_cpu == "arm") {
+      if (current_cpu == "arm" || current_cpu == "arm64") {
         ldflags += [
           "-L",
           "/usr/lib/arm-linux-gnueabihf/",
