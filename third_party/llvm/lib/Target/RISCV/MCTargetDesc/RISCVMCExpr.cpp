@@ -11,9 +11,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "RISCV.h"
 #include "RISCVMCExpr.h"
+#include "MCTargetDesc/RISCVAsmBackend.h"
+#include "RISCV.h"
 #include "RISCVFixupKinds.h"
+#include "llvm/MC/MCAsmLayout.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCStreamer.h"
@@ -31,11 +33,15 @@ const RISCVMCExpr *RISCVMCExpr::create(const MCExpr *Expr, VariantKind Kind,
 }
 
 void RISCVMCExpr::printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const {
-  bool HasVariant =
-      ((getKind() != VK_RISCV_None) && (getKind() != VK_RISCV_CALL));
+  VariantKind Kind = getKind();
+  bool HasVariant = ((Kind != VK_RISCV_None) && (Kind != VK_RISCV_CALL) &&
+                     (Kind != VK_RISCV_CALL_PLT));
+
   if (HasVariant)
     OS << '%' << getVariantKindName(getKind()) << '(';
   Expr->print(OS, MAI);
+  if (Kind == VK_RISCV_CALL_PLT)
+    OS << "@plt";
   if (HasVariant)
     OS << ')';
 }
@@ -49,14 +55,22 @@ const MCFixup *RISCVMCExpr::getPCRelHiFixup() const {
   if (!AUIPCSRE)
     return nullptr;
 
-  const auto *DF =
-      dyn_cast_or_null<MCDataFragment>(AUIPCSRE->findAssociatedFragment());
+  const MCSymbol *AUIPCSymbol = &AUIPCSRE->getSymbol();
+  const auto *DF = dyn_cast_or_null<MCDataFragment>(AUIPCSymbol->getFragment());
+
   if (!DF)
     return nullptr;
 
-  const MCSymbol *AUIPCSymbol = &AUIPCSRE->getSymbol();
+  uint64_t Offset = AUIPCSymbol->getOffset();
+  if (DF->getContents().size() == Offset) {
+    DF = dyn_cast_or_null<MCDataFragment>(DF->getNextNode());
+    if (!DF)
+      return nullptr;
+    Offset = 0;
+  }
+
   for (const MCFixup &F : DF->getFixups()) {
-    if (F.getOffset() != AUIPCSymbol->getOffset())
+    if (F.getOffset() != Offset)
       continue;
 
     switch ((unsigned)F.getKind()) {
@@ -79,6 +93,16 @@ bool RISCVMCExpr::evaluatePCRelLo(MCValue &Res, const MCAsmLayout *Layout,
   // (<real target> + <offset from this fixup to the auipc fixup>).  The Fixup
   // is pcrel relative to the VK_RISCV_PCREL_LO fixup, so we need to add the
   // offset to the VK_RISCV_PCREL_HI Fixup from VK_RISCV_PCREL_LO to correct.
+
+  // Don't try to evaluate if the fixup will be forced as a relocation (e.g.
+  // as linker relaxation is enabled). If we evaluated pcrel_lo in this case,
+  // the modified fixup will be converted into a relocation that no longer
+  // points to the pcrel_hi as the linker requires.
+  auto &RAB =
+      static_cast<RISCVAsmBackend &>(Layout->getAssembler().getBackend());
+  if (RAB.willForceRelocations())
+    return false;
+
   MCValue AUIPCLoc;
   if (!getSubExpr()->evaluateAsValue(AUIPCLoc, *Layout))
     return false;
@@ -180,7 +204,8 @@ bool RISCVMCExpr::evaluateAsConstant(int64_t &Res) const {
   MCValue Value;
 
   if (Kind == VK_RISCV_PCREL_HI || Kind == VK_RISCV_PCREL_LO ||
-      Kind == VK_RISCV_GOT_HI || Kind == VK_RISCV_CALL)
+      Kind == VK_RISCV_GOT_HI || Kind == VK_RISCV_CALL ||
+      Kind == VK_RISCV_CALL_PLT)
     return false;
 
   if (!getSubExpr()->evaluateAsRelocatable(Value, nullptr, nullptr))

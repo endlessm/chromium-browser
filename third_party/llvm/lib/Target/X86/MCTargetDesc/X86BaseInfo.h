@@ -48,7 +48,8 @@ namespace X86 {
     TO_NEG_INF = 1,
     TO_POS_INF = 2,
     TO_ZERO = 3,
-    CUR_DIRECTION = 4
+    CUR_DIRECTION = 4,
+    NO_EXC = 8
   };
 
   /// The constants to describe instr prefixes if there are
@@ -60,6 +61,11 @@ namespace X86 {
     IP_HAS_REPEAT = 8,
     IP_HAS_LOCK = 16,
     IP_HAS_NOTRACK = 32
+  };
+
+  enum OperandType : unsigned {
+    /// AVX512 embedded rounding control. This should only have values 0-3.
+    OPERAND_ROUNDING_CONTROL = MCOI::OPERAND_FIRST_TARGET,
   };
 } // end namespace X86;
 

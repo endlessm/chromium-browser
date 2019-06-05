@@ -24,6 +24,7 @@
 #include "tools/gn/label_pattern.h"
 #include "tools/gn/parse_tree.h"
 #include "tools/gn/path_output.h"
+#include "tools/gn/source_file_type.h"
 #include "tools/gn/standard_out.h"
 #include "tools/gn/target.h"
 #include "tools/gn/variables.h"
@@ -610,8 +611,8 @@ bool VisualStudioWriter::WriteProjectFileContents(
 
     for (const SourceFile& file : target->sources()) {
       const char* compile_type;
-      const char* tool_name = Tool::kToolNone;
-      if (target->GetOutputFilesForSource(file, &tool_name, &tool_outputs)) {
+      Toolchain::ToolType tool_type = Toolchain::TYPE_NONE;
+      if (target->GetOutputFilesForSource(file, &tool_type, &tool_outputs)) {
         compile_type = "CustomBuild";
         std::unique_ptr<XmlElementWriter> build = group->SubElement(
             compile_type, "Include", SourceFileWriter(path_output, file));

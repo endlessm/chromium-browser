@@ -205,14 +205,25 @@ Optional<DILineInfo> ObjFile<ELFT>::getDILineInfo(InputSectionBase *S,
                                                   uint64_t Offset) {
   llvm::call_once(InitDwarfLine, [this]() { initializeDwarf(); });
 
+  // Detect SectionIndex for specified section.
+  uint64_t SectionIndex = object::SectionedAddress::UndefSection;
+  ArrayRef<InputSectionBase *> Sections = S->File->getSections();
+  for (uint64_t CurIndex = 0; CurIndex < Sections.size(); ++CurIndex) {
+    if (S == Sections[CurIndex]) {
+      SectionIndex = CurIndex;
+      break;
+    }
+  }
+
   // Use fake address calcuated by adding section file offset and offset in
   // section. See comments for ObjectInfo class.
   DILineInfo Info;
-  for (const llvm::DWARFDebugLine::LineTable *LT : LineTables)
+  for (const llvm::DWARFDebugLine::LineTable *LT : LineTables) {
     if (LT->getFileLineInfoForAddress(
-            S->getOffsetInFile() + Offset, nullptr,
+            {S->getOffsetInFile() + Offset, SectionIndex}, nullptr,
             DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath, Info))
       return Info;
+  }
   return None;
 }
 
@@ -248,11 +259,6 @@ typename ELFT::SymRange ELFFileBase<ELFT>::getGlobalELFSyms() {
 }
 
 template <class ELFT>
-uint32_t ELFFileBase<ELFT>::getSectionIndex(const Elf_Sym &Sym) const {
-  return CHECK(getObj().getSectionIndex(&Sym, ELFSyms, SymtabSHNDX), this);
-}
-
-template <class ELFT>
 void ELFFileBase<ELFT>::initSymtab(ArrayRef<Elf_Shdr> Sections,
                                    const Elf_Shdr *Symtab) {
   FirstGlobal = Symtab->sh_info;
@@ -268,6 +274,12 @@ template <class ELFT>
 ObjFile<ELFT>::ObjFile(MemoryBufferRef M, StringRef ArchiveName)
     : ELFFileBase<ELFT>(Base::ObjKind, M) {
   this->ArchiveName = ArchiveName;
+}
+
+template <class ELFT>
+uint32_t ObjFile<ELFT>::getSectionIndex(const Elf_Sym &Sym) const {
+  return CHECK(this->getObj().getSectionIndex(&Sym, this->ELFSyms, SymtabSHNDX),
+               this);
 }
 
 template <class ELFT> ArrayRef<Symbol *> ObjFile<ELFT>::getLocalSymbols() {
@@ -879,9 +891,6 @@ template <class ELFT> void SharedFile<ELFT>::parseDynamic() {
     case SHT_DYNAMIC:
       DynamicSec = &Sec;
       break;
-    case SHT_SYMTAB_SHNDX:
-      this->SymtabSHNDX = CHECK(Obj.getSHNDXTable(Sec, Sections), this);
-      break;
     case SHT_GNU_versym:
       this->VersymSec = &Sec;
       break;
@@ -1177,20 +1186,30 @@ void BitcodeFile::parse(DenseSet<CachedHashStringRef> &ComdatGroups) {
     Symbols.push_back(createBitcodeSymbol<ELFT>(KeptComdats, ObjSym, *this));
 }
 
-static ELFKind getELFKind(MemoryBufferRef MB) {
+static ELFKind getELFKind(MemoryBufferRef MB, StringRef ArchiveName) {
   unsigned char Size;
   unsigned char Endian;
   std::tie(Size, Endian) = getElfArchType(MB.getBuffer());
 
+  auto Fatal = [&](StringRef Msg) {
+    StringRef Filename = MB.getBufferIdentifier();
+    if (ArchiveName.empty())
+      fatal(Filename + ": " + Msg);
+    else
+      fatal(ArchiveName + "(" + Filename + "): " + Msg);
+  };
+
+  if (!MB.getBuffer().startswith(ElfMagic))
+    Fatal("not an ELF file");
   if (Endian != ELFDATA2LSB && Endian != ELFDATA2MSB)
-    fatal(MB.getBufferIdentifier() + ": invalid data encoding");
+    Fatal("corrupted ELF file: invalid data encoding");
   if (Size != ELFCLASS32 && Size != ELFCLASS64)
-    fatal(MB.getBufferIdentifier() + ": invalid file class");
+    Fatal("corrupted ELF file: invalid file class");
 
   size_t BufSize = MB.getBuffer().size();
   if ((Size == ELFCLASS32 && BufSize < sizeof(Elf32_Ehdr)) ||
       (Size == ELFCLASS64 && BufSize < sizeof(Elf64_Ehdr)))
-    fatal(MB.getBufferIdentifier() + ": file is too short");
+    Fatal("corrupted ELF file: file is too short");
 
   if (Size == ELFCLASS32)
     return (Endian == ELFDATA2LSB) ? ELF32LEKind : ELF32BEKind;
@@ -1225,7 +1244,7 @@ InputFile *elf::createObjectFile(MemoryBufferRef MB, StringRef ArchiveName,
   if (isBitcode(MB))
     return make<BitcodeFile>(MB, ArchiveName, OffsetInArchive);
 
-  switch (getELFKind(MB)) {
+  switch (getELFKind(MB, ArchiveName)) {
   case ELF32LEKind:
     return make<ObjFile<ELF32LE>>(MB, ArchiveName);
   case ELF32BEKind:
@@ -1240,7 +1259,7 @@ InputFile *elf::createObjectFile(MemoryBufferRef MB, StringRef ArchiveName,
 }
 
 InputFile *elf::createSharedFile(MemoryBufferRef MB, StringRef DefaultSoName) {
-  switch (getELFKind(MB)) {
+  switch (getELFKind(MB, "")) {
   case ELF32LEKind:
     return make<SharedFile<ELF32LE>>(MB, DefaultSoName);
   case ELF32BEKind:
@@ -1282,7 +1301,7 @@ template <class ELFT> void LazyObjFile::parse() {
     return;
   }
 
-  if (getELFKind(this->MB) != Config->EKind) {
+  if (getELFKind(this->MB, ArchiveName) != Config->EKind) {
     error("incompatible file: " + this->MB.getBufferIdentifier());
     return;
   }

@@ -155,7 +155,7 @@ class SubstitutionWriter {
       const Target* target,
       const Settings* settings,
       const SourceFile& source,
-      const std::vector<const Substitution*>& types,
+      const std::vector<SubstitutionType>& types,
       const EscapeOptions& escape_options,
       std::ostream& out);
 
@@ -168,7 +168,7 @@ class SubstitutionWriter {
   static std::string GetSourceSubstitution(const Target* target,
                                            const Settings* settings,
                                            const SourceFile& source,
-                                           const Substitution* type,
+                                           SubstitutionType type,
                                            OutputStyle output_style,
                                            const SourceDir& relative_to);
 
@@ -190,10 +190,10 @@ class SubstitutionWriter {
   // compiler and linker ones which will fall through if it's not a common tool
   // one).
   static bool GetTargetSubstitution(const Target* target,
-                                    const Substitution* type,
+                                    SubstitutionType type,
                                     std::string* result);
   static std::string GetTargetSubstitution(const Target* target,
-                                           const Substitution* type);
+                                           SubstitutionType type);
 
   // Compiler substitutions ----------------------------------------------------
   //
@@ -214,7 +214,7 @@ class SubstitutionWriter {
   // directory.
   static std::string GetCompilerSubstitution(const Target* target,
                                              const SourceFile& source,
-                                             const Substitution* type);
+                                             SubstitutionType type);
 
   // Linker substitutions ------------------------------------------------------
 
@@ -232,7 +232,7 @@ class SubstitutionWriter {
   // directory.
   static std::string GetLinkerSubstitution(const Target* target,
                                            const Tool* tool,
-                                           const Substitution* type);
+                                           SubstitutionType type);
 };
 
 #endif  // TOOLS_GN_SUBSTITUTION_WRITER_H_

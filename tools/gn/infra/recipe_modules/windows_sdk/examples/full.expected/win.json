@@ -101,7 +101,8 @@
     "name": "taskkill mspdbsrv"
   },
   {
-    "jsonResult": null,
-    "name": "$result"
+    "name": "$result",
+    "recipe_result": null,
+    "status_code": 0
   }
 ]

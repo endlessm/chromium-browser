@@ -328,7 +328,7 @@ Variables on a target used to apply configs
 Example
 
   config("myconfig") {
-    include_dirs = [ "include/common" ]
+    includes = [ "include/common" ]
     defines = [ "ENABLE_DOOM_MELON" ]
   }
 

@@ -41,12 +41,10 @@ class Platform(object):
       self._platform = 'fuchsia'
     elif self._platform.startswith('freebsd'):
       self._platform = 'freebsd'
-    elif self._platform.startswith('openbsd'):
-      self._platform = 'openbsd'
 
   @staticmethod
   def known_platforms():
-    return ['linux', 'darwin', 'msvc', 'aix', 'fuchsia', 'openbsd']
+    return ['linux', 'darwin', 'msvc', 'aix', 'fuchsia']
 
   def platform(self):
     return self._platform
@@ -70,7 +68,7 @@ class Platform(object):
     return self._platform == 'aix'
 
   def is_posix(self):
-    return self._platform in ['linux', 'freebsd', 'darwin', 'aix', 'openbsd']
+    return self._platform in ['linux', 'freebsd', 'darwin', 'aix']
 
 
 def main(argv):
@@ -175,7 +173,6 @@ def WriteGenericNinja(path, static_libraries, executables,
       'linux': 'build_linux.ninja.template',
       'freebsd': 'build_linux.ninja.template',
       'aix': 'build_aix.ninja.template',
-      'openbsd': 'build_openbsd.ninja.template',
   }[platform.platform()])
 
   with open(template_filename) as f:
@@ -205,9 +202,7 @@ def WriteGenericNinja(path, static_libraries, executables,
         'build %s: %s %s' % (src_to_obj(src_file),
                              settings['tool'],
                              escape_path_ninja(
-                                 os.path.relpath(
-                                     os.path.join(REPO_ROOT, src_file),
-                                     os.path.dirname(path)))),
+                                 os.path.join(REPO_ROOT, src_file))),
         '  includes = %s' % ' '.join(
             ['-I' + escape_path_ninja(dirname) for dirname in
              include_dirs + settings.get('include_dirs', [])]),
@@ -276,7 +271,7 @@ def WriteGNNinja(path, platform, host, options):
   cflags_cc = os.environ.get('CXXFLAGS', '').split()
   ldflags = os.environ.get('LDFLAGS', '').split()
   libflags = os.environ.get('LIBFLAGS', '').split()
-  include_dirs = [os.path.relpath(REPO_ROOT, os.path.dirname(path)), '.']
+  include_dirs = [REPO_ROOT, os.path.dirname(path)]
   libs = []
 
   if not platform.is_msvc():
@@ -427,8 +422,6 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/bundle_data_target_generator.cc',
         'tools/gn/bundle_file_rule.cc',
         'tools/gn/c_include_iterator.cc',
-        'tools/gn/c_substitution_type.cc',
-        'tools/gn/c_tool.cc',
         'tools/gn/command_analyze.cc',
         'tools/gn/command_args.cc',
         'tools/gn/command_check.cc',
@@ -472,7 +465,6 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/function_template.cc',
         'tools/gn/function_toolchain.cc',
         'tools/gn/function_write_file.cc',
-        'tools/gn/general_tool.cc',
         'tools/gn/generated_file_target_generator.cc',
         'tools/gn/group_target_generator.cc',
         'tools/gn/header_checker.cc',
@@ -494,7 +486,6 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/ninja_binary_target_writer.cc',
         'tools/gn/ninja_build_writer.cc',
         'tools/gn/ninja_bundle_data_target_writer.cc',
-        'tools/gn/ninja_c_binary_target_writer.cc',
         'tools/gn/ninja_copy_target_writer.cc',
         'tools/gn/ninja_create_bundle_target_writer.cc',
         'tools/gn/ninja_generated_file_target_writer.cc',
@@ -522,6 +513,7 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/setup.cc',
         'tools/gn/source_dir.cc',
         'tools/gn/source_file.cc',
+        'tools/gn/source_file_type.cc',
         'tools/gn/standard_out.cc',
         'tools/gn/string_utils.cc',
         'tools/gn/substitution_list.cc',
@@ -594,7 +586,6 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/metadata_walk_unittest.cc',
         'tools/gn/ninja_action_target_writer_unittest.cc',
         'tools/gn/ninja_binary_target_writer_unittest.cc',
-        'tools/gn/ninja_c_binary_target_writer_unittest.cc',
         'tools/gn/ninja_build_writer_unittest.cc',
         'tools/gn/ninja_bundle_data_target_writer_unittest.cc',
         'tools/gn/ninja_copy_target_writer_unittest.cc',

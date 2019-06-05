@@ -40,7 +40,9 @@ class NinjaToolchainWriter {
   void Run(const std::vector<NinjaWriter::TargetRulePair>& extra_rules);
 
   void WriteRules();
-  void WriteToolRule(Tool* tool, const std::string& rule_prefix);
+  void WriteToolRule(Toolchain::ToolType type,
+                     const Tool* tool,
+                     const std::string& rule_prefix);
   void WriteRulePattern(const char* name,
                         const SubstitutionPattern& pattern,
                         const EscapeOptions& options);

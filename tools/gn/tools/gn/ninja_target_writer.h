@@ -64,7 +64,7 @@ class NinjaTargetWriter {
 
  private:
   void WriteCopyRules();
-  void WriteEscapedSubstitution(const Substitution* type);
+  void WriteEscapedSubstitution(SubstitutionType type);
 
   DISALLOW_COPY_AND_ASSIGN(NinjaTargetWriter);
 };

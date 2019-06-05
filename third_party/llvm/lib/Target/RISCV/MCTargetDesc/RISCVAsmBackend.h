@@ -11,6 +11,7 @@
 
 #include "MCTargetDesc/RISCVFixupKinds.h"
 #include "MCTargetDesc/RISCVMCTargetDesc.h"
+#include "Utils/RISCVBaseInfo.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCFixupKindInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -25,20 +26,34 @@ class RISCVAsmBackend : public MCAsmBackend {
   uint8_t OSABI;
   bool Is64Bit;
   bool ForceRelocs = false;
+  const MCTargetOptions &TargetOptions;
+  RISCVABI::ABI TargetABI = RISCVABI::ABI_Unknown;
 
 public:
-  RISCVAsmBackend(const MCSubtargetInfo &STI, uint8_t OSABI, bool Is64Bit)
-      : MCAsmBackend(support::little), STI(STI), OSABI(OSABI),
-        Is64Bit(Is64Bit) {}
+  RISCVAsmBackend(const MCSubtargetInfo &STI, uint8_t OSABI, bool Is64Bit,
+                  const MCTargetOptions &Options)
+      : MCAsmBackend(support::little), STI(STI), OSABI(OSABI), Is64Bit(Is64Bit),
+        TargetOptions(Options) {
+    TargetABI = RISCVABI::computeTargetABI(
+        STI.getTargetTriple(), STI.getFeatureBits(), Options.getABIName());
+    RISCVFeatures::validate(STI.getTargetTriple(), STI.getFeatureBits());
+  }
   ~RISCVAsmBackend() override {}
 
   void setForceRelocs() { ForceRelocs = true; }
+
+  // Returns true if relocations will be forced for shouldForceRelocation by
+  // default. This will be true if relaxation is enabled or had previously
+  // been enabled.
+  bool willForceRelocations() const {
+    return ForceRelocs || STI.getFeatureBits()[RISCV::FeatureRelax];
+  }
 
   // Generate diff expression relocations if the relax feature is enabled or had
   // previously been enabled, otherwise it is safe for the assembler to
   // calculate these internally.
   bool requiresDiffExpressionRelocations() const override {
-    return STI.getFeatureBits()[RISCV::FeatureRelax] || ForceRelocs;
+    return willForceRelocations();
   }
 
   // Return Size with extra Nop Bytes for alignment directive in code section.
@@ -95,6 +110,7 @@ public:
       { "fixup_riscv_rvc_jump",      2,     11,  MCFixupKindInfo::FKF_IsPCRel },
       { "fixup_riscv_rvc_branch",    0,     16,  MCFixupKindInfo::FKF_IsPCRel },
       { "fixup_riscv_call",          0,     64,  MCFixupKindInfo::FKF_IsPCRel },
+      { "fixup_riscv_call_plt",      0,     64,  MCFixupKindInfo::FKF_IsPCRel },
       { "fixup_riscv_relax",         0,      0,  0 },
       { "fixup_riscv_align",         0,      0,  0 }
     };
@@ -118,6 +134,9 @@ public:
 
 
   bool writeNopData(raw_ostream &OS, uint64_t Count) const override;
+
+  const MCTargetOptions &getTargetOptions() const { return TargetOptions; }
+  RISCVABI::ABI getTargetABI() const { return TargetABI; }
 };
 }
 
