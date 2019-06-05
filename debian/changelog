@@ -1,3 +1,54 @@
+chromium-browser (75.0.3770.100-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 75.0.3770.100
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 19 Jun 2019 13:32:00 +0200
+
+chromium-browser (75.0.3770.90-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 75.0.3770.90
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 13 Jun 2019 22:20:23 +0200
+
+chromium-browser (75.0.3770.80-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 75.0.3770.80
+    - CVE-2019-5828: Use after free in ServiceWorker.
+    - CVE-2019-5829: Use after free in Download Manager.
+    - CVE-2019-5830: Incorrectly credentialed requests in CORS.
+    - CVE-2019-5831: Incorrect map processing in V8.
+    - CVE-2019-5832: Incorrect CORS handling in XHR.
+    - CVE-2019-5833: Inconsistent security UI placement.
+    - CVE-2019-5834: URL spoof in Omnibox on iOS.
+    - CVE-2019-5835: Out of bounds read in Swiftshader.
+    - CVE-2019-5836: Heap buffer overflow in Angle.
+    - CVE-2019-5837: Cross-origin resources size disclosure in Appcache.
+    - CVE-2019-5838: Overly permissive tab access in Extensions.
+    - CVE-2019-5839: Incorrect handling of certain code points in Blink.
+    - CVE-2019-5840: Popup blocker bypass.
+  * debian/rules: replace deprecated remove_webcore_debug_symbols build flag
+    by blink_symbol_level
+  * debian/patches/arm-neon.patch: removed, no longer needed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/fix-ptrace-header-include.patch: refreshed
+  * debian/patches/pffft-no-neon.patch: added
+  * debian/patches/revert-gn-4960.patch: removed, no longer needed
+  * debian/patches/revert-gn-4980.patch: removed, no longer needed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: removed,
+    no longer needed
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: updated
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-enable-version-string.patch: refreshed
+  * debian/known_gn_gen_args-*: remove remove_webcore_debug_symbols build flag
+  * debian/tests/chromium-version: update test to account for an undocumented
+    chromedriver API change
+  * debian/tests/html5test: update test expectations
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 04 Jun 2019 22:46:48 +0200
+
 chromium-browser (74.0.3729.169-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 74.0.3729.169
