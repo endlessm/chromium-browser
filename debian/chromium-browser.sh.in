@@ -7,6 +7,13 @@
 #  Fabien Tassin <fta@sofaraway.org>
 # License: GPLv2 or later
 
+ABSOLUTE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+if ! malcontent-client --quiet check --no-interactive ${ABSOLUTE_PATH}; then
+  echo "error: $ABSOLUTE_PATH is blacklisted for the current user" >&2
+  exit 1
+fi
+
 PLUGIN_PARAMETERS=""
 
 discover_registration () {
