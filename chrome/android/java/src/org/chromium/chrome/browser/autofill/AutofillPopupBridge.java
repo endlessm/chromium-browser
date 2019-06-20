@@ -22,6 +22,7 @@ import org.chromium.components.autofill.AutofillPopup;
 import org.chromium.components.autofill.AutofillSuggestion;
 import org.chromium.content_public.browser.WebContentsAccessibility;
 import org.chromium.ui.DropdownItem;
+import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -46,7 +47,7 @@ public class AutofillPopupBridge implements AutofillDelegate, DialogInterface.On
             mAutofillPopup = new AutofillPopup(activity, anchorView, this);
             mContext = activity;
             ChromeActivity chromeActivity = (ChromeActivity) activity;
-            chromeActivity.getManualFillingController().notifyPopupAvailable(mAutofillPopup);
+            chromeActivity.getManualFillingComponent().notifyPopupAvailable(mAutofillPopup);
             mWebContentsAccessibility = WebContentsAccessibility.fromWebContents(
                     chromeActivity.getCurrentWebContents());
         }
@@ -109,12 +110,14 @@ public class AutofillPopupBridge implements AutofillDelegate, DialogInterface.On
 
     @CalledByNative
     private void confirmDeletion(String title, String body) {
-        mDeletionDialog = new AlertDialog.Builder(mContext, R.style.Theme_Chromium_AlertDialog)
-                                  .setTitle(title)
-                                  .setMessage(body)
-                                  .setNegativeButton(R.string.cancel, null)
-                                  .setPositiveButton(R.string.ok, this)
-                                  .create();
+        mDeletionDialog =
+                new UiUtils
+                        .CompatibleAlertDialogBuilder(mContext, R.style.Theme_Chromium_AlertDialog)
+                        .setTitle(title)
+                        .setMessage(body)
+                        .setNegativeButton(R.string.cancel, null)
+                        .setPositiveButton(R.string.ok, this)
+                        .create();
         mDeletionDialog.show();
     }
 

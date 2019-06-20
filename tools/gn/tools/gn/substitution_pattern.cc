@@ -12,9 +12,9 @@
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/value.h"
 
-SubstitutionPattern::Subrange::Subrange() : type(&SubstitutionLiteral) {}
+SubstitutionPattern::Subrange::Subrange() : type(SUBSTITUTION_LITERAL) {}
 
-SubstitutionPattern::Subrange::Subrange(const Substitution* t,
+SubstitutionPattern::Subrange::Subrange(SubstitutionType t,
                                         const std::string& l)
     : type(t), literal(l) {}
 
@@ -45,25 +45,24 @@ bool SubstitutionPattern::Parse(const std::string& str,
     // Pick up everything from the previous spot to here as a literal.
     if (next == std::string::npos) {
       if (cur != str.size())
-        ranges_.push_back(Subrange(&SubstitutionLiteral, str.substr(cur)));
+        ranges_.push_back(Subrange(SUBSTITUTION_LITERAL, str.substr(cur)));
       break;
     } else if (next > cur) {
       ranges_.push_back(
-          Subrange(&SubstitutionLiteral, str.substr(cur, next - cur)));
+          Subrange(SUBSTITUTION_LITERAL, str.substr(cur, next - cur)));
     }
 
     // Find which specific pattern this corresponds to.
     bool found_match = false;
-    for (const SubstitutionTypes* types : AllSubstitutions) {
-      for (const Substitution* sub : *types) {
-        const char* cur_pattern = sub->name;
-        size_t cur_len = strlen(cur_pattern);
-        if (str.compare(next, cur_len, cur_pattern) == 0) {
-          ranges_.push_back(Subrange(sub));
-          cur = next + cur_len;
-          found_match = true;
-          break;
-        }
+    for (size_t i = SUBSTITUTION_FIRST_PATTERN; i < SUBSTITUTION_NUM_TYPES;
+         i++) {
+      const char* cur_pattern = kSubstitutionNames[i];
+      size_t cur_len = strlen(cur_pattern);
+      if (str.compare(next, cur_len, cur_pattern) == 0) {
+        ranges_.push_back(Subrange(static_cast<SubstitutionType>(i)));
+        cur = next + cur_len;
+        found_match = true;
+        break;
       }
     }
 
@@ -100,18 +99,18 @@ SubstitutionPattern SubstitutionPattern::MakeForTest(const char* str) {
 std::string SubstitutionPattern::AsString() const {
   std::string result;
   for (const auto& elem : ranges_) {
-    if (elem.type == &SubstitutionLiteral)
+    if (elem.type == SUBSTITUTION_LITERAL)
       result.append(elem.literal);
     else
-      result.append(elem.type->name);
+      result.append(kSubstitutionNames[elem.type]);
   }
   return result;
 }
 
 void SubstitutionPattern::FillRequiredTypes(SubstitutionBits* bits) const {
   for (const auto& elem : ranges_) {
-    if (elem.type != &SubstitutionLiteral)
-      bits->used.insert(elem.type);
+    if (elem.type != SUBSTITUTION_LITERAL)
+      bits->used[static_cast<size_t>(elem.type)] = true;
   }
 }
 
@@ -122,7 +121,7 @@ bool SubstitutionPattern::IsInOutputDir(const BuildSettings* build_settings,
     return false;
   }
 
-  if (ranges_[0].type == &SubstitutionLiteral) {
+  if (ranges_[0].type == SUBSTITUTION_LITERAL) {
     // If the first thing is a literal, it must start with the output dir.
     if (!EnsureStringIsInOutputDir(build_settings->build_dir(),
                                    ranges_[0].literal, origin_, err))

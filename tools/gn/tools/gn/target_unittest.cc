@@ -637,8 +637,7 @@ TEST_F(TargetTest, LinkAndDepOutputs) {
 
   Toolchain toolchain(setup.settings(), Label(SourceDir("//tc/"), "tc"));
 
-  std::unique_ptr<Tool> solink = Tool::CreateTool(CTool::kCToolSolink);
-  CTool* solink_tool = solink->AsC();
+  std::unique_ptr<Tool> solink_tool = std::make_unique<Tool>();
   solink_tool->set_output_prefix("lib");
   solink_tool->set_default_output_extension(".so");
 
@@ -657,7 +656,7 @@ TEST_F(TargetTest, LinkAndDepOutputs) {
   solink_tool->set_outputs(
       SubstitutionList::MakeForTest(kLinkPattern, kDependPattern));
 
-  toolchain.SetTool(std::move(solink));
+  toolchain.SetTool(Toolchain::TYPE_SOLINK, std::move(solink_tool));
 
   Target target(setup.settings(), Label(SourceDir("//a/"), "a"));
   target.set_output_type(Target::SHARED_LIBRARY);
@@ -679,8 +678,7 @@ TEST_F(TargetTest, RuntimeOuputs) {
 
   Toolchain toolchain(setup.settings(), Label(SourceDir("//tc/"), "tc"));
 
-  std::unique_ptr<Tool> solink = Tool::CreateTool(CTool::kCToolSolink);
-  CTool* solink_tool = solink->AsC();
+  std::unique_ptr<Tool> solink_tool = std::make_unique<Tool>();
   solink_tool->set_output_prefix("");
   solink_tool->set_default_output_extension(".dll");
 
@@ -701,7 +699,7 @@ TEST_F(TargetTest, RuntimeOuputs) {
   solink_tool->set_runtime_outputs(
       SubstitutionList::MakeForTest(kDllPattern, kPdbPattern));
 
-  toolchain.SetTool(std::move(solink));
+  toolchain.SetTool(Toolchain::TYPE_SOLINK, std::move(solink_tool));
 
   Target target(setup.settings(), Label(SourceDir("//a/"), "a"));
   target.set_output_type(Target::SHARED_LIBRARY);
@@ -1254,8 +1252,8 @@ TEST(TargetTest, CollectMetadataWithError) {
                   &err);
   EXPECT_TRUE(err.has_error());
   EXPECT_EQ(err.message(),
-            "I was expecting //foo:missing(//toolchain:default) to be a "
-            "dependency of //foo:one(//toolchain:default). "
+            "I was expecting //foo:missing to be a dependency of "
+            "//foo:one(//toolchain:default). "
             "Make sure it's included in the deps or data_deps, and that you've "
             "specified the appropriate toolchain.")
       << err.message();

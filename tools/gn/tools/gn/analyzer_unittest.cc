@@ -3,19 +3,16 @@
 // found in the LICENSE file.
 
 #include "tools/gn/analyzer.h"
-
-#include <tools/gn/c_tool.h>
 #include "tools/gn/build_settings.h"
 #include "tools/gn/builder.h"
 #include "tools/gn/config.h"
-#include "tools/gn/general_tool.h"
 #include "tools/gn/loader.h"
 #include "tools/gn/pool.h"
 #include "tools/gn/settings.h"
 #include "tools/gn/source_file.h"
 #include "tools/gn/substitution_list.h"
 #include "tools/gn/target.h"
-#include <tools/gn/tool.h>
+#include "tools/gn/tool.h"
 #include "tools/gn/toolchain.h"
 #include "util/test/test.h"
 
@@ -381,10 +378,10 @@ TEST_F(AnalyzerTest, AffectedToolchainpropagatesToDependentTargets) {
 
   // The tool is not used anywhere, but is required to construct the dependency
   // between a target and the toolchain.
-  std::unique_ptr<Tool> fake_tool = Tool::CreateTool(CTool::kCToolLink);
+  std::unique_ptr<Tool> fake_tool(new Tool());
   fake_tool->set_outputs(
       SubstitutionList::MakeForTest("//out/debug/output.txt"));
-  toolchain->SetTool(std::move(fake_tool));
+  toolchain->SetTool(Toolchain::TYPE_LINK, std::move(fake_tool));
   builder_.ItemDefined(std::unique_ptr<Item>(target));
   builder_.ItemDefined(std::unique_ptr<Item>(toolchain));
 

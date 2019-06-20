@@ -5,7 +5,6 @@
 #include "tools/gn/substitution_writer.h"
 
 #include "tools/gn/build_settings.h"
-#include "tools/gn/c_substitution_type.h"
 #include "tools/gn/escape.h"
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/output_file.h"
@@ -102,9 +101,8 @@ Placeholders
   {{source_target_relative}}
       The path to the source file relative to the target's directory. This will
       generally be used for replicating the source directory layout in the
-      output directory. This can only be used in actions and bundle_data
-      targets. It is an error to use in process_file_template where there is no
-      "target".
+      output directory. This can only be used in actions and it is an error to
+      use in process_file_template where there is no "target".
         "//foo/bar/baz.txt" => "baz.txt"
 
 (*) Note on directories
@@ -158,11 +156,11 @@ void SubstitutionWriter::WriteWithNinjaVariables(
   bool needs_quotes = false;
   std::string result;
   for (const auto& range : pattern.ranges()) {
-    if (range.type == &SubstitutionLiteral) {
+    if (range.type == SUBSTITUTION_LITERAL) {
       result.append(EscapeString(range.literal, no_quoting, &needs_quotes));
     } else {
       result.append("${");
-      result.append(range.type->ninja_name);
+      result.append(kSubstitutionNinjaNames[range.type]);
       result.append("}");
     }
   }
@@ -178,7 +176,7 @@ void SubstitutionWriter::GetListAsSourceFiles(const SubstitutionList& list,
                                               std::vector<SourceFile>* output) {
   for (const auto& pattern : list.list()) {
     CHECK(pattern.ranges().size() == 1 &&
-          pattern.ranges()[0].type == &SubstitutionLiteral)
+          pattern.ranges()[0].type == SUBSTITUTION_LITERAL)
         << "The substitution pattern \"" << pattern.AsString()
         << "\" was expected to be a literal with no {{substitutions}}.";
     const std::string& literal = pattern.ranges()[0].literal;
@@ -221,7 +219,7 @@ std::string SubstitutionWriter::ApplyPatternToSourceAsString(
     const SourceFile& source) {
   std::string result_value;
   for (const auto& subrange : pattern.ranges()) {
-    if (subrange.type == &SubstitutionLiteral) {
+    if (subrange.type == SUBSTITUTION_LITERAL) {
       result_value.append(subrange.literal);
     } else {
       result_value.append(GetSourceSubstitution(target, settings, source,
@@ -318,7 +316,7 @@ void SubstitutionWriter::WriteNinjaVariablesForSource(
     const Target* target,
     const Settings* settings,
     const SourceFile& source,
-    const std::vector<const Substitution*>& types,
+    const std::vector<SubstitutionType>& types,
     const EscapeOptions& escape_options,
     std::ostream& out) {
   for (const auto& type : types) {
@@ -326,8 +324,8 @@ void SubstitutionWriter::WriteNinjaVariablesForSource(
     // is implicit in the rule. RESPONSE_FILE_NAME is written separately
     // only when writing target rules since it can never be used in any
     // other context (like process_file_template).
-    if (type != &SubstitutionSource && type != &SubstitutionRspFileName) {
-      out << "  " << type->ninja_name << " = ";
+    if (type != SUBSTITUTION_SOURCE && type != SUBSTITUTION_RSP_FILE_NAME) {
+      out << "  " << kSubstitutionNinjaNames[type] << " = ";
       EscapeStringToStream(
           out,
           GetSourceSubstitution(target, settings, source, type, OUTPUT_RELATIVE,
@@ -343,46 +341,59 @@ std::string SubstitutionWriter::GetSourceSubstitution(
     const Target* target,
     const Settings* settings,
     const SourceFile& source,
-    const Substitution* type,
+    SubstitutionType type,
     OutputStyle output_style,
     const SourceDir& relative_to) {
   std::string to_rebase;
-  if (type == &SubstitutionSource) {
-    if (source.is_system_absolute())
-      return source.value();
-    to_rebase = source.value();
-  } else if (type == &SubstitutionSourceNamePart) {
-    return FindFilenameNoExtension(&source.value()).as_string();
-  } else if (type == &SubstitutionSourceFilePart) {
-    return source.GetName();
-  } else if (type == &SubstitutionSourceDir) {
-    if (source.is_system_absolute())
-      return DirectoryWithNoLastSlash(source.GetDir());
-    to_rebase = DirectoryWithNoLastSlash(source.GetDir());
-  } else if (type == &SubstitutionSourceRootRelativeDir) {
-    if (source.is_system_absolute())
-      return DirectoryWithNoLastSlash(source.GetDir());
-    return RebasePath(DirectoryWithNoLastSlash(source.GetDir()),
-                      SourceDir("//"),
-                      settings->build_settings()->root_path_utf8());
-  } else if (type == &SubstitutionSourceGenDir) {
-    to_rebase = DirectoryWithNoLastSlash(GetSubBuildDirAsSourceDir(
-        BuildDirContext(settings), source.GetDir(), BuildDirType::GEN));
-  } else if (type == &SubstitutionSourceOutDir) {
-    to_rebase = DirectoryWithNoLastSlash(GetSubBuildDirAsSourceDir(
-        BuildDirContext(settings), source.GetDir(), BuildDirType::OBJ));
-  } else if (type == &SubstitutionSourceTargetRelative) {
-    if (target) {
-      return RebasePath(source.value(), target->label().dir(),
+  switch (type) {
+    case SUBSTITUTION_SOURCE:
+      if (source.is_system_absolute())
+        return source.value();
+      to_rebase = source.value();
+      break;
+
+    case SUBSTITUTION_SOURCE_NAME_PART:
+      return FindFilenameNoExtension(&source.value()).as_string();
+
+    case SUBSTITUTION_SOURCE_FILE_PART:
+      return source.GetName();
+
+    case SUBSTITUTION_SOURCE_DIR:
+      if (source.is_system_absolute())
+        return DirectoryWithNoLastSlash(source.GetDir());
+      to_rebase = DirectoryWithNoLastSlash(source.GetDir());
+      break;
+
+    case SUBSTITUTION_SOURCE_ROOT_RELATIVE_DIR:
+      if (source.is_system_absolute())
+        return DirectoryWithNoLastSlash(source.GetDir());
+      return RebasePath(DirectoryWithNoLastSlash(source.GetDir()),
+                        SourceDir("//"),
                         settings->build_settings()->root_path_utf8());
-    }
-    NOTREACHED() << "Cannot use substitution " << type->name
-                 << " without target";
-    return std::string();
-  } else {
-    NOTREACHED() << "Unsupported substitution for this function: "
-                 << type->name;
-    return std::string();
+
+    case SUBSTITUTION_SOURCE_GEN_DIR:
+      to_rebase = DirectoryWithNoLastSlash(GetSubBuildDirAsSourceDir(
+          BuildDirContext(settings), source.GetDir(), BuildDirType::GEN));
+      break;
+
+    case SUBSTITUTION_SOURCE_OUT_DIR:
+      to_rebase = DirectoryWithNoLastSlash(GetSubBuildDirAsSourceDir(
+          BuildDirContext(settings), source.GetDir(), BuildDirType::OBJ));
+      break;
+
+    case SUBSTITUTION_SOURCE_TARGET_RELATIVE:
+      if (target) {
+        return RebasePath(source.value(), target->label().dir(),
+                          settings->build_settings()->root_path_utf8());
+      }
+      NOTREACHED() << "Cannot use substitution " << kSubstitutionNames[type]
+                   << " without target";
+      return std::string();
+
+    default:
+      NOTREACHED() << "Unsupported substitution for this function: "
+                   << kSubstitutionNames[type];
+      return std::string();
   }
 
   // If we get here, the result is a path that should be made relative or
@@ -401,7 +412,7 @@ OutputFile SubstitutionWriter::ApplyPatternToTargetAsOutputFile(
     const SubstitutionPattern& pattern) {
   std::string result_value;
   for (const auto& subrange : pattern.ranges()) {
-    if (subrange.type == &SubstitutionLiteral) {
+    if (subrange.type == SUBSTITUTION_LITERAL) {
       result_value.append(subrange.literal);
     } else {
       std::string subst;
@@ -424,42 +435,49 @@ void SubstitutionWriter::ApplyListToTargetAsOutputFile(
 
 // static
 bool SubstitutionWriter::GetTargetSubstitution(const Target* target,
-                                               const Substitution* type,
+                                               SubstitutionType type,
                                                std::string* result) {
-  if (type == &SubstitutionLabel) {
-    // Only include the toolchain for non-default toolchains.
-    *result =
-        target->label().GetUserVisibleName(!target->settings()->is_default());
-  } else if (type == &SubstitutionLabelName) {
-    *result = target->label().name();
-  } else if (type == &SubstitutionRootGenDir) {
-    SetDirOrDotWithNoSlash(
-        GetBuildDirAsOutputFile(BuildDirContext(target), BuildDirType::GEN)
-            .value(),
-        result);
-  } else if (type == &SubstitutionRootOutDir) {
-    SetDirOrDotWithNoSlash(
-        target->settings()->toolchain_output_subdir().value(), result);
-  } else if (type == &SubstitutionTargetGenDir) {
-    SetDirOrDotWithNoSlash(
-        GetBuildDirForTargetAsOutputFile(target, BuildDirType::GEN).value(),
-        result);
-  } else if (type == &SubstitutionTargetOutDir) {
-    SetDirOrDotWithNoSlash(
-        GetBuildDirForTargetAsOutputFile(target, BuildDirType::OBJ).value(),
-        result);
-  } else if (type == &SubstitutionTargetOutputName) {
-    *result = target->GetComputedOutputName();
-  } else {
-    return false;
+  switch (type) {
+    case SUBSTITUTION_LABEL:
+      // Only include the toolchain for non-default toolchains.
+      *result =
+          target->label().GetUserVisibleName(!target->settings()->is_default());
+      break;
+    case SUBSTITUTION_LABEL_NAME:
+      *result = target->label().name();
+      break;
+    case SUBSTITUTION_ROOT_GEN_DIR:
+      SetDirOrDotWithNoSlash(
+          GetBuildDirAsOutputFile(BuildDirContext(target), BuildDirType::GEN)
+              .value(),
+          result);
+      break;
+    case SUBSTITUTION_ROOT_OUT_DIR:
+      SetDirOrDotWithNoSlash(
+          target->settings()->toolchain_output_subdir().value(), result);
+      break;
+    case SUBSTITUTION_TARGET_GEN_DIR:
+      SetDirOrDotWithNoSlash(
+          GetBuildDirForTargetAsOutputFile(target, BuildDirType::GEN).value(),
+          result);
+      break;
+    case SUBSTITUTION_TARGET_OUT_DIR:
+      SetDirOrDotWithNoSlash(
+          GetBuildDirForTargetAsOutputFile(target, BuildDirType::OBJ).value(),
+          result);
+      break;
+    case SUBSTITUTION_TARGET_OUTPUT_NAME:
+      *result = target->GetComputedOutputName();
+      break;
+    default:
+      return false;
   }
   return true;
 }
 
 // static
-std::string SubstitutionWriter::GetTargetSubstitution(
-    const Target* target,
-    const Substitution* type) {
+std::string SubstitutionWriter::GetTargetSubstitution(const Target* target,
+                                                      SubstitutionType type) {
   std::string result;
   GetTargetSubstitution(target, type, &result);
   return result;
@@ -472,7 +490,7 @@ OutputFile SubstitutionWriter::ApplyPatternToCompilerAsOutputFile(
     const SubstitutionPattern& pattern) {
   OutputFile result;
   for (const auto& subrange : pattern.ranges()) {
-    if (subrange.type == &SubstitutionLiteral) {
+    if (subrange.type == SUBSTITUTION_LITERAL) {
       result.value().append(subrange.literal);
     } else {
       result.value().append(
@@ -496,7 +514,7 @@ void SubstitutionWriter::ApplyListToCompilerAsOutputFile(
 std::string SubstitutionWriter::GetCompilerSubstitution(
     const Target* target,
     const SourceFile& source,
-    const Substitution* type) {
+    SubstitutionType type) {
   // First try the common tool ones.
   std::string result;
   if (GetTargetSubstitution(target, type, &result))
@@ -515,7 +533,7 @@ OutputFile SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
     const SubstitutionPattern& pattern) {
   OutputFile result;
   for (const auto& subrange : pattern.ranges()) {
-    if (subrange.type == &SubstitutionLiteral) {
+    if (subrange.type == SUBSTITUTION_LITERAL) {
       result.value().append(subrange.literal);
     } else {
       result.value().append(GetLinkerSubstitution(target, tool, subrange.type));
@@ -535,43 +553,44 @@ void SubstitutionWriter::ApplyListToLinkerAsOutputFile(
 }
 
 // static
-std::string SubstitutionWriter::GetLinkerSubstitution(
-    const Target* target,
-    const Tool* tool,
-    const Substitution* type) {
+std::string SubstitutionWriter::GetLinkerSubstitution(const Target* target,
+                                                      const Tool* tool,
+                                                      SubstitutionType type) {
   // First try the common tool ones.
   std::string result;
   if (GetTargetSubstitution(target, type, &result))
     return result;
 
   // Fall-through to the linker-specific ones.
-  if (type == &CSubstitutionOutputDir) {
-    // Use the target's value if there is one (it will have no expansion
-    // patterns since it can directly use GN variables to compute whatever
-    // path it wants), or the tool's default (which will contain further
-    // expansions).
-    if (target->output_dir().is_null()) {
-      return ApplyPatternToLinkerAsOutputFile(target, tool,
-                                              tool->default_output_dir())
-          .value();
-    }
-    SetDirOrDotWithNoSlash(
-        RebasePath(target->output_dir().value(),
-                   target->settings()->build_settings()->build_dir()),
-        &result);
-    return result;
-  } else if (type == &CSubstitutionOutputExtension) {
-    // Use the extension provided on the target if specified, otherwise
-    // fall back on the default. Note that the target's output extension
-    // does not include the dot but the tool's does.
-    if (!target->output_extension_set())
-      return tool->default_output_extension();
-    if (target->output_extension().empty())
-      return std::string();  // Explicitly set to no extension.
-    return std::string(".") + target->output_extension();
+  switch (type) {
+    case SUBSTITUTION_OUTPUT_DIR:
+      // Use the target's value if there is one (it will have no expansion
+      // patterns since it can directly use GN variables to compute whatever
+      // path it wants), or the tool's default (which will contain further
+      // expansions).
+      if (target->output_dir().is_null()) {
+        return ApplyPatternToLinkerAsOutputFile(target, tool,
+                                                tool->default_output_dir())
+            .value();
+      }
+      SetDirOrDotWithNoSlash(
+          RebasePath(target->output_dir().value(),
+                     target->settings()->build_settings()->build_dir()),
+          &result);
+      return result;
 
-  } else {
-    NOTREACHED();
-    return std::string();
+    case SUBSTITUTION_OUTPUT_EXTENSION:
+      // Use the extension provided on the target if specified, otherwise
+      // fall back on the default. Note that the target's output extension
+      // does not include the dot but the tool's does.
+      if (!target->output_extension_set())
+        return tool->default_output_extension();
+      if (target->output_extension().empty())
+        return std::string();  // Explicitly set to no extension.
+      return std::string(".") + target->output_extension();
+
+    default:
+      NOTREACHED();
+      return std::string();
   }
 }

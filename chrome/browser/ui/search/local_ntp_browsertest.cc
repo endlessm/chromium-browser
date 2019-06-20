@@ -36,6 +36,7 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/ntp_tiles/constants.h"
+#include "components/ntp_tiles/features.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/interstitial_page.h"
@@ -81,6 +82,16 @@ content::RenderFrameHost* GetIframe(content::WebContents* tab,
   return nullptr;
 }
 
+bool ContainsDefaultSearchTile(content::RenderFrameHost* iframe) {
+  int num_search_tiles;
+  EXPECT_TRUE(instant_test_utils::GetIntFromJS(
+      iframe,
+      "document.querySelectorAll(\".md-tile["
+      "href='https://www.google.com/']\").length",
+      &num_search_tiles));
+  return num_search_tiles == 1;
+}
+
 class LocalNTPTest : public InProcessBrowserTest {
  public:
   LocalNTPTest(const std::vector<base::Feature>& enabled_features,
@@ -103,7 +114,11 @@ class LocalNTPTest : public InProcessBrowserTest {
     // Make sure the observer knows about the current items. Typically, this
     // gets triggered by navigating to an NTP.
     instant_service->UpdateMostVisitedItemsInfo();
-    mv_observer.WaitForMostVisitedItems(kDefaultMostVisitedItemCount);
+    const int numDefaultMVItems =
+        kDefaultMostVisitedItemCount +
+        (base::FeatureList::IsEnabled(ntp_tiles::kDefaultSearchShortcut) ? 1
+                                                                         : 0);
+    mv_observer.WaitForMostVisitedItems(numDefaultMVItems);
   }
 
  private:
@@ -113,7 +128,7 @@ class LocalNTPTest : public InProcessBrowserTest {
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, EmbeddedSearchAPIOnlyAvailableOnNTP) {
   // Set up a test server, so we have some arbitrary non-NTP URL to navigate to.
   net::EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);
-  test_server.ServeFilesFromSourceDirectory("chrome/test/data");
+  test_server.ServeFilesFromSourceDirectory(GetChromeTestDataDir());
   ASSERT_TRUE(test_server.Start());
   const GURL other_url = test_server.GetURL("/simple.html");
 
@@ -294,7 +309,7 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, EmbeddedSearchAPIEndToEnd) {
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, EmbeddedSearchAPIAfterDownload) {
   // Set up a test server, so we have some URL to download.
   net::EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);
-  test_server.ServeFilesFromSourceDirectory("chrome/test/data");
+  test_server.ServeFilesFromSourceDirectory(GetChromeTestDataDir());
   ASSERT_TRUE(test_server.Start());
   const GURL download_url = test_server.GetURL("/download-test1.lib");
 
@@ -832,7 +847,7 @@ class TestNavigationThrottle : public content::NavigationThrottle {
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, InterstitialsAreNotNTPs) {
   // Set up a test server, so we have some non-NTP URL to navigate to.
   net::EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);
-  test_server.ServeFilesFromSourceDirectory("chrome/test/data");
+  test_server.ServeFilesFromSourceDirectory(GetChromeTestDataDir());
   ASSERT_TRUE(test_server.Start());
 
   content::WebContents* active_tab =
@@ -860,5 +875,42 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, InterstitialsAreNotNTPs) {
   // Now the page should be an NTP again.
   EXPECT_TRUE(search::IsInstantNTP(active_tab));
 }
+
+class LocalNTPNoSearchShortcutTest : public LocalNTPTest {
+ public:
+  LocalNTPNoSearchShortcutTest()
+      : LocalNTPTest({}, {ntp_tiles::kDefaultSearchShortcut}) {}
+};
+
+IN_PROC_BROWSER_TEST_F(LocalNTPNoSearchShortcutTest, SearchShortcutHidden) {
+  content::WebContents* active_tab =
+      local_ntp_test_utils::OpenNewTab(browser(), GURL("about:blank"));
+
+  local_ntp_test_utils::NavigateToNTPAndWaitUntilLoaded(browser());
+  ASSERT_TRUE(search::IsInstantNTP(active_tab));
+
+  content::RenderFrameHost* iframe = GetIframe(active_tab, "mv-single");
+
+  EXPECT_FALSE(ContainsDefaultSearchTile(iframe));
+}
+
+#if defined(GOOGLE_CHROME_BUILD)
+class LocalNTPSearchShortcutTest : public LocalNTPTest {
+ public:
+  LocalNTPSearchShortcutTest()
+      : LocalNTPTest({ntp_tiles::kDefaultSearchShortcut}, {}) {}
+};
+
+IN_PROC_BROWSER_TEST_F(LocalNTPSearchShortcutTest, SearchShortcutShown) {
+  content::WebContents* active_tab =
+      local_ntp_test_utils::OpenNewTab(browser(), GURL("about:blank"));
+  local_ntp_test_utils::NavigateToNTPAndWaitUntilLoaded(browser());
+  ASSERT_TRUE(search::IsInstantNTP(active_tab));
+
+  content::RenderFrameHost* iframe = GetIframe(active_tab, kMostVisitedIframe);
+
+  EXPECT_TRUE(ContainsDefaultSearchTile(iframe));
+}
+#endif
 
 }  // namespace

@@ -1046,6 +1046,34 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
                                   PtrTy.getSizeInBits() / 8, 8));
     return true;
   }
+  case Intrinsic::stacksave: {
+    // Save the stack pointer to the location provided by the intrinsic.
+    unsigned Reg = getOrCreateVReg(CI);
+    unsigned StackPtr = MF->getSubtarget()
+                            .getTargetLowering()
+                            ->getStackPointerRegisterToSaveRestore();
+
+    // If the target doesn't specify a stack pointer, then fall back.
+    if (!StackPtr)
+      return false;
+
+    MIRBuilder.buildCopy(Reg, StackPtr);
+    return true;
+  }
+  case Intrinsic::stackrestore: {
+    // Restore the stack pointer from the location provided by the intrinsic.
+    unsigned Reg = getOrCreateVReg(*CI.getArgOperand(0));
+    unsigned StackPtr = MF->getSubtarget()
+                            .getTargetLowering()
+                            ->getStackPointerRegisterToSaveRestore();
+
+    // If the target doesn't specify a stack pointer, then fall back.
+    if (!StackPtr)
+      return false;
+
+    MIRBuilder.buildCopy(StackPtr, Reg);
+    return true;
+  }
   case Intrinsic::cttz:
   case Intrinsic::ctlz: {
     ConstantInt *Cst = cast<ConstantInt>(CI.getArgOperand(1));
@@ -1138,8 +1166,8 @@ bool IRTranslator::translateCall(const User &U, MachineIRBuilder &MIRBuilder) {
       ID = static_cast<Intrinsic::ID>(TII->getIntrinsicID(F));
   }
 
-  bool IsSplitType = valueIsSplit(CI);
   if (!F || !F->isIntrinsic() || ID == Intrinsic::not_intrinsic) {
+    bool IsSplitType = valueIsSplit(CI);
     unsigned Res = IsSplitType ? MRI->createGenericVirtualRegister(
                                      getLLTForType(*CI.getType(), *DL))
                                : getOrCreateVReg(CI);
@@ -1163,16 +1191,12 @@ bool IRTranslator::translateCall(const User &U, MachineIRBuilder &MIRBuilder) {
   if (translateKnownIntrinsic(CI, ID, MIRBuilder))
     return true;
 
-  unsigned Res = 0;
-  if (!CI.getType()->isVoidTy()) {
-    if (IsSplitType)
-      Res =
-          MRI->createGenericVirtualRegister(getLLTForType(*CI.getType(), *DL));
-    else
-      Res = getOrCreateVReg(CI);
-  }
+  ArrayRef<unsigned> ResultRegs;
+  if (!CI.getType()->isVoidTy())
+    ResultRegs = getOrCreateVRegs(CI);
+
   MachineInstrBuilder MIB =
-      MIRBuilder.buildIntrinsic(ID, Res, !CI.doesNotAccessMemory());
+      MIRBuilder.buildIntrinsic(ID, ResultRegs, !CI.doesNotAccessMemory());
 
   for (auto &Arg : CI.arg_operands()) {
     // Some intrinsics take metadata parameters. Reject them.
@@ -1180,9 +1204,6 @@ bool IRTranslator::translateCall(const User &U, MachineIRBuilder &MIRBuilder) {
       return false;
     MIB.addUse(packRegs(*Arg, MIRBuilder));
   }
-
-  if (IsSplitType)
-    unpackRegs(CI, Res, MIRBuilder);
 
   // Add a MachineMemOperand if it is a target mem intrinsic.
   const TargetLowering &TLI = *MF->getSubtarget().getTargetLowering();

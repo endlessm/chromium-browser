@@ -176,19 +176,14 @@ void printDynamicSection(const ELFFile<ELFT> *Elf, StringRef Filename) {
     if (Dyn.d_tag == ELF::DT_NULL)
       continue;
 
-    StringRef Str = StringRef(Elf->getDynamicTagAsString(Dyn.d_tag));
-
-    if (Str.empty()) {
-      std::string HexStr = utohexstr(static_cast<uint64_t>(Dyn.d_tag), true);
-      outs() << format("  0x%-19s", HexStr.c_str());
-    } else {
-      // We use "-21" in order to match GNU objdump's output.
-      outs() << format("  %-21s", Str.data());
-    }
+    std::string Str = Elf->getDynamicTagAsString(Dyn.d_tag);
+    outs() << format("  %-21s", Str.c_str());
 
     const char *Fmt =
         ELFT::Is64Bits ? "0x%016" PRIx64 "\n" : "0x%08" PRIx64 "\n";
-    if (Dyn.d_tag == ELF::DT_NEEDED) {
+    if (Dyn.d_tag == ELF::DT_NEEDED || Dyn.d_tag == ELF::DT_RPATH ||
+        Dyn.d_tag == ELF::DT_RUNPATH || Dyn.d_tag == ELF::DT_SONAME ||
+        Dyn.d_tag == ELF::DT_AUXILIARY || Dyn.d_tag == ELF::DT_FILTER) {
       Expected<StringRef> StrTabOrErr = getDynamicStrTab(Elf);
       if (StrTabOrErr) {
         const char *Data = StrTabOrErr.get().data();

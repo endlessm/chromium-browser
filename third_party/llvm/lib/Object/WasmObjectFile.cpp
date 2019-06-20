@@ -324,6 +324,7 @@ Error WasmObjectFile::parseSection(WasmSection &Sec) {
 
 Error WasmObjectFile::parseDylinkSection(ReadContext &Ctx) {
   // See https://github.com/WebAssembly/tool-conventions/blob/master/DynamicLinking.md
+  HasDylinkSection = true;
   DylinkInfo.MemorySize = readVaruint32(Ctx);
   DylinkInfo.MemoryAlignment = readVaruint32(Ctx);
   DylinkInfo.TableSize = readVaruint32(Ctx);
@@ -714,6 +715,36 @@ Error WasmObjectFile::parseProducersSection(ReadContext &Ctx) {
   return Error::success();
 }
 
+Error WasmObjectFile::parseTargetFeaturesSection(ReadContext &Ctx) {
+  llvm::SmallSet<std::string, 8> FeaturesSeen;
+  uint32_t FeatureCount = readVaruint32(Ctx);
+  for (size_t I = 0; I < FeatureCount; ++I) {
+    wasm::WasmFeatureEntry Feature;
+    Feature.Prefix = readUint8(Ctx);
+    switch (Feature.Prefix) {
+    case wasm::WASM_FEATURE_PREFIX_USED:
+    case wasm::WASM_FEATURE_PREFIX_REQUIRED:
+    case wasm::WASM_FEATURE_PREFIX_DISALLOWED:
+      break;
+    default:
+      return make_error<GenericBinaryError>("Unknown feature policy prefix",
+                                            object_error::parse_failed);
+    }
+    Feature.Name = readString(Ctx);
+    if (!FeaturesSeen.insert(Feature.Name).second)
+      return make_error<GenericBinaryError>(
+          "Target features section contains repeated feature \"" +
+              Feature.Name + "\"",
+          object_error::parse_failed);
+    TargetFeatures.push_back(Feature);
+  }
+  if (Ctx.Ptr != Ctx.End)
+    return make_error<GenericBinaryError>(
+        "Target features section ended prematurely",
+        object_error::parse_failed);
+  return Error::success();
+}
+
 Error WasmObjectFile::parseRelocSection(StringRef Name, ReadContext &Ctx) {
   uint32_t SectionIndex = readVaruint32(Ctx);
   if (SectionIndex >= Sections.size())
@@ -746,7 +777,11 @@ Error WasmObjectFile::parseRelocSection(StringRef Name, ReadContext &Ctx) {
                                               object_error::parse_failed);
       break;
     case wasm::R_WASM_GLOBAL_INDEX_LEB:
-      if (!isValidGlobalSymbol(Reloc.Index))
+      // R_WASM_GLOBAL_INDEX_LEB are can be used against function and data
+      // symbols to refer to thier GOT enties.
+      if (!isValidGlobalSymbol(Reloc.Index) &&
+          !isValidDataSymbol(Reloc.Index) &&
+          !isValidFunctionSymbol(Reloc.Index))
         return make_error<GenericBinaryError>("Bad relocation global index",
                                               object_error::parse_failed);
       break;
@@ -814,6 +849,9 @@ Error WasmObjectFile::parseCustomSection(WasmSection &Sec, ReadContext &Ctx) {
       return Err;
   } else if (Sec.Name == "producers") {
     if (Error Err = parseProducersSection(Ctx))
+      return Err;
+  } else if (Sec.Name == "target_features") {
+    if (Error Err = parseTargetFeaturesSection(Ctx))
       return Err;
   } else if (Sec.Name.startswith("reloc.")) {
     if (Error Err = parseRelocSection(Sec.Name, Ctx))
@@ -1527,6 +1565,7 @@ int WasmSectionOrderChecker::getSectionOrder(unsigned ID,
         .StartsWith("reloc.", WASM_SEC_ORDER_RELOC)
         .Case("name", WASM_SEC_ORDER_NAME)
         .Case("producers", WASM_SEC_ORDER_PRODUCERS)
+        .Case("target_features", WASM_SEC_ORDER_TARGET_FEATURES)
         .Default(WASM_SEC_ORDER_NONE);
   case wasm::WASM_SEC_TYPE:
     return WASM_SEC_ORDER_TYPE;
@@ -1583,7 +1622,8 @@ int WasmSectionOrderChecker::DisallowedPredecessors[WASM_NUM_SEC_ORDERS][WASM_NU
   {WASM_SEC_ORDER_LINKING, WASM_SEC_ORDER_RELOC, WASM_SEC_ORDER_NAME}, // WASM_SEC_ORDER_LINKING,
   {}, // WASM_SEC_ORDER_RELOC (can be repeated),
   {WASM_SEC_ORDER_NAME, WASM_SEC_ORDER_PRODUCERS}, // WASM_SEC_ORDER_NAME,
-  {WASM_SEC_ORDER_PRODUCERS}, // WASM_SEC_ORDER_PRODUCERS,
+  {WASM_SEC_ORDER_PRODUCERS, WASM_SEC_ORDER_TARGET_FEATURES}, // WASM_SEC_ORDER_PRODUCERS,
+  {WASM_SEC_ORDER_TARGET_FEATURES}  // WASM_SEC_ORDER_TARGET_FEATURES
 };
 
 bool WasmSectionOrderChecker::isValidSectionOrder(unsigned ID,

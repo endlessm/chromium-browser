@@ -12,7 +12,6 @@
 #include "tools/gn/err.h"
 #include "tools/gn/escape.h"
 #include "tools/gn/filesystem_utils.h"
-#include "tools/gn/general_tool.h"
 #include "tools/gn/ninja_action_target_writer.h"
 #include "tools/gn/ninja_binary_target_writer.h"
 #include "tools/gn/ninja_bundle_data_target_writer.h"
@@ -120,11 +119,11 @@ std::string NinjaTargetWriter::RunAndWriteFile(const Target* target) {
   return rules.str();
 }
 
-void NinjaTargetWriter::WriteEscapedSubstitution(const Substitution* type) {
+void NinjaTargetWriter::WriteEscapedSubstitution(SubstitutionType type) {
   EscapeOptions opts;
   opts.mode = ESCAPE_NINJA;
 
-  out_ << type->ninja_name << " = ";
+  out_ << kSubstitutionNinjaNames[type] << " = ";
   EscapeStringToStream(
       out_, SubstitutionWriter::GetTargetSubstitution(target_, type), opts);
   out_ << std::endl;
@@ -134,44 +133,44 @@ void NinjaTargetWriter::WriteSharedVars(const SubstitutionBits& bits) {
   bool written_anything = false;
 
   // Target label.
-  if (bits.used.count(&SubstitutionLabel)) {
-    WriteEscapedSubstitution(&SubstitutionLabel);
+  if (bits.used[SUBSTITUTION_LABEL]) {
+    WriteEscapedSubstitution(SUBSTITUTION_LABEL);
     written_anything = true;
   }
 
   // Target label name
-  if (bits.used.count(&SubstitutionLabelName)) {
-    WriteEscapedSubstitution(&SubstitutionLabelName);
+  if (bits.used[SUBSTITUTION_LABEL_NAME]) {
+    WriteEscapedSubstitution(SUBSTITUTION_LABEL_NAME);
     written_anything = true;
   }
 
   // Root gen dir.
-  if (bits.used.count(&SubstitutionRootGenDir)) {
-    WriteEscapedSubstitution(&SubstitutionRootGenDir);
+  if (bits.used[SUBSTITUTION_ROOT_GEN_DIR]) {
+    WriteEscapedSubstitution(SUBSTITUTION_ROOT_GEN_DIR);
     written_anything = true;
   }
 
   // Root out dir.
-  if (bits.used.count(&SubstitutionRootOutDir)) {
-    WriteEscapedSubstitution(&SubstitutionRootOutDir);
+  if (bits.used[SUBSTITUTION_ROOT_OUT_DIR]) {
+    WriteEscapedSubstitution(SUBSTITUTION_ROOT_OUT_DIR);
     written_anything = true;
   }
 
   // Target gen dir.
-  if (bits.used.count(&SubstitutionTargetGenDir)) {
-    WriteEscapedSubstitution(&SubstitutionTargetGenDir);
+  if (bits.used[SUBSTITUTION_TARGET_GEN_DIR]) {
+    WriteEscapedSubstitution(SUBSTITUTION_TARGET_GEN_DIR);
     written_anything = true;
   }
 
   // Target out dir.
-  if (bits.used.count(&SubstitutionTargetOutDir)) {
-    WriteEscapedSubstitution(&SubstitutionTargetOutDir);
+  if (bits.used[SUBSTITUTION_TARGET_OUT_DIR]) {
+    WriteEscapedSubstitution(SUBSTITUTION_TARGET_OUT_DIR);
     written_anything = true;
   }
 
   // Target output name.
-  if (bits.used.count(&SubstitutionTargetOutputName)) {
-    WriteEscapedSubstitution(&SubstitutionTargetOutputName);
+  if (bits.used[SUBSTITUTION_TARGET_OUTPUT_NAME]) {
+    WriteEscapedSubstitution(SUBSTITUTION_TARGET_OUTPUT_NAME);
     written_anything = true;
   }
 
@@ -295,7 +294,7 @@ std::vector<OutputFile> NinjaTargetWriter::WriteInputDepsStampAndGetDep(
   out_ << "build ";
   path_output_.WriteFile(out_, input_stamp_file);
   out_ << ": " << GetNinjaRulePrefixForToolchain(settings_)
-       << GeneralTool::kGeneralToolStamp;
+       << Toolchain::ToolTypeToName(Toolchain::TYPE_STAMP);
   path_output_.WriteFiles(out_, outs);
 
   out_ << "\n";
@@ -318,7 +317,7 @@ void NinjaTargetWriter::WriteStampForTarget(
   path_output_.WriteFile(out_, stamp_file);
 
   out_ << ": " << GetNinjaRulePrefixForToolchain(settings_)
-       << GeneralTool::kGeneralToolStamp;
+       << Toolchain::ToolTypeToName(Toolchain::TYPE_STAMP);
   path_output_.WriteFiles(out_, files);
 
   if (!order_only_deps.empty()) {

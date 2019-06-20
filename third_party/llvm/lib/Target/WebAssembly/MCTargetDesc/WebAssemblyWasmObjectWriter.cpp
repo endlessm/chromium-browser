@@ -46,6 +46,10 @@ static bool isFunctionSignatureRef(const MCSymbolRefExpr *Ref) {
   return Ref->getKind() == MCSymbolRefExpr::VK_WebAssembly_TYPEINDEX;
 }
 
+static bool isGOTRef(const MCSymbolRefExpr *Ref) {
+  return Ref->getKind() == MCSymbolRefExpr::VK_GOT;
+}
+
 static const MCSection *getFixupSection(const MCExpr *Expr) {
   if (auto SyExp = dyn_cast<MCSymbolRefExpr>(Expr)) {
     if (SyExp->getSymbol().isInSection())
@@ -72,21 +76,21 @@ unsigned WebAssemblyWasmObjectWriter::getRelocType(const MCValue &Target,
   auto& SymA = cast<MCSymbolWasm>(RefA->getSymbol());
 
   switch (unsigned(Fixup.getKind())) {
-  case WebAssembly::fixup_code_sleb128_i32:
+  case WebAssembly::fixup_sleb128_i32:
     if (SymA.isFunction())
       return wasm::R_WASM_TABLE_INDEX_SLEB;
     return wasm::R_WASM_MEMORY_ADDR_SLEB;
-  case WebAssembly::fixup_code_sleb128_i64:
+  case WebAssembly::fixup_sleb128_i64:
     llvm_unreachable("fixup_sleb128_i64 not implemented yet");
-  case WebAssembly::fixup_code_uleb128_i32:
+  case WebAssembly::fixup_uleb128_i32:
+    if (SymA.isGlobal() || isGOTRef(RefA))
+      return wasm::R_WASM_GLOBAL_INDEX_LEB;
     if (SymA.isFunction()) {
       if (isFunctionSignatureRef(RefA))
         return wasm::R_WASM_TYPE_INDEX_LEB;
       else
         return wasm::R_WASM_FUNCTION_INDEX_LEB;
     }
-    if (SymA.isGlobal())
-      return wasm::R_WASM_GLOBAL_INDEX_LEB;
     if (SymA.isEvent())
       return wasm::R_WASM_EVENT_INDEX_LEB;
     return wasm::R_WASM_MEMORY_ADDR_LEB;
@@ -101,8 +105,6 @@ unsigned WebAssemblyWasmObjectWriter::getRelocType(const MCValue &Target,
         return wasm::R_WASM_SECTION_OFFSET_I32;
     }
     return wasm::R_WASM_MEMORY_ADDR_I32;
-  case FK_Data_8:
-    llvm_unreachable("FK_Data_8 not implemented yet");
   default:
     llvm_unreachable("unimplemented fixup kind");
   }

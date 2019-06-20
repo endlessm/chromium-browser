@@ -16,6 +16,14 @@
 
 using namespace clang;
 
+// Once LLVM switches to C++17, the constexpr variables can be inline and we
+// won't need this.
+#define SANITIZER(NAME, ID) constexpr SanitizerMask SanitizerKind::ID;
+#define SANITIZER_GROUP(NAME, ID, ALIAS)                                       \
+  constexpr SanitizerMask SanitizerKind::ID;                                   \
+  constexpr SanitizerMask SanitizerKind::ID##Group;
+#include "clang/Basic/Sanitizers.def"
+
 SanitizerMask clang::parseSanitizerValue(StringRef Value, bool AllowGroups) {
   SanitizerMask ParsedKind = llvm::StringSwitch<SanitizerMask>(Value)
 #define SANITIZER(NAME, ID) .Case(NAME, SanitizerKind::ID)
@@ -39,8 +47,8 @@ llvm::hash_code SanitizerMask::hash_value() const {
   return llvm::hash_combine_range(&maskLoToHigh[0], &maskLoToHigh[kNumElem]);
 }
 
-namespace llvm {
-hash_code hash_value(const clang::SanitizerMask &Arg) {
+namespace clang {
+llvm::hash_code hash_value(const clang::SanitizerMask &Arg) {
   return Arg.hash_value();
 }
-} // namespace llvm
+} // namespace clang

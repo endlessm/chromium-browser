@@ -144,8 +144,6 @@ typedef std::unique_ptr<ParseNode> (
 struct ParserHelper {
   PrefixFunc prefix;
   InfixFunc infix;
-
-  // Used only for infix operators.
   int precedence;
 };
 
