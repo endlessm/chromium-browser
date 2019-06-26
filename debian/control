@@ -52,7 +52,7 @@ Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends},
 	bash (>= 4),
 	libnss3,
-	malcontent-tools (>= 0.3.0+dev7.f611ec3-0),
+	malcontent-tools (>= 0.4.0),
 	netcat-openbsd (>= 1.110),
 	xdg-utils,
 	chromium-codecs-ffmpeg (= ${binary:Version}),
