@@ -343,6 +343,11 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     }
 
     @Override
+    public void clearNativeReference() {
+        if (mNativeWebContentsAndroid != 0) nativeClearNativeReference(mNativeWebContentsAndroid);
+    }
+
+    @Override
     public NavigationController getNavigationController() {
         return mNavigationController;
     }
@@ -632,6 +637,12 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     }
 
     @Override
+    public int getLoadProgress() {
+        checkNotDestroyed();
+        return nativeGetLoadProgress(mNativeWebContentsAndroid);
+    }
+
+    @Override
     public void requestSmartClipExtract(int x, int y, int width, int height) {
         if (mSmartClipCallback == null) return;
         checkNotDestroyed();
@@ -731,6 +742,12 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     public void setOverscrollRefreshHandler(OverscrollRefreshHandler handler) {
         checkNotDestroyed();
         nativeSetOverscrollRefreshHandler(mNativeWebContentsAndroid, handler);
+    }
+
+    @Override
+    public void setSpatialNavigationDisabled(boolean disabled) {
+        checkNotDestroyed();
+        nativeSetSpatialNavigationDisabled(mNativeWebContentsAndroid, disabled);
     }
 
     @Override
@@ -947,6 +964,12 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
                 mNativeWebContentsAndroid, insets.top, insets.left, insets.bottom, insets.right);
     }
 
+    @Override
+    public void notifyRendererPreferenceUpdate() {
+        if (mNativeWebContentsAndroid == 0) return;
+        nativeNotifyRendererPreferenceUpdate(mNativeWebContentsAndroid);
+    }
+
     private void checkNotDestroyed() {
         if (mNativeWebContentsAndroid != 0) return;
         throw new IllegalStateException(
@@ -957,6 +980,8 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     private static native void nativeDestroyWebContents(long webContentsAndroidPtr);
 
     private static native WebContents nativeFromNativePtr(long webContentsAndroidPtr);
+
+    private native void nativeClearNativeReference(long nativeWebContentsAndroid);
 
     private native WindowAndroid nativeGetTopLevelNativeWindow(long nativeWebContentsAndroid);
     private native void nativeSetTopLevelNativeWindow(
@@ -1004,12 +1029,15 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     private native boolean nativeHasAccessedInitialDocument(
             long nativeWebContentsAndroid);
     private native int nativeGetThemeColor(long nativeWebContentsAndroid);
+    private native int nativeGetLoadProgress(long nativeWebContentsAndroid);
     private native void nativeRequestSmartClipExtract(long nativeWebContentsAndroid,
             SmartClipCallback callback, int x, int y, int width, int height);
     private native void nativeRequestAccessibilitySnapshot(
             long nativeWebContentsAndroid, AccessibilitySnapshotCallback callback);
     private native void nativeSetOverscrollRefreshHandler(
             long nativeWebContentsAndroid, OverscrollRefreshHandler nativeOverscrollRefreshHandler);
+    private native void nativeSetSpatialNavigationDisabled(
+            long nativeWebContentsAndroid, boolean disabled);
     private native void nativeWriteContentBitmapToDisk(long nativeWebContentsAndroid, int width,
             int height, String path, Callback<String> callback);
     private native void nativeReloadLoFiImages(long nativeWebContentsAndroid);
@@ -1036,5 +1064,6 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     private native void nativeSetFocus(long nativeWebContentsAndroid, boolean focused);
     private native void nativeSetDisplayCutoutSafeArea(
             long nativeWebContentsAndroid, int top, int left, int bottom, int right);
+    private native void nativeNotifyRendererPreferenceUpdate(long nativeWebContentsAndroid);
     private native boolean nativeIsBeingDestroyed(long nativeWebContentsAndroid);
 }

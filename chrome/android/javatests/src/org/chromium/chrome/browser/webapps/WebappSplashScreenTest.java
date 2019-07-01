@@ -32,7 +32,7 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ShortcutHelper;
-import org.chromium.chrome.browser.metrics.SameActivityWebappUmaCache;
+import org.chromium.chrome.browser.metrics.WebappSplashUmaCache;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabTestUtils;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -175,42 +175,40 @@ public class WebappSplashScreenTest {
         // Tests UMA values.
         Assert.assertEquals(1,
                 RecordHistogram.getHistogramValueCountForTesting(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_BACKGROUNDCOLOR,
-                        SameActivityWebappUmaCache.SplashColorStatus.DEFAULT));
+                        WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_BACKGROUNDCOLOR,
+                        WebappSplashUmaCache.SplashColorStatus.DEFAULT));
         Assert.assertEquals(1,
                 RecordHistogram.getHistogramValueCountForTesting(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_THEMECOLOR,
-                        SameActivityWebappUmaCache.SplashColorStatus.DEFAULT));
+                        WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_THEMECOLOR,
+                        WebappSplashUmaCache.SplashColorStatus.DEFAULT));
         Assert.assertEquals(1,
                 RecordHistogram.getHistogramValueCountForTesting(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_TYPE,
-                        SameActivityWebappUmaCache.SplashIconType.NONE));
+                        WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_TYPE,
+                        WebappSplashUmaCache.SplashIconType.NONE));
 
         // Tests UMA counts.
         Assert.assertEquals(1,
                 getHistogramTotalCountFor(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_BACKGROUNDCOLOR,
-                        SameActivityWebappUmaCache.SplashColorStatus.NUM_ENTRIES));
+                        WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_BACKGROUNDCOLOR,
+                        WebappSplashUmaCache.SplashColorStatus.NUM_ENTRIES));
         Assert.assertEquals(1,
-                getHistogramTotalCountFor(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_THEMECOLOR,
-                        SameActivityWebappUmaCache.SplashColorStatus.NUM_ENTRIES));
+                getHistogramTotalCountFor(WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_THEMECOLOR,
+                        WebappSplashUmaCache.SplashColorStatus.NUM_ENTRIES));
         Assert.assertEquals(1,
-                getHistogramTotalCountFor(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_TYPE,
-                        SameActivityWebappUmaCache.SplashIconType.NUM_ENTRIES));
+                getHistogramTotalCountFor(WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_TYPE,
+                        WebappSplashUmaCache.SplashIconType.NUM_ENTRIES));
 
         // Given that there is no icon, the ICON_SIZE UMA should not be recorded.
         Assert.assertEquals(0,
                 getHistogramTotalCountFor(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_SIZE, 50));
+                        WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_SIZE, 50));
 
         // DURATION and HIDES UMA should not have been recorded yet.
-        Assert.assertFalse(hasHistogramEntry(
-                WebappSplashScreenController.HISTOGRAM_SPLASHSCREEN_DURATION, 3000));
+        Assert.assertFalse(
+                hasHistogramEntry(WebappSplashDelegate.HISTOGRAM_SPLASHSCREEN_DURATION, 3000));
         Assert.assertEquals(0,
-                getHistogramTotalCountFor(WebappSplashScreenController.HISTOGRAM_SPLASHSCREEN_HIDES,
-                        WebappSplashScreenController.SplashHidesReason.NUM_ENTRIES));
+                getHistogramTotalCountFor(WebappSplashDelegate.HISTOGRAM_SPLASHSCREEN_HIDES,
+                        SplashController.SplashHidesReason.NUM_ENTRIES));
     }
 
     @Test
@@ -225,28 +223,26 @@ public class WebappSplashScreenTest {
         mActivityTestRule.waitUntilSplashscreenHides();
 
         // DURATION and HIDES should now have a value.
-        Assert.assertTrue(hasHistogramEntry(
-                WebappSplashScreenController.HISTOGRAM_SPLASHSCREEN_DURATION, 10000));
+        Assert.assertTrue(
+                hasHistogramEntry(WebappSplashDelegate.HISTOGRAM_SPLASHSCREEN_DURATION, 10000));
         Assert.assertEquals(1,
-                getHistogramTotalCountFor(WebappSplashScreenController.HISTOGRAM_SPLASHSCREEN_HIDES,
-                        WebappSplashScreenController.SplashHidesReason.NUM_ENTRIES));
+                getHistogramTotalCountFor(WebappSplashDelegate.HISTOGRAM_SPLASHSCREEN_HIDES,
+                        SplashController.SplashHidesReason.NUM_ENTRIES));
 
         // The other UMA records should not have changed.
         Assert.assertEquals(1,
                 getHistogramTotalCountFor(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_BACKGROUNDCOLOR,
-                        SameActivityWebappUmaCache.SplashColorStatus.NUM_ENTRIES));
+                        WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_BACKGROUNDCOLOR,
+                        WebappSplashUmaCache.SplashColorStatus.NUM_ENTRIES));
         Assert.assertEquals(1,
-                getHistogramTotalCountFor(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_THEMECOLOR,
-                        SameActivityWebappUmaCache.SplashColorStatus.NUM_ENTRIES));
+                getHistogramTotalCountFor(WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_THEMECOLOR,
+                        WebappSplashUmaCache.SplashColorStatus.NUM_ENTRIES));
         Assert.assertEquals(1,
-                getHistogramTotalCountFor(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_TYPE,
-                        SameActivityWebappUmaCache.SplashIconType.NUM_ENTRIES));
+                getHistogramTotalCountFor(WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_TYPE,
+                        WebappSplashUmaCache.SplashIconType.NUM_ENTRIES));
         Assert.assertEquals(0,
                 getHistogramTotalCountFor(
-                        SameActivityWebappUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_SIZE, 50));
+                        WebappSplashUmaCache.HISTOGRAM_SPLASHSCREEN_ICON_SIZE, 50));
     }
 
     @Test
@@ -278,40 +274,6 @@ public class WebappSplashScreenTest {
         int[] rules = ((RelativeLayout.LayoutParams) splashText.getLayoutParams()).getRules();
         Assert.assertEquals(RelativeLayout.TRUE, rules[RelativeLayout.ALIGN_PARENT_BOTTOM]);
         Assert.assertEquals(0, rules[RelativeLayout.BELOW]);
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"Webapps"})
-    public void testSmallSplashScreenAppears() throws Exception {
-        // Register a smaller icon for the splash screen.
-        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        int thresholdSize = context.getResources().getDimensionPixelSize(
-                R.dimen.webapp_splash_image_size_threshold);
-        int size = context.getResources().getDimensionPixelSize(
-                R.dimen.webapp_splash_image_size_minimum);
-        Bitmap splashBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        String bitmapString = ShortcutHelper.encodeBitmapAsString(splashBitmap);
-
-        TestFetchStorageCallback callback = new TestFetchStorageCallback();
-        WebappRegistry.getInstance().register(WebappActivityTestRule.WEBAPP_ID, callback);
-        callback.waitForCallback(0);
-        callback.getStorage().updateSplashScreenImage(bitmapString);
-
-        ViewGroup splashScreen = mActivityTestRule.startWebappActivityAndWaitForSplashScreen();
-        Assert.assertTrue(mActivityTestRule.isSplashScreenVisible());
-
-        // The icon is centered within a fixed-size area on the splash screen.
-        ImageView splashImage =
-                (ImageView) splashScreen.findViewById(R.id.webapp_splash_screen_icon);
-        Assert.assertEquals(thresholdSize, splashImage.getMeasuredWidth());
-        Assert.assertEquals(thresholdSize, splashImage.getMeasuredHeight());
-
-        // The web app name is anchored to the icon.
-        TextView splashText = (TextView) splashScreen.findViewById(R.id.webapp_splash_screen_name);
-        int[] rules = ((RelativeLayout.LayoutParams) splashText.getLayoutParams()).getRules();
-        Assert.assertEquals(0, rules[RelativeLayout.ALIGN_PARENT_BOTTOM]);
-        Assert.assertEquals(R.id.webapp_splash_screen_icon, rules[RelativeLayout.BELOW]);
     }
 
     @Test

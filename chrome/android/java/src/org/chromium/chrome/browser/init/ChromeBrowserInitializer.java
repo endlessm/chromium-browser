@@ -23,6 +23,7 @@ import org.chromium.base.SysUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.library_loader.LibraryLoader;
+import org.chromium.base.library_loader.LibraryPrefetcher;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.base.memory.MemoryPressureUma;
@@ -37,7 +38,6 @@ import org.chromium.chrome.browser.FileProviderHelper;
 import org.chromium.chrome.browser.crash.LogcatExtractionRunnable;
 import org.chromium.chrome.browser.download.DownloadManagerService;
 import org.chromium.chrome.browser.services.GoogleServicesManager;
-import org.chromium.chrome.browser.tabmodel.document.DocumentTabModelImpl;
 import org.chromium.chrome.browser.webapps.ActivityAssigner;
 import org.chromium.chrome.browser.webapps.ChromeWebApkHost;
 import org.chromium.components.crash.browser.ChildProcessCrashObserver;
@@ -212,12 +212,10 @@ public class ChromeBrowserInitializer {
     private void warmUpSharedPrefs() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             PostTask.postTask(TaskTraits.BEST_EFFORT_MAY_BLOCK, () -> {
-                DocumentTabModelImpl.warmUpSharedPrefs();
                 ActivityAssigner.warmUpSharedPrefs();
                 DownloadManagerService.warmUpSharedPrefs();
             });
         } else {
-            DocumentTabModelImpl.warmUpSharedPrefs();
             ActivityAssigner.warmUpSharedPrefs();
             DownloadManagerService.warmUpSharedPrefs();
         }
@@ -315,7 +313,7 @@ public class ChromeBrowserInitializer {
 
         tasks.add(() -> {
             if (delegate.isActivityFinishingOrDestroyed()) return;
-            delegate.finishNativeInitialization();
+            delegate.startNativeInitialization();
         });
 
         if (isAsync) {
@@ -360,7 +358,7 @@ public class ChromeBrowserInitializer {
             StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
             LibraryLoader.getInstance().ensureInitialized(LibraryProcessType.PROCESS_BROWSER);
             StrictMode.setThreadPolicy(oldPolicy);
-            LibraryLoader.getInstance().asyncPrefetchLibrariesToMemory();
+            LibraryPrefetcher.asyncPrefetchLibrariesToMemory();
             getBrowserStartupController().startBrowserProcessesSync(false);
             GoogleServicesManager.get();
         } finally {
@@ -403,7 +401,6 @@ public class ChromeBrowserInitializer {
 
         mNativeInitializationComplete = true;
         ContentUriUtils.setFileProviderUtil(new FileProviderHelper());
-        ServiceManagerStartupUtils.registerEnabledFeatures();
 
         // When a child process crashes, search for the most recent minidump for the child's process
         // ID and attach a logcat to it. Then upload it to the crash server. Note that the logcat
@@ -431,6 +428,12 @@ public class ChromeBrowserInitializer {
             for (Runnable r : mTasksToRunWithNative) r.run();
             mTasksToRunWithNative = null;
         }
+
+        // TODO(crbug.com/960767): Remove this in M77.
+        ServiceManagerStartupUtils.cleanupSharedPreferences();
+
+        PostTask.postTask(
+                TaskTraits.BEST_EFFORT_MAY_BLOCK, LibraryPrefetcher::maybePinOrderedCodeInMemory);
     }
 
     private ActivityStateListener createActivityStateListener() {

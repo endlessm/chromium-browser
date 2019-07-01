@@ -10,8 +10,10 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.view.View;
+import android.view.inputmethod.InputConnection;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
@@ -434,6 +436,17 @@ public abstract class AppHooks {
     }
 
     /**
+     * @see InputConnection#performPrivateCommand(java.lang.String, android.os.Bundle)
+     * @param webcontents The WebContents receiving the private IME command.
+     */
+    public void performPrivateImeCommand(WebContents webContents, String action, Bundle data) {}
+
+    /**
+     * Called when the Search Context Menu Item is clicked.
+     */
+    public void onSearchContextMenuClick() {}
+
+    /**
      * @param registry The Chrome interface registry for the RenderFrameHost.
      * @param renderFrameHost The RenderFrameHost the Interface Registry is for.
      */
@@ -453,6 +466,19 @@ public abstract class AppHooks {
      */
     public @Nullable ImmersiveModeManager createImmersiveModeManager(View contentView) {
         return null;
+    }
+
+    /**
+     * @param view {@link View} to define the area on.
+     * @param left Left The left coordinate of the area.
+     * @param top The top coordinate of the area.
+     * @param right The right coordinate of the area.
+     * @param bottom The bottom coordinate of the area.
+     * @return A {@link Runnable} that sets the input space in which swipe triggers navigation.
+     */
+    public Runnable createNavigationInputAreaSetter(
+            View view, int left, int top, int right, int bottom) {
+        return () -> {};
     }
 
     /**

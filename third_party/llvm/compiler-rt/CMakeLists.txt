@@ -29,6 +29,8 @@ include(CompilerRTUtils)
 
 option(COMPILER_RT_BUILD_BUILTINS "Build builtins" ON)
 mark_as_advanced(COMPILER_RT_BUILD_BUILTINS)
+option(COMPILER_RT_BUILD_CRT "Build crtbegin.o/crtend.o" ON)
+mark_as_advanced(COMPILER_RT_BUILD_CRT)
 option(COMPILER_RT_BUILD_SANITIZERS "Build sanitizers" ON)
 mark_as_advanced(COMPILER_RT_BUILD_SANITIZERS)
 option(COMPILER_RT_BUILD_XRAY "Build xray" ON)
@@ -183,15 +185,16 @@ pythonize_bool(COMPILER_RT_DEBUG)
 
 option(COMPILER_RT_INTERCEPT_LIBDISPATCH
   "Support interception of libdispatch (GCD). Requires '-fblocks'" OFF)
-option(COMPILER_RT_LIBDISPATCH_INSTALL_PREFIX
-  "Specify if libdispatch is installed in a non-default path" "")
+option(COMPILER_RT_LIBDISPATCH_INSTALL_PATH
+  "Specify if libdispatch is installed in a custom location" "")
 if (COMPILER_RT_INTERCEPT_LIBDISPATCH AND NOT APPLE)
   set(COMPILER_RT_LIBDISPATCH_CFLAGS -fblocks)
   set(COMPILER_RT_TEST_LIBDISPATCH_CFLAGS)
-  if (COMPILER_RT_LIBDISPATCH_INSTALL_PREFIX)
+  if (COMPILER_RT_LIBDISPATCH_INSTALL_PATH)
     list(APPEND COMPILER_RT_TEST_LIBDISPATCH_CFLAGS
-        -L${COMPILER_RT_LIBDISPATCH_INSTALL_PREFIX}/lib
-        -Wl,-rpath=${COMPILER_RT_LIBDISPATCH_INSTALL_PREFIX}/lib)
+        -I${COMPILER_RT_LIBDISPATCH_INSTALL_PATH}/include
+        -L${COMPILER_RT_LIBDISPATCH_INSTALL_PATH}/lib
+        -Wl,-rpath=${COMPILER_RT_LIBDISPATCH_INSTALL_PATH}/lib)
   endif()
   list(APPEND COMPILER_RT_TEST_LIBDISPATCH_CFLAGS -lBlocksRuntime -ldispatch)
 endif()

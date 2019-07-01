@@ -4,18 +4,19 @@
 
 #include "base/android/library_loader/library_loader_hooks.h"
 
+#include <string>
+
 #include "base/android/jni_string.h"
 #include "base/android/library_loader/anchor_functions_buildflags.h"
 #include "base/android/library_loader/library_load_from_apk_status_codes.h"
 #include "base/android/library_loader/library_prefetcher.h"
 #include "base/android/orderfile/orderfile_buildflags.h"
+#include "base/android/sys_utils.h"
 #include "base/at_exit.h"
 #include "base/base_switches.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/no_destructor.h"
-#include "base/rand_util.h"
 #include "jni/LibraryLoader_jni.h"
 
 #if BUILDFLAG(ORDERFILE_INSTRUMENTATION)
@@ -31,9 +32,6 @@ base::AtExitManager* g_at_exit_manager = NULL;
 const char* g_library_version_number = "";
 LibraryLoadedHook* g_registration_callback = NULL;
 NativeInitializationHook* g_native_initialization_hook = NULL;
-
-constexpr char kSwitchOffValue[] = "off";
-constexpr char kSwitchOnValue[] = "on";
 
 enum RendererHistogramCode {
   // Renderer load at fixed address success, fail, or not attempted.
@@ -97,40 +95,9 @@ void RecordLibraryPreloaderRendereHistogram() {
 
 }  // namespace
 
-namespace internal {
-
-bool GetRandomizedTrial(const std::string& flag_name,
-                        CommandLine* command_line) {
-  std::string switch_value = command_line->GetSwitchValueASCII(flag_name);
-  if (switch_value.empty()) {
-    // Set enabled randomly.
-    bool is_enabled = RandUint64() & 1;
-    command_line->AppendSwitchASCII(
-        flag_name, is_enabled ? kSwitchOnValue : kSwitchOffValue);
-    return is_enabled;
-  } else if (switch_value == kSwitchOffValue) {
-    return false;
-  } else if (switch_value != kSwitchOnValue) {
-    // Default to on if invalid switch value.
-    LOG(ERROR) << "Invalid value for --" << flag_name
-               << "; was expecting 'on' or 'off' instead of " << switch_value
-               << ". Trial is ENABLED.";
-    return true;
-  } else {
-    DCHECK_EQ(switch_value, kSwitchOnValue);
-    return true;
-  }
-}
-
-}  // namespace internal.
-
 bool IsUsingOrderfileOptimization() {
 #if BUILDFLAG(SUPPORTS_CODE_ORDERING)
-  // A local static variable is guaranteed to be initialized once in a
-  // thread-safe way.
-  static bool trial_enabled =
-      internal::GetRandomizedTrial(switches::kOrderfileMemoryOptimization);
-  return trial_enabled;
+  return SysUtils::IsLowEndDeviceFromJni();
 #else  //  !SUPPORTS_CODE_ORDERING
   return false;
 #endif
@@ -248,30 +215,6 @@ void LibraryLoaderExitHook() {
     delete g_at_exit_manager;
     g_at_exit_manager = NULL;
   }
-}
-
-static void JNI_LibraryLoader_ForkAndPrefetchNativeLibrary(JNIEnv* env) {
-#if BUILDFLAG(SUPPORTS_CODE_ORDERING)
-  return NativeLibraryPrefetcher::ForkAndPrefetchNativeLibrary(
-      IsUsingOrderfileOptimization());
-#endif
-}
-
-static jint JNI_LibraryLoader_PercentageOfResidentNativeLibraryCode(
-    JNIEnv* env) {
-#if BUILDFLAG(SUPPORTS_CODE_ORDERING)
-  return NativeLibraryPrefetcher::PercentageOfResidentNativeLibraryCode();
-#else
-  return -1;
-#endif
-}
-
-static void JNI_LibraryLoader_PeriodicallyCollectResidency(JNIEnv* env) {
-#if BUILDFLAG(SUPPORTS_CODE_ORDERING)
-  NativeLibraryPrefetcher::PeriodicallyCollectResidency();
-#else
-  LOG(WARNING) << "Collecting residency is not supported.";
-#endif
 }
 
 void SetVersionNumber(const char* version_number) {

@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 touchless_java_sources = [
+  "touchless/java/src/org/chromium/chrome/browser/download/TouchlessDownloadActivity.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/AboveTheFoldViewHolder.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/ContentSuggestionsViewBinder.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/DinoActivity.java",
@@ -46,6 +47,7 @@ touchless_java_sources = [
   "touchless/java/src/org/chromium/chrome/browser/touchless/TouchlessTabObserver.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/TouchlessUiCoordinator.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/TouchlessUiCoordinatorImpl.java",
+  "touchless/java/src/org/chromium/chrome/browser/touchless/TouchlessUrlUtilities.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/TouchlessZoomHelper.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/dialog/TouchlessDialogPresenter.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/dialog/TouchlessDialogProperties.java",
@@ -66,14 +68,19 @@ touchless_java_sources = [
 ]
 
 touchless_test_java_sources = [
+  "touchless/javatests/src/org/chromium/chrome/browser/touchless/DinoActivityTest.java",
   "touchless/javatests/src/org/chromium/chrome/browser/touchless/NoTouchActivityTest.java",
   "touchless/javatests/src/org/chromium/chrome/browser/touchless/TouchlessNavigationRecorderTest.java",
   "touchless/javatests/src/org/chromium/chrome/browser/touchless/TouchlessNewTabPageMediatorTest.java",
 ]
 
-touchless_junit_test_java_sources = [ "touchless/junit/src/org/chromium/chrome/browser/touchless/ScrollPositionInfoTest.java" ]
+touchless_junit_test_java_sources = [
+  "touchless/junit/src/org/chromium/chrome/browser/touchless/ScrollPositionInfoTest.java",
+  "touchless/junit/src/org/chromium/chrome/browser/touchless/TouchlessActionItemViewHolderTest.java",
+]
 
 touchess_fallback_java_sources = [
+  "touchless/fallback/java/src/org/chromium/chrome/browser/download/TouchlessDownloadActivity.java",
   "touchless/fallback/java/src/org/chromium/chrome/browser/touchless/TouchlessDelegate.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/TouchlessModelCoordinator.java",
   "touchless/java/src/org/chromium/chrome/browser/touchless/TouchlessUiCoordinator.java",

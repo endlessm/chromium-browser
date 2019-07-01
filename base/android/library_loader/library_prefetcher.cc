@@ -19,12 +19,14 @@
 #include "base/android/library_loader/anchor_functions.h"
 #include "base/android/orderfile/orderfile_buildflags.h"
 #include "base/bits.h"
+#include "base/debug/proc_maps_linux.h"
 #include "base/files/file.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/process/process_metrics.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
@@ -167,7 +169,7 @@ void DumpResidency(size_t start,
   }
 
   // First line: start-end of text range.
-  CHECK(IsOrderingSane());
+  CHECK(AreAnchorsSane());
   CHECK_LE(start, kStartOfText);
   CHECK_LE(kEndOfText, end);
   auto start_end = base::StringPrintf("%" PRIuS " %" PRIuS "\n",
@@ -297,7 +299,7 @@ int NativeLibraryPrefetcher::PercentageOfResidentCode(size_t start,
 
 // static
 int NativeLibraryPrefetcher::PercentageOfResidentNativeLibraryCode() {
-  if (!IsOrderingSane()) {
+  if (!AreAnchorsSane()) {
     LOG(WARNING) << "Incorrect code ordering";
     return -1;
   }
@@ -336,12 +338,60 @@ void NativeLibraryPrefetcher::MadviseForOrderfile() {
 
 // static
 void NativeLibraryPrefetcher::MadviseForResidencyCollection() {
-  if (!IsOrderingSane()) {
+  if (!AreAnchorsSane()) {
     LOG(WARNING) << "Code not ordered, cannot madvise";
     return;
   }
   LOG(WARNING) << "Performing madvise for residency collection";
   MadviseOnRange(GetTextRange(), MADV_RANDOM);
+}
+
+// static
+bool NativeLibraryPrefetcher::GetOrderedCodeInfo(std::string* filename,
+                                                 size_t* start_offset,
+                                                 size_t* size) {
+  // Need all the anchors to identify the range.
+  if (!IsOrderingSane()) {
+    LOG(WARNING) << "Incorrect code ordering";
+    return false;
+  }
+
+  std::vector<base::debug::MappedMemoryRegion> regions;
+  {
+    std::string proc_maps;
+    bool ok = base::debug::ReadProcMaps(&proc_maps);
+    if (!ok)
+      return false;
+    ok = base::debug::ParseProcMaps(proc_maps, &regions);
+    if (!ok)
+      return false;
+  }
+
+  for (const auto& region : regions) {
+    if (region.start <= kStartOfOrderedText &&
+        region.end >= kEndOfOrderedText) {
+      size_t page_size = GetPageSize();
+      size_t page_mask = ~(page_size - 1);
+
+      DCHECK_EQ(0u, region.start % page_size);
+      DCHECK_EQ(0u, region.offset % page_size);  // mmap() enforces this.
+
+      size_t start_offset_in_range =
+          (kStartOfOrderedText & page_mask) - region.start;
+      DCHECK_EQ(0u, start_offset_in_range % page_size);
+      size_t start_offset_in_file = start_offset_in_range + region.offset;
+      DCHECK_EQ(0u, start_offset_in_file % page_size);
+
+      *filename = region.path;
+      *start_offset = start_offset_in_file;
+      *size =
+          base::bits::Align(kEndOfOrderedText - kStartOfOrderedText, page_size);
+      return true;
+    }
+  }
+
+  LOG(WARNING) << "Didn't find the ordered code, yet code is ordered.";
+  return false;
 }
 
 }  // namespace android

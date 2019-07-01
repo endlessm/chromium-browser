@@ -145,12 +145,12 @@
     *   [dotfile: Info about the toplevel .gn file.](#dotfile)
     *   [execution: Build graph and execution overview.](#execution)
     *   [grammar: Language and grammar for GN build files.](#grammar)
-    *   [input_conversion: Processing input from exec_script and read_file.](#input_conversion)
+    *   [input_conversion: Processing input from exec_script and read_file.](#io_conversion)
     *   [label_pattern: Matching more than one label.](#label_pattern)
     *   [labels: About labels.](#labels)
     *   [ninja_rules: How Ninja build rules are named.](#ninja_rules)
     *   [nogncheck: Annotating includes for checking.](#nogncheck)
-    *   [output_conversion: Specifies how to transform a value to output.](#output_conversion)
+    *   [output_conversion: Specifies how to transform a value to output.](#io_conversion)
     *   [runtime_deps: How runtime dependency computation works.](#runtime_deps)
     *   [source_expansion: Map sources to outputs for scripts.](#source_expansion)
     *   [switches: Show available command-line switches.](#switch_list)
@@ -778,12 +778,15 @@
 #### **Compilation Database**
 
 ```
-  --export-compile-commands
+  --export-compile-commands[=<target_name1,target_name2...>]
       Produces a compile_commands.json file in the root of the build directory
       containing an array of “command objects”, where each command object
-      specifies one way a translation unit is compiled in the project. This is
-      used for various Clang-based tooling, allowing for the replay of individual
-      compilations independent of the build system.
+      specifies one way a translation unit is compiled in the project. If a list
+      of target_name is supplied, only targets that are reachable from the list
+      of target_name will be used for “command objects” generation, otherwise
+      all available targets will be used. This is used for various Clang-based
+      tooling, allowing for the replay of individual compilations independent
+      of the build system.
 ```
 ### <a name="cmd_help"></a>**gn help &lt;anything&gt;**
 
@@ -1268,7 +1271,7 @@
     script = "idl_processor.py"
     sources = [ "foo.idl", "bar.idl" ]
 
-    # Our script reads this file each time, so we need to list is as a
+    # Our script reads this file each time, so we need to list it as a
     # dependency so we can rebuild if it changes.
     inputs = [ "my_configuration.txt" ]
 
@@ -1913,7 +1916,7 @@
 
 ```
   config("myconfig") {
-    includes = [ "include/common" ]
+    include_dirs = [ "include/common" ]
     defines = [ "ENABLE_DOOM_MELON" ]
   }
 
@@ -2049,7 +2052,7 @@
       unspecified or the empty list which means no arguments.
 
   input_conversion:
-      Controls how the file is read and parsed. See "gn help input_conversion".
+      Controls how the file is read and parsed. See "gn help io_conversion".
 
       If unspecified, defaults to the empty string which causes the script
       result to be discarded. exec script will return None.
@@ -2593,7 +2596,7 @@
       Filename to read, relative to the build file.
 
   input_conversion
-      Controls how the file is read and parsed. See "gn help input_conversion".
+      Controls how the file is read and parsed. See "gn help io_conversion".
 ```
 
 #### **Example**
@@ -3690,7 +3693,7 @@
       The list or string to write.
 
   output_conversion
-    Controls how the output is written. See "gn help output_conversion".
+    Controls how the output is written. See "gn help io_conversion".
 ```
 ## <a name="predefined_variables"></a>Built-in predefined variables
 
@@ -5207,7 +5210,7 @@
 
 ```
   Controls how the "contents" of a generated_file target is formatted.
-  See "gn help output_conversion".
+  See "gn help io_conversion".
 ```
 ### <a name="var_output_dir"></a>**output_dir**: [directory] Directory to put output file in.
 
@@ -6807,8 +6810,9 @@
   {{source_target_relative}}
       The path to the source file relative to the target's directory. This will
       generally be used for replicating the source directory layout in the
-      output directory. This can only be used in actions and it is an error to
-      use in process_file_template where there is no "target".
+      output directory. This can only be used in actions and bundle_data
+      targets. It is an error to use in process_file_template where there is no
+      "target".
         "//foo/bar/baz.txt" => "baz.txt"
 ```
 

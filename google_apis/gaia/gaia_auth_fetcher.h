@@ -168,6 +168,10 @@ class GaiaAuthFetcher {
   // Starts a request to log out the accounts in the GAIA cookie.
   void StartLogOut();
 
+  // Starts a request to log out the accounts in the GAIA cookie. Uses Logout
+  // endpoint with continue URL.
+  void StartLogOutWithBlankContinueURL();
+
   // Starts a request to get the list of URLs to check for connection info.
   // Returns token/URL pairs to check, and the resulting status can be given to
   // /MergeSession requests.
@@ -203,11 +207,9 @@ class GaiaAuthFetcher {
       const net::NetworkTrafficAnnotationTag& traffic_annotation);
 
   // Called by OnURLLoadComplete, exposed for ease of testing.
-  virtual void OnURLLoadCompleteInternal(
-      net::Error net_error,
-      int response_code,
-      const network::HttpRawRequestResponseInfo::HeadersVector& headers,
-      std::string response_body);
+  void OnURLLoadCompleteInternal(net::Error net_error,
+                                 int response_code,
+                                 std::string response_body);
 
   // Dispatch the results of a request.
   void DispatchFetchedRequest(const GURL& url,
@@ -247,12 +249,8 @@ class GaiaAuthFetcher {
   static const char kAccountDeletedErrorCode[];
   static const char kAccountDisabledError[];
   static const char kAccountDisabledErrorCode[];
-  static const char kBadAuthenticationError[];
-  static const char kBadAuthenticationErrorCode[];
   static const char kCaptchaError[];
   static const char kCaptchaErrorCode[];
-  static const char kServiceUnavailableError[];
-  static const char kServiceUnavailableErrorCode[];
   static const char kErrorParam[];
   static const char kErrorUrlParam[];
   static const char kCaptchaUrlParam[];
@@ -268,6 +266,9 @@ class GaiaAuthFetcher {
   static const char kOAuthHeaderFormat[];
   static const char kOAuth2BearerHeaderFormat[];
   static const char kOAuthMultiBearerHeaderFormat[];
+
+  // Starts logout flow with an explicit GURL.
+  void StartLogOutInternal(const GURL& logout_gurl);
 
   void OnURLLoadComplete(std::unique_ptr<std::string> response_body);
 
@@ -375,6 +376,7 @@ class GaiaAuthFetcher {
   const GURL oauth_multilogin_gurl_;
   const GURL list_accounts_gurl_;
   const GURL logout_gurl_;
+  const GURL logout_with_continue_gurl_;
   const GURL get_check_connection_info_url_;
 
   // While a fetch is going on:
@@ -398,8 +400,10 @@ class GaiaAuthFetcher {
   FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, AccountDeletedError);
   FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, AccountDisabledError);
   FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, BadAuthenticationError);
+  FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, BadAuthenticationShortError);
   FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, IncomprehensibleError);
   FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, ServiceUnavailableError);
+  FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, ServiceUnavailableShortError);
   FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, CheckNormalErrorCode);
   FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, CheckTwoFactorResponse);
   FRIEND_TEST_ALL_PREFIXES(GaiaAuthFetcherTest, LoginNetFailure);

@@ -11,7 +11,6 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.os.Build;
 import android.os.Build.VERSION_CODES;
-import android.os.StrictMode;
 import android.os.SystemClock;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -27,20 +26,15 @@ import org.chromium.base.FileUtils;
 import org.chromium.base.Log;
 import org.chromium.base.StreamUtil;
 import org.chromium.base.StrictModeContext;
-import org.chromium.base.SysUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.MainDex;
 import org.chromium.base.compat.ApiHelperForM;
-import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.task.PostTask;
-import org.chromium.base.task.TaskTraits;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -86,9 +80,6 @@ public class LibraryLoader {
     // Location of extracted native libraries.
     private static final String LIBRARY_DIR = "native_libraries";
 
-    // SharedPreferences key for "don't prefetch libraries" flag
-    private static final String DONT_PREFETCH_LIBRARIES_KEY = "dont_prefetch_libraries";
-
     // Shared preferences key for the reached code profiler.
     private static final String REACHED_CODE_PROFILER_ENABLED_KEY = "reached_code_profiler_enabled";
 
@@ -104,10 +95,6 @@ public class LibraryLoader {
     // Note that this member should remain a one-way switch, since it accessed from multiple
     // threads without a lock.
     private volatile boolean mInitialized;
-
-    // One-way switch that becomes true once
-    // {@link asyncPrefetchLibrariesToMemory} has been called.
-    private final AtomicBoolean mPrefetchLibraryHasBeenCalled = new AtomicBoolean();
 
     // Guards all fields below.
     private final Object mLock = new Object();
@@ -303,37 +290,6 @@ public class LibraryLoader {
     }
 
     /**
-     * Disables prefetching for subsequent runs. The value comes from "DontPrefetchLibraries"
-     * finch experiment, and is pushed on every run. I.e. the effect of the finch experiment
-     * lags by one run, which is the best we can do considering that prefetching happens way
-     * before finch is initialized. Note that since LibraryLoader is in //base, it can't depend
-     * on ChromeFeatureList, and has to rely on external code pushing the value.
-     *
-     * @param dontPrefetch whether not to prefetch libraries
-     */
-    public static void setDontPrefetchLibrariesOnNextRuns(boolean dontPrefetch) {
-        ContextUtils.getAppSharedPreferences()
-                .edit()
-                .putBoolean(DONT_PREFETCH_LIBRARIES_KEY, dontPrefetch)
-                .apply();
-    }
-
-    /**
-     * @return whether not to prefetch libraries (see setDontPrefetchLibrariesOnNextRun()).
-     */
-    private static boolean isNotPrefetchingLibraries() {
-        // This might be the first time getAppSharedPreferences() is used, so relax strict mode
-        // to allow disk reads.
-        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
-        try {
-            return ContextUtils.getAppSharedPreferences().getBoolean(
-                    DONT_PREFETCH_LIBRARIES_KEY, false);
-        } finally {
-            StrictMode.setThreadPolicy(oldPolicy);
-        }
-    }
-
-    /**
      * Enables the reached code profiler. The value comes from "ReachedCodeProfiler"
      * finch experiment, and is pushed on every run. I.e. the effect of the finch experiment
      * lags by one run, which is the best we can do considering that the profiler has to be enabled
@@ -358,51 +314,6 @@ public class LibraryLoader {
             return ContextUtils.getAppSharedPreferences().getBoolean(
                     REACHED_CODE_PROFILER_ENABLED_KEY, false);
         }
-    }
-
-    /**
-     * Prefetches the native libraries in a background thread.
-     *
-     * Launches a task that, through a short-lived forked process, reads a
-     * part of each page of the native library.  This is done to warm up the
-     * page cache, turning hard page faults into soft ones.
-     *
-     * This is done this way, as testing shows that fadvise(FADV_WILLNEED) is
-     * detrimental to the startup time.
-     */
-    public void asyncPrefetchLibrariesToMemory() {
-        SysUtils.logPageFaultCountToTracing();
-        if (isNotPrefetchingLibraries()) return;
-
-        final boolean coldStart = mPrefetchLibraryHasBeenCalled.compareAndSet(false, true);
-
-        // Collection should start close to the native library load, but doesn't have
-        // to be simultaneous with it. Also, don't prefetch in this case, as this would
-        // skew the results.
-        if (coldStart && CommandLine.getInstance().hasSwitch("log-native-library-residency")) {
-            // nativePeriodicallyCollectResidency() sleeps, run it on another thread,
-            // and not on the thread pool.
-            new Thread(LibraryLoader::nativePeriodicallyCollectResidency).start();
-            return;
-        }
-
-        PostTask.postTask(TaskTraits.USER_BLOCKING, () -> {
-            int percentage = nativePercentageOfResidentNativeLibraryCode();
-            try (TraceEvent e = TraceEvent.scoped("LibraryLoader.asyncPrefetchLibrariesToMemory",
-                         Integer.toString(percentage))) {
-                // Arbitrary percentage threshold. If most of the native library is already
-                // resident (likely with monochrome), don't bother creating a prefetch process.
-                boolean prefetch = coldStart && percentage < 90;
-                if (prefetch) {
-                    nativeForkAndPrefetchNativeLibrary();
-                }
-                if (percentage != -1) {
-                    String histogram = "LibraryLoader.PercentageOfResidentCodeBeforePrefetch"
-                            + (coldStart ? ".ColdStartup" : ".WarmStartup");
-                    RecordHistogram.recordPercentageHistogram(histogram, percentage);
-                }
-            }
-        });
     }
 
     // Helper for loadAlreadyLocked(). Load a native shared library with the Chromium linker.
@@ -655,9 +566,9 @@ public class LibraryLoader {
 
         if (processType == LibraryProcessType.PROCESS_BROWSER
                 && PLATFORM_REQUIRES_NATIVE_FALLBACK_EXTRACTION) {
-            // Perform the detection and deletion of obsolete native libraries on a background
+            // Perform the detection and deletion of obsolete native libraries on a
             // background thread.
-            PostTask.postTask(TaskTraits.BEST_EFFORT_MAY_BLOCK, () -> {
+            new Thread(() -> {
                 final String suffix = BuildInfo.getInstance().extractedFileSuffix;
                 final File[] files = getLibraryDir().listFiles();
                 if (files == null) return;
@@ -680,7 +591,7 @@ public class LibraryLoader {
                         }
                     }
                 }
-            });
+            }).start();
         }
 
         // From this point on, native code is ready to use and checkIsReady()
@@ -782,8 +693,7 @@ public class LibraryLoader {
                     throw new RuntimeException("Cannot find ZipEntry" + pathWithinApk);
                 InputStream inputStream = zipFile.getInputStream(zipEntry);
 
-                FileUtils.copyFileStreamAtomicWithBuffer(
-                        inputStream, libraryFile, new byte[16 * 1024]);
+                FileUtils.copyStreamToFile(inputStream, libraryFile);
                 libraryFile.setReadable(true, false);
                 libraryFile.setExecutable(true, false);
             } catch (IOException e) {
@@ -853,16 +763,4 @@ public class LibraryLoader {
     // Get the version of the native library. This is needed so that we can check we
     // have the right version before initializing the (rest of the) JNI.
     private native String nativeGetVersionNumber();
-
-    // Finds the ranges corresponding to the native library pages, forks a new
-    // process to prefetch these pages and waits for it. The new process then
-    // terminates. This is blocking.
-    private static native void nativeForkAndPrefetchNativeLibrary();
-
-    // Returns the percentage of the native library code page that are currently reseident in
-    // memory.
-    private static native int nativePercentageOfResidentNativeLibraryCode();
-
-    // Periodically logs native library residency from this thread.
-    private static native void nativePeriodicallyCollectResidency();
 }

@@ -41,10 +41,12 @@ class Platform(object):
       self._platform = 'fuchsia'
     elif self._platform.startswith('freebsd'):
       self._platform = 'freebsd'
+    elif self._platform.startswith('openbsd'):
+      self._platform = 'openbsd'
 
   @staticmethod
   def known_platforms():
-    return ['linux', 'darwin', 'msvc', 'aix', 'fuchsia']
+    return ['linux', 'darwin', 'msvc', 'aix', 'fuchsia', 'openbsd']
 
   def platform(self):
     return self._platform
@@ -68,7 +70,7 @@ class Platform(object):
     return self._platform == 'aix'
 
   def is_posix(self):
-    return self._platform in ['linux', 'freebsd', 'darwin', 'aix']
+    return self._platform in ['linux', 'freebsd', 'darwin', 'aix', 'openbsd']
 
 
 def main(argv):
@@ -173,6 +175,7 @@ def WriteGenericNinja(path, static_libraries, executables,
       'linux': 'build_linux.ninja.template',
       'freebsd': 'build_linux.ninja.template',
       'aix': 'build_aix.ninja.template',
+      'openbsd': 'build_openbsd.ninja.template',
   }[platform.platform()])
 
   with open(template_filename) as f:
@@ -422,6 +425,8 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/bundle_data_target_generator.cc',
         'tools/gn/bundle_file_rule.cc',
         'tools/gn/c_include_iterator.cc',
+        'tools/gn/c_substitution_type.cc',
+        'tools/gn/c_tool.cc',
         'tools/gn/command_analyze.cc',
         'tools/gn/command_args.cc',
         'tools/gn/command_check.cc',
@@ -465,6 +470,7 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/function_template.cc',
         'tools/gn/function_toolchain.cc',
         'tools/gn/function_write_file.cc',
+        'tools/gn/general_tool.cc',
         'tools/gn/generated_file_target_generator.cc',
         'tools/gn/group_target_generator.cc',
         'tools/gn/header_checker.cc',
@@ -486,6 +492,7 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/ninja_binary_target_writer.cc',
         'tools/gn/ninja_build_writer.cc',
         'tools/gn/ninja_bundle_data_target_writer.cc',
+        'tools/gn/ninja_c_binary_target_writer.cc',
         'tools/gn/ninja_copy_target_writer.cc',
         'tools/gn/ninja_create_bundle_target_writer.cc',
         'tools/gn/ninja_generated_file_target_writer.cc',
@@ -586,6 +593,7 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/metadata_walk_unittest.cc',
         'tools/gn/ninja_action_target_writer_unittest.cc',
         'tools/gn/ninja_binary_target_writer_unittest.cc',
+        'tools/gn/ninja_c_binary_target_writer_unittest.cc',
         'tools/gn/ninja_build_writer_unittest.cc',
         'tools/gn/ninja_bundle_data_target_writer_unittest.cc',
         'tools/gn/ninja_copy_target_writer_unittest.cc',

@@ -12,16 +12,16 @@ namespace features {
 // The features should be documented alongside the definition of their values in
 // the .cc file.
 
+extern const base::Feature kChromeColors;
+extern const base::Feature kDisableInitialMostVisitedFadeIn;
+extern const base::Feature kGridLayoutForNtpShortcuts;
 extern const base::Feature kNtpCustomizationMenuV2;
-extern const base::Feature kDoodlesOnLocalNtp;
-extern const base::Feature kPromosOnLocalNtp;
 extern const base::Feature kRemoveNtpFakebox;
-extern const base::Feature kSearchSuggestionsOnLocalNtp;
-extern const base::Feature kUseGoogleLocalNtp;
 
 extern const base::Feature kFakeboxSearchIconOnNtp;
 extern const base::Feature kFakeboxSearchIconColorOnNtp;
 extern const base::Feature kFakeboxShortHintTextOnNtp;
+extern const base::Feature kFirstRunDefaultSearchShortcut;
 extern const base::Feature kUseAlternateFakeboxOnNtp;
 extern const base::Feature kUseAlternateFakeboxRectOnNtp;
 extern const base::Feature kHideShortcutsOnNtp;

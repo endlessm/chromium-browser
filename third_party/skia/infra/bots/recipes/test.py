@@ -69,6 +69,9 @@ def dm_flags(api, bot):
   if 'Android' not in bot and 'MSAN' not in bot:
     args.append('--randomProcessorTest')
 
+  if 'Pixel3' in bot and 'Vulkan' in bot:
+    args.extend(['--dontReduceOpListSplitting'])
+
   thread_limit = None
   MAIN_THREAD_ONLY = 0
 
@@ -111,7 +114,7 @@ def dm_flags(api, bot):
       configs.extend([
         'pdf',
         'g8', '565',
-        'pic-8888', 'tiles_rt-8888', 'lite-8888', 'serialize-8888',
+        'pic-8888', 'tiles_rt-8888', 'serialize-8888',
         'f16', 'srgb', 'esrgb', 'narrow', 'enarrow',
         'p3', 'ep3', 'rec2020', 'erec2020'])
 
@@ -137,7 +140,7 @@ def dm_flags(api, bot):
       configs.extend([gl_prefix,
                       gl_prefix + 'dft',
                       gl_prefix + 'srgb'])
-      if sample_count is not '':
+      if sample_count:
         configs.append(gl_prefix + 'msaa' + sample_count)
 
     # The NP produces a long error stream when we run with MSAA. The Tegra3 just
@@ -200,22 +203,59 @@ def dm_flags(api, bot):
         # LenovoYogaC630 only supports D3D11, not GL.
         configs = ['angle_d3d11_es2',
                    'angle_d3d11_es3']
-      if sample_count is not '':
+      if sample_count:
         configs.append('angle_d3d11_es2_msaa' + sample_count)
         configs.append('angle_d3d11_es3_msaa' + sample_count)
       if 'GTX' in bot or 'Quadro' in bot:
         # See skia:7823 and chromium:693090.
         configs.append('angle_gl_es3')
-        if sample_count is not '':
+        if sample_count:
           configs.append('angle_gl_es2_msaa' + sample_count)
           configs.append('angle_gl_es3_msaa' + sample_count)
       if 'NUC5i7RYH' in bot:
         # skbug.com/7376
         blacklist('_ test _ ProcessorCloneTest')
 
-    # Vulkan bot *only* runs the vk config.
+    if 'AndroidOne' in bot or ('Nexus' in bot and 'Nexus5x' not in bot) or 'GalaxyS6' in bot:
+      # skbug.com/9019
+      blacklist('_ test _ ProcessorCloneTest')
+      blacklist('_ test _ GLPrograms')
+      blacklist('_ test _ ProcessorOptimizationValidationTest')
+
+    # skbug.com/9033 - these devices run out of memory on this test
+    # when opList splitting reduction is enabled
+    if 'GPU' in bot and ('Nexus7' in bot or
+                         'NexusPlayer' in bot or
+                         'NVIDIA_Shield' in bot or
+                         'Nexus5x' in bot or
+                         ('Win10' in bot and 'GTX660' in bot and 'Vulkan' in bot) or
+                         'Chorizo' in bot):
+      blacklist(['_', 'gm', '_', 'savelayer_clipmask'])
+
+    # skbug.com/9124
+    if 'GPU' in bot and 'Nexus5x' in bot and "Vulkan" in bot:
+      blacklist(['_', 'test', '_', 'ReplaceSurfaceBackendTexture'])
+
+
+    # skbug.com/9123
+    if 'CommandBuffer' in bot and 'IntelIris5100' in bot:
+      blacklist(['_', 'test', '_', 'AsyncReadPixels'])
+
+    # skbug.com/9043 - these devices render this test incorrectly
+    # when opList splitting reduction is enabled
+    if 'GPU' in bot and 'Vulkan' in bot and ('MoltenVK' in bot or
+                                             'RadeonR9M470X' in bot or
+                                             'RadeonHD7770' in bot):
+      blacklist(['_', 'tests', '_', 'VkDrawableImportTest'])
+
     if 'Vulkan' in bot:
       configs = ['vk']
+      if 'Android' in bot or 'iOS' in bot:
+        configs.append('vkmsaa4')
+      else:
+        # skbug.com/9023
+        if 'IntelHD405' not in bot:
+          configs.append('vkmsaa8')
 
     if 'Metal' in bot:
       configs = ['mtl']
@@ -511,7 +551,6 @@ def dm_flags(api, bot):
   # skia:4769
   for test in ['drawfilter']:
     blacklist([   'pic-8888', 'gm', '_', test])
-    blacklist([  'lite-8888', 'gm', '_', test])
   # skia:4703
   for test in ['image-cacherator-from-picture',
                'image-cacherator-from-raster',
@@ -520,9 +559,15 @@ def dm_flags(api, bot):
     blacklist(['serialize-8888', 'gm', '_', test])
 
   # GM that requires raster-backed canvas
-  for test in ['complexclip4_bw', 'complexclip4_aa', 'p3']:
+  for test in ['complexclip4_bw', 'complexclip4_aa', 'p3',
+               'async_rescale_and_read_text_up_large',
+               'async_rescale_and_read_text_up',
+               'async_rescale_and_read_text_down',
+               'async_rescale_and_read_dog_up',
+               'async_rescale_and_read_dog_down',
+               'async_rescale_and_read_rose',
+               'async_rescale_and_read_no_bleed']:
     blacklist([      'pic-8888', 'gm', '_', test])
-    blacklist([     'lite-8888', 'gm', '_', test])
     blacklist(['serialize-8888', 'gm', '_', test])
 
   # GM that not support tiles_rt
@@ -573,7 +618,7 @@ def dm_flags(api, bot):
     blacklist(['_',            'gm', '_', 'imageresizetiled'])
     blacklist(['_',            'gm', '_', 'matrixconvolution'])
     blacklist(['_',            'gm', '_', 'strokedlines'])
-    if sample_count is not '':
+    if sample_count:
       gl_msaa_config = gl_prefix + 'msaa' + sample_count
       blacklist([gl_msaa_config, 'gm', '_', 'imageblurtiled'])
       blacklist([gl_msaa_config, 'gm', '_', 'imagefiltersbase'])
@@ -672,57 +717,6 @@ def dm_flags(api, bot):
     # skbug.com/8047
     match.append('~FloatingPointTextureTest$')
 
-  if 'Vulkan' in bot and 'Win10' in bot and 'IntelIris655' in bot:
-    # skia:8961
-    blacklist(['vk', 'gm', '_', 'savelayer_clipmask'])
-    # skia:8659
-    blacklist(['vk', 'gm', '_', 'aarectmodes'])
-    blacklist(['vk', 'gm', '_', 'aaxfermodes'])
-    blacklist(['vk', 'gm', '_', 'compositor_quads_filter'])
-    blacklist(['vk', 'gm', '_', 'crbug_892988'])
-    blacklist(['vk', 'gm', '_', 'dftext'])
-    blacklist(['vk', 'gm', '_', 'dftext_blob_persp'])
-    blacklist(['vk', 'gm', '_', 'dont_clip_to_layer'])
-    blacklist(['vk', 'gm', '_', 'drawregionmodes'])
-    blacklist(['vk', 'gm', '_', 'filterfastbounds'])
-    blacklist(['vk', 'gm', '_', 'fontmgr_iter'])
-    blacklist(['vk', 'gm', '_', 'fontmgr_match'])
-    blacklist(['vk', 'gm', '_', 'fontscaler'])
-    blacklist(['vk', 'gm', '_', 'fontscalerdistortable'])
-    blacklist(['vk', 'gm', '_', 'gammagradienttext'])
-    blacklist(['vk', 'gm', '_', 'gammatext'])
-    blacklist(['vk', 'gm', '_', 'gradtext'])
-    blacklist(['vk', 'gm', '_', 'hairmodes'])
-    blacklist(['vk', 'gm', '_', 'imagefilters_xfermodes'])
-    blacklist(['vk', 'gm', '_', 'imagefiltersclipped'])
-    blacklist(['vk', 'gm', '_', 'imagefiltersscaled'])
-    blacklist(['vk', 'gm', '_', 'imagefiltersstroked'])
-    blacklist(['vk', 'gm', '_', 'imagefilterstransformed'])
-    blacklist(['vk', 'gm', '_', 'imageresizetiled'])
-    blacklist(['vk', 'gm', '_', 'lcdblendmodes'])
-    blacklist(['vk', 'gm', '_', 'lcdoverlap'])
-    blacklist(['vk', 'gm', '_', 'lcdtext'])
-    blacklist(['vk', 'gm', '_', 'lcdtextsize'])
-    blacklist(['vk', 'gm', '_', 'matriximagefilter'])
-    blacklist(['vk', 'gm', '_', 'resizeimagefilter'])
-    blacklist(['vk', 'gm', '_', 'rotate_imagefilter'])
-    blacklist(['vk', 'gm', '_', 'savelayer_lcdtext'])
-    blacklist(['vk', 'gm', '_', 'shadermaskfilter_image'])
-    blacklist(['vk', 'gm', '_', 'srcmode'])
-    blacklist(['vk', 'gm', '_', 'surfaceprops'])
-    blacklist(['vk', 'gm', '_', 'textblobgeometrychange'])
-    blacklist(['vk', 'gm', '_', 'textbloblooper'])
-    blacklist(['vk', 'gm', '_', 'textblobrandomfont'])
-    blacklist(['vk', 'gm', '_', 'textfilter_color'])
-    blacklist(['vk', 'gm', '_', 'textfilter_image'])
-    blacklist(['vk', 'gm', '_', 'tilemodes'])
-    blacklist(['vk', 'gm', '_', 'varied_text_clipped_lcd'])
-    blacklist(['vk', 'gm', '_', 'varied_text_ignorable_clip_lcd'])
-    if 'Debug' in bot:
-      blacklist(['vk', 'gm', '_', 'mixedtextblobs'])
-      blacklist(['vk', 'gm', '_', 'textblobmixedsizes'])
-      blacklist(['vk', 'gm', '_', 'textblobmixedsizes_df'])
-
   if 'MoltenVK' in bot:
     # skbug.com/7959
     blacklist(['_', 'gm', '_', 'vertices_scaled_shader'])
@@ -733,6 +727,7 @@ def dm_flags(api, bot):
     match.append('~^TextureIdleProcFlushTest$')
     match.append('~^TextureStripAtlasManagerColorFilterTest$')
     match.append('~^WritePixelsNonTextureMSAA_Gpu$')
+    match.append('~^AsyncReadPixels$')
 
   if 'ANGLE' in bot:
     # skia:7835
@@ -775,6 +770,8 @@ def dm_flags(api, bot):
   if 'LenovoYogaC630' in bot and 'ANGLE' in api.vars.extra_tokens:
     # skia:8976
     blacklist(['_', 'tests', '_', 'GrDefaultPathRendererTest'])
+    # https://bugs.chromium.org/p/angleproject/issues/detail?id=3414
+    blacklist(['_', 'tests', '_', 'PinnedImageTest'])
 
   if blacklisted:
     args.append('--blacklist')
@@ -799,20 +796,6 @@ def dm_flags(api, bot):
 
   if 'GDI' in bot:
     args.append('--gdi')
-
-  if ('QuadroP400' in bot or
-      'Adreno540' in bot or
-      'IntelHD2000' in bot or   # gen 6 - sandy bridge
-      'IntelHD4400' in bot or   # gen 7 - haswell
-      'IntelHD405' in bot or    # gen 8 - cherryview braswell
-      'IntelIris6100' in bot or # gen 8 - broadwell
-      'IntelIris540' in bot or  # gen 9 - skylake
-      'IntelIris640' in bot or  # gen 9 - kaby lake
-      'IntelIris655' in bot or  # gen 9 - coffee lake
-      'MaliT760' in bot or
-      'MaliT860' in bot or
-      'MaliT880' in bot):
-    args.extend(['--reduceOpListSplitting'])
 
   # Let's make all bots produce verbose output by default.
   args.append('--verbose')
@@ -922,6 +905,7 @@ def test_steps(api):
       '--images', api.flavor.device_path_join(
           api.flavor.device_dirs.resource_dir, 'images', 'color_wheel.jpg'),
       '--nameByHash',
+      '--dontReduceOpListSplitting',
       '--properties'
     ] + properties
   else:
@@ -1014,6 +998,7 @@ TEST_BUILDERS = [
   'Test-Android-Clang-NexusPlayer-GPU-PowerVRG6430-x86-Release-All-Android',
   'Test-Android-Clang-Pixel-GPU-Adreno530-arm64-Debug-All-Android_Vulkan',
   'Test-Android-Clang-Pixel-GPU-Adreno530-arm-Debug-All-Android_ASAN',
+  'Test-Android-Clang-Pixel3-GPU-Adreno630-arm64-Debug-All-Android_Vulkan',
   ('Test-ChromeOS-Clang-AcerChromebookR13Convertible-GPU-PowerVRGX6250-'
    'arm-Debug-All'),
   'Test-Chromecast-Clang-Chorizo-CPU-Cortex_A7-arm-Release-All',
@@ -1054,7 +1039,6 @@ TEST_BUILDERS = [
    '-ReleaseAndAbandonGpuContext'),
   'Test-Win10-Clang-NUC5i7RYH-CPU-AVX2-x86_64-Debug-All-NativeFonts_GDI',
   'Test-Win10-Clang-NUC5i7RYH-GPU-IntelIris6100-x86_64-Release-All-ANGLE',
-  'Test-Win10-Clang-NUC8i5BEK-GPU-IntelIris655-x86_64-Debug-All-Vulkan',
   'Test-Win10-Clang-NUCD34010WYKH-GPU-IntelHD4400-x86_64-Release-All-ANGLE',
   'Test-Win10-Clang-ShuttleA-GPU-GTX660-x86_64-Release-All-Vulkan',
   'Test-Win10-Clang-ShuttleC-GPU-GTX960-x86_64-Debug-All-ANGLE',
@@ -1063,6 +1047,7 @@ TEST_BUILDERS = [
   'Test-Win2016-Clang-GCE-CPU-AVX2-x86_64-Debug-All-FSAA',
   'Test-Win2016-MSVC-GCE-CPU-AVX2-x86_64-Debug-All-MSRTC',
   'Test-iOS-Clang-iPadPro-GPU-PowerVRGT7800-arm64-Release-All',
+  'Test-Android-Clang-Nexus5x-GPU-Adreno418-arm-Release-All-Android_Vulkan',
 ]
 
 
@@ -1112,6 +1097,7 @@ def GenTests(api):
                    gold_hashes_url='https://example.com/hashes.txt',
                    swarm_out_dir='[SWARM_OUT_DIR]',
                    task_id='task_12345') +
+    api.platform('win', 64) +
     api.properties(patch_storage='gerrit') +
     api.properties.tryserver(
           buildername=builder,
