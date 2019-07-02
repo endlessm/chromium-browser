@@ -37,7 +37,7 @@
 #include <Accelerate/Accelerate.h>
 #endif
 
-#if defined(ARCH_CPU_X86_FAMILY) && !defined(OS_MACOSX)
+#if defined(ARCH_CPU_X86_64) && !defined(OS_MACOSX)
 #include <emmintrin.h>
 #endif
 
