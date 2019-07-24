@@ -16,6 +16,11 @@
 #define WEBRTC_USE_EPOLL 1
 #endif
 
+// for SIOCGSTAMP in Linux 5.2
+#if defined(WEBRTC_LINUX)
+#include <linux/sockios.h>
+#endif
+
 #include <memory>
 #include <set>
 #include <vector>
