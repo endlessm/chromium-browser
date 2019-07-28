@@ -452,7 +452,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			"Mac10.14":   "Mac-10.14.3",
 			"Ubuntu18":   "Ubuntu-18.04",
 			"Win":        DEFAULT_OS_WIN,
-			"Win10":      "Windows-10-17763.503",
+			"Win10":      "Windows-10-17763.557",
 			"Win2016":    DEFAULT_OS_WIN,
 			"Win7":       "Windows-7-SP1",
 			"Win8":       "Windows-8.1-SP0",
@@ -572,9 +572,9 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 					"GTX660":        "10de:11c0-25.21.14.1634",
 					"GTX960":        "10de:1401-25.21.14.1634",
 					"IntelHD4400":   "8086:0a16-20.19.15.4963",
-					"IntelIris540":  "8086:1926-25.20.100.6444",
+					"IntelIris540":  "8086:1926-25.20.100.6519",
 					"IntelIris6100": "8086:162b-20.19.15.4963",
-					"IntelIris655":  "8086:3ea5-25.20.100.6444",
+					"IntelIris655":  "8086:3ea5-25.20.100.6519",
 					"RadeonHD7770":  "1002:683d-24.20.13001.1010",
 					"RadeonR9M470X": "1002:6646-24.20.13001.1010",
 					"QuadroP400":    "10de:1cb3-25.21.14.1678",
@@ -590,14 +590,10 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 					"IntelHD2000":   "8086:0102",
 					"IntelHD405":    "8086:22b1",
 					"IntelIris640":  "8086:5926",
-					"QuadroP400":    "10de:1cb3-384.59",
+					"QuadroP400":    "10de:1cb3-430.14",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
 					glog.Fatalf("Entry %q not found in Ubuntu GPU mapping.", parts["cpu_or_gpu_value"])
-				}
-				if parts["os"] == "Ubuntu18" && parts["cpu_or_gpu_value"] == "QuadroP400" {
-					// Ubuntu18 has a newer GPU driver.
-					gpu = "10de:1cb3-415.27"
 				}
 				d["gpu"] = gpu
 			} else if strings.Contains(parts["os"], "Mac") {
@@ -1031,16 +1027,6 @@ func calmbench(b *specs.TasksCfgBuilder, name string, parts map[string]string, c
 	task := kitchenTask(name, "calmbench", "calmbench.isolate", "", swarmDimensions(parts), nil, OUTPUT_PERF)
 	usesGit(task, name)
 	task.Dependencies = append(task.Dependencies, compileTaskName, compileParentName, ISOLATE_SKP_NAME, ISOLATE_SVG_NAME)
-	if parts["cpu_or_gpu_value"] == "QuadroP400" {
-		// Specify "rack" dimension for consistent test results.
-		// See https://bugs.chromium.org/p/chromium/issues/detail?id=784662&desc=2#c34
-		// for more context.
-		if parts["os"] == "Ubuntu18" {
-			task.Dimensions = append(task.Dimensions, "rack:2")
-		} else {
-			task.Dimensions = append(task.Dimensions, "rack:1")
-		}
-	}
 	b.MustAddTask(name, task)
 
 	// Upload results if necessary.
@@ -1202,16 +1188,6 @@ func perf(b *specs.TasksCfgBuilder, name string, parts map[string]string, compil
 	iid := internalHardwareLabel(parts)
 	if iid != nil {
 		task.Command = append(task.Command, fmt.Sprintf("internal_hardware_label=%d", *iid))
-	}
-	if parts["cpu_or_gpu_value"] == "QuadroP400" {
-		// Specify "rack" dimension for consistent test results.
-		// See https://bugs.chromium.org/p/chromium/issues/detail?id=784662&desc=2#c34
-		// for more context.
-		if parts["os"] == "Ubuntu18" {
-			task.Dimensions = append(task.Dimensions, "rack:2")
-		} else {
-			task.Dimensions = append(task.Dimensions, "rack:1")
-		}
 	}
 	b.MustAddTask(name, task)
 
