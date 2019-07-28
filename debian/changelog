@@ -1,3 +1,9 @@
+chromium-browser (75.0.3770.142-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 75.0.3770.142
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 16 Jul 2019 11:52:34 +0200
+
 chromium-browser (75.0.3770.100-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 75.0.3770.100
