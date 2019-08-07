@@ -7,6 +7,28 @@
 #  Fabien Tassin <fta@sofaraway.org>
 # License: GPLv2 or later
 
+enforce_parental_controls=true
+for i in "$@"; do
+  case "$i" in
+    --pack-extension|--pack-extension=* )
+      # Skip parental controls check if packing extensions
+      enforce_parental_controls=false
+      break ;;
+    * )
+      ;;
+  esac
+done
+
+if $enforce_parental_controls; then
+  ABSOLUTE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+  if ! malcontent-client --quiet check --no-interactive ${ABSOLUTE_PATH} ||
+     ! malcontent-client --quiet check --no-interactive "x-scheme-handler/http"; then
+    echo "error: $ABSOLUTE_PATH is blacklisted for the current user" >&2
+    exit 1
+  fi
+fi
+
 PLUGIN_PARAMETERS=""
 
 discover_registration () {
