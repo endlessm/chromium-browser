@@ -1,3 +1,11 @@
+chromium-browser (76.0.3809.100-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 76.0.3809.100
+    - CVE-2019-5868: Use-after-free in PDFium ExecuteFieldAction.
+    - CVE-2019-5867: Out-of-bounds read in V8.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Sat, 10 Aug 2019 15:49:36 +0200
+
 chromium-browser (76.0.3809.87-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 76.0.3809.87
