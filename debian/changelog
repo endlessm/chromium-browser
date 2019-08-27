@@ -1,3 +1,12 @@
+chromium-browser (76.0.3809.132-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 76.0.3809.132
+    - CVE-2019-5869: Use-after-free in Blink.
+  * debian/tests/chromium-version: revert the last update test, the
+    chromedriver API change isn't present in xenial's selenium
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Mon, 26 Aug 2019 23:11:35 +0200
+
 chromium-browser (76.0.3809.100-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 76.0.3809.100
