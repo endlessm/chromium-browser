@@ -73,15 +73,22 @@ static unsigned char DOSProgram[] = {
 static_assert(sizeof(DOSProgram) % 8 == 0,
               "DOSProgram size must be multiple of 8");
 
-static const int SectorSize = 512;
 static const int DOSStubSize = sizeof(dos_header) + sizeof(DOSProgram);
 static_assert(DOSStubSize % 8 == 0, "DOSStub size must be multiple of 8");
 
 static const int NumberOfDataDirectory = 16;
 
+// Global vector of all output sections. After output sections are finalized,
+// this can be indexed by Chunk::getOutputSection.
+static std::vector<OutputSection *> OutputSections;
+
+OutputSection *Chunk::getOutputSection() const {
+  return OSIdx == 0 ? nullptr : OutputSections[OSIdx - 1];
+}
+
 namespace {
 
-class DebugDirectoryChunk : public Chunk {
+class DebugDirectoryChunk : public NonSectionChunk {
 public:
   DebugDirectoryChunk(const std::vector<Chunk *> &R, bool WriteRepro)
       : Records(R), WriteRepro(WriteRepro) {}
@@ -136,7 +143,7 @@ private:
   bool WriteRepro;
 };
 
-class CVDebugRecordChunk : public Chunk {
+class CVDebugRecordChunk : public NonSectionChunk {
 public:
   size_t getSize() const override {
     return sizeof(codeview::DebugInfo) + Config->PDBAltPath.size() + 1;
@@ -193,6 +200,7 @@ private:
   void assignAddresses();
   void finalizeAddresses();
   void removeEmptySections();
+  void assignOutputSectionIndices();
   void createSymbolAndStringTable();
   void openFile(StringRef OutputPath);
   template <typename PEHeaderTy> void writeHeader();
@@ -211,6 +219,7 @@ private:
   void sortExceptionTable();
   void sortCRTSectionChunks(std::vector<Chunk *> &Chunks);
   void addSyntheticIdata();
+  void fixPartialSectionChars(StringRef Name, uint32_t Chars);
   bool fixGnuImportChunks();
   PartialSection *createPartialSection(StringRef Name, uint32_t OutChars);
   PartialSection *findPartialSection(StringRef Name, uint32_t OutChars);
@@ -226,7 +235,6 @@ private:
 
   std::unique_ptr<FileOutputBuffer> &Buffer;
   std::map<PartialSectionKey, PartialSection *> PartialSections;
-  std::vector<OutputSection *> OutputSections;
   std::vector<char> Strtab;
   std::vector<llvm::object::coff_symbol16> OutputSymtab;
   IdataContents Idata;
@@ -285,12 +293,10 @@ void writeResult() { Writer().run(); }
 
 void OutputSection::addChunk(Chunk *C) {
   Chunks.push_back(C);
-  C->setOutputSection(this);
 }
 
 void OutputSection::insertChunkAtStart(Chunk *C) {
   Chunks.insert(Chunks.begin(), C);
-  C->setOutputSection(this);
 }
 
 void OutputSection::setPermissions(uint32_t C) {
@@ -299,8 +305,6 @@ void OutputSection::setPermissions(uint32_t C) {
 }
 
 void OutputSection::merge(OutputSection *Other) {
-  for (Chunk *C : Other->Chunks)
-    C->setOutputSection(this);
   Chunks.insert(Chunks.end(), Other->Chunks.begin(), Other->Chunks.end());
   Other->Chunks.clear();
   ContribSections.insert(ContribSections.end(), Other->ContribSections.begin(),
@@ -445,7 +449,6 @@ static bool createThunks(OutputSection *OS, int Margin) {
         Chunk *ThunkChunk = Thunk->getChunk();
         ThunkChunk->setRVA(
             ThunkInsertionRVA); // Estimate of where it will be located.
-        ThunkChunk->setOutputSection(OS);
         OS->Chunks.insert(OS->Chunks.begin() + ThunkInsertionSpot, ThunkChunk);
         ThunkInsertionSpot++;
         ThunksSize += ThunkChunk->getSize();
@@ -596,6 +599,7 @@ void Writer::run() {
   removeUnusedSections();
   finalizeAddresses();
   removeEmptySections();
+  assignOutputSectionIndices();
   setSectionPermissions();
   createSymbolAndStringTable();
 
@@ -649,6 +653,24 @@ static void sortBySectionOrder(std::vector<Chunk *> &Chunks) {
   });
 }
 
+// Change the characteristics of existing PartialSections that belong to the
+// section Name to Chars.
+void Writer::fixPartialSectionChars(StringRef Name, uint32_t Chars) {
+  for (auto It : PartialSections) {
+    PartialSection *PSec = It.second;
+    StringRef CurName = PSec->Name;
+    if (!CurName.consume_front(Name) ||
+        (!CurName.empty() && !CurName.startswith("$")))
+      continue;
+    if (PSec->Characteristics == Chars)
+      continue;
+    PartialSection *DestSec = createPartialSection(PSec->Name, Chars);
+    DestSec->Chunks.insert(DestSec->Chunks.end(), PSec->Chunks.begin(),
+                           PSec->Chunks.end());
+    PSec->Chunks.clear();
+  }
+}
+
 // Sort concrete section chunks from GNU import libraries.
 //
 // GNU binutils doesn't use short import files, but instead produces import
@@ -664,17 +686,7 @@ bool Writer::fixGnuImportChunks() {
 
   // Make sure all .idata$* section chunks are mapped as RDATA in order to
   // be sorted into the same sections as our own synthesized .idata chunks.
-  for (auto It : PartialSections) {
-    PartialSection *PSec = It.second;
-    if (!PSec->Name.startswith(".idata"))
-      continue;
-    if (PSec->Characteristics == RDATA)
-      continue;
-    PartialSection *RDataSec = createPartialSection(PSec->Name, RDATA);
-    RDataSec->Chunks.insert(RDataSec->Chunks.end(), PSec->Chunks.begin(),
-                            PSec->Chunks.end());
-    PSec->Chunks.clear();
-  }
+  fixPartialSectionChars(".idata", RDATA);
 
   bool HasIdata = false;
   // Sort all .idata$* chunks, grouping chunks from the same library,
@@ -794,11 +806,18 @@ void Writer::createSections() {
         SC->printDiscardedMessage();
       continue;
     }
-    PartialSection *PSec = createPartialSection(C->getSectionName(),
+    StringRef Name = C->getSectionName();
+    // On MinGW, comdat groups are formed by putting the comdat group name
+    // after the '$' in the section name. Such a section name suffix shouldn't
+    // imply separate alphabetical sorting of those section chunks though.
+    if (Config->MinGW && SC && SC->isCOMDAT())
+      Name = Name.split('$').first;
+    PartialSection *PSec = createPartialSection(Name,
                                                 C->getOutputCharacteristics());
     PSec->Chunks.push_back(C);
   }
 
+  fixPartialSectionChars(".rsrc", DATA | R);
   // Even in non MinGW cases, we might need to link against GNU import
   // libraries.
   bool HasIdata = fixGnuImportChunks();
@@ -846,9 +865,9 @@ void Writer::createSections() {
 
   // Finally, move some output sections to the end.
   auto SectionOrder = [&](const OutputSection *S) {
-    // Move DISCARDABLE (or non-memory-mapped) sections to the end of file because
-    // the loader cannot handle holes. Stripping can remove other discardable ones
-    // than .reloc, which is first of them (created early).
+    // Move DISCARDABLE (or non-memory-mapped) sections to the end of file
+    // because the loader cannot handle holes. Stripping can remove other
+    // discardable ones than .reloc, which is first of them (created early).
     if (S->Header.Characteristics & IMAGE_SCN_MEM_DISCARDABLE)
       return 2;
     // .rsrc should come at the end of the non-discardable sections because its
@@ -865,8 +884,12 @@ void Writer::createSections() {
 }
 
 void Writer::createMiscChunks() {
-  for (auto &P : MergeChunk::Instances)
-    RdataSec->addChunk(P.second);
+  for (MergeChunk *P : MergeChunk::Instances) {
+    if (P) {
+      P->finalizeContents();
+      RdataSec->addChunk(P);
+    }
+  }
 
   // Create thunks for locally-dllimported symbols.
   if (!Symtab->LocalImportChunks.empty()) {
@@ -997,9 +1020,26 @@ void Writer::removeEmptySections() {
   OutputSections.erase(
       std::remove_if(OutputSections.begin(), OutputSections.end(), IsEmpty),
       OutputSections.end());
+}
+
+void Writer::assignOutputSectionIndices() {
+  // Assign final output section indices, and assign each chunk to its output
+  // section.
   uint32_t Idx = 1;
-  for (OutputSection *Sec : OutputSections)
-    Sec->SectionIndex = Idx++;
+  for (OutputSection *OS : OutputSections) {
+    OS->SectionIndex = Idx;
+    for (Chunk *C : OS->Chunks)
+      C->setOutputSectionIdx(Idx);
+    ++Idx;
+  }
+
+  // Merge chunks are containers of chunks, so assign those an output section
+  // too.
+  for (MergeChunk *MC : MergeChunk::Instances)
+    if (MC)
+      for (SectionChunk *SC : MC->Sections)
+        if (SC && SC->Live)
+          SC->setOutputSectionIdx(MC->getOutputSectionIdx());
 }
 
 size_t Writer::addEntryToStringTable(StringRef Str) {
@@ -1096,7 +1136,7 @@ void Writer::createSymbolAndStringTable() {
   PointerToSymbolTable = FileOff;
   FileOff += OutputSymtab.size() * sizeof(coff_symbol16);
   FileOff += 4 + Strtab.size();
-  FileSize = alignTo(FileOff, SectorSize);
+  FileSize = alignTo(FileOff, Config->FileAlign);
 }
 
 void Writer::mergeSections() {
@@ -1138,7 +1178,7 @@ void Writer::assignAddresses() {
                   sizeof(coff_section) * OutputSections.size();
   SizeOfHeaders +=
       Config->is64() ? sizeof(pe32plus_header) : sizeof(pe32_header);
-  SizeOfHeaders = alignTo(SizeOfHeaders, SectorSize);
+  SizeOfHeaders = alignTo(SizeOfHeaders, Config->FileAlign);
   uint64_t RVA = PageSize; // The first page is kept unmapped.
   FileSize = SizeOfHeaders;
 
@@ -1159,12 +1199,11 @@ void Writer::assignAddresses() {
     for (Chunk *C : Sec->Chunks) {
       if (Padding && C->isHotPatchable())
         VirtualSize += Padding;
-      VirtualSize = alignTo(VirtualSize, C->Alignment);
+      VirtualSize = alignTo(VirtualSize, C->getAlignment());
       C->setRVA(RVA + VirtualSize);
-      C->finalizeContents();
       VirtualSize += C->getSize();
       if (C->hasData())
-        RawSize = alignTo(VirtualSize, SectorSize);
+        RawSize = alignTo(VirtualSize, Config->FileAlign);
     }
     if (VirtualSize > UINT32_MAX)
       error("section larger than 4 GiB: " + Sec->Name);
@@ -1173,9 +1212,14 @@ void Writer::assignAddresses() {
     if (RawSize != 0)
       Sec->Header.PointerToRawData = FileSize;
     RVA += alignTo(VirtualSize, PageSize);
-    FileSize += alignTo(RawSize, SectorSize);
+    FileSize += alignTo(RawSize, Config->FileAlign);
   }
   SizeOfImage = alignTo(RVA, PageSize);
+
+  // Assign addresses to sections in MergeChunks.
+  for (MergeChunk *MC : MergeChunk::Instances)
+    if (MC)
+      MC->assignSubsectionRVAs();
 }
 
 template <typename PEHeaderTy> void Writer::writeHeader() {
@@ -1240,7 +1284,7 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
 
   PE->ImageBase = Config->ImageBase;
   PE->SectionAlignment = PageSize;
-  PE->FileAlignment = SectorSize;
+  PE->FileAlignment = Config->FileAlign;
   PE->MajorImageVersion = Config->MajorImageVersion;
   PE->MinorImageVersion = Config->MinorImageVersion;
   PE->MajorOperatingSystemVersion = Config->MajorOSVersion;
@@ -1456,9 +1500,9 @@ static void maybeAddAddressTakenFunction(SymbolRVASet &AddressTakenSyms,
     // section.
     auto *D = cast<DefinedRegular>(S);
     if (D->getCOFFSymbol().getComplexType() == COFF::IMAGE_SYM_DTYPE_FUNCTION) {
-      Chunk *RefChunk = D->getChunk();
-      OutputSection *OS = RefChunk ? RefChunk->getOutputSection() : nullptr;
-      if (OS && OS->Header.Characteristics & IMAGE_SCN_MEM_EXECUTE)
+      SectionChunk *SC = dyn_cast<SectionChunk>(D->getChunk());
+      if (SC && SC->Live &&
+          SC->getOutputCharacteristics() & IMAGE_SCN_MEM_EXECUTE)
         addSymbolToRVASet(AddressTakenSyms, D);
     }
     break;
@@ -1519,8 +1563,8 @@ void Writer::createGuardCFTables() {
 
   // Ensure sections referenced in the gfid table are 16-byte aligned.
   for (const ChunkAndOffset &C : AddressTakenSyms)
-    if (C.InputChunk->Alignment < 16)
-      C.InputChunk->Alignment = 16;
+    if (C.InputChunk->getAlignment() < 16)
+      C.InputChunk->setAlignment(16);
 
   maybeAddRVATable(std::move(AddressTakenSyms), "__guard_fids_table",
                    "__guard_fids_count");
@@ -1737,8 +1781,9 @@ void Writer::sortExceptionTable() {
     return;
   // We assume .pdata contains function table entries only.
   auto BufAddr = [&](Chunk *C) {
-    return Buffer->getBufferStart() + C->getOutputSection()->getFileOff() +
-           C->getRVA() - C->getOutputSection()->getRVA();
+    OutputSection *OS = C->getOutputSection();
+    return Buffer->getBufferStart() + OS->getFileOff() + C->getRVA() -
+           OS->getRVA();
   };
   uint8_t *Begin = BufAddr(FirstPdata);
   uint8_t *End = BufAddr(LastPdata) + LastPdata->getSize();

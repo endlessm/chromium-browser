@@ -39,7 +39,7 @@ Features
 
 ORC provides the following features:
 
-- *JIT-linking* links relocatable object files (COFF, ELF, MachO)[1]_ into a
+- *JIT-linking* links relocatable object files (COFF, ELF, MachO) [1]_ into a
   target process an runtime. The target process may be the same process that
   contains the JIT session object and jit-linker, or may be another process
   (even one running on a different machine or architecture) that communicates
@@ -143,6 +143,9 @@ specified before the JIT instance is constructed. For example:
                .create();
 
   // ...
+
+For users wanting to get started with LLJIT a minimal example program can be
+found at ``llvm/examples/HowToUseLLJIT``.
 
 Design Overview
 ===============

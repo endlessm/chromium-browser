@@ -16,7 +16,6 @@
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/functions.h"
 #include "tools/gn/scheduler.h"
-#include "tools/gn/source_file_type.h"
 #include "tools/gn/substitution_writer.h"
 #include "tools/gn/tool.h"
 #include "tools/gn/toolchain.h"
@@ -280,15 +279,7 @@ Dependencies
 Target::Target(const Settings* settings,
                const Label& label,
                const std::set<SourceFile>& build_dependency_files)
-    : Item(settings, label, build_dependency_files),
-      output_type_(UNKNOWN),
-      output_prefix_override_(false),
-      output_extension_set_(false),
-      all_headers_public_(true),
-      check_includes_(true),
-      complete_static_lib_(false),
-      testonly_(false),
-      toolchain_(nullptr) {}
+    : Item(settings, label, build_dependency_files) {}
 
 Target::~Target() = default;
 
@@ -408,11 +399,12 @@ bool Target::OnResolved(Err* err) {
 bool Target::IsBinary() const {
   return output_type_ == EXECUTABLE || output_type_ == SHARED_LIBRARY ||
          output_type_ == LOADABLE_MODULE || output_type_ == STATIC_LIBRARY ||
-         output_type_ == SOURCE_SET;
+         output_type_ == SOURCE_SET || output_type_ == RUST_LIBRARY;
 }
 
 bool Target::IsLinkable() const {
-  return output_type_ == STATIC_LIBRARY || output_type_ == SHARED_LIBRARY;
+  return output_type_ == STATIC_LIBRARY || output_type_ == SHARED_LIBRARY ||
+         output_type_ == RUST_LIBRARY;
 }
 
 bool Target::IsFinal() const {
@@ -465,18 +457,18 @@ bool Target::SetToolchain(const Toolchain* toolchain, Err* err) {
 
   // Tool not specified for this target type.
   if (err) {
-    *err = Err(
-        defined_from(), "This target uses an undefined tool.",
-        base::StringPrintf(
-            "The target %s\n"
-            "of type \"%s\"\n"
-            "uses toolchain %s\n"
-            "which doesn't have the tool \"%s\" defined.\n\n"
-            "Alas, I can not continue.",
-            label().GetUserVisibleName(false).c_str(),
-            GetStringForOutputType(output_type_),
-            label().GetToolchainLabel().GetUserVisibleName(false).c_str(),
-            Tool::GetToolTypeForTargetFinalOutput(this)));
+    *err =
+        Err(defined_from(), "This target uses an undefined tool.",
+            base::StringPrintf(
+                "The target %s\n"
+                "of type \"%s\"\n"
+                "uses toolchain %s\n"
+                "which doesn't have the tool \"%s\" defined.\n\n"
+                "Alas, I can not continue.",
+                label().GetUserVisibleName(false).c_str(),
+                GetStringForOutputType(output_type_),
+                label().GetToolchainLabel().GetUserVisibleName(false).c_str(),
+                Tool::GetToolTypeForTargetFinalOutput(this)));
   }
   return false;
 }
@@ -487,10 +479,10 @@ bool Target::GetOutputFilesForSource(const SourceFile& source,
   outputs->clear();
   *computed_tool_type = Tool::kToolNone;
 
-  SourceFileType file_type = GetSourceFileType(source);
-  if (file_type == SOURCE_UNKNOWN)
+  SourceFile::Type file_type = source.type();
+  if (file_type == SourceFile::SOURCE_UNKNOWN)
     return false;
-  if (file_type == SOURCE_O) {
+  if (file_type == SourceFile::SOURCE_O) {
     // Object files just get passed to the output and not compiled.
     outputs->push_back(OutputFile(settings()->build_settings(), source));
     return true;
@@ -526,7 +518,8 @@ void Target::PullDependentTargetConfigs() {
 void Target::PullDependentTargetLibsFrom(const Target* dep, bool is_public) {
   // Direct dependent libraries.
   if (dep->output_type() == STATIC_LIBRARY ||
-      dep->output_type() == SHARED_LIBRARY || dep->output_type() == SOURCE_SET)
+      dep->output_type() == SHARED_LIBRARY ||
+      dep->output_type() == SOURCE_SET || dep->output_type() == RUST_LIBRARY)
     inherited_libraries_.Append(dep, is_public);
 
   if (dep->output_type() == SHARED_LIBRARY) {
@@ -668,6 +661,7 @@ bool Target::FillOutputFiles(Err* err) {
             this, tool, tool->runtime_outputs(), &runtime_outputs_);
       }
       break;
+    case RUST_LIBRARY:
     case STATIC_LIBRARY:
       // Static libraries both have dependencies and linking going off of the
       // first output.
@@ -706,6 +700,11 @@ bool Target::FillOutputFiles(Err* err) {
           SubstitutionWriter::ApplyListToLinkerAsOutputFile(
               this, tool, tool->runtime_outputs(), &runtime_outputs_);
         }
+      } else if (const RustTool* rstool = tool->AsRust()) {
+        // Default behavior, use the first output file for both.
+        link_output_file_ = dependency_output_file_ =
+            SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
+                this, tool, tool->outputs().list()[0]);
       }
       break;
     case UNKNOWN:

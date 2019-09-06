@@ -21,6 +21,7 @@ add_lldb_library(lldbSymbol
   DWARFCallFrameInfo.cpp
   DebugMacros.cpp
   Declaration.cpp
+  DeclVendor.cpp
   FuncUnwinders.cpp
   Function.cpp
   LineEntry.cpp
@@ -57,7 +58,6 @@ add_lldb_library(lldbSymbol
     lldbPluginExpressionParserClang
     lldbPluginSymbolFileDWARF
     lldbPluginSymbolFilePDB
-    lldbPluginCPlusPlusLanguage
     lldbPluginObjCLanguage
 
   LINK_COMPONENTS

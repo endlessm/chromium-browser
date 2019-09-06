@@ -24,7 +24,6 @@
 #include "tools/gn/label_pattern.h"
 #include "tools/gn/parse_tree.h"
 #include "tools/gn/path_output.h"
-#include "tools/gn/source_file_type.h"
 #include "tools/gn/standard_out.h"
 #include "tools/gn/target.h"
 #include "tools/gn/variables.h"
@@ -818,7 +817,7 @@ void VisualStudioWriter::ResolveSolutionFolders() {
     } else {
       std::string folder_path_str = folder_path.as_string();
       std::unique_ptr<SolutionEntry> folder = std::make_unique<SolutionEntry>(
-          FindLastDirComponent(SourceDir(folder_path)).as_string(),
+          FindLastDirComponent(SourceDir(std::string(folder_path))).as_string(),
           folder_path_str, MakeGuid(folder_path_str, kGuidSeedFolder));
       project->parent_folder = folder.get();
       processed_paths[folder_path] = folder.get();
@@ -864,7 +863,8 @@ void VisualStudioWriter::ResolveSolutionFolders() {
       } else {
         std::unique_ptr<SolutionEntry> new_folder =
             std::make_unique<SolutionEntry>(
-                FindLastDirComponent(SourceDir(parent_path)).as_string(),
+                FindLastDirComponent(SourceDir(std::string(parent_path)))
+                    .as_string(),
                 parent_path.as_string(),
                 MakeGuid(parent_path.as_string(), kGuidSeedFolder));
         processed_paths[parent_path] = new_folder.get();

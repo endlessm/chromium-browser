@@ -220,6 +220,8 @@ def err_module_header_file_not_found :
 def err_module_header_file_invalid :
   Error<"unexpected module header file input '%0'">, DefaultFatal;
 
+def err_interface_stubs : Error<"clang-ifs (-emit-iterface-stubs): %0">;
+
 def err_test_module_file_extension_version : Error<
   "test module file extension '%0' has different version (%1.%2) than expected "
   "(%3.%4)">;
@@ -231,11 +233,6 @@ def err_invalid_vfs_overlay : Error<
 
 def warn_option_invalid_ocl_version : Warning<
   "OpenCL version %0 does not support the option '%1'">, InGroup<Deprecated>;
-
-def warn_stdlibcxx_not_found : Warning<
-  "include path for stdlibc++ headers not found; pass '-stdlib=libc++' on the "
-  "command line to use the libc++ standard library instead">,
-  InGroup<DiagGroup<"stdlibcxx-not-found">>;
 
 def err_builtin_needs_feature : Error<"%0 needs target feature %1">;
 def err_function_needs_feature : Error<

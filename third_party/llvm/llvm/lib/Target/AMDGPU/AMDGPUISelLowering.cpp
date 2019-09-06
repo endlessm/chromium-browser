@@ -523,6 +523,9 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   // vector compares until that is fixed.
   setHasMultipleConditionRegisters(true);
 
+  setMinCmpXchgSizeInBits(32);
+  setSupportsUnalignedAtomics(false);
+
   PredictableSelectIsExpensive = false;
 
   // We want to find all load dependencies for long chains of stores to enable
@@ -2965,7 +2968,8 @@ SDValue AMDGPUTargetLowering::performLoadCombine(SDNode *N,
     // Expand unaligned loads earlier than legalization. Due to visitation order
     // problems during legalization, the emitted instructions to pack and unpack
     // the bytes again are not eliminated in the case of an unaligned copy.
-    if (!allowsMisalignedMemoryAccesses(VT, AS, Align, &IsFast)) {
+    if (!allowsMisalignedMemoryAccesses(
+            VT, AS, Align, LN->getMemOperand()->getFlags(), &IsFast)) {
       if (VT.isVector())
         return scalarizeVectorLoad(LN, DAG);
 
@@ -3017,7 +3021,8 @@ SDValue AMDGPUTargetLowering::performStoreCombine(SDNode *N,
     // order problems during legalization, the emitted instructions to pack and
     // unpack the bytes again are not eliminated in the case of an unaligned
     // copy.
-    if (!allowsMisalignedMemoryAccesses(VT, AS, Align, &IsFast)) {
+    if (!allowsMisalignedMemoryAccesses(
+            VT, AS, Align, SN->getMemOperand()->getFlags(), &IsFast)) {
       if (VT.isVector())
         return scalarizeVectorStore(SN, DAG);
 
@@ -4228,9 +4233,19 @@ SDValue AMDGPUTargetLowering::loadInputValue(SelectionDAG &DAG,
                                              const ArgDescriptor &Arg) const {
   assert(Arg && "Attempting to load missing argument");
 
-  if (Arg.isRegister())
-    return CreateLiveInRegister(DAG, RC, Arg.getRegister(), VT, SL);
-  return loadStackInputValue(DAG, VT, SL, Arg.getStackOffset());
+  SDValue V = Arg.isRegister() ?
+    CreateLiveInRegister(DAG, RC, Arg.getRegister(), VT, SL) :
+    loadStackInputValue(DAG, VT, SL, Arg.getStackOffset());
+
+  if (!Arg.isMasked())
+    return V;
+
+  unsigned Mask = Arg.getMask();
+  unsigned Shift = countTrailingZeros<unsigned>(Mask);
+  V = DAG.getNode(ISD::SRL, SL, VT, V,
+                  DAG.getShiftAmountConstant(Shift, VT, SL));
+  return DAG.getNode(ISD::AND, SL, VT, V,
+                     DAG.getConstant(Mask >> Shift, SL, VT));
 }
 
 uint32_t AMDGPUTargetLowering::getImplicitParameterOffset(
@@ -4352,6 +4367,7 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(BUILD_VERTICAL_VECTOR)
   NODE_NAME_CASE(CONST_DATA_PTR)
   NODE_NAME_CASE(PC_ADD_REL_OFFSET)
+  NODE_NAME_CASE(LDS)
   NODE_NAME_CASE(KILL)
   NODE_NAME_CASE(DUMMY_CHAIN)
   case AMDGPUISD::FIRST_MEM_OPCODE_NUMBER: break;
@@ -4564,6 +4580,15 @@ void AMDGPUTargetLowering::computeKnownBitsForTargetNode(
   }
   case AMDGPUISD::BUFFER_LOAD_USHORT: {
     Known.Zero.setHighBits(16);
+    break;
+  }
+  case AMDGPUISD::LDS: {
+    auto GA = cast<GlobalAddressSDNode>(Op.getOperand(0).getNode());
+    unsigned Align = GA->getGlobal()->getAlignment();
+
+    Known.Zero.setHighBits(16);
+    if (Align)
+      Known.Zero.setLowBits(Log2_32(Align));
     break;
   }
   case ISD::INTRINSIC_WO_CHAIN: {

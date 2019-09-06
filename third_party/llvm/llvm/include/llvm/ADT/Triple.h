@@ -109,6 +109,7 @@ public:
     ARMSubArch_v8r,
     ARMSubArch_v8m_baseline,
     ARMSubArch_v8m_mainline,
+    ARMSubArch_v8_1m_mainline,
     ARMSubArch_v7,
     ARMSubArch_v7em,
     ARMSubArch_v7m,
@@ -202,6 +203,8 @@ public:
     CODE16,
     EABI,
     EABIHF,
+    ELFv1,
+    ELFv2,
     Android,
     Musl,
     MuslEABI,
@@ -211,8 +214,9 @@ public:
     Itanium,
     Cygnus,
     CoreCLR,
-    Simulator,  // Simulator variants of other systems, e.g., Apple's iOS
-    LastEnvironmentType = Simulator
+    Simulator, // Simulator variants of other systems, e.g., Apple's iOS
+    MacABI, // Mac Catalyst variant of Apple's iOS deployment target.
+    LastEnvironmentType = MacABI
   };
   enum ObjectFormatType {
     UnknownObjectFormat,
@@ -480,6 +484,10 @@ public:
 
   bool isSimulatorEnvironment() const {
     return getEnvironment() == Triple::Simulator;
+  }
+
+  bool isMacCatalystEnvironment() const {
+    return getEnvironment() == Triple::MacABI;
   }
 
   bool isOSNetBSD() const {

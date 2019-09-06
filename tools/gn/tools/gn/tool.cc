@@ -3,14 +3,15 @@
 // found in the LICENSE file.
 
 #include "tools/gn/tool.h"
+
 #include "tools/gn/c_tool.h"
 #include "tools/gn/general_tool.h"
+#include "tools/gn/rust_tool.h"
 #include "tools/gn/target.h"
 
 const char* Tool::kToolNone = "";
 
-Tool::Tool(const char* n)
-    : defined_from_(nullptr), restat_(false), complete_(false), name_(n) {}
+Tool::Tool(const char* n) : name_(n) {}
 
 Tool::~Tool() = default;
 
@@ -39,6 +40,13 @@ CTool* Tool::AsC() {
 }
 
 const CTool* Tool::AsC() const {
+  return nullptr;
+}
+
+RustTool* Tool::AsRust() {
+  return nullptr;
+}
+const RustTool* Tool::AsRust() const {
   return nullptr;
 }
 
@@ -181,6 +189,7 @@ bool Tool::ReadOutputExtension(Scope* scope, Err* err) {
 
 bool Tool::InitTool(Scope* scope, Toolchain* toolchain, Err* err) {
   if (!ReadPattern(scope, "command", &command_, err) ||
+      !ReadString(scope, "command_launcher", &command_launcher_, err) ||
       !ReadOutputExtension(scope, err) ||
       !ReadPattern(scope, "depfile", &depfile_, err) ||
       !ReadPattern(scope, "description", &description_, err) ||
@@ -216,6 +225,11 @@ std::unique_ptr<Tool> Tool::CreateTool(const ParseNode* function,
       return tool;
     return nullptr;
   }
+  if (RustTool* rust_tool = tool->AsRust()) {
+    if (rust_tool->InitTool(scope, toolchain, err))
+      return tool;
+    return nullptr;
+  }
   NOTREACHED();
   *err = Err(function, "Unknown tool type.");
   return nullptr;
@@ -223,6 +237,7 @@ std::unique_ptr<Tool> Tool::CreateTool(const ParseNode* function,
 
 // static
 std::unique_ptr<Tool> Tool::CreateTool(const std::string& name) {
+  // C tools
   if (name == CTool::kCToolCc)
     return std::make_unique<CTool>(CTool::kCToolCc);
   else if (name == CTool::kCToolCxx)
@@ -244,6 +259,7 @@ std::unique_ptr<Tool> Tool::CreateTool(const std::string& name) {
   else if (name == CTool::kCToolLink)
     return std::make_unique<CTool>(CTool::kCToolLink);
 
+  // General tools
   else if (name == GeneralTool::kGeneralToolAction)
     return std::make_unique<GeneralTool>(GeneralTool::kGeneralToolAction);
   else if (name == GeneralTool::kGeneralToolStamp)
@@ -257,31 +273,36 @@ std::unique_ptr<Tool> Tool::CreateTool(const std::string& name) {
     return std::make_unique<GeneralTool>(
         GeneralTool::kGeneralToolCompileXCAssets);
 
+  // Rust tool
+  else if (name == RustTool::kRsToolRustc)
+    return std::make_unique<RustTool>(RustTool::kRsToolRustc);
+
   return nullptr;
 }
 
 // static
-const char* Tool::GetToolTypeForSourceType(SourceFileType type) {
+const char* Tool::GetToolTypeForSourceType(SourceFile::Type type) {
   switch (type) {
-    case SOURCE_C:
+    case SourceFile::SOURCE_C:
       return CTool::kCToolCc;
-    case SOURCE_CPP:
+    case SourceFile::SOURCE_CPP:
       return CTool::kCToolCxx;
-    case SOURCE_M:
+    case SourceFile::SOURCE_M:
       return CTool::kCToolObjC;
-    case SOURCE_MM:
+    case SourceFile::SOURCE_MM:
       return CTool::kCToolObjCxx;
-    case SOURCE_ASM:
-    case SOURCE_S:
+    case SourceFile::SOURCE_ASM:
+    case SourceFile::SOURCE_S:
       return CTool::kCToolAsm;
-    case SOURCE_RC:
+    case SourceFile::SOURCE_RC:
       return CTool::kCToolRc;
-    case SOURCE_UNKNOWN:
-    case SOURCE_H:
-    case SOURCE_O:
-    case SOURCE_DEF:
-    case SOURCE_GO:
-    case SOURCE_RS:
+    case SourceFile::SOURCE_RS:
+      return RustTool::kRsToolRustc;
+    case SourceFile::SOURCE_UNKNOWN:
+    case SourceFile::SOURCE_H:
+    case SourceFile::SOURCE_O:
+    case SourceFile::SOURCE_DEF:
+    case SourceFile::SOURCE_GO:
       return kToolNone;
     default:
       NOTREACHED();
@@ -294,6 +315,8 @@ const char* Tool::GetToolTypeForTargetFinalOutput(const Target* target) {
   // The contents of this list might be suprising (i.e. stamp tool for copy
   // rules). See the header for why.
   // TODO(crbug.com/gn/39): Don't emit stamp files for single-output targets.
+  if (target->source_types_used().RustSourceUsed())
+    return RustTool::kRsToolRustc;
   switch (target->output_type()) {
     case Target::GROUP:
       return GeneralTool::kGeneralToolStamp;

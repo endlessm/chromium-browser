@@ -368,6 +368,13 @@ private:
     return ModuleOwnershipKind::Unowned;
   }
 
+public:
+  Decl() = delete;
+  Decl(const Decl&) = delete;
+  Decl(Decl &&) = delete;
+  Decl &operator=(const Decl&) = delete;
+  Decl &operator=(Decl&&) = delete;
+
 protected:
   Decl(Kind DK, DeclContext *DC, SourceLocation L)
       : NextInContextAndBits(nullptr, getModuleOwnershipKindForChildOf(DC)),
@@ -1493,7 +1500,9 @@ class DeclContext {
     uint64_t IsExplicitlyDefaulted : 1;
     uint64_t HasImplicitReturnZero : 1;
     uint64_t IsLateTemplateParsed : 1;
-    uint64_t IsConstexpr : 1;
+
+    /// Kind of contexpr specifier as defined by ConstexprSpecKind.
+    uint64_t ConstexprKind : 2;
     uint64_t InstantiationIsPending : 1;
 
     /// Indicates if the function uses __try.
@@ -1521,7 +1530,7 @@ class DeclContext {
   };
 
   /// Number of non-inherited bits in FunctionDeclBitfields.
-  enum { NumFunctionDeclBits = 24 };
+  enum { NumFunctionDeclBits = 25 };
 
   /// Stores the bits used by CXXConstructorDecl. If modified
   /// NumCXXConstructorDeclBits and the accessor
@@ -1538,7 +1547,7 @@ class DeclContext {
     /// exactly 64 bits and thus the width of NumCtorInitializers
     /// will need to be shrunk if some bit is added to NumDeclContextBitfields,
     /// NumFunctionDeclBitfields or CXXConstructorDeclBitfields.
-    uint64_t NumCtorInitializers : 24;
+    uint64_t NumCtorInitializers : 23;
     uint64_t IsInheritingConstructor : 1;
 
     /// Whether this constructor has a trail-allocated explicit specifier.

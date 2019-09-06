@@ -110,12 +110,22 @@ def CSR_AMDGPU_VGPRs_32_255 : CalleeSavedRegs<
   (sequence "VGPR%u", 32, 255)
 >;
 
-def CSR_AMDGPU_SGPRs_32_103 : CalleeSavedRegs<
-  (sequence "SGPR%u", 32, 103)
+def CSR_AMDGPU_SGPRs_32_105 : CalleeSavedRegs<
+  (sequence "SGPR%u", 32, 105)
+>;
+
+// Just to get the regmask, not for calling convention purposes.
+def CSR_AMDGPU_AllVGPRs : CalleeSavedRegs<
+  (sequence "VGPR%u", 0, 255)
+>;
+
+// Just to get the regmask, not for calling convention purposes.
+def CSR_AMDGPU_AllAllocatableSRegs : CalleeSavedRegs<
+  (add (sequence "SGPR%u", 0, 105), VCC_LO, VCC_HI)
 >;
 
 def CSR_AMDGPU_HighRegs : CalleeSavedRegs<
-  (add CSR_AMDGPU_VGPRs_32_255, CSR_AMDGPU_SGPRs_32_103)
+  (add CSR_AMDGPU_VGPRs_32_255, CSR_AMDGPU_SGPRs_32_105)
 >;
 
 // Calling convention for leaf functions

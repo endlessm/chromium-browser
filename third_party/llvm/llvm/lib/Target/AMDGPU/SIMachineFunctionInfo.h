@@ -21,6 +21,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SparseBitVector.h"
 #include "llvm/CodeGen/MIRYamlMapping.h"
@@ -39,12 +40,19 @@ class MachineFrameInfo;
 class MachineFunction;
 class TargetRegisterClass;
 
-class AMDGPUImagePseudoSourceValue : public PseudoSourceValue {
+class AMDGPUPseudoSourceValue : public PseudoSourceValue {
 public:
-  // TODO: Is the img rsrc useful?
-  explicit AMDGPUImagePseudoSourceValue(const TargetInstrInfo &TII) :
-    PseudoSourceValue(PseudoSourceValue::TargetCustom, TII) {}
+  enum AMDGPUPSVKind : unsigned {
+    PSVBuffer = PseudoSourceValue::TargetCustom,
+    PSVImage,
+    GWSResource
+  };
 
+protected:
+  AMDGPUPseudoSourceValue(unsigned Kind, const TargetInstrInfo &TII)
+      : PseudoSourceValue(Kind, TII) {}
+
+public:
   bool isConstant(const MachineFrameInfo *) const override {
     // This should probably be true for most images, but we will start by being
     // conservative.
@@ -60,27 +68,169 @@ public:
   }
 };
 
-class AMDGPUBufferPseudoSourceValue : public PseudoSourceValue {
+class AMDGPUBufferPseudoSourceValue final : public AMDGPUPseudoSourceValue {
 public:
-  explicit AMDGPUBufferPseudoSourceValue(const TargetInstrInfo &TII) :
-    PseudoSourceValue(PseudoSourceValue::TargetCustom, TII) { }
+  explicit AMDGPUBufferPseudoSourceValue(const TargetInstrInfo &TII)
+      : AMDGPUPseudoSourceValue(PSVBuffer, TII) {}
 
-  bool isConstant(const MachineFrameInfo *) const override {
-    // This should probably be true for most images, but we will start by being
-    // conservative.
+  static bool classof(const PseudoSourceValue *V) {
+    return V->kind() == PSVBuffer;
+  }
+};
+
+class AMDGPUImagePseudoSourceValue final : public AMDGPUPseudoSourceValue {
+public:
+  // TODO: Is the img rsrc useful?
+  explicit AMDGPUImagePseudoSourceValue(const TargetInstrInfo &TII)
+      : AMDGPUPseudoSourceValue(PSVImage, TII) {}
+
+  static bool classof(const PseudoSourceValue *V) {
+    return V->kind() == PSVImage;
+  }
+};
+
+class AMDGPUGWSResourcePseudoSourceValue final : public AMDGPUPseudoSourceValue {
+public:
+  explicit AMDGPUGWSResourcePseudoSourceValue(const TargetInstrInfo &TII)
+      : AMDGPUPseudoSourceValue(GWSResource, TII) {}
+
+  static bool classof(const PseudoSourceValue *V) {
+    return V->kind() == GWSResource;
+  }
+
+  // These are inaccessible memory from IR.
+  bool isAliased(const MachineFrameInfo *) const override {
     return false;
   }
 
-  bool isAliased(const MachineFrameInfo *) const override {
-    return true;
+  // These are inaccessible memory from IR.
+  bool mayAlias(const MachineFrameInfo *) const override {
+    return false;
   }
 
-  bool mayAlias(const MachineFrameInfo *) const override {
-    return true;
+  void printCustom(raw_ostream &OS) const override {
+    OS << "GWSResource";
   }
 };
 
 namespace yaml {
+
+struct SIArgument {
+  bool IsRegister;
+  union {
+    StringValue RegisterName;
+    unsigned StackOffset;
+  };
+  Optional<unsigned> Mask;
+
+  // Default constructor, which creates a stack argument.
+  SIArgument() : IsRegister(false), StackOffset(0) {}
+  SIArgument(const SIArgument &Other) {
+    IsRegister = Other.IsRegister;
+    if (IsRegister) {
+      ::new ((void *)std::addressof(RegisterName))
+          StringValue(Other.RegisterName);
+    } else
+      StackOffset = Other.StackOffset;
+    Mask = Other.Mask;
+  }
+  SIArgument &operator=(const SIArgument &Other) {
+    IsRegister = Other.IsRegister;
+    if (IsRegister) {
+      ::new ((void *)std::addressof(RegisterName))
+          StringValue(Other.RegisterName);
+    } else
+      StackOffset = Other.StackOffset;
+    Mask = Other.Mask;
+    return *this;
+  }
+  ~SIArgument() {
+    if (IsRegister)
+      RegisterName.~StringValue();
+  }
+
+  // Helper to create a register or stack argument.
+  static inline SIArgument createArgument(bool IsReg) {
+    if (IsReg)
+      return SIArgument(IsReg);
+    return SIArgument();
+  }
+
+private:
+  // Construct a register argument.
+  SIArgument(bool) : IsRegister(true), RegisterName() {}
+};
+
+template <> struct MappingTraits<SIArgument> {
+  static void mapping(IO &YamlIO, SIArgument &A) {
+    if (YamlIO.outputting()) {
+      if (A.IsRegister)
+        YamlIO.mapRequired("reg", A.RegisterName);
+      else
+        YamlIO.mapRequired("offset", A.StackOffset);
+    } else {
+      auto Keys = YamlIO.keys();
+      if (is_contained(Keys, "reg")) {
+        A = SIArgument::createArgument(true);
+        YamlIO.mapRequired("reg", A.RegisterName);
+      } else if (is_contained(Keys, "offset"))
+        YamlIO.mapRequired("offset", A.StackOffset);
+      else
+        YamlIO.setError("missing required key 'reg' or 'offset'");
+    }
+    YamlIO.mapOptional("mask", A.Mask);
+  }
+  static const bool flow = true;
+};
+
+struct SIArgumentInfo {
+  Optional<SIArgument> PrivateSegmentBuffer;
+  Optional<SIArgument> DispatchPtr;
+  Optional<SIArgument> QueuePtr;
+  Optional<SIArgument> KernargSegmentPtr;
+  Optional<SIArgument> DispatchID;
+  Optional<SIArgument> FlatScratchInit;
+  Optional<SIArgument> PrivateSegmentSize;
+
+  Optional<SIArgument> WorkGroupIDX;
+  Optional<SIArgument> WorkGroupIDY;
+  Optional<SIArgument> WorkGroupIDZ;
+  Optional<SIArgument> WorkGroupInfo;
+  Optional<SIArgument> PrivateSegmentWaveByteOffset;
+
+  Optional<SIArgument> ImplicitArgPtr;
+  Optional<SIArgument> ImplicitBufferPtr;
+
+  Optional<SIArgument> WorkItemIDX;
+  Optional<SIArgument> WorkItemIDY;
+  Optional<SIArgument> WorkItemIDZ;
+};
+
+template <> struct MappingTraits<SIArgumentInfo> {
+  static void mapping(IO &YamlIO, SIArgumentInfo &AI) {
+    YamlIO.mapOptional("privateSegmentBuffer", AI.PrivateSegmentBuffer);
+    YamlIO.mapOptional("dispatchPtr", AI.DispatchPtr);
+    YamlIO.mapOptional("queuePtr", AI.QueuePtr);
+    YamlIO.mapOptional("kernargSegmentPtr", AI.KernargSegmentPtr);
+    YamlIO.mapOptional("dispatchID", AI.DispatchID);
+    YamlIO.mapOptional("flatScratchInit", AI.FlatScratchInit);
+    YamlIO.mapOptional("privateSegmentSize", AI.PrivateSegmentSize);
+
+    YamlIO.mapOptional("workGroupIDX", AI.WorkGroupIDX);
+    YamlIO.mapOptional("workGroupIDY", AI.WorkGroupIDY);
+    YamlIO.mapOptional("workGroupIDZ", AI.WorkGroupIDZ);
+    YamlIO.mapOptional("workGroupInfo", AI.WorkGroupInfo);
+    YamlIO.mapOptional("privateSegmentWaveByteOffset",
+                       AI.PrivateSegmentWaveByteOffset);
+
+    YamlIO.mapOptional("implicitArgPtr", AI.ImplicitArgPtr);
+    YamlIO.mapOptional("implicitBufferPtr", AI.ImplicitBufferPtr);
+
+    YamlIO.mapOptional("workItemIDX", AI.WorkItemIDX);
+    YamlIO.mapOptional("workItemIDY", AI.WorkItemIDY);
+    YamlIO.mapOptional("workItemIDZ", AI.WorkItemIDZ);
+  }
+};
 
 struct SIMachineFunctionInfo final : public yaml::MachineFunctionInfo {
   uint64_t ExplicitKernArgSize = 0;
@@ -95,6 +245,8 @@ struct SIMachineFunctionInfo final : public yaml::MachineFunctionInfo {
   StringValue ScratchWaveOffsetReg = "$scratch_wave_offset_reg";
   StringValue FrameOffsetReg = "$fp_reg";
   StringValue StackPtrOffsetReg = "$sp_reg";
+
+  Optional<SIArgumentInfo> ArgInfo;
 
   SIMachineFunctionInfo() = default;
   SIMachineFunctionInfo(const llvm::SIMachineFunctionInfo &,
@@ -122,6 +274,7 @@ template <> struct MappingTraits<SIMachineFunctionInfo> {
                        StringValue("$fp_reg"));
     YamlIO.mapOptional("stackPtrOffsetReg", MFI.StackPtrOffsetReg,
                        StringValue("$sp_reg"));
+    YamlIO.mapOptional("argumentInfo", MFI.ArgInfo);
   }
 };
 
@@ -181,6 +334,7 @@ class SIMachineFunctionInfo final : public AMDGPUMachineFunction {
            std::unique_ptr<const AMDGPUBufferPseudoSourceValue>> BufferPSVs;
   DenseMap<const Value *,
            std::unique_ptr<const AMDGPUImagePseudoSourceValue>> ImagePSVs;
+  std::unique_ptr<const AMDGPUGWSResourcePseudoSourceValue> GWSResourcePSV;
 
 private:
   unsigned LDSWaveSpillSize = 0;
@@ -229,6 +383,7 @@ private:
   unsigned GITPtrHigh;
 
   unsigned HighBitsOf32BitAddress;
+  unsigned GDSSize;
 
   // Current recorded maximum possible occupancy.
   unsigned Occupancy;
@@ -443,8 +598,9 @@ public:
     return ArgInfo.getPreloadedValue(Value);
   }
 
-  unsigned getPreloadedReg(AMDGPUFunctionArgInfo::PreloadedValue Value) const {
-    return ArgInfo.getPreloadedValue(Value).first->getRegister();
+  Register getPreloadedReg(AMDGPUFunctionArgInfo::PreloadedValue Value) const {
+    auto Arg = ArgInfo.getPreloadedValue(Value).first;
+    return Arg ? Arg->getRegister() : Register();
   }
 
   unsigned getGITPtrHigh() const {
@@ -453,6 +609,10 @@ public:
 
   unsigned get32BitAddressHighBits() const {
     return HighBitsOf32BitAddress;
+  }
+
+  unsigned getGDSSize() const {
+    return GDSSize;
   }
 
   unsigned getNumUserSGPRs() const {
@@ -486,6 +646,11 @@ public:
     return FrameOffsetReg;
   }
 
+  void setFrameOffsetReg(unsigned Reg) {
+    assert(Reg != 0 && "Should never be unset");
+    FrameOffsetReg = Reg;
+  }
+
   void setStackPtrOffsetReg(unsigned Reg) {
     assert(Reg != 0 && "Should never be unset");
     StackPtrOffsetReg = Reg;
@@ -502,8 +667,6 @@ public:
   void setScratchWaveOffsetReg(unsigned Reg) {
     assert(Reg != 0 && "Should never be unset");
     ScratchWaveOffsetReg = Reg;
-    if (isEntryFunction())
-      FrameOffsetReg = ScratchWaveOffsetReg;
   }
 
   unsigned getQueuePtrUserSGPR() const {
@@ -638,9 +801,6 @@ public:
     llvm_unreachable("unexpected dimension");
   }
 
-  /// \returns VGPR used for \p Dim' work item ID.
-  unsigned getWorkItemIDVGPR(unsigned Dim) const;
-
   unsigned getLDSWaveSpillSize() const {
     return LDSWaveSpillSize;
   }
@@ -661,6 +821,15 @@ public:
       ImgRsrc,
       llvm::make_unique<AMDGPUImagePseudoSourceValue>(TII));
     return PSV.first->second.get();
+  }
+
+  const AMDGPUGWSResourcePseudoSourceValue *getGWSPSV(const SIInstrInfo &TII) {
+    if (!GWSResourcePSV) {
+      GWSResourcePSV =
+          llvm::make_unique<AMDGPUGWSResourcePseudoSourceValue>(TII);
+    }
+
+    return GWSResourcePSV.get();
   }
 
   unsigned getOccupancy() const {

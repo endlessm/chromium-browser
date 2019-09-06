@@ -15,6 +15,7 @@
 #include <cassert>
 #include <cstddef>
 
+#include "test_macros.h"
 #include "min_allocator.h"
 #include "counting_predicates.hpp"
 
@@ -44,7 +45,7 @@ int main(int, char**)
         C c1(std::begin(t1), std::end(t1));
         C c2(std::begin(t2), std::end(t2));
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 4);
         assert(c1 == c2);
         assert(cp.count() == static_cast<std::size_t>(std::distance(std::begin(t1), std::end(t1))));
     }
@@ -56,7 +57,7 @@ int main(int, char**)
         C c1(std::begin(t1), std::end(t1));
         C c2;
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 4);
         assert(c1 == c2);
         assert(cp.count() == static_cast<std::size_t>(std::distance(std::begin(t1), std::end(t1))));
     }
@@ -69,7 +70,7 @@ int main(int, char**)
         C c1(std::begin(t1), std::end(t1));
         C c2(std::begin(t2), std::end(t2));
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 0);
         assert(c1 == c2);
         assert(cp.count() == static_cast<std::size_t>(std::distance(std::begin(t1), std::end(t1))));
     }
@@ -80,7 +81,7 @@ int main(int, char**)
         C c1;
         C c2;
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 0);
         assert(c1 == c2);
         assert(cp.count() == 0);
     }
@@ -93,7 +94,7 @@ int main(int, char**)
         C c1(std::begin(t1), std::end(t1));
         C c2(std::begin(t2), std::end(t2));
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 1);
         assert(c1 == c2);
         assert(cp.count() == static_cast<std::size_t>(std::distance(std::begin(t1), std::end(t1))));
     }
@@ -122,7 +123,7 @@ int main(int, char**)
         C c1(std::begin(t1), std::end(t1));
         C c2(std::begin(t2), std::end(t2));
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 4);
         assert(c1 == c2);
         assert(cp.count() == static_cast<std::size_t>(std::distance(std::begin(t1), std::end(t1))));
     }
@@ -134,7 +135,7 @@ int main(int, char**)
         C c1(std::begin(t1), std::end(t1));
         C c2;
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 4);
         assert(c1 == c2);
         assert(cp.count() == static_cast<std::size_t>(std::distance(std::begin(t1), std::end(t1))));
     }
@@ -147,7 +148,7 @@ int main(int, char**)
         C c1(std::begin(t1), std::end(t1));
         C c2(std::begin(t2), std::end(t2));
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 0);
         assert(c1 == c2);
         assert(cp.count() == static_cast<std::size_t>(std::distance(std::begin(t1), std::end(t1))));
     }
@@ -158,7 +159,7 @@ int main(int, char**)
         C c1;
         C c2;
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 0);
         assert(c1 == c2);
         assert(cp.count() == 0);
     }
@@ -171,7 +172,7 @@ int main(int, char**)
         C c1(std::begin(t1), std::end(t1));
         C c2(std::begin(t2), std::end(t2));
         Predicate cp(g);
-        c1.remove_if(std::ref(cp));
+        assert(c1.remove_if(std::ref(cp)) == 1);
         assert(c1 == c2);
         assert(cp.count() == static_cast<std::size_t>(std::distance(std::begin(t1), std::end(t1))));
     }

@@ -55,6 +55,8 @@ def note_constexpr_non_global : Note<
   "%select{temporary|%3}2 is not a constant expression">;
 def note_constexpr_uninitialized : Note<
   "%select{|sub}0object of type %1 is not initialized">;
+def note_constexpr_subobject_declared_here : Note<
+  "subobject declared here">;
 def note_constexpr_array_index : Note<"cannot refer to element %0 of "
   "%select{array of %2 element%plural{1:|:s}2|non-array object}1 "
   "in a constant expression">;
@@ -83,6 +85,8 @@ def note_constexpr_past_end_subobject : Note<
   "access array element of|ERROR|"
   "access real component of|access imaginary component of}0 "
   "pointer past the end of object">;
+def note_non_null_attribute_failed : Note<
+  "null passed to a callee that requires a non-null argument">;
 def note_constexpr_null_subobject : Note<
   "cannot %select{access base class of|access derived class of|access field of|"
   "access array element of|perform pointer arithmetic on|"
@@ -115,7 +119,8 @@ def note_constexpr_lifetime_ended : Note<
 def note_constexpr_access_uninit : Note<
   "%select{read of|assignment to|increment of|decrement of|member call on|"
   "dynamic_cast of|typeid applied to}0 "
-  "object outside its lifetime is not allowed in a constant expression">;
+  "%select{object outside its lifetime|uninitialized object}1 "
+  "is not allowed in a constant expression">;
 def note_constexpr_use_uninit_reference : Note<
   "use of reference outside its lifetime "
   "is not allowed in a constant expression">;
@@ -210,6 +215,19 @@ def note_constexpr_memcpy_unsupported : Note<
   "size to copy (%4) is not a multiple of size of element type %3 (%5)|"
   "source is not a contiguous array of at least %4 elements of type %3|"
   "destination is not a contiguous array of at least %4 elements of type %3}2">;
+def note_constexpr_bit_cast_unsupported_type : Note<
+  "constexpr bit_cast involving type %0 is not yet supported">;
+def note_constexpr_bit_cast_unsupported_bitfield : Note<
+  "constexpr bit_cast involving bit-field is not yet supported">;
+def note_constexpr_bit_cast_invalid_type : Note<
+  "bit_cast %select{from|to}0 a %select{|type with a }1"
+  "%select{union|pointer|member pointer|volatile|reference}2 "
+  "%select{type|member}1 is not allowed in a constant expression">;
+def note_constexpr_bit_cast_invalid_subtype : Note<
+  "invalid type %0 is a %select{member|base}1 of %2">;
+def note_constexpr_bit_cast_indet_dest : Note<
+  "indeterminate value can only initialize an object of type 'unsigned char'"
+  "%select{, 'char',|}1 or 'std::byte'; %0 is invalid">;
 
 def warn_integer_constant_overflow : Warning<
   "overflow in expression; result is %0 with type %1">,

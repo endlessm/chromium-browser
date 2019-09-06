@@ -27,6 +27,10 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/DataTypes.h"
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/Analysis/AssumptionCache.h"
 #include <functional>
 
 namespace llvm {
@@ -35,6 +39,8 @@ namespace Intrinsic {
 enum ID : unsigned;
 }
 
+class AssumptionCache;
+class BranchInst;
 class Function;
 class GlobalValue;
 class IntrinsicInst;
@@ -44,6 +50,7 @@ class SCEV;
 class ScalarEvolution;
 class StoreInst;
 class SwitchInst;
+class TargetLibraryInfo;
 class Type;
 class User;
 class Value;
@@ -72,6 +79,30 @@ struct MemIntrinsicInfo {
   }
 };
 
+/// Attributes of a target dependent hardware loop.
+struct HardwareLoopInfo {
+  HardwareLoopInfo() = delete;
+  HardwareLoopInfo(Loop *L) : L(L) {}
+  Loop *L = nullptr;
+  BasicBlock *ExitBlock = nullptr;
+  BranchInst *ExitBranch = nullptr;
+  const SCEV *ExitCount = nullptr;
+  IntegerType *CountType = nullptr;
+  Value *LoopDecrement = nullptr; // Decrement the loop counter by this
+                                  // value in every iteration.
+  bool IsNestingLegal = false;    // Can a hardware loop be a parent to
+                                  // another hardware loop?
+  bool CounterInReg = false;      // Should loop counter be updated in
+                                  // the loop via a phi?
+  bool PerformEntryTest = false;  // Generate the intrinsic which also performs
+                                  // icmp ne zero on the loop counter value and
+                                  // produces an i1 to guard the loop entry.
+  bool isHardwareLoopCandidate(ScalarEvolution &SE, LoopInfo &LI,
+                               DominatorTree &DT, bool ForceNestedLoop = false,
+                               bool ForceHardwareLoopPHI = false);
+  bool canAnalyze(LoopInfo &LI);
+};
+
 /// This pass provides access to the codegen interfaces that are needed
 /// for IR-level transformations.
 class TargetTransformInfo {
@@ -80,7 +111,7 @@ public:
   /// API below.
   ///
   /// This is used by targets to construct a TTI wrapping their target-specific
-  /// implementaion that encodes appropriate costs for their target.
+  /// implementation that encodes appropriate costs for their target.
   template <typename T> TargetTransformInfo(T Impl);
 
   /// Construct a baseline TTI object using a minimal implementation of
@@ -246,7 +277,7 @@ public:
                        ArrayRef<const Value *> Arguments,
                        const User *U = nullptr) const;
 
-  /// \Return the expected cost of a memcpy, which could e.g. depend on the
+  /// \return the expected cost of a memcpy, which could e.g. depend on the
   /// source/destination type and alignment and the number of bytes copied.
   int getMemcpyCost(const Instruction *I) const;
 
@@ -304,7 +335,7 @@ public:
 
   // Returns true for the target specific
   // set of operations which produce uniform result
-  // even taking non-unform arguments
+  // even taking non-uniform arguments
   bool isAlwaysUniform(const Value *V) const;
 
   /// Returns the address space ID for a target's 'flat' address space. Note
@@ -445,6 +476,13 @@ public:
   void getUnrollingPreferences(Loop *L, ScalarEvolution &,
                                UnrollingPreferences &UP) const;
 
+  /// Query the target whether it would be profitable to convert the given loop
+  /// into a hardware loop.
+  bool isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
+                                AssumptionCache &AC,
+                                TargetLibraryInfo *LibInfo,
+                                HardwareLoopInfo &HWLoopInfo) const;
+
   /// @}
 
   /// \name Scalar Target Information
@@ -491,6 +529,12 @@ public:
   /// calculation for the instructions in a loop.
   bool canMacroFuseCmp() const;
 
+  /// Return true if the target can save a compare for loop count, for example
+  /// hardware loop saves a compare.
+  bool canSaveCmp(Loop *L, BranchInst **BI, ScalarEvolution *SE, LoopInfo *LI,
+                  DominatorTree *DT, AssumptionCache *AC,
+                  TargetLibraryInfo *LibInfo) const;
+
   /// \return True is LSR should make efforts to create/preserve post-inc
   /// addressing mode expressions.
   bool shouldFavorPostInc() const;
@@ -503,6 +547,11 @@ public:
   bool isLegalMaskedStore(Type *DataType) const;
   /// Return true if the target supports masked store.
   bool isLegalMaskedLoad(Type *DataType) const;
+
+  /// Return true if the target supports nontemporal store.
+  bool isLegalNTStore(Type *DataType, unsigned Alignment) const;
+  /// Return true if the target supports nontemporal load.
+  bool isLegalNTLoad(Type *DataType, unsigned Alignment) const;
 
   /// Return true if the target supports masked scatter.
   bool isLegalMaskedScatter(Type *DataType) const;
@@ -592,17 +641,35 @@ public:
   /// Don't restrict interleaved unrolling to small loops.
   bool enableAggressiveInterleaving(bool LoopHasReductions) const;
 
-  /// If not nullptr, enable inline expansion of memcmp. IsZeroCmp is
-  /// true if this is the expansion of memcmp(p1, p2, s) == 0.
+  /// Returns options for expansion of memcmp. IsZeroCmp is
+  // true if this is the expansion of memcmp(p1, p2, s) == 0.
   struct MemCmpExpansionOptions {
+    // Return true if memcmp expansion is enabled.
+    operator bool() const { return MaxNumLoads > 0; }
+
+    // Maximum number of load operations.
+    unsigned MaxNumLoads = 0;
+
     // The list of available load sizes (in bytes), sorted in decreasing order.
     SmallVector<unsigned, 8> LoadSizes;
+
+    // For memcmp expansion when the memcmp result is only compared equal or
+    // not-equal to 0, allow up to this number of load pairs per block. As an
+    // example, this may allow 'memcmp(a, b, 3) == 0' in a single block:
+    //   a0 = load2bytes &a[0]
+    //   b0 = load2bytes &b[0]
+    //   a2 = load1byte  &a[2]
+    //   b2 = load1byte  &b[2]
+    //   r  = cmp eq (a0 ^ b0 | a2 ^ b2), 0
+    unsigned NumLoadsPerBlock = 1;
+
     // Set to true to allow overlapping loads. For example, 7-byte compares can
     // be done with two 4-byte compares instead of 4+2+1-byte compares. This
     // requires all loads in LoadSizes to be doable in an unaligned way.
     bool AllowOverlappingLoads = false;
   };
-  const MemCmpExpansionOptions *enableMemCmpExpansion(bool IsZeroCmp) const;
+  MemCmpExpansionOptions enableMemCmpExpansion(bool OptSize,
+                                               bool IsZeroCmp) const;
 
   /// Enable matching of interleaved access groups.
   bool enableInterleavedAccessVectorization() const;
@@ -716,7 +783,7 @@ public:
   bool shouldMaximizeVectorBandwidth(bool OptSize) const;
 
   /// \return The minimum vectorization factor for types of given element
-  /// bit width, or 0 if there is no mimimum VF. The returned value only
+  /// bit width, or 0 if there is no minimum VF. The returned value only
   /// applies when shouldMaximizeVectorBandwidth returns true.
   unsigned getMinimumVF(unsigned ElemWidth) const;
 
@@ -1021,6 +1088,11 @@ public:
   /// \returns True if the target wants to expand the given reduction intrinsic
   /// into a shuffle sequence.
   bool shouldExpandReduction(const IntrinsicInst *II) const;
+
+  /// \returns the size cost of rematerializing a GlobalValue address relative
+  /// to a stack reload.
+  unsigned getGISelRematGlobalCost() const;
+
   /// @}
 
 private:
@@ -1073,6 +1145,10 @@ public:
   virtual bool isLoweredToCall(const Function *F) = 0;
   virtual void getUnrollingPreferences(Loop *L, ScalarEvolution &,
                                        UnrollingPreferences &UP) = 0;
+  virtual bool isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
+                                        AssumptionCache &AC,
+                                        TargetLibraryInfo *LibInfo,
+                                        HardwareLoopInfo &HWLoopInfo) = 0;
   virtual bool isLegalAddImmediate(int64_t Imm) = 0;
   virtual bool isLegalICmpImmediate(int64_t Imm) = 0;
   virtual bool isLegalAddressingMode(Type *Ty, GlobalValue *BaseGV,
@@ -1083,10 +1159,15 @@ public:
   virtual bool isLSRCostLess(TargetTransformInfo::LSRCost &C1,
                              TargetTransformInfo::LSRCost &C2) = 0;
   virtual bool canMacroFuseCmp() = 0;
+  virtual bool canSaveCmp(Loop *L, BranchInst **BI, ScalarEvolution *SE,
+                          LoopInfo *LI, DominatorTree *DT, AssumptionCache *AC,
+                          TargetLibraryInfo *LibInfo) = 0;
   virtual bool shouldFavorPostInc() const = 0;
   virtual bool shouldFavorBackedgeIndex(const Loop *L) const = 0;
   virtual bool isLegalMaskedStore(Type *DataType) = 0;
   virtual bool isLegalMaskedLoad(Type *DataType) = 0;
+  virtual bool isLegalNTStore(Type *DataType, unsigned Alignment) = 0;
+  virtual bool isLegalNTLoad(Type *DataType, unsigned Alignment) = 0;
   virtual bool isLegalMaskedScatter(Type *DataType) = 0;
   virtual bool isLegalMaskedGather(Type *DataType) = 0;
   virtual bool isLegalMaskedCompressStore(Type *DataType) = 0;
@@ -1113,8 +1194,8 @@ public:
                                                     unsigned VF) = 0;
   virtual bool supportsEfficientVectorElementLoadStore() = 0;
   virtual bool enableAggressiveInterleaving(bool LoopHasReductions) = 0;
-  virtual const MemCmpExpansionOptions *enableMemCmpExpansion(
-      bool IsZeroCmp) const = 0;
+  virtual MemCmpExpansionOptions
+  enableMemCmpExpansion(bool OptSize, bool IsZeroCmp) const = 0;
   virtual bool enableInterleavedAccessVectorization() = 0;
   virtual bool enableMaskedInterleavedAccessVectorization() = 0;
   virtual bool isFPVectorizationPotentiallyUnsafe() = 0;
@@ -1231,6 +1312,7 @@ public:
   virtual bool useReductionIntrinsic(unsigned Opcode, Type *Ty,
                                      ReductionFlags) const = 0;
   virtual bool shouldExpandReduction(const IntrinsicInst *II) const = 0;
+  virtual unsigned getGISelRematGlobalCost() const = 0;
   virtual int getInstructionLatency(const Instruction *I) = 0;
 };
 
@@ -1304,6 +1386,12 @@ public:
                                UnrollingPreferences &UP) override {
     return Impl.getUnrollingPreferences(L, SE, UP);
   }
+  bool isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
+                                AssumptionCache &AC,
+                                TargetLibraryInfo *LibInfo,
+                                HardwareLoopInfo &HWLoopInfo) override {
+    return Impl.isHardwareLoopProfitable(L, SE, AC, LibInfo, HWLoopInfo);
+  }
   bool isLegalAddImmediate(int64_t Imm) override {
     return Impl.isLegalAddImmediate(Imm);
   }
@@ -1324,6 +1412,12 @@ public:
   bool canMacroFuseCmp() override {
     return Impl.canMacroFuseCmp();
   }
+  bool canSaveCmp(Loop *L, BranchInst **BI,
+                        ScalarEvolution *SE,
+                        LoopInfo *LI, DominatorTree *DT, AssumptionCache *AC,
+                        TargetLibraryInfo *LibInfo) override {
+    return Impl.canSaveCmp(L, BI, SE, LI, DT, AC, LibInfo);
+  }
   bool shouldFavorPostInc() const override {
     return Impl.shouldFavorPostInc();
   }
@@ -1335,6 +1429,12 @@ public:
   }
   bool isLegalMaskedLoad(Type *DataType) override {
     return Impl.isLegalMaskedLoad(DataType);
+  }
+  bool isLegalNTStore(Type *DataType, unsigned Alignment) override {
+    return Impl.isLegalNTStore(DataType, Alignment);
+  }
+  bool isLegalNTLoad(Type *DataType, unsigned Alignment) override {
+    return Impl.isLegalNTLoad(DataType, Alignment);
   }
   bool isLegalMaskedScatter(Type *DataType) override {
     return Impl.isLegalMaskedScatter(DataType);
@@ -1402,9 +1502,9 @@ public:
   bool enableAggressiveInterleaving(bool LoopHasReductions) override {
     return Impl.enableAggressiveInterleaving(LoopHasReductions);
   }
-  const MemCmpExpansionOptions *enableMemCmpExpansion(
-      bool IsZeroCmp) const override {
-    return Impl.enableMemCmpExpansion(IsZeroCmp);
+  MemCmpExpansionOptions enableMemCmpExpansion(bool OptSize,
+                                               bool IsZeroCmp) const override {
+    return Impl.enableMemCmpExpansion(OptSize, IsZeroCmp);
   }
   bool enableInterleavedAccessVectorization() override {
     return Impl.enableInterleavedAccessVectorization();
@@ -1651,6 +1751,11 @@ public:
   bool shouldExpandReduction(const IntrinsicInst *II) const override {
     return Impl.shouldExpandReduction(II);
   }
+
+  unsigned getGISelRematGlobalCost() const override {
+    return Impl.getGISelRematGlobalCost();
+  }
+
   int getInstructionLatency(const Instruction *I) override {
     return Impl.getInstructionLatency(I);
   }

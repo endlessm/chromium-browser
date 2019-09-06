@@ -254,7 +254,8 @@ public:
   /// have different helper functions.
   CharUnits Alignment;
 
-  BlockByrefHelpers(CharUnits alignment) : Alignment(alignment) {}
+  BlockByrefHelpers(CharUnits alignment)
+      : CopyHelper(nullptr), DisposeHelper(nullptr), Alignment(alignment) {}
   BlockByrefHelpers(const BlockByrefHelpers &) = default;
   virtual ~BlockByrefHelpers();
 
@@ -360,6 +361,10 @@ private:
   /// anymore (because the name is already taken).
   llvm::SmallVector<std::pair<llvm::GlobalValue *, llvm::Constant *>, 8>
     GlobalValReplacements;
+
+  /// Variables for which we've emitted globals containing their constant
+  /// values along with the corresponding globals, for opportunistic reuse.
+  llvm::DenseMap<const VarDecl*, llvm::GlobalVariable*> InitializerConstants;
 
   /// Set of global decls for which we already diagnosed mangled name conflict.
   /// Required to not issue a warning (on a mangling conflict) multiple times
@@ -622,6 +627,9 @@ public:
     StaticLocalDeclGuardMap[D] = C;
   }
 
+  Address createUnnamedGlobalFrom(const VarDecl &D, llvm::Constant *Constant,
+                                  CharUnits Align);
+
   bool lookupRepresentativeDecl(StringRef MangledName,
                                 GlobalDecl &Result) const;
 
@@ -758,9 +766,6 @@ public:
   /// Set the visibility for the given LLVM GlobalValue.
   void setGlobalVisibility(llvm::GlobalValue *GV, const NamedDecl *D) const;
 
-  void setGlobalVisibilityAndLocal(llvm::GlobalValue *GV,
-                                   const NamedDecl *D) const;
-
   void setDSOLocal(llvm::GlobalValue *GV) const;
 
   void setDLLImportDLLExport(llvm::GlobalValue *GV, GlobalDecl D) const;
@@ -769,6 +774,8 @@ public:
   /// This must be called after dllimport/dllexport is set.
   void setGVProperties(llvm::GlobalValue *GV, GlobalDecl GD) const;
   void setGVProperties(llvm::GlobalValue *GV, const NamedDecl *D) const;
+
+  void setGVPropertiesAux(llvm::GlobalValue *GV, const NamedDecl *D) const;
 
   /// Set the TLS mode for the given LLVM GlobalValue for the thread-local
   /// variable declaration D.

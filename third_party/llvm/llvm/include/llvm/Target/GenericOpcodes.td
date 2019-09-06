@@ -169,6 +169,12 @@ def G_BLOCK_ADDR : GenericInstruction {
   let hasSideEffects = 0;
 }
 
+def G_JUMP_TABLE : GenericInstruction {
+  let OutOperandList = (outs type0:$dst);
+  let InOperandList = (ins unknown:$jti);
+  let hasSideEffects = 0;
+}
+
 //------------------------------------------------------------------------------
 // Binary ops.
 //------------------------------------------------------------------------------
@@ -737,6 +743,12 @@ def G_ATOMICRMW_MIN : G_ATOMICRMW_OP;
 def G_ATOMICRMW_UMAX : G_ATOMICRMW_OP;
 def G_ATOMICRMW_UMIN : G_ATOMICRMW_OP;
 
+def G_FENCE : GenericInstruction {
+  let OutOperandList = (outs);
+  let InOperandList = (ins i32imm:$ordering, i32imm:$scope);
+  let hasSideEffects = 1;
+}
+
 //------------------------------------------------------------------------------
 // Variadic ops
 //------------------------------------------------------------------------------
@@ -846,6 +858,15 @@ def G_BRCOND : GenericInstruction {
 def G_BRINDIRECT : GenericInstruction {
   let OutOperandList = (outs);
   let InOperandList = (ins type0:$src1);
+  let hasSideEffects = 0;
+  let isBranch = 1;
+  let isTerminator = 1;
+}
+
+// Generic branch to jump table entry
+def G_BRJT : GenericInstruction {
+  let OutOperandList = (outs);
+  let InOperandList = (ins ptype0:$tbl, unknown:$jti, type1:$idx);
   let hasSideEffects = 0;
   let isBranch = 1;
   let isTerminator = 1;

@@ -971,6 +971,10 @@ let AddedComplexity = 400 in { // Prefer VSX patterns over non-VSX patterns.
 
 def : Pat<(v4i32 (vnot_ppc v4i32:$A)),
           (v4i32 (XXLNOR $A, $A))>;
+def : Pat<(v4i32 (or (and (vnot_ppc v4i32:$C), v4i32:$A),
+                     (and v4i32:$B, v4i32:$C))),
+          (v4i32 (XXSEL $A, $B, $C))>;
+
 let Predicates = [IsBigEndian] in {
 def : Pat<(v2f64 (scalar_to_vector f64:$A)),
           (v2f64 (SUBREG_TO_REG (i64 1), $A, sub_64))>;
@@ -1188,6 +1192,15 @@ def : Pat<(vselect v4i32:$vA, v4f32:$vB, v4f32:$vC),
 def : Pat<(vselect v2i64:$vA, v2f64:$vB, v2f64:$vC),
           (XXSEL $vC, $vB, $vA)>;
 
+def : Pat<(v4f32 (fmaxnum v4f32:$src1, v4f32:$src2)),
+          (v4f32 (XVMAXSP $src1, $src2))>;
+def : Pat<(v4f32 (fminnum v4f32:$src1, v4f32:$src2)),
+          (v4f32 (XVMINSP $src1, $src2))>;
+def : Pat<(v2f64 (fmaxnum v2f64:$src1, v2f64:$src2)),
+          (v2f64 (XVMAXDP $src1, $src2))>;
+def : Pat<(v2f64 (fminnum v2f64:$src1, v2f64:$src2)),
+          (v2f64 (XVMINDP $src1, $src2))>;
+
 let Predicates = [IsLittleEndian] in {
 def : Pat<(f64 (PPCfcfid (PPCmtvsra (i64 (vector_extract v2i64:$S, 0))))),
           (f64 (XSCVSXDDP (COPY_TO_REGCLASS (XXPERMDI $S, $S, 2), VSFRC)))>;
@@ -1363,7 +1376,10 @@ let AddedComplexity = 400 in { // Prefer VSX patterns over non-VSX patterns.
                           "xsmulsp $XT, $XA, $XB", IIC_VecFP,
                           [(set f32:$XT, (fmul f32:$XA, f32:$XB))]>;
   } // isCommutable
-
+  def XSSUBSP : XX3Form<60, 8,
+                        (outs vssrc:$XT), (ins vssrc:$XA, vssrc:$XB),
+                        "xssubsp $XT, $XA, $XB", IIC_VecFP,
+                        [(set f32:$XT, (fsub f32:$XA, f32:$XB))]>;
   def XSDIVSP : XX3Form<60, 24,
                         (outs vssrc:$XT), (ins vssrc:$XA, vssrc:$XB),
                         "xsdivsp $XT, $XA, $XB", IIC_FPDivS,
@@ -1383,10 +1399,6 @@ let AddedComplexity = 400 in { // Prefer VSX patterns over non-VSX patterns.
                            (outs vssrc:$XT), (ins vssrc:$XB),
                            "xsrsqrtesp $XT, $XB", IIC_VecFP,
                            [(set f32:$XT, (PPCfrsqrte f32:$XB))]>;
-  def XSSUBSP : XX3Form<60, 8,
-                        (outs vssrc:$XT), (ins vssrc:$XA, vssrc:$XB),
-                        "xssubsp $XT, $XA, $XB", IIC_VecFP,
-                        [(set f32:$XT, (fsub f32:$XA, f32:$XB))]>;
 
   // FMA Instructions
   let BaseName = "XSMADDASP" in {
@@ -1522,6 +1534,18 @@ let AddedComplexity = 400 in { // Prefer VSX patterns over non-VSX patterns.
               (f64 (PPCcv_fp_to_uint_in_vsr f64:$src)), xoaddr:$dst, 4),
             (STIWX (XSCVDPUXWS f64:$src), xoaddr:$dst)>;
 
+  def : Pat<(v2i64 (smax v2i64:$src1, v2i64:$src2)),
+            (v2i64 (VMAXSD (COPY_TO_REGCLASS $src1, VRRC),
+                           (COPY_TO_REGCLASS $src2, VRRC)))>;
+  def : Pat<(v2i64 (umax v2i64:$src1, v2i64:$src2)),
+            (v2i64 (VMAXUD (COPY_TO_REGCLASS $src1, VRRC),
+                           (COPY_TO_REGCLASS $src2, VRRC)))>;
+  def : Pat<(v2i64 (smin v2i64:$src1, v2i64:$src2)),
+            (v2i64 (VMINSD (COPY_TO_REGCLASS $src1, VRRC),
+                           (COPY_TO_REGCLASS $src2, VRRC)))>;
+  def : Pat<(v2i64 (umin v2i64:$src1, v2i64:$src2)),
+            (v2i64 (VMINUD (COPY_TO_REGCLASS $src1, VRRC),
+                           (COPY_TO_REGCLASS $src2, VRRC)))>;
 } // AddedComplexity = 400
 } // HasP8Vector
 
@@ -2488,69 +2512,70 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
   let isCommutable = 1 in {
   def XSADDQP   : X_VT5_VA5_VB5   <63,   4, "xsaddqp",
                                    [(set f128:$vT, (fadd f128:$vA, f128:$vB))]>;
-  def XSADDQPO : X_VT5_VA5_VB5_Ro<63, 4, "xsaddqpo",
-                                  [(set f128:$vT,
-                                  (int_ppc_addf128_round_to_odd
-                                  f128:$vA, f128:$vB))]>;
   def XSMULQP   : X_VT5_VA5_VB5   <63,  36, "xsmulqp",
                                    [(set f128:$vT, (fmul f128:$vA, f128:$vB))]>;
-  def XSMULQPO : X_VT5_VA5_VB5_Ro<63, 36, "xsmulqpo",
-                                  [(set f128:$vT,
-                                  (int_ppc_mulf128_round_to_odd
-                                  f128:$vA, f128:$vB))]>;
   }
-
   def XSSUBQP   : X_VT5_VA5_VB5   <63, 516, "xssubqp" ,
                                    [(set f128:$vT, (fsub f128:$vA, f128:$vB))]>;
-  def XSSUBQPO : X_VT5_VA5_VB5_Ro<63, 516, "xssubqpo",
-                                  [(set f128:$vT,
-                                  (int_ppc_subf128_round_to_odd
-                                  f128:$vA, f128:$vB))]>;
   def XSDIVQP   : X_VT5_VA5_VB5   <63, 548, "xsdivqp",
                                    [(set f128:$vT, (fdiv f128:$vA, f128:$vB))]>;
-  def XSDIVQPO : X_VT5_VA5_VB5_Ro<63, 548, "xsdivqpo",
-                                  [(set f128:$vT,
-                                  (int_ppc_divf128_round_to_odd
-                                  f128:$vA, f128:$vB))]>;
-
   // Square-Root
   def XSSQRTQP  : X_VT5_XO5_VB5   <63, 27, 804, "xssqrtqp",
                                    [(set f128:$vT, (fsqrt f128:$vB))]>;
-  def XSSQRTQPO : X_VT5_XO5_VB5_Ro<63, 27, 804, "xssqrtqpo",
-                                  [(set f128:$vT,
-                                  (int_ppc_sqrtf128_round_to_odd f128:$vB))]>;
-
   // (Negative) Multiply-{Add/Subtract}
   def XSMADDQP : X_VT5_VA5_VB5_FMA <63, 388, "xsmaddqp",
                                     [(set f128:$vT,
                                           (fma f128:$vA, f128:$vB,
                                                f128:$vTi))]>;
+  def XSMSUBQP  : X_VT5_VA5_VB5_FMA   <63, 420, "xsmsubqp"  ,
+                                       [(set f128:$vT,
+                                             (fma f128:$vA, f128:$vB,
+                                                  (fneg f128:$vTi)))]>;
+  def XSNMADDQP : X_VT5_VA5_VB5_FMA <63, 452, "xsnmaddqp",
+                                     [(set f128:$vT,
+                                           (fneg (fma f128:$vA, f128:$vB,
+                                                      f128:$vTi)))]>;
+  def XSNMSUBQP : X_VT5_VA5_VB5_FMA <63, 484, "xsnmsubqp",
+                                     [(set f128:$vT,
+                                           (fneg (fma f128:$vA, f128:$vB,
+                                                      (fneg f128:$vTi))))]>;
+
+  let isCommutable = 1 in {
+  def XSADDQPO : X_VT5_VA5_VB5_Ro<63, 4, "xsaddqpo",
+                                  [(set f128:$vT,
+                                  (int_ppc_addf128_round_to_odd
+                                  f128:$vA, f128:$vB))]>;
+  def XSMULQPO : X_VT5_VA5_VB5_Ro<63, 36, "xsmulqpo",
+                                  [(set f128:$vT,
+                                  (int_ppc_mulf128_round_to_odd
+                                  f128:$vA, f128:$vB))]>;
+  }
+  def XSSUBQPO : X_VT5_VA5_VB5_Ro<63, 516, "xssubqpo",
+                                  [(set f128:$vT,
+                                  (int_ppc_subf128_round_to_odd
+                                  f128:$vA, f128:$vB))]>;
+  def XSDIVQPO : X_VT5_VA5_VB5_Ro<63, 548, "xsdivqpo",
+                                  [(set f128:$vT,
+                                  (int_ppc_divf128_round_to_odd
+                                  f128:$vA, f128:$vB))]>;
+  def XSSQRTQPO : X_VT5_XO5_VB5_Ro<63, 27, 804, "xssqrtqpo",
+                                  [(set f128:$vT,
+                                  (int_ppc_sqrtf128_round_to_odd f128:$vB))]>;
+
 
   def XSMADDQPO : X_VT5_VA5_VB5_FMA_Ro<63, 388, "xsmaddqpo",
                                       [(set f128:$vT,
                                       (int_ppc_fmaf128_round_to_odd
                                       f128:$vA,f128:$vB,f128:$vTi))]>;
 
-  def XSMSUBQP  : X_VT5_VA5_VB5_FMA   <63, 420, "xsmsubqp"  ,
-                                       [(set f128:$vT,
-                                             (fma f128:$vA, f128:$vB,
-                                                  (fneg f128:$vTi)))]>;
   def XSMSUBQPO : X_VT5_VA5_VB5_FMA_Ro<63, 420, "xsmsubqpo" ,
                                       [(set f128:$vT,
                                       (int_ppc_fmaf128_round_to_odd
                                       f128:$vA, f128:$vB, (fneg f128:$vTi)))]>;
-  def XSNMADDQP : X_VT5_VA5_VB5_FMA <63, 452, "xsnmaddqp",
-                                     [(set f128:$vT,
-                                           (fneg (fma f128:$vA, f128:$vB,
-                                                      f128:$vTi)))]>;
   def XSNMADDQPO: X_VT5_VA5_VB5_FMA_Ro<63, 452, "xsnmaddqpo",
                                       [(set f128:$vT,
                                       (fneg (int_ppc_fmaf128_round_to_odd
                                       f128:$vA, f128:$vB, f128:$vTi)))]>;
-  def XSNMSUBQP : X_VT5_VA5_VB5_FMA <63, 484, "xsnmsubqp",
-                                     [(set f128:$vT,
-                                           (fneg (fma f128:$vA, f128:$vB,
-                                                      (fneg f128:$vTi))))]>;
   def XSNMSUBQPO: X_VT5_VA5_VB5_FMA_Ro<63, 484, "xsnmsubqpo",
                                       [(set f128:$vT,
                                       (fneg (int_ppc_fmaf128_round_to_odd
@@ -2857,7 +2882,7 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
 
   // Load Vector Indexed
   def LXVX    : X_XT6_RA5_RB5<31, 268, "lxvx"   , vsrc,
-                [(set v2f64:$XT, (load xaddr:$src))]>;
+                [(set v2f64:$XT, (load xaddrX16:$src))]>;
   // Load Vector (Left-justified) with Length
   def LXVL : XX1Form_memOp<31, 269, (outs vsrc:$XT), (ins memr:$src, g8rc:$rB),
                    "lxvl $XT, $src, $rB", IIC_LdStLoad,
@@ -2905,7 +2930,7 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
 
   // Store Vector Indexed
   def STXVX    : X_XS6_RA5_RB5<31,  396, "stxvx"   , vsrc,
-                 [(store v2f64:$XT, xaddr:$dst)]>;
+                 [(store v2f64:$XT, xaddrX16:$dst)]>;
 
   // Store Vector (Left-justified) with Length
   def STXVL : XX1Form_memOp<31, 397, (outs),
@@ -3037,24 +3062,24 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
   } // IsLittleEndian, HasP9Vector
 
   // D-Form Load/Store
-  def : Pat<(v4i32 (quadwOffsetLoad iqaddr:$src)), (LXV memrix16:$src)>;
-  def : Pat<(v4f32 (quadwOffsetLoad iqaddr:$src)), (LXV memrix16:$src)>;
-  def : Pat<(v2i64 (quadwOffsetLoad iqaddr:$src)), (LXV memrix16:$src)>;
-  def : Pat<(v2f64 (quadwOffsetLoad iqaddr:$src)), (LXV memrix16:$src)>;
-  def : Pat<(f128  (quadwOffsetLoad iqaddr:$src)),
+  def : Pat<(v4i32 (quadwOffsetLoad iaddrX16:$src)), (LXV memrix16:$src)>;
+  def : Pat<(v4f32 (quadwOffsetLoad iaddrX16:$src)), (LXV memrix16:$src)>;
+  def : Pat<(v2i64 (quadwOffsetLoad iaddrX16:$src)), (LXV memrix16:$src)>;
+  def : Pat<(v2f64 (quadwOffsetLoad iaddrX16:$src)), (LXV memrix16:$src)>;
+  def : Pat<(f128  (quadwOffsetLoad iaddrX16:$src)),
             (COPY_TO_REGCLASS (LXV memrix16:$src), VRRC)>;
-  def : Pat<(v4i32 (int_ppc_vsx_lxvw4x iqaddr:$src)), (LXV memrix16:$src)>;
-  def : Pat<(v2f64 (int_ppc_vsx_lxvd2x iqaddr:$src)), (LXV memrix16:$src)>;
+  def : Pat<(v4i32 (int_ppc_vsx_lxvw4x iaddrX16:$src)), (LXV memrix16:$src)>;
+  def : Pat<(v2f64 (int_ppc_vsx_lxvd2x iaddrX16:$src)), (LXV memrix16:$src)>;
 
-  def : Pat<(quadwOffsetStore v4f32:$rS, iqaddr:$dst), (STXV $rS, memrix16:$dst)>;
-  def : Pat<(quadwOffsetStore v4i32:$rS, iqaddr:$dst), (STXV $rS, memrix16:$dst)>;
-  def : Pat<(quadwOffsetStore v2f64:$rS, iqaddr:$dst), (STXV $rS, memrix16:$dst)>;
-  def : Pat<(quadwOffsetStore  f128:$rS, iqaddr:$dst),
+  def : Pat<(quadwOffsetStore v4f32:$rS, iaddrX16:$dst), (STXV $rS, memrix16:$dst)>;
+  def : Pat<(quadwOffsetStore v4i32:$rS, iaddrX16:$dst), (STXV $rS, memrix16:$dst)>;
+  def : Pat<(quadwOffsetStore v2f64:$rS, iaddrX16:$dst), (STXV $rS, memrix16:$dst)>;
+  def : Pat<(quadwOffsetStore  f128:$rS, iaddrX16:$dst),
             (STXV (COPY_TO_REGCLASS $rS, VSRC), memrix16:$dst)>;
-  def : Pat<(quadwOffsetStore v2i64:$rS, iqaddr:$dst), (STXV $rS, memrix16:$dst)>;
-  def : Pat<(int_ppc_vsx_stxvw4x v4i32:$rS, iqaddr:$dst),
+  def : Pat<(quadwOffsetStore v2i64:$rS, iaddrX16:$dst), (STXV $rS, memrix16:$dst)>;
+  def : Pat<(int_ppc_vsx_stxvw4x v4i32:$rS, iaddrX16:$dst),
             (STXV $rS, memrix16:$dst)>;
-  def : Pat<(int_ppc_vsx_stxvd2x v2f64:$rS, iqaddr:$dst),
+  def : Pat<(int_ppc_vsx_stxvd2x v2f64:$rS, iaddrX16:$dst),
             (STXV $rS, memrix16:$dst)>;
 
 
@@ -3265,96 +3290,96 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
 
   def DFLOADf32  : PPCPostRAExpPseudo<(outs vssrc:$XT), (ins memrix:$src),
                           "#DFLOADf32",
-                          [(set f32:$XT, (load ixaddr:$src))]>;
+                          [(set f32:$XT, (load iaddrX4:$src))]>;
   def DFLOADf64  : PPCPostRAExpPseudo<(outs vsfrc:$XT), (ins memrix:$src),
                           "#DFLOADf64",
-                          [(set f64:$XT, (load ixaddr:$src))]>;
+                          [(set f64:$XT, (load iaddrX4:$src))]>;
   def DFSTOREf32 : PPCPostRAExpPseudo<(outs), (ins vssrc:$XT, memrix:$dst),
                           "#DFSTOREf32",
-                          [(store f32:$XT, ixaddr:$dst)]>;
+                          [(store f32:$XT, iaddrX4:$dst)]>;
   def DFSTOREf64 : PPCPostRAExpPseudo<(outs), (ins vsfrc:$XT, memrix:$dst),
                           "#DFSTOREf64",
-                          [(store f64:$XT, ixaddr:$dst)]>;
+                          [(store f64:$XT, iaddrX4:$dst)]>;
 
-  def : Pat<(f64 (extloadf32 ixaddr:$src)),
-            (COPY_TO_REGCLASS (DFLOADf32 ixaddr:$src), VSFRC)>;
-  def : Pat<(f32 (fpround (f64 (extloadf32 ixaddr:$src)))),
-            (f32 (DFLOADf32 ixaddr:$src))>;
+  def : Pat<(f64 (extloadf32 iaddrX4:$src)),
+            (COPY_TO_REGCLASS (DFLOADf32 iaddrX4:$src), VSFRC)>;
+  def : Pat<(f32 (fpround (f64 (extloadf32 iaddrX4:$src)))),
+            (f32 (DFLOADf32 iaddrX4:$src))>;
 
   def : Pat<(v4f32 (PPCldvsxlh xaddr:$src)),
             (COPY_TO_REGCLASS (XFLOADf64 xaddr:$src), VSRC)>;
-  def : Pat<(v4f32 (PPCldvsxlh ixaddr:$src)),
-            (COPY_TO_REGCLASS (DFLOADf64 ixaddr:$src), VSRC)>;
+  def : Pat<(v4f32 (PPCldvsxlh iaddrX4:$src)),
+            (COPY_TO_REGCLASS (DFLOADf64 iaddrX4:$src), VSRC)>;
 
   let AddedComplexity = 400 in {
   // The following pseudoinstructions are used to ensure the utilization
   // of all 64 VSX registers.
     let Predicates = [IsLittleEndian, HasP9Vector] in {
-      def : Pat<(v2i64 (scalar_to_vector (i64 (load ixaddr:$src)))),
+      def : Pat<(v2i64 (scalar_to_vector (i64 (load iaddrX4:$src)))),
                 (v2i64 (XXPERMDIs
-                (COPY_TO_REGCLASS (DFLOADf64 ixaddr:$src), VSRC), 2))>;
-      def : Pat<(v2i64 (scalar_to_vector (i64 (load xaddr:$src)))),
+                (COPY_TO_REGCLASS (DFLOADf64 iaddrX4:$src), VSRC), 2))>;
+      def : Pat<(v2i64 (scalar_to_vector (i64 (load xaddrX4:$src)))),
                 (v2i64 (XXPERMDIs
-		(COPY_TO_REGCLASS (XFLOADf64 xaddr:$src), VSRC), 2))>;
+		(COPY_TO_REGCLASS (XFLOADf64 xaddrX4:$src), VSRC), 2))>;
 
-      def : Pat<(v2f64 (scalar_to_vector (f64 (load ixaddr:$src)))),
+      def : Pat<(v2f64 (scalar_to_vector (f64 (load iaddrX4:$src)))),
                 (v2f64 (XXPERMDIs
-                (COPY_TO_REGCLASS (DFLOADf64 ixaddr:$src), VSRC), 2))>;
-      def : Pat<(v2f64 (scalar_to_vector (f64 (load xaddr:$src)))),
+                (COPY_TO_REGCLASS (DFLOADf64 iaddrX4:$src), VSRC), 2))>;
+      def : Pat<(v2f64 (scalar_to_vector (f64 (load xaddrX4:$src)))),
                 (v2f64 (XXPERMDIs
-                (COPY_TO_REGCLASS (XFLOADf64 xaddr:$src), VSRC), 2))>;
-      def : Pat<(store (i64 (extractelt v2i64:$A, 0)), xaddr:$src),
+                (COPY_TO_REGCLASS (XFLOADf64 xaddrX4:$src), VSRC), 2))>;
+      def : Pat<(store (i64 (extractelt v2i64:$A, 0)), xaddrX4:$src),
                 (XFSTOREf64 (EXTRACT_SUBREG (XXPERMDI $A, $A, 2),
-                             sub_64), xaddr:$src)>;
-      def : Pat<(store (f64 (extractelt v2f64:$A, 0)), xaddr:$src),
+                             sub_64), xaddrX4:$src)>;
+      def : Pat<(store (f64 (extractelt v2f64:$A, 0)), xaddrX4:$src),
                 (XFSTOREf64 (EXTRACT_SUBREG (XXPERMDI $A, $A, 2),
-                             sub_64), xaddr:$src)>;
-      def : Pat<(store (i64 (extractelt v2i64:$A, 1)), xaddr:$src),
-                (XFSTOREf64 (EXTRACT_SUBREG $A, sub_64), xaddr:$src)>;
-      def : Pat<(store (f64 (extractelt v2f64:$A, 1)), xaddr:$src),
-                (XFSTOREf64 (EXTRACT_SUBREG $A, sub_64), xaddr:$src)>;
-      def : Pat<(store (i64 (extractelt v2i64:$A, 0)), ixaddr:$src),
+                             sub_64), xaddrX4:$src)>;
+      def : Pat<(store (i64 (extractelt v2i64:$A, 1)), xaddrX4:$src),
+                (XFSTOREf64 (EXTRACT_SUBREG $A, sub_64), xaddrX4:$src)>;
+      def : Pat<(store (f64 (extractelt v2f64:$A, 1)), xaddrX4:$src),
+                (XFSTOREf64 (EXTRACT_SUBREG $A, sub_64), xaddrX4:$src)>;
+      def : Pat<(store (i64 (extractelt v2i64:$A, 0)), iaddrX4:$src),
                 (DFSTOREf64 (EXTRACT_SUBREG (XXPERMDI $A, $A, 2),
-                             sub_64), ixaddr:$src)>;
-      def : Pat<(store (f64 (extractelt v2f64:$A, 0)), ixaddr:$src),
+                             sub_64), iaddrX4:$src)>;
+      def : Pat<(store (f64 (extractelt v2f64:$A, 0)), iaddrX4:$src),
                 (DFSTOREf64 (EXTRACT_SUBREG (XXPERMDI $A, $A, 2), sub_64),
-                            ixaddr:$src)>;
-      def : Pat<(store (i64 (extractelt v2i64:$A, 1)), ixaddr:$src),
-                (DFSTOREf64 (EXTRACT_SUBREG $A, sub_64), ixaddr:$src)>;
-      def : Pat<(store (f64 (extractelt v2f64:$A, 1)), ixaddr:$src),
-                (DFSTOREf64 (EXTRACT_SUBREG $A, sub_64), ixaddr:$src)>;
+                            iaddrX4:$src)>;
+      def : Pat<(store (i64 (extractelt v2i64:$A, 1)), iaddrX4:$src),
+                (DFSTOREf64 (EXTRACT_SUBREG $A, sub_64), iaddrX4:$src)>;
+      def : Pat<(store (f64 (extractelt v2f64:$A, 1)), iaddrX4:$src),
+                (DFSTOREf64 (EXTRACT_SUBREG $A, sub_64), iaddrX4:$src)>;
     } // IsLittleEndian, HasP9Vector
 
     let Predicates = [IsBigEndian, HasP9Vector] in {
-      def : Pat<(v2i64 (scalar_to_vector (i64 (load ixaddr:$src)))),
-                (v2i64 (COPY_TO_REGCLASS (DFLOADf64 ixaddr:$src), VSRC))>;
-      def : Pat<(v2i64 (scalar_to_vector (i64 (load xaddr:$src)))),
-                (v2i64 (COPY_TO_REGCLASS (XFLOADf64 xaddr:$src), VSRC))>;
+      def : Pat<(v2i64 (scalar_to_vector (i64 (load iaddrX4:$src)))),
+                (v2i64 (COPY_TO_REGCLASS (DFLOADf64 iaddrX4:$src), VSRC))>;
+      def : Pat<(v2i64 (scalar_to_vector (i64 (load xaddrX4:$src)))),
+                (v2i64 (COPY_TO_REGCLASS (XFLOADf64 xaddrX4:$src), VSRC))>;
 
-      def : Pat<(v2f64 (scalar_to_vector (f64 (load ixaddr:$src)))),
-                (v2f64 (COPY_TO_REGCLASS (DFLOADf64 ixaddr:$src), VSRC))>;
-      def : Pat<(v2f64 (scalar_to_vector (f64 (load xaddr:$src)))),
-                (v2f64 (COPY_TO_REGCLASS (XFLOADf64 xaddr:$src), VSRC))>;
-      def : Pat<(store (i64 (extractelt v2i64:$A, 1)), xaddr:$src),
+      def : Pat<(v2f64 (scalar_to_vector (f64 (load iaddrX4:$src)))),
+                (v2f64 (COPY_TO_REGCLASS (DFLOADf64 iaddrX4:$src), VSRC))>;
+      def : Pat<(v2f64 (scalar_to_vector (f64 (load xaddrX4:$src)))),
+                (v2f64 (COPY_TO_REGCLASS (XFLOADf64 xaddrX4:$src), VSRC))>;
+      def : Pat<(store (i64 (extractelt v2i64:$A, 1)), xaddrX4:$src),
                 (XFSTOREf64 (EXTRACT_SUBREG (XXPERMDI $A, $A, 2),
-                             sub_64), xaddr:$src)>;
-      def : Pat<(store (f64 (extractelt v2f64:$A, 1)), xaddr:$src),
+                             sub_64), xaddrX4:$src)>;
+      def : Pat<(store (f64 (extractelt v2f64:$A, 1)), xaddrX4:$src),
                 (XFSTOREf64 (EXTRACT_SUBREG (XXPERMDI $A, $A, 2),
-                             sub_64), xaddr:$src)>;
-      def : Pat<(store (i64 (extractelt v2i64:$A, 0)), xaddr:$src),
-                (XFSTOREf64 (EXTRACT_SUBREG $A, sub_64), xaddr:$src)>;
-      def : Pat<(store (f64 (extractelt v2f64:$A, 0)), xaddr:$src),
-                (XFSTOREf64 (EXTRACT_SUBREG $A, sub_64), xaddr:$src)>;
-      def : Pat<(store (i64 (extractelt v2i64:$A, 1)), ixaddr:$src),
+                             sub_64), xaddrX4:$src)>;
+      def : Pat<(store (i64 (extractelt v2i64:$A, 0)), xaddrX4:$src),
+                (XFSTOREf64 (EXTRACT_SUBREG $A, sub_64), xaddrX4:$src)>;
+      def : Pat<(store (f64 (extractelt v2f64:$A, 0)), xaddrX4:$src),
+                (XFSTOREf64 (EXTRACT_SUBREG $A, sub_64), xaddrX4:$src)>;
+      def : Pat<(store (i64 (extractelt v2i64:$A, 1)), iaddrX4:$src),
                 (DFSTOREf64 (EXTRACT_SUBREG (XXPERMDI $A, $A, 2),
-                             sub_64), ixaddr:$src)>;
-      def : Pat<(store (f64 (extractelt v2f64:$A, 1)), ixaddr:$src),
+                             sub_64), iaddrX4:$src)>;
+      def : Pat<(store (f64 (extractelt v2f64:$A, 1)), iaddrX4:$src),
                 (DFSTOREf64 (EXTRACT_SUBREG (XXPERMDI $A, $A, 2),
-                             sub_64), ixaddr:$src)>;
-      def : Pat<(store (i64 (extractelt v2i64:$A, 0)), ixaddr:$src),
-                (DFSTOREf64 (EXTRACT_SUBREG $A, sub_64), ixaddr:$src)>;
-      def : Pat<(store (f64 (extractelt v2f64:$A, 0)), ixaddr:$src),
-                (DFSTOREf64 (EXTRACT_SUBREG $A, sub_64), ixaddr:$src)>;
+                             sub_64), iaddrX4:$src)>;
+      def : Pat<(store (i64 (extractelt v2i64:$A, 0)), iaddrX4:$src),
+                (DFSTOREf64 (EXTRACT_SUBREG $A, sub_64), iaddrX4:$src)>;
+      def : Pat<(store (f64 (extractelt v2f64:$A, 0)), iaddrX4:$src),
+                (DFSTOREf64 (EXTRACT_SUBREG $A, sub_64), iaddrX4:$src)>;
     } // IsBigEndian, HasP9Vector
   }
 
@@ -3491,14 +3516,14 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
   } // IsLittleEndian, HasP9Vector
 
   // Convert (Un)Signed DWord in memory -> QP
-  def : Pat<(f128 (sint_to_fp (i64 (load xaddr:$src)))),
-            (f128 (XSCVSDQP (LXSDX xaddr:$src)))>;
-  def : Pat<(f128 (sint_to_fp (i64 (load ixaddr:$src)))),
-            (f128 (XSCVSDQP (LXSD ixaddr:$src)))>;
-  def : Pat<(f128 (uint_to_fp (i64 (load xaddr:$src)))),
-            (f128 (XSCVUDQP (LXSDX xaddr:$src)))>;
-  def : Pat<(f128 (uint_to_fp (i64 (load ixaddr:$src)))),
-            (f128 (XSCVUDQP (LXSD ixaddr:$src)))>;
+  def : Pat<(f128 (sint_to_fp (i64 (load xaddrX4:$src)))),
+            (f128 (XSCVSDQP (LXSDX xaddrX4:$src)))>;
+  def : Pat<(f128 (sint_to_fp (i64 (load iaddrX4:$src)))),
+            (f128 (XSCVSDQP (LXSD iaddrX4:$src)))>;
+  def : Pat<(f128 (uint_to_fp (i64 (load xaddrX4:$src)))),
+            (f128 (XSCVUDQP (LXSDX xaddrX4:$src)))>;
+  def : Pat<(f128 (uint_to_fp (i64 (load iaddrX4:$src)))),
+            (f128 (XSCVUDQP (LXSD iaddrX4:$src)))>;
 
   // Convert Unsigned HWord in memory -> QP
   def : Pat<(f128 (uint_to_fp ScalarLoads.ZELi16)),
@@ -3519,13 +3544,13 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
   // Instructions for store(fptosi).
   // The 8-byte version is repeated here due to availability of D-Form STXSD.
   def : Pat<(PPCstore_scal_int_from_vsr
-              (f64 (PPCcv_fp_to_sint_in_vsr f128:$src)), xaddr:$dst, 8),
+              (f64 (PPCcv_fp_to_sint_in_vsr f128:$src)), xaddrX4:$dst, 8),
             (STXSDX (COPY_TO_REGCLASS (XSCVQPSDZ f128:$src), VFRC),
-                    xaddr:$dst)>;
+                    xaddrX4:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
-              (f64 (PPCcv_fp_to_sint_in_vsr f128:$src)), ixaddr:$dst, 8),
+              (f64 (PPCcv_fp_to_sint_in_vsr f128:$src)), iaddrX4:$dst, 8),
             (STXSD (COPY_TO_REGCLASS (XSCVQPSDZ f128:$src), VFRC),
-                   ixaddr:$dst)>;
+                   iaddrX4:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
               (f64 (PPCcv_fp_to_sint_in_vsr f128:$src)), xoaddr:$dst, 4),
             (STXSIWX (COPY_TO_REGCLASS (XSCVQPSWZ $src), VFRC), xoaddr:$dst)>;
@@ -3536,11 +3561,11 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
               (f64 (PPCcv_fp_to_sint_in_vsr f128:$src)), xoaddr:$dst, 1),
             (STXSIBX (COPY_TO_REGCLASS (XSCVQPSWZ $src), VFRC), xoaddr:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
-              (f64 (PPCcv_fp_to_sint_in_vsr f64:$src)), xaddr:$dst, 8),
-            (STXSDX (XSCVDPSXDS f64:$src), xaddr:$dst)>;
+              (f64 (PPCcv_fp_to_sint_in_vsr f64:$src)), xaddrX4:$dst, 8),
+            (STXSDX (XSCVDPSXDS f64:$src), xaddrX4:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
-              (f64 (PPCcv_fp_to_sint_in_vsr f64:$src)), ixaddr:$dst, 8),
-            (STXSD (XSCVDPSXDS f64:$src), ixaddr:$dst)>;
+              (f64 (PPCcv_fp_to_sint_in_vsr f64:$src)), iaddrX4:$dst, 8),
+            (STXSD (XSCVDPSXDS f64:$src), iaddrX4:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
               (f64 (PPCcv_fp_to_sint_in_vsr f64:$src)), xoaddr:$dst, 2),
             (STXSIHX (XSCVDPSXWS f64:$src), xoaddr:$dst)>;
@@ -3550,13 +3575,13 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
 
   // Instructions for store(fptoui).
   def : Pat<(PPCstore_scal_int_from_vsr
-              (f64 (PPCcv_fp_to_uint_in_vsr f128:$src)), xaddr:$dst, 8),
+              (f64 (PPCcv_fp_to_uint_in_vsr f128:$src)), xaddrX4:$dst, 8),
             (STXSDX (COPY_TO_REGCLASS (XSCVQPUDZ f128:$src), VFRC),
-                    xaddr:$dst)>;
+                    xaddrX4:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
-              (f64 (PPCcv_fp_to_uint_in_vsr f128:$src)), ixaddr:$dst, 8),
+              (f64 (PPCcv_fp_to_uint_in_vsr f128:$src)), iaddrX4:$dst, 8),
             (STXSD (COPY_TO_REGCLASS (XSCVQPUDZ f128:$src), VFRC),
-                   ixaddr:$dst)>;
+                   iaddrX4:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
               (f64 (PPCcv_fp_to_uint_in_vsr f128:$src)), xoaddr:$dst, 4),
             (STXSIWX (COPY_TO_REGCLASS (XSCVQPUWZ $src), VFRC), xoaddr:$dst)>;
@@ -3567,11 +3592,11 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
               (f64 (PPCcv_fp_to_uint_in_vsr f128:$src)), xoaddr:$dst, 1),
             (STXSIBX (COPY_TO_REGCLASS (XSCVQPUWZ $src), VFRC), xoaddr:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
-              (f64 (PPCcv_fp_to_uint_in_vsr f64:$src)), xaddr:$dst, 8),
-            (STXSDX (XSCVDPUXDS f64:$src), xaddr:$dst)>;
+              (f64 (PPCcv_fp_to_uint_in_vsr f64:$src)), xaddrX4:$dst, 8),
+            (STXSDX (XSCVDPUXDS f64:$src), xaddrX4:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
-              (f64 (PPCcv_fp_to_uint_in_vsr f64:$src)), ixaddr:$dst, 8),
-            (STXSD (XSCVDPUXDS f64:$src), ixaddr:$dst)>;
+              (f64 (PPCcv_fp_to_uint_in_vsr f64:$src)), iaddrX4:$dst, 8),
+            (STXSD (XSCVDPUXDS f64:$src), iaddrX4:$dst)>;
   def : Pat<(PPCstore_scal_int_from_vsr
               (f64 (PPCcv_fp_to_uint_in_vsr f64:$src)), xoaddr:$dst, 2),
             (STXSIHX (XSCVDPUXWS f64:$src), xoaddr:$dst)>;
@@ -3704,13 +3729,13 @@ def FltToLongLoad {
   dag A = (i64 (PPCmfvsr (PPCfctidz (f64 (extloadf32 xoaddr:$A)))));
 }
 def FltToLongLoadP9 {
-  dag A = (i64 (PPCmfvsr (PPCfctidz (f64 (extloadf32 ixaddr:$A)))));
+  dag A = (i64 (PPCmfvsr (PPCfctidz (f64 (extloadf32 iaddrX4:$A)))));
 }
 def FltToULongLoad {
   dag A = (i64 (PPCmfvsr (PPCfctiduz (f64 (extloadf32 xoaddr:$A)))));
 }
 def FltToULongLoadP9 {
-  dag A = (i64 (PPCmfvsr (PPCfctiduz (f64 (extloadf32 ixaddr:$A)))));
+  dag A = (i64 (PPCmfvsr (PPCfctiduz (f64 (extloadf32 iaddrX4:$A)))));
 }
 def FltToLong {
   dag A = (i64 (PPCmfvsr (f64 (PPCfctidz (fpextend f32:$A)))));
@@ -3740,13 +3765,13 @@ def DblToIntLoad {
   dag A = (i32 (PPCmfvsr (PPCfctiwz (f64 (load xoaddr:$A)))));
 }
 def DblToIntLoadP9 {
-  dag A = (i32 (PPCmfvsr (PPCfctiwz (f64 (load ixaddr:$A)))));
+  dag A = (i32 (PPCmfvsr (PPCfctiwz (f64 (load iaddrX4:$A)))));
 }
 def DblToUIntLoad {
   dag A = (i32 (PPCmfvsr (PPCfctiwuz (f64 (load xoaddr:$A)))));
 }
 def DblToUIntLoadP9 {
-  dag A = (i32 (PPCmfvsr (PPCfctiwuz (f64 (load ixaddr:$A)))));
+  dag A = (i32 (PPCmfvsr (PPCfctiwuz (f64 (load iaddrX4:$A)))));
 }
 def DblToLongLoad {
   dag A = (i64 (PPCmfvsr (PPCfctidz (f64 (load xoaddr:$A)))));
@@ -4065,17 +4090,17 @@ let AddedComplexity = 400 in {
               (v4i32 (XVCVSPUXWS (LXVWSX xoaddr:$A)))>;
     def : Pat<(v4i32 (scalar_to_vector DblToIntLoadP9.A)),
               (v4i32 (XXSPLTW (COPY_TO_REGCLASS
-                                (XSCVDPSXWS (DFLOADf64 ixaddr:$A)), VSRC), 1))>;
+                                (XSCVDPSXWS (DFLOADf64 iaddrX4:$A)), VSRC), 1))>;
     def : Pat<(v4i32 (scalar_to_vector DblToUIntLoadP9.A)),
               (v4i32 (XXSPLTW (COPY_TO_REGCLASS
-                                (XSCVDPUXWS (DFLOADf64 ixaddr:$A)), VSRC), 1))>;
+                                (XSCVDPUXWS (DFLOADf64 iaddrX4:$A)), VSRC), 1))>;
     def : Pat<(v2i64 (scalar_to_vector FltToLongLoadP9.A)),
               (v2i64 (XXPERMDIs (XSCVDPSXDS (COPY_TO_REGCLASS
-                                              (DFLOADf32 ixaddr:$A),
+                                              (DFLOADf32 iaddrX4:$A),
                                               VSFRC)), 0))>;
     def : Pat<(v2i64 (scalar_to_vector FltToULongLoadP9.A)),
               (v2i64 (XXPERMDIs (XSCVDPUXDS (COPY_TO_REGCLASS
-                                              (DFLOADf32 ixaddr:$A),
+                                              (DFLOADf32 iaddrX4:$A),
                                               VSFRC)), 0))>;
   }
 

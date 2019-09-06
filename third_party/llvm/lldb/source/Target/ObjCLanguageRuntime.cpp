@@ -28,6 +28,8 @@
 using namespace lldb;
 using namespace lldb_private;
 
+char ObjCLanguageRuntime::ID = 0;
+
 // Destructor
 ObjCLanguageRuntime::~ObjCLanguageRuntime() {}
 
@@ -42,19 +44,6 @@ bool ObjCLanguageRuntime::IsWhitelistedRuntimeValue(ConstString name) {
   static ConstString g_self = ConstString("self");
   static ConstString g_cmd = ConstString("_cmd");
   return name == g_self || name == g_cmd;
-}
-
-bool ObjCLanguageRuntime::IsRuntimeSupportValue(ValueObject &valobj) {
-  // All runtime support values have to be marked as artificial by the
-  // compiler. But not all artificial variables should be hidden from
-  // the user.
-  if (!valobj.GetVariable())
-    return false;
-  if (!valobj.GetVariable()->IsArtificial())
-    return false;
-
-  // Whitelist "self" and "_cmd".
-  return !IsWhitelistedRuntimeValue(valobj.GetName());
 }
 
 bool ObjCLanguageRuntime::AddClass(ObjCISA isa,
@@ -371,6 +360,18 @@ bool ObjCLanguageRuntime::GetTypeBitSize(const CompilerType &compiler_type,
     m_type_size_cache.Insert(opaque_ptr, size);
 
   return found;
+}
+
+lldb::BreakpointPreconditionSP
+ObjCLanguageRuntime::GetBreakpointExceptionPrecondition(LanguageType language,
+                                                        bool throw_bp) {
+  if (language != eLanguageTypeObjC)
+    return lldb::BreakpointPreconditionSP();
+  if (!throw_bp)
+    return lldb::BreakpointPreconditionSP();
+  BreakpointPreconditionSP precondition_sp(
+      new ObjCLanguageRuntime::ObjCExceptionPrecondition());
+  return precondition_sp;
 }
 
 // Exception breakpoint Precondition class for ObjC:

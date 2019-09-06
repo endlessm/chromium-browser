@@ -82,7 +82,18 @@ const uint32_t *SIRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
   }
 }
 
-unsigned SIRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
+Register SIRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
+  const SIFrameLowering *TFI =
+      MF.getSubtarget<GCNSubtarget>().getFrameLowering();
   const SIMachineFunctionInfo *FuncInfo = MF.getInfo<SIMachineFunctionInfo>();
-  return FuncInfo->getFrameOffsetReg();
+  return TFI->hasFP(MF) ? FuncInfo->getFrameOffsetReg()
+                        : FuncInfo->getStackPtrOffsetReg();
+}
+
+const uint32_t *SIRegisterInfo::getAllVGPRRegMask() const {
+  return CSR_AMDGPU_AllVGPRs_RegMask;
+}
+
+const uint32_t *SIRegisterInfo::getAllAllocatableSRegMask() const {
+  return CSR_AMDGPU_AllAllocatableSRegs_RegMask;
 }

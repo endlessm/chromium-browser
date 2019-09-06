@@ -259,6 +259,18 @@ void InitializePlatform() {
   }
 }
 
+#ifdef __aarch64__
+# define LONG_JMP_SP_ENV_SLOT \
+    ((GetMacosVersion() >= MACOS_VERSION_MOJAVE) ? 12 : 13)
+#else
+# define LONG_JMP_SP_ENV_SLOT 2
+#endif
+
+uptr ExtractLongJmpSp(uptr *env) {
+  uptr mangled_sp = env[LONG_JMP_SP_ENV_SLOT];
+  return mangled_sp ^ __tsan_darwin_setjmp_xor_key;
+}
+
 #if !SANITIZER_GO
 void ImitateTlsWrite(ThreadState *thr, uptr tls_addr, uptr tls_size) {
   // The pointer to the ThreadState object is stored in the shadow memory

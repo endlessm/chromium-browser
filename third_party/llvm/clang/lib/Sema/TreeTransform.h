@@ -148,6 +148,11 @@ public:
   /// statement node appears at most once in its containing declaration.
   bool AlwaysRebuild() { return SemaRef.ArgumentPackSubstitutionIndex != -1; }
 
+  /// Whether the transformation is forming an expression or statement that
+  /// replaces the original. In this case, we'll reuse mangling numbers from
+  /// existing lambdas.
+  bool ReplacingOriginal() { return false; }
+
   /// Returns the location of the entity being transformed, if that
   /// information was not available elsewhere in the AST.
   ///
@@ -450,8 +455,10 @@ public:
   /// TransformDefinition. However, in some cases (e.g., lambda expressions),
   /// the transformer itself has to transform the declarations. This routine
   /// can be overridden by a subclass that keeps track of such mappings.
-  void transformedLocalDecl(Decl *Old, Decl *New) {
-    TransformedLocalDecls[Old] = New;
+  void transformedLocalDecl(Decl *Old, ArrayRef<Decl *> New) {
+    assert(New.size() == 1 &&
+           "must override transformedLocalDecl if performing pack expansion");
+    TransformedLocalDecls[Old] = New.front();
   }
 
   /// Transform the definition of the given declaration.
@@ -651,6 +658,12 @@ public:
                                           int indexAdjustment,
                                           Optional<unsigned> NumExpansions,
                                           bool ExpectParameterPack);
+
+  /// Transform the body of a lambda-expression.
+  StmtResult TransformLambdaBody(LambdaExpr *E, Stmt *Body);
+  /// Alternative implementation of TransformLambdaBody that skips transforming
+  /// the body.
+  StmtResult SkipLambdaBody(LambdaExpr *E, Stmt *Body);
 
   QualType TransformReferenceType(TypeLocBuilder &TLB, ReferenceTypeLoc TL);
 
@@ -1371,10 +1384,11 @@ public:
                                unsigned NumInputs, IdentifierInfo **Names,
                                MultiExprArg Constraints, MultiExprArg Exprs,
                                Expr *AsmString, MultiExprArg Clobbers,
+                               unsigned NumLabels,
                                SourceLocation RParenLoc) {
     return getSema().ActOnGCCAsmStmt(AsmLoc, IsSimple, IsVolatile, NumOutputs,
                                      NumInputs, Names, Constraints, Exprs,
-                                     AsmString, Clobbers, RParenLoc);
+                                     AsmString, Clobbers, NumLabels, RParenLoc);
   }
 
   /// Build a new MS style inline asm statement.
@@ -2638,6 +2652,16 @@ public:
                                                ListInitialization);
   }
 
+  /// Build a new C++ __builtin_bit_cast expression.
+  ///
+  /// By default, performs semantic analysis to build the new expression.
+  /// Subclasses may override this routine to provide different behavior.
+  ExprResult RebuildBuiltinBitCastExpr(SourceLocation KWLoc,
+                                       TypeSourceInfo *TSI, Expr *Sub,
+                                       SourceLocation RParenLoc) {
+    return getSema().BuildBuiltinBitCastExpr(KWLoc, TSI, Sub, RParenLoc);
+  }
+
   /// Build a new C++ typeid(type) expression.
   ///
   /// By default, performs semantic analysis to build the new expression.
@@ -2695,8 +2719,7 @@ public:
   ExprResult RebuildCXXThisExpr(SourceLocation ThisLoc,
                                 QualType ThisType,
                                 bool isImplicit) {
-    getSema().CheckCXXThisCapture(ThisLoc);
-    return new (getSema().Context) CXXThisExpr(ThisLoc, ThisType, isImplicit);
+    return getSema().BuildCXXThisExpr(ThisLoc, ThisType, isImplicit);
   }
 
   /// Build a new C++ throw expression.
@@ -3932,10 +3955,6 @@ template<typename Derived>
 bool TreeTransform<Derived>::TransformTemplateArgument(
                                          const TemplateArgumentLoc &Input,
                                          TemplateArgumentLoc &Output, bool Uneval) {
-  EnterExpressionEvaluationContext EEEC(
-      SemaRef, Sema::ExpressionEvaluationContext::ConstantEvaluated,
-      /*LambdaContextDecl=*/nullptr, /*ExprContext=*/
-      Sema::ExpressionEvaluationContextRecord::EK_TemplateArgument);
   const TemplateArgument &Arg = Input.getArgument();
   switch (Arg.getKind()) {
   case TemplateArgument::Null:
@@ -3984,9 +4003,11 @@ bool TreeTransform<Derived>::TransformTemplateArgument(
   case TemplateArgument::Expression: {
     // Template argument expressions are constant expressions.
     EnterExpressionEvaluationContext Unevaluated(
-        getSema(), Uneval
-                       ? Sema::ExpressionEvaluationContext::Unevaluated
-                       : Sema::ExpressionEvaluationContext::ConstantEvaluated);
+        getSema(),
+        Uneval ? Sema::ExpressionEvaluationContext::Unevaluated
+               : Sema::ExpressionEvaluationContext::ConstantEvaluated,
+        /*LambdaContextDecl=*/nullptr, /*ExprContext=*/
+        Sema::ExpressionEvaluationContextRecord::EK_TemplateArgument);
 
     Expr *InputExpr = Input.getSourceExpression();
     if (!InputExpr) InputExpr = Input.getArgument().getAsExpr();
@@ -7050,6 +7071,16 @@ TreeTransform<Derived>::TransformGCCAsmStmt(GCCAsmStmt *S) {
     Exprs.push_back(Result.get());
   }
 
+  // Go through the Labels.
+  for (unsigned I = 0, E = S->getNumLabels(); I != E; ++I) {
+    Names.push_back(S->getLabelIdentifier(I));
+
+    ExprResult Result = getDerived().TransformExpr(S->getLabelExpr(I));
+    if (Result.isInvalid())
+      return StmtError();
+    ExprsChanged |= Result.get() != S->getLabelExpr(I);
+    Exprs.push_back(Result.get());
+  }
   if (!getDerived().AlwaysRebuild() && !ExprsChanged)
     return S;
 
@@ -7063,7 +7094,8 @@ TreeTransform<Derived>::TransformGCCAsmStmt(GCCAsmStmt *S) {
                                         S->isVolatile(), S->getNumOutputs(),
                                         S->getNumInputs(), Names.data(),
                                         Constraints, Exprs, AsmString.get(),
-                                        Clobbers, S->getRParenLoc());
+                                        Clobbers, S->getNumLabels(),
+                                        S->getRParenLoc());
 }
 
 template<typename Derived>
@@ -7122,7 +7154,7 @@ TreeTransform<Derived>::TransformCoroutineBodyStmt(CoroutineBodyStmt *S) {
   auto *Promise = SemaRef.buildCoroutinePromise(FD->getLocation());
   if (!Promise)
     return StmtError();
-  getDerived().transformedLocalDecl(S->getPromiseDecl(), Promise);
+  getDerived().transformedLocalDecl(S->getPromiseDecl(), {Promise});
   ScopeInfo->CoroutinePromise = Promise;
 
   // Transform the implicit coroutine statements we built during the initial
@@ -7154,13 +7186,22 @@ TreeTransform<Derived>::TransformCoroutineBodyStmt(CoroutineBodyStmt *S) {
   Builder.ReturnValue = Res.get();
 
   if (S->hasDependentPromiseType()) {
-    assert(!Promise->getType()->isDependentType() &&
-           "the promise type must no longer be dependent");
-    assert(!S->getFallthroughHandler() && !S->getExceptionHandler() &&
-           !S->getReturnStmtOnAllocFailure() && !S->getDeallocate() &&
-           "these nodes should not have been built yet");
-    if (!Builder.buildDependentStatements())
-      return StmtError();
+    // PR41909: We may find a generic coroutine lambda definition within a
+    // template function that is being instantiated. In this case, the lambda
+    // will have a dependent promise type, until it is used in an expression
+    // that creates an instantiation with a non-dependent promise type. We
+    // should not assert or build coroutine dependent statements for such a
+    // generic lambda.
+    auto *MD = dyn_cast_or_null<CXXMethodDecl>(FD);
+    if (!MD || !MD->getParent()->isGenericLambda()) {
+      assert(!Promise->getType()->isDependentType() &&
+             "the promise type must no longer be dependent");
+      assert(!S->getFallthroughHandler() && !S->getExceptionHandler() &&
+             !S->getReturnStmtOnAllocFailure() && !S->getDeallocate() &&
+             "these nodes should not have been built yet");
+      if (!Builder.buildDependentStatements())
+        return StmtError();
+    }
   } else {
     if (auto *OnFallthrough = S->getFallthroughHandler()) {
       StmtResult Res = getDerived().TransformStmt(OnFallthrough);
@@ -10216,6 +10257,22 @@ TreeTransform<Derived>::TransformCXXNamedCastExpr(CXXNamedCastExpr *E) {
 
 template<typename Derived>
 ExprResult
+TreeTransform<Derived>::TransformBuiltinBitCastExpr(BuiltinBitCastExpr *BCE) {
+  TypeSourceInfo *TSI =
+      getDerived().TransformType(BCE->getTypeInfoAsWritten());
+  if (!TSI)
+    return ExprError();
+
+  ExprResult Sub = getDerived().TransformExpr(BCE->getSubExpr());
+  if (Sub.isInvalid())
+    return ExprError();
+
+  return getDerived().RebuildBuiltinBitCastExpr(BCE->getBeginLoc(), TSI,
+                                                Sub.get(), BCE->getEndLoc());
+}
+
+template<typename Derived>
+ExprResult
 TreeTransform<Derived>::TransformCXXStaticCastExpr(CXXStaticCastExpr *E) {
   return getDerived().TransformCXXNamedCastExpr(E);
 }
@@ -10353,8 +10410,9 @@ TreeTransform<Derived>::TransformCXXThisExpr(CXXThisExpr *E) {
   QualType T = getSema().getCurrentThisType();
 
   if (!getDerived().AlwaysRebuild() && T == E->getType()) {
-    // Make sure that we capture 'this'.
-    getSema().CheckCXXThisCapture(E->getBeginLoc());
+    // Mark it referenced in the new context regardless.
+    // FIXME: this is a bit instantiation-specific.
+    getSema().MarkThisReferenced(E);
     return E;
   }
 
@@ -11176,33 +11234,78 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
   // Transform any init-capture expressions before entering the scope of the
   // lambda body, because they are not semantically within that scope.
   typedef std::pair<ExprResult, QualType> InitCaptureInfoTy;
-  SmallVector<InitCaptureInfoTy, 8> InitCaptureExprsAndTypes;
-  InitCaptureExprsAndTypes.resize(E->explicit_capture_end() -
-                                  E->explicit_capture_begin());
+  struct TransformedInitCapture {
+    // The location of the ... if the result is retaining a pack expansion.
+    SourceLocation EllipsisLoc;
+    // Zero or more expansions of the init-capture.
+    SmallVector<InitCaptureInfoTy, 4> Expansions;
+  };
+  SmallVector<TransformedInitCapture, 4> InitCaptures;
+  InitCaptures.resize(E->explicit_capture_end() - E->explicit_capture_begin());
   for (LambdaExpr::capture_iterator C = E->capture_begin(),
                                     CEnd = E->capture_end();
        C != CEnd; ++C) {
     if (!E->isInitCapture(C))
       continue;
-    EnterExpressionEvaluationContext EEEC(
-        getSema(), Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
-    ExprResult NewExprInitResult = getDerived().TransformInitializer(
-        C->getCapturedVar()->getInit(),
-        C->getCapturedVar()->getInitStyle() == VarDecl::CallInit);
 
-    if (NewExprInitResult.isInvalid())
-      return ExprError();
-    Expr *NewExprInit = NewExprInitResult.get();
-
+    TransformedInitCapture &Result = InitCaptures[C - E->capture_begin()];
     VarDecl *OldVD = C->getCapturedVar();
-    QualType NewInitCaptureType =
-        getSema().buildLambdaInitCaptureInitialization(
-            C->getLocation(), OldVD->getType()->isReferenceType(),
-            OldVD->getIdentifier(),
-            C->getCapturedVar()->getInitStyle() != VarDecl::CInit, NewExprInit);
-    NewExprInitResult = NewExprInit;
-    InitCaptureExprsAndTypes[C - E->capture_begin()] =
-        std::make_pair(NewExprInitResult, NewInitCaptureType);
+
+    auto SubstInitCapture = [&](SourceLocation EllipsisLoc,
+                                Optional<unsigned> NumExpansions) {
+      ExprResult NewExprInitResult = getDerived().TransformInitializer(
+          OldVD->getInit(), OldVD->getInitStyle() == VarDecl::CallInit);
+
+      if (NewExprInitResult.isInvalid()) {
+        Result.Expansions.push_back(InitCaptureInfoTy(ExprError(), QualType()));
+        return;
+      }
+      Expr *NewExprInit = NewExprInitResult.get();
+
+      QualType NewInitCaptureType =
+          getSema().buildLambdaInitCaptureInitialization(
+              C->getLocation(), OldVD->getType()->isReferenceType(),
+              EllipsisLoc, NumExpansions, OldVD->getIdentifier(),
+              C->getCapturedVar()->getInitStyle() != VarDecl::CInit,
+              NewExprInit);
+      Result.Expansions.push_back(
+          InitCaptureInfoTy(NewExprInit, NewInitCaptureType));
+    };
+
+    // If this is an init-capture pack, consider expanding the pack now.
+    if (OldVD->isParameterPack()) {
+      PackExpansionTypeLoc ExpansionTL = OldVD->getTypeSourceInfo()
+                                             ->getTypeLoc()
+                                             .castAs<PackExpansionTypeLoc>();
+      SmallVector<UnexpandedParameterPack, 2> Unexpanded;
+      SemaRef.collectUnexpandedParameterPacks(OldVD->getInit(), Unexpanded);
+
+      // Determine whether the set of unexpanded parameter packs can and should
+      // be expanded.
+      bool Expand = true;
+      bool RetainExpansion = false;
+      Optional<unsigned> OrigNumExpansions =
+          ExpansionTL.getTypePtr()->getNumExpansions();
+      Optional<unsigned> NumExpansions = OrigNumExpansions;
+      if (getDerived().TryExpandParameterPacks(
+              ExpansionTL.getEllipsisLoc(),
+              OldVD->getInit()->getSourceRange(), Unexpanded, Expand,
+              RetainExpansion, NumExpansions))
+        return ExprError();
+      if (Expand) {
+        for (unsigned I = 0; I != *NumExpansions; ++I) {
+          Sema::ArgumentPackSubstitutionIndexRAII SubstIndex(getSema(), I);
+          SubstInitCapture(SourceLocation(), None);
+        }
+      }
+      if (!Expand || RetainExpansion) {
+        ForgetPartiallySubstitutedPackRAII Forget(getDerived());
+        SubstInitCapture(ExpansionTL.getEllipsisLoc(), NumExpansions);
+        Result.EllipsisLoc = ExpansionTL.getEllipsisLoc();
+      }
+    } else {
+      SubstInitCapture(SourceLocation(), None);
+    }
   }
 
   // Transform the template parameters, and add them to the current
@@ -11240,19 +11343,25 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
   LSI->GLTemplateParameterList = TPL;
 
   // Create the local class that will describe the lambda.
+  CXXRecordDecl *OldClass = E->getLambdaClass();
   CXXRecordDecl *Class
     = getSema().createLambdaClosureType(E->getIntroducerRange(),
                                         NewCallOpTSI,
                                         /*KnownDependent=*/false,
                                         E->getCaptureDefault());
-  getDerived().transformedLocalDecl(E->getLambdaClass(), Class);
+  getDerived().transformedLocalDecl(OldClass, {Class});
+
+  Optional<std::pair<unsigned, Decl*>> Mangling;
+  if (getDerived().ReplacingOriginal())
+    Mangling = std::make_pair(OldClass->getLambdaManglingNumber(),
+                              OldClass->getLambdaContextDecl());
 
   // Build the call operator.
   CXXMethodDecl *NewCallOperator = getSema().startLambdaDefinition(
       Class, E->getIntroducerRange(), NewCallOpTSI,
       E->getCallOperator()->getEndLoc(),
       NewCallOpTSI->getTypeLoc().castAs<FunctionProtoTypeLoc>().getParams(),
-      E->getCallOperator()->isConstexpr());
+      E->getCallOperator()->getConstexprKind(), Mangling);
 
   LSI->CallOperator = NewCallOperator;
 
@@ -11270,7 +11379,7 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
   }
 
   getDerived().transformAttrs(E->getCallOperator(), NewCallOperator);
-  getDerived().transformedLocalDecl(E->getCallOperator(), NewCallOperator);
+  getDerived().transformedLocalDecl(E->getCallOperator(), {NewCallOperator});
 
   // Introduce the context of the call operator.
   Sema::ContextRAII SavedContext(getSema(), NewCallOperator,
@@ -11288,16 +11397,13 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
   bool Invalid = false;
 
   // Transform captures.
-  bool FinishedExplicitCaptures = false;
   for (LambdaExpr::capture_iterator C = E->capture_begin(),
                                  CEnd = E->capture_end();
        C != CEnd; ++C) {
     // When we hit the first implicit capture, tell Sema that we've finished
     // the list of explicit captures.
-    if (!FinishedExplicitCaptures && C->isImplicit()) {
-      getSema().finishLambdaExplicitCaptures(LSI);
-      FinishedExplicitCaptures = true;
-    }
+    if (C->isImplicit())
+      break;
 
     // Capturing 'this' is trivial.
     if (C->capturesThis()) {
@@ -11313,24 +11419,33 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
     // Rebuild init-captures, including the implied field declaration.
     if (E->isInitCapture(C)) {
-      InitCaptureInfoTy InitExprTypePair =
-          InitCaptureExprsAndTypes[C - E->capture_begin()];
-      ExprResult Init = InitExprTypePair.first;
-      QualType InitQualType = InitExprTypePair.second;
-      if (Init.isInvalid() || InitQualType.isNull()) {
-        Invalid = true;
-        continue;
-      }
+      TransformedInitCapture &NewC = InitCaptures[C - E->capture_begin()];
+
       VarDecl *OldVD = C->getCapturedVar();
-      VarDecl *NewVD = getSema().createLambdaInitCaptureVarDecl(
-          OldVD->getLocation(), InitExprTypePair.second, OldVD->getIdentifier(),
-          OldVD->getInitStyle(), Init.get());
-      if (!NewVD)
-        Invalid = true;
-      else {
-        getDerived().transformedLocalDecl(OldVD, NewVD);
+      llvm::SmallVector<Decl*, 4> NewVDs;
+
+      for (InitCaptureInfoTy &Info : NewC.Expansions) {
+        ExprResult Init = Info.first;
+        QualType InitQualType = Info.second;
+        if (Init.isInvalid() || InitQualType.isNull()) {
+          Invalid = true;
+          break;
+        }
+        VarDecl *NewVD = getSema().createLambdaInitCaptureVarDecl(
+            OldVD->getLocation(), InitQualType, NewC.EllipsisLoc,
+            OldVD->getIdentifier(), OldVD->getInitStyle(), Init.get());
+        if (!NewVD) {
+          Invalid = true;
+          break;
+        }
+        NewVDs.push_back(NewVD);
+        getSema().addInitCapture(LSI, NewVD);
       }
-      getSema().buildInitCaptureField(LSI, NewVD);
+
+      if (Invalid)
+        break;
+
+      getDerived().transformedLocalDecl(OldVD, NewVDs);
       continue;
     }
 
@@ -11397,17 +11512,16 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
     getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind,
                                  EllipsisLoc);
   }
-  if (!FinishedExplicitCaptures)
-    getSema().finishLambdaExplicitCaptures(LSI);
+  getSema().finishLambdaExplicitCaptures(LSI);
 
-  // Enter a new evaluation context to insulate the lambda from any
-  // cleanups from the enclosing full-expression.
+  // FIXME: Sema's lambda-building mechanism expects us to push an expression
+  // evaluation context even if we're not transforming the function body.
   getSema().PushExpressionEvaluationContext(
       Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
   // Instantiate the body of the lambda expression.
   StmtResult Body =
-      Invalid ? StmtError() : getDerived().TransformStmt(E->getBody());
+      Invalid ? StmtError() : getDerived().TransformLambdaBody(E, E->getBody());
 
   // ActOnLambda* will pop the function scope for us.
   FuncScopeCleanup.disable();
@@ -11429,6 +11543,52 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
   return getSema().BuildLambdaExpr(E->getBeginLoc(), Body.get()->getEndLoc(),
                                    &LSICopy);
+}
+
+template<typename Derived>
+StmtResult
+TreeTransform<Derived>::TransformLambdaBody(LambdaExpr *E, Stmt *S) {
+  return TransformStmt(S);
+}
+
+template<typename Derived>
+StmtResult
+TreeTransform<Derived>::SkipLambdaBody(LambdaExpr *E, Stmt *S) {
+  // Transform captures.
+  for (LambdaExpr::capture_iterator C = E->capture_begin(),
+                                 CEnd = E->capture_end();
+       C != CEnd; ++C) {
+    // When we hit the first implicit capture, tell Sema that we've finished
+    // the list of explicit captures.
+    if (!C->isImplicit())
+      continue;
+
+    // Capturing 'this' is trivial.
+    if (C->capturesThis()) {
+      getSema().CheckCXXThisCapture(C->getLocation(), C->isExplicit(),
+                                    /*BuildAndDiagnose*/ true, nullptr,
+                                    C->getCaptureKind() == LCK_StarThis);
+      continue;
+    }
+    // Captured expression will be recaptured during captured variables
+    // rebuilding.
+    if (C->capturesVLAType())
+      continue;
+
+    assert(C->capturesVariable() && "unexpected kind of lambda capture");
+    assert(!E->isInitCapture(C) && "implicit init-capture?");
+
+    // Transform the captured variable.
+    VarDecl *CapturedVar = cast_or_null<VarDecl>(
+        getDerived().TransformDecl(C->getLocation(), C->getCapturedVar()));
+    if (!CapturedVar || CapturedVar->isInvalidDecl())
+      return StmtError();
+
+    // Capture the transformed variable.
+    getSema().tryCaptureVariable(CapturedVar, C->getLocation());
+  }
+
+  return S;
 }
 
 template<typename Derived>
@@ -12471,8 +12631,7 @@ TreeTransform<Derived>::TransformBlockExpr(BlockExpr *E) {
       VarDecl *oldCapture = I.getVariable();
 
       // Ignore parameter packs.
-      if (isa<ParmVarDecl>(oldCapture) &&
-          cast<ParmVarDecl>(oldCapture)->isParameterPack())
+      if (oldCapture->isParameterPack())
         continue;
 
       VarDecl *newCapture =

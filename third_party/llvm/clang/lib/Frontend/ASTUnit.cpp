@@ -75,7 +75,7 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/ADT/iterator_range.h"
-#include "llvm/Bitcode/BitstreamWriter.h"
+#include "llvm/Bitstream/BitstreamWriter.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CrashRecoveryContext.h"
@@ -608,17 +608,20 @@ private:
 };
 
 /// Diagnostic consumer that saves each diagnostic it is given.
-class StoredDiagnosticConsumer : public DiagnosticConsumer {
+class FilterAndStoreDiagnosticConsumer : public DiagnosticConsumer {
   SmallVectorImpl<StoredDiagnostic> *StoredDiags;
   SmallVectorImpl<ASTUnit::StandaloneDiagnostic> *StandaloneDiags;
+  bool CaptureNonErrorsFromIncludes = true;
   const LangOptions *LangOpts = nullptr;
   SourceManager *SourceMgr = nullptr;
 
 public:
-  StoredDiagnosticConsumer(
+  FilterAndStoreDiagnosticConsumer(
       SmallVectorImpl<StoredDiagnostic> *StoredDiags,
-      SmallVectorImpl<ASTUnit::StandaloneDiagnostic> *StandaloneDiags)
-      : StoredDiags(StoredDiags), StandaloneDiags(StandaloneDiags) {
+      SmallVectorImpl<ASTUnit::StandaloneDiagnostic> *StandaloneDiags,
+      bool CaptureNonErrorsFromIncludes)
+      : StoredDiags(StoredDiags), StandaloneDiags(StandaloneDiags),
+        CaptureNonErrorsFromIncludes(CaptureNonErrorsFromIncludes) {
     assert((StoredDiags || StandaloneDiags) &&
            "No output collections were passed to StoredDiagnosticConsumer.");
   }
@@ -634,21 +637,25 @@ public:
                         const Diagnostic &Info) override;
 };
 
-/// RAII object that optionally captures diagnostics, if
+/// RAII object that optionally captures and filters diagnostics, if
 /// there is no diagnostic client to capture them already.
 class CaptureDroppedDiagnostics {
   DiagnosticsEngine &Diags;
-  StoredDiagnosticConsumer Client;
+  FilterAndStoreDiagnosticConsumer Client;
   DiagnosticConsumer *PreviousClient = nullptr;
   std::unique_ptr<DiagnosticConsumer> OwningPreviousClient;
 
 public:
   CaptureDroppedDiagnostics(
-      bool RequestCapture, DiagnosticsEngine &Diags,
+      CaptureDiagsKind CaptureDiagnostics, DiagnosticsEngine &Diags,
       SmallVectorImpl<StoredDiagnostic> *StoredDiags,
       SmallVectorImpl<ASTUnit::StandaloneDiagnostic> *StandaloneDiags)
-      : Diags(Diags), Client(StoredDiags, StandaloneDiags) {
-    if (RequestCapture || Diags.getClient() == nullptr) {
+      : Diags(Diags),
+        Client(StoredDiags, StandaloneDiags,
+               CaptureDiagnostics !=
+                   CaptureDiagsKind::AllWithoutNonErrorsFromIncludes) {
+    if (CaptureDiagnostics != CaptureDiagsKind::None ||
+        Diags.getClient() == nullptr) {
       OwningPreviousClient = Diags.takeClient();
       PreviousClient = Diags.getClient();
       Diags.setClient(&Client, false);
@@ -667,8 +674,16 @@ static ASTUnit::StandaloneDiagnostic
 makeStandaloneDiagnostic(const LangOptions &LangOpts,
                          const StoredDiagnostic &InDiag);
 
-void StoredDiagnosticConsumer::HandleDiagnostic(DiagnosticsEngine::Level Level,
-                                                const Diagnostic &Info) {
+static bool isInMainFile(const clang::Diagnostic &D) {
+  if (!D.hasSourceManager() || !D.getLocation().isValid())
+    return false;
+
+  auto &M = D.getSourceManager();
+  return M.isWrittenInMainFile(M.getExpansionLoc(D.getLocation()));
+}
+
+void FilterAndStoreDiagnosticConsumer::HandleDiagnostic(
+    DiagnosticsEngine::Level Level, const Diagnostic &Info) {
   // Default implementation (Warnings/errors count).
   DiagnosticConsumer::HandleDiagnostic(Level, Info);
 
@@ -676,6 +691,11 @@ void StoredDiagnosticConsumer::HandleDiagnostic(DiagnosticsEngine::Level Level,
   // about. This effectively drops diagnostics from modules we're building.
   // FIXME: In the long run, ee don't want to drop source managers from modules.
   if (!Info.hasSourceManager() || &Info.getSourceManager() == SourceMgr) {
+    if (!CaptureNonErrorsFromIncludes && Level <= DiagnosticsEngine::Warning &&
+        !isInMainFile(Info)) {
+      return;
+    }
+
     StoredDiagnostic *ResultDiag = nullptr;
     if (StoredDiags) {
       StoredDiags->emplace_back(Level, Info);
@@ -723,10 +743,13 @@ ASTUnit::getBufferForFile(StringRef Filename, std::string *ErrorStr) {
 
 /// Configure the diagnostics object for use with ASTUnit.
 void ASTUnit::ConfigureDiags(IntrusiveRefCntPtr<DiagnosticsEngine> Diags,
-                             ASTUnit &AST, bool CaptureDiagnostics) {
+                             ASTUnit &AST,
+                             CaptureDiagsKind CaptureDiagnostics) {
   assert(Diags.get() && "no DiagnosticsEngine was provided");
-  if (CaptureDiagnostics)
-    Diags->setClient(new StoredDiagnosticConsumer(&AST.StoredDiagnostics, nullptr));
+  if (CaptureDiagnostics != CaptureDiagsKind::None)
+    Diags->setClient(new FilterAndStoreDiagnosticConsumer(
+        &AST.StoredDiagnostics, nullptr,
+        CaptureDiagnostics != CaptureDiagsKind::AllWithoutNonErrorsFromIncludes));
 }
 
 std::unique_ptr<ASTUnit> ASTUnit::LoadFromASTFile(
@@ -734,7 +757,7 @@ std::unique_ptr<ASTUnit> ASTUnit::LoadFromASTFile(
     WhatToLoad ToLoad, IntrusiveRefCntPtr<DiagnosticsEngine> Diags,
     const FileSystemOptions &FileSystemOpts, bool UseDebugInfo,
     bool OnlyLocalDecls, ArrayRef<RemappedFile> RemappedFiles,
-    bool CaptureDiagnostics, bool AllowPCHWithCompilerErrors,
+    CaptureDiagsKind CaptureDiagnostics, bool AllowPCHWithCompilerErrors,
     bool UserFilesAreVolatile) {
   std::unique_ptr<ASTUnit> AST(new ASTUnit(true));
 
@@ -1183,8 +1206,10 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
   else
     PreambleSrcLocCache.clear();
 
-  if (!Act->Execute())
+  if (llvm::Error Err = Act->Execute()) {
+    consumeError(std::move(Err)); // FIXME this drops errors on the floor.
     goto error;
+  }
 
   transferASTDataFromCompilerInstance(*Clang);
 
@@ -1304,22 +1329,22 @@ ASTUnit::getMainBufferWithPrecompiledPreamble(
                             PreambleInvocationIn.getDiagnosticOpts());
       getDiagnostics().setNumWarnings(NumWarningsInPreamble);
 
-      PreambleRebuildCounter = 1;
+      PreambleRebuildCountdown = 1;
       return MainFileBuffer;
     } else {
       Preamble.reset();
       PreambleDiagnostics.clear();
       TopLevelDeclsInPreamble.clear();
       PreambleSrcLocCache.clear();
-      PreambleRebuildCounter = 1;
+      PreambleRebuildCountdown = 1;
     }
   }
 
   // If the preamble rebuild counter > 1, it's because we previously
   // failed to build a preamble and we're not yet ready to try
   // again. Decrement the counter and return a failure.
-  if (PreambleRebuildCounter > 1) {
-    --PreambleRebuildCounter;
+  if (PreambleRebuildCountdown > 1) {
+    --PreambleRebuildCountdown;
     return nullptr;
   }
 
@@ -1329,13 +1354,15 @@ ASTUnit::getMainBufferWithPrecompiledPreamble(
   if (!AllowRebuild)
     return nullptr;
 
+  ++PreambleCounter;
+
   SmallVector<StandaloneDiagnostic, 4> NewPreambleDiagsStandalone;
   SmallVector<StoredDiagnostic, 4> NewPreambleDiags;
   ASTUnitPreambleCallbacks Callbacks;
   {
     llvm::Optional<CaptureDroppedDiagnostics> Capture;
-    if (CaptureDiagnostics)
-      Capture.emplace(/*RequestCapture=*/true, *Diagnostics, &NewPreambleDiags,
+    if (CaptureDiagnostics != CaptureDiagsKind::None)
+      Capture.emplace(CaptureDiagnostics, *Diagnostics, &NewPreambleDiags,
                       &NewPreambleDiagsStandalone);
 
     // We did not previously compute a preamble, or it can't be reused anyway.
@@ -1356,18 +1383,19 @@ ASTUnit::getMainBufferWithPrecompiledPreamble(
 
     if (NewPreamble) {
       Preamble = std::move(*NewPreamble);
-      PreambleRebuildCounter = 1;
+      PreambleRebuildCountdown = 1;
     } else {
       switch (static_cast<BuildPreambleError>(NewPreamble.getError().value())) {
       case BuildPreambleError::CouldntCreateTempFile:
         // Try again next time.
-        PreambleRebuildCounter = 1;
+        PreambleRebuildCountdown = 1;
         return nullptr;
       case BuildPreambleError::CouldntCreateTargetInfo:
       case BuildPreambleError::BeginSourceFileFailed:
       case BuildPreambleError::CouldntEmitPCH:
+      case BuildPreambleError::BadInputs:
         // These erros are more likely to repeat, retry after some period.
-        PreambleRebuildCounter = DefaultPreambleRebuildInterval;
+        PreambleRebuildCountdown = DefaultPreambleRebuildInterval;
         return nullptr;
       }
       llvm_unreachable("unexpected BuildPreambleError");
@@ -1462,7 +1490,8 @@ StringRef ASTUnit::getASTFileName() const {
 std::unique_ptr<ASTUnit>
 ASTUnit::create(std::shared_ptr<CompilerInvocation> CI,
                 IntrusiveRefCntPtr<DiagnosticsEngine> Diags,
-                bool CaptureDiagnostics, bool UserFilesAreVolatile) {
+                CaptureDiagsKind CaptureDiagnostics,
+                bool UserFilesAreVolatile) {
   std::unique_ptr<ASTUnit> AST(new ASTUnit(false));
   ConfigureDiags(Diags, *AST, CaptureDiagnostics);
   IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS =
@@ -1484,7 +1513,7 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(
     std::shared_ptr<PCHContainerOperations> PCHContainerOps,
     IntrusiveRefCntPtr<DiagnosticsEngine> Diags, FrontendAction *Action,
     ASTUnit *Unit, bool Persistent, StringRef ResourceFilesPath,
-    bool OnlyLocalDecls, bool CaptureDiagnostics,
+    bool OnlyLocalDecls, CaptureDiagsKind CaptureDiagnostics,
     unsigned PrecompilePreambleAfterNParses, bool CacheCodeCompletionResults,
     bool IncludeBriefCommentsInCodeCompletion, bool UserFilesAreVolatile,
     std::unique_ptr<ASTUnit> *ErrAST) {
@@ -1507,7 +1536,7 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(
   AST->OnlyLocalDecls = OnlyLocalDecls;
   AST->CaptureDiagnostics = CaptureDiagnostics;
   if (PrecompilePreambleAfterNParses > 0)
-    AST->PreambleRebuildCounter = PrecompilePreambleAfterNParses;
+    AST->PreambleRebuildCountdown = PrecompilePreambleAfterNParses;
   AST->TUKind = Action ? Action->getTranslationUnitKind() : TU_Complete;
   AST->ShouldCacheCodeCompletionResults = CacheCodeCompletionResults;
   AST->IncludeBriefCommentsInCodeCompletion
@@ -1605,7 +1634,8 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(
     Clang->setASTConsumer(
         llvm::make_unique<MultiplexConsumer>(std::move(Consumers)));
   }
-  if (!Act->Execute()) {
+  if (llvm::Error Err = Act->Execute()) {
+    consumeError(std::move(Err)); // FIXME this drops errors on the floor.
     AST->transferASTDataFromCompilerInstance(*Clang);
     if (OwnAST && ErrAST)
       ErrAST->swap(OwnAST);
@@ -1641,7 +1671,7 @@ bool ASTUnit::LoadFromCompilerInvocation(
 
   std::unique_ptr<llvm::MemoryBuffer> OverrideMainBuffer;
   if (PrecompilePreambleAfterNParses > 0) {
-    PreambleRebuildCounter = PrecompilePreambleAfterNParses;
+    PreambleRebuildCountdown = PrecompilePreambleAfterNParses;
     OverrideMainBuffer =
         getMainBufferWithPrecompiledPreamble(PCHContainerOps, *Invocation, VFS);
     getDiagnostics().Reset();
@@ -1662,7 +1692,7 @@ std::unique_ptr<ASTUnit> ASTUnit::LoadFromCompilerInvocation(
     std::shared_ptr<CompilerInvocation> CI,
     std::shared_ptr<PCHContainerOperations> PCHContainerOps,
     IntrusiveRefCntPtr<DiagnosticsEngine> Diags, FileManager *FileMgr,
-    bool OnlyLocalDecls, bool CaptureDiagnostics,
+    bool OnlyLocalDecls, CaptureDiagsKind CaptureDiagnostics,
     unsigned PrecompilePreambleAfterNParses, TranslationUnitKind TUKind,
     bool CacheCodeCompletionResults, bool IncludeBriefCommentsInCodeCompletion,
     bool UserFilesAreVolatile) {
@@ -1699,7 +1729,7 @@ ASTUnit *ASTUnit::LoadFromCommandLine(
     const char **ArgBegin, const char **ArgEnd,
     std::shared_ptr<PCHContainerOperations> PCHContainerOps,
     IntrusiveRefCntPtr<DiagnosticsEngine> Diags, StringRef ResourceFilesPath,
-    bool OnlyLocalDecls, bool CaptureDiagnostics,
+    bool OnlyLocalDecls, CaptureDiagsKind CaptureDiagnostics,
     ArrayRef<RemappedFile> RemappedFiles, bool RemappedFilesKeepOriginalName,
     unsigned PrecompilePreambleAfterNParses, TranslationUnitKind TUKind,
     bool CacheCodeCompletionResults, bool IncludeBriefCommentsInCodeCompletion,
@@ -1819,7 +1849,7 @@ bool ASTUnit::Reparse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
   // If we have a preamble file lying around, or if we might try to
   // build a precompiled preamble, do so now.
   std::unique_ptr<llvm::MemoryBuffer> OverrideMainBuffer;
-  if (Preamble || PreambleRebuildCounter > 0)
+  if (Preamble || PreambleRebuildCountdown > 0)
     OverrideMainBuffer =
         getMainBufferWithPrecompiledPreamble(PCHContainerOps, *Invocation, VFS);
 
@@ -2156,7 +2186,7 @@ void ASTUnit::CodeComplete(
 
   // Set up diagnostics, capturing any diagnostics produced.
   Clang->setDiagnostics(&Diag);
-  CaptureDroppedDiagnostics Capture(true,
+  CaptureDroppedDiagnostics Capture(CaptureDiagsKind::All,
                                     Clang->getDiagnostics(),
                                     &StoredDiagnostics, nullptr);
   ProcessWarningOptions(Diag, Inv.getDiagnosticOpts());
@@ -2253,7 +2283,9 @@ void ASTUnit::CodeComplete(
   std::unique_ptr<SyntaxOnlyAction> Act;
   Act.reset(new SyntaxOnlyAction);
   if (Act->BeginSourceFile(*Clang.get(), Clang->getFrontendOpts().Inputs[0])) {
-    Act->Execute();
+    if (llvm::Error Err = Act->Execute()) {
+      consumeError(std::move(Err)); // FIXME this drops errors on the floor.
+    }
     Act->EndSourceFile();
   }
 }
@@ -2415,8 +2447,8 @@ void ASTUnit::addFileLevelDecl(Decl *D) {
     return;
   }
 
-  LocDeclsTy::iterator I = std::upper_bound(Decls->begin(), Decls->end(),
-                                            LocDecl, llvm::less_first());
+  LocDeclsTy::iterator I =
+      llvm::upper_bound(*Decls, LocDecl, llvm::less_first());
 
   Decls->insert(I, LocDecl);
 }
@@ -2441,9 +2473,9 @@ void ASTUnit::findFileRegionDecls(FileID File, unsigned Offset, unsigned Length,
     return;
 
   LocDeclsTy::iterator BeginIt =
-      std::lower_bound(LocDecls.begin(), LocDecls.end(),
-                       std::make_pair(Offset, (Decl *)nullptr),
-                       llvm::less_first());
+      llvm::partition_point(LocDecls, [=](std::pair<unsigned, Decl *> LD) {
+        return LD.first < Offset;
+      });
   if (BeginIt != LocDecls.begin())
     --BeginIt;
 
@@ -2454,9 +2486,9 @@ void ASTUnit::findFileRegionDecls(FileID File, unsigned Offset, unsigned Length,
          BeginIt->second->isTopLevelDeclInObjCContainer())
     --BeginIt;
 
-  LocDeclsTy::iterator EndIt = std::upper_bound(
-      LocDecls.begin(), LocDecls.end(),
-      std::make_pair(Offset + Length, (Decl *)nullptr), llvm::less_first());
+  LocDeclsTy::iterator EndIt = llvm::upper_bound(
+      LocDecls, std::make_pair(Offset + Length, (Decl *)nullptr),
+      llvm::less_first());
   if (EndIt != LocDecls.end())
     ++EndIt;
 

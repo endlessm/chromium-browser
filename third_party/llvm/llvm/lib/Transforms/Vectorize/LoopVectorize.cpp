@@ -56,6 +56,7 @@
 #include "llvm/Transforms/Vectorize/LoopVectorize.h"
 #include "LoopVectorizationPlanner.h"
 #include "VPRecipeBuilder.h"
+#include "VPlan.h"
 #include "VPlanHCFGBuilder.h"
 #include "VPlanHCFGTransforms.h"
 #include "VPlanPredicator.h"
@@ -2882,13 +2883,11 @@ BasicBlock *InnerLoopVectorizer::createVectorizedLoopSkeleton() {
     BCResumeVal->addIncoming(EndValue, MiddleBlock);
 
     // Fix the scalar body counter (PHI node).
-    unsigned BlockIdx = OrigPhi->getBasicBlockIndex(ScalarPH);
-
     // The old induction's phi node in the scalar body needs the truncated
     // value.
     for (BasicBlock *BB : LoopBypassBlocks)
       BCResumeVal->addIncoming(II.getStartValue(), BB);
-    OrigPhi->setIncomingValue(BlockIdx, BCResumeVal);
+    OrigPhi->setIncomingValueForBlock(ScalarPH, BCResumeVal);
   }
 
   // We need the OrigLoop (scalar loop part) latch terminator to help
@@ -2910,11 +2909,11 @@ BasicBlock *InnerLoopVectorizer::createVectorizedLoopSkeleton() {
         CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, Count,
                         CountRoundDown, "cmp.n", MiddleBlock->getTerminator());
 
-    // Provide correct stepping behaviour by using the same DebugLoc as the
-    // scalar loop latch branch cmp if it exists.
-    if (CmpInst *ScalarLatchCmp =
-            dyn_cast_or_null<CmpInst>(ScalarLatchBr->getCondition()))
-      cast<Instruction>(CmpN)->setDebugLoc(ScalarLatchCmp->getDebugLoc());
+    // Here we use the same DebugLoc as the scalar loop latch branch instead
+    // of the corresponding compare because they may have ended up with
+    // different line numbers and we want to avoid awkward line stepping while
+    // debugging. Eg. if the compare has got a line number inside the loop.
+    cast<Instruction>(CmpN)->setDebugLoc(ScalarLatchBr->getDebugLoc());
   }
 
   BranchInst *BrInst = BranchInst::Create(ExitBlock, ScalarPH, CmpN);
@@ -3479,7 +3478,7 @@ void InnerLoopVectorizer::fixFirstOrderRecurrence(PHINode *Phi) {
     Start->addIncoming(Incoming, BB);
   }
 
-  Phi->setIncomingValue(Phi->getBasicBlockIndex(LoopScalarPreHeader), Start);
+  Phi->setIncomingValueForBlock(LoopScalarPreHeader, Start);
   Phi->setName("scalar.recur");
 
   // Finally, fix users of the recurrence outside the loop. The users will need
@@ -3607,7 +3606,15 @@ void InnerLoopVectorizer::fixReduction(PHINode *Phi) {
   // Reduce all of the unrolled parts into a single vector.
   Value *ReducedPartRdx = VectorLoopValueMap.getVectorValue(LoopExitInst, 0);
   unsigned Op = RecurrenceDescriptor::getRecurrenceBinOp(RK);
-  setDebugLocFromInst(Builder, ReducedPartRdx);
+
+  // The middle block terminator has already been assigned a DebugLoc here (the
+  // OrigLoop's single latch terminator). We want the whole middle block to
+  // appear to execute on this line because: (a) it is all compiler generated,
+  // (b) these instructions are always executed after evaluating the latch
+  // conditional branch, and (c) other passes may add new predecessors which
+  // terminate on this line. This is the easiest way to ensure we don't
+  // accidentally cause an extra step back into the loop while debugging.
+  setDebugLocFromInst(Builder, LoopMiddleBlock->getTerminator());
   for (unsigned Part = 1; Part < UF; ++Part) {
     Value *RdxPart = VectorLoopValueMap.getVectorValue(LoopExitInst, Part);
     if (Op != Instruction::ICmp && Op != Instruction::FCmp)
@@ -3969,6 +3976,7 @@ void InnerLoopVectorizer::widenInstruction(Instruction &I) {
   case Instruction::FAdd:
   case Instruction::Sub:
   case Instruction::FSub:
+  case Instruction::FNeg:
   case Instruction::Mul:
   case Instruction::FMul:
   case Instruction::FDiv:
@@ -3979,21 +3987,22 @@ void InnerLoopVectorizer::widenInstruction(Instruction &I) {
   case Instruction::And:
   case Instruction::Or:
   case Instruction::Xor: {
-    // Just widen binops.
-    auto *BinOp = cast<BinaryOperator>(&I);
-    setDebugLocFromInst(Builder, BinOp);
+    // Just widen unops and binops.
+    setDebugLocFromInst(Builder, &I);
 
     for (unsigned Part = 0; Part < UF; ++Part) {
-      Value *A = getOrCreateVectorValue(BinOp->getOperand(0), Part);
-      Value *B = getOrCreateVectorValue(BinOp->getOperand(1), Part);
-      Value *V = Builder.CreateBinOp(BinOp->getOpcode(), A, B);
+      SmallVector<Value *, 2> Ops;
+      for (Value *Op : I.operands())
+        Ops.push_back(getOrCreateVectorValue(Op, Part));
 
-      if (BinaryOperator *VecOp = dyn_cast<BinaryOperator>(V))
-        VecOp->copyIRFlags(BinOp);
+      Value *V = Builder.CreateNAryOp(I.getOpcode(), Ops);
+
+      if (auto *VecOp = dyn_cast<Instruction>(V))
+        VecOp->copyIRFlags(&I);
 
       // Use this vector value for all users of the original instruction.
       VectorLoopValueMap.setVectorValue(&I, Part, V);
-      addMetadata(V, BinOp);
+      addMetadata(V, &I);
     }
 
     break;
@@ -4408,6 +4417,13 @@ bool LoopVectorizationCostModel::interleavedAccessCanBeWidened(Instruction *I,
          "Decision should not be set yet.");
   auto *Group = getInterleavedAccessGroup(I);
   assert(Group && "Must have a group.");
+
+  // If the instruction's allocated size doesn't equal it's type size, it
+  // requires padding and will be scalarized.
+  auto &DL = I->getModule()->getDataLayout();
+  auto *ScalarTy = getMemInstValueType(I);
+  if (hasIrregularType(ScalarTy, DL, VF))
+    return false;
 
   // Check if masking is required.
   // A Group may need masking for one of two reasons: it resides in a block that
@@ -5000,6 +5016,8 @@ unsigned LoopVectorizationCostModel::selectInterleaveCount(bool OptForSize,
   // then we calculate the cost of VF here.
   if (LoopCost == 0)
     LoopCost = expectedCost(VF).first;
+
+  assert(LoopCost && "Non-zero loop cost expected");
 
   // Clamp the calculated IC to be between the 1 and the max interleave count
   // that the target allows.
@@ -5958,6 +5976,14 @@ unsigned LoopVectorizationCostModel::getInstructionCost(Instruction *I,
                    I->getOpcode(), VectorTy, TargetTransformInfo::OK_AnyValue,
                    Op2VK, TargetTransformInfo::OP_None, Op2VP, Operands);
   }
+  case Instruction::FNeg: {
+    unsigned N = isScalarAfterVectorization(I, VF) ? VF : 1;
+    return N * TTI.getArithmeticInstrCost(
+                   I->getOpcode(), VectorTy, TargetTransformInfo::OK_AnyValue,
+                   TargetTransformInfo::OK_AnyValue,
+                   TargetTransformInfo::OP_None, TargetTransformInfo::OP_None,
+                   I->getOperand(0));
+  }
   case Instruction::Select: {
     SelectInst *SI = cast<SelectInst>(I);
     const SCEV *CondSCEV = SE->getSCEV(SI->getCondition());
@@ -6587,6 +6613,7 @@ bool VPRecipeBuilder::tryToWiden(Instruction *I, VPBasicBlock *VPBB,
     case Instruction::FCmp:
     case Instruction::FDiv:
     case Instruction::FMul:
+    case Instruction::FNeg:
     case Instruction::FPExt:
     case Instruction::FPToSI:
     case Instruction::FPToUI:
@@ -6816,8 +6843,7 @@ void LoopVectorizationPlanner::buildVPlansWithVPRecipes(unsigned MinVF,
   }
 }
 
-LoopVectorizationPlanner::VPlanPtr
-LoopVectorizationPlanner::buildVPlanWithVPRecipes(
+VPlanPtr LoopVectorizationPlanner::buildVPlanWithVPRecipes(
     VFRange &Range, SmallPtrSetImpl<Value *> &NeedDef,
     SmallPtrSetImpl<Instruction *> &DeadInstructions) {
   // Hold a mapping from predicated instructions to their recipes, in order to
@@ -6941,8 +6967,7 @@ LoopVectorizationPlanner::buildVPlanWithVPRecipes(
   return Plan;
 }
 
-LoopVectorizationPlanner::VPlanPtr
-LoopVectorizationPlanner::buildVPlan(VFRange &Range) {
+VPlanPtr LoopVectorizationPlanner::buildVPlan(VFRange &Range) {
   // Outer loop handling: They may require CFG and instruction level
   // transformations before even evaluating whether vectorization is profitable.
   // Since we cannot modify the incoming IR, we need to build VPlan upfront in
@@ -7258,7 +7283,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
 
   // Check if it is legal to vectorize the loop.
   LoopVectorizationRequirements Requirements(*ORE);
-  LoopVectorizationLegality LVL(L, PSE, DT, TLI, AA, F, GetLAA, LI, ORE,
+  LoopVectorizationLegality LVL(L, PSE, DT, TTI, TLI, AA, F, GetLAA, LI, ORE,
                                 &Requirements, &Hints, DB, AC);
   if (!LVL.canVectorize(EnableVPlanNativePath)) {
     LLVM_DEBUG(dbgs() << "LV: Not vectorizing: Cannot prove legality.\n");

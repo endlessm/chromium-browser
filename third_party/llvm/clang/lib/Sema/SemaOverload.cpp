@@ -5514,7 +5514,7 @@ static ExprResult CheckConvertedConstantExpression(Sema &S, Expr *From,
 
     if (Notes.empty()) {
       // It's a constant expression.
-      return ConstantExpr::Create(S.Context, Result.get());
+      return ConstantExpr::Create(S.Context, Result.get(), Value);
     }
   }
 
@@ -6100,6 +6100,15 @@ void Sema::AddOverloadCandidate(
         Candidate.FailureKind = ovl_fail_inhctor_slice;
         return;
       }
+    }
+
+    // Check that the constructor is capable of constructing an object in the
+    // destination address space.
+    if (!Qualifiers::isAddressSpaceSupersetOf(
+            Constructor->getMethodQualifiers().getAddressSpace(),
+            CandidateSet.getDestAS())) {
+      Candidate.Viable = false;
+      Candidate.FailureKind = ovl_fail_object_addrspace_mismatch;
     }
   }
 
@@ -10392,9 +10401,12 @@ static void DiagnoseOpenCLExtensionDisabled(Sema &S, OverloadCandidate *Cand) {
 /// It would be great to be able to express per-candidate problems
 /// more richly for those diagnostic clients that cared, but we'd
 /// still have to be just as careful with the default diagnostics.
+/// \param CtorDestAS Addr space of object being constructed (for ctor
+/// candidates only).
 static void NoteFunctionCandidate(Sema &S, OverloadCandidate *Cand,
                                   unsigned NumArgs,
-                                  bool TakingCandidateAddress) {
+                                  bool TakingCandidateAddress,
+                                  LangAS CtorDestAS = LangAS::Default) {
   FunctionDecl *Fn = Cand->Function;
 
   // Note deleted candidates, but only if they're viable.
@@ -10428,6 +10440,16 @@ static void NoteFunctionCandidate(Sema &S, OverloadCandidate *Cand,
   case ovl_fail_illegal_constructor: {
     S.Diag(Fn->getLocation(), diag::note_ovl_candidate_illegal_constructor)
       << (Fn->getPrimaryTemplate() ? 1 : 0);
+    MaybeEmitInheritedConstructorNote(S, Cand->FoundDecl);
+    return;
+  }
+
+  case ovl_fail_object_addrspace_mismatch: {
+    Qualifiers QualsForPrinting;
+    QualsForPrinting.setAddressSpace(CtorDestAS);
+    S.Diag(Fn->getLocation(),
+           diag::note_ovl_candidate_illegal_constructor_adrspace_mismatch)
+        << QualsForPrinting;
     MaybeEmitInheritedConstructorNote(S, Cand->FoundDecl);
     return;
   }
@@ -10862,7 +10884,7 @@ void OverloadCandidateSet::NoteCandidates(Sema &S, ArrayRef<Expr *> Args,
 
     if (Cand->Function)
       NoteFunctionCandidate(S, Cand, Args.size(),
-                            /*TakingCandidateAddress=*/false);
+                            /*TakingCandidateAddress=*/false, DestAS);
     else if (Cand->IsSurrogate)
       NoteSurrogateCandidate(S, Cand);
     else {
@@ -13864,17 +13886,10 @@ Expr *Sema::FixOverloadedFunctionReference(Expr *E, DeclAccessPair Found,
       TemplateArgs = &TemplateArgsBuffer;
     }
 
-    DeclRefExpr *DRE = DeclRefExpr::Create(Context,
-                                           ULE->getQualifierLoc(),
-                                           ULE->getTemplateKeywordLoc(),
-                                           Fn,
-                                           /*enclosing*/ false, // FIXME?
-                                           ULE->getNameLoc(),
-                                           Fn->getType(),
-                                           VK_LValue,
-                                           Found.getDecl(),
-                                           TemplateArgs);
-    MarkDeclRefReferenced(DRE);
+    DeclRefExpr *DRE =
+        BuildDeclRefExpr(Fn, Fn->getType(), VK_LValue, ULE->getNameInfo(),
+                         ULE->getQualifierLoc(), Found.getDecl(),
+                         ULE->getTemplateKeywordLoc(), TemplateArgs);
     DRE->setHadMultipleCandidates(ULE->getNumDecls() > 1);
     return DRE;
   }
@@ -13893,27 +13908,18 @@ Expr *Sema::FixOverloadedFunctionReference(Expr *E, DeclAccessPair Found,
     // implicit member access, rewrite to a simple decl ref.
     if (MemExpr->isImplicitAccess()) {
       if (cast<CXXMethodDecl>(Fn)->isStatic()) {
-        DeclRefExpr *DRE = DeclRefExpr::Create(Context,
-                                               MemExpr->getQualifierLoc(),
-                                               MemExpr->getTemplateKeywordLoc(),
-                                               Fn,
-                                               /*enclosing*/ false,
-                                               MemExpr->getMemberLoc(),
-                                               Fn->getType(),
-                                               VK_LValue,
-                                               Found.getDecl(),
-                                               TemplateArgs);
-        MarkDeclRefReferenced(DRE);
+        DeclRefExpr *DRE = BuildDeclRefExpr(
+            Fn, Fn->getType(), VK_LValue, MemExpr->getNameInfo(),
+            MemExpr->getQualifierLoc(), Found.getDecl(),
+            MemExpr->getTemplateKeywordLoc(), TemplateArgs);
         DRE->setHadMultipleCandidates(MemExpr->getNumDecls() > 1);
         return DRE;
       } else {
         SourceLocation Loc = MemExpr->getMemberLoc();
         if (MemExpr->getQualifier())
           Loc = MemExpr->getQualifierLoc().getBeginLoc();
-        CheckCXXThisCapture(Loc);
-        Base = new (Context) CXXThisExpr(Loc,
-                                         MemExpr->getBaseType(),
-                                         /*isImplicit=*/true);
+        Base =
+            BuildCXXThisExpr(Loc, MemExpr->getBaseType(), /*isImplicit=*/true);
       }
     } else
       Base = MemExpr->getBase();
@@ -13928,14 +13934,11 @@ Expr *Sema::FixOverloadedFunctionReference(Expr *E, DeclAccessPair Found,
       type = Context.BoundMemberTy;
     }
 
-    MemberExpr *ME = MemberExpr::Create(
-        Context, Base, MemExpr->isArrow(), MemExpr->getOperatorLoc(),
+    return BuildMemberExpr(
+        Base, MemExpr->isArrow(), MemExpr->getOperatorLoc(),
         MemExpr->getQualifierLoc(), MemExpr->getTemplateKeywordLoc(), Fn, Found,
-        MemExpr->getMemberNameInfo(), TemplateArgs, type, valueKind,
-        OK_Ordinary);
-    ME->setHadMultipleCandidates(true);
-    MarkMemberReferenced(ME);
-    return ME;
+        /*HadMultipleCandidates=*/true, MemExpr->getMemberNameInfo(),
+        type, valueKind, OK_Ordinary, TemplateArgs);
   }
 
   llvm_unreachable("Invalid reference to overloaded function");

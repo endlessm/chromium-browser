@@ -307,7 +307,7 @@ def SDTFPTernaryOpImm: SDTypeProfile<1, 4, [SDTCisFP<0>, SDTCisSameAs<0,1>,
                                             SDTCisSameSizeAs<0, 3>,
                                             SDTCisSameNumEltsAs<0, 3>,
                                             SDTCisVT<4, i32>]>;
-def SDTFPUnaryOpImm: SDTypeProfile<1, 2, [SDTCisFP<0>, SDTCisVec<0>,
+def SDTFPUnaryOpImm: SDTypeProfile<1, 2, [SDTCisFP<0>,
                                           SDTCisSameAs<0,1>,
                                           SDTCisVT<2, i32>]>;
 
@@ -504,6 +504,10 @@ def X86FmsubRnd     : SDNode<"X86ISD::FMSUB_RND",     SDTFmaRound, [SDNPCommutat
 def X86FnmsubRnd    : SDNode<"X86ISD::FNMSUB_RND",    SDTFmaRound, [SDNPCommutative]>;
 def X86FmaddsubRnd  : SDNode<"X86ISD::FMADDSUB_RND",  SDTFmaRound, [SDNPCommutative]>;
 def X86FmsubaddRnd  : SDNode<"X86ISD::FMSUBADD_RND",  SDTFmaRound, [SDNPCommutative]>;
+
+def X86vp2intersect : SDNode<"X86ISD::VP2INTERSECT",
+                              SDTypeProfile<1, 2, [SDTCisVT<0, untyped>,
+                                                   SDTCisVec<1>, SDTCisSameAs<1, 2>]>>;
 
 def SDTIFma : SDTypeProfile<1, 3, [SDTCisInt<0>, SDTCisSameAs<0,1>,
                            SDTCisSameAs<1,2>, SDTCisSameAs<1,3>]>;
@@ -746,9 +750,9 @@ def loadv32i16   : PatFrag<(ops node:$ptr), (v32i16 (load node:$ptr))>;
 def loadv64i8    : PatFrag<(ops node:$ptr), (v64i8  (load node:$ptr))>;
 
 // 128-/256-/512-bit extload pattern fragments
-def extloadv2f32 : PatFrag<(ops node:$ptr), (v2f64 (extloadvf32 node:$ptr))>;
-def extloadv4f32 : PatFrag<(ops node:$ptr), (v4f64 (extloadvf32 node:$ptr))>;
-def extloadv8f32 : PatFrag<(ops node:$ptr), (v8f64 (extloadvf32 node:$ptr))>;
+def extloadv2f32 : PatFrag<(ops node:$ptr), (extloadvf32 node:$ptr)>;
+def extloadv4f32 : PatFrag<(ops node:$ptr), (extloadvf32 node:$ptr)>;
+def extloadv8f32 : PatFrag<(ops node:$ptr), (extloadvf32 node:$ptr)>;
 
 // Like 'store', but always requires vector size alignment.
 def alignedstore : PatFrag<(ops node:$val, node:$ptr),
@@ -935,13 +939,8 @@ def bc_v8i64 : PatFrag<(ops node:$in), (v8i64 (bitconvert node:$in))>;
 def bc_v8f64 : PatFrag<(ops node:$in), (v8f64 (bitconvert node:$in))>;
 def bc_v16f32 : PatFrag<(ops node:$in), (v16f32 (bitconvert node:$in))>;
 
-def vzmovl_v2i64 : PatFrag<(ops node:$src),
-                           (bitconvert (v2i64 (X86vzmovl
-                             (v2i64 (scalar_to_vector (loadi64 node:$src))))))>;
-def vzmovl_v4i32 : PatFrag<(ops node:$src),
-                           (bitconvert (v4i32 (X86vzmovl
-                             (v4i32 (scalar_to_vector (loadi32 node:$src))))))>;
-
+def vzload_v4i32 : PatFrag<(ops node:$src),
+                           (bitconvert (v4i32 (X86vzload node:$src)))>;
 def vzload_v2i64 : PatFrag<(ops node:$src),
                            (bitconvert (v2i64 (X86vzload node:$src)))>;
 
@@ -980,8 +979,10 @@ def INSERT_get_vinsert256_imm : SDNodeXForm<insert_subvector, [{
 
 def vextract128_extract : PatFrag<(ops node:$bigvec, node:$index),
                                    (extract_subvector node:$bigvec,
-                                                      node:$index), [{}],
-                                  EXTRACT_get_vextract128_imm>;
+                                                      node:$index), [{
+  // Index 0 can be handled via extract_subreg.
+  return !isNullConstant(N->getOperand(1));
+}], EXTRACT_get_vextract128_imm>;
 
 def vinsert128_insert : PatFrag<(ops node:$bigvec, node:$smallvec,
                                       node:$index),
@@ -991,8 +992,10 @@ def vinsert128_insert : PatFrag<(ops node:$bigvec, node:$smallvec,
 
 def vextract256_extract : PatFrag<(ops node:$bigvec, node:$index),
                                    (extract_subvector node:$bigvec,
-                                                      node:$index), [{}],
-                                  EXTRACT_get_vextract256_imm>;
+                                                      node:$index), [{
+  // Index 0 can be handled via extract_subreg.
+  return !isNullConstant(N->getOperand(1));
+}], EXTRACT_get_vextract256_imm>;
 
 def vinsert256_insert : PatFrag<(ops node:$bigvec, node:$smallvec,
                                       node:$index),
@@ -1000,70 +1003,46 @@ def vinsert256_insert : PatFrag<(ops node:$bigvec, node:$smallvec,
                                                    node:$index), [{}],
                                 INSERT_get_vinsert256_imm>;
 
-def X86mload : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (masked_load node:$src1, node:$src2, node:$src3), [{
+def masked_load : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                          (masked_ld node:$src1, node:$src2, node:$src3), [{
   return !cast<MaskedLoadSDNode>(N)->isExpandingLoad() &&
     cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::NON_EXTLOAD;
 }]>;
 
-def masked_load_aligned128 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (X86mload node:$src1, node:$src2, node:$src3), [{
-  return cast<MaskedLoadSDNode>(N)->getAlignment() >= 16;
-}]>;
-
-def masked_load_aligned256 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (X86mload node:$src1, node:$src2, node:$src3), [{
-  return cast<MaskedLoadSDNode>(N)->getAlignment() >= 32;
-}]>;
-
-def masked_load_aligned512 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (X86mload node:$src1, node:$src2, node:$src3), [{
-  return cast<MaskedLoadSDNode>(N)->getAlignment() >= 64;
-}]>;
-
-def masked_load_unaligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+def masked_load_aligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_load node:$src1, node:$src2, node:$src3), [{
-  return !cast<MaskedLoadSDNode>(N)->isExpandingLoad() &&
-    cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::NON_EXTLOAD;
+  // Use the node type to determine the size the alignment needs to match.
+  // We can't use memory VT because type widening changes the node VT, but
+  // not the memory VT.
+  auto *Ld = cast<MaskedLoadSDNode>(N);
+  return Ld->getAlignment() >= Ld->getValueType(0).getStoreSize();
 }]>;
 
 def X86mExpandingLoad : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (masked_load node:$src1, node:$src2, node:$src3), [{
+                         (masked_ld node:$src1, node:$src2, node:$src3), [{
   return cast<MaskedLoadSDNode>(N)->isExpandingLoad();
 }]>;
 
 // Masked store fragments.
 // X86mstore can't be implemented in core DAG files because some targets
 // do not support vector types (llvm-tblgen will fail).
-def X86mstore : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                        (masked_store node:$src1, node:$src2, node:$src3), [{
+def masked_store : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                        (masked_st node:$src1, node:$src2, node:$src3), [{
   return (!cast<MaskedStoreSDNode>(N)->isTruncatingStore()) &&
          (!cast<MaskedStoreSDNode>(N)->isCompressingStore());
 }]>;
 
-def masked_store_aligned128 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (X86mstore node:$src1, node:$src2, node:$src3), [{
-  return cast<MaskedStoreSDNode>(N)->getAlignment() >= 16;
-}]>;
-
-def masked_store_aligned256 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (X86mstore node:$src1, node:$src2, node:$src3), [{
-  return cast<MaskedStoreSDNode>(N)->getAlignment() >= 32;
-}]>;
-
-def masked_store_aligned512 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (X86mstore node:$src1, node:$src2, node:$src3), [{
-  return cast<MaskedStoreSDNode>(N)->getAlignment() >= 64;
-}]>;
-
-def masked_store_unaligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+def masked_store_aligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_store node:$src1, node:$src2, node:$src3), [{
-  return (!cast<MaskedStoreSDNode>(N)->isTruncatingStore()) &&
-         (!cast<MaskedStoreSDNode>(N)->isCompressingStore());
+  // Use the node type to determine the size the alignment needs to match.
+  // We can't use memory VT because type widening changes the node VT, but
+  // not the memory VT.
+  auto *St = cast<MaskedStoreSDNode>(N);
+  return St->getAlignment() >= St->getOperand(1).getValueType().getStoreSize();
 }]>;
 
 def X86mCompressingStore : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                             (masked_store node:$src1, node:$src2, node:$src3), [{
+                             (masked_st node:$src1, node:$src2, node:$src3), [{
     return cast<MaskedStoreSDNode>(N)->isCompressingStore();
 }]>;
 
@@ -1071,7 +1050,7 @@ def X86mCompressingStore : PatFrag<(ops node:$src1, node:$src2, node:$src3),
 // X86mtruncstore can't be implemented in core DAG files because some targets
 // doesn't support vector type ( llvm-tblgen will fail)
 def X86mtruncstore : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                             (masked_store node:$src1, node:$src2, node:$src3), [{
+                             (masked_st node:$src1, node:$src2, node:$src3), [{
     return cast<MaskedStoreSDNode>(N)->isTruncatingStore();
 }]>;
 def masked_truncstorevi8 :

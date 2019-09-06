@@ -40,6 +40,10 @@ STATISTIC(
 STATISTIC(NumGetCTUSuccess,
           "The # of getCTUDefinition successfully returned the "
           "requested function's body");
+STATISTIC(NumUnsupportedNodeFound, "The # of imports when the ASTImporter "
+                                   "encountered an unsupported AST Node");
+STATISTIC(NumNameConflicts, "The # of imports when the ASTImporter "
+                            "encountered an ODR error");
 STATISTIC(NumTripleMismatch, "The # of triple mismatches");
 STATISTIC(NumLangMismatch, "The # of language mismatches");
 STATISTIC(NumLangDialectMismatch, "The # of language dialect mismatches");
@@ -404,10 +408,10 @@ CrossTranslationUnitContext::importDefinitionImpl(const T *D) {
                     [&](const ImportError &IE) {
                       switch (IE.Error) {
                       case ImportError::NameConflict:
-                        // FIXME: Add statistic.
+                        ++NumNameConflicts;
                          break;
                       case ImportError::UnsupportedConstruct:
-                        // FIXME: Add statistic.
+                        ++NumUnsupportedNodeFound;
                         break;
                       case ImportError::Unknown:
                         llvm_unreachable("Unknown import error happened.");
@@ -433,10 +437,10 @@ CrossTranslationUnitContext::importDefinition(const VarDecl *VD) {
   return importDefinitionImpl(VD);
 }
 
-void CrossTranslationUnitContext::lazyInitLookupTable(
+void CrossTranslationUnitContext::lazyInitImporterSharedSt(
     TranslationUnitDecl *ToTU) {
-  if (!LookupTable)
-    LookupTable = llvm::make_unique<ASTImporterLookupTable>(*ToTU);
+  if (!ImporterSharedSt)
+    ImporterSharedSt = std::make_shared<ASTImporterSharedState>(*ToTU);
 }
 
 ASTImporter &
@@ -444,10 +448,10 @@ CrossTranslationUnitContext::getOrCreateASTImporter(ASTContext &From) {
   auto I = ASTUnitImporterMap.find(From.getTranslationUnitDecl());
   if (I != ASTUnitImporterMap.end())
     return *I->second;
-  lazyInitLookupTable(Context.getTranslationUnitDecl());
+  lazyInitImporterSharedSt(Context.getTranslationUnitDecl());
   ASTImporter *NewImporter = new ASTImporter(
       Context, Context.getSourceManager().getFileManager(), From,
-      From.getSourceManager().getFileManager(), false, LookupTable.get());
+      From.getSourceManager().getFileManager(), false, ImporterSharedSt);
   ASTUnitImporterMap[From.getTranslationUnitDecl()].reset(NewImporter);
   return *NewImporter;
 }

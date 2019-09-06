@@ -301,7 +301,9 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::UADDSAT:                    return "uaddsat";
   case ISD::SSUBSAT:                    return "ssubsat";
   case ISD::USUBSAT:                    return "usubsat";
+
   case ISD::SMULFIX:                    return "smulfix";
+  case ISD::SMULFIXSAT:                 return "smulfixsat";
   case ISD::UMULFIX:                    return "umulfix";
 
   // Conversion operators.
@@ -330,6 +332,8 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::FP_TO_FP16:                 return "fp_to_fp16";
   case ISD::LROUND:                     return "lround";
   case ISD::LLROUND:                    return "llround";
+  case ISD::LRINT:                      return "lrint";
+  case ISD::LLRINT:                     return "llrint";
 
     // Control flow instructions
   case ISD::BR:                         return "br";

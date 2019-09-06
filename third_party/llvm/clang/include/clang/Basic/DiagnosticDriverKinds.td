@@ -9,9 +9,11 @@
 let Component = "Driver" in {
 
 def err_drv_no_such_file : Error<"no such file or directory: '%0'">;
+def err_drv_no_such_file_with_suggestion : Error<
+  "no such file or directory: '%0'; did you mean '%1'?">;
 def err_drv_unsupported_opt : Error<"unsupported option '%0'">;
-def err_drv_unsupported_opt_with_suggestion
-  : Error<"unsupported option '%0', did you mean '%1'?">;
+def err_drv_unsupported_opt_with_suggestion : Error<
+  "unsupported option '%0'; did you mean '%1'?">;
 def err_drv_unsupported_opt_for_target : Error<
   "unsupported option '%0' for target '%1'">;
 def err_drv_unsupported_option_argument : Error<
@@ -89,6 +91,8 @@ def err_no_external_assembler : Error<
   "there is no external assembler that can be used on this platform">;
 def err_drv_unable_to_remove_file : Error<
   "unable to remove file: %0">;
+def err_drv_unable_to_set_working_directory : Error <
+  "unable to set working directory: %0">;
 def err_drv_command_failure : Error<
   "unable to execute command: %0">;
 def err_drv_invalid_darwin_version : Error<
@@ -166,13 +170,13 @@ def err_arch_unsupported_isa
 def err_drv_I_dash_not_supported : Error<
   "'%0' not supported, please use -iquote instead">;
 def err_drv_unknown_argument : Error<"unknown argument: '%0'">;
-def err_drv_unknown_argument_with_suggestion
-  : Error<"unknown argument '%0', did you mean '%1'?">;
+def err_drv_unknown_argument_with_suggestion : Error<
+  "unknown argument '%0'; did you mean '%1'?">;
 def warn_drv_unknown_argument_clang_cl : Warning<
   "unknown argument ignored in clang-cl: '%0'">,
   InGroup<UnknownArgument>;
 def warn_drv_unknown_argument_clang_cl_with_suggestion : Warning<
-  "unknown argument ignored in clang-cl '%0' (did you mean '%1'?)">,
+  "unknown argument ignored in clang-cl '%0'; did you mean '%1'?">,
   InGroup<UnknownArgument>;
 
 def warn_drv_ycyu_different_arg_clang_cl : Warning<
@@ -225,7 +229,9 @@ def err_drv_gnustep_objc_runtime_incompatible_binary : Error<
 def err_drv_emit_llvm_link : Error<
    "-emit-llvm cannot be used when linking">;
 def err_drv_optimization_remark_pattern : Error<
-  "%0 in '%1'">;
+  "in pattern '%1': %0">;
+def err_drv_optimization_remark_format : Error<
+  "unknown remark serializer format: '%0'">;
 def err_drv_no_neon_modifier : Error<"[no]neon is not accepted as modifier, please use [no]simd instead">;
 def err_drv_invalid_omp_target : Error<"OpenMP target is invalid: '%0'">;
 def err_drv_omp_host_ir_file_not_found : Error<
@@ -453,4 +459,10 @@ def warn_drv_msp430_hwmult_no_device : Warning<"no MCU device specified, but "
   "specify a MSP430 device, or -mhwmult to set hardware multiply type "
   "explicitly.">, InGroup<InvalidCommandLineArgument>;
 
+def warn_drv_libstdcxx_not_found : Warning<
+  "include path for libstdc++ headers not found; pass '-stdlib=libc++' on the "
+  "command line to use the libc++ standard library instead">,
+  InGroup<DiagGroup<"stdlibcxx-not-found">>;
+
+def err_drv_cannot_mix_options : Error<"cannot specify '%1' along with '%0'">;
 }

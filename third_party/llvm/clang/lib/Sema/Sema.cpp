@@ -158,6 +158,7 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
       ThreadSafetyDeclCache(nullptr), VarDataSharingAttributesStack(nullptr),
       CurScope(nullptr), Ident_super(nullptr), Ident___float128(nullptr) {
   TUScope = nullptr;
+  isConstantEvaluatedOverride = false;
 
   LoadedExternalKnownNamespaces = false;
   for (unsigned I = 0; I != NSAPI::NumNSNumberLiteralMethods; ++I)
@@ -175,8 +176,6 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
   ExprEvalContexts.emplace_back(
       ExpressionEvaluationContext::PotentiallyEvaluated, 0, CleanupInfo{},
       nullptr, ExpressionEvaluationContextRecord::EK_Other);
-
-  PreallocatedFunctionScope.reset(new FunctionScopeInfo(Diags));
 
   // Initialization of data sharing attributes stack for OpenMP
   InitDataSharingAttributesStack();
@@ -354,8 +353,7 @@ Sema::~Sema() {
 
   // Kill all the active scopes.
   for (sema::FunctionScopeInfo *FSI : FunctionScopes)
-    if (FSI != PreallocatedFunctionScope.get())
-      delete FSI;
+    delete FSI;
 
   // Tell the SemaConsumer to forget about us; we're going out of scope.
   if (SemaConsumer *SC = dyn_cast<SemaConsumer>(&Consumer))
@@ -493,6 +491,7 @@ ExprResult Sema::ImpCastExprToType(Expr *E, QualType Ty,
     default:
       llvm_unreachable("can't implicitly cast lvalue to rvalue with this cast "
                        "kind");
+    case CK_Dependent:
     case CK_LValueToRValue:
     case CK_ArrayToPointerDecay:
     case CK_FunctionToPointerDecay:
@@ -501,7 +500,8 @@ ExprResult Sema::ImpCastExprToType(Expr *E, QualType Ty,
       break;
     }
   }
-  assert((VK == VK_RValue || !E->isRValue()) && "can't cast rvalue to lvalue");
+  assert((VK == VK_RValue || Kind == CK_Dependent || !E->isRValue()) &&
+         "can't cast rvalue to lvalue");
 #endif
 
   diagnoseNullableToNonnullConversion(Ty, E->getType(), E->getBeginLoc());
@@ -590,7 +590,7 @@ static bool ShouldRemoveFromUnused(Sema *SemaRef, const DeclaratorDecl *D) {
     // warn even if the variable isn't odr-used.  (isReferenced doesn't
     // precisely reflect that, but it's a decent approximation.)
     if (VD->isReferenced() &&
-        VD->isUsableInConstantExpressions(SemaRef->Context))
+        VD->mightBeUsableInConstantExpressions(SemaRef->Context))
       return true;
 
     if (VarTemplateDecl *Template = VD->getDescribedVarTemplate())
@@ -1596,10 +1596,10 @@ Scope *Sema::getScopeForContext(DeclContext *Ctx) {
 
 /// Enter a new function scope
 void Sema::PushFunctionScope() {
-  if (FunctionScopes.empty()) {
-    // Use PreallocatedFunctionScope to avoid allocating memory when possible.
-    PreallocatedFunctionScope->Clear();
-    FunctionScopes.push_back(PreallocatedFunctionScope.get());
+  if (FunctionScopes.empty() && CachedFunctionScope) {
+    // Use CachedFunctionScope to avoid allocating memory when possible.
+    CachedFunctionScope->Clear();
+    FunctionScopes.push_back(CachedFunctionScope.release());
   } else {
     FunctionScopes.push_back(new FunctionScopeInfo(getDiagnostics()));
   }
@@ -1680,30 +1680,42 @@ static void markEscapingByrefs(const FunctionScopeInfo &FSI, Sema &S) {
   }
 }
 
-void Sema::PopFunctionScopeInfo(const AnalysisBasedWarnings::Policy *WP,
-                                const Decl *D, const BlockExpr *blkExpr) {
+/// Pop a function (or block or lambda or captured region) scope from the stack.
+///
+/// \param WP The warning policy to use for CFG-based warnings, or null if such
+///        warnings should not be produced.
+/// \param D The declaration corresponding to this function scope, if producing
+///        CFG-based warnings.
+/// \param BlockType The type of the block expression, if D is a BlockDecl.
+Sema::PoppedFunctionScopePtr
+Sema::PopFunctionScopeInfo(const AnalysisBasedWarnings::Policy *WP,
+                           const Decl *D, QualType BlockType) {
   assert(!FunctionScopes.empty() && "mismatched push/pop!");
 
-  // This function shouldn't be called after popping the current function scope.
-  // markEscapingByrefs calls PerformMoveOrCopyInitialization, which can call
-  // PushFunctionScope, which can cause clearing out PreallocatedFunctionScope
-  // when FunctionScopes is empty.
   markEscapingByrefs(*FunctionScopes.back(), *this);
 
-  FunctionScopeInfo *Scope = FunctionScopes.pop_back_val();
+  PoppedFunctionScopePtr Scope(FunctionScopes.pop_back_val(),
+                               PoppedFunctionScopeDeleter(this));
 
   if (LangOpts.OpenMP)
-    popOpenMPFunctionRegion(Scope);
+    popOpenMPFunctionRegion(Scope.get());
 
   // Issue any analysis-based warnings.
   if (WP && D)
-    AnalysisWarnings.IssueWarnings(*WP, Scope, D, blkExpr);
+    AnalysisWarnings.IssueWarnings(*WP, Scope.get(), D, BlockType);
   else
     for (const auto &PUD : Scope->PossiblyUnreachableDiags)
       Diag(PUD.Loc, PUD.PD);
 
-  // Delete the scope unless its our preallocated scope.
-  if (Scope != PreallocatedFunctionScope.get())
+  return Scope;
+}
+
+void Sema::PoppedFunctionScopeDeleter::
+operator()(sema::FunctionScopeInfo *Scope) const {
+  // Stash the function scope for later reuse if it's for a normal function.
+  if (Scope->isPlainFunction() && !Self->CachedFunctionScope)
+    Self->CachedFunctionScope.reset(Scope);
+  else
     delete Scope;
 }
 

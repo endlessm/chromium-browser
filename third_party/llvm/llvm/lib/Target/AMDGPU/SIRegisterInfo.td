@@ -69,7 +69,16 @@ def EXEC : RegisterWithSubRegs<"EXEC", [EXEC_LO, EXEC_HI]>,
   let HWEncoding = 126;
 }
 
-def SCC : SIReg<"scc", 253>;
+// 32-bit real registers, for MC only.
+// May be used with both 32-bit and 64-bit operands.
+def SRC_VCCZ : SIReg<"src_vccz", 251>;
+def SRC_EXECZ : SIReg<"src_execz", 252>;
+def SRC_SCC : SIReg<"src_scc", 253>;
+
+// 1-bit pseudo register, for codegen only.
+// Should never be emitted.
+def SCC : SIReg<"">;
+
 def M0 : SIReg <"m0", 124>;
 def SGPR_NULL : SIReg<"null", 125>;
 
@@ -445,30 +454,31 @@ def LDS_DIRECT_CLASS : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16
 
 // Subset of SReg_32 without M0 for SMRD instructions and alike.
 // See comments in SIInstructions.td for more info.
-def SReg_32_XM0_XEXEC : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16], 32,
+def SReg_32_XM0_XEXEC : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16, i1], 32,
   (add SGPR_32, VCC_LO, VCC_HI, FLAT_SCR_LO, FLAT_SCR_HI, XNACK_MASK_LO, XNACK_MASK_HI,
    SGPR_NULL, TTMP_32, TMA_LO, TMA_HI, TBA_LO, TBA_HI, SRC_SHARED_BASE, SRC_SHARED_LIMIT,
-   SRC_PRIVATE_BASE, SRC_PRIVATE_LIMIT, SRC_POPS_EXITING_WAVE_ID)> {
+   SRC_PRIVATE_BASE, SRC_PRIVATE_LIMIT, SRC_POPS_EXITING_WAVE_ID,
+   SRC_VCCZ, SRC_EXECZ, SRC_SCC)> {
   let AllocationPriority = 8;
 }
 
-def SReg_32_XEXEC_HI : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16], 32,
+def SReg_32_XEXEC_HI : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16, i1], 32,
   (add SReg_32_XM0_XEXEC, EXEC_LO, M0_CLASS)> {
   let AllocationPriority = 8;
 }
 
-def SReg_32_XM0 : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16], 32,
+def SReg_32_XM0 : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16, i1], 32,
   (add SReg_32_XM0_XEXEC, EXEC_LO, EXEC_HI)> {
   let AllocationPriority = 8;
 }
 
 // Register class for all scalar registers (SGPRs + Special Registers)
-def SReg_32 : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16], 32,
+def SReg_32 : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16, i1], 32,
   (add SReg_32_XM0, M0_CLASS, EXEC_LO, EXEC_HI, SReg_32_XEXEC_HI)> {
   let AllocationPriority = 8;
 }
 
-def SRegOrLds_32 : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16], 32,
+def SRegOrLds_32 : RegisterClass<"AMDGPU", [i32, f32, i16, f16, v2i16, v2f16, i1], 32,
   (add SReg_32_XM0, M0_CLASS, EXEC_LO, EXEC_HI, SReg_32_XEXEC_HI, LDS_DIRECT_CLASS)> {
   let isAllocatable = 0;
 }
@@ -492,6 +502,18 @@ def SReg_64 : RegisterClass<"AMDGPU", [v2i32, i64, v2f32, f64, i1, v4i16, v4f16]
   (add SReg_64_XEXEC, EXEC)> {
   let CopyCost = 1;
   let AllocationPriority = 9;
+}
+
+def SReg_1_XEXEC : RegisterClass<"AMDGPU", [i1], 32,
+  (add SReg_64_XEXEC, SReg_32_XM0_XEXEC)> {
+  let CopyCost = 1;
+  let isAllocatable = 0;
+}
+
+def SReg_1 : RegisterClass<"AMDGPU", [i1], 32,
+  (add SReg_1_XEXEC, EXEC, EXEC_LO)> {
+  let CopyCost = 1;
+  let isAllocatable = 0;
 }
 
 // Requires 2 s_mov_b64 to copy
@@ -710,8 +732,6 @@ def SSrcOrLds_b32 : RegisterOperand<SRegOrLds_32> {
 //===----------------------------------------------------------------------===//
 
 defm SCSrc : RegInlineOperand<"SReg", "SCSrc"> ;
-
-def SCSrc_i1 : RegisterOperand<SReg_64_XEXEC>;
 
 //===----------------------------------------------------------------------===//
 //  VSrc_* Operands with an SGPR, VGPR or a 32-bit immediate

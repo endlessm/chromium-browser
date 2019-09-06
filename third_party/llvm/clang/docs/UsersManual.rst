@@ -324,13 +324,21 @@ output format of the diagnostics that it generates.
 
 .. _opt_fsave-optimization-record:
 
-**-fsave-optimization-record**
-   Write optimization remarks to a YAML file.
+.. option:: -fsave-optimization-record[=<format>]
+
+   Write optimization remarks to a separate file.
 
    This option, which defaults to off, controls whether Clang writes
-   optimization reports to a YAML file. By recording diagnostics in a file,
-   using a structured YAML format, users can parse or sort the remarks in a
-   convenient way.
+   optimization reports to a separate file. By recording diagnostics in a file,
+   users can parse or sort the remarks in a convenient way.
+
+   By default, the serialization format is YAML.
+
+   The supported serialization formats are:
+
+   -  .. _opt_fsave_optimization_record_yaml:
+
+      ``-fsave-optimization-record=yaml``: A structured YAML format.
 
 .. _opt_foptimization-record-file:
 
@@ -343,7 +351,21 @@ output format of the diagnostics that it generates.
 
    If this option is not used, optimization records are output to a file named
    after the primary file being compiled. If that's "foo.c", for example,
-   optimization records are output to "foo.opt.yaml".
+   optimization records are output to "foo.opt.yaml". If a specific
+   serialization format is specified, the file will be named
+   "foo.opt.<format>".
+
+.. _opt_foptimization-record-passes:
+
+**-foptimization-record-passes**
+   Only include passes which match a specified regular expression.
+
+   When optimization reports are being output (see
+   :ref:`-fsave-optimization-record <opt_fsave-optimization-record>`), this
+   option controls the passes that will be included in the final report.
+
+   If this option is not used, all the passes are included in the optimization
+   record.
 
 .. _opt_fdiagnostics-show-hotness:
 
@@ -1006,7 +1028,7 @@ on-disk cache that contains the vital information necessary to reduce
 some of the work needed to process a corresponding header file. While
 details of precompiled headers vary between compilers, precompiled
 headers have been shown to be highly effective at speeding up program
-compilation on systems with very large system headers (e.g., Mac OS X).
+compilation on systems with very large system headers (e.g., macOS).
 
 Generating a PCH File
 ^^^^^^^^^^^^^^^^^^^^^
@@ -2746,7 +2768,7 @@ X86
 ^^^
 
 The support for X86 (both 32-bit and 64-bit) is considered stable on
-Darwin (Mac OS X), Linux, FreeBSD, and Dragonfly BSD: it has been tested
+Darwin (macOS), Linux, FreeBSD, and Dragonfly BSD: it has been tested
 to correctly compile many large C, C++, Objective-C, and Objective-C++
 codebases.
 
@@ -2801,8 +2823,8 @@ backend.
 Operating System Features and Limitations
 -----------------------------------------
 
-Darwin (Mac OS X)
-^^^^^^^^^^^^^^^^^
+Darwin (macOS)
+^^^^^^^^^^^^^^
 
 Thread Sanitizer is not supported.
 
@@ -3051,6 +3073,8 @@ Execute ``clang-cl /?`` to see a list of supported options:
       /Yc<filename>           Generate a pch file for all code up to and including <filename>
       /Yu<filename>           Load a pch file and use it instead of all code up to and including <filename>
       /Z7                     Enable CodeView debug information in object files
+      /Zc:char8_t             Enable C++2a char8_t type
+      /Zc:char8_t-            Disable C++2a char8_t type
       /Zc:dllexportInlines-   Don't dllexport/dllimport inline member functions of dllexport/import classes
       /Zc:dllexportInlines    dllexport/dllimport inline member functions of dllexport/import classes (default)
       /Zc:sizedDealloc-       Disable C++14 sized global deallocation functions

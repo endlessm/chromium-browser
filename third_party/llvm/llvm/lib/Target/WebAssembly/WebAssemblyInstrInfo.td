@@ -34,6 +34,10 @@ def HasAtomics :
     Predicate<"Subtarget->hasAtomics()">,
     AssemblerPredicate<"FeatureAtomics", "atomics">;
 
+def HasMultivalue :
+    Predicate<"Subtarget->hasMultivalue()">,
+    AssemblerPredicate<"FeatureMultivalue", "multivalue">;
+
 def HasNontrappingFPToInt :
     Predicate<"Subtarget->hasNontrappingFPToInt()">,
     AssemblerPredicate<"FeatureNontrappingFPToInt", "nontrapping-fptoint">;
@@ -46,17 +50,13 @@ def HasSignExt :
     Predicate<"Subtarget->hasSignExt()">,
     AssemblerPredicate<"FeatureSignExt", "sign-ext">;
 
-def NotHasSignExt :
-    Predicate<"!Subtarget->hasSignExt()">,
-    AssemblerPredicate<"!FeatureSignExt", "sign-ext">;
+def HasTailCall :
+    Predicate<"Subtarget->hasTailCall()">,
+    AssemblerPredicate<"FeatureTailCall", "tail-call">;
 
 def HasExceptionHandling :
     Predicate<"Subtarget->hasExceptionHandling()">,
     AssemblerPredicate<"FeatureExceptionHandling", "exception-handling">;
-
-def NotHasExceptionHandling :
-    Predicate<"!Subtarget->hasExceptionHandling()">,
-    AssemblerPredicate<"!FeatureExceptionHandling", "exception-handling">;
 
 def HasBulkMemory :
     Predicate<"Subtarget->hasBulkMemory()">,
@@ -97,6 +97,9 @@ def WebAssemblycall0 : SDNode<"WebAssemblyISD::CALL0",
 def WebAssemblycall1 : SDNode<"WebAssemblyISD::CALL1",
                               SDT_WebAssemblyCall1,
                               [SDNPHasChain, SDNPVariadic]>;
+def WebAssemblyretcall : SDNode<"WebAssemblyISD::RET_CALL",
+                                SDT_WebAssemblyCall0,
+                                [SDNPHasChain, SDNPVariadic]>;
 def WebAssemblybr_table : SDNode<"WebAssemblyISD::BR_TABLE",
                                  SDT_WebAssemblyBrTable,
                                  [SDNPHasChain, SDNPVariadic]>;

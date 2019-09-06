@@ -289,6 +289,20 @@ static void __kmp_stg_parse_bool(char const *name, char const *value,
   }
 } // __kmp_stg_parse_bool
 
+// placed here in order to use __kmp_round4k static function
+void __kmp_check_stksize(size_t *val) {
+  // if system stack size is too big then limit the size for worker threads
+  if (*val > KMP_DEFAULT_STKSIZE * 16) // just a heuristics...
+    *val = KMP_DEFAULT_STKSIZE * 16;
+  if (*val < KMP_MIN_STKSIZE)
+    *val = KMP_MIN_STKSIZE;
+  if (*val > KMP_MAX_STKSIZE)
+    *val = KMP_MAX_STKSIZE; // dead code currently, but may work in future
+#if KMP_OS_DARWIN
+  *val = __kmp_round4k(*val);
+#endif // KMP_OS_DARWIN
+}
+
 static void __kmp_stg_parse_size(char const *name, char const *value,
                                  size_t size_min, size_t size_max,
                                  int *is_specified, size_t *out,
@@ -1250,11 +1264,11 @@ static void __kmp_stg_parse_target_offload(char const *name, char const *value,
   if (*next == '\0')
     return;
   scan = next;
-  if (__kmp_match_str("MANDATORY", scan, &next)) {
+  if (!__kmp_strcasecmp_with_sentinel("mandatory", scan, 0)) {
     __kmp_target_offload = tgt_mandatory;
-  } else if (__kmp_match_str("DISABLED", scan, &next)) {
+  } else if (!__kmp_strcasecmp_with_sentinel("disabled", scan, 0)) {
     __kmp_target_offload = tgt_disabled;
-  } else if (__kmp_match_str("DEFAULT", scan, &next)) {
+  } else if (!__kmp_strcasecmp_with_sentinel("default", scan, 0)) {
     __kmp_target_offload = tgt_default;
   } else {
     KMP_WARNING(SyntaxErrorUsing, name, "DEFAULT");
@@ -4669,6 +4683,20 @@ static void __kmp_stg_print_forkjoin_frames_mode(kmp_str_buf_t *buffer,
 #endif /* USE_ITT_BUILD */
 
 // -----------------------------------------------------------------------------
+// KMP_ENABLE_TASK_THROTTLING
+
+static void __kmp_stg_parse_task_throttling(char const *name,
+                                            char const *value, void *data) {
+  __kmp_stg_parse_bool(name, value, &__kmp_enable_task_throttling);
+} // __kmp_stg_parse_task_throttling
+
+
+static void __kmp_stg_print_task_throttling(kmp_str_buf_t *buffer,
+                                            char const *name, void *data) {
+  __kmp_stg_print_bool(buffer, name, __kmp_enable_task_throttling);
+} // __kmp_stg_print_task_throttling
+
+// -----------------------------------------------------------------------------
 // OMP_DISPLAY_ENV
 
 #if OMP_40_ENABLED
@@ -4989,6 +5017,8 @@ static kmp_setting_t __kmp_stg_table[] = {
     {"KMP_FORKJOIN_FRAMES_MODE", __kmp_stg_parse_forkjoin_frames_mode,
      __kmp_stg_print_forkjoin_frames_mode, NULL, 0, 0},
 #endif
+    {"KMP_ENABLE_TASK_THROTTLING", __kmp_stg_parse_task_throttling,
+     __kmp_stg_print_task_throttling, NULL, 0, 0},
 
 #if OMP_40_ENABLED
     {"OMP_DISPLAY_ENV", __kmp_stg_parse_omp_display_env,

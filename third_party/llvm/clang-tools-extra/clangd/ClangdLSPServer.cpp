@@ -8,11 +8,15 @@
 
 #include "ClangdLSPServer.h"
 #include "Diagnostics.h"
+#include "FormattedString.h"
+#include "GlobalCompilationDatabase.h"
 #include "Protocol.h"
 #include "SourceCode.h"
 #include "Trace.h"
 #include "URI.h"
+#include "refactor/Tweak.h"
 #include "clang/Tooling/Core/Replacement.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/Errc.h"
@@ -24,23 +28,20 @@
 namespace clang {
 namespace clangd {
 namespace {
-class IgnoreCompletionError : public llvm::ErrorInfo<CancelledError> {
-public:
-  void log(llvm::raw_ostream &OS) const override {
-    OS << "ignored auto-triggered completion, preceding char did not match";
-  }
-  std::error_code convertToErrorCode() const override {
-    return std::make_error_code(std::errc::operation_canceled);
-  }
-};
-
 /// Transforms a tweak into a code action that would apply it if executed.
 /// EXPECTS: T.prepare() was called and returned true.
 CodeAction toCodeAction(const ClangdServer::TweakRef &T, const URIForFile &File,
                         Range Selection) {
   CodeAction CA;
   CA.title = T.Title;
-  CA.kind = CodeAction::REFACTOR_KIND;
+  switch (T.Intent) {
+  case Tweak::Refactor:
+    CA.kind = CodeAction::REFACTOR_KIND;
+    break;
+  case Tweak::Info:
+    CA.kind = CodeAction::INFO_KIND;
+    break;
+  }
   // This tweak may have an expensive second stage, we only run it if the user
   // actually chooses it in the UI. We reply with a command that would run the
   // corresponding tweak.
@@ -336,9 +337,13 @@ void ClangdLSPServer::onInitialize(const InitializeParams &Params,
                                             ErrorCode::InvalidRequest));
   if (const auto &Dir = Params.initializationOptions.compilationDatabasePath)
     CompileCommandsDir = Dir;
-  if (UseDirBasedCDB)
+  if (UseDirBasedCDB) {
     BaseCDB = llvm::make_unique<DirectoryBasedGlobalCompilationDatabase>(
         CompileCommandsDir);
+    BaseCDB = getQueryDriverDatabase(
+        llvm::makeArrayRef(ClangdServerOpts.QueryDriverGlobs),
+        std::move(BaseCDB));
+  }
   CDB.emplace(BaseCDB.get(), Params.initializationOptions.fallbackFlags,
               ClangdServerOpts.ResourceDir);
   Server.emplace(*CDB, FSProvider, static_cast<DiagnosticsConsumer &>(*this),
@@ -346,6 +351,7 @@ void ClangdLSPServer::onInitialize(const InitializeParams &Params,
   applyConfiguration(Params.initializationOptions.ConfigSettings);
 
   CCOpts.EnableSnippets = Params.capabilities.CompletionSnippets;
+  CCOpts.IncludeFixIts = Params.capabilities.CompletionFixes;
   DiagOpts.EmbedFixesInDiagnostics = Params.capabilities.DiagnosticFixes;
   DiagOpts.SendDiagnosticCategory = Params.capabilities.DiagnosticCategory;
   DiagOpts.EmitRelatedLocations =
@@ -358,6 +364,8 @@ void ClangdLSPServer::onInitialize(const InitializeParams &Params,
   SupportsHierarchicalDocumentSymbol =
       Params.capabilities.HierarchicalDocumentSymbol;
   SupportFileStatus = Params.initializationOptions.FileStatus;
+  HoverContentFormat = Params.capabilities.HoverContentFormat;
+  SupportsOffsetsInSignatureHelp = Params.capabilities.OffsetsInSignatureHelp;
   llvm::json::Object Result{
       {{"capabilities",
         llvm::json::Object{
@@ -366,7 +374,7 @@ void ClangdLSPServer::onInitialize(const InitializeParams &Params,
             {"documentRangeFormattingProvider", true},
             {"documentOnTypeFormattingProvider",
              llvm::json::Object{
-                 {"firstTriggerCharacter", "}"},
+                 {"firstTriggerCharacter", "\n"},
                  {"moreTriggerCharacter", {}},
              }},
             {"codeActionProvider", true},
@@ -487,18 +495,25 @@ void ClangdLSPServer::onCommand(const ExecuteCommandParams &Params,
           llvm::inconvertibleErrorCode(),
           "trying to apply a code action for a non-added file"));
 
-    auto Action = [ApplyEdit](decltype(Reply) Reply, URIForFile File,
-                              std::string Code,
-                              llvm::Expected<tooling::Replacements> R) {
+    auto Action = [this, ApplyEdit](decltype(Reply) Reply, URIForFile File,
+                                    std::string Code,
+                                    llvm::Expected<Tweak::Effect> R) {
       if (!R)
         return Reply(R.takeError());
 
-      WorkspaceEdit WE;
-      WE.changes.emplace();
-      (*WE.changes)[File.uri()] = replacementsToEdits(Code, *R);
-
-      Reply("Fix applied.");
-      ApplyEdit(std::move(WE));
+      if (R->ApplyEdit) {
+        WorkspaceEdit WE;
+        WE.changes.emplace();
+        (*WE.changes)[File.uri()] = replacementsToEdits(Code, *R->ApplyEdit);
+        ApplyEdit(std::move(WE));
+      }
+      if (R->ShowMessage) {
+        ShowMessageParams Msg;
+        Msg.message = *R->ShowMessage;
+        Msg.type = MessageType::Info;
+        notify("window/showMessage", Msg);
+      }
+      Reply("Tweak applied.");
     };
     Server->applyTweak(Params.tweakArgs->file.file(),
                        Params.tweakArgs->selection, Params.tweakArgs->tweakID,
@@ -583,11 +598,7 @@ void ClangdLSPServer::onDocumentOnTypeFormatting(
         "onDocumentOnTypeFormatting called for non-added file",
         ErrorCode::InvalidParams));
 
-  auto ReplacementsOrError = Server->formatOnType(*Code, File, Params.position);
-  if (ReplacementsOrError)
-    Reply(replacementsToEdits(*Code, ReplacementsOrError.get()));
-  else
-    Reply(ReplacementsOrError.takeError());
+  Reply(Server->formatOnType(*Code, File, Params.position, Params.ch));
 }
 
 void ClangdLSPServer::onDocumentRangeFormatting(
@@ -735,8 +746,12 @@ void ClangdLSPServer::onCodeAction(const CodeActionParams &Params,
 
 void ClangdLSPServer::onCompletion(const CompletionParams &Params,
                                    Callback<CompletionList> Reply) {
-  if (!shouldRunCompletion(Params))
-    return Reply(llvm::make_error<IgnoreCompletionError>());
+  if (!shouldRunCompletion(Params)) {
+    // Clients sometimes auto-trigger completions in undesired places (e.g.
+    // 'a >^ '), we return empty results in those cases.
+    vlog("ignored auto-triggered completion, preceding char did not match");
+    return Reply(CompletionList());
+  }
   Server->codeComplete(Params.textDocument.uri.file(), Params.position, CCOpts,
                        Bind(
                            [this](decltype(Reply) Reply,
@@ -759,7 +774,22 @@ void ClangdLSPServer::onCompletion(const CompletionParams &Params,
 void ClangdLSPServer::onSignatureHelp(const TextDocumentPositionParams &Params,
                                       Callback<SignatureHelp> Reply) {
   Server->signatureHelp(Params.textDocument.uri.file(), Params.position,
-                        std::move(Reply));
+                        Bind(
+                            [this](decltype(Reply) Reply,
+                                   llvm::Expected<SignatureHelp> Signature) {
+                              if (!Signature)
+                                return Reply(Signature.takeError());
+                              if (SupportsOffsetsInSignatureHelp)
+                                return Reply(std::move(*Signature));
+                              // Strip out the offsets from signature help for
+                              // clients that only support string labels.
+                              for (auto &SigInfo : Signature->signatures) {
+                                for (auto &Param : SigInfo.parameters)
+                                  Param.labelOffsets.reset();
+                              }
+                              return Reply(std::move(*Signature));
+                            },
+                            std::move(Reply)));
 }
 
 // Go to definition has a toggle function: if def and decl are distinct, then
@@ -842,7 +872,30 @@ void ClangdLSPServer::onDocumentHighlight(
 void ClangdLSPServer::onHover(const TextDocumentPositionParams &Params,
                               Callback<llvm::Optional<Hover>> Reply) {
   Server->findHover(Params.textDocument.uri.file(), Params.position,
-                    std::move(Reply));
+                    Bind(
+                        [this](decltype(Reply) Reply,
+                               llvm::Expected<llvm::Optional<HoverInfo>> H) {
+                          if (!H)
+                            return Reply(H.takeError());
+                          if (!*H)
+                            return Reply(llvm::None);
+
+                          Hover R;
+                          R.contents.kind = HoverContentFormat;
+                          R.range = (*H)->SymRange;
+                          switch (HoverContentFormat) {
+                          case MarkupKind::PlainText:
+                            R.contents.value =
+                                (*H)->present().renderAsPlainText();
+                            return Reply(std::move(R));
+                          case MarkupKind::Markdown:
+                            R.contents.value =
+                                (*H)->present().renderAsMarkdown();
+                            return Reply(std::move(R));
+                          };
+                          llvm_unreachable("unhandled MarkupKind");
+                        },
+                        std::move(Reply)));
 }
 
 void ClangdLSPServer::onTypeHierarchy(

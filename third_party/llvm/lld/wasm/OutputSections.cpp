@@ -132,26 +132,33 @@ void DataSection::finalizeContents() {
   OS.flush();
   BodySize = DataSectionHeader.size();
 
+  assert(!Config->Pic ||
+         Segments.size() <= 1 &&
+             "Currenly only a single data segment is supported in PIC mode");
+
   for (OutputSegment *Segment : Segments) {
     raw_string_ostream OS(Segment->Header);
-    writeUleb128(OS, 0, "memory index");
-    WasmInitExpr InitExpr;
-    if (Config->Pic) {
-      assert(Segments.size() <= 1 &&
-             "Currenly only a single data segment is supported in PIC mode");
-      InitExpr.Opcode = WASM_OPCODE_GLOBAL_GET;
-      InitExpr.Value.Global = WasmSym::MemoryBase->getGlobalIndex();
-    } else {
-      InitExpr.Opcode = WASM_OPCODE_I32_CONST;
-      InitExpr.Value.Int32 = Segment->StartVA;
+    writeUleb128(OS, Segment->InitFlags, "init flags");
+    if (Segment->InitFlags & WASM_SEGMENT_HAS_MEMINDEX)
+      writeUleb128(OS, 0, "memory index");
+    if ((Segment->InitFlags & WASM_SEGMENT_IS_PASSIVE) == 0) {
+      WasmInitExpr InitExpr;
+      if (Config->Pic) {
+        InitExpr.Opcode = WASM_OPCODE_GLOBAL_GET;
+        InitExpr.Value.Global = WasmSym::MemoryBase->getGlobalIndex();
+      } else {
+        InitExpr.Opcode = WASM_OPCODE_I32_CONST;
+        InitExpr.Value.Int32 = Segment->StartVA;
+      }
+      writeInitExpr(OS, InitExpr);
     }
-    writeInitExpr(OS, InitExpr);
     writeUleb128(OS, Segment->Size, "segment size");
     OS.flush();
 
     Segment->SectionOffset = BodySize;
     BodySize += Segment->Header.size() + Segment->Size;
-    log("Data segment: size=" + Twine(Segment->Size));
+    log("Data segment: size=" + Twine(Segment->Size) + ", startVA=" +
+        Twine::utohexstr(Segment->StartVA) + ", name=" + Segment->Name);
 
     for (InputSegment *InputSeg : Segment->InputSegments)
       InputSeg->OutputOffset = Segment->SectionOffset + Segment->Header.size() +
@@ -206,6 +213,7 @@ void CustomSection::finalizeContents() {
 
   for (InputSection *Section : InputSections) {
     Section->OutputOffset = PayloadSize;
+    Section->OutputSec = this;
     PayloadSize += Section->getSize();
   }
 
@@ -240,10 +248,4 @@ uint32_t CustomSection::numRelocations() const {
 void CustomSection::writeRelocations(raw_ostream &OS) const {
   for (const InputSection *S : InputSections)
     S->writeRelocations(OS);
-}
-
-void RelocSection::writeBody() {
-  writeUleb128(BodyOutputStream, SectionIndex, "reloc section");
-  writeUleb128(BodyOutputStream, Sec->numRelocations(), "reloc count");
-  Sec->writeRelocations(BodyOutputStream);
 }

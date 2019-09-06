@@ -262,9 +262,10 @@ public:
 
   /// Returns true if the target allows unaligned memory accesses of the
   /// specified type.
-  bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AddrSpace = 0,
-                                      unsigned Align = 1,
-                                      bool *Fast = nullptr) const override;
+  bool allowsMisalignedMemoryAccesses(
+      EVT VT, unsigned AddrSpace = 0, unsigned Align = 1,
+      MachineMemOperand::Flags Flags = MachineMemOperand::MONone,
+      bool *Fast = nullptr) const override;
 
   /// Provide custom lowering hooks for some operations.
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
@@ -495,6 +496,8 @@ public:
     MVT KeptBitsVT = MVT::getIntegerVT(KeptBits);
     return VTIsOk(XVT) && VTIsOk(KeptBitsVT);
   }
+
+  bool preferIncOfAddToSubOfNot(EVT VT) const override;
 
   bool hasBitPreservingFPLogic(EVT VT) const override {
     // FIXME: Is this always true? It should be true for vectors at least.

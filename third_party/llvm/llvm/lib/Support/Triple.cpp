@@ -228,6 +228,8 @@ StringRef Triple::getEnvironmentTypeName(EnvironmentType Kind) {
   case CODE16: return "code16";
   case EABI: return "eabi";
   case EABIHF: return "eabihf";
+  case ELFv1: return "elfv1";
+  case ELFv2: return "elfv2";
   case Android: return "android";
   case Musl: return "musl";
   case MuslEABI: return "musleabi";
@@ -237,6 +239,7 @@ StringRef Triple::getEnvironmentTypeName(EnvironmentType Kind) {
   case Cygnus: return "cygnus";
   case CoreCLR: return "coreclr";
   case Simulator: return "simulator";
+  case MacABI: return "macabi";
   }
 
   llvm_unreachable("Invalid EnvironmentType!");
@@ -521,6 +524,8 @@ static Triple::EnvironmentType parseEnvironment(StringRef EnvironmentName) {
   return StringSwitch<Triple::EnvironmentType>(EnvironmentName)
     .StartsWith("eabihf", Triple::EABIHF)
     .StartsWith("eabi", Triple::EABI)
+    .StartsWith("elfv1", Triple::ELFv1)
+    .StartsWith("elfv2", Triple::ELFv2)
     .StartsWith("gnuabin32", Triple::GNUABIN32)
     .StartsWith("gnuabi64", Triple::GNUABI64)
     .StartsWith("gnueabihf", Triple::GNUEABIHF)
@@ -537,6 +542,7 @@ static Triple::EnvironmentType parseEnvironment(StringRef EnvironmentName) {
     .StartsWith("cygnus", Triple::Cygnus)
     .StartsWith("coreclr", Triple::CoreCLR)
     .StartsWith("simulator", Triple::Simulator)
+    .StartsWith("macabi", Triple::MacABI)
     .Default(Triple::UnknownEnvironment);
 }
 
@@ -621,6 +627,8 @@ static Triple::SubArchType parseSubArch(StringRef SubArchName) {
     return Triple::ARMSubArch_v8m_baseline;
   case ARM::ArchKind::ARMV8MMainline:
     return Triple::ARMSubArch_v8m_mainline;
+  case ARM::ArchKind::ARMV8_1MMainline:
+    return Triple::ARMSubArch_v8_1m_mainline;
   default:
     return Triple::NoSubArch;
   }

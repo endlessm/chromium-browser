@@ -649,7 +649,7 @@ unsigned GCNRegBankReassign::tryReassign(Candidate &C) {
       }
     }
   }
-  llvm::sort(BankStalls);
+  std::sort(BankStalls.begin(), BankStalls.end());
 
   unsigned OrigReg = VRM->getPhys(C.Reg);
   LRM->unassign(LI);
@@ -740,7 +740,7 @@ bool GCNRegBankReassign::runOnMachineFunction(MachineFunction &MF) {
   MaxNumVGPRs = std::min(ST->getMaxNumVGPRs(Occupancy), MaxNumVGPRs);
   MaxNumSGPRs = std::min(ST->getMaxNumSGPRs(Occupancy, true), MaxNumSGPRs);
 
-  CSRegs = TRI->getCalleeSavedRegs(&MF);
+  CSRegs = MRI->getCalleeSavedRegs();
 
   RegsUsed.resize(AMDGPU::VGPR_32RegClass.getNumRegs() +
                   TRI->getEncodingValue(AMDGPU::SGPR_NULL) / 2 + 1);

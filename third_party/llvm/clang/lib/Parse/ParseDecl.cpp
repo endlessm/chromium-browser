@@ -164,10 +164,10 @@ void Parser::ParseGNUAttributes(ParsedAttributes &attrs,
       return;
     }
     // Parse the attribute-list. e.g. __attribute__(( weak, alias("__f") ))
-    while (true) {
-      // Allow empty/non-empty attributes. ((__vector_size__(16),,,,))
-      if (TryConsumeToken(tok::comma))
-        continue;
+    do {
+      // Eat preceeding commas to allow __attribute__((,,,foo))
+      while (TryConsumeToken(tok::comma))
+        ;
 
       // Expect an identifier or declaration specifier (const, int, etc.)
       if (Tok.isAnnotation())
@@ -212,7 +212,7 @@ void Parser::ParseGNUAttributes(ParsedAttributes &attrs,
       Eof.startToken();
       Eof.setLocation(Tok.getLocation());
       LA->Toks.push_back(Eof);
-    }
+    } while (Tok.is(tok::comma));
 
     if (ExpectAndConsume(tok::r_paren))
       SkipUntil(tok::r_paren, StopAtSemi);
@@ -2487,8 +2487,9 @@ void Parser::ParseSpecifierQualifierList(DeclSpec &DS, AccessSpecifier AS,
   }
 
   // Issue diagnostic and remove constexpr specifier if present.
-  if (DS.isConstexprSpecified() && DSC != DeclSpecContext::DSC_condition) {
-    Diag(DS.getConstexprSpecLoc(), diag::err_typename_invalid_constexpr);
+  if (DS.hasConstexprSpecifier() && DSC != DeclSpecContext::DSC_condition) {
+    Diag(DS.getConstexprSpecLoc(), diag::err_typename_invalid_constexpr)
+        << (DS.getConstexprSpecifier() == CSK_consteval);
     DS.ClearConstexprSpec();
   }
 }
@@ -2559,6 +2560,11 @@ bool Parser::ParseImplicitInt(DeclSpec &DS, CXXScopeSpec *SS,
     // identifier in the declarator.
     return false;
   }
+
+  // Early exit as Sema has a dedicated missing_actual_pipe_type diagnostic
+  // for incomplete declarations such as `pipe p`.
+  if (getLangOpts().OpenCLCPlusPlus && DS.isTypeSpecPipe())
+    return false;
 
   if (getLangOpts().CPlusPlus &&
       DS.getStorageClassSpec() == DeclSpec::SCS_auto) {
@@ -3621,7 +3627,12 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
 
     // constexpr
     case tok::kw_constexpr:
-      isInvalid = DS.SetConstexprSpec(Loc, PrevSpec, DiagID);
+      isInvalid = DS.SetConstexprSpec(CSK_constexpr, Loc, PrevSpec, DiagID);
+      break;
+
+    // consteval
+    case tok::kw_consteval:
+      isInvalid = DS.SetConstexprSpec(CSK_consteval, Loc, PrevSpec, DiagID);
       break;
 
     // type-specifier
@@ -3769,7 +3780,8 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       isInvalid = DS.SetTypeAltiVecBool(true, Loc, PrevSpec, DiagID, Policy);
       break;
     case tok::kw_pipe:
-      if (!getLangOpts().OpenCL || (getLangOpts().OpenCLVersion < 200)) {
+      if (!getLangOpts().OpenCL || (getLangOpts().OpenCLVersion < 200 &&
+                                    !getLangOpts().OpenCLCPlusPlus)) {
         // OpenCL 2.0 defined this keyword. OpenCL 1.2 and earlier should
         // support the "pipe" word as identifier.
         Tok.getIdentifierInfo()->revertTokenIDToIdentifier();
@@ -4896,7 +4908,8 @@ bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
   default: return false;
 
   case tok::kw_pipe:
-    return getLangOpts().OpenCL && (getLangOpts().OpenCLVersion >= 200);
+    return (getLangOpts().OpenCL && getLangOpts().OpenCLVersion >= 200) ||
+           getLangOpts().OpenCLCPlusPlus;
 
   case tok::identifier:   // foo::bar
     // Unfortunate hack to support "Class.factoryMethod" notation.
@@ -5023,6 +5036,9 @@ bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
     // C++11 decltype and constexpr.
   case tok::annot_decltype:
   case tok::kw_constexpr:
+
+    // C++20 consteval.
+  case tok::kw_consteval:
 
     // C11 _Atomic
   case tok::kw__Atomic:
@@ -5384,7 +5400,8 @@ static bool isPtrOperatorToken(tok::TokenKind Kind, const LangOptions &Lang,
   if (Kind == tok::star || Kind == tok::caret)
     return true;
 
-  if ((Kind == tok::kw_pipe) && Lang.OpenCL && (Lang.OpenCLVersion >= 200))
+  if (Kind == tok::kw_pipe &&
+      ((Lang.OpenCL && Lang.OpenCLVersion >= 200) || Lang.OpenCLCPlusPlus))
     return true;
 
   if (!Lang.CPlusPlus)
@@ -6259,7 +6276,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
            Actions.CurContext->isRecord());
 
       Qualifiers Q = Qualifiers::fromCVRUMask(DS.getTypeQualifiers());
-      if (D.getDeclSpec().isConstexprSpecified() && !getLangOpts().CPlusPlus14)
+      if (D.getDeclSpec().hasConstexprSpecifier() && !getLangOpts().CPlusPlus14)
         Q.addConst();
       // FIXME: Collect C++ address spaces.
       // If there are multiple different address spaces, the source is invalid.

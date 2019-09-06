@@ -375,12 +375,16 @@ if (LIBCXX_ENABLE_STATIC)
       set(MERGE_ARCHIVES_ABI_TARGET
         "${CMAKE_STATIC_LIBRARY_PREFIX}${LIBCXX_CXX_STATIC_ABI_LIBRARY}${CMAKE_STATIC_LIBRARY_SUFFIX}")
     endif()
+    if (APPLE)
+      set(MERGE_ARCHIVES_LIBTOOL "--use-libtool" "--libtool" "${CMAKE_LIBTOOL}")
+    endif()
     add_custom_command(TARGET cxx_static POST_BUILD
     COMMAND
       ${PYTHON_EXECUTABLE} ${LIBCXX_SOURCE_DIR}/utils/merge_archives.py
     ARGS
       -o $<TARGET_LINKER_FILE:cxx_static>
       --ar "${CMAKE_AR}"
+      ${MERGE_ARCHIVES_LIBTOOL}
       "$<TARGET_LINKER_FILE:cxx_static>"
       "${MERGE_ARCHIVES_ABI_TARGET}"
       "${MERGE_ARCHIVES_SEARCH_PATHS}"
@@ -437,8 +441,8 @@ if (LIBCXX_INSTALL_LIBRARY)
     set(experimental_lib cxx_experimental)
   endif()
   install(TARGETS ${LIBCXX_INSTALL_TARGETS} ${experimental_lib}
-    LIBRARY DESTINATION ${LIBCXX_INSTALL_PREFIX}lib${LIBCXX_LIBDIR_SUFFIX} COMPONENT cxx
-    ARCHIVE DESTINATION ${LIBCXX_INSTALL_PREFIX}lib${LIBCXX_LIBDIR_SUFFIX} COMPONENT cxx
+    LIBRARY DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
+    ARCHIVE DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
     )
   # NOTE: This install command must go after the cxx install command otherwise
   # it will not be executed after the library symlinks are installed.
@@ -446,7 +450,7 @@ if (LIBCXX_INSTALL_LIBRARY)
     # Replace the libc++ filename with $<TARGET_LINKER_FILE:cxx>
     # after we required CMake 3.0.
     install(FILES "${LIBCXX_LIBRARY_DIR}/libc++${CMAKE_SHARED_LIBRARY_SUFFIX}"
-      DESTINATION ${LIBCXX_INSTALL_PREFIX}lib${LIBCXX_LIBDIR_SUFFIX}
+      DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR}
       COMPONENT libcxx)
   endif()
 endif()

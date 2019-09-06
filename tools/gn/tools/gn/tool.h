@@ -12,7 +12,7 @@
 #include "tools/gn/label.h"
 #include "tools/gn/label_ptr.h"
 #include "tools/gn/scope.h"
-#include "tools/gn/source_file_type.h"
+#include "tools/gn/source_file.h"
 #include "tools/gn/substitution_list.h"
 #include "tools/gn/substitution_pattern.h"
 
@@ -23,6 +23,7 @@ class Toolchain;
 
 class CTool;
 class GeneralTool;
+class RustTool;
 
 // To add a new Tool category, create a subclass implementing SetComplete()
 // Add a new category to ToolCategories
@@ -60,6 +61,8 @@ class Tool {
   virtual const CTool* AsC() const;
   virtual GeneralTool* AsGeneral();
   virtual const GeneralTool* AsGeneral() const;
+  virtual RustTool* AsRust();
+  virtual const RustTool* AsRust() const;
 
   // Basic information ---------------------------------------------------------
 
@@ -78,6 +81,15 @@ class Tool {
   void set_command(SubstitutionPattern cmd) {
     DCHECK(!complete_);
     command_ = std::move(cmd);
+  }
+
+  // Launcher for the command (e.g. goma)
+  const std::string& command_launcher() const {
+    return command_launcher_;
+  }
+  void set_command_launcher(std::string l) {
+    DCHECK(!complete_);
+    command_launcher_ = std::move(l);
   }
 
   // Should include a leading "." if nonempty.
@@ -171,7 +183,7 @@ class Tool {
                                           Toolchain* toolchain,
                                           Err* err);
 
-  static const char* GetToolTypeForSourceType(SourceFileType type);
+  static const char* GetToolTypeForSourceType(SourceFile::Type type);
   static const char* GetToolTypeForTargetFinalOutput(const Target* target);
 
  protected:
@@ -205,10 +217,11 @@ class Tool {
                  Err* err);
   bool ReadOutputExtension(Scope* scope, Err* err);
 
-  const ParseNode* defined_from_;
-  const char* name_;
+  const ParseNode* defined_from_ = nullptr;
+  const char* name_ = nullptr;
 
   SubstitutionPattern command_;
+  std::string command_launcher_;
   std::string default_output_extension_;
   SubstitutionPattern default_output_dir_;
   SubstitutionPattern depfile_;
@@ -216,12 +229,12 @@ class Tool {
   SubstitutionList outputs_;
   SubstitutionList runtime_outputs_;
   std::string output_prefix_;
-  bool restat_;
+  bool restat_ = false;
   SubstitutionPattern rspfile_;
   SubstitutionPattern rspfile_content_;
   LabelPtrPair<Pool> pool_;
 
-  bool complete_;
+  bool complete_ = false;
 
   SubstitutionBits substitution_bits_;
 

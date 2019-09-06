@@ -22,8 +22,14 @@
 
 namespace lld {
 namespace elf {
-class Symbol;
+class CommonSymbol;
+class Defined;
 class InputFile;
+class LazyArchive;
+class LazyObject;
+class SharedSymbol;
+class Symbol;
+class Undefined;
 } // namespace elf
 
 std::string toString(const elf::Symbol &);
@@ -174,12 +180,41 @@ public:
   uint64_t getSize() const;
   OutputSection *getOutputSection() const;
 
+  // The following two functions are used for symbol resolution.
+  //
+  // You are expected to call mergeProperties for all symbols in input
+  // files so that attributes that are attached to names rather than
+  // indivisual symbol (such as visibility) are merged together.
+  //
+  // Every time you read a new symbol from an input, you are supposed
+  // to call resolve() with the new symbol. That function replaces
+  // "this" object as a result of name resolution if the new symbol is
+  // more appropriate to be included in the output.
+  //
+  // For example, if "this" is an undefined symbol and a new symbol is
+  // a defined symbol, "this" is replaced with the new symbol.
+  void mergeProperties(const Symbol &Other);
+  void resolve(const Symbol &Other);
+
+  // If this is a lazy symbol, fetch an input file and add the symbol
+  // in the file to the symbol table. Calling this function on
+  // non-lazy object causes a runtime error.
+  void fetch() const;
+
 private:
   static bool isExportDynamic(Kind K, uint8_t Visibility) {
     if (K == SharedKind)
       return Visibility == llvm::ELF::STV_DEFAULT;
     return Config->Shared || Config->ExportDynamic;
   }
+
+  void resolveUndefined(const Undefined &Other);
+  void resolveCommon(const CommonSymbol &Other);
+  void resolveDefined(const Defined &Other);
+  template <class LazyT> void resolveLazy(const LazyT &Other);
+  void resolveShared(const SharedSymbol &Other);
+
+  int compare(const Symbol *Other) const;
 
   inline size_t getSymbolSize() const;
 
@@ -219,6 +254,9 @@ public:
 
   // True if this symbol is defined by a linker script.
   unsigned ScriptDefined : 1;
+
+  // The partition whose dynamic symbol table contains this symbol's definition.
+  uint8_t Partition = 1;
 
   bool isSection() const { return Type == llvm::ELF::STT_SECTION; }
   bool isTls() const { return Type == llvm::ELF::STT_TLS; }
@@ -280,10 +318,14 @@ public:
 class Undefined : public Symbol {
 public:
   Undefined(InputFile *File, StringRefZ Name, uint8_t Binding, uint8_t StOther,
-            uint8_t Type)
-      : Symbol(UndefinedKind, File, Name, Binding, StOther, Type) {}
+            uint8_t Type, uint32_t DiscardedSecIdx = 0)
+      : Symbol(UndefinedKind, File, Name, Binding, StOther, Type),
+        DiscardedSecIdx(DiscardedSecIdx) {}
 
   static bool classof(const Symbol *S) { return S->kind() == UndefinedKind; }
+
+  // The section index if in a discarded section, 0 otherwise.
+  uint32_t DiscardedSecIdx;
 };
 
 class SharedSymbol : public Symbol {
@@ -293,8 +335,8 @@ public:
   SharedSymbol(InputFile &File, StringRef Name, uint8_t Binding,
                uint8_t StOther, uint8_t Type, uint64_t Value, uint64_t Size,
                uint32_t Alignment, uint32_t VerdefIndex)
-      : Symbol(SharedKind, &File, Name, Binding, StOther, Type),
-        Alignment(Alignment), Value(Value), Size(Size) {
+      : Symbol(SharedKind, &File, Name, Binding, StOther, Type), Value(Value),
+        Size(Size), Alignment(Alignment) {
     this->VerdefIndex = VerdefIndex;
     // GNU ifunc is a mechanism to allow user-supplied functions to
     // resolve PLT slot values at load-time. This is contrary to the
@@ -318,10 +360,14 @@ public:
 
   SharedFile &getFile() const { return *cast<SharedFile>(File); }
 
-  uint32_t Alignment;
-
   uint64_t Value; // st_value
   uint64_t Size;  // st_size
+  uint32_t Alignment;
+
+  // This is true if there has been at least one undefined reference to the
+  // symbol. The binding may change to STB_WEAK if the first undefined reference
+  // is weak.
+  bool Referenced = false;
 };
 
 // LazyArchive and LazyObject represent a symbols that is not yet in the link,
@@ -347,10 +393,8 @@ public:
 
   static bool classof(const Symbol *S) { return S->kind() == LazyArchiveKind; }
 
-  InputFile *fetch() const;
   MemoryBufferRef getMemberBuffer();
 
-private:
   const llvm::object::Archive::Symbol Sym;
 };
 
@@ -363,8 +407,6 @@ public:
                llvm::ELF::STV_DEFAULT, llvm::ELF::STT_NOTYPE) {}
 
   static bool classof(const Symbol *S) { return S->kind() == LazyObjectKind; }
-
-  InputFile *fetch() const;
 };
 
 // Some linker-generated symbols need to be created as
@@ -398,6 +440,12 @@ struct ElfSym {
   // __rel{,a}_iplt_{start,end} symbols.
   static Defined *RelaIpltStart;
   static Defined *RelaIpltEnd;
+
+  // __global_pointer$ for RISC-V.
+  static Defined *RISCVGlobalPointer;
+
+  // _TLS_MODULE_BASE_ on targets that support TLSDESC.
+  static Defined *TlsModuleBase;
 };
 
 // A buffer class that is large enough to hold any Symbol-derived
@@ -429,7 +477,7 @@ static inline void assertSymbols() {
   AssertSymbol<LazyObject>();
 }
 
-void printTraceSymbol(Symbol *Sym);
+void printTraceSymbol(const Symbol *Sym);
 
 size_t Symbol::getSymbolSize() const {
   switch (kind()) {
@@ -481,6 +529,12 @@ void Symbol::replace(const Symbol &New) {
   Traced = Old.Traced;
   IsPreemptible = Old.IsPreemptible;
   ScriptDefined = Old.ScriptDefined;
+  Partition = Old.Partition;
+
+  // Symbol length is computed lazily. If we already know a symbol length,
+  // propagate it.
+  if (NameData == Old.NameData && NameSize == 0 && Old.NameSize != 0)
+    NameSize = Old.NameSize;
 
   // Print out a log message if --trace-symbol was specified.
   // This is for debugging.

@@ -162,7 +162,8 @@ public:
   foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI,
                         ArrayRef<unsigned> Ops,
                         MachineBasicBlock::iterator InsertPt, int FrameIndex,
-                        LiveIntervals *LIS = nullptr) const override;
+                        LiveIntervals *LIS = nullptr,
+                        VirtRegMap *VRM = nullptr) const override;
 
   /// \returns true if a branch from an instruction with opcode \p BranchOpc
   ///  bytes is capable of jumping to a position \p BrOffset bytes away.
@@ -266,6 +267,13 @@ public:
 
 #define GET_INSTRINFO_HELPER_DECLS
 #include "AArch64GenInstrInfo.inc"
+
+protected:
+  /// If the specific machine instruction is a instruction that moves/copies
+  /// value from one register to another register return true along with
+  /// @Source machine operand and @Destination machine operand.
+  bool isCopyInstrImpl(const MachineInstr &MI, const MachineOperand *&Source,
+                       const MachineOperand *&Destination) const override;
 
 private:
   /// Sets the offsets on outlined instructions in \p MBB which use SP

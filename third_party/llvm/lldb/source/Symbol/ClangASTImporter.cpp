@@ -346,7 +346,7 @@ bool ClangASTImporter::CanImport(const CompilerType &type) {
     const clang::CXXRecordDecl *cxx_record_decl =
         qual_type->getAsCXXRecordDecl();
     if (cxx_record_decl) {
-      if (ResolveDeclOrigin(cxx_record_decl, NULL, NULL))
+      if (ResolveDeclOrigin(cxx_record_decl, nullptr, nullptr))
         return true;
     }
   } break;
@@ -355,7 +355,7 @@ bool ClangASTImporter::CanImport(const CompilerType &type) {
     clang::EnumDecl *enum_decl =
         llvm::cast<clang::EnumType>(qual_type)->getDecl();
     if (enum_decl) {
-      if (ResolveDeclOrigin(enum_decl, NULL, NULL))
+      if (ResolveDeclOrigin(enum_decl, nullptr, nullptr))
         return true;
     }
   } break;
@@ -370,7 +370,7 @@ bool ClangASTImporter::CanImport(const CompilerType &type) {
       // We currently can't complete objective C types through the newly added
       // ASTContext because it only supports TagDecl objects right now...
       if (class_interface_decl) {
-        if (ResolveDeclOrigin(class_interface_decl, NULL, NULL))
+        if (ResolveDeclOrigin(class_interface_decl, nullptr, nullptr))
           return true;
       }
     }
@@ -422,7 +422,7 @@ bool ClangASTImporter::Import(const CompilerType &type) {
     const clang::CXXRecordDecl *cxx_record_decl =
         qual_type->getAsCXXRecordDecl();
     if (cxx_record_decl) {
-      if (ResolveDeclOrigin(cxx_record_decl, NULL, NULL))
+      if (ResolveDeclOrigin(cxx_record_decl, nullptr, nullptr))
         return CompleteAndFetchChildren(qual_type);
     }
   } break;
@@ -431,7 +431,7 @@ bool ClangASTImporter::Import(const CompilerType &type) {
     clang::EnumDecl *enum_decl =
         llvm::cast<clang::EnumType>(qual_type)->getDecl();
     if (enum_decl) {
-      if (ResolveDeclOrigin(enum_decl, NULL, NULL))
+      if (ResolveDeclOrigin(enum_decl, nullptr, nullptr))
         return CompleteAndFetchChildren(qual_type);
     }
   } break;
@@ -446,7 +446,7 @@ bool ClangASTImporter::Import(const CompilerType &type) {
       // We currently can't complete objective C types through the newly added
       // ASTContext because it only supports TagDecl objects right now...
       if (class_interface_decl) {
-        if (ResolveDeclOrigin(class_interface_decl, NULL, NULL))
+        if (ResolveDeclOrigin(class_interface_decl, nullptr, nullptr))
           return CompleteAndFetchChildren(qual_type);
       }
     }
@@ -951,6 +951,28 @@ void ClangASTImporter::ASTImporterDelegate::ImportDefinitionTo(
   if (clang::TagDecl *to_tag = dyn_cast<clang::TagDecl>(to)) {
     if (clang::TagDecl *from_tag = dyn_cast<clang::TagDecl>(from)) {
       to_tag->setCompleteDefinition(from_tag->isCompleteDefinition());
+
+      if (Log *log_ast =
+              lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_AST)) {
+        std::string name_string;
+        if (NamedDecl *from_named_decl = dyn_cast<clang::NamedDecl>(from)) {
+          llvm::raw_string_ostream name_stream(name_string);
+          from_named_decl->printName(name_stream);
+          name_stream.flush();
+        }
+        LLDB_LOG(log_ast, "==== [ClangASTImporter][TUDecl: {0}] Imported "
+                          "({1}Decl*){2}, named {3} (from "
+                          "(Decl*){4})",
+                 static_cast<void *>(to->getTranslationUnitDecl()),
+                 from->getDeclKindName(), static_cast<void *>(to), name_string,
+                 static_cast<void *>(from));
+
+        // Log the AST of the TU.
+        std::string ast_string;
+        llvm::raw_string_ostream ast_stream(ast_string);
+        to->getTranslationUnitDecl()->dump(ast_stream);
+        LLDB_LOG(log_ast, "{0}", ast_string);
+      }
     }
   }
 
@@ -996,7 +1018,7 @@ void ClangASTImporter::ASTImporterDelegate::ImportDefinitionTo(
 
       to_objc_interface->setSuperClass(m_source_ctx->getTrivialTypeSourceInfo(
           m_source_ctx->getObjCInterfaceType(imported_from_superclass)));
-    } while (0);
+    } while (false);
   }
 }
 

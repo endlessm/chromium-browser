@@ -27,12 +27,14 @@ struct Configuration {
   bool CompressRelocations;
   bool Demangle;
   bool DisableVerify;
+  bool EmitRelocs;
   bool ExportAll;
   bool ExportDynamic;
   bool ExportTable;
   bool GcSections;
   bool ImportMemory;
   bool SharedMemory;
+  bool PassiveSegments;
   bool ImportTable;
   bool MergeDataSegments;
   bool Pie;
@@ -58,6 +60,7 @@ struct Configuration {
   llvm::StringRef ThinLTOCacheDir;
 
   llvm::StringSet<> AllowUndefinedSymbols;
+  llvm::StringSet<> ExportedSymbols;
   std::vector<llvm::StringRef> SearchPaths;
   llvm::CachePruningPolicy ThinLTOCachePolicy;
   llvm::Optional<std::vector<std::string>> Features;

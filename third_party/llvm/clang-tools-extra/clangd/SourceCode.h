@@ -65,6 +65,11 @@ Position offsetToPosition(llvm::StringRef Code, size_t Offset);
 /// FIXME: This should return an error if the location is invalid.
 Position sourceLocToPosition(const SourceManager &SM, SourceLocation Loc);
 
+/// Returns the taken range at \p TokLoc.
+llvm::Optional<Range> getTokenRange(const SourceManager &SM,
+                                    const LangOptions &LangOpts,
+                                    SourceLocation TokLoc);
+
 /// Return the file location, corresponding to \p P. Note that one should take
 /// care to avoid comparing the result with expansion locations.
 llvm::Expected<SourceLocation> sourceLocationInMainFile(const SourceManager &SM,
@@ -195,6 +200,14 @@ llvm::StringSet<> collectWords(llvm::StringRef Content);
 /// visibleNamespaces are {"foo::", "", "a::", "b::", "foo::b::"}, not "a::b::".
 std::vector<std::string> visibleNamespaces(llvm::StringRef Code,
                                            const format::FormatStyle &Style);
+
+struct DefinedMacro {
+  llvm::StringRef Name;
+  const MacroInfo *Info;
+};
+// Gets the macro at a specified \p Loc.
+llvm::Optional<DefinedMacro> locateMacroAt(SourceLocation Loc,
+                                           Preprocessor &PP);
 
 } // namespace clangd
 } // namespace clang

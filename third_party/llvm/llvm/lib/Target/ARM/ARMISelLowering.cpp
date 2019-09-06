@@ -221,6 +221,97 @@ void ARMTargetLowering::addQRTypeForNEON(MVT VT) {
   addTypeForNEON(VT, MVT::v2f64, MVT::v4i32);
 }
 
+void ARMTargetLowering::setAllExpand(MVT VT) {
+  for (unsigned Opc = 0; Opc < ISD::BUILTIN_OP_END; ++Opc)
+    setOperationAction(Opc, VT, Expand);
+
+  // We support these really simple operations even on types where all
+  // the actual arithmetic has to be broken down into simpler
+  // operations or turned into library calls.
+  setOperationAction(ISD::BITCAST, VT, Legal);
+  setOperationAction(ISD::LOAD, VT, Legal);
+  setOperationAction(ISD::STORE, VT, Legal);
+  setOperationAction(ISD::UNDEF, VT, Legal);
+}
+
+void ARMTargetLowering::addAllExtLoads(const MVT From, const MVT To,
+                                       LegalizeAction Action) {
+  setLoadExtAction(ISD::EXTLOAD,  From, To, Action);
+  setLoadExtAction(ISD::ZEXTLOAD, From, To, Action);
+  setLoadExtAction(ISD::SEXTLOAD, From, To, Action);
+}
+
+void ARMTargetLowering::addMVEVectorTypes(bool HasMVEFP) {
+  const MVT IntTypes[] = { MVT::v16i8, MVT::v8i16, MVT::v4i32 };
+
+  for (auto VT : IntTypes) {
+    addRegisterClass(VT, &ARM::QPRRegClass);
+    setOperationAction(ISD::VECTOR_SHUFFLE, VT, Custom);
+    setOperationAction(ISD::INSERT_VECTOR_ELT, VT, Custom);
+    setOperationAction(ISD::EXTRACT_VECTOR_ELT, VT, Custom);
+    setOperationAction(ISD::BUILD_VECTOR, VT, Custom);
+
+    // No native support for these.
+    setOperationAction(ISD::UDIV, VT, Expand);
+    setOperationAction(ISD::SDIV, VT, Expand);
+    setOperationAction(ISD::UREM, VT, Expand);
+    setOperationAction(ISD::SREM, VT, Expand);
+  }
+
+  const MVT FloatTypes[] = { MVT::v8f16, MVT::v4f32 };
+  for (auto VT : FloatTypes) {
+    addRegisterClass(VT, &ARM::QPRRegClass);
+    if (!HasMVEFP)
+      setAllExpand(VT);
+
+    // These are legal or custom whether we have MVE.fp or not
+    setOperationAction(ISD::VECTOR_SHUFFLE, VT, Custom);
+    setOperationAction(ISD::INSERT_VECTOR_ELT, VT, Custom);
+    setOperationAction(ISD::INSERT_VECTOR_ELT, VT.getVectorElementType(), Custom);
+    setOperationAction(ISD::EXTRACT_VECTOR_ELT, VT, Custom);
+    setOperationAction(ISD::BUILD_VECTOR, VT, Custom);
+    setOperationAction(ISD::BUILD_VECTOR, VT.getVectorElementType(), Custom);
+    setOperationAction(ISD::SCALAR_TO_VECTOR, VT, Legal);
+
+    if (HasMVEFP) {
+      // No native support for these.
+      setOperationAction(ISD::FDIV, VT, Expand);
+      setOperationAction(ISD::FREM, VT, Expand);
+      setOperationAction(ISD::FSQRT, VT, Expand);
+      setOperationAction(ISD::FSIN, VT, Expand);
+      setOperationAction(ISD::FCOS, VT, Expand);
+      setOperationAction(ISD::FPOW, VT, Expand);
+      setOperationAction(ISD::FLOG, VT, Expand);
+      setOperationAction(ISD::FLOG2, VT, Expand);
+      setOperationAction(ISD::FLOG10, VT, Expand);
+      setOperationAction(ISD::FEXP, VT, Expand);
+      setOperationAction(ISD::FEXP2, VT, Expand);
+    }
+  }
+
+  // We 'support' these types up to bitcast/load/store level, regardless of
+  // MVE integer-only / float support. Only doing FP data processing on the FP
+  // vector types is inhibited at integer-only level.
+  const MVT LongTypes[] = { MVT::v2i64, MVT::v2f64 };
+  for (auto VT : LongTypes) {
+    addRegisterClass(VT, &ARM::QPRRegClass);
+    setAllExpand(VT);
+    setOperationAction(ISD::INSERT_VECTOR_ELT, VT, Custom);
+    setOperationAction(ISD::EXTRACT_VECTOR_ELT, VT, Custom);
+    setOperationAction(ISD::BUILD_VECTOR, VT, Custom);
+  }
+
+  // It is legal to extload from v4i8 to v4i16 or v4i32.
+  addAllExtLoads(MVT::v8i16, MVT::v8i8, Legal);
+  addAllExtLoads(MVT::v4i32, MVT::v4i16, Legal);
+  addAllExtLoads(MVT::v4i32, MVT::v4i8, Legal);
+
+  // Some truncating stores are legal too.
+  setTruncStoreAction(MVT::v4i32, MVT::v4i16, Legal);
+  setTruncStoreAction(MVT::v4i32, MVT::v4i8,  Legal);
+  setTruncStoreAction(MVT::v8i16, MVT::v8i8,  Legal);
+}
+
 ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
                                      const ARMSubtarget &STI)
     : TargetLowering(TM), Subtarget(&STI) {
@@ -241,7 +332,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
 
   if (Subtarget->isTargetMachO()) {
     // Uses VFP for Thumb libfuncs if available.
-    if (Subtarget->isThumb() && Subtarget->hasVFP2() &&
+    if (Subtarget->isThumb() && Subtarget->hasVFP2Base() &&
         Subtarget->hasARMOps() && !Subtarget->useSoftFloat()) {
       static const struct {
         const RTLIB::Libcall Op;
@@ -510,10 +601,14 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   else
     addRegisterClass(MVT::i32, &ARM::GPRRegClass);
 
-  if (!Subtarget->useSoftFloat() && Subtarget->hasVFP2() &&
-      !Subtarget->isThumb1Only()) {
+  if (!Subtarget->useSoftFloat() && !Subtarget->isThumb1Only() &&
+      Subtarget->hasFPRegs()) {
     addRegisterClass(MVT::f32, &ARM::SPRRegClass);
     addRegisterClass(MVT::f64, &ARM::DPRRegClass);
+    if (!Subtarget->hasVFP2Base())
+      setAllExpand(MVT::f32);
+    if (!Subtarget->hasFP64())
+      setAllExpand(MVT::f64);
   }
 
   if (Subtarget->hasFullFP16()) {
@@ -529,9 +624,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   for (MVT VT : MVT::vector_valuetypes()) {
     for (MVT InnerVT : MVT::vector_valuetypes()) {
       setTruncStoreAction(VT, InnerVT, Expand);
-      setLoadExtAction(ISD::SEXTLOAD, VT, InnerVT, Expand);
-      setLoadExtAction(ISD::ZEXTLOAD, VT, InnerVT, Expand);
-      setLoadExtAction(ISD::EXTLOAD, VT, InnerVT, Expand);
+      addAllExtLoads(VT, InnerVT, Expand);
     }
 
     setOperationAction(ISD::MULHS, VT, Expand);
@@ -547,6 +640,13 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
 
   setOperationAction(ISD::READ_REGISTER, MVT::i64, Custom);
   setOperationAction(ISD::WRITE_REGISTER, MVT::i64, Custom);
+
+  if (Subtarget->hasMVEIntegerOps())
+    addMVEVectorTypes(Subtarget->hasMVEFloatOps());
+
+  // Combine low-overhead loop intrinsics so that we can lower i1 types.
+  if (Subtarget->hasLOB())
+    setTargetDAGCombine(ISD::BRCOND);
 
   if (Subtarget->hasNEON()) {
     addDRTypeForNEON(MVT::v2f32);
@@ -566,11 +666,11 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
       addQRTypeForNEON(MVT::v8f16);
       addDRTypeForNEON(MVT::v4f16);
     }
+  }
 
+  if (Subtarget->hasMVEIntegerOps() || Subtarget->hasNEON()) {
     // v2f64 is legal so that QR subregs can be extracted as f64 elements, but
-    // neither Neon nor VFP support any arithmetic operations on it.
-    // The same with v4f32. But keep in mind that vadd, vsub, vmul are natively
-    // supported for v4f32.
+    // none of Neon, MVE or VFP supports any arithmetic operations on it.
     setOperationAction(ISD::FADD, MVT::v2f64, Expand);
     setOperationAction(ISD::FSUB, MVT::v2f64, Expand);
     setOperationAction(ISD::FMUL, MVT::v2f64, Expand);
@@ -604,7 +704,11 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FNEARBYINT, MVT::v2f64, Expand);
     setOperationAction(ISD::FFLOOR, MVT::v2f64, Expand);
     setOperationAction(ISD::FMA, MVT::v2f64, Expand);
+  }
 
+  if (Subtarget->hasNEON()) {
+    // The same with v4f32. But keep in mind that vadd, vsub, vmul are natively
+    // supported for v4f32.
     setOperationAction(ISD::FSQRT, MVT::v4f32, Expand);
     setOperationAction(ISD::FSIN, MVT::v4f32, Expand);
     setOperationAction(ISD::FCOS, MVT::v4f32, Expand);
@@ -698,7 +802,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::v2i64, Custom);
 
     // NEON only has FMA instructions as of VFP4.
-    if (!Subtarget->hasVFP4()) {
+    if (!Subtarget->hasVFP4Base()) {
       setOperationAction(ISD::FMA, MVT::v2f32, Expand);
       setOperationAction(ISD::FMA, MVT::v4f32, Expand);
     }
@@ -732,7 +836,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     }
   }
 
-  if (Subtarget->isFPOnlySP()) {
+  if (!Subtarget->hasFP64()) {
     // When targeting a floating-point unit with only single-precision
     // operations, f64 is legal for the few double-precision instructions which
     // are present However, no double-precision operations other than moves,
@@ -768,8 +872,18 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FP_TO_SINT, MVT::f64, Custom);
     setOperationAction(ISD::FP_TO_UINT, MVT::f64, Custom);
     setOperationAction(ISD::FP_ROUND,   MVT::f32, Custom);
-    setOperationAction(ISD::FP_EXTEND,  MVT::f64, Custom);
   }
+
+  if (!Subtarget->hasFP64() || !Subtarget->hasFPARMv8Base()){
+    setOperationAction(ISD::FP_EXTEND,  MVT::f64, Custom);
+    setOperationAction(ISD::FP_ROUND,  MVT::f16, Custom);
+  }
+
+  if (!Subtarget->hasFP16())
+    setOperationAction(ISD::FP_EXTEND,  MVT::f32, Custom);
+
+  if (!Subtarget->hasFP64())
+    setOperationAction(ISD::FP_ROUND,  MVT::f32, Custom);
 
   computeRegisterProperties(Subtarget->getRegisterInfo());
 
@@ -832,6 +946,11 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SRL,       MVT::i64, Custom);
   setOperationAction(ISD::SRA,       MVT::i64, Custom);
   setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::i64, Custom);
+
+  // MVE lowers 64 bit shifts to lsll and lsrl
+  // assuming that ISD::SRL and SRA of i64 are already marked custom
+  if (Subtarget->hasMVEIntegerOps())
+    setOperationAction(ISD::SHL, MVT::i64, Custom);
 
   // Expand to __aeabi_l{lsl,lsr,asr} calls for Thumb1.
   if (Subtarget->isThumb1Only()) {
@@ -1030,7 +1149,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   }
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
 
-  if (!Subtarget->useSoftFloat() && Subtarget->hasVFP2() &&
+  if (!Subtarget->useSoftFloat() && Subtarget->hasFPRegs() &&
       !Subtarget->isThumb1Only()) {
     // Turn f64->i64 into VMOVRRD, i64 -> f64 to VMOVDRR
     // iff target supports vfp2.
@@ -1080,7 +1199,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::FSINCOS,   MVT::f32, Expand);
   setOperationAction(ISD::FREM,      MVT::f64, Expand);
   setOperationAction(ISD::FREM,      MVT::f32, Expand);
-  if (!Subtarget->useSoftFloat() && Subtarget->hasVFP2() &&
+  if (!Subtarget->useSoftFloat() && Subtarget->hasVFP2Base() &&
       !Subtarget->isThumb1Only()) {
     setOperationAction(ISD::FCOPYSIGN, MVT::f64, Custom);
     setOperationAction(ISD::FCOPYSIGN, MVT::f32, Custom);
@@ -1088,7 +1207,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::FPOW,      MVT::f64, Expand);
   setOperationAction(ISD::FPOW,      MVT::f32, Expand);
 
-  if (!Subtarget->hasVFP4()) {
+  if (!Subtarget->hasVFP4Base()) {
     setOperationAction(ISD::FMA, MVT::f64, Expand);
     setOperationAction(ISD::FMA, MVT::f32, Expand);
   }
@@ -1096,7 +1215,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   // Various VFP goodness
   if (!Subtarget->useSoftFloat() && !Subtarget->isThumb1Only()) {
     // FP-ARMv8 adds f64 <-> f16 conversion. Before that it should be expanded.
-    if (!Subtarget->hasFPARMv8() || Subtarget->isFPOnlySP()) {
+    if (!Subtarget->hasFPARMv8Base() || !Subtarget->hasFP64()) {
       setOperationAction(ISD::FP16_TO_FP, MVT::f64, Expand);
       setOperationAction(ISD::FP_TO_FP16, MVT::f64, Expand);
     }
@@ -1116,7 +1235,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   }
 
   // FP-ARMv8 implements a lot of rounding-like FP operations.
-  if (Subtarget->hasFPARMv8()) {
+  if (Subtarget->hasFPARMv8Base()) {
     setOperationAction(ISD::FFLOOR, MVT::f32, Legal);
     setOperationAction(ISD::FCEIL, MVT::f32, Legal);
     setOperationAction(ISD::FROUND, MVT::f32, Legal);
@@ -1130,7 +1249,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FMINNUM, MVT::v4f32, Legal);
     setOperationAction(ISD::FMAXNUM, MVT::v4f32, Legal);
 
-    if (!Subtarget->isFPOnlySP()) {
+    if (Subtarget->hasFP64()) {
       setOperationAction(ISD::FFLOOR, MVT::f64, Legal);
       setOperationAction(ISD::FCEIL, MVT::f64, Legal);
       setOperationAction(ISD::FROUND, MVT::f64, Legal);
@@ -1140,6 +1259,24 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
       setOperationAction(ISD::FMINNUM, MVT::f64, Legal);
       setOperationAction(ISD::FMAXNUM, MVT::f64, Legal);
     }
+  }
+
+  // FP16 often need to be promoted to call lib functions
+  if (Subtarget->hasFullFP16()) {
+    setOperationAction(ISD::FREM, MVT::f16, Promote);
+    setOperationAction(ISD::FCOPYSIGN, MVT::f16, Expand);
+    setOperationAction(ISD::FSIN, MVT::f16, Promote);
+    setOperationAction(ISD::FCOS, MVT::f16, Promote);
+    setOperationAction(ISD::FSINCOS, MVT::f16, Promote);
+    setOperationAction(ISD::FPOWI, MVT::f16, Promote);
+    setOperationAction(ISD::FPOW, MVT::f16, Promote);
+    setOperationAction(ISD::FEXP, MVT::f16, Promote);
+    setOperationAction(ISD::FEXP2, MVT::f16, Promote);
+    setOperationAction(ISD::FLOG, MVT::f16, Promote);
+    setOperationAction(ISD::FLOG10, MVT::f16, Promote);
+    setOperationAction(ISD::FLOG2, MVT::f16, Promote);
+
+    setOperationAction(ISD::FROUND, MVT::f16, Legal);
   }
 
   if (Subtarget->hasNEON()) {
@@ -1184,7 +1321,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   setStackPointerRegisterToSaveRestore(ARM::SP);
 
   if (Subtarget->useSoftFloat() || Subtarget->isThumb1Only() ||
-      !Subtarget->hasVFP2() || Subtarget->hasMinSize())
+      !Subtarget->hasVFP2Base() || Subtarget->hasMinSize())
     setSchedulingPreference(Sched::RegPressure);
   else
     setSchedulingPreference(Sched::Hybrid);
@@ -1293,6 +1430,10 @@ const char *ARMTargetLowering::getTargetNodeName(unsigned Opcode) const {
 
   case ARMISD::SSAT:          return "ARMISD::SSAT";
   case ARMISD::USAT:          return "ARMISD::USAT";
+
+  case ARMISD::ASRL:          return "ARMISD::ASRL";
+  case ARMISD::LSRL:          return "ARMISD::LSRL";
+  case ARMISD::LSLL:          return "ARMISD::LSLL";
 
   case ARMISD::SRL_FLAG:      return "ARMISD::SRL_FLAG";
   case ARMISD::SRA_FLAG:      return "ARMISD::SRA_FLAG";
@@ -1416,6 +1557,7 @@ const char *ARMTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case ARMISD::VST2LN_UPD:    return "ARMISD::VST2LN_UPD";
   case ARMISD::VST3LN_UPD:    return "ARMISD::VST3LN_UPD";
   case ARMISD::VST4LN_UPD:    return "ARMISD::VST4LN_UPD";
+  case ARMISD::WLS:           return "ARMISD::WLS";
   }
   return nullptr;
 }
@@ -1429,11 +1571,14 @@ EVT ARMTargetLowering::getSetCCResultType(const DataLayout &DL, LLVMContext &,
 
 /// getRegClassFor - Return the register class that should be used for the
 /// specified value type.
-const TargetRegisterClass *ARMTargetLowering::getRegClassFor(MVT VT) const {
+const TargetRegisterClass *
+ARMTargetLowering::getRegClassFor(MVT VT, bool isDivergent) const {
+  (void)isDivergent;
   // Map v4i64 to QQ registers but do not make the type legal. Similarly map
   // v8i64 to QQQQ registers. v4i64 and v8i64 are only used for REG_SEQUENCE to
-  // load / store 4 to 8 consecutive D registers.
-  if (Subtarget->hasNEON()) {
+  // load / store 4 to 8 consecutive NEON D registers, or 2 to 4 consecutive
+  // MVE Q registers.
+  if (Subtarget->hasNEON() || Subtarget->hasMVEIntegerOps()) {
     if (VT == MVT::v4i64)
       return &ARM::QQPRRegClass;
     if (VT == MVT::v8i64)
@@ -1617,7 +1762,7 @@ ARMTargetLowering::getEffectiveCallingConv(CallingConv::ID CC,
   case CallingConv::C:
     if (!Subtarget->isAAPCS_ABI())
       return CallingConv::ARM_APCS;
-    else if (Subtarget->hasVFP2() && !Subtarget->isThumb1Only() &&
+    else if (Subtarget->hasVFP2Base() && !Subtarget->isThumb1Only() &&
              getTargetMachine().Options.FloatABIType == FloatABI::Hard &&
              !isVarArg)
       return CallingConv::ARM_AAPCS_VFP;
@@ -1626,10 +1771,11 @@ ARMTargetLowering::getEffectiveCallingConv(CallingConv::ID CC,
   case CallingConv::Fast:
   case CallingConv::CXX_FAST_TLS:
     if (!Subtarget->isAAPCS_ABI()) {
-      if (Subtarget->hasVFP2() && !Subtarget->isThumb1Only() && !isVarArg)
+      if (Subtarget->hasVFP2Base() && !Subtarget->isThumb1Only() && !isVarArg)
         return CallingConv::Fast;
       return CallingConv::ARM_APCS;
-    } else if (Subtarget->hasVFP2() && !Subtarget->isThumb1Only() && !isVarArg)
+    } else if (Subtarget->hasVFP2Base() &&
+               !Subtarget->isThumb1Only() && !isVarArg)
       return CallingConv::ARM_AAPCS_VFP;
     else
       return CallingConv::ARM_AAPCS;
@@ -1811,29 +1957,40 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   bool isVarArg                         = CLI.IsVarArg;
 
   MachineFunction &MF = DAG.getMachineFunction();
-  bool isStructRet    = (Outs.empty()) ? false : Outs[0].Flags.isSRet();
-  bool isThisReturn   = false;
-  bool isSibCall      = false;
+  bool isStructRet = (Outs.empty()) ? false : Outs[0].Flags.isSRet();
+  bool isThisReturn = false;
   auto Attr = MF.getFunction().getFnAttribute("disable-tail-calls");
+  bool PreferIndirect = false;
 
   // Disable tail calls if they're not supported.
   if (!Subtarget->supportsTailCall() || Attr.getValueAsString() == "true")
     isTailCall = false;
 
+  if (isa<GlobalAddressSDNode>(Callee)) {
+    // If we're optimizing for minimum size and the function is called three or
+    // more times in this block, we can improve codesize by calling indirectly
+    // as BLXr has a 16-bit encoding.
+    auto *GV = cast<GlobalAddressSDNode>(Callee)->getGlobal();
+    auto *BB = CLI.CS.getParent();
+    PreferIndirect =
+        Subtarget->isThumb() && Subtarget->hasMinSize() &&
+        count_if(GV->users(), [&BB](const User *U) {
+          return isa<Instruction>(U) && cast<Instruction>(U)->getParent() == BB;
+        }) > 2;
+  }
   if (isTailCall) {
     // Check if it's really possible to do a tail call.
-    isTailCall = IsEligibleForTailCallOptimization(Callee, CallConv,
-                    isVarArg, isStructRet, MF.getFunction().hasStructRetAttr(),
-                                                   Outs, OutVals, Ins, DAG);
+    isTailCall = IsEligibleForTailCallOptimization(
+        Callee, CallConv, isVarArg, isStructRet,
+        MF.getFunction().hasStructRetAttr(), Outs, OutVals, Ins, DAG,
+        PreferIndirect);
     if (!isTailCall && CLI.CS && CLI.CS.isMustTailCall())
       report_fatal_error("failed to perform tail call elimination on a call "
                          "site marked musttail");
     // We don't support GuaranteedTailCallOpt for ARM, only automatically
     // detected sibcalls.
-    if (isTailCall) {
+    if (isTailCall)
       ++NumTailCalls;
-      isSibCall = true;
-    }
   }
 
   // Analyze operands of the call, assigning locations to each operand.
@@ -1845,14 +2002,14 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // Get a count of how many bytes are to be pushed on the stack.
   unsigned NumBytes = CCInfo.getNextStackOffset();
 
-  // For tail calls, memory operands are available in our caller's stack.
-  if (isSibCall)
+  if (isTailCall) {
+    // For tail calls, memory operands are available in our caller's stack.
     NumBytes = 0;
-
-  // Adjust the stack pointer for the new arguments...
-  // These operations are automatically eliminated by the prolog/epilog pass
-  if (!isSibCall)
+  } else {
+    // Adjust the stack pointer for the new arguments...
+    // These operations are automatically eliminated by the prolog/epilog pass
     Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, dl);
+  }
 
   SDValue StackPtr =
       DAG.getCopyFromReg(Chain, dl, ARM::SP, getPointerTy(DAG.getDataLayout()));
@@ -1974,7 +2131,7 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
         MemOpChains.push_back(DAG.getNode(ARMISD::COPY_STRUCT_BYVAL, dl, VTs,
                                           Ops));
       }
-    } else if (!isSibCall) {
+    } else if (!isTailCall) {
       assert(VA.isMemLoc());
 
       MemOpChains.push_back(LowerMemOpCallTo(Chain, StackPtr, Arg,
@@ -2046,17 +2203,6 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
           MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
     }
   } else if (isa<GlobalAddressSDNode>(Callee)) {
-    // If we're optimizing for minimum size and the function is called three or
-    // more times in this block, we can improve codesize by calling indirectly
-    // as BLXr has a 16-bit encoding.
-    auto *GV = cast<GlobalAddressSDNode>(Callee)->getGlobal();
-    auto *BB = CLI.CS.getParent();
-    bool PreferIndirect =
-        Subtarget->isThumb() && Subtarget->hasMinSize() &&
-        count_if(GV->users(), [&BB](const User *U) {
-          return isa<Instruction>(U) && cast<Instruction>(U)->getParent() == BB;
-        }) > 2;
-
     if (!PreferIndirect) {
       isDirect = true;
       bool isDef = GV->isStrongDefinitionForLinker();
@@ -2288,28 +2434,25 @@ bool MatchingStackOffset(SDValue Arg, unsigned Offset, ISD::ArgFlagsTy Flags,
 /// IsEligibleForTailCallOptimization - Check whether the call is eligible
 /// for tail call optimization. Targets which want to do tail call
 /// optimization should implement this function.
-bool
-ARMTargetLowering::IsEligibleForTailCallOptimization(SDValue Callee,
-                                                     CallingConv::ID CalleeCC,
-                                                     bool isVarArg,
-                                                     bool isCalleeStructRet,
-                                                     bool isCallerStructRet,
-                                    const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                    const SmallVectorImpl<SDValue> &OutVals,
-                                    const SmallVectorImpl<ISD::InputArg> &Ins,
-                                                     SelectionDAG& DAG) const {
+bool ARMTargetLowering::IsEligibleForTailCallOptimization(
+    SDValue Callee, CallingConv::ID CalleeCC, bool isVarArg,
+    bool isCalleeStructRet, bool isCallerStructRet,
+    const SmallVectorImpl<ISD::OutputArg> &Outs,
+    const SmallVectorImpl<SDValue> &OutVals,
+    const SmallVectorImpl<ISD::InputArg> &Ins, SelectionDAG &DAG,
+    const bool isIndirect) const {
   MachineFunction &MF = DAG.getMachineFunction();
   const Function &CallerF = MF.getFunction();
   CallingConv::ID CallerCC = CallerF.getCallingConv();
 
   assert(Subtarget->supportsTailCall());
 
-  // Tail calls to function pointers cannot be optimized for Thumb1 if the args
+  // Indirect tail calls cannot be optimized for Thumb1 if the args
   // to the call take up r0-r3. The reason is that there are no legal registers
   // left to hold the pointer to the function to be called.
   if (Subtarget->isThumb1Only() && Outs.size() >= 4 &&
-      !isa<GlobalAddressSDNode>(Callee.getNode()))
-      return false;
+      (!isa<GlobalAddressSDNode>(Callee.getNode()) || isIndirect))
+    return false;
 
   // Look for obvious safe cases to perform tail call optimization that do not
   // require ABI changes. This is what gcc calls sibcall.
@@ -3597,7 +3740,8 @@ void ARMTargetLowering::VarArgStyleRegisters(CCState &CCInfo, SelectionDAG &DAG,
   // argument passed via stack.
   int FrameIndex = StoreByValRegs(CCInfo, DAG, dl, Chain, nullptr,
                                   CCInfo.getInRegsParamsCount(),
-                                  CCInfo.getNextStackOffset(), 4);
+                                  CCInfo.getNextStackOffset(),
+                                  std::max(4U, TotalArgRegsSaveSize));
   AFI->setVarArgsFrameIndex(FrameIndex);
 }
 
@@ -3892,7 +4036,7 @@ SDValue ARMTargetLowering::getARMCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
 SDValue ARMTargetLowering::getVFPCmp(SDValue LHS, SDValue RHS,
                                      SelectionDAG &DAG, const SDLoc &dl,
                                      bool InvalidOnQNaN) const {
-  assert(!Subtarget->isFPOnlySP() || RHS.getValueType() != MVT::f64);
+  assert(Subtarget->hasFP64() || RHS.getValueType() != MVT::f64);
   SDValue Cmp;
   SDValue C = DAG.getConstant(InvalidOnQNaN, dl, MVT::i32);
   if (!isFloatingPointZero(RHS))
@@ -4205,7 +4349,7 @@ static void checkVSELConstraints(ISD::CondCode CC, ARMCC::CondCodes &CondCode,
 SDValue ARMTargetLowering::getCMOV(const SDLoc &dl, EVT VT, SDValue FalseVal,
                                    SDValue TrueVal, SDValue ARMcc, SDValue CCR,
                                    SDValue Cmp, SelectionDAG &DAG) const {
-  if (Subtarget->isFPOnlySP() && VT == MVT::f64) {
+  if (!Subtarget->hasFP64() && VT == MVT::f64) {
     FalseVal = DAG.getNode(ARMISD::VMOVRRD, dl,
                            DAG.getVTList(MVT::i32, MVT::i32), FalseVal);
     TrueVal = DAG.getNode(ARMISD::VMOVRRD, dl,
@@ -4411,6 +4555,16 @@ static bool isLowerSaturatingConditional(const SDValue &Op, SDValue &V,
   return false;
 }
 
+bool ARMTargetLowering::isUnsupportedFloatingType(EVT VT) const {
+  if (VT == MVT::f32)
+    return !Subtarget->hasVFP2Base();
+  if (VT == MVT::f64)
+    return !Subtarget->hasFP64();
+  if (VT == MVT::f16)
+    return !Subtarget->hasFullFP16();
+  return false;
+}
+
 SDValue ARMTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
   EVT VT = Op.getValueType();
   SDLoc dl(Op);
@@ -4454,9 +4608,9 @@ SDValue ARMTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
   SDValue TrueVal = Op.getOperand(2);
   SDValue FalseVal = Op.getOperand(3);
 
-  if (Subtarget->isFPOnlySP() && LHS.getValueType() == MVT::f64) {
-    DAG.getTargetLoweringInfo().softenSetCCOperands(DAG, MVT::f64, LHS, RHS, CC,
-                                                    dl);
+  if (isUnsupportedFloatingType(LHS.getValueType())) {
+    DAG.getTargetLoweringInfo().softenSetCCOperands(
+        DAG, LHS.getValueType(), LHS, RHS, CC, dl);
 
     // If softenSetCCOperands only returned one value, we should compare it to
     // zero.
@@ -4477,9 +4631,9 @@ SDValue ARMTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
     // inverting the compare condition, swapping 'less' and 'greater') and
     // sometimes need to swap the operands to the VSEL (which inverts the
     // condition in the sense of firing whenever the previous condition didn't)
-    if (Subtarget->hasFPARMv8() && (TrueVal.getValueType() == MVT::f16 ||
-                                    TrueVal.getValueType() == MVT::f32 ||
-                                    TrueVal.getValueType() == MVT::f64)) {
+    if (Subtarget->hasFPARMv8Base() && (TrueVal.getValueType() == MVT::f16 ||
+                                        TrueVal.getValueType() == MVT::f32 ||
+                                        TrueVal.getValueType() == MVT::f64)) {
       ARMCC::CondCodes CondCode = IntCCToARMCC(CC);
       if (CondCode == ARMCC::LT || CondCode == ARMCC::LE ||
           CondCode == ARMCC::VC || CondCode == ARMCC::NE) {
@@ -4502,7 +4656,7 @@ SDValue ARMTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
   // match CMPFPw0 instead of CMPFP, though we don't do this for f16 because we
   // must use VSEL (limited condition codes), due to not having conditional f16
   // moves.
-  if (Subtarget->hasFPARMv8() &&
+  if (Subtarget->hasFPARMv8Base() &&
       !(isFloatingPointZero(RHS) && TrueVal.getValueType() != MVT::f16) &&
       (TrueVal.getValueType() == MVT::f16 ||
        TrueVal.getValueType() == MVT::f32 ||
@@ -4695,9 +4849,9 @@ SDValue ARMTargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
   SDValue Dest = Op.getOperand(4);
   SDLoc dl(Op);
 
-  if (Subtarget->isFPOnlySP() && LHS.getValueType() == MVT::f64) {
-    DAG.getTargetLoweringInfo().softenSetCCOperands(DAG, MVT::f64, LHS, RHS, CC,
-                                                    dl);
+  if (isUnsupportedFloatingType(LHS.getValueType())) {
+    DAG.getTargetLoweringInfo().softenSetCCOperands(
+        DAG, LHS.getValueType(), LHS, RHS, CC, dl);
 
     // If softenSetCCOperands only returned one value, we should compare it to
     // zero.
@@ -4842,7 +4996,7 @@ SDValue ARMTargetLowering::LowerFP_TO_INT(SDValue Op, SelectionDAG &DAG) const {
   EVT VT = Op.getValueType();
   if (VT.isVector())
     return LowerVectorFP_TO_INT(Op, DAG);
-  if (Subtarget->isFPOnlySP() && Op.getOperand(0).getValueType() == MVT::f64) {
+  if (isUnsupportedFloatingType(Op.getOperand(0).getValueType())) {
     RTLIB::Libcall LC;
     if (Op.getOpcode() == ISD::FP_TO_SINT)
       LC = RTLIB::getFPTOSINT(Op.getOperand(0).getValueType(),
@@ -4906,7 +5060,7 @@ SDValue ARMTargetLowering::LowerINT_TO_FP(SDValue Op, SelectionDAG &DAG) const {
   EVT VT = Op.getValueType();
   if (VT.isVector())
     return LowerVectorINT_TO_FP(Op, DAG);
-  if (Subtarget->isFPOnlySP() && Op.getValueType() == MVT::f64) {
+  if (isUnsupportedFloatingType(VT)) {
     RTLIB::Libcall LC;
     if (Op.getOpcode() == ISD::SINT_TO_FP)
       LC = RTLIB::getSINTTOFP(Op.getOperand(0).getValueType(),
@@ -5501,15 +5655,59 @@ static SDValue Expand64BitShift(SDNode *N, SelectionDAG &DAG,
   if (VT != MVT::i64)
     return SDValue();
 
-  assert((N->getOpcode() == ISD::SRL || N->getOpcode() == ISD::SRA) &&
+  assert((N->getOpcode() == ISD::SRL || N->getOpcode() == ISD::SRA ||
+          N->getOpcode() == ISD::SHL) &&
          "Unknown shift to lower!");
 
+  unsigned ShOpc = N->getOpcode();
+  if (ST->hasMVEIntegerOps()) {
+    SDValue ShAmt = N->getOperand(1);
+    unsigned ShPartsOpc = ARMISD::LSLL;
+    ConstantSDNode *Con = dyn_cast<ConstantSDNode>(ShAmt);
+
+    // If the shift amount is greater than 32 then do the default optimisation
+    if (Con && Con->getZExtValue() > 32)
+      return SDValue();
+
+    // Extract the lower 32 bits of the shift amount if it's an i64
+    if (ShAmt->getValueType(0) == MVT::i64)
+      ShAmt = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i32, ShAmt,
+                          DAG.getConstant(0, dl, MVT::i32));
+
+    if (ShOpc == ISD::SRL) {
+      if (!Con)
+        // There is no t2LSRLr instruction so negate and perform an lsll if the
+        // shift amount is in a register, emulating a right shift.
+        ShAmt = DAG.getNode(ISD::SUB, dl, MVT::i32,
+                            DAG.getConstant(0, dl, MVT::i32), ShAmt);
+      else
+        // Else generate an lsrl on the immediate shift amount
+        ShPartsOpc = ARMISD::LSRL;
+    } else if (ShOpc == ISD::SRA)
+      ShPartsOpc = ARMISD::ASRL;
+
+    // Lower 32 bits of the destination/source
+    SDValue Lo = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i32, N->getOperand(0),
+                             DAG.getConstant(0, dl, MVT::i32));
+    // Upper 32 bits of the destination/source
+    SDValue Hi = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i32, N->getOperand(0),
+                             DAG.getConstant(1, dl, MVT::i32));
+
+    // Generate the shift operation as computed above
+    Lo = DAG.getNode(ShPartsOpc, dl, DAG.getVTList(MVT::i32, MVT::i32), Lo, Hi,
+                     ShAmt);
+    // The upper 32 bits come from the second return value of lsll
+    Hi = SDValue(Lo.getNode(), 1);
+    return DAG.getNode(ISD::BUILD_PAIR, dl, MVT::i64, Lo, Hi);
+  }
+
   // We only lower SRA, SRL of 1 here, all others use generic lowering.
-  if (!isOneConstant(N->getOperand(1)))
+  if (!isOneConstant(N->getOperand(1)) || N->getOpcode() == ISD::SHL)
     return SDValue();
 
   // If we are in thumb mode, we don't have RRX.
-  if (ST->isThumb1Only()) return SDValue();
+  if (ST->isThumb1Only())
+    return SDValue();
 
   // Okay, we have a 64-bit SRA or SRL of 1.  Lower this to an RRX expr.
   SDValue Lo = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i32, N->getOperand(0),
@@ -5889,12 +6087,12 @@ SDValue ARMTargetLowering::LowerConstantFP(SDValue Op, SelectionDAG &DAG,
     }
   }
 
-  if (!ST->hasVFP3())
+  if (!ST->hasVFP3Base())
     return SDValue();
 
   // Use the default (constant pool) lowering for double constants when we have
   // an SP-only FPU
-  if (IsDouble && Subtarget->isFPOnlySP())
+  if (IsDouble && !Subtarget->hasFP64())
     return SDValue();
 
   // Try splatting with a VMOV.f32...
@@ -6370,7 +6568,7 @@ SDValue ARMTargetLowering::LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG,
     if (SplatUndef.isAllOnesValue())
       return DAG.getUNDEF(VT);
 
-    if (SplatBitSize <= 64) {
+    if (ST->hasNEON() && SplatBitSize <= 64) {
       // Check if an immediate VMOV works.
       EVT VmovVT;
       SDValue Val = isNEONModifiedImm(SplatBits.getZExtValue(),
@@ -6502,10 +6700,13 @@ SDValue ARMTargetLowering::LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG,
     }
     if (VT.getVectorElementType().isFloatingPoint()) {
       SmallVector<SDValue, 8> Ops;
+      MVT FVT = VT.getVectorElementType().getSimpleVT();
+      assert(FVT == MVT::f32 || FVT == MVT::f16);
+      MVT IVT = (FVT == MVT::f32) ? MVT::i32 : MVT::i16;
       for (unsigned i = 0; i < NumElts; ++i)
-        Ops.push_back(DAG.getNode(ISD::BITCAST, dl, MVT::i32,
+        Ops.push_back(DAG.getNode(ISD::BITCAST, dl, IVT,
                                   Op.getOperand(i)));
-      EVT VecVT = EVT::getVectorVT(*DAG.getContext(), MVT::i32, NumElts);
+      EVT VecVT = EVT::getVectorVT(*DAG.getContext(), IVT, NumElts);
       SDValue Val = DAG.getBuildVector(VecVT, dl, Ops);
       Val = LowerBUILD_VECTOR(Val, DAG, ST);
       if (Val.getNode())
@@ -6531,7 +6732,7 @@ SDValue ARMTargetLowering::LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG,
       return shuffle;
   }
 
-  if (VT.is128BitVector() && VT != MVT::v2f64 && VT != MVT::v4f32) {
+  if (ST->hasNEON() && VT.is128BitVector() && VT != MVT::v2f64 && VT != MVT::v4f32) {
     // If we haven't found an efficient lowering, try splitting a 128-bit vector
     // into two 64-bit vectors; we might discover a better way to lower it.
     SmallVector<SDValue, 64> Ops(Op->op_begin(), Op->op_begin() + NumElts);
@@ -6786,6 +6987,38 @@ SDValue ARMTargetLowering::ReconstructShuffle(SDValue Op,
   return DAG.getNode(ISD::BITCAST, dl, VT, Shuffle);
 }
 
+enum ShuffleOpCodes {
+  OP_COPY = 0, // Copy, used for things like <u,u,u,3> to say it is <0,1,2,3>
+  OP_VREV,
+  OP_VDUP0,
+  OP_VDUP1,
+  OP_VDUP2,
+  OP_VDUP3,
+  OP_VEXT1,
+  OP_VEXT2,
+  OP_VEXT3,
+  OP_VUZPL, // VUZP, left result
+  OP_VUZPR, // VUZP, right result
+  OP_VZIPL, // VZIP, left result
+  OP_VZIPR, // VZIP, right result
+  OP_VTRNL, // VTRN, left result
+  OP_VTRNR  // VTRN, right result
+};
+
+static bool isLegalMVEShuffleOp(unsigned PFEntry) {
+  unsigned OpNum = (PFEntry >> 26) & 0x0F;
+  switch (OpNum) {
+  case OP_COPY:
+  case OP_VREV:
+  case OP_VDUP0:
+  case OP_VDUP1:
+  case OP_VDUP2:
+  case OP_VDUP3:
+    return true;
+  }
+  return false;
+}
+
 /// isShuffleMaskLegal - Targets can use this to indicate that they only
 /// support *some* VECTOR_SHUFFLE operations, those with specific masks.
 /// By default, if a target supports the VECTOR_SHUFFLE node, all mask values
@@ -6807,7 +7040,7 @@ bool ARMTargetLowering::isShuffleMaskLegal(ArrayRef<int> M, EVT VT) const {
     unsigned PFEntry = PerfectShuffleTable[PFTableIndex];
     unsigned Cost = (PFEntry >> 30);
 
-    if (Cost <= 4)
+    if (Cost <= 4 && (Subtarget->hasNEON() || isLegalMVEShuffleOp(PFEntry)))
       return true;
   }
 
@@ -6815,15 +7048,22 @@ bool ARMTargetLowering::isShuffleMaskLegal(ArrayRef<int> M, EVT VT) const {
   unsigned Imm, WhichResult;
 
   unsigned EltSize = VT.getScalarSizeInBits();
-  return (EltSize >= 32 ||
-          ShuffleVectorSDNode::isSplatMask(&M[0], VT) ||
-          isVREVMask(M, VT, 64) ||
-          isVREVMask(M, VT, 32) ||
-          isVREVMask(M, VT, 16) ||
-          isVEXTMask(M, VT, ReverseVEXT, Imm) ||
-          isVTBLMask(M, VT) ||
-          isNEONTwoResultShuffleMask(M, VT, WhichResult, isV_UNDEF) ||
-          ((VT == MVT::v8i16 || VT == MVT::v16i8) && isReverseMask(M, VT)));
+  if (EltSize >= 32 ||
+      ShuffleVectorSDNode::isSplatMask(&M[0], VT) ||
+      isVREVMask(M, VT, 64) ||
+      isVREVMask(M, VT, 32) ||
+      isVREVMask(M, VT, 16))
+    return true;
+  else if (Subtarget->hasNEON() &&
+           (isVEXTMask(M, VT, ReverseVEXT, Imm) ||
+            isVTBLMask(M, VT) ||
+            isNEONTwoResultShuffleMask(M, VT, WhichResult, isV_UNDEF)))
+    return true;
+  else if (Subtarget->hasNEON() && (VT == MVT::v8i16 || VT == MVT::v16i8) &&
+           isReverseMask(M, VT))
+    return true;
+  else
+    return false;
 }
 
 /// GeneratePerfectShuffle - Given an entry in the perfect-shuffle table, emit
@@ -6834,24 +7074,6 @@ static SDValue GeneratePerfectShuffle(unsigned PFEntry, SDValue LHS,
   unsigned OpNum = (PFEntry >> 26) & 0x0F;
   unsigned LHSID = (PFEntry >> 13) & ((1 << 13)-1);
   unsigned RHSID = (PFEntry >>  0) & ((1 << 13)-1);
-
-  enum {
-    OP_COPY = 0, // Copy, used for things like <u,u,u,3> to say it is <0,1,2,3>
-    OP_VREV,
-    OP_VDUP0,
-    OP_VDUP1,
-    OP_VDUP2,
-    OP_VDUP3,
-    OP_VEXT1,
-    OP_VEXT2,
-    OP_VEXT3,
-    OP_VUZPL, // VUZP, left result
-    OP_VUZPR, // VUZP, right result
-    OP_VZIPL, // VZIP, left result
-    OP_VZIPR, // VZIP, right result
-    OP_VTRNL, // VTRN, left result
-    OP_VTRNR  // VTRN, right result
-  };
 
   if (OpNum == OP_COPY) {
     if (LHSID == (1*9+2)*9+3) return LHS;
@@ -6942,7 +7164,8 @@ static SDValue LowerReverse_VECTOR_SHUFFLEv16i8_v8i16(SDValue Op,
                      DAG.getConstant(ExtractNum, DL, MVT::i32));
 }
 
-static SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) {
+static SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG,
+                                   const ARMSubtarget *ST) {
   SDValue V1 = Op.getOperand(0);
   SDValue V2 = Op.getOperand(1);
   SDLoc dl(Op);
@@ -6986,9 +7209,9 @@ static SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) {
                          DAG.getConstant(Lane, dl, MVT::i32));
     }
 
-    bool ReverseVEXT;
-    unsigned Imm;
-    if (isVEXTMask(ShuffleMask, VT, ReverseVEXT, Imm)) {
+    bool ReverseVEXT = false;
+    unsigned Imm = 0;
+    if (ST->hasNEON() && isVEXTMask(ShuffleMask, VT, ReverseVEXT, Imm)) {
       if (ReverseVEXT)
         std::swap(V1, V2);
       return DAG.getNode(ARMISD::VEXT, dl, VT, V1, V2,
@@ -7002,7 +7225,7 @@ static SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) {
     if (isVREVMask(ShuffleMask, VT, 16))
       return DAG.getNode(ARMISD::VREV16, dl, VT, V1);
 
-    if (V2->isUndef() && isSingletonVEXTMask(ShuffleMask, VT, Imm)) {
+    if (ST->hasNEON() && V2->isUndef() && isSingletonVEXTMask(ShuffleMask, VT, Imm)) {
       return DAG.getNode(ARMISD::VEXT, dl, VT, V1, V1,
                          DAG.getConstant(Imm, dl, MVT::i32));
     }
@@ -7012,14 +7235,16 @@ static SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) {
     // source operands and with masks corresponding to both results of one of
     // these operations, DAG memoization will ensure that a single node is
     // used for both shuffles.
-    unsigned WhichResult;
-    bool isV_UNDEF;
-    if (unsigned ShuffleOpc = isNEONTwoResultShuffleMask(
-            ShuffleMask, VT, WhichResult, isV_UNDEF)) {
-      if (isV_UNDEF)
-        V2 = V1;
-      return DAG.getNode(ShuffleOpc, dl, DAG.getVTList(VT, VT), V1, V2)
-          .getValue(WhichResult);
+    unsigned WhichResult = 0;
+    bool isV_UNDEF = false;
+    if (ST->hasNEON()) {
+      if (unsigned ShuffleOpc = isNEONTwoResultShuffleMask(
+              ShuffleMask, VT, WhichResult, isV_UNDEF)) {
+        if (isV_UNDEF)
+          V2 = V1;
+        return DAG.getNode(ShuffleOpc, dl, DAG.getVTList(VT, VT), V1, V2)
+            .getValue(WhichResult);
+      }
     }
 
     // Also check for these shuffles through CONCAT_VECTORS: we canonicalize
@@ -7037,7 +7262,7 @@ static SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) {
     // ->
     //   concat(VZIP(v1, v2):0, :1)
     //
-    if (V1->getOpcode() == ISD::CONCAT_VECTORS && V2->isUndef()) {
+    if (ST->hasNEON() && V1->getOpcode() == ISD::CONCAT_VECTORS && V2->isUndef()) {
       SDValue SubV1 = V1->getOperand(0);
       SDValue SubV2 = V1->getOperand(1);
       EVT SubVT = SubV1.getValueType();
@@ -7079,8 +7304,18 @@ static SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) {
     unsigned PFEntry = PerfectShuffleTable[PFTableIndex];
     unsigned Cost = (PFEntry >> 30);
 
-    if (Cost <= 4)
-      return GeneratePerfectShuffle(PFEntry, V1, V2, DAG, dl);
+    if (Cost <= 4) {
+      if (ST->hasNEON())
+        return GeneratePerfectShuffle(PFEntry, V1, V2, DAG, dl);
+      else if (isLegalMVEShuffleOp(PFEntry)) {
+        unsigned LHSID = (PFEntry >> 13) & ((1 << 13)-1);
+        unsigned RHSID = (PFEntry >>  0) & ((1 << 13)-1);
+        unsigned PFEntryLHS = PerfectShuffleTable[LHSID];
+        unsigned PFEntryRHS = PerfectShuffleTable[RHSID];
+        if (isLegalMVEShuffleOp(PFEntryLHS) && isLegalMVEShuffleOp(PFEntryRHS))
+          return GeneratePerfectShuffle(PFEntry, V1, V2, DAG, dl);
+      }
+    }
   }
 
   // Implement shuffles with 32- or 64-bit elements as ARMISD::BUILD_VECTORs.
@@ -7105,21 +7340,49 @@ static SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) {
     return DAG.getNode(ISD::BITCAST, dl, VT, Val);
   }
 
-  if ((VT == MVT::v8i16 || VT == MVT::v16i8) && isReverseMask(ShuffleMask, VT))
+  if (ST->hasNEON() && (VT == MVT::v8i16 || VT == MVT::v16i8) && isReverseMask(ShuffleMask, VT))
     return LowerReverse_VECTOR_SHUFFLEv16i8_v8i16(Op, DAG);
 
-  if (VT == MVT::v8i8)
+  if (ST->hasNEON() && VT == MVT::v8i8)
     if (SDValue NewOp = LowerVECTOR_SHUFFLEv8i8(Op, ShuffleMask, DAG))
       return NewOp;
 
   return SDValue();
 }
 
-static SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) {
+SDValue ARMTargetLowering::
+LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const {
   // INSERT_VECTOR_ELT is legal only for immediate indexes.
   SDValue Lane = Op.getOperand(2);
   if (!isa<ConstantSDNode>(Lane))
     return SDValue();
+
+  SDValue Elt = Op.getOperand(1);
+  EVT EltVT = Elt.getValueType();
+  if (getTypeAction(*DAG.getContext(), EltVT) ==
+      TargetLowering::TypePromoteFloat) {
+    // INSERT_VECTOR_ELT doesn't want f16 operands promoting to f32,
+    // but the type system will try to do that if we don't intervene.
+    // Reinterpret any such vector-element insertion as one with the
+    // corresponding integer types.
+
+    SDLoc dl(Op);
+
+    EVT IEltVT = MVT::getIntegerVT(EltVT.getScalarSizeInBits());
+    assert(getTypeAction(*DAG.getContext(), IEltVT) !=
+           TargetLowering::TypePromoteFloat);
+
+    SDValue VecIn = Op.getOperand(0);
+    EVT VecVT = VecIn.getValueType();
+    EVT IVecVT = EVT::getVectorVT(*DAG.getContext(), IEltVT,
+                                  VecVT.getVectorNumElements());
+
+    SDValue IElt = DAG.getNode(ISD::BITCAST, dl, IEltVT, Elt);
+    SDValue IVecIn = DAG.getNode(ISD::BITCAST, dl, IVecVT, VecIn);
+    SDValue IVecOut = DAG.getNode(ISD::INSERT_VECTOR_ELT, dl, IVecVT,
+                                  IVecIn, IElt, Lane);
+    return DAG.getNode(ISD::BITCAST, dl, VecVT, IVecOut);
+  }
 
   return Op;
 }
@@ -8049,7 +8312,7 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
   case ISD::SETCCCARRY:    return LowerSETCCCARRY(Op, DAG);
   case ISD::ConstantFP:    return LowerConstantFP(Op, DAG, Subtarget);
   case ISD::BUILD_VECTOR:  return LowerBUILD_VECTOR(Op, DAG, Subtarget);
-  case ISD::VECTOR_SHUFFLE: return LowerVECTOR_SHUFFLE(Op, DAG);
+  case ISD::VECTOR_SHUFFLE: return LowerVECTOR_SHUFFLE(Op, DAG, Subtarget);
   case ISD::INSERT_VECTOR_ELT: return LowerINSERT_VECTOR_ELT(Op, DAG);
   case ISD::EXTRACT_VECTOR_ELT: return LowerEXTRACT_VECTOR_ELT(Op, DAG);
   case ISD::CONCAT_VECTORS: return LowerCONCAT_VECTORS(Op, DAG);
@@ -8135,6 +8398,7 @@ void ARMTargetLowering::ReplaceNodeResults(SDNode *N,
     break;
   case ISD::SRL:
   case ISD::SRA:
+  case ISD::SHL:
     Res = Expand64BitShift(N, DAG, Subtarget);
     break;
   case ISD::SREM:
@@ -10472,6 +10736,15 @@ bool ARMTargetLowering::shouldFoldConstantShiftPairToMask(
   return false;
 }
 
+bool ARMTargetLowering::preferIncOfAddToSubOfNot(EVT VT) const {
+  if (!Subtarget->hasNEON()) {
+    if (Subtarget->isThumb1Only())
+      return VT.getScalarSizeInBits() <= 32;
+    return true;
+  }
+  return VT.isScalarInteger();
+}
+
 static SDValue PerformSHLSimplify(SDNode *N,
                                 TargetLowering::DAGCombinerInfo &DCI,
                                 const ARMSubtarget *ST) {
@@ -11336,7 +11609,7 @@ static SDValue PerformVMOVRRDCombine(SDNode *N,
                                      const ARMSubtarget *Subtarget) {
   // vmovrrd(vmovdrr x, y) -> x,y
   SDValue InDouble = N->getOperand(0);
-  if (InDouble.getOpcode() == ARMISD::VMOVDRR && !Subtarget->isFPOnlySP())
+  if (InDouble.getOpcode() == ARMISD::VMOVDRR && Subtarget->hasFP64())
     return DCI.CombineTo(N, InDouble.getOperand(0), InDouble.getOperand(1));
 
   // vmovrrd(load f64) -> (load i32), (load i32)
@@ -11950,9 +12223,13 @@ static SDValue PerformVDUPLANECombine(SDNode *N,
 
 /// PerformVDUPCombine - Target-specific dag combine xforms for ARMISD::VDUP.
 static SDValue PerformVDUPCombine(SDNode *N,
-                                  TargetLowering::DAGCombinerInfo &DCI) {
+                                  TargetLowering::DAGCombinerInfo &DCI,
+                                  const ARMSubtarget *Subtarget) {
   SelectionDAG &DAG = DCI.DAG;
   SDValue Op = N->getOperand(0);
+
+  if (!Subtarget->hasNEON())
+    return SDValue();
 
   // Match VDUP(LOAD) -> VLD1DUP.
   // We match this pattern here rather than waiting for isel because the
@@ -12670,6 +12947,41 @@ SDValue ARMTargetLowering::PerformCMOVToBFICombine(SDNode *CMOV, SelectionDAG &D
   return V;
 }
 
+static SDValue PerformHWLoopCombine(SDNode *N,
+                                    TargetLowering::DAGCombinerInfo &DCI,
+                                    const ARMSubtarget *ST) {
+  // Look for (brcond (xor test.set.loop.iterations, -1)
+  SDValue CC = N->getOperand(1);
+
+  if (CC->getOpcode() != ISD::XOR && CC->getOpcode() != ISD::SETCC)
+    return SDValue();
+
+  if (CC->getOperand(0)->getOpcode() != ISD::INTRINSIC_W_CHAIN)
+    return SDValue();
+
+  SDValue Int = CC->getOperand(0);
+  unsigned IntOp = cast<ConstantSDNode>(Int.getOperand(1))->getZExtValue();
+  if (IntOp != Intrinsic::test_set_loop_iterations)
+    return SDValue();
+
+  assert((isa<ConstantSDNode>(CC->getOperand(1)) &&
+          cast<ConstantSDNode>(CC->getOperand(1))->isOne()) &&
+          "Expected to compare against 1");
+
+  SDLoc dl(Int);
+  SDValue Chain = N->getOperand(0);
+  SDValue Elements = Int.getOperand(2);
+  SDValue ExitBlock = N->getOperand(2);
+
+  // TODO: Once we start supporting tail predication, we can add another
+  // operand to WLS for the number of elements processed in a vector loop.
+
+  SDValue Ops[] = { Chain, Elements, ExitBlock };
+  SDValue Res = DCI.DAG.getNode(ARMISD::WLS, dl, MVT::Other, Ops);
+  DCI.DAG.ReplaceAllUsesOfValueWith(Int.getValue(1), Int.getOperand(0));
+  return Res;
+}
+
 /// PerformBRCONDCombine - Target-specific DAG combining for ARMISD::BRCOND.
 SDValue
 ARMTargetLowering::PerformBRCONDCombine(SDNode *N, SelectionDAG &DAG) const {
@@ -12901,6 +13213,7 @@ SDValue ARMTargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::OR:         return PerformORCombine(N, DCI, Subtarget);
   case ISD::XOR:        return PerformXORCombine(N, DCI, Subtarget);
   case ISD::AND:        return PerformANDCombine(N, DCI, Subtarget);
+  case ISD::BRCOND:     return PerformHWLoopCombine(N, DCI, Subtarget);
   case ARMISD::ADDC:
   case ARMISD::SUBC:    return PerformAddcSubcCombine(N, DCI, Subtarget);
   case ARMISD::SUBE:    return PerformAddeSubeCombine(N, DCI, Subtarget);
@@ -12912,7 +13225,7 @@ SDValue ARMTargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::INSERT_VECTOR_ELT: return PerformInsertEltCombine(N, DCI);
   case ISD::VECTOR_SHUFFLE: return PerformVECTOR_SHUFFLECombine(N, DCI.DAG);
   case ARMISD::VDUPLANE: return PerformVDUPLANECombine(N, DCI);
-  case ARMISD::VDUP: return PerformVDUPCombine(N, DCI);
+  case ARMISD::VDUP: return PerformVDUPCombine(N, DCI, Subtarget);
   case ISD::FP_TO_SINT:
   case ISD::FP_TO_UINT:
     return PerformVCVTCombine(N, DCI.DAG, Subtarget);
@@ -13025,9 +13338,9 @@ bool ARMTargetLowering::isDesirableToTransformToIntegerOp(unsigned Opc,
   return (VT == MVT::f32) && (Opc == ISD::LOAD || Opc == ISD::STORE);
 }
 
-bool ARMTargetLowering::allowsMisalignedMemoryAccesses(EVT VT,
-                                                       unsigned,
-                                                       unsigned,
+bool ARMTargetLowering::allowsMisalignedMemoryAccesses(EVT VT, unsigned,
+                                                       unsigned Alignment,
+                                                       MachineMemOperand::Flags,
                                                        bool *Fast) const {
   // Depends what it gets converted into if the type is weird.
   if (!VT.isSimple())
@@ -13035,23 +13348,18 @@ bool ARMTargetLowering::allowsMisalignedMemoryAccesses(EVT VT,
 
   // The AllowsUnaliged flag models the SCTLR.A setting in ARM cpus
   bool AllowsUnaligned = Subtarget->allowsUnalignedMem();
+  auto Ty = VT.getSimpleVT().SimpleTy;
 
-  switch (VT.getSimpleVT().SimpleTy) {
-  default:
-    return false;
-  case MVT::i8:
-  case MVT::i16:
-  case MVT::i32: {
+  if (Ty == MVT::i8 || Ty == MVT::i16 || Ty == MVT::i32) {
     // Unaligned access can use (for example) LRDB, LRDH, LDR
     if (AllowsUnaligned) {
       if (Fast)
         *Fast = Subtarget->hasV7Ops();
       return true;
     }
-    return false;
   }
-  case MVT::f64:
-  case MVT::v2f64: {
+
+  if (Ty == MVT::f64 || Ty == MVT::v2f64) {
     // For any little-endian targets with neon, we can support unaligned ld/st
     // of D and Q (e.g. {D0,D1}) registers by using vld1.i8/vst1.i8.
     // A big-endian target may also explicitly support unaligned accesses
@@ -13060,9 +13368,54 @@ bool ARMTargetLowering::allowsMisalignedMemoryAccesses(EVT VT,
         *Fast = true;
       return true;
     }
+  }
+
+  if (!Subtarget->hasMVEIntegerOps())
     return false;
+  if (Ty != MVT::v16i8 && Ty != MVT::v8i16 && Ty != MVT::v8f16 &&
+      Ty != MVT::v4i32 && Ty != MVT::v4f32 && Ty != MVT::v2i64 &&
+      Ty != MVT::v2f64 &&
+      // These are for truncated stores
+      Ty != MVT::v4i8 && Ty != MVT::v8i8 && Ty != MVT::v4i16)
+    return false;
+
+  if (Subtarget->isLittle()) {
+    // In little-endian MVE, the store instructions VSTRB.U8,
+    // VSTRH.U16 and VSTRW.U32 all store the vector register in
+    // exactly the same format, and differ only in the range of
+    // their immediate offset field and the required alignment.
+    //
+    // In particular, VSTRB.U8 can store a vector at byte alignment.
+    // So at this stage we can simply say that loads/stores of all
+    // 128-bit wide vector types are permitted at any alignment,
+    // because we know at least _one_ instruction can manage that.
+    //
+    // Later on we might find that some of those loads are better
+    // generated as VLDRW.U32 if alignment permits, to take
+    // advantage of the larger immediate range. But for the moment,
+    // all that matters is that if we don't lower the load then
+    // _some_ instruction can handle it.
+    if (Fast)
+      *Fast = true;
+    return true;
+  } else {
+    // In big-endian MVE, those instructions aren't so similar
+    // after all, because they reorder the bytes of the vector
+    // differently. So this time we can only store a particular
+    // kind of vector if its alignment is at least the element
+    // type. And we can't store vectors of i64 or f64 at all
+    // without having to do some postprocessing, because there's
+    // no VSTRD.U64.
+    if (Ty == MVT::v16i8 ||
+        ((Ty == MVT::v8i16 || Ty == MVT::v8f16) && Alignment >= 2) ||
+        ((Ty == MVT::v4i32 || Ty == MVT::v4f32) && Alignment >= 4)) {
+      if (Fast)
+        *Fast = true;
+      return true;
+    }
   }
-  }
+
+  return false;
 }
 
 static bool memOpAlign(unsigned DstAlign, unsigned SrcAlign,
@@ -13081,11 +13434,14 @@ EVT ARMTargetLowering::getOptimalMemOpType(
     bool Fast;
     if (Size >= 16 &&
         (memOpAlign(SrcAlign, DstAlign, 16) ||
-         (allowsMisalignedMemoryAccesses(MVT::v2f64, 0, 1, &Fast) && Fast))) {
+         (allowsMisalignedMemoryAccesses(MVT::v2f64, 0, 1,
+                                         MachineMemOperand::MONone, &Fast) &&
+          Fast))) {
       return MVT::v2f64;
     } else if (Size >= 8 &&
                (memOpAlign(SrcAlign, DstAlign, 8) ||
-                (allowsMisalignedMemoryAccesses(MVT::f64, 0, 1, &Fast) &&
+                (allowsMisalignedMemoryAccesses(
+                     MVT::f64, 0, 1, MachineMemOperand::MONone, &Fast) &&
                  Fast))) {
       return MVT::f64;
     }
@@ -13247,7 +13603,6 @@ static bool isLegalT1AddressImmediate(int64_t V, EVT VT) {
 
   unsigned Scale = 1;
   switch (VT.getSimpleVT().SimpleTy) {
-  default: return false;
   case MVT::i1:
   case MVT::i8:
     // Scale == 1;
@@ -13256,7 +13611,8 @@ static bool isLegalT1AddressImmediate(int64_t V, EVT VT) {
     // Scale == 2;
     Scale = 2;
     break;
-  case MVT::i32:
+  default:
+    // On thumb1 we load most things (i32, i64, floats, etc) with a LDR
     // Scale == 4;
     Scale = 4;
     break;
@@ -13271,7 +13627,10 @@ static bool isLegalT2AddressImmediate(int64_t V, EVT VT,
                                       const ARMSubtarget *Subtarget) {
   if (!VT.isInteger() && !VT.isFloatingPoint())
     return false;
-  if (Subtarget->hasNEON() && VT.isVector())
+  if (VT.isVector() && Subtarget->hasNEON())
+    return false;
+  if (VT.isVector() && VT.isFloatingPoint() && Subtarget->hasMVEIntegerOps() &&
+      !Subtarget->hasMVEFloatOps())
     return false;
 
   bool IsNeg = false;
@@ -13282,8 +13641,27 @@ static bool isLegalT2AddressImmediate(int64_t V, EVT VT,
 
   unsigned NumBytes = std::max(VT.getSizeInBits() / 8, 1U);
 
+  // MVE: size * imm7
+  if (VT.isVector() && Subtarget->hasMVEIntegerOps()) {
+    switch (VT.getSimpleVT().getVectorElementType().SimpleTy) {
+    case MVT::i32:
+    case MVT::f32:
+      return isShiftedUInt<7,2>(V);
+    case MVT::i16:
+    case MVT::f16:
+      return isShiftedUInt<7,1>(V);
+    case MVT::i8:
+      return isUInt<7>(V);
+    default:
+      return false;
+    }
+  }
+
+  // half VLDR: 2 * imm8
+  if (VT.isFloatingPoint() && NumBytes == 2 && Subtarget->hasFPRegs16())
+    return isShiftedUInt<8, 1>(V);
   // VLDR and LDRD: 4 * imm8
-  if ((VT.isFloatingPoint() && Subtarget->hasVFP2()) || NumBytes == 8)
+  if ((VT.isFloatingPoint() && Subtarget->hasVFP2Base()) || NumBytes == 8)
     return isShiftedUInt<8, 2>(V);
 
   if (NumBytes == 1 || NumBytes == 2 || NumBytes == 4) {
@@ -13327,7 +13705,7 @@ static bool isLegalAddressImmediate(int64_t V, EVT VT,
     return isUInt<8>(V);
   case MVT::f32:
   case MVT::f64:
-    if (!Subtarget->hasVFP2()) // FIXME: NEON?
+    if (!Subtarget->hasVFP2Base()) // FIXME: NEON?
       return false;
     return isShiftedUInt<8, 2>(V);
   }
@@ -13890,7 +14268,7 @@ const char *ARMTargetLowering::LowerXConstraint(EVT ConstraintVT) const {
   // Although we are correct (we are free to emit anything, without
   // constraints), we might break use cases that would expect us to be more
   // efficient and emit something else.
-  if (!Subtarget->hasVFP2())
+  if (!Subtarget->hasVFP2Base())
     return "r";
   if (ConstraintVT.isFloatingPoint())
     return "w";
@@ -13922,6 +14300,7 @@ ARMTargetLowering::getConstraintType(StringRef Constraint) const {
   } else if (Constraint.size() == 2) {
     switch (Constraint[0]) {
     default: break;
+    case 'T': return C_RegisterClass;
     // All 'U+' constraints are addresses.
     case 'U': return C_Memory;
     }
@@ -13967,7 +14346,8 @@ using RCPair = std::pair<unsigned, const TargetRegisterClass *>;
 
 RCPair ARMTargetLowering::getRegForInlineAsmConstraint(
     const TargetRegisterInfo *TRI, StringRef Constraint, MVT VT) const {
-  if (Constraint.size() == 1) {
+  switch (Constraint.size()) {
+  case 1:
     // GCC ARM Constraint Letters
     switch (Constraint[0]) {
     case 'l': // Low regs or general regs.
@@ -14013,7 +14393,25 @@ RCPair ARMTargetLowering::getRegForInlineAsmConstraint(
         return RCPair(0U, &ARM::QPR_VFP2RegClass);
       break;
     }
+    break;
+
+  case 2:
+    if (Constraint[0] == 'T') {
+      switch (Constraint[1]) {
+      default:
+        break;
+      case 'e':
+        return RCPair(0U, &ARM::tGPREvenRegClass);
+      case 'o':
+        return RCPair(0U, &ARM::tGPROddRegClass);
+      }
+    }
+    break;
+
+  default:
+    break;
   }
+
   if (StringRef("{cc}").equals_lower(Constraint))
     return std::make_pair(unsigned(ARM::CPSR), &ARM::CCRRegClass);
 
@@ -14372,28 +14770,75 @@ ARMTargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const 
 }
 
 SDValue ARMTargetLowering::LowerFP_EXTEND(SDValue Op, SelectionDAG &DAG) const {
-  assert(Op.getValueType() == MVT::f64 && Subtarget->isFPOnlySP() &&
+  SDValue SrcVal = Op.getOperand(0);
+  const unsigned DstSz = Op.getValueType().getSizeInBits();
+  const unsigned SrcSz = SrcVal.getValueType().getSizeInBits();
+  assert(DstSz > SrcSz && DstSz <= 64 && SrcSz >= 16 &&
          "Unexpected type for custom-lowering FP_EXTEND");
 
-  RTLIB::Libcall LC;
-  LC = RTLIB::getFPEXT(Op.getOperand(0).getValueType(), Op.getValueType());
+  assert((!Subtarget->hasFP64() || !Subtarget->hasFPARMv8Base()) &&
+         "With both FP DP and 16, any FP conversion is legal!");
 
-  SDValue SrcVal = Op.getOperand(0);
-  return makeLibCall(DAG, LC, Op.getValueType(), SrcVal, /*isSigned*/ false,
-                     SDLoc(Op)).first;
+  assert(!(DstSz == 32 && Subtarget->hasFP16()) &&
+         "With FP16, 16 to 32 conversion is legal!");
+
+  // Either we are converting from 16 -> 64, without FP16 and/or
+  // FP.double-precision or without Armv8-fp. So we must do it in two
+  // steps.
+  // Or we are converting from 32 -> 64 without fp.double-precision or 16 -> 32
+  // without FP16. So we must do a function call.
+  SDLoc Loc(Op);
+  RTLIB::Libcall LC;
+  if (SrcSz == 16) {
+    // Instruction from 16 -> 32
+    if (Subtarget->hasFP16())
+      SrcVal = DAG.getNode(ISD::FP_EXTEND, Loc, MVT::f32, SrcVal);
+    // Lib call from 16 -> 32
+    else {
+      LC = RTLIB::getFPEXT(MVT::f16, MVT::f32);
+      assert(LC != RTLIB::UNKNOWN_LIBCALL &&
+             "Unexpected type for custom-lowering FP_EXTEND");
+      SrcVal =
+        makeLibCall(DAG, LC, MVT::f32, SrcVal, /*isSigned*/ false, Loc).first;
+    }
+  }
+
+  if (DstSz != 64)
+    return SrcVal;
+  // For sure now SrcVal is 32 bits
+  if (Subtarget->hasFP64()) // Instruction from 32 -> 64
+    return DAG.getNode(ISD::FP_EXTEND, Loc, MVT::f64, SrcVal);
+
+  LC = RTLIB::getFPEXT(MVT::f32, MVT::f64);
+  assert(LC != RTLIB::UNKNOWN_LIBCALL &&
+         "Unexpected type for custom-lowering FP_EXTEND");
+  return makeLibCall(DAG, LC, MVT::f64, SrcVal, /*isSigned*/ false, Loc).first;
 }
 
 SDValue ARMTargetLowering::LowerFP_ROUND(SDValue Op, SelectionDAG &DAG) const {
-  assert(Op.getOperand(0).getValueType() == MVT::f64 &&
-         Subtarget->isFPOnlySP() &&
+  SDValue SrcVal = Op.getOperand(0);
+  EVT SrcVT = SrcVal.getValueType();
+  EVT DstVT = Op.getValueType();
+  const unsigned DstSz = Op.getValueType().getSizeInBits();
+  const unsigned SrcSz = SrcVT.getSizeInBits();
+  (void)DstSz;
+  assert(DstSz < SrcSz && SrcSz <= 64 && DstSz >= 16 &&
          "Unexpected type for custom-lowering FP_ROUND");
 
-  RTLIB::Libcall LC;
-  LC = RTLIB::getFPROUND(Op.getOperand(0).getValueType(), Op.getValueType());
+  assert((!Subtarget->hasFP64() || !Subtarget->hasFPARMv8Base()) &&
+         "With both FP DP and 16, any FP conversion is legal!");
 
-  SDValue SrcVal = Op.getOperand(0);
-  return makeLibCall(DAG, LC, Op.getValueType(), SrcVal, /*isSigned*/ false,
-                     SDLoc(Op)).first;
+  SDLoc Loc(Op);
+
+  // Instruction from 32 -> 16 if hasFP16 is valid
+  if (SrcSz == 32 && Subtarget->hasFP16())
+    return Op;
+
+  // Lib call from 32 -> 16 / 64 -> [32, 16]
+  RTLIB::Libcall LC = RTLIB::getFPROUND(SrcVT, DstVT);
+  assert(LC != RTLIB::UNKNOWN_LIBCALL &&
+         "Unexpected type for custom-lowering FP_ROUND");
+  return makeLibCall(DAG, LC, DstVT, SrcVal, /*isSigned*/ false, Loc).first;
 }
 
 void ARMTargetLowering::lowerABS(SDNode *N, SmallVectorImpl<SDValue> &Results,
@@ -14448,13 +14893,13 @@ bool ARM::isBitFieldInvertedMask(unsigned v) {
 /// materialize the FP immediate as a load from a constant pool.
 bool ARMTargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT,
                                      bool ForCodeSize) const {
-  if (!Subtarget->hasVFP3())
+  if (!Subtarget->hasVFP3Base())
     return false;
   if (VT == MVT::f16 && Subtarget->hasFullFP16())
     return ARM_AM::getFP16Imm(Imm) != -1;
   if (VT == MVT::f32)
     return ARM_AM::getFP32Imm(Imm) != -1;
-  if (VT == MVT::f64 && !Subtarget->isFPOnlySP())
+  if (VT == MVT::f64 && Subtarget->hasFP64())
     return ARM_AM::getFP64Imm(Imm) != -1;
   return false;
 }

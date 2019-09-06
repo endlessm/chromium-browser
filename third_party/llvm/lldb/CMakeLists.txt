@@ -4,7 +4,7 @@ if(POLICY CMP0075)
   cmake_policy(SET CMP0075 NEW)
 endif()
 
-# Add path for custom modules
+# Add path for custom modules.
 set(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
@@ -15,7 +15,7 @@ include(LLDBStandalone)
 include(LLDBConfig)
 include(AddLLDB)
 
-# Define the LLDB_CONFIGURATION_xxx matching the build type
+# Define the LLDB_CONFIGURATION_xxx matching the build type.
 if( uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG" )
   add_definitions( -DLLDB_CONFIGURATION_DEBUG )
 else()
@@ -151,8 +151,13 @@ if(LLDB_INCLUDE_TESTS)
     list(APPEND LLDB_TEST_DEPS dsymutil)
   endif()
 
+  if(TARGET lldb-framework)
+    list(APPEND LLDB_TEST_DEPS lldb-framework)
+  endif()
+
   add_custom_target(lldb-test-deps)
   add_dependencies(lldb-test-deps ${LLDB_TEST_DEPS})
+  set_target_properties(lldb-test-deps PROPERTIES FOLDER "lldb misc")
 
   add_subdirectory(test)
   add_subdirectory(unittests)
@@ -172,7 +177,7 @@ if (NOT LLDB_DISABLE_PYTHON)
     get_target_property(liblldb_build_dir liblldb LIBRARY_OUTPUT_DIRECTORY)
 
     # Add a Post-Build Event to copy over Python files and create the symlink
-    # to liblldb.so for the Python API(hardlink on Windows)
+    # to liblldb.so for the Python API(hardlink on Windows).
     add_custom_target(finish_swig ALL
         COMMAND
            ${PYTHON_EXECUTABLE} ${LLDB_SOURCE_DIR}/scripts/finishSwigWrapperClasses.py
@@ -193,6 +198,7 @@ if (NOT LLDB_DISABLE_PYTHON)
       set(readline_dep readline)
     endif()
     add_dependencies(finish_swig swig_wrapper liblldb lldb-argdumper ${readline_dep})
+    set_target_properties(finish_swig swig_wrapper PROPERTIES FOLDER "lldb misc")
 
     # Ensure we do the python post-build step when building lldb.
     add_dependencies(lldb finish_swig)

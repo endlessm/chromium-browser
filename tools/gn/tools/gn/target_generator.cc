@@ -144,6 +144,10 @@ void TargetGenerator::GenerateTarget(Scope* scope,
     GeneratedFileTargetGenerator generator(target.get(), scope, function_call,
                                            Target::GENERATED_FILE, err);
     generator.Run();
+  } else if (output_type == functions::kRustLibrary) {
+    BinaryTargetGenerator generator(target.get(), scope, function_call,
+                                    Target::RUST_LIBRARY, err);
+    generator.Run();
   } else {
     *err = Err(function_call, "Not a known target type",
                "I am very confused by the target type \"" + output_type + "\"");
@@ -174,7 +178,7 @@ bool TargetGenerator::FillSources() {
   if (!ExtractListOfRelativeFiles(scope_->settings()->build_settings(), *value,
                                   scope_->GetSourceDir(), &dest_sources, err_))
     return false;
-  target_->sources().swap(dest_sources);
+  target_->sources() = std::move(dest_sources);
   return true;
 }
 
@@ -190,7 +194,7 @@ bool TargetGenerator::FillPublic() {
   if (!ExtractListOfRelativeFiles(scope_->settings()->build_settings(), *value,
                                   scope_->GetSourceDir(), &dest_public, err_))
     return false;
-  target_->public_headers().swap(dest_public);
+  target_->public_headers() = std::move(dest_public);
   return true;
 }
 
@@ -356,6 +360,16 @@ bool TargetGenerator::FillCheckIncludes() {
   if (!value->VerifyTypeIs(Value::BOOLEAN, err_))
     return false;
   target_->set_check_includes(value->boolean_value());
+  return true;
+}
+
+bool TargetGenerator::FillOutputExtension() {
+  const Value* value = scope_->GetValue(variables::kOutputExtension, true);
+  if (!value)
+    return true;
+  if (!value->VerifyTypeIs(Value::STRING, err_))
+    return false;
+  target_->set_output_extension(value->string_value());
   return true;
 }
 

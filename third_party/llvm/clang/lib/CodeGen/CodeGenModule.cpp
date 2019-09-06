@@ -410,6 +410,10 @@ void CodeGenModule::Release() {
       AddGlobalCtor(CudaCtorFunction);
   }
   if (OpenMPRuntime) {
+    if (llvm::Function *OpenMPRequiresDirectiveRegFun =
+            OpenMPRuntime->emitRequiresDirectiveRegFun()) {
+      AddGlobalCtor(OpenMPRequiresDirectiveRegFun, 0);
+    }
     if (llvm::Function *OpenMPRegistrationFunction =
             OpenMPRuntime->emitRegistrationFunction()) {
       auto ComdatKey = OpenMPRegistrationFunction->hasComdat() ?
@@ -453,7 +457,12 @@ void CodeGenModule::Release() {
   // that ELF linkers tend to handle libraries in a more complicated fashion
   // than on other platforms. This forces us to defer handling the dependent
   // libs to the linker.
-  if (!ELFDependentLibraries.empty()) {
+  //
+  // CUDA/HIP device and host libraries are different. Currently there is no
+  // way to differentiate dependent libraries for host or device. Existing
+  // usage of #pragma comment(lib, *) is intended for host libraries on
+  // Windows. Therefore emit llvm.dependent-libraries only for host.
+  if (!ELFDependentLibraries.empty() && !Context.getLangOpts().CUDAIsDevice) {
     auto *NMD = getModule().getOrInsertNamedMetadata("llvm.dependent-libraries");
     for (auto *MD : ELFDependentLibraries)
       NMD->addOperand(MD);
@@ -555,11 +564,13 @@ void CodeGenModule::Release() {
     if (getTriple().isSPIR()) {
       // SPIR v2.0 s2.12 - The SPIR version used by the module is stored in the
       // opencl.spir.version named metadata.
+      // C++ is backwards compatible with OpenCL v2.0.
+      auto Version = LangOpts.OpenCLCPlusPlus ? 200 : LangOpts.OpenCLVersion;
       llvm::Metadata *SPIRVerElts[] = {
           llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
-              Int32Ty, LangOpts.OpenCLVersion / 100)),
+              Int32Ty, Version / 100)),
           llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
-              Int32Ty, (LangOpts.OpenCLVersion / 100 > 1) ? 0 : 2))};
+              Int32Ty, (Version / 100 > 1) ? 0 : 2))};
       llvm::NamedMDNode *SPIRVerMD =
           TheModule.getOrInsertNamedMetadata("opencl.spir.version");
       llvm::LLVMContext &Ctx = TheModule.getContext();
@@ -614,11 +625,14 @@ void CodeGenModule::Release() {
 void CodeGenModule::EmitOpenCLMetadata() {
   // SPIR v2.0 s2.13 - The OpenCL version used by the module is stored in the
   // opencl.ocl.version named metadata node.
+  // C++ is backwards compatible with OpenCL v2.0.
+  // FIXME: We might need to add CXX version at some point too?
+  auto Version = LangOpts.OpenCLCPlusPlus ? 200 : LangOpts.OpenCLVersion;
   llvm::Metadata *OCLVerElts[] = {
       llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
-          Int32Ty, LangOpts.OpenCLVersion / 100)),
+          Int32Ty, Version / 100)),
       llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
-          Int32Ty, (LangOpts.OpenCLVersion % 100) / 10))};
+          Int32Ty, (Version % 100) / 10))};
   llvm::NamedMDNode *OCLVerMD =
       TheModule.getOrInsertNamedMetadata("opencl.ocl.version");
   llvm::LLVMContext &Ctx = TheModule.getContext();
@@ -798,7 +812,7 @@ static bool shouldAssumeDSOLocal(const CodeGenModule &CGM,
   const auto &CGOpts = CGM.getCodeGenOpts();
   llvm::Reloc::Model RM = CGOpts.RelocationModel;
   const auto &LOpts = CGM.getLangOpts();
-  if (RM != llvm::Reloc::Static && !LOpts.PIE)
+  if (RM != llvm::Reloc::Static && !LOpts.PIE && !LOpts.OpenMPIsDevice)
     return false;
 
   // A definition cannot be preempted from an executable.
@@ -861,19 +875,20 @@ void CodeGenModule::setDLLImportDLLExport(llvm::GlobalValue *GV,
 void CodeGenModule::setGVProperties(llvm::GlobalValue *GV,
                                     GlobalDecl GD) const {
   setDLLImportDLLExport(GV, GD);
-  setGlobalVisibilityAndLocal(GV, dyn_cast<NamedDecl>(GD.getDecl()));
+  setGVPropertiesAux(GV, dyn_cast<NamedDecl>(GD.getDecl()));
 }
 
 void CodeGenModule::setGVProperties(llvm::GlobalValue *GV,
                                     const NamedDecl *D) const {
   setDLLImportDLLExport(GV, D);
-  setGlobalVisibilityAndLocal(GV, D);
+  setGVPropertiesAux(GV, D);
 }
 
-void CodeGenModule::setGlobalVisibilityAndLocal(llvm::GlobalValue *GV,
-                                                const NamedDecl *D) const {
+void CodeGenModule::setGVPropertiesAux(llvm::GlobalValue *GV,
+                                       const NamedDecl *D) const {
   setGlobalVisibility(GV, D);
   setDSOLocal(GV);
+  GV->setPartition(CodeGenOpts.SymbolPartition);
 }
 
 static llvm::GlobalVariable::ThreadLocalMode GetLLVMTLSModel(StringRef S) {
@@ -1073,13 +1088,11 @@ StringRef CodeGenModule::getMangledName(GlobalDecl GD) {
   const auto *ND = cast<NamedDecl>(GD.getDecl());
   std::string MangledName = getMangledNameImpl(*this, GD, ND);
 
-  // Postfix kernel stub names with .stub to differentiate them from kernel
-  // names in device binaries. This is to facilitate the debugger to find
-  // the correct symbols for kernels in the device binary.
+  // Adjust kernel stub mangling as we may need to be able to differentiate
+  // them from the kernel itself (e.g., for HIP).
   if (auto *FD = dyn_cast<FunctionDecl>(GD.getDecl()))
-    if (getLangOpts().HIP && !getLangOpts().CUDAIsDevice &&
-        FD->hasAttr<CUDAGlobalAttr>())
-      MangledName = MangledName + ".stub";
+    if (!getLangOpts().CUDAIsDevice && FD->hasAttr<CUDAGlobalAttr>())
+      MangledName = getCUDARuntime().getDeviceStubName(MangledName);
 
   auto Result = Manglings.insert(std::make_pair(MangledName, GD));
   return MangledDeclNames[CanonicalGD] = Result.first->first();
@@ -2402,7 +2415,8 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
       if (!Global->hasAttr<CUDADeviceAttr>() &&
           !Global->hasAttr<CUDAGlobalAttr>() &&
           !Global->hasAttr<CUDAConstantAttr>() &&
-          !Global->hasAttr<CUDASharedAttr>())
+          !Global->hasAttr<CUDASharedAttr>() &&
+          !(LangOpts.HIP && Global->hasAttr<HIPPinnedShadowAttr>()))
         return;
     } else {
       // We need to emit host-side 'shadows' for all global
@@ -2462,13 +2476,19 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
         // Emit declaration of the must-be-emitted declare target variable.
         if (llvm::Optional<OMPDeclareTargetDeclAttr::MapTypeTy> Res =
                 OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(VD)) {
-          if (*Res == OMPDeclareTargetDeclAttr::MT_To) {
+          bool UnifiedMemoryEnabled =
+              getOpenMPRuntime().hasRequiresUnifiedSharedMemory();
+          if (*Res == OMPDeclareTargetDeclAttr::MT_To &&
+              !UnifiedMemoryEnabled) {
             (void)GetAddrOfGlobalVar(VD);
           } else {
-            assert(*Res == OMPDeclareTargetDeclAttr::MT_Link &&
-                   "link claue expected.");
-            (void)getOpenMPRuntime().getAddrOfDeclareTargetLink(VD);
+            assert(((*Res == OMPDeclareTargetDeclAttr::MT_Link) ||
+                    (*Res == OMPDeclareTargetDeclAttr::MT_To &&
+                     UnifiedMemoryEnabled)) &&
+                   "Link clause or to clause with unified memory expected.");
+            (void)getOpenMPRuntime().getAddrOfDeclareTargetVar(VD);
           }
+
           return;
         }
       }
@@ -3693,6 +3713,11 @@ static bool shouldBeInCOMDAT(CodeGenModule &CGM, const Decl &D) {
   if (!CGM.supportsCOMDAT())
     return false;
 
+  // Do not set COMDAT attribute for CUDA/HIP stub functions to prevent
+  // them being "merged" by the COMDAT Folding linker optimization.
+  if (D.hasAttr<CUDAGlobalAttr>())
+    return false;
+
   if (D.hasAttr<SelectAnyAttr>())
     return true;
 
@@ -3757,7 +3782,12 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
       !getLangOpts().CUDAIsDevice &&
       (D->hasAttr<CUDAConstantAttr>() || D->hasAttr<CUDADeviceAttr>() ||
        D->hasAttr<CUDASharedAttr>());
-  if (getLangOpts().CUDA && (IsCUDASharedVar || IsCUDAShadowVar))
+  // HIP pinned shadow of initialized host-side global variables are also
+  // left undefined.
+  bool IsHIPPinnedShadowVar =
+      getLangOpts().CUDAIsDevice && D->hasAttr<HIPPinnedShadowAttr>();
+  if (getLangOpts().CUDA &&
+      (IsCUDASharedVar || IsCUDAShadowVar || IsHIPPinnedShadowVar))
     Init = llvm::UndefValue::get(getTypes().ConvertType(ASTTy));
   else if (!InitExpr) {
     // This is a tentative definition; tentative definitions are
@@ -3860,14 +3890,16 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   // / cudaMemcpyToSymbol() / cudaMemcpyFromSymbol())."
   if (GV && LangOpts.CUDA) {
     if (LangOpts.CUDAIsDevice) {
-      if (D->hasAttr<CUDADeviceAttr>() || D->hasAttr<CUDAConstantAttr>())
+      if (Linkage != llvm::GlobalValue::InternalLinkage &&
+          (D->hasAttr<CUDADeviceAttr>() || D->hasAttr<CUDAConstantAttr>()))
         GV->setExternallyInitialized(true);
     } else {
       // Host-side shadows of external declarations of device-side
       // global variables become internal definitions. These have to
       // be internal in order to prevent name conflicts with global
       // host variables with the same name in a different TUs.
-      if (D->hasAttr<CUDADeviceAttr>() || D->hasAttr<CUDAConstantAttr>()) {
+      if (D->hasAttr<CUDADeviceAttr>() || D->hasAttr<CUDAConstantAttr>() ||
+          D->hasAttr<HIPPinnedShadowAttr>()) {
         Linkage = llvm::GlobalValue::InternalLinkage;
 
         // Shadow variables and their properties must be registered
@@ -3891,7 +3923,8 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
     }
   }
 
-  GV->setInitializer(Init);
+  if (!IsHIPPinnedShadowVar)
+    GV->setInitializer(Init);
   if (emitter) emitter->finalize(GV);
 
   // If it is safe to mark the global 'constant', do so now.
@@ -4636,6 +4669,7 @@ CodeGenModule::GetAddrOfConstantCFString(const StringLiteral *Literal) {
   GV = Fields.finishAndCreateGlobal("_unnamed_cfstring_", Alignment,
                                     /*isConstant=*/false,
                                     llvm::GlobalVariable::PrivateLinkage);
+  GV->addAttribute("objc_arc_inert");
   switch (Triple.getObjectFormat()) {
   case llvm::Triple::UnknownObjectFormat:
     llvm_unreachable("unknown file format");
@@ -4882,7 +4916,7 @@ ConstantAddress CodeGenModule::GetAddrOfGlobalTemporary(
     // evaluating the initializer if the surrounding constant expression
     // modifies the temporary.
     Value = getContext().getMaterializedTemporaryValue(E, false);
-    if (Value && Value->isUninit())
+    if (Value && Value->isAbsent())
       Value = nullptr;
   }
 

@@ -58,7 +58,7 @@ namespace {
 template <class RelTy> struct LLDRelocationResolver {
   // In the ELF ABIs, S sepresents the value of the symbol in the relocation
   // entry. For Rela, the addend is stored as part of the relocation entry.
-  static uint64_t Resolve(object::RelocationRef Ref, uint64_t S,
+  static uint64_t resolve(object::RelocationRef Ref, uint64_t S,
                           uint64_t /* A */) {
     return S + Ref.getRawDataRefImpl().p;
   }
@@ -66,7 +66,7 @@ template <class RelTy> struct LLDRelocationResolver {
 
 template <class ELFT> struct LLDRelocationResolver<Elf_Rel_Impl<ELFT, false>> {
   // For Rel, the addend A is supplied by the caller.
-  static uint64_t Resolve(object::RelocationRef /*Ref*/, uint64_t S,
+  static uint64_t resolve(object::RelocationRef /*Ref*/, uint64_t S,
                           uint64_t A) {
     return S + A;
   }
@@ -82,7 +82,7 @@ Optional<RelocAddrEntry>
 LLDDwarfObj<ELFT>::findAux(const InputSectionBase &Sec, uint64_t Pos,
                            ArrayRef<RelTy> Rels) const {
   auto It =
-      llvm::bsearch(Rels, [=](const RelTy &A) { return Pos <= A.r_offset; });
+      partition_point(Rels, [=](const RelTy &A) { return A.r_offset < Pos; });
   if (It == Rels.end() || It->r_offset != Pos)
     return None;
   const RelTy &Rel = *It;
@@ -92,26 +92,25 @@ LLDDwarfObj<ELFT>::findAux(const InputSectionBase &Sec, uint64_t Pos,
   const typename ELFT::Sym &Sym = File->template getELFSyms<ELFT>()[SymIndex];
   uint32_t SecIndex = File->getSectionIndex(Sym);
 
-  // Broken debug info can point to a non-Defined symbol.
-  auto *DR = dyn_cast<Defined>(&File->getRelocTargetSym(Rel));
-  if (!DR) {
-    RelType Type = Rel.getType(Config->IsMips64EL);
-    if (Type != Target->NoneRel)
-      error(toString(File) + ": relocation " + lld::toString(Type) + " at 0x" +
-            llvm::utohexstr(Rel.r_offset) + " has unsupported target");
-    return None;
-  }
-  uint64_t Val = DR->Value;
+  // An undefined symbol may be a symbol defined in a discarded section. We
+  // shall still resolve it. This is important for --gdb-index: the end address
+  // offset of an entry in .debug_ranges is relocated. If it is not resolved,
+  // its zero value will terminate the decoding of .debug_ranges prematurely.
+  Symbol &S = File->getRelocTargetSym(Rel);
+  uint64_t Val = 0;
+  if (auto *DR = dyn_cast<Defined>(&S)) {
+    Val = DR->Value;
 
-  // FIXME: We should be consistent about always adding the file
-  // offset or not.
-  if (DR->Section->Flags & ELF::SHF_ALLOC)
-    Val += cast<InputSection>(DR->Section)->getOffsetInFile();
+    // FIXME: We should be consistent about always adding the file
+    // offset or not.
+    if (DR->Section->Flags & ELF::SHF_ALLOC)
+      Val += cast<InputSection>(DR->Section)->getOffsetInFile();
+  }
 
   DataRefImpl D;
   D.p = getAddend<ELFT>(Rel);
   return RelocAddrEntry{SecIndex, RelocationRef(D, nullptr),
-                        LLDRelocationResolver<RelTy>::Resolve, Val};
+                        LLDRelocationResolver<RelTy>::resolve, Val};
 }
 
 template <class ELFT>
