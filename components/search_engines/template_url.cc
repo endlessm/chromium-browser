@@ -951,9 +951,6 @@ std::string TemplateURLRef::HandleReplacements(
 
   std::string url = parsed_url_;
 
-  bool is_google_search = false;
-  bool ubuntu_credit_for_search = false;
-
   // replacements_ is ordered in ascending order, as such we need to iterate
   // from the back.
   for (auto i = replacements_.rbegin(); i != replacements_.rend(); ++i) {
@@ -1018,7 +1015,6 @@ std::string TemplateURLRef::HandleReplacements(
 
       case GOOGLE_BASE_URL:
         DCHECK(!i->is_post_param);
-        is_google_search = true;
         HandleReplacement(
             std::string(), search_terms_data.GoogleBaseURLValue(), *i, &url);
         break;
@@ -1113,8 +1109,7 @@ std::string TemplateURLRef::HandleReplacements(
 
       case GOOGLE_SEARCH_CLIENT: {
         DCHECK(!i->is_post_param);
-        ubuntu_credit_for_search = true;
-        std::string client = "ubuntu";
+        std::string client = search_terms_data.GetSearchClient();
         if (!client.empty())
           HandleReplacement("client", client, *i, &url);
         break;
@@ -1240,13 +1235,6 @@ std::string TemplateURLRef::HandleReplacements(
       default:
         NOTREACHED();
         break;
-    }
-  }
-
-  /* Google search template from prefs might not have a client token. */
-  if (is_google_search && !ubuntu_credit_for_search) {
-    if (url.find_first_of('?', 8) != std::string::npos) {  // perhaps no GET params
-      url.append("&client=ubuntu");
     }
   }
 
