@@ -222,6 +222,15 @@ if ((current_cpu == "x64" && ffmpeg_branding == "Chrome") || (is_android && curr
   ]
 }
 
+# EndlessOS: Modified to also build the AAC demuxer for the "free" version
+if ((current_cpu == "x64" && ffmpeg_branding == "Chromium")) {
+  ffmpeg_c_sources += [
+    "libavformat/aacdec.c",
+    "libavformat/apetag.c",
+    "libavformat/img2.c",
+  ]
+}
+
 if ((is_mac && ffmpeg_branding == "Chrome") || (is_win && ffmpeg_branding == "Chrome") || (use_linux_config && ffmpeg_branding == "Chrome") || (use_linux_config && ffmpeg_branding == "ChromeOS")) {
   ffmpeg_c_sources += [
     "libavcodec/cabac.c",
