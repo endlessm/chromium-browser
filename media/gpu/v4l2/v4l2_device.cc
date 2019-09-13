@@ -551,11 +551,6 @@ size_t V4L2WritableBufferRef::GetPlaneBytesUsed(const size_t plane) const {
   return buffer_data_->v4l2_buffer_.m.planes[plane].bytesused;
 }
 
-void V4L2WritableBufferRef::PrepareQueueBuffer(
-    scoped_refptr<V4L2DecodeSurface> surface) {
-  surface->PrepareQueueBuffer(&(buffer_data_->v4l2_buffer_));
-}
-
 size_t V4L2WritableBufferRef::BufferId() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(IsValid());
