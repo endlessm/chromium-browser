@@ -1,3 +1,74 @@
+chromium-browser (78.0.3904.97-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 78.0.3904.97
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 07 Nov 2019 06:21:49 +0100
+
+chromium-browser (78.0.3904.87-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 78.0.3904.87
+    - CVE-2019-13721: Use-after-free in PDFium.
+    - CVE-2019-13720: Use-after-free in audio.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 06 Nov 2019 06:25:29 +0100
+
+chromium-browser (78.0.3904.70-0ubuntu0.16.04.2) xenial; urgency=medium
+
+  * debian/patches/widevine-other-locations: updated
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 31 Oct 2019 11:46:51 +0100
+
+chromium-browser (78.0.3904.70-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 78.0.3904.70
+    - CVE-2019-13699: Use-after-free in media.
+    - CVE-2019-13700: Buffer overrun in Blink.
+    - CVE-2019-13701: URL spoof in navigation.
+    - CVE-2019-13702: Privilege elevation in Installer.
+    - CVE-2019-13703: URL bar spoofing.
+    - CVE-2019-13704: CSP bypass.
+    - CVE-2019-13705: Extension permission bypass.
+    - CVE-2019-13706: Out-of-bounds read in PDFium.
+    - CVE-2019-13707: File storage disclosure.
+    - CVE-2019-13708: HTTP authentication spoof.
+    - CVE-2019-13709: File download protection bypass.
+    - CVE-2019-13710: File download protection bypass.
+    - CVE-2019-13711: Cross-context information leak.
+    - CVE-2019-15903: Buffer overflow in expat.
+    - CVE-2019-13713: Cross-origin data leak.
+    - CVE-2019-13714: CSS injection.
+    - CVE-2019-13715: Address bar spoofing.
+    - CVE-2019-13716: Service worker state error.
+    - CVE-2019-13717: Notification obscured.
+    - CVE-2019-13718: IDN spoof.
+    - CVE-2019-13719: Notification obscured.
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/default-allocator: refreshed
+  * debian/patches/define__libc_malloc.patch: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/enable-chromecast-by-default.patch: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: refreshed
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/touch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-enable-version-string.patch: refreshed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 23 Oct 2019 15:05:58 +0200
+
+chromium-browser (77.0.3865.120-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 77.0.3865.120
+    - CVE-2019-13693: Use-after-free in IndexedDB.
+    - CVE-2019-13694: Use-after-free in WebRTC.
+    - CVE-2019-13695: Use-after-free in audio.
+    - CVE-2019-13696: Use-after-free in V8.
+    - CVE-2019-13697: Cross-origin size leak.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 11 Oct 2019 09:38:31 +0200
+
 chromium-browser (77.0.3865.90-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 77.0.3865.90
