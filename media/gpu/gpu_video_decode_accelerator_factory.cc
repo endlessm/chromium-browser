@@ -186,6 +186,8 @@ GpuVideoDecodeAcceleratorFactory::CreateVDA(
     vda = (this->*create_vda_function)(workarounds, gpu_preferences, media_log);
     if (vda && vda->Initialize(config, client))
       return vda;
+    else
+      LOG(ERROR) << "Initialization of one or more VDAs failed.";
   }
 
   return nullptr;
@@ -244,6 +246,7 @@ GpuVideoDecodeAcceleratorFactory::CreateVaapiVDA(
     const gpu::GpuDriverBugWorkarounds& workarounds,
     const gpu::GpuPreferences& gpu_preferences,
     MediaLog* media_log) const {
+  LOG(WARNING) << "Initializing VAAPI VDA.";
   std::unique_ptr<VideoDecodeAccelerator> decoder;
   decoder.reset(new VaapiVideoDecodeAccelerator(make_context_current_cb_,
                                                 bind_image_cb_));

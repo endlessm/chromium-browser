@@ -3136,15 +3136,19 @@ const char kMetalDescription[] =
 
 #endif
 
-// Chrome OS -------------------------------------------------------------------
-
-#if defined(OS_CHROMEOS)
+#if defined(OS_LINUX) && !defined(OS_ANDROID)
 
 const char kAcceleratedMjpegDecodeName[] =
     "Hardware-accelerated mjpeg decode for captured frame";
 const char kAcceleratedMjpegDecodeDescription[] =
     "Enable hardware-accelerated mjpeg decode for captured frame where "
     "available.";
+
+#endif
+
+// Chrome OS -------------------------------------------------------------------
+
+#if defined(OS_CHROMEOS)
 
 const char kAggregatedMlAppRankingName[] = "Rank suggested apps with ML.";
 const char kAggregatedMlAppRankingDescription[] =
