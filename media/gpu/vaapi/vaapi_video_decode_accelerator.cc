@@ -66,6 +66,7 @@ void ReportToUMA(VAVDADecoderFailure failure) {
                             VAVDA_DECODER_FAILURES_MAX + 1);
 }
 
+#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
 // Returns true if the CPU is an Intel Gemini Lake or later (including Kaby
 // Lake) Cpu platform id's are referenced from the following file in kernel
 // source arch/x86/include/asm/intel-family.h
@@ -78,6 +79,7 @@ bool IsGeminiLakeOrLater() {
       cpuid.model() >= kGeminiLakeModelId;
   return is_geminilake_or_later;
 }
+#endif
 
 }  // namespace
 
@@ -673,6 +675,10 @@ void VaapiVideoDecodeAccelerator::AssignPictureBuffers(
   va_surface_format_ = GetVaFormatForVideoCodecProfile(profile_);
   std::vector<VASurfaceID> va_surface_ids;
 
+  // Nvidia doesn't support VAProfileNone, so don't try to create a temporary
+  // copy buffer there. It's not needed anyways for hardware video decoding
+  // to work.
+#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
   // If we aren't in BufferAllocationMode::kNone, we have to allocate a
   // |vpp_vaapi_wrapper_| for VaapiPicture to DownloadFromSurface() the VA's
   // internal decoded frame.
@@ -690,6 +696,7 @@ void VaapiVideoDecodeAccelerator::AssignPictureBuffers(
                                  "Failed to create Context",
                                  PLATFORM_FAILURE, );
   }
+#endif
 
   for (size_t i = 0; i < buffers.size(); ++i) {
     // If we aren't in BufferAllocationMode::kNone, this |picture| is
@@ -708,9 +715,13 @@ void VaapiVideoDecodeAccelerator::AssignPictureBuffers(
             : gfx::Size();
 
     std::unique_ptr<VaapiPicture> picture = vaapi_picture_factory_->Create(
+#if defined(OS_LINUX) && !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+            vaapi_wrapper_,
+#else
         (buffer_allocation_mode_ == BufferAllocationMode::kNone)
             ? vaapi_wrapper_
             : vpp_vaapi_wrapper_,
+#endif
         make_context_current_cb_, bind_image_cb_, buffer, size_to_bind);
     RETURN_AND_NOTIFY_ON_FAILURE(picture, "Failed creating a VaapiPicture",
                                  PLATFORM_FAILURE, );
@@ -1164,6 +1175,9 @@ VaapiVideoDecodeAccelerator::GetSupportedProfiles() {
 
 VaapiVideoDecodeAccelerator::BufferAllocationMode
 VaapiVideoDecodeAccelerator::DecideBufferAllocationMode() {
+#if defined(OS_LINUX) && !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+  return BufferAllocationMode::kNormal;
+#else
   // TODO(crbug.com/912295): Enable a better BufferAllocationMode for IMPORT
   // |output_mode_| as well.
   if (output_mode_ == VideoDecodeAccelerator::Config::OutputMode::IMPORT)
@@ -1198,6 +1212,7 @@ VaapiVideoDecodeAccelerator::DecideBufferAllocationMode() {
   // GetNumReferenceFrames() + 1. Moreover, we also request the |client_| to
   // allocate less than the usual |decoder_|s GetRequiredNumOfPictures().
   return BufferAllocationMode::kSuperReduced;
+#endif
 }
 
 bool VaapiVideoDecodeAccelerator::IsBufferAllocationModeReducedOrSuperReduced()
