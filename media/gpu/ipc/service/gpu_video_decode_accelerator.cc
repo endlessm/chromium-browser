@@ -381,6 +381,7 @@ bool GpuVideoDecodeAccelerator::Initialize(
     LOG(ERROR) << "Failed creating the VDA factory";
     return false;
   }
+  LOG(WARNING) << "Created the VDA factory";
 
   const gpu::GpuDriverBugWorkarounds& gpu_workarounds =
       stub_->channel()->gpu_channel_manager()->gpu_driver_bug_workarounds();
@@ -401,6 +402,7 @@ bool GpuVideoDecodeAccelerator::Initialize(
                << (config.is_encrypted() ? " with encryption" : "");
     return false;
   }
+  LOG(WARNING) << "Created VDA";
 
   // Attempt to set up performing decoding tasks on IO thread, if supported by
   // the VDA.
