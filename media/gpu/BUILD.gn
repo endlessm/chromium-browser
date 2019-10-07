@@ -542,6 +542,7 @@ if (use_v4l2_codec || use_vaapi || is_mac || is_win) {
     if (use_ozone) {
       deps += [ "//ui/ozone" ]
     }
+    public_configs = [ "//build/config/linux/libva" ]
   }
 }
 
