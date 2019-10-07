@@ -6,6 +6,7 @@ import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//gpu/vulkan/features.gni")
 import("//media/media_options.gni")
+import("//media/gpu/args.gni")
 import("//ui/ozone/ozone.gni")
 
 # See //content/BUILD.gn for how this works.
@@ -134,5 +135,9 @@ target(link_target_type, "gpu_sources") {
   if (current_cpu != "s390x" && current_cpu != "ppc64" && is_desktop_linux &&
       (!is_chromecast || is_cast_desktop_build)) {
     configs += [ "//build/config/linux/dri" ]
+  }
+
+  if (is_desktop_linux && use_vaapi) {
+    public_configs = [ "//build/config/linux/libva" ]
   }
 }
