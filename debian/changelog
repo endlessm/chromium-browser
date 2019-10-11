@@ -1,3 +1,14 @@
+chromium-browser (77.0.3865.120-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 77.0.3865.120
+    - CVE-2019-13693: Use-after-free in IndexedDB.
+    - CVE-2019-13694: Use-after-free in WebRTC.
+    - CVE-2019-13695: Use-after-free in audio.
+    - CVE-2019-13696: Use-after-free in V8.
+    - CVE-2019-13697: Cross-origin size leak.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 11 Oct 2019 09:38:31 +0200
+
 chromium-browser (77.0.3865.90-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 77.0.3865.90
