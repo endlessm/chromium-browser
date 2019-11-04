@@ -124,7 +124,6 @@ config("extra_warnings") {
   if (is_clang) {
     cflags += [
       "-Wexit-time-destructors",
-      "-Wextra-semi-stmt",
       "-Wfloat-conversion",
       "-Wglobal-constructors",
       "-Wnon-virtual-dtor",
